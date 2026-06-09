@@ -1,0 +1,3 @@
+[submodule "NexusFramework"]
+	path = NexusFramework
+	url = https://github.com/imagineiluv/NexusFramework.git
