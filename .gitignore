@@ -1,0 +1,30 @@
+# Reference source (original Java source, not tracked)
+reference/
+
+# Build outputs
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# NuGet
+packages/
+*.nupkg
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+Log/
+
+# Secrets
+appsettings.*.json
+!appsettings.json
+secrets.json
+
+# IDE
+.idea/
+*.swp
