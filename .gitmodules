@@ -1,3 +1,6 @@
-[submodule "NexusFramework"]
-	path = NexusFramework
+[submodule "submodules/NexusFramework"]
+	path = submodules/NexusFramework
 	url = https://github.com/imagineiluv/NexusFramework.git
+[submodule "submodules/NexusCom"]
+	path = submodules/NexusCom
+	url = https://github.com/imagineiluv/NexusCom.git
