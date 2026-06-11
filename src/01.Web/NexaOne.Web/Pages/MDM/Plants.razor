@@ -1,0 +1,66 @@
+@page "/mdm/plants"
+@attribute [Authorize]
+@inject IApiClient Api
+
+<div class="page-header">
+    <h1 class="page-title">Plant 관리</h1>
+    <DxButton Text="Plant 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+<NexaConditionGrid TRow="PlantDto" Items="_items">
+    <ConditionPanel>
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"          Caption="Plant ID"   Width="140px" />
+        <DxGridDataColumn FieldName="PlantName"   Caption="Plant명"    Width="200px" />
+        <DxGridDataColumn FieldName="Country"     Caption="국가"        Width="100px" />
+        <DxGridDataColumn FieldName="TimeZone"    Caption="시간대"      Width="160px" />
+        <DxGridDataColumn FieldName="Description" Caption="설명"        Width="220px" />
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="Plant 등록" Width="440px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.PlantId"   NullText="Plant ID *" />
+                <DxTextBox @bind-Text="_form.PlantName" NullText="Plant명 *" />
+                <DxTextBox @bind-Text="_form.Country"   NullText="국가 (예: KR)" />
+                <DxTextBox @bind-Text="_form.TimeZone"  NullText="시간대 (예: Asia/Seoul)" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreatePlant" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<PlantDto> _items = new();
+    private bool _showCreate;
+    private PlantForm _form = new();
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData() => _items = await Api.GetPlantsAsync();
+
+    private void OpenCreateDialog() { _form = new(); _showCreate = true; }
+
+    private async Task CreatePlant()
+    {
+        await Api.CreatePlantAsync(new { _form.PlantId, PlantName = _form.PlantName, _form.Country, _form.TimeZone });
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private sealed class PlantForm
+    {
+        public string PlantId   { get; set; } = string.Empty;
+        public string PlantName { get; set; } = string.Empty;
+        public string Country   { get; set; } = "KR";
+        public string TimeZone  { get; set; } = "Asia/Seoul";
+    }
+}

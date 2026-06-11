@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application>
+  <Services>
+    <Service name="NexaOne" configFiles="nexaone.xml" classPaths="./Modules/" />
+  </Services>
+</Application>

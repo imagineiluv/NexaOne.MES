@@ -1,0 +1,170 @@
+@page "/sys/deploy"
+@attribute [Authorize(Roles = "ADMIN")]
+@inject IApiClient Api
+
+@* §20.11 — 배포 파일 업로드/관리: 현행 UpdateServer 파일 배포의 웹 적응.
+   클라이언트는 GET /api/v1/deploy/latest 로 최신 버전을 확인하고 다운로드한다. *@
+
+<div class="page-header">
+    <h1 class="page-title">배포 파일 관리</h1>
+    @if (_latest is not null)
+    {
+        <span class="deploy-latest-badge">
+            최신 버전: @_latest.Version @(_latest.ForceUpdate ? "(강제 업데이트)" : "")
+        </span>
+    }
+</div>
+
+<div class="deploy-upload-panel">
+    <DxTextBox @bind-Text="_version"     NullText="버전 (예: 3.6.0.0) *" CssClass="deploy-field-version" />
+    <DxTextBox @bind-Text="_description" NullText="릴리스 노트"          CssClass="deploy-field-note" />
+    <DxCheckBox @bind-Checked="_forceUpdate">강제 업데이트</DxCheckBox>
+    <InputFile OnChange="OnFileSelected" />
+    <DxButton Text="@(_uploading ? "업로드 중..." : "업로드")"
+              RenderStyle="ButtonRenderStyle.Primary"
+              Enabled="@(!_uploading && _selected is not null)"
+              Click="Upload" />
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="deploy-message error">@_error</div>
+}
+@if (!string.IsNullOrEmpty(_info))
+{
+    <div class="deploy-message success">@_info</div>
+}
+
+<NexaConditionGrid TRow="DeployFileDto" Items="_items">
+    <ConditionPanel>
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Version"    Caption="버전"       Width="110px" />
+        <DxGridDataColumn FieldName="FileName"   Caption="파일명" />
+        <DxGridDataColumn FieldName="FileSize"   Caption="크기"       Width="110px">
+            <CellDisplayTemplate>
+                @FormatSize(((DeployFileDto)context.DataItem).FileSize)
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridDataColumn FieldName="Description" Caption="릴리스 노트" />
+        <DxGridDataColumn FieldName="ForceUpdate" Caption="강제"       Width="70px">
+            <CellDisplayTemplate>
+                @(((DeployFileDto)context.DataItem).ForceUpdate ? "예" : "")
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridDataColumn FieldName="IsActive"   Caption="상태"       Width="90px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@(((DeployFileDto)context.DataItem).IsActive ? "Active" : "Inactive")" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridDataColumn FieldName="UploadedBy" Caption="업로더"     Width="100px" />
+        <DxGridDataColumn FieldName="UploadedAt" Caption="업로드 일시" Width="150px" DisplayFormat="{0:yyyy-MM-dd HH:mm}" />
+        <DxGridCommandColumn Width="120px">
+            <CellDisplayTemplate>
+                @{
+                    var f = (DeployFileDto)context.DataItem;
+                    @* §20.11 — 문제 버전 회수/복구: latest 선정·다운로드 대상에서 제외/복귀 *@
+                    if (f.IsActive)
+                    {
+                        <DxButton Text="비활성화" RenderStyle="ButtonRenderStyle.Danger"
+                                  Click="@(() => SetActive(f.FileId, false))" />
+                    }
+                    else
+                    {
+                        <DxButton Text="활성화" RenderStyle="ButtonRenderStyle.Secondary"
+                                  Click="@(() => SetActive(f.FileId, true))" />
+                    }
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@code {
+    // 서버 측 DeployController.MaxUploadBytes(500MB)와 동일해야 한다 — Web은 API를 참조하지 않아 별도 상수
+    private const long MaxUploadBytes = 500L * 1024 * 1024;
+
+    private List<DeployFileDto> _items = new();
+    private DeployLatestDto? _latest;
+    private IBrowserFile? _selected;
+    private string _version = string.Empty;
+    private string _description = string.Empty;
+    private bool _forceUpdate;
+    private bool _uploading;
+    private string? _error;
+    private string? _info;
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData()
+    {
+        _items  = await Api.GetDeployFilesAsync();
+        _latest = await Api.GetLatestDeployAsync();
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _selected = e.File;
+        _error = null;
+        _info  = null;
+    }
+
+    private async Task Upload()
+    {
+        if (_selected is null) return;
+
+        _uploading = true;
+        _error = null;
+        _info  = null;
+        try
+        {
+            // InputFile은 SignalR로 스트리밍된다 — 상한 초과 시 읽기 중 IOException
+            await using var stream = _selected.OpenReadStream(MaxUploadBytes);
+            var (file, error) = await Api.UploadDeployFileAsync(
+                stream, _selected.Name, _version, _description, _forceUpdate);
+
+            if (file is null)
+            {
+                _error = error ?? "업로드에 실패했습니다.";
+                return;
+            }
+
+            _info = $"버전 {file.Version} 업로드 완료 — SHA-256 {file.Hash}";
+            _selected    = null;
+            _version     = string.Empty;
+            _description = string.Empty;
+            _forceUpdate = false;
+            await LoadData();
+        }
+        catch (IOException)
+        {
+            _error = $"파일이 업로드 상한({MaxUploadBytes / (1024 * 1024)}MB)을 초과합니다.";
+        }
+        catch (Exception ex)
+        {
+            _error = $"업로드 중 오류: {ex.Message}";
+        }
+        finally
+        {
+            _uploading = false;
+        }
+    }
+
+    private async Task SetActive(string fileId, bool isActive)
+    {
+        _error = null;
+        _info  = null;
+        if (!await Api.SetDeployFileActiveAsync(fileId, isActive))
+            _error = isActive ? "활성화에 실패했습니다." : "비활성화에 실패했습니다.";
+        await LoadData();
+    }
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        >= 1024 * 1024 * 1024 => $"{bytes / (1024.0 * 1024 * 1024):0.##} GB",
+        >= 1024 * 1024        => $"{bytes / (1024.0 * 1024):0.##} MB",
+        >= 1024               => $"{bytes / 1024.0:0.##} KB",
+        _                     => $"{bytes} B"
+    };
+}

@@ -1,0 +1,140 @@
+@page "/mdm/codes"
+@attribute [Authorize]
+@inject IApiClient Api
+
+<div class="page-header">
+    <h1 class="page-title">코드 관리</h1>
+    <DxButton Text="코드 클래스 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateClassDialog" />
+</div>
+
+<NexaConditionGrid TRow="CodeClassDto" Items="_classes">
+    <ConditionPanel>
+        <DxButton Text="조회" Click="LoadClasses" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"            Caption="클래스 ID"  Width="160px" />
+        <DxGridDataColumn FieldName="CodeClassName" Caption="클래스명"   Width="200px" />
+        <DxGridDataColumn FieldName="Description"   Caption="설명"       Width="220px" />
+        <DxGridCommandColumn Width="120px">
+            <CellDisplayTemplate>
+                @{
+                    var cls = (CodeClassDto)context.DataItem;
+                    <DxButton Text="코드 조회" Click="@(() => SelectClass(cls.Id))" />
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_selectedClassId is not null)
+{
+    <div class="page-header" style="margin-top:2rem;">
+        <h2 class="page-title" style="font-size:1.1rem;">코드 목록 — @_selectedClassId</h2>
+        <DxButton Text="코드 등록" Click="OpenCreateCodeDialog" />
+    </div>
+
+    <NexaConditionGrid TRow="CodeDto" Items="_codes">
+        <ConditionPanel />
+        <Columns>
+            <DxGridDataColumn FieldName="Id"         Caption="코드 ID"   Width="140px" />
+            <DxGridDataColumn FieldName="CodeName"   Caption="코드명"     Width="200px" />
+            <DxGridDataColumn FieldName="SortOrder"  Caption="순서"       Width="80px" />
+            <DxGridDataColumn FieldName="ValidState" Caption="상태"       Width="90px">
+                <CellDisplayTemplate>
+                    <StatusBadge Value="@((string)context.Value)" />
+                </CellDisplayTemplate>
+            </DxGridDataColumn>
+        </Columns>
+    </NexaConditionGrid>
+}
+
+@if (_showCreateClass)
+{
+    <DxPopup @bind-Visible="_showCreateClass" HeaderText="코드 클래스 등록" Width="400px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_classForm.CodeClassId"   NullText="클래스 ID *" />
+                <DxTextBox @bind-Text="_classForm.CodeClassName" NullText="클래스명 *" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateClass" />
+            <DxButton Text="취소" Click="@(() => _showCreateClass = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@if (_showCreateCode)
+{
+    <DxPopup @bind-Visible="_showCreateCode" HeaderText="코드 등록" Width="400px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_codeForm.CodeId"   NullText="코드 ID *" />
+                <DxTextBox @bind-Text="_codeForm.CodeName" NullText="코드명 *" />
+                <DxSpinEdit @bind-Value="_codeForm.SortOrder" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateCode" />
+            <DxButton Text="취소" Click="@(() => _showCreateCode = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<CodeClassDto> _classes  = new();
+    private List<CodeDto>      _codes    = new();
+    private string? _selectedClassId;
+
+    private bool _showCreateClass;
+    private ClassForm _classForm = new();
+
+    private bool _showCreateCode;
+    private CodeForm _codeForm = new();
+
+    protected override async Task OnInitializedAsync() => await LoadClasses();
+
+    private async Task LoadClasses() => _classes = await Api.GetCodeClassesAsync();
+
+    private async Task SelectClass(string classId)
+    {
+        _selectedClassId = classId;
+        _codes = await Api.GetCodesAsync(classId);
+    }
+
+    private void OpenCreateClassDialog() { _classForm = new(); _showCreateClass = true; }
+
+    private async Task CreateClass()
+    {
+        await Api.CreateCodeClassAsync(new { _classForm.CodeClassId, CodeClassName = _classForm.CodeClassName });
+        _showCreateClass = false;
+        await LoadClasses();
+    }
+
+    private void OpenCreateCodeDialog() { _codeForm = new(); _showCreateCode = true; }
+
+    private async Task CreateCode()
+    {
+        if (_selectedClassId is null) return;
+        await Api.CreateCodeAsync(new
+        {
+            CodeId = _codeForm.CodeId, CodeClassId = _selectedClassId,
+            CodeName = _codeForm.CodeName, SortOrder = _codeForm.SortOrder
+        });
+        _showCreateCode = false;
+        _codes = await Api.GetCodesAsync(_selectedClassId);
+    }
+
+    private sealed class ClassForm
+    {
+        public string CodeClassId   { get; set; } = string.Empty;
+        public string CodeClassName { get; set; } = string.Empty;
+    }
+
+    private sealed class CodeForm
+    {
+        public string CodeId    { get; set; } = string.Empty;
+        public string CodeName  { get; set; } = string.Empty;
+        public int    SortOrder { get; set; }
+    }
+}

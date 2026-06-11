@@ -1,0 +1,26 @@
+@typeparam TRow
+
+<div>
+    @if (ConditionPanel is not null)
+    {
+        <div class="condition-panel">
+            @ConditionPanel
+        </div>
+    }
+
+    <DxGrid Data="Items"
+            PageSize="PageSize"
+            ShowFilterRow="true"
+            CssClass="nexaone-grid">
+        <Columns>
+            @Columns
+        </Columns>
+    </DxGrid>
+</div>
+
+@code {
+    [Parameter] public IEnumerable<TRow>? Items { get; set; }
+    [Parameter] public RenderFragment? ConditionPanel { get; set; }
+    [Parameter] public RenderFragment? Columns { get; set; }
+    [Parameter] public int PageSize { get; set; } = 20;
+}

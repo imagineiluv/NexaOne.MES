@@ -1,0 +1,136 @@
+@page "/dlv/orders"
+@attribute [Authorize]
+@inject IApiClient Api
+@inject AuthContextService AuthContext
+
+<div class="page-header">
+    <h1 class="page-title">납품 관리</h1>
+    <DxButton Text="납품 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+<NexaConditionGrid TRow="DeliveryOrderDto" Items="_items">
+    <ConditionPanel>
+        <DxTextBox @bind-Text="_plantId" NullText="Plant ID" />
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"            Caption="주문 ID"    Width="140px" />
+        <DxGridDataColumn FieldName="CustomerName"  Caption="고객사"      Width="180px" />
+        <DxGridDataColumn FieldName="PlantId"       Caption="Plant"      Width="100px" />
+        <DxGridDataColumn FieldName="RequestedDate" Caption="요청일"      Width="120px" DisplayFormat="{0:yyyy-MM-dd}" />
+        <DxGridDataColumn FieldName="ShippedDate"   Caption="출하일"      Width="120px" DisplayFormat="{0:yyyy-MM-dd}" />
+        <DxGridDataColumn FieldName="Status"        Caption="상태"        Width="100px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((string)context.Value)" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridCommandColumn Width="200px">
+            <CellDisplayTemplate>
+                @{
+                    var o = (DeliveryOrderDto)context.DataItem;
+                    <div style="display:flex; gap:4px;">
+                        @if (o.Status == "Draft")
+                        {
+                            <DxButton Text="확정" Click="@(() => ConfirmOrder(o.Id))" />
+                            <DxButton Text="취소" RenderStyle="ButtonRenderStyle.Danger" Click="@(() => CancelOrder(o.Id))" />
+                        }
+                        @if (o.Status == "Confirmed")
+                        {
+                            <DxButton Text="출하" RenderStyle="ButtonRenderStyle.Primary" Click="@(() => OpenShipDialog(o.Id))" />
+                        }
+                    </div>
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="납품 등록" Width="440px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox  @bind-Text="_form.OrderId"      NullText="주문 ID *" />
+                <DxTextBox  @bind-Text="_form.CustomerName" NullText="고객사 *" />
+                <DxTextBox  @bind-Text="_form.PlantId"      NullText="Plant ID *" />
+                <DxDateEdit @bind-Date="_form.RequestedDate" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateOrder" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@if (_showShip)
+{
+    <DxPopup @bind-Visible="_showShip" HeaderText="출하 처리" Width="380px">
+        <BodyContentTemplate>
+            <div style="padding:0.5rem;">
+                <label style="font-size:0.875rem; font-weight:500; color:#374151; display:block; margin-bottom:0.5rem;">출하일</label>
+                <DxDateEdit @bind-Date="_shipDate" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="출하 확인" RenderStyle="ButtonRenderStyle.Primary" Click="ConfirmShip" />
+            <DxButton Text="취소" Click="@(() => _showShip = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<DeliveryOrderDto> _items = new();
+    private string _plantId = string.Empty;
+    private bool _showCreate;
+    private OrderForm _form = new();
+    private bool _showShip;
+    private string _shipOrderId = string.Empty;
+    private DateTime _shipDate = DateTime.Today;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _plantId = await AuthContext.GetPlantIdAsync() ?? string.Empty;
+        await LoadData();
+    }
+
+    private async Task LoadData() => _items = await Api.GetDeliveryOrdersAsync(_plantId);
+
+    private void OpenCreateDialog()
+    {
+        _form = new() { PlantId = _plantId };
+        _showCreate = true;
+    }
+
+    private async Task CreateOrder()
+    {
+        await Api.CreateDeliveryOrderAsync(new { _form.OrderId, _form.CustomerName, _form.PlantId, RequestedDate = _form.RequestedDate });
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private async Task ConfirmOrder(string id) { await Api.ConfirmDeliveryOrderAsync(id); await LoadData(); }
+    private async Task CancelOrder(string id)  { await Api.CancelDeliveryOrderAsync(id);  await LoadData(); }
+
+    private void OpenShipDialog(string id)
+    {
+        _shipOrderId = id;
+        _shipDate = DateTime.Today;
+        _showShip = true;
+    }
+
+    private async Task ConfirmShip()
+    {
+        await Api.ShipDeliveryOrderAsync(_shipOrderId, _shipDate);
+        _showShip = false;
+        await LoadData();
+    }
+
+    private sealed class OrderForm
+    {
+        public string   OrderId       { get; set; } = string.Empty;
+        public string   CustomerName  { get; set; } = string.Empty;
+        public string   PlantId       { get; set; } = string.Empty;
+        public DateTime RequestedDate { get; set; } = DateTime.Today.AddDays(7);
+    }
+}

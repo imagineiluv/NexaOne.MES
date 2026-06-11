@@ -1,0 +1,127 @@
+@page "/ems/maintenance-plans"
+@attribute [Authorize]
+@inject IApiClient Api
+@inject AuthContextService AuthContext
+
+<div class="page-header">
+    <h1 class="page-title">보전 계획</h1>
+    <DxButton Text="보전 계획 생성" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+<NexaConditionGrid TRow="MaintenancePlanDto" Items="_items">
+    <ConditionPanel>
+        <DxTextBox @bind-Text="_equipmentId" NullText="설비 ID" />
+        <DxComboBox Data="_statuses" @bind-Value="_statusFilter" NullText="상태 전체" ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto" />
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"                     Caption="계획 ID"       Width="140px" />
+        <DxGridDataColumn FieldName="PlanName"               Caption="계획명"         Width="160px" />
+        <DxGridDataColumn FieldName="EquipmentId"            Caption="설비"           Width="120px" />
+        <DxGridDataColumn FieldName="PlanType"               Caption="유형"           Width="100px" />
+        <DxGridDataColumn FieldName="CycleType"              Caption="주기"           Width="100px" />
+        <DxGridDataColumn FieldName="ScheduledDate"          Caption="예정일"         Width="120px" DisplayFormat="{0:yyyy-MM-dd}" />
+        <DxGridDataColumn FieldName="EstimatedDurationHours" Caption="예상 시간(h)"   Width="110px" />
+        <DxGridDataColumn FieldName="AssigneeId"             Caption="담당자"         Width="100px" />
+        <DxGridDataColumn FieldName="Status"                 Caption="상태"           Width="100px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((string)context.Value)" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridCommandColumn Width="180px">
+            <CellDisplayTemplate>
+                @{
+                    var plan = (MaintenancePlanDto)context.DataItem;
+                    <div style="display:flex; gap:4px;">
+                        @if (plan.Status == "Planned")
+                        {
+                            <DxButton Text="시작" Click="@(() => StartPlan(plan.Id))" />
+                            <DxButton Text="취소" RenderStyle="ButtonRenderStyle.Danger" Click="@(() => CancelPlan(plan.Id))" />
+                        }
+                        @if (plan.Status == "InProgress")
+                        {
+                            <DxButton Text="완료" RenderStyle="ButtonRenderStyle.Primary" Click="@(() => CompletePlan(plan.Id))" />
+                            <DxButton Text="취소" RenderStyle="ButtonRenderStyle.Danger" Click="@(() => CancelPlan(plan.Id))" />
+                        }
+                    </div>
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="보전 계획 생성" Width="480px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.PlanId"        NullText="계획 ID *" />
+                <DxTextBox @bind-Text="_form.PlanName"      NullText="계획명 *" />
+                <DxTextBox @bind-Text="_form.EquipmentId"   NullText="설비 ID *" />
+                <DxTextBox @bind-Text="_form.PlanType"      NullText="유형 (예: PM, CM)" />
+                <DxTextBox @bind-Text="_form.CycleType"     NullText="주기 (예: Monthly, Weekly)" />
+                <DxDateEdit @bind-Date="_form.ScheduledDate" DisplayFormat="yyyy-MM-dd" NullText="예정일 *" />
+                <DxSpinEdit @bind-Value="_form.EstimatedDurationHours" MinValue="0" Step="0.5m" NullText="예상 시간(h) *" />
+                <DxTextBox @bind-Text="_form.AssigneeId"    NullText="담당자 ID *" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="생성" RenderStyle="ButtonRenderStyle.Primary" Click="CreatePlan" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<MaintenancePlanDto> _items = new();
+    private string _equipmentId = string.Empty;
+    private string? _statusFilter;
+    private bool _showCreate;
+    private PlanForm _form = new();
+    private string _currentUserId = string.Empty;
+
+    private static readonly List<string> _statuses = new() { "Planned", "InProgress", "Completed", "Cancelled" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _currentUserId = await AuthContext.GetUserIdAsync() ?? string.Empty;
+        await LoadData();
+    }
+
+    private async Task LoadData() => _items = await Api.GetMaintenancePlansAsync(_equipmentId);
+
+    private void OpenCreateDialog()
+    {
+        _form = new() { AssigneeId = _currentUserId, ScheduledDate = DateTime.Today };
+        _showCreate = true;
+    }
+
+    private async Task CreatePlan()
+    {
+        await Api.CreateMaintenancePlanAsync(new
+        {
+            PlanId = _form.PlanId, PlanName = _form.PlanName, EquipmentId = _form.EquipmentId,
+            PlanType = _form.PlanType, CycleType = _form.CycleType,
+            ScheduledDate = _form.ScheduledDate, EstimatedDurationHours = _form.EstimatedDurationHours,
+            AssigneeId = _form.AssigneeId
+        });
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private async Task StartPlan(string id)    { await Api.StartMaintenancePlanAsync(id);    await LoadData(); }
+    private async Task CompletePlan(string id) { await Api.CompleteMaintenancePlanAsync(id); await LoadData(); }
+    private async Task CancelPlan(string id)   { await Api.CancelMaintenancePlanAsync(id);   await LoadData(); }
+
+    private sealed class PlanForm
+    {
+        public string   PlanId                 { get; set; } = string.Empty;
+        public string   PlanName               { get; set; } = string.Empty;
+        public string   EquipmentId            { get; set; } = string.Empty;
+        public string   PlanType               { get; set; } = string.Empty;
+        public string   CycleType              { get; set; } = string.Empty;
+        public DateTime ScheduledDate          { get; set; } = DateTime.Today;
+        public decimal  EstimatedDurationHours { get; set; }
+        public string   AssigneeId             { get; set; } = string.Empty;
+    }
+}

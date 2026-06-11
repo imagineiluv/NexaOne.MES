@@ -1,0 +1,16 @@
+Application:
+  Uiid: NexaOneServer
+  Plant: DEFAULT
+  Language: ko-KR
+Server:
+  Port: 8080
+  Host: 0.0.0.0
+Database:
+  ConnectionString: "Server=localhost;Database=NexaOneEES;Integrated Security=true;TrustServerCertificate=true"
+Log:
+  Level: Info
+  Path: ./Log/
+Services:
+  - Name: NexaOneEES
+    Config: nexaone-ees.xml
+    Modules: ./Modules/

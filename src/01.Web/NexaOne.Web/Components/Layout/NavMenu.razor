@@ -1,0 +1,171 @@
+@implements IDisposable
+@inject MenuCacheService MenuCache
+@inject MenuPersonalizationService Personal
+@inject AuthenticationStateProvider AuthStateProvider
+
+@if (_loading)
+{
+    <div class="nav-loading">메뉴 로딩 중...</div>
+}
+else if (_failed)
+{
+    <div class="nav-error">
+        <div style="color:#ef4444; font-size:0.8rem; margin-bottom:0.5rem;">메뉴 로드 실패</div>
+        <button class="nav-retry-btn" @onclick="() => LoadMenuAsync(true)">연결 재시도</button>
+    </div>
+    <StaticMenu />
+}
+else if (_menuItems.Count > 0)
+{
+    <nav>
+        @* §20.12 — 즐겨찾기: 현행 MainForm 즐겨찾기 바의 웹 적응. ▲/▼은 드래그 정렬 대체 *@
+        @if (Personal.Favorites.Count > 0)
+        {
+            <div class="nav-section nav-personal-header">
+                <span>★ 즐겨찾기</span>
+                <button class="nav-fav-edit" title="순서 편집"
+                        @onclick="() => _editFavorites = !_editFavorites">@(_editFavorites ? "완료" : "편집")</button>
+            </div>
+            @foreach (var fav in Personal.Favorites)
+            {
+                <div class="nav-item-row" @key="@("fav-" + fav.MenuId)">
+                    <NavLink class="nav-item" href="@fav.ProgramId" Match="NavLinkMatch.Prefix">
+                        @fav.MenuName
+                    </NavLink>
+                    @if (_editFavorites)
+                    {
+                        <button class="nav-fav-btn" title="위로" @onclick="() => MoveFavorite(fav.MenuId, -1)">▲</button>
+                        <button class="nav-fav-btn" title="아래로" @onclick="() => MoveFavorite(fav.MenuId, +1)">▼</button>
+                        <button class="nav-fav-btn" title="즐겨찾기 해제" @onclick="() => ToggleFavorite(fav.MenuId)">✕</button>
+                    }
+                </div>
+            }
+        }
+
+        @* §20.12 — 최근 사용: 화면 진입 시 자동 기록(MdiTabBar), 최근 순 최대 10건 *@
+        @if (Personal.Recent.Count > 0)
+        {
+            <div class="nav-section">최근 사용</div>
+            @foreach (var recent in Personal.Recent)
+            {
+                <NavLink class="nav-item" href="@recent.ProgramId" Match="NavLinkMatch.Prefix"
+                         @key="@("recent-" + recent.MenuId)">
+                    @recent.MenuName
+                </NavLink>
+            }
+        }
+
+        @foreach (var item in _menuItems)
+        {
+            @if (item.MenuType == "Folder")
+            {
+                <div class="nav-section">@item.MenuName</div>
+            }
+            else
+            {
+                <div class="nav-item-row" @key="item.MenuId">
+                    <NavLink class="nav-item" href="@item.ProgramId" Match="NavLinkMatch.Prefix">
+                        @item.MenuName
+                    </NavLink>
+                    @* §20.12 — ☆/★ 토글: 현행 트리 컨텍스트 메뉴 '즐겨찾기 추가'의 웹 적응 *@
+                    <button class="nav-fav-toggle @(Personal.IsFavorite(item.MenuId) ? "active" : null)"
+                            title="@(Personal.IsFavorite(item.MenuId) ? "즐겨찾기 해제" : "즐겨찾기 추가")"
+                            @onclick="() => ToggleFavorite(item.MenuId)">
+                        @(Personal.IsFavorite(item.MenuId) ? "★" : "☆")
+                    </button>
+                </div>
+            }
+        }
+    </nav>
+}
+else
+{
+    <StaticMenu />
+}
+
+@code {
+    private List<MenuItemDto> _menuItems = [];
+    private bool _loading;
+    private bool _failed;
+    private bool _editFavorites;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Personal.Changed += OnPersonalChanged;
+
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        if (authState.User.Identity?.IsAuthenticated == true)
+        {
+            await LoadMenuAsync();
+            // §20.12 — 개인화 로드 실패는 메뉴 표시를 막지 않는다 (즐겨찾기/최근 섹션만 비표시)
+            try { await Personal.LoadAsync(); }
+            catch { /* 다음 토글/기록 시 재시도된다 */ }
+        }
+    }
+
+    private async Task LoadMenuAsync(bool forceReload = false)
+    {
+        _loading = true;
+        _failed  = false;
+        try
+        {
+            var all = await MenuCache.GetMenusAsync(forceReload);
+            // Pre-order DFS: roots first, then children — the server returns this order.
+            // Re-flatten here to ensure Folder → Children grouping for rendering.
+            _menuItems = BuildFlatRenderList(all);
+        }
+        catch
+        {
+            _failed = true;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleFavorite(string menuId)
+    {
+        try { await Personal.ToggleFavoriteAsync(menuId); }
+        catch { /* 서버 실패 시 상태 유지 — 낙관적 갱신 금지 */ }
+    }
+
+    private async Task MoveFavorite(string menuId, int delta)
+    {
+        try { await Personal.MoveFavoriteAsync(menuId, delta); }
+        catch { /* 서버 실패 시 기존 순서 유지 */ }
+    }
+
+    private void OnPersonalChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Personal.Changed -= OnPersonalChanged;
+
+    // Converts the flat server list back into a render-ready pre-order list.
+    // Folders at depth 0 act as section headers; screens are NavLinks.
+    private static List<MenuItemDto> BuildFlatRenderList(List<MenuItemDto> items)
+    {
+        // Build parent → children map
+        var childMap = items
+            .Where(i => i.ParentMenuId != null)
+            .GroupBy(i => i.ParentMenuId!)
+            .ToDictionary(g => g.Key, g => g.OrderBy(x => x.DisplaySequence).ToList());
+
+        var result = new List<MenuItemDto>();
+        var roots  = items
+            .Where(i => i.ParentMenuId == null)
+            .OrderBy(i => i.DisplaySequence)
+            .ToList();
+
+        void Walk(MenuItemDto node)
+        {
+            result.Add(node);
+            if (childMap.TryGetValue(node.MenuId, out var children))
+                foreach (var c in children)
+                    Walk(c);
+        }
+
+        foreach (var r in roots) Walk(r);
+        return result;
+    }
+}

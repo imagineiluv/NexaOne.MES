@@ -1,0 +1,43 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NexaOne.Application\NexaOne.Application.csproj" />
+    <ProjectReference Include="..\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
+    <ProjectReference Include="..\NexaOne.Infrastructure.Messaging\NexaOne.Infrastructure.Messaging.csproj" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.MDM\NexaOne.MDM.csproj" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.EPT\NexaOne.EPT.csproj" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.FDC\NexaOne.FDC.csproj" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.RMS\NexaOne.RMS.csproj" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.QMS\NexaOne.QMS.csproj" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.EMS\NexaOne.EMS.csproj" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.PPM\NexaOne.PPM.csproj" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.DLV\NexaOne.DLV.csproj" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" />
+    <!-- MSSQL is the default DB driver -->
+    <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.MsSql\NexusCom.Data.MsSql.csproj" Condition="'$(DbmsType)'=='MSSQL' or '$(DbmsType)'==''" />
+    <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.PostgreSql\NexusCom.Data.PostgreSql.csproj" Condition="'$(DbmsType)'=='PostgreSQL'" />
+    <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.MySql\NexusCom.Data.MySql.csproj" Condition="'$(DbmsType)'=='MySQL'" />
+    <ProjectReference Include="..\..\03.Driver\03.Cache\NexaOne.Driver.Redis\NexaOne.Driver.Redis.csproj" />
+    <ProjectReference Include="..\..\03.Driver\02.Communication\NexaOne.Driver.SmtpEmail\NexaOne.Driver.SmtpEmail.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- §20.10 — 메일 템플릿은 현행 Config/Mail 구조를 따르며 출력 폴더로 복사한다 -->
+    <Content Include="Config\Mail\*.xml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AspNetCore.HealthChecks.SqlServer" Version="8.*" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.*" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.*" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.*" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="8.*" />
+  </ItemGroup>
+
+</Project>

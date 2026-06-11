@@ -1,0 +1,104 @@
+@page "/fdc/interlock"
+@attribute [Authorize]
+@inject IApiClient Api
+
+<div class="page-header">
+    <h1 class="page-title">인터록 규칙</h1>
+    <DxButton Text="규칙 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+<NexaConditionGrid TRow="InterlockRuleDto" Items="_items">
+    <ConditionPanel>
+        <DxTextBox @bind-Text="_equipmentId" NullText="설비 ID" />
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"             Caption="규칙 ID"     Width="120px" />
+        <DxGridDataColumn FieldName="RuleName"       Caption="규칙명"       Width="200px" />
+        <DxGridDataColumn FieldName="EquipmentId"    Caption="설비"         Width="120px" />
+        <DxGridDataColumn FieldName="ParameterId"    Caption="파라미터"     Width="120px" />
+        <DxGridDataColumn FieldName="Operator"       Caption="연산자"       Width="80px" />
+        <DxGridDataColumn FieldName="ThresholdValue" Caption="임계값"       Width="100px" />
+        <DxGridDataColumn FieldName="Action"         Caption="조치"         Width="120px" />
+        <DxGridDataColumn FieldName="Priority"       Caption="우선순위"     Width="80px" />
+        <DxGridDataColumn FieldName="IsActive"       Caption="활성"         Width="80px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((bool)context.Value ? "Active" : "Inactive")" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="인터록 규칙 등록" Width="480px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.RuleId"         NullText="규칙 ID *" />
+                <DxTextBox @bind-Text="_form.RuleName"       NullText="규칙명 *" />
+                <DxTextBox @bind-Text="_form.EquipmentId"    NullText="설비 ID *" />
+                <DxTextBox @bind-Text="_form.ParameterId"    NullText="파라미터 ID *" />
+                <DxComboBox Data="_operators"   @bind-Value="_form.Operator"   NullText="연산자 *" />
+                <DxSpinEdit @bind-Value="_form.ThresholdValue" Placeholder="임계값 *" />
+                <DxComboBox Data="_actions"     @bind-Value="_form.Action"     NullText="조치 *" />
+                <DxSpinEdit @bind-Value="_form.Priority"      Placeholder="우선순위 (낮을수록 먼저)" />
+                @if (!string.IsNullOrEmpty(_createError))
+                {
+                    <div style="color:#dc2626; font-size:0.875rem;">@_createError</div>
+                }
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateRule" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<InterlockRuleDto> _items = new();
+    private string _equipmentId = string.Empty;
+    private bool _showCreate;
+    private RuleForm _form = new();
+    private string? _createError;
+
+    private static readonly List<string> _operators = new() { "GT", "GTE", "LT", "LTE", "EQ" };
+    private static readonly List<string> _actions   = new() { "STOP", "ALARM", "NOTIFY" };
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData() => _items = await Api.GetInterlockRulesAsync(_equipmentId);
+
+    private void OpenCreateDialog() { _form = new(); _createError = null; _showCreate = true; }
+
+    private async Task CreateRule()
+    {
+        _createError = null;
+        var result = await Api.CreateInterlockRuleAsync(new
+        {
+            RuleId         = _form.RuleId,
+            RuleName       = _form.RuleName,
+            EquipmentId    = _form.EquipmentId,
+            ParameterId    = _form.ParameterId,
+            Operator       = _form.Operator,
+            ThresholdValue = _form.ThresholdValue,
+            Action         = _form.Action,
+            Priority       = _form.Priority
+        });
+        if (result is null) { _createError = "등록에 실패했습니다."; return; }
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private sealed class RuleForm
+    {
+        public string  RuleId         { get; set; } = string.Empty;
+        public string  RuleName       { get; set; } = string.Empty;
+        public string  EquipmentId    { get; set; } = string.Empty;
+        public string  ParameterId    { get; set; } = string.Empty;
+        public string  Operator       { get; set; } = string.Empty;
+        public decimal ThresholdValue { get; set; }
+        public string  Action         { get; set; } = string.Empty;
+        public int     Priority       { get; set; } = 1;
+    }
+}

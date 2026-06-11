@@ -1,0 +1,38 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<objects xmlns="http://www.springframework.net"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
+
+  <!-- ===== WorkflowManager ===== -->
+
+  <object id="workflowManagerPolicy" type="NexusFramework.Workflow.Tooling.ManagerExecutionPolicy, NexusFramework">
+    <property name="Mode" value="Parallel" />
+    <property name="GlobalMaxConcurrency" value="4" />
+    <property name="QueueCapacity" value="1024" />
+  </object>
+
+  <object id="workflowRejectedHandler" type="NexusFramework.Concurrent.CallerRunsPolicy, NexusFramework" />
+
+  <object id="workflowExecutionExecutor" type="NexusFramework.Concurrent.ThreadPoolExecutor, NexusFramework">
+    <property name="CorePoolSize" value="4" />
+    <property name="MaxPoolSize" value="8" />
+    <property name="KeepAliveTime" value="00:00:30" />
+    <property name="QueueCapacity" value="1024" />
+    <property name="RejectedHandler" ref="workflowRejectedHandler" />
+  </object>
+
+  <object id="workflowManager" type="NexusFramework.Workflow.Tooling.WorkflowManager, NexusFramework">
+    <constructor-arg ref="workflowManagerPolicy" />
+    <constructor-arg ref="workflowExecutionExecutor" />
+  </object>
+
+  <!-- ===== Database ===== -->
+
+  <object id="msSqlProvider" type="NexusCom.Data.MsSql.MsSqlProvider, NexusCom.Data.MsSql" />
+
+  <object id="eesDataSource" type="NexaOne.Infrastructure.Persistence.EesDataSource, NexaOne.Infrastructure">
+    <property name="Provider" ref="msSqlProvider" />
+    <property name="ConnectionString" value="Server=localhost;Database=NexaOneEES;Integrated Security=true;TrustServerCertificate=true" />
+  </object>
+
+</objects>

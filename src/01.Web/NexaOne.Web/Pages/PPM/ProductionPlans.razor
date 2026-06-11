@@ -1,0 +1,117 @@
+﻿@page "/ppm/plans"
+@attribute [Authorize]
+@inject IApiClient Api
+@inject AuthContextService AuthContext
+
+<div class="page-header">
+    <h1 class="page-title">생산 계획</h1>
+    <DxButton Text="계획 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+<NexaConditionGrid TRow="ProductionPlanDto" Items="_items">
+    <ConditionPanel>
+        <DxTextBox @bind-Text="_plantId" NullText="Plant ID" />
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"               Caption="계획 ID"     Width="140px" />
+        <DxGridDataColumn FieldName="PlanName"         Caption="계획명"       Width="180px" />
+        <DxGridDataColumn FieldName="ProductId"        Caption="제품"         Width="120px" />
+        <DxGridDataColumn FieldName="PlannedQty"       Caption="계획 수량"    Width="100px" DisplayFormat="{0:N0}" />
+        <DxGridDataColumn FieldName="PlannedStartDate" Caption="시작일"       Width="120px" DisplayFormat="{0:yyyy-MM-dd}" />
+        <DxGridDataColumn FieldName="PlannedEndDate"   Caption="종료일"       Width="120px" DisplayFormat="{0:yyyy-MM-dd}" />
+        <DxGridDataColumn FieldName="Status"           Caption="상태"         Width="100px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((string)context.Value)" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridCommandColumn Width="200px">
+            <CellDisplayTemplate>
+                @{
+                    var p = (ProductionPlanDto)context.DataItem;
+                    <div style="display:flex; gap:4px;">
+                        @if (p.Status == "Draft")
+                        {
+                            <DxButton Text="릴리스" RenderStyle="ButtonRenderStyle.Primary" Click="@(() => ReleasePlan(p.Id))" />
+                            <DxButton Text="취소" RenderStyle="ButtonRenderStyle.Danger" Click="@(() => CancelPlan(p.Id))" />
+                        }
+                        @if (p.Status == "Released")
+                        {
+                            <DxButton Text="시작" RenderStyle="ButtonRenderStyle.Primary" Click="@(() => StartPlan(p.Id))" />
+                            <DxButton Text="취소" RenderStyle="ButtonRenderStyle.Danger" Click="@(() => CancelPlan(p.Id))" />
+                        }
+                        @if (p.Status == "InProgress")
+                        {
+                            <DxButton Text="완료" Click="@(() => CompletePlan(p.Id))" />
+                        }
+                    </div>
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="생산 계획 등록" Width="460px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.PlanId"   NullText="계획 ID *" />
+                <DxTextBox @bind-Text="_form.PlanName" NullText="계획명 *" />
+                <DxTextBox @bind-Text="_form.PlantId"  NullText="Plant ID *" />
+                <DxTextBox @bind-Text="_form.ProductId" NullText="제품 ID *" />
+                <DxSpinEdit @bind-Value="_form.Qty"    MinValue="1" />
+                <DxDateEdit @bind-Date="_form.StartDate" />
+                <DxDateEdit @bind-Date="_form.EndDate" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreatePlan" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<ProductionPlanDto> _items = new();
+    private string _plantId = string.Empty;
+    private bool _showCreate;
+    private PlanForm _form = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _plantId = await AuthContext.GetPlantIdAsync() ?? string.Empty;
+        await LoadData();
+    }
+
+    private async Task LoadData() => _items = await Api.GetPlansAsync(_plantId);
+
+    private void OpenCreateDialog() { _form = new() { PlantId = _plantId }; _showCreate = true; }
+
+    private async Task CreatePlan()
+    {
+        await Api.CreatePlanAsync(new
+        {
+            _form.PlanId, _form.PlanName, _form.PlantId, _form.ProductId,
+            Qty = _form.Qty, StartDate = _form.StartDate, EndDate = _form.EndDate
+        });
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private async Task StartPlan(string id)    { await Api.StartPlanAsync(id);    await LoadData(); }
+    private async Task ReleasePlan(string id)  { await Api.ReleasePlanAsync(id);  await LoadData(); }
+    private async Task CompletePlan(string id) { await Api.CompletePlanAsync(id); await LoadData(); }
+    private async Task CancelPlan(string id)   { await Api.CancelPlanAsync(id);   await LoadData(); }
+
+    private sealed class PlanForm
+    {
+        public string   PlanId    { get; set; } = string.Empty;
+        public string   PlanName  { get; set; } = string.Empty;
+        public string   PlantId   { get; set; } = string.Empty;
+        public string   ProductId { get; set; } = string.Empty;
+        public decimal  Qty       { get; set; } = 1;
+        public DateTime StartDate { get; set; } = DateTime.Today;
+        public DateTime EndDate   { get; set; } = DateTime.Today.AddDays(7);
+    }
+}

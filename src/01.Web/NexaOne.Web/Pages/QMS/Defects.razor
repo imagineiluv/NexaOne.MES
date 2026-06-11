@@ -1,0 +1,127 @@
+@page "/qms/defects"
+@attribute [Authorize]
+@inject IApiClient Api
+@inject AuthContextService AuthContext
+
+<div class="page-header">
+    <h1 class="page-title">불량 관리</h1>
+    <DxButton Text="불량 보고" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+<NexaConditionGrid TRow="DefectDto" Items="_items">
+    <ConditionPanel>
+        <DxTextBox @bind-Text="_lotId" NullText="Lot ID" />
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"            Caption="불량 ID"    Width="130px" />
+        <DxGridDataColumn FieldName="LotId"         Caption="Lot"        Width="120px" />
+        <DxGridDataColumn FieldName="EquipmentId"   Caption="설비"        Width="120px" />
+        <DxGridDataColumn FieldName="DefectClassId" Caption="불량 유형"  Width="120px" />
+        <DxGridDataColumn FieldName="DefectCount"   Caption="불량수"      Width="80px" />
+        <DxGridDataColumn FieldName="DefectRate"    Caption="불량률(%)"   Width="100px" DisplayFormat="{0:F2}" />
+        <DxGridDataColumn FieldName="InspectedAt"   Caption="검사일시"    Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm}" />
+        <DxGridDataColumn FieldName="InspectorId"   Caption="검사자"      Width="100px" />
+        <DxGridDataColumn FieldName="IsConfirmed"   Caption="확정"        Width="80px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((bool)context.Value ? "Completed" : "Pending")" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridCommandColumn Width="100px">
+            <CellDisplayTemplate>
+                @{
+                    var d = (DefectDto)context.DataItem;
+                    if (!d.IsConfirmed)
+                    {
+                        <DxButton Text="확정" RenderStyle="ButtonRenderStyle.Primary"
+                                  Click="@(() => ConfirmDefect(d.Id))" />
+                    }
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="불량 보고" Width="460px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.DefectId"     NullText="불량 ID *" />
+                <DxTextBox @bind-Text="_form.LotId"        NullText="Lot ID *" />
+                <DxTextBox @bind-Text="_form.EquipmentId"  NullText="설비 ID *" />
+                <DxTextBox @bind-Text="_form.DefectClassId" NullText="불량 유형 ID *" />
+                <DxSpinEdit @bind-Value="_form.Count"      MinValue="0" Placeholder="불량 수량 *" />
+                <DxSpinEdit @bind-Value="_form.Rate"       MinValue="0" MaxValue="100" Placeholder="불량률(%)" />
+                <DxTextBox @bind-Text="_form.InspectorId"  NullText="검사자 ID *" />
+                @if (!string.IsNullOrEmpty(_createError))
+                {
+                    <div style="color:#dc2626; font-size:0.875rem;">@_createError</div>
+                }
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="보고" RenderStyle="ButtonRenderStyle.Primary" Click="CreateDefect" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<DefectDto> _items = new();
+    private string _lotId = string.Empty;
+    private string _currentUserId = string.Empty;
+    private bool _showCreate;
+    private DefectForm _form = new();
+    private string? _createError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _currentUserId = await AuthContext.GetUserIdAsync() ?? string.Empty;
+        await LoadData();
+    }
+
+    private async Task LoadData() => _items = await Api.GetDefectsAsync(_lotId);
+
+    private void OpenCreateDialog()
+    {
+        _form = new() { InspectorId = _currentUserId };
+        _createError = null;
+        _showCreate = true;
+    }
+
+    private async Task CreateDefect()
+    {
+        _createError = null;
+        var result = await Api.RecordDefectAsync(new
+        {
+            DefectId     = _form.DefectId,
+            LotId        = _form.LotId,
+            EquipmentId  = _form.EquipmentId,
+            DefectClassId = _form.DefectClassId,
+            Count        = _form.Count,
+            Rate         = _form.Rate,
+            InspectorId  = _form.InspectorId
+        });
+        if (result is null) { _createError = "보고에 실패했습니다."; return; }
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private async Task ConfirmDefect(string defectId)
+    {
+        await Api.ConfirmDefectAsync(defectId, _currentUserId);
+        await LoadData();
+    }
+
+    private sealed class DefectForm
+    {
+        public string  DefectId     { get; set; } = string.Empty;
+        public string  LotId        { get; set; } = string.Empty;
+        public string  EquipmentId  { get; set; } = string.Empty;
+        public string  DefectClassId { get; set; } = string.Empty;
+        public int     Count        { get; set; }
+        public decimal Rate         { get; set; }
+        public string  InspectorId  { get; set; } = string.Empty;
+    }
+}

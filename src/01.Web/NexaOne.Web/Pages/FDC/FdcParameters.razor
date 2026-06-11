@@ -1,0 +1,150 @@
+@page "/fdc/parameters"
+@attribute [Authorize]
+@inject IApiClient Api
+
+<div class="page-header">
+    <h1 class="page-title">FDC 파라미터</h1>
+    <DxButton Text="파라미터 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+<NexaConditionGrid TRow="FdcParameterDto" Items="_params">
+    <ConditionPanel>
+        <DxTextBox @bind-Text="_equipmentId" NullText="설비 ID" />
+        <DxButton Text="조회" Click="LoadParams" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"            Caption="파라미터 ID"  Width="140px" />
+        <DxGridDataColumn FieldName="ParameterName" Caption="파라미터명"    Width="180px" />
+        <DxGridDataColumn FieldName="EquipmentId"   Caption="설비"          Width="120px" />
+        <DxGridDataColumn FieldName="Unit"          Caption="단위"          Width="70px" />
+        <DxGridDataColumn FieldName="LowerLimit"    Caption="하한"          Width="90px" />
+        <DxGridDataColumn FieldName="UpperLimit"    Caption="상한"          Width="90px" />
+        <DxGridDataColumn FieldName="LowerControlLimit" Caption="LCL"       Width="90px" />
+        <DxGridDataColumn FieldName="UpperControlLimit" Caption="UCL"       Width="90px" />
+        <DxGridDataColumn FieldName="IsActive"      Caption="활성"          Width="70px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((bool)context.Value ? "Active" : "Inactive")" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridCommandColumn Width="120px">
+            <CellDisplayTemplate>
+                @{
+                    var p = (FdcParameterDto)context.DataItem;
+                    <DxButton Text="데이터 조회" Click="@(() => OpenDataPanel(p.Id))" />
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_selectedParamId is not null)
+{
+    <div class="page-header" style="margin-top:2rem;">
+        <h2 class="page-title" style="font-size:1.1rem;">수집 데이터 — @_selectedParamId</h2>
+    </div>
+
+    <div style="display:flex; gap:0.75rem; align-items:center; margin-bottom:1rem;">
+        <DxDateEdit @bind-Date="_dataFrom" />
+        <span>~</span>
+        <DxDateEdit @bind-Date="_dataTo" />
+        <DxButton Text="조회" Click="LoadCollectData" />
+    </div>
+
+    <NexaConditionGrid TRow="FdcCollectDataDto" Items="_collectData">
+        <ConditionPanel />
+        <Columns>
+            <DxGridDataColumn FieldName="CollectedAt"  Caption="수집 시각"   Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm:ss}" />
+            <DxGridDataColumn FieldName="Value"        Caption="값"          Width="100px" />
+            <DxGridDataColumn FieldName="Quality"      Caption="품질"        Width="100px" />
+            <DxGridDataColumn FieldName="LowerLimit"   Caption="하한"        Width="90px" />
+            <DxGridDataColumn FieldName="UpperLimit"   Caption="상한"        Width="90px" />
+            <DxGridDataColumn FieldName="IsOutOfSpec"  Caption="범위 초과"   Width="90px">
+                <CellDisplayTemplate>
+                    <StatusBadge Value="@((bool)context.Value ? "OutOfSpec" : "OK")" />
+                </CellDisplayTemplate>
+            </DxGridDataColumn>
+        </Columns>
+    </NexaConditionGrid>
+}
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="FDC 파라미터 등록" Width="460px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.ParameterId"   NullText="파라미터 ID *" />
+                <DxTextBox @bind-Text="_form.ParameterName" NullText="파라미터명 *" />
+                <DxTextBox @bind-Text="_form.EquipmentId"   NullText="설비 ID *" />
+                <DxTextBox @bind-Text="_form.Unit"          NullText="단위 (예: ℃, mbar)" />
+                <DxSpinEdit @bind-Value="_form.LowerLimit"  Placeholder="하한 *" />
+                <DxSpinEdit @bind-Value="_form.UpperLimit"  Placeholder="상한 *" />
+                @if (!string.IsNullOrEmpty(_createError))
+                {
+                    <div style="color:#dc2626; font-size:0.875rem;">@_createError</div>
+                }
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateParameter" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<FdcParameterDto>     _params      = new();
+    private List<FdcCollectDataDto>   _collectData = new();
+    private string _equipmentId     = string.Empty;
+    private string? _selectedParamId;
+    private DateTime _dataFrom      = DateTime.Today.AddDays(-1);
+    private DateTime _dataTo        = DateTime.Today;
+
+    private bool _showCreate;
+    private ParamForm _form = new();
+    private string? _createError;
+
+    protected override async Task OnInitializedAsync() => await LoadParams();
+
+    private async Task LoadParams() => _params = await Api.GetFdcParametersAsync(_equipmentId);
+
+    private void OpenCreateDialog() { _form = new() { EquipmentId = _equipmentId }; _createError = null; _showCreate = true; }
+
+    private async Task CreateParameter()
+    {
+        _createError = null;
+        var result = await Api.CreateFdcParameterAsync(new
+        {
+            ParameterId   = _form.ParameterId,
+            ParameterName = _form.ParameterName,
+            EquipmentId   = _form.EquipmentId,
+            Unit          = _form.Unit,
+            LowerLimit    = _form.LowerLimit,
+            UpperLimit    = _form.UpperLimit
+        });
+        if (result is null) { _createError = "등록에 실패했습니다."; return; }
+        _showCreate = false;
+        await LoadParams();
+    }
+
+    private async Task OpenDataPanel(string parameterId)
+    {
+        _selectedParamId = parameterId;
+        await LoadCollectData();
+    }
+
+    private async Task LoadCollectData()
+    {
+        if (_selectedParamId is null) return;
+        _collectData = await Api.GetFdcCollectDataAsync(_selectedParamId, _dataFrom, _dataTo.AddDays(1).AddSeconds(-1));
+    }
+
+    private sealed class ParamForm
+    {
+        public string  ParameterId   { get; set; } = string.Empty;
+        public string  ParameterName { get; set; } = string.Empty;
+        public string  EquipmentId   { get; set; } = string.Empty;
+        public string  Unit          { get; set; } = string.Empty;
+        public decimal LowerLimit    { get; set; }
+        public decimal UpperLimit    { get; set; } = 100;
+    }
+}

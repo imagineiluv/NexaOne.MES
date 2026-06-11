@@ -1,0 +1,144 @@
+@page "/mdm/equipment"
+@attribute [Authorize]
+@inject IApiClient Api
+@inject AuthContextService AuthContext
+@inject WaitOverlayService WaitSvc
+@inject DirtyTracker Dirty
+@implements IDisposable
+
+<div class="page-header">
+    <h1 class="page-title">설비 관리</h1>
+    <DxButton Text="설비 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+<NexaConditionGrid TRow="EquipmentDto" Items="_items">
+    <ConditionPanel>
+        <DxTextBox @bind-Text="_searchPlantId" NullText="Plant ID" />
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"            Caption="설비 ID"  Width="120px" />
+        <DxGridDataColumn FieldName="EquipmentName" Caption="설비명"    Width="200px" />
+        <DxGridDataColumn FieldName="PlantId"       Caption="Plant"    Width="100px" />
+        <DxGridDataColumn FieldName="AreaId"        Caption="Area"     Width="100px" />
+        <DxGridDataColumn FieldName="EquipmentType" Caption="유형"      Width="120px" />
+        <DxGridDataColumn FieldName="Vendor"        Caption="제조사"    Width="120px" />
+        <DxGridDataColumn FieldName="Model"         Caption="모델"      Width="120px" />
+        <DxGridDataColumn FieldName="ValidState"    Caption="상태"      Width="100px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((string)context.Value)" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup Visible="_showCreate" HeaderText="설비 등록" Width="480px"
+             VisibleChanged="OnCreateDialogClose">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.EquipmentId"      @bind-Text:after="MarkFormDirty" NullText="설비 ID *" />
+                <DxTextBox @bind-Text="_form.EquipmentName"    @bind-Text:after="MarkFormDirty" NullText="설비명 *" />
+                <DxTextBox @bind-Text="_form.PlantId"          @bind-Text:after="MarkFormDirty" NullText="Plant ID *" />
+                <DxTextBox @bind-Text="_form.AreaId"           @bind-Text:after="MarkFormDirty" NullText="Area ID *" />
+                <DxTextBox @bind-Text="_form.EquipmentType"    @bind-Text:after="MarkFormDirty" NullText="유형 (예: CNC)" />
+                <DxTextBox @bind-Text="_form.EquipmentClassId" @bind-Text:after="MarkFormDirty" NullText="설비 클래스 ID" />
+                <DxTextBox @bind-Text="_form.Vendor"           @bind-Text:after="MarkFormDirty" NullText="제조사" />
+                <DxTextBox @bind-Text="_form.Model"            @bind-Text:after="MarkFormDirty" NullText="모델" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateEquipment" />
+            <DxButton Text="취소" Click="@(() => RequestCloseDialog())" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+<ConfirmCloseDialog Visible="_showConfirmClose" OnAction="HandleConfirmClose" />
+
+@code {
+    private List<EquipmentDto> _items = [];
+    private string _searchPlantId = string.Empty;
+    private bool _showCreate;
+    private bool _showConfirmClose;
+    private EquipmentForm _form = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        Dirty.StateChanged += StateHasChanged;
+        _searchPlantId = await AuthContext.GetPlantIdAsync() ?? string.Empty;
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        using var _ = WaitSvc.Show("조회 중...");
+        _items = await Api.GetEquipmentListAsync(_searchPlantId);
+    }
+
+    private void OpenCreateDialog()
+    {
+        _form = new() { PlantId = _searchPlantId };
+        Dirty.MarkClean("create");
+        _showCreate = true;
+    }
+
+    private void RequestCloseDialog()
+    {
+        if (Dirty.IsDirty)
+            _showConfirmClose = true;
+        else
+            CloseCreateDialog();
+    }
+
+    private void OnCreateDialogClose(bool visible)
+    {
+        if (!visible) RequestCloseDialog();
+    }
+
+    private void MarkFormDirty() => Dirty.MarkDirty("create");
+
+    private async Task HandleConfirmClose(CloseAction action)
+    {
+        _showConfirmClose = false;
+        if (action == CloseAction.SaveAndClose)
+            await CreateEquipment();
+        else if (action == CloseAction.DiscardAndClose)
+            CloseCreateDialog();
+        // Cancel — do nothing
+    }
+
+    private void CloseCreateDialog()
+    {
+        _showCreate = false;
+        Dirty.MarkClean("create");
+    }
+
+    private async Task CreateEquipment()
+    {
+        using var _ = WaitSvc.Show("저장 중...");
+        await Api.CreateEquipmentAsync(new
+        {
+            _form.EquipmentId, _form.EquipmentName, _form.PlantId, _form.AreaId,
+            _form.EquipmentType, _form.EquipmentClassId, _form.Vendor, _form.Model,
+            Description = ""
+        });
+        CloseCreateDialog();
+        await LoadData();
+    }
+
+    public void Dispose() => Dirty.StateChanged -= StateHasChanged;
+
+    private sealed class EquipmentForm
+    {
+        public string EquipmentId      { get; set; } = string.Empty;
+        public string EquipmentName    { get; set; } = string.Empty;
+        public string PlantId          { get; set; } = string.Empty;
+        public string AreaId           { get; set; } = string.Empty;
+        public string EquipmentType    { get; set; } = string.Empty;
+        public string EquipmentClassId { get; set; } = string.Empty;
+        public string Vendor           { get; set; } = string.Empty;
+        public string Model            { get; set; } = string.Empty;
+    }
+}

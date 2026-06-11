@@ -1,0 +1,137 @@
+@page "/ppm/orders"
+@attribute [Authorize]
+@inject IApiClient Api
+@inject AuthContextService AuthContext
+
+<div class="page-header">
+    <h1 class="page-title">생산 지시</h1>
+    <DxButton Text="지시 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+<NexaConditionGrid TRow="ProductionOrderDto" Items="_items">
+    <ConditionPanel>
+        <DxTextBox @bind-Text="_planId" NullText="계획 ID" />
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"             Caption="지시 ID"     Width="140px" />
+        <DxGridDataColumn FieldName="PlanId"         Caption="계획 ID"     Width="140px" />
+        <DxGridDataColumn FieldName="EquipmentId"    Caption="설비"         Width="120px" />
+        <DxGridDataColumn FieldName="ProductId"      Caption="제품"         Width="120px" />
+        <DxGridDataColumn FieldName="OrderQty"       Caption="지시 수량"    Width="100px" DisplayFormat="{0:N0}" />
+        <DxGridDataColumn FieldName="ActualQty"      Caption="실적 수량"    Width="100px" DisplayFormat="{0:N0}" />
+        <DxGridDataColumn FieldName="ScheduledStart" Caption="예정 시작"    Width="130px" DisplayFormat="{0:yyyy-MM-dd}" />
+        <DxGridDataColumn FieldName="ScheduledEnd"   Caption="예정 종료"    Width="130px" DisplayFormat="{0:yyyy-MM-dd}" />
+        <DxGridDataColumn FieldName="Status"         Caption="상태"         Width="100px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((string)context.Value)" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridCommandColumn Width="160px">
+            <CellDisplayTemplate>
+                @{
+                    var o = (ProductionOrderDto)context.DataItem;
+                    <div style="display:flex; gap:4px;">
+                        @if (o.Status == "Issued")
+                        {
+                            <DxButton Text="시작" RenderStyle="ButtonRenderStyle.Primary" Click="@(() => StartOrder(o.Id))" />
+                            <DxButton Text="취소" RenderStyle="ButtonRenderStyle.Danger"  Click="@(() => CancelOrder(o.Id))" />
+                        }
+                        @if (o.Status == "InProgress")
+                        {
+                            <DxButton Text="완료" Click="@(() => OpenCompleteDialog(o.Id))" />
+                        }
+                    </div>
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="생산 지시 등록" Width="460px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.OrderId"     NullText="지시 ID *" />
+                <DxTextBox @bind-Text="_form.PlanId"      NullText="계획 ID *" />
+                <DxTextBox @bind-Text="_form.EquipmentId" NullText="설비 ID *" />
+                <DxTextBox @bind-Text="_form.ProductId"   NullText="제품 ID *" />
+                <DxSpinEdit @bind-Value="_form.OrderQty"  MinValue="1" />
+                <DxDateEdit @bind-Date="_form.ScheduledStart" />
+                <DxDateEdit @bind-Date="_form.ScheduledEnd" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateOrder" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@if (_showComplete)
+{
+    <DxPopup @bind-Visible="_showComplete" HeaderText="생산 완료" Width="360px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxSpinEdit @bind-Value="_actualQty" MinValue="0" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="완료" RenderStyle="ButtonRenderStyle.Primary" Click="ConfirmComplete" />
+            <DxButton Text="취소" Click="@(() => _showComplete = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<ProductionOrderDto> _items = new();
+    private string _planId = string.Empty;
+    private bool _showCreate;
+    private OrderForm _form = new();
+
+    private bool _showComplete;
+    private string? _completeOrderId;
+    private decimal _actualQty;
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData() => _items = await Api.GetOrdersAsync(_planId);
+
+    private void OpenCreateDialog() { _form = new() { PlanId = _planId }; _showCreate = true; }
+
+    private async Task CreateOrder()
+    {
+        await Api.CreateOrderAsync(new
+        {
+            _form.OrderId, _form.PlanId, _form.EquipmentId, _form.ProductId,
+            OrderQty = _form.OrderQty, ScheduledStart = _form.ScheduledStart, ScheduledEnd = _form.ScheduledEnd
+        });
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private async Task StartOrder(string id)  { await Api.StartOrderAsync(id);  await LoadData(); }
+    private async Task CancelOrder(string id) { await Api.CancelOrderAsync(id); await LoadData(); }
+
+    private void OpenCompleteDialog(string id) { _completeOrderId = id; _actualQty = 0; _showComplete = true; }
+
+    private async Task ConfirmComplete()
+    {
+        if (_completeOrderId is null) return;
+        await Api.CompleteOrderAsync(_completeOrderId, _actualQty);
+        _showComplete = false;
+        await LoadData();
+    }
+
+    private sealed class OrderForm
+    {
+        public string   OrderId       { get; set; } = string.Empty;
+        public string   PlanId        { get; set; } = string.Empty;
+        public string   EquipmentId   { get; set; } = string.Empty;
+        public string   ProductId     { get; set; } = string.Empty;
+        public decimal  OrderQty      { get; set; } = 1;
+        public DateTime ScheduledStart { get; set; } = DateTime.Today;
+        public DateTime ScheduledEnd  { get; set; } = DateTime.Today.AddDays(1);
+    }
+}

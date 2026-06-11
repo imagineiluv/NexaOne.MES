@@ -1,0 +1,15 @@
+@page "/auth/logout"
+@inject AuthTokenService TokenService
+@inject JwtAuthStateProvider AuthState
+@inject NexaHubService HubService
+@inject NavigationManager Nav
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        await HubService.DisconnectAsync();
+        await TokenService.ClearAsync();
+        AuthState.NotifyAuthChanged(null);
+        Nav.NavigateTo("/auth/login", forceLoad: true);
+    }
+}

@@ -1,0 +1,131 @@
+@page "/sys/roles"
+@attribute [Authorize(Roles = "ADMIN")]
+@inject IApiClient Api
+@inject WaitOverlayService WaitSvc
+
+<div class="page-header">
+    <h1 class="page-title">역할 관리</h1>
+    <DxButton Text="역할 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+<NexaConditionGrid TRow="RoleDto" Items="_items">
+    <ConditionPanel>
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"          Caption="역할 ID"    Width="130px" />
+        <DxGridDataColumn FieldName="RoleName"    Caption="역할명"     Width="150px" />
+        <DxGridDataColumn FieldName="Description" Caption="설명"       MinWidth="200" />
+        <DxGridCommandColumn Width="160px">
+            <CellDisplayTemplate>
+                @{
+                    var r = (RoleDto)context.DataItem;
+                    <DxButton Text="권한 관리" RenderStyle="ButtonRenderStyle.Secondary"
+                              Click="@(() => OpenPermissionsDialog(r))" />
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="역할 등록" Width="400px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.RoleId"      NullText="역할 ID *" />
+                <DxTextBox @bind-Text="_form.RoleName"    NullText="역할명 *" />
+                <DxTextBox @bind-Text="_form.Description" NullText="설명" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateRole" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@if (_showPermissions && _selectedRole is not null)
+{
+    <DxPopup @bind-Visible="_showPermissions" HeaderText="@($"권한 관리 — {_selectedRole.RoleName}")" Width="460px">
+        <BodyContentTemplate>
+            <div style="padding:0.5rem;">
+                <div style="margin-bottom:0.75rem; display:flex; gap:0.5rem;">
+                    <DxTextBox @bind-Text="_newPermission" NullText="새 권한 코드 (예: MDM.WRITE)" Style="flex:1" />
+                    <DxButton Text="추가" RenderStyle="ButtonRenderStyle.Primary" Click="AddPermission" />
+                </div>
+                @foreach (var perm in _selectedRole.Permissions)
+                {
+                    <div style="display:flex; justify-content:space-between; align-items:center; padding:0.35rem 0; border-bottom:1px solid #eee;">
+                        <span>@perm</span>
+                        <DxButton Text="삭제" RenderStyle="ButtonRenderStyle.Danger"
+                                  Click="@(() => RemovePermission(perm))" />
+                    </div>
+                }
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="닫기" Click="@(() => _showPermissions = false)" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<RoleDto> _items = new();
+    private bool _showCreate;
+    private bool _showPermissions;
+    private RoleDto? _selectedRole;
+    private string _newPermission = string.Empty;
+    private RoleForm _form = new();
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData()
+    {
+        using var _ = WaitSvc.Show("조회 중...");
+        _items = await Api.GetRolesAsync();
+    }
+
+    private void OpenCreateDialog() { _form = new(); _showCreate = true; }
+
+    private async Task CreateRole()
+    {
+        using var _ = WaitSvc.Show("저장 중...");
+        await Api.CreateRoleAsync(new { _form.RoleId, _form.RoleName, _form.Description });
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private void OpenPermissionsDialog(RoleDto role)
+    {
+        _selectedRole = role;
+        _newPermission = string.Empty;
+        _showPermissions = true;
+    }
+
+    private async Task AddPermission()
+    {
+        if (string.IsNullOrWhiteSpace(_newPermission) || _selectedRole is null) return;
+        using var _ = WaitSvc.Show("저장 중...");
+        await Api.AddPermissionAsync(_selectedRole.Id, _newPermission.Trim());
+        _newPermission = string.Empty;
+        _selectedRole = await Api.GetRoleAsync(_selectedRole.Id);
+        await LoadData();
+    }
+
+    private async Task RemovePermission(string permission)
+    {
+        if (_selectedRole is null) return;
+        using var _ = WaitSvc.Show("저장 중...");
+        await Api.RemovePermissionAsync(_selectedRole.Id, permission);
+        _selectedRole = await Api.GetRoleAsync(_selectedRole.Id);
+        await LoadData();
+    }
+
+    private sealed class RoleForm
+    {
+        public string RoleId      { get; set; } = string.Empty;
+        public string RoleName    { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+    }
+}

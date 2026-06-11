@@ -1,0 +1,109 @@
+@page "/sys/languages"
+@attribute [Authorize(Roles = "ADMIN")]
+@inject IApiClient Api
+
+<div class="page-header">
+    <h1 class="page-title">다국어 관리</h1>
+    <DxButton Text="리소스 등록/수정" RenderStyle="ButtonRenderStyle.Primary" Click="OpenUpsertDialog" />
+</div>
+
+<div style="display:flex; gap:0.75rem; margin-bottom:1rem; align-items:flex-end;">
+    <div>
+        <label class="form-label">메뉴 ID</label>
+        <DxTextBox @bind-Text="_filterMenuId" NullText="메뉴 ID 입력" />
+    </div>
+    <div>
+        <label class="form-label">언어</label>
+        <DxComboBox Data="_languages" @bind-Value="_filterLanguage" />
+    </div>
+    <DxButton Text="조회" RenderStyle="ButtonRenderStyle.Primary" Click="LoadData" />
+</div>
+
+<NexaConditionGrid TRow="MultiLanguageResourceDto" Items="_items">
+    <ConditionPanel>
+        <span style="font-size:0.85rem; color:#666;">필터 조건을 입력하고 조회하세요.</span>
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"     Caption="리소스 키" Width="200px" />
+        <DxGridDataColumn FieldName="MenuId" Caption="메뉴 ID"   Width="150px" />
+        <DxGridDataColumn FieldName="Language" Caption="언어"    Width="80px" />
+        <DxGridDataColumn FieldName="Value"  Caption="번역 값"   MinWidth="200" />
+        <DxGridCommandColumn Width="80px">
+            <CellDisplayTemplate>
+                @{
+                    var r = (MultiLanguageResourceDto)context.DataItem;
+                    <DxButton Text="수정" RenderStyle="ButtonRenderStyle.Secondary"
+                              Click="@(() => OpenEditDialog(r))" />
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showUpsert)
+{
+    <DxPopup @bind-Visible="_showUpsert" HeaderText="@(_isEdit ? "번역 수정" : "번역 등록")" Width="420px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.ResourceKey" NullText="리소스 키 *" ReadOnly="_isEdit" />
+                <DxTextBox @bind-Text="_form.MenuId"      NullText="메뉴 ID *" />
+                <DxComboBox Data="_languages"  @bind-Value="_form.Language" />
+                <DxTextBox @bind-Text="_form.Value"       NullText="번역 값 *" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="저장" RenderStyle="ButtonRenderStyle.Primary" Click="UpsertResource" />
+            <DxButton Text="취소" Click="@(() => _showUpsert = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<MultiLanguageResourceDto> _items = new();
+    private bool _showUpsert;
+    private bool _isEdit;
+    private string _filterMenuId = string.Empty;
+    private string _filterLanguage = "KoKr";
+    private LangForm _form = new();
+
+    private static readonly List<string> _languages = new() { "KoKr", "EnUs", "ZhCn", "JaJp" };
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData()
+    {
+        _items = await Api.GetLanguageResourcesAsync(
+            menuId: string.IsNullOrWhiteSpace(_filterMenuId) ? null : _filterMenuId,
+            language: string.IsNullOrWhiteSpace(_filterLanguage) ? null : _filterLanguage);
+    }
+
+    private void OpenUpsertDialog() { _form = new(); _isEdit = false; _showUpsert = true; }
+
+    private void OpenEditDialog(MultiLanguageResourceDto r)
+    {
+        _form = new LangForm { ResourceKey = r.Id, MenuId = r.MenuId, Language = r.Language, Value = r.Value };
+        _isEdit = true;
+        _showUpsert = true;
+    }
+
+    private async Task UpsertResource()
+    {
+        await Api.UpsertLanguageResourceAsync(new
+        {
+            ResourceKey = _form.ResourceKey,
+            _form.MenuId,
+            _form.Language,
+            _form.Value
+        });
+        _showUpsert = false;
+        await LoadData();
+    }
+
+    private sealed class LangForm
+    {
+        public string ResourceKey { get; set; } = string.Empty;
+        public string MenuId      { get; set; } = string.Empty;
+        public string Language    { get; set; } = "KoKr";
+        public string Value       { get; set; } = string.Empty;
+    }
+}

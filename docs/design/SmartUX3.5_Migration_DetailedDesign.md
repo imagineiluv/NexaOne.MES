@@ -1,9 +1,9 @@
-# SmartUX 3.5 → C# 마이그레이션 상세설계 문서
+﻿# SmartUX 3.5 → C# 마이그레이션 상세설계 문서
 
-**문서 버전:** 1.2  
+**문서 버전:** 1.9  
 **기준 소스:** SmartUX3.5_20260526  
 **작성일:** 2026-06-08  
-**보완일:** 2026-06-09 (v1.7)  
+**보완일:** 2026-06-09 (v1.9)  
 **작성 목적:** 현행 SmartUX 3.5 시스템을 순수 C# 기반으로 기능·UI 동일하게 이전하기 위한 상세 설계
 
 > **v1.2 변경 이력:** Program.cs 부트스트랩(LoginForm + 3개 InjectModule), UserInfo.Current 싱글톤, ConditionCollection 13종 컨트롤, Form 계층 10종, SO 감사 메커니즘, EMS/PPM/DLV 도메인, JWT Refresh Token/CORS, 워크플로우 WorkflowContext, FDC/RMS/QMS DB 테이블, SignalR 5-Hub 구조, 솔루션 구조 완성, 목차 섹션 15~20 추가  
@@ -11,7 +11,9 @@
 > **v1.4 변경 이력:** 솔루션 구조 재설계 — DB 드라이버 레이어(`03.Driver`)와 도메인 모듈 레이어(`04.Modules`) 명확히 분리, `IDbDriver` 인터페이스 정의(3.3), 드라이버별 csproj + 구현체 설계(3.4), `SqlTxnContext`를 `IDbDriver` 기반으로 단순화(3.5/5.3.4)  
 > **v1.5 변경 이력:** `IDbDriver` 기능 6그룹 확장 — ①연결관리 ②채번/시각 ③쿼리빌더(Upsert/BatchInsert/TempTable/Concat 등) ④벌크Insert ⑤스키마조회 ⑥진단, MSSQL/PostgreSQL/MySQL 전체 구현 코드(3.3~3.5)  
 > **v1.6 변경 이력:** DB 외 드라이버 설계 추가(3.6) — Messaging/Equipment/Notification/Auth/Cache/FileStorage 인터페이스 및 구현체 초안  
-> **v1.7 변경 이력:** 드라이버 3개 카테고리로 재편(3.1/3.6) — **DB**(01.Db) / **통신**(02.Communication: Kafka·RabbitMq·OpcUa·Serial·Mqtt·SmtpEmail·Sms·Ldap) / **캐시**(03.Cache: Redis·MemoryCache). FileStorage → SmartEES.Infrastructure로 이동, DbAuth → Infrastructure 서비스로 분리, LDAP → IExternalAuthDriver(통신 드라이버)로 재정의
+> **v1.7 변경 이력:** 드라이버 3개 카테고리로 재편(3.1/3.6) — **DB**(01.Db) / **통신**(02.Communication: Kafka·RabbitMq·OpcUa·Serial·Mqtt·SmtpEmail·Sms·Ldap) / **캐시**(03.Cache: Redis·MemoryCache). FileStorage → SmartEES.Infrastructure로 이동, DbAuth → Infrastructure 서비스로 분리, LDAP → IExternalAuthDriver(통신 드라이버)로 재정의  
+> **v1.8 변경 이력:** **NexusFramework / NexusCom 서브모듈 아키텍처 기반 리팩토링** — ①서브모듈 솔루션 구조 반영(3.1), ②NexusCom `IDatabaseProvider` 패턴으로 DB 드라이버 재정의(3.3/3.6), MSSQL 공급자 신규 구현 명시(`NexusCom.Data.MsSql`), ③NexusFramework `FlowExecutionEngine`/`WorkflowManager`/`WorkflowExecutor` 기반 워크플로우 엔진 재설계(8), `AssemblyInvocationNode` + `[WorkflowCallable]` 패턴 도입, ④RuleExecutor에 `[WorkflowCallable]` 연계 추가(5.3.1), ⑤FDC `PlantController`/`Machine`/`IDeviceInterface` 패턴 적용(10.4)  
+> **v1.9 변경 이력:** **UI 레이어 C# Blazor Server 기반으로 전면 재설계** — ①WinForms/DevExpress WinForms 제거, ASP.NET Core Blazor Server 아키텍처 수립(6), ②마이그레이션 목표·범위 업데이트(2.1/2.2), ③Phase 2 Blazor 웹 UI 구축으로 변경(2.3), ④SmartConditionGrid / SmartGrid 공통 컴포넌트 설계(6.6), ⑤WinForms 폼 클래스 → Blazor 컴포넌트 매핑표 추가(6.9), ⑥NexaOne.Web 솔루션 구조 추가(6.2)
 
 ---
 
@@ -22,7 +24,7 @@
 3. [타겟 C# 솔루션 구조 설계](#3-타겟-c-솔루션-구조-설계)
 4. [프레임워크 레이어 상세 설계](#4-프레임워크-레이어-상세-설계)
 5. [백엔드 서비스 레이어 설계 (Java → C# 전환)](#5-백엔드-서비스-레이어-설계-java--c-전환)
-6. [UI 레이어 상세 설계](#6-ui-레이어-상세-설계)
+6. [UI 레이어 상세 설계 (C# Blazor 웹)](#6-ui-레이어-상세-설계-c-blazor-웹)
 7. [데이터베이스 설계](#7-데이터베이스-설계)
 8. [워크플로우 엔진 설계](#8-워크플로우-엔진-설계)
 9. [보안 / 인증 / 권한 설계](#9-보안--인증--권한-설계)
@@ -206,22 +208,22 @@ SmartUX3.5_20260526/
 ### 2.1 마이그레이션 목표
 
 1. **기능 동일성**: 현행 모든 업무 기능 100% 보존
-2. **UI 동일성**: 화면 구성, 레이아웃, 사용자 경험 동일
+2. **UI 현대화**: WinForms → C# Blazor Server 웹 UI, 브라우저에서 화면 접근
 3. **기술 단일화**: Java 백엔드 → C# .NET으로 완전 통합
-4. **현대화**: .NET 8 LTS로 업그레이드, DevExpress 최신 버전 적용
+4. **현대화**: .NET 8 LTS로 업그레이드, C# Blazor Server 웹 UI로 전환
 5. **성능 향상**: ASP.NET Core 기반 고성능 백엔드 서비스
 
 ### 2.2 마이그레이션 범위
 
 | 레이어 | 현행 | 타겟 | 변경 유형 |
 |--------|------|------|-----------|
-| 데스크탑 UI | C# WinForms / .NET 4.5 | C# WinForms / .NET 8 | 업그레이드 |
-| 웹 UI | HTML5/JS (Jetty) | 유지 또는 Blazor 래퍼 | 선택적 |
+| UI | C# WinForms / .NET 4.5 | **C# Blazor Server / .NET 8** | **전환** |
+| 웹 UI | HTML5/JS (Jetty) | ASP.NET Core Blazor Server | 전환 |
 | 비즈니스 로직 | Java OSGi (50+ 컴포넌트) | C# ASP.NET Core 서비스 | 재작성 |
 | API 레이어 | Java REST/WCF | C# ASP.NET Core Web API | 재작성 |
 | 메시지 처리 | Java Kafka/WS | C# SignalR / Kafka.NET | 전환 |
-| DB 접근 | Java SO 패턴 (JDBC) | Dapper / EF Core | 전환 |
-| 워크플로우 | Java 커스텀 엔진 | C# Elsa Workflow / 커스텀 | 전환 |
+| DB 접근 | Java SO 패턴 (JDBC) | Dapper + ServiceObjectProcessor | 전환 |
+| 워크플로우 | Java 커스텀 엔진 | NexusFramework WorkflowManager | 전환 |
 | 인증/권한 | Java 커스텀 | ASP.NET Core Identity / JWT | 전환 |
 
 ### 2.3 마이그레이션 전략
@@ -230,19 +232,21 @@ SmartUX3.5_20260526/
 
 ```
 Phase 1: 기반 인프라 구축 (2~3주)
-  └─ C# 백엔드 솔루션 골격 생성
-  └─ Micube.Framework 이전, Dapper+QueryRepository 구현
-  └─ JWT 인증 API, DB 연결 구축
+  └─ C# 백엔드 솔루션 골격 생성 (NexusFramework/NexusCom 서브모듈 연동)
+  └─ EesDataSource + QueryRepository + ServiceObjectProcessor 구현
+  └─ JWT 인증 API (NexaOne.API), DB 연결 구축
+  └─ NexaOne.Server Spring.NET XML DI 구성 (server.xml / nexaone-ees.xml)
 
-Phase 2: UI 프레임워크 이전 (4~5주)
-  └─ SmartBaseForm, SmartConditionBaseForm, SmartPopup 계층 이전
-  └─ ConditionCollection 13종 컨트롤, SmartBandedGrid 이전
-  └─ LoginForm, MainForm, FormCreator (3개 InjectModule 부트스트랩 포함)
+Phase 2: C# Blazor 웹 UI 구축 (4~5주)
+  └─ NexaOne.Web 프로젝트 생성 (Blazor Server)
+  └─ SmartConditionGrid / SmartGrid / SmartPopup 공통 컴포넌트 구현
+  └─ MainLayout / NavMenu / Login 화면 구현
+  └─ 9개 도메인 업무 페이지 (.razor) 구현 (MDM/EPT/FDC/RMS/QMS/EMS/PPM/DLV/Sys)
 
 Phase 3: 백엔드 비즈니스 로직 이전 (8~10주)
   └─ MDM/SystemManagement → EPT → FDC → RMS → QMS → EMS → PPM → DLV 순차 이전
   └─ Java Rule → C# RuleExecutor, Java SO → ServiceObjectProcessor+감사메커니즘
-  └─ WorkflowEngine 구현, SignalR + Kafka.NET 메시지 파이프라인
+  └─ WorkflowEngine 구현 (NexusFramework), SignalR + Kafka.NET 메시지 파이프라인
 
 Phase 4: 통합 검증 및 Java 제거 (2~3주)
   └─ 기능 동일성·성능 검증, UAT
@@ -256,43 +260,82 @@ Phase 4: 통합 검증 및 Java 제거 (2~3주)
 ### 3.1 전체 솔루션 구성
 
 > **설계 원칙:**
-> - **DB 드라이버** (`03.Driver`) — DBMS별 연결/쿼리 구현을 독립 프로젝트로 분리. 배포 시 사용 DBMS 드라이버 DLL만 포함.
+> - **서브모듈 프레임워크** (`submodules/`) — NexusFramework(워크플로우 엔진 + 설비 제어)와 NexusCom(DB 공급자)을 git 서브모듈로 관리. 코어 구현을 재사용하되 SmartEES 전용 확장만 추가.
+> - **DB 드라이버** (`03.Driver/01.Db/`) — NexusCom 공급자 프로젝트를 직접 참조하거나 래핑. MSSQL은 NexusCom에 없으므로 `NexusCom.Data.MsSql` 신규 구현.
 > - **도메인 모듈** (`04.Modules`) — 비즈니스 기능(화면+서비스)을 도메인 단위로 분리. 각 모듈은 `./Modules/` 디렉토리에 DLL로 배포.
 > - 두 레이어는 서로 의존하지 않으며, 공통 인터페이스(`SmartEES.Infrastructure`)를 통해서만 연결된다.
+
+#### 서브모듈 구성
+
+```
+submodules/
+├── NexusFramework/                           ← 워크플로우 엔진 + 설비 제어 프레임워크
+│   └── src/NexusFramework/
+│       ├── Workflow/Runtime/FlowExecutionEngine.cs    ← 그래프 실행 엔진 (핵심)
+│       ├── Workflow/Tooling/WorkflowManager.cs        ← 다중 실행기 관리 + 동시성 제어
+│       ├── Workflow/Tooling/WorkflowExecutor.cs       ← .workflow/.aigraph.json 파일 로드 + 실행
+│       ├── Workflow/Nodes/AssemblyInvocationNode.cs   ← 외부 어셈블리 메서드 호출 노드
+│       ├── Workflow/Reflection/WorkflowCallableAttribute.cs ← 비즈니스 메서드 마킹 어트리뷰트
+│       ├── PlantController.cs                         ← 설비 제어 컨트롤러 (Machine 관리)
+│       ├── Machine.cs                                 ← 개별 설비 단위
+│       ├── Resource/IDeviceInterface.cs               ← 설비 드라이버 인터페이스
+│       ├── Resource/IStateMachine.cs                  ← 상태 머신 인터페이스
+│       └── Context/FileSystemApplicationContext.cs    ← Spring.NET IoC 컨텍스트
+│
+└── NexusCom/                                 ← DB 공급자 추상화 레이어
+    └── src/
+        ├── NexusCom.Data.Abstractions/
+        │   └── Interfaces/Contracts.cs       ← IDatabaseProvider, IQueryExecutor,
+        │                                        IMetadataProvider, ITransactionManager,
+        │                                        IChangeFeedProvider, IDriverManager
+        ├── NexusCom.Data.PostgreSql/         ← PostgreSQL 공급자 (완성)
+        ├── NexusCom.Data.MySql/              ← MySQL/MariaDB 공급자 (완성)
+        ├── NexusCom.Data.Sqlite/             ← SQLite 공급자 (완성)
+        ├── NexusCom.Data.Core/               ← DriverManager, ChangeEventDispatcher
+        └── NexusCom.Data.Hosting/            ← DataHostedService, DataEndpointHealthCheck
+        ※ MSSQL 공급자 없음 → NexusCom.Data.MsSql 신규 구현 필요 (3.3 참조)
+```
+
+#### 솔루션 전체 구조
 
 ```
 SmartEES.sln
 │
+├── submodules/                               ← ★ Git 서브모듈 (빌드 참조)
+│   ├── NexusFramework/                       ← 워크플로우 엔진 + 설비 제어
+│   └── NexusCom/                             ← DB 공급자 기반
+│
 ├── 00.Main/
 │   └── SmartEES.App                          ← WinForms 메인 애플리케이션
 │
-├── 01.Framework/
-│   ├── Micube.Framework                      ← 핵심 프레임워크 유틸리티
+├── 01.Framework/                             ← SmartEES 전용 프레임워크 (NexusFramework 미포함 기능)
+│   ├── Micube.Framework                      ← 핵심 유틸리티 (AppConfig, EventAggregator, Language, UserInfo)
 │   ├── Micube.Framework.Net                  ← 네트워크/HTTP 통신 추상화
 │   ├── Micube.Framework.Net.Http             ← HTTP 클라이언트 구현체
-│   ├── Micube.Framework.SmartControls        ← UI 컨트롤 라이브러리
+│   ├── Micube.Framework.SmartControls        ← UI 컨트롤 라이브러리 (WinForms 전용)
 │   └── Micube.Framework.Log                  ← 로깅 인프라
+│   ※ NexusFramework 참조: Workflow, PlantController, IoC → submodules 프로젝트 직접 참조
 │
 ├── 02.Backend/
 │   ├── SmartEES.API                          ← ASP.NET Core Web API 호스트
-│   ├── SmartEES.Application                  ← 애플리케이션 서비스 (Use Cases)
+│   ├── SmartEES.Application                  ← 애플리케이션 서비스 (Use Cases + [WorkflowCallable] 메서드)
 │   ├── SmartEES.Domain                       ← 도메인 모델 / 비즈니스 규칙
 │   ├── SmartEES.Infrastructure               ← DB/외부시스템 인터페이스 + 공통 구현
 │   └── SmartEES.Infrastructure.Messaging     ← Kafka / SignalR
 │
 ├── 03.Driver/                                ← ★ 드라이버 레이어 (교체 가능 외부 의존)
 │   │
-│   ├── 01.Db/                               ← [DB 드라이버] SQL 데이터베이스 연결
-│   │   ├── SmartEES.Driver.MsSql            ← MSSQL (기본)
-│   │   ├── SmartEES.Driver.PostgreSQL       ← PostgreSQL
-│   │   ├── SmartEES.Driver.Oracle           ← Oracle (선택)
-│   │   └── SmartEES.Driver.MySQL            ← MySQL/MariaDB (선택)
+│   ├── 01.Db/                               ← [DB 드라이버] NexusCom IDatabaseProvider 기반
+│   │   ├── NexusCom.Data.MsSql              ← ★ 신규 구현 — MSSQL 공급자 (NexusCom에 없음)
+│   │   ├── (NexusCom.Data.PostgreSql)       ← submodules 직접 사용 — PostgreSQL 공급자
+│   │   ├── (NexusCom.Data.MySql)            ← submodules 직접 사용 — MySQL 공급자
+│   │   └── SmartEES.Driver.Oracle           ← 별도 구현 — Oracle (NexusCom 없음, 선택)
 │   │
-│   ├── 02.Communication/                    ← [통신 드라이버] 네트워크·프로토콜 통신
-│   │   ├── SmartEES.Driver.Kafka            ← 메시지 브로커 — 이벤트 발행/구독 (기본)
+│   ├── 02.Communication/                    ← [통신 드라이버] 자체 구현 (NexusCom 미지원)
+│   │   ├── SmartEES.Driver.Kafka            ← 메시지 브로커 — Confluent.Kafka (기본)
 │   │   ├── SmartEES.Driver.RabbitMq         ← 메시지 브로커 — AMQP (선택)
-│   │   ├── SmartEES.Driver.OpcUa            ← 설비 수집 — OPC-UA (기본)
-│   │   ├── SmartEES.Driver.SerialPort       ← 설비 수집 — RS-232/485 (선택)
+│   │   ├── SmartEES.Driver.OpcUa            ← 설비 수집 — OPC-UA (기본, IDeviceInterface 구현)
+│   │   ├── SmartEES.Driver.SerialPort       ← 설비 수집 — RS-232/485 (IDeviceInterface 구현)
 │   │   ├── SmartEES.Driver.Mqtt             ← 설비/IoT — MQTT (선택)
 │   │   ├── SmartEES.Driver.SmtpEmail        ← 알림 발송 — SMTP 이메일 (기본)
 │   │   ├── SmartEES.Driver.Sms              ← 알림 발송 — SMS (선택)
@@ -305,7 +348,7 @@ SmartEES.sln
 ├── 04.Modules/                               ← ★ 도메인 모듈 레이어 (비즈니스 기능)
 │   ├── Micube.SmartEES.Mdm                   ← 마스터 데이터 관리 (MDM)
 │   ├── Micube.SmartEES.Ept                   ← 설비 성능 추적 (EPT)
-│   ├── Micube.SmartEES.Fdc                   ← 설비 데이터 수집 (FDC)
+│   ├── Micube.SmartEES.Fdc                   ← 설비 데이터 수집 (FDC — PlantController 활용)
 │   ├── Micube.SmartEES.Rms                   ← 레시피 관리 (RMS)
 │   ├── Micube.SmartEES.Qms                   ← 품질 관리 (QMS)
 │   ├── Micube.SmartEES.Ems                   ← 설비 보전 (EMS)
@@ -324,29 +367,43 @@ SmartEES.sln
 ```
 SmartEES.App (WinForms 진입점)
     └─→ Micube.Framework.*
-    └─→ Micube.Framework.Net.Http      (HttpChannel)
-    └─→ 04.Modules/* DLL 동적 로딩     (FormCreator가 ./Modules/ 에서 로드)
+    └─→ Micube.Framework.Net.Http          (HttpChannel)
+    └─→ 04.Modules/* DLL 동적 로딩         (FormCreator가 ./Modules/ 에서 로드)
 
-04.Modules/* (각 도메인 모듈)           ← DB 드라이버 직접 참조 없음
+04.Modules/* (각 도메인 모듈)               ← DB 드라이버 직접 참조 없음
     └─→ Micube.Framework.SmartControls
     └─→ Micube.Framework.Net.Http
-    └─→ SmartEES.Application           (서비스 호출 — HTTP/API 경유)
+    └─→ SmartEES.Application               (서비스 호출 — HTTP/API 경유)
 
 SmartEES.API (Web API 호스트)
     └─→ SmartEES.Application
-    └─→ SmartEES.Infrastructure        (IDbDriver 인터페이스 참조)
-    └─→ 03.Driver/* 중 설정된 1개만 로드  ← appsettings.json DbmsType 기반
+    └─→ SmartEES.Infrastructure            (IDatabaseProvider 인터페이스 참조)
+    └─→ 03.Driver/01.Db/* 중 설정된 1개만   ← appsettings.json DbmsType 기반
+    └─→ NexusFramework (WorkflowManager)   ← submodules 프로젝트 참조
 
-03.Driver/* (각 DB 드라이버)            ← 서로 의존 없음
-    └─→ SmartEES.Infrastructure        (IDbDriver 인터페이스 구현)
+SmartEES.Application                       ← [WorkflowCallable] 메서드 포함
+    └─→ SmartEES.Domain
+    └─→ NexusFramework.Workflow.*          ← WorkflowCallableAttribute, NodeContext
+
+03.Driver/01.Db/* (각 DB 공급자)            ← 서로 의존 없음
+    └─→ NexusCom.Data.Abstractions         (IDatabaseProvider 인터페이스 구현)
     └─→ DBMS별 NuGet 패키지만 참조
+    ※ PostgreSQL/MySQL: NexusCom 서브모듈 프로젝트 직접 사용
+    ※ MSSQL: NexusCom.Data.MsSql 신규 구현 (03.Driver/01.Db/)
+    ※ Oracle: SmartEES.Driver.Oracle 자체 구현
+
+03.Driver/02.Communication/*               ← 자체 구현 (NexusCom 미포함)
+    └─→ SmartEES.Infrastructure            (IMessageBrokerDriver/IEquipmentDriver 인터페이스)
+    └─→ NexusFramework.Resource.*          (IDeviceInterface — OpcUa/SerialPort 드라이버)
 
 SmartEES.Infrastructure (인터페이스 + 공통)
     └─→ SmartEES.Application
     └─→ SmartEES.Domain
+    └─→ NexusCom.Data.Abstractions         (IDatabaseProvider, IDriverManager 참조)
 
-SmartEES.Application
-    └─→ SmartEES.Domain
+Micube.SmartEES.Fdc (FDC 모듈)             ← PlantController 활용
+    └─→ NexusFramework                     (PlantController, Machine, IStateMachine)
+    └─→ SmartEES.Application
 
 SmartEES.Domain
     └─→ (외부 의존 없음)
@@ -357,156 +414,154 @@ SmartEES.Domain
 // appsettings.json: "Database": { "DbmsType": "MSSQL" }
 var dbmsType = builder.Configuration["Database:DbmsType"];
 
-// 설정된 DBMS 드라이버 하나만 등록
-builder.Services.AddDbDriver(dbmsType); // 확장 메서드
-// → "MSSQL"      : MsSqlDriver 등록
-// → "PostgreSQL" : PostgreSqlDriver 등록
-// → "Oracle"     : OracleDriver 등록
-// → "MySQL"      : MySqlDriver 등록
+// NexusCom IDatabaseProvider 기반 등록
+builder.Services.AddSmartEESDatabase(dbmsType, builder.Configuration);
+// → "MSSQL"      : NexusCom.Data.MsSql.MsSqlProvider 등록 (신규 구현)
+// → "PostgreSQL" : NexusCom.Data.PostgreSql.PostgreSqlProvider 등록
+// → "MySQL"      : NexusCom.Data.MySql.MySqlProvider 등록
+// → "Oracle"     : SmartEES.Driver.Oracle 자체 구현 등록
+
+// NexusFramework WorkflowManager DI 등록
+builder.Services.AddWorkflowEngine(options =>
+{
+    options.WorkflowDirectory = builder.Configuration["Workflow:Directory"];
+});
+
+// NexusCom DataHostedService (ChangeFeed 백그라운드)
+builder.Services.AddNexusComHosting(builder.Configuration);
 ```
 
-### 3.3 IDbDriver 인터페이스 — 전체 기능 목록
+### 3.3 DB 드라이버 — NexusCom IDatabaseProvider 기반 설계
 
-드라이버가 제공하는 기능을 6개 그룹으로 구분한다.
+> **v1.8 변경:** 기존 자체 `IDbDriver` 인터페이스를 `submodules/NexusCom`의 `IDatabaseProvider` 패턴으로 대체한다.  
+> NexusCom은 PostgreSQL/MySQL/SQLite 공급자를 이미 제공하며, **MSSQL은 없으므로 `NexusCom.Data.MsSql` 신규 구현**이 필요하다.
+
+#### NexusCom IDatabaseProvider 인터페이스 구조
+
+```
+IDatabaseProvider (NexusCom.Data.Abstractions.Interfaces)
+ ├── Kind              → DatabaseProviderKind (MSSQL / PostgreSQL / MySQL / SQLite)
+ ├── Name              → 공급자 이름 식별자
+ ├── Capabilities      → 지원 기능 플래그 (ChangeFeed, BulkInsert 등)
+ ├── CreateConnection  → DbConnection 생성
+ ├── QueryExecutor     → IQueryExecutor (쿼리/스칼라/스트리밍 실행)
+ ├── MetadataProvider  → IMetadataProvider (테이블/컬럼/인덱스 조회)
+ ├── TransactionManager→ ITransactionManager (트랜잭션 범위 실행)
+ └── ChangeFeedProvider→ IChangeFeedProvider (실시간 변경 구독)
+```
+
+#### NexusCom 인터페이스 전체 (submodules/NexusCom/src/NexusCom.Data.Abstractions/Interfaces/Contracts.cs)
+
+```csharp
+// NexusCom.Data.Abstractions
+namespace NexusCom.Data.Abstractions.Interfaces;
+
+public interface IDatabaseProvider
+{
+    DatabaseProviderKind Kind { get; }
+    string Name { get; }
+    ProviderCapabilities Capabilities { get; }
+    DbConnection CreateConnection(string connectionString);
+
+    IQueryExecutor QueryExecutor { get; }
+    IMetadataProvider MetadataProvider { get; }
+    ITransactionManager TransactionManager { get; }
+    IChangeFeedProvider ChangeFeedProvider { get; }
+}
+
+public interface IQueryExecutor
+{
+    Task<int> ExecuteNonQueryAsync(DatabaseEndpoint endpoint, QueryRequest request, CancellationToken ct = default);
+    Task<object?> ExecuteScalarAsync(DatabaseEndpoint endpoint, QueryRequest request, CancellationToken ct = default);
+    Task<QueryResult> ExecuteReaderAsync(DatabaseEndpoint endpoint, QueryRequest request, CancellationToken ct = default);
+    IAsyncEnumerable<IReadOnlyDictionary<string, object?>> StreamAsync(DatabaseEndpoint endpoint, QueryRequest request, CancellationToken ct = default);
+}
+
+public interface IMetadataProvider
+{
+    Task<IReadOnlyList<TableInfo>> GetTablesAsync(DatabaseEndpoint endpoint, string? schema = null, CancellationToken ct = default);
+    Task<IReadOnlyList<ColumnInfo>> GetColumnsAsync(DatabaseEndpoint endpoint, string? schema, string table, CancellationToken ct = default);
+    Task<IReadOnlyList<IndexInfo>> GetIndexesAsync(DatabaseEndpoint endpoint, string? schema, string table, CancellationToken ct = default);
+}
+
+public interface ITransactionManager
+{
+    // 트랜잭션 범위 내에서 비즈니스 로직 실행 — SqlTxnContext가 이 패턴으로 구현됨
+    Task<TResult> ExecuteInTransactionAsync<TResult>(
+        DatabaseEndpoint endpoint,
+        Func<DbConnection, DbTransaction, Task<TResult>> action,
+        IsolationLevel isolationLevel = IsolationLevel.ReadCommitted,
+        CancellationToken ct = default);
+}
+
+public interface IChangeFeedProvider
+{
+    Task StartAsync(DatabaseEndpoint endpoint, IEnumerable<ChangeSubscription> subscriptions,
+        Func<ChangeEvent, Task> onEvent, CancellationToken ct = default);
+    Task StopAsync(string endpointId, CancellationToken ct = default);
+}
+
+public interface IDriverManager
+{
+    Task<QueryResult> QueryAsync(DatabaseEndpoint endpoint, QueryRequest request, CancellationToken ct = default);
+    Task<int> ExecuteAsync(DatabaseEndpoint endpoint, QueryRequest request, CancellationToken ct = default);
+    Task SubscribeAsync(ChangeSubscription subscription, Func<ChangeEvent, Task> handler, CancellationToken ct = default);
+    Task UnsubscribeAsync(string subscriptionId, CancellationToken ct = default);
+}
+```
+
+#### NexusCom 공급자 현황
+
+| 공급자 | 프로젝트 | 상태 | 비고 |
+|--------|----------|------|------|
+| **PostgreSQL** | `NexusCom.Data.PostgreSql` | ✅ 완성 | LISTEN/NOTIFY ChangeFeed 지원 |
+| **MySQL** | `NexusCom.Data.MySql` | ✅ 완성 | Trigger 기반 ChangeFeed 지원 |
+| **SQLite** | `NexusCom.Data.Sqlite` | ✅ 완성 | Trigger 기반 ChangeFeed 지원 |
+| **MSSQL** | `NexusCom.Data.MsSql` | ❌ **신규 구현 필요** | 아래 3.5 참조 |
+| **Oracle** | `SmartEES.Driver.Oracle` | ⚠️ 자체 구현 | NexusCom 없음, 선택 사항 |
+
+#### SmartEES 전용 기능 보완 — ISmartEESDbCapability
+
+NexusCom IDatabaseProvider는 범용 DB 추상화이므로 SmartEES 전용 SQL 방언(페이징, Upsert, 시퀀스 채번 등)은 별도 인터페이스로 보완한다.
 
 | 그룹 | 기능 항목 | 설명 |
 |------|-----------|------|
-| **① 연결 관리** | `CreateConnection` | DBMS별 IDbConnection 생성 |
-| | `HealthCheckSql` | 연결 확인용 최소 SQL |
-| | `TestConnectionAsync` | 연결 유효성 비동기 검증 |
-| **② 채번 / 시퀀스** | `GetSequenceSql` | TXN_HIST_KEY Sequence SQL |
+| **① 채번 / 시퀀스** | `GetSequenceSql` | TXN_HIST_KEY Sequence SQL |
 | | `GetCurrentTimeSql` | 서버 현재 시각 SQL |
-| **③ 쿼리 빌더** | `WrapPaged` | 페이징 SQL 래퍼 |
-| | `NoLockHint` | 읽기 잠금 힌트 |
-| | `ParameterPrefix` | 바인딩 파라미터 접두사 |
+| **② 쿼리 빌더** | `WrapPaged` | 페이징 SQL 래퍼 |
+| | `NoLockHint` | 읽기 잠금 힌트 (MSSQL: WITH NOLOCK) |
 | | `BuildUpsertSql` | MERGE / ON CONFLICT 분기 |
 | | `BuildBatchInsertSql` | 복수 행 INSERT 생성 |
 | | `WrapTempTable` | 임시 테이블 생성 SQL |
 | | `NullCoalesceFn` | NULL 대체 함수명 |
-| | `StringConcatOp` | 문자열 연결 연산자 |
-| **④ 벌크 작업** | `BulkInsertAsync` | 대량 INSERT 최적화 |
-| **⑤ 스키마 조회** | `GetTableExistsSql` | 테이블 존재 확인 SQL |
-| | `GetColumnListSql` | 컬럼 목록 조회 SQL |
-| | `GetIndexListSql` | 인덱스 목록 조회 SQL |
-| **⑥ 진단** | `GetLongRunningSql` | 장기 실행 쿼리 조회 SQL |
+| | `ConcatColumns` | 문자열 연결 연산자 |
+| **③ 벌크 작업** | `BulkInsertAsync` | SqlBulkCopy / COPY 최적화 |
+| **④ 진단** | `GetLongRunningSql` | 장기 실행 쿼리 조회 SQL |
 | | `GetActiveSessionsSql` | 활성 세션 수 조회 SQL |
 
 ```csharp
+// SmartEES.Infrastructure — SmartEES 전용 SQL 방언 확장
 namespace SmartEES.Infrastructure
 {
-    /// <summary>
-    /// DBMS별 구현 차이를 캡슐화하는 드라이버 인터페이스.
-    /// 각 03.Driver/* 프로젝트가 이 인터페이스를 구현한다.
-    /// </summary>
-    public interface IDbDriver
+    public interface ISmartEESDbCapability
     {
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // ① 연결 관리
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-        /// DBMS 식별자 ("MSSQL" | "PostgreSQL" | "Oracle" | "MySQL")
-        string DbmsType { get; }
-
-        /// DBMS별 IDbConnection 인스턴스 생성
-        IDbConnection CreateConnection(string connectionString);
-
-        /// 최소 연결 확인 SQL ("SELECT 1" vs "SELECT 1 FROM DUAL")
-        string HealthCheckSql { get; }
-
-        /// 연결 가능 여부 비동기 검증 (HealthCheck 미들웨어에서 호출)
-        Task<bool> TestConnectionAsync(string connectionString);
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // ② 채번 / 시퀀스
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-        /// TXN_HIST_KEY 등 Sequence 채번 SQL
-        /// MSSQL: NEXT VALUE FOR {name}
-        /// PostgreSQL: NEXTVAL('{name}')
-        /// Oracle: {name}.NEXTVAL FROM DUAL
-        /// MySQL: 전용 채번 테이블 INSERT + LAST_INSERT_ID()
         string GetSequenceSql(string sequenceName);
-
-        /// DB 서버 현재 시각 SQL 표현식
-        /// MSSQL: GETDATE()  PostgreSQL: NOW()  Oracle: SYSDATE  MySQL: NOW()
         string GetCurrentTimeSql { get; }
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // ③ 쿼리 빌더 헬퍼
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-        /// 페이징 SQL 래퍼
-        /// MSSQL: OFFSET/FETCH  PostgreSQL/MySQL: LIMIT/OFFSET  Oracle: ROWNUM
         string WrapPaged(string innerSql, int pageSize, int pageNumber);
-
-        /// 읽기 전용 잠금 힌트 (조회 성능 최적화)
-        /// MSSQL: "WITH (NOLOCK)"  기타: string.Empty
         string NoLockHint { get; }
-
-        /// Dapper 바인딩 파라미터 접두사
-        /// MSSQL/MySQL: "@"  Oracle: ":"  PostgreSQL: "@"(Npgsql은 @ 지원)
-        string ParameterPrefix { get; }
-
-        /// UPSERT SQL 생성 (INSERT 시 중복 키 처리)
-        /// MSSQL/Oracle: MERGE INTO ... USING ...
-        /// PostgreSQL: INSERT ... ON CONFLICT DO UPDATE
-        /// MySQL: INSERT ... ON DUPLICATE KEY UPDATE
-        string BuildUpsertSql(string tableName,
-            IEnumerable<string> keyColumns,
-            IEnumerable<string> updateColumns);
-
-        /// 복수 행 단일 INSERT SQL 생성 (VALUES 다중 행)
-        /// 모든 DBMS 공통 문법이나 파라미터 이름 생성 방식 차이 처리
-        string BuildBatchInsertSql(string tableName,
-            IEnumerable<string> columns, int rowCount);
-
-        /// 임시 테이블 생성 SQL
-        /// MSSQL: CREATE TABLE #tempName (...)
-        /// PostgreSQL/MySQL: CREATE TEMPORARY TABLE tempName (...)
+        string BuildUpsertSql(string tableName, IEnumerable<string> keyColumns, IEnumerable<string> updateColumns);
+        string BuildBatchInsertSql(string tableName, IEnumerable<string> columns, int rowCount);
         string WrapTempTable(string tempTableName, string selectSql);
-
-        /// NULL 대체 함수명
-        /// MSSQL: "ISNULL"  Oracle: "NVL"  PostgreSQL/MySQL: "COALESCE"
         string NullCoalesceFn { get; }
-
-        /// 문자열 연결 연산자 표현
-        /// MSSQL: " + "  Oracle/PostgreSQL: " || "  MySQL: "CONCAT({0},{1})"
         string ConcatColumns(string col1, string col2);
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // ④ 벌크 작업
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-        /// 대량 INSERT 최적화 (DataTable 또는 IEnumerable 입력)
-        /// MSSQL: SqlBulkCopy  PostgreSQL: COPY  MySQL: MySqlBulkCopy
-        Task<int> BulkInsertAsync(IDbConnection conn, string tableName,
-            DataTable data, IDbTransaction transaction = null);
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // ⑤ 스키마 조회
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-        /// 특정 테이블 존재 여부 확인 SQL (파라미터: @tableName)
-        string GetTableExistsSql { get; }
-
-        /// 테이블 컬럼 목록 조회 SQL (파라미터: @tableName)
-        /// 결과: COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
-        string GetColumnListSql { get; }
-
-        /// 테이블 인덱스 목록 조회 SQL (파라미터: @tableName)
-        string GetIndexListSql { get; }
-
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        // ⑥ 진단 / 모니터링
-        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-        /// N초 이상 실행 중인 쿼리 조회 SQL (파라미터: @thresholdSeconds)
+        Task<int> BulkInsertAsync(DbConnection conn, string tableName, DataTable data, DbTransaction? transaction = null);
         string GetLongRunningSql { get; }
-
-        /// 현재 활성 세션 수 조회 SQL
         string GetActiveSessionsSql { get; }
     }
 }
+// 각 공급자는 IDatabaseProvider + ISmartEESDbCapability를 함께 구현
+// NexusCom.Data.MsSql.MsSqlProvider : IDatabaseProvider, ISmartEESDbCapability
+// NexusCom.Data.PostgreSql.PostgreSqlProvider : IDatabaseProvider, ISmartEESDbCapability (확장)
 ```
 
 ### 3.4 DBMS별 기능 비교표
@@ -528,356 +583,190 @@ namespace SmartEES.Infrastructure
 | **테이블 존재 확인** | `INFORMATION_SCHEMA.TABLES` | `pg_tables` | `ALL_TABLES` | `INFORMATION_SCHEMA.TABLES` |
 | **장기 쿼리 조회** | `sys.dm_exec_requests` | `pg_stat_activity` | `V$SESSION` | `information_schema.processlist` |
 
-### 3.5 드라이버 구현 상세
+### 3.5 SqlTxnContext — NexusCom ITransactionManager 기반으로 재설계
 
-#### SmartEES.Driver.MsSql — 전체 구현
-```csharp
-public class MsSqlDriver : IDbDriver
-{
-    // ① 연결 관리
-    public string DbmsType => "MSSQL";
-    public string HealthCheckSql => "SELECT 1";
-    public IDbConnection CreateConnection(string cs) => new SqlConnection(cs);
-    public async Task<bool> TestConnectionAsync(string cs)
-    {
-        try {
-            await using var conn = new SqlConnection(cs);
-            await conn.OpenAsync();
-            return true;
-        } catch { return false; }
-    }
-
-    // ② 채번 / 시퀀스
-    public string GetSequenceSql(string seq)
-        => $"SELECT CAST(NEXT VALUE FOR {seq} AS NVARCHAR(30))";
-    public string GetCurrentTimeSql => "GETDATE()";
-
-    // ③ 쿼리 빌더
-    public string WrapPaged(string sql, int size, int page)
-        => $"{sql} ORDER BY (SELECT NULL) " +
-           $"OFFSET {(page-1)*size} ROWS FETCH NEXT {size} ROWS ONLY";
-    public string NoLockHint => "WITH (NOLOCK)";
-    public string ParameterPrefix => "@";
-    public string NullCoalesceFn => "ISNULL";
-    public string ConcatColumns(string c1, string c2) => $"{c1} + {c2}";
-
-    public string BuildUpsertSql(string table,
-        IEnumerable<string> keys, IEnumerable<string> updates)
-    {
-        var keyList   = keys.ToList();
-        var updateList = updates.ToList();
-        var onClause  = string.Join(" AND ", keyList.Select(k => $"t.{k}=s.{k}"));
-        var setClause = string.Join(", ", updateList.Select(u => $"t.{u}=s.{u}"));
-        var cols      = keyList.Concat(updateList);
-        var vals      = cols.Select(c => $"@{c}");
-        return $"MERGE INTO {table} t " +
-               $"USING (SELECT {string.Join(",", vals.Select((v,i) => $"{v} AS {cols.ElementAt(i)}"))}) s " +
-               $"ON ({onClause}) " +
-               $"WHEN MATCHED THEN UPDATE SET {setClause} " +
-               $"WHEN NOT MATCHED THEN INSERT ({string.Join(",",cols)}) " +
-               $"VALUES ({string.Join(",",vals)});";
-    }
-
-    public string BuildBatchInsertSql(string table,
-        IEnumerable<string> cols, int rowCount)
-    {
-        var colList = cols.ToList();
-        var rows = Enumerable.Range(0, rowCount)
-            .Select(i => $"({string.Join(",", colList.Select(c => $"@{c}_{i}"))})");
-        return $"INSERT INTO {table} ({string.Join(",",colList)}) VALUES {string.Join(",",rows)}";
-    }
-
-    public string WrapTempTable(string name, string selectSql)
-        => $"SELECT * INTO #{name} FROM ({selectSql}) _t";
-
-    // ④ 벌크 작업
-    public async Task<int> BulkInsertAsync(IDbConnection conn,
-        string table, DataTable data, IDbTransaction tx = null)
-    {
-        var bulk = new SqlBulkCopy((SqlConnection)conn,
-            SqlBulkCopyOptions.Default, (SqlTransaction)tx)
-        { DestinationTableName = table };
-        await bulk.WriteToServerAsync(data);
-        return data.Rows.Count;
-    }
-
-    // ⑤ 스키마 조회
-    public string GetTableExistsSql =>
-        "SELECT COUNT(1) FROM INFORMATION_SCHEMA.TABLES " +
-        "WHERE TABLE_NAME = @tableName";
-    public string GetColumnListSql =>
-        "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT " +
-        "FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @tableName " +
-        "ORDER BY ORDINAL_POSITION";
-    public string GetIndexListSql =>
-        "SELECT i.name AS INDEX_NAME, i.type_desc AS INDEX_TYPE, " +
-        "       STRING_AGG(c.name, ',') AS COLUMNS " +
-        "FROM sys.indexes i " +
-        "JOIN sys.index_columns ic ON i.object_id=ic.object_id AND i.index_id=ic.index_id " +
-        "JOIN sys.columns c ON ic.object_id=c.object_id AND ic.column_id=c.column_id " +
-        "JOIN sys.tables t ON i.object_id=t.object_id " +
-        "WHERE t.name = @tableName GROUP BY i.name, i.type_desc";
-
-    // ⑥ 진단
-    public string GetLongRunningSql =>
-        "SELECT session_id, status, command, " +
-        "       CAST(total_elapsed_time/1000.0 AS DECIMAL(10,1)) AS elapsed_sec, " +
-        "       text AS sql_text " +
-        "FROM sys.dm_exec_requests r " +
-        "CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) " +
-        "WHERE total_elapsed_time/1000 >= @thresholdSeconds";
-    public string GetActiveSessionsSql =>
-        "SELECT COUNT(*) FROM sys.dm_exec_sessions WHERE is_user_process=1";
-}
-
-// DI 확장 메서드
-public static IServiceCollection AddMsSqlDriver(
-    this IServiceCollection services, IConfiguration config)
-{
-    services.AddSingleton<IDbDriver, MsSqlDriver>();
-    services.AddTransient<IDbConnection>(_ =>
-        new SqlConnection(config["Database:ConnectionString"]));
-    return services;
-}
-```
-
-#### SmartEES.Driver.PostgreSQL — 전체 구현
-```csharp
-public class PostgreSqlDriver : IDbDriver
-{
-    // ① 연결
-    public string DbmsType => "PostgreSQL";
-    public string HealthCheckSql => "SELECT 1";
-    public IDbConnection CreateConnection(string cs) => new NpgsqlConnection(cs);
-    public async Task<bool> TestConnectionAsync(string cs)
-    {
-        try {
-            await using var conn = new NpgsqlConnection(cs);
-            await conn.OpenAsync(); return true;
-        } catch { return false; }
-    }
-
-    // ② 채번
-    public string GetSequenceSql(string seq) => $"SELECT NEXTVAL('{seq}')::TEXT";
-    public string GetCurrentTimeSql => "NOW()";
-
-    // ③ 쿼리 빌더
-    public string WrapPaged(string sql, int size, int page)
-        => $"{sql} LIMIT {size} OFFSET {(page-1)*size}";
-    public string NoLockHint => string.Empty;
-    public string ParameterPrefix => "@";
-    public string NullCoalesceFn => "COALESCE";
-    public string ConcatColumns(string c1, string c2) => $"{c1} || {c2}";
-
-    public string BuildUpsertSql(string table,
-        IEnumerable<string> keys, IEnumerable<string> updates)
-    {
-        var cols = keys.Concat(updates).ToList();
-        var setClause = string.Join(", ", updates.Select(u => $"{u}=EXCLUDED.{u}"));
-        return $"INSERT INTO {table} ({string.Join(",",cols)}) " +
-               $"VALUES ({string.Join(",",cols.Select(c => "@"+c))}) " +
-               $"ON CONFLICT ({string.Join(",",keys)}) DO UPDATE SET {setClause}";
-    }
-
-    public string BuildBatchInsertSql(string table,
-        IEnumerable<string> cols, int rowCount)
-    {
-        var colList = cols.ToList();
-        var rows = Enumerable.Range(0, rowCount)
-            .Select(i => $"({string.Join(",", colList.Select(c => $"@{c}_{i}"))})");
-        return $"INSERT INTO {table} ({string.Join(",",colList)}) VALUES {string.Join(",",rows)}";
-    }
-
-    public string WrapTempTable(string name, string selectSql)
-        => $"CREATE TEMPORARY TABLE {name} AS ({selectSql})";
-
-    // ④ 벌크 (COPY 프로토콜)
-    public async Task<int> BulkInsertAsync(IDbConnection conn,
-        string table, DataTable data, IDbTransaction tx = null)
-    {
-        var npgsql = (NpgsqlConnection)conn;
-        var cols = data.Columns.Cast<DataColumn>().Select(c => c.ColumnName);
-        await using var writer = await npgsql.BeginBinaryImportAsync(
-            $"COPY {table} ({string.Join(",",cols)}) FROM STDIN (FORMAT BINARY)");
-        foreach (DataRow row in data.Rows)
-        {
-            await writer.StartRowAsync();
-            foreach (var val in row.ItemArray) await writer.WriteAsync(val);
-        }
-        await writer.CompleteAsync();
-        return data.Rows.Count;
-    }
-
-    // ⑤ 스키마
-    public string GetTableExistsSql =>
-        "SELECT COUNT(1) FROM pg_tables WHERE tablename = @tableName";
-    public string GetColumnListSql =>
-        "SELECT column_name AS COLUMN_NAME, data_type AS DATA_TYPE, " +
-        "       is_nullable AS IS_NULLABLE, column_default AS COLUMN_DEFAULT " +
-        "FROM information_schema.columns WHERE table_name = @tableName " +
-        "ORDER BY ordinal_position";
-    public string GetIndexListSql =>
-        "SELECT indexname AS INDEX_NAME, indexdef AS INDEX_DEF " +
-        "FROM pg_indexes WHERE tablename = @tableName";
-
-    // ⑥ 진단
-    public string GetLongRunningSql =>
-        "SELECT pid, state, EXTRACT(EPOCH FROM (NOW()-query_start)) AS elapsed_sec, query " +
-        "FROM pg_stat_activity " +
-        "WHERE state != 'idle' AND query_start IS NOT NULL " +
-        "AND EXTRACT(EPOCH FROM (NOW()-query_start)) >= @thresholdSeconds";
-    public string GetActiveSessionsSql =>
-        "SELECT COUNT(*) FROM pg_stat_activity WHERE state != 'idle'";
-}
-```
-
-#### SmartEES.Driver.MySQL — 전체 구현
-```csharp
-public class MySqlDriver : IDbDriver
-{
-    // ① 연결
-    public string DbmsType => "MySQL";
-    public string HealthCheckSql => "SELECT 1";
-    public IDbConnection CreateConnection(string cs) => new MySqlConnection(cs);
-    public async Task<bool> TestConnectionAsync(string cs)
-    {
-        try {
-            await using var conn = new MySqlConnection(cs);
-            await conn.OpenAsync(); return true;
-        } catch { return false; }
-    }
-
-    // ② 채번 (Sequence 없음 — 전용 채번 테이블 사용)
-    public string GetSequenceSql(string seq)
-        => $"INSERT INTO {seq}_SEQ (DUMMY) VALUES (NULL); SELECT LAST_INSERT_ID()";
-    public string GetCurrentTimeSql => "NOW()";
-
-    // ③ 쿼리 빌더
-    public string WrapPaged(string sql, int size, int page)
-        => $"{sql} LIMIT {size} OFFSET {(page-1)*size}";
-    public string NoLockHint => string.Empty;
-    public string ParameterPrefix => "@";
-    public string NullCoalesceFn => "COALESCE";
-    public string ConcatColumns(string c1, string c2) => $"CONCAT({c1},{c2})";
-
-    public string BuildUpsertSql(string table,
-        IEnumerable<string> keys, IEnumerable<string> updates)
-    {
-        var cols = keys.Concat(updates).ToList();
-        var setClause = string.Join(", ", updates.Select(u => $"{u}=VALUES({u})"));
-        return $"INSERT INTO {table} ({string.Join(",",cols)}) " +
-               $"VALUES ({string.Join(",",cols.Select(c => "@"+c))}) " +
-               $"ON DUPLICATE KEY UPDATE {setClause}";
-    }
-
-    public string BuildBatchInsertSql(string table,
-        IEnumerable<string> cols, int rowCount)
-    {
-        var colList = cols.ToList();
-        var rows = Enumerable.Range(0, rowCount)
-            .Select(i => $"({string.Join(",", colList.Select(c => $"@{c}_{i}"))})");
-        return $"INSERT INTO {table} ({string.Join(",",colList)}) VALUES {string.Join(",",rows)}";
-    }
-
-    public string WrapTempTable(string name, string selectSql)
-        => $"CREATE TEMPORARY TABLE {name} AS ({selectSql})";
-
-    // ④ 벌크
-    public async Task<int> BulkInsertAsync(IDbConnection conn,
-        string table, DataTable data, IDbTransaction tx = null)
-    {
-        var bulk = new MySqlBulkCopy((MySqlConnection)conn, (MySqlTransaction)tx)
-        { DestinationTableName = table };
-        var result = await bulk.WriteToServerAsync(data);
-        return result.RowsInserted;
-    }
-
-    // ⑤ 스키마
-    public string GetTableExistsSql =>
-        "SELECT COUNT(1) FROM INFORMATION_SCHEMA.TABLES " +
-        "WHERE TABLE_NAME = @tableName AND TABLE_SCHEMA = DATABASE()";
-    public string GetColumnListSql =>
-        "SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT " +
-        "FROM INFORMATION_SCHEMA.COLUMNS " +
-        "WHERE TABLE_NAME = @tableName AND TABLE_SCHEMA = DATABASE() " +
-        "ORDER BY ORDINAL_POSITION";
-    public string GetIndexListSql =>
-        "SELECT INDEX_NAME, INDEX_TYPE, GROUP_CONCAT(COLUMN_NAME) AS COLUMNS " +
-        "FROM INFORMATION_SCHEMA.STATISTICS " +
-        "WHERE TABLE_NAME = @tableName AND TABLE_SCHEMA = DATABASE() " +
-        "GROUP BY INDEX_NAME, INDEX_TYPE";
-
-    // ⑥ 진단
-    public string GetLongRunningSql =>
-        "SELECT ID, USER, HOST, DB, COMMAND, TIME AS elapsed_sec, INFO AS query " +
-        "FROM information_schema.PROCESSLIST " +
-        "WHERE COMMAND != 'Sleep' AND TIME >= @thresholdSeconds";
-    public string GetActiveSessionsSql =>
-        "SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE COMMAND != 'Sleep'";
-}
-```
-
-> **Oracle 드라이버** (`SmartEES.Driver.Oracle`) — `Oracle.ManagedDataAccess.Core` 참조, 동일 인터페이스 구현. `HealthCheckSql = "SELECT 1 FROM DUAL"`, `GetSequenceSql = "{seq}.NEXTVAL FROM DUAL"`, `NullCoalesceFn = "NVL"`, `ConcatColumns = "col1 || col2"`, 벌크는 `OracleBulkCopy` 사용. 현 프로젝트에서는 선택 사항.
-
-### 3.5 SqlTxnContext — IDbDriver 기반으로 간소화
+> **v1.8 변경:** `IDbDriver.GetSequenceSql()` → `ISmartEESDbCapability.GetSequenceSql()` 사용.  
+> NexusCom `ITransactionManager.ExecuteInTransactionAsync()` 패턴으로 트랜잭션 범위를 래핑한다.
 
 ```csharp
 // SmartEES.Application/SqlTxnContext.cs
+// NexusCom ITransactionManager를 통해 트랜잭션 범위 내에서 TXN_HIST_KEY 채번 및 DML 실행
 public class SqlTxnContext
 {
-    private readonly IDbDriver _driver;
+    private readonly ISmartEESDbCapability _dialect;
 
-    public string TxnHistKey { get; private set; }
+    public string TxnHistKey { get; private set; } = string.Empty;
     public string UserId     { get; }
     public string PlantId    { get; }
-    public DateTime TxnTime  { get; }
-    public IDbTransaction Transaction { get; }
+    public DateTime TxnTime  { get; } = DateTime.UtcNow;
 
-    public SqlTxnContext(IDbConnection conn, IDbDriver driver,
-        string userId, string plantId)
+    public SqlTxnContext(ISmartEESDbCapability dialect, string userId, string plantId)
     {
-        _driver     = driver;
-        UserId      = userId;
-        PlantId     = plantId;
-        TxnTime     = DateTime.UtcNow;
-        Transaction = conn.BeginTransaction();
+        _dialect = dialect;
+        UserId   = userId;
+        PlantId  = plantId;
     }
 
-    // DBMS 분기 없이 드라이버에 위임 — switch 코드 제거
-    public async Task GenerateTxnHistKeyAsync(IDbConnection conn)
+    // NexusCom ITransactionManager 패턴 — 트랜잭션 콜백 내에서 채번
+    public async Task GenerateTxnHistKeyAsync(DbConnection conn, DbTransaction txn)
     {
-        TxnHistKey = await conn.ExecuteScalarAsync<string>(
-            _driver.GetSequenceSql("SEQ_TXN_HIST_KEY"),
-            transaction: Transaction);
+        var sql = _dialect.GetSequenceSql("SEQ_TXN_HIST_KEY");
+        TxnHistKey = (await conn.ExecuteScalarAsync<string>(sql, transaction: txn))!;
     }
 }
+
+// ServiceObjectProcessor — ITransactionManager 기반 트랜잭션 래핑
+public class ServiceObjectProcessor
+{
+    private readonly ITransactionManager _txManager;
+    private readonly ISmartEESDbCapability _dialect;
+    private readonly DatabaseEndpoint _endpoint;
+
+    public async Task<int> InsertAsync(string objectId, Dictionary<string, object> values)
+    {
+        return await _txManager.ExecuteInTransactionAsync(_endpoint,
+            async (conn, txn) =>
+            {
+                var ctx = new SqlTxnContext(_dialect,
+                    UserInfo.Current.UserId, UserInfo.Current.PlantId);
+                await ctx.GenerateTxnHistKeyAsync(conn, txn);
+
+                InjectAuditFields(values, "INSERT");
+                values["TXN_HIST_KEY"] = ctx.TxnHistKey;
+
+                var objDef = await _soRepository.GetObjectDefinitionAsync(objectId);
+                var sql    = _sqlBuilder.BuildInsert(objDef.TableName, values);
+                var affected = await conn.ExecuteAsync(sql, values, txn);
+
+                if (objDef.HistoryEnabled)
+                    await CopyToHistoryAsync(ctx, conn, txn, objDef.TableName, values);
+
+                return affected;
+            });
+    }
+}
+```
+
+**NexusCom ITransactionManager 활용 흐름:**
+```
+ServiceObjectProcessor.InsertAsync()
+  └─ ITransactionManager.ExecuteInTransactionAsync(endpoint, (conn, txn) => {
+       SqlTxnContext.GenerateTxnHistKeyAsync(conn, txn)   ← ISmartEESDbCapability.GetSequenceSql
+       InjectAuditFields()                                ← CREATOR/CREATEDTIME 자동 주입
+       conn.ExecuteAsync(sql, values, txn)                ← Dapper DML
+       CopyToHistoryAsync(ctx, conn, txn, ...)            ← _HIST 자동 복사
+     })
 ```
 
 ### 3.6 드라이버 카테고리 설계
 
 드라이버는 **DB / 통신 / 캐시** 3개 카테고리로 구분한다.  
-`SmartEES.Infrastructure`의 인터페이스를 구현하고, `03.Driver/` 하위 해당 카테고리 폴더에 위치한다.
+`03.Driver/` 하위 해당 카테고리 폴더에 위치한다.
 
 ```
-카테고리        폴더               인터페이스               기본 구현
-────────────────────────────────────────────────────────────────────
-DB 드라이버     01.Db/             IDbDriver                MsSqlDriver
-통신 드라이버   02.Communication/  IMessageBrokerDriver     KafkaDriver
-                                   IEquipmentDriver         OpcUaDriver
-                                   INotificationDriver      SmtpEmailDriver
-                                   IExternalAuthDriver      LdapDriver
-캐시 드라이버   03.Cache/          ICacheDriver             RedisDriver
-────────────────────────────────────────────────────────────────────
+카테고리        폴더               인터페이스 기반                    기본 구현
+──────────────────────────────────────────────────────────────────────────────
+DB 드라이버     01.Db/             NexusCom IDatabaseProvider         PostgreSqlProvider (NexusCom)
+                                   + ISmartEESDbCapability            MsSqlProvider (신규 구현)
+통신 드라이버   02.Communication/  IMessageBrokerDriver               KafkaDriver (자체 구현)
+                                   IEquipmentDriver                   OpcUaDriver (IDeviceInterface 구현)
+                                   INotificationDriver                SmtpEmailDriver (자체 구현)
+                                   IExternalAuthDriver                LdapDriver (자체 구현)
+캐시 드라이버   03.Cache/          ICacheDriver                       RedisDriver (자체 구현)
+──────────────────────────────────────────────────────────────────────────────
 ※ 파일 스토리지(IFileStorageDriver)와 DB 인증(DbAuthService)은
   프로토콜 드라이버가 아니므로 SmartEES.Infrastructure에 직접 구현
+※ NexusCom DataHostedService가 DB ChangeFeed를 백그라운드로 처리
+※ OpcUaDriver/SerialPortDriver는 NexusFramework.Resource.IDeviceInterface 구현
 ```
 
 ---
 
 ## ── [카테고리 1] DB 드라이버 (`01.Db/`) ──────────────────────────
 
-> **섹션 3.3 ~ 3.5** 에서 IDbDriver 인터페이스와 MSSQL/PostgreSQL/MySQL/Oracle 전체 구현 완료.  
-> 이 섹션에서는 추가 설명 생략.
+> **v1.8 변경:** NexusCom `IDatabaseProvider` + `ISmartEESDbCapability` 이중 구현 패턴.  
+> PostgreSQL/MySQL은 NexusCom 서브모듈 프로젝트를 직접 사용 + `ISmartEESDbCapability` 확장 추가.  
+> **MSSQL은 NexusCom에 없으므로 `NexusCom.Data.MsSql` 신규 프로젝트 구현 필요.**
+
+#### NexusCom.Data.MsSql — 신규 구현 (MSSQL 공급자)
+
+```csharp
+// 03.Driver/01.Db/NexusCom.Data.MsSql/MsSqlProvider.cs
+namespace NexusCom.Data.MsSql;
+
+public class MsSqlProvider : IDatabaseProvider, ISmartEESDbCapability
+{
+    // ── IDatabaseProvider ──
+    public DatabaseProviderKind Kind => DatabaseProviderKind.SqlServer;
+    public string Name => "MSSQL";
+    public ProviderCapabilities Capabilities => ProviderCapabilities.All;
+
+    public DbConnection CreateConnection(string connectionString)
+        => new SqlConnection(connectionString);
+
+    public IQueryExecutor QueryExecutor { get; }
+    public IMetadataProvider MetadataProvider { get; }
+    public ITransactionManager TransactionManager { get; }
+    public IChangeFeedProvider ChangeFeedProvider { get; }  // SQL Server CDC 또는 Polling
+
+    // ── ISmartEESDbCapability ──
+    public string GetSequenceSql(string seq) => $"SELECT CAST(NEXT VALUE FOR {seq} AS NVARCHAR(30))";
+    public string GetCurrentTimeSql => "GETDATE()";
+    public string WrapPaged(string sql, int size, int page)
+        => $"{sql} ORDER BY (SELECT NULL) OFFSET {(page-1)*size} ROWS FETCH NEXT {size} ROWS ONLY";
+    public string NoLockHint => "WITH (NOLOCK)";
+    public string NullCoalesceFn => "ISNULL";
+    public string ConcatColumns(string c1, string c2) => $"{c1} + {c2}";
+
+    public string BuildUpsertSql(string table, IEnumerable<string> keys, IEnumerable<string> updates)
+    {
+        var k = keys.ToList();
+        var u = updates.ToList();
+        var on  = string.Join(" AND ", k.Select(c => $"t.{c}=s.{c}"));
+        var set = string.Join(", ",    u.Select(c => $"t.{c}=s.{c}"));
+        var all = k.Concat(u).ToList();
+        var vals = string.Join(", ", all.Select(c => $"@{c} AS {c}"));
+        return $"MERGE INTO {table} t USING (SELECT {vals}) s ON ({on}) " +
+               $"WHEN MATCHED THEN UPDATE SET {set} " +
+               $"WHEN NOT MATCHED THEN INSERT ({string.Join(",", all)}) VALUES ({string.Join(",", all.Select(c => $"s.{c}"))});";
+    }
+
+    public string BuildBatchInsertSql(string table, IEnumerable<string> cols, int rowCount)
+    {
+        var cl = cols.ToList();
+        var rows = Enumerable.Range(0, rowCount).Select(i => $"({string.Join(",", cl.Select(c => $"@{c}_{i}"))})");
+        return $"INSERT INTO {table} ({string.Join(",",cl)}) VALUES {string.Join(",",rows)}";
+    }
+
+    public string WrapTempTable(string name, string selectSql) => $"SELECT * INTO #{name} FROM ({selectSql}) _t";
+
+    public async Task<int> BulkInsertAsync(DbConnection conn, string table, DataTable data, DbTransaction? tx = null)
+    {
+        var bulk = new SqlBulkCopy((SqlConnection)conn, SqlBulkCopyOptions.Default, (SqlTransaction?)tx)
+            { DestinationTableName = table };
+        await bulk.WriteToServerAsync(data);
+        return data.Rows.Count;
+    }
+
+    public string GetLongRunningSql =>
+        "SELECT session_id, status, command, CAST(total_elapsed_time/1000.0 AS DECIMAL(10,1)) AS elapsed_sec, " +
+        "text AS sql_text FROM sys.dm_exec_requests r CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) " +
+        "WHERE total_elapsed_time/1000 >= @thresholdSeconds";
+    public string GetActiveSessionsSql => "SELECT COUNT(*) FROM sys.dm_exec_sessions WHERE is_user_process=1";
+}
+
+// DI 등록 확장 메서드
+public static class MsSqlServiceCollectionExtensions
+{
+    public static IServiceCollection AddMsSqlProvider(this IServiceCollection services, IConfiguration config)
+    {
+        var provider = new MsSqlProvider(config);
+        services.AddSingleton<IDatabaseProvider>(provider);
+        services.AddSingleton<ISmartEESDbCapability>(provider);
+        return services;
+    }
+}
+```
 
 ---
 
@@ -1406,23 +1295,24 @@ public class LdapDriver : IExternalAuthDriver
     <ProjectReference Include="..\SmartEES.Application\SmartEES.Application.csproj" />
     <ProjectReference Include="..\SmartEES.Infrastructure\SmartEES.Infrastructure.csproj" />
     <ProjectReference Include="..\SmartEES.Infrastructure.Messaging\SmartEES.Infrastructure.Messaging.csproj" />
-    <!-- 드라이버는 조건부 참조 또는 런타임 로드 -->
-    <ProjectReference Include="..\..\03.Driver\SmartEES.Driver.MsSql\SmartEES.Driver.MsSql.csproj"
+    <!-- DB 드라이버: NexusCom IDatabaseProvider 기반 조건부 참조 -->
+    <ProjectReference Include="..\..\03.Driver\01.Db\NexusCom.Data.MsSql\NexusCom.Data.MsSql.csproj"
                       Condition="'$(DbmsType)'=='MSSQL' or '$(DbmsType)'==''" />
-    <ProjectReference Include="..\..\03.Driver\SmartEES.Driver.PostgreSQL\SmartEES.Driver.PostgreSQL.csproj"
+    <ProjectReference Include="..\..\submodules\NexusCom\src\NexusCom.Data.PostgreSql\NexusCom.Data.PostgreSql.csproj"
                       Condition="'$(DbmsType)'=='PostgreSQL'" />
-    <ProjectReference Include="..\..\03.Driver\SmartEES.Driver.MySQL\SmartEES.Driver.MySQL.csproj"
+    <ProjectReference Include="..\..\submodules\NexusCom\src\NexusCom.Data.MySql\NexusCom.Data.MySql.csproj"
                       Condition="'$(DbmsType)'=='MySQL'" />
   </ItemGroup>
 </Project>
 ```
 
-#### SmartEES.Driver.MsSql.csproj
+#### NexusCom.Data.MsSql.csproj (신규 구현 — 03.Driver/01.Db/)
 ```xml
+<!-- 03.Driver/01.Db/NexusCom.Data.MsSql/NexusCom.Data.MsSql.csproj -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <RootNamespace>SmartEES.Driver.MsSql</RootNamespace>
+    <RootNamespace>NexusCom.Data.MsSql</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.*" />
@@ -1430,7 +1320,10 @@ public class LdapDriver : IExternalAuthDriver
     <PackageReference Include="AspNetCore.HealthChecks.SqlServer" Version="8.*" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\02.Backend\SmartEES.Infrastructure\SmartEES.Infrastructure.csproj" />
+    <!-- NexusCom 추상화 인터페이스 참조 (IDatabaseProvider, ITransactionManager 등) -->
+    <ProjectReference Include="..\..\..\..\submodules\NexusCom\src\NexusCom.Data.Abstractions\NexusCom.Data.Abstractions.csproj" />
+    <!-- SmartEES 전용 확장 인터페이스 -->
+    <ProjectReference Include="..\..\..\02.Backend\SmartEES.Infrastructure\SmartEES.Infrastructure.csproj" />
   </ItemGroup>
 </Project>
 ```
@@ -2111,6 +2004,10 @@ app.MapHub<DeployHub>("/hubs/deploy");
 
 #### 5.3.1 RuleExecutor (현행 Java Rule 클래스 대체)
 
+> **v1.8 변경:** NexusFramework에 별도 RuleEngine이 없다. 비즈니스 룰은 C# Application Service로 구현하되,  
+> `[WorkflowCallable]` 어트리뷰트를 붙여 NexusFramework의 `AssemblyInvocationNode`가 워크플로우에서 직접 호출할 수 있게 한다.  
+> 기존 `IRule` / `RuleRegistry` 인터페이스는 유지하고, 서비스 메서드에 어트리뷰트를 추가하는 방식으로 확장한다.
+
 현행 Java s-rule-* 번들의 각 비즈니스 룰을 C# 서비스 클래스로 1:1 전환.
 
 ```csharp
@@ -2145,6 +2042,68 @@ namespace SmartEES.Application.Rules
     }
 }
 ```
+
+#### NexusFramework WorkflowCallable 연계 — AssemblyInvocationNode 패턴
+
+NexusFramework의 `AssemblyInvocationNode`는 외부 어셈블리의 메서드를 워크플로우 노드로 호출한다.  
+`[WorkflowCallable]` 어트리뷰트로 마킹된 서비스 메서드는 워크플로우 JSON에서 `AssemblyInvocation` 타입 노드로 직접 참조된다.
+
+```csharp
+// SmartEES.Application.Rules/LotTrackInService.cs
+// [WorkflowCallable] 어트리뷰트 → 워크플로우 파일에서 AssemblyInvocationNode로 호출 가능
+public class LotTrackInService : IRule
+{
+    public string RuleName => "TrackInLot";
+
+    [WorkflowCallable(DisplayName = "Lot TrackIn", Category = "EPT",
+        Description = "Lot TrackIn 처리 — EPT_TB_CARRIER_LOT 삽입 + LOT 상태 변경")]
+    public async Task<RuleResult> ExecuteAsync(RuleContext context)
+    {
+        // ... 비즈니스 로직 구현
+        return RuleResult.Success();
+    }
+}
+
+// SmartEES.Application.Rules/RecipeApprovalService.cs
+public class RecipeApprovalService : IRule
+{
+    [WorkflowCallable(DisplayName = "Recipe Approve", Category = "RMS")]
+    public async Task<RuleResult> ApproveAsync(
+        string recipeId, string approverId, string approvalLevel,
+        NodeContext nodeContext,          // NexusFramework 자동 주입
+        CancellationToken cancellationToken)
+    {
+        // ... 권한 검증 + 상태 변경
+    }
+}
+```
+
+**워크플로우 JSON에서 AssemblyInvocationNode로 호출:**
+```json
+{
+  "version": "1.0",
+  "graph": {
+    "nodes": [
+      {
+        "id": "trackIn",
+        "type": "AssemblyInvocation",
+        "properties": {
+          "assemblyPath": "./Modules/Micube.SmartEES.Ept.dll",
+          "typeName": "SmartEES.Application.Rules.LotTrackInService",
+          "methodName": "ExecuteAsync",
+          "arguments": { "lotId": "LOT-001", "equipmentId": "EQ-001" }
+        }
+      }
+    ]
+  }
+}
+```
+
+**워크플로우 실행 시 메서드 자동 주입:**
+- `NodeContext` 파라미터 → NexusFramework가 자동 주입
+- `CancellationToken` 파라미터 → NexusFramework가 자동 주입
+- `IServiceProvider` 파라미터 → NexusFramework가 자동 주입 (DI 컨테이너 접근)
+- 기타 파라미터 → `arguments` JSON에서 매핑
 
 #### 5.3.2 현행 Java 룰 → C# 서비스 매핑
 
@@ -2462,768 +2421,297 @@ namespace SmartEES.Infrastructure
 
 ---
 
-## 6. UI 레이어 상세 설계
+## 6. UI 레이어 상세 설계 (C# Blazor 웹)
 
-### 6.1 애플리케이션 부트스트랩
+현행 C# WinForms를 **ASP.NET Core Blazor Server** 기반 웹 애플리케이션으로 마이그레이션합니다.  
+WinForms 폼 클래스는 Blazor 컴포넌트(`.razor`)로 1:1 대응 전환하며, DevExpress WinForms 컨트롤은 DevExpress Blazor 컴포넌트로 교체합니다.
 
-#### 6.1.1 Program.cs (엔트리 포인트)
+### 6.1 아키텍처 개요
 
-> **⚠️ 실제 소스 확인 사항:** 현행 Program.cs는 `MainForm`을 직접 실행하지 않는다.  
-> `LoginForm`을 먼저 실행하고, InjectModule은 **3개**(App + SmartControls + Fdc)를 순서대로 로드한다.
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                  NexaOne.Web  (Blazor Server)                 │
+│                       브라우저 (Chrome / Edge)                     │
+│                                                                    │
+│   ┌─────────────────────────────────────────────────────────────┐ │
+│   │                  Blazor 컴포넌트 트리                          │ │
+│   │   MainLayout ─ NavMenu ─ 업무 페이지 (.razor)                 │ │
+│   │   SmartConditionGrid / SmartGrid / SmartPopup 공통 컴포넌트   │ │
+│   └──────────────────────────────┬──────────────────────────────┘ │
+└─────────────────────────────────┼──────────────────────────────────┘
+                SignalR (WebSocket) │ + 직접 서비스 주입 (DI)
+┌─────────────────────────────────▼──────────────────────────────────┐
+│                    NexaOne.API / NexaOne.Server                 │
+│   ASP.NET Core Web API  +  Spring.NET 도메인 서비스                  │
+│   Application Service (EquipmentService, UserService 등)            │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Blazor Server** 선택 이유:
+- 인트라넷 MES 환경 — 낮은 레이턴시, 서버 자원 집중 관리
+- C# 코드 공유 — 도메인 모델·서비스를 UI에서 직접 참조
+- WinForms 마이그레이션에 가장 자연스러운 전환 경로
+
+### 6.2 솔루션 추가 프로젝트
+
+```
+src/
+├── 01.Web/
+│   ├── NexaOne.Web/                    ← Blazor Server 앱 (새 프로젝트)
+│   │   ├── Pages/                          ← 업무 페이지 (.razor)
+│   │   │   ├── Auth/Login.razor
+│   │   │   ├── Mdm/Equipment.razor
+│   │   │   ├── Ept/EquipmentAlarm.razor
+│   │   │   ├── Fdc/FdcInterlockRule.razor
+│   │   │   ├── Rms/Recipe.razor
+│   │   │   ├── Qms/Defect.razor
+│   │   │   ├── Ems/WorkOrder.razor
+│   │   │   ├── Ppm/ProductionPlan.razor
+│   │   │   ├── Dlv/DeliveryOrder.razor
+│   │   │   └── Sys/User.razor
+│   │   ├── Shared/                         ← 공통 레이아웃·컴포넌트
+│   │   │   ├── MainLayout.razor
+│   │   │   ├── NavMenu.razor
+│   │   │   └── SmartConditionGrid.razor    ← SmartConditionBaseForm 대응
+│   │   ├── Components/                     ← 재사용 UI 컴포넌트
+│   │   │   ├── SmartGrid.razor
+│   │   │   ├── SmartPopup.razor
+│   │   │   └── ConditionPanel.razor
+│   │   ├── Program.cs
+│   │   └── NexaOne.Web.csproj
+```
+
+### 6.3 기술 스택 매핑
+
+| 현행 WinForms | 타겟 Blazor |
+|--------------|-------------|
+| `XtraForm` (DevExpress) | `ComponentBase` (Blazor) |
+| `SmartConditionBaseForm` | `SmartConditionGrid.razor` 컴포넌트 |
+| `SmartBandedGrid` (DevExpress GridControl) | DevExpress Blazor `DxGrid` |
+| `SmartPopupBaseForm` | `DxPopup` 오버레이 컴포넌트 |
+| `ConditionCollection` (13종 컨트롤) | `DxComboBox`, `DxTextBox`, `DxDateRangePicker` 등 |
+| `MainForm` (MDI) | `MainLayout.razor` + 탭 라우팅 |
+| `LoginForm` | `Login.razor` |
+| Ninject DI | ASP.NET Core 내장 DI |
+| `Application.Run()` | `WebApplication.Run()` |
+| `DevExpress XtraBars` (메뉴) | `DxMenu` / NavMenu 컴포넌트 |
+| `SmartUserControl` | 재사용 `.razor` 컴포넌트 |
+
+### 6.4 Program.cs (Blazor Server 부트스트랩)
 
 ```csharp
-// SmartEES.App/Program.cs  (현행 NinjectProgram 구조 그대로 유지)
-internal static class Program
-{
-    internal static IKernel Kernel { get; private set; }
+// NexaOne.Web/Program.cs
+var builder = WebApplication.CreateBuilder(args);
 
-    [STAThread]
-    static void Main()
-    {
-        ApplicationConfiguration.Initialize();
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
 
-        // ① 3개 InjectModule 순서대로 로드 (현행 동일)
-        Kernel = new StandardKernel();
-        Kernel.Load(new SmartEES.App.Modules.InjectModule());                          // 앱 레이어 바인딩
-        Kernel.Load(new Micube.Framework.SmartControls.Modules.InjectModule());        // 공통 컨트롤 바인딩
-        Kernel.Load(new Micube.SmartEES.Fdc.Modules.InjectModule());                   // FDC 전용 바인딩
+// 도메인 서비스 등록 (모듈별 서비스 직접 주입)
+builder.Services.AddNexaOneEESServices(builder.Configuration);
+builder.Services.AddScoped<EquipmentService>();
+builder.Services.AddScoped<UserService>();
+// ... 나머지 9개 모듈 서비스
 
-        // ② MainForm이 아닌 LoginForm으로 앱 시작
-        LoginForm loginForm = new LoginForm();
-        Application.Run(loginForm);
-        // 로그인 성공 시 LoginForm 내부에서 MainForm을 생성·표시한다
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options => {
+        options.LoginPath = "/login";
+        options.ExpireTimeSpan = TimeSpan.FromHours(8);
+    });
+
+var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapRazorComponents<App>()
+    .AddInteractiveServerRenderMode();
+
+app.Run();
+```
+
+### 6.5 MainLayout.razor (MainForm 대응)
+
+```razor
+@inherits LayoutComponentBase
+
+<div class="main-layout">
+    <header class="app-header">
+        <span class="logo">NexaOne SmartEES</span>
+        <span class="user-info">@UserInfo.Current.UserId</span>
+        <select @onchange="OnLanguageChange">
+            <option value="ko-KR">한국어</option>
+            <option value="en-US">English</option>
+        </select>
+        <button @onclick="Logout">로그아웃</button>
+    </header>
+
+    <NavMenu />
+
+    <div class="tab-container">
+        @Body
+    </div>
+
+    <footer class="status-bar">
+        @UserInfo.Current.PlantId | 서버 연결됨
+    </footer>
+</div>
+```
+
+### 6.6 SmartConditionGrid.razor (SmartConditionBaseForm 대응)
+
+현행 `SmartConditionBaseForm`을 제네릭 Blazor 컴포넌트로 추상화합니다.
+
+```razor
+@typeparam TRow
+@code {
+    [Parameter] public RenderFragment ConditionPanel { get; set; } = default!;
+    [Parameter] public List<GridColumn> Columns { get; set; } = new();
+    [Parameter] public Func<Task<IEnumerable<TRow>>> OnSearch { get; set; } = default!;
+    [Parameter] public Func<IEnumerable<TRow>, Task> OnSave { get; set; } = default!;
+    [Parameter] public EventCallback<TRow> OnDelete { get; set; }
+
+    private IEnumerable<TRow> _rows = [];
+    private bool _loading;
+
+    private async Task Search() {
+        _loading = true;
+        _rows = await OnSearch();
+        _loading = false;
+    }
+}
+
+<div class="condition-panel">
+    @ConditionPanel
+    <DxButton Text="검색" Click="Search" />
+</div>
+
+<DxToolbar>
+    <DxToolbarItem Text="저장" Click="SaveAll" />
+    <DxToolbarItem Text="삭제" Click="DeleteSelected" />
+    <DxToolbarItem Text="Excel" Click="ExportExcel" />
+</DxToolbar>
+
+<DxGrid Data="_rows" @ref="_grid" EditMode="GridEditMode.EditRow">
+    @foreach (var col in Columns) {
+        <DxGridDataColumn FieldName="@col.Field" Caption="@col.Label" Width="@col.Width" />
+    }
+</DxGrid>
+```
+
+### 6.7 업무 페이지 예시 — Equipment.razor
+
+```razor
+@page "/mdm/equipment"
+@inject EquipmentService EquipmentService
+
+<SmartConditionGrid TRow="EquipmentRow"
+    OnSearch="SearchAsync"
+    OnSave="SaveAsync"
+    Columns="_columns">
+
+    <ConditionPanel>
+        <DxComboBox Data="_plants" @bind-Value="_plantId" />
+        <DxTextBox @bind-Text="_equipmentId" Placeholder="설비ID" />
+        <DxTextBox @bind-Text="_equipmentName" Placeholder="설비명" />
+    </ConditionPanel>
+
+</SmartConditionGrid>
+
+@code {
+    private string? _plantId, _equipmentId, _equipmentName;
+    private IEnumerable<PlantDto> _plants = [];
+
+    private readonly List<GridColumn> _columns = [
+        new("EQUIPMENTID",   "설비ID",   150),
+        new("EQUIPMENTNAME", "설비명",   200),
+        new("PLANTID",       "플랜트",   150),
+        new("EQUIPMENTTYPE", "설비유형", 150),
+    ];
+
+    private async Task<IEnumerable<EquipmentRow>> SearchAsync() {
+        var result = await EquipmentService.GetByPlantAsync(_plantId);
+        return result.Select(EquipmentRow.From);
+    }
+
+    private async Task SaveAsync(IEnumerable<EquipmentRow> rows) {
+        foreach (var row in rows.Where(r => r.State == "added"))
+            await EquipmentService.AddAsync(row.ToDomain());
+        foreach (var row in rows.Where(r => r.State == "modified"))
+            await EquipmentService.UpdateAsync(row.ToDomain());
     }
 }
 ```
 
-**부트스트랩 흐름 (현행 재현):**
-```
-Program.Main()
-  │
-  ├─ Kernel.Load(App.InjectModule)          ← 메뉴/설정/네트워크 서비스 바인딩
-  ├─ Kernel.Load(SmartControls.InjectModule) ← DevExpress 컨트롤 공통 서비스 바인딩
-  ├─ Kernel.Load(Fdc.InjectModule)          ← FDC 실시간 수집 서비스 바인딩
-  │
-  └─ Application.Run(LoginForm)
-       │  [로그인 성공]
-       ├─ FrameworkSettings.Initialize()     ← 언어/메시지/리소스 초기화
-       ├─ UserInfo.Current 설정              ← 인증 정보 싱글톤에 저장
-       ├─ MainForm mainForm = new MainForm()
-       ├─ mainForm.Show()
-       └─ LoginForm 숨김 (Hide, Owner 유지)
+### 6.8 로그인 화면 — Login.razor
+
+```razor
+@page "/login"
+@inject IJwtService JwtService
+@inject NavigationManager Nav
+
+<div class="login-container">
+    <h2>NexaOne SmartEES</h2>
+    <DxTextBox @bind-Text="_userId" Placeholder="사용자 ID" />
+    <DxTextBox @bind-Text="_password" Password="true" Placeholder="비밀번호" />
+    <DxButton Text="로그인" Click="LoginAsync" />
+    @if (_error != null) { <span class="error">@_error</span> }
+</div>
+
+@code {
+    private string _userId = "", _password = "", _error = "";
+
+    private async Task LoginAsync() {
+        var result = await JwtService.ValidateAsync(_userId, _password);
+        if (result.IsSuccess)
+            Nav.NavigateTo("/");
+        else
+            _error = result.Error.Description;
+    }
+}
 ```
 
-#### 6.1.2 InjectModule.cs (3개 모듈 역할 분리)
+### 6.9 폼 클래스 → Blazor 컴포넌트 매핑
+
+| 현행 WinForms 클래스 | Blazor 컴포넌트 / 페이지 | 위치 |
+|----------------------|--------------------------|------|
+| `SmartConditionBaseForm` | `SmartConditionGrid<TRow>.razor` | `Shared/` |
+| `SmartConditionForm` | `SmartConditionOnly.razor` | `Shared/` |
+| `HistoryForm` | `SmartHistoryGrid<TRow>.razor` | `Shared/` |
+| `SmartPopupCheckGridForm` | `SmartPopupSingle<TRow>.razor` | `Components/` |
+| `SmartPopupMultiGridForm` | `SmartPopupMulti<TRow>.razor` | `Components/` |
+| `SmartUserControl` | 재사용 `.razor` 컴포넌트 | `Components/` |
+| `MainForm` | `MainLayout.razor` | `Shared/` |
+| `LoginForm` | `Login.razor` | `Pages/Auth/` |
+| 각 업무 폼 (9개 도메인) | 도메인별 `.razor` 페이지 | `Pages/{Domain}/` |
+
+### 6.10 다국어 지원
 
 ```csharp
-// ─────────────────────────────────────────────
-// [1] SmartEES.App.Modules.InjectModule
-//     → 앱 레이어 전담 (메뉴, 설정, 네트워크, 즐겨찾기)
-// ─────────────────────────────────────────────
-public class InjectModule : NinjectModule
+// ILanguageService.cs
+public interface ILanguageService
 {
-    public override void Load()
-    {
-        Bind<IMenuRepository>().To<MenuRepository>().InSingletonScope();
-        Bind<ISettingConfig>().To<SettingConfig>().InSingletonScope();
-        Bind<ILoginSettingRepository>().To<LoginSettingRepository>();
-        Bind<IFavoriteSettingRepository>().To<FavoriteSettingRepository>();
-        Bind<IRecentMenuSettingRepository>().To<RecentMenuSettingRepository>();
-        Bind<MainForm>().ToSelf().InSingletonScope();
-    }
-}
-
-// ─────────────────────────────────────────────
-// [2] Micube.Framework.SmartControls.Modules.InjectModule
-//     → 공통 컨트롤/UI 프레임워크 서비스
-// ─────────────────────────────────────────────
-public class InjectModule : NinjectModule   // namespace 상이
-{
-    public override void Load()
-    {
-        Bind<ISmartGridService>().To<SmartGridService>().InSingletonScope();
-        Bind<IConditionPanelService>().To<ConditionPanelService>().InSingletonScope();
-        Bind<ILanguageService>().To<LanguageService>().InSingletonScope();
-        Bind<IToolbarMetadataRepository>().To<ToolbarMetadataRepository>();
-    }
-}
-
-// ─────────────────────────────────────────────
-// [3] Micube.SmartEES.Fdc.Modules.InjectModule
-//     → FDC 실시간 수집 전용 서비스
-// ─────────────────────────────────────────────
-public class InjectModule : NinjectModule   // namespace 상이
-{
-    public override void Load()
-    {
-        Bind<IFdcCollectorService>().To<FdcCollectorService>().InSingletonScope();
-        Bind<IFdcInterlockService>().To<FdcInterlockService>().InSingletonScope();
-        Bind<IFdcKafkaConsumer>().To<FdcKafkaConsumer>().InSingletonScope();
-    }
+    string Current { get; }
+    string Get(string key);
+    Task SetLanguageAsync(string langCode);
 }
 ```
 
-### 6.2 MainForm (메인 애플리케이션 윈도우)
-
-```csharp
-// 현행 MainForm 구조 유지, .NET 8 호환
-public partial class MainForm : XtraForm
-{
-    private readonly IOpenMenu _menuRepository;
-
-    public MainForm(IOpenMenu menuRepository)
-    {
-        _menuRepository = menuRepository;
-        InitializeComponent();
-    }
-
-    // 로그인 처리
-    private bool Login()
-    // 초기 폼 로딩 (DEBUG 모드)
-    private void LoadFirstForm()
-
-    // 이벤트 핸들러 초기화
-    protected override void OnLoad(EventArgs e)
-    {
-        InitializeMenuBar();       // 메뉴바 구성 (DB에서 로드)
-        InitializeActionResult();  // 액션 결과 핸들러
-        InitializeFavoriteMenu();  // 즐겨찾기 메뉴
-        InitializeRecentMenu();    // 최근 메뉴
-        InitializeLanguageLabel(); // 언어 레이블
-        InitializeUserInfo();      // 사용자 정보 표시
-    }
-
-    // 메뉴 바 구성 (현행 DevExpress XtraBars 유지)
-    private void InitializeMenuBar()
-    // 폼 열기 (현행 동적 DLL 로딩 방식 유지)
-    public void OpenMenu(string menuId, Dictionary<string, object> parameters = null)
-}
-```
-
-**MainForm 화면 구성:**
-```
-┌─────────────────────────────────────────────────────┐
-│  [로고] SmartEES                    [사용자] [언어] [X] │ ← 타이틀바
-├─────────────────────────────────────────────────────┤
-│  메뉴1 │ 메뉴2 │ 메뉴3 │ 메뉴4 │ 즐겨찾기 │ 최근항목   │ ← 메뉴바
-├─────────────────────────────────────────────────────┤
-│                                                     │
-│              문서 영역 (MDI 스타일)                   │
-│          ┌─────────────────────────┐               │
-│          │  동적으로 로드되는 폼     │               │
-│          └─────────────────────────┘               │
-│                                                     │
-├─────────────────────────────────────────────────────┤
-│  상태바: 현재 사용자 / 플랜트 / 서버 연결 상태           │
-└─────────────────────────────────────────────────────┘
-```
-
-### 6.3 LoginForm (로그인 화면)
-
-```csharp
-public partial class LoginForm : XtraForm
-{
-    // 현행 P/Invoke 효과 유지 (Aero 그림자, 드래그)
-    [DllImport("dwmapi.dll")]
-    private static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref MARGINS margins);
-
-    // 초기화
-    private void InitializeControls()
-    {
-        // 언어 선택 ComboBox: ko-KR, en-US, zh-CN, vi-VN (현행 유지)
-        // 플랜트 선택 ComboBox: DB에서 로드
-        // ID 저장 체크박스
-    }
-
-    // 비동기 로그인 (현행 구조 유지)
-    private async Task LoginCoreAsync(string userId, string password)
-    {
-        // 1. 서버에 인증 요청 (현행 MessageWorker 사용)
-        // 2. 비밀번호 변경 필요 시 → ChangePasswordOnLogin 폼
-        // 3. FrameworkSettings.Initialize() 호출
-        // 4. 언어/플랜트 설정 적용
-        // 5. DialogResult = DialogResult.OK
-    }
-
-    // 유효성 검증
-    private bool LoginValidation()
-    // 설정 저장 (로그인 정보 persistence)
-    private void SetConfigInformation()
-}
-```
-
-**LoginForm 화면 구성:**
-```
-┌────────────────────────────────────┐
-│          [로고] SmartEES            │
-│                                    │
-│  언어:   [▼ 한국어          ]       │
-│  플랜트: [▼ DEFAULT         ]       │
-│                                    │
-│  아이디: [________________]         │
-│  비밀번호:[________________]         │
-│          [□] 아이디 저장             │
-│                                    │
-│          [    로그인    ]            │
-│                                    │
-│  [사용 신청]        [비밀번호 분실]   │
-└────────────────────────────────────┘
-```
-
-### 6.4 FormCreator (동적 폼 팩토리)
-
-```csharp
-// 현행 Reflection 기반 동적 DLL 로딩 유지
-public static class FormCreator
-{
-    public static Form CreateForm(
-        string uiid,
-        string menuId,
-        string menuName,
-        string programId,  // 네임스페이스.클래스명
-        Dictionary<string, object> parameters = null)
-    {
-        // 1. programId 에서 어셈블리 경로 추출
-        //    예: "Micube.SmartEES.Mdm.Equipment"
-        //        → DLL_PATH/Micube.SmartEES.Mdm.dll
-        // 2. Assembly.LoadFrom(dllPath)
-        // 3. Activator.CreateInstance(type)
-        // 4. SmartBaseForm 속성 설정
-        //    - UIId, MenuId, LanguageKey, ConnectionKey
-        // 5. SmartConditionBaseForm이면 toolbar 메타데이터 로딩
-        //    - DB 쿼리: SELECT OPTIONS FROM SYS_TB_TOOLBAR WHERE MENUID = @menuId
-        //    - JSON 파싱하여 ToolbarItem[] 설정
-        // 6. 메뉴 오픈 이력 기록 (MessageWorker)
-        return form;
-    }
-}
-```
-
-### 6.5 FrameworkSettings (초기화)
-
-```csharp
-public static class FrameworkSettings
-{
-    public static void Initialize()
-    {
-        InitializeMessage();   // UserContext를 모든 메시지에 자동 주입
-        InitializeResource();  // UI 리소스 (아이콘, 스킨 등)
-        InitializeLanguage();  // 다국어 사전/메시지 DB에서 로드
-    }
-
-    private static void InitializeMessage()
-    {
-        // NetworkSettings.MessageSettings 이벤트 구독
-        // 모든 MessageWorker 전송 전 UserContext 자동 삽입
-        // UserInfo.Current 싱글톤 참조 (static 클래스가 아님)
-        NetworkSettings.MessageSettings += (msg) =>
-        {
-            msg.Head.UserId              = UserInfo.Current.UserId;
-            msg.Head.Uiid                = UserInfo.Current.Uiid;
-            msg.Transaction.LanguageType = UserInfo.Current.LanguageType;
-            msg.Transaction.PlantId      = UserInfo.Current.PlantId;
-        };
-    }
-
-    private static void InitializeLanguage()
-    {
-        // GET: GetDictionaryList → Language.Dictionary 로드
-        // GET: GetMessageList → Language.Message 로드
-        // GET: GetLanguageTypeList → Language.LanguageTypes 로드
-    }
-}
-```
-
-### 6.6 SmartBaseForm (폼 기본 클래스)
-
-```csharp
-namespace Micube.Framework.SmartControls.Forms
-{
-    public class SmartBaseForm : XtraForm, ISupportMultiLanguage, IEventAggregatorSubscriber
-    {
-        // 현행 속성 유지
-        public string UIId { get; set; }
-        public string MenuId { get; set; }
-        public string LanguageKey { get; set; }  // "Menu_UIId_MenuId" 형식
-        public string ConnectionKey { get; set; }
-        public Dictionary<DateTime, Dictionary<string, object>> ConditionList { get; }
-
-        // Ninject 의존성 조회
-        protected T GetFromInject<T>(string name = null)
-
-        // 다른 폼 열기
-        public void OpenMenu(string menuId, Dictionary<string, object> parameters = null)
-
-        // 검색 조건 저장/로딩 (현행 Jots 서비스 대응 → JSON 파일 저장)
-        public void SaveCondition()
-        public void LoadConditionList()
-
-        // 즐겨찾기 추가
-        public void AddFavorite()
-
-        // 언어 변경 처리 (EventAggregator 구독)
-        public virtual void ChangeLanguage()
-
-        // DPI 인식 더블 버퍼링 (현행 WS_EX_COMPOSITED 유지)
-        protected override CreateParams CreateParams
-        {
-            get
-            {
-                var cp = base.CreateParams;
-                cp.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
-                return cp;
-            }
-        }
-
-        // 폼 닫힐 때 이벤트 해제 + 연결 이력 저장
-        protected override void OnClosed(EventArgs e)
-    }
-}
-```
-
-### 6.7 SmartConditionBaseForm (검색/결과 폼 기본 클래스)
-
-```csharp
-public abstract class SmartConditionBaseForm : SmartBaseForm, ISmartConditionForm
-{
-    // 검색 조건 컬렉션
-    public ConditionCollection Conditions { get; } = new ConditionCollection();
-    public bool ConditionsVisible { get; set; } = true;
-    public bool ShowSaveCompleteMessage { get; set; } = true;
-
-    // 페이징 그리드 연결
-    private SmartBandedGrid _pagingGrid;
-    public void InitPaging(SmartBandedGrid grid)
-
-    // 추상 메서드 (서브클래스 구현 필수)
-    protected abstract void InitializeContent();          // UI 초기화
-    protected abstract Task OnSearchAsync();              // 검색 로직
-    
-    // 가상 메서드 (선택적 오버라이드)
-    protected virtual Task OnToolbarSaveClick()           // 저장
-    protected virtual Task OnToolbarDeleteClick()         // 삭제
-    protected virtual void OnToolbarExportClick()         // Excel 내보내기
-    protected virtual bool OnValidateContent()            // 유효성 검증
-
-    // 단축키 (현행 유지)
-    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
-    {
-        // F5 → 검색, Ctrl+S → 저장, F4 → 검색조건 토글
-    }
-
-    // 검색 조건 추가 API (현행 Fluent 방식 유지)
-    // conditions.Add("EQUIPMENTID").AsTextBox().WithLabel("설비ID")
-    // conditions.Add("PLANTID").AsComboBox(query: "GetPlantList")
-}
-```
-
-### 6.8 SmartBandedGrid (데이터 그리드)
-
-```csharp
-public class SmartBandedGrid : XtraUserControl
-{
-    // DevExpress BandedGridView 래퍼 (현행 유지)
-    
-    // Fluent 컬럼 추가 API (현행 완전 유지)
-    public GridColumnBuilder AddTextBoxColumn(string fieldName)
-    public GridColumnBuilder AddComboBoxColumn(string fieldName)
-    public GridColumnBuilder AddLanguageColumn(string fieldName)  // 다국어 콤보
-    public GridColumnBuilder AddPopupColumn(string fieldName)     // 팝업 선택
-    public GridColumnBuilder AddCheckBoxColumn(string fieldName)
-    public GridColumnBuilder AddDateColumn(string fieldName)
-    public GridColumnBuilder AddButtonColumn(string fieldName)
-
-    // 데이터 바인딩
-    public void SetDataSource(DataTable dataTable)
-    public DataTable GetChangedRows()  // 변경된 행만 추출
-    public bool CheckValidation()      // 유효성 검증
-
-    // 멀티 선택 지원 (현행 체크박스 방식 유지)
-    public List<DataRow> GetCheckedRows()
-
-    // Excel 내보내기 (현행 DevExpress 내보내기 유지)
-    public void ExportToExcel(string fileName = null)
-}
-
-// Fluent 빌더 (현행 완전 유지)
-public class GridColumnBuilder
-{
-    public GridColumnBuilder WithLabel(string labelKey)          // 다국어 레이블
-    public GridColumnBuilder AsRequired()                        // 필수 입력
-    public GridColumnBuilder AsReadOnly()                        // 읽기 전용
-    public GridColumnBuilder WithWidth(int width)
-    public GridColumnBuilder WithDefaultValue(object value)      // 정적 기본값
-    public GridColumnBuilder WithDefaultValue(Func<object> factory) // 동적 기본값 (런타임 평가)
-    // 예: .WithDefaultValue(() => UserInfo.Current.PlantId)
-    public GridColumnBuilder WithQuery(string queryName)         // 콤보 데이터 소스
-    public GridColumnBuilder WithPopupForm(string formName)      // 팝업 선택 폼 지정
-    public GridColumnBuilder AsKey()                             // 키 컬럼
-    public GridColumnBuilder WithVisible(bool visible)
-    public GridColumnBuilder AsAudit()                           // 감사 필드 (읽기전용, 회색)
-    public GridColumnBuilder WithFormat(string format)           // 날짜/숫자 표시 형식
-    public GridColumnBuilder WithMinWidth(int minWidth)          // 최소 너비
-}
-```
-
-### 6.9 ConditionCollection (검색 조건)
-
-> **⚠️ 실제 소스 확인 사항:** 현행 ConditionBuilder가 지원하는 컨트롤 타입은 **총 13종**이다.  
-> 기존 설계에는 5종만 기술됐으며, 누락된 8종(SpinEdit, CheckEdit, TreeList, SelectPopup,  
-> MemoEdit, ColorEdit, Button, LabelEditor)을 아래에 추가한다.
-
-```csharp
-public class ConditionCollection
-{
-    // Fluent 조건 추가
-    public ConditionBuilder Add(string fieldName)
-    public Dictionary<string, object> GetValues()
-
-    // 페이징 파라미터 추가
-    public void AddPageParameter(int pageIndex, int pageSize)
-
-    // 조건 초기화 (Reset 버튼 연동)
-    public void Reset()
-}
-
-public class ConditionBuilder
-{
-    // ─────────────────────────────────────────
-    // [기존 5종]
-    // ─────────────────────────────────────────
-    public ConditionBuilder AsTextBox(string defaultValue = null)
-    public ConditionBuilder AsComboBox(string queryName = null,
-        Dictionary<string, object> items = null)
-    public ConditionBuilder AsDateRange(string fromField, string toField)
-    public ConditionBuilder AsMultiSelect(string queryName)  // 다중선택 팝업 그리드
-
-    // ─────────────────────────────────────────
-    // [추가 8종 — 실제 소스 확인]
-    // ─────────────────────────────────────────
-
-    // ① 숫자 스핀 입력 (DevExpress SpinEdit 대응)
-    //    min/max/increment 범위 설정, 기본값 지정
-    public ConditionBuilder AsSpinEdit(decimal minValue = 0,
-        decimal maxValue = decimal.MaxValue, decimal increment = 1,
-        decimal defaultValue = 0)
-
-    // ② 체크박스 (DevExpress CheckEdit 대응)
-    //    true/false 단일 조건; DB 쿼리에는 'Y'/'N' 또는 1/0으로 변환
-    public ConditionBuilder AsCheckEdit(bool defaultChecked = false,
-        string trueValue = "Y", string falseValue = "N")
-
-    // ③ 트리 팝업 선택 (DevExpress TreeList 팝업)
-    //    계층 구조 데이터(설비 트리, 공정 트리, BOM 트리 등) 선택
-    public ConditionBuilder AsTreeList(string queryName,
-        string keyField = "ID", string parentField = "PARENTID",
-        string displayField = "NAME")
-
-    // ④ 팝업 단건/다건 선택 (SmartSelectPopupEdit 연동)
-    //    별도 팝업 폼을 열어 값을 선택하고 반환
-    public ConditionBuilder AsSelectPopup(string popupFormName,
-        string valueMember, string displayMember,
-        Dictionary<string, object> searchCondition = null)
-
-    // ⑤ 메모 입력 (DevExpress MemoEdit 대응)
-    //    여러 줄 텍스트 입력; 검색 조건보다는 필터 메모에 사용
-    public ConditionBuilder AsMemoEdit(int lines = 3)
-
-    // ⑥ 색상 선택 (DevExpress ColorEdit 대응)
-    //    색상 코드(ARGB HEX)를 조건 값으로 전달
-    public ConditionBuilder AsColorEdit(Color defaultColor = default)
-
-    // ⑦ 액션 버튼 (검색 조건 패널 내 버튼)
-    //    일반적으로 "조회" 외 별도 액션(빠른 선택, 초기화 등) 처리
-    public ConditionBuilder AsButton(string buttonText,
-        Action<string> clickHandler)
-
-    // ⑧ 레이블 편집기 (인라인 다국어 레이블 편집)
-    //    다국어 Caption을 직접 수정하는 UI 편집기 컨트롤
-    public ConditionBuilder AsLabelEditor(string labelKey)
-
-    // ─────────────────────────────────────────
-    // [공통 옵션 — 13종 모두 적용 가능]
-    // ─────────────────────────────────────────
-    public ConditionBuilder WithLabel(string labelKey)
-    public ConditionBuilder AsRequired()
-    public ConditionBuilder WithWidth(int width)
-    public ConditionBuilder WithDefaultValue(Func<object> defaultValueFactory)
-    public ConditionBuilder WithToolTip(string toolTipKey)
-    public ConditionBuilder AsReadOnly()
-}
-```
-
-**13종 컨트롤 타입 요약표:**
-
-| # | 메서드 | 대응 DevExpress | 주요 용도 |
-|---|--------|-----------------|-----------|
-| 1 | `AsTextBox` | `TextEdit` | 키워드 검색 |
-| 2 | `AsComboBox` | `ComboBoxEdit` / `LookUpEdit` | 코드/목록 선택 |
-| 3 | `AsDateRange` | `DateEdit` × 2 | 기간 범위 검색 |
-| 4 | `AsMultiSelect` | 팝업 그리드 | 다중 코드 선택 |
-| 5 | `AsSpinEdit` | `SpinEdit` | 숫자 범위 조건 |
-| 6 | `AsCheckEdit` | `CheckEdit` | 단일 Y/N 필터 |
-| 7 | `AsTreeList` | `TreeList` 팝업 | 계층 구조 선택 |
-| 8 | `AsSelectPopup` | `ButtonEdit` + 팝업 폼 | 업무 팝업 단건/다건 선택 |
-| 9 | `AsMemoEdit` | `MemoEdit` | 여러 줄 메모 필터 |
-| 10 | `AsColorEdit` | `ColorEdit` | 색상 코드 조건 |
-| 11 | `AsButton` | `SimpleButton` | 인라인 액션 버튼 |
-| 12 | `AsLabelEditor` | 커스텀 에디터 | 다국어 레이블 편집 |
-| 13 | *(DateEdit 단일)* | `DateEdit` | 단일 날짜 선택 |
-
----
-
-### 6.10 폼 클래스 전체 계층도
-
-> **⚠️ 실제 소스 확인 사항:** 현행 폼 계층은 최소 **9개 클래스/인터페이스**로 구성된다.  
-> 기존 설계에는 3개(SmartBaseForm, SmartConditionBaseForm, LoginForm)만 기술됐으며,  
-> 누락된 6개(SmartConditionForm, SmartPopupBaseForm, SmartPopupCheckGridForm,  
-> SmartPopupMultiGridForm, HistoryForm, SmartUserControl) + ISmartPopup 인터페이스를 추가한다.
-
-```
-XtraForm (DevExpress)
-  └─ SmartBaseForm                         ← 6.6 (기본 폼: 다국어, EventAggregator, DI)
-       ├─ SmartConditionBaseForm            ← 6.7 (검색조건 + 결과 그리드 폼)
-       │    ├─ SmartConditionForm           ← 6.10.1 (검색 조건 패널만 있는 단순 조회 폼)
-       │    └─ HistoryForm                  ← 6.10.4 (이력/감사 로그 조회 전용 폼)
-       ├─ SmartPopupBaseForm                ← 6.10.2 (팝업 기본 클래스)
-       │    ├─ SmartPopupCheckGridForm      ← 6.10.3a (팝업 체크박스 단건 선택)
-       │    └─ SmartPopupMultiGridForm      ← 6.10.3b (팝업 체크박스 다건 선택)
-       └─ (기타 커스텀 폼)
-
-UserControl
-  └─ SmartUserControl                       ← 6.10.5 (재사용 가능한 UserControl 기반 위젯)
-
-인터페이스
-  └─ ISmartPopup                            ← 6.10.6 (팝업 공통 계약)
-```
-
-### 6.10.1 SmartConditionForm
-
-조건 패널만 있고 결과 그리드가 없는 단순 조회/입력 화면. `SmartConditionBaseForm`보다 가벼운 기본 클래스.
-
-```csharp
-namespace Micube.Framework.SmartControls.Forms
-{
-    /// <summary>
-    /// 검색 조건 패널만 포함하는 폼 기본 클래스.
-    /// 결과를 그리드 대신 커스텀 컨트롤로 표시하는 화면에 사용.
-    /// </summary>
-    public abstract class SmartConditionForm : SmartBaseForm
-    {
-        public ConditionCollection Conditions { get; } = new ConditionCollection();
-
-        // 폼 초기화 (조건 컨트롤 배치)
-        protected abstract void InitializeContent();
-
-        // 조회 버튼 클릭 시 실행
-        protected abstract Task OnSearchAsync();
-
-        // 조건 유효성 검증 (필수 조건 누락 시 false 반환)
-        protected virtual bool ValidateConditions()
-        {
-            return Conditions.GetValues()
-                .Where(c => c.Value is ConditionMeta m && m.IsRequired)
-                .All(c => c.Value != null);
-        }
-    }
-}
-```
-
-### 6.10.2 SmartPopupBaseForm (팝업 기본 클래스)
-
-```csharp
-namespace Micube.Framework.SmartControls.Forms
-{
-    /// <summary>
-    /// 모든 팝업 폼의 기본 클래스.
-    /// ISmartPopup 인터페이스를 구현하여 호출자에게 선택 결과를 전달한다.
-    /// </summary>
-    public abstract class SmartPopupBaseForm : SmartBaseForm, ISmartPopup
-    {
-        // 팝업에 전달된 검색 조건 (호출자가 설정)
-        public Dictionary<string, object> SearchCondition { get; set; }
-            = new Dictionary<string, object>();
-
-        // 선택 완료 시 선택된 행(들)을 반환
-        public event EventHandler<PopupSelectEventArgs> SelectCompleted;
-
-        // 확인 버튼 클릭 — 선택된 항목 반환
-        protected void ConfirmSelection(DataRow[] selectedRows)
-        {
-            SelectCompleted?.Invoke(this, new PopupSelectEventArgs(selectedRows));
-            DialogResult = DialogResult.OK;
-            Close();
-        }
-
-        // 취소 버튼 클릭
-        protected void CancelSelection()
-        {
-            DialogResult = DialogResult.Cancel;
-            Close();
-        }
-
-        // 팝업 그리드 빌드 (서브클래스에서 구현)
-        protected abstract void BuildPopupGrid();
-        protected abstract Task LoadPopupDataAsync();
-    }
-
-    public class PopupSelectEventArgs : EventArgs
-    {
-        public DataRow[] SelectedRows { get; }
-        public PopupSelectEventArgs(DataRow[] rows) => SelectedRows = rows;
-    }
-}
-```
-
-### 6.10.3 SmartPopupCheckGridForm / SmartPopupMultiGridForm
-
-```csharp
-namespace Micube.Framework.SmartControls.Forms
-{
-    /// <summary>
-    /// 팝업 단건 선택 폼.
-    /// 라디오 선택 또는 행 더블클릭으로 단 1건만 반환한다.
-    /// </summary>
-    public class SmartPopupCheckGridForm : SmartPopupBaseForm
-    {
-        public string ValueMember  { get; set; }   // 반환할 컬럼명 (예: "EQUIPMENTID")
-        public string DisplayMember { get; set; }  // 표시할 컬럼명 (예: "EQUIPMENTNAME")
-
-        // 그리드 더블클릭 또는 확인 버튼 → ConfirmSelection(1건)
-        protected override void BuildPopupGrid() { /* 단건 선택 그리드 구성 */ }
-        protected override async Task LoadPopupDataAsync() { /* 팝업 데이터 조회 */ }
-    }
-
-    /// <summary>
-    /// 팝업 다건 선택 폼.
-    /// 체크박스 열을 통해 N건을 동시에 선택하고 List&lt;DataRow&gt;로 반환한다.
-    /// </summary>
-    public class SmartPopupMultiGridForm : SmartPopupBaseForm
-    {
-        public string CheckColumnName { get; set; } = "CHK";  // 체크박스 열명
-
-        // 선택된 체크박스 행 전체 반환
-        public List<DataRow> GetCheckedRows()
-        {
-            return Grid.GetCheckedRows().Cast<DataRow>().ToList();
-        }
-
-        protected override void BuildPopupGrid() { /* 다건 선택 그리드 구성 */ }
-        protected override async Task LoadPopupDataAsync() { /* 팝업 데이터 조회 */ }
-    }
-}
-```
-
-### 6.10.4 HistoryForm (이력/감사 로그 전용 폼)
-
-```csharp
-namespace Micube.Framework.SmartControls.Forms
-{
-    /// <summary>
-    /// 이력 조회 전용 폼. _HIST 테이블 또는 SYS_TB_LOG를 기반으로 변경 이력을 표시한다.
-    /// </summary>
-    public abstract class HistoryForm : SmartConditionBaseForm
-    {
-        // 이력 조회 대상 오브젝트 ID (예: "EQUIPMENT_HIST")
-        public string HistObjectId { get; set; }
-
-        // 기간 기본값: 오늘 ~ 오늘 (조건 패널에 자동 배치)
-        protected override void InitializeContent()
-        {
-            Conditions.Add("FROMDATE").AsDateRange("FROMDATE", "TODATE")
-                .WithLabel("조회기간").AsRequired();
-            // 서브클래스에서 추가 조건 정의
-        }
-
-        // 이력 그리드 컬럼: TXN_HIST_KEY, CREATOR, CREATEDTIME, 변경 전/후 값
-        protected override void InitializeGrid()
-        {
-            Grid.AddTextBoxColumn("TXN_HIST_KEY").WithLabel("트랜잭션키").WithWidth(200);
-            Grid.AddTextBoxColumn("MODIFIER").WithLabel("수정자").WithWidth(120);
-            Grid.AddDateColumn("MODIFIEDTIME").WithLabel("수정일시").WithWidth(160);
-            // 서브클래스에서 도메인 컬럼 추가
-        }
-    }
-}
-```
-
-### 6.10.5 SmartUserControl (재사용 UserControl)
-
-```csharp
-namespace Micube.Framework.SmartControls
-{
-    /// <summary>
-    /// 여러 폼에 재사용되는 UserControl 기반 위젯 기본 클래스.
-    /// SmartBaseForm과 동일한 다국어·EventAggregator 인터페이스를 제공한다.
-    /// 예: 설비 상태 패널, 타임라인 패널, 알림 배지 등.
-    /// </summary>
-    public abstract class SmartUserControl : UserControl,
-        ISupportMultiLanguage, IEventAggregatorSubscriber
-    {
-        public string LanguageKey { get; set; }
-        public string ConnectionKey { get; set; }
-
-        // 다국어 텍스트 갱신
-        public virtual void ChangeLanguage() { /* 자식 컨트롤 Caption 갱신 */ }
-
-        // EventAggregator 구독 해제 (Dispose 시 자동 호출)
-        protected override void Dispose(bool disposing)
-        {
-            EventAggregator.Unsubscribe(this);
-            base.Dispose(disposing);
-        }
-    }
-}
-```
-
-### 6.10.6 ISmartPopup (팝업 공통 계약)
-
-```csharp
-namespace Micube.Framework.SmartControls
-{
-    /// <summary>
-    /// SmartSelectPopupEdit가 팝업 폼에 의존하는 계약.
-    /// 팝업 폼은 이 인터페이스를 구현하여 SelectCompleted 이벤트를 발행한다.
-    /// </summary>
-    public interface ISmartPopup
-    {
-        Dictionary<string, object> SearchCondition { get; set; }
-        event EventHandler<PopupSelectEventArgs> SelectCompleted;
-    }
-
-    /// <summary>
-    /// SmartBaseForm이 직접 팝업으로 사용될 때의 확장 계약.
-    /// (일부 팝업은 SmartPopupBaseForm이 아닌 SmartBaseForm에서 직접 파생)
-    /// </summary>
-    public interface ISmartCustomPopup : ISmartPopup
-    {
-        // 팝업을 여는 쪽에서 단건/다건 모드를 지정
-        bool MultiSelect { get; set; }
-        // 표시 컬럼 → 반환 컬럼 매핑
-        string ValueMember  { get; set; }
-        string DisplayMember { get; set; }
-    }
-}
-```
-
-**폼 계층 전체 요약표:**
-
-| 클래스 / 인터페이스 | 상속/구현 | 주요 역할 |
-|--------------------|-----------|-----------|
-| `SmartBaseForm` | `XtraForm` | 다국어, EventAggregator, DI, WS_EX_COMPOSITED |
-| `SmartConditionBaseForm` | `SmartBaseForm` | 조건 패널 + 그리드 + 툴바 메타데이터 |
-| `SmartConditionForm` | `SmartConditionBaseForm` | 조건만 있는 단순 조회/입력 |
-| `HistoryForm` | `SmartConditionBaseForm` | _HIST 테이블 이력 조회 전용 |
-| `SmartPopupBaseForm` | `SmartBaseForm`, `ISmartPopup` | 팝업 기본 (이벤트 계약 구현) |
-| `SmartPopupCheckGridForm` | `SmartPopupBaseForm` | 팝업 단건 선택 |
-| `SmartPopupMultiGridForm` | `SmartPopupBaseForm` | 팝업 다건 체크 선택 |
-| `SmartUserControl` | `UserControl` | 재사용 위젯 (다국어+EventAggregator) |
-| `ISmartPopup` | — | 팝업 기본 계약 (SearchCondition + 이벤트) |
-| `ISmartCustomPopup` | `ISmartPopup` | 단건/다건 모드 확장 계약 |
-
+`SYS_TB_MULTI_LANGUAGE` 테이블에서 로드하여 `IMemoryCache`로 캐싱합니다.  
+언어 전환 시 `StateHasChanged()` 트리거로 전체 컴포넌트 재렌더링합니다.
+
+| 언어 | 코드 |
+|------|------|
+| 한국어 | `ko-KR` |
+| 영어 | `en-US` |
+| 중국어 (간체) | `zh-CN` |
+| 베트남어 | `vi-VN` |
+| 라오어 | `lo-LO` |
 ---
 
 ## 10. 도메인 모듈별 상세 설계
+
+> **v1.9 전환 안내:** 이 섹션의 C# WinForms 코드 블록은 **현행 참조용**입니다.  
+> 타겟 구현에서는 `SmartConditionBaseForm` 상속 코드 대신 **섹션 6.3의 JSON 메타데이터** 방식으로 화면을 정의합니다.  
+> 각 도메인 화면의 조건·컬럼·레이아웃 구성은 SmartUX 웹 디자이너에서 관리하고, 백엔드 서비스는 `NexaOne.{Module}` C# 도메인 모듈에서 구현합니다.
 
 ### 10.1 Micube.SmartEES.Mdm (마스터 데이터 관리)
 
@@ -3406,6 +2894,9 @@ public class EquipmentAlarmHistory : SmartConditionBaseForm
 
 ### 10.4 Micube.SmartEES.Fdc (설비데이터 수집)
 
+> **v1.8 변경:** `FdcCollectorService`가 NexusFramework `PlantController` + `Machine` + `IDeviceInterface` 패턴을 사용하여 설비 연결 및 데이터 수집을 관리한다.  
+> 개별 설비는 `Machine`으로 등록하고, `PlantController`가 전체 설비 라이프사이클(초기화/시작/정지/긴급정지)을 조율한다.
+
 #### 10.4.1 화면 목록
 
 | 화면 | 기본 클래스 | 관련 테이블 | 설명 |
@@ -3418,24 +2909,184 @@ public class EquipmentAlarmHistory : SmartConditionBaseForm
 | FDC 알람 설정 | `SmartConditionBaseForm` | `FDC_TB_ALARM_CONFIG` | 임계치 기반 알람 설정 |
 | FDC 알람 이력 | `HistoryForm` | `FDC_TB_ALARM_HISTORY` | FDC 알람 발생 이력 |
 
-#### 10.4.2 실시간 수집 아키텍처
+#### 10.4.2 실시간 수집 아키텍처 — NexusFramework PlantController 기반
 
 ```
-설비 OPC-UA/시리얼 → FdcCollectorService (Kafka Producer)
-                      ↓ Kafka Topic: fdc.rawdata
-FdcConsumerService (Kafka Consumer)
+PlantController (NexusFramework)
+  ├─ Machine["EQ-001"] (OpcUaMachine)    ← IDeviceInterface → OpcUaDriver
+  ├─ Machine["EQ-002"] (SerialMachine)   ← IDeviceInterface → SerialPortDriver
+  └─ HostStateMachine (IStateMachine<HostState, HostCommand>)
+       └─ InitializeAsync → StartAsync → StopAsync / AbortAsync
+
+각 Machine.StartAsync() 내 수집 루프:
+  IDeviceInterface.Subscribe(nodeIds, onDataReceived)
+    └─ EquipmentDataPoint 수신 → FdcCollectorService.OnDataReceived()
+         └─ Kafka Producer: fdc.rawdata 토픽 발행
+
+FdcConsumerService (Kafka Consumer) ← fdc.rawdata 구독
   ├─ 파라미터 유효성 검사
   ├─ FDC_TB_COLLECT_DATA 저장
   ├─ 인터락 규칙 평가 → FDC_TB_INTERLOCK_HISTORY
-  └─ SignalR Hub → 클라이언트 실시간 차트 갱신
+  └─ SignalR FdcHub → 클라이언트 실시간 차트 갱신
 ```
 
-#### 10.4.3 인터락 규칙 엔진
+#### 10.4.3 NexusFramework Machine + PlantController 구현
 
 ```csharp
+// Micube.SmartEES.Fdc/Services/FdcMachine.cs
+// NexusFramework Machine을 상속하여 설비별 FDC 수집 로직 구현
+public class FdcMachine : Machine
+{
+    private readonly IEquipmentDriver _driver;       // OpcUaDriver or SerialPortDriver
+    private readonly IMessageBrokerDriver _kafka;    // KafkaDriver
+    private readonly FdcParameterConfig _config;
+
+    public FdcMachine(string name, IEquipmentDriver driver,
+        IMessageBrokerDriver kafka, FdcParameterConfig config)
+        : base(name)
+    {
+        _driver = driver;
+        _kafka  = kafka;
+        _config = config;
+    }
+
+    // NexusFramework Machine 오버라이드
+    protected override async Task OnStartAsync(CancellationToken ct)
+    {
+        await _driver.ConnectAsync(_config.Endpoint, ct);
+
+        // IDeviceInterface 구독 시작
+        await _driver.SubscribeAsync(
+            _config.NodeIds,
+            dataPoint => _ = OnDataReceivedAsync(dataPoint),
+            _config.SamplingIntervalMs);
+    }
+
+    protected override async Task OnStopAsync(CancellationToken ct)
+    {
+        await _driver.DisconnectAsync();
+    }
+
+    private async Task OnDataReceivedAsync(EquipmentDataPoint dp)
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            EquipmentId = Name,
+            ParameterId = dp.NodeId,
+            Value       = dp.Value,
+            Timestamp   = dp.Timestamp,
+            Quality     = dp.Quality
+        });
+        await _kafka.PublishAsync("fdc.rawdata", Name, payload);
+    }
+}
+
+// Micube.SmartEES.Fdc/Services/FdcCollectorHostedService.cs
+// ASP.NET Core IHostedService — PlantController 생명주기 관리
+public class FdcCollectorHostedService : IHostedService
+{
+    private readonly PlantController _plantController;
+
+    public FdcCollectorHostedService(
+        IConfiguration config, IEquipmentDriverFactory driverFactory,
+        IMessageBrokerDriver kafka, IFdcParameterRepository repo)
+    {
+        _plantController = new PlantController();
+
+        // DB에서 활성 설비 목록 로드 → Machine 등록
+        var equipments = repo.GetActiveFdcEquipmentsAsync().GetAwaiter().GetResult();
+        foreach (var eq in equipments)
+        {
+            var driver = driverFactory.Create(eq.ProtocolType, eq.DriverConfig);
+            var machine = new FdcMachine(eq.EquipmentId, driver, kafka, eq.ParameterConfig);
+            _plantController.RegisterMachine(machine);
+        }
+    }
+
+    public async Task StartAsync(CancellationToken ct)
+    {
+        await _plantController.InitializeAsync(ct);
+        await _plantController.StartAsync(ct);
+    }
+
+    public async Task StopAsync(CancellationToken ct)
+    {
+        await _plantController.StopAsync(ct);
+        await _plantController.DisposeAsync();
+    }
+}
+```
+
+#### 10.4.4 PlantController 상태 머신 — 설비 제어
+
+```csharp
+// PlantController는 NexusFramework HostStateMachine을 통해 전체 설비 상태를 관리
+// SmartEES API에서 설비 일괄 제어
+[HttpPost("fdc/equipment/start")]
+public async Task<IActionResult> StartAll()
+{
+    await _plantController.StartAsync();
+    return Ok(new { state = _plantController.StateMachine?.Current });
+}
+
+[HttpPost("fdc/equipment/stop")]
+public async Task<IActionResult> StopAll()
+{
+    await _plantController.StopAsync();
+    return Ok();
+}
+
+[HttpPost("fdc/equipment/abort")]
+public async Task<IActionResult> AbortAll([FromBody] string reason)
+{
+    await _plantController.AbortAsync(reason);
+    return Ok(new { state = _plantController.StateMachine?.Current });
+}
+
+// 특정 설비만 개별 제어
+[HttpPost("fdc/equipment/{equipmentId}/manual")]
+public async Task<IActionResult> EnterManual(string equipmentId)
+{
+    await _plantController.EnterManualAsync();
+    return Ok(new { operationMode = _plantController.OperationMode });
+}
+```
+
+#### 10.4.5 인터락 규칙 엔진
+
+```csharp
+// FdcConsumerService에서 Kafka 메시지 수신 후 인터락 평가
+public class FdcConsumerService : BackgroundService
+{
+    protected override async Task ExecuteAsync(CancellationToken ct)
+    {
+        await _kafka.SubscribeAsync("fdc.rawdata", "fdc-consumer",
+            async (key, payload) =>
+            {
+                var dp = JsonSerializer.Deserialize<FdcDataPoint>(payload)!;
+
+                // DB 저장
+                await _collectRepo.SaveAsync(dp);
+
+                // 인터락 규칙 평가
+                var result = await _interlockService.EvaluateAsync(
+                    dp.EquipmentId, dp.ParameterId, dp.Value);
+
+                if (result.IsTriggered)
+                {
+                    if (result.Action == "STOP")
+                        await _plantController.AbortAsync($"인터락: {dp.ParameterId} = {dp.Value}");
+                    await _alarmHub.SendAlarmAsync(dp.EquipmentId, result.Message);
+                }
+
+                // SignalR 실시간 푸시
+                await _fdcHub.BroadcastDataPointAsync(dp);
+            }, ct);
+    }
+}
+
 public class FdcInterlockService : IFdcInterlockService
 {
-    // 수집 데이터 수신 시 모든 활성 인터락 규칙 평가
     public async Task<InterlockResult> EvaluateAsync(
         string equipmentId, string parameterId, decimal value)
     {
@@ -3789,6 +3440,9 @@ public string GetQuerySql(string queryId)
 
 ## 8. 워크플로우 엔진 설계
 
+> **v1.8 변경:** 커스텀 `WorkflowEngine` → **NexusFramework** `WorkflowManager` / `WorkflowExecutor` / `FlowExecutionEngine` 기반으로 완전 대체.  
+> 비즈니스 로직은 `AssemblyInvocationNode` + `[WorkflowCallable]` 패턴으로 연결.
+
 ### 8.1 현행 구조 (Java 워크플로우)
 
 ```json
@@ -3803,130 +3457,211 @@ public string GetQuerySql(string queryId)
 }
 ```
 
-### 8.2 타겟 C# 구현 (Elsa Workflow 또는 커스텀)
+### 8.2 타겟 C# 구현 — NexusFramework 기반
+
+#### 핵심 클래스 구조 (submodules/NexusFramework/src/NexusFramework/Workflow/)
+
+```
+WorkflowManager (Tooling/WorkflowManager.cs)
+  └─ 다중 WorkflowExecutor 관리, 동시성 제어, 로드밸런싱
+      └─ WorkflowExecutor (Tooling/WorkflowExecutor.cs)
+            └─ .workflow / .aigraph.json 파일 로드 + FlowExecutionEngine 실행
+                 └─ FlowExecutionEngine (Runtime/FlowExecutionEngine.cs)
+                      └─ FlowDocument (Graph/FlowDocument.cs) 그래프 실행
+                           └─ INode.ExecuteAsync(NodeContext, CancellationToken)
+                                └─ AssemblyInvocationNode (Nodes/AssemblyInvocationNode.cs)
+                                     └─ [WorkflowCallable] 메서드 리플렉션 호출
+```
+
+#### 현행 Java 개념 → NexusFramework 매핑표
+
+| 현행 Java 개념 | NexusFramework 대응 | 비고 |
+|----------------|---------------------|------|
+| `WorkflowDefinition` | `Workflow` + `FlowDocument` | JSON 직렬화 가능 |
+| `WorkflowTask` | `NodeDefinition` | id, type, properties, ports |
+| `tasks[].next[]` (순서 연결) | `EdgeDefinition` (From→To 엣지) | 그래프 기반 |
+| `startTask` | 의존성이 없는 첫 번째 NodeDefinition | 진입 노드 |
+| `endTask` | 의존하는 노드가 없는 마지막 NodeDefinition | 종료 노드 |
+| `templateTask` | `AssemblyInvocationNode` (type: `"AssemblyInvocation"`) | 어셈블리 메서드 호출 |
+| `splitTask` (병렬) | 팬아웃 엣지 (한 노드 → 여러 노드 엣지) | 자동 병렬 실행 |
+| `joinTask` (동기화) | 팬인 의존성 (여러 노드 → 한 노드) | 자동 완료 대기 |
+| `WorkflowContext.SharedData` | `NodeContext.TryGetResult(nodeId, out result)` | 이전 노드 결과 참조 |
+| `WorkflowResult` | `FlowExecutionReport` | results: Dict<nodeId, NodeResult> |
+
+#### 워크플로우 파일 형식 (*.workflow / *.aigraph.json)
+
+```json
+// Config/Workflow/RecipeApproval.workflow
+{
+  "version": "1.0",
+  "properties": { "id": "RecipeApproval", "name": "레시피 승인 워크플로우" },
+  "graph": {
+    "nodes": [
+      {
+        "id": "validateRecipe",
+        "type": "AssemblyInvocation",
+        "properties": {
+          "assemblyPath": "./Modules/Micube.SmartEES.Rms.dll",
+          "typeName": "SmartEES.Application.Rules.RecipeValidationService",
+          "methodName": "ValidateAsync",
+          "arguments": { "recipeId": "{{recipeId}}" }
+        }
+      },
+      {
+        "id": "sendApprovalRequest",
+        "type": "AssemblyInvocation",
+        "properties": {
+          "assemblyPath": "./Modules/Micube.SmartEES.Rms.dll",
+          "typeName": "SmartEES.Application.Rules.RecipeApprovalService",
+          "methodName": "RequestApprovalAsync",
+          "arguments": { "recipeId": "{{recipeId}}", "requesterId": "{{userId}}" }
+        }
+      },
+      {
+        "id": "notifyApprovers",
+        "type": "AssemblyInvocation",
+        "properties": {
+          "assemblyPath": "./Modules/Micube.SmartEES.Rms.dll",
+          "typeName": "SmartEES.Application.Rules.NotificationService",
+          "methodName": "SendApprovalNotificationAsync"
+        }
+      }
+    ],
+    "edges": [
+      { "id": "e1", "from": { "nodeId": "validateRecipe", "port": "out" },     "to": { "nodeId": "sendApprovalRequest", "port": "in" } },
+      { "id": "e2", "from": { "nodeId": "sendApprovalRequest", "port": "out" }, "to": { "nodeId": "notifyApprovers", "port": "in" } }
+    ]
+  }
+}
+```
+
+#### DI 등록 및 WorkflowManager 사용
 
 ```csharp
-namespace SmartEES.Application.Workflow
+// SmartEES.API/Program.cs
+// WorkflowManager + WorkflowExecutor + AssemblyInvocationNode 등록
+builder.Services.AddSingleton<INodeRegistry>(sp =>
 {
-    // 워크플로우 정의 (현행 JSON 구조 호환)
-    public class WorkflowDefinition
+    var registry = new NodeRegistry();
+    registry.RegisterAssemblyInvocationNode();    // AssemblyInvocationNode 등록
+    return registry;
+});
+builder.Services.AddSingleton(sp =>
+{
+    var registry = sp.GetRequiredService<INodeRegistry>();
+    var executor = new WorkflowExecutor(registry);
+    return new WorkflowManager(executor);         // 단일 Executor
+});
+
+// 워크플로우 실행 예시 (API Controller)
+public class WorkflowController : ControllerBase
+{
+    private readonly WorkflowManager _manager;
+
+    [HttpPost("execute/{workflowId}")]
+    public async Task<IActionResult> Execute(string workflowId,
+        [FromBody] Dictionary<string, object> parameters,
+        CancellationToken ct)
     {
-        public string WorkflowId { get; set; }
-        public string Name { get; set; }
-        public List<WorkflowTask> Tasks { get; set; }
-    }
-
-    public class WorkflowTask
-    {
-        public string Id { get; set; }
-        public string Name { get; set; }
-        public WorkflowTaskType Type { get; set; }  // Start, Template, End
-        public string Destination { get; set; }
-        public Dictionary<string, object> Property { get; set; }
-        public string[] Next { get; set; }
-        public string[] Prev { get; set; }
-    }
-
-    // ─────────────────────────────────────────────
-    // 워크플로우 실행 요청 DTO
-    // ─────────────────────────────────────────────
-    /// <summary>
-    /// WorkflowEngine.ExecuteAsync(workflowId, request) 호출 시 전달하는 입력 DTO.
-    /// 현행 Java 워크플로우의 Map&lt;String, Object&gt; params 를 대체한다.
-    /// </summary>
-    public class WorkflowRequest
-    {
-        // 워크플로우에 전달할 입력 파라미터 (태스크 간 공유 초기값)
-        public Dictionary<string, object> Parameters { get; set; } = new();
-
-        // 실행 사용자 컨텍스트 (null이면 UserInfo.Current 값 사용)
-        public string UserId     { get; set; }
-        public string PlantId    { get; set; }
-        public string LanguageType { get; set; }
-
-        // 외부에서 트랜잭션을 직접 제어할 때 주입 (없으면 엔진 내부에서 자동 생성)
-        public IDbConnection ExternalConnection  { get; set; }
-        public IDbTransaction ExternalTransaction { get; set; }
-
-        // 헬퍼 팩토리
-        public static WorkflowRequest Create(Dictionary<string, object> parameters)
-            => new() { Parameters = parameters };
-    }
-
-    // ─────────────────────────────────────────────
-    // 워크플로우 실행 컨텍스트
-    // ─────────────────────────────────────────────
-    public class WorkflowContext
-    {
-        public string WorkflowId    { get; set; }
-        public string UserId        { get; set; }
-        public string PlantId       { get; set; }
-        public string LanguageType  { get; set; }
-        public IDbConnection Connection  { get; set; }
-        public IDbTransaction Transaction { get; set; }
-        // 태스크 간 공유 데이터 (이전 태스크 결과 전달)
-        public Dictionary<string, object> SharedData { get; } = new();
-        // 현재 실행 중인 태스크 ID
-        public string CurrentTaskId { get; set; }
-    }
-
-    // ─────────────────────────────────────────────
-    // 워크플로우 실행 결과
-    // ─────────────────────────────────────────────
-    public class WorkflowResult
-    {
-        public bool Success { get; set; }
-        public string ErrorCode { get; set; }
-        public string ErrorMessage { get; set; }
-        public string FailedTaskId { get; set; }
-        public Dictionary<string, object> OutputData { get; set; }
-        // 실행된 태스크 순서 (디버깅/감사)
-        public List<string> ExecutedTasks { get; set; } = new();
-    }
-
-    // ─────────────────────────────────────────────
-    // 워크플로우 실행 엔진
-    // ─────────────────────────────────────────────
-    public class WorkflowEngine
-    {
-        // 워크플로우 정의 파일 로딩 (현행 XML/JSON 파일 지원)
-        public WorkflowDefinition LoadDefinition(string workflowId)
-
-        // 실행 (순차/병렬 분기 지원) — 트랜잭션 전체를 하나의 DB 트랜잭션으로 처리
-        public async Task<WorkflowResult> ExecuteAsync(
-            string workflowId, WorkflowRequest request)
+        var workflowPath = Path.Combine(_workflowDir, $"{workflowId}.workflow");
+        var options = new FlowExecutionOptions
         {
-            var context = new WorkflowContext { ... };
-            context.Transaction = context.Connection.BeginTransaction();
-            try
-            {
-                await ExecuteTaskChainAsync(startTask, context);
-                context.Transaction.Commit();
-                return WorkflowResult.Ok(context.SharedData);
-            }
-            catch (Exception ex)
-            {
-                context.Transaction.Rollback();
-                return WorkflowResult.Fail(context.CurrentTaskId, ex.Message);
-            }
-        }
+            Services = HttpContext.RequestServices,   // DI 컨테이너 → 노드에 주입
+            MaxParallelism = 4
+        };
 
-        // 단일 태스크 실행 (templateTask → /api/v1/rule/{destination} 호출)
-        private async Task<TaskResult> ExecuteTaskAsync(
-            WorkflowTask task, WorkflowContext context)
+        var reports = await _manager.ExecuteAsync(workflowPath, options, ct);
+        var report  = reports.First();
+
+        return report.HasErrors
+            ? BadRequest(new { errors = report.Errors })
+            : Ok(new { results = report.Results.ToDictionary(
+                kvp => kvp.Key,
+                kvp => kvp.Value.Outputs) });
     }
 }
 ```
 
-**현행 websocket-events.xml → WorkflowEngine 매핑:**
+#### NodeContext — 노드 간 데이터 전달
 
-| 현행 이벤트 타입 | 타겟 WorkflowTaskType | 설명 |
-|-----------------|----------------------|------|
-| `startTask` | `Start` | 워크플로우 시작 |
-| `templateTask` | `RuleCall` | `/api/v1/rule/{destination}` 호출 |
-| `endTask` | `End` | 워크플로우 종료 |
-| `splitTask` (병렬) | `Parallel` | 복수 경로 동시 실행 |
-| `joinTask` (동기화) | `Join` | 병렬 완료 대기 |
+```csharp
+// AssemblyInvocationNode가 실행하는 [WorkflowCallable] 메서드에서 이전 노드 결과 참조
+[WorkflowCallable(DisplayName = "Recipe Approve")]
+public async Task<RuleResult> RequestApprovalAsync(
+    string recipeId,
+    NodeContext nodeContext,    // NexusFramework 자동 주입
+    IServiceProvider services, // DI 컨테이너
+    CancellationToken ct)
+{
+    // 이전 노드(validateRecipe) 실행 결과 조회
+    if (nodeContext.TryGetResult("validateRecipe", out var validationResult))
+    {
+        var isValid = validationResult.Outputs.TryGetValue("isValid", out var v) && (bool)v!;
+        if (!isValid) return RuleResult.Fail("검증 실패");
+    }
+
+    var repo = services.GetRequiredService<IRecipeRepository>();
+    await repo.UpdateStateAsync(recipeId, "PENDING");
+    return RuleResult.Success(new { approvalId = Guid.NewGuid() });
+}
+```
+
+#### FlowExecutionReport — 실행 결과
+
+```csharp
+// FlowExecutionEngine 실행 완료 후 결과
+var report = await _manager.ExecuteAsync(workflowPath, options, ct);
+
+// 성공/실패 판단
+bool success = !report.HasErrors;
+
+// 오류 메시지 목록
+IReadOnlyList<string> errors = report.Errors;
+
+// 노드별 실행 결과
+foreach (var (nodeId, result) in report.Results)
+{
+    if (result.Status == NodeExecutionStatus.Succeeded)
+    {
+        var output = result.Outputs["returnValue"];
+    }
+    else if (result.Status == NodeExecutionStatus.Failed)
+    {
+        var errorMsg = result.Error;
+    }
+    else if (result.Status == NodeExecutionStatus.Skipped)
+    {
+        // TryCatch 스코프에서 오류 없어 Catch 노드 스킵됨
+    }
+}
+```
+
+#### 현행 websocket-events.xml → NexusFramework 매핑
+
+| 현행 이벤트 타입 | NexusFramework 대응 | 구현 방식 |
+|-----------------|---------------------|-----------|
+| `startTask` | 진입 NodeDefinition | 의존성 없는 첫 번째 노드 |
+| `templateTask` | `AssemblyInvocationNode` | `[WorkflowCallable]` 메서드 호출 |
+| `endTask` | 최종 NodeDefinition | 다른 노드가 의존하지 않는 마지막 노드 |
+| `splitTask` (병렬) | 팬아웃 엣지 | 한 노드 → 여러 엣지 → 병렬 자동 실행 |
+| `joinTask` (동기화) | 팬인 의존성 | 여러 노드 → 한 엣지 → 완료 대기 |
+| `try/catch 오류처리` | `TryNode`/`CatchNode`/`FinallyNode` | 스코프 기반 오류 처리 내장 |
+
+#### Try/Catch/Finally 스코프 (내장 기능)
+
+```json
+// NexusFramework 내장 TryCatch 노드 타입 활용
+{
+  "nodes": [
+    { "id": "try1",     "type": "try",     "properties": { "scopeId": "approval" } },
+    { "id": "approve",  "type": "AssemblyInvocation", "properties": { "scopeId": "approval", ... } },
+    { "id": "catch1",   "type": "catch",   "properties": { "scopeId": "approval", "continueOnCatch": false } },
+    { "id": "rollback", "type": "AssemblyInvocation", "properties": { "scopeId": "approval", ... } },
+    { "id": "finally1", "type": "finally", "properties": { "scopeId": "approval" } },
+    { "id": "cleanup",  "type": "AssemblyInvocation", "properties": { "scopeId": "approval", ... } }
+  ]
+}
+```
 
 ---
 
@@ -5095,7 +4830,8 @@ public enum LanguageType
     KoKr,
     EnUs,
     ZhCn,
-    ViVn
+    ViVn,
+    LoLo   // 라오어 (lo-LO) — 동남아 현장 지원
 }
 ```
 
@@ -6731,9 +6467,13 @@ Wait Dialog 생명주기는 현행 `pnlContent.ShowWaitArea()`와 `CloseWaitArea
 
 Throttle 정책은 설비 단위로 적용한다. 동일 설비 상태가 1초 내 여러 번 들어오면 마지막 값만 UI에 반영하고, 중간 값은 상태 이력에는 저장하되 화면 렌더링에서는 생략한다. FDC 차트는 수집값을 버리지 않고 버퍼에 쌓은 뒤 렌더링만 배치 처리한다.
 
+웹(Blazor Server) 구현의 표시 등가성 한계를 명시한다. 웹 화면의 배치 갱신은 클라이언트 버퍼 누적이 아니라 '최신 N건 스냅숏 재조회'로 구현하므로, 1초 윈도 안에 N건을 초과하는 고속 수집이 발생하면 중간 샘플은 화면에 렌더링되지 않는다. 데이터 무손실 원칙은 서버 DB 저장으로 보장되며(전량 저장), 화면은 어디까지나 최신 구간의 표시 창이다. 중간 샘플 분석이 필요한 경우 이력 조회 화면을 사용한다.
+
 UI 스레드 전환은 모든 실시간 수신 핸들러의 공통 규칙이다. SignalR 수신은 백그라운드 스레드에서 발생할 수 있으므로, WinForms 화면은 `Control.BeginInvoke()`를 통해 UI 스레드에서 그리드와 차트를 갱신한다. 폼이 이미 닫혔거나 `IsDisposed`이면 수신 이벤트를 무시한다.
 
 탭 비활성화 최적화는 렌더링만 멈추는 방식으로 처리한다. 다른 탭으로 전환되어도 SignalR 구독은 유지하고 최신 데이터는 화면 ViewModel에 저장한다. 탭이 다시 활성화되면 누적된 최신 상태를 한 번에 반영하고, 차트는 마지막 표시 시점 이후 데이터만 추가한다.
+
+웹 MDI에서는 이 조항을 다음과 같이 적응한다. 웹의 탭 전환은 페이지 컴포넌트 dispose이므로 WinForms처럼 비활성 탭의 SignalR 구독을 유지할 수 없다 — 구독은 페이지 수명과 함께 해제된다. 대신 조회 조건·실시간 감시 여부 등 화면 상태를 서킷 수명(Scoped) 상태 서비스(예: `FdcMonitorState`)에 보존하고, 탭 재활성화 시 전체 재조회 1회로 '누적분 일괄 반영'을 대체하며 감시를 자동 재개한다. 차트 증분 추가도 전체 재조회로 대체한다. 탭에서 벗어나 있는 동안의 수집값·이벤트는 서버에 저장되므로 데이터 유실은 없고, 수신 시점 화면 표시(예: 인터록 화면 로그)만 기록되지 않는다 — 정식 이력은 해당 이력 화면에서 조회한다.
 
 연결 끊김 재시도는 `HubConnection.Reconnecting`, `Reconnected`, `Closed` 이벤트를 사용한다. 재연결 중에는 화면 상단에 진행 상태를 표시하고, 성공 시 기존 구독 그룹을 모두 재구독한다. 재연결 실패가 일정 횟수를 초과하면 폴백 조회 모드로 전환하고 사용자에게 수동 재연결 버튼을 제공한다.
 
@@ -6745,11 +6485,17 @@ UI 스레드 전환은 모든 실시간 수신 핸들러의 공통 규칙이다.
 
 토큰 생성은 GUID 또는 암호학적 난수 기반 일회용 토큰으로 처리한다. 서버는 토큰 해시를 `SYS_TB_USER.RESET_TOKEN`, 만료 시각을 `RESET_TOKEN_EXPIRE`에 저장하고 유효 시간은 24시간으로 제한한다. 원문 토큰은 저장하지 않는다.
 
-이메일은 기존 메일 템플릿 구조를 따른다. 템플릿 경로는 `Config/Mail/InitPassword(ko-KR).xml`이며, 사용자명, 임시 비밀번호 또는 재설정 링크, 만료 시간을 치환한다. 임시 비밀번호 방식은 서버에서 임시 비밀번호를 발급하고 즉시 해시 저장한다.
+구현에서는 재설정 링크(RESET_TOKEN) 방식 대신 본 절이 함께 인정하는 **임시 비밀번호 방식을 채택**한다. 서버가 암호학적 난수(`RandomNumberGenerator`) 기반 임시 비밀번호 12자를 발급해 즉시 해시로 저장하고 원문은 메일로만 전달하므로, `RESET_TOKEN`/`RESET_TOKEN_EXPIRE` 컬럼과 별도 만료 관리가 필요 없다. 재설정 링크 방식은 외부 접근 가능한 웹 URL 전제가 필요해 사내망 MES 환경에 부적합하다는 점도 고려했다. 기존 `POST /api/v1/auth/reset-password`는 서버 내부에서 `forgot-password`와 동일하게 위임 처리해 같은 202를 반환한다 — 301 리다이렉트는 클라이언트가 따라갈 때 POST가 GET으로 바뀌고 본문이 소실되어 실제로 동작하지 않으므로 채택하지 않는다.
+
+이메일은 기존 메일 템플릿 구조를 따른다. 템플릿 경로는 `Config/Mail/InitPassword({culture}).xml`이며(예: `InitPassword(ko-KR).xml`), `${USERNAME}`, `${PASSWORD}` 플레이스홀더를 치환한다. 사용자 언어의 템플릿이 없으면 ko-KR로 폴백하고, 그것도 없으면 평문 본문으로 폴백해 발송 자체는 보장한다. 메일 발송 실패는 서버 로그에만 남기고 API 응답(202)은 동일하게 유지한다.
 
 임시 비밀번호 로그인 시 사용자의 상태를 `Forgot`으로 표시한다. 인증은 허용하되 첫 화면 진입 전에 `ChangePasswordOnLogin` 폼을 강제 표시하고, 비밀번호 변경이 완료되기 전에는 메뉴 로딩과 업무 API 호출을 차단한다.
 
+상태와 차단은 다음과 같이 구현한다. 비밀번호 상태는 `SYS_USER.PASSWORD_STATE` 컬럼(Normal/Create/Forgot/Expired, §19.2.1)으로 영속화하고, 로그인 시 상태가 Normal이 아니면 액세스 토큰에 `pwdChange` 클레임을 실어 발급한다. 서버 측 차단은 `PasswordChangeRequiredMiddleware`가 클레임만으로 판정해(요청당 DB 조회 없음) `/api/v1/auth/*`, `/health` 외 모든 경로에 403 `PASSWORD_CHANGE_REQUIRED`를 반환한다. 토큰 갱신(`refresh`) 시에는 구 액세스 토큰의 클레임을 승계하지 않고 DB 상태(`PASSWORD_STATE`, 활성/삭제 여부)를 재평가해 새 토큰을 발급한다 — 클레임 승계 방식은 Authorization 헤더 없이 갱신을 호출하면 클레임이 소실되어 차단을 우회할 수 있고, 비활성/삭제 사용자의 갱신도 끊어야 하기 때문이다. 비밀번호 변경 요청은 §19.2.2 복잡도 정책을 서버가 최종 검증하며(위반 시 400 `PASSWORD_POLICY_VIOLATION`, 평문이 존재하는 API 계층의 `PasswordPolicy`에서 수행), 변경 성공 시에는 §19.2.4-7에 따라 기존 리프레시 토큰을 전부 폐기해 다른 기기 세션을 만료시킨 뒤 클레임 없는 새 액세스/리프레시 토큰을 응답으로 재발급해 클라이언트가 즉시 교체한다(이전 액세스 토큰은 만료까지 차단 상태로 남는다). 웹 클라이언트는 로그인 응답의 `requirePasswordChange`로 변경 화면에 강제 진입시키고, 레이아웃 진입 시 `pwdChange` 클레임을 재확인해 우회 진입을 막는다.
+
 실패 보안은 계정과 IP를 모두 고려한다. 5회 연속 실패 시 계정을 30분 잠그고 `SYS_TB_LOGIN_FAILURE_HIST`에 사용자, IP, UserAgent, 실패 사유, 발생 시각을 기록한다. 잠금 해제는 시간 만료 또는 관리자 해제로만 처리한다.
+
+잠금 구현 세부는 다음과 같다. 테이블명은 구현 DB 네이밍 규약(TB 접두 없음)에 따라 `SYS_LOGIN_FAILURE_HIST`로 하며, 존재하지 않는 사용자 ID의 시도도 기록해야 하므로 `SYS_USER`와 FK를 두지 않는다. 실패 사유는 UserNotFound/WrongPassword/InactiveUser/AccountLocked 코드로 구분한다. 연속 실패 카운터(`SYS_USER.FAIL_COUNT`)와 잠금 만료 시각(`LOCKED_UNTIL`)은 사용자 행에 영속화하고, 성공 로그인이 카운터를 리셋하며, 잠금이 시간 만료된 뒤의 실패는 새 시도 구간으로 1회부터 다시 센다. 실패 카운터 증가는 read-modify-write가 아니라 단일 원자 UPDATE(`FAIL_COUNT` 증가·임계 도달 시 `LOCKED_UNTIL` 설정·`OUTPUT`으로 잠금 시각 반환)로 처리한다 — 동시 로그인 실패 시 카운트 유실을 막고, 조회 시점과 저장 시점 사이에 변경된 다른 컬럼(예: `PASSWORD_HASH`)을 전체 행 UPDATE가 덮어쓰는 사고를 차단한다. 로그인 401 응답은 `INVALID_CREDENTIALS`(계정 존재 여부를 드러내지 않는 동일 메시지)와 `ACCOUNT_LOCKED`(남은 시간 안내 메시지 노출)를 code로 구분해 화면이 잠금 안내를 표시할 수 있게 한다. 관리자 해제는 `PUT /api/v1/sys/users/{userId}/unlock`(ADMIN 전용)으로 노출하고, 사용자 관리 화면이 잠금 상태(`lockedUntil`) 행에 잠금 해제 버튼을 표시한다. 사용자 목록/조회 API는 도메인 엔터티를 그대로 직렬화하지 않고 DTO로 매핑해 `PASSWORD_HASH`가 응답에 노출되지 않게 한다.
 
 ### 20.11 배포 파일 업로드/클라이언트 자동 업데이트 흐름
 
@@ -6765,6 +6511,12 @@ UI 스레드 전환은 모든 실시간 수신 핸들러의 공통 규칙이다.
 
 롤백은 이전 버전 파일을 보관하는 방식으로 처리한다. 설치 실패, 해시 불일치, 실행 실패가 감지되면 자동으로 이전 버전을 복원하고 실패 이력을 서버에 전송한다. 서버 관리 화면은 실패율이 높은 버전을 비활성화할 수 있어야 한다.
 
+구현은 본 절을 다음과 같이 적응한다. 테이블명은 구현 DB 네이밍 규약(TB 접두 없음)에 따라 `SYS_DEPLOY_FILE`(V012)로 하고, 업로드 엔드포인트는 컬렉션 리소스 규약에 따라 `POST /api/v1/deploy/files`(multipart/form-data, ADMIN 전용)로 정의한다. 버전 문자열은 `System.Version`으로 파싱 가능한 형식만 허용한다 — 최신 버전 선정이 문자열 정렬이 아니라 숫자 세그먼트 비교(`1.9.0` < `1.10.0`)로 동작해야 하므로 `v` 접두사나 `-beta` 같은 시맨틱 접미사는 업로드 시점에 차단하고(NVARCHAR(20) 한도 포함, VERSION UNIQUE 제약), 해시는 SHA-256으로 서버가 저장 시점에 계산한다. 파일명은 다운로드 응답 헤더에 그대로 쓰이므로 경로 성분이나 제어 문자가 있으면 거부하고, 전송 중단으로 부분 기록된 바이너리와 메타 기록에 실패한 바이너리는 즉시 삭제해 고아 파일을 남기지 않는다. 바이너리는 DB가 아니라 API 서버 디스크(`IDeployFileStorage`)에 GUID 파일명으로 보관하고 메타데이터만 테이블에 기록한다.
+
+`GET /api/v1/deploy/latest`와 파일 다운로드는 `[AllowAnonymous]`로 노출한다 — 클라이언트 업데이트 체크는 로그인 전 기동 시점에 일어나고 사내망 전제이므로 인증을 요구하지 않는다. 다운로드는 `enableRangeProcessing`으로 HTTP Range 이어받기를 지원해 '다운로드 중 네트워크가 끊기면 이어받기' 조항을 서버 측에서 뒷받침한다. 문제 버전 회수는 `PUT /api/v1/deploy/files/{fileId}/deactivate`(ADMIN)로 구현하고, 비활성 파일은 latest 선정과 다운로드에서 모두 제외된다 — 실패 이력 자동 수집과 자동 롤백은 클라이언트 에이전트 영역이므로 이번 서버 구현 범위에서 제외하고 관리자 수동 회수로 대응한다.
+
+관리 화면은 `DeployFiles.razor`(`/sys/deploy`, ADMIN)로 구현한다. 파일 상한 500MB는 서버 명시 검사와 화면 `OpenReadStream` 양쪽에 동일하게 걸되, 요청 본문 한도(`[RequestSizeLimit]`)는 multipart 오버헤드 여유분을 더해 경계 크기 파일이 413으로 거부되지 않게 한다. Web→API HttpClient는 전역 타임아웃을 업로드 상한(10분)으로 두고 일반 요청은 위임 핸들러가 기본 100초로 제한해, 대용량 업로드만 장시간을 허용한다. multipart 업로드 본문은 스트림이라 되감을 수 없으므로 401 재시도 없이 사전 토큰 갱신 후 1회 전송한다.
+
 ### 20.12 즐겨찾기/최근 메뉴 동작 흐름
 
 현행 `SmartBaseForm.AddFavorite()`는 `IFavoriteRepository`를 통해 즐겨찾기를 저장하고, `FavoriteSettingRepository.AddFavorite()`는 `SaveFavoriteMenu` Rule에 `_STATE_ = 'added'` 데이터를 전달한다. `FavoriteSetting` 화면은 그리드 드래그 앤 드롭으로 `DISPLAYSEQUENCE`를 변경하고 저장한다. 최근 메뉴는 `RecentMenuSettingRepository`가 `%AppData%` 하위 JSON 파일로 저장하며, `App.config`의 `RecentMenuCount=10`을 사용한다.
@@ -6776,6 +6528,12 @@ UI 스레드 전환은 모든 실시간 수신 핸들러의 공통 규칙이다.
 최근 메뉴는 폼 열기 성공 시 자동 추가한다. 동일 메뉴와 동일 파라미터 조합이 이미 있으면 기존 항목을 맨 앞으로 이동하고, 없으면 신규 항목을 맨 앞에 추가한다. 최대 10개를 유지하며 초과 항목은 가장 오래된 항목부터 제거한다.
 
 권한 제거 시 즐겨찾기와 최근 메뉴에서는 해당 항목을 숨긴다. 데이터는 삭제하지 않고 `AuthorizedMenus` 결과와 교차 확인하여 렌더링에서 제외한다. 권한이 복원되면 기존 즐겨찾기 순서와 최근 메뉴 순서를 유지하여 다시 표시한다.
+
+구현은 본 절을 다음과 같이 적응한다. 저장소는 `SYS_FAVORITE_MENU`/`SYS_RECENT_MENU` 테이블(V013, USER_ID+MENU_ID 복합 PK)로 하고, `SaveFavoriteMenu` Rule 대신 `GET/POST/DELETE /api/v1/sys/favorites`, `PUT /api/v1/sys/favorites/order`, `GET/POST /api/v1/sys/recent-menus` REST API로 정의한다. 최근 메뉴는 현행의 클라이언트 `%AppData%` JSON이 아니라 서버 DB에 저장한다 — Blazor Server에는 클라이언트 로컬 파일이 없고, 서버 저장이면 어느 브라우저/PC에서 접속해도 동일한 최근 목록이 유지된다. 한도는 즐겨찾기 50개/최근 10개로 하며, 최근 메뉴는 동일 메뉴 재방문 시 `LAST_USED_AT`만 갱신하는 Upsert로 '기존 항목을 맨 앞으로 이동'을 구현하고 초과분은 오래된 것부터 삭제한다. 현행의 '동일 메뉴+동일 파라미터 조합' 단위 기록은 메뉴 단위 기록으로 단순화한다 — 웹 MDI 탭이 메뉴 단위로 열리므로 파라미터 차이는 구분하지 않는다.
+
+대상은 Screen 타입 메뉴로 한정하고(Folder는 즐겨찾기·최근 모두 불가), 메뉴 ID 비교는 대소문자 무시로 하되 저장 시에는 메뉴 마스터의 정식 `MenuId`로 정규화해 변형 ID 중복 행을 차단한다. 즐겨찾기 중복 추가는 오류가 아니라 멱등 성공으로 처리하고(기존 항목·순서 유지), 권한 밖 메뉴의 즐겨찾기 추가는 400을 반환하되 최근 메뉴 기록은 조용히 무시하고 204를 반환한다 — 최근 기록은 화면 탐색의 부수 효과라 본 동작을 오류로 만들지 않는다. 권한 제거 시 행은 유지하고 조회 시 권한 메뉴와 교차해 숨기는 원문 조항은 그대로 구현했으며, 순서 변경은 변경된 행만 UPDATE하고 목록에 없는 기존 항목은 뒤로 보낸다.
+
+웹 UI는 드래그 앤 드롭 편집 팝업 대신 NavMenu 내 인라인 편집 모드로 적응한다. 즐겨찾기 섹션 헤더의 편집 토글을 켜면 각 항목에 ▲/▼(순서)·✕(삭제) 버튼이 나타나고, 일반 메뉴 항목에 마우스를 올리면 ☆/★ 토글로 추가/삭제한다. 최근 메뉴 기록은 MDI 탭이 열리는 시점(`MdiTabBar`)에 fire-and-forget으로 호출해 화면 전환을 지연시키지 않으며, 기록 실패는 화면 동작에 영향을 주지 않는다.
 
 ---
 

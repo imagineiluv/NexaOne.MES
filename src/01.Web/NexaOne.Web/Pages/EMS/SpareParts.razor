@@ -1,0 +1,145 @@
+@page "/ems/spare-parts"
+@attribute [Authorize]
+@inject IApiClient Api
+
+<div class="page-header">
+    <h1 class="page-title">예비품 관리</h1>
+    <div style="display:flex; gap:0.5rem;">
+        <DxButton Text="예비품 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+        <DxButton Text="부족재고만 보기" RenderStyle="@(_showLowStock ? ButtonRenderStyle.Danger : ButtonRenderStyle.Secondary)"
+                  Click="ToggleLowStock" />
+    </div>
+</div>
+
+<NexaConditionGrid TRow="SparePartDto" Items="_items">
+    <Columns>
+        <DxGridDataColumn FieldName="Id"           Caption="품목 ID"    Width="130px" />
+        <DxGridDataColumn FieldName="PartName"     Caption="품명"       Width="160px" />
+        <DxGridDataColumn FieldName="PartNumber"   Caption="품번"       Width="140px" />
+        <DxGridDataColumn FieldName="UnitOfMeasure" Caption="단위"      Width="80px" />
+        <DxGridDataColumn FieldName="CurrentStock" Caption="현재고"     Width="90px" />
+        <DxGridDataColumn FieldName="MinStock"     Caption="최소재고"   Width="90px" />
+        <DxGridDataColumn FieldName="MaxStock"     Caption="최대재고"   Width="90px" />
+        <DxGridDataColumn FieldName="Location"     Caption="보관위치"   Width="120px" />
+        <DxGridDataColumn FieldName="IsLowStock"   Caption="재고부족"   Width="90px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((bool)context.Value ? "LowStock" : "OK")" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridCommandColumn Width="140px">
+            <CellDisplayTemplate>
+                @{
+                    var part = (SparePartDto)context.DataItem;
+                    <DxButton Text="재고 조정" Click="@(() => OpenAdjustDialog(part))" />
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="예비품 등록" Width="480px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.PartId"        NullText="품목 ID *" />
+                <DxTextBox @bind-Text="_form.PartName"      NullText="품명 *" />
+                <DxTextBox @bind-Text="_form.PartNumber"    NullText="품번 *" />
+                <DxTextBox @bind-Text="_form.Description"   NullText="설명" />
+                <DxTextBox @bind-Text="_form.UnitOfMeasure" NullText="단위 (예: EA, KG)" />
+                <DxSpinEdit @bind-Value="_form.CurrentStock" MinValue="0" Step="1m" NullText="현재 재고 *" />
+                <DxSpinEdit @bind-Value="_form.MinStock"     MinValue="0" Step="1m" NullText="최소 재고 *" />
+                <DxSpinEdit @bind-Value="_form.MaxStock"     MinValue="0" Step="1m" NullText="최대 재고 *" />
+                <DxTextBox @bind-Text="_form.Location"      NullText="보관위치 *" />
+                <DxTextBox @bind-Text="_form.EquipmentClassId" NullText="설비 분류 ID (선택)" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreatePart" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@if (_showAdjust)
+{
+    <DxPopup @bind-Visible="_showAdjust" HeaderText="@($"재고 조정 — {_adjustPartName}")" Width="360px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <p>현재 재고: <strong>@_adjustCurrentStock</strong></p>
+                <DxSpinEdit @bind-Value="_adjustDelta" Step="1m" NullText="조정 수량 (음수=출고, 양수=입고) *" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="적용" RenderStyle="ButtonRenderStyle.Primary" Click="ConfirmAdjust" />
+            <DxButton Text="취소" Click="@(() => _showAdjust = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<SparePartDto> _items = new();
+    private bool _showLowStock;
+    private bool _showCreate;
+    private PartForm _form = new();
+    private bool _showAdjust;
+    private string _adjustPartId = string.Empty;
+    private string _adjustPartName = string.Empty;
+    private decimal _adjustCurrentStock;
+    private decimal _adjustDelta;
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData() => _items = await Api.GetSparePartsAsync(_showLowStock);
+
+    private async Task ToggleLowStock()
+    {
+        _showLowStock = !_showLowStock;
+        await LoadData();
+    }
+
+    private void OpenCreateDialog() { _form = new(); _showCreate = true; }
+
+    private async Task CreatePart()
+    {
+        await Api.CreateSparePartAsync(new
+        {
+            PartId = _form.PartId, PartName = _form.PartName, PartNumber = _form.PartNumber,
+            Description = _form.Description, UnitOfMeasure = _form.UnitOfMeasure,
+            CurrentStock = _form.CurrentStock, MinStock = _form.MinStock, MaxStock = _form.MaxStock,
+            Location = _form.Location, EquipmentClassId = string.IsNullOrEmpty(_form.EquipmentClassId) ? null : _form.EquipmentClassId
+        });
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private void OpenAdjustDialog(SparePartDto part)
+    {
+        _adjustPartId = part.Id;
+        _adjustPartName = part.PartName;
+        _adjustCurrentStock = part.CurrentStock;
+        _adjustDelta = 0;
+        _showAdjust = true;
+    }
+
+    private async Task ConfirmAdjust()
+    {
+        await Api.AdjustStockAsync(_adjustPartId, _adjustDelta);
+        _showAdjust = false;
+        await LoadData();
+    }
+
+    private sealed class PartForm
+    {
+        public string  PartId          { get; set; } = string.Empty;
+        public string  PartName        { get; set; } = string.Empty;
+        public string  PartNumber      { get; set; } = string.Empty;
+        public string  Description     { get; set; } = string.Empty;
+        public string  UnitOfMeasure   { get; set; } = string.Empty;
+        public decimal CurrentStock    { get; set; }
+        public decimal MinStock        { get; set; }
+        public decimal MaxStock        { get; set; }
+        public string  Location        { get; set; } = string.Empty;
+        public string? EquipmentClassId { get; set; }
+    }
+}

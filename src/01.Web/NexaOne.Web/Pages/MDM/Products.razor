@@ -1,0 +1,71 @@
+@page "/mdm/products"
+@attribute [Authorize]
+@inject IApiClient Api
+
+<div class="page-header">
+    <h1 class="page-title">제품 관리</h1>
+    <DxButton Text="제품 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+<NexaConditionGrid TRow="ProductDto" Items="_items">
+    <ConditionPanel>
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"          Caption="제품 ID"    Width="140px" />
+        <DxGridDataColumn FieldName="ProductName" Caption="제품명"      Width="200px" />
+        <DxGridDataColumn FieldName="ProductType" Caption="유형"        Width="120px" />
+        <DxGridDataColumn FieldName="Unit"        Caption="단위"        Width="80px" />
+        <DxGridDataColumn FieldName="ValidState"  Caption="상태"        Width="90px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((string)context.Value)" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridDataColumn FieldName="Description" Caption="설명"        Width="220px" />
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="제품 등록" Width="440px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.ProductId"   NullText="제품 ID *" />
+                <DxTextBox @bind-Text="_form.ProductName" NullText="제품명 *" />
+                <DxTextBox @bind-Text="_form.ProductType" NullText="유형 (예: FG, WIP, RAW)" />
+                <DxTextBox @bind-Text="_form.Unit"        NullText="단위 (예: EA, KG)" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateProduct" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<ProductDto> _items = new();
+    private bool _showCreate;
+    private ProductForm _form = new();
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData() => _items = await Api.GetProductsAsync();
+
+    private void OpenCreateDialog() { _form = new(); _showCreate = true; }
+
+    private async Task CreateProduct()
+    {
+        await Api.CreateProductAsync(new { _form.ProductId, ProductName = _form.ProductName, _form.ProductType, _form.Unit });
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private sealed class ProductForm
+    {
+        public string ProductId   { get; set; } = string.Empty;
+        public string ProductName { get; set; } = string.Empty;
+        public string ProductType { get; set; } = string.Empty;
+        public string Unit        { get; set; } = "EA";
+    }
+}

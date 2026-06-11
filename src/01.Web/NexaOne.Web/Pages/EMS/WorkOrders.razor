@@ -1,0 +1,140 @@
+@page "/ems/work-orders"
+@attribute [Authorize]
+@inject IApiClient Api
+@inject AuthContextService AuthContext
+
+<div class="page-header">
+    <h1 class="page-title">작업 지시</h1>
+    <DxButton Text="작업 지시 생성" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+<NexaConditionGrid TRow="WorkOrderDto" Items="_items">
+    <ConditionPanel>
+        <DxTextBox @bind-Text="_equipmentId" NullText="설비 ID" />
+        <DxComboBox Data="_statuses" @bind-Value="_statusFilter" NullText="상태 전체" ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto" />
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"          Caption="WO ID"      Width="140px" />
+        <DxGridDataColumn FieldName="EquipmentId" Caption="설비"        Width="120px" />
+        <DxGridDataColumn FieldName="WoType"      Caption="유형"        Width="100px" />
+        <DxGridDataColumn FieldName="AssigneeId"  Caption="담당자"      Width="100px" />
+        <DxGridDataColumn FieldName="IssuedAt"    Caption="지시일시"    Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm}" />
+        <DxGridDataColumn FieldName="StartedAt"   Caption="시작일시"    Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm}" />
+        <DxGridDataColumn FieldName="CompletedAt" Caption="완료일시"    Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm}" />
+        <DxGridDataColumn FieldName="Status"      Caption="상태"        Width="100px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((string)context.Value)" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridCommandColumn Width="160px">
+            <CellDisplayTemplate>
+                @{
+                    var wo = (WorkOrderDto)context.DataItem;
+                    <div style="display:flex; gap:4px;">
+                        @if (wo.Status == "Issued")
+                        {
+                            <DxButton Text="시작" Click="@(() => StartWo(wo.Id))" />
+                            <DxButton Text="취소" RenderStyle="ButtonRenderStyle.Danger" Click="@(() => CancelWo(wo.Id))" />
+                        }
+                        @if (wo.Status == "InProgress")
+                        {
+                            <DxButton Text="완료" RenderStyle="ButtonRenderStyle.Primary" Click="@(() => OpenCompleteDialog(wo.Id))" />
+                        }
+                    </div>
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="작업 지시 생성" Width="440px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.WoId"        NullText="WO ID *" />
+                <DxTextBox @bind-Text="_form.EquipmentId" NullText="설비 ID *" />
+                <DxTextBox @bind-Text="_form.WoType"      NullText="유형 (예: PM)" />
+                <DxTextBox @bind-Text="_form.AssigneeId"  NullText="담당자 ID *" />
+                <DxTextBox @bind-Text="_form.Description" NullText="설명" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="생성" RenderStyle="ButtonRenderStyle.Primary" Click="CreateWo" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@if (_showComplete)
+{
+    <DxPopup @bind-Visible="_showComplete" HeaderText="작업 완료" Width="400px">
+        <BodyContentTemplate>
+            <div style="padding:0.5rem;">
+                <DxTextBox @bind-Text="_completeRemark" NullText="완료 비고 (선택)" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="완료 처리" RenderStyle="ButtonRenderStyle.Primary" Click="ConfirmComplete" />
+            <DxButton Text="취소" Click="@(() => _showComplete = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<WorkOrderDto> _items = new();
+    private string _equipmentId = string.Empty;
+    private string? _statusFilter;
+    private bool _showCreate;
+    private WoForm _form = new();
+    private bool _showComplete;
+    private string _completeWoId = string.Empty;
+    private string _completeRemark = string.Empty;
+    private string _currentUserId = string.Empty;
+
+    private static readonly List<string> _statuses = new() { "Issued", "InProgress", "Completed", "Cancelled" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _currentUserId = await AuthContext.GetUserIdAsync() ?? string.Empty;
+        await LoadData();
+    }
+
+    private async Task LoadData() => _items = await Api.GetWorkOrdersAsync(_equipmentId, _statusFilter);
+
+    private void OpenCreateDialog() { _form = new() { AssigneeId = _currentUserId }; _showCreate = true; }
+
+    private async Task CreateWo()
+    {
+        await Api.CreateWorkOrderAsync(new { _form.WoId, _form.EquipmentId, _form.WoType, Description = _form.Description, _form.AssigneeId });
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private async Task StartWo(string id)  { await Api.StartWorkOrderAsync(id);  await LoadData(); }
+    private async Task CancelWo(string id) { await Api.CancelWorkOrderAsync(id); await LoadData(); }
+
+    private void OpenCompleteDialog(string id)
+    {
+        _completeWoId = id;
+        _completeRemark = string.Empty;
+        _showComplete = true;
+    }
+
+    private async Task ConfirmComplete()
+    {
+        await Api.CompleteWorkOrderAsync(_completeWoId, _completeRemark);
+        _showComplete = false;
+        await LoadData();
+    }
+
+    private sealed class WoForm
+    {
+        public string WoId        { get; set; } = string.Empty;
+        public string EquipmentId { get; set; } = string.Empty;
+        public string WoType      { get; set; } = string.Empty;
+        public string AssigneeId  { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
+    }
+}

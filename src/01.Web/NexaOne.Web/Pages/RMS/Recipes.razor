@@ -1,0 +1,456 @@
+@page "/rms/recipes"
+@attribute [Authorize]
+@inject IApiClient Api
+@inject AuthContextService AuthContext
+@inject WaitOverlayService WaitSvc
+
+<div class="page-header">
+    <h1 class="page-title">레시피 관리</h1>
+    <DxButton Text="레시피 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+<NexaConditionGrid TRow="RecipeDto" Items="_items">
+    <ConditionPanel>
+        <DxTextBox @bind-Text="_classId" NullText="설비 클래스 ID" />
+        <DxComboBox Data="_states" @bind-Value="_stateFilter" NullText="상태 전체"
+                    ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto" />
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"               Caption="레시피 ID"   Width="140px" />
+        <DxGridDataColumn FieldName="RecipeName"       Caption="레시피명"     Width="200px" />
+        <DxGridDataColumn FieldName="EquipmentClassId" Caption="설비 클래스"  Width="140px" />
+        <DxGridDataColumn FieldName="Version"          Caption="버전"         Width="60px" />
+        <DxGridDataColumn FieldName="ApprovalState"    Caption="승인 상태"    Width="120px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((string)context.Value)" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridDataColumn FieldName="FirstApproverId"  Caption="1차 승인자"   Width="110px" />
+        <DxGridDataColumn FieldName="SecondApproverId" Caption="2차 승인자"   Width="110px" />
+        <DxGridDataColumn FieldName="ReleasedAt"       Caption="릴리스일"     Width="110px" DisplayFormat="{0:yyyy-MM-dd}" />
+        <DxGridCommandColumn Width="260px">
+            <CellDisplayTemplate>
+                @{
+                    var r = (RecipeDto)context.DataItem;
+                    <div style="display:flex; gap:3px; flex-wrap:wrap;">
+                        <DxButton Text="파라미터" Click="@(() => OpenParamPanel(r.Id))" />
+                        @if (r.ApprovalState == "Draft")
+                        {
+                            <DxButton Text="승인 요청" Click="@(() => RequestApproval(r.Id))" />
+                        }
+                        @if (r.ApprovalState == "WaitApproval")
+                        {
+                            <DxButton Text="1차 승인" RenderStyle="ButtonRenderStyle.Primary"
+                                      Click="@(() => OpenApproveDialog(r, 1))" />
+                            <DxButton Text="거부" RenderStyle="ButtonRenderStyle.Danger"
+                                      Click="@(() => OpenRejectDialog(r.Id))" />
+                        }
+                        @if (r.ApprovalState == "Approved1")
+                        {
+                            <DxButton Text="2차 승인" RenderStyle="ButtonRenderStyle.Primary"
+                                      Click="@(() => OpenApproveDialog(r, 2))" />
+                            <DxButton Text="거부" RenderStyle="ButtonRenderStyle.Danger"
+                                      Click="@(() => OpenRejectDialog(r.Id))" />
+                        }
+                        @if (r.ApprovalState == "Approved")
+                        {
+                            <DxButton Text="릴리스" Click="@(() => OpenApproveDialog(r, 3))" />
+                            <DxButton Text="거부" RenderStyle="ButtonRenderStyle.Danger"
+                                      Click="@(() => OpenRejectDialog(r.Id))" />
+                        }
+                        @if (r.ApprovalState == "Released")
+                        {
+                            <DxButton Text="새 버전" Click="@(() => OpenNewVersionDialog(r.Id, r.Version))" />
+                        }
+                    </div>
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@* ── 레시피 등록 ──────────────────────────────────────────────── *@
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="레시피 등록" Width="440px"
+             CloseOnOutsideClick="false">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.RecipeId"         NullText="레시피 ID *" />
+                <DxTextBox @bind-Text="_form.Name"             NullText="레시피명 *" />
+                <DxTextBox @bind-Text="_form.EquipmentClassId" NullText="설비 클래스 ID *" />
+                <DxTextBox @bind-Text="_form.Description"      NullText="설명" />
+                @if (!string.IsNullOrEmpty(_createError))
+                {
+                    <div class="text-danger small">@_createError</div>
+                }
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateRecipe" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@* ── 승인 / 릴리스 ────────────────────────────────────────────── *@
+@if (_showApprove && _approveTarget is not null)
+{
+    var title = _approveStep switch { 1 => "1차 승인", 2 => "2차 승인", _ => "릴리스 확인" };
+    <DxPopup @bind-Visible="_showApprove" HeaderText="@title" Width="420px"
+             CloseOnOutsideClick="false">
+        <BodyContentTemplate>
+            <div class="rms-approve-dialog">
+                <div class="rms-approve-recipe">
+                    <span class="label">레시피</span>
+                    <span>@_approveTarget.RecipeName (v@(_approveTarget.Version))</span>
+                </div>
+                <div class="rms-approve-recipe">
+                    <span class="label">현재 상태</span>
+                    <StatusBadge Value="@_approveTarget.ApprovalState" />
+                </div>
+                <div class="rms-workflow-steps">
+                    @foreach (var step in _workflowSteps)
+                    {
+                        var idx = _workflowSteps.IndexOf(step);
+                        var currentIdx = _workflowSteps.IndexOf(_approveTarget.ApprovalState);
+                        var cls = idx < currentIdx ? "done" : idx == currentIdx ? "current" : "pending";
+                        <div class="rms-step @cls">
+                            <div class="rms-step-dot"></div>
+                            <div class="rms-step-label">@step</div>
+                        </div>
+                        @if (idx < _workflowSteps.Count - 1)
+                        {
+                            <div class="rms-step-line @(idx < currentIdx ? "done" : "pending")"></div>
+                        }
+                    }
+                </div>
+                @if (_approveStep < 3)
+                {
+                    <DxTextBox @bind-Text="_approverId" NullText="담당자 ID *" />
+                }
+                @if (!string.IsNullOrEmpty(_approveError))
+                {
+                    <div class="text-danger small">@_approveError</div>
+                }
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="@title" RenderStyle="ButtonRenderStyle.Primary" Click="ConfirmApprove" />
+            <DxButton Text="취소" Click="@(() => _showApprove = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@* ── 거부 ─────────────────────────────────────────────────────── *@
+@if (_showReject)
+{
+    <DxPopup @bind-Visible="_showReject" HeaderText="레시피 거부" Width="400px"
+             CloseOnOutsideClick="false">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <div class="text-muted small">거부 사유를 입력하면 레시피가 Rejected 상태로 변경됩니다.</div>
+                <DxMemo @bind-Text="_rejectReason" Rows="3" NullText="거부 사유 *" />
+                @if (!string.IsNullOrEmpty(_rejectError))
+                {
+                    <div class="text-danger small">@_rejectError</div>
+                }
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="거부 확인" RenderStyle="ButtonRenderStyle.Danger" Click="ConfirmReject" />
+            <DxButton Text="취소" Click="@(() => _showReject = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@* ── 새 버전 ──────────────────────────────────────────────────── *@
+@if (_showNewVersion)
+{
+    <DxPopup @bind-Visible="_showNewVersion" HeaderText="새 버전 생성" Width="400px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_newVersionId" NullText="새 레시피 ID *" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="생성" RenderStyle="ButtonRenderStyle.Primary" Click="ConfirmNewVersion" />
+            <DxButton Text="취소" Click="@(() => _showNewVersion = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@* ── 파라미터 팝업 ─────────────────────────────────────────────── *@
+@if (_showParams)
+{
+    <DxPopup @bind-Visible="_showParams" HeaderText="@($"레시피 파라미터 — {_paramRecipeId}")"
+             Width="680px" CloseOnOutsideClick="true">
+        <BodyContentTemplate>
+            <div class="page-header" style="margin-bottom:.75rem;">
+                <span></span>
+                <DxButton Text="파라미터 추가" RenderStyle="ButtonRenderStyle.Primary"
+                          Click="OpenAddParamDialog" />
+            </div>
+            <DxGrid Data="_params" PageSize="20">
+                <Columns>
+                    <DxGridDataColumn FieldName="ParamName"  Caption="파라미터명" Width="180px" />
+                    <DxGridDataColumn FieldName="ParamValue" Caption="값"          Width="140px" />
+                    <DxGridDataColumn FieldName="Unit"       Caption="단위"        Width="80px" />
+                    <DxGridDataColumn FieldName="SortOrder"  Caption="순서"        Width="70px" />
+                    <DxGridCommandColumn Width="140px">
+                        <CellDisplayTemplate Context="cellCtx">
+                            @{
+                                var p = (RecipeParamDto)cellCtx.DataItem;
+                                <DxButton Text="편집" Click="@(() => OpenEditParamDialog(p))" />
+                                <DxButton Text="삭제" RenderStyle="ButtonRenderStyle.Danger" CssClass="ms-1"
+                                          Click="@(() => DeleteParam(p.Id))" />
+                            }
+                        </CellDisplayTemplate>
+                    </DxGridCommandColumn>
+                </Columns>
+            </DxGrid>
+        </BodyContentTemplate>
+    </DxPopup>
+}
+
+@* ── 파라미터 추가/편집 ────────────────────────────────────────── *@
+@if (_showParamEdit)
+{
+    <DxPopup @bind-Visible="_showParamEdit"
+             HeaderText="@(_editingParam is null ? "파라미터 추가" : "파라미터 편집")"
+             Width="400px" CloseOnOutsideClick="false">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                @if (_editingParam is null)
+                {
+                    <DxTextBox @bind-Text="_paramForm.ParamId"   NullText="파라미터 ID *" />
+                    <DxTextBox @bind-Text="_paramForm.ParamName" NullText="파라미터명 *" />
+                    <DxTextBox @bind-Text="_paramForm.Unit"      NullText="단위 (예: ℃, rpm)" />
+                    <DxSpinEdit @bind-Value="_paramForm.SortOrder" Placeholder="순서" />
+                }
+                <DxTextBox @bind-Text="_paramForm.ParamValue" NullText="값 *" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="저장" RenderStyle="ButtonRenderStyle.Primary" Click="SaveParam" />
+            <DxButton Text="취소" Click="@(() => _showParamEdit = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<RecipeDto>      _items  = new();
+    private List<RecipeParamDto> _params = new();
+    private string  _classId     = string.Empty;
+    private string? _stateFilter;
+    private string? _createError;
+
+    // approve
+    private bool _showApprove;
+    private RecipeDto? _approveTarget;
+    private int    _approveStep;
+    private string _approverId  = string.Empty;
+    private string _approveError = string.Empty;
+
+    // reject
+    private bool   _showReject;
+    private string? _rejectRecipeId;
+    private string  _rejectReason = string.Empty;
+    private string  _rejectError  = string.Empty;
+
+    // new version
+    private bool   _showNewVersion;
+    private string? _newVersionSourceId;
+    private string  _newVersionId = string.Empty;
+
+    // create
+    private bool       _showCreate;
+    private RecipeForm _form = new();
+
+    // params
+    private bool   _showParams;
+    private bool   _showParamEdit;
+    private string? _paramRecipeId;
+    private RecipeParamDto? _editingParam;
+    private ParamForm _paramForm = new();
+
+    private static readonly List<string> _states =
+        ["Draft", "WaitApproval", "Approved1", "Approved", "Released", "Rejected"];
+    private static readonly List<string> _workflowSteps =
+        ["Draft", "WaitApproval", "Approved1", "Approved", "Released"];
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData()
+    {
+        using var _ = WaitSvc.Show("조회 중...");
+        _items = await Api.GetRecipesAsync(_classId, _stateFilter);
+    }
+
+    private void OpenCreateDialog() { _form = new(); _createError = null; _showCreate = true; }
+
+    private async Task CreateRecipe()
+    {
+        _createError = null;
+        using var _ = WaitSvc.Show("저장 중...");
+        var result = await Api.CreateRecipeAsync(new
+        {
+            RecipeId = _form.RecipeId, Name = _form.Name,
+            Description = _form.Description, EquipmentClassId = _form.EquipmentClassId
+        });
+        if (result is null) { _createError = "등록에 실패했습니다."; return; }
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private async Task RequestApproval(string recipeId)
+    {
+        using var _ = WaitSvc.Show("처리 중...");
+        await Api.RequestRecipeApprovalAsync(recipeId);
+        await LoadData();
+    }
+
+    private void OpenApproveDialog(RecipeDto recipe, int step)
+    {
+        _approveTarget = recipe;
+        _approveStep   = step;
+        _approverId    = string.Empty;
+        _approveError  = string.Empty;
+        _showApprove   = true;
+    }
+
+    private async Task ConfirmApprove()
+    {
+        if (_approveTarget is null) return;
+        if (_approveStep < 3 && string.IsNullOrWhiteSpace(_approverId))
+        {
+            _approveError = "담당자 ID를 입력하세요."; return;
+        }
+        _approveError = string.Empty;
+        using var _ = WaitSvc.Show("처리 중...");
+
+        if (_approveStep == 1)
+            await Api.ApproveRecipe1Async(_approveTarget.Id, _approverId);
+        else if (_approveStep == 2)
+            await Api.ApproveRecipe2Async(_approveTarget.Id, _approverId);
+        else
+        {
+            var userId = _approverId;
+            if (string.IsNullOrWhiteSpace(userId))
+                userId = await AuthContext.GetUserIdAsync() ?? "SYSTEM";
+            await Api.ReleaseRecipeAsync(_approveTarget.Id, userId);
+        }
+
+        _showApprove = false;
+        await LoadData();
+    }
+
+    private void OpenRejectDialog(string recipeId)
+    {
+        _rejectRecipeId = recipeId;
+        _rejectReason   = string.Empty;
+        _rejectError    = string.Empty;
+        _showReject     = true;
+    }
+
+    private async Task ConfirmReject()
+    {
+        if (string.IsNullOrWhiteSpace(_rejectReason)) { _rejectError = "거부 사유를 입력하세요."; return; }
+        _rejectError = string.Empty;
+        using var _ = WaitSvc.Show("처리 중...");
+        await Api.RejectRecipeAsync(_rejectRecipeId!, _rejectReason);
+        _showReject = false;
+        await LoadData();
+    }
+
+    private void OpenNewVersionDialog(string recipeId, int currentVersion)
+    {
+        _newVersionSourceId = recipeId;
+        _newVersionId       = $"{recipeId}_v{currentVersion + 1}";
+        _showNewVersion     = true;
+    }
+
+    private async Task ConfirmNewVersion()
+    {
+        if (string.IsNullOrWhiteSpace(_newVersionId) || _newVersionSourceId is null) return;
+        using var _ = WaitSvc.Show("처리 중...");
+        await Api.CreateRecipeVersionAsync(_newVersionSourceId, _newVersionId);
+        _showNewVersion = false;
+        await LoadData();
+    }
+
+    // ── Params ────────────────────────────────────────────────────────────────
+
+    private async Task OpenParamPanel(string recipeId)
+    {
+        _paramRecipeId = recipeId;
+        using var _ = WaitSvc.Show("조회 중...");
+        _params = await Api.GetRecipeParamsAsync(recipeId);
+        _showParams = true;
+    }
+
+    private void OpenAddParamDialog()
+    {
+        _editingParam = null;
+        _paramForm    = new ParamForm { SortOrder = _params.Count + 1 };
+        _showParamEdit = true;
+    }
+
+    private void OpenEditParamDialog(RecipeParamDto p)
+    {
+        _editingParam = p;
+        _paramForm    = new ParamForm { ParamId = p.Id, ParamName = p.ParamName, ParamValue = p.ParamValue, Unit = p.Unit, SortOrder = p.SortOrder };
+        _showParamEdit = true;
+    }
+
+    private async Task SaveParam()
+    {
+        if (_paramRecipeId is null) return;
+        using var _ = WaitSvc.Show("저장 중...");
+
+        if (_editingParam is null)
+        {
+            await Api.AddRecipeParamAsync(_paramRecipeId, new
+            {
+                ParamId    = _paramForm.ParamId,
+                ParamName  = _paramForm.ParamName,
+                ParamValue = _paramForm.ParamValue,
+                Unit       = _paramForm.Unit,
+                SortOrder  = _paramForm.SortOrder
+            });
+        }
+        else
+        {
+            await Api.UpdateRecipeParamAsync(_editingParam.Id, _paramForm.ParamValue);
+        }
+
+        _showParamEdit = false;
+        _params = await Api.GetRecipeParamsAsync(_paramRecipeId);
+    }
+
+    private async Task DeleteParam(string paramId)
+    {
+        using var _ = WaitSvc.Show("삭제 중...");
+        await Api.DeleteRecipeParamAsync(paramId);
+        if (_paramRecipeId is not null)
+            _params = await Api.GetRecipeParamsAsync(_paramRecipeId);
+    }
+
+    private sealed class RecipeForm
+    {
+        public string RecipeId         { get; set; } = string.Empty;
+        public string Name             { get; set; } = string.Empty;
+        public string EquipmentClassId { get; set; } = string.Empty;
+        public string Description      { get; set; } = string.Empty;
+    }
+
+    private sealed class ParamForm
+    {
+        public string ParamId    { get; set; } = string.Empty;
+        public string ParamName  { get; set; } = string.Empty;
+        public string ParamValue { get; set; } = string.Empty;
+        public string Unit       { get; set; } = string.Empty;
+        public int    SortOrder  { get; set; }
+    }
+}

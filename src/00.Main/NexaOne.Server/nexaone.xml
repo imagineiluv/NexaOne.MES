@@ -1,0 +1,114 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<objects xmlns="http://www.springframework.net"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
+
+  <!-- ===== MDM (Master Data Management) ===== -->
+
+  <object id="equipmentRepository"
+          type="NexaOne.MDM.Infrastructure.EquipmentRepository, NexaOne.MDM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+
+  <object id="equipmentService"
+          type="NexaOne.MDM.Application.Equipments.EquipmentService, NexaOne.MDM">
+    <constructor-arg ref="equipmentRepository" />
+  </object>
+
+  <!-- ===== EPT (Equipment Process Tracking) ===== -->
+
+  <object id="equipmentAlarmRepository"
+          type="NexaOne.EPT.Infrastructure.EquipmentAlarmRepository, NexaOne.EPT">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+
+  <object id="equipmentAlarmService"
+          type="NexaOne.EPT.Application.Ept.EquipmentAlarmService, NexaOne.EPT">
+    <constructor-arg ref="equipmentAlarmRepository" />
+  </object>
+
+  <!-- ===== FDC (Fault Detection and Classification) ===== -->
+
+  <object id="fdcInterlockRuleRepository"
+          type="NexaOne.FDC.Infrastructure.FdcInterlockRuleRepository, NexaOne.FDC">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+
+  <object id="fdcInterlockService"
+          type="NexaOne.FDC.Application.Fdc.FdcInterlockService, NexaOne.FDC">
+    <constructor-arg ref="fdcInterlockRuleRepository" />
+  </object>
+
+  <!-- ===== RMS (Recipe Management System) ===== -->
+
+  <object id="recipeRepository"
+          type="NexaOne.RMS.Infrastructure.RecipeRepository, NexaOne.RMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+
+  <object id="recipeService"
+          type="NexaOne.RMS.Application.Rms.RecipeService, NexaOne.RMS">
+    <constructor-arg ref="recipeRepository" />
+  </object>
+
+  <!-- ===== QMS (Quality Management System) ===== -->
+
+  <object id="defectRepository"
+          type="NexaOne.QMS.Infrastructure.DefectRepository, NexaOne.QMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+
+  <object id="qmsService"
+          type="NexaOne.QMS.Application.Qms.QmsService, NexaOne.QMS">
+    <constructor-arg ref="defectRepository" />
+  </object>
+
+  <!-- ===== EMS (Equipment Maintenance System) ===== -->
+
+  <object id="workOrderRepository"
+          type="NexaOne.EMS.Infrastructure.WorkOrderRepository, NexaOne.EMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+
+  <object id="emsService"
+          type="NexaOne.EMS.Application.Ems.EmsService, NexaOne.EMS">
+    <constructor-arg ref="workOrderRepository" />
+  </object>
+
+  <!-- ===== PPM (Production Planning Management) ===== -->
+
+  <object id="productionPlanRepository"
+          type="NexaOne.PPM.Infrastructure.ProductionPlanRepository, NexaOne.PPM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+
+  <object id="ppmService"
+          type="NexaOne.PPM.Application.Ppm.PpmService, NexaOne.PPM">
+    <constructor-arg ref="productionPlanRepository" />
+  </object>
+
+  <!-- ===== DLV (Delivery Management) ===== -->
+
+  <object id="deliveryOrderRepository"
+          type="NexaOne.DLV.Infrastructure.DeliveryOrderRepository, NexaOne.DLV">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+
+  <object id="dlvService"
+          type="NexaOne.DLV.Application.Dlv.DlvService, NexaOne.DLV">
+    <constructor-arg ref="deliveryOrderRepository" />
+  </object>
+
+  <!-- ===== Sys ===== -->
+
+  <object id="userRepository"
+          type="NexaOne.SYS.Infrastructure.UserRepository, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+
+  <object id="userService"
+          type="NexaOne.SYS.Application.Users.UserService, NexaOne.SYS">
+    <constructor-arg ref="userRepository" />
+  </object>
+
+</objects>

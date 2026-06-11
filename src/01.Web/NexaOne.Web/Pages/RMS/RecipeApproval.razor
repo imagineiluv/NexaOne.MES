@@ -1,0 +1,215 @@
+@page "/rms/approval"
+@attribute [Authorize]
+@inject IApiClient Api
+@inject AuthContextService AuthContext
+@inject WaitOverlayService WaitSvc
+
+<div class="page-header">
+    <h1 class="page-title">레시피 승인 대기</h1>
+</div>
+
+<div class="rms-approval-legend">
+    <span class="rms-legend-item">
+        <StatusBadge Value="WaitApproval" /> → 1차 승인 대기
+    </span>
+    <span class="rms-legend-item">
+        <StatusBadge Value="Approved1" /> → 2차 승인 대기
+    </span>
+    <span class="rms-legend-item">
+        <StatusBadge Value="Approved" /> → 릴리스 대기
+    </span>
+</div>
+
+<NexaConditionGrid TRow="RecipeDto" Items="_pending">
+    <ConditionPanel>
+        <DxButton Text="새로 고침" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"               Caption="레시피 ID"   Width="140px" />
+        <DxGridDataColumn FieldName="RecipeName"       Caption="레시피명"     Width="200px" />
+        <DxGridDataColumn FieldName="EquipmentClassId" Caption="설비 클래스"  Width="140px" />
+        <DxGridDataColumn FieldName="Version"          Caption="버전"         Width="60px" />
+        <DxGridDataColumn FieldName="ApprovalState"    Caption="상태"         Width="120px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((string)context.Value)" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridDataColumn FieldName="FirstApproverId"  Caption="1차 승인자"   Width="110px" />
+        <DxGridCommandColumn Width="200px">
+            <CellDisplayTemplate>
+                @{
+                    var r = (RecipeDto)context.DataItem;
+                    <div style="display:flex; gap:4px;">
+                        <DxButton Text="워크플로우" Click="@(() => OpenWorkflowDialog(r))" />
+                    </div>
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showWorkflow && _selected is not null)
+{
+    var actionLabel = _selected.ApprovalState switch
+    {
+        "WaitApproval" => "1차 승인",
+        "Approved1"    => "2차 승인",
+        "Approved"     => "릴리스",
+        _              => "처리"
+    };
+
+    <DxPopup @bind-Visible="_showWorkflow"
+             HeaderText="@($"승인 워크플로우 — {_selected.RecipeName}")"
+             Width="540px" CloseOnOutsideClick="false">
+        <BodyContentTemplate>
+            <div class="rms-workflow-detail">
+                <div class="rms-workflow-info-row">
+                    <span class="label">레시피 ID</span><span>@_selected.Id</span>
+                </div>
+                <div class="rms-workflow-info-row">
+                    <span class="label">설비 클래스</span><span>@_selected.EquipmentClassId</span>
+                </div>
+                <div class="rms-workflow-info-row">
+                    <span class="label">버전</span><span>v@(_selected.Version)</span>
+                </div>
+
+                <div class="rms-workflow-steps" style="margin:1.5rem 0;">
+                    @foreach (var (step, idx) in _workflowSteps.Select((s, i) => (s, i)))
+                    {
+                        var currentIdx = _workflowSteps.IndexOf(_selected.ApprovalState);
+                        var cls = idx < currentIdx ? "done" : idx == currentIdx ? "current" : "pending";
+                        var approver = idx == 3 ? _selected.FirstApproverId
+                                     : idx == 4 ? _selected.SecondApproverId
+                                     : null;
+                        <div class="rms-step-group">
+                            <div class="rms-step @cls">
+                                <div class="rms-step-dot">@(idx < currentIdx ? "✓" : (idx + 1).ToString())</div>
+                                <div class="rms-step-label">@step</div>
+                                @if (approver is not null)
+                                {
+                                    <div class="rms-step-approver">@approver</div>
+                                }
+                            </div>
+                            @if (idx < _workflowSteps.Count - 1)
+                            {
+                                <div class="rms-step-connector @(idx < currentIdx ? "done" : "pending")">→</div>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="rms-workflow-action">
+                    @if (_selected.ApprovalState is "WaitApproval" or "Approved1")
+                    {
+                        <label class="form-label">담당자 ID (자동: @_currentUserId)</label>
+                        <DxTextBox @bind-Text="_actionUserId"
+                                   NullText="@($"{_currentUserId} (미입력 시 자동 사용)")" />
+                    }
+                    @if (!string.IsNullOrEmpty(_workflowError))
+                    {
+                        <div class="text-danger small mt-2">@_workflowError</div>
+                    }
+                </div>
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="@actionLabel" RenderStyle="ButtonRenderStyle.Primary"
+                      Click="ConfirmWorkflowAction" />
+            <DxButton Text="거부" RenderStyle="ButtonRenderStyle.Danger" CssClass="ms-2"
+                      Click="@(() => _showRejectInline = true)" />
+            <DxButton Text="닫기" Click="@(() => _showWorkflow = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@if (_showRejectInline && _selected is not null)
+{
+    <DxPopup @bind-Visible="_showRejectInline" HeaderText="거부 확인" Width="400px"
+             CloseOnOutsideClick="false">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:.75rem; padding:.5rem;">
+                <div class="text-muted small">@_selected.RecipeName (v@(_selected.Version))을 거부합니다.</div>
+                <DxMemo @bind-Text="_rejectReason" Rows="3" NullText="거부 사유 *" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="거부 확인" RenderStyle="ButtonRenderStyle.Danger" Click="ConfirmReject" />
+            <DxButton Text="취소" Click="@(() => _showRejectInline = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<RecipeDto> _pending = [];
+    private RecipeDto? _selected;
+    private string _currentUserId = string.Empty;
+    private string _actionUserId  = string.Empty;
+    private string _workflowError = string.Empty;
+    private string _rejectReason  = string.Empty;
+
+    private bool _showWorkflow;
+    private bool _showRejectInline;
+
+    private static readonly List<string> _workflowSteps =
+        ["Draft", "승인 요청", "1차 승인", "2차 승인", "릴리스"];
+    private static readonly List<string> _stateOrder =
+        ["Draft", "WaitApproval", "Approved1", "Approved", "Released"];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _currentUserId = await AuthContext.GetUserIdAsync() ?? string.Empty;
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        using var _ = WaitSvc.Show("조회 중...");
+        var wait      = await Api.GetRecipesAsync(state: "WaitApproval");
+        var approved1 = await Api.GetRecipesAsync(state: "Approved1");
+        var approved  = await Api.GetRecipesAsync(state: "Approved");
+        _pending = [..wait, ..approved1, ..approved];
+    }
+
+    private void OpenWorkflowDialog(RecipeDto recipe)
+    {
+        _selected      = recipe;
+        _actionUserId  = string.Empty;
+        _workflowError = string.Empty;
+        _rejectReason  = string.Empty;
+        _showWorkflow  = true;
+    }
+
+    private async Task ConfirmWorkflowAction()
+    {
+        if (_selected is null) return;
+        _workflowError = string.Empty;
+
+        var userId = string.IsNullOrWhiteSpace(_actionUserId) ? _currentUserId : _actionUserId;
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            _workflowError = "담당자 ID를 확인할 수 없습니다."; return;
+        }
+
+        using var _ = WaitSvc.Show("처리 중...");
+
+        if (_selected.ApprovalState == "WaitApproval")
+            await Api.ApproveRecipe1Async(_selected.Id, userId);
+        else if (_selected.ApprovalState == "Approved1")
+            await Api.ApproveRecipe2Async(_selected.Id, userId);
+        else if (_selected.ApprovalState == "Approved")
+            await Api.ReleaseRecipeAsync(_selected.Id, userId);
+
+        _showWorkflow = false;
+        await LoadData();
+    }
+
+    private async Task ConfirmReject()
+    {
+        if (_selected is null || string.IsNullOrWhiteSpace(_rejectReason)) return;
+        using var _ = WaitSvc.Show("처리 중...");
+        await Api.RejectRecipeAsync(_selected.Id, _rejectReason);
+        _showRejectInline = false;
+        _showWorkflow     = false;
+        await LoadData();
+    }
+}

@@ -1,0 +1,121 @@
+@page "/dlv/items"
+@attribute [Authorize]
+@inject IApiClient Api
+
+<div class="page-header">
+    <h1 class="page-title">납품 품목</h1>
+    <DxButton Text="품목 추가" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog"
+              Enabled="@(!string.IsNullOrWhiteSpace(_orderId))" />
+</div>
+
+<NexaConditionGrid TRow="DeliveryItemDto" Items="_items">
+    <ConditionPanel>
+        <DxTextBox @bind-Text="_orderId" NullText="납품 주문 ID *" />
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"              Caption="품목 ID"    Width="130px" />
+        <DxGridDataColumn FieldName="ProductId"       Caption="제품 ID"    Width="130px" />
+        <DxGridDataColumn FieldName="PlannedQty"      Caption="계획 수량"   Width="100px" />
+        <DxGridDataColumn FieldName="ActualQty"       Caption="실적 수량"   Width="100px" />
+        <DxGridDataColumn FieldName="LotId"           Caption="Lot ID"     Width="120px" />
+        <DxGridCommandColumn Width="140px">
+            <CellDisplayTemplate>
+                @{
+                    var item = (DeliveryItemDto)context.DataItem;
+                    @if (!item.ActualQty.HasValue)
+                    {
+                        <DxButton Text="실적 입력" Click="@(() => OpenActualQtyDialog(item))" />
+                    }
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="납품 품목 추가" Width="440px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.ItemId"    NullText="품목 ID *" />
+                <DxTextBox @bind-Text="_form.ProductId" NullText="제품 ID *" />
+                <DxSpinEdit @bind-Value="_form.PlannedQty" MinValue="0.01m" Step="1m" NullText="계획 수량 *" />
+                <DxTextBox @bind-Text="_form.LotId"     NullText="Lot ID (선택)" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="추가" RenderStyle="ButtonRenderStyle.Primary" Click="CreateItem" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@if (_showActualQty)
+{
+    <DxPopup @bind-Visible="_showActualQty" HeaderText="@($"실적 입력 — {_actualItemId}")" Width="360px">
+        <BodyContentTemplate>
+            <div style="padding:0.5rem;">
+                <DxSpinEdit @bind-Value="_actualQty" MinValue="0" Step="1m" NullText="실적 수량 *" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="저장" RenderStyle="ButtonRenderStyle.Primary" Click="ConfirmActualQty" />
+            <DxButton Text="취소" Click="@(() => _showActualQty = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<DeliveryItemDto> _items = new();
+    private string _orderId = string.Empty;
+    private bool _showCreate;
+    private ItemForm _form = new();
+    private bool _showActualQty;
+    private string _actualItemId = string.Empty;
+    private decimal _actualQty;
+
+    protected override Task OnInitializedAsync() => Task.CompletedTask;
+
+    private async Task LoadData()
+    {
+        if (!string.IsNullOrWhiteSpace(_orderId))
+            _items = await Api.GetDeliveryItemsAsync(_orderId);
+    }
+
+    private void OpenCreateDialog() { _form = new(); _showCreate = true; }
+
+    private async Task CreateItem()
+    {
+        await Api.AddDeliveryItemAsync(_orderId, new
+        {
+            ItemId = _form.ItemId, ProductId = _form.ProductId,
+            PlannedQty = _form.PlannedQty,
+            LotId = string.IsNullOrEmpty(_form.LotId) ? null : _form.LotId
+        });
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private void OpenActualQtyDialog(DeliveryItemDto item)
+    {
+        _actualItemId = item.Id;
+        _actualQty = item.PlannedQty;
+        _showActualQty = true;
+    }
+
+    private async Task ConfirmActualQty()
+    {
+        await Api.SetDeliveryItemActualQtyAsync(_actualItemId, _actualQty);
+        _showActualQty = false;
+        await LoadData();
+    }
+
+    private sealed class ItemForm
+    {
+        public string  ItemId     { get; set; } = string.Empty;
+        public string  ProductId  { get; set; } = string.Empty;
+        public decimal PlannedQty { get; set; }
+        public string? LotId      { get; set; }
+    }
+}

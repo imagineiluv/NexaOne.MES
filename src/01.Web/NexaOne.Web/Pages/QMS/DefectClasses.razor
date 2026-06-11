@@ -1,0 +1,77 @@
+@page "/qms/defect-classes"
+@attribute [Authorize]
+@inject IApiClient Api
+
+<div class="page-header">
+    <h1 class="page-title">불량 분류</h1>
+    <DxButton Text="분류 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+<NexaConditionGrid TRow="DefectClassDto" Items="_items">
+    <Columns>
+        <DxGridDataColumn FieldName="Id"             Caption="분류 ID"   Width="130px" />
+        <DxGridDataColumn FieldName="DefectClassName" Caption="분류명"    Width="180px" />
+        <DxGridDataColumn FieldName="Description"    Caption="설명"       Width="220px" />
+        <DxGridDataColumn FieldName="Severity"       Caption="심각도"     Width="100px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((string)context.Value)" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridDataColumn FieldName="IsActive" Caption="활성" Width="80px">
+            <CellDisplayTemplate>
+                @((bool)context.Value ? "활성" : "비활성")
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="불량 분류 등록" Width="440px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.DefectClassId"   NullText="분류 ID *" />
+                <DxTextBox @bind-Text="_form.DefectClassName" NullText="분류명 *" />
+                <DxTextBox @bind-Text="_form.Description"     NullText="설명" />
+                <DxComboBox Data="_severities" @bind-Value="_form.Severity" NullText="심각도 *" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="Create" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<DefectClassDto> _items = new();
+    private bool _showCreate;
+    private Form _form = new();
+
+    private static readonly List<string> _severities = new() { "Critical", "Major", "Minor" };
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData() => _items = await Api.GetDefectClassesAsync();
+
+    private void OpenCreateDialog() { _form = new(); _showCreate = true; }
+
+    private async Task Create()
+    {
+        await Api.CreateDefectClassAsync(new
+        {
+            DefectClassId = _form.DefectClassId, DefectClassName = _form.DefectClassName,
+            Description = _form.Description, Severity = _form.Severity
+        });
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private sealed class Form
+    {
+        public string DefectClassId   { get; set; } = string.Empty;
+        public string DefectClassName { get; set; } = string.Empty;
+        public string Description     { get; set; } = string.Empty;
+        public string Severity        { get; set; } = string.Empty;
+    }
+}

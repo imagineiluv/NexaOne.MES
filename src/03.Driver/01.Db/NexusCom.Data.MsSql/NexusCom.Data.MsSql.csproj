@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>NexusCom.Data.MsSql</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\..\submodules\NexusCom\src\NexusCom\NexusCom.csproj" />
+    <ProjectReference Include="..\..\..\..\submodules\NexusCom\src\NexusCom.Data.Abstractions\NexusCom.Data.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\..\submodules\NexusCom\src\NexusCom.Data.Core\NexusCom.Data.Core.csproj" />
+    <ProjectReference Include="..\..\..\02.Backend\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.*" />
+    <PackageReference Include="Dapper" Version="2.*" />
+  </ItemGroup>
+
+</Project>

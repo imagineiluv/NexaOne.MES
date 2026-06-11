@@ -1,0 +1,120 @@
+@page "/sys/users"
+@attribute [Authorize(Roles = "ADMIN")]
+@inject IApiClient Api
+
+<div class="page-header">
+    <h1 class="page-title">사용자 관리</h1>
+    <DxButton Text="사용자 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+<NexaConditionGrid TRow="UserDto" Items="_items">
+    <ConditionPanel>
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"       Caption="사용자 ID"  Width="130px" />
+        <DxGridDataColumn FieldName="UserName" Caption="이름"        Width="150px" />
+        <DxGridDataColumn FieldName="Email"    Caption="이메일"      Width="200px" />
+        <DxGridDataColumn FieldName="RoleId"   Caption="역할"        Width="100px" />
+        <DxGridDataColumn FieldName="Language" Caption="언어"        Width="80px" />
+        <DxGridDataColumn FieldName="IsActive" Caption="상태"        Width="90px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((bool)context.Value ? "Active" : "Inactive")" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridDataColumn FieldName="LastLoginAt" Caption="최근 로그인" Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm}" />
+        <DxGridCommandColumn Width="200px">
+            <CellDisplayTemplate>
+                @{
+                    var u = (UserDto)context.DataItem;
+                    @* §20.10 — 잠금 해제는 시간 만료 또는 관리자만 가능 *@
+                    if (u.IsLocked)
+                    {
+                        <DxButton Text="잠금 해제" RenderStyle="ButtonRenderStyle.Warning"
+                                  Click="@(() => UnlockUser(u.Id))" CssClass="me-1" />
+                    }
+                    if (u.IsActive)
+                    {
+                        <DxButton Text="비활성화" RenderStyle="ButtonRenderStyle.Danger"
+                                  Click="@(() => DeactivateUser(u.Id))" />
+                    }
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="사용자 등록" Width="440px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.UserId"   NullText="사용자 ID *" />
+                <DxTextBox @bind-Text="_form.UserName" NullText="이름 *" />
+                <DxTextBox @bind-Text="_form.Password" NullText="초기 비밀번호 *" Password="true" />
+                <DxTextBox @bind-Text="_form.Email"    NullText="이메일" />
+                <DxComboBox Data="_roles"     @bind-Value="_form.RoleId" />
+                <DxComboBox Data="_languages" @bind-Value="_form.Language" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateUser" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<UserDto> _items = new();
+    private bool _showCreate;
+    private UserForm _form = new();
+
+    private static readonly List<string> _roles     = new() { "ADMIN", "ENGINEER", "OPERATOR", "VIEWER" };
+    private static readonly List<string> _languages = new() { "KoKr", "EnUs", "ZhCn", "JaJp" };
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData() => _items = await Api.GetUsersAsync();
+
+    private void OpenCreateDialog() { _form = new(); _showCreate = true; }
+
+    private async Task CreateUser()
+    {
+        await Api.CreateUserAsync(new
+        {
+            _form.UserId, _form.UserName,
+            PasswordHash = HashPassword(_form.Password),
+            _form.Email, _form.RoleId, Language = _form.Language
+        });
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private async Task DeactivateUser(string userId)
+    {
+        await Api.DeactivateUserAsync(userId);
+        await LoadData();
+    }
+
+    private async Task UnlockUser(string userId)
+    {
+        await Api.UnlockUserAsync(userId);
+        await LoadData();
+    }
+
+    private static string HashPassword(string pw)
+    {
+        var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(pw));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    private sealed class UserForm
+    {
+        public string UserId   { get; set; } = string.Empty;
+        public string UserName { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+        public string Email    { get; set; } = string.Empty;
+        public string RoleId   { get; set; } = "OPERATOR";
+        public string Language { get; set; } = "KoKr";
+    }
+}
