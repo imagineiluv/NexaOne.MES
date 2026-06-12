@@ -1,0 +1,203 @@
+@page "/ppm/track-in"
+@attribute [Authorize]
+@inject IApiClient Api
+@inject AuthContextService AuthContext
+
+<div class="page-header">
+    <h1 class="page-title">Lot Track In</h1>
+    <DxButton Text="Lot 생성" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+</div>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="alert alert-danger" role="alert">@_error</div>
+}
+
+<NexaConditionGrid TRow="LotDto" Items="_items">
+    <ConditionPanel>
+        <DxComboBox Data="_states" @bind-Value="_stateFilter" NullText="상태 전체"
+                    ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto" />
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"               Caption="Lot ID"      Width="140px" />
+        <DxGridDataColumn FieldName="WorkOrderId"      Caption="작업지시"     Width="130px" />
+        <DxGridDataColumn FieldName="ProductId"        Caption="제품"         Width="120px" />
+        <DxGridDataColumn FieldName="Qty"              Caption="수량"         Width="90px"  DisplayFormat="{0:N1}" />
+        <DxGridDataColumn FieldName="CurrentProcessId" Caption="현재 공정"    Width="120px" />
+        <DxGridDataColumn FieldName="EquipmentId"      Caption="설비"         Width="110px" />
+        <DxGridDataColumn FieldName="State"            Caption="상태"         Width="110px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((string)context.Value)" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridDataColumn FieldName="IsHold" Caption="Hold" Width="70px">
+            <CellDisplayTemplate>
+                @(((bool)context.Value) ? "Y" : "")
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridCommandColumn Width="220px">
+            <CellDisplayTemplate>
+                @{
+                    var lot = (LotDto)context.DataItem;
+                    <div style="display:flex; gap:4px;">
+                        @if (lot.State == "Queued" && !lot.IsHold)
+                        {
+                            <DxButton Text="Track In" RenderStyle="ButtonRenderStyle.Primary"
+                                      Click="@(() => OpenTrackInDialog(lot))" />
+                        }
+                        @if (!lot.IsHold && lot.State is not ("Completed" or "Consumed"))
+                        {
+                            <DxButton Text="Hold" RenderStyle="ButtonRenderStyle.Warning"
+                                      Click="@(() => HoldLot(lot.Id))" />
+                        }
+                        @if (lot.IsHold)
+                        {
+                            <DxButton Text="Hold 해제" Click="@(() => ReleaseHold(lot.Id))" />
+                        }
+                    </div>
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="Lot 생성" Width="460px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_createForm.LotId"       NullText="Lot ID *" />
+                <DxTextBox @bind-Text="_createForm.WorkOrderId" NullText="작업지시 ID" />
+                <DxTextBox @bind-Text="_createForm.ProductId"   NullText="제품 ID *" />
+                <DxSpinEdit @bind-Value="_createForm.Qty" MinValue="0.0001m" />
+                <DxTextBox @bind-Text="_createForm.RouteSteps"  NullText="공정 경로 (쉼표 구분, 예: CUT,ASSY,TEST) *" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="생성" RenderStyle="ButtonRenderStyle.Primary" Click="CreateLot" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@if (_showTrackIn)
+{
+    <DxPopup @bind-Visible="_showTrackIn" HeaderText="@($"Track In — {_targetLotId}")" Width="420px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_trackInForm.EquipmentId" NullText="설비 ID *" />
+                <DxTextBox @bind-Text="_trackInForm.RecipeDefId" NullText="Recipe ID (선택)" />
+                <DxSpinEdit @bind-Value="_trackInForm.RecipeDefVersion" NullText="Recipe 버전 (선택)" />
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="Track In" RenderStyle="ButtonRenderStyle.Primary" Click="ConfirmTrackIn" />
+            <DxButton Text="취소" Click="@(() => _showTrackIn = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private static readonly IReadOnlyList<string> _states =
+        new[] { "Queued", "Processing", "Completed", "Consumed" };
+
+    private List<LotDto> _items = new();
+    private string _plantId = string.Empty;
+    private string? _stateFilter = "Queued";
+    private string? _error;
+
+    private bool _showCreate;
+    private CreateForm _createForm = new();
+
+    private bool _showTrackIn;
+    private string _targetLotId = string.Empty;
+    private TrackInForm _trackInForm = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _plantId = await AuthContext.GetPlantIdAsync() ?? string.Empty;
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _error = null;
+        _items = await Api.GetLotsAsync(_plantId, _stateFilter);
+    }
+
+    private void OpenCreateDialog() { _createForm = new(); _showCreate = true; }
+
+    private async Task CreateLot()
+    {
+        var steps = (_createForm.RouteSteps ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var (_, error) = await Api.CreateLotAsync(new
+        {
+            PlantId = _plantId,
+            _createForm.LotId,
+            WorkOrderId = string.IsNullOrWhiteSpace(_createForm.WorkOrderId) ? null : _createForm.WorkOrderId,
+            _createForm.ProductId,
+            _createForm.Qty,
+            RouteSteps = steps
+        });
+        _error = error;
+        if (error is null)
+        {
+            _showCreate = false;
+            await LoadData();
+        }
+    }
+
+    private void OpenTrackInDialog(LotDto lot)
+    {
+        _targetLotId = lot.Id;
+        _trackInForm = new();
+        _showTrackIn = true;
+    }
+
+    private async Task ConfirmTrackIn()
+    {
+        var (_, error) = await Api.TrackInAsync(_targetLotId, new
+        {
+            PlantId = _plantId,
+            _trackInForm.EquipmentId,
+            RecipeDefId = string.IsNullOrWhiteSpace(_trackInForm.RecipeDefId) ? null : _trackInForm.RecipeDefId,
+            _trackInForm.RecipeDefVersion
+        });
+        _error = error;
+        if (error is null)
+        {
+            _showTrackIn = false;
+            await LoadData();
+        }
+    }
+
+    private async Task HoldLot(string lotId)
+    {
+        _error = await Api.HoldLotAsync(lotId) ? null : "Hold에 실패했습니다.";
+        await LoadData();
+    }
+
+    private async Task ReleaseHold(string lotId)
+    {
+        _error = await Api.ReleaseLotHoldAsync(lotId) ? null : "Hold 해제에 실패했습니다.";
+        await LoadData();
+    }
+
+    private sealed class CreateForm
+    {
+        public string  LotId       { get; set; } = string.Empty;
+        public string? WorkOrderId { get; set; }
+        public string  ProductId   { get; set; } = string.Empty;
+        public decimal Qty         { get; set; } = 1;
+        public string? RouteSteps  { get; set; }
+    }
+
+    private sealed class TrackInForm
+    {
+        public string EquipmentId      { get; set; } = string.Empty;
+        public string? RecipeDefId     { get; set; }
+        public int?   RecipeDefVersion { get; set; }
+    }
+}

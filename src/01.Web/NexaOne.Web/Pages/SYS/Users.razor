@@ -70,7 +70,8 @@
     private UserForm _form = new();
 
     private static readonly List<string> _roles     = new() { "ADMIN", "ENGINEER", "OPERATOR", "VIEWER" };
-    private static readonly List<string> _languages = new() { "KoKr", "EnUs", "ZhCn", "JaJp" };
+    // LanguageType enum과 일치해야 한다 — 목록에 없는 값은 서버에서 KoKr로 조용히 대체된다
+    private static readonly List<string> _languages = new() { "KoKr", "EnUs", "ZhCn", "ViVn", "LoLo" };
 
     protected override async Task OnInitializedAsync() => await LoadData();
 

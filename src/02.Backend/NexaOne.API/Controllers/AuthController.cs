@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using NexaOne.API.Controllers.Models;
 using NexaOne.API.Services;
 using NexaOne.Common;
@@ -29,6 +30,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
+    [EnableRateLimiting("auth")]   // §18.2.3 — 익명 진입점 IP당 제한 (브루트포스 방어)
     public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken ct)
     {
         var passwordHash = PasswordHasher.Hash(request.Password);
@@ -68,6 +70,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("refresh")]
+    [EnableRateLimiting("auth")]   // §18.2.3 — 토큰 무차별 대입 방어
     public async Task<IActionResult> Refresh([FromBody] RefreshRequest request, CancellationToken ct)
     {
         var isValid = await _tokenStore.ValidateAsync(request.UserId, request.RefreshToken);
@@ -136,6 +139,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("forgot-password")]
+    [EnableRateLimiting("auth")]   // §18.2.3 — 계정 열거/메일 폭주 방어
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request, CancellationToken ct)
     {
         // §20.10 — 아이디/이메일이 틀려도 동일 응답 (계정 열거 방지). 상세 사유는 서버 로그에만 남는다.
@@ -147,6 +151,7 @@ public class AuthController : ControllerBase
     // POST가 GET으로 바뀌고 본문이 소실되어 실제로 동작하지 않으므로, 서버 내부에서
     // forgot-password와 동일하게 위임 처리한다.
     [HttpPost("reset-password")]
+    [EnableRateLimiting("auth")]   // §18.2.3 — forgot-password와 동일 정책
     public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request, CancellationToken ct)
     {
         await _passwordResetService.ForgotPasswordAsync(request.UserId, request.Email, ct);

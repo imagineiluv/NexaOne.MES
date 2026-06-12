@@ -170,6 +170,32 @@ public sealed class ApiClient : IApiClient
         return resp.IsSuccessStatusCode;
     }
 
+    // §19.4 — 검증 실패 사유(Error.Description)를 화면에 보여줘야 하는 POST용
+    private async Task<(T? Result, string? Error)> PostWithErrorAsync<T>(
+        string url, object body, CancellationToken ct) where T : class
+    {
+        await PrepareAuthAsync(ct);
+        var resp = await _http.PostAsJsonAsync(url, body, ct);
+        if (resp.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            var token = await RefreshAsync(ct);
+            if (token is null) return (null, "인증이 만료되었습니다. 다시 로그인해 주세요.");
+            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            resp = await _http.PostAsJsonAsync(url, body, ct);
+        }
+        if (resp.IsSuccessStatusCode)
+            return (await resp.Content.ReadFromJsonAsync<T>(ct), null);
+
+        try
+        {
+            var error = await resp.Content.ReadFromJsonAsync<ApiErrorPayload>(ct);
+            if (!string.IsNullOrEmpty(error?.Description))
+                return (null, error.Description);
+        }
+        catch { /* 오류 본문이 표준 형식이 아니면 상태 코드로 폴백 */ }
+        return (null, $"요청에 실패했습니다 (HTTP {(int)resp.StatusCode}).");
+    }
+
     // §20.12 — 본문 없는 204 응답의 성공 여부가 필요한 POST용 (PostAsync<T>는 본문 역직렬화 전제)
     private async Task<bool> PostForStatusAsync(string url, object body, CancellationToken ct)
     {
@@ -199,6 +225,32 @@ public sealed class ApiClient : IApiClient
             resp = await _http.PutAsJsonAsync(url, content, ct);
         }
         return resp.IsSuccessStatusCode;
+    }
+
+    // §19.3 — 승인/반려 PATCH용. 실패 사유(Error.Description)를 화면에 표시한다
+    private async Task<(T? Result, string? Error)> PatchWithErrorAsync<T>(
+        string url, object body, CancellationToken ct) where T : class
+    {
+        await PrepareAuthAsync(ct);
+        var resp = await _http.PatchAsJsonAsync(url, body, ct);
+        if (resp.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            var token = await RefreshAsync(ct);
+            if (token is null) return (null, "인증이 만료되었습니다. 다시 로그인해 주세요.");
+            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            resp = await _http.PatchAsJsonAsync(url, body, ct);
+        }
+        if (resp.IsSuccessStatusCode)
+            return (await resp.Content.ReadFromJsonAsync<T>(ct), null);
+
+        try
+        {
+            var error = await resp.Content.ReadFromJsonAsync<ApiErrorPayload>(ct);
+            if (!string.IsNullOrEmpty(error?.Description))
+                return (null, error.Description);
+        }
+        catch { /* 오류 본문이 표준 형식이 아니면 상태 코드로 폴백 */ }
+        return (null, $"요청에 실패했습니다 (HTTP {(int)resp.StatusCode}).");
     }
 
     private sealed record RefreshTokenPayload(string AccessToken, string RefreshToken);
@@ -545,6 +597,48 @@ public sealed class ApiClient : IApiClient
     public Task CancelOrderAsync(string orderId, CancellationToken ct = default)
         => PutAsync($"api/v1/ppm/orders/{orderId}/cancel", null, ct);
 
+    // ── PPM - Lot TrackIn/TrackOut (설계서 19.4) ──────────────────────────────
+
+    public Task<List<LotDto>> GetLotsAsync(string plantId, string? state = null, CancellationToken ct = default)
+        => GetAsync<List<LotDto>>(
+               $"api/v1/lots?plantId={Uri.EscapeDataString(plantId)}{(string.IsNullOrEmpty(state) ? "" : $"&state={Uri.EscapeDataString(state)}")}", ct)
+           .ContinueWith(t => t.Result ?? new List<LotDto>());
+
+    public Task<LotRouteDto?> GetLotRouteAsync(string lotId, CancellationToken ct = default)
+        => GetAsync<LotRouteDto>($"api/v1/lots/{Uri.EscapeDataString(lotId)}/route", ct);
+
+    public Task<(LotDto? Lot, string? Error)> CreateLotAsync(object req, CancellationToken ct = default)
+        => PostWithErrorAsync<LotDto>("api/v1/lots", req, ct);
+
+    public Task<(LotDto? Lot, string? Error)> TrackInAsync(string lotId, object req, CancellationToken ct = default)
+        => PostWithErrorAsync<LotDto>($"api/v1/lots/{Uri.EscapeDataString(lotId)}/track-in", req, ct);
+
+    public Task<(LotDto? Lot, string? Error)> TrackOutAsync(string lotId, object req, CancellationToken ct = default)
+        => PostWithErrorAsync<LotDto>($"api/v1/lots/{Uri.EscapeDataString(lotId)}/track-out", req, ct);
+
+    public Task<(LotDto? Lot, string? Error)> MixingTrackInOutAsync(object req, CancellationToken ct = default)
+        => PostWithErrorAsync<LotDto>("api/v1/lots/mixing/track-in-out", req, ct);
+
+    public Task<bool> HoldLotAsync(string lotId, CancellationToken ct = default)
+        => PutForStatusAsync($"api/v1/lots/{Uri.EscapeDataString(lotId)}/hold", null, ct);
+
+    public Task<bool> ReleaseLotHoldAsync(string lotId, CancellationToken ct = default)
+        => PutForStatusAsync($"api/v1/lots/{Uri.EscapeDataString(lotId)}/release-hold", null, ct);
+
+    public Task<List<LotHistoryDto>> GetLotTrackingReportAsync(
+        string plantId, string? lotId = null, string? equipmentId = null, string? processId = null,
+        DateTime? from = null, DateTime? to = null, CancellationToken ct = default)
+    {
+        var query = $"api/v1/reports/lot-tracking?plantId={Uri.EscapeDataString(plantId)}";
+        if (!string.IsNullOrEmpty(lotId)) query += $"&lotId={Uri.EscapeDataString(lotId)}";
+        if (!string.IsNullOrEmpty(equipmentId)) query += $"&equipmentId={Uri.EscapeDataString(equipmentId)}";
+        if (!string.IsNullOrEmpty(processId)) query += $"&processId={Uri.EscapeDataString(processId)}";
+        if (from.HasValue) query += $"&from={from.Value:O}";
+        if (to.HasValue) query += $"&to={to.Value:O}";
+        return GetAsync<List<LotHistoryDto>>(query, ct)
+            .ContinueWith(t => t.Result ?? new List<LotHistoryDto>());
+    }
+
     // ── DLV ───────────────────────────────────────────────────────────────────
 
     public Task<List<DeliveryOrderDto>> GetDeliveryOrdersAsync(string plantId, CancellationToken ct = default)
@@ -717,4 +811,66 @@ public sealed class ApiClient : IApiClient
 
     public Task<bool> RecordRecentMenuAsync(string menuId, CancellationToken ct = default)
         => PostForStatusAsync("api/v1/sys/recent-menus", new { menuId }, ct);
+
+    // ── SYS - 사용자 등록 신청/승인 (설계서 19.3) ─────────────────────────────
+
+    private sealed record UserIdAvailabilityPayload(bool Available);
+
+    // 중복확인/신청은 로그인 전 화면이라 토큰 없이 직접 호출한다 (LoginAsync와 동일)
+    public async Task<bool?> CheckUserIdAvailableAsync(string userId, CancellationToken ct = default)
+    {
+        try
+        {
+            var resp = await _http.GetAsync($"api/v1/users/exists/{Uri.EscapeDataString(userId)}", ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            var payload = await resp.Content.ReadFromJsonAsync<UserIdAvailabilityPayload>(ct);
+            return payload?.Available;
+        }
+        catch { return null; }
+    }
+
+    public async Task<(UserRequestDto? Request, string? Error)> RegisterUserAsync(
+        object req, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync("api/v1/users/request", req, ct);
+        if (resp.IsSuccessStatusCode)
+            return (await resp.Content.ReadFromJsonAsync<UserRequestDto>(ct), null);
+
+        try
+        {
+            var error = await resp.Content.ReadFromJsonAsync<ApiErrorPayload>(ct);
+            if (!string.IsNullOrEmpty(error?.Description))
+                return (null, error.Description);
+        }
+        catch { /* 오류 본문이 표준 형식이 아니면 상태 코드로 폴백 */ }
+        return (null, $"신청에 실패했습니다 (HTTP {(int)resp.StatusCode}).");
+    }
+
+    public Task<List<UserRequestDto>> GetUserRequestsAsync(
+        string? plantId = null, string? status = null, string? userId = null,
+        string? userName = null, string? email = null,
+        DateTime? from = null, DateTime? to = null, CancellationToken ct = default)
+    {
+        var qs = new List<string>();
+        if (!string.IsNullOrEmpty(plantId)) qs.Add($"plantId={Uri.EscapeDataString(plantId)}");
+        if (!string.IsNullOrEmpty(status)) qs.Add($"status={Uri.EscapeDataString(status)}");
+        if (!string.IsNullOrEmpty(userId)) qs.Add($"userId={Uri.EscapeDataString(userId)}");
+        if (!string.IsNullOrEmpty(userName)) qs.Add($"userName={Uri.EscapeDataString(userName)}");
+        if (!string.IsNullOrEmpty(email)) qs.Add($"email={Uri.EscapeDataString(email)}");
+        if (from.HasValue) qs.Add($"from={from.Value:O}");
+        if (to.HasValue) qs.Add($"to={to.Value:O}");
+        var url = "api/v1/users/requests" + (qs.Any() ? "?" + string.Join("&", qs) : "");
+        return GetAsync<List<UserRequestDto>>(url, ct)
+            .ContinueWith(t => t.Result ?? new List<UserRequestDto>());
+    }
+
+    public Task<(UserRequestDto? Request, string? Error)> ApproveUserRequestAsync(
+        string requestId, string? roleId, CancellationToken ct = default)
+        => PatchWithErrorAsync<UserRequestDto>(
+            $"api/v1/users/requests/{Uri.EscapeDataString(requestId)}/approve", new { roleId }, ct);
+
+    public Task<(UserRequestDto? Request, string? Error)> RejectUserRequestAsync(
+        string requestId, string reason, CancellationToken ct = default)
+        => PatchWithErrorAsync<UserRequestDto>(
+            $"api/v1/users/requests/{Uri.EscapeDataString(requestId)}/reject", new { reason }, ct);
 }

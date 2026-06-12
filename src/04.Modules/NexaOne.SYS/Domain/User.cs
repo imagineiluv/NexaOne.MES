@@ -150,6 +150,14 @@ public sealed class User : AuditableEntity<string>
         PasswordState = PasswordState.Forgot;
     }
 
+    /// <summary>§19.3.5 — 가입 승인 시 초기 비밀번호 발급. 상태를 Create로 표시해
+    /// 최초 로그인 시 변경을 강제한다 (Forgot과 구분: 신규 생성 직후라는 의미).</summary>
+    public void IssueInitialPassword(string initialPasswordHash)
+    {
+        PasswordHash = initialPasswordHash;
+        PasswordState = PasswordState.Create;
+    }
+
     public void ChangeRole(string roleId) => RoleId = roleId;
     public void ChangeLanguage(LanguageType language) => Language = language;
 }

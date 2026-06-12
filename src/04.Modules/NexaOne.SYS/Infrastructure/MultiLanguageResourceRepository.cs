@@ -66,7 +66,7 @@ public sealed class MultiLanguageResourceRepository : QueryRepository, IMultiLan
 
         public MultiLanguageResource ToDomain()
         {
-            if (!Enum.TryParse<LanguageType>(Language, out var lang)) lang = LanguageType.KoKr;
+            if (!Enum.TryParse<LanguageType>(Language, out var lang) || !Enum.IsDefined(lang)) lang = LanguageType.KoKr;
             return MultiLanguageResource.Create(ResourceKey, MenuId, lang, Value);
         }
 

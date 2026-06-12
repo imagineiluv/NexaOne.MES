@@ -106,7 +106,7 @@ public sealed class UserRepository : QueryRepository, IUserRepository
 
         public User ToDomain()
         {
-            if (!Enum.TryParse<LanguageType>(Language, out var lang)) lang = LanguageType.KoKr;
+            if (!Enum.TryParse<LanguageType>(Language, out var lang) || !Enum.IsDefined(lang)) lang = LanguageType.KoKr;
             if (!Enum.TryParse<PasswordState>(PasswordState, out var state)) state = Domain.PasswordState.Normal;
 
             // Restore로 전체 컬럼을 복원한다 — Create는 IsActive=true 고정이라

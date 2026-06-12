@@ -4454,6 +4454,8 @@ SystemManagement 저장 Rule/API의 Commit 이후에 캐시 무효화 이벤트�
 
 단일 서버 기본 구성에서는 프로세스 내부 이벤트로 충분하다. 여러 API 인스턴스로 확장하면 DB Commit 이후 `CacheInvalidationEvent`를 Kafka 또는 Redis Pub/Sub로 발행하고, 각 인스턴스가 동일 Prefix를 제거한다.
 
+구현은 본 절을 다음과 같이 적응한다. 캐시 드라이버(MemoryCacheDriver, Redis 드라이버)는 인프라 계층에 존재하지만 현재 어떤 Application 서비스에도 연결되어 있지 않다 — API 서버에 서버측 공유 캐시가 없으므로 위 표의 무효화 이벤트를 발행할 대상 자체가 아직 없고, 본 절의 이벤트 기반 무효화는 적용을 보류한다. Web 계층의 MenuCacheService는 Blazor 서킷(사용자 세션) 스코프의 Task 캐시여서 서킷 종료와 함께 자연 소멸하고 재접속 시 갱신되므로 별도 무효화가 필요 없다. 이후 조회 빈도가 높은 Dictionary/Code/Menu 조회에 서버측 캐시를 도입하는 시점에 본 절의 저장 흐름별 무효화 표를 그대로 적용한다.
+
 ### 15.5 CacheService 인터페이스
 
 ```csharp
@@ -4727,6 +4729,8 @@ DB 변경은 자동 실행하되 운영에서는 적용 전 승인 단계를 둔
 | `ResultCode` | 기존 응답 코드 호환. 성공은 `0` |
 
 API 요청 로그, Rule 실행 로그, Query 실행 로그는 같은 `CorrelationId`를 공유한다. 오류 로그에는 사용자 표시 메시지와 내부 예외를 분리하고, 개인정보와 설비 민감 Payload는 Masking한다.
+
+구현은 본 절을 다음과 같이 적응한다. Serilog는 `Serilog.AspNetCore` 단일 패키지(Console/File/CompactJson 번들 포함)로 구성하고, 싱크와 레벨은 appsettings의 `Serilog` 섹션으로 정의한다 — File 싱크는 JSON 수집 요구에 맞춰 `CompactJsonFormatter`(일 단위 롤링, 31일 보관)를 사용한다. 공통 필드 중 `CorrelationId`/`UserId`/`PlantId`는 인증 직후 배치된 `RequestLogContextMiddleware`가 `LogContext`로 주입하고(클라이언트 제공 CorrelationId는 길이 64자·영숫자/`-_.:`만 허용하며 통과하지 못하면 서버가 재생성한다 — 응답 Header와 모든 로그에 그대로 실리는 값이라 로그 오염을 차단), `ElapsedMs`/StatusCode는 `UseSerilogRequestLogging`의 요청 완료 로그가 담당한다. `UiId`/`MenuId`/`RuleId`/`QueryId`/`TxnHistKey`는 해당 개념(화면 메타데이터, Rule/Query 실행기)이 아직 도입되지 않아 보류하며, 도입 시점에 같은 미들웨어 방식으로 추가한다. §17.4의 OpenTelemetry(`TraceId`/`SpanId`) 역시 추적 인프라 도입 시점의 과제로 미룬다.
 
 ### 17.4 OpenTelemetry 분산 추적
 
@@ -5048,6 +5052,8 @@ static void ConfigureRateLimiter(RateLimiterOptions options)
     });
 }
 ```
+
+구현은 본 절을 다음과 같이 적응한다. 파티션 키는 위 표준 코드의 `Identity.Name` 대신 JWT의 `NameIdentifier` 클레임을 사용한다 — 현재 토큰 발급기가 Name 클레임을 싣지 않기 때문이며, 클레임이 없으면 원격 IP, 그것도 없으면 `"anonymous"`로 폴백한다. 전역 한도(100req/min, FixedWindow, QueueLimit 0)에 더해 `"auth"` 명명 정책(IP당 10req/min)을 신설하여 login·refresh·forgot-password·reset-password·`exists/{userId}`·등록 신청(request) 등 익명 진입점 컨트롤러 액션에 `[EnableRateLimiting("auth")]`로 적용한다 — 브루트포스와 계정 열거 시도를 인증 전 단계에서 차단하기 위함이다. 본문이 예고한 `bulk` 정책은 Excel Export/File Upload 기능이 아직 없으므로 해당 기능 도입 시점으로 보류한다. 반대로 SignalR 허브(`/hubs/smartees`)와 헬스 프로브(`/health`)는 `DisableRateLimiting()`으로 전역 한도에서 제외한다 — long-polling 폴백 시 분당 요청 수가 급증하는 SignalR과 공유 모니터링 IP에서 호출되는 헬스 체크가 429로 끊기면 안 되기 때문이다. 거부 응답은 본문대로 429를 유지한다.
 
 #### 18.2.4 Circuit Breaker
 
@@ -5996,6 +6002,12 @@ Active
 
 상태 전이는 API 서버에서만 수행하며 클라이언트는 상태 값을 직접 갱신하지 않는다.
 
+구현은 본 절을 다음과 같이 적응한다. 신청 생명주기는 `SYS_USER_REQUEST` 테이블(V015, USER_ID UNIQUE)이 단독 소유하고, 설계 원문의 `SYS_TB_USER.STATE/VALID_STATE` 컬럼은 추가하지 않는다 — `SYS_USER` 행은 승인 시점에만 생성되므로 미승인 신청자는 사용자 행 자체가 없어 로그인이 자연 차단되고, 본 절의 `Active`는 별도 상태 값이 아니라 사용자 행의 존재로 표현된다(신청 상태는 `Request/Approved/Rejected` 3값). 재신청은 새 행이 아니라 같은 행을 `Rejected -> Request`로 전환하며 `REQUEST_VERSION`을 1 올리고, 직전 반려 이력(사유/반려자/시각)은 보존한다 — 별도 ReapplyMode는 도입하지 않는다. 신청 시각은 `REQUESTED_AT` 명시 컬럼으로 기록하며 재신청 시 갱신된다(감사 컬럼 CreatedAt은 DB 복원 시 보존되지 않는 구현 제약). 이메일 검증은 '@' 포함 여부로 단순화하고, 언어 문자열은 `Enum.TryParse` + `Enum.IsDefined`를 통과하지 못하면 KoKr로 폴백한다 — TryParse만으로는 숫자 문자열이 미정의 enum 값으로 통과하기 때문이다.
+
+승인은 설계 원문의 Plant 권한 그룹 매핑 대신 승인 화면에서 역할(RoleId)을 지정하는 방식으로 적응한다(공백이면 기본 "USER", 신청서의 PlantId는 그대로 보존). 승인 시 임시 비밀번호를 서버에서 생성·해시 저장(`PasswordState=Create`, `User.IssueInitialPassword`)하고 현행 `InitPassword({culture}).xml` 메일 템플릿을 재사용해 승인 안내와 임시 비밀번호를 한 통으로 발송한다 — 메일 발송 실패는 로그만 남기고 승인을 되돌리지 않는다. UnitOfWork가 없으므로 전수 검증 후 사용자 생성 -> 신청 갱신 순서로 기록하며, 신청 갱신이 실패해 상태가 어긋나면 재승인 시 사용자 중복 충돌로 드러난다. 신청 접수 시 관리자 알림 메일은 `Registration:AdminEmail` 설정이 있을 때만 발송하고, 감사 추적(UserRequestCreated/Approved/Rejected)은 별도 테이블 대신 §17.3의 Serilog 구조화 로그로 남긴다.
+
+API는 `GET /api/v1/users/exists/{userId}`(중복확인)와 `POST /api/v1/users/request`(신청)를 익명으로 열되 §18.2.3의 "auth" 정책(IP당 10req/min)으로 ID 열거와 신청 폭주를 완화하고, 목록/승인/반려는 ADMIN 전용이다. 약관 동의 시각과 IP는 서버가 기록한다. 등록 화면(`Register.razor`)의 Plant는 익명 상태라 마스터 조회가 불가해 텍스트 입력으로 적응하고, [중복확인]을 통과한 ID만 제출할 수 있다(ID 변경 시 재확인 요구). 컨트롤러 액션명은 `ControllerBase.Request` 속성과의 CS0108 충돌을 피해 `SubmitRequest`로 한다(라우트는 `request` 유지).
+
 ### 19.4 Lot TrackIn/TrackOut 생산 추적 기능 설계
 
 #### 19.4.1 현행 Java Rule 기준 동작
@@ -6229,6 +6241,12 @@ TrackOut 성공 후 `DispatchLotService.dispatchLotWithRework`에 해당하는 �
 | Mixing 추적 | 출력 Lot 기준 입력 Lot/MaterialLot, 투입량, 배합률, 소비 시각 |
 
 보고서 API는 `GET /api/v1/reports/lot-tracking`으로 제공하고, 조건은 `plantId`, `lotId`, `equipmentId`, `processId`, `from`, `to`, `includeDefect`, `includeMixing`을 지원한다. 대용량 조회는 커서 기반 페이지네이션과 CSV export 작업 큐를 사용한다.
+
+구현은 본 절을 다음과 같이 적응한다. 테이블명은 구현 DB 네이밍 규약에 따라 `PPM_LOT`/`PPM_LOT_HISTORY`/`PPM_LOT_MIXING_RELATION`(V014)으로 하고, 공정 경로(RouteSteps)는 별도 라우팅 마스터 없이 `>` 구분 문자열로 직렬화해 Lot 행에 보관한다. Lot은 생성 즉시 `Queued` 상태로 시작하며, 현행 materialLotList(자재 Lot 소비) 파라미터는 자재 모듈 미구현으로 이번 범위에서 제외한다 — Mixing 추적의 입력은 Lot 간 관계(`PPM_LOT_MIXING_RELATION`)로만 기록한다. 설비/Recipe/불량 코드 마스터 접근은 `ITrackingMasterGateway` 포트로 분리해 PPM 모듈이 MDM/RMS/QMS 구현에 직접 의존하지 않게 한다.
+
+TrackIn 검증은 Lot 존재/Plant 일치 -> Hold/상태 -> 설비(존재·Plant 일치·사용 가능) -> Recipe 순서로 수행하고, Recipe는 배포(Released) 상태이면서 설비 클래스가 일치하고 버전이 맞아야 통과한다 — Recipe 미지정은 현행 `setIsUseValidationRecipe(false)` 설비의 적응으로 허용한다. 모든 공정은 TrackIn을 거쳐야 TrackOut할 수 있고(`LotStateMachine` 상태 기계), TRACK_IN/OUT 시각은 항상 서버 시각(UTC)이다. UnitOfWork가 없으므로 입력 전수 검증을 모두 통과한 뒤에만 상태를 변경하며, 작업지시 자동 시작(Issued -> Start)과 마지막 Lot 완료 시 자동 마감(Finish)은 best-effort로 처리해 실패해도 TrackIn/TrackOut 자체는 유지하고 화면에서 수동 처리할 수 있다. TrackOut 이력은 점유 해제 전에 캡처한 설비/Recipe/공정으로 기록한다 — TrackOut이 설비 점유를 비우기 때문이다.
+
+생산 추적 보고서는 커서 기반 페이지네이션과 CSV export 작업 큐 대신 행 수 상한으로 적응한다(`maxRows` 기본 1000, 최대 5000) — 초과분은 기간/설비/공정 조건을 좁혀 재조회한다. `includeDefect`/`includeMixing` 합성 조회는 Lot 경로 조회(`GET /api/v1/lots/{lotId}/route`)가 이력과 Mixing 관계를 함께 반환하는 것으로 대체한다. 현행 TxnHistKey는 §17.3의 CorrelationId가 같은 역할을 하므로 도입하지 않고, 상태 enum은 전역 `JsonStringEnumConverter`로 문자열 직렬화해 화면 DTO와 계약을 일치시킨다.
 
 ## 20. 기능 보완 설계 (부족 항목)
 

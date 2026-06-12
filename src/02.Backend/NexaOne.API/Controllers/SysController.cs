@@ -78,7 +78,8 @@ public class SysController(
     {
         var result = await userService.CreateUserAsync(
             req.UserId, req.UserName, req.PasswordHash, req.Email, req.RoleId,
-            Enum.TryParse<LanguageType>(req.Language, out var lang) ? lang : LanguageType.KoKr, ct);
+            Enum.TryParse<LanguageType>(req.Language, out var lang) && Enum.IsDefined(lang)
+                ? lang : LanguageType.KoKr, ct);
         return result.IsSuccess ? Ok(ToUserDto(result.Value)) : BadRequest(result.Error);
     }
 
@@ -155,7 +156,7 @@ public class SysController(
             return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
         }
 
-        if (!string.IsNullOrEmpty(language) && Enum.TryParse<LanguageType>(language, out var lang))
+        if (!string.IsNullOrEmpty(language) && Enum.TryParse<LanguageType>(language, out var lang) && Enum.IsDefined(lang))
         {
             var result = await userService.GetResourcesByLanguageAsync(lang, ct);
             return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
@@ -169,7 +170,7 @@ public class SysController(
     [Authorize(Roles = "ADMIN")]
     public async Task<IActionResult> UpsertLanguageResource([FromBody] UpsertLanguageResourceRequest req, CancellationToken ct)
     {
-        if (!Enum.TryParse<LanguageType>(req.Language, out var lang))
+        if (!Enum.TryParse<LanguageType>(req.Language, out var lang) || !Enum.IsDefined(lang))
             return BadRequest($"Invalid language: {req.Language}");
 
         var result = await userService.UpsertResourceAsync(req.ResourceKey, req.MenuId, lang, req.Value, ct);

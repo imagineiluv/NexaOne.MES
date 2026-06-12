@@ -229,6 +229,62 @@ public record ProductionOrderDto(
     DateTime? ActualEnd,
     string Status);
 
+// ── PPM - Lot TrackIn/TrackOut (설계서 19.4) ─────────────────────────────────
+public record LotDto(
+    string Id,
+    string PlantId,
+    string? WorkOrderId,
+    string ProductId,
+    decimal Qty,
+    decimal DefectQty,
+    string State,
+    string ProcessState,
+    List<string> RouteSteps,
+    int CurrentStepIndex,
+    string CurrentProcessId,
+    bool IsLastStep,
+    string? EquipmentId,
+    string? RecipeDefId,
+    int? RecipeDefVersion,
+    string? CarrierId,
+    bool IsHold,
+    string? TrackInUser,
+    DateTime? TrackInTime,
+    string? TrackOutUser,
+    DateTime? TrackOutTime);
+
+public record LotHistoryDto(
+    long LotHistoryId,
+    string PlantId,
+    string LotId,
+    string? EquipmentId,
+    string ProcessId,
+    string? RecipeDefId,
+    int? RecipeDefVersion,
+    DateTime? TrackInTime,
+    DateTime? TrackOutTime,
+    string ExecutionId,
+    string ExecutionUser,
+    decimal Qty,
+    decimal DefectQty,
+    string LotState,
+    string ProcessState,
+    DateTime CreatedAt);
+
+public record LotMixingRelationDto(
+    string PlantId,
+    string OutputLotId,
+    string InputLotId,
+    decimal InputQty,
+    decimal? MixingRate,
+    DateTime ConsumedAt,
+    string ConsumedBy);
+
+public record LotRouteDto(
+    LotDto Lot,
+    List<LotHistoryDto> Histories,
+    List<LotMixingRelationDto> MixingInputs);
+
 // ── DLV ──────────────────────────────────────────────────────────────────────
 public record DeliveryItemDto(
     string Id,
@@ -349,3 +405,28 @@ public record RecentMenuDto(
     string ProgramId,
     string? ImageId,
     DateTime LastUsedAt);
+
+// ── SYS - 사용자 등록 신청/승인 (설계서 19.3) ─────────────────────────────────
+public record UserRequestDto(
+    string RequestId,
+    string UserId,
+    string UserName,
+    string Email,
+    string Department,
+    string Position,
+    string? Duty,
+    string PlantId,
+    string Language,
+    string? CellPhoneNumber,
+    string? Address,
+    string? Description,
+    string? Nickname,
+    string Status,
+    int RequestVersion,
+    DateTime RequestedAt,
+    DateTime TermsAcceptedAt,
+    string? ApprovedBy,
+    DateTime? ApprovedAt,
+    string? RejectReason,
+    string? RejectedBy,
+    DateTime? RejectedAt);

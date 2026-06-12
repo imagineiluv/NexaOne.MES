@@ -110,6 +110,20 @@ public interface IApiClient
     Task CompleteOrderAsync(string orderId, decimal actualQty, CancellationToken ct = default);
     Task CancelOrderAsync(string orderId, CancellationToken ct = default);
 
+    // PPM - Lot TrackIn/TrackOut (설계서 19.4)
+    // 변경 호출은 (결과, 오류) 쌍을 반환한다 — 검증 실패 사유를 화면에 표시하기 위함
+    Task<List<LotDto>> GetLotsAsync(string plantId, string? state = null, CancellationToken ct = default);
+    Task<LotRouteDto?> GetLotRouteAsync(string lotId, CancellationToken ct = default);
+    Task<(LotDto? Lot, string? Error)> CreateLotAsync(object req, CancellationToken ct = default);
+    Task<(LotDto? Lot, string? Error)> TrackInAsync(string lotId, object req, CancellationToken ct = default);
+    Task<(LotDto? Lot, string? Error)> TrackOutAsync(string lotId, object req, CancellationToken ct = default);
+    Task<(LotDto? Lot, string? Error)> MixingTrackInOutAsync(object req, CancellationToken ct = default);
+    Task<bool> HoldLotAsync(string lotId, CancellationToken ct = default);
+    Task<bool> ReleaseLotHoldAsync(string lotId, CancellationToken ct = default);
+    Task<List<LotHistoryDto>> GetLotTrackingReportAsync(
+        string plantId, string? lotId = null, string? equipmentId = null, string? processId = null,
+        DateTime? from = null, DateTime? to = null, CancellationToken ct = default);
+
     // DLV
     Task<List<DeliveryOrderDto>> GetDeliveryOrdersAsync(string plantId, CancellationToken ct = default);
     Task<DeliveryOrderDto?> CreateDeliveryOrderAsync(object req, CancellationToken ct = default);
@@ -164,4 +178,18 @@ public interface IApiClient
     Task<bool> ReorderFavoriteMenusAsync(List<string> menuIds, CancellationToken ct = default);
     Task<List<RecentMenuDto>> GetRecentMenusAsync(CancellationToken ct = default);
     Task<bool> RecordRecentMenuAsync(string menuId, CancellationToken ct = default);
+
+    // SYS - 사용자 등록 신청/승인 (설계서 19.3)
+    // 신청/중복확인은 익명 호출(로그인 전 화면), 목록/승인/반려는 ADMIN 전용
+    /// <summary>아이디 사용 가능 여부. 호출 실패 시 null (사용 불가와 구분된다).</summary>
+    Task<bool?> CheckUserIdAvailableAsync(string userId, CancellationToken ct = default);
+    Task<(UserRequestDto? Request, string? Error)> RegisterUserAsync(object req, CancellationToken ct = default);
+    Task<List<UserRequestDto>> GetUserRequestsAsync(
+        string? plantId = null, string? status = null, string? userId = null,
+        string? userName = null, string? email = null,
+        DateTime? from = null, DateTime? to = null, CancellationToken ct = default);
+    Task<(UserRequestDto? Request, string? Error)> ApproveUserRequestAsync(
+        string requestId, string? roleId, CancellationToken ct = default);
+    Task<(UserRequestDto? Request, string? Error)> RejectUserRequestAsync(
+        string requestId, string reason, CancellationToken ct = default);
 }

@@ -66,7 +66,8 @@
     private string _filterLanguage = "KoKr";
     private LangForm _form = new();
 
-    private static readonly List<string> _languages = new() { "KoKr", "EnUs", "ZhCn", "JaJp" };
+    // LanguageType enum과 일치해야 한다 — 목록에 없는 값은 서버가 400으로 거부한다
+    private static readonly List<string> _languages = new() { "KoKr", "EnUs", "ZhCn", "ViVn", "LoLo" };
 
     protected override async Task OnInitializedAsync() => await LoadData();
 

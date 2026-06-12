@@ -1,0 +1,124 @@
+@page "/ppm/lot-tracking"
+@attribute [Authorize]
+@inject IApiClient Api
+@inject AuthContextService AuthContext
+
+<div class="page-header">
+    <h1 class="page-title">생산 추적 보고서</h1>
+</div>
+
+<NexaConditionGrid TRow="LotHistoryDto" Items="_items">
+    <ConditionPanel>
+        <DxTextBox @bind-Text="_lotId"       NullText="Lot ID" />
+        <DxTextBox @bind-Text="_equipmentId" NullText="설비 ID" />
+        <DxTextBox @bind-Text="_processId"   NullText="공정 ID" />
+        <DxDateEdit @bind-Date="_from" NullText="시작일" />
+        <DxDateEdit @bind-Date="_to"   NullText="종료일" />
+        <DxButton Text="조회" Click="LoadData" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="LotId"         Caption="Lot ID"        Width="140px" />
+        <DxGridDataColumn FieldName="ProcessId"     Caption="공정"          Width="110px" />
+        <DxGridDataColumn FieldName="EquipmentId"   Caption="설비"          Width="110px" />
+        <DxGridDataColumn FieldName="ExecutionId"   Caption="구분"          Width="90px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((string)context.Value)" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridDataColumn FieldName="TrackInTime"   Caption="Track In"      Width="150px" DisplayFormat="{0:yyyy-MM-dd HH:mm}" />
+        <DxGridDataColumn FieldName="TrackOutTime"  Caption="Track Out"     Width="150px" DisplayFormat="{0:yyyy-MM-dd HH:mm}" />
+        <DxGridDataColumn FieldName="Qty"           Caption="수량"          Width="90px"  DisplayFormat="{0:N1}" />
+        <DxGridDataColumn FieldName="DefectQty"     Caption="불량"          Width="80px"  DisplayFormat="{0:N1}" />
+        <DxGridDataColumn FieldName="LotState"      Caption="Lot 상태"      Width="100px" />
+        <DxGridDataColumn FieldName="ExecutionUser" Caption="작업자"        Width="100px" />
+        <DxGridCommandColumn Width="100px">
+            <CellDisplayTemplate>
+                @{
+                    var h = (LotHistoryDto)context.DataItem;
+                    <DxButton Text="경로" Click="@(() => ShowRoute(h.LotId))" />
+                }
+            </CellDisplayTemplate>
+        </DxGridCommandColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showRoute && _route is not null)
+{
+    <DxPopup @bind-Visible="_showRoute" HeaderText="@($"Lot 경로 — {_route.Lot.Id}")" Width="720px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <div>
+                    <strong>공정 경로:</strong>
+                    @for (var i = 0; i < _route.Lot.RouteSteps.Count; i++)
+                    {
+                        var step = _route.Lot.RouteSteps[i];
+                        var isCurrent = i == _route.Lot.CurrentStepIndex && _route.Lot.State != "Completed";
+                        <span style="@(isCurrent ? "font-weight:bold; color:var(--bs-primary);" : "")">
+                            @step@(i < _route.Lot.RouteSteps.Count - 1 ? " > " : "")
+                        </span>
+                    }
+                    <StatusBadge Value="@_route.Lot.State" />
+                </div>
+
+                <strong>이력</strong>
+                <DxGrid Data="_route.Histories" PageSize="10">
+                    <Columns>
+                        <DxGridDataColumn FieldName="ProcessId"    Caption="공정"      Width="110px" />
+                        <DxGridDataColumn FieldName="EquipmentId"  Caption="설비"      Width="110px" />
+                        <DxGridDataColumn FieldName="ExecutionId"  Caption="구분"      Width="90px" />
+                        <DxGridDataColumn FieldName="TrackInTime"  Caption="Track In"  Width="140px" DisplayFormat="{0:MM-dd HH:mm}" />
+                        <DxGridDataColumn FieldName="TrackOutTime" Caption="Track Out" Width="140px" DisplayFormat="{0:MM-dd HH:mm}" />
+                        <DxGridDataColumn FieldName="Qty"          Caption="수량"      Width="80px" DisplayFormat="{0:N1}" />
+                        <DxGridDataColumn FieldName="DefectQty"    Caption="불량"      Width="80px" DisplayFormat="{0:N1}" />
+                    </Columns>
+                </DxGrid>
+
+                @if (_route.MixingInputs.Count > 0)
+                {
+                    <strong>Mixing 투입 Lot</strong>
+                    <DxGrid Data="_route.MixingInputs" PageSize="5">
+                        <Columns>
+                            <DxGridDataColumn FieldName="InputLotId" Caption="투입 Lot"  Width="140px" />
+                            <DxGridDataColumn FieldName="InputQty"   Caption="투입 수량" Width="100px" DisplayFormat="{0:N1}" />
+                            <DxGridDataColumn FieldName="MixingRate" Caption="배합 비율" Width="100px" DisplayFormat="{0:P1}" />
+                            <DxGridDataColumn FieldName="ConsumedBy" Caption="작업자"    Width="100px" />
+                        </Columns>
+                    </DxGrid>
+                }
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="닫기" Click="@(() => _showRoute = false)" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<LotHistoryDto> _items = new();
+    private string _plantId = string.Empty;
+    private string _lotId = string.Empty;
+    private string _equipmentId = string.Empty;
+    private string _processId = string.Empty;
+    private DateTime? _from;
+    private DateTime? _to;
+
+    private bool _showRoute;
+    private LotRouteDto? _route;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _plantId = await AuthContext.GetPlantIdAsync() ?? string.Empty;
+        await LoadData();
+    }
+
+    private async Task LoadData()
+        => _items = await Api.GetLotTrackingReportAsync(
+            _plantId, _lotId, _equipmentId, _processId,
+            _from, _to?.Date.AddDays(1).AddTicks(-1));
+
+    private async Task ShowRoute(string lotId)
+    {
+        _route = await Api.GetLotRouteAsync(lotId);
+        _showRoute = _route is not null;
+    }
+}

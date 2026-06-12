@@ -15,6 +15,7 @@ using NexaOne.QMS.Application.Qms;
 using NexaOne.QMS.Infrastructure;
 using NexaOne.EMS.Application.Ems;
 using NexaOne.EMS.Infrastructure;
+using NexaOne.PPM.Application.Lots;
 using NexaOne.PPM.Application.Ppm;
 using NexaOne.PPM.Infrastructure;
 using NexaOne.DLV.Application.Dlv;
@@ -104,6 +105,12 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IProductionOrderRepository, ProductionOrderRepository>();
         services.AddScoped<PpmService>();
         services.AddScoped<ProductionOrderService>();
+        // Lot TrackIn/TrackOut (§19.4) — 교차 모듈 마스터 검증은 ITrackingMasterGateway 어댑터로 연결
+        services.AddScoped<ILotRepository, LotRepository>();
+        services.AddScoped<ILotHistoryRepository, LotHistoryRepository>();
+        services.AddScoped<ILotMixingRelationRepository, LotMixingRelationRepository>();
+        services.AddScoped<ITrackingMasterGateway, TrackingMasterGateway>();
+        services.AddScoped<LotTrackingService>();
 
         // DLV
         services.AddScoped<IDeliveryOrderRepository, DeliveryOrderRepository>();
@@ -120,6 +127,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IConditionSettingRepository, ConditionSettingRepository>();
         services.AddScoped<UserService>();
         services.AddScoped<MenuService>();
+        // 사용자 등록 신청/승인 (§19.3) — 신청 생명주기는 SYS_USER_REQUEST가 단독 소유
+        services.AddScoped<IUserRequestRepository, UserRequestRepository>();
+        services.AddScoped<UserRegistrationService>();
         // 조건 저장 한도 — 현행 App.config SaveConditionCount=10 대응 (설계 20.8)
         services.AddScoped(sp => new ConditionSettingService(
             sp.GetRequiredService<IConditionSettingRepository>(),
@@ -147,6 +157,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IMailTemplateService>(
             new MailTemplateService(Path.Combine(AppContext.BaseDirectory, "Config", "Mail")));
         services.AddScoped<PasswordResetService>();
+        services.AddScoped<UserApprovalService>();
 
         return services;
     }
