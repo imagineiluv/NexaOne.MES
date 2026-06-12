@@ -1,9 +1,9 @@
 ﻿# SmartUX 3.5 → C# 마이그레이션 상세설계 문서
 
-**문서 버전:** 1.9  
+**문서 버전:** 2.0  
 **기준 소스:** SmartUX3.5_20260526  
 **작성일:** 2026-06-08  
-**보완일:** 2026-06-09 (v1.9)  
+**보완일:** 2026-06-12 (v2.0)  
 **작성 목적:** 현행 SmartUX 3.5 시스템을 순수 C# 기반으로 기능·UI 동일하게 이전하기 위한 상세 설계
 
 > **v1.2 변경 이력:** Program.cs 부트스트랩(LoginForm + 3개 InjectModule), UserInfo.Current 싱글톤, ConditionCollection 13종 컨트롤, Form 계층 10종, SO 감사 메커니즘, EMS/PPM/DLV 도메인, JWT Refresh Token/CORS, 워크플로우 WorkflowContext, FDC/RMS/QMS DB 테이블, SignalR 5-Hub 구조, 솔루션 구조 완성, 목차 섹션 15~20 추가  
@@ -13,7 +13,8 @@
 > **v1.6 변경 이력:** DB 외 드라이버 설계 추가(3.6) — Messaging/Equipment/Notification/Auth/Cache/FileStorage 인터페이스 및 구현체 초안  
 > **v1.7 변경 이력:** 드라이버 3개 카테고리로 재편(3.1/3.6) — **DB**(01.Db) / **통신**(02.Communication: Kafka·RabbitMq·OpcUa·Serial·Mqtt·SmtpEmail·Sms·Ldap) / **캐시**(03.Cache: Redis·MemoryCache). FileStorage → SmartEES.Infrastructure로 이동, DbAuth → Infrastructure 서비스로 분리, LDAP → IExternalAuthDriver(통신 드라이버)로 재정의  
 > **v1.8 변경 이력:** **NexusFramework / NexusCom 서브모듈 아키텍처 기반 리팩토링** — ①서브모듈 솔루션 구조 반영(3.1), ②NexusCom `IDatabaseProvider` 패턴으로 DB 드라이버 재정의(3.3/3.6), MSSQL 공급자 신규 구현 명시(`NexusCom.Data.MsSql`), ③NexusFramework `FlowExecutionEngine`/`WorkflowManager`/`WorkflowExecutor` 기반 워크플로우 엔진 재설계(8), `AssemblyInvocationNode` + `[WorkflowCallable]` 패턴 도입, ④RuleExecutor에 `[WorkflowCallable]` 연계 추가(5.3.1), ⑤FDC `PlantController`/`Machine`/`IDeviceInterface` 패턴 적용(10.4)  
-> **v1.9 변경 이력:** **UI 레이어 C# Blazor Server 기반으로 전면 재설계** — ①WinForms/DevExpress WinForms 제거, ASP.NET Core Blazor Server 아키텍처 수립(6), ②마이그레이션 목표·범위 업데이트(2.1/2.2), ③Phase 2 Blazor 웹 UI 구축으로 변경(2.3), ④SmartConditionGrid / SmartGrid 공통 컴포넌트 설계(6.6), ⑤WinForms 폼 클래스 → Blazor 컴포넌트 매핑표 추가(6.9), ⑥NexaOne.Web 솔루션 구조 추가(6.2)
+> **v1.9 변경 이력:** **UI 레이어 C# Blazor Server 기반으로 전면 재설계** — ①WinForms/DevExpress WinForms 제거, ASP.NET Core Blazor Server 아키텍처 수립(6), ②마이그레이션 목표·범위 업데이트(2.1/2.2), ③Phase 2 Blazor 웹 UI 구축으로 변경(2.3), ④SmartConditionGrid / SmartGrid 공통 컴포넌트 설계(6.6), ⑤WinForms 폼 클래스 → Blazor 컴포넌트 매핑표 추가(6.9), ⑥NexaOne.Web 솔루션 구조 추가(6.2)  
+> **v2.0 변경 이력:** **드라이버 소속 재정의 — 프로토콜 구현은 서브모듈(NexusCom/NexusLogic) 소유** — ①`NexusCom.Data.MsSql`을 `03.Driver/01.Db/`에서 NexusCom 서브모듈(`submodules/NexusCom/src/`)로 이관 완료, SQL 방언 인터페이스를 `INexaOneEESDbCapability`로 개명하여 `NexusCom.Data.Abstractions`에 흡수(3.1/3.3~3.5), ②통신 드라이버를 NexusCom bounded context로 재배치(3.1/3.6) — 메시징(Kafka·RabbitMq·Mqtt)→`NexusCom.Messaging.*`, 알림(SmtpEmail·Sms)→`NexusCom.Notify.*`, 외부 인증(Ldap)→`NexusCom.Directory.*`, ③설비 프로토콜(OpcUa·SerialPort)은 NexusLogic(구 `NexusCom.Plc.*` 이관처) 소속으로 정의 — NexaMes `03.Driver/02.Communication/`에는 `IDeviceInterface` 어댑터 등 SmartEES 전용 글루와 이관 전 과도기 구현만 잔류, ④문서-코드 정합화 — MsSqlProvider 코드 샘플을 실제 서브모듈 구현과 일치(3.6 카테고리1), `SqlTxnContext` 중복 설계를 3.5로 일원화(5.3.4), csproj 예시를 서브모듈 경로·3단계 상대 참조로 수정, `SmartEES.Driver.PostgreSQL` 래퍼 예시를 `NexusCom.Data.PostgreSql` 직접 사용으로 교체
 
 ---
 
@@ -260,8 +261,9 @@ Phase 4: 통합 검증 및 Java 제거 (2~3주)
 ### 3.1 전체 솔루션 구성
 
 > **설계 원칙:**
-> - **서브모듈 프레임워크** (`submodules/`) — NexusFramework(워크플로우 엔진 + 설비 제어)와 NexusCom(DB 공급자)을 git 서브모듈로 관리. 코어 구현을 재사용하되 SmartEES 전용 확장만 추가.
-> - **DB 드라이버** (`03.Driver/01.Db/`) — NexusCom 공급자 프로젝트를 직접 참조하거나 래핑. MSSQL은 NexusCom에 없으므로 `NexusCom.Data.MsSql` 신규 구현.
+> - **서브모듈 프레임워크** (`submodules/`) — NexusFramework(워크플로우 엔진 + 설비 제어)와 NexusCom(DB 공급자 + 통신 드라이버)을 git 서브모듈로 관리. 코어 구현을 재사용하되 SmartEES 전용 확장만 추가.
+> - **프로토콜 구현은 서브모듈 소유 (v2.0)** — DB·메시징·알림·외부 인증 드라이버는 NexusCom이, 설비 프로토콜(OPC-UA·Serial)은 NexusLogic(구 `NexusCom.Plc.*` 이관처)이 소유한다. NexaMes `03.Driver/`에는 SmartEES 전용 글루(어댑터)와 이관 전 과도기 구현만 둔다.
+> - **DB 드라이버** — NexusCom 공급자 프로젝트를 직접 참조. MSSQL은 `NexusCom.Data.MsSql`로 **서브모듈에 구현 완료**(`submodules/NexusCom/src/`, v2.0 이관).
 > - **도메인 모듈** (`04.Modules`) — 비즈니스 기능(화면+서비스)을 도메인 단위로 분리. 각 모듈은 `./Modules/` 디렉토리에 DLL로 배포.
 > - 두 레이어는 서로 의존하지 않으며, 공통 인터페이스(`SmartEES.Infrastructure`)를 통해서만 연결된다.
 
@@ -282,21 +284,37 @@ submodules/
 │       ├── Resource/IStateMachine.cs                  ← 상태 머신 인터페이스
 │       └── Context/FileSystemApplicationContext.cs    ← Spring.NET IoC 컨텍스트
 │
-└── NexusCom/                                 ← DB 공급자 추상화 레이어
+└── NexusCom/                                 ← DB 공급자 + 통신 드라이버 레이어
     └── src/
         ├── NexusCom.Data.Abstractions/
         │   └── Interfaces/Contracts.cs       ← IDatabaseProvider, IQueryExecutor,
         │                                        IMetadataProvider, ITransactionManager,
-        │                                        IChangeFeedProvider, IDriverManager
+        │                                        IChangeFeedProvider, IDriverManager,
+        │                                        INexaOneEESDbCapability (v2.0 흡수)
+        ├── NexusCom.Data.MsSql/              ← ★ MSSQL 공급자 (v2.0 — 03.Driver에서 이관 완료)
         ├── NexusCom.Data.PostgreSql/         ← PostgreSQL 공급자 (완성)
         ├── NexusCom.Data.MySql/              ← MySQL/MariaDB 공급자 (완성)
         ├── NexusCom.Data.Sqlite/             ← SQLite 공급자 (완성)
+        ├── NexusCom.Data.EFCore/             ← EF Core SaveChangesInterceptor 어댑터
         ├── NexusCom.Data.Core/               ← DriverManager, ChangeEventDispatcher
-        └── NexusCom.Data.Hosting/            ← DataHostedService, DataEndpointHealthCheck
-        ※ MSSQL 공급자 없음 → NexusCom.Data.MsSql 신규 구현 필요 (3.3 참조)
+        ├── NexusCom.Data.Hosting/            ← DataHostedService, DataEndpointHealthCheck
+        ├── NexusCom.Messaging.*/             ← Kafka(이관 대상)·RabbitMq/Mqtt(계획) 메시징 컨텍스트
+        ├── NexusCom.Notify.*/                ← SmtpEmail(이관 대상)·Sms(계획) 알림 컨텍스트
+        └── NexusCom.Directory.*/             ← (계획) Ldap 외부 인증 컨텍스트
+
+(별도 저장소) NexusLogic/                     ← 설비 프로토콜 소유 (구 NexusCom.Plc.* 이관처)
+        ※ OPC-UA·SerialPort 등 설비 수집 프로토콜은 NexusLogic이 소유하며,
+          FDC 연동 확정 시 NexaMes에 서브모듈로 추가한다 (3.6 카테고리 2 참조)
 ```
 
 #### 솔루션 전체 구조
+
+> **v2.0 주:** ①본 트리는 솔루션(가상 폴더) 구조다. **물리 배치**는 저장소 루트 기준
+> `src/` 아래에 00.Main~04.Modules가 위치하고 `submodules/`·`db/`·`docs/`·`test/`는 루트 직속이다
+> — 따라서 csproj 상대 참조는 `..\..\..\submodules\...` 3단계 상위가 된다 (3장 말미 csproj 예시 참조).
+> ②**명명:** 본 문서의 `SmartEES.*`는 설계 명칭이며 구현 저장소는 `NexaOne.*` 접두를 사용한다
+> (예: SmartEES.API → NexaOne.API, SmartEES.Infrastructure → NexaOne.Infrastructure,
+> SmartEES.App(WinForms) → NexaOne.Server + NexaOne.Web(Blazor) — 6장 참조).
 
 ```
 SmartEES.sln
@@ -326,20 +344,26 @@ SmartEES.sln
 ├── 03.Driver/                                ← ★ 드라이버 레이어 (교체 가능 외부 의존)
 │   │
 │   ├── 01.Db/                               ← [DB 드라이버] NexusCom IDatabaseProvider 기반
-│   │   ├── NexusCom.Data.MsSql              ← ★ 신규 구현 — MSSQL 공급자 (NexusCom에 없음)
+│   │   ├── (NexusCom.Data.MsSql)            ← ★ v2.0 서브모듈로 이관 완료 — MSSQL 공급자
 │   │   ├── (NexusCom.Data.PostgreSql)       ← submodules 직접 사용 — PostgreSQL 공급자
 │   │   ├── (NexusCom.Data.MySql)            ← submodules 직접 사용 — MySQL 공급자
 │   │   └── SmartEES.Driver.Oracle           ← 별도 구현 — Oracle (NexusCom 없음, 선택)
+│   │   ※ v2.0: DB 공급자는 전부 NexusCom 서브모듈 프로젝트를 직접 참조한다.
+│   │     01.Db/ 물리 폴더는 솔루션 폴더(가상)로만 남아 공급자 프로젝트를 묶는다.
 │   │
-│   ├── 02.Communication/                    ← [통신 드라이버] 자체 구현 (NexusCom 미지원)
-│   │   ├── SmartEES.Driver.Kafka            ← 메시지 브로커 — Confluent.Kafka (기본)
-│   │   ├── SmartEES.Driver.RabbitMq         ← 메시지 브로커 — AMQP (선택)
-│   │   ├── SmartEES.Driver.OpcUa            ← 설비 수집 — OPC-UA (기본, IDeviceInterface 구현)
-│   │   ├── SmartEES.Driver.SerialPort       ← 설비 수집 — RS-232/485 (IDeviceInterface 구현)
-│   │   ├── SmartEES.Driver.Mqtt             ← 설비/IoT — MQTT (선택)
-│   │   ├── SmartEES.Driver.SmtpEmail        ← 알림 발송 — SMTP 이메일 (기본)
-│   │   ├── SmartEES.Driver.Sms              ← 알림 발송 — SMS (선택)
-│   │   └── SmartEES.Driver.Ldap             ← 외부 인증 — LDAP/Active Directory (선택)
+│   ├── 02.Communication/                    ← [통신 글루] SmartEES 전용 어댑터 + 과도기 구현 (v2.0)
+│   │   ├── (NexusCom.Messaging.Kafka)       ← 이관 대상 — Confluent.Kafka (기본, 과도기: NexaOne.Driver.Kafka)
+│   │   ├── (NexusCom.Messaging.RabbitMq)    ← 계획 — AMQP (선택, NexusCom에 직접 구현 예정)
+│   │   ├── (NexusCom.Messaging.Mqtt)        ← 계획 — MQTT (선택, NexusCom에 직접 구현 예정)
+│   │   ├── (NexusCom.Notify.SmtpEmail)      ← 이관 대상 — SMTP 이메일 (기본, 과도기: NexaOne.Driver.SmtpEmail)
+│   │   ├── (NexusCom.Notify.Sms)            ← 계획 — SMS (선택, NexusCom에 직접 구현 예정)
+│   │   ├── (NexusCom.Directory.Ldap)        ← 계획 — LDAP/Active Directory (선택, NexusCom에 직접 구현 예정)
+│   │   ├── (NexusLogic.OpcUa)               ← NexusLogic 소속 — OPC-UA 설비 수집 (기본)
+│   │   ├── (NexusLogic.SerialPort)          ← NexusLogic 소속 — RS-232/485 설비 수집
+│   │   └── SmartEES.Driver.Adapters         ← 잔류 — IDeviceInterface/IMessageBrokerDriver 어댑터 글루
+│   │   ※ v2.0: 프로토콜 구현은 서브모듈(NexusCom/NexusLogic)이 소유한다.
+│   │     이관 완료 전까지는 02.Communication/ 아래 과도기 구현이 임시로 존재할 수 있으며,
+│   │     이관 즉시 서브모듈 프로젝트 참조로 대체하고 과도기 사본은 삭제한다.
 │   │
 │   └── 03.Cache/                            ← [캐시 드라이버] 메모리 캐시
 │       ├── SmartEES.Driver.Redis            ← Redis 분산 캐시 (기본)
@@ -389,12 +413,15 @@ SmartEES.Application                       ← [WorkflowCallable] 메서드 포�
     └─→ NexusCom.Data.Abstractions         (IDatabaseProvider 인터페이스 구현)
     └─→ DBMS별 NuGet 패키지만 참조
     ※ PostgreSQL/MySQL: NexusCom 서브모듈 프로젝트 직접 사용
-    ※ MSSQL: NexusCom.Data.MsSql 신규 구현 (03.Driver/01.Db/)
+    ※ MSSQL: NexusCom.Data.MsSql — v2.0 서브모듈로 이관 완료 (submodules/NexusCom/src/)
     ※ Oracle: SmartEES.Driver.Oracle 자체 구현
 
-03.Driver/02.Communication/*               ← 자체 구현 (NexusCom 미포함)
-    └─→ SmartEES.Infrastructure            (IMessageBrokerDriver/IEquipmentDriver 인터페이스)
-    └─→ NexusFramework.Resource.*          (IDeviceInterface — OpcUa/SerialPort 드라이버)
+03.Driver/02.Communication/*               ← v2.0 프로토콜 구현은 서브모듈 소유
+    └─→ NexusCom.Messaging.* / Notify.* / Directory.*  (Kafka·SmtpEmail — 이관 대상 / RabbitMq·Mqtt·Sms·Ldap — 계획)
+    └─→ NexusLogic.*                       (OpcUa·SerialPort 설비 프로토콜 — 별도 저장소 소유)
+    └─→ SmartEES.Infrastructure            (IMessageBrokerDriver/IEquipmentDriver 인터페이스 — 어댑터 글루만)
+    └─→ NexusFramework.Resource.*          (IDeviceInterface — 어댑터가 NexusLogic 프로토콜을 감싸 구현)
+    ※ 이관 완료 전 과도기 구현은 02.Communication/에 임시 잔류 가능 (3.6 참조)
 
 SmartEES.Infrastructure (인터페이스 + 공통)
     └─→ SmartEES.Application
@@ -416,7 +443,7 @@ var dbmsType = builder.Configuration["Database:DbmsType"];
 
 // NexusCom IDatabaseProvider 기반 등록
 builder.Services.AddSmartEESDatabase(dbmsType, builder.Configuration);
-// → "MSSQL"      : NexusCom.Data.MsSql.MsSqlProvider 등록 (신규 구현)
+// → "MSSQL"      : NexusCom.Data.MsSql.MsSqlProvider 등록 (v2.0 서브모듈 소속)
 // → "PostgreSQL" : NexusCom.Data.PostgreSql.PostgreSqlProvider 등록
 // → "MySQL"      : NexusCom.Data.MySql.MySqlProvider 등록
 // → "Oracle"     : SmartEES.Driver.Oracle 자체 구현 등록
@@ -434,7 +461,8 @@ builder.Services.AddNexusComHosting(builder.Configuration);
 ### 3.3 DB 드라이버 — NexusCom IDatabaseProvider 기반 설계
 
 > **v1.8 변경:** 기존 자체 `IDbDriver` 인터페이스를 `submodules/NexusCom`의 `IDatabaseProvider` 패턴으로 대체한다.  
-> NexusCom은 PostgreSQL/MySQL/SQLite 공급자를 이미 제공하며, **MSSQL은 없으므로 `NexusCom.Data.MsSql` 신규 구현**이 필요하다.
+> NexusCom은 PostgreSQL/MySQL/SQLite 공급자를 이미 제공하며, **MSSQL은 없으므로 `NexusCom.Data.MsSql` 신규 구현**이 필요하다.  
+> **v2.0 변경:** `NexusCom.Data.MsSql` 구현 후 NexusCom 서브모듈로 이관 완료 — 모든 DB 공급자가 서브모듈 소속으로 통일되었다.
 
 #### NexusCom IDatabaseProvider 인터페이스 구조
 
@@ -450,7 +478,11 @@ IDatabaseProvider (NexusCom.Data.Abstractions.Interfaces)
  └── ChangeFeedProvider→ IChangeFeedProvider (실시간 변경 구독)
 ```
 
-#### NexusCom 인터페이스 전체 (submodules/NexusCom/src/NexusCom.Data.Abstractions/Interfaces/Contracts.cs)
+#### NexusCom 핵심 인터페이스 발췌 (submodules/NexusCom/src/NexusCom.Data.Abstractions/Interfaces/Contracts.cs)
+
+> 본 절은 SmartEES가 직접 사용하는 인터페이스만 발췌한 것이다. 실제 파일에는
+> `IMetadataProvider`의 `GetDatabasesAsync`/`GetSchemasAsync`와
+> `IOffsetStore`·`IRuleEvaluator`·`IChangeEventNormalizer`가 추가로 정의되어 있다 — 전체는 Contracts.cs 참조.
 
 ```csharp
 // NexusCom.Data.Abstractions
@@ -517,12 +549,18 @@ public interface IDriverManager
 | **PostgreSQL** | `NexusCom.Data.PostgreSql` | ✅ 완성 | LISTEN/NOTIFY ChangeFeed 지원 |
 | **MySQL** | `NexusCom.Data.MySql` | ✅ 완성 | Trigger 기반 ChangeFeed 지원 |
 | **SQLite** | `NexusCom.Data.Sqlite` | ✅ 완성 | Trigger 기반 ChangeFeed 지원 |
-| **MSSQL** | `NexusCom.Data.MsSql` | ❌ **신규 구현 필요** | 아래 3.5 참조 |
+| **MSSQL** | `NexusCom.Data.MsSql` | ✅ **완성 (v2.0 이관)** | UPDATED_AT 워터마크 폴링 ChangeFeed, 서브모듈 소속 |
 | **Oracle** | `SmartEES.Driver.Oracle` | ⚠️ 자체 구현 | NexusCom 없음, 선택 사항 |
 
-#### SmartEES 전용 기능 보완 — ISmartEESDbCapability
+#### SmartEES 전용 기능 보완 — INexaOneEESDbCapability (v2.0 개명)
 
 NexusCom IDatabaseProvider는 범용 DB 추상화이므로 SmartEES 전용 SQL 방언(페이징, Upsert, 시퀀스 채번 등)은 별도 인터페이스로 보완한다.
+
+> **v2.0 변경:** `ISmartEESDbCapability` → `INexaOneEESDbCapability`로 개명하고
+> 정의 위치를 SmartEES.Infrastructure에서 **NexusCom.Data.Abstractions**로 흡수했다.
+> SQL 방언은 DB 공급자와 같은 bounded context에 속하므로 공급자(MsSqlProvider 등)가
+> 앱 저장소를 역참조하지 않고 이중 구현할 수 있어야 하기 때문이다.
+> 앱 쪽(NexaOne.Infrastructure)에는 `global using` 별칭만 남긴다.
 
 | 그룹 | 기능 항목 | 설명 |
 |------|-----------|------|
@@ -540,29 +578,32 @@ NexusCom IDatabaseProvider는 범용 DB 추상화이므로 SmartEES 전용 SQL �
 | | `GetActiveSessionsSql` | 활성 세션 수 조회 SQL |
 
 ```csharp
-// SmartEES.Infrastructure — SmartEES 전용 SQL 방언 확장
-namespace SmartEES.Infrastructure
+// NexusCom.Data.Abstractions/Interfaces/Contracts.cs — SQL 방언 확장 (v2.0 흡수)
+namespace NexusCom.Data.Abstractions.Interfaces;
+
+public interface INexaOneEESDbCapability
 {
-    public interface ISmartEESDbCapability
-    {
-        string GetSequenceSql(string sequenceName);
-        string GetCurrentTimeSql { get; }
-        string WrapPaged(string innerSql, int pageSize, int pageNumber);
-        string NoLockHint { get; }
-        string BuildUpsertSql(string tableName, IEnumerable<string> keyColumns, IEnumerable<string> updateColumns);
-        string BuildBatchInsertSql(string tableName, IEnumerable<string> columns, int rowCount);
-        string WrapTempTable(string tempTableName, string selectSql);
-        string NullCoalesceFn { get; }
-        string ConcatColumns(string col1, string col2);
-        Task<int> BulkInsertAsync(DbConnection conn, string tableName, DataTable data, DbTransaction? transaction = null);
-        string GetLongRunningSql { get; }
-        string GetActiveSessionsSql { get; }
-    }
+    string NoLockHint { get; }
+    string GetSequenceSql(string sequenceName);
+    string WrapPaged(string baseSql, int offset, int limit);
+    string BuildUpsertSql(string tableName, IReadOnlyList<string> keyColumns, IReadOnlyList<string> dataColumns);
+    Task BulkInsertAsync(
+        DbConnection connection,
+        string tableName,
+        IEnumerable<IReadOnlyDictionary<string, object?>> rows,
+        CancellationToken ct = default);
 }
-// 각 공급자는 IDatabaseProvider + ISmartEESDbCapability를 함께 구현
-// NexusCom.Data.MsSql.MsSqlProvider : IDatabaseProvider, ISmartEESDbCapability
-// NexusCom.Data.PostgreSql.PostgreSqlProvider : IDatabaseProvider, ISmartEESDbCapability (확장)
+// 각 공급자는 IDatabaseProvider + INexaOneEESDbCapability를 함께 구현
+// NexusCom.Data.MsSql.MsSqlProvider : IDatabaseProvider, INexaOneEESDbCapability  ← v2.0 구현 완료
+// NexusCom.Data.PostgreSql.PostgreSqlProvider : IDatabaseProvider, INexaOneEESDbCapability (확장 예정)
 ```
+
+구현은 본 절을 다음과 같이 적응한다. 위 설계 표의 12개 기능 항목 중 현재 사용처가 확정된
+**5개 멤버(①채번 GetSequenceSql, ②쿼리 빌더 NoLockHint·WrapPaged·BuildUpsertSql, ③벌크 BulkInsertAsync)**만
+인터페이스에 우선 정의했다. 나머지(GetCurrentTimeSql, BuildBatchInsertSql, WrapTempTable,
+NullCoalesceFn, ConcatColumns, ④진단 2종)는 호출하는 기능이 구현되는 시점에 단계적으로 추가한다 (YAGNI).
+MsSqlProvider.BuildUpsertSql은 동시 업서트 시 MERGE race로 인한 PK 중복을 막기 위해
+`MERGE INTO ... WITH (HOLDLOCK)`(SERIALIZABLE) 힌트를 포함한다.
 
 ### 3.4 DBMS별 기능 비교표
 
@@ -586,21 +627,22 @@ namespace SmartEES.Infrastructure
 ### 3.5 SqlTxnContext — NexusCom ITransactionManager 기반으로 재설계
 
 > **v1.8 변경:** `IDbDriver.GetSequenceSql()` → `ISmartEESDbCapability.GetSequenceSql()` 사용.  
-> NexusCom `ITransactionManager.ExecuteInTransactionAsync()` 패턴으로 트랜잭션 범위를 래핑한다.
+> NexusCom `ITransactionManager.ExecuteInTransactionAsync()` 패턴으로 트랜잭션 범위를 래핑한다.  
+> **v2.0 변경:** SQL 방언 인터페이스는 `INexaOneEESDbCapability`로 개명 (3.3 참조). 아래 코드도 개명 반영.
 
 ```csharp
 // SmartEES.Application/SqlTxnContext.cs
 // NexusCom ITransactionManager를 통해 트랜잭션 범위 내에서 TXN_HIST_KEY 채번 및 DML 실행
 public class SqlTxnContext
 {
-    private readonly ISmartEESDbCapability _dialect;
+    private readonly INexaOneEESDbCapability _dialect;
 
     public string TxnHistKey { get; private set; } = string.Empty;
     public string UserId     { get; }
     public string PlantId    { get; }
     public DateTime TxnTime  { get; } = DateTime.UtcNow;
 
-    public SqlTxnContext(ISmartEESDbCapability dialect, string userId, string plantId)
+    public SqlTxnContext(INexaOneEESDbCapability dialect, string userId, string plantId)
     {
         _dialect = dialect;
         UserId   = userId;
@@ -619,7 +661,7 @@ public class SqlTxnContext
 public class ServiceObjectProcessor
 {
     private readonly ITransactionManager _txManager;
-    private readonly ISmartEESDbCapability _dialect;
+    private readonly INexaOneEESDbCapability _dialect;
     private readonly DatabaseEndpoint _endpoint;
 
     public async Task<int> InsertAsync(string objectId, Dictionary<string, object> values)
@@ -651,7 +693,7 @@ public class ServiceObjectProcessor
 ```
 ServiceObjectProcessor.InsertAsync()
   └─ ITransactionManager.ExecuteInTransactionAsync(endpoint, (conn, txn) => {
-       SqlTxnContext.GenerateTxnHistKeyAsync(conn, txn)   ← ISmartEESDbCapability.GetSequenceSql
+       SqlTxnContext.GenerateTxnHistKeyAsync(conn, txn)   ← INexaOneEESDbCapability.GetSequenceSql
        InjectAuditFields()                                ← CREATOR/CREATEDTIME 자동 주입
        conn.ExecuteAsync(sql, values, txn)                ← Dapper DML
        CopyToHistoryAsync(ctx, conn, txn, ...)            ← _HIST 자동 복사
@@ -664,20 +706,23 @@ ServiceObjectProcessor.InsertAsync()
 `03.Driver/` 하위 해당 카테고리 폴더에 위치한다.
 
 ```
-카테고리        폴더               인터페이스 기반                    기본 구현
+카테고리        폴더               인터페이스 기반                    기본 구현 (v2.0 소유 주체)
 ──────────────────────────────────────────────────────────────────────────────
 DB 드라이버     01.Db/             NexusCom IDatabaseProvider         PostgreSqlProvider (NexusCom)
-                                   + ISmartEESDbCapability            MsSqlProvider (신규 구현)
-통신 드라이버   02.Communication/  IMessageBrokerDriver               KafkaDriver (자체 구현)
-                                   IEquipmentDriver                   OpcUaDriver (IDeviceInterface 구현)
-                                   INotificationDriver                SmtpEmailDriver (자체 구현)
-                                   IExternalAuthDriver                LdapDriver (자체 구현)
+                                   + INexaOneEESDbCapability          MsSqlProvider (NexusCom — v2.0 이관 완료)
+통신 드라이버   02.Communication/  IMessageBrokerDriver               KafkaDriver (NexusCom.Messaging — 이관 대상)
+                                   IEquipmentDriver                   OpcUaDriver (NexusLogic 소속 + 어댑터 글루)
+                                   INotificationDriver                SmtpEmailDriver (NexusCom.Notify — 이관 대상)
+                                   IExternalAuthDriver                LdapDriver (NexusCom.Directory — 계획)
 캐시 드라이버   03.Cache/          ICacheDriver                       RedisDriver (자체 구현)
 ──────────────────────────────────────────────────────────────────────────────
 ※ 파일 스토리지(IFileStorageDriver)와 DB 인증(DbAuthService)은
   프로토콜 드라이버가 아니므로 SmartEES.Infrastructure에 직접 구현
 ※ NexusCom DataHostedService가 DB ChangeFeed를 백그라운드로 처리
 ※ OpcUaDriver/SerialPortDriver는 NexusFramework.Resource.IDeviceInterface 구현
+  — v2.0: 프로토콜 본체는 NexusLogic이 소유하고, 02.Communication/의 어댑터가
+    NexusLogic 프로토콜을 IDeviceInterface로 감싼다. 이관 완료 전에는 과도기
+    구현(NexaOne.Driver.*)이 02.Communication/에 임시 잔류한다.
 ```
 
 ---
@@ -686,85 +731,123 @@ DB 드라이버     01.Db/             NexusCom IDatabaseProvider         Postgr
 
 > **v1.8 변경:** NexusCom `IDatabaseProvider` + `ISmartEESDbCapability` 이중 구현 패턴.  
 > PostgreSQL/MySQL은 NexusCom 서브모듈 프로젝트를 직접 사용 + `ISmartEESDbCapability` 확장 추가.  
-> **MSSQL은 NexusCom에 없으므로 `NexusCom.Data.MsSql` 신규 프로젝트 구현 필요.**
+> **v2.0 변경:** `NexusCom.Data.MsSql` 구현 완료 후 **NexusCom 서브모듈로 이관**
+> (`submodules/NexusCom/src/NexusCom.Data.MsSql/`). SQL 방언 인터페이스는
+> `INexaOneEESDbCapability`로 개명되어 NexusCom.Data.Abstractions에 정의된다 (3.3 참조).
 
-#### NexusCom.Data.MsSql — 신규 구현 (MSSQL 공급자)
+#### NexusCom.Data.MsSql — MSSQL 공급자 (v2.0 서브모듈 소속)
+
+아래 첫 번째 코드 블록은 **서브모듈에 실재하는 구현**이며(시그니처·SQL은 실제 파일과 일치),
+두 번째 블록은 3.3의 적응 단락대로 사용처 확정 시 추가할 **잔여 설계 항목(YAGNI 보류)**이다.
 
 ```csharp
-// 03.Driver/01.Db/NexusCom.Data.MsSql/MsSqlProvider.cs
+// submodules/NexusCom/src/NexusCom.Data.MsSql/MsSqlProvider.cs (v2.0 이관 완료 — 실제 구현)
 namespace NexusCom.Data.MsSql;
 
-public class MsSqlProvider : IDatabaseProvider, ISmartEESDbCapability
+public sealed class MsSqlProvider : IDatabaseProvider, INexaOneEESDbCapability
 {
+    public MsSqlProvider()   // 무인자 생성자 — 연결 문자열은 CreateConnection/DatabaseEndpoint 경유
+    {
+        Kind = DatabaseProviderKind.SqlServer;
+        Name = "SQL Server";
+        Capabilities = new ProviderCapabilities(
+            SupportsTransactions: true,
+            SupportsSchemas: true,
+            SupportsNotifications: false,   // MSSQL은 LISTEN/NOTIFY 없음 → 워터마크 폴링으로 대체
+            SupportsCdc: true,
+            SupportsStreaming: true,
+            SupportsBatching: true,
+            SupportsPropertyBeforeAfter: true,
+            SupportsServerSidePaging: true,
+            SupportsParameterizedCommands: true);
+
+        QueryExecutor = new MsSqlQueryExecutor();
+        MetadataProvider = new MsSqlMetadataProvider();
+        TransactionManager = new MsSqlTransactionManager();
+        ChangeFeedProvider = new MsSqlChangeFeedProvider();
+        // ChangeFeed: UPDATED_AT > @watermark 폴링 (기본 5초, polling_interval_ms 옵션),
+        //   "_ID" 접미사 첫 컬럼을 Key로 사용, ChangeEvent(Source: "polling") 생성 — CDC는 선택
+    }
+
     // ── IDatabaseProvider ──
-    public DatabaseProviderKind Kind => DatabaseProviderKind.SqlServer;
-    public string Name => "MSSQL";
-    public ProviderCapabilities Capabilities => ProviderCapabilities.All;
-
-    public DbConnection CreateConnection(string connectionString)
-        => new SqlConnection(connectionString);
-
+    public DatabaseProviderKind Kind { get; }
+    public string Name { get; }
+    public ProviderCapabilities Capabilities { get; }
     public IQueryExecutor QueryExecutor { get; }
     public IMetadataProvider MetadataProvider { get; }
     public ITransactionManager TransactionManager { get; }
-    public IChangeFeedProvider ChangeFeedProvider { get; }  // SQL Server CDC 또는 Polling
+    public IChangeFeedProvider ChangeFeedProvider { get; }
 
-    // ── ISmartEESDbCapability ──
-    public string GetSequenceSql(string seq) => $"SELECT CAST(NEXT VALUE FOR {seq} AS NVARCHAR(30))";
-    public string GetCurrentTimeSql => "GETDATE()";
-    public string WrapPaged(string sql, int size, int page)
-        => $"{sql} ORDER BY (SELECT NULL) OFFSET {(page-1)*size} ROWS FETCH NEXT {size} ROWS ONLY";
+    public DbConnection CreateConnection(string connectionString) =>
+        new SqlConnection(connectionString);
+
+    // ── INexaOneEESDbCapability (구현 완료 5개 멤버 — 3.3 계약 시그니처와 일치) ──
+
     public string NoLockHint => "WITH (NOLOCK)";
-    public string NullCoalesceFn => "ISNULL";
-    public string ConcatColumns(string c1, string c2) => $"{c1} + {c2}";
 
-    public string BuildUpsertSql(string table, IEnumerable<string> keys, IEnumerable<string> updates)
+    public string GetSequenceSql(string sequenceName) =>
+        $"SELECT NEXT VALUE FOR [{sequenceName}]";
+
+    public string WrapPaged(string baseSql, int offset, int limit) =>
+        $"{baseSql} ORDER BY (SELECT NULL) OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY";
+
+    public string BuildUpsertSql(
+        string tableName,
+        IReadOnlyList<string> keyColumns,
+        IReadOnlyList<string> dataColumns)
     {
-        var k = keys.ToList();
-        var u = updates.ToList();
-        var on  = string.Join(" AND ", k.Select(c => $"t.{c}=s.{c}"));
-        var set = string.Join(", ",    u.Select(c => $"t.{c}=s.{c}"));
-        var all = k.Concat(u).ToList();
-        var vals = string.Join(", ", all.Select(c => $"@{c} AS {c}"));
-        return $"MERGE INTO {table} t USING (SELECT {vals}) s ON ({on}) " +
-               $"WHEN MATCHED THEN UPDATE SET {set} " +
-               $"WHEN NOT MATCHED THEN INSERT ({string.Join(",", all)}) VALUES ({string.Join(",", all.Select(c => $"s.{c}"))});";
+        var allColumns = keyColumns.Concat(dataColumns).ToList();
+        var matchCond = string.Join(" AND ", keyColumns.Select(c => $"target.[{c}] = source.[{c}]"));
+        var updateSet = string.Join(", ", dataColumns.Select(c => $"target.[{c}] = source.[{c}]"));
+        var insertCols = string.Join(", ", allColumns.Select(c => $"[{c}]"));
+        var insertVals = string.Join(", ", allColumns.Select(c => $"source.[{c}]"));
+
+        // HOLDLOCK(SERIALIZABLE): 동시 업서트 시 MERGE race로 인한 PK 중복 오류 방지
+        return $"""
+            MERGE INTO [{tableName}] WITH (HOLDLOCK) AS target
+            USING (VALUES ({string.Join(", ", allColumns.Select(c => $"@{c}"))}))
+                AS source ({insertCols})
+            ON ({matchCond})
+            WHEN MATCHED THEN
+                UPDATE SET {updateSet}
+            WHEN NOT MATCHED THEN
+                INSERT ({insertCols}) VALUES ({insertVals});
+            """;
     }
 
-    public string BuildBatchInsertSql(string table, IEnumerable<string> cols, int rowCount)
+    public async Task BulkInsertAsync(
+        DbConnection connection,
+        string tableName,
+        IEnumerable<IReadOnlyDictionary<string, object?>> rows,
+        CancellationToken ct = default)
     {
-        var cl = cols.ToList();
-        var rows = Enumerable.Range(0, rowCount).Select(i => $"({string.Join(",", cl.Select(c => $"@{c}_{i}"))})");
-        return $"INSERT INTO {table} ({string.Join(",",cl)}) VALUES {string.Join(",",rows)}";
+        // SqlBulkCopy 기반 — 행 딕셔너리 컬렉션을 DataTable로 변환 후 WriteToServerAsync
+        // (상세 구현은 실제 파일 참조)
     }
-
-    public string WrapTempTable(string name, string selectSql) => $"SELECT * INTO #{name} FROM ({selectSql}) _t";
-
-    public async Task<int> BulkInsertAsync(DbConnection conn, string table, DataTable data, DbTransaction? tx = null)
-    {
-        var bulk = new SqlBulkCopy((SqlConnection)conn, SqlBulkCopyOptions.Default, (SqlTransaction?)tx)
-            { DestinationTableName = table };
-        await bulk.WriteToServerAsync(data);
-        return data.Rows.Count;
-    }
-
-    public string GetLongRunningSql =>
-        "SELECT session_id, status, command, CAST(total_elapsed_time/1000.0 AS DECIMAL(10,1)) AS elapsed_sec, " +
-        "text AS sql_text FROM sys.dm_exec_requests r CROSS APPLY sys.dm_exec_sql_text(r.sql_handle) " +
-        "WHERE total_elapsed_time/1000 >= @thresholdSeconds";
-    public string GetActiveSessionsSql => "SELECT COUNT(*) FROM sys.dm_exec_sessions WHERE is_user_process=1";
 }
+```
 
-// DI 등록 확장 메서드
-public static class MsSqlServiceCollectionExtensions
+**잔여 설계 항목 (YAGNI 보류 — 사용처 확정 시 INexaOneEESDbCapability에 추가):**
+```csharp
+// 설계 청사진 — 아직 인터페이스/구현에 없음. 추가 시 3.3 계약과 3.4 비교표 기준으로 정의한다.
+string GetCurrentTimeSql { get; }                    // → "GETDATE()"
+string NullCoalesceFn { get; }                       // → "ISNULL"
+string ConcatColumns(string c1, string c2);          // → $"{c1} + {c2}"
+string BuildBatchInsertSql(string table, IEnumerable<string> cols, int rowCount);
+string WrapTempTable(string name, string selectSql); // → $"SELECT * INTO #{name} FROM ({selectSql}) _t"
+string GetLongRunningSql { get; }                    // → sys.dm_exec_requests 기반
+string GetActiveSessionsSql { get; }                 // → sys.dm_exec_sessions 기반
+```
+
+**DI 등록 (앱 측 글루 — 서브모듈에 없음, NexaOne.Infrastructure/API에서 구성):**
+```csharp
+// 서브모듈은 DI 패키지에 의존하지 않으므로 등록 확장은 앱 측에 둔다 (추가 예정)
+public static IServiceCollection AddMsSqlProvider(this IServiceCollection services)
 {
-    public static IServiceCollection AddMsSqlProvider(this IServiceCollection services, IConfiguration config)
-    {
-        var provider = new MsSqlProvider(config);
-        services.AddSingleton<IDatabaseProvider>(provider);
-        services.AddSingleton<ISmartEESDbCapability>(provider);
-        return services;
-    }
+    var provider = new MsSqlProvider();   // 무인자 — 연결 문자열은 DatabaseEndpoint 경유
+    services.AddSingleton<IDatabaseProvider>(provider);
+    services.AddSingleton<INexaOneEESDbCapability>(provider);
+    return services;
 }
 ```
 
@@ -774,16 +857,24 @@ public static class MsSqlServiceCollectionExtensions
 
 통신 드라이버는 **네트워크 프로토콜** 기반으로 외부 시스템과 데이터를 주고받는 모든 구현체를 포함한다.
 
-| 드라이버 | 프로젝트 | 프로토콜 | 용도 |
-|----------|----------|---------|------|
-| `KafkaDriver` | SmartEES.Driver.Kafka | Kafka 프로토콜 | 이벤트 발행·구독 |
-| `RabbitMqDriver` | SmartEES.Driver.RabbitMq | AMQP | 메시지 브로커 (선택) |
-| `OpcUaDriver` | SmartEES.Driver.OpcUa | OPC-UA | 설비 데이터 수집 |
-| `SerialPortDriver` | SmartEES.Driver.SerialPort | RS-232/485 | 레거시 설비 수집 |
-| `MqttDriver` | SmartEES.Driver.Mqtt | MQTT | IoT 설비 수집 |
-| `SmtpEmailDriver` | SmartEES.Driver.SmtpEmail | SMTP | 이메일 알림 발송 |
-| `SmsDriver` | SmartEES.Driver.Sms | HTTP/API | SMS 발송 (선택) |
-| `LdapDriver` | SmartEES.Driver.Ldap | LDAP/LDAPS | AD/LDAP 외부 인증 |
+> **v2.0 변경:** 프로토콜 구현은 SmartEES 자체 구현이 아니라 **서브모듈이 소유**한다.
+> NexusCom 명명 규칙 `NexusCom.<BoundedContext>.<기술>`에 따라 메시징·알림·외부 인증
+> bounded context로 분리하고, 설비 수집 프로토콜은 **NexusLogic**(구 NexusCom.Plc.* 이관처) 소속으로 정의한다.
+> NexaMes `03.Driver/02.Communication/`에는 SmartEES 전용 어댑터 글루(IDeviceInterface ↔ NexusLogic 등)와
+> 이관 완료 전 과도기 구현(NexaOne.Driver.Kafka/OpcUa/SerialPort/SmtpEmail)만 잔류한다.
+> 아래 표의 인터페이스(IMessageBrokerDriver 등)와 코드 샘플은 계약 설계로서 유효하며,
+> 구현 본체의 최종 소속 프로젝트만 변경된다.
+
+| 드라이버 | 소속 프로젝트 (v2.0) | 프로토콜 | 용도 | 이관 상태 |
+|----------|---------------------|---------|------|----------|
+| `KafkaDriver` | NexusCom.Messaging.Kafka | Kafka 프로토콜 | 이벤트 발행·구독 | 이관 대상 (과도기: NexaOne.Driver.Kafka) |
+| `RabbitMqDriver` | NexusCom.Messaging.RabbitMq | AMQP | 메시지 브로커 (선택) | 계획 |
+| `MqttDriver` | NexusCom.Messaging.Mqtt | MQTT | IoT 설비 수집 | 계획 |
+| `SmtpEmailDriver` | NexusCom.Notify.SmtpEmail | SMTP | 이메일 알림 발송 | 이관 대상 (과도기: NexaOne.Driver.SmtpEmail) |
+| `SmsDriver` | NexusCom.Notify.Sms | HTTP/API | SMS 발송 (선택) | 계획 |
+| `LdapDriver` | NexusCom.Directory.Ldap | LDAP/LDAPS | AD/LDAP 외부 인증 | 계획 |
+| `OpcUaDriver` | NexusLogic (별도 저장소) | OPC-UA | 설비 데이터 수집 | NexusLogic 소속 (과도기: NexaOne.Driver.OpcUa) |
+| `SerialPortDriver` | NexusLogic (별도 저장소) | RS-232/485 | 레거시 설비 수집 | NexusLogic 소속 (과도기: NexaOne.Driver.SerialPort) |
 
 ---
 
@@ -808,7 +899,7 @@ public interface IMessageBrokerDriver
 
 **KafkaDriver 구현:**
 ```csharp
-// SmartEES.Driver.Kafka/KafkaDriver.cs
+// NexusCom.Messaging.Kafka/KafkaDriver.cs (v2.0 — 이관 전 과도기: NexaOne.Driver.Kafka)
 public class KafkaDriver : IMessageBrokerDriver
 {
     private readonly IProducer<string, string> _producer;
@@ -1029,7 +1120,7 @@ public class EquipmentDataPoint
 
 **OpcUaDriver 구현 개요:**
 ```csharp
-// SmartEES.Driver.OpcUa/OpcUaDriver.cs
+// NexusLogic 소속 OPC-UA 프로토콜 + 02.Communication/ IDeviceInterface 어댑터 (v2.0 — 과도기: NexaOne.Driver.OpcUa)
 // NuGet: OPCFoundation.NetStandard.Opc.Ua
 public class OpcUaDriver : IEquipmentDriver
 {
@@ -1165,7 +1256,7 @@ public class SmtpEmailDriver : INotificationDriver
 #### 3.6.5 IExternalAuthDriver (외부 인증 — LDAP/AD)
 
 > **[배치 원칙]**  
-> - **DB 기반 인증(`DbAuthService`)** — `SYS_TB_USER`를 조회하는 로직은 `SmartEES.Infrastructure`에 직접 구현 (IDbDriver 사용, 별도 드라이버 불필요)  
+> - **DB 기반 인증(`DbAuthService`)** — `SYS_TB_USER`를 조회하는 로직은 `SmartEES.Infrastructure`에 직접 구현 (IDatabaseProvider/IDriverManager 사용, 별도 드라이버 불필요)  
 > - **외부 디렉터리 인증(`LdapDriver`)** — LDAP/LDAPS 프로토콜로 외부 AD 서버에 연결하므로 통신 드라이버로 분류
 
 ```csharp
@@ -1191,7 +1282,7 @@ public class ExternalUserInfo
 }
 ```
 
-**LdapDriver 구현 (SmartEES.Driver.Ldap):**
+**LdapDriver 구현 (NexusCom.Directory.Ldap — v2.0 계획, NexusCom에 직접 구현 예정):**
 ```csharp
 // NuGet: Novell.Directory.Ldap.NETStandard
 // appsettings.json: "Ldap": { "Host": "ad.company.com", "Port": 636,
@@ -1255,12 +1346,15 @@ public class LdapDriver : IExternalAuthDriver
     <PackageReference Include="YamlDotNet" Version="15.*" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\01.Framework\Micube.Framework\Micube.Framework.csproj" />
-    <ProjectReference Include="..\01.Framework\Micube.Framework.Net.Http\Micube.Framework.Net.Http.csproj" />
+    <!-- 프로젝트는 00.Main/SmartEES.App/에 위치 — 01.Framework까지 2단계 상위 -->
+    <ProjectReference Include="..\..\01.Framework\Micube.Framework\Micube.Framework.csproj" />
+    <ProjectReference Include="..\..\01.Framework\Micube.Framework.Net.Http\Micube.Framework.Net.Http.csproj" />
     <!-- 모듈은 DLL로 동적 로드 — 빌드 시 참조 없음 -->
   </ItemGroup>
 </Project>
 ```
+> ※ v1.9에서 UI가 Blazor Server로 재설계되어 WinForms 클라이언트(SmartEES.App)와
+> 01.Framework/Micube.*는 **구현 저장소에 존재하지 않는다** — 본 csproj는 설계 이력 참고용.
 
 #### SmartEES.API.csproj
 ```xml
@@ -1295,20 +1389,21 @@ public class LdapDriver : IExternalAuthDriver
     <ProjectReference Include="..\SmartEES.Application\SmartEES.Application.csproj" />
     <ProjectReference Include="..\SmartEES.Infrastructure\SmartEES.Infrastructure.csproj" />
     <ProjectReference Include="..\SmartEES.Infrastructure.Messaging\SmartEES.Infrastructure.Messaging.csproj" />
-    <!-- DB 드라이버: NexusCom IDatabaseProvider 기반 조건부 참조 -->
-    <ProjectReference Include="..\..\03.Driver\01.Db\NexusCom.Data.MsSql\NexusCom.Data.MsSql.csproj"
+    <!-- DB 드라이버: NexusCom IDatabaseProvider 기반 조건부 참조 (v2.0: MsSql도 서브모듈 경로) -->
+    <!-- 경로 깊이: 프로젝트는 src/02.Backend/<프로젝트>/에 있으므로 저장소 루트의 submodules/까지 3단계 상위 -->
+    <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.MsSql\NexusCom.Data.MsSql.csproj"
                       Condition="'$(DbmsType)'=='MSSQL' or '$(DbmsType)'==''" />
-    <ProjectReference Include="..\..\submodules\NexusCom\src\NexusCom.Data.PostgreSql\NexusCom.Data.PostgreSql.csproj"
+    <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.PostgreSql\NexusCom.Data.PostgreSql.csproj"
                       Condition="'$(DbmsType)'=='PostgreSQL'" />
-    <ProjectReference Include="..\..\submodules\NexusCom\src\NexusCom.Data.MySql\NexusCom.Data.MySql.csproj"
+    <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.MySql\NexusCom.Data.MySql.csproj"
                       Condition="'$(DbmsType)'=='MySQL'" />
   </ItemGroup>
 </Project>
 ```
 
-#### NexusCom.Data.MsSql.csproj (신규 구현 — 03.Driver/01.Db/)
+#### NexusCom.Data.MsSql.csproj (v2.0 — NexusCom 서브모듈 소속)
 ```xml
-<!-- 03.Driver/01.Db/NexusCom.Data.MsSql/NexusCom.Data.MsSql.csproj -->
+<!-- submodules/NexusCom/src/NexusCom.Data.MsSql/NexusCom.Data.MsSql.csproj -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -1317,32 +1412,39 @@ public class LdapDriver : IExternalAuthDriver
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.*" />
     <PackageReference Include="Dapper" Version="2.*" />
-    <PackageReference Include="AspNetCore.HealthChecks.SqlServer" Version="8.*" />
   </ItemGroup>
   <ItemGroup>
-    <!-- NexusCom 추상화 인터페이스 참조 (IDatabaseProvider, ITransactionManager 등) -->
-    <ProjectReference Include="..\..\..\..\submodules\NexusCom\src\NexusCom.Data.Abstractions\NexusCom.Data.Abstractions.csproj" />
-    <!-- SmartEES 전용 확장 인터페이스 -->
-    <ProjectReference Include="..\..\..\02.Backend\SmartEES.Infrastructure\SmartEES.Infrastructure.csproj" />
+    <!-- NexusCom 내부 상대 참조만 사용 — 앱(SmartEES/NexaOne) 역참조 금지 -->
+    <ProjectReference Include="..\NexusCom\NexusCom.csproj" />
+    <ProjectReference Include="..\NexusCom.Data.Abstractions\NexusCom.Data.Abstractions.csproj" />
+    <ProjectReference Include="..\NexusCom.Data.Core\NexusCom.Data.Core.csproj" />
   </ItemGroup>
 </Project>
 ```
+> **v2.0:** SQL 방언 인터페이스(INexaOneEESDbCapability)가 NexusCom.Data.Abstractions로
+> 흡수되었으므로 SmartEES.Infrastructure 역참조가 제거되었다. 서브모듈은 앱 저장소에
+> 의존하지 않는 순수 라이브러리로 유지한다.
 
-#### SmartEES.Driver.PostgreSQL.csproj
+#### NexusCom.Data.PostgreSql.csproj (서브모듈 소속 — 직접 사용)
 ```xml
+<!-- submodules/NexusCom/src/NexusCom.Data.PostgreSql/NexusCom.Data.PostgreSql.csproj -->
+<!-- v2.0: 별도 SmartEES.Driver.PostgreSQL 래퍼 프로젝트는 폐기 — 서브모듈 프로젝트를 직접 참조한다.
+     MsSql과 동일하게 NexusCom 내부 상대 참조만 사용하며 앱(SmartEES/NexaOne) 역참조는 금지. -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <RootNamespace>SmartEES.Driver.PostgreSQL</RootNamespace>
+    <RootNamespace>NexusCom.Data.PostgreSql</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Npgsql" Version="8.*" />
-    <PackageReference Include="Dapper" Version="2.*" />
+    <PackageReference Include="Npgsql" Version="8.0.3" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\02.Backend\SmartEES.Infrastructure\SmartEES.Infrastructure.csproj" />
+    <ProjectReference Include="..\NexusCom\NexusCom.csproj" />
+    <ProjectReference Include="..\NexusCom.Data.Abstractions\NexusCom.Data.Abstractions.csproj" />
+    <ProjectReference Include="..\NexusCom.Data.Core\NexusCom.Data.Core.csproj" />
   </ItemGroup>
 </Project>
+<!-- ※ 발췌 — 실제 파일의 ImplicitUsings/Nullable 등 공통 프로퍼티는 생략 -->
 ```
 
 #### Micube.Framework.Net.Http.csproj
@@ -2120,11 +2222,13 @@ public class RecipeApprovalService : IRule
 ```csharp
 namespace SmartEES.Application
 {
-    // 현행 Java SO 패턴의 C# 구현
+    // 현행 Java SO 패턴의 C# 구현 (v2.0: NexusCom ITransactionManager 기반 — 3.5와 동일 구성)
     public class ServiceObjectProcessor
     {
         private readonly IServiceObjectRepository _soRepository;
-        private readonly IDbConnectionFactory _dbFactory;
+        private readonly ITransactionManager _txManager;
+        private readonly INexaOneEESDbCapability _dialect;
+        private readonly DatabaseEndpoint _endpoint;
 
         // Config/SO/Object.json, Attribute.json 기반 동적 CRUD
         public async Task<DataTable> SelectAsync(string objectId,
@@ -2142,46 +2246,40 @@ namespace SmartEES.Application
 
 **ServiceObjectProcessor.InsertAsync 통합 구현 예시 (SqlTxnContext + 감사 포함):**
 
+> **v2.0 변경:** 수동 `Commit/Rollback` 패턴을 폐기하고 NexusCom
+> `ITransactionManager.ExecuteInTransactionAsync` 콜백으로 트랜잭션 범위를 래핑한다 (3.5와 동일).
+
 ```csharp
 // SmartEES.Application/ServiceObjectProcessor.cs
 public async Task<int> InsertAsync(string objectId, Dictionary<string, object> values)
 {
     var objDef = await _soRepository.GetObjectDefinitionAsync(objectId);
-    using var conn = _dbFactory.CreateConnection();
-    await conn.OpenAsync();
 
-    // 1. 트랜잭션 컨텍스트 생성 (트랜잭션 시작)
-    var ctx = new SqlTxnContext(conn,
-        UserInfo.Current.UserId, UserInfo.Current.PlantId);
-
-    // 2. TXN_HIST_KEY 채번 (DBMS별 분기)
-    await ctx.GenerateTxnHistKeyAsync(conn);
-
-    // 3. 감사 필드 자동 주입
-    InjectAuditFields(values, "INSERT");
-    values["TXN_HIST_KEY"] = ctx.TxnHistKey;
-
-    try
-    {
-        // 4. 메인 테이블 INSERT
-        var sql = _sqlBuilder.BuildInsert(objDef.TableName, values);
-        var affected = await conn.ExecuteAsync(sql, values, ctx.Transaction);
-
-        // 5. _HIST 테이블 자동 복사 (historyEnabled=true인 오브젝트만)
-        if (objDef.HistoryEnabled)
+    // 트랜잭션 범위는 ITransactionManager 콜백이 소유 — 커밋/롤백 자동 처리
+    return await _txManager.ExecuteInTransactionAsync(_endpoint,
+        async (conn, txn) =>
         {
-            var pkValues = ExtractPkValues(objDef, values);
-            await CopyToHistoryAsync(ctx, objDef.TableName, pkValues);
-        }
+            // 1. 트랜잭션 컨텍스트 생성 (SQL 방언 주입)
+            var ctx = new SqlTxnContext(_dialect,
+                UserInfo.Current.UserId, UserInfo.Current.PlantId);
 
-        ctx.Transaction.Commit();
-        return affected;
-    }
-    catch
-    {
-        ctx.Transaction.Rollback();
-        throw;
-    }
+            // 2. TXN_HIST_KEY 채번 (DBMS별 분기는 공급자가 처리)
+            await ctx.GenerateTxnHistKeyAsync(conn, txn);
+
+            // 3. 감사 필드 자동 주입
+            InjectAuditFields(values, "INSERT");
+            values["TXN_HIST_KEY"] = ctx.TxnHistKey;
+
+            // 4. 메인 테이블 INSERT
+            var sql = _sqlBuilder.BuildInsert(objDef.TableName, values);
+            var affected = await conn.ExecuteAsync(sql, values, txn);
+
+            // 5. _HIST 테이블 자동 복사 (historyEnabled=true인 오브젝트만)
+            if (objDef.HistoryEnabled)
+                await CopyToHistoryAsync(ctx, conn, txn, objDef.TableName, values, "INSERT");
+
+            return affected;
+        });
 }
 ```
 
@@ -2193,6 +2291,9 @@ public async Task<int> InsertAsync(string objectId, Dictionary<string, object> v
 
 **[1] TXN_HIST_KEY — 트랜잭션 이력 키 자동 생성**
 
+> **v2.0 변경:** `SqlTxnContext` 상세 설계는 **3.5로 일원화**한다 (NexusCom `ITransactionManager`
+> 콜백 기반 + `INexaOneEESDbCapability` SQL 방언). 아래 코드도 개명·정합 반영.
+
 ```csharp
 namespace SmartEES.Application
 {
@@ -2200,46 +2301,45 @@ namespace SmartEES.Application
     /// INSERT/UPDATE/DELETE 실행 전 TXN_HIST_KEY를 채번하여
     /// 현재 트랜잭션 컨텍스트에 저장한다.
     /// TXN_HIST_KEY = YYYYMMDDHHMMSS + 6자리 순번 (DB 채번 함수 또는 Sequence)
+    /// 트랜잭션 범위는 NexusCom ITransactionManager.ExecuteInTransactionAsync 콜백이 소유한다 (3.5 참조)
     /// </summary>
     public class SqlTxnContext
     {
+        private readonly INexaOneEESDbCapability _dialect;
+
         // 현재 트랜잭션의 이력 키 (각 DML 전 채번)
-        public string TxnHistKey { get; private set; }
+        public string TxnHistKey { get; private set; } = string.Empty;
         public string UserId     { get; }
         public string PlantId    { get; }
-        public DateTime TxnTime  { get; }
-        public IDbTransaction Transaction { get; }
+        public DateTime TxnTime  { get; } = DateTime.UtcNow;
 
-        public SqlTxnContext(IDbConnection conn, string userId, string plantId)
+        public SqlTxnContext(INexaOneEESDbCapability dialect, string userId, string plantId)
         {
-            UserId      = userId;
-            PlantId     = plantId;
-            TxnTime     = DateTime.UtcNow;
-            Transaction = conn.BeginTransaction();
+            _dialect = dialect;
+            UserId   = userId;
+            PlantId  = plantId;
         }
 
-        // TXN_HIST_KEY 채번 — IDbDriver에 위임 (DBMS별 분기는 드라이버 레이어에서 처리)
-        public async Task GenerateTxnHistKeyAsync(IDbConnection conn)
+        // TXN_HIST_KEY 채번 — INexaOneEESDbCapability에 위임 (DBMS별 분기는 공급자가 처리)
+        public async Task GenerateTxnHistKeyAsync(DbConnection conn, DbTransaction txn)
         {
-            TxnHistKey = await conn.ExecuteScalarAsync<string>(
-                _driver.GetSequenceSql("SEQ_TXN_HIST_KEY"),
-                transaction: Transaction);
+            var sql = _dialect.GetSequenceSql("SEQ_TXN_HIST_KEY");
+            TxnHistKey = (await conn.ExecuteScalarAsync<string>(sql, transaction: txn))!;
         }
     }
 }
 ```
 
-> **멀티DB 채번 전략 — 섹션 3.4 드라이버 구현 참조:**
+> **멀티DB 채번 전략 — 섹션 3.3/3.5 공급자 구현 참조:**
 >
 > | DBMS | `GetSequenceSql()` 반환값 | 비고 |
 > |------|--------------------------|------|
-> | MSSQL (기본) | `NEXT VALUE FOR SEQ_TXN_HIST_KEY` | Sequence 오브젝트 |
+> | MSSQL (기본) | `SELECT NEXT VALUE FOR [SEQ_TXN_HIST_KEY]` | Sequence 오브젝트 (구현 완료 — MsSqlProvider) |
 > | PostgreSQL | `NEXTVAL('SEQ_TXN_HIST_KEY')::TEXT` | Sequence 함수 |
 > | Oracle | `SEQ_TXN_HIST_KEY.NEXTVAL FROM DUAL` | 의사 컬럼 |
 > | MySQL/MariaDB | `INSERT INTO SEQ_TXN_HIST_KEY_SEQ...` | 전용 채번 테이블 사용 |
 >
-> `SqlTxnContext`는 `IDbDriver` 인터페이스만 알고 있으며, 구체적인 DBMS는 DI 컨테이너가 주입한다.
-```
+> `SqlTxnContext`는 `INexaOneEESDbCapability` 인터페이스만 알고 있으며, 구체적인 DBMS는 DI 컨테이너가 주입한다.
 
 **[2] LAST_TXN_* 필드 자동 갱신**
 
@@ -2278,23 +2378,25 @@ SO 오브젝트 정의(Config/SO/Object.json)에 `"historyEnabled": true`가 설
 INSERT/UPDATE/DELETE 후 원본 테이블의 해당 행을 `{TABLE}_HIST` 테이블로 자동 복사한다.
 
 ```csharp
-// ServiceObjectProcessor.CopyToHistoryAsync 내부
+// ServiceObjectProcessor.CopyToHistoryAsync 내부 (v2.0: conn/txn 명시 전달 — 3.5 호출과 동일 시그니처)
 private async Task CopyToHistoryAsync(
-    SqlTxnContext ctx, string tableName, Dictionary<string, object> pkValues)
+    SqlTxnContext ctx, DbConnection conn, DbTransaction txn,
+    string tableName, Dictionary<string, object> values, string operation = "INSERT")
 {
-    // 1. 원본 행 조회
-    var row = await SelectByPkAsync(tableName, pkValues, ctx.Transaction);
+    // 1. 원본 행 조회 (PK는 values에서 추출)
+    var pkValues = ExtractPkValues(tableName, values);
+    var row = await SelectByPkAsync(conn, txn, tableName, pkValues);
 
     // 2. _HIST 테이블에 행 삽입 (TXN_HIST_KEY + 감사 필드 추가)
     var histValues = new Dictionary<string, object>(row)
     {
         ["TXN_HIST_KEY"] = ctx.TxnHistKey,
-        ["HIST_TYPE"]    = ctx.Operation,    // "INSERT" / "UPDATE" / "DELETE"
+        ["HIST_TYPE"]    = operation,        // "INSERT" / "UPDATE" / "DELETE" — 호출부가 전달
         ["HIST_TIME"]    = ctx.TxnTime,
         ["HIST_USER"]    = ctx.UserId,
     };
 
-    await InsertRawAsync($"{tableName}_HIST", histValues, ctx.Transaction);
+    await InsertRawAsync(conn, txn, $"{tableName}_HIST", histValues);
 }
 ```
 
@@ -2303,11 +2405,13 @@ private async Task CopyToHistoryAsync(
 ```
 ServiceObjectProcessor.InsertAsync(objectId, values)
   │
-  ├─ InjectAuditFields(values, "INSERT")        ← CREATOR/CREATEDTIME 자동 주입
-  ├─ SqlTxnContext.GenerateTxnHistKeyAsync()    ← TXN_HIST_KEY 채번
-  ├─ INSERT INTO {TABLE} (...)                  ← 원본 테이블 삽입
-  └─ CopyToHistoryAsync(ctx, tableName, pk)     ← {TABLE}_HIST 자동 행 복사
-       └─ INSERT INTO {TABLE}_HIST (... + TXN_HIST_KEY, HIST_TYPE, HIST_TIME)
+  └─ ITransactionManager.ExecuteInTransactionAsync(endpoint, (conn, txn) => {
+       ├─ SqlTxnContext.GenerateTxnHistKeyAsync(conn, txn)   ← TXN_HIST_KEY 채번
+       ├─ InjectAuditFields(values, "INSERT")                ← CREATOR/CREATEDTIME 자동 주입
+       ├─ INSERT INTO {TABLE} (...)                          ← 원본 테이블 삽입
+       └─ CopyToHistoryAsync(ctx, conn, txn, tableName, values, "INSERT")
+            └─ INSERT INTO {TABLE}_HIST (... + TXN_HIST_KEY, HIST_TYPE, HIST_TIME)
+     })                                                      ← 커밋/롤백은 콜백이 자동 처리
 ```
 
 **Object.json 감사 설정 예시:**
@@ -2374,9 +2478,6 @@ public class VelocityTemplateProcessor
 // 사용 예시
 var sql = _processor.Process(rawSql, paramDict, out var dp);
 var result = await conn.QueryAsync<DataRow>(sql, dp);
-```
-
-```csharp
 ```
 
 **현행 XML 쿼리 파일 구조 유지:**
