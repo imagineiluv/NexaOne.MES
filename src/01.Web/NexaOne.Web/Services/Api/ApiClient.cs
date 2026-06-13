@@ -93,80 +93,67 @@ public sealed class ApiClient : IApiClient
         return IsTokenExpiredOrExpiringSoon(token) ? await RefreshAsync(ct) : token;
     }
 
-    private async Task PrepareAuthAsync(CancellationToken ct)
+    // 요청별 Authorization 헤더로 전송한다 — 공유 HttpClient.DefaultRequestHeaders를 변이하지 않아
+    // 동시 요청 간 토큰 경합/오염이 없다(#5/#31). 401 시 1회 갱신 후 재전송하며 응답은 항상 Dispose.
+    private async Task<HttpResponseMessage> SendOnceAsync(HttpMethod method, string url, object? body, string? token, CancellationToken ct)
     {
-        var token = await _tokenService.GetAccessTokenAsync();
-        if (string.IsNullOrEmpty(token))
+        var req = new HttpRequestMessage(method, url);
+        if (!string.IsNullOrEmpty(token))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        if (body is not null)
+            req.Content = JsonContent.Create(body);
+        return await _http.SendAsync(req, ct);
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, object? body, CancellationToken ct)
+    {
+        var token = await GetValidAccessTokenAsync(ct);
+        var resp = await SendOnceAsync(method, url, body, token, ct);
+        if (resp.StatusCode != HttpStatusCode.Unauthorized) return resp;
+
+        resp.Dispose();                       // 첫 401 응답 소켓/리소스 해제(누수 방지)
+        var refreshed = await RefreshAsync(ct);
+        return await SendOnceAsync(method, url, body, refreshed, ct);
+    }
+
+    private static async Task<string> ReadErrorAsync(HttpResponseMessage resp, CancellationToken ct)
+    {
+        try
         {
-            _http.DefaultRequestHeaders.Authorization = null;
-            return;
+            var error = await resp.Content.ReadFromJsonAsync<ApiErrorPayload>(ct);
+            if (!string.IsNullOrEmpty(error?.Description))
+                return error.Description;
         }
-
-        if (IsTokenExpiredOrExpiringSoon(token))
-            token = await RefreshAsync(ct);
-
-        _http.DefaultRequestHeaders.Authorization = token is not null
-            ? new AuthenticationHeaderValue("Bearer", token)
-            : null;
+        catch { /* 오류 본문이 표준 형식이 아니면 상태 코드로 폴백 */ }
+        return $"요청에 실패했습니다 (HTTP {(int)resp.StatusCode}).";
     }
 
     // ── HTTP helpers ──────────────────────────────────────────────────────────
 
     private async Task<T?> GetAsync<T>(string url, CancellationToken ct) where T : class
     {
-        await PrepareAuthAsync(ct);
-        var resp = await _http.GetAsync(url, ct);
-        if (resp.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            var token = await RefreshAsync(ct);
-            if (token is null) return null;
-            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            resp = await _http.GetAsync(url, ct);
-        }
-        if (!resp.IsSuccessStatusCode) return null;
-        return await resp.Content.ReadFromJsonAsync<T>(ct);
+        using var resp = await SendAsync(HttpMethod.Get, url, null, ct);
+        return resp.IsSuccessStatusCode ? await resp.Content.ReadFromJsonAsync<T>(ct) : null;
     }
+
+    // 실패(예외/오류 응답)를 빈 리스트로 흡수한다 — ContinueWith(t => t.Result) 안티패턴(#6/#24) 대체.
+    private async Task<List<T>> GetListAsync<T>(string url, CancellationToken ct)
+        => await GetAsync<List<T>>(url, ct) ?? new List<T>();
 
     private async Task<T?> PostAsync<T>(string url, object body, CancellationToken ct) where T : class
     {
-        await PrepareAuthAsync(ct);
-        var resp = await _http.PostAsJsonAsync(url, body, ct);
-        if (resp.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            var token = await RefreshAsync(ct);
-            if (token is null) return null;
-            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            resp = await _http.PostAsJsonAsync(url, body, ct);
-        }
-        if (!resp.IsSuccessStatusCode) return null;
-        return await resp.Content.ReadFromJsonAsync<T>(ct);
+        using var resp = await SendAsync(HttpMethod.Post, url, body, ct);
+        return resp.IsSuccessStatusCode ? await resp.Content.ReadFromJsonAsync<T>(ct) : null;
     }
 
     private async Task PutAsync(string url, object? body, CancellationToken ct)
     {
-        await PrepareAuthAsync(ct);
-        var content = body ?? new { };
-        var resp = await _http.PutAsJsonAsync(url, content, ct);
-        if (resp.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            var token = await RefreshAsync(ct);
-            if (token is null) return;
-            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            await _http.PutAsJsonAsync(url, content, ct);
-        }
+        using var _ = await SendAsync(HttpMethod.Put, url, body ?? new { }, ct);
     }
 
     private async Task<bool> DeleteAsync(string url, CancellationToken ct)
     {
-        await PrepareAuthAsync(ct);
-        var resp = await _http.DeleteAsync(url, ct);
-        if (resp.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            var token = await RefreshAsync(ct);
-            if (token is null) return false;
-            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            resp = await _http.DeleteAsync(url, ct);
-        }
+        using var resp = await SendAsync(HttpMethod.Delete, url, null, ct);
         return resp.IsSuccessStatusCode;
     }
 
@@ -174,56 +161,25 @@ public sealed class ApiClient : IApiClient
     private async Task<(T? Result, string? Error)> PostWithErrorAsync<T>(
         string url, object body, CancellationToken ct) where T : class
     {
-        await PrepareAuthAsync(ct);
-        var resp = await _http.PostAsJsonAsync(url, body, ct);
-        if (resp.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            var token = await RefreshAsync(ct);
-            if (token is null) return (null, "인증이 만료되었습니다. 다시 로그인해 주세요.");
-            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            resp = await _http.PostAsJsonAsync(url, body, ct);
-        }
+        using var resp = await SendAsync(HttpMethod.Post, url, body, ct);
         if (resp.IsSuccessStatusCode)
             return (await resp.Content.ReadFromJsonAsync<T>(ct), null);
-
-        try
-        {
-            var error = await resp.Content.ReadFromJsonAsync<ApiErrorPayload>(ct);
-            if (!string.IsNullOrEmpty(error?.Description))
-                return (null, error.Description);
-        }
-        catch { /* 오류 본문이 표준 형식이 아니면 상태 코드로 폴백 */ }
-        return (null, $"요청에 실패했습니다 (HTTP {(int)resp.StatusCode}).");
+        if (resp.StatusCode == HttpStatusCode.Unauthorized)
+            return (null, "인증이 만료되었습니다. 다시 로그인해 주세요.");
+        return (null, await ReadErrorAsync(resp, ct));
     }
 
     // §20.12 — 본문 없는 204 응답의 성공 여부가 필요한 POST용 (PostAsync<T>는 본문 역직렬화 전제)
     private async Task<bool> PostForStatusAsync(string url, object body, CancellationToken ct)
     {
-        await PrepareAuthAsync(ct);
-        var resp = await _http.PostAsJsonAsync(url, body, ct);
-        if (resp.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            var token = await RefreshAsync(ct);
-            if (token is null) return false;
-            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            resp = await _http.PostAsJsonAsync(url, body, ct);
-        }
+        using var resp = await SendAsync(HttpMethod.Post, url, body, ct);
         return resp.IsSuccessStatusCode;
     }
 
     // §20.11/§20.12 — 성공 여부가 필요한 PUT용 (PutAsync는 실패를 보고하지 않는다)
     private async Task<bool> PutForStatusAsync(string url, object? body, CancellationToken ct)
     {
-        await PrepareAuthAsync(ct);
-        var content = body ?? new { };
-        var resp = await _http.PutAsJsonAsync(url, content, ct);
-        if (resp.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            var token = await RefreshAsync(ct);
-            if (token is null) return false;
-            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            resp = await _http.PutAsJsonAsync(url, content, ct);
-        }
+        using var resp = await SendAsync(HttpMethod.Put, url, body ?? new { }, ct);
         return resp.IsSuccessStatusCode;
     }
 
@@ -231,26 +187,12 @@ public sealed class ApiClient : IApiClient
     private async Task<(T? Result, string? Error)> PatchWithErrorAsync<T>(
         string url, object body, CancellationToken ct) where T : class
     {
-        await PrepareAuthAsync(ct);
-        var resp = await _http.PatchAsJsonAsync(url, body, ct);
-        if (resp.StatusCode == HttpStatusCode.Unauthorized)
-        {
-            var token = await RefreshAsync(ct);
-            if (token is null) return (null, "인증이 만료되었습니다. 다시 로그인해 주세요.");
-            _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            resp = await _http.PatchAsJsonAsync(url, body, ct);
-        }
+        using var resp = await SendAsync(HttpMethod.Patch, url, body, ct);
         if (resp.IsSuccessStatusCode)
             return (await resp.Content.ReadFromJsonAsync<T>(ct), null);
-
-        try
-        {
-            var error = await resp.Content.ReadFromJsonAsync<ApiErrorPayload>(ct);
-            if (!string.IsNullOrEmpty(error?.Description))
-                return (null, error.Description);
-        }
-        catch { /* 오류 본문이 표준 형식이 아니면 상태 코드로 폴백 */ }
-        return (null, $"요청에 실패했습니다 (HTTP {(int)resp.StatusCode}).");
+        if (resp.StatusCode == HttpStatusCode.Unauthorized)
+            return (null, "인증이 만료되었습니다. 다시 로그인해 주세요.");
+        return (null, await ReadErrorAsync(resp, ct));
     }
 
     private sealed record RefreshTokenPayload(string AccessToken, string RefreshToken);
@@ -286,8 +228,7 @@ public sealed class ApiClient : IApiClient
 
     public async Task LogoutAsync(string userId, string refreshToken, CancellationToken ct = default)
     {
-        await PrepareAuthAsync(ct);
-        await _http.PostAsJsonAsync("api/v1/auth/logout", new { userId, refreshToken }, ct);
+        using var _ = await SendAsync(HttpMethod.Post, "api/v1/auth/logout", new { userId, refreshToken }, ct);
     }
 
     public async Task ForgotPasswordAsync(string userId, string email, CancellationToken ct = default)
@@ -295,8 +236,7 @@ public sealed class ApiClient : IApiClient
 
     public async Task ChangePasswordAsync(string currentPassword, string newPassword, string confirmPassword, CancellationToken ct = default)
     {
-        await PrepareAuthAsync(ct);
-        var resp = await _http.PostAsJsonAsync("api/v1/auth/change-password",
+        using var resp = await SendAsync(HttpMethod.Post, "api/v1/auth/change-password",
             new { currentPassword, newPassword, confirmPassword }, ct);
         resp.EnsureSuccessStatusCode();
 
@@ -314,8 +254,7 @@ public sealed class ApiClient : IApiClient
     // ── MDM ───────────────────────────────────────────────────────────────────
 
     public Task<List<EquipmentDto>> GetEquipmentListAsync(string plantId, CancellationToken ct = default)
-        => GetAsync<List<EquipmentDto>>($"api/v1/mdm/equipment?plantId={plantId}", ct)
-           .ContinueWith(t => t.Result ?? new List<EquipmentDto>());
+        => GetListAsync<EquipmentDto>($"api/v1/mdm/equipment?plantId={plantId}", ct);
 
     public Task<EquipmentDto?> GetEquipmentAsync(string id, CancellationToken ct = default)
         => GetAsync<EquipmentDto>($"api/v1/mdm/equipment/{id}", ct);
@@ -327,31 +266,31 @@ public sealed class ApiClient : IApiClient
         => DeleteAsync($"api/v1/mdm/equipment/{id}", ct);
 
     public Task<List<PlantDto>> GetPlantsAsync(CancellationToken ct = default)
-        => GetAsync<List<PlantDto>>("api/v1/mdm/plants", ct).ContinueWith(t => t.Result ?? new List<PlantDto>());
+        => GetListAsync<PlantDto>("api/v1/mdm/plants", ct);
 
     public Task<PlantDto?> CreatePlantAsync(object req, CancellationToken ct = default)
         => PostAsync<PlantDto>("api/v1/mdm/plants", req, ct);
 
     public Task<List<AreaDto>> GetAreasAsync(string plantId, CancellationToken ct = default)
-        => GetAsync<List<AreaDto>>($"api/v1/mdm/areas?plantId={plantId}", ct).ContinueWith(t => t.Result ?? new List<AreaDto>());
+        => GetListAsync<AreaDto>($"api/v1/mdm/areas?plantId={plantId}", ct);
 
     public Task<AreaDto?> CreateAreaAsync(object req, CancellationToken ct = default)
         => PostAsync<AreaDto>("api/v1/mdm/areas", req, ct);
 
     public Task<List<ProductDto>> GetProductsAsync(CancellationToken ct = default)
-        => GetAsync<List<ProductDto>>("api/v1/mdm/products", ct).ContinueWith(t => t.Result ?? new List<ProductDto>());
+        => GetListAsync<ProductDto>("api/v1/mdm/products", ct);
 
     public Task<ProductDto?> CreateProductAsync(object req, CancellationToken ct = default)
         => PostAsync<ProductDto>("api/v1/mdm/products", req, ct);
 
     public Task<List<CodeClassDto>> GetCodeClassesAsync(CancellationToken ct = default)
-        => GetAsync<List<CodeClassDto>>("api/v1/mdm/code-classes", ct).ContinueWith(t => t.Result ?? new List<CodeClassDto>());
+        => GetListAsync<CodeClassDto>("api/v1/mdm/code-classes", ct);
 
     public Task<CodeClassDto?> CreateCodeClassAsync(object req, CancellationToken ct = default)
         => PostAsync<CodeClassDto>("api/v1/mdm/code-classes", req, ct);
 
     public Task<List<CodeDto>> GetCodesAsync(string codeClassId, CancellationToken ct = default)
-        => GetAsync<List<CodeDto>>($"api/v1/mdm/codes?codeClassId={codeClassId}", ct).ContinueWith(t => t.Result ?? new List<CodeDto>());
+        => GetListAsync<CodeDto>($"api/v1/mdm/codes?codeClassId={codeClassId}", ct);
 
     public Task<CodeDto?> CreateCodeAsync(object req, CancellationToken ct = default)
         => PostAsync<CodeDto>("api/v1/mdm/codes", req, ct);
@@ -359,12 +298,10 @@ public sealed class ApiClient : IApiClient
     // ── EPT ───────────────────────────────────────────────────────────────────
 
     public Task<List<EquipmentStateMatrixDto>> GetStateMatrixAsync(string plantId, CancellationToken ct = default)
-        => GetAsync<List<EquipmentStateMatrixDto>>($"api/v1/ept/state-matrix?plantId={plantId}", ct)
-           .ContinueWith(t => t.Result ?? new List<EquipmentStateMatrixDto>());
+        => GetListAsync<EquipmentStateMatrixDto>($"api/v1/ept/state-matrix?plantId={plantId}", ct);
 
     public Task<List<EquipmentStateMatrixDto>> GetAllowedTransitionsAsync(string plantId, string fromState, CancellationToken ct = default)
-        => GetAsync<List<EquipmentStateMatrixDto>>($"api/v1/ept/state-matrix/allowed?plantId={plantId}&fromState={fromState}", ct)
-           .ContinueWith(t => t.Result ?? new List<EquipmentStateMatrixDto>());
+        => GetListAsync<EquipmentStateMatrixDto>($"api/v1/ept/state-matrix/allowed?plantId={plantId}&fromState={fromState}", ct);
 
     public Task<EquipmentStateMatrixDto?> UpsertStateMatrixAsync(object req, CancellationToken ct = default)
         => PostAsync<EquipmentStateMatrixDto>("api/v1/ept/state-matrix", req, ct);
@@ -377,8 +314,7 @@ public sealed class ApiClient : IApiClient
         => PostAsync<EquipmentCurrentStateDto>("api/v1/ept/equipment-state/change", req, ct);
 
     public Task<List<EquipmentStateHistoryDto>> GetStateHistoryAsync(string equipmentId, CancellationToken ct = default)
-        => GetAsync<List<EquipmentStateHistoryDto>>($"api/v1/ept/equipment-state/{equipmentId}/history", ct)
-           .ContinueWith(t => t.Result ?? new List<EquipmentStateHistoryDto>());
+        => GetListAsync<EquipmentStateHistoryDto>($"api/v1/ept/equipment-state/{equipmentId}/history", ct);
 
     // 실패(null)와 빈 결과를 구분한다 — 폴백/병합 갱신 실패가 표시 중인 그리드를 비우지 않도록 (§20.9)
     public Task<List<AlarmDto>?> GetAlarmsAsync(string plantId, CancellationToken ct = default)
@@ -390,15 +326,13 @@ public sealed class ApiClient : IApiClient
     // ── FDC ───────────────────────────────────────────────────────────────────
 
     public Task<List<InterlockRuleDto>> GetInterlockRulesAsync(string equipmentId, CancellationToken ct = default)
-        => GetAsync<List<InterlockRuleDto>>($"api/v1/fdc/interlock-rules?equipmentId={equipmentId}", ct)
-           .ContinueWith(t => t.Result ?? new List<InterlockRuleDto>());
+        => GetListAsync<InterlockRuleDto>($"api/v1/fdc/interlock-rules?equipmentId={equipmentId}", ct);
 
     public Task<InterlockRuleDto?> CreateInterlockRuleAsync(object req, CancellationToken ct = default)
         => PostAsync<InterlockRuleDto>("api/v1/fdc/interlock-rules", req, ct);
 
     public Task<List<FdcParameterDto>> GetFdcParametersAsync(string equipmentId, CancellationToken ct = default)
-        => GetAsync<List<FdcParameterDto>>($"api/v1/fdc/parameters?equipmentId={equipmentId}", ct)
-           .ContinueWith(t => t.Result ?? new List<FdcParameterDto>());
+        => GetListAsync<FdcParameterDto>($"api/v1/fdc/parameters?equipmentId={equipmentId}", ct);
 
     public Task<FdcParameterDto?> CreateFdcParameterAsync(object req, CancellationToken ct = default)
         => PostAsync<FdcParameterDto>("api/v1/fdc/parameters", req, ct);
@@ -406,8 +340,7 @@ public sealed class ApiClient : IApiClient
     public Task<List<FdcCollectDataDto>> GetFdcCollectDataAsync(string parameterId, DateTime from, DateTime to, CancellationToken ct = default)
     {
         var url = $"api/v1/fdc/collect-data?parameterId={parameterId}&from={from:O}&to={to:O}";
-        return GetAsync<List<FdcCollectDataDto>>(url, ct)
-               .ContinueWith(t => t.Result ?? new List<FdcCollectDataDto>());
+        return GetListAsync<FdcCollectDataDto>(url, ct);
     }
 
     // 실패(null)와 빈 결과를 구분해야 한다 — 실패한 조회를 '최근 조건'으로 자동 저장하지 않기 위함 (설계 20.8)
@@ -423,13 +356,11 @@ public sealed class ApiClient : IApiClient
     }
 
     public Task<List<FdcInterlockHistoryDto>> GetInterlockHistoryAsync(string equipmentId, DateTime from, DateTime to, CancellationToken ct = default)
-        => GetAsync<List<FdcInterlockHistoryDto>>($"api/v1/fdc/interlock-history?equipmentId={equipmentId}&from={from:o}&to={to:o}", ct)
-           .ContinueWith(t => t.Result ?? new List<FdcInterlockHistoryDto>());
+        => GetListAsync<FdcInterlockHistoryDto>($"api/v1/fdc/interlock-history?equipmentId={equipmentId}&from={from:o}&to={to:o}", ct);
 
     // Phase 4 후속 — Low-Code 화면 정의 저장소
     public Task<List<ScreenDefinitionRecordDto>> GetScreenDefinitionsAsync(CancellationToken ct = default)
-        => GetAsync<List<ScreenDefinitionRecordDto>>("api/v1/sys/screen-definitions", ct)
-           .ContinueWith(t => t.Result ?? new List<ScreenDefinitionRecordDto>());
+        => GetListAsync<ScreenDefinitionRecordDto>("api/v1/sys/screen-definitions", ct);
 
     public Task<ScreenDefinitionRecordDto?> GetScreenDefinitionAsync(string uiId, CancellationToken ct = default)
         => GetAsync<ScreenDefinitionRecordDto>($"api/v1/sys/screen-definitions/{uiId}", ct);
@@ -438,22 +369,19 @@ public sealed class ApiClient : IApiClient
         => PutAsync($"api/v1/sys/screen-definitions/{uiId}", new { title, definitionJson }, ct);
 
     public Task<List<FdcParameterGroupDto>> GetFdcParameterGroupsAsync(string equipmentId, CancellationToken ct = default)
-        => GetAsync<List<FdcParameterGroupDto>>($"api/v1/fdc/parameter-groups?equipmentId={equipmentId}", ct)
-           .ContinueWith(t => t.Result ?? new List<FdcParameterGroupDto>());
+        => GetListAsync<FdcParameterGroupDto>($"api/v1/fdc/parameter-groups?equipmentId={equipmentId}", ct);
 
     public Task<FdcParameterGroupDto?> CreateFdcParameterGroupAsync(object req, CancellationToken ct = default)
         => PostAsync<FdcParameterGroupDto>("api/v1/fdc/parameter-groups", req, ct);
 
     public Task<List<FdcAlarmConfigDto>> GetFdcAlarmConfigsAsync(string equipmentId, CancellationToken ct = default)
-        => GetAsync<List<FdcAlarmConfigDto>>($"api/v1/fdc/alarm-configs?equipmentId={equipmentId}", ct)
-           .ContinueWith(t => t.Result ?? new List<FdcAlarmConfigDto>());
+        => GetListAsync<FdcAlarmConfigDto>($"api/v1/fdc/alarm-configs?equipmentId={equipmentId}", ct);
 
     public Task<FdcAlarmConfigDto?> CreateFdcAlarmConfigAsync(object req, CancellationToken ct = default)
         => PostAsync<FdcAlarmConfigDto>("api/v1/fdc/alarm-configs", req, ct);
 
     public Task<List<FdcAlarmHistoryDto>> GetFdcAlarmHistoryAsync(string equipmentId, DateTime from, DateTime to, CancellationToken ct = default)
-        => GetAsync<List<FdcAlarmHistoryDto>>($"api/v1/fdc/alarm-history?equipmentId={equipmentId}&from={from:o}&to={to:o}", ct)
-           .ContinueWith(t => t.Result ?? new List<FdcAlarmHistoryDto>());
+        => GetListAsync<FdcAlarmHistoryDto>($"api/v1/fdc/alarm-history?equipmentId={equipmentId}&from={from:o}&to={to:o}", ct);
 
     // ── RMS ───────────────────────────────────────────────────────────────────
 
@@ -463,7 +391,7 @@ public sealed class ApiClient : IApiClient
         if (!string.IsNullOrEmpty(equipmentClassId)) qs.Add($"equipmentClassId={equipmentClassId}");
         if (!string.IsNullOrEmpty(state)) qs.Add($"state={state}");
         var url = "api/v1/rms/recipes" + (qs.Any() ? "?" + string.Join("&", qs) : "");
-        return GetAsync<List<RecipeDto>>(url, ct).ContinueWith(t => t.Result ?? new List<RecipeDto>());
+        return GetListAsync<RecipeDto>(url, ct);
     }
 
     public Task<RecipeDto?> CreateRecipeAsync(object req, CancellationToken ct = default)
@@ -488,8 +416,7 @@ public sealed class ApiClient : IApiClient
         => PostAsync<RecipeDto>($"api/v1/rms/recipes/{recipeId}/new-version", new { newRecipeId }, ct);
 
     public Task<List<RecipeParamDto>> GetRecipeParamsAsync(string recipeId, CancellationToken ct = default)
-        => GetAsync<List<RecipeParamDto>>($"api/v1/rms/recipes/{recipeId}/params", ct)
-           .ContinueWith(t => t.Result ?? new List<RecipeParamDto>());
+        => GetListAsync<RecipeParamDto>($"api/v1/rms/recipes/{recipeId}/params", ct);
 
     public Task<RecipeParamDto?> AddRecipeParamAsync(string recipeId, object req, CancellationToken ct = default)
         => PostAsync<RecipeParamDto>($"api/v1/rms/recipes/{recipeId}/params", req, ct);
@@ -503,8 +430,7 @@ public sealed class ApiClient : IApiClient
     // ── QMS ───────────────────────────────────────────────────────────────────
 
     public Task<List<DefectDto>> GetDefectsAsync(string lotId, CancellationToken ct = default)
-        => GetAsync<List<DefectDto>>($"api/v1/qms/defects?lotId={lotId}", ct)
-           .ContinueWith(t => t.Result ?? new List<DefectDto>());
+        => GetListAsync<DefectDto>($"api/v1/qms/defects?lotId={lotId}", ct);
 
     public Task<DefectDto?> RecordDefectAsync(object req, CancellationToken ct = default)
         => PostAsync<DefectDto>("api/v1/qms/defects", req, ct);
@@ -513,8 +439,7 @@ public sealed class ApiClient : IApiClient
         => PutAsync($"api/v1/qms/defects/{defectId}/confirm", new { confirmerId }, ct);
 
     public Task<List<DefectClassDto>> GetDefectClassesAsync(CancellationToken ct = default)
-        => GetAsync<List<DefectClassDto>>("api/v1/qms/defect-classes", ct)
-           .ContinueWith(t => t.Result ?? new List<DefectClassDto>());
+        => GetListAsync<DefectClassDto>("api/v1/qms/defect-classes", ct);
 
     public Task<DefectClassDto?> CreateDefectClassAsync(object req, CancellationToken ct = default)
         => PostAsync<DefectClassDto>("api/v1/qms/defect-classes", req, ct);
@@ -523,22 +448,20 @@ public sealed class ApiClient : IApiClient
     {
         var url = "api/v1/qms/inspection-specs" +
             (string.IsNullOrEmpty(processId) ? "" : $"?processId={processId}");
-        return GetAsync<List<InspectionSpecDto>>(url, ct).ContinueWith(t => t.Result ?? new List<InspectionSpecDto>());
+        return GetListAsync<InspectionSpecDto>(url, ct);
     }
 
     public Task<InspectionSpecDto?> CreateInspectionSpecAsync(object req, CancellationToken ct = default)
         => PostAsync<InspectionSpecDto>("api/v1/qms/inspection-specs", req, ct);
 
     public Task<List<InspectionResultDto>> GetInspectionResultsAsync(string lotId, CancellationToken ct = default)
-        => GetAsync<List<InspectionResultDto>>($"api/v1/qms/inspection-results?lotId={lotId}", ct)
-           .ContinueWith(t => t.Result ?? new List<InspectionResultDto>());
+        => GetListAsync<InspectionResultDto>($"api/v1/qms/inspection-results?lotId={lotId}", ct);
 
     public Task<InspectionResultDto?> RecordInspectionResultAsync(object req, CancellationToken ct = default)
         => PostAsync<InspectionResultDto>("api/v1/qms/inspection-results", req, ct);
 
     public Task<List<SpcParamDto>> GetSpcParamsAsync(string equipmentId, CancellationToken ct = default)
-        => GetAsync<List<SpcParamDto>>($"api/v1/qms/spc-params?equipmentId={equipmentId}", ct)
-           .ContinueWith(t => t.Result ?? new List<SpcParamDto>());
+        => GetListAsync<SpcParamDto>($"api/v1/qms/spc-params?equipmentId={equipmentId}", ct);
 
     public Task<SpcParamDto?> CreateSpcParamAsync(object req, CancellationToken ct = default)
         => PostAsync<SpcParamDto>("api/v1/qms/spc-params", req, ct);
@@ -554,7 +477,7 @@ public sealed class ApiClient : IApiClient
         if (!string.IsNullOrEmpty(equipmentId)) qs.Add($"equipmentId={equipmentId}");
         if (!string.IsNullOrEmpty(status)) qs.Add($"status={status}");
         var url = "api/v1/ems/work-orders" + (qs.Any() ? "?" + string.Join("&", qs) : "");
-        return GetAsync<List<WorkOrderDto>>(url, ct).ContinueWith(t => t.Result ?? new List<WorkOrderDto>());
+        return GetListAsync<WorkOrderDto>(url, ct);
     }
 
     public Task<WorkOrderDto?> CreateWorkOrderAsync(object req, CancellationToken ct = default)
@@ -573,7 +496,7 @@ public sealed class ApiClient : IApiClient
     {
         var url = "api/v1/ems/maintenance-plans" +
             (string.IsNullOrEmpty(equipmentId) ? "" : $"?equipmentId={equipmentId}");
-        return GetAsync<List<MaintenancePlanDto>>(url, ct).ContinueWith(t => t.Result ?? new List<MaintenancePlanDto>());
+        return GetListAsync<MaintenancePlanDto>(url, ct);
     }
 
     public Task<MaintenancePlanDto?> CreateMaintenancePlanAsync(object req, CancellationToken ct = default)
@@ -589,8 +512,7 @@ public sealed class ApiClient : IApiClient
         => PutAsync($"api/v1/ems/maintenance-plans/{planId}/cancel", null, ct);
 
     public Task<List<SparePartDto>> GetSparePartsAsync(bool lowStock = false, CancellationToken ct = default)
-        => GetAsync<List<SparePartDto>>($"api/v1/ems/spare-parts{(lowStock ? "?lowStock=true" : "")}", ct)
-           .ContinueWith(t => t.Result ?? new List<SparePartDto>());
+        => GetListAsync<SparePartDto>($"api/v1/ems/spare-parts{(lowStock ? "?lowStock=true" : "")}", ct);
 
     public Task<SparePartDto?> CreateSparePartAsync(object req, CancellationToken ct = default)
         => PostAsync<SparePartDto>("api/v1/ems/spare-parts", req, ct);
@@ -601,8 +523,7 @@ public sealed class ApiClient : IApiClient
     // ── PPM ───────────────────────────────────────────────────────────────────
 
     public Task<List<ProductionPlanDto>> GetPlansAsync(string plantId, CancellationToken ct = default)
-        => GetAsync<List<ProductionPlanDto>>($"api/v1/ppm/plans?plantId={plantId}", ct)
-           .ContinueWith(t => t.Result ?? new List<ProductionPlanDto>());
+        => GetListAsync<ProductionPlanDto>($"api/v1/ppm/plans?plantId={plantId}", ct);
 
     public Task<ProductionPlanDto?> CreatePlanAsync(object req, CancellationToken ct = default)
         => PostAsync<ProductionPlanDto>("api/v1/ppm/plans", req, ct);
@@ -620,8 +541,7 @@ public sealed class ApiClient : IApiClient
         => PutAsync($"api/v1/ppm/plans/{planId}/cancel", null, ct);
 
     public Task<List<ProductionOrderDto>> GetOrdersAsync(string planId, CancellationToken ct = default)
-        => GetAsync<List<ProductionOrderDto>>($"api/v1/ppm/orders?planId={planId}", ct)
-           .ContinueWith(t => t.Result ?? new List<ProductionOrderDto>());
+        => GetListAsync<ProductionOrderDto>($"api/v1/ppm/orders?planId={planId}", ct);
 
     public Task<ProductionOrderDto?> CreateOrderAsync(object req, CancellationToken ct = default)
         => PostAsync<ProductionOrderDto>("api/v1/ppm/orders", req, ct);
@@ -638,9 +558,8 @@ public sealed class ApiClient : IApiClient
     // ── PPM - Lot TrackIn/TrackOut (설계서 19.4) ──────────────────────────────
 
     public Task<List<LotDto>> GetLotsAsync(string plantId, string? state = null, CancellationToken ct = default)
-        => GetAsync<List<LotDto>>(
-               $"api/v1/lots?plantId={Uri.EscapeDataString(plantId)}{(string.IsNullOrEmpty(state) ? "" : $"&state={Uri.EscapeDataString(state)}")}", ct)
-           .ContinueWith(t => t.Result ?? new List<LotDto>());
+        => GetListAsync<LotDto>(
+               $"api/v1/lots?plantId={Uri.EscapeDataString(plantId)}{(string.IsNullOrEmpty(state) ? "" : $"&state={Uri.EscapeDataString(state)}")}", ct);
 
     public Task<LotRouteDto?> GetLotRouteAsync(string lotId, CancellationToken ct = default)
         => GetAsync<LotRouteDto>($"api/v1/lots/{Uri.EscapeDataString(lotId)}/route", ct);
@@ -673,15 +592,13 @@ public sealed class ApiClient : IApiClient
         if (!string.IsNullOrEmpty(processId)) query += $"&processId={Uri.EscapeDataString(processId)}";
         if (from.HasValue) query += $"&from={from.Value:O}";
         if (to.HasValue) query += $"&to={to.Value:O}";
-        return GetAsync<List<LotHistoryDto>>(query, ct)
-            .ContinueWith(t => t.Result ?? new List<LotHistoryDto>());
+        return GetListAsync<LotHistoryDto>(query, ct);
     }
 
     // ── DLV ───────────────────────────────────────────────────────────────────
 
     public Task<List<DeliveryOrderDto>> GetDeliveryOrdersAsync(string plantId, CancellationToken ct = default)
-        => GetAsync<List<DeliveryOrderDto>>($"api/v1/dlv/orders?plantId={plantId}", ct)
-           .ContinueWith(t => t.Result ?? new List<DeliveryOrderDto>());
+        => GetListAsync<DeliveryOrderDto>($"api/v1/dlv/orders?plantId={plantId}", ct);
 
     public Task<DeliveryOrderDto?> CreateDeliveryOrderAsync(object req, CancellationToken ct = default)
         => PostAsync<DeliveryOrderDto>("api/v1/dlv/orders", req, ct);
@@ -696,8 +613,7 @@ public sealed class ApiClient : IApiClient
         => PutAsync($"api/v1/dlv/orders/{orderId}/cancel", null, ct);
 
     public Task<List<DeliveryItemDto>> GetDeliveryItemsAsync(string orderId, CancellationToken ct = default)
-        => GetAsync<List<DeliveryItemDto>>($"api/v1/dlv/orders/{orderId}/items", ct)
-           .ContinueWith(t => t.Result ?? new List<DeliveryItemDto>());
+        => GetListAsync<DeliveryItemDto>($"api/v1/dlv/orders/{orderId}/items", ct);
 
     public Task<DeliveryItemDto?> AddDeliveryItemAsync(string orderId, object req, CancellationToken ct = default)
         => PostAsync<DeliveryItemDto>($"api/v1/dlv/orders/{orderId}/items", req, ct);
@@ -706,8 +622,7 @@ public sealed class ApiClient : IApiClient
         => PutAsync($"api/v1/dlv/items/{itemId}/actual-qty", new { actualQty }, ct);
 
     public Task<List<ShipmentHistoryDto>> GetShipmentHistoryAsync(string orderId, CancellationToken ct = default)
-        => GetAsync<List<ShipmentHistoryDto>>($"api/v1/dlv/orders/{orderId}/shipment-history", ct)
-           .ContinueWith(t => t.Result ?? new List<ShipmentHistoryDto>());
+        => GetListAsync<ShipmentHistoryDto>($"api/v1/dlv/orders/{orderId}/shipment-history", ct);
 
     public Task<ShipmentHistoryDto?> RecordShipmentAsync(string orderId, object req, CancellationToken ct = default)
         => PostAsync<ShipmentHistoryDto>($"api/v1/dlv/orders/{orderId}/shipment-history", req, ct);
@@ -715,8 +630,7 @@ public sealed class ApiClient : IApiClient
     // ── SYS ───────────────────────────────────────────────────────────────────
 
     public Task<List<UserDto>> GetUsersAsync(CancellationToken ct = default)
-        => GetAsync<List<UserDto>>("api/v1/sys/users", ct)
-           .ContinueWith(t => t.Result ?? new List<UserDto>());
+        => GetListAsync<UserDto>("api/v1/sys/users", ct);
 
     public Task<UserDto?> GetUserAsync(string userId, CancellationToken ct = default)
         => GetAsync<UserDto>($"api/v1/sys/users/{userId}", ct);
@@ -732,8 +646,7 @@ public sealed class ApiClient : IApiClient
         => PutAsync($"api/v1/sys/users/{userId}/unlock", null, ct);
 
     public Task<List<RoleDto>> GetRolesAsync(CancellationToken ct = default)
-        => GetAsync<List<RoleDto>>("api/v1/sys/roles", ct)
-           .ContinueWith(t => t.Result ?? new List<RoleDto>());
+        => GetListAsync<RoleDto>("api/v1/sys/roles", ct);
 
     public Task<RoleDto?> GetRoleAsync(string roleId, CancellationToken ct = default)
         => GetAsync<RoleDto>($"api/v1/sys/roles/{roleId}", ct);
@@ -742,8 +655,7 @@ public sealed class ApiClient : IApiClient
         => PostAsync<RoleDto>("api/v1/sys/roles", req, ct);
 
     public Task AddPermissionAsync(string roleId, string permission, CancellationToken ct = default)
-        => PostAsync<object>($"api/v1/sys/roles/{roleId}/permissions", new { permission }, ct)
-           .ContinueWith(_ => { });
+        => PostAsync<object>($"api/v1/sys/roles/{roleId}/permissions", new { permission }, ct);
 
     public Task RemovePermissionAsync(string roleId, string permission, CancellationToken ct = default)
         => DeleteAsync($"api/v1/sys/roles/{roleId}/permissions/{Uri.EscapeDataString(permission)}", ct);
@@ -754,16 +666,14 @@ public sealed class ApiClient : IApiClient
         if (!string.IsNullOrEmpty(menuId)) qs.Add($"menuId={menuId}");
         if (!string.IsNullOrEmpty(language)) qs.Add($"language={language}");
         var url = "api/v1/sys/languages" + (qs.Any() ? "?" + string.Join("&", qs) : "");
-        return GetAsync<List<MultiLanguageResourceDto>>(url, ct)
-               .ContinueWith(t => t.Result ?? new List<MultiLanguageResourceDto>());
+        return GetListAsync<MultiLanguageResourceDto>(url, ct);
     }
 
     public Task<MultiLanguageResourceDto?> UpsertLanguageResourceAsync(object req, CancellationToken ct = default)
         => PostAsync<MultiLanguageResourceDto>("api/v1/sys/languages", req, ct);
 
     public Task<List<MenuItemDto>> GetMenuAsync(CancellationToken ct = default)
-        => GetAsync<List<MenuItemDto>>("api/v1/sys/menu", ct)
-            .ContinueWith(t => t.Result ?? new List<MenuItemDto>());
+        => GetListAsync<MenuItemDto>("api/v1/sys/menu", ct);
 
     // ── SYS - ConditionSetting (설계서 20.8 조건 저장/불러오기) ───────────────
 
@@ -785,8 +695,7 @@ public sealed class ApiClient : IApiClient
     // ── SYS - Deploy (설계서 20.11 배포 파일 업로드/클라이언트 업데이트) ──────
 
     public Task<List<DeployFileDto>> GetDeployFilesAsync(CancellationToken ct = default)
-        => GetAsync<List<DeployFileDto>>("api/v1/deploy/files", ct)
-           .ContinueWith(t => t.Result ?? new List<DeployFileDto>());
+        => GetListAsync<DeployFileDto>("api/v1/deploy/files", ct);
 
     public Task<DeployLatestDto?> GetLatestDeployAsync(CancellationToken ct = default)
         => GetAsync<DeployLatestDto>("api/v1/deploy/latest", ct);
@@ -796,8 +705,8 @@ public sealed class ApiClient : IApiClient
         CancellationToken ct = default)
     {
         // InputFile 스트림은 되감기가 불가능해 401 재시도 없이 1회만 전송한다 —
-        // PrepareAuthAsync가 만료 임박 토큰을 선제 갱신하므로 전송 중 만료 경합은 드물다.
-        await PrepareAuthAsync(ct);
+        // 만료 임박 토큰을 선제 갱신(GetValidAccessTokenAsync)하므로 전송 중 만료 경합은 드물다.
+        var token = await GetValidAccessTokenAsync(ct);
 
         using var form = new MultipartFormDataContent();
         using var fileContent = new StreamContent(content);
@@ -809,6 +718,8 @@ public sealed class ApiClient : IApiClient
 
         // LongRunning 표시 — DefaultRequestTimeoutHandler의 100초 제한을 건너뛰고 전역 10분 한도만 적용
         using var req = new HttpRequestMessage(HttpMethod.Post, "api/v1/deploy/files") { Content = form };
+        if (!string.IsNullOrEmpty(token))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         req.Options.Set(DefaultRequestTimeoutHandler.LongRunning, true);
         var resp = await _http.SendAsync(req, ct);
         if (resp.IsSuccessStatusCode)
@@ -831,8 +742,7 @@ public sealed class ApiClient : IApiClient
     // ── SYS - 사용자 메뉴 개인화 (설계서 20.12 즐겨찾기/최근 메뉴) ────────────
 
     public Task<List<FavoriteMenuDto>> GetFavoriteMenusAsync(CancellationToken ct = default)
-        => GetAsync<List<FavoriteMenuDto>>("api/v1/sys/favorites", ct)
-           .ContinueWith(t => t.Result ?? new List<FavoriteMenuDto>());
+        => GetListAsync<FavoriteMenuDto>("api/v1/sys/favorites", ct);
 
     public Task<bool> AddFavoriteMenuAsync(string menuId, CancellationToken ct = default)
         => PostForStatusAsync("api/v1/sys/favorites", new { menuId }, ct);
@@ -844,8 +754,7 @@ public sealed class ApiClient : IApiClient
         => PutForStatusAsync("api/v1/sys/favorites/order", new { menuIds }, ct);
 
     public Task<List<RecentMenuDto>> GetRecentMenusAsync(CancellationToken ct = default)
-        => GetAsync<List<RecentMenuDto>>("api/v1/sys/recent-menus", ct)
-           .ContinueWith(t => t.Result ?? new List<RecentMenuDto>());
+        => GetListAsync<RecentMenuDto>("api/v1/sys/recent-menus", ct);
 
     public Task<bool> RecordRecentMenuAsync(string menuId, CancellationToken ct = default)
         => PostForStatusAsync("api/v1/sys/recent-menus", new { menuId }, ct);
@@ -898,8 +807,7 @@ public sealed class ApiClient : IApiClient
         if (from.HasValue) qs.Add($"from={from.Value:O}");
         if (to.HasValue) qs.Add($"to={to.Value:O}");
         var url = "api/v1/users/requests" + (qs.Any() ? "?" + string.Join("&", qs) : "");
-        return GetAsync<List<UserRequestDto>>(url, ct)
-            .ContinueWith(t => t.Result ?? new List<UserRequestDto>());
+        return GetListAsync<UserRequestDto>(url, ct);
     }
 
     public Task<(UserRequestDto? Request, string? Error)> ApproveUserRequestAsync(
