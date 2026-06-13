@@ -93,6 +93,47 @@ public record FdcCollectDataDto(
     decimal UpperLimit,
     bool IsOutOfSpec);
 
+public record FdcParameterGroupDto(
+    string Id,
+    string GroupName,
+    string EquipmentId,
+    string? Description,
+    int DisplayOrder,
+    bool IsActive);
+
+public record FdcAlarmConfigDto(
+    string Id,
+    string EquipmentId,
+    string ParameterId,
+    string AlarmLevel,
+    string Operator,
+    decimal ThresholdValue,
+    bool IsActive);
+
+public record FdcAlarmHistoryDto(
+    string Id,
+    string AlarmConfigId,
+    string EquipmentId,
+    string ParameterId,
+    string AlarmLevel,
+    decimal TriggerValue,
+    string Message,
+    DateTime OccurredAt,
+    DateTime? ClearedAt,
+    bool IsCleared);
+
+public record FdcInterlockHistoryDto(
+    string Id,
+    string RuleId,
+    string EquipmentId,
+    string ParameterId,
+    decimal TriggerValue,
+    string Action,
+    string Message,
+    DateTime TriggeredAt,
+    DateTime? ResolvedAt,
+    bool IsResolved);
+
 // ── RMS ──────────────────────────────────────────────────────────────────────
 public record RecipeDto(
     string Id,

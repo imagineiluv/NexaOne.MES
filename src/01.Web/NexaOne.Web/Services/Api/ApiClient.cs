@@ -417,6 +417,28 @@ public sealed class ApiClient : IApiClient
     public Task<FdcCollectDataDto?> RecordFdcDataAsync(object req, CancellationToken ct = default)
         => PostAsync<FdcCollectDataDto>("api/v1/fdc/collect-data", req, ct);
 
+    public Task<List<FdcInterlockHistoryDto>> GetInterlockHistoryAsync(string equipmentId, DateTime from, DateTime to, CancellationToken ct = default)
+        => GetAsync<List<FdcInterlockHistoryDto>>($"api/v1/fdc/interlock-history?equipmentId={equipmentId}&from={from:o}&to={to:o}", ct)
+           .ContinueWith(t => t.Result ?? new List<FdcInterlockHistoryDto>());
+
+    public Task<List<FdcParameterGroupDto>> GetFdcParameterGroupsAsync(string equipmentId, CancellationToken ct = default)
+        => GetAsync<List<FdcParameterGroupDto>>($"api/v1/fdc/parameter-groups?equipmentId={equipmentId}", ct)
+           .ContinueWith(t => t.Result ?? new List<FdcParameterGroupDto>());
+
+    public Task<FdcParameterGroupDto?> CreateFdcParameterGroupAsync(object req, CancellationToken ct = default)
+        => PostAsync<FdcParameterGroupDto>("api/v1/fdc/parameter-groups", req, ct);
+
+    public Task<List<FdcAlarmConfigDto>> GetFdcAlarmConfigsAsync(string equipmentId, CancellationToken ct = default)
+        => GetAsync<List<FdcAlarmConfigDto>>($"api/v1/fdc/alarm-configs?equipmentId={equipmentId}", ct)
+           .ContinueWith(t => t.Result ?? new List<FdcAlarmConfigDto>());
+
+    public Task<FdcAlarmConfigDto?> CreateFdcAlarmConfigAsync(object req, CancellationToken ct = default)
+        => PostAsync<FdcAlarmConfigDto>("api/v1/fdc/alarm-configs", req, ct);
+
+    public Task<List<FdcAlarmHistoryDto>> GetFdcAlarmHistoryAsync(string equipmentId, DateTime from, DateTime to, CancellationToken ct = default)
+        => GetAsync<List<FdcAlarmHistoryDto>>($"api/v1/fdc/alarm-history?equipmentId={equipmentId}&from={from:o}&to={to:o}", ct)
+           .ContinueWith(t => t.Result ?? new List<FdcAlarmHistoryDto>());
+
     // ── RMS ───────────────────────────────────────────────────────────────────
 
     public Task<List<RecipeDto>> GetRecipesAsync(string? equipmentClassId = null, string? state = null, CancellationToken ct = default)

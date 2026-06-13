@@ -1,0 +1,100 @@
+@page "/fdc/alarm-configs"
+@attribute [Authorize]
+@inject IApiClient Api
+
+<div class="page-header">
+    <h1 class="page-title">FDC 알람 설정</h1>
+    <DxButton Text="알람 설정 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreate" />
+</div>
+
+<NexaConditionGrid TRow="FdcAlarmConfigDto" Items="_configs">
+    <ConditionPanel>
+        <DxTextBox @bind-Text="_equipmentId" NullText="설비 ID" />
+        <DxButton Text="조회" Click="Load" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="Id"             Caption="설정 ID"   Width="140px" />
+        <DxGridDataColumn FieldName="EquipmentId"    Caption="설비"      Width="120px" />
+        <DxGridDataColumn FieldName="ParameterId"    Caption="파라미터"  Width="140px" />
+        <DxGridDataColumn FieldName="AlarmLevel"     Caption="레벨"      Width="90px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((string)context.Value)" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridDataColumn FieldName="Operator"       Caption="연산자"    Width="80px" />
+        <DxGridDataColumn FieldName="ThresholdValue" Caption="임계치"    Width="100px" />
+        <DxGridDataColumn FieldName="IsActive"       Caption="활성"      Width="70px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((bool)context.Value ? "Active" : "Inactive")" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showCreate)
+{
+    <DxPopup @bind-Visible="_showCreate" HeaderText="FDC 알람 설정 등록" Width="460px">
+        <BodyContentTemplate>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <DxTextBox @bind-Text="_form.AlarmConfigId" NullText="설정 ID *" />
+                <DxTextBox @bind-Text="_form.EquipmentId"   NullText="설비 ID *" />
+                <DxTextBox @bind-Text="_form.ParameterId"   NullText="파라미터 ID *" />
+                <DxComboBox Data="_levels" @bind-Value="_form.AlarmLevel" NullText="레벨 (Warning/Critical) *" />
+                <DxComboBox Data="_operators" @bind-Value="_form.Operator" NullText="연산자 (GT/LT/GTE/LTE/EQ) *" />
+                <DxSpinEdit @bind-Value="_form.Threshold" Placeholder="임계치 *" />
+                @if (!string.IsNullOrEmpty(_createError))
+                {
+                    <div style="color:#dc2626; font-size:0.875rem;">@_createError</div>
+                }
+            </div>
+        </BodyContentTemplate>
+        <FooterContentTemplate>
+            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="Create" />
+            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
+        </FooterContentTemplate>
+    </DxPopup>
+}
+
+@code {
+    private List<FdcAlarmConfigDto> _configs = new();
+    private string _equipmentId = string.Empty;
+    private bool _showCreate;
+    private ConfigForm _form = new();
+    private string? _createError;
+
+    private readonly string[] _levels = { "Warning", "Critical" };
+    private readonly string[] _operators = { "GT", "LT", "GTE", "LTE", "EQ" };
+
+    protected override async Task OnInitializedAsync() => await Load();
+
+    private async Task Load() => _configs = await Api.GetFdcAlarmConfigsAsync(_equipmentId);
+
+    private void OpenCreate() { _form = new() { EquipmentId = _equipmentId }; _createError = null; _showCreate = true; }
+
+    private async Task Create()
+    {
+        _createError = null;
+        var result = await Api.CreateFdcAlarmConfigAsync(new
+        {
+            _form.AlarmConfigId,
+            _form.EquipmentId,
+            _form.ParameterId,
+            _form.AlarmLevel,
+            _form.Operator,
+            _form.Threshold
+        });
+        if (result is null) { _createError = "등록에 실패했습니다."; return; }
+        _showCreate = false;
+        await Load();
+    }
+
+    private sealed class ConfigForm
+    {
+        public string  AlarmConfigId { get; set; } = string.Empty;
+        public string  EquipmentId   { get; set; } = string.Empty;
+        public string  ParameterId   { get; set; } = string.Empty;
+        public string  AlarmLevel    { get; set; } = "Warning";
+        public string  Operator      { get; set; } = "GT";
+        public decimal Threshold     { get; set; }
+    }
+}

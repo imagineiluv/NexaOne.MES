@@ -1,0 +1,44 @@
+@page "/fdc/alarm-history"
+@attribute [Authorize]
+@inject IApiClient Api
+
+<div class="page-header">
+    <h1 class="page-title">FDC 알람 이력</h1>
+</div>
+
+<NexaConditionGrid TRow="FdcAlarmHistoryDto" Items="_history">
+    <ConditionPanel>
+        <DxTextBox @bind-Text="_equipmentId" NullText="설비 ID" />
+        <DxDateEdit @bind-Date="_from" />
+        <span>~</span>
+        <DxDateEdit @bind-Date="_to" />
+        <DxButton Text="조회" Click="Load" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="OccurredAt"   Caption="발생 시각" Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm:ss}" />
+        <DxGridDataColumn FieldName="ParameterId"  Caption="파라미터"  Width="140px" />
+        <DxGridDataColumn FieldName="AlarmLevel"   Caption="레벨"      Width="90px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((string)context.Value)" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+        <DxGridDataColumn FieldName="TriggerValue" Caption="발생 값"   Width="100px" />
+        <DxGridDataColumn FieldName="Message"      Caption="메시지" />
+        <DxGridDataColumn FieldName="ClearedAt"    Caption="해제 시각" Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm:ss}" />
+        <DxGridDataColumn FieldName="IsCleared"    Caption="해제"      Width="70px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((bool)context.Value ? "Cleared" : "Open")" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@code {
+    private List<FdcAlarmHistoryDto> _history = new();
+    private string _equipmentId = string.Empty;
+    private DateTime _from = DateTime.Today.AddDays(-7);
+    private DateTime _to   = DateTime.Today;
+
+    private async Task Load()
+        => _history = await Api.GetFdcAlarmHistoryAsync(_equipmentId, _from, _to.AddDays(1).AddSeconds(-1));
+}

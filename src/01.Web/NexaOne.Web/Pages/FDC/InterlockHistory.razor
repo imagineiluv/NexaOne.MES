@@ -1,0 +1,40 @@
+@page "/fdc/interlock-history"
+@attribute [Authorize]
+@inject IApiClient Api
+
+<div class="page-header">
+    <h1 class="page-title">FDC 인터락 이력</h1>
+</div>
+
+<NexaConditionGrid TRow="FdcInterlockHistoryDto" Items="_history">
+    <ConditionPanel>
+        <DxTextBox @bind-Text="_equipmentId" NullText="설비 ID" />
+        <DxDateEdit @bind-Date="_from" />
+        <span>~</span>
+        <DxDateEdit @bind-Date="_to" />
+        <DxButton Text="조회" Click="Load" />
+    </ConditionPanel>
+    <Columns>
+        <DxGridDataColumn FieldName="TriggeredAt"  Caption="발동 시각" Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm:ss}" />
+        <DxGridDataColumn FieldName="ParameterId"  Caption="파라미터"  Width="140px" />
+        <DxGridDataColumn FieldName="Action"       Caption="액션"      Width="90px" />
+        <DxGridDataColumn FieldName="TriggerValue" Caption="발동 값"   Width="100px" />
+        <DxGridDataColumn FieldName="Message"      Caption="메시지" />
+        <DxGridDataColumn FieldName="ResolvedAt"   Caption="해제 시각" Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm:ss}" />
+        <DxGridDataColumn FieldName="IsResolved"   Caption="해제"      Width="70px">
+            <CellDisplayTemplate>
+                <StatusBadge Value="@((bool)context.Value ? "Resolved" : "Active")" />
+            </CellDisplayTemplate>
+        </DxGridDataColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@code {
+    private List<FdcInterlockHistoryDto> _history = new();
+    private string _equipmentId = string.Empty;
+    private DateTime _from = DateTime.Today.AddDays(-7);
+    private DateTime _to   = DateTime.Today;
+
+    private async Task Load()
+        => _history = await Api.GetInterlockHistoryAsync(_equipmentId, _from, _to.AddDays(1).AddSeconds(-1));
+}
