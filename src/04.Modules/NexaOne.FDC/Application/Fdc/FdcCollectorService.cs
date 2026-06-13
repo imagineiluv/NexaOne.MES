@@ -65,8 +65,12 @@ public sealed class FdcCollectorService
         {
             var interlock = await _interlockService.EvaluateAsync(equipmentId, evt.TagName, value, ct);
             if (interlock.IsTriggered)
+            {
+                // FDC_INTERLOCK_HISTORY 적재(이력 리포지토리 미구성 시 no-op) 후 이벤트 통지
+                await _interlockService.RecordTriggerAsync(equipmentId, evt.TagName, value, interlock, ct);
                 InterlockTriggered?.Invoke(this,
                     new FdcInterlockTriggeredEventArgs(equipmentId, evt.TagName, value, interlock));
+            }
         }
     }
 

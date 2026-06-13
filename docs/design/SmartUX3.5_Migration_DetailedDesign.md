@@ -3134,8 +3134,9 @@ FdcConsumerService (Kafka Consumer) ← fdc.rawdata 구독
 > **`FdcCollectorService`**(NexaOne.FDC.Application)가 담당한다 — 연결의 `IPlcSubscriptionProvider`로
 > 태그를 구독하고, `PlcTagChangeEvent`를 받아 값/품질을 변환한 뒤
 > `FdcDataService.RecordDataAsync`로 `FDC_TB_COLLECT_DATA`에 적재하고,
-> `FdcInterlockService.EvaluateAsync`로 인터락을 평가하여 발동 시 `InterlockTriggered` 이벤트를 발생시킨다.
-> 인터락 이력 기록·설비 정지·SignalR 알림은 이 이벤트의 호스트 구독자가 처리한다.
+> `FdcInterlockService.EvaluateAsync`로 인터락을 평가한다. 발동 시
+> `FdcInterlockService.RecordTriggerAsync`로 **`FDC_INTERLOCK_HISTORY`에 직접 적재**하고
+> `InterlockTriggered` 이벤트를 발생시킨다 — 설비 정지·SignalR 알림은 이 이벤트의 호스트 구독자가 처리한다.
 > Kafka 경유(`fdc.rawdata`)는 대량·분산 수집이 필요할 때의 선택지로 두고, 기본 구현은 직접 적재한다.
 > `PlantController` 오케스트레이션과 설비-엔드포인트·태그 매핑(설비 마스터)은 해당 도메인 확정 후 연결한다.
 > 수집 변환·인터락 연결은 `FdcCollectorServiceTests`(11개)·`OpcUaDeviceInterfaceTests`(8개)가 검증한다.
@@ -3167,8 +3168,11 @@ public sealed class FdcCollectorService
         {
             var interlock = await _interlockService.EvaluateAsync(equipmentId, evt.TagName, value, ct);
             if (interlock.IsTriggered)
+            {
+                await _interlockService.RecordTriggerAsync(equipmentId, evt.TagName, value, interlock, ct);  // FDC_INTERLOCK_HISTORY
                 InterlockTriggered?.Invoke(this,
                     new FdcInterlockTriggeredEventArgs(equipmentId, evt.TagName, value, interlock));
+            }
         }
     }
     // MapQuality(PlcQuality → "Good"/"Bad"/"Uncertain"), ToDecimal(object? → decimal) — 상세는 실제 파일
