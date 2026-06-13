@@ -4,67 +4,56 @@
 
 <div class="page-header">
     <h1 class="page-title">납품 품목</h1>
-    <DxButton Text="품목 추가" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog"
-              Enabled="@(!string.IsNullOrWhiteSpace(_orderId))" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog"
+              Disabled="@(!(!string.IsNullOrWhiteSpace(_orderId)))">품목 추가</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="DeliveryItemDto" Items="_items">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_orderId" NullText="납품 주문 ID *" />
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaTextBox @bind-Value="_orderId" Placeholder="납품 주문 ID *" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"              Caption="품목 ID"    Width="130px" />
-        <DxGridDataColumn FieldName="ProductId"       Caption="제품 ID"    Width="130px" />
-        <DxGridDataColumn FieldName="PlannedQty"      Caption="계획 수량"   Width="100px" />
-        <DxGridDataColumn FieldName="ActualQty"       Caption="실적 수량"   Width="100px" />
-        <DxGridDataColumn FieldName="LotId"           Caption="Lot ID"     Width="120px" />
-        <DxGridCommandColumn Width="140px">
-            <CellDisplayTemplate>
-                @{
-                    var item = (DeliveryItemDto)context.DataItem;
-                    @if (!item.ActualQty.HasValue)
-                    {
-                        <DxButton Text="실적 입력" Click="@(() => OpenActualQtyDialog(item))" />
-                    }
-                }
-            </CellDisplayTemplate>
-        </DxGridCommandColumn>
+        <PropertyColumn Property="@((DeliveryItemDto r) => r.Id)"         Title="품목 ID" />
+        <PropertyColumn Property="@((DeliveryItemDto r) => r.ProductId)"  Title="제품 ID" />
+        <PropertyColumn Property="@((DeliveryItemDto r) => r.PlannedQty)" Title="계획 수량" />
+        <PropertyColumn Property="@((DeliveryItemDto r) => r.ActualQty)"  Title="실적 수량" />
+        <PropertyColumn Property="@((DeliveryItemDto r) => r.LotId)"      Title="Lot ID" />
+        <TemplateColumn TGridItem="DeliveryItemDto" Title="">
+            @if (!context.ActualQty.HasValue)
+            {
+                <NexaButton OnClick="@(() => OpenActualQtyDialog(context))">실적 입력</NexaButton>
+            }
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="납품 품목 추가" Width="440px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.ItemId"    NullText="품목 ID *" />
-                <DxTextBox @bind-Text="_form.ProductId" NullText="제품 ID *" />
-                <DxSpinEdit @bind-Value="_form.PlannedQty" MinValue="0.01m" Step="1m" NullText="계획 수량 *" />
-                <DxTextBox @bind-Text="_form.LotId"     NullText="Lot ID (선택)" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="추가" RenderStyle="ButtonRenderStyle.Primary" Click="CreateItem" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="납품 품목 추가">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.ItemId"    Placeholder="품목 ID *" />
+            <NexaTextBox @bind-Value="_form.ProductId" Placeholder="제품 ID *" />
+            <NexaNumberInput @bind-Value="_form.PlannedQty" MinValue="0.01m" Step="1m" Placeholder="계획 수량 *" />
+            <NexaTextBox @bind-Value="_form.LotId"     Placeholder="Lot ID (선택)" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="CreateItem">추가</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
-@if (_showActualQty)
-{
-    <DxPopup @bind-Visible="_showActualQty" HeaderText="@($"실적 입력 — {_actualItemId}")" Width="360px">
-        <BodyContentTemplate>
-            <div style="padding:0.5rem;">
-                <DxSpinEdit @bind-Value="_actualQty" MinValue="0" Step="1m" NullText="실적 수량 *" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="저장" RenderStyle="ButtonRenderStyle.Primary" Click="ConfirmActualQty" />
-            <DxButton Text="취소" Click="@(() => _showActualQty = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showActualQty" Title="@($"실적 입력 — {_actualItemId}")">
+    <ChildContent>
+        <div style="padding:0.5rem;">
+            <NexaNumberInput @bind-Value="_actualQty" MinValue="0" Step="1m" Placeholder="실적 수량 *" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="ConfirmActualQty">저장</NexaButton>
+        <NexaButton OnClick="@(() => _showActualQty = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<DeliveryItemDto> _items = new();

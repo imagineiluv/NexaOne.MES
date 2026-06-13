@@ -5,51 +5,46 @@
 
 <div class="page-header">
     <h1 class="page-title">검사 결과</h1>
-    <DxButton Text="결과 기록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog">결과 기록</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="InspectionResultDto" Items="_items">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_lotId" NullText="Lot ID *" />
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaTextBox @bind-Value="_lotId" Placeholder="Lot ID *" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"             Caption="결과 ID"    Width="130px" />
-        <DxGridDataColumn FieldName="SpecId"         Caption="기준 ID"    Width="130px" />
-        <DxGridDataColumn FieldName="LotId"          Caption="Lot ID"     Width="120px" />
-        <DxGridDataColumn FieldName="EquipmentId"    Caption="설비"        Width="110px" />
-        <DxGridDataColumn FieldName="MeasuredValue"  Caption="측정값"      Width="90px" />
-        <DxGridDataColumn FieldName="AttributeResult" Caption="판정"       Width="80px" />
-        <DxGridDataColumn FieldName="InspectedAt"    Caption="검사일시"    Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm}" />
-        <DxGridDataColumn FieldName="InspectorId"    Caption="검사자"      Width="100px" />
-        <DxGridDataColumn FieldName="IsPass"         Caption="합부"        Width="80px">
-            <CellDisplayTemplate>
-                <StatusBadge Value="@((bool)context.Value ? "Pass" : "Fail")" />
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
+        <PropertyColumn Property="@((InspectionResultDto r) => r.Id)" Title="결과 ID" />
+        <PropertyColumn Property="@((InspectionResultDto r) => r.SpecId)" Title="기준 ID" />
+        <PropertyColumn Property="@((InspectionResultDto r) => r.LotId)" Title="Lot ID" />
+        <PropertyColumn Property="@((InspectionResultDto r) => r.EquipmentId)" Title="설비" />
+        <PropertyColumn Property="@((InspectionResultDto r) => r.MeasuredValue)" Title="측정값" />
+        <PropertyColumn Property="@((InspectionResultDto r) => r.AttributeResult)" Title="판정" />
+        <PropertyColumn Property="@((InspectionResultDto r) => r.InspectedAt)" Title="검사일시" Format="yyyy-MM-dd HH:mm" />
+        <PropertyColumn Property="@((InspectionResultDto r) => r.InspectorId)" Title="검사자" />
+        <TemplateColumn TGridItem="InspectionResultDto" Title="합부">
+            <StatusBadge Value="@(context.IsPass ? "Pass" : "Fail")" />
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="검사 결과 기록" Width="480px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.ResultId"    NullText="결과 ID *" />
-                <DxTextBox @bind-Text="_form.SpecId"      NullText="기준 ID *" />
-                <DxTextBox @bind-Text="_form.LotId"       NullText="Lot ID *" />
-                <DxTextBox @bind-Text="_form.EquipmentId" NullText="설비 ID *" />
-                <DxSpinEdit @bind-Value="_form.MeasuredValue" NullText="측정값 (Numeric용)" />
-                <DxTextBox @bind-Text="_form.AttributeResult" NullText="판정 결과 (Attribute용, Pass/Fail)" />
-                <DxTextBox @bind-Text="_form.Remark"      NullText="비고" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="기록" RenderStyle="ButtonRenderStyle.Primary" Click="Create" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="검사 결과 기록">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.ResultId"    Placeholder="결과 ID *" />
+            <NexaTextBox @bind-Value="_form.SpecId"      Placeholder="기준 ID *" />
+            <NexaTextBox @bind-Value="_form.LotId"       Placeholder="Lot ID *" />
+            <NexaTextBox @bind-Value="_form.EquipmentId" Placeholder="설비 ID *" />
+            <NexaNumberInput @bind-Value="_form.MeasuredValue" Placeholder="측정값 (Numeric용)" />
+            <NexaTextBox @bind-Value="_form.AttributeResult" Placeholder="판정 결과 (Attribute용, Pass/Fail)" />
+            <NexaTextBox @bind-Value="_form.Remark"      Placeholder="비고" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="Create">기록</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<InspectionResultDto> _items = new();

@@ -5,72 +5,62 @@
 
 <div class="page-header">
     <h1 class="page-title">보전 계획</h1>
-    <DxButton Text="보전 계획 생성" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog">보전 계획 생성</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="MaintenancePlanDto" Items="_items">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_equipmentId" NullText="설비 ID" />
-        <DxComboBox Data="_statuses" @bind-Value="_statusFilter" NullText="상태 전체" ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto" />
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaTextBox @bind-Value="_equipmentId" Placeholder="설비 ID" />
+        <NexaSelect TValue="string" @bind-Value="_statusFilter"><option value="">상태 전체</option>@foreach (var x in _statuses) { <option value="@x">@x</option> }</NexaSelect>
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"                     Caption="계획 ID"       Width="140px" />
-        <DxGridDataColumn FieldName="PlanName"               Caption="계획명"         Width="160px" />
-        <DxGridDataColumn FieldName="EquipmentId"            Caption="설비"           Width="120px" />
-        <DxGridDataColumn FieldName="PlanType"               Caption="유형"           Width="100px" />
-        <DxGridDataColumn FieldName="CycleType"              Caption="주기"           Width="100px" />
-        <DxGridDataColumn FieldName="ScheduledDate"          Caption="예정일"         Width="120px" DisplayFormat="{0:yyyy-MM-dd}" />
-        <DxGridDataColumn FieldName="EstimatedDurationHours" Caption="예상 시간(h)"   Width="110px" />
-        <DxGridDataColumn FieldName="AssigneeId"             Caption="담당자"         Width="100px" />
-        <DxGridDataColumn FieldName="Status"                 Caption="상태"           Width="100px">
-            <CellDisplayTemplate>
-                <StatusBadge Value="@((string)context.Value)" />
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
-        <DxGridCommandColumn Width="180px">
-            <CellDisplayTemplate>
-                @{
-                    var plan = (MaintenancePlanDto)context.DataItem;
-                    <div style="display:flex; gap:4px;">
-                        @if (plan.Status == "Planned")
-                        {
-                            <DxButton Text="시작" Click="@(() => StartPlan(plan.Id))" />
-                            <DxButton Text="취소" RenderStyle="ButtonRenderStyle.Danger" Click="@(() => CancelPlan(plan.Id))" />
-                        }
-                        @if (plan.Status == "InProgress")
-                        {
-                            <DxButton Text="완료" RenderStyle="ButtonRenderStyle.Primary" Click="@(() => CompletePlan(plan.Id))" />
-                            <DxButton Text="취소" RenderStyle="ButtonRenderStyle.Danger" Click="@(() => CancelPlan(plan.Id))" />
-                        }
-                    </div>
+        <PropertyColumn Property="@((MaintenancePlanDto r) => r.Id)"                     Title="계획 ID" />
+        <PropertyColumn Property="@((MaintenancePlanDto r) => r.PlanName)"               Title="계획명" />
+        <PropertyColumn Property="@((MaintenancePlanDto r) => r.EquipmentId)"            Title="설비" />
+        <PropertyColumn Property="@((MaintenancePlanDto r) => r.PlanType)"               Title="유형" />
+        <PropertyColumn Property="@((MaintenancePlanDto r) => r.CycleType)"              Title="주기" />
+        <PropertyColumn Property="@((MaintenancePlanDto r) => r.ScheduledDate)"          Title="예정일" Format="yyyy-MM-dd" />
+        <PropertyColumn Property="@((MaintenancePlanDto r) => r.EstimatedDurationHours)" Title="예상 시간(h)" />
+        <PropertyColumn Property="@((MaintenancePlanDto r) => r.AssigneeId)"             Title="담당자" />
+        <TemplateColumn TGridItem="MaintenancePlanDto" Title="상태">
+            <StatusBadge Value="@context.Status" />
+        </TemplateColumn>
+        <TemplateColumn TGridItem="MaintenancePlanDto" Title="">
+            <div style="display:flex; gap:4px;">
+                @if (context.Status == "Planned")
+                {
+                    <NexaButton OnClick="@(() => StartPlan(context.Id))">시작</NexaButton>
+                    <NexaButton Variant="NexaButton.ButtonVariant.Danger" OnClick="@(() => CancelPlan(context.Id))">취소</NexaButton>
                 }
-            </CellDisplayTemplate>
-        </DxGridCommandColumn>
+                @if (context.Status == "InProgress")
+                {
+                    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="@(() => CompletePlan(context.Id))">완료</NexaButton>
+                    <NexaButton Variant="NexaButton.ButtonVariant.Danger" OnClick="@(() => CancelPlan(context.Id))">취소</NexaButton>
+                }
+            </div>
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="보전 계획 생성" Width="480px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.PlanId"        NullText="계획 ID *" />
-                <DxTextBox @bind-Text="_form.PlanName"      NullText="계획명 *" />
-                <DxTextBox @bind-Text="_form.EquipmentId"   NullText="설비 ID *" />
-                <DxTextBox @bind-Text="_form.PlanType"      NullText="유형 (예: PM, CM)" />
-                <DxTextBox @bind-Text="_form.CycleType"     NullText="주기 (예: Monthly, Weekly)" />
-                <DxDateEdit @bind-Date="_form.ScheduledDate" DisplayFormat="yyyy-MM-dd" NullText="예정일 *" />
-                <DxSpinEdit @bind-Value="_form.EstimatedDurationHours" MinValue="0" Step="0.5m" NullText="예상 시간(h) *" />
-                <DxTextBox @bind-Text="_form.AssigneeId"    NullText="담당자 ID *" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="생성" RenderStyle="ButtonRenderStyle.Primary" Click="CreatePlan" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="보전 계획 생성">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.PlanId"        Placeholder="계획 ID *" />
+            <NexaTextBox @bind-Value="_form.PlanName"      Placeholder="계획명 *" />
+            <NexaTextBox @bind-Value="_form.EquipmentId"   Placeholder="설비 ID *" />
+            <NexaTextBox @bind-Value="_form.PlanType"      Placeholder="유형 (예: PM, CM)" />
+            <NexaTextBox @bind-Value="_form.CycleType"     Placeholder="주기 (예: Monthly, Weekly)" />
+            <NexaDateInput @bind-Value="_form.ScheduledDate" />
+            <NexaNumberInput @bind-Value="_form.EstimatedDurationHours" Step="0.5" Placeholder="예상 시간(h) *" />
+            <NexaTextBox @bind-Value="_form.AssigneeId"    Placeholder="담당자 ID *" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="CreatePlan">생성</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<MaintenancePlanDto> _items = new();

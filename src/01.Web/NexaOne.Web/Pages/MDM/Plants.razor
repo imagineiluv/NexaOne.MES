@@ -4,39 +4,36 @@
 
 <div class="page-header">
     <h1 class="page-title">Plant 관리</h1>
-    <DxButton Text="Plant 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog">Plant 등록</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="PlantDto" Items="_items">
     <ConditionPanel>
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"          Caption="Plant ID"   Width="140px" />
-        <DxGridDataColumn FieldName="PlantName"   Caption="Plant명"    Width="200px" />
-        <DxGridDataColumn FieldName="Country"     Caption="국가"        Width="100px" />
-        <DxGridDataColumn FieldName="TimeZone"    Caption="시간대"      Width="160px" />
-        <DxGridDataColumn FieldName="Description" Caption="설명"        Width="220px" />
+        <PropertyColumn Property="@((PlantDto r) => r.Id)"          Title="Plant ID" />
+        <PropertyColumn Property="@((PlantDto r) => r.PlantName)"   Title="Plant명" />
+        <PropertyColumn Property="@((PlantDto r) => r.Country)"     Title="국가" />
+        <PropertyColumn Property="@((PlantDto r) => r.TimeZone)"    Title="시간대" />
+        <PropertyColumn Property="@((PlantDto r) => r.Description)" Title="설명" />
     </Columns>
 </NexaConditionGrid>
 
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="Plant 등록" Width="440px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.PlantId"   NullText="Plant ID *" />
-                <DxTextBox @bind-Text="_form.PlantName" NullText="Plant명 *" />
-                <DxTextBox @bind-Text="_form.Country"   NullText="국가 (예: KR)" />
-                <DxTextBox @bind-Text="_form.TimeZone"  NullText="시간대 (예: Asia/Seoul)" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreatePlant" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="Plant 등록">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.PlantId"   Placeholder="Plant ID *" />
+            <NexaTextBox @bind-Value="_form.PlantName" Placeholder="Plant명 *" />
+            <NexaTextBox @bind-Value="_form.Country"   Placeholder="국가 (예: KR)" />
+            <NexaTextBox @bind-Value="_form.TimeZone"  Placeholder="시간대 (예: Asia/Seoul)" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="CreatePlant">등록</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<PlantDto> _items = new();

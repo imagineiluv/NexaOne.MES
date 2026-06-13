@@ -53,15 +53,12 @@
                 <div class="confirm-close-error">@_closeAllError</div>
             }
             <div class="confirm-close-actions">
-                <DxButton Text="모두 저장 후 닫기"
-                          RenderStyle="ButtonRenderStyle.Primary"
-                          Click="SaveAllAndClose" />
-                <DxButton Text="저장하지 않고 닫기"
-                          RenderStyle="ButtonRenderStyle.Secondary"
-                          Click="DiscardAllAndClose" />
-                <DxButton Text="취소"
-                          RenderStyle="ButtonRenderStyle.Light"
-                          Click="@(() => _showCloseAll = false)" />
+                <NexaButton Variant="NexaButton.ButtonVariant.Primary"
+                            OnClick="SaveAllAndClose">모두 저장 후 닫기</NexaButton>
+                <NexaButton Variant="NexaButton.ButtonVariant.Secondary"
+                            OnClick="DiscardAllAndClose">저장하지 않고 닫기</NexaButton>
+                <NexaButton Variant="NexaButton.ButtonVariant.Secondary"
+                            OnClick="@(() => _showCloseAll = false)">취소</NexaButton>
             </div>
         </div>
     </div>

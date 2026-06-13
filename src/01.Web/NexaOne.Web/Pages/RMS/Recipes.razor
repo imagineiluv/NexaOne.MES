@@ -6,101 +6,96 @@
 
 <div class="page-header">
     <h1 class="page-title">레시피 관리</h1>
-    <DxButton Text="레시피 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog">레시피 등록</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="RecipeDto" Items="_items">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_classId" NullText="설비 클래스 ID" />
-        <DxComboBox Data="_states" @bind-Value="_stateFilter" NullText="상태 전체"
-                    ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto" />
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaTextBox @bind-Value="_classId" Placeholder="설비 클래스 ID" />
+        <NexaSelect TValue="string" @bind-Value="_stateFilter">
+            <option value="">상태 전체</option>
+            @foreach (var s in _states)
+            {
+                <option value="@s">@s</option>
+            }
+        </NexaSelect>
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"               Caption="레시피 ID"   Width="140px" />
-        <DxGridDataColumn FieldName="RecipeName"       Caption="레시피명"     Width="200px" />
-        <DxGridDataColumn FieldName="EquipmentClassId" Caption="설비 클래스"  Width="140px" />
-        <DxGridDataColumn FieldName="Version"          Caption="버전"         Width="60px" />
-        <DxGridDataColumn FieldName="ApprovalState"    Caption="승인 상태"    Width="120px">
-            <CellDisplayTemplate>
-                <StatusBadge Value="@((string)context.Value)" />
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
-        <DxGridDataColumn FieldName="FirstApproverId"  Caption="1차 승인자"   Width="110px" />
-        <DxGridDataColumn FieldName="SecondApproverId" Caption="2차 승인자"   Width="110px" />
-        <DxGridDataColumn FieldName="ReleasedAt"       Caption="릴리스일"     Width="110px" DisplayFormat="{0:yyyy-MM-dd}" />
-        <DxGridCommandColumn Width="260px">
-            <CellDisplayTemplate>
-                @{
-                    var r = (RecipeDto)context.DataItem;
-                    <div style="display:flex; gap:3px; flex-wrap:wrap;">
-                        <DxButton Text="파라미터" Click="@(() => OpenParamPanel(r.Id))" />
-                        @if (r.ApprovalState == "Draft")
-                        {
-                            <DxButton Text="승인 요청" Click="@(() => RequestApproval(r.Id))" />
-                        }
-                        @if (r.ApprovalState == "WaitApproval")
-                        {
-                            <DxButton Text="1차 승인" RenderStyle="ButtonRenderStyle.Primary"
-                                      Click="@(() => OpenApproveDialog(r, 1))" />
-                            <DxButton Text="거부" RenderStyle="ButtonRenderStyle.Danger"
-                                      Click="@(() => OpenRejectDialog(r.Id))" />
-                        }
-                        @if (r.ApprovalState == "Approved1")
-                        {
-                            <DxButton Text="2차 승인" RenderStyle="ButtonRenderStyle.Primary"
-                                      Click="@(() => OpenApproveDialog(r, 2))" />
-                            <DxButton Text="거부" RenderStyle="ButtonRenderStyle.Danger"
-                                      Click="@(() => OpenRejectDialog(r.Id))" />
-                        }
-                        @if (r.ApprovalState == "Approved")
-                        {
-                            <DxButton Text="릴리스" Click="@(() => OpenApproveDialog(r, 3))" />
-                            <DxButton Text="거부" RenderStyle="ButtonRenderStyle.Danger"
-                                      Click="@(() => OpenRejectDialog(r.Id))" />
-                        }
-                        @if (r.ApprovalState == "Released")
-                        {
-                            <DxButton Text="새 버전" Click="@(() => OpenNewVersionDialog(r.Id, r.Version))" />
-                        }
-                    </div>
+        <PropertyColumn Property="@((RecipeDto r) => r.Id)"               Title="레시피 ID" />
+        <PropertyColumn Property="@((RecipeDto r) => r.RecipeName)"       Title="레시피명" />
+        <PropertyColumn Property="@((RecipeDto r) => r.EquipmentClassId)" Title="설비 클래스" />
+        <PropertyColumn Property="@((RecipeDto r) => r.Version)"          Title="버전" />
+        <TemplateColumn TGridItem="RecipeDto" Title="승인 상태">
+            <StatusBadge Value="@context.ApprovalState" />
+        </TemplateColumn>
+        <PropertyColumn Property="@((RecipeDto r) => r.FirstApproverId)"  Title="1차 승인자" />
+        <PropertyColumn Property="@((RecipeDto r) => r.SecondApproverId)" Title="2차 승인자" />
+        <PropertyColumn Property="@((RecipeDto r) => r.ReleasedAt)"       Title="릴리스일" Format="yyyy-MM-dd" />
+        <TemplateColumn TGridItem="RecipeDto" Title="">
+            <div style="display:flex; gap:3px; flex-wrap:wrap;">
+                <NexaButton OnClick="@(() => OpenParamPanel(context.Id))">파라미터</NexaButton>
+                @if (context.ApprovalState == "Draft")
+                {
+                    <NexaButton OnClick="@(() => RequestApproval(context.Id))">승인 요청</NexaButton>
                 }
-            </CellDisplayTemplate>
-        </DxGridCommandColumn>
+                @if (context.ApprovalState == "WaitApproval")
+                {
+                    <NexaButton Variant="NexaButton.ButtonVariant.Primary"
+                                OnClick="@(() => OpenApproveDialog(context, 1))">1차 승인</NexaButton>
+                    <NexaButton Variant="NexaButton.ButtonVariant.Danger"
+                                OnClick="@(() => OpenRejectDialog(context.Id))">거부</NexaButton>
+                }
+                @if (context.ApprovalState == "Approved1")
+                {
+                    <NexaButton Variant="NexaButton.ButtonVariant.Primary"
+                                OnClick="@(() => OpenApproveDialog(context, 2))">2차 승인</NexaButton>
+                    <NexaButton Variant="NexaButton.ButtonVariant.Danger"
+                                OnClick="@(() => OpenRejectDialog(context.Id))">거부</NexaButton>
+                }
+                @if (context.ApprovalState == "Approved")
+                {
+                    <NexaButton OnClick="@(() => OpenApproveDialog(context, 3))">릴리스</NexaButton>
+                    <NexaButton Variant="NexaButton.ButtonVariant.Danger"
+                                OnClick="@(() => OpenRejectDialog(context.Id))">거부</NexaButton>
+                }
+                @if (context.ApprovalState == "Released")
+                {
+                    <NexaButton OnClick="@(() => OpenNewVersionDialog(context.Id, context.Version))">새 버전</NexaButton>
+                }
+            </div>
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
 @* ── 레시피 등록 ──────────────────────────────────────────────── *@
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="레시피 등록" Width="440px"
-             CloseOnOutsideClick="false">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.RecipeId"         NullText="레시피 ID *" />
-                <DxTextBox @bind-Text="_form.Name"             NullText="레시피명 *" />
-                <DxTextBox @bind-Text="_form.EquipmentClassId" NullText="설비 클래스 ID *" />
-                <DxTextBox @bind-Text="_form.Description"      NullText="설명" />
-                @if (!string.IsNullOrEmpty(_createError))
-                {
-                    <div class="text-danger small">@_createError</div>
-                }
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateRecipe" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="레시피 등록">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.RecipeId"         Placeholder="레시피 ID *" />
+            <NexaTextBox @bind-Value="_form.Name"             Placeholder="레시피명 *" />
+            <NexaTextBox @bind-Value="_form.EquipmentClassId" Placeholder="설비 클래스 ID *" />
+            <NexaTextBox @bind-Value="_form.Description"      Placeholder="설명" />
+            @if (!string.IsNullOrEmpty(_createError))
+            {
+                <div class="text-danger small">@_createError</div>
+            }
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="CreateRecipe">등록</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @* ── 승인 / 릴리스 ────────────────────────────────────────────── *@
-@if (_showApprove && _approveTarget is not null)
-{
+@{
     var title = _approveStep switch { 1 => "1차 승인", 2 => "2차 승인", _ => "릴리스 확인" };
-    <DxPopup @bind-Visible="_showApprove" HeaderText="@title" Width="420px"
-             CloseOnOutsideClick="false">
-        <BodyContentTemplate>
+}
+<NexaModal @bind-Visible="_showApprove" Title="@title">
+    <ChildContent>
+        @if (_approveTarget is not null)
+        {
             <div class="rms-approve-dialog">
                 <div class="rms-approve-recipe">
                     <span class="label">레시피</span>
@@ -128,116 +123,92 @@
                 </div>
                 @if (_approveStep < 3)
                 {
-                    <DxTextBox @bind-Text="_approverId" NullText="담당자 ID *" />
+                    <NexaTextBox @bind-Value="_approverId" Placeholder="담당자 ID *" />
                 }
                 @if (!string.IsNullOrEmpty(_approveError))
                 {
                     <div class="text-danger small">@_approveError</div>
                 }
             </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="@title" RenderStyle="ButtonRenderStyle.Primary" Click="ConfirmApprove" />
-            <DxButton Text="취소" Click="@(() => _showApprove = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+        }
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="ConfirmApprove">@title</NexaButton>
+        <NexaButton OnClick="@(() => _showApprove = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @* ── 거부 ─────────────────────────────────────────────────────── *@
-@if (_showReject)
-{
-    <DxPopup @bind-Visible="_showReject" HeaderText="레시피 거부" Width="400px"
-             CloseOnOutsideClick="false">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <div class="text-muted small">거부 사유를 입력하면 레시피가 Rejected 상태로 변경됩니다.</div>
-                <DxMemo @bind-Text="_rejectReason" Rows="3" NullText="거부 사유 *" />
-                @if (!string.IsNullOrEmpty(_rejectError))
-                {
-                    <div class="text-danger small">@_rejectError</div>
-                }
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="거부 확인" RenderStyle="ButtonRenderStyle.Danger" Click="ConfirmReject" />
-            <DxButton Text="취소" Click="@(() => _showReject = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showReject" Title="레시피 거부">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <div class="text-muted small">거부 사유를 입력하면 레시피가 Rejected 상태로 변경됩니다.</div>
+            <NexaTextArea @bind-Value="_rejectReason" Rows="3" Placeholder="거부 사유 *" />
+            @if (!string.IsNullOrEmpty(_rejectError))
+            {
+                <div class="text-danger small">@_rejectError</div>
+            }
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Danger" OnClick="ConfirmReject">거부 확인</NexaButton>
+        <NexaButton OnClick="@(() => _showReject = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @* ── 새 버전 ──────────────────────────────────────────────────── *@
-@if (_showNewVersion)
-{
-    <DxPopup @bind-Visible="_showNewVersion" HeaderText="새 버전 생성" Width="400px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_newVersionId" NullText="새 레시피 ID *" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="생성" RenderStyle="ButtonRenderStyle.Primary" Click="ConfirmNewVersion" />
-            <DxButton Text="취소" Click="@(() => _showNewVersion = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showNewVersion" Title="새 버전 생성">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_newVersionId" Placeholder="새 레시피 ID *" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="ConfirmNewVersion">생성</NexaButton>
+        <NexaButton OnClick="@(() => _showNewVersion = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @* ── 파라미터 팝업 ─────────────────────────────────────────────── *@
-@if (_showParams)
-{
-    <DxPopup @bind-Visible="_showParams" HeaderText="@($"레시피 파라미터 — {_paramRecipeId}")"
-             Width="680px" CloseOnOutsideClick="true">
-        <BodyContentTemplate>
-            <div class="page-header" style="margin-bottom:.75rem;">
-                <span></span>
-                <DxButton Text="파라미터 추가" RenderStyle="ButtonRenderStyle.Primary"
-                          Click="OpenAddParamDialog" />
-            </div>
-            <DxGrid Data="_params" PageSize="20">
-                <Columns>
-                    <DxGridDataColumn FieldName="ParamName"  Caption="파라미터명" Width="180px" />
-                    <DxGridDataColumn FieldName="ParamValue" Caption="값"          Width="140px" />
-                    <DxGridDataColumn FieldName="Unit"       Caption="단위"        Width="80px" />
-                    <DxGridDataColumn FieldName="SortOrder"  Caption="순서"        Width="70px" />
-                    <DxGridCommandColumn Width="140px">
-                        <CellDisplayTemplate Context="cellCtx">
-                            @{
-                                var p = (RecipeParamDto)cellCtx.DataItem;
-                                <DxButton Text="편집" Click="@(() => OpenEditParamDialog(p))" />
-                                <DxButton Text="삭제" RenderStyle="ButtonRenderStyle.Danger" CssClass="ms-1"
-                                          Click="@(() => DeleteParam(p.Id))" />
-                            }
-                        </CellDisplayTemplate>
-                    </DxGridCommandColumn>
-                </Columns>
-            </DxGrid>
-        </BodyContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showParams" Title="@($"레시피 파라미터 — {_paramRecipeId}")">
+    <div class="page-header" style="margin-bottom:.75rem;">
+        <span></span>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary"
+                    OnClick="OpenAddParamDialog">파라미터 추가</NexaButton>
+    </div>
+    <QuickGrid TGridItem="RecipeParamDto" Items="@(_params.AsQueryable())" Class="nexa-grid w-full text-sm">
+        <PropertyColumn Property="@((RecipeParamDto p) => p.ParamName)"  Title="파라미터명" />
+        <PropertyColumn Property="@((RecipeParamDto p) => p.ParamValue)" Title="값" />
+        <PropertyColumn Property="@((RecipeParamDto p) => p.Unit)"       Title="단위" />
+        <PropertyColumn Property="@((RecipeParamDto p) => p.SortOrder)"  Title="순서" />
+        <TemplateColumn TGridItem="RecipeParamDto" Title="">
+            <NexaButton OnClick="@(() => OpenEditParamDialog(context))">편집</NexaButton>
+            <NexaButton Variant="NexaButton.ButtonVariant.Danger" Class="ms-1"
+                        OnClick="@(() => DeleteParam(context.Id))">삭제</NexaButton>
+        </TemplateColumn>
+    </QuickGrid>
+</NexaModal>
 
 @* ── 파라미터 추가/편집 ────────────────────────────────────────── *@
-@if (_showParamEdit)
-{
-    <DxPopup @bind-Visible="_showParamEdit"
-             HeaderText="@(_editingParam is null ? "파라미터 추가" : "파라미터 편집")"
-             Width="400px" CloseOnOutsideClick="false">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                @if (_editingParam is null)
-                {
-                    <DxTextBox @bind-Text="_paramForm.ParamId"   NullText="파라미터 ID *" />
-                    <DxTextBox @bind-Text="_paramForm.ParamName" NullText="파라미터명 *" />
-                    <DxTextBox @bind-Text="_paramForm.Unit"      NullText="단위 (예: ℃, rpm)" />
-                    <DxSpinEdit @bind-Value="_paramForm.SortOrder" Placeholder="순서" />
-                }
-                <DxTextBox @bind-Text="_paramForm.ParamValue" NullText="값 *" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="저장" RenderStyle="ButtonRenderStyle.Primary" Click="SaveParam" />
-            <DxButton Text="취소" Click="@(() => _showParamEdit = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showParamEdit"
+           Title="@(_editingParam is null ? "파라미터 추가" : "파라미터 편집")">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            @if (_editingParam is null)
+            {
+                <NexaTextBox @bind-Value="_paramForm.ParamId"   Placeholder="파라미터 ID *" />
+                <NexaTextBox @bind-Value="_paramForm.ParamName" Placeholder="파라미터명 *" />
+                <NexaTextBox @bind-Value="_paramForm.Unit"      Placeholder="단위 (예: ℃, rpm)" />
+                <NexaNumberInput @bind-Value="_paramForm.SortOrder" Placeholder="순서" />
+            }
+            <NexaTextBox @bind-Value="_paramForm.ParamValue" Placeholder="값 *" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="SaveParam">저장</NexaButton>
+        <NexaButton OnClick="@(() => _showParamEdit = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<RecipeDto>      _items  = new();

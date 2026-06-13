@@ -5,7 +5,7 @@
 
 <div class="page-header">
     <h1 class="page-title">Lot Track In</h1>
-    <DxButton Text="Lot 생성" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog">Lot 생성</NexaButton>
 </div>
 
 @if (!string.IsNullOrEmpty(_error))
@@ -15,88 +15,78 @@
 
 <NexaConditionGrid TRow="LotDto" Items="_items">
     <ConditionPanel>
-        <DxComboBox Data="_states" @bind-Value="_stateFilter" NullText="상태 전체"
-                    ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto" />
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaSelect TValue="string" @bind-Value="_stateFilter">
+            <option value="">상태 전체</option>
+            @foreach (var s in _states)
+            {
+                <option value="@s">@s</option>
+            }
+        </NexaSelect>
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"               Caption="Lot ID"      Width="140px" />
-        <DxGridDataColumn FieldName="WorkOrderId"      Caption="작업지시"     Width="130px" />
-        <DxGridDataColumn FieldName="ProductId"        Caption="제품"         Width="120px" />
-        <DxGridDataColumn FieldName="Qty"              Caption="수량"         Width="90px"  DisplayFormat="{0:N1}" />
-        <DxGridDataColumn FieldName="CurrentProcessId" Caption="현재 공정"    Width="120px" />
-        <DxGridDataColumn FieldName="EquipmentId"      Caption="설비"         Width="110px" />
-        <DxGridDataColumn FieldName="State"            Caption="상태"         Width="110px">
-            <CellDisplayTemplate>
-                <StatusBadge Value="@((string)context.Value)" />
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
-        <DxGridDataColumn FieldName="IsHold" Caption="Hold" Width="70px">
-            <CellDisplayTemplate>
-                @(((bool)context.Value) ? "Y" : "")
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
-        <DxGridCommandColumn Width="220px">
-            <CellDisplayTemplate>
-                @{
-                    var lot = (LotDto)context.DataItem;
-                    <div style="display:flex; gap:4px;">
-                        @if (lot.State == "Queued" && !lot.IsHold)
-                        {
-                            <DxButton Text="Track In" RenderStyle="ButtonRenderStyle.Primary"
-                                      Click="@(() => OpenTrackInDialog(lot))" />
-                        }
-                        @if (!lot.IsHold && lot.State is not ("Completed" or "Consumed"))
-                        {
-                            <DxButton Text="Hold" RenderStyle="ButtonRenderStyle.Warning"
-                                      Click="@(() => HoldLot(lot.Id))" />
-                        }
-                        @if (lot.IsHold)
-                        {
-                            <DxButton Text="Hold 해제" Click="@(() => ReleaseHold(lot.Id))" />
-                        }
-                    </div>
+        <PropertyColumn Property="@((LotDto r) => r.Id)"               Title="Lot ID" />
+        <PropertyColumn Property="@((LotDto r) => r.WorkOrderId)"      Title="작업지시" />
+        <PropertyColumn Property="@((LotDto r) => r.ProductId)"        Title="제품" />
+        <PropertyColumn Property="@((LotDto r) => r.Qty)"              Title="수량"      Format="N1" />
+        <PropertyColumn Property="@((LotDto r) => r.CurrentProcessId)" Title="현재 공정" />
+        <PropertyColumn Property="@((LotDto r) => r.EquipmentId)"      Title="설비" />
+        <TemplateColumn TGridItem="LotDto" Title="상태">
+            <StatusBadge Value="@context.State" />
+        </TemplateColumn>
+        <TemplateColumn TGridItem="LotDto" Title="Hold">
+            @(context.IsHold ? "Y" : "")
+        </TemplateColumn>
+        <TemplateColumn TGridItem="LotDto" Title="">
+            <div style="display:flex; gap:4px;">
+                @if (context.State == "Queued" && !context.IsHold)
+                {
+                    <NexaButton Variant="NexaButton.ButtonVariant.Primary"
+                                OnClick="@(() => OpenTrackInDialog(context))">Track In</NexaButton>
                 }
-            </CellDisplayTemplate>
-        </DxGridCommandColumn>
+                @if (!context.IsHold && context.State is not ("Completed" or "Consumed"))
+                {
+                    <NexaButton Variant="NexaButton.ButtonVariant.Warning"
+                                OnClick="@(() => HoldLot(context.Id))">Hold</NexaButton>
+                }
+                @if (context.IsHold)
+                {
+                    <NexaButton OnClick="@(() => ReleaseHold(context.Id))">Hold 해제</NexaButton>
+                }
+            </div>
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="Lot 생성" Width="460px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_createForm.LotId"       NullText="Lot ID *" />
-                <DxTextBox @bind-Text="_createForm.WorkOrderId" NullText="작업지시 ID" />
-                <DxTextBox @bind-Text="_createForm.ProductId"   NullText="제품 ID *" />
-                <DxSpinEdit @bind-Value="_createForm.Qty" MinValue="0.0001m" />
-                <DxTextBox @bind-Text="_createForm.RouteSteps"  NullText="공정 경로 (쉼표 구분, 예: CUT,ASSY,TEST) *" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="생성" RenderStyle="ButtonRenderStyle.Primary" Click="CreateLot" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="Lot 생성">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_createForm.LotId"       Placeholder="Lot ID *" />
+            <NexaTextBox @bind-Value="_createForm.WorkOrderId" Placeholder="작업지시 ID" />
+            <NexaTextBox @bind-Value="_createForm.ProductId"   Placeholder="제품 ID *" />
+            <NexaNumberInput @bind-Value="_createForm.Qty" min="0.0001" />
+            <NexaTextBox @bind-Value="_createForm.RouteSteps"  Placeholder="공정 경로 (쉼표 구분, 예: CUT,ASSY,TEST) *" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="CreateLot">생성</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
-@if (_showTrackIn)
-{
-    <DxPopup @bind-Visible="_showTrackIn" HeaderText="@($"Track In — {_targetLotId}")" Width="420px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_trackInForm.EquipmentId" NullText="설비 ID *" />
-                <DxTextBox @bind-Text="_trackInForm.RecipeDefId" NullText="Recipe ID (선택)" />
-                <DxSpinEdit @bind-Value="_trackInForm.RecipeDefVersion" NullText="Recipe 버전 (선택)" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="Track In" RenderStyle="ButtonRenderStyle.Primary" Click="ConfirmTrackIn" />
-            <DxButton Text="취소" Click="@(() => _showTrackIn = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showTrackIn" Title="@($"Track In — {_targetLotId}")">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_trackInForm.EquipmentId" Placeholder="설비 ID *" />
+            <NexaTextBox @bind-Value="_trackInForm.RecipeDefId" Placeholder="Recipe ID (선택)" />
+            <NexaNumberInput @bind-Value="_trackInForm.RecipeDefVersion" Placeholder="Recipe 버전 (선택)" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="ConfirmTrackIn">Track In</NexaButton>
+        <NexaButton OnClick="@(() => _showTrackIn = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private static readonly IReadOnlyList<string> _states =

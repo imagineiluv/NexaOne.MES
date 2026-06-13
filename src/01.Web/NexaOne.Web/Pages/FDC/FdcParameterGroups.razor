@@ -4,50 +4,45 @@
 
 <div class="page-header">
     <h1 class="page-title">FDC 파라미터 그룹</h1>
-    <DxButton Text="그룹 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreate" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreate">그룹 등록</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="FdcParameterGroupDto" Items="_groups">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_equipmentId" NullText="설비 ID" />
-        <DxButton Text="조회" Click="Load" />
+        <NexaTextBox @bind-Value="_equipmentId" Placeholder="설비 ID" />
+        <NexaButton OnClick="Load">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"           Caption="그룹 ID"  Width="140px" />
-        <DxGridDataColumn FieldName="GroupName"    Caption="그룹명"   Width="200px" />
-        <DxGridDataColumn FieldName="EquipmentId"  Caption="설비"     Width="120px" />
-        <DxGridDataColumn FieldName="Description"  Caption="설명" />
-        <DxGridDataColumn FieldName="DisplayOrder" Caption="순서"     Width="70px" />
-        <DxGridDataColumn FieldName="IsActive"     Caption="활성"     Width="70px">
-            <CellDisplayTemplate>
-                <StatusBadge Value="@((bool)context.Value ? "Active" : "Inactive")" />
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
+        <PropertyColumn Property="@((FdcParameterGroupDto r) => r.Id)"           Title="그룹 ID" />
+        <PropertyColumn Property="@((FdcParameterGroupDto r) => r.GroupName)"    Title="그룹명" />
+        <PropertyColumn Property="@((FdcParameterGroupDto r) => r.EquipmentId)"  Title="설비" />
+        <PropertyColumn Property="@((FdcParameterGroupDto r) => r.Description)"  Title="설명" />
+        <PropertyColumn Property="@((FdcParameterGroupDto r) => r.DisplayOrder)" Title="순서" />
+        <TemplateColumn TGridItem="FdcParameterGroupDto" Title="활성">
+            <StatusBadge Value="@(context.IsActive ? "Active" : "Inactive")" />
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="FDC 파라미터 그룹 등록" Width="460px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.GroupId"     NullText="그룹 ID *" />
-                <DxTextBox @bind-Text="_form.GroupName"   NullText="그룹명 *" />
-                <DxTextBox @bind-Text="_form.EquipmentId" NullText="설비 ID *" />
-                <DxTextBox @bind-Text="_form.Description" NullText="설명" />
-                <DxSpinEdit @bind-Value="_form.DisplayOrder" Placeholder="표시 순서" />
-                @if (!string.IsNullOrEmpty(_createError))
-                {
-                    <div style="color:#dc2626; font-size:0.875rem;">@_createError</div>
-                }
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="Create" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="FDC 파라미터 그룹 등록">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.GroupId"     Placeholder="그룹 ID *" />
+            <NexaTextBox @bind-Value="_form.GroupName"   Placeholder="그룹명 *" />
+            <NexaTextBox @bind-Value="_form.EquipmentId" Placeholder="설비 ID *" />
+            <NexaTextBox @bind-Value="_form.Description" Placeholder="설명" />
+            <NexaNumberInput @bind-Value="_form.DisplayOrder" Placeholder="표시 순서" />
+            @if (!string.IsNullOrEmpty(_createError))
+            {
+                <div style="color:#dc2626; font-size:0.875rem;">@_createError</div>
+            }
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="Create">등록</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<FdcParameterGroupDto> _groups = new();

@@ -8,9 +8,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- DevExpress.Blazor: 평가판 라이선스 — Tailwind+QuickGrid+NexaUI로 점진 교체 중(전 페이지 이식 후 제거) -->
-    <PackageReference Include="DevExpress.Blazor" Version="24.*" />
-    <!-- DevExpress DxGrid 교체용 무료 공식 그리드(QuickGrid). Tailwind로 스타일링 -->
+    <!-- DevExpress.Blazor 제거 완료(평가판 라이선스 DX1000/DX1001) → Tailwind+QuickGrid+NexaUI로 전면 교체 -->
+    <!-- DxGrid 대체 무료 공식 그리드(QuickGrid). NexaUI/Tailwind로 스타일링 -->
     <PackageReference Include="Microsoft.AspNetCore.Components.QuickGrid" Version="8.*" />
     <PackageReference Include="Microsoft.AspNetCore.Components.Authorization" Version="8.*" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.*" />

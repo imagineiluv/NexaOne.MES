@@ -24,8 +24,7 @@ else if (HubService.Status == HubStatus.Disconnected)
     <div class="hub-status-bar hub-status-disconnected">
         <span class="hub-status-dot"></span>
         실시간 연결이 끊어졌습니다 — 주기 조회 모드로 동작 중입니다.
-        <DxButton Text="다시 연결" RenderStyle="ButtonRenderStyle.Secondary" SizeMode="SizeMode.Small"
-                  CssClass="ms-2" Click="ManualReconnectAsync" />
+        <NexaButton Variant="NexaButton.ButtonVariant.Secondary" Class="ms-2" OnClick="ManualReconnectAsync">다시 연결</NexaButton>
     </div>
 }
 

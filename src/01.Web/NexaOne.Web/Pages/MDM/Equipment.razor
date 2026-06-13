@@ -8,52 +8,46 @@
 
 <div class="page-header">
     <h1 class="page-title">설비 관리</h1>
-    <DxButton Text="설비 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog">설비 등록</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="EquipmentDto" Items="_items">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_searchPlantId" NullText="Plant ID" />
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaTextBox @bind-Value="_searchPlantId" Placeholder="Plant ID" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"            Caption="설비 ID"  Width="120px" />
-        <DxGridDataColumn FieldName="EquipmentName" Caption="설비명"    Width="200px" />
-        <DxGridDataColumn FieldName="PlantId"       Caption="Plant"    Width="100px" />
-        <DxGridDataColumn FieldName="AreaId"        Caption="Area"     Width="100px" />
-        <DxGridDataColumn FieldName="EquipmentType" Caption="유형"      Width="120px" />
-        <DxGridDataColumn FieldName="Vendor"        Caption="제조사"    Width="120px" />
-        <DxGridDataColumn FieldName="Model"         Caption="모델"      Width="120px" />
-        <DxGridDataColumn FieldName="ValidState"    Caption="상태"      Width="100px">
-            <CellDisplayTemplate>
-                <StatusBadge Value="@((string)context.Value)" />
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
+        <PropertyColumn Property="@((EquipmentDto r) => r.Id)"            Title="설비 ID" />
+        <PropertyColumn Property="@((EquipmentDto r) => r.EquipmentName)" Title="설비명" />
+        <PropertyColumn Property="@((EquipmentDto r) => r.PlantId)"       Title="Plant" />
+        <PropertyColumn Property="@((EquipmentDto r) => r.AreaId)"        Title="Area" />
+        <PropertyColumn Property="@((EquipmentDto r) => r.EquipmentType)" Title="유형" />
+        <PropertyColumn Property="@((EquipmentDto r) => r.Vendor)"        Title="제조사" />
+        <PropertyColumn Property="@((EquipmentDto r) => r.Model)"         Title="모델" />
+        <TemplateColumn TGridItem="EquipmentDto" Title="상태">
+            <StatusBadge Value="@(context.ValidState)" />
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
-@if (_showCreate)
-{
-    <DxPopup Visible="_showCreate" HeaderText="설비 등록" Width="480px"
-             VisibleChanged="OnCreateDialogClose">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.EquipmentId"      @bind-Text:after="MarkFormDirty" NullText="설비 ID *" />
-                <DxTextBox @bind-Text="_form.EquipmentName"    @bind-Text:after="MarkFormDirty" NullText="설비명 *" />
-                <DxTextBox @bind-Text="_form.PlantId"          @bind-Text:after="MarkFormDirty" NullText="Plant ID *" />
-                <DxTextBox @bind-Text="_form.AreaId"           @bind-Text:after="MarkFormDirty" NullText="Area ID *" />
-                <DxTextBox @bind-Text="_form.EquipmentType"    @bind-Text:after="MarkFormDirty" NullText="유형 (예: CNC)" />
-                <DxTextBox @bind-Text="_form.EquipmentClassId" @bind-Text:after="MarkFormDirty" NullText="설비 클래스 ID" />
-                <DxTextBox @bind-Text="_form.Vendor"           @bind-Text:after="MarkFormDirty" NullText="제조사" />
-                <DxTextBox @bind-Text="_form.Model"            @bind-Text:after="MarkFormDirty" NullText="모델" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateEquipment" />
-            <DxButton Text="취소" Click="@(() => RequestCloseDialog())" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal Visible="_showCreate" VisibleChanged="OnCreateDialogClose" Title="설비 등록">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.EquipmentId"      @bind-Value:after="MarkFormDirty" Placeholder="설비 ID *" />
+            <NexaTextBox @bind-Value="_form.EquipmentName"    @bind-Value:after="MarkFormDirty" Placeholder="설비명 *" />
+            <NexaTextBox @bind-Value="_form.PlantId"          @bind-Value:after="MarkFormDirty" Placeholder="Plant ID *" />
+            <NexaTextBox @bind-Value="_form.AreaId"           @bind-Value:after="MarkFormDirty" Placeholder="Area ID *" />
+            <NexaTextBox @bind-Value="_form.EquipmentType"    @bind-Value:after="MarkFormDirty" Placeholder="유형 (예: CNC)" />
+            <NexaTextBox @bind-Value="_form.EquipmentClassId" @bind-Value:after="MarkFormDirty" Placeholder="설비 클래스 ID" />
+            <NexaTextBox @bind-Value="_form.Vendor"           @bind-Value:after="MarkFormDirty" Placeholder="제조사" />
+            <NexaTextBox @bind-Value="_form.Model"            @bind-Value:after="MarkFormDirty" Placeholder="모델" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="CreateEquipment">등록</NexaButton>
+        <NexaButton OnClick="@(() => RequestCloseDialog())" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 <ConfirmCloseDialog Visible="_showConfirmClose" OnAction="HandleConfirmClose" />
 

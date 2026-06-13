@@ -11,34 +11,29 @@
 
 <NexaConditionGrid TRow="AlarmDto" Items="_items">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_plantId" NullText="Plant ID" />
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaTextBox @bind-Value="_plantId" Placeholder="Plant ID" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"             Caption="알람 ID"    Width="120px" />
-        <DxGridDataColumn FieldName="EquipmentId"    Caption="설비"        Width="120px" />
-        <DxGridDataColumn FieldName="AlarmCode"      Caption="코드"        Width="100px" />
-        <DxGridDataColumn FieldName="AlarmName"      Caption="알람명"      Width="200px" />
-        <DxGridDataColumn FieldName="AlarmLevel"     Caption="레벨"        Width="80px">
-            <CellDisplayTemplate>
-                <StatusBadge Value="@((string)context.Value)" />
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
-        <DxGridDataColumn FieldName="OccurredAt"     Caption="발생일시"    Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm}" />
-        <DxGridDataColumn FieldName="ClearedAt"      Caption="해제일시"    Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm}" />
-        <DxGridDataColumn FieldName="ElapsedSeconds" Caption="경과(초)"   Width="100px" />
-        <DxGridCommandColumn Width="100px">
-            <CellDisplayTemplate>
-                @{
-                    var alarm = (AlarmDto)context.DataItem;
-                    if (alarm.ClearedAt is null)
-                    {
-                        <DxButton Text="해제" RenderStyle="ButtonRenderStyle.Warning"
-                                  Click="@(() => ClearAlarm(alarm.Id))" />
-                    }
+        <PropertyColumn Property="@((AlarmDto r) => r.Id)"             Title="알람 ID" />
+        <PropertyColumn Property="@((AlarmDto r) => r.EquipmentId)"    Title="설비" />
+        <PropertyColumn Property="@((AlarmDto r) => r.AlarmCode)"      Title="코드" />
+        <PropertyColumn Property="@((AlarmDto r) => r.AlarmName)"      Title="알람명" />
+        <TemplateColumn TGridItem="AlarmDto" Title="레벨">
+            <StatusBadge Value="@context.AlarmLevel" />
+        </TemplateColumn>
+        <PropertyColumn Property="@((AlarmDto r) => r.OccurredAt)"     Title="발생일시" Format="yyyy-MM-dd HH:mm" />
+        <PropertyColumn Property="@((AlarmDto r) => r.ClearedAt)"      Title="해제일시" Format="yyyy-MM-dd HH:mm" />
+        <PropertyColumn Property="@((AlarmDto r) => r.ElapsedSeconds)" Title="경과(초)" />
+        <TemplateColumn TGridItem="AlarmDto" Title="">
+            @{
+                if (context.ClearedAt is null)
+                {
+                    <NexaButton Variant="NexaButton.ButtonVariant.Warning"
+                                OnClick="@(() => ClearAlarm(context.Id))">해제</NexaButton>
                 }
-            </CellDisplayTemplate>
-        </DxGridCommandColumn>
+            }
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 

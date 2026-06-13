@@ -4,44 +4,37 @@
 
 <div class="page-header">
     <h1 class="page-title">불량 분류</h1>
-    <DxButton Text="분류 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog">분류 등록</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="DefectClassDto" Items="_items">
     <Columns>
-        <DxGridDataColumn FieldName="Id"             Caption="분류 ID"   Width="130px" />
-        <DxGridDataColumn FieldName="DefectClassName" Caption="분류명"    Width="180px" />
-        <DxGridDataColumn FieldName="Description"    Caption="설명"       Width="220px" />
-        <DxGridDataColumn FieldName="Severity"       Caption="심각도"     Width="100px">
-            <CellDisplayTemplate>
-                <StatusBadge Value="@((string)context.Value)" />
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
-        <DxGridDataColumn FieldName="IsActive" Caption="활성" Width="80px">
-            <CellDisplayTemplate>
-                @((bool)context.Value ? "활성" : "비활성")
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
+        <PropertyColumn Property="@((DefectClassDto r) => r.Id)" Title="분류 ID" />
+        <PropertyColumn Property="@((DefectClassDto r) => r.DefectClassName)" Title="분류명" />
+        <PropertyColumn Property="@((DefectClassDto r) => r.Description)" Title="설명" />
+        <TemplateColumn TGridItem="DefectClassDto" Title="심각도">
+            <StatusBadge Value="@context.Severity" />
+        </TemplateColumn>
+        <TemplateColumn TGridItem="DefectClassDto" Title="활성">
+            @(context.IsActive ? "활성" : "비활성")
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="불량 분류 등록" Width="440px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.DefectClassId"   NullText="분류 ID *" />
-                <DxTextBox @bind-Text="_form.DefectClassName" NullText="분류명 *" />
-                <DxTextBox @bind-Text="_form.Description"     NullText="설명" />
-                <DxComboBox Data="_severities" @bind-Value="_form.Severity" NullText="심각도 *" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="Create" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="불량 분류 등록">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.DefectClassId"   Placeholder="분류 ID *" />
+            <NexaTextBox @bind-Value="_form.DefectClassName" Placeholder="분류명 *" />
+            <NexaTextBox @bind-Value="_form.Description"     Placeholder="설명" />
+            <NexaSelect TValue="string" @bind-Value="_form.Severity"><option value="">심각도 *</option>@foreach (var x in _severities) { <option value="@x">@x</option> }</NexaSelect>
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="Create">등록</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<DefectClassDto> _items = new();

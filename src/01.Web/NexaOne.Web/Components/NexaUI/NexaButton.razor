@@ -9,7 +9,7 @@
 </button>
 
 @code {
-    public enum ButtonVariant { Primary, Secondary, Danger }
+    public enum ButtonVariant { Primary, Secondary, Danger, Success, Warning }
 
     [Parameter] public RenderFragment? ChildContent { get; set; }
     [Parameter] public ButtonVariant Variant { get; set; } = ButtonVariant.Secondary;
@@ -25,6 +25,8 @@
         {
             ButtonVariant.Primary => "nexa-btn-primary",
             ButtonVariant.Danger  => "nexa-btn-danger",
+            ButtonVariant.Success => "nexa-btn-success",
+            ButtonVariant.Warning => "nexa-btn-warning",
             _                      => "nexa-btn-secondary",
         },
         Class,

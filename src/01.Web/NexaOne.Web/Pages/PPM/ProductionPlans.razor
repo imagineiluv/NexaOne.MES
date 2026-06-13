@@ -5,72 +5,62 @@
 
 <div class="page-header">
     <h1 class="page-title">생산 계획</h1>
-    <DxButton Text="계획 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog">계획 등록</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="ProductionPlanDto" Items="_items">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_plantId" NullText="Plant ID" />
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaTextBox @bind-Value="_plantId" Placeholder="Plant ID" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"               Caption="계획 ID"     Width="140px" />
-        <DxGridDataColumn FieldName="PlanName"         Caption="계획명"       Width="180px" />
-        <DxGridDataColumn FieldName="ProductId"        Caption="제품"         Width="120px" />
-        <DxGridDataColumn FieldName="PlannedQty"       Caption="계획 수량"    Width="100px" DisplayFormat="{0:N0}" />
-        <DxGridDataColumn FieldName="PlannedStartDate" Caption="시작일"       Width="120px" DisplayFormat="{0:yyyy-MM-dd}" />
-        <DxGridDataColumn FieldName="PlannedEndDate"   Caption="종료일"       Width="120px" DisplayFormat="{0:yyyy-MM-dd}" />
-        <DxGridDataColumn FieldName="Status"           Caption="상태"         Width="100px">
-            <CellDisplayTemplate>
-                <StatusBadge Value="@((string)context.Value)" />
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
-        <DxGridCommandColumn Width="200px">
-            <CellDisplayTemplate>
-                @{
-                    var p = (ProductionPlanDto)context.DataItem;
-                    <div style="display:flex; gap:4px;">
-                        @if (p.Status == "Draft")
-                        {
-                            <DxButton Text="릴리스" RenderStyle="ButtonRenderStyle.Primary" Click="@(() => ReleasePlan(p.Id))" />
-                            <DxButton Text="취소" RenderStyle="ButtonRenderStyle.Danger" Click="@(() => CancelPlan(p.Id))" />
-                        }
-                        @if (p.Status == "Released")
-                        {
-                            <DxButton Text="시작" RenderStyle="ButtonRenderStyle.Primary" Click="@(() => StartPlan(p.Id))" />
-                            <DxButton Text="취소" RenderStyle="ButtonRenderStyle.Danger" Click="@(() => CancelPlan(p.Id))" />
-                        }
-                        @if (p.Status == "InProgress")
-                        {
-                            <DxButton Text="완료" Click="@(() => CompletePlan(p.Id))" />
-                        }
-                    </div>
+        <PropertyColumn Property="@((ProductionPlanDto r) => r.Id)"               Title="계획 ID" />
+        <PropertyColumn Property="@((ProductionPlanDto r) => r.PlanName)"         Title="계획명" />
+        <PropertyColumn Property="@((ProductionPlanDto r) => r.ProductId)"        Title="제품" />
+        <PropertyColumn Property="@((ProductionPlanDto r) => r.PlannedQty)"       Title="계획 수량"    Format="N0" />
+        <PropertyColumn Property="@((ProductionPlanDto r) => r.PlannedStartDate)" Title="시작일"       Format="yyyy-MM-dd" />
+        <PropertyColumn Property="@((ProductionPlanDto r) => r.PlannedEndDate)"   Title="종료일"       Format="yyyy-MM-dd" />
+        <TemplateColumn TGridItem="ProductionPlanDto" Title="상태">
+            <StatusBadge Value="@context.Status" />
+        </TemplateColumn>
+        <TemplateColumn TGridItem="ProductionPlanDto" Title="">
+            <div style="display:flex; gap:4px;">
+                @if (context.Status == "Draft")
+                {
+                    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="@(() => ReleasePlan(context.Id))">릴리스</NexaButton>
+                    <NexaButton Variant="NexaButton.ButtonVariant.Danger" OnClick="@(() => CancelPlan(context.Id))">취소</NexaButton>
                 }
-            </CellDisplayTemplate>
-        </DxGridCommandColumn>
+                @if (context.Status == "Released")
+                {
+                    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="@(() => StartPlan(context.Id))">시작</NexaButton>
+                    <NexaButton Variant="NexaButton.ButtonVariant.Danger" OnClick="@(() => CancelPlan(context.Id))">취소</NexaButton>
+                }
+                @if (context.Status == "InProgress")
+                {
+                    <NexaButton OnClick="@(() => CompletePlan(context.Id))">완료</NexaButton>
+                }
+            </div>
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="생산 계획 등록" Width="460px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.PlanId"   NullText="계획 ID *" />
-                <DxTextBox @bind-Text="_form.PlanName" NullText="계획명 *" />
-                <DxTextBox @bind-Text="_form.PlantId"  NullText="Plant ID *" />
-                <DxTextBox @bind-Text="_form.ProductId" NullText="제품 ID *" />
-                <DxSpinEdit @bind-Value="_form.Qty"    MinValue="1" />
-                <DxDateEdit @bind-Date="_form.StartDate" />
-                <DxDateEdit @bind-Date="_form.EndDate" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreatePlan" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="생산 계획 등록">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.PlanId"   Placeholder="계획 ID *" />
+            <NexaTextBox @bind-Value="_form.PlanName" Placeholder="계획명 *" />
+            <NexaTextBox @bind-Value="_form.PlantId"  Placeholder="Plant ID *" />
+            <NexaTextBox @bind-Value="_form.ProductId" Placeholder="제품 ID *" />
+            <NexaNumberInput @bind-Value="_form.Qty"    min="1" />
+            <NexaDateInput @bind-Value="_form.StartDate" />
+            <NexaDateInput @bind-Value="_form.EndDate" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="CreatePlan">등록</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<ProductionPlanDto> _items = new();

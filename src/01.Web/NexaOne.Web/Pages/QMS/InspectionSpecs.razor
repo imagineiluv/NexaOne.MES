@@ -4,47 +4,44 @@
 
 <div class="page-header">
     <h1 class="page-title">검사 기준</h1>
-    <DxButton Text="기준 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog">기준 등록</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="InspectionSpecDto" Items="_items">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_processId" NullText="공정 ID" />
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaTextBox @bind-Value="_processId" Placeholder="공정 ID" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"           Caption="기준 ID"    Width="130px" />
-        <DxGridDataColumn FieldName="SpecName"     Caption="기준명"      Width="180px" />
-        <DxGridDataColumn FieldName="ProcessId"    Caption="공정"        Width="120px" />
-        <DxGridDataColumn FieldName="ItemName"     Caption="검사 항목"   Width="140px" />
-        <DxGridDataColumn FieldName="MeasureType"  Caption="측정 유형"   Width="100px" />
-        <DxGridDataColumn FieldName="NominalValue" Caption="기준값"      Width="90px" />
-        <DxGridDataColumn FieldName="TolerancePlus" Caption="공차(+)"   Width="80px" />
-        <DxGridDataColumn FieldName="ToleranceMinus" Caption="공차(-)"  Width="80px" />
+        <PropertyColumn Property="@((InspectionSpecDto r) => r.Id)"           Title="기준 ID" />
+        <PropertyColumn Property="@((InspectionSpecDto r) => r.SpecName)"     Title="기준명" />
+        <PropertyColumn Property="@((InspectionSpecDto r) => r.ProcessId)"    Title="공정" />
+        <PropertyColumn Property="@((InspectionSpecDto r) => r.ItemName)"     Title="검사 항목" />
+        <PropertyColumn Property="@((InspectionSpecDto r) => r.MeasureType)"  Title="측정 유형" />
+        <PropertyColumn Property="@((InspectionSpecDto r) => r.NominalValue)" Title="기준값" />
+        <PropertyColumn Property="@((InspectionSpecDto r) => r.TolerancePlus)" Title="공차(+)" />
+        <PropertyColumn Property="@((InspectionSpecDto r) => r.ToleranceMinus)" Title="공차(-)" />
     </Columns>
 </NexaConditionGrid>
 
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="검사 기준 등록" Width="480px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.SpecId"    NullText="기준 ID *" />
-                <DxTextBox @bind-Text="_form.SpecName"  NullText="기준명 *" />
-                <DxTextBox @bind-Text="_form.ProcessId" NullText="공정 ID *" />
-                <DxTextBox @bind-Text="_form.ItemName"  NullText="검사 항목 *" />
-                <DxComboBox Data="_measureTypes" @bind-Value="_form.MeasureType" NullText="측정 유형 *" />
-                <DxSpinEdit @bind-Value="_form.NominalValue"   NullText="기준값 (Numeric용)" />
-                <DxSpinEdit @bind-Value="_form.TolerancePlus"  NullText="공차(+) (Numeric용)" />
-                <DxSpinEdit @bind-Value="_form.ToleranceMinus" NullText="공차(-) (Numeric용)" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="Create" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="검사 기준 등록">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.SpecId"    Placeholder="기준 ID *" />
+            <NexaTextBox @bind-Value="_form.SpecName"  Placeholder="기준명 *" />
+            <NexaTextBox @bind-Value="_form.ProcessId" Placeholder="공정 ID *" />
+            <NexaTextBox @bind-Value="_form.ItemName"  Placeholder="검사 항목 *" />
+            <NexaSelect TValue="string" @bind-Value="_form.MeasureType"><option value="">측정 유형 *</option>@foreach (var x in _measureTypes) { <option value="@x">@x</option> }</NexaSelect>
+            <NexaNumberInput @bind-Value="_form.NominalValue"   Placeholder="기준값 (Numeric용)" />
+            <NexaNumberInput @bind-Value="_form.TolerancePlus"  Placeholder="공차(+) (Numeric용)" />
+            <NexaNumberInput @bind-Value="_form.ToleranceMinus" Placeholder="공차(-) (Numeric용)" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="Create">등록</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<InspectionSpecDto> _items = new();

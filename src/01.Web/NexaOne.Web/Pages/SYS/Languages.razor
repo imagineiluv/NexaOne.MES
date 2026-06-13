@@ -4,19 +4,19 @@
 
 <div class="page-header">
     <h1 class="page-title">다국어 관리</h1>
-    <DxButton Text="리소스 등록/수정" RenderStyle="ButtonRenderStyle.Primary" Click="OpenUpsertDialog" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenUpsertDialog">리소스 등록/수정</NexaButton>
 </div>
 
 <div style="display:flex; gap:0.75rem; margin-bottom:1rem; align-items:flex-end;">
     <div>
         <label class="form-label">메뉴 ID</label>
-        <DxTextBox @bind-Text="_filterMenuId" NullText="메뉴 ID 입력" />
+        <NexaTextBox @bind-Value="_filterMenuId" Placeholder="메뉴 ID 입력" />
     </div>
     <div>
         <label class="form-label">언어</label>
-        <DxComboBox Data="_languages" @bind-Value="_filterLanguage" />
+        <NexaSelect TValue="string" @bind-Value="_filterLanguage">@foreach (var x in _languages) { <option value="@x">@x</option> }</NexaSelect>
     </div>
-    <DxButton Text="조회" RenderStyle="ButtonRenderStyle.Primary" Click="LoadData" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="LoadData">조회</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="MultiLanguageResourceDto" Items="_items">
@@ -24,39 +24,31 @@
         <span style="font-size:0.85rem; color:#666;">필터 조건을 입력하고 조회하세요.</span>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"     Caption="리소스 키" Width="200px" />
-        <DxGridDataColumn FieldName="MenuId" Caption="메뉴 ID"   Width="150px" />
-        <DxGridDataColumn FieldName="Language" Caption="언어"    Width="80px" />
-        <DxGridDataColumn FieldName="Value"  Caption="번역 값"   MinWidth="200" />
-        <DxGridCommandColumn Width="80px">
-            <CellDisplayTemplate>
-                @{
-                    var r = (MultiLanguageResourceDto)context.DataItem;
-                    <DxButton Text="수정" RenderStyle="ButtonRenderStyle.Secondary"
-                              Click="@(() => OpenEditDialog(r))" />
-                }
-            </CellDisplayTemplate>
-        </DxGridCommandColumn>
+        <PropertyColumn Property="@((MultiLanguageResourceDto r) => r.Id)" Title="리소스 키" />
+        <PropertyColumn Property="@((MultiLanguageResourceDto r) => r.MenuId)" Title="메뉴 ID" />
+        <PropertyColumn Property="@((MultiLanguageResourceDto r) => r.Language)" Title="언어" />
+        <PropertyColumn Property="@((MultiLanguageResourceDto r) => r.Value)" Title="번역 값" />
+        <TemplateColumn TGridItem="MultiLanguageResourceDto" Title="">
+            <NexaButton Variant="NexaButton.ButtonVariant.Secondary"
+                        OnClick="@(() => OpenEditDialog(context))">수정</NexaButton>
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
-@if (_showUpsert)
-{
-    <DxPopup @bind-Visible="_showUpsert" HeaderText="@(_isEdit ? "번역 수정" : "번역 등록")" Width="420px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.ResourceKey" NullText="리소스 키 *" ReadOnly="_isEdit" />
-                <DxTextBox @bind-Text="_form.MenuId"      NullText="메뉴 ID *" />
-                <DxComboBox Data="_languages"  @bind-Value="_form.Language" />
-                <DxTextBox @bind-Text="_form.Value"       NullText="번역 값 *" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="저장" RenderStyle="ButtonRenderStyle.Primary" Click="UpsertResource" />
-            <DxButton Text="취소" Click="@(() => _showUpsert = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showUpsert" Title="@(_isEdit ? "번역 수정" : "번역 등록")">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.ResourceKey" Placeholder="리소스 키 *" ReadOnly="_isEdit" />
+            <NexaTextBox @bind-Value="_form.MenuId"      Placeholder="메뉴 ID *" />
+            <NexaSelect TValue="string" @bind-Value="_form.Language">@foreach (var x in _languages) { <option value="@x">@x</option> }</NexaSelect>
+            <NexaTextBox @bind-Value="_form.Value"       Placeholder="번역 값 *" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="UpsertResource">저장</NexaButton>
+        <NexaButton OnClick="@(() => _showUpsert = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<MultiLanguageResourceDto> _items = new();

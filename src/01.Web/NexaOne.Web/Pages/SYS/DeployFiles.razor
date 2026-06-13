@@ -16,14 +16,13 @@
 </div>
 
 <div class="deploy-upload-panel">
-    <DxTextBox @bind-Text="_version"     NullText="버전 (예: 3.6.0.0) *" CssClass="deploy-field-version" />
-    <DxTextBox @bind-Text="_description" NullText="릴리스 노트"          CssClass="deploy-field-note" />
-    <DxCheckBox @bind-Checked="_forceUpdate">강제 업데이트</DxCheckBox>
+    <NexaTextBox @bind-Value="_version"     Placeholder="버전 (예: 3.6.0.0) *" Class="deploy-field-version" />
+    <NexaTextBox @bind-Value="_description" Placeholder="릴리스 노트"          Class="deploy-field-note" />
+    <NexaCheckBox @bind-Value="_forceUpdate">강제 업데이트</NexaCheckBox>
     <InputFile OnChange="OnFileSelected" />
-    <DxButton Text="@(_uploading ? "업로드 중..." : "업로드")"
-              RenderStyle="ButtonRenderStyle.Primary"
-              Enabled="@(!_uploading && _selected is not null)"
-              Click="Upload" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary"
+              Disabled="@(!(!_uploading && _selected is not null))"
+              OnClick="Upload">@(_uploading ? "업로드 중..." : "업로드")</NexaButton>
 </div>
 
 @if (!string.IsNullOrEmpty(_error))
@@ -37,47 +36,38 @@
 
 <NexaConditionGrid TRow="DeployFileDto" Items="_items">
     <ConditionPanel>
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Version"    Caption="버전"       Width="110px" />
-        <DxGridDataColumn FieldName="FileName"   Caption="파일명" />
-        <DxGridDataColumn FieldName="FileSize"   Caption="크기"       Width="110px">
-            <CellDisplayTemplate>
-                @FormatSize(((DeployFileDto)context.DataItem).FileSize)
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
-        <DxGridDataColumn FieldName="Description" Caption="릴리스 노트" />
-        <DxGridDataColumn FieldName="ForceUpdate" Caption="강제"       Width="70px">
-            <CellDisplayTemplate>
-                @(((DeployFileDto)context.DataItem).ForceUpdate ? "예" : "")
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
-        <DxGridDataColumn FieldName="IsActive"   Caption="상태"       Width="90px">
-            <CellDisplayTemplate>
-                <StatusBadge Value="@(((DeployFileDto)context.DataItem).IsActive ? "Active" : "Inactive")" />
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
-        <DxGridDataColumn FieldName="UploadedBy" Caption="업로더"     Width="100px" />
-        <DxGridDataColumn FieldName="UploadedAt" Caption="업로드 일시" Width="150px" DisplayFormat="{0:yyyy-MM-dd HH:mm}" />
-        <DxGridCommandColumn Width="120px">
-            <CellDisplayTemplate>
-                @{
-                    var f = (DeployFileDto)context.DataItem;
-                    @* §20.11 — 문제 버전 회수/복구: latest 선정·다운로드 대상에서 제외/복귀 *@
-                    if (f.IsActive)
-                    {
-                        <DxButton Text="비활성화" RenderStyle="ButtonRenderStyle.Danger"
-                                  Click="@(() => SetActive(f.FileId, false))" />
-                    }
-                    else
-                    {
-                        <DxButton Text="활성화" RenderStyle="ButtonRenderStyle.Secondary"
-                                  Click="@(() => SetActive(f.FileId, true))" />
-                    }
+        <PropertyColumn Property="@((DeployFileDto r) => r.Version)"    Title="버전" />
+        <PropertyColumn Property="@((DeployFileDto r) => r.FileName)"   Title="파일명" />
+        <TemplateColumn TGridItem="DeployFileDto" Title="크기">
+            @FormatSize(context.FileSize)
+        </TemplateColumn>
+        <PropertyColumn Property="@((DeployFileDto r) => r.Description)" Title="릴리스 노트" />
+        <TemplateColumn TGridItem="DeployFileDto" Title="강제">
+            @(context.ForceUpdate ? "예" : "")
+        </TemplateColumn>
+        <TemplateColumn TGridItem="DeployFileDto" Title="상태">
+            <StatusBadge Value="@(context.IsActive ? "Active" : "Inactive")" />
+        </TemplateColumn>
+        <PropertyColumn Property="@((DeployFileDto r) => r.UploadedBy)" Title="업로더" />
+        <PropertyColumn Property="@((DeployFileDto r) => r.UploadedAt)" Title="업로드 일시" Format="yyyy-MM-dd HH:mm" />
+        <TemplateColumn TGridItem="DeployFileDto" Title="">
+            @{
+                @* §20.11 — 문제 버전 회수/복구: latest 선정·다운로드 대상에서 제외/복귀 *@
+                if (context.IsActive)
+                {
+                    <NexaButton Variant="NexaButton.ButtonVariant.Danger"
+                              OnClick="@(() => SetActive(context.FileId, false))">비활성화</NexaButton>
                 }
-            </CellDisplayTemplate>
-        </DxGridCommandColumn>
+                else
+                {
+                    <NexaButton Variant="NexaButton.ButtonVariant.Secondary"
+                              OnClick="@(() => SetActive(context.FileId, true))">활성화</NexaButton>
+                }
+            }
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 

@@ -1,5 +1,5 @@
-@* NexaUI — DxTextBox 대체. string 양방향 바인딩(@bind-Value). *@
-<input type="text"
+@* NexaUI — DxTextBox 대체. string 양방향 바인딩(@bind-Value). Type="password"로 마스킹(DxTextBox Password="true"). *@
+<input type="@Type"
        class="@CssClass"
        value="@Value"
        placeholder="@Placeholder"
@@ -11,6 +11,7 @@
 @code {
     [Parameter] public string? Value { get; set; }
     [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+    [Parameter] public string Type { get; set; } = "text";
     [Parameter] public string? Placeholder { get; set; }
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public bool Disabled { get; set; }

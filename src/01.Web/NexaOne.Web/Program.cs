@@ -27,11 +27,6 @@ builder.Services.AddScoped<MenuPersonalizationService>();
 // §20.9: 탭 전환(=페이지 dispose) 후 복귀 시 FDC 감시 상태를 복원하기 위한 서킷 수명 상태
 builder.Services.AddScoped<NexaOne.Web.Services.Realtime.FdcMonitorState>();
 
-builder.Services.AddDevExpressBlazor(options =>
-{
-    options.BootstrapVersion = DevExpress.Blazor.BootstrapVersion.v5;
-});
-
 var apiBase = builder.Configuration["ApiBaseUrl"]
     ?? throw new InvalidOperationException("ApiBaseUrl is required");
 

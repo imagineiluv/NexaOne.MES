@@ -5,43 +5,40 @@
 
 <div class="page-header">
     <h1 class="page-title">출하 이력</h1>
-    <DxButton Text="출하 기록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog"
-              Enabled="@(!string.IsNullOrWhiteSpace(_orderId))" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog"
+              Disabled="@(!(!string.IsNullOrWhiteSpace(_orderId)))">출하 기록</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="ShipmentHistoryDto" Items="_items">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_orderId" NullText="납품 주문 ID *" />
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaTextBox @bind-Value="_orderId" Placeholder="납품 주문 ID *" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"          Caption="이력 ID"    Width="130px" />
-        <DxGridDataColumn FieldName="ShippedAt"   Caption="출하일시"    Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm}" />
-        <DxGridDataColumn FieldName="ShippedQty"  Caption="출하 수량"   Width="100px" />
-        <DxGridDataColumn FieldName="ShippedBy"   Caption="출하자"      Width="110px" />
-        <DxGridDataColumn FieldName="Carrier"     Caption="운송사"      Width="120px" />
-        <DxGridDataColumn FieldName="TrackingNo"  Caption="운송장 번호" Width="150px" />
+        <PropertyColumn Property="@((ShipmentHistoryDto r) => r.Id)"          Title="이력 ID" />
+        <PropertyColumn Property="@((ShipmentHistoryDto r) => r.ShippedAt)"   Title="출하일시"    Format="yyyy-MM-dd HH:mm" />
+        <PropertyColumn Property="@((ShipmentHistoryDto r) => r.ShippedQty)"  Title="출하 수량" />
+        <PropertyColumn Property="@((ShipmentHistoryDto r) => r.ShippedBy)"   Title="출하자" />
+        <PropertyColumn Property="@((ShipmentHistoryDto r) => r.Carrier)"     Title="운송사" />
+        <PropertyColumn Property="@((ShipmentHistoryDto r) => r.TrackingNo)"  Title="운송장 번호" />
     </Columns>
 </NexaConditionGrid>
 
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="출하 기록" Width="460px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.HistoryId"  NullText="이력 ID *" />
-                <DxSpinEdit @bind-Value="_form.ShippedQty" MinValue="0.01m" Step="1m" NullText="출하 수량 *" />
-                <DxTextBox @bind-Text="_form.ShippedBy"  NullText="출하자 ID *" />
-                <DxTextBox @bind-Text="_form.Carrier"    NullText="운송사 (선택)" />
-                <DxTextBox @bind-Text="_form.TrackingNo" NullText="운송장 번호 (선택)" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="기록" RenderStyle="ButtonRenderStyle.Primary" Click="Create" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="출하 기록">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.HistoryId"  Placeholder="이력 ID *" />
+            <NexaNumberInput @bind-Value="_form.ShippedQty" MinValue="0.01m" Step="1m" Placeholder="출하 수량 *" />
+            <NexaTextBox @bind-Value="_form.ShippedBy"  Placeholder="출하자 ID *" />
+            <NexaTextBox @bind-Value="_form.Carrier"    Placeholder="운송사 (선택)" />
+            <NexaTextBox @bind-Value="_form.TrackingNo" Placeholder="운송장 번호 (선택)" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="Create">기록</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<ShipmentHistoryDto> _items = new();

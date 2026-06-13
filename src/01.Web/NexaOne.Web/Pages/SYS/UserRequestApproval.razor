@@ -16,58 +16,54 @@
 
 <NexaConditionGrid TRow="UserRequestDto" Items="_items">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_plantId" NullText="Plant" />
-        <DxComboBox Data="_statusFilters" @bind-Value="_status" />
-        <DxTextBox @bind-Text="_userId"   NullText="사용자 ID" />
-        <DxTextBox @bind-Text="_userName" NullText="이름" />
-        <DxDateEdit @bind-Date="_from" NullText="신청일(시작)" />
-        <DxDateEdit @bind-Date="_to"   NullText="신청일(종료)" />
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaTextBox @bind-Value="_plantId" Placeholder="Plant" />
+        <NexaSelect TValue="string" @bind-Value="_status">@foreach (var x in _statusFilters) { <option value="@x">@x</option> }</NexaSelect>
+        <NexaTextBox @bind-Value="_userId"   Placeholder="사용자 ID" />
+        <NexaTextBox @bind-Value="_userName" Placeholder="이름" />
+        <NexaDateInput @bind-Value="_from" />
+        <NexaDateInput @bind-Value="_to" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="UserId"     Caption="사용자 ID" Width="110px" />
-        <DxGridDataColumn FieldName="UserName"   Caption="이름"      Width="100px" />
-        <DxGridDataColumn FieldName="Email"      Caption="이메일"    Width="180px" />
-        <DxGridDataColumn FieldName="Department" Caption="부서"      Width="110px" />
-        <DxGridDataColumn FieldName="Position"   Caption="직급"      Width="80px" />
-        <DxGridDataColumn FieldName="PlantId"    Caption="Plant"     Width="90px" />
-        <DxGridDataColumn FieldName="Status"     Caption="상태"      Width="90px">
-            <CellDisplayTemplate>
-                <StatusBadge Value="@((string)context.Value)" />
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
-        <DxGridDataColumn FieldName="RequestVersion" Caption="차수"   Width="60px" />
-        <DxGridDataColumn FieldName="RequestedAt"    Caption="신청일" Width="150px" DisplayFormat="{0:yyyy-MM-dd HH:mm}" />
-        <DxGridDataColumn FieldName="RejectReason"   Caption="반려 사유" Width="160px" />
-        <DxGridCommandColumn Width="160px">
-            <CellDisplayTemplate>
-                @{
-                    var r = (UserRequestDto)context.DataItem;
-                    if (r.Status == "Request")
-                    {
-                        <DxButton Text="승인" RenderStyle="ButtonRenderStyle.Primary"
-                                  Click="@(() => OpenApprove(r))" CssClass="me-1" />
-                        <DxButton Text="반려" RenderStyle="ButtonRenderStyle.Danger"
-                                  Click="@(() => OpenReject(r))" />
-                    }
+        <PropertyColumn Property="@((UserRequestDto r) => r.UserId)"     Title="사용자 ID" />
+        <PropertyColumn Property="@((UserRequestDto r) => r.UserName)"   Title="이름" />
+        <PropertyColumn Property="@((UserRequestDto r) => r.Email)"      Title="이메일" />
+        <PropertyColumn Property="@((UserRequestDto r) => r.Department)" Title="부서" />
+        <PropertyColumn Property="@((UserRequestDto r) => r.Position)"   Title="직급" />
+        <PropertyColumn Property="@((UserRequestDto r) => r.PlantId)"    Title="Plant" />
+        <TemplateColumn TGridItem="UserRequestDto" Title="상태">
+            <StatusBadge Value="@context.Status" />
+        </TemplateColumn>
+        <PropertyColumn Property="@((UserRequestDto r) => r.RequestVersion)" Title="차수" />
+        <PropertyColumn Property="@((UserRequestDto r) => r.RequestedAt)"    Title="신청일" Format="yyyy-MM-dd HH:mm" />
+        <PropertyColumn Property="@((UserRequestDto r) => r.RejectReason)"   Title="반려 사유" />
+        <TemplateColumn TGridItem="UserRequestDto" Title="">
+            @{
+                if (context.Status == "Request")
+                {
+                    <NexaButton Variant="NexaButton.ButtonVariant.Primary"
+                              OnClick="@(() => OpenApprove(context))" Class="me-1">승인</NexaButton>
+                    <NexaButton Variant="NexaButton.ButtonVariant.Danger"
+                              OnClick="@(() => OpenReject(context))">반려</NexaButton>
                 }
-            </CellDisplayTemplate>
-        </DxGridCommandColumn>
+            }
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
-@if (_showApprove && _selected is not null)
-{
-    <DxPopup @bind-Visible="_showApprove" HeaderText="가입 승인" Width="420px">
-        <BodyContentTemplate>
+    <NexaModal @bind-Visible="_showApprove" Title="가입 승인">
+        <ChildContent>
             <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <div style="font-size:0.9rem; color:#374151;">
-                    <strong>@_selected.UserName</strong> (@_selected.UserId) — @_selected.Department / @_selected.Position<br />
-                    <span style="color:#6b7280;">Plant: @_selected.PlantId · 이메일: @_selected.Email</span>
-                </div>
+                @if (_selected is not null)
+                {
+                    <div style="font-size:0.9rem; color:#374151;">
+                        <strong>@_selected.UserName</strong> (@_selected.UserId) — @_selected.Department / @_selected.Position<br />
+                        <span style="color:#6b7280;">Plant: @_selected.PlantId · 이메일: @_selected.Email</span>
+                    </div>
+                }
                 <div>
                     <label style="font-size:0.875rem; font-weight:500; color:#374151;">부여할 역할</label>
-                    <DxComboBox Data="_roleIds" @bind-Value="_approveRoleId" CssClass="mt-1" />
+                    <NexaSelect TValue="string" @bind-Value="_approveRoleId" Class="mt-1">@foreach (var it in _roleIds) { <option value="@it">@it</option> }</NexaSelect>
                 </div>
                 <div style="font-size:0.8rem; color:#6b7280;">
                     승인 시 사용자가 생성되고 임시 비밀번호가 이메일로 발송됩니다.
@@ -77,25 +73,25 @@
                     <div style="color:#dc2626; font-size:0.875rem;">@_popupError</div>
                 }
             </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="승인" RenderStyle="ButtonRenderStyle.Primary" Click="Approve" Enabled="!_processing" />
-            <DxButton Text="취소" Click="@(() => _showApprove = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+        </ChildContent>
+        <Footer>
+            <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="Approve" Disabled="@(!(!_processing))">승인</NexaButton>
+            <NexaButton OnClick="@(() => _showApprove = false)" Class="ms-2">취소</NexaButton>
+        </Footer>
+    </NexaModal>
 
-@if (_showReject && _selected is not null)
-{
-    <DxPopup @bind-Visible="_showReject" HeaderText="가입 반려" Width="420px">
-        <BodyContentTemplate>
+    <NexaModal @bind-Visible="_showReject" Title="가입 반려">
+        <ChildContent>
             <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <div style="font-size:0.9rem; color:#374151;">
-                    <strong>@_selected.UserName</strong> (@_selected.UserId) — @_selected.Department / @_selected.Position
-                </div>
+                @if (_selected is not null)
+                {
+                    <div style="font-size:0.9rem; color:#374151;">
+                        <strong>@_selected.UserName</strong> (@_selected.UserId) — @_selected.Department / @_selected.Position
+                    </div>
+                }
                 <div>
                     <label style="font-size:0.875rem; font-weight:500; color:#374151;">반려 사유 *</label>
-                    <DxMemo @bind-Text="_rejectReason" NullText="반려 사유를 입력하세요" Rows="3" CssClass="mt-1 w-100" />
+                    <NexaTextArea @bind-Value="_rejectReason" Placeholder="반려 사유를 입력하세요" Rows="3" Class="mt-1 w-100" />
                 </div>
                 <div style="font-size:0.8rem; color:#6b7280;">
                     반려 사유는 신청자에게 메일로 안내되며, 같은 ID로 재신청할 수 있습니다.
@@ -105,13 +101,12 @@
                     <div style="color:#dc2626; font-size:0.875rem;">@_popupError</div>
                 }
             </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="반려" RenderStyle="ButtonRenderStyle.Danger" Click="Reject" Enabled="!_processing" />
-            <DxButton Text="취소" Click="@(() => _showReject = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+        </ChildContent>
+        <Footer>
+            <NexaButton Variant="NexaButton.ButtonVariant.Danger" OnClick="Reject" Disabled="@(!(!_processing))">반려</NexaButton>
+            <NexaButton OnClick="@(() => _showReject = false)" Class="ms-2">취소</NexaButton>
+        </Footer>
+    </NexaModal>
 
 @code {
     private List<UserRequestDto> _items = new();

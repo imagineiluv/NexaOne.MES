@@ -8,24 +8,22 @@
 
 <NexaConditionGrid TRow="FdcInterlockHistoryDto" Items="_history">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_equipmentId" NullText="설비 ID" />
-        <DxDateEdit @bind-Date="_from" />
+        <NexaTextBox @bind-Value="_equipmentId" Placeholder="설비 ID" />
+        <NexaDateInput @bind-Value="_from" />
         <span>~</span>
-        <DxDateEdit @bind-Date="_to" />
-        <DxButton Text="조회" Click="Load" />
+        <NexaDateInput @bind-Value="_to" />
+        <NexaButton OnClick="Load">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="TriggeredAt"  Caption="발동 시각" Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm:ss}" />
-        <DxGridDataColumn FieldName="ParameterId"  Caption="파라미터"  Width="140px" />
-        <DxGridDataColumn FieldName="Action"       Caption="액션"      Width="90px" />
-        <DxGridDataColumn FieldName="TriggerValue" Caption="발동 값"   Width="100px" />
-        <DxGridDataColumn FieldName="Message"      Caption="메시지" />
-        <DxGridDataColumn FieldName="ResolvedAt"   Caption="해제 시각" Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm:ss}" />
-        <DxGridDataColumn FieldName="IsResolved"   Caption="해제"      Width="70px">
-            <CellDisplayTemplate>
-                <StatusBadge Value="@((bool)context.Value ? "Resolved" : "Active")" />
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
+        <PropertyColumn Property="@((FdcInterlockHistoryDto r) => r.TriggeredAt)" Title="발동 시각" Format="yyyy-MM-dd HH:mm:ss" />
+        <PropertyColumn Property="@((FdcInterlockHistoryDto r) => r.ParameterId)" Title="파라미터" />
+        <PropertyColumn Property="@((FdcInterlockHistoryDto r) => r.Action)" Title="액션" />
+        <PropertyColumn Property="@((FdcInterlockHistoryDto r) => r.TriggerValue)" Title="발동 값" />
+        <PropertyColumn Property="@((FdcInterlockHistoryDto r) => r.Message)" Title="메시지" />
+        <PropertyColumn Property="@((FdcInterlockHistoryDto r) => r.ResolvedAt)" Title="해제 시각" Format="yyyy-MM-dd HH:mm:ss" />
+        <TemplateColumn TGridItem="FdcInterlockHistoryDto" Title="해제">
+            <StatusBadge Value="@(context.IsResolved ? "Resolved" : "Active")" />
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 

@@ -4,56 +4,51 @@
 
 <div class="page-header">
     <h1 class="page-title">인터록 규칙</h1>
-    <DxButton Text="규칙 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog">규칙 등록</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="InterlockRuleDto" Items="_items">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_equipmentId" NullText="설비 ID" />
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaTextBox @bind-Value="_equipmentId" Placeholder="설비 ID" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"             Caption="규칙 ID"     Width="120px" />
-        <DxGridDataColumn FieldName="RuleName"       Caption="규칙명"       Width="200px" />
-        <DxGridDataColumn FieldName="EquipmentId"    Caption="설비"         Width="120px" />
-        <DxGridDataColumn FieldName="ParameterId"    Caption="파라미터"     Width="120px" />
-        <DxGridDataColumn FieldName="Operator"       Caption="연산자"       Width="80px" />
-        <DxGridDataColumn FieldName="ThresholdValue" Caption="임계값"       Width="100px" />
-        <DxGridDataColumn FieldName="Action"         Caption="조치"         Width="120px" />
-        <DxGridDataColumn FieldName="Priority"       Caption="우선순위"     Width="80px" />
-        <DxGridDataColumn FieldName="IsActive"       Caption="활성"         Width="80px">
-            <CellDisplayTemplate>
-                <StatusBadge Value="@((bool)context.Value ? "Active" : "Inactive")" />
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
+        <PropertyColumn Property="@((InterlockRuleDto r) => r.Id)"             Title="규칙 ID" />
+        <PropertyColumn Property="@((InterlockRuleDto r) => r.RuleName)"       Title="규칙명" />
+        <PropertyColumn Property="@((InterlockRuleDto r) => r.EquipmentId)"    Title="설비" />
+        <PropertyColumn Property="@((InterlockRuleDto r) => r.ParameterId)"    Title="파라미터" />
+        <PropertyColumn Property="@((InterlockRuleDto r) => r.Operator)"       Title="연산자" />
+        <PropertyColumn Property="@((InterlockRuleDto r) => r.ThresholdValue)" Title="임계값" />
+        <PropertyColumn Property="@((InterlockRuleDto r) => r.Action)"         Title="조치" />
+        <PropertyColumn Property="@((InterlockRuleDto r) => r.Priority)"       Title="우선순위" />
+        <TemplateColumn TGridItem="InterlockRuleDto" Title="활성">
+            <StatusBadge Value="@(context.IsActive ? "Active" : "Inactive")" />
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="인터록 규칙 등록" Width="480px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.RuleId"         NullText="규칙 ID *" />
-                <DxTextBox @bind-Text="_form.RuleName"       NullText="규칙명 *" />
-                <DxTextBox @bind-Text="_form.EquipmentId"    NullText="설비 ID *" />
-                <DxTextBox @bind-Text="_form.ParameterId"    NullText="파라미터 ID *" />
-                <DxComboBox Data="_operators"   @bind-Value="_form.Operator"   NullText="연산자 *" />
-                <DxSpinEdit @bind-Value="_form.ThresholdValue" Placeholder="임계값 *" />
-                <DxComboBox Data="_actions"     @bind-Value="_form.Action"     NullText="조치 *" />
-                <DxSpinEdit @bind-Value="_form.Priority"      Placeholder="우선순위 (낮을수록 먼저)" />
-                @if (!string.IsNullOrEmpty(_createError))
-                {
-                    <div style="color:#dc2626; font-size:0.875rem;">@_createError</div>
-                }
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateRule" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="인터록 규칙 등록">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.RuleId"         Placeholder="규칙 ID *" />
+            <NexaTextBox @bind-Value="_form.RuleName"       Placeholder="규칙명 *" />
+            <NexaTextBox @bind-Value="_form.EquipmentId"    Placeholder="설비 ID *" />
+            <NexaTextBox @bind-Value="_form.ParameterId"    Placeholder="파라미터 ID *" />
+            <NexaSelect TValue="string" @bind-Value="_form.Operator"><option value="">연산자 *</option>@foreach (var op in _operators) { <option value="@op">@op</option> }</NexaSelect>
+            <NexaNumberInput @bind-Value="_form.ThresholdValue" Placeholder="임계값 *" />
+            <NexaSelect TValue="string" @bind-Value="_form.Action"><option value="">조치 *</option>@foreach (var ac in _actions) { <option value="@ac">@ac</option> }</NexaSelect>
+            <NexaNumberInput @bind-Value="_form.Priority"      Placeholder="우선순위 (낮을수록 먼저)" />
+            @if (!string.IsNullOrEmpty(_createError))
+            {
+                <div style="color:#dc2626; font-size:0.875rem;">@_createError</div>
+            }
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="CreateRule">등록</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<InterlockRuleDto> _items = new();

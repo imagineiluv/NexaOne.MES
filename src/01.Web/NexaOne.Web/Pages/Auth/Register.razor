@@ -17,10 +17,9 @@
                 관리자 승인 후 입력하신 이메일로<br />
                 임시 비밀번호가 발송됩니다.
             </div>
-            <DxButton Text="로그인으로 돌아가기"
-                      RenderStyle="ButtonRenderStyle.Primary"
-                      CssClass="w-100"
-                      Click="@(() => Nav.NavigateTo("/auth/login"))" />
+            <NexaButton Variant="NexaButton.ButtonVariant.Primary"
+                        Class="w-100"
+                        OnClick="@(() => Nav.NavigateTo("/auth/login"))">로그인으로 돌아가기</NexaButton>
         }
         else
         {
@@ -30,10 +29,10 @@
                 <div style="margin-bottom:0.75rem;">
                     <label style="font-size:0.875rem; font-weight:500; color:#374151;">사용자 ID *</label>
                     <div style="display:flex; gap:0.5rem;" class="mt-1">
-                        <DxTextBox @bind-Text="_model.UserId"
-                                   NullText="사용할 ID를 입력하세요"
-                                   CssClass="flex-grow-1" />
-                        <DxButton Text="중복확인" Click="CheckUserId" Enabled="!_loading" />
+                        <NexaTextBox @bind-Value="_model.UserId"
+                                     Placeholder="사용할 ID를 입력하세요"
+                                     Class="flex-grow-1" />
+                        <NexaButton OnClick="CheckUserId" Disabled="@(!(!_loading))">중복확인</NexaButton>
                     </div>
                     @if (_idMessage is not null)
                     {
@@ -45,44 +44,44 @@
 
                 <div style="margin-bottom:0.75rem;">
                     <label style="font-size:0.875rem; font-weight:500; color:#374151;">이름 *</label>
-                    <DxTextBox @bind-Text="_model.UserName" NullText="이름" CssClass="mt-1" />
+                    <NexaTextBox @bind-Value="_model.UserName" Placeholder="이름" Class="mt-1" />
                 </div>
 
                 <div style="margin-bottom:0.75rem;">
                     <label style="font-size:0.875rem; font-weight:500; color:#374151;">이메일 *</label>
-                    <DxTextBox @bind-Text="_model.Email" NullText="승인 안내를 받을 이메일" CssClass="mt-1" />
+                    <NexaTextBox @bind-Value="_model.Email" Placeholder="승인 안내를 받을 이메일" Class="mt-1" />
                 </div>
 
                 <div style="display:flex; gap:0.5rem; margin-bottom:0.75rem;">
                     <div style="flex:1;">
                         <label style="font-size:0.875rem; font-weight:500; color:#374151;">부서 *</label>
-                        <DxTextBox @bind-Text="_model.Department" NullText="부서" CssClass="mt-1" />
+                        <NexaTextBox @bind-Value="_model.Department" Placeholder="부서" Class="mt-1" />
                     </div>
                     <div style="flex:1;">
                         <label style="font-size:0.875rem; font-weight:500; color:#374151;">직급 *</label>
-                        <DxTextBox @bind-Text="_model.Position" NullText="직급" CssClass="mt-1" />
+                        <NexaTextBox @bind-Value="_model.Position" Placeholder="직급" Class="mt-1" />
                     </div>
                 </div>
 
                 <div style="display:flex; gap:0.5rem; margin-bottom:0.75rem;">
                     <div style="flex:1;">
                         <label style="font-size:0.875rem; font-weight:500; color:#374151;">직책</label>
-                        <DxTextBox @bind-Text="_model.Duty" NullText="직책 (선택)" CssClass="mt-1" />
+                        <NexaTextBox @bind-Value="_model.Duty" Placeholder="직책 (선택)" Class="mt-1" />
                     </div>
                     <div style="flex:1;">
                         <label style="font-size:0.875rem; font-weight:500; color:#374151;">휴대폰</label>
-                        <DxTextBox @bind-Text="_model.CellPhoneNumber" NullText="휴대폰 (선택)" CssClass="mt-1" />
+                        <NexaTextBox @bind-Value="_model.CellPhoneNumber" Placeholder="휴대폰 (선택)" Class="mt-1" />
                     </div>
                 </div>
 
                 <div style="display:flex; gap:0.5rem; margin-bottom:0.75rem;">
                     <div style="flex:1;">
                         <label style="font-size:0.875rem; font-weight:500; color:#374151;">Plant *</label>
-                        <DxTextBox @bind-Text="_model.PlantId" NullText="예: DEFAULT" CssClass="mt-1" />
+                        <NexaTextBox @bind-Value="_model.PlantId" Placeholder="예: DEFAULT" Class="mt-1" />
                     </div>
                     <div style="flex:1;">
                         <label style="font-size:0.875rem; font-weight:500; color:#374151;">언어</label>
-                        <DxComboBox Data="_languages" @bind-Value="_model.Language" CssClass="mt-1" />
+                        <NexaSelect TValue="string" @bind-Value="_model.Language" Class="mt-1">@foreach (var x in _languages) { <option value="@x">@x</option> }</NexaSelect>
                     </div>
                 </div>
 
@@ -97,7 +96,7 @@
                     동의를 거부할 수 있으나, 거부 시 계정 등록이 불가합니다.
                 </div>
                 <div style="margin-bottom:1rem;">
-                    <DxCheckBox @bind-Checked="_model.TermsAccepted">위 약관에 동의합니다 *</DxCheckBox>
+                    <NexaCheckBox @bind-Value="_model.TermsAccepted">위 약관에 동의합니다 *</NexaCheckBox>
                 </div>
 
                 @if (!string.IsNullOrEmpty(_error))
@@ -105,11 +104,10 @@
                     <div style="color:#dc2626; font-size:0.875rem; margin-bottom:1rem;">@_error</div>
                 }
 
-                <DxButton SubmitFormOnClick="true"
-                          Text="등록 신청"
-                          RenderStyle="ButtonRenderStyle.Primary"
-                          CssClass="w-100"
-                          Enabled="!_loading" />
+                <NexaButton Type="submit"
+                            Variant="NexaButton.ButtonVariant.Primary"
+                            Class="w-100"
+                            Disabled="@(!(!_loading))">등록 신청</NexaButton>
 
                 <div style="text-align:center; margin-top:0.75rem;">
                     <a href="/auth/login" style="font-size:0.813rem; color:#6b7280;">로그인으로 돌아가기</a>

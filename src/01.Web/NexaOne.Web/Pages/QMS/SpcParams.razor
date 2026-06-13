@@ -4,76 +4,65 @@
 
 <div class="page-header">
     <h1 class="page-title">SPC 파라미터</h1>
-    <DxButton Text="파라미터 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog">파라미터 등록</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="SpcParamDto" Items="_items">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_equipmentId" NullText="설비 ID *" />
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaTextBox @bind-Value="_equipmentId" Placeholder="설비 ID *" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"          Caption="파라미터 ID" Width="140px" />
-        <DxGridDataColumn FieldName="ParamName"   Caption="파라미터명"   Width="160px" />
-        <DxGridDataColumn FieldName="EquipmentId" Caption="설비"         Width="110px" />
-        <DxGridDataColumn FieldName="ProcessId"   Caption="공정"         Width="110px" />
-        <DxGridDataColumn FieldName="Mean"        Caption="평균(μ)"      Width="90px" />
-        <DxGridDataColumn FieldName="Ucl"         Caption="UCL"          Width="90px" />
-        <DxGridDataColumn FieldName="Lcl"         Caption="LCL"          Width="90px" />
-        <DxGridDataColumn FieldName="Usl"         Caption="USL"          Width="90px" />
-        <DxGridDataColumn FieldName="Lsl"         Caption="LSL"          Width="90px" />
-        <DxGridDataColumn FieldName="SampleSize"  Caption="샘플 수"      Width="80px" />
-        <DxGridCommandColumn Width="120px">
-            <CellDisplayTemplate>
-                @{
-                    var p = (SpcParamDto)context.DataItem;
-                    <DxButton Text="한계 수정" Click="@(() => OpenUpdateDialog(p))" />
-                }
-            </CellDisplayTemplate>
-        </DxGridCommandColumn>
+        <PropertyColumn Property="@((SpcParamDto r) => r.Id)"          Title="파라미터 ID" />
+        <PropertyColumn Property="@((SpcParamDto r) => r.ParamName)"   Title="파라미터명" />
+        <PropertyColumn Property="@((SpcParamDto r) => r.EquipmentId)" Title="설비" />
+        <PropertyColumn Property="@((SpcParamDto r) => r.ProcessId)"   Title="공정" />
+        <PropertyColumn Property="@((SpcParamDto r) => r.Mean)"        Title="평균(μ)" />
+        <PropertyColumn Property="@((SpcParamDto r) => r.Ucl)"         Title="UCL" />
+        <PropertyColumn Property="@((SpcParamDto r) => r.Lcl)"         Title="LCL" />
+        <PropertyColumn Property="@((SpcParamDto r) => r.Usl)"         Title="USL" />
+        <PropertyColumn Property="@((SpcParamDto r) => r.Lsl)"         Title="LSL" />
+        <PropertyColumn Property="@((SpcParamDto r) => r.SampleSize)"  Title="샘플 수" />
+        <TemplateColumn TGridItem="SpcParamDto" Title="">
+            <NexaButton OnClick="@(() => OpenUpdateDialog(context))">한계 수정</NexaButton>
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="SPC 파라미터 등록" Width="480px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.ParamId"    NullText="파라미터 ID *" />
-                <DxTextBox @bind-Text="_form.ParamName"  NullText="파라미터명 *" />
-                <DxTextBox @bind-Text="_form.EquipmentId" NullText="설비 ID *" />
-                <DxTextBox @bind-Text="_form.ProcessId"  NullText="공정 ID *" />
-                <DxSpinEdit @bind-Value="_form.Mean" Step="0.01m" NullText="평균(μ) *" />
-                <DxSpinEdit @bind-Value="_form.Ucl"  Step="0.01m" NullText="UCL *" />
-                <DxSpinEdit @bind-Value="_form.Lcl"  Step="0.01m" NullText="LCL *" />
-                <DxSpinEdit @bind-Value="_form.Usl"  Step="0.01m" NullText="USL (선택)" />
-                <DxSpinEdit @bind-Value="_form.Lsl"  Step="0.01m" NullText="LSL (선택)" />
-                <DxSpinEdit @bind-Value="_form.SampleSize" MinValue="1" Step="1m" NullText="샘플 수 *" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="Create" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="SPC 파라미터 등록">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.ParamId"    Placeholder="파라미터 ID *" />
+            <NexaTextBox @bind-Value="_form.ParamName"  Placeholder="파라미터명 *" />
+            <NexaTextBox @bind-Value="_form.EquipmentId" Placeholder="설비 ID *" />
+            <NexaTextBox @bind-Value="_form.ProcessId"  Placeholder="공정 ID *" />
+            <NexaNumberInput @bind-Value="_form.Mean" Step="0.01m" Placeholder="평균(μ) *" />
+            <NexaNumberInput @bind-Value="_form.Ucl"  Step="0.01m" Placeholder="UCL *" />
+            <NexaNumberInput @bind-Value="_form.Lcl"  Step="0.01m" Placeholder="LCL *" />
+            <NexaNumberInput @bind-Value="_form.Usl"  Step="0.01m" Placeholder="USL (선택)" />
+            <NexaNumberInput @bind-Value="_form.Lsl"  Step="0.01m" Placeholder="LSL (선택)" />
+            <NexaNumberInput @bind-Value="_form.SampleSize" min="1" Step="1m" Placeholder="샘플 수 *" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="Create">등록</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
-@if (_showUpdate)
-{
-    <DxPopup @bind-Visible="_showUpdate" HeaderText="@($"관리 한계 수정 — {_updateParamName}")" Width="360px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxSpinEdit @bind-Value="_updateMean" Step="0.01m" NullText="평균(μ) *" />
-                <DxSpinEdit @bind-Value="_updateUcl"  Step="0.01m" NullText="UCL *" />
-                <DxSpinEdit @bind-Value="_updateLcl"  Step="0.01m" NullText="LCL *" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="수정" RenderStyle="ButtonRenderStyle.Primary" Click="ConfirmUpdate" />
-            <DxButton Text="취소" Click="@(() => _showUpdate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showUpdate" Title="@($"관리 한계 수정 — {_updateParamName}")">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaNumberInput @bind-Value="_updateMean" Step="0.01m" Placeholder="평균(μ) *" />
+            <NexaNumberInput @bind-Value="_updateUcl"  Step="0.01m" Placeholder="UCL *" />
+            <NexaNumberInput @bind-Value="_updateLcl"  Step="0.01m" Placeholder="LCL *" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="ConfirmUpdate">수정</NexaButton>
+        <NexaButton OnClick="@(() => _showUpdate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<SpcParamDto> _items = new();

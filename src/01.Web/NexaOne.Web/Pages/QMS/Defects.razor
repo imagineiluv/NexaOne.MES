@@ -5,67 +5,59 @@
 
 <div class="page-header">
     <h1 class="page-title">불량 관리</h1>
-    <DxButton Text="불량 보고" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog">불량 보고</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="DefectDto" Items="_items">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_lotId" NullText="Lot ID" />
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaTextBox @bind-Value="_lotId" Placeholder="Lot ID" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"            Caption="불량 ID"    Width="130px" />
-        <DxGridDataColumn FieldName="LotId"         Caption="Lot"        Width="120px" />
-        <DxGridDataColumn FieldName="EquipmentId"   Caption="설비"        Width="120px" />
-        <DxGridDataColumn FieldName="DefectClassId" Caption="불량 유형"  Width="120px" />
-        <DxGridDataColumn FieldName="DefectCount"   Caption="불량수"      Width="80px" />
-        <DxGridDataColumn FieldName="DefectRate"    Caption="불량률(%)"   Width="100px" DisplayFormat="{0:F2}" />
-        <DxGridDataColumn FieldName="InspectedAt"   Caption="검사일시"    Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm}" />
-        <DxGridDataColumn FieldName="InspectorId"   Caption="검사자"      Width="100px" />
-        <DxGridDataColumn FieldName="IsConfirmed"   Caption="확정"        Width="80px">
-            <CellDisplayTemplate>
-                <StatusBadge Value="@((bool)context.Value ? "Completed" : "Pending")" />
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
-        <DxGridCommandColumn Width="100px">
-            <CellDisplayTemplate>
-                @{
-                    var d = (DefectDto)context.DataItem;
-                    if (!d.IsConfirmed)
-                    {
-                        <DxButton Text="확정" RenderStyle="ButtonRenderStyle.Primary"
-                                  Click="@(() => ConfirmDefect(d.Id))" />
-                    }
+        <PropertyColumn Property="@((DefectDto r) => r.Id)"            Title="불량 ID" />
+        <PropertyColumn Property="@((DefectDto r) => r.LotId)"         Title="Lot" />
+        <PropertyColumn Property="@((DefectDto r) => r.EquipmentId)"   Title="설비" />
+        <PropertyColumn Property="@((DefectDto r) => r.DefectClassId)" Title="불량 유형" />
+        <PropertyColumn Property="@((DefectDto r) => r.DefectCount)"   Title="불량수" />
+        <PropertyColumn Property="@((DefectDto r) => r.DefectRate)"    Title="불량률(%)"   Format="F2" />
+        <PropertyColumn Property="@((DefectDto r) => r.InspectedAt)"   Title="검사일시"    Format="yyyy-MM-dd HH:mm" />
+        <PropertyColumn Property="@((DefectDto r) => r.InspectorId)"   Title="검사자" />
+        <TemplateColumn TGridItem="DefectDto" Title="확정">
+            <StatusBadge Value="@(context.IsConfirmed ? "Completed" : "Pending")" />
+        </TemplateColumn>
+        <TemplateColumn TGridItem="DefectDto" Title="">
+            @{
+                if (!context.IsConfirmed)
+                {
+                    <NexaButton Variant="NexaButton.ButtonVariant.Primary"
+                                OnClick="@(() => ConfirmDefect(context.Id))">확정</NexaButton>
                 }
-            </CellDisplayTemplate>
-        </DxGridCommandColumn>
+            }
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="불량 보고" Width="460px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.DefectId"     NullText="불량 ID *" />
-                <DxTextBox @bind-Text="_form.LotId"        NullText="Lot ID *" />
-                <DxTextBox @bind-Text="_form.EquipmentId"  NullText="설비 ID *" />
-                <DxTextBox @bind-Text="_form.DefectClassId" NullText="불량 유형 ID *" />
-                <DxSpinEdit @bind-Value="_form.Count"      MinValue="0" Placeholder="불량 수량 *" />
-                <DxSpinEdit @bind-Value="_form.Rate"       MinValue="0" MaxValue="100" Placeholder="불량률(%)" />
-                <DxTextBox @bind-Text="_form.InspectorId"  NullText="검사자 ID *" />
-                @if (!string.IsNullOrEmpty(_createError))
-                {
-                    <div style="color:#dc2626; font-size:0.875rem;">@_createError</div>
-                }
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="보고" RenderStyle="ButtonRenderStyle.Primary" Click="CreateDefect" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="불량 보고">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.DefectId"     Placeholder="불량 ID *" />
+            <NexaTextBox @bind-Value="_form.LotId"        Placeholder="Lot ID *" />
+            <NexaTextBox @bind-Value="_form.EquipmentId"  Placeholder="설비 ID *" />
+            <NexaTextBox @bind-Value="_form.DefectClassId" Placeholder="불량 유형 ID *" />
+            <NexaNumberInput @bind-Value="_form.Count"      MinValue="0" Placeholder="불량 수량 *" />
+            <NexaNumberInput @bind-Value="_form.Rate"       MinValue="0" MaxValue="100" Placeholder="불량률(%)" />
+            <NexaTextBox @bind-Value="_form.InspectorId"  Placeholder="검사자 ID *" />
+            @if (!string.IsNullOrEmpty(_createError))
+            {
+                <div style="color:#dc2626; font-size:0.875rem;">@_createError</div>
+            }
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="CreateDefect">보고</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<DefectDto> _items = new();

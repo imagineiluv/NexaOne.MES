@@ -58,16 +58,16 @@
         <div class="confirm-close-dialog">
             <div class="confirm-close-title">현재 조건 저장</div>
             <div class="confirm-close-body">
-                <DxTextBox @bind-Text="_saveName" NullText="조건명 (예: 일별 설비 조회)" />
+                <NexaTextBox @bind-Value="_saveName" Placeholder="조건명 (예: 일별 설비 조회)" />
             </div>
             @if (!string.IsNullOrEmpty(_saveError))
             {
                 <div class="confirm-close-error">@_saveError</div>
             }
             <div class="confirm-close-actions">
-                <DxButton Text="저장" RenderStyle="ButtonRenderStyle.Primary" Click="SaveRequestedAsync" />
-                <DxButton Text="취소" RenderStyle="ButtonRenderStyle.Light"
-                          Click="@(() => _showSave = false)" />
+                <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="SaveRequestedAsync">저장</NexaButton>
+                <NexaButton Variant="NexaButton.ButtonVariant.Secondary"
+                          OnClick="@(() => _showSave = false)">취소</NexaButton>
             </div>
         </div>
     </div>
@@ -81,8 +81,8 @@
             <div class="confirm-close-title">확인</div>
             <div class="confirm-close-body">@_confirmMessage</div>
             <div class="confirm-close-actions">
-                <DxButton Text="확인" RenderStyle="ButtonRenderStyle.Primary" Click="ConfirmAsync" />
-                <DxButton Text="취소" RenderStyle="ButtonRenderStyle.Light" Click="CancelConfirm" />
+                <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="ConfirmAsync">확인</NexaButton>
+                <NexaButton Variant="NexaButton.ButtonVariant.Secondary" OnClick="CancelConfirm">취소</NexaButton>
             </div>
         </div>
     </div>

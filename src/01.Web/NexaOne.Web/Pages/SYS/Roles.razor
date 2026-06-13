@@ -5,70 +5,62 @@
 
 <div class="page-header">
     <h1 class="page-title">역할 관리</h1>
-    <DxButton Text="역할 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog">역할 등록</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="RoleDto" Items="_items">
     <ConditionPanel>
-        <DxButton Text="조회" Click="LoadData" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"          Caption="역할 ID"    Width="130px" />
-        <DxGridDataColumn FieldName="RoleName"    Caption="역할명"     Width="150px" />
-        <DxGridDataColumn FieldName="Description" Caption="설명"       MinWidth="200" />
-        <DxGridCommandColumn Width="160px">
-            <CellDisplayTemplate>
-                @{
-                    var r = (RoleDto)context.DataItem;
-                    <DxButton Text="권한 관리" RenderStyle="ButtonRenderStyle.Secondary"
-                              Click="@(() => OpenPermissionsDialog(r))" />
-                }
-            </CellDisplayTemplate>
-        </DxGridCommandColumn>
+        <PropertyColumn Property="@((RoleDto r) => r.Id)"          Title="역할 ID" />
+        <PropertyColumn Property="@((RoleDto r) => r.RoleName)"    Title="역할명" />
+        <PropertyColumn Property="@((RoleDto r) => r.Description)" Title="설명" />
+        <TemplateColumn TGridItem="RoleDto" Title="">
+            <NexaButton Variant="NexaButton.ButtonVariant.Secondary"
+                        OnClick="@(() => OpenPermissionsDialog(context))">권한 관리</NexaButton>
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="역할 등록" Width="400px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.RoleId"      NullText="역할 ID *" />
-                <DxTextBox @bind-Text="_form.RoleName"    NullText="역할명 *" />
-                <DxTextBox @bind-Text="_form.Description" NullText="설명" />
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateRole" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="역할 등록">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.RoleId"      Placeholder="역할 ID *" />
+            <NexaTextBox @bind-Value="_form.RoleName"    Placeholder="역할명 *" />
+            <NexaTextBox @bind-Value="_form.Description" Placeholder="설명" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="CreateRole">등록</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
-@if (_showPermissions && _selectedRole is not null)
-{
-    <DxPopup @bind-Visible="_showPermissions" HeaderText="@($"권한 관리 — {_selectedRole.RoleName}")" Width="460px">
-        <BodyContentTemplate>
+<NexaModal @bind-Visible="_showPermissions" Title="@($"권한 관리 — {_selectedRole?.RoleName}")">
+    <ChildContent>
+        @if (_selectedRole is not null)
+        {
             <div style="padding:0.5rem;">
                 <div style="margin-bottom:0.75rem; display:flex; gap:0.5rem;">
-                    <DxTextBox @bind-Text="_newPermission" NullText="새 권한 코드 (예: MDM.WRITE)" Style="flex:1" />
-                    <DxButton Text="추가" RenderStyle="ButtonRenderStyle.Primary" Click="AddPermission" />
+                    <NexaTextBox @bind-Value="_newPermission" Placeholder="새 권한 코드 (예: MDM.WRITE)" Style="flex:1" />
+                    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="AddPermission">추가</NexaButton>
                 </div>
                 @foreach (var perm in _selectedRole.Permissions)
                 {
                     <div style="display:flex; justify-content:space-between; align-items:center; padding:0.35rem 0; border-bottom:1px solid #eee;">
                         <span>@perm</span>
-                        <DxButton Text="삭제" RenderStyle="ButtonRenderStyle.Danger"
-                                  Click="@(() => RemovePermission(perm))" />
+                        <NexaButton Variant="NexaButton.ButtonVariant.Danger"
+                                    OnClick="@(() => RemovePermission(perm))">삭제</NexaButton>
                     </div>
                 }
             </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="닫기" Click="@(() => _showPermissions = false)" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+        }
+    </ChildContent>
+    <Footer>
+        <NexaButton OnClick="@(() => _showPermissions = false)">닫기</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<RoleDto> _items = new();
