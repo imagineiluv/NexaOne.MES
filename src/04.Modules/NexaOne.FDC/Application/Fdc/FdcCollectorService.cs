@@ -23,7 +23,10 @@ public sealed class FdcCollectorService
 
     // 현재 발동 중인 (설비|파라미터) 집합 — 중복 발동 방지 + 정상 복귀 시에만 해제 처리
     private readonly ConcurrentDictionary<string, byte> _activeInterlocks = new();
-    private readonly ConcurrentDictionary<string, byte> _activeAlarms = new();
+    // 현재 발생 중인 알람의 최고 심각도(레벨) — 심각도 상승(Warning→Critical) 통지 판단용
+    private readonly ConcurrentDictionary<string, string> _activeAlarms = new();
+    // (설비|파라미터) 키별 평가-기록-해제 직렬화 — 동시 태그 이벤트의 발동↔해제 순서 역전 방지
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _keyGates = new();
 
     /// <summary>인터락 규칙이 발동했을 때 발생한다. 인터락 이력 기록·설비 정지·SignalR 알림 등
     /// 후속 처리는 호스트(구독자)가 담당한다 (§10.4.2).</summary>
@@ -58,6 +61,12 @@ public sealed class FdcCollectorService
             ?? throw new InvalidOperationException(
                 $"Device '{device.InterfaceName}' is not initialized (connect first via Machine lifecycle).");
 
+        // 연결이 비-null이라도 Ping 실패(Error)·정지(Stopped) 상태면 구독을 걸지 않는다(닫힌/실패 연결 보호)
+        if (device.State is not (NexusFramework.Resource.ResourceState.Ready
+                                 or NexusFramework.Resource.ResourceState.Running))
+            throw new InvalidOperationException(
+                $"Device '{device.InterfaceName}' is not in a startable state (state: {device.State}).");
+
         await conn.SubscriptionProvider.StartAsync(
             conn.Endpoint,
             subscriptions,
@@ -87,54 +96,87 @@ public sealed class FdcCollectorService
             new KeyValuePair<string, object?>("equipmentId", equipmentId),
             new KeyValuePair<string, object?>("quality", quality));
 
-        if (_interlockService is not null)
-        {
-            var key = $"{equipmentId}|{evt.TagName}";
-            var interlock = await _interlockService.EvaluateAsync(equipmentId, evt.TagName, value, ct);
+        if (_interlockService is null && _alarmService is null) return;
 
-            if (interlock.IsTriggered)
-            {
-                // 신규 발동만 기록·통지 (이미 발동 중이면 중복 억제)
-                if (_activeInterlocks.TryAdd(key, 0))
-                {
-                    await _interlockService.RecordTriggerAsync(equipmentId, evt.TagName, value, interlock, ct);
-                    InterlockTriggered?.Invoke(this,
-                        new FdcInterlockTriggeredEventArgs(equipmentId, evt.TagName, value, interlock));
-                }
-            }
-            else if (_activeInterlocks.TryRemove(key, out _))
-            {
-                // 발동 중이던 항목이 정상 범위로 복귀 — 미해제 이력 자동 해제
-                await _interlockService.ResolveActiveAsync(equipmentId, evt.TagName, ct);
-                InterlockResolved?.Invoke(this,
-                    new FdcInterlockResolvedEventArgs(equipmentId, evt.TagName, value));
-            }
+        // 품질이 Good이 아니면(연결 끊김/Bad → ToDecimal이 0으로 뭉갬) 평가·해제하지 않는다.
+        // 0으로 뭉개진 값이 활성 인터락/알람을 거짓 해제하거나 저값 규칙을 거짓 발동시키는 것을 방지.
+        if (quality != "Good") return;
+
+        // 같은 (설비|태그) 이벤트의 동시 처리를 직렬화 — TryAdd 후 RecordTrigger(INSERT)와
+        // 정상 복귀 시 ResolveActive(미해제 행 해제)의 순서 역전(발동↔해제 비대칭)을 막는다.
+        var key = $"{equipmentId}|{evt.TagName}";
+        var gate = _keyGates.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            if (_interlockService is not null)
+                await EvaluateInterlockAsync(equipmentId, evt.TagName, value, key, ct);
+            if (_alarmService is not null)
+                await EvaluateAlarmAsync(equipmentId, evt.TagName, value, key, ct);
         }
-
-        if (_alarmService is not null)
+        finally
         {
-            var key = $"{equipmentId}|{evt.TagName}";
-            var alarms = await _alarmService.EvaluateAsync(equipmentId, evt.TagName, value, ct);
-
-            if (alarms.Count > 0)
-            {
-                // 신규 발생만 기록·통지 (발생 중이면 중복 억제). 동시에 여러 레벨이 잡히면 가장 심각한 것을 통지
-                if (_activeAlarms.TryAdd(key, 0))
-                {
-                    var top = alarms.Any(a => a.AlarmLevel == "Critical")
-                        ? alarms.First(a => a.AlarmLevel == "Critical")
-                        : alarms[0];
-                    await _alarmService.RecordAsync(equipmentId, evt.TagName, value, top, ct);
-                    AlarmRaised?.Invoke(this, new FdcAlarmRaisedEventArgs(equipmentId, evt.TagName, value, top));
-                }
-            }
-            else if (_activeAlarms.TryRemove(key, out _))
-            {
-                await _alarmService.ClearActiveAsync(equipmentId, evt.TagName, ct);
-                AlarmCleared?.Invoke(this, new FdcAlarmClearedEventArgs(equipmentId, evt.TagName, value));
-            }
+            gate.Release();
         }
     }
+
+    private async Task EvaluateInterlockAsync(string equipmentId, string tagName, decimal value, string key, CancellationToken ct)
+    {
+        var interlock = await _interlockService!.EvaluateAsync(equipmentId, tagName, value, ct);
+
+        if (interlock.IsTriggered)
+        {
+            // 신규 발동만 기록·통지 (이미 발동 중이면 중복 억제)
+            if (_activeInterlocks.TryAdd(key, 0))
+            {
+                await _interlockService.RecordTriggerAsync(equipmentId, tagName, value, interlock, ct);
+                InterlockTriggered?.Invoke(this,
+                    new FdcInterlockTriggeredEventArgs(equipmentId, tagName, value, interlock));
+            }
+        }
+        else if (_activeInterlocks.TryRemove(key, out _))
+        {
+            // 발동 중이던 항목이 정상 범위로 복귀 — 미해제 이력 자동 해제
+            await _interlockService.ResolveActiveAsync(equipmentId, tagName, ct);
+            InterlockResolved?.Invoke(this,
+                new FdcInterlockResolvedEventArgs(equipmentId, tagName, value));
+        }
+    }
+
+    private async Task EvaluateAlarmAsync(string equipmentId, string tagName, decimal value, string key, CancellationToken ct)
+    {
+        var alarms = await _alarmService!.EvaluateAsync(equipmentId, tagName, value, ct);
+
+        if (alarms.Count > 0)
+        {
+            // 동시에 여러 레벨이 잡히면 가장 심각한 것을 채택
+            var top = alarms.Any(a => a.AlarmLevel == "Critical")
+                ? alarms.First(a => a.AlarmLevel == "Critical")
+                : alarms[0];
+
+            // 신규 발생 또는 심각도 상승(예: Warning→Critical)만 기록·통지 (동일 레벨 반복은 억제)
+            var isNew = !_activeAlarms.TryGetValue(key, out var current);
+            if (isNew || SeverityRank(top.AlarmLevel) > SeverityRank(current!))
+            {
+                _activeAlarms[key] = top.AlarmLevel;
+                await _alarmService.RecordAsync(equipmentId, tagName, value, top, ct);
+                AlarmRaised?.Invoke(this, new FdcAlarmRaisedEventArgs(equipmentId, tagName, value, top));
+            }
+        }
+        else if (_activeAlarms.TryRemove(key, out _))
+        {
+            await _alarmService.ClearActiveAsync(equipmentId, tagName, ct);
+            AlarmCleared?.Invoke(this, new FdcAlarmClearedEventArgs(equipmentId, tagName, value));
+        }
+    }
+
+    /// <summary>알람 심각도 순위(Critical &gt; Warning &gt; 기타). 심각도 상승 통지 판단에 사용.</summary>
+    private static int SeverityRank(string level) => level switch
+    {
+        "Critical" => 2,
+        "Warning"  => 1,
+        _          => 0,
+    };
 
     /// <summary>NexusLogic <see cref="PlcQuality"/> → FDC 수집 품질("Good"/"Bad"/"Uncertain") 매핑.</summary>
     public static string MapQuality(PlcQuality quality) => quality switch

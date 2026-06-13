@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NexusFramework.Workflow.Runtime;
@@ -25,11 +26,28 @@ public class WorkflowController(WorkflowManager manager, IConfiguration config) 
         return Ok(ids);
     }
 
+    // 워크플로우 ID 허용 문자(영숫자·하이픈·언더스코어) — 경로 조작(../, 절대경로, 백슬래시) 차단
+    private static readonly Regex IdPattern = new("^[A-Za-z0-9_-]+$", RegexOptions.Compiled);
+
     /// <summary>워크플로우를 실행하고 노드별 상태/오류를 반환한다.</summary>
     [HttpPost("{workflowId}/execute")]
     public async Task<IActionResult> Execute(string workflowId, CancellationToken ct)
     {
-        var path = Path.Combine(ResolveDir(config), $"{workflowId}.workflow");
+        // 라우트 파라미터를 파일 경로에 쓰기 전에 화이트리스트로 검증 (경로 조작 방지)
+        if (string.IsNullOrEmpty(workflowId) || workflowId.Length > 128 || !IdPattern.IsMatch(workflowId))
+            return BadRequest("Invalid workflow id.");
+
+        var dir = ResolveDir(config);
+        var path = Path.Combine(dir, $"{workflowId}.workflow");
+
+        // 정규화된 최종 경로가 워크플로우 디렉터리 하위인지 재확인 (심층 방어)
+        var baseFull = Path.GetFullPath(dir);
+        var pathFull = Path.GetFullPath(path);
+        if (!pathFull.StartsWith(
+                baseFull.EndsWith(Path.DirectorySeparatorChar) ? baseFull : baseFull + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase))
+            return BadRequest("Invalid workflow id.");
+
         if (!System.IO.File.Exists(path))
             return NotFound($"Workflow '{workflowId}' not found.");
 

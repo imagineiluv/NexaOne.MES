@@ -31,21 +31,36 @@ public class FdcController(
             Machines = plant.Machines.Select(m => new { m.Name, State = m.State.ToString() })
         });
 
+    // 설비 lifecycle 변경(기동/정지/비상정지)은 안전 영향 동작 — 역할 인가로 일반 인증 사용자 차단(§9.3)
     [HttpPost("equipment/start")]
+    [Authorize(Roles = "ADMIN,OPERATOR")]
     public async Task<IActionResult> StartAll(CancellationToken ct)
     {
-        try { await plant.StartAsync(ct); return Ok(); }
+        try
+        {
+            // 수집기 비활성(기본) 등으로 StateMachine 미초기화면 수동 제어가 영구 실패하므로 멱등 초기화
+            if (plant.StateMachine is null) await plant.InitializeAsync(ct);
+            await plant.StartAsync(ct);
+            return Ok();
+        }
         catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
 
     [HttpPost("equipment/stop")]
+    [Authorize(Roles = "ADMIN,OPERATOR")]
     public async Task<IActionResult> StopAll(CancellationToken ct)
     {
-        try { await plant.StopAsync(ct); return Ok(); }
+        try
+        {
+            if (plant.StateMachine is null) await plant.InitializeAsync(ct);
+            await plant.StopAsync(ct);
+            return Ok();
+        }
         catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
     }
 
     [HttpPost("equipment/abort")]
+    [Authorize(Roles = "ADMIN,OPERATOR")]
     public async Task<IActionResult> AbortAll([FromBody] AbortRequest req, CancellationToken ct)
     {
         await plant.AbortAsync(req.Reason, ct);
@@ -102,6 +117,15 @@ public class FdcController(
             req.ParameterId, req.ParameterName, req.EquipmentId, req.Unit,
             req.LowerLimit, req.UpperLimit, ct);
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    /// <summary>파라미터를 그룹에 배정/해제한다(GroupId=null이면 해제).</summary>
+    [HttpPut("parameters/{parameterId}/group")]
+    public async Task<IActionResult> AssignParameterGroup(
+        string parameterId, [FromBody] AssignParameterGroupRequest req, CancellationToken ct)
+    {
+        var result = await dataService.AssignParameterToGroupAsync(parameterId, req.GroupId, ct);
+        return result.IsSuccess ? Ok() : BadRequest(result.Error);
     }
 
     // ── Parameter Groups ──────────────────────────────────────────────────────
@@ -168,6 +192,8 @@ public class FdcController(
         [FromQuery] int limit = 50,
         CancellationToken ct = default)
     {
+        // 음수/0/과대값 방어 — 무검증 limit이 TOP(@limit) 쿼리로 직행하지 않도록 1..500으로 클램프
+        limit = Math.Clamp(limit, 1, 500);
         var list = await dataService.GetLatestDataAsync(parameterId, limit, ct);
         return Ok(list);
     }
@@ -241,3 +267,4 @@ public record CreateAlarmConfigRequest(
     string AlarmConfigId, string EquipmentId, string ParameterId,
     string AlarmLevel, string Operator, decimal Threshold);
 public record AbortRequest(string Reason);
+public record AssignParameterGroupRequest(string? GroupId);

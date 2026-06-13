@@ -36,6 +36,19 @@ public sealed class FdcDataService
         return result;
     }
 
+    /// <summary>파라미터를 그룹(FDC_PARAMETER_GROUP)에 배정한다(groupId=null이면 해제). GROUP_ID 쓰기 경로.</summary>
+    public async Task<Result> AssignParameterToGroupAsync(
+        string parameterId, string? groupId, CancellationToken ct = default)
+    {
+        var param = await _paramRepository.GetByIdAsync(parameterId, ct);
+        if (param is null)
+            return Result.Failure(Error.NotFound(nameof(FdcParameter), parameterId));
+
+        param.AssignToGroup(groupId);
+        await _paramRepository.UpdateAsync(param, ct);
+        return Result.Success();
+    }
+
     // ── Collect Data ──────────────────────────────────────────────────────────
 
     public async Task<IReadOnlyList<FdcCollectData>> GetCollectDataAsync(

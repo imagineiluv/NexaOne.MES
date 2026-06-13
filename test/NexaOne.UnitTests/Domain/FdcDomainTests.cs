@@ -81,9 +81,36 @@ public sealed class FdcDomainTests
     public void SetControlLimits_updates_lcl_ucl()
     {
         var param = FdcParameter.Create("PARAM001", "온도", "EQ001", "℃", 50m, 200m).Value;
-        param.SetControlLimits(80m, 170m);
+        param.SetControlLimits(80m, 170m).IsSuccess.Should().BeTrue();
         param.LowerControlLimit.Should().Be(80m);
         param.UpperControlLimit.Should().Be(170m);
+    }
+
+    [Fact]
+    public void UpdateLimits_rejects_inverted_range()
+    {
+        var param = FdcParameter.Create("PARAM001", "온도", "EQ001", "℃", 50m, 200m).Value;
+
+        param.UpdateLimits(10m, 5m).IsFailure.Should().BeTrue("mutator도 Create와 같은 불변식을 강제해야 한다");
+        param.LowerLimit.Should().Be(50m, "거부된 갱신은 기존 값을 바꾸지 않는다");
+        param.UpperLimit.Should().Be(200m);
+
+        param.UpdateLimits(60m, 180m).IsSuccess.Should().BeTrue();
+        param.LowerLimit.Should().Be(60m);
+        param.UpperLimit.Should().Be(180m);
+    }
+
+    [Fact]
+    public void AssignToGroup_sets_and_clears_group()
+    {
+        var param = FdcParameter.Create("PARAM001", "온도", "EQ001", "℃", 50m, 200m).Value;
+        param.GroupId.Should().BeNull();
+
+        param.AssignToGroup("GRP-1");
+        param.GroupId.Should().Be("GRP-1");
+
+        param.AssignToGroup(null);
+        param.GroupId.Should().BeNull("null 배정은 그룹 해제");
     }
 
     [Fact]

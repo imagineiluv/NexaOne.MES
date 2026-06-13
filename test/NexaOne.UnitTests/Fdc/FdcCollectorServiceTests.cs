@@ -299,4 +299,55 @@ public sealed class FdcCollectorServiceTests
         raised.Should().NotBeNull();
         raised!.Alarm.AlarmLevel.Should().Be("Critical", "여러 레벨이 잡히면 가장 심각한 것을 통지한다");
     }
+
+    [Fact]
+    public async Task OnTagChange_escalates_alarm_from_warning_to_critical()
+    {
+        var warn = FdcAlarmConfig.Create("AW", "EQ-001", "TEMP01", "Warning", "GT", 70m).Value;
+        var crit = FdcAlarmConfig.Create("AC", "EQ-001", "TEMP01", "Critical", "GT", 90m).Value;
+        var cfgRepo = new Mock<IFdcAlarmConfigRepository>();
+        cfgRepo.Setup(r => r.GetActiveConfigsAsync("EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+               .ReturnsAsync(new[] { warn, crit });
+        var sut = BuildWithAlarm(cfgRepo);
+
+        var raised = new List<string>();
+        sut.AlarmRaised += (_, e) => raised.Add(e.Alarm.AlarmLevel);
+
+        await sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 75.0, PlcQuality.Good));  // Warning만 (70<75<90)
+        await sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 95.0, PlcQuality.Good));  // Critical로 악화
+
+        raised.Should().Equal(new[] { "Warning", "Critical" },
+            "Warning 발생 후 Critical로 악화되면 심각도 상승을 다시 통지한다");
+    }
+
+    // ── 품질 게이팅: Bad/Disconnected 읽기(value=0)가 거짓 해제/거짓 발동하지 않음 ──────────
+
+    [Fact]
+    public async Task OnTagChange_does_not_resolve_interlock_on_bad_quality()
+    {
+        var t = BuildWithInterlock();
+        SetupRule(t);   // GT 80 STOP
+        FdcInterlockResolvedEventArgs? resolved = null;
+        t.sut.InterlockResolved += (_, e) => resolved = e;
+
+        await t.sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 90.0, PlcQuality.Good));  // 발동
+        await t.sut.OnTagChangeAsync("EQ-001", Event("TEMP01", null, PlcQuality.Disconnected));  // 끊김→0
+
+        resolved.Should().BeNull("Bad/Disconnected 품질 읽기는 활성 인터락을 거짓 해제하지 않는다");
+    }
+
+    [Fact]
+    public async Task OnTagChange_does_not_trigger_low_interlock_on_bad_quality()
+    {
+        var t = BuildWithInterlock();
+        var rule = FdcInterlockRule.Create("R1", "Underflow", "EQ-001", "TEMP01", "LT", 10m, "STOP", 1).Value;
+        t.ruleRepo.Setup(r => r.GetActiveRulesAsync("EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+                  .ReturnsAsync(new[] { rule });
+        var fired = false;
+        t.sut.InterlockTriggered += (_, _) => fired = true;
+
+        await t.sut.OnTagChangeAsync("EQ-001", Event("TEMP01", null, PlcQuality.Disconnected));  // 0, Bad
+
+        fired.Should().BeFalse("Bad 품질로 0이 된 값은 저값 인터락(LT 10)을 거짓 발동시키지 않는다");
+    }
 }

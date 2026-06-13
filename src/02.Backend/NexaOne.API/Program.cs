@@ -52,6 +52,12 @@ builder.Services.AddSwaggerGen(c =>
 // JWT Authentication
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var secretKey = jwtSection["SecretKey"] ?? throw new InvalidOperationException("Jwt:SecretKey is required");
+// §18.7 — 비밀키는 파일에 두지 않는다. 커밋된 플레이스홀더/취약 키로 조용히 기동되면 HMAC 대칭키가
+// 노출돼 토큰 위조로 인증이 우회되므로, 부팅 시 플레이스홀더·32바이트 미만 키를 거부한다(환경변수/UserSecrets로 주입).
+if (secretKey.StartsWith("CHANGE_ME", StringComparison.Ordinal) || Encoding.UTF8.GetByteCount(secretKey) < 32)
+    throw new InvalidOperationException(
+        "Jwt:SecretKey must be a strong secret (>= 32 bytes) supplied via environment variable or user-secrets; " +
+        "the committed placeholder is rejected.");
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -124,7 +130,9 @@ builder.Services.AddHealthChecks()
 // Application services
 builder.Services.AddNexaOneServices(builder.Configuration);
 builder.Services.AddNexaOneEES(builder.Configuration);
-builder.Services.AddScoped<NexaOne.API.Hubs.IEesHubNotifier, NexaOne.API.Hubs.EesHubNotifier>();
+// EesHubNotifier는 싱글톤 IHubContext만 래핑하는 무상태 구현 → 싱글톤으로 등록한다.
+// (Scoped로 두면 싱글톤 HostedService 생성자 주입이 captive dependency가 되어 스코프 검증 시 기동 실패)
+builder.Services.AddSingleton<NexaOne.API.Hubs.IEesHubNotifier, NexaOne.API.Hubs.EesHubNotifier>();
 
 // §17.4 OpenTelemetry — 분산 추적 + Metrics. OTLP 엔드포인트가 설정되면 Collector로,
 // 없으면 개발용 Console exporter로 트레이스를 내보낸다(설계: 개발 Console/OTLP, 운영 OTLP Collector).

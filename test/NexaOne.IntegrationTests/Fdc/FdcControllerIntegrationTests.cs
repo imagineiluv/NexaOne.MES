@@ -11,11 +11,11 @@ namespace NexaOne.IntegrationTests.Fdc;
 /// 보호된 엔드포인트 호출은 JWT 토큰 발급(SYS 인증)과 실 MSSQL 연결이 필요하므로 기본 실행에서는
 /// <c>Skip</c>한다. testcontainers(MSSQL) + 시드 사용자/토큰이 갖춰진 CI에서 Skip을 제거해 실행한다.
 /// </remarks>
-public sealed class FdcControllerIntegrationTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class FdcControllerIntegrationTests : IClassFixture<TestApiFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly TestApiFactory _factory;
 
-    public FdcControllerIntegrationTests(WebApplicationFactory<Program> factory) => _factory = factory;
+    public FdcControllerIntegrationTests(TestApiFactory factory) => _factory = factory;
 
     [Fact(Skip = "실 MSSQL + JWT 인증 필요 — 환경 구축된 CI에서 Skip 제거 후 실행")]
     public async Task ProtectedFdcEndpoint_returns_401_without_token()

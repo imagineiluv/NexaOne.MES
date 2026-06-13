@@ -93,6 +93,17 @@ public record FdcCollectDataDto(
     decimal UpperLimit,
     bool IsOutOfSpec);
 
+// POST collect-data 응답 래퍼 — 컨트롤러가 { CollectedData, Interlock } 형태로 반환한다(평면 아님)
+public record FdcRecordResultDto(
+    FdcCollectDataDto? CollectedData,
+    FdcInterlockResultDto? Interlock);
+
+public record FdcInterlockResultDto(
+    bool IsTriggered,
+    string? Action,
+    string? Message,
+    string? RuleId);
+
 public record FdcParameterGroupDto(
     string Id,
     string GroupName,

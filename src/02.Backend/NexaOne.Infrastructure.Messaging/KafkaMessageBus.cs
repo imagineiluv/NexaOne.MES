@@ -41,6 +41,11 @@ public sealed class KafkaMessageBus : IDisposable
         }
     }
 
+    /// <summary>
+    /// 다건 발행 — <b>원자적이지 않다.</b> 메시지를 순차로 발행하므로 중간(k번째)에서 실패하면
+    /// 0..k-1은 이미 브로커에 커밋된 채 예외가 전파된다(부분 발행). 전체 원자성이 필요하면
+    /// Kafka 트랜잭션이 필요하며 현재 드라이버는 이를 노출하지 않는다. 소비 측 멱등 처리를 전제로 사용한다.
+    /// </summary>
     public async Task PublishAsync(
         string topic,
         IEnumerable<DomainEventMessage> messages,

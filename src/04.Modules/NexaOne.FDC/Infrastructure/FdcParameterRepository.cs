@@ -47,6 +47,7 @@ public sealed class FdcParameterRepository : QueryRepository, IFdcParameterRepos
     public async Task UpdateAsync(FdcParameter parameter, CancellationToken ct = default)
     {
         const string sql = @"UPDATE FDC_PARAMETER SET
+            GROUP_ID = @GroupId,
             LOWER_LIMIT = @LowerLimit, UPPER_LIMIT = @UpperLimit,
             LOWER_CONTROL_LIMIT = @LowerControlLimit, UPPER_CONTROL_LIMIT = @UpperControlLimit,
             IS_ACTIVE = @IsActive,
@@ -74,6 +75,7 @@ public sealed class FdcParameterRepository : QueryRepository, IFdcParameterRepos
             var result = FdcParameter.Create(ParameterId, ParameterName, EquipmentId, Unit, LowerLimit, UpperLimit);
             if (result.IsFailure) return null;
             var p = result.Value;
+            p.AssignToGroup(GroupId);   // DB의 GROUP_ID를 도메인에 복원 (round-trip 보존)
             if (LowerControlLimit.HasValue && UpperControlLimit.HasValue)
                 p.SetControlLimits(LowerControlLimit.Value, UpperControlLimit.Value);
             if (!IsActive) p.Deactivate();

@@ -414,8 +414,13 @@ public sealed class ApiClient : IApiClient
     public Task<List<FdcCollectDataDto>?> GetLatestFdcDataAsync(string parameterId, int limit = 50, CancellationToken ct = default)
         => GetAsync<List<FdcCollectDataDto>>($"api/v1/fdc/collect-data/latest?parameterId={parameterId}&limit={limit}", ct);
 
-    public Task<FdcCollectDataDto?> RecordFdcDataAsync(object req, CancellationToken ct = default)
-        => PostAsync<FdcCollectDataDto>("api/v1/fdc/collect-data", req, ct);
+    // 컨트롤러는 { CollectedData, Interlock } 래퍼를 반환하므로 래퍼로 역직렬화 후 CollectedData를 꺼낸다.
+    // (평면 FdcCollectDataDto로 받으면 모든 필드가 비어 PostAsync의 null=실패 규약이 무력화됨)
+    public async Task<FdcCollectDataDto?> RecordFdcDataAsync(object req, CancellationToken ct = default)
+    {
+        var result = await PostAsync<FdcRecordResultDto>("api/v1/fdc/collect-data", req, ct);
+        return result?.CollectedData;
+    }
 
     public Task<List<FdcInterlockHistoryDto>> GetInterlockHistoryAsync(string equipmentId, DateTime from, DateTime to, CancellationToken ct = default)
         => GetAsync<List<FdcInterlockHistoryDto>>($"api/v1/fdc/interlock-history?equipmentId={equipmentId}&from={from:o}&to={to:o}", ct)

@@ -61,20 +61,47 @@ public sealed class KafkaConsumerService : BackgroundService
 
                 if (result is null) continue;
 
+                DomainEventMessage? message;
                 try
                 {
-                    var message = JsonSerializer.Deserialize<DomainEventMessage>(result.Message.Value);
-                    if (message is not null)
-                    {
-                        await _handler(message, stoppingToken);
-                        consumer.Commit(result);
-                        _logger.LogDebug("Consumed and committed {EventType} from {Topic}",
-                            message.EventType, result.Topic);
-                    }
+                    message = JsonSerializer.Deserialize<DomainEventMessage>(result.Message.Value);
+                }
+                catch (JsonException ex)
+                {
+                    // 역직렬화 불가(포이즌) 메시지는 커밋해 건너뛴다 — 재시작마다 무한 재처리 방지
+                    _logger.LogError(ex, "Malformed Kafka message from {Topic}, skipping", result.Topic);
+                    consumer.Commit(result);
+                    continue;
+                }
+                if (message is null) { consumer.Commit(result); continue; }
+
+                // 핸들러가 max.poll.interval.ms(5분)를 넘기면 그룹에서 추방되어 커밋 실패·중복 처리가 발생한다.
+                // 처리 동안 파티션을 Pause해 추가 페치를 막고, 짧은 Consume로 폴을 유지해 세션을 살린다(추방 방지).
+                // 핸들러는 at-least-once 전제로 멱등해야 한다.
+                var partitions = consumer.Assignment;
+                consumer.Pause(partitions);
+                try
+                {
+                    var handlerTask = _handler(message, stoppingToken);
+                    while (!handlerTask.IsCompleted)
+                        consumer.Consume(TimeSpan.FromMilliseconds(200));   // Pause 상태 → null, 폴 진행만 통지
+                    await handlerTask;
+
+                    consumer.Commit(result);
+                    _logger.LogDebug("Consumed and committed {EventType} from {Topic}",
+                        message.EventType, result.Topic);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;   // graceful shutdown — 에러 아님
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error handling Kafka message from {Topic}", result.Topic);
+                }
+                finally
+                {
+                    consumer.Resume(partitions);
                 }
             }
         }

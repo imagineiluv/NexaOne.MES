@@ -24,12 +24,15 @@ jobs:
         with:
           global-json-file: global.json
 
-      # DevExpress.Blazor는 상용 피드 — 라이선스 키를 secret으로 주입 (없으면 복원 실패)
+      # DevExpress.Blazor는 상용 피드 — 라이선스 키를 secret으로 주입 (없으면 복원 실패).
+      # secrets 컨텍스트는 step-level if에서 직접 참조 불가하므로 env로 매핑 후 env로 분기한다.
       - name: Add DevExpress NuGet source
-        if: ${{ secrets.DEVEXPRESS_NUGET_KEY != '' }}
+        env:
+          DEVEXPRESS_NUGET_KEY: ${{ secrets.DEVEXPRESS_NUGET_KEY }}
+        if: ${{ env.DEVEXPRESS_NUGET_KEY != '' }}
         run: >
           dotnet nuget add source
-          https://nuget.devexpress.com/${{ secrets.DEVEXPRESS_NUGET_KEY }}/api
+          https://nuget.devexpress.com/${{ env.DEVEXPRESS_NUGET_KEY }}/api
           --name DevExpress
 
       - name: Restore
