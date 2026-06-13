@@ -1,0 +1,12 @@
+-- Phase 4 후속 — 메타데이터 화면 정의 저장소(Frontend Low-Code 화면 디자이너 산출물).
+-- 정의 구조(필드/컬럼)는 프론트(NexaOne.Web)가 소유하므로 백엔드는 DEFINITION_JSON을 불투명 저장한다.
+CREATE TABLE SYS_SCREEN_DEFINITION (
+    UI_ID           NVARCHAR(100)   NOT NULL,
+    TITLE           NVARCHAR(200)   NOT NULL,
+    DEFINITION_JSON NVARCHAR(MAX)   NOT NULL,
+    CREATED_BY      NVARCHAR(50)    NOT NULL,
+    CREATED_AT      DATETIME2       NOT NULL DEFAULT GETUTCDATE(),
+    UPDATED_BY      NVARCHAR(50)    NOT NULL,
+    UPDATED_AT      DATETIME2       NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_SYS_SCREEN_DEFINITION PRIMARY KEY (UI_ID)
+);

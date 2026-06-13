@@ -133,6 +133,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IMultiLanguageResourceRepository, MultiLanguageResourceRepository>();
         services.AddScoped<IMenuRepository, MenuRepository>();
         services.AddScoped<IConditionSettingRepository, ConditionSettingRepository>();
+        // Phase 4 후속 — Low-Code 화면 정의 저장소(메타데이터)
+        services.AddScoped<NexaOne.SYS.Application.Screens.IScreenDefinitionStore,
+            NexaOne.SYS.Infrastructure.ScreenDefinitionStore>();
         services.AddScoped<UserService>();
         services.AddScoped<MenuService>();
         // 사용자 등록 신청/승인 (§19.3) — 신청 생명주기는 SYS_USER_REQUEST가 단독 소유

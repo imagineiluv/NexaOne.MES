@@ -1,6 +1,7 @@
 @page "/meta/{UiId}"
 @attribute [Authorize]
 @inject IScreenDefinitionProvider Definitions
+@inject IApiClient Api
 
 @* Phase 3 — 메타데이터 주도 화면: 정적 @@page 컴파일 화면이 아니라 UiId로 ScreenDefinition을 해석해 동적 렌더. *@
 <div class="page-header">
@@ -34,7 +35,20 @@ else
     private Dictionary<string, object?> _model = new();
     private List<string> _errors = new();
 
-    protected override void OnParametersSet() => _definition = Definitions.Get(UiId);
+    protected override async Task OnParametersSetAsync()
+    {
+        // 인메모리 캐시 우선, 없으면 DB 저장소(SYS_SCREEN_DEFINITION)에서 로드해 캐시 등록(Phase 4 후속)
+        _definition = Definitions.Get(UiId);
+        if (_definition is null)
+        {
+            var record = await Api.GetScreenDefinitionAsync(UiId);
+            if (record is not null)
+            {
+                _definition = ScreenDefinitionJson.Deserialize(record.DefinitionJson);
+                if (_definition is not null) Definitions.Register(_definition);
+            }
+        }
+    }
 
     private void Save()
     {

@@ -104,6 +104,9 @@ public record FdcInterlockResultDto(
     string? Message,
     string? RuleId);
 
+// Phase 4 후속 — Low-Code 화면 정의 저장소 레코드(정의는 DefinitionJson에 직렬화)
+public record ScreenDefinitionRecordDto(string UiId, string Title, string DefinitionJson);
+
 public record FdcParameterGroupDto(
     string Id,
     string GroupName,

@@ -426,6 +426,17 @@ public sealed class ApiClient : IApiClient
         => GetAsync<List<FdcInterlockHistoryDto>>($"api/v1/fdc/interlock-history?equipmentId={equipmentId}&from={from:o}&to={to:o}", ct)
            .ContinueWith(t => t.Result ?? new List<FdcInterlockHistoryDto>());
 
+    // Phase 4 후속 — Low-Code 화면 정의 저장소
+    public Task<List<ScreenDefinitionRecordDto>> GetScreenDefinitionsAsync(CancellationToken ct = default)
+        => GetAsync<List<ScreenDefinitionRecordDto>>("api/v1/sys/screen-definitions", ct)
+           .ContinueWith(t => t.Result ?? new List<ScreenDefinitionRecordDto>());
+
+    public Task<ScreenDefinitionRecordDto?> GetScreenDefinitionAsync(string uiId, CancellationToken ct = default)
+        => GetAsync<ScreenDefinitionRecordDto>($"api/v1/sys/screen-definitions/{uiId}", ct);
+
+    public Task SaveScreenDefinitionAsync(string uiId, string title, string definitionJson, CancellationToken ct = default)
+        => PutAsync($"api/v1/sys/screen-definitions/{uiId}", new { title, definitionJson }, ct);
+
     public Task<List<FdcParameterGroupDto>> GetFdcParameterGroupsAsync(string equipmentId, CancellationToken ct = default)
         => GetAsync<List<FdcParameterGroupDto>>($"api/v1/fdc/parameter-groups?equipmentId={equipmentId}", ct)
            .ContinueWith(t => t.Result ?? new List<FdcParameterGroupDto>());

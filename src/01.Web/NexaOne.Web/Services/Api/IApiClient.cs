@@ -59,6 +59,11 @@ public interface IApiClient
     Task<FdcAlarmConfigDto?> CreateFdcAlarmConfigAsync(object req, CancellationToken ct = default);
     Task<List<FdcAlarmHistoryDto>> GetFdcAlarmHistoryAsync(string equipmentId, DateTime from, DateTime to, CancellationToken ct = default);
 
+    // Phase 4 후속 — Low-Code 화면 정의 저장소
+    Task<List<ScreenDefinitionRecordDto>> GetScreenDefinitionsAsync(CancellationToken ct = default);
+    Task<ScreenDefinitionRecordDto?> GetScreenDefinitionAsync(string uiId, CancellationToken ct = default);
+    Task SaveScreenDefinitionAsync(string uiId, string title, string definitionJson, CancellationToken ct = default);
+
     // RMS
     Task<List<RecipeDto>> GetRecipesAsync(string? equipmentClassId = null, string? state = null, CancellationToken ct = default);
     Task<RecipeDto?> CreateRecipeAsync(object req, CancellationToken ct = default);

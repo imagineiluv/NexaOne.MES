@@ -1,9 +1,11 @@
 @page "/designer/screen"
 @attribute [Authorize]
 @inject IScreenDefinitionProvider Definitions
+@inject IApiClient Api
 
-@* Phase 4 — 프론트엔드 Low-Code: 현업이 필드를 시각적으로 조립해 ScreenDefinition을 만들고 등록한다.
-   등록된 화면은 Phase 3 런타임(/meta/{UiId})이 렌더한다. (※ 비즈니스 로직 워크플로우 디자이너와는 별개 트랙) *@
+@* Phase 4 — 프론트엔드 Low-Code: 현업이 필드/그리드 컬럼을 시각적으로 조립해 ScreenDefinition을 만들고
+   DB(SYS_SCREEN_DEFINITION)에 저장한다. 저장된 화면은 Phase 3 런타임(/meta/{UiId})이 렌더한다.
+   (※ 비즈니스 로직 워크플로우 디자이너와는 별개 트랙) *@
 <div class="page-header">
     <h1 class="page-title">화면 디자이너 (Low-Code)</h1>
 </div>
@@ -18,14 +20,12 @@
 <section class="designer-fields">
     <h3>필드</h3>
     <table>
-        <thead>
-            <tr><th>Key</th><th>레이블</th><th>유형</th><th>필수</th><th>읽기전용</th><th></th></tr>
-        </thead>
+        <thead><tr><th>Key</th><th>레이블</th><th>유형</th><th>필수</th><th>읽기전용</th><th></th></tr></thead>
         <tbody>
             @for (var i = 0; i < _fields.Count; i++)
             {
+                var f = _fields[i];
                 var idx = i;
-                var f = _fields[idx];
                 <tr>
                     <td><input value="@f.Key" @onchange="e => { f.Key = e.Value?.ToString() ?? string.Empty; _saved = false; }" /></td>
                     <td><input value="@f.Label" @onchange="e => { f.Label = e.Value?.ToString() ?? string.Empty; _saved = false; }" /></td>
@@ -47,19 +47,43 @@
     <button @onclick="AddField">+ 필드 추가</button>
 </section>
 
+<section class="designer-columns">
+    <h3>그리드 컬럼 (선택)</h3>
+    <table>
+        <thead><tr><th>Key</th><th>캡션</th><th>표시</th><th></th></tr></thead>
+        <tbody>
+            @for (var i = 0; i < _columns.Count; i++)
+            {
+                var c = _columns[i];
+                var idx = i;
+                <tr>
+                    <td><input value="@c.Key" @onchange="e => { c.Key = e.Value?.ToString() ?? string.Empty; _saved = false; }" /></td>
+                    <td><input value="@c.Caption" @onchange="e => { c.Caption = e.Value?.ToString() ?? string.Empty; _saved = false; }" /></td>
+                    <td><input type="checkbox" checked="@c.Visible" @onchange="e => { c.Visible = (bool)(e.Value ?? false); _saved = false; }" /></td>
+                    <td><button @onclick="() => RemoveColumn(idx)">삭제</button></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <button @onclick="AddColumn">+ 컬럼 추가</button>
+</section>
+
 <section class="designer-preview">
     <h3>미리보기</h3>
     <MetaFormRenderer Definition="BuildDefinition()" @bind-Model="_preview" />
+    <details>
+        <summary>정의 JSON</summary>
+        <pre>@ScreenDefinitionJson.Serialize(BuildDefinition())</pre>
+    </details>
 </section>
 
 <div class="designer-actions">
-    <button @onclick="Save" disabled="@(!CanSave)">저장(등록)</button>
-    @if (_saved) { <span>등록됨 — <a href="@($"/meta/{_uiId}")">/meta/@_uiId</a> 에서 렌더됩니다.</span> }
+    <button @onclick="Save" disabled="@(!CanSave || _busy)">@(_busy ? "저장 중…" : "저장(DB)")</button>
+    @if (_saved) { <span>저장됨 — <a href="@($"/meta/{_uiId}")">/meta/@_uiId</a> 에서 렌더됩니다.</span> }
     @if (_error is not null) { <span style="color:crimson">@_error</span> }
 </div>
 
 @code {
-    // 편집용 가변 드래프트(불변 record FieldDefinition과 분리). 저장 시 ScreenDefinition으로 변환.
     private sealed class FieldDraft
     {
         public string Key = string.Empty;
@@ -69,11 +93,20 @@
         public bool ReadOnly;
     }
 
+    private sealed class ColumnDraft
+    {
+        public string Key = string.Empty;
+        public string Caption = string.Empty;
+        public bool Visible = true;
+    }
+
     private string _uiId = string.Empty;
     private string _title = string.Empty;
     private readonly List<FieldDraft> _fields = new();
+    private readonly List<ColumnDraft> _columns = new();
     private Dictionary<string, object?> _preview = new();
     private bool _saved;
+    private bool _busy;
     private string? _error;
 
     private bool CanSave =>
@@ -92,12 +125,25 @@
         _saved = false;
     }
 
+    private void AddColumn()
+    {
+        _columns.Add(new ColumnDraft { Key = $"col{_columns.Count + 1}", Caption = "새 컬럼" });
+        _saved = false;
+    }
+
+    private void RemoveColumn(int idx)
+    {
+        _columns.RemoveAt(idx);
+        _saved = false;
+    }
+
     private ScreenDefinition BuildDefinition() => new(
         _uiId,
         string.IsNullOrWhiteSpace(_title) ? "(제목 없음)" : _title,
-        _fields.Select(f => new FieldDefinition(f.Key, f.Label, f.Type, f.Required, f.ReadOnly)).ToList());
+        _fields.Select(f => new FieldDefinition(f.Key, f.Label, f.Type, f.Required, f.ReadOnly)).ToList(),
+        _columns.Count == 0 ? null : _columns.Select(c => new GridColumnDefinition(c.Key, c.Caption, c.Visible)).ToList());
 
-    private void Save()
+    private async Task Save()
     {
         _error = null;
         if (!CanSave)
@@ -110,7 +156,22 @@
             _error = "필드 Key가 중복됩니다.";
             return;
         }
-        Definitions.Register(BuildDefinition());   // 인메모리 등록 — DB 메타 저장소는 후속
-        _saved = true;
+
+        var def = BuildDefinition();
+        Definitions.Register(def);   // 즉시 인메모리 캐시(렌더 가능)
+        _busy = true;
+        try
+        {
+            await Api.SaveScreenDefinitionAsync(_uiId, def.Title, ScreenDefinitionJson.Serialize(def));   // DB 영속
+            _saved = true;
+        }
+        catch (Exception)
+        {
+            _error = "DB 저장에 실패했습니다(권한/연결 확인). 캐시에는 등록되어 현재 세션에서는 렌더됩니다.";
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 }
