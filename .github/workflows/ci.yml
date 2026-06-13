@@ -24,16 +24,18 @@ jobs:
         with:
           global-json-file: global.json
 
-      # DevExpress.Blazor는 상용 피드 — 라이선스 키를 secret으로 주입 (없으면 복원 실패).
-      # secrets 컨텍스트는 step-level if에서 직접 참조 불가하므로 env로 매핑 후 env로 분기한다.
-      - name: Add DevExpress NuGet source
-        env:
-          DEVEXPRESS_NUGET_KEY: ${{ secrets.DEVEXPRESS_NUGET_KEY }}
-        if: ${{ env.DEVEXPRESS_NUGET_KEY != '' }}
-        run: >
-          dotnet nuget add source
-          https://nuget.devexpress.com/${{ env.DEVEXPRESS_NUGET_KEY }}/api
-          --name DevExpress
+      # DevExpress.Blazor 제거 완료 → NexaUI/Tailwind로 교체. NuGet 상용 피드 불필요.
+      # NexaUI 컴포넌트는 Tailwind 클래스를 사용하므로 .NET 빌드 전에 CSS를 생성한다(소스에서 재빌드 → 드리프트 방지).
+      - name: Setup Node (Tailwind CSS)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Tailwind CSS (NexaOne.Web)
+        working-directory: src/01.Web/NexaOne.Web
+        run: |
+          npm ci
+          npm run css:build
 
       - name: Restore
         run: dotnet restore NexaOne.sln
