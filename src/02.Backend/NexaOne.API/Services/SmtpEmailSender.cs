@@ -1,4 +1,4 @@
-using NexaOne.Driver.SmtpEmail;
+using NexusCom.Notify.SmtpEmail;
 
 namespace NexaOne.API.Services;
 

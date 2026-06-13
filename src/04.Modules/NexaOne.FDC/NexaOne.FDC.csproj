@@ -10,6 +10,10 @@
     <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Application\NexaOne.Application.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
+    <!-- 설비 통신: NexusFramework IDeviceInterface + NexusLogic OPC-UA 드라이버 (v2.0) -->
+    <ProjectReference Include="..\..\..\submodules\NexusFramework\src\NexusFramework\NexusFramework.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexusLogic\src\NexusLogic.Plc.Abstractions\NexusLogic.Plc.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexusLogic\src\NexusLogic.Plc.OpcUa\NexusLogic.Plc.OpcUa.csproj" />
   </ItemGroup>
 
 </Project>
