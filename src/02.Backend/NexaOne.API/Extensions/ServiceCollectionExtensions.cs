@@ -37,15 +37,31 @@ public static class ServiceCollectionExtensions
         var connStr = configuration.GetConnectionString("NexaOne")
             ?? throw new InvalidOperationException("ConnectionStrings:NexaOne is required");
 
-        var provider = new MsSqlProvider();
+        // DB 공급자 선택(런타임): Database:Provider = "MsSql"(기본) | "Sqlite"(테스트/로컬).
+        // MsSqlProvider는 자체적으로 INexaOneEESDbCapability를 구현하나, SQLite는 별도 어댑터로 분리한다.
+        var dbProvider = configuration.GetValue<string>("Database:Provider") ?? "MsSql";
+        IDatabaseProvider provider;
+        INexaOneEESDbCapability capability;
+        if (string.Equals(dbProvider, "Sqlite", StringComparison.OrdinalIgnoreCase))
+        {
+            provider = new NexusCom.Data.Sqlite.SqliteProvider();
+            capability = new SqliteEesDbCapability();
+        }
+        else
+        {
+            var mssql = new MsSqlProvider();
+            provider = mssql;
+            capability = mssql;
+        }
+
         var dataSource = new EesDataSource
         {
             Provider = provider,
             ConnectionString = connStr
         };
 
-        services.AddSingleton<IDatabaseProvider>(provider);
-        services.AddSingleton<INexaOneEESDbCapability>(provider);
+        services.AddSingleton(provider);
+        services.AddSingleton(capability);
         services.AddSingleton(dataSource);
 
         services.AddScoped<SqlTxnContext>();
