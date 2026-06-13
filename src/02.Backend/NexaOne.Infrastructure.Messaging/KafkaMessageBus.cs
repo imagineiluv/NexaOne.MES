@@ -1,26 +1,25 @@
 using System.Text.Json;
 using Confluent.Kafka;
 using Microsoft.Extensions.Logging;
+using NexusCom.Messaging.Kafka;
 
 namespace NexaOne.Infrastructure.Messaging;
 
+/// <summary>도메인 이벤트 발행 글루 — Kafka 프로토콜 본체는 NexusCom.Messaging.Kafka의
+/// KafkaDriver가 소유하고(§3.6.1), 본 클래스는 직렬화·토픽 정책만 담당한다.</summary>
 public sealed class KafkaMessageBus : IDisposable
 {
-    private readonly IProducer<string, string> _producer;
+    private readonly KafkaDriver _driver;
     private readonly ILogger<KafkaMessageBus> _logger;
-    private bool _disposed;
 
-    public KafkaMessageBus(string bootstrapServers, ILogger<KafkaMessageBus> logger)
+    public KafkaMessageBus(
+        string bootstrapServers,
+        ILogger<KafkaMessageBus> logger,
+        ILogger<KafkaDriver> driverLogger)
     {
         _logger = logger;
-        var config = new ProducerConfig
-        {
-            BootstrapServers  = bootstrapServers,
-            Acks              = Acks.All,
-            EnableIdempotence = true,
-            MessageTimeoutMs  = 10_000
-        };
-        _producer = new ProducerBuilder<string, string>(config).Build();
+        _driver = new KafkaDriver(driverLogger);
+        _driver.Configure(bootstrapServers, messageTimeoutMs: 10_000);
     }
 
     public async Task PublishAsync(
@@ -31,10 +30,8 @@ public sealed class KafkaMessageBus : IDisposable
         var json = JsonSerializer.Serialize(message);
         try
         {
-            var result = await _producer.ProduceAsync(topic,
-                new Message<string, string> { Key = message.AggregateId, Value = json }, ct);
-            _logger.LogDebug("Published {EventType} to {Topic} offset {Offset}",
-                message.EventType, topic, result.Offset);
+            await _driver.ProduceAsync(topic, message.AggregateId, json, ct);
+            _logger.LogDebug("Published {EventType} to {Topic}", message.EventType, topic);
         }
         catch (ProduceException<string, string> ex)
         {
@@ -53,11 +50,5 @@ public sealed class KafkaMessageBus : IDisposable
             await PublishAsync(topic, message, ct);
     }
 
-    public void Dispose()
-    {
-        if (_disposed) return;
-        _producer.Flush(TimeSpan.FromSeconds(5));
-        _producer.Dispose();
-        _disposed = true;
-    }
+    public void Dispose() => _driver.Dispose();
 }

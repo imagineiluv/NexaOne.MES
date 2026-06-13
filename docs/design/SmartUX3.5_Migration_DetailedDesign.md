@@ -14,7 +14,7 @@
 > **v1.7 변경 이력:** 드라이버 3개 카테고리로 재편(3.1/3.6) — **DB**(01.Db) / **통신**(02.Communication: Kafka·RabbitMq·OpcUa·Serial·Mqtt·SmtpEmail·Sms·Ldap) / **캐시**(03.Cache: Redis·MemoryCache). FileStorage → SmartEES.Infrastructure로 이동, DbAuth → Infrastructure 서비스로 분리, LDAP → IExternalAuthDriver(통신 드라이버)로 재정의  
 > **v1.8 변경 이력:** **NexusFramework / NexusCom 서브모듈 아키텍처 기반 리팩토링** — ①서브모듈 솔루션 구조 반영(3.1), ②NexusCom `IDatabaseProvider` 패턴으로 DB 드라이버 재정의(3.3/3.6), MSSQL 공급자 신규 구현 명시(`NexusCom.Data.MsSql`), ③NexusFramework `FlowExecutionEngine`/`WorkflowManager`/`WorkflowExecutor` 기반 워크플로우 엔진 재설계(8), `AssemblyInvocationNode` + `[WorkflowCallable]` 패턴 도입, ④RuleExecutor에 `[WorkflowCallable]` 연계 추가(5.3.1), ⑤FDC `PlantController`/`Machine`/`IDeviceInterface` 패턴 적용(10.4)  
 > **v1.9 변경 이력:** **UI 레이어 C# Blazor Server 기반으로 전면 재설계** — ①WinForms/DevExpress WinForms 제거, ASP.NET Core Blazor Server 아키텍처 수립(6), ②마이그레이션 목표·범위 업데이트(2.1/2.2), ③Phase 2 Blazor 웹 UI 구축으로 변경(2.3), ④SmartConditionGrid / SmartGrid 공통 컴포넌트 설계(6.6), ⑤WinForms 폼 클래스 → Blazor 컴포넌트 매핑표 추가(6.9), ⑥NexaOne.Web 솔루션 구조 추가(6.2)  
-> **v2.0 변경 이력:** **드라이버 소속 재정의 — 프로토콜 구현은 서브모듈(NexusCom/NexusLogic) 소유** — ①`NexusCom.Data.MsSql`을 `03.Driver/01.Db/`에서 NexusCom 서브모듈(`submodules/NexusCom/src/`)로 이관 완료, SQL 방언 인터페이스를 `INexaOneEESDbCapability`로 개명하여 `NexusCom.Data.Abstractions`에 흡수(3.1/3.3~3.5), ②통신 드라이버를 NexusCom bounded context로 재배치(3.1/3.6) — 메시징(Kafka·RabbitMq·Mqtt)→`NexusCom.Messaging.*`, 알림(SmtpEmail·Sms)→`NexusCom.Notify.*`, 외부 인증(Ldap)→`NexusCom.Directory.*`, ③설비 프로토콜(OpcUa·SerialPort)은 NexusLogic(구 `NexusCom.Plc.*` 이관처) 소속으로 정의 — NexaMes `03.Driver/02.Communication/`에는 `IDeviceInterface` 어댑터 등 SmartEES 전용 글루와 이관 전 과도기 구현만 잔류, ④문서-코드 정합화 — MsSqlProvider 코드 샘플을 실제 서브모듈 구현과 일치(3.6 카테고리1), `SqlTxnContext` 중복 설계를 3.5로 일원화(5.3.4), csproj 예시를 서브모듈 경로·3단계 상대 참조로 수정, `SmartEES.Driver.PostgreSQL` 래퍼 예시를 `NexusCom.Data.PostgreSql` 직접 사용으로 교체
+> **v2.0 변경 이력:** **드라이버 소속 재정의 — 프로토콜 구현은 서브모듈(NexusCom/NexusLogic) 소유** — ①`NexusCom.Data.MsSql`을 `03.Driver/01.Db/`에서 NexusCom 서브모듈(`submodules/NexusCom/src/`)로 이관 완료, SQL 방언 인터페이스를 `INexaOneEESDbCapability`로 개명하여 `NexusCom.Data.Abstractions`에 흡수(3.1/3.3~3.5), ②통신 드라이버를 NexusCom bounded context로 재배치(3.1/3.6) — 메시징(Kafka·RabbitMq·Mqtt)→`NexusCom.Messaging.*`, 알림(SmtpEmail·Sms)→`NexusCom.Notify.*`, 외부 인증(Ldap)→`NexusCom.Directory.*`, ③설비 프로토콜(OpcUa·SerialPort)은 NexusLogic(구 `NexusCom.Plc.*` 이관처) 소속으로 정의 — NexaMes `03.Driver/02.Communication/`에는 `IDeviceInterface` 어댑터 등 SmartEES 전용 글루와 이관 전 과도기 구현만 잔류, ④문서-코드 정합화 — MsSqlProvider 코드 샘플을 실제 서브모듈 구현과 일치(3.6 카테고리1), `SqlTxnContext` 중복 설계를 3.5로 일원화(5.3.4), csproj 예시를 서브모듈 경로·3단계 상대 참조로 수정, `SmartEES.Driver.PostgreSQL` 래퍼 예시를 `NexusCom.Data.PostgreSql` 직접 사용으로 교체, ⑤`NexusCom.Messaging.Kafka` 이관 완료(3.6.1) — NexaOne.Driver.Kafka 삭제, 순수 드라이버(Confluent.Kafka + ILogger)로 서브모듈 소속, 앱 측 글루(`NexaOne.Infrastructure.Messaging`의 KafkaMessageBus·KafkaConsumerService)를 KafkaDriver 래핑으로 리팩토링하여 앱의 Confluent.Kafka 직접 참조 제거(전이 참조로 전환), `IMessageBrokerDriver` 계약 어댑터는 브로커 교체 요구 시 도입(보류)
 
 ---
 
@@ -298,7 +298,8 @@ submodules/
         ├── NexusCom.Data.EFCore/             ← EF Core SaveChangesInterceptor 어댑터
         ├── NexusCom.Data.Core/               ← DriverManager, ChangeEventDispatcher
         ├── NexusCom.Data.Hosting/            ← DataHostedService, DataEndpointHealthCheck
-        ├── NexusCom.Messaging.*/             ← Kafka(이관 대상)·RabbitMq/Mqtt(계획) 메시징 컨텍스트
+        ├── NexusCom.Messaging.Kafka/         ← ★ Kafka 메시징 (v2.0 이관 완료 — Confluent.Kafka)
+        ├── NexusCom.Messaging.*/             ← (계획) RabbitMq·Mqtt 메시징 컨텍스트
         ├── NexusCom.Notify.*/                ← SmtpEmail(이관 대상)·Sms(계획) 알림 컨텍스트
         └── NexusCom.Directory.*/             ← (계획) Ldap 외부 인증 컨텍스트
 
@@ -339,7 +340,7 @@ SmartEES.sln
 │   ├── SmartEES.Application                  ← 애플리케이션 서비스 (Use Cases + [WorkflowCallable] 메서드)
 │   ├── SmartEES.Domain                       ← 도메인 모델 / 비즈니스 규칙
 │   ├── SmartEES.Infrastructure               ← DB/외부시스템 인터페이스 + 공통 구현
-│   └── SmartEES.Infrastructure.Messaging     ← Kafka / SignalR
+│   └── SmartEES.Infrastructure.Messaging     ← Kafka 글루(NexusCom KafkaDriver 래핑) / SignalR
 │
 ├── 03.Driver/                                ← ★ 드라이버 레이어 (교체 가능 외부 의존)
 │   │
@@ -352,7 +353,7 @@ SmartEES.sln
 │   │     01.Db/ 물리 폴더는 솔루션 폴더(가상)로만 남아 공급자 프로젝트를 묶는다.
 │   │
 │   ├── 02.Communication/                    ← [통신 글루] SmartEES 전용 어댑터 + 과도기 구현 (v2.0)
-│   │   ├── (NexusCom.Messaging.Kafka)       ← 이관 대상 — Confluent.Kafka (기본, 과도기: NexaOne.Driver.Kafka)
+│   │   ├── (NexusCom.Messaging.Kafka)       ← ★ v2.0 이관 완료 — Confluent.Kafka (기본, 서브모듈 직접 참조)
 │   │   ├── (NexusCom.Messaging.RabbitMq)    ← 계획 — AMQP (선택, NexusCom에 직접 구현 예정)
 │   │   ├── (NexusCom.Messaging.Mqtt)        ← 계획 — MQTT (선택, NexusCom에 직접 구현 예정)
 │   │   ├── (NexusCom.Notify.SmtpEmail)      ← 이관 대상 — SMTP 이메일 (기본, 과도기: NexaOne.Driver.SmtpEmail)
@@ -360,10 +361,12 @@ SmartEES.sln
 │   │   ├── (NexusCom.Directory.Ldap)        ← 계획 — LDAP/Active Directory (선택, NexusCom에 직접 구현 예정)
 │   │   ├── (NexusLogic.OpcUa)               ← NexusLogic 소속 — OPC-UA 설비 수집 (기본)
 │   │   ├── (NexusLogic.SerialPort)          ← NexusLogic 소속 — RS-232/485 설비 수집
-│   │   └── SmartEES.Driver.Adapters         ← 잔류 — IDeviceInterface/IMessageBrokerDriver 어댑터 글루
+│   │   └── SmartEES.Driver.Adapters         ← 잔류 — IDeviceInterface 설비 어댑터 글루
 │   │   ※ v2.0: 프로토콜 구현은 서브모듈(NexusCom/NexusLogic)이 소유한다.
 │   │     이관 완료 전까지는 02.Communication/ 아래 과도기 구현이 임시로 존재할 수 있으며,
 │   │     이관 즉시 서브모듈 프로젝트 참조로 대체하고 과도기 사본은 삭제한다.
+│   │     ※ 메시징 글루(KafkaMessageBus/KafkaConsumerService)는 현재
+│   │       02.Backend/SmartEES.Infrastructure.Messaging에 위치한다 (3.6.1 참조).
 │   │
 │   └── 03.Cache/                            ← [캐시 드라이버] 메모리 캐시
 │       ├── SmartEES.Driver.Redis            ← Redis 분산 캐시 (기본)
@@ -417,7 +420,7 @@ SmartEES.Application                       ← [WorkflowCallable] 메서드 포�
     ※ Oracle: SmartEES.Driver.Oracle 자체 구현
 
 03.Driver/02.Communication/*               ← v2.0 프로토콜 구현은 서브모듈 소유
-    └─→ NexusCom.Messaging.* / Notify.* / Directory.*  (Kafka·SmtpEmail — 이관 대상 / RabbitMq·Mqtt·Sms·Ldap — 계획)
+    └─→ NexusCom.Messaging.* / Notify.* / Directory.*  (Kafka — 이관 완료★ / SmtpEmail — 이관 대상 / RabbitMq·Mqtt·Sms·Ldap — 계획)
     └─→ NexusLogic.*                       (OpcUa·SerialPort 설비 프로토콜 — 별도 저장소 소유)
     └─→ SmartEES.Infrastructure            (IMessageBrokerDriver/IEquipmentDriver 인터페이스 — 어댑터 글루만)
     └─→ NexusFramework.Resource.*          (IDeviceInterface — 어댑터가 NexusLogic 프로토콜을 감싸 구현)
@@ -710,7 +713,7 @@ ServiceObjectProcessor.InsertAsync()
 ──────────────────────────────────────────────────────────────────────────────
 DB 드라이버     01.Db/             NexusCom IDatabaseProvider         PostgreSqlProvider (NexusCom)
                                    + INexaOneEESDbCapability          MsSqlProvider (NexusCom — v2.0 이관 완료)
-통신 드라이버   02.Communication/  IMessageBrokerDriver               KafkaDriver (NexusCom.Messaging — 이관 대상)
+통신 드라이버   02.Communication/  IMessageBrokerDriver               KafkaDriver (NexusCom.Messaging — 이관 완료 + 앱 측 글루가 래핑)
                                    IEquipmentDriver                   OpcUaDriver (NexusLogic 소속 + 어댑터 글루)
                                    INotificationDriver                SmtpEmailDriver (NexusCom.Notify — 이관 대상)
                                    IExternalAuthDriver                LdapDriver (NexusCom.Directory — 계획)
@@ -861,13 +864,13 @@ public static IServiceCollection AddMsSqlProvider(this IServiceCollection servic
 > NexusCom 명명 규칙 `NexusCom.<BoundedContext>.<기술>`에 따라 메시징·알림·외부 인증
 > bounded context로 분리하고, 설비 수집 프로토콜은 **NexusLogic**(구 NexusCom.Plc.* 이관처) 소속으로 정의한다.
 > NexaMes `03.Driver/02.Communication/`에는 SmartEES 전용 어댑터 글루(IDeviceInterface ↔ NexusLogic 등)와
-> 이관 완료 전 과도기 구현(NexaOne.Driver.Kafka/OpcUa/SerialPort/SmtpEmail)만 잔류한다.
+> 이관 완료 전 과도기 구현(NexaOne.Driver.OpcUa/SerialPort/SmtpEmail — Kafka는 v2.0 이관 완료로 삭제됨)만 잔류한다.
 > 아래 표의 인터페이스(IMessageBrokerDriver 등)와 코드 샘플은 계약 설계로서 유효하며,
 > 구현 본체의 최종 소속 프로젝트만 변경된다.
 
 | 드라이버 | 소속 프로젝트 (v2.0) | 프로토콜 | 용도 | 이관 상태 |
 |----------|---------------------|---------|------|----------|
-| `KafkaDriver` | NexusCom.Messaging.Kafka | Kafka 프로토콜 | 이벤트 발행·구독 | 이관 대상 (과도기: NexaOne.Driver.Kafka) |
+| `KafkaDriver` | NexusCom.Messaging.Kafka | Kafka 프로토콜 | 이벤트 발행·구독 | ✅ **이관 완료 (v2.0)** — 서브모듈 직접 참조 |
 | `RabbitMqDriver` | NexusCom.Messaging.RabbitMq | AMQP | 메시지 브로커 (선택) | 계획 |
 | `MqttDriver` | NexusCom.Messaging.Mqtt | MQTT | IoT 설비 수집 | 계획 |
 | `SmtpEmailDriver` | NexusCom.Notify.SmtpEmail | SMTP | 이메일 알림 발송 | 이관 대상 (과도기: NexaOne.Driver.SmtpEmail) |
@@ -897,53 +900,102 @@ public interface IMessageBrokerDriver
 }
 ```
 
-**KafkaDriver 구현:**
+**KafkaDriver 구현 (v2.0 이관 완료 — 실제 구현):**
+
+구현은 본 절을 다음과 같이 적응한다. 프로토콜 본체는 NexusCom 서브모듈의
+`NexusCom.Messaging.Kafka`가 소유하며, **`IMessageBrokerDriver`를 직접 구현하지 않는
+순수 드라이버**(Confluent.Kafka + `ILogger`만 의존, 앱 역참조 없음)로 유지한다.
+현 구현의 앱 측 글루는 **`NexaOne.Infrastructure.Messaging`(02.Backend)** —
+`KafkaMessageBus`(도메인 이벤트 발행, JSON 직렬화)와 `KafkaConsumerService`(BackgroundService
+구독, 역직렬화·수동 커밋)가 KafkaDriver를 래핑한다. 위 `IMessageBrokerDriver` 계약 어댑터는
+브로커 교체(RabbitMq 등)가 실제 요구될 때 이 글루를 일반화하여 도입한다 —
+DB 드라이버의 DI 글루(카테고리 1)와 동일한 분리 원칙.
+
 ```csharp
-// NexusCom.Messaging.Kafka/KafkaDriver.cs (v2.0 — 이관 전 과도기: NexaOne.Driver.Kafka)
-public class KafkaDriver : IMessageBrokerDriver
+// submodules/NexusCom/src/NexusCom.Messaging.Kafka/KafkaDriver.cs (v2.0 이관 완료 — 실제 구현)
+namespace NexusCom.Messaging.Kafka;
+
+public sealed class KafkaDriver : IDisposable
 {
-    private readonly IProducer<string, string> _producer;
-    private readonly ConsumerConfig _consumerConfig;
+    private readonly ILogger<KafkaDriver> _logger;
+    private IProducer<string, string>? _producer;
+    private bool _disposed;
 
-    public KafkaDriver(IConfiguration config)
+    public KafkaDriver(ILogger<KafkaDriver> logger)
     {
-        var brokers = config["Kafka:BootstrapServers"];
-        _producer = new ProducerBuilder<string, string>(
-            new ProducerConfig { BootstrapServers = brokers })
-            .Build();
-        _consumerConfig = new ConsumerConfig
+        _logger = logger;
+    }
+
+    public void Configure(string bootstrapServers, int? messageTimeoutMs = null)
+    {
+        var config = new ProducerConfig
         {
-            BootstrapServers = brokers,
-            AutoOffsetReset = AutoOffsetReset.Earliest
+            BootstrapServers = bootstrapServers,
+            Acks = Acks.All,              // 전 복제본 승인 — 유실 방지
+            EnableIdempotence = true      // 중복 발행 방지 (재시도 안전)
         };
+        if (messageTimeoutMs is not null)
+            config.MessageTimeoutMs = messageTimeoutMs;
+        _producer = new ProducerBuilder<string, string>(config).Build();
     }
 
-    public async Task PublishAsync(string topic, string key, string payload,
-        CancellationToken ct = default)
+    public async Task ProduceAsync(
+        string topic, string key, string value, CancellationToken ct = default)
     {
-        await _producer.ProduceAsync(topic,
-            new Message<string, string> { Key = key, Value = payload }, ct);
+        if (_producer is null) throw new InvalidOperationException("KafkaDriver not configured.");
+        var result = await _producer.ProduceAsync(topic,
+            new Message<string, string> { Key = key, Value = value }, ct);
+        // ProduceException 발생 시 로깅 후 재throw — 호출부(어댑터)가 재시도 정책 결정
     }
 
-    public async Task SubscribeAsync(string topic, string groupId,
-        Func<string, string, Task> onMessage, CancellationToken ct = default)
+    public IConsumer<string, string> CreateConsumer(
+        string groupId,
+        string bootstrapServers,
+        int? sessionTimeoutMs = null,
+        int? maxPollIntervalMs = null,
+        Action<string>? onError = null)
     {
-        var config = new ConsumerConfig(_consumerConfig) { GroupId = groupId };
-        using var consumer = new ConsumerBuilder<string, string>(config).Build();
-        consumer.Subscribe(topic);
-        while (!ct.IsCancellationRequested)
+        var config = new ConsumerConfig
         {
-            var result = consumer.Consume(ct);
-            await onMessage(result.Message.Key, result.Message.Value);
-        }
+            BootstrapServers = bootstrapServers,
+            GroupId = groupId,
+            AutoOffsetReset = AutoOffsetReset.Earliest,
+            EnableAutoCommit = false      // 수동 커밋 — 처리 완료 후 오프셋 확정
+        };
+        if (sessionTimeoutMs is not null)  config.SessionTimeoutMs  = sessionTimeoutMs;
+        if (maxPollIntervalMs is not null) config.MaxPollIntervalMs = maxPollIntervalMs;
+
+        var builder = new ConsumerBuilder<string, string>(config);
+        if (onError is not null)
+            builder.SetErrorHandler((_, e) => onError(e.Reason));
+        return builder.Build();
     }
 
-    public async Task<bool> HealthCheckAsync()
-    {
-        try { _producer.ProduceAsync("__health__", null); return true; }
-        catch { return false; }
-    }
+    public void Dispose()  // Flush(5초) 후 Producer 해제
+    { /* 상세 구현은 실제 파일 참조 */ }
 }
+```
+
+**앱 측 글루 (NexaOne.Infrastructure.Messaging — 구현 완료, KafkaDriver 래핑):**
+```csharp
+// NexaOne.Infrastructure.Messaging/KafkaMessageBus.cs — 도메인 이벤트 발행 글루 (실제 구현)
+public sealed class KafkaMessageBus : IDisposable
+{
+    private readonly KafkaDriver _driver;   // NexusCom.Messaging.Kafka — 프로토콜 본체
+
+    public KafkaMessageBus(string bootstrapServers, ILogger<KafkaMessageBus> logger, ILogger<KafkaDriver> driverLogger)
+    {
+        _driver = new KafkaDriver(driverLogger);
+        _driver.Configure(bootstrapServers, messageTimeoutMs: 10_000);
+    }
+
+    public async Task PublishAsync(string topic, DomainEventMessage message, CancellationToken ct = default)
+        => await _driver.ProduceAsync(topic, message.AggregateId, JsonSerializer.Serialize(message), ct);
+    // KafkaConsumerService(BackgroundService)는 _driver.CreateConsumer(groupId, servers,
+    //   sessionTimeoutMs: 10_000, maxPollIntervalMs: 300_000, onError: ...)로 구독 루프 구성
+}
+
+// IMessageBrokerDriver 계약 어댑터는 브로커 교체 요구 시 위 글루를 일반화하여 도입 (설계 보류)
 
 // appsettings.json
 // "Kafka": { "BootstrapServers": "localhost:9092" }
@@ -1368,8 +1420,8 @@ public class LdapDriver : IExternalAuthDriver
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.*" />
     <!-- 쿼리 실행 (드라이버 NuGet은 각 Driver 프로젝트에 격리) -->
     <PackageReference Include="Dapper" Version="2.*" />
-    <!-- 메시지 -->
-    <PackageReference Include="Confluent.Kafka" Version="2.*" />
+    <!-- 메시지: Confluent.Kafka는 NexusCom.Messaging.Kafka(서브모듈) 소유 —
+         Infrastructure.Messaging의 ProjectReference로 전이 참조 (v2.0, API 직접 참조 금지) -->
     <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="8.*" />
     <!-- API 문서 -->
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.*" />
@@ -3039,7 +3091,7 @@ FdcConsumerService (Kafka Consumer) ← fdc.rawdata 구독
 public class FdcMachine : Machine
 {
     private readonly IEquipmentDriver _driver;       // OpcUaDriver or SerialPortDriver
-    private readonly IMessageBrokerDriver _kafka;    // KafkaDriver
+    private readonly IMessageBrokerDriver _kafka;    // 어댑터 글루 (NexusCom KafkaDriver 래핑 — 3.6.1)
     private readonly FdcParameterConfig _config;
 
     public FdcMachine(string name, IEquipmentDriver driver,

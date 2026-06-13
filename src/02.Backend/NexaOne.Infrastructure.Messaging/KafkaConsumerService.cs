@@ -2,20 +2,26 @@ using System.Text.Json;
 using Confluent.Kafka;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using NexusCom.Messaging.Kafka;
 
 namespace NexaOne.Infrastructure.Messaging;
 
+/// <summary>도메인 이벤트 구독 글루 — Consumer 생성(프로토콜 설정)은 NexusCom KafkaDriver에
+/// 위임하고(§3.6.1), 본 클래스는 역직렬화·핸들러 호출·커밋 정책만 담당한다.</summary>
 public sealed class KafkaConsumerService : BackgroundService
 {
+    private readonly KafkaDriver _driver;
     private readonly KafkaConsumerOptions _options;
     private readonly Func<DomainEventMessage, CancellationToken, Task> _handler;
     private readonly ILogger<KafkaConsumerService> _logger;
 
     public KafkaConsumerService(
+        KafkaDriver driver,
         KafkaConsumerOptions options,
         Func<DomainEventMessage, CancellationToken, Task> handler,
         ILogger<KafkaConsumerService> logger)
     {
+        _driver  = driver;
         _options = options;
         _handler = handler;
         _logger  = logger;
@@ -23,19 +29,12 @@ public sealed class KafkaConsumerService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var config = new ConsumerConfig
-        {
-            BootstrapServers  = _options.BootstrapServers,
-            GroupId           = _options.GroupId,
-            AutoOffsetReset   = AutoOffsetReset.Earliest,
-            EnableAutoCommit  = false,
-            SessionTimeoutMs  = 10_000,
-            MaxPollIntervalMs = 300_000
-        };
-
-        using var consumer = new ConsumerBuilder<string, string>(config)
-            .SetErrorHandler((_, e) => _logger.LogError("Kafka consumer error: {Reason}", e.Reason))
-            .Build();
+        using var consumer = _driver.CreateConsumer(
+            _options.GroupId,
+            _options.BootstrapServers,
+            sessionTimeoutMs: 10_000,
+            maxPollIntervalMs: 300_000,
+            onError: reason => _logger.LogError("Kafka consumer error: {Reason}", reason));
 
         consumer.Subscribe(_options.Topics);
         _logger.LogInformation("Kafka consumer started for topics: {Topics}", string.Join(", ", _options.Topics));

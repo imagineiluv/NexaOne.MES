@@ -3,10 +3,11 @@
   <ItemGroup>
     <ProjectReference Include="..\NexaOne.Application\NexaOne.Application.csproj" />
     <ProjectReference Include="..\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
+    <!-- Kafka 프로토콜 본체는 서브모듈 소유 — Confluent.Kafka는 전이 참조로 흐름 -->
+    <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Messaging.Kafka\NexusCom.Messaging.Kafka.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Confluent.Kafka" Version="2.*" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.*" />
   </ItemGroup>
 
