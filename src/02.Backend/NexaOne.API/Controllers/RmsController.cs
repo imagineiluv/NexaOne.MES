@@ -9,6 +9,12 @@ namespace NexaOne.API.Controllers;
 [Authorize]
 public class RmsController(RecipeService recipeService) : ControllerBase
 {
+    // §19 비-부인성 — 승인/배포자 신원은 본문이 아니라 인증 토큰에서 취한다. 본문 ApproverId를 신뢰하면
+    // 임의 사용자가 타인 명의로 레시피를 승인할 수 있으므로(무결성·비-부인성 훼손), 토큰 주체로 강제한다.
+    private string CurrentUserId() =>
+        User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+        ?? User.FindFirst("sub")?.Value ?? string.Empty;
+
     [HttpGet("recipes")]
     public async Task<IActionResult> GetRecipes([FromQuery] string? equipmentClassId, [FromQuery] string? state, CancellationToken ct)
     {
@@ -30,6 +36,7 @@ public class RmsController(RecipeService recipeService) : ControllerBase
     }
 
     [HttpPost("recipes")]
+    [Authorize(Policy = "perm:rms:manage")]   // ADR-003 — 레시피 쓰기는 모듈 manage 권한 필요(기본 ADMIN)
     public async Task<IActionResult> CreateRecipe([FromBody] CreateRecipeRequest req, CancellationToken ct)
     {
         var result = await recipeService.CreateRecipeAsync(req.RecipeId, req.Name, req.Description, req.EquipmentClassId, ct);
@@ -37,6 +44,7 @@ public class RmsController(RecipeService recipeService) : ControllerBase
     }
 
     [HttpPut("recipes/{recipeId}/request-approval")]
+    [Authorize(Policy = "perm:rms:manage")]
     public async Task<IActionResult> RequestApproval(string recipeId, CancellationToken ct)
     {
         var result = await recipeService.RequestApprovalAsync(recipeId, ct);
@@ -44,27 +52,32 @@ public class RmsController(RecipeService recipeService) : ControllerBase
     }
 
     [HttpPut("recipes/{recipeId}/approve1")]
-    public async Task<IActionResult> Approve1(string recipeId, [FromBody] ApproveRequest req, CancellationToken ct)
+    [Authorize(Policy = "perm:rms:manage")]
+    public async Task<IActionResult> Approve1(string recipeId, CancellationToken ct)
     {
-        var result = await recipeService.Approve1Async(recipeId, req.ApproverId, ct);
+        // 승인자 = 토큰 주체(본문 ApproverId 신뢰 금지, 비-부인성).
+        var result = await recipeService.Approve1Async(recipeId, CurrentUserId(), ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 
     [HttpPut("recipes/{recipeId}/approve2")]
-    public async Task<IActionResult> Approve2(string recipeId, [FromBody] ApproveRequest req, CancellationToken ct)
+    [Authorize(Policy = "perm:rms:manage")]
+    public async Task<IActionResult> Approve2(string recipeId, CancellationToken ct)
     {
-        var result = await recipeService.Approve2Async(recipeId, req.ApproverId, ct);
+        var result = await recipeService.Approve2Async(recipeId, CurrentUserId(), ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 
     [HttpPut("recipes/{recipeId}/release")]
-    public async Task<IActionResult> Release(string recipeId, [FromBody] ApproveRequest req, CancellationToken ct)
+    [Authorize(Policy = "perm:rms:manage")]
+    public async Task<IActionResult> Release(string recipeId, CancellationToken ct)
     {
-        var result = await recipeService.ReleaseAsync(recipeId, req.ApproverId, ct);
+        var result = await recipeService.ReleaseAsync(recipeId, CurrentUserId(), ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
 
     [HttpPut("recipes/{recipeId}/reject")]
+    [Authorize(Policy = "perm:rms:manage")]
     public async Task<IActionResult> Reject(string recipeId, [FromBody] RejectRequest req, CancellationToken ct)
     {
         var result = await recipeService.RejectAsync(recipeId, req.Reason, ct);
@@ -72,6 +85,7 @@ public class RmsController(RecipeService recipeService) : ControllerBase
     }
 
     [HttpPost("recipes/{recipeId}/new-version")]
+    [Authorize(Policy = "perm:rms:manage")]
     public async Task<IActionResult> CreateNewVersion(string recipeId, [FromBody] NewVersionRequest req, CancellationToken ct)
     {
         var result = await recipeService.CreateNewVersionAsync(recipeId, req.NewRecipeId, ct);
@@ -88,6 +102,7 @@ public class RmsController(RecipeService recipeService) : ControllerBase
     }
 
     [HttpPost("recipes/{recipeId}/params")]
+    [Authorize(Policy = "perm:rms:manage")]
     public async Task<IActionResult> AddParam(string recipeId, [FromBody] AddParamRequest req, CancellationToken ct)
     {
         var result = await recipeService.AddParamAsync(
@@ -96,6 +111,7 @@ public class RmsController(RecipeService recipeService) : ControllerBase
     }
 
     [HttpPut("recipes/params/{paramId}")]
+    [Authorize(Policy = "perm:rms:manage")]
     public async Task<IActionResult> UpdateParam(string paramId, [FromBody] UpdateParamRequest req, CancellationToken ct)
     {
         var result = await recipeService.UpdateParamAsync(paramId, req.NewValue, ct);
@@ -103,6 +119,7 @@ public class RmsController(RecipeService recipeService) : ControllerBase
     }
 
     [HttpDelete("recipes/params/{paramId}")]
+    [Authorize(Policy = "perm:rms:manage")]
     public async Task<IActionResult> DeleteParam(string paramId, CancellationToken ct)
     {
         var result = await recipeService.DeleteParamAsync(paramId, ct);
@@ -111,7 +128,6 @@ public class RmsController(RecipeService recipeService) : ControllerBase
 }
 
 public record CreateRecipeRequest(string RecipeId, string Name, string Description, string EquipmentClassId);
-public record ApproveRequest(string ApproverId);
 public record RejectRequest(string Reason);
 public record NewVersionRequest(string NewRecipeId);
 public record AddParamRequest(string ParamId, string ParamName, string ParamValue, string Unit, int SortOrder);

@@ -37,6 +37,7 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
     }
 
     [HttpPost]
+    [Authorize(Policy = "perm:pom:manage")]   // ADR-003 — 로트추적 쓰기는 생산(POM) 모듈 manage 권한 필요(기본 ADMIN)
     public async Task<IActionResult> CreateLot([FromBody] CreateLotRequest req, CancellationToken ct)
     {
         var result = await trackingService.CreateLotAsync(
@@ -46,6 +47,7 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
     }
 
     [HttpPost("{lotId}/track-in")]
+    [Authorize(Policy = "perm:pom:manage")]
     public async Task<IActionResult> TrackIn(string lotId, [FromBody] TrackInRequest req, CancellationToken ct)
     {
         var result = await trackingService.TrackInAsync(new TrackInCommand(
@@ -54,6 +56,7 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
     }
 
     [HttpPost("{lotId}/track-out")]
+    [Authorize(Policy = "perm:pom:manage")]
     public async Task<IActionResult> TrackOut(string lotId, [FromBody] TrackOutRequest req, CancellationToken ct)
     {
         var defects = req.Defects?.Select(d => new DefectEntry(d.DefectCode, d.DefectQty)).ToList();
@@ -64,6 +67,7 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
 
     /// <summary>Mixing TrackIn/Out — 투입 Lot 소비 + 출력 Lot 생성/가산 (설계 19.4.7).</summary>
     [HttpPost("mixing/track-in-out")]
+    [Authorize(Policy = "perm:pom:manage")]
     public async Task<IActionResult> MixingTrackInOut([FromBody] MixingTrackRequest req, CancellationToken ct)
     {
         var inputs = (req.Inputs ?? []).Select(i => new MixingInput(i.LotId, i.InQty)).ToList();
@@ -74,6 +78,7 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
     }
 
     [HttpPut("{lotId}/hold")]
+    [Authorize(Policy = "perm:pom:manage")]
     public async Task<IActionResult> Hold(string lotId, CancellationToken ct)
     {
         var result = await trackingService.HoldAsync(lotId, CurrentUserId, ct);
@@ -81,6 +86,7 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
     }
 
     [HttpPut("{lotId}/release-hold")]
+    [Authorize(Policy = "perm:pom:manage")]
     public async Task<IActionResult> ReleaseHold(string lotId, CancellationToken ct)
     {
         var result = await trackingService.ReleaseHoldAsync(lotId, CurrentUserId, ct);

@@ -30,6 +30,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
+    [AllowAnonymous]               // 전역 FallbackPolicy(인증 요구) 예외 — 익명 진입점
     [EnableRateLimiting("auth")]   // §18.2.3 — 익명 진입점 IP당 제한 (브루트포스 방어)
     public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken ct)
     {
@@ -66,11 +67,16 @@ public class AuthController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Logout([FromBody] LogoutRequest request)
     {
-        await _tokenStore.RevokeAsync(request.UserId, request.RefreshToken);
+        // §19 — 폐기 대상 userId는 본문이 아니라 토큰에서 취한다. 본문 userId를 신뢰하면 임의 사용자의
+        // 리프레시 토큰을 폐기하는 IDOR/DoS가 가능하므로, 인증 주체 본인의 토큰만 폐기하도록 강제한다.
+        var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? User.FindFirst("sub")?.Value ?? string.Empty;
+        await _tokenStore.RevokeAsync(userId, request.RefreshToken);
         return NoContent();
     }
 
     [HttpPost("refresh")]
+    [AllowAnonymous]               // 전역 FallbackPolicy 예외 — 액세스 토큰 만료 후 호출되는 갱신 진입점
     [EnableRateLimiting("auth")]   // §18.2.3 — 토큰 무차별 대입 방어
     public async Task<IActionResult> Refresh([FromBody] RefreshRequest request, CancellationToken ct)
     {
@@ -142,6 +148,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("forgot-password")]
+    [AllowAnonymous]               // 전역 FallbackPolicy 예외 — 비밀번호 분실 익명 진입점
     [EnableRateLimiting("auth")]   // §18.2.3 — 계정 열거/메일 폭주 방어
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request, CancellationToken ct)
     {
@@ -154,6 +161,7 @@ public class AuthController : ControllerBase
     // POST가 GET으로 바뀌고 본문이 소실되어 실제로 동작하지 않으므로, 서버 내부에서
     // forgot-password와 동일하게 위임 처리한다.
     [HttpPost("reset-password")]
+    [AllowAnonymous]               // 전역 FallbackPolicy 예외 — forgot-password 호환 익명 진입점
     [EnableRateLimiting("auth")]   // §18.2.3 — forgot-password와 동일 정책
     public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request, CancellationToken ct)
     {

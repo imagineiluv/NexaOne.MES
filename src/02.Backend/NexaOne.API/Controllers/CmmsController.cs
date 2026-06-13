@@ -27,6 +27,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     }
 
     [HttpPost("work-orders")]
+    [Authorize(Policy = "perm:cmms:manage")]   // ADR-003 — 보전 쓰기는 모듈 manage 권한 필요(기본 ADMIN)
     public async Task<IActionResult> CreateWorkOrder([FromBody] CreateWorkOrderRequest req, CancellationToken ct)
     {
         var result = await emsService.CreateWorkOrderAsync(
@@ -35,6 +36,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     }
 
     [HttpPut("work-orders/{woId}/start")]
+    [Authorize(Policy = "perm:cmms:manage")]
     public async Task<IActionResult> StartWorkOrder(string woId, CancellationToken ct)
     {
         var result = await emsService.StartWorkOrderAsync(woId, ct);
@@ -44,6 +46,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     }
 
     [HttpPut("work-orders/{woId}/complete")]
+    [Authorize(Policy = "perm:cmms:manage")]
     public async Task<IActionResult> CompleteWorkOrder(string woId, [FromBody] CompleteWorkOrderRequest req, CancellationToken ct)
     {
         var result = await emsService.CompleteWorkOrderAsync(woId, req.Remark, ct);
@@ -53,6 +56,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     }
 
     [HttpPut("work-orders/{woId}/cancel")]
+    [Authorize(Policy = "perm:cmms:manage")]
     public async Task<IActionResult> CancelWorkOrder(string woId, CancellationToken ct)
     {
         var result = await emsService.CancelWorkOrderAsync(woId, ct);
@@ -78,6 +82,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     }
 
     [HttpPost("maintenance-plans")]
+    [Authorize(Policy = "perm:cmms:manage")]
     public async Task<IActionResult> CreateMaintenancePlan([FromBody] CreateMaintenancePlanRequest req, CancellationToken ct)
     {
         var result = await planService.CreatePlanAsync(req.PlanId, req.PlanName, req.EquipmentId,
@@ -86,6 +91,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     }
 
     [HttpPut("maintenance-plans/{planId}/start")]
+    [Authorize(Policy = "perm:cmms:manage")]
     public async Task<IActionResult> StartMaintenancePlan(string planId, CancellationToken ct)
     {
         var result = await planService.StartPlanAsync(planId, ct);
@@ -93,6 +99,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     }
 
     [HttpPut("maintenance-plans/{planId}/complete")]
+    [Authorize(Policy = "perm:cmms:manage")]
     public async Task<IActionResult> CompleteMaintenancePlan(string planId, CancellationToken ct)
     {
         var result = await planService.CompletePlanAsync(planId, ct);
@@ -100,6 +107,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     }
 
     [HttpPut("maintenance-plans/{planId}/cancel")]
+    [Authorize(Policy = "perm:cmms:manage")]
     public async Task<IActionResult> CancelMaintenancePlan(string planId, CancellationToken ct)
     {
         var result = await planService.CancelPlanAsync(planId, ct);
@@ -118,6 +126,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     }
 
     [HttpPost("spare-parts")]
+    [Authorize(Policy = "perm:cmms:manage")]
     public async Task<IActionResult> CreateSparePart([FromBody] CreateSparePartRequest req, CancellationToken ct)
     {
         var result = await planService.CreatePartAsync(req.PartId, req.PartName, req.PartNumber,
@@ -127,6 +136,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     }
 
     [HttpPut("spare-parts/{partId}/adjust-stock")]
+    [Authorize(Policy = "perm:cmms:manage")]
     public async Task<IActionResult> AdjustStock(string partId, [FromBody] AdjustStockRequest req, CancellationToken ct)
     {
         var result = await planService.AdjustStockAsync(partId, req.Delta, ct);

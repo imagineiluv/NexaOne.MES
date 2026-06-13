@@ -19,6 +19,7 @@ public class QmsController(QmsService qmsService) : ControllerBase
     }
 
     [HttpPost("defects")]
+    [Authorize(Policy = "perm:qms:manage")]   // ADR-003 — 품질 쓰기는 모듈 manage 권한 필요(기본 ADMIN)
     public async Task<IActionResult> RecordDefect([FromBody] RecordDefectRequest req, CancellationToken ct)
     {
         var result = await qmsService.RecordDefectAsync(
@@ -28,6 +29,7 @@ public class QmsController(QmsService qmsService) : ControllerBase
     }
 
     [HttpPut("defects/{defectId}/confirm")]
+    [Authorize(Policy = "perm:qms:manage")]
     public async Task<IActionResult> ConfirmDefect(string defectId, [FromBody] ConfirmDefectRequest req, CancellationToken ct)
     {
         var result = await qmsService.ConfirmDefectAsync(defectId, req.ConfirmerId, ct);
@@ -41,6 +43,7 @@ public class QmsController(QmsService qmsService) : ControllerBase
         => Ok(await qmsService.GetDefectClassesAsync(ct));
 
     [HttpPost("defect-classes")]
+    [Authorize(Policy = "perm:qms:manage")]
     public async Task<IActionResult> CreateDefectClass([FromBody] CreateDefectClassRequest req, CancellationToken ct)
     {
         var result = await qmsService.CreateDefectClassAsync(req.DefectClassId, req.DefectClassName, req.Description, req.Severity, ct);
@@ -54,6 +57,7 @@ public class QmsController(QmsService qmsService) : ControllerBase
         => Ok(await qmsService.GetInspectionSpecsAsync(processId, ct));
 
     [HttpPost("inspection-specs")]
+    [Authorize(Policy = "perm:qms:manage")]
     public async Task<IActionResult> CreateInspectionSpec([FromBody] CreateInspectionSpecRequest req, CancellationToken ct)
     {
         var result = await qmsService.CreateInspectionSpecAsync(req.SpecId, req.SpecName, req.ProcessId,
@@ -68,6 +72,7 @@ public class QmsController(QmsService qmsService) : ControllerBase
         => Ok(await qmsService.GetInspectionResultsByLotAsync(lotId, ct));
 
     [HttpPost("inspection-results")]
+    [Authorize(Policy = "perm:qms:manage")]
     public async Task<IActionResult> RecordInspectionResult([FromBody] RecordInspectionResultRequest req, CancellationToken ct)
     {
         var result = await qmsService.RecordInspectionResultAsync(req.ResultId, req.SpecId, req.LotId,
@@ -82,6 +87,7 @@ public class QmsController(QmsService qmsService) : ControllerBase
         => Ok(await qmsService.GetSpcParamsAsync(equipmentId, ct));
 
     [HttpPost("spc-params")]
+    [Authorize(Policy = "perm:qms:manage")]
     public async Task<IActionResult> CreateSpcParam([FromBody] CreateSpcParamRequest req, CancellationToken ct)
     {
         var result = await qmsService.CreateSpcParamAsync(req.ParamId, req.ParamName, req.EquipmentId,
@@ -90,6 +96,7 @@ public class QmsController(QmsService qmsService) : ControllerBase
     }
 
     [HttpPut("spc-params/{paramId}/limits")]
+    [Authorize(Policy = "perm:qms:manage")]
     public async Task<IActionResult> UpdateSpcLimits(string paramId, [FromBody] UpdateSpcLimitsRequest req, CancellationToken ct)
     {
         var result = await qmsService.UpdateSpcControlLimitsAsync(paramId, req.Mean, req.Ucl, req.Lcl, ct);

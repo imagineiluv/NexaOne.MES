@@ -25,6 +25,7 @@ public class EstController(
         => Ok(await stateService.GetAllowedTransitionsAsync(plantId, fromState, ct));
 
     [HttpPost("state-matrix")]
+    [Authorize(Policy = "perm:est:manage")]   // ADR-003 — 설비상태 쓰기는 모듈 manage 권한 필요(기본 ADMIN)
     public async Task<IActionResult> UpsertMatrix([FromBody] UpsertMatrixRequest req, CancellationToken ct)
     {
         var result = await stateService.UpsertMatrixAsync(
@@ -40,6 +41,7 @@ public class EstController(
         => Ok(await stateService.GetEquipmentStatesAsync(plantId, ct));
 
     [HttpPost("equipment-state/change")]
+    [Authorize(Policy = "perm:est:manage")]
     public async Task<IActionResult> ChangeState([FromBody] ChangeStateRequest req, CancellationToken ct)
     {
         var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
@@ -70,6 +72,7 @@ public class EstController(
     }
 
     [HttpPost("alarms")]
+    [Authorize(Policy = "perm:est:manage")]
     public async Task<IActionResult> RecordAlarm([FromBody] RecordAlarmRequest req, CancellationToken ct)
     {
         var result = await alarmService.RecordAlarmAsync(
@@ -80,6 +83,7 @@ public class EstController(
     }
 
     [HttpPut("alarms/{alarmId}/clear")]
+    [Authorize(Policy = "perm:est:manage")]
     public async Task<IActionResult> ClearAlarm(string alarmId, [FromBody] ClearAlarmRequest req, CancellationToken ct)
     {
         var result = await alarmService.ClearAlarmAsync(alarmId, req.ClearedAt, ct);

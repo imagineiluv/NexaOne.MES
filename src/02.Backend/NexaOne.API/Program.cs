@@ -86,7 +86,15 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    // §18 심층 방어 — 전역 FallbackPolicy: [Authorize]/정책이 명시되지 않은 엔드포인트도 기본 인증을 요구한다.
+    // 컨트롤러에 [Authorize]를 빠뜨려도 익명 노출되지 않게 하는 안전망. 익명 진입점(login/refresh/forgot/
+    // reset/register/exists/deploy 다운로드·최신/health)은 [AllowAnonymous]로 명시 예외 처리한다.
+    options.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
 // ADR-003 — 권한 기반 PEP: "perm:{permission}" 정책을 동적 생성하고 permission 클레임으로 집행.
 // 역할 기반 [Authorize(Roles=...)]는 기본 제공자에 위임되어 그대로 동작(추가형).
 builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider,
@@ -280,7 +288,8 @@ app.MapControllers();
 // §18.2.3 적응 — SignalR(long-polling 시 분당 요청 수 급증)과 헬스 프로브(공유 모니터링 IP)는
 // 전역 한도(100req/min)에 걸려 429가 나면 안 되므로 Rate Limiting에서 제외한다
 app.MapHub<NexaOneEESHub>("/hubs/smartees").DisableRateLimiting();
-app.MapHealthChecks("/health").DisableRateLimiting();
+// 헬스 프로브는 전역 FallbackPolicy(인증 요구)에 걸리지 않도록 명시적으로 익명 허용한다(모니터링/k8s liveness).
+app.MapHealthChecks("/health").AllowAnonymous().DisableRateLimiting();
 
 await app.RunAsync();
 

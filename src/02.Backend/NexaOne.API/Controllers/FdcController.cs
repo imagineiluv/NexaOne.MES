@@ -105,6 +105,7 @@ public class FdcController(
     }
 
     [HttpPost("interlock-rules")]
+    [Authorize(Policy = "perm:fdc:manage")]   // ADR-003 — 인터록 규칙 구성은 운영 제어보다 높은 구성 권한
     public async Task<IActionResult> CreateRule([FromBody] CreateRuleRequest req, CancellationToken ct)
     {
         var result = await interlockService.CreateRuleAsync(
@@ -130,6 +131,7 @@ public class FdcController(
     }
 
     [HttpPost("parameters")]
+    [Authorize(Policy = "perm:fdc:manage")]
     public async Task<IActionResult> CreateParameter([FromBody] CreateParameterRequest req, CancellationToken ct)
     {
         var result = await dataService.CreateParameterAsync(
@@ -140,6 +142,7 @@ public class FdcController(
 
     /// <summary>파라미터를 그룹에 배정/해제한다(GroupId=null이면 해제).</summary>
     [HttpPut("parameters/{parameterId}/group")]
+    [Authorize(Policy = "perm:fdc:manage")]
     public async Task<IActionResult> AssignParameterGroup(
         string parameterId, [FromBody] AssignParameterGroupRequest req, CancellationToken ct)
     {
@@ -157,6 +160,7 @@ public class FdcController(
     }
 
     [HttpPost("parameter-groups")]
+    [Authorize(Policy = "perm:fdc:manage")]
     public async Task<IActionResult> CreateParameterGroup([FromBody] CreateParameterGroupRequest req, CancellationToken ct)
     {
         var result = await groupService.CreateGroupAsync(
@@ -174,6 +178,7 @@ public class FdcController(
     }
 
     [HttpPost("alarm-configs")]
+    [Authorize(Policy = "perm:fdc:manage")]
     public async Task<IActionResult> CreateAlarmConfig([FromBody] CreateAlarmConfigRequest req, CancellationToken ct)
     {
         var result = await fdcAlarmService.CreateConfigAsync(
@@ -221,6 +226,7 @@ public class FdcController(
     /// 수집 → 인터록 평가 → (조건) 알람 발생 → SignalR 통보
     /// </summary>
     [HttpPost("collect-data")]
+    [Authorize(Policy = "perm:fdc:control")]   // 운영 데이터 수집/인터록 평가 — 설비 제어 권한(OPERATOR 보유)
     public async Task<IActionResult> RecordData([FromBody] RecordDataRequest req, CancellationToken ct)
     {
         // 1. 데이터 수집 기록

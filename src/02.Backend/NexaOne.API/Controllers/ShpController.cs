@@ -20,6 +20,7 @@ public class ShpController(ShpService dlvService) : ControllerBase
     }
 
     [HttpPost("orders")]
+    [Authorize(Policy = "perm:shp:manage")]   // ADR-003 — 출하 쓰기는 모듈 manage 권한 필요(기본 ADMIN)
     public async Task<IActionResult> CreateOrder([FromBody] CreateDeliveryOrderRequest req, CancellationToken ct)
     {
         var result = await dlvService.CreateOrderAsync(req.OrderId, req.CustomerName, req.PlantId, req.RequestedDate, ct);
@@ -27,6 +28,7 @@ public class ShpController(ShpService dlvService) : ControllerBase
     }
 
     [HttpPut("orders/{orderId}/confirm")]
+    [Authorize(Policy = "perm:shp:manage")]
     public async Task<IActionResult> ConfirmOrder(string orderId, CancellationToken ct)
     {
         var result = await dlvService.ConfirmOrderAsync(orderId, ct);
@@ -34,6 +36,7 @@ public class ShpController(ShpService dlvService) : ControllerBase
     }
 
     [HttpPut("orders/{orderId}/ship")]
+    [Authorize(Policy = "perm:shp:manage")]
     public async Task<IActionResult> ShipOrder(string orderId, [FromBody] ShipOrderRequest req, CancellationToken ct)
     {
         var result = await dlvService.ShipOrderAsync(orderId, req.ShippedDate, ct);
@@ -41,6 +44,7 @@ public class ShpController(ShpService dlvService) : ControllerBase
     }
 
     [HttpPut("orders/{orderId}/cancel")]
+    [Authorize(Policy = "perm:shp:manage")]
     public async Task<IActionResult> CancelOrder(string orderId, CancellationToken ct)
     {
         var result = await dlvService.CancelOrderAsync(orderId, ct);
@@ -54,6 +58,7 @@ public class ShpController(ShpService dlvService) : ControllerBase
         => Ok(await dlvService.GetItemsByOrderAsync(orderId, ct));
 
     [HttpPost("orders/{orderId}/items")]
+    [Authorize(Policy = "perm:shp:manage")]
     public async Task<IActionResult> AddItem(string orderId, [FromBody] AddDeliveryItemRequest req, CancellationToken ct)
     {
         var result = await dlvService.AddItemAsync(req.ItemId, orderId, req.ProductId, req.PlannedQty, req.LotId, ct);
@@ -61,6 +66,7 @@ public class ShpController(ShpService dlvService) : ControllerBase
     }
 
     [HttpPut("items/{itemId}/actual-qty")]
+    [Authorize(Policy = "perm:shp:manage")]
     public async Task<IActionResult> SetActualQty(string itemId, [FromBody] SetActualQtyRequest req, CancellationToken ct)
     {
         var result = await dlvService.SetItemActualQtyAsync(itemId, req.ActualQty, ct);
@@ -74,6 +80,7 @@ public class ShpController(ShpService dlvService) : ControllerBase
         => Ok(await dlvService.GetShipmentHistoryAsync(orderId, ct));
 
     [HttpPost("orders/{orderId}/shipment-history")]
+    [Authorize(Policy = "perm:shp:manage")]
     public async Task<IActionResult> RecordShipment(string orderId, [FromBody] RecordShipmentRequest req, CancellationToken ct)
     {
         var result = await dlvService.RecordShipmentAsync(req.HistoryId, orderId, req.ShippedQty, req.ShippedBy, req.Carrier, req.TrackingNo, ct);
