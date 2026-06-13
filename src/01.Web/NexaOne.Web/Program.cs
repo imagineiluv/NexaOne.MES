@@ -16,6 +16,8 @@ builder.Services.AddScoped<AuthTokenService>();
 builder.Services.AddScoped<AuthContextService>();
 builder.Services.AddScoped<NexaHubService>();
 builder.Services.AddScoped<WaitOverlayService>();
+// API 실패(403 권한 거부/5xx)를 전역 토스트로 노출하는 통지 채널 — ApiClient 발신 / ApiToastHost 구독
+builder.Services.AddScoped<ApiNotificationService>();
 builder.Services.AddScoped<DirtyTracker>();
 builder.Services.AddScoped<MenuCacheService>();
 builder.Services.AddScoped<MdiTabService>();

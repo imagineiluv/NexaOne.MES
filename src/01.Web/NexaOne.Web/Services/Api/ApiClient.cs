@@ -11,14 +11,17 @@ public sealed class ApiClient : IApiClient
     private readonly HttpClient _http;
     private readonly AuthTokenService _tokenService;
     private readonly JwtAuthStateProvider _authState;
+    private readonly ApiNotificationService _notifier;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private static readonly JwtSecurityTokenHandler _jwtHandler = new();
 
-    public ApiClient(HttpClient http, AuthTokenService tokenService, JwtAuthStateProvider authState)
+    public ApiClient(HttpClient http, AuthTokenService tokenService, JwtAuthStateProvider authState,
+        ApiNotificationService notifier)
     {
         _http = http;
         _tokenService = tokenService;
         _authState = authState;
+        _notifier = notifier;
     }
 
     // ── Token helpers ─────────────────────────────────────────────────────────
@@ -105,15 +108,31 @@ public sealed class ApiClient : IApiClient
         return await _http.SendAsync(req, ct);
     }
 
-    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, object? body, CancellationToken ct)
+    // surfaceErrors=true면 아무 페이지도 처리하지 않는 403/5xx를 전역 토스트로 노출한다.
+    // 자체적으로 오류 사유를 표시하는 메서드(PostWithError/PatchWithError)는 false로 호출해 중복 노출을 막는다.
+    private async Task<HttpResponseMessage> SendAsync(
+        HttpMethod method, string url, object? body, CancellationToken ct, bool surfaceErrors = true)
     {
         var token = await GetValidAccessTokenAsync(ct);
         var resp = await SendOnceAsync(method, url, body, token, ct);
-        if (resp.StatusCode != HttpStatusCode.Unauthorized) return resp;
+        if (resp.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            resp.Dispose();                   // 첫 401 응답 소켓/리소스 해제(누수 방지)
+            var refreshed = await RefreshAsync(ct);
+            resp = await SendOnceAsync(method, url, body, refreshed, ct);
+        }
+        if (surfaceErrors) SurfaceUnhandledError(resp);
+        return resp;
+    }
 
-        resp.Dispose();                       // 첫 401 응답 소켓/리소스 해제(누수 방지)
-        var refreshed = await RefreshAsync(ct);
-        return await SendOnceAsync(method, url, body, refreshed, ct);
+    // 페이지가 인라인으로 처리하지 않는 실패만 전역 통지한다: 403(권한 거부, ADR-003 module:manage 정책)과
+    // 5xx(예기치 못한 서버 오류). 400/409(검증/충돌)은 페이지의 인라인 오류 경로가 사유를 표시하므로 제외한다.
+    private void SurfaceUnhandledError(HttpResponseMessage resp)
+    {
+        if (resp.StatusCode == HttpStatusCode.Forbidden)
+            _notifier.Notify("이 작업을 수행할 권한이 없습니다. 관리자에게 권한을 요청하세요.");
+        else if ((int)resp.StatusCode >= 500)
+            _notifier.Notify($"서버 오류가 발생했습니다 (HTTP {(int)resp.StatusCode}). 잠시 후 다시 시도해 주세요.");
     }
 
     private static async Task<string> ReadErrorAsync(HttpResponseMessage resp, CancellationToken ct)
@@ -161,7 +180,7 @@ public sealed class ApiClient : IApiClient
     private async Task<(T? Result, string? Error)> PostWithErrorAsync<T>(
         string url, object body, CancellationToken ct) where T : class
     {
-        using var resp = await SendAsync(HttpMethod.Post, url, body, ct);
+        using var resp = await SendAsync(HttpMethod.Post, url, body, ct, surfaceErrors: false);
         if (resp.IsSuccessStatusCode)
             return (await resp.Content.ReadFromJsonAsync<T>(ct), null);
         if (resp.StatusCode == HttpStatusCode.Unauthorized)
@@ -187,7 +206,7 @@ public sealed class ApiClient : IApiClient
     private async Task<(T? Result, string? Error)> PatchWithErrorAsync<T>(
         string url, object body, CancellationToken ct) where T : class
     {
-        using var resp = await SendAsync(HttpMethod.Patch, url, body, ct);
+        using var resp = await SendAsync(HttpMethod.Patch, url, body, ct, surfaceErrors: false);
         if (resp.IsSuccessStatusCode)
             return (await resp.Content.ReadFromJsonAsync<T>(ct), null);
         if (resp.StatusCode == HttpStatusCode.Unauthorized)

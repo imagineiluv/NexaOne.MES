@@ -1,0 +1,64 @@
+@inject ApiNotificationService Notifier
+@implements IDisposable
+
+@* API 호출 실패(403 권한 거부 / 5xx 서버 오류)를 화면 우상단 토스트로 전역 노출한다.
+   ApiClient가 ApiNotificationService로 발신하고, 이 컴포넌트가 구독해 표시한다(HubStatusBar와 동일 패턴). *@
+@if (_toasts.Count > 0)
+{
+    <div style="position:fixed; top:1rem; right:1rem; z-index:1080; display:flex; flex-direction:column; gap:0.5rem; max-width:24rem;">
+        @foreach (var t in _toasts)
+        {
+            <div role="alert" aria-live="assertive"
+                 style="display:flex; align-items:flex-start; gap:0.5rem; padding:0.75rem 1rem; border-radius:0.5rem; box-shadow:0 4px 12px rgba(0,0,0,0.15); color:#fff; font-size:0.875rem; background-color:@BackgroundFor(t.Severity);">
+                <span style="flex:1 1 auto;">@t.Message</span>
+                <button type="button" @onclick="() => Dismiss(t)" aria-label="닫기"
+                        style="flex:0 0 auto; background:none; border:none; color:#fff; font-size:1.1rem; line-height:1; cursor:pointer; padding:0;">×</button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private readonly List<ApiNotification> _toasts = new();
+    private bool _disposed;
+
+    protected override void OnInitialized() => Notifier.OnNotify += OnNotify;
+
+    // ApiClient는 임의 스레드에서 발신할 수 있다 → InvokeAsync로 UI 스레드 전환 (HubStatusBar와 동일).
+    private void OnNotify(ApiNotification n)
+    {
+        if (_disposed) return;
+        _ = InvokeAsync(async () =>
+        {
+            if (_disposed) return;
+            // 동일 메시지가 이미 떠 있으면 중복 추가하지 않는다(폴링/연타 시 토스트 폭주 방지).
+            if (_toasts.Any(t => t.Message == n.Message)) return;
+            _toasts.Add(n);
+            StateHasChanged();
+
+            await Task.Delay(TimeSpan.FromSeconds(6));
+            if (_disposed) return;
+            _toasts.Remove(n);
+            StateHasChanged();
+        });
+    }
+
+    private void Dismiss(ApiNotification n)
+    {
+        _toasts.Remove(n);
+        StateHasChanged();
+    }
+
+    private static string BackgroundFor(ApiNotificationSeverity severity) => severity switch
+    {
+        ApiNotificationSeverity.Error => "#dc2626",   // red-600
+        ApiNotificationSeverity.Warning => "#d97706", // amber-600
+        _ => "#2563eb",                               // blue-600
+    };
+
+    public void Dispose()
+    {
+        _disposed = true;
+        Notifier.OnNotify -= OnNotify;
+    }
+}
