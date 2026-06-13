@@ -80,10 +80,12 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IFdcAlarmConfigRepository, FdcAlarmConfigRepository>();
         services.AddScoped<IFdcAlarmHistoryRepository, FdcAlarmHistoryRepository>();
         services.AddScoped<IFdcParameterRepository, FdcParameterRepository>();
+        services.AddScoped<IFdcParameterGroupRepository, FdcParameterGroupRepository>();
         services.AddScoped<IFdcCollectDataRepository, FdcCollectDataRepository>();
         services.AddScoped<FdcInterlockService>();
         services.AddScoped<FdcAlarmService>();
         services.AddScoped<FdcDataService>();
+        services.AddScoped<FdcParameterGroupService>();
         services.AddScoped<FdcCollectorService>();
 
         // RMS
