@@ -1,26 +1,58 @@
+using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using NexaOne.API.Services;
 
 namespace NexaOne.IntegrationTests;
 
 /// <summary>
-/// API 인프로세스 기동용 WebApplicationFactory. 부팅 fail-fast(§18.7 — JWT 비밀키 강도 검증)를
-/// 통과하도록 테스트 전용 강한 Jwt:SecretKey를 주입한다. 실 DB/인증/설비는 여전히 환경 의존이므로
-/// 보호된 엔드포인트 호출 테스트는 Skip 상태로 둔다.
+/// API 인프로세스 기동용 WebApplicationFactory. 실 MSSQL 없이 통합 테스트를 돌리기 위해
+/// SQLite(임시 파일 DB)로 전환하고(Database:Provider=Sqlite) 마이그레이션 스키마를 부트스트랩한다.
+/// 부팅 fail-fast(§18.7 — JWT 비밀키 강도 검증)를 통과하도록 테스트 전용 강한 Jwt:SecretKey도 주입한다.
 /// </summary>
 public sealed class TestApiFactory : WebApplicationFactory<Program>
 {
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    private const string TestSecret = "integration-test-only-jwt-secret-key-at-least-32-bytes-long";
+    private const string TestIssuer = "nexaone-test";
+
+    private readonly string _dbPath = Path.Combine(
+        Path.GetTempPath(), $"nexaone-test-{Guid.NewGuid():N}.db");
+
+    private string ConnString => $"Data Source={_dbPath}";
+
+    public TestApiFactory()
     {
-        builder.ConfigureAppConfiguration((_, config) =>
-        {
-            config.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Jwt:SecretKey"] = "integration-test-only-jwt-secret-key-at-least-32-bytes-long",
-                ["Jwt:Issuer"] = "nexaone-test",
-                ["Jwt:Audience"] = "nexaone-test",
-            });
-        });
+        // 부팅 fail-fast(JWT 강도 검증)·DB 설정을 확실히 덮어쓰기 위해 환경변수로 주입한다.
+        // (최소 호스팅 모델 + WebApplicationFactory에서 ConfigureAppConfiguration은 appsettings 치환자에
+        //  밀릴 수 있어, appsettings보다 우선순위가 높은 환경변수를 사용한다.)
+        Environment.SetEnvironmentVariable("Jwt__SecretKey", TestSecret);
+        Environment.SetEnvironmentVariable("Jwt__Issuer", TestIssuer);
+        Environment.SetEnvironmentVariable("Jwt__Audience", TestIssuer);
+        Environment.SetEnvironmentVariable("Database__Provider", "Sqlite");
+        Environment.SetEnvironmentVariable("ConnectionStrings__NexaOne", ConnString);
+
+        // 호스트가 요청을 처리하기 전에 SQLite 임시 DB에 스키마를 생성한다(리포지토리가 테이블을 찾도록).
+        SqliteSchemaBootstrapper.Apply(ConnString);
+    }
+
+    /// <summary>앱의 JwtService로 유효한 토큰을 발급해 Authorization 헤더가 설정된 클라이언트를 반환한다.
+    /// permissions 미지정 시 "*"(ADMIN 전체 권한)로 발급한다.</summary>
+    public HttpClient CreateAuthenticatedClient(params string[] permissions)
+    {
+        var client = CreateClient();
+        var jwt = Services.GetRequiredService<IJwtService>();
+        var perms = permissions.Length > 0 ? permissions : new[] { "*" };
+        var token = jwt.GenerateAccessToken("test-admin", "Test Admin", "DEFAULT", new[] { "ADMIN" }, permissions: perms);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return client;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        try { if (File.Exists(_dbPath)) File.Delete(_dbPath); }
+        catch { /* 임시 파일 정리 실패는 무시 */ }
     }
 }

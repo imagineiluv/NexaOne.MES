@@ -63,6 +63,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton(provider);
         services.AddSingleton(capability);
         services.AddSingleton(dataSource);
+        // 공급자의 트랜잭션 관리자를 노출(SqlTxnContext 의존성) — 부팅 시 DI 검증 통과.
+        services.AddSingleton<ITransactionManager>(provider.TransactionManager);
 
         services.AddScoped<SqlTxnContext>();
         services.AddScoped<QueryRepository>();
