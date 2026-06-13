@@ -1,15 +1,19 @@
-@* NexaUI — DxDateEdit 대체. DateTime? 양방향 바인딩(@bind-Value). HTML date 입력(ISO yyyy-MM-dd). *@
+@* NexaUI — DxDateEdit 대체. DateTime 또는 DateTime? 양방향 바인딩(@bind-Value).
+   제네릭(TValue)으로 non-null DateTime 필드도 @bind 가능(비제네릭 DateTime?는 CS1503 발생). *@
+@typeparam TValue
+@using Microsoft.AspNetCore.Components
+
 <input type="date"
        class="@CssClass"
-       value="@(Value?.ToString("yyyy-MM-dd"))"
+       value="@FormatValue(Value)"
        readonly="@ReadOnly"
        disabled="@Disabled"
        @onchange="OnChanged"
        @attributes="Extra" />
 
 @code {
-    [Parameter] public DateTime? Value { get; set; }
-    [Parameter] public EventCallback<DateTime?> ValueChanged { get; set; }
+    [Parameter] public TValue? Value { get; set; }
+    [Parameter] public EventCallback<TValue?> ValueChanged { get; set; }
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public bool Disabled { get; set; }
     [Parameter] public string? Class { get; set; }
@@ -17,13 +21,24 @@
 
     private string CssClass => string.IsNullOrWhiteSpace(Class) ? "nexa-input" : $"nexa-input {Class}";
 
+    // 박싱된 DateTime? 도 `is DateTime` 로 비-null 값을 안전하게 언박싱한다.
+    private static string? FormatValue(TValue? value) => value is DateTime d ? d.ToString("yyyy-MM-dd") : null;
+
     private async Task OnChanged(ChangeEventArgs e)
     {
         var raw = e.Value?.ToString();
-        Value = DateTime.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture,
-                                  System.Globalization.DateTimeStyles.None, out var parsed)
-            ? parsed
-            : null;
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            Value = default;
+        }
+        else if (BindConverter.TryConvertTo<TValue>(raw, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+        {
+            Value = parsed;
+        }
+        else
+        {
+            return;
+        }
         await ValueChanged.InvokeAsync(Value);
     }
 }

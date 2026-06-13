@@ -4,36 +4,29 @@
 
 <div class="page-header">
     <h1 class="page-title">FDC 파라미터</h1>
-    <DxButton Text="파라미터 등록" RenderStyle="ButtonRenderStyle.Primary" Click="OpenCreateDialog" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog">파라미터 등록</NexaButton>
 </div>
 
 <NexaConditionGrid TRow="FdcParameterDto" Items="_params">
     <ConditionPanel>
-        <DxTextBox @bind-Text="_equipmentId" NullText="설비 ID" />
-        <DxButton Text="조회" Click="LoadParams" />
+        <NexaTextBox @bind-Value="_equipmentId" Placeholder="설비 ID" />
+        <NexaButton OnClick="LoadParams">조회</NexaButton>
     </ConditionPanel>
     <Columns>
-        <DxGridDataColumn FieldName="Id"            Caption="파라미터 ID"  Width="140px" />
-        <DxGridDataColumn FieldName="ParameterName" Caption="파라미터명"    Width="180px" />
-        <DxGridDataColumn FieldName="EquipmentId"   Caption="설비"          Width="120px" />
-        <DxGridDataColumn FieldName="Unit"          Caption="단위"          Width="70px" />
-        <DxGridDataColumn FieldName="LowerLimit"    Caption="하한"          Width="90px" />
-        <DxGridDataColumn FieldName="UpperLimit"    Caption="상한"          Width="90px" />
-        <DxGridDataColumn FieldName="LowerControlLimit" Caption="LCL"       Width="90px" />
-        <DxGridDataColumn FieldName="UpperControlLimit" Caption="UCL"       Width="90px" />
-        <DxGridDataColumn FieldName="IsActive"      Caption="활성"          Width="70px">
-            <CellDisplayTemplate>
-                <StatusBadge Value="@((bool)context.Value ? "Active" : "Inactive")" />
-            </CellDisplayTemplate>
-        </DxGridDataColumn>
-        <DxGridCommandColumn Width="120px">
-            <CellDisplayTemplate>
-                @{
-                    var p = (FdcParameterDto)context.DataItem;
-                    <DxButton Text="데이터 조회" Click="@(() => OpenDataPanel(p.Id))" />
-                }
-            </CellDisplayTemplate>
-        </DxGridCommandColumn>
+        <PropertyColumn Property="@((FdcParameterDto r) => r.Id)"               Title="파라미터 ID" />
+        <PropertyColumn Property="@((FdcParameterDto r) => r.ParameterName)"    Title="파라미터명" />
+        <PropertyColumn Property="@((FdcParameterDto r) => r.EquipmentId)"      Title="설비" />
+        <PropertyColumn Property="@((FdcParameterDto r) => r.Unit)"             Title="단위" />
+        <PropertyColumn Property="@((FdcParameterDto r) => r.LowerLimit)"       Title="하한" />
+        <PropertyColumn Property="@((FdcParameterDto r) => r.UpperLimit)"       Title="상한" />
+        <PropertyColumn Property="@((FdcParameterDto r) => r.LowerControlLimit)" Title="LCL" />
+        <PropertyColumn Property="@((FdcParameterDto r) => r.UpperControlLimit)" Title="UCL" />
+        <TemplateColumn TGridItem="FdcParameterDto" Title="활성">
+            <StatusBadge Value="@(context.IsActive ? "Active" : "Inactive")" />
+        </TemplateColumn>
+        <TemplateColumn TGridItem="FdcParameterDto" Title="">
+            <NexaButton OnClick="@(() => OpenDataPanel(context.Id))">데이터 조회</NexaButton>
+        </TemplateColumn>
     </Columns>
 </NexaConditionGrid>
 
@@ -44,52 +37,46 @@
     </div>
 
     <div style="display:flex; gap:0.75rem; align-items:center; margin-bottom:1rem;">
-        <DxDateEdit @bind-Date="_dataFrom" />
+        <NexaDateInput @bind-Value="_dataFrom" />
         <span>~</span>
-        <DxDateEdit @bind-Date="_dataTo" />
-        <DxButton Text="조회" Click="LoadCollectData" />
+        <NexaDateInput @bind-Value="_dataTo" />
+        <NexaButton OnClick="LoadCollectData">조회</NexaButton>
     </div>
 
     <NexaConditionGrid TRow="FdcCollectDataDto" Items="_collectData">
-        <ConditionPanel />
         <Columns>
-            <DxGridDataColumn FieldName="CollectedAt"  Caption="수집 시각"   Width="160px" DisplayFormat="{0:yyyy-MM-dd HH:mm:ss}" />
-            <DxGridDataColumn FieldName="Value"        Caption="값"          Width="100px" />
-            <DxGridDataColumn FieldName="Quality"      Caption="품질"        Width="100px" />
-            <DxGridDataColumn FieldName="LowerLimit"   Caption="하한"        Width="90px" />
-            <DxGridDataColumn FieldName="UpperLimit"   Caption="상한"        Width="90px" />
-            <DxGridDataColumn FieldName="IsOutOfSpec"  Caption="범위 초과"   Width="90px">
-                <CellDisplayTemplate>
-                    <StatusBadge Value="@((bool)context.Value ? "OutOfSpec" : "OK")" />
-                </CellDisplayTemplate>
-            </DxGridDataColumn>
+            <PropertyColumn Property="@((FdcCollectDataDto r) => r.CollectedAt)" Title="수집 시각" Format="yyyy-MM-dd HH:mm:ss" />
+            <PropertyColumn Property="@((FdcCollectDataDto r) => r.Value)"       Title="값" />
+            <PropertyColumn Property="@((FdcCollectDataDto r) => r.Quality)"     Title="품질" />
+            <PropertyColumn Property="@((FdcCollectDataDto r) => r.LowerLimit)"  Title="하한" />
+            <PropertyColumn Property="@((FdcCollectDataDto r) => r.UpperLimit)"  Title="상한" />
+            <TemplateColumn TGridItem="FdcCollectDataDto" Title="범위 초과">
+                <StatusBadge Value="@(context.IsOutOfSpec ? "OutOfSpec" : "OK")" />
+            </TemplateColumn>
         </Columns>
     </NexaConditionGrid>
 }
 
-@if (_showCreate)
-{
-    <DxPopup @bind-Visible="_showCreate" HeaderText="FDC 파라미터 등록" Width="460px">
-        <BodyContentTemplate>
-            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-                <DxTextBox @bind-Text="_form.ParameterId"   NullText="파라미터 ID *" />
-                <DxTextBox @bind-Text="_form.ParameterName" NullText="파라미터명 *" />
-                <DxTextBox @bind-Text="_form.EquipmentId"   NullText="설비 ID *" />
-                <DxTextBox @bind-Text="_form.Unit"          NullText="단위 (예: ℃, mbar)" />
-                <DxSpinEdit @bind-Value="_form.LowerLimit"  Placeholder="하한 *" />
-                <DxSpinEdit @bind-Value="_form.UpperLimit"  Placeholder="상한 *" />
-                @if (!string.IsNullOrEmpty(_createError))
-                {
-                    <div style="color:#dc2626; font-size:0.875rem;">@_createError</div>
-                }
-            </div>
-        </BodyContentTemplate>
-        <FooterContentTemplate>
-            <DxButton Text="등록" RenderStyle="ButtonRenderStyle.Primary" Click="CreateParameter" />
-            <DxButton Text="취소" Click="@(() => _showCreate = false)" CssClass="ms-2" />
-        </FooterContentTemplate>
-    </DxPopup>
-}
+<NexaModal @bind-Visible="_showCreate" Title="FDC 파라미터 등록">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.ParameterId"   Placeholder="파라미터 ID *" />
+            <NexaTextBox @bind-Value="_form.ParameterName" Placeholder="파라미터명 *" />
+            <NexaTextBox @bind-Value="_form.EquipmentId"   Placeholder="설비 ID *" />
+            <NexaTextBox @bind-Value="_form.Unit"          Placeholder="단위 (예: ℃, mbar)" />
+            <NexaNumberInput @bind-Value="_form.LowerLimit"  Placeholder="하한 *" />
+            <NexaNumberInput @bind-Value="_form.UpperLimit"  Placeholder="상한 *" />
+            @if (!string.IsNullOrEmpty(_createError))
+            {
+                <div style="color:#dc2626; font-size:0.875rem;">@_createError</div>
+            }
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="CreateParameter">등록</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)">취소</NexaButton>
+    </Footer>
+</NexaModal>
 
 @code {
     private List<FdcParameterDto>     _params      = new();

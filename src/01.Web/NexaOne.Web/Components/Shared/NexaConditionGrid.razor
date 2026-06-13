@@ -1,5 +1,10 @@
 @typeparam TRow
+@using Microsoft.AspNetCore.Components.QuickGrid
 
+@* DevExpress DxGrid → Microsoft QuickGrid 이식. API(Items/ConditionPanel/Columns/PageSize)는 유지하여
+   페이지는 컬럼 정의(PropertyColumn/TemplateColumn)만 바꾸면 된다.
+   주의: QuickGrid는 per-column 필터행(구 ShowFilterRow)을 제공하지 않는다 — 필터링은 ConditionPanel이 담당.
+   정렬은 PropertyColumn 헤더 클릭으로 동작. 페이지네이션은 Paginator로 노출. *@
 <div>
     @if (ConditionPanel is not null)
     {
@@ -8,14 +13,16 @@
         </div>
     }
 
-    <DxGrid Data="Items"
-            PageSize="PageSize"
-            ShowFilterRow="true"
-            CssClass="nexaone-grid">
-        <Columns>
-            @Columns
-        </Columns>
-    </DxGrid>
+    <QuickGrid TGridItem="TRow" Items="@Query" Pagination="@_pagination" Class="nexa-grid w-full text-sm">
+        @Columns
+    </QuickGrid>
+
+    @if (_pagination.TotalItemCount is > 0 && _pagination.TotalItemCount > PageSize)
+    {
+        <div class="mt-2 flex justify-end">
+            <Paginator State="_pagination" />
+        </div>
+    }
 </div>
 
 @code {
@@ -23,4 +30,10 @@
     [Parameter] public RenderFragment? ConditionPanel { get; set; }
     [Parameter] public RenderFragment? Columns { get; set; }
     [Parameter] public int PageSize { get; set; } = 20;
+
+    private readonly PaginationState _pagination = new();
+
+    private IQueryable<TRow> Query => (Items ?? Enumerable.Empty<TRow>()).AsQueryable();
+
+    protected override void OnParametersSet() => _pagination.ItemsPerPage = PageSize;
 }
