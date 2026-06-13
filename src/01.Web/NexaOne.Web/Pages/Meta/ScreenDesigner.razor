@@ -1,0 +1,116 @@
+@page "/designer/screen"
+@attribute [Authorize]
+@inject IScreenDefinitionProvider Definitions
+
+@* Phase 4 — 프론트엔드 Low-Code: 현업이 필드를 시각적으로 조립해 ScreenDefinition을 만들고 등록한다.
+   등록된 화면은 Phase 3 런타임(/meta/{UiId})이 렌더한다. (※ 비즈니스 로직 워크플로우 디자이너와는 별개 트랙) *@
+<div class="page-header">
+    <h1 class="page-title">화면 디자이너 (Low-Code)</h1>
+</div>
+
+<section class="designer-meta">
+    <label>화면 ID(UiId)</label>
+    <input value="@_uiId" @onchange="e => { _uiId = e.Value?.ToString() ?? string.Empty; _saved = false; }" />
+    <label>제목</label>
+    <input value="@_title" @onchange="e => { _title = e.Value?.ToString() ?? string.Empty; _saved = false; }" />
+</section>
+
+<section class="designer-fields">
+    <h3>필드</h3>
+    <table>
+        <thead>
+            <tr><th>Key</th><th>레이블</th><th>유형</th><th>필수</th><th>읽기전용</th><th></th></tr>
+        </thead>
+        <tbody>
+            @for (var i = 0; i < _fields.Count; i++)
+            {
+                var idx = i;
+                var f = _fields[idx];
+                <tr>
+                    <td><input value="@f.Key" @onchange="e => { f.Key = e.Value?.ToString() ?? string.Empty; _saved = false; }" /></td>
+                    <td><input value="@f.Label" @onchange="e => { f.Label = e.Value?.ToString() ?? string.Empty; _saved = false; }" /></td>
+                    <td>
+                        <select @onchange="e => { f.Type = Enum.Parse<FieldType>(e.Value?.ToString() ?? nameof(FieldType.Text)); _saved = false; }">
+                            @foreach (var t in Enum.GetValues<FieldType>())
+                            {
+                                <option value="@t" selected="@(f.Type == t)">@t</option>
+                            }
+                        </select>
+                    </td>
+                    <td><input type="checkbox" checked="@f.Required" @onchange="e => { f.Required = (bool)(e.Value ?? false); _saved = false; }" /></td>
+                    <td><input type="checkbox" checked="@f.ReadOnly" @onchange="e => { f.ReadOnly = (bool)(e.Value ?? false); _saved = false; }" /></td>
+                    <td><button @onclick="() => Remove(idx)">삭제</button></td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    <button @onclick="AddField">+ 필드 추가</button>
+</section>
+
+<section class="designer-preview">
+    <h3>미리보기</h3>
+    <MetaFormRenderer Definition="BuildDefinition()" @bind-Model="_preview" />
+</section>
+
+<div class="designer-actions">
+    <button @onclick="Save" disabled="@(!CanSave)">저장(등록)</button>
+    @if (_saved) { <span>등록됨 — <a href="@($"/meta/{_uiId}")">/meta/@_uiId</a> 에서 렌더됩니다.</span> }
+    @if (_error is not null) { <span style="color:crimson">@_error</span> }
+</div>
+
+@code {
+    // 편집용 가변 드래프트(불변 record FieldDefinition과 분리). 저장 시 ScreenDefinition으로 변환.
+    private sealed class FieldDraft
+    {
+        public string Key = string.Empty;
+        public string Label = string.Empty;
+        public FieldType Type = FieldType.Text;
+        public bool Required;
+        public bool ReadOnly;
+    }
+
+    private string _uiId = string.Empty;
+    private string _title = string.Empty;
+    private readonly List<FieldDraft> _fields = new();
+    private Dictionary<string, object?> _preview = new();
+    private bool _saved;
+    private string? _error;
+
+    private bool CanSave =>
+        !string.IsNullOrWhiteSpace(_uiId) && !string.IsNullOrWhiteSpace(_title) && _fields.Count > 0
+        && _fields.All(f => !string.IsNullOrWhiteSpace(f.Key) && !string.IsNullOrWhiteSpace(f.Label));
+
+    private void AddField()
+    {
+        _fields.Add(new FieldDraft { Key = $"field{_fields.Count + 1}", Label = "새 필드" });
+        _saved = false;
+    }
+
+    private void Remove(int idx)
+    {
+        _fields.RemoveAt(idx);
+        _saved = false;
+    }
+
+    private ScreenDefinition BuildDefinition() => new(
+        _uiId,
+        string.IsNullOrWhiteSpace(_title) ? "(제목 없음)" : _title,
+        _fields.Select(f => new FieldDefinition(f.Key, f.Label, f.Type, f.Required, f.ReadOnly)).ToList());
+
+    private void Save()
+    {
+        _error = null;
+        if (!CanSave)
+        {
+            _error = "UiId·제목·필드(키/레이블)를 모두 채우세요.";
+            return;
+        }
+        if (_fields.Select(f => f.Key).Distinct(StringComparer.OrdinalIgnoreCase).Count() != _fields.Count)
+        {
+            _error = "필드 Key가 중복됩니다.";
+            return;
+        }
+        Definitions.Register(BuildDefinition());   // 인메모리 등록 — DB 메타 저장소는 후속
+        _saved = true;
+    }
+}

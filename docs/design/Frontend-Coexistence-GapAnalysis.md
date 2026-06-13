@@ -34,7 +34,14 @@
 각 항목: **비전 / 현재 자산 / 핵심 갭 / 재활용 레버리지**.
 
 ### 2.1 Low-Code — 현업도 화면·로직 개발
-- **비전**: 메타데이터/비주얼 디자이너로 현업이 코딩 없이 화면(폼/그리드)·로직(워크플로우)을 구성.
+
+> **용어 정정(중요)**: "Low-Code"는 **두 개의 별개 트랙**이며 혼동하면 안 된다.
+> 1. **프론트엔드 Low-Code = 화면 디자이너** — 현업이 화면(폼/그리드)을 시각적으로 조립(ScreenDefinition 메타데이터 생성) → 화면 런타임이 렌더. *프론트엔드* 관심사. (Phase 3 메타모델 + Phase 4 디자이너)
+> 2. **워크플로우 디자이너 = 비즈니스 로직** — 그래프로 업무 로직/오케스트레이션을 구성 → `FlowExecutionEngine`이 실행. *백엔드 로직* 관심사. (§8에서 앱 연계 완료, NexusFramework 그래프 에디터)
+>
+> 이 둘은 산출물(화면 메타 vs 워크플로우 그래프)·실행 주체(화면 런타임 vs FlowExecutionEngine)·계층(프론트 vs 백엔드)이 모두 다르다. 아래 자산/갭은 두 트랙을 구분해 읽어야 한다.
+
+- **비전**: (프론트 트랙) 비주얼 화면 디자이너로 현업이 코딩 없이 화면을 구성. (로직 트랙) 워크플로우 그래프로 업무 로직 구성.
 - **현재**: `FlowExecutionEngine`(DAG 검증·위상정렬·병렬 실행·Try/Catch/Finally) + `INode`/`NodeRegistry` + `[WorkflowCallable]`/`AssemblyInvocationNode`(DLL 메서드를 노드로 리플렉션 호출) = **로직 실행 코어는 성숙**. VS Code 확장 그래프 디자이너(workflow-editor.js ~1,920줄) 존재. §8로 `WorkflowController`가 `*.workflow` 실행까지 배선.
 - **핵심 갭**:
   - 메타데이터 주도 **화면 생성 전무** — `FormDefinition`/`ScreenDefinition` 메타모델 없음, `DynamicComponent`/`RenderTreeBuilder` 미사용, 모든 화면 하드코딩.
