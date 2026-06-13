@@ -54,6 +54,8 @@ public sealed class FdcCollectorHostedService : BackgroundService
 
         collector.InterlockTriggered += OnInterlockTriggered;
         collector.InterlockResolved += OnInterlockResolved;
+        collector.AlarmRaised += OnAlarmRaised;
+        collector.AlarmCleared += OnAlarmCleared;
 
         var endpoints = await endpointRepo.GetAllActiveAsync(stoppingToken);
         var devices = new List<OpcUaDeviceInterface>();
@@ -114,6 +116,23 @@ public sealed class FdcCollectorHostedService : BackgroundService
         {
             _logger.LogError(ex, "Interlock resolve notification failed for {Equipment}/{Parameter}",
                 e.EquipmentId, e.ParameterId);
+        }
+    }
+
+    private void OnAlarmRaised(object? sender, FdcAlarmRaisedEventArgs e) =>
+        _ = NotifySafelyAsync(() => _notifier.NotifyFdcDataReceivedAsync(
+            e.EquipmentId, e.ParameterId, e.Value, isOutOfSpec: true), e.EquipmentId, e.ParameterId);
+
+    private void OnAlarmCleared(object? sender, FdcAlarmClearedEventArgs e) =>
+        _ = NotifySafelyAsync(() => _notifier.NotifyEquipmentStateChangedAsync(
+            e.EquipmentId, "AlarmCleared"), e.EquipmentId, e.ParameterId);
+
+    private async Task NotifySafelyAsync(Func<Task> notify, string equipmentId, string parameterId)
+    {
+        try { await notify(); }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "FDC alarm notification failed for {Equipment}/{Parameter}", equipmentId, parameterId);
         }
     }
 

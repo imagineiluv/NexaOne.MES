@@ -239,4 +239,64 @@ public sealed class FdcCollectorServiceTests
 
         await act.Should().ThrowAsync<InvalidOperationException>("초기화 전에는 구독을 걸 수 없다");
     }
+
+    // ── 알람 평가 연결 (§10.4.1) ────────────────────────────────────────────────
+
+    private static FdcCollectorService BuildWithAlarm(Mock<IFdcAlarmConfigRepository> cfgRepo)
+    {
+        var param = FdcParameter.Create("TEMP01", "Temp", "EQ-001", "C", 0m, 100m).Value;
+        var paramRepo = new Mock<IFdcParameterRepository>();
+        paramRepo.Setup(r => r.GetByIdAsync("TEMP01", It.IsAny<CancellationToken>())).ReturnsAsync(param);
+        var dataRepo = new Mock<IFdcCollectDataRepository>();
+        var alarmSvc = new FdcAlarmService(cfgRepo.Object);   // history repo 없음
+        return new FdcCollectorService(
+            new FdcDataService(paramRepo.Object, dataRepo.Object), interlockService: null, alarmService: alarmSvc);
+    }
+
+    private static void SetupAlarm(Mock<IFdcAlarmConfigRepository> cfgRepo, string level, string op, decimal threshold)
+    {
+        var cfg = FdcAlarmConfig.Create("A1", "EQ-001", "TEMP01", level, op, threshold).Value;
+        cfgRepo.Setup(r => r.GetActiveConfigsAsync("EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+               .ReturnsAsync(new[] { cfg });
+    }
+
+    [Fact]
+    public async Task OnTagChange_raises_alarm_once_then_clears_on_normal()
+    {
+        var cfgRepo = new Mock<IFdcAlarmConfigRepository>();
+        var sut = BuildWithAlarm(cfgRepo);
+        SetupAlarm(cfgRepo, "Warning", "GT", 80m);
+
+        var raised = 0;
+        FdcAlarmClearedEventArgs? cleared = null;
+        sut.AlarmRaised += (_, _) => raised++;
+        sut.AlarmCleared += (_, e) => cleared = e;
+
+        await sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 90.0, PlcQuality.Good));  // 발생
+        await sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 95.0, PlcQuality.Good));  // 발생 중복(억제)
+        await sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 50.0, PlcQuality.Good));  // 정상 복귀
+
+        raised.Should().Be(1, "발생 중에는 중복 통지하지 않는다");
+        cleared.Should().NotBeNull("정상 복귀 시 해제 이벤트가 발생한다");
+        cleared!.ParameterId.Should().Be("TEMP01");
+    }
+
+    [Fact]
+    public async Task OnTagChange_reports_critical_when_multiple_levels_match()
+    {
+        var warn = FdcAlarmConfig.Create("AW", "EQ-001", "TEMP01", "Warning", "GT", 70m).Value;
+        var crit = FdcAlarmConfig.Create("AC", "EQ-001", "TEMP01", "Critical", "GT", 90m).Value;
+        var cfgRepo = new Mock<IFdcAlarmConfigRepository>();
+        cfgRepo.Setup(r => r.GetActiveConfigsAsync("EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+               .ReturnsAsync(new[] { warn, crit });
+        var sut = BuildWithAlarm(cfgRepo);
+
+        FdcAlarmRaisedEventArgs? raised = null;
+        sut.AlarmRaised += (_, e) => raised = e;
+
+        await sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 95.0, PlcQuality.Good));
+
+        raised.Should().NotBeNull();
+        raised!.Alarm.AlarmLevel.Should().Be("Critical", "여러 레벨이 잡히면 가장 심각한 것을 통지한다");
+    }
 }
