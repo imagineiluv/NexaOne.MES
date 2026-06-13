@@ -22,16 +22,18 @@ public sealed class FdcCollectorHostedService : BackgroundService
     private readonly IConfiguration _config;
     private readonly ILogger<FdcCollectorHostedService> _logger;
 
-    private readonly PlantController _plant = new();
+    private readonly PlantController _plant;   // 싱글톤 공유 — FdcController가 수동 제어(§10.4.4)
     private readonly Dictionary<string, List<string>> _equipmentMachines = new();  // equipmentId -> machine(endpoint) names
     private IServiceScope? _scope;
 
     public FdcCollectorHostedService(
+        PlantController plant,
         IServiceScopeFactory scopeFactory,
         IEesHubNotifier notifier,
         IConfiguration config,
         ILogger<FdcCollectorHostedService> logger)
     {
+        _plant = plant;
         _scopeFactory = scopeFactory;
         _notifier = notifier;
         _config = config;
@@ -175,7 +177,7 @@ public sealed class FdcCollectorHostedService : BackgroundService
             _logger.LogWarning(ex, "FDC collector stop encountered an error");
         }
 
-        await _plant.DisposeAsync();
+        // PlantController는 싱글톤이므로 DisposeAsync는 DI 컨테이너가 앱 종료 시 수행한다(여기서 호출하지 않음)
         _scope?.Dispose();
         await base.StopAsync(cancellationToken);
     }

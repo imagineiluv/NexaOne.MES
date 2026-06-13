@@ -122,6 +122,8 @@ builder.Services.AddNexaOneEES(builder.Configuration);
 builder.Services.AddScoped<NexaOne.API.Hubs.IEesHubNotifier, NexaOne.API.Hubs.EesHubNotifier>();
 
 // FDC 실시간 수집 호스트 (§10.4.2/10.4.3) — "Fdc:Collector:Enabled"=true 일 때만 실제 기동
+// PlantController는 싱글톤으로 공유: HostedService가 설비를 등록·기동하고, FdcController가 수동 제어한다(§10.4.4)
+builder.Services.AddSingleton<NexusFramework.PlantController>();
 builder.Services.AddHostedService<NexaOne.API.Services.FdcCollectorHostedService>();
 
 // CORS

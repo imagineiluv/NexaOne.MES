@@ -3283,6 +3283,11 @@ public class FdcCollectorHostedService : IHostedService
 
 #### 10.4.4 PlantController 상태 머신 — 설비 제어
 
+> **구현 완료 (v2.0):** `PlantController`를 **싱글톤 DI로 공유**한다 — `FdcCollectorHostedService`가
+> 설비를 등록·기동하고, `FdcController`가 같은 인스턴스를 수동 제어한다. 엔드포인트:
+> `GET equipment/state`(상태·설비목록), `POST equipment/start`·`stop`·`abort`(상태 부적합 시 400).
+> PlantController는 IAsyncDisposable이지만 싱글톤이므로 Dispose는 DI 컨테이너가 앱 종료 시 수행한다.
+
 ```csharp
 // PlantController는 NexusFramework HostStateMachine을 통해 전체 설비 상태를 관리
 // SmartEES API에서 설비 일괄 제어

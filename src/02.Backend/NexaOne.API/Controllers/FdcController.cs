@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Hubs;
 using NexaOne.EPT.Application.Ept;
 using NexaOne.FDC.Application.Fdc;
+using NexusFramework;
 
 namespace NexaOne.API.Controllers;
 
@@ -15,8 +16,42 @@ public class FdcController(
     FdcParameterGroupService groupService,
     FdcAlarmService fdcAlarmService,
     EquipmentAlarmService alarmService,
+    PlantController plant,
     IEesHubNotifier notifier) : ControllerBase
 {
+    // ── Equipment Control (§10.4.4 — PlantController 수동 제어) ─────────────────
+
+    [HttpGet("equipment/state")]
+    public IActionResult GetPlantState()
+        => Ok(new
+        {
+            State = plant.StateMachine?.Current.ToString() ?? "Uninitialized",
+            OperationMode = plant.OperationMode.ToString(),
+            MachineCount = plant.Machines.Count,
+            Machines = plant.Machines.Select(m => new { m.Name, State = m.State.ToString() })
+        });
+
+    [HttpPost("equipment/start")]
+    public async Task<IActionResult> StartAll(CancellationToken ct)
+    {
+        try { await plant.StartAsync(ct); return Ok(); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    [HttpPost("equipment/stop")]
+    public async Task<IActionResult> StopAll(CancellationToken ct)
+    {
+        try { await plant.StopAsync(ct); return Ok(); }
+        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+    }
+
+    [HttpPost("equipment/abort")]
+    public async Task<IActionResult> AbortAll([FromBody] AbortRequest req, CancellationToken ct)
+    {
+        await plant.AbortAsync(req.Reason, ct);
+        return Ok();
+    }
+
     [HttpGet("interlock-rules")]
     public async Task<IActionResult> GetInterlockRules([FromQuery] string? equipmentId, CancellationToken ct)
     {
@@ -205,3 +240,4 @@ public record CreateParameterGroupRequest(
 public record CreateAlarmConfigRequest(
     string AlarmConfigId, string EquipmentId, string ParameterId,
     string AlarmLevel, string Operator, decimal Threshold);
+public record AbortRequest(string Reason);
