@@ -37,7 +37,10 @@ public sealed class OutboxDispatcherService : BackgroundService
         var topic = _config["Events:Outbox:Topic"] ?? "nexaone.events";
         var intervalMs = _config.GetValue("Events:Outbox:PollIntervalMs", 5_000);
         var batchSize = _config.GetValue("Events:Outbox:BatchSize", 100);
-        _logger.LogInformation("Outbox dispatcher started (topic={Topic}, interval={Ms}ms).", topic, intervalMs);
+        var maxAttempts = _config.GetValue("Events:Outbox:MaxAttempts", 10);
+        _logger.LogInformation(
+            "Outbox dispatcher started (topic={Topic}, interval={Ms}ms, maxAttempts={MaxAttempts}).",
+            topic, intervalMs, maxAttempts);
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -45,7 +48,7 @@ public sealed class OutboxDispatcherService : BackgroundService
             {
                 using var scope = _scopeFactory.CreateScope();
                 var repo = scope.ServiceProvider.GetRequiredService<IOutboxRepository>();
-                await DispatchBatchAsync(repo, _bus, topic, batchSize, _logger, stoppingToken);
+                await DispatchBatchAsync(repo, _bus, topic, batchSize, maxAttempts, _logger, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex)
@@ -58,11 +61,13 @@ public sealed class OutboxDispatcherService : BackgroundService
         }
     }
 
-    /// <summary>미발행 한 배치를 발행·표시한다(테스트 가능 코어). 발행 성공만 published, 실패는 attempts 증가.</summary>
+    /// <summary>미발행 한 배치를 발행·표시한다(테스트 가능 코어). 발행 성공만 published, 실패는 attempts 증가.
+    /// attempts가 <paramref name="maxAttempts"/>에 도달하면 데드레터로 경고 로그를 남긴다(이후 폴링에서 제외됨).</summary>
     public static async Task<int> DispatchBatchAsync(
-        IOutboxRepository repo, IMessageBus bus, string topic, int batchSize, ILogger logger, CancellationToken ct)
+        IOutboxRepository repo, IMessageBus bus, string topic, int batchSize, int maxAttempts,
+        ILogger logger, CancellationToken ct)
     {
-        var pending = await repo.GetUnpublishedAsync(batchSize, ct);
+        var pending = await repo.GetUnpublishedAsync(batchSize, maxAttempts, ct);
         var published = 0;
 
         foreach (var m in pending)
@@ -77,8 +82,15 @@ public sealed class OutboxDispatcherService : BackgroundService
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Outbox publish failed for {Id} ({EventType})", m.Id, m.EventType);
                 await repo.MarkFailedAsync(m.Id, ct);
+                // 이번 실패로 attempts가 한계에 도달하면 데드레터 — 다음 폴링부터 GetUnpublished에서 제외된다.
+                if (m.Attempts + 1 >= maxAttempts)
+                    logger.LogError(ex,
+                        "Outbox message DEAD-LETTERED after {Attempts} attempts: {Id} ({EventType}). 수동 조치 필요.",
+                        m.Attempts + 1, m.Id, m.EventType);
+                else
+                    logger.LogError(ex, "Outbox publish failed for {Id} ({EventType}), attempt {Attempts}/{Max}",
+                        m.Id, m.EventType, m.Attempts + 1, maxAttempts);
             }
         }
 

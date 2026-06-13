@@ -177,6 +177,43 @@ public sealed class FdcCollectorServiceTests
         resolvedFired.Should().BeFalse("발동한 적 없으면 해제 이벤트도 없다");
     }
 
+    [Fact]
+    public async Task OnTagChange_retries_interlock_trigger_after_record_failure()
+    {
+        // 인터락 기록(INSERT)이 실패하면 in-memory 활성 표시를 롤백해, 다음 태그 변화에서 재발동·재기록되어야 한다.
+        // (롤백하지 않으면 활성 표시만 남아 이후 발동이 영구 억제되고 STOP 등 안전 동작이 누락된다.)
+        var param = FdcParameter.Create("TEMP01", "Temperature", "EQ-001", "C", 0m, 100m).Value;
+        var paramRepo = new Mock<IFdcParameterRepository>();
+        paramRepo.Setup(r => r.GetByIdAsync("TEMP01", It.IsAny<CancellationToken>())).ReturnsAsync(param);
+        var dataRepo = new Mock<IFdcCollectDataRepository>();
+
+        var ruleRepo = new Mock<IFdcInterlockRuleRepository>();
+        var rule = FdcInterlockRule.Create("R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
+        ruleRepo.Setup(r => r.GetActiveRulesAsync("EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new[] { rule });
+
+        // 첫 AddAsync는 DB 오류로 실패, 두 번째는 성공.
+        var addCalls = 0;
+        var historyRepo = new Mock<IFdcInterlockHistoryRepository>();
+        historyRepo.Setup(r => r.AddAsync(It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()))
+                   .Returns(() => ++addCalls == 1
+                       ? Task.FromException(new InvalidOperationException("db down"))
+                       : Task.CompletedTask);
+
+        var interlock = new FdcInterlockService(ruleRepo.Object, historyRepo.Object);
+        var sut = new FdcCollectorService(new FdcDataService(paramRepo.Object, dataRepo.Object), interlock);
+
+        var triggers = 0;
+        sut.InterlockTriggered += (_, _) => triggers++;
+
+        await sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 90.0, PlcQuality.Good));  // 기록 실패 → 통지 생략·활성표시 롤백
+        await sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 91.0, PlcQuality.Good));  // 재발동 → 기록 성공 → 통지
+
+        triggers.Should().Be(1, "첫 기록 실패는 통지하지 않고, 활성 표시 롤백 후 다음 변화에서 재발동·통지된다");
+        historyRepo.Verify(r => r.AddAsync(It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(2), "기록 실패가 활성 표시를 막지 않아 다음 변화에서 재기록을 시도한다");
+    }
+
     // ── 구독 연결 end-to-end (OpcUaDeviceInterface + FdcCollectorService) ──────────
 
     [Fact]

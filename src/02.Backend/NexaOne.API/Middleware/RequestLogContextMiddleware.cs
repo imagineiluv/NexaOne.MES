@@ -25,15 +25,27 @@ public sealed class RequestLogContextMiddleware
         context.Response.Headers[CorrelationHeader] = correlationId;
 
         // 비로그인 요청은 anonymous, Plant 없는 System 요청은 GLOBAL (§17.3)
-        var userId = context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value
-            ?? context.User?.FindFirst("sub")?.Value ?? "anonymous";
+        var authUser = context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? context.User?.FindFirst("sub")?.Value;
+        var userId = authUser ?? "anonymous";
         var plantId = context.User?.FindFirst("plantId")?.Value ?? "GLOBAL";
 
-        using (LogContext.PushProperty("CorrelationId", correlationId))
-        using (LogContext.PushProperty("UserId", userId))
-        using (LogContext.PushProperty("PlantId", plantId))
+        // 감사 컬럼(CREATED_BY/UPDATED_BY)에 실제 사용자가 실리도록 요청 앰비언트에 설정한다.
+        // 비인증이면 null로 두어 ServiceObjectProcessor가 "SYSTEM"으로 폴백하게 한다.
+        var previousAuditUser = NexaOne.Infrastructure.Persistence.CurrentUserContext.UserId;
+        NexaOne.Infrastructure.Persistence.CurrentUserContext.UserId = authUser;
+        try
         {
-            await _next(context);
+            using (LogContext.PushProperty("CorrelationId", correlationId))
+            using (LogContext.PushProperty("UserId", userId))
+            using (LogContext.PushProperty("PlantId", plantId))
+            {
+                await _next(context);
+            }
+        }
+        finally
+        {
+            NexaOne.Infrastructure.Persistence.CurrentUserContext.UserId = previousAuditUser;
         }
     }
 

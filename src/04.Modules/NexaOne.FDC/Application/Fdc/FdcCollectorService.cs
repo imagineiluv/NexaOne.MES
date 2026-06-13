@@ -129,7 +129,18 @@ public sealed class FdcCollectorService
             // 신규 발동만 기록·통지 (이미 발동 중이면 중복 억제)
             if (_activeInterlocks.TryAdd(key, 0))
             {
-                await _interlockService.RecordTriggerAsync(equipmentId, tagName, value, interlock, ct);
+                try
+                {
+                    await _interlockService.RecordTriggerAsync(equipmentId, tagName, value, interlock, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // 기록(INSERT) 실패 시 활성 표시를 롤백한다. 롤백하지 않으면 활성 표시만 남아 이후 발동이
+                    // 영구 억제되고(STOP 등 안전 동작 누락), 정상 복귀 시 기록 없는 인터락을 거짓 해제한다.
+                    // 표시를 제거해 다음 태그 변화에서 재평가·재기록·재통지되도록 하고, 이번 통지는 생략한다.
+                    _activeInterlocks.TryRemove(key, out _);
+                    return;
+                }
                 InterlockTriggered?.Invoke(this,
                     new FdcInterlockTriggeredEventArgs(equipmentId, tagName, value, interlock));
             }
@@ -158,8 +169,17 @@ public sealed class FdcCollectorService
             var isNew = !_activeAlarms.TryGetValue(key, out var current);
             if (isNew || SeverityRank(top.AlarmLevel) > SeverityRank(current!))
             {
-                _activeAlarms[key] = top.AlarmLevel;
-                await _alarmService.RecordAsync(equipmentId, tagName, value, top, ct);
+                try
+                {
+                    await _alarmService.RecordAsync(equipmentId, tagName, value, top, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // 기록 실패 시 활성 레벨을 갱신하지 않는다 — 갱신해 버리면 기록 없는 알람이 이후 동일/하위
+                    // 레벨을 거짓 억제한다. 갱신을 미뤄 다음 태그 변화에서 재평가·재기록되도록 한다.
+                    return;
+                }
+                _activeAlarms[key] = top.AlarmLevel;   // 기록 성공 후에만 활성 레벨 갱신
                 AlarmRaised?.Invoke(this, new FdcAlarmRaisedEventArgs(equipmentId, tagName, value, top));
             }
         }

@@ -32,15 +32,17 @@ public sealed class OutboxRepository : QueryRepository, IOutboxRepository
         }, ct);
     }
 
-    public Task<IReadOnlyList<OutboxMessage>> GetUnpublishedAsync(int batchSize, CancellationToken ct = default)
+    public Task<IReadOnlyList<OutboxMessage>> GetUnpublishedAsync(
+        int batchSize, int maxAttempts, CancellationToken ct = default)
     {
+        // ATTEMPTS >= maxAttempts 행은 데드레터로 간주해 폴링에서 제외한다(영구 실패 메시지의 배치 점유·무한 재시도 차단).
         const string baseSql = @"SELECT
                 ID AS Id, EVENT_TYPE AS EventType, MODULE AS Module, AGGREGATE_ID AS AggregateId,
                 PAYLOAD AS Payload, OCCURRED_AT AS OccurredAt, PUBLISHED_AT AS PublishedAt, ATTEMPTS AS Attempts
             FROM EES_OUTBOX
-            WHERE PUBLISHED_AT IS NULL";
+            WHERE PUBLISHED_AT IS NULL AND ATTEMPTS < @maxAttempts";
         var sql = _dialect.WrapPaged(baseSql, "ID", 0, batchSize);
-        return QueryAsync<OutboxMessage>(sql, null, ct);
+        return QueryAsync<OutboxMessage>(sql, new { maxAttempts }, ct);
     }
 
     public Task MarkPublishedAsync(long id, CancellationToken ct = default)

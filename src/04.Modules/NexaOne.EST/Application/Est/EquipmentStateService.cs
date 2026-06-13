@@ -69,16 +69,18 @@ public sealed class EquipmentStateService
 
         // Apply transition
         current.ApplyTransition(setState);
-        await _stateRepo.UpsertAsync(current, ct);
 
-        // Record history
+        // Record history — 상태 변경과 이력 기록은 원자적으로 묶는다(상태만 바뀌고 이력이 누락되는 부분 커밋 방지).
         var histId = $"{equipmentId}_{DateTime.UtcNow:yyyyMMddHHmmssfff}";
         var histResult = EquipmentStateHistory.Create(
             histId, equipmentId, fromState, toState, setState,
             current.StateChangedAt, requestedBy, reason, sourceType);
 
         if (histResult.IsSuccess)
-            await _stateRepo.AddHistoryAsync(histResult.Value, ct);
+            await _stateRepo.ChangeStateWithHistoryAsync(current, histResult.Value, ct);
+        else
+            // 이력 도메인 검증 실패(비정상 입력)는 상태 변경만 반영해 기존 동작을 보존한다.
+            await _stateRepo.UpsertAsync(current, ct);
 
         return Result.Success(current);
     }

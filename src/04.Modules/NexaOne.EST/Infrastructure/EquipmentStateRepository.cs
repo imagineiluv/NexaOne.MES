@@ -39,19 +39,23 @@ public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateR
         return rows.Select(r => r.ToDomain()).ToList();
     }
 
-    public async Task UpsertAsync(EquipmentCurrentState state, CancellationToken ct = default)
+    private const string HistInsertSql = @"
+            INSERT INTO EST_EQUIPMENT_STATE_HISTORY
+                (HIST_ID, EQUIPMENT_ID, FROM_STATE, TO_STATE, SET_STATE,
+                 CHANGED_AT, CHANGED_BY, REASON, SOURCE_TYPE, TXN_HIST_KEY)
+            VALUES
+                (@HistId, @EquipmentId, @FromState, @ToState, @SetState,
+                 @ChangedAt, @ChangedBy, @Reason, @SourceType, @TxnHistKey)";
+
+    // 상태 업서트 SQL + 컬럼명 키 파라미터를 만든다. KEY = PK(EQUIPMENT_ID), DATA = INSERT 후보 + UPDATE SET.
+    // PLANT_ID는 동일 설비의 불변 속성이라 충돌 시 같은 값으로 재대입되어도 무해 — INSERT 컬럼 보존 위해 포함.
+    // BuildUpsertSql은 @<COLUMN_NAME>(대문자 SNAKE_CASE) 플레이스홀더를 쓰므로 DynamicParameters로 컬럼명 키를 맞춘다.
+    private (string Sql, Dapper.DynamicParameters Param) BuildStateUpsert(EquipmentCurrentState state)
     {
-        // KEY_COL = ON 조건(PK): EQUIPMENT_ID. DATA_COL = INSERT 후보 + UPDATE SET 대상.
-        // 원본 MERGE는 PLANT_ID를 UPDATE SET에서 제외했으나, BuildUpsertSql은 key 외 컬럼을 모두
-        // INSERT+UPDATE 대상으로 다룬다. PLANT_ID는 동일 설비의 불변 속성이라 충돌 시 같은 값으로
-        // 재대입되어도 무해하므로 INSERT 컬럼 보존을 위해 dataColumns에 포함한다.
         var sql = _dialect.BuildUpsertSql(
             "EST_EQUIPMENT_STATE",
             new[] { "EQUIPMENT_ID" },
             new[] { "PLANT_ID", "CURRENT_STATE_ID", "STATE_CHANGED_AT", "STATE_VERSION" });
-
-        // BuildUpsertSql은 @<COLUMN_NAME>(대문자 SNAKE_CASE) 플레이스홀더를 쓴다 — Row의 PascalCase
-        // 속성과 정합되도록 DynamicParameters로 컬럼명 키를 직접 매핑한다.
         var r = StateRow.FromDomain(state);
         var p = new Dapper.DynamicParameters();
         p.Add("EQUIPMENT_ID", r.EquipmentId);
@@ -59,6 +63,12 @@ public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateR
         p.Add("CURRENT_STATE_ID", r.CurrentStateId);
         p.Add("STATE_CHANGED_AT", r.StateChangedAt);
         p.Add("STATE_VERSION", r.StateVersion);
+        return (sql, p);
+    }
+
+    public async Task UpsertAsync(EquipmentCurrentState state, CancellationToken ct = default)
+    {
+        var (sql, p) = BuildStateUpsert(state);
         // ExecuteAsync(raw): InjectAudit는 DynamicParameters의 public 프로퍼티를 반영해 컬럼 파라미터를
         // 유실시키므로 InsertAsync 대신 감사 미주입 raw 실행 경로를 쓴다(EST_EQUIPMENT_STATE는 감사 컬럼 없음).
         await _processor.ExecuteAsync(sql, p, ct);
@@ -66,14 +76,19 @@ public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateR
 
     public async Task AddHistoryAsync(EquipmentStateHistory history, CancellationToken ct = default)
     {
-        const string sql = @"
-            INSERT INTO EST_EQUIPMENT_STATE_HISTORY
-                (HIST_ID, EQUIPMENT_ID, FROM_STATE, TO_STATE, SET_STATE,
-                 CHANGED_AT, CHANGED_BY, REASON, SOURCE_TYPE, TXN_HIST_KEY)
-            VALUES
-                (@HistId, @EquipmentId, @FromState, @ToState, @SetState,
-                 @ChangedAt, @ChangedBy, @Reason, @SourceType, @TxnHistKey)";
-        await _processor.InsertAsync(sql, HistRow.FromDomain(history), ct);
+        await _processor.InsertAsync(HistInsertSql, HistRow.FromDomain(history), ct);
+    }
+
+    public async Task ChangeStateWithHistoryAsync(
+        EquipmentCurrentState state, EquipmentStateHistory history, CancellationToken ct = default)
+    {
+        // 상태 업서트 + 이력 INSERT를 단일 트랜잭션으로 — 둘 다 커밋되거나 둘 다 롤백된다(부분 커밋 방지).
+        // 두 문장 모두 컬럼명/PascalCase 파라미터를 그대로 쓰는 raw 실행이라 ExecuteManyAsync로 묶는다
+        // (EST 두 테이블 모두 CREATED_BY 류 감사 컬럼이 없어 감사 주입이 불필요하다).
+        var (upsertSql, stateParam) = BuildStateUpsert(state);
+        await _processor.ExecuteManyAsync(ct,
+            (upsertSql, stateParam),
+            (HistInsertSql, HistRow.FromDomain(history)));
     }
 
     public async Task<IReadOnlyList<EquipmentStateHistory>> GetHistoryAsync(
