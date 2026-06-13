@@ -1,0 +1,56 @@
+@page "/meta/{UiId}"
+@attribute [Authorize]
+@inject IScreenDefinitionProvider Definitions
+
+@* Phase 3 — 메타데이터 주도 화면: 정적 @@page 컴파일 화면이 아니라 UiId로 ScreenDefinition을 해석해 동적 렌더. *@
+<div class="page-header">
+    <h1 class="page-title">@(_definition?.Title ?? "알 수 없는 화면")</h1>
+</div>
+
+@if (_definition is null)
+{
+    <p>화면 정의를 찾을 수 없습니다: <code>@UiId</code></p>
+}
+else
+{
+    <MetaFormRenderer Definition="_definition" @bind-Model="_model" />
+
+    <div class="meta-actions">
+        <button @onclick="Save">저장</button>
+    </div>
+
+    @if (_errors.Count > 0)
+    {
+        <ul class="validation-errors">
+            @foreach (var err in _errors) { <li>@err</li> }
+        </ul>
+    }
+}
+
+@code {
+    [Parameter] public string UiId { get; set; } = string.Empty;
+
+    private ScreenDefinition? _definition;
+    private Dictionary<string, object?> _model = new();
+    private List<string> _errors = new();
+
+    protected override void OnParametersSet() => _definition = Definitions.Get(UiId);
+
+    private void Save()
+    {
+        _errors = Validate();
+        // 실제 저장은 ScreenDefinition에 바인딩된 명령(API)로 — Phase 3 후속. 현재는 필수 검증 데모.
+    }
+
+    private List<string> Validate()
+    {
+        var errors = new List<string>();
+        if (_definition is null) return errors;
+        foreach (var field in _definition.Fields.Where(f => f.Required))
+        {
+            if (!_model.TryGetValue(field.Key, out var v) || string.IsNullOrWhiteSpace(v?.ToString()))
+                errors.Add($"{field.Label}은(는) 필수입니다.");
+        }
+        return errors;
+    }
+}

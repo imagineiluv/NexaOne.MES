@@ -1,0 +1,54 @@
+@* Phase 3 — ScreenDefinition을 받아 필드를 런타임 렌더하는 메타데이터 주도 폼. 값은 Dictionary 모델에 양방향 바인딩. *@
+@using NexaOne.Web.Services.Meta
+
+<div class="meta-form">
+    @foreach (var field in Definition.Fields)
+    {
+        <div class="meta-field">
+            <label>@field.Label@(field.Required ? " *" : "")</label>
+            @switch (field.Type)
+            {
+                case FieldType.Boolean:
+                    <input type="checkbox" checked="@GetBool(field.Key)" disabled="@field.ReadOnly"
+                           @onchange="e => Set(field.Key, e.Value)" />
+                    break;
+
+                case FieldType.Select:
+                    <select disabled="@field.ReadOnly" @onchange="e => Set(field.Key, e.Value)">
+                        @foreach (var opt in field.Options ?? Array.Empty<string>())
+                        {
+                            <option value="@opt" selected="@(GetString(field.Key) == opt)">@opt</option>
+                        }
+                    </select>
+                    break;
+
+                default:
+                    <input type="@InputType(field.Type)" value="@GetString(field.Key)" readonly="@field.ReadOnly"
+                           @onchange="e => Set(field.Key, e.Value)" />
+                    break;
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public ScreenDefinition Definition { get; set; } = default!;
+    [Parameter] public Dictionary<string, object?> Model { get; set; } = new();
+    [Parameter] public EventCallback<Dictionary<string, object?>> ModelChanged { get; set; }
+
+    private string GetString(string key) => Model.TryGetValue(key, out var v) ? v?.ToString() ?? string.Empty : string.Empty;
+    private bool GetBool(string key) => Model.TryGetValue(key, out var v) && v is true;
+
+    private async Task Set(string key, object? value)
+    {
+        Model[key] = value;
+        await ModelChanged.InvokeAsync(Model);
+    }
+
+    private static string InputType(FieldType type) => type switch
+    {
+        FieldType.Number => "number",
+        FieldType.Date => "date",
+        _ => "text",
+    };
+}

@@ -19,6 +19,9 @@ builder.Services.AddScoped<WaitOverlayService>();
 builder.Services.AddScoped<DirtyTracker>();
 builder.Services.AddScoped<MenuCacheService>();
 builder.Services.AddScoped<MdiTabService>();
+// Phase 3 — 메타데이터 화면 런타임: UiId→ScreenDefinition 해석기(싱글톤 시드). /meta/{uiId}가 동적 렌더.
+builder.Services.AddSingleton<NexaOne.Web.Services.Meta.IScreenDefinitionProvider,
+    NexaOne.Web.Services.Meta.InMemoryScreenDefinitionProvider>();
 // §20.12: 즐겨찾기/최근 메뉴 개인화 — NavMenu와 MdiTabBar(최근 기록)가 서킷 내에서 공유
 builder.Services.AddScoped<MenuPersonalizationService>();
 // §20.9: 탭 전환(=페이지 dispose) 후 복귀 시 FDC 감시 상태를 복원하기 위한 서킷 수명 상태
