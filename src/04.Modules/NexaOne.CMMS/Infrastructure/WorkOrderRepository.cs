@@ -15,14 +15,14 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
 
     public async Task<WorkOrder?> GetByIdAsync(string woId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM CMMS_WORK_ORDER WITH(NOLOCK) WHERE WO_ID = @woId";
+        const string sql = "SELECT * FROM CMMS_WORK_ORDER WHERE WO_ID = @woId";
         var row = await QueryFirstOrDefaultAsync<WoRow>(sql, new { woId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<WorkOrder>> GetByEquipmentAsync(string equipmentId, DateTime? from, DateTime? to, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM CMMS_WORK_ORDER WITH(NOLOCK)
+        const string sql = @"SELECT * FROM CMMS_WORK_ORDER
             WHERE EQUIPMENT_ID = @equipmentId
               AND (@from IS NULL OR ISSUED_AT >= @from)
               AND (@to IS NULL OR ISSUED_AT <= @to)";
@@ -32,7 +32,7 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
 
     public async Task<IReadOnlyList<WorkOrder>> GetByStatusAsync(WorkOrderStatus status, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM CMMS_WORK_ORDER WITH(NOLOCK) WHERE STATUS = @status";
+        const string sql = "SELECT * FROM CMMS_WORK_ORDER WHERE STATUS = @status";
         var rows = await QueryAsync<WoRow>(sql, new { status = status.ToString() }, ct);
         return rows.Select(r => r.ToDomain()).OfType<WorkOrder>().ToList();
     }

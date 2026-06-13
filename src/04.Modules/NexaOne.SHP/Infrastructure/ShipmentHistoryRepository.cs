@@ -13,7 +13,7 @@ public sealed class ShipmentHistoryRepository : QueryRepository, IShipmentHistor
 
     public async Task<IReadOnlyList<ShipmentHistory>> GetByOrderAsync(string orderId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM SHP_SHIPMENT_HISTORY WITH(NOLOCK) WHERE DELIVERY_ORDER_ID = @orderId ORDER BY SHIPPED_AT DESC";
+        const string sql = "SELECT * FROM SHP_SHIPMENT_HISTORY WHERE DELIVERY_ORDER_ID = @orderId ORDER BY SHIPPED_AT DESC";
         var rows = await QueryAsync<Row>(sql, new { orderId }, ct);
         return rows.Select(r => r.ToDomain()).OfType<ShipmentHistory>().ToList();
     }

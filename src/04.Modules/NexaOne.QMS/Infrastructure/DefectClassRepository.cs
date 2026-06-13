@@ -13,14 +13,14 @@ public sealed class DefectClassRepository : QueryRepository, IDefectClassReposit
 
     public async Task<DefectClass?> GetByIdAsync(string defectClassId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM QMS_DEFECT_CLASS WITH(NOLOCK) WHERE DEFECT_CLASS_ID = @defectClassId";
+        const string sql = "SELECT * FROM QMS_DEFECT_CLASS WHERE DEFECT_CLASS_ID = @defectClassId";
         var row = await QueryFirstOrDefaultAsync<Row>(sql, new { defectClassId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<DefectClass>> GetAllAsync(CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM QMS_DEFECT_CLASS WITH(NOLOCK) WHERE IS_DELETED = 0 ORDER BY DEFECT_CLASS_NAME";
+        const string sql = "SELECT * FROM QMS_DEFECT_CLASS WHERE IS_DELETED = 0 ORDER BY DEFECT_CLASS_NAME";
         var rows = await QueryAsync<Row>(sql, new { }, ct);
         return rows.Select(r => r.ToDomain()).OfType<DefectClass>().ToList();
     }

@@ -13,14 +13,14 @@ public sealed class DeliveryItemRepository : QueryRepository, IDeliveryItemRepos
 
     public async Task<DeliveryItem?> GetByIdAsync(string itemId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM SHP_DELIVERY_ITEM WITH(NOLOCK) WHERE ITEM_ID = @itemId";
+        const string sql = "SELECT * FROM SHP_DELIVERY_ITEM WHERE ITEM_ID = @itemId";
         var row = await QueryFirstOrDefaultAsync<Row>(sql, new { itemId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<DeliveryItem>> GetByOrderAsync(string orderId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM SHP_DELIVERY_ITEM WITH(NOLOCK) WHERE DELIVERY_ORDER_ID = @orderId ORDER BY CREATED_AT";
+        const string sql = "SELECT * FROM SHP_DELIVERY_ITEM WHERE DELIVERY_ORDER_ID = @orderId ORDER BY CREATED_AT";
         var rows = await QueryAsync<Row>(sql, new { orderId }, ct);
         return rows.Select(r => r.ToDomain()).OfType<DeliveryItem>().ToList();
     }

@@ -15,14 +15,14 @@ public sealed class FdcParameterGroupRepository : QueryRepository, IFdcParameter
 
     public async Task<FdcParameterGroup?> GetByIdAsync(string groupId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM FDC_PARAMETER_GROUP WITH(NOLOCK) WHERE GROUP_ID = @groupId";
+        const string sql = "SELECT * FROM FDC_PARAMETER_GROUP WHERE GROUP_ID = @groupId";
         var row = await QueryFirstOrDefaultAsync<GroupRow>(sql, new { groupId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<FdcParameterGroup>> GetByEquipmentAsync(string equipmentId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM FDC_PARAMETER_GROUP WITH(NOLOCK)
+        const string sql = @"SELECT * FROM FDC_PARAMETER_GROUP
             WHERE EQUIPMENT_ID = @equipmentId
             ORDER BY DISPLAY_ORDER, GROUP_NAME";
         var rows = await QueryAsync<GroupRow>(sql, new { equipmentId }, ct);

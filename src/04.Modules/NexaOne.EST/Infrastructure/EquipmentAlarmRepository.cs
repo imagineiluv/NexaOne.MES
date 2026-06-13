@@ -15,14 +15,14 @@ public sealed class EquipmentAlarmRepository : QueryRepository, IEquipmentAlarmR
 
     public async Task<EquipmentAlarm?> GetByIdAsync(string alarmId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM EST_EQUIPMENT_ALARM WITH(NOLOCK) WHERE ALARM_ID = @alarmId";
+        const string sql = "SELECT * FROM EST_EQUIPMENT_ALARM WHERE ALARM_ID = @alarmId";
         var row = await QueryFirstOrDefaultAsync<AlarmRow>(sql, new { alarmId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<EquipmentAlarm>> GetByEquipmentAsync(string equipmentId, DateTime? from, DateTime? to, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM EST_EQUIPMENT_ALARM WITH(NOLOCK)
+        const string sql = @"SELECT * FROM EST_EQUIPMENT_ALARM
             WHERE EQUIPMENT_ID = @equipmentId
               AND (@from IS NULL OR OCCURRED_AT >= @from)
               AND (@to IS NULL OR OCCURRED_AT <= @to)";
@@ -32,8 +32,8 @@ public sealed class EquipmentAlarmRepository : QueryRepository, IEquipmentAlarmR
 
     public async Task<IReadOnlyList<EquipmentAlarm>> GetActiveAlarmsAsync(string plantId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT a.* FROM EST_EQUIPMENT_ALARM a WITH(NOLOCK)
-            INNER JOIN MDM_EQUIPMENT e WITH(NOLOCK) ON e.EQUIPMENT_ID = a.EQUIPMENT_ID
+        const string sql = @"SELECT a.* FROM EST_EQUIPMENT_ALARM a
+            INNER JOIN MDM_EQUIPMENT e ON e.EQUIPMENT_ID = a.EQUIPMENT_ID
             WHERE e.PLANT_ID = @plantId AND a.CLEARED_AT IS NULL";
         var rows = await QueryAsync<AlarmRow>(sql, new { plantId }, ct);
         return rows.Select(r => r.ToDomain()).OfType<EquipmentAlarm>().ToList();
@@ -41,7 +41,7 @@ public sealed class EquipmentAlarmRepository : QueryRepository, IEquipmentAlarmR
 
     public async Task<int> GetActiveAlarmCountAsync(CancellationToken ct = default)
     {
-        const string sql = "SELECT COUNT(*) FROM EST_EQUIPMENT_ALARM WITH(NOLOCK) WHERE CLEARED_AT IS NULL";
+        const string sql = "SELECT COUNT(*) FROM EST_EQUIPMENT_ALARM WHERE CLEARED_AT IS NULL";
         return await CountAsync(sql, null, ct);
     }
 

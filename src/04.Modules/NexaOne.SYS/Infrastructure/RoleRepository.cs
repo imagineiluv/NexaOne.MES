@@ -16,21 +16,21 @@ public sealed class RoleRepository : QueryRepository, IRoleRepository
 
     public async Task<Role?> GetByIdAsync(string roleId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM SYS_ROLE WITH(NOLOCK) WHERE ROLE_ID = @roleId AND IS_DELETED = 0";
+        const string sql = "SELECT * FROM SYS_ROLE WHERE ROLE_ID = @roleId AND IS_DELETED = 0";
         var row = await QueryFirstOrDefaultAsync<RoleRow>(sql, new { roleId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<Role>> GetAllAsync(CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM SYS_ROLE WITH(NOLOCK) WHERE IS_DELETED = 0 ORDER BY ROLE_ID";
+        const string sql = "SELECT * FROM SYS_ROLE WHERE IS_DELETED = 0 ORDER BY ROLE_ID";
         var rows = await QueryAsync<RoleRow>(sql, null, ct);
         return rows.Select(r => r.ToDomain()).ToList();
     }
 
     public async Task<bool> ExistsAsync(string roleId, CancellationToken ct = default)
     {
-        const string sql = "SELECT COUNT(1) FROM SYS_ROLE WITH(NOLOCK) WHERE ROLE_ID = @roleId";
+        const string sql = "SELECT COUNT(1) FROM SYS_ROLE WHERE ROLE_ID = @roleId";
         return await CountAsync(sql, new { roleId }, ct) > 0;
     }
 

@@ -22,10 +22,10 @@ public sealed class MenuRepository : QueryRepository, IMenuRepository
             SELECT DISTINCT
                 M.MENU_ID, M.MENU_NAME, M.PARENT_MENU_ID, M.DISPLAY_SEQUENCE,
                 M.MENU_TYPE, M.PROGRAM_ID, M.IMAGE_ID, M.OPTIONS, M.UI_ID
-            FROM SYS_MENU M WITH(NOLOCK)
-            JOIN SYS_MENU_ROLE MR WITH(NOLOCK)
+            FROM SYS_MENU M
+            JOIN SYS_MENU_ROLE MR
               ON MR.MENU_ID = M.MENU_ID AND MR.VALID_STATE = 'Valid'
-            JOIN SYS_USER U WITH(NOLOCK)
+            JOIN SYS_USER U
               ON U.ROLE_ID = MR.ROLE_ID AND U.USER_ID = @userId
             WHERE M.VALID_STATE = 'Valid'
             ORDER BY M.PARENT_MENU_ID, M.DISPLAY_SEQUENCE, M.MENU_TYPE, M.MENU_ID";
@@ -39,7 +39,7 @@ public sealed class MenuRepository : QueryRepository, IMenuRepository
         const string sql = @"
             SELECT MENU_ID, MENU_NAME, PARENT_MENU_ID, DISPLAY_SEQUENCE,
                    MENU_TYPE, PROGRAM_ID, IMAGE_ID, OPTIONS, UI_ID
-            FROM SYS_MENU WITH(NOLOCK)
+            FROM SYS_MENU
             WHERE VALID_STATE = 'Valid'
             ORDER BY PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, MENU_ID";
         var rows = await QueryAsync<MenuRow>(sql, null, ct);

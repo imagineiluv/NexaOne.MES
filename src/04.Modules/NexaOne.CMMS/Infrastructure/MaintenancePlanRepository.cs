@@ -13,14 +13,14 @@ public sealed class MaintenancePlanRepository : QueryRepository, IMaintenancePla
 
     public async Task<MaintenancePlan?> GetByIdAsync(string planId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM CMMS_MAINTENANCE_PLAN WITH(NOLOCK) WHERE PLAN_ID = @planId";
+        const string sql = "SELECT * FROM CMMS_MAINTENANCE_PLAN WHERE PLAN_ID = @planId";
         var row = await QueryFirstOrDefaultAsync<PlanRow>(sql, new { planId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<MaintenancePlan>> GetByEquipmentAsync(string equipmentId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM CMMS_MAINTENANCE_PLAN WITH(NOLOCK)
+        const string sql = @"SELECT * FROM CMMS_MAINTENANCE_PLAN
             WHERE EQUIPMENT_ID = @equipmentId ORDER BY SCHEDULED_DATE";
         var rows = await QueryAsync<PlanRow>(sql, new { equipmentId }, ct);
         return rows.Select(r => r.ToDomain()).OfType<MaintenancePlan>().ToList();
@@ -28,7 +28,7 @@ public sealed class MaintenancePlanRepository : QueryRepository, IMaintenancePla
 
     public async Task<IReadOnlyList<MaintenancePlan>> GetByStatusAsync(MaintenancePlanStatus status, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM CMMS_MAINTENANCE_PLAN WITH(NOLOCK) WHERE STATUS = @status ORDER BY SCHEDULED_DATE";
+        const string sql = "SELECT * FROM CMMS_MAINTENANCE_PLAN WHERE STATUS = @status ORDER BY SCHEDULED_DATE";
         var rows = await QueryAsync<PlanRow>(sql, new { status = status.ToString() }, ct);
         return rows.Select(r => r.ToDomain()).OfType<MaintenancePlan>().ToList();
     }

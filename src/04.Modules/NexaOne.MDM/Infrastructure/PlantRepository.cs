@@ -13,14 +13,14 @@ public sealed class PlantRepository : QueryRepository, IPlantRepository
 
     public async Task<Plant?> GetByIdAsync(string plantId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM MDM_PLANT WITH(NOLOCK) WHERE PLANT_ID = @plantId";
+        const string sql = "SELECT * FROM MDM_PLANT WHERE PLANT_ID = @plantId";
         var row = await QueryFirstOrDefaultAsync<PlantRow>(sql, new { plantId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<Plant>> GetAllAsync(CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM MDM_PLANT WITH(NOLOCK) ORDER BY PLANT_NAME";
+        const string sql = "SELECT * FROM MDM_PLANT ORDER BY PLANT_NAME";
         var rows = await QueryAsync<PlantRow>(sql, new { }, ct);
         return rows.Select(r => r.ToDomain()).OfType<Plant>().ToList();
     }

@@ -1,4 +1,4 @@
-﻿using NexaOne.Infrastructure.Persistence;
+using NexaOne.Infrastructure.Persistence;
 using NexaOne.RMS.Application.Rms;
 using NexaOne.RMS.Domain;
 
@@ -15,21 +15,21 @@ public sealed class RecipeRepository : QueryRepository, IRecipeRepository
 
     public async Task<Recipe?> GetByIdAsync(string recipeId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM RMS_RECIPE WITH(NOLOCK) WHERE RECIPE_ID = @recipeId";
+        const string sql = "SELECT * FROM RMS_RECIPE WHERE RECIPE_ID = @recipeId";
         var row = await QueryFirstOrDefaultAsync<RecipeRow>(sql, new { recipeId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<Recipe>> GetByEquipmentClassAsync(string equipmentClassId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM RMS_RECIPE WITH(NOLOCK) WHERE EQUIPMENT_CLASS_ID = @equipmentClassId";
+        const string sql = "SELECT * FROM RMS_RECIPE WHERE EQUIPMENT_CLASS_ID = @equipmentClassId";
         var rows = await QueryAsync<RecipeRow>(sql, new { equipmentClassId }, ct);
         return rows.Select(r => r.ToDomain()).OfType<Recipe>().ToList();
     }
 
     public async Task<IReadOnlyList<Recipe>> GetByStateAsync(RecipeApprovalState state, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM RMS_RECIPE WITH(NOLOCK) WHERE APPROVAL_STATE = @state";
+        const string sql = "SELECT * FROM RMS_RECIPE WHERE APPROVAL_STATE = @state";
         var rows = await QueryAsync<RecipeRow>(sql, new { state = state.ToString() }, ct);
         return rows.Select(r => r.ToDomain()).OfType<Recipe>().ToList();
     }

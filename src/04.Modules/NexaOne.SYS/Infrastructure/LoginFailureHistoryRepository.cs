@@ -27,7 +27,7 @@ public sealed class LoginFailureHistoryRepository : QueryRepository, ILoginFailu
     public async Task<IReadOnlyList<LoginFailureHistory>> GetRecentByUserAsync(
         string userId, int count, CancellationToken ct = default)
     {
-        const string sql = @"SELECT TOP (@count) * FROM SYS_LOGIN_FAILURE_HIST WITH(NOLOCK)
+        const string sql = @"SELECT TOP (@count) * FROM SYS_LOGIN_FAILURE_HIST
             WHERE USER_ID = @userId ORDER BY OCCURRED_AT DESC";
         var rows = await QueryAsync<Row>(sql, new { userId, count }, ct);
         return rows.Select(r => r.ToDomain()).ToList();

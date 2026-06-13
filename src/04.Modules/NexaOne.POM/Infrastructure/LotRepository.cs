@@ -15,7 +15,7 @@ public sealed class LotRepository : QueryRepository, ILotRepository
 
     public async Task<Lot?> GetByIdAsync(string lotId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM POM_LOT WITH(NOLOCK) WHERE LOT_ID = @lotId";
+        const string sql = "SELECT * FROM POM_LOT WHERE LOT_ID = @lotId";
         var row = await QueryFirstOrDefaultAsync<LotRow>(sql, new { lotId }, ct);
         return row?.ToDomain();
     }
@@ -23,7 +23,7 @@ public sealed class LotRepository : QueryRepository, ILotRepository
     public async Task<IReadOnlyList<Lot>> GetByPlantAsync(
         string plantId, string? state = null, CancellationToken ct = default)
     {
-        var sql = "SELECT * FROM POM_LOT WITH(NOLOCK) WHERE PLANT_ID = @plantId";
+        var sql = "SELECT * FROM POM_LOT WHERE PLANT_ID = @plantId";
         if (!string.IsNullOrWhiteSpace(state))
             sql += " AND LOT_STATE = @state";
         sql += " ORDER BY CREATED_AT DESC";
@@ -33,7 +33,7 @@ public sealed class LotRepository : QueryRepository, ILotRepository
 
     public async Task<IReadOnlyList<Lot>> GetByWorkOrderAsync(string workOrderId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM POM_LOT WITH(NOLOCK) WHERE WORK_ORDER_ID = @workOrderId ORDER BY LOT_ID";
+        const string sql = "SELECT * FROM POM_LOT WHERE WORK_ORDER_ID = @workOrderId ORDER BY LOT_ID";
         var rows = await QueryAsync<LotRow>(sql, new { workOrderId }, ct);
         return rows.Select(r => r.ToDomain()).ToList();
     }

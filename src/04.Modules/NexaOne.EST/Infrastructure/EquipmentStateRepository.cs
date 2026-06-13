@@ -16,7 +16,7 @@ public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateR
     {
         const string sql = @"
             SELECT EQUIPMENT_ID, PLANT_ID, CURRENT_STATE_ID, STATE_CHANGED_AT, STATE_VERSION
-            FROM EST_EQUIPMENT_STATE WITH(NOLOCK)
+            FROM EST_EQUIPMENT_STATE
             WHERE EQUIPMENT_ID = @equipmentId";
         var row = await QueryFirstOrDefaultAsync<StateRow>(sql, new { equipmentId }, ct);
         return row?.ToDomain();
@@ -27,7 +27,7 @@ public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateR
     {
         const string sql = @"
             SELECT EQUIPMENT_ID, PLANT_ID, CURRENT_STATE_ID, STATE_CHANGED_AT, STATE_VERSION
-            FROM EST_EQUIPMENT_STATE WITH(NOLOCK)
+            FROM EST_EQUIPMENT_STATE
             WHERE PLANT_ID = @plantId
             ORDER BY EQUIPMENT_ID";
         var rows = await QueryAsync<StateRow>(sql, new { plantId }, ct);
@@ -70,7 +70,7 @@ public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateR
             SELECT TOP (@limit)
                 HIST_ID, EQUIPMENT_ID, FROM_STATE, TO_STATE, SET_STATE,
                 CHANGED_AT, CHANGED_BY, REASON, SOURCE_TYPE, TXN_HIST_KEY
-            FROM EST_EQUIPMENT_STATE_HISTORY WITH(NOLOCK)
+            FROM EST_EQUIPMENT_STATE_HISTORY
             WHERE EQUIPMENT_ID = @equipmentId
             ORDER BY CHANGED_AT DESC";
         var rows = await QueryAsync<HistRow>(sql, new { equipmentId, limit }, ct);

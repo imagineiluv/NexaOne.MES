@@ -31,7 +31,7 @@ public sealed class LotHistoryRepository : QueryRepository, ILotHistoryRepositor
     public async Task<IReadOnlyList<LotHistory>> GetByLotAsync(
         string plantId, string lotId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM POM_LOT_HISTORY WITH(NOLOCK)
+        const string sql = @"SELECT * FROM POM_LOT_HISTORY
             WHERE PLANT_ID = @plantId AND LOT_ID = @lotId
             ORDER BY LOT_HISTORY_ID";
         var rows = await QueryAsync<HistoryRow>(sql, new { plantId, lotId }, ct);
@@ -44,7 +44,7 @@ public sealed class LotHistoryRepository : QueryRepository, ILotHistoryRepositor
     {
         // 설계 19.4.6 인덱스(LOT/EQP/PROC + TRACK_IN_TIME)를 타는 동적 필터 + TOP 상한
         var sql = new StringBuilder(
-            "SELECT TOP (@maxRows) * FROM POM_LOT_HISTORY WITH(NOLOCK) WHERE PLANT_ID = @plantId");
+            "SELECT TOP (@maxRows) * FROM POM_LOT_HISTORY WHERE PLANT_ID = @plantId");
         if (!string.IsNullOrWhiteSpace(lotId)) sql.Append(" AND LOT_ID = @lotId");
         if (!string.IsNullOrWhiteSpace(equipmentId)) sql.Append(" AND EQUIPMENT_ID = @equipmentId");
         if (!string.IsNullOrWhiteSpace(processId)) sql.Append(" AND PROCESS_ID = @processId");

@@ -16,7 +16,7 @@ public sealed class FdcAlarmHistoryRepository : QueryRepository, IFdcAlarmHistor
     public async Task<IReadOnlyList<FdcAlarmHistory>> GetByEquipmentAsync(
         string equipmentId, DateTime from, DateTime to, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM FDC_ALARM_HISTORY WITH(NOLOCK)
+        const string sql = @"SELECT * FROM FDC_ALARM_HISTORY
             WHERE EQUIPMENT_ID = @equipmentId AND OCCURRED_AT >= @from AND OCCURRED_AT <= @to
             ORDER BY OCCURRED_AT DESC";
         var rows = await QueryAsync<AlarmRow>(sql, new { equipmentId, from, to }, ct);
@@ -25,7 +25,7 @@ public sealed class FdcAlarmHistoryRepository : QueryRepository, IFdcAlarmHistor
 
     public async Task<IReadOnlyList<FdcAlarmHistory>> GetOpenAsync(string equipmentId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM FDC_ALARM_HISTORY WITH(NOLOCK)
+        const string sql = @"SELECT * FROM FDC_ALARM_HISTORY
             WHERE EQUIPMENT_ID = @equipmentId AND IS_CLEARED = 0
             ORDER BY OCCURRED_AT DESC";
         var rows = await QueryAsync<AlarmRow>(sql, new { equipmentId }, ct);

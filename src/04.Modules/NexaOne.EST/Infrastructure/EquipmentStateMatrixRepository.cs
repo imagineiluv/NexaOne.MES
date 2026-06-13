@@ -16,7 +16,7 @@ public sealed class EquipmentStateMatrixRepository : QueryRepository, IEquipment
     {
         const string sql = @"
             SELECT PLANT_ID, FROM_STATE_ID, TO_STATE_ID, ALLOW_FLAG, SET_STATE_ID, REQUIRE_REASON, VALID_STATE
-            FROM EST_STATE_MATRIX WITH(NOLOCK)
+            FROM EST_STATE_MATRIX
             WHERE PLANT_ID = @plantId AND VALID_STATE = 'Valid'
             ORDER BY FROM_STATE_ID, TO_STATE_ID";
         var rows = await QueryAsync<MatrixRow>(sql, new { plantId }, ct);
@@ -28,7 +28,7 @@ public sealed class EquipmentStateMatrixRepository : QueryRepository, IEquipment
     {
         const string sql = @"
             SELECT PLANT_ID, FROM_STATE_ID, TO_STATE_ID, ALLOW_FLAG, SET_STATE_ID, REQUIRE_REASON, VALID_STATE
-            FROM EST_STATE_MATRIX WITH(NOLOCK)
+            FROM EST_STATE_MATRIX
             WHERE PLANT_ID = @plantId AND FROM_STATE_ID = @fromState AND TO_STATE_ID = @toState
               AND VALID_STATE = 'Valid'";
         var row = await QueryFirstOrDefaultAsync<MatrixRow>(sql, new { plantId, fromState, toState }, ct);
@@ -40,7 +40,7 @@ public sealed class EquipmentStateMatrixRepository : QueryRepository, IEquipment
     {
         const string sql = @"
             SELECT PLANT_ID, FROM_STATE_ID, TO_STATE_ID, ALLOW_FLAG, SET_STATE_ID, REQUIRE_REASON, VALID_STATE
-            FROM EST_STATE_MATRIX WITH(NOLOCK)
+            FROM EST_STATE_MATRIX
             WHERE PLANT_ID = @plantId AND FROM_STATE_ID = @fromState
               AND ALLOW_FLAG = 'Y' AND VALID_STATE = 'Valid'
             ORDER BY TO_STATE_ID";

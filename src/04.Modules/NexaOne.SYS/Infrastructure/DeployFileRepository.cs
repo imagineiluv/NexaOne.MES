@@ -15,7 +15,7 @@ public sealed class DeployFileRepository : QueryRepository, IDeployFileRepositor
 
     public async Task<IReadOnlyList<DeployFile>> GetAllAsync(CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM SYS_DEPLOY_FILE WITH(NOLOCK)
+        const string sql = @"SELECT * FROM SYS_DEPLOY_FILE
             ORDER BY UPLOADED_AT DESC";
         var rows = await QueryAsync<DeployRow>(sql, null, ct);
         return rows.Select(r => r.ToDomain()).ToList();
@@ -23,7 +23,7 @@ public sealed class DeployFileRepository : QueryRepository, IDeployFileRepositor
 
     public async Task<IReadOnlyList<DeployFile>> GetActiveAsync(CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM SYS_DEPLOY_FILE WITH(NOLOCK)
+        const string sql = @"SELECT * FROM SYS_DEPLOY_FILE
             WHERE IS_ACTIVE = 1
             ORDER BY UPLOADED_AT DESC";
         var rows = await QueryAsync<DeployRow>(sql, null, ct);
@@ -32,7 +32,7 @@ public sealed class DeployFileRepository : QueryRepository, IDeployFileRepositor
 
     public async Task<DeployFile?> GetByIdAsync(string fileId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM SYS_DEPLOY_FILE WITH(NOLOCK)
+        const string sql = @"SELECT * FROM SYS_DEPLOY_FILE
             WHERE FILE_ID = @fileId";
         var row = await QueryFirstOrDefaultAsync<DeployRow>(sql, new { fileId }, ct);
         return row?.ToDomain();
@@ -40,7 +40,7 @@ public sealed class DeployFileRepository : QueryRepository, IDeployFileRepositor
 
     public async Task<DeployFile?> GetByVersionAsync(string version, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM SYS_DEPLOY_FILE WITH(NOLOCK)
+        const string sql = @"SELECT * FROM SYS_DEPLOY_FILE
             WHERE VERSION = @version";
         var row = await QueryFirstOrDefaultAsync<DeployRow>(sql, new { version }, ct);
         return row?.ToDomain();

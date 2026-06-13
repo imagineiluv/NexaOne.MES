@@ -25,7 +25,7 @@ public sealed class LotMixingRelationRepository : QueryRepository, ILotMixingRel
     public async Task<IReadOnlyList<LotMixingRelation>> GetByOutputLotAsync(
         string plantId, string outputLotId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM POM_LOT_MIXING_RELATION WITH(NOLOCK)
+        const string sql = @"SELECT * FROM POM_LOT_MIXING_RELATION
             WHERE PLANT_ID = @plantId AND OUTPUT_LOT_ID = @outputLotId
             ORDER BY INPUT_LOT_ID";
         var rows = await QueryAsync<MixingRow>(sql, new { plantId, outputLotId }, ct);

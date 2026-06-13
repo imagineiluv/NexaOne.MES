@@ -13,14 +13,14 @@ public sealed class ProductRepository : QueryRepository, IProductRepository
 
     public async Task<Product?> GetByIdAsync(string productId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM MDM_PRODUCT WITH(NOLOCK) WHERE PRODUCT_ID = @productId";
+        const string sql = "SELECT * FROM MDM_PRODUCT WHERE PRODUCT_ID = @productId";
         var row = await QueryFirstOrDefaultAsync<ProductRow>(sql, new { productId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<Product>> GetAllAsync(CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM MDM_PRODUCT WITH(NOLOCK) WHERE VALID_STATE = 'Valid' ORDER BY PRODUCT_NAME";
+        const string sql = "SELECT * FROM MDM_PRODUCT WHERE VALID_STATE = 'Valid' ORDER BY PRODUCT_NAME";
         var rows = await QueryAsync<ProductRow>(sql, new { }, ct);
         return rows.Select(r => r.ToDomain()).OfType<Product>().ToList();
     }

@@ -13,14 +13,14 @@ public sealed class CodeRepository : QueryRepository, ICodeRepository
 
     public async Task<CodeClass?> GetClassByIdAsync(string codeClassId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM MDM_CODE_CLASS WITH(NOLOCK) WHERE CODE_CLASS_ID = @codeClassId";
+        const string sql = "SELECT * FROM MDM_CODE_CLASS WHERE CODE_CLASS_ID = @codeClassId";
         var row = await QueryFirstOrDefaultAsync<CodeClassRow>(sql, new { codeClassId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<CodeClass>> GetAllClassesAsync(CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM MDM_CODE_CLASS WITH(NOLOCK) ORDER BY CODE_CLASS_NAME";
+        const string sql = "SELECT * FROM MDM_CODE_CLASS ORDER BY CODE_CLASS_NAME";
         var rows = await QueryAsync<CodeClassRow>(sql, new { }, ct);
         return rows.Select(r => r.ToDomain()).OfType<CodeClass>().ToList();
     }
@@ -38,7 +38,7 @@ public sealed class CodeRepository : QueryRepository, ICodeRepository
 
     public async Task<IReadOnlyList<Code>> GetByClassAsync(string codeClassId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM MDM_CODE WITH(NOLOCK)
+        const string sql = @"SELECT * FROM MDM_CODE
             WHERE CODE_CLASS_ID = @codeClassId AND VALID_STATE = 'Valid'
             ORDER BY SORT_ORDER, CODE_NAME";
         var rows = await QueryAsync<CodeRow>(sql, new { codeClassId }, ct);

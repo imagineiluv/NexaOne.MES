@@ -13,21 +13,21 @@ public sealed class InspectionSpecRepository : QueryRepository, IInspectionSpecR
 
     public async Task<InspectionSpec?> GetByIdAsync(string specId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM QMS_INSPECTION_SPEC WITH(NOLOCK) WHERE SPEC_ID = @specId";
+        const string sql = "SELECT * FROM QMS_INSPECTION_SPEC WHERE SPEC_ID = @specId";
         var row = await QueryFirstOrDefaultAsync<Row>(sql, new { specId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<InspectionSpec>> GetByProcessAsync(string processId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM QMS_INSPECTION_SPEC WITH(NOLOCK) WHERE PROCESS_ID = @processId AND IS_ACTIVE = 1 ORDER BY SPEC_NAME";
+        const string sql = "SELECT * FROM QMS_INSPECTION_SPEC WHERE PROCESS_ID = @processId AND IS_ACTIVE = 1 ORDER BY SPEC_NAME";
         var rows = await QueryAsync<Row>(sql, new { processId }, ct);
         return rows.Select(r => r.ToDomain()).OfType<InspectionSpec>().ToList();
     }
 
     public async Task<IReadOnlyList<InspectionSpec>> GetAllAsync(CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM QMS_INSPECTION_SPEC WITH(NOLOCK) WHERE IS_ACTIVE = 1 ORDER BY SPEC_NAME";
+        const string sql = "SELECT * FROM QMS_INSPECTION_SPEC WHERE IS_ACTIVE = 1 ORDER BY SPEC_NAME";
         var rows = await QueryAsync<Row>(sql, new { }, ct);
         return rows.Select(r => r.ToDomain()).OfType<InspectionSpec>().ToList();
     }

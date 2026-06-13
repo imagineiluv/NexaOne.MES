@@ -16,21 +16,21 @@ public sealed class MultiLanguageResourceRepository : QueryRepository, IMultiLan
 
     public async Task<MultiLanguageResource?> GetByIdAsync(string resourceKey, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM SYS_MULTI_LANGUAGE_RESOURCE WITH(NOLOCK) WHERE RESOURCE_KEY = @resourceKey";
+        const string sql = "SELECT * FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY = @resourceKey";
         var row = await QueryFirstOrDefaultAsync<LangRow>(sql, new { resourceKey }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<MultiLanguageResource>> GetByMenuIdAsync(string menuId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM SYS_MULTI_LANGUAGE_RESOURCE WITH(NOLOCK) WHERE MENU_ID = @menuId ORDER BY LANGUAGE";
+        const string sql = "SELECT * FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE MENU_ID = @menuId ORDER BY LANGUAGE";
         var rows = await QueryAsync<LangRow>(sql, new { menuId }, ct);
         return rows.Select(r => r.ToDomain()).ToList();
     }
 
     public async Task<IReadOnlyList<MultiLanguageResource>> GetByLanguageAsync(LanguageType language, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM SYS_MULTI_LANGUAGE_RESOURCE WITH(NOLOCK) WHERE LANGUAGE = @language ORDER BY MENU_ID";
+        const string sql = "SELECT * FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE LANGUAGE = @language ORDER BY MENU_ID";
         var rows = await QueryAsync<LangRow>(sql, new { language = language.ToString() }, ct);
         return rows.Select(r => r.ToDomain()).ToList();
     }

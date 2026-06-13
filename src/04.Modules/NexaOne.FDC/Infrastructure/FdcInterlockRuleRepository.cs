@@ -1,4 +1,4 @@
-﻿using NexaOne.FDC.Application.Fdc;
+using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
 using NexaOne.Infrastructure.Persistence;
 
@@ -15,7 +15,7 @@ public sealed class FdcInterlockRuleRepository : QueryRepository, IFdcInterlockR
 
     public async Task<IReadOnlyList<FdcInterlockRule>> GetByEquipmentAsync(string equipmentId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM FDC_INTERLOCK_RULE WITH(NOLOCK)
+        const string sql = @"SELECT * FROM FDC_INTERLOCK_RULE
             WHERE EQUIPMENT_ID = @equipmentId
             ORDER BY PARAMETER_ID, PRIORITY";
         var rows = await QueryAsync<RuleRow>(sql, new { equipmentId }, ct);
@@ -24,7 +24,7 @@ public sealed class FdcInterlockRuleRepository : QueryRepository, IFdcInterlockR
 
     public async Task<IReadOnlyList<FdcInterlockRule>> GetActiveRulesAsync(string equipmentId, string parameterId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM FDC_INTERLOCK_RULE WITH(NOLOCK)
+        const string sql = @"SELECT * FROM FDC_INTERLOCK_RULE
             WHERE EQUIPMENT_ID = @equipmentId AND PARAMETER_ID = @parameterId AND IS_ACTIVE = 1
             ORDER BY PRIORITY";
         var rows = await QueryAsync<RuleRow>(sql, new { equipmentId, parameterId }, ct);

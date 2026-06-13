@@ -13,14 +13,14 @@ public sealed class AreaRepository : QueryRepository, IAreaRepository
 
     public async Task<Area?> GetByIdAsync(string areaId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM MDM_AREA WITH(NOLOCK) WHERE AREA_ID = @areaId";
+        const string sql = "SELECT * FROM MDM_AREA WHERE AREA_ID = @areaId";
         var row = await QueryFirstOrDefaultAsync<AreaRow>(sql, new { areaId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<Area>> GetByPlantAsync(string plantId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM MDM_AREA WITH(NOLOCK) WHERE PLANT_ID = @plantId ORDER BY AREA_NAME";
+        const string sql = "SELECT * FROM MDM_AREA WHERE PLANT_ID = @plantId ORDER BY AREA_NAME";
         var rows = await QueryAsync<AreaRow>(sql, new { plantId }, ct);
         return rows.Select(r => r.ToDomain()).OfType<Area>().ToList();
     }

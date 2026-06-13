@@ -17,14 +17,14 @@ public sealed class UserRequestRepository : QueryRepository, IUserRequestReposit
 
     public async Task<UserRequest?> GetByIdAsync(string requestId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM SYS_USER_REQUEST WITH(NOLOCK) WHERE REQUEST_ID = @requestId";
+        const string sql = "SELECT * FROM SYS_USER_REQUEST WHERE REQUEST_ID = @requestId";
         var row = await QueryFirstOrDefaultAsync<UserRequestRow>(sql, new { requestId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<UserRequest?> GetByUserIdAsync(string userId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM SYS_USER_REQUEST WITH(NOLOCK) WHERE USER_ID = @userId";
+        const string sql = "SELECT * FROM SYS_USER_REQUEST WHERE USER_ID = @userId";
         var row = await QueryFirstOrDefaultAsync<UserRequestRow>(sql, new { userId }, ct);
         return row?.ToDomain();
     }
@@ -33,7 +33,7 @@ public sealed class UserRequestRepository : QueryRepository, IUserRequestReposit
         string? plantId, string? status, string? userId, string? userName, string? email,
         DateTime? from, DateTime? to, CancellationToken ct = default)
     {
-        var sql = new StringBuilder("SELECT * FROM SYS_USER_REQUEST WITH(NOLOCK) WHERE 1=1");
+        var sql = new StringBuilder("SELECT * FROM SYS_USER_REQUEST WHERE 1=1");
         if (plantId is not null)  sql.Append(" AND PLANT_ID = @plantId");
         if (status is not null)   sql.Append(" AND STATUS = @status");
         if (userId is not null)   sql.Append(" AND USER_ID LIKE '%' + @userId + '%'");

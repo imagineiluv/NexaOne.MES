@@ -15,11 +15,11 @@ public sealed class ScreenDefinitionStore : QueryRepository, IScreenDefinitionSt
 
     public Task<IReadOnlyList<ScreenDefinitionRecord>> GetAllAsync(CancellationToken ct = default)
         => QueryAsync<ScreenDefinitionRecord>(
-            $"SELECT {SelectCols} FROM SYS_SCREEN_DEFINITION WITH(NOLOCK) ORDER BY UI_ID", null, ct);
+            $"SELECT {SelectCols} FROM SYS_SCREEN_DEFINITION ORDER BY UI_ID", null, ct);
 
     public Task<ScreenDefinitionRecord?> GetAsync(string uiId, CancellationToken ct = default)
         => QueryFirstOrDefaultAsync<ScreenDefinitionRecord>(
-            $"SELECT {SelectCols} FROM SYS_SCREEN_DEFINITION WITH(NOLOCK) WHERE UI_ID = @uiId", new { uiId }, ct);
+            $"SELECT {SelectCols} FROM SYS_SCREEN_DEFINITION WHERE UI_ID = @uiId", new { uiId }, ct);
 
     public Task UpsertAsync(ScreenDefinitionRecord record, CancellationToken ct = default)
     {

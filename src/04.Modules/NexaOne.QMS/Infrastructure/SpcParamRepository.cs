@@ -13,14 +13,14 @@ public sealed class SpcParamRepository : QueryRepository, ISpcParamRepository
 
     public async Task<SpcParam?> GetByIdAsync(string paramId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM QMS_SPC_PARAM WITH(NOLOCK) WHERE PARAM_ID = @paramId";
+        const string sql = "SELECT * FROM QMS_SPC_PARAM WHERE PARAM_ID = @paramId";
         var row = await QueryFirstOrDefaultAsync<Row>(sql, new { paramId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<SpcParam>> GetByEquipmentAsync(string equipmentId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM QMS_SPC_PARAM WITH(NOLOCK) WHERE EQUIPMENT_ID = @equipmentId AND IS_ACTIVE = 1 ORDER BY PARAM_NAME";
+        const string sql = "SELECT * FROM QMS_SPC_PARAM WHERE EQUIPMENT_ID = @equipmentId AND IS_ACTIVE = 1 ORDER BY PARAM_NAME";
         var rows = await QueryAsync<Row>(sql, new { equipmentId }, ct);
         return rows.Select(r => r.ToDomain()).OfType<SpcParam>().ToList();
     }

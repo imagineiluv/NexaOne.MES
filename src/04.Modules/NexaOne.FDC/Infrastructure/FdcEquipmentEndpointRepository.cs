@@ -15,14 +15,14 @@ public sealed class FdcEquipmentEndpointRepository : QueryRepository, IFdcEquipm
 
     public async Task<FdcEquipmentEndpoint?> GetByIdAsync(string endpointId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM FDC_EQUIPMENT_ENDPOINT WITH(NOLOCK) WHERE ENDPOINT_ID = @endpointId";
+        const string sql = "SELECT * FROM FDC_EQUIPMENT_ENDPOINT WHERE ENDPOINT_ID = @endpointId";
         var row = await QueryFirstOrDefaultAsync<EndpointRow>(sql, new { endpointId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<FdcEquipmentEndpoint>> GetActiveByEquipmentAsync(string equipmentId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM FDC_EQUIPMENT_ENDPOINT WITH(NOLOCK)
+        const string sql = @"SELECT * FROM FDC_EQUIPMENT_ENDPOINT
             WHERE EQUIPMENT_ID = @equipmentId AND IS_ACTIVE = 1
             ORDER BY ENDPOINT_ID";
         var rows = await QueryAsync<EndpointRow>(sql, new { equipmentId }, ct);
@@ -31,7 +31,7 @@ public sealed class FdcEquipmentEndpointRepository : QueryRepository, IFdcEquipm
 
     public async Task<IReadOnlyList<FdcEquipmentEndpoint>> GetAllActiveAsync(CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM FDC_EQUIPMENT_ENDPOINT WITH(NOLOCK)
+        const string sql = @"SELECT * FROM FDC_EQUIPMENT_ENDPOINT
             WHERE IS_ACTIVE = 1
             ORDER BY EQUIPMENT_ID, ENDPOINT_ID";
         var rows = await QueryAsync<EndpointRow>(sql, new { }, ct);

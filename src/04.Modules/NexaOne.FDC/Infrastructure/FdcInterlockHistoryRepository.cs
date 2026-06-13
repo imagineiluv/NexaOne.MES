@@ -16,7 +16,7 @@ public sealed class FdcInterlockHistoryRepository : QueryRepository, IFdcInterlo
     public async Task<IReadOnlyList<FdcInterlockHistory>> GetByEquipmentAsync(
         string equipmentId, DateTime from, DateTime to, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM FDC_INTERLOCK_HISTORY WITH(NOLOCK)
+        const string sql = @"SELECT * FROM FDC_INTERLOCK_HISTORY
             WHERE EQUIPMENT_ID = @equipmentId
               AND TRIGGERED_AT >= @from
               AND TRIGGERED_AT <= @to
@@ -28,7 +28,7 @@ public sealed class FdcInterlockHistoryRepository : QueryRepository, IFdcInterlo
     public async Task<IReadOnlyList<FdcInterlockHistory>> GetUnresolvedAsync(
         string equipmentId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM FDC_INTERLOCK_HISTORY WITH(NOLOCK)
+        const string sql = @"SELECT * FROM FDC_INTERLOCK_HISTORY
             WHERE EQUIPMENT_ID = @equipmentId AND IS_RESOLVED = 0
             ORDER BY TRIGGERED_AT DESC";
         var rows = await QueryAsync<HistRow>(sql, new { equipmentId }, ct);

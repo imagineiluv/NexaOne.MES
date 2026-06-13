@@ -16,7 +16,7 @@ public sealed class RecentMenuRepository : QueryRepository, IRecentMenuRepositor
     public async Task<IReadOnlyList<RecentMenu>> GetByUserAsync(
         string userId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM SYS_RECENT_MENU WITH(NOLOCK)
+        const string sql = @"SELECT * FROM SYS_RECENT_MENU
             WHERE USER_ID = @userId
             ORDER BY LAST_USED_AT DESC";
         var rows = await QueryAsync<RecentRow>(sql, new { userId }, ct);

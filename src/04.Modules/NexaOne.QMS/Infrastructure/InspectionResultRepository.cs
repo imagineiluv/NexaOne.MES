@@ -13,14 +13,14 @@ public sealed class InspectionResultRepository : QueryRepository, IInspectionRes
 
     public async Task<IReadOnlyList<InspectionResult>> GetByLotAsync(string lotId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM QMS_INSPECTION_RESULT WITH(NOLOCK) WHERE LOT_ID = @lotId ORDER BY INSPECTED_AT DESC";
+        const string sql = "SELECT * FROM QMS_INSPECTION_RESULT WHERE LOT_ID = @lotId ORDER BY INSPECTED_AT DESC";
         var rows = await QueryAsync<Row>(sql, new { lotId }, ct);
         return rows.Select(r => r.ToDomain()).OfType<InspectionResult>().ToList();
     }
 
     public async Task<IReadOnlyList<InspectionResult>> GetBySpecAsync(string specId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM QMS_INSPECTION_RESULT WITH(NOLOCK) WHERE SPEC_ID = @specId ORDER BY INSPECTED_AT DESC";
+        const string sql = "SELECT * FROM QMS_INSPECTION_RESULT WHERE SPEC_ID = @specId ORDER BY INSPECTED_AT DESC";
         var rows = await QueryAsync<Row>(sql, new { specId }, ct);
         return rows.Select(r => r.ToDomain()).OfType<InspectionResult>().ToList();
     }

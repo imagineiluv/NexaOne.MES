@@ -16,7 +16,7 @@ public sealed class FdcCollectDataRepository : QueryRepository, IFdcCollectDataR
     public async Task<IReadOnlyList<FdcCollectData>> GetByParameterAsync(
         string parameterId, DateTime from, DateTime to, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM FDC_COLLECT_DATA WITH(NOLOCK)
+        const string sql = @"SELECT * FROM FDC_COLLECT_DATA
             WHERE PARAMETER_ID = @parameterId
               AND COLLECTED_AT >= @from
               AND COLLECTED_AT <= @to
@@ -28,7 +28,7 @@ public sealed class FdcCollectDataRepository : QueryRepository, IFdcCollectDataR
     public async Task<IReadOnlyList<FdcCollectData>> GetLatestAsync(
         string parameterId, int limit, CancellationToken ct = default)
     {
-        const string sql = @"SELECT TOP (@limit) * FROM FDC_COLLECT_DATA WITH(NOLOCK)
+        const string sql = @"SELECT TOP (@limit) * FROM FDC_COLLECT_DATA
             WHERE PARAMETER_ID = @parameterId
             ORDER BY COLLECTED_AT DESC";
         var rows = await QueryAsync<DataRow>(sql, new { parameterId, limit }, ct);

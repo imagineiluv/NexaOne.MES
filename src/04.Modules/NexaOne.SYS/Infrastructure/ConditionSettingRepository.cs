@@ -16,7 +16,7 @@ public sealed class ConditionSettingRepository : QueryRepository, IConditionSett
     public async Task<IReadOnlyList<ConditionSetting>> GetByMenuAsync(
         string userId, string menuId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM SYS_CONDITION_SETTING WITH(NOLOCK)
+        const string sql = @"SELECT * FROM SYS_CONDITION_SETTING
             WHERE USER_ID = @userId AND MENU_ID = @menuId
             ORDER BY SAVED_AT DESC";
         var rows = await QueryAsync<ConditionRow>(sql, new { userId, menuId }, ct);
@@ -26,7 +26,7 @@ public sealed class ConditionSettingRepository : QueryRepository, IConditionSett
     public async Task<ConditionSetting?> GetAsync(
         string userId, string menuId, string name, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM SYS_CONDITION_SETTING WITH(NOLOCK)
+        const string sql = @"SELECT * FROM SYS_CONDITION_SETTING
             WHERE USER_ID = @userId AND MENU_ID = @menuId AND NAME = @name";
         var row = await QueryFirstOrDefaultAsync<ConditionRow>(sql, new { userId, menuId, name }, ct);
         return row?.ToDomain();

@@ -1,4 +1,4 @@
-﻿using NexaOne.Infrastructure.Persistence;
+using NexaOne.Infrastructure.Persistence;
 using NexaOne.MDM.Application.Equipments;
 using NexaOne.MDM.Domain;
 
@@ -15,21 +15,21 @@ public sealed class EquipmentRepository : QueryRepository, IEquipmentRepository
 
     public async Task<Equipment?> GetByIdAsync(string equipmentId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM MDM_EQUIPMENT WITH(NOLOCK) WHERE EQUIPMENT_ID = @equipmentId";
+        const string sql = "SELECT * FROM MDM_EQUIPMENT WHERE EQUIPMENT_ID = @equipmentId";
         var row = await QueryFirstOrDefaultAsync<EquipmentRow>(sql, new { equipmentId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<Equipment>> GetAllByPlantAsync(string plantId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM MDM_EQUIPMENT WITH(NOLOCK) WHERE PLANT_ID = @plantId";
+        const string sql = "SELECT * FROM MDM_EQUIPMENT WHERE PLANT_ID = @plantId";
         var rows = await QueryAsync<EquipmentRow>(sql, new { plantId }, ct);
         return rows.Select(r => r.ToDomain()).OfType<Equipment>().ToList();
     }
 
     public async Task<bool> ExistsAsync(string equipmentId, CancellationToken ct = default)
     {
-        const string sql = "SELECT COUNT(1) FROM MDM_EQUIPMENT WITH(NOLOCK) WHERE EQUIPMENT_ID = @equipmentId";
+        const string sql = "SELECT COUNT(1) FROM MDM_EQUIPMENT WHERE EQUIPMENT_ID = @equipmentId";
         var count = await CountAsync(sql, new { equipmentId }, ct);
         return count > 0;
     }

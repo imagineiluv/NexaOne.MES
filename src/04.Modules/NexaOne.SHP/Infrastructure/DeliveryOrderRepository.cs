@@ -15,14 +15,14 @@ public sealed class DeliveryOrderRepository : QueryRepository, IDeliveryOrderRep
 
     public async Task<DeliveryOrder?> GetByIdAsync(string orderId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM SHP_DELIVERY_ORDER WITH(NOLOCK) WHERE ORDER_ID = @orderId";
+        const string sql = "SELECT * FROM SHP_DELIVERY_ORDER WHERE ORDER_ID = @orderId";
         var row = await QueryFirstOrDefaultAsync<OrderRow>(sql, new { orderId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<DeliveryOrder>> GetByPlantAsync(string plantId, DateTime? from, DateTime? to, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM SHP_DELIVERY_ORDER WITH(NOLOCK)
+        const string sql = @"SELECT * FROM SHP_DELIVERY_ORDER
             WHERE PLANT_ID = @plantId
               AND (@from IS NULL OR REQUESTED_DATE >= @from)
               AND (@to IS NULL OR REQUESTED_DATE <= @to)";
@@ -32,7 +32,7 @@ public sealed class DeliveryOrderRepository : QueryRepository, IDeliveryOrderRep
 
     public async Task<int> GetCountByStatusAsync(string status, CancellationToken ct = default)
     {
-        const string sql = "SELECT COUNT(*) FROM SHP_DELIVERY_ORDER WITH(NOLOCK) WHERE STATUS = @status";
+        const string sql = "SELECT COUNT(*) FROM SHP_DELIVERY_ORDER WHERE STATUS = @status";
         return await CountAsync(sql, new { status }, ct);
     }
 

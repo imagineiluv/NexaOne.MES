@@ -15,14 +15,14 @@ public sealed class ProductionPlanRepository : QueryRepository, IProductionPlanR
 
     public async Task<ProductionPlan?> GetByIdAsync(string planId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM POM_PRODUCTION_PLAN WITH(NOLOCK) WHERE PLAN_ID = @planId";
+        const string sql = "SELECT * FROM POM_PRODUCTION_PLAN WHERE PLAN_ID = @planId";
         var row = await QueryFirstOrDefaultAsync<PlanRow>(sql, new { planId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<ProductionPlan>> GetByPlantAsync(string plantId, DateTime? from, DateTime? to, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM POM_PRODUCTION_PLAN WITH(NOLOCK)
+        const string sql = @"SELECT * FROM POM_PRODUCTION_PLAN
             WHERE PLANT_ID = @plantId
               AND (@from IS NULL OR PLANNED_START_DATE >= @from)
               AND (@to IS NULL OR PLANNED_END_DATE <= @to)";
@@ -32,7 +32,7 @@ public sealed class ProductionPlanRepository : QueryRepository, IProductionPlanR
 
     public async Task<int> GetCountByStatusAsync(string status, CancellationToken ct = default)
     {
-        const string sql = "SELECT COUNT(*) FROM POM_PRODUCTION_PLAN WITH(NOLOCK) WHERE STATUS = @status";
+        const string sql = "SELECT COUNT(*) FROM POM_PRODUCTION_PLAN WHERE STATUS = @status";
         return await CountAsync(sql, new { status }, ct);
     }
 

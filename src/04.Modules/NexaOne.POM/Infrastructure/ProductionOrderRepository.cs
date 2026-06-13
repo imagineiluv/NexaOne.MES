@@ -15,14 +15,14 @@ public sealed class ProductionOrderRepository : QueryRepository, IProductionOrde
 
     public async Task<ProductionOrder?> GetByIdAsync(string orderId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM POM_PRODUCTION_ORDER WITH(NOLOCK) WHERE ORDER_ID = @orderId";
+        const string sql = "SELECT * FROM POM_PRODUCTION_ORDER WHERE ORDER_ID = @orderId";
         var row = await QueryFirstOrDefaultAsync<OrderRow>(sql, new { orderId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<ProductionOrder>> GetByPlanAsync(string planId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM POM_PRODUCTION_ORDER WITH(NOLOCK) WHERE PLAN_ID = @planId ORDER BY SCHEDULED_START";
+        const string sql = "SELECT * FROM POM_PRODUCTION_ORDER WHERE PLAN_ID = @planId ORDER BY SCHEDULED_START";
         var rows = await QueryAsync<OrderRow>(sql, new { planId }, ct);
         return rows.Select(r => r.ToDomain()).OfType<ProductionOrder>().ToList();
     }

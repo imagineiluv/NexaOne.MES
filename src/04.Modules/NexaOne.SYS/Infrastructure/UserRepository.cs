@@ -16,21 +16,21 @@ public sealed class UserRepository : QueryRepository, IUserRepository
 
     public async Task<User?> GetByIdAsync(string userId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM SYS_USER WITH(NOLOCK) WHERE USER_ID = @userId";
+        const string sql = "SELECT * FROM SYS_USER WHERE USER_ID = @userId";
         var row = await QueryFirstOrDefaultAsync<UserRow>(sql, new { userId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<User>> GetAllActiveAsync(CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM SYS_USER WITH(NOLOCK) WHERE IS_ACTIVE = 1 AND IS_DELETED = 0";
+        const string sql = "SELECT * FROM SYS_USER WHERE IS_ACTIVE = 1 AND IS_DELETED = 0";
         var rows = await QueryAsync<UserRow>(sql, null, ct);
         return rows.Select(r => r.ToDomain()).OfType<User>().ToList();
     }
 
     public async Task<bool> ExistsAsync(string userId, CancellationToken ct = default)
     {
-        const string sql = "SELECT COUNT(1) FROM SYS_USER WITH(NOLOCK) WHERE USER_ID = @userId";
+        const string sql = "SELECT COUNT(1) FROM SYS_USER WHERE USER_ID = @userId";
         return await CountAsync(sql, new { userId }, ct) > 0;
     }
 

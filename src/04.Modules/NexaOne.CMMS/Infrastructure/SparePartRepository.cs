@@ -13,21 +13,21 @@ public sealed class SparePartRepository : QueryRepository, ISparePartRepository
 
     public async Task<SparePart?> GetByIdAsync(string partId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM CMMS_SPARE_PART WITH(NOLOCK) WHERE PART_ID = @partId";
+        const string sql = "SELECT * FROM CMMS_SPARE_PART WHERE PART_ID = @partId";
         var row = await QueryFirstOrDefaultAsync<PartRow>(sql, new { partId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<SparePart>> GetAllAsync(CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM CMMS_SPARE_PART WITH(NOLOCK) ORDER BY PART_NAME";
+        const string sql = "SELECT * FROM CMMS_SPARE_PART ORDER BY PART_NAME";
         var rows = await QueryAsync<PartRow>(sql, new { }, ct);
         return rows.Select(r => r.ToDomain()).OfType<SparePart>().ToList();
     }
 
     public async Task<IReadOnlyList<SparePart>> GetLowStockAsync(CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM CMMS_SPARE_PART WITH(NOLOCK) WHERE CURRENT_STOCK <= MIN_STOCK ORDER BY PART_NAME";
+        const string sql = "SELECT * FROM CMMS_SPARE_PART WHERE CURRENT_STOCK <= MIN_STOCK ORDER BY PART_NAME";
         var rows = await QueryAsync<PartRow>(sql, new { }, ct);
         return rows.Select(r => r.ToDomain()).OfType<SparePart>().ToList();
     }

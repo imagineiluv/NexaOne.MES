@@ -15,7 +15,7 @@ public sealed class FdcAlarmConfigRepository : QueryRepository, IFdcAlarmConfigR
 
     public async Task<IReadOnlyList<FdcAlarmConfig>> GetByEquipmentAsync(string equipmentId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM FDC_ALARM_CONFIG WITH(NOLOCK)
+        const string sql = @"SELECT * FROM FDC_ALARM_CONFIG
             WHERE EQUIPMENT_ID = @equipmentId
             ORDER BY PARAMETER_ID, ALARM_LEVEL";
         var rows = await QueryAsync<ConfigRow>(sql, new { equipmentId }, ct);
@@ -24,7 +24,7 @@ public sealed class FdcAlarmConfigRepository : QueryRepository, IFdcAlarmConfigR
 
     public async Task<IReadOnlyList<FdcAlarmConfig>> GetActiveConfigsAsync(string equipmentId, string parameterId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM FDC_ALARM_CONFIG WITH(NOLOCK)
+        const string sql = @"SELECT * FROM FDC_ALARM_CONFIG
             WHERE EQUIPMENT_ID = @equipmentId AND PARAMETER_ID = @parameterId AND IS_ACTIVE = 1
             ORDER BY ALARM_LEVEL";
         var rows = await QueryAsync<ConfigRow>(sql, new { equipmentId, parameterId }, ct);

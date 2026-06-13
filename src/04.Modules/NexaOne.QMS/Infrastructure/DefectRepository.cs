@@ -1,4 +1,4 @@
-﻿using NexaOne.Infrastructure.Persistence;
+using NexaOne.Infrastructure.Persistence;
 using NexaOne.QMS.Application.Qms;
 using NexaOne.QMS.Domain;
 
@@ -15,21 +15,21 @@ public sealed class DefectRepository : QueryRepository, IDefectRepository
 
     public async Task<Defect?> GetByIdAsync(string defectId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM QMS_DEFECT WITH(NOLOCK) WHERE DEFECT_ID = @defectId";
+        const string sql = "SELECT * FROM QMS_DEFECT WHERE DEFECT_ID = @defectId";
         var row = await QueryFirstOrDefaultAsync<DefectRow>(sql, new { defectId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<Defect>> GetByLotAsync(string lotId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM QMS_DEFECT WITH(NOLOCK) WHERE LOT_ID = @lotId";
+        const string sql = "SELECT * FROM QMS_DEFECT WHERE LOT_ID = @lotId";
         var rows = await QueryAsync<DefectRow>(sql, new { lotId }, ct);
         return rows.Select(r => r.ToDomain()).OfType<Defect>().ToList();
     }
 
     public async Task<IReadOnlyList<Defect>> GetByEquipmentAsync(string equipmentId, DateTime from, DateTime to, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM QMS_DEFECT WITH(NOLOCK)
+        const string sql = @"SELECT * FROM QMS_DEFECT
             WHERE EQUIPMENT_ID = @equipmentId AND INSPECTED_AT BETWEEN @from AND @to";
         var rows = await QueryAsync<DefectRow>(sql, new { equipmentId, from, to }, ct);
         return rows.Select(r => r.ToDomain()).OfType<Defect>().ToList();

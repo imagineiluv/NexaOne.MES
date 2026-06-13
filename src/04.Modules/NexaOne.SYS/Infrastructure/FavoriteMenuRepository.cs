@@ -16,7 +16,7 @@ public sealed class FavoriteMenuRepository : QueryRepository, IFavoriteMenuRepos
     public async Task<IReadOnlyList<FavoriteMenu>> GetByUserAsync(
         string userId, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM SYS_FAVORITE_MENU WITH(NOLOCK)
+        const string sql = @"SELECT * FROM SYS_FAVORITE_MENU
             WHERE USER_ID = @userId
             ORDER BY DISPLAY_SEQUENCE";
         var rows = await QueryAsync<FavoriteRow>(sql, new { userId }, ct);
