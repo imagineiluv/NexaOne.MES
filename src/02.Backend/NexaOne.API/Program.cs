@@ -4,6 +4,8 @@ using Microsoft.IdentityModel.Tokens;
 using NexaOne.API.Extensions;
 using NexaOne.API.Hubs;
 using NexaOne.Application;
+using NexusFramework.Workflow.Nodes;
+using NexusFramework.Workflow.Tooling;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -146,6 +148,19 @@ builder.Services.AddOpenTelemetry()
         if (!string.IsNullOrWhiteSpace(otlpEndpoint))
             metrics.AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint));
     });
+
+// §8 워크플로우 엔진 — NexusFramework WorkflowManager.
+// NodeRegistry(AssemblyInvocation + Try/Catch/Finally) → WorkflowExecutor → WorkflowManager 싱글톤.
+builder.Services.AddSingleton<INodeRegistry>(_ =>
+{
+    var registry = new NodeRegistry();          // Try/Catch/Finally 기본 등록
+    registry.RegisterAssemblyInvocationNode();  // [WorkflowCallable] 호출 노드
+    return registry;
+});
+builder.Services.AddSingleton<IWorkflowExecutor>(sp =>
+    new WorkflowExecutor(sp.GetRequiredService<INodeRegistry>()));
+builder.Services.AddSingleton(sp =>
+    new WorkflowManager(sp.GetRequiredService<IWorkflowExecutor>()));
 
 // FDC 실시간 수집 호스트 (§10.4.2/10.4.3) — "Fdc:Collector:Enabled"=true 일 때만 실제 기동
 // PlantController는 싱글톤으로 공유: HostedService가 설비를 등록·기동하고, FdcController가 수동 제어한다(§10.4.4)

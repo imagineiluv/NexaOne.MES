@@ -3728,6 +3728,13 @@ public string GetQuerySql(string queryId)
 
 ### 8.2 타겟 C# 구현 — NexusFramework 기반
 
+> **구현 완료 (v2.0):** `NodeRegistry`(Try/Catch/Finally + `RegisterAssemblyInvocationNode` 확장) →
+> `WorkflowExecutor` → `WorkflowManager`를 **싱글톤 DI로 등록**(NexaOne.API/Program.cs)하고,
+> `WorkflowController`(`api/v1/workflow/list`·`{id}/execute`)가 `Config/Workflow/*.workflow`를 실행한다.
+> `[WorkflowCallable]` 데모는 `NexaOne.Application.Workflow.WorkflowDemoService` — 실제 업무 워크플로우는
+> 도메인 서비스 메서드를 `[WorkflowCallable]`로 노드화하여 구성한다(assemblyPath는 모듈 DLL — 실행은 통합 영역).
+> 아래 청사진과 실제 API 차이: `FlowExecutionReport`의 멤버는 **`IsSuccessful`/`NodeResults`/`Errors`**(청사진의 `HasErrors`/`Results` 대신).
+
 #### 핵심 클래스 구조 (submodules/NexusFramework/src/NexusFramework/Workflow/)
 
 ```

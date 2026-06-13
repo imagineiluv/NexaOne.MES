@@ -31,6 +31,8 @@
   <ItemGroup>
     <!-- §20.10 — 메일 템플릿은 현행 Config/Mail 구조를 따르며 출력 폴더로 복사한다 -->
     <Content Include="Config\Mail\*.xml" CopyToOutputDirectory="PreserveNewest" />
+    <!-- §8 — 워크플로우 정의(*.workflow)를 출력 폴더로 복사 (WorkflowController가 로드) -->
+    <Content Include="Config\Workflow\*.workflow" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
