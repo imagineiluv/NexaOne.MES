@@ -6,81 +6,88 @@
 @* Phase 4 — 프론트엔드 Low-Code: 현업이 필드/그리드 컬럼을 시각적으로 조립해 ScreenDefinition을 만들고
    DB(SYS_SCREEN_DEFINITION)에 저장한다. 저장된 화면은 Phase 3 런타임(/meta/{UiId})이 렌더한다.
    (※ 비즈니스 로직 워크플로우 디자이너와는 별개 트랙) *@
-<div class="page-header">
-    <h1 class="page-title">화면 디자이너 (Low-Code)</h1>
-</div>
+@* NexaUI 적용 PoC — DxButton/DxTextBox/DxComboBox/DxCheckBox 없이 Tailwind+NexaUI로 동일 화면 구성 *@
+<div class="p-4 space-y-6 max-w-5xl">
+    <div>
+        <h1 class="text-xl font-semibold text-gray-800">화면 디자이너 (Low-Code)</h1>
+    </div>
 
-<section class="designer-meta">
-    <label>화면 ID(UiId)</label>
-    <input value="@_uiId" @onchange="e => { _uiId = e.Value?.ToString() ?? string.Empty; _saved = false; }" />
-    <label>제목</label>
-    <input value="@_title" @onchange="e => { _title = e.Value?.ToString() ?? string.Empty; _saved = false; }" />
-</section>
+    <section class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+            <label class="nexa-label">화면 ID(UiId)</label>
+            <NexaTextBox Value="@_uiId" ValueChanged="v => { _uiId = v ?? string.Empty; _saved = false; }" Placeholder="예: DEMO_PARAM" />
+        </div>
+        <div>
+            <label class="nexa-label">제목</label>
+            <NexaTextBox Value="@_title" ValueChanged="v => { _title = v ?? string.Empty; _saved = false; }" Placeholder="화면 제목" />
+        </div>
+    </section>
 
-<section class="designer-fields">
-    <h3>필드</h3>
-    <table>
-        <thead><tr><th>Key</th><th>레이블</th><th>유형</th><th>필수</th><th>읽기전용</th><th></th></tr></thead>
-        <tbody>
-            @for (var i = 0; i < _fields.Count; i++)
-            {
-                var f = _fields[i];
-                var idx = i;
-                <tr>
-                    <td><input value="@f.Key" @onchange="e => { f.Key = e.Value?.ToString() ?? string.Empty; _saved = false; }" /></td>
-                    <td><input value="@f.Label" @onchange="e => { f.Label = e.Value?.ToString() ?? string.Empty; _saved = false; }" /></td>
-                    <td>
-                        <select @onchange="e => { f.Type = Enum.Parse<FieldType>(e.Value?.ToString() ?? nameof(FieldType.Text)); _saved = false; }">
-                            @foreach (var t in Enum.GetValues<FieldType>())
-                            {
-                                <option value="@t" selected="@(f.Type == t)">@t</option>
-                            }
-                        </select>
-                    </td>
-                    <td><input type="checkbox" checked="@f.Required" @onchange="e => { f.Required = (bool)(e.Value ?? false); _saved = false; }" /></td>
-                    <td><input type="checkbox" checked="@f.ReadOnly" @onchange="e => { f.ReadOnly = (bool)(e.Value ?? false); _saved = false; }" /></td>
-                    <td><button @onclick="() => Remove(idx)">삭제</button></td>
-                </tr>
-            }
-        </tbody>
-    </table>
-    <button @onclick="AddField">+ 필드 추가</button>
-</section>
+    <section class="space-y-2">
+        <h3 class="text-base font-semibold text-gray-700">필드</h3>
+        <table class="nexa-grid w-full text-sm">
+            <thead><tr><th>Key</th><th>레이블</th><th>유형</th><th>필수</th><th>읽기전용</th><th></th></tr></thead>
+            <tbody>
+                @for (var i = 0; i < _fields.Count; i++)
+                {
+                    var f = _fields[i];
+                    var idx = i;
+                    <tr>
+                        <td><NexaTextBox Value="@f.Key" ValueChanged="v => { f.Key = v ?? string.Empty; _saved = false; }" /></td>
+                        <td><NexaTextBox Value="@f.Label" ValueChanged="v => { f.Label = v ?? string.Empty; _saved = false; }" /></td>
+                        <td>
+                            <NexaSelect TValue="FieldType" Value="f.Type" ValueChanged="v => { f.Type = v; _saved = false; }">
+                                @foreach (var t in Enum.GetValues<FieldType>())
+                                {
+                                    <option value="@t">@t</option>
+                                }
+                            </NexaSelect>
+                        </td>
+                        <td><NexaCheckBox Value="f.Required" ValueChanged="v => { f.Required = v; _saved = false; }" /></td>
+                        <td><NexaCheckBox Value="f.ReadOnly" ValueChanged="v => { f.ReadOnly = v; _saved = false; }" /></td>
+                        <td><NexaButton Variant="NexaButton.ButtonVariant.Danger" OnClick="() => Remove(idx)">삭제</NexaButton></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <NexaButton Variant="NexaButton.ButtonVariant.Secondary" OnClick="AddField">+ 필드 추가</NexaButton>
+    </section>
 
-<section class="designer-columns">
-    <h3>그리드 컬럼 (선택)</h3>
-    <table>
-        <thead><tr><th>Key</th><th>캡션</th><th>표시</th><th></th></tr></thead>
-        <tbody>
-            @for (var i = 0; i < _columns.Count; i++)
-            {
-                var c = _columns[i];
-                var idx = i;
-                <tr>
-                    <td><input value="@c.Key" @onchange="e => { c.Key = e.Value?.ToString() ?? string.Empty; _saved = false; }" /></td>
-                    <td><input value="@c.Caption" @onchange="e => { c.Caption = e.Value?.ToString() ?? string.Empty; _saved = false; }" /></td>
-                    <td><input type="checkbox" checked="@c.Visible" @onchange="e => { c.Visible = (bool)(e.Value ?? false); _saved = false; }" /></td>
-                    <td><button @onclick="() => RemoveColumn(idx)">삭제</button></td>
-                </tr>
-            }
-        </tbody>
-    </table>
-    <button @onclick="AddColumn">+ 컬럼 추가</button>
-</section>
+    <section class="space-y-2">
+        <h3 class="text-base font-semibold text-gray-700">그리드 컬럼 (선택)</h3>
+        <table class="nexa-grid w-full text-sm">
+            <thead><tr><th>Key</th><th>캡션</th><th>표시</th><th></th></tr></thead>
+            <tbody>
+                @for (var i = 0; i < _columns.Count; i++)
+                {
+                    var c = _columns[i];
+                    var idx = i;
+                    <tr>
+                        <td><NexaTextBox Value="@c.Key" ValueChanged="v => { c.Key = v ?? string.Empty; _saved = false; }" /></td>
+                        <td><NexaTextBox Value="@c.Caption" ValueChanged="v => { c.Caption = v ?? string.Empty; _saved = false; }" /></td>
+                        <td><NexaCheckBox Value="c.Visible" ValueChanged="v => { c.Visible = v; _saved = false; }" /></td>
+                        <td><NexaButton Variant="NexaButton.ButtonVariant.Danger" OnClick="() => RemoveColumn(idx)">삭제</NexaButton></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <NexaButton Variant="NexaButton.ButtonVariant.Secondary" OnClick="AddColumn">+ 컬럼 추가</NexaButton>
+    </section>
 
-<section class="designer-preview">
-    <h3>미리보기</h3>
-    <MetaFormRenderer Definition="BuildDefinition()" @bind-Model="_preview" />
-    <details>
-        <summary>정의 JSON</summary>
-        <pre>@ScreenDefinitionJson.Serialize(BuildDefinition())</pre>
-    </details>
-</section>
+    <section class="space-y-2">
+        <h3 class="text-base font-semibold text-gray-700">미리보기</h3>
+        <MetaFormRenderer Definition="BuildDefinition()" @bind-Model="_preview" />
+        <details class="text-sm">
+            <summary class="cursor-pointer text-gray-600">정의 JSON</summary>
+            <pre class="mt-2 p-2 bg-gray-50 rounded border border-gray-200 overflow-auto text-xs">@ScreenDefinitionJson.Serialize(BuildDefinition())</pre>
+        </details>
+    </section>
 
-<div class="designer-actions">
-    <button @onclick="Save" disabled="@(!CanSave || _busy)">@(_busy ? "저장 중…" : "저장(DB)")</button>
-    @if (_saved) { <span>저장됨 — <a href="@($"/meta/{_uiId}")">/meta/@_uiId</a> 에서 렌더됩니다.</span> }
-    @if (_error is not null) { <span style="color:crimson">@_error</span> }
+    <div class="flex items-center gap-3 border-t pt-4">
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="Save" Disabled="@(!CanSave || _busy)">@(_busy ? "저장 중…" : "저장(DB)")</NexaButton>
+        @if (_saved) { <span class="text-sm text-green-700">저장됨 — <a class="underline" href="@($"/meta/{_uiId}")">/meta/@_uiId</a> 에서 렌더됩니다.</span> }
+        @if (_error is not null) { <span class="text-sm text-red-600">@_error</span> }
+    </div>
 </div>
 
 @code {

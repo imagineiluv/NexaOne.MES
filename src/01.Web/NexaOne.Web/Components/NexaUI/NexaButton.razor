@@ -1,0 +1,32 @@
+@* NexaUI — DevExpress DxButton 대체. Tailwind 클래스(.nexa-btn*)로 스타일링.
+   Variant: Primary/Secondary/Danger. 그 외 HTML 속성은 그대로 전달(@attributes). *@
+<button type="@Type"
+        class="@CssClass"
+        disabled="@Disabled"
+        @onclick="OnClick"
+        @attributes="Extra">
+    @ChildContent
+</button>
+
+@code {
+    public enum ButtonVariant { Primary, Secondary, Danger }
+
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public ButtonVariant Variant { get; set; } = ButtonVariant.Secondary;
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public string Type { get; set; } = "button";
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public EventCallback<Microsoft.AspNetCore.Components.Web.MouseEventArgs> OnClick { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public IReadOnlyDictionary<string, object>? Extra { get; set; }
+
+    private string CssClass => string.Join(' ', new[]
+    {
+        Variant switch
+        {
+            ButtonVariant.Primary => "nexa-btn-primary",
+            ButtonVariant.Danger  => "nexa-btn-danger",
+            _                      => "nexa-btn-secondary",
+        },
+        Class,
+    }.Where(c => !string.IsNullOrWhiteSpace(c)));
+}

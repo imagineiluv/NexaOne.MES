@@ -1,0 +1,48 @@
+@* NexaUI — DxPopup 대체. Visible 양방향 바인딩(@bind-Visible). Title/ChildContent/Footer 슬롯.
+   오버레이 클릭 시 닫기(CloseOnOverlayClick, 기본 true). *@
+@if (Visible)
+{
+    <div class="nexa-modal-overlay" @onclick="OnOverlayClick">
+        @* 패널 내부 클릭은 오버레이로 전파되지 않도록 차단 *@
+        <div class="nexa-modal-panel" @onclick:stopPropagation="true">
+            @if (!string.IsNullOrEmpty(Title) || ShowCloseButton)
+            {
+                <div class="flex items-center justify-between mb-3 border-b pb-2">
+                    <h3 class="text-base font-semibold text-gray-800">@Title</h3>
+                    @if (ShowCloseButton)
+                    {
+                        <button type="button" class="text-gray-400 hover:text-gray-600 text-lg leading-none"
+                                @onclick="Close" aria-label="닫기">&times;</button>
+                    }
+                </div>
+            }
+            <div class="text-sm text-gray-700">
+                @ChildContent
+            </div>
+            @if (Footer is not null)
+            {
+                <div class="mt-4 flex justify-end gap-2 border-t pt-3">
+                    @Footer
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool Visible { get; set; }
+    [Parameter] public EventCallback<bool> VisibleChanged { get; set; }
+    [Parameter] public string? Title { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? Footer { get; set; }
+    [Parameter] public bool ShowCloseButton { get; set; } = true;
+    [Parameter] public bool CloseOnOverlayClick { get; set; } = true;
+
+    private Task OnOverlayClick() => CloseOnOverlayClick ? Close() : Task.CompletedTask;
+
+    private async Task Close()
+    {
+        Visible = false;
+        await VisibleChanged.InvokeAsync(false);
+    }
+}
