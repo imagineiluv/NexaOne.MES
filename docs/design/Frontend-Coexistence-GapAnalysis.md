@@ -179,3 +179,18 @@
 ## 6. 결론
 
 비전은 **"새 플랫폼을 짓는" 문제가 아니라 "흩어진 자산을 게이트웨이로 연결·승격하는" 문제**에 가깝다. **Phase 1(엔진 승격)이 최소 비용으로 비전의 3대 정체성("모든 X가 Y를 통과")을 달성**하며 프런트엔드 변경이 전혀 없어 가장 먼저 권장된다. 프런트엔드 공존(Pro-Code/Low-Code)은 백엔드 계약이 양호해 "붙일" 토대는 있으나 실질 신규 구축(TS SDK·메타 렌더러·브라우저 디자이너)이 필요하다.
+
+---
+
+## 7. 진행 현황 (2026-06-13)
+
+| Phase | 상태 | 비고 |
+|---|---|---|
+| **0** ADR | ✅ 완료 | ADR-001/002/003 (`docs/design/adr/`) |
+| **1** 엔진 승격 | ✅ 완료 | Query Gateway(`IQueryGateway`)·Event Bus(outbox+IMessageBus)·Security PEP(permission 정책 전 컨트롤러 적용) |
+| **2** Pro-Code | ✅ 토대 | React+Vite+TS SPA(`src/01.Web/NexaOne.Spa`)+NSwag+permission 가드+토큰갱신. ⚠️ npm 미실행(개발자 빌드 검증 필요). 잔여: 생성 클라이언트 적용·Blazor 셸 임베드 |
+| **3** 화면 런타임 | ✅ 토대 | `ScreenDefinition` 메타모델+`IScreen`+`MetaScreen`(/meta/{UiId}) 동적 렌더 |
+| **4** Low-Code 화면 디자이너 | ✅ 토대 | `ScreenDesigner`(/designer/screen)+DB 저장소(SYS_SCREEN_DEFINITION). 잔여: 그리드 런타임 렌더러·저장 명령 바인딩 |
+| **5** 플랫폼 통합 | ⏸ 보류 | **현 시점 NexaMes 범위 밖.** ① NexusOne.UI는 NexusFramework 서브모듈의 MAUI 콘솔(목업)로 별개 제품·크로스레포 ② 디자이너↔엔진 폐루프는 사용자 결정(IDE 저작)으로 보류 ③ "NAF Studio 셸"은 미정의 개념. 추진하려면 별도 제품 결정·서브모듈 작업 필요 |
+
+> **용어**: §2.1의 두 트랙 구분 참고 — **프론트 Low-Code(화면 디자이너, Phase 3·4)** ≠ **워크플로우 디자이너(비즈니스 로직, §8 FlowExecutionEngine)**. 후자는 사용자 결정으로 "개발자 IDE 저작 + NexaMes 실행" 범위로 확정(브라우저화 보류).
