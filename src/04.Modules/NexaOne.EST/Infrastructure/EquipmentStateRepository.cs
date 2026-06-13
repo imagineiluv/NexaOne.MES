@@ -1,15 +1,20 @@
 using NexaOne.EST.Application.Est;
 using NexaOne.EST.Domain;
 using NexaOne.Infrastructure.Persistence;
+using NexusCom.Data.Abstractions.Interfaces;
 
 namespace NexaOne.EST.Infrastructure;
 
 public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateRepository
 {
     private readonly ServiceObjectProcessor _processor;
+    private readonly INexaOneEESDbCapability _dialect;
 
-    public EquipmentStateRepository(EesDataSource dataSource) : base(dataSource)
-        => _processor = new ServiceObjectProcessor(dataSource);
+    public EquipmentStateRepository(EesDataSource dataSource, INexaOneEESDbCapability dialect) : base(dataSource)
+    {
+        _processor = new ServiceObjectProcessor(dataSource);
+        _dialect = dialect;
+    }
 
     public async Task<EquipmentCurrentState?> GetAsync(
         string equipmentId, CancellationToken ct = default)
@@ -36,19 +41,27 @@ public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateR
 
     public async Task UpsertAsync(EquipmentCurrentState state, CancellationToken ct = default)
     {
-        const string sql = @"
-            MERGE EST_EQUIPMENT_STATE WITH(HOLDLOCK) AS tgt
-            USING (VALUES (@EquipmentId, @PlantId, @CurrentStateId, @StateChangedAt, @StateVersion))
-                AS src(EQUIPMENT_ID, PLANT_ID, CURRENT_STATE_ID, STATE_CHANGED_AT, STATE_VERSION)
-            ON tgt.EQUIPMENT_ID = src.EQUIPMENT_ID
-            WHEN MATCHED THEN
-                UPDATE SET CURRENT_STATE_ID = src.CURRENT_STATE_ID,
-                           STATE_CHANGED_AT = src.STATE_CHANGED_AT,
-                           STATE_VERSION    = src.STATE_VERSION
-            WHEN NOT MATCHED THEN
-                INSERT (EQUIPMENT_ID, PLANT_ID, CURRENT_STATE_ID, STATE_CHANGED_AT, STATE_VERSION)
-                VALUES (src.EQUIPMENT_ID, src.PLANT_ID, src.CURRENT_STATE_ID, src.STATE_CHANGED_AT, src.STATE_VERSION);";
-        await _processor.InsertAsync(sql, StateRow.FromDomain(state), ct);
+        // KEY_COL = ON 조건(PK): EQUIPMENT_ID. DATA_COL = INSERT 후보 + UPDATE SET 대상.
+        // 원본 MERGE는 PLANT_ID를 UPDATE SET에서 제외했으나, BuildUpsertSql은 key 외 컬럼을 모두
+        // INSERT+UPDATE 대상으로 다룬다. PLANT_ID는 동일 설비의 불변 속성이라 충돌 시 같은 값으로
+        // 재대입되어도 무해하므로 INSERT 컬럼 보존을 위해 dataColumns에 포함한다.
+        var sql = _dialect.BuildUpsertSql(
+            "EST_EQUIPMENT_STATE",
+            new[] { "EQUIPMENT_ID" },
+            new[] { "PLANT_ID", "CURRENT_STATE_ID", "STATE_CHANGED_AT", "STATE_VERSION" });
+
+        // BuildUpsertSql은 @<COLUMN_NAME>(대문자 SNAKE_CASE) 플레이스홀더를 쓴다 — Row의 PascalCase
+        // 속성과 정합되도록 DynamicParameters로 컬럼명 키를 직접 매핑한다.
+        var r = StateRow.FromDomain(state);
+        var p = new Dapper.DynamicParameters();
+        p.Add("EQUIPMENT_ID", r.EquipmentId);
+        p.Add("PLANT_ID", r.PlantId);
+        p.Add("CURRENT_STATE_ID", r.CurrentStateId);
+        p.Add("STATE_CHANGED_AT", r.StateChangedAt);
+        p.Add("STATE_VERSION", r.StateVersion);
+        // ExecuteAsync(raw): InjectAudit는 DynamicParameters의 public 프로퍼티를 반영해 컬럼 파라미터를
+        // 유실시키므로 InsertAsync 대신 감사 미주입 raw 실행 경로를 쓴다(EST_EQUIPMENT_STATE는 감사 컬럼 없음).
+        await _processor.ExecuteAsync(sql, p, ct);
     }
 
     public async Task AddHistoryAsync(EquipmentStateHistory history, CancellationToken ct = default)
@@ -66,14 +79,16 @@ public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateR
     public async Task<IReadOnlyList<EquipmentStateHistory>> GetHistoryAsync(
         string equipmentId, int limit = 50, CancellationToken ct = default)
     {
-        const string sql = @"
-            SELECT TOP (@limit)
+        // WrapPaged가 ORDER BY와 페이징(offset 0, limit)을 붙이므로 baseSql에는 ORDER BY를 두지 않는다.
+        // limit은 정수 리터럴로 임베드되어 Dapper 파라미터에서 제거한다(equipmentId만 유지).
+        var baseSql = @"
+            SELECT
                 HIST_ID, EQUIPMENT_ID, FROM_STATE, TO_STATE, SET_STATE,
                 CHANGED_AT, CHANGED_BY, REASON, SOURCE_TYPE, TXN_HIST_KEY
             FROM EST_EQUIPMENT_STATE_HISTORY
-            WHERE EQUIPMENT_ID = @equipmentId
-            ORDER BY CHANGED_AT DESC";
-        var rows = await QueryAsync<HistRow>(sql, new { equipmentId, limit }, ct);
+            WHERE EQUIPMENT_ID = @equipmentId";
+        var sql = _dialect.WrapPaged(baseSql, "CHANGED_AT DESC", 0, limit);
+        var rows = await QueryAsync<HistRow>(sql, new { equipmentId }, ct);
         return rows.Select(r => r.ToDomain()).ToList();
     }
 

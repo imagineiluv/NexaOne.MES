@@ -1,16 +1,19 @@
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.SYS.Application.Users;
 using NexaOne.SYS.Domain;
+using NexusCom.Data.Abstractions.Interfaces;
 
 namespace NexaOne.SYS.Infrastructure;
 
 public sealed class LoginFailureHistoryRepository : QueryRepository, ILoginFailureHistoryRepository
 {
     private readonly ServiceObjectProcessor _processor;
+    private readonly INexaOneEESDbCapability _dialect;
 
-    public LoginFailureHistoryRepository(EesDataSource dataSource) : base(dataSource)
+    public LoginFailureHistoryRepository(EesDataSource dataSource, INexaOneEESDbCapability dialect) : base(dataSource)
     {
         _processor = new ServiceObjectProcessor(dataSource);
+        _dialect = dialect;
     }
 
     public async Task AddAsync(LoginFailureHistory history, CancellationToken ct = default)
@@ -27,9 +30,10 @@ public sealed class LoginFailureHistoryRepository : QueryRepository, ILoginFailu
     public async Task<IReadOnlyList<LoginFailureHistory>> GetRecentByUserAsync(
         string userId, int count, CancellationToken ct = default)
     {
-        const string sql = @"SELECT TOP (@count) * FROM SYS_LOGIN_FAILURE_HIST
-            WHERE USER_ID = @userId ORDER BY OCCURRED_AT DESC";
-        var rows = await QueryAsync<Row>(sql, new { userId, count }, ct);
+        var sql = _dialect.WrapPaged(
+            "SELECT * FROM SYS_LOGIN_FAILURE_HIST WHERE USER_ID = @userId",
+            "OCCURRED_AT DESC", 0, count);
+        var rows = await QueryAsync<Row>(sql, new { userId }, ct);
         return rows.Select(r => r.ToDomain()).ToList();
     }
 

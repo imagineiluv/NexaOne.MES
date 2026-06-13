@@ -2,16 +2,19 @@ using System.Text;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.POM.Application.Lots;
 using NexaOne.POM.Domain;
+using NexusCom.Data.Abstractions.Interfaces;
 
 namespace NexaOne.POM.Infrastructure;
 
 public sealed class LotHistoryRepository : QueryRepository, ILotHistoryRepository
 {
     private readonly ServiceObjectProcessor _processor;
+    private readonly INexaOneEESDbCapability _dialect;
 
-    public LotHistoryRepository(EesDataSource dataSource) : base(dataSource)
+    public LotHistoryRepository(EesDataSource dataSource, INexaOneEESDbCapability dialect) : base(dataSource)
     {
         _processor = new ServiceObjectProcessor(dataSource);
+        _dialect = dialect;
     }
 
     public async Task AddAsync(LotHistory history, CancellationToken ct = default)
@@ -42,18 +45,21 @@ public sealed class LotHistoryRepository : QueryRepository, ILotHistoryRepositor
         string plantId, string? lotId, string? equipmentId, string? processId,
         DateTime? from, DateTime? to, int maxRows, CancellationToken ct = default)
     {
-        // 설계 19.4.6 인덱스(LOT/EQP/PROC + TRACK_IN_TIME)를 타는 동적 필터 + TOP 상한
-        var sql = new StringBuilder(
-            "SELECT TOP (@maxRows) * FROM POM_LOT_HISTORY WHERE PLANT_ID = @plantId");
-        if (!string.IsNullOrWhiteSpace(lotId)) sql.Append(" AND LOT_ID = @lotId");
-        if (!string.IsNullOrWhiteSpace(equipmentId)) sql.Append(" AND EQUIPMENT_ID = @equipmentId");
-        if (!string.IsNullOrWhiteSpace(processId)) sql.Append(" AND PROCESS_ID = @processId");
-        if (from.HasValue) sql.Append(" AND TRACK_IN_TIME >= @from");
-        if (to.HasValue) sql.Append(" AND TRACK_IN_TIME <= @to");
-        sql.Append(" ORDER BY LOT_HISTORY_ID DESC");
+        // 설계 19.4.6 인덱스(LOT/EQP/PROC + TRACK_IN_TIME)를 타는 동적 필터 + 행수 상한.
+        // baseSql엔 ORDER BY를 붙이지 않는다 — _dialect.WrapPaged가 정렬과 페이징(MSSQL OFFSET/FETCH,
+        // SQLite LIMIT/OFFSET)을 방언별로 부착한다. maxRows는 정수 리터럴로 임베드되므로 파라미터에서 제외한다.
+        var baseSql = new StringBuilder(
+            "SELECT * FROM POM_LOT_HISTORY WHERE PLANT_ID = @plantId");
+        if (!string.IsNullOrWhiteSpace(lotId)) baseSql.Append(" AND LOT_ID = @lotId");
+        if (!string.IsNullOrWhiteSpace(equipmentId)) baseSql.Append(" AND EQUIPMENT_ID = @equipmentId");
+        if (!string.IsNullOrWhiteSpace(processId)) baseSql.Append(" AND PROCESS_ID = @processId");
+        if (from.HasValue) baseSql.Append(" AND TRACK_IN_TIME >= @from");
+        if (to.HasValue) baseSql.Append(" AND TRACK_IN_TIME <= @to");
+
+        var sql = _dialect.WrapPaged(baseSql.ToString(), "LOT_HISTORY_ID DESC", 0, maxRows);
 
         var rows = await QueryAsync<HistoryRow>(
-            sql.ToString(), new { maxRows, plantId, lotId, equipmentId, processId, from, to }, ct);
+            sql, new { plantId, lotId, equipmentId, processId, from, to }, ct);
         return rows.Select(r => r.ToDomain()).ToList();
     }
 

@@ -36,6 +36,8 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3" />
     <PackageReference Include="FluentAssertions" Version="6.*" />
     <PackageReference Include="Moq" Version="4.*" />
+    <!-- SqliteEesDbCapability 방언 SQL을 인메모리 SQLite로 검증 -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.*" />
   </ItemGroup>
 
   <ItemGroup>

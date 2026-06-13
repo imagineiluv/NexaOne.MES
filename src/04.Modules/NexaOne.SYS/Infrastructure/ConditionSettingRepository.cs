@@ -1,16 +1,19 @@
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.SYS.Application.Conditions;
 using NexaOne.SYS.Domain;
+using NexusCom.Data.Abstractions.Interfaces;
 
 namespace NexaOne.SYS.Infrastructure;
 
 public sealed class ConditionSettingRepository : QueryRepository, IConditionSettingRepository
 {
     private readonly ServiceObjectProcessor _processor;
+    private readonly INexaOneEESDbCapability _dialect;
 
-    public ConditionSettingRepository(EesDataSource dataSource) : base(dataSource)
+    public ConditionSettingRepository(EesDataSource dataSource, INexaOneEESDbCapability dialect) : base(dataSource)
     {
         _processor = new ServiceObjectProcessor(dataSource);
+        _dialect = dialect;
     }
 
     public async Task<IReadOnlyList<ConditionSetting>> GetByMenuAsync(
@@ -34,16 +37,27 @@ public sealed class ConditionSettingRepository : QueryRepository, IConditionSett
 
     public async Task UpsertAsync(ConditionSetting setting, CancellationToken ct = default)
     {
-        // HOLDLOCK: 동시 업서트 시 MERGE race로 인한 PK 중복 오류 방지 (EquipmentStateRepository와 동일 패턴)
-        const string sql = @"MERGE SYS_CONDITION_SETTING WITH (HOLDLOCK) AS t
-            USING (SELECT @UserId AS USER_ID, @MenuId AS MENU_ID, @Name AS NAME) AS s
-               ON t.USER_ID = s.USER_ID AND t.MENU_ID = s.MENU_ID AND t.NAME = s.NAME
-            WHEN MATCHED THEN
-                UPDATE SET SAVED_AT = @SavedAt, VALUES_JSON = @ValuesJson
-            WHEN NOT MATCHED THEN
-                INSERT (USER_ID, MENU_ID, NAME, SAVED_AT, VALUES_JSON)
-                VALUES (@UserId, @MenuId, @Name, @SavedAt, @ValuesJson);";
-        await _processor.UpdateAsync(sql, ConditionRow.FromDomain(setting), ct);
+        // 방언 추상화 업서트: MSSQL=병합문 WITH(HOLDLOCK), SQLite=INSERT .. ON CONFLICT.
+        // KEY_COL = PK(USER_ID, MENU_ID, NAME), DATA_COL = UPDATE 대상(SAVED_AT, VALUES_JSON).
+        var sql = _dialect.BuildUpsertSql(
+            "SYS_CONDITION_SETTING",
+            new[] { "USER_ID", "MENU_ID", "NAME" },
+            new[] { "SAVED_AT", "VALUES_JSON" });
+
+        // BuildUpsertSql은 @<COLUMN_NAME>(SNAKE_CASE) 플레이스홀더를 사용한다.
+        // 기존 Row는 PascalCase이므로 컬럼명을 프로퍼티명으로 갖는 익명 객체로 매핑한다.
+        // (ServiceObjectProcessor가 param의 public 프로퍼티명을 그대로 파라미터 키로 사용 — DynamicParameters는
+        //  내부 저장이라 동일 경로에서 키가 유실되므로 익명 객체로 컬럼명 키를 보장한다.)
+        var r = ConditionRow.FromDomain(setting);
+        var p = new
+        {
+            USER_ID = r.UserId,
+            MENU_ID = r.MenuId,
+            NAME = r.Name,
+            SAVED_AT = r.SavedAt,
+            VALUES_JSON = r.ValuesJson
+        };
+        await _processor.ExecuteAsync(sql, p, ct);
     }
 
     public async Task DeleteAsync(

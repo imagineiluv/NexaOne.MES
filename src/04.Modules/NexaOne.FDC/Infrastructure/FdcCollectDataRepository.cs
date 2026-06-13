@@ -1,16 +1,19 @@
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
 using NexaOne.Infrastructure.Persistence;
+using NexusCom.Data.Abstractions.Interfaces;
 
 namespace NexaOne.FDC.Infrastructure;
 
 public sealed class FdcCollectDataRepository : QueryRepository, IFdcCollectDataRepository
 {
     private readonly ServiceObjectProcessor _processor;
+    private readonly INexaOneEESDbCapability _dialect;
 
-    public FdcCollectDataRepository(EesDataSource dataSource) : base(dataSource)
+    public FdcCollectDataRepository(EesDataSource dataSource, INexaOneEESDbCapability dialect) : base(dataSource)
     {
         _processor = new ServiceObjectProcessor(dataSource);
+        _dialect = dialect;
     }
 
     public async Task<IReadOnlyList<FdcCollectData>> GetByParameterAsync(
@@ -28,10 +31,10 @@ public sealed class FdcCollectDataRepository : QueryRepository, IFdcCollectDataR
     public async Task<IReadOnlyList<FdcCollectData>> GetLatestAsync(
         string parameterId, int limit, CancellationToken ct = default)
     {
-        const string sql = @"SELECT TOP (@limit) * FROM FDC_COLLECT_DATA
-            WHERE PARAMETER_ID = @parameterId
-            ORDER BY COLLECTED_AT DESC";
-        var rows = await QueryAsync<DataRow>(sql, new { parameterId, limit }, ct);
+        var sql = _dialect.WrapPaged(
+            "SELECT * FROM FDC_COLLECT_DATA WHERE PARAMETER_ID = @parameterId",
+            "COLLECTED_AT DESC", 0, limit);
+        var rows = await QueryAsync<DataRow>(sql, new { parameterId }, ct);
         return rows.Select(r => r.ToDomain()).OfType<FdcCollectData>().Reverse().ToList();
     }
 

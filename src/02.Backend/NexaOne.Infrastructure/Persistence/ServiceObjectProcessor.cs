@@ -46,6 +46,18 @@ public sealed class ServiceObjectProcessor
             await conn.ExecuteAsync(sql, param, txn).ConfigureAwait(false),
         IsolationLevel.ReadCommitted, ct);
 
+    /// <summary>감사필드 주입 없이 파라미터를 그대로 실행(트랜잭션). capability가 생성한 업서트 SQL +
+    /// 컬럼명 파라미터(DynamicParameters/익명객체)에 사용한다 — InjectAudit는 PascalCase 키를 추가하고
+    /// 파라미터의 public 프로퍼티를 반영하므로 DynamicParameters와 비호환이라 부적합하다.
+    /// 업서트는 감사 컬럼을 호출부에서 직접 채운다(테이블에 감사 컬럼이 있는 경우).</summary>
+    public Task<int> ExecuteAsync(
+        string sql,
+        object? param = null,
+        CancellationToken ct = default) =>
+        _txnManager.ExecuteInTransactionAsync(_endpoint, async (conn, txn) =>
+            await conn.ExecuteAsync(sql, param, txn).ConfigureAwait(false),
+        IsolationLevel.ReadCommitted, ct);
+
     private Dictionary<string, object?> InjectAudit(object? param, bool isInsert)
     {
         var dict = param is null
