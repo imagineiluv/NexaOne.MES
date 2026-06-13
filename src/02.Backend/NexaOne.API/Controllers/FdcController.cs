@@ -12,6 +12,8 @@ namespace NexaOne.API.Controllers;
 public class FdcController(
     FdcInterlockService interlockService,
     FdcDataService dataService,
+    FdcParameterGroupService groupService,
+    FdcAlarmService fdcAlarmService,
     EquipmentAlarmService alarmService,
     IEesHubNotifier notifier) : ControllerBase
 {
@@ -20,6 +22,17 @@ public class FdcController(
     {
         var rules = await interlockService.GetRulesAsync(equipmentId ?? string.Empty, ct);
         return Ok(rules);
+    }
+
+    [HttpGet("interlock-history")]
+    public async Task<IActionResult> GetInterlockHistory(
+        [FromQuery] string equipmentId,
+        [FromQuery] DateTime from,
+        [FromQuery] DateTime to,
+        CancellationToken ct)
+    {
+        var history = await interlockService.GetHistoryAsync(equipmentId, from, to, ct);
+        return Ok(history);
     }
 
     [HttpPost("interlock-rules")]
@@ -54,6 +67,51 @@ public class FdcController(
             req.ParameterId, req.ParameterName, req.EquipmentId, req.Unit,
             req.LowerLimit, req.UpperLimit, ct);
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    // ── Parameter Groups ──────────────────────────────────────────────────────
+
+    [HttpGet("parameter-groups")]
+    public async Task<IActionResult> GetParameterGroups([FromQuery] string equipmentId, CancellationToken ct)
+    {
+        var groups = await groupService.GetGroupsAsync(equipmentId, ct);
+        return Ok(groups);
+    }
+
+    [HttpPost("parameter-groups")]
+    public async Task<IActionResult> CreateParameterGroup([FromBody] CreateParameterGroupRequest req, CancellationToken ct)
+    {
+        var result = await groupService.CreateGroupAsync(
+            req.GroupId, req.GroupName, req.EquipmentId, req.Description, req.DisplayOrder, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    // ── Alarms (FDC threshold) ────────────────────────────────────────────────
+
+    [HttpGet("alarm-configs")]
+    public async Task<IActionResult> GetAlarmConfigs([FromQuery] string equipmentId, CancellationToken ct)
+    {
+        var configs = await fdcAlarmService.GetConfigsAsync(equipmentId, ct);
+        return Ok(configs);
+    }
+
+    [HttpPost("alarm-configs")]
+    public async Task<IActionResult> CreateAlarmConfig([FromBody] CreateAlarmConfigRequest req, CancellationToken ct)
+    {
+        var result = await fdcAlarmService.CreateConfigAsync(
+            req.AlarmConfigId, req.EquipmentId, req.ParameterId, req.AlarmLevel, req.Operator, req.Threshold, ct);
+        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+    }
+
+    [HttpGet("alarm-history")]
+    public async Task<IActionResult> GetAlarmHistory(
+        [FromQuery] string equipmentId,
+        [FromQuery] DateTime from,
+        [FromQuery] DateTime to,
+        CancellationToken ct)
+    {
+        var history = await fdcAlarmService.GetHistoryAsync(equipmentId, from, to, ct);
+        return Ok(history);
     }
 
     // ── Collect Data ──────────────────────────────────────────────────────────
@@ -142,3 +200,8 @@ public record CreateParameterRequest(
     decimal LowerLimit, decimal UpperLimit);
 public record RecordDataRequest(
     string CollectId, string EquipmentId, string ParameterId, decimal Value, string Quality);
+public record CreateParameterGroupRequest(
+    string GroupId, string GroupName, string EquipmentId, string? Description, int DisplayOrder);
+public record CreateAlarmConfigRequest(
+    string AlarmConfigId, string EquipmentId, string ParameterId,
+    string AlarmLevel, string Operator, decimal Threshold);

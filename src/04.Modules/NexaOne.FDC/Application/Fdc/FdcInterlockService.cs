@@ -26,6 +26,13 @@ public class FdcInterlockService
     public async Task<IReadOnlyList<FdcInterlockRule>> GetRulesAsync(string equipmentId, CancellationToken ct = default)
         => await _ruleRepository.GetByEquipmentAsync(equipmentId, ct);
 
+    /// <summary>설비의 인터락 발동 이력을 기간으로 조회한다(이력 리포지토리 미구성 시 빈 목록).</summary>
+    public async Task<IReadOnlyList<FdcInterlockHistory>> GetHistoryAsync(
+        string equipmentId, DateTime from, DateTime to, CancellationToken ct = default)
+        => _historyRepository is null
+            ? Array.Empty<FdcInterlockHistory>()
+            : await _historyRepository.GetByEquipmentAsync(equipmentId, from, to, ct);
+
     public async Task<Result<FdcInterlockRule>> CreateRuleAsync(
         string ruleId, string ruleName, string equipmentId, string parameterId,
         string op, decimal threshold, string action, int priority,

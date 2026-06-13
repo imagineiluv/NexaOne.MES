@@ -21,6 +21,16 @@ public sealed class FdcAlarmService
         _historyRepository = historyRepository;
     }
 
+    public async Task<IReadOnlyList<FdcAlarmConfig>> GetConfigsAsync(string equipmentId, CancellationToken ct = default)
+        => await _configRepository.GetByEquipmentAsync(equipmentId, ct);
+
+    /// <summary>설비의 알람 발생 이력을 기간으로 조회한다(이력 리포지토리 미구성 시 빈 목록).</summary>
+    public async Task<IReadOnlyList<FdcAlarmHistory>> GetHistoryAsync(
+        string equipmentId, DateTime from, DateTime to, CancellationToken ct = default)
+        => _historyRepository is null
+            ? Array.Empty<FdcAlarmHistory>()
+            : await _historyRepository.GetByEquipmentAsync(equipmentId, from, to, ct);
+
     public async Task<Result<FdcAlarmConfig>> CreateConfigAsync(
         string alarmConfigId, string equipmentId, string parameterId,
         string alarmLevel, string @operator, decimal threshold, CancellationToken ct = default)
