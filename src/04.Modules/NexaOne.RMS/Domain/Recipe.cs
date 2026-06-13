@@ -90,6 +90,9 @@ public sealed class Recipe : AuditableEntity<string>
 
     public Result Reject(string reason)
     {
+        // 릴리스(승인 완료)된 레시피는 반려할 수 없다 — 승인 불변식 보호.
+        if (ApprovalState == RecipeApprovalState.Released)
+            return Result.Failure(Error.Conflict($"Released recipe cannot be rejected. Current state: {ApprovalState}."));
         if (string.IsNullOrWhiteSpace(reason))
             return Result.Failure(Error.Validation(nameof(reason), "Rejection reason is required."));
 

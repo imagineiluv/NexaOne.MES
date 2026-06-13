@@ -35,10 +35,11 @@ public sealed class MultiLanguageResourceRepository : QueryRepository, IMultiLan
         return rows.Select(r => r.ToDomain()).ToList();
     }
 
-    public async Task<bool> ExistsAsync(string resourceKey, CancellationToken ct = default)
+    public async Task<bool> ExistsAsync(string resourceKey, LanguageType language, CancellationToken ct = default)
     {
-        const string sql = "SELECT COUNT(1) FROM SYS_MULTI_LANGUAGE_RESOURCE WITH(NOLOCK) WHERE RESOURCE_KEY = @resourceKey";
-        return await CountAsync(sql, new { resourceKey }, ct) > 0;
+        // 리소스는 (RESOURCE_KEY, LANGUAGE) 복합키 — 언어별로 존재 확인해야 업서트가 다른 언어 행을 덮어쓰지 않는다.
+        const string sql = "SELECT COUNT(1) FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY = @resourceKey AND LANGUAGE = @language";
+        return await CountAsync(sql, new { resourceKey, language = language.ToString() }, ct) > 0;
     }
 
     public async Task AddAsync(MultiLanguageResource resource, CancellationToken ct = default)
@@ -52,8 +53,8 @@ public sealed class MultiLanguageResourceRepository : QueryRepository, IMultiLan
     public async Task UpdateAsync(MultiLanguageResource resource, CancellationToken ct = default)
     {
         const string sql = @"UPDATE SYS_MULTI_LANGUAGE_RESOURCE SET
-            MENU_ID = @MenuId, LANGUAGE = @Language, VALUE = @Value
-            WHERE RESOURCE_KEY = @ResourceKey";
+            MENU_ID = @MenuId, VALUE = @Value
+            WHERE RESOURCE_KEY = @ResourceKey AND LANGUAGE = @Language";
         await _processor.UpdateAsync(sql, LangRow.FromDomain(resource), ct);
     }
 

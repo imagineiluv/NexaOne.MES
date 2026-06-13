@@ -6,6 +6,7 @@
 @using Microsoft.AspNetCore.Components
 
 <input type="number"
+       @key="_tick"
        class="@CssClass"
        value="@FormatValue(Value)"
        step="@Step"
@@ -36,6 +37,9 @@
     private static string? FormatValue(TValue? value)
         => value is IFormattable f ? f.ToString(null, CultureInfo.InvariantCulture) : value?.ToString();
 
+    // @key 틱 — 클램프/거부로 표시값이 입력과 달라질 때 증가시켜 input DOM을 모델값으로 강제 동기화(stale value 방지).
+    private int _tick;
+
     private async Task OnChanged(ChangeEventArgs e)
     {
         var raw = e.Value?.ToString();
@@ -49,8 +53,11 @@
         }
         else
         {
-            return; // 파싱 실패 시 이전 값 유지
+            _tick++; // 파싱 실패: 모델 유지 + DOM을 모델값으로 되돌림(이벤트 후 자동 재렌더)
+            return;
         }
+        // 클램프/정규화로 표시 문자열이 입력과 달라지면 input 요소를 재생성해 DOM을 모델값과 일치시킨다.
+        if (FormatValue(Value) != raw) _tick++;
         await ValueChanged.InvokeAsync(Value);
     }
 

@@ -31,7 +31,7 @@ public sealed class OutboxRepository : QueryRepository, IOutboxRepository
         const string sql = @"SELECT TOP (@batchSize)
                 ID AS Id, EVENT_TYPE AS EventType, MODULE AS Module, AGGREGATE_ID AS AggregateId,
                 PAYLOAD AS Payload, OCCURRED_AT AS OccurredAt, PUBLISHED_AT AS PublishedAt, ATTEMPTS AS Attempts
-            FROM EES_OUTBOX WITH(NOLOCK)
+            FROM EES_OUTBOX
             WHERE PUBLISHED_AT IS NULL
             ORDER BY ID";
         return QueryAsync<OutboxMessage>(sql, new { batchSize }, ct);

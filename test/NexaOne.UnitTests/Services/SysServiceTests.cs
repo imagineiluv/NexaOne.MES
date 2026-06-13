@@ -135,7 +135,7 @@ public sealed class SysServiceTests
     public async Task UpsertResource_new_key_calls_add()
     {
         var langMock = new Mock<IMultiLanguageResourceRepository>();
-        langMock.Setup(r => r.ExistsAsync("HOME.TITLE", default)).ReturnsAsync(false);
+        langMock.Setup(r => r.ExistsAsync("HOME.TITLE", LanguageType.KoKr, default)).ReturnsAsync(false);
         langMock.Setup(r => r.AddAsync(It.IsAny<MultiLanguageResource>(), default)).Returns(Task.CompletedTask);
 
         var result = await Build(langMock: langMock)
@@ -150,7 +150,7 @@ public sealed class SysServiceTests
     public async Task UpsertResource_existing_key_calls_update()
     {
         var langMock = new Mock<IMultiLanguageResourceRepository>();
-        langMock.Setup(r => r.ExistsAsync("HOME.TITLE", default)).ReturnsAsync(true);
+        langMock.Setup(r => r.ExistsAsync("HOME.TITLE", LanguageType.KoKr, default)).ReturnsAsync(true);
         langMock.Setup(r => r.UpdateAsync(It.IsAny<MultiLanguageResource>(), default)).Returns(Task.CompletedTask);
 
         var result = await Build(langMock: langMock)

@@ -24,6 +24,8 @@ public class RuleController : ControllerBase
         return Ok(new RuleResponse<object> { IsSuccess = true, Data = result });
     }
 
+    // 임의 SQL/프로시저 실행은 관리자 전용으로 제한(인증만으로 통과하던 권한상승/RCE급 경로 봉쇄).
+    [Authorize(Policy = "perm:sys:manage")]
     [HttpPost("query")]
     public async Task<IActionResult> ExecuteQuery([FromBody] QueryRequest request)
     {
@@ -31,6 +33,7 @@ public class RuleController : ControllerBase
         return Ok(new RuleResponse<object> { IsSuccess = true, Data = result });
     }
 
+    [Authorize(Policy = "perm:sys:manage")]
     [HttpPost("procedure")]
     public async Task<IActionResult> ExecuteProcedure([FromBody] ProcedureRequest request)
     {
@@ -38,6 +41,7 @@ public class RuleController : ControllerBase
         return Ok(new RuleResponse<object> { IsSuccess = true, Data = result });
     }
 
+    [Authorize(Policy = "perm:sys:manage")]
     [HttpPost("procedure/dataset")]
     public async Task<IActionResult> ExecuteProcedureDataSet([FromBody] ProcedureRequest request)
     {

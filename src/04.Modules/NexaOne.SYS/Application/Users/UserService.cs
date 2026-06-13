@@ -275,7 +275,7 @@ public sealed class UserService
     {
         var resource = MultiLanguageResource.Create(resourceKey, menuId, language, value);
 
-        if (await _langRepository.ExistsAsync(resourceKey, ct))
+        if (await _langRepository.ExistsAsync(resourceKey, language, ct))
         {
             resource.UpdateValue(value);
             await _langRepository.UpdateAsync(resource, ct);
