@@ -76,6 +76,7 @@ public static class ServiceCollectionExtensions
         // FDC
         services.AddScoped<IFdcInterlockRuleRepository, FdcInterlockRuleRepository>();
         services.AddScoped<IFdcInterlockHistoryRepository, FdcInterlockHistoryRepository>();
+        services.AddScoped<IFdcEquipmentEndpointRepository, FdcEquipmentEndpointRepository>();
         services.AddScoped<IFdcParameterRepository, FdcParameterRepository>();
         services.AddScoped<IFdcCollectDataRepository, FdcCollectDataRepository>();
         services.AddScoped<FdcInterlockService>();

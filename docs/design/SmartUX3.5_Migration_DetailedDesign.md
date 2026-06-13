@@ -3138,7 +3138,9 @@ FdcConsumerService (Kafka Consumer) ← fdc.rawdata 구독
 > `FdcInterlockService.RecordTriggerAsync`로 **`FDC_INTERLOCK_HISTORY`에 직접 적재**하고
 > `InterlockTriggered` 이벤트를 발생시킨다 — 설비 정지·SignalR 알림은 이 이벤트의 호스트 구독자가 처리한다.
 > Kafka 경유(`fdc.rawdata`)는 대량·분산 수집이 필요할 때의 선택지로 두고, 기본 구현은 직접 적재한다.
-> `PlantController` 오케스트레이션과 설비-엔드포인트·태그 매핑(설비 마스터)은 해당 도메인 확정 후 연결한다.
+> 설비-엔드포인트 매핑은 **`FDC_EQUIPMENT_ENDPOINT`(FdcEquipmentEndpoint 도메인/리포지토리)**로 구현했다
+> — 통신 관심사를 MDM 마스터와 분리해 FDC가 소유하며, 한 설비에 복수 엔드포인트를 허용한다.
+> 이 매핑을 NexusLogic `PlcEndpoint`로 변환해 Machine을 구동하는 `PlantController` 오케스트레이션(HostedService)은 다음 단계다.
 > 수집 변환·인터락 연결은 `FdcCollectorServiceTests`(11개)·`OpcUaDeviceInterfaceTests`(8개)가 검증한다.
 
 ```csharp
