@@ -33,12 +33,12 @@ public class AuthController : ControllerBase
     [EnableRateLimiting("auth")]   // §18.2.3 — 익명 진입점 IP당 제한 (브루트포스 방어)
     public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken ct)
     {
-        var passwordHash = PasswordHasher.Hash(request.Password);
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
         var userAgent = Request.Headers.UserAgent.ToString();
 
+        // 자격증명 원문을 서비스에 전달 — 서비스가 PasswordHasher.Verify(salt+PBKDF2)로 검증한다(§19.2.2)
         var result = await _userService.ValidateAndLoginAsync(
-            request.UserId, passwordHash, ipAddress, userAgent, ct);
+            request.UserId, request.Password, ipAddress, userAgent, ct);
 
         if (result.IsFailure)
         {
@@ -112,14 +112,14 @@ public class AuthController : ControllerBase
             return BadRequest(userResult.Error);
         var user = userResult.Value;
 
-        // §19.2.2 — 복잡도 정책 서버 최종 검증. UserService는 해시만 받으므로
-        // 평문이 존재하는 여기서 검증한다 (사용자 ID/이름/이메일 포함 금지 포함).
+        // §19.2.2 — 복잡도 정책 서버 최종 검증 (사용자 ID/이름/이메일 포함 금지 포함).
         var policyViolation = PasswordPolicy.Validate(request.NewPassword, userId, user.UserName, user.Email);
         if (policyViolation is not null)
             return BadRequest(new { code = PasswordPolicy.ErrorCode, message = policyViolation });
 
+        // 자격증명 원문을 전달 — 서비스가 현재 비밀번호를 Verify하고 새 비밀번호를 강화 해시로 저장한다
         var result = await _userService.ChangePasswordAsync(
-            userId, PasswordHasher.Hash(request.CurrentPassword), PasswordHasher.Hash(request.NewPassword), ct);
+            userId, request.CurrentPassword, request.NewPassword, ct);
 
         if (result.IsFailure)
             return BadRequest(result.Error);

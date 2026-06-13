@@ -143,6 +143,10 @@ public sealed class User : AuditableEntity<string>
         PasswordState = PasswordState.Normal;
     }
 
+    /// <summary>저장 해시만 강화 알고리즘으로 재계산한다(rehash-on-login). 비밀번호 변경이 아니므로
+    /// PasswordState(Forgot/Create 등)는 그대로 보존한다 (§19.2.2).</summary>
+    public void RehashPassword(string newPasswordHash) => PasswordHash = newPasswordHash;
+
     /// <summary>§20.10 — 임시 비밀번호 발급. 상태를 Forgot으로 표시해 로그인 후 변경을 강제한다.</summary>
     public void SetTemporaryPassword(string temporaryPasswordHash)
     {

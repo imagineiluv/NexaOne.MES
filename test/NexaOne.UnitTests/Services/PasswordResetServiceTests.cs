@@ -76,7 +76,7 @@ public sealed class PasswordResetServiceTests
 
         user.PasswordState.Should().Be(PasswordState.Forgot);
         user.PasswordHash.Should().NotBe(originalHash);
-        user.PasswordHash.Should().MatchRegex("^[0-9a-f]{64}$", "임시 비밀번호는 즉시 SHA-256 해시로 저장된다");
+        user.PasswordHash.Should().StartWith("pbkdf2$", "임시 비밀번호는 강화 해시(PBKDF2)로 저장된다");
         repo.Verify(r => r.UpdateAsync(user, default), Times.Once);
         email.Verify(e => e.SendAsync(
             "alice@test.com", It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), default), Times.Once);
@@ -114,8 +114,8 @@ public sealed class PasswordResetServiceTests
         await Build(repo, template: template).ForgotPasswordAsync("u001", "alice@test.com");
 
         mailedPassword.Should().NotBeNullOrEmpty();
-        PasswordHasher.Hash(mailedPassword!).Should().Be(
-            user.PasswordHash, "메일로 보낸 임시 비밀번호 원문과 저장된 해시가 일치해야 로그인이 가능하다");
+        PasswordHasher.Verify(mailedPassword!, user.PasswordHash).Should().BeTrue(
+            "메일로 보낸 임시 비밀번호 원문이 저장된 해시로 검증되어야 로그인이 가능하다");
     }
 
     [Fact]

@@ -38,13 +38,15 @@ public class QueryRepository
 
     protected async Task<IReadOnlyList<T>> QueryPagedAsync<T>(
         string baseSql,
+        string orderBy,
         int pageIndex,
         int pageSize,
         INexaOneEESDbCapability dialect,
         object? param = null,
         CancellationToken ct = default)
     {
-        var pagedSql = dialect.WrapPaged(baseSql, pageIndex * pageSize, pageSize);
+        // baseSql은 ORDER BY를 포함하지 않아야 하며, 결정적 페이징을 위해 orderBy(정렬 키)를 전달한다.
+        var pagedSql = dialect.WrapPaged(baseSql, orderBy, pageIndex * pageSize, pageSize);
         return await QueryAsync<T>(pagedSql, param, ct).ConfigureAwait(false);
     }
 

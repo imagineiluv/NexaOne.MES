@@ -7,8 +7,9 @@ namespace NexaOne.UnitTests.Services;
 
 public sealed class UserServiceTests
 {
+    // pw는 평문 — 저장 해시는 PasswordHasher.Hash(pw)(PBKDF2). 로그인은 평문 pw로 검증한다.
     private static User ActiveUser(string id = "u001", string pw = "hash123") =>
-        User.Create(id, "Alice", pw, "alice@test.com", "OPERATOR").Value;
+        User.Create(id, "Alice", PasswordHasher.Hash(pw), "alice@test.com", "OPERATOR").Value;
 
     private static UserService BuildService(
         Mock<IUserRepository> repo,
@@ -266,7 +267,30 @@ public sealed class UserServiceTests
         var result = await BuildService(repo).ChangePasswordAsync("u001", "hash123", "newHash");
 
         result.IsSuccess.Should().BeTrue();
-        user.PasswordHash.Should().Be("newHash");
+        PasswordHasher.Verify("newHash", user.PasswordHash).Should().BeTrue("새 비밀번호가 강화 해시로 저장된다");
+    }
+
+    [Fact]
+    public async Task ValidateAndLogin_rehashes_legacy_sha256_on_success()
+    {
+        // 구 무염 SHA-256 hex로 저장된 사용자 — 원문으로 검증되고 로그인 성공 시 강화 해시로 교체되어야 한다
+        var legacy = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("secret")))
+            .ToLowerInvariant();
+        var user = User.Create("u001", "Alice", legacy, "alice@test.com", "OPERATOR").Value;
+        var repo = new Mock<IUserRepository>();
+        repo.Setup(r => r.GetByIdAsync("u001", default)).ReturnsAsync(user);
+        User? saved = null;
+        repo.Setup(r => r.UpdateAsync(It.IsAny<User>(), default))
+            .Callback<User, CancellationToken>((u, _) => saved = u)
+            .Returns(Task.CompletedTask);
+
+        var result = await BuildService(repo).ValidateAndLoginAsync("u001", "secret");
+
+        result.IsSuccess.Should().BeTrue("구 SHA-256 해시도 원문으로 검증된다");
+        saved.Should().NotBeNull();
+        PasswordHasher.NeedsRehash(saved!.PasswordHash).Should().BeFalse("로그인 성공 시 강화 해시로 재해싱된다");
+        PasswordHasher.Verify("secret", saved.PasswordHash).Should().BeTrue();
     }
 
     [Fact]

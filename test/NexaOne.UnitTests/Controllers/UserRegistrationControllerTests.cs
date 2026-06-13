@@ -193,8 +193,8 @@ public sealed class UserRegistrationControllerTests
         created!.RoleId.Should().Be("OPERATOR");
         created.PasswordState.Should().Be(PasswordState.Create);
         mailedPassword.Should().NotBeNullOrEmpty();
-        PasswordHasher.Hash(mailedPassword!).Should().Be(
-            created.PasswordHash, "메일로 보낸 임시 비밀번호 원문과 저장된 해시가 일치해야 로그인이 가능하다");
+        PasswordHasher.Verify(mailedPassword!, created.PasswordHash).Should().BeTrue(
+            "메일로 보낸 임시 비밀번호 원문이 저장된 해시로 검증되어야 로그인이 가능하다");
         _email.Verify(e => e.SendAsync(
             "new@test.com", It.IsAny<string>(), "<html>rendered</html>", true, default), Times.Once);
     }

@@ -61,7 +61,7 @@ public sealed class UserService
     /// 모든 실패는 SYS_LOGIN_FAILURE_HIST에 사용자/IP/UserAgent/사유와 함께 기록한다.</summary>
     public async Task<Result<User>> ValidateAndLoginAsync(
         string userId,
-        string passwordHash,
+        string password,
         string ipAddress = "",
         string userAgent = "",
         CancellationToken ct = default)
@@ -87,7 +87,7 @@ public sealed class UserService
             return Result.Failure<User>(InvalidCredentials());
         }
 
-        if (user.PasswordHash != passwordHash)
+        if (!PasswordHasher.Verify(password, user.PasswordHash))
         {
             // §20.10 — 카운터 증가는 원자 UPDATE로 처리한다. 메모리 증가 후 전체 행 UPDATE는
             // 동시 실패 시 증가가 유실되고, 동시 임시 비밀번호 발급을 덮어쓸 수 있다.
@@ -97,6 +97,10 @@ public sealed class UserService
                 ? Result.Failure<User>(AccountLocked(until, now))
                 : Result.Failure<User>(InvalidCredentials());
         }
+
+        // §19.2.2 rehash-on-login — 구 무염 SHA-256 해시는 검증 성공 시 강화 해시로 교체(상태는 보존)
+        if (PasswordHasher.NeedsRehash(user.PasswordHash))
+            user.RehashPassword(PasswordHasher.Hash(password));
 
         user.RecordLogin();   // LastLoginAt 기록 + 연속 실패 카운터 리셋
         await _userRepository.UpdateAsync(user, ct);
@@ -132,18 +136,18 @@ public sealed class UserService
 
     public async Task<Result> ChangePasswordAsync(
         string userId,
-        string currentPasswordHash,
-        string newPasswordHash,
+        string currentPassword,
+        string newPassword,
         CancellationToken ct = default)
     {
         var user = await _userRepository.GetByIdAsync(userId, ct);
         if (user is null)
             return Result.Failure(Error.NotFound(nameof(User), userId));
 
-        if (user.PasswordHash != currentPasswordHash)
+        if (!PasswordHasher.Verify(currentPassword, user.PasswordHash))
             return Result.Failure(Error.Failure("Auth.WrongPassword", "Current password is incorrect."));
 
-        user.ChangePassword(newPasswordHash);
+        user.ChangePassword(PasswordHasher.Hash(newPassword));
         await _userRepository.UpdateAsync(user, ct);
         return Result.Success();
     }
