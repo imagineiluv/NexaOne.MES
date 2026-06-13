@@ -18,8 +18,9 @@ public static class Permissions
     /// <summary>FDC 데이터 조회.</summary>
     public const string FdcRead = "fdc:read";
 
-    // ── 점진 채택 예시(나머지 컨트롤러 전환 시 확장) ──
+    // ── 관리자 영역(역할 하드코딩 → 정책 전환) ──
     public const string MdmManage = "mdm:manage";
-    public const string SysUserManage = "sys:user.manage";
-    public const string DeployManage = "deploy:manage";
+    public const string SysManage = "sys:manage";          // 시스템 관리(사용자/역할/권한/언어 CRUD)
+    public const string SysUserManage = "sys:user.manage"; // 사용자 가입 승인
+    public const string DeployManage = "deploy:manage";    // 배포 파일 업로드/활성
 }

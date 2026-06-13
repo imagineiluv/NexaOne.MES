@@ -251,11 +251,11 @@ NexaOne.Common.Telemetry.NexaMesMetrics.BindObservableGauges(
     app.Services.GetRequiredService<NexaOne.Common.Telemetry.ActiveUserTracker>(),
     app.Services.GetRequiredService<NexaOne.Common.Telemetry.EquipmentChannelStatusRegistry>());
 
+// Phase 2(Pro-Code 공존) — OpenAPI 스펙은 상시 노출한다: 외부 React/Vue SPA가 TypeScript 클라이언트를
+// 생성하고 계약을 발견하는 채널. 대화형 Swagger UI는 개발 환경에만 노출(운영 정보 노출 최소화).
+app.UseSwagger();
 if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
     app.UseSwaggerUI();
-}
 
 // §17.5 — API 시간/오류/활동사용자 계측. 예외 처리기보다 앞에 두어 500 변환 후의 최종 상태코드와 전체 시간을 관측.
 app.UseMiddleware<NexaOne.API.Middleware.NexaMesMetricsMiddleware>();

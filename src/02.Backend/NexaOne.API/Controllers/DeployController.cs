@@ -40,7 +40,7 @@ public class DeployController(DeployService deployService) : ControllerBase
     }
 
     [HttpGet("files")]
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Policy = "perm:deploy:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
     public async Task<IActionResult> GetFiles(CancellationToken ct)
     {
         var result = await deployService.GetAllAsync(ct);
@@ -48,7 +48,7 @@ public class DeployController(DeployService deployService) : ControllerBase
     }
 
     [HttpPost("files")]
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Policy = "perm:deploy:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
     [RequestSizeLimit(MaxRequestBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = MaxRequestBytes)]
     public async Task<IActionResult> Upload(
@@ -87,7 +87,7 @@ public class DeployController(DeployService deployService) : ControllerBase
 
     /// <summary>문제 버전 회수 — latest 선정/다운로드에서 제외한다.</summary>
     [HttpPut("files/{fileId}/deactivate")]
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Policy = "perm:deploy:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
     public async Task<IActionResult> Deactivate(string fileId, CancellationToken ct)
     {
         var result = await deployService.SetActiveAsync(fileId, isActive: false, ct: ct);
@@ -95,7 +95,7 @@ public class DeployController(DeployService deployService) : ControllerBase
     }
 
     [HttpPut("files/{fileId}/activate")]
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Policy = "perm:deploy:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
     public async Task<IActionResult> Activate(string fileId, CancellationToken ct)
     {
         var result = await deployService.SetActiveAsync(fileId, isActive: true, ct: ct);

@@ -58,7 +58,7 @@ public class SysController(
     // ── Users ─────────────────────────────────────────────────────────────────
 
     [HttpGet("users")]
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
     public async Task<IActionResult> GetUsers(CancellationToken ct)
     {
         var result = await userService.GetAllUsersAsync(ct);
@@ -73,7 +73,7 @@ public class SysController(
     }
 
     [HttpPost("users")]
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
     public async Task<IActionResult> CreateUser([FromBody] CreateUserRequest req, CancellationToken ct)
     {
         var result = await userService.CreateUserAsync(
@@ -84,7 +84,7 @@ public class SysController(
     }
 
     [HttpPut("users/{userId}/deactivate")]
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
     public async Task<IActionResult> DeactivateUser(string userId, CancellationToken ct)
     {
         var result = await userService.DeactivateUserAsync(userId, ct);
@@ -93,7 +93,7 @@ public class SysController(
 
     /// <summary>§20.10 — 관리자 잠금 해제 (해제는 시간 만료 또는 관리자만 가능).</summary>
     [HttpPut("users/{userId}/unlock")]
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
     public async Task<IActionResult> UnlockUser(string userId, CancellationToken ct)
     {
         var result = await userService.UnlockUserAsync(userId, ct);
@@ -122,7 +122,7 @@ public class SysController(
     }
 
     [HttpPost("roles")]
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
     public async Task<IActionResult> CreateRole([FromBody] CreateRoleRequest req, CancellationToken ct)
     {
         var result = await userService.CreateRoleAsync(req.RoleId, req.RoleName, req.Description ?? "", ct);
@@ -130,7 +130,7 @@ public class SysController(
     }
 
     [HttpPost("roles/{roleId}/permissions")]
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
     public async Task<IActionResult> AddPermission(string roleId, [FromBody] PermissionRequest req, CancellationToken ct)
     {
         var result = await userService.AddPermissionAsync(roleId, req.Permission, ct);
@@ -138,7 +138,7 @@ public class SysController(
     }
 
     [HttpDelete("roles/{roleId}/permissions/{permission}")]
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
     public async Task<IActionResult> RemovePermission(string roleId, string permission, CancellationToken ct)
     {
         var result = await userService.RemovePermissionAsync(roleId, permission, ct);
@@ -167,7 +167,7 @@ public class SysController(
     }
 
     [HttpPost("languages")]
-    [Authorize(Roles = "ADMIN")]
+    [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
     public async Task<IActionResult> UpsertLanguageResource([FromBody] UpsertLanguageResourceRequest req, CancellationToken ct)
     {
         if (!Enum.TryParse<LanguageType>(req.Language, out var lang) || !Enum.IsDefined(lang))

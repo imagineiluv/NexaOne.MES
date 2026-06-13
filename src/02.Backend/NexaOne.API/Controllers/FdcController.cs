@@ -17,8 +17,24 @@ public class FdcController(
     FdcAlarmService fdcAlarmService,
     EquipmentAlarmService alarmService,
     PlantController plant,
-    IEesHubNotifier notifier) : ControllerBase
+    IEesHubNotifier notifier,
+    NexaOne.Infrastructure.Persistence.IOutboxRepository outbox,
+    ILogger<FdcController> logger) : ControllerBase
 {
+    // ADR-002 — 설비 상태 변경을 Event Bus로 발행(outbox). 디스패처가 Kafka로 발행하고 구독자가 SignalR로 푸시한다.
+    // best-effort: outbox 적재 실패(테이블/디스패처 미가동)가 설비 제어 자체를 막지 않도록 한다.
+    private async Task PublishEquipmentStateAsync(string state, CancellationToken ct)
+    {
+        try
+        {
+            await outbox.EnqueueAsync("EquipmentStateChanged", "FDC", "PLANT", state, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Outbox enqueue failed for EquipmentStateChanged={State} (제어는 계속)", state);
+        }
+    }
+
     // ── Equipment Control (§10.4.4 — PlantController 수동 제어) ─────────────────
 
     [HttpGet("equipment/state")]
@@ -41,6 +57,7 @@ public class FdcController(
             // 수집기 비활성(기본) 등으로 StateMachine 미초기화면 수동 제어가 영구 실패하므로 멱등 초기화
             if (plant.StateMachine is null) await plant.InitializeAsync(ct);
             await plant.StartAsync(ct);
+            await PublishEquipmentStateAsync("Running", ct);
             return Ok();
         }
         catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
@@ -54,6 +71,7 @@ public class FdcController(
         {
             if (plant.StateMachine is null) await plant.InitializeAsync(ct);
             await plant.StopAsync(ct);
+            await PublishEquipmentStateAsync("Stopped", ct);
             return Ok();
         }
         catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
@@ -64,6 +82,7 @@ public class FdcController(
     public async Task<IActionResult> AbortAll([FromBody] AbortRequest req, CancellationToken ct)
     {
         await plant.AbortAsync(req.Reason, ct);
+        await PublishEquipmentStateAsync("Aborted", ct);
         return Ok();
     }
 

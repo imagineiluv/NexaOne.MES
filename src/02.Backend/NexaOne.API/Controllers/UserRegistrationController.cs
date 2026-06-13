@@ -12,7 +12,7 @@ namespace NexaOne.API.Controllers;
 /// 목록/승인/반려는 관리자 전용. 상태 전이는 이 API 서버를 통해서만 일어난다 (§19.3.7).</summary>
 [ApiController]
 [Route("api/v1/users")]
-[Authorize(Roles = "ADMIN")]
+[Authorize(Policy = "perm:sys:user.manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
 public class UserRegistrationController(
     UserApprovalService approvalService,
     UserRegistrationService registrationService) : ControllerBase
