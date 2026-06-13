@@ -121,6 +121,9 @@ builder.Services.AddNexaOneServices(builder.Configuration);
 builder.Services.AddNexaOneEES(builder.Configuration);
 builder.Services.AddScoped<NexaOne.API.Hubs.IEesHubNotifier, NexaOne.API.Hubs.EesHubNotifier>();
 
+// FDC 실시간 수집 호스트 (§10.4.2/10.4.3) — "Fdc:Collector:Enabled"=true 일 때만 실제 기동
+builder.Services.AddHostedService<NexaOne.API.Services.FdcCollectorHostedService>();
+
 // CORS
 builder.Services.AddCors(options =>
 {
