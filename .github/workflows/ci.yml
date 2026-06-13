@@ -1,0 +1,53 @@
+name: CI
+
+# 설계 §16.2 빌드 파이프라인 — Restore → Build(Release) → Unit Test.
+# Integration Test는 실 MSSQL/OPC-UA 서버가 필요하므로 [Fact(Skip)]로 기본 제외되며,
+# 환경 구축된 별도 job(testcontainers)에서 Skip 제거 후 실행한다(§16.2 / 10.4 통합 골격).
+
+on:
+  push:
+    branches: [main, develop, staging]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive   # NexusFramework / NexusCom / NexusLogic
+
+      - name: Setup .NET (global.json 고정 — SDK 8.0.419)
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # DevExpress.Blazor는 상용 피드 — 라이선스 키를 secret으로 주입 (없으면 복원 실패)
+      - name: Add DevExpress NuGet source
+        if: ${{ secrets.DEVEXPRESS_NUGET_KEY != '' }}
+        run: >
+          dotnet nuget add source
+          https://nuget.devexpress.com/${{ secrets.DEVEXPRESS_NUGET_KEY }}/api
+          --name DevExpress
+
+      - name: Restore
+        run: dotnet restore NexaOne.sln
+
+      - name: Build (Release)
+        run: dotnet build NexaOne.sln --configuration Release --no-restore
+
+      - name: Unit Test (+ coverage)
+        run: >
+          dotnet test NexaOne.sln --configuration Release --no-build
+          --logger "trx;LogFileName=test-results.trx"
+          --collect:"XPlat Code Coverage"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: "**/TestResults/**/*"
+          if-no-files-found: ignore

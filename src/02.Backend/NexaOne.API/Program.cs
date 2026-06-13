@@ -4,6 +4,9 @@ using Microsoft.IdentityModel.Tokens;
 using NexaOne.API.Extensions;
 using NexaOne.API.Hubs;
 using NexaOne.Application;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 using Serilog;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -120,6 +123,29 @@ builder.Services.AddHealthChecks()
 builder.Services.AddNexaOneServices(builder.Configuration);
 builder.Services.AddNexaOneEES(builder.Configuration);
 builder.Services.AddScoped<NexaOne.API.Hubs.IEesHubNotifier, NexaOne.API.Hubs.EesHubNotifier>();
+
+// §17.4 OpenTelemetry — 분산 추적 + Metrics. OTLP 엔드포인트가 설정되면 Collector로,
+// 없으면 개발용 Console exporter로 트레이스를 내보낸다(설계: 개발 Console/OTLP, 운영 OTLP Collector).
+var otlpEndpoint = builder.Configuration["OpenTelemetry:OtlpEndpoint"];
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(r => r.AddService(serviceName: "NexaOne.API", serviceVersion: "2.0"))
+    .WithTracing(tracing =>
+    {
+        tracing.AddAspNetCoreInstrumentation()
+               .AddHttpClientInstrumentation();
+        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+            tracing.AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint));
+        else
+            tracing.AddConsoleExporter();
+    })
+    .WithMetrics(metrics =>
+    {
+        metrics.AddAspNetCoreInstrumentation()
+               .AddHttpClientInstrumentation()
+               .AddRuntimeInstrumentation();
+        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+            metrics.AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint));
+    });
 
 // FDC 실시간 수집 호스트 (§10.4.2/10.4.3) — "Fdc:Collector:Enabled"=true 일 때만 실제 기동
 // PlantController는 싱글톤으로 공유: HostedService가 설비를 등록·기동하고, FdcController가 수동 제어한다(§10.4.4)
