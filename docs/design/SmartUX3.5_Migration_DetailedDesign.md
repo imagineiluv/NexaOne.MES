@@ -299,10 +299,11 @@ submodules/
         ├── NexusCom.Data.Core/               ← DriverManager, ChangeEventDispatcher
         ├── NexusCom.Data.Hosting/            ← DataHostedService, DataEndpointHealthCheck
         ├── NexusCom.Messaging.Kafka/         ← ★ Kafka 메시징 (v2.0 이관 완료 — Confluent.Kafka)
-        ├── NexusCom.Messaging.*/             ← (계획) RabbitMq·Mqtt 메시징 컨텍스트
+        ├── NexusCom.Messaging.RabbitMq/      ← RabbitMQ AMQP (스켈레톤 구현 — NexaMes 미연결)
+        ├── NexusCom.Messaging.Mqtt/          ← MQTT (스켈레톤 구현 — NexaMes 미연결)
         ├── NexusCom.Notify.SmtpEmail/        ← ★ SMTP 이메일 (v2.0 이관 완료 — MailKit)
-        ├── NexusCom.Notify.*/                ← (계획) Sms 알림 컨텍스트
-        └── NexusCom.Directory.*/             ← (계획) Ldap 외부 인증 컨텍스트
+        ├── NexusCom.Notify.Sms/              ← SMS (스켈레톤 구현 — NexaMes 미연결)
+        └── NexusCom.Directory.Ldap/          ← LDAP/AD 외부 인증 (스켈레톤 구현 — NexaMes 미연결)
 
 NexusLogic/                                   ← ★ 설비 프로토콜 레이어 (v2.0 서브모듈 추가 완료, 구 NexusCom.Plc.* 이관처)
     └── src/
@@ -366,11 +367,11 @@ SmartEES.sln
 │   │
 │   ├── 02.Communication/                    ← [통신 글루] SmartEES 전용 어댑터 + 과도기 구현 (v2.0)
 │   │   ├── (NexusCom.Messaging.Kafka)       ← ★ v2.0 이관 완료 — Confluent.Kafka (기본, 서브모듈 직접 참조)
-│   │   ├── (NexusCom.Messaging.RabbitMq)    ← 계획 — AMQP (선택, NexusCom에 직접 구현 예정)
-│   │   ├── (NexusCom.Messaging.Mqtt)        ← 계획 — MQTT (선택, NexusCom에 직접 구현 예정)
+│   │   ├── (NexusCom.Messaging.RabbitMq)    ← 스켈레톤 구현 — AMQP (서브모듈, NexaMes 미연결)
+│   │   ├── (NexusCom.Messaging.Mqtt)        ← 스켈레톤 구현 — MQTT (서브모듈, NexaMes 미연결)
 │   │   ├── (NexusCom.Notify.SmtpEmail)      ← ★ v2.0 이관 완료 — SMTP 이메일 (기본, 서브모듈 직접 참조)
-│   │   ├── (NexusCom.Notify.Sms)            ← 계획 — SMS (선택, NexusCom에 직접 구현 예정)
-│   │   ├── (NexusCom.Directory.Ldap)        ← 계획 — LDAP/Active Directory (선택, NexusCom에 직접 구현 예정)
+│   │   ├── (NexusCom.Notify.Sms)            ← 스켈레톤 구현 — SMS (서브모듈, NexaMes 미연결)
+│   │   ├── (NexusCom.Directory.Ldap)        ← 스켈레톤 구현 — LDAP/AD (서브모듈, NexaMes 미연결)
 │   │   ├── (NexusLogic.Plc.OpcUa)           ← ★ NexusLogic 소속 (서브모듈 추가 완료) — OPC-UA 설비 수집, IPlcDriver
 │   │   └── SmartEES.Driver.Adapters         ← 잔류 — IDeviceInterface ↔ IPlcDriver 어댑터 글루 (FDC 연동 시 구현)
 │   │   ※ v2.0: 프로토콜 구현은 서브모듈(NexusCom/NexusLogic)이 소유한다.
@@ -431,7 +432,7 @@ SmartEES.Application                       ← [WorkflowCallable] 메서드 포�
     ※ Oracle: SmartEES.Driver.Oracle 자체 구현
 
 03.Driver/02.Communication/*               ← v2.0 프로토콜 구현은 서브모듈 소유
-    └─→ NexusCom.Messaging.* / Notify.* / Directory.*  (Kafka·SmtpEmail — 이관 완료★ / RabbitMq·Mqtt·Sms·Ldap — 계획)
+    └─→ NexusCom.Messaging.* / Notify.* / Directory.*  (Kafka·SmtpEmail — 이관 완료★ / RabbitMq·Mqtt·Sms·Ldap — 스켈레톤 구현, NexaMes 미연결)
     └─→ NexusLogic.Plc.OpcUa               (OPC-UA 설비 프로토콜, IPlcDriver — v2.0 서브모듈 추가 완료)
     └─→ SmartEES.Infrastructure            (IMessageBrokerDriver/IEquipmentDriver 인터페이스 — 어댑터 글루만)
     └─→ NexusFramework.Resource.*          (IDeviceInterface — 어댑터가 NexusLogic IPlcDriver를 감싸 구현)
@@ -906,11 +907,11 @@ public static IServiceCollection AddMsSqlProvider(this IServiceCollection servic
 | 드라이버 | 소속 프로젝트 (v2.0) | 프로토콜 | 용도 | 이관 상태 |
 |----------|---------------------|---------|------|----------|
 | `KafkaDriver` | NexusCom.Messaging.Kafka | Kafka 프로토콜 | 이벤트 발행·구독 | ✅ **이관 완료 (v2.0)** — 서브모듈 직접 참조 |
-| `RabbitMqDriver` | NexusCom.Messaging.RabbitMq | AMQP | 메시지 브로커 (선택) | 계획 |
-| `MqttDriver` | NexusCom.Messaging.Mqtt | MQTT | IoT 설비 수집 | 계획 |
+| `RabbitMqDriver` | NexusCom.Messaging.RabbitMq | AMQP | 메시지 브로커 (선택) | 스켈레톤 구현 (서브모듈, NexaMes 미연결) |
+| `MqttDriver` | NexusCom.Messaging.Mqtt | MQTT | IoT 설비 수집 | 스켈레톤 구현 (서브모듈, NexaMes 미연결) |
 | `SmtpEmailDriver` | NexusCom.Notify.SmtpEmail | SMTP | 이메일 알림 발송 | ✅ **이관 완료 (v2.0)** — 서브모듈 직접 참조 |
-| `SmsDriver` | NexusCom.Notify.Sms | HTTP/API | SMS 발송 (선택) | 계획 |
-| `LdapDriver` | NexusCom.Directory.Ldap | LDAP/LDAPS | AD/LDAP 외부 인증 | 계획 |
+| `SmsDriver` | NexusCom.Notify.Sms | HTTP/API | SMS 발송 (선택) | 스켈레톤 구현 (서브모듈, NexaMes 미연결) |
+| `LdapDriver` | NexusCom.Directory.Ldap | LDAP/LDAPS | AD/LDAP 외부 인증 | 스켈레톤 구현 (서브모듈, NexaMes 미연결) |
 | `NexusLogic.Plc.OpcUa` | NexusLogic.Plc.OpcUa (서브모듈) | OPC-UA | 설비 데이터 수집 | ✅ **NexusLogic 활용 확정 (v2.0)** — IPlcDriver, 서브모듈 추가 완료 |
 | ~~SerialPort~~ | — | RS-232/485 | 레거시 설비 수집 | ❌ **범위 제외 (v2.0)** — NexusLogic 미제공, NexaOne.Driver.SerialPort 삭제 |
 
@@ -1373,9 +1374,13 @@ public class ExternalUserInfo
 }
 ```
 
-**LdapDriver 구현 (NexusCom.Directory.Ldap — v2.0 계획, NexusCom에 직접 구현 예정):**
+**LdapDriver 구현 (NexusCom.Directory.Ldap — v2.0 스켈레톤 구현, NexaMes 미연결):**
+
+> 실제 서브모듈 구현은 `System.DirectoryServices.Protocols` 기반 `LdapDriver`(bind 인증·검색)이다.
+> 아래는 `IExternalAuthDriver` 계약 청사진 — 앱이 외부 인증을 실제로 도입할 때 이 드라이버를 래핑한다.
+
 ```csharp
-// NuGet: Novell.Directory.Ldap.NETStandard
+// NuGet(서브모듈 실제): System.DirectoryServices.Protocols  (아래 청사진은 Novell 예시)
 // appsettings.json: "Ldap": { "Host": "ad.company.com", "Port": 636,
 //   "Domain": "company.com", "BaseDn": "DC=company,DC=com", "UseSsl": true }
 public class LdapDriver : IExternalAuthDriver

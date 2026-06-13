@@ -12,6 +12,9 @@
     <ProjectReference Include="..\..\src\02.Backend\NexaOne.API\NexaOne.API.csproj" />
     <ProjectReference Include="..\..\src\02.Backend\NexaOne.Application\NexaOne.Application.csproj" />
     <ProjectReference Include="..\..\src\02.Backend\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\04.Modules\NexaOne.FDC\NexaOne.FDC.csproj" />
+    <!-- FDC 실연결 통합 테스트용 (Skip 골격) — OPC-UA 시뮬레이터 서버 -->
+    <ProjectReference Include="..\..\submodules\NexusLogic\src\NexusLogic.Plc.Simulator\NexusLogic.Plc.Simulator.csproj" />
   </ItemGroup>
 
   <ItemGroup>
