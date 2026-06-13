@@ -36,12 +36,12 @@
             <NexaTextBox @bind-Value="_form.ParamName"  Placeholder="파라미터명 *" />
             <NexaTextBox @bind-Value="_form.EquipmentId" Placeholder="설비 ID *" />
             <NexaTextBox @bind-Value="_form.ProcessId"  Placeholder="공정 ID *" />
-            <NexaNumberInput @bind-Value="_form.Mean" Step="0.01m" Placeholder="평균(μ) *" />
-            <NexaNumberInput @bind-Value="_form.Ucl"  Step="0.01m" Placeholder="UCL *" />
-            <NexaNumberInput @bind-Value="_form.Lcl"  Step="0.01m" Placeholder="LCL *" />
-            <NexaNumberInput @bind-Value="_form.Usl"  Step="0.01m" Placeholder="USL (선택)" />
-            <NexaNumberInput @bind-Value="_form.Lsl"  Step="0.01m" Placeholder="LSL (선택)" />
-            <NexaNumberInput @bind-Value="_form.SampleSize" min="1" Step="1m" Placeholder="샘플 수 *" />
+            <NexaNumberInput @bind-Value="_form.Mean" Step="0.01" Placeholder="평균(μ) *" />
+            <NexaNumberInput @bind-Value="_form.Ucl"  Step="0.01" Placeholder="UCL *" />
+            <NexaNumberInput @bind-Value="_form.Lcl"  Step="0.01" Placeholder="LCL *" />
+            <NexaNumberInput @bind-Value="_form.Usl"  Step="0.01" Placeholder="USL (선택)" />
+            <NexaNumberInput @bind-Value="_form.Lsl"  Step="0.01" Placeholder="LSL (선택)" />
+            <NexaNumberInput @bind-Value="_form.SampleSize" Min="1" Step="1" Placeholder="샘플 수 *" />
         </div>
     </ChildContent>
     <Footer>
@@ -53,9 +53,9 @@
 <NexaModal @bind-Visible="_showUpdate" Title="@($"관리 한계 수정 — {_updateParamName}")">
     <ChildContent>
         <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
-            <NexaNumberInput @bind-Value="_updateMean" Step="0.01m" Placeholder="평균(μ) *" />
-            <NexaNumberInput @bind-Value="_updateUcl"  Step="0.01m" Placeholder="UCL *" />
-            <NexaNumberInput @bind-Value="_updateLcl"  Step="0.01m" Placeholder="LCL *" />
+            <NexaNumberInput @bind-Value="_updateMean" Step="0.01" Placeholder="평균(μ) *" />
+            <NexaNumberInput @bind-Value="_updateUcl"  Step="0.01" Placeholder="UCL *" />
+            <NexaNumberInput @bind-Value="_updateLcl"  Step="0.01" Placeholder="LCL *" />
         </div>
     </ChildContent>
     <Footer>

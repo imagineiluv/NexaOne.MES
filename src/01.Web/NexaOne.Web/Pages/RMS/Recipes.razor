@@ -170,13 +170,13 @@
 </NexaModal>
 
 @* ── 파라미터 팝업 ─────────────────────────────────────────────── *@
-<NexaModal @bind-Visible="_showParams" Title="@($"레시피 파라미터 — {_paramRecipeId}")">
+<NexaModal @bind-Visible="_showParams" Title="@($"레시피 파라미터 — {_paramRecipeId}")" CloseOnOverlayClick="true">
     <div class="page-header" style="margin-bottom:.75rem;">
         <span></span>
         <NexaButton Variant="NexaButton.ButtonVariant.Primary"
                     OnClick="OpenAddParamDialog">파라미터 추가</NexaButton>
     </div>
-    <QuickGrid TGridItem="RecipeParamDto" Items="@(_params.AsQueryable())" Class="nexa-grid w-full text-sm">
+    <QuickGrid TGridItem="RecipeParamDto" Items="@(_params.AsQueryable())" Pagination="_paramsPg" Class="nexa-grid w-full text-sm">
         <PropertyColumn Property="@((RecipeParamDto p) => p.ParamName)"  Title="파라미터명" />
         <PropertyColumn Property="@((RecipeParamDto p) => p.ParamValue)" Title="값" />
         <PropertyColumn Property="@((RecipeParamDto p) => p.Unit)"       Title="단위" />
@@ -187,6 +187,7 @@
                         OnClick="@(() => DeleteParam(context.Id))">삭제</NexaButton>
         </TemplateColumn>
     </QuickGrid>
+    <Paginator State="_paramsPg" />
 </NexaModal>
 
 @* ── 파라미터 추가/편집 ────────────────────────────────────────── *@
@@ -213,6 +214,7 @@
 @code {
     private List<RecipeDto>      _items  = new();
     private List<RecipeParamDto> _params = new();
+    private readonly PaginationState _paramsPg = new() { ItemsPerPage = 20 };
     private string  _classId     = string.Empty;
     private string? _stateFilter;
     private string? _createError;

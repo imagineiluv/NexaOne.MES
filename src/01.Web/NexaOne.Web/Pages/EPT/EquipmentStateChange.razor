@@ -75,8 +75,8 @@
 
 @if (_showHistory)
 {
-    <NexaModal @bind-Visible="_showHistory" Title="@($"상태 이력 — {_historyEquipmentId}")">
-        <QuickGrid TGridItem="EquipmentStateHistoryDto" Items="@(_history.AsQueryable())" Class="nexa-grid w-full text-sm">
+    <NexaModal @bind-Visible="_showHistory" Title="@($"상태 이력 — {_historyEquipmentId}")" CloseOnOverlayClick="true">
+        <QuickGrid TGridItem="EquipmentStateHistoryDto" Items="@(_history.AsQueryable())" Pagination="_historyPg" Class="nexa-grid w-full text-sm">
             <PropertyColumn Property="@((EquipmentStateHistoryDto r) => r.FromState)" Title="이전 상태" />
             <PropertyColumn Property="@((EquipmentStateHistoryDto r) => r.ToState)" Title="요청 상태" />
             <PropertyColumn Property="@((EquipmentStateHistoryDto r) => r.SetState)" Title="적용 상태" />
@@ -85,6 +85,7 @@
             <PropertyColumn Property="@((EquipmentStateHistoryDto r) => r.Reason)" Title="사유" />
             <PropertyColumn Property="@((EquipmentStateHistoryDto r) => r.SourceType)" Title="소스" />
         </QuickGrid>
+        <Paginator State="_historyPg" />
     </NexaModal>
 }
 
@@ -96,6 +97,7 @@
 
     private bool _showChange;
     private bool _showHistory;
+    private readonly PaginationState _historyPg = new() { ItemsPerPage = 20 };
     private EquipmentCurrentStateDto? _selected;
     private string? _targetStateId;
     private string _reason = string.Empty;

@@ -14,7 +14,7 @@
 
 <div class="fdc-monitor-toolbar">
     <NexaTextBox @bind-Value="State.ParameterId" Placeholder="파라미터 ID" style="width:220px;" />
-    <NexaNumberInput @bind-Value="State.Limit" min="10" max="200" style="width:100px;" />
+    <NexaNumberInput @bind-Value="State.Limit" Min="10" Max="200" style="width:100px;" />
     <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="LoadData">조회</NexaButton>
     <ConditionMenu @ref="_condMenu"
                    GetValues="GetConditionValues"

@@ -54,7 +54,7 @@
                 </div>
 
                 <strong>이력</strong>
-                <QuickGrid TGridItem="LotHistoryDto" Items="@(_route.Histories.AsQueryable())" Class="nexa-grid w-full text-sm">
+                <QuickGrid TGridItem="LotHistoryDto" Items="@(_route.Histories.AsQueryable())" Pagination="_historyPg" Class="nexa-grid w-full text-sm">
                     <PropertyColumn Property="@((LotHistoryDto r) => r.ProcessId)"    Title="공정" />
                     <PropertyColumn Property="@((LotHistoryDto r) => r.EquipmentId)"  Title="설비" />
                     <PropertyColumn Property="@((LotHistoryDto r) => r.ExecutionId)"  Title="구분" />
@@ -63,16 +63,18 @@
                     <PropertyColumn Property="@((LotHistoryDto r) => r.Qty)"          Title="수량"      Format="N1" />
                     <PropertyColumn Property="@((LotHistoryDto r) => r.DefectQty)"    Title="불량"      Format="N1" />
                 </QuickGrid>
+                <Paginator State="_historyPg" />
 
                 @if (_route.MixingInputs.Count > 0)
                 {
                     <strong>Mixing 투입 Lot</strong>
-                    <QuickGrid TGridItem="LotMixingRelationDto" Items="@(_route.MixingInputs.AsQueryable())" Class="nexa-grid w-full text-sm">
+                    <QuickGrid TGridItem="LotMixingRelationDto" Items="@(_route.MixingInputs.AsQueryable())" Pagination="_mixingPg" Class="nexa-grid w-full text-sm">
                         <PropertyColumn Property="@((LotMixingRelationDto r) => r.InputLotId)" Title="투입 Lot" />
                         <PropertyColumn Property="@((LotMixingRelationDto r) => r.InputQty)"   Title="투입 수량" Format="N1" />
                         <PropertyColumn Property="@((LotMixingRelationDto r) => r.MixingRate)" Title="배합 비율" Format="P1" />
                         <PropertyColumn Property="@((LotMixingRelationDto r) => r.ConsumedBy)" Title="작업자" />
                     </QuickGrid>
+                    <Paginator State="_mixingPg" />
                 }
             </div>
         </ChildContent>
@@ -92,6 +94,8 @@
     private DateTime? _to;
 
     private bool _showRoute;
+    private readonly PaginationState _historyPg = new() { ItemsPerPage = 10 };
+    private readonly PaginationState _mixingPg = new() { ItemsPerPage = 5 };
     private LotRouteDto? _route;
 
     protected override async Task OnInitializedAsync()

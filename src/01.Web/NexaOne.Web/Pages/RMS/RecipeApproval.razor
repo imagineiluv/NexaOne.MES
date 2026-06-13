@@ -52,8 +52,7 @@
     };
 
     <NexaModal @bind-Visible="_showWorkflow"
-             Title="@($"승인 워크플로우 — {_selected.RecipeName}")"
-             CloseOnOutsideClick="false">
+             Title="@($"승인 워크플로우 — {_selected.RecipeName}")">
         <ChildContent>
             <div class="rms-workflow-detail">
                 <div class="rms-workflow-info-row">
@@ -117,8 +116,7 @@
 
 @if (_showRejectInline && _selected is not null)
 {
-    <NexaModal @bind-Visible="_showRejectInline" Title="거부 확인"
-             CloseOnOutsideClick="false">
+    <NexaModal @bind-Visible="_showRejectInline" Title="거부 확인">
         <ChildContent>
             <div style="display:flex; flex-direction:column; gap:.75rem; padding:.5rem;">
                 <div class="text-muted small">@_selected.RecipeName (v@(_selected.Version))을 거부합니다.</div>

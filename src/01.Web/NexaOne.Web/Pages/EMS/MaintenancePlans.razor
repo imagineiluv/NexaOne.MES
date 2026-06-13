@@ -52,7 +52,7 @@
             <NexaTextBox @bind-Value="_form.PlanType"      Placeholder="유형 (예: PM, CM)" />
             <NexaTextBox @bind-Value="_form.CycleType"     Placeholder="주기 (예: Monthly, Weekly)" />
             <NexaDateInput @bind-Value="_form.ScheduledDate" />
-            <NexaNumberInput @bind-Value="_form.EstimatedDurationHours" Step="0.5" Placeholder="예상 시간(h) *" />
+            <NexaNumberInput @bind-Value="_form.EstimatedDurationHours" Min="0" Step="0.5" Placeholder="예상 시간(h) *" />
             <NexaTextBox @bind-Value="_form.AssigneeId"    Placeholder="담당자 ID *" />
         </div>
     </ChildContent>

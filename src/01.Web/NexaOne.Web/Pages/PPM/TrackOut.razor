@@ -40,7 +40,7 @@
     <ChildContent>
         <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
             <NexaTextBox @bind-Value="_form.EquipmentId" Placeholder="설비 ID * (Track In 설비)" />
-            <NexaNumberInput @bind-Value="_form.Qty" min="0" />
+            <NexaNumberInput @bind-Value="_form.Qty" Min="0" />
             <NexaTextBox @bind-Value="_form.CarrierId" Placeholder="Carrier ID (선택)" />
 
             <div style="display:flex; align-items:center; justify-content:space-between;">
@@ -51,7 +51,7 @@
             {
                 <div style="display:flex; gap:6px; align-items:center;">
                     <NexaTextBox @bind-Value="defect.DefectCode" Placeholder="불량 코드" />
-                    <NexaNumberInput @bind-Value="defect.DefectQty" min="0" />
+                    <NexaNumberInput @bind-Value="defect.DefectQty" Min="0" />
                     <NexaButton Variant="NexaButton.ButtonVariant.Danger"
                                 OnClick="@(() => _form.Defects.Remove(defect))">삭제</NexaButton>
                 </div>

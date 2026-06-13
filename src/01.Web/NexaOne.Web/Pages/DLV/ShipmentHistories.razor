@@ -28,7 +28,7 @@
     <ChildContent>
         <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
             <NexaTextBox @bind-Value="_form.HistoryId"  Placeholder="이력 ID *" />
-            <NexaNumberInput @bind-Value="_form.ShippedQty" MinValue="0.01m" Step="1m" Placeholder="출하 수량 *" />
+            <NexaNumberInput @bind-Value="_form.ShippedQty" Min="0.01" Step="1" Placeholder="출하 수량 *" />
             <NexaTextBox @bind-Value="_form.ShippedBy"  Placeholder="출하자 ID *" />
             <NexaTextBox @bind-Value="_form.Carrier"    Placeholder="운송사 (선택)" />
             <NexaTextBox @bind-Value="_form.TrackingNo" Placeholder="운송장 번호 (선택)" />

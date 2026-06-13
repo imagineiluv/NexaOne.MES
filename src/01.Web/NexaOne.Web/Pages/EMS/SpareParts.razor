@@ -38,9 +38,9 @@
             <NexaTextBox @bind-Value="_form.PartNumber"    Placeholder="품번 *" />
             <NexaTextBox @bind-Value="_form.Description"   Placeholder="설명" />
             <NexaTextBox @bind-Value="_form.UnitOfMeasure" Placeholder="단위 (예: EA, KG)" />
-            <NexaNumberInput @bind-Value="_form.CurrentStock" MinValue="0" Step="1m" Placeholder="현재 재고 *" />
-            <NexaNumberInput @bind-Value="_form.MinStock"     MinValue="0" Step="1m" Placeholder="최소 재고 *" />
-            <NexaNumberInput @bind-Value="_form.MaxStock"     MinValue="0" Step="1m" Placeholder="최대 재고 *" />
+            <NexaNumberInput @bind-Value="_form.CurrentStock" Min="0" Step="1" Placeholder="현재 재고 *" />
+            <NexaNumberInput @bind-Value="_form.MinStock"     Min="0" Step="1" Placeholder="최소 재고 *" />
+            <NexaNumberInput @bind-Value="_form.MaxStock"     Min="0" Step="1" Placeholder="최대 재고 *" />
             <NexaTextBox @bind-Value="_form.Location"      Placeholder="보관위치 *" />
             <NexaTextBox @bind-Value="_form.EquipmentClassId" Placeholder="설비 분류 ID (선택)" />
         </div>
@@ -55,7 +55,7 @@
     <ChildContent>
         <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
             <p>현재 재고: <strong>@_adjustCurrentStock</strong></p>
-            <NexaNumberInput @bind-Value="_adjustDelta" Step="1m" Placeholder="조정 수량 (음수=출고, 양수=입고) *" />
+            <NexaNumberInput @bind-Value="_adjustDelta" Step="1" Placeholder="조정 수량 (음수=출고, 양수=입고) *" />
         </div>
     </ChildContent>
     <Footer>

@@ -44,8 +44,8 @@
             <NexaTextBox @bind-Value="_form.LotId"        Placeholder="Lot ID *" />
             <NexaTextBox @bind-Value="_form.EquipmentId"  Placeholder="설비 ID *" />
             <NexaTextBox @bind-Value="_form.DefectClassId" Placeholder="불량 유형 ID *" />
-            <NexaNumberInput @bind-Value="_form.Count"      MinValue="0" Placeholder="불량 수량 *" />
-            <NexaNumberInput @bind-Value="_form.Rate"       MinValue="0" MaxValue="100" Placeholder="불량률(%)" />
+            <NexaNumberInput @bind-Value="_form.Count"      Min="0" Placeholder="불량 수량 *" />
+            <NexaNumberInput @bind-Value="_form.Rate"       Min="0" Max="100" Placeholder="불량률(%)" />
             <NexaTextBox @bind-Value="_form.InspectorId"  Placeholder="검사자 ID *" />
             @if (!string.IsNullOrEmpty(_createError))
             {

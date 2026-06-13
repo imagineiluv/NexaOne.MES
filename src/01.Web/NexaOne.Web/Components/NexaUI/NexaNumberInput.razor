@@ -1,12 +1,16 @@
 @* NexaUI — DxSpinEdit 대체. 숫자 양방향 바인딩(@bind-Value). int/decimal/double 및 nullable 지원.
-   BindConverter로 TValue ↔ 문자열 변환(문화권 무관 invariant). *@
+   BindConverter로 TValue ↔ 문자열 변환(문화권 무관 invariant).
+   Min/Max: HTML min/max 속성 렌더 + OnChanged에서 값 클램프(DxSpinEdit MinValue/MaxValue 동등 — 범위 밖 입력 차단). *@
 @typeparam TValue
+@using System.Globalization
 @using Microsoft.AspNetCore.Components
 
 <input type="number"
        class="@CssClass"
        value="@FormatValue(Value)"
        step="@Step"
+       min="@MinStr"
+       max="@MaxStr"
        placeholder="@Placeholder"
        readonly="@ReadOnly"
        disabled="@Disabled"
@@ -17,6 +21,8 @@
     [Parameter] public TValue? Value { get; set; }
     [Parameter] public EventCallback<TValue?> ValueChanged { get; set; }
     [Parameter] public string Step { get; set; } = "any";
+    [Parameter] public double? Min { get; set; }
+    [Parameter] public double? Max { get; set; }
     [Parameter] public string? Placeholder { get; set; }
     [Parameter] public bool ReadOnly { get; set; }
     [Parameter] public bool Disabled { get; set; }
@@ -24,9 +30,11 @@
     [Parameter(CaptureUnmatchedValues = true)] public IReadOnlyDictionary<string, object>? Extra { get; set; }
 
     private string CssClass => string.IsNullOrWhiteSpace(Class) ? "nexa-input" : $"nexa-input {Class}";
+    private string? MinStr => Min?.ToString(CultureInfo.InvariantCulture);
+    private string? MaxStr => Max?.ToString(CultureInfo.InvariantCulture);
 
     private static string? FormatValue(TValue? value)
-        => value is IFormattable f ? f.ToString(null, System.Globalization.CultureInfo.InvariantCulture) : value?.ToString();
+        => value is IFormattable f ? f.ToString(null, CultureInfo.InvariantCulture) : value?.ToString();
 
     private async Task OnChanged(ChangeEventArgs e)
     {
@@ -35,14 +43,35 @@
         {
             Value = default;
         }
-        else if (BindConverter.TryConvertTo<TValue>(raw, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+        else if (BindConverter.TryConvertTo<TValue>(raw, CultureInfo.InvariantCulture, out var parsed))
         {
-            Value = parsed;
+            Value = Clamp(parsed);
         }
         else
         {
             return; // 파싱 실패 시 이전 값 유지
         }
         await ValueChanged.InvokeAsync(Value);
+    }
+
+    // DxSpinEdit MinValue/MaxValue 동등: 숫자형 TValue를 범위로 클램프(범위 밖 값이 그대로 전송되는 회귀 방지).
+    private TValue? Clamp(TValue? value)
+    {
+        if (value is null || (Min is null && Max is null)) return value;
+        try
+        {
+            var d = Convert.ToDouble(value, CultureInfo.InvariantCulture);
+            var c = d;
+            if (Min is double mn && c < mn) c = mn;
+            if (Max is double mx && c > mx) c = mx;
+            if (c.Equals(d)) return value;
+            if (BindConverter.TryConvertTo<TValue>(c.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture, out var clamped))
+                return clamped;
+        }
+        catch
+        {
+            // 숫자로 변환 불가한 TValue는 클램프 생략
+        }
+        return value;
     }
 }
