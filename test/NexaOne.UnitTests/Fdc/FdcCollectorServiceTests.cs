@@ -1,5 +1,7 @@
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
+using NexaOne.FDC.Infrastructure.Equipment;
+using NexusLogic.Plc.Abstractions.Interfaces;
 using NexusLogic.Plc.Abstractions.Models;
 
 namespace NexaOne.UnitTests.Fdc;
@@ -173,5 +175,68 @@ public sealed class FdcCollectorServiceTests
         await t.sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 50.0, PlcQuality.Good));   // 처음부터 정상
 
         resolvedFired.Should().BeFalse("발동한 적 없으면 해제 이벤트도 없다");
+    }
+
+    // ── 구독 연결 end-to-end (OpcUaDeviceInterface + FdcCollectorService) ──────────
+
+    [Fact]
+    public async Task StartCollecting_subscribes_and_records_on_tag_change()
+    {
+        // NexusLogic 연결 모킹: SubscriptionProvider.StartAsync가 onEvent 콜백을 포착하도록 설정
+        var endpoint = new PlcEndpoint("EP1", PlcDriverKind.OpcUa, "opc.tcp://host:4840");
+        Func<PlcTagChangeEvent, Task>? onEvent = null;
+        var subProvider = new Mock<IPlcSubscriptionProvider>();
+        subProvider.Setup(s => s.StartAsync(It.IsAny<PlcEndpoint>(), It.IsAny<IEnumerable<PlcSubscription>>(),
+                It.IsAny<Func<PlcTagChangeEvent, Task>>(), It.IsAny<CancellationToken>()))
+            .Callback<PlcEndpoint, IEnumerable<PlcSubscription>, Func<PlcTagChangeEvent, Task>, CancellationToken>(
+                (_, _, cb, _) => onEvent = cb)
+            .Returns(Task.CompletedTask);
+
+        var conn = new Mock<IPlcConnection>();
+        conn.SetupGet(c => c.Endpoint).Returns(endpoint);
+        conn.SetupGet(c => c.SubscriptionProvider).Returns(subProvider.Object);
+        conn.Setup(c => c.OpenAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var driver = new Mock<IPlcDriver>();
+        driver.Setup(d => d.ConnectAsync(It.IsAny<PlcEndpoint>(), It.IsAny<CancellationToken>()))
+              .ReturnsAsync(conn.Object);
+
+        var device = new OpcUaDeviceInterface("EP1", endpoint, driver.Object);
+        await device.InitializeAsync();
+
+        var param = FdcParameter.Create("TEMP01", "Temp", "EQ-001", "C", 0m, 100m).Value;
+        var paramRepo = new Mock<IFdcParameterRepository>();
+        paramRepo.Setup(r => r.GetByIdAsync("TEMP01", It.IsAny<CancellationToken>())).ReturnsAsync(param);
+        FdcCollectData? saved = null;
+        var dataRepo = new Mock<IFdcCollectDataRepository>();
+        dataRepo.Setup(r => r.AddAsync(It.IsAny<FdcCollectData>(), It.IsAny<CancellationToken>()))
+                .Callback<FdcCollectData, CancellationToken>((d, _) => saved = d)
+                .Returns(Task.CompletedTask);
+        var collector = new FdcCollectorService(new FdcDataService(paramRepo.Object, dataRepo.Object));
+
+        var sub = new PlcSubscription("EP1::sub", "EP1", new[] { "TEMP01" }, TimeSpan.FromSeconds(1));
+        await collector.StartCollectingAsync(device, new[] { sub });
+
+        onEvent.Should().NotBeNull("구독이 SubscriptionProvider에 연결된다");
+        await onEvent!(new PlcTagChangeEvent("e", "EP1", "TEMP01", "ns", null, 42.0,
+            PlcQuality.Good, DateTimeOffset.UnixEpoch, "polling", true));
+
+        saved.Should().NotBeNull("구독 콜백이 수집 데이터로 적재된다");
+        saved!.ParameterId.Should().Be("TEMP01");
+        saved.Value.Should().Be(42m);
+        saved.Quality.Should().Be("Good");
+    }
+
+    [Fact]
+    public async Task StartCollecting_throws_when_device_not_initialized()
+    {
+        var device = new OpcUaDeviceInterface("EP1",
+            new PlcEndpoint("EP1", PlcDriverKind.OpcUa, "opc.tcp://h:1"), Mock.Of<IPlcDriver>());
+        var collector = new FdcCollectorService(
+            new FdcDataService(Mock.Of<IFdcParameterRepository>(), Mock.Of<IFdcCollectDataRepository>()));
+
+        var act = () => collector.StartCollectingAsync(device, Array.Empty<PlcSubscription>());
+
+        await act.Should().ThrowAsync<InvalidOperationException>("초기화 전에는 구독을 걸 수 없다");
     }
 }
