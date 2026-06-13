@@ -126,12 +126,17 @@ builder.Services.AddRateLimiter(options =>
             }));
 });
 
-// Health checks
-builder.Services.AddHealthChecks()
-    .AddSqlServer(
+// Health checks — DB 공급자에 따라 조건부 등록. SqlServer 체크는 MSSQL에서만(SQLite 등 비-MSSQL은 제외)
+// → Database:Provider 설정만 바꿔 MSSQL↔SQLite 전환 시 /health가 깨지지 않는다.
+var healthChecks = builder.Services.AddHealthChecks();
+if (string.Equals(builder.Configuration.GetValue<string>("Database:Provider") ?? "MsSql",
+        "MsSql", StringComparison.OrdinalIgnoreCase))
+{
+    healthChecks.AddSqlServer(
         builder.Configuration.GetConnectionString("NexaOne") ?? string.Empty,
         name: "sqlserver",
         tags: ["db", "sql"]);
+}
 
 // Application services
 builder.Services.AddNexaOneServices(builder.Configuration);
