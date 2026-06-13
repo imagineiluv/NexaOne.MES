@@ -81,4 +81,23 @@ public class FdcInterlockService
         await _historyRepository.AddAsync(history.Value, ct);
         return history;
     }
+
+    /// <summary>해당 설비·파라미터의 미해제 인터락 이력을 해제(Resolve)한다 — 값이 정상 범위로 복귀했을 때.
+    /// 해제한 이력 건수를 반환한다(이력 리포지토리 미구성 시 0).</summary>
+    public async Task<int> ResolveActiveAsync(
+        string equipmentId,
+        string parameterId,
+        CancellationToken ct = default)
+    {
+        if (_historyRepository is null) return 0;
+
+        var unresolved = await _historyRepository.GetUnresolvedAsync(equipmentId, ct);
+        var targets = unresolved.Where(h => h.ParameterId == parameterId).ToList();
+        foreach (var history in targets)
+        {
+            history.Resolve(DateTime.UtcNow);
+            await _historyRepository.UpdateAsync(history, ct);
+        }
+        return targets.Count;
+    }
 }

@@ -3137,6 +3137,7 @@ FdcConsumerService (Kafka Consumer) ← fdc.rawdata 구독
 > `FdcInterlockService.EvaluateAsync`로 인터락을 평가한다. 발동 시
 > `FdcInterlockService.RecordTriggerAsync`로 **`FDC_INTERLOCK_HISTORY`에 직접 적재**하고
 > `InterlockTriggered` 이벤트를 발생시킨다 — 설비 정지·SignalR 알림은 이 이벤트의 호스트 구독자가 처리한다.
+> 발동 중복은 억제하고, 값이 정상 범위로 복귀하면 미해제 이력을 자동 해제(`ResolveActiveAsync`)하며 `InterlockResolved` 이벤트로 SignalR 통지한다.
 > Kafka 경유(`fdc.rawdata`)는 대량·분산 수집이 필요할 때의 선택지로 두고, 기본 구현은 직접 적재한다.
 > 설비-엔드포인트 매핑은 **`FDC_EQUIPMENT_ENDPOINT`(FdcEquipmentEndpoint 도메인/리포지토리)**로 구현했다
 > — 통신 관심사를 MDM 마스터와 분리해 FDC가 소유하며, 한 설비에 복수 엔드포인트를 허용한다.

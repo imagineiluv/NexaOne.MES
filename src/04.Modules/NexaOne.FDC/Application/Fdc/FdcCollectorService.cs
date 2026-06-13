@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using NexaOne.FDC.Infrastructure.Equipment;
 using NexusLogic.Plc.Abstractions.Models;
 
@@ -18,9 +19,15 @@ public sealed class FdcCollectorService
     private readonly FdcDataService _dataService;
     private readonly FdcInterlockService? _interlockService;
 
+    // 현재 발동 중인 (설비|파라미터) 집합 — 중복 발동 방지 + 정상 복귀 시에만 해제 처리
+    private readonly ConcurrentDictionary<string, byte> _activeInterlocks = new();
+
     /// <summary>인터락 규칙이 발동했을 때 발생한다. 인터락 이력 기록·설비 정지·SignalR 알림 등
     /// 후속 처리는 호스트(구독자)가 담당한다 (§10.4.2).</summary>
     public event EventHandler<FdcInterlockTriggeredEventArgs>? InterlockTriggered;
+
+    /// <summary>발동했던 인터락이 정상 범위 복귀로 해제됐을 때 발생한다 (§10.4.2).</summary>
+    public event EventHandler<FdcInterlockResolvedEventArgs>? InterlockResolved;
 
     public FdcCollectorService(FdcDataService dataService, FdcInterlockService? interlockService = null)
     {
@@ -63,13 +70,25 @@ public sealed class FdcCollectorService
 
         if (_interlockService is not null)
         {
+            var key = $"{equipmentId}|{evt.TagName}";
             var interlock = await _interlockService.EvaluateAsync(equipmentId, evt.TagName, value, ct);
+
             if (interlock.IsTriggered)
             {
-                // FDC_INTERLOCK_HISTORY 적재(이력 리포지토리 미구성 시 no-op) 후 이벤트 통지
-                await _interlockService.RecordTriggerAsync(equipmentId, evt.TagName, value, interlock, ct);
-                InterlockTriggered?.Invoke(this,
-                    new FdcInterlockTriggeredEventArgs(equipmentId, evt.TagName, value, interlock));
+                // 신규 발동만 기록·통지 (이미 발동 중이면 중복 억제)
+                if (_activeInterlocks.TryAdd(key, 0))
+                {
+                    await _interlockService.RecordTriggerAsync(equipmentId, evt.TagName, value, interlock, ct);
+                    InterlockTriggered?.Invoke(this,
+                        new FdcInterlockTriggeredEventArgs(equipmentId, evt.TagName, value, interlock));
+                }
+            }
+            else if (_activeInterlocks.TryRemove(key, out _))
+            {
+                // 발동 중이던 항목이 정상 범위로 복귀 — 미해제 이력 자동 해제
+                await _interlockService.ResolveActiveAsync(equipmentId, evt.TagName, ct);
+                InterlockResolved?.Invoke(this,
+                    new FdcInterlockResolvedEventArgs(equipmentId, evt.TagName, value));
             }
         }
     }
@@ -103,3 +122,9 @@ public sealed record FdcInterlockTriggeredEventArgs(
     string ParameterId,
     decimal Value,
     InterlockResult Result);
+
+/// <summary>인터락 해제(정상 복귀) 이벤트 인자 (§10.4.2).</summary>
+public sealed record FdcInterlockResolvedEventArgs(
+    string EquipmentId,
+    string ParameterId,
+    decimal Value);

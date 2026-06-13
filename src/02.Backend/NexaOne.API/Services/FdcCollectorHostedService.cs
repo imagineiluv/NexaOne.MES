@@ -53,6 +53,7 @@ public sealed class FdcCollectorHostedService : BackgroundService
         var collector = sp.GetRequiredService<FdcCollectorService>();
 
         collector.InterlockTriggered += OnInterlockTriggered;
+        collector.InterlockResolved += OnInterlockResolved;
 
         var endpoints = await endpointRepo.GetAllActiveAsync(stoppingToken);
         var devices = new List<OpcUaDeviceInterface>();
@@ -98,6 +99,23 @@ public sealed class FdcCollectorHostedService : BackgroundService
 
     private void OnInterlockTriggered(object? sender, FdcInterlockTriggeredEventArgs e) =>
         _ = HandleInterlockAsync(e);
+
+    private void OnInterlockResolved(object? sender, FdcInterlockResolvedEventArgs e) =>
+        _ = HandleResolvedAsync(e);
+
+    private async Task HandleResolvedAsync(FdcInterlockResolvedEventArgs e)
+    {
+        try
+        {
+            // 정상 복귀 통지 — 설비 재가동은 운영자 판단(자동 재시작은 하지 않음)
+            await _notifier.NotifyEquipmentStateChangedAsync(e.EquipmentId, "InterlockCleared");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Interlock resolve notification failed for {Equipment}/{Parameter}",
+                e.EquipmentId, e.ParameterId);
+        }
+    }
 
     private async Task HandleInterlockAsync(FdcInterlockTriggeredEventArgs e)
     {

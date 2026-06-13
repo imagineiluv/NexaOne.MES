@@ -92,4 +92,32 @@ public sealed class FdcInterlockHistoryTests
         result.IsFailure.Should().BeTrue("미발동 결과는 이력으로 기록하지 않는다");
         histRepo.Verify(r => r.AddAsync(It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()), Times.Never);
     }
+
+    [Fact]
+    public async Task ResolveActiveAsync_resolves_only_matching_parameter_unresolved_history()
+    {
+        var h1 = FdcInterlockHistory.Create("H1", "R1", "EQ-001", "TEMP01", 90m, "STOP", "m", At).Value;
+        var h2 = FdcInterlockHistory.Create("H2", "R2", "EQ-001", "PRESS01", 9m, "ALARM", "m", At).Value;
+        var histRepo = new Mock<IFdcInterlockHistoryRepository>();
+        histRepo.Setup(r => r.GetUnresolvedAsync("EQ-001", It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new[] { h1, h2 });
+        var updated = new List<FdcInterlockHistory>();
+        histRepo.Setup(r => r.UpdateAsync(It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()))
+                .Callback<FdcInterlockHistory, CancellationToken>((h, _) => updated.Add(h))
+                .Returns(Task.CompletedTask);
+        var svc = new FdcInterlockService(Mock.Of<IFdcInterlockRuleRepository>(), histRepo.Object);
+
+        var count = await svc.ResolveActiveAsync("EQ-001", "TEMP01");
+
+        count.Should().Be(1, "TEMP01 미해제 이력 1건만 해제된다");
+        updated.Should().ContainSingle().Which.Id.Should().Be("H1");
+        h1.IsResolved.Should().BeTrue();
+        h2.IsResolved.Should().BeFalse("다른 파라미터(PRESS01) 이력은 그대로 둔다");
+    }
+
+    [Fact]
+    public async Task ResolveActiveAsync_is_noop_without_history_repository()
+        => (await new FdcInterlockService(Mock.Of<IFdcInterlockRuleRepository>())
+                .ResolveActiveAsync("EQ-001", "TEMP01"))
+            .Should().Be(0);
 }

@@ -124,4 +124,54 @@ public sealed class FdcCollectorServiceTests
 
         fired.Should().BeFalse("임계치 이내면 인터락 이벤트가 발생하지 않는다");
     }
+
+    private static void SetupRule((FdcCollectorService sut, Mock<IFdcInterlockRuleRepository> ruleRepo) t)
+    {
+        var rule = FdcInterlockRule.Create("R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
+        t.ruleRepo.Setup(r => r.GetActiveRulesAsync("EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+                  .ReturnsAsync(new[] { rule });
+    }
+
+    [Fact]
+    public async Task OnTagChange_triggers_once_for_repeated_violations()
+    {
+        var t = BuildWithInterlock();
+        SetupRule(t);
+        var triggers = 0;
+        t.sut.InterlockTriggered += (_, _) => triggers++;
+
+        await t.sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 90.0, PlcQuality.Good));
+        await t.sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 95.0, PlcQuality.Good));
+
+        triggers.Should().Be(1, "발동 중에는 중복 통지하지 않는다");
+    }
+
+    [Fact]
+    public async Task OnTagChange_resolves_when_value_returns_to_normal()
+    {
+        var t = BuildWithInterlock();
+        SetupRule(t);
+        FdcInterlockResolvedEventArgs? resolved = null;
+        t.sut.InterlockResolved += (_, e) => resolved = e;
+
+        await t.sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 90.0, PlcQuality.Good));   // 발동
+        await t.sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 50.0, PlcQuality.Good));   // 정상 복귀
+
+        resolved.Should().NotBeNull("정상 복귀 시 해제 이벤트가 발생한다");
+        resolved!.EquipmentId.Should().Be("EQ-001");
+        resolved.ParameterId.Should().Be("TEMP01");
+    }
+
+    [Fact]
+    public async Task OnTagChange_does_not_resolve_when_never_triggered()
+    {
+        var t = BuildWithInterlock();
+        SetupRule(t);
+        var resolvedFired = false;
+        t.sut.InterlockResolved += (_, _) => resolvedFired = true;
+
+        await t.sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 50.0, PlcQuality.Good));   // 처음부터 정상
+
+        resolvedFired.Should().BeFalse("발동한 적 없으면 해제 이벤트도 없다");
+    }
 }
