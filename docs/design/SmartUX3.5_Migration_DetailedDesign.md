@@ -3122,7 +3122,60 @@ FdcConsumerService (Kafka Consumer) ← fdc.rawdata 구독
   └─ SignalR FdcHub → 클라이언트 실시간 차트 갱신
 ```
 
+> **v2.0 기본 구현:** 위는 Kafka 경유 분산 수집의 전체 그림이다. 기본 구현은 `FdcCollectorService`가
+> 구독 이벤트를 **직접** `FDC_TB_COLLECT_DATA`에 적재하고 인터락을 평가한다(Kafka 미경유, 10.4.3 적응 단락 참조).
+> Kafka 경유는 수집 노드 분산이 필요해질 때 `fdc.rawdata` 발행을 추가해 활성화한다.
+
 #### 10.4.3 NexusFramework Machine + PlantController 구현
+
+> **구현은 본 절을 다음과 같이 적응한다 (v2.0).** 아래 `IEquipmentDriver` 청사진 대신,
+> NexusFramework `Machine`에 **`OpcUaDeviceInterface`(IDeviceInterface, 3.6.3)**를
+> `Machine.AddInterface()`로 장착한다(Machine이 lifecycle을 인터페이스에 위임). 수집 데이터 흐름은
+> **`FdcCollectorService`**(NexaOne.FDC.Application)가 담당한다 — 연결의 `IPlcSubscriptionProvider`로
+> 태그를 구독하고, `PlcTagChangeEvent`를 받아 값/품질을 변환한 뒤
+> `FdcDataService.RecordDataAsync`로 `FDC_TB_COLLECT_DATA`에 적재하고,
+> `FdcInterlockService.EvaluateAsync`로 인터락을 평가하여 발동 시 `InterlockTriggered` 이벤트를 발생시킨다.
+> 인터락 이력 기록·설비 정지·SignalR 알림은 이 이벤트의 호스트 구독자가 처리한다.
+> Kafka 경유(`fdc.rawdata`)는 대량·분산 수집이 필요할 때의 선택지로 두고, 기본 구현은 직접 적재한다.
+> `PlantController` 오케스트레이션과 설비-엔드포인트·태그 매핑(설비 마스터)은 해당 도메인 확정 후 연결한다.
+> 수집 변환·인터락 연결은 `FdcCollectorServiceTests`(11개)·`OpcUaDeviceInterfaceTests`(8개)가 검증한다.
+
+```csharp
+// NexaOne.FDC/Application/Fdc/FdcCollectorService.cs (v2.0 구현 완료 — 핵심 글루)
+public sealed class FdcCollectorService
+{
+    private readonly FdcDataService _dataService;
+    private readonly FdcInterlockService? _interlockService;
+    public event EventHandler<FdcInterlockTriggeredEventArgs>? InterlockTriggered;
+
+    // 이미 Start된 디바이스의 연결에 구독을 걸어 데이터 흐름을 연결
+    public async Task StartCollectingAsync(OpcUaDeviceInterface device,
+        IEnumerable<PlcSubscription> subscriptions, CancellationToken ct = default)
+    {
+        var conn = device.Connection ?? throw new InvalidOperationException("...");
+        await conn.SubscriptionProvider.StartAsync(conn.Endpoint, subscriptions,
+            evt => OnTagChangeAsync(device.InterfaceName, evt, ct), ct);
+    }
+
+    public async Task OnTagChangeAsync(string equipmentId, PlcTagChangeEvent evt, CancellationToken ct = default)
+    {
+        var value = ToDecimal(evt.After);
+        var recorded = await _dataService.RecordDataAsync(
+            Guid.NewGuid().ToString("N"), equipmentId, evt.TagName, value, MapQuality(evt.Quality), ct);
+        if (recorded.IsFailure) return;                              // 미정의 파라미터 등 — 폭주 방지
+        if (_interlockService is not null)
+        {
+            var interlock = await _interlockService.EvaluateAsync(equipmentId, evt.TagName, value, ct);
+            if (interlock.IsTriggered)
+                InterlockTriggered?.Invoke(this,
+                    new FdcInterlockTriggeredEventArgs(equipmentId, evt.TagName, value, interlock));
+        }
+    }
+    // MapQuality(PlcQuality → "Good"/"Bad"/"Uncertain"), ToDecimal(object? → decimal) — 상세는 실제 파일
+}
+```
+
+<details><summary>설계 청사진 (IEquipmentDriver 기반 — 위 적응 단락으로 대체됨)</summary>
 
 ```csharp
 // Micube.SmartEES.Fdc/Services/FdcMachine.cs
@@ -3208,6 +3261,8 @@ public class FdcCollectorHostedService : IHostedService
     }
 }
 ```
+
+</details>
 
 #### 10.4.4 PlantController 상태 머신 — 설비 제어
 
