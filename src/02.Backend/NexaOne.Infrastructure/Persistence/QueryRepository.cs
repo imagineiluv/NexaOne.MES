@@ -1,40 +1,26 @@
-﻿using Dapper;
-using NexusCom.Data.Abstractions.Interfaces;
-using NexusCom.Data.Abstractions.Models;
+﻿using NexusCom.Data.Abstractions.Interfaces;
 
 namespace NexaOne.Infrastructure.Persistence;
 
+/// <summary>
+/// 읽기 리포지토리 기반 클래스. ADR-001에 따라 직접 연결을 열지 않고 <see cref="IQueryGateway"/>(단일
+/// 게이트웨이)로 위임한다 — 모든 읽기 데이터 접근이 게이트웨이를 통과한다. 하위 클래스의 protected
+/// 메서드 시그니처는 불변이므로 44개 리포지토리는 변경 없이 게이트웨이 경유로 전환된다.
+/// </summary>
 public class QueryRepository
 {
-    private readonly IDatabaseProvider _provider;
-    private readonly DatabaseEndpoint _endpoint;
+    private readonly IQueryGateway _gateway;
 
     public QueryRepository(EesDataSource dataSource)
-    {
-        _provider = dataSource.Provider;
-        _endpoint = dataSource.CreateEndpoint();
-    }
+        => _gateway = new DapperQueryGateway(dataSource);
 
-    protected async Task<IReadOnlyList<T>> QueryAsync<T>(
-        string sql,
-        object? param = null,
-        CancellationToken ct = default)
-    {
-        using var conn = _provider.CreateConnection(_endpoint.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
-        var result = await conn.QueryAsync<T>(sql, param).ConfigureAwait(false);
-        return result.ToList();
-    }
+    protected Task<IReadOnlyList<T>> QueryAsync<T>(
+        string sql, object? param = null, CancellationToken ct = default)
+        => _gateway.QueryAsync<T>(sql, param, ct);
 
-    protected async Task<T?> QueryFirstOrDefaultAsync<T>(
-        string sql,
-        object? param = null,
-        CancellationToken ct = default)
-    {
-        using var conn = _provider.CreateConnection(_endpoint.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
-        return await conn.QueryFirstOrDefaultAsync<T>(sql, param).ConfigureAwait(false);
-    }
+    protected Task<T?> QueryFirstOrDefaultAsync<T>(
+        string sql, object? param = null, CancellationToken ct = default)
+        => _gateway.QueryFirstOrDefaultAsync<T>(sql, param, ct);
 
     protected async Task<IReadOnlyList<T>> QueryPagedAsync<T>(
         string baseSql,
@@ -51,12 +37,11 @@ public class QueryRepository
     }
 
     protected async Task<int> CountAsync(
-        string countSql,
-        object? param = null,
-        CancellationToken ct = default)
-    {
-        using var conn = _provider.CreateConnection(_endpoint.ConnectionString);
-        await conn.OpenAsync(ct).ConfigureAwait(false);
-        return await conn.ExecuteScalarAsync<int>(countSql, param).ConfigureAwait(false);
-    }
+        string countSql, object? param = null, CancellationToken ct = default)
+        => await _gateway.ExecuteScalarAsync<int>(countSql, param, ct).ConfigureAwait(false);
+
+    /// <summary>카탈로그에 등록된 명명 쿼리를 실행한다(ADR-001 — 인라인 SQL 점진 이관용).</summary>
+    protected Task<IReadOnlyList<T>> QueryNamedAsync<T>(
+        string queryName, object? param = null, CancellationToken ct = default)
+        => _gateway.QueryNamedAsync<T>(queryName, param, ct);
 }

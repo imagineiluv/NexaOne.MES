@@ -62,7 +62,7 @@ public sealed class AuthControllerTests
         repo.Setup(r => r.GetByIdAsync("u001", default)).ReturnsAsync(user);
         repo.Setup(r => r.UpdateAsync(It.IsAny<User>(), default)).Returns(Task.CompletedTask);
         var jwt = new Mock<IJwtService>();
-        jwt.Setup(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), false))
+        jwt.Setup(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), false, It.IsAny<IEnumerable<string>>()))
            .Returns("atk");
         var store = new Mock<IRefreshTokenStore>();
         store.Setup(s => s.IssueAsync("u001")).ReturnsAsync("rtk");
@@ -120,7 +120,7 @@ public sealed class AuthControllerTests
         repo.Setup(r => r.GetByIdAsync("u001", default)).ReturnsAsync(user);
         repo.Setup(r => r.UpdateAsync(It.IsAny<User>(), default)).Returns(Task.CompletedTask);
         var jwt = new Mock<IJwtService>();
-        jwt.Setup(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), true))
+        jwt.Setup(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), true, It.IsAny<IEnumerable<string>>()))
            .Returns("atk-pwdchange");
         var store = new Mock<IRefreshTokenStore>();
         store.Setup(s => s.IssueAsync("u001")).ReturnsAsync("rtk");
@@ -131,7 +131,7 @@ public sealed class AuthControllerTests
         var response = ok.Value.Should().BeOfType<LoginResponse>().Subject;
         response.RequirePasswordChange.Should().BeTrue();
         response.AccessToken.Should().Be("atk-pwdchange");
-        jwt.Verify(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), true),
+        jwt.Verify(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), true, It.IsAny<IEnumerable<string>>()),
             Times.Once, "Forgot 상태에서는 pwdChange 클레임이 실린 토큰을 발급해야 한다");
     }
 
@@ -149,7 +149,7 @@ public sealed class AuthControllerTests
         repo.Setup(r => r.GetByIdAsync("u001", default)).ReturnsAsync(user);
         repo.Setup(r => r.UpdateAsync(It.IsAny<User>(), default)).Returns(Task.CompletedTask);
         var jwt = new Mock<IJwtService>();
-        jwt.Setup(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), false))
+        jwt.Setup(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), false, It.IsAny<IEnumerable<string>>()))
            .Returns("newAtk");
         var store = new Mock<IRefreshTokenStore>();
         store.Setup(s => s.IssueAsync("u001")).ReturnsAsync("newRtk");
@@ -161,7 +161,7 @@ public sealed class AuthControllerTests
         Prop(ok.Value, "accessToken").Should().Be("newAtk");
         Prop(ok.Value, "refreshToken").Should().Be("newRtk");
         user.PasswordState.Should().Be(PasswordState.Normal);
-        jwt.Verify(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), false),
+        jwt.Verify(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), false, It.IsAny<IEnumerable<string>>()),
             Times.Once, "변경 후 토큰에는 pwdChange 클레임이 없어야 차단이 풀린다");
         store.Verify(s => s.RevokeAllByUserAsync("u001"),
             Times.Once, "§19.2.4-7 — 변경 성공 시 기존 리프레시 토큰을 모두 폐기해야 다른 기기 세션이 만료된다");
@@ -216,7 +216,7 @@ public sealed class AuthControllerTests
         var repo = new Mock<IUserRepository>();
         repo.Setup(r => r.GetByIdAsync("u001", default)).ReturnsAsync(user);
         var jwt = new Mock<IJwtService>();
-        jwt.Setup(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), true))
+        jwt.Setup(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), true, It.IsAny<IEnumerable<string>>()))
            .Returns("atk-pwdchange");
         var store = new Mock<IRefreshTokenStore>();
         store.Setup(s => s.ValidateAsync("u001", "rtk")).ReturnsAsync(true);
@@ -228,7 +228,7 @@ public sealed class AuthControllerTests
         var ok = result.Should().BeOfType<OkObjectResult>().Subject;
         Prop(ok.Value, "accessToken").Should().Be("atk-pwdchange");
         Prop(ok.Value, "refreshToken").Should().Be("rtk2");
-        jwt.Verify(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), true),
+        jwt.Verify(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), true, It.IsAny<IEnumerable<string>>()),
             Times.Once, "pwdChange는 헤더가 아니라 DB 상태로 재평가해야 우회가 안 된다");
     }
 
@@ -239,7 +239,7 @@ public sealed class AuthControllerTests
         var repo = new Mock<IUserRepository>();
         repo.Setup(r => r.GetByIdAsync("u001", default)).ReturnsAsync(user);
         var jwt = new Mock<IJwtService>();
-        jwt.Setup(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), false))
+        jwt.Setup(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), false, It.IsAny<IEnumerable<string>>()))
            .Returns("atk");
         var store = new Mock<IRefreshTokenStore>();
         store.Setup(s => s.ValidateAsync("u001", "rtk")).ReturnsAsync(true);
@@ -249,7 +249,7 @@ public sealed class AuthControllerTests
 
         var ok = result.Should().BeOfType<OkObjectResult>().Subject;
         Prop(ok.Value, "accessToken").Should().Be("atk");
-        jwt.Verify(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), false),
+        jwt.Verify(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), false, It.IsAny<IEnumerable<string>>()),
             Times.Once);
     }
 

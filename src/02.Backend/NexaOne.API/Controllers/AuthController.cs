@@ -53,8 +53,9 @@ public class AuthController : ControllerBase
         var roles = new[] { user.RoleId };
         // §20.10 — Forgot/Create/Expired 상태는 DB 기준으로 변경 강제 + pwdChange 클레임으로 업무 API 차단
         var requireChange = user.RequiresPasswordChange;
+        var permissions = await _userService.GetEffectivePermissionsAsync(user.RoleId, ct);   // ADR-003
         var accessToken = _jwtService.GenerateAccessToken(
-            request.UserId, user.UserName, request.PlantId, roles, requireChange);
+            request.UserId, user.UserName, request.PlantId, roles, requireChange, permissions);
         var refreshToken = await _tokenStore.IssueAsync(request.UserId);
 
         return Ok(new LoginResponse(
@@ -92,8 +93,9 @@ public class AuthController : ControllerBase
             HttpContext.Request.Headers.Authorization.ToString().Replace("Bearer ", ""));
         var plantId = principal?.FindFirst("plantId")?.Value ?? "DEFAULT";
 
+        var permissions = await _userService.GetEffectivePermissionsAsync(user.RoleId, ct);   // ADR-003
         var accessToken = _jwtService.GenerateAccessToken(
-            request.UserId, user.UserName, plantId, new[] { user.RoleId }, user.RequiresPasswordChange);
+            request.UserId, user.UserName, plantId, new[] { user.RoleId }, user.RequiresPasswordChange, permissions);
         return Ok(new { accessToken, refreshToken = newRefreshToken });
     }
 
@@ -132,7 +134,8 @@ public class AuthController : ControllerBase
         // 이전 토큰은 만료까지 업무 API가 차단되므로 클라이언트는 응답 토큰으로 교체해야 한다.
         var plantId = User.FindFirst("plantId")?.Value ?? "DEFAULT";
         var roles = new[] { user.RoleId };
-        var accessToken = _jwtService.GenerateAccessToken(userId, user.UserName, plantId, roles);
+        var permissions = await _userService.GetEffectivePermissionsAsync(user.RoleId, ct);   // ADR-003
+        var accessToken = _jwtService.GenerateAccessToken(userId, user.UserName, plantId, roles, permissions: permissions);
         var refreshToken = await _tokenStore.IssueAsync(userId);
 
         return Ok(new { accessToken, refreshToken });

@@ -254,6 +254,41 @@ public sealed class UserServiceTests
         user.RequiresPasswordChange.Should().BeTrue();
     }
 
+    // ── GetEffectivePermissionsAsync (ADR-003) ────────────────────────────────
+
+    [Fact]
+    public async Task GetEffectivePermissions_unions_role_defaults_and_explicit()
+    {
+        var role = Role.Create("OPERATOR", "Operator");
+        role.AddPermission("mdm:manage");   // 명시 권한
+        var repo = new Mock<IUserRepository>();
+        var roleRepo = new Mock<IRoleRepository>();
+        roleRepo.Setup(r => r.GetByIdAsync("OPERATOR", default)).ReturnsAsync(role);
+        var svc = new UserService(repo.Object, roleRepo.Object,
+            new Mock<IMultiLanguageResourceRepository>().Object,
+            new Mock<ILoginFailureHistoryRepository>().Object);
+
+        var perms = await svc.GetEffectivePermissionsAsync("OPERATOR");
+
+        perms.Should().Contain("fdc:control", "OPERATOR 기본 매핑(하위호환 시드) 포함");
+        perms.Should().Contain("mdm:manage", "역할의 명시 권한과 합집합");
+    }
+
+    [Fact]
+    public async Task GetEffectivePermissions_admin_has_wildcard_even_without_db_role()
+    {
+        var repo = new Mock<IUserRepository>();
+        var roleRepo = new Mock<IRoleRepository>();
+        roleRepo.Setup(r => r.GetByIdAsync("ADMIN", default)).ReturnsAsync((Role?)null);
+        var svc = new UserService(repo.Object, roleRepo.Object,
+            new Mock<IMultiLanguageResourceRepository>().Object,
+            new Mock<ILoginFailureHistoryRepository>().Object);
+
+        var perms = await svc.GetEffectivePermissionsAsync("ADMIN");
+
+        perms.Should().Contain("*", "ADMIN 기본 매핑은 전체 권한(*)을 포함");
+    }
+
     // ── ChangePasswordAsync ───────────────────────────────────────────────────
 
     [Fact]

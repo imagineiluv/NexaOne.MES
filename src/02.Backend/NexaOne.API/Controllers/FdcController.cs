@@ -33,7 +33,7 @@ public class FdcController(
 
     // 설비 lifecycle 변경(기동/정지/비상정지)은 안전 영향 동작 — 역할 인가로 일반 인증 사용자 차단(§9.3)
     [HttpPost("equipment/start")]
-    [Authorize(Roles = "ADMIN,OPERATOR")]
+    [Authorize(Policy = "perm:fdc:control")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN/OPERATOR 기본 매핑 보유)
     public async Task<IActionResult> StartAll(CancellationToken ct)
     {
         try
@@ -47,7 +47,7 @@ public class FdcController(
     }
 
     [HttpPost("equipment/stop")]
-    [Authorize(Roles = "ADMIN,OPERATOR")]
+    [Authorize(Policy = "perm:fdc:control")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN/OPERATOR 기본 매핑 보유)
     public async Task<IActionResult> StopAll(CancellationToken ct)
     {
         try
@@ -60,7 +60,7 @@ public class FdcController(
     }
 
     [HttpPost("equipment/abort")]
-    [Authorize(Roles = "ADMIN,OPERATOR")]
+    [Authorize(Policy = "perm:fdc:control")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN/OPERATOR 기본 매핑 보유)
     public async Task<IActionResult> AbortAll([FromBody] AbortRequest req, CancellationToken ct)
     {
         await plant.AbortAsync(req.Reason, ct);

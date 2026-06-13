@@ -1,0 +1,21 @@
+-- Event Bus: Transactional Outbox (ADR-002)
+-- 데이터 변경과 동일 트랜잭션에 도메인 이벤트를 기록하고, OutboxDispatcher가 폴링해 Kafka로 발행한다.
+-- DB 커밋과 이벤트 발행의 원자성을 보장하고(부분 발행 제거), 발행 후 PUBLISHED_AT로 표시한다.
+CREATE TABLE EES_OUTBOX (
+    ID            BIGINT          IDENTITY(1,1) NOT NULL,
+    EVENT_TYPE    NVARCHAR(200)   NOT NULL,
+    MODULE        NVARCHAR(50)    NOT NULL,
+    AGGREGATE_ID  NVARCHAR(100)   NOT NULL,
+    PAYLOAD       NVARCHAR(MAX)   NOT NULL,
+    OCCURRED_AT   DATETIME2       NOT NULL,
+    PUBLISHED_AT  DATETIME2       NULL,
+    ATTEMPTS      INT             NOT NULL DEFAULT 0,
+    CREATED_BY    NVARCHAR(50)    NOT NULL,
+    CREATED_AT    DATETIME2       NOT NULL DEFAULT GETUTCDATE(),
+    UPDATED_BY    NVARCHAR(50)    NOT NULL,
+    UPDATED_AT    DATETIME2       NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_EES_OUTBOX PRIMARY KEY (ID)
+);
+
+-- 미발행(PUBLISHED_AT IS NULL) 행을 ID 순으로 폴링하는 디스패처 쿼리 가속
+CREATE INDEX IX_EES_OUTBOX_UNPUBLISHED ON EES_OUTBOX (PUBLISHED_AT, ID);

@@ -87,6 +87,12 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization();
+// ADR-003 — 권한 기반 PEP: "perm:{permission}" 정책을 동적 생성하고 permission 클레임으로 집행.
+// 역할 기반 [Authorize(Roles=...)]는 기본 제공자에 위임되어 그대로 동작(추가형).
+builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider,
+    NexaOne.API.Security.PermissionPolicyProvider>();
+builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler,
+    NexaOne.API.Security.PermissionAuthorizationHandler>();
 builder.Services.AddSignalR();
 
 // §18.2.3 — Rate Limiting: 기본은 인증 사용자별(없으면 IP별) 100req/min.
@@ -183,6 +189,50 @@ builder.Services.AddSingleton(sp =>
 // PlantController는 싱글톤으로 공유: HostedService가 설비를 등록·기동하고, FdcController가 수동 제어한다(§10.4.4)
 builder.Services.AddSingleton<NexusFramework.PlantController>();
 builder.Services.AddHostedService<NexaOne.API.Services.FdcCollectorHostedService>();
+
+// ADR-002 Event Bus — Transactional Outbox. 저장소는 항상 등록(EnqueueAsync 사용 가능).
+builder.Services.AddScoped<NexaOne.Infrastructure.Persistence.IOutboxRepository,
+    NexaOne.Infrastructure.Persistence.OutboxRepository>();
+// opt-in: Kafka 백본 + Outbox 디스패처 + 구독자(SignalR). 브로커 없는 dev/CI 보호("Kafka:Enabled").
+if (builder.Configuration.GetValue("Kafka:Enabled", false))
+{
+    var kafkaBootstrap = builder.Configuration["Kafka:BootstrapServers"] ?? "localhost:9092";
+    var eventTopic = builder.Configuration["Events:Outbox:Topic"] ?? "nexaone.events";
+
+    builder.Services.AddSingleton<NexaOne.Infrastructure.Messaging.IMessageBus>(sp =>
+        new NexaOne.Infrastructure.Messaging.KafkaMessageBus(
+            kafkaBootstrap,
+            sp.GetRequiredService<ILogger<NexaOne.Infrastructure.Messaging.KafkaMessageBus>>(),
+            sp.GetRequiredService<ILogger<NexusCom.Messaging.Kafka.KafkaDriver>>()));
+
+    builder.Services.AddHostedService<NexaOne.API.Services.OutboxDispatcherService>();
+
+    // 버스 구독자: 도메인 이벤트 → SignalR 푸시 (UI 갱신 = 버스 소비, ADR-002)
+    builder.Services.AddHostedService(sp =>
+    {
+        var scopeFactory = sp.GetRequiredService<IServiceScopeFactory>();
+        Func<NexaOne.Infrastructure.Messaging.DomainEventMessage, CancellationToken, Task> handler =
+            async (msg, ct) =>
+            {
+                using var scope = scopeFactory.CreateScope();
+                var notifier = scope.ServiceProvider.GetRequiredService<NexaOne.API.Hubs.IEesHubNotifier>();
+                if (msg.EventType == "EquipmentStateChanged")
+                    await notifier.NotifyEquipmentStateChangedAsync(msg.AggregateId, msg.Payload, ct);
+                else
+                    await notifier.NotifyDashboardRefreshAsync(ct);
+            };
+        return new NexaOne.Infrastructure.Messaging.KafkaConsumerService(
+            new NexusCom.Messaging.Kafka.KafkaDriver(
+                sp.GetRequiredService<ILogger<NexusCom.Messaging.Kafka.KafkaDriver>>()),
+            new NexaOne.Infrastructure.Messaging.KafkaConsumerOptions
+            {
+                BootstrapServers = kafkaBootstrap,
+                Topics = new[] { eventTopic }
+            },
+            handler,
+            sp.GetRequiredService<ILogger<NexaOne.Infrastructure.Messaging.KafkaConsumerService>>());
+    });
+}
 
 // CORS
 builder.Services.AddCors(options =>

@@ -6,8 +6,9 @@ using NexusCom.Messaging.Kafka;
 namespace NexaOne.Infrastructure.Messaging;
 
 /// <summary>도메인 이벤트 발행 글루 — Kafka 프로토콜 본체는 NexusCom.Messaging.Kafka의
-/// KafkaDriver가 소유하고(§3.6.1), 본 클래스는 직렬화·토픽 정책만 담당한다.</summary>
-public sealed class KafkaMessageBus : IDisposable
+/// KafkaDriver가 소유하고(§3.6.1), 본 클래스는 직렬화·토픽 정책만 담당한다. <see cref="IMessageBus"/>
+/// 구현체로서 OutboxDispatcher의 발행 백본이 된다(ADR-002).</summary>
+public sealed class KafkaMessageBus : IMessageBus, IDisposable
 {
     private readonly KafkaDriver _driver;
     private readonly ILogger<KafkaMessageBus> _logger;

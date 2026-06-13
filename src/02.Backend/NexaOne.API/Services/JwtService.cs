@@ -22,7 +22,7 @@ public class JwtService : IJwtService
             ?? throw new InvalidOperationException("Jwt:SecretKey is required")));
 
     public string GenerateAccessToken(string userId, string userName, string plantId, IEnumerable<string> roles,
-        bool requirePasswordChange = false)
+        bool requirePasswordChange = false, IEnumerable<string>? permissions = null)
     {
         var creds = new SigningCredentials(SigningKey(), SecurityAlgorithms.HmacSha256);
 
@@ -34,6 +34,11 @@ public class JwtService : IJwtService
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
         claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
+
+        // ADR-003 — permission 클레임 발급(권한 기반 PEP). 중복 제거.
+        if (permissions is not null)
+            claims.AddRange(permissions.Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(p => new Claim(NexaOne.Common.Security.Permissions.ClaimType, p)));
 
         if (requirePasswordChange)
             claims.Add(new Claim(PasswordChangeClaim, "true"));

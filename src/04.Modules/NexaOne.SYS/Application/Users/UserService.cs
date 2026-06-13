@@ -1,5 +1,6 @@
 using NexaOne.SYS.Domain;
 using NexaOne.Common;
+using NexaOne.Common.Security;
 
 namespace NexaOne.SYS.Application.Users;
 
@@ -105,6 +106,16 @@ public sealed class UserService
         user.RecordLogin();   // LastLoginAt 기록 + 연속 실패 카운터 리셋
         await _userRepository.UpdateAsync(user, ct);
         return Result.Success(user);
+    }
+
+    /// <summary>ADR-003 — 역할의 유효 권한(명시 권한 ∪ 역할명 기본 매핑). 토큰 발급 시 permission 클레임으로 싣는다.</summary>
+    public async Task<IReadOnlyList<string>> GetEffectivePermissionsAsync(string roleId, CancellationToken ct = default)
+    {
+        var perms = new HashSet<string>(RolePermissionDefaults.For(roleId), StringComparer.OrdinalIgnoreCase);
+        var role = await _roleRepository.GetByIdAsync(roleId, ct);
+        if (role is not null)
+            foreach (var p in role.Permissions) perms.Add(p);
+        return perms.ToList();
     }
 
     /// <summary>§20.10 — 관리자 잠금 해제. 해제는 시간 만료 또는 관리자만 가능하다.</summary>
