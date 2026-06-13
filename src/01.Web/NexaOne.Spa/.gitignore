@@ -1,0 +1,7 @@
+node_modules/
+dist/
+# NSwag 생성 산출물(빌드 시 재생성) — 계약 변경 추적은 OpenAPI 스펙으로
+src/api/generated/
+*.tsbuildinfo
+.env
+*.local
