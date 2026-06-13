@@ -1,12 +1,12 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using NexaOne.DLV.Application.Dlv;
-using NexaOne.DLV.Domain;
-using NexaOne.EMS.Application.Ems;
-using NexaOne.EMS.Domain;
-using NexaOne.EPT.Application.Ept;
-using NexaOne.PPM.Application.Ppm;
-using NexaOne.PPM.Domain;
+using NexaOne.SHP.Application.Shp;
+using NexaOne.SHP.Domain;
+using NexaOne.CMMS.Application.Cmms;
+using NexaOne.CMMS.Domain;
+using NexaOne.EST.Application.Est;
+using NexaOne.POM.Application.Pom;
+using NexaOne.POM.Domain;
 using NexaOne.RMS.Application.Rms;
 using NexaOne.RMS.Domain;
 
@@ -17,9 +17,9 @@ namespace NexaOne.API.Controllers;
 [Authorize]
 public class DashboardController(
     EquipmentAlarmService alarmService,
-    EmsService emsService,
-    PpmService ppmService,
-    DlvService dlvService,
+    CmmsService emsService,
+    PomService ppmService,
+    ShpService dlvService,
     RecipeService recipeService) : ControllerBase
 {
     [HttpGet]

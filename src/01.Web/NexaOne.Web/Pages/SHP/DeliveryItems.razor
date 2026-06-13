@@ -1,0 +1,110 @@
+@page "/shp/items"
+@attribute [Authorize]
+@inject IApiClient Api
+
+<div class="page-header">
+    <h1 class="page-title">납품 품목</h1>
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog"
+              Disabled="@(!(!string.IsNullOrWhiteSpace(_orderId)))">품목 추가</NexaButton>
+</div>
+
+<NexaConditionGrid TRow="DeliveryItemDto" Items="_items">
+    <ConditionPanel>
+        <NexaTextBox @bind-Value="_orderId" Placeholder="납품 주문 ID *" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
+    </ConditionPanel>
+    <Columns>
+        <PropertyColumn Property="@((DeliveryItemDto r) => r.Id)"         Title="품목 ID" />
+        <PropertyColumn Property="@((DeliveryItemDto r) => r.ProductId)"  Title="제품 ID" />
+        <PropertyColumn Property="@((DeliveryItemDto r) => r.PlannedQty)" Title="계획 수량" />
+        <PropertyColumn Property="@((DeliveryItemDto r) => r.ActualQty)"  Title="실적 수량" />
+        <PropertyColumn Property="@((DeliveryItemDto r) => r.LotId)"      Title="Lot ID" />
+        <TemplateColumn TGridItem="DeliveryItemDto" Title="">
+            @if (!context.ActualQty.HasValue)
+            {
+                <NexaButton OnClick="@(() => OpenActualQtyDialog(context))">실적 입력</NexaButton>
+            }
+        </TemplateColumn>
+    </Columns>
+</NexaConditionGrid>
+
+<NexaModal @bind-Visible="_showCreate" Title="납품 품목 추가">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.ItemId"    Placeholder="품목 ID *" />
+            <NexaTextBox @bind-Value="_form.ProductId" Placeholder="제품 ID *" />
+            <NexaNumberInput @bind-Value="_form.PlannedQty" Min="0.01" Step="1" Placeholder="계획 수량 *" />
+            <NexaTextBox @bind-Value="_form.LotId"     Placeholder="Lot ID (선택)" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="CreateItem">추가</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
+
+<NexaModal @bind-Visible="_showActualQty" Title="@($"실적 입력 — {_actualItemId}")">
+    <ChildContent>
+        <div style="padding:0.5rem;">
+            <NexaNumberInput @bind-Value="_actualQty" Min="0" Step="1" Placeholder="실적 수량 *" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="ConfirmActualQty">저장</NexaButton>
+        <NexaButton OnClick="@(() => _showActualQty = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
+
+@code {
+    private List<DeliveryItemDto> _items = new();
+    private string _orderId = string.Empty;
+    private bool _showCreate;
+    private ItemForm _form = new();
+    private bool _showActualQty;
+    private string _actualItemId = string.Empty;
+    private decimal _actualQty;
+
+    protected override Task OnInitializedAsync() => Task.CompletedTask;
+
+    private async Task LoadData()
+    {
+        if (!string.IsNullOrWhiteSpace(_orderId))
+            _items = await Api.GetDeliveryItemsAsync(_orderId);
+    }
+
+    private void OpenCreateDialog() { _form = new(); _showCreate = true; }
+
+    private async Task CreateItem()
+    {
+        await Api.AddDeliveryItemAsync(_orderId, new
+        {
+            ItemId = _form.ItemId, ProductId = _form.ProductId,
+            PlannedQty = _form.PlannedQty,
+            LotId = string.IsNullOrEmpty(_form.LotId) ? null : _form.LotId
+        });
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private void OpenActualQtyDialog(DeliveryItemDto item)
+    {
+        _actualItemId = item.Id;
+        _actualQty = item.PlannedQty;
+        _showActualQty = true;
+    }
+
+    private async Task ConfirmActualQty()
+    {
+        await Api.SetDeliveryItemActualQtyAsync(_actualItemId, _actualQty);
+        _showActualQty = false;
+        await LoadData();
+    }
+
+    private sealed class ItemForm
+    {
+        public string  ItemId     { get; set; } = string.Empty;
+        public string  ProductId  { get; set; } = string.Empty;
+        public decimal PlannedQty { get; set; }
+        public string? LotId      { get; set; }
+    }
+}

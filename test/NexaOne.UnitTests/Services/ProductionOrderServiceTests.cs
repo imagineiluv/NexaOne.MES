@@ -1,6 +1,6 @@
 using Moq;
-using NexaOne.PPM.Application.Ppm;
-using NexaOne.PPM.Domain;
+using NexaOne.POM.Application.Pom;
+using NexaOne.POM.Domain;
 using NexaOne.Common;
 
 namespace NexaOne.UnitTests.Services;

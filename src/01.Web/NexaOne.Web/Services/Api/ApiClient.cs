@@ -298,30 +298,30 @@ public sealed class ApiClient : IApiClient
     // ── EPT ───────────────────────────────────────────────────────────────────
 
     public Task<List<EquipmentStateMatrixDto>> GetStateMatrixAsync(string plantId, CancellationToken ct = default)
-        => GetListAsync<EquipmentStateMatrixDto>($"api/v1/ept/state-matrix?plantId={plantId}", ct);
+        => GetListAsync<EquipmentStateMatrixDto>($"api/v1/est/state-matrix?plantId={plantId}", ct);
 
     public Task<List<EquipmentStateMatrixDto>> GetAllowedTransitionsAsync(string plantId, string fromState, CancellationToken ct = default)
-        => GetListAsync<EquipmentStateMatrixDto>($"api/v1/ept/state-matrix/allowed?plantId={plantId}&fromState={fromState}", ct);
+        => GetListAsync<EquipmentStateMatrixDto>($"api/v1/est/state-matrix/allowed?plantId={plantId}&fromState={fromState}", ct);
 
     public Task<EquipmentStateMatrixDto?> UpsertStateMatrixAsync(object req, CancellationToken ct = default)
-        => PostAsync<EquipmentStateMatrixDto>("api/v1/ept/state-matrix", req, ct);
+        => PostAsync<EquipmentStateMatrixDto>("api/v1/est/state-matrix", req, ct);
 
     // 실패(null)와 빈 결과를 구분한다 — 폴백/병합 갱신 실패가 표시 중인 그리드를 비우지 않도록 (§20.9)
     public Task<List<EquipmentCurrentStateDto>?> GetEquipmentStatesAsync(string plantId, CancellationToken ct = default)
-        => GetAsync<List<EquipmentCurrentStateDto>>($"api/v1/ept/equipment-state?plantId={plantId}", ct);
+        => GetAsync<List<EquipmentCurrentStateDto>>($"api/v1/est/equipment-state?plantId={plantId}", ct);
 
     public Task<EquipmentCurrentStateDto?> ChangeEquipmentStateAsync(object req, CancellationToken ct = default)
-        => PostAsync<EquipmentCurrentStateDto>("api/v1/ept/equipment-state/change", req, ct);
+        => PostAsync<EquipmentCurrentStateDto>("api/v1/est/equipment-state/change", req, ct);
 
     public Task<List<EquipmentStateHistoryDto>> GetStateHistoryAsync(string equipmentId, CancellationToken ct = default)
-        => GetListAsync<EquipmentStateHistoryDto>($"api/v1/ept/equipment-state/{equipmentId}/history", ct);
+        => GetListAsync<EquipmentStateHistoryDto>($"api/v1/est/equipment-state/{equipmentId}/history", ct);
 
     // 실패(null)와 빈 결과를 구분한다 — 폴백/병합 갱신 실패가 표시 중인 그리드를 비우지 않도록 (§20.9)
     public Task<List<AlarmDto>?> GetAlarmsAsync(string plantId, CancellationToken ct = default)
-        => GetAsync<List<AlarmDto>>($"api/v1/ept/alarms?plantId={plantId}", ct);
+        => GetAsync<List<AlarmDto>>($"api/v1/est/alarms?plantId={plantId}", ct);
 
     public Task ClearAlarmAsync(string alarmId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ept/alarms/{alarmId}/clear", new { ClearedAt = DateTime.UtcNow }, ct);
+        => PutAsync($"api/v1/est/alarms/{alarmId}/clear", new { ClearedAt = DateTime.UtcNow }, ct);
 
     // ── FDC ───────────────────────────────────────────────────────────────────
 
@@ -476,84 +476,84 @@ public sealed class ApiClient : IApiClient
         var qs = new List<string>();
         if (!string.IsNullOrEmpty(equipmentId)) qs.Add($"equipmentId={equipmentId}");
         if (!string.IsNullOrEmpty(status)) qs.Add($"status={status}");
-        var url = "api/v1/ems/work-orders" + (qs.Any() ? "?" + string.Join("&", qs) : "");
+        var url = "api/v1/cmms/work-orders" + (qs.Any() ? "?" + string.Join("&", qs) : "");
         return GetListAsync<WorkOrderDto>(url, ct);
     }
 
     public Task<WorkOrderDto?> CreateWorkOrderAsync(object req, CancellationToken ct = default)
-        => PostAsync<WorkOrderDto>("api/v1/ems/work-orders", req, ct);
+        => PostAsync<WorkOrderDto>("api/v1/cmms/work-orders", req, ct);
 
     public Task StartWorkOrderAsync(string woId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ems/work-orders/{woId}/start", null, ct);
+        => PutAsync($"api/v1/cmms/work-orders/{woId}/start", null, ct);
 
     public Task CompleteWorkOrderAsync(string woId, string remark, CancellationToken ct = default)
-        => PutAsync($"api/v1/ems/work-orders/{woId}/complete", new { remark }, ct);
+        => PutAsync($"api/v1/cmms/work-orders/{woId}/complete", new { remark }, ct);
 
     public Task CancelWorkOrderAsync(string woId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ems/work-orders/{woId}/cancel", null, ct);
+        => PutAsync($"api/v1/cmms/work-orders/{woId}/cancel", null, ct);
 
     public Task<List<MaintenancePlanDto>> GetMaintenancePlansAsync(string? equipmentId = null, CancellationToken ct = default)
     {
-        var url = "api/v1/ems/maintenance-plans" +
+        var url = "api/v1/cmms/maintenance-plans" +
             (string.IsNullOrEmpty(equipmentId) ? "" : $"?equipmentId={equipmentId}");
         return GetListAsync<MaintenancePlanDto>(url, ct);
     }
 
     public Task<MaintenancePlanDto?> CreateMaintenancePlanAsync(object req, CancellationToken ct = default)
-        => PostAsync<MaintenancePlanDto>("api/v1/ems/maintenance-plans", req, ct);
+        => PostAsync<MaintenancePlanDto>("api/v1/cmms/maintenance-plans", req, ct);
 
     public Task StartMaintenancePlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ems/maintenance-plans/{planId}/start", null, ct);
+        => PutAsync($"api/v1/cmms/maintenance-plans/{planId}/start", null, ct);
 
     public Task CompleteMaintenancePlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ems/maintenance-plans/{planId}/complete", null, ct);
+        => PutAsync($"api/v1/cmms/maintenance-plans/{planId}/complete", null, ct);
 
     public Task CancelMaintenancePlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ems/maintenance-plans/{planId}/cancel", null, ct);
+        => PutAsync($"api/v1/cmms/maintenance-plans/{planId}/cancel", null, ct);
 
     public Task<List<SparePartDto>> GetSparePartsAsync(bool lowStock = false, CancellationToken ct = default)
-        => GetListAsync<SparePartDto>($"api/v1/ems/spare-parts{(lowStock ? "?lowStock=true" : "")}", ct);
+        => GetListAsync<SparePartDto>($"api/v1/cmms/spare-parts{(lowStock ? "?lowStock=true" : "")}", ct);
 
     public Task<SparePartDto?> CreateSparePartAsync(object req, CancellationToken ct = default)
-        => PostAsync<SparePartDto>("api/v1/ems/spare-parts", req, ct);
+        => PostAsync<SparePartDto>("api/v1/cmms/spare-parts", req, ct);
 
     public Task AdjustStockAsync(string partId, decimal delta, CancellationToken ct = default)
-        => PutAsync($"api/v1/ems/spare-parts/{partId}/adjust-stock", new { delta }, ct);
+        => PutAsync($"api/v1/cmms/spare-parts/{partId}/adjust-stock", new { delta }, ct);
 
     // ── PPM ───────────────────────────────────────────────────────────────────
 
     public Task<List<ProductionPlanDto>> GetPlansAsync(string plantId, CancellationToken ct = default)
-        => GetListAsync<ProductionPlanDto>($"api/v1/ppm/plans?plantId={plantId}", ct);
+        => GetListAsync<ProductionPlanDto>($"api/v1/pom/plans?plantId={plantId}", ct);
 
     public Task<ProductionPlanDto?> CreatePlanAsync(object req, CancellationToken ct = default)
-        => PostAsync<ProductionPlanDto>("api/v1/ppm/plans", req, ct);
+        => PostAsync<ProductionPlanDto>("api/v1/pom/plans", req, ct);
 
     public Task StartPlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ppm/plans/{planId}/start", null, ct);
+        => PutAsync($"api/v1/pom/plans/{planId}/start", null, ct);
 
     public Task ReleasePlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ppm/plans/{planId}/release", null, ct);
+        => PutAsync($"api/v1/pom/plans/{planId}/release", null, ct);
 
     public Task CompletePlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ppm/plans/{planId}/complete", null, ct);
+        => PutAsync($"api/v1/pom/plans/{planId}/complete", null, ct);
 
     public Task CancelPlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ppm/plans/{planId}/cancel", null, ct);
+        => PutAsync($"api/v1/pom/plans/{planId}/cancel", null, ct);
 
     public Task<List<ProductionOrderDto>> GetOrdersAsync(string planId, CancellationToken ct = default)
-        => GetListAsync<ProductionOrderDto>($"api/v1/ppm/orders?planId={planId}", ct);
+        => GetListAsync<ProductionOrderDto>($"api/v1/pom/orders?planId={planId}", ct);
 
     public Task<ProductionOrderDto?> CreateOrderAsync(object req, CancellationToken ct = default)
-        => PostAsync<ProductionOrderDto>("api/v1/ppm/orders", req, ct);
+        => PostAsync<ProductionOrderDto>("api/v1/pom/orders", req, ct);
 
     public Task StartOrderAsync(string orderId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ppm/orders/{orderId}/start", null, ct);
+        => PutAsync($"api/v1/pom/orders/{orderId}/start", null, ct);
 
     public Task CompleteOrderAsync(string orderId, decimal actualQty, CancellationToken ct = default)
-        => PutAsync($"api/v1/ppm/orders/{orderId}/complete", new { actualQty }, ct);
+        => PutAsync($"api/v1/pom/orders/{orderId}/complete", new { actualQty }, ct);
 
     public Task CancelOrderAsync(string orderId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ppm/orders/{orderId}/cancel", null, ct);
+        => PutAsync($"api/v1/pom/orders/{orderId}/cancel", null, ct);
 
     // ── PPM - Lot TrackIn/TrackOut (설계서 19.4) ──────────────────────────────
 
@@ -598,34 +598,34 @@ public sealed class ApiClient : IApiClient
     // ── DLV ───────────────────────────────────────────────────────────────────
 
     public Task<List<DeliveryOrderDto>> GetDeliveryOrdersAsync(string plantId, CancellationToken ct = default)
-        => GetListAsync<DeliveryOrderDto>($"api/v1/dlv/orders?plantId={plantId}", ct);
+        => GetListAsync<DeliveryOrderDto>($"api/v1/shp/orders?plantId={plantId}", ct);
 
     public Task<DeliveryOrderDto?> CreateDeliveryOrderAsync(object req, CancellationToken ct = default)
-        => PostAsync<DeliveryOrderDto>("api/v1/dlv/orders", req, ct);
+        => PostAsync<DeliveryOrderDto>("api/v1/shp/orders", req, ct);
 
     public Task ConfirmDeliveryOrderAsync(string orderId, CancellationToken ct = default)
-        => PutAsync($"api/v1/dlv/orders/{orderId}/confirm", null, ct);
+        => PutAsync($"api/v1/shp/orders/{orderId}/confirm", null, ct);
 
     public Task ShipDeliveryOrderAsync(string orderId, DateTime shippedDate, CancellationToken ct = default)
-        => PutAsync($"api/v1/dlv/orders/{orderId}/ship", new { shippedDate }, ct);
+        => PutAsync($"api/v1/shp/orders/{orderId}/ship", new { shippedDate }, ct);
 
     public Task CancelDeliveryOrderAsync(string orderId, CancellationToken ct = default)
-        => PutAsync($"api/v1/dlv/orders/{orderId}/cancel", null, ct);
+        => PutAsync($"api/v1/shp/orders/{orderId}/cancel", null, ct);
 
     public Task<List<DeliveryItemDto>> GetDeliveryItemsAsync(string orderId, CancellationToken ct = default)
-        => GetListAsync<DeliveryItemDto>($"api/v1/dlv/orders/{orderId}/items", ct);
+        => GetListAsync<DeliveryItemDto>($"api/v1/shp/orders/{orderId}/items", ct);
 
     public Task<DeliveryItemDto?> AddDeliveryItemAsync(string orderId, object req, CancellationToken ct = default)
-        => PostAsync<DeliveryItemDto>($"api/v1/dlv/orders/{orderId}/items", req, ct);
+        => PostAsync<DeliveryItemDto>($"api/v1/shp/orders/{orderId}/items", req, ct);
 
     public Task SetDeliveryItemActualQtyAsync(string itemId, decimal actualQty, CancellationToken ct = default)
-        => PutAsync($"api/v1/dlv/items/{itemId}/actual-qty", new { actualQty }, ct);
+        => PutAsync($"api/v1/shp/items/{itemId}/actual-qty", new { actualQty }, ct);
 
     public Task<List<ShipmentHistoryDto>> GetShipmentHistoryAsync(string orderId, CancellationToken ct = default)
-        => GetListAsync<ShipmentHistoryDto>($"api/v1/dlv/orders/{orderId}/shipment-history", ct);
+        => GetListAsync<ShipmentHistoryDto>($"api/v1/shp/orders/{orderId}/shipment-history", ct);
 
     public Task<ShipmentHistoryDto?> RecordShipmentAsync(string orderId, object req, CancellationToken ct = default)
-        => PostAsync<ShipmentHistoryDto>($"api/v1/dlv/orders/{orderId}/shipment-history", req, ct);
+        => PostAsync<ShipmentHistoryDto>($"api/v1/shp/orders/{orderId}/shipment-history", req, ct);
 
     // ── SYS ───────────────────────────────────────────────────────────────────
 

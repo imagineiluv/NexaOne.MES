@@ -5,21 +5,21 @@ using NexaOne.Infrastructure.Persistence;
 using NexaOne.Application.Messaging;
 using NexaOne.MDM.Application.Equipments;
 using NexaOne.MDM.Infrastructure;
-using NexaOne.EPT.Application.Ept;
-using NexaOne.EPT.Infrastructure;
+using NexaOne.EST.Application.Est;
+using NexaOne.EST.Infrastructure;
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Infrastructure;
 using NexaOne.RMS.Application.Rms;
 using NexaOne.RMS.Infrastructure;
 using NexaOne.QMS.Application.Qms;
 using NexaOne.QMS.Infrastructure;
-using NexaOne.EMS.Application.Ems;
-using NexaOne.EMS.Infrastructure;
-using NexaOne.PPM.Application.Lots;
-using NexaOne.PPM.Application.Ppm;
-using NexaOne.PPM.Infrastructure;
-using NexaOne.DLV.Application.Dlv;
-using NexaOne.DLV.Infrastructure;
+using NexaOne.CMMS.Application.Cmms;
+using NexaOne.CMMS.Infrastructure;
+using NexaOne.POM.Application.Lots;
+using NexaOne.POM.Application.Pom;
+using NexaOne.POM.Infrastructure;
+using NexaOne.SHP.Application.Shp;
+using NexaOne.SHP.Infrastructure;
 using NexaOne.SYS.Application.Conditions;
 using NexaOne.SYS.Application.Deploys;
 using NexaOne.SYS.Application.Menus;
@@ -105,13 +105,13 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IWorkOrderRepository, WorkOrderRepository>();
         services.AddScoped<IMaintenancePlanRepository, MaintenancePlanRepository>();
         services.AddScoped<ISparePartRepository, SparePartRepository>();
-        services.AddScoped<EmsService>();
+        services.AddScoped<CmmsService>();
         services.AddScoped<MaintenancePlanService>();
 
         // PPM
         services.AddScoped<IProductionPlanRepository, ProductionPlanRepository>();
         services.AddScoped<IProductionOrderRepository, ProductionOrderRepository>();
-        services.AddScoped<PpmService>();
+        services.AddScoped<PomService>();
         services.AddScoped<ProductionOrderService>();
         // Lot TrackIn/TrackOut (§19.4) — 교차 모듈 마스터 검증은 ITrackingMasterGateway 어댑터로 연결
         services.AddScoped<ILotRepository, LotRepository>();
@@ -124,7 +124,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDeliveryOrderRepository, DeliveryOrderRepository>();
         services.AddScoped<IDeliveryItemRepository, DeliveryItemRepository>();
         services.AddScoped<IShipmentHistoryRepository, ShipmentHistoryRepository>();
-        services.AddScoped<DlvService>();
+        services.AddScoped<ShpService>();
 
         // SYS
         services.AddScoped<IUserRepository, UserRepository>();

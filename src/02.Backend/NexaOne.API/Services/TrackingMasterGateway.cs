@@ -1,5 +1,5 @@
 using NexaOne.MDM.Application.Equipments;
-using NexaOne.PPM.Application.Lots;
+using NexaOne.POM.Application.Lots;
 using NexaOne.QMS.Application.Qms;
 using NexaOne.RMS.Application.Rms;
 using NexaOne.RMS.Domain;

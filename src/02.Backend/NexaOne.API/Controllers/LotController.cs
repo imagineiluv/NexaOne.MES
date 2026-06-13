@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using NexaOne.PPM.Application.Lots;
+using NexaOne.POM.Application.Lots;
 
 namespace NexaOne.API.Controllers;
 

@@ -1,0 +1,124 @@
+@page "/pom/orders"
+@attribute [Authorize]
+@inject IApiClient Api
+@inject AuthContextService AuthContext
+
+<div class="page-header">
+    <h1 class="page-title">생산 지시</h1>
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="OpenCreateDialog">지시 등록</NexaButton>
+</div>
+
+<NexaConditionGrid TRow="ProductionOrderDto" Items="_items">
+    <ConditionPanel>
+        <NexaTextBox @bind-Value="_planId" Placeholder="계획 ID" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
+    </ConditionPanel>
+    <Columns>
+        <PropertyColumn Property="@((ProductionOrderDto r) => r.Id)"             Title="지시 ID" />
+        <PropertyColumn Property="@((ProductionOrderDto r) => r.PlanId)"         Title="계획 ID" />
+        <PropertyColumn Property="@((ProductionOrderDto r) => r.EquipmentId)"    Title="설비" />
+        <PropertyColumn Property="@((ProductionOrderDto r) => r.ProductId)"      Title="제품" />
+        <PropertyColumn Property="@((ProductionOrderDto r) => r.OrderQty)"       Title="지시 수량"    Format="N0" />
+        <PropertyColumn Property="@((ProductionOrderDto r) => r.ActualQty)"      Title="실적 수량"    Format="N0" />
+        <PropertyColumn Property="@((ProductionOrderDto r) => r.ScheduledStart)" Title="예정 시작"    Format="yyyy-MM-dd" />
+        <PropertyColumn Property="@((ProductionOrderDto r) => r.ScheduledEnd)"   Title="예정 종료"    Format="yyyy-MM-dd" />
+        <TemplateColumn TGridItem="ProductionOrderDto" Title="상태">
+            <StatusBadge Value="@context.Status" />
+        </TemplateColumn>
+        <TemplateColumn TGridItem="ProductionOrderDto" Title="">
+            <div style="display:flex; gap:4px;">
+                @if (context.Status == "Issued")
+                {
+                    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="@(() => StartOrder(context.Id))">시작</NexaButton>
+                    <NexaButton Variant="NexaButton.ButtonVariant.Danger" OnClick="@(() => CancelOrder(context.Id))">취소</NexaButton>
+                }
+                @if (context.Status == "InProgress")
+                {
+                    <NexaButton OnClick="@(() => OpenCompleteDialog(context.Id))">완료</NexaButton>
+                }
+            </div>
+        </TemplateColumn>
+    </Columns>
+</NexaConditionGrid>
+
+<NexaModal @bind-Visible="_showCreate" Title="생산 지시 등록">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaTextBox @bind-Value="_form.OrderId"     Placeholder="지시 ID *" />
+            <NexaTextBox @bind-Value="_form.PlanId"      Placeholder="계획 ID *" />
+            <NexaTextBox @bind-Value="_form.EquipmentId" Placeholder="설비 ID *" />
+            <NexaTextBox @bind-Value="_form.ProductId"   Placeholder="제품 ID *" />
+            <NexaNumberInput @bind-Value="_form.OrderQty" />
+            <NexaDateInput @bind-Value="_form.ScheduledStart" />
+            <NexaDateInput @bind-Value="_form.ScheduledEnd" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="CreateOrder">등록</NexaButton>
+        <NexaButton OnClick="@(() => _showCreate = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
+
+<NexaModal @bind-Visible="_showComplete" Title="생산 완료">
+    <ChildContent>
+        <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+            <NexaNumberInput @bind-Value="_actualQty" Min="0" />
+        </div>
+    </ChildContent>
+    <Footer>
+        <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="ConfirmComplete">완료</NexaButton>
+        <NexaButton OnClick="@(() => _showComplete = false)" Class="ms-2">취소</NexaButton>
+    </Footer>
+</NexaModal>
+
+@code {
+    private List<ProductionOrderDto> _items = new();
+    private string _planId = string.Empty;
+    private bool _showCreate;
+    private OrderForm _form = new();
+
+    private bool _showComplete;
+    private string? _completeOrderId;
+    private decimal _actualQty;
+
+    protected override async Task OnInitializedAsync() => await LoadData();
+
+    private async Task LoadData() => _items = await Api.GetOrdersAsync(_planId);
+
+    private void OpenCreateDialog() { _form = new() { PlanId = _planId }; _showCreate = true; }
+
+    private async Task CreateOrder()
+    {
+        await Api.CreateOrderAsync(new
+        {
+            _form.OrderId, _form.PlanId, _form.EquipmentId, _form.ProductId,
+            OrderQty = _form.OrderQty, ScheduledStart = _form.ScheduledStart, ScheduledEnd = _form.ScheduledEnd
+        });
+        _showCreate = false;
+        await LoadData();
+    }
+
+    private async Task StartOrder(string id)  { await Api.StartOrderAsync(id);  await LoadData(); }
+    private async Task CancelOrder(string id) { await Api.CancelOrderAsync(id); await LoadData(); }
+
+    private void OpenCompleteDialog(string id) { _completeOrderId = id; _actualQty = 0; _showComplete = true; }
+
+    private async Task ConfirmComplete()
+    {
+        if (_completeOrderId is null) return;
+        await Api.CompleteOrderAsync(_completeOrderId, _actualQty);
+        _showComplete = false;
+        await LoadData();
+    }
+
+    private sealed class OrderForm
+    {
+        public string   OrderId       { get; set; } = string.Empty;
+        public string   PlanId        { get; set; } = string.Empty;
+        public string   EquipmentId   { get; set; } = string.Empty;
+        public string   ProductId     { get; set; } = string.Empty;
+        public decimal  OrderQty      { get; set; } = 1;
+        public DateTime ScheduledStart { get; set; } = DateTime.Today;
+        public DateTime ScheduledEnd  { get; set; } = DateTime.Today.AddDays(1);
+    }
+}

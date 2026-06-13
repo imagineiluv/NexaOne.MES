@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -21,11 +21,11 @@
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.MDM\NexaOne.MDM.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.RMS\NexaOne.RMS.csproj" />
-    <ProjectReference Include="..\..\src\04.Modules\NexaOne.EMS\NexaOne.EMS.csproj" />
-    <ProjectReference Include="..\..\src\04.Modules\NexaOne.PPM\NexaOne.PPM.csproj" />
-    <ProjectReference Include="..\..\src\04.Modules\NexaOne.DLV\NexaOne.DLV.csproj" />
+    <ProjectReference Include="..\..\src\04.Modules\NexaOne.CMMS\NexaOne.CMMS.csproj" />
+    <ProjectReference Include="..\..\src\04.Modules\NexaOne.POM\NexaOne.POM.csproj" />
+    <ProjectReference Include="..\..\src\04.Modules\NexaOne.SHP\NexaOne.SHP.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.FDC\NexaOne.FDC.csproj" />
-    <ProjectReference Include="..\..\src\04.Modules\NexaOne.EPT\NexaOne.EPT.csproj" />
+    <ProjectReference Include="..\..\src\04.Modules\NexaOne.EST\NexaOne.EST.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.QMS\NexaOne.QMS.csproj" />
   </ItemGroup>
 

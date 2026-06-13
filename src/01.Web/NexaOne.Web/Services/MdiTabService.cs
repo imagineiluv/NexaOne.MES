@@ -27,8 +27,8 @@ public sealed class MdiTabService
     private static readonly Dictionary<string, string[]> SummaryKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         ["/fdc/monitor"]      = ["parameterid", "equipmentid"],
-        ["/ept/state-change"] = ["equipmentid"],
-        ["/ept/alarms"]       = ["equipmentid"],
+        ["/est/state-change"] = ["equipmentid"],
+        ["/est/alarms"]       = ["equipmentid"],
         ["/rms/approval"]     = ["recipeid"],
     };
 

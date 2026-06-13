@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Hubs;
-using NexaOne.EPT.Application.Ept;
+using NexaOne.EST.Application.Est;
 using NexaOne.FDC.Application.Fdc;
 using NexusFramework;
 

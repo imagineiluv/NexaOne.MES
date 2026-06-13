@@ -1,4 +1,4 @@
-using NexaOne.EMS.Domain;
+using NexaOne.CMMS.Domain;
 using NexaOne.Common;
 
 namespace NexaOne.UnitTests.Domain;

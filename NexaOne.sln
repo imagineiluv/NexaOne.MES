@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -39,17 +39,17 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaOne.Driver.Redis", "src
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "04.Modules", "04.Modules", "{2AB7BA82-929A-4618-9063-BF4A0F293FFB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaOne.DLV", "src\04.Modules\NexaOne.DLV\NexaOne.DLV.csproj", "{23FBB7C5-9E60-4954-95EE-B9A68370D86B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaOne.SHP", "src\04.Modules\NexaOne.SHP\NexaOne.SHP.csproj", "{23FBB7C5-9E60-4954-95EE-B9A68370D86B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaOne.EMS", "src\04.Modules\NexaOne.EMS\NexaOne.EMS.csproj", "{AE4EEAF5-0295-429B-8BE1-0BA85039A328}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaOne.CMMS", "src\04.Modules\NexaOne.CMMS\NexaOne.CMMS.csproj", "{AE4EEAF5-0295-429B-8BE1-0BA85039A328}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaOne.EPT", "src\04.Modules\NexaOne.EPT\NexaOne.EPT.csproj", "{B2213572-6029-4661-959D-62DEDF593304}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaOne.EST", "src\04.Modules\NexaOne.EST\NexaOne.EST.csproj", "{B2213572-6029-4661-959D-62DEDF593304}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaOne.FDC", "src\04.Modules\NexaOne.FDC\NexaOne.FDC.csproj", "{DC2FD5B3-1352-4896-A50E-34AA8D1DA18B}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaOne.MDM", "src\04.Modules\NexaOne.MDM\NexaOne.MDM.csproj", "{882A4132-DDA3-4BB6-BE82-EE7BFEE8460D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaOne.PPM", "src\04.Modules\NexaOne.PPM\NexaOne.PPM.csproj", "{0B57A972-EB69-4237-8612-A0F7EC0D682D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaOne.POM", "src\04.Modules\NexaOne.POM\NexaOne.POM.csproj", "{0B57A972-EB69-4237-8612-A0F7EC0D682D}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaOne.QMS", "src\04.Modules\NexaOne.QMS\NexaOne.QMS.csproj", "{9E7FF75A-54CE-4522-B8D5-19FE34049519}"
 EndProject

@@ -1,0 +1,212 @@
+@page "/est/state-change"
+@attribute [Authorize]
+@inject IApiClient Api
+@inject AuthContextService AuthContext
+@inject WaitOverlayService WaitSvc
+@inject NexaHubService HubService
+@implements IAsyncDisposable
+
+<div class="page-header">
+    <h1 class="page-title">설비 상태 관리</h1>
+</div>
+
+<NexaConditionGrid TRow="EquipmentCurrentStateDto" Items="_states">
+    <ConditionPanel>
+        <NexaTextBox @bind-Value="_plantId" Placeholder="Plant ID" />
+        <NexaButton OnClick="LoadData">조회</NexaButton>
+    </ConditionPanel>
+    <Columns>
+        <PropertyColumn Property="@((EquipmentCurrentStateDto r) => r.EquipmentId)" Title="설비 ID" />
+        <TemplateColumn TGridItem="EquipmentCurrentStateDto" Title="현재 상태">
+            <StatusBadge Value="@context.CurrentStateId" />
+        </TemplateColumn>
+        <PropertyColumn Property="@((EquipmentCurrentStateDto r) => r.StateChangedAt)" Title="변경일시" Format="yyyy-MM-dd HH:mm:ss" />
+        <PropertyColumn Property="@((EquipmentCurrentStateDto r) => r.StateVersion)" Title="버전" />
+        <TemplateColumn TGridItem="EquipmentCurrentStateDto" Title="">
+            <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="@(() => OpenChangeDialog(context))">상태 변경</NexaButton>
+            <NexaButton Variant="NexaButton.ButtonVariant.Secondary" Class="ms-1" OnClick="@(() => OpenHistoryDialog(context.EquipmentId))">이력</NexaButton>
+        </TemplateColumn>
+    </Columns>
+</NexaConditionGrid>
+
+@if (_showChange && _selected is not null)
+{
+    <NexaModal @bind-Visible="_showChange" Title="설비 상태 변경">
+        <ChildContent>
+            <div style="display:flex; flex-direction:column; gap:0.75rem; padding:0.5rem;">
+                <div>
+                    <label class="form-label">설비</label>
+                    <div class="fw-semibold">@_selected.EquipmentId</div>
+                </div>
+                <div>
+                    <label class="form-label">현재 상태</label>
+                    <StatusBadge Value="@_selected.CurrentStateId" />
+                </div>
+                <div>
+                    <label class="form-label">변경할 상태 <span class="text-danger">*</span></label>
+                    <NexaSelect TValue="string" @bind-Value="_targetStateId">
+                        <option value="">상태를 선택하세요</option>
+                        @foreach (var it in _allowedTransitions)
+                        {
+                            <option value="@it.ToStateId">@it.ToStateId</option>
+                        }
+                    </NexaSelect>
+                </div>
+                @if (_requireReason)
+                {
+                    <div>
+                        <label class="form-label">사유 <span class="text-danger">*</span></label>
+                        <NexaTextArea @bind-Value="_reason" Rows="3" Placeholder="상태 변경 사유를 입력하세요" />
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(_changeError))
+                {
+                    <div class="text-danger small">@_changeError</div>
+                }
+            </div>
+        </ChildContent>
+        <Footer>
+            <NexaButton Variant="NexaButton.ButtonVariant.Primary"
+                        OnClick="SubmitStateChange" Disabled="@(!(!string.IsNullOrEmpty(_targetStateId)))">변경</NexaButton>
+            <NexaButton OnClick="@(() => _showChange = false)" Class="ms-2">취소</NexaButton>
+        </Footer>
+    </NexaModal>
+}
+
+@if (_showHistory)
+{
+    <NexaModal @bind-Visible="_showHistory" Title="@($"상태 이력 — {_historyEquipmentId}")" CloseOnOverlayClick="true">
+        <QuickGrid TGridItem="EquipmentStateHistoryDto" Items="@(_history.AsQueryable())" Pagination="_historyPg" Class="nexa-grid w-full text-sm">
+            <PropertyColumn Property="@((EquipmentStateHistoryDto r) => r.FromState)" Title="이전 상태" />
+            <PropertyColumn Property="@((EquipmentStateHistoryDto r) => r.ToState)" Title="요청 상태" />
+            <PropertyColumn Property="@((EquipmentStateHistoryDto r) => r.SetState)" Title="적용 상태" />
+            <PropertyColumn Property="@((EquipmentStateHistoryDto r) => r.ChangedAt)" Title="변경일시" Format="yyyy-MM-dd HH:mm:ss" />
+            <PropertyColumn Property="@((EquipmentStateHistoryDto r) => r.ChangedBy)" Title="변경자" />
+            <PropertyColumn Property="@((EquipmentStateHistoryDto r) => r.Reason)" Title="사유" />
+            <PropertyColumn Property="@((EquipmentStateHistoryDto r) => r.SourceType)" Title="소스" />
+        </QuickGrid>
+        <Paginator State="_historyPg" />
+    </NexaModal>
+}
+
+@code {
+    private List<EquipmentCurrentStateDto> _states = [];
+    private List<EquipmentStateMatrixDto> _allowedTransitions = [];
+    private List<EquipmentStateHistoryDto> _history = [];
+    private string _plantId = string.Empty;
+
+    private bool _showChange;
+    private bool _showHistory;
+    private readonly PaginationState _historyPg = new() { ItemsPerPage = 20 };
+    private EquipmentCurrentStateDto? _selected;
+    private string? _targetStateId;
+    private string _reason = string.Empty;
+    private string _changeError = string.Empty;
+    private string _historyEquipmentId = string.Empty;
+
+    private CoalescingTrigger? _refreshTrigger;
+    private FallbackPoller? _fallbackPoller;
+    private bool _disposed;
+
+    private bool _requireReason =>
+        _allowedTransitions.FirstOrDefault(t => t.ToStateId == _targetStateId)?.RequireReason ?? false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // 트리거/폴러 생성과 허브 구독은 첫 await 이전(동기 구간)에 끝낸다 — 초기 조회 중
+        // 페이지를 떠나면 DisposeAsync가 먼저 실행되어 이후 생성분이 해제되지 않기 때문 (§20.9)
+        // §20.9: 상태 변경 이벤트는 즉시 반영(리딩)하고, 1초 내 폭주는 마지막 값만 반영(트레일링)한다.
+        // 웹 적응: 갱신이 전체 재조회(LoadData)이므로 설비 단위 키 구분 없이 전역 1초 병합으로 동일한
+        // 효과를 낸다 — 중간 값은 서버 상태 이력에 남고 화면 렌더링만 생략된다.
+        _refreshTrigger = new CoalescingTrigger(RefreshAsync);
+        // §20.9: 허브 연결이 끊긴 동안은 주기 조회 폴백으로 갱신한다
+        _fallbackPoller = new FallbackPoller(HubService, RefreshAsync);
+        HubService.OnEquipmentStateChanged += OnHubStateChanged;
+
+        _plantId = await AuthContext.GetPlantIdAsync() ?? string.Empty;
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        using var _ = WaitSvc.Show("조회 중...");
+        // 조회 실패(null) 시 표시 중인 목록을 유지한다 (§20.9)
+        _states = await Api.GetEquipmentStatesAsync(_plantId) ?? _states;
+    }
+
+    private async Task OpenChangeDialog(EquipmentCurrentStateDto row)
+    {
+        _selected = row;
+        _targetStateId = null;
+        _reason = string.Empty;
+        _changeError = string.Empty;
+
+        using var _ = WaitSvc.Show("전환 가능 상태 조회 중...");
+        _allowedTransitions = await Api.GetAllowedTransitionsAsync(_plantId, row.CurrentStateId);
+        _showChange = true;
+    }
+
+    private async Task SubmitStateChange()
+    {
+        if (_selected is null || string.IsNullOrEmpty(_targetStateId)) return;
+        if (_requireReason && string.IsNullOrWhiteSpace(_reason))
+        {
+            _changeError = "사유를 입력하세요.";
+            return;
+        }
+
+        _changeError = string.Empty;
+        using var _ = WaitSvc.Show("상태 변경 중...");
+
+        var result = await Api.ChangeEquipmentStateAsync(new
+        {
+            equipmentId = _selected.EquipmentId,
+            plantId = _plantId,
+            toState = _targetStateId,
+            reason = _reason,
+            expectedVersion = _selected.StateVersion
+        });
+
+        if (result is null)
+        {
+            _changeError = "상태 변경에 실패했습니다. 현재 상태를 다시 확인 후 시도하세요.";
+            return;
+        }
+
+        _showChange = false;
+        await LoadData();
+    }
+
+    private async Task OpenHistoryDialog(string equipmentId)
+    {
+        _historyEquipmentId = equipmentId;
+        using var _ = WaitSvc.Show("이력 조회 중...");
+        _history = await Api.GetStateHistoryAsync(equipmentId);
+        _showHistory = true;
+    }
+
+    // §20.9: 폼이 이미 dispose됐으면 수신 이벤트를 무시한다
+    private void OnHubStateChanged(string equipmentId, string newState)
+    {
+        if (_disposed) return;
+        _refreshTrigger?.Signal();
+    }
+
+    // 타이머/허브 스레드에서 호출될 수 있으므로 InvokeAsync로 UI 스레드 전환 (§20.9)
+    private Task RefreshAsync() => InvokeAsync(async () =>
+    {
+        if (_disposed) return;
+        // 조회 실패(null) 시 표시 중인 목록을 유지한다 (§20.9)
+        _states = await Api.GetEquipmentStatesAsync(_plantId) ?? _states;
+        StateHasChanged();
+    });
+
+    public ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        HubService.OnEquipmentStateChanged -= OnHubStateChanged;
+        _refreshTrigger?.Dispose();
+        _fallbackPoller?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

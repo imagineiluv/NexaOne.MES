@@ -1,4 +1,4 @@
-using NexaOne.PPM.Domain;
+using NexaOne.POM.Domain;
 
 namespace NexaOne.UnitTests.Domain;
 

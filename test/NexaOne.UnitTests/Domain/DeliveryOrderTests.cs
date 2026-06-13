@@ -1,4 +1,4 @@
-using NexaOne.DLV.Domain;
+using NexaOne.SHP.Domain;
 using NexaOne.Common;
 
 namespace NexaOne.UnitTests.Domain;
