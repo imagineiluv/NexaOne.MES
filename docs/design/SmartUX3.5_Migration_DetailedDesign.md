@@ -14,7 +14,7 @@
 > **v1.7 변경 이력:** 드라이버 3개 카테고리로 재편(3.1/3.6) — **DB**(01.Db) / **통신**(02.Communication: Kafka·RabbitMq·OpcUa·Serial·Mqtt·SmtpEmail·Sms·Ldap) / **캐시**(03.Cache: Redis·MemoryCache). FileStorage → SmartEES.Infrastructure로 이동, DbAuth → Infrastructure 서비스로 분리, LDAP → IExternalAuthDriver(통신 드라이버)로 재정의  
 > **v1.8 변경 이력:** **NexusFramework / NexusCom 서브모듈 아키텍처 기반 리팩토링** — ①서브모듈 솔루션 구조 반영(3.1), ②NexusCom `IDatabaseProvider` 패턴으로 DB 드라이버 재정의(3.3/3.6), MSSQL 공급자 신규 구현 명시(`NexusCom.Data.MsSql`), ③NexusFramework `FlowExecutionEngine`/`WorkflowManager`/`WorkflowExecutor` 기반 워크플로우 엔진 재설계(8), `AssemblyInvocationNode` + `[WorkflowCallable]` 패턴 도입, ④RuleExecutor에 `[WorkflowCallable]` 연계 추가(5.3.1), ⑤FDC `PlantController`/`Machine`/`IDeviceInterface` 패턴 적용(10.4)  
 > **v1.9 변경 이력:** **UI 레이어 C# Blazor Server 기반으로 전면 재설계** — ①WinForms/DevExpress WinForms 제거, ASP.NET Core Blazor Server 아키텍처 수립(6), ②마이그레이션 목표·범위 업데이트(2.1/2.2), ③Phase 2 Blazor 웹 UI 구축으로 변경(2.3), ④SmartConditionGrid / SmartGrid 공통 컴포넌트 설계(6.6), ⑤WinForms 폼 클래스 → Blazor 컴포넌트 매핑표 추가(6.9), ⑥NexaOne.Web 솔루션 구조 추가(6.2)  
-> **v2.0 변경 이력:** **드라이버 소속 재정의 — 프로토콜 구현은 서브모듈(NexusCom/NexusLogic) 소유** — ①`NexusCom.Data.MsSql`을 `03.Driver/01.Db/`에서 NexusCom 서브모듈(`submodules/NexusCom/src/`)로 이관 완료, SQL 방언 인터페이스를 `INexaOneEESDbCapability`로 개명하여 `NexusCom.Data.Abstractions`에 흡수(3.1/3.3~3.5), ②통신 드라이버를 NexusCom bounded context로 재배치(3.1/3.6) — 메시징(Kafka·RabbitMq·Mqtt)→`NexusCom.Messaging.*`, 알림(SmtpEmail·Sms)→`NexusCom.Notify.*`, 외부 인증(Ldap)→`NexusCom.Directory.*`, ③설비 프로토콜(OpcUa·SerialPort)은 NexusLogic(구 `NexusCom.Plc.*` 이관처) 소속으로 정의 — NexaMes `03.Driver/02.Communication/`에는 `IDeviceInterface` 어댑터 등 SmartEES 전용 글루와 이관 전 과도기 구현만 잔류, ④문서-코드 정합화 — MsSqlProvider 코드 샘플을 실제 서브모듈 구현과 일치(3.6 카테고리1), `SqlTxnContext` 중복 설계를 3.5로 일원화(5.3.4), csproj 예시를 서브모듈 경로·3단계 상대 참조로 수정, `SmartEES.Driver.PostgreSQL` 래퍼 예시를 `NexusCom.Data.PostgreSql` 직접 사용으로 교체, ⑤`NexusCom.Messaging.Kafka` 이관 완료(3.6.1) — NexaOne.Driver.Kafka 삭제, 순수 드라이버(Confluent.Kafka + ILogger)로 서브모듈 소속, 앱 측 글루(`NexaOne.Infrastructure.Messaging`의 KafkaMessageBus·KafkaConsumerService)를 KafkaDriver 래핑으로 리팩토링하여 앱의 Confluent.Kafka 직접 참조 제거(전이 참조로 전환), `IMessageBrokerDriver` 계약 어댑터는 브로커 교체 요구 시 도입(보류)
+> **v2.0 변경 이력:** **드라이버 소속 재정의 — 프로토콜 구현은 서브모듈(NexusCom/NexusLogic) 소유** — ①`NexusCom.Data.MsSql`을 `03.Driver/01.Db/`에서 NexusCom 서브모듈(`submodules/NexusCom/src/`)로 이관 완료, SQL 방언 인터페이스를 `INexaOneEESDbCapability`로 개명하여 `NexusCom.Data.Abstractions`에 흡수(3.1/3.3~3.5), ②통신 드라이버를 NexusCom bounded context로 재배치(3.1/3.6) — 메시징(Kafka·RabbitMq·Mqtt)→`NexusCom.Messaging.*`, 알림(SmtpEmail·Sms)→`NexusCom.Notify.*`, 외부 인증(Ldap)→`NexusCom.Directory.*`, ③설비 프로토콜(OpcUa·SerialPort)은 NexusLogic(구 `NexusCom.Plc.*` 이관처) 소속으로 정의 — NexaMes `03.Driver/02.Communication/`에는 `IDeviceInterface` 어댑터 등 SmartEES 전용 글루와 이관 전 과도기 구현만 잔류, ④문서-코드 정합화 — MsSqlProvider 코드 샘플을 실제 서브모듈 구현과 일치(3.6 카테고리1), `SqlTxnContext` 중복 설계를 3.5로 일원화(5.3.4), csproj 예시를 서브모듈 경로·3단계 상대 참조로 수정, `SmartEES.Driver.PostgreSQL` 래퍼 예시를 `NexusCom.Data.PostgreSql` 직접 사용으로 교체, ⑤`NexusCom.Messaging.Kafka` 이관 완료(3.6.1) — NexaOne.Driver.Kafka 삭제, 순수 드라이버(Confluent.Kafka + ILogger)로 서브모듈 소속, 앱 측 글루(`NexaOne.Infrastructure.Messaging`의 KafkaMessageBus·KafkaConsumerService)를 KafkaDriver 래핑으로 리팩토링하여 앱의 Confluent.Kafka 직접 참조 제거(전이 참조로 전환), `IMessageBrokerDriver` 계약 어댑터는 브로커 교체 요구 시 도입(보류), ⑥설비 프로토콜 확정 — **NexusLogic 서브모듈 추가**(`submodules/NexusLogic`, NexusCom과 sibling), OPC-UA는 `NexusLogic.Plc.OpcUa`(IPlcDriver)를 그대로 활용하기로 확정하고 NexaOne.Driver.OpcUa 자체 구현 삭제, **SerialPort는 NexusLogic 미제공이므로 NexaOne.Driver.SerialPort 삭제 및 범위 제외**(3.1/3.2/3.6/10.4)
 
 ---
 
@@ -262,7 +262,7 @@ Phase 4: 통합 검증 및 Java 제거 (2~3주)
 
 > **설계 원칙:**
 > - **서브모듈 프레임워크** (`submodules/`) — NexusFramework(워크플로우 엔진 + 설비 제어)와 NexusCom(DB 공급자 + 통신 드라이버)을 git 서브모듈로 관리. 코어 구현을 재사용하되 SmartEES 전용 확장만 추가.
-> - **프로토콜 구현은 서브모듈 소유 (v2.0)** — DB·메시징·알림·외부 인증 드라이버는 NexusCom이, 설비 프로토콜(OPC-UA·Serial)은 NexusLogic(구 `NexusCom.Plc.*` 이관처)이 소유한다. NexaMes `03.Driver/`에는 SmartEES 전용 글루(어댑터)와 이관 전 과도기 구현만 둔다.
+> - **프로토콜 구현은 서브모듈 소유 (v2.0)** — DB·메시징·알림·외부 인증 드라이버는 NexusCom이, 설비 프로토콜(OPC-UA 등)은 NexusLogic(구 `NexusCom.Plc.*` 이관처)이 소유한다. NexaMes `03.Driver/`에는 SmartEES 전용 글루(어댑터)와 이관 전 과도기 구현만 둔다.
 > - **DB 드라이버** — NexusCom 공급자 프로젝트를 직접 참조. MSSQL은 `NexusCom.Data.MsSql`로 **서브모듈에 구현 완료**(`submodules/NexusCom/src/`, v2.0 이관).
 > - **도메인 모듈** (`04.Modules`) — 비즈니스 기능(화면+서비스)을 도메인 단위로 분리. 각 모듈은 `./Modules/` 디렉토리에 DLL로 배포.
 > - 두 레이어는 서로 의존하지 않으며, 공통 인터페이스(`SmartEES.Infrastructure`)를 통해서만 연결된다.
@@ -303,9 +303,20 @@ submodules/
         ├── NexusCom.Notify.*/                ← SmtpEmail(이관 대상)·Sms(계획) 알림 컨텍스트
         └── NexusCom.Directory.*/             ← (계획) Ldap 외부 인증 컨텍스트
 
-(별도 저장소) NexusLogic/                     ← 설비 프로토콜 소유 (구 NexusCom.Plc.* 이관처)
-        ※ OPC-UA·SerialPort 등 설비 수집 프로토콜은 NexusLogic이 소유하며,
-          FDC 연동 확정 시 NexaMes에 서브모듈로 추가한다 (3.6 카테고리 2 참조)
+NexusLogic/                                   ← ★ 설비 프로토콜 레이어 (v2.0 서브모듈 추가 완료, 구 NexusCom.Plc.* 이관처)
+    └── src/
+        ├── NexusLogic.Plc.Abstractions/      ← IPlcDriver, PlcEndpoint, IPlcConnection, PlcDriverCapabilities
+        ├── NexusLogic.Plc.Core/              ← polling host, last value cache, rule evaluator
+        ├── NexusLogic.Plc.OpcUa/             ← ★ OPC-UA 드라이버 (IPlcDriver) — NexaMes가 활용
+        ├── NexusLogic.Plc.ModbusTcp/         ← Modbus TCP 드라이버
+        ├── NexusLogic.Plc.MitsubishiMc/      ← Mitsubishi MC 3E 드라이버
+        ├── NexusLogic.Plc.SiemensS7/         ← Siemens S7 드라이버
+        ├── NexusLogic.Plc.AllenBradley/      ← Allen-Bradley EtherNet/IP 드라이버
+        ├── NexusLogic.Plc.Hosting/           ← hosted service, health check
+        └── NexusLogic.Plc.Simulator/         ← 드라이버 검증용 시뮬레이터
+        ※ NexusLogic은 NexusCom과 sibling 서브모듈로 추가되었고($(NexusComRoot) 자동 해결),
+          OPC-UA 설비 수집은 NexusLogic.Plc.OpcUa를 그대로 활용한다 (3.6 카테고리 2 참조).
+          ※ SerialPort(RS-232/485)는 NexusLogic이 제공하지 않으므로 v2.0에서 범위 제외.
 ```
 
 #### 솔루션 전체 구조
@@ -359,9 +370,8 @@ SmartEES.sln
 │   │   ├── (NexusCom.Notify.SmtpEmail)      ← 이관 대상 — SMTP 이메일 (기본, 과도기: NexaOne.Driver.SmtpEmail)
 │   │   ├── (NexusCom.Notify.Sms)            ← 계획 — SMS (선택, NexusCom에 직접 구현 예정)
 │   │   ├── (NexusCom.Directory.Ldap)        ← 계획 — LDAP/Active Directory (선택, NexusCom에 직접 구현 예정)
-│   │   ├── (NexusLogic.OpcUa)               ← NexusLogic 소속 — OPC-UA 설비 수집 (기본)
-│   │   ├── (NexusLogic.SerialPort)          ← NexusLogic 소속 — RS-232/485 설비 수집
-│   │   └── SmartEES.Driver.Adapters         ← 잔류 — IDeviceInterface 설비 어댑터 글루
+│   │   ├── (NexusLogic.Plc.OpcUa)           ← ★ NexusLogic 소속 (서브모듈 추가 완료) — OPC-UA 설비 수집, IPlcDriver
+│   │   └── SmartEES.Driver.Adapters         ← 잔류 — IDeviceInterface ↔ IPlcDriver 어댑터 글루 (FDC 연동 시 구현)
 │   │   ※ v2.0: 프로토콜 구현은 서브모듈(NexusCom/NexusLogic)이 소유한다.
 │   │     이관 완료 전까지는 02.Communication/ 아래 과도기 구현이 임시로 존재할 수 있으며,
 │   │     이관 즉시 서브모듈 프로젝트 참조로 대체하고 과도기 사본은 삭제한다.
@@ -421,9 +431,9 @@ SmartEES.Application                       ← [WorkflowCallable] 메서드 포�
 
 03.Driver/02.Communication/*               ← v2.0 프로토콜 구현은 서브모듈 소유
     └─→ NexusCom.Messaging.* / Notify.* / Directory.*  (Kafka — 이관 완료★ / SmtpEmail — 이관 대상 / RabbitMq·Mqtt·Sms·Ldap — 계획)
-    └─→ NexusLogic.*                       (OpcUa·SerialPort 설비 프로토콜 — 별도 저장소 소유)
+    └─→ NexusLogic.Plc.OpcUa               (OPC-UA 설비 프로토콜, IPlcDriver — v2.0 서브모듈 추가 완료)
     └─→ SmartEES.Infrastructure            (IMessageBrokerDriver/IEquipmentDriver 인터페이스 — 어댑터 글루만)
-    └─→ NexusFramework.Resource.*          (IDeviceInterface — 어댑터가 NexusLogic 프로토콜을 감싸 구현)
+    └─→ NexusFramework.Resource.*          (IDeviceInterface — 어댑터가 NexusLogic IPlcDriver를 감싸 구현)
     ※ 이관 완료 전 과도기 구현은 02.Communication/에 임시 잔류 가능 (3.6 참조)
 
 SmartEES.Infrastructure (인터페이스 + 공통)
@@ -714,7 +724,7 @@ ServiceObjectProcessor.InsertAsync()
 DB 드라이버     01.Db/             NexusCom IDatabaseProvider         PostgreSqlProvider (NexusCom)
                                    + INexaOneEESDbCapability          MsSqlProvider (NexusCom — v2.0 이관 완료)
 통신 드라이버   02.Communication/  IMessageBrokerDriver               KafkaDriver (NexusCom.Messaging — 이관 완료 + 앱 측 글루가 래핑)
-                                   IEquipmentDriver                   OpcUaDriver (NexusLogic 소속 + 어댑터 글루)
+                                   IEquipmentDriver                   NexusLogic.Plc.OpcUa (IPlcDriver — 서브모듈, 어댑터 글루가 래핑)
                                    INotificationDriver                SmtpEmailDriver (NexusCom.Notify — 이관 대상)
                                    IExternalAuthDriver                LdapDriver (NexusCom.Directory — 계획)
 캐시 드라이버   03.Cache/          ICacheDriver                       RedisDriver (자체 구현)
@@ -722,10 +732,9 @@ DB 드라이버     01.Db/             NexusCom IDatabaseProvider         Postgr
 ※ 파일 스토리지(IFileStorageDriver)와 DB 인증(DbAuthService)은
   프로토콜 드라이버가 아니므로 SmartEES.Infrastructure에 직접 구현
 ※ NexusCom DataHostedService가 DB ChangeFeed를 백그라운드로 처리
-※ OpcUaDriver/SerialPortDriver는 NexusFramework.Resource.IDeviceInterface 구현
-  — v2.0: 프로토콜 본체는 NexusLogic이 소유하고, 02.Communication/의 어댑터가
-    NexusLogic 프로토콜을 IDeviceInterface로 감싼다. 이관 완료 전에는 과도기
-    구현(NexaOne.Driver.*)이 02.Communication/에 임시 잔류한다.
+※ OPC-UA 설비 수집은 NexusLogic.Plc.OpcUa(IPlcDriver, v2.0 서브모듈 추가 완료)를 활용
+  — 02.Communication/의 어댑터 글루가 NexusFramework.Resource.IDeviceInterface ↔ IPlcDriver를
+    변환한다(FDC 연동 시 구현). SerialPort(RS-232/485)는 NexusLogic 미제공으로 v2.0 범위 제외.
 ```
 
 ---
@@ -863,8 +872,9 @@ public static IServiceCollection AddMsSqlProvider(this IServiceCollection servic
 > **v2.0 변경:** 프로토콜 구현은 SmartEES 자체 구현이 아니라 **서브모듈이 소유**한다.
 > NexusCom 명명 규칙 `NexusCom.<BoundedContext>.<기술>`에 따라 메시징·알림·외부 인증
 > bounded context로 분리하고, 설비 수집 프로토콜은 **NexusLogic**(구 NexusCom.Plc.* 이관처) 소속으로 정의한다.
-> NexaMes `03.Driver/02.Communication/`에는 SmartEES 전용 어댑터 글루(IDeviceInterface ↔ NexusLogic 등)와
-> 이관 완료 전 과도기 구현(NexaOne.Driver.OpcUa/SerialPort/SmtpEmail — Kafka는 v2.0 이관 완료로 삭제됨)만 잔류한다.
+> NexaMes `03.Driver/02.Communication/`에는 SmartEES 전용 어댑터 글루(IDeviceInterface ↔ NexusLogic IPlcDriver 등)와
+> 이관 완료 전 과도기 구현(NexaOne.Driver.SmtpEmail — Kafka는 이관 완료, OpcUa·SerialPort는 v2.0에서 삭제)만 잔류한다.
+> OPC-UA는 NexusLogic.Plc.OpcUa(IPlcDriver)를 활용하고, SerialPort는 NexusLogic 미제공으로 범위에서 제외한다.
 > 아래 표의 인터페이스(IMessageBrokerDriver 등)와 코드 샘플은 계약 설계로서 유효하며,
 > 구현 본체의 최종 소속 프로젝트만 변경된다.
 
@@ -876,8 +886,8 @@ public static IServiceCollection AddMsSqlProvider(this IServiceCollection servic
 | `SmtpEmailDriver` | NexusCom.Notify.SmtpEmail | SMTP | 이메일 알림 발송 | 이관 대상 (과도기: NexaOne.Driver.SmtpEmail) |
 | `SmsDriver` | NexusCom.Notify.Sms | HTTP/API | SMS 발송 (선택) | 계획 |
 | `LdapDriver` | NexusCom.Directory.Ldap | LDAP/LDAPS | AD/LDAP 외부 인증 | 계획 |
-| `OpcUaDriver` | NexusLogic (별도 저장소) | OPC-UA | 설비 데이터 수집 | NexusLogic 소속 (과도기: NexaOne.Driver.OpcUa) |
-| `SerialPortDriver` | NexusLogic (별도 저장소) | RS-232/485 | 레거시 설비 수집 | NexusLogic 소속 (과도기: NexaOne.Driver.SerialPort) |
+| `NexusLogic.Plc.OpcUa` | NexusLogic.Plc.OpcUa (서브모듈) | OPC-UA | 설비 데이터 수집 | ✅ **NexusLogic 활용 확정 (v2.0)** — IPlcDriver, 서브모듈 추가 완료 |
+| ~~SerialPort~~ | — | RS-232/485 | 레거시 설비 수집 | ❌ **범위 제외 (v2.0)** — NexusLogic 미제공, NexaOne.Driver.SerialPort 삭제 |
 
 ---
 
@@ -1139,7 +1149,7 @@ public class MemoryCacheDriver : ICacheDriver
 ```csharp
 public interface IEquipmentDriver
 {
-    string ProtocolType { get; }  // "OPC-UA" | "Serial" | "MQTT"
+    string ProtocolType { get; }  // "OPC-UA" | "MQTT"
 
     // 설비 연결
     Task ConnectAsync(string endpoint, CancellationToken ct = default);
@@ -1170,68 +1180,40 @@ public class EquipmentDataPoint
 }
 ```
 
-**OpcUaDriver 구현 개요:**
+**OPC-UA 활용 개요 (v2.0 — NexusLogic.Plc.OpcUa 어댑터):**
+
+구현은 본 절을 다음과 같이 적응한다. OPC-UA 프로토콜 본체는 **NexusLogic 서브모듈의
+`NexusLogic.Plc.OpcUa`**가 `IPlcDriver`로 제공한다(세션 팩토리·구독·재연결·품질상태·쓰기 승인
+등 운영 기능 포함). NexaMes는 이를 직접 구현하지 않고, `02.Communication/`의 **어댑터 글루**가
+위 `IEquipmentDriver`(또는 NexusFramework `IDeviceInterface`) 계약을 `IPlcDriver`로 위임한다.
+
 ```csharp
-// NexusLogic 소속 OPC-UA 프로토콜 + 02.Communication/ IDeviceInterface 어댑터 (v2.0 — 과도기: NexaOne.Driver.OpcUa)
-// NuGet: OPCFoundation.NetStandard.Opc.Ua
-public class OpcUaDriver : IEquipmentDriver
+// 02.Communication/ — IEquipmentDriver ↔ NexusLogic IPlcDriver 어댑터 (FDC 연동 시 구현)
+// 서브모듈: submodules/NexusLogic/src/NexusLogic.Plc.OpcUa (IPlcDriver)
+public sealed class OpcUaEquipmentAdapter : IEquipmentDriver
 {
+    private readonly IPlcDriver _plc = new NexusLogic.Plc.OpcUa.OpcUaDriver();  // 서브모듈 드라이버
+    private IPlcConnection? _conn;
+
     public string ProtocolType => "OPC-UA";
-    private Session _session;
+    public bool IsConnected => _conn is not null;
 
     public async Task ConnectAsync(string endpoint, CancellationToken ct = default)
-    {
-        var config = await ApplicationConfiguration.Load(...);
-        _session = await Session.Create(config,
-            new ConfiguredEndpoint(null, new EndpointDescription(endpoint)), ...);
-    }
+        => _conn = await _plc.ConnectAsync(new PlcEndpoint(endpoint), ct);   // PlcEndpoint로 변환
 
     public async Task SubscribeAsync(IEnumerable<string> nodeIds,
         Action<EquipmentDataPoint> onDataReceived, int samplingIntervalMs = 1000)
     {
-        var subscription = new Subscription(_session.DefaultSubscription)
-        { PublishingInterval = samplingIntervalMs };
-        foreach (var id in nodeIds)
-        {
-            var item = new MonitoredItem(subscription.DefaultItem)
-            { StartNodeId = id };
-            item.Notification += (mi, e) =>
-            {
-                var val = ((MonitoredItemNotification)e.NotificationValue).Value;
-                onDataReceived(new EquipmentDataPoint
-                {
-                    NodeId = id, Value = val.Value,
-                    Timestamp = val.SourceTimestamp, Quality = "Good"
-                });
-            };
-            subscription.AddItem(item);
-        }
-        _session.AddSubscription(subscription);
-        await subscription.CreateAsync();
+        // NexusLogic 구독 → EquipmentDataPoint(Quality 매핑)로 투영해 콜백
+        // ... _conn.SubscribeAsync(tags, ...) 위임
     }
-    // ... ReadAsync, WriteAsync 구현
+    // ReadAsync/WriteAsync/DisconnectAsync도 _conn(IPlcConnection)에 위임
 }
 ```
 
-**SerialPortDriver 구현 개요:**
-```csharp
-// RS-232/485 레거시 설비 연동
-public class SerialPortDriver : IEquipmentDriver
-{
-    public string ProtocolType => "Serial";
-    private SerialPort _port;
-
-    public async Task ConnectAsync(string endpoint, CancellationToken ct = default)
-    {
-        // endpoint 형식: "COM3:9600:8:None:1"  (port:baud:data:parity:stop)
-        var parts = endpoint.Split(':');
-        _port = new SerialPort(parts[0], int.Parse(parts[1]));
-        _port.Open();
-        await Task.CompletedTask;
-    }
-    // ... ReadAsync: 프로토콜 프레임 파싱 (Modbus RTU 등)
-}
-```
+> **SerialPort(RS-232/485)는 v2.0에서 제외** — NexusLogic이 해당 프로토콜을 제공하지 않으며,
+> NexaOne.Driver.SerialPort 자체 구현은 삭제했다. 레거시 시리얼 설비 연동이 실제로 필요해지면
+> NexusLogic에 SerialPort 드라이버가 추가된 뒤 동일한 어댑터 패턴으로 도입한다.
 
 ---
 
@@ -3066,8 +3048,8 @@ public class EquipmentAlarmHistory : SmartConditionBaseForm
 
 ```
 PlantController (NexusFramework)
-  ├─ Machine["EQ-001"] (OpcUaMachine)    ← IDeviceInterface → OpcUaDriver
-  ├─ Machine["EQ-002"] (SerialMachine)   ← IDeviceInterface → SerialPortDriver
+  ├─ Machine["EQ-001"] (OpcUaMachine)    ← IDeviceInterface → OpcUaEquipmentAdapter → NexusLogic.Plc.OpcUa
+  ├─ Machine["EQ-002"] (OpcUaMachine)    ← IDeviceInterface → OpcUaEquipmentAdapter → NexusLogic.Plc.OpcUa
   └─ HostStateMachine (IStateMachine<HostState, HostCommand>)
        └─ InitializeAsync → StartAsync → StopAsync / AbortAsync
 
@@ -3090,7 +3072,7 @@ FdcConsumerService (Kafka Consumer) ← fdc.rawdata 구독
 // NexusFramework Machine을 상속하여 설비별 FDC 수집 로직 구현
 public class FdcMachine : Machine
 {
-    private readonly IEquipmentDriver _driver;       // OpcUaDriver or SerialPortDriver
+    private readonly IEquipmentDriver _driver;       // OpcUaEquipmentAdapter (NexusLogic.Plc.OpcUa 래핑 — 3.6.3)
     private readonly IMessageBrokerDriver _kafka;    // 어댑터 글루 (NexusCom KafkaDriver 래핑 — 3.6.1)
     private readonly FdcParameterConfig _config;
 

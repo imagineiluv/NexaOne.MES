@@ -4,3 +4,6 @@
 [submodule "submodules/NexusCom"]
 	path = submodules/NexusCom
 	url = https://github.com/imagineiluv/NexusCom.git
+[submodule "submodules/NexusLogic"]
+	path = submodules/NexusLogic
+	url = https://github.com/imagineiluv/NexusLogic.git
