@@ -1,4 +1,5 @@
 using NexaOne.API.Hubs;
+using NexaOne.Common.Telemetry;
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Infrastructure.Equipment;
 using NexusFramework;
@@ -23,7 +24,9 @@ public sealed class FdcCollectorHostedService : BackgroundService
     private readonly ILogger<FdcCollectorHostedService> _logger;
 
     private readonly PlantController _plant;   // 싱글톤 공유 — FdcController가 수동 제어(§10.4.4)
+    private readonly EquipmentChannelStatusRegistry _channels;   // §17.5 nexames_equipment_channel_status
     private readonly Dictionary<string, List<string>> _equipmentMachines = new();  // equipmentId -> machine(endpoint) names
+    private readonly List<(string Equipment, string Channel)> _openChannels = new();  // 수립한 채널(정지 시 0으로 표시)
     private IServiceScope? _scope;
 
     public FdcCollectorHostedService(
@@ -31,12 +34,14 @@ public sealed class FdcCollectorHostedService : BackgroundService
         IServiceScopeFactory scopeFactory,
         IEesHubNotifier notifier,
         IConfiguration config,
+        EquipmentChannelStatusRegistry channels,
         ILogger<FdcCollectorHostedService> logger)
     {
         _plant = plant;
         _scopeFactory = scopeFactory;
         _notifier = notifier;
         _config = config;
+        _channels = channels;
         _logger = logger;
     }
 
@@ -96,6 +101,10 @@ public sealed class FdcCollectorHostedService : BackgroundService
             var parameters = await paramRepo.GetByEquipmentAsync(ep.EquipmentId, stoppingToken);
             var subscription = FdcEndpointMapper.ToSubscription(ep, parameters);
             await collector.StartCollectingAsync(device, new[] { subscription }, stoppingToken);
+
+            // §17.5 — 채널 수립 → 상태 정상(1)
+            _channels.Set(ep.EquipmentId, ep.Protocol, up: true);
+            _openChannels.Add((ep.EquipmentId, ep.Protocol));
         }
 
         _logger.LogInformation("FDC collector started for {Count} endpoint(s).", devices.Count);
@@ -167,6 +176,10 @@ public sealed class FdcCollectorHostedService : BackgroundService
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
+        // §17.5 — 채널 해제 → 상태 비정상(0)
+        foreach (var (equipment, channel) in _openChannels)
+            _channels.Set(equipment, channel, up: false);
+
         try
         {
             await _plant.StopAsync(cancellationToken);

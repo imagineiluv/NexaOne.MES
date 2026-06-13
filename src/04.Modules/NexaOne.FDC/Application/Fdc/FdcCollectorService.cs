@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using NexaOne.Common.Telemetry;
 using NexaOne.FDC.Infrastructure.Equipment;
 using NexusLogic.Plc.Abstractions.Models;
 
@@ -69,16 +70,22 @@ public sealed class FdcCollectorService
     public async Task OnTagChangeAsync(string equipmentId, PlcTagChangeEvent evt, CancellationToken ct = default)
     {
         var value = ToDecimal(evt.After);
+        var quality = MapQuality(evt.Quality);
 
         var recorded = await _dataService.RecordDataAsync(
             collectId: Guid.NewGuid().ToString("N"),
             equipmentId: equipmentId,
             parameterId: evt.TagName,
             value: value,
-            quality: MapQuality(evt.Quality),
+            quality: quality,
             ct: ct);
 
         if (recorded.IsFailure) return;   // 미정의 파라미터·검증 실패 — 인터락 평가 생략
+
+        // §17.5 nexames_fdc_collection_rate 적응 — 적재 성공 1건 계측 (대시보드가 기대 대비 수집률 산정)
+        NexaMesMetrics.FdcCollected.Add(1,
+            new KeyValuePair<string, object?>("equipmentId", equipmentId),
+            new KeyValuePair<string, object?>("quality", quality));
 
         if (_interlockService is not null)
         {

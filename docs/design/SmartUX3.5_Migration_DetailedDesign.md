@@ -5038,6 +5038,8 @@ Cache Hit/Miss는 Span Event로 남긴다. 다만 Dictionary와 Code처럼 호�
 
 Metrics는 Prometheus 형식을 기본으로 노출하고, 운영 표준이 Azure Monitor 또는 CloudWatch인 경우 Collector에서 변환한다.
 
+구현은 본 절을 §17.3 로그 적응과 같은 관례로 적응한다. 커스텀 지표는 단일 `Meter("NexaMes")`(`NexaOne.Common.Telemetry.NexaMesMetrics`)로 정의하고 OpenTelemetry가 `AddMeter("NexaMes")`로 구독하며, Prometheus 노출은 직접 exporter 대신 §17.4의 OTLP Collector 경로(Collector가 Prometheus/Azure Monitor 형식으로 변환)를 따른다 — 개발은 OTLP 미설정 시 Console exporter로 확인한다. **현재 구현된 지표**: ① `nexames_api_request_duration_ms`(Histogram)·② `nexames_api_error_rate`(Counter)는 `NexaMesMetricsMiddleware`가 `UseExceptionHandler`보다 앞에서 전 요청을 감싸 최종 상태코드·전체 시간을 계측하고 라우트는 카디널리티 방어를 위해 **라우트 템플릿**(미매칭은 `unknown`)을 사용한다, ③ `nexames_active_users`(ObservableGauge)는 `ActiveUserTracker`(5분 슬라이딩 윈도, `TimeProvider` 주입)가 미들웨어·SignalR 연결의 활동을 Plant 단위 고유 사용자로 집계한다, ④ `nexames_fdc_collection_rate`는 `nexames_fdc_collected_total`(Counter, 라벨 `equipmentId`/`quality`)로 적응해 `FdcCollectorService`가 적재 성공 시 증가시키고 기대 대비 수집률은 엔드포인트 `SamplingIntervalMs`와 함께 대시보드에서 산정한다, ⑤ `nexames_equipment_channel_status`(ObservableGauge, 1/0)는 `EquipmentChannelStatusRegistry`를 FDC 수집 호스트가 채널 수립(1)·해제(0) 시 갱신한다. **보류 지표(개념 미도입 — §17.3 동일 관례)**: `nexames_rule_duration_ms`(RuleId/MenuId), `nexames_query_duration_ms`(QueryId — 명명 쿼리 레지스트리 미도입), `nexames_cache_hit_total`/`nexames_cache_miss_total`(캐시 드라이버는 정의됐으나 소비처 없음), `nexames_client_deploy_version`(WinForms 클라이언트 부재 — 버전은 §17.6 Deployment 대시보드로 노출). `active_users`의 `uiId`, `fdc_collected_total`의 `plantId`, `equipment_channel_status`의 실시간 단절/재연결 반영은 각각 화면 메타데이터·FDC Plant 컨텍스트·NexusLogic 연결 상태 이벤트 도입 시점으로 둔다.
+
 ### 17.6 운영 대시보드 구성 기준
 
 | 대시보드 | 주요 패널 |

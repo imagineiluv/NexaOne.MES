@@ -144,10 +144,19 @@ builder.Services.AddOpenTelemetry()
     {
         metrics.AddAspNetCoreInstrumentation()
                .AddHttpClientInstrumentation()
-               .AddRuntimeInstrumentation();
+               .AddRuntimeInstrumentation()
+               .AddMeter(NexaOne.Common.Telemetry.NexaMesMetrics.MeterName);   // §17.5 비즈니스 Metrics
         if (!string.IsNullOrWhiteSpace(otlpEndpoint))
             metrics.AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint));
+        else
+            metrics.AddConsoleExporter();   // 개발: OTLP 미설정 시 Console로 Metrics 노출 (§17.4)
     });
+
+// §17.5 비즈니스 Metrics 트래커 — ObservableGauge(active_users/equipment_channel_status)의 상태 보관처.
+// 시각은 TimeProvider로 주입(테스트 용이). 미들웨어/Hub/FDC 호스트가 갱신한다.
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<NexaOne.Common.Telemetry.ActiveUserTracker>();
+builder.Services.AddSingleton<NexaOne.Common.Telemetry.EquipmentChannelStatusRegistry>();
 
 // §8 워크플로우 엔진 — NexusFramework WorkflowManager.
 // NodeRegistry(AssemblyInvocation + Try/Catch/Finally) → WorkflowExecutor → WorkflowManager 싱글톤.
@@ -179,12 +188,19 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+// §17.5 — ObservableGauge(nexames_active_users/nexames_equipment_channel_status)를 트래커 싱글톤에 1회 바인딩
+NexaOne.Common.Telemetry.NexaMesMetrics.BindObservableGauges(
+    app.Services.GetRequiredService<NexaOne.Common.Telemetry.ActiveUserTracker>(),
+    app.Services.GetRequiredService<NexaOne.Common.Telemetry.EquipmentChannelStatusRegistry>());
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
     app.UseSwaggerUI();
 }
 
+// §17.5 — API 시간/오류/활동사용자 계측. 예외 처리기보다 앞에 두어 500 변환 후의 최종 상태코드와 전체 시간을 관측.
+app.UseMiddleware<NexaOne.API.Middleware.NexaMesMetricsMiddleware>();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseCors("NexaOne");
