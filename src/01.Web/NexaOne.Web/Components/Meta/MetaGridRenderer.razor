@@ -1,0 +1,57 @@
+@* Phase 4 — ScreenDefinition.Columns(메타데이터)를 받아 행 데이터를 런타임 렌더하는 그리드.
+   행은 파일 기반 쿼리 게이트웨이(ExecuteQueryAsync) 결과(컬럼명→값 Dictionary)로 공급된다 —
+   손코딩 .razor 없이 컬럼 메타 + 명명 쿼리만으로 조회 화면을 구성한다(고코드 타입드 리포와 공존). *@
+@using NexaOne.Web.Services.Meta
+
+@{ var cols = Columns.Where(c => c.Visible).ToList(); }
+<div class="meta-grid">
+    <table style="width:100%; border-collapse:collapse; font-size:0.875rem;">
+        <thead>
+            <tr>
+                @foreach (var col in cols)
+                {
+                    <th style="text-align:left; border-bottom:2px solid #e2e8f0; padding:0.5rem; color:#334155;">@col.Caption</th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @if (Rows is { Count: > 0 })
+            {
+                @foreach (var row in Rows)
+                {
+                    <tr>
+                        @foreach (var col in cols)
+                        {
+                            <td style="border-bottom:1px solid #f1f5f9; padding:0.5rem;">@Cell(row, col.Key)</td>
+                        }
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+
+    @if (Rows is null)
+    {
+        <p style="color:#94a3b8; font-size:0.8125rem; margin-top:0.5rem;">실행하면 결과가 표시됩니다.</p>
+    }
+    else if (Rows.Count == 0)
+    {
+        <p style="color:#94a3b8; font-size:0.8125rem; margin-top:0.5rem;">결과 없음</p>
+    }
+    else
+    {
+        <p style="color:#94a3b8; font-size:0.8125rem; margin-top:0.5rem;">@Rows.Count 행</p>
+    }
+</div>
+
+@code {
+    // 보이는 컬럼만 캡션을 헤더로 그리고, 각 행에서 컬럼 Key로 값을 찾아 셀에 표시한다.
+    [Parameter, EditorRequired]
+    public IReadOnlyList<GridColumnDefinition> Columns { get; set; } = Array.Empty<GridColumnDefinition>();
+
+    // null = 미실행(안내 문구), 빈 목록 = 결과 없음, 그 외 = 행 렌더.
+    [Parameter] public IReadOnlyList<Dictionary<string, object?>>? Rows { get; set; }
+
+    private static string Cell(Dictionary<string, object?> row, string key)
+        => row.TryGetValue(key, out var v) && v is not null ? v.ToString() ?? "" : "";
+}

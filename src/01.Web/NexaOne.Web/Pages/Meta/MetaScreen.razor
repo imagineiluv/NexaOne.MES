@@ -14,17 +14,27 @@
 }
 else
 {
-    <MetaFormRenderer Definition="_definition" @bind-Model="_model" />
-
-    <div class="meta-actions">
-        <button @onclick="Save">저장</button>
-    </div>
-
-    @if (_errors.Count > 0)
+    @* 폼(입력 필드)이 정의된 화면만 폼·저장 영역을 렌더한다 — 그리드 전용(조회) 화면은 폼이 비어 있을 수 있다. *@
+    @if (_definition.Fields.Count > 0)
     {
-        <ul class="validation-errors">
-            @foreach (var err in _errors) { <li>@err</li> }
-        </ul>
+        <MetaFormRenderer Definition="_definition" @bind-Model="_model" />
+
+        <div class="meta-actions">
+            <button @onclick="Save">저장</button>
+        </div>
+
+        @if (_errors.Count > 0)
+        {
+            <ul class="validation-errors">
+                @foreach (var err in _errors) { <li>@err</li> }
+            </ul>
+        }
+    }
+
+    @* 그리드(컬럼) 메타가 있으면 명명 쿼리 결과를 런타임 렌더한다 — 손코딩 없이 메타+파일쿼리로 조회 화면 구성. *@
+    @if (_definition.Columns is { Count: > 0 })
+    {
+        <MetaGridRenderer Columns="_definition.Columns" Rows="_rows" />
     }
 }
 
@@ -34,6 +44,7 @@ else
     private ScreenDefinition? _definition;
     private Dictionary<string, object?> _model = new();
     private List<string> _errors = new();
+    private IReadOnlyList<Dictionary<string, object?>>? _rows;   // 그리드 데이터(명명 쿼리 결과); null=미실행
 
     protected override async Task OnParametersSetAsync()
     {
@@ -47,6 +58,14 @@ else
                 _definition = ScreenDefinitionJson.Deserialize(record.DefinitionJson);
                 if (_definition is not null) Definitions.Register(_definition);
             }
+        }
+
+        // 그리드 컬럼 + 명명 쿼리가 바인딩돼 있으면 파일 기반 쿼리 게이트웨이로 행을 조회한다.
+        // (403/5xx는 ApiClient가 빈 목록으로 흡수하고 전역 토스트가 사유를 알린다)
+        _rows = null;
+        if (_definition?.Columns is { Count: > 0 } && !string.IsNullOrWhiteSpace(_definition.QueryId))
+        {
+            _rows = await Api.ExecuteQueryAsync(_definition.QueryId);
         }
     }
 

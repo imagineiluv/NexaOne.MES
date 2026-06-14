@@ -14,7 +14,8 @@ public sealed class ScreenDefinitionJsonTests
                 new("p", "P", FieldType.Number, Required: true),
                 new("sel", "선택", FieldType.Select, Options: new[] { "A", "B" }),
             },
-            new GridColumnDefinition[] { new("c1", "컬럼1", Visible: false) });
+            new GridColumnDefinition[] { new("c1", "컬럼1", Visible: false) },
+            QueryId: "MDM.PlantList");
 
         var json = ScreenDefinitionJson.Serialize(def);
         var back = ScreenDefinitionJson.Deserialize(json);
@@ -29,6 +30,7 @@ public sealed class ScreenDefinitionJsonTests
         back.Fields[1].Options.Should().BeEquivalentTo(new[] { "A", "B" });
         back.Columns.Should().ContainSingle();
         back.Columns![0].Visible.Should().BeFalse();
+        back.QueryId.Should().Be("MDM.PlantList", "그리드 데이터 소스 쿼리 ID도 라운드트립돼야 한다");
     }
 
     [Fact]

@@ -20,6 +20,19 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new("upperLimit", "상한", FieldType.Number),
             new("isActive", "활성", FieldType.Boolean),
         }));
+
+        // 데모 시드: 그리드 전용(조회) 화면 — 컬럼 메타 + 파일 기반 명명 쿼리(MDM.PlantList) 바인딩으로
+        // /meta/DEMO_GRID 가 손코딩 없이 공장 목록을 렌더한다(저코드 조회 경로 end-to-end 시연).
+        Register(new ScreenDefinition("DEMO_GRID", "데모 — 메타데이터 그리드(파일 쿼리)",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PLANT_ID", "공장 ID"),
+                new("PLANT_NAME", "공장명"),
+                new("COUNTRY", "국가"),
+                new("TIME_ZONE", "표준시"),
+            },
+            QueryId: "MDM.PlantList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
