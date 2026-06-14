@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Hubs;
 using NexaOne.EST.Application.Est;
+using NexaOne.MDM.Application.Equipments;
 
 namespace NexaOne.API.Controllers;
 
@@ -11,6 +12,7 @@ namespace NexaOne.API.Controllers;
 public class EstController(
     EquipmentAlarmService alarmService,
     EquipmentStateService stateService,
+    EquipmentService equipmentService,
     IEesHubNotifier notifier) : ControllerBase
 {
     // ── State Matrix ──────────────────────────────────────────────────────────
@@ -46,6 +48,12 @@ public class EstController(
     {
         var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
                      ?? User.FindFirst("sub")?.Value ?? "SYSTEM";
+
+        // 미등록 설비는 상태 추적 대상이 아니다 — EST_EQUIPMENT_STATE.EQUIPMENT_ID는 MDM_EQUIPMENT FK라
+        // 운영(FK 강제)에서 미등록 설비 호출 시 500(FK 위반)이 된다. 사전 검증으로 명확한 400을 돌려준다.
+        var equipment = await equipmentService.GetEquipmentAsync(req.EquipmentId, ct);
+        if (equipment.IsFailure)
+            return BadRequest(equipment.Error);
 
         var result = await stateService.ChangeStateAsync(
             req.EquipmentId, req.PlantId, req.ToState,

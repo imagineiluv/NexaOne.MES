@@ -30,7 +30,9 @@ public class WorkflowController(WorkflowManager manager, IConfiguration config) 
     private static readonly Regex IdPattern = new("^[A-Za-z0-9_-]+$", RegexOptions.Compiled);
 
     /// <summary>워크플로우를 실행하고 노드별 상태/오류를 반환한다.</summary>
+    // 워크플로우 실행은 등록된 어셈블리 호출 노드를 구동하므로 인증만으로는 부족하다 — 실행 권한을 요구한다(기본 ADMIN).
     [HttpPost("{workflowId}/execute")]
+    [Authorize(Policy = "perm:workflow:execute")]
     public async Task<IActionResult> Execute(string workflowId, CancellationToken ct)
     {
         // 라우트 파라미터를 파일 경로에 쓰기 전에 화이트리스트로 검증 (경로 조작 방지)

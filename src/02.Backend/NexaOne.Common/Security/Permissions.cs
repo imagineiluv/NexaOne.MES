@@ -34,4 +34,5 @@ public static class Permissions
     public const string SysManage = "sys:manage";          // 시스템 관리(사용자/역할/권한/언어 CRUD)
     public const string SysUserManage = "sys:user.manage"; // 사용자 가입 승인
     public const string DeployManage = "deploy:manage";    // 배포 파일 업로드/활성
+    public const string WorkflowExecute = "workflow:execute"; // 워크플로우(*.workflow) 실행 — 등록 노드 호출 가능, 권한 필요
 }

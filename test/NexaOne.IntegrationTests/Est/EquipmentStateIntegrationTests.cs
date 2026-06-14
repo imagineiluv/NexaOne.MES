@@ -77,6 +77,27 @@ public sealed class EquipmentStateIntegrationTests : IClassFixture<TestApiFactor
             "상태 변경과 이력 기록이 한 트랜잭션으로 함께 남아야 한다(부분 커밋 없음)");
     }
 
+    [Fact]
+    public async Task ChangeState_for_unregistered_equipment_returns_400_not_500()
+    {
+        // A-1 회귀 — 미등록 설비 상태변경은 FK 위반 500이 아니라 명확한 400(검증 오류)이어야 한다.
+        var client = _factory.CreateAuthenticatedClient();
+        await client.PostAsJsonAsync("/api/v1/est/state-matrix", new
+        {
+            plantId = "P-NOEQ", fromStateId = "IDLE", toStateId = "RUN",
+            allowFlag = true, setStateId = "RUN", requireReason = false
+        });
+
+        var resp = await client.PostAsJsonAsync("/api/v1/est/equipment-state/change", new
+        {
+            equipmentId = "EQ-DOES-NOT-EXIST", plantId = "P-NOEQ", toState = "RUN",
+            reason = (string?)null, expectedVersion = (int?)null
+        });
+
+        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest,
+            "MDM에 없는 설비는 사전 검증으로 400을 반환해야 한다(FK 위반 500이 아니라)");
+    }
+
     private sealed record StateDto(string Id, string PlantId, string CurrentStateId, int StateVersion);
     private sealed record HistoryDto(string Id, string FromState, string ToState, string SetState, string ChangedBy);
 }
