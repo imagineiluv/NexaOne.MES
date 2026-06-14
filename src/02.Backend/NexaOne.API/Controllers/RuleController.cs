@@ -42,25 +42,69 @@ public partial class RuleController : ControllerBase
         if (!_queryRegistry.TryGet(queryId, out var def) || def is null)
             return NotFound(new { code = "QUERY_NOT_FOUND", message = $"Query '{queryId}' is not registered." });
 
+        // 쓰기 쿼리는 읽기 게이트웨이로 실행할 수 없다(SELECT 전용) — /command/{id}를 쓰도록 거부.
+        if (def.IsWrite)
+            return BadRequest(new { code = "WRITE_QUERY_VIA_QUERY", message = $"Query '{queryId}' is a write query. Use POST /api/v1/command/{queryId}." });
+
         // 쿼리가 필요 권한을 선언했으면 토큰 권한 클레임(또는 전체권한 "*")으로 집행한다(데이터 주도 인가).
         if (!string.IsNullOrEmpty(def.RequiredPermission) && !HasPermission(def.RequiredPermission))
             return Forbid();
 
-        var sql = def.Sql;
-        // 본문 JSON 값은 JsonElement로 역직렬화되므로 Dapper 바인딩 가능한 CLR 타입으로 변환한다.
+        var p = BuildParameters(def.Sql, parameters, injectAudit: false);
+        var rows = await _dispatcher.QueryAsync(def.Sql, p, ct);
+        return Ok(rows);
+    }
+
+    // 파일 기반 쓰기 쿼리 실행(UI 폼 저장 등) — 사전 등록된 쓰기 쿼리 ID만 실행하므로 원시 SQL 노출이 없다.
+    // 감사 컬럼은 @currentUser(토큰)·@utcNow(UTC)로 게이트웨이가 주입한다(방언 무관 바운드 파라미터).
+    [HttpPost("command/{queryId}")]
+    public async Task<IActionResult> ExecuteRegisteredCommand(
+        [FromRoute] string queryId,
+        [FromBody] Dictionary<string, object>? parameters,
+        CancellationToken ct)
+    {
+        if (!_queryRegistry.TryGet(queryId, out var def) || def is null)
+            return NotFound(new { code = "QUERY_NOT_FOUND", message = $"Query '{queryId}' is not registered." });
+
+        // 읽기 쿼리는 command 게이트웨이로 실행할 수 없다 — 의도치 않은 종류 혼동을 차단(/query/{id}를 쓰도록).
+        if (!def.IsWrite)
+            return BadRequest(new { code = "READ_QUERY_VIA_COMMAND", message = $"Query '{queryId}' is a read query. Use POST /api/v1/query/{queryId}." });
+
+        if (!string.IsNullOrEmpty(def.RequiredPermission) && !HasPermission(def.RequiredPermission))
+            return Forbid();
+
+        var p = BuildParameters(def.Sql, parameters, injectAudit: true);
+        var affected = await _dispatcher.ExecuteAsync(def.Sql, p, ct);
+        return Ok(new { affected });
+    }
+
+    // 본문 JSON(JsonElement) → Dapper 바인딩용 CLR 값으로 변환하고, SQL이 참조하는 @파라미터 중 본문에 없는
+    // 것은 DBNull로 채운다(선택 필터 누락 방지; 등록 쿼리는 신뢰된 파일이라 토큰 스캔이 안전). 쓰기 경로는
+    // 감사 파라미터(@currentUser/@utcNow)를 주입한다 — 본문이 같은 키를 보내도 서버 값으로 덮어쓴다(위변조 방지).
+    private Dictionary<string, object> BuildParameters(
+        string sql, IReadOnlyDictionary<string, object>? parameters, bool injectAudit)
+    {
         var p = new Dictionary<string, object>(StringComparer.Ordinal);
         if (parameters is not null)
             foreach (var (k, v) in parameters)
                 p[k] = JsonToClr(v) ?? (object)DBNull.Value;
 
-        // SQL이 참조하는 @파라미터 중 본문에 없는 것은 DBNull로 채운다 — 선택 필터((@p IS NULL OR ...))가
-        // 파라미터 누락으로 실패하지 않도록 한다(등록 쿼리는 신뢰된 파일이라 토큰 스캔이 안전하다).
+        if (injectAudit)
+        {
+            p["currentUser"] = CurrentUserId;
+            p["utcNow"] = DateTime.UtcNow;
+        }
+
         foreach (Match m in ParamToken().Matches(sql))
             if (!p.ContainsKey(m.Groups[1].Value)) p[m.Groups[1].Value] = DBNull.Value;
 
-        var rows = await _dispatcher.QueryAsync(sql, p, ct);
-        return Ok(rows);
+        return p;
     }
+
+    // 감사 컬럼 주입용 현재 사용자(토큰 sub). 다른 컨트롤러(LotController/DeployController)와 동일 규약.
+    private string CurrentUserId =>
+        User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+        ?? User.Identity?.Name ?? "SYSTEM";
 
     // 데이터 주도 권한 검사 — 토큰의 permission 클레임에 요구 권한 또는 전체권한("*")이 있으면 통과.
     private bool HasPermission(string permission) =>

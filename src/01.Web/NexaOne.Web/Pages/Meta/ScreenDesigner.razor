@@ -51,6 +51,11 @@
             </tbody>
         </table>
         <NexaButton Variant="NexaButton.ButtonVariant.Secondary" OnClick="AddField">+ 필드 추가</NexaButton>
+        <div class="max-w-md pt-2">
+            <label class="nexa-label">저장(쓰기) 쿼리 ID(선택)</label>
+            <NexaTextBox Value="@_saveQueryId" ValueChanged="v => { _saveQueryId = v ?? string.Empty; _saved = false; }" Placeholder="예: MDM.CreatePlant" />
+            <p class="text-xs text-gray-500">바인딩하면 <code>/meta/{UiId}</code> 폼 저장이 명명 쓰기쿼리(kind=&quot;write&quot;)로 INSERT/UPDATE합니다(@@param=필드 Key).</p>
+        </div>
     </section>
 
     <section class="space-y-2">
@@ -124,6 +129,7 @@
     private string _uiId = string.Empty;
     private string _title = string.Empty;
     private string _queryId = string.Empty;
+    private string _saveQueryId = string.Empty;
     private readonly List<FieldDraft> _fields = new();
     private readonly List<ColumnDraft> _columns = new();
     private Dictionary<string, object?> _preview = new();
@@ -167,7 +173,8 @@
         string.IsNullOrWhiteSpace(_title) ? "(제목 없음)" : _title,
         _fields.Select(f => new FieldDefinition(f.Key, f.Label, f.Type, f.Required, f.ReadOnly)).ToList(),
         _columns.Count == 0 ? null : _columns.Select(c => new GridColumnDefinition(c.Key, c.Caption, c.Visible)).ToList(),
-        string.IsNullOrWhiteSpace(_queryId) ? null : _queryId);
+        string.IsNullOrWhiteSpace(_queryId) ? null : _queryId,
+        string.IsNullOrWhiteSpace(_saveQueryId) ? null : _saveQueryId);
 
     private async Task Save()
     {

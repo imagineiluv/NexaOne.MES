@@ -232,6 +232,16 @@ public sealed class ApiClient : IApiClient
             ?? new List<Dictionary<string, object?>>();
     }
 
+    // 등록된 쓰기(command) query id를 실행한다(메타 화면 폼 저장 등). 성공 여부를 반환하고,
+    // 403/5xx는 SendAsync가 전역 토스트로 노출한다(감사 컬럼은 게이트웨이가 토큰·UTC로 주입).
+    public async Task<bool> ExecuteCommandAsync(
+        string queryId, object? parameters = null, CancellationToken ct = default)
+    {
+        using var resp = await SendAsync(
+            HttpMethod.Post, $"api/v1/command/{Uri.EscapeDataString(queryId)}", parameters ?? new { }, ct);
+        return resp.IsSuccessStatusCode;
+    }
+
     // ── Dashboard ─────────────────────────────────────────────────────────────
 
     public Task<DashboardSummaryDto?> GetDashboardAsync(CancellationToken ct = default)

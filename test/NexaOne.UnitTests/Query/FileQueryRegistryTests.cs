@@ -55,6 +55,23 @@ public sealed class FileQueryRegistryTests : IDisposable
     }
 
     [Fact]
+    public void Load_parses_kind_write_attribute()
+    {
+        WriteDialectFile("sqlite", "W.xml", """
+            <queries>
+              <query id="Q.Read"><statement>SELECT 1</statement></query>
+              <query id="Q.Write" kind="write"><statement>INSERT INTO T(A) VALUES(@a)</statement></query>
+            </queries>
+            """);
+        var reg = FileQueryRegistry.Load("sqlite", _root);
+
+        reg.TryGet("Q.Read", out var read).Should().BeTrue();
+        read!.IsWrite.Should().BeFalse("kind 미선언은 읽기(read) 쿼리");
+        reg.TryGet("Q.Write", out var write).Should().BeTrue();
+        write!.IsWrite.Should().BeTrue("kind=\"write\"는 쓰기 쿼리로 표시돼야 한다");
+    }
+
+    [Fact]
     public void TryGet_returns_false_for_unknown_id()
     {
         WriteDialectFile("sqlite", "X.xml",

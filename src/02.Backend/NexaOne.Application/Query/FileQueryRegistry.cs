@@ -65,8 +65,10 @@ public sealed class FileQueryRegistry : IQueryRegistry
             if (sql.Length == 0) continue;
             // requiredPermission 속성(선택) — 비면 인증만으로 실행 가능.
             var perm = ((string?)q.Attribute("requiredPermission"))?.Trim();
+            // kind 속성(선택, 기본 read) — "write"면 쓰기 쿼리(INSERT/UPDATE/DELETE), command 게이트웨이 전용.
+            var isWrite = string.Equals(((string?)q.Attribute("kind"))?.Trim(), "write", StringComparison.OrdinalIgnoreCase);
             yield return new QueryDefinition(
-                id!.Trim(), sql, source, string.IsNullOrEmpty(perm) ? null : perm);
+                id!.Trim(), sql, source, string.IsNullOrEmpty(perm) ? null : perm, isWrite);
         }
     }
 

@@ -78,4 +78,59 @@ public sealed class MetaScreenTests
         api.Verify(a => a.ExecuteQueryAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()),
             Times.Never, "데이터 소스 쿼리가 없는 폼 전용 화면은 쿼리 게이트웨이를 호출하지 않아야 한다");
     }
+
+    [Fact]
+    public void Save_with_SaveQueryId_posts_form_values_to_command_gateway()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        // 저장(쓰기) 쿼리가 바인딩된 폼 — 필수 필드 1개.
+        var def = new ScreenDefinition("SAVE1", "공장 등록",
+            new FieldDefinition[] { new("plantName", "공장명", FieldType.Text, Required: true) },
+            SaveQueryId: "MDM.CreatePlant");
+
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteCommandAsync("MDM.CreatePlant", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(true);
+        ctx.Services.AddSingleton(Provider("SAVE1", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "SAVE1"));
+
+        // 필수 필드를 채운 뒤 저장 → command 게이트웨이로 전송.
+        cut.Find("input").Change("플랜트1");
+        cut.Find("button").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            api.Verify(a => a.ExecuteCommandAsync("MDM.CreatePlant", It.IsAny<object?>(), It.IsAny<CancellationToken>()),
+                Times.Once, "저장은 바인딩된 명명 쓰기쿼리로 폼 값을 전송해야 한다");
+            cut.Markup.Should().Contain("저장됨");
+        }, TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public void Save_blocks_and_does_not_call_gateway_when_required_field_empty()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var def = new ScreenDefinition("SAVE2", "공장 등록",
+            new FieldDefinition[] { new("plantName", "공장명", FieldType.Text, Required: true) },
+            SaveQueryId: "MDM.CreatePlant");
+
+        var api = new Mock<IApiClient>();
+        ctx.Services.AddSingleton(Provider("SAVE2", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "SAVE2"));
+
+        // 필수 필드를 비운 채 저장 → 검증 실패 메시지 + 게이트웨이 미호출.
+        cut.Find("button").Click();
+
+        cut.Markup.Should().Contain("필수");
+        api.Verify(a => a.ExecuteCommandAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()),
+            Times.Never, "필수 검증 실패 시 쓰기 게이트웨이를 호출하지 않아야 한다");
+    }
 }

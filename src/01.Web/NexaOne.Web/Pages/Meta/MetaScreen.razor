@@ -20,7 +20,8 @@ else
         <MetaFormRenderer Definition="_definition" @bind-Model="_model" />
 
         <div class="meta-actions">
-            <button @onclick="Save">저장</button>
+            <button @onclick="Save" disabled="@_saving">@(_saving ? "저장 중…" : "저장")</button>
+            @if (_saved) { <span class="save-ok" style="color:#15803d; margin-left:0.5rem;">저장됨</span> }
         </div>
 
         @if (_errors.Count > 0)
@@ -45,6 +46,8 @@ else
     private Dictionary<string, object?> _model = new();
     private List<string> _errors = new();
     private IReadOnlyList<Dictionary<string, object?>>? _rows;   // 그리드 데이터(명명 쿼리 결과); null=미실행
+    private bool _saving;
+    private bool _saved;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -69,10 +72,30 @@ else
         }
     }
 
-    private void Save()
+    private async Task Save()
     {
+        _saved = false;
         _errors = Validate();
-        // 실제 저장은 ScreenDefinition에 바인딩된 명령(API)로 — Phase 3 후속. 현재는 필수 검증 데모.
+        if (_errors.Count > 0) return;
+
+        // SaveQueryId(명명 쓰기쿼리)가 바인딩돼 있으면 폼 값(필드 Key→값)을 command 게이트웨이로 보내 저장한다.
+        // 감사 컬럼(@currentUser/@utcNow)은 서버 게이트웨이가 토큰·UTC로 주입하므로 폼이 보낼 필요가 없다.
+        if (string.IsNullOrWhiteSpace(_definition?.SaveQueryId))
+        {
+            _errors.Add("이 화면에는 저장(쓰기) 쿼리가 바인딩돼 있지 않습니다.");
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            _saved = await Api.ExecuteCommandAsync(_definition.SaveQueryId, _model);
+            if (!_saved) _errors.Add("저장에 실패했습니다(권한/입력 확인).");
+        }
+        finally
+        {
+            _saving = false;
+        }
     }
 
     private List<string> Validate()

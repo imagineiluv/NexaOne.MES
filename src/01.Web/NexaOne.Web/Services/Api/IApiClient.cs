@@ -7,6 +7,10 @@ public interface IApiClient
     Task<IReadOnlyList<Dictionary<string, object?>>> ExecuteQueryAsync(
         string queryId, object? parameters = null, CancellationToken ct = default);
 
+    // 등록된 쓰기(command) query id 실행 — 성공 여부 반환(저코드 폼 저장 경로). 감사 컬럼은 게이트웨이가 주입.
+    Task<bool> ExecuteCommandAsync(
+        string queryId, object? parameters = null, CancellationToken ct = default);
+
     // Dashboard
     Task<DashboardSummaryDto?> GetDashboardAsync(CancellationToken ct = default);
 

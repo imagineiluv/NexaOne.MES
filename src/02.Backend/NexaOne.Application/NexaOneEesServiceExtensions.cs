@@ -99,6 +99,24 @@ internal sealed class NexaFrameworkRuleDispatcher : IRuleDispatcher
             .ToList();
     }
 
+    public async Task<int> ExecuteAsync(
+        string sql,
+        IDictionary<string, object> parameters,
+        CancellationToken ct = default)
+    {
+        using var conn = _provider.CreateConnection(_connectionString);
+        await conn.OpenAsync(ct).ConfigureAwait(false);
+        // QueryAsync와 동일 규약: DBNull은 CLR null로 변환해 Dapper가 SQL NULL로 바인딩하게 한다.
+        DynamicParameters? param = null;
+        if (parameters.Count > 0)
+        {
+            param = new DynamicParameters();
+            foreach (var kv in parameters)
+                param.Add(kv.Key, kv.Value is DBNull ? null : kv.Value);
+        }
+        return await conn.ExecuteAsync(sql, param).ConfigureAwait(false);
+    }
+
     public async Task<object?> ProcedureAsync(
         string procedureName,
         IDictionary<string, object> parameters,

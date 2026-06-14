@@ -19,4 +19,22 @@
             ORDER BY EQUIPMENT_ID
         ]]></statement>
     </query>
+    <!-- 쓰기 쿼리(kind="write") — command 게이트웨이 전용(POST /api/v1/command/MDM.CreatePlant).
+         MSSQL판과 동일 ID·동일 의미. 감사 컬럼은 게이트웨이가 @currentUser·@utcNow로 주입(바운드 파라미터). -->
+    <query id="MDM.CreatePlant" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            INSERT INTO MDM_PLANT (PLANT_ID, PLANT_NAME, DESCRIPTION, COUNTRY, TIME_ZONE,
+                                   CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@plantId, @plantName, @description, @country, @timeZone,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
+    <!-- 감사 컬럼 조회 — 쓰기쿼리가 게이트웨이 주입(@currentUser/@utcNow)으로 채운 작성자/수정자를 확인. -->
+    <query id="MDM.PlantAudit" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            SELECT PLANT_ID, CREATED_BY, UPDATED_BY
+            FROM MDM_PLANT
+            WHERE PLANT_ID = @plantId
+        ]]></statement>
+    </query>
 </queries>

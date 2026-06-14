@@ -33,6 +33,20 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("TIME_ZONE", "표준시"),
             },
             QueryId: "MDM.PlantList"));
+
+        // 데모 시드: 폼 저장(쓰기) 화면 — 필드 메타 + 명명 쓰기쿼리(MDM.CreatePlant, kind="write") 바인딩으로
+        // /meta/DEMO_PLANT_FORM 폼 저장이 손코딩 없이 공장을 INSERT한다(저장 후 /meta/DEMO_GRID 에서 조회).
+        // 필드 Key는 쓰기쿼리의 @param 이름과 일치(plantId/plantName/description/country/timeZone).
+        Register(new ScreenDefinition("DEMO_PLANT_FORM", "데모 — 공장 등록(파일 쓰기쿼리)",
+            new FieldDefinition[]
+            {
+                new("plantId", "공장 ID", FieldType.Text, Required: true),
+                new("plantName", "공장명", FieldType.Text, Required: true),
+                new("description", "설명", FieldType.Text),
+                new("country", "국가", FieldType.Text),
+                new("timeZone", "표준시", FieldType.Text),
+            },
+            SaveQueryId: "MDM.CreatePlant"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
