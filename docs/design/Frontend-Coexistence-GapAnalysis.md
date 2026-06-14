@@ -187,7 +187,7 @@
 | Phase | 상태 | 비고 |
 |---|---|---|
 | **0** ADR | ✅ 완료 | ADR-001/002/003 (`docs/design/adr/`) |
-| **1** 엔진 승격 | ✅ 완료 | Query Gateway(`IQueryGateway`)·Event Bus(outbox+IMessageBus)·Security PEP(permission 정책 전 컨트롤러 적용) |
+| **1** 엔진 승격 | ✅ Query/Security 완료, Event Bus 토대 | Query Gateway(`IQueryGateway`, 읽기 `/query`+쓰기 `/command` 명명쿼리, 권한 fail-fast)·Security PEP(permission 정책 전 컨트롤러 적용)는 완료. **Event Bus는 토대(opt-in)** — outbox 적재 + `IMessageBus` 추상화 + 디스패처/Consumer 글루는 있으나 `Kafka:Enabled`·`Events:Outbox:Enabled` 기본 false라 **기본 비기동**(appsettings에 키 명시). 도메인이벤트→outbox 트랜잭션 통합(ADR-002 `IOutboxWriter`)·실시간 직접호출 제거는 후속(§2.5 ~20% 참조) |
 | **2** Pro-Code | ✅ 토대 | React+Vite+TS SPA(`src/01.Web/NexaOne.Spa`)+NSwag+permission 가드+토큰갱신. ⚠️ npm 미실행(개발자 빌드 검증 필요). 잔여: 생성 클라이언트 적용·Blazor 셸 임베드 |
 | **3** 화면 런타임 | ✅ 토대 | `ScreenDefinition` 메타모델+`IScreen`+`MetaScreen`(/meta/{UiId}) 동적 렌더 |
 | **4** Low-Code 화면 디자이너 | ✅ **읽기·쓰기 경로 완료** | `ScreenDesigner`(/designer/screen)+DB 저장소(SYS_SCREEN_DEFINITION). **그리드 런타임 렌더러**(2026-06-14): `MetaGridRenderer`+`ScreenDefinition.QueryId`로 컬럼 메타+파일 명명쿼리를 `/meta/{UiId}`가 손코딩 없이 조회 그리드로 렌더(데모 `/meta/DEMO_GRID`←MDM.PlantList). **폼 저장 명령 바인딩**(2026-06-14): 명명 쓰기쿼리(`kind="write"`)+command 게이트웨이(`POST /api/v1/command/{id}`)+`ScreenDefinition.SaveQueryId`로 폼 저장이 손코딩 없이 INSERT/UPDATE(감사 컬럼 `@currentUser`/`@utcNow` 게이트웨이 주입·위변조 무시, 읽기/쓰기 종류 가드, 데모 `/meta/DEMO_PLANT_FORM`→MDM.CreatePlant). 메타 화면(폼·그리드·저장)이 전부 파일 쿼리로 구동 — 컴파일 타입드 리포(고코드)와 공존, 기능별 선택 |
