@@ -1,7 +1,6 @@
 using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NexaOne.API.Services;
 
@@ -29,17 +28,23 @@ public sealed class TestApiFactory : WebApplicationFactory<Program>
 
     public TestApiFactory()
     {
-        // 부팅 fail-fast(JWT 강도 검증)·DB 설정을 확실히 덮어쓰기 위해 환경변수로 주입한다.
-        // (최소 호스팅 모델 + WebApplicationFactory에서 ConfigureAppConfiguration은 appsettings 치환자에
-        //  밀릴 수 있어, appsettings보다 우선순위가 높은 환경변수를 사용한다.)
-        Environment.SetEnvironmentVariable("Jwt__SecretKey", TestSecret);
-        Environment.SetEnvironmentVariable("Jwt__Issuer", TestIssuer);
-        Environment.SetEnvironmentVariable("Jwt__Audience", TestIssuer);
-        Environment.SetEnvironmentVariable("Database__Provider", "Sqlite");
-        Environment.SetEnvironmentVariable("ConnectionStrings__NexaOne", ConnString);
-
         // 호스트가 요청을 처리하기 전에 SQLite 임시 DB에 스키마를 생성한다(리포지토리가 테이블을 찾도록).
         SqliteSchemaBootstrapper.Apply(ConnString);
+    }
+
+    // 부팅 fail-fast(JWT 강도 검증)·DB 설정을 인스턴스별 호스트 설정으로 주입한다.
+    // ⚠️ 환경변수(Environment.SetEnvironmentVariable)는 프로세스 전역이라 xUnit의 클래스 병렬 실행에서
+    // 여러 팩토리가 ConnectionStrings__NexaOne을 서로 덮어써, 한 클래스의 호스트가 다른 클래스의 DB에
+    // 붙는 경쟁을 일으켰다(빈 DB를 기대하는 Dashboard 테스트가 형제 클래스의 시드 데이터를 보고 실패).
+    // UseSetting은 IWebHostBuilder의 구성에 인스턴스 단위로 기록되며 appsettings보다 우선하므로
+    // 전역 상태 없이 병렬 안전하게 DB/JWT를 격리한다.
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseSetting("Jwt:SecretKey", TestSecret);
+        builder.UseSetting("Jwt:Issuer", TestIssuer);
+        builder.UseSetting("Jwt:Audience", TestIssuer);
+        builder.UseSetting("Database:Provider", "Sqlite");
+        builder.UseSetting("ConnectionStrings:NexaOne", ConnString);
     }
 
     /// <summary>앱의 JwtService로 유효한 토큰을 발급해 Authorization 헤더가 설정된 클라이언트를 반환한다.
