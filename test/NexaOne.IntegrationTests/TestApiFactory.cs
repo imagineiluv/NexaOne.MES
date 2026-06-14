@@ -20,7 +20,12 @@ public sealed class TestApiFactory : WebApplicationFactory<Program>
     private readonly string _dbPath = Path.Combine(
         Path.GetTempPath(), $"nexaone-test-{Guid.NewGuid():N}.db");
 
-    private string ConnString => $"Data Source={_dbPath}";
+    // Foreign Keys=False — 런타임 SQLite 연결의 FK 강제를 결정론적으로 끈다. Microsoft.Data.Sqlite는
+    // 연결별 PRAGMA foreign_keys 기본값/풀링 상태에 따라 FK를 비결정적으로 강제해(부트스트랩의 PRAGMA OFF는
+    // 그 연결 한정) 동일 테스트가 단독 통과·전체 실패하는 플래키를 유발했다. 통합 테스트의 목적은
+    // 마이그레이션 완전성·방언(테이블 존재/컬럼 정합/SELECT·UPSERT)이며 FK 제약은 테이블 생성 시 파싱으로
+    // 검증된다. 운영(MSSQL)은 FK를 그대로 강제한다.
+    private string ConnString => $"Data Source={_dbPath};Foreign Keys=False";
 
     public TestApiFactory()
     {
