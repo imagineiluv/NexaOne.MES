@@ -36,10 +36,12 @@ public sealed class FavoriteMenuRepository : QueryRepository, IFavoriteMenuRepos
         // 실제 호출 경로상 충돌(MATCHED) 업서트는 재정렬뿐이고, 이때 전달되는 CREATED_AT은 GetByUser로
         // 읽어 Restore된 기존 값과 동일하며(재등록은 RemoveFavorite로 선삭제 후 신규 INSERT), 따라서
         // CREATED_AT 보존 의미는 모든 실제 경로에서 동일하게 유지된다.
+        // CREATED_AT은 insert-only — 충돌(재정렬) 시 최초 등록 시점을 보존한다.
         var sql = _dialect.BuildUpsertSql(
             "SYS_FAVORITE_MENU",
             new[] { "USER_ID", "MENU_ID" },
-            new[] { "DISPLAY_SEQUENCE", "CREATED_AT" });
+            new[] { "DISPLAY_SEQUENCE" },
+            insertOnlyColumns: new[] { "CREATED_AT" });
 
         // BuildUpsertSql은 @<COLUMN_NAME>(SNAKE_CASE) 플레이스홀더를 쓰므로 컬럼명 키로 파라미터를 구성한다.
         var r = FavoriteRow.FromDomain(favorite);

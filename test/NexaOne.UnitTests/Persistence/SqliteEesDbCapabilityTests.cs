@@ -56,6 +56,23 @@ public sealed class SqliteEesDbCapabilityTests
     }
 
     [Fact]
+    public void BuildUpsertSql_insert_only_column_is_preserved_on_conflict()
+    {
+        // insert-only 컬럼(CREATED)은 INSERT엔 포함되지만 충돌 시 UPDATE SET에서 제외되어 보존되어야 한다.
+        using var conn = new SqliteConnection("Data Source=:memory:");
+        conn.Open();
+        conn.Execute("CREATE TABLE T2 (K TEXT PRIMARY KEY, V TEXT, CREATED TEXT);");
+        var sql = _cap.BuildUpsertSql("T2", new[] { "K" }, new[] { "V" }, insertOnlyColumns: new[] { "CREATED" });
+
+        conn.Execute(sql, new { K = "k1", V = "first", CREATED = "2026-01-01" });
+        conn.Execute(sql, new { K = "k1", V = "second", CREATED = "2099-12-31" });   // 충돌 → V 갱신, CREATED 보존
+
+        conn.QuerySingle<string>("SELECT V FROM T2 WHERE K = 'k1'").Should().Be("second", "데이터 컬럼은 갱신된다");
+        conn.QuerySingle<string>("SELECT CREATED FROM T2 WHERE K = 'k1'").Should().Be("2026-01-01",
+            "insert-only 컬럼은 충돌(UPDATE) 시 최초 값이 보존되어야 한다");
+    }
+
+    [Fact]
     public void WrapPaged_applies_limit_and_offset_with_ordering()
     {
         using var conn = OpenWithTable();

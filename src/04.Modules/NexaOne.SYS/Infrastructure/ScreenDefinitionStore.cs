@@ -33,10 +33,12 @@ public sealed class ScreenDefinitionStore : QueryRepository, IScreenDefinitionSt
         // 생성하므로 컬럼명 키로 파라미터를 바인딩한다. 감사 컬럼은 ServiceObjectProcessor.InjectAudit가
         // PascalCase 키만 생성해 @SNAKE_CASE에 바인딩되지 않으므로, 여기서 직접 값을 채워 넣고
         // 감사 주입이 없는 실행 경로(_processor.ExecuteAsync: 트랜잭션 + 순수 Dapper passthrough)로 실행한다.
+        // CREATED_BY/CREATED_AT은 insert-only — 최초 등록 시점/등록자를 갱신(재저장) 때 보존한다.
         var sql = _dialect.BuildUpsertSql(
             "SYS_SCREEN_DEFINITION",
             new[] { "UI_ID" },
-            new[] { "TITLE", "DEFINITION_JSON", "CREATED_BY", "CREATED_AT", "UPDATED_BY", "UPDATED_AT" });
+            new[] { "TITLE", "DEFINITION_JSON", "UPDATED_BY", "UPDATED_AT" },
+            insertOnlyColumns: new[] { "CREATED_BY", "CREATED_AT" });
 
         var now = DateTime.UtcNow;
         var p = new Dapper.DynamicParameters();

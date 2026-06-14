@@ -28,9 +28,12 @@ public sealed class SqliteEesDbCapability : INexaOneEESDbCapability
     public string BuildUpsertSql(
         string tableName,
         IReadOnlyList<string> keyColumns,
-        IReadOnlyList<string> dataColumns)
+        IReadOnlyList<string> dataColumns,
+        IReadOnlyList<string>? insertOnlyColumns = null)
     {
-        var allColumns = keyColumns.Concat(dataColumns).ToList();
+        var insertOnly = insertOnlyColumns ?? Array.Empty<string>();
+        // insertOnly는 INSERT VALUES에는 포함하되 DO UPDATE SET에서는 제외한다(최초 기록 후 갱신 시 보존).
+        var allColumns = keyColumns.Concat(dataColumns).Concat(insertOnly).ToList();
         var insertCols = string.Join(", ", allColumns.Select(Quote));
         var insertVals = string.Join(", ", allColumns.Select(c => $"@{c}"));
         var conflictCols = string.Join(", ", keyColumns.Select(Quote));
