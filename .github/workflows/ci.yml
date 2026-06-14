@@ -37,6 +37,15 @@ jobs:
           npm ci
           npm run css:build
 
+      # Pro-Code SPA(React+Vite+TS)는 dotnet 솔루션 밖이라 별도 빌드/타입체크 게이트가 필요하다.
+      # tsc -b(strict)로 타입 회귀를, vite build로 번들 회귀를 잡는다(생성 클라이언트는 별도 job에서).
+      # ※ package-lock.json 미존재로 npm install 사용 — 재현성을 위해 lock 파일 커밋을 권장한다.
+      - name: Build SPA (NexaOne.Spa — typecheck + bundle)
+        working-directory: src/01.Web/NexaOne.Spa
+        run: |
+          npm install
+          npm run build
+
       - name: Restore
         run: dotnet restore NexaOne.sln
 
