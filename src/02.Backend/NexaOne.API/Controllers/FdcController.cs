@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Hubs;
 using NexaOne.EST.Application.Est;
 using NexaOne.FDC.Application.Fdc;
+using NexaOne.MDM.Application.Equipments;
 using NexusFramework;
 
 namespace NexaOne.API.Controllers;
@@ -16,6 +17,7 @@ public class FdcController(
     FdcParameterGroupService groupService,
     FdcAlarmService fdcAlarmService,
     EquipmentAlarmService alarmService,
+    EquipmentService equipmentService,
     PlantController plant,
     IEesHubNotifier notifier,
     NexaOne.Infrastructure.Persistence.IOutboxRepository outbox,
@@ -255,16 +257,30 @@ public class FdcController(
             // 5. ALARM / STOP 액션이면 EPT 알람 자동 생성
             if (interlock.Action is "ALARM" or "STOP")
             {
-                var alarmId = $"FDC-{req.CollectId}";
-                var alarmCode = $"INTERLOCK_{interlock.Action}";
-                var alarmName = $"[FDC] {interlock.Message}";
-                var level = interlock.Action == "STOP" ? "CRITICAL" : "WARNING";
+                // 미등록 설비는 EST_EQUIPMENT_ALARM.EQUIPMENT_ID→MDM_EQUIPMENT FK 위반으로 운영(FK ON)에서
+                // 500을 유발한다. 인터록 '발동 시에만'(저빈도) 설비 존재를 확인하고, 미등록이면 자동 알람 기록을
+                // 생략한다(수집은 계속 200). 미등록 설비 알람은 활성목록 GET이 MDM 조인이라 어차피 표시되지
+                // 않으므로 생략이 안전하며, 고빈도 수집 경로(EvaluateAsync 이전)에는 추가 조회 비용이 없다.
+                var equipment = await equipmentService.GetEquipmentAsync(req.EquipmentId, ct);
+                if (equipment.IsFailure)
+                {
+                    logger.LogWarning(
+                        "인터록 발동({Action})이나 설비 {EquipmentId}가 MDM 미등록 — EST 자동 알람 기록 생략(FK 위반 500 방지)",
+                        interlock.Action, req.EquipmentId);
+                }
+                else
+                {
+                    var alarmId = $"FDC-{req.CollectId}";
+                    var alarmCode = $"INTERLOCK_{interlock.Action}";
+                    var alarmName = $"[FDC] {interlock.Message}";
+                    var level = interlock.Action == "STOP" ? "CRITICAL" : "WARNING";
 
-                var alarmResult = await alarmService.RecordAlarmAsync(
-                    alarmId, req.EquipmentId, alarmCode, alarmName, level, ct);
+                    var alarmResult = await alarmService.RecordAlarmAsync(
+                        alarmId, req.EquipmentId, alarmCode, alarmName, level, ct);
 
-                if (alarmResult.IsSuccess)
-                    await notifier.NotifyAlarmUpdatedAsync(ct);
+                    if (alarmResult.IsSuccess)
+                        await notifier.NotifyAlarmUpdatedAsync(ct);
+                }
             }
         }
 

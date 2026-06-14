@@ -25,8 +25,9 @@ namespace NexaOne.IntegrationTests.Fdc;
 /// level = Action=="STOP" ? "CRITICAL" : "WARNING".
 ///
 /// 활성 알람 조회는 MDM_EQUIPMENT와 PLANT_ID로 조인하므로, 자동 알람이 활성 목록에 노출되려면
-/// 동일 설비가 MDM에 선행 등록되어야 한다(운영 FK 무결성과도 정합). 하니스는 FK OFF라 미등록
-/// 설비로도 INSERT 자체는 성공하지만, JOIN에서 가려져 목록에는 안 보인다(아래 unregistered 테스트).
+/// 동일 설비가 MDM에 선행 등록되어야 한다(운영 FK 무결성과도 정합). 미등록 설비에서 인터록이
+/// 발동하면 컨트롤러가 설비 존재를 확인(발동 시에만)해 자동 알람 기록을 생략한다 — 운영(FK ON)에서
+/// FK 위반 500을 막는다(아래 unregistered 테스트로 '생략'을 검증).
 /// </summary>
 public sealed class FdcInterlockTriggerIntegrationTests : IClassFixture<TestApiFactory>
 {
@@ -188,56 +189,41 @@ public sealed class FdcInterlockTriggerIntegrationTests : IClassFixture<TestApiF
             "미발동이면 EST 자동 알람이 생성되지 않아야 한다");
     }
 
-    // ── 미등록 설비로 trigger — 현재 응답코드 기록(FK-OFF라 통과; 운영 FK ON 500 위험) ────
+    // ── 미등록 설비로 trigger — 자동 알람을 '생략'(기록 안 함) + 수집은 200 (FK 500 방지 회귀) ──
 
     [Fact]
-    public async Task CollectData_triggering_for_UNREGISTERED_equipment_records_current_behavior()
+    public async Task CollectData_triggering_for_unregistered_equipment_skips_alarm_and_returns_200()
     {
-        // 의심버그(보고용): EquipmentAlarmService.RecordAlarmAsync는 설비 존재(FK) 사전검증 없이 바로
-        // _alarmRepository.AddAsync 한다(EstController.ChangeState가 GetEquipmentAsync로 사전검증하는 것과 대비).
-        // 테스트 하니스는 PRAGMA foreign_keys=OFF이므로 미등록 설비로도 EST_EQUIPMENT_ALARM INSERT가
-        // 성공 → POST collect-data는 200을 반환한다(아래 단언). 그러나 운영(MSSQL, FK ON)에서는
-        // FK_EPT_ALARM_EQUIPMENT(EST_EQUIPMENT_ALARM→MDM_EQUIPMENT) 위반으로 INSERT가 실패해
-        // 자동 알람 기록 경로에서 500(처리되지 않은 DB 예외)이 날 수 있다. 즉 인터록 발동이라는
-        // 안전-임계 경로가, 설비가 MDM에 미등록인 상태에서 500으로 깨질 위험이 있다.
-        // 더불어 미등록 설비라 GET est/alarms는 MDM_EQUIPMENT 조인에서 가려져 자동 알람이 보이지 않는다
-        // (FK-OFF로 INSERT는 됐어도 목록 노출은 안 됨) — 본 테스트로 그 현재 동작을 명시 고정한다.
+        // 회귀: 인터록 발동 시 컨트롤러가 설비(MDM) 존재를 확인하고, 미등록이면 EST 자동 알람 기록을 생략한다.
+        // (예전엔 EquipmentAlarmService.RecordAlarmAsync가 FK 사전검증 없이 INSERT → 운영 FK ON에서
+        //  FK_EPT_ALARM_EQUIPMENT 위반 500. 수정으로 '발동 시에만' 설비 확인 후 미등록이면 생략한다.)
+        // '생략'을 FK-OFF 하니스에서 증명하기 위해: 미등록 상태로 발동시킨 뒤 설비를 '사후 등록'하고도
+        // 활성 목록에 알람이 없어야 한다 — 만약 (수정 전처럼) 알람이 기록됐다면 사후 등록으로 조인이
+        // 풀려 목록에 나타났을 것이다. 나타나지 않음 = 애초에 기록되지 않음(생략) 증명.
         var client = _factory.CreateAuthenticatedClient();
         const string plantId = "P-FDC-ITRIG-UNREG";
-        const string equipmentId = "FDC-ITRIG-EQ-UNREG";   // ⚠ MDM에 등록하지 않음
+        const string equipmentId = "FDC-ITRIG-EQ-UNREG";   // ⚠ 발동 시점엔 MDM에 미등록
         const string parameterId = "FDC-ITRIG-PARAM-UNREG";
         const string ruleId = "FDC-ITRIG-RULE-UNREG";
         const string collectId = "FDC-ITRIG-COLLECT-UNREG";
 
-        // 파라미터/규칙은 등록(FK OFF라 부모 설비 없이도 INSERT 가능; 도메인 검증만 충족).
+        // 파라미터/규칙은 등록(FK OFF라 부모 설비 없이도 INSERT 가능; 도메인 검증만 충족). 설비는 미등록.
         await RegisterParameterAsync(client, parameterId, equipmentId, lower: 0m, upper: 1000m);
         await CreateInterlockRuleAsync(
             client, ruleId, equipmentId, parameterId, op: "GT", threshold: 100m, action: "ALARM", priority: 1);
 
-        var resp = await client.PostAsJsonAsync("/api/v1/fdc/collect-data", new
-        {
-            collectId,
-            equipmentId,
-            parameterId,
-            value = 150m,
-            quality = "Good"
-        });
-        var body = await resp.Content.ReadAsStringAsync();
+        // 미등록 설비로 임계 초과 수집 → 인터록은 발동하나 자동 알람은 생략된다. 수집 자체는 200(500 아님).
+        var record = await PostCollectDataAsync(client, collectId, equipmentId, parameterId, value: 150m);
+        record.Interlock!.IsTriggered.Should().BeTrue(
+            "규칙(GT 100)을 위반했으므로 인터록 발동 평가는 정상이어야 한다(알람 생략과 무관)");
 
-        // 현재 동작(FK-OFF 하니스): 자동 알람 INSERT가 FK 강제 없이 성공 → 200.
-        resp.StatusCode.Should().Be(HttpStatusCode.OK,
-            "FK-OFF 하니스에서는 미등록 설비로도 자동 알람 INSERT가 성공해 200이어야 한다. " +
-            "운영(FK ON)에서는 동일 경로가 FK_EPT_ALARM_EQUIPMENT 위반으로 500이 날 수 있음(의심버그 보고). " +
-            $"응답 본문: {body}");
+        // 사후 등록 — 알람이 기록됐다면 이제 조인이 풀려 목록에 나타날 것이다.
+        await RegisterEquipmentAsync(client, equipmentId, plantId);
 
-        var record = await resp.Content.ReadFromJsonAsync<RecordResultDto>();
-        record.Should().NotBeNull();
-        record!.Interlock!.IsTriggered.Should().BeTrue("규칙(GT 100)을 위반했으므로 발동은 정상 평가돼야 한다");
-
-        // 미등록 설비라 MDM_EQUIPMENT 조인에서 가려져 활성 목록에는 노출되지 않는다(현재 동작 고정).
         var active = await GetActiveAlarmsAsync(client, plantId);
         active.Should().NotContain(a => a.Id == $"FDC-{collectId}",
-            "설비가 MDM에 미등록이면 EST_EQUIPMENT_ALARM ⋈ MDM_EQUIPMENT 조인에서 가려져 활성 목록에 안 보인다");
+            "발동 시 설비가 미등록이었으므로 자동 알람은 '생략'됐어야 한다 — 사후 등록 후에도 목록에 없어야 한다" +
+            "(있다면 알람이 실제로 기록된 것 = FK 위반 500 위험이 남은 것)");
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────
