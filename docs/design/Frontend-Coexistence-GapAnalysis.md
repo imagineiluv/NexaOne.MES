@@ -190,7 +190,7 @@
 | **1** 엔진 승격 | ✅ 완료 | Query Gateway(`IQueryGateway`)·Event Bus(outbox+IMessageBus)·Security PEP(permission 정책 전 컨트롤러 적용) |
 | **2** Pro-Code | ✅ 토대 | React+Vite+TS SPA(`src/01.Web/NexaOne.Spa`)+NSwag+permission 가드+토큰갱신. ⚠️ npm 미실행(개발자 빌드 검증 필요). 잔여: 생성 클라이언트 적용·Blazor 셸 임베드 |
 | **3** 화면 런타임 | ✅ 토대 | `ScreenDefinition` 메타모델+`IScreen`+`MetaScreen`(/meta/{UiId}) 동적 렌더 |
-| **4** Low-Code 화면 디자이너 | ✅ 토대 | `ScreenDesigner`(/designer/screen)+DB 저장소(SYS_SCREEN_DEFINITION). 잔여: 그리드 런타임 렌더러·저장 명령 바인딩 |
+| **4** Low-Code 화면 디자이너 | ✅ 토대 | `ScreenDesigner`(/designer/screen)+DB 저장소(SYS_SCREEN_DEFINITION). **그리드 런타임 렌더러 완료**(2026-06-14): `MetaGridRenderer`+`ScreenDefinition.QueryId`로 컬럼 메타+파일 명명쿼리(db/queries)를 `/meta/{UiId}` 런타임이 손코딩 없이 조회 그리드로 렌더(데모 `/meta/DEMO_GRID`←MDM.PlantList). 잔여: 폼 저장 명령 바인딩(쓰기) |
 | **5** 플랫폼 통합 | ⏸ 보류 | **현 시점 NexaMes 범위 밖.** ① NexusOne.UI는 NexusFramework 서브모듈의 MAUI 콘솔(목업)로 별개 제품·크로스레포 ② 디자이너↔엔진 폐루프는 사용자 결정(IDE 저작)으로 보류 ③ "NAF Studio 셸"은 미정의 개념. 추진하려면 별도 제품 결정·서브모듈 작업 필요 |
 
 > **용어**: §2.1의 두 트랙 구분 참고 — **프론트 Low-Code(화면 디자이너, Phase 3·4)** ≠ **워크플로우 디자이너(비즈니스 로직, §8 FlowExecutionEngine)**. 후자는 사용자 결정으로 "개발자 IDE 저작 + NexaMes 실행" 범위로 확정(브라우저화 보류).
