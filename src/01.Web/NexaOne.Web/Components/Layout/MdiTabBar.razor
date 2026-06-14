@@ -131,10 +131,12 @@
 
     private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
+        if (_disposed) return;   // async void — 폐기 이후 완료가 폐기된 렌더러를 건드리지 않도록 가드
         try
         {
             await InvokeAsync(async () =>
             {
+                if (_disposed) return;
                 var (path, query) = SplitUri(e.Location);
                 if (!MdiTabService.IsTabbablePath(path)) return;
 
@@ -343,10 +345,13 @@
 
     private void OnDirtyChanged() => TabSvc.SetActiveDirty(Dirty.IsDirty);
 
-    private void OnTabsChanged() => _ = InvokeAsync(StateHasChanged);
+    private void OnTabsChanged() { if (_disposed) return; _ = InvokeAsync(StateHasChanged); }
+
+    private bool _disposed;
 
     public void Dispose()
     {
+        _disposed = true;
         TabSvc.Changed      -= OnTabsChanged;
         Dirty.StateChanged  -= OnDirtyChanged;
         Nav.LocationChanged -= OnLocationChanged;

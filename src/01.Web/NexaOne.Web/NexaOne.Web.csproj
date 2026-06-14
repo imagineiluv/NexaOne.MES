@@ -8,6 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- 단위 테스트에서 internal(예: JwtAuthStateProvider.ParseToken) 접근 허용 -->
+    <InternalsVisibleTo Include="NexaOne.UnitTests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- DevExpress.Blazor 제거 완료(평가판 라이선스 DX1000/DX1001) → Tailwind+QuickGrid+NexaUI로 전면 교체 -->
     <!-- DxGrid 대체 무료 공식 그리드(QuickGrid). NexaUI/Tailwind로 스타일링 -->
     <PackageReference Include="Microsoft.AspNetCore.Components.QuickGrid" Version="8.*" />
