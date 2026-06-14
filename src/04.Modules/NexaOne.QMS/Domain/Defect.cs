@@ -58,6 +58,32 @@ public sealed class Defect : AuditableEntity<string>
         return defect;
     }
 
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 리포지토리 읽기 전용 —
+    /// Create는 항상 IsConfirmed=false로 강제하므로 확정된 부적합이 미확정으로 잘못 읽히고(읽기경로 상태손실)
+    /// 재확정 방지 가드가 무력화되는 것을 막는다. 확정자(UpdatedBy)는 비-부인성 감사값이라 함께 복원한다.</summary>
+    public static Defect Restore(
+        string defectId, string lotId, string equipmentId, string defectClassId,
+        int defectCount, decimal defectRate, DateTime inspectedAt, string inspectorId,
+        string? remark, bool isConfirmed, DateTime? confirmedAt, string? updatedBy, DateTime? updatedAt)
+    {
+        var defect = new Defect(defectId)
+        {
+            LotId = lotId,
+            EquipmentId = equipmentId,
+            DefectClassId = defectClassId,
+            DefectCount = defectCount,
+            DefectRate = defectRate,
+            InspectedAt = inspectedAt,
+            InspectorId = inspectorId,
+            Remark = remark,
+            IsConfirmed = isConfirmed,
+            ConfirmedAt = confirmedAt
+        };
+        defect.UpdatedBy = updatedBy;
+        defect.UpdatedAt = updatedAt;
+        return defect;
+    }
+
     public Result Confirm(string confirmerId)
     {
         if (string.IsNullOrWhiteSpace(confirmerId))

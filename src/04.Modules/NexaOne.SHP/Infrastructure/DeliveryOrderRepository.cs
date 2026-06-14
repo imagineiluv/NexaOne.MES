@@ -66,8 +66,9 @@ public sealed class DeliveryOrderRepository : QueryRepository, IDeliveryOrderRep
         public string Status { get; set; } = "Draft";
         public string? Remark { get; set; }
 
-        public DeliveryOrder? ToDomain() =>
-            DeliveryOrder.Create(OrderId, CustomerName, PlantId, RequestedDate, Remark).Value;
+        public DeliveryOrder ToDomain() =>
+            DeliveryOrder.Restore(OrderId, CustomerName, PlantId, RequestedDate,
+                Enum.Parse<DeliveryOrderStatus>(Status, ignoreCase: true), ShippedDate, Remark);
 
         public static OrderRow FromDomain(DeliveryOrder o) => new()
         {

@@ -76,8 +76,9 @@ public sealed class EquipmentAlarmRepository : QueryRepository, IEquipmentAlarmR
         public DateTime? ClearedAt { get; set; }
         public long? ElapsedSeconds { get; set; }
 
-        public EquipmentAlarm? ToDomain() =>
-            EquipmentAlarm.Create(AlarmId, EquipmentId, AlarmCode, AlarmName, AlarmLevel, OccurredAt).Value;
+        public EquipmentAlarm ToDomain() =>
+            EquipmentAlarm.Restore(AlarmId, EquipmentId, AlarmCode, AlarmName, AlarmLevel, OccurredAt,
+                ClearedAt, ElapsedSeconds);
 
         public static AlarmRow FromDomain(EquipmentAlarm a) => new()
         {

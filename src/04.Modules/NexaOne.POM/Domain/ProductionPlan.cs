@@ -61,6 +61,25 @@ public sealed class ProductionPlan : AuditableEntity<string>
         return plan;
     }
 
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 리포지토리 읽기 전용 —
+    /// Create는 항상 Status=Draft로 강제하므로 Released/InProgress/Completed/Cancelled 계획이 Draft로
+    /// 잘못 읽히는 읽기경로 상태손실을 막는다.</summary>
+    public static ProductionPlan Restore(
+        string planId, string planName, string plantId, string productId,
+        decimal plannedQty, DateTime plannedStartDate, DateTime plannedEndDate,
+        ProductionPlanStatus status, string? remark)
+        => new(planId)
+        {
+            PlanName = planName,
+            PlantId = plantId,
+            ProductId = productId,
+            PlannedQty = plannedQty,
+            PlannedStartDate = plannedStartDate,
+            PlannedEndDate = plannedEndDate,
+            Status = status,
+            Remark = remark
+        };
+
     public Result Release()
     {
         if (Status != ProductionPlanStatus.Draft)

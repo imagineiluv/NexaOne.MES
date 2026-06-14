@@ -48,6 +48,27 @@ public sealed class Equipment : AuditableEntity<string>
         return equipment;
     }
 
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 리포지토리 읽기 전용 —
+    /// Create는 ValidState를 항상 "Valid"로 하드코딩하고 Description 인자가 없어, 비활성화된(Invalid) 설비가
+    /// 읽기경로에서 다시 "Valid"로 되살아나고 Description이 유실되는 상태손실을 막는다.</summary>
+    public static Equipment Restore(
+        string equipmentId, string equipmentName, string description, string plantId, string areaId,
+        string equipmentType, string? parentEquipmentId, string vendor, string model,
+        string equipmentClassId, string validState)
+        => new(equipmentId)
+        {
+            EquipmentName = equipmentName,
+            Description = description,
+            PlantId = plantId,
+            AreaId = areaId,
+            EquipmentType = equipmentType,
+            ParentEquipmentId = parentEquipmentId,
+            Vendor = vendor,
+            Model = model,
+            EquipmentClassId = equipmentClassId,
+            ValidState = validState
+        };
+
     public void Deactivate() => ValidState = "Invalid";
     public void Activate() => ValidState = "Valid";
     public void ChangeParent(string? parentId) => ParentEquipmentId = parentId;

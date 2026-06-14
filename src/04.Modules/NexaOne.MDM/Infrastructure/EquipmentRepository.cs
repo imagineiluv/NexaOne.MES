@@ -68,9 +68,9 @@ public sealed class EquipmentRepository : QueryRepository, IEquipmentRepository
         public string EquipmentClassId { get; set; } = "";
         public string ValidState { get; set; } = "Valid";
 
-        public Equipment? ToDomain() =>
-            Equipment.Create(EquipmentId, EquipmentName, PlantId, AreaId, EquipmentType,
-                ParentEquipmentId, Vendor, Model, EquipmentClassId).Value;
+        public Equipment ToDomain() =>
+            Equipment.Restore(EquipmentId, EquipmentName, Description, PlantId, AreaId, EquipmentType,
+                ParentEquipmentId, Vendor, Model, EquipmentClassId, ValidState);
 
         public static EquipmentRow FromDomain(Equipment e) => new()
         {

@@ -71,9 +71,12 @@ public sealed class DefectRepository : QueryRepository, IDefectRepository
         public string? Remark { get; set; }
         public bool IsConfirmed { get; set; }
         public DateTime? ConfirmedAt { get; set; }
+        public string? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
 
-        public Defect? ToDomain() =>
-            Defect.Create(DefectId, LotId, EquipmentId, DefectClassId, DefectCount, DefectRate, InspectedAt, InspectorId, Remark).Value;
+        public Defect ToDomain() =>
+            Defect.Restore(DefectId, LotId, EquipmentId, DefectClassId, DefectCount, DefectRate, InspectedAt,
+                InspectorId, Remark, IsConfirmed, ConfirmedAt, UpdatedBy, UpdatedAt);
 
         public static DefectRow FromDomain(Defect d) => new()
         {

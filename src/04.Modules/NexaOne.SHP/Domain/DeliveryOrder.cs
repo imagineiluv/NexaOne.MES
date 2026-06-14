@@ -50,6 +50,22 @@ public sealed class DeliveryOrder : AuditableEntity<string>
         return order;
     }
 
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 리포지토리 읽기 전용 —
+    /// Create는 항상 Status=Draft·ShippedDate=null로 강제하므로 Confirmed/Shipped/Cancelled 주문이 Draft로
+    /// 잘못 읽혀 상태머신이 무력화되는 읽기경로 상태손실을 막는다(품목은 별도 로드).</summary>
+    public static DeliveryOrder Restore(
+        string orderId, string customerName, string plantId, DateTime requestedDate,
+        DeliveryOrderStatus status, DateTime? shippedDate, string? remark)
+        => new(orderId)
+        {
+            CustomerName = customerName,
+            PlantId = plantId,
+            RequestedDate = requestedDate,
+            Status = status,
+            ShippedDate = shippedDate,
+            Remark = remark
+        };
+
     public void AddItem(DeliveryItem item)
     {
         _items.Add(item);

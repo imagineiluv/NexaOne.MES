@@ -68,8 +68,9 @@ public sealed class ProductionPlanRepository : QueryRepository, IProductionPlanR
         public string Status { get; set; } = "Draft";
         public string? Remark { get; set; }
 
-        public ProductionPlan? ToDomain() =>
-            ProductionPlan.Create(PlanId, PlanName, PlantId, ProductId, PlannedQty, PlannedStartDate, PlannedEndDate, Remark).Value;
+        public ProductionPlan ToDomain() =>
+            ProductionPlan.Restore(PlanId, PlanName, PlantId, ProductId, PlannedQty, PlannedStartDate, PlannedEndDate,
+                Enum.Parse<ProductionPlanStatus>(Status, ignoreCase: true), Remark);
 
         public static PlanRow FromDomain(ProductionPlan p) => new()
         {
