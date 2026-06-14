@@ -33,18 +33,28 @@ public sealed class UserRequestRepository : QueryRepository, IUserRequestReposit
         string? plantId, string? status, string? userId, string? userName, string? email,
         DateTime? from, DateTime? to, CancellationToken ct = default)
     {
+        // LIKE 와일드카드는 SQL이 아니라 파라미터 값에 넣는다(LIKE @p). MSSQL '+' 문자열 결합은 SQLite에서
+        // 산술('%' + @p → 0)로 평가돼 필터가 항상 빈 결과를 반환하므로 — 방언 무관한 바운드 파라미터로 통일한다.
         var sql = new StringBuilder("SELECT * FROM SYS_USER_REQUEST WHERE 1=1");
         if (plantId is not null)  sql.Append(" AND PLANT_ID = @plantId");
         if (status is not null)   sql.Append(" AND STATUS = @status");
-        if (userId is not null)   sql.Append(" AND USER_ID LIKE '%' + @userId + '%'");
-        if (userName is not null) sql.Append(" AND USER_NAME LIKE '%' + @userName + '%'");
-        if (email is not null)    sql.Append(" AND EMAIL LIKE '%' + @email + '%'");
+        if (userId is not null)   sql.Append(" AND USER_ID LIKE @userId");
+        if (userName is not null) sql.Append(" AND USER_NAME LIKE @userName");
+        if (email is not null)    sql.Append(" AND EMAIL LIKE @email");
         if (from.HasValue)        sql.Append(" AND REQUESTED_AT >= @from");
         if (to.HasValue)          sql.Append(" AND REQUESTED_AT <= @to");
         sql.Append(" ORDER BY REQUESTED_AT DESC");
 
         var rows = await QueryAsync<UserRequestRow>(
-            sql.ToString(), new { plantId, status, userId, userName, email, from, to }, ct);
+            sql.ToString(),
+            new
+            {
+                plantId, status,
+                userId   = userId   is null ? null : $"%{userId}%",
+                userName = userName is null ? null : $"%{userName}%",
+                email    = email    is null ? null : $"%{email}%",
+                from, to
+            }, ct);
         return rows.Select(r => r.ToDomain()).OfType<UserRequest>().ToList();
     }
 
