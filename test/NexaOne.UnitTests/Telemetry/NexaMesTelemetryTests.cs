@@ -6,9 +6,16 @@ using NexusLogic.Plc.Abstractions.Models;
 
 namespace NexaOne.UnitTests.Telemetry;
 
+/// <summary>전역 Meter/MeterListener를 쓰는 텔레메트리 테스트를 다른 컬렉션과 병렬 실행하지 않도록 격리한다.
+/// MeterListener는 프로세스 전역이라 여러 클래스의 리스너가 동시에 같은 instrument에 측정 이벤트를
+/// 켜고 끄면(레이스) 단일 측정이 누락돼 비결정적으로 실패한다(고유 태그 필터로도 못 막음).</summary>
+[CollectionDefinition("Telemetry (non-parallel)", DisableParallelization = true)]
+public sealed class TelemetryCollection { }
+
 /// <summary>§17.5 비즈니스 Metrics — 활동 사용자/설비 채널 트래커 로직과, "NexaMes" Meter의
 /// 항시 계측(api_request_duration_ms·api_error_rate·fdc_collected_total)이 실제로 방출되는지 검증한다.
-/// MeterListener는 프로세스 전역 Meter를 관측하므로, 측정은 고유 태그로 필터해 병렬 테스트와 격리한다.</summary>
+/// MeterListener는 프로세스 전역 Meter를 관측하므로, 측정은 고유 태그로 필터하고 비병렬 컬렉션으로 격리한다.</summary>
+[Collection("Telemetry (non-parallel)")]
 public sealed class NexaMesTelemetryTests
 {
     // ── ActiveUserTracker (nexames_active_users) ────────────────────────────────
