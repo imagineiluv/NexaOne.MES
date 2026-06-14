@@ -6,7 +6,7 @@ namespace NexaOne.Common;
 /// <summary>
 /// 비밀번호 해시 — per-user salt + PBKDF2(HMAC-SHA256) 강화 해시(설계 §19.2.2).
 /// 저장 형식: <c>pbkdf2$&lt;iterations&gt;$&lt;saltBase64&gt;$&lt;hashBase64&gt;</c>.
-/// 구(舊) 무염 SHA-256 hex(64자, SmartUX 3.5 호환)도 <see cref="Verify"/>로 검증 가능하며,
+/// 구(舊) 무염 SHA-256 hex(64자, 레거시 시스템 호환)도 <see cref="Verify"/>로 검증 가능하며,
 /// 검증 성공 시 <see cref="NeedsRehash"/>가 true를 반환해 로그인 시 강화 해시로 재해싱(rehash-on-login)하도록 한다.
 /// </summary>
 /// <remarks>
@@ -52,7 +52,7 @@ public static class PasswordHasher
             return CryptographicOperations.FixedTimeEquals(actual, expected);
         }
 
-        // 구 무염 SHA-256 hex (SmartUX 3.5 호환). 길이가 다르면 FixedTimeEquals가 false를 반환한다.
+        // 구 무염 SHA-256 hex (레거시 시스템 호환). 길이가 다르면 FixedTimeEquals가 false를 반환한다.
         var legacy = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(password))).ToLowerInvariant();
         return CryptographicOperations.FixedTimeEquals(
             Encoding.UTF8.GetBytes(legacy), Encoding.UTF8.GetBytes(stored));

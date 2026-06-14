@@ -1,10 +1,10 @@
-﻿# SmartUX 3.5 → C# 마이그레이션 상세설계 문서
+﻿# 레거시 MES → C# 마이그레이션 상세설계 문서
 
 **문서 버전:** 2.0  
-**기준 소스:** SmartUX3.5_20260526  
+**기준 소스:** 레거시 소스 스냅샷  
 **작성일:** 2026-06-08  
 **보완일:** 2026-06-12 (v2.0)  
-**작성 목적:** 현행 SmartUX 3.5 시스템을 순수 C# 기반으로 기능·UI 동일하게 이전하기 위한 상세 설계
+**작성 목적:** 현행 레거시 MES 시스템을 순수 C# 기반으로 기능·UI 동일하게 이전하기 위한 상세 설계
 
 > **v1.2 변경 이력:** Program.cs 부트스트랩(LoginForm + 3개 InjectModule), UserInfo.Current 싱글톤, ConditionCollection 13종 컨트롤, Form 계층 10종, SO 감사 메커니즘, EMS/PPM/DLV 도메인, JWT Refresh Token/CORS, 워크플로우 WorkflowContext, FDC/RMS/QMS DB 테이블, SignalR 5-Hub 구조, 솔루션 구조 완성, 목차 섹션 15~20 추가  
 > **v1.3 변경 이력:** lo-LO 라오어 5번째 언어 추가(4.1.3), SqlTxnContext 멀티DB 채번 분기(5.3.4), ServiceObjectProcessor.InsertAsync 완전 구현 예시(5.3.3), WorkflowRequest DTO 클래스 정의(8.2), 멀티DB 쿼리 런타임 선택 로직(7.3), Framework/모듈 csproj 추가(3.3), WinForms CORS 미적용 범위 명기(9.6)  
@@ -47,12 +47,12 @@
 
 ### 1.1 시스템 개요
 
-SmartUX 3.5는 **제조실행시스템(MES, Manufacturing Execution System)** 으로, 스마트 팩토리 환경에서 설비 관리, 품질 관리, 생산 추적, 마스터데이터 관리 등을 지원하는 엔터프라이즈 시스템입니다.
+레거시 MES는 **제조실행시스템(MES, Manufacturing Execution System)** 으로, 스마트 팩토리 환경에서 설비 관리, 품질 관리, 생산 추적, 마스터데이터 관리 등을 지원하는 엔터프라이즈 시스템입니다.
 
 | 항목 | 내용 |
 |------|------|
-| 시스템명 | SmartUX 3.5 (SmartEES) |
-| 기준버전 | SmartUX3.5_20260526 |
+| 시스템명 | 레거시 MES (SmartEES) |
+| 기준버전 | 레거시 소스 스냅샷 |
 | 주요 도메인 | 설비관리(EPT), 마스터데이터(MDM), 품질관리(QMS), 설비데이터수집(FDC), 레시피관리(RMS) |
 | 사용자 유형 | 현장 작업자, 관리자, 시스템 관리자 |
 | 다국어 지원 | ko-KR, en-US, zh-CN, vi-VN, lo-LO |
@@ -134,7 +134,7 @@ SmartUX 3.5는 **제조실행시스템(MES, Manufacturing Execution System)** �
 ### 1.4 현행 프로젝트 파일 구성
 
 ```
-SmartUX3.5_20260526/
+레거시 소스 스냅샷/
 ├── DOTNET_UI_DEMO/
 │   └── client_source/
 │       ├── Framework.sln                     ← 메인 솔루션
@@ -2908,7 +2908,7 @@ public interface ILanguageService
 
 > **v1.9 전환 안내:** 이 섹션의 C# WinForms 코드 블록은 **현행 참조용**입니다.  
 > 타겟 구현에서는 `SmartConditionBaseForm` 상속 코드 대신 **섹션 6.3의 JSON 메타데이터** 방식으로 화면을 정의합니다.  
-> 각 도메인 화면의 조건·컬럼·레이아웃 구성은 SmartUX 웹 디자이너에서 관리하고, 백엔드 서비스는 `NexaOne.{Module}` C# 도메인 모듈에서 구현합니다.
+> 각 도메인 화면의 조건·컬럼·레이아웃 구성은 레거시 시스템 웹 디자이너에서 관리하고, 백엔드 서비스는 `NexaOne.{Module}` C# 도메인 모듈에서 구현합니다.
 
 ### 10.1 Micube.SmartEES.Mdm (마스터 데이터 관리)
 
@@ -4339,7 +4339,7 @@ public class MailService
 
 ## 14. 소스 검증 기반 보완 상세 설계
 
-본 장은 `reference/SmartUX3.5_20260526`의 실제 C# 클라이언트, Java Rule/Communication, Query XML, Schema SQL을 대조하여 기존 상세설계에서 누락되었거나 구현 수준이 부족한 항목을 보완한 것이다. 구현 시 본 장의 목록을 마이그레이션 대상 기준선으로 사용한다.
+본 장은 `reference/레거시 소스 스냅샷`의 실제 C# 클라이언트, Java Rule/Communication, Query XML, Schema SQL을 대조하여 기존 상세설계에서 누락되었거나 구현 수준이 부족한 항목을 보완한 것이다. 구현 시 본 장의 목록을 마이그레이션 대상 기준선으로 사용한다.
 
 ### 14.1 누락/보완 요약
 
@@ -4672,7 +4672,7 @@ QMS API는 `qms` Query Namespace를 보존하고, 향후 UI가 추가될 때 동
 
 ## 15. 캐싱 전략 설계
 
-현행 SmartUX3.5는 로그인과 화면 초기화 시 공통 기준 데이터를 반복 조회한다. `Language.Dictionary`, `Language.Message`, `Language.LanguageTypes`는 C# 클라이언트의 정적 Store에 적재되고, 메뉴는 `MenuRepository.InitMenu()`에서 `GetMenuList` Query 결과를 `DataTable`로 보관한다. 코드 콤보는 여러 화면에서 `GetCodeList`, `CODE_*_COMBO`, `SelectSYSCode` 계열 Query를 직접 호출한다. C# 전환 후에는 서버에서 `IMemoryCache` 기반 공통 캐시를 제공하고, 클라이언트는 로그인 세션 캐시와 서버 응답 캐시를 함께 사용한다.
+현행 레거시 MES 3.5는 로그인과 화면 초기화 시 공통 기준 데이터를 반복 조회한다. `Language.Dictionary`, `Language.Message`, `Language.LanguageTypes`는 C# 클라이언트의 정적 Store에 적재되고, 메뉴는 `MenuRepository.InitMenu()`에서 `GetMenuList` Query 결과를 `DataTable`로 보관한다. 코드 콤보는 여러 화면에서 `GetCodeList`, `CODE_*_COMBO`, `SelectSYSCode` 계열 Query를 직접 호출한다. C# 전환 후에는 서버에서 `IMemoryCache` 기반 공통 캐시를 제공하고, 클라이언트는 로그인 세션 캐시와 서버 응답 캐시를 함께 사용한다.
 
 ### 15.1 적용 대상
 
@@ -5056,7 +5056,7 @@ Metrics는 Prometheus 형식을 기본으로 노출하고, 운영 표준이 Azur
 
 ## 18. 아키텍처 보완 설계
 
-본 장은 현행 `reference/SmartUX3.5_20260526` 소스의 Java OSGi 번들, `@AComponent` Rule, SO(Data/Key) 클래스, `Config/Settings/communication/config.properties`, `Config/Datasource/*-datasource.json`, `Config/Message/websocket-events.xml` 구조를 .NET 8 기반 설계로 치환하기 위한 보완 명세이다. 현행 `s-communication-ees.ept`, `s-communication-ees.fdc`, `s-communication-ees.rms`는 설비 통신 Bounded Context로 보고, `s-component-factory.api`, `s-component-factory.so`, `s-component-ees.api`, `s-component-ees.so`, `s-component-standard.so`의 업무 객체를 Domain/Application/Infrastructure 경계로 분리한다.
+본 장은 현행 `reference/레거시 소스 스냅샷` 소스의 Java OSGi 번들, `@AComponent` Rule, SO(Data/Key) 클래스, `Config/Settings/communication/config.properties`, `Config/Datasource/*-datasource.json`, `Config/Message/websocket-events.xml` 구조를 .NET 8 기반 설계로 치환하기 위한 보완 명세이다. 현행 `s-communication-ees.ept`, `s-communication-ees.fdc`, `s-communication-ees.rms`는 설비 통신 Bounded Context로 보고, `s-component-factory.api`, `s-component-factory.so`, `s-component-ees.api`, `s-component-ees.so`, `s-component-standard.so`의 업무 객체를 Domain/Application/Infrastructure 경계로 분리한다.
 
 ### 18.1 Clean Architecture / DDD 레이어 경계 명세
 
@@ -5367,7 +5367,7 @@ builder.Services.AddResiliencePipeline("equipment-io", pipeline =>
 
 #### 18.2.5 API 버전 관리
 
-API 버전은 URL Path 방식(`/api/v1`, `/api/v2`)을 표준으로 한다. `v1`은 현행 SmartUX3.5 호환 DTO와 ResultCode를 유지하고, `v2`는 정규화된 REST DTO, ProblemDetails, Cursor Pagination을 적용한다.
+API 버전은 URL Path 방식(`/api/v1`, `/api/v2`)을 표준으로 한다. `v1`은 현행 레거시 MES 3.5 호환 DTO와 ResultCode를 유지하고, `v2`는 정규화된 REST DTO, ProblemDetails, Cursor Pagination을 적용한다.
 
 | 항목 | v1 | v2 |
 |------|------|------|
@@ -5920,7 +5920,7 @@ builder.Services
 
 ## 19. 기능 보완 설계 (누락 항목)
 
-본 장은 현행 `reference/SmartUX3.5_20260526` 소스에서 기능은 존재하지만 마이그레이션 상세설계에 명시가 부족한 항목을 보완한다. 기준 코드는 `SmartEES/LoginForm.cs`, `RegisterUser.cs`, `ChangePasswordOnLogin.cs`, `MainForm.cs`, `FrameworkSettings.cs`, `Config/Mail/InitPassword(en-US).xml`, WPM Java Rule의 `TrackInLot`, `TrackOutLot`, `MixingLotTrackInOut`, `LotTraceService`이다.
+본 장은 현행 `reference/레거시 소스 스냅샷` 소스에서 기능은 존재하지만 마이그레이션 상세설계에 명시가 부족한 항목을 보완한다. 기준 코드는 `SmartEES/LoginForm.cs`, `RegisterUser.cs`, `ChangePasswordOnLogin.cs`, `MainForm.cs`, `FrameworkSettings.cs`, `Config/Mail/InitPassword(en-US).xml`, WPM Java Rule의 `TrackInLot`, `TrackOutLot`, `MixingLotTrackInOut`, `LotTraceService`이다.
 
 ### 19.1 로그인/로그아웃/세션 만료 처리 흐름
 
@@ -6528,7 +6528,7 @@ TrackIn 검증은 Lot 존재/Plant 일치 -> Hold/상태 -> 설비(존재·Plant
 
 ## 20. 기능 보완 설계 (부족 항목)
 
-본 장은 `reference/SmartUX3.5_20260526`의 현행 구현을 기준으로 기능 부족 항목을 보완하기 위한 상세 설계이다. 주요 근거 코드는 `SmartBaseForm`, `SmartConditionBaseForm`, `SmartBandedGrid`, `MenuRepository`, `FormCreator`, `MainForm`, `EquipmentAlarmHistory`, `EquipmentStateChange`, `SpecValidationService`, `REQUEST_FDC_INTERLOCK`, `REQUEST_DOWNLOAD_RECIPE`이다. 현행 WinForms 구현의 동작 의미는 유지하고, C# 마이그레이션에서는 API, SignalR, 캐시, 비동기 처리, 감사 로그를 명시적으로 분리한다.
+본 장은 `reference/레거시 소스 스냅샷`의 현행 구현을 기준으로 기능 부족 항목을 보완하기 위한 상세 설계이다. 주요 근거 코드는 `SmartBaseForm`, `SmartConditionBaseForm`, `SmartBandedGrid`, `MenuRepository`, `FormCreator`, `MainForm`, `EquipmentAlarmHistory`, `EquipmentStateChange`, `SpecValidationService`, `REQUEST_FDC_INTERLOCK`, `REQUEST_DOWNLOAD_RECIPE`이다. 현행 WinForms 구현의 동작 의미는 유지하고, C# 마이그레이션에서는 API, SignalR, 캐시, 비동기 처리, 감사 로그를 명시적으로 분리한다.
 
 ### 20.1 메뉴 동적 로딩 및 권한별 필터링 흐름
 
@@ -6833,5 +6833,5 @@ UI 스레드 전환은 모든 실시간 수신 핸들러의 공통 규칙이다.
 
 ---
 
-*본 문서는 SmartUX3.5_20260526 소스 분석을 기반으로 작성된 C# 마이그레이션 상세설계서입니다.*  
+*본 문서는 레거시 소스 스냅샷 소스 분석을 기반으로 작성된 C# 마이그레이션 상세설계서입니다.*  
 *각 Phase 착수 시 세부 구현 명세를 추가 작성하여 보완합니다.*
