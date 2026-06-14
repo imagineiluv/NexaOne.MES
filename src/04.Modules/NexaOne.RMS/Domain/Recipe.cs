@@ -41,6 +41,24 @@ public sealed class Recipe : AuditableEntity<string>
         return recipe;
     }
 
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 리포지토리 읽기 전용 —
+    /// Create는 항상 Draft/Version=1로 강제하므로 승인 진행/배포된 레시피가 Draft로 잘못 읽히는 것을 막는다.</summary>
+    public static Recipe Restore(
+        string recipeId, string recipeName, string description, string equipmentClassId,
+        int version, RecipeApprovalState approvalState, string? firstApproverId,
+        string? secondApproverId, DateTime? releasedAt)
+        => new(recipeId)
+        {
+            RecipeName = recipeName,
+            Description = description,
+            EquipmentClassId = equipmentClassId,
+            Version = version,
+            ApprovalState = approvalState,
+            FirstApproverId = firstApproverId,
+            SecondApproverId = secondApproverId,
+            ReleasedAt = releasedAt
+        };
+
     public Result RequestApproval()
     {
         if (ApprovalState != RecipeApprovalState.Draft)

@@ -63,6 +63,27 @@ public sealed class WorkOrder : AuditableEntity<string>
         return wo;
     }
 
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 리포지토리 읽기 전용 —
+    /// Create는 항상 Issued로 강제하므로 진행/완료/취소된 작업지시가 Issued로 잘못 읽히는 것을 막는다.</summary>
+    public static WorkOrder Restore(
+        string woId, string? planId, string equipmentId, string woType, string description,
+        string assigneeId, DateTime issuedAt, DateTime? startedAt, DateTime? completedAt,
+        WorkOrderStatus status, string? failureCodeId, string? remark)
+        => new(woId)
+        {
+            PlanId = planId,
+            EquipmentId = equipmentId,
+            WoType = woType,
+            Description = description,
+            AssigneeId = assigneeId,
+            IssuedAt = issuedAt,
+            StartedAt = startedAt,
+            CompletedAt = completedAt,
+            Status = status,
+            FailureCodeId = failureCodeId,
+            Remark = remark
+        };
+
     public Result Start()
     {
         if (Status != WorkOrderStatus.Issued)

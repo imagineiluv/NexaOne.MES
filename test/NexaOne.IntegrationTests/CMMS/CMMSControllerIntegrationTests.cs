@@ -240,6 +240,41 @@ public sealed class CMMSControllerIntegrationTests : IClassFixture<TestApiFactor
             .Which.PartNumber.Should().Be("BRG-6205-2RS");
     }
 
+    // ──────────────────────────────────────────────────────────────────────────
+    // (g) 읽기경로 회귀 — 작업지시 시작(Issued→InProgress) 후 되읽었을 때 상태가 유지되는지 검증.
+    //     WorkOrderRepository.ToDomain이 Create로 재구성하면 Status가 Issued로 유실되던 버그 방지.
+    // ──────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public async Task StartWorkOrder_then_read_back_preserves_in_progress_status()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+        const string equipmentId = "EQ-CMMS-STATE-1";
+        const string woId = "CMMS-WO-STATE-1";
+
+        await client.PostAsJsonAsync("/api/v1/mdm/equipment", new
+        {
+            equipmentId, equipmentName = "State WO Equipment", plantId = "P-CMMS-STATE",
+            areaId = "A", equipmentType = "GENERIC", equipmentClassId = "CLS"
+        });
+        var createResp = await client.PostAsJsonAsync("/api/v1/cmms/work-orders", new
+        {
+            woId, equipmentId, woType = "PM", description = "state test", assigneeId = "U1"
+        });
+        createResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Issued → InProgress 전이.
+        var startResp = await client.PutAsync($"/api/v1/cmms/work-orders/{woId}/start", null);
+        startResp.StatusCode.Should().Be(HttpStatusCode.NoContent, "작업지시 시작 전이가 성공해야 한다");
+
+        // 되읽기 — 전이된 상태(InProgress)가 그대로 복원되어야 한다(Issued로 유실되면 안 됨).
+        var list = await client.GetFromJsonAsync<List<WorkOrderDto>>(
+            $"/api/v1/cmms/work-orders?equipmentId={equipmentId}");
+        list.Should().NotBeNull();
+        list!.Should().ContainSingle(w => w.Id == woId)
+            .Which.Status.Should().Be("InProgress",
+                "되읽은 작업지시 상태는 전이 결과(InProgress)여야 한다 — ToDomain이 상태를 유실하면 안 된다");
+    }
+
     // 도메인(JSON camelCase, 대소문자 무시 역직렬화)에서 필요한 필드만 매핑.
     private sealed record WorkOrderDto(string Id, string EquipmentId, string WoType, string Status);
     private sealed record MaintenancePlanDto(string Id, string EquipmentId, string Status);

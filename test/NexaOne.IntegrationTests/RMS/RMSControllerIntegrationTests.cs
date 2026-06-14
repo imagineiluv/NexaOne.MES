@@ -80,6 +80,32 @@ public sealed class RMSControllerIntegrationTests : IClassFixture<TestApiFactory
         single.EquipmentClassId.Should().Be(equipmentClassId);
     }
 
+    [Fact]
+    public async Task RequestApproval_then_read_back_preserves_approval_state()
+    {
+        // 읽기경로 회귀 — 상태 전이 후 되읽었을 때 승인 상태가 유지되는지 검증한다.
+        // (RecipeRepository.ToDomain이 Create로 재구성하면 ApprovalState가 Draft로 유실되던 버그 방지.)
+        var client = _factory.CreateAuthenticatedClient();
+        const string recipeId = "RMS-IT-STATE";
+        const string equipmentClassId = "CLS-RMS-STATE";
+
+        var createResp = await client.PostAsJsonAsync("/api/v1/rms/recipes", new
+        {
+            recipeId, name = "State Recipe", description = "", equipmentClassId
+        });
+        createResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Draft → WaitApproval 전이.
+        var transition = await client.PutAsync($"/api/v1/rms/recipes/{recipeId}/request-approval", null);
+        transition.StatusCode.Should().Be(HttpStatusCode.NoContent, "승인요청 전이가 성공해야 한다");
+
+        // 되읽기 — 전이된 상태(WaitApproval)가 그대로 영속/복원되어야 한다(Draft로 유실되면 안 됨).
+        var reread = await client.GetFromJsonAsync<RecipeDto>($"/api/v1/rms/recipes/{recipeId}");
+        reread.Should().NotBeNull();
+        reread!.ApprovalState.Should().Be("WaitApproval",
+            "되읽은 레시피의 승인 상태는 전이 결과(WaitApproval)여야 한다 — ToDomain이 상태를 유실하면 안 된다");
+    }
+
     // 응답 본문은 RMS 도메인 Recipe(camelCase, JsonStringEnumConverter로 enum은 문자열).
     private sealed record RecipeDto(string Id, string RecipeName, string EquipmentClassId, string ApprovalState);
 }

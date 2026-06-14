@@ -73,10 +73,14 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
         public string? FailureCodeId { get; set; }
         public string? Remark { get; set; }
 
-        public WorkOrder? ToDomain()
+        public WorkOrder ToDomain()
         {
+            // 영속 상태(Status/StartedAt/CompletedAt/FailureCode/Remark)를 그대로 복원한다 —
+            // Create는 Status를 Issued로 강제해 상태를 유실하므로 Restore를 사용한다.
             if (!Enum.TryParse<WorkOrderStatus>(Status, out var status)) status = WorkOrderStatus.Issued;
-            return WorkOrder.Create(WoId, EquipmentId, WoType, Description, AssigneeId, IssuedAt, PlanId).Value;
+            return WorkOrder.Restore(
+                WoId, PlanId, EquipmentId, WoType, Description, AssigneeId,
+                IssuedAt, StartedAt, CompletedAt, status, FailureCodeId, Remark);
         }
 
         public static WoRow FromDomain(WorkOrder w) => new()

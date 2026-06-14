@@ -68,10 +68,14 @@ public sealed class RecipeRepository : QueryRepository, IRecipeRepository
         public string? SecondApproverId { get; set; }
         public DateTime? ReleasedAt { get; set; }
 
-        public Recipe? ToDomain()
+        public Recipe ToDomain()
         {
-            var result = Recipe.Create(RecipeId, RecipeName, Description, EquipmentClassId);
-            return result.IsSuccess ? result.Value : null;
+            // 영속 상태(Version/ApprovalState/승인자/ReleasedAt)를 그대로 복원한다 —
+            // Create는 Draft/Version=1로 강제해 승인 상태를 유실하므로 Restore를 사용한다.
+            if (!Enum.TryParse<RecipeApprovalState>(ApprovalState, out var state)) state = RecipeApprovalState.Draft;
+            return Recipe.Restore(
+                RecipeId, RecipeName, Description, EquipmentClassId, Version, state,
+                FirstApproverId, SecondApproverId, ReleasedAt);
         }
 
         public static RecipeRow FromDomain(Recipe r) => new()
