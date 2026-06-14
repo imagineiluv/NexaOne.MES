@@ -279,8 +279,11 @@ app.UseAuthentication();
 // §17.3 — 인증 직후 요청 공통 로그 필드 주입(UserId 클레임 판정 가능 시점) + 요청 완료 로그
 app.UseMiddleware<NexaOne.API.Middleware.RequestLogContextMiddleware>();
 app.UseSerilogRequestLogging();
-// §18.2.3 — 사용자/IP 파티션 Rate Limiting (인증 후 → 사용자 클레임 기준 파티션 가능 시점)
-app.UseRateLimiter();
+// §18.2.3 — 사용자/IP 파티션 Rate Limiting (인증 후 → 사용자 클레임 기준 파티션 가능 시점).
+// RateLimiting:Enabled=false면 미적용 — 외부 게이트웨이/WAF가 이미 제한하거나, 통합테스트가
+// 비즈니스 로직 검증 시 레이트리밋(공유 IP·다수 호출)에 막혀 비결정적으로 실패하는 것을 피할 때 사용. 기본 활성.
+if (builder.Configuration.GetValue("RateLimiting:Enabled", true))
+    app.UseRateLimiter();
 // §20.10 — 비밀번호 변경 강제 사용자의 업무 API 차단 (인증 후 → 클레임 판정 가능 시점)
 app.UseMiddleware<NexaOne.API.Middleware.PasswordChangeRequiredMiddleware>();
 app.UseAuthorization();

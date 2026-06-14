@@ -45,6 +45,9 @@ public sealed class TestApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Jwt:Audience", TestIssuer);
         builder.UseSetting("Database:Provider", "Sqlite");
         builder.UseSetting("ConnectionStrings:NexaOne", ConnString);
+        // 레이트리밋 비활성 — 통합테스트는 비즈니스 로직을 검증하며, 한 클래스의 다수 요청이 공유 IP로
+        // "auth"(IP당 10/min)·전역(100/min) 한도에 걸리면 비결정적 429가 난다(레이트리밋 자체를 테스트하지 않음).
+        builder.UseSetting("RateLimiting:Enabled", "false");
     }
 
     /// <summary>앱의 JwtService로 유효한 토큰을 발급해 Authorization 헤더가 설정된 클라이언트를 반환한다.
