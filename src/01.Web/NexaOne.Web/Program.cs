@@ -31,7 +31,10 @@ builder.Services.AddScoped<JwtAuthStateProvider>();
 builder.Services.AddScoped<AuthenticationStateProvider>(sp => sp.GetRequiredService<JwtAuthStateProvider>());
 builder.Services.AddScoped<AuthTokenService>();
 builder.Services.AddScoped<AuthContextService>();
+builder.Services.AddScoped<IAuthContext>(sp => sp.GetRequiredService<AuthContextService>());
 builder.Services.AddScoped<NexaHubService>();
+// 상태 배너(HubStatusBar)가 구상 NexaHubService 대신 계약에만 의존하도록 — 동일 인스턴스 포워딩(테스트 대체 가능).
+builder.Services.AddScoped<IHubStatusSource>(sp => sp.GetRequiredService<NexaHubService>());
 builder.Services.AddScoped<WaitOverlayService>();
 // API 실패(403 권한 거부/5xx)를 전역 토스트로 노출하는 통지 채널 — ApiClient 발신 / ApiToastHost 구독
 builder.Services.AddScoped<ApiNotificationService>();

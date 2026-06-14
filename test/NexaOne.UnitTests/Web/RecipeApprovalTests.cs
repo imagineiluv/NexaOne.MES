@@ -50,6 +50,17 @@ public sealed class RecipeApprovalTests
             sp.GetRequiredService<Microsoft.AspNetCore.DataProtection.IDataProtectionProvider>()));
         ctx.Services.AddScoped(sp => new AuthTokenService(sp.GetRequiredService<ProtectedSessionStorage>()));
         ctx.Services.AddScoped(sp => new AuthContextService(sp.GetRequiredService<AuthTokenService>()));
+        ctx.Services.AddScoped<IAuthContext>(sp => sp.GetRequiredService<AuthContextService>());
+    }
+
+    /// <summary>IAuthContext를 Mock으로 등록해 _currentUserId 폴백 분기를 검증한다(인터페이스 추출 후 가능).</summary>
+    private static void RegisterWithAuthUser(TestContext ctx, string userId)
+    {
+        ctx.Services.AddSingleton<WaitOverlayService>();
+        var auth = new Mock<IAuthContext>();
+        auth.Setup(a => a.GetUserIdAsync()).ReturnsAsync(userId);
+        auth.Setup(a => a.GetPlantIdAsync()).ReturnsAsync("P1");
+        ctx.Services.AddSingleton(auth.Object);
     }
 
     /// <summary>지정 상태(state)의 레시피만 반환하도록 GetRecipesAsync를 셋업한 IApiClient Mock.</summary>
@@ -190,6 +201,53 @@ public sealed class RecipeApprovalTests
             "담당자 ID를 확인할 수 없으면 승인 게이트웨이를 호출하면 안 된다");
         api.Verify(a => a.ApproveRecipe2Async(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
         api.Verify(a => a.ReleaseRecipeAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // ── 시나리오 (b'): _currentUserId 폴백 성공 경로(IAuthContext 추출로 검증 가능해짐) ──────────
+
+    [Fact]
+    public void Confirm_with_no_input_uses_currentUser_fallback_for_approve()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var api = ApiReturning(Recipe("R-7", "WaitApproval"));
+        ctx.Services.AddSingleton(api.Object);
+        RegisterWithAuthUser(ctx, "CURRENT-USER");   // IAuthContext Mock → _currentUserId="CURRENT-USER"
+
+        var cut = ctx.RenderComponent<RecipeApproval>();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("레시피-R-7"), TimeSpan.FromSeconds(2));
+
+        ButtonWithText(cut, "워크플로우").Click();
+        // 담당자 ID 미입력 → _currentUserId 폴백 사용(둘 중 하나라도 있으면 진행).
+        ButtonWithText(cut, "1차 승인").Click();
+
+        cut.WaitForAssertion(() =>
+            api.Verify(a => a.ApproveRecipe1Async("R-7", "CURRENT-USER", It.IsAny<CancellationToken>()), Times.Once,
+                "담당자 ID 미입력 시 _currentUserId 폴백으로 1차 승인 게이트웨이를 호출해야 한다"),
+            TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public void Approved_confirm_with_currentUser_calls_ReleaseRecipeAsync()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var api = ApiReturning(Recipe("R-8", "Approved", firstApprover: "F", secondApprover: "S"));
+        ctx.Services.AddSingleton(api.Object);
+        RegisterWithAuthUser(ctx, "RELEASER");
+
+        var cut = ctx.RenderComponent<RecipeApproval>();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("레시피-R-8"), TimeSpan.FromSeconds(2));
+
+        ButtonWithText(cut, "워크플로우").Click();
+        ButtonWithText(cut, "릴리스").Click();   // Approved → 담당자 입력란 없음 → _currentUserId 폴백
+
+        cut.WaitForAssertion(() =>
+            api.Verify(a => a.ReleaseRecipeAsync("R-8", "RELEASER", It.IsAny<CancellationToken>()), Times.Once,
+                "Approved 상태에서 _currentUserId 폴백으로 릴리스 게이트웨이를 호출해야 한다(양성 경로)"),
+            TimeSpan.FromSeconds(2));
     }
 
     // ── 시나리오 (c): 거부 사유 공백 ──────────────────────────────────────────────

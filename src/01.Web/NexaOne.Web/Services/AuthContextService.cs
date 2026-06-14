@@ -3,7 +3,16 @@ using NexaOne.Web.Services.Auth;
 
 namespace NexaOne.Web.Services;
 
-public sealed class AuthContextService
+/// <summary>현재 사용자 컨텍스트(토큰 클레임) 접근 계약. 페이지가 이 계약에 의존하면 테스트에서 대체 가능하다
+/// (구상 AuthContextService는 sealed + ProtectedSessionStorage 의존이라 직접 모킹 불가).</summary>
+public interface IAuthContext
+{
+    Task<string?> GetUserIdAsync();
+    Task<string?> GetUserNameAsync();
+    Task<string?> GetPlantIdAsync();
+}
+
+public sealed class AuthContextService : IAuthContext
 {
     private readonly AuthTokenService _tokenService;
     private static readonly JwtSecurityTokenHandler _handler = new();

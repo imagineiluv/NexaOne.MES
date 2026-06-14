@@ -29,6 +29,10 @@ public interface IHubStatusSource
 
     /// <summary>백그라운드 스레드에서 호출될 수 있다 — Blazor 컴포넌트에서는 InvokeAsync로 감쌀 것 (§20.9).</summary>
     event Action<HubStatus>? OnStatusChanged;
+
+    /// <summary>수동 재연결(상태 배너의 '다시 연결' 버튼, §20.9). 연결 성공 시 true. 상태 배너가 이 계약만
+    /// 의존하면 테스트에서 대체 가능하다(구상 NexaHubService 비의존).</summary>
+    Task<bool> ReconnectAsync(CancellationToken ct = default);
 }
 
 public sealed class NexaHubService : IHubStatusSource, IAsyncDisposable

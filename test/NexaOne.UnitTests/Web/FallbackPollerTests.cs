@@ -16,6 +16,9 @@ public sealed class FallbackPollerTests
             Status = status;
             OnStatusChanged?.Invoke(status);
         }
+
+        // FallbackPoller는 ReconnectAsync를 쓰지 않는다(상태 구독만) — 계약 충족용 no-op 스텁.
+        public Task<bool> ReconnectAsync(CancellationToken ct = default) => Task.FromResult(true);
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 3000)
