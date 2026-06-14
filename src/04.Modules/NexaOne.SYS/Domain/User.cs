@@ -134,6 +134,9 @@ public sealed class User : AuditableEntity<string>
         IsActive = false;
         IsDeleted = true;
         DeletedAt = DateTime.UtcNow;
+        // ADR-002: 비활성화를 도메인 이벤트로 발행한다. 리포가 비활성화(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        // (Restore는 new(...) 직접 경로라 이벤트를 발행하지 않는다 — 읽기경로 재구성은 발행 대상이 아니다.)
+        RaiseDomainEvent(new UserDeactivatedDomainEvent(Id));
     }
 
     /// <summary>본인 확인을 거친 정상 변경 — 비밀번호 상태를 Normal로 되돌린다 (§20.10).</summary>

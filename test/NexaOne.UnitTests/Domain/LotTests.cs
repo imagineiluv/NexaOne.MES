@@ -1,3 +1,4 @@
+using System.Text.Json;
 using NexaOne.POM.Domain;
 
 namespace NexaOne.UnitTests.Domain;
@@ -310,5 +311,92 @@ public sealed class LotTests
         lot.IsLastStep.Should().BeTrue();
         lot.IsHold.Should().BeTrue();
         lot.RecipeDefVersion.Should().Be(3);
+    }
+
+    // ── ADR-002 도메인 이벤트(→ outbox) ────────────────────────────────────────
+
+    [Fact]
+    public void TrackIn_raises_LotTrackedIn_event_with_outbox_envelope()
+    {
+        var lot = QueuedLot();
+
+        lot.TrackIn("EQ001", "RCP01", 2, "worker", ServerTime).IsSuccess.Should().BeTrue();
+
+        var ev = lot.DomainEvents.OfType<LotTrackedInDomainEvent>().Should().ContainSingle().Subject;
+        ev.EventType.Should().Be("LotTrackedIn");
+        ev.Module.Should().Be("POM");
+        ev.AggregateId.Should().Be("LOT001", "Lot별 순서 보장을 위해 AGGREGATE_ID는 LOT_ID여야 한다");
+
+        using var doc = JsonDocument.Parse(ev.Payload);
+        doc.RootElement.GetProperty("EquipmentId").GetString().Should().Be("EQ001");
+        doc.RootElement.GetProperty("RecipeDefId").GetString().Should().Be("RCP01");
+        doc.RootElement.GetProperty("RecipeDefVersion").GetInt32().Should().Be(2);
+        doc.RootElement.GetProperty("ProcessId").GetString().Should().Be("CUT", "진입한 현재 공정을 담는다");
+    }
+
+    [Fact]
+    public void TrackOut_raises_LotTrackedOut_event_with_post_transition_state()
+    {
+        var lot = ProcessingLot();   // ["CUT","ASSY"] — 첫 TrackOut은 다음 공정 대기로 전이
+        lot.ClearDomainEvents();     // TrackIn 이벤트 제거 — TrackOut 이벤트만 검증
+
+        lot.TrackOut("EQ001", 9m, 1m, "CAR01", "worker", ServerTime.AddHours(1)).IsSuccess.Should().BeTrue();
+
+        var ev = lot.DomainEvents.OfType<LotTrackedOutDomainEvent>().Should().ContainSingle().Subject;
+        ev.EventType.Should().Be("LotTrackedOut");
+        ev.Module.Should().Be("POM");
+        ev.AggregateId.Should().Be("LOT001");
+
+        using var doc = JsonDocument.Parse(ev.Payload);
+        doc.RootElement.GetProperty("Qty").GetDecimal().Should().Be(9m);
+        doc.RootElement.GetProperty("DefectQty").GetDecimal().Should().Be(1m);
+        doc.RootElement.GetProperty("NewState").GetString().Should().Be("Queued", "마지막 공정이 아니면 다음 공정 대기로 전이된다");
+        doc.RootElement.GetProperty("CurrentStepIndex").GetInt32().Should().Be(1);
+        doc.RootElement.GetProperty("IsLastStep").GetBoolean().Should()
+            .BeTrue("IsLastStep은 '전이 후' 위치 기준 — 다음 공정(인덱스 1)이 경로의 마지막 단계라 true다. 완료 여부는 NewState(Queued=미완료)로 구분한다");
+    }
+
+    [Fact]
+    public void Consume_raises_LotConsumed_event_with_outbox_envelope()
+    {
+        var lot = QueuedLot(qty: 10m);
+
+        lot.Consume("worker").IsSuccess.Should().BeTrue();
+
+        var ev = lot.DomainEvents.OfType<LotConsumedDomainEvent>().Should().ContainSingle().Subject;
+        ev.EventType.Should().Be("LotConsumed");
+        ev.Module.Should().Be("POM");
+        ev.AggregateId.Should().Be("LOT001");
+
+        using var doc = JsonDocument.Parse(ev.Payload);
+        doc.RootElement.GetProperty("ProductId").GetString().Should().Be("PROD01");
+        doc.RootElement.GetProperty("Qty").GetDecimal().Should().Be(10m);
+    }
+
+    [Fact]
+    public void Hold_ReleaseHold_IncreaseMixingQty_raise_no_events()
+    {
+        var lot = QueuedLot();
+
+        lot.IncreaseMixingQty(5m, "worker").IsSuccess.Should().BeTrue();
+        lot.Hold("manager").IsSuccess.Should().BeTrue();
+        lot.ReleaseHold("manager").IsSuccess.Should().BeTrue();
+
+        lot.DomainEvents.Should().BeEmpty("Hold/ReleaseHold/IncreaseMixingQty는 도메인 이벤트 발행 대상이 아니다");
+    }
+
+    [Fact]
+    public void Restore_raises_no_domain_events()
+        => Lot.Restore("LOT001", "P1", "ORD001", "PROD01", 8m, 2m, LotState.Processing, LotProcessState.Run,
+                ["CUT", "ASSY"], 1, "EQ001", "RCP01", 3, "CAR01", isHold: false, "worker", ServerTime, null, null)
+            .DomainEvents.Should().BeEmpty("읽기경로 재구성(Restore)은 도메인 이벤트 발행 대상이 아니다");
+
+    [Fact]
+    public void ClearDomainEvents_empties_the_list()
+    {
+        var lot = QueuedLot();
+        lot.TrackIn("EQ001", null, null, "worker", ServerTime);
+        lot.ClearDomainEvents();
+        lot.DomainEvents.Should().BeEmpty("리포가 발행 후 이벤트를 비워야 재발행되지 않는다");
     }
 }

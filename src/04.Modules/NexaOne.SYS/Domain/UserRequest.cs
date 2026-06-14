@@ -154,6 +154,9 @@ public sealed class UserRequest : AuditableEntity<string>
         Status = UserRequestStatus.Approved;
         ApprovedBy = approvedBy;
         ApprovedAt = utcNow;
+        // ADR-002: 승인을 도메인 이벤트로 발행한다. 리포가 승인(UPDATE)과 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        // (Restore는 new(...) 직접 경로라 이벤트를 발행하지 않는다 — 읽기경로 재구성은 발행 대상이 아니다.)
+        RaiseDomainEvent(new UserRequestApprovedDomainEvent(Id, UserId, approvedBy, utcNow));
         return Result.Success();
     }
 
@@ -171,6 +174,8 @@ public sealed class UserRequest : AuditableEntity<string>
         RejectedBy = rejectedBy;
         RejectReason = reason.Trim();
         RejectedAt = utcNow;
+        // ADR-002: 반려를 도메인 이벤트로 발행한다. 리포가 반려(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new UserRequestRejectedDomainEvent(Id, UserId, rejectedBy, RejectReason));
         return Result.Success();
     }
 

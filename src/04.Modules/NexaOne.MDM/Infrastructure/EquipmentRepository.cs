@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+using NexaOne.Common;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.MDM.Application.Equipments;
 using NexaOne.MDM.Domain;
@@ -7,10 +9,13 @@ namespace NexaOne.MDM.Infrastructure;
 public sealed class EquipmentRepository : QueryRepository, IEquipmentRepository
 {
     private readonly ServiceObjectProcessor _processor;
+    private readonly bool _outboxEnabled;
 
-    public EquipmentRepository(EesDataSource dataSource) : base(dataSource)
+    public EquipmentRepository(EesDataSource dataSource, IConfiguration config) : base(dataSource)
     {
         _processor = new ServiceObjectProcessor(dataSource);
+        // ADR-002: 도메인이벤트→outbox 트랜잭션 기록은 opt-in(기본 off). 켜야 디스패처도 함께 동작한다(상태 슬라이스와 동일 게이트).
+        _outboxEnabled = string.Equals(config["Events:Outbox:Enabled"], "true", StringComparison.OrdinalIgnoreCase);
     }
 
     public async Task<Equipment?> GetByIdAsync(string equipmentId, CancellationToken ct = default)
@@ -47,11 +52,57 @@ public sealed class EquipmentRepository : QueryRepository, IEquipmentRepository
 
     public async Task UpdateAsync(Equipment equipment, CancellationToken ct = default)
     {
-        const string sql = @"UPDATE MDM_EQUIPMENT SET
+        // 기본(outbox off): 기존 동작 그대로 — 단건 UPDATE(감사 자동주입), 적체 없음.
+        if (!_outboxEnabled)
+        {
+            const string sql = @"UPDATE MDM_EQUIPMENT SET
             EQUIPMENT_NAME = @EquipmentName, DESCRIPTION = @Description, EQUIPMENT_TYPE = @EquipmentType,
             VENDOR = @Vendor, MODEL = @Model, VALID_STATE = @ValidState, UPDATED_BY = @UpdatedBy, UPDATED_AT = @UpdatedAt
             WHERE EQUIPMENT_ID = @EquipmentId";
-        await _processor.UpdateAsync(sql, EquipmentRow.FromDomain(equipment), ct);
+            await _processor.UpdateAsync(sql, EquipmentRow.FromDomain(equipment), ct);
+            return;
+        }
+        // ADR-002 활성: 설비 UPDATE + 도메인 이벤트(EES_OUTBOX)를 같은 트랜잭션으로 — 함께 커밋/롤백돼 발행 원자성 보장.
+        // (비활성/활성/상위변경만 이벤트를 발행하며, UpdateInfo 같은 비이벤트 편집은 DomainEvents가 비어 outbox INSERT가 0건이다.)
+        await PersistWithOutboxAsync(equipment, ct);
+    }
+
+    // ChangeParent가 변경하는 PARENT_EQUIPMENT_ID까지 영속하도록 outbox 경로 전용 UPDATE를 둔다(기본 경로 SQL은 불변).
+    private const string OutboxUpdateSql = @"UPDATE MDM_EQUIPMENT SET
+            EQUIPMENT_NAME = @EquipmentName, DESCRIPTION = @Description, EQUIPMENT_TYPE = @EquipmentType,
+            PARENT_EQUIPMENT_ID = @ParentEquipmentId,
+            VENDOR = @Vendor, MODEL = @Model, VALID_STATE = @ValidState, UPDATED_BY = @UpdatedBy, UPDATED_AT = @UpdatedAt
+            WHERE EQUIPMENT_ID = @EquipmentId";
+
+    // 설비 행 + 발행 이벤트를 한 트랜잭션으로 기록한다. ExecuteManyAsync는 raw(감사 미주입)라 설비 행의 감사 컬럼을
+    // UpdateAsync 경로와 동일한 값(현재 사용자·UTC now)으로 명시 채운다. 발행 후 이벤트를 비워 재발행을 막는다.
+    private async Task PersistWithOutboxAsync(Equipment equipment, CancellationToken ct)
+    {
+        var user = CurrentUserContext.UserId ?? "SYSTEM";
+        var now = DateTime.UtcNow;
+        var statements = new List<(string Sql, object? Param)>
+        {
+            (OutboxUpdateSql, UpdateParam(equipment, user, now)),
+        };
+        statements.AddRange(OutboxStatements.For(equipment.DomainEvents.OfType<IOutboxEvent>(), user, now));
+        await _processor.ExecuteManyAsync(ct, statements.ToArray());
+        equipment.ClearDomainEvents();
+    }
+
+    private static Dapper.DynamicParameters UpdateParam(Equipment equipment, string user, DateTime now)
+    {
+        var p = new Dapper.DynamicParameters();
+        p.Add("EquipmentId", equipment.Id);
+        p.Add("EquipmentName", equipment.EquipmentName);
+        p.Add("Description", equipment.Description);
+        p.Add("EquipmentType", equipment.EquipmentType);
+        p.Add("ParentEquipmentId", equipment.ParentEquipmentId);
+        p.Add("Vendor", equipment.Vendor);
+        p.Add("Model", equipment.Model);
+        p.Add("ValidState", equipment.ValidState);
+        p.Add("UpdatedBy", user);
+        p.Add("UpdatedAt", now);
+        return p;
     }
 
     private sealed class EquipmentRow

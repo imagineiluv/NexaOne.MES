@@ -69,9 +69,27 @@ public sealed class Equipment : AuditableEntity<string>
             ValidState = validState
         };
 
-    public void Deactivate() => ValidState = "Invalid";
-    public void Activate() => ValidState = "Valid";
-    public void ChangeParent(string? parentId) => ParentEquipmentId = parentId;
+    public void Deactivate()
+    {
+        ValidState = "Invalid";
+        // ADR-002: 비활성화를 도메인 이벤트로 발행한다. 리포가 비활성화(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        // (Restore는 new(...) 직접 경로라 이벤트를 발행하지 않는다 — 읽기경로 재구성은 발행 대상이 아니다.)
+        RaiseDomainEvent(new EquipmentDeactivatedDomainEvent(Id));
+    }
+
+    public void Activate()
+    {
+        ValidState = "Valid";
+        // ADR-002: 활성화를 도메인 이벤트로 발행한다. 리포가 활성화(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new EquipmentActivatedDomainEvent(Id));
+    }
+
+    public void ChangeParent(string? parentId)
+    {
+        ParentEquipmentId = parentId;
+        // ADR-002: 상위 변경을 도메인 이벤트로 발행한다. 리포가 상위 변경(UPDATE)과 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new EquipmentParentChangedDomainEvent(Id, parentId));
+    }
 
     public void UpdateInfo(string name, string description, string equipmentType, string vendor, string model)
     {

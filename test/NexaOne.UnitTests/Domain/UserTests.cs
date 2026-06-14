@@ -1,4 +1,5 @@
-﻿using NexaOne.SYS.Domain;
+﻿using System.Text.Json;
+using NexaOne.SYS.Domain;
 using NexaOne.Common;
 
 namespace NexaOne.UnitTests.Domain;
@@ -160,5 +161,40 @@ public sealed class UserTests
         user.PasswordState.Should().Be(PasswordState.Forgot);
         user.FailCount.Should().Be(3);
         user.LockedUntil.Should().Be(lockedUntil);
+    }
+
+    // ── ADR-002: 비활성화 시 도메인 이벤트 발행(opt-in outbox) ─────────────────────────────
+
+    [Fact]
+    public void Deactivate_raises_UserDeactivated_event_with_outbox_envelope()
+    {
+        var user = User.Create("u020", "Frank", "hash", "f@test.com", "USER").Value;
+
+        user.Deactivate();
+
+        var ev = user.DomainEvents.OfType<UserDeactivatedDomainEvent>().Should().ContainSingle().Subject;
+        ev.EventType.Should().Be("UserDeactivated");
+        ev.Module.Should().Be("SYS");
+        ev.AggregateId.Should().Be("u020", "사용자별 순서 보장을 위해 AGGREGATE_ID는 UserId여야 한다");
+
+        using var doc = JsonDocument.Parse(ev.Payload);
+        doc.RootElement.GetProperty("UserId").GetString().Should().Be("u020");
+    }
+
+    [Fact]
+    public void Restore_raises_no_domain_events()
+        => User.Restore(
+                "u021", "Grace", "hash", "g@test.com", "USER", LanguageType.KoKr,
+                isActive: true, isDeleted: false, deletedAt: null, lastLoginAt: null,
+                passwordState: PasswordState.Normal, failCount: 0, lockedUntil: null)
+            .DomainEvents.Should().BeEmpty("읽기경로 재구성(Restore)은 도메인 이벤트 발행 대상이 아니다");
+
+    [Fact]
+    public void ClearDomainEvents_empties_the_list()
+    {
+        var user = User.Create("u022", "Heidi", "hash", "h@test.com", "USER").Value;
+        user.Deactivate();
+        user.ClearDomainEvents();
+        user.DomainEvents.Should().BeEmpty("리포가 발행 후 이벤트를 비워야 재발행되지 않는다");
     }
 }

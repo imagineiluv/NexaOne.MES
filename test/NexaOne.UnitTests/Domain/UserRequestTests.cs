@@ -1,3 +1,4 @@
+using System.Text.Json;
 using NexaOne.Common;
 using NexaOne.SYS.Domain;
 
@@ -218,5 +219,73 @@ public sealed class UserRequestTests
         result.Error.Code.Should().Be("UserRequest.TermsRequired");
         request.Status.Should().Be(UserRequestStatus.Rejected, "검증 실패 시 상태가 변하면 안 된다");
         request.RequestVersion.Should().Be(1);
+    }
+
+    // ── ADR-002: 상태 전이 시 도메인 이벤트 발행(opt-in outbox) ─────────────────────────────
+
+    [Fact]
+    public void Approve_raises_UserRequestApproved_event_with_outbox_envelope()
+    {
+        var request = NewRequest();
+        var at = Now.AddHours(2);
+
+        request.Approve("admin", at);
+
+        var ev = request.DomainEvents.OfType<UserRequestApprovedDomainEvent>().Should().ContainSingle().Subject;
+        ev.EventType.Should().Be("UserRequestApproved");
+        ev.Module.Should().Be("SYS");
+        ev.AggregateId.Should().Be("REQ1", "신청별 순서 보장을 위해 AGGREGATE_ID는 RequestId여야 한다");
+
+        using var doc = JsonDocument.Parse(ev.Payload);
+        doc.RootElement.GetProperty("UserId").GetString().Should().Be("newbie");
+        doc.RootElement.GetProperty("ApprovedBy").GetString().Should().Be("admin");
+        doc.RootElement.GetProperty("ApprovedAt").GetDateTime().Should().Be(at);
+    }
+
+    [Fact]
+    public void Reject_raises_UserRequestRejected_event_with_outbox_envelope()
+    {
+        var request = NewRequest();
+
+        request.Reject("admin", " 부서 확인 불가 ", Now.AddHours(2));
+
+        var ev = request.DomainEvents.OfType<UserRequestRejectedDomainEvent>().Should().ContainSingle().Subject;
+        ev.EventType.Should().Be("UserRequestRejected");
+        ev.Module.Should().Be("SYS");
+        ev.AggregateId.Should().Be("REQ1");
+
+        using var doc = JsonDocument.Parse(ev.Payload);
+        doc.RootElement.GetProperty("UserId").GetString().Should().Be("newbie");
+        doc.RootElement.GetProperty("RejectedBy").GetString().Should().Be("admin");
+        doc.RootElement.GetProperty("RejectReason").GetString().Should().Be("부서 확인 불가", "반려 사유는 trim해서 이벤트에 담는다");
+    }
+
+    [Fact]
+    public void Reapply_raises_no_domain_event()
+    {
+        var request = RejectedRequest();
+        request.ClearDomainEvents();   // 반려 이벤트 제거 — 재신청이 이벤트를 발행하지 않음을 검증
+
+        request.Reapply("홍길순", "second@test.com", "품질팀", "대리",
+            "P2", LanguageType.EnUs, termsAccepted: true, Now.AddDays(1), "10.0.0.2");
+
+        request.DomainEvents.Should().BeEmpty("재신청은 outbox 발행 대상이 아니다 (승인/반려만 발행)");
+    }
+
+    [Fact]
+    public void Restore_raises_no_domain_events()
+        => UserRequest.Restore("REQ9", "newbie", "홍길동", "new@test.com", "생산팀", "사원", null,
+                "P1", LanguageType.KoKr, null, null, null, null,
+                UserRequestStatus.Approved, 1, Now, Now, "10.0.0.1",
+                "admin", Now, null, null, null)
+            .DomainEvents.Should().BeEmpty("읽기경로 재구성(Restore)은 도메인 이벤트 발행 대상이 아니다");
+
+    [Fact]
+    public void ClearDomainEvents_empties_the_list()
+    {
+        var request = NewRequest();
+        request.Approve("admin", Now);
+        request.ClearDomainEvents();
+        request.DomainEvents.Should().BeEmpty("리포가 발행 후 이벤트를 비워야 재발행되지 않는다");
     }
 }

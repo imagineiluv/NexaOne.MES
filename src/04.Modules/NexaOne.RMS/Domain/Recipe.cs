@@ -65,6 +65,9 @@ public sealed class Recipe : AuditableEntity<string>
             return Result.Failure(Error.Conflict($"Recipe must be in Draft state to request approval. Current state: {ApprovalState}."));
 
         ApprovalState = RecipeApprovalState.WaitApproval;
+        // ADR-002: 승인요청을 도메인 이벤트로 발행한다. 리포가 승인요청(UPDATE)과 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        // (Restore는 new(...) 직접 경로라 이벤트를 발행하지 않는다 — 읽기경로 재구성은 발행 대상이 아니다.)
+        RaiseDomainEvent(new RecipeApprovalRequestedDomainEvent(Id, ApprovalState.ToString()));
         return Result.Success();
     }
 
@@ -77,6 +80,8 @@ public sealed class Recipe : AuditableEntity<string>
 
         ApprovalState = RecipeApprovalState.Approved1;
         FirstApproverId = approverId;
+        // ADR-002: 1차 승인을 도메인 이벤트로 발행한다. 리포가 1차 승인(UPDATE)과 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new RecipeFirstApprovedDomainEvent(Id, ApprovalState.ToString(), approverId));
         return Result.Success();
     }
 
@@ -91,6 +96,8 @@ public sealed class Recipe : AuditableEntity<string>
 
         ApprovalState = RecipeApprovalState.Approved;
         SecondApproverId = approverId;
+        // ADR-002: 2차(최종) 승인을 도메인 이벤트로 발행한다. 리포가 2차 승인(UPDATE)과 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new RecipeApprovedDomainEvent(Id, ApprovalState.ToString(), approverId));
         return Result.Success();
     }
 
@@ -103,6 +110,8 @@ public sealed class Recipe : AuditableEntity<string>
 
         ApprovalState = RecipeApprovalState.Released;
         ReleasedAt = DateTime.UtcNow;
+        // ADR-002: 배포를 도메인 이벤트로 발행한다. 리포가 배포(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new RecipeReleasedDomainEvent(Id, ApprovalState.ToString(), releaserId, ReleasedAt.Value));
         return Result.Success();
     }
 
@@ -115,6 +124,8 @@ public sealed class Recipe : AuditableEntity<string>
             return Result.Failure(Error.Validation(nameof(reason), "Rejection reason is required."));
 
         ApprovalState = RecipeApprovalState.Rejected;
+        // ADR-002: 반려를 도메인 이벤트로 발행한다. 리포가 반려(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new RecipeRejectedDomainEvent(Id, ApprovalState.ToString(), reason));
         return Result.Success();
     }
 

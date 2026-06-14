@@ -171,6 +171,9 @@ public sealed class Lot : AuditableEntity<string>
         TrackOutUser = null;
         TrackOutTime = null;
         UpdateAudit(user);
+        // ADR-002: TrackIn을 도메인 이벤트로 발행한다. 리포가 TrackIn(UPDATE)과 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        // (Restore는 new(...) 직접 경로라 이벤트를 발행하지 않는다 — 읽기경로 재구성은 발행 대상이 아니다.)
+        RaiseDomainEvent(new LotTrackedInDomainEvent(Id, EquipmentId, RecipeDefId, RecipeDefVersion, CurrentProcessId));
         return Result.Success();
     }
 
@@ -214,6 +217,9 @@ public sealed class Lot : AuditableEntity<string>
             State = LotState.Queued;
         }
         UpdateAudit(user);
+        // ADR-002: TrackOut을 도메인 이벤트로 발행한다. 리포가 TrackOut(UPDATE)과 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        // 전이 후 상태(State/CurrentStepIndex/IsLastStep)를 담는다 — 구독자가 다음 공정 라우팅·완료를 판단하도록.
+        RaiseDomainEvent(new LotTrackedOutDomainEvent(Id, Qty, DefectQty, State, CurrentStepIndex, IsLastStep));
         return Result.Success();
     }
 
@@ -247,6 +253,8 @@ public sealed class Lot : AuditableEntity<string>
         State = LotState.Consumed;
         ProcessState = LotProcessState.Idle;
         UpdateAudit(user);
+        // ADR-002: 소비를 도메인 이벤트로 발행한다. 리포가 소비(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new LotConsumedDomainEvent(Id, ProductId, Qty));
         return Result.Success();
     }
 
