@@ -36,6 +36,9 @@ public sealed class EquipmentAlarm : AuditableEntity<string>
             AlarmLevel = alarmLevel,
             OccurredAt = occurredAt
         };
+        // ADR-002: 알람 발생을 도메인 이벤트로 발행한다. 리포가 알람 기록과 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        // (Restore는 new(...) 직접 경로라 이벤트를 발행하지 않는다 — 읽기경로 재구성은 발행 대상이 아니다.)
+        alarm.RaiseDomainEvent(new EquipmentAlarmRaisedDomainEvent(alarmId, equipmentId, alarmCode, alarmLevel));
         return alarm;
     }
 
@@ -59,6 +62,9 @@ public sealed class EquipmentAlarm : AuditableEntity<string>
     public void Clear(DateTime clearedAt)
     {
         ClearedAt = clearedAt;
-        ElapsedSeconds = (long)(clearedAt - OccurredAt).TotalSeconds;
+        var elapsed = (long)(clearedAt - OccurredAt).TotalSeconds;
+        ElapsedSeconds = elapsed;
+        // ADR-002: 알람 해제를 도메인 이벤트로 발행한다. 리포가 해제(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new EquipmentAlarmClearedDomainEvent(Id, EquipmentId, elapsed));
     }
 }

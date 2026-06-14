@@ -22,15 +22,6 @@ public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateR
         _outboxEnabled = string.Equals(config["Events:Outbox:Enabled"], "true", StringComparison.OrdinalIgnoreCase);
     }
 
-    // ADR-002 트랜잭션 outbox — 상태 변경과 동일 트랜잭션에 도메인 이벤트를 기록(ID 자동증가, raw 실행이라 감사값 명시).
-    private const string OutboxInsertSql = @"
-            INSERT INTO EES_OUTBOX
-                (EVENT_TYPE, MODULE, AGGREGATE_ID, PAYLOAD, OCCURRED_AT, ATTEMPTS,
-                 CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES
-                (@EventType, @Module, @AggregateId, @Payload, @OccurredAt, 0,
-                 @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt)";
-
     public async Task<EquipmentCurrentState?> GetAsync(
         string equipmentId, CancellationToken ct = default)
     {
@@ -112,13 +103,8 @@ public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateR
         if (_outboxEnabled)
         {
             var user = CurrentUserContext.UserId ?? "SYSTEM";
-            var now = DateTime.UtcNow;
-            foreach (var ev in state.DomainEvents.OfType<IOutboxEvent>())
-                statements.Add((OutboxInsertSql, new
-                {
-                    ev.EventType, ev.Module, ev.AggregateId, ev.Payload,
-                    OccurredAt = now, CreatedBy = user, CreatedAt = now, UpdatedBy = user, UpdatedAt = now
-                }));
+            statements.AddRange(OutboxStatements.For(
+                state.DomainEvents.OfType<IOutboxEvent>(), user, DateTime.UtcNow));
         }
 
         await _processor.ExecuteManyAsync(ct, statements.ToArray());
