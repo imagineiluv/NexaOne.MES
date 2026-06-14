@@ -75,6 +75,24 @@ public static class ServiceCollectionExtensions
 
         services.AddHttpContextAccessor();
 
+        // 캐시(ICacheService) — 읽기 빈도 높은 마스터/조회 캐시. 기본 인메모리(IMemoryCache),
+        // Cache:Provider=Redis면 분산 캐시(RedisDriver, opt-in 인프라)로 전환한다.
+        services.AddMemoryCache();
+        var cacheProvider = configuration.GetValue<string>("Cache:Provider") ?? "Memory";
+        if (string.Equals(cacheProvider, "Redis", StringComparison.OrdinalIgnoreCase))
+        {
+            var redisConn = configuration.GetValue<string>("Cache:Redis:ConnectionString") ?? "localhost:6379";
+            services.AddSingleton<NexaOne.Driver.Redis.RedisDriver>();
+            services.AddSingleton<NexaOne.Common.Caching.ICacheService>(sp =>
+                new NexaOne.Driver.Redis.RedisCacheService(
+                    sp.GetRequiredService<NexaOne.Driver.Redis.RedisDriver>(), redisConn));
+        }
+        else
+        {
+            services.AddSingleton<NexaOne.Common.Caching.ICacheService,
+                NexaOne.Common.Caching.MemoryCacheService>();
+        }
+
         // MDM
         services.AddScoped<IEquipmentRepository, EquipmentRepository>();
         services.AddScoped<IPlantRepository, PlantRepository>();

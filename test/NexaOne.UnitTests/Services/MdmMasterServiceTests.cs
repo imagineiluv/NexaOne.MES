@@ -1,22 +1,29 @@
+using Microsoft.Extensions.Caching.Memory;
 using Moq;
 using NexaOne.MDM.Application.Equipments;
 using NexaOne.MDM.Domain;
 using NexaOne.Common;
+using NexaOne.Common.Caching;
 
 namespace NexaOne.UnitTests.Services;
 
 public sealed class MdmMasterServiceTests
 {
+    private static ICacheService NewCache() =>
+        new MemoryCacheService(new MemoryCache(new MemoryCacheOptions()));
+
     private MdmMasterService Build(
         Mock<IPlantRepository>?   plant   = null,
         Mock<IAreaRepository>?    area    = null,
         Mock<IProductRepository>? product = null,
-        Mock<ICodeRepository>?    code    = null)
+        Mock<ICodeRepository>?    code    = null,
+        ICacheService?            cache   = null)
         => new(
             (plant   ?? new Mock<IPlantRepository>()).Object,
             (area    ?? new Mock<IAreaRepository>()).Object,
             (product ?? new Mock<IProductRepository>()).Object,
-            (code    ?? new Mock<ICodeRepository>()).Object);
+            (code    ?? new Mock<ICodeRepository>()).Object,
+            cache    ?? NewCache());
 
     // ── Plant ─────────────────────────────────────────────────────────────────
 
@@ -152,5 +159,31 @@ public sealed class MdmMasterServiceTests
         var result = await Build(code: repo).CreateCodeAsync("C01", "ALARM_LEVEL", "");
 
         result.IsFailure.Should().BeTrue();
+    }
+
+    // ── 캐시(코드 조회) ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetCodesByClass_caches_and_CreateCode_invalidates()
+    {
+        var codeClass = CodeClass.Create("ALARM_LEVEL", "알람 등급").Value;
+        var repo = new Mock<ICodeRepository>();
+        repo.Setup(r => r.GetByClassAsync("ALARM_LEVEL", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Code>());
+        repo.Setup(r => r.GetClassByIdAsync("ALARM_LEVEL", It.IsAny<CancellationToken>())).ReturnsAsync(codeClass);
+        repo.Setup(r => r.AddCodeAsync(It.IsAny<Code>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        var svc = Build(code: repo, cache: NewCache());
+
+        // 1) 두 번 조회 → 캐시 적중으로 리포는 1회만 호출.
+        await svc.GetCodesByClassAsync("ALARM_LEVEL");
+        await svc.GetCodesByClassAsync("ALARM_LEVEL");
+        repo.Verify(r => r.GetByClassAsync("ALARM_LEVEL", It.IsAny<CancellationToken>()), Times.Once,
+            "동일 클래스 코드 조회는 캐시되어 리포를 1회만 호출해야 한다");
+
+        // 2) 코드 생성 → 해당 클래스 캐시 무효화 → 다음 조회는 리포를 다시 호출.
+        await svc.CreateCodeAsync("CRITICAL", "ALARM_LEVEL", "Critical", 1);
+        await svc.GetCodesByClassAsync("ALARM_LEVEL");
+        repo.Verify(r => r.GetByClassAsync("ALARM_LEVEL", It.IsAny<CancellationToken>()), Times.Exactly(2),
+            "쓰기(CreateCode) 후에는 캐시가 무효화되어 다음 조회가 리포를 다시 호출해야 한다");
     }
 }

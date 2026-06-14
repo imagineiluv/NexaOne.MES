@@ -6,4 +6,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- ICacheService 인메모리 구현(MemoryCacheService)용 — IMemoryCache -->
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="8.*" />
+  </ItemGroup>
+
 </Project>
