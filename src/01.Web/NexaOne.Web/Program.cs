@@ -3,11 +3,28 @@ using NexaOne.Web;
 using NexaOne.Web.Services;
 using NexaOne.Web.Services.Api;
 using NexaOne.Web.Services.Auth;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+// §17.4 — OpenTelemetry 분산 추적. AspNetCore(서버 요청) + HttpClient(→ API 호출) 계측으로
+// Web↔API 호출을 한 트레이스로 상관시킨다. OTLP 엔드포인트 설정 시 Collector로, 없으면 개발용 Console.
+var otlpEndpoint = builder.Configuration["OpenTelemetry:OtlpEndpoint"];
+builder.Services.AddOpenTelemetry()
+    .ConfigureResource(r => r.AddService(serviceName: "NexaOne.Web", serviceVersion: "2.0"))
+    .WithTracing(tracing =>
+    {
+        tracing.AddAspNetCoreInstrumentation()
+               .AddHttpClientInstrumentation();
+        if (!string.IsNullOrWhiteSpace(otlpEndpoint))
+            tracing.AddOtlpExporter(o => o.Endpoint = new Uri(otlpEndpoint));
+        else
+            tracing.AddConsoleExporter();
+    });
 
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<JwtAuthStateProvider>();

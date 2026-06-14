@@ -14,6 +14,14 @@
     <PackageReference Include="Microsoft.AspNetCore.Components.Authorization" Version="8.*" />
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="8.*" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.*" />
+
+    <!-- §17.4 — OpenTelemetry 분산 추적. API와 동일 구성으로, Web↔API HttpClient 호출을
+         같은 트레이스로 상관(correlate)시킨다(OTLP 미설정 시 개발용 Console exporter). -->
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.*" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.*" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.*" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.*" />
+    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.*" />
   </ItemGroup>
 
 </Project>
