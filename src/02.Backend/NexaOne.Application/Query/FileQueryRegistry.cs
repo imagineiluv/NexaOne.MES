@@ -67,6 +67,11 @@ public sealed class FileQueryRegistry : IQueryRegistry
             var perm = ((string?)q.Attribute("requiredPermission"))?.Trim();
             // kind 속성(선택, 기본 read) — "write"면 쓰기 쿼리(INSERT/UPDATE/DELETE), command 게이트웨이 전용.
             var isWrite = string.Equals(((string?)q.Attribute("kind"))?.Trim(), "write", StringComparison.OrdinalIgnoreCase);
+            // 쓰기 쿼리는 requiredPermission 선언이 필수다(시작 시 fail-fast). 권한 없는 쓰기 쿼리가 등록되면
+            // command 게이트웨이가 인증만으로 임의 INSERT/UPDATE/DELETE를 허용하게 되므로(권한 누락=무방비 쓰기) 차단한다.
+            if (isWrite && string.IsNullOrEmpty(perm))
+                throw new InvalidOperationException(
+                    $"Write query '{id!.Trim()}' (file={source}) must declare requiredPermission. 쓰기 쿼리는 권한 선언이 필수다.");
             yield return new QueryDefinition(
                 id!.Trim(), sql, source, string.IsNullOrEmpty(perm) ? null : perm, isWrite);
         }

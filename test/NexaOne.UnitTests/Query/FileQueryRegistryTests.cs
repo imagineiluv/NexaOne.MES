@@ -57,10 +57,11 @@ public sealed class FileQueryRegistryTests : IDisposable
     [Fact]
     public void Load_parses_kind_write_attribute()
     {
+        // 쓰기 쿼리는 권한 선언이 필수(fail-fast 가드)이므로 requiredPermission을 함께 둔다.
         WriteDialectFile("sqlite", "W.xml", """
             <queries>
               <query id="Q.Read"><statement>SELECT 1</statement></query>
-              <query id="Q.Write" kind="write"><statement>INSERT INTO T(A) VALUES(@a)</statement></query>
+              <query id="Q.Write" kind="write" requiredPermission="t:manage"><statement>INSERT INTO T(A) VALUES(@a)</statement></query>
             </queries>
             """);
         var reg = FileQueryRegistry.Load("sqlite", _root);
@@ -69,6 +70,38 @@ public sealed class FileQueryRegistryTests : IDisposable
         read!.IsWrite.Should().BeFalse("kind 미선언은 읽기(read) 쿼리");
         reg.TryGet("Q.Write", out var write).Should().BeTrue();
         write!.IsWrite.Should().BeTrue("kind=\"write\"는 쓰기 쿼리로 표시돼야 한다");
+    }
+
+    [Fact]
+    public void Load_throws_when_write_query_missing_required_permission()
+    {
+        // 보안 fail-fast — 쓰기 쿼리(kind="write")가 권한을 선언하지 않으면 시작 시 즉시 실패해야 한다
+        // (권한 없는 쓰기 쿼리는 command 게이트웨이에서 인증만으로 임의 쓰기를 허용하므로).
+        WriteDialectFile("sqlite", "W.xml",
+            "<queries><query id=\"Q.Unsafe\" kind=\"write\"><statement>INSERT INTO T(A) VALUES(@a)</statement></query></queries>");
+
+        var act = () => FileQueryRegistry.Load("sqlite", _root);
+        act.Should().Throw<InvalidOperationException>("권한 없는 쓰기 쿼리는 시작 시 차단되어야 한다")
+            .WithMessage("*Q.Unsafe*");
+    }
+
+    [Fact]
+    public void Load_allows_write_query_with_permission_and_read_query_without()
+    {
+        // 쓰기 쿼리는 권한이 있으면 허용, 읽기 쿼리는 권한 없이도 허용(회귀 가드).
+        WriteDialectFile("sqlite", "OK.xml", """
+            <queries>
+              <query id="Q.Read"><statement>SELECT 1</statement></query>
+              <query id="Q.Write" kind="write" requiredPermission="mdm:manage"><statement>INSERT INTO T(A) VALUES(@a)</statement></query>
+            </queries>
+            """);
+        var reg = FileQueryRegistry.Load("sqlite", _root);
+
+        reg.TryGet("Q.Read", out var read).Should().BeTrue();
+        read!.RequiredPermission.Should().BeNull("읽기 쿼리는 권한 없이 실행 가능");
+        reg.TryGet("Q.Write", out var write).Should().BeTrue();
+        write!.IsWrite.Should().BeTrue();
+        write.RequiredPermission.Should().Be("mdm:manage");
     }
 
     [Fact]
