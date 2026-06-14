@@ -246,6 +246,16 @@ if (builder.Configuration.GetValue("Kafka:Enabled", false))
             sp.GetRequiredService<ILogger<NexaOne.Infrastructure.Messaging.KafkaConsumerService>>());
     });
 }
+// Kafka 없이 Outbox만 켠 경우(Events:Outbox:Enabled && !Kafka:Enabled) — 브로커리스(인메모리) Event Bus.
+// 디스패처가 인메모리 버스로 발행하고 인프로세스 구독자가 SignalR로 푸시한다(dev/단일노드/통합테스트).
+else if (builder.Configuration.GetValue("Events:Outbox:Enabled", false))
+{
+    builder.Services.AddSingleton<NexaOne.Infrastructure.Messaging.InMemoryMessageBus>();
+    builder.Services.AddSingleton<NexaOne.Infrastructure.Messaging.IMessageBus>(
+        sp => sp.GetRequiredService<NexaOne.Infrastructure.Messaging.InMemoryMessageBus>());
+    builder.Services.AddHostedService<NexaOne.API.Services.InMemoryBusSubscriberService>();
+    builder.Services.AddHostedService<NexaOne.API.Services.OutboxDispatcherService>();
+}
 
 // CORS
 builder.Services.AddCors(options =>
