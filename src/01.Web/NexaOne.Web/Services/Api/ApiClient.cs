@@ -219,6 +219,19 @@ public sealed class ApiClient : IApiClient
     /// <summary>API 표준 오류 본문(NexaOne.Common.Error 직렬화 형태) — 업로드 실패 사유 표시용.</summary>
     private sealed record ApiErrorPayload(string? Code, string? Description);
 
+    // ── 파일 기반 쿼리 레지스트리(저코드 경로) ──────────────────────────────────
+    // 등록된 query id를 파라미터와 함께 실행해 동적 행 목록을 받는다. 실패는 빈 목록으로 흡수(그리드 안전).
+    public async Task<IReadOnlyList<Dictionary<string, object?>>> ExecuteQueryAsync(
+        string queryId, object? parameters = null, CancellationToken ct = default)
+    {
+        using var resp = await SendAsync(
+            HttpMethod.Post, $"api/v1/query/{Uri.EscapeDataString(queryId)}", parameters ?? new { }, ct);
+        if (!resp.IsSuccessStatusCode)
+            return Array.Empty<Dictionary<string, object?>>();
+        return await resp.Content.ReadFromJsonAsync<List<Dictionary<string, object?>>>(ct)
+            ?? new List<Dictionary<string, object?>>();
+    }
+
     // ── Dashboard ─────────────────────────────────────────────────────────────
 
     public Task<DashboardSummaryDto?> GetDashboardAsync(CancellationToken ct = default)

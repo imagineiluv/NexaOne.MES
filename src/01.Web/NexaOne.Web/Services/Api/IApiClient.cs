@@ -2,6 +2,11 @@ namespace NexaOne.Web.Services.Api;
 
 public interface IApiClient
 {
+    // 파일 기반 쿼리 레지스트리(저코드 경로) — query id로 등록된 쿼리를 실행해 동적 행 목록을 받는다.
+    // 컴파일된 타입드 리포지토리(고코드, 속도·타입안전)와 공존하며, 기능별로 개발자가 선택해 쓴다.
+    Task<IReadOnlyList<Dictionary<string, object?>>> ExecuteQueryAsync(
+        string queryId, object? parameters = null, CancellationToken ct = default);
+
     // Dashboard
     Task<DashboardSummaryDto?> GetDashboardAsync(CancellationToken ct = default);
 

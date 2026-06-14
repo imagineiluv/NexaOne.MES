@@ -35,6 +35,11 @@
     <Content Include="Config\Mail\*.xml" CopyToOutputDirectory="PreserveNewest" />
     <!-- §8 — 워크플로우 정의(*.workflow)를 출력 폴더로 복사 (WorkflowController가 로드) -->
     <Content Include="Config\Workflow\*.workflow" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 파일 기반 쿼리 레지스트리 — db/queries/{mssql,sqlite}/*.xml 을 출력 폴더로 복사(방언 구조 보존).
+         FileQueryRegistry가 BaseDirectory에서 db/queries를 찾는다(운영 배포). 테스트는 리포 루트 소스를 상위탐색. -->
+    <Content Include="..\..\..\db\queries\**\*.xml"
+             Link="db\queries\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

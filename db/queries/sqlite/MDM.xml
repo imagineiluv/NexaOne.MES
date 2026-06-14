@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 파일 기반 쿼리 레지스트리(SQLite 방언). MSSQL판과 동일 ID·동일 의미이되 SQLite 방언으로 작성한다
+     (NOLOCK 힌트 없음 등). 게이트웨이가 query id로 이 폴더(sqlite)를 로드해 실행한다. -->
+<queries module="MDM">
+    <query id="MDM.PlantList">
+        <statement><![CDATA[
+            SELECT PLANT_ID, PLANT_NAME, DESCRIPTION, COUNTRY, TIME_ZONE
+            FROM MDM_PLANT
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+            ORDER BY PLANT_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.EquipmentByPlant">
+        <statement><![CDATA[
+            SELECT EQUIPMENT_ID, EQUIPMENT_NAME, PLANT_ID, AREA_ID, EQUIPMENT_TYPE, EQUIPMENT_CLASS_ID, VALID_STATE
+            FROM MDM_EQUIPMENT
+            WHERE PLANT_ID = @plantId
+              AND (@validState IS NULL OR VALID_STATE = @validState)
+            ORDER BY EQUIPMENT_ID
+        ]]></statement>
+    </query>
+</queries>

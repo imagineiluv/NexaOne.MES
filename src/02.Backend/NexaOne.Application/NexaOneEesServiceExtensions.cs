@@ -2,6 +2,7 @@ using Dapper;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using NexaOne.Application.Messaging;
+using NexaOne.Application.Query;
 using NexusCom.Data.Abstractions.Interfaces;
 using NexusCom.Data.Abstractions.Models;
 
@@ -18,6 +19,13 @@ public static class NexaOneEesServiceExtensions
             new NexaFrameworkRuleDispatcher(
                 sp.GetRequiredService<IDatabaseProvider>(),
                 connStr));
+
+        // 파일 기반 쿼리 레지스트리 — 구성된 DB 공급자에 맞는 방언 폴더(db/queries/{mssql|sqlite})를 로드한다.
+        // Query:Directory로 폴더를 재지정할 수 있고, 폴더가 없으면 빈 레지스트리로 무해하게 기동한다.
+        var dialect = string.Equals(configuration["Database:Provider"], "Sqlite",
+            StringComparison.OrdinalIgnoreCase) ? "sqlite" : "mssql";
+        var queryDir = configuration["Query:Directory"];
+        services.AddSingleton<IQueryRegistry>(_ => FileQueryRegistry.Load(dialect, queryDir));
         return services;
     }
 }
@@ -75,7 +83,15 @@ internal sealed class NexaFrameworkRuleDispatcher : IRuleDispatcher
     {
         using var conn = _provider.CreateConnection(_connectionString);
         await conn.OpenAsync(ct).ConfigureAwait(false);
-        var param = parameters.Count > 0 ? new DynamicParameters(parameters) : null;
+        // 파라미터를 명시적으로 추가한다. DBNull은 Dapper의 DynamicParameters 값으로 직접 쓸 수 없으므로
+        // CLR null로 변환한다(Dapper가 null → SQL NULL로 바인딩). 선택 필터(@p IS NULL)가 안전히 동작한다.
+        DynamicParameters? param = null;
+        if (parameters.Count > 0)
+        {
+            param = new DynamicParameters();
+            foreach (var kv in parameters)
+                param.Add(kv.Key, kv.Value is DBNull ? null : kv.Value);
+        }
         var rows = await conn.QueryAsync(sql, param).ConfigureAwait(false);
         return rows
             .Select(row => ((IDictionary<string, object>)row)

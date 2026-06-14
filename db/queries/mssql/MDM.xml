@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 파일 기반 쿼리 레지스트리(MSSQL 방언). UI가 query id로 호출 → 파라미터(@param) 바인딩 실행.
+     선택 필터는 (@p IS NULL OR COL = @p) 패턴 — 본문에 없는 @param은 게이트웨이가 null로 채운다.
+     ※ 원시 문자열 보간/조건 템플릿이 아니라 안전한 파라미터 바인딩을 쓴다. -->
+<queries module="MDM">
+    <query id="MDM.PlantList">
+        <statement><![CDATA[
+            SELECT PLANT_ID, PLANT_NAME, DESCRIPTION, COUNTRY, TIME_ZONE
+            FROM MDM_PLANT WITH(NOLOCK)
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+            ORDER BY PLANT_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.EquipmentByPlant">
+        <statement><![CDATA[
+            SELECT EQUIPMENT_ID, EQUIPMENT_NAME, PLANT_ID, AREA_ID, EQUIPMENT_TYPE, EQUIPMENT_CLASS_ID, VALID_STATE
+            FROM MDM_EQUIPMENT WITH(NOLOCK)
+            WHERE PLANT_ID = @plantId
+              AND (@validState IS NULL OR VALID_STATE = @validState)
+            ORDER BY EQUIPMENT_ID
+        ]]></statement>
+    </query>
+</queries>
