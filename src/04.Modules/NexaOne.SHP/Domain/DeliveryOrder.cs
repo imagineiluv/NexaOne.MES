@@ -79,6 +79,9 @@ public sealed class DeliveryOrder : AuditableEntity<string>
 
         Status = DeliveryOrderStatus.Confirmed;
         UpdatedAt = DateTime.UtcNow;
+        // ADR-002: 확정을 도메인 이벤트로 발행한다. 리포가 확정(UPDATE)과 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        // (Restore는 new(...) 직접 경로라 이벤트를 발행하지 않는다 — 읽기경로 재구성은 발행 대상이 아니다.)
+        RaiseDomainEvent(new DeliveryOrderConfirmedDomainEvent(Id));
         return Result.Success();
     }
 
@@ -90,6 +93,8 @@ public sealed class DeliveryOrder : AuditableEntity<string>
         Status = DeliveryOrderStatus.Shipped;
         ShippedDate = shippedDate;
         UpdatedAt = DateTime.UtcNow;
+        // ADR-002: 출하를 도메인 이벤트로 발행한다. 리포가 출하(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new DeliveryOrderShippedDomainEvent(Id, shippedDate));
         return Result.Success();
     }
 
@@ -100,6 +105,8 @@ public sealed class DeliveryOrder : AuditableEntity<string>
 
         Status = DeliveryOrderStatus.Cancelled;
         UpdatedAt = DateTime.UtcNow;
+        // ADR-002: 취소를 도메인 이벤트로 발행한다. 리포가 취소(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new DeliveryOrderCancelledDomainEvent(Id));
         return Result.Success();
     }
 }

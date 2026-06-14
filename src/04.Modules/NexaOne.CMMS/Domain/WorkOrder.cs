@@ -92,6 +92,8 @@ public sealed class WorkOrder : AuditableEntity<string>
         Status = WorkOrderStatus.InProgress;
         StartedAt = DateTime.UtcNow;
         UpdatedAt = DateTime.UtcNow;
+        // ADR-002: 작업지시 착수를 도메인 이벤트로 발행한다. 리포가 착수(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new WorkOrderStartedDomainEvent(Id, EquipmentId, AssigneeId, StartedAt.Value));
         return Result.Success();
     }
 
@@ -104,6 +106,8 @@ public sealed class WorkOrder : AuditableEntity<string>
         CompletedAt = DateTime.UtcNow;
         Remark = remark;
         UpdatedAt = DateTime.UtcNow;
+        // ADR-002: 작업지시 완료를 도메인 이벤트로 발행한다. 리포가 완료(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new WorkOrderCompletedDomainEvent(Id, EquipmentId, CompletedAt.Value, FailureCodeId, Remark));
         return Result.Success();
     }
 
@@ -114,6 +118,8 @@ public sealed class WorkOrder : AuditableEntity<string>
 
         Status = WorkOrderStatus.Cancelled;
         UpdatedAt = DateTime.UtcNow;
+        // ADR-002: 작업지시 취소를 도메인 이벤트로 발행한다. 리포가 취소(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new WorkOrderCancelledDomainEvent(Id, EquipmentId));
         return Result.Success();
     }
 }

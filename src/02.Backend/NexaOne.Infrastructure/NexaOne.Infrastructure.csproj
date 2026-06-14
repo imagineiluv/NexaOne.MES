@@ -1,6 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\NexaOne.Common\NexaOne.Common.csproj" />
     <ProjectReference Include="..\NexaOne.Domain\NexaOne.Domain.csproj" />
     <ProjectReference Include="..\NexaOne.Application\NexaOne.Application.csproj" />
     <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.Abstractions\NexusCom.Data.Abstractions.csproj" />

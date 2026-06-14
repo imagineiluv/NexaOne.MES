@@ -48,8 +48,31 @@ public sealed class FdcAlarmHistory : AuditableEntity<string>
             OccurredAt = occurredAt,
             IsCleared = false
         };
+        // ADR-002: 알람 발생을 도메인 이벤트로 발행한다. 리포가 알람 이력과 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        // (Restore는 new(...) 직접 경로라 이벤트를 발행하지 않는다 — 읽기경로 재구성은 발행 대상이 아니다.)
+        history.RaiseDomainEvent(new FdcAlarmRaisedDomainEvent(
+            alarmId, alarmConfigId, equipmentId, parameterId, alarmLevel, triggerValue));
         return history;
     }
+
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 리포지토리 읽기 전용 —
+    /// Create+Clear 재생 경로는 읽기 시마다 FdcAlarmRaised/FdcAlarmCleared를 유령 발행하므로,
+    /// 이벤트 발행 없이 ClearedAt/IsCleared를 직접 복원해 읽기경로 부작용을 막는다.</summary>
+    public static FdcAlarmHistory Restore(
+        string alarmId, string alarmConfigId, string equipmentId, string parameterId, string alarmLevel,
+        decimal triggerValue, string message, DateTime occurredAt, DateTime? clearedAt, bool isCleared)
+        => new(alarmId)
+        {
+            AlarmConfigId = alarmConfigId,
+            EquipmentId = equipmentId,
+            ParameterId = parameterId,
+            AlarmLevel = alarmLevel,
+            TriggerValue = triggerValue,
+            Message = message ?? string.Empty,
+            OccurredAt = occurredAt,
+            ClearedAt = clearedAt,
+            IsCleared = isCleared
+        };
 
     /// <summary>알람 해제 — 해제 시각 기록, IS_CLEARED=true. (멱등)</summary>
     public void Clear(DateTime clearedAt)
@@ -57,5 +80,7 @@ public sealed class FdcAlarmHistory : AuditableEntity<string>
         if (IsCleared) return;
         ClearedAt = clearedAt;
         IsCleared = true;
+        // ADR-002: 알람 해제를 도메인 이벤트로 발행한다. 리포가 해제(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new FdcAlarmClearedDomainEvent(Id, EquipmentId, clearedAt));
     }
 }

@@ -1,11 +1,12 @@
 using NexaOne.Common;
 
-namespace NexaOne.EST.Infrastructure;
+namespace NexaOne.Infrastructure.Persistence;
 
 /// <summary>ADR-002 트랜잭션 outbox — 애그리거트의 도메인 이벤트(IOutboxEvent)를 EES_OUTBOX INSERT 문장으로
-/// 변환한다. 데이터 변경 문장과 같은 ExecuteManyAsync 배치에 넣어 '동일 트랜잭션 발행'을 보장한다(데이터·이벤트가
-/// 함께 커밋되거나 함께 롤백). EST 내 여러 애그리거트(상태·알람)가 같은 매핑을 공유해 INSERT SQL 중복을 없앤다.</summary>
-internal static class OutboxStatements
+/// 변환한다. 데이터 변경 문장과 같은 <see cref="ServiceObjectProcessor.ExecuteManyAsync"/> 배치에 넣어 '동일
+/// 트랜잭션 발행'을 보장한다(데이터·이벤트가 함께 커밋되거나 함께 롤백). 모든 모듈 리포가 공유해 INSERT SQL
+/// 중복을 없앤다 — 신규 애그리거트 확산은 이 헬퍼 호출 한 줄이면 된다.</summary>
+public static class OutboxStatements
 {
     // ID 자동증가(EES_OUTBOX 단일 INTEGER PK는 SQLite rowid 별칭이라 ID 생략 INSERT 가능) — raw 실행이라 감사값 명시.
     private const string InsertSql = @"

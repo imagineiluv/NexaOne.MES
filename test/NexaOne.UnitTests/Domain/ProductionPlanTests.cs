@@ -1,3 +1,4 @@
+using System.Text.Json;
 using NexaOne.POM.Domain;
 using NexaOne.Common;
 
@@ -86,5 +87,83 @@ public sealed class ProductionPlanTests
         var p = Draft();
         p.Cancel().IsSuccess.Should().BeTrue();
         p.Status.Should().Be(ProductionPlanStatus.Cancelled);
+    }
+
+    // ── ADR-002: 상태 전이 시 ProductionPlanStatusChanged 도메인 이벤트 발행(outbox 봉투 검증) ──
+
+    [Fact]
+    public void Release_raises_StatusChanged_event_with_outbox_envelope()
+    {
+        var p = Draft();
+        p.Release();
+
+        var ev = p.DomainEvents.OfType<ProductionPlanStatusChangedDomainEvent>().Should().ContainSingle().Subject;
+        ev.EventType.Should().Be("ProductionPlanStatusChanged");
+        ev.Module.Should().Be("POM");
+        ev.AggregateId.Should().Be("PP001", "계획별 순서 보장을 위해 AGGREGATE_ID는 PlanId(PLAN_ID)여야 한다");
+
+        using var doc = JsonDocument.Parse(ev.Payload);
+        doc.RootElement.GetProperty("NewStatus").GetString().Should().Be("Released");
+    }
+
+    [Fact]
+    public void Start_raises_StatusChanged_event_carrying_InProgress()
+    {
+        var p = Draft();
+        p.Release();
+        p.ClearDomainEvents();   // Release 이벤트 제거 — Start 이벤트만 검증
+        p.Start();
+
+        var ev = p.DomainEvents.OfType<ProductionPlanStatusChangedDomainEvent>().Should().ContainSingle().Subject;
+        ev.NewStatus.Should().Be(ProductionPlanStatus.InProgress);
+        using var doc = JsonDocument.Parse(ev.Payload);
+        doc.RootElement.GetProperty("NewStatus").GetString().Should().Be("InProgress");
+    }
+
+    [Fact]
+    public void Complete_raises_StatusChanged_event_carrying_Completed()
+    {
+        var p = Draft();
+        p.Release();
+        p.Start();
+        p.ClearDomainEvents();
+        p.Complete();
+
+        var ev = p.DomainEvents.OfType<ProductionPlanStatusChangedDomainEvent>().Should().ContainSingle().Subject;
+        ev.NewStatus.Should().Be(ProductionPlanStatus.Completed);
+        using var doc = JsonDocument.Parse(ev.Payload);
+        doc.RootElement.GetProperty("NewStatus").GetString().Should().Be("Completed");
+    }
+
+    [Fact]
+    public void Cancel_raises_StatusChanged_event_carrying_Cancelled()
+    {
+        var p = Draft();
+        p.ClearDomainEvents();   // Create는 이벤트가 없지만 일관성 위해 비운다
+        p.Cancel();
+
+        var ev = p.DomainEvents.OfType<ProductionPlanStatusChangedDomainEvent>().Should().ContainSingle().Subject;
+        ev.NewStatus.Should().Be(ProductionPlanStatus.Cancelled);
+        using var doc = JsonDocument.Parse(ev.Payload);
+        doc.RootElement.GetProperty("NewStatus").GetString().Should().Be("Cancelled");
+    }
+
+    [Fact]
+    public void Create_raises_no_domain_events()
+        => Draft().DomainEvents.Should().BeEmpty("생성(Create)은 상태 전이가 아니므로 이벤트를 발행하지 않는다");
+
+    [Fact]
+    public void Restore_raises_no_domain_events()
+        => ProductionPlan.Restore("PP-R", "name", "P01", "PROD-A", 100m, Start, End,
+                ProductionPlanStatus.InProgress, null)
+            .DomainEvents.Should().BeEmpty("읽기경로 재구성(Restore)은 도메인 이벤트 발행 대상이 아니다");
+
+    [Fact]
+    public void ClearDomainEvents_empties_the_list()
+    {
+        var p = Draft();
+        p.Release();
+        p.ClearDomainEvents();
+        p.DomainEvents.Should().BeEmpty("리포가 발행 후 이벤트를 비워야 재발행되지 않는다");
     }
 }

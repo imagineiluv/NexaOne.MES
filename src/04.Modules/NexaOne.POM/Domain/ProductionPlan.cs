@@ -87,6 +87,8 @@ public sealed class ProductionPlan : AuditableEntity<string>
 
         Status = ProductionPlanStatus.Released;
         UpdatedAt = DateTime.UtcNow;
+        // ADR-002: 상태 전이를 도메인 이벤트로 발행한다. 리포가 상태 변경(UPDATE)과 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new ProductionPlanStatusChangedDomainEvent(Id, Status));
         return Result.Success();
     }
 
@@ -97,6 +99,8 @@ public sealed class ProductionPlan : AuditableEntity<string>
 
         Status = ProductionPlanStatus.InProgress;
         UpdatedAt = DateTime.UtcNow;
+        // ADR-002: 상태 전이를 도메인 이벤트로 발행한다. 리포가 상태 변경(UPDATE)과 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new ProductionPlanStatusChangedDomainEvent(Id, Status));
         return Result.Success();
     }
 
@@ -107,6 +111,8 @@ public sealed class ProductionPlan : AuditableEntity<string>
 
         Status = ProductionPlanStatus.Completed;
         UpdatedAt = DateTime.UtcNow;
+        // ADR-002: 상태 전이를 도메인 이벤트로 발행한다. 리포가 상태 변경(UPDATE)과 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new ProductionPlanStatusChangedDomainEvent(Id, Status));
         return Result.Success();
     }
 
@@ -117,6 +123,8 @@ public sealed class ProductionPlan : AuditableEntity<string>
 
         Status = ProductionPlanStatus.Cancelled;
         UpdatedAt = DateTime.UtcNow;
+        // ADR-002: 상태 전이를 도메인 이벤트로 발행한다. 리포가 상태 변경(UPDATE)과 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        RaiseDomainEvent(new ProductionPlanStatusChangedDomainEvent(Id, Status));
         return Result.Success();
     }
 }

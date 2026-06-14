@@ -91,10 +91,15 @@ public sealed class Defect : AuditableEntity<string>
         if (IsConfirmed)
             return Result.Failure(Error.Conflict("Defect is already confirmed."));
 
+        var confirmedAt = DateTime.UtcNow;
         IsConfirmed = true;
-        ConfirmedAt = DateTime.UtcNow;
+        ConfirmedAt = confirmedAt;
         UpdatedBy = confirmerId;
-        UpdatedAt = DateTime.UtcNow;
+        UpdatedAt = confirmedAt;
+        // ADR-002: 부적합 확정을 도메인 이벤트로 발행한다. 리포가 확정(UPDATE)과 동일 트랜잭션에 outbox로 기록한다(opt-in).
+        // (Restore는 new(...) 직접 경로라 이벤트를 발행하지 않는다 — 읽기경로 재구성은 발행 대상이 아니다.)
+        RaiseDomainEvent(new DefectConfirmedDomainEvent(
+            Id, LotId, DefectClassId, EquipmentId, DefectCount, DefectRate, confirmerId, confirmedAt));
         return Result.Success();
     }
 }
