@@ -1,0 +1,74 @@
+@page "/lowcode/query-console"
+@attribute [Authorize]
+@inject IApiClient Api
+
+@* 저코드 경로 시연 — 파일 기반 쿼리 레지스트리(db/queries)의 등록 쿼리를 query id로 호출해
+   동적 결과를 렌더한다. 컴파일된 타입드 리포지토리(고코드)와 공존하는 두 번째 데이터 접근 경로. *@
+<div class="page-header">
+    <h1 class="page-title">저코드 쿼리 콘솔</h1>
+</div>
+<p style="color:#475569; font-size:0.875rem; margin-bottom:0.75rem;">
+    등록된 query id를 호출해 결과를 표시합니다(예: <code>MDM.PlantList</code>). 재빌드 없이 db/queries 파일로 관리됩니다.
+</p>
+
+<div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.75rem; flex-wrap:wrap;">
+    <NexaTextBox @bind-Value="_queryId" Placeholder="query id (예: MDM.PlantList)" />
+    <NexaTextBox @bind-Value="_plantId" Placeholder="plantId (선택 필터)" />
+    <NexaButton Variant="NexaButton.ButtonVariant.Primary" OnClick="RunAsync">실행</NexaButton>
+</div>
+
+@if (_rows is null)
+{
+    <p style="color:#94a3b8;">실행하면 결과가 표시됩니다.</p>
+}
+else if (_rows.Count == 0)
+{
+    <p style="color:#94a3b8;">결과 없음</p>
+}
+else
+{
+    <table style="width:100%; border-collapse:collapse; font-size:0.875rem;">
+        <thead>
+            <tr>
+                @foreach (var col in _columns)
+                {
+                    <th style="text-align:left; border-bottom:2px solid #e2e8f0; padding:0.5rem; color:#334155;">@col</th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in _rows)
+            {
+                <tr>
+                    @foreach (var col in _columns)
+                    {
+                        <td style="border-bottom:1px solid #f1f5f9; padding:0.5rem;">@Cell(row, col)</td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </table>
+    <p style="color:#94a3b8; font-size:0.8125rem; margin-top:0.5rem;">@_rows.Count 행</p>
+}
+
+@code {
+    private string _queryId = "MDM.PlantList";
+    private string _plantId = "";
+    private IReadOnlyList<Dictionary<string, object?>>? _rows;
+    private List<string> _columns = new();
+
+    // 진입 시 기본 쿼리를 한 번 실행해 결과를 보여준다.
+    protected override async Task OnInitializedAsync() => await RunAsync();
+
+    private async Task RunAsync()
+    {
+        // 선택 필터(plantId)가 있으면 파라미터로 전달. 실패(403/5xx)는 ApiClient가 빈 목록으로 흡수하고
+        // 전역 토스트(ApiToastHost)가 사유를 알린다.
+        object? param = string.IsNullOrWhiteSpace(_plantId) ? null : new { plantId = _plantId };
+        _rows = await Api.ExecuteQueryAsync(_queryId, param);
+        _columns = _rows.FirstOrDefault()?.Keys.ToList() ?? new List<string>();
+    }
+
+    private static string Cell(Dictionary<string, object?> row, string col)
+        => row.TryGetValue(col, out var v) && v is not null ? v.ToString() ?? "" : "";
+}
