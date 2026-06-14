@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+using NexaOne.Common;
 using NexaOne.EST.Application.Est;
 using NexaOne.EST.Domain;
 using NexaOne.Infrastructure.Persistence;
@@ -9,12 +11,25 @@ public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateR
 {
     private readonly ServiceObjectProcessor _processor;
     private readonly INexaOneEESDbCapability _dialect;
+    private readonly bool _outboxEnabled;
 
-    public EquipmentStateRepository(EesDataSource dataSource, INexaOneEESDbCapability dialect) : base(dataSource)
+    public EquipmentStateRepository(EesDataSource dataSource, INexaOneEESDbCapability dialect, IConfiguration config) : base(dataSource)
     {
         _processor = new ServiceObjectProcessor(dataSource);
         _dialect = dialect;
+        // ADR-002 대표 슬라이스: 도메인이벤트→outbox 트랜잭션 기록은 opt-in(기본 off). 켜야 디스패처도 함께 동작한다.
+        // (Binder 패키지 비의존 위해 GetValue 대신 인덱서 + 파싱 사용)
+        _outboxEnabled = string.Equals(config["Events:Outbox:Enabled"], "true", StringComparison.OrdinalIgnoreCase);
     }
+
+    // ADR-002 트랜잭션 outbox — 상태 변경과 동일 트랜잭션에 도메인 이벤트를 기록(ID 자동증가, raw 실행이라 감사값 명시).
+    private const string OutboxInsertSql = @"
+            INSERT INTO EES_OUTBOX
+                (EVENT_TYPE, MODULE, AGGREGATE_ID, PAYLOAD, OCCURRED_AT, ATTEMPTS,
+                 CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES
+                (@EventType, @Module, @AggregateId, @Payload, @OccurredAt, 0,
+                 @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt)";
 
     public async Task<EquipmentCurrentState?> GetAsync(
         string equipmentId, CancellationToken ct = default)
@@ -86,9 +101,28 @@ public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateR
         // 두 문장 모두 컬럼명/PascalCase 파라미터를 그대로 쓰는 raw 실행이라 ExecuteManyAsync로 묶는다
         // (EST 두 테이블 모두 CREATED_BY 류 감사 컬럼이 없어 감사 주입이 불필요하다).
         var (upsertSql, stateParam) = BuildStateUpsert(state);
-        await _processor.ExecuteManyAsync(ct,
+        var statements = new List<(string Sql, object? Param)>
+        {
             (upsertSql, stateParam),
-            (HistInsertSql, HistRow.FromDomain(history)));
+            (HistInsertSql, HistRow.FromDomain(history)),
+        };
+
+        // ADR-002 대표 슬라이스: outbox 활성 시 도메인 이벤트를 같은 트랜잭션에 기록한다 — 상태·이력·이벤트가
+        // 함께 커밋되거나 함께 롤백돼 발행 원자성을 보장한다. 기본 비활성이면 기존 동작과 동일(미기록·적체 없음).
+        if (_outboxEnabled)
+        {
+            var user = CurrentUserContext.UserId ?? "SYSTEM";
+            var now = DateTime.UtcNow;
+            foreach (var ev in state.DomainEvents.OfType<IOutboxEvent>())
+                statements.Add((OutboxInsertSql, new
+                {
+                    ev.EventType, ev.Module, ev.AggregateId, ev.Payload,
+                    OccurredAt = now, CreatedBy = user, CreatedAt = now, UpdatedBy = user, UpdatedAt = now
+                }));
+        }
+
+        await _processor.ExecuteManyAsync(ct, statements.ToArray());
+        state.ClearDomainEvents();
     }
 
     public async Task<IReadOnlyList<EquipmentStateHistory>> GetHistoryAsync(

@@ -2,8 +2,8 @@ using NexaOne.Common;
 
 namespace NexaOne.EST.Domain;
 
-/// <summary>Current operational state of a single equipment.</summary>
-public sealed class EquipmentCurrentState : Entity<string>
+/// <summary>Current operational state of a single equipment. 상태 전이 시 도메인 이벤트를 발행한다(ADR-002).</summary>
+public sealed class EquipmentCurrentState : AggregateRoot<string>
 {
     private EquipmentCurrentState(string equipmentId) : base(equipmentId) { }
 
@@ -48,5 +48,7 @@ public sealed class EquipmentCurrentState : Entity<string>
         CurrentStateId = newState;
         StateChangedAt = DateTime.UtcNow;
         StateVersion++;
+        // ADR-002: 전이를 도메인 이벤트로 발행한다. 리포가 상태 변경과 동일 트랜잭션에 outbox로 기록한다.
+        RaiseDomainEvent(new EquipmentStateChangedDomainEvent(Id, newState));
     }
 }

@@ -11,7 +11,7 @@ namespace NexaOne.IntegrationTests;
 /// SQLite(임시 파일 DB)로 전환하고(Database:Provider=Sqlite) 마이그레이션 스키마를 부트스트랩한다.
 /// 부팅 fail-fast(§18.7 — JWT 비밀키 강도 검증)를 통과하도록 테스트 전용 강한 Jwt:SecretKey도 주입한다.
 /// </summary>
-public sealed class TestApiFactory : WebApplicationFactory<Program>
+public class TestApiFactory : WebApplicationFactory<Program>
 {
     private const string TestSecret = "integration-test-only-jwt-secret-key-at-least-32-bytes-long";
     private const string TestIssuer = "nexaone-test";
@@ -25,6 +25,9 @@ public sealed class TestApiFactory : WebApplicationFactory<Program>
     // 마이그레이션 완전성·방언(테이블 존재/컬럼 정합/SELECT·UPSERT)이며 FK 제약은 테이블 생성 시 파싱으로
     // 검증된다. 운영(MSSQL)은 FK를 그대로 강제한다.
     private string ConnString => $"Data Source={_dbPath};Foreign Keys=False";
+
+    /// <summary>이 팩토리 인스턴스의 SQLite 연결 문자열(테스트가 DB를 직접 조회·검증할 때 사용).</summary>
+    public string ConnectionString => ConnString;
 
     public TestApiFactory()
     {
