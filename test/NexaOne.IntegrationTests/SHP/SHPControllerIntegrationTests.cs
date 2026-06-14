@@ -71,6 +71,127 @@ public sealed class SHPControllerIntegrationTests : IClassFixture<TestApiFactory
             .Which.PlantId.Should().Be(plantId, "INSERT한 PLANT_ID가 그대로 영속화돼야 한다");
     }
 
+    // ── Delivery Items (V029 SHP_DELIVERY_ITEM) ───────────────────────────────
+    // GET /api/v1/shp/orders/{orderId}/items — V029 이전에는 SHP_DELIVERY_ITEM 테이블이 없어
+    // SELECT가 'no such table'로 깨졌다. 이 read-smoke는 테이블 존재 + SQLite SELECT 방언을 증명한다.
+
+    [Fact]
+    public async Task GetItems_requires_auth_and_returns_ok()
+    {
+        const string orderId = "SHP-IT-ITEMS-RO";
+
+        var anonymous = _factory.CreateClient();
+        var anonResp = await anonymous.GetAsync($"/api/v1/shp/orders/{orderId}/items");
+        anonResp.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "토큰 없는 요청은 [Authorize]에 의해 401이어야 한다");
+
+        var client = _factory.CreateAuthenticatedClient();
+        var okResp = await client.GetAsync($"/api/v1/shp/orders/{orderId}/items");
+        var body = await okResp.Content.ReadAsStringAsync();
+        okResp.StatusCode.Should().Be(HttpStatusCode.OK,
+            $"SHP_DELIVERY_ITEM 목록 조회(SELECT)가 성공해야 한다. 응답 본문: {body}");
+
+        var items = await okResp.Content.ReadFromJsonAsync<List<DeliveryItemDto>>();
+        items.Should().NotBeNull("성공 응답은 JSON 배열(빈 배열 포함)이어야 한다");
+    }
+
+    [Fact]
+    public async Task AddItem_persists_and_is_returned_by_get()
+    {
+        var client = _factory.CreateAuthenticatedClient();   // 기본 "*"(ADMIN) — perm:shp:manage 정책 통과
+        const string orderId = "SHP-IT-ITEMS-W";
+        const string itemId = "SHP-IT-ITEM-1";
+
+        // 품목 추가(POST). 하니스는 FK OFF라 부모 주문 시드 없이 안전하다.
+        var addResp = await client.PostAsJsonAsync($"/api/v1/shp/orders/{orderId}/items", new
+        {
+            itemId,
+            productId = "PROD-SHP-1",
+            plannedQty = 12.5m,
+            lotId = "LOT-SHP-1"
+        });
+        var addBody = await addResp.Content.ReadAsStringAsync();
+        addResp.StatusCode.Should().Be(HttpStatusCode.OK,
+            $"SHP_DELIVERY_ITEM INSERT가 성공해야 한다. 응답 본문: {addBody}");
+
+        var created = await addResp.Content.ReadFromJsonAsync<DeliveryItemDto>();
+        created.Should().NotBeNull();
+        created!.Id.Should().Be(itemId, "생성된 품목의 식별자(Id)는 요청한 ItemId여야 한다");
+        created.PlannedQty.Should().Be(12.5m, "INSERT한 PLANNED_QTY(DECIMAL)가 그대로 영속화돼야 한다");
+
+        // 주문별 품목 조회로 영속화 확인(SHP_DELIVERY_ITEM SELECT).
+        var items = await client.GetFromJsonAsync<List<DeliveryItemDto>>($"/api/v1/shp/orders/{orderId}/items");
+        items.Should().NotBeNull();
+        items!.Should().ContainSingle(i => i.Id == itemId)
+            .Which.DeliveryOrderId.Should().Be(orderId, "INSERT한 DELIVERY_ORDER_ID가 그대로 영속화돼야 한다");
+    }
+
+    // ── Shipment History (V029 SHP_SHIPMENT_HISTORY) ──────────────────────────
+    // GET /api/v1/shp/orders/{orderId}/shipment-history — V029 이전에는 SHP_SHIPMENT_HISTORY
+    // 테이블이 없어 SELECT가 깨졌다. read-smoke로 테이블 존재 + SELECT 방언을 증명한다.
+
+    [Fact]
+    public async Task GetShipmentHistory_requires_auth_and_returns_ok()
+    {
+        const string orderId = "SHP-IT-HIST-RO";
+
+        var anonymous = _factory.CreateClient();
+        var anonResp = await anonymous.GetAsync($"/api/v1/shp/orders/{orderId}/shipment-history");
+        anonResp.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "토큰 없는 요청은 [Authorize]에 의해 401이어야 한다");
+
+        var client = _factory.CreateAuthenticatedClient();
+        var okResp = await client.GetAsync($"/api/v1/shp/orders/{orderId}/shipment-history");
+        var body = await okResp.Content.ReadAsStringAsync();
+        okResp.StatusCode.Should().Be(HttpStatusCode.OK,
+            $"SHP_SHIPMENT_HISTORY 목록 조회(SELECT)가 성공해야 한다. 응답 본문: {body}");
+
+        var history = await okResp.Content.ReadFromJsonAsync<List<ShipmentHistoryDto>>();
+        history.Should().NotBeNull("성공 응답은 JSON 배열(빈 배열 포함)이어야 한다");
+    }
+
+    [Fact]
+    public async Task RecordShipment_persists_and_is_returned_by_get()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+        const string orderId = "SHP-IT-HIST-W";
+        const string historyId = "SHP-IT-HIST-1";
+
+        // 출하 이력 기록(POST). 하니스는 FK OFF라 부모 주문 시드 없이 안전하다.
+        var recResp = await client.PostAsJsonAsync($"/api/v1/shp/orders/{orderId}/shipment-history", new
+        {
+            historyId,
+            shippedQty = 7.25m,
+            shippedBy = "shp-it-user",
+            carrier = "ACME-LOGISTICS",
+            trackingNo = "TRK-SHP-1"
+        });
+        var recBody = await recResp.Content.ReadAsStringAsync();
+        recResp.StatusCode.Should().Be(HttpStatusCode.OK,
+            $"SHP_SHIPMENT_HISTORY INSERT가 성공해야 한다. 응답 본문: {recBody}");
+
+        var created = await recResp.Content.ReadFromJsonAsync<ShipmentHistoryDto>();
+        created.Should().NotBeNull();
+        created!.Id.Should().Be(historyId, "생성된 이력의 식별자(Id)는 요청한 HistoryId여야 한다");
+        created.ShippedQty.Should().Be(7.25m, "INSERT한 SHIPPED_QTY(DECIMAL)가 그대로 영속화돼야 한다");
+
+        // 주문별 출하 이력 조회로 영속화 확인(SHP_SHIPMENT_HISTORY SELECT).
+        var history = await client.GetFromJsonAsync<List<ShipmentHistoryDto>>(
+            $"/api/v1/shp/orders/{orderId}/shipment-history");
+        history.Should().NotBeNull();
+        history!.Should().ContainSingle(h => h.Id == historyId)
+            .Which.Carrier.Should().Be("ACME-LOGISTICS", "INSERT한 CARRIER가 그대로 영속화돼야 한다");
+    }
+
     // DeliveryOrder 직렬화 형태(camelCase). Id는 OrderId(=PK), Status는 JsonStringEnumConverter로 문자열.
     private sealed record OrderDto(string Id, string CustomerName, string PlantId, DateTime RequestedDate, string Status);
+
+    // DeliveryItem 직렬화 형태(camelCase). Id는 ItemId(=PK, AuditableEntity.Id).
+    private sealed record DeliveryItemDto(
+        string Id, string DeliveryOrderId, string ProductId, decimal PlannedQty, decimal? ActualQty, string? LotId);
+
+    // ShipmentHistory 직렬화 형태(camelCase). Id는 HistoryId(=PK, AuditableEntity.Id).
+    private sealed record ShipmentHistoryDto(
+        string Id, string DeliveryOrderId, DateTime ShippedAt, decimal ShippedQty, string ShippedBy,
+        string? Carrier, string? TrackingNo);
 }

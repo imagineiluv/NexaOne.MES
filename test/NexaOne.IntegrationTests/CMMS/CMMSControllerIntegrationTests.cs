@@ -4,17 +4,17 @@ using System.Net.Http.Json;
 namespace NexaOne.IntegrationTests.CMMS;
 
 /// <summary>
-/// CMMS(보전) 모듈 HTTP 통합 테스트 — V008 마이그레이션으로 생성되는 CMMS_WORK_ORDER 테이블이
-/// SQLite 테스트 하니스에서 실제로 동작하는지(테이블 존재 + SELECT 방언 + 인증/라우팅/직렬화),
-/// 그리고 작업지시(Work Order) 생성→조회 happy-path가 end-to-end로 동작하는지 검증한다.
+/// CMMS(보전) 모듈 HTTP 통합 테스트 — V008(CMMS_WORK_ORDER) + V027(CMMS_MAINTENANCE_PLAN /
+/// CMMS_SPARE_PART) 마이그레이션으로 생성되는 테이블들이 SQLite 테스트 하니스에서 실제로 동작하는지
+/// (테이블 존재 + SELECT 방언 + 인증/라우팅/직렬화), 그리고 작업지시/정비계획/예비품의 생성→조회
+/// happy-path가 end-to-end로 동작하는지 검증한다.
 ///
-/// 주의: maintenance-plans / spare-parts 엔드포인트는 대상 테이블
-/// (CMMS_MAINTENANCE_PLAN / CMMS_SPARE_PART)의 마이그레이션(V*.sql)이 없어
-/// SqliteSchemaBootstrapper가 테이블을 만들지 못한다 → 스모크 대상에서 제외한다(suspectedBugs 참조).
-/// 검증 가능한 list GET은 work-orders 뿐이다.
+/// V027 추가 전에는 maintenance-plans / spare-parts 엔드포인트가 대상 테이블 부재로 'no such table'에
+/// 실패했다. 이제 두 테이블이 생기므로 list GET 스모크(401/200) + 쓰기 happy-path를 추가한다.
 ///
-/// CMMS_WORK_ORDER.EQUIPMENT_ID는 MDM_EQUIPMENT를 FK 참조하므로(운영 무결성) 쓰기 테스트에서는
-/// 먼저 설비를 등록한다(EST 참조 패턴과 동일). PLAN_ID는 NULL 허용이라 시드 불필요.
+/// FK 참조 테이블은 MDM_EQUIPMENT(설비)·SYS_USER(담당자)지만 테스트 하니스는 FK를 끄므로
+/// (TestApiFactory: Foreign Keys=False) 읽기 스모크·쓰기 테스트 모두 부모 행 시드가 필요 없다.
+/// 단, work-order 쓰기 테스트는 기존 패턴 유지를 위해 설비를 선등록한다(검증 안정성).
 /// </summary>
 public sealed class CMMSControllerIntegrationTests : IClassFixture<TestApiFactory>
 {
@@ -105,6 +105,143 @@ public sealed class CMMSControllerIntegrationTests : IClassFixture<TestApiFactor
             .Which.EquipmentId.Should().Be(equipmentId);
     }
 
-    // WorkOrder 도메인(JSON camelCase, 대소문자 무시 역직렬화)에서 필요한 필드만 매핑.
+    // ──────────────────────────────────────────────────────────────────────────
+    // (c) Read smoke — maintenance-plans list GET (V027: CMMS_MAINTENANCE_PLAN).
+    //     status 미지정 → equipmentId(빈 문자열)로 GetByEquipment 조회 → WHERE EQUIPMENT_ID = ''
+    //     가 빈 목록을 200으로 돌려준다(시드 불필요). 테이블 존재 + SELECT 방언 + 인증/라우팅/직렬화 증명.
+    // ──────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public async Task GetMaintenancePlans_requires_auth_and_returns_empty_list_for_admin()
+    {
+        const string path = "/api/v1/cmms/maintenance-plans?equipmentId=";
+
+        var anon = _factory.CreateClient();
+        var anonResp = await anon.GetAsync(path);
+        anonResp.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "[Authorize]가 붙은 GET maintenance-plans는 토큰 없이 401이어야 한다");
+
+        var admin = _factory.CreateAuthenticatedClient();
+        var adminResp = await admin.GetAsync(path);
+        var body = await adminResp.Content.ReadAsStringAsync();
+        adminResp.StatusCode.Should().Be(HttpStatusCode.OK,
+            $"CMMS_MAINTENANCE_PLAN 테이블 SELECT가 성공해 200이어야 한다. 응답 본문: {body}");
+
+        var list = await adminResp.Content.ReadFromJsonAsync<List<MaintenancePlanDto>>();
+        list.Should().NotBeNull("200 응답은 JSON 배열로 역직렬화되어야 한다");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // (d) Read smoke — spare-parts list GET (V027: CMMS_SPARE_PART).
+    //     lowStock 기본 false → GetAll → ORDER BY PART_NAME. 시드 없이 빈 목록 200.
+    // ──────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public async Task GetSpareParts_requires_auth_and_returns_empty_list_for_admin()
+    {
+        const string path = "/api/v1/cmms/spare-parts";
+
+        var anon = _factory.CreateClient();
+        var anonResp = await anon.GetAsync(path);
+        anonResp.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+            "[Authorize]가 붙은 GET spare-parts는 토큰 없이 401이어야 한다");
+
+        var admin = _factory.CreateAuthenticatedClient();
+        var adminResp = await admin.GetAsync(path);
+        var body = await adminResp.Content.ReadAsStringAsync();
+        adminResp.StatusCode.Should().Be(HttpStatusCode.OK,
+            $"CMMS_SPARE_PART 테이블 SELECT가 성공해 200이어야 한다. 응답 본문: {body}");
+
+        // lowStock=true 경로(WHERE CURRENT_STOCK <= MIN_STOCK)도 방언상 동작하는지 함께 증명.
+        var lowResp = await admin.GetAsync(path + "?lowStock=true");
+        var lowBody = await lowResp.Content.ReadAsStringAsync();
+        lowResp.StatusCode.Should().Be(HttpStatusCode.OK,
+            $"GetLowStock SELECT(<=)가 성공해 200이어야 한다. 응답 본문: {lowBody}");
+
+        var list = await adminResp.Content.ReadFromJsonAsync<List<SparePartDto>>();
+        list.Should().NotBeNull("200 응답은 JSON 배열로 역직렬화되어야 한다");
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // (e) Write happy-path — 정비계획 생성 → 설비별 조회 확인 (V027: CMMS_MAINTENANCE_PLAN INSERT/SELECT).
+    //     EQUIPMENT_ID→MDM_EQUIPMENT, ASSIGNEE_ID→SYS_USER FK는 하니스에서 OFF라 시드 불필요.
+    //     PlanType은 'PM'|'CM', CycleType은 'Daily'|'Weekly'|'Monthly'|'Yearly'만 도메인 허용.
+    // ──────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public async Task CreateMaintenancePlan_persists_and_is_retrievable_by_equipment()
+    {
+        var client = _factory.CreateAuthenticatedClient();   // "*"(ADMIN) — cmms:manage 정책 통과
+        const string equipmentId = "EQ-CMMS-PLAN-1";
+        const string planId = "CMMS-PLAN-IT-1";
+
+        var createResp = await client.PostAsJsonAsync("/api/v1/cmms/maintenance-plans", new
+        {
+            planId,
+            planName = "Quarterly Preventive Maintenance",
+            equipmentId,
+            planType = "PM",
+            cycleType = "Monthly",
+            scheduledDate = new DateTime(2026, 7, 1, 9, 0, 0, DateTimeKind.Utc),
+            estimatedDurationHours = 4.5m,
+            assigneeId = "USER-CMMS-PLAN-1"
+        });
+        var createBody = await createResp.Content.ReadAsStringAsync();
+        createResp.StatusCode.Should().Be(HttpStatusCode.OK,
+            $"CMMS_MAINTENANCE_PLAN INSERT가 성공해 200이어야 한다. 응답 본문: {createBody}");
+
+        var created = await createResp.Content.ReadFromJsonAsync<MaintenancePlanDto>();
+        created.Should().NotBeNull();
+        created!.Id.Should().Be(planId);
+        created.EquipmentId.Should().Be(equipmentId);
+        created.Status.Should().Be("Planned", "생성 직후 상태는 Planned여야 한다");
+
+        // 설비별 조회(SELECT * WHERE EQUIPMENT_ID = @ ORDER BY SCHEDULED_DATE) — 방금 만든 계획 회수.
+        var list = await client.GetFromJsonAsync<List<MaintenancePlanDto>>(
+            $"/api/v1/cmms/maintenance-plans?equipmentId={equipmentId}");
+        list.Should().NotBeNull();
+        list!.Should().ContainSingle(p => p.Id == planId)
+            .Which.EquipmentId.Should().Be(equipmentId);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // (f) Write happy-path — 예비품 생성 → 전체 조회 확인 (V027: CMMS_SPARE_PART INSERT/SELECT).
+    //     FK 체인 없음(가장 깨끗). MaxStock > MinStock, Stock >= 0 도메인 검증 충족.
+    // ──────────────────────────────────────────────────────────────────────────
+    [Fact]
+    public async Task CreateSparePart_persists_and_is_retrievable_in_list()
+    {
+        var client = _factory.CreateAuthenticatedClient();
+        const string partId = "CMMS-PART-IT-1";
+
+        var createResp = await client.PostAsJsonAsync("/api/v1/cmms/spare-parts", new
+        {
+            partId,
+            partName = "Bearing 6205-2RS",
+            partNumber = "BRG-6205-2RS",
+            description = "Sealed deep-groove ball bearing",
+            unitOfMeasure = "EA",
+            currentStock = 10m,
+            minStock = 2m,
+            maxStock = 50m,
+            location = "WH-A-01",
+            equipmentClassId = (string?)null   // NULL 허용 컬럼 경로 확인
+        });
+        var createBody = await createResp.Content.ReadAsStringAsync();
+        createResp.StatusCode.Should().Be(HttpStatusCode.OK,
+            $"CMMS_SPARE_PART INSERT가 성공해 200이어야 한다. 응답 본문: {createBody}");
+
+        var created = await createResp.Content.ReadFromJsonAsync<SparePartDto>();
+        created.Should().NotBeNull();
+        created!.Id.Should().Be(partId);
+        created.PartNumber.Should().Be("BRG-6205-2RS");
+
+        // 전체 조회(SELECT * ORDER BY PART_NAME) — 방금 만든 예비품이 목록에 포함되는지 확인.
+        var list = await client.GetFromJsonAsync<List<SparePartDto>>("/api/v1/cmms/spare-parts");
+        list.Should().NotBeNull();
+        list!.Should().ContainSingle(p => p.Id == partId)
+            .Which.PartNumber.Should().Be("BRG-6205-2RS");
+    }
+
+    // 도메인(JSON camelCase, 대소문자 무시 역직렬화)에서 필요한 필드만 매핑.
     private sealed record WorkOrderDto(string Id, string EquipmentId, string WoType, string Status);
+    private sealed record MaintenancePlanDto(string Id, string EquipmentId, string Status);
+    private sealed record SparePartDto(string Id, string PartNumber);
 }
