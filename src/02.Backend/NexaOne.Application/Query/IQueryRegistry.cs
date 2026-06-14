@@ -7,8 +7,8 @@ namespace NexaOne.Application.Query;
 /// </summary>
 public interface IQueryRegistry
 {
-    /// <summary>쿼리 ID로 SQL을 조회한다. 미등록이면 false.</summary>
-    bool TryGet(string queryId, out string sql);
+    /// <summary>쿼리 ID로 정의(SQL + 필요권한)를 조회한다. 미등록이면 false.</summary>
+    bool TryGet(string queryId, out QueryDefinition? definition);
 
     /// <summary>등록된 모든 쿼리 ID(진단/관리용).</summary>
     IReadOnlyCollection<string> Ids { get; }

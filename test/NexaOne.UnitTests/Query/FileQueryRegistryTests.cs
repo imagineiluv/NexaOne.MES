@@ -31,10 +31,27 @@ public sealed class FileQueryRegistryTests : IDisposable
 
         reg.Dialect.Should().Be("sqlite");
         reg.Ids.Should().BeEquivalentTo(new[] { "MDM.PlantList", "MDM.AreaList" });
-        reg.TryGet("MDM.PlantList", out var sql).Should().BeTrue();
-        sql.Should().Contain("FROM MDM_PLANT");
-        reg.TryGet("MDM.AreaList", out var sql2).Should().BeTrue();
-        sql2.Should().Contain("@plantId");
+        reg.TryGet("MDM.PlantList", out var def).Should().BeTrue();
+        def!.Sql.Should().Contain("FROM MDM_PLANT");
+        reg.TryGet("MDM.AreaList", out var def2).Should().BeTrue();
+        def2!.Sql.Should().Contain("@plantId");
+    }
+
+    [Fact]
+    public void Load_parses_required_permission_attribute()
+    {
+        WriteDialectFile("sqlite", "P.xml", """
+            <queries>
+              <query id="Q.Open"><statement>SELECT 1</statement></query>
+              <query id="Q.Secured" requiredPermission="sys:manage"><statement>SELECT 2</statement></query>
+            </queries>
+            """);
+        var reg = FileQueryRegistry.Load("sqlite", _root);
+
+        reg.TryGet("Q.Open", out var open).Should().BeTrue();
+        open!.RequiredPermission.Should().BeNull("권한 미선언 쿼리는 인증만으로 실행");
+        reg.TryGet("Q.Secured", out var secured).Should().BeTrue();
+        secured!.RequiredPermission.Should().Be("sys:manage");
     }
 
     [Fact]
@@ -44,8 +61,8 @@ public sealed class FileQueryRegistryTests : IDisposable
             "<queries><query id=\"A.B\"><statement>SELECT 1</statement></query></queries>");
         var reg = FileQueryRegistry.Load("sqlite", _root);
 
-        reg.TryGet("NOPE", out var sql).Should().BeFalse();
-        sql.Should().BeNull();
+        reg.TryGet("NOPE", out var def).Should().BeFalse();
+        def.Should().BeNull();
     }
 
     [Fact]

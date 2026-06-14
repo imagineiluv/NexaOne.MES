@@ -11,7 +11,7 @@
             ORDER BY PLANT_NAME
         ]]></statement>
     </query>
-    <query id="MDM.EquipmentByPlant">
+    <query id="MDM.EquipmentByPlant" requiredPermission="mdm:manage">
         <statement><![CDATA[
             SELECT EQUIPMENT_ID, EQUIPMENT_NAME, PLANT_ID, AREA_ID, EQUIPMENT_TYPE, EQUIPMENT_CLASS_ID, VALID_STATE
             FROM MDM_EQUIPMENT WITH(NOLOCK)

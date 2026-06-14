@@ -13,24 +13,25 @@ namespace NexaOne.Application.Query;
 /// </remarks>
 public sealed class FileQueryRegistry : IQueryRegistry
 {
-    private readonly Dictionary<string, string> _queries;
+    private readonly Dictionary<string, QueryDefinition> _queries;
 
     public string Dialect { get; }
     public IReadOnlyCollection<string> Ids => _queries.Keys;
 
-    private FileQueryRegistry(string dialect, Dictionary<string, string> queries)
+    private FileQueryRegistry(string dialect, Dictionary<string, QueryDefinition> queries)
     {
         Dialect = dialect;
         _queries = queries;
     }
 
-    public bool TryGet(string queryId, out string sql) => _queries.TryGetValue(queryId, out sql!);
+    public bool TryGet(string queryId, out QueryDefinition? definition)
+        => _queries.TryGetValue(queryId, out definition);
 
     /// <summary>방언 폴더의 쿼리 XML을 모두 로드한다. 폴더가 없으면 빈 레지스트리를 반환(쿼리 게이트웨이 미사용 환경 허용).</summary>
     public static FileQueryRegistry Load(string dialect, string? overrideDirectory = null)
     {
         var baseDir = ResolveQueriesRoot(overrideDirectory);
-        var queries = new Dictionary<string, string>(StringComparer.Ordinal);
+        var queries = new Dictionary<string, QueryDefinition>(StringComparer.Ordinal);
         if (baseDir is null)
             return new FileQueryRegistry(dialect, queries);
 
@@ -40,18 +41,19 @@ public sealed class FileQueryRegistry : IQueryRegistry
 
         foreach (var file in Directory.GetFiles(dialectDir, "*.xml").OrderBy(f => f, StringComparer.Ordinal))
         {
-            foreach (var (id, sql) in ParseFile(file))
+            foreach (var def in ParseFile(file))
             {
-                if (!queries.TryAdd(id, sql))
+                if (!queries.TryAdd(def.Id, def))
                     throw new InvalidOperationException(
-                        $"Duplicate query id '{id}' (dialect={dialect}, file={Path.GetFileName(file)}). 쿼리 ID는 방언 전역에서 고유해야 한다.");
+                        $"Duplicate query id '{def.Id}' (dialect={dialect}, file={Path.GetFileName(file)}). 쿼리 ID는 방언 전역에서 고유해야 한다.");
             }
         }
         return new FileQueryRegistry(dialect, queries);
     }
 
-    private static IEnumerable<(string Id, string Sql)> ParseFile(string path)
+    private static IEnumerable<QueryDefinition> ParseFile(string path)
     {
+        var source = Path.GetFileName(path);
         var doc = XDocument.Load(path);
         foreach (var q in doc.Descendants("query"))
         {
@@ -61,7 +63,10 @@ public sealed class FileQueryRegistry : IQueryRegistry
             var statement = q.Element("statement");
             var sql = (statement?.Value ?? q.Value).Trim();
             if (sql.Length == 0) continue;
-            yield return (id!.Trim(), sql);
+            // requiredPermission 속성(선택) — 비면 인증만으로 실행 가능.
+            var perm = ((string?)q.Attribute("requiredPermission"))?.Trim();
+            yield return new QueryDefinition(
+                id!.Trim(), sql, source, string.IsNullOrEmpty(perm) ? null : perm);
         }
     }
 

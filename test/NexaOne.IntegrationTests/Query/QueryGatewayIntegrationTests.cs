@@ -59,6 +59,23 @@ public sealed class QueryGatewayIntegrationTests : IClassFixture<TestApiFactory>
         Str(filtered[0], "PLANT_NAME").Should().Be("Query Plant 1");
     }
 
+    [Fact]
+    public async Task QueryWithRequiredPermission_forbidden_without_permission_allowed_with_it()
+    {
+        // MDM.EquipmentByPlant은 requiredPermission="mdm:manage" 선언 — 데이터 주도 인가 검증.
+        // 권한 없는 토큰은 403, 전체권한("*") ADMIN은 통과.
+        var limited = _factory.CreateAuthenticatedClient("fdc:read");   // mdm:manage 없음
+        var forbidden = await limited.PostAsJsonAsync("/api/v1/query/MDM.EquipmentByPlant",
+            new Dictionary<string, object?> { ["plantId"] = "P-X" });
+        forbidden.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "필요 권한(mdm:manage)이 없으면 등록 쿼리 실행도 403이어야 한다");
+
+        var admin = _factory.CreateAuthenticatedClient();   // "*"
+        var ok = await admin.PostAsJsonAsync("/api/v1/query/MDM.EquipmentByPlant",
+            new Dictionary<string, object?> { ["plantId"] = "P-X" });
+        ok.StatusCode.Should().Be(HttpStatusCode.OK, "전체권한 토큰은 통과(빈 결과여도 200)");
+    }
+
     private static async Task<List<Dictionary<string, JsonElement>>> ExecuteQuery(
         HttpClient client, string queryId, Dictionary<string, object?> parameters)
     {

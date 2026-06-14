@@ -39,9 +39,14 @@ public partial class RuleController : ControllerBase
         [FromBody] Dictionary<string, object>? parameters,
         CancellationToken ct)
     {
-        if (!_queryRegistry.TryGet(queryId, out var sql))
+        if (!_queryRegistry.TryGet(queryId, out var def) || def is null)
             return NotFound(new { code = "QUERY_NOT_FOUND", message = $"Query '{queryId}' is not registered." });
 
+        // 쿼리가 필요 권한을 선언했으면 토큰 권한 클레임(또는 전체권한 "*")으로 집행한다(데이터 주도 인가).
+        if (!string.IsNullOrEmpty(def.RequiredPermission) && !HasPermission(def.RequiredPermission))
+            return Forbid();
+
+        var sql = def.Sql;
         // 본문 JSON 값은 JsonElement로 역직렬화되므로 Dapper 바인딩 가능한 CLR 타입으로 변환한다.
         var p = new Dictionary<string, object>(StringComparer.Ordinal);
         if (parameters is not null)
@@ -56,6 +61,12 @@ public partial class RuleController : ControllerBase
         var rows = await _dispatcher.QueryAsync(sql, p, ct);
         return Ok(rows);
     }
+
+    // 데이터 주도 권한 검사 — 토큰의 permission 클레임에 요구 권한 또는 전체권한("*")이 있으면 통과.
+    private bool HasPermission(string permission) =>
+        User.FindAll(NexaOne.Common.Security.Permissions.ClaimType)
+            .Any(c => c.Value == NexaOne.Common.Security.Permissions.All
+                   || string.Equals(c.Value, permission, StringComparison.OrdinalIgnoreCase));
 
     // JSON 본문 값(JsonElement) → Dapper 바인딩용 CLR 값. null/Null은 null(상위에서 DBNull로 치환).
     private static object? JsonToClr(object? value) => value switch
