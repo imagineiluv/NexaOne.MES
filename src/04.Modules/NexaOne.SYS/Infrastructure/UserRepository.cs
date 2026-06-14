@@ -54,7 +54,9 @@ public sealed class UserRepository : QueryRepository, IUserRepository
         // 잠금이 시간 만료된 뒤의 실패는 1회부터 다시 세고, 임계 도달 시 잠금을 설정한다.
         // SELECT 후 전체 행 UPDATE 방식은 동시 실패 시 증가가 유실되고
         // PASSWORD_HASH 등 다른 컬럼을 낡은 값으로 덮어쓸 수 있어 사용하지 않는다.
-        const string sql = @"UPDATE SYS_USER SET
+        // MSSQL 전용 OUTPUT 절을 제거해 MSSQL/SQLite 양쪽에서 동작하게 한다. 원자적 단일 UPDATE로
+        // 카운트/잠금을 갱신한 뒤, 결과 LOCKED_UNTIL은 별도 SELECT로 읽는다(증가 자체는 여전히 원자적).
+        const string update = @"UPDATE SYS_USER SET
             FAIL_COUNT = CASE WHEN LOCKED_UNTIL IS NOT NULL AND LOCKED_UNTIL <= @Now
                               THEN 1 ELSE FAIL_COUNT + 1 END,
             LOCKED_UNTIL = CASE
@@ -63,15 +65,17 @@ public sealed class UserRepository : QueryRepository, IUserRepository
                 WHEN LOCKED_UNTIL IS NOT NULL AND LOCKED_UNTIL <= @Now THEN NULL
                 ELSE LOCKED_UNTIL END,
             UPDATED_BY = 'SYSTEM', UPDATED_AT = @Now
-            OUTPUT inserted.LOCKED_UNTIL
             WHERE USER_ID = @UserId";
-        return await QueryFirstOrDefaultAsync<DateTime?>(sql, new
+        await _processor.UpdateAsync(update, new
         {
             UserId = userId,
             Now = utcNow,
             MaxFailures = User.MaxConsecutiveFailures,
             LockUntil = utcNow.Add(User.LockDuration)
         }, ct);
+
+        const string read = "SELECT LOCKED_UNTIL FROM SYS_USER WHERE USER_ID = @userId";
+        return await QueryFirstOrDefaultAsync<DateTime?>(read, new { userId }, ct);
     }
 
     public async Task UpdateAsync(User user, CancellationToken ct = default)
