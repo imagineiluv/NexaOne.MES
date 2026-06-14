@@ -232,7 +232,11 @@ public sealed class Lot : AuditableEntity<string>
         return Result.Success();
     }
 
-    /// <summary>Mixing 투입 소비 — Created/Queued에서만 가능 (설계 19.4.7).</summary>
+    /// <summary>Mixing 투입 소비 — Created/Queued에서만 가능 (설계 19.4.7).
+    /// <para>의도된 '원자적 소비': 투입 Lot은 수량과 무관하게 전체가 Consumed로 전이된다(잔량 분할 없음).
+    /// 투입량(inQty)은 LotMixingRelation/LotHistory에 genealogy(추적성/수율)로 기록될 뿐 재고 차감이 아니다.
+    /// Lot 모델은 부분소비 상태/잔량 개념이 없는 원자 단위로 설계됐다(2026-06-14 결정: 현행 유지).
+    /// 부분소비가 필요해지면 도메인 모델(상태·잔량) 확장이 선행돼야 하며 단순 수량 차감으로 바꾸지 말 것.</para></summary>
     public Result Consume(string user)
     {
         if (IsHold)
