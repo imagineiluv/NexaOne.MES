@@ -25,6 +25,7 @@ using NexaOne.SYS.Application.Deploys;
 using NexaOne.SYS.Application.Menus;
 using NexaOne.SYS.Application.Users;
 using NexaOne.SYS.Infrastructure;
+using Microsoft.Extensions.DependencyInjection.Extensions;   // TryAddSingleton
 
 namespace NexaOne.API.Extensions;
 
@@ -197,7 +198,25 @@ public static class ServiceCollectionExtensions
 
         // Auth (§20.10) — JwtBearer 검증(Program.cs)과 같은 Jwt:SecretKey를 사용한다
         services.AddSingleton<IJwtService, JwtService>();
-        services.AddSingleton<IRefreshTokenStore, RefreshTokenStore>();
+
+        // 리프레시 토큰 저장소 — 기본 인메모리(단일 인스턴스). Jwt:RefreshTokenStore=Redis면 분산 저장으로
+        // 전환해 다중 인스턴스/재시작 간 세션·폐기 일관성을 확보한다(스케일아웃, opt-in 인프라).
+        var refreshStore = configuration.GetValue<string>("Jwt:RefreshTokenStore") ?? "Memory";
+        if (string.Equals(refreshStore, "Redis", StringComparison.OrdinalIgnoreCase))
+        {
+            var redisConn = configuration.GetValue<string>("Cache:Redis:ConnectionString") ?? "localhost:6379";
+            services.TryAddSingleton<NexaOne.Driver.Redis.RedisDriver>();   // 캐시와 동일 드라이버 인스턴스 공유
+            services.AddSingleton<IRefreshTokenStore>(sp =>
+                new RedisRefreshTokenStore(
+                    sp.GetRequiredService<NexaOne.Driver.Redis.RedisDriver>(),
+                    sp.GetRequiredService<IJwtService>(),
+                    redisConn,
+                    TimeSpan.FromDays(configuration.GetValue("Jwt:RefreshTokenExpiryDays", 7))));
+        }
+        else
+        {
+            services.AddSingleton<IRefreshTokenStore, RefreshTokenStore>();
+        }
 
         // Email & password reset
         services.AddSingleton<IEmailSender, SmtpEmailSender>();
