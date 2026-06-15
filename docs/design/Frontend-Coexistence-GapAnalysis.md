@@ -18,11 +18,11 @@
 | 비전 필러 | 추상화 존재 | 실제 적용(경로 강제) | 종합 | 핵심 한 줄 |
 |---|---|---|---|---|
 | Low-Code (화면+로직) | △ 로직만 | ✕ 화면 0 | **~25%** | 워크플로우 실행 코어는 견고, 화면 생성·현업 디자이너는 전무 |
-| Pro-Code (React/Vue) | ✕ | ✕ | **~15%** | REST/SignalR/CORS/JWT API 표면은 재활용 가능, 프런트 스택·공존 셸 0 |
-| 단일 Screen Runtime | △ | ✕ | **~25%** | Blazor+MDI 셸이 근접 자산, 메타데이터 구동 화면 런타임 없음 |
-| Query Engine | ✔ (NexusCom) | ✕ (우회) | **~35%** | 성숙한 추상화가 있으나 리포지토리가 `CreateConnection`으로 한 단계 아래에 직결 |
-| Event Bus | ✔ (Kafka) | ✕ (죽은 코드·우회) | **~20%** | Kafka 글루 미등록, 실시간은 SignalR 직접 푸시로 버스 우회 |
-| Security Engine | ✔ (building block) | △ (분산) | **~45%** | 강한 부품들이 표준 미들웨어에 분산, 게이트웨이형 PEP·권한 인가 없음 |
+| Pro-Code (React/Vue) | ✕ | ✕ | **~15%** | REST/SignalR/CORS/JWT API 표면은 재활용 가능, 프런트 스택·공존 셸 0 (해소: §7 참조 — React+Vite+TS SPA 토대·Blazor 셸 임베드 완료) |
+| 단일 Screen Runtime | △ | ✕ | **~25%** | Blazor+MDI 셸이 근접 자산, 메타데이터 구동 화면 런타임 없음 (해소: §7 참조 — `ScreenDefinition`+`MetaScreen` 동적 렌더 토대) |
+| Query Engine | ✔ (NexusCom) | ✕ (우회) | **~35%** | 성숙한 추상화가 있으나 리포지토리가 `CreateConnection`으로 한 단계 아래에 직결 (해소: §7 참조 — `IQueryGateway` 게이트웨이 강제 완료) |
+| Event Bus | ✔ (Kafka) | ✕ (죽은 코드·우회) | **~20%** | Kafka 글루 미등록, 실시간은 SignalR 직접 푸시로 버스 우회 (해소: §7 참조 — outbox+`IMessageBus`+인메모리 버스 기본 활성, 실시간 알림 버스 일원화 완료) |
+| Security Engine | ✔ (building block) | △ (분산) | **~45%** | 강한 부품들이 표준 미들웨어에 분산, 게이트웨이형 PEP·권한 인가 없음 (해소: §7 참조 — permission 정책 PEP 전 컨트롤러 적용 완료) |
 | Platform(NexusFramework) | △ | ✕ | **~25%** | 디자이너·엔진·콘솔이 존재하나 상호 단절, "NAF Studio" 통합 비전 미명문화 |
 
 > 종합 환산: **비전 대비 약 20~25% 구현.** 다만 "재활용 가능한 building block"이 풍부해 — 신규 구축보다 **기존 자산을 게이트웨이로 승격·재배선**하는 작업이 1차 레버리지다.
@@ -37,12 +37,12 @@
 
 > **용어 정정(중요)**: "Low-Code"는 **두 개의 별개 트랙**이며 혼동하면 안 된다.
 > 1. **프론트엔드 Low-Code = 화면 디자이너** — 현업이 화면(폼/그리드)을 시각적으로 조립(ScreenDefinition 메타데이터 생성) → 화면 런타임이 렌더. *프론트엔드* 관심사. (Phase 3 메타모델 + Phase 4 디자이너)
-> 2. **워크플로우 디자이너 = 비즈니스 로직** — 그래프로 업무 로직/오케스트레이션을 구성 → `FlowExecutionEngine`이 실행. *백엔드 로직* 관심사. (§8에서 앱 연계 완료, NexusFramework 그래프 에디터)
+> 2. **워크플로우 디자이너 = 비즈니스 로직** — 그래프로 업무 로직/오케스트레이션을 구성 → `FlowExecutionEngine`이 실행. *백엔드 로직* 관심사. (DetailedDesign §8에서 앱 연계 완료, NexusFramework 그래프 에디터)
 >
 > 이 둘은 산출물(화면 메타 vs 워크플로우 그래프)·실행 주체(화면 런타임 vs FlowExecutionEngine)·계층(프론트 vs 백엔드)이 모두 다르다. 아래 자산/갭은 두 트랙을 구분해 읽어야 한다.
 
 - **비전**: (프론트 트랙) 비주얼 화면 디자이너로 현업이 코딩 없이 화면을 구성. (로직 트랙) 워크플로우 그래프로 업무 로직 구성.
-- **현재**: `FlowExecutionEngine`(DAG 검증·위상정렬·병렬 실행·Try/Catch/Finally) + `INode`/`NodeRegistry` + `[WorkflowCallable]`/`AssemblyInvocationNode`(DLL 메서드를 노드로 리플렉션 호출) = **로직 실행 코어는 성숙**. VS Code 확장 그래프 디자이너(workflow-editor.js ~1,920줄) 존재. §8로 `WorkflowController`가 `*.workflow` 실행까지 배선.
+- **현재**: `FlowExecutionEngine`(DAG 검증·위상정렬·병렬 실행·Try/Catch/Finally) + `INode`/`NodeRegistry` + `[WorkflowCallable]`/`AssemblyInvocationNode`(DLL 메서드를 노드로 리플렉션 호출) = **로직 실행 코어는 성숙**. VS Code 확장 그래프 디자이너(workflow-editor.js ~1,920줄) 존재. DetailedDesign §8로 `WorkflowController`가 `*.workflow` 실행까지 배선.
 - **핵심 갭**:
   - 메타데이터 주도 **화면 생성 전무** — `FormDefinition`/`ScreenDefinition` 메타모델 없음, `DynamicComponent`/`RenderTreeBuilder` 미사용, 모든 화면 하드코딩.
   - 디자이너가 **VS Code 전용**(브라우저/현업 접근 불가, Blazor 미통합).
@@ -72,31 +72,31 @@
 ### 2.4 Query Engine — 모든 데이터가 통과
 - **비전**: 모든 데이터 접근이 명명 쿼리 레지스트리를 갖춘 단일 Query Engine 게이트웨이를 통과.
 - **현재**: NexusCom `IQueryExecutor`/`IDatabaseProvider`/`IDriverManager`(4 DBMS)·`INexaOneEESDbCapability`(방언) = **성숙한 추상화**. NexaMes는 `QueryRepository`/`ServiceObjectProcessor` 기반 클래스로 44개 리포지토리 일원화, UI 직접 DB 접근 **0건**.
-- **핵심 갭**:
+- **핵심 갭** *(해소: §7 Phase 1 참조 — `IQueryGateway`로 게이트웨이 강제 완료. 아래는 분석 시점 갭, 이력 보존)*:
   - **게이트웨이 우회**: `IQueryExecutor`/`IDriverManager` NexaMes 호출 **0건**. 리포지토리가 한 단계 아래 `CreateConnection`+Dapper로 직결.
   - **명명 쿼리 레지스트리 부재**: SQL이 44개 리포지토리에 `const string` 인라인.
-  - **공급자 중립성 미달**: `WITH(NOLOCK)` 109건 하드코딩(방언 추상화 있음에도 미사용).
-  - **백도어**: `RuleController` `/api/v1/query`가 임의 SQL 직접 실행.
+  - **공급자 중립성 미달**: `WITH(NOLOCK)` 109건 하드코딩(방언 추상화 있음에도 미사용). *(해소: 현재 `src` 내 하드코딩 NOLOCK 0건 — 방언은 `INexaOneEESDbCapability.NoLockHint`로 추상화, 예: `SqliteEesDbCapability.NoLockHint`.)*
+  - **백도어**: `RuleController` `/api/v1/query`가 임의 SQL 직접 실행. *(해소: `RuleController.ExecuteQuery`가 `[Authorize(Policy="perm:sys:manage")]`로 관리자 전용 봉쇄, 일반 데이터 접근은 등록 명명쿼리 `/query/{queryId}`·`/command/{queryId}` 게이트 경유.)*
 - **레버리지**: `QueryRepository`/`ServiceObjectProcessor` **내부만** `IDriverManager`로 위임 교체 → 44개 리포지토리·전 화면 무변경으로 게이트웨이 강제. `INexaOneEESDbCapability`로 NOLOCK/페이징 치환. const SQL을 (모듈,쿼리명) 카탈로그로 점진 이관.
 
 ### 2.5 Event Bus — 모든 이벤트가 통과
 - **비전**: 모든 도메인/실시간 이벤트가 단일 Event Bus(Kafka)를 통과.
 - **현재**: NexusCom `KafkaDriver`(성숙) + NexaMes `KafkaMessageBus`/`KafkaConsumerService`(설계 성숙) + SignalR `IEesHubNotifier`(실가동). `ChangeEventDispatcher`(CDC).
-- **핵심 갭**:
-  - Kafka 글루가 **DI/HostedService 미등록 = 죽은 코드**(실행 경로에 없음).
-  - 실시간 이벤트가 **버스 우회** — 컨트롤러/HostedService가 `IEesHubNotifier`를 직접 호출해 SignalR 즉시 푸시(Kafka 미경유).
-  - **이벤트 추상화 부재**(`IEventBus`/`IEventDispatcher`/MediatR 등 0건).
-  - **3중 단절 이벤트 체계**: NexaMes `IDomainEvent`(골격만) / NexusFramework `IExecutionEvent` / NexusCom `ChangeEvent`가 각자 독립.
-  - 원자성 부재(transactional outbox 없음).
+- **핵심 갭** *(해소: §7 Phase 1 참조 — outbox+`IMessageBus` 추상화+인메모리 버스 기본 활성, 실시간 알림 버스 일원화 완료. 아래는 분석 시점 갭, 이력 보존)*:
+  - Kafka 글루가 **DI/HostedService 미등록 = 죽은 코드**(실행 경로에 없음). *(해소: opt-in `Kafka:Enabled`로 DI/HostedService 등록.)*
+  - 실시간 이벤트가 **버스 우회** — 컨트롤러/HostedService가 `IEesHubNotifier`를 직접 호출해 SignalR 즉시 푸시(Kafka 미경유). *(해소: `RealtimeNotificationCoordinator`로 버스 활성 시 이중 발행 생략·비활성 시 직접 폴백.)*
+  - **이벤트 추상화 부재**(`IEventBus`/`IEventDispatcher`/MediatR 등 0건). *(해소: `IMessageBus`(인메모리/Kafka) 도입.)*
+  - **3중 단절 이벤트 체계**: NexaMes `IDomainEvent`(골격만) / NexusFramework `IExecutionEvent` / NexusCom `ChangeEvent`가 각자 독립. *(부분 해소: NexaMes 내부는 `IOutboxEvent`/`DomainEventMessage`로 수렴, 3체계 어댑팅은 잔여.)*
+  - 원자성 부재(transactional outbox 없음). *(해소: EES_OUTBOX 동일 트랜잭션 기록, 13개 lifecycle 애그리거트 확산 완료.)*
 - **레버리지**: `KafkaDriver` 백본 재사용. `IEesHubNotifier`를 "버스 구독자"로 재배치(컨트롤러 직접호출 제거 → Consumer 핸들러가 Notifier 호출). `AggregateRoot.RaiseDomainEvent` 골격 + SaveChanges 인터셉터(outbox) → Kafka 발행. `DomainEventMessage`를 공통 봉투로 3체계 어댑팅.
 
 ### 2.6 Security Engine — 모든 권한이 통과
 - **비전**: 모든 인증·인가가 단일 게이트웨이형 정책 집행점(PEP)을 통과.
 - **현재**: JWT(HMAC, 약한키 부팅거부) + PBKDF2 해시 + RateLimiting + 계정잠금 + 미들웨어(PasswordChangeRequired/RequestLogContext) + Role/User 도메인 = **강한 building block**.
-- **핵심 갭**:
-  - **게이트웨이형 Security Engine 부재** — 표준 미들웨어 + 컨트롤러 `[Authorize]` 분산, 커스텀 정책/핸들러 0건.
-  - **`Role.Permissions` 정의·영속화되나 인가 미사용** — 실제는 하드코딩 역할명(`"ADMIN"`/`"OPERATOR"`) 체크. 권한 클레임 미발급.
-  - 단일 역할(User당 1 RoleId), 다중역할/계층 없음.
+- **핵심 갭** *(해소: §7 Phase 1 참조 — permission 정책 PEP를 전 컨트롤러에 적용 완료. 아래는 분석 시점 갭, 이력 보존)*:
+  - **게이트웨이형 Security Engine 부재** — 표준 미들웨어 + 컨트롤러 `[Authorize]` 분산, 커스텀 정책/핸들러 0건. *(해소: `PermissionPolicyProvider`/`PermissionAuthorizationHandler`로 PEP화, `[Authorize(Policy="perm:...")]` 적용.)*
+  - **`Role.Permissions` 정의·영속화되나 인가 미사용** — 실제는 하드코딩 역할명(`"ADMIN"`/`"OPERATOR"`) 체크. 권한 클레임 미발급. *(해소: `JwtService`가 `permission` 클레임 발급, 권한 기반 인가 집행.)*
+  - 단일 역할(User당 1 RoleId), 다중역할/계층 없음. *(잔여: 다중역할/계층은 미도입.)*
   - RefreshToken 인메모리(분산 미지원, JTI blacklist 없어 즉시 무효화 불가).
   - 외부 IdP(LDAP/AD/OIDC) 미통합(`LdapDriver` 존재하나 미연결). 대칭키(JWKS 없음).
 - **레버리지**: `Role.Permissions` → permission 클레임 발급 + 커스텀 `IAuthorizationPolicyProvider` → `[Authorize(Policy=...)]`로 PEP화. 인가 미들웨어를 PasswordChangeRequiredMiddleware 패턴으로 추가. `LdapDriver`를 ValidateAndLogin 뒤 외부 인증 어댑터로 연결.
@@ -182,7 +182,7 @@
 
 ---
 
-## 7. 진행 현황 (2026-06-13)
+## 7. 진행 현황 (2026-06-15)
 
 | Phase | 상태 | 비고 |
 |---|---|---|
@@ -193,4 +193,4 @@
 | **4** Low-Code 화면 디자이너 | ✅ **읽기·쓰기 경로 완료** | `ScreenDesigner`(/designer/screen)+DB 저장소(SYS_SCREEN_DEFINITION). **그리드 런타임 렌더러**(2026-06-14): `MetaGridRenderer`+`ScreenDefinition.QueryId`로 컬럼 메타+파일 명명쿼리를 `/meta/{UiId}`가 손코딩 없이 조회 그리드로 렌더(데모 `/meta/DEMO_GRID`←MDM.PlantList). **폼 저장 명령 바인딩**(2026-06-14): 명명 쓰기쿼리(`kind="write"`)+command 게이트웨이(`POST /api/v1/command/{id}`)+`ScreenDefinition.SaveQueryId`로 폼 저장이 손코딩 없이 INSERT/UPDATE(감사 컬럼 `@currentUser`/`@utcNow` 게이트웨이 주입·위변조 무시, 읽기/쓰기 종류 가드, 데모 `/meta/DEMO_PLANT_FORM`→MDM.CreatePlant). 메타 화면(폼·그리드·저장)이 전부 파일 쿼리로 구동 — 컴파일 타입드 리포(고코드)와 공존, 기능별 선택 |
 | **5** 플랫폼 통합 | ⏸ 보류 | **현 시점 NexaMes 범위 밖.** ① NexusOne.UI는 NexusFramework 서브모듈의 MAUI 콘솔(목업)로 별개 제품·크로스레포 ② 디자이너↔엔진 폐루프는 사용자 결정(IDE 저작)으로 보류 ③ "NAF Studio 셸"은 미정의 개념. 추진하려면 별도 제품 결정·서브모듈 작업 필요 |
 
-> **용어**: §2.1의 두 트랙 구분 참고 — **프론트 Low-Code(화면 디자이너, Phase 3·4)** ≠ **워크플로우 디자이너(비즈니스 로직, §8 FlowExecutionEngine)**. 후자는 사용자 결정으로 "개발자 IDE 저작 + NexaMes 실행" 범위로 확정(브라우저화 보류).
+> **용어**: §2.1의 두 트랙 구분 참고 — **프론트 Low-Code(화면 디자이너, Phase 3·4)** ≠ **워크플로우 디자이너(비즈니스 로직, DetailedDesign §8 FlowExecutionEngine)**. 후자는 사용자 결정으로 "개발자 IDE 저작 + NexaMes 실행" 범위로 확정(브라우저화 보류).

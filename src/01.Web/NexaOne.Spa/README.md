@@ -39,7 +39,7 @@ API가 OpenAPI 스펙을 **상시 노출**(`/swagger/v1/swagger.json`)하므로 
 npm run gen:api               # → src/api/generated/nexaone-api.ts (gitignore)
 ```
 
-생성 전에는 `src/api/`의 손작성 타입(auth/client)으로 동작하며, 생성 후 점진적으로 교체한다.
+생성물은 git에 포함하지 않으므로(위 `.gitignore`) 클론 후 실행 중인 API를 향해 `npm run gen:api`로 재생성한다. `src/api/`의 손작성 타입(auth/client)은 클라이언트가 다루지 않는 인증/토큰 보관 경로용으로 함께 유지된다.
 
 ## 구조
 
@@ -52,8 +52,8 @@ npm run gen:api               # → src/api/generated/nexaone-api.ts (gitignore)
 | `src/features/Dashboard.tsx` | 인증 REST 호출(FDC 파라미터 그룹) + 실시간 이벤트 수신 |
 | `nswag.json` | OpenAPI → TS 클라이언트 생성 설정 |
 
-## 다음 단계 (Phase 2 본격/Phase 3)
+## 현재 상태 (Phase 2)
 
-- 생성된 NSwag 클라이언트로 손작성 타입 대체, 도메인별 화면 확장.
-- 토큰 갱신(`/api/v1/auth/refresh`) + permission 클레임 기반 UI 가드.
-- Blazor 셸 내 임베드(마이크로프런트엔드: 커스텀 엘리먼트/iframe) — 단일 셸 공존(로드맵 Phase 3).
+- NSwag 클라이언트 생성 파이프라인(`npm run gen:api`)으로 실행 중인 API의 OpenAPI 스펙에서 TS 클라이언트를 생성한다.
+- 토큰 갱신(`/api/v1/auth/refresh`)은 `client.ts`의 refresh-on-401로, permission 클레임 기반 UI 가드는 `auth/jwt.ts`의 `hasPermission`로 구현되어 있다(`Dashboard.tsx`에서 사용).
+- 빌드 산출물(`dist/`)은 Blazor `wwwroot/spa`에 배치되어 `/spa`로 서빙된다(`NexaOne.Web/Program.cs`의 `MapFallbackToFile`로 SPA 클라이언트 라우팅 폴백).

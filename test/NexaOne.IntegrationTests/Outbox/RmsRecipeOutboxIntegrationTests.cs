@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using NexaOne.RMS.Application.Rms;
 using NexaOne.RMS.Domain;
@@ -12,16 +11,11 @@ namespace NexaOne.IntegrationTests.Outbox;
 /// 순서로 검증해(reload-then-mutate) 읽기경로 재구성이 유령 이벤트를 발행하지 않음도 함께 확인한다.
 /// (테스트 SQLite는 FK off라 미등록 설비클래스 레시피 INSERT가 가능 — 여기서는 outbox 트랜잭션 경로만 검증한다.)
 /// </summary>
-public sealed class RmsRecipeOutboxIntegrationTests
-    : IClassFixture<TestApiFactory>, IClassFixture<OutboxEnabledTestApiFactory>
+public sealed class RmsRecipeOutboxIntegrationTests : OutboxIntegrationTestBase
 {
-    private readonly TestApiFactory _off;
-    private readonly OutboxEnabledTestApiFactory _on;
-
     public RmsRecipeOutboxIntegrationTests(TestApiFactory off, OutboxEnabledTestApiFactory on)
+        : base(off, on)
     {
-        _off = off;
-        _on = on;
     }
 
     // Draft 레시피를 리포의 트랜잭션 경로로 기록한다(이벤트 없음 — Create는 이벤트를 발행하지 않는다).
@@ -32,22 +26,10 @@ public sealed class RmsRecipeOutboxIntegrationTests
         await repo.AddAsync(recipe);
     }
 
-    // EES_OUTBOX를 직접 조회(발행/미발행 무관) — 디스패처 타이밍에 의존하지 않는 결정론적 검증.
-    private static int OutboxCount(string connectionString, string aggregateId, string eventType)
-    {
-        using var conn = new SqliteConnection(connectionString);
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM EES_OUTBOX WHERE AGGREGATE_ID = $id AND EVENT_TYPE = $type";
-        cmd.Parameters.AddWithValue("$id", aggregateId);
-        cmd.Parameters.AddWithValue("$type", eventType);
-        return Convert.ToInt32(cmd.ExecuteScalar());
-    }
-
     [Fact]
     public async Task Recipe_request_approval_writes_outbox_in_same_transaction_when_enabled()
     {
-        using var scope = _on.Services.CreateScope();
+        using var scope = On.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IRecipeRepository>();
         await SeedDraftAsync(scope.ServiceProvider, "R-OB-ON", "EC-OB-ON");
 
@@ -55,14 +37,14 @@ public sealed class RmsRecipeOutboxIntegrationTests
         recipe!.RequestApproval();                          // RecipeApprovalRequestedDomainEvent 발행
         await repo.UpdateAsync(recipe);
 
-        OutboxCount(_on.ConnectionString, "R-OB-ON", "RecipeApprovalRequested").Should().Be(1,
+        OutboxCount(On.ConnectionString, "R-OB-ON", "RecipeApprovalRequested").Should().Be(1,
             "outbox 활성 시 승인요청과 같은 트랜잭션에 RecipeApprovalRequested 이벤트가 정확히 1건 기록돼야 한다");
     }
 
     [Fact]
     public async Task Recipe_request_approval_does_not_write_outbox_when_disabled()
     {
-        using var scope = _off.Services.CreateScope();
+        using var scope = Off.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IRecipeRepository>();
         await SeedDraftAsync(scope.ServiceProvider, "R-OB-OFF", "EC-OB-OFF");
 
@@ -74,7 +56,7 @@ public sealed class RmsRecipeOutboxIntegrationTests
         persisted.Should().NotBeNull("outbox 비활성이어도 레시피 전이는 정상 기록돼야 한다");
         persisted!.ApprovalState.Should().Be(RecipeApprovalState.WaitApproval, "전이 결과가 영속돼야 한다");
 
-        OutboxCount(_off.ConnectionString, "R-OB-OFF", "RecipeApprovalRequested").Should().Be(0,
+        OutboxCount(Off.ConnectionString, "R-OB-OFF", "RecipeApprovalRequested").Should().Be(0,
             "outbox 비활성(기본)에서는 outbox 행을 기록하지 않아야 한다(적체 없음)");
     }
 }

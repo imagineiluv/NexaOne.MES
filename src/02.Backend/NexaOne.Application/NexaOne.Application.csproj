@@ -2,7 +2,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NexaOne.Common\NexaOne.Common.csproj" />
-    <ProjectReference Include="..\NexaOne.Domain\NexaOne.Domain.csproj" />
     <ProjectReference Include="..\..\..\submodules\NexusFramework\src\NexusFramework\NexusFramework.csproj" />
     <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.Abstractions\NexusCom.Data.Abstractions.csproj" />
   </ItemGroup>

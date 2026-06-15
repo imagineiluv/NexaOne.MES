@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using NexaOne.EST.Application.Est;
 using NexaOne.EST.Domain;
@@ -11,16 +10,11 @@ namespace NexaOne.IntegrationTests.Outbox;
 /// 0행. outbox 행은 디스패처 발행 여부와 무관하게 DB를 직접 조회해 결정론적으로 확인한다. (테스트 SQLite는 FK off라
 /// 미등록 설비 알람 INSERT가 가능 — 여기서는 outbox 트랜잭션 경로만 검증한다.)
 /// </summary>
-public sealed class EstAlarmOutboxIntegrationTests
-    : IClassFixture<TestApiFactory>, IClassFixture<OutboxEnabledTestApiFactory>
+public sealed class EstAlarmOutboxIntegrationTests : OutboxIntegrationTestBase
 {
-    private readonly TestApiFactory _off;
-    private readonly OutboxEnabledTestApiFactory _on;
-
     public EstAlarmOutboxIntegrationTests(TestApiFactory off, OutboxEnabledTestApiFactory on)
+        : base(off, on)
     {
-        _off = off;
-        _on = on;
     }
 
     // 알람 발생(도메인 이벤트 발행)을 리포의 트랜잭션 경로로 기록한다.
@@ -31,35 +25,23 @@ public sealed class EstAlarmOutboxIntegrationTests
         await repo.AddAsync(alarm);   // EquipmentAlarmRaisedDomainEvent 발행
     }
 
-    // EES_OUTBOX를 직접 조회(발행/미발행 무관) — 디스패처 타이밍에 의존하지 않는 결정론적 검증.
-    private static int OutboxCount(string connectionString, string aggregateId, string eventType)
-    {
-        using var conn = new SqliteConnection(connectionString);
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM EES_OUTBOX WHERE AGGREGATE_ID = $id AND EVENT_TYPE = $type";
-        cmd.Parameters.AddWithValue("$id", aggregateId);
-        cmd.Parameters.AddWithValue("$type", eventType);
-        return Convert.ToInt32(cmd.ExecuteScalar());
-    }
-
     [Fact]
     public async Task Alarm_raise_writes_outbox_in_same_transaction_when_enabled()
     {
-        using var scope = _on.Services.CreateScope();
+        using var scope = On.Services.CreateScope();
         await RaiseAsync(scope.ServiceProvider, "AL-OB-ON", "EQ-AL-ON");
 
         var persisted = await scope.ServiceProvider.GetRequiredService<IEquipmentAlarmRepository>().GetByIdAsync("AL-OB-ON");
         persisted.Should().NotBeNull("알람이 영속돼야 한다(트랜잭션 커밋)");
 
-        OutboxCount(_on.ConnectionString, "EQ-AL-ON", "EquipmentAlarmRaised").Should().Be(1,
+        OutboxCount(On.ConnectionString, "EQ-AL-ON", "EquipmentAlarmRaised").Should().Be(1,
             "outbox 활성 시 알람 발생과 같은 트랜잭션에 EquipmentAlarmRaised 이벤트가 1건 기록돼야 한다");
     }
 
     [Fact]
     public async Task Alarm_clear_writes_cleared_outbox_in_same_transaction_when_enabled()
     {
-        using var scope = _on.Services.CreateScope();
+        using var scope = On.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IEquipmentAlarmRepository>();
         await RaiseAsync(scope.ServiceProvider, "AL-OB-CLR", "EQ-AL-CLR");
 
@@ -67,20 +49,20 @@ public sealed class EstAlarmOutboxIntegrationTests
         alarm!.Clear(DateTime.UtcNow);                       // EquipmentAlarmClearedDomainEvent 발행
         await repo.UpdateAsync(alarm);
 
-        OutboxCount(_on.ConnectionString, "EQ-AL-CLR", "EquipmentAlarmCleared").Should().Be(1,
+        OutboxCount(On.ConnectionString, "EQ-AL-CLR", "EquipmentAlarmCleared").Should().Be(1,
             "outbox 활성 시 알람 해제와 같은 트랜잭션에 EquipmentAlarmCleared 이벤트가 1건 기록돼야 한다");
     }
 
     [Fact]
     public async Task Alarm_raise_does_not_write_outbox_when_disabled()
     {
-        using var scope = _off.Services.CreateScope();
+        using var scope = Off.Services.CreateScope();
         await RaiseAsync(scope.ServiceProvider, "AL-OB-OFF", "EQ-AL-OFF");
 
         var persisted = await scope.ServiceProvider.GetRequiredService<IEquipmentAlarmRepository>().GetByIdAsync("AL-OB-OFF");
         persisted.Should().NotBeNull("outbox 비활성이어도 알람은 정상 기록돼야 한다");
 
-        OutboxCount(_off.ConnectionString, "EQ-AL-OFF", "EquipmentAlarmRaised").Should().Be(0,
+        OutboxCount(Off.ConnectionString, "EQ-AL-OFF", "EquipmentAlarmRaised").Should().Be(0,
             "outbox 비활성(기본)에서는 outbox 행을 기록하지 않아야 한다(적체 없음)");
     }
 }

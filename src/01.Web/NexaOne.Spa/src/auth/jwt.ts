@@ -1,7 +1,7 @@
 // JWT permission 클레임 디코딩(Phase 2 — ADR-003 PEP와 동일 권한 모델로 UI 가드).
 // 클라이언트 디코딩은 UI 표시 제어용일 뿐, 실제 인가는 서버(PermissionPolicyProvider)가 강제한다.
 
-export function decodeJwtClaims(token: string): Record<string, unknown> {
+function decodeJwtClaims(token: string): Record<string, unknown> {
   const part = token.split('.')[1]
   if (!part) return {}
   try {
@@ -12,7 +12,7 @@ export function decodeJwtClaims(token: string): Record<string, unknown> {
   }
 }
 
-export function permissionsFromToken(token: string | null): string[] {
+function permissionsFromToken(token: string | null): string[] {
   if (!token) return []
   const claim = decodeJwtClaims(token)['permission']
   if (Array.isArray(claim)) return claim.filter((x): x is string => typeof x === 'string')

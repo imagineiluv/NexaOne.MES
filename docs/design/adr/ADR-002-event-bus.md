@@ -1,6 +1,8 @@
 # ADR-002 — Event Bus (모든 이벤트가 단일 백본을 통과)
 
-- **상태**: 채택 (2026-06-13)
+- **Status**: Accepted (채택)
+- **Date**: 2026-06-13 (구현현황 갱신 2026-06-15)
+- **구현현황**: 구현 완료(opt-in 기본 활성) — outbox+`IMessageBus`(인메모리/Kafka)+디스패처+`RealtimeNotificationCoordinator`로 실시간 알림 버스 일원화, 13개 lifecycle 애그리거트로 확산(GapAnalysis §7 Phase 1 참조). 3체계(NexusFramework/NexusCom) 어댑팅은 잔여.
 - **관련**: [Frontend-Coexistence-GapAnalysis.md](../Frontend-Coexistence-GapAnalysis.md) §2.5, Phase 1C
 - **결정자**: 사용자 승인
 
@@ -31,8 +33,8 @@ NexaMes는 **EF Core가 아니라 Dapper** — "SaveChanges 인터셉터 outbox"
 - 신규 마이그레이션: `EES_OUTBOX`(Id, EventType, AggregateId, Module, Payload, OccurredAt, PublishedAt NULL, Attempts).
 - 신규: `IOutboxWriter`(트랜잭션 내 기록) — `ServiceObjectProcessor`가 처리 후 `AggregateRoot.DomainEvents`를 같은 커넥션/트랜잭션으로 기록·`ClearDomainEvents`. `OutboxDispatcherService`(BackgroundService, opt-in `Events:Outbox:Enabled`) → `KafkaMessageBus`.
 - Kafka 글루 DI/HostedService 등록(opt-in `Kafka:Enabled` — 브로커 없는 dev/CI 보호, FDC 컬렉터와 동일 패턴).
-- **대표 슬라이스**: outbox 테이블 + IOutboxWriter + 디스패처 골격 + 한 개 도메인 이벤트(예: 설비 상태 변경)를 outbox→발행으로 연결 + 단위 테스트. 전 컨트롤러의 직접 SignalR 호출 제거는 **점진 후속**(기존 경로 유지하며 이관).
-- `DomainEventMessage`를 공통 봉투로 채택, 3체계 어댑팅은 후속.
+- outbox 테이블 + IOutboxWriter + 디스패처 + 도메인 이벤트(설비 상태 변경)를 outbox→발행으로 연결 + 단위 테스트. *(구현현황: 완료 후 전 lifecycle 확산 — 13개 상태전이 애그리거트(EST/POM/QMS/MDM/CMMS/RMS/SHP/SYS/FDC)에 적용. 컨트롤러 직접 SignalR 호출은 `RealtimeNotificationCoordinator`로 버스 활성 시 생략·비활성 시 폴백.)*
+- `DomainEventMessage`를 공통 봉투로 채택. *(구현현황: NexaMes 내부 수렴 완료, NexusFramework `IExecutionEvent`/NexusCom `ChangeEvent` 3체계 어댑팅은 잔여.)*
 
 ## 결과
 

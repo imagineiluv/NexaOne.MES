@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using NexaOne.QMS.Application.Qms;
 using NexaOne.QMS.Domain;
@@ -12,16 +11,11 @@ namespace NexaOne.IntegrationTests.Outbox;
 /// 읽기경로가 Create+replay로 회귀하면 팬텀 이벤트가 COUNT>1로 드러난다. (테스트 SQLite는 FK off라 미등록 Lot/설비
 /// 부적합 INSERT가 가능 — 부모를 시드하지 않는다.)
 /// </summary>
-public sealed class QmsDefectOutboxIntegrationTests
-    : IClassFixture<TestApiFactory>, IClassFixture<OutboxEnabledTestApiFactory>
+public sealed class QmsDefectOutboxIntegrationTests : OutboxIntegrationTestBase
 {
-    private readonly TestApiFactory _off;
-    private readonly OutboxEnabledTestApiFactory _on;
-
     public QmsDefectOutboxIntegrationTests(TestApiFactory off, OutboxEnabledTestApiFactory on)
+        : base(off, on)
     {
-        _off = off;
-        _on = on;
     }
 
     // 부적합을 리포의 트랜잭션 경로로 영속한다(생성은 이벤트를 발행하지 않음 — 확정에서만 발행).
@@ -32,22 +26,10 @@ public sealed class QmsDefectOutboxIntegrationTests
         await repo.AddAsync(defect);
     }
 
-    // EES_OUTBOX를 직접 조회(발행/미발행 무관) — 디스패처 타이밍에 의존하지 않는 결정론적 검증.
-    private static int OutboxCount(string connectionString, string aggregateId, string eventType)
-    {
-        using var conn = new SqliteConnection(connectionString);
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM EES_OUTBOX WHERE AGGREGATE_ID = $id AND EVENT_TYPE = $type";
-        cmd.Parameters.AddWithValue("$id", aggregateId);
-        cmd.Parameters.AddWithValue("$type", eventType);
-        return Convert.ToInt32(cmd.ExecuteScalar());
-    }
-
     [Fact]
     public async Task Defect_confirm_writes_outbox_in_same_transaction_when_enabled()
     {
-        using var scope = _on.Services.CreateScope();
+        using var scope = On.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IDefectRepository>();
         await SeedAsync(scope.ServiceProvider, "DF-OB-ON", "LOT-DF-ON");
 
@@ -55,14 +37,14 @@ public sealed class QmsDefectOutboxIntegrationTests
         defect!.Confirm("QA-9").IsSuccess.Should().BeTrue();  // DefectConfirmedDomainEvent 발행
         await repo.UpdateAsync(defect);
 
-        OutboxCount(_on.ConnectionString, "LOT-DF-ON", "DefectConfirmed").Should().Be(1,
+        OutboxCount(On.ConnectionString, "LOT-DF-ON", "DefectConfirmed").Should().Be(1,
             "outbox 활성 시 부적합 확정과 같은 트랜잭션에 DefectConfirmed 이벤트가 1건 기록돼야 한다(재로딩해도 팬텀 이벤트 없음)");
     }
 
     [Fact]
     public async Task Defect_confirm_does_not_write_outbox_when_disabled()
     {
-        using var scope = _off.Services.CreateScope();
+        using var scope = Off.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IDefectRepository>();
         await SeedAsync(scope.ServiceProvider, "DF-OB-OFF", "LOT-DF-OFF");
 
@@ -74,7 +56,7 @@ public sealed class QmsDefectOutboxIntegrationTests
         persisted.Should().NotBeNull("outbox 비활성이어도 부적합은 정상 기록돼야 한다");
         persisted!.IsConfirmed.Should().BeTrue("확정 상태가 영속돼야 한다");
 
-        OutboxCount(_off.ConnectionString, "LOT-DF-OFF", "DefectConfirmed").Should().Be(0,
+        OutboxCount(Off.ConnectionString, "LOT-DF-OFF", "DefectConfirmed").Should().Be(0,
             "outbox 비활성(기본)에서는 outbox 행을 기록하지 않아야 한다(적체 없음)");
     }
 }

@@ -242,10 +242,10 @@ Phase 2: C# Blazor 웹 UI 구축 (4~5주)
   └─ NexaOne.Web 프로젝트 생성 (Blazor Server)
   └─ SmartConditionGrid / SmartGrid / SmartPopup 공통 컴포넌트 구현
   └─ MainLayout / NavMenu / Login 화면 구현
-  └─ 9개 도메인 업무 페이지 (.razor) 구현 (MDM/EPT/FDC/RMS/QMS/EMS/PPM/DLV/Sys)
+  └─ 9개 도메인 업무 페이지 (.razor) 구현 (MDM/EST/FDC/RMS/QMS/CMMS/POM/SHP/Sys)
 
 Phase 3: 백엔드 비즈니스 로직 이전 (8~10주)
-  └─ MDM/SystemManagement → EPT → FDC → RMS → QMS → EMS → PPM → DLV 순차 이전
+  └─ MDM/SystemManagement → EST → FDC → RMS → QMS → CMMS → POM → SHP 순차 이전
   └─ Java Rule → C# RuleExecutor, Java SO → ServiceObjectProcessor+감사메커니즘
   └─ WorkflowEngine 구현 (NexusFramework), SignalR + Kafka.NET 메시지 파이프라인
 
@@ -386,13 +386,13 @@ SmartEES.sln
 │
 ├── 04.Modules/                               ← ★ 도메인 모듈 레이어 (비즈니스 기능)
 │   ├── Micube.SmartEES.Mdm                   ← 마스터 데이터 관리 (MDM)
-│   ├── Micube.SmartEES.Ept                   ← 설비 성능 추적 (EPT)
+│   ├── Micube.SmartEES.Ept                   ← 설비 상태 (EST, 현 코드: NexaOne.EST)
 │   ├── Micube.SmartEES.Fdc                   ← 설비 데이터 수집 (FDC — PlantController 활용)
 │   ├── Micube.SmartEES.Rms                   ← 레시피 관리 (RMS)
 │   ├── Micube.SmartEES.Qms                   ← 품질 관리 (QMS)
-│   ├── Micube.SmartEES.Ems                   ← 설비 보전 (EMS)
-│   ├── Micube.SmartEES.Ppm                   ← 생산 계획 (PPM)
-│   ├── Micube.SmartEES.Dlv                   ← 배송 관리 (DLV)
+│   ├── Micube.SmartEES.Ems                   ← 설비 보전 (CMMS, 현 코드: NexaOne.CMMS)
+│   ├── Micube.SmartEES.Ppm                   ← 생산 (POM, 현 코드: NexaOne.POM)
+│   ├── Micube.SmartEES.Dlv                   ← 배송 (SHP, 현 코드: NexaOne.SHP)
 │   └── Micube.SmartEES.SystemManagement      ← 시스템 관리
 │
 └── 05.Tests/
@@ -2997,7 +2997,7 @@ public class Equipment : SmartConditionBaseForm
 | `Code` | 코드 관리 | `com_sp_selectCode` |
 | `CodeClass` | 코드 분류 | `com_sp_selectCodeClass` |
 
-### 10.2 Micube.SmartEES.Ept (설비 성능 추적)
+### 10.2 Micube.SmartEES.Ept (설비 상태 — EST, 현 코드: NexaOne.EST)
 
 #### 10.2.1 EquipmentAlarmHistory (설비 알람 이력)
 
@@ -3059,7 +3059,7 @@ public class EquipmentAlarmHistory : SmartConditionBaseForm
 }
 ```
 
-#### 10.2.2 EPT 모듈 화면 목록
+#### 10.2.2 EST 모듈 화면 목록 (구 EPT)
 
 | 클래스 | 화면명 |
 |--------|--------|
@@ -3434,7 +3434,7 @@ public class RecipeApprovalService
 | 검사 결과 | `SmartConditionBaseForm` | `QMS_TB_INSPECTION_RESULT` | 검사 수행 결과 |
 | 불량 이력 | `HistoryForm` | `QMS_TB_DEFECT_HIST` | 불량 수정 이력 (SO audit) |
 
-### 10.7 Micube.SmartEES.Ems (설비 보전)
+### 10.7 Micube.SmartEES.Ems (설비 보전 — CMMS, 현 코드: NexaOne.CMMS)
 
 #### 10.7.1 화면 목록
 
@@ -3476,7 +3476,7 @@ public class PmAlertBackgroundService : BackgroundService
 }
 ```
 
-### 10.8 Micube.SmartEES.Ppm (생산 계획)
+### 10.8 Micube.SmartEES.Ppm (생산 — POM, 현 코드: NexaOne.POM)
 
 #### 10.8.1 화면 목록
 
@@ -3488,7 +3488,7 @@ public class PmAlertBackgroundService : BackgroundService
 | 자원 할당 | `SmartConditionBaseForm` | `PPM_TB_RESOURCE_ALLOCATION` | 작업자/설비 할당 |
 | 생산 실적 조회 | `SmartConditionForm` | — | 계획 대비 실적 분석 |
 
-### 10.9 Micube.SmartEES.Dlv (배송 관리)
+### 10.9 Micube.SmartEES.Dlv (배송 — SHP, 현 코드: NexaOne.SHP)
 
 #### 10.9.1 화면 목록
 
@@ -4253,13 +4253,13 @@ public class MailService
 |------|------|
 | MDM 모듈 | 설비/제품/공정/코드/사용자클래스 마스터 (우선 이전) |
 | SystemManagement | 사용자/권한/메뉴 관리 |
-| EPT 모듈 | 설비 성능 추적, 알람/상태/Loss/OEE |
+| EST 모듈 (구 EPT) | 설비 상태, 알람/상태/Loss/OEE |
 | FDC 모듈 | 설비 데이터 수집, 인터락 규칙 엔진, Kafka Consumer |
 | RMS 모듈 | 레시피 관리, 승인 워크플로우 |
 | QMS 모듈 | 품질 관리, SPC, 수율 분석 |
-| EMS 모듈 | 설비 보전(PM/WO/점검/부품/교정), MTBF/MTTR 분석 |
-| PPM 모듈 | 생산 계획, 생산 지시, 능력 계획 |
-| DLV 모듈 | 출하 지시 및 배송 관리 |
+| CMMS 모듈 (구 EMS) | 설비 보전(PM/WO/점검/부품/교정), MTBF/MTTR 분석 |
+| POM 모듈 (구 PPM) | 생산 계획, 생산 지시, 능력 계획 |
+| SHP 모듈 (구 DLV) | 출하 지시 및 배송 관리 |
 | 워크플로우 | C# 워크플로우 엔진 구현 |
 | 메시지/알림 | SignalR + Kafka.NET |
 

@@ -1,6 +1,8 @@
 # ADR-003 — Security Engine (PEP) — 모든 권한이 단일 정책 집행점을 통과
 
-- **상태**: 채택 (2026-06-13)
+- **Status**: Accepted (채택)
+- **Date**: 2026-06-13 (구현현황 갱신 2026-06-15)
+- **구현현황**: 구현 완료 — `PermissionPolicyProvider`/`PermissionAuthorizationHandler` PEP + `JwtService`의 `permission` 클레임 발급으로 권한 기반 인가를 **전 컨트롤러**에 적용(GapAnalysis §7 Phase 1 참조). 다중역할/계층·외부 IdP는 잔여.
 - **관련**: [Frontend-Coexistence-GapAnalysis.md](../Frontend-Coexistence-GapAnalysis.md) §2.6, Phase 1A
 - **결정자**: 사용자 승인
 
@@ -29,7 +31,7 @@
 - 신규(NexaOne.Common 또는 SYS): `Permissions`(상수 카탈로그), `PermissionRequirement`, `PermissionAuthorizationHandler`, `PermissionPolicyProvider`.
 - `JwtService`/`IJwtService`: 토큰 생성 시 permission 목록 수용 → `permission` 클레임 발급. `AuthController`가 로그인 사용자 역할의 권한을 조회해 전달(역할→권한 해석은 `IRoleRepository`/`Role.Permissions`).
 - Program.cs: `AddAuthorization` + `IAuthorizationPolicyProvider`/`IAuthorizationHandler` 등록.
-- **대표 슬라이스**: PEP 인프라(정책 provider/handler/requirement) + 클레임 발급 + 권한 카탈로그 + 한 컨트롤러(FDC 설비 제어)를 `[Authorize(Policy="perm:fdc:control")]`로 전환(역할 매핑 시드로 ADMIN/OPERATOR 호환) + 단위 테스트. 나머지 컨트롤러의 역할→정책 전환은 **점진 후속**.
+- PEP 인프라(정책 provider/handler/requirement) + 클레임 발급 + 권한 카탈로그 + FDC 설비 제어 컨트롤러를 `[Authorize(Policy="perm:fdc:control")]`로 전환(역할 매핑 시드로 ADMIN/OPERATOR 호환) + 단위 테스트. *(구현현황: 완료 후 전 컨트롤러로 역할→정책 전환 확산. 예: `RuleController.ExecuteQuery`가 `[Authorize(Policy="perm:sys:manage")]`.)*
 
 ## 결과
 

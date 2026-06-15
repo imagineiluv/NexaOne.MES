@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using NexaOne.Common;
 using NexaOne.SYS.Application.Users;
@@ -13,16 +12,11 @@ namespace NexaOne.IntegrationTests.Outbox;
 /// 로드해 전이→저장하므로(reload-then-mutate), 읽기경로가 Restore 아닌 Create+재생이면 팬텀 이벤트가 COUNT>1로 드러난다.
 /// (테스트 SQLite는 FK off라 미등록 부모 없이 신청 INSERT가 가능 — 여기서는 outbox 트랜잭션 경로만 검증한다.)
 /// </summary>
-public sealed class SysUserRequestOutboxIntegrationTests
-    : IClassFixture<TestApiFactory>, IClassFixture<OutboxEnabledTestApiFactory>
+public sealed class SysUserRequestOutboxIntegrationTests : OutboxIntegrationTestBase
 {
-    private readonly TestApiFactory _off;
-    private readonly OutboxEnabledTestApiFactory _on;
-
     public SysUserRequestOutboxIntegrationTests(TestApiFactory off, OutboxEnabledTestApiFactory on)
+        : base(off, on)
     {
-        _off = off;
-        _on = on;
     }
 
     // 신청을 Request로 영속한다(생성은 이벤트를 발행하지 않음 — 전이만 발행).
@@ -34,22 +28,10 @@ public sealed class SysUserRequestOutboxIntegrationTests
         await repo.AddAsync(request);
     }
 
-    // EES_OUTBOX를 직접 조회(발행/미발행 무관) — 디스패처 타이밍에 의존하지 않는 결정론적 검증.
-    private static int OutboxCount(string connectionString, string aggregateId, string eventType)
-    {
-        using var conn = new SqliteConnection(connectionString);
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM EES_OUTBOX WHERE AGGREGATE_ID = $id AND EVENT_TYPE = $type";
-        cmd.Parameters.AddWithValue("$id", aggregateId);
-        cmd.Parameters.AddWithValue("$type", eventType);
-        return Convert.ToInt32(cmd.ExecuteScalar());
-    }
-
     [Fact]
     public async Task Approve_writes_outbox_in_same_transaction_when_enabled()
     {
-        using var scope = _on.Services.CreateScope();
+        using var scope = On.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IUserRequestRepository>();
         await SeedRequestAsync(scope.ServiceProvider, "UR-OB-APPR", "ob-appr");
 
@@ -57,14 +39,14 @@ public sealed class SysUserRequestOutboxIntegrationTests
         request!.Approve("admin", DateTime.UtcNow);            // UserRequestApprovedDomainEvent 발행
         await repo.UpdateAsync(request);
 
-        OutboxCount(_on.ConnectionString, "UR-OB-APPR", "UserRequestApproved").Should().Be(1,
+        OutboxCount(On.ConnectionString, "UR-OB-APPR", "UserRequestApproved").Should().Be(1,
             "outbox 활성 시 승인과 같은 트랜잭션에 UserRequestApproved 이벤트가 1건 기록돼야 한다(재로드 후 전이라 팬텀이면 >1)");
     }
 
     [Fact]
     public async Task Reject_writes_outbox_in_same_transaction_when_enabled()
     {
-        using var scope = _on.Services.CreateScope();
+        using var scope = On.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IUserRequestRepository>();
         await SeedRequestAsync(scope.ServiceProvider, "UR-OB-REJ", "ob-rej");
 
@@ -72,14 +54,14 @@ public sealed class SysUserRequestOutboxIntegrationTests
         request!.Reject("admin", "부서 확인 불가", DateTime.UtcNow);  // UserRequestRejectedDomainEvent 발행
         await repo.UpdateAsync(request);
 
-        OutboxCount(_on.ConnectionString, "UR-OB-REJ", "UserRequestRejected").Should().Be(1,
+        OutboxCount(On.ConnectionString, "UR-OB-REJ", "UserRequestRejected").Should().Be(1,
             "outbox 활성 시 반려와 같은 트랜잭션에 UserRequestRejected 이벤트가 1건 기록돼야 한다");
     }
 
     [Fact]
     public async Task Approve_does_not_write_outbox_when_disabled()
     {
-        using var scope = _off.Services.CreateScope();
+        using var scope = Off.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IUserRequestRepository>();
         await SeedRequestAsync(scope.ServiceProvider, "UR-OB-OFF", "ob-off");
 
@@ -91,7 +73,7 @@ public sealed class SysUserRequestOutboxIntegrationTests
         persisted.Should().NotBeNull("outbox 비활성이어도 신청은 정상 기록돼야 한다");
         persisted!.Status.Should().Be(UserRequestStatus.Approved, "비활성 경로에서도 상태 전이는 영속돼야 한다");
 
-        OutboxCount(_off.ConnectionString, "UR-OB-OFF", "UserRequestApproved").Should().Be(0,
+        OutboxCount(Off.ConnectionString, "UR-OB-OFF", "UserRequestApproved").Should().Be(0,
             "outbox 비활성(기본)에서는 outbox 행을 기록하지 않아야 한다(적체 없음)");
     }
 }

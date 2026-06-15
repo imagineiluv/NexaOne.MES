@@ -1,6 +1,8 @@
 # ADR-001 — Query Engine 게이트웨이 (모든 데이터 접근이 단일 지점을 통과)
 
-- **상태**: 채택 (2026-06-13)
+- **Status**: Accepted (채택)
+- **Date**: 2026-06-13 (구현현황 갱신 2026-06-15)
+- **구현현황**: 구현 완료 — `IQueryGateway`/`DapperQueryGateway`로 전 리포지토리가 게이트 경유, 하드코딩 NOLOCK 0건, `RuleController /query` 백도어는 관리자 전용으로 봉쇄(GapAnalysis §7 Phase 1 참조).
 - **관련**: [Frontend-Coexistence-GapAnalysis.md](../Frontend-Coexistence-GapAnalysis.md) §2.4, Phase 1B
 - **결정자**: 사용자 승인("모두 진행")
 
@@ -30,8 +32,8 @@
 
 - 신규: `IQueryGateway`(QueryAsync<T>/QueryFirstOrDefaultAsync<T>/ExecuteScalarAsync<T>/ExecuteAsync + ExecuteNamedAsync) + `DapperQueryGateway` 구현, `IQueryCatalog`/`InMemoryQueryCatalog`.
 - `QueryRepository`/`ServiceObjectProcessor`의 **내부만** 게이트웨이 위임으로 교체 → 44개 리포지토리·전 화면 무변경.
-- **대표 슬라이스**: 게이트웨이 + 카탈로그 + 위임 + 단위 테스트. 인라인 SQL의 카탈로그 이관과 NOLOCK 방언 치환은 **점진 후속**(게이트웨이가 양쪽 모두 지원).
-- `RuleController /query` 백도어는 게이트웨이 경유 또는 폐쇄 — 후속.
+- 게이트웨이 + 카탈로그 + 위임 + 단위 테스트. *(구현현황: 완료. 인라인 SQL의 카탈로그 이관과 NOLOCK 방언 치환도 반영 — 현재 `src` 내 하드코딩 NOLOCK 0건, 방언은 `INexaOneEESDbCapability`로 추상화.)*
+- `RuleController /query` 백도어는 게이트웨이 경유 또는 폐쇄. *(구현현황: 완료 — `[Authorize(Policy="perm:sys:manage")]`로 관리자 전용 봉쇄, 데이터 접근은 등록 명명쿼리 `/query/{queryId}`·`/command/{queryId}` 게이트 경유.)*
 
 ## 결과
 

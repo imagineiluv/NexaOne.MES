@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using NexaOne.CMMS.Application.Cmms;
 using NexaOne.CMMS.Domain;
@@ -12,16 +11,11 @@ namespace NexaOne.IntegrationTests.Outbox;
 /// 저장하므로, 읽기경로(Restore)가 phantom 이벤트를 발행하면 COUNT가 부풀어 회귀가 잡힌다. (테스트 SQLite는
 /// FK off라 미등록 설비 계획 INSERT 가능 — 부모 시드 없이 outbox 트랜잭션 경로만 검증한다.)
 /// </summary>
-public sealed class CmmsMaintenancePlanOutboxIntegrationTests
-    : IClassFixture<TestApiFactory>, IClassFixture<OutboxEnabledTestApiFactory>
+public sealed class CmmsMaintenancePlanOutboxIntegrationTests : OutboxIntegrationTestBase
 {
-    private readonly TestApiFactory _off;
-    private readonly OutboxEnabledTestApiFactory _on;
-
     public CmmsMaintenancePlanOutboxIntegrationTests(TestApiFactory off, OutboxEnabledTestApiFactory on)
+        : base(off, on)
     {
-        _off = off;
-        _on = on;
     }
 
     // 정비계획을 리포의 트랜잭션 경로로 영속한다(Planned — 아직 이벤트 없음).
@@ -33,22 +27,10 @@ public sealed class CmmsMaintenancePlanOutboxIntegrationTests
         await repo.AddAsync(plan);
     }
 
-    // EES_OUTBOX를 직접 조회(발행/미발행 무관) — 디스패처 타이밍에 의존하지 않는 결정론적 검증.
-    private static int OutboxCount(string connectionString, string aggregateId, string eventType)
-    {
-        using var conn = new SqliteConnection(connectionString);
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM EES_OUTBOX WHERE AGGREGATE_ID = $id AND EVENT_TYPE = $type";
-        cmd.Parameters.AddWithValue("$id", aggregateId);
-        cmd.Parameters.AddWithValue("$type", eventType);
-        return Convert.ToInt32(cmd.ExecuteScalar());
-    }
-
     [Fact]
     public async Task Plan_start_writes_outbox_in_same_transaction_when_enabled()
     {
-        using var scope = _on.Services.CreateScope();
+        using var scope = On.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IMaintenancePlanRepository>();
         await AddPlannedAsync(scope.ServiceProvider, "PL-OB-ON", "EQ-PL-ON");
 
@@ -56,14 +38,14 @@ public sealed class CmmsMaintenancePlanOutboxIntegrationTests
         plan!.Start().IsSuccess.Should().BeTrue();          // MaintenancePlanStarted 발행
         await repo.UpdateAsync(plan);
 
-        OutboxCount(_on.ConnectionString, "PL-OB-ON", "MaintenancePlanStarted").Should().Be(1,
+        OutboxCount(On.ConnectionString, "PL-OB-ON", "MaintenancePlanStarted").Should().Be(1,
             "outbox 활성 시 착수와 같은 트랜잭션에 MaintenancePlanStarted 이벤트가 1건 기록돼야 한다(읽기경로 phantom 없음)");
     }
 
     [Fact]
     public async Task Plan_start_does_not_write_outbox_when_disabled()
     {
-        using var scope = _off.Services.CreateScope();
+        using var scope = Off.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IMaintenancePlanRepository>();
         await AddPlannedAsync(scope.ServiceProvider, "PL-OB-OFF", "EQ-PL-OFF");
 
@@ -75,7 +57,7 @@ public sealed class CmmsMaintenancePlanOutboxIntegrationTests
         persisted.Should().NotBeNull("outbox 비활성이어도 계획 상태 전이는 정상 기록돼야 한다");
         persisted!.Status.Should().Be(MaintenancePlanStatus.InProgress);
 
-        OutboxCount(_off.ConnectionString, "PL-OB-OFF", "MaintenancePlanStarted").Should().Be(0,
+        OutboxCount(Off.ConnectionString, "PL-OB-OFF", "MaintenancePlanStarted").Should().Be(0,
             "outbox 비활성(기본)에서는 outbox 행을 기록하지 않아야 한다(적체 없음)");
     }
 }

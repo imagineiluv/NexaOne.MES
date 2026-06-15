@@ -1,4 +1,3 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
@@ -12,16 +11,11 @@ namespace NexaOne.IntegrationTests.Outbox;
 /// 이벤트를 발행하면 COUNT>1로 회귀가 드러난다. (테스트 SQLite는 FK off라 미등록 설비 이력 INSERT가 가능 —
 /// 여기서는 outbox 트랜잭션 경로만 검증한다.)
 /// </summary>
-public sealed class FdcInterlockHistoryOutboxIntegrationTests
-    : IClassFixture<TestApiFactory>, IClassFixture<OutboxEnabledTestApiFactory>
+public sealed class FdcInterlockHistoryOutboxIntegrationTests : OutboxIntegrationTestBase
 {
-    private readonly TestApiFactory _off;
-    private readonly OutboxEnabledTestApiFactory _on;
-
     public FdcInterlockHistoryOutboxIntegrationTests(TestApiFactory off, OutboxEnabledTestApiFactory on)
+        : base(off, on)
     {
-        _off = off;
-        _on = on;
     }
 
     // 인터락 발동(도메인 이벤트 발행)을 리포의 트랜잭션 경로로 기록한다.
@@ -33,36 +27,24 @@ public sealed class FdcInterlockHistoryOutboxIntegrationTests
         await repo.AddAsync(history);   // FdcInterlockTriggeredDomainEvent 발행
     }
 
-    // EES_OUTBOX를 직접 조회(발행/미발행 무관) — 디스패처 타이밍에 의존하지 않는 결정론적 검증.
-    private static int OutboxCount(string connectionString, string aggregateId, string eventType)
-    {
-        using var conn = new SqliteConnection(connectionString);
-        conn.Open();
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM EES_OUTBOX WHERE AGGREGATE_ID = $id AND EVENT_TYPE = $type";
-        cmd.Parameters.AddWithValue("$id", aggregateId);
-        cmd.Parameters.AddWithValue("$type", eventType);
-        return Convert.ToInt32(cmd.ExecuteScalar());
-    }
-
     [Fact]
     public async Task Interlock_trigger_writes_outbox_in_same_transaction_when_enabled()
     {
-        using var scope = _on.Services.CreateScope();
+        using var scope = On.Services.CreateScope();
         await TriggerAsync(scope.ServiceProvider, "IH-OB-ON", "EQ-IH-ON");
 
         var repo = scope.ServiceProvider.GetRequiredService<IFdcInterlockHistoryRepository>();
         var persisted = await repo.GetUnresolvedAsync("EQ-IH-ON");
         persisted.Should().ContainSingle("인터락 이력이 영속돼야 한다(트랜잭션 커밋)");
 
-        OutboxCount(_on.ConnectionString, "EQ-IH-ON", "FdcInterlockTriggered").Should().Be(1,
+        OutboxCount(On.ConnectionString, "EQ-IH-ON", "FdcInterlockTriggered").Should().Be(1,
             "outbox 활성 시 인터락 발동과 같은 트랜잭션에 FdcInterlockTriggered 이벤트가 1건 기록돼야 한다");
     }
 
     [Fact]
     public async Task Interlock_resolve_writes_resolved_outbox_in_same_transaction_when_enabled()
     {
-        using var scope = _on.Services.CreateScope();
+        using var scope = On.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IFdcInterlockHistoryRepository>();
         await TriggerAsync(scope.ServiceProvider, "IH-OB-RES", "EQ-IH-RES");
 
@@ -71,21 +53,21 @@ public sealed class FdcInterlockHistoryOutboxIntegrationTests
         history.Resolve(DateTime.UtcNow);   // FdcInterlockResolvedDomainEvent 발행
         await repo.UpdateAsync(history);
 
-        OutboxCount(_on.ConnectionString, "EQ-IH-RES", "FdcInterlockResolved").Should().Be(1,
+        OutboxCount(On.ConnectionString, "EQ-IH-RES", "FdcInterlockResolved").Should().Be(1,
             "outbox 활성 시 인터락 해제와 같은 트랜잭션에 FdcInterlockResolved 이벤트가 1건 기록돼야 한다(읽기경로 PHANTOM 발행이면 >1)");
     }
 
     [Fact]
     public async Task Interlock_trigger_does_not_write_outbox_when_disabled()
     {
-        using var scope = _off.Services.CreateScope();
+        using var scope = Off.Services.CreateScope();
         await TriggerAsync(scope.ServiceProvider, "IH-OB-OFF", "EQ-IH-OFF");
 
         var repo = scope.ServiceProvider.GetRequiredService<IFdcInterlockHistoryRepository>();
         var persisted = await repo.GetUnresolvedAsync("EQ-IH-OFF");
         persisted.Should().ContainSingle("outbox 비활성이어도 인터락 이력은 정상 기록돼야 한다");
 
-        OutboxCount(_off.ConnectionString, "EQ-IH-OFF", "FdcInterlockTriggered").Should().Be(0,
+        OutboxCount(Off.ConnectionString, "EQ-IH-OFF", "FdcInterlockTriggered").Should().Be(0,
             "outbox 비활성(기본)에서는 outbox 행을 기록하지 않아야 한다(적체 없음)");
     }
 }

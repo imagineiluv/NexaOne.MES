@@ -10,16 +10,11 @@ namespace NexaOne.IntegrationTests.Outbox;
 /// 소유하므로, 리포가 같은 트랜잭션에 조건부로 EES_OUTBOX UserAccountLocked를 '전이 시 1건만' 기록한다.
 /// 활성 시: 임계 도달 호출에 1건, 이미 잠긴 뒤 추가 실패엔 미발행(중복 없음). 비활성 시: 0건(잠금 자체는 정상 동작).
 /// </summary>
-public sealed class SysUserLockOutboxIntegrationTests
-    : IClassFixture<TestApiFactory>, IClassFixture<OutboxEnabledTestApiFactory>
+public sealed class SysUserLockOutboxIntegrationTests : OutboxIntegrationTestBase
 {
-    private readonly TestApiFactory _off;
-    private readonly OutboxEnabledTestApiFactory _on;
-
     public SysUserLockOutboxIntegrationTests(TestApiFactory off, OutboxEnabledTestApiFactory on)
+        : base(off, on)
     {
-        _off = off;
-        _on = on;
     }
 
     private static async Task SeedUserAsync(IServiceProvider sp, string userId)
@@ -43,7 +38,7 @@ public sealed class SysUserLockOutboxIntegrationTests
     [Fact]
     public async Task Lock_transition_writes_single_outbox_event_when_enabled()
     {
-        using var scope = _on.Services.CreateScope();
+        using var scope = On.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IUserRepository>();
         await SeedUserAsync(scope.ServiceProvider, "U-LOCK-ON");
 
@@ -53,19 +48,19 @@ public sealed class SysUserLockOutboxIntegrationTests
             locked = await repo.RecordLoginFailureAsync("U-LOCK-ON", now);
 
         locked.Should().NotBeNull("임계 연속 실패 시 계정이 잠겨야 한다");
-        LockEventCount(_on.ConnectionString, "U-LOCK-ON").Should().Be(1,
+        LockEventCount(On.ConnectionString, "U-LOCK-ON").Should().Be(1,
             "잠금 전이 호출에 EES_OUTBOX UserAccountLocked가 1건 기록돼야 한다");
 
         // 이미 잠긴 뒤 추가 실패는 중복 발행하지 않는다(FAIL_COUNT가 임계를 넘어 조건 불일치).
         await repo.RecordLoginFailureAsync("U-LOCK-ON", now);
-        LockEventCount(_on.ConnectionString, "U-LOCK-ON").Should().Be(1,
+        LockEventCount(On.ConnectionString, "U-LOCK-ON").Should().Be(1,
             "이미 잠긴 계정의 추가 실패는 outbox 이벤트를 중복 발행하지 않아야 한다");
     }
 
     [Fact]
     public async Task Lock_writes_no_outbox_event_when_disabled()
     {
-        using var scope = _off.Services.CreateScope();
+        using var scope = Off.Services.CreateScope();
         var repo = scope.ServiceProvider.GetRequiredService<IUserRepository>();
         await SeedUserAsync(scope.ServiceProvider, "U-LOCK-OFF");
 
@@ -75,7 +70,7 @@ public sealed class SysUserLockOutboxIntegrationTests
             locked = await repo.RecordLoginFailureAsync("U-LOCK-OFF", now);
 
         locked.Should().NotBeNull("outbox 비활성이어도 잠금 자체는 정상 동작해야 한다");
-        LockEventCount(_off.ConnectionString, "U-LOCK-OFF").Should().Be(0,
+        LockEventCount(Off.ConnectionString, "U-LOCK-OFF").Should().Be(0,
             "outbox 비활성(기본)에서는 잠금 이벤트를 기록하지 않아야 한다");
     }
 }

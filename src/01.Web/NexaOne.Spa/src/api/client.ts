@@ -9,7 +9,6 @@ export interface Session {
 
 let session: Session | null = null
 export const setSession = (s: Session | null): void => { session = s }
-export const getSession = (): Session | null => session
 export const getAccessToken = (): string | null => session?.accessToken ?? null
 
 export class ApiError extends Error {
