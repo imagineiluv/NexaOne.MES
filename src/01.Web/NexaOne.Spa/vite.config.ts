@@ -7,6 +7,13 @@ const apiProxy = process.env.VITE_API_PROXY ?? 'http://localhost:5181'
 
 export default defineConfig({
   plugins: [react()],
+  // Blazor 호스트(NexaOne.Web)가 /spa 경로로 임베드 서빙하므로 자산 기준 경로를 /spa/로 둔다(Phase 2 셸 임베드).
+  base: '/spa/',
+  build: {
+    // dist를 Blazor wwwroot/spa에 출력 — `npm run build` 후 NexaOne.Web을 publish하면 /spa로 함께 배포된다.
+    outDir: '../NexaOne.Web/wwwroot/spa',
+    emptyOutDir: true,
+  },
   server: {
     port: 5173,
     proxy: {

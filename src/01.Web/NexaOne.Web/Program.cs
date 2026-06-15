@@ -73,6 +73,10 @@ app.UseHttpsRedirection();
 app.UseStaticFiles();
 app.UseAntiforgery();
 
+// Phase 2 셸 임베드 — React SPA(wwwroot/spa)를 /spa로 서빙한다. 정적 자산은 UseStaticFiles가 처리하고,
+// /spa 하위의 비파일 경로(클라이언트 라우팅)는 SPA index.html로 폴백한다(Blazor 라우팅은 그대로 유지).
+app.MapFallbackToFile("/spa/{*path:nonfile}", "/spa/index.html");
+
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
