@@ -226,13 +226,14 @@ public sealed class LotTrackingIntegrationTests : IClassFixture<TestApiFactory>
         var held = await client.GetFromJsonAsync<LotDto>($"/api/v1/lots/{lotId}");
         held!.IsHold.Should().BeTrue("Hold 후 IS_HOLD가 'Y'로 영속화돼야 한다");
 
-        // 2) Hold 상태에서 TrackIn은 400(도메인 검증으로 차단) — 상태 손실/우회 없음.
+        // 2) Hold 상태에서 TrackIn은 409(도메인 검증으로 차단) — 상태 손실/우회 없음.
+        //    서비스가 Error.Conflict("Hold 상태 Lot은 TrackIn할 수 없습니다.")를 돌려주고 ToActionResult가 409로 매핑한다(Wave C-α).
         var blockedTrackIn = await client.PostAsJsonAsync($"/api/v1/lots/{lotId}/track-in", new
         {
             plantId, equipmentId, recipeDefId = (string?)null, recipeDefVersion = (int?)null
         });
-        blockedTrackIn.StatusCode.Should().Be(HttpStatusCode.BadRequest,
-            "Hold 상태 Lot의 TrackIn은 도메인 검증으로 400이어야 한다");
+        blockedTrackIn.StatusCode.Should().Be(HttpStatusCode.Conflict,
+            "Hold 상태 Lot의 TrackIn은 도메인 검증으로 409(Conflict)여야 한다");
 
         // 3) Release-Hold(PUT {lotId}/release-hold) → 204 — 다시 TrackIn 가능 상태로.
         var releaseResp = await client.PutAsync($"/api/v1/lots/{lotId}/release-hold", null);
@@ -256,9 +257,10 @@ public sealed class LotTrackingIntegrationTests : IClassFixture<TestApiFactory>
     }
 
     [Fact]
-    public async Task TrackIn_with_unregistered_equipment_returns_400_not_500()
+    public async Task TrackIn_with_unregistered_equipment_returns_404_not_500()
     {
-        // TrackIn은 MDM에 없는 설비에 대해 교차모듈 검증으로 400(NotFound→BadRequest)을 반환해야 한다.
+        // TrackIn은 MDM에 없는 설비에 대해 교차모듈 검증으로 404(Error.NotFound 매핑)를 반환해야 한다.
+        // ValidateEquipmentAsync가 Error.NotFound("Equipment", …)를 돌려주고 ToActionResult가 404로 매핑한다(Wave C-α).
         // (FK 위반 500이 아니라 — 하니스 FK OFF이지만 앱 레벨 게이트웨이 검증이 먼저 차단)
         var client = _factory.CreateAuthenticatedClient();
         const string plantId = "P-POM-NOEQ";
@@ -274,8 +276,8 @@ public sealed class LotTrackingIntegrationTests : IClassFixture<TestApiFactory>
         {
             plantId, equipmentId = "EQ-NOPE", recipeDefId = (string?)null, recipeDefVersion = (int?)null
         });
-        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest,
-            "MDM에 없는 설비로의 TrackIn은 게이트웨이 검증으로 400을 반환해야 한다");
+        resp.StatusCode.Should().Be(HttpStatusCode.NotFound,
+            "MDM에 없는 설비로의 TrackIn은 게이트웨이 검증으로 404(NotFound, 500 아님)를 반환해야 한다");
     }
 
     // ── DTO (JSON camelCase, 대소문자 무시 역직렬화) ────────────────────────────────

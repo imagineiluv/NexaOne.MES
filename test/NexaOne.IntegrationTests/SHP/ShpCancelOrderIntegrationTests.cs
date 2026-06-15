@@ -13,9 +13,9 @@ namespace NexaOne.IntegrationTests.SHP;
 ///   (A) CreateOrder(Draft) → PUT cancel → 204 → GET orders 되읽기로 STATUS='Cancelled' 영속·복원 확인.
 ///       cancel은 SHP_DELIVERY_ORDER UPDATE(STATUS='Cancelled')를 트리거하며, 되읽기는 읽기경로
 ///       (OrderRow.ToDomain→DeliveryOrder.Restore)가 DB STATUS 컬럼을 복원함을 실증한다.
-///   (B) Create→Confirm→Ship 후 cancel 시도 → 도메인 가드 위반 → 400 BadRequest.
+///   (B) Create→Confirm→Ship 후 cancel 시도 → 도메인 가드 위반 → 409 Conflict.
 ///       DeliveryOrder.Cancel()은 Status가 Shipped/Cancelled면 Error.Conflict를 반환하고,
-///       컨트롤러가 BadRequest(result.Error)로 매핑한다.
+///       ToActionResult가 409 Conflict로 매핑한다(Wave C-α).
 ///   (C) 미인증 cancel → 401 ([Authorize] + perm:shp:manage).
 ///
 /// 하니스 사실(TestApiFactory): 클래스별 고유 SQLite 임시 DB(GUID) + Foreign Keys=False(FK 비강제) +
@@ -118,13 +118,13 @@ public sealed class ShpCancelOrderIntegrationTests : IClassFixture<TestApiFactor
         shipResp.StatusCode.Should().Be(HttpStatusCode.NoContent,
             $"Confirmed→Shipped 전이가 성공해 204여야 한다. 응답 본문: {shipBody}");
 
-        // 4) Shipped 주문 cancel 시도 → 400. DeliveryOrder.Cancel()이 Error.Conflict를 반환하고
-        //    컨트롤러가 BadRequest(result.Error)로 매핑한다(도메인 상태 가드가 PUT으로 노출되는지 실증).
+        // 4) Shipped 주문 cancel 시도 → 409. DeliveryOrder.Cancel()이 Error.Conflict를 반환하고
+        //    ToActionResult가 409 Conflict로 매핑한다(Wave C-α; 도메인 상태 가드가 PUT으로 노출되는지 실증).
         //    이 단계가 성공(204)으로 새면 출하 완료 주문이 취소되는 상태머신 무력화 버그다.
         var cancelResp = await client.PutAsync($"/api/v1/shp/orders/{orderId}/cancel", content: null);
         var cancelBody = await cancelResp.Content.ReadAsStringAsync();
-        cancelResp.StatusCode.Should().Be(HttpStatusCode.BadRequest,
-            $"Shipped 주문 cancel은 도메인 가드 위반으로 400이어야 한다(Cancel→Error.Conflict→BadRequest). 응답 본문: {cancelBody}");
+        cancelResp.StatusCode.Should().Be(HttpStatusCode.Conflict,
+            $"Shipped 주문 cancel은 도메인 가드 위반으로 409여야 한다(Cancel→Error.Conflict→Conflict). 응답 본문: {cancelBody}");
 
         // 5) 되읽기 — 가드로 거부됐으니 STATUS는 여전히 'Shipped'여야 한다(UPDATE가 일어나면 안 됨).
         var orders = await client.GetFromJsonAsync<List<OrderDto>>($"/api/v1/shp/orders?plantId={plantId}");

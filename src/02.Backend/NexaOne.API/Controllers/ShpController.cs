@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NexaOne.API.Extensions;
 using NexaOne.SHP.Application.Shp;
 
 namespace NexaOne.API.Controllers;
@@ -16,7 +17,7 @@ public class ShpController(ShpService dlvService) : ControllerBase
         [FromQuery] string plantId, [FromQuery] DateTime? from, [FromQuery] DateTime? to, CancellationToken ct)
     {
         var result = await dlvService.GetByPlantAsync(plantId, from, to, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPost("orders")]
@@ -24,7 +25,7 @@ public class ShpController(ShpService dlvService) : ControllerBase
     public async Task<IActionResult> CreateOrder([FromBody] CreateDeliveryOrderRequest req, CancellationToken ct)
     {
         var result = await dlvService.CreateOrderAsync(req.OrderId, req.CustomerName, req.PlantId, req.RequestedDate, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("orders/{orderId}/confirm")]
@@ -32,7 +33,7 @@ public class ShpController(ShpService dlvService) : ControllerBase
     public async Task<IActionResult> ConfirmOrder(string orderId, CancellationToken ct)
     {
         var result = await dlvService.ConfirmOrderAsync(orderId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("orders/{orderId}/ship")]
@@ -40,7 +41,7 @@ public class ShpController(ShpService dlvService) : ControllerBase
     public async Task<IActionResult> ShipOrder(string orderId, [FromBody] ShipOrderRequest req, CancellationToken ct)
     {
         var result = await dlvService.ShipOrderAsync(orderId, req.ShippedDate, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("orders/{orderId}/cancel")]
@@ -48,7 +49,7 @@ public class ShpController(ShpService dlvService) : ControllerBase
     public async Task<IActionResult> CancelOrder(string orderId, CancellationToken ct)
     {
         var result = await dlvService.CancelOrderAsync(orderId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── Delivery Items ────────────────────────────────────────────────────────
@@ -62,7 +63,7 @@ public class ShpController(ShpService dlvService) : ControllerBase
     public async Task<IActionResult> AddItem(string orderId, [FromBody] AddDeliveryItemRequest req, CancellationToken ct)
     {
         var result = await dlvService.AddItemAsync(req.ItemId, orderId, req.ProductId, req.PlannedQty, req.LotId, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("items/{itemId}/actual-qty")]
@@ -70,7 +71,7 @@ public class ShpController(ShpService dlvService) : ControllerBase
     public async Task<IActionResult> SetActualQty(string itemId, [FromBody] SetActualQtyRequest req, CancellationToken ct)
     {
         var result = await dlvService.SetItemActualQtyAsync(itemId, req.ActualQty, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── Shipment History ──────────────────────────────────────────────────────
@@ -84,7 +85,7 @@ public class ShpController(ShpService dlvService) : ControllerBase
     public async Task<IActionResult> RecordShipment(string orderId, [FromBody] RecordShipmentRequest req, CancellationToken ct)
     {
         var result = await dlvService.RecordShipmentAsync(req.HistoryId, orderId, req.ShippedQty, req.ShippedBy, req.Carrier, req.TrackingNo, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 }
 

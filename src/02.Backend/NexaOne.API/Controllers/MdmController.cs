@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NexaOne.API.Extensions;
 using NexaOne.MDM.Application.Equipments;
 
 namespace NexaOne.API.Controllers;
@@ -15,14 +16,14 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
         CancellationToken ct)
     {
         var result = await equipmentService.GetEquipmentListAsync(plantId ?? string.Empty, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpGet("equipment/{equipmentId}")]
     public async Task<IActionResult> GetEquipmentById(string equipmentId, CancellationToken ct)
     {
         var result = await equipmentService.GetEquipmentAsync(equipmentId, ct);
-        return result.IsSuccess ? Ok(result.Value) : NotFound(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPost("equipment")]
@@ -33,7 +34,7 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
             req.EquipmentId, req.EquipmentName, req.PlantId, req.AreaId,
             req.EquipmentType, req.ParentEquipmentId, req.Vendor ?? "", req.Model ?? "",
             req.EquipmentClassId ?? "", ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("equipment/{equipmentId}")]
@@ -43,7 +44,7 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
         var result = await equipmentService.UpdateEquipmentAsync(
             equipmentId, req.EquipmentName, req.Description ?? "", req.EquipmentType,
             req.Vendor ?? "", req.Model ?? "", ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpDelete("equipment/{equipmentId}")]
@@ -51,7 +52,7 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
     public async Task<IActionResult> DeactivateEquipment(string equipmentId, CancellationToken ct)
     {
         var result = await equipmentService.DeactivateEquipmentAsync(equipmentId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── Plants ────────────────────────────────────────────────────────────────
@@ -65,7 +66,7 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
     public async Task<IActionResult> CreatePlant([FromBody] CreatePlantRequest req, CancellationToken ct)
     {
         var result = await masterService.CreatePlantAsync(req.PlantId, req.PlantName, req.Country, req.TimeZone, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── Areas ─────────────────────────────────────────────────────────────────
@@ -79,7 +80,7 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
     public async Task<IActionResult> CreateArea([FromBody] CreateAreaRequest req, CancellationToken ct)
     {
         var result = await masterService.CreateAreaAsync(req.AreaId, req.AreaName, req.PlantId, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── Products ──────────────────────────────────────────────────────────────
@@ -93,7 +94,7 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
     public async Task<IActionResult> CreateProduct([FromBody] CreateProductRequest req, CancellationToken ct)
     {
         var result = await masterService.CreateProductAsync(req.ProductId, req.ProductName, req.ProductType, req.Unit, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── Code Classes ──────────────────────────────────────────────────────────
@@ -107,7 +108,7 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
     public async Task<IActionResult> CreateCodeClass([FromBody] CreateCodeClassRequest req, CancellationToken ct)
     {
         var result = await masterService.CreateCodeClassAsync(req.CodeClassId, req.CodeClassName, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── Codes ─────────────────────────────────────────────────────────────────
@@ -121,7 +122,7 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
     public async Task<IActionResult> CreateCode([FromBody] CreateCodeRequest req, CancellationToken ct)
     {
         var result = await masterService.CreateCodeAsync(req.CodeId, req.CodeClassId, req.CodeName, req.SortOrder, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 }
 

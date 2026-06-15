@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NexaOne.API.Extensions;
 using NexaOne.API.Hubs;
 using NexaOne.CMMS.Application.Cmms;
 
@@ -20,11 +21,11 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
         if (!string.IsNullOrEmpty(status) && Enum.TryParse<NexaOne.CMMS.Domain.WorkOrderStatus>(status, out var woStatus))
         {
             var byStatus = await emsService.GetByStatusAsync(woStatus, ct);
-            return byStatus.IsSuccess ? Ok(byStatus.Value) : BadRequest(byStatus.Error);
+            return byStatus.ToActionResult();
         }
         var id = equipmentId ?? string.Empty;
         var result = await emsService.GetByEquipmentAsync(id, from, to, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPost("work-orders")]
@@ -33,7 +34,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     {
         var result = await emsService.CreateWorkOrderAsync(
             req.WoId, req.EquipmentId, req.WoType, req.Description, req.AssigneeId, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("work-orders/{woId}/start")]
@@ -43,7 +44,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
         var result = await emsService.StartWorkOrderAsync(woId, ct);
         if (result.IsSuccess && !notifyCoordinator.BusDeliversEvents)
             await notifier.NotifyWorkOrderUpdatedAsync(ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("work-orders/{woId}/complete")]
@@ -53,7 +54,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
         var result = await emsService.CompleteWorkOrderAsync(woId, req.Remark, ct);
         if (result.IsSuccess && !notifyCoordinator.BusDeliversEvents)
             await notifier.NotifyWorkOrderUpdatedAsync(ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("work-orders/{woId}/cancel")]
@@ -63,7 +64,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
         var result = await emsService.CancelWorkOrderAsync(woId, ct);
         if (result.IsSuccess && !notifyCoordinator.BusDeliversEvents)
             await notifier.NotifyWorkOrderUpdatedAsync(ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── Maintenance Plans ─────────────────────────────────────────────────────
@@ -88,7 +89,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     {
         var result = await planService.CreatePlanAsync(req.PlanId, req.PlanName, req.EquipmentId,
             req.PlanType, req.CycleType, req.ScheduledDate, req.EstimatedDurationHours, req.AssigneeId, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("maintenance-plans/{planId}/start")]
@@ -96,7 +97,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     public async Task<IActionResult> StartMaintenancePlan(string planId, CancellationToken ct)
     {
         var result = await planService.StartPlanAsync(planId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("maintenance-plans/{planId}/complete")]
@@ -104,7 +105,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     public async Task<IActionResult> CompleteMaintenancePlan(string planId, CancellationToken ct)
     {
         var result = await planService.CompletePlanAsync(planId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("maintenance-plans/{planId}/cancel")]
@@ -112,7 +113,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     public async Task<IActionResult> CancelMaintenancePlan(string planId, CancellationToken ct)
     {
         var result = await planService.CancelPlanAsync(planId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── Spare Parts ───────────────────────────────────────────────────────────
@@ -133,7 +134,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
         var result = await planService.CreatePartAsync(req.PartId, req.PartName, req.PartNumber,
             req.Description, req.UnitOfMeasure, req.CurrentStock, req.MinStock, req.MaxStock,
             req.Location, req.EquipmentClassId, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("spare-parts/{partId}/adjust-stock")]
@@ -141,7 +142,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     public async Task<IActionResult> AdjustStock(string partId, [FromBody] AdjustStockRequest req, CancellationToken ct)
     {
         var result = await planService.AdjustStockAsync(partId, req.Delta, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 }
 

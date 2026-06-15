@@ -32,7 +32,8 @@ public sealed class OutboxDispatcherTests
             Times.Exactly(2));
         repo.Verify(r => r.MarkPublishedAsync(1, It.IsAny<CancellationToken>()), Times.Once);
         repo.Verify(r => r.MarkPublishedAsync(2, It.IsAny<CancellationToken>()), Times.Once);
-        repo.Verify(r => r.MarkFailedAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
+        repo.Verify(r => r.MarkFailedAsync(
+            It.IsAny<long>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -51,7 +52,7 @@ public sealed class OutboxDispatcherTests
 
         published.Should().Be(1, "성공분만 카운트하고 실패는 건너뛴다(루프 계속)");
         repo.Verify(r => r.MarkPublishedAsync(1, It.IsAny<CancellationToken>()), Times.Once);
-        repo.Verify(r => r.MarkFailedAsync(2, It.IsAny<CancellationToken>()), Times.Once,
+        repo.Verify(r => r.MarkFailedAsync(2, It.IsAny<int>(), MaxAttempts, It.IsAny<CancellationToken>()), Times.Once,
             "발행 실패 행은 attempts를 증가시켜 재시도 대상으로 남긴다");
     }
 
@@ -86,7 +87,7 @@ public sealed class OutboxDispatcherTests
             repo.Object, bus.Object, "t", 100, MaxAttempts, NullLogger.Instance, default);
 
         published.Should().Be(0);
-        repo.Verify(r => r.MarkFailedAsync(7, It.IsAny<CancellationToken>()), Times.Once,
-            "한계 도달 시에도 attempts를 증가시켜 이후 폴링(ATTEMPTS<max)에서 제외되게 한다");
+        repo.Verify(r => r.MarkFailedAsync(7, MaxAttempts - 1, MaxAttempts, It.IsAny<CancellationToken>()), Times.Once,
+            "한계 도달 시 MarkFailedAsync에 현재 attempts·maxAttempts를 넘겨 DEAD_LETTERED_AT가 설정되게 한다");
     }
 }

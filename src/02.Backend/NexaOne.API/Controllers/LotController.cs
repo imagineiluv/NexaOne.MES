@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NexaOne.API.Extensions;
 using NexaOne.POM.Application.Lots;
 
 namespace NexaOne.API.Controllers;
@@ -18,14 +19,14 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
         [FromQuery] string plantId, [FromQuery] string? state, CancellationToken ct)
     {
         var result = await trackingService.GetLotsAsync(plantId, state, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpGet("{lotId}")]
     public async Task<IActionResult> GetLot(string lotId, CancellationToken ct)
     {
         var result = await trackingService.GetRouteAsync(lotId, ct);
-        return result.IsSuccess ? Ok(result.Value.Lot) : NotFound(result.Error);
+        return result.ToActionResult(route => Ok(route.Lot));
     }
 
     /// <summary>Lot 진행 경로 + 이력 + Mixing 투입 관계 (설계 19.4.8 LotRoute).</summary>
@@ -33,7 +34,7 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
     public async Task<IActionResult> GetRoute(string lotId, CancellationToken ct)
     {
         var result = await trackingService.GetRouteAsync(lotId, ct);
-        return result.IsSuccess ? Ok(result.Value) : NotFound(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPost]
@@ -43,7 +44,7 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
         var result = await trackingService.CreateLotAsync(
             req.PlantId, req.LotId, req.WorkOrderId, req.ProductId,
             req.Qty, req.RouteSteps, CurrentUserId, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPost("{lotId}/track-in")]
@@ -52,7 +53,7 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
     {
         var result = await trackingService.TrackInAsync(new TrackInCommand(
             req.PlantId, lotId, req.EquipmentId, req.RecipeDefId, req.RecipeDefVersion, CurrentUserId), ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPost("{lotId}/track-out")]
@@ -62,7 +63,7 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
         var defects = req.Defects?.Select(d => new DefectEntry(d.DefectCode, d.DefectQty)).ToList();
         var result = await trackingService.TrackOutAsync(new TrackOutCommand(
             req.PlantId, lotId, req.EquipmentId, req.Qty, defects, req.CarrierId, CurrentUserId), ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     /// <summary>Mixing TrackIn/Out — 투입 Lot 소비 + 출력 Lot 생성/가산 (설계 19.4.7).</summary>
@@ -74,7 +75,7 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
         var result = await trackingService.MixingTrackInOutAsync(new MixingTrackCommand(
             req.PlantId, req.OutputLotId, req.ProductId, req.EquipmentId,
             req.OutputRouteSteps ?? [], inputs, CurrentUserId), ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("{lotId}/hold")]
@@ -82,7 +83,7 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
     public async Task<IActionResult> Hold(string lotId, CancellationToken ct)
     {
         var result = await trackingService.HoldAsync(lotId, CurrentUserId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("{lotId}/release-hold")]
@@ -90,7 +91,7 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
     public async Task<IActionResult> ReleaseHold(string lotId, CancellationToken ct)
     {
         var result = await trackingService.ReleaseHoldAsync(lotId, CurrentUserId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     /// <summary>생산 추적 보고서 (설계 19.4.8) — Lot/설비/공정/기간 필터.</summary>
@@ -102,7 +103,7 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
     {
         var result = await trackingService.GetTrackingReportAsync(
             plantId, lotId, equipmentId, processId, from, to, maxRows, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 }
 

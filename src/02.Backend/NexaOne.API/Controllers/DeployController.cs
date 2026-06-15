@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NexaOne.API.Extensions;
 using NexaOne.Common;
 using NexaOne.SYS.Application.Deploys;
 using NexaOne.SYS.Domain;
@@ -44,7 +45,7 @@ public class DeployController(DeployService deployService) : ControllerBase
     public async Task<IActionResult> GetFiles(CancellationToken ct)
     {
         var result = await deployService.GetAllAsync(ct);
-        return result.IsSuccess ? Ok(result.Value.Select(ToDto)) : BadRequest(result.Error);
+        return result.ToActionResult(files => Ok(files.Select(ToDto)));
     }
 
     [HttpPost("files")]
@@ -67,7 +68,7 @@ public class DeployController(DeployService deployService) : ControllerBase
         await using var stream = file.OpenReadStream();
         var result = await deployService.UploadAsync(
             version ?? string.Empty, file.FileName, description, forceUpdate, stream, CurrentUserId, ct);
-        return result.IsSuccess ? Ok(ToDto(result.Value)) : BadRequest(result.Error);
+        return result.ToActionResult(file => Ok(ToDto(file)));
     }
 
     /// <summary>
@@ -91,7 +92,7 @@ public class DeployController(DeployService deployService) : ControllerBase
     public async Task<IActionResult> Deactivate(string fileId, CancellationToken ct)
     {
         var result = await deployService.SetActiveAsync(fileId, isActive: false, ct: ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("files/{fileId}/activate")]
@@ -99,7 +100,7 @@ public class DeployController(DeployService deployService) : ControllerBase
     public async Task<IActionResult> Activate(string fileId, CancellationToken ct)
     {
         var result = await deployService.SetActiveAsync(fileId, isActive: true, ct: ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     private static DeployFileDto ToDto(DeployFile f) => new(

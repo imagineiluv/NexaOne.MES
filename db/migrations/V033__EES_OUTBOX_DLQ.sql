@@ -1,0 +1,10 @@
+-- Event Bus: Outbox 운영 강화 — 데드레터 + 백오프 게이트(ADR-002)
+-- 영구 실패(포이즌) 메시지를 DEAD_LETTERED_AT로 단말 격리하고, 일시 실패는 NEXT_ATTEMPT_AT로
+-- 지수 백오프 재시도한다. 디스패처 폴링(GetUnpublished)이 두 컬럼을 술어에 포함한다.
+ALTER TABLE EES_OUTBOX ADD
+    DEAD_LETTERED_AT  DATETIME2  NULL,
+    NEXT_ATTEMPT_AT   DATETIME2  NULL;
+
+-- 폴링 술어(PUBLISHED_AT IS NULL AND DEAD_LETTERED_AT IS NULL AND NEXT_ATTEMPT_AT 게이트, ID 순) 가속.
+CREATE INDEX IX_EES_OUTBOX_POLL
+    ON EES_OUTBOX (PUBLISHED_AT, DEAD_LETTERED_AT, NEXT_ATTEMPT_AT, ID);

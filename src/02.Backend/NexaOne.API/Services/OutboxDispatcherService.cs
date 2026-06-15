@@ -78,16 +78,23 @@ public sealed class OutboxDispatcherService : BackgroundService
                     DomainEventMessage.Create(m.EventType, m.Module, m.AggregateId, m.Payload), ct);
                 await repo.MarkPublishedAsync(m.Id, ct);
                 published++;
+                NexaOne.Common.Telemetry.NexaMesMetrics.OutboxPublished.Add(
+                    1, new KeyValuePair<string, object?>("eventType", m.EventType));
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
-                await repo.MarkFailedAsync(m.Id, ct);
+                // ATTEMPTS 증가 + 지수 백오프 NEXT_ATTEMPT_AT 설정, 한계 도달 시 DEAD_LETTERED_AT 설정(단말).
+                await repo.MarkFailedAsync(m.Id, m.Attempts, maxAttempts, ct);
                 // 이번 실패로 attempts가 한계에 도달하면 데드레터 — 다음 폴링부터 GetUnpublished에서 제외된다.
                 if (m.Attempts + 1 >= maxAttempts)
+                {
+                    NexaOne.Common.Telemetry.NexaMesMetrics.OutboxDeadLettered.Add(
+                        1, new KeyValuePair<string, object?>("eventType", m.EventType));
                     logger.LogError(ex,
                         "Outbox message DEAD-LETTERED after {Attempts} attempts: {Id} ({EventType}). 수동 조치 필요.",
                         m.Attempts + 1, m.Id, m.EventType);
+                }
                 else
                     logger.LogError(ex, "Outbox publish failed for {Id} ({EventType}), attempt {Attempts}/{Max}",
                         m.Id, m.EventType, m.Attempts + 1, maxAttempts);

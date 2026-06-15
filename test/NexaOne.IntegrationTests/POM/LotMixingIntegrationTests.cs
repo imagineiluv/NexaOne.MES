@@ -198,10 +198,10 @@ public sealed class LotMixingIntegrationTests : IClassFixture<TestApiFactory>
             "단일 스텝 완료 시 출력 Lot의 Finish 이력이 기록돼야 한다");
     }
 
-    // ── 에러: 미존재 투입 Lot → 400, 부분커밋 없음 ──────────────────────────────────
+    // ── 에러: 미존재 투입 Lot → 404, 부분커밋 없음 ──────────────────────────────────
 
     [Fact]
-    public async Task MixingTrackInOut_with_missing_input_lot_returns_400_and_does_not_partially_commit()
+    public async Task MixingTrackInOut_with_missing_input_lot_returns_404_and_does_not_partially_commit()
     {
         var client = _factory.CreateAuthenticatedClient();
         const string plantId = "P-POM-MIX-ERR";
@@ -218,7 +218,8 @@ public sealed class LotMixingIntegrationTests : IClassFixture<TestApiFactory>
         (await client.PostAsJsonAsync("/api/v1/lots", CreateLotBody(plantId, validInputLot, productId, 30m)))
             .StatusCode.Should().Be(HttpStatusCode.OK, "유효 투입 Lot 생성이 성공해야 한다");
 
-        // 서비스는 모든 투입 Lot을 상태 변경 전에 전수 검증한다 → 미존재 투입은 NotFound, 컨트롤러가 400으로 매핑.
+        // 서비스는 모든 투입 Lot을 상태 변경 전에 전수 검증한다 → 미존재 투입은 Error.NotFound,
+        // ToActionResult가 404로 매핑한다(Wave C-α).
         var mixResp = await client.PostAsJsonAsync("/api/v1/lots/mixing/track-in-out", new
         {
             plantId,
@@ -233,8 +234,8 @@ public sealed class LotMixingIntegrationTests : IClassFixture<TestApiFactory>
             }
         });
         var mixBody = await mixResp.Content.ReadAsStringAsync();
-        mixResp.StatusCode.Should().Be(HttpStatusCode.BadRequest,
-            $"미존재 투입 Lot이 포함된 Mixing은 400이어야 한다(부분 커밋 없음). 응답 본문: {mixBody}");
+        mixResp.StatusCode.Should().Be(HttpStatusCode.NotFound,
+            $"미존재 투입 Lot이 포함된 Mixing은 404여야 한다(부분 커밋 없음). 응답 본문: {mixBody}");
 
         // 부분커밋 없음 #1: 유효 투입 Lot은 소비되지 않고 Queued 상태를 유지해야 한다.
         var stillQueued = await client.GetFromJsonAsync<LotDto>($"/api/v1/lots/{validInputLot}");

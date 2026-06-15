@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NexaOne.API.Extensions;
 using NexaOne.POM.Application.Pom;
 
 namespace NexaOne.API.Controllers;
@@ -14,7 +15,7 @@ public class PomController(PomService ppmService, ProductionOrderService orderSe
         [FromQuery] string plantId, [FromQuery] DateTime? from, [FromQuery] DateTime? to, CancellationToken ct)
     {
         var result = await ppmService.GetByPlantAsync(plantId, from, to, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPost("plans")]
@@ -24,7 +25,7 @@ public class PomController(PomService ppmService, ProductionOrderService orderSe
         var result = await ppmService.CreatePlanAsync(
             req.PlanId, req.PlanName, req.PlantId, req.ProductId,
             req.Qty, req.StartDate, req.EndDate, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("plans/{planId}/start")]
@@ -32,7 +33,7 @@ public class PomController(PomService ppmService, ProductionOrderService orderSe
     public async Task<IActionResult> StartPlan(string planId, CancellationToken ct)
     {
         var result = await ppmService.StartPlanAsync(planId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("plans/{planId}/release")]
@@ -40,7 +41,7 @@ public class PomController(PomService ppmService, ProductionOrderService orderSe
     public async Task<IActionResult> ReleasePlan(string planId, CancellationToken ct)
     {
         var result = await ppmService.ReleasePlanAsync(planId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("plans/{planId}/complete")]
@@ -48,7 +49,7 @@ public class PomController(PomService ppmService, ProductionOrderService orderSe
     public async Task<IActionResult> CompletePlan(string planId, CancellationToken ct)
     {
         var result = await ppmService.CompletePlanAsync(planId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("plans/{planId}/cancel")]
@@ -56,7 +57,7 @@ public class PomController(PomService ppmService, ProductionOrderService orderSe
     public async Task<IActionResult> CancelPlan(string planId, CancellationToken ct)
     {
         var result = await ppmService.CancelPlanAsync(planId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
     // ── Orders ────────────────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ public class PomController(PomService ppmService, ProductionOrderService orderSe
     public async Task<IActionResult> GetOrders([FromQuery] string planId, CancellationToken ct)
     {
         var result = await orderService.GetByPlanAsync(planId, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPost("orders")]
@@ -74,7 +75,7 @@ public class PomController(PomService ppmService, ProductionOrderService orderSe
         var result = await orderService.CreateOrderAsync(
             req.OrderId, req.PlanId, req.EquipmentId, req.ProductId,
             req.OrderQty, req.ScheduledStart, req.ScheduledEnd, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("orders/{orderId}/start")]
@@ -82,7 +83,7 @@ public class PomController(PomService ppmService, ProductionOrderService orderSe
     public async Task<IActionResult> StartOrder(string orderId, CancellationToken ct)
     {
         var result = await orderService.StartOrderAsync(orderId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("orders/{orderId}/complete")]
@@ -90,7 +91,7 @@ public class PomController(PomService ppmService, ProductionOrderService orderSe
     public async Task<IActionResult> CompleteOrder(string orderId, [FromBody] CompleteOrderRequest req, CancellationToken ct)
     {
         var result = await orderService.CompleteOrderAsync(orderId, req.ActualQty, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("orders/{orderId}/cancel")]
@@ -98,7 +99,7 @@ public class PomController(PomService ppmService, ProductionOrderService orderSe
     public async Task<IActionResult> CancelOrder(string orderId, CancellationToken ct)
     {
         var result = await orderService.CancelOrderAsync(orderId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 }
 

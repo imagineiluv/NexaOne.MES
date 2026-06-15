@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using NexaOne.API.Extensions;
 using NexaOne.API.Services;
 using NexaOne.Common;
 using NexaOne.SYS.Application.Users;
@@ -44,7 +45,7 @@ public class UserRegistrationController(
             req.PlantId, language, req.TermsAccepted, ipAddress,
             req.Duty, req.CellPhoneNumber, req.Address, req.Description, req.Nickname), ct);
 
-        return result.IsSuccess ? Ok(ToDto(result.Value)) : BadRequest(result.Error);
+        return result.ToActionResult(r => Ok(ToDto(r)));
     }
 
     /// <summary>§19.3.4 — 승인 화면 목록 (Plant/상태/신청일/ID/이름/이메일 검색).</summary>
@@ -56,14 +57,14 @@ public class UserRegistrationController(
     {
         var result = await registrationService.GetRequestsAsync(
             plantId, status, userId, userName, email, from, to, ct);
-        return result.IsSuccess ? Ok(result.Value.Select(ToDto)) : BadRequest(result.Error);
+        return result.ToActionResult(requests => Ok(requests.Select(ToDto)));
     }
 
     [HttpGet("requests/{requestId}")]
     public async Task<IActionResult> GetRequest(string requestId, CancellationToken ct)
     {
         var result = await registrationService.GetRequestAsync(requestId, ct);
-        return result.IsSuccess ? Ok(ToDto(result.Value)) : NotFound(result.Error);
+        return result.ToActionResult(r => Ok(ToDto(r)));
     }
 
     /// <summary>§19.3.5 — 승인. 사용자 생성(PasswordState=Create) + 임시 비밀번호 메일 발송.</summary>
@@ -72,7 +73,7 @@ public class UserRegistrationController(
         string requestId, [FromBody] ApproveUserRequestRequest req, CancellationToken ct)
     {
         var result = await approvalService.ApproveAsync(requestId, CurrentUserId, req.RoleId ?? "", ct);
-        return result.IsSuccess ? Ok(ToDto(result.Value)) : BadRequest(result.Error);
+        return result.ToActionResult(r => Ok(ToDto(r)));
     }
 
     /// <summary>§19.3.6 — 반려. 사유 필수, 반려 후 같은 ID로 재신청이 가능하다.</summary>
@@ -81,7 +82,7 @@ public class UserRegistrationController(
         string requestId, [FromBody] RejectUserRequestRequest req, CancellationToken ct)
     {
         var result = await approvalService.RejectAsync(requestId, CurrentUserId, req.Reason ?? "", ct);
-        return result.IsSuccess ? Ok(ToDto(result.Value)) : BadRequest(result.Error);
+        return result.ToActionResult(r => Ok(ToDto(r)));
     }
 
     private static UserRequestDto ToDto(UserRequest r) => new(

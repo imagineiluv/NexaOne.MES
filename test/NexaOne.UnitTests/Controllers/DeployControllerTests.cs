@@ -157,14 +157,14 @@ public sealed class DeployControllerTests
     }
 
     [Fact]
-    public async Task Deactivate_unknown_file_returns_400()
+    public async Task Deactivate_unknown_file_returns_404()
     {
         var (controller, repo, _) = Build();
         repo.Setup(r => r.GetByIdAsync("ghost", default)).ReturnsAsync((DeployFile?)null);
 
         var result = await controller.Deactivate("ghost", default);
 
-        result.Should().BeOfType<BadRequestObjectResult>();
+        result.Should().BeOfType<NotFoundObjectResult>();
     }
 
     [Fact]

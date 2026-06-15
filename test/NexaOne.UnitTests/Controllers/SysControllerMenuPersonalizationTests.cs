@@ -93,14 +93,14 @@ public sealed class SysControllerMenuPersonalizationTests
     }
 
     [Fact]
-    public async Task AddFavorite_unauthorized_returns_400()
+    public async Task AddFavorite_unauthorized_returns_404()
     {
         var (fav, recent, menu) = Repos();   // 권한 메뉴 없음
 
         var result = await BuildController(fav, recent, menu)
             .AddFavorite(new FavoriteMenuRequest("MENU-X"), default);
 
-        result.Should().BeOfType<BadRequestObjectResult>();
+        result.Should().BeOfType<NotFoundObjectResult>();
         fav.Verify(r => r.UpsertAsync(It.IsAny<FavoriteMenu>(), default), Times.Never);
     }
 

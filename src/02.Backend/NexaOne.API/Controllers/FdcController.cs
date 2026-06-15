@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NexaOne.API.Extensions;
 using NexaOne.API.Hubs;
 using NexaOne.EST.Application.Est;
 using NexaOne.FDC.Application.Fdc;
@@ -114,7 +115,7 @@ public class FdcController(
         var result = await interlockService.CreateRuleAsync(
             req.RuleId, req.RuleName, req.EquipmentId, req.ParameterId,
             req.Operator, req.ThresholdValue, req.Action, req.Priority, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPost("interlock/evaluate")]
@@ -140,7 +141,7 @@ public class FdcController(
         var result = await dataService.CreateParameterAsync(
             req.ParameterId, req.ParameterName, req.EquipmentId, req.Unit,
             req.LowerLimit, req.UpperLimit, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     /// <summary>파라미터를 그룹에 배정/해제한다(GroupId=null이면 해제).</summary>
@@ -150,7 +151,7 @@ public class FdcController(
         string parameterId, [FromBody] AssignParameterGroupRequest req, CancellationToken ct)
     {
         var result = await dataService.AssignParameterToGroupAsync(parameterId, req.GroupId, ct);
-        return result.IsSuccess ? Ok() : BadRequest(result.Error);
+        return result.ToActionResult(useNoContent: false);
     }
 
     // ── Parameter Groups ──────────────────────────────────────────────────────
@@ -168,7 +169,7 @@ public class FdcController(
     {
         var result = await groupService.CreateGroupAsync(
             req.GroupId, req.GroupName, req.EquipmentId, req.Description, req.DisplayOrder, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── Alarms (FDC threshold) ────────────────────────────────────────────────
@@ -186,7 +187,7 @@ public class FdcController(
     {
         var result = await fdcAlarmService.CreateConfigAsync(
             req.AlarmConfigId, req.EquipmentId, req.ParameterId, req.AlarmLevel, req.Operator, req.Threshold, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpGet("alarm-history")]

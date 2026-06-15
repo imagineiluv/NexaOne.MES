@@ -29,7 +29,7 @@ namespace NexaOne.IntegrationTests.SYS;
 ///   UserMenuService는 SYS_MENU ⋈ SYS_MENU_ROLE ⋈ SYS_USER로 "권한 있는 Screen 메뉴"와 교차해야
 ///   즐겨찾기/최근을 노출·등록하는데, 토큰 주체(test-admin)에 대한 SYS_USER 행도, 그 역할에 매핑된
 ///   SYS_MENU/SYS_MENU_ROLE 행도 HTTP로 시드할 방법이 없어(메뉴 생성 엔드포인트 부재) 인가 메뉴가 항상 공집합이다.
-///   따라서 favorites POST는 NotFound→BadRequest(인가 게이트), recent POST는 멱등 204(조용히 무시),
+///   따라서 favorites POST는 NotFound→404(인가 게이트), recent POST는 멱등 204(조용히 무시),
 ///   GET은 빈 결과 200(테이블 존재 + SELECT 방언 스모크), reorder/delete는 인가 무관 멱등 경로를 단언한다.
 ///
 /// 클래스별 고유 SQLite 임시파일 DB(GUID) + FK 비강제 + db/migrations 부트스트랩(TestApiFactory).
@@ -205,13 +205,14 @@ public sealed class SysPersonalizationIntegrationTests : IClassFixture<TestApiFa
         (await listResp.Content.ReadFromJsonAsync<List<FavoriteMenuDto>>())
             .Should().NotBeNull("favorites 응답은 JSON 배열이어야 한다");
 
-        // 2) 인가 게이트 — 인가되지 않은(존재하지 않는) 메뉴 즐겨찾기 추가는 NotFound→BadRequest.
+        // 2) 인가 게이트 — 인가되지 않은(존재하지 않는) 메뉴 즐겨찾기 추가는 NotFound(404).
+        //    AddFavoriteAsync가 Error.NotFound를 돌려주고 ToActionResult가 404로 매핑한다(Wave C-α).
         //    핵심: 500/예외가 아니라 결정적 4xx(인가 거부)로 처리돼야 한다.
         var addResp = await client.PostAsJsonAsync("/api/v1/sys/favorites",
             new { menuId = $"NO-SUCH-MENU-{Guid.NewGuid():N}" });
         var addBody = await addResp.Content.ReadAsStringAsync();
-        addResp.StatusCode.Should().Be(HttpStatusCode.BadRequest,
-            $"권한 없는 메뉴 즐겨찾기 추가는 BadRequest(NotFound 매핑)여야 한다(500 아님). 응답 본문: {addBody}");
+        addResp.StatusCode.Should().Be(HttpStatusCode.NotFound,
+            $"권한 없는 메뉴 즐겨찾기 추가는 NotFound(Error.NotFound 매핑)여야 한다(500 아님). 응답 본문: {addBody}");
 
         // 3) 즐겨찾기 삭제 — 인가 검사 없는 멱등 경로. SYS_FAVORITE_MENU DELETE가 SQLite에서 성립해야 한다.
         var delResp = await client.DeleteAsync(
@@ -341,7 +342,7 @@ public sealed class SysPersonalizationIntegrationTests : IClassFixture<TestApiFa
     }
 
     [Fact]
-    public async Task AddPermission_to_unknown_role_returns_bad_request()
+    public async Task AddPermission_to_unknown_role_returns_not_found()
     {
         var client = _factory.CreateAuthenticatedClient();
         var resp = await client.PostAsJsonAsync(
@@ -349,10 +350,10 @@ public sealed class SysPersonalizationIntegrationTests : IClassFixture<TestApiFa
             new { permission = "fdc:read" });
         var body = await resp.Content.ReadAsStringAsync();
 
-        // 컨트롤러가 result.IsSuccess ? NoContent() : BadRequest(...)로 매핑하므로,
-        // 서비스의 Error.NotFound도 HTTP는 400이다(500/예외가 아니라 결정적 4xx여야 한다).
-        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest,
-            $"미존재 역할 권한 부여는 BadRequest(컨트롤러 매핑)여야 한다(500 아님). 응답 본문: {body}");
+        // 컨트롤러가 ToActionResult로 Error.Type을 상태에 매핑한다(Wave C-α).
+        // AddPermissionAsync는 미존재 역할에 Error.NotFound를 돌려주므로 HTTP는 404다(500/예외 아님).
+        resp.StatusCode.Should().Be(HttpStatusCode.NotFound,
+            $"미존재 역할 권한 부여는 NotFound(Error.NotFound 매핑)여야 한다(500 아님). 응답 본문: {body}");
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NexaOne.API.Extensions;
 using NexaOne.Common;
 using NexaOne.SYS.Application.Conditions;
 using NexaOne.SYS.Application.Menus;
@@ -62,14 +63,14 @@ public class SysController(
     public async Task<IActionResult> GetUsers(CancellationToken ct)
     {
         var result = await userService.GetAllUsersAsync(ct);
-        return result.IsSuccess ? Ok(result.Value.Select(ToUserDto)) : BadRequest(result.Error);
+        return result.ToActionResult(users => Ok(users.Select(ToUserDto)));
     }
 
     [HttpGet("users/{userId}")]
     public async Task<IActionResult> GetUser(string userId, CancellationToken ct)
     {
         var result = await userService.GetUserAsync(userId, ct);
-        return result.IsSuccess ? Ok(ToUserDto(result.Value)) : NotFound(result.Error);
+        return result.ToActionResult(user => Ok(ToUserDto(user)));
     }
 
     [HttpPost("users")]
@@ -80,7 +81,7 @@ public class SysController(
             req.UserId, req.UserName, req.PasswordHash, req.Email, req.RoleId,
             Enum.TryParse<LanguageType>(req.Language, out var lang) && Enum.IsDefined(lang)
                 ? lang : LanguageType.KoKr, ct);
-        return result.IsSuccess ? Ok(ToUserDto(result.Value)) : BadRequest(result.Error);
+        return result.ToActionResult(user => Ok(ToUserDto(user)));
     }
 
     [HttpPut("users/{userId}/deactivate")]
@@ -88,7 +89,7 @@ public class SysController(
     public async Task<IActionResult> DeactivateUser(string userId, CancellationToken ct)
     {
         var result = await userService.DeactivateUserAsync(userId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     /// <summary>§20.10 — 관리자 잠금 해제 (해제는 시간 만료 또는 관리자만 가능).</summary>
@@ -97,7 +98,7 @@ public class SysController(
     public async Task<IActionResult> UnlockUser(string userId, CancellationToken ct)
     {
         var result = await userService.UnlockUserAsync(userId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // 도메인 User를 그대로 직렬화하면 PASSWORD_HASH가 응답에 노출된다 — 반드시 DTO로 매핑한다.
@@ -111,14 +112,14 @@ public class SysController(
     public async Task<IActionResult> GetRoles(CancellationToken ct)
     {
         var result = await userService.GetAllRolesAsync(ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpGet("roles/{roleId}")]
     public async Task<IActionResult> GetRole(string roleId, CancellationToken ct)
     {
         var result = await userService.GetRoleAsync(roleId, ct);
-        return result.IsSuccess ? Ok(result.Value) : NotFound(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPost("roles")]
@@ -126,7 +127,7 @@ public class SysController(
     public async Task<IActionResult> CreateRole([FromBody] CreateRoleRequest req, CancellationToken ct)
     {
         var result = await userService.CreateRoleAsync(req.RoleId, req.RoleName, req.Description ?? "", ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPost("roles/{roleId}/permissions")]
@@ -134,7 +135,7 @@ public class SysController(
     public async Task<IActionResult> AddPermission(string roleId, [FromBody] PermissionRequest req, CancellationToken ct)
     {
         var result = await userService.AddPermissionAsync(roleId, req.Permission, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpDelete("roles/{roleId}/permissions/{permission}")]
@@ -142,7 +143,7 @@ public class SysController(
     public async Task<IActionResult> RemovePermission(string roleId, string permission, CancellationToken ct)
     {
         var result = await userService.RemovePermissionAsync(roleId, permission, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── MultiLanguageResource ─────────────────────────────────────────────────
@@ -153,17 +154,17 @@ public class SysController(
         if (!string.IsNullOrEmpty(menuId))
         {
             var result = await userService.GetResourcesByMenuAsync(menuId, ct);
-            return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+            return result.ToActionResult();
         }
 
         if (!string.IsNullOrEmpty(language) && Enum.TryParse<LanguageType>(language, out var lang) && Enum.IsDefined(lang))
         {
             var result = await userService.GetResourcesByLanguageAsync(lang, ct);
-            return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+            return result.ToActionResult();
         }
 
         var allResult = await userService.GetResourcesByLanguageAsync(LanguageType.KoKr, ct);
-        return allResult.IsSuccess ? Ok(allResult.Value) : BadRequest(allResult.Error);
+        return allResult.ToActionResult();
     }
 
     [HttpPost("languages")]
@@ -174,7 +175,7 @@ public class SysController(
             return BadRequest($"Invalid language: {req.Language}");
 
         var result = await userService.UpsertResourceAsync(req.ResourceKey, req.MenuId, lang, req.Value, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── ConditionSetting (설계서 20.8 조건 저장/불러오기) ─────────────────────
@@ -198,7 +199,7 @@ public class SysController(
     {
         var result = await conditionService.SaveConditionAsync(
             CurrentUserId, req.MenuId, req.Name, SerializeValues(req.Values), ct);
-        return result.IsSuccess ? Ok(ToItemDto(result.Value)) : BadRequest(result.Error);
+        return result.ToActionResult(c => Ok(ToItemDto(c)));
     }
 
     [HttpPost("conditions/latest")]
@@ -206,21 +207,21 @@ public class SysController(
     {
         var result = await conditionService.SaveLatestAsync(
             CurrentUserId, req.MenuId, SerializeValues(req.Values), ct);
-        return result.IsSuccess ? Ok(ToItemDto(result.Value)) : BadRequest(result.Error);
+        return result.ToActionResult(c => Ok(ToItemDto(c)));
     }
 
     [HttpDelete("conditions")]
     public async Task<IActionResult> DeleteCondition([FromQuery] string menuId, [FromQuery] string name, CancellationToken ct)
     {
         var result = await conditionService.DeleteConditionAsync(CurrentUserId, menuId, name, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpDelete("conditions/latest")]
     public async Task<IActionResult> ClearLatestCondition([FromQuery] string menuId, CancellationToken ct)
     {
         var result = await conditionService.ClearLatestAsync(CurrentUserId, menuId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── Favorite / Recent menu (설계서 20.12 즐겨찾기/최근 메뉴) ──────────────
@@ -229,24 +230,22 @@ public class SysController(
     public async Task<IActionResult> GetFavorites(CancellationToken ct)
     {
         var result = await userMenuService.GetFavoritesAsync(CurrentUserId, ct);
-        return result.IsSuccess
-            ? Ok(result.Value.Select(e => new FavoriteMenuDto(
-                e.Menu.MenuId, e.Menu.MenuName, e.Menu.ProgramId, e.Menu.ImageId, e.DisplaySequence)))
-            : BadRequest(result.Error);
+        return result.ToActionResult(entries => Ok(entries.Select(e => new FavoriteMenuDto(
+            e.Menu.MenuId, e.Menu.MenuName, e.Menu.ProgramId, e.Menu.ImageId, e.DisplaySequence))));
     }
 
     [HttpPost("favorites")]
     public async Task<IActionResult> AddFavorite([FromBody] FavoriteMenuRequest req, CancellationToken ct)
     {
         var result = await userMenuService.AddFavoriteAsync(CurrentUserId, req.MenuId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpDelete("favorites")]
     public async Task<IActionResult> RemoveFavorite([FromQuery] string menuId, CancellationToken ct)
     {
         var result = await userMenuService.RemoveFavoriteAsync(CurrentUserId, menuId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     /// <summary>즐겨찾기 표시 순서 일괄 변경 — 현행 드래그 정렬의 웹 적응(up/down 버튼).</summary>
@@ -255,24 +254,22 @@ public class SysController(
     {
         var result = await userMenuService.ReorderFavoritesAsync(
             CurrentUserId, req.MenuIds ?? [], ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpGet("recent-menus")]
     public async Task<IActionResult> GetRecentMenus(CancellationToken ct)
     {
         var result = await userMenuService.GetRecentAsync(CurrentUserId, ct);
-        return result.IsSuccess
-            ? Ok(result.Value.Select(e => new RecentMenuDto(
-                e.Menu.MenuId, e.Menu.MenuName, e.Menu.ProgramId, e.Menu.ImageId, e.LastUsedAt)))
-            : BadRequest(result.Error);
+        return result.ToActionResult(entries => Ok(entries.Select(e => new RecentMenuDto(
+            e.Menu.MenuId, e.Menu.MenuName, e.Menu.ProgramId, e.Menu.ImageId, e.LastUsedAt))));
     }
 
     [HttpPost("recent-menus")]
     public async Task<IActionResult> RecordRecentMenu([FromBody] RecentMenuRequest req, CancellationToken ct)
     {
         var result = await userMenuService.RecordRecentAsync(CurrentUserId, req.MenuId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // 키를 소문자로 정규화해 저장한다 — 복원 시 대소문자만 다른 중복 키 충돌을 막는다 (마지막 값 우선)

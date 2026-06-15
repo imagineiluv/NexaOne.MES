@@ -116,14 +116,14 @@ public sealed class LotControllerTests
     }
 
     [Fact]
-    public async Task CreateLot_duplicate_returns_400()
+    public async Task CreateLot_duplicate_returns_409()
     {
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(QueuedLot());
 
         var result = await BuildController().CreateLot(
             new CreateLotRequest("P1", "LOT001", null, "PROD01", 10m, ["CUT"]), default);
 
-        result.Should().BeOfType<BadRequestObjectResult>();
+        result.Should().BeOfType<ConflictObjectResult>();
     }
 
     // ── TrackIn / TrackOut ────────────────────────────────────────────────────
@@ -143,7 +143,7 @@ public sealed class LotControllerTests
     }
 
     [Fact]
-    public async Task TrackIn_hold_lot_returns_400()
+    public async Task TrackIn_hold_lot_returns_409()
     {
         var lot = QueuedLot();
         lot.Hold("admin");
@@ -152,7 +152,7 @@ public sealed class LotControllerTests
         var result = await BuildController().TrackIn(
             "LOT001", new TrackInRequest("P1", "EQ001", null, null), default);
 
-        result.Should().BeOfType<BadRequestObjectResult>();
+        result.Should().BeOfType<ConflictObjectResult>();
     }
 
     [Fact]
@@ -232,13 +232,13 @@ public sealed class LotControllerTests
     }
 
     [Fact]
-    public async Task Hold_unknown_lot_returns_400()
+    public async Task Hold_unknown_lot_returns_404()
     {
         _lots.Setup(r => r.GetByIdAsync("LXXX", default)).ReturnsAsync((Lot?)null);
 
         var result = await BuildController().Hold("LXXX", default);
 
-        result.Should().BeOfType<BadRequestObjectResult>();
+        result.Should().BeOfType<NotFoundObjectResult>();
     }
 
     [Fact]

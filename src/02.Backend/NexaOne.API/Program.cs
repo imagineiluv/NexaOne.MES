@@ -277,6 +277,22 @@ NexaOne.Common.Telemetry.NexaMesMetrics.BindObservableGauges(
     app.Services.GetRequiredService<NexaOne.Common.Telemetry.ActiveUserTracker>(),
     app.Services.GetRequiredService<NexaOne.Common.Telemetry.EquipmentChannelStatusRegistry>());
 
+// ADR-002 — Outbox 적체/데드레터 ObservableGauge는 outbox 활성 시에만 바인딩한다(off면 게이지 미노출).
+// 게이지 콜백은 동기이므로 스코프드 IOutboxRepository를 IServiceScopeFactory로 해석해 COUNT를 동기 대기한다.
+if (app.Configuration.GetValue("Events:Outbox:Enabled", false))
+{
+    var outboxScopeFactory = app.Services.GetRequiredService<IServiceScopeFactory>();
+    static int CountOutbox(IServiceScopeFactory f, Func<NexaOne.Infrastructure.Persistence.IOutboxRepository, Task<int>> q)
+    {
+        using var scope = f.CreateScope();
+        var repo = scope.ServiceProvider.GetRequiredService<NexaOne.Infrastructure.Persistence.IOutboxRepository>();
+        return q(repo).GetAwaiter().GetResult();
+    }
+    NexaOne.Common.Telemetry.NexaMesMetrics.BindOutboxGauges(
+        () => CountOutbox(outboxScopeFactory, r => r.CountPendingAsync()),
+        () => CountOutbox(outboxScopeFactory, r => r.CountDeadLetteredAsync()));
+}
+
 // Phase 2(Pro-Code 공존) — OpenAPI 스펙은 상시 노출한다: 외부 React/Vue SPA가 TypeScript 클라이언트를
 // 생성하고 계약을 발견하는 채널. 대화형 Swagger UI는 개발 환경에만 노출(운영 정보 노출 최소화).
 app.UseSwagger();

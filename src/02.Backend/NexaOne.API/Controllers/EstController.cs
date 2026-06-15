@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NexaOne.API.Extensions;
 using NexaOne.API.Hubs;
 using NexaOne.EST.Application.Est;
 using NexaOne.MDM.Application.Equipments;
@@ -34,7 +35,7 @@ public class EstController(
         var result = await stateService.UpsertMatrixAsync(
             req.PlantId, req.FromStateId, req.ToStateId,
             req.AllowFlag, req.SetStateId, req.RequireReason, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── Equipment State ───────────────────────────────────────────────────────
@@ -65,7 +66,7 @@ public class EstController(
         if (result.IsSuccess && !notifyCoordinator.BusDeliversEvents)
             await notifier.NotifyEquipmentStateChangedAsync(req.EquipmentId, result.Value.CurrentStateId, ct);
 
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpGet("equipment-state/{equipmentId}/history")]
@@ -78,7 +79,7 @@ public class EstController(
     public async Task<IActionResult> GetActiveAlarms([FromQuery] string? plantId, CancellationToken ct)
     {
         var result = await alarmService.GetActiveAlarmsAsync(plantId ?? string.Empty, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPost("alarms")]
@@ -90,7 +91,7 @@ public class EstController(
         // 버스 활성 시 EquipmentAlarmRaised 이벤트를 구독자가 알람 갱신으로 전달 — 직접호출 생략(이중 발행 방지).
         if (result.IsSuccess && !notifyCoordinator.BusDeliversEvents)
             await notifier.NotifyAlarmUpdatedAsync(ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("alarms/{alarmId}/clear")]
@@ -101,7 +102,7 @@ public class EstController(
         // 버스 활성 시 EquipmentAlarmCleared 이벤트를 구독자가 알람 갱신으로 전달 — 직접호출 생략(이중 발행 방지).
         if (result.IsSuccess && !notifyCoordinator.BusDeliversEvents)
             await notifier.NotifyAlarmUpdatedAsync(ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 }
 

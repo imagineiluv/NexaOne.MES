@@ -140,30 +140,31 @@ public sealed class SysUserMutationIntegrationTests : IClassFixture<TestApiFacto
     // ── 미존재 사용자 전이: 컨트롤러의 실패 매핑 검증 ──────────────────────────────
 
     [Fact]
-    public async Task Deactivate_unknown_user_returns_bad_request()
+    public async Task Deactivate_unknown_user_returns_not_found()
     {
         var client = _factory.CreateAuthenticatedClient();
         var resp = await client.PutAsync(
             $"/api/v1/sys/users/no-such-user-{Guid.NewGuid():N}/deactivate", content: null);
         var body = await resp.Content.ReadAsStringAsync();
 
-        // 컨트롤러가 result.IsSuccess ? NoContent() : BadRequest(...)로 매핑하므로,
-        // 서비스가 Error.NotFound를 돌려줘도 HTTP는 400이다(404 아님 — 제약으로 보고).
+        // 컨트롤러가 ToActionResult로 Error.Type을 상태에 매핑한다(Wave C-α).
+        // DeactivateUserAsync는 미존재 사용자에 Error.NotFound를 돌려주므로 HTTP는 404다.
         // 핵심: 미존재 사용자에 대해 500/예외가 아니라 결정적 4xx로 처리돼야 한다.
-        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest,
-            $"미존재 사용자 deactivate는 BadRequest(컨트롤러 매핑)여야 한다. 응답 본문: {body}");
+        resp.StatusCode.Should().Be(HttpStatusCode.NotFound,
+            $"미존재 사용자 deactivate는 NotFound(Error.NotFound 매핑)여야 한다. 응답 본문: {body}");
     }
 
     [Fact]
-    public async Task Unlock_unknown_user_returns_bad_request()
+    public async Task Unlock_unknown_user_returns_not_found()
     {
         var client = _factory.CreateAuthenticatedClient();
         var resp = await client.PutAsync(
             $"/api/v1/sys/users/no-such-user-{Guid.NewGuid():N}/unlock", content: null);
         var body = await resp.Content.ReadAsStringAsync();
 
-        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest,
-            $"미존재 사용자 unlock은 BadRequest(컨트롤러 매핑)여야 한다. 응답 본문: {body}");
+        // UnlockUserAsync도 미존재 사용자에 Error.NotFound를 돌려주므로 HTTP는 404다(Wave C-α).
+        resp.StatusCode.Should().Be(HttpStatusCode.NotFound,
+            $"미존재 사용자 unlock은 NotFound(Error.NotFound 매핑)여야 한다. 응답 본문: {body}");
     }
 
     // ── 헬퍼 ─────────────────────────────────────────────────────────────────────

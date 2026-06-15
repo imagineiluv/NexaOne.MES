@@ -38,8 +38,19 @@ public static class NexaMesMetrics
         Meter.CreateCounter<long>("nexames_fdc_collected_total", unit: "{point}",
             description: "FDC 수집 데이터 적재 건수");
 
+    /// <summary>nexames_outbox_published_total — outbox 이벤트 발행 성공 건수(ADR-002). Tags: eventType.</summary>
+    public static readonly Counter<long> OutboxPublished =
+        Meter.CreateCounter<long>("nexames_outbox_published_total", unit: "{event}",
+            description: "Outbox 이벤트 발행 성공 건수");
+
+    /// <summary>nexames_outbox_deadlettered_total — outbox 데드레터 전이 건수(ADR-002). Tags: eventType.</summary>
+    public static readonly Counter<long> OutboxDeadLettered =
+        Meter.CreateCounter<long>("nexames_outbox_deadlettered_total", unit: "{event}",
+            description: "Outbox 메시지 데드레터 전이 건수");
+
     private static readonly object BindLock = new();
     private static bool _bound;
+    private static bool _outboxBound;
 
     /// <summary>
     /// ObservableGauge(<c>nexames_active_users</c>, <c>nexames_equipment_channel_status</c>)를
@@ -64,6 +75,36 @@ public static class NexaMesMetrics
                 description: "설비 채널 연결 상태(정상 1/비정상 0)");
 
             _bound = true;
+        }
+    }
+
+    /// <summary>
+    /// Outbox ObservableGauge(<c>nexames_outbox_pending</c>, <c>nexames_outbox_deadlettered</c>)를 1회만
+    /// 바인딩한다(ADR-002). 값 제공자(<paramref name="pendingCount"/>/<paramref name="deadLetteredCount"/>)는
+    /// 호출부가 IServiceScopeFactory로 스코프드 IOutboxRepository를 해석해 CountPending/CountDeadLettered를
+    /// 호출하도록 구성한다(레이어 분리 — Common은 Infrastructure를 참조하지 않음). outbox 비활성 시 본 메서드는
+    /// 호출되지 않으므로 게이지도 노출되지 않는다.
+    /// </summary>
+    public static void BindOutboxGauges(Func<int> pendingCount, Func<int> deadLetteredCount)
+    {
+        ArgumentNullException.ThrowIfNull(pendingCount);
+        ArgumentNullException.ThrowIfNull(deadLetteredCount);
+
+        lock (BindLock)
+        {
+            if (_outboxBound) return;
+
+            // nexames_outbox_pending — 발행 대기(미발행·비데드레터) 건수.
+            Meter.CreateObservableGauge("nexames_outbox_pending",
+                () => new Measurement<long>(pendingCount()),
+                unit: "{event}", description: "Outbox 발행 대기 건수");
+
+            // nexames_outbox_deadlettered — 데드레터(수동 조치 대기) 건수.
+            Meter.CreateObservableGauge("nexames_outbox_deadlettered",
+                () => new Measurement<long>(deadLetteredCount()),
+                unit: "{event}", description: "Outbox 데드레터 건수");
+
+            _outboxBound = true;
         }
     }
 }

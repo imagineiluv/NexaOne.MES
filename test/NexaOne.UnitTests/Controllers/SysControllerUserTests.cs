@@ -71,14 +71,14 @@ public sealed class SysControllerUserTests
     }
 
     [Fact]
-    public async Task UnlockUser_unknown_user_returns_400()
+    public async Task UnlockUser_unknown_user_returns_404()
     {
         var repo = new Mock<IUserRepository>();
         repo.Setup(r => r.GetByIdAsync("ghost", default)).ReturnsAsync((User?)null);
 
         var result = await BuildController(repo).UnlockUser("ghost", default);
 
-        result.Should().BeOfType<BadRequestObjectResult>();
+        result.Should().BeOfType<NotFoundObjectResult>();
         repo.Verify(r => r.UpdateAsync(It.IsAny<User>(), default), Times.Never);
     }
 

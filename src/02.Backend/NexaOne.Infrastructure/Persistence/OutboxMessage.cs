@@ -11,4 +11,6 @@ public sealed class OutboxMessage
     public DateTime OccurredAt { get; init; }
     public DateTime? PublishedAt { get; init; }
     public int Attempts { get; init; }
+    public DateTime? DeadLetteredAt { get; init; }
+    public DateTime? NextAttemptAt { get; init; }
 }

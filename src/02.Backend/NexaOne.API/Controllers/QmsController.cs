@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using NexaOne.API.Extensions;
 using NexaOne.QMS.Application.Qms;
 
 namespace NexaOne.API.Controllers;
@@ -15,7 +16,7 @@ public class QmsController(QmsService qmsService) : ControllerBase
     public async Task<IActionResult> GetDefectsByLot([FromQuery] string lotId, CancellationToken ct)
     {
         var result = await qmsService.GetDefectsByLotAsync(lotId, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPost("defects")]
@@ -25,7 +26,7 @@ public class QmsController(QmsService qmsService) : ControllerBase
         var result = await qmsService.RecordDefectAsync(
             req.DefectId, req.LotId, req.EquipmentId, req.DefectClassId,
             req.Count, req.Rate, req.InspectorId, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("defects/{defectId}/confirm")]
@@ -33,7 +34,7 @@ public class QmsController(QmsService qmsService) : ControllerBase
     public async Task<IActionResult> ConfirmDefect(string defectId, [FromBody] ConfirmDefectRequest req, CancellationToken ct)
     {
         var result = await qmsService.ConfirmDefectAsync(defectId, req.ConfirmerId, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── Defect Classes ────────────────────────────────────────────────────────
@@ -47,7 +48,7 @@ public class QmsController(QmsService qmsService) : ControllerBase
     public async Task<IActionResult> CreateDefectClass([FromBody] CreateDefectClassRequest req, CancellationToken ct)
     {
         var result = await qmsService.CreateDefectClassAsync(req.DefectClassId, req.DefectClassName, req.Description, req.Severity, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── Inspection Specs ──────────────────────────────────────────────────────
@@ -62,7 +63,7 @@ public class QmsController(QmsService qmsService) : ControllerBase
     {
         var result = await qmsService.CreateInspectionSpecAsync(req.SpecId, req.SpecName, req.ProcessId,
             req.ItemName, req.MeasureType, req.NominalValue, req.TolerancePlus, req.ToleranceMinus, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── Inspection Results ────────────────────────────────────────────────────
@@ -77,7 +78,7 @@ public class QmsController(QmsService qmsService) : ControllerBase
     {
         var result = await qmsService.RecordInspectionResultAsync(req.ResultId, req.SpecId, req.LotId,
             req.EquipmentId, req.InspectorId, req.MeasuredValue, req.AttributeResult, req.IsPass, req.Remark, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     // ── SPC Parameters ────────────────────────────────────────────────────────
@@ -92,7 +93,7 @@ public class QmsController(QmsService qmsService) : ControllerBase
     {
         var result = await qmsService.CreateSpcParamAsync(req.ParamId, req.ParamName, req.EquipmentId,
             req.ProcessId, req.Mean, req.Ucl, req.Lcl, req.SampleSize, req.Usl, req.Lsl, ct);
-        return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 
     [HttpPut("spc-params/{paramId}/limits")]
@@ -100,7 +101,7 @@ public class QmsController(QmsService qmsService) : ControllerBase
     public async Task<IActionResult> UpdateSpcLimits(string paramId, [FromBody] UpdateSpcLimitsRequest req, CancellationToken ct)
     {
         var result = await qmsService.UpdateSpcControlLimitsAsync(paramId, req.Mean, req.Ucl, req.Lcl, ct);
-        return result.IsSuccess ? NoContent() : BadRequest(result.Error);
+        return result.ToActionResult();
     }
 }
 
