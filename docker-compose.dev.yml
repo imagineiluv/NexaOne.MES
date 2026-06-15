@@ -1,0 +1,43 @@
+# NexaMes 로컬 개발 인프라(opt-in) — ADR-002 이벤트 버스(Kafka) · 스케일아웃 리프레시 토큰(Redis).
+#
+# 사용:   docker compose -f docker-compose.dev.yml up -d
+# 중지:   docker compose -f docker-compose.dev.yml down       (데이터 보존: 볼륨 유지)
+#
+# 활성화(appsettings 또는 환경변수):
+#   - Kafka 경로:  Kafka:Enabled=true  + Events:Outbox:Enabled=true   (BootstrapServers=localhost:9092)
+#   - Redis 토큰:  Jwt:RefreshTokenStore=Redis + Cache:Redis:ConnectionString=localhost:6379
+#
+# 참고: 브로커리스 인메모리 버스(Events:Outbox:Enabled=true & Kafka:Enabled=false)는 이 스택 없이도 동작한다.
+#       포트는 appsettings.json 기본값(9092/6379)에 맞춘 표준 단일노드 구성이다.
+
+services:
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: nexames-kafka
+    ports:
+      - "9092:9092"            # Kafka:BootstrapServers=localhost:9092
+    environment:
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: "controller,broker"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"   # Events:Outbox:Topic(nexaone.events) 자동 생성
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    volumes:
+      - kafka-data:/bitnami/kafka
+
+  redis:
+    image: redis:7-alpine
+    container_name: nexames-redis
+    ports:
+      - "6379:6379"            # Cache:Redis:ConnectionString=localhost:6379
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+
+volumes:
+  kafka-data:
+  redis-data:
