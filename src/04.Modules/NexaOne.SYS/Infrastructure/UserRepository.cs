@@ -70,17 +70,50 @@ public sealed class UserRepository : QueryRepository, IUserRepository
                 ELSE LOCKED_UNTIL END,
             UPDATED_BY = 'SYSTEM', UPDATED_AT = @Now
             WHERE USER_ID = @UserId";
-        await _processor.UpdateAsync(update, new
+        var lockUntil = utcNow.Add(User.LockDuration);
+        var updateParam = new
         {
             UserId = userId,
             Now = utcNow,
             MaxFailures = User.MaxConsecutiveFailures,
-            LockUntil = utcNow.Add(User.LockDuration)
-        }, ct);
+            LockUntil = lockUntil
+        };
+
+        if (!_outboxEnabled)
+        {
+            await _processor.UpdateAsync(update, updateParam, ct);
+        }
+        else
+        {
+            // ADR-002: 잠금 '전이'(이번 실패로 새로 잠김)를 동일 트랜잭션에 EES_OUTBOX로 조건부 기록한다.
+            // 보안 로직(원자 UPDATE)은 불변 — INSERT...SELECT의 WHERE가 '이번 호출로 임계 도달(FAIL_COUNT=Max)
+            // & 현재 잠김(LOCKED_UNTIL>now)'일 때만 1건 삽입해, 미도달/이미잠김 재시도에선 발행되지 않는다(중복 없음).
+            // 잠금은 인증 이전(앰비언트 사용자 부재) 경로라 audit는 UPDATE와 동일하게 'SYSTEM'.
+            var ev = new UserAccountLockedDomainEvent(userId, lockUntil, User.MaxConsecutiveFailures);
+            await _processor.ExecuteManyAsync(ct,
+                (update, updateParam),
+                (LockOutboxInsertSelectSql, new
+                {
+                    ev.EventType, ev.Module, ev.AggregateId, ev.Payload,
+                    Now = utcNow, MaxFailures = User.MaxConsecutiveFailures
+                }));
+        }
 
         const string read = "SELECT LOCKED_UNTIL FROM SYS_USER WHERE USER_ID = @userId";
         return await QueryFirstOrDefaultAsync<DateTime?>(read, new { userId }, ct);
     }
+
+    // 잠금 전이 시에만 EES_OUTBOX 1건 — UPDATE 직후 같은 트랜잭션에서 SYS_USER를 다시 읽어(자기 트랜잭션이라
+    // 갱신값이 보인다) '이번 호출로 임계 도달(FAIL_COUNT=Max) & 현재 잠김' 조건일 때만 INSERT한다. 재시도/이미잠김은
+    // FAIL_COUNT가 Max를 넘어 조건 불일치 → 중복 발행 없음. ID는 자동증가(생략), 감사 사용자는 'SYSTEM' 리터럴.
+    private const string LockOutboxInsertSelectSql = @"
+        INSERT INTO EES_OUTBOX
+            (EVENT_TYPE, MODULE, AGGREGATE_ID, PAYLOAD, OCCURRED_AT, ATTEMPTS,
+             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+        SELECT @EventType, @Module, @AggregateId, @Payload, @Now, 0,
+               'SYSTEM', @Now, 'SYSTEM', @Now
+        FROM SYS_USER
+        WHERE USER_ID = @AggregateId AND FAIL_COUNT = @MaxFailures AND LOCKED_UNTIL > @Now";
 
     // PASSWORD_HASH 포함 — 비밀번호 변경/임시 비밀번호 발급이 영속되어야 한다 (§20.10)
     private const string UpdateSql = @"UPDATE SYS_USER SET
