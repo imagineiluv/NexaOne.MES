@@ -21,6 +21,40 @@
     <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.MySql\NexusCom.Data.MySql.csproj" Condition="'$(DbmsType)'=='MySQL'" />
   </ItemGroup>
 
+  <!-- 도메인 모듈은 플러그인으로 ./Modules/에 게시한다(설계 §3.1). ReferenceOutputAssembly=false: 모듈 DLL을
+       Server 기본 로드 컨텍스트(Default ALC)에 넣지 않아 nexaone.xml의 ClassLoader가 plugin ALC로 전담 로드하게
+       하고, 빌드 순서만 보장한다(모듈이 Server보다 먼저 빌드됨). 공유 의존성(Infrastructure/Common/Application/
+       Configuration 등)은 위 ProjectReference로 Default ALC에 이미 있으므로 모듈이 그것을 공유한다. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\04.Modules\NexaOne.MDM\NexaOne.MDM.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.EST\NexaOne.EST.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.FDC\NexaOne.FDC.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.RMS\NexaOne.RMS.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.QMS\NexaOne.QMS.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.CMMS\NexaOne.CMMS.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.POM\NexaOne.POM.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.SHP\NexaOne.SHP.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <!-- 모듈 DLL '만' ./Modules/로 복사한다(.deps.json 제외). .deps.json이 없어야 AssemblyDependencyResolver가
+       모듈의 공유 의존성을 plugin ALC에 자체 복사하지 않고 Default ALC로 흘려보내, EesDataSource/IConfiguration 등의
+       타입 동일성이 server.xml 컨텍스트와 유지된다. (런타임 로드는 MSSQL 환경에서 실행 검증 필요.) -->
+  <Target Name="CopyDomainModulePlugins" AfterTargets="Build">
+    <ItemGroup>
+      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.MDM\bin\$(Configuration)\net8.0\NexaOne.MDM.dll" />
+      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.EST\bin\$(Configuration)\net8.0\NexaOne.EST.dll" />
+      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.FDC\bin\$(Configuration)\net8.0\NexaOne.FDC.dll" />
+      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.RMS\bin\$(Configuration)\net8.0\NexaOne.RMS.dll" />
+      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.QMS\bin\$(Configuration)\net8.0\NexaOne.QMS.dll" />
+      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.CMMS\bin\$(Configuration)\net8.0\NexaOne.CMMS.dll" />
+      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.POM\bin\$(Configuration)\net8.0\NexaOne.POM.dll" />
+      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.SHP\bin\$(Configuration)\net8.0\NexaOne.SHP.dll" />
+      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.SYS\bin\$(Configuration)\net8.0\NexaOne.SYS.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_ModulePluginDll)" DestinationFolder="$(OutDir)Modules" SkipUnchangedFiles="true" />
+  </Target>
+
   <ItemGroup>
     <Content Include="server.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

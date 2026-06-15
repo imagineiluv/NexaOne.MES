@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Application>
   <Services>
-    <Service name="NexaOne" configFiles="nexaone.xml" classPaths="./Modules/" />
+    <!-- classPaths: 도메인 모듈 DLL을 ';'로 구분해 나열한다. ClassLoader가 각 경로를 DLL 파일 경로로 보고
+         plugin ALC(AssemblyLoader)로 로드한다(디렉터리 아님). DLL은 빌드 시 CopyDomainModulePlugins 타깃이
+         ./Modules/로 복사한다(NexaOne.Server.csproj). -->
+    <Service name="NexaOne" configFiles="nexaone.xml" classPaths="./Modules/NexaOne.MDM.dll;./Modules/NexaOne.EST.dll;./Modules/NexaOne.FDC.dll;./Modules/NexaOne.RMS.dll;./Modules/NexaOne.QMS.dll;./Modules/NexaOne.CMMS.dll;./Modules/NexaOne.POM.dll;./Modules/NexaOne.SHP.dll;./Modules/NexaOne.SYS.dll" />
   </Services>
 </Application>

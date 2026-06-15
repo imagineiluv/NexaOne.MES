@@ -24,13 +24,19 @@ internal static class Program
         {
             var name = service.Attribute("name")?.Value
                 ?? throw new InvalidOperationException("Service element missing 'name' attribute.");
-            var configFiles = service.Attribute("configFiles")?.Value
+            var configFilesAttr = service.Attribute("configFiles")?.Value
                 ?? throw new InvalidOperationException($"Service '{name}' missing 'configFiles' attribute.");
-            var classPaths = service.Attribute("classPaths")?.Value
+            var classPathsAttr = service.Attribute("classPaths")?.Value
                 ?? throw new InvalidOperationException($"Service '{name}' missing 'classPaths' attribute.");
 
-            _server.AddService(name, new[] { configFiles }, new[] { classPaths });
-            Console.WriteLine($"[NexaOne.Server] Service '{name}' registered.");
+            // configFiles/classPaths 모두 ';'로 다중 항목을 지정할 수 있다. classPaths의 각 항목은 ClassLoader가
+            // plugin ALC로 로드할 모듈 DLL 파일 경로다(도메인 모듈 9개).
+            var splitOptions = StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries;
+            var configFiles = configFilesAttr.Split(';', splitOptions);
+            var classPaths = classPathsAttr.Split(';', splitOptions);
+
+            _server.AddService(name, configFiles, classPaths);
+            Console.WriteLine($"[NexaOne.Server] Service '{name}' registered ({classPaths.Length} module(s)).");
         }
 
         Console.WriteLine("[NexaOne.Server] Ready. Press Ctrl+C to stop.");
