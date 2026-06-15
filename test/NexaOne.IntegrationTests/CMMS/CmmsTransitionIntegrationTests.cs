@@ -50,10 +50,9 @@ public sealed class CmmsTransitionIntegrationTests : IClassFixture<TestApiFactor
     // (b) 정비계획 전이 해피패스 — Create → Start(Planned→InProgress) → Complete(InProgress→Completed)
     //     → GET 되읽기. CMMS_MAINTENANCE_PLAN UPDATE 방언 + 읽기경로 상태재생(ToDomain) 회귀를 한 번에 증명.
     //
-    //     중요: MaintenancePlanRepository.PlanRow.ToDomain은 DB STATUS="Completed"를 만나면
-    //     MaintenancePlan.Create(→Planned) 후 Start()·Complete()를 재생해 Completed로 만든다.
-    //     이 재생 중 하나라도 도메인 가드에 막히면 Status가 유실되므로(예: Planned/InProgress에 멈춤),
-    //     되읽은 status가 정확히 "Completed"인지 단언해 상태손실을 잡는다.
+    //     중요: MaintenancePlanRepository.PlanRow.ToDomain은 DB STATUS를 Restore 팩토리로 직접 복원한다
+    //     (ADR-002 outbox 확산 시 Create+전이재생 → Restore로 교정 — 재생은 전이 이벤트를 재발행해 읽기경로를
+    //     오염시켰다). 되읽은 status가 정확히 "Completed"인지 단언해 복원 상태손실을 잡는다.
     // ──────────────────────────────────────────────────────────────────────────
     [Fact]
     public async Task MaintenancePlan_create_start_complete_then_read_back_is_completed()

@@ -52,14 +52,10 @@ public sealed class EquipmentRepository : QueryRepository, IEquipmentRepository
 
     public async Task UpdateAsync(Equipment equipment, CancellationToken ct = default)
     {
-        // 기본(outbox off): 기존 동작 그대로 — 단건 UPDATE(감사 자동주입), 적체 없음.
+        // 기본(outbox off): 단건 UPDATE(감사 자동주입), 적체 없음. 기본·활성 경로가 동일 UpdateSql을 공유한다.
         if (!_outboxEnabled)
         {
-            const string sql = @"UPDATE MDM_EQUIPMENT SET
-            EQUIPMENT_NAME = @EquipmentName, DESCRIPTION = @Description, EQUIPMENT_TYPE = @EquipmentType,
-            VENDOR = @Vendor, MODEL = @Model, VALID_STATE = @ValidState, UPDATED_BY = @UpdatedBy, UPDATED_AT = @UpdatedAt
-            WHERE EQUIPMENT_ID = @EquipmentId";
-            await _processor.UpdateAsync(sql, EquipmentRow.FromDomain(equipment), ct);
+            await _processor.UpdateAsync(UpdateSql, EquipmentRow.FromDomain(equipment), ct);
             return;
         }
         // ADR-002 활성: 설비 UPDATE + 도메인 이벤트(EES_OUTBOX)를 같은 트랜잭션으로 — 함께 커밋/롤백돼 발행 원자성 보장.
@@ -67,8 +63,8 @@ public sealed class EquipmentRepository : QueryRepository, IEquipmentRepository
         await PersistWithOutboxAsync(equipment, ct);
     }
 
-    // ChangeParent가 변경하는 PARENT_EQUIPMENT_ID까지 영속하도록 outbox 경로 전용 UPDATE를 둔다(기본 경로 SQL은 불변).
-    private const string OutboxUpdateSql = @"UPDATE MDM_EQUIPMENT SET
+    // 설비 UPDATE — ChangeParent가 바꾸는 PARENT_EQUIPMENT_ID까지 영속한다(기본·활성 경로 공유; 이전 off 경로의 누락 교정).
+    private const string UpdateSql = @"UPDATE MDM_EQUIPMENT SET
             EQUIPMENT_NAME = @EquipmentName, DESCRIPTION = @Description, EQUIPMENT_TYPE = @EquipmentType,
             PARENT_EQUIPMENT_ID = @ParentEquipmentId,
             VENDOR = @Vendor, MODEL = @Model, VALID_STATE = @ValidState, UPDATED_BY = @UpdatedBy, UPDATED_AT = @UpdatedAt
@@ -82,7 +78,7 @@ public sealed class EquipmentRepository : QueryRepository, IEquipmentRepository
         var now = DateTime.UtcNow;
         var statements = new List<(string Sql, object? Param)>
         {
-            (OutboxUpdateSql, UpdateParam(equipment, user, now)),
+            (UpdateSql, UpdateParam(equipment, user, now)),
         };
         statements.AddRange(OutboxStatements.For(equipment.DomainEvents.OfType<IOutboxEvent>(), user, now));
         await _processor.ExecuteManyAsync(ct, statements.ToArray());
