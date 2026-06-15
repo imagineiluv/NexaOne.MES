@@ -1,5 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.Extensions.DependencyInjection;
+using NexaOne.FDC.Application.Fdc;
+using NexaOne.FDC.Domain;
 
 namespace NexaOne.IntegrationTests.Fdc;
 
@@ -128,6 +131,48 @@ public sealed class FdcHistoryIntegrationTests : IClassFixture<TestApiFactory>
         var list = await resp.Content.ReadFromJsonAsync<List<CollectDataDto>>();
         list.Should().NotBeNull("collect-data 응답은 JSON 배열이어야 한다");
         list!.Should().BeEmpty("시드가 없으므로 빈 수집 데이터여야 한다");
+    }
+
+    // 회귀 가드 — GetCollectData가 무제한 시계열을 끌어오지 않도록 limit가 SQL LIMIT/TOP로 스며들어
+    // 결과를 클램프하는지 증명한다. 리포지토리로 결정론적 N건을 직접 시드(HTTP보다 빠르고 안정적)한 뒤,
+    // (1) 상한 미만의 명시 limit이 정확히 그만큼만 반환(LIMIT 적용 증명)하고,
+    // (2) 과대 limit(999999)이 상한(5000)으로 클램프되어 오류 없이 시드 전량을 반환함을 확인한다.
+    private static async Task SeedCollectDataAsync(IServiceProvider sp, string parameterId, int count, DateTime baseTime)
+    {
+        var repo = sp.GetRequiredService<IFdcCollectDataRepository>();
+        var rows = Enumerable.Range(0, count).Select(i =>
+            FdcCollectData.Create(
+                $"{parameterId}-CD-{i}", "FDC-IT-EQ-CLAMP", parameterId, 10m + i,
+                baseTime.AddSeconds(i), "Good", 0m, 100m).Value);
+        await repo.AddBatchAsync(rows);
+    }
+
+    [Fact]
+    public async Task GetCollectData_clamps_result_to_limit_and_caps_over_large_limit()
+    {
+        const string parameterId = "FDC-IT-CDATA-CLAMP";
+        var baseTime = DateTime.UtcNow.AddMinutes(-10);
+
+        // 결정론적으로 5건 시드(상한 5000 미만).
+        using (var scope = _factory.Services.CreateScope())
+            await SeedCollectDataAsync(scope.ServiceProvider, parameterId, 5, baseTime);
+
+        var from = Uri.EscapeDataString(DateTime.UtcNow.AddDays(-1).ToString("o"));
+        var to = Uri.EscapeDataString(DateTime.UtcNow.AddDays(1).ToString("o"));
+        var client = _factory.CreateAuthenticatedClient();
+
+        // (1) limit=3 < 시드(5) — LIMIT가 SQL에 스며들어 정확히 3건만 반환되어야 한다("at most the cap").
+        var bounded = await client.GetFromJsonAsync<List<CollectDataDto>>(
+            $"/api/v1/fdc/collect-data?parameterId={parameterId}&from={from}&to={to}&limit=3");
+        bounded.Should().NotBeNull();
+        bounded!.Should().HaveCount(3, "명시 limit(3)이 SQL LIMIT/TOP로 적용돼 결과를 상한으로 잘라야 한다");
+
+        // (2) 과대 limit(999999) — Math.Clamp(…,1,5000)로 상한 클램프. 무검증 통과면 페이징 SQL이 깨지거나
+        //     무제한 조회가 되지만, 클램프가 가드하므로 오류 없이 시드 전량(5건, 5000 미만)을 반환해야 한다.
+        var capped = await client.GetFromJsonAsync<List<CollectDataDto>>(
+            $"/api/v1/fdc/collect-data?parameterId={parameterId}&from={from}&to={to}&limit=999999");
+        capped.Should().NotBeNull();
+        capped!.Should().HaveCount(5, "과대 limit은 상한(5000)으로 클램프되며, 시드(5)가 상한 미만이므로 전량 반환되어야 한다");
     }
 
     // ── collect-data/latest (FDC_COLLECT_DATA, WrapPaged — SQLite LIMIT/OFFSET) ───

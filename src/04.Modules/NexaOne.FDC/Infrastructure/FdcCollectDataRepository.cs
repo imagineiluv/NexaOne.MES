@@ -17,15 +17,18 @@ public sealed class FdcCollectDataRepository : QueryRepository, IFdcCollectDataR
     }
 
     public async Task<IReadOnlyList<FdcCollectData>> GetByParameterAsync(
-        string parameterId, DateTime from, DateTime to, CancellationToken ct = default)
+        string parameterId, DateTime from, DateTime to, int limit, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM FDC_COLLECT_DATA
-            WHERE PARAMETER_ID = @parameterId
-              AND COLLECTED_AT >= @from
-              AND COLLECTED_AT <= @to
-            ORDER BY COLLECTED_AT";
+        // 행 상한(@limit)을 TOP/LIMIT로 SQL에 밀어 무제한 시계열 조회를 방어한다(GetLatestAsync와 동일 페이징).
+        // 범위가 상한을 넘으면 최신 @limit건을 가져온 뒤 Reverse로 시간 오름차순(기존 출력 계약)을 복원한다.
+        var sql = _dialect.WrapPaged(
+            @"SELECT * FROM FDC_COLLECT_DATA
+              WHERE PARAMETER_ID = @parameterId
+                AND COLLECTED_AT >= @from
+                AND COLLECTED_AT <= @to",
+            "COLLECTED_AT DESC", 0, limit);
         var rows = await QueryAsync<DataRow>(sql, new { parameterId, from, to }, ct);
-        return rows.Select(r => r.ToDomain()).OfType<FdcCollectData>().ToList();
+        return rows.Select(r => r.ToDomain()).OfType<FdcCollectData>().Reverse().ToList();
     }
 
     public async Task<IReadOnlyList<FdcCollectData>> GetLatestAsync(

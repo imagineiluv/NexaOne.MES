@@ -51,4 +51,22 @@ public sealed class InspectionSpec : AuditableEntity<string>
         };
         return spec;
     }
+
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 리포지토리 읽기 전용 —
+    /// Create는 IsActive를 항상 true로 강제하므로 비활성(IS_ACTIVE=0) 스펙이 읽기경로에서 활성으로 오인되는
+    /// 상태손실을 막는다(GetByIdAsync는 IS_ACTIVE 필터가 없어 손실이 그대로 노출된다).</summary>
+    public static InspectionSpec Restore(
+        string specId, string specName, string processId, string itemName, string measureType,
+        decimal? nominalValue, decimal? tolerancePlus, decimal? toleranceMinus, bool isActive)
+        => new(specId)
+        {
+            SpecName = specName,
+            ProcessId = processId,
+            ItemName = itemName,
+            MeasureType = measureType,
+            NominalValue = nominalValue,
+            TolerancePlus = tolerancePlus,
+            ToleranceMinus = toleranceMinus,
+            IsActive = isActive
+        };
 }

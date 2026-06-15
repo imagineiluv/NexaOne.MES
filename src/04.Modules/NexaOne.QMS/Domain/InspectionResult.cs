@@ -69,4 +69,25 @@ public sealed class InspectionResult : AuditableEntity<string>
         };
         return result;
     }
+
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 리포지토리 읽기 전용 —
+    /// Create는 저장된 IS_PASS를 권위값으로 받지 않고 nominalValue/measureType이 없는 읽기경로에서
+    /// IsPass를 재계산(else 분기로 isPass ?? false)해, 검사 시점에 확정된 합부 판정이 읽기마다
+    /// 다시 도출되는 상태손실을 막는다(스펙 공차 변경·수동 판정 시 합부가 조용히 뒤집힘).</summary>
+    public static InspectionResult Restore(
+        string resultId, string specId, string lotId, string equipmentId,
+        decimal? measuredValue, string? attributeResult, DateTime inspectedAt,
+        string inspectorId, bool isPass, string? remark)
+        => new(resultId)
+        {
+            SpecId = specId,
+            LotId = lotId,
+            EquipmentId = equipmentId,
+            MeasuredValue = measuredValue,
+            AttributeResult = attributeResult,
+            InspectedAt = inspectedAt,
+            InspectorId = inspectorId,
+            IsPass = isPass,
+            Remark = remark
+        };
 }

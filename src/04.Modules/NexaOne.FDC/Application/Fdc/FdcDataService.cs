@@ -52,8 +52,8 @@ public sealed class FdcDataService
     // ── Collect Data ──────────────────────────────────────────────────────────
 
     public async Task<IReadOnlyList<FdcCollectData>> GetCollectDataAsync(
-        string parameterId, DateTime from, DateTime to, CancellationToken ct = default)
-        => await _dataRepository.GetByParameterAsync(parameterId, from, to, ct);
+        string parameterId, DateTime from, DateTime to, int limit, CancellationToken ct = default)
+        => await _dataRepository.GetByParameterAsync(parameterId, from, to, limit, ct);
 
     public async Task<IReadOnlyList<FdcCollectData>> GetLatestDataAsync(
         string parameterId, int limit = 50, CancellationToken ct = default)

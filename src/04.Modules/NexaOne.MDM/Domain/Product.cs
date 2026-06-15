@@ -33,6 +33,25 @@ public sealed class Product : AuditableEntity<string>
         return product;
     }
 
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 리포지토리 읽기 전용 —
+    /// Create는 Description을 받지 않아 유실되고 ValidState를 무조건 "Valid"로 재설정해, 비활성("Invalid") 제품이
+    /// 읽기경로에서 유효로 오인되고 설명이 비는 상태손실을 막는다.</summary>
+    public static Product Restore(
+        string productId,
+        string productName,
+        string description,
+        string productType,
+        string unit,
+        string validState)
+        => new(productId)
+        {
+            ProductName = productName,
+            Description = description,
+            ProductType = productType,
+            Unit = unit,
+            ValidState = validState
+        };
+
     public void Update(string productName, string description, string productType, string unit)
     {
         ProductName = productName;

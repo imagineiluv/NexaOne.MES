@@ -57,9 +57,9 @@ public sealed class InspectionSpecRepository : QueryRepository, IInspectionSpecR
         public decimal? ToleranceMinus { get; set; }
         public bool     IsActive       { get; set; }
 
-        public InspectionSpec? ToDomain() =>
-            InspectionSpec.Create(SpecId, SpecName, ProcessId, ItemName, MeasureType,
-                NominalValue, TolerancePlus, ToleranceMinus).Value;
+        public InspectionSpec ToDomain() =>
+            InspectionSpec.Restore(SpecId, SpecName, ProcessId, ItemName, MeasureType,
+                NominalValue, TolerancePlus, ToleranceMinus, IsActive);
 
         public static Row FromDomain(InspectionSpec s) => new()
         {

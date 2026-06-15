@@ -42,4 +42,26 @@ public sealed class ShipmentHistory : AuditableEntity<string>
         };
         return history;
     }
+
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 리포지토리 읽기 전용 —
+    /// 기존 ToDomain은 Create로 재구성해 감사 컬럼(CreatedBy/CreatedAt/UpdatedBy/UpdatedAt)과 소프트삭제
+    /// 상태(IsDeleted/DeletedAt)를 읽기마다 유실·리셋했다(CreatedAt이 DateTime.UtcNow로 덮어써짐).
+    /// Restore는 new(...) 직접 경로로 영속 필드를 그대로 복원해 읽기경로 상태손실을 막는다.</summary>
+    public static ShipmentHistory Restore(
+        string historyId, string deliveryOrderId, DateTime shippedAt, decimal shippedQty,
+        string shippedBy, string? carrier, string? trackingNo,
+        string createdBy, DateTime createdAt, string? updatedBy, DateTime? updatedAt)
+        => new(historyId)
+        {
+            DeliveryOrderId = deliveryOrderId,
+            ShippedAt = shippedAt,
+            ShippedQty = shippedQty,
+            ShippedBy = shippedBy,
+            Carrier = carrier,
+            TrackingNo = trackingNo,
+            CreatedBy = createdBy,
+            CreatedAt = createdAt,
+            UpdatedBy = updatedBy,
+            UpdatedAt = updatedAt
+        };
 }

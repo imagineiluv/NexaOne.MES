@@ -55,7 +55,7 @@ public sealed class PlantRepository : QueryRepository, IPlantRepository
         public string TimeZone    { get; set; } = "";
 
         public Plant? ToDomain() =>
-            Plant.Create(PlantId, PlantName, Country, TimeZone).Value;
+            Plant.Restore(PlantId, PlantName, Description, Country, TimeZone);
 
         public static PlantRow FromDomain(Plant p) => new()
         {

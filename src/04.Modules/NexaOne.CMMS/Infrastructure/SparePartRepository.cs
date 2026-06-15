@@ -65,17 +65,24 @@ public sealed class SparePartRepository : QueryRepository, ISparePartRepository
         public decimal MaxStock         { get; set; }
         public string  Location         { get; set; } = "";
         public string? EquipmentClassId { get; set; }
+        public string   CreatedBy       { get; set; } = "";
+        public DateTime  CreatedAt       { get; set; }
+        public string?   UpdatedBy       { get; set; }
+        public DateTime? UpdatedAt       { get; set; }
 
-        public SparePart? ToDomain() =>
-            SparePart.Create(PartId, PartName, PartNumber, Description, UnitOfMeasure,
-                CurrentStock, MinStock, MaxStock, Location, EquipmentClassId).Value;
+        public SparePart ToDomain() =>
+            SparePart.Restore(PartId, PartName, PartNumber, Description, UnitOfMeasure,
+                CurrentStock, MinStock, MaxStock, Location, EquipmentClassId,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static PartRow FromDomain(SparePart p) => new()
         {
             PartId = p.Id, PartName = p.PartName, PartNumber = p.PartNumber,
             Description = p.Description, UnitOfMeasure = p.UnitOfMeasure,
             CurrentStock = p.CurrentStock, MinStock = p.MinStock, MaxStock = p.MaxStock,
-            Location = p.Location, EquipmentClassId = p.EquipmentClassId
+            Location = p.Location, EquipmentClassId = p.EquipmentClassId,
+            CreatedBy = p.CreatedBy, CreatedAt = p.CreatedAt,
+            UpdatedBy = p.UpdatedBy, UpdatedAt = p.UpdatedAt
         };
     }
 }

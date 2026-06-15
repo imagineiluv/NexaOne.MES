@@ -38,9 +38,14 @@ public sealed class ShipmentHistoryRepository : QueryRepository, IShipmentHistor
         public string   ShippedBy       { get; set; } = "";
         public string?  Carrier         { get; set; }
         public string?  TrackingNo      { get; set; }
+        public string   CreatedBy       { get; set; } = "";
+        public DateTime CreatedAt       { get; set; }
+        public string?  UpdatedBy       { get; set; }
+        public DateTime? UpdatedAt      { get; set; }
 
-        public ShipmentHistory? ToDomain() =>
-            ShipmentHistory.Create(HistoryId, DeliveryOrderId, ShippedAt, ShippedQty, ShippedBy, Carrier, TrackingNo).Value;
+        public ShipmentHistory ToDomain() =>
+            ShipmentHistory.Restore(HistoryId, DeliveryOrderId, ShippedAt, ShippedQty, ShippedBy, Carrier, TrackingNo,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static Row FromDomain(ShipmentHistory h) => new()
         {

@@ -153,9 +153,9 @@ public sealed class FdcDataServiceTests
         };
         var paramRepo = new Mock<IFdcParameterRepository>();
         var dataRepo  = new Mock<IFdcCollectDataRepository>();
-        dataRepo.Setup(r => r.GetByParameterAsync("PARAM01", from, to, default)).ReturnsAsync(data);
+        dataRepo.Setup(r => r.GetByParameterAsync("PARAM01", from, to, It.IsAny<int>(), default)).ReturnsAsync(data);
 
-        var result = await BuildService(paramRepo, dataRepo).GetCollectDataAsync("PARAM01", from, to);
+        var result = await BuildService(paramRepo, dataRepo).GetCollectDataAsync("PARAM01", from, to, 1000);
 
         result.Should().HaveCount(1);
         result[0].Value.Should().Be(55m);

@@ -63,8 +63,8 @@ public sealed class FdcInterlockRuleRepository : QueryRepository, IFdcInterlockR
         public int Priority { get; set; }
         public bool IsActive { get; set; }
 
-        public FdcInterlockRule? ToDomain() =>
-            FdcInterlockRule.Create(RuleId, RuleName, EquipmentId, ParameterId, Operator, ThresholdValue, Action, Priority).Value;
+        public FdcInterlockRule ToDomain() =>
+            FdcInterlockRule.Restore(RuleId, RuleName, EquipmentId, ParameterId, Operator, ThresholdValue, Action, Priority, IsActive);
 
         public static RuleRow FromDomain(FdcInterlockRule r) => new()
         {

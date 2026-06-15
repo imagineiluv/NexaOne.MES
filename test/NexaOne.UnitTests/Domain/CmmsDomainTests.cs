@@ -142,4 +142,46 @@ public sealed class CmmsDomainTests
         var part = SparePart.Create("SP001", "필터", "P-001", "설명", "EA", 3m, 3m, 50m, "A-01").Value;
         part.IsLowStock.Should().BeTrue();
     }
+
+    // ── SparePart 읽기경로 복원(Restore) — 상태손실 방지 ────────────────────────
+    // 기존 ToDomain은 Create 재검증을 거쳐, 영속된 부품이 통째로 null이 되거나(읽기에서 사라짐)
+    // 감사필드가 초기화됐다. Restore는 영속 필드를 그대로 복원해야 한다.
+
+    [Fact]
+    public void Restore_keeps_all_persisted_fields_including_dropped_audit()
+    {
+        var createdAt = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        var updatedAt = new DateTime(2026, 5, 6, 7, 8, 9, DateTimeKind.Utc);
+
+        var part = SparePart.Restore(
+            "SP-R1", "오일 필터", "P-001", "정밀 여과용", "EA",
+            12m, 3m, 50m, "A-01", "EQC-1",
+            createdBy: "creator01", createdAt: createdAt,
+            updatedBy: "editor02", updatedAt: updatedAt);
+
+        part.Id.Should().Be("SP-R1");
+        part.Description.Should().Be("정밀 여과용", "Description은 영속되지만 읽기경로에서 유실되던 필드다");
+        part.EquipmentClassId.Should().Be("EQC-1");
+        part.CreatedBy.Should().Be("creator01", "감사필드는 Create가 복원하지 않아 매 읽기마다 초기화되던 손실 대상이다");
+        part.CreatedAt.Should().Be(createdAt);
+        part.UpdatedBy.Should().Be("editor02");
+        part.UpdatedAt.Should().Be(updatedAt);
+    }
+
+    [Fact]
+    public void Restore_survives_rows_that_Create_would_reject()
+    {
+        // MaxStock <= MinStock 인 영속 행: Create는 실패→.Value가 null→읽기에서 부품이 통째로 사라짐.
+        // Restore는 검증 없이 그대로 복원해야 한다.
+        var part = SparePart.Restore(
+            "SP-LEGACY", "구형 부품", "P-OLD", "", "EA",
+            currentStock: 0m, minStock: 10m, maxStock: 5m, location: "B-02", equipmentClassId: null,
+            createdBy: "legacy", createdAt: new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            updatedBy: null, updatedAt: null);
+
+        part.Should().NotBeNull("MaxStock<=MinStock 옛 데이터도 읽기경로에서 유실되면 안 된다");
+        part.MinStock.Should().Be(10m);
+        part.MaxStock.Should().Be(5m);
+        part.IsLowStock.Should().BeTrue("CurrentStock(0) <= MinStock(10)");
+    }
 }

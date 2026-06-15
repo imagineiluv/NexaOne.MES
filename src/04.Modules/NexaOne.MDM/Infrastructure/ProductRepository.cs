@@ -55,8 +55,8 @@ public sealed class ProductRepository : QueryRepository, IProductRepository
         public string Unit        { get; set; } = "";
         public string ValidState  { get; set; } = "Valid";
 
-        public Product? ToDomain() =>
-            Product.Create(ProductId, ProductName, ProductType, Unit).Value;
+        public Product ToDomain() =>
+            Product.Restore(ProductId, ProductName, Description, ProductType, Unit, ValidState);
 
         public static ProductRow FromDomain(Product p) => new()
         {

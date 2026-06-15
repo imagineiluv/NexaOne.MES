@@ -18,7 +18,7 @@ public sealed class RecipeParamRepository : QueryRepository, IRecipeParamReposit
         const string sql = @"SELECT * FROM RMS_RECIPE_PARAM
             WHERE RECIPE_ID = @recipeId ORDER BY SORT_ORDER";
         var rows = await QueryAsync<ParamRow>(sql, new { recipeId }, ct);
-        return rows.Select(r => r.ToDomain()).OfType<RecipeParam>().ToList();
+        return rows.Select(r => r.ToDomain()).ToList();
     }
 
     public async Task<RecipeParam?> GetByIdAsync(string paramId, CancellationToken ct = default)
@@ -60,9 +60,8 @@ public sealed class RecipeParamRepository : QueryRepository, IRecipeParamReposit
         public string Unit       { get; set; } = "";
         public int    SortOrder  { get; set; }
 
-        public RecipeParam? ToDomain() =>
-            RecipeParam.Create(ParamId, RecipeId, ParamName, ParamValue, Unit, SortOrder)
-                       .Value;
+        public RecipeParam ToDomain() =>
+            RecipeParam.Restore(ParamId, RecipeId, ParamName, ParamValue, Unit, SortOrder);
 
         public static ParamRow FromDomain(RecipeParam p) => new()
         {

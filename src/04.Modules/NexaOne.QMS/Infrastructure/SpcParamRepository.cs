@@ -58,8 +58,9 @@ public sealed class SpcParamRepository : QueryRepository, ISpcParamRepository
         public int      SampleSize  { get; set; }
         public bool     IsActive    { get; set; }
 
-        public SpcParam? ToDomain() =>
-            SpcParam.Create(ParamId, ParamName, EquipmentId, ProcessId, Mean, Ucl, Lcl, SampleSize, Usl, Lsl).Value;
+        public SpcParam ToDomain() =>
+            SpcParam.Restore(ParamId, ParamName, EquipmentId, ProcessId, Mean, Ucl, Lcl, Usl, Lsl,
+                SampleSize, IsActive);
 
         public static Row FromDomain(SpcParam p) => new()
         {

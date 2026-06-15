@@ -27,6 +27,18 @@ public sealed class Plant : AuditableEntity<string>
         return plant;
     }
 
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 리포지토리 읽기 전용 —
+    /// Create는 Description을 받지 않아 읽기경로에서 매번 공백으로 초기화되는 상태손실을 막는다.</summary>
+    public static Plant Restore(
+        string plantId, string plantName, string description, string country, string timeZone)
+        => new(plantId)
+        {
+            PlantName = plantName,
+            Description = description,
+            Country = country,
+            TimeZone = timeZone
+        };
+
     public void Update(string plantName, string description, string country, string timeZone)
     {
         PlantName = plantName;

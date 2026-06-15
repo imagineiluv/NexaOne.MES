@@ -127,6 +127,19 @@ public sealed class QmsDomainTests
     }
 
     [Fact]
+    public void Restore_spc_param_preserves_inactive_state()
+    {
+        // 읽기경로 상태손실 회귀 방지: Create는 IsActive를 항상 true로 강제하므로,
+        // 비활성(IsActive=false)으로 영속된 행이 Restore로 복원될 때 그 값이 유지돼야 한다.
+        var param = SpcParam.Restore("SPC001", "두께", "EQ001", "PROC001", 10m, 10.3m, 9.7m, 11m, 9m, 5, false);
+
+        param.IsActive.Should().BeFalse("Restore는 영속된 IsActive를 신뢰해 복원해야 한다(Create처럼 true로 덮어쓰면 안 됨)");
+        param.Usl.Should().Be(11m);
+        param.Lsl.Should().Be(9m);
+        param.SampleSize.Should().Be(5);
+    }
+
+    [Fact]
     public void UpdateControlLimits_updates_mean_ucl_lcl()
     {
         var param = SpcParam.Create("SPC001", "두께", "EQ001", "PROC001", 10m, 10.3m, 9.7m, 5).Value;
@@ -136,4 +149,39 @@ public sealed class QmsDomainTests
         param.Ucl.Should().Be(10.8m);
         param.Lcl.Should().Be(10.2m);
     }
+
+    // ── InspectionResult (읽기경로 Restore) ──────────────────────────────────────
+
+    [Fact]
+    public void Restore_preserves_persisted_IsPass_verdict()
+    {
+        // 읽기경로 상태손실 회귀 방지: Create는 nominalValue/measureType이 없는 읽기경로에서
+        // IsPass를 재계산(else 분기 isPass ?? false)하므로, 영속된 합부 판정이 Restore로 그대로 복원돼야 한다.
+        var restored = InspectionResult.Restore(
+            "IR001", "SPEC001", "LOT001", "EQ001",
+            measuredValue: 9.99m, attributeResult: null, inspectedAt: Inspected,
+            inspectorId: "inspector01", isPass: true, remark: "수동 합격 처리");
+
+        restored.IsPass.Should().BeTrue("검사 시점에 확정된 합부 판정은 읽기마다 재계산되지 않고 보존돼야 한다");
+        restored.MeasuredValue.Should().Be(9.99m);
+        restored.Remark.Should().Be("수동 합격 처리");
+    }
+
+    [Fact]
+    public void Restore_does_not_recompute_a_stored_fail_into_pass()
+    {
+        // measuredValue가 공차 안이어도 저장된 판정이 불합격이면 불합격으로 남아야 한다(공차 변경·수동 판정 시나리오).
+        var restored = InspectionResult.Restore(
+            "IR002", "SPEC001", "LOT001", "EQ001",
+            measuredValue: 10m, attributeResult: null, inspectedAt: Inspected,
+            inspectorId: "inspector01", isPass: false, remark: null);
+
+        restored.IsPass.Should().BeFalse("저장된 불합격 판정이 읽기경로에서 합격으로 뒤집히면 안 된다");
+    }
+
+    [Fact]
+    public void Restore_inspection_result_raises_no_domain_events()
+        => InspectionResult.Restore("IR003", "SPEC001", "LOT001", "EQ001",
+                null, null, Inspected, "inspector01", true, null)
+            .DomainEvents.Should().BeEmpty("읽기경로 재구성(Restore)은 도메인 이벤트 발행 대상이 아니다");
 }

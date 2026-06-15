@@ -51,9 +51,9 @@ public sealed class InspectionResultRepository : QueryRepository, IInspectionRes
         public bool     IsPass          { get; set; }
         public string?  Remark          { get; set; }
 
-        public InspectionResult? ToDomain() =>
-            InspectionResult.Create(ResultId, SpecId, LotId, EquipmentId, InspectedAt, InspectorId,
-                MeasuredValue, AttributeResult, IsPass, remark: Remark).Value;
+        public InspectionResult ToDomain() =>
+            InspectionResult.Restore(ResultId, SpecId, LotId, EquipmentId, MeasuredValue, AttributeResult,
+                InspectedAt, InspectorId, IsPass, Remark);
 
         public static Row FromDomain(InspectionResult r) => new()
         {

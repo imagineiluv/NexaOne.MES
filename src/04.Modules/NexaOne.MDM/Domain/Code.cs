@@ -31,4 +31,17 @@ public sealed class Code : AuditableEntity<string>
         };
         return code;
     }
+
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 리포지토리 읽기 전용 —
+    /// Create는 ValidState를 항상 "Valid"로 고정해, 무효화된 코드(예: "Invalid")가 읽기경로에서
+    /// 유효한 것으로 되살아나는 상태손실을 막는다(GetByClass는 SQL 필터로 가려졌으나 손실 자체는 실재).</summary>
+    public static Code Restore(
+        string codeId, string codeClassId, string codeName, int sortOrder, string validState)
+        => new(codeId)
+        {
+            CodeClassId = codeClassId,
+            CodeName = codeName,
+            SortOrder = sortOrder,
+            ValidState = validState
+        };
 }

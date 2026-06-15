@@ -196,4 +196,34 @@ public sealed class RecipeTests
         r.ClearDomainEvents();
         r.DomainEvents.Should().BeEmpty("리포가 발행 후 이벤트를 비워야 재발행되지 않는다");
     }
+
+    // ── 읽기경로 상태손실 가드: RecipeParam.ToDomain은 Create(검증)가 아닌 Restore(무검증)로 복원해야 한다.
+    //    Create는 paramName이 공백이면 실패→.Value=null→행 유실. Restore는 영속값을 그대로 재구성한다.
+
+    [Fact]
+    public void RecipeParam_Restore_rebuilds_full_persisted_state()
+    {
+        var p = RecipeParam.Restore("P-1", "R001", "Temperature", "250", "C", 7);
+
+        p.Id.Should().Be("P-1");
+        p.RecipeId.Should().Be("R001");
+        p.ParamName.Should().Be("Temperature");
+        p.ParamValue.Should().Be("250");
+        p.Unit.Should().Be("C");
+        p.SortOrder.Should().Be(7);
+    }
+
+    [Fact]
+    public void RecipeParam_Restore_keeps_rows_that_Create_would_reject()
+    {
+        // Create는 공백 paramName을 거부(Result.Failure)해 읽기경로에서 행을 통째로 유실시킨다.
+        RecipeParam.Create("P-2", "R001", "", "v", "u", 0).IsFailure.Should().BeTrue(
+            "Create는 공백 paramName을 검증으로 거부한다");
+
+        // Restore는 검증 없이 영속값을 그대로 복원해 행을 보존한다.
+        var restored = RecipeParam.Restore("P-2", "R001", "", "v", "u", 0);
+        restored.ParamName.Should().Be("", "Restore는 영속된 공백 값을 그대로 보존해 행 유실을 막는다");
+        restored.Id.Should().Be("P-2");
+        restored.ParamValue.Should().Be("v");
+    }
 }

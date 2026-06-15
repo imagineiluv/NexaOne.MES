@@ -207,9 +207,13 @@ public class FdcController(
         [FromQuery] string parameterId,
         [FromQuery] DateTime from,
         [FromQuery] DateTime to,
-        CancellationToken ct)
+        [FromQuery] int limit = 1000,
+        CancellationToken ct = default)
     {
-        var list = await dataService.GetCollectDataAsync(parameterId, from, to, ct);
+        // 음수/0/과대값 방어 — 무검증 limit이 TOP/LIMIT 쿼리로 직행해 무제한 시계열을 끌어오지 않도록 클램프한다
+        // (GetLatestCollectData와 동일 의도). 기간 조회는 차트 단위 다행 수신이 정상이므로 상한을 5000으로 둔다.
+        limit = Math.Clamp(limit, 1, 5000);
+        var list = await dataService.GetCollectDataAsync(parameterId, from, to, limit, ct);
         return Ok(list);
     }
 

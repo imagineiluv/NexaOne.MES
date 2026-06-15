@@ -96,4 +96,25 @@ public sealed class ShpDomainTests
         var result = ShipmentHistory.Create("SH001", "DO001", ShippedAt, 100m, "");
         result.IsFailure.Should().BeTrue();
     }
+
+    // 읽기경로 상태손실 회귀 방지: 기존 ToDomain(Create 경로)은 감사 컬럼을 읽기마다 유실/리셋했다.
+    // Restore가 영속 감사 상태(CreatedBy/CreatedAt/UpdatedBy/UpdatedAt)를 그대로 복원하는지 검증한다.
+    [Fact]
+    public void Restore_preserves_persisted_audit_fields()
+    {
+        var createdAt = new DateTime(2026, 7, 19, 8, 0, 0, DateTimeKind.Utc);
+        var updatedAt = new DateTime(2026, 7, 20, 9, 30, 0, DateTimeKind.Utc);
+
+        var history = ShipmentHistory.Restore(
+            "SH001", "DO001", ShippedAt, 100m, "user01", "CJ대한통운", "1234567890",
+            createdBy: "creator01", createdAt: createdAt, updatedBy: "editor02", updatedAt: updatedAt);
+
+        history.CreatedBy.Should().Be("creator01", "감사 생성자는 읽기경로에서 빈 문자열로 리셋되면 안 된다");
+        history.CreatedAt.Should().Be(createdAt, "CreatedAt이 읽기 시 DateTime.UtcNow로 덮어써지면 안 된다");
+        history.UpdatedBy.Should().Be("editor02");
+        history.UpdatedAt.Should().Be(updatedAt);
+        // 비즈니스 필드도 함께 복원된다.
+        history.DeliveryOrderId.Should().Be("DO001");
+        history.Carrier.Should().Be("CJ대한통운");
+    }
 }

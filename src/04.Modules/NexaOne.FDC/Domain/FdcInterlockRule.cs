@@ -48,6 +48,24 @@ public sealed class FdcInterlockRule : AuditableEntity<string>
         return rule;
     }
 
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 리포지토리 읽기 전용 —
+    /// Create는 IsActive를 항상 true로 고정해, 비활성화(IsActive=false)된 룰이 읽기경로에서 활성으로
+    /// 되살아나는 상태손실을 막는다(GetActiveRulesAsync는 SQL 필터로 가려졌으나 GetByEquipmentAsync는 실재 노출).</summary>
+    public static FdcInterlockRule Restore(
+        string ruleId, string ruleName, string equipmentId, string parameterId, string @operator,
+        decimal thresholdValue, string action, int priority, bool isActive)
+        => new(ruleId)
+        {
+            RuleName = ruleName,
+            EquipmentId = equipmentId,
+            ParameterId = parameterId,
+            Operator = @operator,
+            ThresholdValue = thresholdValue,
+            Action = action,
+            Priority = priority,
+            IsActive = isActive
+        };
+
     public bool Evaluate(decimal value) => Operator switch
     {
         "GT"  => value > ThresholdValue,

@@ -37,6 +37,18 @@ public sealed class MdmDomainTests
         plant.Description.Should().Be("부산 소재");
     }
 
+    [Fact]
+    public void Restore_plant_preserves_description()
+    {
+        // 읽기경로 상태손실 회귀 방지: Create는 Description을 받지 않아 읽기 시 공백으로 초기화되었다.
+        var plant = Plant.Restore("PLANT01", "서울 공장", "본사 공장", "Korea", "Asia/Seoul");
+
+        plant.Description.Should().Be("본사 공장");
+        plant.PlantName.Should().Be("서울 공장");
+        plant.Country.Should().Be("Korea");
+        plant.TimeZone.Should().Be("Asia/Seoul");
+    }
+
     // ── Area ──────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -62,6 +74,21 @@ public sealed class MdmDomainTests
         area.AreaName.Should().Be("도장 구역");
         area.Description.Should().Be("차체 도장 라인");
     }
+
+    [Fact]
+    public void Restore_area_preserves_persisted_description()
+    {
+        // 읽기경로 상태손실 회귀: Create는 Description을 받지 않아 ToDomain이 저장된 설명을 빈 문자열로 유실했다.
+        var area = Area.Restore("AREA01", "조립 구역", "차체 조립 라인", "PLANT01");
+        area.Description.Should().Be("차체 조립 라인", "Restore는 저장된 Description을 그대로 복원해야 한다");
+        area.AreaName.Should().Be("조립 구역");
+        area.PlantId.Should().Be("PLANT01");
+    }
+
+    [Fact]
+    public void Restore_area_raises_no_domain_events()
+        => Area.Restore("AREA01", "조립 구역", "차체 조립 라인", "PLANT01")
+            .DomainEvents.Should().BeEmpty("읽기경로 재구성(Restore)은 도메인 이벤트 발행 대상이 아니다");
 
     // ── Product ───────────────────────────────────────────────────────────────
 
@@ -112,6 +139,20 @@ public sealed class MdmDomainTests
         result.IsFailure.Should().BeTrue();
     }
 
+    [Fact]
+    public void Restore_code_class_preserves_persisted_description()
+    {
+        // 읽기경로 상태손실 회귀: Create는 Description을 받지 않아 ToDomain이 저장된 설명을 빈 문자열로 유실했다.
+        var codeClass = CodeClass.Restore("CC001", "설비 유형", "설비 분류 코드군");
+        codeClass.Description.Should().Be("설비 분류 코드군", "Restore는 저장된 Description을 그대로 복원해야 한다");
+        codeClass.CodeClassName.Should().Be("설비 유형");
+    }
+
+    [Fact]
+    public void Restore_code_class_raises_no_domain_events()
+        => CodeClass.Restore("CC001", "설비 유형", "설비 분류 코드군")
+            .DomainEvents.Should().BeEmpty("읽기경로 재구성(Restore)은 도메인 이벤트 발행 대상이 아니다");
+
     // ── Code ──────────────────────────────────────────────────────────────────
 
     [Fact]
@@ -136,4 +177,20 @@ public sealed class MdmDomainTests
         var result = Code.Create("CODE001", "CC001", "", 0);
         result.IsFailure.Should().BeTrue();
     }
+
+    [Fact]
+    public void Restore_code_preserves_non_valid_state()
+    {
+        // 읽기경로 상태손실 회귀: Create는 ValidState를 항상 "Valid"로 고정해, 무효화된 코드가 읽기 시 되살아났다.
+        var code = Code.Restore("CODE001", "CC001", "프레스", 2, "Invalid");
+        code.ValidState.Should().Be("Invalid", "Restore는 저장된 ValidState를 그대로 복원해야 한다");
+        code.SortOrder.Should().Be(2, "Restore는 저장된 SortOrder를 그대로 복원해야 한다");
+        code.CodeName.Should().Be("프레스");
+        code.CodeClassId.Should().Be("CC001");
+    }
+
+    [Fact]
+    public void Restore_code_raises_no_domain_events()
+        => Code.Restore("CODE001", "CC001", "프레스", 2, "Invalid")
+            .DomainEvents.Should().BeEmpty("읽기경로 재구성(Restore)은 도메인 이벤트 발행 대상이 아니다");
 }

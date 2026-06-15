@@ -62,7 +62,7 @@ public sealed class CodeRepository : QueryRepository, ICodeRepository
         public string CodeClassName { get; set; } = "";
         public string Description   { get; set; } = "";
 
-        public CodeClass? ToDomain() => CodeClass.Create(CodeClassId, CodeClassName).Value;
+        public CodeClass? ToDomain() => CodeClass.Restore(CodeClassId, CodeClassName, Description);
 
         public static CodeClassRow FromDomain(CodeClass c) => new()
         {
@@ -78,7 +78,7 @@ public sealed class CodeRepository : QueryRepository, ICodeRepository
         public int    SortOrder    { get; set; }
         public string ValidState   { get; set; } = "Valid";
 
-        public Code? ToDomain() => Code.Create(CodeId, CodeClassId, CodeName, SortOrder).Value;
+        public Code? ToDomain() => Code.Restore(CodeId, CodeClassId, CodeName, SortOrder, ValidState);
 
         public static CodeRow FromDomain(Code c) => new()
         {

@@ -61,6 +61,32 @@ public sealed class SparePart : AuditableEntity<string>
         return part;
     }
 
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 리포지토리 읽기 전용 —
+    /// 기존 ToDomain은 Create를 거쳐 재검증했는데, MaxStock&lt;=MinStock 같은 옛 데이터(또는 검증 우회 기록)는
+    /// Create가 실패를 반환해 .Value가 null이 되고, 그 부품이 GetById에서 사라지거나 GetAll/GetLowStock의
+    /// OfType 필터에 걸려 읽기마다 통째로 유실된다. 또 Create는 감사필드(CreatedBy/CreatedAt/UpdatedBy/UpdatedAt)를
+    /// 복원하지 않아 영속 감사정보가 매 읽기마다 초기화된다. Restore는 new(...) 직접 경로로 영속 필드를 그대로 복원한다.</summary>
+    public static SparePart Restore(
+        string partId, string partName, string partNumber, string description, string unitOfMeasure,
+        decimal currentStock, decimal minStock, decimal maxStock, string location, string? equipmentClassId,
+        string createdBy, DateTime createdAt, string? updatedBy, DateTime? updatedAt)
+        => new(partId)
+        {
+            PartName = partName,
+            PartNumber = partNumber,
+            Description = description,
+            UnitOfMeasure = unitOfMeasure,
+            CurrentStock = currentStock,
+            MinStock = minStock,
+            MaxStock = maxStock,
+            Location = location,
+            EquipmentClassId = equipmentClassId,
+            CreatedBy = createdBy,
+            CreatedAt = createdAt,
+            UpdatedBy = updatedBy,
+            UpdatedAt = updatedAt
+        };
+
     public Result AdjustStock(decimal delta)
     {
         var newStock = CurrentStock + delta;
