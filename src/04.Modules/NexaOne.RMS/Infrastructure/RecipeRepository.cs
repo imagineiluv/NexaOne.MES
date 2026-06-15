@@ -39,6 +39,12 @@ public sealed class RecipeRepository : QueryRepository, IRecipeRepository
         return rows.Select(r => r.ToDomain()).OfType<Recipe>().ToList();
     }
 
+    public async Task<int> GetCountByStateAsync(RecipeApprovalState state, CancellationToken ct = default)
+    {
+        const string sql = "SELECT COUNT(*) FROM RMS_RECIPE WHERE APPROVAL_STATE = @state";
+        return await CountAsync(sql, new { state = state.ToString() }, ct);
+    }
+
     public async Task AddAsync(Recipe recipe, CancellationToken ct = default)
     {
         const string sql = @"INSERT INTO RMS_RECIPE

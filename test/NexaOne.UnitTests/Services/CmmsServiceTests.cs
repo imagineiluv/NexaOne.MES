@@ -95,6 +95,23 @@ public sealed class CmmsServiceTests
         repo.Verify(r => r.UpdateAsync(It.IsAny<WorkOrder>(), default), Times.Never);
     }
 
+    // ── GetCountByStatusAsync ─────────────────────────────────────────────────
+    // 대시보드 집계가 전체 목록 대신 COUNT(*)를 쓰도록 서비스가 리포지토리 카운트로 위임하는지 검증.
+
+    [Fact]
+    public async Task GetCountByStatus_delegates_to_repository_and_returns_count()
+    {
+        var repo = new Mock<IWorkOrderRepository>();
+        repo.Setup(r => r.GetCountByStatusAsync(WorkOrderStatus.Issued, default)).ReturnsAsync(7);
+
+        var count = await BuildService(repo).GetCountByStatusAsync(WorkOrderStatus.Issued);
+
+        count.Should().Be(7);
+        repo.Verify(r => r.GetCountByStatusAsync(WorkOrderStatus.Issued, default), Times.Once);
+        // 목록 조회 경로(GetByStatusAsync)는 더 이상 호출되지 않아야 한다(목록 적재 회피).
+        repo.Verify(r => r.GetByStatusAsync(It.IsAny<WorkOrderStatus>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     // ── CancelWorkOrderAsync ──────────────────────────────────────────────────
 
     [Fact]

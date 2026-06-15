@@ -175,6 +175,30 @@ public sealed class FdcHistoryIntegrationTests : IClassFixture<TestApiFactory>
         capped!.Should().HaveCount(5, "과대 limit은 상한(5000)으로 클램프되며, 시드(5)가 상한 미만이므로 전량 반환되어야 한다");
     }
 
+    // 일괄 적재 가드 — AddBatchAsync가 단일 트랜잭션 일괄 INSERT(ExecuteManyAsync)로 전환된 뒤에도
+    // 정확히 N행이 적재되는지 증명한다. 결정론적 N건을 배치 시드한 뒤, 상한보다 큰 limit로 전량을
+    // 읽어 시드 건수와 일치함을 확인한다(부분 적재·중복·누락 회귀 탐지).
+    [Fact]
+    public async Task AddBatch_inserts_exactly_n_rows_in_single_batch()
+    {
+        const string parameterId = "FDC-IT-CDATA-BATCH";
+        const int seedCount = 12;
+        var baseTime = DateTime.UtcNow.AddMinutes(-10);
+
+        using (var scope = _factory.Services.CreateScope())
+            await SeedCollectDataAsync(scope.ServiceProvider, parameterId, seedCount, baseTime);
+
+        var from = Uri.EscapeDataString(DateTime.UtcNow.AddDays(-1).ToString("o"));
+        var to = Uri.EscapeDataString(DateTime.UtcNow.AddDays(1).ToString("o"));
+        var client = _factory.CreateAuthenticatedClient();
+
+        var rows = await client.GetFromJsonAsync<List<CollectDataDto>>(
+            $"/api/v1/fdc/collect-data?parameterId={parameterId}&from={from}&to={to}&limit=1000");
+        rows.Should().NotBeNull();
+        rows!.Should().HaveCount(seedCount,
+            "AddBatchAsync 단일 트랜잭션 일괄 INSERT는 시드한 정확히 N행만 적재해야 한다");
+    }
+
     // ── collect-data/latest (FDC_COLLECT_DATA, WrapPaged — SQLite LIMIT/OFFSET) ───
 
     [Fact]

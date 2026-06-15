@@ -28,6 +28,9 @@ public class RecipeService
         return Result.Success(list);
     }
 
+    public Task<int> GetCountByStateAsync(RecipeApprovalState state, CancellationToken ct = default)
+        => _recipeRepository.GetCountByStateAsync(state, ct);
+
     public async Task<Result<Recipe>> GetRecipeAsync(string recipeId, CancellationToken ct = default)
     {
         var recipe = await _recipeRepository.GetByIdAsync(recipeId, ct);

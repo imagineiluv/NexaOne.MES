@@ -1,8 +1,9 @@
 name: CI
 
-# 설계 §16.2 빌드 파이프라인 — Restore → Build(Release) → Unit Test.
-# Integration Test는 실 MSSQL/OPC-UA 서버가 필요하므로 [Fact(Skip)]로 기본 제외되며,
-# 환경 구축된 별도 job(testcontainers)에서 Skip 제거 후 실행한다(§16.2 / 10.4 통합 골격).
+# 설계 §16.2 빌드 파이프라인 — Restore → Build(Release) → Test.
+# Test 스텝의 'dotnet test NexaOne.sln'은 IntegrationTests 프로젝트도 함께 실행한다:
+# 통합 테스트는 TestApiFactory가 SQLite로 띄워 CI에서 그대로 돈다(실 MSSQL 불필요).
+# 실 하드웨어가 필요한 테스트(예: OPC-UA)만 [Fact(Skip)]로 제외된다.
 
 on:
   push:
@@ -54,7 +55,7 @@ jobs:
       - name: Build (Release)
         run: dotnet build NexaOne.sln --configuration Release --no-restore
 
-      - name: Unit Test (+ coverage)
+      - name: Test (unit + integration on SQLite) (+ coverage)
         run: >
           dotnet test NexaOne.sln --configuration Release --no-build
           --logger "trx;LogFileName=test-results.trx"

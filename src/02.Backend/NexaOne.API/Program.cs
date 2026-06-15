@@ -143,7 +143,7 @@ if (string.Equals(builder.Configuration.GetValue<string>("Database:Provider") ??
     healthChecks.AddSqlServer(
         builder.Configuration.GetConnectionString("NexaOne") ?? string.Empty,
         name: "sqlserver",
-        tags: ["db", "sql"]);
+        tags: ["db", "sql", "ready"]);
 }
 
 // Application services
@@ -321,6 +321,16 @@ app.MapControllers();
 // 전역 한도(100req/min)에 걸려 429가 나면 안 되므로 Rate Limiting에서 제외한다
 app.MapHub<NexaOneEESHub>("/hubs/smartees").DisableRateLimiting();
 // 헬스 프로브는 전역 FallbackPolicy(인증 요구)에 걸리지 않도록 명시적으로 익명 허용한다(모니터링/k8s liveness).
+// liveness/readiness 분리: /health/live는 체크 없이 프로세스 생존만(Predicate=_=>false → 빈 집합 = Healthy),
+// /health/ready는 "ready" 태그(SqlServer 등 의존성)만 평가, /health는 호환을 위해 전체 체크 유지.
+app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = _ => false
+}).AllowAnonymous().DisableRateLimiting();
+app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+}).AllowAnonymous().DisableRateLimiting();
 app.MapHealthChecks("/health").AllowAnonymous().DisableRateLimiting();
 
 await app.RunAsync();

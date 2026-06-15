@@ -42,6 +42,12 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
         return rows.Select(r => r.ToDomain()).OfType<WorkOrder>().ToList();
     }
 
+    public async Task<int> GetCountByStatusAsync(WorkOrderStatus status, CancellationToken ct = default)
+    {
+        const string sql = "SELECT COUNT(*) FROM CMMS_WORK_ORDER WHERE STATUS = @status";
+        return await CountAsync(sql, new { status = status.ToString() }, ct);
+    }
+
     public async Task AddAsync(WorkOrder wo, CancellationToken ct = default)
     {
         const string sql = @"INSERT INTO CMMS_WORK_ORDER

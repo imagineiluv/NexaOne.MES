@@ -24,8 +24,12 @@ function buildHeaders(init: RequestInit): Headers {
   return headers
 }
 
+// 동시 401이 각자 갱신을 트리거하면 회전 토큰이 서로를 무효화한다 — C# ApiClient._refreshLock과
+// 동일한 single-flight 의도: 진행 중인 갱신 Promise를 모듈 레벨에 공유하고 동시 호출자는 같은 것을 await한다.
+let refreshInFlight: Promise<boolean> | null = null
+
 // 액세스 토큰 만료 시 리프레시 토큰으로 1회 재발급(§19.2 회전). 구 액세스 토큰은 plantId 승계용으로 헤더에 싣는다.
-async function tryRefresh(): Promise<boolean> {
+async function doRefresh(): Promise<boolean> {
   if (session === null) return false
   const res = await fetch(`${BASE}/api/v1/auth/refresh`, {
     method: 'POST',
@@ -36,6 +40,14 @@ async function tryRefresh(): Promise<boolean> {
   const data = (await res.json()) as { accessToken: string; refreshToken: string }
   session = { ...session, accessToken: data.accessToken, refreshToken: data.refreshToken }
   return true
+}
+
+function tryRefresh(): Promise<boolean> {
+  // 이미 갱신이 진행 중이면 그 Promise를 공유(동시 호출자 합류). 정착되면 다음 401 웨이브를 위해 비운다.
+  if (refreshInFlight === null) {
+    refreshInFlight = doRefresh().finally(() => { refreshInFlight = null })
+  }
+  return refreshInFlight
 }
 
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {

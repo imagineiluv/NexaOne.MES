@@ -26,6 +26,9 @@ public sealed class CmmsService
         return Result.Success(list);
     }
 
+    public Task<int> GetCountByStatusAsync(WorkOrderStatus status, CancellationToken ct = default)
+        => _workOrderRepository.GetCountByStatusAsync(status, ct);
+
     public async Task<Result<WorkOrder>> CreateWorkOrderAsync(
         string woId,
         string equipmentId,

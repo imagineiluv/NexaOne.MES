@@ -41,19 +41,26 @@ public sealed class FdcCollectDataRepository : QueryRepository, IFdcCollectDataR
         return rows.Select(r => r.ToDomain()).OfType<FdcCollectData>().Reverse().ToList();
     }
 
-    public async Task AddAsync(FdcCollectData data, CancellationToken ct = default)
-    {
-        const string sql = @"INSERT INTO FDC_COLLECT_DATA
+    // FDC_COLLECT_DATA는 감사 컬럼이 없어 8개 도메인 컬럼만 INSERT한다(감사 미주입 경로로 충분).
+    private const string InsertSql = @"INSERT INTO FDC_COLLECT_DATA
             (COLLECT_ID, EQUIPMENT_ID, PARAMETER_ID, VALUE, COLLECTED_AT, QUALITY, LOWER_LIMIT, UPPER_LIMIT)
             VALUES
             (@CollectId, @EquipmentId, @ParameterId, @Value, @CollectedAt, @Quality, @LowerLimit, @UpperLimit)";
-        await _processor.InsertAsync(sql, DataRow.FromDomain(data), ct);
+
+    public async Task AddAsync(FdcCollectData data, CancellationToken ct = default)
+    {
+        await _processor.InsertAsync(InsertSql, DataRow.FromDomain(data), ct);
     }
 
     public async Task AddBatchAsync(IEnumerable<FdcCollectData> data, CancellationToken ct = default)
     {
-        foreach (var item in data)
-            await AddAsync(item, ct);
+        // N건을 단일 트랜잭션에서 일괄 INSERT한다 — 행마다 별도 트랜잭션을 여는 N회 InsertAsync(원자성·왕복 손실)
+        // 대신 ExecuteManyAsync로 한 트랜잭션에 묶어, 한 건이라도 실패하면 전체가 롤백되어 부분 적재를 막는다.
+        var statements = data
+            .Select(item => (Sql: InsertSql, Param: (object?)DataRow.FromDomain(item)))
+            .ToArray();
+        if (statements.Length == 0) return;
+        await _processor.ExecuteManyAsync(ct, statements);
     }
 
     private sealed class DataRow

@@ -187,6 +187,23 @@ public sealed class RecipeServiceTests
         result.IsFailure.Should().BeTrue();
     }
 
+    // ── GetCountByStateAsync ──────────────────────────────────────────────────
+    // 대시보드 승인대기 집계가 전체 목록 대신 COUNT(*)를 쓰도록 서비스가 리포지토리 카운트로 위임하는지 검증.
+
+    [Fact]
+    public async Task GetCountByState_delegates_to_repository_and_returns_count()
+    {
+        var repo = new Mock<IRecipeRepository>();
+        repo.Setup(r => r.GetCountByStateAsync(RecipeApprovalState.WaitApproval, default)).ReturnsAsync(3);
+
+        var count = await BuildService(repo).GetCountByStateAsync(RecipeApprovalState.WaitApproval);
+
+        count.Should().Be(3);
+        repo.Verify(r => r.GetCountByStateAsync(RecipeApprovalState.WaitApproval, default), Times.Once);
+        // 목록 조회 경로(GetByStateAsync)는 더 이상 호출되지 않아야 한다(목록 적재 회피).
+        repo.Verify(r => r.GetByStateAsync(It.IsAny<RecipeApprovalState>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     // ── CreateNewVersionAsync ─────────────────────────────────────────────────
 
     [Fact]
