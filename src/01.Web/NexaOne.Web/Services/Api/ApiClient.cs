@@ -121,18 +121,24 @@ public sealed class ApiClient : IApiClient
             var refreshed = await RefreshAsync(ct);
             resp = await SendOnceAsync(method, url, body, refreshed, ct);
         }
-        if (surfaceErrors) SurfaceUnhandledError(resp);
+        if (surfaceErrors) await SurfaceUnhandledErrorAsync(resp, ct);
         return resp;
     }
 
-    // 페이지가 인라인으로 처리하지 않는 실패만 전역 통지한다: 403(권한 거부, ADR-003 module:manage 정책)과
-    // 5xx(예기치 못한 서버 오류). 400/409(검증/충돌)은 페이지의 인라인 오류 경로가 사유를 표시하므로 제외한다.
-    private void SurfaceUnhandledError(HttpResponseMessage resp)
+    // 페이지가 인라인으로 처리하지 않는 실패를 전역 토스트로 통지한다: 403(권한 거부, ADR-003 module:manage)·5xx(서버
+    // 오류)는 일반 메시지, 그 외 4xx(400/409/422 검증·충돌)는 서버 Error.Description을 노출한다. 자체 사유 표시
+    // 메서드(PostWithError/PatchWithError)는 surfaceErrors:false로 호출돼 여기 오지 않으므로 중복 통지가 없다.
+    // (이전엔 400/409를 제외해, plain Post로 저장하는 마스터데이터 등록 다이얼로그의 실패가 조용히 삼켜졌다 — 교정.)
+    private async Task SurfaceUnhandledErrorAsync(HttpResponseMessage resp, CancellationToken ct)
     {
+        if (resp.IsSuccessStatusCode || resp.StatusCode == HttpStatusCode.Unauthorized)
+            return;   // 401은 인증 흐름(RefreshAsync의 갱신/로그아웃)이 처리한다
         if (resp.StatusCode == HttpStatusCode.Forbidden)
             _notifier.Notify("이 작업을 수행할 권한이 없습니다. 관리자에게 권한을 요청하세요.");
         else if ((int)resp.StatusCode >= 500)
             _notifier.Notify($"서버 오류가 발생했습니다 (HTTP {(int)resp.StatusCode}). 잠시 후 다시 시도해 주세요.");
+        else
+            _notifier.Notify(await ReadErrorAsync(resp, ct));
     }
 
     private static async Task<string> ReadErrorAsync(HttpResponseMessage resp, CancellationToken ct)
