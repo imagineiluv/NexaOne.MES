@@ -25,10 +25,8 @@ public sealed class InMemoryBusSubscriberService : IHostedService
         {
             using var scope = _scopeFactory.CreateScope();
             var notifier = scope.ServiceProvider.GetRequiredService<IEesHubNotifier>();
-            if (msg.EventType == "EquipmentStateChanged")
-                await notifier.NotifyEquipmentStateChangedAsync(msg.AggregateId, msg.Payload, ct);
-            else
-                await notifier.NotifyDashboardRefreshAsync(ct);
+            // 이벤트 유형별 세분 알림(상태/알람/작업지시/대시보드) — 컨트롤러 직접호출과 동일 충실도(ADR-002 §2.5).
+            await RealtimeNotificationDispatch.DispatchAsync(notifier, msg.EventType, msg.AggregateId, msg.Payload, ct);
         });
         return Task.CompletedTask;
     }

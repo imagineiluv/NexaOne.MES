@@ -152,6 +152,10 @@ builder.Services.AddNexaOneEES(builder.Configuration);
 // EesHubNotifier는 싱글톤 IHubContext만 래핑하는 무상태 구현 → 싱글톤으로 등록한다.
 // (Scoped로 두면 싱글톤 HostedService 생성자 주입이 captive dependency가 되어 스코프 검증 시 기동 실패)
 builder.Services.AddSingleton<NexaOne.API.Hubs.IEesHubNotifier, NexaOne.API.Hubs.EesHubNotifier>();
+// ADR-002 §2.5 — 실시간 알림 경로 조정. 버스 활성(Events:Outbox:Enabled) 시 구독자가 이벤트 기반 알림을
+// 전달하므로 컨트롤러는 이벤트로 뒷받침되는 직접 SignalR 호출을 생략한다(이중 발행 방지). 비활성이면 직접 발행(폴백).
+builder.Services.AddSingleton(new NexaOne.API.Services.RealtimeNotificationCoordinator(
+    builder.Configuration.GetValue("Events:Outbox:Enabled", false)));
 
 // §17.4 OpenTelemetry — 분산 추적 + Metrics. OTLP 엔드포인트가 설정되면 Collector로,
 // 없으면 개발용 Console exporter로 트레이스를 내보낸다(설계: 개발 Console/OTLP, 운영 OTLP Collector).
@@ -229,10 +233,9 @@ if (builder.Configuration.GetValue("Kafka:Enabled", false))
             {
                 using var scope = scopeFactory.CreateScope();
                 var notifier = scope.ServiceProvider.GetRequiredService<NexaOne.API.Hubs.IEesHubNotifier>();
-                if (msg.EventType == "EquipmentStateChanged")
-                    await notifier.NotifyEquipmentStateChangedAsync(msg.AggregateId, msg.Payload, ct);
-                else
-                    await notifier.NotifyDashboardRefreshAsync(ct);
+                // 이벤트 유형별 세분 알림 — 인메모리 구독자와 동일 매핑(ADR-002 §2.5).
+                await NexaOne.API.Services.RealtimeNotificationDispatch.DispatchAsync(
+                    notifier, msg.EventType, msg.AggregateId, msg.Payload, ct);
             };
         return new NexaOne.Infrastructure.Messaging.KafkaConsumerService(
             new NexusCom.Messaging.Kafka.KafkaDriver(

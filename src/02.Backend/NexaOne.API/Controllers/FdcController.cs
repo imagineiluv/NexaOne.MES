@@ -21,6 +21,7 @@ public class FdcController(
     PlantController plant,
     IEesHubNotifier notifier,
     NexaOne.Infrastructure.Persistence.IOutboxRepository outbox,
+    NexaOne.API.Services.RealtimeNotificationCoordinator notifyCoordinator,
     ILogger<FdcController> logger) : ControllerBase
 {
     // ADR-002 — 설비 상태 변경을 Event Bus로 발행(outbox). 디스패처가 Kafka로 발행하고 구독자가 SignalR로 푸시한다.
@@ -278,7 +279,9 @@ public class FdcController(
                     var alarmResult = await alarmService.RecordAlarmAsync(
                         alarmId, req.EquipmentId, alarmCode, alarmName, level, ct);
 
-                    if (alarmResult.IsSuccess)
+                    // 버스 활성 시 EquipmentAlarmRaised 이벤트를 구독자가 알람 갱신으로 전달 — 직접호출 생략(이중 발행 방지).
+                    // (FDC 수집 데이터·인터록 발동 알림은 대응 이벤트가 없어 위에서 항상 직접 발행한다.)
+                    if (alarmResult.IsSuccess && !notifyCoordinator.BusDeliversEvents)
                         await notifier.NotifyAlarmUpdatedAsync(ct);
                 }
             }

@@ -51,6 +51,9 @@ public class TestApiFactory : WebApplicationFactory<Program>
         // 레이트리밋 비활성 — 통합테스트는 비즈니스 로직을 검증하며, 한 클래스의 다수 요청이 공유 IP로
         // "auth"(IP당 10/min)·전역(100/min) 한도에 걸리면 비결정적 429가 난다(레이트리밋 자체를 테스트하지 않음).
         builder.UseSetting("RateLimiting:Enabled", "false");
+        // 기본 통합 테스트는 outbox 비활성(직접 SignalR 경로)을 검증한다 — appsettings 기본값이 on으로 바뀌어도
+        // 기존 테스트 의미론(직접 발행·적체 없음)을 유지하도록 인스턴스 단위로 고정한다. on 검증은 OutboxEnabledTestApiFactory.
+        builder.UseSetting("Events:Outbox:Enabled", "false");
     }
 
     /// <summary>앱의 JwtService로 유효한 토큰을 발급해 Authorization 헤더가 설정된 클라이언트를 반환한다.

@@ -9,7 +9,8 @@ namespace NexaOne.API.Controllers;
 [Route("api/v1/cmms")]
 [Authorize]
 public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
-    MaintenancePlanService planService) : ControllerBase
+    MaintenancePlanService planService,
+    NexaOne.API.Services.RealtimeNotificationCoordinator notifyCoordinator) : ControllerBase
 {
     [HttpGet("work-orders")]
     public async Task<IActionResult> GetWorkOrders(
@@ -40,7 +41,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     public async Task<IActionResult> StartWorkOrder(string woId, CancellationToken ct)
     {
         var result = await emsService.StartWorkOrderAsync(woId, ct);
-        if (result.IsSuccess)
+        if (result.IsSuccess && !notifyCoordinator.BusDeliversEvents)
             await notifier.NotifyWorkOrderUpdatedAsync(ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
@@ -50,7 +51,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     public async Task<IActionResult> CompleteWorkOrder(string woId, [FromBody] CompleteWorkOrderRequest req, CancellationToken ct)
     {
         var result = await emsService.CompleteWorkOrderAsync(woId, req.Remark, ct);
-        if (result.IsSuccess)
+        if (result.IsSuccess && !notifyCoordinator.BusDeliversEvents)
             await notifier.NotifyWorkOrderUpdatedAsync(ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
@@ -60,7 +61,7 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     public async Task<IActionResult> CancelWorkOrder(string woId, CancellationToken ct)
     {
         var result = await emsService.CancelWorkOrderAsync(woId, ct);
-        if (result.IsSuccess)
+        if (result.IsSuccess && !notifyCoordinator.BusDeliversEvents)
             await notifier.NotifyWorkOrderUpdatedAsync(ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }

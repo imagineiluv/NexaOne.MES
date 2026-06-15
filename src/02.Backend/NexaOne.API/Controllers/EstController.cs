@@ -13,7 +13,8 @@ public class EstController(
     EquipmentAlarmService alarmService,
     EquipmentStateService stateService,
     EquipmentService equipmentService,
-    IEesHubNotifier notifier) : ControllerBase
+    IEesHubNotifier notifier,
+    NexaOne.API.Services.RealtimeNotificationCoordinator notifyCoordinator) : ControllerBase
 {
     // ── State Matrix ──────────────────────────────────────────────────────────
 
@@ -60,7 +61,8 @@ public class EstController(
             userId, req.Reason ?? "", "UI",
             req.ExpectedVersion, ct);
 
-        if (result.IsSuccess)
+        // 버스 활성 시 EquipmentStateChanged 이벤트를 구독자가 전달하므로 직접호출을 생략한다(이중 발행 방지). 비활성이면 즉시 직접 발행.
+        if (result.IsSuccess && !notifyCoordinator.BusDeliversEvents)
             await notifier.NotifyEquipmentStateChangedAsync(req.EquipmentId, result.Value.CurrentStateId, ct);
 
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
@@ -85,7 +87,8 @@ public class EstController(
     {
         var result = await alarmService.RecordAlarmAsync(
             req.AlarmId, req.EquipmentId, req.AlarmCode, req.AlarmName, req.Level, ct);
-        if (result.IsSuccess)
+        // 버스 활성 시 EquipmentAlarmRaised 이벤트를 구독자가 알람 갱신으로 전달 — 직접호출 생략(이중 발행 방지).
+        if (result.IsSuccess && !notifyCoordinator.BusDeliversEvents)
             await notifier.NotifyAlarmUpdatedAsync(ct);
         return result.IsSuccess ? Ok(result.Value) : BadRequest(result.Error);
     }
@@ -95,7 +98,8 @@ public class EstController(
     public async Task<IActionResult> ClearAlarm(string alarmId, [FromBody] ClearAlarmRequest req, CancellationToken ct)
     {
         var result = await alarmService.ClearAlarmAsync(alarmId, req.ClearedAt, ct);
-        if (result.IsSuccess)
+        // 버스 활성 시 EquipmentAlarmCleared 이벤트를 구독자가 알람 갱신으로 전달 — 직접호출 생략(이중 발행 방지).
+        if (result.IsSuccess && !notifyCoordinator.BusDeliversEvents)
             await notifier.NotifyAlarmUpdatedAsync(ct);
         return result.IsSuccess ? NoContent() : BadRequest(result.Error);
     }
