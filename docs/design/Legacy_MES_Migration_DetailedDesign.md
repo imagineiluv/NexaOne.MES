@@ -2644,6 +2644,8 @@ WinForms 폼 클래스는 Blazor 컴포넌트(`.razor`)로 1:1 대응 전환하�
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+> **NexaOne.API / NexaOne.Server 역할 분담([ADR-005](adr/ADR-005-server-service-container.md)).** 위 박스는 둘을 한 백엔드 티어로 묶어 표현하나 물리적으로 분리된다. **NexaOne.API**(ASP.NET)는 실제 웹 워크로드(REST·SignalR·JWT·백그라운드 워커)를 담당한다. **NexaOne.Server**(NexusFramework Spring.NET 콘솔)는 *서비스 빈 컨테이너* 역할로, 공통 서버 빈(server.xml: 데이터소스·방언·설정·워크플로매니저·OPC-UA 드라이버)과 도메인 서비스 빈(nexaone.xml)을 담아 관리하며, 서비스가 공통 서버 빈을 ref/`GetBean`으로 공통 호출한다. DB 전환·플러그인 로딩은 [ADR-004](adr/ADR-004-server-host-runtime.md).
+
 **Blazor Server** 선택 이유:
 - 인트라넷 MES 환경 — 낮은 레이턴시, 서버 자원 집중 관리
 - C# 코드 공유 — 도메인 모델·서비스를 UI에서 직접 참조

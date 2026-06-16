@@ -26,6 +26,18 @@
     <constructor-arg ref="workflowExecutionExecutor" />
   </object>
 
+  <!-- ===== 공통 서버 빈 (모든 서비스가 공통으로 호출) =====
+       NexaOne.Server는 서비스 빈 컨테이너다(ADR-005). 모든 도메인 서비스가 공통으로 의존하는 빈은
+       부모 컨텍스트(여기)에 두고, 자식 컨텍스트(nexaone.xml)의 서비스 빈이 ref로 공통 호출한다. -->
+
+  <!-- 빈 ConfigurationManager(IConfiguration). 거의 모든 리포지토리가 outbox 게이트(config["Events:Outbox:Enabled"])
+       판독에 공통 사용한다 — 빈 설정이라 null→off로 평가(이 호스트는 API 티어가 디스패처를 돌리므로 off가 올바른 기본, ADR-002). -->
+  <object id="appConfiguration" type="Microsoft.Extensions.Configuration.ConfigurationManager, Microsoft.Extensions.Configuration" />
+
+  <!-- OPC-UA 설비 드라이버(IPlcDriver). FDC 모듈이 설비 수집 시 GetServerBean("opcUaDriver")로 공통 호출한다(설계: 드라이버는
+       서버 빈, 모듈에서 호출). lazy-init: 실제 참조될 때만 생성해 부팅 시 OPC-UA 라이브러리 초기화·연결 시도를 회피한다. -->
+  <object id="opcUaDriver" type="NexusLogic.Plc.OpcUa.OpcUaDriver, NexusLogic.Plc.OpcUa" lazy-init="true" />
+
   <!-- ===== Database =====
        DB 전환은 이 파일'만' 바꾸면 된다(코드 재빌드 불필요). 아래 [MSSQL] / [SQLite] 두 블록 중
        하나만 활성화하고 나머지는 주석 처리한다. 세 객체 id(dbProvider / eesDialect / eesDataSource)는

@@ -16,6 +16,9 @@
     <ProjectReference Include="..\..\02.Backend\NexaOne.Application\NexaOne.Application.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure.Messaging\NexaOne.Infrastructure.Messaging.csproj" />
+    <!-- OPC-UA 설비 드라이버를 공통 서버 빈(server.xml의 opcUaDriver)으로 노출하기 위해 참조한다.
+         부모 컨텍스트(Default ALC)에 OpcUaDriver/IPlcDriver 타입이 있어야 FDC 플러그인 모듈이 타입 동일성으로 주입받는다. -->
+    <ProjectReference Include="..\..\..\submodules\NexusLogic\src\NexusLogic.Plc.OpcUa\NexusLogic.Plc.OpcUa.csproj" />
     <!-- DB 공급자는 NexusCom.Data 메타 패키지 '하나'로 참조한다 — 이 단일 참조가 MsSql·Sqlite 두 공급자
          어셈블리를 함께 출력에 끌어온다(어셈블리는 분리 유지). 따라서 코드 재빌드 없이 server.xml만 바꿔
          MSSQL↔SQLite를 전환할 수 있다(두 공급자 DLL이 호스트 Default ALC에 상존). -->

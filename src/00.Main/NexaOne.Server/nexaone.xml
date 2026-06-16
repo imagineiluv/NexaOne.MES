@@ -3,174 +3,195 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
 
-  <!-- ===== Shared helpers ===== -->
+  <!-- ============================================================================================
+       NexaOne.Server = 서비스 빈 컨테이너(ADR-005). 이 파일(자식 컨텍스트)은 9개 도메인 모듈의 서비스와
+       그 의존 리포지토리를 빈으로 등록한다. 모든 서비스는 server.xml(부모 컨텍스트)의 '공통 서버 빈'을 ref로
+       공통 호출한다: eesDataSource(데이터소스) · appConfiguration(IConfiguration) · eesDialect(SQL 방언) ·
+       opcUaDriver(OPC-UA 드라이버, lazy). 외부 조회는 ApplicationServer.GetBean(service, name).
 
-  <!-- 빈 ConfigurationManager(IConfiguration 구현). 컨테이너에 IConfiguration이 없어 outbox 게이트(config["Events:Outbox:Enabled"])
-       가 null→off로 평가되게 한다. 이 NexusFramework 호스트에서는 API 티어가 디스패처를 돌리므로 off가 올바른 기본값(ADR-002). -->
-  <object id="appConfiguration" type="Microsoft.Extensions.Configuration.ConfigurationManager, Microsoft.Extensions.Configuration" />
-
-  <!-- eesDialect(INexaOneEESDbCapability)와 eesDataSource는 server.xml(부모 컨텍스트)에 정의된다.
-       DB 전환(MSSQL↔SQLite)이 server.xml 한 파일로 끝나도록 dialect를 그쪽에 두고, 여기서는 ref로만 참조한다.
-       자식 컨텍스트는 부모 객체를 참조 가능하다(eesDataSource도 동일 방식으로 주입). -->
-
+       제외된 서비스(콘솔 컨테이너로 조립 불가 — API/웹 인프라 의존, 빈을 지어내지 않음):
+       - MdmMasterService     : ICacheService(캐시) 의존
+       - LotTrackingService   : ITrackingMasterGateway(API 조립 계층 어댑터 — 컨테이너에 구현 없음)
+       - MenuService          : ILogger<MenuService>(로깅) 의존
+       - ConditionSettingService : int maxSavedConditions(스칼라 설정값) 의존
+       - DeployService        : IDeployFileStorage(파일시스템 저장소, API 계층 구현) 의존
+       위 서비스는 NexaOne.API(ASP.NET DI)에서 해당 인프라와 함께 제공된다.
+       ============================================================================================ -->
 
   <!-- ===== MDM (Master Data Management) ===== -->
 
-  <object id="equipmentRepository"
-          type="NexaOne.MDM.Infrastructure.EquipmentRepository, NexaOne.MDM">
+  <object id="equipmentRepository" type="NexaOne.MDM.Infrastructure.EquipmentRepository, NexaOne.MDM">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
   </object>
-
-  <object id="equipmentService"
-          type="NexaOne.MDM.Application.Equipments.EquipmentService, NexaOne.MDM">
+  <object id="equipmentService" type="NexaOne.MDM.Application.Equipments.EquipmentService, NexaOne.MDM">
     <constructor-arg ref="equipmentRepository" />
   </object>
 
-  <!-- ===== EST (Equipment State Tracking) — 구 EPT ===== -->
+  <!-- ===== EST (Equipment State Tracking) ===== -->
 
-  <object id="equipmentAlarmRepository"
-          type="NexaOne.EST.Infrastructure.EquipmentAlarmRepository, NexaOne.EST">
+  <object id="equipmentAlarmRepository" type="NexaOne.EST.Infrastructure.EquipmentAlarmRepository, NexaOne.EST">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
   </object>
-
-  <object id="equipmentAlarmService"
-          type="NexaOne.EST.Application.Est.EquipmentAlarmService, NexaOne.EST">
+  <object id="equipmentStateMatrixRepository" type="NexaOne.EST.Infrastructure.EquipmentStateMatrixRepository, NexaOne.EST">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="equipmentStateRepository" type="NexaOne.EST.Infrastructure.EquipmentStateRepository, NexaOne.EST">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="eesDialect" />
+    <constructor-arg ref="appConfiguration" />
+  </object>
+  <object id="equipmentAlarmService" type="NexaOne.EST.Application.Est.EquipmentAlarmService, NexaOne.EST">
     <constructor-arg ref="equipmentAlarmRepository" />
+  </object>
+  <object id="equipmentStateService" type="NexaOne.EST.Application.Est.EquipmentStateService, NexaOne.EST">
+    <constructor-arg ref="equipmentStateMatrixRepository" />
+    <constructor-arg ref="equipmentStateRepository" />
   </object>
 
   <!-- ===== FDC (Fault Detection and Classification) ===== -->
 
-  <!-- FdcInterlockRuleRepository는 IConfiguration을 받지 않는다(outbox 비대상) — 데이터소스 단일 인자. -->
-  <object id="fdcInterlockRuleRepository"
-          type="NexaOne.FDC.Infrastructure.FdcInterlockRuleRepository, NexaOne.FDC">
+  <object id="fdcInterlockRuleRepository" type="NexaOne.FDC.Infrastructure.FdcInterlockRuleRepository, NexaOne.FDC">
     <constructor-arg ref="eesDataSource" />
   </object>
-
-  <!-- FdcInterlockHistoryRepository(EesDataSource, IConfiguration) — config는 ADR-002 outbox opt-in 게이트 판독용. -->
-  <object id="fdcInterlockHistoryRepository"
-          type="NexaOne.FDC.Infrastructure.FdcInterlockHistoryRepository, NexaOne.FDC">
+  <object id="fdcInterlockHistoryRepository" type="NexaOne.FDC.Infrastructure.FdcInterlockHistoryRepository, NexaOne.FDC">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
   </object>
-
-  <!-- FdcInterlockService(ruleRepository, historyRepository) — Spring.NET은 C# 선택적 파라미터(기본 null)를
-       인식하지 못하므로 2번째 인자 IFdcInterlockHistoryRepository도 실제 빈으로 주입한다(미주입 시 생성자 매칭 실패). -->
-  <object id="fdcInterlockService"
-          type="NexaOne.FDC.Application.Fdc.FdcInterlockService, NexaOne.FDC">
+  <object id="fdcAlarmConfigRepository" type="NexaOne.FDC.Infrastructure.FdcAlarmConfigRepository, NexaOne.FDC">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="fdcAlarmHistoryRepository" type="NexaOne.FDC.Infrastructure.FdcAlarmHistoryRepository, NexaOne.FDC">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="appConfiguration" />
+  </object>
+  <object id="fdcParameterRepository" type="NexaOne.FDC.Infrastructure.FdcParameterRepository, NexaOne.FDC">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="fdcCollectDataRepository" type="NexaOne.FDC.Infrastructure.FdcCollectDataRepository, NexaOne.FDC">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="eesDialect" />
+  </object>
+  <object id="fdcParameterGroupRepository" type="NexaOne.FDC.Infrastructure.FdcParameterGroupRepository, NexaOne.FDC">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="fdcDataService" type="NexaOne.FDC.Application.Fdc.FdcDataService, NexaOne.FDC">
+    <constructor-arg ref="fdcParameterRepository" />
+    <constructor-arg ref="fdcCollectDataRepository" />
+  </object>
+  <object id="fdcParameterGroupService" type="NexaOne.FDC.Application.Fdc.FdcParameterGroupService, NexaOne.FDC">
+    <constructor-arg ref="fdcParameterGroupRepository" />
+  </object>
+  <!-- FdcInterlockService(ruleRepository, historyRepository?) — Spring은 C# 선택적 파라미터를 인식하지 못하므로 2번째도 명시. -->
+  <object id="fdcInterlockService" type="NexaOne.FDC.Application.Fdc.FdcInterlockService, NexaOne.FDC">
     <constructor-arg ref="fdcInterlockRuleRepository" />
     <constructor-arg ref="fdcInterlockHistoryRepository" />
+  </object>
+  <!-- FdcAlarmService(configRepository, historyRepository?) — 2번째 선택적 인자도 명시. -->
+  <object id="fdcAlarmService" type="NexaOne.FDC.Application.Fdc.FdcAlarmService, NexaOne.FDC">
+    <constructor-arg ref="fdcAlarmConfigRepository" />
+    <constructor-arg ref="fdcAlarmHistoryRepository" />
+  </object>
+  <!-- FdcCollectorService(dataService, interlockService?, alarmService?) — OPC-UA device/구독은 StartCollectingAsync
+       메서드 인자(생성자 아님)라 opcUaDriver는 ctor에 들어가지 않는다. 선택적 2·3번째 서비스는 명시 주입. -->
+  <object id="fdcCollectorService" type="NexaOne.FDC.Application.Fdc.FdcCollectorService, NexaOne.FDC">
+    <constructor-arg ref="fdcDataService" />
+    <constructor-arg ref="fdcInterlockService" />
+    <constructor-arg ref="fdcAlarmService" />
   </object>
 
   <!-- ===== RMS (Recipe Management System) ===== -->
 
-  <object id="recipeRepository"
-          type="NexaOne.RMS.Infrastructure.RecipeRepository, NexaOne.RMS">
+  <object id="rmsRecipeRepository" type="NexaOne.RMS.Infrastructure.RecipeRepository, NexaOne.RMS">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
   </object>
-
-  <!-- RecipeService가 추가로 요구하는 파라미터 리포지토리(데이터소스 단일 인자). -->
-  <object id="recipeParamRepository"
-          type="NexaOne.RMS.Infrastructure.RecipeParamRepository, NexaOne.RMS">
+  <object id="rmsRecipeParamRepository" type="NexaOne.RMS.Infrastructure.RecipeParamRepository, NexaOne.RMS">
     <constructor-arg ref="eesDataSource" />
   </object>
-
-  <!-- RecipeService(recipeRepository, paramRepository) — 2개 리포지토리 모두 주입. -->
-  <object id="recipeService"
-          type="NexaOne.RMS.Application.Rms.RecipeService, NexaOne.RMS">
-    <constructor-arg ref="recipeRepository" />
-    <constructor-arg ref="recipeParamRepository" />
+  <object id="rmsRecipeService" type="NexaOne.RMS.Application.Rms.RecipeService, NexaOne.RMS">
+    <constructor-arg ref="rmsRecipeRepository" />
+    <constructor-arg ref="rmsRecipeParamRepository" />
   </object>
 
   <!-- ===== QMS (Quality Management System) ===== -->
 
-  <object id="defectRepository"
-          type="NexaOne.QMS.Infrastructure.DefectRepository, NexaOne.QMS">
+  <object id="qmsDefectRepository" type="NexaOne.QMS.Infrastructure.DefectRepository, NexaOne.QMS">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
   </object>
-
-  <!-- QmsService가 추가로 요구하는 리포지토리들(모두 데이터소스 단일 인자). -->
-  <object id="defectClassRepository"
-          type="NexaOne.QMS.Infrastructure.DefectClassRepository, NexaOne.QMS">
+  <object id="qmsDefectClassRepository" type="NexaOne.QMS.Infrastructure.DefectClassRepository, NexaOne.QMS">
     <constructor-arg ref="eesDataSource" />
   </object>
-
-  <object id="inspectionSpecRepository"
-          type="NexaOne.QMS.Infrastructure.InspectionSpecRepository, NexaOne.QMS">
+  <object id="qmsInspectionSpecRepository" type="NexaOne.QMS.Infrastructure.InspectionSpecRepository, NexaOne.QMS">
     <constructor-arg ref="eesDataSource" />
   </object>
-
-  <object id="inspectionResultRepository"
-          type="NexaOne.QMS.Infrastructure.InspectionResultRepository, NexaOne.QMS">
+  <object id="qmsInspectionResultRepository" type="NexaOne.QMS.Infrastructure.InspectionResultRepository, NexaOne.QMS">
     <constructor-arg ref="eesDataSource" />
   </object>
-
-  <object id="spcParamRepository"
-          type="NexaOne.QMS.Infrastructure.SpcParamRepository, NexaOne.QMS">
+  <object id="qmsSpcParamRepository" type="NexaOne.QMS.Infrastructure.SpcParamRepository, NexaOne.QMS">
     <constructor-arg ref="eesDataSource" />
   </object>
-
-  <!-- QmsService(defect, defectClass, spec, result, spcParam) — 5개 리포지토리 순서대로 주입. -->
-  <object id="qmsService"
-          type="NexaOne.QMS.Application.Qms.QmsService, NexaOne.QMS">
-    <constructor-arg ref="defectRepository" />
-    <constructor-arg ref="defectClassRepository" />
-    <constructor-arg ref="inspectionSpecRepository" />
-    <constructor-arg ref="inspectionResultRepository" />
-    <constructor-arg ref="spcParamRepository" />
+  <object id="qmsService" type="NexaOne.QMS.Application.Qms.QmsService, NexaOne.QMS">
+    <constructor-arg ref="qmsDefectRepository" />
+    <constructor-arg ref="qmsDefectClassRepository" />
+    <constructor-arg ref="qmsInspectionSpecRepository" />
+    <constructor-arg ref="qmsInspectionResultRepository" />
+    <constructor-arg ref="qmsSpcParamRepository" />
   </object>
 
-  <!-- ===== CMMS (Computerized Maintenance Management System) — 구 EMS ===== -->
+  <!-- ===== CMMS (Computerized Maintenance Management System) ===== -->
 
-  <object id="workOrderRepository"
-          type="NexaOne.CMMS.Infrastructure.WorkOrderRepository, NexaOne.CMMS">
+  <object id="workOrderRepository" type="NexaOne.CMMS.Infrastructure.WorkOrderRepository, NexaOne.CMMS">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
   </object>
-
-  <object id="cmmsService"
-          type="NexaOne.CMMS.Application.Cmms.CmmsService, NexaOne.CMMS">
+  <object id="maintenancePlanRepository" type="NexaOne.CMMS.Infrastructure.MaintenancePlanRepository, NexaOne.CMMS">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="appConfiguration" />
+  </object>
+  <object id="sparePartRepository" type="NexaOne.CMMS.Infrastructure.SparePartRepository, NexaOne.CMMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="cmmsService" type="NexaOne.CMMS.Application.Cmms.CmmsService, NexaOne.CMMS">
     <constructor-arg ref="workOrderRepository" />
   </object>
+  <object id="maintenancePlanService" type="NexaOne.CMMS.Application.Cmms.MaintenancePlanService, NexaOne.CMMS">
+    <constructor-arg ref="maintenancePlanRepository" />
+    <constructor-arg ref="sparePartRepository" />
+  </object>
 
-  <!-- ===== POM (Production Order Management) — 구 PPM ===== -->
+  <!-- ===== POM (Production Order Management) ===== -->
 
-  <object id="productionPlanRepository"
-          type="NexaOne.POM.Infrastructure.ProductionPlanRepository, NexaOne.POM">
+  <object id="pomProductionPlanRepository" type="NexaOne.POM.Infrastructure.ProductionPlanRepository, NexaOne.POM">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
   </object>
-
-  <object id="pomService"
-          type="NexaOne.POM.Application.Pom.PomService, NexaOne.POM">
-    <constructor-arg ref="productionPlanRepository" />
-  </object>
-
-  <!-- ===== SHP (Shipment) — 구 DLV ===== -->
-
-  <object id="deliveryOrderRepository"
-          type="NexaOne.SHP.Infrastructure.DeliveryOrderRepository, NexaOne.SHP">
+  <object id="pomProductionOrderRepository" type="NexaOne.POM.Infrastructure.ProductionOrderRepository, NexaOne.POM">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
   </object>
-
-  <!-- ShpService가 추가로 요구하는 리포지토리들(모두 데이터소스 단일 인자). -->
-  <object id="deliveryItemRepository"
-          type="NexaOne.SHP.Infrastructure.DeliveryItemRepository, NexaOne.SHP">
-    <constructor-arg ref="eesDataSource" />
+  <object id="pomService" type="NexaOne.POM.Application.Pom.PomService, NexaOne.POM">
+    <constructor-arg ref="pomProductionPlanRepository" />
+  </object>
+  <object id="productionOrderService" type="NexaOne.POM.Application.Pom.ProductionOrderService, NexaOne.POM">
+    <constructor-arg ref="pomProductionOrderRepository" />
   </object>
 
-  <object id="shipmentHistoryRepository"
-          type="NexaOne.SHP.Infrastructure.ShipmentHistoryRepository, NexaOne.SHP">
+  <!-- ===== SHP (Shipment) ===== -->
+
+  <object id="deliveryOrderRepository" type="NexaOne.SHP.Infrastructure.DeliveryOrderRepository, NexaOne.SHP">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="appConfiguration" />
+  </object>
+  <object id="deliveryItemRepository" type="NexaOne.SHP.Infrastructure.DeliveryItemRepository, NexaOne.SHP">
     <constructor-arg ref="eesDataSource" />
   </object>
-
-  <!-- ShpService(orderRepository, itemRepository, historyRepository) — 3개 리포지토리 순서대로 주입. -->
-  <object id="shpService"
-          type="NexaOne.SHP.Application.Shp.ShpService, NexaOne.SHP">
+  <object id="shipmentHistoryRepository" type="NexaOne.SHP.Infrastructure.ShipmentHistoryRepository, NexaOne.SHP">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="shpService" type="NexaOne.SHP.Application.Shp.ShpService, NexaOne.SHP">
     <constructor-arg ref="deliveryOrderRepository" />
     <constructor-arg ref="deliveryItemRepository" />
     <constructor-arg ref="shipmentHistoryRepository" />
@@ -178,37 +199,49 @@
 
   <!-- ===== SYS ===== -->
 
-  <object id="userRepository"
-          type="NexaOne.SYS.Infrastructure.UserRepository, NexaOne.SYS">
+  <object id="userRepository" type="NexaOne.SYS.Infrastructure.UserRepository, NexaOne.SYS">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
   </object>
-
-  <!-- UserService가 추가로 요구하는 리포지토리들. -->
-  <object id="roleRepository"
-          type="NexaOne.SYS.Infrastructure.RoleRepository, NexaOne.SYS">
+  <object id="roleRepository" type="NexaOne.SYS.Infrastructure.RoleRepository, NexaOne.SYS">
     <constructor-arg ref="eesDataSource" />
   </object>
-
-  <object id="multiLanguageResourceRepository"
-          type="NexaOne.SYS.Infrastructure.MultiLanguageResourceRepository, NexaOne.SYS">
+  <object id="multiLanguageResourceRepository" type="NexaOne.SYS.Infrastructure.MultiLanguageResourceRepository, NexaOne.SYS">
     <constructor-arg ref="eesDataSource" />
   </object>
-
-  <!-- LoginFailureHistoryRepository(dataSource, dialect) — IConfiguration이 아닌 INexaOneEESDbCapability(eesDialect)를 받는다. -->
-  <object id="loginFailureHistoryRepository"
-          type="NexaOne.SYS.Infrastructure.LoginFailureHistoryRepository, NexaOne.SYS">
+  <object id="loginFailureHistoryRepository" type="NexaOne.SYS.Infrastructure.LoginFailureHistoryRepository, NexaOne.SYS">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="eesDialect" />
   </object>
-
-  <!-- UserService(userRepository, roleRepository, langRepository, failureRepository) — 4개 리포지토리 순서대로 주입. -->
-  <object id="userService"
-          type="NexaOne.SYS.Application.Users.UserService, NexaOne.SYS">
+  <object id="userRequestRepository" type="NexaOne.SYS.Infrastructure.UserRequestRepository, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="appConfiguration" />
+  </object>
+  <object id="menuRepository" type="NexaOne.SYS.Infrastructure.MenuRepository, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="favoriteMenuRepository" type="NexaOne.SYS.Infrastructure.FavoriteMenuRepository, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="eesDialect" />
+  </object>
+  <object id="recentMenuRepository" type="NexaOne.SYS.Infrastructure.RecentMenuRepository, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="eesDialect" />
+  </object>
+  <object id="userService" type="NexaOne.SYS.Application.Users.UserService, NexaOne.SYS">
     <constructor-arg ref="userRepository" />
     <constructor-arg ref="roleRepository" />
     <constructor-arg ref="multiLanguageResourceRepository" />
     <constructor-arg ref="loginFailureHistoryRepository" />
+  </object>
+  <object id="userRegistrationService" type="NexaOne.SYS.Application.Users.UserRegistrationService, NexaOne.SYS">
+    <constructor-arg ref="userRequestRepository" />
+    <constructor-arg ref="userRepository" />
+  </object>
+  <object id="userMenuService" type="NexaOne.SYS.Application.Menus.UserMenuService, NexaOne.SYS">
+    <constructor-arg ref="favoriteMenuRepository" />
+    <constructor-arg ref="recentMenuRepository" />
+    <constructor-arg ref="menuRepository" />
   </object>
 
 </objects>
