@@ -1,9 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Application>
   <Services>
-    <!-- classPaths: 도메인 모듈 DLL을 ';'로 구분해 나열한다. ClassLoader가 각 경로를 DLL 파일 경로로 보고
-         plugin ALC(AssemblyLoader)로 로드한다(디렉터리 아님). DLL은 빌드 시 CopyDomainModulePlugins 타깃이
-         ./Modules/로 복사한다(NexaOne.Server.csproj). -->
-    <Service name="NexaOne" configFiles="nexaone.xml" classPaths="./Modules/NexaOne.MDM.dll;./Modules/NexaOne.EST.dll;./Modules/NexaOne.FDC.dll;./Modules/NexaOne.RMS.dll;./Modules/NexaOne.QMS.dll;./Modules/NexaOne.CMMS.dll;./Modules/NexaOne.POM.dll;./Modules/NexaOne.SHP.dll;./Modules/NexaOne.SYS.dll" />
+    <!-- 모듈 독립 구조: 도메인 모듈 9개를 각각 독립 Service로 등록한다. Service당 모듈 DLL 1개(classPaths)와
+         그 모듈의 빈을 담은 모듈 xml 1개(configFiles)를 짝짓는다. ClassLoader가 classPaths의 DLL을 plugin
+         ALC(AssemblyLoader)로 로드하고, configFiles의 xml이 해당 모듈 빈을 등록한다. 공통 서버 빈
+         (eesDataSource·appConfiguration·eesDialect·opcUaDriver·messageBus·plantController)은 server.xml
+         (부모 컨텍스트)에 있고 모듈 xml은 이를 ref로만 참조한다. DLL은 빌드 시 CopyDomainModulePlugins
+         타깃이 ./Modules/로 복사한다(NexaOne.Server.csproj). -->
+    <Service name="Mdm"  classPaths="./Modules/NexaOne.MDM.dll"  configFiles="mdm.xml" />
+    <Service name="Est"  classPaths="./Modules/NexaOne.EST.dll"  configFiles="est.xml" />
+    <Service name="Fdc"  classPaths="./Modules/NexaOne.FDC.dll"  configFiles="fdc.xml" />
+    <Service name="Rms"  classPaths="./Modules/NexaOne.RMS.dll"  configFiles="rms.xml" />
+    <Service name="Qms"  classPaths="./Modules/NexaOne.QMS.dll"  configFiles="qms.xml" />
+    <Service name="Cmms" classPaths="./Modules/NexaOne.CMMS.dll" configFiles="cmms.xml" />
+    <Service name="Pom"  classPaths="./Modules/NexaOne.POM.dll"  configFiles="pom.xml" />
+    <Service name="Shp"  classPaths="./Modules/NexaOne.SHP.dll"  configFiles="shp.xml" />
+    <Service name="Sys"  classPaths="./Modules/NexaOne.SYS.dll"  configFiles="sys.xml" />
   </Services>
 </Application>

@@ -1,5 +1,4 @@
 using System.Xml.Linq;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NexaOne.Infrastructure.Persistence;
@@ -28,6 +27,9 @@ internal static class Program
         XElement root = XDomUtility.GetRoot(doc);
         XElement services = XDomUtility.GetElement(root, "Services");
 
+        // 각 모듈 컨텍스트에서 발견한 background 워커(IHostedService)를 모아 Generic Host에 등록한다.
+        var workers = new List<IHostedService>();
+
         foreach (XElement service in XDomUtility.GetElements(services, "Service"))
         {
             var name = service.Attribute("name")?.Value
@@ -38,30 +40,38 @@ internal static class Program
                 ?? throw new InvalidOperationException($"Service '{name}' missing 'classPaths' attribute.");
 
             // configFiles/classPaths 모두 ';'로 다중 항목을 지정할 수 있다. classPaths의 각 항목은 ClassLoader가
-            // plugin ALC로 로드할 모듈 DLL 파일 경로다(도메인 모듈 9개).
+            // plugin ALC로 로드할 모듈 DLL 파일 경로다(모듈 독립 구조: Service당 모듈 DLL 1개 + 모듈 xml 1개).
             var splitOptions = StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries;
             var configFiles = configFilesAttr.Split(';', splitOptions);
             var classPaths = classPathsAttr.Split(';', splitOptions);
 
-            _server.AddService(name, configFiles, classPaths);
+            var ctx = _server.AddService(name, configFiles, classPaths);
             Console.WriteLine($"[NexaOne.Server] Service '{name}' registered ({classPaths.Length} module(s)).");
+
+            // 모듈 컨텍스트에서 IHostedService 빈을 자동발견해 수집한다(전역 config 게이트 없음 — 워커 enable은
+            // 모듈 xml의 enabled 생성자 인자가 제어한다). GetObjectsOfType은 IDictionary(빈 이름→인스턴스)를 반환한다.
+            // 타입 동일성: typeof(IHostedService)는 Default ALC(Microsoft.Extensions.Hosting), 모듈 워커도 Hosting이
+            // Modules에 미복사라 Default ALC로 해소되므로 매칭된다(기존 GetBean 캐스팅과 동일 원리).
+            foreach (IHostedService worker in ctx.GetObjectsOfType(typeof(IHostedService)).Values.Cast<IHostedService>())
+            {
+                workers.Add(worker);
+            }
         }
 
         // .NET Generic Host — 비웹 background 워커(모듈 소유 + Server 실행)의 호스트(ADR-006 Phase 1~2).
-        // 수명주기 관리(Ctrl+C/SIGTERM)와 게이트 기반 워커 호스팅을 담당한다. 모듈 워커의 FDC 타입은 plugin ALC에서
-        // 해석돼야 하므로(NexaOne.FDC.dll은 ClassLoader가 전담 로드) 워커는 nexaone.xml 자식 컨텍스트에서 조립하고,
+        // 수명주기 관리(Ctrl+C/SIGTERM)와 워커 호스팅을 담당한다. 모듈 워커의 FDC 타입은 plugin ALC에서
+        // 해석돼야 하므로(NexaOne.FDC.dll은 ClassLoader가 전담 로드) 워커는 모듈 자식 컨텍스트에서 조립하고,
         // 여기서는 IHostedService(공유 프레임워크 타입)로만 당겨 등록한다 — Server가 FDC 타입을 직접 참조하지 않게.
         var builder = Host.CreateApplicationBuilder(args);
         builder.Services.AddSingleton(_server);   // 워커가 컨테이너 빈을 조회할 수 있도록 호스트 DI에 노출
 
-        // FDC 실시간 수집 워커 게이트(ADR-006 Phase 2). 기본 OFF — 미설정 시 워커가 등록조차 되지 않아
-        // 부팅이 기존과 동일하다(회귀 0). true일 때만 nexaone.xml의 fdcCollectionWorker 빈을 호스트에 등록한다.
-        if (builder.Configuration.GetValue("Worker:Fdc:Enabled", false))
+        // 자동발견한 워커를 호스트에 등록한다. 워커 enable은 모듈 xml의 enabled 인자가 제어하므로(예: fdc.xml의
+        // fdcCollectionWorker는 기본 false), 여기서는 발견된 워커를 그대로 호스팅한다.
+        foreach (var w in workers)
         {
-            var fdcWorker = (IHostedService)_server.GetBean("NexaOne", "fdcCollectionWorker");
-            builder.Services.AddSingleton<IHostedService>(fdcWorker);
-            Console.WriteLine("[NexaOne.Server] FDC collection worker registered (Worker:Fdc:Enabled=true).");
+            builder.Services.AddSingleton<IHostedService>(w);
         }
+        Console.WriteLine($"[NexaOne.Server] {workers.Count} background worker(s) discovered and registered.");
 
         using var host = builder.Build();
 

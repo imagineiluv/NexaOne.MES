@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<objects xmlns="http://www.springframework.net"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
+
+  <!-- ===== SYS ===== -->
+
+  <object id="userRepository" type="NexaOne.SYS.Infrastructure.UserRepository, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="appConfiguration" />
+  </object>
+  <object id="roleRepository" type="NexaOne.SYS.Infrastructure.RoleRepository, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="multiLanguageResourceRepository" type="NexaOne.SYS.Infrastructure.MultiLanguageResourceRepository, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="loginFailureHistoryRepository" type="NexaOne.SYS.Infrastructure.LoginFailureHistoryRepository, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="eesDialect" />
+  </object>
+  <object id="userRequestRepository" type="NexaOne.SYS.Infrastructure.UserRequestRepository, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="appConfiguration" />
+  </object>
+  <object id="menuRepository" type="NexaOne.SYS.Infrastructure.MenuRepository, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="favoriteMenuRepository" type="NexaOne.SYS.Infrastructure.FavoriteMenuRepository, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="eesDialect" />
+  </object>
+  <object id="recentMenuRepository" type="NexaOne.SYS.Infrastructure.RecentMenuRepository, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="eesDialect" />
+  </object>
+  <object id="userService" type="NexaOne.SYS.Application.Users.UserService, NexaOne.SYS">
+    <constructor-arg ref="userRepository" />
+    <constructor-arg ref="roleRepository" />
+    <constructor-arg ref="multiLanguageResourceRepository" />
+    <constructor-arg ref="loginFailureHistoryRepository" />
+  </object>
+  <object id="userRegistrationService" type="NexaOne.SYS.Application.Users.UserRegistrationService, NexaOne.SYS">
+    <constructor-arg ref="userRequestRepository" />
+    <constructor-arg ref="userRepository" />
+  </object>
+  <object id="userMenuService" type="NexaOne.SYS.Application.Menus.UserMenuService, NexaOne.SYS">
+    <constructor-arg ref="favoriteMenuRepository" />
+    <constructor-arg ref="recentMenuRepository" />
+    <constructor-arg ref="menuRepository" />
+  </object>
+
+</objects>

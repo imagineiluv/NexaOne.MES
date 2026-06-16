@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<objects xmlns="http://www.springframework.net"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
+
+  <!-- ===== RMS (Recipe Management System) ===== -->
+
+  <object id="rmsRecipeRepository" type="NexaOne.RMS.Infrastructure.RecipeRepository, NexaOne.RMS">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="appConfiguration" />
+  </object>
+  <object id="rmsRecipeParamRepository" type="NexaOne.RMS.Infrastructure.RecipeParamRepository, NexaOne.RMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="rmsRecipeService" type="NexaOne.RMS.Application.Rms.RecipeService, NexaOne.RMS">
+    <constructor-arg ref="rmsRecipeRepository" />
+    <constructor-arg ref="rmsRecipeParamRepository" />
+  </object>
+
+</objects>

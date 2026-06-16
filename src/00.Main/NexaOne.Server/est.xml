@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<objects xmlns="http://www.springframework.net"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
+
+  <!-- ===== EST (Equipment State Tracking) ===== -->
+
+  <object id="equipmentAlarmRepository" type="NexaOne.EST.Infrastructure.EquipmentAlarmRepository, NexaOne.EST">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="appConfiguration" />
+  </object>
+  <object id="equipmentStateMatrixRepository" type="NexaOne.EST.Infrastructure.EquipmentStateMatrixRepository, NexaOne.EST">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="equipmentStateRepository" type="NexaOne.EST.Infrastructure.EquipmentStateRepository, NexaOne.EST">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="eesDialect" />
+    <constructor-arg ref="appConfiguration" />
+  </object>
+  <object id="equipmentAlarmService" type="NexaOne.EST.Application.Est.EquipmentAlarmService, NexaOne.EST">
+    <constructor-arg ref="equipmentAlarmRepository" />
+  </object>
+  <object id="equipmentStateService" type="NexaOne.EST.Application.Est.EquipmentStateService, NexaOne.EST">
+    <constructor-arg ref="equipmentStateMatrixRepository" />
+    <constructor-arg ref="equipmentStateRepository" />
+  </object>
+
+</objects>

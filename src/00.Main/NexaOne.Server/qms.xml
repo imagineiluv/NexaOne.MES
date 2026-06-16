@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<objects xmlns="http://www.springframework.net"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
+
+  <!-- ===== QMS (Quality Management System) ===== -->
+
+  <object id="qmsDefectRepository" type="NexaOne.QMS.Infrastructure.DefectRepository, NexaOne.QMS">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="appConfiguration" />
+  </object>
+  <object id="qmsDefectClassRepository" type="NexaOne.QMS.Infrastructure.DefectClassRepository, NexaOne.QMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="qmsInspectionSpecRepository" type="NexaOne.QMS.Infrastructure.InspectionSpecRepository, NexaOne.QMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="qmsInspectionResultRepository" type="NexaOne.QMS.Infrastructure.InspectionResultRepository, NexaOne.QMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="qmsSpcParamRepository" type="NexaOne.QMS.Infrastructure.SpcParamRepository, NexaOne.QMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="qmsService" type="NexaOne.QMS.Application.Qms.QmsService, NexaOne.QMS">
+    <constructor-arg ref="qmsDefectRepository" />
+    <constructor-arg ref="qmsDefectClassRepository" />
+    <constructor-arg ref="qmsInspectionSpecRepository" />
+    <constructor-arg ref="qmsInspectionResultRepository" />
+    <constructor-arg ref="qmsSpcParamRepository" />
+  </object>
+
+</objects>
