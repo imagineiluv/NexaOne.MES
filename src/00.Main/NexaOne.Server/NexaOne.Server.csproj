@@ -9,6 +9,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.*" />
+    <!-- .NET Generic Host — 비웹 background 워커(모듈 소유 + Server 실행)의 호스트(ADR-006 Phase 1).
+         Spring.NET 빈 컨테이너(ApplicationServer)와 공존: 컨테이너는 서비스 빈, Generic Host는 워커 수명주기. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.*" />
   </ItemGroup>
 
   <ItemGroup>

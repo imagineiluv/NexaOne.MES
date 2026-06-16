@@ -1,4 +1,6 @@
 using System.Xml.Linq;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using NexaOne.Infrastructure.Persistence;
 using NexusFramework;
 using NexusFramework.Utils;
@@ -44,16 +46,15 @@ internal static class Program
             Console.WriteLine($"[NexaOne.Server] Service '{name}' registered ({classPaths.Length} module(s)).");
         }
 
+        // .NET Generic Host — 비웹 background 워커(모듈 소유 + Server 실행)의 호스트(ADR-006 Phase 1).
+        // 현재는 수명주기 관리(Ctrl+C/SIGTERM)만 담당한다. 모듈/인프라가 선언하는 IHostedService 워커는
+        // 후속 단계(Phase 2~3)에서 등록하며, Spring 빈은 ApplicationServer.GetBean으로 브리지한다.
+        var builder = Host.CreateApplicationBuilder(args);
+        builder.Services.AddSingleton(_server);   // 워커가 컨테이너 빈을 조회할 수 있도록 호스트 DI에 노출
+        using var host = builder.Build();
+
         Console.WriteLine("[NexaOne.Server] Ready. Press Ctrl+C to stop.");
-
-        var tcs = new TaskCompletionSource();
-        Console.CancelKeyPress += (_, e) =>
-        {
-            e.Cancel = true;
-            tcs.TrySetResult();
-        };
-
-        await tcs.Task;
+        await host.RunAsync();
 
         Console.WriteLine("[NexaOne.Server] Shutting down...");
         _server.Dispose();
