@@ -38,6 +38,10 @@
        서버 빈, 모듈에서 호출). lazy-init: 실제 참조될 때만 생성해 부팅 시 OPC-UA 라이브러리 초기화·연결 시도를 회피한다. -->
   <object id="opcUaDriver" type="NexusLogic.Plc.OpcUa.OpcUaDriver, NexusLogic.Plc.OpcUa" lazy-init="true" />
 
+  <!-- 설비 제어(PlantController). FDC 수집 워커(ADR-006 Phase 2)가 GetServerBean("plantController")로 당겨 Machine
+       lifecycle을 수동 제어한다. 무인자 ctor(Spring property 주입). 부모 컨텍스트라 NexusFramework 타입 로드 가능. -->
+  <object id="plantController" type="NexusFramework.PlantController, NexusFramework" />
+
   <!-- 메시징 버스(IMessageBus). 드라이버처럼 server.xml 빈으로 두고, 워커(FDC)·Outbox 디스패처·구독자가
        GetBean으로 당겨 쓴다(ADR-006). DB 공급자(dbProvider)처럼 아래 두 줄 중 하나만 활성화해 전환한다.
        - [InMemory](기본): 단일 프로세스 dev/테스트. 같은 프로세스 내 구독자에게만 전달.

@@ -12,6 +12,8 @@ public static class RealtimeNotificationDispatch
         => eventType switch
         {
             "EquipmentStateChanged" => notifier.NotifyEquipmentStateChangedAsync(aggregateId, payload, ct),
+            // FDC 수집 워커(ADR-006 Phase 2)가 버스로 발행하는 인터락 발동 — (설비,액션) 상태 변경 푸시로 전달.
+            "InterlockTriggered" => notifier.NotifyEquipmentStateChangedAsync(aggregateId, payload, ct),
             "EquipmentAlarmRaised" or "EquipmentAlarmCleared" or "FdcAlarmRaised" or "FdcAlarmCleared"
                 => notifier.NotifyAlarmUpdatedAsync(ct),
             "WorkOrderStarted" or "WorkOrderCompleted" or "WorkOrderCancelled"

@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using NexaOne.Infrastructure.Persistence;
@@ -46,11 +47,22 @@ internal static class Program
             Console.WriteLine($"[NexaOne.Server] Service '{name}' registered ({classPaths.Length} module(s)).");
         }
 
-        // .NET Generic Host — 비웹 background 워커(모듈 소유 + Server 실행)의 호스트(ADR-006 Phase 1).
-        // 현재는 수명주기 관리(Ctrl+C/SIGTERM)만 담당한다. 모듈/인프라가 선언하는 IHostedService 워커는
-        // 후속 단계(Phase 2~3)에서 등록하며, Spring 빈은 ApplicationServer.GetBean으로 브리지한다.
+        // .NET Generic Host — 비웹 background 워커(모듈 소유 + Server 실행)의 호스트(ADR-006 Phase 1~2).
+        // 수명주기 관리(Ctrl+C/SIGTERM)와 게이트 기반 워커 호스팅을 담당한다. 모듈 워커의 FDC 타입은 plugin ALC에서
+        // 해석돼야 하므로(NexaOne.FDC.dll은 ClassLoader가 전담 로드) 워커는 nexaone.xml 자식 컨텍스트에서 조립하고,
+        // 여기서는 IHostedService(공유 프레임워크 타입)로만 당겨 등록한다 — Server가 FDC 타입을 직접 참조하지 않게.
         var builder = Host.CreateApplicationBuilder(args);
         builder.Services.AddSingleton(_server);   // 워커가 컨테이너 빈을 조회할 수 있도록 호스트 DI에 노출
+
+        // FDC 실시간 수집 워커 게이트(ADR-006 Phase 2). 기본 OFF — 미설정 시 워커가 등록조차 되지 않아
+        // 부팅이 기존과 동일하다(회귀 0). true일 때만 nexaone.xml의 fdcCollectionWorker 빈을 호스트에 등록한다.
+        if (builder.Configuration.GetValue("Worker:Fdc:Enabled", false))
+        {
+            var fdcWorker = (IHostedService)_server.GetBean("NexaOne", "fdcCollectionWorker");
+            builder.Services.AddSingleton<IHostedService>(fdcWorker);
+            Console.WriteLine("[NexaOne.Server] FDC collection worker registered (Worker:Fdc:Enabled=true).");
+        }
+
         using var host = builder.Build();
 
         Console.WriteLine("[NexaOne.Server] Ready. Press Ctrl+C to stop.");

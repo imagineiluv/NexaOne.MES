@@ -69,6 +69,10 @@
   <object id="fdcParameterRepository" type="NexaOne.FDC.Infrastructure.FdcParameterRepository, NexaOne.FDC">
     <constructor-arg ref="eesDataSource" />
   </object>
+  <!-- FdcCollectionWorker(ADR-006 Phase 2)가 기동 시 활성 엔드포인트를 로드하는 데 사용. ctor: (EesDataSource). -->
+  <object id="fdcEquipmentEndpointRepository" type="NexaOne.FDC.Infrastructure.FdcEquipmentEndpointRepository, NexaOne.FDC">
+    <constructor-arg ref="eesDataSource" />
+  </object>
   <object id="fdcCollectDataRepository" type="NexaOne.FDC.Infrastructure.FdcCollectDataRepository, NexaOne.FDC">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="eesDialect" />
@@ -99,6 +103,22 @@
     <constructor-arg ref="fdcDataService" />
     <constructor-arg ref="fdcInterlockService" />
     <constructor-arg ref="fdcAlarmService" />
+  </object>
+  <!-- FDC 실시간 수집 워커(BackgroundService, ADR-006 Phase 2) — 모듈 소유 오케스트레이션. FDC 타입은 plugin ALC에서
+       해석돼야 하므로 워커는 이 자식 컨텍스트에서 조립한다(Program.cs는 IHostedService로만 당겨 게이트로 호스팅).
+       plantController/opcUaDriver/messageBus는 부모(server.xml) 빈을 cross-context ref로 주입한다.
+       ctor: (FdcCollectorService, IFdcEquipmentEndpointRepository, IFdcParameterRepository, PlantController,
+              IPlcDriver, IMessageBus, bool enabled, string topic). enabled=true: 등록 자체가 Program.cs 게이트로
+       제어되므로(기본 OFF, 미등록), 등록되면 동작하도록 true. topic 기본 "nexaone.events". -->
+  <object id="fdcCollectionWorker" type="NexaOne.FDC.Application.Fdc.FdcCollectionWorker, NexaOne.FDC">
+    <constructor-arg ref="fdcCollectorService" />
+    <constructor-arg ref="fdcEquipmentEndpointRepository" />
+    <constructor-arg ref="fdcParameterRepository" />
+    <constructor-arg ref="plantController" />
+    <constructor-arg ref="opcUaDriver" />
+    <constructor-arg ref="messageBus" />
+    <constructor-arg value="true" />
+    <constructor-arg value="nexaone.events" />
   </object>
 
   <!-- ===== RMS (Recipe Management System) ===== -->
