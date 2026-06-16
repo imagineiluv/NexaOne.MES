@@ -4,9 +4,6 @@
     <ProjectReference Include="..\NexaOne.Common\NexaOne.Common.csproj" />
     <ProjectReference Include="..\NexaOne.Application\NexaOne.Application.csproj" />
     <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.Abstractions\NexusCom.Data.Abstractions.csproj" />
-    <!-- SqliteProviderFactory가 SqliteProvider를 생성한다(Spring factory-method 우회). SQLite 방언 어댑터
-         (SqliteEesDbCapability)도 이 프로젝트에 있어, NexaOne의 SQLite 적응 코드를 한 곳에 모은다. -->
-    <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.Sqlite\NexusCom.Data.Sqlite.csproj" />
   </ItemGroup>
 
   <ItemGroup>

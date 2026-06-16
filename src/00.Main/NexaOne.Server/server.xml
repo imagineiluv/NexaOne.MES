@@ -45,9 +45,9 @@
   </object>
 
   <!-- [SQLite] 로컬/테스트 — 위 [MSSQL] 3개 객체를 주석 처리하고 아래 주석을 해제한다.
-       SqliteProvider는 무인자 ctor가 없어(전 선택적 파라미터) Spring이 직접 생성하지 못하므로
-       SqliteProviderFactory.Create()(factory-method)로 생성한다. MsSqlProvider는 무인자 ctor가 있어 직접 지정한다.
-  <object id="dbProvider" type="NexaOne.Infrastructure.Persistence.SqliteProviderFactory, NexaOne.Infrastructure" factory-method="Create" />
+       두 공급자 모두 NexusCom.Data 메타 참조로 출력에 상존하므로 어셈블리 한정 타입명으로 직접 지정한다.
+       (SqliteProvider/eesDialect는 NexusCom.Data.Sqlite, MsSql은 NexusCom.Data.MsSql.) SQL 방언은 SQLite 어댑터.
+  <object id="dbProvider" type="NexusCom.Data.Sqlite.SqliteProvider, NexusCom.Data.Sqlite" />
   <object id="eesDialect" type="NexaOne.Infrastructure.Persistence.SqliteEesDbCapability, NexaOne.Infrastructure" />
   <object id="eesDataSource" type="NexaOne.Infrastructure.Persistence.EesDataSource, NexaOne.Infrastructure">
     <property name="Provider" ref="dbProvider" />

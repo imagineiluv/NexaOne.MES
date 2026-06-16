@@ -48,10 +48,19 @@
     <constructor-arg ref="eesDataSource" />
   </object>
 
-  <!-- FdcInterlockService(ruleRepository, historyRepository?=null) — 이력 리포지토리는 선택적 기본 null이라 미주입. -->
+  <!-- FdcInterlockHistoryRepository(EesDataSource, IConfiguration) — config는 ADR-002 outbox opt-in 게이트 판독용. -->
+  <object id="fdcInterlockHistoryRepository"
+          type="NexaOne.FDC.Infrastructure.FdcInterlockHistoryRepository, NexaOne.FDC">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="appConfiguration" />
+  </object>
+
+  <!-- FdcInterlockService(ruleRepository, historyRepository) — Spring.NET은 C# 선택적 파라미터(기본 null)를
+       인식하지 못하므로 2번째 인자 IFdcInterlockHistoryRepository도 실제 빈으로 주입한다(미주입 시 생성자 매칭 실패). -->
   <object id="fdcInterlockService"
           type="NexaOne.FDC.Application.Fdc.FdcInterlockService, NexaOne.FDC">
     <constructor-arg ref="fdcInterlockRuleRepository" />
+    <constructor-arg ref="fdcInterlockHistoryRepository" />
   </object>
 
   <!-- ===== RMS (Recipe Management System) ===== -->
