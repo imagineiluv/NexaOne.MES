@@ -236,7 +236,7 @@ Phase 1: 기반 인프라 구축 (2~3주)
   └─ C# 백엔드 솔루션 골격 생성 (NexusFramework/NexusCom 서브모듈 연동)
   └─ EesDataSource + QueryRepository + ServiceObjectProcessor 구현
   └─ JWT 인증 API (NexaOne.API), DB 연결 구축
-  └─ NexaOne.Server Spring.NET XML DI 구성 (server.xml / nexaone-ees.xml)
+  └─ NexaOne.Server Spring.NET XML DI 구성 (server.xml / nexaone.xml) — DB 공급자 전환·플러그인 로딩은 ADR-004
 
 Phase 2: C# Blazor 웹 UI 구축 (4~5주)
   └─ NexaOne.Web 프로젝트 생성 (Blazor Server)
@@ -5756,6 +5756,8 @@ public sealed class PluginLoadContext : AssemblyLoadContext
     }
 }
 ```
+
+> **구현은 본 절을 다음과 같이 적응한다([ADR-004](adr/ADR-004-server-host-runtime.md)).** DI 컨테이너(Spring.NET)가 플러그인 타입을 `"Type, Assembly"` 문자열로 해석하는 호스트(`NexaOne.Server`)에서는 위 `isCollectible: true`를 **`false`로 둔다.** .NET은 수집형 ALC에 로드된 어셈블리를 partial-name(`Assembly.LoadWithPartialName`)으로 바인딩하지 못하므로("Resolving to a collectible assembly is not supported"), 비수집형이라야 Spring.NET의 타입 해석과 `AssemblyResolve` 폴백이 동작한다. 격리·`AssemblyDependencyResolver` 위임 패턴은 유지한다. 트레이드오프는 핫리로드 시 메모리 미회수(ADR-004 결과 참조).
 
 #### 18.6.2 코드 서명 검증
 
