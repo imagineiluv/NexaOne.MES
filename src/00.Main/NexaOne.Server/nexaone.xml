@@ -9,9 +9,10 @@
        가 null→off로 평가되게 한다. 이 NexusFramework 호스트에서는 API 티어가 디스패처를 돌리므로 off가 올바른 기본값(ADR-002). -->
   <object id="appConfiguration" type="Microsoft.Extensions.Configuration.ConfigurationManager, Microsoft.Extensions.Configuration" />
 
-  <!-- EES SQL 방언(INexaOneEESDbCapability) 구현. MSSQL 구현은 MsSqlProvider(IDatabaseProvider, INexaOneEESDbCapability 동시 구현).
-       server.xml의 msSqlProvider와 동일 타입을 dialect 역할로 단일 인스턴스 정의해 dialect 파라미터가 필요한 리포지토리에 주입한다. -->
-  <object id="eesDialect" type="NexusCom.Data.MsSql.MsSqlProvider, NexusCom.Data.MsSql" />
+  <!-- eesDialect(INexaOneEESDbCapability)와 eesDataSource는 server.xml(부모 컨텍스트)에 정의된다.
+       DB 전환(MSSQL↔SQLite)이 server.xml 한 파일로 끝나도록 dialect를 그쪽에 두고, 여기서는 ref로만 참조한다.
+       자식 컨텍스트는 부모 객체를 참조 가능하다(eesDataSource도 동일 방식으로 주입). -->
+
 
   <!-- ===== MDM (Master Data Management) ===== -->
 

@@ -19,6 +19,17 @@
     <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.MsSql\NexusCom.Data.MsSql.csproj" Condition="'$(DbmsType)'=='MSSQL' or '$(DbmsType)'==''" />
     <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.PostgreSql\NexusCom.Data.PostgreSql.csproj" Condition="'$(DbmsType)'=='PostgreSQL'" />
     <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.MySql\NexusCom.Data.MySql.csproj" Condition="'$(DbmsType)'=='MySQL'" />
+    <!-- SQLite 공급자는 항상 참조한다(작고 외부 DB 불필요). 이로써 server.xml만 바꿔(코드 재빌드 없이)
+         MSSQL↔SQLite 전환이 가능하다 — SqliteProvider DLL이 호스트 Default ALC에 상존. -->
+    <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.Sqlite\NexusCom.Data.Sqlite.csproj" />
+  </ItemGroup>
+
+  <!-- SQLite 모드에서 SqliteSchemaInitializer가 출력 디렉터리 옆(db/migrations)에서 DDL을 찾도록 복사한다.
+       MSSQL 모드에서는 사용되지 않는다(운영은 마이그레이션을 외부 적용). -->
+  <ItemGroup>
+    <Content Include="..\..\..\db\migrations\*.sql" Link="db\migrations\%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <!-- 도메인 모듈은 플러그인으로 ./Modules/에 게시한다(설계 §3.1). ReferenceOutputAssembly=false: 모듈 DLL을
