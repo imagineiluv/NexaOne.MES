@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Confluent.Kafka;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using NexusCom.Messaging.Kafka;
 
 namespace NexaOne.Infrastructure.Messaging;
@@ -21,6 +22,13 @@ public sealed class KafkaMessageBus : IMessageBus, IDisposable
         _logger = logger;
         _driver = new KafkaDriver(driverLogger);
         _driver.Configure(bootstrapServers, messageTimeoutMs: 10_000);
+    }
+
+    /// <summary>server.xml 등 DI 컨테이너용 — bootstrapServers만 받고 로거는 NullLogger로 떨군다(드라이버는
+    /// 메시징 빈으로 server.xml에 두고 GetBean으로 당겨 쓰는 패턴, ADR-006). 진단 로그가 필요하면 전체 ctor를 쓴다.</summary>
+    public KafkaMessageBus(string bootstrapServers)
+        : this(bootstrapServers, NullLogger<KafkaMessageBus>.Instance, NullLogger<KafkaDriver>.Instance)
+    {
     }
 
     public async Task PublishAsync(

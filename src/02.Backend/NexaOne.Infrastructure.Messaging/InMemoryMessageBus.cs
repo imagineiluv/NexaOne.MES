@@ -15,6 +15,9 @@ public sealed class InMemoryMessageBus : IMessageBus
 
     public InMemoryMessageBus(ILogger<InMemoryMessageBus>? logger = null) => _logger = logger;
 
+    /// <summary>server.xml 등 zero-arg 리플렉션 컨테이너용 무인자 생성자(전 선택적 파라미터라 실제 무인자 ctor 부재).</summary>
+    public InMemoryMessageBus() : this(null) { }
+
     /// <summary>인프로세스 구독자 등록. 발행된 모든 메시지가 등록 순서대로 이 핸들러에 전달된다.</summary>
     public void Subscribe(Func<DomainEventMessage, CancellationToken, Task> handler)
     {

@@ -38,6 +38,15 @@
        서버 빈, 모듈에서 호출). lazy-init: 실제 참조될 때만 생성해 부팅 시 OPC-UA 라이브러리 초기화·연결 시도를 회피한다. -->
   <object id="opcUaDriver" type="NexusLogic.Plc.OpcUa.OpcUaDriver, NexusLogic.Plc.OpcUa" lazy-init="true" />
 
+  <!-- 메시징 버스(IMessageBus). 드라이버처럼 server.xml 빈으로 두고, 워커(FDC)·Outbox 디스패처·구독자가
+       GetBean으로 당겨 쓴다(ADR-006). DB 공급자(dbProvider)처럼 아래 두 줄 중 하나만 활성화해 전환한다.
+       - [InMemory](기본): 단일 프로세스 dev/테스트. 같은 프로세스 내 구독자에게만 전달.
+       - [Kafka]: 다중 프로세스 분리용. 워커 프로세스가 발행 → API가 구독 → SignalR. 실행 중인 브로커 필요. -->
+  <object id="messageBus" type="NexaOne.Infrastructure.Messaging.InMemoryMessageBus, NexaOne.Infrastructure.Messaging" />
+  <!-- <object id="messageBus" type="NexaOne.Infrastructure.Messaging.KafkaMessageBus, NexaOne.Infrastructure.Messaging">
+         <constructor-arg value="localhost:9092" />
+       </object> -->
+
   <!-- ===== Database =====
        DB 전환은 이 파일'만' 바꾸면 된다(코드 재빌드 불필요). 아래 [MSSQL] / [SQLite] 두 블록 중
        하나만 활성화하고 나머지는 주석 처리한다. 세 객체 id(dbProvider / eesDialect / eesDataSource)는

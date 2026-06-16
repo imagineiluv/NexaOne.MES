@@ -23,7 +23,7 @@
 
 **(3) 인프라 워커(Outbox 디스패처)는 Infrastructure 소유, Server가 실행.** 특정 모듈이 아닌 공유 `EES_OUTBOX` 관심사이므로 모듈이 아니라 인프라가 가진다.
 
-**(4) cross-process 전송 = Kafka 백본.** 워커 호스트(Server)가 outbox→Kafka 발행, API가 Kafka→SignalR 구독.
+**(4) cross-process 전송 = Kafka 백본 — 단, 메시징도 "서버 빈"으로 둔다.** `messageBus`(IMessageBus)를 드라이버(dbProvider/opcUaDriver)와 동일하게 **server.xml의 전환형 빈**으로 두고(InMemory ↔ Kafka, dbProvider와 같은 1파일 전환), 워커·Outbox 디스패처·구독자가 `GetBean`으로 당겨 쓴다. 메시징 타입에 로거-옵셔널/무인자 ctor를 추가해 Spring이 직접 생성하게 한다(SqliteProvider/OpcUaDriver와 동일 패턴). 워커 호스트(Server)가 발행, API가 구독→SignalR. 주의: 빈 등록은 배선을 통일할 뿐, 다중 프로세스 실제 전달은 **실행 중인 Kafka 브로커(외부 인프라)**가 필요하다(InMemory 빈은 단일 프로세스 전용).
 
 **(5) API는 웹 전용으로 축소.** 워커를 Server로 이전한 뒤 API에서는 비활성하고, 버스 구독자→SignalR만 유지.
 
