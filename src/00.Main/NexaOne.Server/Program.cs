@@ -20,7 +20,7 @@ internal static class Program
         // server.xml의 eesDataSource가 가리키는 Provider 타입으로 판별한다 — XML만 바꾸면 자동 적용된다.
         EnsureSqliteSchemaIfConfigured("server.xml");
 
-        _server.CreateServer(new[] { "server.xml" });
+        var serverCtx = _server.CreateServer(new[] { "server.xml" });
         Console.WriteLine("[NexaOne.Server] Server context initialized.");
 
         XDocument doc = XDomUtility.Load("app.xml");
@@ -29,6 +29,14 @@ internal static class Program
 
         // 각 모듈 컨텍스트에서 발견한 background 워커(IHostedService)를 모아 Generic Host에 등록한다.
         var workers = new List<IHostedService>();
+
+        // 부모(server.xml) 컨텍스트의 IHostedService 빈도 자동발견한다(예: scheduledOutboxDispatchWorker).
+        // ScheduledOutboxDispatchWorker·NexusFramework 타입은 Default ALC라 typeof(IHostedService)와 타입 동일성이
+        // 보장된다(모듈 자식 컨텍스트와 동일 원리). 워커 enable은 server.xml의 enabled 생성자 인자가 제어한다(기본 OFF).
+        foreach (IHostedService worker in serverCtx.GetObjectsOfType(typeof(IHostedService)).Values.Cast<IHostedService>())
+        {
+            workers.Add(worker);
+        }
 
         foreach (XElement service in XDomUtility.GetElements(services, "Service"))
         {
@@ -65,13 +73,15 @@ internal static class Program
         var builder = Host.CreateApplicationBuilder(args);
         builder.Services.AddSingleton(_server);   // 워커가 컨테이너 빈을 조회할 수 있도록 호스트 DI에 노출
 
-        // 자동발견한 워커를 호스트에 등록한다. 워커 enable은 모듈 xml의 enabled 인자가 제어하므로(예: fdc.xml의
-        // fdcCollectionWorker는 기본 false), 여기서는 발견된 워커를 그대로 호스팅한다.
-        foreach (var w in workers)
+        // 자식 컨텍스트의 GetObjectsOfType은 상속된 '부모' 빈(예: server.xml의 scheduledOutboxDispatchWorker)도
+        // 포함하므로, 같은 싱글톤이 여러 컨텍스트에서 중복 발견된다. 인스턴스 기준(참조 동일성)으로 중복을 제거해
+        // 각 워커가 정확히 한 번만 등록·기동되게 한다. 워커 enable은 xml의 enabled 인자가 제어한다.
+        var distinctWorkers = workers.Distinct().ToList();
+        foreach (var w in distinctWorkers)
         {
             builder.Services.AddSingleton<IHostedService>(w);
         }
-        Console.WriteLine($"[NexaOne.Server] {workers.Count} background worker(s) discovered and registered.");
+        Console.WriteLine($"[NexaOne.Server] {distinctWorkers.Count} background worker(s) discovered and registered.");
 
         using var host = builder.Build();
 

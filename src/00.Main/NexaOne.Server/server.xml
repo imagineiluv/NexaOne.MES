@@ -42,6 +42,31 @@
        lifecycle을 수동 제어한다. 무인자 ctor(Spring property 주입). 부모 컨텍스트라 NexusFramework 타입 로드 가능. -->
   <object id="plantController" type="NexusFramework.PlantController, NexusFramework" />
 
+  <!-- ===== Outbox 디스패치 워커(스케줄러 구동, ADR-002·ADR-006) =====
+       실 Quartz 반복 스케줄러로 구동되는 주기 워커. 기본 OFF — enabled="true"로만 기동한다(브로커/DB 없는 dev/CI 보호,
+       그리고 API 티어 디스패처와의 동시 가동 회피). API의 OutboxDispatcherService와 디스패치 의미는 동일하다. -->
+
+  <!-- 반복 스케줄러(IRecurringScheduler). Quartz 기본 RAMJobStore라 외부 인프라 없이 in-process 동작. 무인자 ctor. -->
+  <object id="quartzScheduler" type="NexusFramework.Scheduling.QuartzScheduler, NexusFramework" />
+
+  <!-- Outbox 저장소(IOutboxRepository). ctor(EesDataSource, INexaOneEESDbCapability) — 공통 빈 eesDataSource·eesDialect 주입. -->
+  <object id="outboxRepository" type="NexaOne.Infrastructure.Persistence.OutboxRepository, NexaOne.Infrastructure">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="eesDialect" />
+  </object>
+
+  <!-- 스케줄러 구동 Outbox 디스패치 워커(IHostedService). enabled="false"가 기본 게이트 — 켜려면 "true"로 변경한다. -->
+  <object id="scheduledOutboxDispatchWorker" type="NexaOne.Server.ScheduledOutboxDispatchWorker, NexaOne.Server">
+    <constructor-arg ref="quartzScheduler" />
+    <constructor-arg ref="outboxRepository" />
+    <constructor-arg ref="messageBus" />
+    <constructor-arg value="false" />        <!-- enabled — 기본 OFF. 워커 기동 스위치. -->
+    <constructor-arg value="5" />            <!-- intervalSeconds -->
+    <constructor-arg value="nexaone.events" /><!-- topic -->
+    <constructor-arg value="100" />          <!-- batchSize -->
+    <constructor-arg value="10" />           <!-- maxAttempts -->
+  </object>
+
   <!-- 메시징 버스(IMessageBus). 드라이버처럼 server.xml 빈으로 두고, 워커(FDC)·Outbox 디스패처·구독자가
        GetBean으로 당겨 쓴다(ADR-006). DB 공급자(dbProvider)처럼 아래 두 줄 중 하나만 활성화해 전환한다.
        - [InMemory](기본): 단일 프로세스 dev/테스트. 같은 프로세스 내 구독자에게만 전달.
