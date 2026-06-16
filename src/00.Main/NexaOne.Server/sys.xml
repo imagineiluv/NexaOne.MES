@@ -50,4 +50,16 @@
     <constructor-arg ref="menuRepository" />
   </object>
 
+  <!-- 로그인실패 이력 보존정리 워커(BackgroundService) — 모듈 소유 주기 작업. quartzScheduler는 부모(server.xml)
+       빈을 cross-context ref로 주입한다. Program.cs가 IHostedService로 자동발견해 호스팅한다. messageBus 불필요(정리 작업).
+       ctor: (IRecurringScheduler, ILoginFailureHistoryRepository, bool enabled, int intervalSeconds, int retentionDays). -->
+  <object id="loginFailureRetentionWorker" type="NexaOne.SYS.Application.Users.LoginFailureRetentionWorker, NexaOne.SYS">
+    <constructor-arg ref="quartzScheduler" />
+    <constructor-arg ref="loginFailureHistoryRepository" />
+    <!-- 보존정리 워커 enable 스위치(Worker:Sys:LoginFailureRetention:Enabled). 기본 false(추가형·게이트 OFF). -->
+    <constructor-arg value="false" />
+    <constructor-arg value="86400" />
+    <constructor-arg value="90" />
+  </object>
+
 </objects>

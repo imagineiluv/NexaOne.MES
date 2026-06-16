@@ -74,4 +74,16 @@
     <constructor-arg value="nexaone.events" />
   </object>
 
+  <!-- FDC 수집데이터 보존정리 워커(BackgroundService) — 모듈 소유 주기 작업. quartzScheduler는 부모(server.xml)
+       빈을 cross-context ref로 주입한다. Program.cs가 IHostedService로 자동발견해 호스팅한다. messageBus 불필요(정리 작업).
+       ctor: (IRecurringScheduler, IFdcCollectDataRepository, bool enabled, int intervalSeconds, int retentionDays). -->
+  <object id="fdcCollectDataRetentionWorker" type="NexaOne.FDC.Application.Fdc.FdcCollectDataRetentionWorker, NexaOne.FDC">
+    <constructor-arg ref="quartzScheduler" />
+    <constructor-arg ref="fdcCollectDataRepository" />
+    <!-- 보존정리 워커 enable 스위치(Worker:Fdc:Retention:Enabled). 기본 false(추가형·게이트 OFF). -->
+    <constructor-arg value="false" />
+    <constructor-arg value="86400" />
+    <constructor-arg value="30" />
+  </object>
+
 </objects>

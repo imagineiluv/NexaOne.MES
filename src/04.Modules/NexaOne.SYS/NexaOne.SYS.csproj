@@ -7,9 +7,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- LoginFailureRetentionWorker(BackgroundService) 호스팅 — 모듈 소유 로그인실패 이력 보존정리 워커. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.*" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Application\NexaOne.Application.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
+    <!-- 주기 스케줄러(IRecurringScheduler/QuartzScheduler) — server.xml quartzScheduler 빈으로 워커 구동. -->
+    <ProjectReference Include="..\..\..\submodules\NexusFramework\src\NexusFramework\NexusFramework.csproj" />
   </ItemGroup>
 
 </Project>

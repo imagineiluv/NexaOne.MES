@@ -24,4 +24,17 @@
     <constructor-arg ref="sparePartRepository" />
   </object>
 
+  <!-- 예방정비 도래 점검 워커(BackgroundService) — 모듈 소유 주기 작업. quartzScheduler/messageBus는 부모(server.xml)
+       빈을 cross-context ref로 주입한다(eesDataSource와 동일). Program.cs가 IHostedService로 자동발견해 호스팅한다.
+       ctor: (IRecurringScheduler, IMaintenancePlanRepository, IMessageBus, bool enabled, int intervalSeconds, string topic). -->
+  <object id="maintenanceDueCheckWorker" type="NexaOne.CMMS.Application.Cmms.MaintenanceDueCheckWorker, NexaOne.CMMS">
+    <constructor-arg ref="quartzScheduler" />
+    <constructor-arg ref="maintenancePlanRepository" />
+    <constructor-arg ref="messageBus" />
+    <!-- 도래 점검 워커 enable 스위치(Worker:Cmms:MaintenanceDue:Enabled). 기본 false(추가형·게이트 OFF). -->
+    <constructor-arg value="false" />
+    <constructor-arg value="3600" />
+    <constructor-arg value="nexaone.events" />
+  </object>
+
 </objects>

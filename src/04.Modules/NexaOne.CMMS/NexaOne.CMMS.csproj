@@ -7,9 +7,18 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- MaintenanceDueCheckWorker(BackgroundService) 호스팅 — 모듈 소유 예방정비 도래 점검 워커. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.*" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Application\NexaOne.Application.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
+    <!-- 도메인 이벤트 발행 백본(IMessageBus·DomainEventMessage) — 도래 통지를 버스로 발행. -->
+    <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure.Messaging\NexaOne.Infrastructure.Messaging.csproj" />
+    <!-- 주기 스케줄러(IRecurringScheduler/QuartzScheduler) — server.xml quartzScheduler 빈으로 워커 구동. -->
+    <ProjectReference Include="..\..\..\submodules\NexusFramework\src\NexusFramework\NexusFramework.csproj" />
   </ItemGroup>
 
 </Project>

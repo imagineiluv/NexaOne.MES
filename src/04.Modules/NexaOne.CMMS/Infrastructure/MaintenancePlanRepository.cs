@@ -40,6 +40,22 @@ public sealed class MaintenancePlanRepository : QueryRepository, IMaintenancePla
         return rows.Select(r => r.ToDomain()).OfType<MaintenancePlan>().ToList();
     }
 
+    public async Task<IReadOnlyList<MaintenancePlan>> GetDueAsync(DateTime asOf, CancellationToken ct = default)
+    {
+        // 도래(due): 예정일이 기준시각 이하 + 아직 진행 가능한 상태(완료/취소 제외). STATUS는 enum명 문자열로 저장되므로
+        // 종료 상태 이름을 그대로 NOT IN으로 배제한다(GetByStatusAsync의 status.ToString() 저장 규약과 동일). 정렬은 SCHEDULED_DATE.
+        const string sql = @"SELECT * FROM CMMS_MAINTENANCE_PLAN
+            WHERE SCHEDULED_DATE <= @asOf AND STATUS NOT IN (@completed, @cancelled)
+            ORDER BY SCHEDULED_DATE";
+        var rows = await QueryAsync<PlanRow>(sql, new
+        {
+            asOf,
+            completed = MaintenancePlanStatus.Completed.ToString(),
+            cancelled = MaintenancePlanStatus.Cancelled.ToString()
+        }, ct);
+        return rows.Select(r => r.ToDomain()).OfType<MaintenancePlan>().ToList();
+    }
+
     private const string InsertSql = @"INSERT INTO CMMS_MAINTENANCE_PLAN
             (PLAN_ID, PLAN_NAME, EQUIPMENT_ID, PLAN_TYPE, CYCLE_TYPE,
              SCHEDULED_DATE, ESTIMATED_DURATION_HOURS, ASSIGNEE_ID, STATUS,

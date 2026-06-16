@@ -52,6 +52,14 @@ public sealed class FdcCollectDataRepository : QueryRepository, IFdcCollectDataR
         await _processor.InsertAsync(InsertSql, DataRow.FromDomain(data), ct);
     }
 
+    public async Task<int> DeleteOlderThanAsync(DateTime cutoff, CancellationToken ct = default)
+    {
+        // 보존정리: 기준시각 이전 시계열 행을 삭제한다. 기준시각은 호출부(C#)에서 산정해 파라미터로 넘겨
+        // MSSQL/SQLite 날짜 방언 분기를 피한다. DeleteAsync는 감사 미주입 raw 실행이며 영향 행 수를 반환한다.
+        const string sql = "DELETE FROM FDC_COLLECT_DATA WHERE COLLECTED_AT < @cutoff";
+        return await _processor.DeleteAsync(sql, new { cutoff }, ct);
+    }
+
     public async Task AddBatchAsync(IEnumerable<FdcCollectData> data, CancellationToken ct = default)
     {
         // N건을 단일 트랜잭션에서 일괄 INSERT한다 — 행마다 별도 트랜잭션을 여는 N회 InsertAsync(원자성·왕복 손실)

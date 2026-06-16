@@ -27,6 +27,14 @@ public sealed class LoginFailureHistoryRepository : QueryRepository, ILoginFailu
         await _processor.InsertAsync(sql, Row.FromDomain(history), ct);
     }
 
+    public async Task<int> DeleteOlderThanAsync(DateTime cutoff, CancellationToken ct = default)
+    {
+        // 보존정리: 기준시각 이전 로그인실패 이력을 삭제한다. 기준시각은 호출부(C#)에서 산정해 파라미터로 넘겨
+        // MSSQL/SQLite 날짜 방언 분기를 피한다. DeleteAsync는 감사 미주입 raw 실행이며 영향 행 수를 반환한다.
+        const string sql = "DELETE FROM SYS_LOGIN_FAILURE_HIST WHERE OCCURRED_AT < @cutoff";
+        return await _processor.DeleteAsync(sql, new { cutoff }, ct);
+    }
+
     public async Task<IReadOnlyList<LoginFailureHistory>> GetRecentByUserAsync(
         string userId, int count, CancellationToken ct = default)
     {
