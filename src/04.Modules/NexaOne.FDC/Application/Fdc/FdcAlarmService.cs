@@ -1,4 +1,5 @@
 using NexaOne.Common;
+using NexaOne.Common.Caching;
 using NexaOne.FDC.Domain;
 
 namespace NexaOne.FDC.Application.Fdc;
@@ -12,14 +13,22 @@ public sealed class FdcAlarmService
 {
     private readonly IFdcAlarmConfigRepository _configRepository;
     private readonly IFdcAlarmHistoryRepository? _historyRepository;
+    private readonly ICacheService? _cache;
 
     public FdcAlarmService(
         IFdcAlarmConfigRepository configRepository,
-        IFdcAlarmHistoryRepository? historyRepository = null)
+        IFdcAlarmHistoryRepository? historyRepository = null,
+        ICacheService? cache = null)
     {
         _configRepository = configRepository;
         _historyRepository = historyRepository;
+        _cache = cache;
     }
+
+    // 수집 핫패스(EvaluateAsync)는 Good 이벤트마다 설비·파라미터의 활성 알람 설정을 읽는다.
+    // 설정은 갱신이 드물어 (설비|파라미터)별로 캐시한다(설정 생성 시 무효화). cache 미주입 시 직접 조회.
+    private static string ActiveConfigsCacheKey(string equipmentId, string parameterId)
+        => $"fdc:alarm:active:{equipmentId}:{parameterId}";
 
     public async Task<IReadOnlyList<FdcAlarmConfig>> GetConfigsAsync(string equipmentId, CancellationToken ct = default)
         => await _configRepository.GetByEquipmentAsync(equipmentId, ct);
@@ -38,6 +47,8 @@ public sealed class FdcAlarmService
         var result = FdcAlarmConfig.Create(alarmConfigId, equipmentId, parameterId, alarmLevel, @operator, threshold);
         if (result.IsFailure) return result;
         await _configRepository.AddAsync(result.Value, ct);
+        // 새 설정이 활성 설정 캐시(이전에 캐시된 빈/구 목록)에 가려지지 않도록 해당 키를 무효화한다.
+        if (_cache is not null) await _cache.RemoveAsync(ActiveConfigsCacheKey(equipmentId, parameterId), ct);
         return result;
     }
 
@@ -45,7 +56,11 @@ public sealed class FdcAlarmService
     public async Task<IReadOnlyList<AlarmResult>> EvaluateAsync(
         string equipmentId, string parameterId, decimal value, CancellationToken ct = default)
     {
-        var configs = await _configRepository.GetActiveConfigsAsync(equipmentId, parameterId, ct);
+        // 핫패스: 활성 알람 설정을 캐시로 조회한다(읽기 전용 — 설정 생성 시 키 무효화).
+        var configs = _cache is null
+            ? await _configRepository.GetActiveConfigsAsync(equipmentId, parameterId, ct)
+            : await _cache.GetOrCreateAsync(ActiveConfigsCacheKey(equipmentId, parameterId),
+                () => _configRepository.GetActiveConfigsAsync(equipmentId, parameterId, ct), ct: ct);
         var hits = new List<AlarmResult>();
         foreach (var cfg in configs)
         {

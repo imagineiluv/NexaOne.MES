@@ -42,6 +42,11 @@
        lifecycle을 수동 제어한다. 무인자 ctor(Spring property 주입). 부모 컨텍스트라 NexusFramework 타입 로드 가능. -->
   <object id="plantController" type="NexusFramework.PlantController, NexusFramework" />
 
+  <!-- 캐시(ICacheService) — 읽기 빈도 높은 마스터/조회 캐시(인메모리, IMemoryCache 기반). FDC 수집 핫패스 등
+       자식 컨텍스트 서비스가 cross-context ref="cacheService"로 공통 호출한다. 무인자 ctor가 기본 옵션
+       MemoryCache를 자체 생성한다(API 티어는 MS DI로 동일 ICacheService 주입, ServiceCollectionExtensions). -->
+  <object id="cacheService" type="NexaOne.Common.Caching.MemoryCacheService, NexaOne.Common" />
+
   <!-- ===== Outbox 디스패치 워커(스케줄러 구동, ADR-002·ADR-006) =====
        실 Quartz 반복 스케줄러로 구동되는 주기 워커. 기본 OFF — enabled="true"로만 기동한다(브로커/DB 없는 dev/CI 보호,
        그리고 API 티어 디스패처와의 동시 가동 회피). API의 OutboxDispatcherService와 디스패치 의미는 동일하다. -->

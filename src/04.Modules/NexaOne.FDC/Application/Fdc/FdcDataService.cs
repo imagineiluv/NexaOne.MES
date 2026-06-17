@@ -1,4 +1,5 @@
 using NexaOne.Common;
+using NexaOne.Common.Caching;
 using NexaOne.FDC.Domain;
 
 namespace NexaOne.FDC.Application.Fdc;
@@ -7,12 +8,21 @@ public sealed class FdcDataService
 {
     private readonly IFdcParameterRepository _paramRepository;
     private readonly IFdcCollectDataRepository _dataRepository;
+    private readonly ICacheService? _cache;
 
-    public FdcDataService(IFdcParameterRepository paramRepository, IFdcCollectDataRepository dataRepository)
+    // 수집 핫패스(RecordDataAsync)는 태그 변경마다 파라미터 한도(LowerLimit/UpperLimit)를 읽는다.
+    // 파라미터 마스터는 갱신이 드물어 parameterId별로 캐시한다(쓰기 경로에서 무효화). cache 미주입 시 직접 조회.
+    public FdcDataService(
+        IFdcParameterRepository paramRepository,
+        IFdcCollectDataRepository dataRepository,
+        ICacheService? cache = null)
     {
         _paramRepository = paramRepository;
         _dataRepository  = dataRepository;
+        _cache           = cache;
     }
+
+    private static string ParamCacheKey(string parameterId) => $"fdc:param:{parameterId}";
 
     // ── Parameters ────────────────────────────────────────────────────────────
 
@@ -40,12 +50,15 @@ public sealed class FdcDataService
     public async Task<Result> AssignParameterToGroupAsync(
         string parameterId, string? groupId, CancellationToken ct = default)
     {
+        // 변형 경로는 캐시를 거치지 않고 직접 조회한다(캐시된 공유 참조를 변형하지 않기 위해).
         var param = await _paramRepository.GetByIdAsync(parameterId, ct);
         if (param is null)
             return Result.Failure(Error.NotFound(nameof(FdcParameter), parameterId));
 
         param.AssignToGroup(groupId);
         await _paramRepository.UpdateAsync(param, ct);
+        // 갱신된 파라미터가 핫패스 캐시에 남지 않도록 무효화한다(다음 조회가 최신을 읽음).
+        if (_cache is not null) await _cache.RemoveAsync(ParamCacheKey(parameterId), ct);
         return Result.Success();
     }
 
@@ -67,7 +80,11 @@ public sealed class FdcDataService
         string quality,
         CancellationToken ct = default)
     {
-        var param = await _paramRepository.GetByIdAsync(parameterId, ct);
+        // 핫패스: 파라미터 한도를 캐시로 조회한다(읽기 전용 사용 — 캐시된 참조를 변형하지 않는다).
+        var param = _cache is null
+            ? await _paramRepository.GetByIdAsync(parameterId, ct)
+            : await _cache.GetOrCreateAsync(ParamCacheKey(parameterId),
+                () => _paramRepository.GetByIdAsync(parameterId, ct), ct: ct);
         if (param is null)
             return Result.Failure<FdcCollectData>(Error.NotFound(nameof(FdcParameter), parameterId));
 
