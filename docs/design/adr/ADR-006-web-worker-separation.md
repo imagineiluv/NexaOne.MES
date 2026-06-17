@@ -1,8 +1,8 @@
 # ADR-006 — 웹/워커 분리: API는 웹 전용, 비웹 워커는 모듈 소유 + NexaOne.Server 호스팅
 
-- **Status**: Accepted (채택 — 단계별 구현; Phase 1 완료, Phase 2~3은 Kafka 환경에서 런타임 검증)
-- **Date**: 2026-06-16
-- **관련**: [ADR-002](ADR-002-event-bus.md)(Event Bus/Outbox), [ADR-005](ADR-005-server-service-container.md)(Server=서비스 빈 컨테이너), 설계문서 §6.1·§8·§10.4
+- **Status**: Accepted (채택 — Phase 1~3 구현 완료; 다중 프로세스 cross-process 통지만 Kafka 환경 검증 잔여)
+- **Date**: 2026-06-16 (구현현황 갱신 2026-06-17)
+- **관련**: [ADR-002](ADR-002-event-bus.md)(Event Bus/Outbox), [ADR-005](ADR-005-server-service-container.md)(Server=서비스 빈 컨테이너), [ADR-007](ADR-007-recurring-scheduler.md)(주기 스케줄러·스케줄 워커), 설계문서 §6.1·§8·§10.4
 - **결정자**: 사용자 승인
 
 ## 컨텍스트
@@ -29,10 +29,13 @@
 
 ## 단계별 구현 (각 단계 비파괴·검증)
 
-- **Phase 1 (완료)**: NexaOne.Server에 .NET Generic Host 추가(Spring 빈 컨테이너·SQLite 스키마 부트스트랩·AddService 보존). 워커 호스팅 토대 마련 — 아직 워커 미이전(API 그대로). SQLite 부팅 + 전체 스위트로 검증.
-- **Phase 2**: FDC 수집 오케스트레이션(`FdcCollectorHostedService`)을 FDC 모듈 소유 워커로 이전 + 도메인 이벤트 발생으로 전환. Server가 실행, API 구독자가 Kafka→SignalR. (런타임 검증 Kafka 필요.)
-- **Phase 3**: Outbox 디스패처를 Server로 이전, API에서 비활성. (Kafka 필요.)
+- **Phase 1 (완료)**: NexaOne.Server에 .NET Generic Host 추가(Spring 빈 컨테이너·SQLite 스키마 부트스트랩·AddService 보존). 워커 호스팅 토대.
+- **Phase 2 (완료)**: FDC 수집 오케스트레이션을 FDC 모듈 소유 워커(`FdcCollectionWorker`)로 이전 + SignalR 직접 호출 대신 messageBus로 도메인 이벤트 발행. Server가 게이트(기본 OFF)로 호스팅. SQLite 부팅(게이트 ON 빈 엔드포인트 우아한 no-op)·전체 스위트로 검증. 실 OPC-UA 연결 + cross-process SignalR은 Kafka/OPC-UA 환경 검증 잔여.
+- **Phase 3 (완료 — [ADR-007])**: Outbox 디스패처를 Server로 이전, 실 Quartz 스케줄러(`ScheduledOutboxDispatchWorker`)로 주기 구동. 게이트 기본 OFF(API 디스패처와 동시가동 회피). 다중 프로세스 실제 전달은 Kafka 환경 검증 잔여.
 - **Phase 4 (보류)**: 워크플로 엔진 — `WorkflowController`(웹)가 직접 호출하므로 분리 시 웹→엔진도 cross-process가 돼 비용이 큼. 가치 대비 비용 재평가 후 결정.
+
+### 구조 변경 — 모듈별 독립 구성(2026-06-17, [ADR-005] 후속)
+워커 호스팅과 함께 Spring 구성을 **모듈 독립**으로 재편했다: `app.xml`이 모듈당 Service(모듈 DLL 1개 + 모듈 xml 1개)를 등록하고, 단일 `nexaone.xml`을 모듈별 xml(mdm/est/fdc/rms/qms/cmms/pom/shp/sys.xml) 9개로 분할했다. 각 모듈 xml은 자기 서비스·리포·(스케줄)워커 빈만 담고 공통 서버 빈(eesDataSource·appConfiguration·eesDialect·opcUaDriver·messageBus·plantController·quartzScheduler)은 server.xml(부모)을 `ref`로 호출한다. 모듈당 1 plugin ALC. 모듈 워커의 enable은 그 모듈 xml이 제어한다(ADR-007).
 
 ## 결과
 

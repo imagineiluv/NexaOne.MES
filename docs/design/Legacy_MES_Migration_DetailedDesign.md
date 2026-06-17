@@ -2644,7 +2644,7 @@ WinForms 폼 클래스는 Blazor 컴포넌트(`.razor`)로 1:1 대응 전환하�
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-> **NexaOne.API / NexaOne.Server 역할 분담([ADR-005](adr/ADR-005-server-service-container.md)).** 위 박스는 둘을 한 백엔드 티어로 묶어 표현하나 물리적으로 분리된다. **NexaOne.API**(ASP.NET)는 실제 웹 워크로드(REST·SignalR·JWT·백그라운드 워커)를 담당한다. **NexaOne.Server**(NexusFramework Spring.NET 콘솔)는 *서비스 빈 컨테이너* 역할로, 공통 서버 빈(server.xml: 데이터소스·방언·설정·워크플로매니저·OPC-UA 드라이버)과 도메인 서비스 빈(nexaone.xml)을 담아 관리하며, 서비스가 공통 서버 빈을 ref/`GetBean`으로 공통 호출한다. DB 전환·플러그인 로딩은 [ADR-004](adr/ADR-004-server-host-runtime.md).
+> **NexaOne.API / NexaOne.Server 역할 분담([ADR-005](adr/ADR-005-server-service-container.md)).** 위 박스는 둘을 한 백엔드 티어로 묶어 표현하나 물리적으로 분리된다. **NexaOne.API**(ASP.NET)는 실제 웹 워크로드(REST·SignalR·JWT·백그라운드 워커)를 담당한다. **NexaOne.Server**(NexusFramework Spring.NET 콘솔)는 *서비스 빈 컨테이너* 역할로, 공통 서버 빈(server.xml: 데이터소스·방언·설정·워크플로매니저·OPC-UA 드라이버)과 도메인 서비스 빈(nexaone.xml)을 담아 관리하며, 서비스가 공통 서버 빈을 ref/`GetBean`으로 공통 호출한다. DB 전환·플러그인 로딩은 [ADR-004](adr/ADR-004-server-host-runtime.md). 이후 구성은 **모듈 독립**으로 재편됐다 — app.xml이 모듈당 Service(모듈 DLL + 모듈 xml)를 등록하고, 비웹 워커는 모듈이 소유하고 Server의 .NET Generic Host가 실행한다([ADR-006](adr/ADR-006-web-worker-separation.md)). 주기 작업은 NexusFramework 실 Quartz 스케줄러(`quartzScheduler` 공통 빈)로 구동되는 모듈 스케줄 워커가 담당한다([ADR-007](adr/ADR-007-recurring-scheduler.md)).
 
 **Blazor Server** 선택 이유:
 - 인트라넷 MES 환경 — 낮은 레이턴시, 서버 자원 집중 관리
