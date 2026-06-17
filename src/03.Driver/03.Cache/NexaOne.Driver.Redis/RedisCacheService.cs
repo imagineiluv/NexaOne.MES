@@ -1,5 +1,6 @@
 using System.Text.Json;
 using NexaOne.Common.Caching;
+using NexaOne.Common.Telemetry;
 
 namespace NexaOne.Driver.Redis;
 
@@ -48,8 +49,13 @@ public sealed class RedisCacheService : ICacheService
         if (json is not null)
         {
             var hit = JsonSerializer.Deserialize<T>(json);
-            if (hit is not null) return hit;
+            if (hit is not null)
+            {
+                NexaMesMetrics.RecordCacheHit(key);
+                return hit;
+            }
         }
+        NexaMesMetrics.RecordCacheMiss(key);
         var value = await factory().ConfigureAwait(false);
         await _driver.SetAsync(key, JsonSerializer.Serialize(value), ttl ?? DefaultTtl).ConfigureAwait(false);
         return value;

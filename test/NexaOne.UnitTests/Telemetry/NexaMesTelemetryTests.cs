@@ -1,4 +1,5 @@
 using System.Diagnostics.Metrics;
+using NexaOne.Common.Caching;
 using NexaOne.Common.Telemetry;
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
@@ -158,6 +159,26 @@ public sealed class NexaMesTelemetryTests
         await act();
 
         return captured;
+    }
+
+    [Fact]
+    public async Task CacheRequests_records_hit_and_miss_with_keyspace()
+    {
+        // 고유 keyspace로 다른 테스트의 캐시 방출과 격리한다(키 앞 2세그먼트가 keyspace 태그).
+        var ks = $"mtcache:{Guid.NewGuid():N}";
+        var captured = await CollectAsync("nexames_cache_requests_total", async () =>
+        {
+            var cache = new MemoryCacheService();
+            await cache.GetOrCreateAsync($"{ks}:k1", () => Task.FromResult("v"));   // 최초 → miss
+            await cache.GetOrCreateAsync($"{ks}:k1", () => Task.FromResult("v"));   // 캐시 → hit
+            await cache.GetOrCreateAsync($"{ks}:k1", () => Task.FromResult("v"));   // 캐시 → hit
+        });
+
+        var mine = captured.Where(c => Equals(c.Tags["keyspace"], ks)).ToList();
+        mine.Where(c => Equals(c.Tags["result"], "miss")).Sum(c => c.Value).Should().Be(1,
+            "최초 조회는 미스 1건을 계측한다");
+        mine.Where(c => Equals(c.Tags["result"], "hit")).Sum(c => c.Value).Should().Be(2,
+            "이후 두 조회는 적중 2건을 계측한다");
     }
 
     [Fact]

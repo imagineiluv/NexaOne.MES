@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Caching.Memory;
+using NexaOne.Common.Telemetry;
 
 namespace NexaOne.Common.Caching;
 
@@ -22,8 +23,12 @@ public sealed class MemoryCacheService : ICacheService
         string key, Func<Task<T>> factory, TimeSpan? ttl = null, CancellationToken ct = default)
     {
         if (_cache.TryGetValue(key, out T? cached) && cached is not null)
+        {
+            NexaMesMetrics.RecordCacheHit(key);
             return cached;
+        }
 
+        NexaMesMetrics.RecordCacheMiss(key);
         var value = await factory().ConfigureAwait(false);
         _cache.Set(key, value, ttl ?? DefaultTtl);
         return value;

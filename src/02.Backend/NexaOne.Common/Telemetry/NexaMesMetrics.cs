@@ -10,8 +10,8 @@ namespace NexaOne.Common.Telemetry;
 /// <remarks>
 /// 본 절은 §17.3 로그 적응과 같은 관례로 적응한다. 즉 해당 개념이 아직 도입되지 않은 지표
 /// (<c>nexames_rule_duration_ms</c>의 RuleId/MenuId, <c>nexames_query_duration_ms</c>의 QueryId,
-/// 소비처가 없는 캐시 계층의 <c>nexames_cache_*</c>, WinForms 클라이언트가 없는
-/// <c>nexames_client_deploy_version</c>)는 해당 개념 도입 시점으로 보류한다.
+/// WinForms 클라이언트가 없는 <c>nexames_client_deploy_version</c>)는 해당 개념 도입 시점으로 보류한다.
+/// 캐시 계층(<c>nexames_cache_requests_total</c>)은 FDC/MDM 캐시 도입으로 소비처가 생겨 활성화했다.
 /// </remarks>
 public static class NexaMesMetrics
 {
@@ -47,6 +47,34 @@ public static class NexaMesMetrics
     public static readonly Counter<long> OutboxDeadLettered =
         Meter.CreateCounter<long>("nexames_outbox_deadlettered_total", unit: "{event}",
             description: "Outbox 메시지 데드레터 전이 건수");
+
+    /// <summary>nexames_cache_requests_total — 캐시 조회 건수. Tags: result(hit|miss), keyspace(키 앞 2세그먼트).
+    /// 적중률은 hit ÷ (hit+miss)로 산정한다. ICacheService 구현(MemoryCacheService/RedisCacheService)이 발행한다.</summary>
+    public static readonly Counter<long> CacheRequests =
+        Meter.CreateCounter<long>("nexames_cache_requests_total", unit: "{request}",
+            description: "캐시 조회 건수(result=hit|miss, keyspace 태그로 캐시별 적중률 산정)");
+
+    /// <summary>캐시 적중 1건을 계측한다(ICacheService 구현이 호출).</summary>
+    public static void RecordCacheHit(string key) =>
+        CacheRequests.Add(1,
+            new KeyValuePair<string, object?>("result", "hit"),
+            new KeyValuePair<string, object?>("keyspace", KeySpace(key)));
+
+    /// <summary>캐시 미스 1건을 계측한다(ICacheService 구현이 호출).</summary>
+    public static void RecordCacheMiss(string key) =>
+        CacheRequests.Add(1,
+            new KeyValuePair<string, object?>("result", "miss"),
+            new KeyValuePair<string, object?>("keyspace", KeySpace(key)));
+
+    // 키의 앞 2개 ':' 세그먼트를 keyspace 태그로 쓴다(예 "fdc:param", "fdc:alarm", "mdm:codes") —
+    // 캐시 종류별 적중률을 보면서도 키 값(설비/파라미터 id 등)에 의한 카디널리티 폭주를 막는다.
+    private static string KeySpace(string key)
+    {
+        int first = key.IndexOf(':');
+        if (first < 0) return key;
+        int second = key.IndexOf(':', first + 1);
+        return second < 0 ? key : key[..second];
+    }
 
     private static readonly object BindLock = new();
     private static bool _bound;
