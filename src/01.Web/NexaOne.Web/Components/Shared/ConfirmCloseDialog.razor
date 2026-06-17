@@ -1,8 +1,11 @@
+@* 더티 가드 확인 다이얼로그(§20.7). 접근성: role="dialog"·aria-modal·aria-labelledby(제목 연결),
+   표시 시 초기 포커스, ESC→취소(강제 선택 다이얼로그라 ESC는 닫기가 아닌 '취소' 의미). *@
 @if (Visible)
 {
     <div class="confirm-close-backdrop">
-        <div class="confirm-close-dialog">
-            <div class="confirm-close-title">저장되지 않은 변경 사항</div>
+        <div class="confirm-close-dialog" role="dialog" aria-modal="true" aria-labelledby="@_titleId"
+             tabindex="-1" @ref="_dialog" @onkeydown="OnKeyDown">
+            <div id="@_titleId" class="confirm-close-title">저장되지 않은 변경 사항</div>
             <div class="confirm-close-body">변경된 내용이 있습니다. 어떻게 하시겠습니까?</div>
             @if (!string.IsNullOrEmpty(ErrorText))
             {
@@ -24,6 +27,27 @@
     [Parameter] public bool Visible { get; set; }
     [Parameter] public string? ErrorText { get; set; }
     [Parameter] public EventCallback<CloseAction> OnAction { get; set; }
+
+    private readonly string _titleId = "confirm-close-title-" + Guid.NewGuid().ToString("N");
+    private ElementReference _dialog;
+    private bool _wasVisible;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Visible && !_wasVisible)
+        {
+            _wasVisible = true;
+            try { await _dialog.FocusAsync(); } catch { /* 포커스 불가는 무시 */ }
+        }
+        else if (!Visible)
+        {
+            _wasVisible = false;
+        }
+    }
+
+    // ESC는 '취소'로 매핑한다(저장/미저장은 명시 선택만 — 데이터 유실 방지).
+    private Task OnKeyDown(KeyboardEventArgs e) =>
+        e.Key == "Escape" ? HandleAction(CloseAction.Cancel) : Task.CompletedTask;
 
     private async Task HandleAction(CloseAction action)
         => await OnAction.InvokeAsync(action);
