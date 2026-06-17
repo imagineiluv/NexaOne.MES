@@ -22,7 +22,7 @@ public sealed class DefectClassRepository : QueryRepository, IDefectClassReposit
     {
         const string sql = "SELECT * FROM QMS_DEFECT_CLASS WHERE IS_DELETED = 0 ORDER BY DEFECT_CLASS_NAME";
         var rows = await QueryAsync<Row>(sql, new { }, ct);
-        return rows.Select(r => r.ToDomain()).OfType<DefectClass>().ToList();
+        return rows.Select(r => r.ToDomain()).ToList();
     }
 
     public async Task AddAsync(DefectClass defectClass, CancellationToken ct = default)
@@ -55,13 +55,12 @@ public sealed class DefectClassRepository : QueryRepository, IDefectClassReposit
         public bool   IsDeleted       { get; set; }
         public DateTime? DeletedAt    { get; set; }
 
-        public DefectClass? ToDomain()
-        {
-            var r = DefectClass.Create(DefectClassId, DefectClassName, Description, Severity);
-            if (r.IsFailure) return null;
-            if (!IsActive) r.Value.Deactivate();
-            return r.Value;
-        }
+        // 읽기경로는 Restore로 IsActive·IsDeleted·DeletedAt을 행값 그대로 복원한다. (구버전은 Create 후
+        // 비활성 행에 Deactivate()를 호출했는데, Deactivate가 IsDeleted=true·DeletedAt=UtcNow까지 결합 설정해
+        // 영속 소프트삭제 상태를 손상시켰다 — 읽기경로 상태손실 버그.)
+        public DefectClass ToDomain()
+            => DefectClass.Restore(DefectClassId, DefectClassName, Description, Severity,
+                IsActive, IsDeleted, DeletedAt);
 
         public static Row FromDomain(DefectClass d) => new()
         {

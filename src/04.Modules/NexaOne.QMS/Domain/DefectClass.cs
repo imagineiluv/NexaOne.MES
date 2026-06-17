@@ -36,6 +36,26 @@ public sealed class DefectClass : AuditableEntity<string>
         return defectClass;
     }
 
+    /// <summary>영속 데이터로부터 전체 상태를 복원한다(검증 없이 신뢰). 읽기경로 전용 —
+    /// Create는 IsActive=true로 고정하고, 비활성 복원을 위해 Deactivate()를 호출하면 IsDeleted=true·
+    /// DeletedAt=UtcNow까지 결합 설정돼 영속 소프트삭제 상태가 손상된다(비삭제 행이 삭제로, 삭제시각이 읽은 시각으로).
+    /// Restore는 IsActive·IsDeleted·DeletedAt을 행값 그대로 독립 복원해 이 읽기경로 상태손실을 막는다.</summary>
+    public static DefectClass Restore(
+        string defectClassId, string defectClassName, string description, string severity,
+        bool isActive, bool isDeleted, DateTime? deletedAt)
+    {
+        var defectClass = new DefectClass(defectClassId)
+        {
+            DefectClassName = defectClassName,
+            Description = description,
+            Severity = severity,
+            IsActive = isActive
+        };
+        defectClass.IsDeleted = isDeleted;
+        defectClass.DeletedAt = deletedAt;
+        return defectClass;
+    }
+
     public void Deactivate()
     {
         IsActive = false;
