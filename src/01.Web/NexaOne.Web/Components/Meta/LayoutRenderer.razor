@@ -27,6 +27,7 @@
         <MetaGridRenderer Columns="g.Columns ?? Array.Empty<GridColumnDefinition>()" Rows="RowsFor(g.QueryId)" />
         break;
 
+    @* Form/Field는 화면 공유 Model(동일 Dictionary 참조)에 그대로 바인딩한다 — 위젯 간 값이 즉시 공유되는 의도된 설계. *@
     case FormWidget f:
         <MetaFormRenderer Definition="FormDefinition(f)" Model="Model" ModelChanged="OnModelChanged" />
         break;
@@ -43,6 +44,10 @@
         @if (t.IsLabel) { <label class="layout-text">@t.Text</label> }
         else { <span class="layout-text">@t.Text</span> }
         break;
+
+    default:
+        @* 알 수 없는 노드 종류는 아무것도 렌더하지 않는다(서버/역직렬화 상위에서 검증됨). *@
+        break;
 }
 
 @code {
@@ -53,18 +58,21 @@
         = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>();
     [Parameter] public EventCallback<string> OnCommand { get; set; }
 
+    // 자식은 재귀로 child LayoutRenderer를 그린다. 시퀀스 번호는 소스 위치당 상수(반복마다 동일)로 두고,
+    // 노드 정체성(Id 우선)으로 SetKey 해 디자이너의 재정렬/삽입/삭제 시 Blazor가 인스턴스를 유지(중첩 폼
+    // 포커스 보존)하게 한다 — 데이터 의존 시퀀스 번호는 diff 정합을 깨므로 사용하지 않는다.
     private RenderFragment RenderChildren(IReadOnlyList<LayoutNode>? children) => builder =>
     {
         if (children is null) return;
-        var seq = 0;
         foreach (var child in children)
         {
-            builder.OpenComponent<LayoutRenderer>(seq++);
-            builder.AddAttribute(seq++, nameof(Node), child);
-            builder.AddAttribute(seq++, nameof(Model), Model);
-            builder.AddAttribute(seq++, nameof(ModelChanged), ModelChanged);
-            builder.AddAttribute(seq++, nameof(QueryResults), QueryResults);
-            builder.AddAttribute(seq++, nameof(OnCommand), OnCommand);
+            builder.OpenComponent<LayoutRenderer>(0);
+            builder.SetKey(child.Id is { Length: > 0 } id ? id : child);
+            builder.AddAttribute(1, nameof(Node), child);
+            builder.AddAttribute(2, nameof(Model), Model);
+            builder.AddAttribute(3, nameof(ModelChanged), ModelChanged);
+            builder.AddAttribute(4, nameof(QueryResults), QueryResults);
+            builder.AddAttribute(5, nameof(OnCommand), OnCommand);
             builder.CloseComponent();
         }
     };
