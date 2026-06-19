@@ -18,12 +18,12 @@ internal static class Program
 
         // SQLite 모드면 컨텍스트 생성 전에 스키마를 부트스트랩한다(빈 DB일 때만, idempotent).
         // server.xml의 eesDataSource가 가리키는 Provider 타입으로 판별한다 — XML만 바꾸면 자동 적용된다.
-        EnsureSqliteSchemaIfConfigured("server.xml");
+        EnsureSqliteSchemaIfConfigured("Spring/server.xml");
 
-        var serverCtx = _server.CreateServer(new[] { "server.xml" });
+        var serverCtx = _server.CreateServer(new[] { "Spring/server.xml" });
         Console.WriteLine("[NexaOne.Server] Server context initialized.");
 
-        XDocument doc = XDomUtility.Load("app.xml");
+        XDocument doc = XDomUtility.Load("Spring/app.xml");
         XElement root = XDomUtility.GetRoot(doc);
         XElement services = XDomUtility.GetElement(root, "Services");
 

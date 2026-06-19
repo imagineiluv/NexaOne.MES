@@ -72,40 +72,40 @@
     <Copy SourceFiles="@(_ModulePluginDll)" DestinationFolder="$(OutDir)Modules" SkipUnchangedFiles="true" />
   </Target>
 
-  <!-- 모듈 독립 구조: server.xml(공통 빈)·app.xml(Service 목록)과 함께 모듈 xml 9개를 출력에 복사한다.
-       각 모듈 xml은 app.xml의 Service당 configFiles로 로드된다. -->
+  <!-- 모듈 독립 구조: server.xml(공통 빈)·app.xml(Service 목록)과 함께 모듈 xml 9개를 Spring/ 폴더로 정리해
+       출력의 Spring/ 로 복사한다(상대경로 보존). 각 모듈 xml은 app.xml의 Service당 configFiles(Spring/*.xml)로 로드된다. -->
   <ItemGroup>
-    <Content Include="server.xml">
+    <Content Include="Spring\server.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="app.xml">
+    <Content Include="Spring\app.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="mdm.xml">
+    <Content Include="Spring\mdm.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="est.xml">
+    <Content Include="Spring\est.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="fdc.xml">
+    <Content Include="Spring\fdc.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="rms.xml">
+    <Content Include="Spring\rms.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="qms.xml">
+    <Content Include="Spring\qms.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="cmms.xml">
+    <Content Include="Spring\cmms.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="pom.xml">
+    <Content Include="Spring\pom.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="shp.xml">
+    <Content Include="Spring\shp.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="sys.xml">
+    <Content Include="Spring\sys.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
