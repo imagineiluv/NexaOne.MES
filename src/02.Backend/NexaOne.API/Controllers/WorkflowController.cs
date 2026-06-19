@@ -36,9 +36,8 @@ public class WorkflowController(WorkflowManager manager, IConfiguration config) 
     // 워크플로우 실행은 등록된 어셈블리 호출 노드를 구동하므로 인증만으로는 부족하다 — 실행 권한을 요구한다(기본 ADMIN).
     [HttpPost("{workflowId}/execute")]
     [Authorize(Policy = "perm:workflow:execute")]
-    // 성공/실패 응답 본문은 익명 형식(new { results = ... } / new { errors = ... })이라
-    // [ProducesResponseType<T>]로 형 지정할 수 없다 — 상태 코드만 주석한다.
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    // 성공 본문 { results }는 WorkflowRunResponse로 타입화. 실패 본문 { errors }는 범위 외(상태코드만).
+    [ProducesResponseType<WorkflowRunResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -67,13 +66,16 @@ public class WorkflowController(WorkflowManager manager, IConfiguration config) 
         var reports = await manager.ExecuteAsync(path, options, ct);
         var report = reports.FirstOrDefault();
         if (report is null)
-            return Ok(new { results = new Dictionary<string, string>() });
+            return Ok(new WorkflowRunResponse(new Dictionary<string, string>()));
 
         return report.IsSuccessful
-            ? Ok(new { results = report.NodeResults.ToDictionary(kv => kv.Key, kv => kv.Value.Status.ToString()) })
+            ? Ok(new WorkflowRunResponse(report.NodeResults.ToDictionary(kv => kv.Key, kv => kv.Value.Status.ToString())))
             : BadRequest(new { errors = report.Errors });
     }
 
     private static string ResolveDir(IConfiguration config)
         => config["Workflow:Directory"] ?? Path.Combine(AppContext.BaseDirectory, "Config", "Workflow");
 }
+
+/// <summary>워크플로우 실행 결과 — 노드별 상태 맵. 익명 { results }와 동일 형태(SPA 타입드 클라이언트).</summary>
+public record WorkflowRunResponse(IReadOnlyDictionary<string, string> Results);

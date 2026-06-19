@@ -35,3 +35,6 @@ public class ProcedureRequest
     public string ProcedureName { get; set; } = string.Empty;
     public Dictionary<string, object>? Parameters { get; set; }
 }
+
+/// <summary>등록 쓰기 쿼리/명령 실행 결과 — 영향받은 행 수. 익명 { affected }와 동일 형태(SPA 타입드 클라이언트).</summary>
+public record AffectedRowsResponse(int Affected);

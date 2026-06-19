@@ -66,7 +66,7 @@ public partial class RuleController : ControllerBase
     // 파일 기반 쓰기 쿼리 실행(UI 폼 저장 등) — 사전 등록된 쓰기 쿼리 ID만 실행하므로 원시 SQL 노출이 없다.
     // 감사 컬럼은 @currentUser(토큰)·@utcNow(UTC)로 게이트웨이가 주입한다(방언 무관 바운드 파라미터).
     [HttpPost("command/{queryId}")]
-    [ProducesResponseType(StatusCodes.Status200OK)] // 익명형 { affected = int } — 명명 가능한 CLR 타입이 없어 무타입 200으로 표기
+    [ProducesResponseType<AffectedRowsResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -88,7 +88,7 @@ public partial class RuleController : ControllerBase
 
         var p = BuildParameters(def.Sql, parameters, injectAudit: true);
         var affected = await _dispatcher.ExecuteAsync(def.Sql, p, ct);
-        return Ok(new { affected });
+        return Ok(new AffectedRowsResponse(affected));
     }
 
     // 본문 JSON(JsonElement) → Dapper 바인딩용 CLR 값으로 변환하고, SQL이 참조하는 @파라미터 중 본문에 없는
