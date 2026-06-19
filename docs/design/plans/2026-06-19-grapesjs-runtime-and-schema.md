@@ -402,8 +402,11 @@ public static class ScreenDefinitionJson
     {
         if (string.IsNullOrWhiteSpace(json)) return null;
 
+        // 외부 파싱은 깊이를 넉넉히 허용하고(전체 문서가 layout 격리 단계까지 도달하게), 깊이 제한은
+        // layout 하위 역직렬화(LayoutOptions.MaxDepth)에서만 강제한다 — 그래야 과대 깊이 layout이
+        // 전체 파싱을 죽이지 않고 layout 범위로만 격리돼 평면 정의가 보존된다.
         JsonNode? root;
-        try { root = JsonNode.Parse(json); }
+        try { root = JsonNode.Parse(json, documentOptions: new JsonDocumentOptions { MaxDepth = 256 }); }
         catch (JsonException) { return null; }
         if (root is not JsonObject obj) return null;
 
