@@ -47,6 +47,37 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("timeZone", "표준시", FieldType.Text),
             },
             SaveQueryId: "MDM.CreatePlant"));
+
+        // 데모 시드: 레이아웃(WYSIWYG) 화면 — 좌측 공장 그리드(MDM.PlantList) + 우측 등록 폼/저장 버튼(MDM.CreatePlant)을
+        // 한 화면에 조합한다. /meta/DEMO_LAYOUT 이 LayoutRenderer로 렌더되는 레이아웃 런타임 end-to-end 시연.
+        Register(new ScreenDefinition("DEMO_LAYOUT", "데모 — 레이아웃(그리드+폼)",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Id = "sec", Title = "공장 마스터",
+                Children = new LayoutNode[]
+                {
+                    new RowNode { Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 7, Children = new LayoutNode[]
+                        {
+                            new GridWidget { Id = "g", QueryId = "MDM.PlantList", Columns = new GridColumnDefinition[]
+                            {
+                                new("PLANT_ID", "공장 ID"), new("PLANT_NAME", "공장명"),
+                            } },
+                        } },
+                        new ColumnNode { Span = 5, Children = new LayoutNode[]
+                        {
+                            new FormWidget { Id = "f", SaveQueryId = "MDM.CreatePlant", Fields = new FieldWidget[]
+                            {
+                                new() { FieldKey = "plantId", Field = new FieldDefinition("plantId", "공장 ID", FieldType.Text, Required: true) },
+                                new() { FieldKey = "plantName", Field = new FieldDefinition("plantName", "공장명", FieldType.Text, Required: true) },
+                            } },
+                            new ButtonWidget { Id = "b", Label = "저장", Command = "MDM.CreatePlant", RequiredPermission = "mdm:manage" },
+                        } },
+                    } },
+                },
+            }));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
