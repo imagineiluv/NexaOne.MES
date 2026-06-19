@@ -12,6 +12,20 @@
 {
     <p>화면 정의를 찾을 수 없습니다: <code>@UiId</code></p>
 }
+else if (_definition.Layout is not null)
+{
+    @* 레이아웃 트리 화면 — 멀티 read 결과맵을 내려보내고, 명령/검증은 MetaScreen이 오케스트레이션한다. *@
+    <LayoutRenderer Node="_definition.Layout" @bind-Model="_model"
+                    QueryResults="_queryResults" OnCommand="RunCommand" />
+
+    @if (_errors.Count > 0)
+    {
+        <ul class="validation-errors">
+            @foreach (var err in _errors) { <li>@err</li> }
+        </ul>
+    }
+    @if (_saved) { <span class="save-ok" style="color:#15803d;">저장됨</span> }
+}
 else
 {
     @* 폼(입력 필드)이 정의된 화면만 폼·저장 영역을 렌더한다 — 그리드 전용(조회) 화면은 폼이 비어 있을 수 있다. *@
@@ -46,6 +60,9 @@ else
     private Dictionary<string, object?> _model = new();
     private List<string> _errors = new();
     private IReadOnlyList<Dictionary<string, object?>>? _rows;   // 그리드 데이터(명명 쿼리 결과); null=미실행
+    // 레이아웃 화면의 위젯별 read 결과(queryId→행). 평면 경로는 _rows를 쓴다.
+    private IReadOnlyDictionary<string, IReadOnlyList<Dictionary<string, object?>>> _queryResults
+        = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>();
     private bool _saving;
     private bool _saved;
 
@@ -69,6 +86,16 @@ else
         if (_definition?.Columns is { Count: > 0 } && !string.IsNullOrWhiteSpace(_definition.QueryId))
         {
             _rows = await Api.ExecuteQueryAsync(_definition.QueryId);
+        }
+
+        // 레이아웃 화면: 트리에서 distinct read 쿼리를 수집해 각 1회 실행 → 위젯별 결과맵.
+        if (_definition?.Layout is not null)
+        {
+            var map = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>(StringComparer.Ordinal);
+            foreach (var queryId in CollectQueryIds(_definition.Layout))
+                if (!map.ContainsKey(queryId))
+                    map[queryId] = await Api.ExecuteQueryAsync(queryId);
+            _queryResults = map;
         }
     }
 
@@ -102,11 +129,61 @@ else
     {
         var errors = new List<string>();
         if (_definition is null) return errors;
-        foreach (var field in _definition.Fields.Where(f => f.Required))
+        var fields = _definition.Layout is not null
+            ? CollectFields(_definition.Layout)
+            : _definition.Fields;
+        foreach (var field in fields.Where(f => f.Required))
         {
             if (!_model.TryGetValue(field.Key, out var v) || string.IsNullOrWhiteSpace(v?.ToString()))
                 errors.Add($"{field.Label}은(는) 필수입니다.");
         }
         return errors;
+    }
+
+    // 레이아웃 명령 버튼 클릭 — 공유 Model을 명명 쓰기쿼리로 전송한다(검증 통과 시).
+    private async Task RunCommand(string? command)
+    {
+        _saved = false;
+        if (string.IsNullOrWhiteSpace(command)) return;
+        _errors = Validate();
+        if (_errors.Count > 0) return;
+        _saved = await Api.ExecuteCommandAsync(command, _model);
+        if (!_saved) _errors.Add("저장에 실패했습니다(권한/입력 확인).");
+    }
+
+    // 트리에서 그리드 위젯의 distinct read 쿼리 id를 수집(빈/공백 제외).
+    private static IEnumerable<string> CollectQueryIds(LayoutNode node)
+    {
+        switch (node)
+        {
+            case GridWidget g when !string.IsNullOrWhiteSpace(g.QueryId):
+                yield return g.QueryId!;
+                break;
+            case SectionNode s: foreach (var id in Children(s.Children)) yield return id; break;
+            case RowNode r: foreach (var id in Children(r.Children)) yield return id; break;
+            case ColumnNode c: foreach (var id in Children(c.Children)) yield return id; break;
+        }
+        static IEnumerable<string> Children(IReadOnlyList<LayoutNode>? children)
+            => (children ?? Array.Empty<LayoutNode>()).SelectMany(CollectQueryIds);
+    }
+
+    // 트리에서 검증 대상 필드(FieldWidget)를 수집 — 검증의 단일 출처(평면 Fields 미러링 금지).
+    private static IEnumerable<FieldDefinition> CollectFields(LayoutNode node)
+    {
+        switch (node)
+        {
+            case FieldWidget fw:
+                yield return fw.Field ?? new FieldDefinition(fw.FieldKey ?? string.Empty, fw.FieldKey ?? string.Empty);
+                break;
+            case FormWidget f:
+                foreach (var child in f.Fields ?? Array.Empty<FieldWidget>())
+                    foreach (var fd in CollectFields(child)) yield return fd;
+                break;
+            case SectionNode s: foreach (var fd in Children(s.Children)) yield return fd; break;
+            case RowNode r: foreach (var fd in Children(r.Children)) yield return fd; break;
+            case ColumnNode c: foreach (var fd in Children(c.Children)) yield return fd; break;
+        }
+        static IEnumerable<FieldDefinition> Children(IReadOnlyList<LayoutNode>? children)
+            => (children ?? Array.Empty<LayoutNode>()).SelectMany(CollectFields);
     }
 }

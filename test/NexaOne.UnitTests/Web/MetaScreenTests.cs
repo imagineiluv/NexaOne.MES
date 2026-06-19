@@ -133,4 +133,105 @@ public sealed class MetaScreenTests
         api.Verify(a => a.ExecuteCommandAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()),
             Times.Never, "필수 검증 실패 시 쓰기 게이트웨이를 호출하지 않아야 한다");
     }
+
+    [Fact]
+    public void Layout_executes_each_distinct_read_query_once_and_renders_grids()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var def = new ScreenDefinition("LAY1", "대시보드",
+            Array.Empty<FieldDefinition>(),
+            Layout: new RowNode
+            {
+                Children = new LayoutNode[]
+                {
+                    new GridWidget { QueryId = "Q.Plants", Columns = new GridColumnDefinition[] { new("PLANT_ID", "공장") } },
+                    new GridWidget { QueryId = "Q.Lines", Columns = new GridColumnDefinition[] { new("LINE_ID", "라인") } },
+                },
+            });
+
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryAsync("Q.Plants", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(new List<Dictionary<string, object?>> { new() { ["PLANT_ID"] = "P-1" } });
+        api.Setup(a => a.ExecuteQueryAsync("Q.Lines", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(new List<Dictionary<string, object?>> { new() { ["LINE_ID"] = "L-1" } });
+
+        ctx.Services.AddSingleton(Provider("LAY1", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "LAY1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Markup.Should().Contain("P-1").And.Contain("L-1");
+            cut.FindAll("tbody tr").Count.Should().Be(2, "그리드 2개가 각자 1행씩 렌더");
+        }, TimeSpan.FromSeconds(2));
+
+        api.Verify(a => a.ExecuteQueryAsync("Q.Plants", It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+        api.Verify(a => a.ExecuteQueryAsync("Q.Lines", It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public void Layout_command_button_posts_shared_model_to_command_gateway()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var def = new ScreenDefinition("LAY2", "등록",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Children = new LayoutNode[]
+                {
+                    new FieldWidget { FieldKey = "plantName", Field = new FieldDefinition("plantName", "공장명", FieldType.Text, Required: true) },
+                    new ButtonWidget { Label = "저장", Command = "MDM.CreatePlant" },
+                },
+            });
+
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteCommandAsync("MDM.CreatePlant", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(true);
+        ctx.Services.AddSingleton(Provider("LAY2", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "LAY2"));
+
+        cut.Find("input").Change("플랜트1");
+        cut.Find("button.layout-command").Click();
+
+        cut.WaitForAssertion(() =>
+            api.Verify(a => a.ExecuteCommandAsync("MDM.CreatePlant", It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once),
+            TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public void Layout_validation_blocks_command_when_required_field_empty()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var def = new ScreenDefinition("LAY3", "등록",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Children = new LayoutNode[]
+                {
+                    new FieldWidget { FieldKey = "plantName", Field = new FieldDefinition("plantName", "공장명", FieldType.Text, Required: true) },
+                    new ButtonWidget { Label = "저장", Command = "MDM.CreatePlant" },
+                },
+            });
+
+        var api = new Mock<IApiClient>();
+        ctx.Services.AddSingleton(Provider("LAY3", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "LAY3"));
+
+        cut.Find("button.layout-command").Click();   // 필수 필드 비움
+
+        cut.Markup.Should().Contain("필수");
+        api.Verify(a => a.ExecuteCommandAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()),
+            Times.Never, "레이아웃 검증 실패 시 명령 게이트웨이를 호출하지 않아야 한다");
+    }
 }
