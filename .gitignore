@@ -23,6 +23,11 @@ Thumbs.db
 Logs/
 Log/
 
+# Local SQLite databases (dev/test 부트스트랩으로 생성 — 재생성되며 커밋하지 않음)
+*.db
+*.db-shm
+*.db-wal
+
 # Secrets
 appsettings.*.json
 !appsettings.json

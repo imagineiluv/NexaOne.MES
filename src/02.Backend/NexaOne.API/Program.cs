@@ -272,6 +272,17 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+// 개발 편의(SQLite 한정): 빈 DB면 db/migrations로 스키마를 부트스트랩한다(idempotent). V001이 기본 관리자
+// admin/admin(레거시 SHA-256 해시)도 시드하므로 외부 DB 없이 로컬에서 로그인까지 디자인 확인이 가능하다.
+// 운영(MSSQL)·비-Development 환경에선 실행하지 않는다 — 운영 스키마는 외부 마이그레이션으로 관리한다.
+if (app.Environment.IsDevelopment()
+    && string.Equals(app.Configuration.GetValue<string>("Database:Provider"), "Sqlite", StringComparison.OrdinalIgnoreCase))
+{
+    var sqliteConn = app.Configuration.GetConnectionString("NexaOne");
+    if (!string.IsNullOrWhiteSpace(sqliteConn))
+        NexaOne.Infrastructure.Persistence.SqliteSchemaInitializer.EnsureSchema(sqliteConn);
+}
+
 // §17.5 — ObservableGauge(nexames_active_users/nexames_equipment_channel_status)를 트래커 싱글톤에 1회 바인딩
 NexaOne.Common.Telemetry.NexaMesMetrics.BindObservableGauges(
     app.Services.GetRequiredService<NexaOne.Common.Telemetry.ActiveUserTracker>(),
