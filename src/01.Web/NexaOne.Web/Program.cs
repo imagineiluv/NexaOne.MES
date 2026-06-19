@@ -49,6 +49,17 @@ builder.Services.AddScoped<MenuPersonalizationService>();
 // §20.9: 탭 전환(=페이지 dispose) 후 복귀 시 FDC 감시 상태를 복원하기 위한 서킷 수명 상태
 builder.Services.AddScoped<NexaOne.Web.Services.Realtime.FdcMonitorState>();
 
+// 개발 전용: 정적 SSR 단계의 [Authorize] 엔드포인트 인가를 통과시키는 자동 인증 스킴.
+// 실제 화면 인증은 클라이언트 JWT(JwtAuthStateProvider)가 담당한다 — 이 스킴은 인증 서비스 부재로 SSR이
+// 500나는 것을 막는 로컬 실행용이며 보안 경계가 아니다. 운영(비-Development)에선 등록하지 않는다.
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddAuthentication("DevAuto")
+        .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions,
+            NexaOne.Web.Services.Auth.DevAutoAuthHandler>("DevAuto", null);
+    builder.Services.AddAuthorization();
+}
+
 var apiBase = builder.Configuration["ApiBaseUrl"]
     ?? throw new InvalidOperationException("ApiBaseUrl is required");
 
@@ -71,6 +82,12 @@ if (!app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
+// 개발 전용 자동 인증/인가(위 DevAuto 스킴) — SSR [Authorize] 엔드포인트가 인증 서비스 부재로 500나지 않게 한다.
+if (app.Environment.IsDevelopment())
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+}
 app.UseAntiforgery();
 
 // Phase 2 셸 임베드 — React SPA(wwwroot/spa)를 /spa로 서빙한다. 정적 자산은 UseStaticFiles가 처리하고,
