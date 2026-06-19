@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace NexaOne.Web.Services.Meta;
 
 /// <summary>메타데이터 화면 필드의 입력 유형(Phase 3 — 단일 화면 런타임).</summary>
@@ -33,4 +35,38 @@ public sealed record ScreenDefinition(
     IReadOnlyList<FieldDefinition> Fields,
     IReadOnlyList<GridColumnDefinition>? Columns = null,
     string? QueryId = null,
-    string? SaveQueryId = null);
+    string? SaveQueryId = null,
+    LayoutNode? Layout = null);   // null => 기존 평면 렌더(하위호환). 비null => LayoutRenderer가 렌더.
+
+/// <summary>
+/// 레이아웃 트리 노드(Low-Code WYSIWYG). 컨테이너(Section/Row/Column)는 Children을, 위젯은 바인딩을 가진다.
+/// discriminator는 "kind"(camelCase 안전). init-only 프로퍼티라 역직렬화가 속성 순서에 의존하지 않는다.
+/// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
+[JsonDerivedType(typeof(SectionNode), "section")]
+[JsonDerivedType(typeof(RowNode), "row")]
+[JsonDerivedType(typeof(ColumnNode), "column")]
+[JsonDerivedType(typeof(GridWidget), "grid")]
+[JsonDerivedType(typeof(FormWidget), "form")]
+[JsonDerivedType(typeof(FieldWidget), "field")]
+[JsonDerivedType(typeof(ButtonWidget), "commandButton")]
+[JsonDerivedType(typeof(TextWidget), "text")]
+public abstract record LayoutNode
+{
+    /// <summary>GrapesJS 컴포넌트 id == 노드 id(편집 라운드트립 정체성).</summary>
+    public string? Id { get; init; }
+    /// <summary>UX 힌트 전용 권한(ADR-003 module:action). 서버가 실제 게이트 — 런타임은 표시/비활성만.</summary>
+    public string? RequiredPermission { get; init; }
+}
+
+// 컨테이너
+public sealed record SectionNode : LayoutNode { public string? Title { get; init; } public IReadOnlyList<LayoutNode>? Children { get; init; } }
+public sealed record RowNode : LayoutNode { public IReadOnlyList<LayoutNode>? Children { get; init; } }
+public sealed record ColumnNode : LayoutNode { public int Span { get; init; } = 12; public IReadOnlyList<LayoutNode>? Children { get; init; } }
+
+// 위젯 — 바인딩을 위젯별로 분리(잘못된 조합을 표현 불가능하게)
+public sealed record GridWidget : LayoutNode { public string? QueryId { get; init; } public IReadOnlyList<GridColumnDefinition>? Columns { get; init; } }
+public sealed record FormWidget : LayoutNode { public string? SaveQueryId { get; init; } public IReadOnlyList<FieldWidget>? Fields { get; init; } }
+public sealed record FieldWidget : LayoutNode { public string? FieldKey { get; init; } public FieldDefinition? Field { get; init; } }
+public sealed record ButtonWidget : LayoutNode { public string Label { get; init; } = ""; public string? Command { get; init; } }
+public sealed record TextWidget : LayoutNode { public string Text { get; init; } = ""; public bool IsLabel { get; init; } }
