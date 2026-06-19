@@ -54,8 +54,14 @@ public sealed class PlantRepository : QueryRepository, IPlantRepository
         public string Country     { get; set; } = "";
         public string TimeZone    { get; set; } = "";
 
+        public string CreatedBy   { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public string? UpdatedBy  { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
         public Plant? ToDomain() =>
-            Plant.Restore(PlantId, PlantName, Description, Country, TimeZone);
+            Plant.Restore(PlantId, PlantName, Description, Country, TimeZone,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static PlantRow FromDomain(Plant p) => new()
         {

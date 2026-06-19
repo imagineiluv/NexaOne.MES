@@ -77,8 +77,11 @@ public sealed class InspectionResult : AuditableEntity<string>
     public static InspectionResult Restore(
         string resultId, string specId, string lotId, string equipmentId,
         decimal? measuredValue, string? attributeResult, DateTime inspectedAt,
-        string inspectorId, bool isPass, string? remark)
-        => new(resultId)
+        string inspectorId, bool isPass, string? remark,
+        string? createdBy = null, DateTime? createdAt = null,
+        string? updatedBy = null, DateTime? updatedAt = null)
+    {
+        var result = new InspectionResult(resultId)
         {
             SpecId = specId,
             LotId = lotId,
@@ -90,4 +93,7 @@ public sealed class InspectionResult : AuditableEntity<string>
             IsPass = isPass,
             Remark = remark
         };
+        result.RestoreAudit(createdBy ?? result.CreatedBy, createdAt ?? result.CreatedAt, updatedBy, updatedAt);
+        return result;
+    }
 }

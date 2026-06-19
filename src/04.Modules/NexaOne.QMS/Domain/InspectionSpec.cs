@@ -57,8 +57,10 @@ public sealed class InspectionSpec : AuditableEntity<string>
     /// 상태손실을 막는다(GetByIdAsync는 IS_ACTIVE 필터가 없어 손실이 그대로 노출된다).</summary>
     public static InspectionSpec Restore(
         string specId, string specName, string processId, string itemName, string measureType,
-        decimal? nominalValue, decimal? tolerancePlus, decimal? toleranceMinus, bool isActive)
-        => new(specId)
+        decimal? nominalValue, decimal? tolerancePlus, decimal? toleranceMinus, bool isActive,
+        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null, DateTime? updatedAt = null)
+    {
+        var spec = new InspectionSpec(specId)
         {
             SpecName = specName,
             ProcessId = processId,
@@ -69,4 +71,7 @@ public sealed class InspectionSpec : AuditableEntity<string>
             ToleranceMinus = toleranceMinus,
             IsActive = isActive
         };
+        spec.RestoreAudit(createdBy ?? spec.CreatedBy, createdAt ?? spec.CreatedAt, updatedBy, updatedAt);
+        return spec;
+    }
 }

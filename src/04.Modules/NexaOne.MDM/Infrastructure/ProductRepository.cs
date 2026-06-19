@@ -54,9 +54,14 @@ public sealed class ProductRepository : QueryRepository, IProductRepository
         public string ProductType { get; set; } = "";
         public string Unit        { get; set; } = "";
         public string ValidState  { get; set; } = "Valid";
+        public string CreatedBy   { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public string? UpdatedBy  { get; set; }
+        public DateTime? UpdatedAt { get; set; }
 
         public Product ToDomain() =>
-            Product.Restore(ProductId, ProductName, Description, ProductType, Unit, ValidState);
+            Product.Restore(ProductId, ProductName, Description, ProductType, Unit, ValidState,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static ProductRow FromDomain(Product p) => new()
         {

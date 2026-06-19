@@ -125,7 +125,8 @@ public sealed class Lot : AuditableEntity<string>
         IReadOnlyList<string> routeSteps, int currentStepIndex,
         string? equipmentId, string? recipeDefId, int? recipeDefVersion, string? carrierId,
         bool isHold, string? trackInUser, DateTime? trackInTime,
-        string? trackOutUser, DateTime? trackOutTime)
+        string? trackOutUser, DateTime? trackOutTime,
+        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null, DateTime? updatedAt = null)
     {
         var lot = new Lot(lotId)
         {
@@ -148,6 +149,9 @@ public sealed class Lot : AuditableEntity<string>
             TrackOutTime = trackOutTime
         };
         lot._routeSteps.AddRange(routeSteps);
+        // 읽기경로 Restore 패턴: 영속된 감사 메타데이터를 그대로 복원(미복원 시 CreatedAt이 매 읽기마다 UtcNow로
+        // 재생성되고 CreatedBy=""·UpdatedBy/At=null로 리셋됨). 인자 미제공 시 기본값(생성 시점 값)을 유지한다.
+        lot.RestoreAudit(createdBy ?? lot.CreatedBy, createdAt ?? lot.CreatedAt, updatedBy, updatedAt);
         return lot;
     }
 

@@ -64,8 +64,11 @@ public sealed class SpcParam : AuditableEntity<string>
     public static SpcParam Restore(
         string paramId, string paramName, string equipmentId, string processId,
         decimal mean, decimal ucl, decimal lcl, decimal? usl, decimal? lsl,
-        int sampleSize, bool isActive)
-        => new(paramId)
+        int sampleSize, bool isActive,
+        string? createdBy = null, DateTime? createdAt = null,
+        string? updatedBy = null, DateTime? updatedAt = null)
+    {
+        var param = new SpcParam(paramId)
         {
             ParamName = paramName,
             EquipmentId = equipmentId,
@@ -78,6 +81,9 @@ public sealed class SpcParam : AuditableEntity<string>
             SampleSize = sampleSize,
             IsActive = isActive
         };
+        param.RestoreAudit(createdBy ?? param.CreatedBy, createdAt ?? param.CreatedAt, updatedBy, updatedAt);
+        return param;
+    }
 
     public Result UpdateControlLimits(decimal mean, decimal ucl, decimal lcl)
     {

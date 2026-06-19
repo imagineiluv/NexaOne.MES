@@ -70,4 +70,42 @@ public sealed class FdcParameter : AuditableEntity<string>
     public void AssignToGroup(string? groupId) => GroupId = groupId;
 
     public void Deactivate() => IsActive = false;
+
+    /// <summary>영속된 행을 검증 없이 도메인으로 재구성한다(읽기경로 Restore 패턴).
+    /// Create+뮤테이터 경유 재구성은 (1) 영속 감사필드(CREATED_*/UPDATED_*)를 유실시키고
+    /// (2) 검증 실패 시 행을 드롭하므로, 읽기경로는 이 팩토리를 사용한다.
+    /// 비즈니스 필드는 그대로 세팅하고 감사 메타데이터는 RestoreAudit으로 일원 복원한다.</summary>
+    public static FdcParameter Restore(
+        string parameterId,
+        string parameterName,
+        string equipmentId,
+        string? groupId,
+        string unit,
+        decimal lowerLimit,
+        decimal upperLimit,
+        decimal? lowerControlLimit,
+        decimal? upperControlLimit,
+        int samplingIntervalMs,
+        bool isActive,
+        string? createdBy = null,
+        DateTime? createdAt = null,
+        string? updatedBy = null,
+        DateTime? updatedAt = null)
+    {
+        var parameter = new FdcParameter(parameterId)
+        {
+            ParameterName = parameterName,
+            EquipmentId = equipmentId,
+            GroupId = groupId,
+            Unit = unit,
+            LowerLimit = lowerLimit,
+            UpperLimit = upperLimit,
+            LowerControlLimit = lowerControlLimit,
+            UpperControlLimit = upperControlLimit,
+            SamplingIntervalMs = samplingIntervalMs,
+            IsActive = isActive
+        };
+        parameter.RestoreAudit(createdBy ?? parameter.CreatedBy, createdAt ?? parameter.CreatedAt, updatedBy, updatedAt);
+        return parameter;
+    }
 }

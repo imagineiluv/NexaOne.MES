@@ -175,6 +175,11 @@ public sealed class UserRepository : QueryRepository, IUserRepository
         public string PasswordState { get; set; } = "Normal";
         public int FailCount { get; set; }
         public DateTime? LockedUntil { get; set; }
+        // 읽기경로 감사 메타데이터 — Dapper MatchNamesWithUnderscores로 CREATED_BY→CreatedBy 등 자동 매핑(SELECT *).
+        public string CreatedBy { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public string? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
 
         public User ToDomain()
         {
@@ -186,7 +191,8 @@ public sealed class UserRepository : QueryRepository, IUserRepository
             return User.Restore(
                 UserId, UserName, PasswordHash, Email, RoleId, lang,
                 IsActive, IsDeleted, DeletedAt, LastLoginAt,
-                state, FailCount, LockedUntil);
+                state, FailCount, LockedUntil,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
         }
 
         public static UserRow FromDomain(User u) => new()

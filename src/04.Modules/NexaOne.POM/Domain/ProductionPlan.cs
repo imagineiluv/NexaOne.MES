@@ -67,8 +67,10 @@ public sealed class ProductionPlan : AuditableEntity<string>
     public static ProductionPlan Restore(
         string planId, string planName, string plantId, string productId,
         decimal plannedQty, DateTime plannedStartDate, DateTime plannedEndDate,
-        ProductionPlanStatus status, string? remark)
-        => new(planId)
+        ProductionPlanStatus status, string? remark,
+        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null, DateTime? updatedAt = null)
+    {
+        var plan = new ProductionPlan(planId)
         {
             PlanName = planName,
             PlantId = plantId,
@@ -79,6 +81,11 @@ public sealed class ProductionPlan : AuditableEntity<string>
             Status = status,
             Remark = remark
         };
+        // 읽기경로 Restore 패턴: 영속된 감사 메타데이터를 그대로 복원(미복원 시 CreatedAt이 매 읽기마다 UtcNow로
+        // 재생성되고 CreatedBy=""·UpdatedBy/At=null로 리셋되는 상태손실 방지).
+        plan.RestoreAudit(createdBy ?? plan.CreatedBy, createdAt ?? plan.CreatedAt, updatedBy, updatedAt);
+        return plan;
+    }
 
     public Result Release()
     {

@@ -127,13 +127,19 @@ public sealed class LotRepository : QueryRepository, ILotRepository
         public DateTime? TrackInTime { get; set; }
         public string? TrackOutUser { get; set; }
         public DateTime? TrackOutTime { get; set; }
+        // 읽기경로 감사 메타데이터 복원용(SELECT * + MatchNamesWithUnderscores로 CREATED_BY→CreatedBy 자동 매핑).
+        public string CreatedBy { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public string? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
 
         public Lot ToDomain() => Lot.Restore(
             LotId, PlantId, WorkOrderId, ProductId, Qty, DefectQty,
             Enum.Parse<LotState>(LotState), Enum.Parse<LotProcessState>(ProcessState),
             RouteSteps.Split(Lot.RouteSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
             CurrentStep, EquipmentId, RecipeDefId, RecipeDefVersion, CarrierId,
-            IsHold == "Y", TrackInUser, TrackInTime, TrackOutUser, TrackOutTime);
+            IsHold == "Y", TrackInUser, TrackInTime, TrackOutUser, TrackOutTime,
+            CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static LotRow FromDomain(Lot lot) => new()
         {

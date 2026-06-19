@@ -61,14 +61,15 @@ public sealed class FdcAlarmConfigRepository : QueryRepository, IFdcAlarmConfigR
         public decimal ThresholdValue { get; set; }
         public bool    IsActive       { get; set; }
 
-        public FdcAlarmConfig? ToDomain()
-        {
-            var result = FdcAlarmConfig.Create(AlarmConfigId, EquipmentId, ParameterId, AlarmLevel, Operator, ThresholdValue);
-            if (result.IsFailure) return null;
-            var c = result.Value;
-            if (!IsActive) c.Deactivate();
-            return c;
-        }
+        public string    CreatedBy { get; set; } = "";
+        public DateTime  CreatedAt { get; set; }
+        public string?   UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
+        public FdcAlarmConfig? ToDomain() =>
+            FdcAlarmConfig.Restore(
+                AlarmConfigId, EquipmentId, ParameterId, AlarmLevel, Operator, ThresholdValue, IsActive,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static ConfigRow FromDomain(FdcAlarmConfig c) => new()
         {

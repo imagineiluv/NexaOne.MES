@@ -62,7 +62,14 @@ public sealed class CodeRepository : QueryRepository, ICodeRepository
         public string CodeClassName { get; set; } = "";
         public string Description   { get; set; } = "";
 
-        public CodeClass? ToDomain() => CodeClass.Restore(CodeClassId, CodeClassName, Description);
+        public string    CreatedBy { get; set; } = "";
+        public DateTime  CreatedAt { get; set; }
+        public string?   UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
+        public CodeClass? ToDomain() => CodeClass.Restore(
+            CodeClassId, CodeClassName, Description,
+            CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static CodeClassRow FromDomain(CodeClass c) => new()
         {
@@ -78,7 +85,14 @@ public sealed class CodeRepository : QueryRepository, ICodeRepository
         public int    SortOrder    { get; set; }
         public string ValidState   { get; set; } = "Valid";
 
-        public Code? ToDomain() => Code.Restore(CodeId, CodeClassId, CodeName, SortOrder, ValidState);
+        public string    CreatedBy { get; set; } = "";
+        public DateTime  CreatedAt { get; set; }
+        public string?   UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
+        public Code? ToDomain() => Code.Restore(
+            CodeId, CodeClassId, CodeName, SortOrder, ValidState,
+            CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static CodeRow FromDomain(Code c) => new()
         {

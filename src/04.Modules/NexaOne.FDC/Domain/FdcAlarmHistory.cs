@@ -60,8 +60,10 @@ public sealed class FdcAlarmHistory : AuditableEntity<string>
     /// 이벤트 발행 없이 ClearedAt/IsCleared를 직접 복원해 읽기경로 부작용을 막는다.</summary>
     public static FdcAlarmHistory Restore(
         string alarmId, string alarmConfigId, string equipmentId, string parameterId, string alarmLevel,
-        decimal triggerValue, string message, DateTime occurredAt, DateTime? clearedAt, bool isCleared)
-        => new(alarmId)
+        decimal triggerValue, string message, DateTime occurredAt, DateTime? clearedAt, bool isCleared,
+        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null, DateTime? updatedAt = null)
+    {
+        var history = new FdcAlarmHistory(alarmId)
         {
             AlarmConfigId = alarmConfigId,
             EquipmentId = equipmentId,
@@ -73,6 +75,10 @@ public sealed class FdcAlarmHistory : AuditableEntity<string>
             ClearedAt = clearedAt,
             IsCleared = isCleared
         };
+        // 읽기경로 Restore 패턴: 영속된 감사 메타데이터를 그대로 복원한다(미복원 시 CreatedAt이 매 읽기마다 재생성).
+        history.RestoreAudit(createdBy ?? history.CreatedBy, createdAt ?? history.CreatedAt, updatedBy, updatedAt);
+        return history;
+    }
 
     /// <summary>알람 해제 — 해제 시각 기록, IS_CLEARED=true. (멱등)</summary>
     public void Clear(DateTime clearedAt)

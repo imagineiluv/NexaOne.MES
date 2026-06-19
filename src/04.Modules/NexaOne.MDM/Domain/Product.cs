@@ -42,8 +42,13 @@ public sealed class Product : AuditableEntity<string>
         string description,
         string productType,
         string unit,
-        string validState)
-        => new(productId)
+        string validState,
+        string? createdBy = null,
+        DateTime? createdAt = null,
+        string? updatedBy = null,
+        DateTime? updatedAt = null)
+    {
+        var product = new Product(productId)
         {
             ProductName = productName,
             Description = description,
@@ -51,6 +56,9 @@ public sealed class Product : AuditableEntity<string>
             Unit = unit,
             ValidState = validState
         };
+        product.RestoreAudit(createdBy ?? product.CreatedBy, createdAt ?? product.CreatedAt, updatedBy, updatedAt);
+        return product;
+    }
 
     public void Update(string productName, string description, string productType, string unit)
     {

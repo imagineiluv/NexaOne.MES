@@ -61,8 +61,10 @@ public sealed class FdcInterlockHistory : AuditableEntity<string>
     /// 객체 초기화로 영속 상태(ResolvedAt/IsResolved 포함)를 직접 복원한다.</summary>
     public static FdcInterlockHistory Restore(
         string historyId, string ruleId, string equipmentId, string parameterId, decimal triggerValue,
-        string action, string message, DateTime triggeredAt, DateTime? resolvedAt, bool isResolved)
-        => new(historyId)
+        string action, string message, DateTime triggeredAt, DateTime? resolvedAt, bool isResolved,
+        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null, DateTime? updatedAt = null)
+    {
+        var history = new FdcInterlockHistory(historyId)
         {
             RuleId = ruleId,
             EquipmentId = equipmentId,
@@ -74,6 +76,10 @@ public sealed class FdcInterlockHistory : AuditableEntity<string>
             ResolvedAt = resolvedAt,
             IsResolved = isResolved
         };
+        // 읽기경로 Restore 패턴: 영속된 감사 메타데이터를 그대로 복원(미복원 시 CreatedAt이 매 읽기 UtcNow로 재생성·CreatedBy 리셋).
+        history.RestoreAudit(createdBy ?? history.CreatedBy, createdAt ?? history.CreatedAt, updatedBy, updatedAt);
+        return history;
+    }
 
     /// <summary>인터락 해제 — 해제 시각을 기록하고 IS_RESOLVED를 true로 한다. (멱등)</summary>
     public void Resolve(DateTime resolvedAt)

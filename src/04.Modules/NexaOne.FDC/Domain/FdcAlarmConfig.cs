@@ -52,6 +52,36 @@ public sealed class FdcAlarmConfig : AuditableEntity<string>
         return config;
     }
 
+    /// <summary>영속된 행을 검증 없이 도메인으로 복원한다(읽기경로 Restore 패턴).
+    /// Create+뮤테이터 재구성과 달리 감사 메타데이터(CreatedBy/CreatedAt/UpdatedBy/UpdatedAt)를
+    /// 그대로 보존하여 매 읽기마다 CreatedAt이 UtcNow로 재생성되거나 CreatedBy=""로 리셋되는
+    /// 상태손실을 막는다. 비즈니스 검증을 거치지 않으므로 검증 실패로 인한 행 드롭도 없다.</summary>
+    public static FdcAlarmConfig Restore(
+        string alarmConfigId,
+        string equipmentId,
+        string parameterId,
+        string alarmLevel,
+        string @operator,
+        decimal thresholdValue,
+        bool isActive,
+        string? createdBy = null,
+        DateTime? createdAt = null,
+        string? updatedBy = null,
+        DateTime? updatedAt = null)
+    {
+        var config = new FdcAlarmConfig(alarmConfigId)
+        {
+            EquipmentId = equipmentId,
+            ParameterId = parameterId,
+            AlarmLevel = alarmLevel,
+            Operator = @operator,
+            ThresholdValue = thresholdValue,
+            IsActive = isActive
+        };
+        config.RestoreAudit(createdBy ?? config.CreatedBy, createdAt ?? config.CreatedAt, updatedBy, updatedAt);
+        return config;
+    }
+
     public bool Evaluate(decimal value) => Operator switch
     {
         "GT"  => value > ThresholdValue,

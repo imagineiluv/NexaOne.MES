@@ -56,4 +56,31 @@ public sealed class FdcParameterGroup : AuditableEntity<string>
     }
 
     public void Deactivate() => IsActive = false;
+
+    /// <summary>영속 행에서 도메인을 검증 없이 재구성한다(읽기경로 Restore 패턴).
+    /// Create+뮤테이터 재구성은 영속 감사필드(CreatedBy/At·UpdatedBy/At)를 유실시키고,
+    /// 검증 실패 시 행을 드롭하므로 읽기경로에서는 이 팩토리를 사용한다.</summary>
+    public static FdcParameterGroup Restore(
+        string groupId,
+        string groupName,
+        string equipmentId,
+        string? description,
+        int displayOrder,
+        bool isActive,
+        string? createdBy = null,
+        DateTime? createdAt = null,
+        string? updatedBy = null,
+        DateTime? updatedAt = null)
+    {
+        var group = new FdcParameterGroup(groupId)
+        {
+            GroupName = groupName,
+            EquipmentId = equipmentId,
+            Description = description,
+            DisplayOrder = displayOrder,
+            IsActive = isActive
+        };
+        group.RestoreAudit(createdBy ?? group.CreatedBy, createdAt ?? group.CreatedAt, updatedBy, updatedAt);
+        return group;
+    }
 }

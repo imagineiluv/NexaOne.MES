@@ -50,10 +50,15 @@ public sealed class InspectionResultRepository : QueryRepository, IInspectionRes
         public string   InspectorId     { get; set; } = "";
         public bool     IsPass          { get; set; }
         public string?  Remark          { get; set; }
+        public string   CreatedBy       { get; set; } = "";
+        public DateTime  CreatedAt       { get; set; }
+        public string?  UpdatedBy       { get; set; }
+        public DateTime? UpdatedAt       { get; set; }
 
         public InspectionResult ToDomain() =>
             InspectionResult.Restore(ResultId, SpecId, LotId, EquipmentId, MeasuredValue, AttributeResult,
-                InspectedAt, InspectorId, IsPass, Remark);
+                InspectedAt, InspectorId, IsPass, Remark,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static Row FromDomain(InspectionResult r) => new()
         {

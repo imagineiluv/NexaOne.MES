@@ -53,8 +53,10 @@ public sealed class FdcInterlockRule : AuditableEntity<string>
     /// 되살아나는 상태손실을 막는다(GetActiveRulesAsync는 SQL 필터로 가려졌으나 GetByEquipmentAsync는 실재 노출).</summary>
     public static FdcInterlockRule Restore(
         string ruleId, string ruleName, string equipmentId, string parameterId, string @operator,
-        decimal thresholdValue, string action, int priority, bool isActive)
-        => new(ruleId)
+        decimal thresholdValue, string action, int priority, bool isActive,
+        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null, DateTime? updatedAt = null)
+    {
+        var rule = new FdcInterlockRule(ruleId)
         {
             RuleName = ruleName,
             EquipmentId = equipmentId,
@@ -65,6 +67,9 @@ public sealed class FdcInterlockRule : AuditableEntity<string>
             Priority = priority,
             IsActive = isActive
         };
+        rule.RestoreAudit(createdBy ?? rule.CreatedBy, createdAt ?? rule.CreatedAt, updatedBy, updatedAt);
+        return rule;
+    }
 
     public bool Evaluate(decimal value) => Operator switch
     {

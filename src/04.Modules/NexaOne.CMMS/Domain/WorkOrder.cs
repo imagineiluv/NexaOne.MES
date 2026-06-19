@@ -68,8 +68,10 @@ public sealed class WorkOrder : AuditableEntity<string>
     public static WorkOrder Restore(
         string woId, string? planId, string equipmentId, string woType, string description,
         string assigneeId, DateTime issuedAt, DateTime? startedAt, DateTime? completedAt,
-        WorkOrderStatus status, string? failureCodeId, string? remark)
-        => new(woId)
+        WorkOrderStatus status, string? failureCodeId, string? remark,
+        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null, DateTime? updatedAt = null)
+    {
+        var wo = new WorkOrder(woId)
         {
             PlanId = planId,
             EquipmentId = equipmentId,
@@ -83,6 +85,11 @@ public sealed class WorkOrder : AuditableEntity<string>
             FailureCodeId = failureCodeId,
             Remark = remark
         };
+        // 읽기경로 Restore 패턴: 영속된 감사 메타데이터를 그대로 복원해 매 읽기마다
+        // CreatedAt=UtcNow 재생성·CreatedBy=""·UpdatedBy/At=null 리셋되는 상태손실을 막는다.
+        wo.RestoreAudit(createdBy ?? wo.CreatedBy, createdAt ?? wo.CreatedAt, updatedBy, updatedAt);
+        return wo;
+    }
 
     public Result Start()
     {

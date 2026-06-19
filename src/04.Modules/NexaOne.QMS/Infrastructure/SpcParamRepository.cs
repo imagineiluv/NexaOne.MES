@@ -57,10 +57,14 @@ public sealed class SpcParamRepository : QueryRepository, ISpcParamRepository
         public decimal? Lsl         { get; set; }
         public int      SampleSize  { get; set; }
         public bool     IsActive    { get; set; }
+        public string   CreatedBy   { get; set; } = "";
+        public DateTime  CreatedAt  { get; set; }
+        public string?  UpdatedBy   { get; set; }
+        public DateTime? UpdatedAt  { get; set; }
 
         public SpcParam ToDomain() =>
             SpcParam.Restore(ParamId, ParamName, EquipmentId, ProcessId, Mean, Ucl, Lcl, Usl, Lsl,
-                SampleSize, IsActive);
+                SampleSize, IsActive, CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static Row FromDomain(SpcParam p) => new()
         {

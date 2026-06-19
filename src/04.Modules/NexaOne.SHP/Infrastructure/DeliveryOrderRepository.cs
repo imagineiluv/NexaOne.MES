@@ -107,9 +107,17 @@ public sealed class DeliveryOrderRepository : QueryRepository, IDeliveryOrderRep
         public string Status { get; set; } = "Draft";
         public string? Remark { get; set; }
 
+        // 읽기경로 Restore 패턴: 영속된 감사 메타데이터를 도메인에 그대로 복원한다.
+        // Dapper MatchNamesWithUnderscores로 CREATED_BY→CreatedBy 등 자동 매핑(SELECT *).
+        public string CreatedBy { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public string? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
         public DeliveryOrder ToDomain() =>
             DeliveryOrder.Restore(OrderId, CustomerName, PlantId, RequestedDate,
-                Enum.Parse<DeliveryOrderStatus>(Status, ignoreCase: true), ShippedDate, Remark);
+                Enum.Parse<DeliveryOrderStatus>(Status, ignoreCase: true), ShippedDate, Remark,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static OrderRow FromDomain(DeliveryOrder o) => new()
         {

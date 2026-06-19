@@ -69,18 +69,17 @@ public sealed class FdcParameterRepository : QueryRepository, IFdcParameterRepos
         public decimal? UpperControlLimit { get; set; }
         public int     SamplingIntervalMs { get; set; }
         public bool    IsActive           { get; set; }
+        public string  CreatedBy          { get; set; } = "";
+        public DateTime CreatedAt          { get; set; }
+        public string? UpdatedBy          { get; set; }
+        public DateTime? UpdatedAt         { get; set; }
 
         public FdcParameter? ToDomain()
-        {
-            var result = FdcParameter.Create(ParameterId, ParameterName, EquipmentId, Unit, LowerLimit, UpperLimit);
-            if (result.IsFailure) return null;
-            var p = result.Value;
-            p.AssignToGroup(GroupId);   // DB의 GROUP_ID를 도메인에 복원 (round-trip 보존)
-            if (LowerControlLimit.HasValue && UpperControlLimit.HasValue)
-                p.SetControlLimits(LowerControlLimit.Value, UpperControlLimit.Value);
-            if (!IsActive) p.Deactivate();
-            return p;
-        }
+            => FdcParameter.Restore(
+                ParameterId, ParameterName, EquipmentId, GroupId, Unit,
+                LowerLimit, UpperLimit, LowerControlLimit, UpperControlLimit,
+                SamplingIntervalMs, IsActive,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static ParamRow FromDomain(FdcParameter p) => new()
         {

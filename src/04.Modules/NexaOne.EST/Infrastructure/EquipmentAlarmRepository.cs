@@ -130,10 +130,15 @@ public sealed class EquipmentAlarmRepository : QueryRepository, IEquipmentAlarmR
         public DateTime OccurredAt { get; set; }
         public DateTime? ClearedAt { get; set; }
         public long? ElapsedSeconds { get; set; }
+        // 읽기경로 감사 메타데이터 복원용(MatchNamesWithUnderscores로 CREATED_BY→CreatedBy 자동 매핑, SELECT *).
+        public string CreatedBy { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public string? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
 
         public EquipmentAlarm ToDomain() =>
             EquipmentAlarm.Restore(AlarmId, EquipmentId, AlarmCode, AlarmName, AlarmLevel, OccurredAt,
-                ClearedAt, ElapsedSeconds);
+                ClearedAt, ElapsedSeconds, CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static AlarmRow FromDomain(EquipmentAlarm a) => new()
         {

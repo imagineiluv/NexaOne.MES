@@ -119,6 +119,11 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
         public string Status { get; set; } = "Issued";
         public string? FailureCodeId { get; set; }
         public string? Remark { get; set; }
+        // 읽기경로 감사 메타데이터(SELECT *로 채워짐, Dapper MatchNamesWithUnderscores: CREATED_BY→CreatedBy).
+        public string CreatedBy { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public string? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
 
         public WorkOrder ToDomain()
         {
@@ -127,7 +132,8 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
             if (!Enum.TryParse<WorkOrderStatus>(Status, out var status)) status = WorkOrderStatus.Issued;
             return WorkOrder.Restore(
                 WoId, PlanId, EquipmentId, WoType, Description, AssigneeId,
-                IssuedAt, StartedAt, CompletedAt, status, FailureCodeId, Remark);
+                IssuedAt, StartedAt, CompletedAt, status, FailureCodeId, Remark,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
         }
 
         public static WoRow FromDomain(WorkOrder w) => new()

@@ -67,8 +67,10 @@ public sealed class ProductionOrder : AuditableEntity<string>
     public static ProductionOrder Restore(
         string orderId, string planId, string equipmentId, string productId, decimal orderQty,
         decimal? actualQty, DateTime scheduledStart, DateTime scheduledEnd,
-        DateTime? actualStart, DateTime? actualEnd, ProductionOrderStatus status)
-        => new(orderId)
+        DateTime? actualStart, DateTime? actualEnd, ProductionOrderStatus status,
+        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null, DateTime? updatedAt = null)
+    {
+        var order = new ProductionOrder(orderId)
         {
             PlanId = planId,
             EquipmentId = equipmentId,
@@ -81,6 +83,11 @@ public sealed class ProductionOrder : AuditableEntity<string>
             ActualEnd = actualEnd,
             Status = status
         };
+        // 읽기경로 감사 메타데이터 복원 — 미복원 시 CreatedAt이 매 읽기마다 UtcNow로 재생성되고
+        // CreatedBy=""·UpdatedBy/At=null로 리셋되는 상태손실이 생긴다. 인자가 없으면 현재 값을 유지(기존 호출부 호환).
+        order.RestoreAudit(createdBy ?? order.CreatedBy, createdAt ?? order.CreatedAt, updatedBy, updatedAt);
+        return order;
+    }
 
     public Result Start(DateTime actualStart)
     {

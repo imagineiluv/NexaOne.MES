@@ -57,7 +57,10 @@ public sealed class User : AuditableEntity<string>
         return user;
     }
 
-    /// <summary>DB 행 복원 전용 — 저장된 상태를 검증 없이 그대로 되살린다. 신규 생성은 Create를 사용한다.</summary>
+    /// <summary>DB 행 복원 전용 — 저장된 상태를 검증 없이 그대로 되살린다. 신규 생성은 Create를 사용한다.
+    /// 감사 메타데이터(createdBy/createdAt/updatedBy/updatedAt)는 영속값을 그대로 복원한다 —
+    /// 미복원 시 매 읽기마다 CreatedAt이 UtcNow로 재생성되고 CreatedBy=""·UpdatedBy/At=null로 리셋되는
+    /// 읽기경로 상태손실이 발생한다(읽기경로 Restore 패턴). 선택적 파라미터라 기존 호출부는 변경 없이 컴파일된다.</summary>
     public static User Restore(
         string userId,
         string userName,
@@ -71,8 +74,13 @@ public sealed class User : AuditableEntity<string>
         DateTime? lastLoginAt,
         PasswordState passwordState,
         int failCount,
-        DateTime? lockedUntil)
-        => new(userId)
+        DateTime? lockedUntil,
+        string? createdBy = null,
+        DateTime? createdAt = null,
+        string? updatedBy = null,
+        DateTime? updatedAt = null)
+    {
+        var user = new User(userId)
         {
             UserName = userName,
             PasswordHash = passwordHash,
@@ -87,6 +95,10 @@ public sealed class User : AuditableEntity<string>
             FailCount = failCount,
             LockedUntil = lockedUntil
         };
+        // 소프트삭제(isDeleted/deletedAt)는 위 이니셜라이저에서 이미 복원됨 — RestoreSoftDelete 중복 호출 금지.
+        user.RestoreAudit(createdBy ?? user.CreatedBy, createdAt ?? user.CreatedAt, updatedBy, updatedAt);
+        return user;
+    }
 
     /// <summary>로그인 성공 — 마지막 로그인 시각을 기록하고 연속 실패 카운터를 끊는다 (§20.10).</summary>
     public void RecordLogin()

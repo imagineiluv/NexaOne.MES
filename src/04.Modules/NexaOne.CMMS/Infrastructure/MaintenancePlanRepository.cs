@@ -124,12 +124,20 @@ public sealed class MaintenancePlanRepository : QueryRepository, IMaintenancePla
         public string  AssigneeId              { get; set; } = "";
         public string  Status                  { get; set; } = "Planned";
 
+        // 영속된 감사 메타데이터(읽기경로 복원용). Dapper MatchNamesWithUnderscores로 CREATED_BY→CreatedBy 자동 매핑(SELECT *).
+        public string   CreatedBy { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public string?  UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
         // 읽기경로: Create+전이 재생(replay)이 아닌 Restore로 영속 상태를 직접 복원한다(전이는 도메인 이벤트를
         // 발행하므로 재생 시 읽기마다 phantom 이벤트가 발생 — ADR-002 읽기경로 안전성).
+        // 감사필드도 함께 복원해 읽기마다 CreatedAt=UtcNow 재생성·CreatedBy="" 리셋되는 상태손실을 막는다.
         public MaintenancePlan ToDomain() =>
             MaintenancePlan.Restore(PlanId, PlanName, EquipmentId, PlanType, CycleType,
                 ScheduledDate, EstimatedDurationHours, AssigneeId,
-                Enum.Parse<MaintenancePlanStatus>(Status, ignoreCase: true));
+                Enum.Parse<MaintenancePlanStatus>(Status, ignoreCase: true),
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static PlanRow FromDomain(MaintenancePlan p) => new()
         {

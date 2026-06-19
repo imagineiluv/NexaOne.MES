@@ -71,8 +71,10 @@ public sealed class MaintenancePlan : AuditableEntity<string>
     /// 발생하는 회귀를 막기 위해, Restore는 모든 영속 필드를 직접 채우고 어떤 이벤트도 발행하지 않는다.</summary>
     public static MaintenancePlan Restore(
         string planId, string planName, string equipmentId, string planType, string cycleType,
-        DateTime scheduledDate, decimal estimatedDurationHours, string assigneeId, MaintenancePlanStatus status)
-        => new(planId)
+        DateTime scheduledDate, decimal estimatedDurationHours, string assigneeId, MaintenancePlanStatus status,
+        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null, DateTime? updatedAt = null)
+    {
+        var plan = new MaintenancePlan(planId)
         {
             PlanName = planName,
             EquipmentId = equipmentId,
@@ -83,6 +85,11 @@ public sealed class MaintenancePlan : AuditableEntity<string>
             AssigneeId = assigneeId,
             Status = status
         };
+        // 읽기경로 Restore 패턴: 영속된 감사 메타데이터를 그대로 복원한다(미복원 시 CreatedAt이 매 읽기마다
+        // UtcNow로 재생성되고 CreatedBy=""·UpdatedBy/At=null로 리셋되는 상태손실 방지). 선택적 파라미터라 기존 호출부는 무영향.
+        plan.RestoreAudit(createdBy ?? plan.CreatedBy, createdAt ?? plan.CreatedAt, updatedBy, updatedAt);
+        return plan;
+    }
 
     public Result Start()
     {

@@ -107,12 +107,19 @@ public sealed class ProductionOrderRepository : QueryRepository, IProductionOrde
         public DateTime? ActualEnd { get; set; }
         public string Status { get; set; } = "Issued";
 
+        // 읽기경로 감사 메타데이터 — SELECT * + Dapper MatchNamesWithUnderscores로 CREATED_BY→CreatedBy 자동 매핑된다.
+        public string CreatedBy { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public string? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
         // 읽기경로는 Restore로 영속 상태를 직접 복원한다 — Create 후 전이 재생(replay)을 쓰면 전이가 발행하는
         // 도메인 이벤트가 모든 읽기마다 outbox로 새어 나가는 유령 이벤트(phantom)가 된다(ADR-002 읽기경로 안전).
         public ProductionOrder ToDomain() =>
             ProductionOrder.Restore(OrderId, PlanId, EquipmentId, ProductId, OrderQty, ActualQty,
                 ScheduledStart, ScheduledEnd, ActualStart, ActualEnd,
-                Enum.Parse<ProductionOrderStatus>(Status, ignoreCase: true));
+                Enum.Parse<ProductionOrderStatus>(Status, ignoreCase: true),
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static OrderRow FromDomain(ProductionOrder o) => new()
         {

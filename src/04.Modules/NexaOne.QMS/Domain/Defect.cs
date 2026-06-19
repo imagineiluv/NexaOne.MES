@@ -64,7 +64,8 @@ public sealed class Defect : AuditableEntity<string>
     public static Defect Restore(
         string defectId, string lotId, string equipmentId, string defectClassId,
         int defectCount, decimal defectRate, DateTime inspectedAt, string inspectorId,
-        string? remark, bool isConfirmed, DateTime? confirmedAt, string? updatedBy, DateTime? updatedAt)
+        string? remark, bool isConfirmed, DateTime? confirmedAt, string? updatedBy, DateTime? updatedAt,
+        string? createdBy = null, DateTime? createdAt = null)
     {
         var defect = new Defect(defectId)
         {
@@ -79,8 +80,8 @@ public sealed class Defect : AuditableEntity<string>
             IsConfirmed = isConfirmed,
             ConfirmedAt = confirmedAt
         };
-        defect.UpdatedBy = updatedBy;
-        defect.UpdatedAt = updatedAt;
+        // 감사 메타데이터를 일원화해 복원한다(이중 세팅 방지). updatedBy/updatedAt는 기존 비즈니스 파라미터를 그대로 전달.
+        defect.RestoreAudit(createdBy ?? defect.CreatedBy, createdAt ?? defect.CreatedAt, updatedBy, updatedAt);
         return defect;
     }
 

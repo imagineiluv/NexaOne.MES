@@ -122,12 +122,19 @@ public sealed class FdcAlarmHistoryRepository : QueryRepository, IFdcAlarmHistor
         public DateTime? ClearedAt    { get; set; }
         public bool     IsCleared     { get; set; }
 
+        // 감사 메타데이터(읽기경로 Restore 패턴) — SELECT * + MatchNamesWithUnderscores로 CREATED_BY→CreatedBy 자동 매핑.
+        public string    CreatedBy    { get; set; } = "";
+        public DateTime  CreatedAt    { get; set; }
+        public string?   UpdatedBy    { get; set; }
+        public DateTime? UpdatedAt    { get; set; }
+
         // 읽기경로는 Restore로 전체 상태를 직접 복원한다 — Create+Clear 재생은 읽기 시마다 도메인 이벤트를
         // 유령 발행하므로(ADR-002) 금지. ClearedAt/IsCleared를 그대로 신뢰해 채운다.
         public FdcAlarmHistory ToDomain() =>
             FdcAlarmHistory.Restore(
                 AlarmId, AlarmConfigId, EquipmentId, ParameterId, AlarmLevel, TriggerValue, Message,
-                OccurredAt, ClearedAt, IsCleared);
+                OccurredAt, ClearedAt, IsCleared,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static AlarmRow FromDomain(FdcAlarmHistory h) => new()
         {

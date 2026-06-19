@@ -47,8 +47,10 @@ public sealed class EquipmentAlarm : AuditableEntity<string>
     /// 오인되고 경과시간이 유실되는 상태손실을 막는다(GetActiveAlarms는 SQL 필터로 가려졌으나 손실 자체는 실재).</summary>
     public static EquipmentAlarm Restore(
         string alarmId, string equipmentId, string alarmCode, string alarmName, string alarmLevel,
-        DateTime occurredAt, DateTime? clearedAt, long? elapsedSeconds)
-        => new(alarmId)
+        DateTime occurredAt, DateTime? clearedAt, long? elapsedSeconds,
+        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null, DateTime? updatedAt = null)
+    {
+        var alarm = new EquipmentAlarm(alarmId)
         {
             EquipmentId = equipmentId,
             AlarmCode = alarmCode,
@@ -58,6 +60,11 @@ public sealed class EquipmentAlarm : AuditableEntity<string>
             ClearedAt = clearedAt,
             ElapsedSeconds = elapsedSeconds
         };
+        // 영속된 감사 메타데이터를 그대로 복원한다(미복원 시 매 읽기마다 CreatedAt이 UtcNow로 재생성되고
+        // CreatedBy=""·UpdatedBy/At=null로 리셋되는 상태손실 방지). 인자 미지정 시 현재값 유지.
+        alarm.RestoreAudit(createdBy ?? alarm.CreatedBy, createdAt ?? alarm.CreatedAt, updatedBy, updatedAt);
+        return alarm;
+    }
 
     public void Clear(DateTime clearedAt)
     {

@@ -52,14 +52,15 @@ public sealed class DeliveryItemRepository : QueryRepository, IDeliveryItemRepos
         public decimal  PlannedQty      { get; set; }
         public decimal? ActualQty       { get; set; }
         public string?  LotId           { get; set; }
+        public string   CreatedBy       { get; set; } = "";
+        public DateTime  CreatedAt      { get; set; }
+        public string?  UpdatedBy       { get; set; }
+        public DateTime? UpdatedAt      { get; set; }
 
-        public DeliveryItem? ToDomain()
-        {
-            var r = DeliveryItem.Create(ItemId, DeliveryOrderId, ProductId, PlannedQty, LotId);
-            if (r.IsFailure) return null;
-            if (ActualQty.HasValue) r.Value.SetActualQty(ActualQty.Value);
-            return r.Value;
-        }
+        public DeliveryItem ToDomain()
+            => DeliveryItem.Restore(
+                ItemId, DeliveryOrderId, ProductId, PlannedQty, ActualQty, LotId,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static Row FromDomain(DeliveryItem i) => new()
         {

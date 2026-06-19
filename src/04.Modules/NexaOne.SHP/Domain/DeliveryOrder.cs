@@ -55,8 +55,10 @@ public sealed class DeliveryOrder : AuditableEntity<string>
     /// 잘못 읽혀 상태머신이 무력화되는 읽기경로 상태손실을 막는다(품목은 별도 로드).</summary>
     public static DeliveryOrder Restore(
         string orderId, string customerName, string plantId, DateTime requestedDate,
-        DeliveryOrderStatus status, DateTime? shippedDate, string? remark)
-        => new(orderId)
+        DeliveryOrderStatus status, DateTime? shippedDate, string? remark,
+        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null, DateTime? updatedAt = null)
+    {
+        var order = new DeliveryOrder(orderId)
         {
             CustomerName = customerName,
             PlantId = plantId,
@@ -65,6 +67,9 @@ public sealed class DeliveryOrder : AuditableEntity<string>
             ShippedDate = shippedDate,
             Remark = remark
         };
+        order.RestoreAudit(createdBy ?? order.CreatedBy, createdAt ?? order.CreatedAt, updatedBy, updatedAt);
+        return order;
+    }
 
     public void AddItem(DeliveryItem item)
     {

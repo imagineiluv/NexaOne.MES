@@ -125,12 +125,19 @@ public sealed class FdcInterlockHistoryRepository : QueryRepository, IFdcInterlo
         public DateTime? ResolvedAt  { get; set; }
         public bool     IsResolved   { get; set; }
 
+        // 영속 감사 컬럼(Dapper MatchNamesWithUnderscores로 CREATED_BY→CreatedBy 자동 매핑; SELECT * 이므로 채워짐).
+        public string   CreatedBy    { get; set; } = "";
+        public DateTime CreatedAt    { get; set; }
+        public string?  UpdatedBy    { get; set; }
+        public DateTime? UpdatedAt   { get; set; }
+
         // 읽기경로는 Restore로 영속 상태를 직접 복원한다. Create+Resolve 재생은 읽을 때마다 PHANTOM
         // FdcInterlockResolved 이벤트를 발행하므로(ADR-002 outbox 활성 시 재발행), 전이 메서드 재생을 쓰지 않는다.
         public FdcInterlockHistory ToDomain() =>
             FdcInterlockHistory.Restore(
                 HistoryId, RuleId, EquipmentId, ParameterId, TriggerValue, Action, Message,
-                TriggeredAt, ResolvedAt, IsResolved);
+                TriggeredAt, ResolvedAt, IsResolved,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static HistRow FromDomain(FdcInterlockHistory h) => new()
         {

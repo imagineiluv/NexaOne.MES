@@ -58,14 +58,15 @@ public sealed class FdcParameterGroupRepository : QueryRepository, IFdcParameter
         public int     DisplayOrder { get; set; }
         public bool    IsActive     { get; set; }
 
-        public FdcParameterGroup? ToDomain()
-        {
-            var result = FdcParameterGroup.Create(GroupId, GroupName, EquipmentId, Description, DisplayOrder);
-            if (result.IsFailure) return null;
-            var g = result.Value;
-            if (!IsActive) g.Deactivate();
-            return g;
-        }
+        public string    CreatedBy { get; set; } = "";
+        public DateTime   CreatedAt { get; set; }
+        public string?    UpdatedBy { get; set; }
+        public DateTime?  UpdatedAt { get; set; }
+
+        public FdcParameterGroup ToDomain() =>
+            FdcParameterGroup.Restore(
+                GroupId, GroupName, EquipmentId, Description, DisplayOrder, IsActive,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static GroupRow FromDomain(FdcParameterGroup g) => new()
         {

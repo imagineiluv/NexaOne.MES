@@ -115,9 +115,16 @@ public sealed class EquipmentRepository : QueryRepository, IEquipmentRepository
         public string EquipmentClassId { get; set; } = "";
         public string ValidState { get; set; } = "Valid";
 
+        // 감사 컬럼(읽기경로 복원용) — Dapper MatchNamesWithUnderscores로 CREATED_BY→CreatedBy 자동 매핑(SELECT *).
+        public string CreatedBy { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public string? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
         public Equipment ToDomain() =>
             Equipment.Restore(EquipmentId, EquipmentName, Description, PlantId, AreaId, EquipmentType,
-                ParentEquipmentId, Vendor, Model, EquipmentClassId, ValidState);
+                ParentEquipmentId, Vendor, Model, EquipmentClassId, ValidState,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static EquipmentRow FromDomain(Equipment e) => new()
         {

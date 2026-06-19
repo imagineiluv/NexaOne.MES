@@ -54,8 +54,10 @@ public sealed class Equipment : AuditableEntity<string>
     public static Equipment Restore(
         string equipmentId, string equipmentName, string description, string plantId, string areaId,
         string equipmentType, string? parentEquipmentId, string vendor, string model,
-        string equipmentClassId, string validState)
-        => new(equipmentId)
+        string equipmentClassId, string validState,
+        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null, DateTime? updatedAt = null)
+    {
+        var equipment = new Equipment(equipmentId)
         {
             EquipmentName = equipmentName,
             Description = description,
@@ -68,6 +70,11 @@ public sealed class Equipment : AuditableEntity<string>
             EquipmentClassId = equipmentClassId,
             ValidState = validState
         };
+        // 읽기경로 Restore 패턴: 영속된 감사 메타데이터를 그대로 복원(미복원 시 CreatedAt이 매 읽기마다 UtcNow로
+        // 재생성되고 CreatedBy=""·UpdatedBy/At=null로 리셋되는 상태손실). 선택적 파라미터라 기존 호출부는 그대로 컴파일된다.
+        equipment.RestoreAudit(createdBy ?? equipment.CreatedBy, createdAt ?? equipment.CreatedAt, updatedBy, updatedAt);
+        return equipment;
+    }
 
     public void Deactivate()
     {

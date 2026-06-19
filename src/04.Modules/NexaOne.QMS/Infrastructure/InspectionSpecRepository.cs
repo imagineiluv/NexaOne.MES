@@ -56,10 +56,15 @@ public sealed class InspectionSpecRepository : QueryRepository, IInspectionSpecR
         public decimal? TolerancePlus  { get; set; }
         public decimal? ToleranceMinus { get; set; }
         public bool     IsActive       { get; set; }
+        public string   CreatedBy      { get; set; } = "";
+        public DateTime  CreatedAt      { get; set; }
+        public string?  UpdatedBy      { get; set; }
+        public DateTime? UpdatedAt      { get; set; }
 
         public InspectionSpec ToDomain() =>
             InspectionSpec.Restore(SpecId, SpecName, ProcessId, ItemName, MeasureType,
-                NominalValue, TolerancePlus, ToleranceMinus, IsActive);
+                NominalValue, TolerancePlus, ToleranceMinus, IsActive,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static Row FromDomain(InspectionSpec s) => new()
         {

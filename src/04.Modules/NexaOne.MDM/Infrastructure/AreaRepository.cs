@@ -52,7 +52,13 @@ public sealed class AreaRepository : QueryRepository, IAreaRepository
         public string Description { get; set; } = "";
         public string PlantId     { get; set; } = "";
 
-        public Area? ToDomain() => Area.Restore(AreaId, AreaName, Description, PlantId);
+        public string CreatedBy   { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public string? UpdatedBy  { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
+        public Area? ToDomain() => Area.Restore(AreaId, AreaName, Description, PlantId,
+            CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static AreaRow FromDomain(Area a) => new()
         {

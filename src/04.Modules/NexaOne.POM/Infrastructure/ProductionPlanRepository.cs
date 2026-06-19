@@ -104,9 +104,16 @@ public sealed class ProductionPlanRepository : QueryRepository, IProductionPlanR
         public string Status { get; set; } = "Draft";
         public string? Remark { get; set; }
 
+        // 읽기경로 감사 메타데이터(Dapper MatchNamesWithUnderscores로 CREATED_BY→CreatedBy 등 자동 매핑; SELECT * 이므로 채워짐).
+        public string CreatedBy { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public string? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
         public ProductionPlan ToDomain() =>
             ProductionPlan.Restore(PlanId, PlanName, PlantId, ProductId, PlannedQty, PlannedStartDate, PlannedEndDate,
-                Enum.Parse<ProductionPlanStatus>(Status, ignoreCase: true), Remark);
+                Enum.Parse<ProductionPlanStatus>(Status, ignoreCase: true), Remark,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static PlanRow FromDomain(ProductionPlan p) => new()
         {

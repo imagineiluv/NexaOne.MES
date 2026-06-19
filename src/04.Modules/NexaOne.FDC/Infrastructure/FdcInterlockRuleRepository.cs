@@ -62,9 +62,14 @@ public sealed class FdcInterlockRuleRepository : QueryRepository, IFdcInterlockR
         public string Action { get; set; } = "";
         public int Priority { get; set; }
         public bool IsActive { get; set; }
+        public string CreatedBy { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public string? UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
 
         public FdcInterlockRule ToDomain() =>
-            FdcInterlockRule.Restore(RuleId, RuleName, EquipmentId, ParameterId, Operator, ThresholdValue, Action, Priority, IsActive);
+            FdcInterlockRule.Restore(RuleId, RuleName, EquipmentId, ParameterId, Operator, ThresholdValue, Action, Priority, IsActive,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static RuleRow FromDomain(FdcInterlockRule r) => new()
         {
