@@ -7,4 +7,14 @@
         </AuthorizeRouteView>
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
+    <NotFound>
+        @* 매칭되는 라우트가 없을 때 빈 화면 대신 안내를 보인다(라우트 오타·삭제된 경로 식별). *@
+        <LayoutView Layout="typeof(Components.Layout.BlankLayout)">
+            <div class="p-8 text-center">
+                <h1 class="text-xl font-semibold text-gray-800">페이지를 찾을 수 없습니다 (404)</h1>
+                <p class="mt-2 text-sm text-gray-600">요청한 경로가 존재하지 않습니다. 주소를 확인하세요.</p>
+                <a href="/" class="mt-4 inline-block text-sm text-blue-600 hover:underline">홈으로</a>
+            </div>
+        </LayoutView>
+    </NotFound>
 </Router>
