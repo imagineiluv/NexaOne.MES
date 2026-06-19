@@ -40,7 +40,8 @@ public sealed record ScreenDefinition(
 
 /// <summary>
 /// 레이아웃 트리 노드(Low-Code WYSIWYG). 컨테이너(Section/Row/Column)는 Children을, 위젯은 바인딩을 가진다.
-/// discriminator는 "kind"(camelCase 안전). init-only 프로퍼티라 역직렬화가 속성 순서에 의존하지 않는다.
+/// discriminator는 "kind"(camelCase 안전). .NET 8 STJ 다형 역직렬화는 "kind"가 객체의 첫 속성이어야 하므로,
+/// 외부 생산 JSON의 키 순서는 ScreenDefinitionJson이 로드 시 정규화(KindFirst)한다.
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(SectionNode), "section")]

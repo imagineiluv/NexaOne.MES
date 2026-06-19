@@ -48,7 +48,7 @@ public static class ScreenDefinitionJson
                 var normalized = KindFirst(layoutNode);
                 // 문자열로 재직렬화 후 LayoutOptions(MaxDepth=32)로 읽기 — 과대 깊이는 읽기 측에서
                 // JsonException으로 표면화돼 layout 범위로 격리된다(쓰기 측 깊이 예외 회피).
-                layout = JsonSerializer.Deserialize<LayoutNode>(normalized.ToJsonString(), LayoutOptions);
+                layout = JsonSerializer.Deserialize<LayoutNode>(normalized!.ToJsonString(), LayoutOptions);
             }
             catch (JsonException) { layout = null; }            // 미지 kind·과대 깊이 등 격리
             catch (NotSupportedException) { layout = null; }    // 다형 생성 불가 등 격리
