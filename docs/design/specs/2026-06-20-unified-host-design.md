@@ -84,3 +84,18 @@ HTTP 컨트롤러(Default ALC)가 plugin ALC의 모듈 서비스를 타입 안�
 - 인증 스킴 공존(API/Blazor/SPA) 구체안 — Phase 3/4.
 - NexaOne.API/Web 은퇴 방식(삭제 vs 라이브러리 흡수) — Phase 3/4.
 - `/designer`가 Blazor 라우트인지 /spa 리다이렉트인지 — Phase 5(GrapesJS Phase 1b 스펙과 통합).
+
+## 10. 쿼리 라이브러리 고도화 (병행 워크스트림)
+
+검증은 **SQLite + NexaMes 스키마**(`db/migrations`)로 한다(외부 DB 불필요, V001 admin/admin 시드). 메타데이터 런타임(`/meta`)·GrapesJS 디자이너 카탈로그가 실데이터로 동작하도록, 레거시 명명 쿼리를 NexaMes 레지스트리로 **고도화 이식**한다.
+
+- **출처**: `reference/legacy_3.5_20260526/Config/Query/xml/`(모듈별 ees/qms/standard/factory, 방언별 oracle/postgresql/기본=mssql). 현재 NexaMes 레지스트리는 `db/queries/{mssql,sqlite}/MDM.xml` 한 개(대표 슬라이스)뿐.
+- **타깃**: `db/queries/mssql/*.xml` + `db/queries/sqlite/*.xml`(파일 기반 레지스트리, `FileQueryRegistry`가 방언 폴더 로드).
+- **변환 규칙(고도화 = 단순 번역 아님, 스키마-인지 매핑)**:
+  1. **보간 → 파라미터화**: `$!{X}` 문자열 보간·`#if…#end`·`${SQLFunc.IN()}` → `@param` 바운드 + `(@p IS NULL OR col=@p)` 선택필터(주입 차단).
+  2. **스키마 재매핑**: 레거시 `STD_TB_*`/`MDM_TB_*`/다국어 컬럼(`*_KO_KR/EN_US/…`)/`VALID_STATE='Valid'` → **실제 NexaMes 스키마**(예: `MDM_PLANT`의 단일 `PLANT_NAME`). 레거시 다국어 CASE는 NexaMes 단일 컬럼으로 축약하거나 NexaMes 다국어 정책에 맞춤. **반드시 `db/migrations`로 실제 테이블·컬럼을 확인하고 SQLite로 실행 검증**(존재하지 않는 레거시 테이블/컬럼을 그대로 옮기지 않는다).
+  3. **방언 분리**: mssql(`WITH(NOLOCK)` 등) / sqlite(힌트 제거) 두 벌, 동일 ID·동일 의미.
+  4. **보안 주석**: 읽기는 선택 `requiredPermission`, 쓰기는 `kind="write"` + 필수 `requiredPermission`, 감사 컬럼은 `@currentUser/@utcNow` 게이트웨이 주입.
+  5. **ID 규약**: NexaMes 점-표기(`MODULE.Action`, 예: `MDM.PlantList`) — 레거시 `MICUBE.STANDARD.*` 장황 ID는 NexaMes 규약으로 정리.
+- **범위·순서**: 블라인드 전수 이식(100+ 파일) 금지. **NexaMes가 실제 보유한 모듈**(MDM/STD→MDM, WPM→POM, FDC, QMS, EMS→CMMS, DLV→SHP, EQP/RMS→RMS, EPT→EST)부터, 각 모듈의 화면·런타임이 데이터를 서빙하는 단계(Phase 2 이후)와 디자이너 카탈로그(Phase 5)에 맞춰 모듈별로 이식·검증한다. 첫 배치는 메타데이터 화면·디자이너 드롭다운이 필요로 하는 MDM/STD 조회·콤보(plant/code/item-class/equipment list·tree) 권장.
+- **검증**: 이식한 각 쿼리를 SQLite NexaMes 스키마에 대해 실행해 결과/오류 0 확인(통합 스모크). 미존재 스키마 의존 쿼리는 보류하고 그 사실을 명시(무자르기 금지).
