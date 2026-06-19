@@ -77,6 +77,67 @@ public sealed class SYSControllerIntegrationTests : IClassFixture<TestApiFactory
         single.Description.Should().Be("integration test role");
     }
 
+    // ── Role 권한 부여/회수 (RBAC, SYS_ROLE.PERMISSIONS) ──────────────────────────
+
+    /// <summary>권한 부여(POST)·회수(DELETE)는 [Authorize]+perm:sys:manage라 토큰 없는 요청은 401이어야 한다.</summary>
+    [Fact]
+    public async Task PermissionEndpoints_require_auth()
+    {
+        var anon = _factory.CreateClient();
+
+        var grant = await anon.PostAsJsonAsync("/api/v1/sys/roles/ANY/permissions", new { permission = "perm:x:y" });
+        grant.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "권한 부여는 토큰 없이 401이어야 한다");
+
+        var revoke = await anon.DeleteAsync("/api/v1/sys/roles/ANY/permissions/perm");
+        revoke.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "권한 회수는 토큰 없이 401이어야 한다");
+    }
+
+    /// <summary>
+    /// RBAC 권한 왕복: 역할 생성 → 권한 부여(POST) → GET에서 부여 확인 → 권한 회수(DELETE) → GET에서 회수 확인.
+    /// SYS_ROLE.PERMISSIONS는 '|' 구분 문자열 한 컬럼이라(RoleRepository), 부여/회수 UPDATE의 인코딩과
+    /// 읽기경로 재구성(Create + AddPermission 루프 + '|' 디코드)이 함께 검증된다. 회수가 되읽기에 반영되지
+    /// 않으면(권한 잔존) 권한 회수 미반영 RBAC 보안 버그다. 권한 문자열에 ':'가 있어 DELETE 라우트 세그먼트는 인코딩한다.
+    /// </summary>
+    [Fact]
+    public async Task AddThenRemovePermission_round_trips_through_role_read()
+    {
+        var client = _factory.CreateAuthenticatedClient();   // "*"(ADMIN) — perm:sys:manage 통과
+        const string roleId = "SYS-IT-ROLE-PERM";
+        const string permission = "perm:it:sample";
+
+        // 1) 역할 등록(SYS_ROLE INSERT).
+        var createResp = await client.PostAsJsonAsync("/api/v1/sys/roles", new
+        {
+            roleId, roleName = "SYS Perm Role", description = "permission round-trip"
+        });
+        createResp.StatusCode.Should().Be(HttpStatusCode.OK,
+            $"역할 등록이 성공해야 한다. 응답 본문: {await createResp.Content.ReadAsStringAsync()}");
+
+        // 2) 권한 부여(POST) — SYS_ROLE.PERMISSIONS UPDATE('|' 인코딩). PermissionRequest(Permission)와 정합.
+        var grantResp = await client.PostAsJsonAsync(
+            $"/api/v1/sys/roles/{roleId}/permissions", new { permission });
+        grantResp.IsSuccessStatusCode.Should().BeTrue(
+            $"권한 부여(SYS_ROLE UPDATE)가 성공해야 한다. 응답 본문: {await grantResp.Content.ReadAsStringAsync()}");
+
+        // 3) 되읽기 — 부여한 권한이 영속·복원됐는지(Create+AddPermission 재구성 + '|' 디코드 왕복) 검증.
+        var afterGrant = await client.GetFromJsonAsync<RoleDto>($"/api/v1/sys/roles/{roleId}");
+        afterGrant.Should().NotBeNull();
+        afterGrant!.Permissions.Should().Contain(permission,
+            "부여한 권한이 되읽기에서 복원되어야 한다(PERMISSIONS '|' 인코드/디코드 왕복)");
+
+        // 4) 권한 회수(DELETE) — 권한 문자열에 ':'가 있어 라우트 세그먼트를 인코딩한다(컨트롤러가 디코드해 수신).
+        var revokeResp = await client.DeleteAsync(
+            $"/api/v1/sys/roles/{roleId}/permissions/{Uri.EscapeDataString(permission)}");
+        revokeResp.IsSuccessStatusCode.Should().BeTrue(
+            $"권한 회수(SYS_ROLE UPDATE)가 성공해야 한다. 응답 본문: {await revokeResp.Content.ReadAsStringAsync()}");
+
+        // 5) 되읽기 — 회수한 권한이 사라졌는지 검증. 남아 있으면 권한 회수 미반영(RBAC) 보안 버그.
+        var afterRevoke = await client.GetFromJsonAsync<RoleDto>($"/api/v1/sys/roles/{roleId}");
+        afterRevoke.Should().NotBeNull();
+        afterRevoke!.Permissions.Should().NotContain(permission,
+            "회수한 권한은 되읽기에서 사라져야 한다 — 남아 있으면 권한 회수가 영속·반영되지 않은 RBAC 버그");
+    }
+
     // ── Menu (SYS_MENU, V031) ───────────────────────────────────────────────────
 
     [Fact]
