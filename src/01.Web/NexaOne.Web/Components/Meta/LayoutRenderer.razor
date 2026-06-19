@@ -1,0 +1,93 @@
+@* Low-Code 레이아웃 트리 렌더러(재귀). Section/Row/Column/Text는 직접, Grid/Form/Field는 기존 렌더러 위임,
+   CommandButton은 콜백. 데이터(QueryResults)·콜백(OnCommand)·공유 Model은 부모(MetaScreen)가 주입한다. *@
+@using NexaOne.Web.Services.Meta
+
+@switch (Node)
+{
+    case SectionNode s:
+        <section class="layout-section">
+            @if (!string.IsNullOrWhiteSpace(s.Title)) { <h3 class="layout-section-title">@s.Title</h3> }
+            @RenderChildren(s.Children)
+        </section>
+        break;
+
+    case RowNode r:
+        <div class="layout-row" style="display:flex; flex-wrap:wrap; gap:1rem;">
+            @RenderChildren(r.Children)
+        </div>
+        break;
+
+    case ColumnNode c:
+        <div class="layout-column" style="@ColumnStyle(c.Span)">
+            @RenderChildren(c.Children)
+        </div>
+        break;
+
+    case GridWidget g:
+        <MetaGridRenderer Columns="g.Columns ?? Array.Empty<GridColumnDefinition>()" Rows="RowsFor(g.QueryId)" />
+        break;
+
+    case FormWidget f:
+        <MetaFormRenderer Definition="FormDefinition(f)" Model="Model" ModelChanged="OnModelChanged" />
+        break;
+
+    case FieldWidget fw:
+        <MetaFormRenderer Definition="SingleFieldDefinition(fw)" Model="Model" ModelChanged="OnModelChanged" />
+        break;
+
+    case ButtonWidget b:
+        <button class="layout-command" @onclick="() => OnCommand.InvokeAsync(b.Command)" disabled="@string.IsNullOrWhiteSpace(b.Command)">@b.Label</button>
+        break;
+
+    case TextWidget t:
+        @if (t.IsLabel) { <label class="layout-text">@t.Text</label> }
+        else { <span class="layout-text">@t.Text</span> }
+        break;
+}
+
+@code {
+    [Parameter, EditorRequired] public LayoutNode Node { get; set; } = default!;
+    [Parameter] public Dictionary<string, object?> Model { get; set; } = new();
+    [Parameter] public EventCallback<Dictionary<string, object?>> ModelChanged { get; set; }
+    [Parameter] public IReadOnlyDictionary<string, IReadOnlyList<Dictionary<string, object?>>> QueryResults { get; set; }
+        = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>();
+    [Parameter] public EventCallback<string> OnCommand { get; set; }
+
+    private RenderFragment RenderChildren(IReadOnlyList<LayoutNode>? children) => builder =>
+    {
+        if (children is null) return;
+        var seq = 0;
+        foreach (var child in children)
+        {
+            builder.OpenComponent<LayoutRenderer>(seq++);
+            builder.AddAttribute(seq++, nameof(Node), child);
+            builder.AddAttribute(seq++, nameof(Model), Model);
+            builder.AddAttribute(seq++, nameof(ModelChanged), ModelChanged);
+            builder.AddAttribute(seq++, nameof(QueryResults), QueryResults);
+            builder.AddAttribute(seq++, nameof(OnCommand), OnCommand);
+            builder.CloseComponent();
+        }
+    };
+
+    // null = 미실행(MetaGridRenderer가 안내 문구), 그 외 = 행. queryId 미바인딩/결과맵 부재는 null.
+    private IReadOnlyList<Dictionary<string, object?>>? RowsFor(string? queryId)
+        => queryId is not null && QueryResults.TryGetValue(queryId, out var rows) ? rows : null;
+
+    private static string ColumnStyle(int span)
+    {
+        var pct = Math.Clamp(span, 1, 12) / 12d * 100d;
+        return $"flex:0 0 calc({pct:0.##}% - 1rem); min-width:0;";
+    }
+
+    // 폼 위젯의 FieldWidget들을 인메모리 ScreenDefinition으로 합성해 기존 MetaFormRenderer를 재사용한다.
+    private static ScreenDefinition FormDefinition(FormWidget f)
+        => new(string.Empty, string.Empty, (f.Fields ?? Array.Empty<FieldWidget>()).Select(ToField).ToList());
+
+    private static ScreenDefinition SingleFieldDefinition(FieldWidget fw)
+        => new(string.Empty, string.Empty, new[] { ToField(fw) });
+
+    private static FieldDefinition ToField(FieldWidget fw)
+        => fw.Field ?? new FieldDefinition(fw.FieldKey ?? string.Empty, fw.FieldKey ?? string.Empty);
+
+    private Task OnModelChanged(Dictionary<string, object?> m) => ModelChanged.InvokeAsync(m);
+}
