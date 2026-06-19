@@ -158,8 +158,8 @@ public sealed class AuthControllerTests
             .ChangePassword(new ChangePasswordRequest("temp!", "NewPw123!", "NewPw123!"), default);
 
         var ok = result.Should().BeOfType<OkObjectResult>().Subject;
-        Prop(ok.Value, "accessToken").Should().Be("newAtk");
-        Prop(ok.Value, "refreshToken").Should().Be("newRtk");
+        Prop(ok.Value, "AccessToken").Should().Be("newAtk");
+        Prop(ok.Value, "RefreshToken").Should().Be("newRtk");
         user.PasswordState.Should().Be(PasswordState.Normal);
         jwt.Verify(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), false, It.IsAny<IEnumerable<string>>()),
             Times.Once, "변경 후 토큰에는 pwdChange 클레임이 없어야 차단이 풀린다");
@@ -226,8 +226,8 @@ public sealed class AuthControllerTests
         var result = await Build(repo, jwt, store).Refresh(new RefreshRequest("u001", "rtk"), default);
 
         var ok = result.Should().BeOfType<OkObjectResult>().Subject;
-        Prop(ok.Value, "accessToken").Should().Be("atk-pwdchange");
-        Prop(ok.Value, "refreshToken").Should().Be("rtk2");
+        Prop(ok.Value, "AccessToken").Should().Be("atk-pwdchange");
+        Prop(ok.Value, "RefreshToken").Should().Be("rtk2");
         jwt.Verify(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), true, It.IsAny<IEnumerable<string>>()),
             Times.Once, "pwdChange는 헤더가 아니라 DB 상태로 재평가해야 우회가 안 된다");
     }
@@ -248,7 +248,7 @@ public sealed class AuthControllerTests
         var result = await Build(repo, jwt, store).Refresh(new RefreshRequest("u001", "rtk"), default);
 
         var ok = result.Should().BeOfType<OkObjectResult>().Subject;
-        Prop(ok.Value, "accessToken").Should().Be("atk");
+        Prop(ok.Value, "AccessToken").Should().Be("atk");
         jwt.Verify(j => j.GenerateAccessToken("u001", "Alice", "DEFAULT", It.IsAny<IEnumerable<string>>(), false, It.IsAny<IEnumerable<string>>()),
             Times.Once);
     }

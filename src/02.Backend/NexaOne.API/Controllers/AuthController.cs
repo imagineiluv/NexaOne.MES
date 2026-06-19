@@ -83,8 +83,7 @@ public class AuthController : ControllerBase
     [HttpPost("refresh")]
     [AllowAnonymous]               // 전역 FallbackPolicy 예외 — 액세스 토큰 만료 후 호출되는 갱신 진입점
     [EnableRateLimiting("auth")]   // §18.2.3 — 토큰 무차별 대입 방어
-    // 200 본문은 익명 타입 { accessToken, refreshToken } — 명명 DTO가 없어 상태코드만 주석한다.
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType<TokenRefreshResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Refresh([FromBody] RefreshRequest request, CancellationToken ct)
     {
@@ -110,13 +109,12 @@ public class AuthController : ControllerBase
         var permissions = await _userService.GetEffectivePermissionsAsync(user.RoleId, ct);   // ADR-003
         var accessToken = _jwtService.GenerateAccessToken(
             request.UserId, user.UserName, plantId, new[] { user.RoleId }, user.RequiresPasswordChange, permissions);
-        return Ok(new { accessToken, refreshToken = newRefreshToken });
+        return Ok(new TokenRefreshResponse(accessToken, newRefreshToken));
     }
 
     [HttpPost("change-password")]
     [Authorize]
-    // 200 본문은 익명 타입 { accessToken, refreshToken } — 명명 DTO가 없어 상태코드만 주석한다.
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType<TokenRefreshResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken ct)
@@ -156,19 +154,18 @@ public class AuthController : ControllerBase
         var accessToken = _jwtService.GenerateAccessToken(userId, user.UserName, plantId, roles, permissions: permissions);
         var refreshToken = await _tokenStore.IssueAsync(userId);
 
-        return Ok(new { accessToken, refreshToken });
+        return Ok(new TokenRefreshResponse(accessToken, refreshToken));
     }
 
     [HttpPost("forgot-password")]
     [AllowAnonymous]               // 전역 FallbackPolicy 예외 — 비밀번호 분실 익명 진입점
     [EnableRateLimiting("auth")]   // §18.2.3 — 계정 열거/메일 폭주 방어
-    // 202 본문은 익명 타입 { message } — 명명 DTO가 없어 상태코드만 주석한다.
-    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request, CancellationToken ct)
     {
         // §20.10 — 아이디/이메일이 틀려도 동일 응답 (계정 열거 방지). 상세 사유는 서버 로그에만 남는다.
         await _passwordResetService.ForgotPasswordAsync(request.UserId, request.Email, ct);
-        return Accepted(new { message = "임시 비밀번호가 등록된 이메일로 발송되었습니다." });
+        return Accepted(new MessageResponse("임시 비밀번호가 등록된 이메일로 발송되었습니다."));
     }
 
     // §20.10 — 구버전 reset-password 호환. 301 리다이렉트는 클라이언트가 따라갈 때
@@ -177,18 +174,16 @@ public class AuthController : ControllerBase
     [HttpPost("reset-password")]
     [AllowAnonymous]               // 전역 FallbackPolicy 예외 — forgot-password 호환 익명 진입점
     [EnableRateLimiting("auth")]   // §18.2.3 — forgot-password와 동일 정책
-    // 202 본문은 익명 타입 { message } — 명명 DTO가 없어 상태코드만 주석한다.
-    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType<MessageResponse>(StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request, CancellationToken ct)
     {
         await _passwordResetService.ForgotPasswordAsync(request.UserId, request.Email, ct);
-        return Accepted(new { message = "임시 비밀번호가 등록된 이메일로 발송되었습니다." });
+        return Accepted(new MessageResponse("임시 비밀번호가 등록된 이메일로 발송되었습니다."));
     }
 
     [HttpGet("me")]
     [Authorize]
-    // 200 본문은 익명 타입 { userId, userName, plantId, roles } — 명명 DTO가 없어 상태코드만 주석한다.
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType<CurrentUserResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public IActionResult Me()
     {
@@ -197,6 +192,6 @@ public class AuthController : ControllerBase
         var userName = User.Identity?.Name;
         var plantId = User.FindFirst("plantId")?.Value;
         var roles = User.FindAll(System.Security.Claims.ClaimTypes.Role).Select(c => c.Value).ToList();
-        return Ok(new { userId, userName, plantId, roles });
+        return Ok(new CurrentUserResponse(userId, userName, plantId, roles));
     }
 }
