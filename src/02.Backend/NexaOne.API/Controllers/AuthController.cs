@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using NexaOne.API.Controllers.Models;
@@ -32,6 +33,8 @@ public class AuthController : ControllerBase
     [HttpPost("login")]
     [AllowAnonymous]               // 전역 FallbackPolicy(인증 요구) 예외 — 익명 진입점
     [EnableRateLimiting("auth")]   // §18.2.3 — 익명 진입점 IP당 제한 (브루트포스 방어)
+    [ProducesResponseType<LoginResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Login([FromBody] LoginRequest request, CancellationToken ct)
     {
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
@@ -65,6 +68,8 @@ public class AuthController : ControllerBase
 
     [HttpPost("logout")]
     [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Logout([FromBody] LogoutRequest request)
     {
         // §19 — 폐기 대상 userId는 본문이 아니라 토큰에서 취한다. 본문 userId를 신뢰하면 임의 사용자의
@@ -78,6 +83,9 @@ public class AuthController : ControllerBase
     [HttpPost("refresh")]
     [AllowAnonymous]               // 전역 FallbackPolicy 예외 — 액세스 토큰 만료 후 호출되는 갱신 진입점
     [EnableRateLimiting("auth")]   // §18.2.3 — 토큰 무차별 대입 방어
+    // 200 본문은 익명 타입 { accessToken, refreshToken } — 명명 DTO가 없어 상태코드만 주석한다.
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Refresh([FromBody] RefreshRequest request, CancellationToken ct)
     {
         var isValid = await _tokenStore.ValidateAsync(request.UserId, request.RefreshToken);
@@ -107,6 +115,10 @@ public class AuthController : ControllerBase
 
     [HttpPost("change-password")]
     [Authorize]
+    // 200 본문은 익명 타입 { accessToken, refreshToken } — 명명 DTO가 없어 상태코드만 주석한다.
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken ct)
     {
         if (request.NewPassword != request.ConfirmPassword)
@@ -150,6 +162,8 @@ public class AuthController : ControllerBase
     [HttpPost("forgot-password")]
     [AllowAnonymous]               // 전역 FallbackPolicy 예외 — 비밀번호 분실 익명 진입점
     [EnableRateLimiting("auth")]   // §18.2.3 — 계정 열거/메일 폭주 방어
+    // 202 본문은 익명 타입 { message } — 명명 DTO가 없어 상태코드만 주석한다.
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request, CancellationToken ct)
     {
         // §20.10 — 아이디/이메일이 틀려도 동일 응답 (계정 열거 방지). 상세 사유는 서버 로그에만 남는다.
@@ -163,6 +177,8 @@ public class AuthController : ControllerBase
     [HttpPost("reset-password")]
     [AllowAnonymous]               // 전역 FallbackPolicy 예외 — forgot-password 호환 익명 진입점
     [EnableRateLimiting("auth")]   // §18.2.3 — forgot-password와 동일 정책
+    // 202 본문은 익명 타입 { message } — 명명 DTO가 없어 상태코드만 주석한다.
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
     public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request, CancellationToken ct)
     {
         await _passwordResetService.ForgotPasswordAsync(request.UserId, request.Email, ct);
@@ -171,6 +187,9 @@ public class AuthController : ControllerBase
 
     [HttpGet("me")]
     [Authorize]
+    // 200 본문은 익명 타입 { userId, userName, plantId, roles } — 명명 DTO가 없어 상태코드만 주석한다.
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public IActionResult Me()
     {
         var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value

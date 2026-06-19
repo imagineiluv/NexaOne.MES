@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Extensions;
 using NexaOne.API.Hubs;
 using NexaOne.EST.Application.Est;
 using NexaOne.FDC.Application.Fdc;
+using NexaOne.FDC.Domain;
 using NexaOne.MDM.Application.Equipments;
 using NexusFramework;
 
@@ -42,6 +44,8 @@ public class FdcController(
     // ── Equipment Control (§10.4.4 — PlantController 수동 제어) ─────────────────
 
     [HttpGet("equipment/state")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public IActionResult GetPlantState()
         => Ok(new
         {
@@ -54,6 +58,9 @@ public class FdcController(
     // 설비 lifecycle 변경(기동/정지/비상정지)은 안전 영향 동작 — 역할 인가로 일반 인증 사용자 차단(§9.3)
     [HttpPost("equipment/start")]
     [Authorize(Policy = "perm:fdc:control")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN/OPERATOR 기본 매핑 보유)
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> StartAll(CancellationToken ct)
     {
         try
@@ -69,6 +76,9 @@ public class FdcController(
 
     [HttpPost("equipment/stop")]
     [Authorize(Policy = "perm:fdc:control")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN/OPERATOR 기본 매핑 보유)
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> StopAll(CancellationToken ct)
     {
         try
@@ -83,6 +93,8 @@ public class FdcController(
 
     [HttpPost("equipment/abort")]
     [Authorize(Policy = "perm:fdc:control")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN/OPERATOR 기본 매핑 보유)
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> AbortAll([FromBody] AbortRequest req, CancellationToken ct)
     {
         await plant.AbortAsync(req.Reason, ct);
@@ -91,6 +103,8 @@ public class FdcController(
     }
 
     [HttpGet("interlock-rules")]
+    [ProducesResponseType<IReadOnlyList<FdcInterlockRule>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetInterlockRules([FromQuery] string? equipmentId, CancellationToken ct)
     {
         var rules = await interlockService.GetRulesAsync(equipmentId ?? string.Empty, ct);
@@ -98,6 +112,8 @@ public class FdcController(
     }
 
     [HttpGet("interlock-history")]
+    [ProducesResponseType<IReadOnlyList<FdcInterlockHistory>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetInterlockHistory(
         [FromQuery] string equipmentId,
         [FromQuery] DateTime from,
@@ -110,6 +126,9 @@ public class FdcController(
 
     [HttpPost("interlock-rules")]
     [Authorize(Policy = "perm:fdc:manage")]   // ADR-003 — 인터록 규칙 구성은 운영 제어보다 높은 구성 권한
+    [ProducesResponseType<FdcInterlockRule>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateRule([FromBody] CreateRuleRequest req, CancellationToken ct)
     {
         var result = await interlockService.CreateRuleAsync(
@@ -119,6 +138,8 @@ public class FdcController(
     }
 
     [HttpPost("interlock/evaluate")]
+    [ProducesResponseType<InterlockResult>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Evaluate([FromBody] EvaluateRequest req, CancellationToken ct)
     {
         var result = await interlockService.EvaluateAsync(req.EquipmentId, req.ParameterId, req.Value, ct);
@@ -128,6 +149,8 @@ public class FdcController(
     // ── Parameters ────────────────────────────────────────────────────────────
 
     [HttpGet("parameters")]
+    [ProducesResponseType<IReadOnlyList<FdcParameter>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetParameters([FromQuery] string? equipmentId, CancellationToken ct)
     {
         var list = await dataService.GetParametersAsync(equipmentId ?? string.Empty, ct);
@@ -136,6 +159,9 @@ public class FdcController(
 
     [HttpPost("parameters")]
     [Authorize(Policy = "perm:fdc:manage")]
+    [ProducesResponseType<FdcParameter>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateParameter([FromBody] CreateParameterRequest req, CancellationToken ct)
     {
         var result = await dataService.CreateParameterAsync(
@@ -147,6 +173,9 @@ public class FdcController(
     /// <summary>파라미터를 그룹에 배정/해제한다(GroupId=null이면 해제).</summary>
     [HttpPut("parameters/{parameterId}/group")]
     [Authorize(Policy = "perm:fdc:manage")]
+    [ProducesResponseType(StatusCodes.Status200OK)]              // ToActionResult(useNoContent:false) → 본문 없는 Ok()
+    [ProducesResponseType(StatusCodes.Status404NotFound)]        // 파라미터 미존재 시 NotFound(Error)
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> AssignParameterGroup(
         string parameterId, [FromBody] AssignParameterGroupRequest req, CancellationToken ct)
     {
@@ -157,6 +186,8 @@ public class FdcController(
     // ── Parameter Groups ──────────────────────────────────────────────────────
 
     [HttpGet("parameter-groups")]
+    [ProducesResponseType<IReadOnlyList<FdcParameterGroup>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetParameterGroups([FromQuery] string equipmentId, CancellationToken ct)
     {
         var groups = await groupService.GetGroupsAsync(equipmentId, ct);
@@ -165,6 +196,9 @@ public class FdcController(
 
     [HttpPost("parameter-groups")]
     [Authorize(Policy = "perm:fdc:manage")]
+    [ProducesResponseType<FdcParameterGroup>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateParameterGroup([FromBody] CreateParameterGroupRequest req, CancellationToken ct)
     {
         var result = await groupService.CreateGroupAsync(
@@ -175,6 +209,8 @@ public class FdcController(
     // ── Alarms (FDC threshold) ────────────────────────────────────────────────
 
     [HttpGet("alarm-configs")]
+    [ProducesResponseType<IReadOnlyList<FdcAlarmConfig>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetAlarmConfigs([FromQuery] string equipmentId, CancellationToken ct)
     {
         var configs = await fdcAlarmService.GetConfigsAsync(equipmentId, ct);
@@ -183,6 +219,9 @@ public class FdcController(
 
     [HttpPost("alarm-configs")]
     [Authorize(Policy = "perm:fdc:manage")]
+    [ProducesResponseType<FdcAlarmConfig>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateAlarmConfig([FromBody] CreateAlarmConfigRequest req, CancellationToken ct)
     {
         var result = await fdcAlarmService.CreateConfigAsync(
@@ -191,6 +230,8 @@ public class FdcController(
     }
 
     [HttpGet("alarm-history")]
+    [ProducesResponseType<IReadOnlyList<FdcAlarmHistory>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetAlarmHistory(
         [FromQuery] string equipmentId,
         [FromQuery] DateTime from,
@@ -204,6 +245,8 @@ public class FdcController(
     // ── Collect Data ──────────────────────────────────────────────────────────
 
     [HttpGet("collect-data")]
+    [ProducesResponseType<IReadOnlyList<FdcCollectData>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetCollectData(
         [FromQuery] string parameterId,
         [FromQuery] DateTime from,
@@ -219,6 +262,8 @@ public class FdcController(
     }
 
     [HttpGet("collect-data/latest")]
+    [ProducesResponseType<IReadOnlyList<FdcCollectData>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetLatestCollectData(
         [FromQuery] string parameterId,
         [FromQuery] int limit = 50,
@@ -235,6 +280,9 @@ public class FdcController(
     /// </summary>
     [HttpPost("collect-data")]
     [Authorize(Policy = "perm:fdc:control")]   // 운영 데이터 수집/인터록 평가 — 설비 제어 권한(OPERATOR 보유)
+    [ProducesResponseType(StatusCodes.Status200OK)]             // 익명형 { CollectedData, Interlock } — 구체 타입 주석 불가
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> RecordData([FromBody] RecordDataRequest req, CancellationToken ct)
     {
         // 1. 데이터 수집 기록

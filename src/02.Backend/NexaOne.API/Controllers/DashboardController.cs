@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.SHP.Application.Shp;
 using NexaOne.SHP.Domain;
@@ -23,6 +24,8 @@ public class DashboardController(
     RecipeService recipeService) : ControllerBase
 {
     [HttpGet]
+    [ProducesResponseType<DashboardSummaryResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetSummary(CancellationToken ct)
     {
         var tAlarms       = alarmService.GetActiveAlarmCountAsync(ct);

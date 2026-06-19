@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Extensions;
 using NexaOne.MDM.Application.Equipments;
+using NexaOne.MDM.Domain;
 
 namespace NexaOne.API.Controllers;
 
@@ -11,6 +13,8 @@ namespace NexaOne.API.Controllers;
 public class MdmController(EquipmentService equipmentService, MdmMasterService masterService) : ControllerBase
 {
     [HttpGet("equipment")]
+    [ProducesResponseType<IReadOnlyList<Equipment>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetEquipment(
         [FromQuery] string? plantId,
         CancellationToken ct)
@@ -20,6 +24,8 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
     }
 
     [HttpGet("equipment/{equipmentId}")]
+    [ProducesResponseType<Equipment>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetEquipmentById(string equipmentId, CancellationToken ct)
     {
         var result = await equipmentService.GetEquipmentAsync(equipmentId, ct);
@@ -28,6 +34,8 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
 
     [HttpPost("equipment")]
     [Authorize(Policy = "perm:mdm:manage")]   // ADR-003 — 기준정보 쓰기는 모듈 manage 권한 필요(기본 ADMIN)
+    [ProducesResponseType<Equipment>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateEquipment([FromBody] CreateEquipmentRequest req, CancellationToken ct)
     {
         var result = await equipmentService.CreateEquipmentAsync(
@@ -39,6 +47,8 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
 
     [HttpPut("equipment/{equipmentId}")]
     [Authorize(Policy = "perm:mdm:manage")]
+    [ProducesResponseType<Equipment>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> UpdateEquipment(string equipmentId, [FromBody] UpdateEquipmentRequest req, CancellationToken ct)
     {
         var result = await equipmentService.UpdateEquipmentAsync(
@@ -49,6 +59,8 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
 
     [HttpDelete("equipment/{equipmentId}")]
     [Authorize(Policy = "perm:mdm:manage")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> DeactivateEquipment(string equipmentId, CancellationToken ct)
     {
         var result = await equipmentService.DeactivateEquipmentAsync(equipmentId, ct);
@@ -58,11 +70,15 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
     // ── Plants ────────────────────────────────────────────────────────────────
 
     [HttpGet("plants")]
+    [ProducesResponseType<IReadOnlyList<Plant>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetPlants(CancellationToken ct)
         => Ok(await masterService.GetPlantsAsync(ct));
 
     [HttpPost("plants")]
     [Authorize(Policy = "perm:mdm:manage")]
+    [ProducesResponseType<Plant>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreatePlant([FromBody] CreatePlantRequest req, CancellationToken ct)
     {
         var result = await masterService.CreatePlantAsync(req.PlantId, req.PlantName, req.Country, req.TimeZone, ct);
@@ -72,11 +88,15 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
     // ── Areas ─────────────────────────────────────────────────────────────────
 
     [HttpGet("areas")]
+    [ProducesResponseType<IReadOnlyList<Area>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetAreas([FromQuery] string? plantId, CancellationToken ct)
         => Ok(await masterService.GetAreasByPlantAsync(plantId ?? string.Empty, ct));
 
     [HttpPost("areas")]
     [Authorize(Policy = "perm:mdm:manage")]
+    [ProducesResponseType<Area>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateArea([FromBody] CreateAreaRequest req, CancellationToken ct)
     {
         var result = await masterService.CreateAreaAsync(req.AreaId, req.AreaName, req.PlantId, ct);
@@ -86,11 +106,15 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
     // ── Products ──────────────────────────────────────────────────────────────
 
     [HttpGet("products")]
+    [ProducesResponseType<IReadOnlyList<Product>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetProducts(CancellationToken ct)
         => Ok(await masterService.GetProductsAsync(ct));
 
     [HttpPost("products")]
     [Authorize(Policy = "perm:mdm:manage")]
+    [ProducesResponseType<Product>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateProduct([FromBody] CreateProductRequest req, CancellationToken ct)
     {
         var result = await masterService.CreateProductAsync(req.ProductId, req.ProductName, req.ProductType, req.Unit, ct);
@@ -100,11 +124,15 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
     // ── Code Classes ──────────────────────────────────────────────────────────
 
     [HttpGet("code-classes")]
+    [ProducesResponseType<IReadOnlyList<CodeClass>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetCodeClasses(CancellationToken ct)
         => Ok(await masterService.GetCodeClassesAsync(ct));
 
     [HttpPost("code-classes")]
     [Authorize(Policy = "perm:mdm:manage")]
+    [ProducesResponseType<CodeClass>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateCodeClass([FromBody] CreateCodeClassRequest req, CancellationToken ct)
     {
         var result = await masterService.CreateCodeClassAsync(req.CodeClassId, req.CodeClassName, ct);
@@ -114,11 +142,15 @@ public class MdmController(EquipmentService equipmentService, MdmMasterService m
     // ── Codes ─────────────────────────────────────────────────────────────────
 
     [HttpGet("codes")]
+    [ProducesResponseType<IReadOnlyList<Code>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetCodes([FromQuery] string codeClassId, CancellationToken ct)
         => Ok(await masterService.GetCodesByClassAsync(codeClassId, ct));
 
     [HttpPost("codes")]
     [Authorize(Policy = "perm:mdm:manage")]
+    [ProducesResponseType<Code>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateCode([FromBody] CreateCodeRequest req, CancellationToken ct)
     {
         var result = await masterService.CreateCodeAsync(req.CodeId, req.CodeClassId, req.CodeName, req.SortOrder, ct);

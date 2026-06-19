@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexusFramework.Workflow.Runtime;
 using NexusFramework.Workflow.Tooling;
@@ -14,6 +15,8 @@ public class WorkflowController(WorkflowManager manager, IConfiguration config) 
 {
     /// <summary>등록된 워크플로우(*.workflow) ID 목록.</summary>
     [HttpGet("list")]
+    [ProducesResponseType<IReadOnlyList<string>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public IActionResult List()
     {
         var dir = ResolveDir(config);
@@ -33,6 +36,12 @@ public class WorkflowController(WorkflowManager manager, IConfiguration config) 
     // 워크플로우 실행은 등록된 어셈블리 호출 노드를 구동하므로 인증만으로는 부족하다 — 실행 권한을 요구한다(기본 ADMIN).
     [HttpPost("{workflowId}/execute")]
     [Authorize(Policy = "perm:workflow:execute")]
+    // 성공/실패 응답 본문은 익명 형식(new { results = ... } / new { errors = ... })이라
+    // [ProducesResponseType<T>]로 형 지정할 수 없다 — 상태 코드만 주석한다.
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Execute(string workflowId, CancellationToken ct)
     {
         // 라우트 파라미터를 파일 경로에 쓰기 전에 화이트리스트로 검증 (경로 조작 방지)

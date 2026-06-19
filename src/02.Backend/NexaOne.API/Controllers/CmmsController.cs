@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Extensions;
 using NexaOne.API.Hubs;
 using NexaOne.CMMS.Application.Cmms;
+using NexaOne.CMMS.Domain;
 
 namespace NexaOne.API.Controllers;
 
@@ -14,6 +16,8 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     NexaOne.API.Services.RealtimeNotificationCoordinator notifyCoordinator) : ControllerBase
 {
     [HttpGet("work-orders")]
+    [ProducesResponseType<IReadOnlyList<WorkOrder>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetWorkOrders(
         [FromQuery] string? equipmentId, [FromQuery] string? status,
         [FromQuery] DateTime? from, [FromQuery] DateTime? to, CancellationToken ct)
@@ -30,6 +34,8 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
 
     [HttpPost("work-orders")]
     [Authorize(Policy = "perm:cmms:manage")]   // ADR-003 — 보전 쓰기는 모듈 manage 권한 필요(기본 ADMIN)
+    [ProducesResponseType<WorkOrder>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateWorkOrder([FromBody] CreateWorkOrderRequest req, CancellationToken ct)
     {
         var result = await emsService.CreateWorkOrderAsync(
@@ -39,6 +45,8 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
 
     [HttpPut("work-orders/{woId}/start")]
     [Authorize(Policy = "perm:cmms:manage")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> StartWorkOrder(string woId, CancellationToken ct)
     {
         var result = await emsService.StartWorkOrderAsync(woId, ct);
@@ -49,6 +57,8 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
 
     [HttpPut("work-orders/{woId}/complete")]
     [Authorize(Policy = "perm:cmms:manage")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CompleteWorkOrder(string woId, [FromBody] CompleteWorkOrderRequest req, CancellationToken ct)
     {
         var result = await emsService.CompleteWorkOrderAsync(woId, req.Remark, ct);
@@ -59,6 +69,8 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
 
     [HttpPut("work-orders/{woId}/cancel")]
     [Authorize(Policy = "perm:cmms:manage")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CancelWorkOrder(string woId, CancellationToken ct)
     {
         var result = await emsService.CancelWorkOrderAsync(woId, ct);
@@ -70,6 +82,8 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     // ── Maintenance Plans ─────────────────────────────────────────────────────
 
     [HttpGet("maintenance-plans")]
+    [ProducesResponseType<IReadOnlyList<MaintenancePlan>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetMaintenancePlans([FromQuery] string? equipmentId,
         [FromQuery] string? status, CancellationToken ct)
     {
@@ -85,6 +99,8 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
 
     [HttpPost("maintenance-plans")]
     [Authorize(Policy = "perm:cmms:manage")]
+    [ProducesResponseType<MaintenancePlan>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateMaintenancePlan([FromBody] CreateMaintenancePlanRequest req, CancellationToken ct)
     {
         var result = await planService.CreatePlanAsync(req.PlanId, req.PlanName, req.EquipmentId,
@@ -94,6 +110,8 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
 
     [HttpPut("maintenance-plans/{planId}/start")]
     [Authorize(Policy = "perm:cmms:manage")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> StartMaintenancePlan(string planId, CancellationToken ct)
     {
         var result = await planService.StartPlanAsync(planId, ct);
@@ -102,6 +120,8 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
 
     [HttpPut("maintenance-plans/{planId}/complete")]
     [Authorize(Policy = "perm:cmms:manage")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CompleteMaintenancePlan(string planId, CancellationToken ct)
     {
         var result = await planService.CompletePlanAsync(planId, ct);
@@ -110,6 +130,8 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
 
     [HttpPut("maintenance-plans/{planId}/cancel")]
     [Authorize(Policy = "perm:cmms:manage")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CancelMaintenancePlan(string planId, CancellationToken ct)
     {
         var result = await planService.CancelPlanAsync(planId, ct);
@@ -119,6 +141,8 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     // ── Spare Parts ───────────────────────────────────────────────────────────
 
     [HttpGet("spare-parts")]
+    [ProducesResponseType<IReadOnlyList<SparePart>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetSpareParts([FromQuery] bool lowStock = false, CancellationToken ct = default)
     {
         var list = lowStock
@@ -129,6 +153,8 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
 
     [HttpPost("spare-parts")]
     [Authorize(Policy = "perm:cmms:manage")]
+    [ProducesResponseType<SparePart>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateSparePart([FromBody] CreateSparePartRequest req, CancellationToken ct)
     {
         var result = await planService.CreatePartAsync(req.PartId, req.PartName, req.PartNumber,
@@ -139,6 +165,8 @@ public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
 
     [HttpPut("spare-parts/{partId}/adjust-stock")]
     [Authorize(Policy = "perm:cmms:manage")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> AdjustStock(string partId, [FromBody] AdjustStockRequest req, CancellationToken ct)
     {
         var result = await planService.AdjustStockAsync(partId, req.Delta, ct);

@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Extensions;
 using NexaOne.API.Hubs;
 using NexaOne.EST.Application.Est;
+using NexaOne.EST.Domain;
 using NexaOne.MDM.Application.Equipments;
 
 namespace NexaOne.API.Controllers;
@@ -20,16 +22,22 @@ public class EstController(
     // ── State Matrix ──────────────────────────────────────────────────────────
 
     [HttpGet("state-matrix")]
+    [ProducesResponseType<IReadOnlyList<EquipmentStateMatrix>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetStateMatrix([FromQuery] string plantId, CancellationToken ct)
         => Ok(await stateService.GetMatrixAsync(plantId, ct));
 
     [HttpGet("state-matrix/allowed")]
+    [ProducesResponseType<IReadOnlyList<EquipmentStateMatrix>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetAllowedTransitions(
         [FromQuery] string plantId, [FromQuery] string fromState, CancellationToken ct)
         => Ok(await stateService.GetAllowedTransitionsAsync(plantId, fromState, ct));
 
     [HttpPost("state-matrix")]
     [Authorize(Policy = "perm:est:manage")]   // ADR-003 — 설비상태 쓰기는 모듈 manage 권한 필요(기본 ADMIN)
+    [ProducesResponseType<EquipmentStateMatrix>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> UpsertMatrix([FromBody] UpsertMatrixRequest req, CancellationToken ct)
     {
         var result = await stateService.UpsertMatrixAsync(
@@ -41,11 +49,16 @@ public class EstController(
     // ── Equipment State ───────────────────────────────────────────────────────
 
     [HttpGet("equipment-state")]
+    [ProducesResponseType<IReadOnlyList<EquipmentCurrentState>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetEquipmentStates([FromQuery] string plantId, CancellationToken ct)
         => Ok(await stateService.GetEquipmentStatesAsync(plantId, ct));
 
     [HttpPost("equipment-state/change")]
     [Authorize(Policy = "perm:est:manage")]
+    [ProducesResponseType<EquipmentCurrentState>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> ChangeState([FromBody] ChangeStateRequest req, CancellationToken ct)
     {
         var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
@@ -70,12 +83,16 @@ public class EstController(
     }
 
     [HttpGet("equipment-state/{equipmentId}/history")]
+    [ProducesResponseType<IReadOnlyList<EquipmentStateHistory>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetStateHistory(string equipmentId, CancellationToken ct)
         => Ok(await stateService.GetHistoryAsync(equipmentId, 50, ct));
 
     // ── Alarms ────────────────────────────────────────────────────────────────
 
     [HttpGet("alarms")]
+    [ProducesResponseType<IReadOnlyList<EquipmentAlarm>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetActiveAlarms([FromQuery] string? plantId, CancellationToken ct)
     {
         var result = await alarmService.GetActiveAlarmsAsync(plantId ?? string.Empty, ct);
@@ -84,6 +101,8 @@ public class EstController(
 
     [HttpPost("alarms")]
     [Authorize(Policy = "perm:est:manage")]
+    [ProducesResponseType<EquipmentAlarm>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> RecordAlarm([FromBody] RecordAlarmRequest req, CancellationToken ct)
     {
         var result = await alarmService.RecordAlarmAsync(
@@ -96,6 +115,9 @@ public class EstController(
 
     [HttpPut("alarms/{alarmId}/clear")]
     [Authorize(Policy = "perm:est:manage")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> ClearAlarm(string alarmId, [FromBody] ClearAlarmRequest req, CancellationToken ct)
     {
         var result = await alarmService.ClearAlarmAsync(alarmId, req.ClearedAt, ct);

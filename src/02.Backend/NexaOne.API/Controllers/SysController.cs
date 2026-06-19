@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Extensions;
 using NexaOne.Common;
@@ -26,6 +27,8 @@ public class SysController(
     // ── Menu ──────────────────────────────────────────────────────────────────
 
     [HttpGet("menu")]
+    [ProducesResponseType<IEnumerable<MenuItemDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetMenu(CancellationToken ct)
     {
         var userId = CurrentUserId;
@@ -60,6 +63,8 @@ public class SysController(
 
     [HttpGet("users")]
     [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
+    [ProducesResponseType<IEnumerable<UserDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetUsers(CancellationToken ct)
     {
         var result = await userService.GetAllUsersAsync(ct);
@@ -67,6 +72,8 @@ public class SysController(
     }
 
     [HttpGet("users/{userId}")]
+    [ProducesResponseType<UserDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetUser(string userId, CancellationToken ct)
     {
         var result = await userService.GetUserAsync(userId, ct);
@@ -75,6 +82,8 @@ public class SysController(
 
     [HttpPost("users")]
     [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
+    [ProducesResponseType<UserDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateUser([FromBody] CreateUserRequest req, CancellationToken ct)
     {
         var result = await userService.CreateUserAsync(
@@ -86,6 +95,8 @@ public class SysController(
 
     [HttpPut("users/{userId}/deactivate")]
     [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> DeactivateUser(string userId, CancellationToken ct)
     {
         var result = await userService.DeactivateUserAsync(userId, ct);
@@ -95,6 +106,8 @@ public class SysController(
     /// <summary>§20.10 — 관리자 잠금 해제 (해제는 시간 만료 또는 관리자만 가능).</summary>
     [HttpPut("users/{userId}/unlock")]
     [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> UnlockUser(string userId, CancellationToken ct)
     {
         var result = await userService.UnlockUserAsync(userId, ct);
@@ -109,6 +122,8 @@ public class SysController(
     // ── Roles ─────────────────────────────────────────────────────────────────
 
     [HttpGet("roles")]
+    [ProducesResponseType<IReadOnlyList<Role>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetRoles(CancellationToken ct)
     {
         var result = await userService.GetAllRolesAsync(ct);
@@ -116,6 +131,8 @@ public class SysController(
     }
 
     [HttpGet("roles/{roleId}")]
+    [ProducesResponseType<Role>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetRole(string roleId, CancellationToken ct)
     {
         var result = await userService.GetRoleAsync(roleId, ct);
@@ -124,6 +141,8 @@ public class SysController(
 
     [HttpPost("roles")]
     [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
+    [ProducesResponseType<Role>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateRole([FromBody] CreateRoleRequest req, CancellationToken ct)
     {
         var result = await userService.CreateRoleAsync(req.RoleId, req.RoleName, req.Description ?? "", ct);
@@ -132,6 +151,8 @@ public class SysController(
 
     [HttpPost("roles/{roleId}/permissions")]
     [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> AddPermission(string roleId, [FromBody] PermissionRequest req, CancellationToken ct)
     {
         var result = await userService.AddPermissionAsync(roleId, req.Permission, ct);
@@ -140,6 +161,8 @@ public class SysController(
 
     [HttpDelete("roles/{roleId}/permissions/{permission}")]
     [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> RemovePermission(string roleId, string permission, CancellationToken ct)
     {
         var result = await userService.RemovePermissionAsync(roleId, permission, ct);
@@ -149,6 +172,8 @@ public class SysController(
     // ── MultiLanguageResource ─────────────────────────────────────────────────
 
     [HttpGet("languages")]
+    [ProducesResponseType<IReadOnlyList<MultiLanguageResource>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetLanguageResources([FromQuery] string? menuId, [FromQuery] string? language, CancellationToken ct)
     {
         if (!string.IsNullOrEmpty(menuId))
@@ -169,6 +194,8 @@ public class SysController(
 
     [HttpPost("languages")]
     [Authorize(Policy = "perm:sys:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
+    [ProducesResponseType<MultiLanguageResource>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> UpsertLanguageResource([FromBody] UpsertLanguageResourceRequest req, CancellationToken ct)
     {
         if (!Enum.TryParse<LanguageType>(req.Language, out var lang) || !Enum.IsDefined(lang))
@@ -181,6 +208,8 @@ public class SysController(
     // ── ConditionSetting (설계서 20.8 조건 저장/불러오기) ─────────────────────
 
     [HttpGet("conditions")]
+    [ProducesResponseType<ConditionSettingDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetConditions([FromQuery] string menuId, CancellationToken ct)
     {
         var result = await conditionService.GetConditionsAsync(CurrentUserId, menuId, ct);
@@ -195,6 +224,8 @@ public class SysController(
     }
 
     [HttpPost("conditions")]
+    [ProducesResponseType<ConditionItemDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> SaveCondition([FromBody] SaveConditionRequest req, CancellationToken ct)
     {
         var result = await conditionService.SaveConditionAsync(
@@ -203,6 +234,8 @@ public class SysController(
     }
 
     [HttpPost("conditions/latest")]
+    [ProducesResponseType<ConditionItemDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> SaveLatestCondition([FromBody] SaveLatestConditionRequest req, CancellationToken ct)
     {
         var result = await conditionService.SaveLatestAsync(
@@ -211,6 +244,8 @@ public class SysController(
     }
 
     [HttpDelete("conditions")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> DeleteCondition([FromQuery] string menuId, [FromQuery] string name, CancellationToken ct)
     {
         var result = await conditionService.DeleteConditionAsync(CurrentUserId, menuId, name, ct);
@@ -218,6 +253,8 @@ public class SysController(
     }
 
     [HttpDelete("conditions/latest")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> ClearLatestCondition([FromQuery] string menuId, CancellationToken ct)
     {
         var result = await conditionService.ClearLatestAsync(CurrentUserId, menuId, ct);
@@ -227,6 +264,8 @@ public class SysController(
     // ── Favorite / Recent menu (설계서 20.12 즐겨찾기/최근 메뉴) ──────────────
 
     [HttpGet("favorites")]
+    [ProducesResponseType<IEnumerable<FavoriteMenuDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetFavorites(CancellationToken ct)
     {
         var result = await userMenuService.GetFavoritesAsync(CurrentUserId, ct);
@@ -235,6 +274,8 @@ public class SysController(
     }
 
     [HttpPost("favorites")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> AddFavorite([FromBody] FavoriteMenuRequest req, CancellationToken ct)
     {
         var result = await userMenuService.AddFavoriteAsync(CurrentUserId, req.MenuId, ct);
@@ -242,6 +283,8 @@ public class SysController(
     }
 
     [HttpDelete("favorites")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> RemoveFavorite([FromQuery] string menuId, CancellationToken ct)
     {
         var result = await userMenuService.RemoveFavoriteAsync(CurrentUserId, menuId, ct);
@@ -250,6 +293,8 @@ public class SysController(
 
     /// <summary>즐겨찾기 표시 순서 일괄 변경 — 현행 드래그 정렬의 웹 적응(up/down 버튼).</summary>
     [HttpPut("favorites/order")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> ReorderFavorites([FromBody] ReorderFavoritesRequest req, CancellationToken ct)
     {
         var result = await userMenuService.ReorderFavoritesAsync(
@@ -258,6 +303,8 @@ public class SysController(
     }
 
     [HttpGet("recent-menus")]
+    [ProducesResponseType<IEnumerable<RecentMenuDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetRecentMenus(CancellationToken ct)
     {
         var result = await userMenuService.GetRecentAsync(CurrentUserId, ct);
@@ -266,6 +313,8 @@ public class SysController(
     }
 
     [HttpPost("recent-menus")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> RecordRecentMenu([FromBody] RecentMenuRequest req, CancellationToken ct)
     {
         var result = await userMenuService.RecordRecentAsync(CurrentUserId, req.MenuId, ct);

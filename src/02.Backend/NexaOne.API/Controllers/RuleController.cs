@@ -1,5 +1,6 @@
 ﻿using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Controllers.Models;
 using NexaOne.Application.Messaging;
@@ -22,6 +23,8 @@ public partial class RuleController : ControllerBase
     }
 
     [HttpPost("rule/{ruleName}")]
+    [ProducesResponseType<RuleResponse<object>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> ExecuteRule(
         [FromRoute] string ruleName,
         [FromBody] RuleRequest request)
@@ -34,6 +37,11 @@ public partial class RuleController : ControllerBase
     // 파일 기반 쿼리 레지스트리 실행(UI 연동) — 사전 등록된 쿼리 ID만 실행하므로 원시 SQL 노출이 없다.
     // 따라서 query(원시 SQL, sys:manage)와 달리 인증 사용자면 실행 가능하다. 파라미터는 @바인딩.
     [HttpPost("query/{queryId}")]
+    [ProducesResponseType<IReadOnlyList<Dictionary<string, object>>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ExecuteRegisteredQuery(
         [FromRoute] string queryId,
         [FromBody] Dictionary<string, object>? parameters,
@@ -58,6 +66,11 @@ public partial class RuleController : ControllerBase
     // 파일 기반 쓰기 쿼리 실행(UI 폼 저장 등) — 사전 등록된 쓰기 쿼리 ID만 실행하므로 원시 SQL 노출이 없다.
     // 감사 컬럼은 @currentUser(토큰)·@utcNow(UTC)로 게이트웨이가 주입한다(방언 무관 바운드 파라미터).
     [HttpPost("command/{queryId}")]
+    [ProducesResponseType(StatusCodes.Status200OK)] // 익명형 { affected = int } — 명명 가능한 CLR 타입이 없어 무타입 200으로 표기
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> ExecuteRegisteredCommand(
         [FromRoute] string queryId,
         [FromBody] Dictionary<string, object>? parameters,
@@ -133,6 +146,9 @@ public partial class RuleController : ControllerBase
     // 임의 SQL/프로시저 실행은 관리자 전용으로 제한(인증만으로 통과하던 권한상승/RCE급 경로 봉쇄).
     [Authorize(Policy = "perm:sys:manage")]
     [HttpPost("query")]
+    [ProducesResponseType<RuleResponse<object>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> ExecuteQuery([FromBody] QueryRequest request)
     {
         var result = await _dispatcher.QueryAsync(request.Sql, request.Parameters ?? new());
@@ -141,6 +157,9 @@ public partial class RuleController : ControllerBase
 
     [Authorize(Policy = "perm:sys:manage")]
     [HttpPost("procedure")]
+    [ProducesResponseType<RuleResponse<object>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> ExecuteProcedure([FromBody] ProcedureRequest request)
     {
         var result = await _dispatcher.ProcedureAsync(request.ProcedureName, request.Parameters ?? new());
@@ -149,6 +168,9 @@ public partial class RuleController : ControllerBase
 
     [Authorize(Policy = "perm:sys:manage")]
     [HttpPost("procedure/dataset")]
+    [ProducesResponseType<RuleResponse<Dictionary<string, object>>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> ExecuteProcedureDataSet([FromBody] ProcedureRequest request)
     {
         var result = await _dispatcher.ProcedureToDataSetAsync(request.ProcedureName, request.Parameters ?? new());

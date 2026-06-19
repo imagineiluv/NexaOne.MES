@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using NexaOne.API.Extensions;
@@ -26,6 +27,8 @@ public class UserRegistrationController(
     [HttpGet("exists/{userId}")]
     [AllowAnonymous]
     [EnableRateLimiting("auth")]   // §18.2.3 — 익명 진입점 IP당 제한 (ID 열거 방어)
+    // 익명 객체 { available: bool } 반환 — 명명 타입이 없어 상태코드만 주석 (concerns 참조)
+    [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<IActionResult> CheckUserId(string userId, CancellationToken ct)
         => Ok(new { available = await registrationService.IsUserIdAvailableAsync(userId, ct) });
 
@@ -33,6 +36,9 @@ public class UserRegistrationController(
     [HttpPost("request")]
     [AllowAnonymous]
     [EnableRateLimiting("auth")]   // §18.2.3 — 익명 진입점 IP당 제한 (신청 폭주 방어)
+    [ProducesResponseType<UserRequestDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<Error>(StatusCodes.Status400BadRequest)]   // Validation·Failure
+    [ProducesResponseType<Error>(StatusCodes.Status409Conflict)]     // 중복/처리중
     public async Task<IActionResult> SubmitRequest([FromBody] UserRegistrationRequest req, CancellationToken ct)
     {
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? string.Empty;
@@ -50,6 +56,9 @@ public class UserRegistrationController(
 
     /// <summary>§19.3.4 — 승인 화면 목록 (Plant/상태/신청일/ID/이름/이메일 검색).</summary>
     [HttpGet("requests")]
+    [ProducesResponseType<IEnumerable<UserRequestDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<Error>(StatusCodes.Status400BadRequest)]   // 잘못된 조회 기간
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetRequests(
         [FromQuery] string? plantId, [FromQuery] string? status,
         [FromQuery] string? userId, [FromQuery] string? userName, [FromQuery] string? email,
@@ -61,6 +70,9 @@ public class UserRegistrationController(
     }
 
     [HttpGet("requests/{requestId}")]
+    [ProducesResponseType<UserRequestDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<Error>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetRequest(string requestId, CancellationToken ct)
     {
         var result = await registrationService.GetRequestAsync(requestId, ct);
@@ -69,6 +81,11 @@ public class UserRegistrationController(
 
     /// <summary>§19.3.5 — 승인. 사용자 생성(PasswordState=Create) + 임시 비밀번호 메일 발송.</summary>
     [HttpPatch("requests/{requestId}/approve")]
+    [ProducesResponseType<UserRequestDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<Error>(StatusCodes.Status400BadRequest)]   // 상태 불일치 등
+    [ProducesResponseType<Error>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType<Error>(StatusCodes.Status409Conflict)]     // 사용자 중복
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Approve(
         string requestId, [FromBody] ApproveUserRequestRequest req, CancellationToken ct)
     {
@@ -78,6 +95,10 @@ public class UserRegistrationController(
 
     /// <summary>§19.3.6 — 반려. 사유 필수, 반려 후 같은 ID로 재신청이 가능하다.</summary>
     [HttpPatch("requests/{requestId}/reject")]
+    [ProducesResponseType<UserRequestDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<Error>(StatusCodes.Status400BadRequest)]   // 사유 누락 등
+    [ProducesResponseType<Error>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Reject(
         string requestId, [FromBody] RejectUserRequestRequest req, CancellationToken ct)
     {

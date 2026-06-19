@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Extensions;
 using NexaOne.POM.Application.Lots;
+using NexaOne.POM.Domain;
 
 namespace NexaOne.API.Controllers;
 
@@ -15,6 +17,8 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
             ?? User.FindFirst("sub")?.Value ?? string.Empty;
 
     [HttpGet]
+    [ProducesResponseType<IReadOnlyList<Lot>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetLots(
         [FromQuery] string plantId, [FromQuery] string? state, CancellationToken ct)
     {
@@ -23,6 +27,8 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
     }
 
     [HttpGet("{lotId}")]
+    [ProducesResponseType<Lot>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetLot(string lotId, CancellationToken ct)
     {
         var result = await trackingService.GetRouteAsync(lotId, ct);
@@ -31,6 +37,8 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
 
     /// <summary>Lot 진행 경로 + 이력 + Mixing 투입 관계 (설계 19.4.8 LotRoute).</summary>
     [HttpGet("{lotId}/route")]
+    [ProducesResponseType<LotRouteView>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetRoute(string lotId, CancellationToken ct)
     {
         var result = await trackingService.GetRouteAsync(lotId, ct);
@@ -39,6 +47,8 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
 
     [HttpPost]
     [Authorize(Policy = "perm:pom:manage")]   // ADR-003 — 로트추적 쓰기는 생산(POM) 모듈 manage 권한 필요(기본 ADMIN)
+    [ProducesResponseType<Lot>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> CreateLot([FromBody] CreateLotRequest req, CancellationToken ct)
     {
         var result = await trackingService.CreateLotAsync(
@@ -49,6 +59,8 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
 
     [HttpPost("{lotId}/track-in")]
     [Authorize(Policy = "perm:pom:manage")]
+    [ProducesResponseType<Lot>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> TrackIn(string lotId, [FromBody] TrackInRequest req, CancellationToken ct)
     {
         var result = await trackingService.TrackInAsync(new TrackInCommand(
@@ -58,6 +70,8 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
 
     [HttpPost("{lotId}/track-out")]
     [Authorize(Policy = "perm:pom:manage")]
+    [ProducesResponseType<Lot>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> TrackOut(string lotId, [FromBody] TrackOutRequest req, CancellationToken ct)
     {
         var defects = req.Defects?.Select(d => new DefectEntry(d.DefectCode, d.DefectQty)).ToList();
@@ -69,6 +83,8 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
     /// <summary>Mixing TrackIn/Out — 투입 Lot 소비 + 출력 Lot 생성/가산 (설계 19.4.7).</summary>
     [HttpPost("mixing/track-in-out")]
     [Authorize(Policy = "perm:pom:manage")]
+    [ProducesResponseType<Lot>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> MixingTrackInOut([FromBody] MixingTrackRequest req, CancellationToken ct)
     {
         var inputs = (req.Inputs ?? []).Select(i => new MixingInput(i.LotId, i.InQty)).ToList();
@@ -80,6 +96,8 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
 
     [HttpPut("{lotId}/hold")]
     [Authorize(Policy = "perm:pom:manage")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Hold(string lotId, CancellationToken ct)
     {
         var result = await trackingService.HoldAsync(lotId, CurrentUserId, ct);
@@ -88,6 +106,8 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
 
     [HttpPut("{lotId}/release-hold")]
     [Authorize(Policy = "perm:pom:manage")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> ReleaseHold(string lotId, CancellationToken ct)
     {
         var result = await trackingService.ReleaseHoldAsync(lotId, CurrentUserId, ct);
@@ -96,6 +116,8 @@ public class LotController(LotTrackingService trackingService) : ControllerBase
 
     /// <summary>생산 추적 보고서 (설계 19.4.8) — Lot/설비/공정/기간 필터.</summary>
     [HttpGet("/api/v1/reports/lot-tracking")]
+    [ProducesResponseType<IReadOnlyList<LotHistory>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetTrackingReport(
         [FromQuery] string plantId, [FromQuery] string? lotId, [FromQuery] string? equipmentId,
         [FromQuery] string? processId, [FromQuery] DateTime? from, [FromQuery] DateTime? to,

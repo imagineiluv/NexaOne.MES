@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Extensions;
 using NexaOne.Common;
@@ -30,6 +31,8 @@ public class DeployController(DeployService deployService) : ControllerBase
     /// </summary>
     [HttpGet("latest")]
     [AllowAnonymous]
+    [ProducesResponseType<DeployLatestDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<Error>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetLatest(CancellationToken ct)
     {
         var result = await deployService.GetLatestAsync(ct);
@@ -42,6 +45,8 @@ public class DeployController(DeployService deployService) : ControllerBase
 
     [HttpGet("files")]
     [Authorize(Policy = "perm:deploy:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
+    [ProducesResponseType<IEnumerable<DeployFileDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> GetFiles(CancellationToken ct)
     {
         var result = await deployService.GetAllAsync(ct);
@@ -52,6 +57,10 @@ public class DeployController(DeployService deployService) : ControllerBase
     [Authorize(Policy = "perm:deploy:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
     [RequestSizeLimit(MaxRequestBytes)]
     [RequestFormLimits(MultipartBodyLengthLimit = MaxRequestBytes)]
+    [ProducesResponseType<DeployFileDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<Error>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<Error>(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Upload(
         IFormFile? file,
         [FromForm] string? version,
@@ -77,6 +86,8 @@ public class DeployController(DeployService deployService) : ControllerBase
     /// </summary>
     [HttpGet("files/{fileId}/download")]
     [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK, Type = typeof(FileResult))]
+    [ProducesResponseType<Error>(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Download(string fileId, CancellationToken ct)
     {
         var result = await deployService.OpenDownloadAsync(fileId, ct);
@@ -89,6 +100,9 @@ public class DeployController(DeployService deployService) : ControllerBase
     /// <summary>문제 버전 회수 — latest 선정/다운로드에서 제외한다.</summary>
     [HttpPut("files/{fileId}/deactivate")]
     [Authorize(Policy = "perm:deploy:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<Error>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Deactivate(string fileId, CancellationToken ct)
     {
         var result = await deployService.SetActiveAsync(fileId, isActive: false, ct: ct);
@@ -97,6 +111,9 @@ public class DeployController(DeployService deployService) : ControllerBase
 
     [HttpPut("files/{fileId}/activate")]
     [Authorize(Policy = "perm:deploy:manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<Error>(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<IActionResult> Activate(string fileId, CancellationToken ct)
     {
         var result = await deployService.SetActiveAsync(fileId, isActive: true, ct: ct);
