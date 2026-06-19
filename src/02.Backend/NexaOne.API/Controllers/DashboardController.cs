@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using NexaOne.Common;
 using NexaOne.SHP.Application.Shp;
 using NexaOne.SHP.Domain;
 using NexaOne.CMMS.Application.Cmms;
@@ -16,6 +17,7 @@ namespace NexaOne.API.Controllers;
 [ApiController]
 [Route("api/v1/dashboard")]
 [Authorize]
+[ProducesErrorResponseType(typeof(Error))]
 public class DashboardController(
     EquipmentAlarmService alarmService,
     CmmsService emsService,

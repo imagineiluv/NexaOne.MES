@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Extensions;
+using NexaOne.Common;
 using NexaOne.POM.Application.Pom;
 using NexaOne.POM.Domain;
 
@@ -10,6 +11,7 @@ namespace NexaOne.API.Controllers;
 [ApiController]
 [Route("api/v1/pom")]
 [Authorize]
+[ProducesErrorResponseType(typeof(Error))]
 public class PomController(PomService ppmService, ProductionOrderService orderService) : ControllerBase
 {
     [HttpGet("plans")]

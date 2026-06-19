@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using NexaOne.Common;
 using NexaOne.SYS.Application.Screens;
 
 namespace NexaOne.API.Controllers;
@@ -12,6 +13,7 @@ namespace NexaOne.API.Controllers;
 [ApiController]
 [Route("api/v1/sys/screen-definitions")]
 [Authorize]
+[ProducesErrorResponseType(typeof(Error))]
 public class ScreenDefinitionController(IScreenDefinitionStore store) : ControllerBase
 {
     [HttpGet]
@@ -38,7 +40,7 @@ public class ScreenDefinitionController(IScreenDefinitionStore store) : Controll
     public async Task<IActionResult> Upsert(string uiId, [FromBody] SaveScreenDefinitionRequest req, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Title) || string.IsNullOrWhiteSpace(req.DefinitionJson))
-            return BadRequest("Title and DefinitionJson are required.");
+            return BadRequest(new Error("Screen.ValidationFailed", "Title and DefinitionJson are required.", ErrorType.Validation));
         await store.UpsertAsync(new ScreenDefinitionRecord(uiId, req.Title, req.DefinitionJson), ct);
         return Ok();
     }

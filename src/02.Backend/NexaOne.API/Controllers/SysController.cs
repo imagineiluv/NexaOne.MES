@@ -14,6 +14,7 @@ namespace NexaOne.API.Controllers;
 [ApiController]
 [Route("api/v1/sys")]
 [Authorize]
+[ProducesErrorResponseType(typeof(Error))]
 public class SysController(
     UserService userService,
     MenuService menuService,
@@ -199,7 +200,7 @@ public class SysController(
     public async Task<IActionResult> UpsertLanguageResource([FromBody] UpsertLanguageResourceRequest req, CancellationToken ct)
     {
         if (!Enum.TryParse<LanguageType>(req.Language, out var lang) || !Enum.IsDefined(lang))
-            return BadRequest($"Invalid language: {req.Language}");
+            return BadRequest(new Error("Sys.InvalidLanguage", $"Invalid language: {req.Language}", ErrorType.Validation));
 
         var result = await userService.UpsertResourceAsync(req.ResourceKey, req.MenuId, lang, req.Value, ct);
         return result.ToActionResult();

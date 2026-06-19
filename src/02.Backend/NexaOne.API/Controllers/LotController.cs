@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Extensions;
+using NexaOne.Common;
 using NexaOne.POM.Application.Lots;
 using NexaOne.POM.Domain;
 
@@ -10,6 +11,7 @@ namespace NexaOne.API.Controllers;
 [ApiController]
 [Route("api/v1/lots")]
 [Authorize]
+[ProducesErrorResponseType(typeof(Error))]
 public class LotController(LotTrackingService trackingService) : ControllerBase
 {
     private string CurrentUserId =>

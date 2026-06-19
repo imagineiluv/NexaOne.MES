@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using NexaOne.Common;
 using NexusFramework.Workflow.Runtime;
 using NexusFramework.Workflow.Tooling;
 
@@ -11,6 +12,7 @@ namespace NexaOne.API.Controllers;
 [ApiController]
 [Route("api/v1/workflow")]
 [Authorize]
+[ProducesErrorResponseType(typeof(Error))]   // 표준 오류 본문 = NexaOne.Common.Error({code,description,type}).
 public class WorkflowController(WorkflowManager manager, IConfiguration config) : ControllerBase
 {
     /// <summary>등록된 워크플로우(*.workflow) ID 목록.</summary>
@@ -36,7 +38,7 @@ public class WorkflowController(WorkflowManager manager, IConfiguration config) 
     // 워크플로우 실행은 등록된 어셈블리 호출 노드를 구동하므로 인증만으로는 부족하다 — 실행 권한을 요구한다(기본 ADMIN).
     [HttpPost("{workflowId}/execute")]
     [Authorize(Policy = "perm:workflow:execute")]
-    // 성공 본문 { results }는 WorkflowRunResponse로 타입화. 실패 본문 { errors }는 범위 외(상태코드만).
+    // 성공 본문은 WorkflowRunResponse, 오류 본문은 표준 Error([ProducesErrorResponseType]).
     [ProducesResponseType<WorkflowRunResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -45,7 +47,7 @@ public class WorkflowController(WorkflowManager manager, IConfiguration config) 
     {
         // 라우트 파라미터를 파일 경로에 쓰기 전에 화이트리스트로 검증 (경로 조작 방지)
         if (string.IsNullOrEmpty(workflowId) || workflowId.Length > 128 || !IdPattern.IsMatch(workflowId))
-            return BadRequest("Invalid workflow id.");
+            return BadRequest(new Error("Workflow.InvalidId", "Invalid workflow id.", ErrorType.Validation));
 
         var dir = ResolveDir(config);
         var path = Path.Combine(dir, $"{workflowId}.workflow");
@@ -56,10 +58,10 @@ public class WorkflowController(WorkflowManager manager, IConfiguration config) 
         if (!pathFull.StartsWith(
                 baseFull.EndsWith(Path.DirectorySeparatorChar) ? baseFull : baseFull + Path.DirectorySeparatorChar,
                 StringComparison.OrdinalIgnoreCase))
-            return BadRequest("Invalid workflow id.");
+            return BadRequest(new Error("Workflow.InvalidId", "Invalid workflow id.", ErrorType.Validation));
 
         if (!System.IO.File.Exists(path))
-            return NotFound($"Workflow '{workflowId}' not found.");
+            return NotFound(new Error("Workflow.NotFound", $"Workflow '{workflowId}' not found.", ErrorType.NotFound));
 
         // FlowExecutionOptions.Services로 DI 컨테이너를 노드(AssemblyInvocation)에 전달
         var options = new FlowExecutionOptions { Services = HttpContext.RequestServices, MaxParallelism = 4 };
@@ -70,7 +72,7 @@ public class WorkflowController(WorkflowManager manager, IConfiguration config) 
 
         return report.IsSuccessful
             ? Ok(new WorkflowRunResponse(report.NodeResults.ToDictionary(kv => kv.Key, kv => kv.Value.Status.ToString())))
-            : BadRequest(new { errors = report.Errors });
+            : BadRequest(new Error("Workflow.ExecutionFailed", string.Join("; ", report.Errors), ErrorType.Failure));
     }
 
     private static string ResolveDir(IConfiguration config)

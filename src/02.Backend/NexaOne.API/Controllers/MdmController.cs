@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Extensions;
+using NexaOne.Common;
 using NexaOne.MDM.Application.Equipments;
 using NexaOne.MDM.Domain;
 
@@ -10,6 +11,7 @@ namespace NexaOne.API.Controllers;
 [ApiController]
 [Route("api/v1/mdm")]
 [Authorize]
+[ProducesErrorResponseType(typeof(Error))]
 public class MdmController(EquipmentService equipmentService, MdmMasterService masterService) : ControllerBase
 {
     [HttpGet("equipment")]

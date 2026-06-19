@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Extensions;
+using NexaOne.Common;
 using NexaOne.QMS.Application.Qms;
 using NexaOne.QMS.Domain;
 
@@ -10,6 +11,7 @@ namespace NexaOne.API.Controllers;
 [ApiController]
 [Route("api/v1/qms")]
 [Authorize]
+[ProducesErrorResponseType(typeof(Error))]
 public class QmsController(QmsService qmsService) : ControllerBase
 {
     // ── Defects ───────────────────────────────────────────────────────────────

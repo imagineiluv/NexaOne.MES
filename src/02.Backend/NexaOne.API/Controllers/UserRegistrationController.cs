@@ -15,6 +15,7 @@ namespace NexaOne.API.Controllers;
 [ApiController]
 [Route("api/v1/users")]
 [Authorize(Policy = "perm:sys:user.manage")]   // ADR-003 — 역할 하드코딩 → 권한 정책(ADMIN=* 보유)
+[ProducesErrorResponseType(typeof(Error))]
 public class UserRegistrationController(
     UserApprovalService approvalService,
     UserRegistrationService registrationService) : ControllerBase

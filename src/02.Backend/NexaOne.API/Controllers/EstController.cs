@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Extensions;
 using NexaOne.API.Hubs;
+using NexaOne.Common;
 using NexaOne.EST.Application.Est;
 using NexaOne.EST.Domain;
 using NexaOne.MDM.Application.Equipments;
@@ -12,6 +13,7 @@ namespace NexaOne.API.Controllers;
 [ApiController]
 [Route("api/v1/est")]
 [Authorize]
+[ProducesErrorResponseType(typeof(Error))]
 public class EstController(
     EquipmentAlarmService alarmService,
     EquipmentStateService stateService,

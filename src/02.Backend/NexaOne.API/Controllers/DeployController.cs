@@ -12,6 +12,7 @@ namespace NexaOne.API.Controllers;
 [ApiController]
 [Route("api/v1/deploy")]
 [Authorize]
+[ProducesErrorResponseType(typeof(Error))]
 public class DeployController(DeployService deployService) : ControllerBase
 {
     /// <summary>업로드 파일 상한(500MB) — 배포 패키지 크기 여유분 포함. Kestrel 기본 30MB 제한을 대체한다.</summary>

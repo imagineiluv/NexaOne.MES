@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Extensions;
+using NexaOne.Common;
 using NexaOne.RMS.Application.Rms;
 using NexaOne.RMS.Domain;
 
@@ -12,6 +13,7 @@ namespace NexaOne.API.Controllers;
 [Authorize]
 // [Authorize](클래스 레벨)이므로 모든 액션이 401을 낼 수 있다 — 공통 응답으로 한 번만 선언.
 [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+[ProducesErrorResponseType(typeof(Error))]
 public class RmsController(RecipeService recipeService) : ControllerBase
 {
     // §19 비-부인성 — 승인/배포자 신원은 본문이 아니라 인증 토큰에서 취한다. 본문 ApproverId를 신뢰하면

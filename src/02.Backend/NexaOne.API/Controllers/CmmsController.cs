@@ -5,12 +5,14 @@ using NexaOne.API.Extensions;
 using NexaOne.API.Hubs;
 using NexaOne.CMMS.Application.Cmms;
 using NexaOne.CMMS.Domain;
+using NexaOne.Common;
 
 namespace NexaOne.API.Controllers;
 
 [ApiController]
 [Route("api/v1/cmms")]
 [Authorize]
+[ProducesErrorResponseType(typeof(Error))]
 public class CmmsController(CmmsService emsService, IEesHubNotifier notifier,
     MaintenancePlanService planService,
     NexaOne.API.Services.RealtimeNotificationCoordinator notifyCoordinator) : ControllerBase

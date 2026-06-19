@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Extensions;
+using NexaOne.Common;
 using NexaOne.SHP.Application.Shp;
 using NexaOne.SHP.Domain;
 
@@ -10,6 +11,7 @@ namespace NexaOne.API.Controllers;
 [ApiController]
 [Route("api/v1/shp")]
 [Authorize]
+[ProducesErrorResponseType(typeof(Error))]
 public class ShpController(ShpService dlvService) : ControllerBase
 {
     // ── Delivery Orders ───────────────────────────────────────────────────────

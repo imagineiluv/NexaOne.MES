@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Extensions;
 using NexaOne.API.Hubs;
+using NexaOne.Common;
 using NexaOne.EST.Application.Est;
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
@@ -14,6 +15,7 @@ namespace NexaOne.API.Controllers;
 [ApiController]
 [Route("api/v1/fdc")]
 [Authorize]
+[ProducesErrorResponseType(typeof(Error))]
 public class FdcController(
     FdcInterlockService interlockService,
     FdcDataService dataService,
@@ -69,7 +71,7 @@ public class FdcController(
             await PublishEquipmentStateAsync("Running", ct);
             return Ok();
         }
-        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+        catch (InvalidOperationException ex) { return BadRequest(new Error("Fdc.ControlFailed", ex.Message, ErrorType.Failure)); }
     }
 
     [HttpPost("equipment/stop")]
@@ -86,7 +88,7 @@ public class FdcController(
             await PublishEquipmentStateAsync("Stopped", ct);
             return Ok();
         }
-        catch (InvalidOperationException ex) { return BadRequest(ex.Message); }
+        catch (InvalidOperationException ex) { return BadRequest(new Error("Fdc.ControlFailed", ex.Message, ErrorType.Failure)); }
     }
 
     [HttpPost("equipment/abort")]
