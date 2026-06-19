@@ -11,6 +11,7 @@ namespace NexaOne.API.Controllers;
 
 [ApiController]
 [Route("api/v1/auth")]
+[ProducesErrorResponseType(typeof(Error))]   // 표준 오류 본문 = NexaOne.Common.Error({code,description,type}). 오류 응답 타입화.
 public class AuthController : ControllerBase
 {
     private readonly IJwtService _jwtService;
@@ -49,8 +50,8 @@ public class AuthController : ControllerBase
             // §19.1.4/§20.10 — 401 응답을 code로 구분한다. 잠금은 안내가 필요하므로 메시지를 노출하고,
             // 자격 증명 오류는 계정 존재 여부를 드러내지 않는 동일 메시지를 유지한다.
             return result.Error.Code == "Auth.AccountLocked"
-                ? Unauthorized(new { code = "ACCOUNT_LOCKED", message = result.Error.Description })
-                : Unauthorized(new { code = "INVALID_CREDENTIALS", message = "Invalid credentials." });
+                ? Unauthorized(new Error("ACCOUNT_LOCKED", result.Error.Description))
+                : Unauthorized(new Error("INVALID_CREDENTIALS", "Invalid credentials."));
         }
 
         var user = result.Value;
@@ -89,14 +90,14 @@ public class AuthController : ControllerBase
     {
         var isValid = await _tokenStore.ValidateAsync(request.UserId, request.RefreshToken);
         if (!isValid)
-            return Unauthorized(new { message = "Invalid or expired refresh token." });
+            return Unauthorized(new Error("Auth.InvalidRefreshToken", "Invalid or expired refresh token."));
 
         // §20.10 — 변경 강제 여부와 역할은 DB 상태로 재평가한다. 구 액세스 토큰의 클레임을
         // 승계하는 방식은 Authorization 헤더 없이 갱신을 호출하면 클레임이 소실되어
         // pwdChange 차단을 우회할 수 있다. 비활성/삭제 사용자도 여기서 갱신이 끊긴다.
         var userResult = await _userService.GetUserAsync(request.UserId, ct);
         if (userResult.IsFailure || !userResult.Value.IsActive || userResult.Value.IsDeleted)
-            return Unauthorized(new { message = "Invalid or expired refresh token." });
+            return Unauthorized(new Error("Auth.InvalidRefreshToken", "Invalid or expired refresh token."));
 
         var user = userResult.Value;
         var newRefreshToken = await _tokenStore.RotateAsync(request.UserId, request.RefreshToken);
@@ -120,7 +121,7 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken ct)
     {
         if (request.NewPassword != request.ConfirmPassword)
-            return BadRequest(new { message = "Passwords do not match." });
+            return BadRequest(new Error("Auth.PasswordMismatch", "Passwords do not match.", ErrorType.Validation));
 
         var userId = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
             ?? User.FindFirst("sub")?.Value ?? string.Empty;
@@ -133,7 +134,7 @@ public class AuthController : ControllerBase
         // §19.2.2 — 복잡도 정책 서버 최종 검증 (사용자 ID/이름/이메일 포함 금지 포함).
         var policyViolation = PasswordPolicy.Validate(request.NewPassword, userId, user.UserName, user.Email);
         if (policyViolation is not null)
-            return BadRequest(new { code = PasswordPolicy.ErrorCode, message = policyViolation });
+            return BadRequest(new Error(PasswordPolicy.ErrorCode, policyViolation, ErrorType.Validation));
 
         // 자격증명 원문을 전달 — 서비스가 현재 비밀번호를 Verify하고 새 비밀번호를 강화 해시로 저장한다
         var result = await _userService.ChangePasswordAsync(

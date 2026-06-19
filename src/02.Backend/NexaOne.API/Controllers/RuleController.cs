@@ -5,12 +5,14 @@ using Microsoft.AspNetCore.Mvc;
 using NexaOne.API.Controllers.Models;
 using NexaOne.Application.Messaging;
 using NexaOne.Application.Query;
+using NexaOne.Common;
 
 namespace NexaOne.API.Controllers;
 
 [ApiController]
 [Route("api/v1")]
 [Authorize]
+[ProducesErrorResponseType(typeof(Error))]   // 표준 오류 본문 = NexaOne.Common.Error({code,description,type}).
 public partial class RuleController : ControllerBase
 {
     private readonly IRuleDispatcher _dispatcher;
@@ -48,11 +50,11 @@ public partial class RuleController : ControllerBase
         CancellationToken ct)
     {
         if (!_queryRegistry.TryGet(queryId, out var def) || def is null)
-            return NotFound(new { code = "QUERY_NOT_FOUND", message = $"Query '{queryId}' is not registered." });
+            return NotFound(new Error("QUERY_NOT_FOUND", $"Query '{queryId}' is not registered.", ErrorType.NotFound));
 
         // 쓰기 쿼리는 읽기 게이트웨이로 실행할 수 없다(SELECT 전용) — /command/{id}를 쓰도록 거부.
         if (def.IsWrite)
-            return BadRequest(new { code = "WRITE_QUERY_VIA_QUERY", message = $"Query '{queryId}' is a write query. Use POST /api/v1/command/{queryId}." });
+            return BadRequest(new Error("WRITE_QUERY_VIA_QUERY", $"Query '{queryId}' is a write query. Use POST /api/v1/command/{queryId}.", ErrorType.Validation));
 
         // 쿼리가 필요 권한을 선언했으면 토큰 권한 클레임(또는 전체권한 "*")으로 집행한다(데이터 주도 인가).
         if (!string.IsNullOrEmpty(def.RequiredPermission) && !HasPermission(def.RequiredPermission))
@@ -77,11 +79,11 @@ public partial class RuleController : ControllerBase
         CancellationToken ct)
     {
         if (!_queryRegistry.TryGet(queryId, out var def) || def is null)
-            return NotFound(new { code = "QUERY_NOT_FOUND", message = $"Query '{queryId}' is not registered." });
+            return NotFound(new Error("QUERY_NOT_FOUND", $"Query '{queryId}' is not registered.", ErrorType.NotFound));
 
         // 읽기 쿼리는 command 게이트웨이로 실행할 수 없다 — 의도치 않은 종류 혼동을 차단(/query/{id}를 쓰도록).
         if (!def.IsWrite)
-            return BadRequest(new { code = "READ_QUERY_VIA_COMMAND", message = $"Query '{queryId}' is a read query. Use POST /api/v1/query/{queryId}." });
+            return BadRequest(new Error("READ_QUERY_VIA_COMMAND", $"Query '{queryId}' is a read query. Use POST /api/v1/query/{queryId}.", ErrorType.Validation));
 
         if (!string.IsNullOrEmpty(def.RequiredPermission) && !HasPermission(def.RequiredPermission))
             return Forbid();

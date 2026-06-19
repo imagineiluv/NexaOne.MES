@@ -87,8 +87,8 @@ public sealed class AuthControllerTests
         var result = await Build(repo).Login(new LoginRequest("u001", "wrong"), default);
 
         var unauthorized = result.Should().BeOfType<UnauthorizedObjectResult>().Subject;
-        Prop(unauthorized.Value, "code").Should().Be("INVALID_CREDENTIALS");
-        Prop(unauthorized.Value, "message").Should().Be("Invalid credentials.",
+        Prop(unauthorized.Value, "Code").Should().Be("INVALID_CREDENTIALS");
+        Prop(unauthorized.Value, "Description").Should().Be("Invalid credentials.",
             "자격 증명 오류 메시지는 계정 존재 여부를 드러내면 안 된다");
     }
 
@@ -107,8 +107,8 @@ public sealed class AuthControllerTests
         var result = await Build(repo).Login(new LoginRequest("u001", Password), default);
 
         var unauthorized = result.Should().BeOfType<UnauthorizedObjectResult>().Subject;
-        Prop(unauthorized.Value, "code").Should().Be("ACCOUNT_LOCKED");
-        Prop(unauthorized.Value, "message").Should().Contain("잠겼습니다");
+        Prop(unauthorized.Value, "Code").Should().Be("ACCOUNT_LOCKED");
+        Prop(unauthorized.Value, "Description").Should().Contain("잠겼습니다");
     }
 
     [Fact]
@@ -203,7 +203,7 @@ public sealed class AuthControllerTests
             .ChangePassword(new ChangePasswordRequest(Password, "short1!", "short1!"), default);
 
         var bad = result.Should().BeOfType<BadRequestObjectResult>().Subject;
-        Prop(bad.Value, "code").Should().Be("PASSWORD_POLICY_VIOLATION");
+        Prop(bad.Value, "Code").Should().Be("PASSWORD_POLICY_VIOLATION");
     }
 
     // ── Refresh ───────────────────────────────────────────────────────────────
