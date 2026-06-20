@@ -92,10 +92,9 @@ export function buildTraitDefs(queries: QueryCatalog): Record<string, TraitDef[]
     'nx-column': [{ type: 'number', name: 'data-span', label: '폭(1-12)' }],
     'nx-grid': [{ type: 'select', name: 'data-query-id', label: '조회 쿼리', options: readOpts }],
     'nx-form': [{ type: 'select', name: 'data-save-query-id', label: '저장 쿼리', options: writeOpts }],
-    'nx-field': [
-      { type: 'text', name: 'data-field-key', label: '필드 키' },
-      { type: 'text', name: 'data-label', label: '라벨' },
-    ],
+    // 필드 키만 트레이트로 노출. 라벨/타입 등 FieldDefinition 전체는 data-field(JSON)가 단일 출처이며
+    // 별도 data-label 트레이트는 이중 출처가 되어 제외한다(전체 필드 편집 UI는 Phase 2).
+    'nx-field': [{ type: 'text', name: 'data-field-key', label: '필드 키' }],
     'nx-button': [
       { type: 'text', name: 'data-label', label: '라벨' },
       { type: 'select', name: 'data-command', label: '명령 쿼리', options: writeOpts },
