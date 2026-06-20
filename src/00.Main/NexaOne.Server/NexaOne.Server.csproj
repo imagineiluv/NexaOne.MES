@@ -48,6 +48,14 @@
              CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- 격리 인증 쿼리(db/queries-auth/{mssql,sqlite}/*.xml)를 출력으로 복사한다(공개 db/queries와 분리 유지).
+       호스트 인증 서비스만 전용 레지스트리로 로드한다. 배포 robustness 위해 명시 복사(테스트는 상위탐색). -->
+  <ItemGroup>
+    <Content Include="..\..\..\db\queries-auth\**\*.xml"
+             Link="db\queries-auth\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- 도메인 모듈은 플러그인으로 ./Modules/에 게시한다(설계 §3.1). ReferenceOutputAssembly=false: 모듈 DLL을
        Server 기본 로드 컨텍스트(Default ALC)에 넣지 않아 nexaone.xml의 ClassLoader가 plugin ALC로 전담 로드하게
        하고, 빌드 순서만 보장한다(모듈이 Server보다 먼저 빌드됨). 공유 의존성(Infrastructure/Common/Application/
