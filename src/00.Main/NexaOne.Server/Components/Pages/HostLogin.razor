@@ -65,7 +65,9 @@
             var response = result.Response;
             await TokenService.SaveAsync(response.AccessToken, response.RefreshToken, response.UserId);
             AuthState.NotifyAuthChanged(null); // 인증 상태 재평가 트리거
-            Nav.NavigateTo(ReturnUrl ?? "/meta/NexaOneServer", forceLoad: true);
+            // 기본 랜딩은 시드된 데모 그리드(DEMO_GRID) — InMemoryScreenDefinitionProvider가 시드하며
+            // MDM.PlantList 게이트웨이 조회 경로를 실제로 태우는 화면이다(미시드 UiId면 404). ReturnUrl은 존중한다.
+            Nav.NavigateTo(ReturnUrl ?? "/meta/DEMO_GRID", forceLoad: true);
         }
         catch
         {

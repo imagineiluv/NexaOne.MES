@@ -222,8 +222,12 @@ app.MapGet("/diag", () => Results.Ok(new
 // Blazor 슬라이스(Phase 4 Task 3) — /meta/{uiId}(RCL) + 호스트 로컬 /login + /_blazor circuit.
 // prerender:false(설계 §4) — HostApp의 InteractiveServerRenderMode가 명시한다. MapControllers·/health·/diag
 // 뒤, MapFallbackToFile 앞에 둔다(명시 라우트 우선, SPA nonfile 폴백은 최후순).
+// AddAdditionalAssemblies(RCL): 라우트 가능한 컴포넌트 엔드포인트 탐색은 루트(HostApp) 어셈블리만 스캔하므로,
+// RCL(NexaOne.Web.Components)의 /meta/{uiId}는 명시적으로 추가해야 서버측 엔드포인트로 등록된다. HostRoutes의
+// <Router AdditionalAssemblies>는 서킷(클라이언트) 라우터용이라 서버 엔드포인트 매핑에는 영향을 주지 않는다.
 app.MapRazorComponents<HostApp>()
-    .AddInteractiveServerRenderMode();
+    .AddInteractiveServerRenderMode()
+    .AddAdditionalAssemblies(typeof(NexaOne.Web.Pages.Meta.MetaScreen).Assembly);
 
 // SPA 폴백(Phase 4) — 명시적 api/v1·Blazor 라우트가 우선한다. 파일이 아닌 /spa/* 경로만 React BrowserRouter
 // 셸(index.html)로 폴백한다(엔드포인트 매핑 최후순으로 두어 다른 라우트가 가려지지 않게 한다).

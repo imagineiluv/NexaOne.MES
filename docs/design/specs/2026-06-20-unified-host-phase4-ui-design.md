@@ -28,11 +28,11 @@
 
 ## 5. 라우팅 우선순위 (호스트 Program.cs)
 
-미들웨어: `UseSwagger` → `UseAuthentication` → `AuditUserContextMiddleware` → (`UseRateLimiter` 조건부) → `UseAuthorization` → **`UseStaticFiles`** → **`UseAntiforgery`** → 엔드포인트.
+미들웨어: `UseSwagger` → **`UseStaticFiles`**(인증보다 앞 — SPA 정적 자산은 공개) → `UseAuthentication` → `AuditUserContextMiddleware` → (`UseRateLimiter` 조건부) → `UseAuthorization` → **`UseAntiforgery`**(UseAuthorization 뒤, 엔드포인트 앞) → 엔드포인트.
 엔드포인트 순서(명시 라우트 우선):
 1. `MapControllers` — `/api/v1/*` (auth·query·command·est·rms) — **절대 폴백에 가리지 않게 최우선**.
 2. `MapHealthChecks("/health")` 익명 + `/diag` 인증.
-3. `MapRazorComponents<HostApp>().AddInteractiveServerRenderMode()` — Blazor 라우터(/meta/{uiId}, 로그인) + `/_blazor` circuit.
+3. `MapRazorComponents<HostApp>().AddInteractiveServerRenderMode().AddAdditionalAssemblies(RCL)` — Blazor 라우터(/meta/{uiId}, 로그인) + `/_blazor` circuit. **`AddAdditionalAssemblies(typeof(MetaScreen).Assembly)` 필수**: 서버측 라우트 가능 컴포넌트 엔드포인트 탐색은 루트(HostApp) 어셈블리만 스캔하므로, RCL의 /meta 페이지를 명시 등록하지 않으면 `/meta/*`가 엔드포인트로 잡히지 않아 404가 된다(`<Router AdditionalAssemblies>`는 서킷 라우터용이라 서버 엔드포인트 매핑과 무관).
 4. `MapFallbackToFile("/spa/{*path:nonfile}", "/spa/index.html")` — nonfile 폴백(정적 자산은 `UseStaticFiles` 선처리, React BrowserRouter만 폴백).
 충돌 없음: api/v1·/health는 명시, /spa는 nonfile, Blazor가 나머지.
 
@@ -47,6 +47,16 @@
 2. **RCL 추출**: `NexaOne.Web.Components` 신설, 공유 조각 이동, NexaOne.Web(exe) 재배선 — **NexaOne.Web 기존 동작·테스트(bUnit) 비회귀 확인**. (Task 2)
 3. **호스트 Blazor 배선**: RCL 참조 + 슬라이스 서비스 DI + `AddRazorComponents().AddInteractiveServerComponents()` + 호스트 최소 `HostApp`(/meta+로그인) + `MapRazorComponents` + `UseAntiforgery`. (Task 3)
 4. **검증**: SPA 정적 스모크 + /meta E2E(정의 로드→그리드 조회→폼 저장, SQLite 게이트웨이) + 인증/감사 비회귀. WebApplicationFactory가 plugin ALC를 못 띄우므로 /meta E2E는 modules OFF + 게이트웨이만으로 성립(정의는 InMemoryScreenDefinitionProvider). 단일프로세스 풀 기동은 수동. (Task 4)
+
+### 7.4 검증 현황(Task 4)
+
+**자동화 완료(테스트로 보증):**
+- **SPA 정적 서빙** — `SpaStaticServingTests`(Task 1): 비파일 `/spa/*` → index.html 폴백, /health·api/v1 비가림.
+- **호스트가 Blazor 호스트 문서를 서빙** — `HostBlazorServingTests`(신규, Task 4): `GET /login`(익명 200)과 `GET /meta/DEMO_GRID`(유효 Bearer 200) 모두 본문에 `_framework/blazor.web.js` 포함(= `MapRazorComponents<HostApp>` 배선 + /login·/meta 라우트가 Blazor 페이지로 도달 가능). prerender:false라 GET은 컴포넌트 본문이 아닌 HostApp '셸'을 반환하므로 셸(프레임워크 스크립트)에 단언한다. **검증 중 발견·수정(Task 3 배선 공백)**: `/meta`는 RCL(NexaOne.Web.Components) 페이지이고 서버측 라우트 탐색은 루트(HostApp) 어셈블리만 스캔하므로, 수정 전 `/meta/*`가 엔드포인트로 등록되지 않아 404였다 → `MapRazorComponents<HostApp>().AddAdditionalAssemblies(typeof(MetaScreen).Assembly)`로 교정(§5). 또한 MetaScreen는 `@attribute [Authorize]`라 엔드포인트 인가가 정적 SSR 요청 단계에서 평가된다(prerender:false가 인증을 면제하지 않는다): 익명 `/meta` 요청은 401 챌린지(엔드포인트 등록 증거 — 미등록이면 404), 유효 Bearer는 호스트 문서 셸을 200으로 받는다. api/v1·/health가 Blazor/폴백에 가려지지 않음도 함께 입증.
+- **RCL 컴포넌트 렌더링**(MetaScreen/MetaFormRenderer/MetaGridRenderer/LayoutRenderer) — `NexaOne.UnitTests`의 bUnit이 이미 커버(중복 금지).
+
+**수동/연기(자동화 불가, 미수행):**
+- **단일프로세스 풀 /meta 서킷** — modules ON + `npm run build` → 호스트 기동 → 로그인 → `/meta/DEMO_GRID`가 실제 Blazor Server 서킷에서 `/api/v1/query`(MDM.PlantList) 게이트웨이를 타고 그리드를 렌더하는 흐름. WebApplicationFactory는 plugin ALC + 완전한 Blazor Server 서킷 + ProtectedSessionStorage 인증을 동시에 구동하지 못하므로 자동화 범위 밖이다. **본 작업 시점에 이 수동 실행은 수행하지 않았다**(배선/라우팅은 위 자동화로 입증, 전체 서킷 렌더는 추후 수동 검증 대상).
 
 ## 8. 위험
 
