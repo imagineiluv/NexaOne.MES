@@ -6,6 +6,8 @@ using System.Threading.RateLimiting;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Components.Authorization;
+using NexaOne.Application.Messaging;
+using NexaOne.Application.Query;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.Server.Components;
 using NexaOne.Server.Gateway;
@@ -143,8 +145,9 @@ builder.Services.AddScoped<AuthContextService>();
 builder.Services.AddScoped<IAuthContext>(sp => sp.GetRequiredService<AuthContextService>());
 // API 실패(403/5xx)를 토스트로 노출하는 통지 채널 — ApiClient가 발신(슬라이스 최소 폐포; ApiToastHost UI는 미흡수).
 builder.Services.AddScoped<ApiNotificationService>();
-// UiId→ScreenDefinition 해석기(싱글톤 시드). /meta/{uiId}가 동적 렌더(설계 §7.4 — 정의는 인메모리).
-builder.Services.AddSingleton<IScreenDefinitionProvider, InMemoryScreenDefinitionProvider>();
+// Phase 5a — DB-backed 화면정의 제공자(게이트웨이 SYS.GetScreenDefinition, InMemory 시드 폴백).
+builder.Services.AddSingleton<IScreenDefinitionProvider>(sp => new GatewayScreenDefinitionProvider(
+    sp.GetRequiredService<IRuleDispatcher>(), sp.GetRequiredService<IQueryRegistry>()));
 // ApiClient BaseAddress = 호스트 자기 origin(설계 §4) — /meta가 쓰는 query/command/auth가 모두 이 호스트에 존재.
 // ApiBaseUrl 미설정 시 Server:Port(기본 8080)로 자기 origin을 구성한다(NexaOne.Web과 달리 예외 없이 기본값).
 var hostApiBase = builder.Configuration["ApiBaseUrl"]
