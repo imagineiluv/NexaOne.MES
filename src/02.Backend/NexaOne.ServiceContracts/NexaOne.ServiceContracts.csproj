@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Result<T>/Error 재사용. 계약은 Default-ALC 전용; plugin은 참조만(모듈 게시가 deps-제외라 Default ALC 복사본 공유). -->
+    <ProjectReference Include="..\NexaOne.Common\NexaOne.Common.csproj" />
+  </ItemGroup>
+</Project>
