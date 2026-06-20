@@ -137,17 +137,14 @@ public sealed class GatewayLoginService
     private async Task<Dictionary<string, object?>?> QuerySingleAsync(
         string id, Dictionary<string, object> p, CancellationToken ct)
     {
-        var rows = await _dispatcher.QueryAsync(Sql(id), p, ct);
+        var rows = await _dispatcher.QueryAsync(_authQueries.Sql(id), p, ct);
         return rows.Count > 0 ? rows[0] : null;
     }
 
     private async Task ExecuteAsync(string id, Dictionary<string, object> p, CancellationToken ct)
-        => await _dispatcher.ExecuteAsync(Sql(id), p, ct);
+        => await _dispatcher.ExecuteAsync(_authQueries.Sql(id), p, ct);
 
-    private string Sql(string id) => _authQueries.TryGet(id, out var def) && def is not null
-        ? def.Sql
-        : throw new InvalidOperationException($"인증 명명 쿼리 '{id}'가 격리 레지스트리에 없습니다(db/queries-auth/{_authQueries.Dialect}).");
-
+    // 컬럼 누락 시 null 반환 — 쿼리 오타/스키마 변경은 fail-closed로 흐른다(예: PASSWORD_HASH 누락→""→Verify 실패). 설계상 의도.
     private static object? Get(IReadOnlyDictionary<string, object?> row, string col)
         => row.TryGetValue(col, out var v) ? v : null;
 

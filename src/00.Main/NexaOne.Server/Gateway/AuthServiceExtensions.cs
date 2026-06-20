@@ -18,6 +18,10 @@ public static class AuthServiceExtensions
         // 격리 인증 레지스트리(공개 IQueryRegistry 싱글톤과 별개). 루트는 Auth:Query:Directory override 또는
         // BaseDirectory 상위탐색으로 db/queries-auth를 찾는다.
         var authRoot = ResolveAuthQueriesRoot(configuration["Auth:Query:Directory"]);
+        if (authRoot is null)
+            throw new InvalidOperationException(
+                "통합 호스트 인증: db/queries-auth 디렉터리를 찾을 수 없습니다(출력 복사/배포 확인). " +
+                "공개 db/queries로의 무음 폴백을 막기 위해 기동 시 실패한다.");
         var authRegistry = FileQueryRegistry.Load(dialect, authRoot);
 
         services.AddSingleton<IJwtService, JwtService>();
