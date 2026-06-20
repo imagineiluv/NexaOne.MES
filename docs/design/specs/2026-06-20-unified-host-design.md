@@ -15,6 +15,7 @@
 | 조립 모델 | **Spring.NET 플러그인 유지(ADR-006)** | 모듈 격리·핫플러그 보존 (사용자 결정) |
 | ALC 방향 | **순수 플러그인(단계적)** | 모듈은 plugin ALC에만 존재(Default ALC 중복 불가) — 격리 최대 |
 | 진행 | **Phase 1부터 단계별** | 규모가 단일 스펙엔 과대 — 각 단계가 동작하는 단일 프로세스를 산출 |
+| 계약 표면 | **하이브리드(게이트웨이 우선)** | 조회·명명쿼리 쓰기는 기존 `/query`·`/command` 게이트웨이(Dictionary, 브리지 불필요), 복잡 typed 서비스만 DTO 계약 브리지 |
 
 ## 3. 현재 사실 (실제 코드 기준, 2026-06-20 검증)
 
@@ -39,7 +40,9 @@ NexaOne.API·NexaOne.Web은 별도 실행 호스트에서 은퇴. 그 컨트롤�
 
 ## 5. 핵심(crux): plugin ALC ↔ ASP.NET DI 브리지
 
-HTTP 컨트롤러(Default ALC)가 plugin ALC의 모듈 서비스를 타입 안전하게 사용하려면:
+**하이브리드 결정(범위 축소):** 데이터 주 경로는 기존 게이트웨이(`/query`·`/command` → `IRuleDispatcher`+`IQueryRegistry`, 모두 Default ALC·Dapper·파일쿼리 — plugin 타입 무관)다. 이 경로는 **브리지가 전혀 필요 없다**(Dictionary 반환). 또한 모든 모듈 리포지토리는 감사 사용자를 `CurrentUserContext`(AsyncLocal, `RequestLogContextMiddleware`가 요청별 설정)에서 읽고 per-call 연결을 써서 **이미 싱글톤 안전**이다(요청 스코프 빈·트랜잭션 개편 불요). 따라서 아래 plugin↔DI 브리지는 **명명쿼리로 표현 불가한 복잡 typed 서비스에 한해** DTO 계약으로 적용하며, 그 시점까지 연기한다.
+
+복잡 typed 서비스용 브리지(필요 시) — HTTP 컨트롤러(Default ALC)가 plugin ALC의 모듈 서비스를 타입 안전하게 사용하려면:
 
 1. **모듈 서비스 계약(인터페이스)을 Default ALC 공유 어셈블리로 추출** — 신규 `NexaOne.Contracts`(또는 기존 공유 어셈블리). plugin ALC 모듈은 이 어셈블리를 *참조만* 하고 자기 사본을 로드하지 않아야(ADR-006의 공유 의존성 흐름: `.deps.json` 미복사로 Default ALC 해소) 캐스팅 타입 동일성이 성립한다.
 2. **모듈 서비스 전체를 Spring 빈으로 재배선** — 현재 슬라이스(mdm.xml 2개)를 9개 모듈 전체 그래프로 확장(각 빈의 생성자 의존을 ref로 배선).
@@ -55,7 +58,7 @@ HTTP 컨트롤러(Default ALC)가 plugin ALC의 모듈 서비스를 타입 안�
 ## 7. 단계 분해 (각 단계 = 독립 증분, 자체 스펙·플랜·구현·검증)
 
 - **Phase 1 — 통합 호스트 셸** (저위험 기반, 본 스펙 §8 상세). Server를 `WebApplication`으로 전환, 기존 Spring 부트스트랩 + 워커 유지, ASP.NET 파이프라인(헬스/Swagger/JWT) + 진단 엔드포인트만. 컨트롤러·UI 없음. 산출: "웹+플러그인+워커가 한 프로세스 기동".
-- **Phase 2 — 계약 추출 + Spring 풀 배선 + DI 브리지 (MDM부터 E2E)**. `NexaOne.Contracts` 추출, MDM 전체 빈 배선 + 브리지 + 수명주기 재설계를 한 모듈로 끝까지 검증한 뒤 8개 모듈 복제. **핵심·최고위험**.
+- **Phase 2 — 게이트웨이 우선 데이터 경로 + MDM E2E (하이브리드 확정 반영)**. 통합 호스트(NexaOne.Server)에 게이트웨이(`/query`·`/command`[+`/rule`]) 컨트롤러 + `AddNexaOneEES`(IRuleDispatcher·IQueryRegistry) + `CurrentUserContext` 미들웨어(RequestLogContextMiddleware 포팅) + JWT를 들이고, **MDM 명명 쿼리(예: MDM.PlantList/CreatePlant)로 SQLite E2E**(조회→저장→조회)를 입증한다. plugin↔DI 타입 브리지·DTO 계약은 **명명쿼리로 표현 불가한 복잡 typed 서비스에 한해** 후속 하위단계로 연기(MDM 단일 서비스로 먼저 검증 후 필요 모듈만 복제). 쿼리 라이브러리 고도화(§10)가 이 단계의 핵심 산출.
 - **Phase 3 — 컨트롤러 흡수**. API 컨트롤러를 호스트로 이전, 계약(브리지) 의존으로 재배선, 인증/CORS/RateLimit/SignalR/OTel/Serilog 병합. NexaOne.API 은퇴.
 - **Phase 4 — Blazor UI + /spa**. Razor Components + 정적 SPA 서빙 흡수, Blazor 인증 병합. NexaOne.Web 은퇴.
 - **Phase 5 — /designer 실시간 WYSIWYG**. GrapesJS Phase 1b를 통합 호스트 `/spa`에서 `/designer`로.
