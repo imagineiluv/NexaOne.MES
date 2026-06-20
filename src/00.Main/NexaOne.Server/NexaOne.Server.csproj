@@ -39,6 +39,15 @@
     </Content>
   </ItemGroup>
 
+  <!-- 파일 기반 쿼리 레지스트리 — db/queries/{mssql,sqlite}/*.xml 을 출력의 db/queries/ 로 복사(방언 구조 보존).
+       게이트웨이(FileQueryRegistry)가 명명 쿼리를 해석한다. 배포 시 리포 미존재 환경에서도 동작하도록 복사한다
+       (개발/테스트는 BaseDirectory 상위탐색으로도 리포 루트 db/queries를 찾지만, 배포 robustness 위해 명시 복사). -->
+  <ItemGroup>
+    <Content Include="..\..\..\db\queries\**\*.xml"
+             Link="db\queries\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- 도메인 모듈은 플러그인으로 ./Modules/에 게시한다(설계 §3.1). ReferenceOutputAssembly=false: 모듈 DLL을
        Server 기본 로드 컨텍스트(Default ALC)에 넣지 않아 nexaone.xml의 ClassLoader가 plugin ALC로 전담 로드하게
        하고, 빌드 순서만 보장한다(모듈이 Server보다 먼저 빌드됨). 공유 의존성(Infrastructure/Common/Application/
