@@ -59,7 +59,7 @@ NexaOne.API·NexaOne.Web은 별도 실행 호스트에서 은퇴. 그 컨트롤�
 
 - **Phase 1 — 통합 호스트 셸** (저위험 기반, 본 스펙 §8 상세). Server를 `WebApplication`으로 전환, 기존 Spring 부트스트랩 + 워커 유지, ASP.NET 파이프라인(헬스/Swagger/JWT) + 진단 엔드포인트만. 컨트롤러·UI 없음. 산출: "웹+플러그인+워커가 한 프로세스 기동".
 - **Phase 2 — 게이트웨이 우선 데이터 경로 + MDM E2E (하이브리드 확정 반영)**. 통합 호스트(NexaOne.Server)에 게이트웨이(`/query`·`/command`[+`/rule`]) 컨트롤러 + `AddNexaOneEES`(IRuleDispatcher·IQueryRegistry) + `CurrentUserContext` 미들웨어(RequestLogContextMiddleware 포팅) + JWT를 들이고, **MDM 명명 쿼리(예: MDM.PlantList/CreatePlant)로 SQLite E2E**(조회→저장→조회)를 입증한다. plugin↔DI 타입 브리지·DTO 계약은 **명명쿼리로 표현 불가한 복잡 typed 서비스에 한해** 후속 하위단계로 연기(MDM 단일 서비스로 먼저 검증 후 필요 모듈만 복제). 쿼리 라이브러리 고도화(§10)가 이 단계의 핵심 산출.
-- **Phase 3 — 컨트롤러 흡수**. API 컨트롤러를 호스트로 이전, 계약(브리지) 의존으로 재배선, 인증/CORS/RateLimit/SignalR/OTel/Serilog 병합. NexaOne.API 은퇴.
+- **Phase 3 — 게이트웨이-최대 + 얇은 브리지 (확정)**. 18개 API 컨트롤러 중 ~14개가 plugin ALC 구상 모듈 서비스에 의존하므로, 전수 브리지 대신: ① MDM/STD/QMS 등의 CRUD·조회를 **명명 쿼리(게이트웨이)로 이전**(§10 이식 확대 — 통합 호스트가 그 데이터를 서빙) ② **인증(Auth/토큰 발급)**을 통합 호스트에 도입(게이트웨이·UI가 토큰을 얻어야 함; AuthController+JwtService+SYS 사용자 경로 — 직접 포트 또는 얇은 브리지) ③ **진짜 복잡한 서비스(LotTracking·FdcCollector·Workflow 등)만** plugin↔DI DTO 브리지(§5, MDM 1개로 먼저 E2E 검증 후 필요한 것만) ④ 공통 미들웨어(CORS/RateLimit/SignalR/OTel/Serilog) 점진 병합. NexaOne.API는 점진 은퇴(엔드포인트가 게이트웨이/브리지로 대체되는 대로). 첫 증분 권장: §10 MDM/STD 조회·콤보 배치 + 통합 호스트 인증.
 - **Phase 4 — Blazor UI + /spa**. Razor Components + 정적 SPA 서빙 흡수, Blazor 인증 병합. NexaOne.Web 은퇴.
 - **Phase 5 — /designer 실시간 WYSIWYG**. GrapesJS Phase 1b를 통합 호스트 `/spa`에서 `/designer`로.
 
