@@ -7,6 +7,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.Server.Gateway;
+using NexaOne.ServiceContracts.Est;
 using NexusFramework;
 using NexusFramework.Utils;
 
@@ -64,6 +65,14 @@ if (modulesEnabled)
     foreach (var w in distinctWorkers)
         builder.Services.AddSingleton<IHostedService>(w);
     Console.WriteLine($"[NexaOne.Server] {distinctWorkers.Count} background worker(s) discovered and registered.");
+
+    // 복잡 서비스 얇은 브리지(ADR-008) — EST 설비상태 빈을 공유 계약 인터페이스로 캐스트해 DI 등록.
+    // 캐스트 실패 = 계약 어셈블리 ALC 동일성 위반(deps-제외 누락 등) → 기동 시 즉시 폭발(무음 런타임 실패 방지).
+    var equipmentStateBridge = server.GetBean("Est", "equipmentStateBridge") as IEquipmentStateBridge
+        ?? throw new InvalidOperationException(
+            "equipmentStateBridge 빈을 IEquipmentStateBridge로 캐스트하지 못했습니다 — "
+            + "NexaOne.ServiceContracts가 plugin ALC로 복제 로드되지 않았는지(ADR-008/모듈 게시 deps-제외) 확인하세요.");
+    builder.Services.AddSingleton(equipmentStateBridge);
 }
 else
 {

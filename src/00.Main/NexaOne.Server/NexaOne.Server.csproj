@@ -18,6 +18,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\submodules\NexusFramework\src\NexusFramework\NexusFramework.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Application\NexaOne.Application.csproj" />
+    <ProjectReference Include="..\..\02.Backend\NexaOne.ServiceContracts\NexaOne.ServiceContracts.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure.Messaging\NexaOne.Infrastructure.Messaging.csproj" />
     <!-- OPC-UA 설비 드라이버를 공통 서버 빈(server.xml의 opcUaDriver)으로 노출하기 위해 참조한다.
