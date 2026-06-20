@@ -46,6 +46,8 @@ public sealed class GatewayAuthRateLimitTests : IClassFixture<GatewayAuthRateLim
                 new { userId = "rl-ghost", password = "x", plantId = "x" });
             statuses.Add(res.StatusCode);
         }
+        statuses.Take(10).Should().NotContain(HttpStatusCode.TooManyRequests,
+            "첫 10건은 한도 내이므로 429가 아니어야 한다(한도=0 등 오설정으로 전부 429되는 false-pass 방지)");
         statuses.Should().Contain(HttpStatusCode.TooManyRequests,
             "IP당 10/min을 초과하면 429가 반환돼야 한다(\"auth\" 정책)");
     }

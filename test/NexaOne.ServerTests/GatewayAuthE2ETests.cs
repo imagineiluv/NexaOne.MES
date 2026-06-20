@@ -88,6 +88,7 @@ public sealed class GatewayAuthE2ETests : IClassFixture<GatewayAuthE2ETests.Auth
         return cmd.ExecuteScalar() as string;
     }
 
+    // 16자 = SYS_USER.USER_ID 예산. 접두사를 짧게 유지해야 Guid 엔트로피가 충분히 남는다(충돌 방지).
     private static string Uid(string p) => $"{p}_{Guid.NewGuid():N}".Substring(0, 16);
 
     [Fact]
