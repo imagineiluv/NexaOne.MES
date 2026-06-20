@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<objects xmlns="http://www.springframework.net"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
+
+  <!-- ===== WorkflowManager ===== -->
+
+  <object id="workflowManagerPolicy" type="NexusFramework.Workflow.Tooling.ManagerExecutionPolicy, NexusFramework">
+    <property name="Mode" value="Parallel" />
+    <property name="GlobalMaxConcurrency" value="4" />
+    <property name="QueueCapacity" value="1024" />
+  </object>
+
+  <object id="workflowRejectedHandler" type="NexusFramework.Concurrent.CallerRunsPolicy, NexusFramework" />
+
+  <object id="workflowExecutionExecutor" type="NexusFramework.Concurrent.ThreadPoolExecutor, NexusFramework">
+    <property name="CorePoolSize" value="4" />
+    <property name="MaxPoolSize" value="8" />
+    <property name="KeepAliveTime" value="00:00:30" />
+    <property name="QueueCapacity" value="1024" />
+    <property name="RejectedHandler" ref="workflowRejectedHandler" />
+  </object>
+
+  <object id="workflowManager" type="NexusFramework.Workflow.Tooling.WorkflowManager, NexusFramework">
+    <constructor-arg ref="workflowManagerPolicy" />
+    <constructor-arg ref="workflowExecutionExecutor" />
+  </object>
+
+  <!-- ===== 공통 서버 빈 (모든 서비스가 공통으로 호출) =====
+       NexaOne.Server는 서비스 빈 컨테이너다(ADR-005). 모든 도메인 서비스가 공통으로 의존하는 빈은
+       부모 컨텍스트(여기)에 두고, 자식 컨텍스트(nexaone.xml)의 서비스 빈이 ref로 공통 호출한다. -->
+
+  <!-- 빈 ConfigurationManager(IConfiguration). 거의 모든 리포지토리가 outbox 게이트(config["Events:Outbox:Enabled"])
+       판독에 공통 사용한다 — 빈 설정이라 null→off로 평가(이 호스트는 API 티어가 디스패처를 돌리므로 off가 올바른 기본, ADR-002). -->
+  <object id="appConfiguration" type="Microsoft.Extensions.Configuration.ConfigurationManager, Microsoft.Extensions.Configuration" />
+
+  <!-- OPC-UA 설비 드라이버(IPlcDriver). FDC 모듈이 설비 수집 시 GetServerBean("opcUaDriver")로 공통 호출한다(설계: 드라이버는
+       서버 빈, 모듈에서 호출). lazy-init: 실제 참조될 때만 생성해 부팅 시 OPC-UA 라이브러리 초기화·연결 시도를 회피한다. -->
+  <object id="opcUaDriver" type="NexusLogic.Plc.OpcUa.OpcUaDriver, NexusLogic.Plc.OpcUa" lazy-init="true" />
+
+  <!-- 설비 제어(PlantController). FDC 수집 워커(ADR-006 Phase 2)가 GetServerBean("plantController")로 당겨 Machine
+       lifecycle을 수동 제어한다. 무인자 ctor(Spring property 주입). 부모 컨텍스트라 NexusFramework 타입 로드 가능. -->
+  <object id="plantController" type="NexusFramework.PlantController, NexusFramework" />
+
+  <!-- 캐시(ICacheService) — 읽기 빈도 높은 마스터/조회 캐시(인메모리, IMemoryCache 기반). FDC 수집 핫패스 등
+       자식 컨텍스트 서비스가 cross-context ref="cacheService"로 공통 호출한다. 무인자 ctor가 기본 옵션
+       MemoryCache를 자체 생성한다(API 티어는 MS DI로 동일 ICacheService 주입, ServiceCollectionExtensions). -->
+  <object id="cacheService" type="NexaOne.Common.Caching.MemoryCacheService, NexaOne.Common" />
+
+  <!-- ===== Outbox 디스패치 워커(스케줄러 구동, ADR-002·ADR-006) =====
+       실 Quartz 반복 스케줄러로 구동되는 주기 워커. 기본 OFF — enabled="true"로만 기동한다(브로커/DB 없는 dev/CI 보호,
+       그리고 API 티어 디스패처와의 동시 가동 회피). API의 OutboxDispatcherService와 디스패치 의미는 동일하다. -->
+
+  <!-- 반복 스케줄러(IRecurringScheduler). Quartz 기본 RAMJobStore라 외부 인프라 없이 in-process 동작. 무인자 ctor. -->
+  <object id="quartzScheduler" type="NexusFramework.Scheduling.QuartzScheduler, NexusFramework" />
+
+  <!-- Outbox 저장소(IOutboxRepository). ctor(EesDataSource, INexaOneEESDbCapability) — 공통 빈 eesDataSource·eesDialect 주입. -->
+  <object id="outboxRepository" type="NexaOne.Infrastructure.Persistence.OutboxRepository, NexaOne.Infrastructure">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="eesDialect" />
+  </object>
+
+  <!-- 스케줄러 구동 Outbox 디스패치 워커(IHostedService). enabled="false"가 기본 게이트 — 켜려면 "true"로 변경한다. -->
+  <object id="scheduledOutboxDispatchWorker" type="NexaOne.Server.ScheduledOutboxDispatchWorker, NexaOne.Server">
+    <constructor-arg ref="quartzScheduler" />
+    <constructor-arg ref="outboxRepository" />
+    <constructor-arg ref="messageBus" />
+    <constructor-arg value="false" />        <!-- enabled — 기본 OFF. 워커 기동 스위치. -->
+    <constructor-arg value="5" />            <!-- intervalSeconds -->
+    <constructor-arg value="nexaone.events" /><!-- topic -->
+    <constructor-arg value="100" />          <!-- batchSize -->
+    <constructor-arg value="10" />           <!-- maxAttempts -->
+  </object>
+
+  <!-- 메시징 버스(IMessageBus). 드라이버처럼 server.xml 빈으로 두고, 워커(FDC)·Outbox 디스패처·구독자가
+       GetBean으로 당겨 쓴다(ADR-006). DB 공급자(dbProvider)처럼 아래 두 줄 중 하나만 활성화해 전환한다.
+       - [InMemory](기본): 단일 프로세스 dev/테스트. 같은 프로세스 내 구독자에게만 전달.
+       - [Kafka]: 다중 프로세스 분리용. 워커 프로세스가 발행 → API가 구독 → SignalR. 실행 중인 브로커 필요. -->
+  <object id="messageBus" type="NexaOne.Infrastructure.Messaging.InMemoryMessageBus, NexaOne.Infrastructure.Messaging" />
+  <!-- <object id="messageBus" type="NexaOne.Infrastructure.Messaging.KafkaMessageBus, NexaOne.Infrastructure.Messaging">
+         <constructor-arg value="localhost:9092" />
+       </object> -->
+
+  <!-- ===== Database (SQLite 변형 — 테스트/로컬 전용) =====
+       운영 기본은 server.xml(MSSQL). 이 파일은 Server:SpringConfig=Spring/server.sqlite.xml 로 명시 지정될 때만 사용된다.
+       동일 빈 id(dbProvider/eesDialect/eesDataSource)라 nexaone.xml 참조는 그대로 유지된다. NexaOne.Server 기동 시
+       db/migrations를 SQLite 방언으로 변환해 스키마를 자동 생성한다(SqliteSchemaInitializer, 빈 DB일 때만). -->
+  <object id="dbProvider" type="NexusCom.Data.Sqlite.SqliteProvider, NexusCom.Data.Sqlite" />
+  <object id="eesDialect" type="NexaOne.Infrastructure.Persistence.SqliteEesDbCapability, NexaOne.Infrastructure" />
+  <object id="eesDataSource" type="NexaOne.Infrastructure.Persistence.EesDataSource, NexaOne.Infrastructure">
+    <property name="Provider" ref="dbProvider" />
+    <property name="ConnectionString" value="Data Source=nexaone-modules-test.db;Foreign Keys=False" />
+  </object>
+
+</objects>
