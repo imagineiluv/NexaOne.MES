@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- SYS 인증 명명 쿼리(SQLite 방언) — mssql/SYS.xml와 동일 의미, NOLOCK 힌트만 제거. -->
+<!-- SYS 인증 명명 쿼리(SQLite 방언) — mssql/SYS.xml와 동일 의미, NOLOCK 힌트만 제거. 격리 레지스트리 전용(공개 게이트웨이 미노출).
+     수정 시 세 곳을 함께 동기화한다: 이 파일 + mssql/SYS.xml + 운영 SYS UserRepository/UserService(잠금 패리티). -->
 <queries module="SYS">
 
   <query id="SYS.AuthUserById">
