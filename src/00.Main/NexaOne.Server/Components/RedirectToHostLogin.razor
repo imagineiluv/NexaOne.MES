@@ -1,0 +1,10 @@
+@inject NavigationManager Nav
+
+@* 미인증 [Authorize] 화면 진입 시 호스트 로컬 로그인으로 보낸다(returnUrl 보존). RCL의 RedirectToLogin은
+   /auth/login(전체 셸 경로)을 가리키므로 호스트는 자체 /login으로 보내는 전용 컴포넌트를 둔다. *@
+@code {
+    protected override void OnInitialized()
+    {
+        Nav.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(Nav.Uri)}", forceLoad: false);
+    }
+}

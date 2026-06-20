@@ -1,0 +1,26 @@
+@* 호스트 라우터 — 범위를 /meta + 로그인(+ NotFound)으로 제한한다(설계 §3·§5). NexaOne.Web의 전체 App/Routes를
+   참조하지 않는다(그쪽은 27개 미흡수 화면을 모두 노출). AppAssembly=호스트(로그인 페이지), AdditionalAssemblies=RCL
+   (MetaScreen + 렌더러). 미인증 시 호스트 로컬 /login으로 보낸다. *@
+<Router AppAssembly="typeof(HostApp).Assembly"
+        AdditionalAssemblies="new[] { typeof(NexaOne.Web.Pages.Meta.MetaScreen).Assembly }">
+    <Found Context="routeData">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(HostLayout)">
+            <NotAuthorized>
+                <RedirectToHostLogin />
+            </NotAuthorized>
+        </AuthorizeRouteView>
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        @* 호스트는 슬라이스만 노출하므로 미흡수 화면 경로는 여기로 떨어진다 — 빈 화면 대신 안내. *@
+        <LayoutView Layout="typeof(HostLayout)">
+            <div style="padding:2rem; text-align:center;">
+                <h1 style="font-size:1.25rem; font-weight:600; color:#1f2937;">페이지를 찾을 수 없습니다 (404)</h1>
+                <p style="margin-top:0.5rem; font-size:0.875rem; color:#4b5563;">
+                    통합 호스트는 현재 메타 화면(/meta/{uiId})과 로그인만 제공합니다.
+                </p>
+                <a href="/login" style="margin-top:1rem; display:inline-block; font-size:0.875rem; color:#2563eb;">로그인으로</a>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

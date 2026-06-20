@@ -1,0 +1,85 @@
+@page "/login"
+@layout HostLayout
+@inject IApiClient Api
+@inject AuthTokenService TokenService
+@inject JwtAuthStateProvider AuthState
+@inject NavigationManager Nav
+
+@* 호스트 로컬 최소 로그인(설계 §3·§4) — RCL의 Login.razor는 BlankLayout·NexaUI(NexaTextBox/NexaButton)와
+   forgot-password/register(미흡수 화면) 링크를 끌어와 슬라이스 경계를 넘으므로, 호스트는 RCL 인증 서비스
+   (IApiClient/AuthTokenService/JwtAuthStateProvider)만으로 성립하는 자체 페이지를 둔다. 성공 시 토큰을 저장하고
+   AuthState 재평가를 트리거한 뒤 ReturnUrl(또는 /meta 기본)로 이동한다. *@
+<div style="max-width:22rem; margin:4rem auto; padding:2rem; border:1px solid #e5e7eb; border-radius:0.5rem;">
+    <h1 style="font-size:1.25rem; font-weight:700; text-align:center; color:#111827;">NexaOne</h1>
+    <p style="text-align:center; font-size:0.813rem; color:#6b7280; margin-bottom:1.5rem;">통합 호스트 · Manufacturing Execution System</p>
+
+    <EditForm Model="@_model" OnValidSubmit="HandleLogin">
+        <DataAnnotationsValidator />
+
+        <div style="margin-bottom:1rem;">
+            <label style="display:block; font-size:0.875rem; font-weight:500; color:#374151; margin-bottom:0.25rem;">사용자 ID</label>
+            <input @bind="_model.UserId" placeholder="ID를 입력하세요"
+                   style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:0.375rem;" />
+        </div>
+
+        <div style="margin-bottom:1rem;">
+            <label style="display:block; font-size:0.875rem; font-weight:500; color:#374151; margin-bottom:0.25rem;">비밀번호</label>
+            <input @bind="_model.Password" type="password" placeholder="비밀번호를 입력하세요"
+                   style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:0.375rem;" />
+        </div>
+
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div style="color:#dc2626; font-size:0.875rem; margin-bottom:1rem;">@_error</div>
+        }
+
+        <button type="submit" disabled="@_loading"
+                style="width:100%; padding:0.5rem; background:#2563eb; color:#fff; border:none; border-radius:0.375rem; cursor:pointer;">
+            @(_loading ? "로그인 중…" : "로그인")
+        </button>
+    </EditForm>
+</div>
+
+@code {
+    private LoginFormModel _model = new();
+    private string? _error;
+    private bool _loading;
+
+    [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
+
+    private async Task HandleLogin()
+    {
+        _error = null;
+        _loading = true;
+        try
+        {
+            var result = await Api.LoginAsync(_model.UserId, _model.Password);
+            if (result.Response is null)
+            {
+                // §20.10 — 계정 잠금은 서버 안내를 그대로, 그 외에는 열거 방지를 위해 동일한 일반 메시지를 노출.
+                _error = result.ErrorCode == "ACCOUNT_LOCKED"
+                    ? (result.ErrorMessage ?? "비밀번호 5회 연속 오류로 계정이 잠겼습니다. 잠시 후 다시 시도하거나 관리자에게 문의하세요.")
+                    : "로그인에 실패했습니다.";
+                return;
+            }
+            var response = result.Response;
+            await TokenService.SaveAsync(response.AccessToken, response.RefreshToken, response.UserId);
+            AuthState.NotifyAuthChanged(null); // 인증 상태 재평가 트리거
+            Nav.NavigateTo(ReturnUrl ?? "/meta/NexaOneServer", forceLoad: true);
+        }
+        catch
+        {
+            _error = "서버 연결에 실패했습니다.";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private sealed class LoginFormModel
+    {
+        public string UserId   { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+}

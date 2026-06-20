@@ -5,10 +5,16 @@ using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.AspNetCore.Components.Authorization;
 using NexaOne.Infrastructure.Persistence;
+using NexaOne.Server.Components;
 using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Est;
 using NexaOne.ServiceContracts.Rms;
+using NexaOne.Web.Services;
+using NexaOne.Web.Services.Api;
+using NexaOne.Web.Services.Auth;
+using NexaOne.Web.Services.Meta;
 using NexusFramework;
 using NexusFramework.Utils;
 
@@ -124,6 +130,33 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 builder.Services.AddAuthorization();
 
+// ===== Blazor 슬라이스(Phase 4 Task 3) — RCL(NexaOne.Web.Components)의 /meta + 호스트 로컬 로그인 =====
+// 단일 JwtBearer 유지(설계 §4): 화면 [Authorize]는 클라이언트측 JwtAuthStateProvider(세션 토큰)가 평가하며
+// 위 서버 JwtBearer 스킴과 독립이다. 쿠키 스킴·DevAutoAuthHandler는 호스트에 등록하지 않는다(prerender:false라 불필요).
+builder.Services.AddRazorComponents()
+    .AddInteractiveServerComponents();
+builder.Services.AddCascadingAuthenticationState();
+builder.Services.AddScoped<JwtAuthStateProvider>();
+builder.Services.AddScoped<AuthenticationStateProvider>(sp => sp.GetRequiredService<JwtAuthStateProvider>());
+builder.Services.AddScoped<AuthTokenService>();
+builder.Services.AddScoped<AuthContextService>();
+builder.Services.AddScoped<IAuthContext>(sp => sp.GetRequiredService<AuthContextService>());
+// API 실패(403/5xx)를 토스트로 노출하는 통지 채널 — ApiClient가 발신(슬라이스 최소 폐포; ApiToastHost UI는 미흡수).
+builder.Services.AddScoped<ApiNotificationService>();
+// UiId→ScreenDefinition 해석기(싱글톤 시드). /meta/{uiId}가 동적 렌더(설계 §7.4 — 정의는 인메모리).
+builder.Services.AddSingleton<IScreenDefinitionProvider, InMemoryScreenDefinitionProvider>();
+// ApiClient BaseAddress = 호스트 자기 origin(설계 §4) — /meta가 쓰는 query/command/auth가 모두 이 호스트에 존재.
+// ApiBaseUrl 미설정 시 Server:Port(기본 8080)로 자기 origin을 구성한다(NexaOne.Web과 달리 예외 없이 기본값).
+var hostApiBase = builder.Configuration["ApiBaseUrl"]
+    ?? $"http://localhost:{builder.Configuration.GetValue("Server:Port", 8080)}/";
+builder.Services.AddTransient<DefaultRequestTimeoutHandler>();
+builder.Services.AddHttpClient<IApiClient, ApiClient>(c =>
+{
+    c.BaseAddress = new Uri(hostApiBase);
+    // §20.11: 전역 Timeout은 대용량 업로드 상한 — 일반 요청은 DefaultRequestTimeoutHandler가 기본 100초로 제한.
+    c.Timeout = TimeSpan.FromMinutes(10);
+}).AddHttpMessageHandler<DefaultRequestTimeoutHandler>();
+
 // §18.2.3 — 레이트리미터: 익명 인증 진입점(login/refresh)은 "auth"(IP당 10/min), 그 외 전역 100/min.
 // RateLimiting:Enabled=false면 미적용(통합테스트가 공유 IP·다수 호출로 비결정 실패하는 것을 피함). 기본 활성.
 builder.Services.AddRateLimiter(options =>
@@ -169,12 +202,11 @@ app.UseMiddleware<NexaOne.Server.Gateway.AuditUserContextMiddleware>();
 if (builder.Configuration.GetValue("RateLimiting:Enabled", true))
     app.UseRateLimiter();
 app.UseAuthorization();
+// Blazor 폼/컴포넌트 보호용 안티포저리(설계 §5). [ApiController] JSON 엔드포인트(api/v1/*)는 폼 콘텐츠가 아니라
+// 영향받지 않는다 — 안티포저리는 form-data/urlencoded 또는 명시 [RequireAntiforgeryToken]에만 적용된다.
+app.UseAntiforgery();
 
 app.MapControllers();
-
-// SPA 폴백(Phase 4) — 명시적 api/v1 라우트가 우선한다. 파일이 아닌 /spa/* 경로만 React BrowserRouter
-// 셸(index.html)로 폴백한다(MapControllers 뒤에 두어 컨트롤러 라우트가 가려지지 않게 한다).
-app.MapFallbackToFile("/spa/{*path:nonfile}", "/spa/index.html");
 
 // /health — 익명(모니터링/k8s liveness). 의존성 체크 없는 기본 생존 체크.
 app.MapHealthChecks("/health").AllowAnonymous();
@@ -186,6 +218,16 @@ app.MapGet("/diag", () => Results.Ok(new
     services = loadedServices,
     workerCount
 })).RequireAuthorization();
+
+// Blazor 슬라이스(Phase 4 Task 3) — /meta/{uiId}(RCL) + 호스트 로컬 /login + /_blazor circuit.
+// prerender:false(설계 §4) — HostApp의 InteractiveServerRenderMode가 명시한다. MapControllers·/health·/diag
+// 뒤, MapFallbackToFile 앞에 둔다(명시 라우트 우선, SPA nonfile 폴백은 최후순).
+app.MapRazorComponents<HostApp>()
+    .AddInteractiveServerRenderMode();
+
+// SPA 폴백(Phase 4) — 명시적 api/v1·Blazor 라우트가 우선한다. 파일이 아닌 /spa/* 경로만 React BrowserRouter
+// 셸(index.html)로 폴백한다(엔드포인트 매핑 최후순으로 두어 다른 라우트가 가려지지 않게 한다).
+app.MapFallbackToFile("/spa/{*path:nonfile}", "/spa/index.html");
 
 // 종료 시 Spring 컨텍스트 정리.
 app.Lifetime.ApplicationStopped.Register(() =>

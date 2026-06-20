@@ -1,0 +1,7 @@
+@inherits LayoutComponentBase
+
+@* 호스트 최소 레이아웃 — NexaOne.Web의 MainLayout(사이드바/허브/MDI 셸)은 27개 화면용이라 의도적으로 쓰지 않는다.
+   슬라이스(/meta + 로그인)는 셸 없이 본문만 렌더한다. *@
+<main class="nexa-host-body">
+    @Body
+</main>
