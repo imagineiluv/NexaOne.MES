@@ -55,6 +55,8 @@ DTO(엔티티 컬럼과 1:1, 직렬화 안정 필드만):
 - **자동(어댑터 로직)**: `NexaOne.IntegrationTests`에서 실 SQLite 리포로 `EquipmentStateBridge` 직접 구동 — ChangeState Conflict/InvalidTransition/RequireReason/Success + DTO 매핑 검증(Spring/ALC 불필요).
 - **수동(ALC 동일성)**: `Server:Modules:Enabled=true` + SQLite로 `dotnet run` 후 `api/v1/est/equipment-state/change` 호출 → `GetBean`→캐스트(타입 동일성)·CurrentUserContext 감사·Result→HTTP를 E2E 확인. WebApplicationFactory가 plugin ALC(`./Modules/*.dll`)를 테스트 작업디렉터리에서 로드 불가하므로 수동 검증(Phase 1 패턴). 자동화 가능하면 시도하되 불가 시 명시.
 
+> **검증 현황(2026-06-20 / Phase 3c Task 4)**: ALC 타입 동일성은 (1) 빌드 성공(`NexaOne.ServiceContracts` 계약 어셈블리를 호스트·모듈이 공유 참조, 모듈은 deps-제외 게시로 Default-ALC 복사본만 로드)과 (2) `Program.cs`의 `GetBean→IEquipmentStateBridge` 캐스트 fail-fast 코드 경로(캐스트 실패 시 기동 즉시 throw)로 정적 보증된다. 위 modules-ON 런타임 E2E(MSSQL/SQLite 수동 기동)는 자동화 불가(WebApplicationFactory의 plugin-ALC 미로드)로 **차기 수동 실행으로 연기**한다 — 아직 수행하지 않음. 자동 검증(컨트롤러 HTTP 매핑·어댑터 로직 SQLite)은 Task 4에서 구현·통과(`test/NexaOne.ServerTests/EstBridgeControllerTests.cs`, `test/NexaOne.IntegrationTests/Est/EquipmentStateBridgeIntegrationTests.cs`). Phase 1 plugin-ALC 검증 패턴과 동일하다.
+
 ## 7. 차기 슬라이스 청사진 (이번 미구현)
 
 - **RMS 레시피 승인**(`RecipeService`): `IRecipeApprovalBridge`로 Request/Approve1/Approve2/Release/Reject/CreateNewVersion 노출. 승인자=토큰(비-부인성), Released 불변(파라미터 잠금), 상태위반 409. EST와 동일 패턴.
