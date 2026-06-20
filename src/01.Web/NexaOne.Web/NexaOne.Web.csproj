@@ -8,8 +8,14 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- 단위 테스트에서 internal(예: JwtAuthStateProvider.ParseToken) 접근 허용 -->
+    <!-- 단위 테스트에서 internal 접근 허용 (JwtAuthStateProvider.ParseToken은 RCL로 이관됨) -->
     <InternalsVisibleTo Include="NexaOne.UnitTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Phase 4 — /meta 의존 폐포(컴포넌트·메타·인증·ApiClient)를 보유한 RCL. 네임스페이스 보존 이동이라
+         기존 27개 화면/Program.cs/_Imports는 무수정으로 이 어셈블리에서 타입을 해석한다. -->
+    <ProjectReference Include="..\NexaOne.Web.Components\NexaOne.Web.Components.csproj" />
   </ItemGroup>
 
   <ItemGroup>

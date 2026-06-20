@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+    <!-- 네임스페이스 보존 전략(Phase 4): 이동한 파일의 폴더 유래 네임스페이스(NexaOne.Web.Pages.Meta,
+         NexaOne.Web.Components.Meta 등)를 그대로 유지해 NexaOne.Web의 기존 코드/테스트가 무수정 컴파일되도록
+         RootNamespace를 NexaOne.Web으로 고정한다(어셈블리명은 NexaOne.Web.Components). -->
+    <RootNamespace>NexaOne.Web</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- JwtAuthStateProvider.ParseToken(internal) 등 단위 테스트 접근 허용(이전 NexaOne.Web에 있던 것을 RCL로 이관) -->
+    <InternalsVisibleTo Include="NexaOne.UnitTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.Authorization" Version="8.*" />
+    <!-- ApiClient/JwtAuthStateProvider/AuthContextService의 JWT 파싱 의존(이동한 폐포가 사용) -->
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.*" />
+  </ItemGroup>
+</Project>
