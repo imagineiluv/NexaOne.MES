@@ -87,4 +87,20 @@ public sealed class GatewayMdmE2ETests : IClassFixture<GatewayMdmE2ETests.Gatewa
         });
         res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "쓰기쿼리 requiredPermission(mdm:manage) 미보유 시 403");
     }
+
+    [Fact]
+    public async Task Enhanced_combo_query_executes_on_sqlite()
+    {
+        var client = AuthedClient("mdm:manage");
+        var plantId = "COMBO_" + Guid.NewGuid().ToString("N")[..8];
+        await client.PostAsJsonAsync("/api/v1/command/MDM.CreatePlant", new Dictionary<string, object>
+        { ["plantId"] = plantId, ["plantName"] = "콤보공장" });
+
+        var res = await client.PostAsJsonAsync("/api/v1/query/MDM.PlantCombo", new Dictionary<string, object>());
+        res.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
+        var rows = await res.Content.ReadFromJsonAsync<List<Dictionary<string, object>>>();
+        rows.Should().NotBeNull();
+        rows!.Should().Contain(r => r.ContainsKey("VALUE") && r["VALUE"].ToString() == plantId && r.ContainsKey("TEXT"),
+            "고도화 콤보 쿼리는 VALUE/TEXT를 SQLite에서 반환해야 한다");
+    }
 }

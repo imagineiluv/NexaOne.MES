@@ -37,4 +37,14 @@
             WHERE PLANT_ID = @plantId
         ]]></statement>
     </query>
+    <!-- §10 고도화 이식: 레거시 MICUBE.STANDARD.CONDITION.GET.PLANT.COMBO → NexaMes 스키마(단일 PLANT_NAME)·@param·SQLite.
+         원본의 Velocity 보간($!{...})·다국어 CASE·WITH(NOLOCK)을 제거하고 선택필터(@p IS NULL) 패턴으로 고도화. -->
+    <query id="MDM.PlantCombo">
+        <statement><![CDATA[
+            SELECT PLANT_ID AS VALUE, PLANT_NAME AS TEXT
+            FROM MDM_PLANT
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+            ORDER BY PLANT_NAME
+        ]]></statement>
+    </query>
 </queries>

@@ -38,4 +38,13 @@
             WHERE PLANT_ID = @plantId
         ]]></statement>
     </query>
+    <!-- §10 고도화 이식(MSSQL 방언): MDM.PlantCombo. SQLite판과 동일 ID·동일 의미(NOLOCK 힌트만 추가). -->
+    <query id="MDM.PlantCombo">
+        <statement><![CDATA[
+            SELECT PLANT_ID AS VALUE, PLANT_NAME AS TEXT
+            FROM MDM_PLANT WITH (NOLOCK)
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+            ORDER BY PLANT_NAME
+        ]]></statement>
+    </query>
 </queries>
