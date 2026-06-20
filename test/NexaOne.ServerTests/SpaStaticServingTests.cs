@@ -101,7 +101,7 @@ public sealed class SpaStaticServingTests : IClassFixture<SpaStaticServingTests.
         var res = await client.GetAsync("/spa/dashboard");
         res.StatusCode.Should().Be(HttpStatusCode.OK, "파일이 아닌 /spa/* 경로는 MapFallbackToFile로 index.html을 반환해야 한다");
         var body = await res.Content.ReadAsStringAsync();
-        body.Should().Contain("SPA-OK", "SPA 셸(index.html) 본문이 반환돼야 한다");
+        body.Should().Contain("id=\"root\"", "SPA 셸(index.html, React 마운트 지점)이 반환돼야 한다 — 더미·실 npm 빌드 공통 마커(빌드 상태 비의존)");
     }
 
     [Fact]
