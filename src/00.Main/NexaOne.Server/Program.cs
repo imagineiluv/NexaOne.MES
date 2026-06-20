@@ -161,6 +161,9 @@ if (app.Environment.IsDevelopment()
 app.UseSwagger();
 if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
+// React SPA 정적 서빙(Phase 4) — wwwroot/spa의 빌드 산출물을 공개 자산으로 인증 전에 서빙한다.
+// (정적 SPA 자산은 공개; 일반적 ASP.NET 순서에 맞춰 인증 미들웨어보다 앞에 둔다.)
+app.UseStaticFiles();
 app.UseAuthentication();
 app.UseMiddleware<NexaOne.Server.Gateway.AuditUserContextMiddleware>();
 if (builder.Configuration.GetValue("RateLimiting:Enabled", true))
@@ -168,6 +171,10 @@ if (builder.Configuration.GetValue("RateLimiting:Enabled", true))
 app.UseAuthorization();
 
 app.MapControllers();
+
+// SPA 폴백(Phase 4) — 명시적 api/v1 라우트가 우선한다. 파일이 아닌 /spa/* 경로만 React BrowserRouter
+// 셸(index.html)로 폴백한다(MapControllers 뒤에 두어 컨트롤러 라우트가 가려지지 않게 한다).
+app.MapFallbackToFile("/spa/{*path:nonfile}", "/spa/index.html");
 
 // /health — 익명(모니터링/k8s liveness). 의존성 체크 없는 기본 생존 체크.
 app.MapHealthChecks("/health").AllowAnonymous();

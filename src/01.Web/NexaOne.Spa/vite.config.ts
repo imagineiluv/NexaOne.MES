@@ -10,8 +10,9 @@ export default defineConfig({
   // Blazor 호스트(NexaOne.Web)가 /spa 경로로 임베드 서빙하므로 자산 기준 경로를 /spa/로 둔다(Phase 2 셸 임베드).
   base: '/spa/',
   build: {
-    // dist를 Blazor wwwroot/spa에 출력 — `npm run build` 후 NexaOne.Web을 publish하면 /spa로 함께 배포된다.
-    outDir: '../NexaOne.Web/wwwroot/spa',
+    // dist를 통합 호스트(NexaOne.Server) wwwroot/spa에 출력 — `npm run build` 후 NexaOne.Server를 publish하면
+    // /spa로 함께 정적 서빙된다(Phase 4: 정적 서빙 흡수). base는 '/spa/'로 유지.
+    outDir: '../../00.Main/NexaOne.Server/wwwroot/spa',
     emptyOutDir: true,
   },
   server: {
