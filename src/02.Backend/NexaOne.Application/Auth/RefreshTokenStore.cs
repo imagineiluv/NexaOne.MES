@@ -1,8 +1,9 @@
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Configuration;
 
-namespace NexaOne.API.Services;
+namespace NexaOne.Application.Auth;
 
 public class RefreshTokenStore : IRefreshTokenStore
 {

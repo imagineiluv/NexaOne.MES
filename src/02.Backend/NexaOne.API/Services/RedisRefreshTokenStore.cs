@@ -1,4 +1,5 @@
 using NexaOne.Driver.Redis;
+using NexaOne.Application.Auth;
 
 namespace NexaOne.API.Services;
 

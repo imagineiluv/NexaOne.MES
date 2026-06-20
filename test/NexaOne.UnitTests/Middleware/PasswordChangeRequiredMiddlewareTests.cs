@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 using NexaOne.API.Middleware;
-using NexaOne.API.Services;
+using NexaOne.Application.Auth;
 
 namespace NexaOne.UnitTests.Middleware;
 

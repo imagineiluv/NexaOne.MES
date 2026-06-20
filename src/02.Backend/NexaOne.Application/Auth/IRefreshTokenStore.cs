@@ -1,4 +1,4 @@
-﻿namespace NexaOne.API.Services;
+﻿namespace NexaOne.Application.Auth;
 
 public interface IRefreshTokenStore
 {

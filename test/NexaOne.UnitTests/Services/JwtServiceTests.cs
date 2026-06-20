@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Configuration;
-using NexaOne.API.Services;
+using NexaOne.Application.Auth;
 
 namespace NexaOne.UnitTests.Services;
 

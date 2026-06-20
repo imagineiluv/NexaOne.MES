@@ -1,6 +1,7 @@
 using NexusCom.Data.Abstractions.Interfaces;
 using NexusCom.Data.MsSql;
 using NexaOne.API.Services;
+using NexaOne.Application.Auth;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.Application.Messaging;
 using NexaOne.MDM.Application.Equipments;

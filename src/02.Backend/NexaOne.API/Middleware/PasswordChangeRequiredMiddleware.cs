@@ -1,4 +1,5 @@
 using NexaOne.API.Services;
+using NexaOne.Application.Auth;
 
 namespace NexaOne.API.Middleware;
 

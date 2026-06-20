@@ -1,14 +1,15 @@
 using NexaOne.Common;
+using NexaOne.Common.Security;
 
 namespace NexaOne.SYS.Domain;
 
 public sealed class User : AuditableEntity<string>
 {
-    /// <summary>§20.10 — 연속 실패 잠금 임계값 (5회).</summary>
-    public const int MaxConsecutiveFailures = 5;
+    /// <summary>§20.10 — 연속 실패 잠금 임계값 (5회). 단일 출처: AccountLockoutPolicy.</summary>
+    public const int MaxConsecutiveFailures = AccountLockoutPolicy.MaxConsecutiveFailures;
 
-    /// <summary>§20.10 — 계정 잠금 시간 (30분).</summary>
-    public static readonly TimeSpan LockDuration = TimeSpan.FromMinutes(30);
+    /// <summary>§20.10 — 계정 잠금 시간 (30분). 단일 출처: AccountLockoutPolicy.</summary>
+    public static readonly TimeSpan LockDuration = AccountLockoutPolicy.LockDuration;
 
     private User(string userId) : base(userId) { }
 

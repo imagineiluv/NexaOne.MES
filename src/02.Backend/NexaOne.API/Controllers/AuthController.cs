@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using NexaOne.API.Controllers.Models;
 using NexaOne.API.Services;
+using NexaOne.Application.Auth;
 using NexaOne.Common;
 using NexaOne.SYS.Application.Users;
 

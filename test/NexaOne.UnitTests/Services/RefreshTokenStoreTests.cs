@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Moq;
-using NexaOne.API.Services;
+using NexaOne.Application.Auth;
 
 namespace NexaOne.UnitTests.Services;
 

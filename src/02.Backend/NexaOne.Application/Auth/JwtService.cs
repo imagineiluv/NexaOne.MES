@@ -2,9 +2,10 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 
-namespace NexaOne.API.Services;
+namespace NexaOne.Application.Auth;
 
 public class JwtService : IJwtService
 {

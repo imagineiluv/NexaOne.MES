@@ -2,7 +2,7 @@ using System.Net.Http.Headers;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
-using NexaOne.API.Services;
+using NexaOne.Application.Auth;
 
 namespace NexaOne.IntegrationTests;
 
