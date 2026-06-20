@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SYS 인증 명명 쿼리(SQLite 방언) — mssql/SYS.xml와 동일 의미, NOLOCK 힌트만 제거. -->
+<queries module="SYS">
+
+  <query id="SYS.AuthUserById">
+    <statement><![CDATA[
+SELECT U.USER_ID, U.USER_NAME, U.PASSWORD_HASH, U.EMAIL, U.ROLE_ID, U.LANGUAGE,
+       U.IS_ACTIVE, U.IS_DELETED, U.LAST_LOGIN_AT, U.PASSWORD_STATE, U.FAIL_COUNT, U.LOCKED_UNTIL,
+       R.ROLE_NAME, R.PERMISSIONS
+FROM SYS_USER U
+LEFT JOIN SYS_ROLE R ON R.ROLE_ID = U.ROLE_ID AND R.IS_DELETED = 0
+WHERE U.USER_ID = @userId
+]]></statement>
+  </query>
+
+  <query id="SYS.GetLockedUntil">
+    <statement><![CDATA[
+SELECT LOCKED_UNTIL FROM SYS_USER WHERE USER_ID = @userId
+]]></statement>
+  </query>
+
+  <query id="SYS.RecordLoginFailure">
+    <statement><![CDATA[
+UPDATE SYS_USER SET
+    FAIL_COUNT = CASE WHEN LOCKED_UNTIL IS NOT NULL AND LOCKED_UNTIL <= @utcNow
+                      THEN 1 ELSE FAIL_COUNT + 1 END,
+    LOCKED_UNTIL = CASE
+        WHEN (CASE WHEN LOCKED_UNTIL IS NOT NULL AND LOCKED_UNTIL <= @utcNow
+                   THEN 1 ELSE FAIL_COUNT + 1 END) >= @maxFailures THEN @lockUntil
+        WHEN LOCKED_UNTIL IS NOT NULL AND LOCKED_UNTIL <= @utcNow THEN NULL
+        ELSE LOCKED_UNTIL END,
+    UPDATED_BY = 'SYSTEM', UPDATED_AT = @utcNow
+WHERE USER_ID = @userId
+]]></statement>
+  </query>
+
+  <query id="SYS.RecordLoginSuccess">
+    <statement><![CDATA[
+UPDATE SYS_USER SET
+    LAST_LOGIN_AT = @utcNow,
+    FAIL_COUNT = 0,
+    LOCKED_UNTIL = NULL,
+    PASSWORD_HASH = COALESCE(@passwordHash, PASSWORD_HASH),
+    UPDATED_BY = 'SYSTEM', UPDATED_AT = @utcNow
+WHERE USER_ID = @userId
+]]></statement>
+  </query>
+
+  <query id="SYS.InsertLoginFailureHist">
+    <statement><![CDATA[
+INSERT INTO SYS_LOGIN_FAILURE_HIST
+    (FAILURE_ID, USER_ID, IP_ADDRESS, USER_AGENT, FAILURE_REASON, OCCURRED_AT,
+     CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+VALUES
+    (@failureId, @userId, @ipAddress, @userAgent, @failureReason, @utcNow,
+     'SYSTEM', @utcNow, 'SYSTEM', @utcNow)
+]]></statement>
+  </query>
+
+  <query id="SYS.InsertRefreshToken">
+    <statement><![CDATA[
+INSERT INTO SYS_REFRESH_TOKEN
+    (TOKEN_ID, USER_ID, TOKEN_HASH, EXPIRES_AT, REVOKED_AT, CREATED_AT)
+VALUES
+    (@tokenId, @userId, @tokenHash, @expiresAt, NULL, @utcNow)
+]]></statement>
+  </query>
+
+  <query id="SYS.ValidateRefreshToken">
+    <statement><![CDATA[
+SELECT TOKEN_ID FROM SYS_REFRESH_TOKEN
+WHERE USER_ID = @userId AND TOKEN_HASH = @tokenHash
+  AND REVOKED_AT IS NULL AND EXPIRES_AT > @utcNow
+]]></statement>
+  </query>
+
+  <query id="SYS.RevokeRefreshTokenIfActive">
+    <statement><![CDATA[
+UPDATE SYS_REFRESH_TOKEN SET REVOKED_AT = @utcNow
+WHERE USER_ID = @userId AND TOKEN_HASH = @tokenHash
+  AND REVOKED_AT IS NULL AND EXPIRES_AT > @utcNow
+]]></statement>
+  </query>
+
+  <query id="SYS.RevokeAllRefreshTokens">
+    <statement><![CDATA[
+UPDATE SYS_REFRESH_TOKEN SET REVOKED_AT = @utcNow
+WHERE USER_ID = @userId AND REVOKED_AT IS NULL
+]]></statement>
+  </query>
+
+</queries>

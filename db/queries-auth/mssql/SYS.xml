@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SYS 인증 명명 쿼리(통합 호스트 Phase 3b, 격리 레지스트리 전용 — 공개 게이트웨이 미노출).
+     운영 SYS UserRepository/UserService 의미론을 SQL로 1:1 재현한다. 수정 시 양쪽 동기화. -->
+<queries module="SYS">
+
+  <!-- 로그인 대상 1행(SYS_USER ⋈ 비삭제 SYS_ROLE). 역할 소프트삭제 시 R.* NULL → 권한은 기본 매핑만. -->
+  <query id="SYS.AuthUserById">
+    <statement><![CDATA[
+SELECT U.USER_ID, U.USER_NAME, U.PASSWORD_HASH, U.EMAIL, U.ROLE_ID, U.LANGUAGE,
+       U.IS_ACTIVE, U.IS_DELETED, U.LAST_LOGIN_AT, U.PASSWORD_STATE, U.FAIL_COUNT, U.LOCKED_UNTIL,
+       R.ROLE_NAME, R.PERMISSIONS
+FROM SYS_USER U WITH (NOLOCK)
+LEFT JOIN SYS_ROLE R WITH (NOLOCK) ON R.ROLE_ID = U.ROLE_ID AND R.IS_DELETED = 0
+WHERE U.USER_ID = @userId
+]]></statement>
+  </query>
+
+  <!-- 실패 갱신 후 결과 잠금시각 재평가(운영 RecordLoginFailureAsync 사후 SELECT와 동일). -->
+  <query id="SYS.GetLockedUntil">
+    <statement><![CDATA[
+SELECT LOCKED_UNTIL FROM SYS_USER WITH (NOLOCK) WHERE USER_ID = @userId
+]]></statement>
+  </query>
+
+  <!-- 실패 기록(원자 단일 UPDATE, 잠금 패리티) — UserRepository.RecordLoginFailureAsync와 동일 CASE식. -->
+  <query id="SYS.RecordLoginFailure">
+    <statement><![CDATA[
+UPDATE SYS_USER SET
+    FAIL_COUNT = CASE WHEN LOCKED_UNTIL IS NOT NULL AND LOCKED_UNTIL <= @utcNow
+                      THEN 1 ELSE FAIL_COUNT + 1 END,
+    LOCKED_UNTIL = CASE
+        WHEN (CASE WHEN LOCKED_UNTIL IS NOT NULL AND LOCKED_UNTIL <= @utcNow
+                   THEN 1 ELSE FAIL_COUNT + 1 END) >= @maxFailures THEN @lockUntil
+        WHEN LOCKED_UNTIL IS NOT NULL AND LOCKED_UNTIL <= @utcNow THEN NULL
+        ELSE LOCKED_UNTIL END,
+    UPDATED_BY = 'SYSTEM', UPDATED_AT = @utcNow
+WHERE USER_ID = @userId
+]]></statement>
+  </query>
+
+  <!-- 성공(단일 UPDATE: LAST_LOGIN_AT·실패카운터·잠금 동시; PASSWORD_STATE 보존; @passwordHash NULL이면 해시 미변경). -->
+  <query id="SYS.RecordLoginSuccess">
+    <statement><![CDATA[
+UPDATE SYS_USER SET
+    LAST_LOGIN_AT = @utcNow,
+    FAIL_COUNT = 0,
+    LOCKED_UNTIL = NULL,
+    PASSWORD_HASH = COALESCE(@passwordHash, PASSWORD_HASH),
+    UPDATED_BY = 'SYSTEM', UPDATED_AT = @utcNow
+WHERE USER_ID = @userId
+]]></statement>
+  </query>
+
+  <!-- 실패 이력(비존재 사용자도 기록 — FK 없음). FAILURE_ID는 호출부 생성. -->
+  <query id="SYS.InsertLoginFailureHist">
+    <statement><![CDATA[
+INSERT INTO SYS_LOGIN_FAILURE_HIST
+    (FAILURE_ID, USER_ID, IP_ADDRESS, USER_AGENT, FAILURE_REASON, OCCURRED_AT,
+     CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+VALUES
+    (@failureId, @userId, @ipAddress, @userAgent, @failureReason, @utcNow,
+     'SYSTEM', @utcNow, 'SYSTEM', @utcNow)
+]]></statement>
+  </query>
+
+  <!-- 리프레시 토큰 발급(해시 저장). TOKEN_ID는 호출부 생성. -->
+  <query id="SYS.InsertRefreshToken">
+    <statement><![CDATA[
+INSERT INTO SYS_REFRESH_TOKEN
+    (TOKEN_ID, USER_ID, TOKEN_HASH, EXPIRES_AT, REVOKED_AT, CREATED_AT)
+VALUES
+    (@tokenId, @userId, @tokenHash, @expiresAt, NULL, @utcNow)
+]]></statement>
+  </query>
+
+  <!-- 유효성(미폐기·미만료) 1행 존재 = 유효. -->
+  <query id="SYS.ValidateRefreshToken">
+    <statement><![CDATA[
+SELECT TOKEN_ID FROM SYS_REFRESH_TOKEN WITH (NOLOCK)
+WHERE USER_ID = @userId AND TOKEN_HASH = @tokenHash
+  AND REVOKED_AT IS NULL AND EXPIRES_AT > @utcNow
+]]></statement>
+  </query>
+
+  <!-- 활성 토큰만 조건부 폐기 → 영향행수 1=회전 성공, 0=이미 폐기/만료(재생 탐지). -->
+  <query id="SYS.RevokeRefreshTokenIfActive">
+    <statement><![CDATA[
+UPDATE SYS_REFRESH_TOKEN SET REVOKED_AT = @utcNow
+WHERE USER_ID = @userId AND TOKEN_HASH = @tokenHash
+  AND REVOKED_AT IS NULL AND EXPIRES_AT > @utcNow
+]]></statement>
+  </query>
+
+  <!-- 사용자 전체 토큰 폐기. -->
+  <query id="SYS.RevokeAllRefreshTokens">
+    <statement><![CDATA[
+UPDATE SYS_REFRESH_TOKEN SET REVOKED_AT = @utcNow
+WHERE USER_ID = @userId AND REVOKED_AT IS NULL
+]]></statement>
+  </query>
+
+</queries>
