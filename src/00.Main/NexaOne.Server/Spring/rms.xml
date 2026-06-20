@@ -17,4 +17,9 @@
     <constructor-arg ref="rmsRecipeParamRepository" />
   </object>
 
+  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Rms","rmsRecipeBridge")로 IRecipeApprovalBridge 캐스트. -->
+  <object id="rmsRecipeBridge" type="NexaOne.RMS.Application.Rms.RecipeBridge, NexaOne.RMS">
+    <constructor-arg ref="rmsRecipeService" />
+  </object>
+
 </objects>
