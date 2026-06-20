@@ -1,124 +1,156 @@
+using System.Text;
 using System.Xml.Linq;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Hosting;
+using Microsoft.IdentityModel.Tokens;
 using NexaOne.Infrastructure.Persistence;
 using NexusFramework;
 using NexusFramework.Utils;
 
-namespace NexaOne.Server;
+// 통합 호스트(접근 A, Phase 1) — WebApplication 위에서 Spring.NET 플러그인 컨텍스트 + IHostedService 워커 +
+// ASP.NET 파이프라인(HealthChecks·Swagger·JWT)을 한 프로세스로 구동한다. 컨트롤러·UI는 후속 Phase.
+var builder = WebApplication.CreateBuilder(args);
 
-internal static class Program
+var server = ApplicationServer.GetInstance();
+var loadedServices = new List<string>();
+var workerCount = 0;
+
+// 모듈/플러그인 부트스트랩 — 기본 ON. 웹 셸만 띄우려면(진단/테스트) Server:Modules:Enabled=false 로 끈다.
+var modulesEnabled = builder.Configuration.GetValue("Server:Modules:Enabled", true);
+if (modulesEnabled)
 {
-    private static readonly ApplicationServer _server = ApplicationServer.GetInstance();
+    // SQLite 모드면 컨텍스트 생성 전에 스키마를 부트스트랩한다(빈 DB일 때만, idempotent). server.xml의
+    // eesDataSource Provider 타입으로 판별 — XML만 바꾸면 자동 적용(MSSQL이면 아무 일도 안 함).
+    EnsureSqliteSchemaIfConfigured("Spring/server.xml");
 
-    public static async Task Main(string[] args)
+    var serverCtx = server.CreateServer(new[] { "Spring/server.xml" });
+    Console.WriteLine("[NexaOne.Server] Server context initialized.");
+
+    var workers = new List<IHostedService>();
+    // 부모(server.xml) 컨텍스트의 IHostedService(예: scheduledOutboxDispatchWorker) 자동발견.
+    foreach (IHostedService w in serverCtx.GetObjectsOfType(typeof(IHostedService)).Values.Cast<IHostedService>())
+        workers.Add(w);
+
+    var doc = XDomUtility.Load("Spring/app.xml");
+    var root = XDomUtility.GetRoot(doc);
+    var services = XDomUtility.GetElement(root, "Services");
+    var splitOptions = StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries;
+    foreach (var service in XDomUtility.GetElements(services, "Service"))
     {
-        Console.Title = "NexaOne Server";
-        Console.WriteLine("[NexaOne.Server] Starting...");
+        var name = service.Attribute("name")?.Value
+            ?? throw new InvalidOperationException("Service element missing 'name' attribute.");
+        var configFiles = (service.Attribute("configFiles")?.Value
+            ?? throw new InvalidOperationException($"Service '{name}' missing 'configFiles' attribute."))
+            .Split(';', splitOptions);
+        var classPaths = (service.Attribute("classPaths")?.Value
+            ?? throw new InvalidOperationException($"Service '{name}' missing 'classPaths' attribute."))
+            .Split(';', splitOptions);
 
-        // SQLite 모드면 컨텍스트 생성 전에 스키마를 부트스트랩한다(빈 DB일 때만, idempotent).
-        // server.xml의 eesDataSource가 가리키는 Provider 타입으로 판별한다 — XML만 바꾸면 자동 적용된다.
-        EnsureSqliteSchemaIfConfigured("Spring/server.xml");
+        var ctx = server.AddService(name, configFiles, classPaths);
+        loadedServices.Add(name);
+        Console.WriteLine($"[NexaOne.Server] Service '{name}' registered ({classPaths.Length} module(s)).");
 
-        var serverCtx = _server.CreateServer(new[] { "Spring/server.xml" });
-        Console.WriteLine("[NexaOne.Server] Server context initialized.");
-
-        XDocument doc = XDomUtility.Load("Spring/app.xml");
-        XElement root = XDomUtility.GetRoot(doc);
-        XElement services = XDomUtility.GetElement(root, "Services");
-
-        // 각 모듈 컨텍스트에서 발견한 background 워커(IHostedService)를 모아 Generic Host에 등록한다.
-        var workers = new List<IHostedService>();
-
-        // 부모(server.xml) 컨텍스트의 IHostedService 빈도 자동발견한다(예: scheduledOutboxDispatchWorker).
-        // ScheduledOutboxDispatchWorker·NexusFramework 타입은 Default ALC라 typeof(IHostedService)와 타입 동일성이
-        // 보장된다(모듈 자식 컨텍스트와 동일 원리). 워커 enable은 server.xml의 enabled 생성자 인자가 제어한다(기본 OFF).
-        foreach (IHostedService worker in serverCtx.GetObjectsOfType(typeof(IHostedService)).Values.Cast<IHostedService>())
-        {
-            workers.Add(worker);
-        }
-
-        foreach (XElement service in XDomUtility.GetElements(services, "Service"))
-        {
-            var name = service.Attribute("name")?.Value
-                ?? throw new InvalidOperationException("Service element missing 'name' attribute.");
-            var configFilesAttr = service.Attribute("configFiles")?.Value
-                ?? throw new InvalidOperationException($"Service '{name}' missing 'configFiles' attribute.");
-            var classPathsAttr = service.Attribute("classPaths")?.Value
-                ?? throw new InvalidOperationException($"Service '{name}' missing 'classPaths' attribute.");
-
-            // configFiles/classPaths 모두 ';'로 다중 항목을 지정할 수 있다. classPaths의 각 항목은 ClassLoader가
-            // plugin ALC로 로드할 모듈 DLL 파일 경로다(모듈 독립 구조: Service당 모듈 DLL 1개 + 모듈 xml 1개).
-            var splitOptions = StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries;
-            var configFiles = configFilesAttr.Split(';', splitOptions);
-            var classPaths = classPathsAttr.Split(';', splitOptions);
-
-            var ctx = _server.AddService(name, configFiles, classPaths);
-            Console.WriteLine($"[NexaOne.Server] Service '{name}' registered ({classPaths.Length} module(s)).");
-
-            // 모듈 컨텍스트에서 IHostedService 빈을 자동발견해 수집한다(전역 config 게이트 없음 — 워커 enable은
-            // 모듈 xml의 enabled 생성자 인자가 제어한다). GetObjectsOfType은 IDictionary(빈 이름→인스턴스)를 반환한다.
-            // 타입 동일성: typeof(IHostedService)는 Default ALC(Microsoft.Extensions.Hosting), 모듈 워커도 Hosting이
-            // Modules에 미복사라 Default ALC로 해소되므로 매칭된다(기존 GetBean 캐스팅과 동일 원리).
-            foreach (IHostedService worker in ctx.GetObjectsOfType(typeof(IHostedService)).Values.Cast<IHostedService>())
-            {
-                workers.Add(worker);
-            }
-        }
-
-        // .NET Generic Host — 비웹 background 워커(모듈 소유 + Server 실행)의 호스트(ADR-006 Phase 1~2).
-        // 수명주기 관리(Ctrl+C/SIGTERM)와 워커 호스팅을 담당한다. 모듈 워커의 FDC 타입은 plugin ALC에서
-        // 해석돼야 하므로(NexaOne.FDC.dll은 ClassLoader가 전담 로드) 워커는 모듈 자식 컨텍스트에서 조립하고,
-        // 여기서는 IHostedService(공유 프레임워크 타입)로만 당겨 등록한다 — Server가 FDC 타입을 직접 참조하지 않게.
-        var builder = Host.CreateApplicationBuilder(args);
-        builder.Services.AddSingleton(_server);   // 워커가 컨테이너 빈을 조회할 수 있도록 호스트 DI에 노출
-
-        // 자식 컨텍스트의 GetObjectsOfType은 상속된 '부모' 빈(예: server.xml의 scheduledOutboxDispatchWorker)도
-        // 포함하므로, 같은 싱글톤이 여러 컨텍스트에서 중복 발견된다. 인스턴스 기준(참조 동일성)으로 중복을 제거해
-        // 각 워커가 정확히 한 번만 등록·기동되게 한다. 워커 enable은 xml의 enabled 인자가 제어한다.
-        var distinctWorkers = workers.Distinct().ToList();
-        foreach (var w in distinctWorkers)
-        {
-            builder.Services.AddSingleton<IHostedService>(w);
-        }
-        Console.WriteLine($"[NexaOne.Server] {distinctWorkers.Count} background worker(s) discovered and registered.");
-
-        using var host = builder.Build();
-
-        Console.WriteLine("[NexaOne.Server] Ready. Press Ctrl+C to stop.");
-        await host.RunAsync();
-
-        Console.WriteLine("[NexaOne.Server] Shutting down...");
-        _server.Dispose();
+        foreach (IHostedService w in ctx.GetObjectsOfType(typeof(IHostedService)).Values.Cast<IHostedService>())
+            workers.Add(w);
     }
 
-    /// <summary>
-    /// server.xml의 eesDataSource가 SQLite 공급자를 가리키면, 해당 ConnectionString에 스키마를 부트스트랩한다.
-    /// MSSQL 모드면 아무 일도 하지 않는다(운영은 마이그레이션을 외부 적용). XML 파싱만으로 판별해 Spring 컨텍스트와 분리한다.
-    /// </summary>
-    private static void EnsureSqliteSchemaIfConfigured(string serverXmlPath)
-    {
-        XNamespace ns = "http://www.springframework.net";
-        var doc = XDocument.Load(serverXmlPath);
-        var objects = doc.Root?.Elements(ns + "object").ToList() ?? new List<XElement>();
-
-        var dataSource = objects.FirstOrDefault(o => (string?)o.Attribute("id") == "eesDataSource");
-        if (dataSource is null) return;
-
-        var props = dataSource.Elements(ns + "property").ToList();
-        var connStr = props.FirstOrDefault(p => (string?)p.Attribute("name") == "ConnectionString")?.Attribute("value")?.Value;
-        var providerRef = props.FirstOrDefault(p => (string?)p.Attribute("name") == "Provider")?.Attribute("ref")?.Value;
-
-        var providerType = objects
-            .FirstOrDefault(o => (string?)o.Attribute("id") == providerRef)?
-            .Attribute("type")?.Value ?? string.Empty;
-
-        if (!providerType.Contains("Sqlite", StringComparison.OrdinalIgnoreCase)) return;
-        if (string.IsNullOrWhiteSpace(connStr))
-            throw new InvalidOperationException("SQLite 공급자가 설정됐으나 eesDataSource ConnectionString이 비어 있습니다.");
-
-        Console.WriteLine($"[NexaOne.Server] SQLite mode — ensuring schema ({connStr})...");
-        SqliteSchemaInitializer.EnsureSchema(connStr);
-        Console.WriteLine("[NexaOne.Server] Schema ready.");
-    }
+    // 자식 컨텍스트의 GetObjectsOfType은 상속된 부모 빈도 포함 → 인스턴스(참조) 기준 중복 제거.
+    var distinctWorkers = workers.Distinct().ToList();
+    workerCount = distinctWorkers.Count;
+    builder.Services.AddSingleton(server);
+    foreach (var w in distinctWorkers)
+        builder.Services.AddSingleton<IHostedService>(w);
+    Console.WriteLine($"[NexaOne.Server] {distinctWorkers.Count} background worker(s) discovered and registered.");
 }
+else
+{
+    Console.WriteLine("[NexaOne.Server] Server:Modules:Enabled=false — 웹 셸만 기동(플러그인/워커 비활성).");
+}
+
+// ===== ASP.NET 파이프라인 =====
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+builder.Services.AddHealthChecks();
+
+// JWT 인증 — API와 동일 규약(강한 비밀키 강제, §18.7). 토큰 발급/컨트롤러는 후속 Phase, 여기선 인증 파이프라인만 활성.
+var jwtSection = builder.Configuration.GetSection("Jwt");
+var secretKey = jwtSection["SecretKey"] ?? throw new InvalidOperationException("Jwt:SecretKey is required");
+if (secretKey.StartsWith("CHANGE_ME", StringComparison.Ordinal) || Encoding.UTF8.GetByteCount(secretKey) < 32)
+    throw new InvalidOperationException(
+        "Jwt:SecretKey must be a strong secret (>= 32 bytes) supplied via environment variable or user-secrets; "
+        + "the committed placeholder is rejected.");
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtSection["Issuer"],
+            ValidAudience = jwtSection["Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
+            ClockSkew = TimeSpan.Zero
+        };
+    });
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+
+app.UseSwagger();
+if (app.Environment.IsDevelopment())
+    app.UseSwaggerUI();
+app.UseAuthentication();
+app.UseAuthorization();
+
+// /health — 익명(모니터링/k8s liveness). 의존성 체크 없는 기본 생존 체크.
+app.MapHealthChecks("/health").AllowAnonymous();
+
+// /diag — 통합 호스트 진단(로드된 Service·워커 수). 인증 필요(인증 파이프라인 활성 입증). 민감정보 없음.
+app.MapGet("/diag", () => Results.Ok(new
+{
+    modulesEnabled,
+    services = loadedServices,
+    workerCount
+})).RequireAuthorization();
+
+// 종료 시 Spring 컨텍스트 정리.
+app.Lifetime.ApplicationStopped.Register(() =>
+{
+    if (modulesEnabled) server.Dispose();
+});
+
+Console.WriteLine("[NexaOne.Server] Ready (web host). Press Ctrl+C to stop.");
+await app.RunAsync();
+
+// server.xml의 eesDataSource가 SQLite 공급자를 가리키면 해당 ConnectionString에 스키마를 부트스트랩한다.
+// MSSQL 모드면 아무 일도 하지 않는다(운영은 마이그레이션 외부 적용). XML 파싱만으로 판별(Spring 컨텍스트와 분리).
+static void EnsureSqliteSchemaIfConfigured(string serverXmlPath)
+{
+    XNamespace ns = "http://www.springframework.net";
+    var doc = XDocument.Load(serverXmlPath);
+    var objects = doc.Root?.Elements(ns + "object").ToList() ?? new List<XElement>();
+
+    var dataSource = objects.FirstOrDefault(o => (string?)o.Attribute("id") == "eesDataSource");
+    if (dataSource is null) return;
+
+    var props = dataSource.Elements(ns + "property").ToList();
+    var connStr = props.FirstOrDefault(p => (string?)p.Attribute("name") == "ConnectionString")?.Attribute("value")?.Value;
+    var providerRef = props.FirstOrDefault(p => (string?)p.Attribute("name") == "Provider")?.Attribute("ref")?.Value;
+
+    var providerType = objects
+        .FirstOrDefault(o => (string?)o.Attribute("id") == providerRef)?
+        .Attribute("type")?.Value ?? string.Empty;
+
+    if (!providerType.Contains("Sqlite", StringComparison.OrdinalIgnoreCase)) return;
+    if (string.IsNullOrWhiteSpace(connStr))
+        throw new InvalidOperationException("SQLite 공급자가 설정됐으나 eesDataSource ConnectionString이 비어 있습니다.");
+
+    Console.WriteLine($"[NexaOne.Server] SQLite mode — ensuring schema ({connStr})...");
+    SqliteSchemaInitializer.EnsureSchema(connStr);
+    Console.WriteLine("[NexaOne.Server] Schema ready.");
+}
+
+// WebApplicationFactory<Program> 진입점 노출(스모크 테스트용).
+public partial class Program { }
