@@ -17,6 +17,8 @@ public sealed class MetaScreenTests
     {
         var provider = new Mock<IScreenDefinitionProvider>();
         provider.Setup(p => p.Get(uiId)).Returns(def);
+        // MetaScreen 로드는 GetAsync 경로를 사용한다 — 동기 Get 셋업과 동일 결과로 미러링(거동 불변).
+        provider.Setup(p => p.GetAsync(uiId, It.IsAny<CancellationToken>())).ReturnsAsync(def);
         return provider;
     }
 

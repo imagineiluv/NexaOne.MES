@@ -69,7 +69,7 @@ else
     protected override async Task OnParametersSetAsync()
     {
         // 인메모리 캐시 우선, 없으면 DB 저장소(SYS_SCREEN_DEFINITION)에서 로드해 캐시 등록(Phase 4 후속)
-        _definition = Definitions.Get(UiId);
+        _definition = await Definitions.GetAsync(UiId);
         if (_definition is null)
         {
             var record = await Api.GetScreenDefinitionAsync(UiId);

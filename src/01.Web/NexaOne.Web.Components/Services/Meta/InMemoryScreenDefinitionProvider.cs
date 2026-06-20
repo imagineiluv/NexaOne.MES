@@ -87,4 +87,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
 
     public ScreenDefinition? Get(string uiId)
         => _defs.TryGetValue(uiId ?? string.Empty, out var d) ? d : null;
+
+    public Task<ScreenDefinition?> GetAsync(string uiId, CancellationToken ct = default)
+        => Task.FromResult(Get(uiId));
 }

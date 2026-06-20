@@ -6,4 +6,7 @@ public interface IScreenDefinitionProvider
     void Register(ScreenDefinition definition);
     bool TryGet(string uiId, out ScreenDefinition? definition);
     ScreenDefinition? Get(string uiId);
+
+    /// <summary>비동기 조회(DB-backed 구현용). 인메모리는 동기 결과를 래핑한다.</summary>
+    Task<ScreenDefinition?> GetAsync(string uiId, CancellationToken ct = default);
 }
