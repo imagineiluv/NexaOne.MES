@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { apiFetch, getAccessToken } from '../api/client'
 import { logout, type LoginResponse } from '../api/auth'
 import { hasPermission } from '../auth/jwt'
@@ -40,6 +41,7 @@ export function Dashboard({ session, onLogout }: { session: LoginResponse; onLog
 
   // ADR-003 PEP와 동일 권한 모델로 UI 가드 — fdc:control 보유 시에만 제어 노출(서버도 동일 정책 강제)
   const canControl = hasPermission(getAccessToken(), 'fdc:control')
+  const canDesign = hasPermission(getAccessToken(), 'sys:manage')
 
   async function startEquipment() {
     try {
@@ -54,7 +56,10 @@ export function Dashboard({ session, onLogout }: { session: LoginResponse; onLog
     <div style={{ maxWidth: 720, margin: '5vh auto', fontFamily: 'sans-serif' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span>{session.userName} ({session.roles.join(', ')}) @ {session.plantId}</span>
-        <button onClick={handleLogout}>로그아웃</button>
+        <span style={{ display: 'flex', gap: 8 }}>
+          {canDesign && <Link to="/designer/DEMO_DESIGNER">화면 디자이너</Link>}
+          <button onClick={handleLogout}>로그아웃</button>
+        </span>
       </header>
 
       <h2>FDC 파라미터 그룹 (EQ-001)</h2>
