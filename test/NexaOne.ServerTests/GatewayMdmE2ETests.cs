@@ -103,4 +103,22 @@ public sealed class GatewayMdmE2ETests : IClassFixture<GatewayMdmE2ETests.Gatewa
         rows!.Should().Contain(r => r.ContainsKey("VALUE") && r["VALUE"].ToString() == plantId && r.ContainsKey("TEXT"),
             "고도화 콤보 쿼리는 VALUE/TEXT를 SQLite에서 반환해야 한다");
     }
+
+    [Theory]
+    [InlineData("MDM.AreaCombo")]
+    [InlineData("MDM.AreaList")]
+    [InlineData("MDM.ProductCombo")]
+    [InlineData("MDM.ProductList")]
+    [InlineData("MDM.CodeClassList")]
+    [InlineData("MDM.CodeCombo")]
+    [InlineData("MDM.EquipmentCombo")]
+    public async Task Enhanced_read_queries_execute_on_sqlite(string queryId)
+    {
+        var client = AuthedClient("mdm:manage");
+        var res = await client.PostAsJsonAsync($"/api/v1/query/{queryId}", new Dictionary<string, object>());
+        res.StatusCode.Should().Be(System.Net.HttpStatusCode.OK,
+            $"{queryId}는 NexaMes SQLite 스키마에서 유효 SQL이어야 한다(고도화 이식 검증)");
+        var rows = await res.Content.ReadFromJsonAsync<List<Dictionary<string, object>>>();
+        rows.Should().NotBeNull();
+    }
 }
