@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using NexaOne.Infrastructure.Persistence;
+using NexaOne.Server.Gateway;
 using NexusFramework;
 using NexusFramework.Utils;
 
@@ -68,6 +69,12 @@ else
 }
 
 // ===== ASP.NET 파이프라인 =====
+// 게이트웨이(하이브리드) — 명명 쿼리 데이터 경로(plugin 무관, Default ALC).
+builder.Services.AddNexaOneGateway(builder.Configuration);
+builder.Services.AddControllers()
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(
+        new System.Text.Json.Serialization.JsonStringEnumConverter()));
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHealthChecks();
@@ -98,11 +105,22 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
+// 개발 SQLite 부트스트랩(게이트웨이 데이터 경로) — Spring 모듈 게이트와 독립. 빈 DB면 db/migrations 스키마 + V001 admin/admin 시드.
+if (app.Environment.IsDevelopment()
+    && string.Equals(app.Configuration.GetValue<string>("Database:Provider"), "Sqlite", StringComparison.OrdinalIgnoreCase))
+{
+    var gwConn = app.Configuration.GetConnectionString("NexaOne");
+    if (!string.IsNullOrWhiteSpace(gwConn))
+        NexaOne.Infrastructure.Persistence.SqliteSchemaInitializer.EnsureSchema(gwConn);
+}
+
 app.UseSwagger();
 if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 app.UseAuthentication();
 app.UseAuthorization();
+
+app.MapControllers();
 
 // /health — 익명(모니터링/k8s liveness). 의존성 체크 없는 기본 생존 체크.
 app.MapHealthChecks("/health").AllowAnonymous();
