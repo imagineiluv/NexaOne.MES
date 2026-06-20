@@ -118,6 +118,7 @@ app.UseSwagger();
 if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 app.UseAuthentication();
+app.UseMiddleware<NexaOne.Server.Gateway.AuditUserContextMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();
