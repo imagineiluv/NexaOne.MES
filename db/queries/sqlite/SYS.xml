@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<queries module="SYS">
+  <!-- 화면정의 영속(Phase 5a) — SYS_SCREEN_DEFINITION. MSSQL판과 동일 ID·동일 의미(SQLite 방언: NOLOCK 없음, upsert via ON CONFLICT). -->
+  <query id="SYS.GetScreenDefinition">
+    <statement><![CDATA[
+SELECT UI_ID, TITLE, DEFINITION_JSON FROM SYS_SCREEN_DEFINITION WHERE UI_ID = @uiId
+]]></statement>
+  </query>
+  <query id="SYS.ListScreenDefinitions">
+    <statement><![CDATA[
+SELECT UI_ID, TITLE FROM SYS_SCREEN_DEFINITION ORDER BY UI_ID
+]]></statement>
+  </query>
+  <query id="SYS.UpsertScreenDefinition" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+INSERT INTO SYS_SCREEN_DEFINITION (UI_ID, TITLE, DEFINITION_JSON, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+VALUES (@uiId, @title, @definitionJson, @currentUser, @utcNow, @currentUser, @utcNow)
+ON CONFLICT(UI_ID) DO UPDATE SET
+    TITLE = excluded.TITLE, DEFINITION_JSON = excluded.DEFINITION_JSON,
+    UPDATED_BY = excluded.UPDATED_BY, UPDATED_AT = excluded.UPDATED_AT
+]]></statement>
+  </query>
+</queries>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<queries module="SYS">
+  <!-- 화면정의 영속(Phase 5a) — SYS_SCREEN_DEFINITION. UI 메타(불투명 JSON), read 무해 / write는 sys:manage. -->
+  <query id="SYS.GetScreenDefinition">
+    <statement><![CDATA[
+SELECT UI_ID, TITLE, DEFINITION_JSON FROM SYS_SCREEN_DEFINITION WITH (NOLOCK) WHERE UI_ID = @uiId
+]]></statement>
+  </query>
+  <query id="SYS.ListScreenDefinitions">
+    <statement><![CDATA[
+SELECT UI_ID, TITLE FROM SYS_SCREEN_DEFINITION WITH (NOLOCK) ORDER BY UI_ID
+]]></statement>
+  </query>
+  <query id="SYS.UpsertScreenDefinition" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+MERGE SYS_SCREEN_DEFINITION WITH (HOLDLOCK) AS t
+USING (SELECT @uiId AS UI_ID) AS s ON t.UI_ID = s.UI_ID
+WHEN MATCHED THEN UPDATE SET
+    TITLE = @title, DEFINITION_JSON = @definitionJson, UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+WHEN NOT MATCHED THEN INSERT (UI_ID, TITLE, DEFINITION_JSON, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+    VALUES (@uiId, @title, @definitionJson, @currentUser, @utcNow, @currentUser, @utcNow);
+]]></statement>
+  </query>
+</queries>
