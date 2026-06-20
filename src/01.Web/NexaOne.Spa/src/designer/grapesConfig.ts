@@ -1,48 +1,57 @@
-// GrapesJS 디자이너의 순수 설정/데이터(블록·컴포넌트 type·트레이트·init 옵션). 실제 인스턴스 생성은
-// ScreenEditor.tsx 글루에서만 일어난다. 잠금 의도: 기본 블록/RTE/스타일 비노출, 8개 type만 등록, 중첩 규칙.
 import type { GrapesNode } from './layout'
 
+// GrapesJS init 옵션의 최소 타입(우리가 검증/사용하는 부분만). 잠금: storageManager=false(저장 수동),
+// styleManager.sectors=[]·기본 블록=[]·panels.defaults=[](스타일/코드/RTE chrome 비노출).
+// 블록·트레이트 매니저는 패널 버튼 대신 전용 컨테이너(appendTo)에 직접 마운트한다 — 이렇게 해야
+// 의도한 8블록 팔레트와 트레이트 편집기는 노출되면서 스타일/코드/RTE UI는 잠긴다(GrapesJS 커스텀 UI 표준 패턴).
+// RTE는 별도 키가 아니라 text-type 컴포넌트 부재로 잠긴다(어떤 nx- type도 text를 확장하거나 editable을 켜지 않음).
 export interface EditorConfig {
   container: HTMLElement
   height: string
   fromElement: boolean
   storageManager: false
-  rte: false
-  blockManager: { appendTo?: string; blocks: unknown[] }
+  blockManager: { appendTo?: HTMLElement; blocks: unknown[] }
+  traitManager: { appendTo?: HTMLElement }
   styleManager: { sectors: unknown[] }
   panels: { defaults: unknown[] }
 }
 
-export interface BlockDef { id: string; label: string; content: GrapesNode }
-export interface TraitOption { id: string; name: string }
-export interface TraitDef { type: string; name: string; label: string; options?: TraitOption[] }
-export interface ComponentTypeDef {
-  type: string
-  model: { defaults: { name: string; draggable: boolean | string; droppable: boolean | string } & Record<string, unknown>; droppable: boolean | string }
-}
-
-export function buildEditorConfig(container: HTMLElement): EditorConfig {
+export function buildEditorConfig(container: HTMLElement, blocksEl?: HTMLElement, traitsEl?: HTMLElement): EditorConfig {
   return {
     container,
     height: '100%',
     fromElement: false,
     storageManager: false,
-    rte: false,
-    blockManager: { blocks: [] },
+    blockManager: { blocks: [], ...(blocksEl ? { appendTo: blocksEl } : {}) },
+    traitManager: { ...(traitsEl ? { appendTo: traitsEl } : {}) },
     styleManager: { sectors: [] },
     panels: { defaults: [] },
   }
 }
 
+export interface BlockDef { id: string; label: string; content: GrapesNode }
+export interface TraitOption { id: string; name: string }
+export interface TraitDef { type: string; name: string; label: string; options?: TraitOption[] }
+
+// 컴포넌트 type의 선언적 중첩 규칙. allowedChildren=자식으로 허용할 type(droppable 대상),
+// allowedParents=부모로 허용할 type(draggable 대상). 빈 allowedChildren=leaf(droppable false),
+// 빈 allowedParents=최상위(draggable true).
+export interface ComponentTypeDef {
+  type: string
+  name: string
+  allowedChildren: string[]
+  allowedParents: string[]
+}
+
 export const COMPONENT_TYPE_DEFS: ComponentTypeDef[] = [
-  { type: 'nx-section', model: { defaults: { name: 'Section', draggable: true, droppable: 'nx-row' }, droppable: 'nx-row' } },
-  { type: 'nx-row', model: { defaults: { name: 'Row', draggable: 'nx-section', droppable: 'nx-column' }, droppable: 'nx-column' } },
-  { type: 'nx-column', model: { defaults: { name: 'Column', draggable: 'nx-row', droppable: 'nx-grid,nx-form,nx-button,nx-text' }, droppable: 'nx-grid,nx-form,nx-button,nx-text' } },
-  { type: 'nx-grid', model: { defaults: { name: 'DataGrid', draggable: 'nx-column', droppable: false }, droppable: false } },
-  { type: 'nx-form', model: { defaults: { name: 'Form', draggable: 'nx-column', droppable: 'nx-field' }, droppable: 'nx-field' } },
-  { type: 'nx-field', model: { defaults: { name: 'Field', draggable: 'nx-form', droppable: false }, droppable: false } },
-  { type: 'nx-button', model: { defaults: { name: 'CommandButton', draggable: 'nx-column', droppable: false }, droppable: false } },
-  { type: 'nx-text', model: { defaults: { name: 'Text', draggable: 'nx-column', droppable: false }, droppable: false } },
+  { type: 'nx-section', name: 'Section', allowedChildren: ['nx-row'], allowedParents: [] },
+  { type: 'nx-row', name: 'Row', allowedChildren: ['nx-column'], allowedParents: ['nx-section'] },
+  { type: 'nx-column', name: 'Column', allowedChildren: ['nx-grid', 'nx-form', 'nx-button', 'nx-text'], allowedParents: ['nx-row'] },
+  { type: 'nx-grid', name: 'DataGrid', allowedChildren: [], allowedParents: ['nx-column'] },
+  { type: 'nx-form', name: 'Form', allowedChildren: ['nx-field'], allowedParents: ['nx-column'] },
+  { type: 'nx-field', name: 'Field', allowedChildren: [], allowedParents: ['nx-form'] },
+  { type: 'nx-button', name: 'CommandButton', allowedChildren: [], allowedParents: ['nx-column'] },
+  { type: 'nx-text', name: 'Text', allowedChildren: [], allowedParents: ['nx-column'] },
 ]
 
 export const BLOCK_DEFS: BlockDef[] = [
@@ -55,6 +64,22 @@ export const BLOCK_DEFS: BlockDef[] = [
   { id: 'nx-button', label: '명령 버튼', content: { type: 'nx-button', attributes: { 'data-label': '버튼' } } },
   { id: 'nx-text', label: '텍스트', content: { type: 'nx-text', attributes: { 'data-text': '텍스트' } } },
 ]
+
+// GrapesJS 컴포넌트의 최소 형태(type 기반 비교) — droppable/draggable 함수가 받는 인자.
+export interface TypeMatchable { is(type: string): boolean }
+
+// 선언적 중첩 규칙을 GrapesJS model.defaults로 변환. droppable/draggable은 반드시 함수여야 한다 —
+// GrapesJS는 문자열 규칙을 CSS 셀렉터(el.matches)로 평가하므로 tagName 미지정(div) 컴포넌트엔 항상 false가 되어
+// 드롭이 전면 거부된다. 따라서 type 기반 규칙(src.is(type))을 함수로 준다.
+export function toModelDefaults(def: ComponentTypeDef, traits: TraitDef[]): Record<string, unknown> {
+  const droppable = def.allowedChildren.length === 0
+    ? false
+    : (src: TypeMatchable) => def.allowedChildren.some(t => src.is(t))
+  const draggable = def.allowedParents.length === 0
+    ? true
+    : (_src: TypeMatchable, trg: TypeMatchable) => !!trg && def.allowedParents.some(t => trg.is(t))
+  return { name: def.name, droppable, draggable, traits }
+}
 
 export interface QueryCatalog { reads: string[]; writes: { id: string; requiredPermission: string | null }[] }
 
