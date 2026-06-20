@@ -20,6 +20,11 @@ public sealed class ServerHostSmokeTests : IClassFixture<ServerHostSmokeTests.Sh
         {
             builder.UseEnvironment("Development");
             builder.UseSetting("Server:Modules:Enabled", "false");   // 순수 웹 셸(플러그인/워커 OFF)
+            // 게이트웨이 DI는 plugin 무관하게 항상 등록되므로(AddNexaOneGateway) 데이터 경로 연결문자열이 필요하다.
+            // 웹 셸 스모크는 쿼리를 실행하지 않으므로 임시 SQLite 파일을 가리키는 것으로 충분하다.
+            builder.UseSetting("Database:Provider", "Sqlite");
+            builder.UseSetting("ConnectionStrings:NexaOne",
+                $"Data Source={Path.Combine(Path.GetTempPath(), $"nexaone-shell-smoke-{Guid.NewGuid():N}.db")}");
             builder.UseSetting("Jwt:SecretKey", "phase1-smoke-only-jwt-secret-key-at-least-32-bytes-long");
             builder.UseSetting("Jwt:Issuer", "nexaone-test");
             builder.UseSetting("Jwt:Audience", "nexaone-test");
