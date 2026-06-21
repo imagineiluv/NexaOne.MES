@@ -1,0 +1,33 @@
+using NexaOne.Common;
+
+namespace NexaOne.ServiceContracts.Cmms;
+
+/// <summary>복잡 서비스 얇은 브리지(ADR-008) — CMMS 보전 단일 애그리거트 쓰기(작업지시 생명주기 +
+/// 보전계획 생명주기 + 예비품 생성/재고조정). plugin(CMMS)이 구현하고 호스트가 GetBean→캐스트로
+/// Default-ALC DI에 등록한다. Result로 상태전이/팩토리 검증 분기(Conflict/Validation/NotFound/Success)를
+/// 손실 없이 전달한다. 순수 조회는 게이트웨이(CMMS.xml)로, MaintenancePlan→WorkOrder 캐스케이드(다중
+/// 애그리거트)는 UnitOfWork 선결로 본 브리지에서 제외한다.</summary>
+public interface ICmmsBridge
+{
+    // ── 작업지시(WorkOrder) 생명주기 ──
+    Task<Result<WorkOrderDto>> CreateWorkOrderAsync(
+        string woId, string equipmentId, string woType, string description, string assigneeId, CancellationToken ct = default);
+    Task<Result> StartWorkOrderAsync(string woId, CancellationToken ct = default);
+    Task<Result> CompleteWorkOrderAsync(string woId, string remark, CancellationToken ct = default);
+    Task<Result> CancelWorkOrderAsync(string woId, CancellationToken ct = default);
+
+    // ── 보전계획(MaintenancePlan) 생명주기 ──
+    Task<Result<MaintenancePlanDto>> CreatePlanAsync(
+        string planId, string planName, string equipmentId, string planType, string cycleType,
+        DateTime scheduledDate, decimal estimatedHours, string assigneeId, CancellationToken ct = default);
+    Task<Result> StartPlanAsync(string planId, CancellationToken ct = default);
+    Task<Result> CompletePlanAsync(string planId, CancellationToken ct = default);
+    Task<Result> CancelPlanAsync(string planId, CancellationToken ct = default);
+
+    // ── 예비품(SparePart) 생성/재고조정 ──
+    Task<Result<SparePartDto>> CreatePartAsync(
+        string partId, string partName, string partNumber, string description, string unitOfMeasure,
+        decimal currentStock, decimal minStock, decimal maxStock, string location,
+        string? equipmentClassId, CancellationToken ct = default);
+    Task<Result> AdjustStockAsync(string partId, decimal delta, CancellationToken ct = default);
+}

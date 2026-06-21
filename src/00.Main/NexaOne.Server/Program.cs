@@ -11,6 +11,7 @@ using NexaOne.Application.Query;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.Server.Components;
 using NexaOne.Server.Gateway;
+using NexaOne.ServiceContracts.Cmms;
 using NexaOne.ServiceContracts.Est;
 using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Qms;
@@ -132,6 +133,13 @@ if (modulesEnabled)
             "mdmMasterBridge 빈을 IMdmMasterBridge로 캐스트하지 못했습니다 — "
             + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
     builder.Services.AddSingleton(mdmMasterBridge);
+
+    // ADR-008 얇은 브리지 — CMMS 보전(작업지시/보전계획/예비품) 단일 애그리거트 쓰기. EST/RMS/SHP/QMS/MDM과 동일 메커니즘.
+    var cmmsBridge = server.GetBean("Cmms", "cmmsBridge") as ICmmsBridge
+        ?? throw new InvalidOperationException(
+            "cmmsBridge 빈을 ICmmsBridge로 캐스트하지 못했습니다 — "
+            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
+    builder.Services.AddSingleton(cmmsBridge);
 }
 else
 {
