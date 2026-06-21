@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 파일 기반 쿼리 레지스트리(MSSQL 방언) — FDC 설정/이력 read 슬라이스(파라미터그룹/파라미터/알람설정/
+     인터락규칙/알람이력/인터락이력 조회). SQLite판과 동일 ID·동일 의미이되 NOLOCK 힌트만 추가.
+     브리지(파라미터그룹/알람설정/인터락규칙 생성 — 도메인 검증)는 별도, 실시간 수집/평가/이력 기록은 워커 소유다(ADR-006).
+     본 슬라이스는 도메인 검증이 필요 없는 순수 조회만 게이트웨이로 노출한다(ADR-001).
+     컬럼은 V016__FDC_PARAMETER / V020__FDC_ALARM_CONFIG / V021__FDC_ALARM_HISTORY / V004__FDC_INTERLOCK_RULE /
+     V018__FDC_INTERLOCK_HISTORY / V022__FDC_PARAMETER_GROUP 와 1:1 정합.
+     선택필터 (@p IS NULL OR COL=@p) — 본문 없는 @param은 게이트웨이가 null로 채운다. 모두 read(kind 미표기). -->
+<queries module="FDC">
+    <query id="FDC.ParameterGroupsByEquipment">
+        <statement><![CDATA[
+            SELECT GROUP_ID, GROUP_NAME, EQUIPMENT_ID, DESCRIPTION, DISPLAY_ORDER, IS_ACTIVE
+            FROM FDC_PARAMETER_GROUP WITH (NOLOCK)
+            WHERE EQUIPMENT_ID = @equipmentId
+            ORDER BY DISPLAY_ORDER, GROUP_NAME
+        ]]></statement>
+    </query>
+    <query id="FDC.ParametersByEquipment">
+        <statement><![CDATA[
+            SELECT PARAMETER_ID, PARAMETER_NAME, EQUIPMENT_ID, GROUP_ID, UNIT,
+                   LOWER_LIMIT, UPPER_LIMIT, LOWER_CONTROL_LIMIT, UPPER_CONTROL_LIMIT,
+                   SAMPLING_INTERVAL_MS, IS_ACTIVE
+            FROM FDC_PARAMETER WITH (NOLOCK)
+            WHERE EQUIPMENT_ID = @equipmentId
+              AND (@groupId IS NULL OR GROUP_ID = @groupId)
+            ORDER BY PARAMETER_NAME
+        ]]></statement>
+    </query>
+    <query id="FDC.AlarmConfigsByEquipment">
+        <statement><![CDATA[
+            SELECT ALARM_CONFIG_ID, EQUIPMENT_ID, PARAMETER_ID, ALARM_LEVEL, OPERATOR, THRESHOLD_VALUE, IS_ACTIVE
+            FROM FDC_ALARM_CONFIG WITH (NOLOCK)
+            WHERE EQUIPMENT_ID = @equipmentId
+              AND (@parameterId IS NULL OR PARAMETER_ID = @parameterId)
+            ORDER BY PARAMETER_ID, ALARM_LEVEL
+        ]]></statement>
+    </query>
+    <query id="FDC.InterlockRulesByEquipment">
+        <statement><![CDATA[
+            SELECT RULE_ID, RULE_NAME, EQUIPMENT_ID, PARAMETER_ID, OPERATOR, THRESHOLD_VALUE, ACTION, PRIORITY, IS_ACTIVE
+            FROM FDC_INTERLOCK_RULE WITH (NOLOCK)
+            WHERE EQUIPMENT_ID = @equipmentId
+              AND (@parameterId IS NULL OR PARAMETER_ID = @parameterId)
+            ORDER BY PARAMETER_ID, PRIORITY
+        ]]></statement>
+    </query>
+    <query id="FDC.AlarmHistoryByEquipment">
+        <statement><![CDATA[
+            SELECT ALARM_ID, ALARM_CONFIG_ID, EQUIPMENT_ID, PARAMETER_ID, ALARM_LEVEL, TRIGGER_VALUE, MESSAGE,
+                   OCCURRED_AT, CLEARED_AT, IS_CLEARED
+            FROM FDC_ALARM_HISTORY WITH (NOLOCK)
+            WHERE EQUIPMENT_ID = @equipmentId
+              AND OCCURRED_AT >= @from
+              AND OCCURRED_AT <= @to
+            ORDER BY OCCURRED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="FDC.InterlockHistoryByEquipment">
+        <statement><![CDATA[
+            SELECT HISTORY_ID, RULE_ID, EQUIPMENT_ID, PARAMETER_ID, TRIGGER_VALUE, ACTION, MESSAGE,
+                   TRIGGERED_AT, RESOLVED_AT, IS_RESOLVED
+            FROM FDC_INTERLOCK_HISTORY WITH (NOLOCK)
+            WHERE EQUIPMENT_ID = @equipmentId
+              AND TRIGGERED_AT >= @from
+              AND TRIGGERED_AT <= @to
+            ORDER BY TRIGGERED_AT DESC
+        ]]></statement>
+    </query>
+</queries>

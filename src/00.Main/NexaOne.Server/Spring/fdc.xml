@@ -56,6 +56,16 @@
     <constructor-arg ref="fdcAlarmHistoryRepository" />
     <constructor-arg ref="cacheService" />
   </object>
+  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Fdc","fdcBridge")로 IFdcBridge 캐스트.
+       파라미터그룹(FdcParameterGroupService)·임계치 알람설정(FdcAlarmService)·인터락규칙(FdcInterlockService)의
+       비-실시간 설정 생성(단일 애그리거트 쓰기)만 위임한다. 실시간 수집/평가/이력(FdcCollectorService·EvaluateAsync·
+       RecordAsync·ClearActive·ResolveActive·RecordDataAsync)은 워커 소유라 위임하지 않는다(ADR-006, REST 비노출). -->
+  <object id="fdcBridge" type="NexaOne.FDC.Application.Fdc.FdcBridge, NexaOne.FDC">
+    <constructor-arg ref="fdcParameterGroupService" />
+    <constructor-arg ref="fdcAlarmService" />
+    <constructor-arg ref="fdcInterlockService" />
+  </object>
+
   <!-- FdcCollectorService(dataService, interlockService?, alarmService?) — OPC-UA device/구독은 StartCollectingAsync
        메서드 인자(생성자 아님)라 opcUaDriver는 ctor에 들어가지 않는다. 선택적 2·3번째 서비스는 명시 주입. -->
   <object id="fdcCollectorService" type="NexaOne.FDC.Application.Fdc.FdcCollectorService, NexaOne.FDC">

@@ -15,6 +15,8 @@
     <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Application\NexaOne.Application.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
+    <!-- ADR-008 얇은 브리지 계약(IFdcBridge/DTO) — plugin이 구현하고 호스트가 공유 ALC로 캐스트한다. -->
+    <ProjectReference Include="..\..\02.Backend\NexaOne.ServiceContracts\NexaOne.ServiceContracts.csproj" />
     <!-- 도메인 이벤트 발행 백본(IMessageBus) — 실시간 통지를 SignalR 직접호출 대신 버스로 발행(ADR-006 Phase 2). -->
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure.Messaging\NexaOne.Infrastructure.Messaging.csproj" />
     <!-- 설비 통신: NexusFramework IDeviceInterface + NexusLogic OPC-UA 드라이버 (v2.0) -->

@@ -13,6 +13,7 @@ using NexaOne.Server.Components;
 using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Cmms;
 using NexaOne.ServiceContracts.Est;
+using NexaOne.ServiceContracts.Fdc;
 using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Pom;
 using NexaOne.ServiceContracts.Qms;
@@ -158,6 +159,14 @@ if (modulesEnabled)
             "sysBridge 빈을 ISysBridge로 캐스트하지 못했습니다 — "
             + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
     builder.Services.AddSingleton(sysBridge);
+
+    // ADR-008 얇은 브리지 — FDC 비-실시간 설정 관리(파라미터그룹/알람설정/인터락규칙 생성) 단일 애그리거트 쓰기. EST/RMS/SHP/QMS/MDM/CMMS/POM/SYS와 동일 메커니즘.
+    // 워커 가드(S8): 실시간 수집/평가·OPC-UA·발생/해제 이력·수집데이터 기록은 워커 소유라 본 브리지에서 제외(ADR-006, REST 비노출).
+    var fdcBridge = server.GetBean("Fdc", "fdcBridge") as IFdcBridge
+        ?? throw new InvalidOperationException(
+            "fdcBridge 빈을 IFdcBridge로 캐스트하지 못했습니다 — "
+            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
+    builder.Services.AddSingleton(fdcBridge);
 }
 else
 {
