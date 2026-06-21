@@ -24,6 +24,18 @@ else if (_definition.Layout is not null)
             @foreach (var err in _errors) { <li>@err</li> }
         </ul>
     }
+
+    @* 명령 버튼으로 커버되지 않은 폼 저장쿼리에 대해 암시적 저장 버튼을 렌더한다.
+       (손코딩 save-less 레이아웃 보완 — 이미 버튼이 있으면 중복 생성하지 않는다) *@
+    @foreach (var saveQuery in _uncoveredSaveQueries)
+    {
+        <div class="meta-actions">
+            <button class="layout-save" @onclick="() => RunCommand(saveQuery)">
+                @(_uncoveredSaveQueries.Count > 1 ? $"저장: {saveQuery}" : "저장")
+            </button>
+        </div>
+    }
+
     @if (_saved) { <span class="save-ok" style="color:#15803d;">저장됨</span> }
 }
 else
@@ -65,6 +77,8 @@ else
         = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>();
     private bool _saving;
     private bool _saved;
+    // 레이아웃 트리에서 명령 버튼으로 커버되지 않은 폼 저장쿼리 — 암시적 저장 버튼 대상(공백/중복 제외).
+    private IReadOnlyList<string> _uncoveredSaveQueries = Array.Empty<string>();
 
     protected override async Task OnParametersSetAsync()
     {
@@ -89,6 +103,7 @@ else
         }
 
         // 레이아웃 화면: 트리에서 distinct read 쿼리를 수집해 각 1회 실행 → 위젯별 결과맵.
+        _uncoveredSaveQueries = Array.Empty<string>();
         if (_definition?.Layout is not null)
         {
             var map = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>(StringComparer.Ordinal);
@@ -96,6 +111,13 @@ else
                 if (!map.ContainsKey(queryId))
                     map[queryId] = await Api.ExecuteQueryAsync(queryId);
             _queryResults = map;
+
+            // 명령 버튼이 커버하지 않는 폼 저장쿼리만 추려 암시적 저장 버튼을 렌더한다(중복 방지).
+            var covered = new HashSet<string>(CollectButtonCommands(_definition.Layout), StringComparer.Ordinal);
+            _uncoveredSaveQueries = CollectFormSaveQueries(_definition.Layout)
+                .Where(q => !covered.Contains(q))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
         }
     }
 
@@ -185,5 +207,37 @@ else
         }
         static IEnumerable<FieldDefinition> Children(IReadOnlyList<LayoutNode>? children)
             => (children ?? Array.Empty<LayoutNode>()).SelectMany(CollectFields);
+    }
+
+    // 트리에서 폼 저장쿼리(FormWidget.SaveQueryId)를 수집(빈/공백 제외) — 암시적 저장 버튼 후보.
+    private static IEnumerable<string> CollectFormSaveQueries(LayoutNode node)
+    {
+        switch (node)
+        {
+            case FormWidget f when !string.IsNullOrWhiteSpace(f.SaveQueryId):
+                yield return f.SaveQueryId!;
+                break;
+            case SectionNode s: foreach (var id in Children(s.Children)) yield return id; break;
+            case RowNode r: foreach (var id in Children(r.Children)) yield return id; break;
+            case ColumnNode c: foreach (var id in Children(c.Children)) yield return id; break;
+        }
+        static IEnumerable<string> Children(IReadOnlyList<LayoutNode>? children)
+            => (children ?? Array.Empty<LayoutNode>()).SelectMany(CollectFormSaveQueries);
+    }
+
+    // 트리에서 명령 버튼 커맨드(ButtonWidget.Command)를 수집(빈/공백 제외) — 커버된 저장쿼리 판정용.
+    private static IEnumerable<string> CollectButtonCommands(LayoutNode node)
+    {
+        switch (node)
+        {
+            case ButtonWidget b when !string.IsNullOrWhiteSpace(b.Command):
+                yield return b.Command!;
+                break;
+            case SectionNode s: foreach (var cmd in Children(s.Children)) yield return cmd; break;
+            case RowNode r: foreach (var cmd in Children(r.Children)) yield return cmd; break;
+            case ColumnNode c: foreach (var cmd in Children(c.Children)) yield return cmd; break;
+        }
+        static IEnumerable<string> Children(IReadOnlyList<LayoutNode>? children)
+            => (children ?? Array.Empty<LayoutNode>()).SelectMany(CollectButtonCommands);
     }
 }

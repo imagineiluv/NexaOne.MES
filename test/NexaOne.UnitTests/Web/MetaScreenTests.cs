@@ -236,4 +236,137 @@ public sealed class MetaScreenTests
         api.Verify(a => a.ExecuteCommandAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()),
             Times.Never, "레이아웃 검증 실패 시 명령 게이트웨이를 호출하지 않아야 한다");
     }
+
+    [Fact]
+    public void Layout_form_with_save_query_but_no_button_renders_implicit_save_and_posts()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        // 명령 버튼 없는 손코딩 레이아웃: FormWidget이 SaveQueryId만 가진다 → 암시적 저장 버튼이 생겨야 한다.
+        var def = new ScreenDefinition("LAY4", "공장 등록",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Children = new LayoutNode[]
+                {
+                    new RowNode
+                    {
+                        Children = new LayoutNode[]
+                        {
+                            new ColumnNode
+                            {
+                                Children = new LayoutNode[]
+                                {
+                                    new FormWidget
+                                    {
+                                        SaveQueryId = "SYS.Save",
+                                        Fields = new[]
+                                        {
+                                            new FieldWidget { FieldKey = "name", Field = new FieldDefinition("name", "이름", FieldType.Text) },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteCommandAsync("SYS.Save", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(true);
+        ctx.Services.AddSingleton(Provider("LAY4", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "LAY4"));
+
+        cut.FindAll("button.layout-save").Count.Should().Be(1, "버튼 없는 폼 저장쿼리는 암시적 저장 버튼 1개를 렌더해야 한다");
+
+        cut.Find("button.layout-save").Click();
+
+        cut.WaitForAssertion(() =>
+            api.Verify(a => a.ExecuteCommandAsync("SYS.Save", It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once,
+                "암시적 저장 버튼은 폼의 SaveQueryId로 공유 Model을 전송해야 한다"),
+            TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public void Layout_form_save_query_covered_by_button_renders_no_implicit_save()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        // 동일 저장쿼리를 가리키는 명령 버튼이 이미 있다 → 암시적 저장 버튼은 생기지 않아야 한다(중복 방지).
+        var def = new ScreenDefinition("LAY5", "공장 등록",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Children = new LayoutNode[]
+                {
+                    new FormWidget
+                    {
+                        SaveQueryId = "SYS.Save",
+                        Fields = new[]
+                        {
+                            new FieldWidget { FieldKey = "name", Field = new FieldDefinition("name", "이름", FieldType.Text) },
+                        },
+                    },
+                    new ButtonWidget { Label = "저장", Command = "SYS.Save" },
+                },
+            });
+
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteCommandAsync("SYS.Save", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(true);
+        ctx.Services.AddSingleton(Provider("LAY5", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "LAY5"));
+
+        cut.FindAll("button.layout-save").Should().BeEmpty("명령 버튼이 커버하는 저장쿼리는 암시적 저장 버튼을 만들지 않아야 한다");
+
+        // 기존 명령 버튼 경로는 그대로 동작한다.
+        cut.Find("button.layout-command").Click();
+        cut.WaitForAssertion(() =>
+            api.Verify(a => a.ExecuteCommandAsync("SYS.Save", It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once),
+            TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public void Layout_implicit_save_blocks_and_does_not_call_gateway_when_required_field_empty()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        // 암시적 저장 버튼도 RunCommand 의미론을 따라 검증 실패 시 게이트웨이를 치면 안 된다.
+        var def = new ScreenDefinition("LAY6", "공장 등록",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Children = new LayoutNode[]
+                {
+                    new FormWidget
+                    {
+                        SaveQueryId = "SYS.Save",
+                        Fields = new[]
+                        {
+                            new FieldWidget { FieldKey = "name", Field = new FieldDefinition("name", "이름", FieldType.Text, Required: true) },
+                        },
+                    },
+                },
+            });
+
+        var api = new Mock<IApiClient>();
+        ctx.Services.AddSingleton(Provider("LAY6", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "LAY6"));
+
+        cut.Find("button.layout-save").Click();   // 필수 필드 비움
+
+        cut.Markup.Should().Contain("필수");
+        api.Verify(a => a.ExecuteCommandAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()),
+            Times.Never, "암시적 저장 버튼도 검증 실패 시 쓰기 게이트웨이를 호출하지 않아야 한다");
+    }
 }
