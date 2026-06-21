@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 파일 기반 쿼리 레지스트리(MSSQL 방언) — QMS 품질관리 read/combo 슬라이스.
+     SQLite판과 동일 ID·동일 의미이되 NOLOCK 힌트만 추가. 레거시 다국어 CASE·Velocity 보간·STD_TB_*/COM_TB_*를
+     NexaMes 실존 스키마(QMS_*)·@param 선택필터로 재작성. 선택필터 (@p IS NULL OR COL=@p) — 본문 없는 @param은 게이트웨이가 null로 채움. -->
+<queries module="QMS">
+    <query id="QMS.DefectClassCombo">
+        <statement><![CDATA[
+            SELECT DEFECT_CLASS_ID AS VALUE, DEFECT_CLASS_NAME AS TEXT
+            FROM QMS_DEFECT_CLASS WITH (NOLOCK)
+            WHERE IS_DELETED = 0 AND IS_ACTIVE = 1
+              AND (@severity IS NULL OR SEVERITY = @severity)
+            ORDER BY DEFECT_CLASS_NAME
+        ]]></statement>
+    </query>
+    <query id="QMS.DefectClassList">
+        <statement><![CDATA[
+            SELECT DEFECT_CLASS_ID, DEFECT_CLASS_NAME, DESCRIPTION, SEVERITY, IS_ACTIVE
+            FROM QMS_DEFECT_CLASS WITH (NOLOCK)
+            WHERE IS_DELETED = 0 AND (@severity IS NULL OR SEVERITY = @severity)
+            ORDER BY DEFECT_CLASS_NAME
+        ]]></statement>
+    </query>
+    <query id="QMS.InspectionSpecCombo">
+        <statement><![CDATA[
+            SELECT SPEC_ID AS VALUE, SPEC_NAME AS TEXT
+            FROM QMS_INSPECTION_SPEC WITH (NOLOCK)
+            WHERE IS_ACTIVE = 1 AND (@processId IS NULL OR PROCESS_ID = @processId)
+            ORDER BY SPEC_NAME
+        ]]></statement>
+    </query>
+    <query id="QMS.InspectionSpecList">
+        <statement><![CDATA[
+            SELECT SPEC_ID, SPEC_NAME, PROCESS_ID, ITEM_NAME, MEASURE_TYPE,
+                   NOMINAL_VALUE, TOLERANCE_PLUS, TOLERANCE_MINUS, IS_ACTIVE
+            FROM QMS_INSPECTION_SPEC WITH (NOLOCK)
+            WHERE (@processId IS NULL OR PROCESS_ID = @processId)
+              AND (@measureType IS NULL OR MEASURE_TYPE = @measureType)
+            ORDER BY SPEC_NAME
+        ]]></statement>
+    </query>
+    <query id="QMS.SpcParamList">
+        <statement><![CDATA[
+            SELECT PARAM_ID, PARAM_NAME, EQUIPMENT_ID, PROCESS_ID,
+                   MEAN, UCL, LCL, USL, LSL, SAMPLE_SIZE, IS_ACTIVE
+            FROM QMS_SPC_PARAM WITH (NOLOCK)
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@processId IS NULL OR PROCESS_ID = @processId)
+            ORDER BY PARAM_NAME
+        ]]></statement>
+    </query>
+    <query id="QMS.DefectList">
+        <statement><![CDATA[
+            SELECT DEFECT_ID, LOT_ID, EQUIPMENT_ID, DEFECT_CLASS_ID,
+                   DEFECT_COUNT, DEFECT_RATE, INSPECTED_AT, INSPECTOR_ID, IS_CONFIRMED
+            FROM QMS_DEFECT WITH (NOLOCK)
+            WHERE (@lotId IS NULL OR LOT_ID = @lotId)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+            ORDER BY INSPECTED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="QMS.CreateDefectClass" kind="write" requiredPermission="qms:manage">
+        <statement><![CDATA[
+            INSERT INTO QMS_DEFECT_CLASS (DEFECT_CLASS_ID, DEFECT_CLASS_NAME, DESCRIPTION, SEVERITY,
+                                          IS_ACTIVE, IS_DELETED, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@defectClassId, @defectClassName, @description, @severity,
+                    1, 0, @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
+</queries>

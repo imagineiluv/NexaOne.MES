@@ -78,6 +78,20 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                     } },
                 },
             }));
+
+        // 데모 시드: 그리드 전용(조회) 화면 — QMS 결함분류 목록을 파일 기반 명명 쿼리(QMS.DefectClassList) 바인딩으로
+        // /meta/DEMO_QMS_DEFECT_CLASS 가 손코딩 없이 렌더한다(QMS 모듈 저코드 조회 경로 시연).
+        Register(new ScreenDefinition("DEMO_QMS_DEFECT_CLASS", "데모 — QMS 결함분류(파일 쿼리)",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("DEFECT_CLASS_ID", "결함분류 ID"),
+                new("DEFECT_CLASS_NAME", "결함분류명"),
+                new("DESCRIPTION", "설명"),
+                new("SEVERITY", "심각도"),
+                new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "QMS.DefectClassList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
