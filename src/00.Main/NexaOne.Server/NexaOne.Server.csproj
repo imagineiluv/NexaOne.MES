@@ -6,6 +6,16 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- SPA(React/GrapesJS) 빌드 통합 — vite.config.ts가 outDir=wwwroot/spa, emptyOutDir, base='/spa/'로 설정되어
+       있으므로 SPA 디렉터리에서 `npm run build`를 돌리면 번들이 이 호스트의 wwwroot/spa로 출력된다(설계 Phase 4).
+       publish 시에는 항상 빌드해 정적 자산 파이프라인이 자산을 수집하기 전에 wwwroot/spa가 채워지게 한다.
+       일반 dev `dotnet build`에서는 느린 npm 빌드를 기본 비활성화한다(개발자는 -p:BuildSpa=true로 강제 가능). -->
+  <PropertyGroup>
+    <SpaRoot>$(MSBuildProjectDirectory)\..\..\01.Web\NexaOne.Spa\</SpaRoot>
+    <!-- dev 빌드 게이트: 기본 off. publish는 _IsPublishing(=true) 조건으로 게이트와 무관하게 빌드한다. -->
+    <BuildSpa Condition="'$(BuildSpa)'==''">false</BuildSpa>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.*" />
     <!-- 통합 호스트(접근 A) — WebApplication. Spring.NET 빈 컨테이너(ApplicationServer)와 공존:
@@ -76,6 +86,46 @@
     <ProjectReference Include="..\..\04.Modules\NexaOne.SHP\NexaOne.SHP.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
+
+  <!-- SPA 빌드 타깃 — wwwroot/spa로 vite 번들을 출력한다. ResolveProjectStaticWebAssets(정적 웹 자산이
+       wwwroot를 스캔하는 시점) '이전'에 실행해야 갓 빌드된 wwwroot/spa/**가 자산 매니페스트에 포함되고,
+       그 결과 publish 출력에 함께 게시된다. publish는 build를 선행하므로 이 내부 build에서 타깃이 돈다.
+       Condition: BuildSpa=true(개발자 강제) 또는 _IsPublishing=true(dotnet publish)일 때만 실행 →
+       일반 dev `dotnet build`에서는 느린 npm 빌드를 건너뛴다.
+       node_modules 부재 시에만 `npm ci`로 재현 가능한 설치(package-lock.json 기반) 후 `npm run build`. -->
+  <Target Name="BuildSpaBundle"
+          BeforeTargets="ResolveStaticWebAssetsConfiguration;AssignTargetPaths;Build"
+          Condition="'$(BuildSpa)'=='true' Or '$(_IsPublishing)'=='true'">
+    <Message Importance="high" Text="Building SPA (React/GrapesJS) into wwwroot/spa from $(SpaRoot) ..." />
+    <Exec Command="npm ci" WorkingDirectory="$(SpaRoot)" Condition="!Exists('$(SpaRoot)node_modules')" />
+    <Exec Command="npm run build" WorkingDirectory="$(SpaRoot)" />
+
+    <!-- vite는 emptyOutDir로 이전 출력을 지우고 콘텐츠 해시 파일명(index-XXXX.js)으로 새로 쓴다. 정적 웹 자산
+         파이프라인은 obj에 빌드/게시 매니페스트(staticwebassets.*.json)를 캐시하는데, 이 캐시가 직전 빌드의
+         '옛 해시 파일'을 그대로 보존한 채 신규 파일과 합쳐져(union) 증분 publish 시 사라진 파일을 복사하려다
+         MSB3030으로 실패한다. SPA를 (재)빌드할 때마다 이 캐시 매니페스트를 삭제해 ResolveProjectStaticWebAssets가
+         현재 wwwroot/spa 디스크 상태에서 매니페스트를 처음부터 다시 계산하도록 강제한다(정확한 증분 동작). -->
+    <ItemGroup>
+      <_StaleStaticWebAssetManifest Include="$(IntermediateOutputPath)staticwebassets.build.json" />
+      <_StaleStaticWebAssetManifest Include="$(IntermediateOutputPath)staticwebassets.development.json" />
+      <_StaleStaticWebAssetManifest Include="$(IntermediateOutputPath)staticwebassets.pack.json" />
+      <_StaleStaticWebAssetManifest Include="$(IntermediateOutputPath)staticwebassets.publish.json" />
+      <_StaleStaticWebAssetManifest Include="$(IntermediateOutputPath)staticwebassets.build.endpoints.json" />
+    </ItemGroup>
+    <Delete Files="@(_StaleStaticWebAssetManifest)" Condition="Exists('%(FullPath)')" />
+
+    <!-- 기본 Content 글롭(wwwroot\**)은 프로젝트 평가 시점에 확정되므로, 위 vite 빌드가 끝나면 @(Content)에
+         박제된 '이전' wwwroot\spa 파일 항목이 실제 디스크와 어긋난다. DiscoverStaticWebAssets는 @(Content)를
+         읽으므로, 여기서 stale 항목을 제거하고 갓 빌드된 파일을 동일 메타데이터로 다시 포함시켜 매니페스트가
+         현재 번들을 가리키게 한다. -->
+    <ItemGroup>
+      <Content Remove="wwwroot\spa\**" />
+      <Content Include="wwwroot\spa\**"
+               ExcludeFromSingleFile="true"
+               CopyToPublishDirectory="PreserveNewest"
+               Exclude="$(DefaultItemExcludes);$(DefaultExcludesInProjectFolder)" />
+    </ItemGroup>
+  </Target>
 
   <!-- 모듈 DLL '만' ./Modules/로 복사한다(.deps.json 제외). .deps.json이 없어야 AssemblyDependencyResolver가
        모듈의 공유 의존성을 plugin ALC에 자체 복사하지 않고 Default ALC로 흘려보내, EesDataSource/IConfiguration 등의
