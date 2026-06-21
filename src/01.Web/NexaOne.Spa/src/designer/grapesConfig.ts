@@ -95,8 +95,8 @@ export function buildTraitDefs(queries: QueryCatalog): Record<string, TraitDef[]
     'nx-column': [{ type: 'number', name: 'data-span', label: '폭(1-12)' }],
     'nx-grid': [
       { type: 'select', name: 'data-query-id', label: '조회 쿼리', options: readOpts },
-      // 컬럼 작성 트레이트. 형식: 콤마 구분 `key:caption`, 숨김은 `:hidden` 부가(예: `code:코드, name:이름, secret:비밀:hidden`).
-      { type: 'text', name: 'data-columns-spec', label: '컬럼(키:캡션, 숨김=:hidden)' },
+      // 컬럼 작성 트레이트. JSON 인코딩 — key/caption에 콤마·콜론이 있어도 무손실 라운드트립.
+      { type: 'text', name: 'data-columns', label: '컬럼(JSON: [{key,caption,visible}])' },
     ],
     'nx-form': [{ type: 'select', name: 'data-save-query-id', label: '저장 쿼리', options: writeOpts }],
     // FieldDefinition 전체를 이산 트레이트로 노출(data-field JSON blob 폐기, 트레이트 패널이 단일 편집 출처).
@@ -106,7 +106,7 @@ export function buildTraitDefs(queries: QueryCatalog): Record<string, TraitDef[]
       { type: 'select', name: 'data-field-type', label: '타입', options: FIELD_TYPE_OPTS },
       { type: 'checkbox', name: 'data-field-required', label: '필수' },
       { type: 'checkbox', name: 'data-field-readonly', label: '읽기전용' },
-      { type: 'text', name: 'data-field-options', label: '옵션(콤마 구분, Select용)' },
+      { type: 'text', name: 'data-field-options', label: '옵션(JSON 배열, Select용)' },
     ],
     'nx-button': [
       { type: 'text', name: 'data-label', label: '라벨' },

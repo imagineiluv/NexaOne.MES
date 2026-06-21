@@ -92,11 +92,20 @@ describe('GrapesJS 디자이너 설정(잠금)', () => {
     expect(typeTrait.options!.map(o => o.id)).toEqual(['Text', 'Number', 'Boolean', 'Date', 'Select'])
   })
 
-  it('buildTraitDefs는 nx-grid에 컬럼 작성 트레이트(data-columns-spec)를 쿼리 트레이트와 함께 노출', () => {
+  it('buildTraitDefs는 nx-grid에 컬럼 작성 트레이트(data-columns, JSON)를 쿼리 트레이트와 함께 노출', () => {
     const grid = buildTraitDefs({ reads: ['Q'], writes: [] })['nx-grid']
     expect(grid.map(t => t.name)).toContain('data-query-id')
-    const colSpec = grid.find(t => t.name === 'data-columns-spec')!
-    expect(colSpec).toBeDefined()
-    expect(colSpec.type).toBe('text')
+    // 구 data-columns-spec(콤마/콜론 spec)은 제거 — 구분자 무손실 JSON 트레이트로 대체.
+    expect(grid.map(t => t.name)).not.toContain('data-columns-spec')
+    const colTrait = grid.find(t => t.name === 'data-columns')!
+    expect(colTrait).toBeDefined()
+    expect(colTrait.type).toBe('text')
+  })
+
+  it('buildTraitDefs는 nx-field에 옵션 트레이트(data-field-options)를 여전히 노출', () => {
+    const field = buildTraitDefs({ reads: [], writes: [] })['nx-field']
+    const optTrait = field.find(t => t.name === 'data-field-options')!
+    expect(optTrait).toBeDefined()
+    expect(optTrait.type).toBe('text')
   })
 })

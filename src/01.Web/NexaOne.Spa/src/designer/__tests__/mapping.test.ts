@@ -74,15 +74,38 @@ describe('field 이산 속성 매핑(트레이트 단일 출처)', () => {
     expect(componentToLayout(layoutToComponent(node))).toEqual(node)
   })
 
-  it('Select 필드 options 라운드트립', () => {
+  it('Select 필드 options 라운드트립(JSON 인코딩)', () => {
     const node: LayoutNode = {
       kind: 'field', id: 'f2', fieldKey: 'status',
       field: { key: 'status', label: '상태', type: 'Select', required: false, readOnly: false, options: ['A', 'B', 'C'] },
     }
     const comp = layoutToComponent(node)
-    expect(comp.attributes!['data-field-options']).toBe('A,B,C')
+    expect(comp.attributes!['data-field-options']).toBe(JSON.stringify(['A', 'B', 'C']))
     expect(comp.attributes!['data-field-type']).toBe('Select')
     expect(componentToLayout(comp)).toEqual(node)
+  })
+
+  it('MAP-1: 콤마·콜론 포함 options가 라운드트립에서 정확히 보존된다(콤마-조인 부패 방지)', () => {
+    const node: LayoutNode = {
+      kind: 'field', id: 'f-opts', fieldKey: 'cat',
+      field: {
+        key: 'cat', label: '분류', type: 'Select', required: false, readOnly: false,
+        options: ['A, inc.', 'B: type', 'plain'],
+      },
+    }
+    const comp = layoutToComponent(node)
+    // 구버전(콤마-조인)이면 'A, inc.'가 두 옵션으로 쪼개졌다 — JSON 인코딩은 단일 문자열로 정확히 보존.
+    const back = componentToLayout(comp) as Extract<LayoutNode, { kind: 'field' }>
+    expect(back).toEqual(node)
+    expect(back.field!.options).toEqual(['A, inc.', 'B: type', 'plain'])
+  })
+
+  it('MAP-1: 깨진 data-field-options(비-JSON)는 options=null로 관용 폴백', () => {
+    const back = componentToLayout({
+      type: 'nx-field',
+      attributes: { 'data-field-key': 'k', 'data-field-label': 'L', 'data-field-type': 'Select', 'data-field-options': 'not json' },
+    }) as Extract<LayoutNode, { kind: 'field' }>
+    expect(back.field!.options).toBeNull()
   })
 
   it('키만 있는 베어 필드는 field 없이 fieldKey만 유지(하위호환)', () => {
@@ -96,8 +119,8 @@ describe('field 이산 속성 매핑(트레이트 단일 출처)', () => {
   })
 })
 
-describe('grid 컬럼 spec 매핑(트레이트 단일 출처)', () => {
-  it('3컬럼(숨김 1개 포함) 라운드트립(data-columns JSON blob 미기록)', () => {
+describe('grid 컬럼 매핑(트레이트 단일 출처, JSON 인코딩)', () => {
+  it('3컬럼(숨김 1개 포함) 라운드트립(data-columns JSON 기록, 구 spec 미기록)', () => {
     const node: LayoutNode = {
       kind: 'grid', id: 'g1', queryId: 'MDM.PlantList',
       columns: [
@@ -107,17 +130,44 @@ describe('grid 컬럼 spec 매핑(트레이트 단일 출처)', () => {
       ],
     }
     const comp = layoutToComponent(node)
-    expect(comp.attributes!['data-columns']).toBeUndefined()
-    expect(comp.attributes!['data-columns-spec']).toBe('code:코드, name:이름, secret:비밀:hidden')
+    expect(comp.attributes!['data-columns-spec']).toBeUndefined()
+    expect(comp.attributes!['data-columns']).toBe(JSON.stringify(node.columns))
     expect(comp.attributes!['data-query-id']).toBe('MDM.PlantList')
     expect(componentToLayout(comp)).toEqual(node)
   })
 
-  it('컬럼 없는 그리드는 spec 미기록, columns 미복원', () => {
+  it('MAP-2: 콤마·콜론 포함 caption + visible:false가 라운드트립에서 정확히 보존된다(spec 부패 방지)', () => {
+    const node: LayoutNode = {
+      kind: 'grid', id: 'g-delim', queryId: 'Q',
+      columns: [
+        { key: 'c1', caption: '코드, 번호', visible: true },
+        { key: 'c2', caption: 'a:b', visible: false },
+      ],
+    }
+    const comp = layoutToComponent(node)
+    // 구버전(key:caption[:hidden] spec)이면 '코드, 번호'의 콤마가 컬럼 경계로, 'a:b'의 콜론이 필드 경계로
+    // 오인돼 부패했다 — JSON 인코딩은 두 caption과 visible:false를 정확히 보존한다.
+    const back = componentToLayout(comp) as Extract<LayoutNode, { kind: 'grid' }>
+    expect(back).toEqual(node)
+    expect(back.columns).toEqual([
+      { key: 'c1', caption: '코드, 번호', visible: true },
+      { key: 'c2', caption: 'a:b', visible: false },
+    ])
+  })
+
+  it('컬럼 없는 그리드는 data-columns 미기록, columns 미복원', () => {
     const node: LayoutNode = { kind: 'grid', id: 'g2', queryId: 'Q' }
     const comp = layoutToComponent(node)
-    expect(comp.attributes!['data-columns-spec']).toBeUndefined()
+    expect(comp.attributes!['data-columns']).toBeUndefined()
     const back = componentToLayout(comp) as Extract<LayoutNode, { kind: 'grid' }>
+    expect(back.columns).toBeUndefined()
+    expect(back.queryId).toBe('Q')
+  })
+
+  it('MAP-2: 깨진 data-columns(비-JSON)는 columns 미복원(관용 폴백)', () => {
+    const back = componentToLayout({
+      type: 'nx-grid', attributes: { 'data-query-id': 'Q', 'data-columns': 'not json' },
+    }) as Extract<LayoutNode, { kind: 'grid' }>
     expect(back.columns).toBeUndefined()
     expect(back.queryId).toBe('Q')
   })
