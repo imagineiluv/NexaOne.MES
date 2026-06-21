@@ -16,7 +16,6 @@
     <ProjectReference Include="..\..\src\01.Web\NexaOne.Web.Components\NexaOne.Web.Components.csproj" />
     <ProjectReference Include="..\..\src\02.Backend\NexaOne.Application\NexaOne.Application.csproj" />
     <ProjectReference Include="..\..\src\02.Backend\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\src\02.Backend\NexaOne.API\NexaOne.API.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.MDM\NexaOne.MDM.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.RMS\NexaOne.RMS.csproj" />
