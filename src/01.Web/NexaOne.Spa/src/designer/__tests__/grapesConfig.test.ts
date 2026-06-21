@@ -71,4 +71,32 @@ describe('GrapesJS 디자이너 설정(잠금)', () => {
     const btnCmd = traits['nx-button'].find(t => t.name === 'data-command')!
     expect(btnCmd.options!.map(o => o.id)).toContain('MDM.CreatePlant')
   })
+
+  it('buildTraitDefs는 nx-field에 6개 이산 트레이트(키/라벨/타입/필수/읽기전용/옵션) 노출', () => {
+    const traits = buildTraitDefs({ reads: [], writes: [] })
+    const field = traits['nx-field']
+    expect(field.map(t => t.name)).toEqual([
+      'data-field-key', 'data-field-label', 'data-field-type',
+      'data-field-required', 'data-field-readonly', 'data-field-options',
+    ])
+    const byName = (n: string) => field.find(t => t.name === n)!
+    expect(byName('data-field-type').type).toBe('select')
+    expect(byName('data-field-required').type).toBe('checkbox')
+    expect(byName('data-field-readonly').type).toBe('checkbox')
+    expect(byName('data-field-label').type).toBe('text')
+  })
+
+  it('data-field-type 셀렉트 옵션은 정확히 5개 FieldType', () => {
+    const field = buildTraitDefs({ reads: [], writes: [] })['nx-field']
+    const typeTrait = field.find(t => t.name === 'data-field-type')!
+    expect(typeTrait.options!.map(o => o.id)).toEqual(['Text', 'Number', 'Boolean', 'Date', 'Select'])
+  })
+
+  it('buildTraitDefs는 nx-grid에 컬럼 작성 트레이트(data-columns-spec)를 쿼리 트레이트와 함께 노출', () => {
+    const grid = buildTraitDefs({ reads: ['Q'], writes: [] })['nx-grid']
+    expect(grid.map(t => t.name)).toContain('data-query-id')
+    const colSpec = grid.find(t => t.name === 'data-columns-spec')!
+    expect(colSpec).toBeDefined()
+    expect(colSpec.type).toBe('text')
+  })
 })

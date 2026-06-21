@@ -83,6 +83,9 @@ export function toModelDefaults(def: ComponentTypeDef, traits: TraitDef[]): Reco
 
 export interface QueryCatalog { reads: string[]; writes: { id: string; requiredPermission: string | null }[] }
 
+// FieldType(5종) 셀렉트 옵션 — layout.ts FieldType과 정확히 일치해야 한다(C# FieldType 미러).
+const FIELD_TYPE_OPTS: TraitOption[] = ['Text', 'Number', 'Boolean', 'Date', 'Select'].map(t => ({ id: t, name: t }))
+
 export function buildTraitDefs(queries: QueryCatalog): Record<string, TraitDef[]> {
   const readOpts = queries.reads.map(id => ({ id, name: id }))
   const writeOpts = queries.writes.map(w => ({ id: w.id, name: w.id }))
@@ -90,11 +93,21 @@ export function buildTraitDefs(queries: QueryCatalog): Record<string, TraitDef[]
     'nx-section': [{ type: 'text', name: 'data-title', label: '제목' }],
     'nx-row': [],
     'nx-column': [{ type: 'number', name: 'data-span', label: '폭(1-12)' }],
-    'nx-grid': [{ type: 'select', name: 'data-query-id', label: '조회 쿼리', options: readOpts }],
+    'nx-grid': [
+      { type: 'select', name: 'data-query-id', label: '조회 쿼리', options: readOpts },
+      // 컬럼 작성 트레이트. 형식: 콤마 구분 `key:caption`, 숨김은 `:hidden` 부가(예: `code:코드, name:이름, secret:비밀:hidden`).
+      { type: 'text', name: 'data-columns-spec', label: '컬럼(키:캡션, 숨김=:hidden)' },
+    ],
     'nx-form': [{ type: 'select', name: 'data-save-query-id', label: '저장 쿼리', options: writeOpts }],
-    // 필드 키만 트레이트로 노출. 라벨/타입 등 FieldDefinition 전체는 data-field(JSON)가 단일 출처이며
-    // 별도 data-label 트레이트는 이중 출처가 되어 제외한다(전체 필드 편집 UI는 Phase 2).
-    'nx-field': [{ type: 'text', name: 'data-field-key', label: '필드 키' }],
+    // FieldDefinition 전체를 이산 트레이트로 노출(data-field JSON blob 폐기, 트레이트 패널이 단일 편집 출처).
+    'nx-field': [
+      { type: 'text', name: 'data-field-key', label: '필드 키' },
+      { type: 'text', name: 'data-field-label', label: '라벨' },
+      { type: 'select', name: 'data-field-type', label: '타입', options: FIELD_TYPE_OPTS },
+      { type: 'checkbox', name: 'data-field-required', label: '필수' },
+      { type: 'checkbox', name: 'data-field-readonly', label: '읽기전용' },
+      { type: 'text', name: 'data-field-options', label: '옵션(콤마 구분, Select용)' },
+    ],
     'nx-button': [
       { type: 'text', name: 'data-label', label: '라벨' },
       { type: 'select', name: 'data-command', label: '명령 쿼리', options: writeOpts },

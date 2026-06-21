@@ -49,6 +49,80 @@ describe('LayoutNode ↔ GrapesJS 매핑', () => {
   })
 })
 
+describe('field 이산 속성 매핑(트레이트 단일 출처)', () => {
+  it('field→컴포넌트가 이산 data-field-* 속성을 기록(data-field JSON blob 미기록)', () => {
+    const comp = layoutToComponent({
+      kind: 'field', id: 'f', fieldKey: 'plantId',
+      field: { key: 'plantId', label: '공장 ID', type: 'Text', required: true, readOnly: false, options: null },
+    })
+    const a = comp.attributes!
+    expect(a['data-field']).toBeUndefined()
+    expect(a['data-field-key']).toBe('plantId')
+    expect(a['data-field-label']).toBe('공장 ID')
+    expect(a['data-field-type']).toBe('Text')
+    expect(a['data-field-required']).toBe(true)
+    // readOnly=false·options=null은 미기록(조건부 속성)
+    expect(a['data-field-readonly']).toBeUndefined()
+    expect(a['data-field-options']).toBeUndefined()
+  })
+
+  it('5속성 field 라운드트립 무손실(layoutToComponent→componentToLayout 동일성)', () => {
+    const node: LayoutNode = {
+      kind: 'field', id: 'f1', fieldKey: 'qty',
+      field: { key: 'qty', label: '수량', type: 'Number', required: true, readOnly: true, options: null },
+    }
+    expect(componentToLayout(layoutToComponent(node))).toEqual(node)
+  })
+
+  it('Select 필드 options 라운드트립', () => {
+    const node: LayoutNode = {
+      kind: 'field', id: 'f2', fieldKey: 'status',
+      field: { key: 'status', label: '상태', type: 'Select', required: false, readOnly: false, options: ['A', 'B', 'C'] },
+    }
+    const comp = layoutToComponent(node)
+    expect(comp.attributes!['data-field-options']).toBe('A,B,C')
+    expect(comp.attributes!['data-field-type']).toBe('Select')
+    expect(componentToLayout(comp)).toEqual(node)
+  })
+
+  it('키만 있는 베어 필드는 field 없이 fieldKey만 유지(하위호환)', () => {
+    const node: LayoutNode = { kind: 'field', id: 'f3', fieldKey: 'onlyKey' }
+    const comp = layoutToComponent(node)
+    expect(comp.attributes!['data-field-key']).toBe('onlyKey')
+    expect(comp.attributes!['data-field-label']).toBeUndefined()
+    const back = componentToLayout(comp)
+    expect(back).toEqual(node)
+    expect((back as Extract<LayoutNode, { kind: 'field' }>).field).toBeUndefined()
+  })
+})
+
+describe('grid 컬럼 spec 매핑(트레이트 단일 출처)', () => {
+  it('3컬럼(숨김 1개 포함) 라운드트립(data-columns JSON blob 미기록)', () => {
+    const node: LayoutNode = {
+      kind: 'grid', id: 'g1', queryId: 'MDM.PlantList',
+      columns: [
+        { key: 'code', caption: '코드', visible: true },
+        { key: 'name', caption: '이름', visible: true },
+        { key: 'secret', caption: '비밀', visible: false },
+      ],
+    }
+    const comp = layoutToComponent(node)
+    expect(comp.attributes!['data-columns']).toBeUndefined()
+    expect(comp.attributes!['data-columns-spec']).toBe('code:코드, name:이름, secret:비밀:hidden')
+    expect(comp.attributes!['data-query-id']).toBe('MDM.PlantList')
+    expect(componentToLayout(comp)).toEqual(node)
+  })
+
+  it('컬럼 없는 그리드는 spec 미기록, columns 미복원', () => {
+    const node: LayoutNode = { kind: 'grid', id: 'g2', queryId: 'Q' }
+    const comp = layoutToComponent(node)
+    expect(comp.attributes!['data-columns-spec']).toBeUndefined()
+    const back = componentToLayout(comp) as Extract<LayoutNode, { kind: 'grid' }>
+    expect(back.columns).toBeUndefined()
+    expect(back.queryId).toBe('Q')
+  })
+})
+
 describe('정의 직렬화', () => {
   it('buildDefinitionJson은 §5 형식(camelCase·평면 필드 빈 배열·layout 포함)을 만든다', () => {
     const json = buildDefinitionJson('PLANT_MGMT', '공장 관리', golden)

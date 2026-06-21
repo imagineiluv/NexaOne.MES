@@ -1,5 +1,5 @@
 import type {
-  LayoutNode, GrapesNode, FieldDefinition, GridColumnDefinition,
+  LayoutNode, GrapesNode, FieldDefinition, FieldType, GridColumnDefinition,
   FieldWidget, ScreenDefinitionDto,
 } from './layout'
 
@@ -35,16 +35,28 @@ export function layoutToComponent(node: LayoutNode): GrapesNode {
       break
     case 'grid':
       if (node.queryId != null) attributes['data-query-id'] = node.queryId
-      if (node.columns != null) attributes['data-columns'] = JSON.stringify(node.columns)
+      // columns → 트레이트 편집 가능한 이산 spec 문자열(data-columns JSON blob 폐기, 단일 출처=트레이트).
+      if (node.columns != null) attributes['data-columns-spec'] = columnsToSpec(node.columns)
       break
     case 'form':
       if (node.saveQueryId != null) attributes['data-save-query-id'] = node.saveQueryId
       comp.components = (node.fields ?? []).map(layoutToComponent)
       break
-    case 'field':
-      if (node.fieldKey != null) attributes['data-field-key'] = node.fieldKey
-      if (node.field != null) attributes['data-field'] = JSON.stringify(node.field)
+    case 'field': {
+      // FieldDefinition 전체를 이산 data-field-* 속성으로 분해(data-field JSON blob 폐기, 단일 출처=트레이트).
+      // 의미 있는 값만 기록(부재 옵셔널은 빈 문자열 미기록 — 기존 조건부 속성 스타일 유지).
+      const f = node.field
+      const key = f?.key ?? node.fieldKey ?? undefined
+      if (key != null) attributes['data-field-key'] = key
+      if (f != null) {
+        if (f.label != null) attributes['data-field-label'] = f.label
+        if (f.type != null) attributes['data-field-type'] = f.type
+        if (f.required) attributes['data-field-required'] = true
+        if (f.readOnly) attributes['data-field-readonly'] = true
+        if (f.options != null && f.options.length > 0) attributes['data-field-options'] = f.options.join(',')
+      }
       break
+    }
     case 'commandButton':
       attributes['data-label'] = node.label
       if (node.command != null) attributes['data-command'] = node.command
@@ -61,10 +73,34 @@ function str(a: Record<string, unknown> | undefined, k: string): string | undefi
   const v = a?.[k]
   return typeof v === 'string' ? v : undefined
 }
-function jsonAttr<T>(a: Record<string, unknown> | undefined, k: string): T | undefined {
+function bool(a: Record<string, unknown> | undefined, k: string): boolean {
   const v = a?.[k]
-  if (typeof v !== 'string') return undefined
-  try { return JSON.parse(v) as T } catch { return undefined }
+  if (typeof v === 'boolean') return v
+  if (typeof v === 'string') return v === 'true' || v === '1'
+  return false
+}
+
+const FIELD_TYPES: readonly FieldType[] = ['Text', 'Number', 'Boolean', 'Date', 'Select']
+function asFieldType(v: string | undefined): FieldType {
+  return v != null && (FIELD_TYPES as readonly string[]).includes(v) ? (v as FieldType) : 'Text'
+}
+
+// columns ↔ data-columns-spec 직렬화. 형식: 콤마 구분 `key:caption` 쌍, visible=false면 `:hidden` 부가.
+// 예) `code:코드, name:이름, secret:비밀:hidden`. 한계(Phase 2 인정): 콤마(쌍 구분자)·콜론(필드 구분자)을
+// 포함한 key/caption은 표현 불가 — 그런 경우 JSON 평면 임포트(flatToLayout) 경로를 쓴다.
+function columnsToSpec(cols: GridColumnDefinition[]): string {
+  return cols.map(c => {
+    const base = `${c.key}:${c.caption}`
+    return c.visible === false ? `${base}:hidden` : base
+  }).join(', ')
+}
+function specToColumns(spec: string | undefined): GridColumnDefinition[] {
+  if (spec == null) return []
+  return spec.split(',').map(s => s.trim()).filter(s => s.length > 0).map(s => {
+    const parts = s.split(':').map(p => p.trim())
+    const [key, caption, flag] = parts
+    return { key, caption: caption ?? key, visible: flag !== 'hidden' }
+  })
 }
 
 export function componentToLayout(comp: GrapesNode): LayoutNode | null {
@@ -88,7 +124,8 @@ export function componentToLayout(comp: GrapesNode): LayoutNode | null {
     }
     case 'grid': {
       const queryId = str(a, 'data-query-id')
-      const columns = jsonAttr<GridColumnDefinition[]>(a, 'data-columns')
+      const spec = str(a, 'data-columns-spec')
+      const columns = spec != null ? specToColumns(spec) : undefined
       return { kind, ...base, ...(queryId != null ? { queryId } : {}), ...(columns != null ? { columns } : {}) }
     }
     case 'form': {
@@ -98,7 +135,25 @@ export function componentToLayout(comp: GrapesNode): LayoutNode | null {
     }
     case 'field': {
       const fieldKey = str(a, 'data-field-key')
-      const field = jsonAttr<FieldDefinition>(a, 'data-field')
+      // 이산 data-field-* 속성에서 FieldDefinition 조립. label/type/options 등 키 외 속성이 하나라도 있으면
+      // 완전한 field를 만든다(key→fieldKey 폴백, label→key 폴백, type 기본 Text, required/readOnly 기본 false,
+      // options는 콤마 구분·빈 값이면 null). 키만 있는 베어 필드는 field 없이 fieldKey만 유지(하위호환).
+      const label = str(a, 'data-field-label')
+      const type = str(a, 'data-field-type')
+      const optsRaw = str(a, 'data-field-options')
+      const required = bool(a, 'data-field-required')
+      const readOnly = bool(a, 'data-field-readonly')
+      const hasFieldAttr = label != null || type != null || optsRaw != null || required || readOnly
+      let field: FieldDefinition | undefined
+      if (hasFieldAttr) {
+        const key = fieldKey ?? ''
+        const options = optsRaw != null && optsRaw.trim().length > 0
+          ? optsRaw.split(',').map(o => o.trim()).filter(o => o.length > 0)
+          : null
+        field = {
+          key, label: label ?? key, type: asFieldType(type), required, readOnly, options,
+        }
+      }
       return { kind, ...base, ...(fieldKey != null ? { fieldKey } : {}), ...(field != null ? { field } : {}) }
     }
     case 'commandButton': {
