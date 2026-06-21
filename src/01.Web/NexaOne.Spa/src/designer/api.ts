@@ -1,20 +1,20 @@
 // 디자이너 ↔ Phase 5a 게이트웨이 클라이언트. 화면정의 로드/저장은 SYS 쿼리/커맨드(SQL 열은 대문자),
 // 카탈로그(/api/v1/sys/queries)는 camelCase. apiFetch가 Bearer 부착·401 refresh·!ok throw를 처리.
 import { apiFetch } from '../api/client'
-import type { LayoutNode } from './layout'
+import type { LayoutNode, ScreenDefinitionDto } from './layout'
 import { buildDefinitionJson, parseDefinition } from './mapping'
 
 interface ScreenDefRow { UI_ID?: string; TITLE?: string; DEFINITION_JSON?: string }
 interface AffectedRows { affected: number }
 interface QueryDescriptor { id: string; isWrite: boolean; requiredPermission: string | null }
 
-export async function loadDefinition(uiId: string): Promise<{ title: string; layout: LayoutNode | null }> {
+export async function loadDefinition(uiId: string): Promise<{ title: string; layout: LayoutNode | null; flat: ScreenDefinitionDto | null }> {
   const rows = await apiFetch<ScreenDefRow[]>('/api/v1/query/SYS.GetScreenDefinition', {
     method: 'POST',
     body: JSON.stringify({ uiId }),
   })
   const json = rows[0]?.DEFINITION_JSON
-  if (!json) return { title: rows[0]?.TITLE ?? '', layout: null }
+  if (!json) return { title: rows[0]?.TITLE ?? '', layout: null, flat: null }
   return parseDefinition(json)
 }
 

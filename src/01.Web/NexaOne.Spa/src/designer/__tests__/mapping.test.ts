@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import type { LayoutNode } from '../layout'
-import { layoutToComponent, componentToLayout, buildDefinitionJson, parseDefinition } from '../mapping'
+import type { LayoutNode, ScreenDefinitionDto } from '../layout'
+import { layoutToComponent, componentToLayout, buildDefinitionJson, parseDefinition, flatToLayout } from '../mapping'
+
+// 부분 속성으로 평면 dto를 만드는 테스트 헬퍼(미지정은 빈 기본값).
+function dto(p: Partial<ScreenDefinitionDto>): ScreenDefinitionDto {
+  return {
+    uiId: '', title: '', fields: [], columns: null, queryId: null, saveQueryId: null, layout: null,
+    ...p,
+  }
+}
 
 const golden: LayoutNode = {
   kind: 'section', id: 'sec-root', title: '공장 마스터',
@@ -60,11 +68,112 @@ describe('정의 직렬화', () => {
   })
 
   it('parseDefinition은 깨진 JSON에 null layout 반환(throw 금지)', () => {
-    expect(parseDefinition('not json')).toEqual({ title: '', layout: null })
+    expect(parseDefinition('not json')).toEqual({ title: '', layout: null, flat: null })
   })
 
   it('parseDefinition은 layout 없는 레거시 평면 정의에 layout=null', () => {
     const json = JSON.stringify({ uiId: 'L', title: '레거시', fields: [], columns: null })
-    expect(parseDefinition(json)).toEqual({ title: '레거시', layout: null })
+    expect(parseDefinition(json)).toMatchObject({ title: '레거시', layout: null })
+  })
+})
+
+describe('flatToLayout — 레거시 평면 정의→레이아웃 합성(단방향)', () => {
+  type Section = Extract<LayoutNode, { kind: 'section' }>
+  type Row = Extract<LayoutNode, { kind: 'row' }>
+  type Column = Extract<LayoutNode, { kind: 'column' }>
+
+  it('그리드만(columns만, fields 없음)이면 단일열 span12', () => {
+    const out = flatToLayout(dto({
+      uiId: 'G', title: '그리드화면', queryId: 'MDM.PlantList',
+      columns: [{ key: 'PLANT_ID', caption: '공장 ID', visible: true }],
+    })) as Section
+    expect(out.kind).toBe('section')
+    expect(out.title).toBe('그리드화면')
+    const row = out.children![0] as Row
+    expect(row.kind).toBe('row')
+    expect(row.children).toHaveLength(1)
+    const col = row.children![0] as Column
+    expect(col.kind).toBe('column')
+    expect(col.span).toBe(12)
+    expect(col.children![0]).toMatchObject({ kind: 'grid', queryId: 'MDM.PlantList' })
+  })
+
+  it('폼만(fields만)이면 단일열 span12 + saveQueryId면 저장버튼', () => {
+    const out = flatToLayout(dto({
+      uiId: 'F', title: '폼화면', saveQueryId: 'MDM.CreatePlant',
+      fields: [{ key: 'plantId', label: '공장 ID', type: 'Text', required: true, readOnly: false, options: null }],
+    })) as Section
+    const row = out.children![0] as Row
+    expect(row.children).toHaveLength(1)
+    const col = row.children![0] as Column
+    expect(col.span).toBe(12)
+    expect(col.children![0]).toMatchObject({ kind: 'form', saveQueryId: 'MDM.CreatePlant' })
+    expect(col.children![1]).toMatchObject({ kind: 'commandButton', label: '저장', command: 'MDM.CreatePlant' })
+  })
+
+  it('폼만 + saveQueryId 없으면 저장버튼 미생성', () => {
+    const out = flatToLayout(dto({
+      uiId: 'F2', title: '폼만', saveQueryId: null,
+      fields: [{ key: 'k', label: 'L', type: 'Text', required: false, readOnly: false, options: null }],
+    })) as Section
+    const col = (out.children![0] as Row).children![0] as Column
+    expect(col.children).toHaveLength(1)
+    expect(col.children![0]).toMatchObject({ kind: 'form' })
+  })
+
+  it('그리드+폼 둘 다면 2열(7/5)', () => {
+    const out = flatToLayout(dto({
+      uiId: 'B', title: '둘다', queryId: 'MDM.PlantList', saveQueryId: 'MDM.CreatePlant',
+      columns: [{ key: 'PLANT_ID', caption: '공장 ID', visible: true }],
+      fields: [{ key: 'plantId', label: '공장 ID', type: 'Text', required: true, readOnly: false, options: null }],
+    })) as Section
+    const row = out.children![0] as Row
+    expect(row.children).toHaveLength(2)
+    const gridCol = row.children![0] as Column
+    const formCol = row.children![1] as Column
+    expect(gridCol.span).toBe(7)
+    expect(gridCol.children![0]).toMatchObject({ kind: 'grid' })
+    expect(formCol.span).toBe(5)
+    expect(formCol.children![0]).toMatchObject({ kind: 'form' })
+    expect(formCol.children![1]).toMatchObject({ kind: 'commandButton', command: 'MDM.CreatePlant' })
+  })
+
+  it('그리드·폼 둘 다 없으면 빈 섹션(children=[])', () => {
+    const out = flatToLayout(dto({ uiId: 'E', title: '빈화면' })) as Section
+    expect(out).toMatchObject({ kind: 'section', title: '빈화면', children: [] })
+  })
+
+  it('columns 비고 queryId만이면 그리드 미생성(빈 섹션)', () => {
+    const out = flatToLayout(dto({ uiId: 'Q', title: 'queryId만', queryId: 'MDM.PlantList', columns: [] })) as Section
+    expect(out.children).toEqual([])
+  })
+
+  it('5속성 field 라운드트립 무손실(componentToLayout(layoutToComponent(out)) === out)', () => {
+    const out = flatToLayout(dto({
+      uiId: 'RT', title: '라운드트립', queryId: 'MDM.PlantList', saveQueryId: 'MDM.CreatePlant',
+      columns: [{ key: 'PLANT_ID', caption: '공장 ID', visible: true }],
+      fields: [{ key: 'plantId', label: '공장 ID', type: 'Text', required: true, readOnly: false, options: null }],
+    }))
+    const back = componentToLayout(layoutToComponent(out))
+    expect(back).toEqual(out)
+  })
+
+  it('모든 노드에 결정론적 id가 부여된다', () => {
+    const out = flatToLayout(dto({
+      uiId: 'IDS', queryId: 'Q', saveQueryId: 'S',
+      columns: [{ key: 'C', caption: 'c', visible: true }],
+      fields: [{ key: 'fk', label: 'L', type: 'Text', required: false, readOnly: false, options: null }],
+    })) as Section
+    expect(out.id).toBe('sec-IDS')
+    const row = out.children![0] as Row
+    expect(row.id).toBe('row-IDS')
+    const gridCol = row.children![0] as Column
+    const formCol = row.children![1] as Column
+    expect(gridCol.id).toBe('col-grid-IDS')
+    expect(gridCol.children![0].id).toBe('grid-IDS')
+    expect(formCol.id).toBe('col-form-IDS')
+    expect(formCol.children![0].id).toBe('form-IDS')
+    expect(formCol.children![0].kind === 'form' && formCol.children![0].fields![0].id).toBe('fld-fk')
+    expect(formCol.children![1].id).toBe('btn-save-IDS')
   })
 })

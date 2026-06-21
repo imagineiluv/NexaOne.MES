@@ -28,7 +28,7 @@ describe('디자이너 API 클라이언트', () => {
   it('loadDefinition은 빈 결과(신규 화면)에 layout=null', async () => {
     fetchMock.mockReturnValueOnce(ok([]))
     const res = await loadDefinition('NEW')
-    expect(res).toEqual({ title: '', layout: null })
+    expect(res).toEqual({ title: '', layout: null, flat: null })
   })
 
   it('saveDefinition은 command 엔드포인트에 {uiId,title,definitionJson}을 보낸다', async () => {

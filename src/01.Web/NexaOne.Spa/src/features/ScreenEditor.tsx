@@ -7,7 +7,7 @@ import 'grapesjs/dist/css/grapes.min.css'
 import { getAccessToken } from '../api/client'
 import { hasPermission } from '../auth/jwt'
 import { loadDefinition, saveDefinition, listQueries } from '../designer/api'
-import { layoutToComponent, componentToLayout } from '../designer/mapping'
+import { layoutToComponent, componentToLayout, flatToLayout } from '../designer/mapping'
 import {
   buildEditorConfig, BLOCK_DEFS, COMPONENT_TYPE_DEFS, buildTraitDefs, toModelDefaults, type QueryCatalog,
 } from '../designer/grapesConfig'
@@ -44,7 +44,7 @@ export function ScreenEditor() {
 
     listQueries()
       .then((cat: QueryCatalog) => {
-        if (disposed) return { title: '', layout: null as LayoutNode | null }
+        if (disposed) return { title: '', layout: null as LayoutNode | null, flat: null }
         const traits = buildTraitDefs(cat)
         for (const c of COMPONENT_TYPE_DEFS) {
           // 중첩 규칙은 문자열(CSS 셀렉터)이 아니라 type 기반 함수(toModelDefaults)로 줘야 드롭이 동작한다.
@@ -55,13 +55,14 @@ export function ScreenEditor() {
         for (const b of BLOCK_DEFS) {
           editor.BlockManager.add(b.id, { label: b.label, content: b.content as ComponentDefinition })
         }
-        return uiId ? loadDefinition(uiId) : { title: '', layout: null as LayoutNode | null }
+        return uiId ? loadDefinition(uiId) : { title: '', layout: null as LayoutNode | null, flat: null }
       })
-      .then(({ title: loaded, layout }) => {
+      .then(({ title: loaded, layout, flat }) => {
         if (disposed) return
         setTitle(loaded || (uiId ?? ''))
-        const root: GrapesNode = layout
-          ? layoutToComponent(layout)
+        const effective: LayoutNode | null = layout ?? (flat ? flatToLayout(flat) : null)
+        const root: GrapesNode = effective
+          ? layoutToComponent(effective)
           : { type: 'nx-section', attributes: {}, components: [] }
         editor.setComponents([root] as ComponentAdd)
         setStatus('준비됨')

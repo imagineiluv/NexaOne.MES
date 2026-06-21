@@ -118,11 +118,40 @@ export function buildDefinitionJson(uiId: string, title: string, layout: LayoutN
   return JSON.stringify(dto)
 }
 
-export function parseDefinition(json: string): { title: string; layout: LayoutNode | null } {
+export function parseDefinition(json: string): { title: string; layout: LayoutNode | null; flat: ScreenDefinitionDto | null } {
   try {
     const dto = JSON.parse(json) as Partial<ScreenDefinitionDto>
-    return { title: dto.title ?? '', layout: (dto.layout as LayoutNode | undefined) ?? null }
+    const flat: ScreenDefinitionDto = {
+      uiId: dto.uiId ?? '', title: dto.title ?? '',
+      fields: Array.isArray(dto.fields) ? dto.fields : [],
+      columns: dto.columns ?? null, queryId: dto.queryId ?? null, saveQueryId: dto.saveQueryId ?? null,
+      layout: (dto.layout as LayoutNode | undefined) ?? null,
+    }
+    return { title: flat.title, layout: flat.layout ?? null, flat }
   } catch {
-    return { title: '', layout: null }
+    return { title: '', layout: null, flat: null }
   }
+}
+
+// 레거시 평면 정의(layout 없음)를 디자이너 편집용 기본 LayoutNode 트리로 합성(단방향, Phase 2).
+// columns(1개↑)→그리드; fields(1개↑)→폼(+saveQueryId면 저장버튼); 둘 다면 2열(7/5), 하나면 12, 둘 다 없으면 빈 섹션.
+export function flatToLayout(dto: ScreenDefinitionDto): LayoutNode {
+  const uid = dto.uiId && dto.uiId.length > 0 ? dto.uiId : 'gen'
+  const hasGrid = Array.isArray(dto.columns) && dto.columns.length > 0
+  const hasForm = Array.isArray(dto.fields) && dto.fields.length > 0
+  if (!hasGrid && !hasForm)
+    return { kind: 'section', id: `sec-${uid}`, ...(dto.title ? { title: dto.title } : {}), children: [] }
+
+  const cols: LayoutNode[] = []
+  if (hasGrid) {
+    const grid: LayoutNode = { kind: 'grid', id: `grid-${uid}`, queryId: dto.queryId ?? null, columns: dto.columns as GridColumnDefinition[] }
+    cols.push({ kind: 'column', id: `col-grid-${uid}`, span: hasForm ? 7 : 12, children: [grid] })
+  }
+  if (hasForm) {
+    const fields: FieldWidget[] = (dto.fields).map((f: FieldDefinition) => ({ kind: 'field', id: `fld-${f.key}`, fieldKey: f.key, field: f }))
+    const formChildren: LayoutNode[] = [{ kind: 'form', id: `form-${uid}`, saveQueryId: dto.saveQueryId ?? null, fields }]
+    if (dto.saveQueryId) formChildren.push({ kind: 'commandButton', id: `btn-save-${uid}`, label: '저장', command: dto.saveQueryId })
+    cols.push({ kind: 'column', id: `col-form-${uid}`, span: hasGrid ? 5 : 12, children: formChildren })
+  }
+  return { kind: 'section', id: `sec-${uid}`, ...(dto.title ? { title: dto.title } : {}), children: [{ kind: 'row', id: `row-${uid}`, children: cols }] }
 }
