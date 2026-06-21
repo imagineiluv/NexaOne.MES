@@ -24,7 +24,7 @@ public sealed class QueryCatalogController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public IActionResult List()
     {
-        if (!HasPermission(Permissions.SysManage)) return Forbid();
+        if (!User.HasPermission(Permissions.SysManage)) return Forbid();
         var items = new List<QueryDescriptor>();
         foreach (var id in _registry.Ids)
             if (_registry.TryGet(id, out var def) && def is not null)
@@ -33,9 +33,6 @@ public sealed class QueryCatalogController : ControllerBase
         return Ok(items);
     }
 
-    private bool HasPermission(string permission) =>
-        User.FindAll(Permissions.ClaimType)
-            .Any(c => c.Value == Permissions.All || string.Equals(c.Value, permission, StringComparison.OrdinalIgnoreCase));
 }
 
 public sealed record QueryDescriptor(string Id, bool IsWrite, string? RequiredPermission);

@@ -30,7 +30,7 @@ public sealed class ShpBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreateOrder([FromBody] CreateDeliveryOrderRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.ShpManage)) return Forbid();
+        if (!User.HasPermission(Permissions.ShpManage)) return Forbid();
         return (await _bridge.CreateOrderAsync(req.OrderId, req.CustomerName, req.PlantId, req.RequestedDate, ct)).ToActionResult();
     }
 
@@ -40,7 +40,7 @@ public sealed class ShpBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> ConfirmOrder(string orderId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.ShpManage)) return Forbid();
+        if (!User.HasPermission(Permissions.ShpManage)) return Forbid();
         return (await _bridge.ConfirmOrderAsync(orderId, ct)).ToActionResult();
     }
 
@@ -50,7 +50,7 @@ public sealed class ShpBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> ShipOrder(string orderId, [FromBody] ShipDeliveryOrderRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.ShpManage)) return Forbid();
+        if (!User.HasPermission(Permissions.ShpManage)) return Forbid();
         return (await _bridge.ShipOrderAsync(orderId, req.ShippedDate, ct)).ToActionResult();
     }
 
@@ -60,13 +60,10 @@ public sealed class ShpBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CancelOrder(string orderId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.ShpManage)) return Forbid();
+        if (!User.HasPermission(Permissions.ShpManage)) return Forbid();
         return (await _bridge.CancelOrderAsync(orderId, ct)).ToActionResult();
     }
 
-    private bool HasPermission(string permission) =>
-        User.FindAll(Permissions.ClaimType)
-            .Any(c => c.Value == Permissions.All || string.Equals(c.Value, permission, StringComparison.OrdinalIgnoreCase));
 }
 
 public record CreateDeliveryOrderRequest(string OrderId, string CustomerName, string PlantId, DateTime RequestedDate);

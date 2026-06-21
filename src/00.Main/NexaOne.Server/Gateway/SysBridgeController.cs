@@ -33,7 +33,7 @@ public sealed class SysBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreateRole([FromBody] CreateRoleRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.SysManage)) return Forbid();
+        if (!User.HasPermission(Permissions.SysManage)) return Forbid();
         return (await _bridge.CreateRoleAsync(req.RoleId, req.RoleName, req.Description, ct)).ToActionResult();
     }
 
@@ -43,7 +43,7 @@ public sealed class SysBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> AddPermission(string roleId, [FromBody] PermissionRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.SysManage)) return Forbid();
+        if (!User.HasPermission(Permissions.SysManage)) return Forbid();
         return (await _bridge.AddPermissionAsync(roleId, req.Permission, ct)).ToActionResult();
     }
 
@@ -53,7 +53,7 @@ public sealed class SysBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> RemovePermission(string roleId, [FromBody] PermissionRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.SysManage)) return Forbid();
+        if (!User.HasPermission(Permissions.SysManage)) return Forbid();
         return (await _bridge.RemovePermissionAsync(roleId, req.Permission, ct)).ToActionResult();
     }
 
@@ -66,8 +66,8 @@ public sealed class SysBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> RejectRequest(string requestId, [FromBody] RejectRequestRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.SysManage)) return Forbid();
-        var rejectedBy = User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "SYSTEM";
+        if (!User.HasPermission(Permissions.SysManage)) return Forbid();
+        var rejectedBy = User.CurrentUserId() ?? "SYSTEM";
         return (await _bridge.RejectRequestAsync(requestId, rejectedBy, req.Reason, ct)).ToActionResult();
     }
 
@@ -79,13 +79,10 @@ public sealed class SysBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> DeactivateUser(string userId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.SysManage)) return Forbid();
+        if (!User.HasPermission(Permissions.SysManage)) return Forbid();
         return (await _bridge.DeactivateUserAsync(userId, ct)).ToActionResult();
     }
 
-    private bool HasPermission(string permission) =>
-        User.FindAll(Permissions.ClaimType)
-            .Any(c => c.Value == Permissions.All || string.Equals(c.Value, permission, StringComparison.OrdinalIgnoreCase));
 }
 
 public record CreateRoleRequest(string RoleId, string RoleName, string Description);

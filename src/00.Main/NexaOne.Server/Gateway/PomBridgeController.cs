@@ -28,7 +28,7 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreatePlan([FromBody] CreateProductionPlanRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.PomManage)) return Forbid();
+        if (!User.HasPermission(Permissions.PomManage)) return Forbid();
         return (await _bridge.CreatePlanAsync(
             req.PlanId, req.PlanName, req.PlantId, req.ProductId, req.PlannedQty,
             req.PlannedStartDate, req.PlannedEndDate, ct)).ToActionResult();
@@ -41,7 +41,7 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> ReleasePlan(string planId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.PomManage)) return Forbid();
+        if (!User.HasPermission(Permissions.PomManage)) return Forbid();
         return (await _bridge.ReleasePlanAsync(planId, ct)).ToActionResult();
     }
 
@@ -52,7 +52,7 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> StartPlan(string planId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.PomManage)) return Forbid();
+        if (!User.HasPermission(Permissions.PomManage)) return Forbid();
         return (await _bridge.StartPlanAsync(planId, ct)).ToActionResult();
     }
 
@@ -63,7 +63,7 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CompletePlan(string planId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.PomManage)) return Forbid();
+        if (!User.HasPermission(Permissions.PomManage)) return Forbid();
         return (await _bridge.CompletePlanAsync(planId, ct)).ToActionResult();
     }
 
@@ -74,7 +74,7 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CancelPlan(string planId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.PomManage)) return Forbid();
+        if (!User.HasPermission(Permissions.PomManage)) return Forbid();
         return (await _bridge.CancelPlanAsync(planId, ct)).ToActionResult();
     }
 
@@ -86,7 +86,7 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreateOrder([FromBody] CreateProductionOrderRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.PomManage)) return Forbid();
+        if (!User.HasPermission(Permissions.PomManage)) return Forbid();
         return (await _bridge.CreateOrderAsync(
             req.OrderId, req.PlanId, req.EquipmentId, req.ProductId, req.OrderQty,
             req.ScheduledStart, req.ScheduledEnd, ct)).ToActionResult();
@@ -99,7 +99,7 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> StartOrder(string orderId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.PomManage)) return Forbid();
+        if (!User.HasPermission(Permissions.PomManage)) return Forbid();
         return (await _bridge.StartOrderAsync(orderId, ct)).ToActionResult();
     }
 
@@ -111,7 +111,7 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CompleteOrder(string orderId, [FromBody] CompleteProductionOrderRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.PomManage)) return Forbid();
+        if (!User.HasPermission(Permissions.PomManage)) return Forbid();
         return (await _bridge.CompleteOrderAsync(orderId, req.ActualQty, ct)).ToActionResult();
     }
 
@@ -122,7 +122,7 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CancelOrder(string orderId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.PomManage)) return Forbid();
+        if (!User.HasPermission(Permissions.PomManage)) return Forbid();
         return (await _bridge.CancelOrderAsync(orderId, ct)).ToActionResult();
     }
 
@@ -137,7 +137,7 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreateLot([FromBody] CreateLotRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.PomManage)) return Forbid();
+        if (!User.HasPermission(Permissions.PomManage)) return Forbid();
         return (await _bridge.CreateLotAsync(
             req.PlantId, req.LotId, req.WorkOrderId, req.ProductId, req.Qty, req.RouteSteps ?? [], CurrentUserId, ct))
             .ToActionResult();
@@ -151,7 +151,7 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> TrackIn(string lotId, [FromBody] TrackInRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.PomManage)) return Forbid();
+        if (!User.HasPermission(Permissions.PomManage)) return Forbid();
         return (await _bridge.TrackInAsync(
             req.PlantId, lotId, req.EquipmentId, req.RecipeDefId, req.RecipeDefVersion, CurrentUserId, ct))
             .ToActionResult();
@@ -165,7 +165,7 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> TrackOut(string lotId, [FromBody] TrackOutRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.PomManage)) return Forbid();
+        if (!User.HasPermission(Permissions.PomManage)) return Forbid();
         return (await _bridge.TrackOutAsync(
             req.PlantId, lotId, req.EquipmentId, req.Qty, req.Defects, req.CarrierId, CurrentUserId, ct))
             .ToActionResult();
@@ -178,7 +178,7 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> HoldLot(string lotId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.PomManage)) return Forbid();
+        if (!User.HasPermission(Permissions.PomManage)) return Forbid();
         return (await _bridge.HoldLotAsync(lotId, CurrentUserId, ct)).ToActionResult();
     }
 
@@ -189,17 +189,11 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> ReleaseLot(string lotId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.PomManage)) return Forbid();
+        if (!User.HasPermission(Permissions.PomManage)) return Forbid();
         return (await _bridge.ReleaseLotHoldAsync(lotId, CurrentUserId, ct)).ToActionResult();
     }
 
-    private string CurrentUserId =>
-        User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-        ?? User.Identity?.Name ?? "SYSTEM";
-
-    private bool HasPermission(string permission) =>
-        User.FindAll(Permissions.ClaimType)
-            .Any(c => c.Value == Permissions.All || string.Equals(c.Value, permission, StringComparison.OrdinalIgnoreCase));
+    private string CurrentUserId => User.CurrentUserId() ?? "SYSTEM";
 }
 
 public record CreateProductionPlanRequest(

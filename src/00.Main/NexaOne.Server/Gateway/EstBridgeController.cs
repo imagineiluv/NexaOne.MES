@@ -41,7 +41,7 @@ public sealed class EstBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> UpsertMatrix([FromBody] UpsertMatrixRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.EstManage)) return Forbid();
+        if (!User.HasPermission(Permissions.EstManage)) return Forbid();
         var result = await _bridge.UpsertMatrixAsync(
             req.PlantId, req.FromStateId, req.ToStateId, req.AllowFlag, req.SetStateId, req.RequireReason, ct);
         return result.ToActionResult();
@@ -59,7 +59,7 @@ public sealed class EstBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> ChangeState([FromBody] ChangeStateRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.EstManage)) return Forbid();
+        if (!User.HasPermission(Permissions.EstManage)) return Forbid();
         // requestedBy는 토큰 주체에서 취한다(비-부인성). 감사 사용자는 AuditUserContextMiddleware가 CurrentUserContext에 이미 설정.
         var result = await _bridge.ChangeStateAsync(
             req.EquipmentId, req.PlantId, req.ToState, CurrentUserId, req.Reason, "UI", req.ExpectedVersion, ct);
@@ -89,7 +89,7 @@ public sealed class EstBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> RecordAlarm([FromBody] RecordAlarmRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.EstManage)) return Forbid();
+        if (!User.HasPermission(Permissions.EstManage)) return Forbid();
         var result = await _alarmBridge.RecordAlarmAsync(
             req.AlarmId, req.EquipmentId, req.AlarmCode, req.AlarmName, req.Level, ct);
         return result.ToActionResult();
@@ -101,18 +101,12 @@ public sealed class EstBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> ClearAlarm(string alarmId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.EstManage)) return Forbid();
+        if (!User.HasPermission(Permissions.EstManage)) return Forbid();
         var result = await _alarmBridge.ClearAlarmAsync(alarmId, DateTime.UtcNow, ct);
         return result.ToActionResult();
     }
 
-    private string CurrentUserId =>
-        User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-        ?? User.Identity?.Name ?? "SYSTEM";
-
-    private bool HasPermission(string permission) =>
-        User.FindAll(Permissions.ClaimType)
-            .Any(c => c.Value == Permissions.All || string.Equals(c.Value, permission, StringComparison.OrdinalIgnoreCase));
+    private string CurrentUserId => User.CurrentUserId() ?? "SYSTEM";
 }
 
 public record ChangeStateRequest(string EquipmentId, string PlantId, string ToState, string? Reason, int? ExpectedVersion);

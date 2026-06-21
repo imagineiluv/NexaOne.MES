@@ -35,7 +35,7 @@ public sealed class MdmBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> CreateEquipment([FromBody] CreateEquipmentRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.MdmManage)) return Forbid();
+        if (!User.HasPermission(Permissions.MdmManage)) return Forbid();
         return (await _equipment.CreateEquipmentAsync(
             req.EquipmentId, req.EquipmentName, req.PlantId, req.AreaId, req.EquipmentType,
             req.ParentEquipmentId, req.Vendor ?? "", req.Model ?? "", req.EquipmentClassId ?? "", ct)).ToActionResult();
@@ -47,7 +47,7 @@ public sealed class MdmBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeactivateEquipment(string equipmentId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.MdmManage)) return Forbid();
+        if (!User.HasPermission(Permissions.MdmManage)) return Forbid();
         return (await _equipment.DeactivateEquipmentAsync(equipmentId, ct)).ToActionResult();
     }
 
@@ -58,7 +58,7 @@ public sealed class MdmBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateEquipment(string equipmentId, [FromBody] UpdateEquipmentRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.MdmManage)) return Forbid();
+        if (!User.HasPermission(Permissions.MdmManage)) return Forbid();
         return (await _equipment.UpdateEquipmentAsync(
             equipmentId, req.Name, req.Description ?? "", req.EquipmentType, req.Vendor ?? "", req.Model ?? "", ct)).ToActionResult();
     }
@@ -71,7 +71,7 @@ public sealed class MdmBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreatePlant([FromBody] CreatePlantRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.MdmManage)) return Forbid();
+        if (!User.HasPermission(Permissions.MdmManage)) return Forbid();
         return (await _master.CreatePlantAsync(req.PlantId, req.PlantName, req.Country ?? "", req.TimeZone ?? "", ct)).ToActionResult();
     }
 
@@ -81,7 +81,7 @@ public sealed class MdmBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreateArea([FromBody] CreateAreaRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.MdmManage)) return Forbid();
+        if (!User.HasPermission(Permissions.MdmManage)) return Forbid();
         return (await _master.CreateAreaAsync(req.AreaId, req.AreaName, req.PlantId, ct)).ToActionResult();
     }
 
@@ -91,7 +91,7 @@ public sealed class MdmBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreateProduct([FromBody] CreateProductRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.MdmManage)) return Forbid();
+        if (!User.HasPermission(Permissions.MdmManage)) return Forbid();
         return (await _master.CreateProductAsync(req.ProductId, req.ProductName, req.ProductType ?? "", req.Unit ?? "", ct)).ToActionResult();
     }
 
@@ -101,7 +101,7 @@ public sealed class MdmBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreateCodeClass([FromBody] CreateCodeClassRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.MdmManage)) return Forbid();
+        if (!User.HasPermission(Permissions.MdmManage)) return Forbid();
         return (await _master.CreateCodeClassAsync(req.CodeClassId, req.CodeClassName, ct)).ToActionResult();
     }
 
@@ -112,13 +112,10 @@ public sealed class MdmBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> CreateCode([FromBody] CreateCodeRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.MdmManage)) return Forbid();
+        if (!User.HasPermission(Permissions.MdmManage)) return Forbid();
         return (await _master.CreateCodeAsync(req.CodeId, req.CodeClassId, req.CodeName, req.SortOrder, ct)).ToActionResult();
     }
 
-    private bool HasPermission(string permission) =>
-        User.FindAll(Permissions.ClaimType)
-            .Any(c => c.Value == Permissions.All || string.Equals(c.Value, permission, StringComparison.OrdinalIgnoreCase));
 }
 
 public record CreateEquipmentRequest(

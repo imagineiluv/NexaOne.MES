@@ -28,7 +28,7 @@ public sealed class CmmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreateWorkOrder([FromBody] CreateWorkOrderRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.CmmsManage)) return Forbid();
+        if (!User.HasPermission(Permissions.CmmsManage)) return Forbid();
         return (await _bridge.CreateWorkOrderAsync(
             req.WoId, req.EquipmentId, req.WoType, req.Description, req.AssigneeId, ct)).ToActionResult();
     }
@@ -40,7 +40,7 @@ public sealed class CmmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> StartWorkOrder(string woId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.CmmsManage)) return Forbid();
+        if (!User.HasPermission(Permissions.CmmsManage)) return Forbid();
         return (await _bridge.StartWorkOrderAsync(woId, ct)).ToActionResult();
     }
 
@@ -51,7 +51,7 @@ public sealed class CmmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CompleteWorkOrder(string woId, [FromBody] CompleteWorkOrderRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.CmmsManage)) return Forbid();
+        if (!User.HasPermission(Permissions.CmmsManage)) return Forbid();
         return (await _bridge.CompleteWorkOrderAsync(woId, req.Remark, ct)).ToActionResult();
     }
 
@@ -62,7 +62,7 @@ public sealed class CmmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CancelWorkOrder(string woId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.CmmsManage)) return Forbid();
+        if (!User.HasPermission(Permissions.CmmsManage)) return Forbid();
         return (await _bridge.CancelWorkOrderAsync(woId, ct)).ToActionResult();
     }
 
@@ -74,7 +74,7 @@ public sealed class CmmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreatePlan([FromBody] CreateMaintenancePlanRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.CmmsManage)) return Forbid();
+        if (!User.HasPermission(Permissions.CmmsManage)) return Forbid();
         return (await _bridge.CreatePlanAsync(
             req.PlanId, req.PlanName, req.EquipmentId, req.PlanType, req.CycleType,
             req.ScheduledDate, req.EstimatedHours, req.AssigneeId, ct)).ToActionResult();
@@ -87,7 +87,7 @@ public sealed class CmmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> StartPlan(string planId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.CmmsManage)) return Forbid();
+        if (!User.HasPermission(Permissions.CmmsManage)) return Forbid();
         return (await _bridge.StartPlanAsync(planId, ct)).ToActionResult();
     }
 
@@ -98,7 +98,7 @@ public sealed class CmmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CompletePlan(string planId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.CmmsManage)) return Forbid();
+        if (!User.HasPermission(Permissions.CmmsManage)) return Forbid();
         return (await _bridge.CompletePlanAsync(planId, ct)).ToActionResult();
     }
 
@@ -109,7 +109,7 @@ public sealed class CmmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CancelPlan(string planId, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.CmmsManage)) return Forbid();
+        if (!User.HasPermission(Permissions.CmmsManage)) return Forbid();
         return (await _bridge.CancelPlanAsync(planId, ct)).ToActionResult();
     }
 
@@ -121,7 +121,7 @@ public sealed class CmmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreatePart([FromBody] CreateSparePartRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.CmmsManage)) return Forbid();
+        if (!User.HasPermission(Permissions.CmmsManage)) return Forbid();
         return (await _bridge.CreatePartAsync(
             req.PartId, req.PartName, req.PartNumber, req.Description, req.UnitOfMeasure,
             req.CurrentStock, req.MinStock, req.MaxStock, req.Location, req.EquipmentClassId, ct)).ToActionResult();
@@ -134,13 +134,10 @@ public sealed class CmmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> AdjustStock(string partId, [FromBody] AdjustStockRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.CmmsManage)) return Forbid();
+        if (!User.HasPermission(Permissions.CmmsManage)) return Forbid();
         return (await _bridge.AdjustStockAsync(partId, req.Delta, ct)).ToActionResult();
     }
 
-    private bool HasPermission(string permission) =>
-        User.FindAll(Permissions.ClaimType)
-            .Any(c => c.Value == Permissions.All || string.Equals(c.Value, permission, StringComparison.OrdinalIgnoreCase));
 }
 
 public record CreateWorkOrderRequest(string WoId, string EquipmentId, string WoType, string Description, string AssigneeId);

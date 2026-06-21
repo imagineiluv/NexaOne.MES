@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using NexaOne.Application.Messaging;
 using NexaOne.Application.Query;
 using NexaOne.Common;
+using NexaOne.Common.Security;
 
 namespace NexaOne.Server.Gateway;
 
@@ -38,7 +39,7 @@ public sealed partial class QueryGatewayController : ControllerBase
             return NotFound(new Error("QUERY_NOT_FOUND", $"Query '{queryId}' is not registered.", ErrorType.NotFound));
         if (def.IsWrite)
             return BadRequest(new Error("WRITE_QUERY_VIA_QUERY", $"Query '{queryId}' is a write query. Use POST /api/v1/command/{queryId}.", ErrorType.Validation));
-        if (!string.IsNullOrEmpty(def.RequiredPermission) && !HasPermission(def.RequiredPermission))
+        if (!string.IsNullOrEmpty(def.RequiredPermission) && !User.HasPermission(def.RequiredPermission))
             return Forbid();
 
         var p = BuildParameters(def.Sql, parameters, injectAudit: false);
@@ -59,7 +60,7 @@ public sealed partial class QueryGatewayController : ControllerBase
             return NotFound(new Error("QUERY_NOT_FOUND", $"Query '{queryId}' is not registered.", ErrorType.NotFound));
         if (!def.IsWrite)
             return BadRequest(new Error("READ_QUERY_VIA_COMMAND", $"Query '{queryId}' is a read query. Use POST /api/v1/query/{queryId}.", ErrorType.Validation));
-        if (!string.IsNullOrEmpty(def.RequiredPermission) && !HasPermission(def.RequiredPermission))
+        if (!string.IsNullOrEmpty(def.RequiredPermission) && !User.HasPermission(def.RequiredPermission))
             return Forbid();
 
         var p = BuildParameters(def.Sql, parameters, injectAudit: true);
@@ -83,14 +84,7 @@ public sealed partial class QueryGatewayController : ControllerBase
         return p;
     }
 
-    private string CurrentUserId =>
-        User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-        ?? User.Identity?.Name ?? "SYSTEM";
-
-    private bool HasPermission(string permission) =>
-        User.FindAll(NexaOne.Common.Security.Permissions.ClaimType)
-            .Any(c => c.Value == NexaOne.Common.Security.Permissions.All
-                   || string.Equals(c.Value, permission, StringComparison.OrdinalIgnoreCase));
+    private string CurrentUserId => User.CurrentUserId() ?? "SYSTEM";
 
     private static object? JsonToClr(object? value) => value switch
     {

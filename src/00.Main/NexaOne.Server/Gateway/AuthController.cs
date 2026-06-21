@@ -102,7 +102,7 @@ public sealed class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.SysManage)) return Forbid();
+        if (!User.HasPermission(Permissions.SysManage)) return Forbid();
 
         var violation = PasswordPolicy.Validate(request.Password, request.UserId, request.UserName, request.Email);
         if (violation is not null)
@@ -124,10 +124,5 @@ public sealed class AuthController : ControllerBase
         return Ok(new CurrentUserResponse(CurrentUserId, User.Identity?.Name, User.FindFirst("plantId")?.Value, roles));
     }
 
-    private string CurrentUserId =>
-        User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("sub")?.Value ?? string.Empty;
-
-    private bool HasPermission(string permission) =>
-        User.FindAll(Permissions.ClaimType).Any(c =>
-            c.Value == Permissions.All || string.Equals(c.Value, permission, StringComparison.OrdinalIgnoreCase));
+    private string CurrentUserId => User.CurrentUserId() ?? string.Empty;
 }

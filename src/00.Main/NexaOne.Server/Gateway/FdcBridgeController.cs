@@ -28,7 +28,7 @@ public sealed class FdcBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreateParameterGroup([FromBody] CreateFdcParameterGroupRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.FdcManage)) return Forbid();
+        if (!User.HasPermission(Permissions.FdcManage)) return Forbid();
         return (await _bridge.CreateParameterGroupAsync(
             req.GroupId, req.GroupName, req.EquipmentId, req.Description, req.DisplayOrder, ct)).ToActionResult();
     }
@@ -41,7 +41,7 @@ public sealed class FdcBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreateAlarmConfig([FromBody] CreateFdcAlarmConfigRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.FdcManage)) return Forbid();
+        if (!User.HasPermission(Permissions.FdcManage)) return Forbid();
         return (await _bridge.CreateAlarmConfigAsync(
             req.AlarmConfigId, req.EquipmentId, req.ParameterId, req.AlarmLevel, req.Operator, req.Threshold, ct)).ToActionResult();
     }
@@ -54,14 +54,11 @@ public sealed class FdcBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> CreateInterlockRule([FromBody] CreateFdcInterlockRuleRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.FdcManage)) return Forbid();
+        if (!User.HasPermission(Permissions.FdcManage)) return Forbid();
         return (await _bridge.CreateInterlockRuleAsync(
             req.RuleId, req.RuleName, req.EquipmentId, req.ParameterId, req.Operator, req.Threshold, req.Action, req.Priority, ct)).ToActionResult();
     }
 
-    private bool HasPermission(string permission) =>
-        User.FindAll(Permissions.ClaimType)
-            .Any(c => c.Value == Permissions.All || string.Equals(c.Value, permission, StringComparison.OrdinalIgnoreCase));
 }
 
 public record CreateFdcParameterGroupRequest(

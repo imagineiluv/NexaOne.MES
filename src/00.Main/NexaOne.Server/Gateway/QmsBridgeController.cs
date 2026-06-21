@@ -30,7 +30,7 @@ public sealed class QmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> ConfirmDefect(string defectId, [FromBody] ConfirmDefectRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.QmsManage)) return Forbid();
+        if (!User.HasPermission(Permissions.QmsManage)) return Forbid();
         return (await _bridge.ConfirmDefectAsync(defectId, req.ConfirmerId, ct)).ToActionResult();
     }
 
@@ -41,13 +41,10 @@ public sealed class QmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> UpdateControlLimits(string paramId, [FromBody] UpdateControlLimitsRequest req, CancellationToken ct)
     {
-        if (!HasPermission(Permissions.QmsManage)) return Forbid();
+        if (!User.HasPermission(Permissions.QmsManage)) return Forbid();
         return (await _bridge.UpdateControlLimitsAsync(paramId, req.Mean, req.Ucl, req.Lcl, ct)).ToActionResult();
     }
 
-    private bool HasPermission(string permission) =>
-        User.FindAll(Permissions.ClaimType)
-            .Any(c => c.Value == Permissions.All || string.Equals(c.Value, permission, StringComparison.OrdinalIgnoreCase));
 }
 
 public record ConfirmDefectRequest(string ConfirmerId);
