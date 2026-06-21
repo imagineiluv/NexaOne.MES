@@ -29,4 +29,9 @@
     <constructor-arg ref="qmsSpcParamRepository" />
   </object>
 
+  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Qms","qmsBridge")로 IQmsBridge 캐스트. -->
+  <object id="qmsBridge" type="NexaOne.QMS.Application.Qms.QmsBridge, NexaOne.QMS">
+    <constructor-arg ref="qmsService" />
+  </object>
+
 </objects>

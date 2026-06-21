@@ -10,6 +10,7 @@
     <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Application\NexaOne.Application.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\02.Backend\NexaOne.ServiceContracts\NexaOne.ServiceContracts.csproj" />
   </ItemGroup>
 
 </Project>

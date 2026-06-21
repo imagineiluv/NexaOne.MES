@@ -12,6 +12,7 @@ using NexaOne.Infrastructure.Persistence;
 using NexaOne.Server.Components;
 using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Est;
+using NexaOne.ServiceContracts.Qms;
 using NexaOne.ServiceContracts.Rms;
 using NexaOne.ServiceContracts.Shp;
 using NexaOne.Web.Services;
@@ -101,6 +102,13 @@ if (modulesEnabled)
             "shipmentBridge 빈을 IShipmentBridge로 캐스트하지 못했습니다 — "
             + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
     builder.Services.AddSingleton(shipmentBridge);
+
+    // ADR-008 얇은 브리지 — QMS 부적합 확정·SPC 관리한계 갱신. EST/RMS/SHP와 동일 메커니즘(GetBean→캐스트→fail-fast 등록).
+    var qmsBridge = server.GetBean("Qms", "qmsBridge") as IQmsBridge
+        ?? throw new InvalidOperationException(
+            "qmsBridge 빈을 IQmsBridge로 캐스트하지 못했습니다 — "
+            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
+    builder.Services.AddSingleton(qmsBridge);
 }
 else
 {
