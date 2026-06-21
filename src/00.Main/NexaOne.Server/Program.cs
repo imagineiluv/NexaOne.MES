@@ -209,6 +209,8 @@ app.UseMiddleware<NexaOne.Server.Gateway.AuditUserContextMiddleware>();
 if (builder.Configuration.GetValue("RateLimiting:Enabled", true))
     app.UseRateLimiter();
 app.UseAuthorization();
+// 비밀번호 강제 변경(pwdChange) 사용자의 업무 데이터 호출 차단 — 인증 이후, 엔드포인트 실행 이전.
+app.UseMiddleware<NexaOne.Server.Gateway.PasswordChangeRequiredMiddleware>();
 // Blazor 폼/컴포넌트 보호용 안티포저리(설계 §5). [ApiController] JSON 엔드포인트(api/v1/*)는 폼 콘텐츠가 아니라
 // 영향받지 않는다 — 안티포저리는 form-data/urlencoded 또는 명시 [RequireAntiforgeryToken]에만 적용된다.
 app.UseAntiforgery();
