@@ -1,9 +1,9 @@
 name: CI
 
-# 설계 §16.2 빌드 파이프라인 — Restore → Build(Release) → Test.
-# Test 스텝의 'dotnet test NexaOne.sln'은 IntegrationTests 프로젝트도 함께 실행한다:
-# 통합 테스트는 TestApiFactory가 SQLite로 띄워 CI에서 그대로 돈다(실 MSSQL 불필요).
-# 실 하드웨어가 필요한 테스트(예: OPC-UA)만 [Fact(Skip)]로 제외된다.
+# 설계 §16.2 빌드 파이프라인 — SPA(vitest) → Restore → Build(Release) → Test(unit + server, SQLite).
+# 'dotnet test NexaOne.sln'은 NexaOne.UnitTests + NexaOne.ServerTests를 실행한다(SQLite로 동작, 실 MSSQL 불필요).
+# ServerTests의 HostModulesBootSmokeTests가 실 plugin-ALC 부팅을 검증한다. 실 하드웨어 의존 테스트(예: OPC-UA)만 [Fact(Skip)] 제외.
+# (구 IntegrationTests 프로젝트는 폐기됨 — 호스트 경로는 ServerTests, 모듈 도메인은 UnitTests가 커버.)
 
 on:
   push:
@@ -25,29 +25,26 @@ jobs:
         with:
           global-json-file: global.json
 
-      # DevExpress.Blazor 제거 완료 → NexaUI/Tailwind로 교체. NuGet 상용 피드 불필요.
-      # NexaUI 컴포넌트는 Tailwind 클래스를 사용하므로 .NET 빌드 전에 CSS를 생성한다(소스에서 재빌드 → 드리프트 방지).
-      - name: Setup Node (Tailwind CSS)
+      - name: Setup Node (SPA — React/Vite/vitest)
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Build Tailwind CSS (NexaOne.Web)
-        working-directory: src/01.Web/NexaOne.Web
-        run: |
-          npm ci
-          npm run css:build
+      # Pro-Code/디자이너 SPA(React+Vite+TS)는 dotnet 솔루션 밖이라 별도 게이트가 필요하다.
+      # vitest로 단위/통합 회귀(디자이너 매핑·잠금설정·실 에디터 마운트·읽기경로 데이터손실 가드)를, tsc -b(strict)로
+      # 타입 회귀를, vite build로 번들 회귀를 잡는다. 빌드 산출물은 NexaOne.Server/wwwroot/spa로 출력돼(vite base=/spa/)
+      # .NET 배포에 임베드된다(git 미추적 — publish 시 csproj Target이 재생성). package-lock.json 커밋됨 → npm ci 사용.
+      - name: Install SPA deps (NexaOne.Spa)
+        working-directory: src/01.Web/NexaOne.Spa
+        run: npm ci
 
-      # Pro-Code SPA(React+Vite+TS)는 dotnet 솔루션 밖이라 별도 빌드/타입체크 게이트가 필요하다.
-      # tsc -b(strict)로 타입 회귀를, vite build로 번들 회귀를 잡는다. 생성 NSwag 클라이언트는 별도 job에서 만들며,
-      # SPA 소스가 이를 직접 import하지 않아 미생성 상태로도 빌드가 통과한다. build 산출물은 NexaOne.Web/wwwroot/spa로
-      # 출력돼(vite base=/spa/) 이어지는 .NET 빌드/배포에 임베드된다.
-      # package-lock.json 커밋됨 → 재현 가능한 설치를 위해 npm ci 사용.
+      - name: Test SPA (NexaOne.Spa — vitest)
+        working-directory: src/01.Web/NexaOne.Spa
+        run: npm test
+
       - name: Build SPA (NexaOne.Spa — typecheck + bundle)
         working-directory: src/01.Web/NexaOne.Spa
-        run: |
-          npm ci
-          npm run build
+        run: npm run build
 
       - name: Restore
         run: dotnet restore NexaOne.sln
@@ -55,7 +52,7 @@ jobs:
       - name: Build (Release)
         run: dotnet build NexaOne.sln --configuration Release --no-restore
 
-      - name: Test (unit + integration on SQLite) (+ coverage)
+      - name: Test (unit + server on SQLite) (+ coverage)
         run: >
           dotnet test NexaOne.sln --configuration Release --no-build
           --logger "trx;LogFileName=test-results.trx"
