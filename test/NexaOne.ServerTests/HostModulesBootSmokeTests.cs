@@ -24,7 +24,7 @@ public sealed class HostModulesBootSmokeTests
     [Fact]
     public async Task Host_boots_all_nine_modules_workers_and_bridges_in_one_process()
     {
-        using var host = await HostProcess.StartAsync(_o, springConfig: "Spring/server.sqlite.xml", expectListening: true);
+        using var host = await HostProcess.StartAsync(_o, springConfig: "config/host/server.sqlite.xml", expectListening: true);
 
         host.Listening.Should().BeTrue(
             $"modules-ON 호스트가 SQLite로 기동해 Kestrel이 리슨해야 한다 — 로그:\n{host.Log}");
@@ -52,7 +52,7 @@ public sealed class HostModulesBootSmokeTests
     {
         // 존재하지 않는 Spring 설정 → CreateServer/스키마 부팅이 throw → 프로세스 비정상 종료.
         // 안전망이 부팅 실패를 '리슨 미도달 + 프로세스 종료'로 검출하는지(거짓 녹색 아님) 검증한다.
-        using var host = await HostProcess.StartAsync(_o, springConfig: "Spring/__does_not_exist__.xml", expectListening: false);
+        using var host = await HostProcess.StartAsync(_o, springConfig: "config/__does_not_exist__.xml", expectListening: false);
 
         host.Listening.Should().BeFalse("부팅 실패 호스트는 리슨에 도달하지 못해야 한다");
         host.Exited.Should().BeTrue("부팅 실패는 프로세스 종료로 드러나야 한다(무음 hang 아님)");

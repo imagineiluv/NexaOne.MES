@@ -39,9 +39,9 @@ var workerCount = 0;
 var modulesEnabled = builder.Configuration.GetValue("Server:Modules:Enabled", true);
 if (modulesEnabled)
 {
-    // Spring 부모 컨텍스트 설정 경로 — 기본은 운영 server.xml(MSSQL). 테스트/로컬은 Server:SpringConfig로
-    // SQLite 변형(Spring/server.sqlite.xml)을 가리켜 외부 DB 없이 modules-ON 부팅을 검증한다(데이터소스만 다른 동일 빈 집합).
-    var springConfig = builder.Configuration.GetValue("Server:SpringConfig", "Spring/server.xml")!;
+    // Spring 부모 컨텍스트 설정 경로 — 기본은 운영 config/host/server.xml(MSSQL). 테스트/로컬은 Server:SpringConfig로
+    // SQLite 변형(config/host/server.sqlite.xml)을 가리켜 외부 DB 없이 modules-ON 부팅을 검증한다(데이터소스만 다른 동일 빈 집합).
+    var springConfig = builder.Configuration.GetValue("Server:SpringConfig", "config/host/server.xml")!;
 
     // SQLite 모드면 컨텍스트 생성 전에 스키마를 부트스트랩한다(빈 DB일 때만, idempotent). server.xml의
     // eesDataSource Provider 타입으로 판별 — XML만 바꾸면 자동 적용(MSSQL이면 아무 일도 안 함).
@@ -55,7 +55,7 @@ if (modulesEnabled)
     foreach (IHostedService w in serverCtx.GetObjectsOfType(typeof(IHostedService)).Values.Cast<IHostedService>())
         workers.Add(w);
 
-    var doc = XDomUtility.Load("Spring/app.xml");
+    var doc = XDomUtility.Load("config/app.xml");
     var root = XDomUtility.GetRoot(doc);
     var services = XDomUtility.GetElement(root, "Services");
     var splitOptions = StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries;
