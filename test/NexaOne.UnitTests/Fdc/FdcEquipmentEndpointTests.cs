@@ -63,4 +63,25 @@ public sealed class FdcEquipmentEndpointTests
         e.EndpointUrl.Should().Be("opc.tcp://new:4840");
         e.SamplingIntervalMs.Should().Be(250);
     }
+
+    [Fact]
+    public void Restore_preserves_audit_and_state_without_revalidation()
+    {
+        var created = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        var updated = new DateTime(2026, 2, 3, 4, 5, 6, DateTimeKind.Utc);
+
+        // 영속 후 프로토콜 표기가 AllowedProtocols 밖으로 드리프트해도 Restore는 검증하지 않아 행을 드롭하지 않고 값을 보존한다.
+        var e = FdcEquipmentEndpoint.Restore(
+            "EP1", "EQ-001", "LegacyProto", "tcp://h:1", 750, isActive: false,
+            createdBy: "seeder", createdAt: created, updatedBy: "editor", updatedAt: updated);
+
+        e.Should().NotBeNull();
+        e.Protocol.Should().Be("LegacyProto");   // 검증 없이 보존(읽기 시 행 드롭 없음)
+        e.SamplingIntervalMs.Should().Be(750);
+        e.IsActive.Should().BeFalse();            // 영속 비활성 상태 보존
+        e.CreatedBy.Should().Be("seeder");        // 감사 메타데이터 보존(매 읽기 UtcNow/"" 리셋 없음)
+        e.CreatedAt.Should().Be(created);
+        e.UpdatedBy.Should().Be("editor");
+        e.UpdatedAt.Should().Be(updated);
+    }
 }

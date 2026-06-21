@@ -26,7 +26,7 @@ public sealed class FdcEquipmentEndpointRepository : QueryRepository, IFdcEquipm
             WHERE EQUIPMENT_ID = @equipmentId AND IS_ACTIVE = 1
             ORDER BY ENDPOINT_ID";
         var rows = await QueryAsync<EndpointRow>(sql, new { equipmentId }, ct);
-        return rows.Select(r => r.ToDomain()).OfType<FdcEquipmentEndpoint>().ToList();
+        return rows.Select(r => r.ToDomain()).ToList();
     }
 
     public async Task<IReadOnlyList<FdcEquipmentEndpoint>> GetAllActiveAsync(CancellationToken ct = default)
@@ -35,7 +35,7 @@ public sealed class FdcEquipmentEndpointRepository : QueryRepository, IFdcEquipm
             WHERE IS_ACTIVE = 1
             ORDER BY EQUIPMENT_ID, ENDPOINT_ID";
         var rows = await QueryAsync<EndpointRow>(sql, new { }, ct);
-        return rows.Select(r => r.ToDomain()).OfType<FdcEquipmentEndpoint>().ToList();
+        return rows.Select(r => r.ToDomain()).ToList();
     }
 
     public async Task AddAsync(FdcEquipmentEndpoint endpoint, CancellationToken ct = default)
@@ -67,15 +67,17 @@ public sealed class FdcEquipmentEndpointRepository : QueryRepository, IFdcEquipm
         public string EndpointUrl        { get; set; } = "";
         public int    SamplingIntervalMs { get; set; }
         public bool   IsActive           { get; set; }
+        // 읽기경로 감사 메타데이터 복원용(MatchNamesWithUnderscores로 CREATED_BY→CreatedBy 자동 매핑, SELECT *).
+        public string    CreatedBy { get; set; } = "";
+        public DateTime  CreatedAt { get; set; }
+        public string?   UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
 
-        public FdcEquipmentEndpoint? ToDomain()
-        {
-            var result = FdcEquipmentEndpoint.Create(EndpointId, EquipmentId, Protocol, EndpointUrl, SamplingIntervalMs);
-            if (result.IsFailure) return null;
-            var e = result.Value;
-            if (!IsActive) e.Deactivate();
-            return e;
-        }
+        // Restore로 복원 — Create 재구성과 달리 검증 탈락으로 인한 행 드롭이 없고 감사 메타데이터를 보존한다(읽기경로 무손실).
+        public FdcEquipmentEndpoint ToDomain() =>
+            FdcEquipmentEndpoint.Restore(
+                EndpointId, EquipmentId, Protocol, EndpointUrl, SamplingIntervalMs, IsActive,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static EndpointRow FromDomain(FdcEquipmentEndpoint e) => new()
         {
