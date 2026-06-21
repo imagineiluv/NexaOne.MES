@@ -1,9 +1,11 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using NexaOne.Application.Auth;
 using NexaOne.Common;
+using NexaOne.Common.Security;
 
 namespace NexaOne.Server.Gateway;
 
@@ -16,11 +18,13 @@ public sealed class AuthController : ControllerBase
 {
     private readonly GatewayLoginService _login;
     private readonly IJwtService _jwt;
+    private readonly IRefreshTokenStore _tokens;
 
-    public AuthController(GatewayLoginService login, IJwtService jwt)
+    public AuthController(GatewayLoginService login, IJwtService jwt, IRefreshTokenStore tokens)
     {
         _login = login;
         _jwt = jwt;
+        _tokens = tokens;
     }
 
     [HttpPost("login")]
@@ -50,4 +54,80 @@ public sealed class AuthController : ControllerBase
         var outcome = await _login.RefreshAsync(request.UserId, request.RefreshToken, plantId, ct);
         return outcome.Result;
     }
+
+    [HttpPost("logout")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> Logout([FromBody] LogoutRequest request)
+    {
+        // 폐기 대상 userId는 본문이 아니라 토큰에서 — 임의 사용자 토큰 폐기(IDOR/DoS) 방지.
+        var userId = CurrentUserId;
+        await _tokens.RevokeAsync(userId, request.RefreshToken);
+        return NoContent();
+    }
+
+    [HttpPost("change-password")]
+    [Authorize]
+    [ProducesResponseType<TokenRefreshResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken ct)
+    {
+        if (request.NewPassword != request.ConfirmPassword)
+            return BadRequest(new Error("Auth.PasswordMismatch", "Passwords do not match.", ErrorType.Validation));
+
+        var userId = CurrentUserId;
+        var row = await _login.GetUserRowAsync(userId, ct);
+        if (row is null)
+            return BadRequest(new Error("USER_NOT_FOUND", "User not found.", ErrorType.Validation));
+
+        // §19.2.2 서버 최종 정책 검증(userId/이름/이메일 포함 금지). 평문은 컨트롤러에만 존재.
+        var userName = row.TryGetValue("USER_NAME", out var un) ? un?.ToString() : null;
+        var email = row.TryGetValue("EMAIL", out var em) ? em?.ToString() : null;
+        var violation = PasswordPolicy.Validate(request.NewPassword, userId, userName, email);
+        if (violation is not null)
+            return BadRequest(new Error(PasswordPolicy.ErrorCode, violation, ErrorType.Validation));
+
+        var plantId = User.FindFirst("plantId")?.Value ?? "DEFAULT";
+        var outcome = await _login.ChangePasswordAsync(userId, request.CurrentPassword, request.NewPassword, plantId, ct);
+        return outcome.Result;
+    }
+
+    [HttpPost("register")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Register([FromBody] RegisterRequest request, CancellationToken ct)
+    {
+        if (!HasPermission(Permissions.SysManage)) return Forbid();
+
+        var violation = PasswordPolicy.Validate(request.Password, request.UserId, request.UserName, request.Email);
+        if (violation is not null)
+            return BadRequest(new Error(PasswordPolicy.ErrorCode, violation, ErrorType.Validation));
+        if (string.IsNullOrWhiteSpace(request.UserId) || string.IsNullOrWhiteSpace(request.RoleId))
+            return BadRequest(new Error("INVALID_REGISTRATION", "UserId와 RoleId는 필수입니다.", ErrorType.Validation));
+
+        var outcome = await _login.RegisterAsync(request, CurrentUserId, ct);
+        return outcome.Result;
+    }
+
+    [HttpGet("me")]
+    [Authorize]
+    [ProducesResponseType<CurrentUserResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public IActionResult Me()
+    {
+        var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+        return Ok(new CurrentUserResponse(CurrentUserId, User.Identity?.Name, User.FindFirst("plantId")?.Value, roles));
+    }
+
+    private string CurrentUserId =>
+        User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? User.FindFirst("sub")?.Value ?? string.Empty;
+
+    private bool HasPermission(string permission) =>
+        User.FindAll(Permissions.ClaimType).Any(c =>
+            c.Value == Permissions.All || string.Equals(c.Value, permission, StringComparison.OrdinalIgnoreCase));
 }
