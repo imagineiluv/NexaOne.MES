@@ -24,4 +24,10 @@ public sealed class AuthOutcome
 
     public static AuthOutcome InvalidRefreshToken() =>
         new(new UnauthorizedObjectResult(new Error("Auth.InvalidRefreshToken", "Invalid or expired refresh token.")));
+
+    public static AuthOutcome NoContent() => new(new NoContentResult());
+
+    public static AuthOutcome BadRequest(Error error) => new(new BadRequestObjectResult(error));
+
+    public static AuthOutcome Conflict(Error error) => new(new ConflictObjectResult(error));
 }

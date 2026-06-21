@@ -16,6 +16,16 @@ public record RefreshRequest(string UserId, string RefreshToken);
 
 public record TokenRefreshResponse(string AccessToken, string RefreshToken);
 
+public record LogoutRequest(string RefreshToken);
+
+public record ChangePasswordRequest(string CurrentPassword, string NewPassword, string ConfirmPassword);
+
+// 관리자 사용자 등록. PlantId/Language는 선택(기본). RoleId는 필수(권한 합성 기반).
+public record RegisterRequest(
+    string UserId, string UserName, string Password, string Email, string RoleId, string Language = "KoKr");
+
+public record CurrentUserResponse(string? UserId, string? UserName, string? PlantId, IReadOnlyList<string> Roles);
+
 /// <summary>로그인 실패 사유 코드(SYS_LOGIN_FAILURE_HIST.FAILURE_REASON 값) — 호스트 로컬 정의.
 /// NexaOne.SYS는 플러그인(ReferenceOutputAssembly=false)이라 컴파일 타임에 타입이 보이지 않으므로,
 /// NexaOne.SYS.Domain.LoginFailureHistory.Reasons와 동일한 문자열 상수를 여기서 미러링한다(값 일치 필수).</summary>

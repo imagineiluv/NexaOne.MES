@@ -113,6 +113,63 @@ public sealed class GatewayLoginService
         return AuthOutcome.Ok(new TokenRefreshResponse(accessToken, newRefresh));
     }
 
+    /// <summary>현재 사용자 1행 조회(컨트롤러가 me/권한 표시에 사용). 없으면 null.</summary>
+    public Task<Dictionary<string, object?>?> GetUserRowAsync(string userId, CancellationToken ct)
+        => QuerySingleAsync("SYS.AuthUserById", new() { ["userId"] = userId }, ct);
+
+    /// <summary>비밀번호 변경 — 현재 비번 검증 후 강화 해시 저장, 전 토큰 폐기, 새 토큰 재발급(pwdChange 없음).
+    /// 정책 검증은 컨트롤러(평문 보유)가 선행한다. 본인 userId는 토큰에서 전달받는다.</summary>
+    public async Task<AuthOutcome> ChangePasswordAsync(string userId, string currentPassword, string newPassword,
+        string plantId, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var row = await QuerySingleAsync("SYS.AuthUserById", new() { ["userId"] = userId }, ct);
+        if (row is null || ToBool(Get(row, "IS_DELETED")))
+            return AuthOutcome.BadRequest(new Error("USER_NOT_FOUND", "User not found.", ErrorType.Validation));
+
+        if (!PasswordHasher.Verify(currentPassword, ToStr(Get(row, "PASSWORD_HASH"))))
+            return AuthOutcome.BadRequest(new Error("INVALID_CURRENT_PASSWORD", "현재 비밀번호가 올바르지 않습니다.", ErrorType.Validation));
+
+        await ExecuteAsync("SYS.UpdatePassword", new()
+        {
+            ["userId"] = userId,
+            ["passwordHash"] = PasswordHasher.Hash(newPassword),
+            ["utcNow"] = now,
+        }, ct);
+
+        await _tokenStore.RevokeAllByUserAsync(userId);   // §19.2.4-7 다른 기기 세션 만료
+
+        var userName = ToStr(Get(row, "USER_NAME"));
+        var roleId = ToStr(Get(row, "ROLE_ID"));
+        var perms = EffectivePermissions(roleId, ToNullableStr(Get(row, "PERMISSIONS")));
+        // requireChange=false(변경 완료) 새 토큰 — pwdChange 클레임 제거.
+        var accessToken = _jwt.GenerateAccessToken(userId, userName, plantId, new[] { roleId }, false, perms);
+        var refreshToken = await _tokenStore.IssueAsync(userId);
+        return AuthOutcome.Ok(new TokenRefreshResponse(accessToken, refreshToken));
+    }
+
+    /// <summary>관리자 사용자 등록 — 중복 검사 후 INSERT(PASSWORD_STATE='Create'=최초 변경 강제). 권한 게이트는 컨트롤러.
+    /// 정책 검증은 컨트롤러가 선행. createdBy는 등록 수행 관리자 userId.</summary>
+    public async Task<AuthOutcome> RegisterAsync(RegisterRequest req, string createdBy, CancellationToken ct)
+    {
+        var existing = await QuerySingleAsync("SYS.AuthUserById", new() { ["userId"] = req.UserId }, ct);
+        if (existing is not null)
+            return AuthOutcome.Conflict(new Error("USER_ALREADY_EXISTS", $"User '{req.UserId}' already exists.", ErrorType.Conflict));
+
+        await ExecuteAsync("SYS.InsertUser", new()
+        {
+            ["userId"] = req.UserId,
+            ["userName"] = req.UserName,
+            ["passwordHash"] = PasswordHasher.Hash(req.Password),
+            ["email"] = req.Email,
+            ["roleId"] = req.RoleId,
+            ["language"] = string.IsNullOrWhiteSpace(req.Language) ? "KoKr" : req.Language,
+            ["currentUser"] = createdBy,
+            ["utcNow"] = DateTime.UtcNow,
+        }, ct);
+        return AuthOutcome.Ok(new { userId = req.UserId });
+    }
+
     // ── 권한 합성 (운영 UserService.GetEffectivePermissionsAsync와 동일: 기본 매핑 ∪ split('|'), OrdinalIgnoreCase distinct) ──
     private static IReadOnlyList<string> EffectivePermissions(string roleId, string? permissionsCsv)
     {

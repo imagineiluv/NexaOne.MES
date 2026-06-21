@@ -90,4 +90,29 @@ WHERE USER_ID = @userId AND REVOKED_AT IS NULL
 ]]></statement>
   </query>
 
+  <!-- 비밀번호 변경(change-password) — 해시 교체 + 상태 Normal 복귀. UPDATED_BY는 본인. -->
+  <query id="SYS.UpdatePassword">
+    <statement><![CDATA[
+UPDATE SYS_USER SET
+    PASSWORD_HASH = @passwordHash,
+    PASSWORD_STATE = 'Normal',
+    UPDATED_BY = @userId, UPDATED_AT = @utcNow
+WHERE USER_ID = @userId AND IS_DELETED = 0
+]]></statement>
+  </query>
+
+  <!-- 사용자 등록(register, admin). PASSWORD_STATE='Create'=최초 로그인 시 변경 강제(관리자 발급 임시 비번 관례). -->
+  <query id="SYS.InsertUser">
+    <statement><![CDATA[
+INSERT INTO SYS_USER
+    (USER_ID, USER_NAME, PASSWORD_HASH, EMAIL, ROLE_ID, LANGUAGE,
+     IS_ACTIVE, IS_DELETED, PASSWORD_STATE, FAIL_COUNT,
+     CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+VALUES
+    (@userId, @userName, @passwordHash, @email, @roleId, @language,
+     1, 0, 'Create', 0,
+     @currentUser, @utcNow, @currentUser, @utcNow)
+]]></statement>
+  </query>
+
 </queries>
