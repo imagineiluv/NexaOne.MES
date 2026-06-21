@@ -13,6 +13,7 @@ using NexaOne.Server.Components;
 using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Est;
 using NexaOne.ServiceContracts.Rms;
+using NexaOne.ServiceContracts.Shp;
 using NexaOne.Web.Services;
 using NexaOne.Web.Services.Api;
 using NexaOne.Web.Services.Auth;
@@ -93,6 +94,13 @@ if (modulesEnabled)
             "rmsRecipeBridge 빈을 IRecipeApprovalBridge로 캐스트하지 못했습니다 — "
             + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
     builder.Services.AddSingleton(rmsRecipeBridge);
+
+    // ADR-008 얇은 브리지 — SHP 출하주문 생명주기. EST/RMS와 동일 메커니즘(GetBean→캐스트→fail-fast 등록).
+    var shipmentBridge = server.GetBean("Shp", "shipmentBridge") as IShipmentBridge
+        ?? throw new InvalidOperationException(
+            "shipmentBridge 빈을 IShipmentBridge로 캐스트하지 못했습니다 — "
+            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
+    builder.Services.AddSingleton(shipmentBridge);
 }
 else
 {

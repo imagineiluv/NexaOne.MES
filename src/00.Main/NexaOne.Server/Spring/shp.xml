@@ -21,4 +21,9 @@
     <constructor-arg ref="shipmentHistoryRepository" />
   </object>
 
+  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Shp","shipmentBridge")로 IShipmentBridge 캐스트. -->
+  <object id="shipmentBridge" type="NexaOne.SHP.Application.Shp.ShipmentBridge, NexaOne.SHP">
+    <constructor-arg ref="shpService" />
+  </object>
+
 </objects>
