@@ -27,8 +27,17 @@ public static class AuthServiceExtensions
         services.AddSingleton<IJwtService, JwtService>();
 
         var ttl = TimeSpan.FromDays(configuration.GetValue("Jwt:RefreshTokenExpiryDays", 7));
-        services.AddSingleton<IRefreshTokenStore>(sp => new SysRefreshTokenStore(
+        // 구체 등록(정리 워커가 PurgeExpiredAsync 호출) + 인터페이스 alias(기존 소비자 무변경).
+        services.AddSingleton(sp => new SysRefreshTokenStore(
             sp.GetRequiredService<IRuleDispatcher>(), authRegistry, sp.GetRequiredService<IJwtService>(), ttl));
+        services.AddSingleton<IRefreshTokenStore>(sp => sp.GetRequiredService<SysRefreshTokenStore>());
+
+        // 만료 토큰 정리 워커(호스트 레벨). 기본 OFF — Auth:RefreshTokenCleanup:Enabled=true로 켠다.
+        var cleanupEnabled = configuration.GetValue("Auth:RefreshTokenCleanup:Enabled", false);
+        var cleanupInterval = TimeSpan.FromSeconds(configuration.GetValue("Auth:RefreshTokenCleanup:IntervalSeconds", 86400));
+        var cleanupRetention = TimeSpan.FromDays(configuration.GetValue("Auth:RefreshTokenCleanup:RetentionDays", 7));
+        services.AddHostedService(sp => new RefreshTokenCleanupWorker(
+            sp.GetRequiredService<SysRefreshTokenStore>(), cleanupEnabled, cleanupInterval, cleanupRetention));
 
         services.AddSingleton(sp => new GatewayLoginService(
             sp.GetRequiredService<IRuleDispatcher>(), authRegistry,
