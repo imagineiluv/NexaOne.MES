@@ -77,6 +77,14 @@ public sealed class SysRefreshTokenStore : IRefreshTokenStore
             ["utcNow"] = DateTime.UtcNow,
         });
 
+    /// <summary>retention 경과(EXPIRES_AT &lt; now-retention) 토큰을 삭제한다. 영향행수 반환. 정리 워커가 주기 호출.
+    /// 기준시각은 C#에서 산정(날짜 방언 분기 회피). 미만료 활성 토큰은 보존.</summary>
+    public async Task<int> PurgeExpiredAsync(TimeSpan retention)
+        => await _dispatcher.ExecuteAsync(_authQueries.Sql("SYS.DeleteExpiredRefreshTokens"), new Dictionary<string, object>
+        {
+            ["cutoff"] = DateTime.UtcNow - retention,
+        });
+
     // 토큰은 평문 저장 금지 — SHA-256 hex로 저장/조회한다(불투명 난수 토큰이라 stretching 불필요, 인덱스 조회 등가).
     private static string Hash(string token)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();

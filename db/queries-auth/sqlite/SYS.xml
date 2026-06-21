@@ -115,4 +115,11 @@ VALUES
 ]]></statement>
   </query>
 
+  <!-- 만료 토큰 정리(retention 경과) — EXPIRES_AT < cutoff(=now-retention). 회전 churn·만료 누적 제거. -->
+  <query id="SYS.DeleteExpiredRefreshTokens">
+    <statement><![CDATA[
+DELETE FROM SYS_REFRESH_TOKEN WHERE EXPIRES_AT < @cutoff
+]]></statement>
+  </query>
+
 </queries>
