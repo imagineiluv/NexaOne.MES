@@ -10,6 +10,8 @@
     <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Application\NexaOne.Application.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
+    <!-- ADR-008 얇은 브리지 계약(IPomBridge/DTO) — plugin이 구현하고 호스트가 공유 ALC로 캐스트한다. -->
+    <ProjectReference Include="..\..\02.Backend\NexaOne.ServiceContracts\NexaOne.ServiceContracts.csproj" />
   </ItemGroup>
 
 </Project>

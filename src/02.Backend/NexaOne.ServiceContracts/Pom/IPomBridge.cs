@@ -1,0 +1,42 @@
+using NexaOne.Common;
+
+namespace NexaOne.ServiceContracts.Pom;
+
+/// <summary>복잡 서비스 얇은 브리지(ADR-008) — POM 생산 단일 애그리거트 쓰기(생산계획 생명주기 +
+/// 생산오더 생명주기 + Lot 추적 TrackIn/TrackOut/Hold/Release). plugin(POM)이 구현하고 호스트가
+/// GetBean→캐스트로 Default-ALC DI에 등록한다. Result로 상태전이/팩토리 검증 분기(Conflict/Validation/
+/// NotFound/Success)를 손실 없이 전달한다. 순수 조회는 게이트웨이(POM.xml)로, Lot Mixing(다중 애그리거트
+/// 소비/병합 ACID)은 UnitOfWork 선결로 본 브리지에서 제외한다.</summary>
+public interface IPomBridge
+{
+    // ── 생산계획(ProductionPlan) 생명주기 ──
+    Task<Result<ProductionPlanDto>> CreatePlanAsync(
+        string planId, string planName, string plantId, string productId, decimal plannedQty,
+        DateTime plannedStartDate, DateTime plannedEndDate, CancellationToken ct = default);
+    Task<Result> ReleasePlanAsync(string planId, CancellationToken ct = default);
+    Task<Result> StartPlanAsync(string planId, CancellationToken ct = default);
+    Task<Result> CompletePlanAsync(string planId, CancellationToken ct = default);
+    Task<Result> CancelPlanAsync(string planId, CancellationToken ct = default);
+
+    // ── 생산오더(ProductionOrder) 생명주기 ──
+    Task<Result<ProductionOrderDto>> CreateOrderAsync(
+        string orderId, string planId, string equipmentId, string productId, decimal orderQty,
+        DateTime scheduledStart, DateTime scheduledEnd, CancellationToken ct = default);
+    Task<Result> StartOrderAsync(string orderId, CancellationToken ct = default);
+    Task<Result> CompleteOrderAsync(string orderId, decimal actualQty, CancellationToken ct = default);
+    Task<Result> CancelOrderAsync(string orderId, CancellationToken ct = default);
+
+    // ── Lot 추적(단일 애그리거트 상태전이) ──
+    // Lot Mixing(MixingTrackInOutAsync, 다중 애그리거트 소비/병합)은 의도적으로 제외(UnitOfWork 선결).
+    Task<Result<LotDto>> CreateLotAsync(
+        string plantId, string lotId, string? workOrderId, string productId,
+        decimal qty, IReadOnlyList<string> routeSteps, string user, CancellationToken ct = default);
+    Task<Result<LotDto>> TrackInAsync(
+        string plantId, string lotId, string equipmentId,
+        string? recipeDefId, int? recipeDefVersion, string user, CancellationToken ct = default);
+    Task<Result<LotDto>> TrackOutAsync(
+        string plantId, string lotId, string equipmentId, decimal qty,
+        IReadOnlyList<LotDefectInput>? defects, string? carrierId, string user, CancellationToken ct = default);
+    Task<Result> HoldLotAsync(string lotId, string user, CancellationToken ct = default);
+    Task<Result> ReleaseLotHoldAsync(string lotId, string user, CancellationToken ct = default);
+}

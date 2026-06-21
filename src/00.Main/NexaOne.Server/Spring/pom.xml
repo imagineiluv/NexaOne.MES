@@ -20,4 +20,38 @@
     <constructor-arg ref="pomProductionOrderRepository" />
   </object>
 
+  <!-- Lot 추적(TrackIn/TrackOut/Hold) 빈 — 기존에 미등록이라 브리지 노출과 함께 추가한다.
+       LotHistoryRepository는 부모(server.xml) eesDialect(INexaOneEESDbCapability)를 cross-context ref로 주입한다(SearchAsync 페이징 방언). -->
+  <object id="pomLotRepository" type="NexaOne.POM.Infrastructure.LotRepository, NexaOne.POM">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="appConfiguration" />
+  </object>
+  <object id="pomLotHistoryRepository" type="NexaOne.POM.Infrastructure.LotHistoryRepository, NexaOne.POM">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="eesDialect" />
+  </object>
+  <object id="pomLotMixingRelationRepository" type="NexaOne.POM.Infrastructure.LotMixingRelationRepository, NexaOne.POM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <!-- 교차 모듈 마스터 검증 포트(설계 19.4.2) — POM은 MDM/RMS/QMS 프로젝트 참조 없이 공유 데이터소스 직접 read로 구현. -->
+  <object id="pomTrackingMasterGateway" type="NexaOne.POM.Infrastructure.TrackingMasterGateway, NexaOne.POM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="lotTrackingService" type="NexaOne.POM.Application.Lots.LotTrackingService, NexaOne.POM">
+    <constructor-arg ref="pomLotRepository" />
+    <constructor-arg ref="pomLotHistoryRepository" />
+    <constructor-arg ref="pomLotMixingRelationRepository" />
+    <constructor-arg ref="pomProductionOrderRepository" />
+    <constructor-arg ref="pomTrackingMasterGateway" />
+  </object>
+
+  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Pom","pomBridge")로 IPomBridge 캐스트.
+       생산계획(PomService)·생산오더(ProductionOrderService)·Lot 추적(LotTrackingService) 단일 애그리거트 쓰기를 위임한다.
+       Lot Mixing(다중 애그리거트)은 어댑터에서 노출하지 않는다(UnitOfWork 선결). -->
+  <object id="pomBridge" type="NexaOne.POM.Application.Pom.PomBridge, NexaOne.POM">
+    <constructor-arg ref="pomService" />
+    <constructor-arg ref="productionOrderService" />
+    <constructor-arg ref="lotTrackingService" />
+  </object>
+
 </objects>

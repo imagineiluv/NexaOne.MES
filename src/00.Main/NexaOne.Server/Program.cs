@@ -14,6 +14,7 @@ using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Cmms;
 using NexaOne.ServiceContracts.Est;
 using NexaOne.ServiceContracts.Mdm;
+using NexaOne.ServiceContracts.Pom;
 using NexaOne.ServiceContracts.Qms;
 using NexaOne.ServiceContracts.Rms;
 using NexaOne.ServiceContracts.Shp;
@@ -140,6 +141,14 @@ if (modulesEnabled)
             "cmmsBridge 빈을 ICmmsBridge로 캐스트하지 못했습니다 — "
             + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
     builder.Services.AddSingleton(cmmsBridge);
+
+    // ADR-008 얇은 브리지 — POM 생산(계획/오더/Lot 추적) 단일 애그리거트 쓰기. EST/RMS/SHP/QMS/MDM/CMMS와 동일 메커니즘.
+    // Lot Mixing(다중 애그리거트)은 브리지에서 제외(UnitOfWork 선결).
+    var pomBridge = server.GetBean("Pom", "pomBridge") as IPomBridge
+        ?? throw new InvalidOperationException(
+            "pomBridge 빈을 IPomBridge로 캐스트하지 못했습니다 — "
+            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
+    builder.Services.AddSingleton(pomBridge);
 }
 else
 {

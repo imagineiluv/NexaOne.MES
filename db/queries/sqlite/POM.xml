@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 파일 기반 쿼리 레지스트리(SQLite 방언) — POM 생산 read 슬라이스(생산계획/생산오더/Lot 조회).
+     MSSQL판과 동일 ID·동일 의미이되 NOLOCK 힌트만 제거. 브리지(계획/오더 생명주기·Lot TrackIn/Out/Hold)는 별도 —
+     본 슬라이스는 도메인 검증이 필요 없는 순수 조회만 게이트웨이로 노출한다(ADR-001).
+     컬럼은 V007__POM_PRODUCTION_PLAN / V028__POM_PRODUCTION_ORDER / V014__POM_LOT 와 1:1 정합.
+     STATUS/LOT_STATE/PROCESS_STATE는 enum.ToString() 문자열로 저장된다.
+     선택필터 (@p IS NULL OR COL=@p) — 본문 없는 @param은 게이트웨이가 null로 채운다. 모두 read(kind 미표기). -->
+<queries module="POM">
+    <query id="POM.PlansByPlant">
+        <statement><![CDATA[
+            SELECT PLAN_ID, PLAN_NAME, PLANT_ID, PRODUCT_ID, PLANNED_QTY,
+                   PLANNED_START_DATE, PLANNED_END_DATE, STATUS, REMARK
+            FROM POM_PRODUCTION_PLAN
+            WHERE PLANT_ID = @plantId
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY PLANNED_START_DATE
+        ]]></statement>
+    </query>
+    <query id="POM.PlanCountByStatus">
+        <statement><![CDATA[
+            SELECT STATUS, COUNT(*) AS CNT
+            FROM POM_PRODUCTION_PLAN
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@status IS NULL OR STATUS = @status)
+            GROUP BY STATUS
+            ORDER BY STATUS
+        ]]></statement>
+    </query>
+    <query id="POM.OrdersByPlan">
+        <statement><![CDATA[
+            SELECT ORDER_ID, PLAN_ID, EQUIPMENT_ID, PRODUCT_ID, ORDER_QTY, ACTUAL_QTY,
+                   SCHEDULED_START, SCHEDULED_END, ACTUAL_START, ACTUAL_END, STATUS
+            FROM POM_PRODUCTION_ORDER
+            WHERE PLAN_ID = @planId
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY SCHEDULED_START
+        ]]></statement>
+    </query>
+    <query id="POM.OrdersByEquipment">
+        <statement><![CDATA[
+            SELECT ORDER_ID, PLAN_ID, EQUIPMENT_ID, PRODUCT_ID, ORDER_QTY, ACTUAL_QTY,
+                   SCHEDULED_START, SCHEDULED_END, ACTUAL_START, ACTUAL_END, STATUS
+            FROM POM_PRODUCTION_ORDER
+            WHERE EQUIPMENT_ID = @equipmentId
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY SCHEDULED_START DESC
+        ]]></statement>
+    </query>
+    <query id="POM.LotsByPlant">
+        <statement><![CDATA[
+            SELECT LOT_ID, PLANT_ID, WORK_ORDER_ID, PRODUCT_ID, QTY, DEFECT_QTY,
+                   LOT_STATE, PROCESS_STATE, ROUTE_STEPS, CURRENT_STEP,
+                   EQUIPMENT_ID, RECIPE_DEF_ID, RECIPE_DEF_VERSION, CARRIER_ID, IS_HOLD
+            FROM POM_LOT
+            WHERE PLANT_ID = @plantId
+              AND (@lotState IS NULL OR LOT_STATE = @lotState)
+            ORDER BY CREATED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="POM.LotsByWorkOrder">
+        <statement><![CDATA[
+            SELECT LOT_ID, PLANT_ID, WORK_ORDER_ID, PRODUCT_ID, QTY, DEFECT_QTY,
+                   LOT_STATE, PROCESS_STATE, ROUTE_STEPS, CURRENT_STEP,
+                   EQUIPMENT_ID, RECIPE_DEF_ID, RECIPE_DEF_VERSION, CARRIER_ID, IS_HOLD
+            FROM POM_LOT
+            WHERE WORK_ORDER_ID = @workOrderId
+            ORDER BY LOT_ID
+        ]]></statement>
+    </query>
+    <query id="POM.LotHistoryByLot">
+        <statement><![CDATA[
+            SELECT LOT_HISTORY_ID, PLANT_ID, LOT_ID, EQUIPMENT_ID, PROCESS_ID,
+                   RECIPE_DEF_ID, RECIPE_DEF_VERSION, TRACK_IN_TIME, TRACK_OUT_TIME,
+                   EXECUTION_ID, EXECUTION_USER, QTY, DEFECT_QTY, LOT_STATE, PROCESS_STATE, CREATED_AT
+            FROM POM_LOT_HISTORY
+            WHERE PLANT_ID = @plantId AND LOT_ID = @lotId
+            ORDER BY LOT_HISTORY_ID
+        ]]></statement>
+    </query>
+</queries>
