@@ -7,21 +7,12 @@ import 'grapesjs/dist/css/grapes.min.css'
 import { getAccessToken } from '../api/client'
 import { hasPermission } from '../auth/jwt'
 import { loadDefinition, saveDefinition, listQueries } from '../designer/api'
-import { layoutToComponent, componentToLayout, flatToLayout } from '../designer/mapping'
+import { layoutToComponent, flatToLayout } from '../designer/mapping'
+import { readRootLayout } from '../designer/editorBridge'
 import {
   buildEditorConfig, BLOCK_DEFS, COMPONENT_TYPE_DEFS, buildTraitDefs, toModelDefaults, type QueryCatalog,
 } from '../designer/grapesConfig'
 import type { GrapesNode, LayoutNode } from '../designer/layout'
-
-// 캔버스 루트(보통 단일 nx-section)를 스키마 LayoutNode로 환원. 첫 유효 노드만 채택(잠금 규칙상 루트=섹션 1개).
-function readRootLayout(editor: Editor): LayoutNode | null {
-  // Components(Backbone Collection)의 .models로 Component[]를 명시적으로 받아 toJSON→GrapesNode 경계 캐스팅.
-  for (const c of editor.getComponents().models) {
-    const node = componentToLayout(c.toJSON() as GrapesNode)
-    if (node) return node
-  }
-  return null
-}
 
 export function ScreenEditor() {
   const { uiId } = useParams<{ uiId: string }>()
