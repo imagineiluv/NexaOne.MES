@@ -21,4 +21,48 @@ WHEN NOT MATCHED THEN INSERT (UI_ID, TITLE, DEFINITION_JSON, CREATED_BY, CREATED
     VALUES (@uiId, @title, @definitionJson, @currentUser, @utcNow, @currentUser, @utcNow);
 ]]></statement>
   </query>
+
+  <!-- ===== 비민감 마스터 조회(S7, read 무해 — kind 미표기) ===== -->
+  <!-- 보안 가드(S7): 사용자 조회는 비민감 컬럼만 — PASSWORD_HASH/PASSWORD_STATE/FAIL_COUNT/LOCKED_UNTIL는
+       절대 SELECT하지 않는다(자격증명/잠금은 격리 인증 경로 db/queries-auth가 소유). 역할/메뉴는 자격증명 무관. -->
+
+  <!-- 역할 목록 — 비-자격증명. PERMISSIONS는 '|' 조인 권한 문자열. -->
+  <query id="SYS.ListRoles">
+    <statement><![CDATA[
+SELECT ROLE_ID, ROLE_NAME, DESCRIPTION, PERMISSIONS
+FROM SYS_ROLE WITH (NOLOCK)
+WHERE IS_DELETED = 0
+ORDER BY ROLE_ID
+]]></statement>
+  </query>
+
+  <!-- 단일 역할 조회 — 비-자격증명. -->
+  <query id="SYS.GetRole">
+    <statement><![CDATA[
+SELECT ROLE_ID, ROLE_NAME, DESCRIPTION, PERMISSIONS
+FROM SYS_ROLE WITH (NOLOCK)
+WHERE ROLE_ID = @roleId AND IS_DELETED = 0
+]]></statement>
+  </query>
+
+  <!-- 메뉴 목록(유효 마스터) — 비-자격증명. -->
+  <query id="SYS.ListMenus">
+    <statement><![CDATA[
+SELECT MENU_ID, MENU_NAME, PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, PROGRAM_ID, IMAGE_ID, OPTIONS, UI_ID
+FROM SYS_MENU WITH (NOLOCK)
+WHERE VALID_STATE = 'Valid'
+ORDER BY PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, MENU_ID
+]]></statement>
+  </query>
+
+  <!-- 사용자 목록(활성·비삭제) — 비민감 컬럼만(PASSWORD_HASH/PASSWORD_STATE/FAIL_COUNT/LOCKED_UNTIL 제외). -->
+  <query id="SYS.ListUsers">
+    <statement><![CDATA[
+SELECT USER_ID, USER_NAME, EMAIL, ROLE_ID, LANGUAGE, IS_ACTIVE, LAST_LOGIN_AT
+FROM SYS_USER WITH (NOLOCK)
+WHERE IS_DELETED = 0
+  AND (@roleId IS NULL OR ROLE_ID = @roleId)
+ORDER BY USER_ID
+]]></statement>
+  </query>
 </queries>

@@ -18,6 +18,7 @@ using NexaOne.ServiceContracts.Pom;
 using NexaOne.ServiceContracts.Qms;
 using NexaOne.ServiceContracts.Rms;
 using NexaOne.ServiceContracts.Shp;
+using NexaOne.ServiceContracts.Sys;
 using NexaOne.Web.Services;
 using NexaOne.Web.Services.Api;
 using NexaOne.Web.Services.Auth;
@@ -149,6 +150,14 @@ if (modulesEnabled)
             "pomBridge 빈을 IPomBridge로 캐스트하지 못했습니다 — "
             + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
     builder.Services.AddSingleton(pomBridge);
+
+    // ADR-008 얇은 브리지 — SYS 비-자격증명 단일 애그리거트 쓰기(역할 관리·신청 반려·사용자 비활성). EST/RMS/SHP/QMS/MDM/CMMS/POM과 동일 메커니즘.
+    // 보안 가드(S7): 자격증명/비밀번호/로그인·승인(다중 애그리거트)·잠금 해제는 본 브리지에서 제외(인증 경로·UnitOfWork 선결 소유).
+    var sysBridge = server.GetBean("Sys", "sysBridge") as ISysBridge
+        ?? throw new InvalidOperationException(
+            "sysBridge 빈을 ISysBridge로 캐스트하지 못했습니다 — "
+            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
+    builder.Services.AddSingleton(sysBridge);
 }
 else
 {
