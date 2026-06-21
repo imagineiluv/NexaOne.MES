@@ -2,6 +2,7 @@ using Moq;
 using NexaOne.EST.Application.Est;
 using NexaOne.EST.Domain;
 using NexaOne.Common;
+using NexaOne.ServiceContracts.Mdm;
 
 namespace NexaOne.UnitTests.Services;
 
@@ -13,7 +14,10 @@ public sealed class EstServiceTests
         EquipmentAlarm.Create(id, "EQ001", "A001", "고온 알람", "Warning", Occurred).Value;
 
     private EquipmentAlarmService BuildService(Mock<IEquipmentAlarmRepository> repo) =>
-        new(repo.Object);
+        new(repo.Object, new Mock<IEquipmentDirectory>().Object);
+
+    private EquipmentAlarmService BuildService(Mock<IEquipmentAlarmRepository> repo, Mock<IEquipmentDirectory> directory) =>
+        new(repo.Object, directory.Object);
 
     // ── RecordAlarmAsync ──────────────────────────────────────────────────────
 
@@ -72,19 +76,46 @@ public sealed class EstServiceTests
     }
 
     // ── GetActiveAlarmsAsync ──────────────────────────────────────────────────
+    // ADR-006: 서비스가 plantId를 호스트 IEquipmentDirectory로 풀어 설비 ID를 얻고, 그 ID들로 by-ids 리포지토리를
+    // 호출한다. plantId 기반 리포지토리 read는 더 이상 존재하지 않는다(MDM 조인 제거 — 교차 모듈 결합 회귀 차단).
 
     [Fact]
-    public async Task GetActiveAlarms_returns_list()
+    public async Task GetActiveAlarms_resolves_equipment_ids_via_directory_then_queries_by_ids()
     {
+        var ids = new[] { "EQ001", "EQ002" };
         var alarms = new List<EquipmentAlarm> { ActiveAlarm("ALM001"), ActiveAlarm("ALM002") };
+
+        var directory = new Mock<IEquipmentDirectory>();
+        directory.Setup(d => d.GetEquipmentIdsByPlantAsync("PLANT01", default))
+            .ReturnsAsync((IReadOnlyList<string>)ids);
+
         var repo = new Mock<IEquipmentAlarmRepository>();
-        repo.Setup(r => r.GetActiveAlarmsAsync("PLANT01", default))
+        repo.Setup(r => r.GetActiveAlarmsByEquipmentIdsAsync(It.Is<IReadOnlyList<string>>(x => x.SequenceEqual(ids)), default))
             .ReturnsAsync((IReadOnlyList<EquipmentAlarm>)alarms);
 
-        var result = await BuildService(repo).GetActiveAlarmsAsync("PLANT01");
+        var result = await BuildService(repo, directory).GetActiveAlarmsAsync("PLANT01");
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Should().HaveCount(2);
+        // 결합 가드: 디렉터리 포트(호스트 MDM read)와 by-ids 리포지토리만 사용. plantId 기반 read는 인터페이스에 없다.
+        directory.Verify(d => d.GetEquipmentIdsByPlantAsync("PLANT01", default), Times.Once);
+        repo.Verify(r => r.GetActiveAlarmsByEquipmentIdsAsync(It.IsAny<IReadOnlyList<string>>(), default), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetActiveAlarms_empty_plant_short_circuits_and_skips_repo()
+    {
+        var directory = new Mock<IEquipmentDirectory>();
+        directory.Setup(d => d.GetEquipmentIdsByPlantAsync("EMPTY", default))
+            .ReturnsAsync((IReadOnlyList<string>)Array.Empty<string>());
+        var repo = new Mock<IEquipmentAlarmRepository>();
+
+        var result = await BuildService(repo, directory).GetActiveAlarmsAsync("EMPTY");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().BeEmpty();
+        // 빈 ID 목록은 IN @...에 넘기면 안 된다 — 리포지토리는 호출되지 않아야 한다.
+        repo.Verify(r => r.GetActiveAlarmsByEquipmentIdsAsync(It.IsAny<IReadOnlyList<string>>(), default), Times.Never);
     }
 
     [Fact]

@@ -17,8 +17,12 @@
     <constructor-arg ref="eesDialect" />
     <constructor-arg ref="appConfiguration" />
   </object>
+  <!-- equipmentDirectory는 호스트 server.xml의 서버 빈(IEquipmentDirectory 구현)을 cross-context ref로 주입한다
+       (ADR-006: EST는 MDM 스키마 미보유 — plantId→설비 ID 조회를 호스트에 위임). pom.xml의 lotTrackingService가
+       trackingMasterGateway를 참조하는 것과 동일한 패턴. -->
   <object id="equipmentAlarmService" type="NexaOne.EST.Application.Est.EquipmentAlarmService, NexaOne.EST">
     <constructor-arg ref="equipmentAlarmRepository" />
+    <constructor-arg ref="equipmentDirectory" />
   </object>
   <object id="equipmentStateService" type="NexaOne.EST.Application.Est.EquipmentStateService, NexaOne.EST">
     <constructor-arg ref="equipmentStateMatrixRepository" />

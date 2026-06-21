@@ -35,12 +35,15 @@ public sealed class EquipmentAlarmRepository : QueryRepository, IEquipmentAlarmR
         return rows.Select(r => r.ToDomain()).OfType<EquipmentAlarm>().ToList();
     }
 
-    public async Task<IReadOnlyList<EquipmentAlarm>> GetActiveAlarmsAsync(string plantId, CancellationToken ct = default)
+    public async Task<IReadOnlyList<EquipmentAlarm>> GetActiveAlarmsByEquipmentIdsAsync(IReadOnlyList<string> equipmentIds, CancellationToken ct = default)
     {
-        const string sql = @"SELECT a.* FROM EST_EQUIPMENT_ALARM a
-            INNER JOIN MDM_EQUIPMENT e ON e.EQUIPMENT_ID = a.EQUIPMENT_ID
-            WHERE e.PLANT_ID = @plantId AND a.CLEARED_AT IS NULL";
-        var rows = await QueryAsync<AlarmRow>(sql, new { plantId }, ct);
+        // ADR-006: 더 이상 MDM 설비 테이블을 조인하지 않는다. 호스트 IEquipmentDirectory가 plantId→설비 ID를 풀어
+        // 넘기고, 여기서는 자기 테이블만 그 ID들로 필터링한다. 빈 목록을 IN @...에 넘기면 Dapper가 잘못된 SQL을
+        // 만들거나 throw하므로 호출 전 빈 목록을 즉시 차단한다(서비스도 단락하지만 리포지토리에서도 방어한다).
+        if (equipmentIds.Count == 0) return Array.Empty<EquipmentAlarm>();
+        const string sql = @"SELECT * FROM EST_EQUIPMENT_ALARM
+            WHERE EQUIPMENT_ID IN @equipmentIds AND CLEARED_AT IS NULL";
+        var rows = await QueryAsync<AlarmRow>(sql, new { equipmentIds }, ct);
         return rows.Select(r => r.ToDomain()).OfType<EquipmentAlarm>().ToList();
     }
 
