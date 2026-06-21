@@ -34,4 +34,4 @@
 
 - **장점**: 복잡 도메인 결과(`Result<T>`)를 손실 없이 HTTP로 매핑, 컴파일타임 타입 안전 + 컨트롤러 단위테스트 모킹 가능, 게이트웨이-최대 원칙 유지(브리지는 최소), ADR-006 격리 보존.
 - **비용/위험**: plugin ALC 타입 동일성은 deps-제외 규칙 준수에 의존(위반 시 `InvalidCastException`) → 부팅 fail-fast로 즉시 검출. plugin ALC 로드는 WebApplicationFactory 테스트로 재현 곤란 → ALC 동일성은 **수동 기동 검증**으로 확인(Phase 1 패턴), 어댑터 로직·Result 매핑·컨트롤러는 자동 테스트.
-- **확장**: 동일 패턴으로 RMS 레시피 승인·Lot 추적을 후속 슬라이스로 복제(Lot은 다단계 트랜잭션 원자성 선결 필요). FDC 실시간 수집은 하드웨어/라이브 구독 의존이라 REST 브리지 대상이 아니라 워커 소유 유지(ADR-006). 워크플로 엔진은 ADR-006 Phase 4 보류 유지.
+- **확장**: 동일 패턴으로 RMS 레시피 승인(완료)·**SHP 출하주문 생명주기(완료 2026-06-21, main a8660e6 — `IShipmentBridge`/`ShipmentBridge`/`ShpBridgeController` api/v1/shp, DeliveryOrder Confirm/Ship/Cancel 상태전이 Result→409/400/200, 실 modules-ON 부팅 캐스트는 HostModulesBootSmokeTests가 검증)**·Lot 추적(보류 — 다단계 트랜잭션 원자성 선결)을 후속 슬라이스로 복제. "모듈별 API 소유" 확장의 대표 패턴: CRUD·조회는 게이트웨이 명명쿼리(ADR-001), 상태기계·불변식 등 복잡 서비스는 본 브리지. 후속 후보: CMMS 작업지시·POM 생산오더 상태전이(단일 애그리거트=브리지), MDM/SYS/QMS/FDC설정 CRUD(=게이트웨이). FDC 실시간 수집은 하드웨어/라이브 구독 의존이라 REST 브리지 대상이 아니라 워커 소유 유지(ADR-006). 워크플로 엔진은 ADR-006 Phase 4 보류 유지.
