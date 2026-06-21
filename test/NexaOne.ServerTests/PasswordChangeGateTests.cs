@@ -132,8 +132,9 @@ public static class PasswordChangeGateTests
             adminBody.Should().NotBeNull();
             SetBearer(admin, adminBody!.accessToken);
 
+            // roleId='ADMIN' = 부트스트랩 시드된 활성 SYS_ROLE(SEC-1: register는 활성 역할만 허용). OPERATOR는 미시드라 INVALID_ROLE.
             var reg = await admin.PostAsJsonAsync("/api/v1/auth/register",
-                new { userId = "mc1", userName = "MC1", password = "McUser!99", email = "mc@x.com", roleId = "OPERATOR" });
+                new { userId = "mc1", userName = "MC1", password = "McUser!99", email = "mc@x.com", roleId = "ADMIN" });
             reg.StatusCode.Should().Be(HttpStatusCode.OK, "admin 권한으로 mc1 등록은 200이어야 한다");
 
             // 2) mc1 로그인 → requirePasswordChange==true. 그 토큰으로 업무 API 차단·auth 허용.

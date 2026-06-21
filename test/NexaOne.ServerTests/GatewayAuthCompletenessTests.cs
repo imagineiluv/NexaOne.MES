@@ -5,6 +5,7 @@ using System.Security.Claims;
 using System.Text;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Data.Sqlite;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -208,8 +209,9 @@ public static class GatewayAuthCompletenessTests
             var login = await LoginAdminAsync(client);
             SetBearer(client, login.accessToken);
 
+            // roleId='ADMIN' = 부트스트랩 시드된 활성 SYS_ROLE(SEC-1 검증 통과). OPERATOR는 시드되지 않아 INVALID_ROLE이 된다.
             var reg = await client.PostAsJsonAsync("/api/v1/auth/register",
-                new { userId = "u1", userName = "U1", password = "Reg!Pass99", email = "u1@x.com", roleId = "OPERATOR" });
+                new { userId = "u1", userName = "U1", password = "Reg!Pass99", email = "u1@x.com", roleId = "ADMIN" });
             reg.StatusCode.Should().Be(HttpStatusCode.OK, "admin(ADMIN 역할='*' 권한)으로 등록은 200이어야 한다");
 
             // 신규 u1 로그인 → PASSWORD_STATE='Create'라 requirePasswordChange=true.
@@ -222,7 +224,7 @@ public static class GatewayAuthCompletenessTests
 
             // 같은 u1 재등록 → 409.
             var dup = await client.PostAsJsonAsync("/api/v1/auth/register",
-                new { userId = "u1", userName = "U1", password = "Reg!Pass99", email = "u1@x.com", roleId = "OPERATOR" });
+                new { userId = "u1", userName = "U1", password = "Reg!Pass99", email = "u1@x.com", roleId = "ADMIN" });
             dup.StatusCode.Should().Be(HttpStatusCode.Conflict, "중복 userId 등록은 409여야 한다");
         }
 
@@ -236,6 +238,37 @@ public static class GatewayAuthCompletenessTests
             var res = await client.PostAsJsonAsync("/api/v1/auth/register",
                 new { userId = "u2", userName = "U2", password = "Reg!Pass99", email = "u2@x.com", roleId = "OPERATOR" });
             res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "sys:manage 권한 미보유 시 register는 403이어야 한다");
+        }
+
+        // SEC-1: SYS_USER.ROLE_ID FK 부재 보완 — 존재하지 않는(또는 비활성) 역할로 등록 시 400 INVALID_ROLE,
+        // 그리고 SYS_USER 행이 생성되지 않아야 한다(orphan/무력 계정·하드코딩 권한 디커플링 차단).
+        [Fact]
+        public async Task Register_with_nonexistent_role_returns_INVALID_ROLE_and_inserts_no_user()
+        {
+            var client = _factory.CreateClient();
+            var login = await LoginAdminAsync(client);
+            SetBearer(client, login.accessToken);
+
+            const string ghostUser = "ghost_role_user";
+            var res = await client.PostAsJsonAsync("/api/v1/auth/register",
+                new { userId = ghostUser, userName = "Ghost", password = "Reg!Pass99", email = "g@x.com",
+                      roleId = "NO_SUCH_ROLE" });
+
+            res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "존재하지 않는 역할로 등록은 400이어야 한다(SEC-1)");
+            (await res.Content.ReadFromJsonAsync<ErrorBody>())!.code.Should().Be("INVALID_ROLE");
+
+            CountUsers(ghostUser).Should().Be(0, "검증 실패 시 SYS_USER 행이 생성되지 않아야 한다");
+        }
+
+        // 검증 실패가 INSERT를 막았는지 직접 확인(테스트 DB는 격리 SQLite 파일).
+        private int CountUsers(string userId)
+        {
+            using var conn = new SqliteConnection(_factory.ConnString);
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM SYS_USER WHERE USER_ID = @id";
+            cmd.Parameters.AddWithValue("@id", userId);
+            return Convert.ToInt32(cmd.ExecuteScalar());
         }
     }
 

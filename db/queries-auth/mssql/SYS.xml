@@ -110,6 +110,14 @@ WHERE USER_ID = @userId AND IS_DELETED = 0
 ]]></statement>
   </query>
 
+  <!-- 등록 시 ROLE_ID 무결성 검증(SEC-1) — 활성(미삭제) SYS_ROLE 존재 시 1행. FK 부재 보완: orphan/하드코딩 권한 디커플링 차단.
+       AuthUserById의 R.IS_DELETED=0(BIT)과 동일 비교. 존재 여부만 필요하므로 센티넬 1열만 SELECT. -->
+  <query id="SYS.RoleExists">
+    <statement><![CDATA[
+SELECT 1 AS OK FROM SYS_ROLE WITH (NOLOCK) WHERE ROLE_ID = @roleId AND IS_DELETED = 0
+]]></statement>
+  </query>
+
   <!-- 사용자 등록(register, admin). PASSWORD_STATE='Create'=최초 로그인 시 변경 강제(관리자 발급 임시 비번 관례). -->
   <query id="SYS.InsertUser">
     <statement><![CDATA[

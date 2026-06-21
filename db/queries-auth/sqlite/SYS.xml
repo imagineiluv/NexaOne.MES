@@ -101,6 +101,13 @@ WHERE USER_ID = @userId AND IS_DELETED = 0
 ]]></statement>
   </query>
 
+  <!-- 등록 시 ROLE_ID 무결성 검증(SEC-1) — 활성(미삭제) SYS_ROLE 존재 시 1행. mssql과 동일 의미, NOLOCK만 제거. -->
+  <query id="SYS.RoleExists">
+    <statement><![CDATA[
+SELECT 1 AS OK FROM SYS_ROLE WHERE ROLE_ID = @roleId AND IS_DELETED = 0
+]]></statement>
+  </query>
+
   <!-- 사용자 등록(register, admin). PASSWORD_STATE='Create'=최초 로그인 시 변경 강제(관리자 발급 임시 비번 관례). -->
   <query id="SYS.InsertUser">
     <statement><![CDATA[

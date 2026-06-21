@@ -156,6 +156,12 @@ public sealed class GatewayLoginService
         if (existing is not null)
             return AuthOutcome.Conflict(new Error("USER_ALREADY_EXISTS", $"User '{req.UserId}' already exists.", ErrorType.Conflict));
 
+        // SEC-1: SYS_USER.ROLE_ID에는 DB FK가 없어 register가 orphan/비활성 역할을 허용하면 권한 NULL(무력 계정)
+        // 또는 RolePermissionDefaults 하드코딩과 역할 레지스트리의 디커플링이 발생한다. INSERT 전에 활성 SYS_ROLE 존재를 검증한다.
+        var role = await QuerySingleAsync("SYS.RoleExists", new() { ["roleId"] = req.RoleId }, ct);
+        if (role is null)
+            return AuthOutcome.BadRequest(new Error("INVALID_ROLE", $"Role '{req.RoleId}' does not exist or is inactive.", ErrorType.Validation));
+
         await ExecuteAsync("SYS.InsertUser", new()
         {
             ["userId"] = req.UserId,
