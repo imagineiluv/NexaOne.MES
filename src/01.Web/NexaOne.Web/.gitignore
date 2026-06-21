@@ -1,3 +1,0 @@
-# Tailwind CSS 툴체인 (DevExpress 교체). package.json/package-lock.json은 추적,
-# node_modules는 제외. 생성 산출물 wwwroot/css/app.tailwind.css는 추적(앱이 npm 없이 스타일 적용).
-node_modules/

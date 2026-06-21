@@ -13,7 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\01.Web\NexaOne.Web\NexaOne.Web.csproj" />
+    <ProjectReference Include="..\..\src\01.Web\NexaOne.Web.Components\NexaOne.Web.Components.csproj" />
     <ProjectReference Include="..\..\src\02.Backend\NexaOne.Application\NexaOne.Application.csproj" />
     <ProjectReference Include="..\..\src\02.Backend\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\02.Backend\NexaOne.API\NexaOne.API.csproj" />
