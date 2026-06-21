@@ -30,4 +30,9 @@
     <constructor-arg ref="equipmentStateService" />
   </object>
 
+  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Est","equipmentAlarmBridge")로 IEquipmentAlarmBridge 캐스트. -->
+  <object id="equipmentAlarmBridge" type="NexaOne.EST.Application.Est.EquipmentAlarmBridge, NexaOne.EST">
+    <constructor-arg ref="equipmentAlarmService" />
+  </object>
+
 </objects>

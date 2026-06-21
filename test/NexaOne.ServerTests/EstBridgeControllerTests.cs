@@ -37,7 +37,11 @@ public sealed class EstBridgeControllerTests : IClassFixture<EstBridgeController
             builder.UseSetting("Jwt:Issuer", Issuer);
             builder.UseSetting("Jwt:Audience", Issuer);
             builder.UseSetting("RateLimiting:Enabled", "false");
-            builder.ConfigureTestServices(s => s.AddSingleton<IEquipmentStateBridge>(new FakeBridge()));
+            builder.ConfigureTestServices(s =>
+            {
+                s.AddSingleton<IEquipmentStateBridge>(new FakeBridge());
+                s.AddSingleton<IEquipmentAlarmBridge>(new FakeAlarmBridge());
+            });
         }
         protected override void Dispose(bool disposing)
         {
@@ -72,6 +76,26 @@ public sealed class EstBridgeControllerTests : IClassFixture<EstBridgeController
             bool allowFlag, string? setStateId, bool requireReason, CancellationToken ct = default)
             => Task.FromResult(Result.Success(new EquipmentStateMatrixDto(
                 $"{plantId}:{fromStateId}:{toStateId}", plantId, fromStateId, toStateId, allowFlag, setStateId ?? toStateId, requireReason, "Valid")));
+    }
+
+    private sealed class FakeAlarmBridge : IEquipmentAlarmBridge
+    {
+        public Task<Result<EquipmentAlarmDto>> RecordAlarmAsync(
+            string alarmId, string equipmentId, string alarmCode, string alarmName, string level, CancellationToken ct = default)
+            => Task.FromResult(alarmId switch
+            {
+                "__invalid__" => Result.Failure<EquipmentAlarmDto>(Error.Validation("alarmId", "Alarm ID is required.")),
+                _ => Result.Success(new EquipmentAlarmDto(
+                    alarmId, equipmentId, alarmCode, alarmName, level, DateTime.UtcNow, null, null, true)),
+            });
+        public Task<Result> ClearAlarmAsync(string alarmId, DateTime clearedAt, CancellationToken ct = default)
+            => Task.FromResult(alarmId == "__missing__"
+                ? Result.Failure(Error.NotFound("EquipmentAlarm", alarmId))
+                : Result.Success());
+        public Task<IReadOnlyList<EquipmentAlarmDto>> GetActiveAlarmsAsync(string plantId, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<EquipmentAlarmDto>>(
+                new[] { new EquipmentAlarmDto("A1", "EQ1", "E001", "Overheat", "HIGH", DateTime.UtcNow, null, null, true) });
+        public Task<int> GetActiveAlarmCountAsync(CancellationToken ct = default) => Task.FromResult(1);
     }
 
     private HttpClient Client(params string[] permissions)
@@ -131,5 +155,70 @@ public sealed class EstBridgeControllerTests : IClassFixture<EstBridgeController
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         var rows = await res.Content.ReadFromJsonAsync<List<EquipmentStateMatrixDto>>();
         rows!.Should().ContainSingle(m => m.FromStateId == "IDLE" && m.ToStateId == "RUN");
+    }
+
+    [Fact]
+    public async Task GetActiveAlarms_returns_200_for_authenticated_reader()
+    {
+        var res = await Client().GetAsync("/api/v1/est/alarms?plantId=P1");
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var rows = await res.Content.ReadFromJsonAsync<List<EquipmentAlarmDto>>();
+        rows!.Should().ContainSingle(a => a.AlarmId == "A1" && a.IsActive);
+    }
+
+    [Fact]
+    public async Task GetActiveAlarmCount_returns_200_for_authenticated_reader()
+    {
+        var res = await Client().GetAsync("/api/v1/est/alarms/count");
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await res.Content.ReadFromJsonAsync<int>()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task RecordAlarm_success_returns_200_with_dto()
+    {
+        var res = await Client("est:manage").PostAsJsonAsync("/api/v1/est/alarms",
+            new { alarmId = "A2", equipmentId = "EQ1", alarmCode = "E002", alarmName = "Vibration", level = "MED" });
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var dto = await res.Content.ReadFromJsonAsync<EquipmentAlarmDto>();
+        dto!.AlarmId.Should().Be("A2");
+        dto.IsActive.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task RecordAlarm_validation_failure_maps_to_400()
+    {
+        var res = await Client("est:manage").PostAsJsonAsync("/api/v1/est/alarms",
+            new { alarmId = "__invalid__", equipmentId = "EQ1", alarmCode = "E002", alarmName = "Vibration", level = "MED" });
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "Validation 실패는 400");
+    }
+
+    [Fact]
+    public async Task RecordAlarm_without_est_manage_is_forbidden()
+    {
+        var res = await Client("fdc:read").PostAsJsonAsync("/api/v1/est/alarms",
+            new { alarmId = "A3", equipmentId = "EQ1", alarmCode = "E003", alarmName = "Door", level = "LOW" });
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "est:manage 미보유 쓰기는 403");
+    }
+
+    [Fact]
+    public async Task ClearAlarm_success_returns_204()
+    {
+        var res = await Client("est:manage").PostAsJsonAsync("/api/v1/est/alarms/A1/clear", new { });
+        res.StatusCode.Should().Be(HttpStatusCode.NoContent, "해제 성공은 204(NoContent)");
+    }
+
+    [Fact]
+    public async Task ClearAlarm_not_found_maps_to_404()
+    {
+        var res = await Client("est:manage").PostAsJsonAsync("/api/v1/est/alarms/__missing__/clear", new { });
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound, "존재하지 않는 알람 해제는 404");
+    }
+
+    [Fact]
+    public async Task ClearAlarm_without_est_manage_is_forbidden()
+    {
+        var res = await Client("fdc:read").PostAsJsonAsync("/api/v1/est/alarms/A1/clear", new { });
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "est:manage 미보유 쓰기는 403");
     }
 }

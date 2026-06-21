@@ -17,8 +17,13 @@ namespace NexaOne.Server.Gateway;
 public sealed class EstBridgeController : ControllerBase
 {
     private readonly IEquipmentStateBridge _bridge;
+    private readonly IEquipmentAlarmBridge _alarmBridge;
 
-    public EstBridgeController(IEquipmentStateBridge bridge) => _bridge = bridge;
+    public EstBridgeController(IEquipmentStateBridge bridge, IEquipmentAlarmBridge alarmBridge)
+    {
+        _bridge = bridge;
+        _alarmBridge = alarmBridge;
+    }
 
     [HttpGet("state-matrix")]
     [ProducesResponseType<IReadOnlyList<EquipmentStateMatrixDto>>(StatusCodes.Status200OK)]
@@ -66,6 +71,41 @@ public sealed class EstBridgeController : ControllerBase
     public async Task<IActionResult> GetStateHistory(string equipmentId, CancellationToken ct)
         => Ok(await _bridge.GetHistoryAsync(equipmentId, 50, ct));
 
+    // ===== 설비알람(ADR-008 얇은 브리지) — 쓰기는 est:manage, 조회는 인증만. =====
+
+    [HttpGet("alarms")]
+    [ProducesResponseType<IReadOnlyList<EquipmentAlarmDto>>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetActiveAlarms([FromQuery] string plantId, CancellationToken ct)
+        => Ok(await _alarmBridge.GetActiveAlarmsAsync(plantId, ct));
+
+    [HttpGet("alarms/count")]
+    [ProducesResponseType<int>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetActiveAlarmCount(CancellationToken ct)
+        => Ok(await _alarmBridge.GetActiveAlarmCountAsync(ct));
+
+    [HttpPost("alarms")]
+    [ProducesResponseType<EquipmentAlarmDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> RecordAlarm([FromBody] RecordAlarmRequest req, CancellationToken ct)
+    {
+        if (!HasPermission(Permissions.EstManage)) return Forbid();
+        var result = await _alarmBridge.RecordAlarmAsync(
+            req.AlarmId, req.EquipmentId, req.AlarmCode, req.AlarmName, req.Level, ct);
+        return result.ToActionResult();
+    }
+
+    [HttpPost("alarms/{alarmId}/clear")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ClearAlarm(string alarmId, CancellationToken ct)
+    {
+        if (!HasPermission(Permissions.EstManage)) return Forbid();
+        var result = await _alarmBridge.ClearAlarmAsync(alarmId, DateTime.UtcNow, ct);
+        return result.ToActionResult();
+    }
+
     private string CurrentUserId =>
         User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
         ?? User.Identity?.Name ?? "SYSTEM";
@@ -77,3 +117,4 @@ public sealed class EstBridgeController : ControllerBase
 
 public record ChangeStateRequest(string EquipmentId, string PlantId, string ToState, string? Reason, int? ExpectedVersion);
 public record UpsertMatrixRequest(string PlantId, string FromStateId, string ToStateId, bool AllowFlag, string? SetStateId, bool RequireReason);
+public record RecordAlarmRequest(string AlarmId, string EquipmentId, string AlarmCode, string AlarmName, string Level);

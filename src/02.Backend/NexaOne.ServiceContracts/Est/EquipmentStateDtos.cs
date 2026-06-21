@@ -11,3 +11,8 @@ public record EquipmentStateMatrixDto(
 public record EquipmentStateHistoryDto(
     string HistoryId, string EquipmentId, string FromState, string ToState, string SetState,
     DateTime ChangedAt, string ChangedBy, string Reason, string SourceType, long? DurationSeconds);
+
+// EquipmentAlarm 엔티티 컬럼과 1:1(IsActive는 ClearedAt 파생). ALC/버전 결합 차단을 위한 경량 DTO.
+public record EquipmentAlarmDto(
+    string AlarmId, string EquipmentId, string AlarmCode, string AlarmName, string AlarmLevel,
+    DateTime OccurredAt, DateTime? ClearedAt, long? ElapsedSeconds, bool IsActive);
