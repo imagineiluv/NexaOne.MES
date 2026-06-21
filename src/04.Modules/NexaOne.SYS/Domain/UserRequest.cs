@@ -117,8 +117,13 @@ public sealed class UserRequest : AuditableEntity<string>
         DateTime? approvedAt,
         string? rejectReason,
         string? rejectedBy,
-        DateTime? rejectedAt)
-        => new(requestId)
+        DateTime? rejectedAt,
+        string? createdBy = null,
+        DateTime? createdAt = null,
+        string? updatedBy = null,
+        DateTime? updatedAt = null)
+    {
+        var request = new UserRequest(requestId)
         {
             UserId = userId,
             UserName = userName,
@@ -143,6 +148,10 @@ public sealed class UserRequest : AuditableEntity<string>
             RejectedBy = rejectedBy,
             RejectedAt = rejectedAt
         };
+        // 감사 메타데이터도 행값 그대로 복원한다 — 미복원 시 매 읽기마다 CreatedAt=UtcNow/CreatedBy="" 리셋(읽기경로 상태손실).
+        request.RestoreAudit(createdBy ?? request.CreatedBy, createdAt ?? request.CreatedAt, updatedBy, updatedAt);
+        return request;
+    }
 
     /// <summary>§19.3.5 — 승인. Request 상태에서만 가능하며, 승인자/시각을 기록한다.</summary>
     public Result Approve(string approvedBy, DateTime utcNow)

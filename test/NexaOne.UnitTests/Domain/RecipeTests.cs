@@ -189,6 +189,31 @@ public sealed class RecipeTests
             .DomainEvents.Should().BeEmpty("읽기경로 재구성(Restore)은 도메인 이벤트 발행 대상이 아니다");
 
     [Fact]
+    public void Restore_preserves_approval_state_version_approvers_and_audit_without_revalidation()
+    {
+        var created = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        var updated = new DateTime(2026, 2, 3, 4, 5, 6, DateTimeKind.Utc);
+        var released = new DateTime(2026, 3, 4, 5, 6, 7, DateTimeKind.Utc);
+
+        // Create는 Draft/Version=1로 강제하지만 Restore는 영속 상태·감사값을 그대로 복원한다.
+        var r = Recipe.Restore(
+            "R-AUD", "배포 레시피", "desc", "EC-01",
+            version: 4, approvalState: RecipeApprovalState.Released,
+            firstApproverId: "APP1", secondApproverId: "APP2", releasedAt: released,
+            createdBy: "seeder", createdAt: created, updatedBy: "editor", updatedAt: updated);
+
+        r.Version.Should().Be(4, "영속 버전을 1로 리셋하면 안 된다");
+        r.ApprovalState.Should().Be(RecipeApprovalState.Released, "배포 레시피가 Draft로 잘못 읽히면 안 된다");
+        r.FirstApproverId.Should().Be("APP1");
+        r.SecondApproverId.Should().Be("APP2");
+        r.ReleasedAt.Should().Be(released);
+        r.CreatedBy.Should().Be("seeder", "감사 메타데이터 보존(매 읽기 UtcNow/\"\" 리셋 없음)");
+        r.CreatedAt.Should().Be(created);
+        r.UpdatedBy.Should().Be("editor");
+        r.UpdatedAt.Should().Be(updated);
+    }
+
+    [Fact]
     public void ClearDomainEvents_empties_the_list()
     {
         var r = Draft();

@@ -119,14 +119,21 @@ public sealed class RecipeRepository : QueryRepository, IRecipeRepository
         public string? SecondApproverId { get; set; }
         public DateTime? ReleasedAt { get; set; }
 
+        // 읽기경로 감사 메타데이터 — Dapper MatchNamesWithUnderscores로 CREATED_BY→CreatedBy 등 자동 매핑(SELECT *).
+        public string    CreatedBy { get; set; } = "";
+        public DateTime  CreatedAt { get; set; }
+        public string?   UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
         public Recipe ToDomain()
         {
-            // 영속 상태(Version/ApprovalState/승인자/ReleasedAt)를 그대로 복원한다 —
+            // 영속 상태(Version/ApprovalState/승인자/ReleasedAt/감사값)를 그대로 복원한다 —
             // Create는 Draft/Version=1로 강제해 승인 상태를 유실하므로 Restore를 사용한다.
             if (!Enum.TryParse<RecipeApprovalState>(ApprovalState, out var state)) state = RecipeApprovalState.Draft;
             return Recipe.Restore(
                 RecipeId, RecipeName, Description, EquipmentClassId, Version, state,
-                FirstApproverId, SecondApproverId, ReleasedAt);
+                FirstApproverId, SecondApproverId, ReleasedAt,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
         }
 
         public static RecipeRow FromDomain(Recipe r) => new()

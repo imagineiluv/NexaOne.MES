@@ -41,15 +41,22 @@ public sealed class LoginFailureHistory : AuditableEntity<string>
         };
     }
 
-    /// <summary>DB 행 복원 전용.</summary>
+    /// <summary>DB 행 복원 전용 — 저장된 상태를 검증/절단 없이 그대로 되살린다(읽기경로 Restore 패턴).
+    /// 감사 메타데이터(CreatedBy/CreatedAt/UpdatedBy/UpdatedAt)도 행값 그대로 복원해 매 읽기마다
+    /// CreatedAt=UtcNow/CreatedBy=""로 리셋되는 읽기경로 상태손실을 막는다.</summary>
     public static LoginFailureHistory Restore(
         string failureId,
         string userId,
         string ipAddress,
         string userAgent,
         string failureReason,
-        DateTime occurredAt)
-        => new(failureId)
+        DateTime occurredAt,
+        string? createdBy = null,
+        DateTime? createdAt = null,
+        string? updatedBy = null,
+        DateTime? updatedAt = null)
+    {
+        var history = new LoginFailureHistory(failureId)
         {
             UserId = userId,
             IpAddress = ipAddress,
@@ -57,6 +64,9 @@ public sealed class LoginFailureHistory : AuditableEntity<string>
             FailureReason = failureReason,
             OccurredAt = occurredAt
         };
+        history.RestoreAudit(createdBy ?? history.CreatedBy, createdAt ?? history.CreatedAt, updatedBy, updatedAt);
+        return history;
+    }
 
     private static string Truncate(string value, int maxLength)
         => value.Length <= maxLength ? value : value[..maxLength];

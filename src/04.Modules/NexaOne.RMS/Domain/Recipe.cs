@@ -46,8 +46,10 @@ public sealed class Recipe : AuditableEntity<string>
     public static Recipe Restore(
         string recipeId, string recipeName, string description, string equipmentClassId,
         int version, RecipeApprovalState approvalState, string? firstApproverId,
-        string? secondApproverId, DateTime? releasedAt)
-        => new(recipeId)
+        string? secondApproverId, DateTime? releasedAt,
+        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null, DateTime? updatedAt = null)
+    {
+        var recipe = new Recipe(recipeId)
         {
             RecipeName = recipeName,
             Description = description,
@@ -58,6 +60,10 @@ public sealed class Recipe : AuditableEntity<string>
             SecondApproverId = secondApproverId,
             ReleasedAt = releasedAt
         };
+        // 감사 메타데이터도 행값 그대로 복원한다 — 미복원 시 매 읽기마다 CreatedAt=UtcNow/CreatedBy="" 리셋(읽기경로 상태손실).
+        recipe.RestoreAudit(createdBy ?? recipe.CreatedBy, createdAt ?? recipe.CreatedAt, updatedBy, updatedAt);
+        return recipe;
+    }
 
     public Result RequestApproval()
     {

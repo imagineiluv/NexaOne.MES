@@ -153,6 +153,12 @@ public sealed class UserRequestRepository : QueryRepository, IUserRequestReposit
         public string? RejectedBy { get; set; }
         public DateTime? RejectedAt { get; set; }
 
+        // 읽기경로 감사 메타데이터 — Dapper MatchNamesWithUnderscores로 CREATED_BY→CreatedBy 등 자동 매핑(SELECT *).
+        public string    CreatedBy { get; set; } = "";
+        public DateTime  CreatedAt { get; set; }
+        public string?   UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
         public UserRequest ToDomain()
         {
             if (!Enum.TryParse<LanguageType>(Language, out var lang) || !Enum.IsDefined(lang)) lang = LanguageType.KoKr;
@@ -162,7 +168,8 @@ public sealed class UserRequestRepository : QueryRepository, IUserRequestReposit
                 RequestId, UserId, UserName, Email, Department, Position, Duty,
                 PlantId, lang, CellPhone, Address, Description, Nickname,
                 status, RequestVersion, RequestedAt, TermsAcceptedAt, TermsAcceptedIp,
-                ApprovedBy, ApprovedAt, RejectReason, RejectedBy, RejectedAt);
+                ApprovedBy, ApprovedAt, RejectReason, RejectedBy, RejectedAt,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
         }
 
         public static UserRequestRow FromDomain(UserRequest r) => new()

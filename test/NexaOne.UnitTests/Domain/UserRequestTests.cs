@@ -281,6 +281,28 @@ public sealed class UserRequestTests
             .DomainEvents.Should().BeEmpty("읽기경로 재구성(Restore)은 도메인 이벤트 발행 대상이 아니다");
 
     [Fact]
+    public void Restore_preserves_status_version_and_audit_without_revalidation()
+    {
+        var created = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        var updated = new DateTime(2026, 2, 3, 4, 5, 6, DateTimeKind.Utc);
+
+        // 빈 이메일·약관 미동의 등 Create라면 검증 실패할 값도 Restore는 그대로 복원한다(읽기 시 행 드롭 없음).
+        var request = UserRequest.Restore("REQ-AUD", "newbie", "", "", "", "", null,
+            "P1", LanguageType.EnUs, null, null, null, null,
+            UserRequestStatus.Approved, 3, Now, Now, "10.0.0.1",
+            "admin", Now, null, null, null,
+            createdBy: "seeder", createdAt: created, updatedBy: "editor", updatedAt: updated);
+
+        request.Status.Should().Be(UserRequestStatus.Approved, "영속된 승인 상태가 Request로 둔갑하면 안 된다");
+        request.RequestVersion.Should().Be(3, "영속된 재신청 버전을 보존해야 한다");
+        request.Email.Should().Be("", "Restore는 검증 없이 영속값을 그대로 보존한다");
+        request.CreatedBy.Should().Be("seeder", "감사 메타데이터 보존(매 읽기 UtcNow/\"\" 리셋 없음)");
+        request.CreatedAt.Should().Be(created);
+        request.UpdatedBy.Should().Be("editor");
+        request.UpdatedAt.Should().Be(updated);
+    }
+
+    [Fact]
     public void ClearDomainEvents_empties_the_list()
     {
         var request = NewRequest();

@@ -63,13 +63,21 @@ public sealed class RoleRepository : QueryRepository, IRoleRepository
         public string Permissions { get; set; } = "";
         public bool IsDeleted { get; set; }
 
+        // 읽기경로 감사 메타데이터 — Dapper MatchNamesWithUnderscores로 CREATED_BY→CreatedBy 등 자동 매핑(SELECT *).
+        public string    CreatedBy { get; set; } = "";
+        public DateTime  CreatedAt { get; set; }
+        public string?   UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
+        // 읽기경로는 Restore로 권한·소프트삭제·감사값을 행값 그대로 복원한다(구버전 Create+AddPermission은
+        // 감사값을 매 읽기 리셋하고 IsDeleted를 도메인에 복원하지 않는 읽기경로 상태손실 버그였다).
         public Role ToDomain()
         {
-            var role = Role.Create(RoleId, RoleName, Description);
-            if (!string.IsNullOrEmpty(Permissions))
-                foreach (var p in Permissions.Split('|', StringSplitOptions.RemoveEmptyEntries))
-                    role.AddPermission(p);
-            return role;
+            var permissions = string.IsNullOrEmpty(Permissions)
+                ? Array.Empty<string>()
+                : Permissions.Split('|', StringSplitOptions.RemoveEmptyEntries);
+            return Role.Restore(RoleId, RoleName, Description, permissions, IsDeleted,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
         }
 
         public static RoleRow FromDomain(Role r) => new()

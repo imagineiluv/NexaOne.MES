@@ -42,7 +42,8 @@ public sealed class DefectClass : AuditableEntity<string>
     /// Restore는 IsActive·IsDeleted·DeletedAt을 행값 그대로 독립 복원해 이 읽기경로 상태손실을 막는다.</summary>
     public static DefectClass Restore(
         string defectClassId, string defectClassName, string description, string severity,
-        bool isActive, bool isDeleted, DateTime? deletedAt)
+        bool isActive, bool isDeleted, DateTime? deletedAt,
+        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null, DateTime? updatedAt = null)
     {
         var defectClass = new DefectClass(defectClassId)
         {
@@ -51,8 +52,9 @@ public sealed class DefectClass : AuditableEntity<string>
             Severity = severity,
             IsActive = isActive
         };
-        defectClass.IsDeleted = isDeleted;
-        defectClass.DeletedAt = deletedAt;
+        defectClass.RestoreSoftDelete(isDeleted, deletedAt);
+        // 감사 메타데이터도 행값 그대로 복원한다 — 미복원 시 매 읽기마다 CreatedAt=UtcNow/CreatedBy="" 리셋(읽기경로 상태손실).
+        defectClass.RestoreAudit(createdBy ?? defectClass.CreatedBy, createdAt ?? defectClass.CreatedAt, updatedBy, updatedAt);
         return defectClass;
     }
 

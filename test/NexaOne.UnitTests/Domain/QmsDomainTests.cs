@@ -78,6 +78,28 @@ public sealed class QmsDomainTests
         dc.IsDeleted.Should().BeTrue();
     }
 
+    [Fact]
+    public void Restore_defect_class_preserves_softdelete_and_audit_without_revalidation()
+    {
+        var created = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        var updated = new DateTime(2026, 2, 3, 4, 5, 6, DateTimeKind.Utc);
+        var deleted = new DateTime(2026, 3, 4, 5, 6, 7, DateTimeKind.Utc);
+
+        // Create는 IsActive=true 강제 + Deactivate가 IsDeleted/DeletedAt을 결합 설정하므로 영속 상태가 손상된다.
+        // Restore는 IsActive·IsDeleted·DeletedAt·감사값을 행값 그대로 독립 복원한다.
+        var dc = DefectClass.Restore("DC-DEL", "폐기 분류", "설명", "Minor",
+            isActive: false, isDeleted: true, deletedAt: deleted,
+            createdBy: "seeder", createdAt: created, updatedBy: "editor", updatedAt: updated);
+
+        dc.IsActive.Should().BeFalse("영속된 비활성 상태가 활성으로 둔갑하면 안 된다");
+        dc.IsDeleted.Should().BeTrue("영속된 소프트삭제 상태를 그대로 복원해야 한다");
+        dc.DeletedAt.Should().Be(deleted, "삭제 시각이 읽은 시각으로 손실되면 안 된다");
+        dc.CreatedBy.Should().Be("seeder", "감사 메타데이터 보존(매 읽기 UtcNow/\"\" 리셋 없음)");
+        dc.CreatedAt.Should().Be(created);
+        dc.UpdatedBy.Should().Be("editor");
+        dc.UpdatedAt.Should().Be(updated);
+    }
+
     // ── InspectionSpec ────────────────────────────────────────────────────────
 
     [Fact]

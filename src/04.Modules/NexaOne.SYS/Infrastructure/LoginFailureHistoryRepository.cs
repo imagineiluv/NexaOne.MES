@@ -54,8 +54,15 @@ public sealed class LoginFailureHistoryRepository : QueryRepository, ILoginFailu
         public string FailureReason { get; set; } = "";
         public DateTime OccurredAt { get; set; }
 
+        // 읽기경로 감사 메타데이터 — Dapper MatchNamesWithUnderscores로 CREATED_BY→CreatedBy 등 자동 매핑(SELECT *).
+        public string    CreatedBy { get; set; } = "";
+        public DateTime  CreatedAt { get; set; }
+        public string?   UpdatedBy { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
         public LoginFailureHistory ToDomain()
-            => LoginFailureHistory.Restore(FailureId, UserId, IpAddress, UserAgent, FailureReason, OccurredAt);
+            => LoginFailureHistory.Restore(FailureId, UserId, IpAddress, UserAgent, FailureReason, OccurredAt,
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 
         public static Row FromDomain(LoginFailureHistory h) => new()
         {
