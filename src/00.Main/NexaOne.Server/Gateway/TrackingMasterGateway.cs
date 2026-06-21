@@ -1,10 +1,12 @@
 using NexaOne.Infrastructure.Persistence;
-using NexaOne.POM.Application.Lots;
+using NexaOne.ServiceContracts.Pom;
 
-namespace NexaOne.POM.Infrastructure;
+namespace NexaOne.Server.Gateway;
 
-/// <summary>ITrackingMasterGateway 구현(설계 19.4.2 어댑터) — POM은 MDM/RMS/QMS를 프로젝트 참조하지
-/// 않으므로, 교차 모듈 마스터 검증을 공유 데이터소스(EesDataSource) 직접 read로 수행한다. 도메인 검증
+/// <summary>호스트 조립 루트(Default ALC) 어댑터 — POM 플러그인의 교차 모듈 마스터 검증 포트
+/// (ITrackingMasterGateway, 설계 19.4.2)를 구현한다. 호스트는 모든 모듈 스키마를 정당하게 알 수 있으므로
+/// MDM/RMS/QMS를 공유 데이터소스(EesDataSource) 직접 read로 검증하고, ADR-006에 따라 POM 플러그인은
+/// 타 모듈 스키마를 보유하지 않는다(포트만 ServiceContracts에 공유, 구현은 호스트 소유). 도메인 검증
 /// 로직(상태 전이/불변식)은 Lot/LotTrackingService에 있고, 여기서는 마스터 존재·상태 확인만 한다(읽기 전용).
 /// 컬럼은 V002__MDM_EQUIPMENT / V005__RMS_RECIPE / V030__QMS_MASTER(QMS_DEFECT_CLASS)와 1:1 정합.</summary>
 public sealed class TrackingMasterGateway : QueryRepository, ITrackingMasterGateway

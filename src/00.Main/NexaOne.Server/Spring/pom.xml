@@ -33,16 +33,15 @@
   <object id="pomLotMixingRelationRepository" type="NexaOne.POM.Infrastructure.LotMixingRelationRepository, NexaOne.POM">
     <constructor-arg ref="eesDataSource" />
   </object>
-  <!-- 교차 모듈 마스터 검증 포트(설계 19.4.2) — POM은 MDM/RMS/QMS 프로젝트 참조 없이 공유 데이터소스 직접 read로 구현. -->
-  <object id="pomTrackingMasterGateway" type="NexaOne.POM.Infrastructure.TrackingMasterGateway, NexaOne.POM">
-    <constructor-arg ref="eesDataSource" />
-  </object>
+  <!-- 교차 모듈 마스터 검증 포트(설계 19.4.2) — 이제 어댑터 구현은 호스트 server.xml의 trackingMasterGateway
+       서버 빈이 소유한다(ADR-006: POM 플러그인은 MDM/RMS/QMS 스키마 미보유). lotTrackingService는 그 호스트
+       빈을 cross-context ref로 주입받으며, 포트(ITrackingMasterGateway)는 ServiceContracts에 공유되어 타입 동일성이 유지된다. -->
   <object id="lotTrackingService" type="NexaOne.POM.Application.Lots.LotTrackingService, NexaOne.POM">
     <constructor-arg ref="pomLotRepository" />
     <constructor-arg ref="pomLotHistoryRepository" />
     <constructor-arg ref="pomLotMixingRelationRepository" />
     <constructor-arg ref="pomProductionOrderRepository" />
-    <constructor-arg ref="pomTrackingMasterGateway" />
+    <constructor-arg ref="trackingMasterGateway" />
   </object>
 
   <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Pom","pomBridge")로 IPomBridge 캐스트.

@@ -1,4 +1,4 @@
-namespace NexaOne.POM.Application.Lots;
+namespace NexaOne.ServiceContracts.Pom;
 
 /// <summary>TrackIn 검증에 필요한 설비 정보 — MDM Equipment의 축소 뷰.</summary>
 public sealed record TrackingEquipmentInfo(

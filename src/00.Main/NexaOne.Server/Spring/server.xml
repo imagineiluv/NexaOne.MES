@@ -60,6 +60,13 @@
     <constructor-arg ref="eesDialect" />
   </object>
 
+  <!-- 교차 모듈 마스터 검증 어댑터(POM 포트 구현) — 호스트(Default ALC)가 소유, plugin POM이 cross-context ref로
+       주입받는다(ADR-006: POM은 타 모듈 스키마 미보유). ITrackingMasterGateway 포트는 ServiceContracts에 공유되어
+       plugin/Default ALC 간 타입 동일성이 유지되며, 구현(MDM/RMS/QMS read)은 호스트가 소유한다. -->
+  <object id="trackingMasterGateway" type="NexaOne.Server.Gateway.TrackingMasterGateway, NexaOne.Server">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+
   <!-- 스케줄러 구동 Outbox 디스패치 워커(IHostedService). enabled="false"가 기본 게이트 — 켜려면 "true"로 변경한다. -->
   <object id="scheduledOutboxDispatchWorker" type="NexaOne.Server.ScheduledOutboxDispatchWorker, NexaOne.Server">
     <constructor-arg ref="quartzScheduler" />

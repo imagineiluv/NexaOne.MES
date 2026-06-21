@@ -2,6 +2,7 @@ using Moq;
 using NexaOne.POM.Application.Lots;
 using NexaOne.POM.Application.Pom;
 using NexaOne.POM.Domain;
+using NexaOne.ServiceContracts.Pom;
 
 namespace NexaOne.UnitTests.Services;
 
