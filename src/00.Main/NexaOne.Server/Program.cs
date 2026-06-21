@@ -12,6 +12,7 @@ using NexaOne.Infrastructure.Persistence;
 using NexaOne.Server.Components;
 using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Est;
+using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Qms;
 using NexaOne.ServiceContracts.Rms;
 using NexaOne.ServiceContracts.Shp;
@@ -116,6 +117,21 @@ if (modulesEnabled)
             "qmsBridge 빈을 IQmsBridge로 캐스트하지 못했습니다 — "
             + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
     builder.Services.AddSingleton(qmsBridge);
+
+    // ADR-008 얇은 브리지 — MDM 설비 생성/비활성/갱신(불변식). 첫 미노출-모듈 브리지 부팅 —
+    // 캐스트 성공 = MDM plugin ALC가 공유 ServiceContracts 계약을 Default ALC와 동일 타입으로 보는지 입증.
+    var mdmEquipmentBridge = server.GetBean("Mdm", "mdmEquipmentBridge") as IMdmEquipmentBridge
+        ?? throw new InvalidOperationException(
+            "mdmEquipmentBridge 빈을 IMdmEquipmentBridge로 캐스트하지 못했습니다 — "
+            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
+    builder.Services.AddSingleton(mdmEquipmentBridge);
+
+    // ADR-008 얇은 브리지 — MDM 마스터(Plant/Area/Product/CodeClass/Code) 생성. EST/RMS/SHP/QMS와 동일 메커니즘.
+    var mdmMasterBridge = server.GetBean("Mdm", "mdmMasterBridge") as IMdmMasterBridge
+        ?? throw new InvalidOperationException(
+            "mdmMasterBridge 빈을 IMdmMasterBridge로 캐스트하지 못했습니다 — "
+            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
+    builder.Services.AddSingleton(mdmMasterBridge);
 }
 else
 {

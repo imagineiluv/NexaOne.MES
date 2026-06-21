@@ -13,4 +13,33 @@
     <constructor-arg ref="equipmentRepository" />
   </object>
 
+  <object id="plantRepository" type="NexaOne.MDM.Infrastructure.PlantRepository, NexaOne.MDM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="areaRepository" type="NexaOne.MDM.Infrastructure.AreaRepository, NexaOne.MDM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="productRepository" type="NexaOne.MDM.Infrastructure.ProductRepository, NexaOne.MDM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="codeRepository" type="NexaOne.MDM.Infrastructure.CodeRepository, NexaOne.MDM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="mdmMasterService" type="NexaOne.MDM.Application.Equipments.MdmMasterService, NexaOne.MDM">
+    <constructor-arg ref="plantRepository" />
+    <constructor-arg ref="areaRepository" />
+    <constructor-arg ref="productRepository" />
+    <constructor-arg ref="codeRepository" />
+    <constructor-arg ref="cacheService" />
+  </object>
+
+  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Mdm","mdmEquipmentBridge")로 IMdmEquipmentBridge 캐스트. -->
+  <object id="mdmEquipmentBridge" type="NexaOne.MDM.Application.Equipments.MdmEquipmentBridge, NexaOne.MDM">
+    <constructor-arg ref="equipmentService" />
+  </object>
+  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Mdm","mdmMasterBridge")로 IMdmMasterBridge 캐스트. -->
+  <object id="mdmMasterBridge" type="NexaOne.MDM.Application.Equipments.MdmMasterBridge, NexaOne.MDM">
+    <constructor-arg ref="mdmMasterService" />
+  </object>
+
 </objects>
