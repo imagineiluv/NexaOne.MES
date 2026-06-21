@@ -1,6 +1,6 @@
 # GrapesJS 화면 디자이너 설계 (Low-Code WYSIWYG)
 
-> 상태: 승인 대기(브레인스토밍 산출 스펙) · 작성일 2026-06-19
+> 상태: **구현 완료**(작성일 2026-06-19 · 구현 2026-06-20~21). 이 설계가 이끈 계획이 전부 출하됐다 — Phase 0/1a(스키마+Blazor 런타임), Phase 5a(호스트 화면정의 영속+쿼리 카탈로그), Phase 5b(React/GrapesJS 디자이너 SPA), 트랙③(flatToLayout 레거시 재편집). 구현 계획: [plans/2026-06-19-grapesjs-runtime-and-schema](../plans/2026-06-19-grapesjs-runtime-and-schema.md), [plans/2026-06-20-phase5a-screendef-persistence](../plans/2026-06-20-phase5a-screendef-persistence.md), [plans/2026-06-20-phase5b-grapesjs-designer](../plans/2026-06-20-phase5b-grapesjs-designer.md), [plans/2026-06-21-track3-flat-to-layout](../plans/2026-06-21-track3-flat-to-layout.md). Phase 2 잔여(KPI/StatusBadge·디자인 토큰·그리드 컬럼 폭/순서·다중 폼모델)는 미착수.
 > 관련: [Frontend-Coexistence.md](../Frontend-Coexistence.md) (상위 공존 아키텍처), ADR-002(이벤트 버스/아웃박스), ADR-003(보안 PEP)
 
 ## 1. 목적과 범위
@@ -23,6 +23,8 @@
 ## 3. 검증된 기존 계약 (실제 코드 기준)
 
 설계는 다음 사실 위에 선다(2026-06-19 코드 정밀 분석 + .NET 8 STJ 실증).
+
+> **갱신 주의(2026-06-21):** §3은 *구현 착수 직전(2026-06-19)*의 코드 스냅샷이다. 이후 본 설계 구현으로 일부가 바뀌었다 — `ScreenDefinition`에 `LayoutNode? Layout`이 가산됐고(하위호환), `ScreenMetadata.cs`는 `NexaOne.Web` 삭제와 함께 `src/01.Web/NexaOne.Web.Components/Services/Meta/`로 이관됐으며, SPA는 더 이상 "GrapesJS·ScreenEditor 부재 / 라우터 없음"이 아니다(react-router-dom·grapesjs·`ScreenEditor.tsx` 출하 완료). 아래 항목은 그 당시의 "재사용 대상" 확인 기록으로 읽는다.
 
 - **모델**: `sealed record ScreenDefinition(string UiId, string Title, IReadOnlyList<FieldDefinition> Fields, IReadOnlyList<GridColumnDefinition>? Columns = null, string? QueryId = null, string? SaveQueryId = null)` — [ScreenMetadata.cs:30](../../../src/01.Web/NexaOne.Web/Services/Meta/ScreenMetadata.cs). `Fields`는 비널 필수, 나머지는 선택. 모두 불변 record.
 - **직렬화**: `ScreenDefinitionJson` — `JsonSerializerDefaults.Web`(camelCase) + `JsonStringEnumConverter` + `WriteIndented`. null 필드도 출력. **`Deserialize`는 `JsonException`을 잡아 null 반환** — 이것이 후술 위험의 증폭기다.
