@@ -13,10 +13,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
-    <ProjectReference Include="..\..\02.Backend\NexaOne.Application\NexaOne.Application.csproj" />
-    <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
-    <!-- ADR-008 얇은 브리지 계약(ICmmsBridge/DTO) — plugin이 구현하고 호스트가 공유 ALC로 캐스트한다. -->
-    <ProjectReference Include="..\..\02.Backend\NexaOne.ServiceContracts\NexaOne.ServiceContracts.csproj" />
     <!-- 도메인 이벤트 발행 백본(IMessageBus·DomainEventMessage) — 도래 통지를 버스로 발행. -->
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure.Messaging\NexaOne.Infrastructure.Messaging.csproj" />
     <!-- 주기 스케줄러(IRecurringScheduler/QuartzScheduler) — server.xml quartzScheduler 빈으로 워커 구동. -->

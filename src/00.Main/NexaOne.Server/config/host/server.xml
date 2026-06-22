@@ -55,7 +55,7 @@
   <object id="quartzScheduler" type="NexusFramework.Scheduling.QuartzScheduler, NexusFramework" />
 
   <!-- Outbox 저장소(IOutboxRepository). ctor(EesDataSource, INexaOneEESDbCapability) — 공통 빈 eesDataSource·eesDialect 주입. -->
-  <object id="outboxRepository" type="NexaOne.Infrastructure.Persistence.OutboxRepository, NexaOne.Infrastructure">
+  <object id="outboxRepository" type="NexaOne.Infrastructure.Persistence.OutboxRepository, NexaOne.Common">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="eesDialect" />
   </object>
@@ -108,7 +108,7 @@
   <!-- [MSSQL] 기본(운영) -->
   <object id="dbProvider" type="NexusCom.Data.MsSql.MsSqlProvider, NexusCom.Data.MsSql" />
   <object id="eesDialect" type="NexusCom.Data.MsSql.MsSqlProvider, NexusCom.Data.MsSql" />
-  <object id="eesDataSource" type="NexaOne.Infrastructure.Persistence.EesDataSource, NexaOne.Infrastructure">
+  <object id="eesDataSource" type="NexaOne.Infrastructure.Persistence.EesDataSource, NexaOne.Common">
     <property name="Provider" ref="dbProvider" />
     <property name="ConnectionString" value="Server=localhost;Database=NexaOneEES;Integrated Security=true;TrustServerCertificate=true" />
   </object>
@@ -117,8 +117,8 @@
        두 공급자 모두 NexusCom.Data 메타 참조로 출력에 상존하므로 어셈블리 한정 타입명으로 직접 지정한다.
        (SqliteProvider/eesDialect는 NexusCom.Data.Sqlite, MsSql은 NexusCom.Data.MsSql.) SQL 방언은 SQLite 어댑터.
   <object id="dbProvider" type="NexusCom.Data.Sqlite.SqliteProvider, NexusCom.Data.Sqlite" />
-  <object id="eesDialect" type="NexaOne.Infrastructure.Persistence.SqliteEesDbCapability, NexaOne.Infrastructure" />
-  <object id="eesDataSource" type="NexaOne.Infrastructure.Persistence.EesDataSource, NexaOne.Infrastructure">
+  <object id="eesDialect" type="NexaOne.Infrastructure.Persistence.SqliteEesDbCapability, NexaOne.Common" />
+  <object id="eesDataSource" type="NexaOne.Infrastructure.Persistence.EesDataSource, NexaOne.Common">
     <property name="Provider" ref="dbProvider" />
     <property name="ConnectionString" value="Data Source=nexaone.db;Foreign Keys=False" />
   </object>

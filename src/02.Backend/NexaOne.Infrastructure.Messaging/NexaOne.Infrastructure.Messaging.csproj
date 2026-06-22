@@ -1,8 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\NexaOne.Application\NexaOne.Application.csproj" />
-    <ProjectReference Include="..\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
+    <ProjectReference Include="..\NexaOne.Common\NexaOne.Common.csproj" />
     <!-- Kafka 프로토콜 본체는 서브모듈 소유 — Confluent.Kafka는 전이 참조로 흐름 -->
     <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Messaging.Kafka\NexusCom.Messaging.Kafka.csproj" />
   </ItemGroup>

@@ -27,9 +27,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\submodules\NexusFramework\src\NexusFramework\NexusFramework.csproj" />
-    <ProjectReference Include="..\..\02.Backend\NexaOne.Application\NexaOne.Application.csproj" />
-    <ProjectReference Include="..\..\02.Backend\NexaOne.ServiceContracts\NexaOne.ServiceContracts.csproj" />
-    <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure\NexaOne.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure.Messaging\NexaOne.Infrastructure.Messaging.csproj" />
     <!-- Phase 4 Task 3 — 공유 Blazor 컴포넌트 RCL(MetaScreen·렌더러·인증/ApiClient 서비스). Default ALC 일반 참조로
          호스트와 NexaOne.Web(exe)이 동일 컴포넌트 단일 출처를 공유한다. plugin(./Modules) 복사 대상 아님
