@@ -1,0 +1,124 @@
+/* SmartUX 디자인 시스템 — React SPA(GrapesJS 디자이너) 테마.
+   .NET 호스트(wwwroot/css/smartux.css)와 동일 토큰을 재사용해 시각적 일관성 유지.
+   네이비 상단바 + 틸 주색 + 깔끔한 보더 패널. */
+:root {
+  --sux-navy: #0e2240;
+  --sux-navy-2: #0a1a33;
+  --sux-navy-hover: rgba(255, 255, 255, .08);
+  --sux-teal: #15b89a;
+  --sux-teal-d: #0fa085;
+  --sux-blue: #4a6cf7;
+  --sux-red: #e5484d;
+  --sux-bg: #eef1f5;
+  --sux-card: #ffffff;
+  --sux-border: #e2e6eb;
+  --sux-head: #f5f7f9;
+  --sux-text: #1f2937;
+  --sux-muted: #6b7280;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; padding: 0; height: 100%; }
+body {
+  font-family: "Malgun Gothic", "Noto Sans KR", "Segoe UI", system-ui, sans-serif;
+  color: var(--sux-text);
+  background: var(--sux-bg);
+  font-size: 13px;
+}
+
+/* ===== 공통 버튼 ===== */
+.sux-btn {
+  border: 1px solid transparent; border-radius: 3px; padding: 7px 16px;
+  font-size: 13px; cursor: pointer; font-weight: 500; font-family: inherit;
+  line-height: 1.2;
+}
+.sux-btn:disabled { opacity: .5; cursor: not-allowed; }
+.sux-btn-teal { background: var(--sux-teal); color: #fff; }
+.sux-btn-teal:not(:disabled):hover { background: var(--sux-teal-d); }
+.sux-btn-blue { background: var(--sux-blue); color: #fff; }
+.sux-btn-blue:not(:disabled):hover { filter: brightness(.95); }
+.sux-btn-ghost { background: #fff; color: #44506a; border-color: var(--sux-border); }
+.sux-btn-ghost:not(:disabled):hover { background: var(--sux-head); }
+.sux-btn-red { background: var(--sux-red); color: #fff; }
+.sux-btn-red:not(:disabled):hover { filter: brightness(.95); }
+
+/* ===== 공통 입력 ===== */
+.sux-input {
+  padding: 6px 9px; border: 1px solid var(--sux-border); border-radius: 3px;
+  font-size: 13px; font-family: inherit; color: var(--sux-text); background: #fff;
+}
+.sux-input:focus { outline: none; border-color: var(--sux-teal); box-shadow: 0 0 0 2px rgba(21, 184, 154, .15); }
+
+/* ===== 카드/패널 ===== */
+.sux-card { background: var(--sux-card); border: 1px solid var(--sux-border); border-radius: 4px; }
+
+/* ===== 디자이너 셸 ===== */
+.sux-designer { display: flex; flex-direction: column; height: 100vh; background: var(--sux-bg); }
+
+/* 디자이너 상단바 — 네이비 + 화이트 텍스트 */
+.sux-designer-bar {
+  display: flex; gap: 12px; align-items: center;
+  height: 56px; flex: 0 0 56px; padding: 0 16px;
+  background: var(--sux-navy); color: #fff;
+}
+.sux-designer-bar .sux-brand { font-weight: 700; font-size: 15px; letter-spacing: .3px; color: #fff; }
+.sux-designer-bar .sux-brand small { color: var(--sux-teal); font-weight: 600; font-size: 10px; letter-spacing: 2px; display: block; }
+.sux-designer-bar .sux-uiid { color: #9fb0c8; font-size: 12px; }
+.sux-designer-bar .sux-input { background: #fff; }
+.sux-designer-bar .sux-status { margin-left: auto; color: #c3ccd9; font-size: 12.5px; }
+
+/* 디자이너 본문(블록 | 캔버스 | 트레이트) */
+.sux-designer-body { display: flex; flex: 1; min-height: 0; }
+.sux-panel {
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--sux-card); border-top: none;
+}
+.sux-panel-blocks { width: 220px; flex: 0 0 220px; border-right: 1px solid var(--sux-border); }
+.sux-panel-traits { width: 260px; flex: 0 0 260px; border-left: 1px solid var(--sux-border); }
+/* 패널 헤더 — 틸 액센트 */
+.sux-panel-head {
+  flex: 0 0 auto; padding: 9px 14px; background: var(--sux-head);
+  border-bottom: 1px solid var(--sux-border);
+  color: var(--sux-teal); font-weight: 700; font-size: 12.5px; letter-spacing: .2px;
+}
+.sux-panel-scroll { flex: 1; overflow: auto; min-height: 0; }
+/* 캔버스 프레임 */
+.sux-canvas { flex: 1; min-height: 0; min-width: 0; background: var(--sux-bg); }
+
+.sux-gate { padding: 2rem; color: var(--sux-muted); }
+
+/* GrapesJS 매니저를 SmartUX 팔레트에 살짝 맞춤(틸 액센트). 기능엔 영향 없음. */
+.sux-panel .gjs-block { border-radius: 3px; }
+.sux-panel .gjs-block:hover { color: var(--sux-teal-d); border-color: var(--sux-teal); }
+
+/* ===== 로그인 ===== */
+.sux-login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--sux-navy); }
+.sux-login-card {
+  width: 340px; background: var(--sux-card); border-radius: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .25); padding: 28px 28px 24px;
+  display: grid; gap: 12px;
+}
+.sux-login-card h1 { margin: 0 0 4px; font-size: 18px; font-weight: 700; color: var(--sux-navy); text-align: center; }
+.sux-login-card h1 small { display: block; color: var(--sux-teal); font-weight: 600; font-size: 11px; letter-spacing: 2px; margin-top: 4px; }
+.sux-login-card .sux-input { width: 100%; padding: 9px 11px; }
+.sux-login-card .sux-btn { width: 100%; padding: 9px; }
+.sux-error { color: var(--sux-red); font-size: 12.5px; margin: 0; }
+
+/* ===== 대시보드/앱 셸 ===== */
+.sux-app { max-width: 860px; margin: 0 auto; padding: 0 16px 32px; }
+.sux-app-topbar {
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--sux-navy); color: #fff;
+  margin: 0 -16px 20px; padding: 0 16px; height: 56px;
+}
+.sux-app-topbar .sux-user { font-size: 13px; color: #e6ebf2; }
+.sux-app-topbar .sux-actions { display: flex; gap: 10px; align-items: center; }
+.sux-app-topbar a { color: var(--sux-teal); text-decoration: none; font-size: 13px; font-weight: 600; }
+.sux-app-topbar a:hover { text-decoration: underline; }
+.sux-section-title { font-size: 15px; font-weight: 700; color: #1f2a3d; margin: 18px 0 8px; }
+.sux-list { list-style: none; padding: 0; margin: 0; }
+.sux-list li {
+  background: var(--sux-card); border: 1px solid var(--sux-border); border-radius: 4px;
+  padding: 8px 12px; margin-bottom: 6px; font-size: 13px;
+}
+.sux-muted { color: var(--sux-muted); }

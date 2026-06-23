@@ -75,21 +75,27 @@ export function ScreenEditor() {
     }
   }
 
-  if (!canManage) return <div style={{ padding: '2rem' }}>화면 디자이너 권한(sys:manage)이 없습니다.</div>
+  if (!canManage) return <div className="sux-gate">화면 디자이너 권한(sys:manage)이 없습니다.</div>
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-      <header style={{ display: 'flex', gap: 8, alignItems: 'center', padding: 8, borderBottom: '1px solid #ddd' }}>
-        <strong>화면 디자이너</strong>
-        <input aria-label="화면 제목" value={title} onChange={e => setTitle(e.target.value)} placeholder="화면 제목" />
-        <span>UI ID: {uiId ?? '(미지정)'}</span>
-        <button onClick={handleSave} disabled={!uiId}>저장</button>
-        <span style={{ marginLeft: 'auto' }}>{status}</span>
+    <div className="sux-designer">
+      <header className="sux-designer-bar">
+        <span className="sux-brand">화면 디자이너<small>SCREEN DESIGNER</small></span>
+        <input className="sux-input" aria-label="화면 제목" value={title} onChange={e => setTitle(e.target.value)} placeholder="화면 제목" />
+        <span className="sux-uiid">UI ID: {uiId ?? '(미지정)'}</span>
+        <button className="sux-btn sux-btn-teal" onClick={handleSave} disabled={!uiId}>저장</button>
+        <span className="sux-status">{status}</span>
       </header>
-      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-        <div ref={blocksRef} style={{ width: 200, overflow: 'auto', borderRight: '1px solid #ddd' }} />
-        <div ref={hostRef} style={{ flex: 1, minHeight: 0 }} />
-        <div ref={traitsRef} style={{ width: 240, overflow: 'auto', borderLeft: '1px solid #ddd' }} />
+      <div className="sux-designer-body">
+        <div className="sux-panel sux-panel-blocks">
+          <div className="sux-panel-head">블록</div>
+          <div ref={blocksRef} className="sux-panel-scroll" />
+        </div>
+        <div ref={hostRef} className="sux-canvas" />
+        <div className="sux-panel sux-panel-traits">
+          <div className="sux-panel-head">속성</div>
+          <div ref={traitsRef} className="sux-panel-scroll" />
+        </div>
       </div>
     </div>
   )

@@ -53,28 +53,28 @@ export function Dashboard({ session, onLogout }: { session: LoginResponse; onLog
   }
 
   return (
-    <div style={{ maxWidth: 720, margin: '5vh auto', fontFamily: 'sans-serif' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>{session.userName} ({session.roles.join(', ')}) @ {session.plantId}</span>
-        <span style={{ display: 'flex', gap: 8 }}>
+    <div className="sux-app">
+      <header className="sux-app-topbar">
+        <span className="sux-user">{session.userName} ({session.roles.join(', ')}) @ {session.plantId}</span>
+        <span className="sux-actions">
           {canDesign && <Link to="/designer/DEMO_DESIGNER">화면 디자이너</Link>}
-          <button onClick={handleLogout}>로그아웃</button>
+          <button className="sux-btn sux-btn-ghost" onClick={handleLogout}>로그아웃</button>
         </span>
       </header>
 
-      <h2>FDC 파라미터 그룹 (EQ-001)</h2>
+      <h2 className="sux-section-title">FDC 파라미터 그룹 (EQ-001)</h2>
       {loadError
-        ? <p style={{ color: 'crimson' }}>{loadError}</p>
-        : <ul>{groups.map(g => <li key={g.id}>{g.groupName}</li>)}</ul>}
-      {!loadError && groups.length === 0 && <p>데이터가 없습니다.</p>}
+        ? <p className="sux-error">{loadError}</p>
+        : <ul className="sux-list">{groups.map(g => <li key={g.id}>{g.groupName}</li>)}</ul>}
+      {!loadError && groups.length === 0 && <p className="sux-muted">데이터가 없습니다.</p>}
 
-      <h2>설비 제어 (권한 게이트)</h2>
+      <h2 className="sux-section-title">설비 제어 (권한 게이트)</h2>
       {canControl
-        ? <button onClick={startEquipment}>설비 기동</button>
-        : <p>제어 권한(fdc:control)이 없습니다.</p>}
+        ? <button className="sux-btn sux-btn-teal" onClick={startEquipment}>설비 기동</button>
+        : <p className="sux-muted">제어 권한(fdc:control)이 없습니다.</p>}
 
-      <h2>실시간(SignalR): {hubState}</h2>
-      <p>최근 이벤트: {lastEvent}</p>
+      <h2 className="sux-section-title">실시간(SignalR): {hubState}</h2>
+      <p className="sux-muted">최근 이벤트: {lastEvent}</p>
     </div>
   )
 }

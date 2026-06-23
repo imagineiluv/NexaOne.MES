@@ -24,12 +24,14 @@ export function Login({ onLoggedIn }: { onLoggedIn: (session: LoginResponse) => 
   }
 
   return (
-    <form onSubmit={submit} style={{ maxWidth: 320, margin: '12vh auto', display: 'grid', gap: 8, fontFamily: 'sans-serif' }}>
-      <h1>NexaMes — React Pro-Code</h1>
-      <input placeholder="사용자 ID" value={userId} onChange={e => setUserId(e.target.value)} autoComplete="username" />
-      <input placeholder="비밀번호" type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
-      <button type="submit" disabled={busy || !userId || !password}>{busy ? '로그인 중…' : '로그인'}</button>
-      {error && <p style={{ color: 'crimson' }}>{error}</p>}
-    </form>
+    <div className="sux-login-wrap">
+      <form onSubmit={submit} className="sux-login-card">
+        <h1>NexaMes — React Pro-Code<small>NEXAMES MES</small></h1>
+        <input className="sux-input" placeholder="사용자 ID" value={userId} onChange={e => setUserId(e.target.value)} autoComplete="username" />
+        <input className="sux-input" placeholder="비밀번호" type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
+        <button className="sux-btn sux-btn-teal" type="submit" disabled={busy || !userId || !password}>{busy ? '로그인 중…' : '로그인'}</button>
+        {error && <p className="sux-error">{error}</p>}
+      </form>
+    </div>
   )
 }
