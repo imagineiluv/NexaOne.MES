@@ -12,12 +12,18 @@ namespace NexaOne.Infrastructure.Persistence;
 public static class SqliteSchemaInitializer
 {
     /// <summary>
-    /// 빈 DB일 때만 스키마를 생성한다(idempotent). 이미 사용자 테이블이 있으면 건너뛴다 —
-    /// 동일 SQLite 파일로 호스트를 반복 기동해도 안전하게 재사용된다.
+    /// 스키마를 보장한다(idempotent). 빈 DB면 전체 마이그레이션을 1회 적용하고(시드·ALTER 포함),
+    /// 이미 사용자 테이블이 있으면 '새로 추가된 마이그레이션의 누락 테이블'만 증분 생성한다.
+    /// 후자 덕분에 기존 DB에 신규 마이그레이션(예: 새 모듈 테이블)을 추가해도 재기동 시 자동 생성된다
+    /// (과거에는 테이블이 하나라도 있으면 전부 건너뛰어 신규 테이블이 영영 생성되지 않았다).
     /// </summary>
     public static void EnsureSchema(string connectionString)
     {
-        if (HasUserTables(connectionString)) return;
+        if (HasUserTables(connectionString))
+        {
+            CreateMissingTables(connectionString);
+            return;
+        }
         Apply(connectionString);
     }
 
@@ -44,6 +50,39 @@ public static class SqliteSchemaInitializer
             {
                 throw new InvalidOperationException(
                     $"SQLite 스키마 생성 실패 @ {Path.GetFileName(file)}: {ex.Message}", ex);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 이미 테이블이 있는 DB에 누락 테이블/인덱스만 멱등 생성한다(CREATE TABLE/INDEX는 IF NOT EXISTS로 변환됨).
+    /// ALTER(컬럼 추가/변경)·INSERT(1회성 시드)는 건너뛴다 — 기존 데이터·시드를 보존하면서 신규 테이블만 추가한다.
+    /// 컬럼 추가형 스키마 진화는 빈 DB 전체 적용 경로에서만 반영된다(증분 패스의 의도적 한계).
+    /// </summary>
+    public static void CreateMissingTables(string connectionString)
+    {
+        var dir = FindMigrationsDir();
+        using var conn = new SqliteConnection(connectionString);
+        conn.Open();
+        Exec(conn, "PRAGMA foreign_keys = OFF;");
+
+        foreach (var file in Directory.GetFiles(dir, "V*.sql").OrderBy(f => f, StringComparer.Ordinal))
+        {
+            var ddl = ToSqlite(File.ReadAllText(file));
+            foreach (var stmt in ddl.Split(';').Select(s => s.Trim()).Where(s => s.Length > 0))
+            {
+                // 증분 생성 패스 — 테이블/인덱스 생성문만(IF NOT EXISTS라 멱등). ALTER/INSERT/기타는 제외.
+                if (!Regex.IsMatch(stmt, @"\bCREATE\s+(TABLE|(?:UNIQUE\s+)?INDEX)\b", RegexOptions.IgnoreCase))
+                    continue;
+                try
+                {
+                    Exec(conn, stmt);
+                }
+                catch (SqliteException ex)
+                {
+                    throw new InvalidOperationException(
+                        $"SQLite 증분 스키마 생성 실패 @ {Path.GetFileName(file)}: {ex.Message}", ex);
+                }
             }
         }
     }
@@ -112,6 +151,9 @@ public static class SqliteSchemaInitializer
             var cols = m.Groups[2].Value.Split(',');
             return string.Join("\n", cols.Select(c => $"ALTER TABLE {tbl} ADD COLUMN {c.Trim()};"));
         }, O | RegexOptions.Singleline);
+        // 멱등 생성 — CREATE TABLE/INDEX에 IF NOT EXISTS 주입(증분 생성·반복 기동 안전, 빈 DB 적용엔 무해).
+        s = Regex.Replace(s, @"\bCREATE\s+TABLE\s+(?!IF\s+NOT\s+EXISTS\b)", "CREATE TABLE IF NOT EXISTS ", O);
+        s = Regex.Replace(s, @"\bCREATE\s+(UNIQUE\s+)?INDEX\s+(?!IF\s+NOT\s+EXISTS\b)", "CREATE $1INDEX IF NOT EXISTS ", O);
         return s;
     }
 }
