@@ -244,6 +244,56 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("SAMPLE_SIZE", "표본수"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "QMS.SpcParamList"));
+
+        // ===== SmartUX MDM 잔여 업무화면 점등(V035 신설 테이블 백엔드) — 12종 조회 그리드. =====
+        Register(new ScreenDefinition("FACTORY_MDM_EQUIPMENT_CLASS", "설비 그룹 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("EQUIPMENT_CLASS_ID", "설비 그룹 ID"), new("EQUIPMENT_CLASS_NAME", "설비 그룹명"), new("DESCRIPTION", "설명") },
+            QueryId: "MDM.EquipmentClassList"));
+        Register(new ScreenDefinition("FACTORY_MDM_ITEM_CLASS", "품목 그룹 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("ITEM_CLASS_ID", "품목 그룹 ID"), new("ITEM_CLASS_NAME", "품목 그룹명"), new("DESCRIPTION", "설명") },
+            QueryId: "MDM.ItemClassList"));
+        Register(new ScreenDefinition("FACTORY_MDM_CARRIER_CLASS", "캐리어 그룹 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("CARRIER_CLASS_ID", "캐리어 그룹 ID"), new("CARRIER_CLASS_NAME", "캐리어 그룹명"), new("DESCRIPTION", "설명") },
+            QueryId: "MDM.CarrierClassList"));
+        Register(new ScreenDefinition("FACTORY_MDM_CARRIER", "캐리어 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("CARRIER_ID", "캐리어 ID"), new("CARRIER_NAME", "캐리어명"), new("CARRIER_CLASS_ID", "캐리어 그룹"), new("DESCRIPTION", "설명") },
+            QueryId: "MDM.CarrierList"));
+        Register(new ScreenDefinition("FACTORY_MDM_SEGMENT_CLASS", "공정 그룹 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("SEGMENT_CLASS_ID", "공정 그룹 ID"), new("SEGMENT_CLASS_NAME", "공정 그룹명"), new("DESCRIPTION", "설명") },
+            QueryId: "MDM.SegmentClassList"));
+        Register(new ScreenDefinition("FACTORY_MDM_SEGMENT_DEF", "공정 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("SEGMENT_ID", "공정 ID"), new("SEGMENT_NAME", "공정명"), new("SEGMENT_CLASS_ID", "공정 그룹"), new("DESCRIPTION", "설명") },
+            QueryId: "MDM.SegmentList"));
+        Register(new ScreenDefinition("FACTORY_MDM_PROCESS_CLASS", "프로세스 그룹 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("PROCESS_CLASS_ID", "프로세스 그룹 ID"), new("PROCESS_CLASS_NAME", "프로세스 그룹명"), new("DESCRIPTION", "설명") },
+            QueryId: "MDM.ProcessClassList"));
+        Register(new ScreenDefinition("FACTORY_MDM_PROCESS_DEF", "프로세스 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("PROCESS_ID", "프로세스 ID"), new("PROCESS_NAME", "프로세스명"), new("PROCESS_CLASS_ID", "프로세스 그룹"), new("DESCRIPTION", "설명") },
+            QueryId: "MDM.ProcessList"));
+        Register(new ScreenDefinition("FACTORY_MDM_PROCESS_PATH", "라우팅 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("ROUTING_ID", "라우팅 ID"), new("ROUTING_NAME", "라우팅명"), new("PRODUCT_ID", "품목 ID"), new("DESCRIPTION", "설명") },
+            QueryId: "MDM.RoutingList"));
+        Register(new ScreenDefinition("FACTORY_MDM_BILL_OF_MATERIAL", "BOM 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("BOM_ID", "BOM ID"), new("PRODUCT_ID", "제품 ID"), new("COMPONENT_ID", "부품 ID"), new("QUANTITY", "수량") },
+            QueryId: "MDM.BomList"));
+        Register(new ScreenDefinition("FACTORY_MDM_SEGMENT_QTIME", "Qtime 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("QTIME_ID", "Qtime ID"), new("SEGMENT_ID", "공정 ID"), new("STANDARD_TIME", "표준시간"), new("UNIT", "단위") },
+            QueryId: "MDM.QtimeList"));
+        Register(new ScreenDefinition("FACTORY_MDM_QTIME_ACTION", "Qtime 액션 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("ACTION_ID", "액션 ID"), new("QTIME_ID", "Qtime ID"), new("ACTION_CODE", "액션코드"), new("DESCRIPTION", "설명") },
+            QueryId: "MDM.QtimeActionList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;

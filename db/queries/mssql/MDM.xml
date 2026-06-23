@@ -126,4 +126,66 @@
             ORDER BY CODE_CLASS_ID, SORT_ORDER, CODE_NAME
         ]]></statement>
     </query>
+
+    <!-- ===== V035 MDM 마스터 보강 테이블 조회 — SQLite판과 동일 ID·동일 컬럼(NOLOCK 힌트만 추가). ===== -->
+    <query id="MDM.EquipmentClassList">
+        <statement><![CDATA[
+            SELECT EQUIPMENT_CLASS_ID, EQUIPMENT_CLASS_NAME, DESCRIPTION FROM MDM_EQUIPMENT_CLASS WITH (NOLOCK) ORDER BY EQUIPMENT_CLASS_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.ItemClassList">
+        <statement><![CDATA[
+            SELECT ITEM_CLASS_ID, ITEM_CLASS_NAME, DESCRIPTION FROM MDM_ITEM_CLASS WITH (NOLOCK) ORDER BY ITEM_CLASS_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.CarrierClassList">
+        <statement><![CDATA[
+            SELECT CARRIER_CLASS_ID, CARRIER_CLASS_NAME, DESCRIPTION FROM MDM_CARRIER_CLASS WITH (NOLOCK) ORDER BY CARRIER_CLASS_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.CarrierList">
+        <statement><![CDATA[
+            SELECT CARRIER_ID, CARRIER_NAME, CARRIER_CLASS_ID, DESCRIPTION FROM MDM_CARRIER WITH (NOLOCK) ORDER BY CARRIER_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.SegmentClassList">
+        <statement><![CDATA[
+            SELECT SEGMENT_CLASS_ID, SEGMENT_CLASS_NAME, DESCRIPTION FROM MDM_SEGMENT_CLASS WITH (NOLOCK) ORDER BY SEGMENT_CLASS_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.SegmentList">
+        <statement><![CDATA[
+            SELECT SEGMENT_ID, SEGMENT_NAME, SEGMENT_CLASS_ID, DESCRIPTION FROM MDM_SEGMENT WITH (NOLOCK) ORDER BY SEGMENT_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.ProcessClassList">
+        <statement><![CDATA[
+            SELECT PROCESS_CLASS_ID, PROCESS_CLASS_NAME, DESCRIPTION FROM MDM_PROCESS_CLASS WITH (NOLOCK) ORDER BY PROCESS_CLASS_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.ProcessList">
+        <statement><![CDATA[
+            SELECT PROCESS_ID, PROCESS_NAME, PROCESS_CLASS_ID, DESCRIPTION FROM MDM_PROCESS WITH (NOLOCK) ORDER BY PROCESS_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.RoutingList">
+        <statement><![CDATA[
+            SELECT ROUTING_ID, ROUTING_NAME, PRODUCT_ID, DESCRIPTION FROM MDM_ROUTING WITH (NOLOCK) ORDER BY ROUTING_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.BomList">
+        <statement><![CDATA[
+            SELECT BOM_ID, PRODUCT_ID, COMPONENT_ID, QUANTITY FROM MDM_BOM WITH (NOLOCK) ORDER BY BOM_ID
+        ]]></statement>
+    </query>
+    <query id="MDM.QtimeList">
+        <statement><![CDATA[
+            SELECT QTIME_ID, SEGMENT_ID, STANDARD_TIME, UNIT FROM MDM_QTIME WITH (NOLOCK) ORDER BY QTIME_ID
+        ]]></statement>
+    </query>
+    <query id="MDM.QtimeActionList">
+        <statement><![CDATA[
+            SELECT ACTION_ID, QTIME_ID, ACTION_CODE, DESCRIPTION FROM MDM_QTIME_ACTION WITH (NOLOCK) ORDER BY ACTION_ID
+        ]]></statement>
+    </query>
 </queries>

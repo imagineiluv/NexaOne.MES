@@ -487,18 +487,63 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
     Exec(tx, specSql, ("@id", "SPEC01"), ("@name", "외관 검사"), ("@proc", "PROC_ASSY"), ("@item", "완제품 A"), ("@mt", "Attribute"),
         ("@nom", DBNull.Value), ("@tp", DBNull.Value), ("@tm", DBNull.Value), ("@at", now));
     Exec(tx, specSql, ("@id", "SPEC02"), ("@name", "치수 검사"), ("@proc", "PROC_MACH"), ("@item", "반제품 B"), ("@mt", "Variable"),
-        ("@nom", 10.0), ("@tp", 0.5), ("@tm", 0.5), ("@at", now));
+        ("@nom", 10.0m), ("@tp", 0.5m), ("@tm", 0.5m), ("@at", now));
 
     // QMS SPC 파라미터(SPC 관리도 화면용). EQUIPMENT_ID는 위에서 시드한 설비 참조. USL/LSL은 nullable.
     const string spcSql = "INSERT INTO QMS_SPC_PARAM (PARAM_ID,PARAM_NAME,EQUIPMENT_ID,PROCESS_ID,MEAN,UCL,LCL,USL,LSL,SAMPLE_SIZE,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
                           "VALUES (@id,@name,@eq,@proc,@mean,@ucl,@lcl,@usl,@lsl,@n,1,'SYSTEM',@at,'SYSTEM',@at)";
     Exec(tx, spcSql, ("@id", "SP01"), ("@name", "치수 X"), ("@eq", "EQ01"), ("@proc", "PROC_MACH"),
-        ("@mean", 10.0), ("@ucl", 11.0), ("@lcl", 9.0), ("@usl", 11.5), ("@lsl", 8.5), ("@n", 5), ("@at", now));
+        ("@mean", 10.0m), ("@ucl", 11.0m), ("@lcl", 9.0m), ("@usl", 11.5m), ("@lsl", 8.5m), ("@n", 5), ("@at", now));
     Exec(tx, spcSql, ("@id", "SP02"), ("@name", "가동 온도"), ("@eq", "EQ03"), ("@proc", "PROC_ASSY"),
-        ("@mean", 200.0), ("@ucl", 210.0), ("@lcl", 190.0), ("@usl", DBNull.Value), ("@lsl", DBNull.Value), ("@n", 5), ("@at", now));
+        ("@mean", 200.0m), ("@ucl", 210.0m), ("@lcl", 190.0m), ("@usl", DBNull.Value), ("@lsl", DBNull.Value), ("@n", 5), ("@at", now));
+
+    // ===== V035 신설 마스터 시드(점등 화면이 실제 행을 보이도록). FK 순서: 분류 → 본체 → 라우팅/BOM/Qtime. =====
+    // 분류 마스터 5종(공통 형태: id/name/desc). 테이블·컬럼명만 달라 개별 루프.
+    foreach (var c in new[] { ("EQC_GENERAL", "일반 설비", "범용 설비 그룹"), ("EQC_PRECISION", "정밀 설비", "정밀 가공 설비 그룹") })
+        Exec(tx, "INSERT INTO MDM_EQUIPMENT_CLASS (EQUIPMENT_CLASS_ID,EQUIPMENT_CLASS_NAME,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@name,@desc,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@desc", c.Item3), ("@at", now));
+    foreach (var c in new[] { ("IC_FG", "완제품", "Finished Goods"), ("IC_SF", "반제품", "Semi-Finished"), ("IC_RM", "원자재", "Raw Material") })
+        Exec(tx, "INSERT INTO MDM_ITEM_CLASS (ITEM_CLASS_ID,ITEM_CLASS_NAME,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@name,@desc,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@desc", c.Item3), ("@at", now));
+    foreach (var c in new[] { ("CRC_PLASTIC", "플라스틱 캐리어", "플라스틱 재질"), ("CRC_METAL", "금속 캐리어", "금속 재질") })
+        Exec(tx, "INSERT INTO MDM_CARRIER_CLASS (CARRIER_CLASS_ID,CARRIER_CLASS_NAME,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@name,@desc,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@desc", c.Item3), ("@at", now));
+    foreach (var c in new[] { ("SGC_ASSY", "조립공정", "조립 라인 공정군"), ("SGC_TEST", "검사공정", "검사/시험 공정군") })
+        Exec(tx, "INSERT INTO MDM_SEGMENT_CLASS (SEGMENT_CLASS_ID,SEGMENT_CLASS_NAME,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@name,@desc,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@desc", c.Item3), ("@at", now));
+    foreach (var c in new[] { ("PRC_AUTO", "자동화공정", "자동 설비 공정"), ("PRC_MANUAL", "수동공정", "작업자 수동 공정") })
+        Exec(tx, "INSERT INTO MDM_PROCESS_CLASS (PROCESS_CLASS_ID,PROCESS_CLASS_NAME,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@name,@desc,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@desc", c.Item3), ("@at", now));
+
+    // 본체(그룹 참조).
+    foreach (var c in new[] { ("CR01", "PC 캐리어", "CRC_PLASTIC", "PC 트레이"), ("CR02", "금속 트레이", "CRC_METAL", "스테인리스 트레이") })
+        Exec(tx, "INSERT INTO MDM_CARRIER (CARRIER_ID,CARRIER_NAME,CARRIER_CLASS_ID,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@name,@cls,@desc,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@cls", c.Item3), ("@desc", c.Item4), ("@at", now));
+    foreach (var c in new[] { ("SEG01", "SMT 조립", "SGC_ASSY", "표면실장 조립"), ("SEG02", "기능 검사", "SGC_TEST", "기능 시험") })
+        Exec(tx, "INSERT INTO MDM_SEGMENT (SEGMENT_ID,SEGMENT_NAME,SEGMENT_CLASS_ID,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@name,@cls,@desc,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@cls", c.Item3), ("@desc", c.Item4), ("@at", now));
+    foreach (var c in new[] { ("PROC01", "자동 투입", "PRC_AUTO", "자동 자재 투입"), ("PROC02", "수동 검사", "PRC_MANUAL", "작업자 육안 검사") })
+        Exec(tx, "INSERT INTO MDM_PROCESS (PROCESS_ID,PROCESS_NAME,PROCESS_CLASS_ID,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@name,@cls,@desc,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@cls", c.Item3), ("@desc", c.Item4), ("@at", now));
+
+    // 라우팅/BOM(제품 ITEM01~03 참조 — 위에서 시드).
+    foreach (var c in new[] { ("RT01", "완제품 A 라우팅", "ITEM01", "표준 라우팅"), ("RT02", "반제품 B 라우팅", "ITEM02", "중간 라우팅") })
+        Exec(tx, "INSERT INTO MDM_ROUTING (ROUTING_ID,ROUTING_NAME,PRODUCT_ID,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@name,@prod,@desc,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@prod", c.Item3), ("@desc", c.Item4), ("@at", now));
+    const string bomSql = "INSERT INTO MDM_BOM (BOM_ID,PRODUCT_ID,COMPONENT_ID,QUANTITY,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@prod,@comp,@qty,@desc,'SYSTEM',@at,'SYSTEM',@at)";
+    Exec(tx, bomSql, ("@id", "BOM01"), ("@prod", "ITEM01"), ("@comp", "ITEM03"), ("@qty", 10.0m), ("@desc", "완제품 A ← 원자재 C"), ("@at", now));
+    Exec(tx, bomSql, ("@id", "BOM02"), ("@prod", "ITEM01"), ("@comp", "ITEM02"), ("@qty", 2.0m), ("@desc", "완제품 A ← 반제품 B"), ("@at", now));
+
+    // Qtime/Qtime 액션(공정 SEG01/02 참조).
+    const string qtSql = "INSERT INTO MDM_QTIME (QTIME_ID,SEGMENT_ID,STANDARD_TIME,UNIT,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@seg,@t,@unit,@desc,'SYSTEM',@at,'SYSTEM',@at)";
+    Exec(tx, qtSql, ("@id", "QT01"), ("@seg", "SEG01"), ("@t", 30.0m), ("@unit", "분"), ("@desc", "SMT 조립 표준시간"), ("@at", now));
+    Exec(tx, qtSql, ("@id", "QT02"), ("@seg", "SEG02"), ("@t", 60.0m), ("@unit", "분"), ("@desc", "기능 검사 표준시간"), ("@at", now));
+    foreach (var c in new[] { ("QA01", "QT01", "ACT_HOLD", "표준시간 초과 보류"), ("QA02", "QT01", "ACT_RELEASE", "검토 후 해제") })
+        Exec(tx, "INSERT INTO MDM_QTIME_ACTION (ACTION_ID,QTIME_ID,ACTION_CODE,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@qt,@code,@desc,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@qt", c.Item2), ("@code", c.Item3), ("@desc", c.Item4), ("@at", now));
 
     tx.Commit();
-    Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (plants/areas/products/equipment/codes + QMS specs/SPC).");
+    Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
 }
 
 // 임베드된 smartux-menu.json(SUX 데스크톱 트리)를 로드하고, 실제 동작하는 데모/관리 화면을 별도 폴더로 덧붙여 반환한다.
