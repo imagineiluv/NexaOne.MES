@@ -1,0 +1,93 @@
+@namespace NexaOne.Server.Components
+
+@* SmartUX 사이드바의 계층 메뉴를 재귀 렌더한다(대분류 → 중분류 → … → 화면, N단계).
+   Folder: 클릭=토글(자식 펼침). Screen: /meta/{UiId} 이동(부모가 OnNavigate 처리).
+   깊이별 좌패딩으로 들여쓰기를 표현한다(인라인 padding-left가 CSS shorthand의 left만 덮어씀). *@
+@foreach (var node in Nodes)
+{
+    if (node.IsFolder)
+    {
+        var isOpen = Open.Contains(node.Id);
+        <div class="mes-nav-folder @(isOpen ? "open" : "")">
+            <div class="mes-nav-item mes-folder-head @(isOpen ? "open" : "")"
+                 style="padding-left:@(Pad)px"
+                 @onclick="() => OnToggle.InvokeAsync(node.Id)">
+                @if (Depth == 0)
+                {
+                    @((MarkupString)Icon(IconFor(node.Name)))
+                }
+                else
+                {
+                    <span class="dot"></span>
+                }
+                <span>@node.Name</span>
+                <svg class="chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+            </div>
+            <div class="mes-nav-sub @(isOpen ? "expanded" : "collapsed")">
+                @if (node.Children.Count > 0)
+                {
+                    <MesNavTree Nodes="node.Children" Depth="Depth + 1" Open="Open"
+                                ActiveUiId="ActiveUiId" OnToggle="OnToggle" OnNavigate="OnNavigate" />
+                }
+                else
+                {
+                    <span class="mes-nav-subitem mes-empty" style="padding-left:@(Pad + Indent)px">하위 메뉴 없음</span>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        var isActive = string.Equals(node.UiId, ActiveUiId, StringComparison.OrdinalIgnoreCase);
+        <a class="mes-nav-subitem @(isActive ? "active" : "")"
+           style="padding-left:@(Pad)px"
+           href="@($"/meta/{node.UiId}")"
+           @onclick="() => OnNavigate.InvokeAsync(node)" @onclick:preventDefault="true">
+            <span class="dot"></span>
+            <span>@node.Name</span>
+        </a>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<MesMenuNode> Nodes { get; set; } = Array.Empty<MesMenuNode>();
+    [Parameter] public int Depth { get; set; }
+    [Parameter, EditorRequired] public HashSet<string> Open { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    [Parameter] public string? ActiveUiId { get; set; }
+    [Parameter] public EventCallback<string> OnToggle { get; set; }
+    [Parameter] public EventCallback<MesMenuNode> OnNavigate { get; set; }
+
+    private const int Indent = 14;
+    // 깊이별 좌패딩 — depth0은 18px(기존 .mes-nav-item과 정렬), 이후 14px씩 들여쓴다.
+    private int Pad => 18 + Depth * Indent;
+
+    // 대분류(depth0) 폴더 아이콘 — 메뉴명 키워드로 SmartUX풍 라인 아이콘 선택(없으면 그리드 기본).
+    private static string IconFor(string name) => name switch
+    {
+        var n when n.Contains("기준") || n.Contains("MDM") || n.Contains("정보") => "db",
+        var n when n.Contains("생산") || n.Contains("PPM") || n.Contains("WPM") => "gear",
+        var n when n.Contains("품질") || n.Contains("QMS") || n.Contains("QCA") => "shield",
+        var n when n.Contains("시스템") || n.Contains("관리") => "wrench",
+        var n when n.Contains("창고") || n.Contains("출하") || n.Contains("구매") => "box",
+        var n when n.Contains("설비") || n.Contains("FDC") || n.Contains("EPT") || n.Contains("EMS") => "activity",
+        _ => "grid",
+    };
+
+    // 사이드바 라인 아이콘(stroke=currentColor — CSS가 색 제어). 정적 입력이라 MarkupString 안전.
+    private static string Icon(string key)
+    {
+        const string open = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\">";
+        var body = key switch
+        {
+            "grid"     => "<rect x='3' y='3' width='7' height='7'/><rect x='14' y='3' width='7' height='7'/><rect x='3' y='14' width='7' height='7'/><rect x='14' y='14' width='7' height='7'/>",
+            "gear"     => "<circle cx='12' cy='12' r='3'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2'/>",
+            "shield"   => "<path d='M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z'/><path d='M9 12l2 2 4-4'/>",
+            "wrench"   => "<path d='M21 4a5 5 0 0 1-6.5 6.5L5 20l-1-1 9.5-9.5A5 5 0 0 1 20 3z'/>",
+            "db"       => "<ellipse cx='12' cy='5' rx='8' ry='3'/><path d='M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5'/><path d='M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3'/>",
+            "box"      => "<path d='M21 8l-9-5-9 5 9 5 9-5z'/><path d='M3 8v8l9 5 9-5V8'/><path d='M12 13v8'/>",
+            "activity" => "<path d='M3 12h4l3 8 4-16 3 8h4'/>",
+            _          => "<rect x='4' y='4' width='16' height='16' rx='2'/>",
+        };
+        return open + body + "</svg>";
+    }
+}

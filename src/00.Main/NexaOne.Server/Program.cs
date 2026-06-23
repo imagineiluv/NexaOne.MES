@@ -366,8 +366,8 @@ static void EnsureSqliteSchemaIfConfigured(string serverXmlPath)
     Console.WriteLine("[NexaOne.Server] Schema ready.");
 }
 
-// 개발 SQLite 전용 — SYS_MENU가 비어 있을 때만 SmartUX 셸 사이드바용 계층 메뉴를 시드한다(idempotent).
-// 대분류(Folder, PARENT_MENU_ID=NULL) + 하위(Screen, 기존 데모 화면 uiId로 매핑) 구조. 운영(MSSQL)은
+// 개발 SQLite 전용 — SYS_MENU가 비어 있을 때만 SmartUX(:9020) 실제 데스크톱 메뉴 트리를 시드한다(idempotent).
+// 임베드된 smartux-menu.json(SUX 카테고리 331행, 4단계 계층) + 동작하는 데모/관리 화면 폴더를 덧붙인다. 운영(MSSQL)은
 // 본 경로를 타지 않는다(상위 if가 Database:Provider==Sqlite && Development일 때만 호출). 직접 Dapper-free
 // Microsoft.Data.Sqlite 인서트 — 게이트웨이 DI/감사 컨텍스트 없이 부트스트랩 시점에 안전하게 채운다.
 static void SeedDevMenuIfEmpty(string connectionString)
@@ -381,20 +381,8 @@ static void SeedDevMenuIfEmpty(string connectionString)
         if (Convert.ToInt64(count.ExecuteScalar() ?? 0L) > 0) return; // 이미 시드됨/사용자 데이터 존재 → 건너뜀
     }
 
-    // (MENU_ID, MENU_NAME, PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, UI_ID). Folder는 UI_ID 공백(클릭=토글).
-    var rows = new (string Id, string Name, string? Parent, int Seq, string Type, string UiId)[]
-    {
-        ("M_STD",          "기준정보",      null,     10, "Folder", ""),
-        ("M_STD_PLANT",    "공장 관리",     "M_STD",  10, "Screen", "DEMO_GRID"),
-        ("M_STD_ITEM",     "품목 등록",     "M_STD",  20, "Screen", "DEMO_PLANT_FORM"),
-        ("M_PRD",          "생산관리",      null,     20, "Folder", ""),
-        ("M_PRD_STATUS",   "생산 현황",     "M_PRD",  10, "Screen", "DEMO_LAYOUT"),
-        ("M_PRD_PARAM",    "파라미터 입력", "M_PRD",  20, "Screen", "DEMO_PARAM"),
-        ("M_QMS",          "품질관리",      null,     30, "Folder", ""),
-        ("M_QMS_DEFECT",   "결함 분류",     "M_QMS",  10, "Screen", "DEMO_QMS_DEFECT_CLASS"),
-        ("M_SYS",          "시스템관리",    null,     90, "Folder", ""),
-        ("M_SYS_MENU",     "메뉴 관리",     "M_SYS",  10, "Screen", "SYS_MENU_MGMT"),
-    };
+    // 임베드된 SmartUX 메뉴 트리 우선. 리소스 부재 시 최소 폴백(셸이 빈 사이드바가 되지 않게).
+    var rows = LoadSmartUxMenuSeed() ?? MinimalFallbackMenu();
 
     using var tx = conn.BeginTransaction();
     foreach (var r in rows)
@@ -404,17 +392,65 @@ static void SeedDevMenuIfEmpty(string connectionString)
         cmd.CommandText =
             "INSERT INTO SYS_MENU (MENU_ID, MENU_NAME, PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, UI_ID, VALID_STATE) " +
             "VALUES (@id, @name, @parent, @seq, @type, @uiId, 'Valid')";
-        cmd.Parameters.AddWithValue("@id", r.Id);
-        cmd.Parameters.AddWithValue("@name", r.Name);
-        cmd.Parameters.AddWithValue("@parent", (object?)r.Parent ?? DBNull.Value);
-        cmd.Parameters.AddWithValue("@seq", r.Seq);
-        cmd.Parameters.AddWithValue("@type", r.Type);
-        cmd.Parameters.AddWithValue("@uiId", r.UiId);
+        cmd.Parameters.AddWithValue("@id", r.MenuId);
+        cmd.Parameters.AddWithValue("@name", r.MenuName);
+        cmd.Parameters.AddWithValue("@parent", (object?)r.ParentMenuId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@seq", r.DisplaySequence);
+        cmd.Parameters.AddWithValue("@type", r.MenuType);
+        cmd.Parameters.AddWithValue("@uiId", (object?)r.UiId ?? "");
         cmd.ExecuteNonQuery();
     }
     tx.Commit();
-    Console.WriteLine("[NexaOne.Server] Dev menu seeded (SYS_MENU was empty).");
+    Console.WriteLine($"[NexaOne.Server] SYS_MENU seeded ({rows.Count} rows: SmartUX tree + dev-demo).");
 }
+
+// 임베드된 smartux-menu.json(SUX 데스크톱 트리)를 로드하고, 실제 동작하는 데모/관리 화면을 별도 폴더로 덧붙여 반환한다.
+// 리소스가 없거나 비면 null을 반환(호출부가 최소 폴백 사용).
+static List<MenuSeedRow>? LoadSmartUxMenuSeed()
+{
+    var asm = System.Reflection.Assembly.GetExecutingAssembly();
+    var name = asm.GetManifestResourceNames()
+        .FirstOrDefault(n => n.EndsWith("smartux-menu.json", StringComparison.OrdinalIgnoreCase));
+    if (name is null) return null;
+    using var stream = asm.GetManifestResourceStream(name);
+    if (stream is null) return null;
+    using var reader = new StreamReader(stream, System.Text.Encoding.UTF8);
+    var rows = System.Text.Json.JsonSerializer.Deserialize<List<MenuSeedRow>>(
+        reader.ReadToEnd(),
+        new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+    if (rows is null || rows.Count == 0) return null;
+    rows.AddRange(DevDemoMenu());
+    return rows;
+}
+
+// 실제 백엔드가 있어 '동작하는' 데모/관리 화면 — SmartUX 트리와 명확히 구분된 별도 폴더(맨 끝 정렬)로 노출해
+// 메뉴 관리 등 핵심 화면이 사이드바에서 항상 접근 가능하게 한다. SmartUX 화면이 마이그될수록 본 폴더 의존은 줄어든다.
+static IEnumerable<MenuSeedRow> DevDemoMenu() => new[]
+{
+    new MenuSeedRow("NX_DEV",        "● NexaOne 데모/관리",   null,     9000, "Folder", ""),
+    new MenuSeedRow("NX_DEV_MENU",   "메뉴 관리",             "NX_DEV", 10,   "Screen", "SYS_MENU_MGMT"),
+    new MenuSeedRow("NX_DEV_GRID",   "공장 관리(데모)",        "NX_DEV", 20,   "Screen", "DEMO_GRID"),
+    new MenuSeedRow("NX_DEV_LAYOUT", "생산 현황(데모)",        "NX_DEV", 30,   "Screen", "DEMO_LAYOUT"),
+    new MenuSeedRow("NX_DEV_PARAM",  "파라미터 입력(데모)",     "NX_DEV", 40,   "Screen", "DEMO_PARAM"),
+    new MenuSeedRow("NX_DEV_DEFECT", "결함 분류(데모)",        "NX_DEV", 50,   "Screen", "DEMO_QMS_DEFECT_CLASS"),
+    new MenuSeedRow("NX_DEV_PLANT",  "공장 폼(데모)",          "NX_DEV", 60,   "Screen", "DEMO_PLANT_FORM"),
+};
+
+// 임베드 리소스가 없을 때의 최소 폴백 트리(셸이 절대 빈 사이드바가 되지 않게).
+static List<MenuSeedRow> MinimalFallbackMenu() => new()
+{
+    new("M_STD", "기준정보", null, 10, "Folder", ""),
+    new("M_STD_PLANT", "공장 관리", "M_STD", 10, "Screen", "DEMO_GRID"),
+    new("M_PRD", "생산관리", null, 20, "Folder", ""),
+    new("M_PRD_STATUS", "생산 현황", "M_PRD", 10, "Screen", "DEMO_LAYOUT"),
+    new("M_SYS", "시스템관리", null, 90, "Folder", ""),
+    new("M_SYS_MENU", "메뉴 관리", "M_SYS", 10, "Screen", "SYS_MENU_MGMT"),
+};
+
+// smartux-menu.json 한 행(camelCase JSON ↔ PascalCase 매핑은 PropertyNameCaseInsensitive로 처리).
+// UiId는 Screen에만 채워진다(Folder는 공백 → 클릭=토글). ParentMenuId는 최상위에서 null.
+internal sealed record MenuSeedRow(
+    string MenuId, string MenuName, string? ParentMenuId, int DisplaySequence, string MenuType, string UiId);
 
 // WebApplicationFactory<Program> 진입점 노출(스모크 테스트용).
 public partial class Program { }

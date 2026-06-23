@@ -66,6 +66,16 @@ body {
 /* FocusOnNavigate가 h1에 tabindex 부여 후 포커스 → 브라우저 포커스 박스가 제목을 감싸 보이는 것 억제 */
 .page-title:focus, .page-title:focus-visible { outline: none; }
 
+/* 빈/준비중 상태 — 미이식 화면(SmartUX 메뉴엔 있으나 ScreenDefinition 미존재) 안내 카드. */
+.mes-empty-state {
+  background: var(--sux-card); border: 1px dashed var(--sux-border); border-radius: 6px;
+  padding: 40px 24px; text-align: center; color: var(--sux-muted);
+}
+.mes-empty-state svg { stroke: #c2c9d4; margin-bottom: 10px; }
+.mes-empty-state .es-title { margin: 0 0 8px; font-size: 14px; font-weight: 600; color: #44506a; }
+.mes-empty-state .es-sub { margin: 0; font-size: 12.5px; line-height: 1.7; color: #8a93a3; }
+.mes-empty-state code { background: #f0f3f7; padding: 1px 6px; border-radius: 3px; color: #4a6cf7; font-size: 12px; }
+
 /* 필터/검색 바 */
 .mes-filterbar { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--sux-border); border-radius: 4px; padding: 8px 10px; margin-bottom: 12px; }
 .mes-chip { border: 1px solid var(--sux-border); border-radius: 3px; padding: 4px 10px; font-size: 12px; color: #44506a; background: #fbfcfd; }
@@ -117,10 +127,14 @@ body {
 .mes-nav-folder.open > .mes-folder-head .chev { transform: rotate(90deg); }
 .mes-nav-folder.open > .mes-folder-head { color: #fff; background: rgba(255,255,255,.04); }
 .mes-nav-folder.open > .mes-folder-head svg { stroke: #fff; }
-/* 하위(중분류) 컨테이너 — 펼침/접힘. 접힘은 높이 0으로 숨기고, 펼침은 약간 짙은 배경으로 들여쓴다. */
-.mes-nav-sub { overflow: hidden; background: var(--sux-navy-2); transition: max-height .2s ease; }
-.mes-nav-sub.collapsed { max-height: 0; }
-.mes-nav-sub.expanded { max-height: 600px; }
+/* 하위(중분류~) 컨테이너 — 펼침/접힘. N단계 재귀이므로 max-height 클램프(클리핑) 대신 display 토글로
+   임의 높이/깊이를 안전히 표현한다. 짙은 배경으로 계층을 구분(들여쓰기는 인라인 padding-left가 담당). */
+.mes-nav-sub { overflow: hidden; background: var(--sux-navy-2); }
+.mes-nav-sub.collapsed { display: none; }
+.mes-nav-sub.expanded { display: block; }
+/* 중첩 폴더 헤더의 도트(대분류는 아이콘, 중분류 이하는 도트로 계층 표시). */
+.mes-folder-head .dot { width: 5px; height: 5px; border-radius: 50%; background: #5f7396; flex: 0 0 5px; }
+.mes-nav-folder.open > .mes-folder-head .dot { background: var(--sux-teal); }
 .mes-nav-subitem {
   display: flex; align-items: center; gap: 10px; padding: 9px 18px 9px 40px;
   color: #9fb0c8; text-decoration: none; font-size: 12.5px; border-left: 3px solid transparent; cursor: pointer;

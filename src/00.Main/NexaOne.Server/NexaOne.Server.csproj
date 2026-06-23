@@ -152,4 +152,10 @@
     </Content>
   </ItemGroup>
 
+  <!-- SmartUX(:9020) 실제 데스크톱 메뉴 트리 시드(SUX 카테고리 331행, docs/.../smartux-menu-inventory.json에서 정규화 추출).
+       어셈블리에 임베드해 CWD/복사 경로와 무관하게 부트스트랩(SeedDevMenuIfEmpty)이 읽는다. Dev/SQLite 전용 경로. -->
+  <ItemGroup>
+    <EmbeddedResource Include="config\seed\smartux-menu.json" />
+  </ItemGroup>
+
 </Project>
