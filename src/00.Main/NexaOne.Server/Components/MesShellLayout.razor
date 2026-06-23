@@ -1,7 +1,13 @@
 @inherits LayoutComponentBase
+@implements IDisposable
+@inject NexaOne.Web.Services.Api.IApiClient Api
+@inject Microsoft.AspNetCore.Components.NavigationManager Nav
+@inject NexaOne.Server.Services.OpenedScreensState Opened
+@inject Microsoft.Extensions.Logging.ILogger<MesShellLayout> Logger
 
-@* SmartUX(:9020) 레퍼런스 셸 재현 — 네이비 사이드바 + 화이트 상단바 + 본문(메타 화면).
-   /meta 화면의 기본 레이아웃(HostRoutes의 DefaultLayout). 로그인(/login)은 별도 HostLayout(중앙 카드). *@
+@* SmartUX(:9020) 레퍼런스 셸 재현 — 네이비 사이드바(계층 아코디언) + 화이트 상단바 + 본문(메타 화면) + 하단 MDI 탭.
+   사이드바는 SYS.MenuTree(게이트웨이)로 데이터 주도 구축한다(대분류 Folder → 하위 Screen). 쿼리 실패/공백 시
+   최소 정적 폴백으로 셸이 절대 빈 화면이 되지 않게 한다. /meta 화면(HostRoutes의 DefaultLayout). *@
 <div class="mes-shell">
     <aside class="mes-sidebar">
         <div class="mes-logo">
@@ -11,15 +17,33 @@
             <span class="brand">NexaOne<small>MES</small></span>
         </div>
         <nav class="mes-nav">
-            @{ var activeIdx = ActiveIndex(); }
-            @for (var i = 0; i < Menu.Length; i++)
+            @{ var activeUi = ActiveUiId(); }
+            @foreach (var folder in _folders)
             {
-                var m = Menu[i];
-                <a class="mes-nav-item @(i == activeIdx ? "active" : "")" href="@m.Href">
-                    @((MarkupString)Icon(m.Icon))
-                    <span>@m.Label</span>
-                    <svg class="chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
-                </a>
+                var isOpen = _openFolders.Contains(folder.Id);
+                <div class="mes-nav-folder @(isOpen ? "open" : "")">
+                    <div class="mes-nav-item mes-folder-head @(isOpen ? "open" : "")" @onclick="() => ToggleFolder(folder.Id)">
+                        @((MarkupString)Icon(IconFor(folder)))
+                        <span>@folder.Name</span>
+                        <svg class="chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+                    </div>
+                    <div class="mes-nav-sub @(isOpen ? "expanded" : "collapsed")">
+                        @foreach (var child in folder.Children)
+                        {
+                            var isActive = string.Equals(child.UiId, activeUi, StringComparison.OrdinalIgnoreCase);
+                            <a class="mes-nav-subitem @(isActive ? "active" : "")"
+                               href="@MetaHref(child.UiId)"
+                               @onclick="() => NavigateTo(child.UiId, child.Name)" @onclick:preventDefault="true">
+                                <span class="dot"></span>
+                                <span>@child.Name</span>
+                            </a>
+                        }
+                        @if (folder.Children.Count == 0)
+                        {
+                            <span class="mes-nav-subitem mes-empty">하위 메뉴 없음</span>
+                        }
+                    </div>
+                </div>
             }
         </nav>
         <div class="mes-pin">
@@ -36,6 +60,22 @@
             <span class="tb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.4 1a7 7 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.4-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg></span>
             <span class="tb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></span>
         </header>
+
+        @* MDI 탭 — 열린 /meta 화면들. 활성 강조 + X로 닫기. 탭이 없으면 바를 숨긴다. *@
+        @if (Opened.Screens.Count > 0)
+        {
+            <div class="mes-mditabs">
+                @foreach (var tab in Opened.Screens)
+                {
+                    var tabActive = string.Equals(tab.UiId, Opened.ActiveUiId, StringComparison.OrdinalIgnoreCase);
+                    <div class="mes-mditab @(tabActive ? "active" : "")" @onclick="() => NavigateTo(tab.UiId, tab.Title)">
+                        <span class="mes-mditab-label">@tab.Title</span>
+                        <span class="close" @onclick="() => CloseTab(tab.UiId)" @onclick:stopPropagation="true">&times;</span>
+                    </div>
+                }
+            </div>
+        }
+
         <section class="mes-content">
             @Body
         </section>
@@ -43,37 +83,178 @@
 </div>
 
 @code {
-    [Inject] private Microsoft.AspNetCore.Components.NavigationManager Nav { get; set; } = default!;
+    // 사이드바 트리(대분류 → 하위) 및 펼침 상태. 트리는 OnInitialized에서 SYS.MenuTree로 1회 구축한다.
+    private sealed record MenuNode(string Id, string Name, string? ParentId, int Seq, string Type, string UiId);
+    private sealed record FolderVm(string Id, string Name, IReadOnlyList<MenuNode> Children);
 
-    private sealed record MenuItem(string Label, string Href, string Icon);
+    private List<FolderVm> _folders = new();
+    private readonly HashSet<string> _openFolders = new(StringComparer.OrdinalIgnoreCase);
+    // uiId → 메뉴명(MDI 탭 제목·활성 폴더 판정). 트리에서 파생.
+    private Dictionary<string, string> _uiToTitle = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _uiToFolder = new(StringComparer.OrdinalIgnoreCase);
 
-    // SmartUX 메뉴 구성 재현. 데모 화면(/meta/DEMO_*)으로 라우팅해 클릭 시 실제 화면이 뜨게 한다.
-    private static readonly MenuItem[] Menu =
-    [
-        new("대시보드",   "/meta/DEMO_LAYOUT",           "grid"),
-        new("영업 관리",  "/meta/DEMO_GRID",             "bag"),
-        new("생산 관리",  "/meta/DEMO_PARAM",            "gear"),
-        new("작업 관리",  "/meta/DEMO_LAYOUT",           "clip"),
-        new("창고 관리",  "/meta/DEMO_PLANT_FORM",       "box"),
-        new("출하 관리",  "/meta/DEMO_GRID",             "truck"),
-        new("구매 관리",  "/meta/DEMO_PARAM",            "cart"),
-        new("품질 관리",  "/meta/DEMO_QMS_DEFECT_CLASS", "shield"),
-        new("EMS",        "/meta/DEMO_LAYOUT",           "wrench"),
-        new("EPT",        "/meta/DEMO_GRID",             "clock"),
-        new("FDC",        "/meta/DEMO_LAYOUT",           "pulse"),
-        new("QMS",        "/meta/DEMO_QMS_DEFECT_CLASS", "shield"),
-        new("기준 정보",  "/meta/DEMO_GRID",             "db"),
-        new("공통 관리",  "/meta/DEMO_PARAM",            "gear"),
-    ];
-
-    // 현재 경로와 일치하는 첫 메뉴만 활성 표시(여러 메뉴가 같은 데모로 링크돼도 1개만 강조).
-    private int ActiveIndex()
+    protected override async Task OnInitializedAsync()
     {
-        var cur = "/" + Nav.ToBaseRelativePath(Nav.Uri).Split('?')[0].TrimEnd('/');
-        for (var i = 0; i < Menu.Length; i++)
-            if (string.Equals(cur, Menu[i].Href.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)) return i;
-        return -1;
+        await BuildTreeAsync();
+        Opened.Changed += OnOpenedChanged;
+        Nav.LocationChanged += OnLocationChanged;
+        SyncCurrentRoute();
     }
+
+    private async Task BuildTreeAsync()
+    {
+        List<MenuNode> nodes;
+        try
+        {
+            var rows = await Api.ExecuteQueryAsync("SYS.MenuTree");
+            nodes = rows.Select(ToNode).ToList();
+            if (nodes.Count == 0)
+            {
+                Logger.LogWarning("SYS.MenuTree가 0행 — 정적 폴백 메뉴를 사용합니다.");
+                nodes = FallbackNodes();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "SYS.MenuTree 조회 실패 — 정적 폴백 메뉴를 사용합니다.");
+            nodes = FallbackNodes();
+        }
+
+        // 대분류 = PARENT_MENU_ID null/공백. 하위는 ParentId로 그룹핑(DISPLAY_SEQUENCE → MENU_ID 순).
+        var tops = nodes.Where(n => string.IsNullOrWhiteSpace(n.ParentId))
+                        .OrderBy(n => n.Seq).ThenBy(n => n.Id, StringComparer.Ordinal)
+                        .ToList();
+        var childrenByParent = nodes.Where(n => !string.IsNullOrWhiteSpace(n.ParentId))
+                                    .GroupBy(n => n.ParentId!, StringComparer.OrdinalIgnoreCase)
+                                    .ToDictionary(g => g.Key,
+                                        g => (IReadOnlyList<MenuNode>)g.OrderBy(n => n.Seq).ThenBy(n => n.Id, StringComparer.Ordinal).ToList(),
+                                        StringComparer.OrdinalIgnoreCase);
+
+        _folders = tops.Select(t => new FolderVm(
+            t.Id, t.Name,
+            childrenByParent.TryGetValue(t.Id, out var kids) ? kids : Array.Empty<MenuNode>())).ToList();
+
+        // 파생 인덱스 — uiId→제목, uiId→소속 폴더Id(활성 폴더 자동 펼침용).
+        _uiToTitle = new(StringComparer.OrdinalIgnoreCase);
+        _uiToFolder = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in _folders)
+            foreach (var c in f.Children)
+                if (!string.IsNullOrWhiteSpace(c.UiId))
+                {
+                    _uiToTitle[c.UiId] = c.Name;
+                    _uiToFolder[c.UiId] = f.Id;
+                }
+    }
+
+    // 게이트웨이 행 → 노드. 방언 값 타입 정규화: 문자열/숫자 모두 안전 변환, PARENT_MENU_ID는 null/공백 허용.
+    private static MenuNode ToNode(IReadOnlyDictionary<string, object?> r) => new(
+        Id: Str(r, "MENU_ID"),
+        Name: Str(r, "MENU_NAME"),
+        ParentId: NullableStr(r, "PARENT_MENU_ID"),
+        Seq: Int(r, "DISPLAY_SEQUENCE"),
+        Type: Str(r, "MENU_TYPE"),
+        UiId: Str(r, "UI_ID"));
+
+    private static string Str(IReadOnlyDictionary<string, object?> r, string key)
+        => r.TryGetValue(key, out var v) && v is not null ? v.ToString() ?? "" : "";
+
+    private static string? NullableStr(IReadOnlyDictionary<string, object?> r, string key)
+    {
+        if (!r.TryGetValue(key, out var v) || v is null) return null;
+        var s = v.ToString();
+        return string.IsNullOrWhiteSpace(s) ? null : s;
+    }
+
+    private static int Int(IReadOnlyDictionary<string, object?> r, string key)
+    {
+        if (!r.TryGetValue(key, out var v) || v is null) return 0;
+        return v switch
+        {
+            int i => i,
+            long l => (int)l,
+            _ => int.TryParse(v.ToString(), out var p) ? p : 0
+        };
+    }
+
+    private void ToggleFolder(string folderId)
+    {
+        if (!_openFolders.Remove(folderId)) _openFolders.Add(folderId);
+    }
+
+    private void NavigateTo(string uiId, string title)
+    {
+        if (string.IsNullOrWhiteSpace(uiId)) return;
+        Opened.Open(uiId, title);
+        Nav.NavigateTo(MetaHref(uiId), forceLoad: false);
+    }
+
+    private void CloseTab(string uiId)
+    {
+        var next = Opened.Close(uiId);
+        // 활성 탭을 닫았으면 인접 탭으로 이동, 인접 탭도 없으면 기본 화면(DEMO_GRID)으로.
+        var curUi = ActiveUiId();
+        if (string.Equals(curUi, uiId, StringComparison.OrdinalIgnoreCase))
+            Nav.NavigateTo(MetaHref(next ?? "DEMO_GRID"), forceLoad: false);
+    }
+
+    private static string MetaHref(string uiId) => $"/meta/{uiId}";
+
+    // 현재 라우트의 uiId(/meta/{uiId}) — 활성 강조·MDI 동기화 기준. 비-meta 경로면 null.
+    private string? ActiveUiId()
+    {
+        var rel = Nav.ToBaseRelativePath(Nav.Uri).Split('?')[0].Trim('/');
+        if (rel.StartsWith("meta/", StringComparison.OrdinalIgnoreCase))
+        {
+            var ui = rel.Substring("meta/".Length).Split('/')[0];
+            return string.IsNullOrWhiteSpace(ui) ? null : ui;
+        }
+        return null;
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        SyncCurrentRoute();
+        InvokeAsync(StateHasChanged);
+    }
+
+    // 현재 라우트를 MDI 탭/활성 폴더에 반영한다(직접 URL 진입·뒤로가기 포함). 제목은 메뉴명 우선, 없으면 uiId.
+    private void SyncCurrentRoute()
+    {
+        var ui = ActiveUiId();
+        if (string.IsNullOrWhiteSpace(ui)) return;
+        var title = _uiToTitle.TryGetValue(ui, out var t) ? t : ui;
+        Opened.Open(ui, title);
+        if (_uiToFolder.TryGetValue(ui, out var fid)) _openFolders.Add(fid);
+    }
+
+    private void OnOpenedChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Opened.Changed -= OnOpenedChanged;
+        Nav.LocationChanged -= OnLocationChanged;
+    }
+
+    // 셸이 절대 빈 사이드바가 되지 않도록 — 게이트웨이 실패/공백 시의 최소 정적 트리(데모 화면으로 매핑).
+    private static List<MenuNode> FallbackNodes() => new()
+    {
+        new("M_STD", "기준정보", null, 10, "Folder", ""),
+        new("M_STD_PLANT", "공장 관리", "M_STD", 10, "Screen", "DEMO_GRID"),
+        new("M_PRD", "생산관리", null, 20, "Folder", ""),
+        new("M_PRD_STATUS", "생산 현황", "M_PRD", 10, "Screen", "DEMO_LAYOUT"),
+        new("M_SYS", "시스템관리", null, 90, "Folder", ""),
+        new("M_SYS_MENU", "메뉴 관리", "M_SYS", 10, "Screen", "SYS_MENU_MGMT"),
+    };
+
+    // 폴더 아이콘 — 메뉴명 키워드로 SmartUX풍 라인 아이콘을 고른다(없으면 폴더 기본).
+    private static string IconFor(FolderVm f) => f.Name switch
+    {
+        var n when n.Contains("기준") => "db",
+        var n when n.Contains("생산") => "gear",
+        var n when n.Contains("품질") => "shield",
+        var n when n.Contains("시스템") => "wrench",
+        _ => "grid",
+    };
 
     // 사이드바 라인 아이콘(stroke=currentColor — CSS가 색 제어). 입력 없음(정적)이라 MarkupString 안전.
     private static string Icon(string key)
@@ -82,16 +263,9 @@
         var body = key switch
         {
             "grid"   => "<rect x='3' y='3' width='7' height='7'/><rect x='14' y='3' width='7' height='7'/><rect x='3' y='14' width='7' height='7'/><rect x='14' y='14' width='7' height='7'/>",
-            "bag"    => "<path d='M6 7h12l-1 13H7z'/><path d='M9 7a3 3 0 0 1 6 0'/>",
             "gear"   => "<circle cx='12' cy='12' r='3'/><path d='M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2'/>",
-            "clip"   => "<rect x='6' y='4' width='12' height='17' rx='2'/><path d='M9 4h6v3H9z'/><path d='M9 12l2 2 4-4'/>",
-            "box"    => "<path d='M3 7l9-4 9 4v10l-9 4-9-4z'/><path d='M3 7l9 4 9-4M12 11v10'/>",
-            "truck"  => "<path d='M2 6h12v9H2z'/><path d='M14 9h4l3 3v3h-7z'/><circle cx='6' cy='18' r='1.6'/><circle cx='18' cy='18' r='1.6'/>",
-            "cart"   => "<circle cx='9' cy='20' r='1.5'/><circle cx='18' cy='20' r='1.5'/><path d='M2 3h3l2.5 12h11l2-8H6'/>",
             "shield" => "<path d='M12 3l8 3v6c0 5-4 8-8 9-4-1-8-4-8-9V6z'/><path d='M9 12l2 2 4-4'/>",
             "wrench" => "<path d='M21 4a5 5 0 0 1-6.5 6.5L5 20l-1-1 9.5-9.5A5 5 0 0 1 20 3z'/>",
-            "clock"  => "<circle cx='12' cy='12' r='9'/><path d='M12 7v5l3 2'/>",
-            "pulse"  => "<path d='M3 12h4l2 6 4-12 2 6h6'/>",
             "db"     => "<ellipse cx='12' cy='5' rx='8' ry='3'/><path d='M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5'/><path d='M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3'/>",
             _        => "<rect x='4' y='4' width='16' height='16' rx='2'/>",
         };

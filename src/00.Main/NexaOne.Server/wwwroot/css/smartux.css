@@ -108,3 +108,47 @@ body {
 .layout-section-title { color: var(--sux-teal); font-weight: 700; font-size: 13px; margin: 0 0 10px; }
 .layout-command, .meta-actions button, button.layout-save { background: var(--sux-teal); color: #fff; border: none; border-radius: 3px; padding: 7px 16px; font-size: 13px; cursor: pointer; }
 .layout-command:hover, .meta-actions button:hover { background: var(--sux-teal-d); }
+
+/* ===== 사이드바 계층 아코디언(대분류 → 하위) ===== */
+.mes-nav-folder { display: block; }
+/* 대분류 헤더 — 기존 .mes-nav-item 스타일을 그대로 쓰되 클릭 가능한 div(href 없음). */
+.mes-folder-head { user-select: none; }
+.mes-folder-head .chev { transition: transform .18s ease; }
+.mes-nav-folder.open > .mes-folder-head .chev { transform: rotate(90deg); }
+.mes-nav-folder.open > .mes-folder-head { color: #fff; background: rgba(255,255,255,.04); }
+.mes-nav-folder.open > .mes-folder-head svg { stroke: #fff; }
+/* 하위(중분류) 컨테이너 — 펼침/접힘. 접힘은 높이 0으로 숨기고, 펼침은 약간 짙은 배경으로 들여쓴다. */
+.mes-nav-sub { overflow: hidden; background: var(--sux-navy-2); transition: max-height .2s ease; }
+.mes-nav-sub.collapsed { max-height: 0; }
+.mes-nav-sub.expanded { max-height: 600px; }
+.mes-nav-subitem {
+  display: flex; align-items: center; gap: 10px; padding: 9px 18px 9px 40px;
+  color: #9fb0c8; text-decoration: none; font-size: 12.5px; border-left: 3px solid transparent; cursor: pointer;
+}
+.mes-nav-subitem .dot { width: 5px; height: 5px; border-radius: 50%; background: #5f7396; flex: 0 0 5px; }
+.mes-nav-subitem:hover { background: var(--sux-navy-hover); color: #fff; }
+.mes-nav-subitem:hover .dot { background: var(--sux-teal); }
+.mes-nav-subitem.active { background: var(--sux-navy); color: #fff; border-left-color: var(--sux-teal); }
+.mes-nav-subitem.active .dot { background: var(--sux-teal); }
+.mes-nav-subitem.mes-empty { color: #5f7396; cursor: default; font-style: italic; }
+.mes-nav-subitem.mes-empty:hover { background: transparent; }
+
+/* ===== MDI 탭 바(상단바 아래, 본문 위) — 밝은 바·활성 탭은 짙은 네이비+틸 액센트 ===== */
+.mes-mditabs {
+  display: flex; align-items: stretch; gap: 2px; flex: 0 0 36px; height: 36px;
+  background: var(--sux-head); border-bottom: 1px solid var(--sux-border); padding: 0 8px; overflow-x: auto;
+}
+.mes-mditabs::-webkit-scrollbar { height: 4px; } .mes-mditabs::-webkit-scrollbar-thumb { background: #cbd3dd; border-radius: 2px; }
+.mes-mditab {
+  display: inline-flex; align-items: center; gap: 8px; align-self: flex-end;
+  padding: 6px 12px; margin-top: 5px; font-size: 12.5px; color: #44506a; cursor: pointer;
+  background: #fff; border: 1px solid var(--sux-border); border-bottom: none;
+  border-radius: 4px 4px 0 0; white-space: nowrap; max-width: 220px;
+}
+.mes-mditab:hover { background: #eefaf7; }
+.mes-mditab .mes-mditab-label { overflow: hidden; text-overflow: ellipsis; }
+.mes-mditab.active { background: var(--sux-navy); color: #fff; border-color: var(--sux-navy); position: relative; }
+.mes-mditab.active::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--sux-teal); }
+.mes-mditab .close { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 3px; font-size: 15px; line-height: 1; color: inherit; opacity: .55; }
+.mes-mditab .close:hover { opacity: 1; background: rgba(0,0,0,.12); }
+.mes-mditab.active .close:hover { background: rgba(255,255,255,.18); }

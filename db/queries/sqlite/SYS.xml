@@ -61,4 +61,31 @@ WHERE IS_DELETED = 0
 ORDER BY USER_ID
 ]]></statement>
   </query>
+
+  <!-- ===== 계층 메뉴(SmartUX 셸 사이드바·메뉴 관리 CRUD). MSSQL판과 동일 ID·동일 @param·동일 메타(SQLite 방언: NOLOCK 없음, upsert via ON CONFLICT). ===== -->
+  <query id="SYS.MenuTree">
+    <statement><![CDATA[
+SELECT MENU_ID, MENU_NAME, PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, UI_ID
+FROM SYS_MENU
+WHERE VALID_STATE = 'Valid'
+ORDER BY PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_ID
+]]></statement>
+  </query>
+
+  <query id="SYS.UpsertMenu" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+INSERT INTO SYS_MENU (MENU_ID, MENU_NAME, PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, UI_ID, VALID_STATE)
+VALUES (@menuId, @menuName, @parentMenuId, @displaySequence, @menuType, @uiId, 'Valid')
+ON CONFLICT(MENU_ID) DO UPDATE SET
+    MENU_NAME = excluded.MENU_NAME, PARENT_MENU_ID = excluded.PARENT_MENU_ID,
+    DISPLAY_SEQUENCE = excluded.DISPLAY_SEQUENCE, MENU_TYPE = excluded.MENU_TYPE,
+    UI_ID = excluded.UI_ID, VALID_STATE = 'Valid'
+]]></statement>
+  </query>
+
+  <query id="SYS.DeleteMenu" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+UPDATE SYS_MENU SET VALID_STATE = 'Invalid' WHERE MENU_ID = @menuId
+]]></statement>
+  </query>
 </queries>

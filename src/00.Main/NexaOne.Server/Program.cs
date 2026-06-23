@@ -223,6 +223,8 @@ builder.Services.AddScoped<AuthContextService>();
 builder.Services.AddScoped<IAuthContext>(sp => sp.GetRequiredService<AuthContextService>());
 // API 실패(403/5xx)를 토스트로 노출하는 통지 채널 — ApiClient가 발신(슬라이스 최소 폐포; ApiToastHost UI는 미흡수).
 builder.Services.AddScoped<ApiNotificationService>();
+// MDI 탭 상태(서킷당 1개) — MesShellLayout이 /meta 내비게이션으로 열린 화면 탭을 추적/렌더한다.
+builder.Services.AddScoped<NexaOne.Server.Services.OpenedScreensState>();
 // Phase 5a — DB-backed 화면정의 제공자(게이트웨이 SYS.GetScreenDefinition, InMemory 시드 폴백).
 builder.Services.AddSingleton<IScreenDefinitionProvider>(sp => new GatewayScreenDefinitionProvider(
     sp.GetRequiredService<IRuleDispatcher>(), sp.GetRequiredService<IQueryRegistry>()));
@@ -269,7 +271,11 @@ if (app.Environment.IsDevelopment()
 {
     var gwConn = app.Configuration.GetConnectionString("NexaOne");
     if (!string.IsNullOrWhiteSpace(gwConn))
+    {
         NexaOne.Infrastructure.Persistence.SqliteSchemaInitializer.EnsureSchema(gwConn);
+        // 스키마 보장 후 SmartUX 셸 사이드바를 채울 계층 메뉴를 시드한다(SYS_MENU 비었을 때만, idempotent, Dev 전용).
+        SeedDevMenuIfEmpty(gwConn);
+    }
 }
 
 app.UseSwagger();
@@ -358,6 +364,56 @@ static void EnsureSqliteSchemaIfConfigured(string serverXmlPath)
     Console.WriteLine($"[NexaOne.Server] SQLite mode — ensuring schema ({connStr})...");
     SqliteSchemaInitializer.EnsureSchema(connStr);
     Console.WriteLine("[NexaOne.Server] Schema ready.");
+}
+
+// 개발 SQLite 전용 — SYS_MENU가 비어 있을 때만 SmartUX 셸 사이드바용 계층 메뉴를 시드한다(idempotent).
+// 대분류(Folder, PARENT_MENU_ID=NULL) + 하위(Screen, 기존 데모 화면 uiId로 매핑) 구조. 운영(MSSQL)은
+// 본 경로를 타지 않는다(상위 if가 Database:Provider==Sqlite && Development일 때만 호출). 직접 Dapper-free
+// Microsoft.Data.Sqlite 인서트 — 게이트웨이 DI/감사 컨텍스트 없이 부트스트랩 시점에 안전하게 채운다.
+static void SeedDevMenuIfEmpty(string connectionString)
+{
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connectionString);
+    conn.Open();
+
+    using (var count = conn.CreateCommand())
+    {
+        count.CommandText = "SELECT COUNT(*) FROM SYS_MENU";
+        if (Convert.ToInt64(count.ExecuteScalar() ?? 0L) > 0) return; // 이미 시드됨/사용자 데이터 존재 → 건너뜀
+    }
+
+    // (MENU_ID, MENU_NAME, PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, UI_ID). Folder는 UI_ID 공백(클릭=토글).
+    var rows = new (string Id, string Name, string? Parent, int Seq, string Type, string UiId)[]
+    {
+        ("M_STD",          "기준정보",      null,     10, "Folder", ""),
+        ("M_STD_PLANT",    "공장 관리",     "M_STD",  10, "Screen", "DEMO_GRID"),
+        ("M_STD_ITEM",     "품목 등록",     "M_STD",  20, "Screen", "DEMO_PLANT_FORM"),
+        ("M_PRD",          "생산관리",      null,     20, "Folder", ""),
+        ("M_PRD_STATUS",   "생산 현황",     "M_PRD",  10, "Screen", "DEMO_LAYOUT"),
+        ("M_PRD_PARAM",    "파라미터 입력", "M_PRD",  20, "Screen", "DEMO_PARAM"),
+        ("M_QMS",          "품질관리",      null,     30, "Folder", ""),
+        ("M_QMS_DEFECT",   "결함 분류",     "M_QMS",  10, "Screen", "DEMO_QMS_DEFECT_CLASS"),
+        ("M_SYS",          "시스템관리",    null,     90, "Folder", ""),
+        ("M_SYS_MENU",     "메뉴 관리",     "M_SYS",  10, "Screen", "SYS_MENU_MGMT"),
+    };
+
+    using var tx = conn.BeginTransaction();
+    foreach (var r in rows)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText =
+            "INSERT INTO SYS_MENU (MENU_ID, MENU_NAME, PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, UI_ID, VALID_STATE) " +
+            "VALUES (@id, @name, @parent, @seq, @type, @uiId, 'Valid')";
+        cmd.Parameters.AddWithValue("@id", r.Id);
+        cmd.Parameters.AddWithValue("@name", r.Name);
+        cmd.Parameters.AddWithValue("@parent", (object?)r.Parent ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@seq", r.Seq);
+        cmd.Parameters.AddWithValue("@type", r.Type);
+        cmd.Parameters.AddWithValue("@uiId", r.UiId);
+        cmd.ExecuteNonQuery();
+    }
+    tx.Commit();
+    Console.WriteLine("[NexaOne.Server] Dev menu seeded (SYS_MENU was empty).");
 }
 
 // WebApplicationFactory<Program> 진입점 노출(스모크 테스트용).

@@ -92,6 +92,44 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("IS_ACTIVE", "활성"),
             },
             QueryId: "QMS.DefectClassList"));
+
+        // 시스템관리 — 메뉴 관리(CRUD). DEMO_LAYOUT 구조 미러: 좌측 트리 그리드(SYS.MenuTree) + 우측 업서트 폼(SYS.UpsertMenu)·
+        // 저장/삭제 명령 버튼(SYS.UpsertMenu/SYS.DeleteMenu). 폼 필드 Key는 쓰기쿼리 @param 이름과 1:1 일치
+        // (menuId/menuName/parentMenuId/displaySequence/menuType/uiId). 사이드바의 시스템관리 폴더가 /meta/SYS_MENU_MGMT 로 라우팅.
+        Register(new ScreenDefinition("SYS_MENU_MGMT", "메뉴 관리",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Id = "sec", Title = "메뉴 마스터",
+                Children = new LayoutNode[]
+                {
+                    new RowNode { Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 7, Children = new LayoutNode[]
+                        {
+                            new GridWidget { Id = "g", QueryId = "SYS.MenuTree", Columns = new GridColumnDefinition[]
+                            {
+                                new("MENU_ID", "메뉴ID"), new("MENU_NAME", "메뉴명"),
+                                new("PARENT_MENU_ID", "상위"), new("MENU_TYPE", "유형"), new("UI_ID", "화면"),
+                            } },
+                        } },
+                        new ColumnNode { Span = 5, Children = new LayoutNode[]
+                        {
+                            new FormWidget { Id = "f", SaveQueryId = "SYS.UpsertMenu", Fields = new FieldWidget[]
+                            {
+                                new() { FieldKey = "menuId", Field = new FieldDefinition("menuId", "메뉴ID", FieldType.Text, Required: true) },
+                                new() { FieldKey = "menuName", Field = new FieldDefinition("menuName", "메뉴명", FieldType.Text, Required: true) },
+                                new() { FieldKey = "parentMenuId", Field = new FieldDefinition("parentMenuId", "상위 메뉴ID", FieldType.Text) },
+                                new() { FieldKey = "displaySequence", Field = new FieldDefinition("displaySequence", "표시순서", FieldType.Number) },
+                                new() { FieldKey = "menuType", Field = new FieldDefinition("menuType", "유형(Folder/Screen)", FieldType.Text) },
+                                new() { FieldKey = "uiId", Field = new FieldDefinition("uiId", "화면 UI_ID", FieldType.Text) },
+                            } },
+                            new ButtonWidget { Id = "bSave", Label = "저장", Command = "SYS.UpsertMenu", RequiredPermission = "sys:manage" },
+                            new ButtonWidget { Id = "bDel", Label = "삭제", Command = "SYS.DeleteMenu", RequiredPermission = "sys:manage" },
+                        } },
+                    } },
+                },
+            }));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;

@@ -65,4 +65,35 @@ WHERE IS_DELETED = 0
 ORDER BY USER_ID
 ]]></statement>
   </query>
+
+  <!-- ===== 계층 메뉴(SmartUX 셸 사이드바·메뉴 관리 CRUD) — 비-자격증명 마스터. read 무해 / write는 sys:manage. ===== -->
+  <!-- 셸 사이드바·메뉴 관리 화면이 쓰는 트리 조회. PARENT_MENU_ID null=대분류(Folder), 그 외=하위(Screen). -->
+  <query id="SYS.MenuTree">
+    <statement><![CDATA[
+SELECT MENU_ID, MENU_NAME, PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, UI_ID
+FROM SYS_MENU WITH (NOLOCK)
+WHERE VALID_STATE = 'Valid'
+ORDER BY PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_ID
+]]></statement>
+  </query>
+
+  <!-- 메뉴 업서트 — SYS.UpsertScreenDefinition 스타일(MERGE HOLDLOCK). 감사 컬럼 없음(SYS_MENU는 미보유). -->
+  <query id="SYS.UpsertMenu" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+MERGE SYS_MENU WITH (HOLDLOCK) AS t
+USING (SELECT @menuId AS MENU_ID) AS s ON t.MENU_ID = s.MENU_ID
+WHEN MATCHED THEN UPDATE SET
+    MENU_NAME = @menuName, PARENT_MENU_ID = @parentMenuId, DISPLAY_SEQUENCE = @displaySequence,
+    MENU_TYPE = @menuType, UI_ID = @uiId, VALID_STATE = 'Valid'
+WHEN NOT MATCHED THEN INSERT (MENU_ID, MENU_NAME, PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, UI_ID, VALID_STATE)
+    VALUES (@menuId, @menuName, @parentMenuId, @displaySequence, @menuType, @uiId, 'Valid');
+]]></statement>
+  </query>
+
+  <!-- 메뉴 소프트 삭제 — VALID_STATE='Invalid'(MenuTree가 'Valid'만 노출하므로 즉시 사이드바에서 사라진다). -->
+  <query id="SYS.DeleteMenu" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+UPDATE SYS_MENU SET VALID_STATE = 'Invalid' WHERE MENU_ID = @menuId
+]]></statement>
+  </query>
 </queries>
