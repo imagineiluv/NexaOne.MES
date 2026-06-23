@@ -1,0 +1,110 @@
+/* SmartUX(:9020 레퍼런스) 디자인 시스템 재현 — 대표 화면 패턴.
+   네이비 사이드바 + 화이트 상단바 + 틸 주색 + Kendo풍 카드/그리드. */
+:root {
+  --sux-navy: #0e2240;
+  --sux-navy-2: #0a1a33;
+  --sux-navy-hover: rgba(255,255,255,.08);
+  --sux-teal: #15b89a;
+  --sux-teal-d: #0fa085;
+  --sux-blue: #4a6cf7;
+  --sux-red: #e5484d;
+  --sux-bg: #eef1f5;
+  --sux-card: #ffffff;
+  --sux-border: #e2e6eb;
+  --sux-head: #f5f7f9;
+  --sux-text: #1f2937;
+  --sux-muted: #6b7280;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+  font-family: "Malgun Gothic", "Noto Sans KR", "Segoe UI", system-ui, sans-serif;
+  color: var(--sux-text);
+  background: var(--sux-bg);
+  font-size: 13px;
+}
+
+/* ===== 셸 ===== */
+.mes-shell { display: flex; height: 100vh; overflow: hidden; }
+
+/* 사이드바 */
+.mes-sidebar { width: 230px; flex: 0 0 230px; background: var(--sux-navy); display: flex; flex-direction: column; }
+.mes-logo { height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 18px; background: #fff; border-bottom: 1px solid var(--sux-border); }
+.mes-logo .cube { width: 26px; height: 26px; flex: 0 0 26px; }
+.mes-logo .brand { font-weight: 800; font-size: 15px; letter-spacing: .5px; color: #1c2b46; }
+.mes-logo .brand small { display: block; font-size: 9px; font-weight: 600; color: var(--sux-teal); letter-spacing: 2px; }
+.mes-nav { flex: 1; overflow-y: auto; padding: 6px 0; }
+.mes-nav::-webkit-scrollbar { width: 6px; } .mes-nav::-webkit-scrollbar-thumb { background: #2a3c5c; border-radius: 3px; }
+.mes-nav-item {
+  display: flex; align-items: center; gap: 12px; padding: 11px 18px;
+  color: #c3ccd9; text-decoration: none; font-size: 13px; border-left: 3px solid transparent; cursor: pointer;
+}
+.mes-nav-item svg { width: 18px; height: 18px; flex: 0 0 18px; stroke: #8da0bd; }
+.mes-nav-item .chev { margin-left: auto; opacity: .45; }
+.mes-nav-item:hover { background: var(--sux-navy-hover); color: #fff; }
+.mes-nav-item:hover svg { stroke: #fff; }
+.mes-nav-item.active { background: var(--sux-navy-2); color: #fff; border-left-color: var(--sux-teal); }
+.mes-nav-item.active svg { stroke: var(--sux-teal); }
+.mes-pin { padding: 10px 18px; color: #8da0bd; font-size: 12px; border-top: 1px solid #1b2c49; display: flex; align-items: center; gap: 8px; }
+
+/* 상단바 */
+.mes-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mes-topbar { height: 56px; flex: 0 0 56px; background: #fff; border-bottom: 1px solid var(--sux-border); display: flex; align-items: center; padding: 0 16px; gap: 12px; }
+.mes-topbar .star { color: #c9ced6; font-size: 18px; }
+.mes-topbar .tb-title { font-weight: 600; font-size: 15px; color: #2a3346; }
+.mes-quickmenu { margin-left: auto; }
+.mes-quickmenu input { width: 220px; padding: 6px 10px; border: 1px solid var(--sux-border); border-radius: 3px; font-size: 12px; color: var(--sux-muted); }
+.mes-topbar .tb-ico { width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #6b7686; }
+.mes-topbar .tb-ico svg { width: 18px; height: 18px; stroke: #6b7686; }
+
+.mes-content { flex: 1; overflow: auto; padding: 14px 16px; }
+
+/* ===== 화면 공통(메타 런타임) ===== */
+.page-header { margin: 0 0 12px; }
+.page-title { font-size: 17px; font-weight: 700; color: #1f2a3d; margin: 0; }
+/* FocusOnNavigate가 h1에 tabindex 부여 후 포커스 → 브라우저 포커스 박스가 제목을 감싸 보이는 것 억제 */
+.page-title:focus, .page-title:focus-visible { outline: none; }
+
+/* 필터/검색 바 */
+.mes-filterbar { display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid var(--sux-border); border-radius: 4px; padding: 8px 10px; margin-bottom: 12px; }
+.mes-chip { border: 1px solid var(--sux-border); border-radius: 3px; padding: 4px 10px; font-size: 12px; color: #44506a; background: #fbfcfd; }
+
+/* 카드 */
+.mes-card { background: var(--sux-card); border: 1px solid var(--sux-border); border-radius: 4px; }
+.mes-card-head { display: flex; align-items: center; padding: 9px 14px; border-bottom: 1px solid var(--sux-border); }
+.mes-card-head .h-title { color: var(--sux-teal); font-weight: 700; font-size: 13px; }
+.mes-card-head .h-right { margin-left: auto; color: var(--sux-muted); font-size: 12px; }
+.mes-card-toolbar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--sux-border); }
+.mes-card-toolbar .sp { margin-left: auto; }
+.mes-card-body { padding: 0; }
+
+/* 버튼 */
+.btn { border: 1px solid transparent; border-radius: 3px; padding: 7px 16px; font-size: 13px; cursor: pointer; font-weight: 500; }
+.btn-teal { background: var(--sux-teal); color: #fff; } .btn-teal:hover { background: var(--sux-teal-d); }
+.btn-blue { background: var(--sux-blue); color: #fff; } .btn-blue:hover { filter: brightness(.95); }
+.btn-ghost { background: #fff; color: #44506a; border-color: var(--sux-border); } .btn-ghost:hover { background: #f5f7f9; }
+.btn-red { background: var(--sux-red); color: #fff; } .btn-red:hover { filter: brightness(.95); }
+
+/* 그리드(Kendo풍) */
+.meta-grid { background: #fff; }
+.meta-grid table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.meta-grid thead th {
+  background: var(--sux-head); color: #44506a; font-weight: 600; text-align: left;
+  padding: 9px 12px; border: 1px solid var(--sux-border); border-top: none; white-space: nowrap;
+}
+.meta-grid tbody td { padding: 8px 12px; border: 1px solid #eef1f4; color: #2c3647; }
+.meta-grid tbody tr:nth-child(even) td { background: #fafbfc; }
+.meta-grid tbody tr:hover td { background: #eefaf7; }
+.meta-grid .grid-empty { padding: 48px; text-align: center; color: #9aa3b2; border: 1px solid #eef1f4; border-top: none; }
+
+/* 폼/입력 */
+.meta-form label { font-size: 12px; color: #44506a; font-weight: 500; }
+.meta-form input, .meta-form select { padding: 6px 9px; border: 1px solid var(--sux-border); border-radius: 3px; font-size: 13px; }
+.meta-actions { margin-top: 12px; display: flex; gap: 8px; }
+.validation-errors { color: var(--sux-red); font-size: 12.5px; margin: 8px 0 0; padding-left: 18px; }
+.save-ok { color: var(--sux-teal); font-weight: 600; }
+.layout-section { background: #fff; border: 1px solid var(--sux-border); border-radius: 4px; padding: 14px; margin-bottom: 12px; }
+.layout-section-title { color: var(--sux-teal); font-weight: 700; font-size: 13px; margin: 0 0 10px; }
+.layout-command, .meta-actions button, button.layout-save { background: var(--sux-teal); color: #fff; border: none; border-radius: 3px; padding: 7px 16px; font-size: 13px; cursor: pointer; }
+.layout-command:hover, .meta-actions button:hover { background: var(--sux-teal-d); }

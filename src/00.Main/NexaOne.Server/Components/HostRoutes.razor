@@ -4,7 +4,7 @@
 <Router AppAssembly="typeof(HostApp).Assembly"
         AdditionalAssemblies="new[] { typeof(NexaOne.Web.Pages.Meta.MetaScreen).Assembly }">
     <Found Context="routeData">
-        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(HostLayout)">
+        <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(MesShellLayout)">
             <NotAuthorized>
                 <RedirectToHostLogin />
             </NotAuthorized>
