@@ -275,6 +275,9 @@ if (app.Environment.IsDevelopment()
         NexaOne.Infrastructure.Persistence.SqliteSchemaInitializer.EnsureSchema(gwConn);
         // 스키마 보장 후 SmartUX 셸 사이드바를 채울 계층 메뉴를 시드한다(SYS_MENU 비었을 때만, idempotent, Dev 전용).
         SeedDevMenuIfEmpty(gwConn);
+        // 점등된 MDM 업무화면(공장/품목/AREA)이 실제 행을 렌더하도록 최소 MDM 마스터 데이터를 시드한다
+        // (MDM_PLANT 비었을 때만, idempotent, Dev 전용). 운영(MSSQL)은 본 경로를 타지 않는다.
+        SeedDevMasterDataIfEmpty(gwConn);
     }
 }
 
@@ -402,6 +405,58 @@ static void SeedDevMenuIfEmpty(string connectionString)
     }
     tx.Commit();
     Console.WriteLine($"[NexaOne.Server] SYS_MENU seeded ({rows.Count} rows: SmartUX tree + dev-demo).");
+}
+
+// 개발 SQLite 전용 — MDM_PLANT가 비어 있을 때만 점등된 MDM 업무화면(공장/품목/AREA)이 실제 행을 보이도록
+// 최소 마스터 데이터를 시드한다(idempotent). 감사 컬럼은 명시값으로 채운다(SQLite엔 GETUTCDATE 기본값 없음).
+static void SeedDevMasterDataIfEmpty(string connectionString)
+{
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connectionString);
+    conn.Open();
+
+    using (var count = conn.CreateCommand())
+    {
+        count.CommandText = "SELECT COUNT(*) FROM MDM_PLANT";
+        if (Convert.ToInt64(count.ExecuteScalar() ?? 0L) > 0) return; // 이미 데이터 존재 → 건너뜀
+    }
+
+    var now = DateTime.UtcNow.ToString("o");
+    void Exec(System.Data.IDbTransaction tx, string sql, params (string, object)[] ps)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = (Microsoft.Data.Sqlite.SqliteTransaction)tx;
+        cmd.CommandText = sql;
+        foreach (var (k, v) in ps) cmd.Parameters.AddWithValue(k, v);
+        cmd.ExecuteNonQuery();
+    }
+
+    using var tx = conn.BeginTransaction();
+    // 공장 → 구역(FK PLANT_ID) → 품목. 감사 4컬럼(@by/@at)은 모든 표에 공통.
+    foreach (var p in new[] {
+        ("PLANT01", "서울공장", "수도권 생산거점", "KR", "Asia/Seoul"),
+        ("PLANT02", "부산공장", "영남 생산거점", "KR", "Asia/Seoul") })
+        Exec(tx, "INSERT INTO MDM_PLANT (PLANT_ID,PLANT_NAME,DESCRIPTION,COUNTRY,TIME_ZONE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@name,@desc,@country,@tz,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", p.Item1), ("@name", p.Item2), ("@desc", p.Item3), ("@country", p.Item4), ("@tz", p.Item5), ("@at", now));
+
+    foreach (var a in new[] {
+        ("AREA01", "조립1동", "조립 라인", "PLANT01"),
+        ("AREA02", "포장동", "포장 라인", "PLANT01"),
+        ("AREA03", "가공동", "가공 라인", "PLANT02") })
+        Exec(tx, "INSERT INTO MDM_AREA (AREA_ID,AREA_NAME,DESCRIPTION,PLANT_ID,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@name,@desc,@plant,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", a.Item1), ("@name", a.Item2), ("@desc", a.Item3), ("@plant", a.Item4), ("@at", now));
+
+    foreach (var pr in new[] {
+        ("ITEM01", "완제품 A", "출하용 완제품", "FG", "EA"),
+        ("ITEM02", "반제품 B", "공정 중간품", "SF", "EA"),
+        ("ITEM03", "원자재 C", "투입 원자재", "RM", "KG") })
+        Exec(tx, "INSERT INTO MDM_PRODUCT (PRODUCT_ID,PRODUCT_NAME,DESCRIPTION,PRODUCT_TYPE,UNIT,VALID_STATE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@name,@desc,@type,@unit,'Valid','SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", pr.Item1), ("@name", pr.Item2), ("@desc", pr.Item3), ("@type", pr.Item4), ("@unit", pr.Item5), ("@at", now));
+
+    tx.Commit();
+    Console.WriteLine("[NexaOne.Server] MDM master data seeded (2 plants, 3 areas, 3 products).");
 }
 
 // 임베드된 smartux-menu.json(SUX 데스크톱 트리)를 로드하고, 실제 동작하는 데모/관리 화면을 별도 폴더로 덧붙여 반환한다.

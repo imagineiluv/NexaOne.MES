@@ -130,6 +130,64 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                     } },
                 },
             }));
+
+        // ===== SmartUX MDM 업무화면 점등(Phase 2) — 실제 SmartUX 메뉴 잎(menuId=UI_ID)에 기존 명명쿼리를 바인딩한다.
+        // 사이드바 MDM 폴더의 해당 잎을 클릭하면 '준비 중' 대신 실제 그리드/폼이 렌더된다. 백엔드(테이블·명명쿼리)가
+        // 있는 화면만 점등(나머지는 '준비 중' 유지). =====
+
+        // 공장 관리(FACTORY_MDM_PLANT) — 좌측 공장 그리드(MDM.PlantList) + 우측 등록 폼/저장(MDM.CreatePlant). 실동작 CRUD.
+        Register(new ScreenDefinition("FACTORY_MDM_PLANT", "공장 관리",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Id = "sec", Title = "공장 마스터",
+                Children = new LayoutNode[]
+                {
+                    new RowNode { Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 7, Children = new LayoutNode[]
+                        {
+                            new GridWidget { Id = "g", QueryId = "MDM.PlantList", Columns = new GridColumnDefinition[]
+                            {
+                                new("PLANT_ID", "공장 ID"), new("PLANT_NAME", "공장명"),
+                                new("DESCRIPTION", "설명"), new("COUNTRY", "국가"), new("TIME_ZONE", "표준시"),
+                            } },
+                        } },
+                        new ColumnNode { Span = 5, Children = new LayoutNode[]
+                        {
+                            new FormWidget { Id = "f", SaveQueryId = "MDM.CreatePlant", Fields = new FieldWidget[]
+                            {
+                                new() { FieldKey = "plantId", Field = new FieldDefinition("plantId", "공장 ID", FieldType.Text, Required: true) },
+                                new() { FieldKey = "plantName", Field = new FieldDefinition("plantName", "공장명", FieldType.Text, Required: true) },
+                                new() { FieldKey = "description", Field = new FieldDefinition("description", "설명", FieldType.Text) },
+                                new() { FieldKey = "country", Field = new FieldDefinition("country", "국가", FieldType.Text) },
+                                new() { FieldKey = "timeZone", Field = new FieldDefinition("timeZone", "표준시", FieldType.Text) },
+                            } },
+                            new ButtonWidget { Id = "bSave", Label = "저장", Command = "MDM.CreatePlant", RequiredPermission = "mdm:manage" },
+                        } },
+                    } },
+                },
+            }));
+
+        // 품목 관리(FACTORY_MDM_ITEM_DEF) — 제품 마스터 조회 그리드(MDM.ProductList). SmartUX '품목' ↔ 새 스키마 MDM_PRODUCT.
+        Register(new ScreenDefinition("FACTORY_MDM_ITEM_DEF", "품목 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PRODUCT_ID", "품목 ID"), new("PRODUCT_NAME", "품목명"), new("DESCRIPTION", "설명"),
+                new("PRODUCT_TYPE", "유형"), new("UNIT", "단위"), new("VALID_STATE", "상태"),
+            },
+            QueryId: "MDM.ProductList"));
+
+        // AREA 관리(FACTORY_MDM_AREA) — 구역 마스터 조회 그리드(MDM.AreaList).
+        Register(new ScreenDefinition("FACTORY_MDM_AREA", "AREA 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("AREA_ID", "AREA ID"), new("AREA_NAME", "AREA명"),
+                new("DESCRIPTION", "설명"), new("PLANT_ID", "공장 ID"),
+            },
+            QueryId: "MDM.AreaList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
