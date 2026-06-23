@@ -81,10 +81,10 @@ public sealed class HostBlazorServingTests : IClassFixture<HostBlazorServingTest
         // /meta/{uiId}는 RCL(NexaOne.Web.Components)의 Blazor 페이지 → 호스트가 같은 Blazor 앱으로 서빙해야 한다.
         // 핵심: 라우트 가능 컴포넌트 엔드포인트 탐색은 루트(HostApp) 어셈블리만 스캔하므로, 호스트가
         // MapRazorComponents<HostApp>().AddAdditionalAssemblies(RCL)로 RCL을 명시 등록해야 /meta가 서버 엔드포인트로
-        // 잡힌다(미등록이면 404 — Task 3 배선 공백). 또한 MetaScreen는 @attribute [Authorize]라 엔드포인트 인가가
-        // 정적 SSR 요청 단계에서 평가된다: 익명은 401, 유효 Bearer는 호스트 문서(셸)를 200으로 받는다. prerender:false라
-        // GET은 컴포넌트 본문이 아닌 HostApp 셸(_framework/blazor.web.js 포함)을 반환하므로 셸 마커에 단언한다.
-        var client = AuthedClient(); // /meta는 [Authorize] → 엔드포인트 인가 통과를 위해 유효 Bearer 필요
+        // 잡힌다(미등록이면 404 — Task 3 배선 공백). 엔드포인트는 AllowAnonymous라 인증 유무와 무관하게 호스트 셸(200)을
+        // 서빙한다(인가는 클라이언트 AuthorizeRouteView). prerender:false라 GET은 컴포넌트 본문이 아닌 HostApp 셸
+        // (_framework/blazor.web.js 포함)을 반환하므로 셸 마커에 단언한다(인증 클라이언트 경로도 동일 셸 200 확인).
+        var client = AuthedClient();
         var res = await client.GetAsync("/meta/DEMO_GRID");
 
         res.StatusCode.Should().Be(HttpStatusCode.OK,
@@ -96,14 +96,19 @@ public sealed class HostBlazorServingTests : IClassFixture<HostBlazorServingTest
     }
 
     [Fact]
-    public async Task Meta_route_is_registered_endpoint_not_spa_fallback()
+    public async Task Meta_route_serves_anonymous_shell_for_client_side_auth()
     {
-        // [Authorize] /meta 엔드포인트가 실제로 등록됐음을 음수 단언으로 보강 — 미인증 요청은 401(엔드포인트 인가 챌린지)이어야
-        // 한다. 만약 라우트가 미등록이면 404(엔드포인트 부재)가 나므로, 401은 'RCL /meta 엔드포인트가 호스트에 잡혔다'는 증거다.
+        // 설계 §4: Blazor 엔드포인트는 익명으로 셸을 서빙하고 인가는 클라이언트측 AuthorizeRouteView(JwtAuthStateProvider,
+        // 세션 토큰)가 담당한다(MapRazorComponents().AllowAnonymous()). 미인증 GET이 401이면 브라우저 내비게이션
+        // (토큰은 세션스토리지라 Authorization 헤더 미전송)이 막혀 로그인 후 화면이 안 뜬다 → 미인증도 200 셸을 받아야 한다.
+        // 200 + 셸 마커는 '/meta 엔드포인트가 등록됨(404 아님)'도 입증한다(SPA 폴백은 /spa/*만 처리하므로 미등록 /meta는 404).
         var client = _factory.CreateClient();
         var res = await client.GetAsync("/meta/DEMO_GRID");
-        res.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
-            "[Authorize] /meta 엔드포인트가 등록돼 미인증 요청을 401로 챌린지해야 한다(404면 엔드포인트 미등록 = 배선 공백)");
+        res.StatusCode.Should().Be(HttpStatusCode.OK,
+            "Blazor 엔드포인트는 익명 셸을 200으로 서빙해야 한다(인가는 클라이언트 AuthorizeRouteView) — 401이면 로그인 후 화면 미표시");
+        var body = await res.Content.ReadAsStringAsync();
+        body.Should().Contain(BlazorFrameworkScript,
+            "미인증 /meta도 등록된 Blazor 호스트 셸을 서빙해야 한다(404=미등록/배선공백)");
     }
 
     [Fact]

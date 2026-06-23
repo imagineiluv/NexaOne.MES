@@ -308,9 +308,16 @@ app.MapGet("/diag", () => Results.Ok(new
 // AddAdditionalAssemblies(RCL): 라우트 가능한 컴포넌트 엔드포인트 탐색은 루트(HostApp) 어셈블리만 스캔하므로,
 // RCL(NexaOne.Web.Components)의 /meta/{uiId}는 명시적으로 추가해야 서버측 엔드포인트로 등록된다. HostRoutes의
 // <Router AdditionalAssemblies>는 서킷(클라이언트) 라우터용이라 서버 엔드포인트 매핑에는 영향을 주지 않는다.
+// AllowAnonymous(설계 §4 정합): Blazor 엔드포인트는 익명으로 셸을 서빙하고, 화면 인가는 클라이언트측
+// AuthorizeRouteView(JwtAuthStateProvider, 세션 토큰)가 담당한다. MetaScreen의 @attribute [Authorize]가
+// 엔드포인트 인가로 승격되면(.NET 8 기본) 브라우저 내비게이션(Authorization 헤더 없음, 토큰은 세션스토리지)이
+// 401로 막혀 로그인 후 화면이 안 뜬다 — prerender:false라 GET은 컴포넌트 본문을 서버렌더하지 않아 셸엔 보호
+// 데이터가 없고, 실제 데이터는 Bearer 보호 API(/api/v1/*)가 게이트하므로 셸 익명 서빙은 안전하다. 미인증
+// 직접 진입은 셸 로드→서킷→AuthorizeRouteView가 /login으로 리다이렉트(401 에러 아님).
 app.MapRazorComponents<HostApp>()
     .AddInteractiveServerRenderMode()
-    .AddAdditionalAssemblies(typeof(NexaOne.Web.Pages.Meta.MetaScreen).Assembly);
+    .AddAdditionalAssemblies(typeof(NexaOne.Web.Pages.Meta.MetaScreen).Assembly)
+    .AllowAnonymous();
 
 // SPA 폴백(Phase 4) — 명시적 api/v1·Blazor 라우트가 우선한다. 파일이 아닌 /spa/* 경로만 React BrowserRouter
 // 셸(index.html)로 폴백한다(엔드포인트 매핑 최후순으로 두어 다른 라우트가 가려지지 않게 한다).
