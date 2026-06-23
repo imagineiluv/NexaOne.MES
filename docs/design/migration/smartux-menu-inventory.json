@@ -1,0 +1,3782 @@
+﻿[
+    {
+        "menuId":  "FACTORY_DASHBOARD",
+        "menuName":  "대시보드",
+        "parentMenuId":  "",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "MOBILE_MATERIAL",
+        "menuName":  "자재",
+        "parentMenuId":  "",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "MOBILE",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_SLS",
+        "menuName":  "영업",
+        "parentMenuId":  "",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_PPM",
+        "menuName":  "PPM",
+        "parentMenuId":  "",
+        "displaySequence":  3,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_WPM",
+        "menuName":  "WPM",
+        "parentMenuId":  "",
+        "displaySequence":  4,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "I6F2C1685B0E14D09C2F44709D473A3BF",
+        "menuName":  "테스트",
+        "parentMenuId":  "",
+        "displaySequence":  4,
+        "menuType":  "FOLDER",
+        "uiId":  "MOBILE",
+        "programId":  ""
+    },
+    {
+        "menuId":  "MOBILE_PRODUCT",
+        "menuName":  "제품",
+        "parentMenuId":  "",
+        "displaySequence":  4,
+        "menuType":  "FOLDER",
+        "uiId":  "MOBILE",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_IVT",
+        "menuName":  "창고",
+        "parentMenuId":  "",
+        "displaySequence":  5,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "MOBILE_PACKING",
+        "menuName":  "포장",
+        "parentMenuId":  "",
+        "displaySequence":  5,
+        "menuType":  "FOLDER",
+        "uiId":  "MOBILE",
+        "programId":  ""
+    },
+    {
+        "menuId":  "OI_COMMON",
+        "menuName":  "공통",
+        "parentMenuId":  "",
+        "displaySequence":  5,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX_OI",
+        "programId":  ""
+    },
+    {
+        "menuId":  "OI_KIMCHI",
+        "menuName":  "김치",
+        "parentMenuId":  "",
+        "displaySequence":  5,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX_OI",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_DLV",
+        "menuName":  "출하 관리",
+        "parentMenuId":  "",
+        "displaySequence":  6,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "MOBILE_QUALITY",
+        "menuName":  "품질",
+        "parentMenuId":  "",
+        "displaySequence":  6,
+        "menuType":  "FOLDER",
+        "uiId":  "MOBILE",
+        "programId":  ""
+    },
+    {
+        "menuId":  "OI_HMR",
+        "menuName":  "HMR",
+        "parentMenuId":  "",
+        "displaySequence":  6,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX_OI",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_PRC",
+        "menuName":  "구매 관리",
+        "parentMenuId":  "",
+        "displaySequence":  7,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "MOBILE_AUDIT",
+        "menuName":  "실사",
+        "parentMenuId":  "",
+        "displaySequence":  7,
+        "menuType":  "FOLDER",
+        "uiId":  "MOBILE",
+        "programId":  ""
+    },
+    {
+        "menuId":  "OI_PIZZA",
+        "menuName":  "피자",
+        "parentMenuId":  "",
+        "displaySequence":  7,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX_OI",
+        "programId":  ""
+    },
+    {
+        "menuId":  "OI_RICE",
+        "menuName":  "냉동밥",
+        "parentMenuId":  "",
+        "displaySequence":  8,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX_OI",
+        "programId":  ""
+    },
+    {
+        "menuId":  "EES_EPT",
+        "menuName":  "EPT",
+        "parentMenuId":  "",
+        "displaySequence":  11,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "EES_FDC",
+        "menuName":  "FDC",
+        "parentMenuId":  "",
+        "displaySequence":  13,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE",
+        "menuName":  "레시피 기준 정보",
+        "parentMenuId":  "",
+        "displaySequence":  15,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_MDM",
+        "menuName":  "MDM",
+        "parentMenuId":  "",
+        "displaySequence":  16,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "MI_SYSTEM_2_0",
+        "menuName":  "시스템 관리",
+        "parentMenuId":  "",
+        "displaySequence":  18,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "IF73BC41A642D4FCEBB71D0058D89E904",
+        "menuName":  "시스템 관리 2.5",
+        "parentMenuId":  "",
+        "displaySequence":  19,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_QCA",
+        "menuName":  "QCA",
+        "parentMenuId":  "",
+        "displaySequence":  8,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_EMS",
+        "menuName":  "EMS",
+        "parentMenuId":  "",
+        "displaySequence":  10,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "QMS",
+        "menuName":  "QMS",
+        "parentMenuId":  "",
+        "displaySequence":  14,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_COM",
+        "menuName":  "COM",
+        "parentMenuId":  "",
+        "displaySequence":  17,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "EPT_STD",
+        "menuName":  "EPT 기준 정보",
+        "parentMenuId":  "EES_EPT",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "EES_EPT_MONITORING",
+        "menuName":  "모니터링",
+        "parentMenuId":  "EES_EPT",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "EES_EPT_EQUIPMENT_HISTORY",
+        "menuName":  "설비 이력",
+        "parentMenuId":  "EES_EPT",
+        "displaySequence":  3,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "EES_EPT_EQUIPMENT_EFFICIENCY",
+        "menuName":  "설비 효율",
+        "parentMenuId":  "EES_EPT",
+        "displaySequence":  4,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "EES_EPT_EQUIPMENT_ALARM",
+        "menuName":  "설비 알람",
+        "parentMenuId":  "EES_EPT",
+        "displaySequence":  5,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "EES_EPT_WORST10_ALARM",
+        "menuName":  "WORST10 알람",
+        "parentMenuId":  "EES_EPT_EQUIPMENT_ALARM",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_WORST10_ALARM"
+    },
+    {
+        "menuId":  "EES_EPT_ALARM_HISTORY",
+        "menuName":  "알람 발생 이력",
+        "parentMenuId":  "EES_EPT_EQUIPMENT_ALARM",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_ALARM_HISTORY"
+    },
+    {
+        "menuId":  "EES_EPT_OVERALL_EQUIPMENT_EFFECIVENESS",
+        "menuName":  "설비 종합 지표",
+        "parentMenuId":  "EES_EPT_EQUIPMENT_EFFICIENCY",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_OVERALL_EQUIPMENT_EFFECIVENESS"
+    },
+    {
+        "menuId":  "EES_EPT_INTERESTED_INDEX_MANAGEMENT",
+        "menuName":  "관심 지표 등록",
+        "parentMenuId":  "EES_EPT_EQUIPMENT_EFFICIENCY",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_INTERESTED_INDEX_MANAGEMENT"
+    },
+    {
+        "menuId":  "EES_EPT_INTERESTED_INDEX_VIEW",
+        "menuName":  "관심 지표 조회",
+        "parentMenuId":  "EES_EPT_EQUIPMENT_EFFICIENCY",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_INTERESTED_INDEX_VIEW"
+    },
+    {
+        "menuId":  "EES_EPT_EQUIPMENT_STATE_HISTORY",
+        "menuName":  "설비 상태 이력",
+        "parentMenuId":  "EES_EPT_EQUIPMENT_HISTORY",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_EQUIPMENT_STATE_HISTORY"
+    },
+    {
+        "menuId":  "EES_EPT_EQUIPMENT_EVENT_HISTORY",
+        "menuName":  "설비 이벤트 이력",
+        "parentMenuId":  "EES_EPT_EQUIPMENT_HISTORY",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_EQUIPMENT_EVENT_HISTORY"
+    },
+    {
+        "menuId":  "EES_EPT_EQUIPMENT_ALARM_HISTORY",
+        "menuName":  "설비 알람 이력",
+        "parentMenuId":  "EES_EPT_EQUIPMENT_HISTORY",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_EQUIPMENT_ALARM_HISTORY"
+    },
+    {
+        "menuId":  "EES_EPT_EQUIPMENT_PRODUCTIVE_HISTORY",
+        "menuName":  "설비 가동 이력",
+        "parentMenuId":  "EES_EPT_EQUIPMENT_HISTORY",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_EQUIPMENT_PRODUCTIVE_HISTORY"
+    },
+    {
+        "menuId":  "EES_EPT_EQUIPMENT_LOSS_ANALYSIS",
+        "menuName":  "설비 유실 분석",
+        "parentMenuId":  "EES_EPT_EQUIPMENT_HISTORY",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_EQUIPMENT_LOSS_ANALYSIS"
+    },
+    {
+        "menuId":  "EES_EPT_WORST5_LOSS",
+        "menuName":  "WORST5 유실",
+        "parentMenuId":  "EES_EPT_EQUIPMENT_HISTORY",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_LOSS_WORST5_ANALYSIS"
+    },
+    {
+        "menuId":  "EES_EPT_CHANGE_EQUIPMENT_STATE",
+        "menuName":  "설비 상태 변경",
+        "parentMenuId":  "EES_EPT_EQUIPMENT_HISTORY",
+        "displaySequence":  7,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_CHANGE_EQUIPMENT_STATE"
+    },
+    {
+        "menuId":  "EES_EPT_PLANT_MONITORING",
+        "menuName":  "공장 모니터링",
+        "parentMenuId":  "EES_EPT_MONITORING",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_PLANT_MONITORING"
+    },
+    {
+        "menuId":  "EES_EPT_EQUIPMENT_STATE_STATUS",
+        "menuName":  "설비 상태 현황",
+        "parentMenuId":  "EES_EPT_MONITORING",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_EQUIPMENT_STATE_STATUS"
+    },
+    {
+        "menuId":  "EES_FDC_PARAMETER_MANAGEMENT",
+        "menuName":  "파라미터 관리",
+        "parentMenuId":  "EES_FDC",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "EES_FDC_EVENT_MANAGEMENT",
+        "menuName":  "EVENT 관리",
+        "parentMenuId":  "EES_FDC",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "EES_FDC_PARAMETER_SPEC_MANAGEMENT",
+        "menuName":  "파라미터 스펙 관리",
+        "parentMenuId":  "EES_FDC",
+        "displaySequence":  3,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "EES_FDC_FDC_DATA_VIEW",
+        "menuName":  "FDC 데이터 조회",
+        "parentMenuId":  "EES_FDC",
+        "displaySequence":  4,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "EES_FDC_DATA_ANALYSIS",
+        "menuName":  "FDC 데이터 분석",
+        "parentMenuId":  "EES_FDC",
+        "displaySequence":  5,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "EES_FDC_INTERLOCK_HISTORY",
+        "menuName":  "인터락 이력 조회",
+        "parentMenuId":  "EES_FDC_DATA_ANALYSIS",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_INTERLOCK_HISTORY"
+    },
+    {
+        "menuId":  "EES_FDC_TOOL_TO_TOOL_MATCHING",
+        "menuName":  "동종 설비간 FDC 동일성 검정",
+        "parentMenuId":  "EES_FDC_DATA_ANALYSIS",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_EQUIPMENT_VERIFICATION"
+    },
+    {
+        "menuId":  "EES_FDC_VIRTUAL_EVENT_HI",
+        "menuName":  "VIRTUAL EVENT 이력 조회",
+        "parentMenuId":  "EES_FDC_DATA_ANALYSIS",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_VIRTUAL_EVENT_HI"
+    },
+    {
+        "menuId":  "EES_FDC_VIRTUAL_EVENT_MANAGEMENT",
+        "menuName":  "VIRTUAL EVENT 관리",
+        "parentMenuId":  "EES_FDC_EVENT_MANAGEMENT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_VIRTUAL_EVENT_PARAMETER"
+    },
+    {
+        "menuId":  "EES_FDC_REAL_TIME_TRACE_PARA_MONITORING",
+        "menuName":  "실시간 데이터 차트",
+        "parentMenuId":  "EES_FDC_FDC_DATA_VIEW",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_REAL_TIME_DATA_CHART"
+    },
+    {
+        "menuId":  "EES_FDC_DATA_CHART",
+        "menuName":  "FDC 데이터 차트",
+        "parentMenuId":  "EES_FDC_FDC_DATA_VIEW",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_DATA_CHART"
+    },
+    {
+        "menuId":  "EES_FDC_SUMMARY_DATA_CHART",
+        "menuName":  "FDC SUMMARY 데이터 차트",
+        "parentMenuId":  "EES_FDC_FDC_DATA_VIEW",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_SUMMARY_DATA_CHART"
+    },
+    {
+        "menuId":  "EES_FDC_INTERESTED_DATA_CHART",
+        "menuName":  "FDC 관심 데이터 차트",
+        "parentMenuId":  "EES_FDC_FDC_DATA_VIEW",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_INTEREST_DATA_CHART"
+    },
+    {
+        "menuId":  "EES_FDC_REAL_TIME_USER_MONITORING",
+        "menuName":  "FDC 사용자별 실시간 모니터링",
+        "parentMenuId":  "EES_FDC_FDC_DATA_VIEW",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_REAL_TIME_USER_MONITORING"
+    },
+    {
+        "menuId":  "EES_POPUP_MONITERING_DASHBOARD",
+        "menuName":  "사용자별 실시간 데이터 차트",
+        "parentMenuId":  "EES_FDC_FDC_DATA_VIEW",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "ESS_FDC_REAL_TIME_USER_CHART"
+    },
+    {
+        "menuId":  "POC_FDC_DATA_CHART",
+        "menuName":  "FDC 데이터 차트",
+        "parentMenuId":  "EES_FDC_FDC_DATA_VIEW",
+        "displaySequence":  7,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "POC_FDC_DATA_CHART"
+    },
+    {
+        "menuId":  "EES_FDC_EVENT_PARAMETER_MANAGEMENT",
+        "menuName":  "EVENT 파라미터 관리",
+        "parentMenuId":  "EES_FDC_PARAMETER_MANAGEMENT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_EVENT_PARAMETER"
+    },
+    {
+        "menuId":  "EES_FDC_TRACE_PARAMETER_MANAGEMENT",
+        "menuName":  "TRACE 파라미터 관리",
+        "parentMenuId":  "EES_FDC_PARAMETER_MANAGEMENT",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_TRACE_PARAMETER"
+    },
+    {
+        "menuId":  "EES_FDC_VIRTUAL_PARAMETER_MANAGEMENT",
+        "menuName":  "VIRTUAL 파라미터 관리",
+        "parentMenuId":  "EES_FDC_PARAMETER_MANAGEMENT",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_VIRTUAL_PARAMETER"
+    },
+    {
+        "menuId":  "EES_FDC_SUMMARY_PARAMETER_MANAGEMENT",
+        "menuName":  "SUMMARY 파라미터 관리",
+        "parentMenuId":  "EES_FDC_PARAMETER_MANAGEMENT",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_SUMMARY_PARAMETER"
+    },
+    {
+        "menuId":  "EES_FDC_TRACE_GROUP",
+        "menuName":  "파라미터 수집 그룹 관리",
+        "parentMenuId":  "EES_FDC_PARAMETER_MANAGEMENT",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_TRACE_GROUP"
+    },
+    {
+        "menuId":  "EES_FDC_INTERESTED_PARAMETER_MANAGEMENT",
+        "menuName":  "관심 파라미터 관리",
+        "parentMenuId":  "EES_FDC_PARAMETER_MANAGEMENT",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_INTEREST_GROUP"
+    },
+    {
+        "menuId":  "EES_FDC_PARAMETER_STATE_CONDITION",
+        "menuName":  "파라미터별 설비 상태 변경 관리",
+        "parentMenuId":  "EES_FDC_PARAMETER_MANAGEMENT",
+        "displaySequence":  7,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_PARAMETER_STATE_CONDITION"
+    },
+    {
+        "menuId":  "EES_FDC_ACTIVE_SPEC_MANAGEMENT",
+        "menuName":  "ACTIVE 파라미터 스펙 관리",
+        "parentMenuId":  "EES_FDC_PARAMETER_SPEC_MANAGEMENT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_ACTIVE_PARAMETER_SPEC"
+    },
+    {
+        "menuId":  "EES_FDC_IDLE_SPEC_MANAGEMENT",
+        "menuName":  "IDLE 파라미터 스펙 관리",
+        "parentMenuId":  "EES_FDC_PARAMETER_SPEC_MANAGEMENT",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_IDLE_PARAMETER_SPEC"
+    },
+    {
+        "menuId":  "EES_FDC_SUMMARY_SPEC_MANAGEMENT",
+        "menuName":  "SUMMARY 파라미터 스펙 관리",
+        "parentMenuId":  "EES_FDC_PARAMETER_SPEC_MANAGEMENT",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_FDC_SUMMARY_PARAMETER_SPEC"
+    },
+    {
+        "menuId":  "RMS_STD",
+        "menuName":  "레시피 기준 정보",
+        "parentMenuId":  "EES_RMS",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "RMS_RECIPE",
+        "menuName":  "레시피 관리",
+        "parentMenuId":  "EES_RMS",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "RMS_HISTORY",
+        "menuName":  "레시피 이력",
+        "parentMenuId":  "EES_RMS",
+        "displaySequence":  3,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "RMS_APPROVAL",
+        "menuName":  "레시피 결재 관리",
+        "parentMenuId":  "EES_RMS",
+        "displaySequence":  4,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "EPT_STD_LAYOUT_MGNT",
+        "menuName":  "레이아웃 관리",
+        "parentMenuId":  "EPT_STD",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_LAYOUT_MGNT"
+    },
+    {
+        "menuId":  "EPT_STD_LAYOUT_EDIT",
+        "menuName":  "레이아웃 구성",
+        "parentMenuId":  "EPT_STD",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_LAYOUT_EDIT"
+    },
+    {
+        "menuId":  "EPT_STD_EQUIPMENT_PROPERTY",
+        "menuName":  "설비별 EPT 속성 관리",
+        "parentMenuId":  "EPT_STD",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_PROPERTY_MGNT"
+    },
+    {
+        "menuId":  "EPT_STD_INDEX_MGNT",
+        "menuName":  "지표 관리",
+        "parentMenuId":  "EPT_STD",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_EPT_INDEX_MGNT"
+    },
+    {
+        "menuId":  "FACTORY_COM_SERVICE",
+        "menuName":  "서비스 관리",
+        "parentMenuId":  "FACTORY_COM",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_COM_CODE",
+        "menuName":  "코드",
+        "parentMenuId":  "FACTORY_COM",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_COM_LABEL",
+        "menuName":  "라벨 관리",
+        "parentMenuId":  "FACTORY_COM",
+        "displaySequence":  3,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_COM_ALARM_CLASS",
+        "menuName":  "알람 그룹 관리",
+        "parentMenuId":  "FACTORY_COM_ALARM",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_ALARM_CLASS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_COM_ALARM_DEF",
+        "menuName":  "알람 관리",
+        "parentMenuId":  "FACTORY_COM_ALARM",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_ALARM_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_COM_ACTION_DEF",
+        "menuName":  "알람 액션 관리",
+        "parentMenuId":  "FACTORY_COM_ALARM",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_ACTION_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_COM_ALARM_ACTION",
+        "menuName":  "알람별 액션 관리",
+        "parentMenuId":  "FACTORY_COM_ALARM",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_ALARM_ACTION_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_COM_CODE_CLASS",
+        "menuName":  "코드 그룹 관리",
+        "parentMenuId":  "FACTORY_COM_CODE",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_COM_CODE_CLASS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_COM_CODE_CODE",
+        "menuName":  "코드 관리",
+        "parentMenuId":  "FACTORY_COM_CODE",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_COM_CODE_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_COM_CODE_STATE_MODEL",
+        "menuName":  "상태 모델 관리",
+        "parentMenuId":  "FACTORY_COM_CODE",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_COM_STATE_MODEL_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_COM_CODE_STATE",
+        "menuName":  "상태 코드 관리",
+        "parentMenuId":  "FACTORY_COM_CODE",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_COM_STATE_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_COM_CODE_STATE_TRANSITION",
+        "menuName":  "상태 관리",
+        "parentMenuId":  "FACTORY_COM_CODE",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_COM_STATE_TRANSITION_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_COM_CODE_ID_DEFINITION",
+        "menuName":  "ID 채번 관리",
+        "parentMenuId":  "FACTORY_COM_CODE",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_COM_ID_NUMBER_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_COM_CURRENCY_CODE",
+        "menuName":  "통화 코드 관리",
+        "parentMenuId":  "FACTORY_COM_CODE",
+        "displaySequence":  8,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_COM_CURRENCY_CODE_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_LABEL_MASTER",
+        "menuName":  "라벨 마스터",
+        "parentMenuId":  "FACTORY_COM_LABEL",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "STD_LABEL_MASTER"
+    },
+    {
+        "menuId":  "FACTORY_STD_LABEL_ISSUE_HISTORY",
+        "menuName":  "라벨 발행 이력",
+        "parentMenuId":  "FACTORY_COM_LABEL",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "STD_LABEL_ISSUE_HISTORY"
+    },
+    {
+        "menuId":  "FACTORY_STD_LABEL_MAPPING_MANAGEMENT",
+        "menuName":  "라벨 맵핑 관리",
+        "parentMenuId":  "FACTORY_COM_LABEL",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "STD_LABEL_MAPPING_MANAGEMENT"
+    },
+    {
+        "menuId":  "MICUBE_STANDARD_SERVICE_MANAGEMENT",
+        "menuName":  "서비스 관리",
+        "parentMenuId":  "FACTORY_COM_SERVICE",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_COM_SERVICE_MANAGEMENT"
+    },
+    {
+        "menuId":  "MICUBE_STANDARD_MAIL_SERVER",
+        "menuName":  "메일 서버 관리",
+        "parentMenuId":  "FACTORY_COM_SERVICE",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_COM_MAIL_SERVER_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_DASHBOARD_MENU",
+        "menuName":  "대시보드",
+        "parentMenuId":  "FACTORY_DASHBOARD",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_DASHBOARD_EDIT",
+        "menuName":  "대시보드 편집",
+        "parentMenuId":  "FACTORY_DASHBOARD",
+        "displaySequence":  9,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_DASHBOARD_LAYOUT_EDIT",
+        "menuName":  "대시보드 레이아웃 관리",
+        "parentMenuId":  "FACTORY_DASHBOARD_EDIT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_DASHBOARD_EDIT"
+    },
+    {
+        "menuId":  "FACTORY_DASHBOARD_MENU_SAMPLE_TEST",
+        "menuName":  "대시보드 샘플 화면",
+        "parentMenuId":  "FACTORY_DASHBOARD_MENU",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_DASHBOARD_SCREEN_SAMPLE_TEST"
+    },
+    {
+        "menuId":  "FACTORY_DASHBOARD_MENU_PRODUCTIVITY",
+        "menuName":  "생산성 대시보드",
+        "parentMenuId":  "FACTORY_DASHBOARD_MENU",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_DASHBOARD_PRODUCTIVITY"
+    },
+    {
+        "menuId":  "FACTORY_DLV_DELIVERY",
+        "menuName":  "출하 관리",
+        "parentMenuId":  "FACTORY_DLV",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_DLV_REPORT",
+        "menuName":  "Report",
+        "parentMenuId":  "FACTORY_DLV",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_DLV_DELIVERY_ORDER",
+        "menuName":  "출하 지시 관리",
+        "parentMenuId":  "FACTORY_DLV_DELIVERY",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_DLV_DELIVERY_ORDER"
+    },
+    {
+        "menuId":  "FACTORY_DLV_DELIVERY_RESULT",
+        "menuName":  "출하 처리",
+        "parentMenuId":  "FACTORY_DLV_DELIVERY",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_DLV_DELIVERY_RESULT"
+    },
+    {
+        "menuId":  "FACTORY_DLV_REPORT_DELIVERYORDER",
+        "menuName":  "출하지시 현황",
+        "parentMenuId":  "FACTORY_DLV_REPORT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_RPT_DELIVERY_ORDER"
+    },
+    {
+        "menuId":  "FACTORY_EMS_STD",
+        "menuName":  "설비보전 기준 정보",
+        "parentMenuId":  "FACTORY_EMS",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_EMS_SPARE_PART",
+        "menuName":  "Spare Part 관리",
+        "parentMenuId":  "FACTORY_EMS",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_EMS_PM",
+        "menuName":  "보전 관리",
+        "parentMenuId":  "FACTORY_EMS",
+        "displaySequence":  3,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_EMS_BM",
+        "menuName":  "고장 관리",
+        "parentMenuId":  "FACTORY_EMS",
+        "displaySequence":  4,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_EMS_BM_ORDER_REQUEST",
+        "menuName":  "설비 수리 요청",
+        "parentMenuId":  "FACTORY_EMS_BM",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_BM_ORDER"
+    },
+    {
+        "menuId":  "FACTORY_EMS_BM_ORDER_REPAIR",
+        "menuName":  "설비 수리 등록",
+        "parentMenuId":  "FACTORY_EMS_BM",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_BM_ORDER_REPAIR_REGISTER"
+    },
+    {
+        "menuId":  "FACTORY_EMS_BM_ORDER_RESULT",
+        "menuName":  "설비 보전 결과",
+        "parentMenuId":  "FACTORY_EMS_BM",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_BM_ORDER_REPAIR_VIEWER"
+    },
+    {
+        "menuId":  "I323F47E9A2DD4C679611EE9E105B5966",
+        "menuName":  "설비 이력 조회",
+        "parentMenuId":  "FACTORY_EMS_BM",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_EQUIPMENT_REPAIR_LIST"
+    },
+    {
+        "menuId":  "FACTORY_EMS_BM_ORDER_GRIDTYPE",
+        "menuName":  "설비 수리 요청_그리드",
+        "parentMenuId":  "FACTORY_EMS_BM",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_BM_ORDER_GRIDTYPE"
+    },
+    {
+        "menuId":  "FACTORY_EMS_BM_ORDER_REPAIR_REGISTER_GRIDTYPE",
+        "menuName":  "설비 수리 등록_그리드",
+        "parentMenuId":  "FACTORY_EMS_BM",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_BM_ORDER_REPAIR_REGISTER_GRIDTYPE"
+    },
+    {
+        "menuId":  "FACTORY_EMS_BM_ORDER_RESULT_GRIDTYPE",
+        "menuName":  "설비 보전 결과_그리드",
+        "parentMenuId":  "FACTORY_EMS_BM",
+        "displaySequence":  7,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_BM_ORDER_REPAIR_GRIDTYPE"
+    },
+    {
+        "menuId":  "FACTORY_EMS_PM_ORDER_PLAN",
+        "menuName":  "PM 계획 생성",
+        "parentMenuId":  "FACTORY_EMS_PM",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_PM_ORDER_PLAN"
+    },
+    {
+        "menuId":  "FACTORY_EMS_PM_ORDER_RESULT_RESULT",
+        "menuName":  "PM 결과 등록",
+        "parentMenuId":  "FACTORY_EMS_PM",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_PM_ORDER_RESULT"
+    },
+    {
+        "menuId":  "FACTORY_EMS_PM_ORDER_RESULT_LIST",
+        "menuName":  "PM 결과 조회",
+        "parentMenuId":  "FACTORY_EMS_PM",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_PM_ORDER_RESULT_LIST"
+    },
+    {
+        "menuId":  "FACTORY_EMS_PM_ORDER_PLAN_GRIDTYPE",
+        "menuName":  "PM 계획 생성_그리드",
+        "parentMenuId":  "FACTORY_EMS_PM",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_PM_ORDER_PLAN_GRIDTYPE"
+    },
+    {
+        "menuId":  "IB43069FAE3694C0A9ABF475F32CC17A7",
+        "menuName":  "PM 결과 조회_그리드",
+        "parentMenuId":  "FACTORY_EMS_PM",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_PM_ORDER_RESULT_LIST_GRIDTYPE"
+    },
+    {
+        "menuId":  "FACTORY_EMS_STD_SPARE_PART_INCOMING",
+        "menuName":  "Spare Part 입고",
+        "parentMenuId":  "FACTORY_EMS_SPARE_PART",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_SPARE_PART_INCOMING"
+    },
+    {
+        "menuId":  "FACTORY_EMS_STD_SPARE_PART_MOVE",
+        "menuName":  "Spare Part 이동",
+        "parentMenuId":  "FACTORY_EMS_SPARE_PART",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_SPARE_PART_MOVE"
+    },
+    {
+        "menuId":  "FACTORY_EMS_STD_SPARE_PART_SCRAP",
+        "menuName":  "Spare Part 폐기",
+        "parentMenuId":  "FACTORY_EMS_SPARE_PART",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_SPARE_PART_SCRAP"
+    },
+    {
+        "menuId":  "FACTORY_EMS_STD_SPARE_PART_STOCK",
+        "menuName":  "Spare Part 재고 조회",
+        "parentMenuId":  "FACTORY_EMS_SPARE_PART",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_SPARE_PART_STOCK_LIST"
+    },
+    {
+        "menuId":  "FACTORY_EMS_STD_SPARE_PART_INOUT_HISTORY",
+        "menuName":  "Spare Part 입출고 이력",
+        "parentMenuId":  "FACTORY_EMS_SPARE_PART",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_SPARE_PART_INOUT_HISTORY"
+    },
+    {
+        "menuId":  "FACTORY_EMS_STD_SPARE_PART_MOVE_GRIDTYPE",
+        "menuName":  "Spare Part 이동_그리드",
+        "parentMenuId":  "FACTORY_EMS_SPARE_PART",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_SPARE_PART_MOVE_GRIDTYPE"
+    },
+    {
+        "menuId":  "FACTORY_EMS_STD_SPARE_PART_SCRAP_GRIDTYPE",
+        "menuName":  "Spare Part 폐기_그리드",
+        "parentMenuId":  "FACTORY_EMS_SPARE_PART",
+        "displaySequence":  7,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_SPARE_PART_SCRAP_GRIDTYPE"
+    },
+    {
+        "menuId":  "FACTORY_EMS_STD_MAINT_ITEM_CLASS",
+        "menuName":  "설비 점검 항목 그룹 관리",
+        "parentMenuId":  "FACTORY_EMS_STD",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_EQUIPMENT_MAINT_ITEM_CLASS"
+    },
+    {
+        "menuId":  "FACTORY_EMS_STD_MAINT_ITEM",
+        "menuName":  "설비 점검 항목 관리",
+        "parentMenuId":  "FACTORY_EMS_STD",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_EQUIPMENT_MAINT_ITEM"
+    },
+    {
+        "menuId":  "FACTORY_EMS_STD_EQP_MAINT_ITEM",
+        "menuName":  "설비별 점검 항목 관리",
+        "parentMenuId":  "FACTORY_EMS_STD",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_EQP_MAINT_ITEM"
+    },
+    {
+        "menuId":  "FACTORY_EMS_STD_SPARE_PART_CLASS",
+        "menuName":  "Spare Part 그룹 관리",
+        "parentMenuId":  "FACTORY_EMS_STD",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_SPARE_PART_CLASS"
+    },
+    {
+        "menuId":  "FACTORY_EMS_STD_SPARE_PART",
+        "menuName":  "Spare Part 관리",
+        "parentMenuId":  "FACTORY_EMS_STD",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_EMS_SPARE_PART_DEF"
+    },
+    {
+        "menuId":  "FACTORY_IVT_CONSUMABLE_LOT",
+        "menuName":  "자재",
+        "parentMenuId":  "FACTORY_IVT",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_IVT_REPORT",
+        "menuName":  "Report",
+        "parentMenuId":  "FACTORY_IVT",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_IVT_MATERIAL_INCOMING_MANAGEMENT",
+        "menuName":  "입고 관리",
+        "parentMenuId":  "FACTORY_IVT_CONSUMABLE_LOT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_IVT_MATERIAL_INCOMING_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_IVT_INVENTORY_STATUS",
+        "menuName":  "재고 관리",
+        "parentMenuId":  "FACTORY_IVT_CONSUMABLE_LOT",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_IVT_INVENTORY_STATUS"
+    },
+    {
+        "menuId":  "FACTORY_IVT_MOVE_ODER",
+        "menuName":  "자재 이동",
+        "parentMenuId":  "FACTORY_IVT_CONSUMABLE_LOT",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_IVT_MATERIAL_MOVEMENT"
+    },
+    {
+        "menuId":  "FACTORY_IVT_MATERIAL_DISPENSING",
+        "menuName":  "자재 불출 처리",
+        "parentMenuId":  "FACTORY_IVT_CONSUMABLE_LOT",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_IVT_MATERIAL_DISPENSING"
+    },
+    {
+        "menuId":  "FACTORY_IVT_MATERIAL_LOT_MANAGEMENT",
+        "menuName":  "자재 LOT 관리",
+        "parentMenuId":  "FACTORY_IVT_CONSUMABLE_LOT",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_IVT_MATERIAL_LOT_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_PRC_REPORT_MOVEORDER",
+        "menuName":  "이동지시 현황",
+        "parentMenuId":  "FACTORY_IVT_REPORT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_RPT_MOVE_ORDER"
+    },
+    {
+        "menuId":  "FACTORY_MDM_COM",
+        "menuName":  "공통",
+        "parentMenuId":  "FACTORY_MDM",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_MDM_ITEM",
+        "menuName":  "품목",
+        "parentMenuId":  "FACTORY_MDM",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_MDM_SEGMENT",
+        "menuName":  "공정",
+        "parentMenuId":  "FACTORY_MDM",
+        "displaySequence":  3,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_MDM_EQUIPMENT",
+        "menuName":  "설비",
+        "parentMenuId":  "FACTORY_MDM",
+        "displaySequence":  4,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_MDM_WORKER",
+        "menuName":  "작업자",
+        "parentMenuId":  "FACTORY_MDM",
+        "displaySequence":  5,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_MDM_CODE",
+        "menuName":  "코드",
+        "parentMenuId":  "FACTORY_MDM",
+        "displaySequence":  7,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_MDM_REASON_CODE_CLASS",
+        "menuName":  "사유 코드 그룹 관리",
+        "parentMenuId":  "FACTORY_MDM_CODE",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_REASON_CODE_CLASS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_REASON_CODE",
+        "menuName":  "사유 코드 관리",
+        "parentMenuId":  "FACTORY_MDM_CODE",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_REASON_CODE_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_PLANT",
+        "menuName":  "공장 관리",
+        "parentMenuId":  "FACTORY_MDM_COM",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_PLANT_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_AREA",
+        "menuName":  "AREA 관리",
+        "parentMenuId":  "FACTORY_MDM_COM",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_AREA_MANAGEMENT"
+    },
+    {
+        "menuId":  "MES_MDM_COM_VENDOR",
+        "menuName":  "협력사 관리",
+        "parentMenuId":  "FACTORY_MDM_COM",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_VENDOR_MANAGEMENT"
+    },
+    {
+        "menuId":  "MES_MDM_COM_VENDOR_ITEM",
+        "menuName":  "협력사 품목 관리",
+        "parentMenuId":  "FACTORY_MDM_COM",
+        "displaySequence":  7,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_VENDOR_ITEM_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_EQUIPMENT_CLASS",
+        "menuName":  "설비 그룹 관리",
+        "parentMenuId":  "FACTORY_MDM_EQUIPMENT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_EQUIPMENT_CLASS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_EQUIPMENT_DEF",
+        "menuName":  "설비 관리",
+        "parentMenuId":  "FACTORY_MDM_EQUIPMENT",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_EQUIPMENT_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_ITEM_CLASS",
+        "menuName":  "품목 그룹 관리",
+        "parentMenuId":  "FACTORY_MDM_ITEM",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_ITEM_CLASS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_ITEM_DEF",
+        "menuName":  "품목 관리",
+        "parentMenuId":  "FACTORY_MDM_ITEM",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_ITEM_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_CARRIER_CLASS",
+        "menuName":  "캐리어 그룹 관리",
+        "parentMenuId":  "FACTORY_MDM_ITEM",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_CARRIER_CLASS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_CARRIER",
+        "menuName":  "캐리어 관리",
+        "parentMenuId":  "FACTORY_MDM_ITEM",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_CARRIER_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_PROCESS_CLASS",
+        "menuName":  "프로세스 그룹 관리",
+        "parentMenuId":  "FACTORY_MDM_SEGMENT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_PROCESS_CLASS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_PROCESS_DEF",
+        "menuName":  "프로세스 관리",
+        "parentMenuId":  "FACTORY_MDM_SEGMENT",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_PROCESS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_SEGMENT_CLASS",
+        "menuName":  "공정 그룹 관리",
+        "parentMenuId":  "FACTORY_MDM_SEGMENT",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_SEGMENT_CLASS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_SEGMENT_DEF",
+        "menuName":  "공정 관리",
+        "parentMenuId":  "FACTORY_MDM_SEGMENT",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_SEGMENT_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_PROCESS_PATH",
+        "menuName":  "라우팅 관리",
+        "parentMenuId":  "FACTORY_MDM_SEGMENT",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_PROCESS_PATH_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_BILL_OF_MATERIAL",
+        "menuName":  "BOM 관리",
+        "parentMenuId":  "FACTORY_MDM_SEGMENT",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_BILL_OF_MATERIAL_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_MDM_SEGMENT_QTIME",
+        "menuName":  "Qtime 관리",
+        "parentMenuId":  "FACTORY_MDM_SEGMENT",
+        "displaySequence":  7,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_MDM_QTIME"
+    },
+    {
+        "menuId":  "FACTORY_MDM_QTIME_ACTION",
+        "menuName":  "Qtime 액션 관리",
+        "parentMenuId":  "FACTORY_MDM_SEGMENT",
+        "displaySequence":  8,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_MDM_QTIME_ACTION"
+    },
+    {
+        "menuId":  "MES_MDM_COM_SHIFT",
+        "menuName":  "작업조 관리",
+        "parentMenuId":  "FACTORY_MDM_WORKER",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_MDM_SHIFT_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_PPM_PRODUCTION",
+        "menuName":  "생산 관리",
+        "parentMenuId":  "FACTORY_PPM",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_PPM_REPORT",
+        "menuName":  "Report",
+        "parentMenuId":  "FACTORY_PPM",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_PPM_PRODUCTION_ORDER",
+        "menuName":  "P/O 관리",
+        "parentMenuId":  "FACTORY_PPM_PRODUCTION",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_PPM_PRODUCTION_ORDER"
+    },
+    {
+        "menuId":  "FACTORY_PPM_WORK_ORDER",
+        "menuName":  "W/O 관리",
+        "parentMenuId":  "FACTORY_PPM_PRODUCTION",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_PPM_WORK_ORDER"
+    },
+    {
+        "menuId":  "POC_PPM_WORK_ORDER",
+        "menuName":  "작업 지시 관리_POC",
+        "parentMenuId":  "FACTORY_PPM_PRODUCTION",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "POC_WORKORDER"
+    },
+    {
+        "menuId":  "FACTORY_PPM_REPORT_PRODUCTIONORDER",
+        "menuName":  "생산지시 현황",
+        "parentMenuId":  "FACTORY_PPM_REPORT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_RPT_PRODUCTION_ORDER"
+    },
+    {
+        "menuId":  "FACTORY_PPM_REPORT_WORKORDER",
+        "menuName":  "작업지시 현황",
+        "parentMenuId":  "FACTORY_PPM_REPORT",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_RPT_WORK_ORDER"
+    },
+    {
+        "menuId":  "FACTORY_RPT_LOT_TRACE",
+        "menuName":  "Lot 추적",
+        "parentMenuId":  "FACTORY_PPM_REPORT",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_RPT_LOT_TRACE"
+    },
+    {
+        "menuId":  "FACTORY_PRC_PURCHASE",
+        "menuName":  "구매 관리",
+        "parentMenuId":  "FACTORY_PRC",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_PRC_REPORT",
+        "menuName":  "Report",
+        "parentMenuId":  "FACTORY_PRC",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_PRC_PURCHASE_ORDER",
+        "menuName":  "구매 지시 관리",
+        "parentMenuId":  "FACTORY_PRC_PURCHASE",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_PRC_PURCHASE_ORDER"
+    },
+    {
+        "menuId":  "FACTORY_PRC_REPORT_PURCHASEORDER",
+        "menuName":  "구매 지시 현황",
+        "parentMenuId":  "FACTORY_PRC_REPORT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_RPT_PURCHASE_ORDER"
+    },
+    {
+        "menuId":  "FACTORY_QCA_STD",
+        "menuName":  "레시피 기준 정보",
+        "parentMenuId":  "FACTORY_QCA",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_QCA_INSPECTION",
+        "menuName":  "검사 관리",
+        "parentMenuId":  "FACTORY_QCA",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_QCA_REPORT",
+        "menuName":  "Report",
+        "parentMenuId":  "FACTORY_QCA",
+        "displaySequence":  3,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_QCA_IMPORT_INSPECTION",
+        "menuName":  "수입 검사 관리",
+        "parentMenuId":  "FACTORY_QCA_INSPECTION",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_QCA_IMPORT_INSPECTION"
+    },
+    {
+        "menuId":  "FACTORY_QCA_DELIVERY_INSPECTION",
+        "menuName":  "출하 검사 관리",
+        "parentMenuId":  "FACTORY_QCA_INSPECTION",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_QCA_DELIVERY_INSPECTION"
+    },
+    {
+        "menuId":  "FACTORY_QCA_SEGMENT_INSPECTION",
+        "menuName":  "공정 검사 관리",
+        "parentMenuId":  "FACTORY_QCA_INSPECTION",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_QCA_SEGMENT_INSPECTION"
+    },
+    {
+        "menuId":  "FACTORY_QCA_REPORT_IMPORT_INSPECTION_STATUS",
+        "menuName":  "수입검사 현황",
+        "parentMenuId":  "FACTORY_QCA_REPORT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_RPT_IMPORT_INSPECTION_STATUS"
+    },
+    {
+        "menuId":  "FACTORY_QCA_REPORT_DELIVERY_INSPECTION_STATUS",
+        "menuName":  "출하검사 현황",
+        "parentMenuId":  "FACTORY_QCA_REPORT",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_RPT_DELIVERY_INSPECTION_STATUS"
+    },
+    {
+        "menuId":  "FACTORY_QCA_REPORT_SEGMENT_INSPECTION_STATUS",
+        "menuName":  "공정검사 현황",
+        "parentMenuId":  "FACTORY_QCA_REPORT",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_RPT_SEGMENT_INSPECTION_STATUS"
+    },
+    {
+        "menuId":  "FACTORY_QCA_INSPECTION_ITEM",
+        "menuName":  "검사 항목",
+        "parentMenuId":  "FACTORY_QCA_STD",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_QCA_INSPECTION_ITEM"
+    },
+    {
+        "menuId":  "FACTORY_QCA_INSPECTION_CLASS",
+        "menuName":  "검사 정의",
+        "parentMenuId":  "FACTORY_QCA_STD",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_QCA_INSPECTION_CLASS"
+    },
+    {
+        "menuId":  "FACTORY_QCA_IMPORT_INSPECTION_MAPPING",
+        "menuName":  "수입검사 정보 연결",
+        "parentMenuId":  "FACTORY_QCA_STD",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_QCA_IMPORT_INSPECTION_MAPPING"
+    },
+    {
+        "menuId":  "FACTORY_QCA_PROCESS_INSPECTION_MAPPING",
+        "menuName":  "공정검사 정보 연결",
+        "parentMenuId":  "FACTORY_QCA_STD",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_QCA_SEGMENT_INSPECTION_MAPPING"
+    },
+    {
+        "menuId":  "FACTORY_QCA_SHIPMENT_INSPECTION_MAPPING",
+        "menuName":  "출하검사 정보 연결",
+        "parentMenuId":  "FACTORY_QCA_STD",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_QCA_SHIP_INSPECTION_MAPPING"
+    },
+    {
+        "menuId":  "FACTORY_SLS_SALES",
+        "menuName":  "영업관리",
+        "parentMenuId":  "FACTORY_SLS",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_SLS_REPORT",
+        "menuName":  "Report",
+        "parentMenuId":  "FACTORY_SLS",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_SLS_REPORT_DELIVERY",
+        "menuName":  "출하 현황",
+        "parentMenuId":  "FACTORY_SLS_REPORT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_RPT_DELIVERY"
+    },
+    {
+        "menuId":  "FACTORY_SLS_SALES_ORDER",
+        "menuName":  "수주관리",
+        "parentMenuId":  "FACTORY_SLS_SALES",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_SLS_SALES_ORDER"
+    },
+    {
+        "menuId":  "FACTORY_SLS_SALES_REQUEST",
+        "menuName":  "판매 주문 접수",
+        "parentMenuId":  "FACTORY_SLS_SALES",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_SLS_SALES_REQUEST"
+    },
+    {
+        "menuId":  "MICUBE_STANDARD_STD_APPROVAL_REQUEST_LINE",
+        "menuName":  "품질 - 유형별 결재선 관리",
+        "parentMenuId":  "FACTORY_STD_APPROVAL",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_COM_APPROVAL_REQUEST_LINE"
+    },
+    {
+        "menuId":  "MICUBE_STANDARD_USER_EQUIPMENT_MAIL_MAP",
+        "menuName":  "사용자 - 알람 액션 매핑",
+        "parentMenuId":  "FACTORY_STD_MAIL",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_EQUIPMENT_MAIL_MAP_MANAGEMENT"
+    },
+    {
+        "menuId":  "MICUBE_STANDARD_USER_EQUIPMENT_ALARM_MAIL_MAP",
+        "menuName":  "사용자 - 설비 알람 메일 매핑",
+        "parentMenuId":  "FACTORY_STD_MAIL",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_ALARM_MAIL_MAP_MANAGEMENT"
+    },
+    {
+        "menuId":  "MICUBE_STANDARD_STD_EQUIPMENT_MAILING",
+        "menuName":  "사용자 - 설비 메일 매핑",
+        "parentMenuId":  "FACTORY_STD_MAIL",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_EQUIPMENT_MAILING"
+    },
+    {
+        "menuId":  "MICUBE_STANDARD_STD_USER_ALARM_MAILING",
+        "menuName":  "품질 - 유형별 메일 수신자 관리",
+        "parentMenuId":  "FACTORY_STD_MAIL",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_COM_USER_ALARM_MAILING"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_COM",
+        "menuName":  "공통",
+        "parentMenuId":  "FACTORY_STD_SINGLE",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_ITEM",
+        "menuName":  "품목",
+        "parentMenuId":  "FACTORY_STD_SINGLE",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_SEGMENT",
+        "menuName":  "공정",
+        "parentMenuId":  "FACTORY_STD_SINGLE",
+        "displaySequence":  3,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_EQUIPMENT",
+        "menuName":  "설비",
+        "parentMenuId":  "FACTORY_STD_SINGLE",
+        "displaySequence":  4,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_WORKER",
+        "menuName":  "작업자",
+        "parentMenuId":  "FACTORY_STD_SINGLE",
+        "displaySequence":  5,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_COM_ALARM",
+        "menuName":  "알람",
+        "parentMenuId":  "FACTORY_STD_SINGLE",
+        "displaySequence":  6,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_CODE",
+        "menuName":  "코드",
+        "parentMenuId":  "FACTORY_STD_SINGLE",
+        "displaySequence":  7,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_STD_MAIL",
+        "menuName":  "메일",
+        "parentMenuId":  "FACTORY_STD_SINGLE",
+        "displaySequence":  8,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_REASONCODECLASS",
+        "menuName":  "사유코드 그룹 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_CODE",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_REASON_CODE_CLASS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_REASONCODE",
+        "menuName":  "사유코드 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_CODE",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_REASON_CODE_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_PLANT",
+        "menuName":  "공장 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_COM",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_STD_SINGLE_PLANT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_AREA",
+        "menuName":  "Area 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_COM",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_STD_SINGLE_AREA"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_CUSTOMER",
+        "menuName":  "거래처 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_COM",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_CUSTOMER_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_DELIVERY",
+        "menuName":  "납품처 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_COM",
+        "displaySequence":  8,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_DELIVERY_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_EQUIPMENTCLASS",
+        "menuName":  "설비 그룹 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_EQUIPMENT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_EQUIPMENT_CLASS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_EQUIPMENT_DEF",
+        "menuName":  "설비 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_EQUIPMENT",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_EQUIPMENT_MANAGEMENT"
+    },
+    {
+        "menuId":  "MICUBE_STANDARD_EQUIPMENT_STATE",
+        "menuName":  "설비 상태 정보",
+        "parentMenuId":  "FACTORY_STD_SINGLE_EQUIPMENT",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_EQUIPMENT_STATE_MANAGEMENT"
+    },
+    {
+        "menuId":  "MICUBE_STANDARD_EQUIPMENT_EVENT",
+        "menuName":  "설비 이벤트 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_EQUIPMENT",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_EVENT_CODE_MANAGEMENT"
+    },
+    {
+        "menuId":  "MICUBE_STANDARD_EQUIPMENT_STATE_MATRIX",
+        "menuName":  "설비 상태 매트릭스 정보",
+        "parentMenuId":  "FACTORY_STD_SINGLE_EQUIPMENT",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_EQUIPMENT_STATE_MATRIX_MANAGEMENT"
+    },
+    {
+        "menuId":  "MICUBE_STANDARD_EQUIPMENT_STATE_EVENT_MAPPING",
+        "menuName":  "설비 이벤트 - 상태 매핑",
+        "parentMenuId":  "FACTORY_STD_SINGLE_EQUIPMENT",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_EQUIPMENT_STATE_EVENT_MAP_MANAGEMENT"
+    },
+    {
+        "menuId":  "MICUBE_STANDARD_EQUIPMENT_STATE_ALARM_MAPPING",
+        "menuName":  "설비 알람 - 상태 매핑",
+        "parentMenuId":  "FACTORY_STD_SINGLE_EQUIPMENT",
+        "displaySequence":  7,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_EQUIPMENT_STATE_ALARM_MAP_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_ITEMCLASS",
+        "menuName":  "품목 그룹 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_ITEM",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_ITEM_CLASS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_ITEM_DEF",
+        "menuName":  "품목 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_ITEM",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_ITEM_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_DELIVERY_ITEM",
+        "menuName":  "납품처 품목 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_ITEM",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_DELIVERY_ITEM_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_PRODUCT_SPEC",
+        "menuName":  "제품 사양 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_ITEM",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_PRODUCT_SPEC_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_PROCESSCLASS",
+        "menuName":  "프로세스 그룹 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_SEGMENT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_PROCESS_CLASS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_PROCESS",
+        "menuName":  "프로세스 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_SEGMENT",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_PROCESS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_SEGMENTCLASS",
+        "menuName":  "공정 그룹 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_SEGMENT",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_SEGMENT_CLASS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_SEGMENT_DEF",
+        "menuName":  "공정 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_SEGMENT",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_SEGMENT_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_PROCESSPATH",
+        "menuName":  "라우팅 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_SEGMENT",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_PROCESS_PATH_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_WO_PROCESS_PATH",
+        "menuName":  "W/O 라우팅 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_SEGMENT",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_WO_PROCESS_PATH_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_BILL_OF_MATERIAL",
+        "menuName":  "BOM 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_SEGMENT",
+        "displaySequence":  7,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_BILL_OF_MATERIAL_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_BOR_CONDITION",
+        "menuName":  "BOR 관리_조건기준등록",
+        "parentMenuId":  "FACTORY_STD_SINGLE_SEGMENT",
+        "displaySequence":  8,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_BILL_OF_RESOURCE_MANAGEMENT_BY_CONDITION"
+    },
+    {
+        "menuId":  "FACTORY_STD_BOR_RESOURCE",
+        "menuName":  "BOR 관리_자원기준등록",
+        "parentMenuId":  "FACTORY_STD_SINGLE_SEGMENT",
+        "displaySequence":  9,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_BILL_OF_RESOURCE_MANAGEMENT_BY_RESOURCE"
+    },
+    {
+        "menuId":  "FACTORY_STD_SINGLE_SHIFT",
+        "menuName":  "작업조 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_WORKER",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_SINGLE_SHIFT_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_WORKER_CLASS",
+        "menuName":  "작업자 그룹 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_WORKER",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_WORKER_CLASS_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_WORKER_DEF",
+        "menuName":  "작업자 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_WORKER",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_WORKER_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_STD_WORK_CALENDAR",
+        "menuName":  "Work Calendar 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_WORKER",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "MICUBE_STANDARD_STD_WORK_CALENDAR_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_WPM_SEGMENT",
+        "menuName":  "공정관리",
+        "parentMenuId":  "FACTORY_WPM",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_WPM_LOT",
+        "menuName":  "LOT 관리",
+        "parentMenuId":  "FACTORY_WPM",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_WPM_REPORT",
+        "menuName":  "Report",
+        "parentMenuId":  "FACTORY_WPM",
+        "displaySequence":  3,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "FACTORY_WPM_LOT_HOLD",
+        "menuName":  "LOT 보류",
+        "parentMenuId":  "FACTORY_WPM_LOT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_WPM_LOT_HOLD"
+    },
+    {
+        "menuId":  "FACTORY_WPM_LOT_HOLD_RELEASE",
+        "menuName":  "LOT 보류 해제",
+        "parentMenuId":  "FACTORY_WPM_LOT",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_WPM_LOT_HOLD_RELEASE"
+    },
+    {
+        "menuId":  "FACTORY_WPM_REPORT_CONSUME_MATERIAL_LOT",
+        "menuName":  "투입 자재 현황",
+        "parentMenuId":  "FACTORY_WPM_REPORT",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_RPT_CONSUME_MATERIAL_LOT"
+    },
+    {
+        "menuId":  "FACTORY_WPM_REPORT_MATERIAL_DISPENSING_ORDER",
+        "menuName":  "자재 불출 현황",
+        "parentMenuId":  "FACTORY_WPM_REPORT",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_RPT_DISPENSING_ORDER"
+    },
+    {
+        "menuId":  "FACTORY_WPM_REPORT_YIELD_STATUS",
+        "menuName":  "수율 현황",
+        "parentMenuId":  "FACTORY_WPM_REPORT",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_RPT_YIELD_STATUS"
+    },
+    {
+        "menuId":  "POC_INPROCESS_LOT",
+        "menuName":  "재공 LOT 현황",
+        "parentMenuId":  "FACTORY_WPM_REPORT",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "HWM_INPROCESS_LOT"
+    },
+    {
+        "menuId":  "POC_LOT_TRACE",
+        "menuName":  "생산 LOT 추적",
+        "parentMenuId":  "FACTORY_WPM_REPORT",
+        "displaySequence":  7,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "HWM_LOT_TRACE"
+    },
+    {
+        "menuId":  "POC_LOT_TRACE_TREE",
+        "menuName":  "생산 LOT 추적 - Tree",
+        "parentMenuId":  "FACTORY_WPM_REPORT",
+        "displaySequence":  8,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "HWM_LOT_TRACE_TREE"
+    },
+    {
+        "menuId":  "FACTORY_WPM_LOT_MANAGEMENT",
+        "menuName":  "작업 진행 관리",
+        "parentMenuId":  "FACTORY_WPM_SEGMENT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_WPM_LOT_MANAGEMENT"
+    },
+    {
+        "menuId":  "FACTORY_WPM_DEFECT_REPAIR",
+        "menuName":  "불량 수리 등록",
+        "parentMenuId":  "FACTORY_WPM_SEGMENT",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_WPM_DEFECT_REPAIR_REGIS"
+    },
+    {
+        "menuId":  "FACTORY_IVT_MATERIAL_DISPENSING_REQUEST",
+        "menuName":  "자재 불출 요청",
+        "parentMenuId":  "FACTORY_WPM_SEGMENT",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "FACTORY_IVT_MATERIAL_DISPENSING_REQUEST"
+    },
+    {
+        "menuId":  "POC_MIXING_PROCESS",
+        "menuName":  "배합 공정 진행",
+        "parentMenuId":  "FACTORY_WPM_SEGMENT",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "HWM_MIXING_PROD_RESULT"
+    },
+    {
+        "menuId":  "POC_COATING_PROCESS",
+        "menuName":  "공정 진행",
+        "parentMenuId":  "FACTORY_WPM_SEGMENT",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "POC_LOT_MANAGEMENT"
+    },
+    {
+        "menuId":  "POC_ROLLING_PROCESS",
+        "menuName":  "Roll To Roll 공정",
+        "parentMenuId":  "FACTORY_WPM_SEGMENT",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "HWM_ROLL_PRESSING_PROCESS"
+    },
+    {
+        "menuId":  "I7F23A7E6B1BD4370E4F0DC9B22E206D9",
+        "menuName":  "공통",
+        "parentMenuId":  "I0F68A6D60AC34918DD48BA838929DC4A",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "IF944F15095EB48919ED2849B5DDF34B6"
+    },
+    {
+        "menuId":  "IDE27E66C61F949D6ACE363D622993978",
+        "menuName":  "업로드",
+        "parentMenuId":  "I0F68A6D60AC34918DD48BA838929DC4A",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "ICF43E1C2A4794F30AC6E44C5C780AC60"
+    },
+    {
+        "menuId":  "IEB000155D47546ADABE5E8BE5B9E2037",
+        "menuName":  "Log File (Beta)",
+        "parentMenuId":  "I261D1C7D50D7483FF9DDD0944CCF3791",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_LOG_FILE"
+    },
+    {
+        "menuId":  "ICD14C134F9B04FF1E5CE1CEC7810C4D7",
+        "menuName":  "Log (이력 확인용)",
+        "parentMenuId":  "I400265FD64664D14E1CBBEC373D1DF85",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_REQLOG_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_5_MENU_USAGE_LOG_MANAGEMENT",
+        "menuName":  "화면 사용 이력",
+        "parentMenuId":  "I400265FD64664D14E1CBBEC373D1DF85",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_MENU_USAGE_LOG_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_MENU_MANAGEMENT",
+        "menuName":  "메뉴 관리",
+        "parentMenuId":  "I40339CF2DA5E4707A4D291FB19339511",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_MENU_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_MENU_ITEM_MANAGEMENT",
+        "menuName":  "기능항목 관리",
+        "parentMenuId":  "I40339CF2DA5E4707A4D291FB19339511",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_MENU_ITEM_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_MENUITEM_AUTH_MANAGEMENT",
+        "menuName":  "메뉴별 기능항목 관리",
+        "parentMenuId":  "I40339CF2DA5E4707A4D291FB19339511",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_MENU_ITEM_MAPPING_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_HELP_MANAGEMENT",
+        "menuName":  "도움말 관리",
+        "parentMenuId":  "I40339CF2DA5E4707A4D291FB19339511",
+        "displaySequence":  8,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_MENU_HELP_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_5_UIID_MANAGEMENT",
+        "menuName":  "UI ID 관리",
+        "parentMenuId":  "I64306B58C0FD4F31D84AEF78E750D532",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_UIID_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_5_MENU_MANAGEMENT",
+        "menuName":  "메뉴 관리",
+        "parentMenuId":  "I64306B58C0FD4F31D84AEF78E750D532",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_MENU_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_5_MENU_HELP_MANAGEMENT",
+        "menuName":  "도움말 관리",
+        "parentMenuId":  "I64306B58C0FD4F31D84AEF78E750D532",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_MENU_HELP_MANAGEMENT"
+    },
+    {
+        "menuId":  "I0F68A6D60AC34918DD48BA838929DC4A",
+        "menuName":  "기본",
+        "parentMenuId":  "I6F2C1685B0E14D09C2F44709D473A3BF",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "MOBILE",
+        "programId":  ""
+    },
+    {
+        "menuId":  "I8E1E306E5B3F4B1DB3C7FA965E54E500",
+        "menuName":  "스캐너",
+        "parentMenuId":  "I6F2C1685B0E14D09C2F44709D473A3BF",
+        "displaySequence":  3,
+        "menuType":  "FOLDER",
+        "uiId":  "MOBILE",
+        "programId":  ""
+    },
+    {
+        "menuId":  "I6450EE50908B44D5B3CB0229F9282090",
+        "menuName":  "바코드스캔",
+        "parentMenuId":  "I8E1E306E5B3F4B1DB3C7FA965E54E500",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "I77C7E991B7BE4896D72FC96452B75289"
+    },
+    {
+        "menuId":  "IF3EFB796A1DB4A41FFDF9C9CFB33D9B0",
+        "menuName":  "QR코드스캔",
+        "parentMenuId":  "I8E1E306E5B3F4B1DB3C7FA965E54E500",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "I2E8571503D8E4455DAA18E650B0360A3"
+    },
+    {
+        "menuId":  "SYSTEM_2_5_AUTH_MANAGEMENT",
+        "menuName":  "권한 관리",
+        "parentMenuId":  "I8FC5F2E4D3E14CAE92D53A9E3695EE5A",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_MENU_AUTH_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_5_MENU_ITEM_MANAGEMENT",
+        "menuName":  "기능항목 관리",
+        "parentMenuId":  "I8FC5F2E4D3E14CAE92D53A9E3695EE5A",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_FEATURES_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_5_TOOLBAR_MANAGEMENT",
+        "menuName":  "툴바 관리",
+        "parentMenuId":  "I8FC5F2E4D3E14CAE92D53A9E3695EE5A",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_TOOLBAR_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_5_RULE_MANAGEMENT",
+        "menuName":  "Rule 관리",
+        "parentMenuId":  "I8FC5F2E4D3E14CAE92D53A9E3695EE5A",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_RULE_AUTH_MANAGEMENT"
+    },
+    {
+        "menuId":  "I9F48B57CD18049AAD545DDD82E1E130B",
+        "menuName":  " 코드 관리",
+        "parentMenuId":  "IA494A6935D144842DF9240AD444627AD",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_CODE_MANAGEMENT"
+    },
+    {
+        "menuId":  "ID2456E7DDF8F4892A4996FE03597A25D",
+        "menuName":  "다국어 관리",
+        "parentMenuId":  "IA494A6935D144842DF9240AD444627AD",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_DICTIONARY_MANAGEMENT"
+    },
+    {
+        "menuId":  "I5554A88321FF42FCF9EB6AF5F2B803B6",
+        "menuName":  "메세지 관리",
+        "parentMenuId":  "IA494A6935D144842DF9240AD444627AD",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_MESSAGE_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_5_BATCH_PROC_MANAGEMENT",
+        "menuName":  "배치작업 관리",
+        "parentMenuId":  "IA494A6935D144842DF9240AD444627AD",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_BATCH_MANAGEMENT"
+    },
+    {
+        "menuId":  "I907170C632174870CDA921B90A7818CF",
+        "menuName":  "파일 관리",
+        "parentMenuId":  "IA494A6935D144842DF9240AD444627AD",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_FILE_MANAGEMENT"
+    },
+    {
+        "menuId":  "I388F18AA1A154CD8B651026392605E36",
+        "menuName":  "SO 관리",
+        "parentMenuId":  "IA494A6935D144842DF9240AD444627AD",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_OBJECT_MANAGEMENT"
+    },
+    {
+        "menuId":  "I86124DD42B774D9FA73BE503EF99D37A",
+        "menuName":  "공지사항 관리",
+        "parentMenuId":  "IA494A6935D144842DF9240AD444627AD",
+        "displaySequence":  7,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_NOTICE_MANAGEMENT"
+    },
+    {
+        "menuId":  "IE2318CE8497E470ACEFAC12B204097AA",
+        "menuName":  "위젯 관리",
+        "parentMenuId":  "IDA550F97D9CB4A34B082143AF35724CB",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_WIDGET_MANAGEMENT_TREE"
+    },
+    {
+        "menuId":  "IE23D5F7F537B47DB98B735CA878132FC",
+        "menuName":  "위젯 그룹 관리",
+        "parentMenuId":  "IDA550F97D9CB4A34B082143AF35724CB",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_5_WIDGET_GROUP_MANAGEMENT"
+    },
+    {
+        "menuId":  "IED99ACDCB4A94D50873FDD6EE8D0D4C8",
+        "menuName":  "사용자 관리",
+        "parentMenuId":  "IDBD4ED9EC8254E9EFBDFEA54D34E52B9",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYS_2_5_USER_MANAGEMENT"
+    },
+    {
+        "menuId":  "IA494A6935D144842DF9240AD444627AD",
+        "menuName":  "일반",
+        "parentMenuId":  "IF73BC41A642D4FCEBB71D0058D89E904",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "I64306B58C0FD4F31D84AEF78E750D532",
+        "menuName":  "메뉴",
+        "parentMenuId":  "IF73BC41A642D4FCEBB71D0058D89E904",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "I8FC5F2E4D3E14CAE92D53A9E3695EE5A",
+        "menuName":  "권한",
+        "parentMenuId":  "IF73BC41A642D4FCEBB71D0058D89E904",
+        "displaySequence":  3,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "IDBD4ED9EC8254E9EFBDFEA54D34E52B9",
+        "menuName":  "사용자",
+        "parentMenuId":  "IF73BC41A642D4FCEBB71D0058D89E904",
+        "displaySequence":  4,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "I261D1C7D50D7483FF9DDD0944CCF3791",
+        "menuName":  "이력",
+        "parentMenuId":  "IF73BC41A642D4FCEBB71D0058D89E904",
+        "displaySequence":  5,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "IDA550F97D9CB4A34B082143AF35724CB",
+        "menuName":  "위젯",
+        "parentMenuId":  "IF73BC41A642D4FCEBB71D0058D89E904",
+        "displaySequence":  6,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "SYSTEM_2_NOTICE_MANAGEMENT",
+        "menuName":  "공지사항 관리",
+        "parentMenuId":  "ITOOLC4390041D17C4B26DE5D5C9B729B7498",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_1_NOTICE_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_UIID_MANAGEMENT",
+        "menuName":  "UIID 관리",
+        "parentMenuId":  "ITOOLC4390041D17C4B26DE5D5C9B729B7498",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_UIID_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_CODE_MANAGEMENT",
+        "menuName":  "코드 관리",
+        "parentMenuId":  "ITOOLC4390041D17C4B26DE5D5C9B729B7498",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_CODE_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_LANGUAGE_CLASS_MANAGEMENT",
+        "menuName":  "다국어 그룹 관리",
+        "parentMenuId":  "ITOOLC4390041D17C4B26DE5D5C9B729B7498",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_DICTIONARY_GROUP_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_LANGUAGE_MANAGEMENT",
+        "menuName":  "다국어 관리",
+        "parentMenuId":  "ITOOLC4390041D17C4B26DE5D5C9B729B7498",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_DICTIONARY_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_MESSAGE_CLASS_MANAGEMENT",
+        "menuName":  "메세지 그룹 관리",
+        "parentMenuId":  "ITOOLC4390041D17C4B26DE5D5C9B729B7498",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_MESSAGE_CLASS_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_MESSAGE_MANAGEMENT",
+        "menuName":  "메세지 관리",
+        "parentMenuId":  "ITOOLC4390041D17C4B26DE5D5C9B729B7498",
+        "displaySequence":  7,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_MESSAGE_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_FILE_MENU",
+        "menuName":  "파일 관리",
+        "parentMenuId":  "ITOOLC4390041D17C4B26DE5D5C9B729B7498",
+        "displaySequence":  8,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_FILE_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_SO_MANAGEMENT",
+        "menuName":  "S/O 관리",
+        "parentMenuId":  "ITOOLC4390041D17C4B26DE5D5C9B729B7498",
+        "displaySequence":  9,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_2_OBJECT_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_BATCH_PROC_MANAGEMENT",
+        "menuName":  "배치작업 관리",
+        "parentMenuId":  "ITOOLC4390041D17C4B26DE5D5C9B729B7498",
+        "displaySequence":  10,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_BATCH_MANAGEMENT"
+    },
+    {
+        "menuId":  "LOG_VIEWER",
+        "menuName":  "로그뷰어",
+        "parentMenuId":  "ITOOLC4390041D17C4B26DE5D5C9B729B7498",
+        "displaySequence":  11,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_1_REQLOG_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM2_CONTENTMAPPINGSERVICE_MANAGEMENT",
+        "menuName":  "화면별 서비스 관리",
+        "parentMenuId":  "ITOOLC4390041D17C4B26DE5D5C9B729B7498",
+        "displaySequence":  13,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_CONTENT_URN_MNG"
+    },
+    {
+        "menuId":  "SYSTEM2_MONITOR_REQLOG",
+        "menuName":  "로그 뷰어",
+        "parentMenuId":  "ITOOLC4390041D17C4B26DE5D5C9B729B7498",
+        "displaySequence":  14,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM2_MONITOR_REQLOG"
+    },
+    {
+        "menuId":  "ITOOLC4390041D17C4B26DE5D5C9B729B7498",
+        "menuName":  "일반",
+        "parentMenuId":  "MI_SYSTEM_2_0",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "MI_SYSTEM_2_AUTH_FOLDER",
+        "menuName":  "사용자/권한",
+        "parentMenuId":  "MI_SYSTEM_2_0",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "I40339CF2DA5E4707A4D291FB19339511",
+        "menuName":  "메뉴 관리",
+        "parentMenuId":  "MI_SYSTEM_2_0",
+        "displaySequence":  4,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "SYSTEM2_AUTH",
+        "menuName":  "권한 관리",
+        "parentMenuId":  "MI_SYSTEM_2_0",
+        "displaySequence":  4,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "I400265FD64664D14E1CBBEC373D1DF85",
+        "menuName":  "Test",
+        "parentMenuId":  "MI_SYSTEM_2_0",
+        "displaySequence":  5,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "SYSTEM_2_USER_MANAGEMENT",
+        "menuName":  "사용자 관리",
+        "parentMenuId":  "MI_SYSTEM_2_AUTH_FOLDER",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM2_1_USER_USER"
+    },
+    {
+        "menuId":  "SYSTEM_2_AUTH_MANAGEMENT",
+        "menuName":  "권한 관리",
+        "parentMenuId":  "MI_SYSTEM_2_AUTH_FOLDER",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM2_1_AUTHORITY_MENAGEMENT"
+    },
+    {
+        "menuId":  "MOBILE_AUDIT_MENU",
+        "menuName":  "실사",
+        "parentMenuId":  "MOBILE_AUDIT",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "MOBILE",
+        "programId":  ""
+    },
+    {
+        "menuId":  "MOBILE_AUDIT_MAIN",
+        "menuName":  "실사메인",
+        "parentMenuId":  "MOBILE_AUDIT_MENU",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "MOBILE_AUDIT_MAIN"
+    },
+    {
+        "menuId":  "MOBILE_AUDIT_WORK",
+        "menuName":  "실사작업",
+        "parentMenuId":  "MOBILE_AUDIT_MENU",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "MOBILE_AUDIT_WORK"
+    },
+    {
+        "menuId":  "MOBILE_MATERIAL_MENU",
+        "menuName":  "자재",
+        "parentMenuId":  "MOBILE_MATERIAL",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "MOBILE",
+        "programId":  ""
+    },
+    {
+        "menuId":  "MOBILE_MATERIAL_ISSUE",
+        "menuName":  "자재출고",
+        "parentMenuId":  "MOBILE_MATERIAL_MENU",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "MOBILE_MATERIAL_ISSUE"
+    },
+    {
+        "menuId":  "MOBILE_MATERIAL_RETURN",
+        "menuName":  "자재반품",
+        "parentMenuId":  "MOBILE_MATERIAL_MENU",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "MOBILE_MATERIAL_RETURN"
+    },
+    {
+        "menuId":  "MOBILE_MATERIAL_MOVE",
+        "menuName":  "자재이동",
+        "parentMenuId":  "MOBILE_MATERIAL_MENU",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "MOBILE_MATERIAL_MOVE"
+    },
+    {
+        "menuId":  "MOBILE_MATERIAL_ETC_ISSUE",
+        "menuName":  "기타출고",
+        "parentMenuId":  "MOBILE_MATERIAL_MENU",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "MOBILE_MATERIAL_ETC_ISSUE"
+    },
+    {
+        "menuId":  "MOBILE_PACKING_MENU",
+        "menuName":  "포장",
+        "parentMenuId":  "MOBILE_PACKING",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "MOBILE",
+        "programId":  ""
+    },
+    {
+        "menuId":  "MOBILE_PACKING_RECEIPT",
+        "menuName":  "제품입고",
+        "parentMenuId":  "MOBILE_PACKING_MENU",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "MOBILE_PACKING_RECEIPT"
+    },
+    {
+        "menuId":  "MOBILE_PRODUCT_MENU",
+        "menuName":  "제품",
+        "parentMenuId":  "MOBILE_PRODUCT",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "MOBILE",
+        "programId":  ""
+    },
+    {
+        "menuId":  "MOBILE_PRODUCT_RECEIPT",
+        "menuName":  "제품입고",
+        "parentMenuId":  "MOBILE_PRODUCT_MENU",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "MOBILE_PRODUCT_RECEIPT"
+    },
+    {
+        "menuId":  "MOBILE_PRODUCT_ISSUE",
+        "menuName":  "제품출고",
+        "parentMenuId":  "MOBILE_PRODUCT_MENU",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "MOBILE_PRODUCT_ISSUE"
+    },
+    {
+        "menuId":  "MOBILE_PRODUCT_ETC_ISSUE",
+        "menuName":  "기타출고",
+        "parentMenuId":  "MOBILE_PRODUCT_MENU",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "MOBILE_PRODUCT_ETC_ISSUE"
+    },
+    {
+        "menuId":  "MOBILE_PRODUCT_MOVE",
+        "menuName":  "이동처리",
+        "parentMenuId":  "MOBILE_PRODUCT_MENU",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "MOBILE_PRODUCT_MOVE"
+    },
+    {
+        "menuId":  "MOBILE_PRODUCT_REWORK_ISSUE",
+        "menuName":  "재작업출고",
+        "parentMenuId":  "MOBILE_PRODUCT_MENU",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "MOBILE_PRODUCT_REWORK_ISSUE"
+    },
+    {
+        "menuId":  "MOBILE_QUALITY_MENU",
+        "menuName":  "품질",
+        "parentMenuId":  "MOBILE_QUALITY",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "MOBILE",
+        "programId":  ""
+    },
+    {
+        "menuId":  "MOBILE_QUALITY_HOLD",
+        "menuName":  "보류등록",
+        "parentMenuId":  "MOBILE_QUALITY_MENU",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "MOBILE_QUALITY_HOLD"
+    },
+    {
+        "menuId":  "MOBILE_QUALITY_HOLD_RELEASE",
+        "menuName":  "보류해제",
+        "parentMenuId":  "MOBILE_QUALITY_MENU",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "MOBILE",
+        "programId":  "MOBILE_QUALITY_HOLD_RELEASE"
+    },
+    {
+        "menuId":  "QMS_STD",
+        "menuName":  "기준정보",
+        "parentMenuId":  "QMS",
+        "displaySequence":  1,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "QMS_INSP",
+        "menuName":  "검사 관리",
+        "parentMenuId":  "QMS",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "QMS_INSP_LONGTERM",
+        "menuName":  "장기재고검사",
+        "parentMenuId":  "QMS",
+        "displaySequence":  4,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "QMS_QCA",
+        "menuName":  "부적합관리",
+        "parentMenuId":  "QMS",
+        "displaySequence":  5,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "QMS_CHG",
+        "menuName":  "변경점 관리",
+        "parentMenuId":  "QMS",
+        "displaySequence":  6,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "QMS_CLM",
+        "menuName":  "클레임관리",
+        "parentMenuId":  "QMS",
+        "displaySequence":  7,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "QMS_SPM",
+        "menuName":  "협력사 관리",
+        "parentMenuId":  "QMS",
+        "displaySequence":  8,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "QMS_GAUGE",
+        "menuName":  "계측기 관리",
+        "parentMenuId":  "QMS",
+        "displaySequence":  9,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "QMS_SPC",
+        "menuName":  "SPC",
+        "parentMenuId":  "QMS",
+        "displaySequence":  10,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "QMS_4M_CHANGE_HISTORY",
+        "menuName":  "4M 변경 이력 관리",
+        "parentMenuId":  "QMS_CHG",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_CHG_4M_CHANGE_HISTORY"
+    },
+    {
+        "menuId":  "QMS_CHG_REP",
+        "menuName":  "Report",
+        "parentMenuId":  "QMS_CHG",
+        "displaySequence":  2,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "QMS_REP_CHANGE_STATUS",
+        "menuName":  "변경점 발생 현황",
+        "parentMenuId":  "QMS_CHG_REP",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_REP_CHANGE_STATUS"
+    },
+    {
+        "menuId":  "QMS_CLM_CLAIM_REGIST",
+        "menuName":  "고객사 클레임 접수",
+        "parentMenuId":  "QMS_CLM",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_CLM_CLAIM_REGIST"
+    },
+    {
+        "menuId":  "QMS_CLM_CLAIM_RESULT",
+        "menuName":  "클레임 처리 결과 등록",
+        "parentMenuId":  "QMS_CLM",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_CLM_CLAIM_RESULT"
+    },
+    {
+        "menuId":  "QMS_CLM_STATUS_VIEW",
+        "menuName":  "클레임 현황 조회",
+        "parentMenuId":  "QMS_CLM",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_CLM_STATUS_VIEW"
+    },
+    {
+        "menuId":  "QMS_CLM_RPT",
+        "menuName":  "Report",
+        "parentMenuId":  "QMS_CLM",
+        "displaySequence":  4,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "QMS_CLM_RPT_OCCUR_STATUS",
+        "menuName":  "클레임 발생 현황",
+        "parentMenuId":  "QMS_CLM_RPT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_CLM_REPORT_OCCUR_STATUS"
+    },
+    {
+        "menuId":  "QMS_CLM_REPORT_ACTION_STATUS",
+        "menuName":  "클레임 처리 현황",
+        "parentMenuId":  "QMS_CLM_RPT",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_CLM_REPORT_ACTION_STATUS"
+    },
+    {
+        "menuId":  "QMS_GAUGE_MEASURE_EQUIPMENT_MGNT",
+        "menuName":  "계측기 관리",
+        "parentMenuId":  "QMS_GAUGE",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_MEQ_MEASURE_EQUIPMENT_MGNT"
+    },
+    {
+        "menuId":  "QMS_GAUGE_CALIBRATION_PLAN",
+        "menuName":  "검교정 계획 관리",
+        "parentMenuId":  "QMS_GAUGE",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_MEQ_CALIBRATION_PLAN"
+    },
+    {
+        "menuId":  "QMS_GAUGE_CALIBRATION_RESULT",
+        "menuName":  "검교정 내역 등록",
+        "parentMenuId":  "QMS_GAUGE",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_MEQ_CALIBRATION_RESULT"
+    },
+    {
+        "menuId":  "QMS_GAUGE_RNR_PLAN",
+        "menuName":  "RNR 계획 관리",
+        "parentMenuId":  "QMS_GAUGE",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_MEQ_RNR_PLAN"
+    },
+    {
+        "menuId":  "QMS_GAUGE_RNR_RESULT",
+        "menuName":  "RNR 평가 등록",
+        "parentMenuId":  "QMS_GAUGE",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_MEQ_RNR_RESULT"
+    },
+    {
+        "menuId":  "QMS_GAUGE_REPAIR_RESULT",
+        "menuName":  "수리 내역 등록",
+        "parentMenuId":  "QMS_GAUGE",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_MEQ_REPAIR_RESULT"
+    },
+    {
+        "menuId":  "QMS_MEASURE_INSTRUMENT_REPORT",
+        "menuName":  "계측기 현황",
+        "parentMenuId":  "QMS_GAUGE",
+        "displaySequence":  7,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_MEQ_MEASURE_EQUIPMENT_REPORT"
+    },
+    {
+        "menuId":  "QMS_MEQ_CALIBRATION_STATUS",
+        "menuName":  "계측기 교정 현황",
+        "parentMenuId":  "QMS_GAUGE",
+        "displaySequence":  8,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_MEQ_CALIBRATION_STATUS"
+    },
+    {
+        "menuId":  "QMS_MEQ_MEASURE_FAILURE_RATE",
+        "menuName":  "계측기 교정 불량 현황",
+        "parentMenuId":  "QMS_GAUGE",
+        "displaySequence":  9,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_MEQ_MEASURE_FAILURE_RATE"
+    },
+    {
+        "menuId":  "QMS_MEQ_MEASURE_REPAIR_DETAILS",
+        "menuName":  "계측기 수리 내역 현황",
+        "parentMenuId":  "QMS_GAUGE",
+        "displaySequence":  10,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_MEQ_MEASURE_REPAIR_DETAILS"
+    },
+    {
+        "menuId":  "QMS_INSP_IMPORT_INSPECTION",
+        "menuName":  "수입 검사 등록",
+        "parentMenuId":  "QMS_INSP",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_INP_IMPORT_REGIST"
+    },
+    {
+        "menuId":  "QMS_INSP_PROCESS_INSPECTION",
+        "menuName":  "공정 검사 등록",
+        "parentMenuId":  "QMS_INSP",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_INP_PROCESS_REGIST"
+    },
+    {
+        "menuId":  "QMS_INSP_SHIPPING_INSPECTION",
+        "menuName":  "출하 검사 등록",
+        "parentMenuId":  "QMS_INSP",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_INP_SHIPPING_REGIST"
+    },
+    {
+        "menuId":  "QMS_INSP_IMPORT_REGIST_HIST",
+        "menuName":  "수입 검사 이력 조회",
+        "parentMenuId":  "QMS_INSP",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_INP_IMPORT_REGIST_HIST"
+    },
+    {
+        "menuId":  "QMS_INSP_PROCESS_REGIST_HIST",
+        "menuName":  "공정 검사 이력 조회",
+        "parentMenuId":  "QMS_INSP",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_INP_PROCESS_REGIST_HIST"
+    },
+    {
+        "menuId":  "QMS_INSP_SHIPPING_REGIST_HIST",
+        "menuName":  "출하 검사 이력 조회",
+        "parentMenuId":  "QMS_INSP",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_INP_SHIPPING_REGIST_HIST"
+    },
+    {
+        "menuId":  "QMS_INSP_PROCESS_INSPECTION_LOT",
+        "menuName":  "공정 검사 등록 (LOT)",
+        "parentMenuId":  "QMS_INSP",
+        "displaySequence":  7,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_INP_PROCESS_RESULT_LOT"
+    },
+    {
+        "menuId":  "QMS_INSP_REPORT",
+        "menuName":  "Report",
+        "parentMenuId":  "QMS_INSP",
+        "displaySequence":  8,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "QMS_INSP_LONGTERM_REQUEST",
+        "menuName":  "자재 장기재고 검사 의뢰 현황",
+        "parentMenuId":  "QMS_INSP_LONGTERM",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_INSP_LONGTERM_REQUEST"
+    },
+    {
+        "menuId":  "QMS_LONGTERM_INSP_RESULT",
+        "menuName":  "자재 장기재고 검사 결과 등록",
+        "parentMenuId":  "QMS_INSP_LONGTERM",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_LONGTERM_INSP_RESULT"
+    },
+    {
+        "menuId":  "QMS_INSP_LONGTERM_HISTORY",
+        "menuName":  "자재 장기재고 검사 결과 이력",
+        "parentMenuId":  "QMS_INSP_LONGTERM",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_INSP_LONGTERM_HISTORY"
+    },
+    {
+        "menuId":  "QMS_INSP_LONGTERM_PRODUCT_REQUEST",
+        "menuName":  "제품 장기재고 검사 의뢰 현황",
+        "parentMenuId":  "QMS_INSP_LONGTERM",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_INSP_LONGTERM_PRODUCT_REQUEST"
+    },
+    {
+        "menuId":  "QMS_INSP_LONGTERM_PRODUCT_INSP_RESULT",
+        "menuName":  "제품 장기재고 검사 결과 등록",
+        "parentMenuId":  "QMS_INSP_LONGTERM",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_INSP_LONGTERM_PRODUCT_INSP_RESULT"
+    },
+    {
+        "menuId":  "QMS_INSP_LONGTERM_PRODUCT_INSP_HISTORY",
+        "menuName":  "제품 장기재고 검사 결과 이력",
+        "parentMenuId":  "QMS_INSP_LONGTERM",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_INSP_LONGTERM_PRODUCT_INSP_HISTORY"
+    },
+    {
+        "menuId":  "QMS_REP_ITEM_STATUS.js",
+        "menuName":  "검사 현황",
+        "parentMenuId":  "QMS_INSP_REPORT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_REP_ITEM_STATUS"
+    },
+    {
+        "menuId":  "QMS_REP_IMPORT_STATUS",
+        "menuName":  "수입 검사 현황",
+        "parentMenuId":  "QMS_INSP_REPORT",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_REP_IMPORT_STATUS"
+    },
+    {
+        "menuId":  "QMS_REP_PROCESS_STATUS",
+        "menuName":  "공정 검사 현황",
+        "parentMenuId":  "QMS_INSP_REPORT",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_REP_PROCESS_STATUS"
+    },
+    {
+        "menuId":  "QMS_REP_SHIPPING_STATUS",
+        "menuName":  "출하 검사 현황",
+        "parentMenuId":  "QMS_INSP_REPORT",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_REP_SHIPPING_STATUS"
+    },
+    {
+        "menuId":  "QMS_QCA_NCR_ISSUE",
+        "menuName":  "NCR 관리",
+        "parentMenuId":  "QMS_QCA",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_QCA_NCR_ISSUE2"
+    },
+    {
+        "menuId":  "QMS_QCA_NCR_OVERVIEW",
+        "menuName":  "QMS_QCA_NCR_OVERVIEW",
+        "parentMenuId":  "QMS_QCA",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_QCA_NCR_OVERVIEW"
+    },
+    {
+        "menuId":  "QMS_QCA_RELEASE_HOLD_REG",
+        "menuName":  "Hold/Release(Risk Range)",
+        "parentMenuId":  "QMS_QCA",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_QCA_RELEASE_HOLD_REG"
+    },
+    {
+        "menuId":  "QMS_QCA_PENDING_STATUS",
+        "menuName":  "Hold/Release(Risk Range) 현황",
+        "parentMenuId":  "QMS_QCA",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_QCA_PENDING_STATUS"
+    },
+    {
+        "menuId":  "QMS_QCA_RPT",
+        "menuName":  "Report",
+        "parentMenuId":  "QMS_QCA",
+        "displaySequence":  5,
+        "menuType":  "FOLDER",
+        "uiId":  "SUX",
+        "programId":  ""
+    },
+    {
+        "menuId":  "QMS_REP_NCR_STATUS",
+        "menuName":  "부적합 발생 현황",
+        "parentMenuId":  "QMS_QCA_RPT",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_REP_NCR_STATUS"
+    },
+    {
+        "menuId":  "QMS_SPC_CONTROL_CHART",
+        "menuName":  "SPC 관리도",
+        "parentMenuId":  "QMS_SPC",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_SPC_CONTROL_CHART"
+    },
+    {
+        "menuId":  "QMS_SPM_EVL_ITEM",
+        "menuName":  "협력사 평가 항목",
+        "parentMenuId":  "QMS_SPM",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_SPM_EVL_ITEM"
+    },
+    {
+        "menuId":  "QMS_SPM_EVL_DEF",
+        "menuName":  "협력사 평가 정의",
+        "parentMenuId":  "QMS_SPM",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_SPM_EVL_DEF"
+    },
+    {
+        "menuId":  "QMS_SPM_EVL_PARA",
+        "menuName":  "협력사 평가 정보 연결",
+        "parentMenuId":  "QMS_SPM",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_SPM_EVL_SPEC"
+    },
+    {
+        "menuId":  "QMS_SPM_EVL_RESULT",
+        "menuName":  "협력사 실적 관리",
+        "parentMenuId":  "QMS_SPM",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_SPM_EVL_RESULT"
+    },
+    {
+        "menuId":  "QMS_SPM_EVL_RESULT_VIEW",
+        "menuName":  "협력사 실적 조회",
+        "parentMenuId":  "QMS_SPM",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_SPM_EVL_RESULT_VIEW"
+    },
+    {
+        "menuId":  "QMS_SPM_ADMIN_ACTION_RESULT_REGIST",
+        "menuName":  "시정 조치 결과 등록",
+        "parentMenuId":  "QMS_SPM",
+        "displaySequence":  6,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_SPM_ADMIN_ACTION_RESULT_REGIST"
+    },
+    {
+        "menuId":  "QMS_SPM_EVL_RESULT_COMPARISON",
+        "menuName":  "협력사별 평가 결과 비교 조회",
+        "parentMenuId":  "QMS_SPM",
+        "displaySequence":  7,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_SPM_EVL_RESULT_COMPARISON"
+    },
+    {
+        "menuId":  "QMS_SPM_EVL_REPORT",
+        "menuName":  "협력사 평가 현황",
+        "parentMenuId":  "QMS_SPM",
+        "displaySequence":  8,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_SPM_EVL_REPORT"
+    },
+    {
+        "menuId":  "QMS_STD_INSP_ITEM",
+        "menuName":  "검사항목 관리",
+        "parentMenuId":  "QMS_STD",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_STD_INSP_ITEM"
+    },
+    {
+        "menuId":  "QMS_STD_INSP_DEF",
+        "menuName":  "검사 관리",
+        "parentMenuId":  "QMS_STD",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_STD_INSP_DEF"
+    },
+    {
+        "menuId":  "QMS_STD_INSP_SPEC",
+        "menuName":  "검사 SPEC 관리",
+        "parentMenuId":  "QMS_STD",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_STD_INSP_SPEC"
+    },
+    {
+        "menuId":  "QMS_STD_INSP_INCOMING_METHOD",
+        "menuName":  "수입검사 방법 설정",
+        "parentMenuId":  "QMS_STD",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "QMS_STD_INSP_INCOMING_METHOD"
+    },
+    {
+        "menuId":  "RMS_APPROVAL_FORMAT",
+        "menuName":  "레시피 결재 양식 관리",
+        "parentMenuId":  "RMS_APPROVAL",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_RMS_APPROVAL_FORMAT"
+    },
+    {
+        "menuId":  "RMS_APPROVAL_LIST",
+        "menuName":  "레시피 결재 목록",
+        "parentMenuId":  "RMS_APPROVAL",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_RMS_RECIPE_APPROVAL_LIST"
+    },
+    {
+        "menuId":  "RMS_HISTORY_VIEW_RECIPE_DOWNLOAD",
+        "menuName":  "레시피 다운로드 이력",
+        "parentMenuId":  "RMS_HISTORY",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_RMS_RECIPE_DOWNLOAD_HISTORY"
+    },
+    {
+        "menuId":  "EES_RMS_RECIPE_VALIDATION_HISTORY",
+        "menuName":  "레시피 검증 이력",
+        "parentMenuId":  "RMS_HISTORY",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_RMS_RECIPE_VALIDATION_HISTORY"
+    },
+    {
+        "menuId":  "EES_RMS_EES_RECIPE_CHANGE_HISTORY",
+        "menuName":  "EES 레시피 변경 이력",
+        "parentMenuId":  "RMS_HISTORY",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_RMS_EES_RECIPE_CHANGE_HISTORY"
+    },
+    {
+        "menuId":  "EES_RMS_RECIPE_CHANGE_HISTORY",
+        "menuName":  "설비 레시피 변경 이력",
+        "parentMenuId":  "RMS_HISTORY",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_RMS_RECIPE_CHANGE_HISTORY"
+    },
+    {
+        "menuId":  "RMS_RECIPE_PROCESS_RECIPE",
+        "menuName":  "프로세스 레시피 관리",
+        "parentMenuId":  "RMS_RECIPE",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_RMS_PROCESS_RECIPE"
+    },
+    {
+        "menuId":  "RMS_RECIPE_SEQUENCE_RECIPE",
+        "menuName":  "시퀀스 레시피 관리",
+        "parentMenuId":  "RMS_RECIPE",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_RMS_SEQUENCE_RECIPE"
+    },
+    {
+        "menuId":  "EES_RMS_RECIPE_MAPPING",
+        "menuName":  "레시피 매핑 관리",
+        "parentMenuId":  "RMS_RECIPE",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_RMS_RECIPE_MAPPING"
+    },
+    {
+        "menuId":  "EES_RMS_EQUIPMENT_RECIPE_VIEW",
+        "menuName":  "설비 레시피 관리",
+        "parentMenuId":  "RMS_RECIPE",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_RMS_EQUIPMENT_RECIPE_VIEW"
+    },
+    {
+        "menuId":  "EES_RMS_RECIPE_COMPARE",
+        "menuName":  "설비/버전별 레시피 비교",
+        "parentMenuId":  "RMS_RECIPE",
+        "displaySequence":  5,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_RMS_RECIPE_COMPARE"
+    },
+    {
+        "menuId":  "RMS_STD_EQUIPMENT_RMS_PROPERTY",
+        "menuName":  "설비별 RMS 속성 관리",
+        "parentMenuId":  "RMS_STD",
+        "displaySequence":  1,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_RMS_EQUIPMENT_RMS_PROPERTY"
+    },
+    {
+        "menuId":  "RMS_STD_RECIPE_PARAMERTER",
+        "menuName":  "레시피 파라미터 관리",
+        "parentMenuId":  "RMS_STD",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "EES_RMS_RECIPE_PARAMETER"
+    },
+    {
+        "menuId":  "SYSTEM_2_AUTH_MANAGEMENT_NEW",
+        "menuName":  "권한 그룹 관리",
+        "parentMenuId":  "SYSTEM2_AUTH",
+        "displaySequence":  2,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_AUTHORITY_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_RULE_MANAGEMENT",
+        "menuName":  "Rule 관리",
+        "parentMenuId":  "SYSTEM2_AUTH",
+        "displaySequence":  3,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_RULE_AUTH_MANAGEMENT"
+    },
+    {
+        "menuId":  "SYSTEM_2_MENU_AUTH_MANAGEMENT",
+        "menuName":  "메뉴별 권한 관리",
+        "parentMenuId":  "SYSTEM2_AUTH",
+        "displaySequence":  4,
+        "menuType":  "SCREEN",
+        "uiId":  "SUX",
+        "programId":  "SYSTEM_2_MENU_AUTHORITY_MANAGEMENT"
+    }
+]
