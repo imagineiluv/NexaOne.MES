@@ -455,8 +455,50 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
                  "VALUES (@id,@name,@desc,@type,@unit,'Valid','SYSTEM',@at,'SYSTEM',@at)",
             ("@id", pr.Item1), ("@name", pr.Item2), ("@desc", pr.Item3), ("@type", pr.Item4), ("@unit", pr.Item5), ("@at", now));
 
+    // 설비(점등된 설비 관리 화면용). CREATED_BY/UPDATED_BY는 NOT NULL이며 기본값이 없어 명시 필수.
+    foreach (var e in new[] {
+        ("EQ01", "가공기 1호", "PLANT01", "AREA01", "CNC", "EQC_GENERAL"),
+        ("EQ02", "검사기 1호", "PLANT01", "AREA02", "INSPECTION", "EQC_GENERAL"),
+        ("EQ03", "조립기 1호", "PLANT02", "AREA03", "ASSEMBLY", "EQC_GENERAL") })
+        Exec(tx, "INSERT INTO MDM_EQUIPMENT (EQUIPMENT_ID,EQUIPMENT_NAME,PLANT_ID,AREA_ID,EQUIPMENT_TYPE,EQUIPMENT_CLASS_ID,VALID_STATE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@name,@plant,@area,@type,@cls,'Active','SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", e.Item1), ("@name", e.Item2), ("@plant", e.Item3), ("@area", e.Item4), ("@type", e.Item5), ("@cls", e.Item6), ("@at", now));
+
+    // 코드 클래스 → 코드(사유 코드 그룹/사유 코드 화면용). 코드는 FK(CODE_CLASS_ID)로 클래스 선삽입 필요.
+    foreach (var c in new[] {
+        ("CC_DEFECT", "결함 사유", "결함 발생 사유 코드"),
+        ("CC_DOWNTIME", "비가동 사유", "설비 비가동 사유 코드") })
+        Exec(tx, "INSERT INTO MDM_CODE_CLASS (CODE_CLASS_ID,CODE_CLASS_NAME,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@name,@desc,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@desc", c.Item3), ("@at", now));
+
+    foreach (var c in new[] {
+        ("RC_SCRATCH", "CC_DEFECT", "흠집", 1),
+        ("RC_CRACK", "CC_DEFECT", "균열", 2),
+        ("RC_PLAN", "CC_DOWNTIME", "계획 정지", 1),
+        ("RC_FAULT", "CC_DOWNTIME", "고장 정지", 2) })
+        Exec(tx, "INSERT INTO MDM_CODE (CODE_ID,CODE_CLASS_ID,CODE_NAME,SORT_ORDER,VALID_STATE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@cls,@name,@sort,'Valid','SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@cls", c.Item2), ("@name", c.Item3), ("@sort", c.Item4), ("@at", now));
+
+    // QMS 검사 규격(검사 SPEC 관리 화면용). NOMINAL/TOLERANCE는 nullable(계량형만 값).
+    const string specSql = "INSERT INTO QMS_INSPECTION_SPEC (SPEC_ID,SPEC_NAME,PROCESS_ID,ITEM_NAME,MEASURE_TYPE,NOMINAL_VALUE,TOLERANCE_PLUS,TOLERANCE_MINUS,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                           "VALUES (@id,@name,@proc,@item,@mt,@nom,@tp,@tm,1,'SYSTEM',@at,'SYSTEM',@at)";
+    Exec(tx, specSql, ("@id", "SPEC01"), ("@name", "외관 검사"), ("@proc", "PROC_ASSY"), ("@item", "완제품 A"), ("@mt", "Attribute"),
+        ("@nom", DBNull.Value), ("@tp", DBNull.Value), ("@tm", DBNull.Value), ("@at", now));
+    Exec(tx, specSql, ("@id", "SPEC02"), ("@name", "치수 검사"), ("@proc", "PROC_MACH"), ("@item", "반제품 B"), ("@mt", "Variable"),
+        ("@nom", 10.0), ("@tp", 0.5), ("@tm", 0.5), ("@at", now));
+
+    // QMS SPC 파라미터(SPC 관리도 화면용). EQUIPMENT_ID는 위에서 시드한 설비 참조. USL/LSL은 nullable.
+    const string spcSql = "INSERT INTO QMS_SPC_PARAM (PARAM_ID,PARAM_NAME,EQUIPMENT_ID,PROCESS_ID,MEAN,UCL,LCL,USL,LSL,SAMPLE_SIZE,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                          "VALUES (@id,@name,@eq,@proc,@mean,@ucl,@lcl,@usl,@lsl,@n,1,'SYSTEM',@at,'SYSTEM',@at)";
+    Exec(tx, spcSql, ("@id", "SP01"), ("@name", "치수 X"), ("@eq", "EQ01"), ("@proc", "PROC_MACH"),
+        ("@mean", 10.0), ("@ucl", 11.0), ("@lcl", 9.0), ("@usl", 11.5), ("@lsl", 8.5), ("@n", 5), ("@at", now));
+    Exec(tx, spcSql, ("@id", "SP02"), ("@name", "가동 온도"), ("@eq", "EQ03"), ("@proc", "PROC_ASSY"),
+        ("@mean", 200.0), ("@ucl", 210.0), ("@lcl", 190.0), ("@usl", DBNull.Value), ("@lsl", DBNull.Value), ("@n", 5), ("@at", now));
+
     tx.Commit();
-    Console.WriteLine("[NexaOne.Server] MDM master data seeded (2 plants, 3 areas, 3 products).");
+    Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (plants/areas/products/equipment/codes + QMS specs/SPC).");
 }
 
 // 임베드된 smartux-menu.json(SUX 데스크톱 트리)를 로드하고, 실제 동작하는 데모/관리 화면을 별도 폴더로 덧붙여 반환한다.

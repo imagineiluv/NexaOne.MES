@@ -106,4 +106,24 @@
             ORDER BY EQUIPMENT_NAME
         ]]></statement>
     </query>
+    <!-- 설비 마스터 전체조회(설비 관리 화면) — 기존 EquipmentByPlant는 @plantId 필수라 파라미터없는 그리드에서 0행이 되므로
+         PlantList식 NULL-guard 선택필터로 전체조회 가능한 별도 read 쿼리를 둔다(read=인증만, 형제 리스트 쿼리와 동일 정책). -->
+    <query id="MDM.EquipmentList">
+        <statement><![CDATA[
+            SELECT EQUIPMENT_ID, EQUIPMENT_NAME, PLANT_ID, AREA_ID, EQUIPMENT_TYPE, EQUIPMENT_CLASS_ID, VALID_STATE
+            FROM MDM_EQUIPMENT
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@validState IS NULL OR VALID_STATE = @validState)
+            ORDER BY EQUIPMENT_NAME
+        ]]></statement>
+    </query>
+    <!-- 코드 마스터 전체조회(사유 코드 관리 화면) — CodeCombo는 @codeClassId 필수라, 그룹 선택 없이 전체 코드를 보는 그리드용 별도 쿼리. -->
+    <query id="MDM.CodeList">
+        <statement><![CDATA[
+            SELECT CODE_ID, CODE_NAME, CODE_CLASS_ID, SORT_ORDER, VALID_STATE
+            FROM MDM_CODE
+            WHERE (@codeClassId IS NULL OR CODE_CLASS_ID = @codeClassId)
+            ORDER BY CODE_CLASS_ID, SORT_ORDER, CODE_NAME
+        ]]></statement>
+    </query>
 </queries>

@@ -188,6 +188,62 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("DESCRIPTION", "설명"), new("PLANT_ID", "공장 ID"),
             },
             QueryId: "MDM.AreaList"));
+
+        // 설비 관리(FACTORY_MDM_EQUIPMENT_DEF) — 설비 마스터 조회 그리드(MDM.EquipmentList, 전체조회 NULL-guard 쿼리).
+        Register(new ScreenDefinition("FACTORY_MDM_EQUIPMENT_DEF", "설비 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("EQUIPMENT_NAME", "설비명"),
+                new("PLANT_ID", "공장 ID"), new("AREA_ID", "구역 ID"),
+                new("EQUIPMENT_TYPE", "설비유형"), new("EQUIPMENT_CLASS_ID", "설비 그룹"), new("VALID_STATE", "상태"),
+            },
+            QueryId: "MDM.EquipmentList"));
+
+        // 사유 코드 그룹 관리(FACTORY_MDM_REASON_CODE_CLASS) — 코드 클래스 조회 그리드(기존 MDM.CodeClassList).
+        Register(new ScreenDefinition("FACTORY_MDM_REASON_CODE_CLASS", "사유 코드 그룹 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("CODE_CLASS_ID", "코드 그룹 ID"), new("CODE_CLASS_NAME", "코드 그룹명"), new("DESCRIPTION", "설명"),
+            },
+            QueryId: "MDM.CodeClassList"));
+
+        // 사유 코드 관리(FACTORY_MDM_REASON_CODE) — 코드 마스터 조회 그리드(MDM.CodeList, 전체조회 NULL-guard 쿼리).
+        Register(new ScreenDefinition("FACTORY_MDM_REASON_CODE", "사유 코드 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("CODE_ID", "코드 ID"), new("CODE_NAME", "코드명"),
+                new("CODE_CLASS_ID", "코드 그룹"), new("SORT_ORDER", "정렬"), new("VALID_STATE", "상태"),
+            },
+            QueryId: "MDM.CodeList"));
+
+        // ===== SmartUX QMS 업무화면 점등(Phase 2) — 실존 QMS 명명쿼리·테이블이 있는 마스터 화면만 점등. =====
+
+        // 검사 SPEC 관리(QMS_STD_INSP_SPEC) — 검사 규격 마스터 조회 그리드(QMS.InspectionSpecList).
+        Register(new ScreenDefinition("QMS_STD_INSP_SPEC", "검사 SPEC 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("SPEC_ID", "규격 ID"), new("SPEC_NAME", "규격명"), new("PROCESS_ID", "공정 ID"),
+                new("ITEM_NAME", "품목명"), new("MEASURE_TYPE", "측정유형"),
+                new("NOMINAL_VALUE", "공칭값"), new("TOLERANCE_PLUS", "상한공차"), new("TOLERANCE_MINUS", "하한공차"),
+                new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "QMS.InspectionSpecList"));
+
+        // SPC 관리도(QMS_SPC_CONTROL_CHART) — SPC 파라미터(관리한계) 조회 그리드(QMS.SpcParamList).
+        Register(new ScreenDefinition("QMS_SPC_CONTROL_CHART", "SPC 관리도",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PARAM_ID", "파라미터 ID"), new("PARAM_NAME", "파라미터명"),
+                new("EQUIPMENT_ID", "설비 ID"), new("PROCESS_ID", "공정 ID"),
+                new("MEAN", "평균"), new("UCL", "관리상한"), new("LCL", "관리하한"),
+                new("SAMPLE_SIZE", "표본수"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "QMS.SpcParamList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
