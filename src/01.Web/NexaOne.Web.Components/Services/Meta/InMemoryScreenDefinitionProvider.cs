@@ -465,6 +465,48 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("SHIPPED_QTY", "출하수량"), new("SHIPPED_BY", "출하자"), new("CARRIER", "운송사"), new("TRACKING_NO", "송장번호"),
             },
             QueryId: "SHP.ShipmentHistoryList"));
+
+        // ===== SmartUX 추가 점등: QMS 부적합 현황(기존 백엔드) + CMMS 점검항목 마스터(V036 신설). =====
+
+        // 부적합 발생 현황(QMS_REP_NCR_STATUS) — 부적합/결함 발생 조회(기존 QMS.DefectList, NULL-guard 전체조회).
+        Register(new ScreenDefinition("QMS_REP_NCR_STATUS", "부적합 발생 현황",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("DEFECT_ID", "부적합 ID"), new("LOT_ID", "LOT ID"), new("EQUIPMENT_ID", "설비 ID"),
+                new("DEFECT_CLASS_ID", "결함분류"), new("DEFECT_COUNT", "결함수"), new("DEFECT_RATE", "결함률"),
+                new("INSPECTED_AT", "검사시각"), new("INSPECTOR_ID", "검사자"), new("IS_CONFIRMED", "확정"),
+            },
+            QueryId: "QMS.DefectList"));
+
+        // 설비 점검 항목 그룹 관리(FACTORY_EMS_STD_MAINT_ITEM_CLASS) — V036 신설 마스터(CMMS.MaintItemClassList).
+        Register(new ScreenDefinition("FACTORY_EMS_STD_MAINT_ITEM_CLASS", "설비 점검 항목 그룹 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("ITEM_CLASS_ID", "항목 그룹 ID"), new("ITEM_CLASS_NAME", "항목 그룹명"), new("DESCRIPTION", "설명"),
+            },
+            QueryId: "CMMS.MaintItemClassList"));
+
+        // 설비 점검 항목 관리(FACTORY_EMS_STD_MAINT_ITEM) — V036 신설 마스터(CMMS.MaintItemList).
+        Register(new ScreenDefinition("FACTORY_EMS_STD_MAINT_ITEM", "설비 점검 항목 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("ITEM_ID", "항목 ID"), new("ITEM_NAME", "항목명"), new("ITEM_CLASS_ID", "항목 그룹"),
+                new("INSPECTION_METHOD", "점검방법"), new("UNIT", "단위"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "CMMS.MaintItemList"));
+
+        // 설비별 점검 항목 관리(FACTORY_EMS_STD_EQP_MAINT_ITEM) — V036 신설 매핑(CMMS.EqpMaintItemList).
+        Register(new ScreenDefinition("FACTORY_EMS_STD_EQP_MAINT_ITEM", "설비별 점검 항목 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQP_ITEM_ID", "매핑 ID"), new("EQUIPMENT_ID", "설비 ID"), new("ITEM_ID", "점검 항목 ID"),
+                new("CYCLE_TYPE", "주기유형"), new("CYCLE_VALUE", "주기값"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "CMMS.EqpMaintItemList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;

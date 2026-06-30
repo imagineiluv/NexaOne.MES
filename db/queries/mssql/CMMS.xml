@@ -83,4 +83,29 @@
             ORDER BY PART_NAME
         ]]></statement>
     </query>
+    <!-- SmartUX 점검항목 화면 점등용 전체조회(NULL-guard) — V036 신설 마스터(점검항목 그룹/항목/설비별 항목). -->
+    <query id="CMMS.MaintItemClassList">
+        <statement><![CDATA[
+            SELECT ITEM_CLASS_ID, ITEM_CLASS_NAME, DESCRIPTION
+            FROM CMMS_MAINT_ITEM_CLASS WITH (NOLOCK)
+            WHERE (@itemClassId IS NULL OR ITEM_CLASS_ID = @itemClassId)
+            ORDER BY ITEM_CLASS_NAME
+        ]]></statement>
+    </query>
+    <query id="CMMS.MaintItemList">
+        <statement><![CDATA[
+            SELECT ITEM_ID, ITEM_NAME, ITEM_CLASS_ID, INSPECTION_METHOD, UNIT, DESCRIPTION, IS_ACTIVE
+            FROM CMMS_MAINT_ITEM WITH (NOLOCK)
+            WHERE (@itemClassId IS NULL OR ITEM_CLASS_ID = @itemClassId)
+            ORDER BY ITEM_NAME
+        ]]></statement>
+    </query>
+    <query id="CMMS.EqpMaintItemList">
+        <statement><![CDATA[
+            SELECT EQP_ITEM_ID, EQUIPMENT_ID, ITEM_ID, CYCLE_TYPE, CYCLE_VALUE, IS_ACTIVE
+            FROM CMMS_EQP_MAINT_ITEM WITH (NOLOCK)
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+            ORDER BY EQUIPMENT_ID, ITEM_ID
+        ]]></statement>
+    </query>
 </queries>

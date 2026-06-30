@@ -246,6 +246,67 @@ public sealed class GatewayCmmsQueryTests : IClassFixture<GatewayCmmsQueryTests.
         ids.Should().Contain(new[] { idA, idB }, "설비 필터 없이 전체 보전계획이 조회돼야 한다(점등용 전체조회)");
     }
 
+    // V036 점검항목 마스터 시드(FK는 Foreign Keys=False라 무시; NOT NULL: 이름/감사).
+    private void Exec(string sql, Action<Microsoft.Data.Sqlite.SqliteCommand> bind)
+    {
+        using var conn = new SqliteConnection(_factory.ConnString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        bind(cmd);
+        cmd.ExecuteNonQuery();
+    }
+
+    [Fact]
+    public async Task MaintItemClassList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"MIC_{Suffix()}";
+        Exec(@"INSERT INTO CMMS_MAINT_ITEM_CLASS (ITEM_CLASS_ID, ITEM_CLASS_NAME, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, '점검그룹', 'TEST', @now, 'TEST', @now)", cmd =>
+        {
+            cmd.Parameters.AddWithValue("@id", id);
+            cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
+        });
+
+        var rows = await Query("CMMS.MaintItemClassList", new());
+        rows.Select(r => r["ITEM_CLASS_ID"].ToString()).Should().Contain(id, "V036 점검항목 그룹이 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task MaintItemList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"MI_{Suffix()}";
+        Exec(@"INSERT INTO CMMS_MAINT_ITEM (ITEM_ID, ITEM_NAME, IS_ACTIVE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, '점검항목', 1, 'TEST', @now, 'TEST', @now)", cmd =>
+        {
+            cmd.Parameters.AddWithValue("@id", id);
+            cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
+        });
+
+        var rows = await Query("CMMS.MaintItemList", new());
+        rows.Select(r => r["ITEM_ID"].ToString()).Should().Contain(id, "V036 점검항목이 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task EqpMaintItemList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"EMI_{Suffix()}";
+        Exec(@"INSERT INTO CMMS_EQP_MAINT_ITEM (EQP_ITEM_ID, EQUIPMENT_ID, ITEM_ID, IS_ACTIVE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, @eq, @item, 1, 'TEST', @now, 'TEST', @now)", cmd =>
+        {
+            cmd.Parameters.AddWithValue("@id", id);
+            cmd.Parameters.AddWithValue("@eq", "EQ_" + Suffix());
+            cmd.Parameters.AddWithValue("@item", "MI_" + Suffix());
+            cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
+        });
+
+        var rows = await Query("CMMS.EqpMaintItemList", new());
+        rows.Select(r => r["EQP_ITEM_ID"].ToString()).Should().Contain(id, "V036 설비별 점검항목이 전체조회돼야 한다");
+    }
+
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)
     {
         var res = await AuthedClient().PostAsJsonAsync($"/api/v1/query/{queryId}", p);
