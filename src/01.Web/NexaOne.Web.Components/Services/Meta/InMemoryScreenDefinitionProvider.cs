@@ -539,6 +539,70 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("SAMPLING_TYPE", "샘플링"), new("AQL_LEVEL", "AQL 수준"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "QMS.IncomingInspMethodList"));
+
+        // ===== SmartUX QMS 계측기(Gauge) 관리 점등(V038 신설) — 계측기/검교정/RNR/수리. 그리드 read는 인증만. =====
+
+        // 계측기 관리(QMS_GAUGE_MEASURE_EQUIPMENT_MGNT) — 계측기 마스터(QMS.GaugeList).
+        Register(new ScreenDefinition("QMS_GAUGE_MEASURE_EQUIPMENT_MGNT", "계측기 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("GAUGE_ID", "계측기 ID"), new("GAUGE_NAME", "계측기명"), new("GAUGE_TYPE", "유형"),
+                new("MODEL", "모델"), new("SERIAL_NO", "시리얼"), new("LOCATION", "위치"),
+                new("NEXT_CALIBRATION_AT", "차기검교정"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "QMS.GaugeList"));
+
+        // 검교정 계획 관리(QMS_GAUGE_CALIBRATION_PLAN) — 검교정 계획(QMS.GaugeCalibrationPlanList).
+        Register(new ScreenDefinition("QMS_GAUGE_CALIBRATION_PLAN", "검교정 계획 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PLAN_ID", "계획 ID"), new("GAUGE_ID", "계측기 ID"), new("PLAN_NAME", "계획명"),
+                new("SCHEDULED_DATE", "예정일"), new("CYCLE_TYPE", "주기"), new("ASSIGNEE_ID", "담당자"), new("STATUS", "상태"),
+            },
+            QueryId: "QMS.GaugeCalibrationPlanList"));
+
+        // 검교정 내역 등록(QMS_GAUGE_CALIBRATION_RESULT) — 검교정 결과 이력(QMS.GaugeCalibrationResultList).
+        Register(new ScreenDefinition("QMS_GAUGE_CALIBRATION_RESULT", "검교정 내역 등록",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("RESULT_ID", "내역 ID"), new("GAUGE_ID", "계측기 ID"), new("CALIBRATED_AT", "검교정일시"),
+                new("CALIBRATED_BY", "수행자"), new("RESULT", "결과"), new("CERTIFICATE_NO", "성적서번호"), new("NEXT_DUE_AT", "차기예정"),
+            },
+            QueryId: "QMS.GaugeCalibrationResultList"));
+
+        // RNR 계획 관리(QMS_GAUGE_RNR_PLAN) — Gage R&R 계획(QMS.GaugeRnrPlanList).
+        Register(new ScreenDefinition("QMS_GAUGE_RNR_PLAN", "RNR 계획 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("RNR_PLAN_ID", "RNR 계획 ID"), new("GAUGE_ID", "계측기 ID"), new("PLAN_NAME", "계획명"),
+                new("SCHEDULED_DATE", "예정일"), new("OPERATOR_COUNT", "측정자수"), new("TRIAL_COUNT", "반복수"),
+                new("PART_COUNT", "시료수"), new("STATUS", "상태"),
+            },
+            QueryId: "QMS.GaugeRnrPlanList"));
+
+        // RNR 평가 등록(QMS_GAUGE_RNR_RESULT) — Gage R&R 평가 결과(QMS.GaugeRnrResultList).
+        Register(new ScreenDefinition("QMS_GAUGE_RNR_RESULT", "RNR 평가 등록",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("RNR_RESULT_ID", "평가 ID"), new("GAUGE_ID", "계측기 ID"), new("EVALUATED_AT", "평가일시"),
+                new("EVALUATED_BY", "평가자"), new("GAGE_RR_PERCENT", "%GR&R"), new("NDC", "NDC"), new("JUDGEMENT", "판정"),
+            },
+            QueryId: "QMS.GaugeRnrResultList"));
+
+        // 수리 내역 등록(QMS_GAUGE_REPAIR_RESULT) — 계측기 수리 이력(QMS.GaugeRepairResultList).
+        Register(new ScreenDefinition("QMS_GAUGE_REPAIR_RESULT", "수리 내역 등록",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("REPAIR_ID", "수리 ID"), new("GAUGE_ID", "계측기 ID"), new("REPAIRED_AT", "수리일시"),
+                new("REPAIRED_BY", "수리자"), new("FAILURE_DESC", "고장내용"), new("REPAIR_DESC", "수리내용"), new("COST", "비용"),
+            },
+            QueryId: "QMS.GaugeRepairResultList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;

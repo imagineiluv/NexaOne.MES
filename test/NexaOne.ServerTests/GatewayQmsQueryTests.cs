@@ -127,6 +127,78 @@ public sealed class GatewayQmsQueryTests : IClassFixture<GatewayQmsQueryTests.Qm
         rows.Select(r => r["METHOD_ID"].ToString()).Should().Contain(id, "V037 수입검사 방법이 전체조회돼야 한다");
     }
 
+    [Fact]
+    public async Task GaugeList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"G_{Suffix()}";
+        Exec(@"INSERT INTO QMS_GAUGE (GAUGE_ID, GAUGE_NAME, IS_ACTIVE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, '버니어캘리퍼스', 1, 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.GaugeList");
+        rows.Select(r => r["GAUGE_ID"].ToString()).Should().Contain(id, "V038 계측기가 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task GaugeCalibrationPlanList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"CP_{Suffix()}";
+        Exec(@"INSERT INTO QMS_GAUGE_CALIBRATION_PLAN (PLAN_ID, GAUGE_ID, STATUS, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, @g, 'Planned', 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@g", "G_" + Suffix()); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.GaugeCalibrationPlanList");
+        rows.Select(r => r["PLAN_ID"].ToString()).Should().Contain(id, "V038 검교정 계획이 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task GaugeCalibrationResultList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"CR_{Suffix()}";
+        Exec(@"INSERT INTO QMS_GAUGE_CALIBRATION_RESULT (RESULT_ID, GAUGE_ID, CALIBRATED_AT, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, @g, @now, 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@g", "G_" + Suffix()); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.GaugeCalibrationResultList");
+        rows.Select(r => r["RESULT_ID"].ToString()).Should().Contain(id, "V038 검교정 내역이 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task GaugeRnrPlanList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"RP_{Suffix()}";
+        Exec(@"INSERT INTO QMS_GAUGE_RNR_PLAN (RNR_PLAN_ID, GAUGE_ID, STATUS, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, @g, 'Planned', 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@g", "G_" + Suffix()); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.GaugeRnrPlanList");
+        rows.Select(r => r["RNR_PLAN_ID"].ToString()).Should().Contain(id, "V038 RNR 계획이 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task GaugeRnrResultList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"RR_{Suffix()}";
+        Exec(@"INSERT INTO QMS_GAUGE_RNR_RESULT (RNR_RESULT_ID, GAUGE_ID, EVALUATED_AT, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, @g, @now, 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@g", "G_" + Suffix()); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.GaugeRnrResultList");
+        rows.Select(r => r["RNR_RESULT_ID"].ToString()).Should().Contain(id, "V038 RNR 평가가 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task GaugeRepairResultList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"RE_{Suffix()}";
+        Exec(@"INSERT INTO QMS_GAUGE_REPAIR_RESULT (REPAIR_ID, GAUGE_ID, REPAIRED_AT, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, @g, @now, 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@g", "G_" + Suffix()); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.GaugeRepairResultList");
+        rows.Select(r => r["REPAIR_ID"].ToString()).Should().Contain(id, "V038 수리 내역이 전체조회돼야 한다");
+    }
+
     private async Task<List<Dictionary<string, object>>> Query(string queryId)
     {
         var res = await AuthedClient().PostAsJsonAsync($"/api/v1/query/{queryId}", new Dictionary<string, object>());

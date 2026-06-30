@@ -84,6 +84,58 @@
             ORDER BY METHOD_NAME
         ]]></statement>
     </query>
+    <!-- SmartUX 계측기(Gauge) 화면 점등용 전체조회(NULL-guard) — V038 신설(계측기/검교정/RNR/수리). -->
+    <query id="QMS.GaugeList">
+        <statement><![CDATA[
+            SELECT GAUGE_ID, GAUGE_NAME, GAUGE_TYPE, MODEL, SERIAL_NO, LOCATION, EQUIPMENT_ID,
+                   CALIBRATION_CYCLE_DAYS, LAST_CALIBRATED_AT, NEXT_CALIBRATION_AT, IS_ACTIVE
+            FROM QMS_GAUGE
+            WHERE (@gaugeType IS NULL OR GAUGE_TYPE = @gaugeType)
+            ORDER BY GAUGE_NAME
+        ]]></statement>
+    </query>
+    <query id="QMS.GaugeCalibrationPlanList">
+        <statement><![CDATA[
+            SELECT PLAN_ID, GAUGE_ID, PLAN_NAME, SCHEDULED_DATE, CYCLE_TYPE, ASSIGNEE_ID, STATUS
+            FROM QMS_GAUGE_CALIBRATION_PLAN
+            WHERE (@gaugeId IS NULL OR GAUGE_ID = @gaugeId)
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY SCHEDULED_DATE
+        ]]></statement>
+    </query>
+    <query id="QMS.GaugeCalibrationResultList">
+        <statement><![CDATA[
+            SELECT RESULT_ID, GAUGE_ID, PLAN_ID, CALIBRATED_AT, CALIBRATED_BY, RESULT, CERTIFICATE_NO, NEXT_DUE_AT, REMARK
+            FROM QMS_GAUGE_CALIBRATION_RESULT
+            WHERE (@gaugeId IS NULL OR GAUGE_ID = @gaugeId)
+            ORDER BY CALIBRATED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="QMS.GaugeRnrPlanList">
+        <statement><![CDATA[
+            SELECT RNR_PLAN_ID, GAUGE_ID, PLAN_NAME, SCHEDULED_DATE, OPERATOR_COUNT, TRIAL_COUNT, PART_COUNT, STATUS
+            FROM QMS_GAUGE_RNR_PLAN
+            WHERE (@gaugeId IS NULL OR GAUGE_ID = @gaugeId)
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY SCHEDULED_DATE
+        ]]></statement>
+    </query>
+    <query id="QMS.GaugeRnrResultList">
+        <statement><![CDATA[
+            SELECT RNR_RESULT_ID, RNR_PLAN_ID, GAUGE_ID, EVALUATED_AT, EVALUATED_BY, GAGE_RR_PERCENT, NDC, JUDGEMENT, REMARK
+            FROM QMS_GAUGE_RNR_RESULT
+            WHERE (@gaugeId IS NULL OR GAUGE_ID = @gaugeId)
+            ORDER BY EVALUATED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="QMS.GaugeRepairResultList">
+        <statement><![CDATA[
+            SELECT REPAIR_ID, GAUGE_ID, REPAIRED_AT, REPAIRED_BY, FAILURE_DESC, REPAIR_DESC, COST
+            FROM QMS_GAUGE_REPAIR_RESULT
+            WHERE (@gaugeId IS NULL OR GAUGE_ID = @gaugeId)
+            ORDER BY REPAIRED_AT DESC
+        ]]></statement>
+    </query>
     <query id="QMS.CreateDefectClass" kind="write" requiredPermission="qms:manage">
         <statement><![CDATA[
             INSERT INTO QMS_DEFECT_CLASS (DEFECT_CLASS_ID, DEFECT_CLASS_NAME, DESCRIPTION, SEVERITY,
