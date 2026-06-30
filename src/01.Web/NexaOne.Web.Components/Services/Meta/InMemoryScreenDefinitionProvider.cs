@@ -877,6 +877,20 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         Register(new ScreenDefinition("FACTORY_STD_SINGLE_DELIVERY", "납품처 관리", Array.Empty<FieldDefinition>(), customerCols, QueryId: "MDM.CustomerList"));
         Register(new ScreenDefinition("FACTORY_STD_SINGLE_DELIVERY_ITEM", "납품처 품목 관리", Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[] { new("DELIVERY_ITEM_ID", "납품품목 ID"), new("CUSTOMER_ID", "거래처 ID"), new("PRODUCT_ID", "품목 ID"), new("DELIVERY_CODE", "납품코드"), new("UNIT_PRICE", "단가"), new("IS_ACTIVE", "활성") }, QueryId: "MDM.DeliveryItemList"));
+
+        // ===== SmartUX 시스템관리(SYSTEM_2) 신규 마스터 점등(V047 신설) — 공지/메시지/다국어/Rule. =====
+        Register(new ScreenDefinition("SYSTEM_2_NOTICE_MANAGEMENT", "공지사항 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("NOTICE_ID", "공지 ID"), new("TITLE", "제목"), new("NOTICE_TYPE", "유형"), new("POSTED_BY", "게시자"), new("POSTED_AT", "게시일시"), new("IS_ACTIVE", "활성") }, QueryId: "SYS.NoticeList"));
+        Register(new ScreenDefinition("SYSTEM_2_MESSAGE_CLASS_MANAGEMENT", "메세지 그룹 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("MSG_CLASS_ID", "그룹 ID"), new("MSG_CLASS_NAME", "그룹명"), new("DESCRIPTION", "설명") }, QueryId: "SYS.MessageClassList"));
+        Register(new ScreenDefinition("SYSTEM_2_MESSAGE_MANAGEMENT", "메세지 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("MSG_ID", "메시지 ID"), new("MSG_CLASS_ID", "그룹"), new("MSG_CODE", "코드"), new("MSG_TEXT", "내용"), new("LANGUAGE", "언어") }, QueryId: "SYS.MessageList"));
+        Register(new ScreenDefinition("SYSTEM_2_LANGUAGE_CLASS_MANAGEMENT", "다국어 그룹 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("LANG_CLASS_ID", "그룹 ID"), new("LANG_CLASS_NAME", "그룹명"), new("DESCRIPTION", "설명") }, QueryId: "SYS.LanguageClassList"));
+        Register(new ScreenDefinition("SYSTEM_2_LANGUAGE_MANAGEMENT", "다국어 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("I18N_ID", "항목 ID"), new("LANG_CLASS_ID", "그룹"), new("MESSAGE_KEY", "키"), new("LANGUAGE", "언어"), new("TRANSLATION", "번역") }, QueryId: "SYS.I18nList"));
+        Register(new ScreenDefinition("SYSTEM_2_RULE_MANAGEMENT", "Rule 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("RULE_ID", "Rule ID"), new("RULE_NAME", "Rule명"), new("RULE_TYPE", "유형"), new("IS_ACTIVE", "활성"), new("DESCRIPTION", "설명") }, QueryId: "SYS.RuleList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;

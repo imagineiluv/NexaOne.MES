@@ -206,6 +206,20 @@ public sealed class GatewaySysQueryTests : IClassFixture<GatewaySysQueryTests.Sy
         user.Should().ContainKey("EMAIL");
     }
 
+    [Theory]
+    [InlineData("SYS.NoticeList")]
+    [InlineData("SYS.MessageClassList")]
+    [InlineData("SYS.MessageList")]
+    [InlineData("SYS.LanguageClassList")]
+    [InlineData("SYS.I18nList")]
+    [InlineData("SYS.RuleList")]
+    public async Task V047_master_queries_execute_on_sqlite(string queryId)
+    {
+        EnsureSchemaReady();
+        var rows = await Query(queryId, new());
+        rows.Should().NotBeNull("V047 신설 시스템 마스터 쿼리는 SQLite 스키마에서 유효 실행돼야 한다");
+    }
+
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)
     {
         var res = await AuthedClient().PostAsJsonAsync($"/api/v1/query/{queryId}", p);

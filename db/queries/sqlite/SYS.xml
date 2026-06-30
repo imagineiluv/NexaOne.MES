@@ -88,4 +88,38 @@ ON CONFLICT(MENU_ID) DO UPDATE SET
 UPDATE SYS_MENU SET VALID_STATE = 'Invalid' WHERE MENU_ID = @menuId
 ]]></statement>
   </query>
+
+  <!-- ===== SmartUX 시스템관리 신규 마스터(V047) 조회 — 공지/메시지/다국어/Rule. read 무해(kind 미표기). ===== -->
+  <query id="SYS.NoticeList">
+    <statement><![CDATA[
+SELECT NOTICE_ID, TITLE, NOTICE_TYPE, POSTED_BY, POSTED_AT, IS_ACTIVE FROM SYS_NOTICE ORDER BY POSTED_AT DESC
+]]></statement>
+  </query>
+  <query id="SYS.MessageClassList">
+    <statement><![CDATA[
+SELECT MSG_CLASS_ID, MSG_CLASS_NAME, DESCRIPTION FROM SYS_MESSAGE_CLASS ORDER BY MSG_CLASS_NAME
+]]></statement>
+  </query>
+  <query id="SYS.MessageList">
+    <statement><![CDATA[
+SELECT MSG_ID, MSG_CLASS_ID, MSG_CODE, MSG_TEXT, LANGUAGE FROM SYS_MESSAGE
+WHERE (@msgClassId IS NULL OR MSG_CLASS_ID = @msgClassId)
+ORDER BY MSG_CODE
+]]></statement>
+  </query>
+  <query id="SYS.LanguageClassList">
+    <statement><![CDATA[
+SELECT LANG_CLASS_ID, LANG_CLASS_NAME, DESCRIPTION FROM SYS_LANGUAGE_CLASS ORDER BY LANG_CLASS_NAME
+]]></statement>
+  </query>
+  <query id="SYS.I18nList">
+    <statement><![CDATA[
+SELECT I18N_ID, LANG_CLASS_ID, MESSAGE_KEY, LANGUAGE, TRANSLATION FROM SYS_I18N ORDER BY MESSAGE_KEY
+]]></statement>
+  </query>
+  <query id="SYS.RuleList">
+    <statement><![CDATA[
+SELECT RULE_ID, RULE_NAME, RULE_TYPE, IS_ACTIVE, DESCRIPTION FROM SYS_RULE ORDER BY RULE_NAME
+]]></statement>
+  </query>
 </queries>
