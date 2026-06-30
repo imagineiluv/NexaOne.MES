@@ -226,6 +226,20 @@ public sealed class GatewayPomQueryTests : IClassFixture<GatewayPomQueryTests.Po
         rows.Should().OnlyContain(r => r["WORK_ORDER_ID"].ToString() == wo);
     }
 
+    [Fact]
+    public async Task ProductionOrderList_returns_all_without_plan_filter()
+    {
+        EnsureSchemaReady();
+        var idA = $"WO_{Suffix()}";
+        var idB = $"WO_{Suffix()}";
+        SeedOrder(idA, $"PL_{Suffix()}", "EQ_" + Suffix(), "Issued");      // 서로 다른 계획/설비
+        SeedOrder(idB, $"PL_{Suffix()}", "EQ_" + Suffix(), "Completed");
+
+        var rows = await Query("POM.ProductionOrderList", new());  // 필터 없음 → NULL-guard 전체조회
+        var ids = rows.Select(r => r["ORDER_ID"].ToString()).ToList();
+        ids.Should().Contain(new[] { idA, idB }, "계획/설비 필터 없이 전체 생산오더가 조회돼야 한다(점등용 전체조회)");
+    }
+
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)
     {
         var res = await AuthedClient().PostAsJsonAsync($"/api/v1/query/{queryId}", p);

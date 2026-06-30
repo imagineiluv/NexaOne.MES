@@ -77,4 +77,16 @@
             ORDER BY LOT_HISTORY_ID
         ]]></statement>
     </query>
+    <!-- SmartUX 화면 점등용 전체조회(NULL-guard) — 계획/설비 필터 없이 생산오더 그리드를 채운다. -->
+    <query id="POM.ProductionOrderList">
+        <statement><![CDATA[
+            SELECT ORDER_ID, PLAN_ID, EQUIPMENT_ID, PRODUCT_ID, ORDER_QTY, ACTUAL_QTY,
+                   SCHEDULED_START, SCHEDULED_END, ACTUAL_START, ACTUAL_END, STATUS
+            FROM POM_PRODUCTION_ORDER WITH (NOLOCK)
+            WHERE (@planId IS NULL OR PLAN_ID = @planId)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY SCHEDULED_START DESC
+        ]]></statement>
+    </query>
 </queries>

@@ -31,4 +31,22 @@
             ORDER BY STATUS
         ]]></statement>
     </query>
+    <!-- SmartUX 화면 점등용 전체조회(NULL-guard) — 공장/주문 필터 없이 출하지시·출하이력 그리드를 채운다. -->
+    <query id="SHP.DeliveryOrderList">
+        <statement><![CDATA[
+            SELECT ORDER_ID, CUSTOMER_NAME, PLANT_ID, REQUESTED_DATE, SHIPPED_DATE, STATUS, REMARK
+            FROM SHP_DELIVERY_ORDER WITH (NOLOCK)
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY REQUESTED_DATE DESC
+        ]]></statement>
+    </query>
+    <query id="SHP.ShipmentHistoryList">
+        <statement><![CDATA[
+            SELECT HISTORY_ID, DELIVERY_ORDER_ID, SHIPPED_AT, SHIPPED_QTY, SHIPPED_BY, CARRIER, TRACKING_NO
+            FROM SHP_SHIPMENT_HISTORY WITH (NOLOCK)
+            WHERE (@orderId IS NULL OR DELIVERY_ORDER_ID = @orderId)
+            ORDER BY SHIPPED_AT DESC
+        ]]></statement>
+    </query>
 </queries>

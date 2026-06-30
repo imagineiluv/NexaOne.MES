@@ -178,4 +178,36 @@ public sealed class GatewayShpQueryTests : IClassFixture<GatewayShpQueryTests.Sh
         // 값은 Dictionary<string,object> 역직렬화로 JsonElement가 된다 — 다른 키 단언처럼 문자열 경유로 파싱한다.
         int.Parse(confirmed!["CNT"].ToString()!).Should().BeGreaterThanOrEqualTo(1, "시드한 Confirmed 주문이 카운트에 포함돼야 한다");
     }
+
+    [Fact]
+    public async Task DeliveryOrderList_returns_all_without_plant_filter()
+    {
+        EnsureSchemaReady();
+        var orderId = OrderId();
+        SeedDelivery(orderId);  // STATUS='Confirmed', PLANT_ID='P1'
+
+        var res = await AuthedClient().PostAsJsonAsync("/api/v1/query/SHP.DeliveryOrderList",
+            new Dictionary<string, object>());  // 필터 없음 → NULL-guard 전체조회
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var rows = await res.Content.ReadFromJsonAsync<List<Dictionary<string, object>>>();
+        rows.Should().NotBeNull();
+        rows!.Select(r => r["ORDER_ID"].ToString()).Should().Contain(orderId,
+            "공장 필터 없이 전체 출하지시가 조회돼야 한다(점등용 전체조회)");
+    }
+
+    [Fact]
+    public async Task ShipmentHistoryList_returns_all_without_order_filter()
+    {
+        EnsureSchemaReady();
+        var orderId = OrderId();
+        SeedDelivery(orderId);  // 출하 이력 1건({orderId}_H1) 동반 시드
+
+        var res = await AuthedClient().PostAsJsonAsync("/api/v1/query/SHP.ShipmentHistoryList",
+            new Dictionary<string, object>());
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var rows = await res.Content.ReadFromJsonAsync<List<Dictionary<string, object>>>();
+        rows.Should().NotBeNull();
+        rows!.Select(r => r["HISTORY_ID"].ToString()).Should().Contain($"{orderId}_H1",
+            "주문 필터 없이 전체 출하 이력이 조회돼야 한다(점등용 전체조회)");
+    }
 }

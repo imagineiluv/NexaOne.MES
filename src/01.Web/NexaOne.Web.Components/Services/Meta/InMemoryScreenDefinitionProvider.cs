@@ -409,6 +409,62 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("MESSAGE", "메시지"), new("TRIGGERED_AT", "발동시각"), new("RESOLVED_AT", "해제시각"), new("IS_RESOLVED", "해제"),
             },
             QueryId: "FDC.InterlockHistoryList"));
+
+        // ===== SmartUX POM(PPM)·SHP(DLV) 업무화면 점등(Phase 2) — 생산오더/출하지시·출하이력 조회.
+        // 메뉴 접두사 PPM=POM, DLV=SHP. 기존 쿼리는 필수 @param이라 점등용 NULL-guard 전체조회 쿼리 신설.
+        // POM W/O(작업지시) 화면은 전용 테이블 부재로 보류(POM_PRODUCTION_ORDER=생산오더만). 그리드 read는 형제와 동일하게 인증만. =====
+
+        // P/O 관리(FACTORY_PPM_PRODUCTION_ORDER) — 생산오더 조회(POM.ProductionOrderList).
+        Register(new ScreenDefinition("FACTORY_PPM_PRODUCTION_ORDER", "P/O 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("ORDER_ID", "오더 ID"), new("PLAN_ID", "계획 ID"), new("EQUIPMENT_ID", "설비 ID"),
+                new("PRODUCT_ID", "품목 ID"), new("ORDER_QTY", "지시수량"), new("ACTUAL_QTY", "실적수량"),
+                new("SCHEDULED_START", "예정시작"), new("SCHEDULED_END", "예정종료"), new("STATUS", "상태"),
+            },
+            QueryId: "POM.ProductionOrderList"));
+
+        // 생산지시 현황(FACTORY_PPM_REPORT_PRODUCTIONORDER) — 동일 생산오더를 현황(실적·일정) 중심으로 조회.
+        Register(new ScreenDefinition("FACTORY_PPM_REPORT_PRODUCTIONORDER", "생산지시 현황",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("ORDER_ID", "오더 ID"), new("PRODUCT_ID", "품목 ID"), new("ORDER_QTY", "지시수량"),
+                new("ACTUAL_QTY", "실적수량"), new("SCHEDULED_START", "예정시작"), new("ACTUAL_START", "실적시작"),
+                new("ACTUAL_END", "실적종료"), new("STATUS", "상태"),
+            },
+            QueryId: "POM.ProductionOrderList"));
+
+        // 출하 지시 관리(FACTORY_DLV_DELIVERY_ORDER) — 출하지시 마스터 조회(SHP.DeliveryOrderList).
+        Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_ORDER", "출하 지시 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("ORDER_ID", "출하지시 ID"), new("CUSTOMER_NAME", "고객"), new("PLANT_ID", "공장 ID"),
+                new("REQUESTED_DATE", "요청일"), new("SHIPPED_DATE", "출하일"), new("STATUS", "상태"), new("REMARK", "비고"),
+            },
+            QueryId: "SHP.DeliveryOrderList"));
+
+        // 출하지시 현황(FACTORY_DLV_REPORT_DELIVERYORDER) — 동일 출하지시를 현황 중심으로 조회.
+        Register(new ScreenDefinition("FACTORY_DLV_REPORT_DELIVERYORDER", "출하지시 현황",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("ORDER_ID", "출하지시 ID"), new("CUSTOMER_NAME", "고객"), new("PLANT_ID", "공장 ID"),
+                new("REQUESTED_DATE", "요청일"), new("SHIPPED_DATE", "출하일"), new("STATUS", "상태"),
+            },
+            QueryId: "SHP.DeliveryOrderList"));
+
+        // 출하 처리(FACTORY_DLV_DELIVERY_RESULT) — 출하 이력 조회(SHP.ShipmentHistoryList).
+        Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_RESULT", "출하 처리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("HISTORY_ID", "이력 ID"), new("DELIVERY_ORDER_ID", "출하지시 ID"), new("SHIPPED_AT", "출하시각"),
+                new("SHIPPED_QTY", "출하수량"), new("SHIPPED_BY", "출하자"), new("CARRIER", "운송사"), new("TRACKING_NO", "송장번호"),
+            },
+            QueryId: "SHP.ShipmentHistoryList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
