@@ -136,6 +136,48 @@
             ORDER BY REPAIRED_AT DESC
         ]]></statement>
     </query>
+    <!-- SmartUX 협력사 관리(SPM) 화면 점등용 전체조회(NULL-guard) — V039 신설(평가 항목/정의/연결/실적/시정조치). -->
+    <query id="QMS.SpmEvalItemList">
+        <statement><![CDATA[
+            SELECT ITEM_ID, ITEM_NAME, CATEGORY, MAX_SCORE, DESCRIPTION, IS_ACTIVE
+            FROM QMS_SPM_EVAL_ITEM WITH (NOLOCK)
+            WHERE (@category IS NULL OR CATEGORY = @category)
+            ORDER BY ITEM_NAME
+        ]]></statement>
+    </query>
+    <query id="QMS.SpmEvalDefList">
+        <statement><![CDATA[
+            SELECT DEF_ID, DEF_NAME, EVAL_CYCLE, TARGET_TYPE, DESCRIPTION, IS_ACTIVE
+            FROM QMS_SPM_EVAL_DEF WITH (NOLOCK)
+            WHERE (@targetType IS NULL OR TARGET_TYPE = @targetType)
+            ORDER BY DEF_NAME
+        ]]></statement>
+    </query>
+    <query id="QMS.SpmEvalParamList">
+        <statement><![CDATA[
+            SELECT PARAM_ID, DEF_ID, ITEM_ID, WEIGHT, SORT_ORDER
+            FROM QMS_SPM_EVAL_PARAM WITH (NOLOCK)
+            WHERE (@defId IS NULL OR DEF_ID = @defId)
+            ORDER BY DEF_ID, SORT_ORDER
+        ]]></statement>
+    </query>
+    <query id="QMS.SpmEvalResultList">
+        <statement><![CDATA[
+            SELECT RESULT_ID, SUPPLIER_ID, SUPPLIER_NAME, DEF_ID, EVAL_PERIOD,
+                   TOTAL_SCORE, GRADE, EVALUATED_AT, EVALUATOR_ID
+            FROM QMS_SPM_EVAL_RESULT WITH (NOLOCK)
+            WHERE (@supplierId IS NULL OR SUPPLIER_ID = @supplierId)
+            ORDER BY EVALUATED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="QMS.SpmActionResultList">
+        <statement><![CDATA[
+            SELECT ACTION_ID, RESULT_ID, SUPPLIER_ID, ACTION_DESC, ACTION_DATE, STATUS, COMPLETED_AT
+            FROM QMS_SPM_ACTION_RESULT WITH (NOLOCK)
+            WHERE (@supplierId IS NULL OR SUPPLIER_ID = @supplierId)
+            ORDER BY ACTION_DATE DESC
+        ]]></statement>
+    </query>
     <query id="QMS.CreateDefectClass" kind="write" requiredPermission="qms:manage">
         <statement><![CDATA[
             INSERT INTO QMS_DEFECT_CLASS (DEFECT_CLASS_ID, DEFECT_CLASS_NAME, DESCRIPTION, SEVERITY,

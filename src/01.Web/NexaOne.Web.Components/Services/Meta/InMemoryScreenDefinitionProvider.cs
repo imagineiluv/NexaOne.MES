@@ -603,6 +603,69 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("REPAIRED_BY", "수리자"), new("FAILURE_DESC", "고장내용"), new("REPAIR_DESC", "수리내용"), new("COST", "비용"),
             },
             QueryId: "QMS.GaugeRepairResultList"));
+
+        // ===== SmartUX QMS 협력사 관리(SPM) 점등(V039 신설) — 평가 항목/정의/연결/실적/시정조치. 그리드 read는 인증만. =====
+
+        // 협력사 평가 항목(QMS_SPM_EVL_ITEM) — 평가 항목 마스터(QMS.SpmEvalItemList).
+        Register(new ScreenDefinition("QMS_SPM_EVL_ITEM", "협력사 평가 항목",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("ITEM_ID", "항목 ID"), new("ITEM_NAME", "항목명"), new("CATEGORY", "분류"),
+                new("MAX_SCORE", "만점"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "QMS.SpmEvalItemList"));
+
+        // 협력사 평가 정의(QMS_SPM_EVL_DEF) — 평가 양식/주기 마스터(QMS.SpmEvalDefList).
+        Register(new ScreenDefinition("QMS_SPM_EVL_DEF", "협력사 평가 정의",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("DEF_ID", "정의 ID"), new("DEF_NAME", "정의명"), new("EVAL_CYCLE", "평가주기"),
+                new("TARGET_TYPE", "대상유형"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "QMS.SpmEvalDefList"));
+
+        // 협력사 평가 정보 연결(QMS_SPM_EVL_PARA) — 정의↔항목 가중치 연결(QMS.SpmEvalParamList).
+        Register(new ScreenDefinition("QMS_SPM_EVL_PARA", "협력사 평가 정보 연결",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PARAM_ID", "연결 ID"), new("DEF_ID", "정의 ID"), new("ITEM_ID", "항목 ID"),
+                new("WEIGHT", "가중치"), new("SORT_ORDER", "순서"),
+            },
+            QueryId: "QMS.SpmEvalParamList"));
+
+        // 협력사 실적 관리(QMS_SPM_EVL_RESULT) — 협력사 평가 실적(QMS.SpmEvalResultList).
+        Register(new ScreenDefinition("QMS_SPM_EVL_RESULT", "협력사 실적 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("RESULT_ID", "실적 ID"), new("SUPPLIER_ID", "협력사 ID"), new("SUPPLIER_NAME", "협력사명"),
+                new("DEF_ID", "정의 ID"), new("EVAL_PERIOD", "평가기간"), new("TOTAL_SCORE", "총점"),
+                new("GRADE", "등급"), new("EVALUATED_AT", "평가일시"),
+            },
+            QueryId: "QMS.SpmEvalResultList"));
+
+        // 협력사 실적 조회(QMS_SPM_EVL_RESULT_VIEW) — 동일 실적을 조회 전용으로(QMS.SpmEvalResultList 재사용).
+        Register(new ScreenDefinition("QMS_SPM_EVL_RESULT_VIEW", "협력사 실적 조회",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("RESULT_ID", "실적 ID"), new("SUPPLIER_ID", "협력사 ID"), new("SUPPLIER_NAME", "협력사명"),
+                new("EVAL_PERIOD", "평가기간"), new("TOTAL_SCORE", "총점"), new("GRADE", "등급"), new("EVALUATED_AT", "평가일시"),
+            },
+            QueryId: "QMS.SpmEvalResultList"));
+
+        // 시정 조치 결과 등록(QMS_SPM_ADMIN_ACTION_RESULT_REGIST) — 협력사 시정 조치 이력(QMS.SpmActionResultList).
+        Register(new ScreenDefinition("QMS_SPM_ADMIN_ACTION_RESULT_REGIST", "시정 조치 결과 등록",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("ACTION_ID", "조치 ID"), new("RESULT_ID", "실적 ID"), new("SUPPLIER_ID", "협력사 ID"),
+                new("ACTION_DESC", "조치내용"), new("ACTION_DATE", "조치일"), new("STATUS", "상태"), new("COMPLETED_AT", "완료일"),
+            },
+            QueryId: "QMS.SpmActionResultList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;

@@ -199,6 +199,66 @@ public sealed class GatewayQmsQueryTests : IClassFixture<GatewayQmsQueryTests.Qm
         rows.Select(r => r["REPAIR_ID"].ToString()).Should().Contain(id, "V038 수리 내역이 전체조회돼야 한다");
     }
 
+    [Fact]
+    public async Task SpmEvalItemList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"EI_{Suffix()}";
+        Exec(@"INSERT INTO QMS_SPM_EVAL_ITEM (ITEM_ID, ITEM_NAME, IS_ACTIVE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, '품질', 1, 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.SpmEvalItemList");
+        rows.Select(r => r["ITEM_ID"].ToString()).Should().Contain(id, "V039 협력사 평가항목이 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task SpmEvalDefList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"ED_{Suffix()}";
+        Exec(@"INSERT INTO QMS_SPM_EVAL_DEF (DEF_ID, DEF_NAME, IS_ACTIVE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, '연간 정기평가', 1, 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.SpmEvalDefList");
+        rows.Select(r => r["DEF_ID"].ToString()).Should().Contain(id, "V039 협력사 평가정의가 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task SpmEvalParamList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"EP_{Suffix()}";
+        Exec(@"INSERT INTO QMS_SPM_EVAL_PARAM (PARAM_ID, DEF_ID, ITEM_ID, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, @d, @i, 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@d", "ED_" + Suffix()); cmd.Parameters.AddWithValue("@i", "EI_" + Suffix()); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.SpmEvalParamList");
+        rows.Select(r => r["PARAM_ID"].ToString()).Should().Contain(id, "V039 협력사 평가연결이 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task SpmEvalResultList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"ER_{Suffix()}";
+        Exec(@"INSERT INTO QMS_SPM_EVAL_RESULT (RESULT_ID, SUPPLIER_ID, EVALUATED_AT, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, @s, @now, 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@s", "SUP_" + Suffix()); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.SpmEvalResultList");
+        rows.Select(r => r["RESULT_ID"].ToString()).Should().Contain(id, "V039 협력사 실적이 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task SpmActionResultList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"AR_{Suffix()}";
+        Exec(@"INSERT INTO QMS_SPM_ACTION_RESULT (ACTION_ID, SUPPLIER_ID, ACTION_DATE, STATUS, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, @s, @now, 'Open', 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@s", "SUP_" + Suffix()); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.SpmActionResultList");
+        rows.Select(r => r["ACTION_ID"].ToString()).Should().Contain(id, "V039 시정조치 결과가 전체조회돼야 한다");
+    }
+
     private async Task<List<Dictionary<string, object>>> Query(string queryId)
     {
         var res = await AuthedClient().PostAsJsonAsync($"/api/v1/query/{queryId}", new Dictionary<string, object>());
