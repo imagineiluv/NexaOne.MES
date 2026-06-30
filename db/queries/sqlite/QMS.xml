@@ -178,6 +178,63 @@
             ORDER BY ACTION_DATE DESC
         ]]></statement>
     </query>
+    <!-- SmartUX 검사(수입/공정/출하) 화면 점등용 전체조회(NULL-guard) — V040 신설 QMS_INSPECTION. INSPECTION_TYPE 고정. -->
+    <query id="QMS.InspectionList">
+        <statement><![CDATA[
+            SELECT INSPECTION_ID, INSPECTION_TYPE, LOT_ID, PRODUCT_ID, EQUIPMENT_ID, SPEC_ID,
+                   INSPECTED_AT, INSPECTOR_ID, RESULT, SAMPLE_QTY, DEFECT_QTY, IS_CONFIRMED
+            FROM QMS_INSPECTION
+            WHERE (@inspectionType IS NULL OR INSPECTION_TYPE = @inspectionType)
+              AND (@lotId IS NULL OR LOT_ID = @lotId)
+            ORDER BY INSPECTED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="QMS.IncomingInspectionList">
+        <statement><![CDATA[
+            SELECT INSPECTION_ID, INSPECTION_TYPE, LOT_ID, PRODUCT_ID, EQUIPMENT_ID, SPEC_ID,
+                   INSPECTED_AT, INSPECTOR_ID, RESULT, SAMPLE_QTY, DEFECT_QTY, IS_CONFIRMED
+            FROM QMS_INSPECTION
+            WHERE INSPECTION_TYPE = 'Incoming' AND (@lotId IS NULL OR LOT_ID = @lotId)
+            ORDER BY INSPECTED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="QMS.ProcessInspectionList">
+        <statement><![CDATA[
+            SELECT INSPECTION_ID, INSPECTION_TYPE, LOT_ID, PRODUCT_ID, EQUIPMENT_ID, SPEC_ID,
+                   INSPECTED_AT, INSPECTOR_ID, RESULT, SAMPLE_QTY, DEFECT_QTY, IS_CONFIRMED
+            FROM QMS_INSPECTION
+            WHERE INSPECTION_TYPE = 'Process' AND (@lotId IS NULL OR LOT_ID = @lotId)
+            ORDER BY INSPECTED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="QMS.ShippingInspectionList">
+        <statement><![CDATA[
+            SELECT INSPECTION_ID, INSPECTION_TYPE, LOT_ID, PRODUCT_ID, EQUIPMENT_ID, SPEC_ID,
+                   INSPECTED_AT, INSPECTOR_ID, RESULT, SAMPLE_QTY, DEFECT_QTY, IS_CONFIRMED
+            FROM QMS_INSPECTION
+            WHERE INSPECTION_TYPE = 'Shipping' AND (@lotId IS NULL OR LOT_ID = @lotId)
+            ORDER BY INSPECTED_AT DESC
+        ]]></statement>
+    </query>
+    <!-- SmartUX 장기재고검사(자재/제품) 화면 점등용 전체조회 — V041 신설 QMS_LONGTERM_INSPECTION. TARGET_TYPE 고정. -->
+    <query id="QMS.MaterialLongtermInspectionList">
+        <statement><![CDATA[
+            SELECT LT_INSP_ID, TARGET_TYPE, PRODUCT_ID, LOT_ID, WAREHOUSE, REQUEST_DATE, REQUESTED_BY,
+                   INSPECTED_AT, INSPECTOR_ID, RESULT, STATUS
+            FROM QMS_LONGTERM_INSPECTION
+            WHERE TARGET_TYPE = 'Material' AND (@status IS NULL OR STATUS = @status)
+            ORDER BY REQUEST_DATE DESC
+        ]]></statement>
+    </query>
+    <query id="QMS.ProductLongtermInspectionList">
+        <statement><![CDATA[
+            SELECT LT_INSP_ID, TARGET_TYPE, PRODUCT_ID, LOT_ID, WAREHOUSE, REQUEST_DATE, REQUESTED_BY,
+                   INSPECTED_AT, INSPECTOR_ID, RESULT, STATUS
+            FROM QMS_LONGTERM_INSPECTION
+            WHERE TARGET_TYPE = 'Product' AND (@status IS NULL OR STATUS = @status)
+            ORDER BY REQUEST_DATE DESC
+        ]]></statement>
+    </query>
     <query id="QMS.CreateDefectClass" kind="write" requiredPermission="qms:manage">
         <statement><![CDATA[
             INSERT INTO QMS_DEFECT_CLASS (DEFECT_CLASS_ID, DEFECT_CLASS_NAME, DESCRIPTION, SEVERITY,

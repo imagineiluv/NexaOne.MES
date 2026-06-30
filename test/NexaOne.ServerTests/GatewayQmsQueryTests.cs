@@ -259,6 +259,49 @@ public sealed class GatewayQmsQueryTests : IClassFixture<GatewayQmsQueryTests.Qm
         rows.Select(r => r["ACTION_ID"].ToString()).Should().Contain(id, "V039 시정조치 결과가 전체조회돼야 한다");
     }
 
+    [Fact]
+    public async Task IncomingInspectionList_returns_only_incoming()
+    {
+        EnsureSchemaReady();
+        var inc = $"IN_{Suffix()}";
+        Exec(@"INSERT INTO QMS_INSPECTION (INSPECTION_ID, INSPECTION_TYPE, INSPECTED_AT, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, 'Incoming', @now, 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", inc); cmd.Parameters.AddWithValue("@now", Now()); });
+        var proc = $"PR_{Suffix()}";
+        Exec(@"INSERT INTO QMS_INSPECTION (INSPECTION_ID, INSPECTION_TYPE, INSPECTED_AT, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, 'Process', @now, 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", proc); cmd.Parameters.AddWithValue("@now", Now()); });
+
+        var rows = await Query("QMS.IncomingInspectionList");
+        var ids = rows.Select(r => r["INSPECTION_ID"].ToString()).ToList();
+        ids.Should().Contain(inc, "수입 검사가 조회돼야 한다");
+        ids.Should().NotContain(proc, "공정 검사는 수입 쿼리에서 제외돼야 한다(INSPECTION_TYPE 고정 필터)");
+    }
+
+    [Fact]
+    public async Task MaterialLongtermInspectionList_returns_only_material()
+    {
+        EnsureSchemaReady();
+        var mat = $"LM_{Suffix()}";
+        Exec(@"INSERT INTO QMS_LONGTERM_INSPECTION (LT_INSP_ID, TARGET_TYPE, STATUS, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, 'Material', 'Requested', 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", mat); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.MaterialLongtermInspectionList");
+        rows.Select(r => r["LT_INSP_ID"].ToString()).Should().Contain(mat, "V041 자재 장기재고검사가 조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task ProductLongtermInspectionList_returns_only_product()
+    {
+        EnsureSchemaReady();
+        var prod = $"LP_{Suffix()}";
+        Exec(@"INSERT INTO QMS_LONGTERM_INSPECTION (LT_INSP_ID, TARGET_TYPE, STATUS, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, 'Product', 'Requested', 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", prod); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.ProductLongtermInspectionList");
+        rows.Select(r => r["LT_INSP_ID"].ToString()).Should().Contain(prod, "V041 제품 장기재고검사가 조회돼야 한다");
+    }
+
     private async Task<List<Dictionary<string, object>>> Query(string queryId)
     {
         var res = await AuthedClient().PostAsJsonAsync($"/api/v1/query/{queryId}", new Dictionary<string, object>());

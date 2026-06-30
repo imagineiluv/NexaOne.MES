@@ -666,6 +666,38 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("ACTION_DESC", "조치내용"), new("ACTION_DATE", "조치일"), new("STATUS", "상태"), new("COMPLETED_AT", "완료일"),
             },
             QueryId: "QMS.SpmActionResultList"));
+
+        // ===== SmartUX QMS 검사(수입/공정/출하) 점등(V040 신설 QMS_INSPECTION) — 등록/이력/현황을 타입별 쿼리로 바인딩. =====
+        var inspIncomingCols = new GridColumnDefinition[]
+        {
+            new("INSPECTION_ID", "검사 ID"), new("INSPECTION_TYPE", "유형"), new("LOT_ID", "LOT ID"),
+            new("PRODUCT_ID", "품목 ID"), new("INSPECTED_AT", "검사일시"), new("RESULT", "결과"),
+            new("SAMPLE_QTY", "표본수"), new("DEFECT_QTY", "불량수"),
+        };
+        Register(new ScreenDefinition("QMS_INSP_IMPORT_INSPECTION", "수입 검사 등록", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.IncomingInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_IMPORT_REGIST_HIST", "수입 검사 이력 조회", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.IncomingInspectionList"));
+        Register(new ScreenDefinition("QMS_REP_IMPORT_STATUS", "수입 검사 현황", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.IncomingInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_PROCESS_INSPECTION", "공정 검사 등록", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ProcessInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_PROCESS_INSPECTION_LOT", "공정 검사 등록 (LOT)", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ProcessInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_PROCESS_REGIST_HIST", "공정 검사 이력 조회", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ProcessInspectionList"));
+        Register(new ScreenDefinition("QMS_REP_PROCESS_STATUS", "공정 검사 현황", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ProcessInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_SHIPPING_INSPECTION", "출하 검사 등록", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ShippingInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_SHIPPING_REGIST_HIST", "출하 검사 이력 조회", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ShippingInspectionList"));
+        Register(new ScreenDefinition("QMS_REP_SHIPPING_STATUS", "출하 검사 현황", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ShippingInspectionList"));
+
+        // ===== SmartUX QMS 장기재고검사(자재/제품) 점등(V041 신설 QMS_LONGTERM_INSPECTION) — 의뢰/결과/이력을 대상별 쿼리로. =====
+        var ltInspCols = new GridColumnDefinition[]
+        {
+            new("LT_INSP_ID", "검사 ID"), new("TARGET_TYPE", "대상"), new("PRODUCT_ID", "품목 ID"), new("LOT_ID", "LOT ID"),
+            new("WAREHOUSE", "창고"), new("REQUEST_DATE", "의뢰일"), new("INSPECTED_AT", "검사일시"),
+            new("RESULT", "결과"), new("STATUS", "상태"),
+        };
+        Register(new ScreenDefinition("QMS_INSP_LONGTERM_REQUEST", "자재 장기재고 검사 의뢰 현황", Array.Empty<FieldDefinition>(), ltInspCols, QueryId: "QMS.MaterialLongtermInspectionList"));
+        Register(new ScreenDefinition("QMS_LONGTERM_INSP_RESULT", "자재 장기재고 검사 결과 등록", Array.Empty<FieldDefinition>(), ltInspCols, QueryId: "QMS.MaterialLongtermInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_LONGTERM_HISTORY", "자재 장기재고 검사 결과 이력", Array.Empty<FieldDefinition>(), ltInspCols, QueryId: "QMS.MaterialLongtermInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_LONGTERM_PRODUCT_REQUEST", "제품 장기재고 검사 의뢰 현황", Array.Empty<FieldDefinition>(), ltInspCols, QueryId: "QMS.ProductLongtermInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_LONGTERM_PRODUCT_INSP_RESULT", "제품 장기재고 검사 결과 등록", Array.Empty<FieldDefinition>(), ltInspCols, QueryId: "QMS.ProductLongtermInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_LONGTERM_PRODUCT_INSP_HISTORY", "제품 장기재고 검사 결과 이력", Array.Empty<FieldDefinition>(), ltInspCols, QueryId: "QMS.ProductLongtermInspectionList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
