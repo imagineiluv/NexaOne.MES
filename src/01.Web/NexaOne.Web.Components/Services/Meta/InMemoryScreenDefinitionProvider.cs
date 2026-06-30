@@ -766,6 +766,16 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         };
         Register(new ScreenDefinition("QMS_SPM_EVL_REPORT", "협력사 평가 현황", Array.Empty<FieldDefinition>(), spmReportCols, QueryId: "QMS.SpmEvalResultList"));
         Register(new ScreenDefinition("QMS_SPM_EVL_RESULT_COMPARISON", "협력사별 평가 결과 비교 조회", Array.Empty<FieldDefinition>(), spmReportCols, QueryId: "QMS.SpmEvalResultList"));
+
+        // 검사 현황(QMS_REP_ITEM_STATUS.js) — 전체 검사 실행 조회(QMS.InspectionList, 타입 무관). uiId의 .js 접미사는 SmartUX 원본 그대로.
+        Register(new ScreenDefinition("QMS_REP_ITEM_STATUS.js", "검사 현황",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("INSPECTION_ID", "검사 ID"), new("INSPECTION_TYPE", "유형"), new("LOT_ID", "LOT ID"),
+                new("PRODUCT_ID", "품목 ID"), new("INSPECTED_AT", "검사일시"), new("RESULT", "결과"), new("IS_CONFIRMED", "확정"),
+            },
+            QueryId: "QMS.InspectionList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
