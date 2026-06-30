@@ -813,6 +813,54 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         };
         Register(new ScreenDefinition("FACTORY_EMS_PM_ORDER_RESULT_RESULT", "PM 결과 등록", Array.Empty<FieldDefinition>(), pmPlanCols, QueryId: "EMS.MaintenancePlanList"));
         Register(new ScreenDefinition("FACTORY_EMS_PM_ORDER_RESULT_LIST", "PM 결과 조회", Array.Empty<FieldDefinition>(), pmPlanCols, QueryId: "EMS.MaintenancePlanList"));
+
+        // ===== SmartUX 기준정보(FACTORY_STD) — SmartUX 'SINGLE' 기준정보 메뉴는 기존 MDM 마스터의 별칭 경로다. 신규 백엔드 없이 기존 MDM 쿼리 재사용. =====
+        var stdPlantCols = new GridColumnDefinition[] { new("PLANT_ID", "공장 ID"), new("PLANT_NAME", "공장명"), new("DESCRIPTION", "설명"), new("COUNTRY", "국가"), new("TIME_ZONE", "표준시") };
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_PLANT", "공장 관리", Array.Empty<FieldDefinition>(), stdPlantCols, QueryId: "MDM.PlantList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_AREA", "Area 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("AREA_ID", "AREA ID"), new("AREA_NAME", "AREA명"), new("DESCRIPTION", "설명"), new("PLANT_ID", "공장 ID") }, QueryId: "MDM.AreaList"));
+        var stdEquipCols = new GridColumnDefinition[] { new("EQUIPMENT_ID", "설비 ID"), new("EQUIPMENT_NAME", "설비명"), new("PLANT_ID", "공장 ID"), new("AREA_ID", "구역 ID"), new("EQUIPMENT_TYPE", "설비유형"), new("EQUIPMENT_CLASS_ID", "설비 그룹"), new("VALID_STATE", "상태") };
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_EQUIPMENT_DEF", "설비 관리", Array.Empty<FieldDefinition>(), stdEquipCols, QueryId: "MDM.EquipmentList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_EQUIPMENT", "설비", Array.Empty<FieldDefinition>(), stdEquipCols, QueryId: "MDM.EquipmentList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_EQUIPMENTCLASS", "설비 그룹 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("EQUIPMENT_CLASS_ID", "설비 그룹 ID"), new("EQUIPMENT_CLASS_NAME", "설비 그룹명"), new("DESCRIPTION", "설명") }, QueryId: "MDM.EquipmentClassList"));
+        var stdProductCols = new GridColumnDefinition[] { new("PRODUCT_ID", "품목 ID"), new("PRODUCT_NAME", "품목명"), new("DESCRIPTION", "설명"), new("PRODUCT_TYPE", "유형"), new("UNIT", "단위"), new("VALID_STATE", "상태") };
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_ITEM_DEF", "품목 관리", Array.Empty<FieldDefinition>(), stdProductCols, QueryId: "MDM.ProductList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_ITEM", "품목", Array.Empty<FieldDefinition>(), stdProductCols, QueryId: "MDM.ProductList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_PRODUCT_SPEC", "제품 사양 관리", Array.Empty<FieldDefinition>(), stdProductCols, QueryId: "MDM.ProductList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_ITEMCLASS", "품목 그룹 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("ITEM_CLASS_ID", "품목 그룹 ID"), new("ITEM_CLASS_NAME", "품목 그룹명"), new("DESCRIPTION", "설명") }, QueryId: "MDM.ItemClassList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_PROCESS", "프로세스 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("PROCESS_ID", "프로세스 ID"), new("PROCESS_NAME", "프로세스명"), new("PROCESS_CLASS_ID", "프로세스 그룹"), new("DESCRIPTION", "설명") }, QueryId: "MDM.ProcessList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_PROCESSCLASS", "프로세스 그룹 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("PROCESS_CLASS_ID", "프로세스 그룹 ID"), new("PROCESS_CLASS_NAME", "프로세스 그룹명"), new("DESCRIPTION", "설명") }, QueryId: "MDM.ProcessClassList"));
+        var stdSegmentCols = new GridColumnDefinition[] { new("SEGMENT_ID", "공정 ID"), new("SEGMENT_NAME", "공정명"), new("SEGMENT_CLASS_ID", "공정 그룹"), new("DESCRIPTION", "설명") };
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_SEGMENT", "공정", Array.Empty<FieldDefinition>(), stdSegmentCols, QueryId: "MDM.SegmentList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_SEGMENT_DEF", "공정 관리", Array.Empty<FieldDefinition>(), stdSegmentCols, QueryId: "MDM.SegmentList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_SEGMENTCLASS", "공정 그룹 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("SEGMENT_CLASS_ID", "공정 그룹 ID"), new("SEGMENT_CLASS_NAME", "공정 그룹명"), new("DESCRIPTION", "설명") }, QueryId: "MDM.SegmentClassList"));
+        var stdCodeCols = new GridColumnDefinition[] { new("CODE_ID", "코드 ID"), new("CODE_NAME", "코드명"), new("CODE_CLASS_ID", "코드 그룹"), new("SORT_ORDER", "정렬"), new("VALID_STATE", "상태") };
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_REASONCODE", "사유코드 관리", Array.Empty<FieldDefinition>(), stdCodeCols, QueryId: "MDM.CodeList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_CODE", "코드", Array.Empty<FieldDefinition>(), stdCodeCols, QueryId: "MDM.CodeList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_REASONCODECLASS", "사유코드 그룹 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("CODE_CLASS_ID", "코드 그룹 ID"), new("CODE_CLASS_NAME", "코드 그룹명"), new("DESCRIPTION", "설명") }, QueryId: "MDM.CodeClassList"));
+        var stdRoutingCols = new GridColumnDefinition[] { new("ROUTING_ID", "라우팅 ID"), new("ROUTING_NAME", "라우팅명"), new("PRODUCT_ID", "품목 ID"), new("DESCRIPTION", "설명") };
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_PROCESSPATH", "라우팅 관리", Array.Empty<FieldDefinition>(), stdRoutingCols, QueryId: "MDM.RoutingList"));
+        Register(new ScreenDefinition("FACTORY_STD_WO_PROCESS_PATH", "W/O 라우팅 관리", Array.Empty<FieldDefinition>(), stdRoutingCols, QueryId: "MDM.RoutingList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_BILL_OF_MATERIAL", "BOM 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("BOM_ID", "BOM ID"), new("PRODUCT_ID", "제품 ID"), new("COMPONENT_ID", "부품 ID"), new("QUANTITY", "수량") }, QueryId: "MDM.BomList"));
+
+        // ===== SmartUX 시스템관리(SYSTEM_2) — 사용자/권한/메뉴/UIID/코드는 기존 SYS·MDM 쿼리 재사용(신규 백엔드 0). =====
+        Register(new ScreenDefinition("SYSTEM_2_USER_MANAGEMENT", "사용자 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("USER_ID", "사용자 ID"), new("USER_NAME", "사용자명"), new("EMAIL", "이메일"), new("ROLE_ID", "역할"), new("LANGUAGE", "언어"), new("IS_ACTIVE", "활성"), new("LAST_LOGIN_AT", "최근로그인") }, QueryId: "SYS.ListUsers"));
+        var roleCols = new GridColumnDefinition[] { new("ROLE_ID", "역할 ID"), new("ROLE_NAME", "역할명"), new("DESCRIPTION", "설명"), new("PERMISSIONS", "권한") };
+        Register(new ScreenDefinition("SYSTEM_2_AUTH_MANAGEMENT", "권한 관리", Array.Empty<FieldDefinition>(), roleCols, QueryId: "SYS.ListRoles"));
+        Register(new ScreenDefinition("SYSTEM_2_AUTH_MANAGEMENT_NEW", "권한 그룹 관리", Array.Empty<FieldDefinition>(), roleCols, QueryId: "SYS.ListRoles"));
+        Register(new ScreenDefinition("SYSTEM_2_MENU_AUTH_MANAGEMENT", "메뉴별 권한 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("MENU_ID", "메뉴 ID"), new("MENU_NAME", "메뉴명"), new("PARENT_MENU_ID", "상위"), new("MENU_TYPE", "유형"), new("UI_ID", "화면") }, QueryId: "SYS.ListMenus"));
+        Register(new ScreenDefinition("SYSTEM_2_UIID_MANAGEMENT", "UIID 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("UI_ID", "UI ID"), new("TITLE", "제목") }, QueryId: "SYS.ListScreenDefinitions"));
+        Register(new ScreenDefinition("SYSTEM_2_CODE_MANAGEMENT", "코드 관리", Array.Empty<FieldDefinition>(), stdCodeCols, QueryId: "MDM.CodeList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
