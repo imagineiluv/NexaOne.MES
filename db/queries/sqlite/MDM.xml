@@ -189,4 +189,33 @@
             SELECT ACTION_ID, QTIME_ID, ACTION_CODE, DESCRIPTION FROM MDM_QTIME_ACTION ORDER BY ACTION_ID
         ]]></statement>
     </query>
+    <!-- SmartUX 기준정보 점등용 — V046 신설(작업자/작업조/달력/거래처/납품처). -->
+    <query id="MDM.WorkerClassList">
+        <statement><![CDATA[ SELECT WORKER_CLASS_ID, WORKER_CLASS_NAME, DESCRIPTION, IS_ACTIVE FROM MDM_WORKER_CLASS ORDER BY WORKER_CLASS_NAME ]]></statement>
+    </query>
+    <query id="MDM.WorkerList">
+        <statement><![CDATA[
+            SELECT WORKER_ID, WORKER_NAME, WORKER_CLASS_ID, EMPLOYEE_NO, DEPARTMENT, PLANT_ID, IS_ACTIVE
+            FROM MDM_WORKER
+            WHERE (@workerClassId IS NULL OR WORKER_CLASS_ID = @workerClassId)
+            ORDER BY WORKER_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.ShiftList">
+        <statement><![CDATA[ SELECT SHIFT_ID, SHIFT_NAME, START_TIME, END_TIME, DESCRIPTION, IS_ACTIVE FROM MDM_SHIFT ORDER BY SHIFT_ID ]]></statement>
+    </query>
+    <query id="MDM.WorkCalendarList">
+        <statement><![CDATA[ SELECT CALENDAR_ID, CALENDAR_DATE, DAY_TYPE, SHIFT_ID, PLANT_ID, DESCRIPTION FROM MDM_WORK_CALENDAR ORDER BY CALENDAR_DATE DESC ]]></statement>
+    </query>
+    <query id="MDM.CustomerList">
+        <statement><![CDATA[ SELECT CUSTOMER_ID, CUSTOMER_NAME, CUSTOMER_TYPE, CONTACT_NAME, PHONE, ADDRESS, IS_ACTIVE FROM MDM_CUSTOMER ORDER BY CUSTOMER_NAME ]]></statement>
+    </query>
+    <query id="MDM.DeliveryItemList">
+        <statement><![CDATA[
+            SELECT DELIVERY_ITEM_ID, CUSTOMER_ID, PRODUCT_ID, DELIVERY_CODE, UNIT_PRICE, IS_ACTIVE
+            FROM MDM_DELIVERY_ITEM
+            WHERE (@customerId IS NULL OR CUSTOMER_ID = @customerId)
+            ORDER BY CUSTOMER_ID, PRODUCT_ID
+        ]]></statement>
+    </query>
 </queries>

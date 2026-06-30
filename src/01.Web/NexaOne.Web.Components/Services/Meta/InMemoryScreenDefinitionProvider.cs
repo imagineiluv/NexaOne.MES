@@ -861,6 +861,22 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         Register(new ScreenDefinition("SYSTEM_2_UIID_MANAGEMENT", "UIID 관리", Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[] { new("UI_ID", "UI ID"), new("TITLE", "제목") }, QueryId: "SYS.ListScreenDefinitions"));
         Register(new ScreenDefinition("SYSTEM_2_CODE_MANAGEMENT", "코드 관리", Array.Empty<FieldDefinition>(), stdCodeCols, QueryId: "MDM.CodeList"));
+
+        // ===== SmartUX 기준정보(FACTORY_STD) 신규 마스터 점등(V046 신설) — 작업자/작업조/달력/거래처/납품처. =====
+        Register(new ScreenDefinition("FACTORY_STD_WORKER_CLASS", "작업자 그룹 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("WORKER_CLASS_ID", "그룹 ID"), new("WORKER_CLASS_NAME", "그룹명"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성") }, QueryId: "MDM.WorkerClassList"));
+        var workerCols = new GridColumnDefinition[] { new("WORKER_ID", "작업자 ID"), new("WORKER_NAME", "작업자명"), new("WORKER_CLASS_ID", "그룹"), new("EMPLOYEE_NO", "사번"), new("DEPARTMENT", "부서"), new("PLANT_ID", "공장 ID"), new("IS_ACTIVE", "활성") };
+        Register(new ScreenDefinition("FACTORY_STD_WORKER_DEF", "작업자 관리", Array.Empty<FieldDefinition>(), workerCols, QueryId: "MDM.WorkerList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_WORKER", "작업자", Array.Empty<FieldDefinition>(), workerCols, QueryId: "MDM.WorkerList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_SHIFT", "작업조 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("SHIFT_ID", "작업조 ID"), new("SHIFT_NAME", "작업조명"), new("START_TIME", "시작"), new("END_TIME", "종료"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성") }, QueryId: "MDM.ShiftList"));
+        Register(new ScreenDefinition("FACTORY_STD_WORK_CALENDAR", "Work Calendar 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("CALENDAR_ID", "달력 ID"), new("CALENDAR_DATE", "일자"), new("DAY_TYPE", "구분"), new("SHIFT_ID", "작업조"), new("PLANT_ID", "공장 ID"), new("DESCRIPTION", "설명") }, QueryId: "MDM.WorkCalendarList"));
+        var customerCols = new GridColumnDefinition[] { new("CUSTOMER_ID", "거래처 ID"), new("CUSTOMER_NAME", "거래처명"), new("CUSTOMER_TYPE", "유형"), new("CONTACT_NAME", "담당자"), new("PHONE", "연락처"), new("ADDRESS", "주소"), new("IS_ACTIVE", "활성") };
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_CUSTOMER", "거래처 관리", Array.Empty<FieldDefinition>(), customerCols, QueryId: "MDM.CustomerList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_DELIVERY", "납품처 관리", Array.Empty<FieldDefinition>(), customerCols, QueryId: "MDM.CustomerList"));
+        Register(new ScreenDefinition("FACTORY_STD_SINGLE_DELIVERY_ITEM", "납품처 품목 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("DELIVERY_ITEM_ID", "납품품목 ID"), new("CUSTOMER_ID", "거래처 ID"), new("PRODUCT_ID", "품목 ID"), new("DELIVERY_CODE", "납품코드"), new("UNIT_PRICE", "단가"), new("IS_ACTIVE", "활성") }, QueryId: "MDM.DeliveryItemList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
