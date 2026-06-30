@@ -609,6 +609,24 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
             ("@id", c.Item1), ("@sid", c.Item2), ("@sname", c.Item3), ("@grade", c.Item4), ("@score", c.Item5), ("@at", now));
     Exec(tx, "INSERT INTO QMS_SPM_ACTION_RESULT (ACTION_ID,RESULT_ID,SUPPLIER_ID,ACTION_DESC,ACTION_DATE,STATUS) VALUES ('AR01','SR02','SUP_B','납기 개선 시정조치',@at,'Open')", ("@at", now));
 
+    // ===== EMS(설비보전) 시드 — 예비품(V027)/그룹·입출고(V045)/작업지시(V008)/보전계획(V027). V008/V027 감사 컬럼은 DEFAULT가 없어 명시 필수. =====
+    const string emsPartSql = "INSERT INTO EMS_SPARE_PART (PART_ID,PART_NAME,PART_NUMBER,DESCRIPTION,UNIT_OF_MEASURE,CURRENT_STOCK,MIN_STOCK,MAX_STOCK,LOCATION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@name,@no,@desc,@uom,@cur,@min,@max,@loc,'SYSTEM',@at,'SYSTEM',@at)";
+    Exec(tx, emsPartSql, ("@id", "ESP01"), ("@name", "베어링 6204"), ("@no", "BRG-6204"), ("@desc", "회전부 베어링"), ("@uom", "EA"), ("@cur", 50), ("@min", 10), ("@max", 100), ("@loc", "자재창고 A"), ("@at", now));
+    Exec(tx, emsPartSql, ("@id", "ESP02"), ("@name", "모터 1.5kW"), ("@no", "MTR-15"), ("@desc", "구동 모터"), ("@uom", "EA"), ("@cur", 8), ("@min", 5), ("@max", 20), ("@loc", "자재창고 B"), ("@at", now));
+    Exec(tx, emsPartSql, ("@id", "ESP03"), ("@name", "근접센서"), ("@no", "SNS-PRX"), ("@desc", "감지 센서"), ("@uom", "EA"), ("@cur", 30), ("@min", 10), ("@max", 60), ("@loc", "자재창고 A"), ("@at", now));
+    foreach (var c in new[] { ("ESPC_BRG", "베어링류", "회전부 베어링"), ("ESPC_MTR", "모터류", "구동 모터") })
+        Exec(tx, "INSERT INTO EMS_SPARE_PART_CLASS (PART_CLASS_ID,PART_CLASS_NAME,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@name,@desc,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@desc", c.Item3), ("@at", now));
+    foreach (var c in new[] { ("EIO01", "ESP01", "Incoming", 20, "입고처", "자재창고 A"), ("EIO02", "ESP02", "Move", 2, "자재창고 B", "조립1동"), ("EIO03", "ESP03", "Scrap", 5, "자재창고 A", "폐기장") })
+        Exec(tx, "INSERT INTO EMS_SPARE_PART_INOUT (INOUT_ID,PART_ID,TRANSACTION_TYPE,QUANTITY,FROM_LOCATION,TO_LOCATION,TRANSACTION_AT,PROCESSED_BY,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@pid,@t,@q,@from,@to,@at,'admin','SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@pid", c.Item2), ("@t", c.Item3), ("@q", c.Item4), ("@from", c.Item5), ("@to", c.Item6), ("@at", now));
+    foreach (var c in new[] { ("EWO01", "EQ01", "BM", "가공기 1호 베어링 교체"), ("EWO02", "EQ02", "PM", "검사기 1호 정기점검") })
+        Exec(tx, "INSERT INTO EMS_WORK_ORDER (WO_ID,EQUIPMENT_ID,WO_TYPE,DESCRIPTION,ASSIGNEE_ID,ISSUED_AT,STATUS,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@eq,@t,@desc,'admin',@at,'Issued','SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@eq", c.Item2), ("@t", c.Item3), ("@desc", c.Item4), ("@at", now));
+    foreach (var c in new[] { ("EMP01", "월간 정기점검", "EQ01", "PM", "Monthly"), ("EMP02", "분기 정밀점검", "EQ03", "PM", "Quarterly") })
+        Exec(tx, "INSERT INTO EMS_MAINTENANCE_PLAN (PLAN_ID,PLAN_NAME,EQUIPMENT_ID,PLAN_TYPE,CYCLE_TYPE,SCHEDULED_DATE,ESTIMATED_DURATION_HOURS,ASSIGNEE_ID,STATUS,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@name,@eq,@pt,@ct,@at,2.0,'admin','Planned','SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@eq", c.Item3), ("@pt", c.Item4), ("@ct", c.Item5), ("@at", now));
+
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
 }

@@ -108,4 +108,46 @@
             ORDER BY EQUIPMENT_ID, ITEM_ID
         ]]></statement>
     </query>
+    <!-- SmartUX 예비품 그룹/입출고 화면 점등용 전체조회(NULL-guard) — V045 신설. TRANSACTION_TYPE 고정(입고/이동/폐기). -->
+    <query id="EMS.SparePartClassList">
+        <statement><![CDATA[
+            SELECT PART_CLASS_ID, PART_CLASS_NAME, DESCRIPTION, IS_ACTIVE
+            FROM EMS_SPARE_PART_CLASS WITH (NOLOCK)
+            WHERE (@partClassId IS NULL OR PART_CLASS_ID = @partClassId)
+            ORDER BY PART_CLASS_NAME
+        ]]></statement>
+    </query>
+    <query id="EMS.SparePartInoutList">
+        <statement><![CDATA[
+            SELECT INOUT_ID, PART_ID, TRANSACTION_TYPE, QUANTITY, FROM_LOCATION, TO_LOCATION, TRANSACTION_AT, PROCESSED_BY
+            FROM EMS_SPARE_PART_INOUT WITH (NOLOCK)
+            WHERE (@transactionType IS NULL OR TRANSACTION_TYPE = @transactionType)
+              AND (@partId IS NULL OR PART_ID = @partId)
+            ORDER BY TRANSACTION_AT DESC
+        ]]></statement>
+    </query>
+    <query id="EMS.SparePartIncomingList">
+        <statement><![CDATA[
+            SELECT INOUT_ID, PART_ID, TRANSACTION_TYPE, QUANTITY, FROM_LOCATION, TO_LOCATION, TRANSACTION_AT, PROCESSED_BY
+            FROM EMS_SPARE_PART_INOUT WITH (NOLOCK)
+            WHERE TRANSACTION_TYPE = 'Incoming' AND (@partId IS NULL OR PART_ID = @partId)
+            ORDER BY TRANSACTION_AT DESC
+        ]]></statement>
+    </query>
+    <query id="EMS.SparePartMoveList">
+        <statement><![CDATA[
+            SELECT INOUT_ID, PART_ID, TRANSACTION_TYPE, QUANTITY, FROM_LOCATION, TO_LOCATION, TRANSACTION_AT, PROCESSED_BY
+            FROM EMS_SPARE_PART_INOUT WITH (NOLOCK)
+            WHERE TRANSACTION_TYPE = 'Move' AND (@partId IS NULL OR PART_ID = @partId)
+            ORDER BY TRANSACTION_AT DESC
+        ]]></statement>
+    </query>
+    <query id="EMS.SparePartScrapList">
+        <statement><![CDATA[
+            SELECT INOUT_ID, PART_ID, TRANSACTION_TYPE, QUANTITY, FROM_LOCATION, TO_LOCATION, TRANSACTION_AT, PROCESSED_BY
+            FROM EMS_SPARE_PART_INOUT WITH (NOLOCK)
+            WHERE TRANSACTION_TYPE = 'Scrap' AND (@partId IS NULL OR PART_ID = @partId)
+            ORDER BY TRANSACTION_AT DESC
+        ]]></statement>
+    </query>
 </queries>

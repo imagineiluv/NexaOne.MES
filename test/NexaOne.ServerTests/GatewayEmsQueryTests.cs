@@ -307,6 +307,49 @@ public sealed class GatewayEmsQueryTests : IClassFixture<GatewayEmsQueryTests.Em
         rows.Select(r => r["EQP_ITEM_ID"].ToString()).Should().Contain(id, "V036 설비별 점검항목이 전체조회돼야 한다");
     }
 
+    [Fact]
+    public async Task SparePartClassList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"PC_{Suffix()}";
+        Exec(@"INSERT INTO EMS_SPARE_PART_CLASS (PART_CLASS_ID, PART_CLASS_NAME, IS_ACTIVE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, '베어링류', 1, 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")); });
+        var rows = await Query("EMS.SparePartClassList", new());
+        rows.Select(r => r["PART_CLASS_ID"].ToString()).Should().Contain(id, "V045 예비품 그룹이 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task SparePartIncomingList_returns_only_incoming()
+    {
+        EnsureSchemaReady();
+        var inc = $"IO_{Suffix()}";
+        var scr = $"IO_{Suffix()}";
+        Exec(@"INSERT INTO EMS_SPARE_PART_INOUT (INOUT_ID, PART_ID, TRANSACTION_TYPE, TRANSACTION_AT, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, 'P1', 'Incoming', @now, 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", inc); cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")); });
+        Exec(@"INSERT INTO EMS_SPARE_PART_INOUT (INOUT_ID, PART_ID, TRANSACTION_TYPE, TRANSACTION_AT, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, 'P1', 'Scrap', @now, 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", scr); cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")); });
+
+        var rows = await Query("EMS.SparePartIncomingList", new());
+        var ids = rows.Select(r => r["INOUT_ID"].ToString()).ToList();
+        ids.Should().Contain(inc, "입고가 조회돼야 한다");
+        ids.Should().NotContain(scr, "폐기는 입고 쿼리에서 제외돼야 한다(TRANSACTION_TYPE 고정 필터)");
+    }
+
+    [Fact]
+    public async Task SparePartInoutList_returns_all_types()
+    {
+        EnsureSchemaReady();
+        var id = $"IO_{Suffix()}";
+        Exec(@"INSERT INTO EMS_SPARE_PART_INOUT (INOUT_ID, PART_ID, TRANSACTION_TYPE, TRANSACTION_AT, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, 'P1', 'Move', @now, 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss")); });
+        var rows = await Query("EMS.SparePartInoutList", new());
+        rows.Select(r => r["INOUT_ID"].ToString()).Should().Contain(id, "V045 입출고 전체조회에 포함돼야 한다");
+    }
+
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)
     {
         var res = await AuthedClient().PostAsJsonAsync($"/api/v1/query/{queryId}", p);

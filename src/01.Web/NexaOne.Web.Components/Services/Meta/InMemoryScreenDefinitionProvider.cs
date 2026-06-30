@@ -776,6 +776,43 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PRODUCT_ID", "품목 ID"), new("INSPECTED_AT", "검사일시"), new("RESULT", "결과"), new("IS_CONFIRMED", "확정"),
             },
             QueryId: "QMS.InspectionList"));
+
+        // ===== SmartUX EMS 예비품 그룹/입출고 점등(V045 신설) + 잔여 BM/PM 오더(기존 EMS 쿼리 재사용). =====
+        Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART_CLASS", "Spare Part 그룹 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("PART_CLASS_ID", "그룹 ID"), new("PART_CLASS_NAME", "그룹명"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성") },
+            QueryId: "EMS.SparePartClassList"));
+        var spareInoutCols = new GridColumnDefinition[]
+        {
+            new("INOUT_ID", "입출고 ID"), new("PART_ID", "부품 ID"), new("TRANSACTION_TYPE", "유형"), new("QUANTITY", "수량"),
+            new("FROM_LOCATION", "출발위치"), new("TO_LOCATION", "도착위치"), new("TRANSACTION_AT", "처리일시"), new("PROCESSED_BY", "처리자"),
+        };
+        Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART_INCOMING", "Spare Part 입고", Array.Empty<FieldDefinition>(), spareInoutCols, QueryId: "EMS.SparePartIncomingList"));
+        Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART_MOVE", "Spare Part 이동", Array.Empty<FieldDefinition>(), spareInoutCols, QueryId: "EMS.SparePartMoveList"));
+        Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART_MOVE_GRIDTYPE", "Spare Part 이동 그리드", Array.Empty<FieldDefinition>(), spareInoutCols, QueryId: "EMS.SparePartMoveList"));
+        Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART_SCRAP", "Spare Part 폐기", Array.Empty<FieldDefinition>(), spareInoutCols, QueryId: "EMS.SparePartScrapList"));
+        Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART_SCRAP_GRIDTYPE", "Spare Part 폐기 그리드", Array.Empty<FieldDefinition>(), spareInoutCols, QueryId: "EMS.SparePartScrapList"));
+        Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART_INOUT_HISTORY", "Spare Part 입출고 이력", Array.Empty<FieldDefinition>(), spareInoutCols, QueryId: "EMS.SparePartInoutList"));
+
+        // 잔여 BM(작업지시) 화면 — 기존 EMS.WorkOrderList 재사용.
+        var bmOrderCols = new GridColumnDefinition[]
+        {
+            new("WO_ID", "작업지시 ID"), new("EQUIPMENT_ID", "설비 ID"), new("WO_TYPE", "유형"), new("DESCRIPTION", "설명"),
+            new("ASSIGNEE_ID", "담당자"), new("ISSUED_AT", "발행일시"), new("STATUS", "상태"),
+        };
+        Register(new ScreenDefinition("FACTORY_EMS_BM_ORDER_REQUEST", "설비 수리 요청", Array.Empty<FieldDefinition>(), bmOrderCols, QueryId: "EMS.WorkOrderList"));
+        Register(new ScreenDefinition("FACTORY_EMS_BM_ORDER_REPAIR", "설비 수리 등록", Array.Empty<FieldDefinition>(), bmOrderCols, QueryId: "EMS.WorkOrderList"));
+        Register(new ScreenDefinition("FACTORY_EMS_BM_ORDER_REPAIR_REGISTER_GRIDTYPE", "설비 수리 등록 그리드", Array.Empty<FieldDefinition>(), bmOrderCols, QueryId: "EMS.WorkOrderList"));
+        Register(new ScreenDefinition("FACTORY_EMS_BM_ORDER_RESULT_GRIDTYPE", "설비 보전 결과 그리드", Array.Empty<FieldDefinition>(), bmOrderCols, QueryId: "EMS.WorkOrderList"));
+
+        // 잔여 PM(보전계획 결과) 화면 — 기존 EMS.MaintenancePlanList 재사용.
+        var pmPlanCols = new GridColumnDefinition[]
+        {
+            new("PLAN_ID", "계획 ID"), new("PLAN_NAME", "계획명"), new("EQUIPMENT_ID", "설비 ID"), new("PLAN_TYPE", "유형"),
+            new("CYCLE_TYPE", "주기"), new("SCHEDULED_DATE", "예정일"), new("STATUS", "상태"),
+        };
+        Register(new ScreenDefinition("FACTORY_EMS_PM_ORDER_RESULT_RESULT", "PM 결과 등록", Array.Empty<FieldDefinition>(), pmPlanCols, QueryId: "EMS.MaintenancePlanList"));
+        Register(new ScreenDefinition("FACTORY_EMS_PM_ORDER_RESULT_LIST", "PM 결과 조회", Array.Empty<FieldDefinition>(), pmPlanCols, QueryId: "EMS.MaintenancePlanList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
