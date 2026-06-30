@@ -45,6 +45,27 @@
             ORDER BY SCHEDULED_DATE
         ]]></statement>
     </query>
+    <!-- SmartUX 화면 점등용 전체조회(NULL-guard) — 설비 필터 없이 마스터 그리드를 채운다(미지정 @param은 게이트웨이가 null로 채움). -->
+    <query id="CMMS.WorkOrderList">
+        <statement><![CDATA[
+            SELECT WO_ID, PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION, ASSIGNEE_ID,
+                   ISSUED_AT, STARTED_AT, COMPLETED_AT, STATUS, FAILURE_CODE_ID, REMARK
+            FROM CMMS_WORK_ORDER WITH (NOLOCK)
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY ISSUED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="CMMS.MaintenancePlanList">
+        <statement><![CDATA[
+            SELECT PLAN_ID, PLAN_NAME, EQUIPMENT_ID, PLAN_TYPE, CYCLE_TYPE,
+                   SCHEDULED_DATE, ESTIMATED_DURATION_HOURS, ASSIGNEE_ID, STATUS
+            FROM CMMS_MAINTENANCE_PLAN WITH (NOLOCK)
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY SCHEDULED_DATE
+        ]]></statement>
+    </query>
     <query id="CMMS.SparePartsAll">
         <statement><![CDATA[
             SELECT PART_ID, PART_NAME, PART_NUMBER, DESCRIPTION, UNIT_OF_MEASURE,

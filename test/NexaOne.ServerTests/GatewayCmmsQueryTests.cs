@@ -218,6 +218,34 @@ public sealed class GatewayCmmsQueryTests : IClassFixture<GatewayCmmsQueryTests.
         lowIds.Should().NotContain(okId, "충분 재고 부품은 LowStock에서 제외");
     }
 
+    [Fact]
+    public async Task WorkOrderList_returns_all_without_equipment_filter()
+    {
+        EnsureSchemaReady();
+        var idA = $"WO_{Suffix()}";
+        var idB = $"WO_{Suffix()}";
+        SeedWorkOrder(idA, "EQ_" + Suffix(), "Issued");      // 서로 다른 설비
+        SeedWorkOrder(idB, "EQ_" + Suffix(), "Completed");
+
+        var rows = await Query("CMMS.WorkOrderList", new());  // 파라미터 없음 → NULL-guard 전체조회
+        var ids = rows.Select(r => r["WO_ID"].ToString()).ToList();
+        ids.Should().Contain(new[] { idA, idB }, "설비 필터 없이 전체 작업지시가 조회돼야 한다(점등용 전체조회)");
+    }
+
+    [Fact]
+    public async Task MaintenancePlanList_returns_all_without_equipment_filter()
+    {
+        EnsureSchemaReady();
+        var idA = $"PL_{Suffix()}";
+        var idB = $"PL_{Suffix()}";
+        SeedPlan(idA, "EQ_" + Suffix(), "Planned", DateTime.UtcNow.AddDays(7));
+        SeedPlan(idB, "EQ_" + Suffix(), "Completed", DateTime.UtcNow.AddDays(-3));
+
+        var rows = await Query("CMMS.MaintenancePlanList", new());  // 파라미터 없음 → NULL-guard 전체조회
+        var ids = rows.Select(r => r["PLAN_ID"].ToString()).ToList();
+        ids.Should().Contain(new[] { idA, idB }, "설비 필터 없이 전체 보전계획이 조회돼야 한다(점등용 전체조회)");
+    }
+
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)
     {
         var res = await AuthedClient().PostAsJsonAsync($"/api/v1/query/{queryId}", p);

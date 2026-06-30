@@ -294,6 +294,121 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[] { new("ACTION_ID", "액션 ID"), new("QTIME_ID", "Qtime ID"), new("ACTION_CODE", "액션코드"), new("DESCRIPTION", "설명") },
             QueryId: "MDM.QtimeActionList"));
+
+        // ===== SmartUX CMMS(EMS) 업무화면 점등(Phase 2) — 보전 read 슬라이스(예비품/작업지시/보전계획) 마스터 조회.
+        // 메뉴 접두사 EMS = C# 모듈 CMMS. 예비품은 기존 무파라미터 쿼리(SparePartsAll), 작업지시/보전계획은
+        // 신규 NULL-guard 전체조회 쿼리(CMMS.WorkOrderList/MaintenancePlanList). 그리드 read는 형제와 동일하게 인증만(권한 무). =====
+
+        // Spare Part 관리(FACTORY_EMS_STD_SPARE_PART) — 예비품 마스터 조회(CMMS.SparePartsAll, 무파라미터 전체조회).
+        Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART", "Spare Part 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PART_ID", "부품 ID"), new("PART_NAME", "부품명"), new("PART_NUMBER", "부품번호"),
+                new("UNIT_OF_MEASURE", "단위"), new("CURRENT_STOCK", "현재고"), new("MIN_STOCK", "최소재고"),
+                new("MAX_STOCK", "최대재고"), new("LOCATION", "위치"), new("EQUIPMENT_CLASS_ID", "설비 그룹"),
+            },
+            QueryId: "CMMS.SparePartsAll"));
+
+        // Spare Part 재고 조회(FACTORY_EMS_STD_SPARE_PART_STOCK) — 동일 마스터를 재고 중심 컬럼으로 조회.
+        Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART_STOCK", "Spare Part 재고 조회",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PART_ID", "부품 ID"), new("PART_NAME", "부품명"), new("PART_NUMBER", "부품번호"),
+                new("CURRENT_STOCK", "현재고"), new("MIN_STOCK", "최소재고"), new("MAX_STOCK", "최대재고"), new("LOCATION", "위치"),
+            },
+            QueryId: "CMMS.SparePartsAll"));
+
+        // 설비 보전 결과(FACTORY_EMS_BM_ORDER_RESULT) — 작업지시 전체조회(CMMS.WorkOrderList, NULL-guard).
+        Register(new ScreenDefinition("FACTORY_EMS_BM_ORDER_RESULT", "설비 보전 결과",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("WO_ID", "작업지시 ID"), new("EQUIPMENT_ID", "설비 ID"), new("WO_TYPE", "유형"),
+                new("DESCRIPTION", "설명"), new("ASSIGNEE_ID", "담당자"), new("ISSUED_AT", "발행일시"),
+                new("COMPLETED_AT", "완료일시"), new("STATUS", "상태"),
+            },
+            QueryId: "CMMS.WorkOrderList"));
+
+        // 설비 수리 요청 그리드(FACTORY_EMS_BM_ORDER_GRIDTYPE) — 작업지시 그리드(동일 CMMS.WorkOrderList).
+        Register(new ScreenDefinition("FACTORY_EMS_BM_ORDER_GRIDTYPE", "설비 수리 요청 그리드",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("WO_ID", "작업지시 ID"), new("EQUIPMENT_ID", "설비 ID"), new("WO_TYPE", "유형"),
+                new("DESCRIPTION", "설명"), new("ASSIGNEE_ID", "담당자"), new("ISSUED_AT", "발행일시"),
+                new("STARTED_AT", "착수일시"), new("STATUS", "상태"),
+            },
+            QueryId: "CMMS.WorkOrderList"));
+
+        // PM 계획 관리(FACTORY_EMS_PM_ORDER_PLAN) — 보전계획 전체조회(CMMS.MaintenancePlanList, NULL-guard).
+        Register(new ScreenDefinition("FACTORY_EMS_PM_ORDER_PLAN", "PM 계획 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PLAN_ID", "계획 ID"), new("PLAN_NAME", "계획명"), new("EQUIPMENT_ID", "설비 ID"),
+                new("PLAN_TYPE", "유형"), new("CYCLE_TYPE", "주기"), new("SCHEDULED_DATE", "예정일"),
+                new("ESTIMATED_DURATION_HOURS", "예상시간(h)"), new("ASSIGNEE_ID", "담당자"), new("STATUS", "상태"),
+            },
+            QueryId: "CMMS.MaintenancePlanList"));
+
+        // PM 계획 그리드(FACTORY_EMS_PM_ORDER_PLAN_GRIDTYPE) — 보전계획 그리드(동일 CMMS.MaintenancePlanList).
+        Register(new ScreenDefinition("FACTORY_EMS_PM_ORDER_PLAN_GRIDTYPE", "PM 계획 그리드",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PLAN_ID", "계획 ID"), new("PLAN_NAME", "계획명"), new("EQUIPMENT_ID", "설비 ID"),
+                new("PLAN_TYPE", "유형"), new("CYCLE_TYPE", "주기"), new("SCHEDULED_DATE", "예정일"),
+                new("ASSIGNEE_ID", "담당자"), new("STATUS", "상태"),
+            },
+            QueryId: "CMMS.MaintenancePlanList"));
+
+        // ===== SmartUX FDC(EES_FDC) 업무화면 점등(Phase 2) — 설정/이력 read 슬라이스(파라미터그룹/파라미터/인터락이력).
+        // 메뉴 접두사 EES_FDC = C# 모듈 FDC. 기존 쿼리는 모두 @equipmentId 필수라, 점등용 NULL-guard 전체조회
+        // 쿼리(FDC.ParameterGroupList/ParameterList/InterlockHistoryList)를 신설해 바인딩. 그리드 read는 형제와 동일하게 인증만. =====
+
+        // 파라미터 수집 그룹 관리(EES_FDC_TRACE_GROUP) — 파라미터 그룹 마스터 조회(FDC.ParameterGroupList).
+        Register(new ScreenDefinition("EES_FDC_TRACE_GROUP", "파라미터 수집 그룹 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("GROUP_ID", "그룹 ID"), new("GROUP_NAME", "그룹명"), new("EQUIPMENT_ID", "설비 ID"),
+                new("DESCRIPTION", "설명"), new("DISPLAY_ORDER", "표시순서"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "FDC.ParameterGroupList"));
+
+        // TRACE 파라미터 관리(EES_FDC_TRACE_PARAMETER_MANAGEMENT) — 수집 파라미터 마스터 조회(FDC.ParameterList).
+        Register(new ScreenDefinition("EES_FDC_TRACE_PARAMETER_MANAGEMENT", "TRACE 파라미터 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PARAMETER_ID", "파라미터 ID"), new("PARAMETER_NAME", "파라미터명"), new("EQUIPMENT_ID", "설비 ID"),
+                new("GROUP_ID", "그룹 ID"), new("UNIT", "단위"), new("SAMPLING_INTERVAL_MS", "수집주기(ms)"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "FDC.ParameterList"));
+
+        // ACTIVE 파라미터 스펙 관리(EES_FDC_ACTIVE_SPEC_MANAGEMENT) — 동일 파라미터 마스터를 스펙(관리한도) 중심 컬럼으로 조회.
+        Register(new ScreenDefinition("EES_FDC_ACTIVE_SPEC_MANAGEMENT", "ACTIVE 파라미터 스펙 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PARAMETER_ID", "파라미터 ID"), new("PARAMETER_NAME", "파라미터명"), new("UNIT", "단위"),
+                new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
+                new("LOWER_CONTROL_LIMIT", "관리하한"), new("UPPER_CONTROL_LIMIT", "관리상한"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "FDC.ParameterList"));
+
+        // 인터락 이력 조회(EES_FDC_INTERLOCK_HISTORY) — 인터락 발동/해제 이력 조회(FDC.InterlockHistoryList).
+        Register(new ScreenDefinition("EES_FDC_INTERLOCK_HISTORY", "인터락 이력 조회",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("HISTORY_ID", "이력 ID"), new("RULE_ID", "규칙 ID"), new("EQUIPMENT_ID", "설비 ID"),
+                new("PARAMETER_ID", "파라미터 ID"), new("TRIGGER_VALUE", "발동값"), new("ACTION", "조치"),
+                new("MESSAGE", "메시지"), new("TRIGGERED_AT", "발동시각"), new("RESOLVED_AT", "해제시각"), new("IS_RESOLVED", "해제"),
+            },
+            QueryId: "FDC.InterlockHistoryList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;

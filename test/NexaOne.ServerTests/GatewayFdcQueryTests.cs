@@ -273,6 +273,48 @@ public sealed class GatewayFdcQueryTests : IClassFixture<GatewayFdcQueryTests.Fd
         rows[0]["ACTION"].ToString().Should().Be("STOP");
     }
 
+    [Fact]
+    public async Task ParameterGroupList_returns_all_without_equipment_filter()
+    {
+        EnsureSchemaReady();
+        var idA = $"G_{Suffix()}";
+        var idB = $"G_{Suffix()}";
+        SeedGroup(idA, "EQ_" + Suffix(), "온도그룹", 1);   // 서로 다른 설비
+        SeedGroup(idB, "EQ_" + Suffix(), "압력그룹", 0);
+
+        var rows = await Query("FDC.ParameterGroupList", new());  // 파라미터 없음 → NULL-guard 전체조회
+        var ids = rows.Select(r => r["GROUP_ID"].ToString()).ToList();
+        ids.Should().Contain(new[] { idA, idB }, "설비 필터 없이 전체 파라미터그룹이 조회돼야 한다(점등용 전체조회)");
+    }
+
+    [Fact]
+    public async Task ParameterList_returns_all_without_equipment_filter()
+    {
+        EnsureSchemaReady();
+        var idA = $"P_{Suffix()}";
+        var idB = $"P_{Suffix()}";
+        SeedParameter(idA, "EQ_" + Suffix(), null, "온도");   // 서로 다른 설비, 그룹 없음
+        SeedParameter(idB, "EQ_" + Suffix(), null, "압력");
+
+        var rows = await Query("FDC.ParameterList", new());
+        var ids = rows.Select(r => r["PARAMETER_ID"].ToString()).ToList();
+        ids.Should().Contain(new[] { idA, idB }, "설비 필터 없이 전체 파라미터가 조회돼야 한다(점등용 전체조회)");
+    }
+
+    [Fact]
+    public async Task InterlockHistoryList_returns_all_without_equipment_filter()
+    {
+        EnsureSchemaReady();
+        var idA = $"IH_{Suffix()}";
+        var idB = $"IH_{Suffix()}";
+        SeedInterlockHistory(idA, "RULE1", "EQ_" + Suffix(), "P1", DateTime.UtcNow.AddHours(-2));
+        SeedInterlockHistory(idB, "RULE1", "EQ_" + Suffix(), "P1", DateTime.UtcNow.AddDays(-10));
+
+        var rows = await Query("FDC.InterlockHistoryList", new());  // 설비·기간 필터 없이 전체
+        var ids = rows.Select(r => r["HISTORY_ID"].ToString()).ToList();
+        ids.Should().Contain(new[] { idA, idB }, "설비/기간 필터 없이 전체 인터락 이력이 조회돼야 한다(점등용 전체조회)");
+    }
+
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)
     {
         var res = await AuthedClient().PostAsJsonAsync($"/api/v1/query/{queryId}", p);

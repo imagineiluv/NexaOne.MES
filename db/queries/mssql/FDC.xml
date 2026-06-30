@@ -66,4 +66,34 @@
             ORDER BY TRIGGERED_AT DESC
         ]]></statement>
     </query>
+    <!-- SmartUX 화면 점등용 전체조회(NULL-guard) — 설비 필터 없이 마스터/이력 그리드를 채운다(미지정 @param은 게이트웨이가 null로 채움). -->
+    <query id="FDC.ParameterGroupList">
+        <statement><![CDATA[
+            SELECT GROUP_ID, GROUP_NAME, EQUIPMENT_ID, DESCRIPTION, DISPLAY_ORDER, IS_ACTIVE
+            FROM FDC_PARAMETER_GROUP WITH (NOLOCK)
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+            ORDER BY DISPLAY_ORDER, GROUP_NAME
+        ]]></statement>
+    </query>
+    <query id="FDC.ParameterList">
+        <statement><![CDATA[
+            SELECT PARAMETER_ID, PARAMETER_NAME, EQUIPMENT_ID, GROUP_ID, UNIT,
+                   LOWER_LIMIT, UPPER_LIMIT, LOWER_CONTROL_LIMIT, UPPER_CONTROL_LIMIT,
+                   SAMPLING_INTERVAL_MS, IS_ACTIVE
+            FROM FDC_PARAMETER WITH (NOLOCK)
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@groupId IS NULL OR GROUP_ID = @groupId)
+            ORDER BY PARAMETER_NAME
+        ]]></statement>
+    </query>
+    <query id="FDC.InterlockHistoryList">
+        <statement><![CDATA[
+            SELECT HISTORY_ID, RULE_ID, EQUIPMENT_ID, PARAMETER_ID, TRIGGER_VALUE, ACTION, MESSAGE,
+                   TRIGGERED_AT, RESOLVED_AT, IS_RESOLVED
+            FROM FDC_INTERLOCK_HISTORY WITH (NOLOCK)
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@isResolved IS NULL OR IS_RESOLVED = @isResolved)
+            ORDER BY TRIGGERED_AT DESC
+        ]]></statement>
+    </query>
 </queries>
