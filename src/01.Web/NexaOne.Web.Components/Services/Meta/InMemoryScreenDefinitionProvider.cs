@@ -507,6 +507,38 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("CYCLE_TYPE", "주기유형"), new("CYCLE_VALUE", "주기값"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "EMS.EqpMaintItemList"));
+
+        // ===== SmartUX QMS 기준정보 마스터 점등(V037 신설) — 검사항목/검사정의/수입검사방법. 그리드 read는 인증만. =====
+
+        // 검사항목 관리(QMS_STD_INSP_ITEM) — 검사항목 마스터(QMS.InspectionItemList).
+        Register(new ScreenDefinition("QMS_STD_INSP_ITEM", "검사항목 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("ITEM_ID", "검사항목 ID"), new("ITEM_NAME", "항목명"), new("INSPECTION_TYPE", "검사유형"),
+                new("MEASURE_TYPE", "측정유형"), new("UNIT", "단위"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "QMS.InspectionItemList"));
+
+        // 검사 관리(QMS_STD_INSP_DEF) — 검사 정의(공정/품목 단위) 마스터(QMS.InspectionDefList).
+        Register(new ScreenDefinition("QMS_STD_INSP_DEF", "검사 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("INSP_DEF_ID", "검사정의 ID"), new("INSP_DEF_NAME", "검사명"), new("PROCESS_ID", "공정 ID"),
+                new("PRODUCT_ID", "품목 ID"), new("INSPECTION_TYPE", "검사유형"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "QMS.InspectionDefList"));
+
+        // 수입검사 방법 설정(QMS_STD_INSP_INCOMING_METHOD) — 품목별 수입검사 샘플링 방법(QMS.IncomingInspMethodList).
+        Register(new ScreenDefinition("QMS_STD_INSP_INCOMING_METHOD", "수입검사 방법 설정",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("METHOD_ID", "방법 ID"), new("METHOD_NAME", "방법명"), new("PRODUCT_ID", "품목 ID"),
+                new("SAMPLING_TYPE", "샘플링"), new("AQL_LEVEL", "AQL 수준"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "QMS.IncomingInspMethodList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;

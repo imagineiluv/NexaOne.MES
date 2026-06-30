@@ -58,6 +58,32 @@
             ORDER BY INSPECTED_AT DESC
         ]]></statement>
     </query>
+    <!-- SmartUX 기준정보 화면 점등용 전체조회(NULL-guard) — V037 신설 마스터(검사항목/검사정의/수입검사방법). -->
+    <query id="QMS.InspectionItemList">
+        <statement><![CDATA[
+            SELECT ITEM_ID, ITEM_NAME, INSPECTION_TYPE, MEASURE_TYPE, UNIT, DESCRIPTION, IS_ACTIVE
+            FROM QMS_INSPECTION_ITEM
+            WHERE (@inspectionType IS NULL OR INSPECTION_TYPE = @inspectionType)
+            ORDER BY ITEM_NAME
+        ]]></statement>
+    </query>
+    <query id="QMS.InspectionDefList">
+        <statement><![CDATA[
+            SELECT INSP_DEF_ID, INSP_DEF_NAME, PROCESS_ID, PRODUCT_ID, INSPECTION_TYPE, DESCRIPTION, IS_ACTIVE
+            FROM QMS_INSPECTION_DEF
+            WHERE (@processId IS NULL OR PROCESS_ID = @processId)
+              AND (@productId IS NULL OR PRODUCT_ID = @productId)
+            ORDER BY INSP_DEF_NAME
+        ]]></statement>
+    </query>
+    <query id="QMS.IncomingInspMethodList">
+        <statement><![CDATA[
+            SELECT METHOD_ID, METHOD_NAME, PRODUCT_ID, SAMPLING_TYPE, AQL_LEVEL, DESCRIPTION, IS_ACTIVE
+            FROM QMS_INCOMING_INSP_METHOD
+            WHERE (@productId IS NULL OR PRODUCT_ID = @productId)
+            ORDER BY METHOD_NAME
+        ]]></statement>
+    </query>
     <query id="QMS.CreateDefectClass" kind="write" requiredPermission="qms:manage">
         <statement><![CDATA[
             INSERT INTO QMS_DEFECT_CLASS (DEFECT_CLASS_ID, DEFECT_CLASS_NAME, DESCRIPTION, SEVERITY,
