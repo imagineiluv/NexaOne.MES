@@ -302,6 +302,54 @@ public sealed class GatewayQmsQueryTests : IClassFixture<GatewayQmsQueryTests.Qm
         rows.Select(r => r["LT_INSP_ID"].ToString()).Should().Contain(prod, "V041 제품 장기재고검사가 조회돼야 한다");
     }
 
+    [Fact]
+    public async Task ClaimList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"CL_{Suffix()}";
+        Exec(@"INSERT INTO QMS_CLAIM (CLAIM_ID, CUSTOMER_NAME, STATUS, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, '고객A', 'Received', 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.ClaimList");
+        rows.Select(r => r["CLAIM_ID"].ToString()).Should().Contain(id, "V042 클레임이 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task NcrList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"NC_{Suffix()}";
+        Exec(@"INSERT INTO QMS_NCR (NCR_ID, ISSUED_DATE, STATUS, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, @now, 'Open', 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.NcrList");
+        rows.Select(r => r["NCR_ID"].ToString()).Should().Contain(id, "V043 NCR이 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task HoldReleaseList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"HR_{Suffix()}";
+        Exec(@"INSERT INTO QMS_HOLD_RELEASE (HOLD_ID, HOLD_TYPE, REQUESTED_AT, STATUS, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, 'Hold', @now, 'Hold', 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.HoldReleaseList");
+        rows.Select(r => r["HOLD_ID"].ToString()).Should().Contain(id, "V043 Hold/Release가 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task FourMChangeList_returns_all()
+    {
+        EnsureSchemaReady();
+        var id = $"4M_{Suffix()}";
+        Exec(@"INSERT INTO QMS_4M_CHANGE (CHANGE_ID, CHANGE_TYPE, APPROVAL_STATUS, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, 'Machine', 'Pending', 'TEST', @now, 'TEST', @now)", cmd =>
+        { cmd.Parameters.AddWithValue("@id", id); cmd.Parameters.AddWithValue("@now", Now()); });
+        var rows = await Query("QMS.FourMChangeList");
+        rows.Select(r => r["CHANGE_ID"].ToString()).Should().Contain(id, "V044 4M 변경이 전체조회돼야 한다");
+    }
+
     private async Task<List<Dictionary<string, object>>> Query(string queryId)
     {
         var res = await AuthedClient().PostAsJsonAsync($"/api/v1/query/{queryId}", new Dictionary<string, object>());

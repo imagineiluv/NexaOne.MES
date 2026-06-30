@@ -698,6 +698,74 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         Register(new ScreenDefinition("QMS_INSP_LONGTERM_PRODUCT_REQUEST", "제품 장기재고 검사 의뢰 현황", Array.Empty<FieldDefinition>(), ltInspCols, QueryId: "QMS.ProductLongtermInspectionList"));
         Register(new ScreenDefinition("QMS_INSP_LONGTERM_PRODUCT_INSP_RESULT", "제품 장기재고 검사 결과 등록", Array.Empty<FieldDefinition>(), ltInspCols, QueryId: "QMS.ProductLongtermInspectionList"));
         Register(new ScreenDefinition("QMS_INSP_LONGTERM_PRODUCT_INSP_HISTORY", "제품 장기재고 검사 결과 이력", Array.Empty<FieldDefinition>(), ltInspCols, QueryId: "QMS.ProductLongtermInspectionList"));
+
+        // ===== SmartUX QMS 클레임(QMS_CLM) 점등(V042 신설 QMS_CLAIM). =====
+        var claimCols = new GridColumnDefinition[]
+        {
+            new("CLAIM_ID", "클레임 ID"), new("CLAIM_NO", "클레임번호"), new("CUSTOMER_NAME", "고객사"),
+            new("PRODUCT_ID", "품목 ID"), new("CLAIM_TYPE", "유형"), new("OCCURRED_DATE", "발생일"),
+            new("SEVERITY", "심각도"), new("STATUS", "상태"),
+        };
+        Register(new ScreenDefinition("QMS_CLM_CLAIM_REGIST", "고객사 클레임 접수", Array.Empty<FieldDefinition>(), claimCols, QueryId: "QMS.ClaimList"));
+        Register(new ScreenDefinition("QMS_CLM_CLAIM_RESULT", "클레임 처리 결과 등록", Array.Empty<FieldDefinition>(), claimCols, QueryId: "QMS.ClaimList"));
+        Register(new ScreenDefinition("QMS_CLM_STATUS_VIEW", "클레임 현황 조회", Array.Empty<FieldDefinition>(), claimCols, QueryId: "QMS.ClaimList"));
+        Register(new ScreenDefinition("QMS_CLM_RPT_OCCUR_STATUS", "클레임 발생 현황", Array.Empty<FieldDefinition>(), claimCols, QueryId: "QMS.ClaimList"));
+        Register(new ScreenDefinition("QMS_CLM_REPORT_ACTION_STATUS", "클레임 처리 현황", Array.Empty<FieldDefinition>(), claimCols, QueryId: "QMS.ClaimList"));
+
+        // ===== SmartUX QMS 품질보증(QCA) 점등(V043 신설) — NCR + Hold/Release. =====
+        var ncrCols = new GridColumnDefinition[]
+        {
+            new("NCR_ID", "NCR ID"), new("NCR_NO", "NCR번호"), new("SOURCE_TYPE", "발생원"), new("LOT_ID", "LOT ID"),
+            new("PRODUCT_ID", "품목 ID"), new("ISSUED_DATE", "발행일"), new("DISPOSITION", "처리"), new("STATUS", "상태"),
+        };
+        Register(new ScreenDefinition("QMS_QCA_NCR_ISSUE", "NCR 관리", Array.Empty<FieldDefinition>(), ncrCols, QueryId: "QMS.NcrList"));
+        Register(new ScreenDefinition("QMS_QCA_NCR_OVERVIEW", "NCR 현황", Array.Empty<FieldDefinition>(), ncrCols, QueryId: "QMS.NcrList"));
+        var holdCols = new GridColumnDefinition[]
+        {
+            new("HOLD_ID", "Hold ID"), new("LOT_ID", "LOT ID"), new("PRODUCT_ID", "품목 ID"), new("HOLD_TYPE", "유형"),
+            new("RISK_RANGE", "Risk Range"), new("REQUESTED_BY", "요청자"), new("REQUESTED_AT", "요청일시"), new("STATUS", "상태"),
+        };
+        Register(new ScreenDefinition("QMS_QCA_RELEASE_HOLD_REG", "Hold/Release(Risk Range)", Array.Empty<FieldDefinition>(), holdCols, QueryId: "QMS.HoldReleaseList"));
+        Register(new ScreenDefinition("QMS_QCA_PENDING_STATUS", "Hold/Release(Risk Range) 현황", Array.Empty<FieldDefinition>(), holdCols, QueryId: "QMS.HoldReleaseList"));
+
+        // ===== SmartUX QMS 4M 변경 점등(V044 신설 QMS_4M_CHANGE). =====
+        var fourMCols = new GridColumnDefinition[]
+        {
+            new("CHANGE_ID", "변경 ID"), new("CHANGE_NO", "변경번호"), new("CHANGE_TYPE", "4M 유형"),
+            new("EQUIPMENT_ID", "설비 ID"), new("PRODUCT_ID", "품목 ID"), new("CHANGE_DATE", "변경일"), new("APPROVAL_STATUS", "승인상태"),
+        };
+        Register(new ScreenDefinition("QMS_4M_CHANGE_HISTORY", "4M 변경 이력 관리", Array.Empty<FieldDefinition>(), fourMCols, QueryId: "QMS.FourMChangeList"));
+        Register(new ScreenDefinition("QMS_REP_CHANGE_STATUS", "변경점 발생 현황", Array.Empty<FieldDefinition>(), fourMCols, QueryId: "QMS.FourMChangeList"));
+
+        // ===== SmartUX QMS 보고서성 잎 점등 — 신규 테이블 없이 기존 쿼리 재사용(계측기/협력사). =====
+        var gaugeReportCols = new GridColumnDefinition[]
+        {
+            new("GAUGE_ID", "계측기 ID"), new("GAUGE_NAME", "계측기명"), new("GAUGE_TYPE", "유형"),
+            new("LOCATION", "위치"), new("NEXT_CALIBRATION_AT", "차기검교정"), new("IS_ACTIVE", "활성"),
+        };
+        Register(new ScreenDefinition("QMS_MEASURE_INSTRUMENT_REPORT", "계측기 현황", Array.Empty<FieldDefinition>(), gaugeReportCols, QueryId: "QMS.GaugeList"));
+        Register(new ScreenDefinition("QMS_MEQ_MEASURE_FAILURE_RATE", "계측기 측정 불량 현황", Array.Empty<FieldDefinition>(), gaugeReportCols, QueryId: "QMS.GaugeList"));
+        Register(new ScreenDefinition("QMS_MEQ_CALIBRATION_STATUS", "계측기 검교정 현황", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("RESULT_ID", "내역 ID"), new("GAUGE_ID", "계측기 ID"), new("CALIBRATED_AT", "검교정일시"),
+                new("RESULT", "결과"), new("CERTIFICATE_NO", "성적서번호"), new("NEXT_DUE_AT", "차기예정"),
+            },
+            QueryId: "QMS.GaugeCalibrationResultList"));
+        Register(new ScreenDefinition("QMS_MEQ_MEASURE_REPAIR_DETAILS", "계측기 수리 현황", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("REPAIR_ID", "수리 ID"), new("GAUGE_ID", "계측기 ID"), new("REPAIRED_AT", "수리일시"),
+                new("REPAIRED_BY", "수리자"), new("FAILURE_DESC", "고장내용"), new("REPAIR_DESC", "수리내용"),
+            },
+            QueryId: "QMS.GaugeRepairResultList"));
+        var spmReportCols = new GridColumnDefinition[]
+        {
+            new("RESULT_ID", "실적 ID"), new("SUPPLIER_ID", "협력사 ID"), new("SUPPLIER_NAME", "협력사명"),
+            new("EVAL_PERIOD", "평가기간"), new("TOTAL_SCORE", "총점"), new("GRADE", "등급"), new("EVALUATED_AT", "평가일시"),
+        };
+        Register(new ScreenDefinition("QMS_SPM_EVL_REPORT", "협력사 평가 현황", Array.Empty<FieldDefinition>(), spmReportCols, QueryId: "QMS.SpmEvalResultList"));
+        Register(new ScreenDefinition("QMS_SPM_EVL_RESULT_COMPARISON", "협력사별 평가 결과 비교 조회", Array.Empty<FieldDefinition>(), spmReportCols, QueryId: "QMS.SpmEvalResultList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;

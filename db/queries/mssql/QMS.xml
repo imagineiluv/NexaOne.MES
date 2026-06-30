@@ -235,6 +235,43 @@
             ORDER BY REQUEST_DATE DESC
         ]]></statement>
     </query>
+    <!-- SmartUX 클레임/NCR/Hold/4M 화면 점등용 전체조회(NULL-guard) — V042/V043/V044 신설. -->
+    <query id="QMS.ClaimList">
+        <statement><![CDATA[
+            SELECT CLAIM_ID, CLAIM_NO, CUSTOMER_NAME, PRODUCT_ID, LOT_ID, CLAIM_TYPE,
+                   OCCURRED_DATE, SEVERITY, STATUS, ASSIGNEE_ID
+            FROM QMS_CLAIM WITH (NOLOCK)
+            WHERE (@status IS NULL OR STATUS = @status)
+            ORDER BY OCCURRED_DATE DESC
+        ]]></statement>
+    </query>
+    <query id="QMS.NcrList">
+        <statement><![CDATA[
+            SELECT NCR_ID, NCR_NO, SOURCE_TYPE, LOT_ID, PRODUCT_ID, DEFECT_CLASS_ID,
+                   ISSUED_DATE, ISSUED_BY, DISPOSITION, STATUS
+            FROM QMS_NCR WITH (NOLOCK)
+            WHERE (@status IS NULL OR STATUS = @status)
+            ORDER BY ISSUED_DATE DESC
+        ]]></statement>
+    </query>
+    <query id="QMS.HoldReleaseList">
+        <statement><![CDATA[
+            SELECT HOLD_ID, LOT_ID, PRODUCT_ID, HOLD_TYPE, RISK_RANGE, REASON,
+                   REQUESTED_BY, REQUESTED_AT, STATUS
+            FROM QMS_HOLD_RELEASE WITH (NOLOCK)
+            WHERE (@status IS NULL OR STATUS = @status)
+            ORDER BY REQUESTED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="QMS.FourMChangeList">
+        <statement><![CDATA[
+            SELECT CHANGE_ID, CHANGE_NO, CHANGE_TYPE, EQUIPMENT_ID, PRODUCT_ID,
+                   CHANGE_DATE, APPROVAL_STATUS, REQUESTED_BY
+            FROM QMS_4M_CHANGE WITH (NOLOCK)
+            WHERE (@changeType IS NULL OR CHANGE_TYPE = @changeType)
+            ORDER BY CHANGE_DATE DESC
+        ]]></statement>
+    </query>
     <query id="QMS.CreateDefectClass" kind="write" requiredPermission="qms:manage">
         <statement><![CDATA[
             INSERT INTO QMS_DEFECT_CLASS (DEFECT_CLASS_ID, DEFECT_CLASS_NAME, DESCRIPTION, SEVERITY,
