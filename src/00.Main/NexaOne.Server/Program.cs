@@ -542,6 +542,73 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
         Exec(tx, "INSERT INTO MDM_QTIME_ACTION (ACTION_ID,QTIME_ID,ACTION_CODE,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@qt,@code,@desc,'SYSTEM',@at,'SYSTEM',@at)",
             ("@id", c.Item1), ("@qt", c.Item2), ("@code", c.Item3), ("@desc", c.Item4), ("@at", now));
 
+    // ===== V037~V044 신설 QMS 마스터/트랜잭션 시드(점등 화면이 실제 행을 보이도록). 감사·IS_ACTIVE·STATUS는 DDL DEFAULT로 채움. =====
+    // 검사항목/검사정의/수입검사방법(기준정보 V037)
+    foreach (var c in new[] { ("INSP_VISUAL", "외관 검사", "Incoming", "Attribute"), ("INSP_DIM", "치수 검사", "Process", "Variable"), ("INSP_FUNC", "기능 검사", "Shipping", "Attribute") })
+        Exec(tx, "INSERT INTO QMS_INSPECTION_ITEM (ITEM_ID,ITEM_NAME,INSPECTION_TYPE,MEASURE_TYPE,UNIT) VALUES (@id,@name,@t,@mt,'EA')",
+            ("@id", c.Item1), ("@name", c.Item2), ("@t", c.Item3), ("@mt", c.Item4));
+    foreach (var c in new[] { ("IDEF_IN", "수입검사 정의", "Incoming"), ("IDEF_PR", "공정검사 정의", "Process") })
+        Exec(tx, "INSERT INTO QMS_INSPECTION_DEF (INSP_DEF_ID,INSP_DEF_NAME,PROCESS_ID,PRODUCT_ID,INSPECTION_TYPE) VALUES (@id,@name,'PROC01','ITEM03',@t)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@t", c.Item3));
+    foreach (var c in new[] { ("IM_AQL10", "AQL 1.0 정상검사", "AQL", "1.0"), ("IM_FULL", "전수검사", "Full", "-") })
+        Exec(tx, "INSERT INTO QMS_INCOMING_INSP_METHOD (METHOD_ID,METHOD_NAME,PRODUCT_ID,SAMPLING_TYPE,AQL_LEVEL) VALUES (@id,@name,'ITEM03',@st,@aql)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@st", c.Item3), ("@aql", c.Item4));
+
+    // 검사 실행(수입/공정/출하)
+    foreach (var c in new[] { ("INS_IN1", "Incoming", "LOT_IN_001", "ITEM03", "EQ02", "Pass", 0), ("INS_PR1", "Process", "LOT_PR_001", "ITEM02", "EQ01", "Pass", 0), ("INS_SH1", "Shipping", "LOT_SH_001", "ITEM01", "EQ02", "Fail", 2) })
+        Exec(tx, "INSERT INTO QMS_INSPECTION (INSPECTION_ID,INSPECTION_TYPE,LOT_ID,PRODUCT_ID,EQUIPMENT_ID,SPEC_ID,INSPECTED_AT,INSPECTOR_ID,RESULT,SAMPLE_QTY,DEFECT_QTY,IS_CONFIRMED) " +
+                 "VALUES (@id,@t,@lot,@prod,@eq,'SPEC01',@at,'admin',@r,10,@d,1)",
+            ("@id", c.Item1), ("@t", c.Item2), ("@lot", c.Item3), ("@prod", c.Item4), ("@eq", c.Item5), ("@at", now), ("@r", c.Item6), ("@d", c.Item7));
+
+    // 장기재고검사(자재/제품)
+    foreach (var c in new[] { ("LT_MAT1", "Material", "ITEM03", "Completed"), ("LT_PRD1", "Product", "ITEM01", "Requested") })
+        Exec(tx, "INSERT INTO QMS_LONGTERM_INSPECTION (LT_INSP_ID,TARGET_TYPE,PRODUCT_ID,LOT_ID,WAREHOUSE,REQUEST_DATE,REQUESTED_BY,STATUS) " +
+                 "VALUES (@id,@t,@prod,'LOT_LT_01','창고A',@at,'admin',@st)",
+            ("@id", c.Item1), ("@t", c.Item2), ("@prod", c.Item3), ("@at", now), ("@st", c.Item4));
+
+    // 클레임
+    foreach (var c in new[] { ("CLM001", "CL-2026-001", "현대전자", "ITEM01", "Quality", "Critical", "Received"), ("CLM002", "CL-2026-002", "삼성SDI", "ITEM02", "Delivery", "Major", "Completed") })
+        Exec(tx, "INSERT INTO QMS_CLAIM (CLAIM_ID,CLAIM_NO,CUSTOMER_NAME,PRODUCT_ID,CLAIM_TYPE,OCCURRED_DATE,SEVERITY,STATUS,ASSIGNEE_ID) " +
+                 "VALUES (@id,@no,@cust,@prod,@ct,@at,@sv,@st,'admin')",
+            ("@id", c.Item1), ("@no", c.Item2), ("@cust", c.Item3), ("@prod", c.Item4), ("@ct", c.Item5), ("@at", now), ("@sv", c.Item6), ("@st", c.Item7));
+
+    // NCR
+    foreach (var c in new[] { ("NCR001", "NCR-2026-001", "Process", "LOT_PR_001", "Open"), ("NCR002", "NCR-2026-002", "Incoming", "LOT_IN_001", "Closed") })
+        Exec(tx, "INSERT INTO QMS_NCR (NCR_ID,NCR_NO,SOURCE_TYPE,LOT_ID,PRODUCT_ID,ISSUED_DATE,ISSUED_BY,DISPOSITION,STATUS) " +
+                 "VALUES (@id,@no,@src,@lot,'ITEM02',@at,'admin','Rework',@st)",
+            ("@id", c.Item1), ("@no", c.Item2), ("@src", c.Item3), ("@lot", c.Item4), ("@at", now), ("@st", c.Item5));
+
+    // Hold/Release · 4M 변경
+    Exec(tx, "INSERT INTO QMS_HOLD_RELEASE (HOLD_ID,LOT_ID,PRODUCT_ID,HOLD_TYPE,RISK_RANGE,REASON,REQUESTED_BY,REQUESTED_AT,STATUS) " +
+             "VALUES ('HOLD001','LOT_SH_001','ITEM01','Hold','High','출하검사 부적합 보류','admin',@at,'Hold')", ("@at", now));
+    Exec(tx, "INSERT INTO QMS_4M_CHANGE (CHANGE_ID,CHANGE_NO,CHANGE_TYPE,EQUIPMENT_ID,PRODUCT_ID,CHANGE_DATE,DESCRIPTION,REQUESTED_BY,APPROVAL_STATUS) " +
+             "VALUES ('4M001','4M-2026-001','Machine','EQ01','ITEM01',@at,'가공기 1호 공구 교체','admin','Approved')", ("@at", now));
+
+    // 계측기 + 검교정/RNR/수리
+    foreach (var c in new[] { ("GA01", "버니어캘리퍼스", "측정", "CD-15CP"), ("GA02", "마이크로미터", "측정", "MDC-25MX") })
+        Exec(tx, "INSERT INTO QMS_GAUGE (GAUGE_ID,GAUGE_NAME,GAUGE_TYPE,MODEL,SERIAL_NO,LOCATION,EQUIPMENT_ID,CALIBRATION_CYCLE_DAYS,NEXT_CALIBRATION_AT) " +
+                 "VALUES (@id,@name,@t,@model,@id,'검사실','EQ02',365,@at)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@t", c.Item3), ("@model", c.Item4), ("@at", now));
+    Exec(tx, "INSERT INTO QMS_GAUGE_CALIBRATION_PLAN (PLAN_ID,GAUGE_ID,PLAN_NAME,SCHEDULED_DATE,CYCLE_TYPE,ASSIGNEE_ID,STATUS) VALUES ('CP01','GA01','연간 검교정',@at,'Annual','admin','Planned')", ("@at", now));
+    Exec(tx, "INSERT INTO QMS_GAUGE_CALIBRATION_RESULT (RESULT_ID,GAUGE_ID,PLAN_ID,CALIBRATED_AT,CALIBRATED_BY,RESULT,CERTIFICATE_NO) VALUES ('CR01','GA01','CP01',@at,'한국인정','Pass','CERT-2026-001')", ("@at", now));
+    Exec(tx, "INSERT INTO QMS_GAUGE_RNR_PLAN (RNR_PLAN_ID,GAUGE_ID,PLAN_NAME,SCHEDULED_DATE,OPERATOR_COUNT,TRIAL_COUNT,PART_COUNT,STATUS) VALUES ('RP01','GA01','버니어 R&R',@at,3,2,10,'Planned')", ("@at", now));
+    Exec(tx, "INSERT INTO QMS_GAUGE_RNR_RESULT (RNR_RESULT_ID,RNR_PLAN_ID,GAUGE_ID,EVALUATED_AT,EVALUATED_BY,GAGE_RR_PERCENT,NDC,JUDGEMENT) VALUES ('RR01','RP01','GA01',@at,'admin',8.5,12,'Accept')", ("@at", now));
+    Exec(tx, "INSERT INTO QMS_GAUGE_REPAIR_RESULT (REPAIR_ID,GAUGE_ID,REPAIRED_AT,REPAIRED_BY,FAILURE_DESC,REPAIR_DESC,COST) VALUES ('RE01','GA02',@at,'외주','영점 불량','영점 조정',50000)", ("@at", now));
+
+    // 협력사 평가(항목→정의→연결→실적→시정조치)
+    foreach (var c in new[] { ("SI_Q", "품질", "Quality", 40), ("SI_D", "납기", "Delivery", 30), ("SI_P", "가격", "Price", 30) })
+        Exec(tx, "INSERT INTO QMS_SPM_EVAL_ITEM (ITEM_ID,ITEM_NAME,CATEGORY,MAX_SCORE) VALUES (@id,@name,@cat,@max)",
+            ("@id", c.Item1), ("@name", c.Item2), ("@cat", c.Item3), ("@max", c.Item4));
+    Exec(tx, "INSERT INTO QMS_SPM_EVAL_DEF (DEF_ID,DEF_NAME,EVAL_CYCLE,TARGET_TYPE) VALUES ('SD_ANN','연간 정기평가','Annual','Supplier')");
+    foreach (var c in new[] { ("SP_Q", "SI_Q", 40, 1), ("SP_D", "SI_D", 30, 2), ("SP_P", "SI_P", 30, 3) })
+        Exec(tx, "INSERT INTO QMS_SPM_EVAL_PARAM (PARAM_ID,DEF_ID,ITEM_ID,WEIGHT,SORT_ORDER) VALUES (@id,'SD_ANN',@item,@w,@o)",
+            ("@id", c.Item1), ("@item", c.Item2), ("@w", c.Item3), ("@o", c.Item4));
+    foreach (var c in new[] { ("SR01", "SUP_A", "대한정밀", "A", 92.5m), ("SR02", "SUP_B", "한일소재", "B", 78.0m) })
+        Exec(tx, "INSERT INTO QMS_SPM_EVAL_RESULT (RESULT_ID,SUPPLIER_ID,SUPPLIER_NAME,DEF_ID,EVAL_PERIOD,TOTAL_SCORE,GRADE,EVALUATED_AT,EVALUATOR_ID) " +
+                 "VALUES (@id,@sid,@sname,'SD_ANN','2026',@score,@grade,@at,'admin')",
+            ("@id", c.Item1), ("@sid", c.Item2), ("@sname", c.Item3), ("@grade", c.Item4), ("@score", c.Item5), ("@at", now));
+    Exec(tx, "INSERT INTO QMS_SPM_ACTION_RESULT (ACTION_ID,RESULT_ID,SUPPLIER_ID,ACTION_DESC,ACTION_DATE,STATUS) VALUES ('AR01','SR02','SUP_B','납기 개선 시정조치',@at,'Open')", ("@at", now));
+
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
 }
