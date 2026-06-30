@@ -14,7 +14,7 @@
     <Service name="Fdc"  classPaths="./Modules/NexaOne.FDC.dll"  configFiles="config/modules/fdc.xml" />
     <Service name="Rms"  classPaths="./Modules/NexaOne.RMS.dll"  configFiles="config/modules/rms.xml" />
     <Service name="Qms"  classPaths="./Modules/NexaOne.QMS.dll"  configFiles="config/modules/qms.xml" />
-    <Service name="Cmms" classPaths="./Modules/NexaOne.CMMS.dll" configFiles="config/modules/cmms.xml" />
+    <Service name="Ems" classPaths="./Modules/NexaOne.EMS.dll" configFiles="config/modules/ems.xml" />
     <Service name="Pom"  classPaths="./Modules/NexaOne.POM.dll"  configFiles="config/modules/pom.xml" />
     <Service name="Shp"  classPaths="./Modules/NexaOne.SHP.dll"  configFiles="config/modules/shp.xml" />
     <Service name="Sys"  classPaths="./Modules/NexaOne.SYS.dll"  configFiles="config/modules/sys.xml" />

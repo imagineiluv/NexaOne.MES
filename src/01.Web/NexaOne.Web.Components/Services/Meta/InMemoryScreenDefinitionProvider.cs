@@ -295,11 +295,11 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new GridColumnDefinition[] { new("ACTION_ID", "액션 ID"), new("QTIME_ID", "Qtime ID"), new("ACTION_CODE", "액션코드"), new("DESCRIPTION", "설명") },
             QueryId: "MDM.QtimeActionList"));
 
-        // ===== SmartUX CMMS(EMS) 업무화면 점등(Phase 2) — 보전 read 슬라이스(예비품/작업지시/보전계획) 마스터 조회.
-        // 메뉴 접두사 EMS = C# 모듈 CMMS. 예비품은 기존 무파라미터 쿼리(SparePartsAll), 작업지시/보전계획은
-        // 신규 NULL-guard 전체조회 쿼리(CMMS.WorkOrderList/MaintenancePlanList). 그리드 read는 형제와 동일하게 인증만(권한 무). =====
+        // ===== SmartUX EMS(EMS) 업무화면 점등(Phase 2) — 보전 read 슬라이스(예비품/작업지시/보전계획) 마스터 조회.
+        // 메뉴 접두사 EMS = C# 모듈 EMS. 예비품은 기존 무파라미터 쿼리(SparePartsAll), 작업지시/보전계획은
+        // 신규 NULL-guard 전체조회 쿼리(EMS.WorkOrderList/MaintenancePlanList). 그리드 read는 형제와 동일하게 인증만(권한 무). =====
 
-        // Spare Part 관리(FACTORY_EMS_STD_SPARE_PART) — 예비품 마스터 조회(CMMS.SparePartsAll, 무파라미터 전체조회).
+        // Spare Part 관리(FACTORY_EMS_STD_SPARE_PART) — 예비품 마스터 조회(EMS.SparePartsAll, 무파라미터 전체조회).
         Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART", "Spare Part 관리",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
@@ -308,7 +308,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("UNIT_OF_MEASURE", "단위"), new("CURRENT_STOCK", "현재고"), new("MIN_STOCK", "최소재고"),
                 new("MAX_STOCK", "최대재고"), new("LOCATION", "위치"), new("EQUIPMENT_CLASS_ID", "설비 그룹"),
             },
-            QueryId: "CMMS.SparePartsAll"));
+            QueryId: "EMS.SparePartsAll"));
 
         // Spare Part 재고 조회(FACTORY_EMS_STD_SPARE_PART_STOCK) — 동일 마스터를 재고 중심 컬럼으로 조회.
         Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART_STOCK", "Spare Part 재고 조회",
@@ -318,9 +318,9 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PART_ID", "부품 ID"), new("PART_NAME", "부품명"), new("PART_NUMBER", "부품번호"),
                 new("CURRENT_STOCK", "현재고"), new("MIN_STOCK", "최소재고"), new("MAX_STOCK", "최대재고"), new("LOCATION", "위치"),
             },
-            QueryId: "CMMS.SparePartsAll"));
+            QueryId: "EMS.SparePartsAll"));
 
-        // 설비 보전 결과(FACTORY_EMS_BM_ORDER_RESULT) — 작업지시 전체조회(CMMS.WorkOrderList, NULL-guard).
+        // 설비 보전 결과(FACTORY_EMS_BM_ORDER_RESULT) — 작업지시 전체조회(EMS.WorkOrderList, NULL-guard).
         Register(new ScreenDefinition("FACTORY_EMS_BM_ORDER_RESULT", "설비 보전 결과",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
@@ -329,9 +329,9 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("DESCRIPTION", "설명"), new("ASSIGNEE_ID", "담당자"), new("ISSUED_AT", "발행일시"),
                 new("COMPLETED_AT", "완료일시"), new("STATUS", "상태"),
             },
-            QueryId: "CMMS.WorkOrderList"));
+            QueryId: "EMS.WorkOrderList"));
 
-        // 설비 수리 요청 그리드(FACTORY_EMS_BM_ORDER_GRIDTYPE) — 작업지시 그리드(동일 CMMS.WorkOrderList).
+        // 설비 수리 요청 그리드(FACTORY_EMS_BM_ORDER_GRIDTYPE) — 작업지시 그리드(동일 EMS.WorkOrderList).
         Register(new ScreenDefinition("FACTORY_EMS_BM_ORDER_GRIDTYPE", "설비 수리 요청 그리드",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
@@ -340,9 +340,9 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("DESCRIPTION", "설명"), new("ASSIGNEE_ID", "담당자"), new("ISSUED_AT", "발행일시"),
                 new("STARTED_AT", "착수일시"), new("STATUS", "상태"),
             },
-            QueryId: "CMMS.WorkOrderList"));
+            QueryId: "EMS.WorkOrderList"));
 
-        // PM 계획 관리(FACTORY_EMS_PM_ORDER_PLAN) — 보전계획 전체조회(CMMS.MaintenancePlanList, NULL-guard).
+        // PM 계획 관리(FACTORY_EMS_PM_ORDER_PLAN) — 보전계획 전체조회(EMS.MaintenancePlanList, NULL-guard).
         Register(new ScreenDefinition("FACTORY_EMS_PM_ORDER_PLAN", "PM 계획 관리",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
@@ -351,9 +351,9 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PLAN_TYPE", "유형"), new("CYCLE_TYPE", "주기"), new("SCHEDULED_DATE", "예정일"),
                 new("ESTIMATED_DURATION_HOURS", "예상시간(h)"), new("ASSIGNEE_ID", "담당자"), new("STATUS", "상태"),
             },
-            QueryId: "CMMS.MaintenancePlanList"));
+            QueryId: "EMS.MaintenancePlanList"));
 
-        // PM 계획 그리드(FACTORY_EMS_PM_ORDER_PLAN_GRIDTYPE) — 보전계획 그리드(동일 CMMS.MaintenancePlanList).
+        // PM 계획 그리드(FACTORY_EMS_PM_ORDER_PLAN_GRIDTYPE) — 보전계획 그리드(동일 EMS.MaintenancePlanList).
         Register(new ScreenDefinition("FACTORY_EMS_PM_ORDER_PLAN_GRIDTYPE", "PM 계획 그리드",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
@@ -362,7 +362,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PLAN_TYPE", "유형"), new("CYCLE_TYPE", "주기"), new("SCHEDULED_DATE", "예정일"),
                 new("ASSIGNEE_ID", "담당자"), new("STATUS", "상태"),
             },
-            QueryId: "CMMS.MaintenancePlanList"));
+            QueryId: "EMS.MaintenancePlanList"));
 
         // ===== SmartUX FDC(EES_FDC) 업무화면 점등(Phase 2) — 설정/이력 read 슬라이스(파라미터그룹/파라미터/인터락이력).
         // 메뉴 접두사 EES_FDC = C# 모듈 FDC. 기존 쿼리는 모두 @equipmentId 필수라, 점등용 NULL-guard 전체조회
@@ -466,7 +466,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "SHP.ShipmentHistoryList"));
 
-        // ===== SmartUX 추가 점등: QMS 부적합 현황(기존 백엔드) + CMMS 점검항목 마스터(V036 신설). =====
+        // ===== SmartUX 추가 점등: QMS 부적합 현황(기존 백엔드) + EMS 점검항목 마스터(V036 신설). =====
 
         // 부적합 발생 현황(QMS_REP_NCR_STATUS) — 부적합/결함 발생 조회(기존 QMS.DefectList, NULL-guard 전체조회).
         Register(new ScreenDefinition("QMS_REP_NCR_STATUS", "부적합 발생 현황",
@@ -479,16 +479,16 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "QMS.DefectList"));
 
-        // 설비 점검 항목 그룹 관리(FACTORY_EMS_STD_MAINT_ITEM_CLASS) — V036 신설 마스터(CMMS.MaintItemClassList).
+        // 설비 점검 항목 그룹 관리(FACTORY_EMS_STD_MAINT_ITEM_CLASS) — V036 신설 마스터(EMS.MaintItemClassList).
         Register(new ScreenDefinition("FACTORY_EMS_STD_MAINT_ITEM_CLASS", "설비 점검 항목 그룹 관리",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
                 new("ITEM_CLASS_ID", "항목 그룹 ID"), new("ITEM_CLASS_NAME", "항목 그룹명"), new("DESCRIPTION", "설명"),
             },
-            QueryId: "CMMS.MaintItemClassList"));
+            QueryId: "EMS.MaintItemClassList"));
 
-        // 설비 점검 항목 관리(FACTORY_EMS_STD_MAINT_ITEM) — V036 신설 마스터(CMMS.MaintItemList).
+        // 설비 점검 항목 관리(FACTORY_EMS_STD_MAINT_ITEM) — V036 신설 마스터(EMS.MaintItemList).
         Register(new ScreenDefinition("FACTORY_EMS_STD_MAINT_ITEM", "설비 점검 항목 관리",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
@@ -496,9 +496,9 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("ITEM_ID", "항목 ID"), new("ITEM_NAME", "항목명"), new("ITEM_CLASS_ID", "항목 그룹"),
                 new("INSPECTION_METHOD", "점검방법"), new("UNIT", "단위"), new("IS_ACTIVE", "활성"),
             },
-            QueryId: "CMMS.MaintItemList"));
+            QueryId: "EMS.MaintItemList"));
 
-        // 설비별 점검 항목 관리(FACTORY_EMS_STD_EQP_MAINT_ITEM) — V036 신설 매핑(CMMS.EqpMaintItemList).
+        // 설비별 점검 항목 관리(FACTORY_EMS_STD_EQP_MAINT_ITEM) — V036 신설 매핑(EMS.EqpMaintItemList).
         Register(new ScreenDefinition("FACTORY_EMS_STD_EQP_MAINT_ITEM", "설비별 점검 항목 관리",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
@@ -506,7 +506,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EQP_ITEM_ID", "매핑 ID"), new("EQUIPMENT_ID", "설비 ID"), new("ITEM_ID", "점검 항목 ID"),
                 new("CYCLE_TYPE", "주기유형"), new("CYCLE_VALUE", "주기값"), new("IS_ACTIVE", "활성"),
             },
-            QueryId: "CMMS.EqpMaintItemList"));
+            QueryId: "EMS.EqpMaintItemList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;

@@ -1,6 +1,6 @@
 using Moq;
-using NexaOne.CMMS.Application.Cmms;
-using NexaOne.CMMS.Domain;
+using NexaOne.EMS.Application.Ems;
+using NexaOne.EMS.Domain;
 using NexaOne.Common;
 
 namespace NexaOne.UnitTests.Services;

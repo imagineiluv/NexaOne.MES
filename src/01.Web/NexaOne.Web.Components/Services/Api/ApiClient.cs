@@ -524,49 +524,49 @@ public sealed class ApiClient : IApiClient
         var qs = new List<string>();
         if (!string.IsNullOrEmpty(equipmentId)) qs.Add($"equipmentId={equipmentId}");
         if (!string.IsNullOrEmpty(status)) qs.Add($"status={status}");
-        var url = "api/v1/cmms/work-orders" + (qs.Any() ? "?" + string.Join("&", qs) : "");
+        var url = "api/v1/ems/work-orders" + (qs.Any() ? "?" + string.Join("&", qs) : "");
         return GetListAsync<WorkOrderDto>(url, ct);
     }
 
     public Task<WorkOrderDto?> CreateWorkOrderAsync(object req, CancellationToken ct = default)
-        => PostAsync<WorkOrderDto>("api/v1/cmms/work-orders", req, ct);
+        => PostAsync<WorkOrderDto>("api/v1/ems/work-orders", req, ct);
 
     public Task StartWorkOrderAsync(string woId, CancellationToken ct = default)
-        => PutAsync($"api/v1/cmms/work-orders/{woId}/start", null, ct);
+        => PutAsync($"api/v1/ems/work-orders/{woId}/start", null, ct);
 
     public Task CompleteWorkOrderAsync(string woId, string remark, CancellationToken ct = default)
-        => PutAsync($"api/v1/cmms/work-orders/{woId}/complete", new { remark }, ct);
+        => PutAsync($"api/v1/ems/work-orders/{woId}/complete", new { remark }, ct);
 
     public Task CancelWorkOrderAsync(string woId, CancellationToken ct = default)
-        => PutAsync($"api/v1/cmms/work-orders/{woId}/cancel", null, ct);
+        => PutAsync($"api/v1/ems/work-orders/{woId}/cancel", null, ct);
 
     public Task<List<MaintenancePlanDto>> GetMaintenancePlansAsync(string? equipmentId = null, CancellationToken ct = default)
     {
-        var url = "api/v1/cmms/maintenance-plans" +
+        var url = "api/v1/ems/maintenance-plans" +
             (string.IsNullOrEmpty(equipmentId) ? "" : $"?equipmentId={equipmentId}");
         return GetListAsync<MaintenancePlanDto>(url, ct);
     }
 
     public Task<MaintenancePlanDto?> CreateMaintenancePlanAsync(object req, CancellationToken ct = default)
-        => PostAsync<MaintenancePlanDto>("api/v1/cmms/maintenance-plans", req, ct);
+        => PostAsync<MaintenancePlanDto>("api/v1/ems/maintenance-plans", req, ct);
 
     public Task StartMaintenancePlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/cmms/maintenance-plans/{planId}/start", null, ct);
+        => PutAsync($"api/v1/ems/maintenance-plans/{planId}/start", null, ct);
 
     public Task CompleteMaintenancePlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/cmms/maintenance-plans/{planId}/complete", null, ct);
+        => PutAsync($"api/v1/ems/maintenance-plans/{planId}/complete", null, ct);
 
     public Task CancelMaintenancePlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/cmms/maintenance-plans/{planId}/cancel", null, ct);
+        => PutAsync($"api/v1/ems/maintenance-plans/{planId}/cancel", null, ct);
 
     public Task<List<SparePartDto>> GetSparePartsAsync(bool lowStock = false, CancellationToken ct = default)
-        => GetListAsync<SparePartDto>($"api/v1/cmms/spare-parts{(lowStock ? "?lowStock=true" : "")}", ct);
+        => GetListAsync<SparePartDto>($"api/v1/ems/spare-parts{(lowStock ? "?lowStock=true" : "")}", ct);
 
     public Task<SparePartDto?> CreateSparePartAsync(object req, CancellationToken ct = default)
-        => PostAsync<SparePartDto>("api/v1/cmms/spare-parts", req, ct);
+        => PostAsync<SparePartDto>("api/v1/ems/spare-parts", req, ct);
 
     public Task AdjustStockAsync(string partId, decimal delta, CancellationToken ct = default)
-        => PutAsync($"api/v1/cmms/spare-parts/{partId}/adjust-stock", new { delta }, ct);
+        => PutAsync($"api/v1/ems/spare-parts/{partId}/adjust-stock", new { delta }, ct);
 
     // ── PPM ───────────────────────────────────────────────────────────────────
 

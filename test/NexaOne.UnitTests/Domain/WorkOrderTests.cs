@@ -1,5 +1,5 @@
 using System.Text.Json;
-using NexaOne.CMMS.Domain;
+using NexaOne.EMS.Domain;
 using NexaOne.Common;
 
 namespace NexaOne.UnitTests.Domain;
@@ -97,7 +97,7 @@ public sealed class WorkOrderTests
 
         var ev = wo.DomainEvents.OfType<WorkOrderStartedDomainEvent>().Should().ContainSingle().Subject;
         ev.EventType.Should().Be("WorkOrderStarted");
-        ev.Module.Should().Be("CMMS");
+        ev.Module.Should().Be("EMS");
         ev.AggregateId.Should().Be("WO-S", "작업지시별 순서 보장을 위해 AGGREGATE_ID는 WO_ID여야 한다");
 
         using var doc = JsonDocument.Parse(ev.Payload);
@@ -117,7 +117,7 @@ public sealed class WorkOrderTests
 
         var ev = wo.DomainEvents.OfType<WorkOrderCompletedDomainEvent>().Should().ContainSingle().Subject;
         ev.EventType.Should().Be("WorkOrderCompleted");
-        ev.Module.Should().Be("CMMS");
+        ev.Module.Should().Be("EMS");
         ev.AggregateId.Should().Be("WO-C");
 
         using var doc = JsonDocument.Parse(ev.Payload);
@@ -135,7 +135,7 @@ public sealed class WorkOrderTests
 
         var ev = wo.DomainEvents.OfType<WorkOrderCancelledDomainEvent>().Should().ContainSingle().Subject;
         ev.EventType.Should().Be("WorkOrderCancelled");
-        ev.Module.Should().Be("CMMS");
+        ev.Module.Should().Be("EMS");
         ev.AggregateId.Should().Be("WO-X");
 
         using var doc = JsonDocument.Parse(ev.Payload);

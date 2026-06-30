@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 파일 기반 쿼리 레지스트리(SQLite 방언) — EMS 보전 read 슬라이스(작업지시/보전계획/예비품 조회).
+     MSSQL판과 동일 ID·동일 의미이되 NOLOCK 힌트만 제거. 브리지(작업지시/계획/예비품 생명주기·생성)는 별도 —
+     본 슬라이스는 도메인 검증이 필요 없는 순수 조회만 게이트웨이로 노출한다(ADR-001).
+     컬럼은 V008__EMS_WORK_ORDER / V027__EMS_PLAN_SPAREPART 와 1:1 정합. STATUS는 enum.ToString() 문자열로 저장된다.
+     선택필터 (@p IS NULL OR COL=@p) — 본문 없는 @param은 게이트웨이가 null로 채운다. 모두 read(kind 미표기). -->
+<queries module="EMS">
+    <query id="EMS.WorkOrdersByEquipment">
+        <statement><![CDATA[
+            SELECT WO_ID, PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION, ASSIGNEE_ID,
+                   ISSUED_AT, STARTED_AT, COMPLETED_AT, STATUS, FAILURE_CODE_ID, REMARK
+            FROM EMS_WORK_ORDER
+            WHERE EQUIPMENT_ID = @equipmentId
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY ISSUED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="EMS.WorkOrderCountByStatus">
+        <statement><![CDATA[
+            SELECT STATUS, COUNT(*) AS CNT
+            FROM EMS_WORK_ORDER
+            WHERE (@status IS NULL OR STATUS = @status)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+            GROUP BY STATUS
+            ORDER BY STATUS
+        ]]></statement>
+    </query>
+    <query id="EMS.MaintenancePlansByEquipment">
+        <statement><![CDATA[
+            SELECT PLAN_ID, PLAN_NAME, EQUIPMENT_ID, PLAN_TYPE, CYCLE_TYPE,
+                   SCHEDULED_DATE, ESTIMATED_DURATION_HOURS, ASSIGNEE_ID, STATUS
+            FROM EMS_MAINTENANCE_PLAN
+            WHERE EQUIPMENT_ID = @equipmentId
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY SCHEDULED_DATE
+        ]]></statement>
+    </query>
+    <query id="EMS.MaintenancePlansDue">
+        <statement><![CDATA[
+            SELECT PLAN_ID, PLAN_NAME, EQUIPMENT_ID, PLAN_TYPE, CYCLE_TYPE,
+                   SCHEDULED_DATE, ESTIMATED_DURATION_HOURS, ASSIGNEE_ID, STATUS
+            FROM EMS_MAINTENANCE_PLAN
+            WHERE SCHEDULED_DATE <= @asOf
+              AND STATUS NOT IN ('Completed', 'Cancelled')
+            ORDER BY SCHEDULED_DATE
+        ]]></statement>
+    </query>
+    <!-- SmartUX 화면 점등용 전체조회(NULL-guard) — 설비 필터 없이 마스터 그리드를 채운다(미지정 @param은 게이트웨이가 null로 채움). -->
+    <query id="EMS.WorkOrderList">
+        <statement><![CDATA[
+            SELECT WO_ID, PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION, ASSIGNEE_ID,
+                   ISSUED_AT, STARTED_AT, COMPLETED_AT, STATUS, FAILURE_CODE_ID, REMARK
+            FROM EMS_WORK_ORDER
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY ISSUED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="EMS.MaintenancePlanList">
+        <statement><![CDATA[
+            SELECT PLAN_ID, PLAN_NAME, EQUIPMENT_ID, PLAN_TYPE, CYCLE_TYPE,
+                   SCHEDULED_DATE, ESTIMATED_DURATION_HOURS, ASSIGNEE_ID, STATUS
+            FROM EMS_MAINTENANCE_PLAN
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY SCHEDULED_DATE
+        ]]></statement>
+    </query>
+    <query id="EMS.SparePartsAll">
+        <statement><![CDATA[
+            SELECT PART_ID, PART_NAME, PART_NUMBER, DESCRIPTION, UNIT_OF_MEASURE,
+                   CURRENT_STOCK, MIN_STOCK, MAX_STOCK, LOCATION, EQUIPMENT_CLASS_ID
+            FROM EMS_SPARE_PART
+            ORDER BY PART_NAME
+        ]]></statement>
+    </query>
+    <query id="EMS.SparePartsLowStock">
+        <statement><![CDATA[
+            SELECT PART_ID, PART_NAME, PART_NUMBER, DESCRIPTION, UNIT_OF_MEASURE,
+                   CURRENT_STOCK, MIN_STOCK, MAX_STOCK, LOCATION, EQUIPMENT_CLASS_ID
+            FROM EMS_SPARE_PART
+            WHERE CURRENT_STOCK <= MIN_STOCK
+            ORDER BY PART_NAME
+        ]]></statement>
+    </query>
+    <!-- SmartUX 점검항목 화면 점등용 전체조회(NULL-guard) — V036 신설 마스터(점검항목 그룹/항목/설비별 항목). -->
+    <query id="EMS.MaintItemClassList">
+        <statement><![CDATA[
+            SELECT ITEM_CLASS_ID, ITEM_CLASS_NAME, DESCRIPTION
+            FROM EMS_MAINT_ITEM_CLASS
+            WHERE (@itemClassId IS NULL OR ITEM_CLASS_ID = @itemClassId)
+            ORDER BY ITEM_CLASS_NAME
+        ]]></statement>
+    </query>
+    <query id="EMS.MaintItemList">
+        <statement><![CDATA[
+            SELECT ITEM_ID, ITEM_NAME, ITEM_CLASS_ID, INSPECTION_METHOD, UNIT, DESCRIPTION, IS_ACTIVE
+            FROM EMS_MAINT_ITEM
+            WHERE (@itemClassId IS NULL OR ITEM_CLASS_ID = @itemClassId)
+            ORDER BY ITEM_NAME
+        ]]></statement>
+    </query>
+    <query id="EMS.EqpMaintItemList">
+        <statement><![CDATA[
+            SELECT EQP_ITEM_ID, EQUIPMENT_ID, ITEM_ID, CYCLE_TYPE, CYCLE_VALUE, IS_ACTIVE
+            FROM EMS_EQP_MAINT_ITEM
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+            ORDER BY EQUIPMENT_ID, ITEM_ID
+        ]]></statement>
+    </query>
+</queries>

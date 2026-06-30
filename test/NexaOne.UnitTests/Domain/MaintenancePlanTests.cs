@@ -1,5 +1,5 @@
 using System.Text.Json;
-using NexaOne.CMMS.Domain;
+using NexaOne.EMS.Domain;
 
 namespace NexaOne.UnitTests.Domain;
 
@@ -20,7 +20,7 @@ public sealed class MaintenancePlanTests
 
         var ev = plan.DomainEvents.OfType<MaintenancePlanStartedDomainEvent>().Should().ContainSingle().Subject;
         ev.EventType.Should().Be("MaintenancePlanStarted");
-        ev.Module.Should().Be("CMMS");
+        ev.Module.Should().Be("EMS");
         ev.AggregateId.Should().Be("PL-1", "AGGREGATE_ID는 PLAN_ID여야 한다");
 
         using var doc = JsonDocument.Parse(ev.Payload);
@@ -40,7 +40,7 @@ public sealed class MaintenancePlanTests
 
         var ev = plan.DomainEvents.OfType<MaintenancePlanCompletedDomainEvent>().Should().ContainSingle().Subject;
         ev.EventType.Should().Be("MaintenancePlanCompleted");
-        ev.Module.Should().Be("CMMS");
+        ev.Module.Should().Be("EMS");
         ev.AggregateId.Should().Be("PL-1");
 
         using var doc = JsonDocument.Parse(ev.Payload);
@@ -56,7 +56,7 @@ public sealed class MaintenancePlanTests
 
         var ev = plan.DomainEvents.OfType<MaintenancePlanCancelledDomainEvent>().Should().ContainSingle().Subject;
         ev.EventType.Should().Be("MaintenancePlanCancelled");
-        ev.Module.Should().Be("CMMS");
+        ev.Module.Should().Be("EMS");
         ev.AggregateId.Should().Be("PL-1");
 
         using var doc = JsonDocument.Parse(ev.Payload);

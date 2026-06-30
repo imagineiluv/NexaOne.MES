@@ -41,7 +41,7 @@ public sealed class HostModulesBootSmokeTests
         var root = doc.RootElement;
         root.GetProperty("modulesEnabled").GetBoolean().Should().BeTrue();
         root.GetProperty("services").GetArrayLength().Should().Be(9,
-            "9개 도메인 모듈(Mdm·Est·Fdc·Rms·Qms·Cmms·Pom·Shp·Sys)이 모두 로드돼야 한다 — "
+            "9개 도메인 모듈(Mdm·Est·Fdc·Rms·Qms·Ems·Pom·Shp·Sys)이 모두 로드돼야 한다 — "
             + "성공적 /diag = EST/RMS GetBean→캐스트 브리지 fail-fast 통과(부팅이 리슨에 도달)");
         root.GetProperty("workerCount").GetInt32().Should().BeGreaterThanOrEqualTo(1,
             "백그라운드 워커가 1개 이상 발견돼야 한다(실측 5)");

@@ -23,7 +23,7 @@ public static class Permissions
     // ── 모듈별 쓰기(manage) 권한 (ADR-003 — module:action). 기본은 ADMIN(*)만 보유하며,
     //    관리자가 SYS_ROLE.PERMISSIONS로 역할에 부여한다(명시 권한 ∪ 역할 기본 매핑). ──
     public const string MdmManage = "mdm:manage";          // 기준정보(설비/플랜트/제품/코드) CRUD
-    public const string CmmsManage = "cmms:manage";        // 보전(작업지시/보전계획/예비품) 쓰기
+    public const string EmsManage = "ems:manage";        // 보전(작업지시/보전계획/예비품) 쓰기
     public const string PomManage = "pom:manage";          // 생산(계획/오더/로트추적) 쓰기
     public const string ShpManage = "shp:manage";          // 출하(주문/품목/실적) 쓰기
     public const string EstManage = "est:manage";          // 설비상태(상태매트릭스/상태변경/알람) 쓰기

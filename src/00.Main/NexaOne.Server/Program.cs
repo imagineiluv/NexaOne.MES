@@ -11,7 +11,7 @@ using NexaOne.Application.Query;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.Server.Components;
 using NexaOne.Server.Gateway;
-using NexaOne.ServiceContracts.Cmms;
+using NexaOne.ServiceContracts.Ems;
 using NexaOne.ServiceContracts.Est;
 using NexaOne.ServiceContracts.Fdc;
 using NexaOne.ServiceContracts.Mdm;
@@ -137,14 +137,14 @@ if (modulesEnabled)
             + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
     builder.Services.AddSingleton(mdmMasterBridge);
 
-    // ADR-008 얇은 브리지 — CMMS 보전(작업지시/보전계획/예비품) 단일 애그리거트 쓰기. EST/RMS/SHP/QMS/MDM과 동일 메커니즘.
-    var cmmsBridge = server.GetBean("Cmms", "cmmsBridge") as ICmmsBridge
+    // ADR-008 얇은 브리지 — EMS 보전(작업지시/보전계획/예비품) 단일 애그리거트 쓰기. EST/RMS/SHP/QMS/MDM과 동일 메커니즘.
+    var emsBridge = server.GetBean("Ems", "emsBridge") as IEmsBridge
         ?? throw new InvalidOperationException(
-            "cmmsBridge 빈을 ICmmsBridge로 캐스트하지 못했습니다 — "
+            "emsBridge 빈을 IEmsBridge로 캐스트하지 못했습니다 — "
             + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
-    builder.Services.AddSingleton(cmmsBridge);
+    builder.Services.AddSingleton(emsBridge);
 
-    // ADR-008 얇은 브리지 — POM 생산(계획/오더/Lot 추적) 단일 애그리거트 쓰기. EST/RMS/SHP/QMS/MDM/CMMS와 동일 메커니즘.
+    // ADR-008 얇은 브리지 — POM 생산(계획/오더/Lot 추적) 단일 애그리거트 쓰기. EST/RMS/SHP/QMS/MDM/EMS와 동일 메커니즘.
     // Lot Mixing(다중 애그리거트)은 브리지에서 제외(UnitOfWork 선결).
     var pomBridge = server.GetBean("Pom", "pomBridge") as IPomBridge
         ?? throw new InvalidOperationException(
@@ -152,7 +152,7 @@ if (modulesEnabled)
             + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
     builder.Services.AddSingleton(pomBridge);
 
-    // ADR-008 얇은 브리지 — SYS 비-자격증명 단일 애그리거트 쓰기(역할 관리·신청 반려·사용자 비활성). EST/RMS/SHP/QMS/MDM/CMMS/POM과 동일 메커니즘.
+    // ADR-008 얇은 브리지 — SYS 비-자격증명 단일 애그리거트 쓰기(역할 관리·신청 반려·사용자 비활성). EST/RMS/SHP/QMS/MDM/EMS/POM과 동일 메커니즘.
     // 보안 가드(S7): 자격증명/비밀번호/로그인·승인(다중 애그리거트)·잠금 해제는 본 브리지에서 제외(인증 경로·UnitOfWork 선결 소유).
     var sysBridge = server.GetBean("Sys", "sysBridge") as ISysBridge
         ?? throw new InvalidOperationException(
@@ -160,7 +160,7 @@ if (modulesEnabled)
             + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
     builder.Services.AddSingleton(sysBridge);
 
-    // ADR-008 얇은 브리지 — FDC 비-실시간 설정 관리(파라미터그룹/알람설정/인터락규칙 생성) 단일 애그리거트 쓰기. EST/RMS/SHP/QMS/MDM/CMMS/POM/SYS와 동일 메커니즘.
+    // ADR-008 얇은 브리지 — FDC 비-실시간 설정 관리(파라미터그룹/알람설정/인터락규칙 생성) 단일 애그리거트 쓰기. EST/RMS/SHP/QMS/MDM/EMS/POM/SYS와 동일 메커니즘.
     // 워커 가드(S8): 실시간 수집/평가·OPC-UA·발생/해제 이력·수집데이터 기록은 워커 소유라 본 브리지에서 제외(ADR-006, REST 비노출).
     var fdcBridge = server.GetBean("Fdc", "fdcBridge") as IFdcBridge
         ?? throw new InvalidOperationException(

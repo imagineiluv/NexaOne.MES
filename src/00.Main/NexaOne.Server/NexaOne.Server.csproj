@@ -56,17 +56,13 @@
        게이트웨이(FileQueryRegistry)가 명명 쿼리를 해석한다. 배포 시 리포 미존재 환경에서도 동작하도록 복사한다
        (개발/테스트는 BaseDirectory 상위탐색으로도 리포 루트 db/queries를 찾지만, 배포 robustness 위해 명시 복사). -->
   <ItemGroup>
-    <Content Include="..\..\..\db\queries\**\*.xml"
-             Link="db\queries\%(RecursiveDir)%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\db\queries\**\*.xml" Link="db\queries\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- 격리 인증 쿼리(db/queries-auth/{mssql,sqlite}/*.xml)를 출력으로 복사한다(공개 db/queries와 분리 유지).
        호스트 인증 서비스만 전용 레지스트리로 로드한다. 배포 robustness 위해 명시 복사(테스트는 상위탐색). -->
   <ItemGroup>
-    <Content Include="..\..\..\db\queries-auth\**\*.xml"
-             Link="db\queries-auth\%(RecursiveDir)%(Filename)%(Extension)"
-             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\db\queries-auth\**\*.xml" Link="db\queries-auth\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- 도메인 모듈은 플러그인으로 ./Modules/에 게시한다(설계 §3.1). ReferenceOutputAssembly=false: 모듈 DLL을
@@ -79,7 +75,6 @@
     <ProjectReference Include="..\..\04.Modules\NexaOne.FDC\NexaOne.FDC.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.RMS\NexaOne.RMS.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.QMS\NexaOne.QMS.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\04.Modules\NexaOne.CMMS\NexaOne.CMMS.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.POM\NexaOne.POM.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.SHP\NexaOne.SHP.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" ReferenceOutputAssembly="false" />
@@ -91,9 +86,7 @@
        Condition: BuildSpa=true(개발자 강제) 또는 _IsPublishing=true(dotnet publish)일 때만 실행 →
        일반 dev `dotnet build`에서는 느린 npm 빌드를 건너뛴다.
        node_modules 부재 시에만 `npm ci`로 재현 가능한 설치(package-lock.json 기반) 후 `npm run build`. -->
-  <Target Name="BuildSpaBundle"
-          BeforeTargets="ResolveStaticWebAssetsConfiguration;AssignTargetPaths;Build"
-          Condition="'$(BuildSpa)'=='true' Or '$(_IsPublishing)'=='true'">
+  <Target Name="BuildSpaBundle" BeforeTargets="ResolveStaticWebAssetsConfiguration;AssignTargetPaths;Build" Condition="'$(BuildSpa)'=='true' Or '$(_IsPublishing)'=='true'">
     <Message Importance="high" Text="Building SPA (React/GrapesJS) into wwwroot/spa from $(SpaRoot) ..." />
     <Exec Command="npm ci" WorkingDirectory="$(SpaRoot)" Condition="!Exists('$(SpaRoot)node_modules')" />
     <Exec Command="npm run build" WorkingDirectory="$(SpaRoot)" />
@@ -118,10 +111,7 @@
          현재 번들을 가리키게 한다. -->
     <ItemGroup>
       <Content Remove="wwwroot\spa\**" />
-      <Content Include="wwwroot\spa\**"
-               ExcludeFromSingleFile="true"
-               CopyToPublishDirectory="PreserveNewest"
-               Exclude="$(DefaultItemExcludes);$(DefaultExcludesInProjectFolder)" />
+      <Content Include="wwwroot\spa\**" ExcludeFromSingleFile="true" CopyToPublishDirectory="PreserveNewest" Exclude="$(DefaultItemExcludes);$(DefaultExcludesInProjectFolder)" />
     </ItemGroup>
   </Target>
 
@@ -135,7 +125,7 @@
       <_ModulePluginDll Include="..\..\04.Modules\NexaOne.FDC\bin\$(Configuration)\net8.0\NexaOne.FDC.dll" />
       <_ModulePluginDll Include="..\..\04.Modules\NexaOne.RMS\bin\$(Configuration)\net8.0\NexaOne.RMS.dll" />
       <_ModulePluginDll Include="..\..\04.Modules\NexaOne.QMS\bin\$(Configuration)\net8.0\NexaOne.QMS.dll" />
-      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.CMMS\bin\$(Configuration)\net8.0\NexaOne.CMMS.dll" />
+      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.EMS\bin\$(Configuration)\net8.0\NexaOne.EMS.dll" />
       <_ModulePluginDll Include="..\..\04.Modules\NexaOne.POM\bin\$(Configuration)\net8.0\NexaOne.POM.dll" />
       <_ModulePluginDll Include="..\..\04.Modules\NexaOne.SHP\bin\$(Configuration)\net8.0\NexaOne.SHP.dll" />
       <_ModulePluginDll Include="..\..\04.Modules\NexaOne.SYS\bin\$(Configuration)\net8.0\NexaOne.SYS.dll" />
