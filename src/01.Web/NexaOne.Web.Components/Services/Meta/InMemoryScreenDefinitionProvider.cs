@@ -613,6 +613,69 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "EST.WorstAlarmEquipment"));
 
+        // ===== SmartUX EPT OEE(설비종합효율) 점등(Phase 4) — V050 마트. OEE=가용성×성능×품질. 사전집계 마트 read
+        // (원자료→마트 집계는 배치/워커 소관, 후속). 비율 컬럼(AVAILABILITY/PERFORMANCE/QUALITY/OEE)은 분율(0~1). =====
+
+        // 설비 종합 지표(EES_EPT_OVERALL_EQUIPMENT_EFFECIVENESS) — 설비×일자 OEE 마트(EST.OeeSummaryList).
+        Register(new ScreenDefinition("EES_EPT_OVERALL_EQUIPMENT_EFFECIVENESS", "설비 종합 지표(OEE)",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("OEE_DATE", "일자"), new("EQUIPMENT_ID", "설비 ID"), new("PLANT_ID", "공장"),
+                new("AVAILABILITY", "가용성"), new("PERFORMANCE", "성능"), new("QUALITY", "품질"), new("OEE", "OEE"),
+                new("PLANNED_MINUTES", "계획(분)"), new("DOWNTIME_MINUTES", "비가동(분)"),
+                new("TOTAL_COUNT", "총생산"), new("GOOD_COUNT", "양품"),
+            },
+            QueryId: "EST.OeeSummaryList"));
+
+        // 설비 유실 분석(EES_EPT_EQUIPMENT_LOSS_ANALYSIS) — 6대 손실 카테고리별 손실 집계(EST.LossByCategory).
+        Register(new ScreenDefinition("EES_EPT_EQUIPMENT_LOSS_ANALYSIS", "설비 유실 분석",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("LOSS_CATEGORY", "손실 유형"), new("LOSS_COUNT", "발생 건수"), new("TOTAL_MINUTES", "총 손실(분)"),
+            },
+            QueryId: "EST.LossByCategory"));
+
+        // WORST5 유실(EES_EPT_WORST5_LOSS) — 설비별 총 손실 시간 상위 5(EST.WorstLossEquipment 집계).
+        Register(new ScreenDefinition("EES_EPT_WORST5_LOSS", "WORST5 유실",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("TOTAL_MINUTES", "총 손실(분)"), new("LOSS_COUNT", "손실 건수"),
+            },
+            QueryId: "EST.WorstLossEquipment"));
+
+        // 관심 지표 등록(EES_EPT_INTERESTED_INDEX_MANAGEMENT) — KPI 지표 마스터(EST.IndexList).
+        Register(new ScreenDefinition("EES_EPT_INTERESTED_INDEX_MANAGEMENT", "관심 지표 등록",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("INDEX_ID", "지표 ID"), new("INDEX_NAME", "지표명"), new("INDEX_CATEGORY", "분류"),
+                new("UNIT", "단위"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "EST.IndexList"));
+
+        // 지표 관리(EPT_STD_INDEX_MGNT) — 동일 KPI 지표 마스터 뷰.
+        Register(new ScreenDefinition("EPT_STD_INDEX_MGNT", "지표 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("INDEX_ID", "지표 ID"), new("INDEX_NAME", "지표명"), new("INDEX_CATEGORY", "분류"),
+                new("UNIT", "단위"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "EST.IndexList"));
+
+        // 관심 지표 조회(EES_EPT_INTERESTED_INDEX_VIEW) — 지표×설비×일자 측정값(EST.IndexValueList).
+        Register(new ScreenDefinition("EES_EPT_INTERESTED_INDEX_VIEW", "관심 지표 조회",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("OEE_DATE", "일자"), new("INDEX_ID", "지표 ID"), new("EQUIPMENT_ID", "설비 ID"),
+                new("PLANT_ID", "공장"), new("SHIFT_ID", "작업조"), new("INDEX_VALUE", "값"),
+            },
+            QueryId: "EST.IndexValueList"));
+
         // ===== SmartUX POM(PPM)·SHP(DLV) 업무화면 점등(Phase 2) — 생산오더/출하지시·출하이력 조회.
         // 메뉴 접두사 PPM=POM, DLV=SHP. 기존 쿼리는 필수 @param이라 점등용 NULL-guard 전체조회 쿼리 신설.
         // POM W/O(작업지시) 화면은 전용 테이블 부재로 보류(POM_PRODUCTION_ORDER=생산오더만). 그리드 read는 형제와 동일하게 인증만. =====

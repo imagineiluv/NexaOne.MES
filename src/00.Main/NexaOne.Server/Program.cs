@@ -654,6 +654,43 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
         Exec(tx, "INSERT INTO EMS_MAINTENANCE_PLAN (PLAN_ID,PLAN_NAME,EQUIPMENT_ID,PLAN_TYPE,CYCLE_TYPE,SCHEDULED_DATE,ESTIMATED_DURATION_HOURS,ASSIGNEE_ID,STATUS,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@name,@eq,@pt,@ct,@at,2.0,'admin','Planned','SYSTEM',@at,'SYSTEM',@at)",
             ("@id", c.Item1), ("@name", c.Item2), ("@eq", c.Item3), ("@pt", c.Item4), ("@ct", c.Item5), ("@at", now));
 
+    // ===== EST OEE(설비종합효율) 시드(V050) — 점등된 OEE/유실/지표 화면이 실제 값을 보이도록. EQ01~03 참조(FK).
+    // 비율(가용성/성능/품질/OEE)은 분율(0~1)로 저장하고 값은 사전집계 예시다(원자료→마트 집계는 배치/워커 소관). =====
+    var yesterday = DateTime.UtcNow.AddDays(-1).ToString("o");
+    const string oeeSql = "INSERT INTO EST_OEE_SUMMARY (OEE_ID,PLANT_ID,EQUIPMENT_ID,OEE_DATE,SHIFT_ID,PLANNED_MINUTES,DOWNTIME_MINUTES,OPERATING_MINUTES,IDEAL_CYCLE_TIME_SEC,TOTAL_COUNT,GOOD_COUNT,DEFECT_COUNT,AVAILABILITY,PERFORMANCE,QUALITY,OEE) " +
+        "VALUES (@id,@plant,@eq,@date,@shift,@pm,@dm,@om,@ict,@tc,@gc,@dc,@av,@pf,@ql,@oee)";
+    Exec(tx, oeeSql, ("@id", "OEE01"), ("@plant", "PLANT01"), ("@eq", "EQ01"), ("@date", now), ("@shift", "SHIFT_D"), ("@pm", 480m), ("@dm", 60m), ("@om", 420m), ("@ict", 30m), ("@tc", 800m), ("@gc", 780m), ("@dc", 20m), ("@av", 0.8750m), ("@pf", 0.9520m), ("@ql", 0.9750m), ("@oee", 0.8120m));
+    Exec(tx, oeeSql, ("@id", "OEE02"), ("@plant", "PLANT01"), ("@eq", "EQ01"), ("@date", yesterday), ("@shift", "SHIFT_N"), ("@pm", 480m), ("@dm", 90m), ("@om", 390m), ("@ict", 30m), ("@tc", 760m), ("@gc", 740m), ("@dc", 20m), ("@av", 0.8125m), ("@pf", 0.9740m), ("@ql", 0.9737m), ("@oee", 0.7706m));
+    Exec(tx, oeeSql, ("@id", "OEE03"), ("@plant", "PLANT01"), ("@eq", "EQ02"), ("@date", now), ("@shift", "SHIFT_D"), ("@pm", 480m), ("@dm", 120m), ("@om", 360m), ("@ict", 40m), ("@tc", 500m), ("@gc", 470m), ("@dc", 30m), ("@av", 0.7500m), ("@pf", 0.9259m), ("@ql", 0.9400m), ("@oee", 0.6528m));
+    Exec(tx, oeeSql, ("@id", "OEE04"), ("@plant", "PLANT02"), ("@eq", "EQ03"), ("@date", now), ("@shift", "SHIFT_D"), ("@pm", 480m), ("@dm", 30m), ("@om", 450m), ("@ict", 25m), ("@tc", 1000m), ("@gc", 990m), ("@dc", 10m), ("@av", 0.9375m), ("@pf", 0.9259m), ("@ql", 0.9900m), ("@oee", 0.8594m));
+
+    // 유실 상세(6대 손실) — WORST5 유실: EQ02(115분) > EQ01(65) > EQ03(30). LOSS_CODE는 느슨 참조(FK 없음).
+    const string lossSql = "INSERT INTO EST_OEE_LOSS (LOSS_ID,PLANT_ID,EQUIPMENT_ID,OEE_DATE,SHIFT_ID,LOSS_CATEGORY,LOSS_CODE,LOSS_NAME,LOSS_MINUTES,OCCURRED_AT,REASON) " +
+        "VALUES (@id,@plant,@eq,@date,'SHIFT_D',@cat,@code,@name,@min,@at,@reason)";
+    foreach (var l in new[] {
+        ("LOSS01", "PLANT01", "EQ01", "Breakdown", "RC_FAULT",  "고장 정지", 45m, "베어링 파손"),
+        ("LOSS02", "PLANT01", "EQ01", "Setup",     "RC_PLAN",   "계획 정지", 20m, "금형 교체"),
+        ("LOSS03", "PLANT01", "EQ02", "Breakdown", "RC_FAULT",  "고장 정지", 90m, "모터 과열"),
+        ("LOSS04", "PLANT01", "EQ02", "MinorStop", "RC_MINOR",  "순간 정지", 15m, "자재 걸림"),
+        ("LOSS05", "PLANT01", "EQ02", "Defect",    "RC_SCRATCH","불량 손실", 10m, "흠집 다발"),
+        ("LOSS06", "PLANT02", "EQ03", "Setup",     "RC_PLAN",   "계획 정지", 25m, "셋업 조정"),
+        ("LOSS07", "PLANT02", "EQ03", "SpeedLoss", "RC_SPEED",  "속도 저하",  5m, "저속 운전") })
+        Exec(tx, lossSql, ("@id", l.Item1), ("@plant", l.Item2), ("@eq", l.Item3), ("@date", now), ("@cat", l.Item4), ("@code", l.Item5), ("@name", l.Item6), ("@min", l.Item7), ("@at", now), ("@reason", l.Item8));
+
+    // EPT 관심지표 마스터 + 값(지표 관리/관심지표 등록·조회 화면).
+    foreach (var i in new[] {
+        ("IDX_MTBF", "평균고장간격(MTBF)", "신뢰성", "시간", "고장 간 평균 가동시간"),
+        ("IDX_MTTR", "평균수리시간(MTTR)", "보전성", "시간", "고장 1건당 평균 수리시간"),
+        ("IDX_UPTIME", "설비 가동률", "가동", "%", "계획 대비 가동시간 비율") })
+        Exec(tx, "INSERT INTO EST_EPT_INDEX (INDEX_ID,INDEX_NAME,INDEX_CATEGORY,UNIT,DESCRIPTION,IS_ACTIVE) VALUES (@id,@name,@cat,@unit,@desc,1)",
+            ("@id", i.Item1), ("@name", i.Item2), ("@cat", i.Item3), ("@unit", i.Item4), ("@desc", i.Item5));
+    const string ivSql = "INSERT INTO EST_EPT_INDEX_VALUE (VALUE_ID,INDEX_ID,EQUIPMENT_ID,PLANT_ID,OEE_DATE,SHIFT_ID,INDEX_VALUE) VALUES (@id,@idx,@eq,@plant,@date,'SHIFT_D',@val)";
+    foreach (var v in new[] {
+        ("IV01", "IDX_MTBF", "EQ01", "PLANT01", 120.5m),
+        ("IV02", "IDX_MTTR", "EQ01", "PLANT01", 2.5m),
+        ("IV03", "IDX_UPTIME", "EQ03", "PLANT02", 93.75m) })
+        Exec(tx, ivSql, ("@id", v.Item1), ("@idx", v.Item2), ("@eq", v.Item3), ("@plant", v.Item4), ("@date", now), ("@val", v.Item5));
+
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
 }

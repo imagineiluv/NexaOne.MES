@@ -47,4 +47,63 @@
             LIMIT 10
         ]]></statement>
     </query>
+    <!-- ===== OEE(설비종합효율) 슬라이스(Phase 4) — V050 마트. 컬럼은 V050__EST_OEE와 1:1 정합. ===== -->
+    <!-- 설비 종합 지표(OEE) — 설비×일자 OEE 마트 최근 500. @plantId·@equipmentId NULL-guard. -->
+    <query id="EST.OeeSummaryList">
+        <statement><![CDATA[
+            SELECT OEE_DATE, PLANT_ID, EQUIPMENT_ID, SHIFT_ID,
+                   PLANNED_MINUTES, OPERATING_MINUTES, DOWNTIME_MINUTES,
+                   TOTAL_COUNT, GOOD_COUNT, DEFECT_COUNT,
+                   AVAILABILITY, PERFORMANCE, QUALITY, OEE
+            FROM EST_OEE_SUMMARY
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+            ORDER BY OEE_DATE DESC, EQUIPMENT_ID
+            LIMIT 500
+        ]]></statement>
+    </query>
+    <!-- 설비 유실 분석 — 6대 손실 카테고리별 손실 시간/건수 집계(EST_OEE_LOSS). @equipmentId NULL-guard. -->
+    <query id="EST.LossByCategory">
+        <statement><![CDATA[
+            SELECT LOSS_CATEGORY,
+                   COUNT(*) AS LOSS_COUNT,
+                   SUM(LOSS_MINUTES) AS TOTAL_MINUTES
+            FROM EST_OEE_LOSS
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+            GROUP BY LOSS_CATEGORY
+            ORDER BY TOTAL_MINUTES DESC
+        ]]></statement>
+    </query>
+    <!-- WORST5 유실 — 설비별 총 손실 시간 상위 5(EST_OEE_LOSS 집계). 파라미터 없음. -->
+    <query id="EST.WorstLossEquipment">
+        <statement><![CDATA[
+            SELECT EQUIPMENT_ID,
+                   SUM(LOSS_MINUTES) AS TOTAL_MINUTES,
+                   COUNT(*) AS LOSS_COUNT
+            FROM EST_OEE_LOSS
+            GROUP BY EQUIPMENT_ID
+            ORDER BY TOTAL_MINUTES DESC
+            LIMIT 5
+        ]]></statement>
+    </query>
+    <!-- 관심 지표 등록/지표 관리 — KPI 지표 마스터(EST_EPT_INDEX). @isActive NULL-guard. -->
+    <query id="EST.IndexList">
+        <statement><![CDATA[
+            SELECT INDEX_ID, INDEX_NAME, INDEX_CATEGORY, UNIT, DESCRIPTION, IS_ACTIVE
+            FROM EST_EPT_INDEX
+            WHERE (@isActive IS NULL OR IS_ACTIVE = @isActive)
+            ORDER BY INDEX_NAME
+        ]]></statement>
+    </query>
+    <!-- 관심 지표 조회 — 지표×설비×일자 측정값(EST_EPT_INDEX_VALUE) 최근 500. @indexId·@equipmentId NULL-guard. -->
+    <query id="EST.IndexValueList">
+        <statement><![CDATA[
+            SELECT VALUE_ID, INDEX_ID, EQUIPMENT_ID, PLANT_ID, OEE_DATE, SHIFT_ID, INDEX_VALUE
+            FROM EST_EPT_INDEX_VALUE
+            WHERE (@indexId IS NULL OR INDEX_ID = @indexId)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+            ORDER BY OEE_DATE DESC, INDEX_ID
+            LIMIT 500
+        ]]></statement>
+    </query>
 </queries>
