@@ -39,4 +39,20 @@
     <constructor-arg ref="equipmentAlarmService" />
   </object>
 
+  <!-- ===== OEE(설비종합효율) 집계 — 원자료(상태이력·POM_LOT)를 설정(상태분류·목표)과 결합해 OEE 마트를 계산·적재. ===== -->
+  <object id="oeeAggregationRepository" type="NexaOne.EST.Infrastructure.OeeAggregationRepository, NexaOne.EST">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+
+  <!-- OEE 집계 워커(BackgroundService) — 모듈 소유 주기 작업. quartzScheduler는 부모(server.xml) 빈을 cross-context
+       ref로 주입한다. Program.cs가 IHostedService로 자동발견해 호스팅한다. ctor: (IRecurringScheduler, IOeeAggregator,
+       bool enabled, int intervalSeconds, int lookbackDays). enabled 기본 false(테스트/CI 무영향) — 'Oee:Aggregation:Enabled'로 켠다. -->
+  <object id="oeeAggregationWorker" type="NexaOne.EST.Application.Oee.OeeAggregationWorker, NexaOne.EST">
+    <constructor-arg ref="quartzScheduler" />
+    <constructor-arg ref="oeeAggregationRepository" />
+    <constructor-arg value="false" />
+    <constructor-arg value="3600" />
+    <constructor-arg value="1" />
+  </object>
+
 </objects>

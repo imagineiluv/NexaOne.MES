@@ -185,14 +185,7 @@ else
 builder.Services.AddNexaOneGateway(builder.Configuration);
 // 인증(무-브리지, 게이트웨이식) — 토큰 직접 발급(login/refresh). 게이트웨이 DI(IRuleDispatcher) 이후 호출.
 builder.Services.AddNexaOneAuth(builder.Configuration);
-// OEE 집계 서비스 + 워커(호스트 레벨) — 원자료(상태이력·POM_LOT)를 IRuleDispatcher로 읽어 OEE 마트를 계산·적재.
-// 워커 기본 OFF — Oee:Aggregation:Enabled=true로 켠다(테스트/CI 무영향, RefreshTokenCleanupWorker 패턴).
-builder.Services.AddSingleton<NexaOne.Server.Oee.OeeAggregationService>();
-var oeeEnabled = builder.Configuration.GetValue("Oee:Aggregation:Enabled", false);
-var oeeInterval = TimeSpan.FromSeconds(builder.Configuration.GetValue("Oee:Aggregation:IntervalSeconds", 3600));
-var oeeLookback = builder.Configuration.GetValue("Oee:Aggregation:LookbackDays", 1);
-builder.Services.AddHostedService(sp => new NexaOne.Server.Oee.OeeAggregationWorker(
-    sp.GetRequiredService<NexaOne.Server.Oee.OeeAggregationService>(), oeeEnabled, oeeInterval, oeeLookback));
+// OEE 집계는 EST 모듈 소유(config/modules/est.xml의 oeeAggregationWorker) — modules-ON에서 IHostedService로 자동발견.
 builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(
         new System.Text.Json.Serialization.JsonStringEnumConverter()));
@@ -700,6 +693,11 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
         Exec(tx, ivSql, ("@id", v.Item1), ("@idx", v.Item2), ("@eq", v.Item3), ("@plant", v.Item4), ("@date", now), ("@val", v.Item5));
 
     // ===== OEE 집계 워커 설정(V051) — 상태 분류 + 설비 목표. 워커가 켜지면 원자료를 이 설정과 결합해 마트를 계산한다. =====
+    // 작업조(MDM_SHIFT, V046) — OEE 작업조 단위 윈도/계획시간 근거. DAY 08:00~20:00, NIGHT 20:00~08:00(야간 교대).
+    foreach (var sh in new[] { ("DAY", "주간조", "08:00", "20:00"), ("NIGHT", "야간조", "20:00", "08:00") })
+        Exec(tx, "INSERT INTO MDM_SHIFT (SHIFT_ID,SHIFT_NAME,START_TIME,END_TIME,DESCRIPTION,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@name,@start,@end,@name,1,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", sh.Item1), ("@name", sh.Item2), ("@start", sh.Item3), ("@end", sh.Item4), ("@at", now));
     // 상태 분류: RUN=가동, DOWN/SETUP/MINOR=비가동(계획 포함), IDLE=비계획(계획시간 제외).
     foreach (var s in new[] {
         ("RUN", "가동", "Productive", 1, 0, 1),

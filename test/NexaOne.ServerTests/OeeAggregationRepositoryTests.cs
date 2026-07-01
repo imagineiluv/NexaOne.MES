@@ -4,24 +4,26 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
-using NexaOne.Server.Oee;
+using NexaOne.EST.Infrastructure;
+using NexaOne.Infrastructure.Persistence;
+using NexusCom.Data.Abstractions.Interfaces;
 using Xunit;
 
 namespace NexaOne.ServerTests;
 
-/// <summary>OEE 집계 서비스 통합검증(end-to-end) — modules OFF + SQLite. dev 시드가 EST_OEE_TARGET(EQ01~03)/
-/// EST_STATE_CATEGORY/MDM_EQUIPMENT를 채운다. 여기서 EQ01의 원자료(EST_EQUIPMENT_STATE_HISTORY 상태전이 +
-/// POM_LOT 생산/불량)를 특정 윈도에 시드한 뒤 <see cref="OeeAggregationService.AggregateWindowAsync"/>를 호출해
-/// IRuleDispatcher(read/write) 경로로 EST_OEE_SUMMARY/LOSS 마트가 올바른 OEE로 적재되는지 검증한다.
-/// 워커 산출물(AGG_/AGL_)은 데모 시드(OEE01~)와 키가 달라 분리 검증된다.</summary>
-public sealed class OeeAggregationServiceTests : IClassFixture<OeeAggregationServiceTests.OeeFactory>
+/// <summary>OEE 집계 리포지토리 통합검증(end-to-end) — 모듈 소유 <see cref="OeeAggregationRepository"/>를 호스트가 SQLite로
+/// 부트한 DB에 직접 물려(EesDataSource = 호스트 DI의 IDatabaseProvider + 팩터리 연결문자열) 집계를 검증한다.
+/// dev 시드가 EST_OEE_TARGET(EQ01~03)/EST_STATE_CATEGORY/MDM_SHIFT(DAY·NIGHT)/MDM_EQUIPMENT를 채운다. 여기서 EQ01의
+/// 원자료(상태전이 + POM_LOT 생산/불량)를 특정 윈도에 시드한 뒤 AggregateWindowAsync/AggregateDayAsync가 EST_OEE_SUMMARY/
+/// LOSS 마트를 올바른 OEE로 적재하는지(가용성/성능/품질·유실·작업조 계획시간·멱등) 검증한다. modules OFF.</summary>
+public sealed class OeeAggregationRepositoryTests : IClassFixture<OeeAggregationRepositoryTests.OeeFactory>
 {
     private readonly OeeFactory _factory;
-    public OeeAggregationServiceTests(OeeFactory factory) => _factory = factory;
+    public OeeAggregationRepositoryTests(OeeFactory factory) => _factory = factory;
 
     public sealed class OeeFactory : WebApplicationFactory<Program>
     {
-        public readonly string DbPath = Path.Combine(Path.GetTempPath(), $"nexaone-oee-agg-{Guid.NewGuid():N}.db");
+        public readonly string DbPath = Path.Combine(Path.GetTempPath(), $"nexaone-oee-repo-{Guid.NewGuid():N}.db");
         public string ConnString => $"Data Source={DbPath};Foreign Keys=False";
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -29,7 +31,7 @@ public sealed class OeeAggregationServiceTests : IClassFixture<OeeAggregationSer
             builder.UseSetting("Server:Modules:Enabled", "false");
             builder.UseSetting("Database:Provider", "Sqlite");
             builder.UseSetting("ConnectionStrings:NexaOne", ConnString);
-            builder.UseSetting("Jwt:SecretKey", "oee-agg-e2e-jwt-secret-key-at-least-32-bytes!!!!");
+            builder.UseSetting("Jwt:SecretKey", "oee-repo-e2e-jwt-secret-key-at-least-32-bytes!!!");
             builder.UseSetting("Jwt:Issuer", "nexaone-oee-test");
             builder.UseSetting("Jwt:Audience", "nexaone-oee-test");
         }
@@ -40,7 +42,13 @@ public sealed class OeeAggregationServiceTests : IClassFixture<OeeAggregationSer
         }
     }
 
-    private void EnsureSchemaAndSeed() => _ = _factory.CreateClient(); // 스키마 부트스트랩 + dev 시드(목표/분류/설비)
+    // 스키마 부트스트랩 + dev 시드(목표/분류/작업조/설비). IDatabaseProvider(SQLite)는 호스트 DI에 등록돼 있다.
+    private OeeAggregationRepository Repo()
+    {
+        var provider = _factory.Services.GetRequiredService<IDatabaseProvider>();
+        var ds = new EesDataSource { Provider = provider, ConnectionString = _factory.ConnString };
+        return new OeeAggregationRepository(ds);
+    }
 
     private void Exec(string sql, Action<SqliteCommand> bind)
     {
@@ -54,7 +62,6 @@ public sealed class OeeAggregationServiceTests : IClassFixture<OeeAggregationSer
 
     private static string Ts(DateTime dt) => dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
 
-    // EST_EQUIPMENT_STATE_HISTORY 1건(감사 컬럼 없음). HIST_ID는 시각 기반 유니크.
     private void SeedHistory(string equipmentId, string fromState, string toState, DateTime changedAt)
         => Exec(@"INSERT INTO EST_EQUIPMENT_STATE_HISTORY
             (HIST_ID, EQUIPMENT_ID, FROM_STATE, TO_STATE, SET_STATE, CHANGED_AT, CHANGED_BY, SOURCE_TYPE)
@@ -67,7 +74,6 @@ public sealed class OeeAggregationServiceTests : IClassFixture<OeeAggregationSer
             cmd.Parameters.AddWithValue("@at", Ts(changedAt));
         });
 
-    // POM_LOT 1건(NOT NULL: PLANT_ID/PRODUCT_ID/QTY/ROUTE_STEPS/CREATED_BY). 완료시각(TRACK_OUT_TIME)으로 윈도잉.
     private void SeedLot(string lotId, string equipmentId, decimal qty, decimal defectQty, DateTime trackOut)
         => Exec(@"INSERT INTO POM_LOT
             (LOT_ID, PLANT_ID, PRODUCT_ID, QTY, DEFECT_QTY, ROUTE_STEPS, EQUIPMENT_ID, TRACK_OUT_TIME, CREATED_BY, CREATED_AT)
@@ -80,23 +86,24 @@ public sealed class OeeAggregationServiceTests : IClassFixture<OeeAggregationSer
             cmd.Parameters.AddWithValue("@out", Ts(trackOut));
         });
 
-    // EST_OEE_SUMMARY 단일 행의 수치 컬럼을 읽어온다(DECIMAL은 SQLite TEXT/REAL — 불변 파싱).
-    private Dictionary<string, decimal>? ReadSummary(string oeeId)
+    private Dictionary<string, object>? ReadSummary(string oeeId)
     {
         using var conn = new SqliteConnection(_factory.ConnString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = @"SELECT PLANNED_MINUTES, OPERATING_MINUTES, DOWNTIME_MINUTES, TOTAL_COUNT, GOOD_COUNT,
+        cmd.CommandText = @"SELECT SHIFT_ID, PLANNED_MINUTES, OPERATING_MINUTES, DOWNTIME_MINUTES, TOTAL_COUNT, GOOD_COUNT,
                                    DEFECT_COUNT, AVAILABILITY, PERFORMANCE, QUALITY, OEE
                             FROM EST_OEE_SUMMARY WHERE OEE_ID = @id";
         cmd.Parameters.AddWithValue("@id", oeeId);
         using var r = cmd.ExecuteReader();
         if (!r.Read()) return null;
-        var d = new Dictionary<string, decimal>(StringComparer.Ordinal);
+        var d = new Dictionary<string, object>(StringComparer.Ordinal);
         for (int i = 0; i < r.FieldCount; i++)
-            d[r.GetName(i)] = decimal.Parse(r.GetValue(i).ToString()!, NumberStyles.Any, CultureInfo.InvariantCulture);
+            d[r.GetName(i)] = r.GetValue(i);
         return d;
     }
+
+    private static decimal D(object v) => decimal.Parse(v.ToString()!, NumberStyles.Any, CultureInfo.InvariantCulture);
 
     private decimal ReadLossMinutes(string equipmentId, string category, string dayPrefix)
     {
@@ -108,62 +115,83 @@ public sealed class OeeAggregationServiceTests : IClassFixture<OeeAggregationSer
         cmd.Parameters.AddWithValue("@eq", equipmentId);
         cmd.Parameters.AddWithValue("@cat", category);
         cmd.Parameters.AddWithValue("@day", dayPrefix + "%");
-        return decimal.Parse(cmd.ExecuteScalar()!.ToString()!, NumberStyles.Any, CultureInfo.InvariantCulture);
+        return D(cmd.ExecuteScalar()!);
     }
 
     [Fact]
     public async Task AggregateWindow_computes_oee_from_state_history_and_lots()
     {
-        EnsureSchemaAndSeed();
+        _ = _factory.CreateClient(); // 스키마 + dev 시드
         var start = new DateTime(2026, 3, 15, 0, 0, 0, DateTimeKind.Utc);
-        var end = start.AddDays(1);
 
-        // EQ01 상태전이: RUN 480 + DOWN 120 + RUN 360 + IDLE 480(비계획). 가동 840 / 비가동 120 / 계획 960.
+        // EQ01: RUN 480 + DOWN 120 + RUN 360 + IDLE 480(비계획). 가동 840 / 비가동 120 / 계획 960.
         SeedHistory("EQ01", "IDLE", "RUN", start);
         SeedHistory("EQ01", "RUN", "DOWN", start.AddHours(8));
         SeedHistory("EQ01", "DOWN", "RUN", start.AddHours(10));
         SeedHistory("EQ01", "RUN", "IDLE", start.AddHours(16));
-        // 생산: 총 1000 / 불량 50 → 양품 950.
         SeedLot("LOTA_20260315", "EQ01", 600m, 30m, start.AddHours(9));
         SeedLot("LOTB_20260315", "EQ01", 400m, 20m, start.AddHours(15));
 
-        var service = _factory.Services.GetRequiredService<OeeAggregationService>();
-        var written = await service.AggregateWindowAsync(start, end);
-        written.Should().BeGreaterThanOrEqualTo(1, "목표 등록 설비(EQ01~03)에 대해 마트 행이 적재돼야 한다");
+        var written = await Repo().AggregateWindowAsync(start, start.AddDays(1));
+        written.Should().BeGreaterThanOrEqualTo(1);
 
-        var row = ReadSummary("AGG_EQ01_20260315");
-        row.Should().NotBeNull("EQ01 OEE 집계 행(AGG_EQ01_20260315)이 적재돼야 한다");
-        row!["OPERATING_MINUTES"].Should().Be(840m, "가동 = RUN 480 + 360");
-        row["DOWNTIME_MINUTES"].Should().Be(120m, "비가동 = DOWN 120");
-        row["PLANNED_MINUTES"].Should().Be(960m, "계획 = 가동+비가동(비계획 IDLE 제외)");
-        row["AVAILABILITY"].Should().Be(0.875m, "840/960");
-        row["TOTAL_COUNT"].Should().Be(1000m);
-        row["GOOD_COUNT"].Should().Be(950m);
-        row["DEFECT_COUNT"].Should().Be(50m);
-        row["QUALITY"].Should().Be(0.95m, "950/1000");
-        row["PERFORMANCE"].Should().BeInRange(0.59m, 0.60m, "(30×1000)/(840×60)≈0.5952");
-        row["OEE"].Should().BeInRange(0.49m, 0.50m, "0.875×0.5952×0.95≈0.4948");
+        var row = ReadSummary("AGG_EQ01_20260315_ALLDAY");
+        row.Should().NotBeNull("EQ01 OEE 집계 행(AGG_EQ01_20260315_ALLDAY)이 적재돼야 한다");
+        D(row!["OPERATING_MINUTES"]).Should().Be(840m, "가동 = RUN 480 + 360");
+        D(row["DOWNTIME_MINUTES"]).Should().Be(120m, "비가동 = DOWN 120");
+        D(row["PLANNED_MINUTES"]).Should().Be(960m, "계획 = 가동+비가동(비계획 IDLE 제외)");
+        D(row["AVAILABILITY"]).Should().Be(0.875m, "840/960");
+        D(row["TOTAL_COUNT"]).Should().Be(1000m);
+        D(row["GOOD_COUNT"]).Should().Be(950m);
+        D(row["QUALITY"]).Should().Be(0.95m, "950/1000");
+        D(row["PERFORMANCE"]).Should().BeInRange(0.59m, 0.60m, "(30×1000)/(840×60)≈0.5952");
+        D(row["OEE"]).Should().BeInRange(0.49m, 0.50m, "0.875×0.5952×0.95≈0.4948");
 
-        ReadLossMinutes("EQ01", "Breakdown", "2026-03-15").Should().Be(120m, "DOWN 구간 120분이 Breakdown 유실로 적재");
+        ReadLossMinutes("EQ01", "Breakdown", "2026-03-15").Should().Be(120m, "DOWN 120분이 Breakdown 유실로 적재");
+    }
+
+    [Fact]
+    public async Task AggregateDay_uses_shift_windows_and_shift_planned_time()
+    {
+        _ = _factory.CreateClient();
+        var day = new DateTime(2026, 5, 10, 0, 0, 0, DateTimeKind.Utc);
+
+        // DAY 작업조(08:00~20:00, 720분) 내내 RUN. 계획시간=작업조 길이 720, 가동 720 → 가용성 1.0.
+        SeedHistory("EQ01", "IDLE", "RUN", day.AddHours(8));
+        SeedHistory("EQ01", "RUN", "IDLE", day.AddHours(20));
+        SeedLot("LOT_DAY_20260510", "EQ01", 1440m, 0m, day.AddHours(12)); // 성능=(30×1440)/(720×60)=1.0
+
+        var written = await Repo().AggregateDayAsync(day);
+        written.Should().BeGreaterThanOrEqualTo(2, "DAY·NIGHT 작업조별 행이 설비마다 적재돼야 한다");
+
+        var row = ReadSummary("AGG_EQ01_20260510_DAY");
+        row.Should().NotBeNull("DAY 작업조 집계 행이 적재돼야 한다");
+        row!["SHIFT_ID"].ToString().Should().Be("DAY", "작업조 인식 집계는 SHIFT_ID를 채운다");
+        D(row["PLANNED_MINUTES"]).Should().Be(720m, "계획시간 = DAY 작업조 길이(12h)");
+        D(row["OPERATING_MINUTES"]).Should().Be(720m);
+        D(row["AVAILABILITY"]).Should().Be(1.0m);
+        D(row["QUALITY"]).Should().Be(1.0m);
+        D(row["PERFORMANCE"]).Should().Be(1.0m);
+        D(row["OEE"]).Should().Be(1.0m, "1.0×1.0×1.0");
     }
 
     [Fact]
     public async Task AggregateWindow_is_idempotent_on_rerun()
     {
-        EnsureSchemaAndSeed();
+        _ = _factory.CreateClient();
         var start = new DateTime(2026, 4, 20, 0, 0, 0, DateTimeKind.Utc);
         SeedHistory("EQ01", "IDLE", "RUN", start);
         SeedHistory("EQ01", "RUN", "IDLE", start.AddHours(8));
         SeedLot("LOTC_20260420", "EQ01", 500m, 25m, start.AddHours(4));
 
-        var service = _factory.Services.GetRequiredService<OeeAggregationService>();
-        await service.AggregateWindowAsync(start, start.AddDays(1));
-        await service.AggregateWindowAsync(start, start.AddDays(1)); // 재실행 — delete+insert 멱등
+        var repo = Repo();
+        await repo.AggregateWindowAsync(start, start.AddDays(1));
+        await repo.AggregateWindowAsync(start, start.AddDays(1)); // 재실행 — delete+insert 멱등
 
         using var conn = new SqliteConnection(_factory.ConnString);
         conn.Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM EST_OEE_SUMMARY WHERE OEE_ID = 'AGG_EQ01_20260420'";
+        cmd.CommandText = "SELECT COUNT(*) FROM EST_OEE_SUMMARY WHERE OEE_ID = 'AGG_EQ01_20260420_ALLDAY'";
         Convert.ToInt64(cmd.ExecuteScalar()).Should().Be(1, "재실행해도 윈도당 1행만 유지돼야 한다(멱등)");
     }
 }

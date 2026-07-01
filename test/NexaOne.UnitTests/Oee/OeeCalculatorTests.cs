@@ -1,11 +1,9 @@
-using FluentAssertions;
-using NexaOne.Server.Oee;
-using Xunit;
+using NexaOne.EST.Domain.Oee;
 
-namespace NexaOne.ServerTests;
+namespace NexaOne.UnitTests.Oee;
 
-/// <summary>순수 OEE 계산기 단위검증 — 상태이력 타일링(가용성)·수량(품질)·목표사이클(성능) 결합과 6대 손실 집계,
-/// 그리고 경계(비계획 IDLE 제외·상태이력 부재 폴백·0나눗셈·비율 클램프)를 DB 없이 결정적으로 검증한다.</summary>
+/// <summary>순수 OEE 계산기 단위검증(EST 모듈 도메인) — 상태이력 타일링(가용성)·수량(품질)·목표사이클(성능) 결합과
+/// 6대 손실 집계, 경계(비계획 IDLE 제외·상태이력 부재 폴백·0나눗셈·비율 클램프·작업조 계획시간 override)를 DB 없이 검증한다.</summary>
 public sealed class OeeCalculatorTests
 {
     private static readonly Dictionary<string, OeeStateCategory> Cats = new(StringComparer.Ordinal)
@@ -104,5 +102,24 @@ public sealed class OeeCalculatorTests
             new OeeLotCounts(1000m, 0m), new OeeTarget(30m, 240m), Cats, Unknown);
 
         result.Performance.Should().Be(1.0m, "성능은 [0,1]로 클램프돼 OEE≤1을 보장한다");
+    }
+
+    [Fact]
+    public void Planned_override_takes_precedence_over_derived_scheduled_time()
+    {
+        // RUN 480(파생 계획 480). 그러나 작업조 override 720(12h)이 우선 → 가용성 = 480/720.
+        var transitions = new[]
+        {
+            new OeeStateTransition(T0, "IDLE", "RUN"),
+            new OeeStateTransition(T0.AddHours(8), "RUN", "IDLE"),
+        };
+        var result = OeeCalculator.Compute(
+            T0, T0.AddHours(12), transitions,
+            new OeeLotCounts(1000m, 0m), new OeeTarget(30m, 480m), Cats, Unknown,
+            plannedOverride: 720m);
+
+        result.PlannedMinutes.Should().Be(720m, "작업조/근무달력 계획시간 override가 파생값보다 우선");
+        result.OperatingMinutes.Should().Be(480m);
+        result.Availability.Should().Be(0.6667m, "480/720 반올림");
     }
 }
