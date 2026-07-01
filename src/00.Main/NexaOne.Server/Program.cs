@@ -782,6 +782,16 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
                  "VALUES (@eq,@plant,'설비 EPT 속성',@ct,'Y','Y','Y','Y',1,'SYSTEM',@at,'SYSTEM',@at)",
             ("@eq", pr.Item1), ("@plant", pr.Item2), ("@ct", pr.Item3), ("@at", now));
 
+    // MICUBE→EST(설비상태 표준) 시드 — 상태매트릭스(V025) + 이벤트/알람상태/이벤트상태 매핑(V056).
+    foreach (var m in new[] { ("PLANT01", "IDLE", "RUN"), ("PLANT01", "RUN", "DOWN"), ("PLANT02", "RUN", "IDLE") })
+        Exec(tx, "INSERT INTO EST_STATE_MATRIX (PLANT_ID,FROM_STATE_ID,TO_STATE_ID,ALLOW_FLAG,SET_STATE_ID,REQUIRE_REASON,VALID_STATE) VALUES (@p,@from,@to,'Y',@to,'N','Valid')",
+            ("@p", m.Item1), ("@from", m.Item2), ("@to", m.Item3));
+    foreach (var ev in new[] { ("EV01", "도어 열림", "EQ01", "Safety"), ("EV02", "비상정지", "EQ02", "Safety") })
+        Exec(tx, "INSERT INTO EST_EQUIPMENT_EVENT (EVENT_ID,PLANT_ID,EVENT_NAME,EQUIPMENT_ID,EVENT_TYPE,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,'PLANT01',@name,@eq,@type,1,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", ev.Item1), ("@name", ev.Item2), ("@eq", ev.Item3), ("@type", ev.Item4), ("@at", now));
+    Exec(tx, "INSERT INTO EST_STATE_ALARM_MAP (MAP_ID,PLANT_ID,EQUIPMENT_ID,ALARM_DEF_ID,SET_STATE,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES ('SAM01','PLANT01','EQ01','ALM_OVERHEAT','DOWN',1,'SYSTEM',@at,'SYSTEM',@at)", ("@at", now));
+    Exec(tx, "INSERT INTO EST_STATE_EVENT_MAP (MAP_ID,PLANT_ID,EQUIPMENT_ID,EVENT_ID,SET_STATE,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES ('SEM01','PLANT01','EQ01','EV01','IDLE',1,'SYSTEM',@at,'SYSTEM',@at)", ("@at", now));
+
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
 }

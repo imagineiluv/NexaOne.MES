@@ -923,6 +923,57 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "EST.EquipmentPropertyList"));
 
+        // ===== SmartUX MICUBE(설비상태 표준) → EST 이관 점등(브랜드명 MICUBE는 백엔드 미사용, 메뉴 UI_ID만 고정). =====
+        // 설비 상태 정보(MICUBE_STANDARD_EQUIPMENT_STATE) — 현재 상태(EST.CurrentStateList 재사용).
+        Register(new ScreenDefinition("MICUBE_STANDARD_EQUIPMENT_STATE", "설비 상태 정보",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("PLANT_ID", "공장"), new("CURRENT_STATE_ID", "현재 상태"),
+                new("STATE_CHANGED_AT", "상태변경시각"), new("STATE_VERSION", "버전"),
+            },
+            QueryId: "EST.CurrentStateList"));
+
+        // 설비 상태 매트릭스(MICUBE_STANDARD_EQUIPMENT_STATE_MATRIX) — 상태 전이 매트릭스(EST.StateMatrixList).
+        Register(new ScreenDefinition("MICUBE_STANDARD_EQUIPMENT_STATE_MATRIX", "설비 상태 매트릭스",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PLANT_ID", "공장"), new("FROM_STATE_ID", "이전 상태"), new("TO_STATE_ID", "변경 상태"),
+                new("ALLOW_FLAG", "허용"), new("SET_STATE_ID", "설정 상태"), new("REQUIRE_REASON", "사유필수"), new("VALID_STATE", "유효"),
+            },
+            QueryId: "EST.StateMatrixList"));
+
+        // 설비 이벤트 관리(MICUBE_STANDARD_EQUIPMENT_EVENT) — 설비 이벤트 마스터(EST.EquipmentEventList).
+        Register(new ScreenDefinition("MICUBE_STANDARD_EQUIPMENT_EVENT", "설비 이벤트 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EVENT_ID", "이벤트 ID"), new("PLANT_ID", "공장"), new("EVENT_NAME", "이벤트명"),
+                new("EQUIPMENT_ID", "설비"), new("EVENT_TYPE", "유형"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "EST.EquipmentEventList"));
+
+        // 설비 알람-상태 매핑(MICUBE_STANDARD_EQUIPMENT_STATE_ALARM_MAPPING) — 알람→상태(EST.StateAlarmMapList).
+        Register(new ScreenDefinition("MICUBE_STANDARD_EQUIPMENT_STATE_ALARM_MAPPING", "설비 알람-상태 매핑",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("MAP_ID", "매핑 ID"), new("PLANT_ID", "공장"), new("EQUIPMENT_ID", "설비"),
+                new("ALARM_DEF_ID", "알람정의"), new("SET_STATE", "설정 상태"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "EST.StateAlarmMapList"));
+
+        // 설비 이벤트-상태 매핑(MICUBE_STANDARD_EQUIPMENT_STATE_EVENT_MAPPING) — 이벤트→상태(EST.StateEventMapList).
+        Register(new ScreenDefinition("MICUBE_STANDARD_EQUIPMENT_STATE_EVENT_MAPPING", "설비 이벤트-상태 매핑",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("MAP_ID", "매핑 ID"), new("PLANT_ID", "공장"), new("EQUIPMENT_ID", "설비"),
+                new("EVENT_ID", "이벤트"), new("SET_STATE", "설정 상태"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "EST.StateEventMapList"));
+
         // 출하 지시 관리(FACTORY_DLV_DELIVERY_ORDER) — 출하지시 마스터 조회(SHP.DeliveryOrderList).
         Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_ORDER", "출하 지시 관리",
             Array.Empty<FieldDefinition>(),
