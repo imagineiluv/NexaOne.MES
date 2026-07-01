@@ -723,6 +723,20 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
                  "VALUES (@eq,@ict,@pm,@desc,1,'SYSTEM',@at,'SYSTEM',@at)",
             ("@eq", t.Item1), ("@ict", t.Item2), ("@pm", t.Item3), ("@desc", t.Item4), ("@at", now));
 
+    // POM_LOT(WPM 작업진행/LOT추적/수율 화면용) — 홀드·불량 섞어 시드. ROUTE_STEPS/CREATED_BY NOT NULL.
+    foreach (var l in new[] {
+        ("LOT01", "PLANT01", "ITEM01", 100m, 5m, "Processing", "N"),
+        ("LOT02", "PLANT01", "ITEM01", 200m, 0m, "Completed", "N"),
+        ("LOT03", "PLANT02", "ITEM02", 150m, 12m, "Processing", "Y") })
+        Exec(tx, "INSERT INTO POM_LOT (LOT_ID,PLANT_ID,PRODUCT_ID,QTY,DEFECT_QTY,LOT_STATE,PROCESS_STATE,ROUTE_STEPS,CURRENT_STEP,IS_HOLD,CREATED_BY,CREATED_AT) " +
+                 "VALUES (@id,@plant,@prod,@qty,@def,@st,'Idle','투입>가공>검사',1,@hold,'SYSTEM',@at)",
+            ("@id", l.Item1), ("@plant", l.Item2), ("@prod", l.Item3), ("@qty", l.Item4), ("@def", l.Item5), ("@st", l.Item6), ("@hold", l.Item7), ("@at", now));
+    // POM_LOT_HISTORY(LOT 추적 화면용) — LOT_HISTORY_ID는 IDENTITY(자동).
+    foreach (var h in new[] { ("PLANT01", "LOT01", "EQ01", "TrackIn"), ("PLANT01", "LOT02", "EQ02", "TrackOut") })
+        Exec(tx, "INSERT INTO POM_LOT_HISTORY (PLANT_ID,LOT_ID,EQUIPMENT_ID,PROCESS_ID,TRACK_IN_TIME,EXECUTION_ID,EXECUTION_USER,QTY,DEFECT_QTY,LOT_STATE,PROCESS_STATE) " +
+                 "VALUES (@plant,@lot,@eq,'PROC_MACH',@at,@exec,'admin',100,0,'Processing','Run')",
+            ("@plant", h.Item1), ("@lot", h.Item2), ("@eq", h.Item3), ("@exec", h.Item4), ("@at", now));
+
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
 }

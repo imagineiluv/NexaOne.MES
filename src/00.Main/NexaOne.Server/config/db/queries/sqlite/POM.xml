@@ -89,4 +89,61 @@
             ORDER BY SCHEDULED_START DESC
         ]]></statement>
     </query>
+    <!-- ===== SmartUX WPM(작업진행)·RPT 점등 — POM_LOT/POM_LOT_HISTORY 전체조회(V014). 신규 테이블 0. ===== -->
+    <!-- LOT 관리 — 전체 Lot(NULL-guard). @plantId/@lotState/@isHold 선택 필터. -->
+    <query id="POM.LotList">
+        <statement><![CDATA[
+            SELECT LOT_ID, PLANT_ID, WORK_ORDER_ID, PRODUCT_ID, QTY, DEFECT_QTY,
+                   LOT_STATE, PROCESS_STATE, CURRENT_STEP, EQUIPMENT_ID, IS_HOLD
+            FROM POM_LOT
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@lotState IS NULL OR LOT_STATE = @lotState)
+              AND (@isHold IS NULL OR IS_HOLD = @isHold)
+            ORDER BY CREATED_AT DESC
+        ]]></statement>
+    </query>
+    <!-- LOT Hold/Hold 해제 — 홀드 상태 Lot(IS_HOLD='Y', 타입 고정). -->
+    <query id="POM.LotHoldList">
+        <statement><![CDATA[
+            SELECT LOT_ID, PLANT_ID, PRODUCT_ID, QTY, LOT_STATE, PROCESS_STATE, EQUIPMENT_ID, IS_HOLD
+            FROM POM_LOT
+            WHERE IS_HOLD = 'Y'
+            ORDER BY CREATED_AT DESC
+        ]]></statement>
+    </query>
+    <!-- 불량 수리 — 불량 수량 존재 Lot(DEFECT_QTY>0, 타입 고정). -->
+    <query id="POM.LotDefectList">
+        <statement><![CDATA[
+            SELECT LOT_ID, PLANT_ID, PRODUCT_ID, QTY, DEFECT_QTY, LOT_STATE, EQUIPMENT_ID
+            FROM POM_LOT
+            WHERE DEFECT_QTY > 0
+            ORDER BY DEFECT_QTY DESC
+        ]]></statement>
+    </query>
+    <!-- 수율 현황 — 품목별 생산/불량/양품 집계(POM_LOT). 파라미터 없음. -->
+    <query id="POM.YieldByProduct">
+        <statement><![CDATA[
+            SELECT PRODUCT_ID,
+                   COUNT(*) AS LOT_COUNT,
+                   SUM(QTY) AS TOTAL_QTY,
+                   SUM(DEFECT_QTY) AS DEFECT_QTY,
+                   SUM(QTY) - SUM(DEFECT_QTY) AS GOOD_QTY
+            FROM POM_LOT
+            GROUP BY PRODUCT_ID
+            ORDER BY TOTAL_QTY DESC
+        ]]></statement>
+    </query>
+    <!-- LOT 추적 — Lot 이력 전체조회(POM_LOT_HISTORY, 최근 500). @plantId/@lotId 선택 필터. -->
+    <query id="POM.LotTraceList">
+        <statement><![CDATA[
+            SELECT LOT_HISTORY_ID, PLANT_ID, LOT_ID, EQUIPMENT_ID, PROCESS_ID,
+                   TRACK_IN_TIME, TRACK_OUT_TIME, EXECUTION_ID, EXECUTION_USER,
+                   QTY, DEFECT_QTY, LOT_STATE, PROCESS_STATE
+            FROM POM_LOT_HISTORY
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@lotId IS NULL OR LOT_ID = @lotId)
+            ORDER BY LOT_HISTORY_ID DESC
+            LIMIT 500
+        ]]></statement>
+    </query>
 </queries>

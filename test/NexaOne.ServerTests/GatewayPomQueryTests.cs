@@ -117,6 +117,43 @@ public sealed class GatewayPomQueryTests : IClassFixture<GatewayPomQueryTests.Po
         cmd.ExecuteNonQuery();
     }
 
+    // POM_LOT 1건 시드(수량/불량/홀드 지정) — WPM 점등 쿼리(LotList/Hold/Defect/Yield) 검증용.
+    private void SeedLotFull(string lotId, string plantId, string productId, decimal qty, decimal defectQty, string lotState, string isHold)
+    {
+        using var conn = new SqliteConnection(_factory.ConnString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO POM_LOT
+            (LOT_ID, PLANT_ID, PRODUCT_ID, QTY, DEFECT_QTY, LOT_STATE, PROCESS_STATE, ROUTE_STEPS, CURRENT_STEP, IS_HOLD, CREATED_BY, CREATED_AT)
+            VALUES (@id, @plant, @prod, @qty, @def, @st, 'Idle', 'CUT>ASSY', 0, @hold, 'TEST', @now)";
+        cmd.Parameters.AddWithValue("@id", lotId);
+        cmd.Parameters.AddWithValue("@plant", plantId);
+        cmd.Parameters.AddWithValue("@prod", productId);
+        cmd.Parameters.AddWithValue("@qty", qty);
+        cmd.Parameters.AddWithValue("@def", defectQty);
+        cmd.Parameters.AddWithValue("@st", lotState);
+        cmd.Parameters.AddWithValue("@hold", isHold);
+        cmd.Parameters.AddWithValue("@now", Now());
+        cmd.ExecuteNonQuery();
+    }
+
+    // POM_LOT_HISTORY 1건 시드(LOT_HISTORY_ID는 IDENTITY→자동). LOT 추적(LotTraceList) 검증용.
+    private void SeedLotHistory(string plantId, string lotId, string equipmentId, string executionId)
+    {
+        using var conn = new SqliteConnection(_factory.ConnString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO POM_LOT_HISTORY
+            (PLANT_ID, LOT_ID, EQUIPMENT_ID, PROCESS_ID, TRACK_IN_TIME, EXECUTION_ID, EXECUTION_USER, QTY, DEFECT_QTY, LOT_STATE, PROCESS_STATE)
+            VALUES (@plant, @lot, @eq, 'PROC1', @now, @exec, 'TEST', 10, 0, 'Processing', 'Run')";
+        cmd.Parameters.AddWithValue("@plant", plantId);
+        cmd.Parameters.AddWithValue("@lot", lotId);
+        cmd.Parameters.AddWithValue("@eq", equipmentId);
+        cmd.Parameters.AddWithValue("@exec", executionId);
+        cmd.Parameters.AddWithValue("@now", Now());
+        cmd.ExecuteNonQuery();
+    }
+
     [Fact]
     public async Task Unauthenticated_query_is_unauthorized()
     {
@@ -238,6 +275,83 @@ public sealed class GatewayPomQueryTests : IClassFixture<GatewayPomQueryTests.Po
         var rows = await Query("POM.ProductionOrderList", new());  // 필터 없음 → NULL-guard 전체조회
         var ids = rows.Select(r => r["ORDER_ID"].ToString()).ToList();
         ids.Should().Contain(new[] { idA, idB }, "계획/설비 필터 없이 전체 생산오더가 조회돼야 한다(점등용 전체조회)");
+    }
+
+    // ===== SmartUX WPM(작업진행)·RPT 점등(신설 전체조회) — LotList/Hold/Defect/Yield/Trace. =====
+
+    [Fact]
+    public async Task LotList_returns_all_and_hold_filter_narrows()
+    {
+        EnsureSchemaReady();
+        var plant = "P_" + Suffix();
+        var held = $"LOT_{Suffix()}";
+        var free = $"LOT_{Suffix()}";
+        SeedLotFull(held, plant, "PRODX", 10m, 0m, "Processing", "Y");
+        SeedLotFull(free, plant, "PRODX", 20m, 0m, "Processing", "N");
+
+        var all = await Query("POM.LotList", new() { ["plantId"] = plant });
+        all.Select(r => r["LOT_ID"].ToString()).Should().Contain(new[] { held, free }, "공장 전체 Lot이 조회돼야 한다(LOT 관리 점등)");
+
+        var heldOnly = await Query("POM.LotList", new() { ["plantId"] = plant, ["isHold"] = "Y" });
+        var ids = heldOnly.Select(r => r["LOT_ID"].ToString()).ToList();
+        ids.Should().Contain(held);
+        ids.Should().NotContain(free, "isHold 필터는 홀드 Lot만 반환");
+    }
+
+    [Fact]
+    public async Task LotHoldList_returns_only_held()
+    {
+        EnsureSchemaReady();
+        var held = $"LOT_{Suffix()}";
+        var free = $"LOT_{Suffix()}";
+        SeedLotFull(held, "P_" + Suffix(), "PRODX", 10m, 0m, "Processing", "Y");
+        SeedLotFull(free, "P_" + Suffix(), "PRODX", 10m, 0m, "Processing", "N");
+
+        var rows = await Query("POM.LotHoldList", new());
+        rows.Select(r => r["LOT_ID"].ToString()).Should().Contain(held).And.NotContain(free);
+        rows.Should().OnlyContain(r => r["IS_HOLD"].ToString() == "Y", "홀드 상태 Lot만(LOT Hold/해제 점등)");
+    }
+
+    [Fact]
+    public async Task LotDefectList_returns_only_defective()
+    {
+        EnsureSchemaReady();
+        var bad = $"LOT_{Suffix()}";
+        var good = $"LOT_{Suffix()}";
+        SeedLotFull(bad, "P_" + Suffix(), "PRODX", 100m, 5m, "Completed", "N");
+        SeedLotFull(good, "P_" + Suffix(), "PRODX", 100m, 0m, "Completed", "N");
+
+        var rows = await Query("POM.LotDefectList", new());
+        var ids = rows.Select(r => r["LOT_ID"].ToString()).ToList();
+        ids.Should().Contain(bad);
+        ids.Should().NotContain(good, "불량 수량 0 Lot은 제외(불량 수리 점등)");
+    }
+
+    [Fact]
+    public async Task YieldByProduct_aggregates_qty_and_good()
+    {
+        EnsureSchemaReady();
+        var prod = "PRD_" + Suffix();
+        SeedLotFull($"LOT_{Suffix()}", "P_" + Suffix(), prod, 100m, 10m, "Completed", "N");
+        SeedLotFull($"LOT_{Suffix()}", "P_" + Suffix(), prod, 200m, 20m, "Completed", "N");
+
+        var rows = await Query("POM.YieldByProduct", new());
+        var row = rows.Single(r => r["PRODUCT_ID"].ToString() == prod);
+        decimal.Parse(row["TOTAL_QTY"].ToString()!, System.Globalization.CultureInfo.InvariantCulture).Should().Be(300m);
+        decimal.Parse(row["GOOD_QTY"].ToString()!, System.Globalization.CultureInfo.InvariantCulture).Should().Be(270m, "양품 = 총생산-불량(수율 현황 점등)");
+    }
+
+    [Fact]
+    public async Task LotTraceList_returns_history_without_required_filter()
+    {
+        EnsureSchemaReady();
+        var plant = "P_" + Suffix();
+        var lot = $"LOT_{Suffix()}";
+        SeedLotHistory(plant, lot, "EQ_" + Suffix(), "TrackIn");
+
+        var rows = await Query("POM.LotTraceList", new() { ["plantId"] = plant });
+        rows.Select(r => r["LOT_ID"].ToString()).Should().Contain(lot, "Lot 이력이 조회돼야 한다(LOT 추적 점등)");
+        rows.Should().OnlyContain(r => r.ContainsKey("EXECUTION_ID") && r.ContainsKey("QTY"));
     }
 
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)

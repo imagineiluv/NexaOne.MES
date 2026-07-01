@@ -702,6 +702,78 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "POM.ProductionOrderList"));
 
+        // ===== SmartUX WPM(작업진행)·RPT·MDM_COM 점등 — 기존 테이블(POM_LOT/POM_LOT_HISTORY/MDM_SHIFT)만 사용, 마이그레이션 0. =====
+
+        // LOT 관리(FACTORY_WPM_LOT_MANAGEMENT) — 전체 Lot 조회(POM.LotList).
+        Register(new ScreenDefinition("FACTORY_WPM_LOT_MANAGEMENT", "LOT 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("LOT_ID", "LOT ID"), new("PLANT_ID", "공장"), new("PRODUCT_ID", "품목"), new("QTY", "수량"),
+                new("DEFECT_QTY", "불량수량"), new("LOT_STATE", "LOT상태"), new("PROCESS_STATE", "공정상태"),
+                new("CURRENT_STEP", "현재스텝"), new("EQUIPMENT_ID", "설비"), new("IS_HOLD", "홀드"),
+            },
+            QueryId: "POM.LotList"));
+
+        // LOT Hold(FACTORY_WPM_LOT_HOLD)·Hold 해제(FACTORY_WPM_LOT_HOLD_RELEASE) — 홀드 상태 Lot 조회(POM.LotHoldList).
+        Register(new ScreenDefinition("FACTORY_WPM_LOT_HOLD", "LOT Hold",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("LOT_ID", "LOT ID"), new("PLANT_ID", "공장"), new("PRODUCT_ID", "품목"), new("QTY", "수량"),
+                new("LOT_STATE", "LOT상태"), new("PROCESS_STATE", "공정상태"), new("EQUIPMENT_ID", "설비"), new("IS_HOLD", "홀드"),
+            },
+            QueryId: "POM.LotHoldList"));
+        Register(new ScreenDefinition("FACTORY_WPM_LOT_HOLD_RELEASE", "LOT Hold 해제",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("LOT_ID", "LOT ID"), new("PLANT_ID", "공장"), new("PRODUCT_ID", "품목"), new("QTY", "수량"),
+                new("LOT_STATE", "LOT상태"), new("PROCESS_STATE", "공정상태"), new("EQUIPMENT_ID", "설비"), new("IS_HOLD", "홀드"),
+            },
+            QueryId: "POM.LotHoldList"));
+
+        // 불량 수리(FACTORY_WPM_DEFECT_REPAIR) — 불량 수량 존재 Lot 조회(POM.LotDefectList).
+        Register(new ScreenDefinition("FACTORY_WPM_DEFECT_REPAIR", "불량 수리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("LOT_ID", "LOT ID"), new("PLANT_ID", "공장"), new("PRODUCT_ID", "품목"),
+                new("QTY", "수량"), new("DEFECT_QTY", "불량수량"), new("LOT_STATE", "LOT상태"), new("EQUIPMENT_ID", "설비"),
+            },
+            QueryId: "POM.LotDefectList"));
+
+        // 수율 현황(FACTORY_WPM_REPORT_YIELD_STATUS) — 품목별 생산/불량/양품 집계(POM.YieldByProduct).
+        Register(new ScreenDefinition("FACTORY_WPM_REPORT_YIELD_STATUS", "수율 현황",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PRODUCT_ID", "품목"), new("LOT_COUNT", "LOT수"), new("TOTAL_QTY", "총생산"),
+                new("DEFECT_QTY", "불량"), new("GOOD_QTY", "양품"),
+            },
+            QueryId: "POM.YieldByProduct"));
+
+        // LOT 추적(FACTORY_RPT_LOT_TRACE) — Lot 이력 조회(POM.LotTraceList).
+        Register(new ScreenDefinition("FACTORY_RPT_LOT_TRACE", "LOT 추적",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("LOT_ID", "LOT ID"), new("PLANT_ID", "공장"), new("EQUIPMENT_ID", "설비"), new("PROCESS_ID", "공정"),
+                new("TRACK_IN_TIME", "In시각"), new("TRACK_OUT_TIME", "Out시각"), new("EXECUTION_ID", "실행"),
+                new("QTY", "수량"), new("DEFECT_QTY", "불량"), new("LOT_STATE", "LOT상태"),
+            },
+            QueryId: "POM.LotTraceList"));
+
+        // 작업조 관리(MES_MDM_COM_SHIFT) — 작업조 마스터 조회(MDM.ShiftList, 기존 쿼리 재사용).
+        Register(new ScreenDefinition("MES_MDM_COM_SHIFT", "작업조 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("SHIFT_ID", "작업조 ID"), new("SHIFT_NAME", "작업조명"), new("START_TIME", "시작"),
+                new("END_TIME", "종료"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "MDM.ShiftList"));
+
         // 출하 지시 관리(FACTORY_DLV_DELIVERY_ORDER) — 출하지시 마스터 조회(SHP.DeliveryOrderList).
         Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_ORDER", "출하 지시 관리",
             Array.Empty<FieldDefinition>(),
