@@ -185,6 +185,14 @@ else
 builder.Services.AddNexaOneGateway(builder.Configuration);
 // 인증(무-브리지, 게이트웨이식) — 토큰 직접 발급(login/refresh). 게이트웨이 DI(IRuleDispatcher) 이후 호출.
 builder.Services.AddNexaOneAuth(builder.Configuration);
+// OEE 집계 서비스 + 워커(호스트 레벨) — 원자료(상태이력·POM_LOT)를 IRuleDispatcher로 읽어 OEE 마트를 계산·적재.
+// 워커 기본 OFF — Oee:Aggregation:Enabled=true로 켠다(테스트/CI 무영향, RefreshTokenCleanupWorker 패턴).
+builder.Services.AddSingleton<NexaOne.Server.Oee.OeeAggregationService>();
+var oeeEnabled = builder.Configuration.GetValue("Oee:Aggregation:Enabled", false);
+var oeeInterval = TimeSpan.FromSeconds(builder.Configuration.GetValue("Oee:Aggregation:IntervalSeconds", 3600));
+var oeeLookback = builder.Configuration.GetValue("Oee:Aggregation:LookbackDays", 1);
+builder.Services.AddHostedService(sp => new NexaOne.Server.Oee.OeeAggregationWorker(
+    sp.GetRequiredService<NexaOne.Server.Oee.OeeAggregationService>(), oeeEnabled, oeeInterval, oeeLookback));
 builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(
         new System.Text.Json.Serialization.JsonStringEnumConverter()));
@@ -690,6 +698,25 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
         ("IV02", "IDX_MTTR", "EQ01", "PLANT01", 2.5m),
         ("IV03", "IDX_UPTIME", "EQ03", "PLANT02", 93.75m) })
         Exec(tx, ivSql, ("@id", v.Item1), ("@idx", v.Item2), ("@eq", v.Item3), ("@plant", v.Item4), ("@date", now), ("@val", v.Item5));
+
+    // ===== OEE 집계 워커 설정(V051) — 상태 분류 + 설비 목표. 워커가 켜지면 원자료를 이 설정과 결합해 마트를 계산한다. =====
+    // 상태 분류: RUN=가동, DOWN/SETUP/MINOR=비가동(계획 포함), IDLE=비계획(계획시간 제외).
+    foreach (var s in new[] {
+        ("RUN", "가동", "Productive", 1, 0, 1),
+        ("DOWN", "고장 정지", "Breakdown", 0, 1, 1),
+        ("SETUP", "셋업/교체", "Setup", 0, 1, 1),
+        ("MINOR", "순간 정지", "MinorStop", 0, 1, 1),
+        ("IDLE", "비계획 대기", "Idle", 0, 0, 0) })
+        Exec(tx, "INSERT INTO EST_STATE_CATEGORY (STATE_ID,STATE_NAME,CATEGORY,IS_PRODUCTIVE,IS_DOWNTIME,IS_SCHEDULED,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@name,@cat,@prod,@down,@sched,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", s.Item1), ("@name", s.Item2), ("@cat", s.Item3), ("@prod", s.Item4), ("@down", s.Item5), ("@sched", s.Item6), ("@at", now));
+    foreach (var t in new[] {
+        ("EQ01", 30m, 480m, "가공기 1호 목표(30초/개)"),
+        ("EQ02", 40m, 480m, "검사기 1호 목표(40초/개)"),
+        ("EQ03", 25m, 480m, "조립기 1호 목표(25초/개)") })
+        Exec(tx, "INSERT INTO EST_OEE_TARGET (EQUIPMENT_ID,IDEAL_CYCLE_TIME_SEC,PLANNED_MINUTES,DESCRIPTION,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@eq,@ict,@pm,@desc,1,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@eq", t.Item1), ("@ict", t.Item2), ("@pm", t.Item3), ("@desc", t.Item4), ("@at", now));
 
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
