@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 파일 기반 쿼리 레지스트리(SQLite 방언) — IVT 자재/재고 read 슬라이스(자재LOT·재고 + 입출고 트랜잭션).
+     SmartUX FACTORY_IVT 화면 점등용 전체조회(NULL-guard). TX_TYPE 고정(입고/이동/불출). 컬럼은 V048__IVT_MATERIAL 정합. -->
+<queries module="IVT">
+    <query id="IVT.MaterialLotList">
+        <statement><![CDATA[
+            SELECT LOT_ID, MATERIAL_ID, LOT_NO, WAREHOUSE, CURRENT_QTY, UNIT, STATUS, RECEIVED_AT, EXPIRY_AT
+            FROM IVT_MATERIAL_LOT
+            WHERE (@warehouse IS NULL OR WAREHOUSE = @warehouse)
+              AND (@materialId IS NULL OR MATERIAL_ID = @materialId)
+            ORDER BY LOT_ID
+        ]]></statement>
+    </query>
+    <query id="IVT.MaterialTxList">
+        <statement><![CDATA[
+            SELECT TX_ID, LOT_ID, MATERIAL_ID, TX_TYPE, QTY, FROM_WAREHOUSE, TO_WAREHOUSE, TX_AT, PROCESSED_BY, STATUS
+            FROM IVT_MATERIAL_TX
+            WHERE (@txType IS NULL OR TX_TYPE = @txType)
+            ORDER BY TX_AT DESC
+        ]]></statement>
+    </query>
+    <query id="IVT.IncomingList">
+        <statement><![CDATA[
+            SELECT TX_ID, LOT_ID, MATERIAL_ID, TX_TYPE, QTY, FROM_WAREHOUSE, TO_WAREHOUSE, TX_AT, PROCESSED_BY, STATUS
+            FROM IVT_MATERIAL_TX WHERE TX_TYPE = 'Incoming' ORDER BY TX_AT DESC
+        ]]></statement>
+    </query>
+    <query id="IVT.MoveList">
+        <statement><![CDATA[
+            SELECT TX_ID, LOT_ID, MATERIAL_ID, TX_TYPE, QTY, FROM_WAREHOUSE, TO_WAREHOUSE, TX_AT, PROCESSED_BY, STATUS
+            FROM IVT_MATERIAL_TX WHERE TX_TYPE = 'Move' ORDER BY TX_AT DESC
+        ]]></statement>
+    </query>
+    <query id="IVT.DispensingList">
+        <statement><![CDATA[
+            SELECT TX_ID, LOT_ID, MATERIAL_ID, TX_TYPE, QTY, FROM_WAREHOUSE, TO_WAREHOUSE, TX_AT, PROCESSED_BY, STATUS
+            FROM IVT_MATERIAL_TX WHERE TX_TYPE = 'Dispensing' ORDER BY TX_AT DESC
+        ]]></statement>
+    </query>
+</queries>

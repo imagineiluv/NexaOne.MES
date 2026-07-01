@@ -118,6 +118,11 @@ public sealed class GatewayMdmE2ETests : IClassFixture<GatewayMdmE2ETests.Gatewa
     [InlineData("MDM.WorkCalendarList")]
     [InlineData("MDM.CustomerList")]
     [InlineData("MDM.DeliveryItemList")]
+    [InlineData("IVT.MaterialLotList")]
+    [InlineData("IVT.MaterialTxList")]
+    [InlineData("IVT.IncomingList")]
+    [InlineData("IVT.MoveList")]
+    [InlineData("IVT.DispensingList")]
     public async Task Enhanced_read_queries_execute_on_sqlite(string queryId)
     {
         var client = AuthedClient("mdm:manage");

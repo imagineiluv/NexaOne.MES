@@ -891,6 +891,26 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new GridColumnDefinition[] { new("I18N_ID", "항목 ID"), new("LANG_CLASS_ID", "그룹"), new("MESSAGE_KEY", "키"), new("LANGUAGE", "언어"), new("TRANSLATION", "번역") }, QueryId: "SYS.I18nList"));
         Register(new ScreenDefinition("SYSTEM_2_RULE_MANAGEMENT", "Rule 관리", Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[] { new("RULE_ID", "Rule ID"), new("RULE_NAME", "Rule명"), new("RULE_TYPE", "유형"), new("IS_ACTIVE", "활성"), new("DESCRIPTION", "설명") }, QueryId: "SYS.RuleList"));
+
+        // ===== SmartUX 자재/재고(FACTORY_IVT) 점등(V048 신설) — 자재 LOT/재고 + 입출고 트랜잭션(입고/이동/불출). =====
+        var ivtLotCols = new GridColumnDefinition[]
+        {
+            new("LOT_ID", "LOT ID"), new("MATERIAL_ID", "자재 ID"), new("LOT_NO", "LOT 번호"), new("WAREHOUSE", "창고"),
+            new("CURRENT_QTY", "현재고"), new("UNIT", "단위"), new("STATUS", "상태"), new("RECEIVED_AT", "입고일시"),
+        };
+        Register(new ScreenDefinition("FACTORY_IVT_MATERIAL_LOT_MANAGEMENT", "자재 LOT 관리", Array.Empty<FieldDefinition>(), ivtLotCols, QueryId: "IVT.MaterialLotList"));
+        Register(new ScreenDefinition("FACTORY_IVT_CONSUMABLE_LOT", "자재", Array.Empty<FieldDefinition>(), ivtLotCols, QueryId: "IVT.MaterialLotList"));
+        Register(new ScreenDefinition("FACTORY_IVT_INVENTORY_STATUS", "재고 관리", Array.Empty<FieldDefinition>(), ivtLotCols, QueryId: "IVT.MaterialLotList"));
+        var ivtTxCols = new GridColumnDefinition[]
+        {
+            new("TX_ID", "트랜잭션 ID"), new("LOT_ID", "LOT ID"), new("MATERIAL_ID", "자재 ID"), new("TX_TYPE", "유형"),
+            new("QTY", "수량"), new("FROM_WAREHOUSE", "출발창고"), new("TO_WAREHOUSE", "도착창고"), new("TX_AT", "처리일시"),
+            new("PROCESSED_BY", "처리자"), new("STATUS", "상태"),
+        };
+        Register(new ScreenDefinition("FACTORY_IVT_MATERIAL_INCOMING_MANAGEMENT", "입고 관리", Array.Empty<FieldDefinition>(), ivtTxCols, QueryId: "IVT.IncomingList"));
+        Register(new ScreenDefinition("FACTORY_IVT_MOVE_ODER", "자재 이동", Array.Empty<FieldDefinition>(), ivtTxCols, QueryId: "IVT.MoveList"));
+        Register(new ScreenDefinition("FACTORY_IVT_MATERIAL_DISPENSING", "자재 불출 처리", Array.Empty<FieldDefinition>(), ivtTxCols, QueryId: "IVT.DispensingList"));
+        Register(new ScreenDefinition("FACTORY_IVT_MATERIAL_DISPENSING_REQUEST", "자재 불출 요청", Array.Empty<FieldDefinition>(), ivtTxCols, QueryId: "IVT.DispensingList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
