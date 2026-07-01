@@ -746,6 +746,18 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
                  "VALUES (@id,@plant,@name,@vendor,@at,@qty,'admin',@st,'N','SYSTEM',@at,'SYSTEM',@at)",
             ("@id", po.Item1), ("@plant", po.Item2), ("@name", po.Item3), ("@vendor", po.Item4), ("@qty", po.Item5), ("@st", po.Item6), ("@at", now));
 
+    // SLS_SALES_ORDER/REQUEST(판매 오더/요청 화면용, V053) — 헤더+요청 시드.
+    foreach (var so in new[] {
+        ("SO01", "PLANT01", "완제품 A 판매", "CUST_X", 1000m, "Confirmed"),
+        ("SO02", "PLANT01", "완제품 A 추가", "CUST_Y", 500m, "Draft") })
+        Exec(tx, "INSERT INTO SLS_SALES_ORDER (SALES_ORDER_ID,PLANT_ID,SALES_ORDER_NAME,CUSTOMER_ID,PRODUCT_ID,PLAN_START_DATE,PLAN_QTY,DELIVERED_QTY,OWNER_ID,STATUS,IS_HOLD,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@plant,@name,@cust,'ITEM01',@at,@qty,0,'admin',@st,'N','SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", so.Item1), ("@plant", so.Item2), ("@name", so.Item3), ("@cust", so.Item4), ("@qty", so.Item5), ("@st", so.Item6), ("@at", now));
+    foreach (var sr in new[] { ("SR01", "SO01", 400m, "Confirmed"), ("SR02", "SO01", 600m, "Draft") })
+        Exec(tx, "INSERT INTO SLS_SALES_REQUEST (SALES_REQUEST_ID,SALES_REQUEST_NAME,SALES_ORDER_ID,CUSTOMER_ID,PRODUCT_ID,REQUEST_DATE,REQUEST_QTY,STATUS,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,'판매 요청',@so,'CUST_X','ITEM01',@at,@qty,@st,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", sr.Item1), ("@so", sr.Item2), ("@qty", sr.Item3), ("@st", sr.Item4), ("@at", now));
+
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
 }

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 파일 기반 쿼리 레지스트리(MSSQL 방언) — SLS 판매 read 슬라이스. SmartUX FACTORY_SLS 판매오더/판매요청 점등용.
+     SQLite판과 동일 ID·동일 의미이되 NOLOCK 힌트만 추가. 컬럼은 V053__SLS_SALES와 1:1 정합.
+     선택필터 (@p IS NULL OR COL=@p) — 본문 없는 @param은 게이트웨이가 null로 채운다. 모두 read(kind 미표기). -->
+<queries module="SLS">
+    <query id="SLS.SalesOrderList">
+        <statement><![CDATA[
+            SELECT SALES_ORDER_ID, PLANT_ID, SALES_ORDER_NAME, CUSTOMER_ID, PRODUCT_ID,
+                   PLAN_START_DATE, PLAN_END_DATE, PLAN_QTY, DELIVERED_QTY, OWNER_ID, STATUS, IS_HOLD
+            FROM SLS_SALES_ORDER WITH (NOLOCK)
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@status IS NULL OR STATUS = @status)
+              AND (@customerId IS NULL OR CUSTOMER_ID = @customerId)
+            ORDER BY PLAN_START_DATE DESC
+        ]]></statement>
+    </query>
+    <query id="SLS.SalesRequestList">
+        <statement><![CDATA[
+            SELECT SALES_REQUEST_ID, SALES_REQUEST_NAME, SALES_ORDER_ID, CUSTOMER_ID, PRODUCT_ID,
+                   REQUEST_DATE, REQUEST_QTY, STATUS
+            FROM SLS_SALES_REQUEST WITH (NOLOCK)
+            WHERE (@salesOrderId IS NULL OR SALES_ORDER_ID = @salesOrderId)
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY REQUEST_DATE DESC
+        ]]></statement>
+    </query>
+</queries>

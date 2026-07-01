@@ -832,6 +832,40 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 },
                 QueryId: "PRC.PurchaseOrderList"));
 
+        // ===== SmartUX FACTORY_SLS(판매) 점등 — 레거시 SLS_TB_SALES_ORDER/REQUEST를 V053으로 포팅. 납품현황은 SHP 재사용. =====
+        // 판매 오더 관리(FACTORY_SLS_SALES_ORDER) — 판매오더 헤더(SLS.SalesOrderList).
+        Register(new ScreenDefinition("FACTORY_SLS_SALES_ORDER", "판매 오더 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("SALES_ORDER_ID", "판매오더 ID"), new("SALES_ORDER_NAME", "판매오더명"), new("PLANT_ID", "공장"),
+                new("CUSTOMER_ID", "고객"), new("PRODUCT_ID", "품목"), new("PLAN_START_DATE", "계획시작"),
+                new("PLAN_END_DATE", "계획종료"), new("PLAN_QTY", "계획수량"), new("DELIVERED_QTY", "납품수량"),
+                new("STATUS", "상태"), new("IS_HOLD", "홀드"),
+            },
+            QueryId: "SLS.SalesOrderList"));
+
+        // 판매 요청(FACTORY_SLS_SALES_REQUEST) — 판매요청(SLS.SalesRequestList).
+        Register(new ScreenDefinition("FACTORY_SLS_SALES_REQUEST", "판매 요청",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("SALES_REQUEST_ID", "요청 ID"), new("SALES_REQUEST_NAME", "요청명"), new("SALES_ORDER_ID", "판매오더"),
+                new("CUSTOMER_ID", "고객"), new("PRODUCT_ID", "품목"), new("REQUEST_DATE", "요청일"),
+                new("REQUEST_QTY", "요청수량"), new("STATUS", "상태"),
+            },
+            QueryId: "SLS.SalesRequestList"));
+
+        // 납품 현황(FACTORY_SLS_REPORT_DELIVERY) — 출하 이력 재사용(SHP.ShipmentHistoryList).
+        Register(new ScreenDefinition("FACTORY_SLS_REPORT_DELIVERY", "납품 현황",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("HISTORY_ID", "이력 ID"), new("DELIVERY_ORDER_ID", "출하지시"), new("SHIPPED_AT", "출하시각"),
+                new("SHIPPED_QTY", "출하수량"), new("SHIPPED_BY", "출하자"), new("CARRIER", "운송사"), new("TRACKING_NO", "송장번호"),
+            },
+            QueryId: "SHP.ShipmentHistoryList"));
+
         // 출하 지시 관리(FACTORY_DLV_DELIVERY_ORDER) — 출하지시 마스터 조회(SHP.DeliveryOrderList).
         Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_ORDER", "출하 지시 관리",
             Array.Empty<FieldDefinition>(),
