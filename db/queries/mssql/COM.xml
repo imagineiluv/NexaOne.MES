@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 파일 기반 쿼리 레지스트리(MSSQL 방언) — COM 공통 read 슬라이스(알람/상태/라벨/ID채번).
+     SQLite판과 동일 ID·동일 @param이되 NOLOCK 힌트만 추가. 컬럼은 V049__COM_MASTER 정합. -->
+<queries module="COM">
+    <query id="COM.AlarmClassList">
+        <statement><![CDATA[ SELECT ALARM_CLASS_ID, ALARM_CLASS_NAME, DESCRIPTION, IS_ACTIVE FROM COM_ALARM_CLASS WITH (NOLOCK) ORDER BY ALARM_CLASS_NAME ]]></statement>
+    </query>
+    <query id="COM.AlarmList">
+        <statement><![CDATA[
+            SELECT ALARM_ID, ALARM_NAME, ALARM_CLASS_ID, SEVERITY, MESSAGE, IS_ACTIVE
+            FROM COM_ALARM WITH (NOLOCK)
+            WHERE (@alarmClassId IS NULL OR ALARM_CLASS_ID = @alarmClassId)
+            ORDER BY ALARM_NAME
+        ]]></statement>
+    </query>
+    <query id="COM.StateModelList">
+        <statement><![CDATA[ SELECT MODEL_ID, MODEL_NAME, TARGET_ENTITY, DESCRIPTION FROM COM_STATE_MODEL WITH (NOLOCK) ORDER BY MODEL_NAME ]]></statement>
+    </query>
+    <query id="COM.StateList">
+        <statement><![CDATA[
+            SELECT STATE_ID, MODEL_ID, STATE_NAME, STATE_CODE, SORT_ORDER, IS_INITIAL
+            FROM COM_STATE WITH (NOLOCK)
+            WHERE (@modelId IS NULL OR MODEL_ID = @modelId)
+            ORDER BY MODEL_ID, SORT_ORDER
+        ]]></statement>
+    </query>
+    <query id="COM.LabelList">
+        <statement><![CDATA[ SELECT LABEL_ID, LABEL_NAME, LABEL_TYPE, IS_ACTIVE FROM COM_LABEL WITH (NOLOCK) ORDER BY LABEL_NAME ]]></statement>
+    </query>
+    <query id="COM.IdRuleList">
+        <statement><![CDATA[ SELECT RULE_ID, RULE_NAME, PREFIX, SEQ_LENGTH, CURRENT_SEQ, RESET_CYCLE, DESCRIPTION FROM COM_ID_RULE WITH (NOLOCK) ORDER BY RULE_NAME ]]></statement>
+    </query>
+</queries>

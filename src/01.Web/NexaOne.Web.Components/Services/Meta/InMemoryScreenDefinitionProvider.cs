@@ -911,6 +911,25 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         Register(new ScreenDefinition("FACTORY_IVT_MOVE_ODER", "자재 이동", Array.Empty<FieldDefinition>(), ivtTxCols, QueryId: "IVT.MoveList"));
         Register(new ScreenDefinition("FACTORY_IVT_MATERIAL_DISPENSING", "자재 불출 처리", Array.Empty<FieldDefinition>(), ivtTxCols, QueryId: "IVT.DispensingList"));
         Register(new ScreenDefinition("FACTORY_IVT_MATERIAL_DISPENSING_REQUEST", "자재 불출 요청", Array.Empty<FieldDefinition>(), ivtTxCols, QueryId: "IVT.DispensingList"));
+
+        // ===== SmartUX 공통(FACTORY_COM) — 코드/통화는 기존 MDM 재사용, 알람/상태/라벨/ID채번은 V049 신규 마스터. =====
+        var comCodeClassCols = new GridColumnDefinition[] { new("CODE_CLASS_ID", "코드 그룹 ID"), new("CODE_CLASS_NAME", "코드 그룹명"), new("DESCRIPTION", "설명") };
+        Register(new ScreenDefinition("FACTORY_COM_CODE_CLASS", "코드 그룹 관리", Array.Empty<FieldDefinition>(), comCodeClassCols, QueryId: "MDM.CodeClassList"));
+        Register(new ScreenDefinition("FACTORY_COM_CODE_CODE", "코드 관리", Array.Empty<FieldDefinition>(), stdCodeCols, QueryId: "MDM.CodeList"));
+        Register(new ScreenDefinition("FACTORY_COM_CURRENCY_CODE", "통화 코드 관리", Array.Empty<FieldDefinition>(), stdCodeCols, QueryId: "MDM.CodeList"));
+        Register(new ScreenDefinition("FACTORY_COM_ALARM_CLASS", "알람 그룹 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("ALARM_CLASS_ID", "그룹 ID"), new("ALARM_CLASS_NAME", "그룹명"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성") }, QueryId: "COM.AlarmClassList"));
+        Register(new ScreenDefinition("FACTORY_COM_ALARM_DEF", "알람 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("ALARM_ID", "알람 ID"), new("ALARM_NAME", "알람명"), new("ALARM_CLASS_ID", "그룹"), new("SEVERITY", "심각도"), new("MESSAGE", "메시지"), new("IS_ACTIVE", "활성") }, QueryId: "COM.AlarmList"));
+        Register(new ScreenDefinition("FACTORY_COM_CODE_STATE_MODEL", "상태 모델 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("MODEL_ID", "모델 ID"), new("MODEL_NAME", "모델명"), new("TARGET_ENTITY", "대상"), new("DESCRIPTION", "설명") }, QueryId: "COM.StateModelList"));
+        var comStateCols = new GridColumnDefinition[] { new("STATE_ID", "상태 ID"), new("MODEL_ID", "모델"), new("STATE_NAME", "상태명"), new("STATE_CODE", "코드"), new("SORT_ORDER", "순서"), new("IS_INITIAL", "초기") };
+        Register(new ScreenDefinition("FACTORY_COM_CODE_STATE", "상태 코드 관리", Array.Empty<FieldDefinition>(), comStateCols, QueryId: "COM.StateList"));
+        Register(new ScreenDefinition("FACTORY_COM_CODE_STATE_TRANSITION", "상태 관리", Array.Empty<FieldDefinition>(), comStateCols, QueryId: "COM.StateList"));
+        Register(new ScreenDefinition("FACTORY_COM_LABEL", "라벨 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("LABEL_ID", "라벨 ID"), new("LABEL_NAME", "라벨명"), new("LABEL_TYPE", "유형"), new("IS_ACTIVE", "활성") }, QueryId: "COM.LabelList"));
+        Register(new ScreenDefinition("FACTORY_COM_CODE_ID_DEFINITION", "ID 채번 관리", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("RULE_ID", "규칙 ID"), new("RULE_NAME", "규칙명"), new("PREFIX", "접두"), new("SEQ_LENGTH", "자릿수"), new("CURRENT_SEQ", "현재값"), new("RESET_CYCLE", "리셋주기"), new("DESCRIPTION", "설명") }, QueryId: "COM.IdRuleList"));
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
