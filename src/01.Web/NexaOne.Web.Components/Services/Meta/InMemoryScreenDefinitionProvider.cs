@@ -974,6 +974,42 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "EST.StateEventMapList"));
 
+        // ===== SmartUX MICUBE(알람메일 알림) → COM 이관 점등. 메일서버/수신자매핑/서비스(V057, COM_ 접두사). =====
+        // 메일 서버 관리(MICUBE_STANDARD_MAIL_SERVER) — 메일 서버(COM.MailServerList).
+        Register(new ScreenDefinition("MICUBE_STANDARD_MAIL_SERVER", "메일 서버 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("SERVER_ID", "서버 ID"), new("SERVER_NAME", "서버명"), new("HOST", "호스트"), new("PORT", "포트"),
+                new("SENDER_ADDRESS", "발신주소"), new("USE_SSL", "SSL"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "COM.MailServerList"));
+
+        // 사용자-설비 메일 매핑(일반=MailRecipientList / 알람=AlarmMailRecipientList). 수신자 그리드 공용.
+        foreach (var (uiId, title, queryId) in new[] {
+            ("MICUBE_STANDARD_USER_EQUIPMENT_ALARM_MAIL_MAP", "사용자-설비 알람메일 매핑", "COM.AlarmMailRecipientList"),
+            ("MICUBE_STANDARD_STD_USER_ALARM_MAILING", "알람 메일 수신자 관리", "COM.AlarmMailRecipientList"),
+            ("MICUBE_STANDARD_USER_EQUIPMENT_MAIL_MAP", "사용자-설비 메일 매핑", "COM.MailRecipientList"),
+            ("MICUBE_STANDARD_STD_EQUIPMENT_MAILING", "설비 메일링 관리", "COM.MailRecipientList") })
+            Register(new ScreenDefinition(uiId, title,
+                Array.Empty<FieldDefinition>(),
+                new GridColumnDefinition[]
+                {
+                    new("RECIPIENT_ID", "수신 ID"), new("PLANT_ID", "공장"), new("USER_ID", "사용자"), new("EQUIPMENT_ID", "설비"),
+                    new("MAIL_ADDRESS", "메일주소"), new("MAIL_TYPE", "유형"), new("IS_ACTIVE", "활성"),
+                },
+                QueryId: queryId));
+
+        // 서비스 관리(MICUBE_STANDARD_SERVICE_MANAGEMENT) — 서비스 목록(COM.ServiceList).
+        Register(new ScreenDefinition("MICUBE_STANDARD_SERVICE_MANAGEMENT", "서비스 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("SERVICE_ID", "서비스 ID"), new("SERVICE_NAME", "서비스명"), new("SERVICE_TYPE", "유형"),
+                new("STATUS", "상태"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "COM.ServiceList"));
+
         // 출하 지시 관리(FACTORY_DLV_DELIVERY_ORDER) — 출하지시 마스터 조회(SHP.DeliveryOrderList).
         Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_ORDER", "출하 지시 관리",
             Array.Empty<FieldDefinition>(),

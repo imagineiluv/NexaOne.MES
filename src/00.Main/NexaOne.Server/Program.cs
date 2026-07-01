@@ -792,6 +792,15 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
     Exec(tx, "INSERT INTO EST_STATE_ALARM_MAP (MAP_ID,PLANT_ID,EQUIPMENT_ID,ALARM_DEF_ID,SET_STATE,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES ('SAM01','PLANT01','EQ01','ALM_OVERHEAT','DOWN',1,'SYSTEM',@at,'SYSTEM',@at)", ("@at", now));
     Exec(tx, "INSERT INTO EST_STATE_EVENT_MAP (MAP_ID,PLANT_ID,EQUIPMENT_ID,EVENT_ID,SET_STATE,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES ('SEM01','PLANT01','EQ01','EV01','IDLE',1,'SYSTEM',@at,'SYSTEM',@at)", ("@at", now));
 
+    // MICUBE→COM(알람메일 알림) 시드 — 메일서버/수신자(일반·알람)/서비스(V057).
+    Exec(tx, "INSERT INTO COM_MAIL_SERVER (SERVER_ID,SERVER_NAME,HOST,PORT,SENDER_ADDRESS,USE_SSL,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES ('SMTP01','기본 SMTP','smtp.factory.local',587,'noreply@factory.local','Y',1,'SYSTEM',@at,'SYSTEM',@at)", ("@at", now));
+    foreach (var rc in new[] { ("RC01", "admin", "EQ01", "Alarm"), ("RC02", "admin", "EQ02", "Mail") })
+        Exec(tx, "INSERT INTO COM_MAIL_RECIPIENT (RECIPIENT_ID,PLANT_ID,USER_ID,EQUIPMENT_ID,MAIL_ADDRESS,MAIL_TYPE,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,'PLANT01',@user,@eq,'admin@factory.local',@type,1,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", rc.Item1), ("@user", rc.Item2), ("@eq", rc.Item3), ("@type", rc.Item4), ("@at", now));
+    foreach (var sv in new[] { ("SVC01", "알람 수집 서비스", "Collector", "Running"), ("SVC02", "메일 발송 서비스", "Mailer", "Stopped") })
+        Exec(tx, "INSERT INTO COM_SERVICE (SERVICE_ID,SERVICE_NAME,SERVICE_TYPE,STATUS,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@name,@type,@st,1,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", sv.Item1), ("@name", sv.Item2), ("@type", sv.Item3), ("@st", sv.Item4), ("@at", now));
+
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
 }

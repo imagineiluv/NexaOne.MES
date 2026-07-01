@@ -30,4 +30,23 @@
     <query id="COM.IdRuleList">
         <statement><![CDATA[ SELECT RULE_ID, RULE_NAME, PREFIX, SEQ_LENGTH, CURRENT_SEQ, RESET_CYCLE, DESCRIPTION FROM COM_ID_RULE WITH (NOLOCK) ORDER BY RULE_NAME ]]></statement>
     </query>
+    <!-- MICUBE(알람메일 알림) → COM 이관(V057). 메일서버/수신자(일반·알람)/서비스. -->
+    <query id="COM.MailServerList">
+        <statement><![CDATA[ SELECT SERVER_ID, SERVER_NAME, HOST, PORT, SENDER_ADDRESS, USE_SSL, IS_ACTIVE FROM COM_MAIL_SERVER WITH (NOLOCK) ORDER BY SERVER_NAME ]]></statement>
+    </query>
+    <query id="COM.MailRecipientList">
+        <statement><![CDATA[
+            SELECT RECIPIENT_ID, PLANT_ID, USER_ID, EQUIPMENT_ID, MAIL_ADDRESS, MAIL_TYPE, IS_ACTIVE
+            FROM COM_MAIL_RECIPIENT WITH (NOLOCK) WHERE MAIL_TYPE = 'Mail' ORDER BY USER_ID
+        ]]></statement>
+    </query>
+    <query id="COM.AlarmMailRecipientList">
+        <statement><![CDATA[
+            SELECT RECIPIENT_ID, PLANT_ID, USER_ID, EQUIPMENT_ID, MAIL_ADDRESS, MAIL_TYPE, IS_ACTIVE
+            FROM COM_MAIL_RECIPIENT WITH (NOLOCK) WHERE MAIL_TYPE = 'Alarm' ORDER BY USER_ID
+        ]]></statement>
+    </query>
+    <query id="COM.ServiceList">
+        <statement><![CDATA[ SELECT SERVICE_ID, SERVICE_NAME, SERVICE_TYPE, STATUS, DESCRIPTION, IS_ACTIVE FROM COM_SERVICE WITH (NOLOCK) ORDER BY SERVICE_NAME ]]></statement>
+    </query>
 </queries>
