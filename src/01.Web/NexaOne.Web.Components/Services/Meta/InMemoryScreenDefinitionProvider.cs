@@ -817,6 +817,21 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         RegisterQcaSpecMapping("FACTORY_QCA_PROCESS_INSPECTION_MAPPING", "공정검사 정보연결");
         RegisterQcaSpecMapping("FACTORY_QCA_SHIPMENT_INSPECTION_MAPPING", "출하검사 정보연결");
 
+        // ===== SmartUX FACTORY_PRC(구매) 점등 — 레거시 PRC_TB_PURCHASE_ORDER를 V052로 단순 포팅. 이동오더는 후속(IVT 이동 모델). =====
+        // 구매오더 관리(FACTORY_PRC_PURCHASE_ORDER)·구매오더 현황(FACTORY_PRC_REPORT_PURCHASEORDER) — 발주 헤더(PRC.PurchaseOrderList).
+        foreach (var (uiId, title) in new[] {
+            ("FACTORY_PRC_PURCHASE_ORDER", "구매오더 관리"),
+            ("FACTORY_PRC_REPORT_PURCHASEORDER", "구매오더 현황") })
+            Register(new ScreenDefinition(uiId, title,
+                Array.Empty<FieldDefinition>(),
+                new GridColumnDefinition[]
+                {
+                    new("PURCHASE_ORDER_ID", "발주 ID"), new("PURCHASE_ORDER_NAME", "발주명"), new("PLANT_ID", "공장"),
+                    new("VENDOR_ID", "거래처"), new("ORDER_DATE", "발주일"), new("INCOMING_DATE", "입고예정일"),
+                    new("ORDER_QTY", "발주수량"), new("OWNER_ID", "담당자"), new("STATUS", "상태"), new("IS_HOLD", "홀드"),
+                },
+                QueryId: "PRC.PurchaseOrderList"));
+
         // 출하 지시 관리(FACTORY_DLV_DELIVERY_ORDER) — 출하지시 마스터 조회(SHP.DeliveryOrderList).
         Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_ORDER", "출하 지시 관리",
             Array.Empty<FieldDefinition>(),

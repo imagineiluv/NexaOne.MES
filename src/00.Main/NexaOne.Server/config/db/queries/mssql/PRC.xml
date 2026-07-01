@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 파일 기반 쿼리 레지스트리(MSSQL 방언) — PRC 구매 read 슬라이스. SmartUX FACTORY_PRC 구매오더 관리/현황 점등용.
+     SQLite판과 동일 ID·동일 의미이되 NOLOCK 힌트만 추가. 컬럼은 V052__PRC_PURCHASE_ORDER와 1:1 정합.
+     선택필터 (@p IS NULL OR COL=@p) — 본문 없는 @param은 게이트웨이가 null로 채운다. 모두 read(kind 미표기). -->
+<queries module="PRC">
+    <query id="PRC.PurchaseOrderList">
+        <statement><![CDATA[
+            SELECT PURCHASE_ORDER_ID, PLANT_ID, PURCHASE_ORDER_NAME, VENDOR_ID, ORDER_DATE, INCOMING_DATE,
+                   ORDER_QTY, OWNER_ID, STATUS, IS_HOLD
+            FROM PRC_PURCHASE_ORDER WITH (NOLOCK)
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@status IS NULL OR STATUS = @status)
+              AND (@vendorId IS NULL OR VENDOR_ID = @vendorId)
+            ORDER BY ORDER_DATE DESC
+        ]]></statement>
+    </query>
+</queries>

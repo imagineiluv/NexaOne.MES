@@ -737,6 +737,15 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
                  "VALUES (@plant,@lot,@eq,'PROC_MACH',@at,@exec,'admin',100,0,'Processing','Run')",
             ("@plant", h.Item1), ("@lot", h.Item2), ("@eq", h.Item3), ("@exec", h.Item4), ("@at", now));
 
+    // PRC_PURCHASE_ORDER(구매오더 관리/현황 화면용, V052) — 발주 헤더 시드.
+    foreach (var po in new[] {
+        ("PO01", "PLANT01", "원자재 발주", "VEN_A", 500m, "Ordered"),
+        ("PO02", "PLANT01", "부자재 발주", "VEN_B", 300m, "Draft"),
+        ("PO03", "PLANT02", "소모품 발주", "VEN_A", 120m, "Incoming") })
+        Exec(tx, "INSERT INTO PRC_PURCHASE_ORDER (PURCHASE_ORDER_ID,PLANT_ID,PURCHASE_ORDER_NAME,VENDOR_ID,ORDER_DATE,ORDER_QTY,OWNER_ID,STATUS,IS_HOLD,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@plant,@name,@vendor,@at,@qty,'admin',@st,'N','SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", po.Item1), ("@plant", po.Item2), ("@name", po.Item3), ("@vendor", po.Item4), ("@qty", po.Item5), ("@st", po.Item6), ("@at", now));
+
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
 }
