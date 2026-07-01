@@ -1010,6 +1010,39 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "COM.ServiceList"));
 
+        // ===== SmartUX 잔여 보류분 점등 — STD BOR(V058 자원명세) + PRC 이동오더(IVT.MoveList 재사용). =====
+        // BOR 관리 조건 기준(FACTORY_STD_BOR_CONDITION) — BOR 헤더(MDM.BorList).
+        Register(new ScreenDefinition("FACTORY_STD_BOR_CONDITION", "BOR 관리(조건 기준)",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("BOR_ID", "BOR ID"), new("PLANT_ID", "공장"), new("BOR_NAME", "BOR명"), new("PROCESS_ID", "공정"),
+                new("PRODUCT_ID", "품목"), new("BOR_TYPE", "유형"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "MDM.BorList"));
+
+        // BOR 관리 자원 기준(FACTORY_STD_BOR_RESOURCE) — BOR 자원 상세(MDM.BorResourceList).
+        Register(new ScreenDefinition("FACTORY_STD_BOR_RESOURCE", "BOR 관리(자원 기준)",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("RESOURCE_ID", "자원 ID"), new("BOR_ID", "BOR"), new("RESOURCE_TYPE", "자원유형"),
+                new("RESOURCE_REF_ID", "참조 ID"), new("RESOURCE_NAME", "자원명"), new("REQUIRED_QTY", "소요량"),
+                new("CONDITION_VALUE", "조건값"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "MDM.BorResourceList"));
+
+        // 이동오더 현황(FACTORY_PRC_REPORT_MOVEORDER) — 자재 이동 트랜잭션 재사용(IVT.MoveList).
+        Register(new ScreenDefinition("FACTORY_PRC_REPORT_MOVEORDER", "이동오더 현황",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("TX_ID", "이동 ID"), new("LOT_ID", "LOT"), new("MATERIAL_ID", "자재"), new("QTY", "수량"),
+                new("FROM_WAREHOUSE", "출발창고"), new("TO_WAREHOUSE", "도착창고"), new("TX_AT", "이동시각"),
+                new("PROCESSED_BY", "처리자"), new("STATUS", "상태"),
+            },
+            QueryId: "IVT.MoveList"));
+
         // 출하 지시 관리(FACTORY_DLV_DELIVERY_ORDER) — 출하지시 마스터 조회(SHP.DeliveryOrderList).
         Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_ORDER", "출하 지시 관리",
             Array.Empty<FieldDefinition>(),

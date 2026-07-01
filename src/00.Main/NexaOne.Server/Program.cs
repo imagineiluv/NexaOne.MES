@@ -801,6 +801,18 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
         Exec(tx, "INSERT INTO COM_SERVICE (SERVICE_ID,SERVICE_NAME,SERVICE_TYPE,STATUS,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@name,@type,@st,1,'SYSTEM',@at,'SYSTEM',@at)",
             ("@id", sv.Item1), ("@name", sv.Item2), ("@type", sv.Item3), ("@st", sv.Item4), ("@at", now));
 
+    // MDM_BOR/RESOURCE(FACTORY_STD BOR 화면용, V058). 자원 FK: BOR 선삽입.
+    foreach (var b in new[] { ("BOR01", "PLANT01", "조립 BOR", "Condition"), ("BOR02", "PLANT01", "가공 BOR", "Resource") })
+        Exec(tx, "INSERT INTO MDM_BOR (BOR_ID,PLANT_ID,BOR_NAME,PROCESS_ID,PRODUCT_ID,BOR_TYPE,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@plant,@name,'PROC_ASSY','ITEM01',@type,1,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", b.Item1), ("@plant", b.Item2), ("@name", b.Item3), ("@type", b.Item4), ("@at", now));
+    foreach (var r in new[] { ("BRS01", "BOR01", "Equipment", "EQ01", "가공기 1호", 1m), ("BRS02", "BOR02", "Tool", "TOOL01", "지그 A", 2m) })
+        Exec(tx, "INSERT INTO MDM_BOR_RESOURCE (RESOURCE_ID,BOR_ID,RESOURCE_TYPE,RESOURCE_REF_ID,RESOURCE_NAME,REQUIRED_QTY,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) VALUES (@id,@bor,@type,@ref,@name,@qty,1,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", r.Item1), ("@bor", r.Item2), ("@type", r.Item3), ("@ref", r.Item4), ("@name", r.Item5), ("@qty", r.Item6), ("@at", now));
+    // IVT_MATERIAL_TX 이동(이동오더 현황 화면용) — TX_TYPE='Move'.
+    foreach (var m in new[] { ("MTX01", "LOT01", "ITEM03", 50m, "자재창고", "조립1동"), ("MTX02", "LOT02", "ITEM03", 30m, "자재창고", "가공동") })
+        Exec(tx, "INSERT INTO IVT_MATERIAL_TX (TX_ID,LOT_ID,MATERIAL_ID,TX_TYPE,QTY,FROM_WAREHOUSE,TO_WAREHOUSE,TX_AT,PROCESSED_BY,STATUS) VALUES (@id,@lot,@mat,'Move',@qty,@from,@to,@at,'admin','Completed')",
+            ("@id", m.Item1), ("@lot", m.Item2), ("@mat", m.Item3), ("@qty", m.Item4), ("@from", m.Item5), ("@to", m.Item6), ("@at", now));
+
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
 }

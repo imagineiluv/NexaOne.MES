@@ -244,4 +244,23 @@
             ORDER BY LABEL_ID, PROCESS_ID
         ]]></statement>
     </query>
+    <!-- FACTORY_STD BOR(자원명세, V058) — BOR 헤더/자원 상세. NULL-guard 전체조회. -->
+    <query id="MDM.BorList">
+        <statement><![CDATA[
+            SELECT BOR_ID, PLANT_ID, BOR_NAME, PROCESS_ID, PRODUCT_ID, BOR_TYPE, DESCRIPTION, IS_ACTIVE
+            FROM MDM_BOR WITH (NOLOCK)
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@borType IS NULL OR BOR_TYPE = @borType)
+            ORDER BY BOR_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.BorResourceList">
+        <statement><![CDATA[
+            SELECT RESOURCE_ID, BOR_ID, RESOURCE_TYPE, RESOURCE_REF_ID, RESOURCE_NAME, REQUIRED_QTY, CONDITION_VALUE, IS_ACTIVE
+            FROM MDM_BOR_RESOURCE WITH (NOLOCK)
+            WHERE (@borId IS NULL OR BOR_ID = @borId)
+              AND (@resourceType IS NULL OR RESOURCE_TYPE = @resourceType)
+            ORDER BY BOR_ID, RESOURCE_TYPE
+        ]]></statement>
+    </query>
 </queries>
