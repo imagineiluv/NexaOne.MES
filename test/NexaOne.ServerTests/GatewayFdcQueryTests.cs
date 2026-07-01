@@ -164,6 +164,19 @@ public sealed class GatewayFdcQueryTests : IClassFixture<GatewayFdcQueryTests.Fd
             cmd.Parameters.AddWithValue("@now", Now());
         });
 
+    // FDC_COLLECT_DATA 1건 시드(수집 시계열, 감사 컬럼 없음 — COLLECTED_AT만). QUALITY는 DEFAULT 'Good'.
+    private void SeedCollectData(string collectId, string equipmentId, string parameterId, decimal value, DateTime collectedAt)
+        => Exec(@"INSERT INTO FDC_COLLECT_DATA
+            (COLLECT_ID, EQUIPMENT_ID, PARAMETER_ID, VALUE, COLLECTED_AT, QUALITY, LOWER_LIMIT, UPPER_LIMIT)
+            VALUES (@id, @eq, @pid, @val, @at, 'Good', 0, 100)", cmd =>
+        {
+            cmd.Parameters.AddWithValue("@id", collectId);
+            cmd.Parameters.AddWithValue("@eq", equipmentId);
+            cmd.Parameters.AddWithValue("@pid", parameterId);
+            cmd.Parameters.AddWithValue("@val", value);
+            cmd.Parameters.AddWithValue("@at", collectedAt.ToString("yyyy-MM-dd HH:mm:ss"));
+        });
+
     [Fact]
     public async Task Unauthenticated_query_is_unauthorized()
     {
@@ -313,6 +326,38 @@ public sealed class GatewayFdcQueryTests : IClassFixture<GatewayFdcQueryTests.Fd
         var rows = await Query("FDC.InterlockHistoryList", new());  // 설비·기간 필터 없이 전체
         var ids = rows.Select(r => r["HISTORY_ID"].ToString()).ToList();
         ids.Should().Contain(new[] { idA, idB }, "설비/기간 필터 없이 전체 인터락 이력이 조회돼야 한다(점등용 전체조회)");
+    }
+
+    // ===== SmartUX EES_FDC 점등(Phase 3) 신설 전체조회 — 수집 데이터 차트 / 인터락 규칙. =====
+
+    [Fact]
+    public async Task CollectDataList_returns_recent_rows_without_filter()
+    {
+        EnsureSchemaReady();
+        var idA = $"C_{Suffix()}";
+        var idB = $"C_{Suffix()}";
+        SeedCollectData(idA, "EQ_" + Suffix(), "P_" + Suffix(), 42.0m, DateTime.UtcNow.AddMinutes(-1)); // 서로 다른 설비
+        SeedCollectData(idB, "EQ_" + Suffix(), "P_" + Suffix(), 7.5m, DateTime.UtcNow.AddMinutes(-2));
+
+        var rows = await Query("FDC.CollectDataList", new());  // 파라미터 없이 최근 수집 전체(NULL-guard)
+        var ids = rows.Select(r => r["COLLECT_ID"].ToString()).ToList();
+        ids.Should().Contain(new[] { idA, idB }, "설비/파라미터 필터 없이 최근 수집 시계열이 조회돼야 한다(FDC 데이터 차트 점등)");
+        rows.Should().OnlyContain(r => r.ContainsKey("VALUE") && r.ContainsKey("COLLECTED_AT"));
+    }
+
+    [Fact]
+    public async Task InterlockRuleList_returns_all_without_filter()
+    {
+        EnsureSchemaReady();
+        var eqA = "EQ_" + Suffix();
+        var eqB = "EQ_" + Suffix();
+        SeedRule($"R_{Suffix()}", eqA, $"P_{Suffix()}", "GT", 200m, "STOP", 1);   // 서로 다른 설비
+        SeedRule($"R_{Suffix()}", eqB, $"P_{Suffix()}", "LT", 10m, "SLOWDOWN", 2);
+
+        var rows = await Query("FDC.InterlockRuleList", new());  // 설비 필터 없이 전체 인터락 규칙(파라미터별 상태변경 관리)
+        var eqs = rows.Select(r => r["EQUIPMENT_ID"].ToString()).ToList();
+        eqs.Should().Contain(new[] { eqA, eqB }, "설비 필터 없이 전체 인터락 규칙이 조회돼야 한다(점등용 전체조회)");
+        rows.Should().OnlyContain(r => r.ContainsKey("ACTION") && r.ContainsKey("PRIORITY"));
     }
 
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)

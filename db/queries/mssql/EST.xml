@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 파일 기반 쿼리 레지스트리(MSSQL 방언) — EST(설비 상태 추적) read 슬라이스. SmartUX EPT(설비성능관리) 화면 점등용.
+     현재상태/상태이력/설비알람 조회 + WORST10 알람 집계. SQLite판과 동일 ID·동일 의미이되 NOLOCK 힌트·TOP만 다르다.
+     컬럼은 V025__EST_EQUIPMENT_STATE(상태/이력/매트릭스) / V003__EST_EQUIPMENT_ALARM 과 1:1 정합.
+     상태 변경(쓰기)·검증은 EquipmentStateService(브리지) 소유, 본 슬라이스는 순수 조회만 게이트웨이로 노출한다(ADR-001).
+     선택필터 (@p IS NULL OR COL=@p) — 본문 없는 @param은 게이트웨이가 null로 채운다. 모두 read(kind 미표기). -->
+<queries module="EST">
+    <!-- 설비 상태 현황/공장 모니터링 — 설비별 현재 상태(EST_EQUIPMENT_STATE). @plantId로 공장 필터(NULL-guard). -->
+    <query id="EST.CurrentStateList">
+        <statement><![CDATA[
+            SELECT EQUIPMENT_ID, PLANT_ID, CURRENT_STATE_ID, STATE_CHANGED_AT, STATE_VERSION
+            FROM EST_EQUIPMENT_STATE WITH (NOLOCK)
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+            ORDER BY PLANT_ID, EQUIPMENT_ID
+        ]]></statement>
+    </query>
+    <!-- 설비 상태/이벤트/가동 이력 — 상태 변경 이력(EST_EQUIPMENT_STATE_HISTORY) 최근 500행. @equipmentId NULL-guard. -->
+    <query id="EST.StateHistoryList">
+        <statement><![CDATA[
+            SELECT TOP 500 HIST_ID, EQUIPMENT_ID, FROM_STATE, TO_STATE, SET_STATE, CHANGED_AT, CHANGED_BY, REASON, SOURCE_TYPE
+            FROM EST_EQUIPMENT_STATE_HISTORY WITH (NOLOCK)
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+            ORDER BY CHANGED_AT DESC
+        ]]></statement>
+    </query>
+    <!-- 설비 알람 이력/알람 발생 이력 — 설비 알람(EST_EQUIPMENT_ALARM) 최근 500행. @equipmentId·@alarmLevel NULL-guard. -->
+    <query id="EST.EquipmentAlarmList">
+        <statement><![CDATA[
+            SELECT TOP 500 ALARM_ID, EQUIPMENT_ID, ALARM_CODE, ALARM_NAME, ALARM_LEVEL, OCCURRED_AT, CLEARED_AT, ELAPSED_SECONDS
+            FROM EST_EQUIPMENT_ALARM WITH (NOLOCK)
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@alarmLevel IS NULL OR ALARM_LEVEL = @alarmLevel)
+            ORDER BY OCCURRED_AT DESC
+        ]]></statement>
+    </query>
+    <!-- WORST10 알람 — 설비별 알람 발생 건수 상위 10(EST_EQUIPMENT_ALARM 집계). 파라미터 없음. -->
+    <query id="EST.WorstAlarmEquipment">
+        <statement><![CDATA[
+            SELECT TOP 10 EQUIPMENT_ID,
+                   COUNT(*) AS ALARM_COUNT,
+                   MAX(OCCURRED_AT) AS LAST_OCCURRED_AT
+            FROM EST_EQUIPMENT_ALARM WITH (NOLOCK)
+            GROUP BY EQUIPMENT_ID
+            ORDER BY ALARM_COUNT DESC, LAST_OCCURRED_AT DESC
+        ]]></statement>
+    </query>
+</queries>

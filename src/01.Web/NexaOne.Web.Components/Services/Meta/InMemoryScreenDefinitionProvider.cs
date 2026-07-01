@@ -410,6 +410,209 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "FDC.InterlockHistoryList"));
 
+        // ===== SmartUX FDC(EES_FDC) 업무화면 점등(Phase 3) — 수집 데이터 차트/인터락 규칙/파라미터 뷰 확장.
+        // FDC 데이터 차트류는 수집 시계열(FDC.CollectDataList) 그리드로, 파라미터 관리/스펙류는 단일 파라미터
+        // 마스터(FDC.ParameterList)를 컬럼 레이아웃만 달리해 재사용(FDC_PARAMETER에 타입 구분 컬럼 부재 — 형제 ACTIVE/TRACE와 동일 패턴). =====
+
+        // FDC 데이터 차트(EES_FDC_DATA_CHART) — 수집 시계열 최근값 조회(FDC.CollectDataList).
+        Register(new ScreenDefinition("EES_FDC_DATA_CHART", "FDC 데이터 차트",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("PARAMETER_ID", "파라미터 ID"), new("VALUE", "측정값"),
+                new("COLLECTED_AT", "수집시각"), new("QUALITY", "품질"), new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
+            },
+            QueryId: "FDC.CollectDataList"));
+
+        // FDC 관심 데이터 차트(EES_FDC_INTERESTED_DATA_CHART) — 동일 수집 시계열(관심 파라미터 뷰).
+        Register(new ScreenDefinition("EES_FDC_INTERESTED_DATA_CHART", "FDC 관심 데이터 차트",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("PARAMETER_ID", "파라미터 ID"), new("VALUE", "측정값"),
+                new("COLLECTED_AT", "수집시각"), new("QUALITY", "품질"), new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
+            },
+            QueryId: "FDC.CollectDataList"));
+
+        // 실시간 데이터 차트(EES_FDC_REAL_TIME_TRACE_PARA_MONITORING) — 수집 시계열 최근값(실시간 모니터링).
+        Register(new ScreenDefinition("EES_FDC_REAL_TIME_TRACE_PARA_MONITORING", "실시간 데이터 차트",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("PARAMETER_ID", "파라미터 ID"), new("VALUE", "측정값"),
+                new("COLLECTED_AT", "수집시각"), new("QUALITY", "품질"), new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
+            },
+            QueryId: "FDC.CollectDataList"));
+
+        // FDC SUMMARY 데이터 차트(EES_FDC_SUMMARY_DATA_CHART) — 수집 시계열 요약 뷰.
+        Register(new ScreenDefinition("EES_FDC_SUMMARY_DATA_CHART", "FDC SUMMARY 데이터 차트",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("PARAMETER_ID", "파라미터 ID"), new("VALUE", "측정값"),
+                new("COLLECTED_AT", "수집시각"), new("QUALITY", "품질"), new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
+            },
+            QueryId: "FDC.CollectDataList"));
+
+        // 파라미터별 설비 상태 변경 관리(EES_FDC_PARAMETER_STATE_CONDITION) — 인터락 규칙(파라미터 조건→조치) 조회(FDC.InterlockRuleList).
+        Register(new ScreenDefinition("EES_FDC_PARAMETER_STATE_CONDITION", "파라미터별 설비 상태 변경 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("RULE_ID", "규칙 ID"), new("RULE_NAME", "규칙명"), new("EQUIPMENT_ID", "설비 ID"),
+                new("PARAMETER_ID", "파라미터 ID"), new("OPERATOR", "연산자"), new("THRESHOLD_VALUE", "임계값"),
+                new("ACTION", "조치"), new("PRIORITY", "우선순위"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "FDC.InterlockRuleList"));
+
+        // 파라미터 관리 뷰(EVENT/INTERESTED/SUMMARY/VIRTUAL) — 단일 파라미터 마스터(FDC.ParameterList) 재사용(마스터 레이아웃).
+        Register(new ScreenDefinition("EES_FDC_EVENT_PARAMETER_MANAGEMENT", "EVENT 파라미터 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PARAMETER_ID", "파라미터 ID"), new("PARAMETER_NAME", "파라미터명"), new("EQUIPMENT_ID", "설비 ID"),
+                new("GROUP_ID", "그룹 ID"), new("UNIT", "단위"), new("SAMPLING_INTERVAL_MS", "수집주기(ms)"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "FDC.ParameterList"));
+        Register(new ScreenDefinition("EES_FDC_INTERESTED_PARAMETER_MANAGEMENT", "관심 파라미터 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PARAMETER_ID", "파라미터 ID"), new("PARAMETER_NAME", "파라미터명"), new("EQUIPMENT_ID", "설비 ID"),
+                new("GROUP_ID", "그룹 ID"), new("UNIT", "단위"), new("SAMPLING_INTERVAL_MS", "수집주기(ms)"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "FDC.ParameterList"));
+        Register(new ScreenDefinition("EES_FDC_SUMMARY_PARAMETER_MANAGEMENT", "SUMMARY 파라미터 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PARAMETER_ID", "파라미터 ID"), new("PARAMETER_NAME", "파라미터명"), new("EQUIPMENT_ID", "설비 ID"),
+                new("GROUP_ID", "그룹 ID"), new("UNIT", "단위"), new("SAMPLING_INTERVAL_MS", "수집주기(ms)"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "FDC.ParameterList"));
+        Register(new ScreenDefinition("EES_FDC_VIRTUAL_PARAMETER_MANAGEMENT", "VIRTUAL 파라미터 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PARAMETER_ID", "파라미터 ID"), new("PARAMETER_NAME", "파라미터명"), new("EQUIPMENT_ID", "설비 ID"),
+                new("GROUP_ID", "그룹 ID"), new("UNIT", "단위"), new("SAMPLING_INTERVAL_MS", "수집주기(ms)"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "FDC.ParameterList"));
+
+        // 파라미터 스펙 뷰(IDLE/SUMMARY) — 동일 파라미터 마스터를 스펙(관리한도) 컬럼으로 조회(형제 ACTIVE_SPEC와 동일).
+        Register(new ScreenDefinition("EES_FDC_IDLE_SPEC_MANAGEMENT", "IDLE 파라미터 스펙 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PARAMETER_ID", "파라미터 ID"), new("PARAMETER_NAME", "파라미터명"), new("UNIT", "단위"),
+                new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
+                new("LOWER_CONTROL_LIMIT", "관리하한"), new("UPPER_CONTROL_LIMIT", "관리상한"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "FDC.ParameterList"));
+        Register(new ScreenDefinition("EES_FDC_SUMMARY_SPEC_MANAGEMENT", "SUMMARY 파라미터 스펙 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PARAMETER_ID", "파라미터 ID"), new("PARAMETER_NAME", "파라미터명"), new("UNIT", "단위"),
+                new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
+                new("LOWER_CONTROL_LIMIT", "관리하한"), new("UPPER_CONTROL_LIMIT", "관리상한"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "FDC.ParameterList"));
+
+        // ===== SmartUX EPT(EES_EPT) 업무화면 점등(Phase 3) — 설비 성능관리. 메뉴 접두사 EES_EPT = C# 모듈 EST(설비 상태 추적).
+        // 현재상태(EST.CurrentStateList)·상태이력(EST.StateHistoryList)·설비알람(EST.EquipmentAlarmList)·WORST10 집계
+        // (EST.WorstAlarmEquipment)를 신설해 바인딩. OEE/유실분석/관심지표/레이아웃은 산출 데이터 모델 부재로 보류. =====
+
+        // 설비 상태 현황(EES_EPT_EQUIPMENT_STATE_STATUS) — 설비별 현재 상태(EST.CurrentStateList).
+        Register(new ScreenDefinition("EES_EPT_EQUIPMENT_STATE_STATUS", "설비 상태 현황",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("PLANT_ID", "공장"), new("CURRENT_STATE_ID", "현재 상태"),
+                new("STATE_CHANGED_AT", "상태변경시각"), new("STATE_VERSION", "버전"),
+            },
+            QueryId: "EST.CurrentStateList"));
+
+        // 공장 모니터링(EES_EPT_PLANT_MONITORING) — 공장 단위 설비 현재 상태 현황(동일 현재상태 뷰).
+        Register(new ScreenDefinition("EES_EPT_PLANT_MONITORING", "공장 모니터링",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PLANT_ID", "공장"), new("EQUIPMENT_ID", "설비 ID"), new("CURRENT_STATE_ID", "현재 상태"),
+                new("STATE_CHANGED_AT", "상태변경시각"), new("STATE_VERSION", "버전"),
+            },
+            QueryId: "EST.CurrentStateList"));
+
+        // 설비 상태 변경(EES_EPT_CHANGE_EQUIPMENT_STATE) — 현재 상태 조회 그리드(변경 조작은 EST 브리지 소관, 조회 점등).
+        Register(new ScreenDefinition("EES_EPT_CHANGE_EQUIPMENT_STATE", "설비 상태 변경",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("PLANT_ID", "공장"), new("CURRENT_STATE_ID", "현재 상태"),
+                new("STATE_CHANGED_AT", "상태변경시각"), new("STATE_VERSION", "버전"),
+            },
+            QueryId: "EST.CurrentStateList"));
+
+        // 설비 상태 이력(EES_EPT_EQUIPMENT_STATE_HISTORY) — 상태 변경 이력(EST.StateHistoryList).
+        Register(new ScreenDefinition("EES_EPT_EQUIPMENT_STATE_HISTORY", "설비 상태 이력",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("FROM_STATE", "이전 상태"), new("TO_STATE", "변경 상태"),
+                new("SET_STATE", "설정 상태"), new("CHANGED_AT", "변경시각"), new("CHANGED_BY", "변경자"),
+                new("REASON", "사유"), new("SOURCE_TYPE", "출처"),
+            },
+            QueryId: "EST.StateHistoryList"));
+
+        // 설비 이벤트 이력(EES_EPT_EQUIPMENT_EVENT_HISTORY) — 상태 전이를 이벤트 로그로 조회(동일 상태이력 뷰).
+        Register(new ScreenDefinition("EES_EPT_EQUIPMENT_EVENT_HISTORY", "설비 이벤트 이력",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("FROM_STATE", "이전 상태"), new("TO_STATE", "변경 상태"),
+                new("CHANGED_AT", "발생시각"), new("CHANGED_BY", "발생자"), new("SOURCE_TYPE", "출처"), new("REASON", "사유"),
+            },
+            QueryId: "EST.StateHistoryList"));
+
+        // 설비 가동 이력(EES_EPT_EQUIPMENT_PRODUCTIVE_HISTORY) — 상태 변경 이력을 가동 관점으로 조회(동일 상태이력 뷰).
+        Register(new ScreenDefinition("EES_EPT_EQUIPMENT_PRODUCTIVE_HISTORY", "설비 가동 이력",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("TO_STATE", "가동 상태"), new("CHANGED_AT", "변경시각"),
+                new("CHANGED_BY", "변경자"), new("SOURCE_TYPE", "출처"), new("REASON", "사유"),
+            },
+            QueryId: "EST.StateHistoryList"));
+
+        // 설비 알람 이력(EES_EPT_EQUIPMENT_ALARM_HISTORY) — 설비 알람(EST.EquipmentAlarmList).
+        Register(new ScreenDefinition("EES_EPT_EQUIPMENT_ALARM_HISTORY", "설비 알람 이력",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("ALARM_CODE", "알람 코드"), new("ALARM_NAME", "알람명"),
+                new("ALARM_LEVEL", "등급"), new("OCCURRED_AT", "발생시각"), new("CLEARED_AT", "해제시각"), new("ELAPSED_SECONDS", "지속(초)"),
+            },
+            QueryId: "EST.EquipmentAlarmList"));
+
+        // 알람 발생 이력(EES_EPT_ALARM_HISTORY) — 동일 설비 알람 이력 뷰.
+        Register(new ScreenDefinition("EES_EPT_ALARM_HISTORY", "알람 발생 이력",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("ALARM_CODE", "알람 코드"), new("ALARM_NAME", "알람명"),
+                new("ALARM_LEVEL", "등급"), new("OCCURRED_AT", "발생시각"), new("CLEARED_AT", "해제시각"), new("ELAPSED_SECONDS", "지속(초)"),
+            },
+            QueryId: "EST.EquipmentAlarmList"));
+
+        // WORST10 알람(EES_EPT_WORST10_ALARM) — 설비별 알람 발생 건수 상위 10(EST.WorstAlarmEquipment 집계).
+        Register(new ScreenDefinition("EES_EPT_WORST10_ALARM", "WORST10 알람",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("ALARM_COUNT", "알람 건수"), new("LAST_OCCURRED_AT", "최근 발생시각"),
+            },
+            QueryId: "EST.WorstAlarmEquipment"));
+
         // ===== SmartUX POM(PPM)·SHP(DLV) 업무화면 점등(Phase 2) — 생산오더/출하지시·출하이력 조회.
         // 메뉴 접두사 PPM=POM, DLV=SHP. 기존 쿼리는 필수 @param이라 점등용 NULL-guard 전체조회 쿼리 신설.
         // POM W/O(작업지시) 화면은 전용 테이블 부재로 보류(POM_PRODUCTION_ORDER=생산오더만). 그리드 read는 형제와 동일하게 인증만. =====

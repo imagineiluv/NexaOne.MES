@@ -96,4 +96,24 @@
             ORDER BY TRIGGERED_AT DESC
         ]]></statement>
     </query>
+    <!-- 수집 시계열(FDC 데이터 차트/실시간 모니터링) — 최근 500행. 컬럼은 V017__FDC_COLLECT_DATA와 1:1 정합. -->
+    <query id="FDC.CollectDataList">
+        <statement><![CDATA[
+            SELECT TOP 500 COLLECT_ID, EQUIPMENT_ID, PARAMETER_ID, VALUE, COLLECTED_AT, QUALITY, LOWER_LIMIT, UPPER_LIMIT
+            FROM FDC_COLLECT_DATA WITH (NOLOCK)
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@parameterId IS NULL OR PARAMETER_ID = @parameterId)
+            ORDER BY COLLECTED_AT DESC
+        ]]></statement>
+    </query>
+    <!-- 인터락 규칙 전체조회(파라미터별 설비 상태 변경 관리) — 컬럼은 V004__FDC_INTERLOCK_RULE과 1:1 정합. -->
+    <query id="FDC.InterlockRuleList">
+        <statement><![CDATA[
+            SELECT RULE_ID, RULE_NAME, EQUIPMENT_ID, PARAMETER_ID, OPERATOR, THRESHOLD_VALUE, ACTION, PRIORITY, IS_ACTIVE
+            FROM FDC_INTERLOCK_RULE WITH (NOLOCK)
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@parameterId IS NULL OR PARAMETER_ID = @parameterId)
+            ORDER BY EQUIPMENT_ID, PRIORITY DESC
+        ]]></statement>
+    </query>
 </queries>
