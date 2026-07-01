@@ -174,6 +174,13 @@ if (modulesEnabled)
             "fdcBridge 빈을 IFdcBridge로 캐스트하지 못했습니다 — "
             + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
     builder.Services.AddSingleton(fdcBridge);
+
+    // ADR-008 얇은 브리지 — OEE 수동 집계 트리거(EST 모듈 소유 IOeeAggregator 위임). EST/RMS/…와 동일 메커니즘.
+    var oeeAggregationBridge = server.GetBean("Est", "oeeAggregationBridge") as IOeeAggregationBridge
+        ?? throw new InvalidOperationException(
+            "oeeAggregationBridge 빈을 IOeeAggregationBridge로 캐스트하지 못했습니다 — "
+            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
+    builder.Services.AddSingleton(oeeAggregationBridge);
 }
 else
 {

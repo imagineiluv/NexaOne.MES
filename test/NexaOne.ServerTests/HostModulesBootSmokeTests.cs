@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
@@ -7,6 +8,7 @@ using System.Text.RegularExpressions;
 using FluentAssertions;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
+using NexaOne.Common.Security;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -63,6 +65,26 @@ public sealed class HostModulesBootSmokeTests
             using var neg = JsonDocument.Parse(await qToken.Content.ReadAsStringAsync());
             neg.RootElement.TryGetProperty("connectionId", out _).Should().BeTrue(
                 "negotiate 응답에 connectionId가 있어야 한다(허브 정상 협상)");
+        }
+
+        // OEE 수동 집계 브리지(ADR-008) — modules-ON에서 IOeeAggregationBridge(GetBean→캐스트) 배선 + 얇은 컨트롤러
+        // 동작을 검증한다. est:manage 토큰으로 재집계 → 200 + affected(int) = 브리지가 정상 캐스트·등록됐고(미배선이면
+        // 컨트롤러 생성 실패), 집계가 모듈 스키마에서 예외 없이 실행됐음을 뜻한다(마트 테이블 존재).
+        // NOTE: SQLite 스모크는 모듈 eesDataSource(server.sqlite.xml: nexaone-modules-test.db)와 게이트웨이 dev 시드 DB가
+        // 분리돼 있어 목표가 비어 affected=0일 수 있다. 실제 집계 정확도(가용성/성능/품질·작업조)는 OeeAggregationRepositoryTests가 담당.
+        using (var oee = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{host.Port}") })
+        {
+            var noPerm = await oee.PostAsJsonAsync("/api/v1/oee/aggregate-day", new { date = "2026-06-01" });
+            noPerm.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "무인증 OEE 집계는 401");
+
+            oee.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", HostProcess.MintToken(Permissions.EstManage));
+            var agg = await oee.PostAsJsonAsync("/api/v1/oee/aggregate-day", new { date = "2026-06-01" });
+            agg.StatusCode.Should().Be(HttpStatusCode.OK,
+                $"est:manage 토큰이면 OEE 수동 집계 200이어야 한다(브리지 배선+집계 실행) — 로그:\n{host.Log}");
+            using var aggDoc = JsonDocument.Parse(await agg.Content.ReadAsStringAsync());
+            aggDoc.RootElement.GetProperty("affected").GetInt32().Should().BeGreaterThanOrEqualTo(0,
+                "affected(int) 반환 = 집계가 모듈 스키마에서 예외 없이 실행됨");
         }
     }
 
@@ -159,12 +181,13 @@ internal sealed class HostProcess : IDisposable
         return hp;
     }
 
-    public static string MintToken()
+    public static string MintToken(params string[] permissions)
     {
         var creds = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Secret)), SecurityAlgorithms.HmacSha256);
-        var token = new JwtSecurityToken(Issuer, Issuer,
-            new[] { new Claim(ClaimTypes.NameIdentifier, "modulesboot-test") },
+        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, "modulesboot-test") };
+        claims.AddRange(permissions.Select(p => new Claim(Permissions.ClaimType, p)));
+        var token = new JwtSecurityToken(Issuer, Issuer, claims,
             expires: DateTime.UtcNow.AddMinutes(5), signingCredentials: creds);
         return new JwtSecurityTokenHandler().WriteToken(token);
     }

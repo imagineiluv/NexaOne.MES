@@ -55,4 +55,9 @@
     <constructor-arg value="1" />
   </object>
 
+  <!-- ADR-008 얇은 브리지 — OEE 수동 집계 트리거. 호스트가 GetBean("Est","oeeAggregationBridge")로 IOeeAggregationBridge 캐스트. -->
+  <object id="oeeAggregationBridge" type="NexaOne.EST.Application.Oee.OeeAggregationBridge, NexaOne.EST">
+    <constructor-arg ref="oeeAggregationRepository" />
+  </object>
+
 </objects>
