@@ -758,6 +758,20 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
                  "VALUES (@id,'판매 요청',@so,'CUST_X','ITEM01',@at,@qty,@st,'SYSTEM',@at,'SYSTEM',@at)",
             ("@id", sr.Item1), ("@so", sr.Item2), ("@qty", sr.Item3), ("@st", sr.Item4), ("@at", now));
 
+    // MDM_LABEL*(FACTORY_STD 라벨 마스터/발행/매핑 화면용, V054). FK: 발행/매핑 → 라벨(선삽입).
+    foreach (var lb in new[] { ("LBL01", "제품 라벨"), ("LBL02", "박스 라벨") })
+        Exec(tx, "INSERT INTO MDM_LABEL (LABEL_ID,PLANT_ID,LABEL_NAME,DESCRIPTION,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,'PLANT01',@name,@name,1,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", lb.Item1), ("@name", lb.Item2), ("@at", now));
+    foreach (var iss in new[] { ("LIS01", "LBL01", "LOT01", "SN0001", 2), ("LIS02", "LBL01", "LOT02", "SN0002", 1) })
+        Exec(tx, "INSERT INTO MDM_LABEL_ISSUE (ISSUE_ID,PLANT_ID,LABEL_ID,ITEM_ID,LOT_ID,SERIAL_NUM,PRINT_CNT,ISSUED_AT,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,'PLANT01',@label,'ITEM01',@lot,@sn,@cnt,@at,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", iss.Item1), ("@label", iss.Item2), ("@lot", iss.Item3), ("@sn", iss.Item4), ("@cnt", iss.Item5), ("@at", now));
+    foreach (var mp in new[] { ("LMP01", "LBL01", "PROC_MACH"), ("LMP02", "LBL02", "PROC_ASSY") })
+        Exec(tx, "INSERT INTO MDM_LABEL_MAPPING (MAPPING_ID,PLANT_ID,PROCESS_ID,ITEM_ID,LABEL_ID,PRINT_LIMIT_CNT,PRINT_LIMIT_YN,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,'PLANT01',@proc,'ITEM01',@label,5,'Y','SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", mp.Item1), ("@label", mp.Item2), ("@proc", mp.Item3), ("@at", now));
+
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
 }

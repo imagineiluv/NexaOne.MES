@@ -217,4 +217,31 @@
             ORDER BY CUSTOMER_ID, PRODUCT_ID
         ]]></statement>
     </query>
+    <!-- FACTORY_STD 라벨(V054) — 라벨 마스터/발행이력/매핑. NULL-guard 전체조회. -->
+    <query id="MDM.LabelList">
+        <statement><![CDATA[
+            SELECT LABEL_ID, PLANT_ID, LABEL_NAME, DESCRIPTION, IS_ACTIVE
+            FROM MDM_LABEL WITH (NOLOCK)
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+            ORDER BY LABEL_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.LabelIssueList">
+        <statement><![CDATA[
+            SELECT TOP 500 ISSUE_ID, PLANT_ID, LABEL_ID, ITEM_ID, LOT_ID, SERIAL_NUM, PRINT_CNT, ISSUED_AT
+            FROM MDM_LABEL_ISSUE WITH (NOLOCK)
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@labelId IS NULL OR LABEL_ID = @labelId)
+            ORDER BY ISSUED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="MDM.LabelMappingList">
+        <statement><![CDATA[
+            SELECT MAPPING_ID, PLANT_ID, PROCESS_ID, ITEM_ID, LABEL_ID, PRINT_LIMIT_CNT, PRINT_LIMIT_YN
+            FROM MDM_LABEL_MAPPING WITH (NOLOCK)
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@labelId IS NULL OR LABEL_ID = @labelId)
+            ORDER BY LABEL_ID, PROCESS_ID
+        ]]></statement>
+    </query>
 </queries>

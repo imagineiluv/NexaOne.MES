@@ -866,6 +866,37 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "SHP.ShipmentHistoryList"));
 
+        // ===== SmartUX FACTORY_STD 라벨 점등 — 레거시 STD_TB_LABEL* 를 V054(MDM_LABEL*)로 포팅. BOR은 레거시 테이블 부재로 보류. =====
+        // 라벨 마스터(FACTORY_STD_LABEL_MASTER) — 라벨 정의(MDM.LabelList).
+        Register(new ScreenDefinition("FACTORY_STD_LABEL_MASTER", "라벨 마스터",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("LABEL_ID", "라벨 ID"), new("PLANT_ID", "공장"), new("LABEL_NAME", "라벨명"),
+                new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "MDM.LabelList"));
+
+        // 라벨 발행 이력(FACTORY_STD_LABEL_ISSUE_HISTORY) — 발행 이력(MDM.LabelIssueList).
+        Register(new ScreenDefinition("FACTORY_STD_LABEL_ISSUE_HISTORY", "라벨 발행 이력",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("ISSUE_ID", "발행 ID"), new("PLANT_ID", "공장"), new("LABEL_ID", "라벨"), new("ITEM_ID", "품목"),
+                new("LOT_ID", "LOT"), new("SERIAL_NUM", "시리얼"), new("PRINT_CNT", "출력수"), new("ISSUED_AT", "발행시각"),
+            },
+            QueryId: "MDM.LabelIssueList"));
+
+        // 라벨 매핑 관리(FACTORY_STD_LABEL_MAPPING_MANAGEMENT) — 공정/품목↔라벨 매핑(MDM.LabelMappingList).
+        Register(new ScreenDefinition("FACTORY_STD_LABEL_MAPPING_MANAGEMENT", "라벨 매핑 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("MAPPING_ID", "매핑 ID"), new("PLANT_ID", "공장"), new("PROCESS_ID", "공정"), new("ITEM_ID", "품목"),
+                new("LABEL_ID", "라벨"), new("PRINT_LIMIT_CNT", "출력한도"), new("PRINT_LIMIT_YN", "한도적용"),
+            },
+            QueryId: "MDM.LabelMappingList"));
+
         // 출하 지시 관리(FACTORY_DLV_DELIVERY_ORDER) — 출하지시 마스터 조회(SHP.DeliveryOrderList).
         Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_ORDER", "출하 지시 관리",
             Array.Empty<FieldDefinition>(),
