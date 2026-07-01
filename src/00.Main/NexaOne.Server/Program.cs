@@ -1,6 +1,7 @@
 using System.Text;
 using System.Xml.Linq;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
 using Microsoft.Extensions.Hosting;
@@ -85,6 +86,12 @@ if (modulesEnabled)
     foreach (var w in distinctWorkers)
         builder.Services.AddSingleton<IHostedService>(w);
     Console.WriteLine($"[NexaOne.Server] {distinctWorkers.Count} background worker(s) discovered and registered.");
+
+    // 실시간 복원 — 루트 Spring 컨텍스트의 messageBus(InMemoryMessageBus)에 SignalR 구독자를 붙여 도메인 이벤트를 UI로 푸시한다.
+    // Kafka 모드(messageBus=KafkaMessageBus)는 KafkaConsumerService가 구독 경로를 담당하므로 여기선 인메모리만 배선한다.
+    if (server.GetServerBean("messageBus") is NexaOne.Infrastructure.Messaging.InMemoryMessageBus inMemoryBus)
+        builder.Services.AddSingleton<IHostedService>(sp =>
+            new NexaOne.Server.Realtime.InMemoryBusSubscriberService(inMemoryBus, sp.GetRequiredService<IServiceScopeFactory>()));
 
     // 복잡 서비스 얇은 브리지(ADR-008) — EST 설비상태 빈을 공유 계약 인터페이스로 캐스트해 DI 등록.
     // 캐스트 실패 = 계약 어셈블리 ALC 동일성 위반(deps-제외 누락 등) → 기동 시 즉시 폭발(무음 런타임 실패 방지).
@@ -186,6 +193,12 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHealthChecks();
 
+// ===== 실시간(SignalR) 복원 — 폐기된 NexaOne.API의 /hubs/smartees 경로를 통합 호스트로 이식(회귀 갭). =====
+// 허브는 항상 매핑(모듈 OFF에서도 SPA 연결 성공). 도메인 이벤트→푸시 구독자는 모듈 ON 경로에서 배선(아래).
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<NexaOne.Server.Realtime.IEesHubNotifier, NexaOne.Server.Realtime.EesHubNotifier>();
+builder.Services.TryAddSingleton<NexaOne.Common.Telemetry.ActiveUserTracker>();
+
 // JWT 인증 — API와 동일 규약(강한 비밀키 강제, §18.7). 토큰 발급/컨트롤러는 후속 Phase, 여기선 인증 파이프라인만 활성.
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var secretKey = jwtSection["SecretKey"] ?? throw new InvalidOperationException("Jwt:SecretKey is required");
@@ -206,6 +219,17 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience = jwtSection["Audience"],
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
             ClockSkew = TimeSpan.Zero
+        };
+        // SignalR(WebSocket)은 Authorization 헤더를 실을 수 없으므로 /hubs/* 는 access_token 쿼리스트링에서 토큰을 읽는다(SPA createHub 계약).
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = ctx =>
+            {
+                var accessToken = ctx.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(accessToken) && ctx.HttpContext.Request.Path.StartsWithSegments("/hubs"))
+                    ctx.Token = accessToken;
+                return Task.CompletedTask;
+            }
         };
     });
 builder.Services.AddAuthorization();
@@ -299,6 +323,9 @@ app.UseMiddleware<NexaOne.Server.Gateway.PasswordChangeRequiredMiddleware>();
 app.UseAntiforgery();
 
 app.MapControllers();
+
+// 실시간 SignalR 허브(/hubs/smartees) — SPA(createHub)가 access_token 쿼리로 연결. [Authorize] 허브(위 JwtBearer OnMessageReceived가 쿼리 토큰 처리).
+app.MapHub<NexaOne.Server.Realtime.NexaOneEESHub>("/hubs/smartees");
 
 // /health — 익명(모니터링/k8s liveness). 의존성 체크 없는 기본 생존 체크.
 app.MapHealthChecks("/health").AllowAnonymous();

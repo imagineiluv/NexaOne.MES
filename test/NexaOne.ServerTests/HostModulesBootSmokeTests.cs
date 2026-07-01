@@ -45,6 +45,25 @@ public sealed class HostModulesBootSmokeTests
             + "성공적 /diag = EST/RMS GetBean→캐스트 브리지 fail-fast 통과(부팅이 리슨에 도달)");
         root.GetProperty("workerCount").GetInt32().Should().BeGreaterThanOrEqualTo(1,
             "백그라운드 워커가 1개 이상 발견돼야 한다(실측 5)");
+
+        // SignalR 허브 복원 회귀 검증(폐기 NexaOne.API → 통합 호스트 이식). SPA(createHub)가 /hubs/smartees에
+        // access_token 쿼리로 연결하는 실경로를 그대로 재현한다. negotiate가 404면 MapHub 누락, 401이면 매핑됐고
+        // [Authorize] 적용됨을 뜻한다(무음 미매핑 회귀 차단).
+        using (var anon = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{host.Port}") })
+        {
+            var noAuth = await anon.PostAsync("/hubs/smartees/negotiate?negotiateVersion=1", content: null);
+            noAuth.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
+                "허브는 매핑돼 있고 무인증 negotiate는 401이어야 한다(404면 MapHub 누락 회귀)");
+
+            // JwtBearer OnMessageReceived 쿼리 토큰 경로 — WebSocket이 헤더를 못 실어 SPA가 쓰는 실제 인증 방식.
+            var qToken = await anon.PostAsync(
+                $"/hubs/smartees/negotiate?negotiateVersion=1&access_token={HostProcess.MintToken()}", content: null);
+            qToken.StatusCode.Should().Be(HttpStatusCode.OK,
+                "access_token 쿼리로 인증된 negotiate는 200 + connectionId를 반환해야 한다(SPA 연결 경로)");
+            using var neg = JsonDocument.Parse(await qToken.Content.ReadAsStringAsync());
+            neg.RootElement.TryGetProperty("connectionId", out _).Should().BeTrue(
+                "negotiate 응답에 connectionId가 있어야 한다(허브 정상 협상)");
+        }
     }
 
     [Fact]
