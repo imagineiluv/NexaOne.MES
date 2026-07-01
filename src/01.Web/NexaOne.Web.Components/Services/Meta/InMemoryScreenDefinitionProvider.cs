@@ -774,6 +774,49 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "MDM.ShiftList"));
 
+        // ===== SmartUX FACTORY_QCA(품질검사) 점등 — 기존 QMS 검사 도메인(V037/V040)으로 전수 재사용, 마이그레이션 0.
+        // FACTORY_QCA는 QMS 검사(수입/공정/출하·정의·항목·방법·규격)로 향하는 다른 메뉴 경로다. =====
+        RegisterQcaInspection("FACTORY_QCA_IMPORT_INSPECTION", "수입검사 관리", "QMS.IncomingInspectionList");
+        RegisterQcaInspection("FACTORY_QCA_REPORT_IMPORT_INSPECTION_STATUS", "수입검사 현황", "QMS.IncomingInspectionList");
+        RegisterQcaInspection("FACTORY_QCA_SEGMENT_INSPECTION", "공정검사 관리", "QMS.ProcessInspectionList");
+        RegisterQcaInspection("FACTORY_QCA_REPORT_SEGMENT_INSPECTION_STATUS", "공정검사 현황", "QMS.ProcessInspectionList");
+        RegisterQcaInspection("FACTORY_QCA_DELIVERY_INSPECTION", "출하검사 관리", "QMS.ShippingInspectionList");
+        RegisterQcaInspection("FACTORY_QCA_REPORT_DELIVERY_INSPECTION_STATUS", "출하검사 현황", "QMS.ShippingInspectionList");
+
+        // 검사 정의(FACTORY_QCA_INSPECTION_CLASS) — 검사 정의 마스터(QMS.InspectionDefList).
+        Register(new ScreenDefinition("FACTORY_QCA_INSPECTION_CLASS", "검사 정의",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("INSP_DEF_ID", "정의 ID"), new("INSP_DEF_NAME", "정의명"), new("PROCESS_ID", "공정"),
+                new("PRODUCT_ID", "품목"), new("INSPECTION_TYPE", "검사유형"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "QMS.InspectionDefList"));
+
+        // 검사 항목(FACTORY_QCA_INSPECTION_ITEM) — 검사 항목 마스터(QMS.InspectionItemList).
+        Register(new ScreenDefinition("FACTORY_QCA_INSPECTION_ITEM", "검사 항목",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("ITEM_ID", "항목 ID"), new("ITEM_NAME", "항목명"), new("INSPECTION_TYPE", "검사유형"),
+                new("MEASURE_TYPE", "측정유형"), new("UNIT", "단위"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "QMS.InspectionItemList"));
+
+        // 수입검사 정보연결(FACTORY_QCA_IMPORT_INSPECTION_MAPPING) — 수입검사 방법 설정(QMS.IncomingInspMethodList).
+        Register(new ScreenDefinition("FACTORY_QCA_IMPORT_INSPECTION_MAPPING", "수입검사 정보연결",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("METHOD_ID", "방법 ID"), new("METHOD_NAME", "방법명"), new("PRODUCT_ID", "품목"),
+                new("SAMPLING_TYPE", "샘플링"), new("AQL_LEVEL", "AQL"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "QMS.IncomingInspMethodList"));
+
+        // 공정/출하검사 정보연결(FACTORY_QCA_{PROCESS,SHIPMENT}_INSPECTION_MAPPING) — 검사 규격 카탈로그(QMS.InspectionSpecList).
+        RegisterQcaSpecMapping("FACTORY_QCA_PROCESS_INSPECTION_MAPPING", "공정검사 정보연결");
+        RegisterQcaSpecMapping("FACTORY_QCA_SHIPMENT_INSPECTION_MAPPING", "출하검사 정보연결");
+
         // 출하 지시 관리(FACTORY_DLV_DELIVERY_ORDER) — 출하지시 마스터 조회(SHP.DeliveryOrderList).
         Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_ORDER", "출하 지시 관리",
             Array.Empty<FieldDefinition>(),
@@ -1271,6 +1314,30 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
+
+    // FACTORY_QCA 검사 실행(수입/공정/출하) 공용 그리드 — QMS_INSPECTION 컬럼 동일(제목/쿼리만 상이).
+    private void RegisterQcaInspection(string uiId, string title, string queryId)
+        => Register(new ScreenDefinition(uiId, title,
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("INSPECTION_ID", "검사 ID"), new("LOT_ID", "LOT"), new("PRODUCT_ID", "품목"), new("EQUIPMENT_ID", "설비"),
+                new("SPEC_ID", "규격"), new("INSPECTED_AT", "검사시각"), new("INSPECTOR_ID", "검사자"),
+                new("RESULT", "결과"), new("SAMPLE_QTY", "샘플수"), new("DEFECT_QTY", "불량수"), new("IS_CONFIRMED", "확정"),
+            },
+            QueryId: queryId));
+
+    // FACTORY_QCA 공정/출하 정보연결 — 검사 규격 카탈로그(QMS_INSPECTION_SPEC).
+    private void RegisterQcaSpecMapping(string uiId, string title)
+        => Register(new ScreenDefinition(uiId, title,
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("SPEC_ID", "규격 ID"), new("SPEC_NAME", "규격명"), new("PROCESS_ID", "공정"), new("ITEM_NAME", "항목"),
+                new("MEASURE_TYPE", "측정유형"), new("NOMINAL_VALUE", "기준값"), new("TOLERANCE_PLUS", "상한공차"),
+                new("TOLERANCE_MINUS", "하한공차"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "QMS.InspectionSpecList"));
 
     public bool TryGet(string uiId, out ScreenDefinition? definition)
         => _defs.TryGetValue(uiId ?? string.Empty, out definition);
