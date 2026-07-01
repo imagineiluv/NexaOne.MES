@@ -47,7 +47,7 @@
   <!-- SQLite 모드에서 SqliteSchemaInitializer가 출력 디렉터리 옆(db/migrations)에서 DDL을 찾도록 복사한다.
        MSSQL 모드에서는 사용되지 않는다(운영은 마이그레이션을 외부 적용). -->
   <ItemGroup>
-    <Content Include="..\..\..\db\migrations\*.sql" Link="db\migrations\%(Filename)%(Extension)">
+    <Content Include="config\db\migrations\*.sql" Link="db\migrations\%(Filename)%(Extension)">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
@@ -56,13 +56,13 @@
        게이트웨이(FileQueryRegistry)가 명명 쿼리를 해석한다. 배포 시 리포 미존재 환경에서도 동작하도록 복사한다
        (개발/테스트는 BaseDirectory 상위탐색으로도 리포 루트 db/queries를 찾지만, 배포 robustness 위해 명시 복사). -->
   <ItemGroup>
-    <Content Include="..\..\..\db\queries\**\*.xml" Link="db\queries\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="config\db\queries\**\*.xml" Link="db\queries\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- 격리 인증 쿼리(db/queries-auth/{mssql,sqlite}/*.xml)를 출력으로 복사한다(공개 db/queries와 분리 유지).
        호스트 인증 서비스만 전용 레지스트리로 로드한다. 배포 robustness 위해 명시 복사(테스트는 상위탐색). -->
   <ItemGroup>
-    <Content Include="..\..\..\db\queries-auth\**\*.xml" Link="db\queries-auth\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="config\db\queries-auth\**\*.xml" Link="db\queries-auth\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- 도메인 모듈은 플러그인으로 ./Modules/에 게시한다(설계 §3.1). ReferenceOutputAssembly=false: 모듈 DLL을
@@ -137,7 +137,8 @@
        config/host/(공통 서버 빈 server.xml + SQLite 변형 server.sqlite.xml), config/modules/(모듈별 빈 9개).
        글롭으로 출력에 상대경로 보존 복사한다(db/queries 패턴과 동일). app.xml의 configFiles는 config/modules/*.xml를 가리킨다. -->
   <ItemGroup>
-    <Content Include="config\**\*.xml">
+    <!-- config/db/** 는 위에서 db\ 링크로 별도 복사하므로 제외(중복 포함 방지). -->
+    <Content Include="config\**\*.xml" Exclude="config\db\**\*.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

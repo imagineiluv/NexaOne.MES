@@ -26,10 +26,12 @@ public sealed class DialectParityTests
     private static readonly Regex ParamToken =
         new(@"@([A-Za-z_][A-Za-z0-9_]*)", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // db 트리는 호스트 프로젝트 config로 이관됨(src/00.Main/NexaOne.Server/config/db/). 소스 원본을 직접 검증한다.
+    private const string DbRoot = "src/00.Main/NexaOne.Server/config/db";
     public static IEnumerable<object[]> QueryTrees() => new[]
     {
-        new object[] { "db/queries" },        // 공개 게이트웨이 트리
-        new object[] { "db/queries-auth" },   // 격리 인증 트리
+        new object[] { $"{DbRoot}/queries" },        // 공개 게이트웨이 트리
+        new object[] { $"{DbRoot}/queries-auth" },   // 격리 인증 트리
     };
 
     [Theory]
