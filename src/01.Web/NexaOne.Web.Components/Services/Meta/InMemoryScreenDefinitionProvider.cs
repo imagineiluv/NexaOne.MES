@@ -897,6 +897,32 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "MDM.LabelMappingList"));
 
+        // ===== SmartUX EPT_STD(설비성능 표준) 점등 — 레거시 EPT_TB_LAYOUT/EQUIPMENT_EPT_PROPERTY를 V055(EST_EPT_*)로 포팅. =====
+        // 레이아웃 관리(EPT_STD_LAYOUT_MGNT)·레이아웃 구성(EPT_STD_LAYOUT_EDIT) — 레이아웃 마스터(EST.LayoutList).
+        // (구성=에디터 UI지만 우선 레이아웃 목록 렌더로 점등; 실 편집기는 후속.)
+        foreach (var (uiId, title) in new[] {
+            ("EPT_STD_LAYOUT_MGNT", "레이아웃 관리"),
+            ("EPT_STD_LAYOUT_EDIT", "레이아웃 구성") })
+            Register(new ScreenDefinition(uiId, title,
+                Array.Empty<FieldDefinition>(),
+                new GridColumnDefinition[]
+                {
+                    new("LAYOUT_ID", "레이아웃 ID"), new("PLANT_ID", "공장"), new("LAYOUT_NAME", "레이아웃명"),
+                    new("AREA_ID", "구역"), new("WIDTH", "폭"), new("HEIGHT", "높이"), new("IMAGE_URL", "이미지"), new("IS_ACTIVE", "활성"),
+                },
+                QueryId: "EST.LayoutList"));
+
+        // 설비 EPT 속성 관리(EPT_STD_EQUIPMENT_PROPERTY) — 설비별 EPT 속성(EST.EquipmentPropertyList).
+        Register(new ScreenDefinition("EPT_STD_EQUIPMENT_PROPERTY", "설비 EPT 속성 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("PLANT_ID", "공장"), new("DESCRIPTION", "설명"), new("CYCLE_TIME", "사이클타임"),
+                new("DO_ALARM_INTERLOCK", "알람인터락"), new("DO_MCC", "MCC"), new("DO_SUMMARY", "요약"),
+                new("DO_TACT_TIME", "택트타임"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "EST.EquipmentPropertyList"));
+
         // 출하 지시 관리(FACTORY_DLV_DELIVERY_ORDER) — 출하지시 마스터 조회(SHP.DeliveryOrderList).
         Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_ORDER", "출하 지시 관리",
             Array.Empty<FieldDefinition>(),

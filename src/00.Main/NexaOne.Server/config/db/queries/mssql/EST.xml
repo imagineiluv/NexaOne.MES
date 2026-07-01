@@ -100,4 +100,24 @@
             ORDER BY OEE_DATE DESC, INDEX_ID
         ]]></statement>
     </query>
+    <!-- EPT_STD 레이아웃(V055) — 레이아웃 마스터. @plantId/@areaId NULL-guard. -->
+    <query id="EST.LayoutList">
+        <statement><![CDATA[
+            SELECT LAYOUT_ID, PLANT_ID, LAYOUT_NAME, AREA_ID, WIDTH, HEIGHT, IMAGE_URL, IS_ACTIVE
+            FROM EST_EPT_LAYOUT WITH (NOLOCK)
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@areaId IS NULL OR AREA_ID = @areaId)
+            ORDER BY LAYOUT_NAME
+        ]]></statement>
+    </query>
+    <!-- EPT_STD 설비 EPT 속성(V055) — 설비별 EPT 속성. @plantId/@equipmentId NULL-guard. -->
+    <query id="EST.EquipmentPropertyList">
+        <statement><![CDATA[
+            SELECT EQUIPMENT_ID, PLANT_ID, DESCRIPTION, CYCLE_TIME, DO_ALARM_INTERLOCK, DO_MCC, DO_SUMMARY, DO_TACT_TIME, IS_ACTIVE
+            FROM EST_EPT_EQUIPMENT_PROPERTY WITH (NOLOCK)
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+            ORDER BY EQUIPMENT_ID
+        ]]></statement>
+    </query>
 </queries>

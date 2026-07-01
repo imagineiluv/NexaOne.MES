@@ -772,6 +772,16 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
                  "VALUES (@id,'PLANT01',@proc,'ITEM01',@label,5,'Y','SYSTEM',@at,'SYSTEM',@at)",
             ("@id", mp.Item1), ("@label", mp.Item2), ("@proc", mp.Item3), ("@at", now));
 
+    // EST_EPT_LAYOUT/EQUIPMENT_PROPERTY(EPT_STD 레이아웃/속성 화면용, V055). 속성 FK: EQ01~03(선삽입됨).
+    foreach (var lo in new[] { ("LAYOUT01", "PLANT01", "조립1동 레이아웃", "AREA01"), ("LAYOUT02", "PLANT02", "가공동 레이아웃", "AREA03") })
+        Exec(tx, "INSERT INTO EST_EPT_LAYOUT (LAYOUT_ID,PLANT_ID,LAYOUT_NAME,AREA_ID,WIDTH,HEIGHT,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@plant,@name,@area,1024,768,1,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", lo.Item1), ("@plant", lo.Item2), ("@name", lo.Item3), ("@area", lo.Item4), ("@at", now));
+    foreach (var pr in new[] { ("EQ01", "PLANT01", 30m), ("EQ02", "PLANT01", 40m), ("EQ03", "PLANT02", 25m) })
+        Exec(tx, "INSERT INTO EST_EPT_EQUIPMENT_PROPERTY (EQUIPMENT_ID,PLANT_ID,DESCRIPTION,CYCLE_TIME,DO_ALARM_INTERLOCK,DO_MCC,DO_SUMMARY,DO_TACT_TIME,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@eq,@plant,'설비 EPT 속성',@ct,'Y','Y','Y','Y',1,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@eq", pr.Item1), ("@plant", pr.Item2), ("@ct", pr.Item3), ("@at", now));
+
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
 }
