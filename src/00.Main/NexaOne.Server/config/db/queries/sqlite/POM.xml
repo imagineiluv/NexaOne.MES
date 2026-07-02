@@ -144,6 +144,15 @@
             ORDER BY PLAN_START_DATE DESC
         ]]></statement>
     </query>
+    <!-- 작업지시 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. -->
+    <query id="POM.CreateWorkOrder" kind="write" requiredPermission="pom:manage">
+        <statement><![CDATA[
+            INSERT INTO POM_WORK_ORDER (WORK_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, EQUIPMENT_ID, PRODUCT_ID, PLAN_QTY,
+                                        CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@workOrderId, @plantId, @workOrderName, @equipmentId, @productId, @planQty,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
     <!-- LOT 추적 — Lot 이력 전체조회(POM_LOT_HISTORY, 최근 500). @plantId/@lotId 선택 필터. -->
     <query id="POM.LotTraceList">
         <statement><![CDATA[

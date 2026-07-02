@@ -280,4 +280,37 @@
             ORDER BY VENDOR_ID, PRODUCT_ID
         ]]></statement>
     </query>
+    <!-- ===== 마스터 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. ===== -->
+    <query id="MDM.CreateVendor" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            INSERT INTO MDM_VENDOR (VENDOR_ID, VENDOR_NAME, VENDOR_TYPE, PHONE, EMAIL,
+                                    CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@vendorId, @vendorName, @vendorType, @phone, @email,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
+    <query id="MDM.CreateShift" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            INSERT INTO MDM_SHIFT (SHIFT_ID, SHIFT_NAME, START_TIME, END_TIME,
+                                   CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@shiftId, @shiftName, @startTime, @endTime,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
+    <query id="MDM.CreateLabel" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            INSERT INTO MDM_LABEL (LABEL_ID, PLANT_ID, LABEL_NAME, DESCRIPTION,
+                                   CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@labelId, @plantId, @labelName, @description,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
+    <query id="MDM.CreateBor" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            INSERT INTO MDM_BOR (BOR_ID, PLANT_ID, BOR_NAME, BOR_TYPE, PROCESS_ID, PRODUCT_ID,
+                                 CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@borId, @plantId, @borName, @borType, @processId, @productId,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
 </queries>

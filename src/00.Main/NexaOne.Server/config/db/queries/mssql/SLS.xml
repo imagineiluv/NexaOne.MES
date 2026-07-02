@@ -24,4 +24,13 @@
             ORDER BY REQUEST_DATE DESC
         ]]></statement>
     </query>
+    <!-- 판매오더 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. -->
+    <query id="SLS.CreateSalesOrder" kind="write" requiredPermission="sls:manage">
+        <statement><![CDATA[
+            INSERT INTO SLS_SALES_ORDER (SALES_ORDER_ID, PLANT_ID, SALES_ORDER_NAME, CUSTOMER_ID, PRODUCT_ID, PLAN_QTY,
+                                         CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@salesOrderId, @plantId, @salesOrderName, @customerId, @productId, @planQty,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
 </queries>

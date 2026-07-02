@@ -764,15 +764,20 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "POM.LotTraceList"));
 
-        // 작업조 관리(MES_MDM_COM_SHIFT) — 작업조 마스터 조회(MDM.ShiftList, 기존 쿼리 재사용).
+        // 작업조 관리(MES_MDM_COM_SHIFT) — 작업조 마스터 조회(MDM.ShiftList) + 등록 폼(MDM.CreateShift).
         Register(new ScreenDefinition("MES_MDM_COM_SHIFT", "작업조 관리",
-            Array.Empty<FieldDefinition>(),
+            new FieldDefinition[]
+            {
+                new("shiftId", "작업조 ID", Required: true), new("shiftName", "작업조명", Required: true),
+                new("startTime", "시작(HH:mm)"), new("endTime", "종료(HH:mm)"),
+            },
             new GridColumnDefinition[]
             {
                 new("SHIFT_ID", "작업조 ID"), new("SHIFT_NAME", "작업조명"), new("START_TIME", "시작"),
                 new("END_TIME", "종료"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
-            QueryId: "MDM.ShiftList"));
+            QueryId: "MDM.ShiftList",
+            SaveQueryId: "MDM.CreateShift"));
 
         // ===== SmartUX FACTORY_QCA(품질검사) 점등 — 기존 QMS 검사 도메인(V037/V040)으로 전수 재사용, 마이그레이션 0.
         // FACTORY_QCA는 QMS 검사(수입/공정/출하·정의·항목·방법·규격)로 향하는 다른 메뉴 경로다. =====
@@ -818,24 +823,33 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         RegisterQcaSpecMapping("FACTORY_QCA_SHIPMENT_INSPECTION_MAPPING", "출하검사 정보연결");
 
         // ===== SmartUX FACTORY_PRC(구매) 점등 — 레거시 PRC_TB_PURCHASE_ORDER를 V052로 단순 포팅. 이동오더는 후속(IVT 이동 모델). =====
-        // 구매오더 관리(FACTORY_PRC_PURCHASE_ORDER)·구매오더 현황(FACTORY_PRC_REPORT_PURCHASEORDER) — 발주 헤더(PRC.PurchaseOrderList).
-        foreach (var (uiId, title) in new[] {
-            ("FACTORY_PRC_PURCHASE_ORDER", "구매오더 관리"),
-            ("FACTORY_PRC_REPORT_PURCHASEORDER", "구매오더 현황") })
-            Register(new ScreenDefinition(uiId, title,
-                Array.Empty<FieldDefinition>(),
-                new GridColumnDefinition[]
-                {
-                    new("PURCHASE_ORDER_ID", "발주 ID"), new("PURCHASE_ORDER_NAME", "발주명"), new("PLANT_ID", "공장"),
-                    new("VENDOR_ID", "거래처"), new("ORDER_DATE", "발주일"), new("INCOMING_DATE", "입고예정일"),
-                    new("ORDER_QTY", "발주수량"), new("OWNER_ID", "담당자"), new("STATUS", "상태"), new("IS_HOLD", "홀드"),
-                },
-                QueryId: "PRC.PurchaseOrderList"));
+        // 구매오더 관리(FACTORY_PRC_PURCHASE_ORDER, 등록 폼 포함)·구매오더 현황(REPORT, 조회 전용) — 발주 헤더(PRC.PurchaseOrderList).
+        var prcOrderCols = new GridColumnDefinition[]
+        {
+            new("PURCHASE_ORDER_ID", "발주 ID"), new("PURCHASE_ORDER_NAME", "발주명"), new("PLANT_ID", "공장"),
+            new("VENDOR_ID", "거래처"), new("ORDER_DATE", "발주일"), new("INCOMING_DATE", "입고예정일"),
+            new("ORDER_QTY", "발주수량"), new("OWNER_ID", "담당자"), new("STATUS", "상태"), new("IS_HOLD", "홀드"),
+        };
+        Register(new ScreenDefinition("FACTORY_PRC_PURCHASE_ORDER", "구매오더 관리",
+            new FieldDefinition[]
+            {
+                new("purchaseOrderId", "발주 ID", Required: true), new("plantId", "공장", Required: true),
+                new("purchaseOrderName", "발주명"), new("vendorId", "거래처"),
+                new("orderQty", "발주수량", FieldType.Number, Required: true),
+            },
+            prcOrderCols, QueryId: "PRC.PurchaseOrderList", SaveQueryId: "PRC.CreatePurchaseOrder"));
+        Register(new ScreenDefinition("FACTORY_PRC_REPORT_PURCHASEORDER", "구매오더 현황",
+            Array.Empty<FieldDefinition>(), prcOrderCols, QueryId: "PRC.PurchaseOrderList"));
 
         // ===== SmartUX FACTORY_SLS(판매) 점등 — 레거시 SLS_TB_SALES_ORDER/REQUEST를 V053으로 포팅. 납품현황은 SHP 재사용. =====
-        // 판매 오더 관리(FACTORY_SLS_SALES_ORDER) — 판매오더 헤더(SLS.SalesOrderList).
+        // 판매 오더 관리(FACTORY_SLS_SALES_ORDER) — 판매오더 헤더(SLS.SalesOrderList) + 등록 폼(SLS.CreateSalesOrder).
         Register(new ScreenDefinition("FACTORY_SLS_SALES_ORDER", "판매 오더 관리",
-            Array.Empty<FieldDefinition>(),
+            new FieldDefinition[]
+            {
+                new("salesOrderId", "판매오더 ID", Required: true), new("plantId", "공장", Required: true),
+                new("salesOrderName", "판매오더명"), new("customerId", "고객"), new("productId", "품목"),
+                new("planQty", "계획수량", FieldType.Number, Required: true),
+            },
             new GridColumnDefinition[]
             {
                 new("SALES_ORDER_ID", "판매오더 ID"), new("SALES_ORDER_NAME", "판매오더명"), new("PLANT_ID", "공장"),
@@ -843,7 +857,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PLAN_END_DATE", "계획종료"), new("PLAN_QTY", "계획수량"), new("DELIVERED_QTY", "납품수량"),
                 new("STATUS", "상태"), new("IS_HOLD", "홀드"),
             },
-            QueryId: "SLS.SalesOrderList"));
+            QueryId: "SLS.SalesOrderList",
+            SaveQueryId: "SLS.CreateSalesOrder"));
 
         // 판매 요청(FACTORY_SLS_SALES_REQUEST) — 판매요청(SLS.SalesRequestList).
         Register(new ScreenDefinition("FACTORY_SLS_SALES_REQUEST", "판매 요청",
@@ -867,15 +882,20 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             QueryId: "SHP.ShipmentHistoryList"));
 
         // ===== SmartUX FACTORY_STD 라벨 점등 — 레거시 STD_TB_LABEL* 를 V054(MDM_LABEL*)로 포팅. BOR은 레거시 테이블 부재로 보류. =====
-        // 라벨 마스터(FACTORY_STD_LABEL_MASTER) — 라벨 정의(MDM.LabelList).
+        // 라벨 마스터(FACTORY_STD_LABEL_MASTER) — 라벨 정의(MDM.LabelList) + 등록 폼(MDM.CreateLabel).
         Register(new ScreenDefinition("FACTORY_STD_LABEL_MASTER", "라벨 마스터",
-            Array.Empty<FieldDefinition>(),
+            new FieldDefinition[]
+            {
+                new("labelId", "라벨 ID", Required: true), new("plantId", "공장", Required: true),
+                new("labelName", "라벨명", Required: true), new("description", "설명"),
+            },
             new GridColumnDefinition[]
             {
                 new("LABEL_ID", "라벨 ID"), new("PLANT_ID", "공장"), new("LABEL_NAME", "라벨명"),
                 new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
-            QueryId: "MDM.LabelList"));
+            QueryId: "MDM.LabelList",
+            SaveQueryId: "MDM.CreateLabel"));
 
         // 라벨 발행 이력(FACTORY_STD_LABEL_ISSUE_HISTORY) — 발행 이력(MDM.LabelIssueList).
         Register(new ScreenDefinition("FACTORY_STD_LABEL_ISSUE_HISTORY", "라벨 발행 이력",
@@ -1011,15 +1031,22 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             QueryId: "COM.ServiceList"));
 
         // ===== SmartUX 잔여 보류분 점등 — STD BOR(V058 자원명세) + PRC 이동오더(IVT.MoveList 재사용). =====
-        // BOR 관리 조건 기준(FACTORY_STD_BOR_CONDITION) — BOR 헤더(MDM.BorList).
+        // BOR 관리 조건 기준(FACTORY_STD_BOR_CONDITION) — BOR 헤더(MDM.BorList) + 등록 폼(MDM.CreateBor).
         Register(new ScreenDefinition("FACTORY_STD_BOR_CONDITION", "BOR 관리(조건 기준)",
-            Array.Empty<FieldDefinition>(),
+            new FieldDefinition[]
+            {
+                new("borId", "BOR ID", Required: true), new("plantId", "공장", Required: true),
+                new("borName", "BOR명", Required: true),
+                new("borType", "유형", FieldType.Select, Options: new[] { "Condition", "Resource" }),
+                new("processId", "공정"), new("productId", "품목"),
+            },
             new GridColumnDefinition[]
             {
                 new("BOR_ID", "BOR ID"), new("PLANT_ID", "공장"), new("BOR_NAME", "BOR명"), new("PROCESS_ID", "공정"),
                 new("PRODUCT_ID", "품목"), new("BOR_TYPE", "유형"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
-            QueryId: "MDM.BorList"));
+            QueryId: "MDM.BorList",
+            SaveQueryId: "MDM.CreateBor"));
 
         // BOR 관리 자원 기준(FACTORY_STD_BOR_RESOURCE) — BOR 자원 상세(MDM.BorResourceList).
         Register(new ScreenDefinition("FACTORY_STD_BOR_RESOURCE", "BOR 관리(자원 기준)",
@@ -1099,14 +1126,19 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
 
         // 벤더 관리(MES_MDM_COM_VENDOR)·벤더 품목 관리(MES_MDM_COM_VENDOR_ITEM) — V059(MDM.Vendor*List).
         Register(new ScreenDefinition("MES_MDM_COM_VENDOR", "벤더 관리",
-            Array.Empty<FieldDefinition>(),
+            new FieldDefinition[]
+            {
+                new("vendorId", "벤더 ID", Required: true), new("vendorName", "벤더명", Required: true),
+                new("vendorType", "유형"), new("phone", "전화"), new("email", "이메일"),
+            },
             new GridColumnDefinition[]
             {
                 new("VENDOR_ID", "벤더 ID"), new("VENDOR_NAME", "벤더명"), new("VENDOR_TYPE", "유형"),
                 new("CORPORATION_NO", "사업자번호"), new("OWNER_NAME", "대표자"), new("PHONE", "전화"),
                 new("EMAIL", "이메일"), new("IS_ACTIVE", "활성"),
             },
-            QueryId: "MDM.VendorList"));
+            QueryId: "MDM.VendorList",
+            SaveQueryId: "MDM.CreateVendor"));
         Register(new ScreenDefinition("MES_MDM_COM_VENDOR_ITEM", "벤더 품목 관리",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
@@ -1116,31 +1148,41 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "MDM.VendorItemList"));
 
-        // W/O 관리(FACTORY_PPM_WORK_ORDER)·작업지시 현황(FACTORY_PPM_REPORT_WORKORDER) — V060(POM.WorkOrderList). 기존 보류 해소.
-        foreach (var (uiId, title) in new[] {
-            ("FACTORY_PPM_WORK_ORDER", "W/O 관리"),
-            ("FACTORY_PPM_REPORT_WORKORDER", "작업지시 현황") })
-            Register(new ScreenDefinition(uiId, title,
-                Array.Empty<FieldDefinition>(),
-                new GridColumnDefinition[]
-                {
-                    new("WORK_ORDER_ID", "W/O ID"), new("WORK_ORDER_NAME", "W/O명"), new("PLANT_ID", "공장"),
-                    new("PRODUCTION_ORDER_ID", "생산오더"), new("EQUIPMENT_ID", "설비"), new("PRODUCT_ID", "품목"),
-                    new("PLAN_QTY", "계획수량"), new("START_QTY", "착수수량"), new("COMPLETE_QTY", "완료수량"),
-                    new("PLAN_START_DATE", "계획시작"), new("STATUS", "상태"), new("IS_HOLD", "홀드"),
-                },
-                QueryId: "POM.WorkOrderList"));
+        // W/O 관리(FACTORY_PPM_WORK_ORDER, 등록 폼 포함)·작업지시 현황(REPORT, 조회 전용) — V060(POM.WorkOrderList). 기존 보류 해소.
+        var pomWoCols = new GridColumnDefinition[]
+        {
+            new("WORK_ORDER_ID", "W/O ID"), new("WORK_ORDER_NAME", "W/O명"), new("PLANT_ID", "공장"),
+            new("PRODUCTION_ORDER_ID", "생산오더"), new("EQUIPMENT_ID", "설비"), new("PRODUCT_ID", "품목"),
+            new("PLAN_QTY", "계획수량"), new("START_QTY", "착수수량"), new("COMPLETE_QTY", "완료수량"),
+            new("PLAN_START_DATE", "계획시작"), new("STATUS", "상태"), new("IS_HOLD", "홀드"),
+        };
+        Register(new ScreenDefinition("FACTORY_PPM_WORK_ORDER", "W/O 관리",
+            new FieldDefinition[]
+            {
+                new("workOrderId", "W/O ID", Required: true), new("plantId", "공장", Required: true),
+                new("workOrderName", "W/O명"), new("equipmentId", "설비"), new("productId", "품목"),
+                new("planQty", "계획수량", FieldType.Number, Required: true),
+            },
+            pomWoCols, QueryId: "POM.WorkOrderList", SaveQueryId: "POM.CreateWorkOrder"));
+        Register(new ScreenDefinition("FACTORY_PPM_REPORT_WORKORDER", "작업지시 현황",
+            Array.Empty<FieldDefinition>(), pomWoCols, QueryId: "POM.WorkOrderList"));
 
         // 알람 액션 관리(FACTORY_COM_ACTION_DEF)·알람별 액션 관리(FACTORY_COM_ALARM_ACTION) — V061(COM.ActionList/AlarmActionList).
         Register(new ScreenDefinition("FACTORY_COM_ACTION_DEF", "알람 액션 관리",
-            Array.Empty<FieldDefinition>(),
+            new FieldDefinition[]
+            {
+                new("actionId", "액션 ID", Required: true), new("actionName", "액션명", Required: true),
+                new("actionType", "유형", FieldType.Select, Options: new[] { "Hold", "Email", "Sms", "Procedure" }),
+                new("description", "설명"),
+            },
             new GridColumnDefinition[]
             {
                 new("ACTION_ID", "액션 ID"), new("ACTION_NAME", "액션명"), new("ACTION_TYPE", "유형"),
                 new("HOLD_CODE", "홀드코드"), new("EMAIL_TITLE", "메일제목"), new("SMS_TITLE", "SMS제목"),
                 new("PROCEDURE_NAME", "프로시저"), new("IS_ACTIVE", "활성"),
             },
-            QueryId: "COM.ActionList"));
+            QueryId: "COM.ActionList",
+            SaveQueryId: "COM.CreateAction"));
         Register(new ScreenDefinition("FACTORY_COM_ALARM_ACTION", "알람별 액션 관리",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]

@@ -66,4 +66,13 @@
             ORDER BY ALARM_ID, ACTION_SEQUENCE
         ]]></statement>
     </query>
+    <!-- 액션 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. -->
+    <query id="COM.CreateAction" kind="write" requiredPermission="com:manage">
+        <statement><![CDATA[
+            INSERT INTO COM_ACTION (ACTION_ID, ACTION_NAME, ACTION_TYPE, DESCRIPTION,
+                                    CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@actionId, @actionName, @actionType, @description,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
 </queries>
