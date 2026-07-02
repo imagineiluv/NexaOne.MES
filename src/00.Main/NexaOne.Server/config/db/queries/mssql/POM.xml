@@ -129,6 +129,17 @@
             ORDER BY TOTAL_QTY DESC
         ]]></statement>
     </query>
+    <!-- 작업지시(V060) — W/O 관리/현황 전체조회(NULL-guard). -->
+    <query id="POM.WorkOrderList">
+        <statement><![CDATA[
+            SELECT WORK_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, PRODUCTION_ORDER_ID, EQUIPMENT_ID, WORK_ORDER_TYPE,
+                   PRODUCT_ID, PLAN_START_DATE, PLAN_END_DATE, PLAN_QTY, START_QTY, COMPLETE_QTY, SCRAP_QTY, STATUS, IS_HOLD
+            FROM POM_WORK_ORDER WITH (NOLOCK)
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY PLAN_START_DATE DESC
+        ]]></statement>
+    </query>
     <query id="POM.LotTraceList">
         <statement><![CDATA[
             SELECT TOP 500 LOT_HISTORY_ID, PLANT_ID, LOT_ID, EQUIPMENT_ID, PROCESS_ID,

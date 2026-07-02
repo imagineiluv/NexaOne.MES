@@ -263,4 +263,21 @@
             ORDER BY BOR_ID, RESOURCE_TYPE
         ]]></statement>
     </query>
+    <!-- MES_MDM_COM 벤더(공급사, V059) — 벤더 마스터/벤더 품목. NULL-guard 전체조회. -->
+    <query id="MDM.VendorList">
+        <statement><![CDATA[
+            SELECT VENDOR_ID, VENDOR_NAME, VENDOR_TYPE, CORPORATION_NO, OWNER_NAME, PHONE, EMAIL, ADDRESS, IS_ACTIVE
+            FROM MDM_VENDOR WITH (NOLOCK)
+            WHERE (@vendorType IS NULL OR VENDOR_TYPE = @vendorType)
+            ORDER BY VENDOR_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.VendorItemList">
+        <statement><![CDATA[
+            SELECT VENDOR_ITEM_ID, VENDOR_ID, PRODUCT_ID, LEAD_TIME_DAYS, MOQ, BASE_PRICE, IS_ACTIVE
+            FROM MDM_VENDOR_ITEM WITH (NOLOCK)
+            WHERE (@vendorId IS NULL OR VENDOR_ID = @vendorId)
+            ORDER BY VENDOR_ID, PRODUCT_ID
+        ]]></statement>
+    </query>
 </queries>

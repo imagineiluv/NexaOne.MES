@@ -1095,6 +1095,72 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         Register(new ScreenDefinition("FACTORY_WPM_REPORT_MATERIAL_DISPENSING_ORDER", "자재 불출 현황",
             Array.Empty<FieldDefinition>(), wpmMaterialTxCols, QueryId: "IVT.DispensingList"));
 
+        // ===== SmartUX 잔여(c 블록) 레거시 포팅 점등 — 벤더(V059)·작업지시(V060)·COM 액션(V061)·파일(V012 재사용). =====
+
+        // 벤더 관리(MES_MDM_COM_VENDOR)·벤더 품목 관리(MES_MDM_COM_VENDOR_ITEM) — V059(MDM.Vendor*List).
+        Register(new ScreenDefinition("MES_MDM_COM_VENDOR", "벤더 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("VENDOR_ID", "벤더 ID"), new("VENDOR_NAME", "벤더명"), new("VENDOR_TYPE", "유형"),
+                new("CORPORATION_NO", "사업자번호"), new("OWNER_NAME", "대표자"), new("PHONE", "전화"),
+                new("EMAIL", "이메일"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "MDM.VendorList"));
+        Register(new ScreenDefinition("MES_MDM_COM_VENDOR_ITEM", "벤더 품목 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("VENDOR_ITEM_ID", "매핑 ID"), new("VENDOR_ID", "벤더"), new("PRODUCT_ID", "품목"),
+                new("LEAD_TIME_DAYS", "리드타임(일)"), new("MOQ", "최소발주량"), new("BASE_PRICE", "기준단가"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "MDM.VendorItemList"));
+
+        // W/O 관리(FACTORY_PPM_WORK_ORDER)·작업지시 현황(FACTORY_PPM_REPORT_WORKORDER) — V060(POM.WorkOrderList). 기존 보류 해소.
+        foreach (var (uiId, title) in new[] {
+            ("FACTORY_PPM_WORK_ORDER", "W/O 관리"),
+            ("FACTORY_PPM_REPORT_WORKORDER", "작업지시 현황") })
+            Register(new ScreenDefinition(uiId, title,
+                Array.Empty<FieldDefinition>(),
+                new GridColumnDefinition[]
+                {
+                    new("WORK_ORDER_ID", "W/O ID"), new("WORK_ORDER_NAME", "W/O명"), new("PLANT_ID", "공장"),
+                    new("PRODUCTION_ORDER_ID", "생산오더"), new("EQUIPMENT_ID", "설비"), new("PRODUCT_ID", "품목"),
+                    new("PLAN_QTY", "계획수량"), new("START_QTY", "착수수량"), new("COMPLETE_QTY", "완료수량"),
+                    new("PLAN_START_DATE", "계획시작"), new("STATUS", "상태"), new("IS_HOLD", "홀드"),
+                },
+                QueryId: "POM.WorkOrderList"));
+
+        // 알람 액션 관리(FACTORY_COM_ACTION_DEF)·알람별 액션 관리(FACTORY_COM_ALARM_ACTION) — V061(COM.ActionList/AlarmActionList).
+        Register(new ScreenDefinition("FACTORY_COM_ACTION_DEF", "알람 액션 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("ACTION_ID", "액션 ID"), new("ACTION_NAME", "액션명"), new("ACTION_TYPE", "유형"),
+                new("HOLD_CODE", "홀드코드"), new("EMAIL_TITLE", "메일제목"), new("SMS_TITLE", "SMS제목"),
+                new("PROCEDURE_NAME", "프로시저"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "COM.ActionList"));
+        Register(new ScreenDefinition("FACTORY_COM_ALARM_ACTION", "알람별 액션 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("ALARM_ACTION_ID", "매핑 ID"), new("ALARM_ID", "알람"), new("ACTION_ID", "액션"),
+                new("ACTION_SEQUENCE", "순서"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
+            },
+            QueryId: "COM.AlarmActionList"));
+
+        // 파일 관리(SYSTEM_2_FILE_MENU) — 배포 파일 메타 재사용(V012 SYS_DEPLOY_FILE, SYS.DeployFileList).
+        Register(new ScreenDefinition("SYSTEM_2_FILE_MENU", "파일 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("FILE_ID", "파일 ID"), new("VERSION", "버전"), new("FILE_NAME", "파일명"), new("FILE_SIZE", "크기"),
+                new("DESCRIPTION", "설명"), new("FORCE_UPDATE", "강제업데이트"), new("IS_ACTIVE", "활성"),
+                new("UPLOADED_BY", "업로더"), new("UPLOADED_AT", "업로드시각"),
+            },
+            QueryId: "SYS.DeployFileList"));
+
         // 출하 지시 관리(FACTORY_DLV_DELIVERY_ORDER) — 출하지시 마스터 조회(SHP.DeliveryOrderList).
         Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_ORDER", "출하 지시 관리",
             Array.Empty<FieldDefinition>(),

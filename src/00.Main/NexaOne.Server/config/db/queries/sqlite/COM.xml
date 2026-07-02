@@ -49,4 +49,21 @@
     <query id="COM.ServiceList">
         <statement><![CDATA[ SELECT SERVICE_ID, SERVICE_NAME, SERVICE_TYPE, STATUS, DESCRIPTION, IS_ACTIVE FROM COM_SERVICE ORDER BY SERVICE_NAME ]]></statement>
     </query>
+    <!-- FACTORY_COM 액션(V061) — 액션 정의/알람별 액션 매핑. NULL-guard 전체조회. -->
+    <query id="COM.ActionList">
+        <statement><![CDATA[
+            SELECT ACTION_ID, ACTION_NAME, ACTION_TYPE, HOLD_CODE, EMAIL_TITLE, SMS_TITLE, PROCEDURE_NAME, DESCRIPTION, IS_ACTIVE
+            FROM COM_ACTION
+            WHERE (@actionType IS NULL OR ACTION_TYPE = @actionType)
+            ORDER BY ACTION_NAME
+        ]]></statement>
+    </query>
+    <query id="COM.AlarmActionList">
+        <statement><![CDATA[
+            SELECT ALARM_ACTION_ID, ALARM_ID, ACTION_ID, ACTION_SEQUENCE, DESCRIPTION, IS_ACTIVE
+            FROM COM_ALARM_ACTION
+            WHERE (@alarmId IS NULL OR ALARM_ID = @alarmId)
+            ORDER BY ALARM_ID, ACTION_SEQUENCE
+        ]]></statement>
+    </query>
 </queries>

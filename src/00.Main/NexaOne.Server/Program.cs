@@ -813,6 +813,32 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
         Exec(tx, "INSERT INTO IVT_MATERIAL_TX (TX_ID,LOT_ID,MATERIAL_ID,TX_TYPE,QTY,FROM_WAREHOUSE,TO_WAREHOUSE,TX_AT,PROCESSED_BY,STATUS) VALUES (@id,@lot,@mat,'Move',@qty,@from,@to,@at,'admin','Completed')",
             ("@id", m.Item1), ("@lot", m.Item2), ("@mat", m.Item3), ("@qty", m.Item4), ("@from", m.Item5), ("@to", m.Item6), ("@at", now));
 
+    // MDM_VENDOR/ITEM(벤더 관리 화면용, V059) — FK: 품목 선삽입됨(ITEM03).
+    foreach (var v in new[] { ("VEN_A", "대한자재", "Material"), ("VEN_B", "한빛부품", "Part") })
+        Exec(tx, "INSERT INTO MDM_VENDOR (VENDOR_ID,VENDOR_NAME,VENDOR_TYPE,CORPORATION_NO,OWNER_NAME,PHONE,EMAIL,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@name,@type,'123-45-67890','대표','02-000-0000','vendor@x.com',1,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", v.Item1), ("@name", v.Item2), ("@type", v.Item3), ("@at", now));
+    foreach (var vi in new[] { ("VI01", "VEN_A", "ITEM03", 7m, 100m, 1500m), ("VI02", "VEN_B", "ITEM02", 14m, 50m, 3200m) })
+        Exec(tx, "INSERT INTO MDM_VENDOR_ITEM (VENDOR_ITEM_ID,VENDOR_ID,PRODUCT_ID,LEAD_TIME_DAYS,MOQ,BASE_PRICE,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@ven,@prod,@lt,@moq,@price,1,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", vi.Item1), ("@ven", vi.Item2), ("@prod", vi.Item3), ("@lt", vi.Item4), ("@moq", vi.Item5), ("@price", vi.Item6), ("@at", now));
+
+    // POM_WORK_ORDER(W/O 관리/현황 화면용, V060) — POM_LOT.WORK_ORDER_ID가 가리키는 본체(기존 보류 해소).
+    foreach (var wo in new[] { ("WO01", "PLANT01", "완제품 A 1차 작업", "EQ01", 500m, 300m, "Started"), ("WO02", "PLANT01", "완제품 A 2차 작업", "EQ02", 300m, 0m, "Created") })
+        Exec(tx, "INSERT INTO POM_WORK_ORDER (WORK_ORDER_ID,PLANT_ID,WORK_ORDER_NAME,EQUIPMENT_ID,WORK_ORDER_TYPE,PRODUCT_ID,PLAN_START_DATE,PLAN_QTY,START_QTY,STATUS,IS_HOLD,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@plant,@name,@eq,'Normal','ITEM01',@at,@plan,@start,@st,'N','SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", wo.Item1), ("@plant", wo.Item2), ("@name", wo.Item3), ("@eq", wo.Item4), ("@plan", wo.Item5), ("@start", wo.Item6), ("@st", wo.Item7), ("@at", now));
+
+    // COM_ACTION/ALARM_ACTION(알람 액션 화면용, V061) — FK: 액션 선삽입.
+    foreach (var ac in new[] { ("ACT_MAIL", "알람 메일 발송", "Email"), ("ACT_HOLD", "LOT 홀드", "Hold") })
+        Exec(tx, "INSERT INTO COM_ACTION (ACTION_ID,ACTION_NAME,ACTION_TYPE,EMAIL_TITLE,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@name,@type,'설비 알람 발생',1,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", ac.Item1), ("@name", ac.Item2), ("@type", ac.Item3), ("@at", now));
+    foreach (var aa in new[] { ("AA01", "ALM01", "ACT_MAIL", 1), ("AA02", "ALM01", "ACT_HOLD", 2) })
+        Exec(tx, "INSERT INTO COM_ALARM_ACTION (ALARM_ACTION_ID,ALARM_ID,ACTION_ID,ACTION_SEQUENCE,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@alarm,@act,@seq,1,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", aa.Item1), ("@alarm", aa.Item2), ("@act", aa.Item3), ("@seq", aa.Item4), ("@at", now));
+
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
 }
