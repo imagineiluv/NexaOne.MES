@@ -176,6 +176,19 @@ public sealed class ApiClient : IApiClient
         using var _ = await SendAsync(HttpMethod.Put, url, body ?? new { }, ct);
     }
 
+    // 상태전이 POST용(응답 본문 불필요) — 통합 호스트 브리지 전이 엔드포인트는 POST 규약이다(구 API의 PUT 아님).
+    private async Task PostAsync(string url, object? body, CancellationToken ct)
+    {
+        using var _ = await SendAsync(HttpMethod.Post, url, body ?? new { }, ct);
+    }
+
+    // 본문 있는 DELETE용 — 호스트 권한 회수(DELETE roles/{id}/permissions)는 권한 문자열을 본문으로 받는다.
+    private async Task<bool> DeleteWithBodyAsync(string url, object body, CancellationToken ct)
+    {
+        using var resp = await SendAsync(HttpMethod.Delete, url, body, ct);
+        return resp.IsSuccessStatusCode;
+    }
+
     private async Task<bool> DeleteAsync(string url, CancellationToken ct)
     {
         using var resp = await SendAsync(HttpMethod.Delete, url, null, ct);
@@ -195,9 +208,9 @@ public sealed class ApiClient : IApiClient
     }
 
     // §20.12 — 본문 없는 204 응답의 성공 여부가 필요한 POST용 (PostAsync<T>는 본문 역직렬화 전제)
-    private async Task<bool> PostForStatusAsync(string url, object body, CancellationToken ct)
+    private async Task<bool> PostForStatusAsync(string url, object? body, CancellationToken ct)
     {
-        using var resp = await SendAsync(HttpMethod.Post, url, body, ct);
+        using var resp = await SendAsync(HttpMethod.Post, url, body ?? new { }, ct);
         return resp.IsSuccessStatusCode;
     }
 
@@ -247,11 +260,6 @@ public sealed class ApiClient : IApiClient
             HttpMethod.Post, $"api/v1/command/{Uri.EscapeDataString(queryId)}", parameters ?? new { }, ct);
         return resp.IsSuccessStatusCode;
     }
-
-    // ── Dashboard ─────────────────────────────────────────────────────────────
-
-    public Task<DashboardSummaryDto?> GetDashboardAsync(CancellationToken ct = default)
-        => GetAsync<DashboardSummaryDto>("api/v1/dashboard", ct);
 
     // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -369,7 +377,7 @@ public sealed class ApiClient : IApiClient
         => GetAsync<List<AlarmDto>>($"api/v1/est/alarms?plantId={plantId}", ct);
 
     public Task ClearAlarmAsync(string alarmId, CancellationToken ct = default)
-        => PutAsync($"api/v1/est/alarms/{alarmId}/clear", new { ClearedAt = DateTime.UtcNow }, ct);
+        => PostAsync($"api/v1/est/alarms/{alarmId}/clear", new { ClearedAt = DateTime.UtcNow }, ct);
 
     // ── FDC ───────────────────────────────────────────────────────────────────
 
@@ -406,15 +414,25 @@ public sealed class ApiClient : IApiClient
     public Task<List<FdcInterlockHistoryDto>> GetInterlockHistoryAsync(string equipmentId, DateTime from, DateTime to, CancellationToken ct = default)
         => GetListAsync<FdcInterlockHistoryDto>($"api/v1/fdc/interlock-history?equipmentId={equipmentId}&from={from:o}&to={to:o}", ct);
 
-    // Phase 4 후속 — Low-Code 화면 정의 저장소
-    public Task<List<ScreenDefinitionRecordDto>> GetScreenDefinitionsAsync(CancellationToken ct = default)
-        => GetListAsync<ScreenDefinitionRecordDto>("api/v1/sys/screen-definitions", ct);
+    // Low-Code 화면 정의 저장소(SYS_SCREEN_DEFINITION) — 통합 호스트에는 전용 REST가 없고 명명 쿼리/커맨드
+    // 게이트웨이가 단일 경로다(SPA 디자이너와 동일 원천). 구 api/v1/sys/screen-definitions REST는 API 폐기와 함께 소멸.
+    public async Task<List<ScreenDefinitionRecordDto>> GetScreenDefinitionsAsync(CancellationToken ct = default)
+        => (await ExecuteQueryAsync("SYS.ListScreenDefinitions", null, ct))
+            .Select(r => new ScreenDefinitionRecordDto(Col(r, "UI_ID"), Col(r, "TITLE"), string.Empty))
+            .ToList();
 
-    public Task<ScreenDefinitionRecordDto?> GetScreenDefinitionAsync(string uiId, CancellationToken ct = default)
-        => GetAsync<ScreenDefinitionRecordDto>($"api/v1/sys/screen-definitions/{uiId}", ct);
+    public async Task<ScreenDefinitionRecordDto?> GetScreenDefinitionAsync(string uiId, CancellationToken ct = default)
+    {
+        var rows = await ExecuteQueryAsync("SYS.GetScreenDefinition", new { uiId }, ct);
+        var r = rows.FirstOrDefault();
+        return r is null ? null : new ScreenDefinitionRecordDto(Col(r, "UI_ID"), Col(r, "TITLE"), Col(r, "DEFINITION_JSON"));
+    }
 
     public Task SaveScreenDefinitionAsync(string uiId, string title, string definitionJson, CancellationToken ct = default)
-        => PutAsync($"api/v1/sys/screen-definitions/{uiId}", new { title, definitionJson }, ct);
+        => ExecuteCommandAsync("SYS.UpsertScreenDefinition", new { uiId, title, definitionJson }, ct);
+
+    private static string Col(Dictionary<string, object?> row, string key)
+        => row.TryGetValue(key, out var v) ? v?.ToString() ?? string.Empty : string.Empty;
 
     public Task<List<FdcParameterGroupDto>> GetFdcParameterGroupsAsync(string equipmentId, CancellationToken ct = default)
         => GetListAsync<FdcParameterGroupDto>($"api/v1/fdc/parameter-groups?equipmentId={equipmentId}", ct);
@@ -484,7 +502,7 @@ public sealed class ApiClient : IApiClient
         => PostAsync<DefectDto>("api/v1/qms/defects", req, ct);
 
     public Task ConfirmDefectAsync(string defectId, string confirmerId, CancellationToken ct = default)
-        => PutAsync($"api/v1/qms/defects/{defectId}/confirm", new { confirmerId }, ct);
+        => PostAsync($"api/v1/qms/defects/{defectId}/confirm", new { confirmerId }, ct);
 
     public Task<List<DefectClassDto>> GetDefectClassesAsync(CancellationToken ct = default)
         => GetListAsync<DefectClassDto>("api/v1/qms/defect-classes", ct);
@@ -515,7 +533,7 @@ public sealed class ApiClient : IApiClient
         => PostAsync<SpcParamDto>("api/v1/qms/spc-params", req, ct);
 
     public Task UpdateSpcLimitsAsync(string paramId, decimal mean, decimal ucl, decimal lcl, CancellationToken ct = default)
-        => PutAsync($"api/v1/qms/spc-params/{paramId}/limits", new { mean, ucl, lcl }, ct);
+        => PostAsync($"api/v1/qms/spc-params/{paramId}/control-limits", new { mean, ucl, lcl }, ct);
 
     // ── EMS ───────────────────────────────────────────────────────────────────
 
@@ -532,13 +550,13 @@ public sealed class ApiClient : IApiClient
         => PostAsync<WorkOrderDto>("api/v1/ems/work-orders", req, ct);
 
     public Task StartWorkOrderAsync(string woId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ems/work-orders/{woId}/start", null, ct);
+        => PostAsync($"api/v1/ems/work-orders/{woId}/start", null, ct);
 
     public Task CompleteWorkOrderAsync(string woId, string remark, CancellationToken ct = default)
-        => PutAsync($"api/v1/ems/work-orders/{woId}/complete", new { remark }, ct);
+        => PostAsync($"api/v1/ems/work-orders/{woId}/complete", new { remark }, ct);
 
     public Task CancelWorkOrderAsync(string woId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ems/work-orders/{woId}/cancel", null, ct);
+        => PostAsync($"api/v1/ems/work-orders/{woId}/cancel", null, ct);
 
     public Task<List<MaintenancePlanDto>> GetMaintenancePlansAsync(string? equipmentId = null, CancellationToken ct = default)
     {
@@ -551,13 +569,13 @@ public sealed class ApiClient : IApiClient
         => PostAsync<MaintenancePlanDto>("api/v1/ems/maintenance-plans", req, ct);
 
     public Task StartMaintenancePlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ems/maintenance-plans/{planId}/start", null, ct);
+        => PostAsync($"api/v1/ems/maintenance-plans/{planId}/start", null, ct);
 
     public Task CompleteMaintenancePlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ems/maintenance-plans/{planId}/complete", null, ct);
+        => PostAsync($"api/v1/ems/maintenance-plans/{planId}/complete", null, ct);
 
     public Task CancelMaintenancePlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/ems/maintenance-plans/{planId}/cancel", null, ct);
+        => PostAsync($"api/v1/ems/maintenance-plans/{planId}/cancel", null, ct);
 
     public Task<List<SparePartDto>> GetSparePartsAsync(bool lowStock = false, CancellationToken ct = default)
         => GetListAsync<SparePartDto>($"api/v1/ems/spare-parts{(lowStock ? "?lowStock=true" : "")}", ct);
@@ -566,7 +584,7 @@ public sealed class ApiClient : IApiClient
         => PostAsync<SparePartDto>("api/v1/ems/spare-parts", req, ct);
 
     public Task AdjustStockAsync(string partId, decimal delta, CancellationToken ct = default)
-        => PutAsync($"api/v1/ems/spare-parts/{partId}/adjust-stock", new { delta }, ct);
+        => PostAsync($"api/v1/ems/spare-parts/{partId}/adjust-stock", new { delta }, ct);
 
     // ── PPM ───────────────────────────────────────────────────────────────────
 
@@ -577,16 +595,16 @@ public sealed class ApiClient : IApiClient
         => PostAsync<ProductionPlanDto>("api/v1/pom/plans", req, ct);
 
     public Task StartPlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/pom/plans/{planId}/start", null, ct);
+        => PostAsync($"api/v1/pom/plans/{planId}/start", null, ct);
 
     public Task ReleasePlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/pom/plans/{planId}/release", null, ct);
+        => PostAsync($"api/v1/pom/plans/{planId}/release", null, ct);
 
     public Task CompletePlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/pom/plans/{planId}/complete", null, ct);
+        => PostAsync($"api/v1/pom/plans/{planId}/complete", null, ct);
 
     public Task CancelPlanAsync(string planId, CancellationToken ct = default)
-        => PutAsync($"api/v1/pom/plans/{planId}/cancel", null, ct);
+        => PostAsync($"api/v1/pom/plans/{planId}/cancel", null, ct);
 
     public Task<List<ProductionOrderDto>> GetOrdersAsync(string planId, CancellationToken ct = default)
         => GetListAsync<ProductionOrderDto>($"api/v1/pom/orders?planId={planId}", ct);
@@ -595,217 +613,65 @@ public sealed class ApiClient : IApiClient
         => PostAsync<ProductionOrderDto>("api/v1/pom/orders", req, ct);
 
     public Task StartOrderAsync(string orderId, CancellationToken ct = default)
-        => PutAsync($"api/v1/pom/orders/{orderId}/start", null, ct);
+        => PostAsync($"api/v1/pom/orders/{orderId}/start", null, ct);
 
     public Task CompleteOrderAsync(string orderId, decimal actualQty, CancellationToken ct = default)
-        => PutAsync($"api/v1/pom/orders/{orderId}/complete", new { actualQty }, ct);
+        => PostAsync($"api/v1/pom/orders/{orderId}/complete", new { actualQty }, ct);
 
     public Task CancelOrderAsync(string orderId, CancellationToken ct = default)
-        => PutAsync($"api/v1/pom/orders/{orderId}/cancel", null, ct);
+        => PostAsync($"api/v1/pom/orders/{orderId}/cancel", null, ct);
 
     // ── PPM - Lot TrackIn/TrackOut (설계서 19.4) ──────────────────────────────
-
-    public Task<List<LotDto>> GetLotsAsync(string plantId, string? state = null, CancellationToken ct = default)
-        => GetListAsync<LotDto>(
-               $"api/v1/lots?plantId={Uri.EscapeDataString(plantId)}{(string.IsNullOrEmpty(state) ? "" : $"&state={Uri.EscapeDataString(state)}")}", ct);
-
-    public Task<LotRouteDto?> GetLotRouteAsync(string lotId, CancellationToken ct = default)
-        => GetAsync<LotRouteDto>($"api/v1/lots/{Uri.EscapeDataString(lotId)}/route", ct);
+    // Lot 조회(목록/경로/추적 리포트)는 명명 쿼리 게이트웨이(/api/v1/query/POM.*)가 단일 경로다 — 구 REST 조회는 삭제.
 
     public Task<(LotDto? Lot, string? Error)> CreateLotAsync(object req, CancellationToken ct = default)
-        => PostWithErrorAsync<LotDto>("api/v1/lots", req, ct);
+        => PostWithErrorAsync<LotDto>("api/v1/pom/lots", req, ct);
 
     public Task<(LotDto? Lot, string? Error)> TrackInAsync(string lotId, object req, CancellationToken ct = default)
-        => PostWithErrorAsync<LotDto>($"api/v1/lots/{Uri.EscapeDataString(lotId)}/track-in", req, ct);
+        => PostWithErrorAsync<LotDto>($"api/v1/pom/lots/{Uri.EscapeDataString(lotId)}/track-in", req, ct);
 
     public Task<(LotDto? Lot, string? Error)> TrackOutAsync(string lotId, object req, CancellationToken ct = default)
-        => PostWithErrorAsync<LotDto>($"api/v1/lots/{Uri.EscapeDataString(lotId)}/track-out", req, ct);
+        => PostWithErrorAsync<LotDto>($"api/v1/pom/lots/{Uri.EscapeDataString(lotId)}/track-out", req, ct);
 
     public Task<(LotDto? Lot, string? Error)> MixingTrackInOutAsync(object req, CancellationToken ct = default)
-        => PostWithErrorAsync<LotDto>("api/v1/lots/mixing/track-in-out", req, ct);
+        => PostWithErrorAsync<LotDto>("api/v1/pom/lots/mixing/track-in-out", req, ct);
 
     public Task<bool> HoldLotAsync(string lotId, CancellationToken ct = default)
-        => PutForStatusAsync($"api/v1/lots/{Uri.EscapeDataString(lotId)}/hold", null, ct);
+        => PostForStatusAsync($"api/v1/pom/lots/{Uri.EscapeDataString(lotId)}/hold", null, ct);
 
     public Task<bool> ReleaseLotHoldAsync(string lotId, CancellationToken ct = default)
-        => PutForStatusAsync($"api/v1/lots/{Uri.EscapeDataString(lotId)}/release-hold", null, ct);
-
-    public Task<List<LotHistoryDto>> GetLotTrackingReportAsync(
-        string plantId, string? lotId = null, string? equipmentId = null, string? processId = null,
-        DateTime? from = null, DateTime? to = null, CancellationToken ct = default)
-    {
-        var query = $"api/v1/reports/lot-tracking?plantId={Uri.EscapeDataString(plantId)}";
-        if (!string.IsNullOrEmpty(lotId)) query += $"&lotId={Uri.EscapeDataString(lotId)}";
-        if (!string.IsNullOrEmpty(equipmentId)) query += $"&equipmentId={Uri.EscapeDataString(equipmentId)}";
-        if (!string.IsNullOrEmpty(processId)) query += $"&processId={Uri.EscapeDataString(processId)}";
-        if (from.HasValue) query += $"&from={from.Value:O}";
-        if (to.HasValue) query += $"&to={to.Value:O}";
-        return GetListAsync<LotHistoryDto>(query, ct);
-    }
+        => PostForStatusAsync($"api/v1/pom/lots/{Uri.EscapeDataString(lotId)}/release", null, ct);
 
     // ── DLV ───────────────────────────────────────────────────────────────────
-
-    public Task<List<DeliveryOrderDto>> GetDeliveryOrdersAsync(string plantId, CancellationToken ct = default)
-        => GetListAsync<DeliveryOrderDto>($"api/v1/shp/orders?plantId={plantId}", ct);
+    // 출하 조회(오더 목록/품목/이력)는 명명 쿼리 게이트웨이(/api/v1/query/SHP.*)가 단일 경로 — 브리지는 전이 쓰기만.
 
     public Task<DeliveryOrderDto?> CreateDeliveryOrderAsync(object req, CancellationToken ct = default)
         => PostAsync<DeliveryOrderDto>("api/v1/shp/orders", req, ct);
 
     public Task ConfirmDeliveryOrderAsync(string orderId, CancellationToken ct = default)
-        => PutAsync($"api/v1/shp/orders/{orderId}/confirm", null, ct);
+        => PostAsync($"api/v1/shp/orders/{orderId}/confirm", null, ct);
 
     public Task ShipDeliveryOrderAsync(string orderId, DateTime shippedDate, CancellationToken ct = default)
-        => PutAsync($"api/v1/shp/orders/{orderId}/ship", new { shippedDate }, ct);
+        => PostAsync($"api/v1/shp/orders/{orderId}/ship", new { shippedDate }, ct);
 
     public Task CancelDeliveryOrderAsync(string orderId, CancellationToken ct = default)
-        => PutAsync($"api/v1/shp/orders/{orderId}/cancel", null, ct);
-
-    public Task<List<DeliveryItemDto>> GetDeliveryItemsAsync(string orderId, CancellationToken ct = default)
-        => GetListAsync<DeliveryItemDto>($"api/v1/shp/orders/{orderId}/items", ct);
-
-    public Task<DeliveryItemDto?> AddDeliveryItemAsync(string orderId, object req, CancellationToken ct = default)
-        => PostAsync<DeliveryItemDto>($"api/v1/shp/orders/{orderId}/items", req, ct);
-
-    public Task SetDeliveryItemActualQtyAsync(string itemId, decimal actualQty, CancellationToken ct = default)
-        => PutAsync($"api/v1/shp/items/{itemId}/actual-qty", new { actualQty }, ct);
-
-    public Task<List<ShipmentHistoryDto>> GetShipmentHistoryAsync(string orderId, CancellationToken ct = default)
-        => GetListAsync<ShipmentHistoryDto>($"api/v1/shp/orders/{orderId}/shipment-history", ct);
-
-    public Task<ShipmentHistoryDto?> RecordShipmentAsync(string orderId, object req, CancellationToken ct = default)
-        => PostAsync<ShipmentHistoryDto>($"api/v1/shp/orders/{orderId}/shipment-history", req, ct);
+        => PostAsync($"api/v1/shp/orders/{orderId}/cancel", null, ct);
 
     // ── SYS ───────────────────────────────────────────────────────────────────
-
-    public Task<List<UserDto>> GetUsersAsync(CancellationToken ct = default)
-        => GetListAsync<UserDto>("api/v1/sys/users", ct);
-
-    public Task<UserDto?> GetUserAsync(string userId, CancellationToken ct = default)
-        => GetAsync<UserDto>($"api/v1/sys/users/{userId}", ct);
-
-    public Task<UserDto?> CreateUserAsync(object req, CancellationToken ct = default)
-        => PostAsync<UserDto>("api/v1/sys/users", req, ct);
+    // 사용자/역할 조회는 명명 쿼리(SYS.ListUsers/ListRoles 등), 쓰기는 sys/admin 브리지가 단일 경로다.
+    // 잠금 해제(unlock)는 인증 경로 소유(S7)로 통합 호스트 REST가 없다 — 필요 시 인증 경로에 신설한다.
 
     public Task DeactivateUserAsync(string userId, CancellationToken ct = default)
-        => PutAsync($"api/v1/sys/users/{userId}/deactivate", null, ct);
-
-    // §20.10 — 관리자 잠금 해제
-    public Task UnlockUserAsync(string userId, CancellationToken ct = default)
-        => PutAsync($"api/v1/sys/users/{userId}/unlock", null, ct);
-
-    public Task<List<RoleDto>> GetRolesAsync(CancellationToken ct = default)
-        => GetListAsync<RoleDto>("api/v1/sys/roles", ct);
-
-    public Task<RoleDto?> GetRoleAsync(string roleId, CancellationToken ct = default)
-        => GetAsync<RoleDto>($"api/v1/sys/roles/{roleId}", ct);
+        => PostAsync($"api/v1/sys/admin/users/{userId}/deactivate", null, ct);
 
     public Task<RoleDto?> CreateRoleAsync(object req, CancellationToken ct = default)
-        => PostAsync<RoleDto>("api/v1/sys/roles", req, ct);
+        => PostAsync<RoleDto>("api/v1/sys/admin/roles", req, ct);
 
     public Task AddPermissionAsync(string roleId, string permission, CancellationToken ct = default)
-        => PostAsync<object>($"api/v1/sys/roles/{roleId}/permissions", new { permission }, ct);
+        => PostAsync($"api/v1/sys/admin/roles/{roleId}/permissions", new { permission }, ct);
 
     public Task RemovePermissionAsync(string roleId, string permission, CancellationToken ct = default)
-        => DeleteAsync($"api/v1/sys/roles/{roleId}/permissions/{Uri.EscapeDataString(permission)}", ct);
-
-    public Task<List<MultiLanguageResourceDto>> GetLanguageResourcesAsync(string? menuId = null, string? language = null, CancellationToken ct = default)
-    {
-        var qs = new List<string>();
-        if (!string.IsNullOrEmpty(menuId)) qs.Add($"menuId={menuId}");
-        if (!string.IsNullOrEmpty(language)) qs.Add($"language={language}");
-        var url = "api/v1/sys/languages" + (qs.Any() ? "?" + string.Join("&", qs) : "");
-        return GetListAsync<MultiLanguageResourceDto>(url, ct);
-    }
-
-    public Task<MultiLanguageResourceDto?> UpsertLanguageResourceAsync(object req, CancellationToken ct = default)
-        => PostAsync<MultiLanguageResourceDto>("api/v1/sys/languages", req, ct);
-
-    public Task<List<MenuItemDto>> GetMenuAsync(CancellationToken ct = default)
-        => GetListAsync<MenuItemDto>("api/v1/sys/menu", ct);
-
-    // ── SYS - ConditionSetting (설계서 20.8 조건 저장/불러오기) ───────────────
-
-    public Task<ConditionSettingDto?> GetConditionSettingsAsync(string menuId, CancellationToken ct = default)
-        => GetAsync<ConditionSettingDto>($"api/v1/sys/conditions?menuId={Uri.EscapeDataString(menuId)}", ct);
-
-    public Task<ConditionItemDto?> SaveConditionAsync(string menuId, string name, Dictionary<string, string?> values, CancellationToken ct = default)
-        => PostAsync<ConditionItemDto>("api/v1/sys/conditions", new { menuId, name, values }, ct);
-
-    public async Task<bool> SaveLatestConditionAsync(string menuId, Dictionary<string, string?> values, CancellationToken ct = default)
-        => await PostAsync<ConditionItemDto>("api/v1/sys/conditions/latest", new { menuId, values }, ct) is not null;
-
-    public Task<bool> DeleteConditionAsync(string menuId, string name, CancellationToken ct = default)
-        => DeleteAsync($"api/v1/sys/conditions?menuId={Uri.EscapeDataString(menuId)}&name={Uri.EscapeDataString(name)}", ct);
-
-    public Task<bool> ClearLatestConditionAsync(string menuId, CancellationToken ct = default)
-        => DeleteAsync($"api/v1/sys/conditions/latest?menuId={Uri.EscapeDataString(menuId)}", ct);
-
-    // ── SYS - Deploy (설계서 20.11 배포 파일 업로드/클라이언트 업데이트) ──────
-
-    public Task<List<DeployFileDto>> GetDeployFilesAsync(CancellationToken ct = default)
-        => GetListAsync<DeployFileDto>("api/v1/deploy/files", ct);
-
-    public Task<DeployLatestDto?> GetLatestDeployAsync(CancellationToken ct = default)
-        => GetAsync<DeployLatestDto>("api/v1/deploy/latest", ct);
-
-    public async Task<(DeployFileDto? File, string? Error)> UploadDeployFileAsync(
-        Stream content, string fileName, string version, string description, bool forceUpdate,
-        CancellationToken ct = default)
-    {
-        // InputFile 스트림은 되감기가 불가능해 401 재시도 없이 1회만 전송한다 —
-        // 만료 임박 토큰을 선제 갱신(GetValidAccessTokenAsync)하므로 전송 중 만료 경합은 드물다.
-        var token = await GetValidAccessTokenAsync(ct);
-
-        using var form = new MultipartFormDataContent();
-        using var fileContent = new StreamContent(content);
-        fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-        form.Add(fileContent, "file", fileName);
-        form.Add(new StringContent(version), "version");
-        form.Add(new StringContent(description), "description");
-        form.Add(new StringContent(forceUpdate ? "true" : "false"), "forceUpdate");
-
-        // LongRunning 표시 — DefaultRequestTimeoutHandler의 100초 제한을 건너뛰고 전역 10분 한도만 적용
-        using var req = new HttpRequestMessage(HttpMethod.Post, "api/v1/deploy/files") { Content = form };
-        if (!string.IsNullOrEmpty(token))
-            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        req.Options.Set(DefaultRequestTimeoutHandler.LongRunning, true);
-        var resp = await _http.SendAsync(req, ct);
-        if (resp.IsSuccessStatusCode)
-            return (await resp.Content.ReadFromJsonAsync<DeployFileDto>(ct), null);
-
-        try
-        {
-            // 서버 BadRequest 본문(Error)의 한국어 사유를 그대로 보여준다 (버전 중복/형식 오류 등)
-            var error = await resp.Content.ReadFromJsonAsync<ApiErrorPayload>(ct);
-            if (!string.IsNullOrEmpty(error?.Description))
-                return (null, error.Description);
-        }
-        catch { /* 오류 본문이 표준 형식이 아니면 상태 코드로 폴백 */ }
-        return (null, $"업로드에 실패했습니다 (HTTP {(int)resp.StatusCode}).");
-    }
-
-    public Task<bool> SetDeployFileActiveAsync(string fileId, bool isActive, CancellationToken ct = default)
-        => PutForStatusAsync($"api/v1/deploy/files/{Uri.EscapeDataString(fileId)}/{(isActive ? "activate" : "deactivate")}", null, ct);
-
-    // ── SYS - 사용자 메뉴 개인화 (설계서 20.12 즐겨찾기/최근 메뉴) ────────────
-
-    public Task<List<FavoriteMenuDto>> GetFavoriteMenusAsync(CancellationToken ct = default)
-        => GetListAsync<FavoriteMenuDto>("api/v1/sys/favorites", ct);
-
-    public Task<bool> AddFavoriteMenuAsync(string menuId, CancellationToken ct = default)
-        => PostForStatusAsync("api/v1/sys/favorites", new { menuId }, ct);
-
-    public Task<bool> RemoveFavoriteMenuAsync(string menuId, CancellationToken ct = default)
-        => DeleteAsync($"api/v1/sys/favorites?menuId={Uri.EscapeDataString(menuId)}", ct);
-
-    public Task<bool> ReorderFavoriteMenusAsync(List<string> menuIds, CancellationToken ct = default)
-        => PutForStatusAsync("api/v1/sys/favorites/order", new { menuIds }, ct);
-
-    public Task<List<RecentMenuDto>> GetRecentMenusAsync(CancellationToken ct = default)
-        => GetListAsync<RecentMenuDto>("api/v1/sys/recent-menus", ct);
-
-    public Task<bool> RecordRecentMenuAsync(string menuId, CancellationToken ct = default)
-        => PostForStatusAsync("api/v1/sys/recent-menus", new { menuId }, ct);
+        => DeleteWithBodyAsync($"api/v1/sys/admin/roles/{roleId}/permissions", new { permission }, ct);
 
     // ── SYS - 사용자 등록 신청/승인 (설계서 19.3) ─────────────────────────────
 
@@ -816,7 +682,8 @@ public sealed class ApiClient : IApiClient
     {
         try
         {
-            var resp = await _http.GetAsync($"api/v1/users/exists/{Uri.EscapeDataString(userId)}", ct);
+            var resp = await _http.GetAsync(
+                $"api/v1/sys/admin/user-requests/availability?userId={Uri.EscapeDataString(userId)}", ct);
             if (!resp.IsSuccessStatusCode) return null;
             var payload = await resp.Content.ReadFromJsonAsync<UserIdAvailabilityPayload>(ct);
             return payload?.Available;
@@ -827,7 +694,7 @@ public sealed class ApiClient : IApiClient
     public async Task<(UserRequestDto? Request, string? Error)> RegisterUserAsync(
         object req, CancellationToken ct = default)
     {
-        var resp = await _http.PostAsJsonAsync("api/v1/users/request", req, ct);
+        var resp = await _http.PostAsJsonAsync("api/v1/sys/admin/user-requests", req, ct);
         if (resp.IsSuccessStatusCode)
             return (await resp.Content.ReadFromJsonAsync<UserRequestDto>(ct), null);
 
@@ -854,17 +721,17 @@ public sealed class ApiClient : IApiClient
         if (!string.IsNullOrEmpty(email)) qs.Add($"email={Uri.EscapeDataString(email)}");
         if (from.HasValue) qs.Add($"from={from.Value:O}");
         if (to.HasValue) qs.Add($"to={to.Value:O}");
-        var url = "api/v1/users/requests" + (qs.Any() ? "?" + string.Join("&", qs) : "");
+        var url = "api/v1/sys/admin/user-requests" + (qs.Any() ? "?" + string.Join("&", qs) : "");
         return GetListAsync<UserRequestDto>(url, ct);
     }
 
-    public Task<(UserRequestDto? Request, string? Error)> ApproveUserRequestAsync(
+    public Task<(UserRequestApprovalDto? Approval, string? Error)> ApproveUserRequestAsync(
         string requestId, string? roleId, CancellationToken ct = default)
-        => PatchWithErrorAsync<UserRequestDto>(
-            $"api/v1/users/requests/{Uri.EscapeDataString(requestId)}/approve", new { roleId }, ct);
+        => PostWithErrorAsync<UserRequestApprovalDto>(
+            $"api/v1/sys/admin/user-requests/{Uri.EscapeDataString(requestId)}/approve", new { roleId }, ct);
 
     public Task<(UserRequestDto? Request, string? Error)> RejectUserRequestAsync(
         string requestId, string reason, CancellationToken ct = default)
-        => PatchWithErrorAsync<UserRequestDto>(
-            $"api/v1/users/requests/{Uri.EscapeDataString(requestId)}/reject", new { reason }, ct);
+        => PostWithErrorAsync<UserRequestDto>(
+            $"api/v1/sys/admin/user-requests/{Uri.EscapeDataString(requestId)}/reject", new { reason }, ct);
 }

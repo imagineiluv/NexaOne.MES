@@ -11,9 +11,6 @@ public interface IApiClient
     Task<bool> ExecuteCommandAsync(
         string queryId, object? parameters = null, CancellationToken ct = default);
 
-    // Dashboard
-    Task<DashboardSummaryDto?> GetDashboardAsync(CancellationToken ct = default);
-
     // Auth
     /// <summary>유효한 액세스 토큰 반환 — 만료(임박) 시 갱신 후 공급한다. SignalR 재연결 협상용 (§20.9).</summary>
     Task<string?> GetValidAccessTokenAsync(CancellationToken ct = default);
@@ -130,74 +127,26 @@ public interface IApiClient
     Task CompleteOrderAsync(string orderId, decimal actualQty, CancellationToken ct = default);
     Task CancelOrderAsync(string orderId, CancellationToken ct = default);
 
-    // PPM - Lot TrackIn/TrackOut (설계서 19.4)
+    // PPM - Lot TrackIn/TrackOut (설계서 19.4) — 조회(목록/경로/리포트)는 명명 쿼리(POM.*)가 단일 경로
     // 변경 호출은 (결과, 오류) 쌍을 반환한다 — 검증 실패 사유를 화면에 표시하기 위함
-    Task<List<LotDto>> GetLotsAsync(string plantId, string? state = null, CancellationToken ct = default);
-    Task<LotRouteDto?> GetLotRouteAsync(string lotId, CancellationToken ct = default);
     Task<(LotDto? Lot, string? Error)> CreateLotAsync(object req, CancellationToken ct = default);
     Task<(LotDto? Lot, string? Error)> TrackInAsync(string lotId, object req, CancellationToken ct = default);
     Task<(LotDto? Lot, string? Error)> TrackOutAsync(string lotId, object req, CancellationToken ct = default);
     Task<(LotDto? Lot, string? Error)> MixingTrackInOutAsync(object req, CancellationToken ct = default);
     Task<bool> HoldLotAsync(string lotId, CancellationToken ct = default);
     Task<bool> ReleaseLotHoldAsync(string lotId, CancellationToken ct = default);
-    Task<List<LotHistoryDto>> GetLotTrackingReportAsync(
-        string plantId, string? lotId = null, string? equipmentId = null, string? processId = null,
-        DateTime? from = null, DateTime? to = null, CancellationToken ct = default);
 
-    // DLV
-    Task<List<DeliveryOrderDto>> GetDeliveryOrdersAsync(string plantId, CancellationToken ct = default);
+    // DLV — 조회(오더/품목/이력)는 명명 쿼리(SHP.*)가 단일 경로, 브리지는 생성/전이만
     Task<DeliveryOrderDto?> CreateDeliveryOrderAsync(object req, CancellationToken ct = default);
     Task ConfirmDeliveryOrderAsync(string orderId, CancellationToken ct = default);
     Task ShipDeliveryOrderAsync(string orderId, DateTime shippedDate, CancellationToken ct = default);
     Task CancelDeliveryOrderAsync(string orderId, CancellationToken ct = default);
-    Task<List<DeliveryItemDto>> GetDeliveryItemsAsync(string orderId, CancellationToken ct = default);
-    Task<DeliveryItemDto?> AddDeliveryItemAsync(string orderId, object req, CancellationToken ct = default);
-    Task SetDeliveryItemActualQtyAsync(string itemId, decimal actualQty, CancellationToken ct = default);
-    Task<List<ShipmentHistoryDto>> GetShipmentHistoryAsync(string orderId, CancellationToken ct = default);
-    Task<ShipmentHistoryDto?> RecordShipmentAsync(string orderId, object req, CancellationToken ct = default);
 
-    // SYS
-    Task<List<UserDto>> GetUsersAsync(CancellationToken ct = default);
-    Task<UserDto?> GetUserAsync(string userId, CancellationToken ct = default);
-    Task<UserDto?> CreateUserAsync(object req, CancellationToken ct = default);
+    // SYS — 조회(사용자/역할)는 명명 쿼리(SYS.*), 쓰기는 sys/admin 브리지. 잠금 해제는 인증 경로 소유(S7)로 미노출.
     Task DeactivateUserAsync(string userId, CancellationToken ct = default);
-    Task UnlockUserAsync(string userId, CancellationToken ct = default);
-    Task<List<RoleDto>> GetRolesAsync(CancellationToken ct = default);
-    Task<RoleDto?> GetRoleAsync(string roleId, CancellationToken ct = default);
     Task<RoleDto?> CreateRoleAsync(object req, CancellationToken ct = default);
     Task AddPermissionAsync(string roleId, string permission, CancellationToken ct = default);
     Task RemovePermissionAsync(string roleId, string permission, CancellationToken ct = default);
-    Task<List<MultiLanguageResourceDto>> GetLanguageResourcesAsync(string? menuId = null, string? language = null, CancellationToken ct = default);
-    Task<MultiLanguageResourceDto?> UpsertLanguageResourceAsync(object req, CancellationToken ct = default);
-
-    // SYS - Menu
-    Task<List<MenuItemDto>> GetMenuAsync(CancellationToken ct = default);
-
-    // SYS - ConditionSetting (설계서 20.8 조건 저장/불러오기)
-    // 쓰기/삭제는 성공 여부를 반환한다 — 실패를 UI에서 구분해 낙관적 상태 갱신을 막기 위함
-    Task<ConditionSettingDto?> GetConditionSettingsAsync(string menuId, CancellationToken ct = default);
-    Task<ConditionItemDto?> SaveConditionAsync(string menuId, string name, Dictionary<string, string?> values, CancellationToken ct = default);
-    Task<bool> SaveLatestConditionAsync(string menuId, Dictionary<string, string?> values, CancellationToken ct = default);
-    Task<bool> DeleteConditionAsync(string menuId, string name, CancellationToken ct = default);
-    Task<bool> ClearLatestConditionAsync(string menuId, CancellationToken ct = default);
-
-    // SYS - Deploy (설계서 20.11 배포 파일 업로드/클라이언트 업데이트, ADMIN 전용)
-    Task<List<DeployFileDto>> GetDeployFilesAsync(CancellationToken ct = default);
-    Task<DeployLatestDto?> GetLatestDeployAsync(CancellationToken ct = default);
-    /// <summary>배포 파일 업로드(multipart). 실패 시 서버 오류 메시지를 보존해 화면에 표시한다.</summary>
-    Task<(DeployFileDto? File, string? Error)> UploadDeployFileAsync(
-        Stream content, string fileName, string version, string description, bool forceUpdate,
-        CancellationToken ct = default);
-    Task<bool> SetDeployFileActiveAsync(string fileId, bool isActive, CancellationToken ct = default);
-
-    // SYS - 사용자 메뉴 개인화 (설계서 20.12 즐겨찾기/최근 메뉴)
-    // 쓰기는 성공 여부를 반환한다 — 실패 시 캐시를 갱신하지 않기 위함 (§20.8과 동일 원칙)
-    Task<List<FavoriteMenuDto>> GetFavoriteMenusAsync(CancellationToken ct = default);
-    Task<bool> AddFavoriteMenuAsync(string menuId, CancellationToken ct = default);
-    Task<bool> RemoveFavoriteMenuAsync(string menuId, CancellationToken ct = default);
-    Task<bool> ReorderFavoriteMenusAsync(List<string> menuIds, CancellationToken ct = default);
-    Task<List<RecentMenuDto>> GetRecentMenusAsync(CancellationToken ct = default);
-    Task<bool> RecordRecentMenuAsync(string menuId, CancellationToken ct = default);
 
     // SYS - 사용자 등록 신청/승인 (설계서 19.3)
     // 신청/중복확인은 익명 호출(로그인 전 화면), 목록/승인/반려는 ADMIN 전용
@@ -208,7 +157,8 @@ public interface IApiClient
         string? plantId = null, string? status = null, string? userId = null,
         string? userName = null, string? email = null,
         DateTime? from = null, DateTime? to = null, CancellationToken ct = default);
-    Task<(UserRequestDto? Request, string? Error)> ApproveUserRequestAsync(
+    /// <summary>승인 — 응답에 1회 표시용 임시 비밀번호가 포함된다(관리자 전달용, 최초 로그인 시 변경 강제).</summary>
+    Task<(UserRequestApprovalDto? Approval, string? Error)> ApproveUserRequestAsync(
         string requestId, string? roleId, CancellationToken ct = default);
     Task<(UserRequestDto? Request, string? Error)> RejectUserRequestAsync(
         string requestId, string reason, CancellationToken ct = default);

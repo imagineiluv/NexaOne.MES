@@ -308,56 +308,7 @@ public record LotDto(
     string? TrackOutUser,
     DateTime? TrackOutTime);
 
-public record LotHistoryDto(
-    long LotHistoryId,
-    string PlantId,
-    string LotId,
-    string? EquipmentId,
-    string ProcessId,
-    string? RecipeDefId,
-    int? RecipeDefVersion,
-    DateTime? TrackInTime,
-    DateTime? TrackOutTime,
-    string ExecutionId,
-    string ExecutionUser,
-    decimal Qty,
-    decimal DefectQty,
-    string LotState,
-    string ProcessState,
-    DateTime CreatedAt);
-
-public record LotMixingRelationDto(
-    string PlantId,
-    string OutputLotId,
-    string InputLotId,
-    decimal InputQty,
-    decimal? MixingRate,
-    DateTime ConsumedAt,
-    string ConsumedBy);
-
-public record LotRouteDto(
-    LotDto Lot,
-    List<LotHistoryDto> Histories,
-    List<LotMixingRelationDto> MixingInputs);
-
 // ── DLV ──────────────────────────────────────────────────────────────────────
-public record DeliveryItemDto(
-    string Id,
-    string DeliveryOrderId,
-    string ProductId,
-    decimal PlannedQty,
-    decimal? ActualQty,
-    string? LotId);
-
-public record ShipmentHistoryDto(
-    string Id,
-    string DeliveryOrderId,
-    DateTime ShippedAt,
-    decimal ShippedQty,
-    string ShippedBy,
-    string? Carrier,
-    string? TrackingNo);
-
 public record DeliveryOrderDto(
     string Id,
     string CustomerName,
@@ -367,99 +318,12 @@ public record DeliveryOrderDto(
     string Status,
     string? Remark);
 
-// ── Dashboard ─────────────────────────────────────────────────────────────────
-public record DashboardSummaryDto(
-    int ActiveAlarms,
-    int IssuedWorkOrders,
-    int InProgressWorkOrders,
-    int ReleasedPlans,
-    int PendingRecipeApprovals,
-    int OpenDeliveryOrders);
-
 // ── SYS ──────────────────────────────────────────────────────────────────────
-public record UserDto(
-    string Id,
-    string UserName,
-    string Email,
-    string RoleId,
-    string Language,
-    bool IsActive,
-    DateTime? LastLoginAt = null,
-    DateTime? LockedUntil = null,    // §20.10 — 잠금 만료 시각(UTC). 관리자 해제 버튼 표시 판정용
-    string? PasswordState = null)
-{
-    /// <summary>§20.10 — 현재 잠금 여부 (시간 만료 전).</summary>
-    public bool IsLocked => LockedUntil is { } until && until > DateTime.UtcNow;
-}
-
 public record RoleDto(
     string Id,
     string RoleName,
     string Description,
     IReadOnlyList<string> Permissions);
-
-public record MultiLanguageResourceDto(
-    string Id,
-    string MenuId,
-    string Language,
-    string Value);
-
-// ── SYS - Menu ────────────────────────────────────────────────────────────────
-public record MenuItemDto(
-    string MenuId,
-    string MenuName,
-    string? ParentMenuId,
-    int DisplaySequence,
-    string MenuType,
-    string ProgramId,
-    string? ImageId,
-    int Depth,
-    bool IsOrphan);
-
-// ── SYS - ConditionSetting (설계서 20.8 조건 저장/불러오기) ───────────────────
-public record ConditionSettingDto(
-    ConditionItemDto? Latest,
-    List<ConditionItemDto> Items);
-
-public record ConditionItemDto(
-    string Name,
-    DateTime SavedAt,
-    Dictionary<string, string?> Values);
-
-// ── SYS - Deploy (설계서 20.11 배포 파일 업로드/클라이언트 업데이트) ──────────
-public record DeployFileDto(
-    string FileId,
-    string Version,
-    string FileName,
-    string Hash,
-    long FileSize,
-    string Description,
-    bool ForceUpdate,
-    bool IsActive,
-    string UploadedBy,
-    DateTime UploadedAt);
-
-public record DeployLatestDto(
-    string Version,
-    string DownloadUrl,
-    string Hash,
-    bool ForceUpdate,
-    string ReleaseNote);
-
-// ── SYS - 사용자 메뉴 개인화 (설계서 20.12 즐겨찾기/최근 메뉴) ────────────────
-public record FavoriteMenuDto(
-    string MenuId,
-    string MenuName,
-    string ProgramId,
-    string? ImageId,
-    int DisplaySequence);
-
-public record RecentMenuDto(
-    string MenuId,
-    string MenuName,
-    string ProgramId,
-    string? ImageId,
-    DateTime LastUsedAt);
 
 // ── SYS - 사용자 등록 신청/승인 (설계서 19.3) ─────────────────────────────────
 public record UserRequestDto(
@@ -485,3 +349,6 @@ public record UserRequestDto(
     string? RejectReason,
     string? RejectedBy,
     DateTime? RejectedAt);
+
+/// <summary>승인 응답 — 임시 비밀번호는 이 응답에서만 1회 노출된다(관리자 전달용, 최초 로그인 시 변경 강제).</summary>
+public record UserRequestApprovalDto(UserRequestDto Request, string TempPassword);
