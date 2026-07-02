@@ -77,6 +77,108 @@ ORDER BY PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_ID
 ]]></statement>
   </query>
 
+  <!-- ===== 사용자 메뉴 개인화(§20.12 즐겨찾기/최근 메뉴) — 전부 @currentUser 스코프. =====
+       쓰기는 서버 주입 @currentUser만 사용하므로 직접 /command 호출로도 타인 행 조작이 불가하고,
+       읽기는 /query 직접 호출 시 @currentUser 미주입(DBNull)이라 0행 — 본 쿼리들은 호스트
+       SysPersonalizationController가 토큰 사용자로 바인딩해 실행하는 것이 정상 경로다. -->
+
+  <query id="SYS.ListFavoriteMenus">
+    <statement><![CDATA[
+SELECT F.MENU_ID, M.MENU_NAME, M.PROGRAM_ID, M.IMAGE_ID, M.UI_ID, F.DISPLAY_SEQUENCE
+FROM SYS_FAVORITE_MENU F WITH (NOLOCK)
+JOIN SYS_MENU M WITH (NOLOCK) ON M.MENU_ID = F.MENU_ID AND M.VALID_STATE = 'Valid' AND M.MENU_TYPE = 'Screen'
+WHERE F.USER_ID = @currentUser
+ORDER BY F.DISPLAY_SEQUENCE, F.MENU_ID
+]]></statement>
+  </query>
+  <!-- 존재하는 Screen 메뉴만 + 중복 멱등 + 말미 순번 부여를 한 문장으로 — 미존재/중복이면 0행(성공 취급). -->
+  <query id="SYS.AddFavoriteMenu" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+INSERT INTO SYS_FAVORITE_MENU (USER_ID, MENU_ID, DISPLAY_SEQUENCE, CREATED_AT)
+SELECT @currentUser, M.MENU_ID,
+       COALESCE((SELECT MAX(F.DISPLAY_SEQUENCE) FROM SYS_FAVORITE_MENU F WHERE F.USER_ID = @currentUser), 0) + 1,
+       @utcNow
+FROM SYS_MENU M
+WHERE M.MENU_ID = @menuId AND M.VALID_STATE = 'Valid' AND M.MENU_TYPE = 'Screen'
+  AND NOT EXISTS (SELECT 1 FROM SYS_FAVORITE_MENU F2 WHERE F2.USER_ID = @currentUser AND F2.MENU_ID = M.MENU_ID)
+]]></statement>
+  </query>
+  <query id="SYS.RemoveFavoriteMenu" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+DELETE FROM SYS_FAVORITE_MENU WHERE USER_ID = @currentUser AND MENU_ID = @menuId
+]]></statement>
+  </query>
+  <query id="SYS.UpdateFavoriteMenuSequence" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+UPDATE SYS_FAVORITE_MENU SET DISPLAY_SEQUENCE = @sequence WHERE USER_ID = @currentUser AND MENU_ID = @menuId
+]]></statement>
+  </query>
+  <query id="SYS.ListRecentMenus">
+    <statement><![CDATA[
+SELECT TOP 10 R.MENU_ID, M.MENU_NAME, M.PROGRAM_ID, M.IMAGE_ID, M.UI_ID, R.LAST_USED_AT
+FROM SYS_RECENT_MENU R WITH (NOLOCK)
+JOIN SYS_MENU M WITH (NOLOCK) ON M.MENU_ID = R.MENU_ID AND M.VALID_STATE = 'Valid' AND M.MENU_TYPE = 'Screen'
+WHERE R.USER_ID = @currentUser
+ORDER BY R.LAST_USED_AT DESC
+]]></statement>
+  </query>
+  <!-- 탐색 부수 기록 — 미존재/폴더 메뉴는 조용히 0행(§20.12), 재사용은 LAST_USED_AT 갱신(맨 앞 이동). -->
+  <query id="SYS.RecordRecentMenu" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+MERGE SYS_RECENT_MENU WITH (HOLDLOCK) AS t
+USING (
+    SELECT M.MENU_ID FROM SYS_MENU M
+    WHERE M.MENU_ID = @menuId AND M.VALID_STATE = 'Valid' AND M.MENU_TYPE = 'Screen'
+) AS s ON t.USER_ID = @currentUser AND t.MENU_ID = s.MENU_ID
+WHEN MATCHED THEN UPDATE SET LAST_USED_AT = @utcNow
+WHEN NOT MATCHED THEN INSERT (USER_ID, MENU_ID, LAST_USED_AT) VALUES (@currentUser, s.MENU_ID, @utcNow);
+]]></statement>
+  </query>
+  <query id="SYS.TrimRecentMenus" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+DELETE FROM SYS_RECENT_MENU
+WHERE USER_ID = @currentUser
+  AND MENU_ID NOT IN (
+    SELECT TOP 10 MENU_ID FROM SYS_RECENT_MENU WHERE USER_ID = @currentUser ORDER BY LAST_USED_AT DESC)
+]]></statement>
+  </query>
+
+  <!-- ===== 조건 저장/불러오기(§20.8) — @currentUser 스코프(§20.12와 동일 규약). '$latest'=마지막 조회 조건. -->
+  <query id="SYS.ListConditionSettings">
+    <statement><![CDATA[
+SELECT NAME, SAVED_AT, VALUES_JSON
+FROM SYS_CONDITION_SETTING WITH (NOLOCK)
+WHERE USER_ID = @currentUser AND MENU_ID = @menuId
+ORDER BY SAVED_AT DESC
+]]></statement>
+  </query>
+  <query id="SYS.UpsertConditionSetting" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+MERGE SYS_CONDITION_SETTING WITH (HOLDLOCK) AS t
+USING (SELECT @currentUser AS USER_ID, @menuId AS MENU_ID, @name AS NAME) AS s
+  ON t.USER_ID = s.USER_ID AND t.MENU_ID = s.MENU_ID AND t.NAME = s.NAME
+WHEN MATCHED THEN UPDATE SET SAVED_AT = @utcNow, VALUES_JSON = @valuesJson
+WHEN NOT MATCHED THEN INSERT (USER_ID, MENU_ID, NAME, SAVED_AT, VALUES_JSON)
+    VALUES (@currentUser, @menuId, @name, @utcNow, @valuesJson);
+]]></statement>
+  </query>
+  <query id="SYS.DeleteConditionSetting" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+DELETE FROM SYS_CONDITION_SETTING WHERE USER_ID = @currentUser AND MENU_ID = @menuId AND NAME = @name
+]]></statement>
+  </query>
+  <!-- 사용자 저장 조건 한도(10) 초과분을 오래된 것부터 정리 — '$latest'는 한도 제외(§20.8). -->
+  <query id="SYS.TrimConditionSettings" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+DELETE FROM SYS_CONDITION_SETTING
+WHERE USER_ID = @currentUser AND MENU_ID = @menuId AND NAME <> '$latest'
+  AND NAME NOT IN (
+    SELECT TOP 10 NAME FROM SYS_CONDITION_SETTING
+    WHERE USER_ID = @currentUser AND MENU_ID = @menuId AND NAME <> '$latest'
+    ORDER BY SAVED_AT DESC)
+]]></statement>
+  </query>
+
   <!-- 메뉴 업서트 — SYS.UpsertScreenDefinition 스타일(MERGE HOLDLOCK). 감사 컬럼 없음(SYS_MENU는 미보유). -->
   <query id="SYS.UpsertMenu" kind="write" requiredPermission="sys:manage">
     <statement><![CDATA[

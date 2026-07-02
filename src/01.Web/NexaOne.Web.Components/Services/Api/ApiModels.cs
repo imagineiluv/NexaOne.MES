@@ -325,6 +325,34 @@ public record RoleDto(
     string Description,
     IReadOnlyList<string> Permissions);
 
+// ── SYS - 사용자 메뉴 개인화 (설계서 20.12 즐겨찾기/최근 메뉴) ────────────────
+// UiId 포함 — 통합 호스트 셸은 /meta/{uiId}로 내비게이션한다(구 ProgramId 내비의 웹 적응).
+public record FavoriteMenuDto(
+    string MenuId,
+    string MenuName,
+    string ProgramId,
+    string? ImageId,
+    string UiId,
+    int DisplaySequence);
+
+public record RecentMenuDto(
+    string MenuId,
+    string MenuName,
+    string ProgramId,
+    string? ImageId,
+    string UiId,
+    DateTime LastUsedAt);
+
+// ── SYS - ConditionSetting (설계서 20.8 조건 저장/불러오기) ───────────────────
+public record ConditionSettingDto(
+    ConditionItemDto? Latest,
+    List<ConditionItemDto> Items);
+
+public record ConditionItemDto(
+    string Name,
+    DateTime SavedAt,
+    Dictionary<string, string?> Values);
+
 // ── SYS - 사용자 등록 신청/승인 (설계서 19.3) ─────────────────────────────────
 public record UserRequestDto(
     string RequestId,

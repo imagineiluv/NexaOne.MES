@@ -664,6 +664,10 @@ public sealed class ApiClient : IApiClient
     public Task DeactivateUserAsync(string userId, CancellationToken ct = default)
         => PostAsync($"api/v1/sys/admin/users/{userId}/deactivate", null, ct);
 
+    // §20.10 — 관리자 잠금 해제(인증 경로 소유 — auth 라우트)
+    public Task UnlockUserAsync(string userId, CancellationToken ct = default)
+        => PostAsync($"api/v1/auth/users/{Uri.EscapeDataString(userId)}/unlock", null, ct);
+
     public Task<RoleDto?> CreateRoleAsync(object req, CancellationToken ct = default)
         => PostAsync<RoleDto>("api/v1/sys/admin/roles", req, ct);
 
@@ -672,6 +676,45 @@ public sealed class ApiClient : IApiClient
 
     public Task RemovePermissionAsync(string roleId, string permission, CancellationToken ct = default)
         => DeleteWithBodyAsync($"api/v1/sys/admin/roles/{roleId}/permissions", new { permission }, ct);
+
+    // ── SYS - 사용자 메뉴 개인화 (설계서 20.12 즐겨찾기/최근 메뉴) ────────────
+    // 호스트 SysPersonalizationController — 자기 데이터만(토큰 사용자 스코프), 권한 요구 없음(인증만).
+
+    public Task<List<FavoriteMenuDto>> GetFavoriteMenusAsync(CancellationToken ct = default)
+        => GetListAsync<FavoriteMenuDto>("api/v1/sys/favorites", ct);
+
+    public Task<bool> AddFavoriteMenuAsync(string menuId, CancellationToken ct = default)
+        => PostForStatusAsync("api/v1/sys/favorites", new { menuId }, ct);
+
+    public Task<bool> RemoveFavoriteMenuAsync(string menuId, CancellationToken ct = default)
+        => DeleteAsync($"api/v1/sys/favorites?menuId={Uri.EscapeDataString(menuId)}", ct);
+
+    public Task<bool> ReorderFavoriteMenusAsync(List<string> menuIds, CancellationToken ct = default)
+        => PutForStatusAsync("api/v1/sys/favorites/order", new { menuIds }, ct);
+
+    public Task<List<RecentMenuDto>> GetRecentMenusAsync(CancellationToken ct = default)
+        => GetListAsync<RecentMenuDto>("api/v1/sys/recent-menus", ct);
+
+    public Task<bool> RecordRecentMenuAsync(string menuId, CancellationToken ct = default)
+        => PostForStatusAsync("api/v1/sys/recent-menus", new { menuId }, ct);
+
+    // ── SYS - ConditionSetting (설계서 20.8 조건 저장/불러오기) ───────────────
+    // 호스트 SysPersonalizationController — 토큰 사용자 스코프. '$latest'=마지막 조회 조건(자동 저장).
+
+    public Task<ConditionSettingDto?> GetConditionSettingsAsync(string menuId, CancellationToken ct = default)
+        => GetAsync<ConditionSettingDto>($"api/v1/sys/conditions?menuId={Uri.EscapeDataString(menuId)}", ct);
+
+    public Task<ConditionItemDto?> SaveConditionAsync(string menuId, string name, Dictionary<string, string?> values, CancellationToken ct = default)
+        => PostAsync<ConditionItemDto>("api/v1/sys/conditions", new { menuId, name, values }, ct);
+
+    public async Task<bool> SaveLatestConditionAsync(string menuId, Dictionary<string, string?> values, CancellationToken ct = default)
+        => await PostAsync<ConditionItemDto>("api/v1/sys/conditions/latest", new { menuId, values }, ct) is not null;
+
+    public Task<bool> DeleteConditionAsync(string menuId, string name, CancellationToken ct = default)
+        => DeleteAsync($"api/v1/sys/conditions?menuId={Uri.EscapeDataString(menuId)}&name={Uri.EscapeDataString(name)}", ct);
+
+    public Task<bool> ClearLatestConditionAsync(string menuId, CancellationToken ct = default)
+        => DeleteAsync($"api/v1/sys/conditions/latest?menuId={Uri.EscapeDataString(menuId)}", ct);
 
     // ── SYS - 사용자 등록 신청/승인 (설계서 19.3) ─────────────────────────────
 

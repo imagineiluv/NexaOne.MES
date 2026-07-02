@@ -17,6 +17,33 @@
             <span class="brand">NexaOne<small>MES</small></span>
         </div>
         <nav class="mes-nav">
+            @* §20.12 — 즐겨찾기/최근 메뉴(개인화). 서버 영속이라 어느 브라우저에서 접속해도 동일하다. *@
+            @if (_favorites.Count > 0)
+            {
+                <div style="padding:0.375rem 0.875rem 0.125rem; font-size:0.688rem; color:#8ea0b8; letter-spacing:0.05em;">★ 즐겨찾기</div>
+                @foreach (var fav in _favorites)
+                {
+                    <div style="padding:0.3rem 1.25rem; font-size:0.813rem; color:#d2dcea; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+                         title="@fav.MenuName" @onclick="() => NavigateTo(fav.UiId, fav.MenuName)">
+                        @fav.MenuName
+                    </div>
+                }
+            }
+            @if (_recents.Count > 0)
+            {
+                <div style="padding:0.375rem 0.875rem 0.125rem; font-size:0.688rem; color:#8ea0b8; letter-spacing:0.05em;">최근 사용</div>
+                @foreach (var recent in _recents)
+                {
+                    <div style="padding:0.3rem 1.25rem; font-size:0.813rem; color:#aebccd; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+                         title="@recent.MenuName" @onclick="() => NavigateTo(recent.UiId, recent.MenuName)">
+                        @recent.MenuName
+                    </div>
+                }
+            }
+            @if (_favorites.Count > 0 || _recents.Count > 0)
+            {
+                <div style="margin:0.375rem 0.875rem; border-top:1px solid rgba(255,255,255,0.08);"></div>
+            }
             <MesNavTree Nodes="_forest" Depth="0" Open="_openFolders"
                         ActiveUiId="@ActiveUiId()"
                         OnToggle="ToggleFolder" OnNavigate="OnNavigateNode" />
@@ -29,7 +56,10 @@
 
     <div class="mes-main">
         <header class="mes-topbar">
-            <span class="star">&#9734;</span>
+            @* §20.12 — 활성 화면 즐겨찾기 토글(★=등록됨). 메뉴 매핑이 없는 화면(직접 라우트 등)은 표시만 한다. *@
+            <span class="star" style="cursor:pointer; color:@(IsActiveFavorite() ? "#f59e0b" : "inherit")"
+                  title="@(IsActiveFavorite() ? "즐겨찾기 해제" : "즐겨찾기 등록")"
+                  @onclick="ToggleActiveFavoriteAsync">@(IsActiveFavorite() ? "★" : "☆")</span>
             <span class="tb-title">제조실행시스템 (NexaOne MES)</span>
             <div class="mes-quickmenu"><input placeholder="Quick Menu" /></div>
             <span class="tb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.4 1a7 7 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.4-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg></span>
@@ -67,13 +97,43 @@
     private Dictionary<string, string> _uiToTitle = new(StringComparer.OrdinalIgnoreCase);
     // uiId → 조상 폴더 id 목록(활성 화면의 모든 상위 폴더 자동 펼침용).
     private Dictionary<string, IReadOnlyList<string>> _uiToAncestors = new(StringComparer.OrdinalIgnoreCase);
+    // uiId → menuId — §20.12 즐겨찾기/최근 기록의 키는 MENU_ID다(같은 화면을 여러 잎이 가리키면 마지막 잎).
+    private Dictionary<string, string> _uiToMenuId = new(StringComparer.OrdinalIgnoreCase);
+    // §20.12 — 즐겨찾기/최근 메뉴(서버 영속). 실패는 빈 목록으로 흡수돼 셸을 깨지 않는다.
+    private List<FavoriteMenuDto> _favorites = new();
+    private List<RecentMenuDto> _recents = new();
 
     protected override async Task OnInitializedAsync()
     {
         await BuildTreeAsync();
+        await ReloadPersonalizationAsync();
         Opened.Changed += OnOpenedChanged;
         Nav.LocationChanged += OnLocationChanged;
         SyncCurrentRoute();
+    }
+
+    private async Task ReloadPersonalizationAsync()
+    {
+        _favorites = await Api.GetFavoriteMenusAsync();
+        _recents = await Api.GetRecentMenusAsync();
+    }
+
+    private bool IsActiveFavorite()
+    {
+        var ui = ActiveUiId();
+        return ui is not null
+            && _uiToMenuId.TryGetValue(ui, out var menuId)
+            && _favorites.Any(f => string.Equals(f.MenuId, menuId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private async Task ToggleActiveFavoriteAsync()
+    {
+        var ui = ActiveUiId();
+        if (ui is null || !_uiToMenuId.TryGetValue(ui, out var menuId)) return;
+        var ok = IsActiveFavorite()
+            ? await Api.RemoveFavoriteMenuAsync(menuId)
+            : await Api.AddFavoriteMenuAsync(menuId);
+        if (ok) _favorites = await Api.GetFavoriteMenusAsync();   // 실패 시 캐시 미갱신(§20.8 원칙)
     }
 
     private async Task BuildTreeAsync()
@@ -139,6 +199,7 @@
         {
             _uiToTitle[node.UiId] = node.Name;
             _uiToAncestors[node.UiId] = ancestors;
+            _uiToMenuId[node.UiId] = node.Id;
         }
     }
 
@@ -226,6 +287,23 @@
         Opened.Open(ui, title);
         if (_uiToAncestors.TryGetValue(ui, out var ancestors))
             foreach (var fid in ancestors) _openFolders.Add(fid);
+
+        // §20.12 — 화면 사용을 부수 기록(사이드바 클릭·직접 URL·뒤로가기 공통 경로). 실패는 조용히 무시.
+        if (_uiToMenuId.TryGetValue(ui, out var menuId))
+            _ = RecordRecentAndRefreshAsync(menuId);
+    }
+
+    private async Task RecordRecentAndRefreshAsync(string menuId)
+    {
+        try
+        {
+            if (await Api.RecordRecentMenuAsync(menuId))
+            {
+                _recents = await Api.GetRecentMenusAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch { /* 탐색 부수 기록 실패는 셸 동작에 영향 없음 */ }
     }
 
     private void OnOpenedChanged() => InvokeAsync(StateHasChanged);

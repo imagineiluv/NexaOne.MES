@@ -142,11 +142,30 @@ public interface IApiClient
     Task ShipDeliveryOrderAsync(string orderId, DateTime shippedDate, CancellationToken ct = default);
     Task CancelDeliveryOrderAsync(string orderId, CancellationToken ct = default);
 
-    // SYS — 조회(사용자/역할)는 명명 쿼리(SYS.*), 쓰기는 sys/admin 브리지. 잠금 해제는 인증 경로 소유(S7)로 미노출.
+    // SYS — 조회(사용자/역할)는 명명 쿼리(SYS.*), 쓰기는 sys/admin 브리지.
     Task DeactivateUserAsync(string userId, CancellationToken ct = default);
+    /// <summary>§20.10 관리자 잠금 해제 — 잠금은 보안 상태라 인증 경로(auth 라우트)가 소유한다(S7).</summary>
+    Task UnlockUserAsync(string userId, CancellationToken ct = default);
     Task<RoleDto?> CreateRoleAsync(object req, CancellationToken ct = default);
     Task AddPermissionAsync(string roleId, string permission, CancellationToken ct = default);
     Task RemovePermissionAsync(string roleId, string permission, CancellationToken ct = default);
+
+    // SYS - 사용자 메뉴 개인화 (설계서 20.12 즐겨찾기/최근 메뉴) — 토큰 사용자 스코프(자기 데이터만)
+    // 쓰기는 성공 여부를 반환한다 — 실패 시 캐시를 갱신하지 않기 위함 (§20.8과 동일 원칙)
+    Task<List<FavoriteMenuDto>> GetFavoriteMenusAsync(CancellationToken ct = default);
+    Task<bool> AddFavoriteMenuAsync(string menuId, CancellationToken ct = default);
+    Task<bool> RemoveFavoriteMenuAsync(string menuId, CancellationToken ct = default);
+    Task<bool> ReorderFavoriteMenusAsync(List<string> menuIds, CancellationToken ct = default);
+    Task<List<RecentMenuDto>> GetRecentMenusAsync(CancellationToken ct = default);
+    Task<bool> RecordRecentMenuAsync(string menuId, CancellationToken ct = default);
+
+    // SYS - ConditionSetting (설계서 20.8 조건 저장/불러오기) — 토큰 사용자 스코프
+    // 쓰기/삭제는 성공 여부를 반환한다 — 실패를 UI에서 구분해 낙관적 상태 갱신을 막기 위함
+    Task<ConditionSettingDto?> GetConditionSettingsAsync(string menuId, CancellationToken ct = default);
+    Task<ConditionItemDto?> SaveConditionAsync(string menuId, string name, Dictionary<string, string?> values, CancellationToken ct = default);
+    Task<bool> SaveLatestConditionAsync(string menuId, Dictionary<string, string?> values, CancellationToken ct = default);
+    Task<bool> DeleteConditionAsync(string menuId, string name, CancellationToken ct = default);
+    Task<bool> ClearLatestConditionAsync(string menuId, CancellationToken ct = default);
 
     // SYS - 사용자 등록 신청/승인 (설계서 19.3)
     // 신청/중복확인은 익명 호출(로그인 전 화면), 목록/승인/반려는 ADMIN 전용
