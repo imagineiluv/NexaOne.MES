@@ -105,6 +105,34 @@ public sealed class HostModulesBootSmokeTests
             (await matrix.Content.ReadAsStringAsync()).Should().Contain("IDLE",
                 "업서트한 전이(IDLE→RUN)가 실브리지 조회로 라운드트립돼야 한다(TEST-3)");
         }
+
+        // 회원가입 신청→승인 풀사이클(§19.3) — 익명 신청이 plugin-ALC UserRegistrationService를 실제로 관통해
+        // 모듈 DB에 기록되고, 승인이 역할 검증(게이트웨이 SYS_ROLE, SEC-1 재사용)→임시 비밀번호 발급→DATA-6 단일
+        // 트랜잭션(SYS_USER 생성+신청 전환)까지 완주함을 검증한다. userId는 모듈 DB가 실행 간 재사용될 수 있어 유일화.
+        using (var sys = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{host.Port}") })
+        {
+            var uid = $"smk{Guid.NewGuid():N}"[..12];
+            var avail = await sys.GetAsync($"/api/v1/sys/admin/user-requests/availability?userId={uid}");
+            avail.StatusCode.Should().Be(HttpStatusCode.OK, "아이디 중복확인은 익명 진입점(§19.3.2)");
+            (await avail.Content.ReadAsStringAsync()).Should().Contain("true", "신규 ID는 사용 가능");
+
+            var created = await sys.PostAsJsonAsync("/api/v1/sys/admin/user-requests",
+                new { userId = uid, userName = "스모크신청", email = $"{uid}@smoke.test", department = "생산", position = "사원", plantId = "SMOKEPL", termsAccepted = true });
+            created.StatusCode.Should().Be(HttpStatusCode.OK, $"익명 가입 신청은 200(실브리지 쓰기) — 로그:\n{host.Log}");
+            using var reqDoc = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+            var requestId = reqDoc.RootElement.GetProperty("requestId").GetString();
+
+            sys.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", HostProcess.MintToken(Permissions.SysManage));
+            var approved = await sys.PostAsJsonAsync($"/api/v1/sys/admin/user-requests/{requestId}/approve",
+                new { roleId = "VIEWER" });   // V063 표준 역할 시드 — 게이트웨이 DB는 매 실행 신규라 항상 존재
+            approved.StatusCode.Should().Be(HttpStatusCode.OK,
+                $"승인 = 역할 검증 + DATA-6 단일 트랜잭션 완주여야 한다 — 로그:\n{host.Log}");
+            using var apprDoc = JsonDocument.Parse(await approved.Content.ReadAsStringAsync());
+            apprDoc.RootElement.GetProperty("request").GetProperty("status").GetString().Should().Be("Approved");
+            apprDoc.RootElement.GetProperty("tempPassword").GetString().Should().NotBeNullOrWhiteSpace(
+                "임시 비밀번호는 승인 응답에 1회 노출(관리자 전달용, 최초 로그인 시 변경 강제)");
+        }
     }
 
     [Fact]

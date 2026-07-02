@@ -17,9 +17,9 @@ namespace NexaOne.ServerTests;
 
 /// <summary>SYS 얇은 브리지 컨트롤러 HTTP 매핑 검증(ADR-008, S7) — modules OFF + 가짜 ISysBridge 주입으로
 /// 권한(403/200)·생성(200·검증 400·충돌 409)·상태전이(204·NotFound→404)를 Spring/ALC 없이 결정적으로 검증한다.
-/// 역할 관리(CreateRole/Add·RemovePermission)·신청 반려(RejectRequest)·사용자 비활성(DeactivateUser)의 쓰기 경로
-/// (sys:manage 게이트)를 커버한다. 보안 가드(S7): 자격증명/비밀번호/로그인·승인(다중 애그리거트)·잠금 해제는
-/// 브리지에 없으므로 검증 대상이 아니다(인증 경로 소유, 의도적 보류).</summary>
+/// 역할 관리·신청 생명주기(§19.3 익명 신청/중복확인 + sys:manage 조회/승인/반려)·사용자 비활성을 커버한다.
+/// 승인은 역할 검증(SEC-1 재사용, 실 SQLite SYS_ROLE)·임시 비밀번호 발급(응답 1회 노출)까지 본다.
+/// 보안 가드(S7): 자격증명/비밀번호/로그인·잠금 해제는 브리지에 없다(인증 경로 소유).</summary>
 public sealed class SysBridgeControllerTests : IClassFixture<SysBridgeControllerTests.BridgeFactory>
 {
     private const string Secret = "phase-sys-bridge-e2e-jwt-secret-key-at-least-32b";
@@ -71,11 +71,45 @@ public sealed class SysBridgeControllerTests : IClassFixture<SysBridgeController
                 "MISSING" => Result.Failure<UserRequestDto>(Error.NotFound("UserRequest", requestId)),
                 _ when string.IsNullOrWhiteSpace(reason)
                     => Result.Failure<UserRequestDto>(Error.Validation("UserRequest.ReasonRequired", "반려 사유는 필수입니다.")),
-                _ => Result.Success(new UserRequestDto(requestId, "u1", "사용자", "u1@x.com", "부서", "사원",
-                    "P1", "Rejected", 1, reason, rejectedBy)),
+                _ => Result.Success(Snapshot(requestId, "Rejected") with { RejectReason = reason, RejectedBy = rejectedBy }),
+            });
+
+        public Task<bool> IsUserIdAvailableAsync(string userId, CancellationToken ct = default)
+            => Task.FromResult(userId != "TAKEN");
+
+        public Task<Result<UserRequestDto>> CreateRequestAsync(UserRegistrationRequestDto request, CancellationToken ct = default)
+            => Task.FromResult(request.UserId switch
+            {
+                "CONFLICT" => Result.Failure<UserRequestDto>(Error.Conflict($"이미 처리 대기 중인 신청이 있습니다: {request.UserId}")),
+                _ when !request.TermsAccepted
+                    => Result.Failure<UserRequestDto>(Error.Validation("UserRequest.TermsRequired", "약관 동의는 필수입니다.")),
+                _ => Result.Success(Snapshot("REQ-NEW", "Request") with { UserId = request.UserId }),
+            });
+
+        public Task<Result<IReadOnlyList<UserRequestDto>>> GetRequestsAsync(
+            string? plantId = null, string? status = null, string? userId = null,
+            string? userName = null, string? email = null,
+            DateTime? from = null, DateTime? to = null, CancellationToken ct = default)
+            => Task.FromResult(from.HasValue && to.HasValue && from > to
+                ? Result.Failure<IReadOnlyList<UserRequestDto>>(
+                    Error.Validation("UserRequest.InvalidPeriod", "조회 시작일이 종료일보다 늦습니다."))
+                : Result.Success<IReadOnlyList<UserRequestDto>>(new[] { Snapshot("REQ1", "Request") }));
+
+        public Task<Result<UserRequestDto>> ApproveRequestAsync(
+            string requestId, string roleId, string approvedBy, string tempPasswordHash, CancellationToken ct = default)
+            => Task.FromResult(requestId switch
+            {
+                "MISSING" => Result.Failure<UserRequestDto>(Error.NotFound("UserRequest", requestId)),
+                "CONFLICT" => Result.Failure<UserRequestDto>(Error.Conflict("이미 존재하는 사용자입니다: u1")),
+                _ => Result.Success(Snapshot(requestId, "Approved") with { ApprovedBy = approvedBy }),
             });
 
         public Task<Result> DeactivateUserAsync(string userId, CancellationToken ct = default) => Transition(userId);
+
+        private static UserRequestDto Snapshot(string requestId, string status)
+            => new(requestId, "u1", "사용자", "u1@x.com", "부서", "사원",
+                null, "P1", "KoKr", null, null, null, null, status, 1,
+                new DateTime(2026, 7, 1), new DateTime(2026, 7, 1), null, null, null, null, null);
 
         private static Task<Result> Transition(string id) => Task.FromResult(id switch
         {
@@ -234,4 +268,94 @@ public sealed class SysBridgeControllerTests : IClassFixture<SysBridgeController
         var res = await Client("*").PostAsync("/api/v1/sys/admin/users/u1/deactivate", content: null);
         res.StatusCode.Should().Be(HttpStatusCode.NoContent, "와일드카드(*) 권한은 통과");
     }
+
+    // ── 신청 생명주기(§19.3) — 익명 신청/중복확인 + 조회/승인 ──
+
+    [Fact]
+    public async Task Availability_is_anonymous_and_reports_taken_id()
+    {
+        var anon = _factory.CreateClient();
+        var ok = await anon.GetFromJsonAsync<AvailabilityPayload>(
+            "/api/v1/sys/admin/user-requests/availability?userId=newbie");
+        ok!.Available.Should().BeTrue("미사용 ID는 사용 가능");
+
+        var taken = await anon.GetFromJsonAsync<AvailabilityPayload>(
+            "/api/v1/sys/admin/user-requests/availability?userId=TAKEN");
+        taken!.Available.Should().BeFalse("기존 사용자/대기 신청 ID는 사용 불가");
+    }
+
+    [Fact]
+    public async Task CreateUserRequest_is_anonymous_and_returns_dto()
+    {
+        var res = await _factory.CreateClient().PostAsJsonAsync("/api/v1/sys/admin/user-requests",
+            new { userId = "newbie", userName = "신규", email = "n@x.com", department = "부서", position = "사원", plantId = "P1", termsAccepted = true });
+        res.StatusCode.Should().Be(HttpStatusCode.OK, "가입 신청은 익명 진입점");
+        var dto = await res.Content.ReadFromJsonAsync<UserRequestDto>();
+        dto!.UserId.Should().Be("newbie");
+        dto.Status.Should().Be("Request");
+    }
+
+    [Fact]
+    public async Task CreateUserRequest_without_terms_maps_to_400()
+    {
+        var res = await _factory.CreateClient().PostAsJsonAsync("/api/v1/sys/admin/user-requests",
+            new { userId = "newbie", userName = "신규", email = "n@x.com", department = "부서", position = "사원", plantId = "P1", termsAccepted = false });
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "약관 미동의(Validation)는 400");
+    }
+
+    [Fact]
+    public async Task GetUserRequests_without_sys_manage_is_forbidden()
+    {
+        var res = await Client("fdc:read").GetAsync("/api/v1/sys/admin/user-requests");
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "신청 목록은 sys:manage 전용");
+    }
+
+    [Fact]
+    public async Task GetUserRequests_with_sys_manage_returns_list()
+    {
+        var res = await Client("sys:manage").GetFromJsonAsync<List<UserRequestDto>>("/api/v1/sys/admin/user-requests");
+        res!.Should().ContainSingle(r => r.RequestId == "REQ1");
+    }
+
+    [Fact]
+    public async Task Approve_without_role_maps_to_400()
+    {
+        var res = await Client("sys:manage").PostAsJsonAsync("/api/v1/sys/admin/user-requests/REQ1/approve",
+            new { roleId = "" });
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "승인 시 roleId는 필수(ROLE_REQUIRED)");
+    }
+
+    [Fact]
+    public async Task Approve_unknown_role_maps_to_400()
+    {
+        var res = await Client("sys:manage").PostAsJsonAsync("/api/v1/sys/admin/user-requests/REQ1/approve",
+            new { roleId = "NO_SUCH_ROLE" });
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "SEC-1과 동일하게 미존재/비활성 역할은 INVALID_ROLE 400");
+    }
+
+    [Fact]
+    public async Task Approve_success_returns_request_and_temp_password()
+    {
+        // ADMIN은 V031 시드로 빈 DB 부팅 시 항상 존재 — 역할 검증(실 SQLite)을 통과한다.
+        var res = await Client("sys:manage").PostAsJsonAsync("/api/v1/sys/admin/user-requests/REQ1/approve",
+            new { roleId = "ADMIN" });
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await res.Content.ReadFromJsonAsync<ApprovalPayload>();
+        body!.Request.Status.Should().Be("Approved");
+        body.TempPassword.Should().NotBeNullOrWhiteSpace("임시 비밀번호는 승인 응답에 1회 노출");
+        body.TempPassword.Length.Should().BeGreaterThanOrEqualTo(12);
+        body.TempPassword.Should().MatchRegex("[A-Z]").And.MatchRegex("[a-z]").And.MatchRegex("[0-9]",
+            "§19.2.2 정책 문자 클래스 보장");
+    }
+
+    [Fact]
+    public async Task Approve_missing_request_maps_to_404()
+    {
+        var res = await Client("sys:manage").PostAsJsonAsync("/api/v1/sys/admin/user-requests/MISSING/approve",
+            new { roleId = "ADMIN" });
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    private sealed record AvailabilityPayload(bool Available);
+    private sealed record ApprovalPayload(UserRequestDto Request, string TempPassword);
 }

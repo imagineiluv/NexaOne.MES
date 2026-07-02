@@ -179,6 +179,10 @@ public sealed class GatewayLoginService
         return AuthOutcome.Ok(new { userId = req.UserId });
     }
 
+    /// <summary>활성 SYS_ROLE 존재 여부(SEC-1 검증 재사용) — register 외 승인(§19.3.5) 경로도 동일 검증을 공유한다.</summary>
+    public async Task<bool> RoleExistsAsync(string roleId, CancellationToken ct)
+        => await QuerySingleAsync("SYS.RoleExists", new() { ["roleId"] = roleId }, ct) is not null;
+
     // ── 비밀번호 재설정 (forgot/reset, V065 — 폐기 NexaOne.API PasswordResetService 갭 복원) ────────
 
     /// <summary>재설정 토큰 발급 + 메일 발송. 사용자 열거 방지 — 존재/상태와 무관하게 항상 성공을 반환한다.
