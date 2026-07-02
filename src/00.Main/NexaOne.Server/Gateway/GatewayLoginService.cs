@@ -183,6 +183,16 @@ public sealed class GatewayLoginService
     public async Task<bool> RoleExistsAsync(string roleId, CancellationToken ct)
         => await QuerySingleAsync("SYS.RoleExists", new() { ["roleId"] = roleId }, ct) is not null;
 
+    /// <summary>§20.10 관리자 잠금 해제 — FAIL_COUNT/LOCKED_UNTIL 초기화(잠금=보안 상태라 인증 경로가 소유, S7).
+    /// 대상 미존재/삭제면 false(컨트롤러가 404로 매핑). 권한 게이트(sys:manage)는 컨트롤러.</summary>
+    public async Task<bool> UnlockUserAsync(string userId, string unlockedBy, CancellationToken ct)
+        => await _dispatcher.ExecuteAsync(_authQueries.Sql("SYS.UnlockUser"), new Dictionary<string, object>
+        {
+            ["userId"] = userId,
+            ["currentUser"] = unlockedBy,
+            ["utcNow"] = DateTime.UtcNow,
+        }, ct) > 0;
+
     // ── 비밀번호 재설정 (forgot/reset, V065 — 폐기 NexaOne.API PasswordResetService 갭 복원) ────────
 
     /// <summary>재설정 토큰 발급 + 메일 발송. 사용자 열거 방지 — 존재/상태와 무관하게 항상 성공을 반환한다.

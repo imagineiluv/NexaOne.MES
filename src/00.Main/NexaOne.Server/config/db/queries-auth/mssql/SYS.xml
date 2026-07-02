@@ -51,6 +51,17 @@ WHERE USER_ID = @userId
 ]]></statement>
   </query>
 
+  <!-- §20.10 관리자 잠금 해제 — 잠금은 보안 상태(인증 경로 소유, S7)라 브리지가 아닌 본 레지스트리에 둔다. -->
+  <query id="SYS.UnlockUser">
+    <statement><![CDATA[
+UPDATE SYS_USER SET
+    FAIL_COUNT = 0,
+    LOCKED_UNTIL = NULL,
+    UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+WHERE USER_ID = @userId AND IS_DELETED = 0
+]]></statement>
+  </query>
+
   <!-- 실패 이력(비존재 사용자도 기록 — FK 없음). FAILURE_ID는 호출부 생성. -->
   <query id="SYS.InsertLoginFailureHist">
     <statement><![CDATA[

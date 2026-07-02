@@ -159,6 +159,43 @@ public sealed class GatewayAuthE2ETests : IClassFixture<GatewayAuthE2ETests.Auth
     }
 
     [Fact]
+    public async Task Locked_user_is_restored_by_admin_unlock()
+    {
+        // §20.10 — 5회 실패 잠금 → sys:manage 관리자 해제(인증 경로 소유) → 즉시 정답 로그인 성공.
+        EnsureSchemaReady();
+        var uid = Uid("unlk");
+        SeedUser(uid, NexaOne.Common.PasswordHasher.Hash("correct!"));
+        var adminRole = Uid("ADMR");
+        SeedRole(adminRole, "sys:manage");
+        var adminId = Uid("admin");
+        SeedUser(adminId, NexaOne.Common.PasswordHasher.Hash("adminpw"), roleId: adminRole);
+        var client = _factory.CreateClient();
+
+        for (var i = 0; i < 5; i++)
+            await client.PostAsJsonAsync("/api/v1/auth/login", new { userId = uid, password = "nope", plantId = "x" });
+        var locked = await client.PostAsJsonAsync("/api/v1/auth/login", new { userId = uid, password = "correct!", plantId = "x" });
+        (await locked.Content.ReadFromJsonAsync<ErrorBody>())!.code.Should().Be("ACCOUNT_LOCKED", "잠금 전제 성립");
+
+        // 무인증 unlock은 401(보호), 관리자 실로그인 토큰은 204, 미존재 사용자는 404.
+        (await client.PostAsync($"/api/v1/auth/users/{uid}/unlock", content: null))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        var adminLogin = await (await client.PostAsJsonAsync("/api/v1/auth/login",
+            new { userId = adminId, password = "adminpw", plantId = "x" })).Content.ReadFromJsonAsync<LoginBody>();
+        var admin = _factory.CreateClient();
+        admin.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", adminLogin!.accessToken);
+
+        (await admin.PostAsync($"/api/v1/auth/users/{uid}/unlock", content: null))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent, "sys:manage 관리자 잠금 해제는 204");
+        (await admin.PostAsync($"/api/v1/auth/users/{Uid("ghost")}/unlock", content: null))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound, "미존재 사용자는 404");
+
+        var restored = await client.PostAsJsonAsync("/api/v1/auth/login", new { userId = uid, password = "correct!", plantId = "x" });
+        restored.StatusCode.Should().Be(HttpStatusCode.OK, "해제 후 정답 로그인 즉시 성공(FAIL_COUNT/LOCKED_UNTIL 초기화)");
+    }
+
+    [Fact]
     public async Task Refresh_rotates_and_old_token_replay_is_rejected()
     {
         EnsureSchemaReady();

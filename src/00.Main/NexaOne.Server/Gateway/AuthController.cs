@@ -150,6 +150,21 @@ public sealed class AuthController : ControllerBase
         return outcome.Result;
     }
 
+    /// <summary>§20.10 — 관리자 잠금 해제. 잠금(FAIL_COUNT/LOCKED_UNTIL)은 보안 상태라 인증 경로가 소유한다(S7) —
+    /// SYS 브리지가 아닌 본 컨트롤러에 둔다. 미존재/삭제 사용자는 404.</summary>
+    [HttpPost("users/{userId}/unlock")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.SysManage)]
+    public async Task<IActionResult> UnlockUser(string userId, CancellationToken ct)
+    {
+        return await _login.UnlockUserAsync(userId, CurrentUserId, ct)
+            ? NoContent()
+            : NotFound(new Error("USER_NOT_FOUND", $"User '{userId}' not found.", ErrorType.NotFound));
+    }
+
     [HttpGet("me")]
     [Authorize]
     [ProducesResponseType<CurrentUserResponse>(StatusCodes.Status200OK)]
