@@ -146,7 +146,8 @@ public sealed class AuthController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.UserId) || string.IsNullOrWhiteSpace(request.RoleId))
             return BadRequest(new Error("INVALID_REGISTRATION", "UserId와 RoleId는 필수입니다.", ErrorType.Validation));
 
-        var outcome = await _login.RegisterAsync(request, CurrentUserId, ct);
+        var outcome = await _login.RegisterAsync(
+            request, CurrentUserId, User.HasPermission(Permissions.All), ct);
         return outcome.Result;
     }
 

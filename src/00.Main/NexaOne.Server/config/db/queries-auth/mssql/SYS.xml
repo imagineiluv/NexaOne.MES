@@ -121,11 +121,11 @@ WHERE USER_ID = @userId AND IS_DELETED = 0
 ]]></statement>
   </query>
 
-  <!-- 등록 시 ROLE_ID 무결성 검증(SEC-1) — 활성(미삭제) SYS_ROLE 존재 시 1행. FK 부재 보완: orphan/하드코딩 권한 디커플링 차단.
-       AuthUserById의 R.IS_DELETED=0(BIT)과 동일 비교. 존재 여부만 필요하므로 센티넬 1열만 SELECT. -->
+  <!-- 등록/승인 시 ROLE_ID 무결성 검증(SEC-1) + 권한 상승 가드용 PERMISSIONS 반환 — 활성(미삭제)이면 1행.
+       PERMISSIONS('|' 조인)에 '*'가 있으면 전권 역할 — 부여는 전권 보유 관리자만(SEC-3). FK 부재 보완 겸용. -->
   <query id="SYS.RoleExists">
     <statement><![CDATA[
-SELECT 1 AS OK FROM SYS_ROLE WITH (NOLOCK) WHERE ROLE_ID = @roleId AND IS_DELETED = 0
+SELECT PERMISSIONS FROM SYS_ROLE WITH (NOLOCK) WHERE ROLE_ID = @roleId AND IS_DELETED = 0
 ]]></statement>
   </query>
 

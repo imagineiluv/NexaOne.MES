@@ -30,4 +30,8 @@ public sealed class AuthOutcome
     public static AuthOutcome BadRequest(Error error) => new(new BadRequestObjectResult(error));
 
     public static AuthOutcome Conflict(Error error) => new(new ConflictObjectResult(error));
+
+    /// <summary>403 + 오류 본문 — 인증은 됐지만 수행 권한이 부족한 경우(예: 전권 역할 부여 시도, SEC-3).</summary>
+    public static AuthOutcome Forbidden(Error error) =>
+        new(new ObjectResult(error) { StatusCode = Microsoft.AspNetCore.Http.StatusCodes.Status403Forbidden });
 }

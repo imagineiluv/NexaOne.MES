@@ -112,10 +112,11 @@ WHERE USER_ID = @userId AND IS_DELETED = 0
 ]]></statement>
   </query>
 
-  <!-- 등록 시 ROLE_ID 무결성 검증(SEC-1) — 활성(미삭제) SYS_ROLE 존재 시 1행. mssql과 동일 의미, NOLOCK만 제거. -->
+  <!-- 등록/승인 시 ROLE_ID 무결성 검증(SEC-1) + 권한 상승 가드용 PERMISSIONS 반환 — 활성(미삭제)이면 1행.
+       PERMISSIONS('|' 조인)에 '*'가 있으면 전권 역할 — 부여는 전권 보유 관리자만(SEC-3). mssql과 동일 의미. -->
   <query id="SYS.RoleExists">
     <statement><![CDATA[
-SELECT 1 AS OK FROM SYS_ROLE WHERE ROLE_ID = @roleId AND IS_DELETED = 0
+SELECT PERMISSIONS FROM SYS_ROLE WHERE ROLE_ID = @roleId AND IS_DELETED = 0
 ]]></statement>
   </query>
 

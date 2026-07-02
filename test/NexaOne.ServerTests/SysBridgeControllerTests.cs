@@ -336,9 +336,9 @@ public sealed class SysBridgeControllerTests : IClassFixture<SysBridgeController
     [Fact]
     public async Task Approve_success_returns_request_and_temp_password()
     {
-        // ADMIN은 V031 시드로 빈 DB 부팅 시 항상 존재 — 역할 검증(실 SQLite)을 통과한다.
+        // VIEWER는 V063 시드로 빈 DB 부팅 시 항상 존재 — 역할 검증(실 SQLite)을 통과한다.
         var res = await Client("sys:manage").PostAsJsonAsync("/api/v1/sys/admin/user-requests/REQ1/approve",
-            new { roleId = "ADMIN" });
+            new { roleId = "VIEWER" });
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await res.Content.ReadFromJsonAsync<ApprovalPayload>();
         body!.Request.Status.Should().Be("Approved");
@@ -349,10 +349,24 @@ public sealed class SysBridgeControllerTests : IClassFixture<SysBridgeController
     }
 
     [Fact]
+    public async Task Approve_wildcard_role_requires_wildcard_actor()
+    {
+        // SEC-3 — 전권('*') 역할(ADMIN, V031 시드) 부여는 전권 보유 관리자만. sys:manage만으로는 403.
+        var denied = await Client("sys:manage").PostAsJsonAsync("/api/v1/sys/admin/user-requests/REQ1/approve",
+            new { roleId = "ADMIN" });
+        denied.StatusCode.Should().Be(HttpStatusCode.Forbidden, "sys:manage만으로 ADMIN('*') 부여는 권한 상승 — 403");
+        (await denied.Content.ReadAsStringAsync()).Should().Contain("ROLE_GRANT_FORBIDDEN");
+
+        var allowed = await Client("*").PostAsJsonAsync("/api/v1/sys/admin/user-requests/REQ1/approve",
+            new { roleId = "ADMIN" });
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK, "전권 보유 관리자는 ADMIN 부여 가능");
+    }
+
+    [Fact]
     public async Task Approve_missing_request_maps_to_404()
     {
         var res = await Client("sys:manage").PostAsJsonAsync("/api/v1/sys/admin/user-requests/MISSING/approve",
-            new { roleId = "ADMIN" });
+            new { roleId = "VIEWER" });
         res.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 

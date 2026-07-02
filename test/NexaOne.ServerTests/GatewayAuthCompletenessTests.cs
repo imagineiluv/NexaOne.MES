@@ -240,6 +240,23 @@ public static class GatewayAuthCompletenessTests
             res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "sys:manage 권한 미보유 시 register는 403이어야 한다");
         }
 
+        // SEC-3: sys:manage ≈ '*' 권한 상승 차단 — sys:manage만 가진 관리자가 전권('*') 역할(ADMIN)로
+        // 사용자를 등록하면 자기 권한을 넘는 계정을 만들 수 있다. 전권 역할 부여는 전권 보유자만 허용한다.
+        [Fact]
+        public async Task Register_wildcard_role_by_sys_manage_only_actor_is_forbidden()
+        {
+            var client = _factory.CreateClient();
+            SetBearer(client, MintToken("mgruser", "sys:manage"));
+
+            const string escalated = "escalated_user";
+            var res = await client.PostAsJsonAsync("/api/v1/auth/register",
+                new { userId = escalated, userName = "E", password = "Reg!Pass99", email = "e@x.com", roleId = "ADMIN" });
+
+            res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "전권('*') 역할 부여는 전권 보유 관리자만(SEC-3)");
+            (await res.Content.ReadAsStringAsync()).Should().Contain("ROLE_GRANT_FORBIDDEN");
+            CountUsers(escalated).Should().Be(0, "가드 실패 시 SYS_USER 행이 생성되지 않아야 한다");
+        }
+
         // SEC-1: SYS_USER.ROLE_ID FK 부재 보완 — 존재하지 않는(또는 비활성) 역할로 등록 시 400 INVALID_ROLE,
         // 그리고 SYS_USER 행이 생성되지 않아야 한다(orphan/무력 계정·하드코딩 권한 디커플링 차단).
         [Fact]

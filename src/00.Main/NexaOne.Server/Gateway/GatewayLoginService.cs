@@ -152,8 +152,10 @@ public sealed class GatewayLoginService
     }
 
     /// <summary>관리자 사용자 등록 — 중복 검사 후 INSERT(PASSWORD_STATE='Create'=최초 변경 강제). 권한 게이트는 컨트롤러.
-    /// 정책 검증은 컨트롤러가 선행. createdBy는 등록 수행 관리자 userId.</summary>
-    public async Task<AuthOutcome> RegisterAsync(RegisterRequest req, string createdBy, CancellationToken ct)
+    /// 정책 검증은 컨트롤러가 선행. createdBy는 등록 수행 관리자 userId. actorHasAllPermissions는 호출 관리자의
+    /// '*' 보유 여부 — 전권 역할 부여 가드(SEC-3)에 쓴다.</summary>
+    public async Task<AuthOutcome> RegisterAsync(
+        RegisterRequest req, string createdBy, bool actorHasAllPermissions, CancellationToken ct)
     {
         var existing = await QuerySingleAsync("SYS.AuthUserById", new() { ["userId"] = req.UserId }, ct);
         if (existing is not null)
@@ -161,9 +163,15 @@ public sealed class GatewayLoginService
 
         // SEC-1: SYS_USER.ROLE_ID에는 DB FK가 없어 register가 orphan/비활성 역할을 허용하면 권한 NULL(무력 계정)
         // 또는 RolePermissionDefaults 하드코딩과 역할 레지스트리의 디커플링이 발생한다. INSERT 전에 활성 SYS_ROLE 존재를 검증한다.
-        var role = await QuerySingleAsync("SYS.RoleExists", new() { ["roleId"] = req.RoleId }, ct);
-        if (role is null)
+        var rolePermissions = await GetActiveRolePermissionsAsync(req.RoleId, ct);
+        if (rolePermissions is null)
             return AuthOutcome.BadRequest(new Error("INVALID_ROLE", $"Role '{req.RoleId}' does not exist or is inactive.", ErrorType.Validation));
+
+        // SEC-3: sys:manage ≈ '*' 권한 상승 차단 — 전권('*') 역할 부여는 전권 보유 관리자만 가능하다.
+        // (sys:manage만 가진 관리자가 ADMIN 계정을 만들어 자기 권한을 넘는 계정을 생성하는 경로를 막는다.)
+        if (GrantsAllPermissions(rolePermissions) && !actorHasAllPermissions)
+            return AuthOutcome.Forbidden(new Error("ROLE_GRANT_FORBIDDEN",
+                $"전권('*') 역할 '{req.RoleId}' 부여는 전권 보유 관리자만 가능합니다."));
 
         await ExecuteAsync("SYS.InsertUser", new()
         {
@@ -179,9 +187,17 @@ public sealed class GatewayLoginService
         return AuthOutcome.Ok(new { userId = req.UserId });
     }
 
-    /// <summary>활성 SYS_ROLE 존재 여부(SEC-1 검증 재사용) — register 외 승인(§19.3.5) 경로도 동일 검증을 공유한다.</summary>
-    public async Task<bool> RoleExistsAsync(string roleId, CancellationToken ct)
-        => await QuerySingleAsync("SYS.RoleExists", new() { ["roleId"] = roleId }, ct) is not null;
+    /// <summary>활성 SYS_ROLE의 권한 문자열('|' 조인) — 미존재/비활성이면 null. SEC-1(존재 검증)과
+    /// SEC-3(전권 역할 부여 가드)을 register/승인(§19.3.5) 경로가 공유한다.</summary>
+    public async Task<string?> GetActiveRolePermissionsAsync(string roleId, CancellationToken ct)
+    {
+        var row = await QuerySingleAsync("SYS.RoleExists", new() { ["roleId"] = roleId }, ct);
+        return row is null ? null : Get(row, "PERMISSIONS")?.ToString() ?? "";
+    }
+
+    /// <summary>역할 권한 문자열이 전권('*')을 포함하는지 — SEC-3 부여 가드 판정.</summary>
+    public static bool GrantsAllPermissions(string? permissions)
+        => permissions is not null && permissions.Split('|').Any(p => p.Trim() == Permissions.All);
 
     /// <summary>§20.10 관리자 잠금 해제 — FAIL_COUNT/LOCKED_UNTIL 초기화(잠금=보안 상태라 인증 경로가 소유, S7).
     /// 대상 미존재/삭제면 false(컨트롤러가 404로 매핑). 권한 게이트(sys:manage)는 컨트롤러.</summary>

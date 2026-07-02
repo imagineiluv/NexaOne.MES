@@ -130,8 +130,13 @@ public sealed class SysBridgeController : ControllerBase
         var roleId = req.RoleId?.Trim() ?? string.Empty;
         if (roleId.Length == 0)
             return BadRequest(new Error("ROLE_REQUIRED", "승인 시 부여할 역할(roleId)은 필수입니다.", ErrorType.Validation));
-        if (!await _login.RoleExistsAsync(roleId, ct))
+        var rolePermissions = await _login.GetActiveRolePermissionsAsync(roleId, ct);
+        if (rolePermissions is null)
             return BadRequest(new Error("INVALID_ROLE", $"Role '{roleId}' does not exist or is inactive.", ErrorType.Validation));
+        // SEC-3: 전권('*') 역할 부여는 전권 보유 관리자만 — register와 동일 가드(권한 상승 차단).
+        if (GatewayLoginService.GrantsAllPermissions(rolePermissions) && !User.HasPermission(Permissions.All))
+            return StatusCode(StatusCodes.Status403Forbidden, new Error("ROLE_GRANT_FORBIDDEN",
+                $"전권('*') 역할 '{roleId}' 부여는 전권 보유 관리자만 가능합니다."));
 
         var approvedBy = User.CurrentUserId() ?? "SYSTEM";
         var tempPassword = GenerateTempPassword();
