@@ -3,14 +3,14 @@ import {
   BLOCK_DEFS, COMPONENT_TYPE_DEFS, buildEditorConfig, buildTraitDefs, toModelDefaults,
 } from '../grapesConfig'
 
-const TYPES = ['nx-button', 'nx-column', 'nx-field', 'nx-form', 'nx-grid', 'nx-row', 'nx-section', 'nx-text']
+const TYPES = ['nx-button', 'nx-column', 'nx-field', 'nx-form', 'nx-grid', 'nx-kpi', 'nx-row', 'nx-section', 'nx-text']
 
 describe('GrapesJS 디자이너 설정(잠금)', () => {
-  it('8개 블록만 노출(§5 컴포넌트 세트)', () => {
+  it('9개 블록만 노출(§5 컴포넌트 세트 + Phase-2 KPI)', () => {
     expect(BLOCK_DEFS.map(b => b.id).sort()).toEqual([...TYPES].sort())
   })
 
-  it('8개 컴포넌트 type 정의', () => {
+  it('9개 컴포넌트 type 정의', () => {
     expect(COMPONENT_TYPE_DEFS.map(c => c.type).sort()).toEqual([...TYPES].sort())
   })
 

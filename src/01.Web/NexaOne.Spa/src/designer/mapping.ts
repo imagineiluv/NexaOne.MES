@@ -5,7 +5,7 @@ import type {
 
 const KIND_TO_TYPE: Record<LayoutNode['kind'], string> = {
   section: 'nx-section', row: 'nx-row', column: 'nx-column', grid: 'nx-grid',
-  form: 'nx-form', field: 'nx-field', commandButton: 'nx-button', text: 'nx-text',
+  form: 'nx-form', field: 'nx-field', commandButton: 'nx-button', text: 'nx-text', kpi: 'nx-kpi',
 }
 const TYPE_TO_KIND: Record<string, LayoutNode['kind']> = Object.fromEntries(
   Object.entries(KIND_TO_TYPE).map(([k, v]) => [v, k as LayoutNode['kind']]),
@@ -67,6 +67,12 @@ export function layoutToComponent(node: LayoutNode): GrapesNode {
     case 'text':
       attributes['data-text'] = node.text
       if (node.isLabel) attributes['data-is-label'] = true
+      break
+    case 'kpi':
+      attributes['data-label'] = node.label
+      if (node.queryId != null) attributes['data-query-id'] = node.queryId
+      if (node.valueColumn != null) attributes['data-value-column'] = node.valueColumn
+      if (node.unit != null) attributes['data-unit'] = node.unit
       break
   }
   return comp
@@ -159,6 +165,17 @@ export function componentToLayout(comp: GrapesNode): LayoutNode | null {
     }
     case 'text':
       return { kind, ...base, text: str(a, 'data-text') ?? '', ...(a?.['data-is-label'] ? { isLabel: true } : {}) }
+    case 'kpi': {
+      const queryId = str(a, 'data-query-id')
+      const valueColumn = str(a, 'data-value-column')
+      const unit = str(a, 'data-unit')
+      return {
+        kind, ...base, label: str(a, 'data-label') ?? '',
+        ...(queryId != null ? { queryId } : {}),
+        ...(valueColumn != null ? { valueColumn } : {}),
+        ...(unit != null ? { unit } : {}),
+      }
+    }
   }
 }
 

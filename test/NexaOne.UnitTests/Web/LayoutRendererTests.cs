@@ -50,6 +50,34 @@ public sealed class LayoutRendererTests
     }
 
     [Fact]
+    public void Kpi_widget_renders_value_from_query_result_and_dash_when_missing()
+    {
+        using var ctx = new TestContext();
+        var layout = new RowNode
+        {
+            Children = new LayoutNode[]
+            {
+                new KpiWidget { Id = "k1", Label = "활성 알람", QueryId = "SYS.DashboardSummary", ValueColumn = "ACTIVE_ALARMS", Unit = "건" },
+                new KpiWidget { Id = "k2", Label = "미바인딩", QueryId = "NO.SuchQuery", ValueColumn = "X" },
+            },
+        };
+        var results = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>
+        {
+            ["SYS.DashboardSummary"] = new List<Dictionary<string, object?>>
+            {
+                new() { ["ACTIVE_ALARMS"] = 7L },
+            },
+        };
+
+        var cut = Render(ctx, layout, results: results);
+
+        cut.Markup.Should().Contain("활성 알람").And.Contain("7").And.Contain("건",
+            "KPI는 바인딩 쿼리 첫 행의 ValueColumn 값 + 단위를 표시해야 한다");
+        cut.Markup.Should().Contain("—", "미실행/미바인딩 KPI는 대시(—)로 빈 카드를 방지해야 한다");
+        cut.FindAll(".layout-kpi").Count.Should().Be(2);
+    }
+
+    [Fact]
     public void Grid_widget_renders_rows_from_query_result_map()
     {
         using var ctx = new TestContext();

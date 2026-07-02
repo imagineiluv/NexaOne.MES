@@ -83,7 +83,7 @@ public sealed class SysPersonalizationTests : IClassFixture<SysPersonalizationTe
         var favs = await userA.GetFromJsonAsync<List<FavRow>>("/api/v1/sys/favorites");
         favs!.Should().ContainSingle(f => f.MenuId == "NX_DEV_MENU",
             "중복은 멱등, 폴더/미존재는 미기록이어야 한다");
-        favs.Single(f => f.MenuId == "NX_DEV_MENU").UiId.Should().Be("SYS_MENU_MGMT",
+        favs!.Single(f => f.MenuId == "NX_DEV_MENU").UiId.Should().Be("SYS_MENU_MGMT",
             "셸 내비게이션용 UI_ID가 조인돼야 한다");
 
         // 사용자 격리 — SQL이 @currentUser 스코프라 타인 즐겨찾기는 보이지 않는다
@@ -192,6 +192,19 @@ public sealed class SysPersonalizationTests : IClassFixture<SysPersonalizationTe
         loaded!.Items.Should().HaveCount(10, "사용자 저장 조건 한도는 10(§20.8), 오래된 것부터 정리");
         loaded.Items.Should().NotContain(i => i.Name == "조건01" || i.Name == "조건02");
         loaded.Latest.Should().NotBeNull("$latest는 한도에 포함되지 않는다");
+    }
+
+    [Fact]
+    public async Task Dashboard_summary_query_returns_single_row_with_all_kpi_columns()
+    {
+        // DASHBOARD_SUMMARY 화면(KPI 카드 5장)의 데이터 원천 — 모듈 횡단 카운트 1행(공개 read 쿼리).
+        var res = await Client("persona-dash").PostAsJsonAsync(
+            "/api/v1/query/SYS.DashboardSummary", new Dictionary<string, object>());
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var rows = await res.Content.ReadFromJsonAsync<List<Dictionary<string, object?>>>();
+        rows!.Should().HaveCount(1, "요약은 항상 1행(카운트 스칼라 5종)");
+        foreach (var col in new[] { "ACTIVE_ALARMS", "OPEN_WORK_ORDERS", "ACTIVE_PLANS", "PENDING_RECIPE_APPROVALS", "OPEN_DELIVERY_ORDERS" })
+            rows![0].Keys.Should().Contain(col, "KPI 카드가 바인딩하는 컬럼이 전부 있어야 한다");
     }
 
     [Fact]

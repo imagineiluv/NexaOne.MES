@@ -79,6 +79,26 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 },
             }));
 
+        // 대시보드(요약) — 모듈 횡단 카운트(SYS.DashboardSummary 1행)를 KPI 카드 5장으로 표시(Phase-2 KPI 위젯 1호).
+        // 단일 쿼리를 5개 위젯이 공유(런타임이 distinct 쿼리 1회만 실행), 컬럼만 다르게 바인딩한다.
+        Register(new ScreenDefinition("DASHBOARD_SUMMARY", "대시보드 — 운영 요약",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Id = "dash-sec", Title = "운영 요약",
+                Children = new LayoutNode[]
+                {
+                    new RowNode { Id = "dash-row", Children = new LayoutNode[]
+                    {
+                        DashKpi("dash-alarm", "활성 알람", "ACTIVE_ALARMS"),
+                        DashKpi("dash-wo", "진행 작업지시", "OPEN_WORK_ORDERS"),
+                        DashKpi("dash-plan", "가동 생산계획", "ACTIVE_PLANS"),
+                        DashKpi("dash-recipe", "레시피 승인 대기", "PENDING_RECIPE_APPROVALS"),
+                        DashKpi("dash-ship", "출하 대기", "OPEN_DELIVERY_ORDERS"),
+                    } },
+                },
+            }));
+
         // 데모 시드: 그리드 전용(조회) 화면 — QMS 결함분류 목록을 파일 기반 명명 쿼리(QMS.DefectClassList) 바인딩으로
         // /meta/DEMO_QMS_DEFECT_CLASS 가 손코딩 없이 렌더한다(QMS 모듈 저코드 조회 경로 시연).
         Register(new ScreenDefinition("DEMO_QMS_DEFECT_CLASS", "데모 — QMS 결함분류(파일 쿼리)",
@@ -1789,6 +1809,17 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
+
+    // 대시보드 KPI 카드 열(12칸 중 2칸) — 요약 쿼리(SYS.DashboardSummary) 1행의 컬럼 하나를 카드로 바인딩.
+    private static ColumnNode DashKpi(string id, string label, string valueColumn)
+        => new()
+        {
+            Id = $"col-{id}", Span = 2,
+            Children = new LayoutNode[]
+            {
+                new KpiWidget { Id = id, Label = label, QueryId = "SYS.DashboardSummary", ValueColumn = valueColumn, Unit = "건" },
+            },
+        };
 
     // FACTORY_QCA 검사 실행(수입/공정/출하) 공용 그리드 — QMS_INSPECTION 컬럼 동일(제목/쿼리만 상이).
     private void RegisterQcaInspection(string uiId, string title, string queryId)

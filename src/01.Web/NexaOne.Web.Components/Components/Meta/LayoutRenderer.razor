@@ -45,6 +45,16 @@
         else { <span class="layout-text">@t.Text</span> }
         break;
 
+    @* KPI 카드(Phase-2) — 바인딩 쿼리 첫 행의 ValueColumn 값을 큰 숫자로. 미실행/공백은 '—'(빈 카드 방지). *@
+    case KpiWidget k:
+        <div class="layout-kpi" style="padding:1rem 1.25rem; border:1px solid #e5e7eb; border-radius:0.5rem; background:#fff; min-width:9rem;">
+            <div style="font-size:0.75rem; color:#6b7280; margin-bottom:0.25rem;">@k.Label</div>
+            <div style="font-size:1.75rem; font-weight:700; color:#111827; line-height:1;">
+                @KpiValue(k)@if (!string.IsNullOrWhiteSpace(k.Unit)) { <small style="font-size:0.813rem; font-weight:500; color:#6b7280; margin-left:0.25rem;">@k.Unit</small> }
+            </div>
+        </div>
+        break;
+
     default:
         @* 알 수 없는 노드 종류는 아무것도 렌더하지 않는다(서버/역직렬화 상위에서 검증됨). *@
         break;
@@ -80,6 +90,14 @@
     // null = 미실행(MetaGridRenderer가 안내 문구), 그 외 = 행. queryId 미바인딩/결과맵 부재는 null.
     private IReadOnlyList<Dictionary<string, object?>>? RowsFor(string? queryId)
         => queryId is not null && QueryResults.TryGetValue(queryId, out var rows) ? rows : null;
+
+    // KPI 값 — 바인딩 쿼리 첫 행의 ValueColumn. 미바인딩/0행/컬럼 부재는 '—'.
+    private string KpiValue(KpiWidget k)
+    {
+        var rows = RowsFor(k.QueryId);
+        if (rows is not { Count: > 0 } || string.IsNullOrWhiteSpace(k.ValueColumn)) return "—";
+        return rows[0].TryGetValue(k.ValueColumn, out var v) && v is not null ? v.ToString() ?? "—" : "—";
+    }
 
     private static string ColumnStyle(int span)
     {

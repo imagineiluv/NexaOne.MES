@@ -19,7 +19,7 @@ export interface GridColumnDefinition {
 
 export type LayoutNode =
   | SectionNode | RowNode | ColumnNode
-  | GridWidget | FormWidget | FieldWidget | ButtonWidget | TextWidget
+  | GridWidget | FormWidget | FieldWidget | ButtonWidget | TextWidget | KpiWidget
 
 interface NodeBase {
   id?: string
@@ -33,6 +33,8 @@ export interface FormWidget  extends NodeBase { kind: 'form'; saveQueryId?: stri
 export interface FieldWidget extends NodeBase { kind: 'field'; fieldKey?: string | null; field?: FieldDefinition | null }
 export interface ButtonWidget extends NodeBase { kind: 'commandButton'; label: string; command?: string | null }
 export interface TextWidget  extends NodeBase { kind: 'text'; text: string; isLabel?: boolean }
+// KPI 카드(Phase-2) — 바인딩 쿼리 첫 행의 valueColumn 값을 큰 숫자로 표시(C# KpiWidget 미러).
+export interface KpiWidget   extends NodeBase { kind: 'kpi'; label: string; queryId?: string | null; valueColumn?: string | null; unit?: string | null }
 
 export interface ScreenDefinitionDto {
   uiId: string

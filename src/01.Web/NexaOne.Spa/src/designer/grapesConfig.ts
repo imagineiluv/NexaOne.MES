@@ -46,12 +46,13 @@ export interface ComponentTypeDef {
 export const COMPONENT_TYPE_DEFS: ComponentTypeDef[] = [
   { type: 'nx-section', name: 'Section', allowedChildren: ['nx-row'], allowedParents: [] },
   { type: 'nx-row', name: 'Row', allowedChildren: ['nx-column'], allowedParents: ['nx-section'] },
-  { type: 'nx-column', name: 'Column', allowedChildren: ['nx-grid', 'nx-form', 'nx-button', 'nx-text'], allowedParents: ['nx-row'] },
+  { type: 'nx-column', name: 'Column', allowedChildren: ['nx-grid', 'nx-form', 'nx-button', 'nx-text', 'nx-kpi'], allowedParents: ['nx-row'] },
   { type: 'nx-grid', name: 'DataGrid', allowedChildren: [], allowedParents: ['nx-column'] },
   { type: 'nx-form', name: 'Form', allowedChildren: ['nx-field'], allowedParents: ['nx-column'] },
   { type: 'nx-field', name: 'Field', allowedChildren: [], allowedParents: ['nx-form'] },
   { type: 'nx-button', name: 'CommandButton', allowedChildren: [], allowedParents: ['nx-column'] },
   { type: 'nx-text', name: 'Text', allowedChildren: [], allowedParents: ['nx-column'] },
+  { type: 'nx-kpi', name: 'KPI', allowedChildren: [], allowedParents: ['nx-column'] },
 ]
 
 export const BLOCK_DEFS: BlockDef[] = [
@@ -63,6 +64,7 @@ export const BLOCK_DEFS: BlockDef[] = [
   { id: 'nx-field', label: '필드', content: { type: 'nx-field', attributes: { 'data-field-key': '' } } },
   { id: 'nx-button', label: '명령 버튼', content: { type: 'nx-button', attributes: { 'data-label': '버튼' } } },
   { id: 'nx-text', label: '텍스트', content: { type: 'nx-text', attributes: { 'data-text': '텍스트' } } },
+  { id: 'nx-kpi', label: 'KPI 카드', content: { type: 'nx-kpi', attributes: { 'data-label': 'KPI' } } },
 ]
 
 // GrapesJS 컴포넌트의 최소 형태(type 기반 비교) — droppable/draggable 함수가 받는 인자.
@@ -113,5 +115,11 @@ export function buildTraitDefs(queries: QueryCatalog): Record<string, TraitDef[]
       { type: 'select', name: 'data-command', label: '명령 쿼리', options: writeOpts },
     ],
     'nx-text': [{ type: 'text', name: 'data-text', label: '텍스트' }],
+    'nx-kpi': [
+      { type: 'text', name: 'data-label', label: '라벨' },
+      { type: 'select', name: 'data-query-id', label: '조회 쿼리', options: readOpts },
+      { type: 'text', name: 'data-value-column', label: '값 컬럼' },
+      { type: 'text', name: 'data-unit', label: '단위(선택)' },
+    ],
   }
 }

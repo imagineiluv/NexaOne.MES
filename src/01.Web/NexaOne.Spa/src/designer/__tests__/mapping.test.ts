@@ -47,6 +47,21 @@ describe('LayoutNode ↔ GrapesJS 매핑', () => {
     const back = componentToLayout({ type: 'textnode', components: [] })
     expect(back).toBeNull()
   })
+
+  it('KPI 카드(Phase-2) 라운드트립 무손실 — 런타임 KPI 화면을 디자이너가 열어도 드랍되지 않는다', () => {
+    const kpi: LayoutNode = {
+      kind: 'kpi', id: 'kpi-1', label: '활성 알람',
+      queryId: 'SYS.DashboardSummary', valueColumn: 'ACTIVE_ALARMS', unit: '건',
+    }
+    const comp = layoutToComponent(kpi)
+    expect(comp.type).toBe('nx-kpi')
+    expect(comp.attributes!['data-value-column']).toBe('ACTIVE_ALARMS')
+    expect(componentToLayout(comp)).toEqual(kpi)
+
+    // 선택 속성(queryId/valueColumn/unit) 없는 베어 KPI도 라운드트립 안전
+    const bare: LayoutNode = { kind: 'kpi', id: 'kpi-2', label: 'KPI' }
+    expect(componentToLayout(layoutToComponent(bare))).toEqual(bare)
+  })
 })
 
 describe('field 이산 속성 매핑(트레이트 단일 출처)', () => {

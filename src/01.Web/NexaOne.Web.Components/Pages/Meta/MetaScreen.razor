@@ -201,6 +201,9 @@ else
             case GridWidget g when !string.IsNullOrWhiteSpace(g.QueryId):
                 yield return g.QueryId!;
                 break;
+            case KpiWidget k when !string.IsNullOrWhiteSpace(k.QueryId):
+                yield return k.QueryId!;
+                break;
             case SectionNode s: foreach (var id in Children(s.Children)) yield return id; break;
             case RowNode r: foreach (var id in Children(r.Children)) yield return id; break;
             case ColumnNode c: foreach (var id in Children(c.Children)) yield return id; break;

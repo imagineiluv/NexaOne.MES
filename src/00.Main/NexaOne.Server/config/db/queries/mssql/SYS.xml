@@ -143,6 +143,19 @@ WHERE USER_ID = @currentUser
 ]]></statement>
   </query>
 
+  <!-- 대시보드 요약(홈 KPI) — 모듈 횡단 카운트 1행. 상태 리터럴은 각 도메인 enum ToString() 저장값과 일치
+       (WorkOrderStatus/ProductionPlanStatus/RecipeApprovalState/DeliveryOrderStatus). read 무해. -->
+  <query id="SYS.DashboardSummary">
+    <statement><![CDATA[
+SELECT
+  (SELECT COUNT(*) FROM EST_EQUIPMENT_ALARM WITH (NOLOCK) WHERE CLEARED_AT IS NULL)                    AS ACTIVE_ALARMS,
+  (SELECT COUNT(*) FROM EMS_WORK_ORDER WITH (NOLOCK) WHERE STATUS IN ('Issued','InProgress'))          AS OPEN_WORK_ORDERS,
+  (SELECT COUNT(*) FROM POM_PRODUCTION_PLAN WITH (NOLOCK) WHERE STATUS IN ('Released','InProgress'))   AS ACTIVE_PLANS,
+  (SELECT COUNT(*) FROM RMS_RECIPE WITH (NOLOCK) WHERE APPROVAL_STATE IN ('WaitApproval','Approved1')) AS PENDING_RECIPE_APPROVALS,
+  (SELECT COUNT(*) FROM SHP_DELIVERY_ORDER WITH (NOLOCK) WHERE STATUS IN ('Draft','Confirmed'))        AS OPEN_DELIVERY_ORDERS
+]]></statement>
+  </query>
+
   <!-- ===== 조건 저장/불러오기(§20.8) — @currentUser 스코프(§20.12와 동일 규약). '$latest'=마지막 조회 조건. -->
   <query id="SYS.ListConditionSettings">
     <statement><![CDATA[

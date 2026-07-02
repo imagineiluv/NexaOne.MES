@@ -52,6 +52,7 @@ public sealed record ScreenDefinition(
 [JsonDerivedType(typeof(FieldWidget), "field")]
 [JsonDerivedType(typeof(ButtonWidget), "commandButton")]
 [JsonDerivedType(typeof(TextWidget), "text")]
+[JsonDerivedType(typeof(KpiWidget), "kpi")]
 public abstract record LayoutNode
 {
     /// <summary>GrapesJS 컴포넌트 id == 노드 id(편집 라운드트립 정체성).</summary>
@@ -71,3 +72,11 @@ public sealed record FormWidget : LayoutNode { public string? SaveQueryId { get;
 public sealed record FieldWidget : LayoutNode { public string? FieldKey { get; init; } public FieldDefinition? Field { get; init; } }
 public sealed record ButtonWidget : LayoutNode { public string Label { get; init; } = ""; public string? Command { get; init; } }
 public sealed record TextWidget : LayoutNode { public string Text { get; init; } = ""; public bool IsLabel { get; init; } }
+/// <summary>KPI 카드(디자이너 Phase-2) — QueryId 결과 첫 행의 ValueColumn 값을 큰 숫자로 표시. 대시보드 요약용.</summary>
+public sealed record KpiWidget : LayoutNode
+{
+    public string Label { get; init; } = "";
+    public string? QueryId { get; init; }
+    public string? ValueColumn { get; init; }
+    public string? Unit { get; init; }
+}
