@@ -66,7 +66,23 @@
             ORDER BY ALARM_ID, ACTION_SEQUENCE
         ]]></statement>
     </query>
-    <!-- 액션 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. -->
+    <!-- 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. -->
+    <query id="COM.CreateMailServer" kind="write" requiredPermission="com:manage">
+        <statement><![CDATA[
+            INSERT INTO COM_MAIL_SERVER (SERVER_ID, SERVER_NAME, HOST, PORT, SENDER_ADDRESS, USE_SSL,
+                                         CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@serverId, @serverName, @host, @port, @senderAddress, @useSsl,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
+    <query id="COM.CreateMailRecipient" kind="write" requiredPermission="com:manage">
+        <statement><![CDATA[
+            INSERT INTO COM_MAIL_RECIPIENT (RECIPIENT_ID, PLANT_ID, USER_ID, EQUIPMENT_ID, MAIL_ADDRESS, MAIL_TYPE,
+                                            CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@recipientId, @plantId, @userId, @equipmentId, @mailAddress, @mailType,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
     <query id="COM.CreateAction" kind="write" requiredPermission="com:manage">
         <statement><![CDATA[
             INSERT INTO COM_ACTION (ACTION_ID, ACTION_NAME, ACTION_TYPE, DESCRIPTION,

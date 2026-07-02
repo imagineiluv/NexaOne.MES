@@ -315,4 +315,20 @@
                     @currentUser, @utcNow, @currentUser, @utcNow)
         ]]></statement>
     </query>
+    <query id="MDM.CreateLabelMapping" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            INSERT INTO MDM_LABEL_MAPPING (MAPPING_ID, PLANT_ID, PROCESS_ID, ITEM_ID, LABEL_ID, PRINT_LIMIT_CNT,
+                                           CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@mappingId, @plantId, @processId, @itemId, @labelId, @printLimitCnt,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
+    <query id="MDM.CreateVendorItem" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            INSERT INTO MDM_VENDOR_ITEM (VENDOR_ITEM_ID, VENDOR_ID, PRODUCT_ID, LEAD_TIME_DAYS, MOQ, BASE_PRICE,
+                                         CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@vendorItemId, @vendorId, @productId, @leadTimeDays, @moq, @basePrice,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
 </queries>

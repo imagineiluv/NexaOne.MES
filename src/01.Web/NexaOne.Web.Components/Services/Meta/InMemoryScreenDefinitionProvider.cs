@@ -646,15 +646,20 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "EST.WorstLossEquipment"));
 
-        // 관심 지표 등록(EES_EPT_INTERESTED_INDEX_MANAGEMENT) — KPI 지표 마스터(EST.IndexList).
+        // 관심 지표 등록(EES_EPT_INTERESTED_INDEX_MANAGEMENT) — KPI 지표 마스터(EST.IndexList) + 등록 폼(EST.CreateIndex).
         Register(new ScreenDefinition("EES_EPT_INTERESTED_INDEX_MANAGEMENT", "관심 지표 등록",
-            Array.Empty<FieldDefinition>(),
+            new FieldDefinition[]
+            {
+                new("indexId", "지표 ID", Required: true), new("indexName", "지표명", Required: true),
+                new("indexCategory", "분류"), new("unit", "단위"), new("description", "설명"),
+            },
             new GridColumnDefinition[]
             {
                 new("INDEX_ID", "지표 ID"), new("INDEX_NAME", "지표명"), new("INDEX_CATEGORY", "분류"),
                 new("UNIT", "단위"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
-            QueryId: "EST.IndexList"));
+            QueryId: "EST.IndexList",
+            SaveQueryId: "EST.CreateIndex"));
 
         // 지표 관리(EPT_STD_INDEX_MGNT) — 동일 KPI 지표 마스터 뷰.
         Register(new ScreenDefinition("EPT_STD_INDEX_MGNT", "지표 관리",
@@ -907,15 +912,21 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "MDM.LabelIssueList"));
 
-        // 라벨 매핑 관리(FACTORY_STD_LABEL_MAPPING_MANAGEMENT) — 공정/품목↔라벨 매핑(MDM.LabelMappingList).
+        // 라벨 매핑 관리(FACTORY_STD_LABEL_MAPPING_MANAGEMENT) — 공정/품목↔라벨 매핑(MDM.LabelMappingList) + 등록 폼.
         Register(new ScreenDefinition("FACTORY_STD_LABEL_MAPPING_MANAGEMENT", "라벨 매핑 관리",
-            Array.Empty<FieldDefinition>(),
+            new FieldDefinition[]
+            {
+                new("mappingId", "매핑 ID", Required: true), new("plantId", "공장", Required: true),
+                new("processId", "공정"), new("itemId", "품목"), new("labelId", "라벨", Required: true),
+                new("printLimitCnt", "출력한도", FieldType.Number),
+            },
             new GridColumnDefinition[]
             {
                 new("MAPPING_ID", "매핑 ID"), new("PLANT_ID", "공장"), new("PROCESS_ID", "공정"), new("ITEM_ID", "품목"),
                 new("LABEL_ID", "라벨"), new("PRINT_LIMIT_CNT", "출력한도"), new("PRINT_LIMIT_YN", "한도적용"),
             },
-            QueryId: "MDM.LabelMappingList"));
+            QueryId: "MDM.LabelMappingList",
+            SaveQueryId: "MDM.CreateLabelMapping"));
 
         // ===== SmartUX EPT_STD(설비성능 표준) 점등 — 레거시 EPT_TB_LAYOUT/EQUIPMENT_EPT_PROPERTY를 V055(EST_EPT_*)로 포팅. =====
         // 레이아웃 관리(EPT_STD_LAYOUT_MGNT)·레이아웃 구성(EPT_STD_LAYOUT_EDIT) — 레이아웃 마스터(EST.LayoutList).
@@ -964,61 +975,92 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "EST.StateMatrixList"));
 
-        // 설비 이벤트 관리(MICUBE_STANDARD_EQUIPMENT_EVENT) — 설비 이벤트 마스터(EST.EquipmentEventList).
+        // 설비 이벤트 관리(MICUBE_STANDARD_EQUIPMENT_EVENT) — 설비 이벤트 마스터(EST.EquipmentEventList) + 등록 폼.
         Register(new ScreenDefinition("MICUBE_STANDARD_EQUIPMENT_EVENT", "설비 이벤트 관리",
-            Array.Empty<FieldDefinition>(),
+            new FieldDefinition[]
+            {
+                new("eventId", "이벤트 ID", Required: true), new("plantId", "공장", Required: true),
+                new("eventName", "이벤트명", Required: true), new("equipmentId", "설비"), new("eventType", "유형"),
+            },
             new GridColumnDefinition[]
             {
                 new("EVENT_ID", "이벤트 ID"), new("PLANT_ID", "공장"), new("EVENT_NAME", "이벤트명"),
                 new("EQUIPMENT_ID", "설비"), new("EVENT_TYPE", "유형"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
-            QueryId: "EST.EquipmentEventList"));
+            QueryId: "EST.EquipmentEventList",
+            SaveQueryId: "EST.CreateEquipmentEvent"));
 
-        // 설비 알람-상태 매핑(MICUBE_STANDARD_EQUIPMENT_STATE_ALARM_MAPPING) — 알람→상태(EST.StateAlarmMapList).
+        // 설비 알람-상태 매핑(MICUBE_STANDARD_EQUIPMENT_STATE_ALARM_MAPPING) — 알람→상태(EST.StateAlarmMapList) + 등록 폼.
         Register(new ScreenDefinition("MICUBE_STANDARD_EQUIPMENT_STATE_ALARM_MAPPING", "설비 알람-상태 매핑",
-            Array.Empty<FieldDefinition>(),
+            new FieldDefinition[]
+            {
+                new("mapId", "매핑 ID", Required: true), new("plantId", "공장", Required: true),
+                new("equipmentId", "설비", Required: true), new("alarmDefId", "알람정의", Required: true),
+                new("setState", "설정 상태"),
+            },
             new GridColumnDefinition[]
             {
                 new("MAP_ID", "매핑 ID"), new("PLANT_ID", "공장"), new("EQUIPMENT_ID", "설비"),
                 new("ALARM_DEF_ID", "알람정의"), new("SET_STATE", "설정 상태"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
-            QueryId: "EST.StateAlarmMapList"));
+            QueryId: "EST.StateAlarmMapList",
+            SaveQueryId: "EST.CreateStateAlarmMap"));
 
-        // 설비 이벤트-상태 매핑(MICUBE_STANDARD_EQUIPMENT_STATE_EVENT_MAPPING) — 이벤트→상태(EST.StateEventMapList).
+        // 설비 이벤트-상태 매핑(MICUBE_STANDARD_EQUIPMENT_STATE_EVENT_MAPPING) — 이벤트→상태(EST.StateEventMapList) + 등록 폼.
         Register(new ScreenDefinition("MICUBE_STANDARD_EQUIPMENT_STATE_EVENT_MAPPING", "설비 이벤트-상태 매핑",
-            Array.Empty<FieldDefinition>(),
+            new FieldDefinition[]
+            {
+                new("mapId", "매핑 ID", Required: true), new("plantId", "공장", Required: true),
+                new("equipmentId", "설비", Required: true), new("eventId", "이벤트", Required: true),
+                new("setState", "설정 상태"),
+            },
             new GridColumnDefinition[]
             {
                 new("MAP_ID", "매핑 ID"), new("PLANT_ID", "공장"), new("EQUIPMENT_ID", "설비"),
                 new("EVENT_ID", "이벤트"), new("SET_STATE", "설정 상태"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
-            QueryId: "EST.StateEventMapList"));
+            QueryId: "EST.StateEventMapList",
+            SaveQueryId: "EST.CreateStateEventMap"));
 
         // ===== SmartUX MICUBE(알람메일 알림) → COM 이관 점등. 메일서버/수신자매핑/서비스(V057, COM_ 접두사). =====
         // 메일 서버 관리(MICUBE_STANDARD_MAIL_SERVER) — 메일 서버(COM.MailServerList).
         Register(new ScreenDefinition("MICUBE_STANDARD_MAIL_SERVER", "메일 서버 관리",
-            Array.Empty<FieldDefinition>(),
+            new FieldDefinition[]
+            {
+                new("serverId", "서버 ID", Required: true), new("serverName", "서버명", Required: true),
+                new("host", "호스트"), new("port", "포트", FieldType.Number),
+                new("senderAddress", "발신주소"),
+                new("useSsl", "SSL", FieldType.Select, Options: new[] { "Y", "N" }),
+            },
             new GridColumnDefinition[]
             {
                 new("SERVER_ID", "서버 ID"), new("SERVER_NAME", "서버명"), new("HOST", "호스트"), new("PORT", "포트"),
                 new("SENDER_ADDRESS", "발신주소"), new("USE_SSL", "SSL"), new("IS_ACTIVE", "활성"),
             },
-            QueryId: "COM.MailServerList"));
+            QueryId: "COM.MailServerList",
+            SaveQueryId: "COM.CreateMailServer"));
 
         // 사용자-설비 메일 매핑(일반=MailRecipientList / 알람=AlarmMailRecipientList). 수신자 그리드 공용.
+        // 알람메일 매핑 화면에는 등록 폼(COM.CreateMailRecipient, mailType Select)을 함께 둔다.
+        var mailRecipientCols = new GridColumnDefinition[]
+        {
+            new("RECIPIENT_ID", "수신 ID"), new("PLANT_ID", "공장"), new("USER_ID", "사용자"), new("EQUIPMENT_ID", "설비"),
+            new("MAIL_ADDRESS", "메일주소"), new("MAIL_TYPE", "유형"), new("IS_ACTIVE", "활성"),
+        };
+        Register(new ScreenDefinition("MICUBE_STANDARD_USER_EQUIPMENT_ALARM_MAIL_MAP", "사용자-설비 알람메일 매핑",
+            new FieldDefinition[]
+            {
+                new("recipientId", "수신 ID", Required: true), new("plantId", "공장", Required: true),
+                new("userId", "사용자", Required: true), new("equipmentId", "설비"), new("mailAddress", "메일주소"),
+                new("mailType", "유형", FieldType.Select, Options: new[] { "Alarm", "Mail" }),
+            },
+            mailRecipientCols, QueryId: "COM.AlarmMailRecipientList", SaveQueryId: "COM.CreateMailRecipient"));
         foreach (var (uiId, title, queryId) in new[] {
-            ("MICUBE_STANDARD_USER_EQUIPMENT_ALARM_MAIL_MAP", "사용자-설비 알람메일 매핑", "COM.AlarmMailRecipientList"),
             ("MICUBE_STANDARD_STD_USER_ALARM_MAILING", "알람 메일 수신자 관리", "COM.AlarmMailRecipientList"),
             ("MICUBE_STANDARD_USER_EQUIPMENT_MAIL_MAP", "사용자-설비 메일 매핑", "COM.MailRecipientList"),
             ("MICUBE_STANDARD_STD_EQUIPMENT_MAILING", "설비 메일링 관리", "COM.MailRecipientList") })
             Register(new ScreenDefinition(uiId, title,
-                Array.Empty<FieldDefinition>(),
-                new GridColumnDefinition[]
-                {
-                    new("RECIPIENT_ID", "수신 ID"), new("PLANT_ID", "공장"), new("USER_ID", "사용자"), new("EQUIPMENT_ID", "설비"),
-                    new("MAIL_ADDRESS", "메일주소"), new("MAIL_TYPE", "유형"), new("IS_ACTIVE", "활성"),
-                },
-                QueryId: queryId));
+                Array.Empty<FieldDefinition>(), mailRecipientCols, QueryId: queryId));
 
         // 서비스 관리(MICUBE_STANDARD_SERVICE_MANAGEMENT) — 서비스 목록(COM.ServiceList).
         Register(new ScreenDefinition("MICUBE_STANDARD_SERVICE_MANAGEMENT", "서비스 관리",
@@ -1140,13 +1182,19 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             QueryId: "MDM.VendorList",
             SaveQueryId: "MDM.CreateVendor"));
         Register(new ScreenDefinition("MES_MDM_COM_VENDOR_ITEM", "벤더 품목 관리",
-            Array.Empty<FieldDefinition>(),
+            new FieldDefinition[]
+            {
+                new("vendorItemId", "매핑 ID", Required: true), new("vendorId", "벤더", Required: true),
+                new("productId", "품목", Required: true), new("leadTimeDays", "리드타임(일)", FieldType.Number),
+                new("moq", "최소발주량", FieldType.Number), new("basePrice", "기준단가", FieldType.Number),
+            },
             new GridColumnDefinition[]
             {
                 new("VENDOR_ITEM_ID", "매핑 ID"), new("VENDOR_ID", "벤더"), new("PRODUCT_ID", "품목"),
                 new("LEAD_TIME_DAYS", "리드타임(일)"), new("MOQ", "최소발주량"), new("BASE_PRICE", "기준단가"), new("IS_ACTIVE", "활성"),
             },
-            QueryId: "MDM.VendorItemList"));
+            QueryId: "MDM.VendorItemList",
+            SaveQueryId: "MDM.CreateVendorItem"));
 
         // W/O 관리(FACTORY_PPM_WORK_ORDER, 등록 폼 포함)·작업지시 현황(REPORT, 조회 전용) — V060(POM.WorkOrderList). 기존 보류 해소.
         var pomWoCols = new GridColumnDefinition[]

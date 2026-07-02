@@ -108,6 +108,28 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
     }
 
     [Fact]
+    public async Task CreateIndex_and_CreateMailServer_roundtrip_with_permissions()
+    {
+        // EST.CreateIndex — est:manage 집행(무권한 403 → 권한 200 + read 라운드트립).
+        var idx = $"IDX_{Suffix()}";
+        var idxBody = new Dictionary<string, object>
+        { ["indexId"] = idx, ["indexName"] = "신규 지표", ["indexCategory"] = "가동", ["unit"] = "%" };
+        (await AuthedClient("cmd-noperm").PostAsJsonAsync("/api/v1/command/EST.CreateIndex", idxBody))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await AuthedClient("cmd-est", "est:manage").PostAsJsonAsync("/api/v1/command/EST.CreateIndex", idxBody))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Query("EST.IndexList", new())).Select(r => r["INDEX_ID"].ToString()).Should().Contain(idx);
+
+        // COM.CreateMailServer — com:manage.
+        var srv = $"SRV_{Suffix()}";
+        var ok = await AuthedClient("cmd-com", "com:manage").PostAsJsonAsync("/api/v1/command/COM.CreateMailServer",
+            new Dictionary<string, object>
+            { ["serverId"] = srv, ["serverName"] = "보조 SMTP", ["host"] = "smtp2.x.com", ["port"] = 25, ["senderAddress"] = "no@x.com", ["useSsl"] = "N" });
+        ok.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Query("COM.MailServerList", new())).Select(r => r["SERVER_ID"].ToString()).Should().Contain(srv);
+    }
+
+    [Fact]
     public async Task Create_command_via_query_route_is_rejected()
     {
         var res = await AuthedClient("cmd-any", "mdm:manage").PostAsJsonAsync("/api/v1/query/MDM.CreateVendor",

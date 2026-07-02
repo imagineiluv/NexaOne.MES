@@ -162,4 +162,37 @@
             ORDER BY EQUIPMENT_ID, EVENT_ID
         ]]></statement>
     </query>
+    <!-- ===== 마스터 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. ===== -->
+    <query id="EST.CreateIndex" kind="write" requiredPermission="est:manage">
+        <statement><![CDATA[
+            INSERT INTO EST_EPT_INDEX (INDEX_ID, INDEX_NAME, INDEX_CATEGORY, UNIT, DESCRIPTION,
+                                       CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@indexId, @indexName, @indexCategory, @unit, @description,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
+    <query id="EST.CreateEquipmentEvent" kind="write" requiredPermission="est:manage">
+        <statement><![CDATA[
+            INSERT INTO EST_EQUIPMENT_EVENT (EVENT_ID, PLANT_ID, EVENT_NAME, EQUIPMENT_ID, EVENT_TYPE,
+                                             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@eventId, @plantId, @eventName, @equipmentId, @eventType,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
+    <query id="EST.CreateStateAlarmMap" kind="write" requiredPermission="est:manage">
+        <statement><![CDATA[
+            INSERT INTO EST_STATE_ALARM_MAP (MAP_ID, PLANT_ID, EQUIPMENT_ID, ALARM_DEF_ID, SET_STATE,
+                                             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@mapId, @plantId, @equipmentId, @alarmDefId, @setState,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
+    <query id="EST.CreateStateEventMap" kind="write" requiredPermission="est:manage">
+        <statement><![CDATA[
+            INSERT INTO EST_STATE_EVENT_MAP (MAP_ID, PLANT_ID, EQUIPMENT_ID, EVENT_ID, SET_STATE,
+                                             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@mapId, @plantId, @equipmentId, @eventId, @setState,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+        ]]></statement>
+    </query>
 </queries>
