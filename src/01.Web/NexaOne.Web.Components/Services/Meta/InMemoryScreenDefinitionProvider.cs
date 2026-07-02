@@ -1043,6 +1043,58 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "IVT.MoveList"));
 
+        // ===== SmartUX 잔여(c 블록) 재사용 점등 — POC/WPM 자재를 기존 쿼리로(마이그레이션 0). =====
+        // POC 진행중 LOT/공정 진행(코팅·믹싱·롤투롤) — Lot 마스터(POM.LotList) 재사용.
+        var pocLotCols = new GridColumnDefinition[]
+        {
+            new("LOT_ID", "LOT"), new("PLANT_ID", "공장"), new("PRODUCT_ID", "품목"), new("QTY", "수량"),
+            new("LOT_STATE", "LOT상태"), new("PROCESS_STATE", "공정상태"), new("CURRENT_STEP", "스텝"), new("EQUIPMENT_ID", "설비"), new("IS_HOLD", "홀드"),
+        };
+        foreach (var (uiId, title) in new[] {
+            ("POC_INPROCESS_LOT", "진행중 LOT 현황"), ("POC_COATING_PROCESS", "코팅 공정 진행"),
+            ("POC_MIXING_PROCESS", "믹싱 공정 진행"), ("POC_ROLLING_PROCESS", "롤투롤 공정 진행") })
+            Register(new ScreenDefinition(uiId, title, Array.Empty<FieldDefinition>(), pocLotCols, QueryId: "POM.LotList"));
+
+        // POC 생산 LOT 추적(목록/트리) — Lot 이력(POM.LotTraceList) 재사용.
+        var pocTraceCols = new GridColumnDefinition[]
+        {
+            new("LOT_ID", "LOT"), new("PLANT_ID", "공장"), new("EQUIPMENT_ID", "설비"), new("PROCESS_ID", "공정"),
+            new("TRACK_IN_TIME", "In시각"), new("TRACK_OUT_TIME", "Out시각"), new("EXECUTION_ID", "실행"), new("QTY", "수량"), new("LOT_STATE", "LOT상태"),
+        };
+        foreach (var (uiId, title) in new[] { ("POC_LOT_TRACE", "생산 LOT 추적"), ("POC_LOT_TRACE_TREE", "생산 LOT 추적(트리)") })
+            Register(new ScreenDefinition(uiId, title, Array.Empty<FieldDefinition>(), pocTraceCols, QueryId: "POM.LotTraceList"));
+
+        // POC FDC 데이터 차트 — 수집 시계열(FDC.CollectDataList) 재사용.
+        Register(new ScreenDefinition("POC_FDC_DATA_CHART", "FDC 데이터 차트",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비"), new("PARAMETER_ID", "파라미터"), new("VALUE", "측정값"),
+                new("COLLECTED_AT", "수집시각"), new("QUALITY", "품질"), new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
+            },
+            QueryId: "FDC.CollectDataList"));
+
+        // POC 작업지시 관리 — 생산오더(POM.ProductionOrderList)를 작업지시 대용으로 재사용.
+        Register(new ScreenDefinition("POC_PPM_WORK_ORDER", "작업지시 관리",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("ORDER_ID", "오더 ID"), new("PLAN_ID", "계획"), new("EQUIPMENT_ID", "설비"), new("PRODUCT_ID", "품목"),
+                new("ORDER_QTY", "지시수량"), new("ACTUAL_QTY", "실적수량"), new("SCHEDULED_START", "예정시작"), new("STATUS", "상태"),
+            },
+            QueryId: "POM.ProductionOrderList"));
+
+        // WPM 투입 자재/불출 현황 — 자재 트랜잭션(IVT.MaterialTxList/DispensingList) 재사용.
+        var wpmMaterialTxCols = new GridColumnDefinition[]
+        {
+            new("TX_ID", "트랜잭션 ID"), new("LOT_ID", "LOT"), new("MATERIAL_ID", "자재"), new("TX_TYPE", "유형"), new("QTY", "수량"),
+            new("FROM_WAREHOUSE", "출발창고"), new("TO_WAREHOUSE", "도착창고"), new("TX_AT", "시각"), new("PROCESSED_BY", "처리자"), new("STATUS", "상태"),
+        };
+        Register(new ScreenDefinition("FACTORY_WPM_REPORT_CONSUME_MATERIAL_LOT", "투입 자재 현황",
+            Array.Empty<FieldDefinition>(), wpmMaterialTxCols, QueryId: "IVT.MaterialTxList"));
+        Register(new ScreenDefinition("FACTORY_WPM_REPORT_MATERIAL_DISPENSING_ORDER", "자재 불출 현황",
+            Array.Empty<FieldDefinition>(), wpmMaterialTxCols, QueryId: "IVT.DispensingList"));
+
         // 출하 지시 관리(FACTORY_DLV_DELIVERY_ORDER) — 출하지시 마스터 조회(SHP.DeliveryOrderList).
         Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_ORDER", "출하 지시 관리",
             Array.Empty<FieldDefinition>(),
