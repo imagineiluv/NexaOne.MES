@@ -118,6 +118,7 @@ if (modulesEnabled)
     RegisterBridge<IPomBridge>("Pom", "pomBridge");                         // POM 생산(계획/오더/Lot 추적)
     // SYS 보안 가드(S7): 자격증명/비밀번호/로그인·잠금 해제는 인증 경로 소유, 승인은 ApprovePersistAsync 소유라 브리지 제외.
     RegisterBridge<ISysBridge>("Sys", "sysBridge");                         // SYS 비-자격증명(역할 관리·신청 반려·사용자 비활성)
+    RegisterBridge<IDeployBridge>("Sys", "deployBridge");                   // SYS 배포(§20.11 클라이언트 자동 업데이트)
     // FDC 워커 가드(S8): 실시간 수집/평가·OPC-UA·발생/해제 이력·수집데이터 기록은 워커 소유(ADR-006, REST 비노출).
     RegisterBridge<IFdcBridge>("Fdc", "fdcBridge");                         // FDC 비-실시간 설정(파라미터그룹/알람설정/인터락규칙)
     RegisterBridge<IOeeAggregationBridge>("Est", "oeeAggregationBridge");   // OEE 수동 집계 트리거(EST 소유 IOeeAggregator 위임)
@@ -837,6 +838,7 @@ static List<MenuSeedRow>? LoadSmartUxMenuSeed()
 static IEnumerable<MenuSeedRow> DevDemoMenu() => new[]
 {
     new MenuSeedRow("NX_DEV",        "● NexaOne 데모/관리",   null,     9000, "Folder", ""),
+    new MenuSeedRow("NX_DEV_DASH",   "대시보드(운영 요약)",    "NX_DEV", 5,    "Screen", "DASHBOARD_SUMMARY"),
     new MenuSeedRow("NX_DEV_MENU",   "메뉴 관리",             "NX_DEV", 10,   "Screen", "SYS_MENU_MGMT"),
     new MenuSeedRow("NX_DEV_USERREQ","사용자 신청 승인",       "NX_DEV", 15,   "Screen", "SYS_USER_REQUESTS"),
     new MenuSeedRow("NX_DEV_GRID",   "공장 관리(데모)",        "NX_DEV", 20,   "Screen", "DEMO_GRID"),

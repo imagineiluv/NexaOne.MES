@@ -159,6 +159,15 @@ public interface IApiClient
     Task<List<RecentMenuDto>> GetRecentMenusAsync(CancellationToken ct = default);
     Task<bool> RecordRecentMenuAsync(string menuId, CancellationToken ct = default);
 
+    // SYS - Deploy (설계서 20.11 배포 파일 업로드/클라이언트 업데이트) — 관리=sys:manage, latest=인증만
+    Task<List<DeployFileDto>> GetDeployFilesAsync(CancellationToken ct = default);
+    Task<DeployFileDto?> GetLatestDeployAsync(CancellationToken ct = default);
+    /// <summary>배포 파일 업로드(multipart). 실패 시 서버 오류 메시지를 보존해 화면에 표시한다.</summary>
+    Task<(DeployFileDto? File, string? Error)> UploadDeployFileAsync(
+        Stream content, string fileName, string version, string description, bool forceUpdate,
+        CancellationToken ct = default);
+    Task<bool> SetDeployFileActiveAsync(string fileId, bool isActive, CancellationToken ct = default);
+
     // SYS - ConditionSetting (설계서 20.8 조건 저장/불러오기) — 토큰 사용자 스코프
     // 쓰기/삭제는 성공 여부를 반환한다 — 실패를 UI에서 구분해 낙관적 상태 갱신을 막기 위함
     Task<ConditionSettingDto?> GetConditionSettingsAsync(string menuId, CancellationToken ct = default);

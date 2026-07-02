@@ -698,6 +698,54 @@ public sealed class ApiClient : IApiClient
     public Task<bool> RecordRecentMenuAsync(string menuId, CancellationToken ct = default)
         => PostForStatusAsync("api/v1/sys/recent-menus", new { menuId }, ct);
 
+    // ── SYS - Deploy (설계서 20.11 배포 파일 업로드/클라이언트 업데이트) ──────
+    // 관리(목록/업로드/활성 전환)=sys:manage, 소비(latest)=인증만. 다운로드는 files/{id}/download 규약.
+
+    public Task<List<DeployFileDto>> GetDeployFilesAsync(CancellationToken ct = default)
+        => GetListAsync<DeployFileDto>("api/v1/deploy/files", ct);
+
+    public Task<DeployFileDto?> GetLatestDeployAsync(CancellationToken ct = default)
+        => GetAsync<DeployFileDto>("api/v1/deploy/latest", ct);
+
+    public async Task<(DeployFileDto? File, string? Error)> UploadDeployFileAsync(
+        Stream content, string fileName, string version, string description, bool forceUpdate,
+        CancellationToken ct = default)
+    {
+        // InputFile 스트림은 되감기가 불가능해 401 재시도 없이 1회만 전송한다 —
+        // 만료 임박 토큰을 선제 갱신(GetValidAccessTokenAsync)하므로 전송 중 만료 경합은 드물다.
+        var token = await GetValidAccessTokenAsync(ct);
+
+        using var form = new MultipartFormDataContent();
+        using var fileContent = new StreamContent(content);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+        form.Add(fileContent, "file", fileName);
+        form.Add(new StringContent(version), "version");
+        form.Add(new StringContent(description), "description");
+        form.Add(new StringContent(forceUpdate ? "true" : "false"), "forceUpdate");
+
+        // LongRunning 표시 — DefaultRequestTimeoutHandler의 100초 제한을 건너뛰고 전역 10분 한도만 적용
+        using var req = new HttpRequestMessage(HttpMethod.Post, "api/v1/deploy/files") { Content = form };
+        if (!string.IsNullOrEmpty(token))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        req.Options.Set(DefaultRequestTimeoutHandler.LongRunning, true);
+        var resp = await _http.SendAsync(req, ct);
+        if (resp.IsSuccessStatusCode)
+            return (await resp.Content.ReadFromJsonAsync<DeployFileDto>(ct), null);
+
+        try
+        {
+            // 서버 BadRequest 본문(Error)의 한국어 사유를 그대로 보여준다 (버전 중복/형식 오류 등)
+            var error = await resp.Content.ReadFromJsonAsync<ApiErrorPayload>(ct);
+            if (!string.IsNullOrEmpty(error?.Description))
+                return (null, error.Description);
+        }
+        catch { /* 오류 본문이 표준 형식이 아니면 상태 코드로 폴백 */ }
+        return (null, $"업로드에 실패했습니다 (HTTP {(int)resp.StatusCode}).");
+    }
+
+    public Task<bool> SetDeployFileActiveAsync(string fileId, bool isActive, CancellationToken ct = default)
+        => PostForStatusAsync($"api/v1/deploy/files/{Uri.EscapeDataString(fileId)}/{(isActive ? "activate" : "deactivate")}", null, ct);
+
     // ── SYS - ConditionSetting (설계서 20.8 조건 저장/불러오기) ───────────────
     // 호스트 SysPersonalizationController — 토큰 사용자 스코프. '$latest'=마지막 조회 조건(자동 저장).
 

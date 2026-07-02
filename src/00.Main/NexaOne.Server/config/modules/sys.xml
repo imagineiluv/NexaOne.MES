@@ -50,6 +50,24 @@
     <constructor-arg ref="menuRepository" />
   </object>
 
+  <!-- 배포(§20.11 클라이언트 자동 업데이트) — 메타=SYS_DEPLOY_FILE(eesDataSource), 바이너리=서버 디스크
+       (data/deploy-files, 프로세스 작업 디렉터리 기준). 운영 시드/개발 시드 금지 — 메타 오염 시 클라이언트
+       latest 선정이 깨진다(기록된 주의사항). -->
+  <object id="deployFileRepository" type="NexaOne.SYS.Infrastructure.DeployFileRepository, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="deployFileStorage" type="NexaOne.SYS.Infrastructure.FileSystemDeployFileStorage, NexaOne.SYS">
+    <constructor-arg value="data/deploy-files" />
+  </object>
+  <object id="deployService" type="NexaOne.SYS.Application.Deploys.DeployService, NexaOne.SYS">
+    <constructor-arg ref="deployFileRepository" />
+    <constructor-arg ref="deployFileStorage" />
+  </object>
+  <!-- ADR-008 얇은 브리지 — 호스트가 GetBean("Sys","deployBridge")로 IDeployBridge 캐스트. -->
+  <object id="deployBridge" type="NexaOne.SYS.Application.Deploys.DeployBridge, NexaOne.SYS">
+    <constructor-arg ref="deployService" />
+  </object>
+
   <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Sys","sysBridge")로 ISysBridge 캐스트.
        역할 관리(CreateRole/AddPermission/RemovePermission)·신청 반려(UserRegistrationService.Reject)·
        사용자 비활성(UserService.Deactivate) 단일 애그리거트 쓰기를 위임한다(비-자격증명).

@@ -133,6 +133,44 @@ public sealed class HostModulesBootSmokeTests
             apprDoc.RootElement.GetProperty("tempPassword").GetString().Should().NotBeNullOrWhiteSpace(
                 "임시 비밀번호는 승인 응답에 1회 노출(관리자 전달용, 최초 로그인 시 변경 강제)");
         }
+
+        // 배포 풀사이클(§20.11, IDeployBridge 실브리지) — 업로드(SHA-256 저장)→latest 선정→다운로드 바이트
+        // 일치→비활성 회수 후 latest 404까지 관통한다. 버전은 모듈 DB 재사용 대비 유일화(UNIQUE VERSION).
+        using (var deploy = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{host.Port}") })
+        {
+            deploy.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", HostProcess.MintToken(Permissions.SysManage));
+            var version = $"9.{Random.Shared.Next(1, 999)}.{Random.Shared.Next(1, 9999)}.0";
+            var payload = System.Text.Encoding.UTF8.GetBytes($"smoke-deploy-{version}");
+
+            using var form = new MultipartFormDataContent
+            {
+                { new ByteArrayContent(payload), "file", "NexaMesClient.zip" },
+                { new StringContent(version), "version" },
+                { new StringContent("스모크 배포"), "description" },
+                { new StringContent("false"), "forceUpdate" },
+            };
+            var uploaded = await deploy.PostAsync("/api/v1/deploy/files", form);
+            uploaded.StatusCode.Should().Be(HttpStatusCode.OK, $"배포 업로드(실브리지+디스크 저장) — 로그:\n{host.Log}");
+            using var upDoc = JsonDocument.Parse(await uploaded.Content.ReadAsStringAsync());
+            var fileId = upDoc.RootElement.GetProperty("fileId").GetString();
+            upDoc.RootElement.GetProperty("hash").GetString().Should().NotBeNullOrWhiteSpace("SHA-256 스트리밍 계산");
+
+            var latest = await deploy.GetAsync("/api/v1/deploy/latest");
+            latest.StatusCode.Should().Be(HttpStatusCode.OK);
+            (await latest.Content.ReadAsStringAsync()).Should().Contain(version,
+                "System.Version 비교로 방금 올린 최고 버전이 latest여야 한다");
+
+            var downloaded = await deploy.GetAsync($"/api/v1/deploy/files/{fileId}/download");
+            downloaded.StatusCode.Should().Be(HttpStatusCode.OK);
+            (await downloaded.Content.ReadAsByteArrayAsync()).Should().Equal(payload,
+                "다운로드 바이트가 업로드 원본과 일치해야 한다(디스크 저장/읽기 무손실)");
+
+            (await deploy.PostAsync($"/api/v1/deploy/files/{fileId}/deactivate", content: null))
+                .StatusCode.Should().Be(HttpStatusCode.NoContent, "문제 버전 회수(비활성)");
+            (await deploy.GetAsync($"/api/v1/deploy/files/{fileId}/download"))
+                .StatusCode.Should().Be(HttpStatusCode.NotFound, "비활성 버전은 다운로드 차단");
+        }
     }
 
     [Fact]

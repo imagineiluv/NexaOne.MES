@@ -343,6 +343,20 @@ public record RecentMenuDto(
     string UiId,
     DateTime LastUsedAt);
 
+// ── SYS - Deploy (설계서 20.11 배포 파일 업로드/클라이언트 업데이트) ──────────
+// 다운로드 URL은 별도 필드가 아니라 api/v1/deploy/files/{FileId}/download 규약으로 구성한다.
+public record DeployFileDto(
+    string FileId,
+    string Version,
+    string FileName,
+    string Hash,
+    long FileSize,
+    string Description,
+    bool ForceUpdate,
+    bool IsActive,
+    string UploadedBy,
+    DateTime UploadedAt);
+
 // ── SYS - ConditionSetting (설계서 20.8 조건 저장/불러오기) ───────────────────
 public record ConditionSettingDto(
     ConditionItemDto? Latest,
