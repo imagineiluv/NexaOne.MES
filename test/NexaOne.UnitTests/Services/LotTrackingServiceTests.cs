@@ -616,6 +616,8 @@ public sealed class LotTrackingServiceTests
         result.IsFailure.Should().BeTrue();
         first.State.Should().Be(LotState.Queued, "전수 검증 통과 전에는 어떤 Lot도 소비되면 안 된다 (UnitOfWork 부재 적응)");
         _lots.Verify(r => r.UpdateAsync(It.IsAny<Lot>(), default), Times.Never);
+        _lots.Verify(r => r.MixingPersistAsync(It.IsAny<MixingPersistPlan>(), default), Times.Never,
+            "검증 실패 시 원자 배치조차 호출되면 안 된다(DATA-3)");
     }
 
     [Fact]
@@ -636,7 +638,12 @@ public sealed class LotTrackingServiceTests
         result.Value.State.Should().Be(LotState.Completed, "단일 공정 Mixing은 TrackIn->TrackOut 연속 수행으로 완료된다");
         in1.State.Should().Be(LotState.Consumed);
         in2.State.Should().Be(LotState.Consumed);
-        _lots.Verify(r => r.AddAsync(It.Is<Lot>(l => l.Id == "MIX001"), default), Times.Once);
+        // DATA-3: 개별 AddAsync/UpdateAsync 대신 단일 원자 배치로 영속한다.
+        _lots.Verify(r => r.MixingPersistAsync(
+            It.Is<MixingPersistPlan>(p => p.IsNewOutput && p.Output.Id == "MIX001" && p.ConsumedInputs.Count == 2),
+            default), Times.Once);
+        _lots.Verify(r => r.AddAsync(It.IsAny<Lot>(), default), Times.Never);
+        _lots.Verify(r => r.UpdateAsync(It.IsAny<Lot>(), default), Times.Never);
     }
 
     [Fact]
@@ -652,57 +659,64 @@ public sealed class LotTrackingServiceTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Qty.Should().Be(8m, "기존 Mixing 출력 Lot에는 투입 합계를 가산한다 (설계 19.4.7)");
-        _lots.Verify(r => r.AddAsync(It.IsAny<Lot>(), default), Times.Never,
-            "기존 출력 Lot 재사용 시 신규 생성하면 안 된다");
+        _lots.Verify(r => r.MixingPersistAsync(
+            It.Is<MixingPersistPlan>(p => !p.IsNewOutput && p.Output.Id == "MIX001"), default), Times.Once,
+            "기존 출력 Lot 재사용 시 배치 계획은 UPDATE 경로(IsNewOutput=false)여야 한다");
     }
 
     [Fact]
     public async Task Mixing_records_relations_with_rate()
     {
-        var recorded = new List<LotMixingRelation>();
+        MixingPersistPlan? plan = null;
         var in1 = QueuedLot("LOT001", qty: 6m);
         var in2 = QueuedLot("LOT002", qty: 4m);
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(in1);
         _lots.Setup(r => r.GetByIdAsync("LOT002", default)).ReturnsAsync(in2);
         _lots.Setup(r => r.GetByIdAsync("MIX001", default)).ReturnsAsync((Lot?)null);
-        _mixings.Setup(r => r.AddAsync(It.IsAny<LotMixingRelation>(), default))
-            .Callback<LotMixingRelation, CancellationToken>((rel, _) => recorded.Add(rel))
+        _lots.Setup(r => r.MixingPersistAsync(It.IsAny<MixingPersistPlan>(), default))
+            .Callback<MixingPersistPlan, CancellationToken>((p, _) => plan = p)
             .Returns(Task.CompletedTask);
 
         await Build().MixingTrackInOutAsync(
             MixingCommand(new MixingInput("LOT001", 6m), new MixingInput("LOT002", 2m)));
 
-        recorded.Should().HaveCount(2);
-        recorded.Should().AllSatisfy(r =>
+        plan.Should().NotBeNull("성공 Mixing은 단일 원자 배치로 영속돼야 한다(DATA-3)");
+        plan!.Relations.Should().HaveCount(2);
+        plan.Relations.Should().AllSatisfy(r =>
         {
             r.OutputLotId.Should().Be("MIX001");
             r.ConsumedBy.Should().Be("worker");
         });
-        recorded.Single(r => r.InputLotId == "LOT001").MixingRate.Should().Be(0.75m);
-        recorded.Single(r => r.InputLotId == "LOT002").MixingRate.Should().Be(0.25m);
+        plan.Relations.Single(r => r.InputLotId == "LOT001").MixingRate.Should().Be(0.75m);
+        plan.Relations.Single(r => r.InputLotId == "LOT002").MixingRate.Should().Be(0.25m);
+        plan.Histories.Should().NotBeEmpty("Consume/TrackIn/TrackOut 이력 스냅샷이 계획에 포함돼야 한다");
     }
 
     [Fact]
     public async Task Mixing_records_consume_and_output_histories()
     {
-        var recorded = new List<LotHistory>();
+        // DATA-3: 이력은 개별 AddAsync가 아니라 원자 배치 계획(plan.Histories)에 스냅샷으로 담긴다.
+        MixingPersistPlan? plan = null;
         var in1 = QueuedLot("LOT001", qty: 6m);
         var in2 = QueuedLot("LOT002", qty: 4m);
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(in1);
         _lots.Setup(r => r.GetByIdAsync("LOT002", default)).ReturnsAsync(in2);
         _lots.Setup(r => r.GetByIdAsync("MIX001", default)).ReturnsAsync((Lot?)null);
-        _histories.Setup(r => r.AddAsync(It.IsAny<LotHistory>(), default))
-            .Callback<LotHistory, CancellationToken>((h, _) => recorded.Add(h))
+        _lots.Setup(r => r.MixingPersistAsync(It.IsAny<MixingPersistPlan>(), default))
+            .Callback<MixingPersistPlan, CancellationToken>((p, _) => plan = p)
             .Returns(Task.CompletedTask);
 
         await Build().MixingTrackInOutAsync(
             MixingCommand(new MixingInput("LOT001", 6m), new MixingInput("LOT002", 4m)));
 
+        var recorded = plan!.Histories;
         recorded.Count(h => h.ExecutionId == LotExecutionId.Consume).Should().Be(2, "투입 Lot마다 Consume 이력이 남아야 한다");
         recorded.Count(h => h.ExecutionId == LotExecutionId.TrackIn && h.LotId == "MIX001").Should().Be(1);
         recorded.Count(h => h.ExecutionId == LotExecutionId.TrackOut && h.LotId == "MIX001").Should().Be(1);
         recorded.Count(h => h.ExecutionId == LotExecutionId.Finish && h.LotId == "MIX001").Should().Be(1,
             "단일 공정 출력 Lot은 Completed로 끝나므로 Finish 이력이 남는다");
+        _histories.Verify(r => r.AddAsync(It.IsAny<LotHistory>(), default), Times.Never,
+            "이력은 개별 INSERT가 아닌 원자 배치로만 기록된다");
     }
 
     // ── Hold / ReleaseHold ────────────────────────────────────────────────────

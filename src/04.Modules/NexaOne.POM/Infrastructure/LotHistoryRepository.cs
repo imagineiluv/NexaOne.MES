@@ -17,10 +17,8 @@ public sealed class LotHistoryRepository : QueryRepository, ILotHistoryRepositor
         _dialect = dialect;
     }
 
-    public async Task AddAsync(LotHistory history, CancellationToken ct = default)
-    {
-        // LOT_HISTORY_ID는 IDENTITY, CREATED_AT은 DB DEFAULT에 위임
-        const string sql = @"INSERT INTO POM_LOT_HISTORY
+    // LOT_HISTORY_ID는 IDENTITY, CREATED_AT은 DB DEFAULT에 위임
+    private const string InsertSql = @"INSERT INTO POM_LOT_HISTORY
             (PLANT_ID, LOT_ID, EQUIPMENT_ID, PROCESS_ID, RECIPE_DEF_ID, RECIPE_DEF_VERSION,
              TRACK_IN_TIME, TRACK_OUT_TIME, EXECUTION_ID, EXECUTION_USER,
              QTY, DEFECT_QTY, LOT_STATE, PROCESS_STATE)
@@ -28,8 +26,13 @@ public sealed class LotHistoryRepository : QueryRepository, ILotHistoryRepositor
             (@PlantId, @LotId, @EquipmentId, @ProcessId, @RecipeDefId, @RecipeDefVersion,
              @TrackInTime, @TrackOutTime, @ExecutionId, @ExecutionUser,
              @Qty, @DefectQty, @LotState, @ProcessState)";
-        await _processor.InsertAsync(sql, HistoryRow.FromDomain(history), ct);
-    }
+
+    public async Task AddAsync(LotHistory history, CancellationToken ct = default)
+        => await _processor.InsertAsync(InsertSql, HistoryRow.FromDomain(history), ct);
+
+    /// <summary>Mixing 원자화 배치(DATA-3)용 INSERT 문장 — LotRepository.MixingPersistAsync가 수집한다.</summary>
+    internal static (string Sql, object? Param) InsertStatement(LotHistory history)
+        => (InsertSql, HistoryRow.FromDomain(history));
 
     public async Task<IReadOnlyList<LotHistory>> GetByLotAsync(
         string plantId, string lotId, CancellationToken ct = default)

@@ -20,6 +20,8 @@
     <ProjectReference Include="..\..\src\00.Main\NexaOne.Server\NexaOne.Server.csproj" />
     <!-- OEE 집계 리포지토리(모듈 소유) 통합검증용 — 호스트가 SQLite로 부트한 DB에 리포를 직접 물려 집계를 검증한다. -->
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.EST\NexaOne.EST.csproj" />
+    <!-- POM Lot Mixing 원자화(DATA-3) SQLite 원자성 통합검증용 — 동일 패턴으로 POM 리포/서비스를 직접 구성한다. -->
+    <ProjectReference Include="..\..\src\04.Modules\NexaOne.POM\NexaOne.POM.csproj" />
   </ItemGroup>
 
 </Project>

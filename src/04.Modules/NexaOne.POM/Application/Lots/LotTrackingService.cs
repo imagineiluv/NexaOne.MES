@@ -307,28 +307,28 @@ public sealed class LotTrackingService
 
         var serverTime = DateTime.UtcNow;
 
-        // 입력 Lot 소비 + 관계 기록
+        // DATA-3 원자화 — 도메인 전이를 전부 in-memory로 수행하며 이력/관계 스냅샷만 수집한다.
+        // 어떤 전이든 실패하면 아무것도 쓰지 않고 반환하고, 성공 시에만 마지막에 단일 트랜잭션으로 영속한다.
+        var histories = new List<LotHistory>();
+        var relations = new List<LotMixingRelation>();
+
+        // 입력 Lot 소비 + 관계 스냅샷
         foreach (var (lot, inQty) in inputs)
         {
             var consumed = lot.Consume(command.User);
             if (consumed.IsFailure)
                 return Result.Failure<Lot>(consumed.Error);
-            await _lots.UpdateAsync(lot, ct);
-            await _histories.AddAsync(LotHistory.Of(lot, LotExecutionId.Consume, command.User, inQty, 0), ct);
-            await _mixings.AddAsync(new LotMixingRelation(
+            histories.Add(LotHistory.Of(lot, LotExecutionId.Consume, command.User, inQty, 0));
+            relations.Add(new LotMixingRelation(
                 plantId, output.Id, lot.Id, inQty,
-                totalQty == 0 ? null : Math.Round(inQty / totalQty, 4), serverTime, command.User), ct);
+                totalQty == 0 ? null : Math.Round(inQty / totalQty, 4), serverTime, command.User));
         }
 
-        // 출력 Lot 저장 후 TrackIn -> TrackOut 연속 수행
-        if (isNewOutput) await _lots.AddAsync(output, ct);
-        else await _lots.UpdateAsync(output, ct);
-
+        // 출력 Lot TrackIn -> TrackOut 연속 수행(in-memory) — 이력은 각 전이 시점 상태로 캡처.
         var trackIn = output.TrackIn(command.EquipmentId, null, null, command.User, serverTime);
         if (trackIn.IsFailure)
             return Result.Failure<Lot>(trackIn.Error);
-        await _lots.UpdateAsync(output, ct);
-        await _histories.AddAsync(LotHistory.Of(output, LotExecutionId.TrackIn, command.User, output.Qty, 0), ct);
+        histories.Add(LotHistory.Of(output, LotExecutionId.TrackIn, command.User, output.Qty, 0));
 
         var equipmentBefore = output.EquipmentId;
         var processBefore = output.CurrentProcessId;
@@ -336,14 +336,17 @@ public sealed class LotTrackingService
         var trackOut = output.TrackOut(command.EquipmentId, output.Qty, 0, null, command.User, DateTime.UtcNow);
         if (trackOut.IsFailure)
             return Result.Failure<Lot>(trackOut.Error);
-        await _lots.UpdateAsync(output, ct);
-        await _histories.AddAsync(new LotHistory(
+        histories.Add(new LotHistory(
             0, output.PlantId, output.Id, equipmentBefore, processBefore,
             null, null, trackInTimeBefore, output.TrackOutTime,
             LotExecutionId.TrackOut, command.User, output.Qty, 0,
-            output.State.ToString(), output.ProcessState.ToString(), DateTime.UtcNow), ct);
+            output.State.ToString(), output.ProcessState.ToString(), DateTime.UtcNow));
         if (output.State == LotState.Completed)
-            await _histories.AddAsync(LotHistory.Of(output, LotExecutionId.Finish, command.User, output.Qty, output.DefectQty), ct);
+            histories.Add(LotHistory.Of(output, LotExecutionId.Finish, command.User, output.Qty, output.DefectQty));
+
+        // 단일 트랜잭션 영속 — 실패 시 전체 롤백(부분 커밋 불가).
+        await _lots.MixingPersistAsync(new MixingPersistPlan(
+            inputs.Select(i => i.Lot).ToList(), output, isNewOutput, histories, relations), ct);
 
         return Result.Success(output);
     }

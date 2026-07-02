@@ -43,9 +43,7 @@ public sealed class LotRepository : QueryRepository, ILotRepository
         return rows.Select(r => r.ToDomain()).ToList();
     }
 
-    public async Task AddAsync(Lot lot, CancellationToken ct = default)
-    {
-        const string sql = @"INSERT INTO POM_LOT
+    private const string InsertSql = @"INSERT INTO POM_LOT
             (LOT_ID, PLANT_ID, WORK_ORDER_ID, PRODUCT_ID, QTY, DEFECT_QTY,
              LOT_STATE, PROCESS_STATE, ROUTE_STEPS, CURRENT_STEP,
              EQUIPMENT_ID, RECIPE_DEF_ID, RECIPE_DEF_VERSION, CARRIER_ID, IS_HOLD,
@@ -57,7 +55,40 @@ public sealed class LotRepository : QueryRepository, ILotRepository
              @EquipmentId, @RecipeDefId, @RecipeDefVersion, @CarrierId, @IsHold,
              @TrackInUser, @TrackInTime, @TrackOutUser, @TrackOutTime,
              @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt)";
-        await _processor.InsertAsync(sql, LotRow.FromDomain(lot), ct);
+
+    public async Task AddAsync(Lot lot, CancellationToken ct = default)
+        => await _processor.InsertAsync(InsertSql, LotRow.FromDomain(lot), ct);
+
+    /// <summary>DATA-3 원자화 — Mixing 전 문장(투입 소비 UPDATE·혼합관계/이력 INSERT·출력 INSERT/UPDATE·outbox)을
+    /// 단일 ExecuteManyAsync 트랜잭션으로 커밋한다. 어느 문장이 실패해도 전체 롤백(부분 커밋 불가).
+    /// ExecuteManyAsync는 raw(감사 미주입)라 UPDATE 감사 컬럼을 PersistWithOutboxAsync와 동일 규약으로 명시 채운다.</summary>
+    public async Task MixingPersistAsync(MixingPersistPlan plan, CancellationToken ct = default)
+    {
+        var user = CurrentUserContext.UserId ?? "SYSTEM";
+        var now = DateTime.UtcNow;
+
+        var statements = new List<(string Sql, object? Param)>();
+        foreach (var lot in plan.ConsumedInputs)
+            statements.Add((UpdateSql, UpdateParam(lot, user, now)));
+        foreach (var relation in plan.Relations)
+            statements.Add(LotMixingRelationRepository.InsertStatement(relation));
+        statements.Add(plan.IsNewOutput
+            ? (InsertSql, (object?)LotRow.FromDomain(plan.Output))
+            : (UpdateSql, UpdateParam(plan.Output, user, now)));
+        foreach (var history in plan.Histories)
+            statements.Add(LotHistoryRepository.InsertStatement(history));
+
+        if (_outboxEnabled)
+        {
+            var events = plan.ConsumedInputs.Append(plan.Output)
+                .SelectMany(l => l.DomainEvents.OfType<IOutboxEvent>());
+            statements.AddRange(OutboxStatements.For(events, user, now));
+        }
+
+        await _processor.ExecuteManyAsync(ct, statements.ToArray());
+
+        foreach (var lot in plan.ConsumedInputs) lot.ClearDomainEvents();
+        plan.Output.ClearDomainEvents();
     }
 
     private const string UpdateSql = @"UPDATE POM_LOT SET

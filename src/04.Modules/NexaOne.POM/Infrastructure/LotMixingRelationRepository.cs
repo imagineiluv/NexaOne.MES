@@ -13,14 +13,17 @@ public sealed class LotMixingRelationRepository : QueryRepository, ILotMixingRel
         _processor = new ServiceObjectProcessor(dataSource);
     }
 
-    public async Task AddAsync(LotMixingRelation relation, CancellationToken ct = default)
-    {
-        const string sql = @"INSERT INTO POM_LOT_MIXING_RELATION
+    private const string InsertSql = @"INSERT INTO POM_LOT_MIXING_RELATION
             (PLANT_ID, OUTPUT_LOT_ID, INPUT_LOT_ID, INPUT_QTY, MIXING_RATE, CONSUMED_AT, CONSUMED_BY)
             VALUES
             (@PlantId, @OutputLotId, @InputLotId, @InputQty, @MixingRate, @ConsumedAt, @ConsumedBy)";
-        await _processor.InsertAsync(sql, MixingRow.FromDomain(relation), ct);
-    }
+
+    public async Task AddAsync(LotMixingRelation relation, CancellationToken ct = default)
+        => await _processor.InsertAsync(InsertSql, MixingRow.FromDomain(relation), ct);
+
+    /// <summary>Mixing 원자화 배치(DATA-3)용 INSERT 문장 — LotRepository.MixingPersistAsync가 수집한다.</summary>
+    internal static (string Sql, object? Param) InsertStatement(LotMixingRelation relation)
+        => (InsertSql, MixingRow.FromDomain(relation));
 
     public async Task<IReadOnlyList<LotMixingRelation>> GetByOutputLotAsync(
         string plantId, string outputLotId, CancellationToken ct = default)
