@@ -112,6 +112,18 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
         public Task<Result> HoldLotAsync(string lotId, string user, CancellationToken ct = default) => Transition(lotId);
         public Task<Result> ReleaseLotHoldAsync(string lotId, string user, CancellationToken ct = default) => Transition(lotId);
 
+        public Task<Result<LotDto>> MixingTrackInOutAsync(
+            string plantId, string outputLotId, string productId, string equipmentId,
+            IReadOnlyList<string> outputRouteSteps, IReadOnlyList<MixingInputDto> inputs,
+            string user, CancellationToken ct = default)
+            => Task.FromResult(outputLotId switch
+            {
+                "MISSING" => Result.Failure<LotDto>(Error.NotFound("Lot", "IN-MISSING")),
+                _ when inputs.Count == 0
+                    => Result.Failure<LotDto>(Error.Validation("inputs", "투입 Lot이 1건 이상 필요합니다.")),
+                _ => Result.Success(Lot(outputLotId, plantId, productId, inputs.Sum(i => i.InQty), "Created")),
+            });
+
         private static LotDto Lot(string lotId, string plantId, string productId, decimal qty, string state)
             => new(lotId, plantId, null, productId, qty, 0m, state, "Idle", new[] { "CUT", "ASSY" }, 0,
                 "CUT", null, null, null, null, false);
@@ -305,5 +317,46 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
     {
         var res = await Client("pom:manage").PostAsync("/api/v1/pom/lots/MISSING/release", content: null);
         res.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    // ── Lot Mixing(다중 애그리거트, DATA-3 원자화로 노출) ──
+
+    [Fact]
+    public async Task Mixing_without_pom_manage_is_forbidden()
+    {
+        var res = await Client("pom:read").PostAsJsonAsync("/api/v1/pom/lots/mixing/track-in-out",
+            new { plantId = "P1", outputLotId = "OUT1", productId = "PROD01", equipmentId = "EQ1",
+                  inputs = new[] { new { lotId = "IN1", inQty = 5m } } });
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "Mixing은 pom:manage 쓰기");
+    }
+
+    [Fact]
+    public async Task Mixing_success_returns_output_lot()
+    {
+        var res = await Client("pom:manage").PostAsJsonAsync("/api/v1/pom/lots/mixing/track-in-out",
+            new { plantId = "P1", outputLotId = "OUT1", productId = "PROD01", equipmentId = "EQ1",
+                  outputRouteSteps = new[] { "CUT" },
+                  inputs = new[] { new { lotId = "IN1", inQty = 5m }, new { lotId = "IN2", inQty = 3m } } });
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var dto = await res.Content.ReadFromJsonAsync<LotDto>();
+        dto!.LotId.Should().Be("OUT1");
+        dto.Qty.Should().Be(8m, "출력 수량 = 투입 합(가짜 브리지 규약)");
+    }
+
+    [Fact]
+    public async Task Mixing_empty_inputs_maps_to_400()
+    {
+        var res = await Client("pom:manage").PostAsJsonAsync("/api/v1/pom/lots/mixing/track-in-out",
+            new { plantId = "P1", outputLotId = "OUT1", productId = "PROD01", equipmentId = "EQ1" });
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "투입 없는 Mixing(Validation)은 400");
+    }
+
+    [Fact]
+    public async Task Mixing_missing_input_lot_maps_to_404()
+    {
+        var res = await Client("pom:manage").PostAsJsonAsync("/api/v1/pom/lots/mixing/track-in-out",
+            new { plantId = "P1", outputLotId = "MISSING", productId = "PROD01", equipmentId = "EQ1",
+                  inputs = new[] { new { lotId = "IN1", inQty = 5m } } });
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound, "미존재 투입 Lot은 404");
     }
 }

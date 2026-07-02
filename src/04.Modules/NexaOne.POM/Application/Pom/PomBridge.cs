@@ -9,7 +9,7 @@ namespace NexaOne.POM.Application.Pom;
 /// LotTrackingService(Lot 추적)에 위임하고 도메인 엔티티를 계약 DTO로 매핑(Status/State enum→string).
 /// plugin ALC에서 생성되며 호스트(Default ALC)가 IPomBridge로 캐스트해 DI에 등록한다. 상태전이/팩토리
 /// 검증의 Result는 그대로 통과시켜 컨트롤러가 409/400/404로 매핑한다. Lot Mixing(다중 애그리거트)은
-/// 본 어댑터에서 노출하지 않는다(UnitOfWork 선결).</summary>
+/// DATA-3 원자화(MixingPersistAsync 단일 트랜잭션)로 노출한다.</summary>
 public sealed class PomBridge : IPomBridge
 {
     private readonly PomService _planService;
@@ -100,6 +100,19 @@ public sealed class PomBridge : IPomBridge
 
     public Task<Result> ReleaseLotHoldAsync(string lotId, string user, CancellationToken ct = default)
         => _lotService.ReleaseHoldAsync(lotId, user, ct);
+
+    // ── Lot Mixing(다중 애그리거트 소비/병합, DATA-3 단일 트랜잭션) ──
+
+    public async Task<Result<LotDto>> MixingTrackInOutAsync(
+        string plantId, string outputLotId, string productId, string equipmentId,
+        IReadOnlyList<string> outputRouteSteps, IReadOnlyList<MixingInputDto> inputs,
+        string user, CancellationToken ct = default)
+    {
+        var mapped = inputs.Select(i => new MixingInput(i.LotId, i.InQty)).ToList();
+        var r = await _lotService.MixingTrackInOutAsync(
+            new MixingTrackCommand(plantId, outputLotId, productId, equipmentId, outputRouteSteps, mapped, user), ct);
+        return r.IsSuccess ? Result.Success(ToDto(r.Value)) : Result.Failure<LotDto>(r.Error);
+    }
 
     // ── 매핑 ──
 

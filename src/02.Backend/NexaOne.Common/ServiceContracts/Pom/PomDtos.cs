@@ -20,3 +20,6 @@ public record LotDto(
 
 // TrackOut 불량 입력 — LotTrackingService.DefectEntry의 계약 미러(ALC 경계 횡단용 평탄 DTO).
 public record LotDefectInput(string DefectCode, decimal DefectQty);
+
+// Mixing 투입 입력 — LotTrackingService.MixingInput의 계약 미러. 투입 Lot에서 소비할 수량.
+public record MixingInputDto(string LotId, decimal InQty);

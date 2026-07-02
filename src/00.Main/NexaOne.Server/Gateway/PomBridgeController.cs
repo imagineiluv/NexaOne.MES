@@ -127,7 +127,6 @@ public sealed class PomBridgeController : ControllerBase
     }
 
     // ── Lot 추적(단일 애그리거트) ──
-    // Lot Mixing(다중 애그리거트 소비/병합)은 의도적으로 노출하지 않는다(UnitOfWork 선결).
 
     [HttpPost("lots")]
     [ProducesResponseType<LotDto>(StatusCodes.Status200OK)]
@@ -193,6 +192,25 @@ public sealed class PomBridgeController : ControllerBase
         return (await _bridge.ReleaseLotHoldAsync(lotId, CurrentUserId, ct)).ToActionResult();
     }
 
+    // ── Lot Mixing(다중 애그리거트 소비/병합) — DATA-3 원자화로 전 문장 단일 트랜잭션 커밋 ──
+
+    /// <summary>투입 Lot 소비 + 출력 Lot 생성/증량 + 관계/이력 기록을 한 번에 수행한다(§19.4 MixingLotTrackInOut).
+    /// 부분 커밋 없음 — 검증 실패는 영속 전에 반환되고, 영속은 MixingPersistAsync 단일 트랜잭션이다.</summary>
+    [HttpPost("lots/mixing/track-in-out")]
+    [ProducesResponseType<LotDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.PomManage)]
+    public async Task<IActionResult> MixingTrackInOut([FromBody] MixingTrackInOutRequest req, CancellationToken ct)
+    {
+        return (await _bridge.MixingTrackInOutAsync(
+            req.PlantId, req.OutputLotId, req.ProductId, req.EquipmentId,
+            req.OutputRouteSteps ?? [], req.Inputs ?? [], CurrentUserId, ct))
+            .ToActionResult();
+    }
+
     private string CurrentUserId => User.CurrentUserId() ?? "SYSTEM";
 }
 
@@ -208,3 +226,6 @@ public record CreateLotRequest(
 public record TrackInRequest(string PlantId, string EquipmentId, string? RecipeDefId, int? RecipeDefVersion);
 public record TrackOutRequest(
     string PlantId, string EquipmentId, decimal Qty, IReadOnlyList<LotDefectInput>? Defects, string? CarrierId);
+public record MixingTrackInOutRequest(
+    string PlantId, string OutputLotId, string ProductId, string EquipmentId,
+    IReadOnlyList<string>? OutputRouteSteps, IReadOnlyList<MixingInputDto>? Inputs);
