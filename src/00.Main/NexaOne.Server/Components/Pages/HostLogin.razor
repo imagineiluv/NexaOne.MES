@@ -38,6 +38,11 @@
             @(_loading ? "로그인 중…" : "로그인")
         </button>
     </EditForm>
+
+    @* §19.3 — 계정이 없는 사용자의 가입 신청 진입점(익명). 승인 후 임시 비밀번호로 로그인한다. *@
+    <p style="margin-top:1rem; text-align:center; font-size:0.813rem; color:#6b7280;">
+        계정이 없으신가요? <a href="/signup" style="color:#2563eb;">가입 신청</a>
+    </p>
 </div>
 
 @code {

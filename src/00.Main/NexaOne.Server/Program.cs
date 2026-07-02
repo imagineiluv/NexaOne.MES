@@ -838,6 +838,7 @@ static IEnumerable<MenuSeedRow> DevDemoMenu() => new[]
 {
     new MenuSeedRow("NX_DEV",        "● NexaOne 데모/관리",   null,     9000, "Folder", ""),
     new MenuSeedRow("NX_DEV_MENU",   "메뉴 관리",             "NX_DEV", 10,   "Screen", "SYS_MENU_MGMT"),
+    new MenuSeedRow("NX_DEV_USERREQ","사용자 신청 승인",       "NX_DEV", 15,   "Screen", "SYS_USER_REQUESTS"),
     new MenuSeedRow("NX_DEV_GRID",   "공장 관리(데모)",        "NX_DEV", 20,   "Screen", "DEMO_GRID"),
     new MenuSeedRow("NX_DEV_LAYOUT", "생산 현황(데모)",        "NX_DEV", 30,   "Screen", "DEMO_LAYOUT"),
     new MenuSeedRow("NX_DEV_PARAM",  "파라미터 입력(데모)",     "NX_DEV", 40,   "Screen", "DEMO_PARAM"),

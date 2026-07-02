@@ -112,6 +112,17 @@ public sealed class HostBlazorServingTests : IClassFixture<HostBlazorServingTest
     }
 
     [Fact]
+    public async Task Signup_page_serves_blazor_host_document_anonymously()
+    {
+        // §19.3 — /signup은 익명 가입 신청 페이지(호스트 로컬 @page). 미인증 GET이 200 셸이어야
+        // 로그인 전 사용자가 가입 신청에 도달할 수 있다(404=라우트 미연결, 401=익명 진입 차단 회귀).
+        var client = _factory.CreateClient();
+        var res = await client.GetAsync("/signup");
+        res.StatusCode.Should().Be(HttpStatusCode.OK, "/signup은 익명 Blazor 셸 200이어야 한다(가입 신청 진입점)");
+        (await res.Content.ReadAsStringAsync()).Should().Contain(BlazorFrameworkScript);
+    }
+
+    [Fact]
     public async Task Api_and_health_unaffected_by_blazor()
     {
         // Blazor/폴백 매핑이 명시 라우트를 가리지 않음을 입증 — /health 익명 200 + api/v1 command→query 라운드트립.
