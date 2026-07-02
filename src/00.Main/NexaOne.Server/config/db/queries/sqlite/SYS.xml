@@ -139,4 +139,14 @@ ORDER BY REQUESTED_AT DESC
 LIMIT 500
 ]]></statement>
   </query>
+  <!-- LOG_VIEWER — 앱 로그(V064) 최근 500. @logLevel NULL-guard. -->
+  <query id="SYS.AppLogList">
+    <statement><![CDATA[
+SELECT LOG_ID, LOG_LEVEL, CATEGORY, MESSAGE, EXCEPTION, LOGGED_AT
+FROM SYS_APP_LOG
+WHERE (@logLevel IS NULL OR LOG_LEVEL = @logLevel)
+ORDER BY LOGGED_AT DESC
+LIMIT 500
+]]></statement>
+  </query>
 </queries>

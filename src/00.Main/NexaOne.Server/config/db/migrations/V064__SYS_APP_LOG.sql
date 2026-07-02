@@ -1,0 +1,15 @@
+-- SYS Module: 애플리케이션 로그(경고 이상). SmartUX LOG_VIEWER 점등용 — 호스트 DbLoggerProvider
+-- (AppLogging:Db:Enabled, 기본 OFF)가 ILogger Warning+ 항목을 채널 버퍼 경유로 기록한다.
+-- 수집 시계열이므로 감사 컬럼 없이 발생 시각(LOGGED_AT)만 둔다(SYS_REQUEST_LOG 관례). 보존 정리는 후속.
+CREATE TABLE SYS_APP_LOG (
+    LOG_ID      NVARCHAR(50)    NOT NULL,
+    LOG_LEVEL   NVARCHAR(20)    NOT NULL,
+    CATEGORY    NVARCHAR(300)   NOT NULL,
+    MESSAGE     NVARCHAR(2000)  NOT NULL,
+    EXCEPTION   NVARCHAR(4000)  NULL,
+    LOGGED_AT   DATETIME2       NOT NULL,
+    CONSTRAINT PK_SYS_APP_LOG PRIMARY KEY (LOG_ID)
+);
+
+CREATE INDEX IX_SYS_APP_LOG_TIME  ON SYS_APP_LOG (LOGGED_AT DESC);
+CREATE INDEX IX_SYS_APP_LOG_LEVEL ON SYS_APP_LOG (LOG_LEVEL, LOGGED_AT DESC);

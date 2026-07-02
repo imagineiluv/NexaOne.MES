@@ -193,6 +193,16 @@ builder.Services.AddNexaOneGateway(builder.Configuration);
 // 인증(무-브리지, 게이트웨이식) — 토큰 직접 발급(login/refresh). 게이트웨이 DI(IRuleDispatcher) 이후 호출.
 builder.Services.AddNexaOneAuth(builder.Configuration);
 // OEE 집계는 EST 모듈 소유(config/modules/est.xml의 oeeAggregationWorker) — modules-ON에서 IHostedService로 자동발견.
+// DB 앱 로그(LOG_VIEWER 화면 원천) — 기본 OFF, AppLogging:Db:Enabled=true로만. Warning+ → 유계 채널 → 플러시 워커.
+if (builder.Configuration.GetValue("AppLogging:Db:Enabled", false))
+{
+    var appLogChannel = System.Threading.Channels.Channel.CreateBounded<NexaOne.Server.Logging.AppLogEntry>(
+        new System.Threading.Channels.BoundedChannelOptions(1000)
+        { FullMode = System.Threading.Channels.BoundedChannelFullMode.DropOldest });
+    builder.Logging.AddProvider(new NexaOne.Server.Logging.DbLoggerProvider(appLogChannel.Writer));
+    builder.Services.AddHostedService(sp => new NexaOne.Server.Logging.AppLogFlushWorker(
+        appLogChannel.Reader, sp.GetRequiredService<IRuleDispatcher>()));
+}
 builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(
         new System.Text.Json.Serialization.JsonStringEnumConverter()));
@@ -847,6 +857,13 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
         Exec(tx, "INSERT INTO SYS_REQUEST_LOG (LOG_ID,METHOD,PATH,STATUS_CODE,ELAPSED_MS,USER_ID,CLIENT_IP,REQUESTED_AT) " +
                  "VALUES (@id,@m,@p,@st,@ms,'admin','127.0.0.1',@at)",
             ("@id", rl.Item1), ("@m", rl.Item2), ("@p", rl.Item3), ("@st", rl.Item4), ("@ms", rl.Item5), ("@at", now));
+
+    // SYS_APP_LOG(로그 뷰어 화면용, V064) — 실기록은 DbLoggerProvider(기본 OFF)가 담당, 데모 2행.
+    foreach (var al in new[] {
+        ("AL01", "Warning", "NexaOne.FDC.Application", "수집 파라미터 임계 접근: EQ01/TEMP 78.5"),
+        ("AL02", "Error", "NexaOne.Server.Gateway", "명명 쿼리 실행 실패: timeout (재시도 성공)") })
+        Exec(tx, "INSERT INTO SYS_APP_LOG (LOG_ID,LOG_LEVEL,CATEGORY,MESSAGE,LOGGED_AT) VALUES (@id,@lvl,@cat,@msg,@at)",
+            ("@id", al.Item1), ("@lvl", al.Item2), ("@cat", al.Item3), ("@msg", al.Item4), ("@at", now));
 
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");

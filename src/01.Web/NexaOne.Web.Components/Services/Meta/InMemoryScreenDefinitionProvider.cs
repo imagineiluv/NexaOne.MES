@@ -1161,6 +1161,16 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "SYS.DeployFileList"));
 
+        // 로그 뷰어(LOG_VIEWER) — 앱 로그(V064, DbLoggerProvider Warning+ 기록·SYS.AppLogList).
+        Register(new ScreenDefinition("LOG_VIEWER", "로그 뷰어",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("LOGGED_AT", "발생시각"), new("LOG_LEVEL", "레벨"), new("CATEGORY", "카테고리"),
+                new("MESSAGE", "메시지"), new("EXCEPTION", "예외"),
+            },
+            QueryId: "SYS.AppLogList"));
+
         // 요청 로그 뷰어(SYSTEM2_MONITOR_REQLOG) — API 요청 로그(V062, RequestLogMiddleware 기록·SYS.RequestLogList).
         Register(new ScreenDefinition("SYSTEM2_MONITOR_REQLOG", "요청 로그 뷰어",
             Array.Empty<FieldDefinition>(),
