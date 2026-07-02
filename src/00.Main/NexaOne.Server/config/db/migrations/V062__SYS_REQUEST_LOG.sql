@@ -1,0 +1,17 @@
+-- SYS Module: API 요청 로그. SmartUX SYSTEM2 요청 로그 뷰어(REQLOG) 점등용 — 호스트 RequestLogMiddleware
+-- (RequestLogging:Enabled, 기본 OFF)가 /api/* 요청을 1행씩 기록한다. 수집 시계열이므로 감사 컬럼 없이
+-- 요청 시각(REQUESTED_AT)만 둔다(FDC_COLLECT_DATA 관례). 보존 정리는 후속(레텐션 워커).
+CREATE TABLE SYS_REQUEST_LOG (
+    LOG_ID        NVARCHAR(50)    NOT NULL,
+    METHOD        NVARCHAR(10)    NOT NULL,
+    PATH          NVARCHAR(500)   NOT NULL,
+    STATUS_CODE   INT             NOT NULL,
+    ELAPSED_MS    INT             NOT NULL DEFAULT 0,
+    USER_ID       NVARCHAR(50)    NULL,
+    CLIENT_IP     NVARCHAR(50)    NULL,
+    REQUESTED_AT  DATETIME2       NOT NULL,
+    CONSTRAINT PK_SYS_REQUEST_LOG PRIMARY KEY (LOG_ID)
+);
+
+CREATE INDEX IX_SYS_REQUEST_LOG_TIME ON SYS_REQUEST_LOG (REQUESTED_AT DESC);
+CREATE INDEX IX_SYS_REQUEST_LOG_USER ON SYS_REQUEST_LOG (USER_ID, REQUESTED_AT DESC);

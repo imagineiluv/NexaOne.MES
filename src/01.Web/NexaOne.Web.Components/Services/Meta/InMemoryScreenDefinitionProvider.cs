@@ -1161,6 +1161,37 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "SYS.DeployFileList"));
 
+        // 요청 로그 뷰어(SYSTEM2_MONITOR_REQLOG) — API 요청 로그(V062, RequestLogMiddleware 기록·SYS.RequestLogList).
+        Register(new ScreenDefinition("SYSTEM2_MONITOR_REQLOG", "요청 로그 뷰어",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("REQUESTED_AT", "요청시각"), new("METHOD", "메서드"), new("PATH", "경로"), new("STATUS_CODE", "상태"),
+                new("ELAPSED_MS", "소요(ms)"), new("USER_ID", "사용자"), new("CLIENT_IP", "클라이언트 IP"),
+            },
+            QueryId: "SYS.RequestLogList"));
+
+        // 생산성 대시보드(FACTORY_DASHBOARD_MENU_PRODUCTIVITY) — 설비×일자 OEE 마트(EST.OeeSummaryList) 재사용.
+        Register(new ScreenDefinition("FACTORY_DASHBOARD_MENU_PRODUCTIVITY", "생산성 대시보드",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("OEE_DATE", "일자"), new("EQUIPMENT_ID", "설비"), new("AVAILABILITY", "가용성"),
+                new("PERFORMANCE", "성능"), new("QUALITY", "품질"), new("OEE", "OEE"),
+                new("TOTAL_COUNT", "총생산"), new("GOOD_COUNT", "양품"),
+            },
+            QueryId: "EST.OeeSummaryList"));
+
+        // 대시보드 샘플 화면(FACTORY_DASHBOARD_MENU_SAMPLE_TEST) — 품목별 수율 집계(POM.YieldByProduct) 샘플 바인딩.
+        Register(new ScreenDefinition("FACTORY_DASHBOARD_MENU_SAMPLE_TEST", "대시보드 샘플",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PRODUCT_ID", "품목"), new("LOT_COUNT", "LOT수"), new("TOTAL_QTY", "총생산"),
+                new("DEFECT_QTY", "불량"), new("GOOD_QTY", "양품"),
+            },
+            QueryId: "POM.YieldByProduct"));
+
         // 출하 지시 관리(FACTORY_DLV_DELIVERY_ORDER) — 출하지시 마스터 조회(SHP.DeliveryOrderList).
         Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_ORDER", "출하 지시 관리",
             Array.Empty<FieldDefinition>(),

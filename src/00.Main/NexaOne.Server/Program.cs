@@ -326,6 +326,9 @@ if (builder.Configuration.GetValue("RateLimiting:Enabled", true))
 app.UseAuthorization();
 // 비밀번호 강제 변경(pwdChange) 사용자의 업무 데이터 호출 차단 — 인증 이후, 엔드포인트 실행 이전.
 app.UseMiddleware<NexaOne.Server.Gateway.PasswordChangeRequiredMiddleware>();
+// API 요청 로그(SYSTEM2 REQLOG 화면 원천) — 기본 OFF, RequestLogging:Enabled=true로만 기록. 인증 이후(USER_ID 캡처).
+if (builder.Configuration.GetValue("RequestLogging:Enabled", false))
+    app.UseMiddleware<NexaOne.Server.Gateway.RequestLogMiddleware>();
 // Blazor 폼/컴포넌트 보호용 안티포저리(설계 §5). [ApiController] JSON 엔드포인트(api/v1/*)는 폼 콘텐츠가 아니라
 // 영향받지 않는다 — 안티포저리는 form-data/urlencoded 또는 명시 [RequireAntiforgeryToken]에만 적용된다.
 app.UseAntiforgery();
@@ -838,6 +841,12 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
         Exec(tx, "INSERT INTO COM_ALARM_ACTION (ALARM_ACTION_ID,ALARM_ID,ACTION_ID,ACTION_SEQUENCE,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
                  "VALUES (@id,@alarm,@act,@seq,1,'SYSTEM',@at,'SYSTEM',@at)",
             ("@id", aa.Item1), ("@alarm", aa.Item2), ("@act", aa.Item3), ("@seq", aa.Item4), ("@at", now));
+
+    // SYS_REQUEST_LOG(요청 로그 뷰어 화면용, V062) — 실기록은 RequestLogMiddleware(기본 OFF)가 담당, 데모 2행.
+    foreach (var rl in new[] { ("RL01", "POST", "/api/v1/query/MDM.PlantList", 200, 12), ("RL02", "POST", "/api/v1/auth/login", 401, 35) })
+        Exec(tx, "INSERT INTO SYS_REQUEST_LOG (LOG_ID,METHOD,PATH,STATUS_CODE,ELAPSED_MS,USER_ID,CLIENT_IP,REQUESTED_AT) " +
+                 "VALUES (@id,@m,@p,@st,@ms,'admin','127.0.0.1',@at)",
+            ("@id", rl.Item1), ("@m", rl.Item2), ("@p", rl.Item3), ("@st", rl.Item4), ("@ms", rl.Item5), ("@at", now));
 
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
