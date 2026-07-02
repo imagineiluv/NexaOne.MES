@@ -129,4 +129,24 @@ DELETE FROM SYS_REFRESH_TOKEN WHERE EXPIRES_AT < @cutoff
 ]]></statement>
   </query>
 
+  <!-- 비밀번호 재설정(forgot/reset, V065) — 토큰 해시만 저장·조회·1회 사용 처리. -->
+  <query id="SYS.InsertPasswordReset">
+    <statement><![CDATA[
+INSERT INTO SYS_PASSWORD_RESET (TOKEN_HASH, USER_ID, EXPIRES_AT, CREATED_AT)
+VALUES (@tokenHash, @userId, @expiresAt, @utcNow)
+]]></statement>
+  </query>
+
+  <query id="SYS.GetPasswordReset">
+    <statement><![CDATA[
+SELECT TOKEN_HASH, USER_ID, EXPIRES_AT, USED_AT FROM SYS_PASSWORD_RESET WHERE TOKEN_HASH = @tokenHash
+]]></statement>
+  </query>
+
+  <query id="SYS.MarkPasswordResetUsed">
+    <statement><![CDATA[
+UPDATE SYS_PASSWORD_RESET SET USED_AT = @utcNow WHERE TOKEN_HASH = @tokenHash AND USED_AT IS NULL
+]]></statement>
+  </query>
+
 </queries>

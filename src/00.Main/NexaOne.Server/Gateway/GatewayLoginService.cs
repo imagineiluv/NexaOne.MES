@@ -17,13 +17,16 @@ public sealed class GatewayLoginService
     private readonly IRefreshTokenStore _tokenStore;
 
     public GatewayLoginService(IRuleDispatcher dispatcher, IQueryRegistry authQueries,
-        IJwtService jwt, IRefreshTokenStore tokenStore)
+        IJwtService jwt, IRefreshTokenStore tokenStore, IEmailSender? emailSender = null)
     {
         _dispatcher = dispatcher;
         _authQueries = authQueries;
         _jwt = jwt;
         _tokenStore = tokenStore;
+        _emailSender = emailSender ?? new NullEmailSender();
     }
+
+    private readonly IEmailSender _emailSender;
 
     public async Task<AuthOutcome> LoginAsync(
         string userId, string password, string plantId, string ip, string ua, CancellationToken ct)
@@ -174,6 +177,83 @@ public sealed class GatewayLoginService
             ["utcNow"] = DateTime.UtcNow,
         }, ct);
         return AuthOutcome.Ok(new { userId = req.UserId });
+    }
+
+    // ── 비밀번호 재설정 (forgot/reset, V065 — 폐기 NexaOne.API PasswordResetService 갭 복원) ────────
+
+    /// <summary>재설정 토큰 발급 + 메일 발송. 사용자 열거 방지 — 존재/상태와 무관하게 항상 성공을 반환한다.
+    /// 토큰 원문은 메일로만 전달하고 DB에는 SHA-256 해시만 저장한다(30분 만료·1회용).</summary>
+    public async Task<AuthOutcome> ForgotPasswordAsync(string userId, CancellationToken ct)
+    {
+        var row = await QuerySingleAsync("SYS.AuthUserById", new() { ["userId"] = userId }, ct);
+        var email = row is null ? null : ToNullableStr(Get(row, "EMAIL"));
+        if (row is not null && !ToBool(Get(row, "IS_DELETED")) && ToBool(Get(row, "IS_ACTIVE"))
+            && !string.IsNullOrWhiteSpace(email))
+        {
+            var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+            await ExecuteAsync("SYS.InsertPasswordReset", new()
+            {
+                ["tokenHash"] = Sha256Hex(token),
+                ["userId"] = userId,
+                ["expiresAt"] = DateTime.UtcNow.AddMinutes(30),
+                ["utcNow"] = DateTime.UtcNow,
+            }, ct);
+            await _emailSender.SendAsync(email!, "[NexaOne] 비밀번호 재설정",
+                $"비밀번호 재설정 토큰: {token}\n30분 내에 재설정 화면에 입력하세요. 요청하지 않았다면 무시하세요.", ct);
+        }
+        // 사용자 존재 여부를 응답으로 노출하지 않는다.
+        return AuthOutcome.Ok(new { message = "재설정 안내를 발송했습니다(계정이 존재하는 경우)." });
+    }
+
+    /// <summary>토큰 검증(해시 일치·미사용·미만료) 후 비밀번호를 갱신하고 토큰을 1회 소진, 전 세션을 폐기한다.</summary>
+    public async Task<AuthOutcome> ResetPasswordAsync(string token, string newPassword, CancellationToken ct)
+    {
+        var invalid = new Error("INVALID_RESET_TOKEN", "재설정 토큰이 유효하지 않거나 만료되었습니다.", ErrorType.Validation);
+        if (string.IsNullOrWhiteSpace(token))
+            return AuthOutcome.BadRequest(invalid);
+
+        var reset = await QuerySingleAsync("SYS.GetPasswordReset", new() { ["tokenHash"] = Sha256Hex(token.Trim()) }, ct);
+        if (reset is null || Get(reset, "USED_AT") is not (null or DBNull))
+            return AuthOutcome.BadRequest(invalid);
+        var expiresAt = ToDate(Get(reset, "EXPIRES_AT"));
+        if (expiresAt is null || expiresAt < DateTime.UtcNow)
+            return AuthOutcome.BadRequest(invalid);
+
+        var userId = ToStr(Get(reset, "USER_ID"));
+        var now = DateTime.UtcNow;
+        await ExecuteAsync("SYS.UpdatePassword", new()
+        {
+            ["userId"] = userId,
+            ["passwordHash"] = PasswordHasher.Hash(newPassword),
+            ["utcNow"] = now,
+        }, ct);
+        await ExecuteAsync("SYS.MarkPasswordResetUsed", new()
+        {
+            ["tokenHash"] = Sha256Hex(token.Trim()),
+            ["utcNow"] = now,
+        }, ct);
+        await _tokenStore.RevokeAllByUserAsync(userId);   // 재설정 후 기존 전 세션 만료
+        return AuthOutcome.Ok(new { userId });
+    }
+
+    /// <summary>재설정 대상 사용자 행(비밀번호 정책 검증용 — 컨트롤러가 userId/이름/이메일 포함 금지 검사에 사용).</summary>
+    public async Task<Dictionary<string, object?>?> GetResetTargetAsync(string token, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return null;
+        var reset = await QuerySingleAsync("SYS.GetPasswordReset", new() { ["tokenHash"] = Sha256Hex(token.Trim()) }, ct);
+        if (reset is null) return null;
+        return await QuerySingleAsync("SYS.AuthUserById", new() { ["userId"] = ToStr(Get(reset, "USER_ID")) }, ct);
+    }
+
+    private static string Sha256Hex(string value)
+        => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value)));
+
+    private static DateTime? ToDate(object? v)
+    {
+        if (v is null or DBNull) return null;
+        if (v is DateTime dt) return dt;
+        return DateTime.TryParse(v.ToString(), System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.None, out var p) ? p : null;
     }
 
     // ── 권한 합성 (운영 UserService.GetEffectivePermissionsAsync와 동일: 기본 매핑 ∪ split('|'), OrdinalIgnoreCase distinct) ──

@@ -1,0 +1,12 @@
+-- SYS Module: 비밀번호 재설정 토큰(forgot/reset-password 흐름). 폐기된 NexaOne.API의 PasswordResetService 갭 복원.
+-- 토큰 원문은 저장하지 않는다 — SHA-256 해시(TOKEN_HASH)만 저장(유출 시 재사용 불가). 1회용(USED_AT) + 만료(EXPIRES_AT).
+CREATE TABLE SYS_PASSWORD_RESET (
+    TOKEN_HASH   NVARCHAR(64)    NOT NULL,   -- SHA-256 hex(토큰 원문은 메일로만 전달)
+    USER_ID      NVARCHAR(50)    NOT NULL,
+    EXPIRES_AT   DATETIME2       NOT NULL,
+    USED_AT      DATETIME2       NULL,
+    CREATED_AT   DATETIME2       NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_SYS_PASSWORD_RESET PRIMARY KEY (TOKEN_HASH)
+);
+
+CREATE INDEX IX_SYS_PASSWORD_RESET_USER ON SYS_PASSWORD_RESET (USER_ID, CREATED_AT DESC);

@@ -36,3 +36,9 @@ internal static class LoginFailureReasons
     public const string InactiveUser = "InactiveUser";
     public const string AccountLocked = "AccountLocked";
 }
+
+/// <summary>비밀번호 재설정 요청(사용자 열거 방지 — 응답은 존재 여부와 무관하게 동일).</summary>
+public record ForgotPasswordRequest(string UserId);
+
+/// <summary>재설정 토큰으로 새 비밀번호 설정.</summary>
+public record ResetPasswordRequest(string Token, string NewPassword, string ConfirmPassword);

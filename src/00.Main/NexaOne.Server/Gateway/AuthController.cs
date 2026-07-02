@@ -67,6 +67,43 @@ public sealed class AuthController : ControllerBase
         return NoContent();
     }
 
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]     // 토큰 발급 남용 방어(로그인과 동일 IP 제한)
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request, CancellationToken ct)
+    {
+        // 사용자 열거 방지 — 서비스가 존재 여부와 무관하게 항상 성공 응답을 만든다.
+        var outcome = await _login.ForgotPasswordAsync(request.UserId?.Trim() ?? string.Empty, ct);
+        return outcome.Result;
+    }
+
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth")]     // 토큰 무차별 대입 방어
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request, CancellationToken ct)
+    {
+        if (request.NewPassword != request.ConfirmPassword)
+            return BadRequest(new Error("Auth.PasswordMismatch", "Passwords do not match.", ErrorType.Validation));
+
+        // §19.2.2 서버 최종 정책 검증(userId/이름/이메일 포함 금지) — 토큰 대상 사용자 기준.
+        var target = await _login.GetResetTargetAsync(request.Token, ct);
+        if (target is not null)
+        {
+            var userId = target.TryGetValue("USER_ID", out var uid) ? uid?.ToString() : null;
+            var userName = target.TryGetValue("USER_NAME", out var un) ? un?.ToString() : null;
+            var email = target.TryGetValue("EMAIL", out var em) ? em?.ToString() : null;
+            var violation = PasswordPolicy.Validate(request.NewPassword, userId ?? "", userName, email);
+            if (violation is not null)
+                return BadRequest(new Error(PasswordPolicy.ErrorCode, violation, ErrorType.Validation));
+        }
+
+        var outcome = await _login.ResetPasswordAsync(request.Token, request.NewPassword, ct);
+        return outcome.Result;
+    }
+
     [HttpPost("change-password")]
     [Authorize]
     [ProducesResponseType<TokenRefreshResponse>(StatusCodes.Status200OK)]

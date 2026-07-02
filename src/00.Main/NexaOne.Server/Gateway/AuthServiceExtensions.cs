@@ -39,9 +39,24 @@ public static class AuthServiceExtensions
         services.AddHostedService(sp => new RefreshTokenCleanupWorker(
             sp.GetRequiredService<SysRefreshTokenStore>(), cleanupEnabled, cleanupInterval, cleanupRetention));
 
+        // 메일 발송(forgot-password 토큰 전달) — 기본 무발송, Email:Smtp:Enabled=true + Host 설정 시 SMTP 실발송.
+        var smtpEnabled = configuration.GetValue("Email:Smtp:Enabled", false);
+        var smtpHost = configuration["Email:Smtp:Host"];
+        if (smtpEnabled && !string.IsNullOrWhiteSpace(smtpHost))
+            services.AddSingleton<IEmailSender>(new SmtpEmailSender(
+                smtpHost!,
+                configuration.GetValue("Email:Smtp:Port", 587),
+                configuration["Email:Smtp:Sender"] ?? "noreply@nexaone.local",
+                configuration["Email:Smtp:User"],
+                configuration["Email:Smtp:Password"],
+                configuration.GetValue("Email:Smtp:UseSsl", true)));
+        else
+            services.AddSingleton<IEmailSender>(new NullEmailSender());
+
         services.AddSingleton(sp => new GatewayLoginService(
             sp.GetRequiredService<IRuleDispatcher>(), authRegistry,
-            sp.GetRequiredService<IJwtService>(), sp.GetRequiredService<IRefreshTokenStore>()));
+            sp.GetRequiredService<IJwtService>(), sp.GetRequiredService<IRefreshTokenStore>(),
+            sp.GetRequiredService<IEmailSender>()));
 
         return services;
     }
