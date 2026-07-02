@@ -1,11 +1,12 @@
 import type {
   LayoutNode, GrapesNode, FieldDefinition, FieldType, GridColumnDefinition,
-  FieldWidget, ScreenDefinitionDto,
+  FieldWidget, ScreenDefinitionDto, BadgeStyleRule,
 } from './layout'
 
 const KIND_TO_TYPE: Record<LayoutNode['kind'], string> = {
   section: 'nx-section', row: 'nx-row', column: 'nx-column', grid: 'nx-grid',
   form: 'nx-form', field: 'nx-field', commandButton: 'nx-button', text: 'nx-text', kpi: 'nx-kpi',
+  statusBadge: 'nx-badge-widget',
 }
 const TYPE_TO_KIND: Record<string, LayoutNode['kind']> = Object.fromEntries(
   Object.entries(KIND_TO_TYPE).map(([k, v]) => [v, k as LayoutNode['kind']]),
@@ -41,6 +42,7 @@ export function layoutToComponent(node: LayoutNode): GrapesNode {
       break
     case 'form':
       if (node.saveQueryId != null) attributes['data-save-query-id'] = node.saveQueryId
+      if (node.isolated) attributes['data-isolated'] = true
       comp.components = (node.fields ?? []).map(layoutToComponent)
       break
     case 'field': {
@@ -73,6 +75,13 @@ export function layoutToComponent(node: LayoutNode): GrapesNode {
       if (node.queryId != null) attributes['data-query-id'] = node.queryId
       if (node.valueColumn != null) attributes['data-value-column'] = node.valueColumn
       if (node.unit != null) attributes['data-unit'] = node.unit
+      break
+    case 'statusBadge':
+      if (node.label != null) attributes['data-label'] = node.label
+      if (node.queryId != null) attributes['data-query-id'] = node.queryId
+      if (node.valueColumn != null) attributes['data-value-column'] = node.valueColumn
+      // styles(LIST 서브필드)는 JSON 인코딩 — value/displayText에 구분자가 있어도 무손실(columns/options 선례).
+      if (node.styles != null && node.styles.length > 0) attributes['data-styles'] = JSON.stringify(node.styles)
       break
   }
   return comp
@@ -135,7 +144,10 @@ export function componentToLayout(comp: GrapesNode): LayoutNode | null {
     case 'form': {
       const saveQueryId = str(a, 'data-save-query-id')
       const fields = childNodes.filter((n): n is FieldWidget => n.kind === 'field')
-      return { kind, ...base, ...(saveQueryId != null ? { saveQueryId } : {}), fields }
+      return {
+        kind, ...base, ...(saveQueryId != null ? { saveQueryId } : {}), fields,
+        ...(bool(a, 'data-isolated') ? { isolated: true } : {}),
+      }
     }
     case 'field': {
       const fieldKey = str(a, 'data-field-key')
@@ -174,6 +186,19 @@ export function componentToLayout(comp: GrapesNode): LayoutNode | null {
         ...(queryId != null ? { queryId } : {}),
         ...(valueColumn != null ? { valueColumn } : {}),
         ...(unit != null ? { unit } : {}),
+      }
+    }
+    case 'statusBadge': {
+      const label = str(a, 'data-label')
+      const queryId = str(a, 'data-query-id')
+      const valueColumn = str(a, 'data-value-column')
+      const styles = jsonAttr<BadgeStyleRule[]>(a, 'data-styles')
+      return {
+        kind, ...base,
+        ...(label != null ? { label } : {}),
+        ...(queryId != null ? { queryId } : {}),
+        ...(valueColumn != null ? { valueColumn } : {}),
+        ...(Array.isArray(styles) ? { styles } : {}),
       }
     }
   }

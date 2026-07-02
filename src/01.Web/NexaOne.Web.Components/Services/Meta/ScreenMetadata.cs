@@ -14,8 +14,8 @@ public sealed record FieldDefinition(
     bool ReadOnly = false,
     IReadOnlyList<string>? Options = null);
 
-/// <summary>메타데이터 그리드 컬럼 정의.</summary>
-public sealed record GridColumnDefinition(string Key, string Caption, bool Visible = true);
+/// <summary>메타데이터 그리드 컬럼 정의. Width=고정 폭(px, null=자동) — 표시 순서는 목록 순서가 담당한다(Phase-2).</summary>
+public sealed record GridColumnDefinition(string Key, string Caption, bool Visible = true, int? Width = null);
 
 /// <summary>
 /// 화면 정의(Phase 3). <c>UiId</c>(MenuItem.UiId와 연계 가능)로 식별되며, 런타임 렌더러가 해석해
@@ -53,6 +53,7 @@ public sealed record ScreenDefinition(
 [JsonDerivedType(typeof(ButtonWidget), "commandButton")]
 [JsonDerivedType(typeof(TextWidget), "text")]
 [JsonDerivedType(typeof(KpiWidget), "kpi")]
+[JsonDerivedType(typeof(BadgeWidget), "statusBadge")]
 public abstract record LayoutNode
 {
     /// <summary>GrapesJS 컴포넌트 id == 노드 id(편집 라운드트립 정체성).</summary>
@@ -68,7 +69,15 @@ public sealed record ColumnNode : LayoutNode { public int Span { get; init; } = 
 
 // 위젯 — 바인딩을 위젯별로 분리(잘못된 조합을 표현 불가능하게)
 public sealed record GridWidget : LayoutNode { public string? QueryId { get; init; } public IReadOnlyList<GridColumnDefinition>? Columns { get; init; } }
-public sealed record FormWidget : LayoutNode { public string? SaveQueryId { get; init; } public IReadOnlyList<FieldWidget>? Fields { get; init; } }
+/// <summary>폼 위젯. Isolated=true(Phase-2 멀티폼)면 화면 공유 Model 대신 폼 전용 모델에 바인딩된다 —
+/// 한 화면에 독립 폼 여러 개(각자 저장/검증)가 가능해진다. 기본 false = 기존 공유 모델(하위호환).
+/// 격리 키는 Id(우선) 또는 SaveQueryId — 둘 다 없으면 격리 불가(공유로 저하).</summary>
+public sealed record FormWidget : LayoutNode
+{
+    public string? SaveQueryId { get; init; }
+    public IReadOnlyList<FieldWidget>? Fields { get; init; }
+    public bool Isolated { get; init; }
+}
 public sealed record FieldWidget : LayoutNode { public string? FieldKey { get; init; } public FieldDefinition? Field { get; init; } }
 public sealed record ButtonWidget : LayoutNode { public string Label { get; init; } = ""; public string? Command { get; init; } }
 public sealed record TextWidget : LayoutNode { public string Text { get; init; } = ""; public bool IsLabel { get; init; } }
@@ -80,3 +89,15 @@ public sealed record KpiWidget : LayoutNode
     public string? ValueColumn { get; init; }
     public string? Unit { get; init; }
 }
+/// <summary>상태 뱃지(디자이너 Phase-2) — QueryId 결과 첫 행의 ValueColumn 값을 스타일 규칙(값→심각도)에
+/// 매칭해 색상 뱃지로 표시한다. 규칙 미매칭 값은 neutral로 원문 표시(상태 추가가 화면을 깨지 않게).</summary>
+public sealed record BadgeWidget : LayoutNode
+{
+    public string? Label { get; init; }
+    public string? QueryId { get; init; }
+    public string? ValueColumn { get; init; }
+    public IReadOnlyList<BadgeStyleRule>? Styles { get; init; }
+}
+/// <summary>뱃지 스타일 규칙 — Value(대소문자 무시 매칭) → Severity(success|warning|danger|info|neutral).
+/// DisplayText가 있으면 원문 대신 표시(예: "RUN"→"가동").</summary>
+public sealed record BadgeStyleRule(string Value, string Severity, string? DisplayText = null);

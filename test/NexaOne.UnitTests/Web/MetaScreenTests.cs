@@ -369,4 +369,59 @@ public sealed class MetaScreenTests
         api.Verify(a => a.ExecuteCommandAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()),
             Times.Never, "암시적 저장 버튼도 검증 실패 시 쓰기 게이트웨이를 호출하지 않아야 한다");
     }
+
+    [Fact]
+    public void Isolated_forms_keep_separate_models_and_post_only_their_own_values()
+    {
+        // Phase-2 멀티폼 — Isolated 폼 2개: 입력·검증·저장이 폼별로 격리돼야 한다(공유 모델이면 값이 섞인다).
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var layout = new SectionNode
+        {
+            Id = "sec",
+            Children = new LayoutNode[]
+            {
+                new FormWidget { Id = "form-a", SaveQueryId = "MDM.CreatePlant", Isolated = true, Fields = new FieldWidget[]
+                {
+                    new() { Id = "fa", FieldKey = "plantId", Field = new FieldDefinition("plantId", "공장 ID", FieldType.Text, Required: true) },
+                } },
+                new FormWidget { Id = "form-b", SaveQueryId = "MDM.CreateArea", Isolated = true, Fields = new FieldWidget[]
+                {
+                    new() { Id = "fb", FieldKey = "areaId", Field = new FieldDefinition("areaId", "AREA ID", FieldType.Text, Required: true) },
+                } },
+            },
+        };
+        var def = new ScreenDefinition("MULTI1", "멀티폼", Array.Empty<FieldDefinition>(), Layout: layout);
+
+        var posted = new Dictionary<string, Dictionary<string, object?>>(StringComparer.Ordinal);
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteCommandAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .Callback<string, object?, CancellationToken>((cmd, p, _) =>
+               posted[cmd] = new Dictionary<string, object?>((Dictionary<string, object?>)p!))
+           .ReturnsAsync(true);
+
+        ctx.Services.AddSingleton(Provider("MULTI1", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "MULTI1"));
+
+        // 폼별 암시적 저장 버튼 2개(각자 SaveQueryId) — 라벨로 구분 렌더.
+        cut.WaitForAssertion(() => cut.FindAll("button.layout-save").Count.Should().Be(2));
+
+        // 폼 A에만 입력 — 격리라면 폼 B 모델은 여전히 비어 있어야 한다.
+        cut.FindAll("input")[0].Change("P-9");
+
+        // 폼 B 저장 → B 자신의 필수(areaId) 미입력으로 검증 실패 + 커맨드 미호출(격리 증명 — 공유 모델이면 통과해버림).
+        cut.FindAll("button.layout-save")[1].Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("AREA ID"));
+        posted.Should().NotContainKey("MDM.CreateArea", "격리 폼 B는 자기 모델(비어 있음)만으로 검증돼야 한다");
+
+        // 폼 A 저장 → 자기 값(plantId)만 전송되고 타 폼 필드는 섞이지 않는다.
+        cut.FindAll("button.layout-save")[0].Click();
+        cut.WaitForAssertion(() => posted.Should().ContainKey("MDM.CreatePlant"));
+        posted["MDM.CreatePlant"].Should().ContainKey("plantId");
+        posted["MDM.CreatePlant"]["plantId"]!.ToString().Should().Be("P-9");
+        posted["MDM.CreatePlant"].Keys.Should().NotContain("areaId", "폼 간 모델이 격리돼야 한다");
+    }
 }

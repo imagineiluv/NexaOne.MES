@@ -15,11 +15,12 @@ export interface GridColumnDefinition {
   key: string
   caption: string
   visible?: boolean
+  width?: number | null   // 고정 폭(px, 미지정=자동) — 순서는 배열 순서(Phase-2)
 }
 
 export type LayoutNode =
   | SectionNode | RowNode | ColumnNode
-  | GridWidget | FormWidget | FieldWidget | ButtonWidget | TextWidget | KpiWidget
+  | GridWidget | FormWidget | FieldWidget | ButtonWidget | TextWidget | KpiWidget | BadgeWidget
 
 interface NodeBase {
   id?: string
@@ -29,12 +30,16 @@ export interface SectionNode extends NodeBase { kind: 'section'; title?: string;
 export interface RowNode     extends NodeBase { kind: 'row'; children?: LayoutNode[] }
 export interface ColumnNode  extends NodeBase { kind: 'column'; span: number; children?: LayoutNode[] }
 export interface GridWidget  extends NodeBase { kind: 'grid'; queryId?: string | null; columns?: GridColumnDefinition[] }
-export interface FormWidget  extends NodeBase { kind: 'form'; saveQueryId?: string | null; fields?: FieldWidget[] }
+// isolated=true(Phase-2 멀티폼) — 폼 전용 모델 격리(폼별 저장/검증). 기본 false=화면 공유 모델(하위호환).
+export interface FormWidget  extends NodeBase { kind: 'form'; saveQueryId?: string | null; fields?: FieldWidget[]; isolated?: boolean }
 export interface FieldWidget extends NodeBase { kind: 'field'; fieldKey?: string | null; field?: FieldDefinition | null }
 export interface ButtonWidget extends NodeBase { kind: 'commandButton'; label: string; command?: string | null }
 export interface TextWidget  extends NodeBase { kind: 'text'; text: string; isLabel?: boolean }
 // KPI 카드(Phase-2) — 바인딩 쿼리 첫 행의 valueColumn 값을 큰 숫자로 표시(C# KpiWidget 미러).
 export interface KpiWidget   extends NodeBase { kind: 'kpi'; label: string; queryId?: string | null; valueColumn?: string | null; unit?: string | null }
+// 상태 뱃지(Phase-2) — 값→심각도 규칙 매칭(C# BadgeWidget/BadgeStyleRule 미러).
+export interface BadgeStyleRule { value: string; severity: string; displayText?: string | null }
+export interface BadgeWidget extends NodeBase { kind: 'statusBadge'; label?: string | null; queryId?: string | null; valueColumn?: string | null; styles?: BadgeStyleRule[] }
 
 export interface ScreenDefinitionDto {
   uiId: string

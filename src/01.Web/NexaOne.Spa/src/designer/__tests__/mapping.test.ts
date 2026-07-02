@@ -62,6 +62,50 @@ describe('LayoutNode ↔ GrapesJS 매핑', () => {
     const bare: LayoutNode = { kind: 'kpi', id: 'kpi-2', label: 'KPI' }
     expect(componentToLayout(layoutToComponent(bare))).toEqual(bare)
   })
+
+  it('StatusBadge(Phase-2) 라운드트립 무손실 — 스타일 규칙(JSON 인코딩)에 구분자가 있어도 보존', () => {
+    const badge: LayoutNode = {
+      kind: 'statusBadge', id: 'bdg-1', label: '설비 상태',
+      queryId: 'EST.CurrentState', valueColumn: 'STATE_ID',
+      styles: [
+        { value: 'RUN', severity: 'success', displayText: '가동, 정상' },   // 콤마 포함 displayText
+        { value: 'DOWN', severity: 'danger' },
+      ],
+    }
+    const comp = layoutToComponent(badge)
+    expect(comp.type).toBe('nx-badge-widget')
+    expect(typeof comp.attributes!['data-styles']).toBe('string')
+    expect(componentToLayout(comp)).toEqual(badge)
+
+    const bare: LayoutNode = { kind: 'statusBadge', id: 'bdg-2' }
+    expect(componentToLayout(layoutToComponent(bare))).toEqual(bare)
+  })
+
+  it('멀티폼 isolated(Phase-2) 라운드트립 — true만 기록, 미지정은 속성 부재(하위호환)', () => {
+    const isolated: LayoutNode = {
+      kind: 'form', id: 'form-a', saveQueryId: 'MDM.CreatePlant', isolated: true,
+      fields: [{ kind: 'field', id: 'f1', fieldKey: 'plantId' }],
+    }
+    const comp = layoutToComponent(isolated)
+    expect(comp.attributes!['data-isolated']).toBe(true)
+    expect(componentToLayout(comp)).toEqual(isolated)
+
+    const shared: LayoutNode = { kind: 'form', id: 'form-b', saveQueryId: 'MDM.CreateArea', fields: [] }
+    const sharedComp = layoutToComponent(shared)
+    expect(sharedComp.attributes!['data-isolated']).toBeUndefined()
+    expect(componentToLayout(sharedComp)).toEqual(shared)
+  })
+
+  it('그리드 컬럼 width(px, Phase-2)가 JSON 인코딩 라운드트립에서 보존된다', () => {
+    const grid: LayoutNode = {
+      kind: 'grid', id: 'g-w', queryId: 'MDM.PlantList',
+      columns: [
+        { key: 'PLANT_ID', caption: '공장 ID', visible: true, width: 120 },
+        { key: 'PLANT_NAME', caption: '공장명', visible: true },   // 미지정 → 자동(속성 부재 유지)
+      ],
+    }
+    expect(componentToLayout(layoutToComponent(grid))).toEqual(grid)
+  })
 })
 
 describe('field 이산 속성 매핑(트레이트 단일 출처)', () => {

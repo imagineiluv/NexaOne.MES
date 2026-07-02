@@ -78,6 +78,47 @@ public sealed class LayoutRendererTests
     }
 
     [Fact]
+    public void Badge_widget_matches_style_rules_and_falls_back_to_neutral()
+    {
+        using var ctx = new TestContext();
+        var styles = new BadgeStyleRule[]
+        {
+            new("RUN", "success", "가동"),
+            new("DOWN", "danger"),
+            new("IDLE", "not-a-severity"),   // 화이트리스트 밖 심각도 → neutral 강제(CSS 클래스 주입 차단)
+        };
+        var layout = new RowNode
+        {
+            Children = new LayoutNode[]
+            {
+                new BadgeWidget { Id = "b1", Label = "설비 상태", QueryId = "Q.Run", ValueColumn = "STATE", Styles = styles },
+                new BadgeWidget { Id = "b2", QueryId = "Q.Down", ValueColumn = "STATE", Styles = styles },
+                new BadgeWidget { Id = "b3", QueryId = "Q.Idle", ValueColumn = "STATE", Styles = styles },
+                new BadgeWidget { Id = "b4", QueryId = "Q.Unknown", ValueColumn = "STATE", Styles = styles },
+                new BadgeWidget { Id = "b5", QueryId = "NO.Data", ValueColumn = "STATE", Styles = styles },
+            },
+        };
+        var results = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>
+        {
+            ["Q.Run"] = new List<Dictionary<string, object?>> { new() { ["STATE"] = "run" } },      // 대소문자 무시 매칭
+            ["Q.Down"] = new List<Dictionary<string, object?>> { new() { ["STATE"] = "DOWN" } },
+            ["Q.Idle"] = new List<Dictionary<string, object?>> { new() { ["STATE"] = "IDLE" } },
+            ["Q.Unknown"] = new List<Dictionary<string, object?>> { new() { ["STATE"] = "PM" } },   // 규칙 미등록 상태
+        };
+
+        var cut = Render(ctx, layout, results: results);
+
+        cut.Markup.Should().Contain("nx-badge-success").And.Contain("가동",
+            "매칭 규칙의 DisplayText('가동')와 심각도(success)가 적용돼야 한다");
+        cut.Markup.Should().Contain("nx-badge-danger").And.Contain("DOWN", "DisplayText 없으면 원문 표시");
+        cut.Markup.Should().Contain("PM", "규칙 미등록 값은 neutral로 원문 표시(화면 불파손)");
+        cut.Markup.Should().Contain("—", "데이터 부재는 대시(—)");
+        cut.Markup.Should().NotContain("nx-badge-not-a-severity",
+            "화이트리스트 밖 심각도는 CSS 클래스로 새면 안 된다(neutral 강제)");
+        cut.FindAll(".nx-badge-neutral").Count.Should().Be(3, "IDLE(비정상 심각도)+PM(미등록)+무데이터 = neutral 3");
+    }
+
+    [Fact]
     public void Grid_widget_renders_rows_from_query_result_map()
     {
         using var ctx = new TestContext();

@@ -25,9 +25,11 @@
 }
 else if (_definition.Layout is not null)
 {
-    @* 레이아웃 트리 화면 — 멀티 read 결과맵을 내려보내고, 명령/검증은 MetaScreen이 오케스트레이션한다. *@
+    @* 레이아웃 트리 화면 — 멀티 read 결과맵을 내려보내고, 명령/검증은 MetaScreen이 오케스트레이션한다.
+       격리 폼(Isolated, Phase-2 멀티폼)은 폼별 모델(_formModels)에 바인딩된다. *@
     <LayoutRenderer Node="_definition.Layout" @bind-Model="_model"
-                    QueryResults="_queryResults" OnCommand="RunCommand" />
+                    QueryResults="_queryResults" OnCommand="RunCommand"
+                    FormModels="_formModels" OnFormModelChanged="OnFormModelChanged" />
 
     @if (_errors.Count > 0)
     {
@@ -99,6 +101,11 @@ else
     private bool _saved;
     // 레이아웃 트리에서 명령 버튼으로 커버되지 않은 폼 저장쿼리 — 암시적 저장 버튼 대상(공백/중복 제외).
     private IReadOnlyList<string> _uncoveredSaveQueries = Array.Empty<string>();
+    // Phase-2 멀티폼 — 격리 폼(Isolated)의 스코프 키→폼별 모델. 로드 시 트리를 훑어 사전 시드한다
+    // (렌더 중 생성하면 매 렌더 새 인스턴스가 되어 입력이 소실된다).
+    private Dictionary<string, Dictionary<string, object?>> _formModels = new(StringComparer.Ordinal);
+    // 스코프 키→격리 FormWidget — 명령 라우팅(SaveQueryId 매칭)·폼별 검증에 쓴다.
+    private Dictionary<string, FormWidget> _isolatedForms = new(StringComparer.Ordinal);
 
     protected override async Task OnParametersSetAsync()
     {
@@ -124,6 +131,8 @@ else
 
         // 레이아웃 화면: 트리에서 distinct read 쿼리를 수집해 각 1회 실행 → 위젯별 결과맵.
         _uncoveredSaveQueries = Array.Empty<string>();
+        _formModels = new(StringComparer.Ordinal);
+        _isolatedForms = new(StringComparer.Ordinal);
         if (_definition?.Layout is not null)
         {
             var map = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>(StringComparer.Ordinal);
@@ -138,8 +147,20 @@ else
                 .Where(q => !covered.Contains(q))
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
+
+            // Phase-2 멀티폼 — 격리 폼의 폼별 모델을 사전 시드(안정 인스턴스)하고 라우팅 인덱스를 만든다.
+            foreach (var form in CollectForms(_definition.Layout).Where(f => f.Isolated))
+            {
+                var key = LayoutRenderer.FormScopeKey(form);
+                if (key is null || _isolatedForms.ContainsKey(key)) continue;   // 키 없음=공유 저하, 중복 키=첫 폼 우선
+                _isolatedForms[key] = form;
+                _formModels[key] = new Dictionary<string, object?>();
+            }
         }
     }
+
+    private void OnFormModelChanged((string Key, Dictionary<string, object?> Model) change)
+        => _formModels[change.Key] = change.Model;
 
     private async Task Save()
     {
@@ -167,26 +188,47 @@ else
         }
     }
 
+    // 공유 경로 검증 — 격리 폼(Isolated) 내부 필드는 제외한다(값이 폼별 모델에 있어 공유 모델 기준으론
+    // 항상 미입력으로 오판된다). 격리 폼 검증은 RunCommand의 폼별 경로가 담당.
     private List<string> Validate()
     {
-        var errors = new List<string>();
-        if (_definition is null) return errors;
+        if (_definition is null) return new List<string>();
         var fields = _definition.Layout is not null
-            ? CollectFields(_definition.Layout)
+            ? CollectFields(_definition.Layout, skipIsolatedForms: true)
             : _definition.Fields;
+        return ValidateFields(fields, _model);
+    }
+
+    private static List<string> ValidateFields(IEnumerable<FieldDefinition> fields, Dictionary<string, object?> model)
+    {
+        var errors = new List<string>();
         foreach (var field in fields.Where(f => f.Required))
         {
-            if (!_model.TryGetValue(field.Key, out var v) || string.IsNullOrWhiteSpace(v?.ToString()))
+            if (!model.TryGetValue(field.Key, out var v) || string.IsNullOrWhiteSpace(v?.ToString()))
                 errors.Add($"{field.Label}은(는) 필수입니다.");
         }
         return errors;
     }
 
-    // 레이아웃 명령 버튼 클릭 — 공유 Model을 명명 쓰기쿼리로 전송한다(검증 통과 시).
+    // 레이아웃 명령 실행 — 커맨드가 격리 폼(Isolated)의 SaveQueryId면 그 폼의 모델·필드만으로 검증/전송하고
+    // (Phase-2 멀티폼: 폼 간 값·검증이 섞이지 않는다), 그 외에는 기존대로 공유 Model을 쓴다(하위호환).
     private async Task RunCommand(string? command)
     {
         _saved = false;
         if (string.IsNullOrWhiteSpace(command)) return;
+
+        var isolated = _isolatedForms.Values.FirstOrDefault(f =>
+            string.Equals(f.SaveQueryId, command, StringComparison.Ordinal));
+        if (isolated is not null && LayoutRenderer.FormScopeKey(isolated) is { } key)
+        {
+            var formModel = _formModels.TryGetValue(key, out var m) ? m : new Dictionary<string, object?>();
+            _errors = ValidateFields(CollectFields(isolated), formModel);
+            if (_errors.Count > 0) return;
+            _saved = await Api.ExecuteCommandAsync(command, formModel);
+            if (!_saved) _errors.Add("저장에 실패했습니다(권한/입력 확인).");
+            return;
+        }
+
         _errors = Validate();
         if (_errors.Count > 0) return;
         _saved = await Api.ExecuteCommandAsync(command, _model);
@@ -204,6 +246,9 @@ else
             case KpiWidget k when !string.IsNullOrWhiteSpace(k.QueryId):
                 yield return k.QueryId!;
                 break;
+            case BadgeWidget bw when !string.IsNullOrWhiteSpace(bw.QueryId):
+                yield return bw.QueryId!;
+                break;
             case SectionNode s: foreach (var id in Children(s.Children)) yield return id; break;
             case RowNode r: foreach (var id in Children(r.Children)) yield return id; break;
             case ColumnNode c: foreach (var id in Children(c.Children)) yield return id; break;
@@ -213,7 +258,8 @@ else
     }
 
     // 트리에서 검증 대상 필드(FieldWidget)를 수집 — 검증의 단일 출처(평면 Fields 미러링 금지).
-    private static IEnumerable<FieldDefinition> CollectFields(LayoutNode node)
+    // skipIsolatedForms=true면 격리 폼 내부 필드를 건너뛴다(공유 경로 검증용 — 값이 폼별 모델에 있음).
+    private static IEnumerable<FieldDefinition> CollectFields(LayoutNode node, bool skipIsolatedForms = false)
     {
         switch (node)
         {
@@ -221,15 +267,30 @@ else
                 yield return fw.Field ?? new FieldDefinition(fw.FieldKey ?? string.Empty, fw.FieldKey ?? string.Empty);
                 break;
             case FormWidget f:
+                if (skipIsolatedForms && f.Isolated) break;
                 foreach (var child in f.Fields ?? Array.Empty<FieldWidget>())
-                    foreach (var fd in CollectFields(child)) yield return fd;
+                    foreach (var fd in CollectFields(child, skipIsolatedForms)) yield return fd;
                 break;
             case SectionNode s: foreach (var fd in Children(s.Children)) yield return fd; break;
             case RowNode r: foreach (var fd in Children(r.Children)) yield return fd; break;
             case ColumnNode c: foreach (var fd in Children(c.Children)) yield return fd; break;
         }
-        static IEnumerable<FieldDefinition> Children(IReadOnlyList<LayoutNode>? children)
-            => (children ?? Array.Empty<LayoutNode>()).SelectMany(CollectFields);
+        IEnumerable<FieldDefinition> Children(IReadOnlyList<LayoutNode>? children)
+            => (children ?? Array.Empty<LayoutNode>()).SelectMany(n => CollectFields(n, skipIsolatedForms));
+    }
+
+    // 트리에서 FormWidget 전체를 수집 — 격리 폼 모델 시드/명령 라우팅 인덱스용.
+    private static IEnumerable<FormWidget> CollectForms(LayoutNode node)
+    {
+        switch (node)
+        {
+            case FormWidget f: yield return f; break;
+            case SectionNode s: foreach (var x in Children(s.Children)) yield return x; break;
+            case RowNode r: foreach (var x in Children(r.Children)) yield return x; break;
+            case ColumnNode c: foreach (var x in Children(c.Children)) yield return x; break;
+        }
+        static IEnumerable<FormWidget> Children(IReadOnlyList<LayoutNode>? children)
+            => (children ?? Array.Empty<LayoutNode>()).SelectMany(CollectForms);
     }
 
     // 트리에서 폼 저장쿼리(FormWidget.SaveQueryId)를 수집(빈/공백 제외) — 암시적 저장 버튼 후보.

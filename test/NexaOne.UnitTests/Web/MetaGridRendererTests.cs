@@ -86,4 +86,35 @@ public sealed class MetaGridRendererTests
         cut.FindAll("tbody tr").Should().BeEmpty();
         cut.Markup.Should().Contain("결과 없음");
     }
+
+    [Fact]
+    public void Column_width_meta_renders_fixed_colgroup_and_auto_for_unspecified()
+    {
+        // Phase-2 컬럼 폭 — Width(px) 지정 시 table-layout:fixed + colgroup 고정, 미지정 컬럼은 자동 분배.
+        using var ctx = new TestContext();
+        var columns = new GridColumnDefinition[]
+        {
+            new("PLANT_ID", "공장 ID", Width: 120),
+            new("PLANT_NAME", "공장명"),                       // 폭 미지정 → 자동
+            new("SECRET", "숨김", Visible: false, Width: 50),  // 숨김 컬럼은 colgroup에서도 제외
+        };
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, columns)
+            .Add(c => c.Rows, new List<Dictionary<string, object?>> { new() { ["PLANT_ID"] = "P-1" } }));
+
+        cut.Markup.Should().Contain("table-layout:fixed", "폭 지정 컬럼이 있으면 고정 레이아웃이어야 한다");
+        cut.FindAll("colgroup col").Count.Should().Be(2, "보이는 컬럼 수만큼 col(숨김 제외)");
+        cut.Markup.Should().Contain("width:120px");
+        cut.Markup.Should().NotContain("width:50px", "숨김 컬럼 폭은 렌더되지 않아야 한다");
+    }
+
+    [Fact]
+    public void No_width_meta_keeps_auto_layout_without_colgroup()
+    {
+        using var ctx = new TestContext();
+        var cut = Render(ctx, rows: new List<Dictionary<string, object?>>());
+
+        cut.Markup.Should().NotContain("table-layout:fixed", "폭 미지정 화면은 기존 자동 레이아웃 유지(하위호환)");
+        cut.FindAll("colgroup").Should().BeEmpty();
+    }
 }

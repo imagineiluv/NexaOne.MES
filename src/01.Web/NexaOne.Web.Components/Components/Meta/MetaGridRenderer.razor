@@ -5,7 +5,19 @@
 
 @{ var cols = Columns.Where(c => c.Visible).ToList(); }
 <div class="meta-grid">
-    <table style="width:100%; border-collapse:collapse; font-size:0.875rem;">
+    <table style="@(cols.Any(c => c.Width is > 0) ? "width:100%; border-collapse:collapse; font-size:0.875rem; table-layout:fixed;" : "width:100%; border-collapse:collapse; font-size:0.875rem;")">
+        @* 컬럼 폭 메타(Phase-2) — Width(px) 지정 컬럼은 colgroup으로 고정하고(table-layout:fixed 필요),
+           미지정 컬럼은 잔여 폭을 자동 분배한다. 표시 순서는 Columns 목록 순서가 담당. *@
+        @if (cols.Any(c => c.Width is > 0))
+        {
+            <colgroup>
+                @foreach (var col in cols)
+                {
+                    @if (col.Width is > 0) { <col style="width:@(col.Width)px;" /> }
+                    else { <col /> }
+                }
+            </colgroup>
+        }
         <thead>
             <tr>
                 @foreach (var col in cols)

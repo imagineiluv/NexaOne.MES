@@ -46,13 +46,14 @@ export interface ComponentTypeDef {
 export const COMPONENT_TYPE_DEFS: ComponentTypeDef[] = [
   { type: 'nx-section', name: 'Section', allowedChildren: ['nx-row'], allowedParents: [] },
   { type: 'nx-row', name: 'Row', allowedChildren: ['nx-column'], allowedParents: ['nx-section'] },
-  { type: 'nx-column', name: 'Column', allowedChildren: ['nx-grid', 'nx-form', 'nx-button', 'nx-text', 'nx-kpi'], allowedParents: ['nx-row'] },
+  { type: 'nx-column', name: 'Column', allowedChildren: ['nx-grid', 'nx-form', 'nx-button', 'nx-text', 'nx-kpi', 'nx-badge-widget'], allowedParents: ['nx-row'] },
   { type: 'nx-grid', name: 'DataGrid', allowedChildren: [], allowedParents: ['nx-column'] },
   { type: 'nx-form', name: 'Form', allowedChildren: ['nx-field'], allowedParents: ['nx-column'] },
   { type: 'nx-field', name: 'Field', allowedChildren: [], allowedParents: ['nx-form'] },
   { type: 'nx-button', name: 'CommandButton', allowedChildren: [], allowedParents: ['nx-column'] },
   { type: 'nx-text', name: 'Text', allowedChildren: [], allowedParents: ['nx-column'] },
   { type: 'nx-kpi', name: 'KPI', allowedChildren: [], allowedParents: ['nx-column'] },
+  { type: 'nx-badge-widget', name: 'StatusBadge', allowedChildren: [], allowedParents: ['nx-column'] },
 ]
 
 export const BLOCK_DEFS: BlockDef[] = [
@@ -65,6 +66,7 @@ export const BLOCK_DEFS: BlockDef[] = [
   { id: 'nx-button', label: '명령 버튼', content: { type: 'nx-button', attributes: { 'data-label': '버튼' } } },
   { id: 'nx-text', label: '텍스트', content: { type: 'nx-text', attributes: { 'data-text': '텍스트' } } },
   { id: 'nx-kpi', label: 'KPI 카드', content: { type: 'nx-kpi', attributes: { 'data-label': 'KPI' } } },
+  { id: 'nx-badge-widget', label: '상태 뱃지', content: { type: 'nx-badge-widget', attributes: { 'data-label': '상태' } } },
 ]
 
 // GrapesJS 컴포넌트의 최소 형태(type 기반 비교) — droppable/draggable 함수가 받는 인자.
@@ -97,10 +99,14 @@ export function buildTraitDefs(queries: QueryCatalog): Record<string, TraitDef[]
     'nx-column': [{ type: 'number', name: 'data-span', label: '폭(1-12)' }],
     'nx-grid': [
       { type: 'select', name: 'data-query-id', label: '조회 쿼리', options: readOpts },
-      // 컬럼 작성 트레이트. JSON 인코딩 — key/caption에 콤마·콜론이 있어도 무손실 라운드트립.
-      { type: 'text', name: 'data-columns', label: '컬럼(JSON: [{key,caption,visible}])' },
+      // 컬럼 작성 트레이트. JSON 인코딩 — key/caption에 콤마·콜론이 있어도 무손실 라운드트립. width=px(선택).
+      { type: 'text', name: 'data-columns', label: '컬럼(JSON: [{key,caption,visible,width}])' },
     ],
-    'nx-form': [{ type: 'select', name: 'data-save-query-id', label: '저장 쿼리', options: writeOpts }],
+    'nx-form': [
+      { type: 'select', name: 'data-save-query-id', label: '저장 쿼리', options: writeOpts },
+      // Phase-2 멀티폼 — 체크 시 폼 전용 모델 격리(폼별 저장/검증). 미체크=화면 공유 모델(하위호환).
+      { type: 'checkbox', name: 'data-isolated', label: '모델 격리(멀티폼)' },
+    ],
     // FieldDefinition 전체를 이산 트레이트로 노출(data-field JSON blob 폐기, 트레이트 패널이 단일 편집 출처).
     'nx-field': [
       { type: 'text', name: 'data-field-key', label: '필드 키' },
@@ -120,6 +126,13 @@ export function buildTraitDefs(queries: QueryCatalog): Record<string, TraitDef[]
       { type: 'select', name: 'data-query-id', label: '조회 쿼리', options: readOpts },
       { type: 'text', name: 'data-value-column', label: '값 컬럼' },
       { type: 'text', name: 'data-unit', label: '단위(선택)' },
+    ],
+    // styles(LIST 서브필드)는 JSON 인코딩 — 심각도는 success|warning|danger|info|neutral(C# 화이트리스트 미러).
+    'nx-badge-widget': [
+      { type: 'text', name: 'data-label', label: '라벨(선택)' },
+      { type: 'select', name: 'data-query-id', label: '조회 쿼리', options: readOpts },
+      { type: 'text', name: 'data-value-column', label: '값 컬럼' },
+      { type: 'text', name: 'data-styles', label: '규칙(JSON: [{value,severity,displayText}])' },
     ],
   }
 }

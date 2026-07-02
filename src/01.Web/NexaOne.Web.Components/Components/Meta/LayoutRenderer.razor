@@ -27,10 +27,22 @@
         <MetaGridRenderer Columns="g.Columns ?? Array.Empty<GridColumnDefinition>()" Rows="RowsFor(g.QueryId)" />
         break;
 
-    @* Form/Field는 화면 공유 Model(동일 Dictionary 참조)에 그대로 바인딩한다 — 위젯 간 값이 즉시 공유되는 의도된 설계. *@
+    @* Form/Field는 기본적으로 화면 공유 Model(동일 Dictionary 참조)에 바인딩한다 — 위젯 간 값 즉시 공유(의도된 설계).
+       Isolated=true(Phase-2 멀티폼)면 폼 전용 모델(FormModels[key])에 바인딩해 폼 간 값이 섞이지 않는다. *@
     case FormWidget f:
-        <MetaFormRenderer Definition="FormDefinition(f)" Model="Model" ModelChanged="OnModelChanged" />
+    {
+        var scopeKey = FormScopeKey(f);
+        @if (f.Isolated && scopeKey is not null && FormModels.TryGetValue(scopeKey, out var formModel))
+        {
+            <MetaFormRenderer Definition="FormDefinition(f)" Model="formModel"
+                              ModelChanged="m => OnFormModelChanged.InvokeAsync((scopeKey, m))" />
+        }
+        else
+        {
+            <MetaFormRenderer Definition="FormDefinition(f)" Model="Model" ModelChanged="OnModelChanged" />
+        }
         break;
+    }
 
     case FieldWidget fw:
         <MetaFormRenderer Definition="SingleFieldDefinition(fw)" Model="Model" ModelChanged="OnModelChanged" />
@@ -45,15 +57,27 @@
         else { <span class="layout-text">@t.Text</span> }
         break;
 
-    @* KPI 카드(Phase-2) — 바인딩 쿼리 첫 행의 ValueColumn 값을 큰 숫자로. 미실행/공백은 '—'(빈 카드 방지). *@
+    @* KPI 카드(Phase-2) — 바인딩 쿼리 첫 행의 ValueColumn 값을 큰 숫자로. 미실행/공백은 '—'(빈 카드 방지).
+       스타일은 디자인 토큰 클래스(smartux.css --nx-*) 단일 출처. *@
     case KpiWidget k:
-        <div class="layout-kpi" style="padding:1rem 1.25rem; border:1px solid #e5e7eb; border-radius:0.5rem; background:#fff; min-width:9rem;">
-            <div style="font-size:0.75rem; color:#6b7280; margin-bottom:0.25rem;">@k.Label</div>
-            <div style="font-size:1.75rem; font-weight:700; color:#111827; line-height:1;">
-                @KpiValue(k)@if (!string.IsNullOrWhiteSpace(k.Unit)) { <small style="font-size:0.813rem; font-weight:500; color:#6b7280; margin-left:0.25rem;">@k.Unit</small> }
+        <div class="layout-kpi">
+            <div class="layout-kpi-label">@k.Label</div>
+            <div class="layout-kpi-value">
+                @KpiValue(k)@if (!string.IsNullOrWhiteSpace(k.Unit)) { <small class="layout-kpi-unit">@k.Unit</small> }
             </div>
         </div>
         break;
+
+    @* 상태 뱃지(Phase-2) — 값→심각도 규칙 매칭. 미매칭 값은 neutral 원문 표시(신규 상태가 화면을 깨지 않게). *@
+    case BadgeWidget bw:
+    {
+        var (text, severity) = BadgeFor(bw);
+        <div class="layout-badge">
+            @if (!string.IsNullOrWhiteSpace(bw.Label)) { <span class="layout-badge-label">@bw.Label</span> }
+            <span class="nx-badge nx-badge-@severity">@text</span>
+        </div>
+        break;
+    }
 
     default:
         @* 알 수 없는 노드 종류는 아무것도 렌더하지 않는다(서버/역직렬화 상위에서 검증됨). *@
@@ -67,6 +91,14 @@
     [Parameter] public IReadOnlyDictionary<string, IReadOnlyList<Dictionary<string, object?>>> QueryResults { get; set; }
         = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>();
     [Parameter] public EventCallback<string> OnCommand { get; set; }
+    // Phase-2 멀티폼 — 격리 폼(Isolated)의 폼별 모델(스코프 키→모델). MetaScreen이 로드 시 사전 시드한다.
+    [Parameter] public IReadOnlyDictionary<string, Dictionary<string, object?>> FormModels { get; set; }
+        = new Dictionary<string, Dictionary<string, object?>>();
+    [Parameter] public EventCallback<(string Key, Dictionary<string, object?> Model)> OnFormModelChanged { get; set; }
+
+    /// <summary>격리 폼 스코프 키 — Id 우선, 없으면 SaveQueryId, 둘 다 없으면 null(공유로 저하).</summary>
+    internal static string? FormScopeKey(FormWidget f)
+        => f.Id is { Length: > 0 } ? f.Id : (f.SaveQueryId is { Length: > 0 } ? f.SaveQueryId : null);
 
     // 자식은 재귀로 child LayoutRenderer를 그린다. 시퀀스 번호는 소스 위치당 상수(반복마다 동일)로 두고,
     // 노드 정체성(Id 우선)으로 SetKey 해 디자이너의 재정렬/삽입/삭제 시 Blazor가 인스턴스를 유지(중첩 폼
@@ -83,6 +115,8 @@
             builder.AddAttribute(3, nameof(ModelChanged), ModelChanged);
             builder.AddAttribute(4, nameof(QueryResults), QueryResults);
             builder.AddAttribute(5, nameof(OnCommand), OnCommand);
+            builder.AddAttribute(6, nameof(FormModels), FormModels);
+            builder.AddAttribute(7, nameof(OnFormModelChanged), OnFormModelChanged);
             builder.CloseComponent();
         }
     };
@@ -97,6 +131,25 @@
         var rows = RowsFor(k.QueryId);
         if (rows is not { Count: > 0 } || string.IsNullOrWhiteSpace(k.ValueColumn)) return "—";
         return rows[0].TryGetValue(k.ValueColumn, out var v) && v is not null ? v.ToString() ?? "—" : "—";
+    }
+
+    private static readonly HashSet<string> KnownSeverities =
+        new(StringComparer.OrdinalIgnoreCase) { "success", "warning", "danger", "info", "neutral" };
+
+    // 뱃지 표시값/심각도 — 규칙 매칭(대소문자 무시). 미매칭=neutral 원문, 데이터 부재='—'.
+    // 심각도는 화이트리스트로 정규화한다(임의 문자열이 CSS 클래스로 새는 것 차단).
+    private (string Text, string Severity) BadgeFor(BadgeWidget bw)
+    {
+        var rows = RowsFor(bw.QueryId);
+        if (rows is not { Count: > 0 } || string.IsNullOrWhiteSpace(bw.ValueColumn)
+            || !rows[0].TryGetValue(bw.ValueColumn, out var v) || v is null)
+            return ("—", "neutral");
+
+        var raw = v.ToString() ?? "—";
+        var rule = bw.Styles?.FirstOrDefault(s => string.Equals(s.Value, raw, StringComparison.OrdinalIgnoreCase));
+        if (rule is null) return (raw, "neutral");
+        var severity = KnownSeverities.Contains(rule.Severity) ? rule.Severity.ToLowerInvariant() : "neutral";
+        return (rule.DisplayText is { Length: > 0 } ? rule.DisplayText : raw, severity);
     }
 
     private static string ColumnStyle(int span)
