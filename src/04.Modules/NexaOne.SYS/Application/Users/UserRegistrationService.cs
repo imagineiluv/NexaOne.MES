@@ -117,9 +117,8 @@ public sealed class UserRegistrationService
         return Result.Success(requests);
     }
 
-    /// <summary>§19.3.5 — 승인: SYS_USER 행 생성(PasswordState=Create, 임시 비밀번호 해시) 후
-    /// 신청을 Approved로 전환한다. UnitOfWork 부재 적응 — 전수 검증 후 사용자 생성 → 신청 갱신 순서.
-    /// 신청 갱신이 실패해도 사용자 행이 남으므로 재승인 시 중복 충돌로 드러난다.</summary>
+    /// <summary>§19.3.5 — 승인: SYS_USER 행 생성(PasswordState=Create, 임시 비밀번호 해시) + 신청 Approved 전환을
+    /// 단일 트랜잭션으로 영속한다(DATA-6 원자화 — 사용자만 생성되고 신청이 대기로 남는 부분 커밋 불가).</summary>
     public async Task<Result<(UserRequest Request, User User)>> ApproveAsync(
         string requestId, string approvedBy, string roleId, string tempPasswordHash,
         DateTime utcNow, CancellationToken ct = default)
@@ -150,8 +149,8 @@ public sealed class UserRegistrationService
         if (approve.IsFailure)
             return Result.Failure<(UserRequest, User)>(approve.Error);
 
-        await _users.AddAsync(user, ct);
-        await _requests.UpdateAsync(request, ct);
+        // 단일 트랜잭션 영속(DATA-6) — 검증/전이 실패는 이 지점 이전에 반환되므로 부분 커밋이 불가능하다.
+        await _requests.ApprovePersistAsync(request, user, ct);
         return Result.Success((request, user));
     }
 

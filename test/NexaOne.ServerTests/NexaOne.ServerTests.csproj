@@ -22,6 +22,8 @@
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.EST\NexaOne.EST.csproj" />
     <!-- POM Lot Mixing 원자화(DATA-3) SQLite 원자성 통합검증용 — 동일 패턴으로 POM 리포/서비스를 직접 구성한다. -->
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.POM\NexaOne.POM.csproj" />
+    <!-- SYS Approve 원자화(DATA-6) SQLite 원자성 통합검증용. -->
+    <ProjectReference Include="..\..\src\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" />
   </ItemGroup>
 
 </Project>

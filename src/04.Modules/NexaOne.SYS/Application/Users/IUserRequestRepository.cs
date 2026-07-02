@@ -16,4 +16,9 @@ public interface IUserRequestRepository
 
     Task AddAsync(UserRequest request, CancellationToken ct = default);
     Task UpdateAsync(UserRequest request, CancellationToken ct = default);
+
+    /// <summary>승인 일괄 영속(DATA-6 원자화, POM MixingPersistAsync 패턴) — SYS_USER INSERT + 신청 Approved
+    /// UPDATE(+outbox)를 단일 트랜잭션으로 커밋한다. 어느 문장이 실패해도 전체 롤백되어 '사용자만 생성되고
+    /// 신청이 대기로 남는' 부분 커밋이 불가능하다.</summary>
+    Task ApprovePersistAsync(UserRequest request, User user, CancellationToken ct = default);
 }

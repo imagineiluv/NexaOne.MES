@@ -201,8 +201,8 @@ public sealed class UserRegistrationServiceTests
         var request = PendingRequest();
         _requests.Setup(r => r.GetByIdAsync("REQ1", default)).ReturnsAsync(request);
         User? created = null;
-        _users.Setup(u => u.AddAsync(It.IsAny<User>(), default))
-            .Callback<User, CancellationToken>((u, _) => created = u)
+        _requests.Setup(r => r.ApprovePersistAsync(It.IsAny<UserRequest>(), It.IsAny<User>(), default))
+            .Callback<UserRequest, User, CancellationToken>((_, u, _) => created = u)
             .Returns(Task.CompletedTask);
         var hash = PasswordHasher.Hash("temp-password");
 
@@ -217,8 +217,10 @@ public sealed class UserRegistrationServiceTests
         created.Email.Should().Be("new@test.com");
         created.PasswordHash.Should().Be(hash);
         created.PasswordState.Should().Be(PasswordState.Create, "최초 로그인 시 비밀번호 변경을 강제한다");
-        _users.Verify(u => u.AddAsync(created, default), Times.Once);
-        _requests.Verify(r => r.UpdateAsync(request, default), Times.Once);
+        // DATA-6: 사용자 INSERT + 신청 UPDATE는 개별 호출이 아니라 단일 원자 배치로 영속된다.
+        _requests.Verify(r => r.ApprovePersistAsync(request, created, default), Times.Once);
+        _users.Verify(u => u.AddAsync(It.IsAny<User>(), default), Times.Never);
+        _requests.Verify(r => r.UpdateAsync(It.IsAny<UserRequest>(), default), Times.Never);
     }
 
     [Fact]
@@ -226,8 +228,8 @@ public sealed class UserRegistrationServiceTests
     {
         _requests.Setup(r => r.GetByIdAsync("REQ1", default)).ReturnsAsync(PendingRequest());
         User? created = null;
-        _users.Setup(u => u.AddAsync(It.IsAny<User>(), default))
-            .Callback<User, CancellationToken>((u, _) => created = u)
+        _requests.Setup(r => r.ApprovePersistAsync(It.IsAny<UserRequest>(), It.IsAny<User>(), default))
+            .Callback<UserRequest, User, CancellationToken>((_, u, _) => created = u)
             .Returns(Task.CompletedTask);
 
         var result = await Build().ApproveAsync("REQ1", "admin", "  ", PasswordHasher.Hash("t"), Now);

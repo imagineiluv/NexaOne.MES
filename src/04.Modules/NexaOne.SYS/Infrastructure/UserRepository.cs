@@ -38,9 +38,7 @@ public sealed class UserRepository : QueryRepository, IUserRepository
         return await CountAsync(sql, new { userId }, ct) > 0;
     }
 
-    public async Task AddAsync(User user, CancellationToken ct = default)
-    {
-        const string sql = @"INSERT INTO SYS_USER
+    private const string InsertSql = @"INSERT INTO SYS_USER
             (USER_ID, USER_NAME, PASSWORD_HASH, EMAIL, ROLE_ID, LANGUAGE, IS_ACTIVE,
              PASSWORD_STATE, FAIL_COUNT, LOCKED_UNTIL,
              CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
@@ -48,7 +46,22 @@ public sealed class UserRepository : QueryRepository, IUserRepository
             (@UserId, @UserName, @PasswordHash, @Email, @RoleId, @Language, @IsActive,
              @PasswordState, @FailCount, @LockedUntil,
              @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt)";
-        await _processor.InsertAsync(sql, UserRow.FromDomain(user), ct);
+
+    public async Task AddAsync(User user, CancellationToken ct = default)
+        => await _processor.InsertAsync(InsertSql, UserRow.FromDomain(user), ct);
+
+    /// <summary>승인 원자화 배치(DATA-6)용 INSERT 문장 — UserRequestRepository.ApprovePersistAsync가 수집한다.
+    /// ExecuteManyAsync는 raw(감사 미주입)라 InsertAsync 경로와 동일한 값(현재 사용자·UTC now)으로 감사 컬럼을 명시 채운다.</summary>
+    internal static (string Sql, object? Param) InsertStatement(User user)
+    {
+        var p = new Dapper.DynamicParameters(UserRow.FromDomain(user));
+        var actor = CurrentUserContext.UserId ?? "SYSTEM";
+        var now = DateTime.UtcNow;
+        p.Add("CreatedBy", actor);
+        p.Add("CreatedAt", now);
+        p.Add("UpdatedBy", actor);
+        p.Add("UpdatedAt", now);
+        return (InsertSql, p);
     }
 
     public async Task<DateTime?> RecordLoginFailureAsync(

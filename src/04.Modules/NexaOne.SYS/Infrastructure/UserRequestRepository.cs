@@ -104,6 +104,27 @@ public sealed class UserRequestRepository : QueryRepository, IUserRequestReposit
         await PersistWithOutboxAsync(request, ct);
     }
 
+    /// <summary>DATA-6 원자화 — 승인 전 문장(SYS_USER INSERT + 신청 Approved UPDATE + outbox)을 단일
+    /// ExecuteManyAsync 트랜잭션으로 커밋한다. 어느 문장이 실패해도 전체 롤백(부분 커밋 불가 — 기존에는
+    /// 사용자만 생성되고 신청이 대기로 남는 갭이 있었다). POM MixingPersistAsync와 동일 패턴.</summary>
+    public async Task ApprovePersistAsync(UserRequest request, User user, CancellationToken ct = default)
+    {
+        var currentUser = CurrentUserContext.UserId ?? "SYSTEM";
+        var now = DateTime.UtcNow;
+
+        var statements = new List<(string Sql, object? Param)>
+        {
+            UserRepository.InsertStatement(user),
+            (UpdateSql, UpdateParam(request, currentUser, now)),
+        };
+        if (_outboxEnabled)
+            statements.AddRange(OutboxStatements.For(
+                request.DomainEvents.OfType<IOutboxEvent>(), currentUser, now));
+
+        await _processor.ExecuteManyAsync(ct, statements.ToArray());
+        request.ClearDomainEvents();
+    }
+
     // 신청 행 + 발행 이벤트를 한 트랜잭션으로 기록한다. ExecuteManyAsync는 raw(감사 미주입)라 신청 행의 감사 컬럼을
     // UpdateAsync 경로와 동일한 값(현재 사용자·UTC now)으로 명시 채운다. 발행 후 이벤트를 비워 재발행을 막는다.
     private async Task PersistWithOutboxAsync(UserRequest request, CancellationToken ct)
