@@ -275,8 +275,10 @@ public sealed class UserServiceTests
     }
 
     [Fact]
-    public async Task GetEffectivePermissions_admin_has_wildcard_even_without_db_role()
+    public async Task GetEffectivePermissions_admin_without_db_role_has_no_wildcard()
     {
+        // SEC-2: ADMIN→'*' 하드코딩 제거 — 전체 권한은 SYS_ROLE.PERMISSIONS('*', V031 시드)가 단독 원천이다.
+        // roleId 문자열만으로 DB 밖에서 전권이 부여되는 숨은 경로가 없음을 고정한다.
         var repo = new Mock<IUserRepository>();
         var roleRepo = new Mock<IRoleRepository>();
         roleRepo.Setup(r => r.GetByIdAsync("ADMIN", default)).ReturnsAsync((Role?)null);
@@ -286,7 +288,25 @@ public sealed class UserServiceTests
 
         var perms = await svc.GetEffectivePermissionsAsync("ADMIN");
 
-        perms.Should().Contain("*", "ADMIN 기본 매핑은 전체 권한(*)을 포함");
+        perms.Should().NotContain("*", "DB 역할 행 없는 ADMIN은 전권을 받지 못한다(SEC-2)");
+        perms.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetEffectivePermissions_admin_wildcard_comes_from_db_role()
+    {
+        var role = Role.Create("ADMIN", "Administrator");
+        role.AddPermission("*");   // V031 시드와 동일 — DB가 전권의 단독 원천
+        var repo = new Mock<IUserRepository>();
+        var roleRepo = new Mock<IRoleRepository>();
+        roleRepo.Setup(r => r.GetByIdAsync("ADMIN", default)).ReturnsAsync(role);
+        var svc = new UserService(repo.Object, roleRepo.Object,
+            new Mock<IMultiLanguageResourceRepository>().Object,
+            new Mock<ILoginFailureHistoryRepository>().Object);
+
+        var perms = await svc.GetEffectivePermissionsAsync("ADMIN");
+
+        perms.Should().Contain("*", "SYS_ROLE.PERMISSIONS 명시분으로 전권 부여");
     }
 
     // ── ChangePasswordAsync ───────────────────────────────────────────────────
