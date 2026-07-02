@@ -93,94 +93,34 @@ if (modulesEnabled)
         builder.Services.AddSingleton<IHostedService>(sp =>
             new NexaOne.Server.Realtime.InMemoryBusSubscriberService(inMemoryBus, sp.GetRequiredService<IServiceScopeFactory>()));
 
-    // 복잡 서비스 얇은 브리지(ADR-008) — EST 설비상태 빈을 공유 계약 인터페이스로 캐스트해 DI 등록.
-    // 캐스트 실패 = 계약 어셈블리 ALC 동일성 위반(deps-제외 누락 등) → 기동 시 즉시 폭발(무음 런타임 실패 방지).
-    var equipmentStateBridge = server.GetBean("Est", "equipmentStateBridge") as IEquipmentStateBridge
-        ?? throw new InvalidOperationException(
-            "equipmentStateBridge 빈을 IEquipmentStateBridge로 캐스트하지 못했습니다 — "
-            + "NexaOne.ServiceContracts가 plugin ALC로 복제 로드되지 않았는지(ADR-008/모듈 게시 deps-제외) 확인하세요.");
-    builder.Services.AddSingleton(equipmentStateBridge);
+    // 복잡 서비스 얇은 브리지(ADR-008) — 모듈 빈을 공유 계약 인터페이스로 캐스트해 DI 등록(CQ-4 헬퍼).
+    // 캐스트 실패 = 계약 어셈블리 ALC 동일성 위반(NexaOne.ServiceContracts가 plugin ALC로 복제 로드,
+    // 모듈 게시 deps-제외 누락 등) → 기동 시 즉시 폭발(무음 런타임 실패 방지).
+    void RegisterBridge<TContract>(string module, string beanName) where TContract : class
+    {
+        var bridge = server.GetBean(module, beanName) as TContract
+            ?? throw new InvalidOperationException(
+                $"{beanName} 빈을 {typeof(TContract).Name}로 캐스트하지 못했습니다 — "
+                + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
+        builder.Services.AddSingleton(bridge);
+    }
 
-    // ADR-008 얇은 브리지 — EST 설비알람. 상태 브리지와 동일 메커니즘(GetBean→캐스트→fail-fast 등록).
-    var equipmentAlarmBridge = server.GetBean("Est", "equipmentAlarmBridge") as IEquipmentAlarmBridge
-        ?? throw new InvalidOperationException(
-            "equipmentAlarmBridge 빈을 IEquipmentAlarmBridge로 캐스트하지 못했습니다 — "
-            + "NexaOne.ServiceContracts가 plugin ALC로 복제 로드되지 않았는지(ADR-008/모듈 게시 deps-제외) 확인하세요.");
-    builder.Services.AddSingleton(equipmentAlarmBridge);
-
-    // ADR-008 얇은 브리지 — RMS 레시피 승인. EST와 동일 메커니즘(GetBean→캐스트→fail-fast 등록).
-    var rmsRecipeBridge = server.GetBean("Rms", "rmsRecipeBridge") as IRecipeApprovalBridge
-        ?? throw new InvalidOperationException(
-            "rmsRecipeBridge 빈을 IRecipeApprovalBridge로 캐스트하지 못했습니다 — "
-            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
-    builder.Services.AddSingleton(rmsRecipeBridge);
-
-    // ADR-008 얇은 브리지 — SHP 출하주문 생명주기. EST/RMS와 동일 메커니즘(GetBean→캐스트→fail-fast 등록).
-    var shipmentBridge = server.GetBean("Shp", "shipmentBridge") as IShipmentBridge
-        ?? throw new InvalidOperationException(
-            "shipmentBridge 빈을 IShipmentBridge로 캐스트하지 못했습니다 — "
-            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
-    builder.Services.AddSingleton(shipmentBridge);
-
-    // ADR-008 얇은 브리지 — QMS 부적합 확정·SPC 관리한계 갱신. EST/RMS/SHP와 동일 메커니즘(GetBean→캐스트→fail-fast 등록).
-    var qmsBridge = server.GetBean("Qms", "qmsBridge") as IQmsBridge
-        ?? throw new InvalidOperationException(
-            "qmsBridge 빈을 IQmsBridge로 캐스트하지 못했습니다 — "
-            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
-    builder.Services.AddSingleton(qmsBridge);
-
-    // ADR-008 얇은 브리지 — MDM 설비 생성/비활성/갱신(불변식). 첫 미노출-모듈 브리지 부팅 —
-    // 캐스트 성공 = MDM plugin ALC가 공유 ServiceContracts 계약을 Default ALC와 동일 타입으로 보는지 입증.
-    var mdmEquipmentBridge = server.GetBean("Mdm", "mdmEquipmentBridge") as IMdmEquipmentBridge
-        ?? throw new InvalidOperationException(
-            "mdmEquipmentBridge 빈을 IMdmEquipmentBridge로 캐스트하지 못했습니다 — "
-            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
-    builder.Services.AddSingleton(mdmEquipmentBridge);
-
-    // ADR-008 얇은 브리지 — MDM 마스터(Plant/Area/Product/CodeClass/Code) 생성. EST/RMS/SHP/QMS와 동일 메커니즘.
-    var mdmMasterBridge = server.GetBean("Mdm", "mdmMasterBridge") as IMdmMasterBridge
-        ?? throw new InvalidOperationException(
-            "mdmMasterBridge 빈을 IMdmMasterBridge로 캐스트하지 못했습니다 — "
-            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
-    builder.Services.AddSingleton(mdmMasterBridge);
-
-    // ADR-008 얇은 브리지 — EMS 보전(작업지시/보전계획/예비품) 단일 애그리거트 쓰기. EST/RMS/SHP/QMS/MDM과 동일 메커니즘.
-    var emsBridge = server.GetBean("Ems", "emsBridge") as IEmsBridge
-        ?? throw new InvalidOperationException(
-            "emsBridge 빈을 IEmsBridge로 캐스트하지 못했습니다 — "
-            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
-    builder.Services.AddSingleton(emsBridge);
-
-    // ADR-008 얇은 브리지 — POM 생산(계획/오더/Lot 추적) 단일 애그리거트 쓰기. EST/RMS/SHP/QMS/MDM/EMS와 동일 메커니즘.
-    // Lot Mixing(다중 애그리거트)은 브리지에서 제외(UnitOfWork 선결).
-    var pomBridge = server.GetBean("Pom", "pomBridge") as IPomBridge
-        ?? throw new InvalidOperationException(
-            "pomBridge 빈을 IPomBridge로 캐스트하지 못했습니다 — "
-            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
-    builder.Services.AddSingleton(pomBridge);
-
-    // ADR-008 얇은 브리지 — SYS 비-자격증명 단일 애그리거트 쓰기(역할 관리·신청 반려·사용자 비활성). EST/RMS/SHP/QMS/MDM/EMS/POM과 동일 메커니즘.
-    // 보안 가드(S7): 자격증명/비밀번호/로그인·승인(다중 애그리거트)·잠금 해제는 본 브리지에서 제외(인증 경로·UnitOfWork 선결 소유).
-    var sysBridge = server.GetBean("Sys", "sysBridge") as ISysBridge
-        ?? throw new InvalidOperationException(
-            "sysBridge 빈을 ISysBridge로 캐스트하지 못했습니다 — "
-            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
-    builder.Services.AddSingleton(sysBridge);
-
-    // ADR-008 얇은 브리지 — FDC 비-실시간 설정 관리(파라미터그룹/알람설정/인터락규칙 생성) 단일 애그리거트 쓰기. EST/RMS/SHP/QMS/MDM/EMS/POM/SYS와 동일 메커니즘.
-    // 워커 가드(S8): 실시간 수집/평가·OPC-UA·발생/해제 이력·수집데이터 기록은 워커 소유라 본 브리지에서 제외(ADR-006, REST 비노출).
-    var fdcBridge = server.GetBean("Fdc", "fdcBridge") as IFdcBridge
-        ?? throw new InvalidOperationException(
-            "fdcBridge 빈을 IFdcBridge로 캐스트하지 못했습니다 — "
-            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
-    builder.Services.AddSingleton(fdcBridge);
-
-    // ADR-008 얇은 브리지 — OEE 수동 집계 트리거(EST 모듈 소유 IOeeAggregator 위임). EST/RMS/…와 동일 메커니즘.
-    var oeeAggregationBridge = server.GetBean("Est", "oeeAggregationBridge") as IOeeAggregationBridge
-        ?? throw new InvalidOperationException(
-            "oeeAggregationBridge 빈을 IOeeAggregationBridge로 캐스트하지 못했습니다 — "
-            + "NexaOne.ServiceContracts ALC 동일성(ADR-008/모듈 게시 deps-제외) 확인.");
-    builder.Services.AddSingleton(oeeAggregationBridge);
+    RegisterBridge<IEquipmentStateBridge>("Est", "equipmentStateBridge");   // EST 설비상태
+    RegisterBridge<IEquipmentAlarmBridge>("Est", "equipmentAlarmBridge");   // EST 설비알람
+    RegisterBridge<IRecipeApprovalBridge>("Rms", "rmsRecipeBridge");        // RMS 레시피 승인
+    RegisterBridge<IShipmentBridge>("Shp", "shipmentBridge");               // SHP 출하주문 생명주기
+    RegisterBridge<IQmsBridge>("Qms", "qmsBridge");                         // QMS 부적합 확정·SPC 관리한계
+    // MDM: 첫 미노출-모듈 브리지 부팅 — 캐스트 성공 = plugin ALC가 공유 계약을 Default ALC와 동일 타입으로 보는지 입증.
+    RegisterBridge<IMdmEquipmentBridge>("Mdm", "mdmEquipmentBridge");       // MDM 설비 생성/비활성/갱신(불변식)
+    RegisterBridge<IMdmMasterBridge>("Mdm", "mdmMasterBridge");             // MDM 마스터(Plant/Area/Product/CodeClass/Code)
+    RegisterBridge<IEmsBridge>("Ems", "emsBridge");                         // EMS 보전(작업지시/보전계획/예비품)
+    // POM: Lot Mixing(다중 애그리거트)은 브리지에서 제외(UnitOfWork 선결 → MixingPersistAsync로 해소, 트래킹만 노출).
+    RegisterBridge<IPomBridge>("Pom", "pomBridge");                         // POM 생산(계획/오더/Lot 추적)
+    // SYS 보안 가드(S7): 자격증명/비밀번호/로그인·잠금 해제는 인증 경로 소유, 승인은 ApprovePersistAsync 소유라 브리지 제외.
+    RegisterBridge<ISysBridge>("Sys", "sysBridge");                         // SYS 비-자격증명(역할 관리·신청 반려·사용자 비활성)
+    // FDC 워커 가드(S8): 실시간 수집/평가·OPC-UA·발생/해제 이력·수집데이터 기록은 워커 소유(ADR-006, REST 비노출).
+    RegisterBridge<IFdcBridge>("Fdc", "fdcBridge");                         // FDC 비-실시간 설정(파라미터그룹/알람설정/인터락규칙)
+    RegisterBridge<IOeeAggregationBridge>("Est", "oeeAggregationBridge");   // OEE 수동 집계 트리거(EST 소유 IOeeAggregator 위임)
 }
 else
 {
