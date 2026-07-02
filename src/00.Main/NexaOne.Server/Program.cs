@@ -251,6 +251,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 builder.Services.AddAuthorization();
+// ADR-003 권한 정책 선언화(CQ-3) — [RequirePermission(...)]의 "perm:{value}" 정책을 동적 구성. 판정은
+// ClaimsPrincipalExtensions.HasPermission('*' 와일드카드 포함)로 수동 가드와 1:1 동일 의미(403).
+builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider, NexaOne.Server.Gateway.PermissionPolicyProvider>();
+builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationHandler, NexaOne.Server.Gateway.PermissionAuthorizationHandler>();
 
 // ===== Blazor 슬라이스(Phase 4 Task 3) — RCL(NexaOne.Web.Components)의 /meta + 호스트 로컬 로그인 =====
 // 단일 JwtBearer 유지(설계 §4): 화면 [Authorize]는 클라이언트측 JwtAuthStateProvider(세션 토큰)가 평가하며

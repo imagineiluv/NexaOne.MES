@@ -31,9 +31,9 @@ public sealed class SysBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.SysManage)]
     public async Task<IActionResult> CreateRole([FromBody] CreateRoleRequest req, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.SysManage)) return Forbid();
         return (await _bridge.CreateRoleAsync(req.RoleId, req.RoleName, req.Description, ct)).ToActionResult();
     }
 
@@ -41,9 +41,9 @@ public sealed class SysBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.SysManage)]
     public async Task<IActionResult> AddPermission(string roleId, [FromBody] PermissionRequest req, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.SysManage)) return Forbid();
         return (await _bridge.AddPermissionAsync(roleId, req.Permission, ct)).ToActionResult();
     }
 
@@ -51,9 +51,9 @@ public sealed class SysBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.SysManage)]
     public async Task<IActionResult> RemovePermission(string roleId, [FromBody] PermissionRequest req, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.SysManage)) return Forbid();
         return (await _bridge.RemovePermissionAsync(roleId, req.Permission, ct)).ToActionResult();
     }
 
@@ -64,9 +64,9 @@ public sealed class SysBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.SysManage)]
     public async Task<IActionResult> RejectRequest(string requestId, [FromBody] RejectRequestRequest req, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.SysManage)) return Forbid();
         var rejectedBy = User.CurrentUserId() ?? "SYSTEM";
         return (await _bridge.RejectRequestAsync(requestId, rejectedBy, req.Reason, ct)).ToActionResult();
     }
@@ -77,9 +77,9 @@ public sealed class SysBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.SysManage)]
     public async Task<IActionResult> DeactivateUser(string userId, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.SysManage)) return Forbid();
         return (await _bridge.DeactivateUserAsync(userId, ct)).ToActionResult();
     }
 

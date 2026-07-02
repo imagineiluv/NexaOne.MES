@@ -28,9 +28,9 @@ public sealed class QmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.QmsManage)]
     public async Task<IActionResult> ConfirmDefect(string defectId, [FromBody] ConfirmDefectRequest req, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.QmsManage)) return Forbid();
         return (await _bridge.ConfirmDefectAsync(defectId, req.ConfirmerId, ct)).ToActionResult();
     }
 
@@ -39,9 +39,9 @@ public sealed class QmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.QmsManage)]
     public async Task<IActionResult> UpdateControlLimits(string paramId, [FromBody] UpdateControlLimitsRequest req, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.QmsManage)) return Forbid();
         return (await _bridge.UpdateControlLimitsAsync(paramId, req.Mean, req.Ucl, req.Lcl, ct)).ToActionResult();
     }
 

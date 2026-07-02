@@ -22,9 +22,9 @@ public sealed class QueryCatalogController : ControllerBase
     [HttpGet]
     [ProducesResponseType<IReadOnlyList<QueryDescriptor>>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.SysManage)]
     public IActionResult List()
     {
-        if (!User.HasPermission(Permissions.SysManage)) return Forbid();
         var items = new List<QueryDescriptor>();
         foreach (var id in _registry.Ids)
             if (_registry.TryGet(id, out var def) && def is not null)

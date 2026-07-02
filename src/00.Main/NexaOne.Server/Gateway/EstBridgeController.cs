@@ -39,9 +39,9 @@ public sealed class EstBridgeController : ControllerBase
     [HttpPost("state-matrix")]
     [ProducesResponseType<EquipmentStateMatrixDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.EstManage)]
     public async Task<IActionResult> UpsertMatrix([FromBody] UpsertMatrixRequest req, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.EstManage)) return Forbid();
         var result = await _bridge.UpsertMatrixAsync(
             req.PlantId, req.FromStateId, req.ToStateId, req.AllowFlag, req.SetStateId, req.RequireReason, ct);
         return result.ToActionResult();
@@ -57,9 +57,9 @@ public sealed class EstBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.EstManage)]
     public async Task<IActionResult> ChangeState([FromBody] ChangeStateRequest req, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.EstManage)) return Forbid();
         // requestedBy는 토큰 주체에서 취한다(비-부인성). 감사 사용자는 AuditUserContextMiddleware가 CurrentUserContext에 이미 설정.
         var result = await _bridge.ChangeStateAsync(
             req.EquipmentId, req.PlantId, req.ToState, CurrentUserId, req.Reason, "UI", req.ExpectedVersion, ct);
@@ -87,9 +87,9 @@ public sealed class EstBridgeController : ControllerBase
     [ProducesResponseType<EquipmentAlarmDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.EstManage)]
     public async Task<IActionResult> RecordAlarm([FromBody] RecordAlarmRequest req, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.EstManage)) return Forbid();
         var result = await _alarmBridge.RecordAlarmAsync(
             req.AlarmId, req.EquipmentId, req.AlarmCode, req.AlarmName, req.Level, ct);
         return result.ToActionResult();
@@ -99,9 +99,9 @@ public sealed class EstBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.EstManage)]
     public async Task<IActionResult> ClearAlarm(string alarmId, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.EstManage)) return Forbid();
         var result = await _alarmBridge.ClearAlarmAsync(alarmId, DateTime.UtcNow, ct);
         return result.ToActionResult();
     }

@@ -26,9 +26,9 @@ public sealed class OeeAggregationController : ControllerBase
     [ProducesResponseType<OeeAggregateResult>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.EstManage)]
     public async Task<IActionResult> AggregateDay([FromBody] OeeAggregateDayRequest? request, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.EstManage)) return Forbid();
         if (request is null || request.Date == default)
             return BadRequest(Error.Validation("OEE_DATE_REQUIRED", "date 는 필수입니다."));
         var affected = await _bridge.AggregateDayAsync(request.Date, ct);
@@ -40,9 +40,9 @@ public sealed class OeeAggregationController : ControllerBase
     [ProducesResponseType<OeeAggregateResult>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.EstManage)]
     public async Task<IActionResult> AggregateWindow([FromBody] OeeAggregateWindowRequest? request, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.EstManage)) return Forbid();
         if (request is null || request.From == default || request.To == default || request.To <= request.From)
             return BadRequest(Error.Validation("OEE_WINDOW_INVALID", "from < to 인 유효한 윈도가 필요합니다."));
         var affected = await _bridge.AggregateWindowAsync(

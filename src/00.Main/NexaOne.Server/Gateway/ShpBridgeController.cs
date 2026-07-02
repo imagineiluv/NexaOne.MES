@@ -28,9 +28,9 @@ public sealed class ShpBridgeController : ControllerBase
     [ProducesResponseType<DeliveryOrderDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.ShpManage)]
     public async Task<IActionResult> CreateOrder([FromBody] CreateDeliveryOrderRequest req, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.ShpManage)) return Forbid();
         return (await _bridge.CreateOrderAsync(req.OrderId, req.CustomerName, req.PlantId, req.RequestedDate, ct)).ToActionResult();
     }
 
@@ -38,9 +38,9 @@ public sealed class ShpBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.ShpManage)]
     public async Task<IActionResult> ConfirmOrder(string orderId, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.ShpManage)) return Forbid();
         return (await _bridge.ConfirmOrderAsync(orderId, ct)).ToActionResult();
     }
 
@@ -48,9 +48,9 @@ public sealed class ShpBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.ShpManage)]
     public async Task<IActionResult> ShipOrder(string orderId, [FromBody] ShipDeliveryOrderRequest req, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.ShpManage)) return Forbid();
         return (await _bridge.ShipOrderAsync(orderId, req.ShippedDate, ct)).ToActionResult();
     }
 
@@ -58,9 +58,9 @@ public sealed class ShpBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.ShpManage)]
     public async Task<IActionResult> CancelOrder(string orderId, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.ShpManage)) return Forbid();
         return (await _bridge.CancelOrderAsync(orderId, ct)).ToActionResult();
     }
 

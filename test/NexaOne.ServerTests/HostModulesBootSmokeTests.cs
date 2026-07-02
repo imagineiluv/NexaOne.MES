@@ -77,6 +77,14 @@ public sealed class HostModulesBootSmokeTests
             var noPerm = await oee.PostAsJsonAsync("/api/v1/oee/aggregate-day", new { date = "2026-06-01" });
             noPerm.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "무인증 OEE 집계는 401");
 
+            // CQ-3 선언 정책 검증 — 인증됐지만 est:manage 없는 토큰은 [RequirePermission] 정책이 403으로 거부한다.
+            oee.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", HostProcess.MintToken());
+            var noPermAuthed = await oee.PostAsJsonAsync("/api/v1/oee/aggregate-day", new { date = "2026-06-01" });
+            noPermAuthed.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+                "권한 없는 인증 토큰은 perm: 정책(PermissionAuthorizationHandler)이 403으로 거부해야 한다(CQ-3)");
+            oee.DefaultRequestHeaders.Authorization = null;
+
             oee.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", HostProcess.MintToken(Permissions.EstManage));
             var agg = await oee.PostAsJsonAsync("/api/v1/oee/aggregate-day", new { date = "2026-06-01" });
@@ -85,6 +93,17 @@ public sealed class HostModulesBootSmokeTests
             using var aggDoc = JsonDocument.Parse(await agg.Content.ReadAsStringAsync());
             aggDoc.RootElement.GetProperty("affected").GetInt32().Should().BeGreaterThanOrEqualTo(0,
                 "affected(int) 반환 = 집계가 모듈 스키마에서 예외 없이 실행됨");
+
+            // 실브리지 전이 E2E(TEST-3 복원) — 상태 매트릭스 업서트→조회가 plugin-ALC EquipmentStateService를
+            // 실제로 관통해 모듈 DB에 쓰고 읽음을 검증한다(설비 의존 없는 브리지 쓰기 경로).
+            var upsert = await oee.PostAsJsonAsync("/api/v1/est/state-matrix",
+                new { plantId = "SMOKEPL", fromStateId = "IDLE", toStateId = "RUN", allowFlag = true, setStateId = "RUN", requireReason = false });
+            upsert.StatusCode.Should().Be(HttpStatusCode.OK,
+                $"est:manage면 실브리지 매트릭스 업서트 200이어야 한다(plugin 쓰기 경로) — 로그:\n{host.Log}");
+            var matrix = await oee.GetAsync("/api/v1/est/state-matrix?plantId=SMOKEPL");
+            matrix.StatusCode.Should().Be(HttpStatusCode.OK);
+            (await matrix.Content.ReadAsStringAsync()).Should().Contain("IDLE",
+                "업서트한 전이(IDLE→RUN)가 실브리지 조회로 라운드트립돼야 한다(TEST-3)");
         }
     }
 

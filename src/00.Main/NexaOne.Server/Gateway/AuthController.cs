@@ -137,10 +137,9 @@ public sealed class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [RequirePermission(Permissions.SysManage)]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request, CancellationToken ct)
     {
-        if (!User.HasPermission(Permissions.SysManage)) return Forbid();
-
         var violation = PasswordPolicy.Validate(request.Password, request.UserId, request.UserName, request.Email);
         if (violation is not null)
             return BadRequest(new Error(PasswordPolicy.ErrorCode, violation, ErrorType.Validation));
