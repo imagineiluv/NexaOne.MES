@@ -1,0 +1,230 @@
+@page "/meta/SYSTEM_2_AUTH_MANAGEMENT"
+@attribute [Authorize]
+@inject IApiClient Api
+@using NexaOne.Common.Security
+
+@* 권한(역할) 관리 — 역할 생성·권한 추가/회수는 SYS 모듈 브리지 REST(도메인 검증 경유)라 메타 커맨드로
+   표현 불가 — 전용 페이지가 정당하다(HostUserRequests 선례, 리터럴 라우트가 /meta/{UiId}보다 우선).
+   목록은 명명 쿼리(SYS.ListRoles)로 읽는다. 전권('*') 관련 정책은 서버가 집행하며 이 화면은 결과만 표시.
+   §20.10 계정 잠금 해제(auth 경로, sys:manage)도 관리 편의상 이 화면에 둔다 — 잠금 상태 컬럼은
+   비민감 원칙(SYS.ListUsers가 LOCKED_UNTIL 비노출)에 따라 목록화하지 않고 ID 지정 해제만 제공한다. *@
+<PageTitle>권한 관리</PageTitle>
+
+@if (!_canManage)
+{
+    <div style="padding:2rem; text-align:center; color:#6b7280;">
+        <h1 style="font-size:1.125rem; font-weight:600; color:#1f2937;">권한 관리</h1>
+        <p style="margin-top:0.5rem; font-size:0.875rem;">이 화면은 sys:manage 권한이 필요합니다.</p>
+    </div>
+}
+else
+{
+    <div style="padding:1rem;">
+        <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.75rem;">
+            <h1 style="font-size:1.125rem; font-weight:700; color:#111827; margin:0;">권한 관리</h1>
+            <button @onclick="ReloadAsync" style="padding:0.375rem 0.75rem; background:#f3f4f6; border:1px solid #d1d5db; border-radius:0.375rem; font-size:0.813rem; cursor:pointer;">
+                새로고침
+            </button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_notice))
+        {
+            <div style="margin-bottom:0.75rem; padding:0.625rem 0.875rem; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:0.375rem; font-size:0.875rem; color:#065f46;">@_notice</div>
+        }
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div style="margin-bottom:0.75rem; padding:0.625rem 0.875rem; background:#fef2f2; border:1px solid #fecaca; border-radius:0.375rem; font-size:0.875rem; color:#991b1b;">@_error</div>
+        }
+
+        <div style="display:flex; gap:1rem; align-items:flex-start; flex-wrap:wrap;">
+            @* ── 역할 목록 + 권한 편집 ── *@
+            <div class="mes-card" style="flex:1 1 34rem; min-width:30rem;">
+                <table style="width:100%; border-collapse:collapse; font-size:0.844rem;">
+                    <thead>
+                        <tr style="background:#f9fafb; text-align:left;">
+                            <th style="@Th">역할 ID</th><th style="@Th">역할명</th><th style="@Th">설명</th><th style="@Th">권한</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var role in _roles)
+                        {
+                            var roleId = role.RoleId;
+                            @* @key — 목록 갱신 시 행 DOM이 다른 역할로 재사용되지 않게 한다(입력/포커스 오배송 방지). *@
+                            <tr @key="roleId">
+                                <td style="@Td"><strong>@roleId</strong></td>
+                                <td style="@Td">@role.RoleName</td>
+                                <td style="@Td">@role.Description</td>
+                                <td style="@Td">
+                                    @foreach (var perm in role.Permissions)
+                                    {
+                                        <span style="display:inline-flex; align-items:center; gap:0.25rem; background:#eff6ff; color:#1e40af; border-radius:0.25rem; padding:0.125rem 0.375rem; margin:0 0.25rem 0.25rem 0; font-size:0.781rem;">
+                                            @perm
+                                            <button title="권한 회수" @onclick="() => RemovePermissionAsync(roleId, perm)" disabled="@_busy"
+                                                    style="border:none; background:none; color:#1e40af; cursor:pointer; padding:0; font-weight:700;">×</button>
+                                        </span>
+                                    }
+                                    <span style="white-space:nowrap;">
+                                        <input placeholder="권한 추가(예: mdm:read)" @bind="_permInputs[roleId]"
+                                               style="width:11rem; padding:0.25rem 0.5rem; border:1px solid #d1d5db; border-radius:0.25rem; font-size:0.781rem;" />
+                                        <button @onclick="() => AddPermissionAsync(roleId)" disabled="@_busy"
+                                                style="padding:0.25rem 0.625rem; background:#0d9488; color:#fff; border:none; border-radius:0.25rem; font-size:0.781rem; cursor:pointer;">추가</button>
+                                    </span>
+                                </td>
+                            </tr>
+                        }
+                        @if (_roles.Count == 0)
+                        {
+                            <tr><td colspan="4" style="padding:2rem; text-align:center; color:#9aa3b2;">역할이 없습니다.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="flex:0 0 20rem; display:flex; flex-direction:column; gap:1rem;">
+                @* ── 역할 생성 ── *@
+                <div class="mes-card" style="padding:1rem;">
+                    <h2 style="font-size:0.938rem; font-weight:700; margin:0 0 0.75rem;">역할 생성</h2>
+                    <input placeholder="역할 ID (예: OPERATOR2)" @bind="_newRoleId"
+                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:0.375rem; margin-bottom:0.5rem;" />
+                    <input placeholder="역할명" @bind="_newRoleName"
+                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:0.375rem; margin-bottom:0.5rem;" />
+                    <input placeholder="설명(선택)" @bind="_newRoleDesc"
+                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:0.375rem; margin-bottom:0.75rem;" />
+                    <button @onclick="CreateRoleAsync" disabled="@_busy"
+                            style="width:100%; padding:0.5rem; background:#0d9488; color:#fff; border:none; border-radius:0.375rem; cursor:pointer;">
+                        @(_busy ? "처리 중…" : "생성")
+                    </button>
+                </div>
+
+                @* ── 계정 잠금 해제(§20.10) ── *@
+                <div class="mes-card" style="padding:1rem;">
+                    <h2 style="font-size:0.938rem; font-weight:700; margin:0 0 0.25rem;">계정 잠금 해제</h2>
+                    <p style="font-size:0.75rem; color:#6b7280; margin:0 0 0.75rem;">비밀번호 연속 오류로 잠긴 계정을 즉시 해제합니다.</p>
+                    <input placeholder="사용자 ID" @bind="_unlockUserId"
+                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:0.375rem; margin-bottom:0.75rem;" />
+                    <button @onclick="UnlockAsync" disabled="@_busy"
+                            style="width:100%; padding:0.5rem; background:#2563eb; color:#fff; border:none; border-radius:0.375rem; cursor:pointer;">
+                        잠금 해제
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private const string Th = "padding:0.5rem 0.75rem; border-bottom:1px solid #e5e7eb; font-weight:600; color:#374151;";
+    private const string Td = "padding:0.5rem 0.75rem; color:#1f2937; border-bottom:1px solid #f3f4f6; vertical-align:top;";
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _canManage;
+    private bool _busy;
+    private string? _notice;
+    private string? _error;
+    private string _newRoleId = string.Empty;
+    private string _newRoleName = string.Empty;
+    private string _newRoleDesc = string.Empty;
+    private string _unlockUserId = string.Empty;
+    private List<RoleRow> _roles = new();
+    private readonly Dictionary<string, string> _permInputs = new(StringComparer.Ordinal);
+
+    private sealed record RoleRow(string RoleId, string RoleName, string Description, IReadOnlyList<string> Permissions);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+        {
+            var user = (await AuthState).User;
+            _canManage = user.HasPermission(Permissions.SysManage);
+        }
+        if (_canManage) await ReloadAsync();
+    }
+
+    // 목록은 명명 쿼리 — PERMISSIONS는 '|' 조인 문자열(SYS_ROLE 저장 형식, RoleRepository 규약).
+    private async Task ReloadAsync()
+    {
+        var rows = await Api.ExecuteQueryAsync("SYS.ListRoles");
+        _roles = rows.Select(r => new RoleRow(
+            Col(r, "ROLE_ID"), Col(r, "ROLE_NAME"), Col(r, "DESCRIPTION"),
+            Col(r, "PERMISSIONS").Split('|', StringSplitOptions.RemoveEmptyEntries))).ToList();
+        foreach (var role in _roles)
+            _permInputs.TryAdd(role.RoleId, string.Empty);
+    }
+
+    private async Task CreateRoleAsync()
+    {
+        _notice = null; _error = null;
+        var roleId = _newRoleId.Trim();
+        var roleName = _newRoleName.Trim();
+        if (roleId.Length == 0 || roleName.Length == 0)
+        {
+            _error = "역할 ID와 역할명을 입력해 주세요.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var created = await Api.CreateRoleAsync(new { roleId, roleName, description = _newRoleDesc.Trim() });
+            if (created is null)
+            {
+                _error = "역할 생성에 실패했습니다(중복 ID/입력 확인).";
+                return;
+            }
+            _notice = $"역할 '{created.Id}' 생성됨 — 아래에서 권한을 추가하세요.";
+            _newRoleId = _newRoleName = _newRoleDesc = string.Empty;
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task AddPermissionAsync(string roleId)
+    {
+        _notice = null; _error = null;
+        var permission = _permInputs.TryGetValue(roleId, out var v) ? v.Trim() : string.Empty;
+        if (permission.Length == 0) return;
+        _busy = true;
+        try
+        {
+            // 403(전권 정책 등 서버 집행)은 ApiClient 전역 토스트가 사유를 알린다.
+            await Api.AddPermissionAsync(roleId, permission);
+            _permInputs[roleId] = string.Empty;
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RemovePermissionAsync(string roleId, string permission)
+    {
+        _notice = null; _error = null;
+        _busy = true;
+        try
+        {
+            await Api.RemovePermissionAsync(roleId, permission);
+            await ReloadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task UnlockAsync()
+    {
+        _notice = null; _error = null;
+        var userId = _unlockUserId.Trim();
+        if (userId.Length == 0)
+        {
+            _error = "잠금 해제할 사용자 ID를 입력해 주세요.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            await Api.UnlockUserAsync(userId);
+            _notice = $"'{userId}' 잠금 해제 요청 완료.";
+            _unlockUserId = string.Empty;
+        }
+        finally { _busy = false; }
+    }
+
+    private static string Col(IReadOnlyDictionary<string, object?> row, string key)
+        => row.TryGetValue(key, out var v) && v is not null ? v.ToString() ?? "" : "";
+}
