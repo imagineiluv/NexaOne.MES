@@ -183,6 +183,42 @@ public sealed class UnlitLeavesLightingTests : IClassFixture<UnlitLeavesLighting
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task Log_retention_batch_purges_only_rows_older_than_retention()
+    {
+        // V062/V064 '보존 정리는 후속' 이행 — 배치 엔진 실전 1호: 30일 초과 앱 로그만 삭제한다.
+        var oldId = Guid.NewGuid().ToString("N");
+        var recentId = Guid.NewGuid().ToString("N");
+        SeedAppLog(oldId, DateTime.UtcNow.AddDays(-40));
+        SeedAppLog(recentId, DateTime.UtcNow.AddDays(-1));
+
+        var admin = Client("sys:manage");
+        (await admin.PostAsJsonAsync("/api/v1/command/SYS.UpsertBatchProcess", new Dictionary<string, object>
+        {
+            ["batchId"] = "B-PURGE-TEST", ["batchName"] = "앱 로그 정리(테스트)", ["batchType"] = "Interval",
+            ["batchRule"] = "SYS.PurgeOldAppLogs", ["batchOptions"] = "86400",
+            ["batchInputData"] = "{\"retentionDays\":30}",
+        })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var run = await admin.PostAsync("/api/v1/sys/admin/batch/B-PURGE-TEST/run", content: null);
+        run.StatusCode.Should().Be(HttpStatusCode.OK);
+        var result = await run.Content.ReadFromJsonAsync<Dictionary<string, object?>>();
+        Col(result!, "success").Should().Be("True", $"실행 실패 사유: {Col(result!, "error")}");
+
+        var logs = await QueryAsync(admin, "SYS.AppLogList");
+        logs.Count(r => Col(r, "LOG_ID") == oldId).Should().Be(0, "보존 기간(30일) 초과분은 삭제돼야 한다");
+        logs.Count(r => Col(r, "LOG_ID") == recentId).Should().Be(1, "보존 기간 내 로그는 유지돼야 한다");
+    }
+
+    private void SeedAppLog(string logId, DateTime loggedAt)
+        => ExecSql(@"INSERT INTO SYS_APP_LOG (LOG_ID, LOG_LEVEL, CATEGORY, MESSAGE, LOGGED_AT)
+            VALUES ($id, 'Warning', 'Test', '보존 정리 검증', $at)",
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", logId);
+                cmd.Parameters.AddWithValue("$at", loggedAt.ToString("yyyy-MM-dd HH:mm:ss"));
+            });
+
     // ── 가상 이벤트 평가 엔진(V067→V069) — 실 모듈 서비스/리포를 게이트웨이 SQLite에 물려 전이 기록을 검증. ──
 
     [Fact]

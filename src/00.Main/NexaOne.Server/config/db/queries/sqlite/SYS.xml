@@ -198,6 +198,18 @@ ORDER BY STARTED_AT DESC
 LIMIT 200
 ]]></statement>
   </query>
+  <!-- 로그 보존 정리(V062/V064 주석의 '보존 정리는 후속' 이행) — 배치 엔진 실전 규약:
+       BATCH_RULE=본 커맨드, BATCH_INPUTDATA={"retentionDays":N}. @utcNow는 실행기가 주입한다. -->
+  <query id="SYS.PurgeOldAppLogs" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+DELETE FROM SYS_APP_LOG WHERE LOGGED_AT < datetime(@utcNow, '-' || @retentionDays || ' days')
+]]></statement>
+  </query>
+  <query id="SYS.PurgeOldRequestLogs" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+DELETE FROM SYS_REQUEST_LOG WHERE REQUESTED_AT < datetime(@utcNow, '-' || @retentionDays || ' days')
+]]></statement>
+  </query>
 
   <!-- ===== 조건 저장/불러오기(§20.8) — @currentUser 스코프(§20.12와 동일 규약). '$latest'=마지막 조회 조건. -->
   <query id="SYS.ListConditionSettings">

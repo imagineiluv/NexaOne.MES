@@ -44,6 +44,11 @@ if (modulesEnabled)
     // SQLite 변형(config/host/server.sqlite.xml)을 가리켜 외부 DB 없이 modules-ON 부팅을 검증한다(데이터소스만 다른 동일 빈 집합).
     var springConfig = builder.Configuration.GetValue("Server:SpringConfig", "config/host/server.xml")!;
 
+    // dev DB 이원화 해소 — SQLite 모드에서 게이트웨이 연결 문자열(ConnectionStrings:NexaOne)이 있으면
+    // eesDataSource(모듈 데이터 경로)를 같은 파일로 통일한다(리포는 생성 시 연결 문자열을 스냅샷하므로
+    // 컨텍스트 생성 '전' XML 패치가 유일한 안전 지점). 운영 MSSQL은 원래 단일 DB — 아무 일도 하지 않는다.
+    springConfig = UnifySqliteDataSourceIfConfigured(springConfig, builder.Configuration);
+
     // SQLite 모드면 컨텍스트 생성 전에 스키마를 부트스트랩한다(빈 DB일 때만, idempotent). server.xml의
     // eesDataSource Provider 타입으로 판별 — XML만 바꾸면 자동 적용(MSSQL이면 아무 일도 안 함).
     EnsureSqliteSchemaIfConfigured(springConfig);
@@ -275,6 +280,9 @@ if (app.Environment.IsDevelopment()
         // 점등된 MDM 업무화면(공장/품목/AREA)이 실제 행을 렌더하도록 최소 MDM 마스터 데이터를 시드한다
         // (MDM_PLANT 비었을 때만, idempotent, Dev 전용). 운영(MSSQL)은 본 경로를 타지 않는다.
         SeedDevMasterDataIfEmpty(gwConn);
+        // 로그 보존 정리 배치 정의 시드(SYS_BATCH_PROCESS 비었을 때만, Dev 전용) — 배치 엔진 실전 예시 겸
+        // V062/V064 '보존 정리는 후속' 이행. 워커 기본 OFF라 자동 실행되진 않고, 관리 화면 run으로 즉시 실행 가능.
+        SeedDevBatchDefinitionsIfEmpty(gwConn);
     }
 }
 
@@ -343,6 +351,36 @@ app.Lifetime.ApplicationStopped.Register(() =>
 
 Console.WriteLine("[NexaOne.Server] Ready (web host). Press Ctrl+C to stop.");
 await app.RunAsync();
+
+// dev DB 이원화 해소 — server.sqlite.xml의 eesDataSource ConnectionString을 게이트웨이 연결 문자열로 치환한
+// 임시 사본을 만들어 그 경로를 반환한다(모듈·게이트웨이가 같은 SQLite 파일을 보게 통일). 조건 미충족
+// (MSSQL 공급자·게이트웨이 미설정·이미 동일)이면 원본 경로 그대로. 원본 XML은 절대 수정하지 않는다.
+static string UnifySqliteDataSourceIfConfigured(string serverXmlPath, IConfiguration configuration)
+{
+    var gatewayConn = configuration.GetConnectionString("NexaOne");
+    if (string.IsNullOrWhiteSpace(gatewayConn)) return serverXmlPath;
+
+    XNamespace ns = "http://www.springframework.net";
+    var doc = XDocument.Load(serverXmlPath);
+    var objects = doc.Root?.Elements(ns + "object").ToList() ?? new List<XElement>();
+    var dataSource = objects.FirstOrDefault(o => (string?)o.Attribute("id") == "eesDataSource");
+    var connAttr = dataSource?.Elements(ns + "property")
+        .FirstOrDefault(p => (string?)p.Attribute("name") == "ConnectionString")?.Attribute("value");
+    if (connAttr is null) return serverXmlPath;
+
+    var providerRef = dataSource!.Elements(ns + "property")
+        .FirstOrDefault(p => (string?)p.Attribute("name") == "Provider")?.Attribute("ref")?.Value;
+    var providerType = objects.FirstOrDefault(o => (string?)o.Attribute("id") == providerRef)?
+        .Attribute("type")?.Value ?? string.Empty;
+    if (!providerType.Contains("Sqlite", StringComparison.OrdinalIgnoreCase)) return serverXmlPath;
+    if (string.Equals(connAttr.Value, gatewayConn, StringComparison.Ordinal)) return serverXmlPath;
+
+    connAttr.Value = gatewayConn;
+    var patched = Path.Combine(Path.GetTempPath(), $"nexaone-server-unified-{Guid.NewGuid():N}.xml");
+    doc.Save(patched);
+    Console.WriteLine($"[NexaOne.Server] SQLite 통일 — eesDataSource를 게이트웨이 DB로 재지정({gatewayConn}).");
+    return patched;
+}
 
 // server.xml의 eesDataSource가 SQLite 공급자를 가리키면 해당 ConnectionString에 스키마를 부트스트랩한다.
 // MSSQL 모드면 아무 일도 하지 않는다(운영은 마이그레이션 외부 적용). XML 파싱만으로 판별(Spring 컨텍스트와 분리).
@@ -822,6 +860,48 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
 
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
+}
+
+// 개발 SQLite 전용 — 로그 보존 정리 배치 정의 시드(SYS_BATCH_PROCESS 비었을 때만, idempotent).
+// 규약: BATCH_RULE=명명 쓰기쿼리, BATCH_INPUTDATA=JSON 파라미터, Interval=초(86400=일 1회).
+static void SeedDevBatchDefinitionsIfEmpty(string connectionString)
+{
+    using var conn = new Microsoft.Data.Sqlite.SqliteConnection(connectionString);
+    conn.Open();
+
+    using (var count = conn.CreateCommand())
+    {
+        count.CommandText = "SELECT COUNT(*) FROM SYS_BATCH_PROCESS";
+        if (Convert.ToInt64(count.ExecuteScalar() ?? 0L) > 0) return;
+    }
+
+    var seeds = new (string Id, string Name, string Rule, string Input, string Desc)[]
+    {
+        ("PURGE-APP-LOG", "앱 로그 보존 정리(30일)", "SYS.PurgeOldAppLogs", "{\"retentionDays\":30}",
+            "SYS_APP_LOG 30일 초과분 삭제 — V064 보존 정리"),
+        ("PURGE-REQUEST-LOG", "요청 로그 보존 정리(14일)", "SYS.PurgeOldRequestLogs", "{\"retentionDays\":14}",
+            "SYS_REQUEST_LOG 14일 초과분 삭제 — V062 보존 정리"),
+    };
+    using var tx = conn.BeginTransaction();
+    foreach (var (id, name, rule, input, desc) in seeds)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = @"INSERT INTO SYS_BATCH_PROCESS
+            (BATCH_ID, BATCH_NAME, BATCH_TYPE, BATCH_RULE, BATCH_OPTIONS, BATCH_INPUTDATA, DESCRIPTION,
+             VALID_STATE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@id, @name, 'Interval', @rule, '86400', @input, @desc,
+                    'Valid', 'SYSTEM', @now, 'SYSTEM', @now)";
+        cmd.Parameters.AddWithValue("@id", id);
+        cmd.Parameters.AddWithValue("@name", name);
+        cmd.Parameters.AddWithValue("@rule", rule);
+        cmd.Parameters.AddWithValue("@input", input);
+        cmd.Parameters.AddWithValue("@desc", desc);
+        cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
+        cmd.ExecuteNonQuery();
+    }
+    tx.Commit();
+    Console.WriteLine("[NexaOne.Server] SYS_BATCH_PROCESS seeded (log retention x2, worker OFF — run API로 즉시 실행 가능).");
 }
 
 // 임베드된 smartux-menu.json(SUX 데스크톱 트리)를 로드하고, 실제 동작하는 데모/관리 화면을 별도 폴더로 덧붙여 반환한다.

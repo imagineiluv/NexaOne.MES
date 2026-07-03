@@ -130,8 +130,20 @@ public sealed class HostModulesBootSmokeTests
                 $"승인 = 역할 검증 + DATA-6 단일 트랜잭션 완주여야 한다 — 로그:\n{host.Log}");
             using var apprDoc = JsonDocument.Parse(await approved.Content.ReadAsStringAsync());
             apprDoc.RootElement.GetProperty("request").GetProperty("status").GetString().Should().Be("Approved");
-            apprDoc.RootElement.GetProperty("tempPassword").GetString().Should().NotBeNullOrWhiteSpace(
+            var tempPassword = apprDoc.RootElement.GetProperty("tempPassword").GetString();
+            tempPassword.Should().NotBeNullOrWhiteSpace(
                 "임시 비밀번호는 승인 응답에 1회 노출(관리자 전달용, 최초 로그인 시 변경 강제)");
+
+            // dev DB 통일 입증 — 모듈(plugin ALC)이 생성한 SYS_USER를 게이트웨이 인증 경로가 같은 SQLite에서
+            // 즉시 읽는다: 승인 직후 임시 비밀번호 로그인 성공 + 최초 변경 강제 플래그. (통일 전에는 모듈 DB와
+            // 게이트웨이 DB가 분리돼 이 로그인이 불가능했다 — 회귀 시 이 단언이 검출한다.)
+            sys.DefaultRequestHeaders.Authorization = null;
+            var login = await sys.PostAsJsonAsync("/api/v1/auth/login",
+                new { userId = uid, password = tempPassword, plantId = "SMOKEPL" });
+            login.StatusCode.Should().Be(HttpStatusCode.OK,
+                $"승인된 사용자는 임시 비밀번호로 즉시 로그인돼야 한다(모듈↔게이트웨이 단일 DB) — 로그:\n{host.Log}");
+            (await login.Content.ReadAsStringAsync()).Should().Contain("\"requirePasswordChange\":true",
+                "PasswordState=Create — 최초 로그인 시 비밀번호 변경 강제");
         }
 
         // 배포 풀사이클(§20.11, IDeployBridge 실브리지) — 업로드(SHA-256 저장)→latest 선정→다운로드 바이트
