@@ -151,6 +151,155 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 },
             }));
 
+        // 시스템관리 — 배치 작업 관리(SYSTEM_2_BATCH_PROC_MANAGEMENT, V066). SYS_MENU_MGMT 구조 미러.
+        // 1차 범위 = 정의 CRUD까지 — 실행 엔진(BATCH_RULE 스케줄 실행)은 후속 슬라이스(마이그레이션 주석 참조).
+        Register(new ScreenDefinition("SYSTEM_2_BATCH_PROC_MANAGEMENT", "배치 작업 관리",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Id = "sec-batch", Title = "배치 작업 정의(1차: 정의 관리 — 실행 엔진 후속)",
+                Children = new LayoutNode[]
+                {
+                    new RowNode { Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 7, Children = new LayoutNode[]
+                        {
+                            new GridWidget { Id = "g-batch", QueryId = "SYS.BatchProcessList", Columns = new GridColumnDefinition[]
+                            {
+                                new("BATCH_ID", "배치 ID", Width: 140), new("BATCH_NAME", "배치명"),
+                                new("BATCH_TYPE", "유형", Width: 90), new("BATCH_RULE", "실행 룰"),
+                                new("BATCH_OPTIONS", "옵션"), new("DESCRIPTION", "설명"),
+                            } },
+                        } },
+                        new ColumnNode { Span = 5, Children = new LayoutNode[]
+                        {
+                            new FormWidget { Id = "f-batch", SaveQueryId = "SYS.UpsertBatchProcess", Fields = new FieldWidget[]
+                            {
+                                new() { FieldKey = "batchId", Field = new FieldDefinition("batchId", "배치 ID", FieldType.Text, Required: true) },
+                                new() { FieldKey = "batchName", Field = new FieldDefinition("batchName", "배치명", FieldType.Text, Required: true) },
+                                new() { FieldKey = "batchType", Field = new FieldDefinition("batchType", "유형", FieldType.Text) },
+                                new() { FieldKey = "batchRule", Field = new FieldDefinition("batchRule", "실행 룰 ID", FieldType.Text) },
+                                new() { FieldKey = "batchOptions", Field = new FieldDefinition("batchOptions", "스케줄/옵션", FieldType.Text) },
+                                new() { FieldKey = "batchInputData", Field = new FieldDefinition("batchInputData", "입력 파라미터", FieldType.Text) },
+                                new() { FieldKey = "description", Field = new FieldDefinition("description", "설명", FieldType.Text) },
+                            } },
+                            new ButtonWidget { Id = "b-batch-save", Label = "저장", Command = "SYS.UpsertBatchProcess", RequiredPermission = "sys:manage" },
+                            new ButtonWidget { Id = "b-batch-del", Label = "삭제", Command = "SYS.DeleteBatchProcess", RequiredPermission = "sys:manage" },
+                        } },
+                    } },
+                },
+            }));
+
+        // FDC — VIRTUAL EVENT 관리(EES_FDC_VIRTUAL_EVENT_MANAGEMENT, V067). 레거시 FDC_TB_VIRTUAL_EVENT_PARAMETER 포팅.
+        // 1차 범위 = 정의 CRUD까지 — 평가 엔진(CONDITION_FORMULA 판정·이벤트 데이터 수집)은 FDC 워커 후속.
+        Register(new ScreenDefinition("EES_FDC_VIRTUAL_EVENT_MANAGEMENT", "VIRTUAL EVENT 관리",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Id = "sec-ve", Title = "가상 이벤트 정의(1차: 정의 관리 — 평가 엔진 후속)",
+                Children = new LayoutNode[]
+                {
+                    new RowNode { Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 7, Children = new LayoutNode[]
+                        {
+                            new GridWidget { Id = "g-ve", QueryId = "FDC.VirtualEventList", Columns = new GridColumnDefinition[]
+                            {
+                                new("EQUIPMENT_ID", "설비", Width: 110), new("EVENT_ID", "이벤트 ID", Width: 130),
+                                new("EVENT_NAME", "이벤트명"), new("EVENT_ON", "ON"), new("EVENT_OFF", "OFF"),
+                                new("CONDITION_FORMULA", "조건 수식"),
+                            } },
+                        } },
+                        new ColumnNode { Span = 5, Children = new LayoutNode[]
+                        {
+                            new FormWidget { Id = "f-ve", SaveQueryId = "FDC.UpsertVirtualEvent", Fields = new FieldWidget[]
+                            {
+                                new() { FieldKey = "plantId", Field = new FieldDefinition("plantId", "공장 ID", FieldType.Text, Required: true) },
+                                new() { FieldKey = "equipmentId", Field = new FieldDefinition("equipmentId", "설비 ID", FieldType.Text, Required: true) },
+                                new() { FieldKey = "eventId", Field = new FieldDefinition("eventId", "이벤트 ID", FieldType.Text, Required: true) },
+                                new() { FieldKey = "eventName", Field = new FieldDefinition("eventName", "이벤트명", FieldType.Text, Required: true) },
+                                new() { FieldKey = "eventOn", Field = new FieldDefinition("eventOn", "ON 판정", FieldType.Text) },
+                                new() { FieldKey = "eventOff", Field = new FieldDefinition("eventOff", "OFF 판정", FieldType.Text) },
+                                new() { FieldKey = "conditionFormula", Field = new FieldDefinition("conditionFormula", "조건 수식", FieldType.Text) },
+                                new() { FieldKey = "description", Field = new FieldDefinition("description", "설명", FieldType.Text) },
+                            } },
+                            new ButtonWidget { Id = "b-ve-save", Label = "저장", Command = "FDC.UpsertVirtualEvent", RequiredPermission = "fdc:manage" },
+                            new ButtonWidget { Id = "b-ve-del", Label = "삭제", Command = "FDC.DeleteVirtualEvent", RequiredPermission = "fdc:manage" },
+                        } },
+                    } },
+                },
+            }));
+
+        // FDC — 팝업 모니터링 대시보드(EES_POPUP_MONITERING_DASHBOARD) v1 적응 점등. 레거시=실시간 스트리밍 차트 팝업이나
+        // 1차는 폴링 조회(화면 진입 시 1회): 요약 KPI + 설비 현재상태 + 활성 알람 + 최근 인터락. 실시간(SignalR 차트)은 후속.
+        Register(new ScreenDefinition("EES_POPUP_MONITERING_DASHBOARD", "설비 모니터링(요약)",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Id = "sec-mon", Title = "설비 모니터링 — v1 폴링(화면 진입 시 조회, 실시간 차트 후속)",
+                Children = new LayoutNode[]
+                {
+                    new RowNode { Id = "mon-kpi", Children = new LayoutNode[]
+                    {
+                        DashKpi("mon-alarm", "활성 알람", "ACTIVE_ALARMS"),
+                        DashKpi("mon-wo", "진행 작업지시", "OPEN_WORK_ORDERS"),
+                        DashKpi("mon-plan", "가동 생산계획", "ACTIVE_PLANS"),
+                    } },
+                    new RowNode { Id = "mon-grids", Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 6, Children = new LayoutNode[]
+                        {
+                            new TextWidget { Id = "t-state", Text = "설비 현재 상태", IsLabel = true },
+                            new GridWidget { Id = "g-state", QueryId = "EST.CurrentStateList", Columns = new GridColumnDefinition[]
+                            {
+                                new("EQUIPMENT_ID", "설비", Width: 120), new("CURRENT_STATE_ID", "상태", Width: 90),
+                                new("PLANT_ID", "공장", Width: 90), new("STATE_CHANGED_AT", "변경 시각"),
+                            } },
+                        } },
+                        new ColumnNode { Span = 6, Children = new LayoutNode[]
+                        {
+                            new TextWidget { Id = "t-alarm", Text = "설비 알람", IsLabel = true },
+                            new GridWidget { Id = "g-alarm", QueryId = "EST.EquipmentAlarmList", Columns = new GridColumnDefinition[]
+                            {
+                                new("EQUIPMENT_ID", "설비", Width: 120), new("ALARM_CODE", "코드", Width: 100),
+                                new("ALARM_NAME", "알람명"), new("ALARM_LEVEL", "레벨", Width: 80), new("OCCURRED_AT", "발생 시각"),
+                            } },
+                        } },
+                    } },
+                    new RowNode { Id = "mon-ilk", Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 12, Children = new LayoutNode[]
+                        {
+                            new TextWidget { Id = "t-ilk", Text = "최근 인터락 이력", IsLabel = true },
+                            new GridWidget { Id = "g-ilk", QueryId = "FDC.InterlockHistoryList", Columns = new GridColumnDefinition[]
+                            {
+                                new("EQUIPMENT_ID", "설비", Width: 120), new("RULE_ID", "규칙", Width: 120),
+                                new("PARAMETER_ID", "파라미터", Width: 120), new("ACTION", "조치", Width: 100),
+                                new("TRIGGER_VALUE", "발생 값", Width: 110), new("MESSAGE", "메시지"),
+                            } },
+                        } },
+                    } },
+                },
+            }));
+
+        // 시스템관리 — 콘텐츠 매핑 서비스 관리(SYSTEM2_CONTENTMAPPINGSERVICE_MANAGEMENT): 아키텍처 대체 안내로 점등.
+        // 레거시 화면↔서비스 매핑 테이블(SYS_TB_CONTENT_MAPPING_SERVICE)의 역할은 통합 호스트에서 화면정의
+        // (QueryId/SaveQueryId 바인딩) + 명명 쿼리 레지스트리가 대체한다 — 별도 매핑 관리 화면은 신설하지 않는다.
+        Register(new ScreenDefinition("SYSTEM2_CONTENTMAPPINGSERVICE_MANAGEMENT", "콘텐츠 매핑 서비스 관리(대체됨)",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Id = "sec-cms", Title = "이 기능은 새 아키텍처로 대체되었습니다",
+                Children = new LayoutNode[]
+                {
+                    new RowNode { Children = new LayoutNode[] { new ColumnNode { Span = 12, Children = new LayoutNode[]
+                    {
+                        new TextWidget { Id = "t-cms-1", Text = "레거시의 화면↔서비스 매핑(SYS_TB_CONTENT_MAPPING_SERVICE)은 통합 호스트에서 화면 정의(QueryId/SaveQueryId 바인딩)와 명명 쿼리 레지스트리(config/db/queries)가 대체합니다." },
+                        new TextWidget { Id = "t-cms-2", Text = "매핑 현황은 시스템 관리 > S/O 관리(메타 카탈로그)에서 조회할 수 있습니다." },
+                    } } } },
+                },
+            }));
+
         // ===== SmartUX MDM 업무화면 점등(Phase 2) — 실제 SmartUX 메뉴 잎(menuId=UI_ID)에 기존 명명쿼리를 바인딩한다.
         // 사이드바 MDM 폴더의 해당 잎을 클릭하면 '준비 중' 대신 실제 그리드/폼이 렌더된다. 백엔드(테이블·명명쿼리)가
         // 있는 화면만 점등(나머지는 '준비 중' 유지). =====

@@ -434,6 +434,10 @@ public sealed class ApiClient : IApiClient
     private static string Col(Dictionary<string, object?> row, string key)
         => row.TryGetValue(key, out var v) ? v?.ToString() ?? string.Empty : string.Empty;
 
+    // 명명 쿼리 카탈로그(sys:manage) — S/O 관리(메타 카탈로그) 화면용.
+    public Task<List<QueryCatalogItemDto>> GetQueryCatalogAsync(CancellationToken ct = default)
+        => GetListAsync<QueryCatalogItemDto>("api/v1/sys/queries", ct);
+
     public Task<List<FdcParameterGroupDto>> GetFdcParameterGroupsAsync(string equipmentId, CancellationToken ct = default)
         => GetListAsync<FdcParameterGroupDto>($"api/v1/fdc/parameter-groups?equipmentId={equipmentId}", ct);
 

@@ -150,6 +150,37 @@ SELECT
 ]]></statement>
   </query>
 
+  <!-- ===== 배치 작업 정의(V066, SYSTEM_2_BATCH_PROC_MANAGEMENT) — 1차=정의 CRUD, 실행 엔진 후속. ===== -->
+  <query id="SYS.BatchProcessList">
+    <statement><![CDATA[
+SELECT BATCH_ID, BATCH_NAME, BATCH_TYPE, BATCH_RULE, BATCH_OPTIONS, BATCH_INPUTDATA,
+       AUTO_TRANSACTION, SAVE_HISTORY, DESCRIPTION, VALID_STATE, UPDATED_BY, UPDATED_AT
+FROM SYS_BATCH_PROCESS
+WHERE VALID_STATE = 'Valid'
+ORDER BY BATCH_NAME, BATCH_ID
+]]></statement>
+  </query>
+  <query id="SYS.UpsertBatchProcess" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+INSERT INTO SYS_BATCH_PROCESS
+    (BATCH_ID, BATCH_NAME, BATCH_TYPE, BATCH_RULE, BATCH_OPTIONS, BATCH_INPUTDATA,
+     DESCRIPTION, VALID_STATE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+VALUES (@batchId, @batchName, @batchType, @batchRule, @batchOptions, @batchInputData,
+        @description, 'Valid', @currentUser, @utcNow, @currentUser, @utcNow)
+ON CONFLICT(BATCH_ID) DO UPDATE SET
+    BATCH_NAME = excluded.BATCH_NAME, BATCH_TYPE = excluded.BATCH_TYPE, BATCH_RULE = excluded.BATCH_RULE,
+    BATCH_OPTIONS = excluded.BATCH_OPTIONS, BATCH_INPUTDATA = excluded.BATCH_INPUTDATA,
+    DESCRIPTION = excluded.DESCRIPTION, VALID_STATE = 'Valid',
+    UPDATED_BY = excluded.UPDATED_BY, UPDATED_AT = excluded.UPDATED_AT
+]]></statement>
+  </query>
+  <query id="SYS.DeleteBatchProcess" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+UPDATE SYS_BATCH_PROCESS SET VALID_STATE = 'Invalid', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+WHERE BATCH_ID = @batchId
+]]></statement>
+  </query>
+
   <!-- ===== 조건 저장/불러오기(§20.8) — @currentUser 스코프(§20.12와 동일 규약). '$latest'=마지막 조회 조건. -->
   <query id="SYS.ListConditionSettings">
     <statement><![CDATA[

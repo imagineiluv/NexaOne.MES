@@ -107,6 +107,9 @@ public record FdcInterlockResultDto(
 // Phase 4 후속 — Low-Code 화면 정의 저장소 레코드(정의는 DefinitionJson에 직렬화)
 public record ScreenDefinitionRecordDto(string UiId, string Title, string DefinitionJson);
 
+// 명명 쿼리 카탈로그 항목(api/v1/sys/queries, SQL 비노출) — S/O 관리(메타 카탈로그)·디자이너 드롭다운 공용.
+public record QueryCatalogItemDto(string Id, bool IsWrite, string? RequiredPermission);
+
 public record FdcParameterGroupDto(
     string Id,
     string GroupName,

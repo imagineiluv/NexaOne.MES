@@ -1,0 +1,120 @@
+@page "/meta/SYSTEM_2_SO_MANAGEMENT"
+@attribute [Authorize]
+@inject IApiClient Api
+@using System.Security.Claims
+@using NexaOne.Common.Security
+
+@* SmartUX 'S/O 관리'(ServiceObject 메타 카탈로그) 적응 점등 — 레거시 SYS_TB_OBJECT(엔티티+속성 레지스트리)의
+   통합 호스트 대응물은 명명 쿼리 레지스트리(config/db/queries) + 화면 정의(SYS_SCREEN_DEFINITION)다.
+   본 페이지는 그 카탈로그 조회: 등록 쿼리(id/kind/권한, SQL 비노출) + 화면 정의 목록. 리터럴 라우트 우선. *@
+<PageTitle>S/O 관리(메타 카탈로그)</PageTitle>
+
+@if (!_canManage)
+{
+    <div style="padding:2rem; text-align:center; color:#6b7280;">
+        <h1 style="font-size:1.125rem; font-weight:600; color:#1f2937;">S/O 관리(메타 카탈로그)</h1>
+        <p style="margin-top:0.5rem; font-size:0.875rem;">이 화면은 sys:manage 권한이 필요합니다.</p>
+    </div>
+}
+else
+{
+    <div style="padding:1rem;">
+        <h1 style="font-size:1.125rem; font-weight:700; color:#111827; margin:0 0 0.25rem;">S/O 관리 — 메타 카탈로그</h1>
+        <p style="font-size:0.813rem; color:#6b7280; margin:0 0 0.75rem;">
+            레거시 ServiceObject(SYS_TB_OBJECT) 카탈로그의 통합 호스트 대응 — 시스템에 등록된
+            명명 쿼리(단일 데이터 경로)와 화면 정의를 조회합니다. SQL 본문은 노출하지 않습니다.
+        </p>
+
+        <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.5rem;">
+            <h2 style="font-size:0.938rem; font-weight:600; color:#1f2937; margin:0;">명명 쿼리 (@Filtered.Count)</h2>
+            <select @bind="_kindFilter" style="padding:0.3rem 0.5rem; border:1px solid #d1d5db; border-radius:0.375rem; font-size:0.813rem;">
+                <option value="">전체</option>
+                <option value="read">read(조회)</option>
+                <option value="write">write(커맨드)</option>
+            </select>
+            <input @bind="_search" @bind:event="oninput" placeholder="ID 필터…"
+                   style="padding:0.3rem 0.5rem; border:1px solid #d1d5db; border-radius:0.375rem; font-size:0.813rem; width:14rem;" />
+        </div>
+        <table style="width:100%; border-collapse:collapse; font-size:0.813rem; margin-bottom:1.25rem;">
+            <thead>
+                <tr style="background:#f9fafb; text-align:left;">
+                    <th style="@Th">쿼리 ID</th><th style="@Th">종류</th><th style="@Th">요구 권한</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (Filtered.Count == 0)
+                {
+                    <tr><td colspan="3" style="padding:1rem; text-align:center; color:#9ca3af;">@(_loading ? "불러오는 중…" : "결과 없음")</td></tr>
+                }
+                @foreach (var q in Filtered)
+                {
+                    <tr style="border-bottom:1px solid #f3f4f6;">
+                        <td style="@Td"><code>@q.Id</code></td>
+                        <td style="@Td">
+                            @if (q.IsWrite) { <span class="nx-badge nx-badge-warning">write</span> }
+                            else { <span class="nx-badge nx-badge-info">read</span> }
+                        </td>
+                        <td style="@Td">@(string.IsNullOrEmpty(q.RequiredPermission) ? "-" : q.RequiredPermission)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <h2 style="font-size:0.938rem; font-weight:600; color:#1f2937; margin:0 0 0.5rem;">화면 정의 (@_screens.Count)</h2>
+        <table style="width:100%; border-collapse:collapse; font-size:0.813rem;">
+            <thead>
+                <tr style="background:#f9fafb; text-align:left;">
+                    <th style="@Th">UI_ID</th><th style="@Th">제목</th><th style="@Th">런타임</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (_screens.Count == 0)
+                {
+                    <tr><td colspan="3" style="padding:1rem; text-align:center; color:#9ca3af;">DB 저장 화면 정의 없음(인메모리 시드 화면은 코드 소유)</td></tr>
+                }
+                @foreach (var s in _screens)
+                {
+                    <tr style="border-bottom:1px solid #f3f4f6;">
+                        <td style="@Td"><strong>@s.UiId</strong></td>
+                        <td style="@Td">@s.Title</td>
+                        <td style="@Td"><a href="/meta/@s.UiId" style="color:#059669;">/meta/@s.UiId</a></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private const string Th = "padding:0.5rem 0.75rem; border-bottom:1px solid #e5e7eb; font-weight:600; color:#374151;";
+    private const string Td = "padding:0.5rem 0.75rem; color:#1f2937;";
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _canManage;
+    private bool _loading;
+    private string _kindFilter = string.Empty;
+    private string _search = string.Empty;
+    private List<QueryCatalogItemDto> _queries = new();
+    private List<ScreenDefinitionRecordDto> _screens = new();
+
+    private List<QueryCatalogItemDto> Filtered => _queries
+        .Where(q => _kindFilter switch { "read" => !q.IsWrite, "write" => q.IsWrite, _ => true })
+        .Where(q => string.IsNullOrWhiteSpace(_search) || q.Id.Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase))
+        .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (AuthState is not null)
+            _canManage = (await AuthState).User.HasPermission(Permissions.SysManage);
+        if (!_canManage) return;
+
+        _loading = true;
+        try
+        {
+            _queries = await Api.GetQueryCatalogAsync();
+            _screens = await Api.GetScreenDefinitionsAsync();
+        }
+        finally { _loading = false; }
+    }
+}

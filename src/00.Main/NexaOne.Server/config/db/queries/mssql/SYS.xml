@@ -156,6 +156,39 @@ SELECT
 ]]></statement>
   </query>
 
+  <!-- ===== 배치 작업 정의(V066, SYSTEM_2_BATCH_PROC_MANAGEMENT) — 1차=정의 CRUD, 실행 엔진 후속. ===== -->
+  <query id="SYS.BatchProcessList">
+    <statement><![CDATA[
+SELECT BATCH_ID, BATCH_NAME, BATCH_TYPE, BATCH_RULE, BATCH_OPTIONS, BATCH_INPUTDATA,
+       AUTO_TRANSACTION, SAVE_HISTORY, DESCRIPTION, VALID_STATE, UPDATED_BY, UPDATED_AT
+FROM SYS_BATCH_PROCESS WITH (NOLOCK)
+WHERE VALID_STATE = 'Valid'
+ORDER BY BATCH_NAME, BATCH_ID
+]]></statement>
+  </query>
+  <query id="SYS.UpsertBatchProcess" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+MERGE SYS_BATCH_PROCESS WITH (HOLDLOCK) AS t
+USING (SELECT @batchId AS BATCH_ID) AS s ON t.BATCH_ID = s.BATCH_ID
+WHEN MATCHED THEN UPDATE SET
+    BATCH_NAME = @batchName, BATCH_TYPE = @batchType, BATCH_RULE = @batchRule,
+    BATCH_OPTIONS = @batchOptions, BATCH_INPUTDATA = @batchInputData,
+    DESCRIPTION = @description, VALID_STATE = 'Valid',
+    UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+WHEN NOT MATCHED THEN INSERT
+    (BATCH_ID, BATCH_NAME, BATCH_TYPE, BATCH_RULE, BATCH_OPTIONS, BATCH_INPUTDATA,
+     DESCRIPTION, VALID_STATE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+    VALUES (@batchId, @batchName, @batchType, @batchRule, @batchOptions, @batchInputData,
+            @description, 'Valid', @currentUser, @utcNow, @currentUser, @utcNow);
+]]></statement>
+  </query>
+  <query id="SYS.DeleteBatchProcess" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+UPDATE SYS_BATCH_PROCESS SET VALID_STATE = 'Invalid', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+WHERE BATCH_ID = @batchId
+]]></statement>
+  </query>
+
   <!-- ===== 조건 저장/불러오기(§20.8) — @currentUser 스코프(§20.12와 동일 규약). '$latest'=마지막 조회 조건. -->
   <query id="SYS.ListConditionSettings">
     <statement><![CDATA[

@@ -67,6 +67,8 @@ public interface IApiClient
 
     // Phase 4 후속 — Low-Code 화면 정의 저장소
     Task<List<ScreenDefinitionRecordDto>> GetScreenDefinitionsAsync(CancellationToken ct = default);
+    /// <summary>명명 쿼리 카탈로그(sys:manage, SQL 비노출) — S/O 관리(메타 카탈로그)·디자이너 공용.</summary>
+    Task<List<QueryCatalogItemDto>> GetQueryCatalogAsync(CancellationToken ct = default);
     Task<ScreenDefinitionRecordDto?> GetScreenDefinitionAsync(string uiId, CancellationToken ct = default);
     Task SaveScreenDefinitionAsync(string uiId, string title, string definitionJson, CancellationToken ct = default);
 

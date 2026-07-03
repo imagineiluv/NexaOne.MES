@@ -116,4 +116,38 @@
             ORDER BY EQUIPMENT_ID, PRIORITY DESC
         ]]></statement>
     </query>
+    <!-- ===== 가상 이벤트 정의(V067, EES_FDC_VIRTUAL_EVENT_MANAGEMENT) — 1차=정의 CRUD, 평가 엔진 후속. ===== -->
+    <query id="FDC.VirtualEventList">
+        <statement><![CDATA[
+            SELECT PLANT_ID, EQUIPMENT_ID, EVENT_ID, EVENT_NAME, EVENT_ON, EVENT_OFF,
+                   CONDITION_FORMULA, DESCRIPTION, VALID_STATE, UPDATED_BY, UPDATED_AT
+            FROM FDC_VIRTUAL_EVENT WITH (NOLOCK)
+            WHERE VALID_STATE = 'Valid'
+              AND (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+            ORDER BY EQUIPMENT_ID, EVENT_ID
+        ]]></statement>
+    </query>
+    <query id="FDC.UpsertVirtualEvent" kind="write" requiredPermission="fdc:manage">
+        <statement><![CDATA[
+            MERGE FDC_VIRTUAL_EVENT WITH (HOLDLOCK) AS t
+            USING (SELECT @equipmentId AS EQUIPMENT_ID, @eventId AS EVENT_ID) AS s
+              ON t.EQUIPMENT_ID = s.EQUIPMENT_ID AND t.EVENT_ID = s.EVENT_ID
+            WHEN MATCHED THEN UPDATE SET
+                PLANT_ID = @plantId, EVENT_NAME = @eventName, EVENT_ON = @eventOn, EVENT_OFF = @eventOff,
+                CONDITION_FORMULA = @conditionFormula, DESCRIPTION = @description,
+                VALID_STATE = 'Valid', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT
+                (PLANT_ID, EQUIPMENT_ID, EVENT_ID, EVENT_NAME, EVENT_ON, EVENT_OFF,
+                 CONDITION_FORMULA, DESCRIPTION, VALID_STATE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@plantId, @equipmentId, @eventId, @eventName, @eventOn, @eventOff,
+                        @conditionFormula, @description, 'Valid', @currentUser, @utcNow, @currentUser, @utcNow);
+        ]]></statement>
+    </query>
+    <query id="FDC.DeleteVirtualEvent" kind="write" requiredPermission="fdc:manage">
+        <statement><![CDATA[
+            UPDATE FDC_VIRTUAL_EVENT SET VALID_STATE = 'Invalid', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+            WHERE EQUIPMENT_ID = @equipmentId AND EVENT_ID = @eventId
+        ]]></statement>
+    </query>
 </queries>
