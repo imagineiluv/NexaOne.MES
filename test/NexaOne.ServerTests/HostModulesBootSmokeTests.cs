@@ -142,8 +142,35 @@ public sealed class HostModulesBootSmokeTests
                 new { userId = uid, password = tempPassword, plantId = "SMOKEPL" });
             login.StatusCode.Should().Be(HttpStatusCode.OK,
                 $"승인된 사용자는 임시 비밀번호로 즉시 로그인돼야 한다(모듈↔게이트웨이 단일 DB) — 로그:\n{host.Log}");
-            (await login.Content.ReadAsStringAsync()).Should().Contain("\"requirePasswordChange\":true",
+            var loginBody = await login.Content.ReadAsStringAsync();
+            loginBody.Should().Contain("\"requirePasswordChange\":true",
                 "PasswordState=Create — 최초 로그인 시 비밀번호 변경 강제");
+
+            // §20.10 강제 변경 풀사이클 — pwdChange 토큰으로 change-password(자기해제) → 새 비밀번호
+            // 재로그인은 강제 플래그가 꺼지고, 새 토큰으로 업무 API(query 게이트웨이)가 200이어야 한다.
+            using var loginDoc = JsonDocument.Parse(loginBody);
+            var tempToken = loginDoc.RootElement.GetProperty("accessToken").GetString();
+            sys.DefaultRequestHeaders.Authorization =
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", tempToken);
+            var newPassword = $"Smoke#Pw{Random.Shared.Next(1000, 9999)}!";
+            var changed = await sys.PostAsJsonAsync("/api/v1/auth/change-password",
+                new { currentPassword = tempPassword, newPassword, confirmPassword = newPassword });
+            changed.StatusCode.Should().Be(HttpStatusCode.OK,
+                $"pwdChange 토큰도 auth 경로는 허용 — 변경으로 자기해제한다 — 로그:\n{host.Log}");
+
+            sys.DefaultRequestHeaders.Authorization = null;
+            var relogin = await sys.PostAsJsonAsync("/api/v1/auth/login",
+                new { userId = uid, password = newPassword, plantId = "SMOKEPL" });
+            relogin.StatusCode.Should().Be(HttpStatusCode.OK, "변경한 새 비밀번호로 로그인돼야 한다");
+            var reloginBody = await relogin.Content.ReadAsStringAsync();
+            reloginBody.Should().Contain("\"requirePasswordChange\":false", "변경 후에는 강제 플래그가 꺼진다");
+
+            using var reloginDoc = JsonDocument.Parse(reloginBody);
+            sys.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer", reloginDoc.RootElement.GetProperty("accessToken").GetString());
+            var business = await sys.PostAsJsonAsync("/api/v1/query/SYS.MenuTree", new Dictionary<string, object>());
+            business.StatusCode.Should().Be(HttpStatusCode.OK,
+                "새 토큰(pwdChange 클레임 없음)은 업무 API 차단이 해제돼야 한다");
         }
 
         // 배포 풀사이클(§20.11, IDeployBridge 실브리지) — 업로드(SHA-256 저장)→latest 선정→다운로드 바이트

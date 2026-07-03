@@ -70,6 +70,13 @@
             var response = result.Response;
             await TokenService.SaveAsync(response.AccessToken, response.RefreshToken, response.UserId);
             AuthState.NotifyAuthChanged(null); // 인증 상태 재평가 트리거
+            // §20.10 — 임시 비밀번호(승인 발급) 로그인은 pwdChange 토큰이라 업무 API가 차단된다.
+            // 안내 없이 셸로 보내면 빈 화면만 보이므로 비밀번호 변경 화면으로 바로 보낸다.
+            if (response.RequirePasswordChange)
+            {
+                Nav.NavigateTo("/change-password", forceLoad: true);
+                return;
+            }
             // 기본 랜딩은 시드된 데모 그리드(DEMO_GRID) — InMemoryScreenDefinitionProvider가 시드하며
             // MDM.PlantList 게이트웨이 조회 경로를 실제로 태우는 화면이다(미시드 UiId면 404). ReturnUrl은 존중한다.
             Nav.NavigateTo(ReturnUrl ?? "/meta/DEMO_GRID", forceLoad: true);

@@ -328,11 +328,14 @@ public sealed class ApiClient : IApiClient
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested) { }
     }
 
-    public async Task ChangePasswordAsync(string currentPassword, string newPassword, string confirmPassword, CancellationToken ct = default)
+    // 실패 사유(정책 미달·현재 비밀번호 불일치 등)를 화면에 보여줘야 하므로 (Ok, Error)를 반환한다 —
+    // 예외 전파(EnsureSuccessStatusCode)는 Blazor Server 이벤트 핸들러에서 회로 사망 위험이 있어 쓰지 않는다.
+    public async Task<(bool Ok, string? Error)> ChangePasswordAsync(string currentPassword, string newPassword, string confirmPassword, CancellationToken ct = default)
     {
         using var resp = await SendAsync(HttpMethod.Post, "api/v1/auth/change-password",
-            new { currentPassword, newPassword, confirmPassword }, ct);
-        resp.EnsureSuccessStatusCode();
+            new { currentPassword, newPassword, confirmPassword }, ct, surfaceErrors: false);
+        if (!resp.IsSuccessStatusCode)
+            return (false, await ReadErrorAsync(resp, ct));
 
         // §20.10 — 변경 성공 시 서버가 pwdChange 클레임 없는 새 토큰을 재발급한다.
         // 이전 토큰은 만료까지 업무 API가 차단되므로 즉시 교체한다.
@@ -343,6 +346,7 @@ public sealed class ApiClient : IApiClient
             await _tokenService.SaveAsync(payload.AccessToken, payload.RefreshToken, userId);
             _authState.NotifyAuthChanged(null);   // 새 토큰 기준으로 인증 상태 재평가
         }
+        return (true, null);
     }
 
     // ── MDM ───────────────────────────────────────────────────────────────────

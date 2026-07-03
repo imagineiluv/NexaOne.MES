@@ -17,7 +17,7 @@ public interface IApiClient
     Task<LoginResult> LoginAsync(string userId, string password, CancellationToken ct = default);
     Task LogoutAsync(string userId, string refreshToken, CancellationToken ct = default);
     Task ForgotPasswordAsync(string userId, string email, CancellationToken ct = default);
-    Task ChangePasswordAsync(string currentPassword, string newPassword, string confirmPassword, CancellationToken ct = default);
+    Task<(bool Ok, string? Error)> ChangePasswordAsync(string currentPassword, string newPassword, string confirmPassword, CancellationToken ct = default);
 
     // MDM
     Task<List<EquipmentDto>> GetEquipmentListAsync(string plantId, CancellationToken ct = default);
