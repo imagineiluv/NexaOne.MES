@@ -26,6 +26,8 @@
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.POM\NexaOne.POM.csproj" />
     <!-- SYS Approve 원자화(DATA-6) SQLite 원자성 통합검증용. -->
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" />
+    <!-- 가상 이벤트 평가 엔진(V067→V069) 통합검증용 — 실 모듈 서비스/리포를 게이트웨이 SQLite에 물린다. -->
+    <ProjectReference Include="..\..\src\04.Modules\NexaOne.FDC\NexaOne.FDC.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,15 @@
+-- FDC Module: 가상 이벤트 전이 이력(V067 FDC_VIRTUAL_EVENT의 평가 엔진 후속). 수식(CONDITION_FORMULA)
+-- 평가 결과가 ON↔OFF로 '전이'할 때만 1행 기록한다(동일 상태 반복 평가는 미기록 — 레거시
+-- FDC_TB_VIRTUAL_EVENT_DATA_COLLECTION의 웹 적응). 수집 시계열 성격이라 감사 컬럼 없음.
+CREATE TABLE FDC_VIRTUAL_EVENT_HISTORY (
+    HISTORY_ID      NVARCHAR(50)    NOT NULL,
+    EQUIPMENT_ID    NVARCHAR(50)    NOT NULL,
+    EVENT_ID        NVARCHAR(50)    NOT NULL,
+    EVENT_STATE     NVARCHAR(10)    NOT NULL,             -- 'On' | 'Off'
+    FORMULA         NVARCHAR(1000)  NULL,                 -- 평가 시점 수식 스냅샷
+    DETAILS         NVARCHAR(1000)  NULL,                 -- 평가에 쓰인 파라미터 값 요약
+    EVALUATED_AT    DATETIME2       NOT NULL,
+    CONSTRAINT PK_FDC_VIRTUAL_EVENT_HISTORY PRIMARY KEY (HISTORY_ID)
+);
+
+CREATE INDEX IX_FDC_VE_HIST_EVENT ON FDC_VIRTUAL_EVENT_HISTORY (EQUIPMENT_ID, EVENT_ID, EVALUATED_AT DESC);

@@ -1,0 +1,16 @@
+-- SYS Module: 배치 실행 이력(V066 SYS_BATCH_PROCESS의 실행 엔진 후속). SAVE_HISTORY=1인 정의의
+-- 실행 결과를 기록한다 — 수동 실행(관리 화면 run)과 워커(주기 실행) 공통. 수집 시계열 성격이라
+-- 감사 컬럼 없이 실행 주체(EXECUTED_BY)와 시각만 둔다(SYS_REQUEST_LOG 관례).
+CREATE TABLE SYS_BATCH_PROCESS_HISTORY (
+    HISTORY_ID      NVARCHAR(50)    NOT NULL,
+    BATCH_ID        NVARCHAR(50)    NOT NULL,
+    STARTED_AT      DATETIME2       NOT NULL,
+    FINISHED_AT     DATETIME2       NOT NULL,
+    SUCCESS         BIT             NOT NULL,
+    AFFECTED        INT             NOT NULL DEFAULT 0,   -- 실행 커맨드 영향 행 수
+    ERROR_MESSAGE   NVARCHAR(1000)  NULL,
+    EXECUTED_BY     NVARCHAR(50)    NOT NULL,             -- 수동=관리자 userId, 워커='BATCH'
+    CONSTRAINT PK_SYS_BATCH_PROCESS_HISTORY PRIMARY KEY (HISTORY_ID)
+);
+
+CREATE INDEX IX_SYS_BATCH_HIST_BATCH ON SYS_BATCH_PROCESS_HISTORY (BATCH_ID, STARTED_AT DESC);

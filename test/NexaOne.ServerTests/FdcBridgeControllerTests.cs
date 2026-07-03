@@ -70,6 +70,17 @@ public sealed class FdcBridgeControllerTests : IClassFixture<FdcBridgeController
             => Task.FromResult(action is "STOP" or "ALARM" or "NOTIFY" && @operator is "GT" or "LT" or "GTE" or "LTE" or "EQ"
                 ? Result.Success(new FdcInterlockRuleDto(ruleId, ruleName, equipmentId, parameterId, @operator, threshold, action, priority, true))
                 : Result.Failure<FdcInterlockRuleDto>(Error.Validation(nameof(action), "Action must be STOP, ALARM, or NOTIFY.")));
+
+        // 가상 이벤트 평가 — id 규약: "MISSING"→404, "BADFORMULA"→400(수식 오류), 그 외 On/전이 성공.
+        public Task<Result<VirtualEventEvaluationDto>> EvaluateVirtualEventAsync(
+            string equipmentId, string eventId, CancellationToken ct = default)
+            => Task.FromResult(eventId switch
+            {
+                "MISSING" => Result.Failure<VirtualEventEvaluationDto>(Error.NotFound("VirtualEvent", eventId)),
+                "BADFORMULA" => Result.Failure<VirtualEventEvaluationDto>(
+                    Error.Validation("VirtualEvent.FormulaInvalid", "파라미터 'TEMP'의 최신 수집 값이 없습니다.")),
+                _ => Result.Success(new VirtualEventEvaluationDto(equipmentId, eventId, "과열 감지", true, true, new DateTime(2026, 7, 3))),
+            });
     }
 
     private HttpClient Client(params string[] permissions)
@@ -179,5 +190,38 @@ public sealed class FdcBridgeControllerTests : IClassFixture<FdcBridgeController
         var res = await Client("*").PostAsJsonAsync("/api/v1/fdc/parameter-groups",
             new { groupId = "G2", groupName = "압력그룹", equipmentId = "EQ1", description = (string?)null, displayOrder = 1 });
         res.StatusCode.Should().Be(HttpStatusCode.OK, "와일드카드(*) 권한은 fdc:manage 게이트를 통과한다");
+    }
+
+    // ── 가상 이벤트 수동 평가(V067→V069 평가 엔진) ──
+
+    [Fact]
+    public async Task EvaluateVirtualEvent_without_fdc_manage_is_forbidden()
+    {
+        var res = await Client("fdc:read").PostAsync("/api/v1/fdc/virtual-events/EQ1/VE-1/evaluate", content: null);
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task EvaluateVirtualEvent_success_returns_state_and_transition()
+    {
+        var res = await Client("fdc:manage").PostAsync("/api/v1/fdc/virtual-events/EQ1/VE-1/evaluate", content: null);
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var dto = await res.Content.ReadFromJsonAsync<VirtualEventEvaluationDto>();
+        dto!.IsOn.Should().BeTrue();
+        dto.Changed.Should().BeTrue("전이 여부(이력 기록)가 응답에 실려야 한다");
+    }
+
+    [Fact]
+    public async Task EvaluateVirtualEvent_missing_definition_maps_to_404()
+    {
+        var res = await Client("fdc:manage").PostAsync("/api/v1/fdc/virtual-events/EQ1/MISSING/evaluate", content: null);
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task EvaluateVirtualEvent_formula_error_maps_to_400()
+    {
+        var res = await Client("fdc:manage").PostAsync("/api/v1/fdc/virtual-events/EQ1/BADFORMULA/evaluate", content: null);
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "수식 오류/값 부재(Validation)는 400 — 조용한 false 금지");
     }
 }

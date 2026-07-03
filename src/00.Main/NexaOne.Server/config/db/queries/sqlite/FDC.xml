@@ -149,4 +149,15 @@
             WHERE EQUIPMENT_ID = @equipmentId AND EVENT_ID = @eventId
         ]]></statement>
     </query>
+    <!-- 가상 이벤트 전이 이력 조회(V069) — 기록은 FDC 모듈 평가 엔진(VirtualEventService)이 수행. -->
+    <query id="FDC.VirtualEventHistoryList">
+        <statement><![CDATA[
+            SELECT HISTORY_ID, EQUIPMENT_ID, EVENT_ID, EVENT_STATE, FORMULA, DETAILS, EVALUATED_AT
+            FROM FDC_VIRTUAL_EVENT_HISTORY
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@eventId IS NULL OR EVENT_ID = @eventId)
+            ORDER BY EVALUATED_AT DESC
+            LIMIT 200
+        ]]></statement>
+    </query>
 </queries>

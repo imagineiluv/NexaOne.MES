@@ -59,6 +59,20 @@ public sealed class FdcBridgeController : ControllerBase
             req.RuleId, req.RuleName, req.EquipmentId, req.ParameterId, req.Operator, req.Threshold, req.Action, req.Priority, ct)).ToActionResult();
     }
 
+    // ── 가상 이벤트 수동 평가(V067→V069 평가 엔진) ──
+
+    /// <summary>정의 수식을 설비 최신 수집값으로 즉시 판정 — 전이 시 V069 이력 기록. 주기 평가는
+    /// VirtualEventEvaluationWorker(기본 OFF)가 동일 경로를 공유한다. 미존재 정의/값 부재/수식 오류는 404/400.</summary>
+    [HttpPost("virtual-events/{equipmentId}/{eventId}/evaluate")]
+    [ProducesResponseType<VirtualEventEvaluationDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.FdcManage)]
+    public async Task<IActionResult> EvaluateVirtualEvent(string equipmentId, string eventId, CancellationToken ct)
+    {
+        return (await _bridge.EvaluateVirtualEventAsync(equipmentId, eventId, ct)).ToActionResult();
+    }
 }
 
 public record CreateFdcParameterGroupRequest(

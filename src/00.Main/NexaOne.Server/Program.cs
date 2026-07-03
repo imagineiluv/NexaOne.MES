@@ -131,6 +131,9 @@ else
 // ===== ASP.NET 파이프라인 =====
 // 게이트웨이(하이브리드) — 명명 쿼리 데이터 경로(plugin 무관, Default ALC).
 builder.Services.AddNexaOneGateway(builder.Configuration);
+// 배치 실행 엔진(V066/V068) — 수동 실행(run API)과 주기 워커(기본 OFF)가 Runner 단일 경로를 공유한다.
+builder.Services.AddScoped<BatchProcessRunner>();
+builder.Services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService, BatchProcessWorker>();
 // 인증(무-브리지, 게이트웨이식) — 토큰 직접 발급(login/refresh). 게이트웨이 DI(IRuleDispatcher) 이후 호출.
 builder.Services.AddNexaOneAuth(builder.Configuration);
 // OEE 집계는 EST 모듈 소유(config/modules/est.xml의 oeeAggregationWorker) — modules-ON에서 IHostedService로 자동발견.

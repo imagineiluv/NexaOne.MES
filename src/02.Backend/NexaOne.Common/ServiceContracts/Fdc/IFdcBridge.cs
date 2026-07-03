@@ -25,4 +25,13 @@ public interface IFdcBridge
     Task<Result<FdcInterlockRuleDto>> CreateInterlockRuleAsync(
         string ruleId, string ruleName, string equipmentId, string parameterId, string @operator,
         decimal threshold, string action, int priority, CancellationToken ct = default);
+
+    // ── 가상 이벤트 수동 평가(V067→V069 평가 엔진) — 정의 수식을 최신 수집값으로 즉시 판정, 전이 시 이력 기록.
+    //    주기 평가는 VirtualEventEvaluationWorker(기본 OFF)가 동일 서비스 경로를 공유한다. ──
+    Task<Result<VirtualEventEvaluationDto>> EvaluateVirtualEventAsync(
+        string equipmentId, string eventId, CancellationToken ct = default);
 }
+
+/// <summary>가상 이벤트 평가 결과 — Changed=직전 기록 상태와 달라 전이 이력(V069)이 기록됐는지.</summary>
+public record VirtualEventEvaluationDto(
+    string EquipmentId, string EventId, string EventName, bool IsOn, bool Changed, DateTime EvaluatedAt);

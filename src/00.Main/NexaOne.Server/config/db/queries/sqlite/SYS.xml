@@ -180,6 +180,24 @@ UPDATE SYS_BATCH_PROCESS SET VALID_STATE = 'Invalid', UPDATED_BY = @currentUser,
 WHERE BATCH_ID = @batchId
 ]]></statement>
   </query>
+  <!-- 배치 실행 이력(V068) — 기록은 호스트 BatchProcessRunner가 수행(@currentUser=실행 주체 주입).
+       requiredPermission은 원시 /command 잠금용(개인화 쿼리 규약과 동일). -->
+  <query id="SYS.InsertBatchProcessHistory" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+INSERT INTO SYS_BATCH_PROCESS_HISTORY
+    (HISTORY_ID, BATCH_ID, STARTED_AT, FINISHED_AT, SUCCESS, AFFECTED, ERROR_MESSAGE, EXECUTED_BY)
+VALUES (@historyId, @batchId, @startedAt, @finishedAt, @success, @affected, @errorMessage, @currentUser)
+]]></statement>
+  </query>
+  <query id="SYS.BatchProcessHistoryList">
+    <statement><![CDATA[
+SELECT HISTORY_ID, BATCH_ID, STARTED_AT, FINISHED_AT, SUCCESS, AFFECTED, ERROR_MESSAGE, EXECUTED_BY
+FROM SYS_BATCH_PROCESS_HISTORY
+WHERE (@batchId IS NULL OR BATCH_ID = @batchId)
+ORDER BY STARTED_AT DESC
+LIMIT 200
+]]></statement>
+  </query>
 
   <!-- ===== 조건 저장/불러오기(§20.8) — @currentUser 스코프(§20.12와 동일 규약). '$latest'=마지막 조회 조건. -->
   <query id="SYS.ListConditionSettings">

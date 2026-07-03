@@ -56,14 +56,31 @@
     <constructor-arg ref="fdcAlarmHistoryRepository" />
     <constructor-arg ref="cacheService" />
   </object>
+  <!-- 가상 이벤트 평가 엔진(V067 정의→V069 전이 이력) — 정의 CRUD는 게이트웨이 소유, 평가/기록은 모듈 소유.
+       주기 워커는 기본 OFF(enabled=false) — 수동 평가(브리지 evaluate)와 동일 서비스 경로를 공유한다. -->
+  <object id="virtualEventRepository" type="NexaOne.FDC.Infrastructure.VirtualEventRepository, NexaOne.FDC">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="eesDialect" />
+  </object>
+  <object id="virtualEventService" type="NexaOne.FDC.Application.Fdc.VirtualEventService, NexaOne.FDC">
+    <constructor-arg ref="virtualEventRepository" />
+  </object>
+  <object id="virtualEventEvaluationWorker" type="NexaOne.FDC.Application.Fdc.VirtualEventEvaluationWorker, NexaOne.FDC">
+    <constructor-arg ref="virtualEventService" />
+    <constructor-arg value="false" />
+    <constructor-arg value="30" />
+  </object>
+
   <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Fdc","fdcBridge")로 IFdcBridge 캐스트.
        파라미터그룹(FdcParameterGroupService)·임계치 알람설정(FdcAlarmService)·인터락규칙(FdcInterlockService)의
-       비-실시간 설정 생성(단일 애그리거트 쓰기)만 위임한다. 실시간 수집/평가/이력(FdcCollectorService·EvaluateAsync·
-       RecordAsync·ClearActive·ResolveActive·RecordDataAsync)은 워커 소유라 위임하지 않는다(ADR-006, REST 비노출). -->
+       비-실시간 설정 생성(단일 애그리거트 쓰기) + 가상 이벤트 수동 평가(VirtualEventService)를 위임한다.
+       실시간 수집/평가/이력(FdcCollectorService·EvaluateAsync·RecordAsync·ClearActive·ResolveActive·
+       RecordDataAsync)은 워커 소유라 위임하지 않는다(ADR-006, REST 비노출). -->
   <object id="fdcBridge" type="NexaOne.FDC.Application.Fdc.FdcBridge, NexaOne.FDC">
     <constructor-arg ref="fdcParameterGroupService" />
     <constructor-arg ref="fdcAlarmService" />
     <constructor-arg ref="fdcInterlockService" />
+    <constructor-arg ref="virtualEventService" />
   </object>
 
   <!-- FdcCollectorService(dataService, interlockService?, alarmService?) — OPC-UA device/구독은 StartCollectingAsync

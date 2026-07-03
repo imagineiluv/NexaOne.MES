@@ -16,15 +16,18 @@ public sealed class FdcBridge : IFdcBridge
     private readonly FdcParameterGroupService _groupService;
     private readonly FdcAlarmService _alarmService;
     private readonly FdcInterlockService _interlockService;
+    private readonly VirtualEventService _virtualEventService;
 
     public FdcBridge(
         FdcParameterGroupService groupService,
         FdcAlarmService alarmService,
-        FdcInterlockService interlockService)
+        FdcInterlockService interlockService,
+        VirtualEventService virtualEventService)
     {
         _groupService = groupService;
         _alarmService = alarmService;
         _interlockService = interlockService;
+        _virtualEventService = virtualEventService;
     }
 
     public async Task<Result<FdcParameterGroupDto>> CreateParameterGroupAsync(
@@ -48,6 +51,16 @@ public sealed class FdcBridge : IFdcBridge
     {
         var r = await _interlockService.CreateRuleAsync(ruleId, ruleName, equipmentId, parameterId, @operator, threshold, action, priority, ct);
         return r.IsSuccess ? Result.Success(ToDto(r.Value)) : Result.Failure<FdcInterlockRuleDto>(r.Error);
+    }
+
+    public async Task<Result<VirtualEventEvaluationDto>> EvaluateVirtualEventAsync(
+        string equipmentId, string eventId, CancellationToken ct = default)
+    {
+        var r = await _virtualEventService.EvaluateAsync(equipmentId, eventId, ct);
+        return r.IsSuccess
+            ? Result.Success(new VirtualEventEvaluationDto(
+                r.Value.EquipmentId, r.Value.EventId, r.Value.EventName, r.Value.IsOn, r.Value.Changed, r.Value.EvaluatedAt))
+            : Result.Failure<VirtualEventEvaluationDto>(r.Error);
     }
 
     // ── 매핑 ──
