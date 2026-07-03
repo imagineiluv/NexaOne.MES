@@ -113,17 +113,42 @@ public sealed class ApiClient : IApiClient
     private async Task<HttpResponseMessage> SendAsync(
         HttpMethod method, string url, object? body, CancellationToken ct, bool surfaceErrors = true)
     {
-        var token = await GetValidAccessTokenAsync(ct);
-        var resp = await SendOnceAsync(method, url, body, token, ct);
-        if (resp.StatusCode == HttpStatusCode.Unauthorized)
+        HttpResponseMessage resp;
+        try
         {
-            resp.Dispose();                   // 첫 401 응답 소켓/리소스 해제(누수 방지)
-            var refreshed = await RefreshAsync(ct);
-            resp = await SendOnceAsync(method, url, body, refreshed, ct);
+            var token = await GetValidAccessTokenAsync(ct);
+            resp = await SendOnceAsync(method, url, body, token, ct);
+            if (resp.StatusCode == HttpStatusCode.Unauthorized)
+            {
+                resp.Dispose();                   // 첫 401 응답 소켓/리소스 해제(누수 방지)
+                var refreshed = await RefreshAsync(ct);
+                resp = await SendOnceAsync(method, url, body, refreshed, ct);
+            }
+        }
+        // 전송 계층 실패(연결 거부·타임아웃)를 합성 503으로 변환한다 — 헬퍼들의 IsSuccessStatusCode 분기와
+        // GetListAsync의 "예외 흡수" 계약을 실제로 지키고, Blazor Server 회로가 미처리 예외로 죽는 것을 막는다.
+        // (사용자 취소(ct)는 그대로 전파 — 타임아웃으로 위장된 TaskCanceledException만 변환한다.)
+        catch (HttpRequestException)
+        {
+            resp = ConnectionFailureResponse();
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            resp = ConnectionFailureResponse();
         }
         if (surfaceErrors) await SurfaceUnhandledErrorAsync(resp, ct);
         return resp;
     }
+
+    private static HttpResponseMessage ConnectionFailureResponse()
+        => new(HttpStatusCode.ServiceUnavailable)
+        {
+            Content = JsonContent.Create(new
+            {
+                code = "SERVER_UNREACHABLE",
+                description = "서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요."
+            })
+        };
 
     // 페이지가 인라인으로 처리하지 않는 실패를 전역 토스트로 통지한다: 403(권한 거부, ADR-003 module:manage)·5xx(서버
     // 오류)는 일반 메시지, 그 외 4xx(400/409/422 검증·충돌)는 서버 Error.Description을 노출한다. 자체 사유 표시
@@ -265,8 +290,17 @@ public sealed class ApiClient : IApiClient
 
     public async Task<LoginResult> LoginAsync(string userId, string password, CancellationToken ct = default)
     {
-        var resp = await _http.PostAsJsonAsync("api/v1/auth/login",
-            new { userId, password, plantId = "DEFAULT" }, ct);
+        HttpResponseMessage resp;
+        try
+        {
+            resp = await _http.PostAsJsonAsync("api/v1/auth/login",
+                new { userId, password, plantId = "DEFAULT" }, ct);
+        }
+        // 로그인은 SendAsync를 거치지 않으므로(토큰 불요) 전송 실패를 여기서 흡수한다 — 회로 사망 방지
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            return new LoginResult(null, "SERVER_UNREACHABLE", "서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+        }
         if (resp.IsSuccessStatusCode)
             return new LoginResult(await resp.Content.ReadFromJsonAsync<LoginResponse>(ct));
 
@@ -288,7 +322,11 @@ public sealed class ApiClient : IApiClient
     }
 
     public async Task ForgotPasswordAsync(string userId, string email, CancellationToken ct = default)
-        => await _http.PostAsJsonAsync("api/v1/auth/forgot-password", new { userId, email }, ct);
+    {
+        // 존재 여부 비노출 정책상 페이지는 결과와 무관하게 동일 안내를 표시한다 — 전송 실패도 조용히 흡수
+        try { await _http.PostAsJsonAsync("api/v1/auth/forgot-password", new { userId, email }, ct); }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested) { }
+    }
 
     public async Task ChangePasswordAsync(string currentPassword, string newPassword, string confirmPassword, CancellationToken ct = default)
     {
@@ -732,7 +770,15 @@ public sealed class ApiClient : IApiClient
         if (!string.IsNullOrEmpty(token))
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         req.Options.Set(DefaultRequestTimeoutHandler.LongRunning, true);
-        var resp = await _http.SendAsync(req, ct);
+        HttpResponseMessage resp;
+        try
+        {
+            resp = await _http.SendAsync(req, ct);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            return (null, "서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+        }
         if (resp.IsSuccessStatusCode)
             return (await resp.Content.ReadFromJsonAsync<DeployFileDto>(ct), null);
 
@@ -789,7 +835,15 @@ public sealed class ApiClient : IApiClient
     public async Task<(UserRequestDto? Request, string? Error)> RegisterUserAsync(
         object req, CancellationToken ct = default)
     {
-        var resp = await _http.PostAsJsonAsync("api/v1/sys/admin/user-requests", req, ct);
+        HttpResponseMessage resp;
+        try
+        {
+            resp = await _http.PostAsJsonAsync("api/v1/sys/admin/user-requests", req, ct);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            return (null, "서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+        }
         if (resp.IsSuccessStatusCode)
             return (await resp.Content.ReadFromJsonAsync<UserRequestDto>(ct), null);
 

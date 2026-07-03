@@ -113,6 +113,42 @@ public sealed class MetaScreenTests
     }
 
     [Fact]
+    public void Save_success_reloads_grid_so_new_row_shows_without_page_reload()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        // 그리드+폼 화면: 저장 성공 시 그리드를 재조회해 새 행이 즉시 보여야 한다(실브라우저 스모크에서 발견된 공백).
+        var def = new ScreenDefinition("SAVE3", "가상 이벤트",
+            new FieldDefinition[] { new("eventId", "이벤트 ID", FieldType.Text, Required: true) },
+            new GridColumnDefinition[] { new("EVENT_ID", "이벤트 ID") },
+            QueryId: "Q.Events",
+            SaveQueryId: "FDC.SaveEvent");
+
+        var rows = new List<Dictionary<string, object?>>();
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryAsync("Q.Events", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(() => rows.ToList());
+        api.Setup(a => a.ExecuteCommandAsync("FDC.SaveEvent", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(true)
+           .Callback(() => rows.Add(new Dictionary<string, object?> { ["EVENT_ID"] = "VE-NEW" }));
+        ctx.Services.AddSingleton(Provider("SAVE3", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "SAVE3"));
+        cut.Markup.Should().NotContain("VE-NEW", "저장 전에는 새 행이 없어야 한다");
+
+        cut.Find("input").Change("VE-NEW");
+        cut.Find("button").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Markup.Should().Contain("저장됨");
+            cut.Markup.Should().Contain("VE-NEW", "저장 성공 후 그리드가 재조회돼 새 행이 즉시 보여야 한다");
+        }, TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
     public void Save_blocks_and_does_not_call_gateway_when_required_field_empty()
     {
         using var ctx = new TestContext();

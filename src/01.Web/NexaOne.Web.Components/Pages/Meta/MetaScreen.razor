@@ -253,6 +253,7 @@ else
         {
             _saved = await Api.ExecuteCommandAsync(_definition.SaveQueryId, _model);
             if (!_saved) _errors.Add("저장에 실패했습니다(권한/입력 확인).");
+            else await ReloadDataAsync();   // 저장 결과를 그리드에 즉시 반영(리로드 없이 새 행 표시)
         }
         finally
         {
@@ -298,6 +299,7 @@ else
             if (_errors.Count > 0) return;
             _saved = await Api.ExecuteCommandAsync(command, formModel);
             if (!_saved) _errors.Add("저장에 실패했습니다(권한/입력 확인).");
+            else await ReloadDataAsync();   // 저장 결과를 그리드에 즉시 반영
             return;
         }
 
@@ -305,6 +307,7 @@ else
         if (_errors.Count > 0) return;
         _saved = await Api.ExecuteCommandAsync(command, _model);
         if (!_saved) _errors.Add("저장에 실패했습니다(권한/입력 확인).");
+        else await ReloadDataAsync();   // 저장 결과를 그리드에 즉시 반영
     }
 
     // 트리에서 그리드 위젯의 distinct read 쿼리 id를 수집(빈/공백 제외).
