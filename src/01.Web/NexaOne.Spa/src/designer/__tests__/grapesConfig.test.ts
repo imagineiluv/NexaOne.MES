@@ -72,12 +72,13 @@ describe('GrapesJS 디자이너 설정(잠금)', () => {
     expect(btnCmd.options!.map(o => o.id)).toContain('MDM.CreatePlant')
   })
 
-  it('buildTraitDefs는 nx-field에 6개 이산 트레이트(키/라벨/타입/필수/읽기전용/옵션) 노출', () => {
+  it('buildTraitDefs는 nx-field에 7개 이산 트레이트(키/라벨/타입/필수/읽기전용/옵션/동적옵션쿼리) 노출', () => {
     const traits = buildTraitDefs({ reads: [], writes: [] })
     const field = traits['nx-field']
     expect(field.map(t => t.name)).toEqual([
       'data-field-key', 'data-field-label', 'data-field-type',
       'data-field-required', 'data-field-readonly', 'data-field-options',
+      'data-field-options-query',
     ])
     const byName = (n: string) => field.find(t => t.name === n)!
     expect(byName('data-field-type').type).toBe('select')

@@ -8,6 +8,14 @@
 @* Phase 3 — 메타데이터 주도 화면: 정적 @@page 컴파일 화면이 아니라 UiId로 ScreenDefinition을 해석해 동적 렌더. *@
 <div class="page-header">
     <h1 class="page-title">@(_definition?.Title ?? "준비 중인 화면")</h1>
+    @if (_definition is not null)
+    {
+        @* 수동 새로고침 — 자동 새로고침(RefreshIntervalSeconds) 없는 화면에서도 재조회할 수 있게 한다.
+           데이터만 재조회(ReloadDataAsync)하므로 폼 입력 상태는 보존된다. *@
+        <button class="btn btn-ghost meta-refresh" @onclick="ManualRefreshAsync" disabled="@_refreshing">
+            @(_refreshing ? "새로고침 중…" : "새로고침")
+        </button>
+    }
 </div>
 
 @if (_definition is null)
@@ -29,9 +37,11 @@ else if (_definition.Layout is not null)
 {
     @* 레이아웃 트리 화면 — 멀티 read 결과맵을 내려보내고, 명령/검증은 MetaScreen이 오케스트레이션한다.
        격리 폼(Isolated, Phase-2 멀티폼)은 폼별 모델(_formModels)에 바인딩된다. *@
-    <LayoutRenderer Node="_definition.Layout" @bind-Model="_model"
-                    QueryResults="_queryResults" OnCommand="RunCommand"
-                    FormModels="_formModels" OnFormModelChanged="OnFormModelChanged" />
+    <CascadingValue Value="_dynamicOptions" Name="MetaDynamicOptions">
+        <LayoutRenderer Node="_definition.Layout" @bind-Model="_model"
+                        QueryResults="_queryResults" OnCommand="RunCommand"
+                        FormModels="_formModels" OnFormModelChanged="OnFormModelChanged" />
+    </CascadingValue>
 
     @if (_errors.Count > 0)
     {
@@ -58,7 +68,9 @@ else
     @* 폼(입력 필드)이 정의된 화면만 폼·저장 영역을 렌더한다 — 그리드 전용(조회) 화면은 폼이 비어 있을 수 있다. *@
     @if (_definition.Fields.Count > 0)
     {
-        <MetaFormRenderer Definition="_definition" @bind-Model="_model" />
+        <CascadingValue Value="_dynamicOptions" Name="MetaDynamicOptions">
+            <MetaFormRenderer Definition="_definition" @bind-Model="_model" />
+        </CascadingValue>
 
         <div class="meta-actions">
             <button @onclick="Save" disabled="@_saving">@(_saving ? "저장 중…" : "저장")</button>
@@ -128,6 +140,9 @@ else
             }
         }
 
+        // 동적 Select 옵션(OptionsQueryId) — 정의 로드 시 1회 조회(마스터 목록은 화면 수명 동안 안정).
+        _dynamicOptions = await LoadDynamicOptionsAsync();
+
         // 데이터(그리드 행 + 레이아웃 결과맵) 조회 — 자동 새로고침과 공유하는 단일 경로.
         await ReloadDataAsync();
 
@@ -169,6 +184,45 @@ else
             _pushSubscription = (Services.GetService(typeof(IScreenRefreshNotifier)) as IScreenRefreshNotifier)
                 ?.Subscribe(OnPushChangedAsync);
         }
+    }
+
+    // 동적 Select 옵션(필드 Key → 옵션 목록). 규약: OptionsQueryId 결과의 첫 컬럼=값, 둘째 컬럼=라벨 보조.
+    private Dictionary<string, IReadOnlyList<MetaFieldOption>> _dynamicOptions = new(StringComparer.Ordinal);
+
+    private async Task<Dictionary<string, IReadOnlyList<MetaFieldOption>>> LoadDynamicOptionsAsync()
+    {
+        var result = new Dictionary<string, IReadOnlyList<MetaFieldOption>>(StringComparer.Ordinal);
+        if (_definition is null) return result;
+        var fields = _definition.Layout is not null
+            ? CollectFields(_definition.Layout)
+            : _definition.Fields.AsEnumerable();
+        foreach (var field in fields.Where(f => !string.IsNullOrWhiteSpace(f.OptionsQueryId)))
+        {
+            if (result.ContainsKey(field.Key)) continue;   // 같은 Key 중복 정의는 첫 필드 우선
+            var rows = await Api.ExecuteQueryAsync(field.OptionsQueryId!);
+            var opts = new List<MetaFieldOption>();
+            foreach (var row in rows)
+            {
+                var vals = row.Values.ToList();   // JSON 객체 순서 = SELECT 컬럼 순서
+                var value = vals.Count > 0 ? vals[0]?.ToString() ?? "" : "";
+                if (value.Length == 0) continue;
+                var second = vals.Count > 1 ? vals[1]?.ToString() : null;
+                opts.Add(new MetaFieldOption(value,
+                    string.IsNullOrWhiteSpace(second) || second == value ? value : $"{value} — {second}"));
+            }
+            result[field.Key] = opts;
+        }
+        return result;
+    }
+
+    // 수동 새로고침 — 헤더 버튼. 진행 중 중복 클릭은 무시한다.
+    private bool _refreshing;
+    private async Task ManualRefreshAsync()
+    {
+        if (_refreshing) return;
+        _refreshing = true;
+        try { await ReloadDataAsync(); }
+        finally { _refreshing = false; }
     }
 
     // 이벤트 푸시 재조회 — 버스 스레드에서 호출되므로 렌더 갱신은 InvokeAsync로 회로 컨텍스트에 태운다.

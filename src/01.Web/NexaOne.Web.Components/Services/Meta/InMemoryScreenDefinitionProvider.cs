@@ -214,8 +214,9 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                         {
                             new FormWidget { Id = "f-menurole", SaveQueryId = "SYS.UpsertMenuRole", Fields = new FieldWidget[]
                             {
-                                new() { FieldKey = "menuId", Field = new FieldDefinition("menuId", "메뉴 ID", FieldType.Text, Required: true) },
-                                new() { FieldKey = "roleId", Field = new FieldDefinition("roleId", "역할 ID", FieldType.Text, Required: true) },
+                                // 동적 Select — 실존 메뉴/역할만 선택 가능(오타 매핑·FK 위반 방지). 첫 컬럼=값, 둘째=라벨.
+                                new() { FieldKey = "menuId", Field = new FieldDefinition("menuId", "메뉴", FieldType.Select, Required: true, OptionsQueryId: "SYS.MenuTree") },
+                                new() { FieldKey = "roleId", Field = new FieldDefinition("roleId", "역할", FieldType.Select, Required: true, OptionsQueryId: "SYS.ListRoles") },
                             } },
                             new ButtonWidget { Id = "b-menurole-save", Label = "저장", Command = "SYS.UpsertMenuRole", RequiredPermission = "sys:manage" },
                             new ButtonWidget { Id = "b-menurole-del", Label = "삭제", Command = "SYS.DeleteMenuRole", RequiredPermission = "sys:manage" },

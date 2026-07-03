@@ -5,14 +5,20 @@ namespace NexaOne.Web.Services.Meta;
 /// <summary>메타데이터 화면 필드의 입력 유형(Phase 3 — 단일 화면 런타임).</summary>
 public enum FieldType { Text, Number, Date, Boolean, Select }
 
-/// <summary>메타데이터 화면의 단일 입력 필드 정의. 런타임 렌더러가 Type에 따라 컨트롤을 그린다.</summary>
+/// <summary>메타데이터 화면의 단일 입력 필드 정의. 런타임 렌더러가 Type에 따라 컨트롤을 그린다.
+/// <c>OptionsQueryId</c>는 Select 옵션의 동적 소스(명명 읽기쿼리) — 화면 로드 시 1회 조회해
+/// 첫 컬럼=값, 둘째 컬럼=라벨 보조로 옵션을 구성한다(정적 <c>Options</c>가 있으면 그것이 우선).</summary>
 public sealed record FieldDefinition(
     string Key,
     string Label,
     FieldType Type = FieldType.Text,
     bool Required = false,
     bool ReadOnly = false,
-    IReadOnlyList<string>? Options = null);
+    IReadOnlyList<string>? Options = null,
+    string? OptionsQueryId = null);
+
+/// <summary>Select 옵션의 런타임 표현(값+표시 라벨) — 직렬화 계약이 아닌 렌더러 내부 타입.</summary>
+public sealed record MetaFieldOption(string Value, string Label);
 
 /// <summary>메타데이터 그리드 컬럼 정의. Width=고정 폭(px, null=자동) — 표시 순서는 목록 순서가 담당한다(Phase-2).</summary>
 public sealed record GridColumnDefinition(string Key, string Caption, bool Visible = true, int? Width = null);

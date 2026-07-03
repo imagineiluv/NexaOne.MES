@@ -9,6 +9,8 @@ export interface FieldDefinition {
   required?: boolean
   readOnly?: boolean
   options?: string[] | null
+  /** Select 옵션의 동적 소스(명명 읽기쿼리 ID) — C# FieldDefinition.OptionsQueryId 미러. */
+  optionsQueryId?: string | null
 }
 
 export interface GridColumnDefinition {

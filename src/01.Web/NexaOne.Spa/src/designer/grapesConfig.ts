@@ -117,6 +117,7 @@ export function buildTraitDefs(queries: QueryCatalog): Record<string, TraitDef[]
       { type: 'checkbox', name: 'data-field-required', label: '필수' },
       { type: 'checkbox', name: 'data-field-readonly', label: '읽기전용' },
       { type: 'text', name: 'data-field-options', label: '옵션(JSON 배열, Select용)' },
+      { type: 'text', name: 'data-field-options-query', label: '옵션 쿼리 ID(동적 Select)' },
     ],
     'nx-button': [
       { type: 'text', name: 'data-label', label: '라벨' },

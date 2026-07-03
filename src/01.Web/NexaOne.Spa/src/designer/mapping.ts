@@ -59,6 +59,7 @@ export function layoutToComponent(node: LayoutNode): GrapesNode {
         if (f.readOnly) attributes['data-field-readonly'] = true
         // options(LIST 서브필드)는 JSON으로 인코딩 — 값에 콤마가 있어도 손실 없이 라운드트립한다(콤마-조인 폐기).
         if (f.options != null && f.options.length > 0) attributes['data-field-options'] = JSON.stringify(f.options)
+        if (f.optionsQueryId != null && f.optionsQueryId !== '') attributes['data-field-options-query'] = f.optionsQueryId
       }
       break
     }
@@ -163,9 +164,10 @@ export function componentToLayout(comp: GrapesNode): LayoutNode | null {
       const label = str(a, 'data-field-label')
       const type = str(a, 'data-field-type')
       const optsRaw = str(a, 'data-field-options')
+      const optionsQueryId = str(a, 'data-field-options-query')
       const required = bool(a, 'data-field-required')
       const readOnly = bool(a, 'data-field-readonly')
-      const hasFieldAttr = label != null || type != null || optsRaw != null || required || readOnly
+      const hasFieldAttr = label != null || type != null || optsRaw != null || optionsQueryId != null || required || readOnly
       let field: FieldDefinition | undefined
       if (hasFieldAttr) {
         const key = fieldKey ?? ''
@@ -173,6 +175,8 @@ export function componentToLayout(comp: GrapesNode): LayoutNode | null {
         const options = strArrayAttr(a, 'data-field-options')
         field = {
           key, label: label ?? key, type: asFieldType(type), required, readOnly, options,
+          // 부재 시 속성 자체를 만들지 않는다(기존 라운드트립 픽스처 불변) — 존재할 때만 미러.
+          ...(optionsQueryId != null ? { optionsQueryId } : {}),
         }
       }
       return { kind, ...base, ...(fieldKey != null ? { fieldKey } : {}), ...(field != null ? { field } : {}) }

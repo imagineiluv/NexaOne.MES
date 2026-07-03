@@ -111,7 +111,9 @@ public sealed class MetaFormRendererTests
 
         cut.Find("select").Should().NotBeNull("Select 필드는 select 요소로 렌더돼야 한다");
         var options = cut.FindAll("select option");
-        options.Count.Should().Be(3, "Options 개수만큼 option이 렌더돼야 한다");
+        // 값 미선택 상태의 자리표시 "(선택)" 1개 + Options 3개 — 첫 옵션 착시(보이지만 모델엔 없음) 방지.
+        options.Count.Should().Be(4, "자리표시(선택) + Options 개수만큼 option이 렌더돼야 한다");
+        options[0].TextContent.Should().Contain("(선택)");
         cut.Markup.Should().Contain("Red").And.Contain("Green").And.Contain("Blue");
     }
 
@@ -142,12 +144,14 @@ public sealed class MetaFormRendererTests
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
 
-        // Options=null 일 때 Array.Empty 폴백으로 option 없이 select만 그려져야 한다(예외 없이).
+        // Options=null 일 때 Array.Empty 폴백 — 자리표시 "(선택)"만 그려지고 예외가 없어야 한다.
         var def = FormWith(new FieldDefinition("color", "색상", FieldType.Select));
         var cut = Render(ctx, def);
 
         cut.Find("select").Should().NotBeNull("Options가 null이어도 select는 렌더돼야 한다");
-        cut.FindAll("select option").Should().BeEmpty("Options가 null이면 option은 없어야 한다");
+        var options = cut.FindAll("select option");
+        options.Should().HaveCount(1, "Options가 null이면 자리표시(선택)만 렌더된다");
+        options[0].TextContent.Should().Contain("(선택)");
     }
 
     [Fact]

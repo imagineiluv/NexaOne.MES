@@ -167,6 +167,23 @@ describe('field 이산 속성 매핑(트레이트 단일 출처)', () => {
     expect(componentToLayout(comp)).toEqual(node)
   })
 
+  it('동적 옵션 optionsQueryId 라운드트립(data-field-options-query) — 부재 시 속성 미기록', () => {
+    const node: LayoutNode = {
+      kind: 'field', id: 'f-dyn', fieldKey: 'roleId',
+      field: { key: 'roleId', label: '역할', type: 'Select', required: true, readOnly: false, options: null, optionsQueryId: 'SYS.ListRoles' },
+    }
+    const comp = layoutToComponent(node)
+    expect(comp.attributes!['data-field-options-query']).toBe('SYS.ListRoles')
+    expect(componentToLayout(comp)).toEqual(node)
+
+    // 부재 시 속성 자체가 없어야 기존 화면 정의가 재저장에서 불변이다.
+    const plain = layoutToComponent({
+      kind: 'field', id: 'f-plain', fieldKey: 'name',
+      field: { key: 'name', label: '이름', type: 'Text', required: false, readOnly: false, options: null },
+    })
+    expect(plain.attributes!['data-field-options-query']).toBeUndefined()
+  })
+
   it('MAP-1: 콤마·콜론 포함 options가 라운드트립에서 정확히 보존된다(콤마-조인 부패 방지)', () => {
     const node: LayoutNode = {
       kind: 'field', id: 'f-opts', fieldKey: 'cat',

@@ -14,10 +14,16 @@
                     break;
 
                 case FieldType.Select:
+                    var opts = ResolveOptions(field);
                     <select disabled="@field.ReadOnly" @onchange="e => Set(field.Key, e.Value)">
-                        @foreach (var opt in field.Options ?? Array.Empty<string>())
+                        @* 값 미선택 상태를 명시한다 — 첫 옵션이 '보이기만 하고 모델에는 없는' 착시 방지. *@
+                        @if (GetString(field.Key).Length == 0)
                         {
-                            <option value="@opt" selected="@(GetString(field.Key) == opt)">@opt</option>
+                            <option value="" selected>(선택)</option>
+                        }
+                        @foreach (var opt in opts)
+                        {
+                            <option value="@opt.Value" selected="@(GetString(field.Key) == opt.Value)">@opt.Label</option>
                         }
                     </select>
                     break;
@@ -35,6 +41,17 @@
     [Parameter, EditorRequired] public ScreenDefinition Definition { get; set; } = default!;
     [Parameter] public Dictionary<string, object?> Model { get; set; } = new();
     [Parameter] public EventCallback<Dictionary<string, object?>> ModelChanged { get; set; }
+
+    // 동적 Select 옵션(OptionsQueryId) — MetaScreen이 화면 로드 시 조회해 캐스케이딩으로 내려보낸다.
+    // (LayoutRenderer가 재귀 렌더 중간에 있어도 파라미터 배관 없이 도달한다)
+    [CascadingParameter(Name = "MetaDynamicOptions")]
+    public Dictionary<string, IReadOnlyList<MetaFieldOption>>? DynamicOptions { get; set; }
+
+    // 정적 Options 우선, 없으면 동적 옵션(필드 Key 기준), 둘 다 없으면 빈 목록.
+    private IReadOnlyList<MetaFieldOption> ResolveOptions(FieldDefinition field)
+        => field.Options is { Count: > 0 } s ? s.Select(o => new MetaFieldOption(o, o)).ToList()
+         : DynamicOptions is not null && DynamicOptions.TryGetValue(field.Key, out var d) ? d
+         : Array.Empty<MetaFieldOption>();
 
     private string GetString(string key) => Model.TryGetValue(key, out var v) ? v?.ToString() ?? string.Empty : string.Empty;
     private bool GetBool(string key) => Model.TryGetValue(key, out var v) && v is true;

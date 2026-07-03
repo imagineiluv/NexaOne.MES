@@ -22,6 +22,10 @@ public sealed class MetaScreenTests
         return provider;
     }
 
+    // 헤더 새로고침 버튼이 DOM 첫 버튼이므로, 저장 클릭은 라벨로 특정한다.
+    private static AngleSharp.Dom.IElement SaveButton(IRenderedFragment cut)
+        => cut.FindAll("button").First(b => b.TextContent.Trim().StartsWith("저장"));
+
     [Fact]
     public void Grid_definition_loads_rows_from_query_gateway_and_renders()
     {
@@ -102,7 +106,7 @@ public sealed class MetaScreenTests
 
         // 필수 필드를 채운 뒤 저장 → command 게이트웨이로 전송.
         cut.Find("input").Change("플랜트1");
-        cut.Find("button").Click();
+        SaveButton(cut).Click();
 
         cut.WaitForAssertion(() =>
         {
@@ -139,12 +143,74 @@ public sealed class MetaScreenTests
         cut.Markup.Should().NotContain("VE-NEW", "저장 전에는 새 행이 없어야 한다");
 
         cut.Find("input").Change("VE-NEW");
-        cut.Find("button").Click();
+        SaveButton(cut).Click();
 
         cut.WaitForAssertion(() =>
         {
             cut.Markup.Should().Contain("저장됨");
             cut.Markup.Should().Contain("VE-NEW", "저장 성공 후 그리드가 재조회돼 새 행이 즉시 보여야 한다");
+        }, TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public void Manual_refresh_button_reloads_grid_rows()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var def = new ScreenDefinition("GRID-R", "공장 목록",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("PLANT_ID", "공장 ID") },
+            QueryId: "Q.Plants");
+
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryAsync("Q.Plants", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(new List<Dictionary<string, object?>>());
+        ctx.Services.AddSingleton(Provider("GRID-R", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "GRID-R"));
+        api.Verify(a => a.ExecuteQueryAsync("Q.Plants", It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
+
+        // 헤더 새로고침 버튼 → 데이터 재조회(폼 상태는 건드리지 않는 ReloadDataAsync 경로).
+        cut.FindAll("button").First(b => b.TextContent.Contains("새로고침")).Click();
+
+        cut.WaitForAssertion(() =>
+            api.Verify(a => a.ExecuteQueryAsync("Q.Plants", It.IsAny<object?>(), It.IsAny<CancellationToken>()),
+                Times.Exactly(2), "수동 새로고침은 그리드 쿼리를 재실행해야 한다"),
+            TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public void Select_field_loads_dynamic_options_from_options_query()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        // 동적 Select — OptionsQueryId 결과의 첫 컬럼=값, 둘째 컬럼=라벨 보조("값 — 라벨").
+        var def = new ScreenDefinition("SEL1", "매핑 등록",
+            new FieldDefinition[] { new("roleId", "역할", FieldType.Select, Required: true, OptionsQueryId: "Q.Roles") },
+            SaveQueryId: "SYS.UpsertMenuRole");
+
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryAsync("Q.Roles", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(new List<Dictionary<string, object?>>
+           {
+               new() { ["ROLE_ID"] = "ADMIN", ["ROLE_NAME"] = "Administrator" },
+               new() { ["ROLE_ID"] = "VIEWER", ["ROLE_NAME"] = "뷰어" },
+           });
+        ctx.Services.AddSingleton(Provider("SEL1", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "SEL1"));
+
+        cut.WaitForAssertion(() =>
+        {
+            var options = cut.FindAll("select option");
+            options.Should().Contain(o => o.GetAttribute("value") == "ADMIN" && o.TextContent.Contains("Administrator"),
+                "옵션 값=첫 컬럼, 라벨은 '값 — 둘째 컬럼'이어야 한다");
+            options.Should().Contain(o => o.GetAttribute("value") == "VIEWER");
+            options.First().TextContent.Should().Contain("(선택)", "값 미선택 상태를 명시하는 자리표시 옵션");
         }, TimeSpan.FromSeconds(2));
     }
 
@@ -165,7 +231,7 @@ public sealed class MetaScreenTests
         var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "SAVE2"));
 
         // 필수 필드를 비운 채 저장 → 검증 실패 메시지 + 게이트웨이 미호출.
-        cut.Find("button").Click();
+        SaveButton(cut).Click();
 
         cut.Markup.Should().Contain("필수");
         api.Verify(a => a.ExecuteCommandAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()),
