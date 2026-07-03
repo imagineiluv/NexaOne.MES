@@ -15,7 +15,12 @@ public sealed class VirtualEventEvaluationWorker : BackgroundService
     public VirtualEventEvaluationWorker(VirtualEventService service, bool enabled, int intervalSeconds)
     {
         _service = service;
-        _enabled = enabled;
+        // Spring XML 상수 배선(fdc.xml enabled=false)이라 IConfiguration을 받을 수 없다 — dev 활성화는
+        // env 오버라이드로 허용한다(launchSettings Worker__Fdc__VirtualEvent__Enabled=true; 이름은 해당
+        // 설정 키의 env 표기와 동일). 테스트/운영 기본은 XML false + env 부재 = OFF 유지.
+        _enabled = enabled || string.Equals(
+            Environment.GetEnvironmentVariable("Worker__Fdc__VirtualEvent__Enabled"), "true",
+            StringComparison.OrdinalIgnoreCase);
         _intervalSeconds = Math.Max(5, intervalSeconds);
     }
 

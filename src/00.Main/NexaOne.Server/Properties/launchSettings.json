@@ -6,7 +6,8 @@
       "applicationUrl": "http://localhost:8080",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "Worker__Sys__BatchProcess__Enabled": "true"
+        "Worker__Sys__BatchProcess__Enabled": "true",
+        "Worker__Fdc__VirtualEvent__Enabled": "true"
       }
     }
   }
