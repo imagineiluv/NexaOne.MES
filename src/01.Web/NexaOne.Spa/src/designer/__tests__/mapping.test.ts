@@ -119,6 +119,19 @@ describe('LayoutNode ↔ GrapesJS 매핑', () => {
     expect(legacy.flat!.refreshIntervalSeconds).toBeNull()
   })
 
+  it('searchFields(검색 조건, 화면 수준)가 build/parse 왕복에서 보존된다 — 재저장 드랍 방지', () => {
+    const search = [
+      { key: 'logLevel', label: '레벨', type: 'Select' as const, options: ['Warning', 'Error'] },
+      { key: 'userId', label: '사용자 ID', type: 'Text' as const },
+    ]
+    const parsed = parseDefinition(buildDefinitionJson('LOGV', '로그 뷰어', null, null, search))
+    expect(parsed.flat!.searchFields).toEqual(search)
+
+    // 미지정/빈 배열이면 필드 자체가 없고(하위호환) 파싱은 null 정규화.
+    const none = parseDefinition(buildDefinitionJson('OLD2', '기존', null, null, []))
+    expect(none.flat!.searchFields).toBeNull()
+  })
+
   it('그리드 컬럼 width(px, Phase-2)가 JSON 인코딩 라운드트립에서 보존된다', () => {
     const grid: LayoutNode = {
       kind: 'grid', id: 'g-w', queryId: 'MDM.PlantList',

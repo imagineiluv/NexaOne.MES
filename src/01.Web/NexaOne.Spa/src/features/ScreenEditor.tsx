@@ -12,7 +12,7 @@ import { readRootLayout } from '../designer/editorBridge'
 import {
   buildEditorConfig, BLOCK_DEFS, COMPONENT_TYPE_DEFS, buildTraitDefs, toModelDefaults, type QueryCatalog,
 } from '../designer/grapesConfig'
-import type { GrapesNode, LayoutNode } from '../designer/layout'
+import type { GrapesNode, LayoutNode, ScreenDefinitionDto } from '../designer/layout'
 
 export function ScreenEditor() {
   const { uiId } = useParams<{ uiId: string }>()
@@ -20,6 +20,9 @@ export function ScreenEditor() {
   const blocksRef = useRef<HTMLDivElement>(null)
   const traitsRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<Editor | null>(null)
+  // 화면 수준 설정(자동 새로고침·검색 조건) 보존용 — 디자이너는 레이아웃만 편집하므로 로드 시
+  // flat을 붙들었다가 저장에 그대로 실어야 재저장이 이 설정들을 드랍하지 않는다.
+  const flatRef = useRef<ScreenDefinitionDto | null>(null)
   const [title, setTitle] = useState('')
   const [status, setStatus] = useState('초기화 중…')
 
@@ -50,6 +53,7 @@ export function ScreenEditor() {
       })
       .then(({ title: loaded, layout, flat }) => {
         if (disposed) return
+        flatRef.current = flat
         setTitle(loaded || (uiId ?? ''))
         const effective: LayoutNode | null = layout ?? (flat ? flatToLayout(flat) : null)
         const root: GrapesNode = effective
@@ -68,7 +72,10 @@ export function ScreenEditor() {
     if (!editor || !uiId) return
     try {
       setStatus('저장 중…')
-      await saveDefinition(uiId, title || uiId, readRootLayout(editor))
+      await saveDefinition(uiId, title || uiId, readRootLayout(editor), {
+        refreshIntervalSeconds: flatRef.current?.refreshIntervalSeconds,
+        searchFields: flatRef.current?.searchFields,
+      })
       setStatus('저장됨')
     } catch {
       setStatus('저장 실패(권한 sys:manage 확인)')

@@ -1,7 +1,7 @@
 // 디자이너 ↔ Phase 5a 게이트웨이 클라이언트. 화면정의 로드/저장은 SYS 쿼리/커맨드(SQL 열은 대문자),
 // 카탈로그(/api/v1/sys/queries)는 camelCase. apiFetch가 Bearer 부착·401 refresh·!ok throw를 처리.
 import { apiFetch } from '../api/client'
-import type { LayoutNode, ScreenDefinitionDto } from './layout'
+import type { FieldDefinition, LayoutNode, ScreenDefinitionDto } from './layout'
 import { buildDefinitionJson, parseDefinition } from './mapping'
 
 interface ScreenDefRow { UI_ID?: string; TITLE?: string; DEFINITION_JSON?: string }
@@ -18,8 +18,18 @@ export async function loadDefinition(uiId: string): Promise<{ title: string; lay
   return parseDefinition(json)
 }
 
-export async function saveDefinition(uiId: string, title: string, layout: LayoutNode | null): Promise<number> {
-  const definitionJson = buildDefinitionJson(uiId, title, layout)
+// extras = 디자이너가 편집하지 않는 화면 수준 설정 — 로드 시 flat에서 받아 재저장에 그대로 실어
+// 드랍을 막는다(refreshIntervalSeconds가 이 배선 누락으로 재저장에서 소실되던 버그 교정).
+export interface ScreenLevelExtras {
+  refreshIntervalSeconds?: number | null
+  searchFields?: FieldDefinition[] | null
+}
+
+export async function saveDefinition(
+  uiId: string, title: string, layout: LayoutNode | null, extras?: ScreenLevelExtras,
+): Promise<number> {
+  const definitionJson = buildDefinitionJson(
+    uiId, title, layout, extras?.refreshIntervalSeconds, extras?.searchFields)
   const res = await apiFetch<AffectedRows>('/api/v1/command/SYS.UpsertScreenDefinition', {
     method: 'POST',
     body: JSON.stringify({ uiId, title, definitionJson }),

@@ -117,6 +117,15 @@ body {
 .meta-form input, .meta-form select { padding: 6px 9px; border: 1px solid var(--sux-border); border-radius: 3px; font-size: 13px; }
 .meta-refresh { margin-left: 10px; padding: 4px 12px; font-size: 12px; vertical-align: 2px; }
 .page-header { display: flex; align-items: center; }
+
+/* 검색 조건 영역(SearchFields) — 조건 필드는 가로 흐름(레거시 SmartUX 상단 조건 영역 미러). */
+.meta-search { padding: 12px 14px; margin-bottom: 12px; }
+.meta-search .meta-form { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+.meta-search .meta-field { margin-bottom: 4px; }
+.meta-search .meta-field label { flex: 0 0 auto; }
+.meta-search-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.meta-cond-name, .meta-cond-select { padding: 6px 9px; border: 1px solid var(--sux-border); border-radius: 3px; font-size: 13px; }
+.meta-cond-name { width: 10rem; }
 .meta-actions { margin-top: 12px; display: flex; gap: 8px; }
 .validation-errors { color: var(--sux-red); font-size: 12.5px; margin: 8px 0 0; padding-left: 18px; }
 .save-ok { color: var(--sux-teal); font-weight: 600; }

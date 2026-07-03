@@ -215,6 +215,86 @@ public sealed class MetaScreenTests
     }
 
     [Fact]
+    public void Search_fields_restore_latest_condition_and_bind_query_parameters()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        // §20.8 — 재진입 시 '$latest'(마지막 조회 조건)를 복원해 초기 조회 파라미터로 바인딩해야 한다.
+        var def = new ScreenDefinition("GRID-S", "로그", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("LOG_LEVEL", "레벨") },
+            QueryId: "Q.Logs",
+            SearchFields: new FieldDefinition[]
+            {
+                new("logLevel", "레벨", FieldType.Select, Options: new[] { "Warning", "Error" }),
+            });
+
+        object? captured = null;
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryAsync("Q.Logs", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .Callback<string, object?, CancellationToken>((_, p, _) => captured = p)
+           .ReturnsAsync(new List<Dictionary<string, object?>>());
+        api.Setup(a => a.GetConditionSettingsAsync("GRID-S", It.IsAny<CancellationToken>()))
+           .ReturnsAsync(new ConditionSettingDto(
+               new ConditionItemDto("$latest", DateTime.UtcNow, new() { ["logLevel"] = "Error" }),
+               new List<ConditionItemDto>()));
+        ctx.Services.AddSingleton(Provider("GRID-S", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "GRID-S"));
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Markup.Should().Contain("조회", "검색 조건 영역은 조회 버튼을 렌더해야 한다");
+            captured.Should().BeOfType<Dictionary<string, object?>>()
+                .Which.Should().Contain(kv => kv.Key == "logLevel" && kv.Value!.ToString() == "Error",
+                    "$latest 조건이 초기 조회 파라미터로 복원돼야 한다");
+        }, TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public void Search_button_saves_latest_condition_and_requeries_with_values()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var def = new ScreenDefinition("GRID-S2", "로그", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("LOG_LEVEL", "레벨") },
+            QueryId: "Q.Logs",
+            SearchFields: new FieldDefinition[]
+            {
+                new("logLevel", "레벨", FieldType.Select, Options: new[] { "Warning", "Error" }),
+            });
+
+        var capturedParams = new List<object?>();
+        Dictionary<string, string?>? savedLatest = null;
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryAsync("Q.Logs", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .Callback<string, object?, CancellationToken>((_, p, _) => capturedParams.Add(p))
+           .ReturnsAsync(new List<Dictionary<string, object?>>());
+        api.Setup(a => a.SaveLatestConditionAsync("GRID-S2", It.IsAny<Dictionary<string, string?>>(), It.IsAny<CancellationToken>()))
+           .Callback<string, Dictionary<string, string?>, CancellationToken>((_, v, _) => savedLatest = v)
+           .ReturnsAsync(true);
+        ctx.Services.AddSingleton(Provider("GRID-S2", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "GRID-S2"));
+
+        // 조건 선택 후 조회 — 첫 select=검색 필드(둘째는 저장된 조건 목록).
+        cut.FindAll(".meta-search select")[0].Change("Warning");
+        cut.FindAll("button").First(b => b.TextContent.Trim() == "조회").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            savedLatest.Should().NotBeNull("조회는 '$latest' 조건을 자동 저장해야 한다(§20.8)");
+            savedLatest!.Should().Contain(kv => kv.Key == "logLevel" && kv.Value == "Warning");
+            capturedParams.Count.Should().BeGreaterThan(1, "조회 클릭은 재조회를 트리거해야 한다");
+            capturedParams[^1].Should().BeOfType<Dictionary<string, object?>>()
+                .Which.Should().Contain(kv => kv.Key == "logLevel" && kv.Value!.ToString() == "Warning");
+        }, TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
     public void Save_blocks_and_does_not_call_gateway_when_required_field_empty()
     {
         using var ctx = new TestContext();

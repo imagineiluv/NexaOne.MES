@@ -43,7 +43,11 @@ public sealed record ScreenDefinition(
     string? QueryId = null,
     string? SaveQueryId = null,
     LayoutNode? Layout = null,                 // null => 기존 평면 렌더(하위호환). 비null => LayoutRenderer가 렌더.
-    int? RefreshIntervalSeconds = null);       // 자동 새로고침 주기(초, Phase-2 실시간 v2) — null/0=수동(기존 동작).
+    int? RefreshIntervalSeconds = null,        // 자동 새로고침 주기(초, Phase-2 실시간 v2) — null/0=수동(기존 동작).
+    IReadOnlyList<FieldDefinition>? SearchFields = null);
+    // SearchFields — 그리드 상단 검색 조건 영역(레거시 SmartUX 표준 패턴). 필드 Key=쿼리 @param 이름이며
+    // 조회 시 화면의 모든 읽기쿼리에 함께 바인딩된다(SQL이 선언하지 않은 파라미터는 게이트웨이가 무시,
+    // 누락 파라미터는 DBNull → NULL-가드 쿼리에서 전체 조회). §20.8 조건 저장/불러오기의 대상이기도 하다.
 
 /// <summary>
 /// 레이아웃 트리 노드(Low-Code WYSIWYG). 컨테이너(Section/Row/Column)는 Children을, 위젯은 바인딩을 가진다.

@@ -188,7 +188,25 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                             new ButtonWidget { Id = "b-batch-del", Label = "삭제", Command = "SYS.DeleteBatchProcess", RequiredPermission = "sys:manage" },
                         } },
                     } },
+                    // 실행 이력(V068) — 배치 엔진(수동 run·주기 워커)이 기록. 검색 조건 @batchId로 필터.
+                    new RowNode { Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 12, Children = new LayoutNode[]
+                        {
+                            new TextWidget { Id = "t-batch-hist", Text = "실행 이력(최근 200건)", IsLabel = true },
+                            new GridWidget { Id = "g-batch-hist", QueryId = "SYS.BatchProcessHistoryList", Columns = new GridColumnDefinition[]
+                            {
+                                new("STARTED_AT", "시작", Width: 150), new("FINISHED_AT", "종료", Width: 150),
+                                new("BATCH_ID", "배치 ID", Width: 150), new("SUCCESS", "성공", Width: 60),
+                                new("AFFECTED", "처리 행", Width: 80), new("ERROR_MESSAGE", "오류"), new("EXECUTED_BY", "실행자", Width: 100),
+                            } },
+                        } },
+                    } },
                 },
+            },
+            SearchFields: new FieldDefinition[]
+            {
+                new("batchId", "배치 ID"),
             }));
 
         // 시스템관리 — 메뉴별 권한 관리(SYSTEM_2_MENU_AUTH_MANAGEMENT). SYS_MENU_ROLE(V031) 매핑 CRUD.
@@ -262,7 +280,26 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                             new ButtonWidget { Id = "b-ve-del", Label = "삭제", Command = "FDC.DeleteVirtualEvent", RequiredPermission = "fdc:manage" },
                         } },
                     } },
+                    // 전이 이력(V069) — 평가 엔진이 상태 전이 시에만 기록. 검색 조건 @equipmentId/@eventId 필터.
+                    new RowNode { Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 12, Children = new LayoutNode[]
+                        {
+                            new TextWidget { Id = "t-ve-hist", Text = "전이 이력(최근 200건)", IsLabel = true },
+                            new GridWidget { Id = "g-ve-hist", QueryId = "FDC.VirtualEventHistoryList", Columns = new GridColumnDefinition[]
+                            {
+                                new("EVALUATED_AT", "평가 시각", Width: 150), new("EQUIPMENT_ID", "설비", Width: 110),
+                                new("EVENT_ID", "이벤트 ID", Width: 130), new("EVENT_STATE", "상태", Width: 70),
+                                new("FORMULA", "수식"), new("DETAILS", "상세"),
+                            } },
+                        } },
+                    } },
                 },
+            },
+            SearchFields: new FieldDefinition[]
+            {
+                new("equipmentId", "설비 ID"),
+                new("eventId", "이벤트 ID"),
             }));
 
         // FDC — 팝업 모니터링 대시보드(EES_POPUP_MONITERING_DASHBOARD) v2: 10초 자동 새로고침 + 수집값 트렌드 차트
@@ -1465,6 +1502,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             QueryId: "SYS.DeployFileList"));
 
         // 로그 뷰어(LOG_VIEWER) — 앱 로그(V064, DbLoggerProvider Warning+ 기록·SYS.AppLogList).
+        // SearchFields 1호 적용 — @logLevel NULL-가드 필터(빈 값=전체).
         Register(new ScreenDefinition("LOG_VIEWER", "로그 뷰어",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
@@ -1472,7 +1510,11 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("LOGGED_AT", "발생시각"), new("LOG_LEVEL", "레벨"), new("CATEGORY", "카테고리"),
                 new("MESSAGE", "메시지"), new("EXCEPTION", "예외"),
             },
-            QueryId: "SYS.AppLogList"));
+            QueryId: "SYS.AppLogList",
+            SearchFields: new FieldDefinition[]
+            {
+                new("logLevel", "레벨", FieldType.Select, Options: new[] { "Information", "Warning", "Error", "Critical" }),
+            }));
 
         // 요청 로그 뷰어(SYSTEM2_MONITOR_REQLOG) — API 요청 로그(V062, RequestLogMiddleware 기록·SYS.RequestLogList).
         Register(new ScreenDefinition("SYSTEM2_MONITOR_REQLOG", "요청 로그 뷰어",
@@ -1482,7 +1524,12 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("REQUESTED_AT", "요청시각"), new("METHOD", "메서드"), new("PATH", "경로"), new("STATUS_CODE", "상태"),
                 new("ELAPSED_MS", "소요(ms)"), new("USER_ID", "사용자"), new("CLIENT_IP", "클라이언트 IP"),
             },
-            QueryId: "SYS.RequestLogList"));
+            QueryId: "SYS.RequestLogList",
+            SearchFields: new FieldDefinition[]
+            {
+                new("method", "메서드", FieldType.Select, Options: new[] { "GET", "POST", "PUT", "DELETE" }),
+                new("userId", "사용자 ID"),
+            }));
 
         // 생산성 대시보드(FACTORY_DASHBOARD_MENU_PRODUCTIVITY) — 설비×일자 OEE 마트(EST.OeeSummaryList) 재사용.
         Register(new ScreenDefinition("FACTORY_DASHBOARD_MENU_PRODUCTIVITY", "생산성 대시보드",
@@ -1923,7 +1970,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         Register(new ScreenDefinition("SYSTEM_2_USER_MANAGEMENT", "사용자 관리", Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[] { new("USER_ID", "사용자 ID"), new("USER_NAME", "사용자명"), new("EMAIL", "이메일"), new("ROLE_ID", "역할"), new("LANGUAGE", "언어"), new("IS_ACTIVE", "활성"), new("LAST_LOGIN_AT", "최근로그인") }, QueryId: "SYS.ListUsers"));
         var roleCols = new GridColumnDefinition[] { new("ROLE_ID", "역할 ID"), new("ROLE_NAME", "역할명"), new("DESCRIPTION", "설명"), new("PERMISSIONS", "권한") };
-        Register(new ScreenDefinition("SYSTEM_2_AUTH_MANAGEMENT", "권한 관리", Array.Empty<FieldDefinition>(), roleCols, QueryId: "SYS.ListRoles"));
+        // SYSTEM_2_AUTH_MANAGEMENT는 호스트 전용 페이지(HostRoleManagement — 역할 생성·권한 추가/회수·잠금 해제,
+        // 브리지 REST 경유)가 리터럴 라우트로 대체한다(구 읽기 전용 목록 등록 제거).
         Register(new ScreenDefinition("SYSTEM_2_AUTH_MANAGEMENT_NEW", "권한 그룹 관리", Array.Empty<FieldDefinition>(), roleCols, QueryId: "SYS.ListRoles"));
         // SYSTEM_2_MENU_AUTH_MANAGEMENT는 상단의 SYS_MENU_ROLE 매핑 CRUD 정의를 쓴다(구 읽기 전용 메뉴 목록 대체).
         Register(new ScreenDefinition("SYSTEM_2_UIID_MANAGEMENT", "UIID 관리", Array.Empty<FieldDefinition>(),

@@ -229,12 +229,14 @@ export function componentToLayout(comp: GrapesNode): LayoutNode | null {
 export function buildDefinitionJson(
   uiId: string, title: string, layout: LayoutNode | null,
   refreshIntervalSeconds?: number | null,
+  searchFields?: FieldDefinition[] | null,
 ): string {
   const dto: ScreenDefinitionDto = {
     uiId, title, fields: [], columns: null, queryId: null, saveQueryId: null,
     layout: layout ?? null,
-    // 화면 수준 설정 보존 — 디자이너 재저장이 자동 새로고침 설정을 드랍하지 않게 한다(손실 방지).
+    // 화면 수준 설정 보존 — 디자이너 재저장이 자동 새로고침/검색 조건 설정을 드랍하지 않게 한다(손실 방지).
     ...(refreshIntervalSeconds != null ? { refreshIntervalSeconds } : {}),
+    ...(searchFields != null && searchFields.length > 0 ? { searchFields } : {}),
   }
   return JSON.stringify(dto)
 }
@@ -248,6 +250,7 @@ export function parseDefinition(json: string): { title: string; layout: LayoutNo
       columns: dto.columns ?? null, queryId: dto.queryId ?? null, saveQueryId: dto.saveQueryId ?? null,
       layout: (dto.layout as LayoutNode | undefined) ?? null,
       refreshIntervalSeconds: dto.refreshIntervalSeconds ?? null,
+      searchFields: Array.isArray(dto.searchFields) && dto.searchFields.length > 0 ? dto.searchFields : null,
     }
     return { title: flat.title, layout: flat.layout ?? null, flat }
   } catch {

@@ -18,6 +18,33 @@
     }
 </div>
 
+@* 검색 조건 영역(SearchFields) — 레거시 SmartUX 표준 패턴(상단 조건+조회). §20.8 조건 저장/불러오기 통합:
+   조회 시 '$latest' 자동 저장, 재진입 시 복원. 저장 조건 선택은 즉시 조회. *@
+@if (_definition?.SearchFields is { Count: > 0 } && _searchDefinition is not null)
+{
+    <div class="mes-card meta-search">
+        <CascadingValue Value="_dynamicOptions" Name="MetaDynamicOptions">
+            <MetaFormRenderer Definition="_searchDefinition" @bind-Model="_searchModel" />
+        </CascadingValue>
+        <div class="meta-search-actions">
+            <button class="layout-command" @onclick="RunSearchAsync" disabled="@_refreshing">조회</button>
+            <select class="meta-cond-select" @onchange="OnSavedConditionSelected">
+                <option value="" selected="@(_selectedCondition.Length == 0)">저장된 조건…</option>
+                @foreach (var c in _savedConditions)
+                {
+                    <option value="@c.Name" selected="@(c.Name == _selectedCondition)">@c.Name</option>
+                }
+            </select>
+            @if (_selectedCondition.Length > 0)
+            {
+                <button class="btn btn-ghost" @onclick="DeleteSelectedConditionAsync">조건 삭제</button>
+            }
+            <input class="meta-cond-name" placeholder="조건명" @bind="_conditionName" />
+            <button class="btn btn-ghost" @onclick="SaveCurrentConditionAsync">조건 저장</button>
+        </div>
+    </div>
+}
+
 @if (_definition is null)
 {
     @* SmartUX 메뉴에는 있으나 아직 새 시스템에 이식되지 않은 화면 — 오류가 아니라 '준비 중' 안내로 보여준다.
@@ -143,6 +170,23 @@ else
         // 동적 Select 옵션(OptionsQueryId) — 정의 로드 시 1회 조회(마스터 목록은 화면 수명 동안 안정).
         _dynamicOptions = await LoadDynamicOptionsAsync();
 
+        // 검색 조건 초기화(§20.8) — 저장 조건 목록과 '$latest'(마지막 조회 조건)를 복원한 뒤 조회한다.
+        _searchModel = new(StringComparer.Ordinal);
+        _searchDefinition = null;
+        _savedConditions = new();
+        _selectedCondition = string.Empty;
+        _conditionName = string.Empty;
+        if (_definition?.SearchFields is { Count: > 0 } sf)
+        {
+            _searchDefinition = new ScreenDefinition(string.Empty, string.Empty, sf);
+            var setting = await Api.GetConditionSettingsAsync(UiId);
+            if (setting is not null)
+            {
+                _savedConditions = setting.Items ?? new();
+                if (setting.Latest is not null) ApplyConditionValues(setting.Latest.Values);
+            }
+        }
+
         // 데이터(그리드 행 + 레이아웃 결과맵) 조회 — 자동 새로고침과 공유하는 단일 경로.
         await ReloadDataAsync();
 
@@ -193,9 +237,10 @@ else
     {
         var result = new Dictionary<string, IReadOnlyList<MetaFieldOption>>(StringComparer.Ordinal);
         if (_definition is null) return result;
-        var fields = _definition.Layout is not null
-            ? CollectFields(_definition.Layout)
-            : _definition.Fields.AsEnumerable();
+        var fields = (_definition.Layout is not null
+                ? CollectFields(_definition.Layout)
+                : _definition.Fields.AsEnumerable())
+            .Concat(_definition.SearchFields ?? Enumerable.Empty<FieldDefinition>());
         foreach (var field in fields.Where(f => !string.IsNullOrWhiteSpace(f.OptionsQueryId)))
         {
             if (result.ContainsKey(field.Key)) continue;   // 같은 Key 중복 정의는 첫 필드 우선
@@ -225,6 +270,89 @@ else
         finally { _refreshing = false; }
     }
 
+    // ── 검색 조건(SearchFields) + §20.8 조건 저장/불러오기 ────────────────────
+    private Dictionary<string, object?> _searchModel = new(StringComparer.Ordinal);
+    private ScreenDefinition? _searchDefinition;     // SearchFields를 MetaFormRenderer로 렌더하기 위한 래퍼
+    private List<ConditionItemDto> _savedConditions = new();
+    private string _conditionName = string.Empty;
+    private string _selectedCondition = string.Empty;
+
+    // 비어있지 않은 조건 값만 파라미터로 보낸다 — 빈 값은 미전송(게이트웨이가 DBNull 보충 → NULL-가드 전체 조회).
+    private Dictionary<string, object?>? BuildSearchParameters()
+    {
+        if (_definition?.SearchFields is not { Count: > 0 }) return null;
+        var p = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var (k, v) in _searchModel)
+            if (!string.IsNullOrWhiteSpace(v?.ToString())) p[k] = v;
+        return p;
+    }
+
+    private async Task RunSearchAsync()
+    {
+        if (_refreshing) return;
+        _refreshing = true;
+        try
+        {
+            // 마지막 조회 조건($latest) 자동 저장 — 다음 진입 시 복원(§20.8). 저장 실패해도 조회는 진행.
+            await Api.SaveLatestConditionAsync(UiId, ToConditionValues());
+            await ReloadDataAsync();
+        }
+        finally { _refreshing = false; }
+    }
+
+    private Dictionary<string, string?> ToConditionValues()
+    {
+        var values = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var f in _definition?.SearchFields ?? Array.Empty<FieldDefinition>())
+            values[f.Key] = _searchModel.TryGetValue(f.Key, out var v) ? v?.ToString() : null;
+        return values;
+    }
+
+    private void ApplyConditionValues(Dictionary<string, string?> values)
+    {
+        foreach (var (k, v) in values)
+            _searchModel[k] = v;
+    }
+
+    private async Task SaveCurrentConditionAsync()
+    {
+        var name = _conditionName.Trim();
+        if (name.Length == 0) return;
+        var saved = await Api.SaveConditionAsync(UiId, name, ToConditionValues());
+        if (saved is not null)
+        {
+            _conditionName = string.Empty;
+            await ReloadSavedConditionsAsync();
+            _selectedCondition = name;
+        }
+    }
+
+    private async Task ReloadSavedConditionsAsync()
+    {
+        var setting = await Api.GetConditionSettingsAsync(UiId);
+        _savedConditions = setting?.Items ?? new();
+    }
+
+    // 저장 조건 선택 → 값 적용 후 즉시 조회(레거시 SmartUX 동작 미러).
+    private async Task OnSavedConditionSelected(ChangeEventArgs e)
+    {
+        _selectedCondition = e.Value?.ToString() ?? string.Empty;
+        var item = _savedConditions.FirstOrDefault(c => c.Name == _selectedCondition);
+        if (item is null) return;
+        ApplyConditionValues(item.Values);
+        await RunSearchAsync();
+    }
+
+    private async Task DeleteSelectedConditionAsync()
+    {
+        if (_selectedCondition.Length == 0) return;
+        if (await Api.DeleteConditionAsync(UiId, _selectedCondition))
+        {
+            _selectedCondition = string.Empty;
+            await ReloadSavedConditionsAsync();
+        }
+    }
+
     // 이벤트 푸시 재조회 — 버스 스레드에서 호출되므로 렌더 갱신은 InvokeAsync로 회로 컨텍스트에 태운다.
     private async Task OnPushChangedAsync()
     {
@@ -244,13 +372,16 @@ else
     }
 
     // 데이터 재조회(그리드 행 + 레이아웃 위젯 결과맵) — 초기 로드와 자동 새로고침이 공유한다.
+    // 검색 조건(SearchFields)이 있으면 값을 모든 읽기쿼리에 바인딩한다 — SQL이 선언하지 않은 파라미터는
+    // 게이트웨이가 무시하므로 화면 내 여러 쿼리에 같은 조건 딕셔너리를 안전하게 공유한다.
     // (403/5xx는 ApiClient가 빈 목록으로 흡수하고 전역 토스트가 사유를 알린다)
     private async Task ReloadDataAsync()
     {
+        var search = BuildSearchParameters();
         _rows = null;
         if (_definition?.Columns is { Count: > 0 } && !string.IsNullOrWhiteSpace(_definition.QueryId))
         {
-            _rows = await Api.ExecuteQueryAsync(_definition.QueryId);
+            _rows = await Api.ExecuteQueryAsync(_definition.QueryId, search);
         }
 
         if (_definition?.Layout is not null)
@@ -258,7 +389,7 @@ else
             var map = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>(StringComparer.Ordinal);
             foreach (var queryId in CollectQueryIds(_definition.Layout))
                 if (!map.ContainsKey(queryId))
-                    map[queryId] = await Api.ExecuteQueryAsync(queryId);
+                    map[queryId] = await Api.ExecuteQueryAsync(queryId, search);
             _queryResults = map;
         }
     }
