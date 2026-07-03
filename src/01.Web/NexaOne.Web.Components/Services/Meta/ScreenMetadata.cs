@@ -36,7 +36,8 @@ public sealed record ScreenDefinition(
     IReadOnlyList<GridColumnDefinition>? Columns = null,
     string? QueryId = null,
     string? SaveQueryId = null,
-    LayoutNode? Layout = null);   // null => 기존 평면 렌더(하위호환). 비null => LayoutRenderer가 렌더.
+    LayoutNode? Layout = null,                 // null => 기존 평면 렌더(하위호환). 비null => LayoutRenderer가 렌더.
+    int? RefreshIntervalSeconds = null);       // 자동 새로고침 주기(초, Phase-2 실시간 v2) — null/0=수동(기존 동작).
 
 /// <summary>
 /// 레이아웃 트리 노드(Low-Code WYSIWYG). 컨테이너(Section/Row/Column)는 Children을, 위젯은 바인딩을 가진다.
@@ -54,6 +55,7 @@ public sealed record ScreenDefinition(
 [JsonDerivedType(typeof(TextWidget), "text")]
 [JsonDerivedType(typeof(KpiWidget), "kpi")]
 [JsonDerivedType(typeof(BadgeWidget), "statusBadge")]
+[JsonDerivedType(typeof(TrendChartWidget), "trendChart")]
 public abstract record LayoutNode
 {
     /// <summary>GrapesJS 컴포넌트 id == 노드 id(편집 라운드트립 정체성).</summary>
@@ -101,3 +103,13 @@ public sealed record BadgeWidget : LayoutNode
 /// <summary>뱃지 스타일 규칙 — Value(대소문자 무시 매칭) → Severity(success|warning|danger|info|neutral).
 /// DisplayText가 있으면 원문 대신 표시(예: "RUN"→"가동").</summary>
 public sealed record BadgeStyleRule(string Value, string Severity, string? DisplayText = null);
+/// <summary>트렌드 차트(Phase-2 실시간 v2) — 바인딩 쿼리 행의 ValueColumn 수치를 네이티브 SVG 라인으로
+/// 그린다(외부 차트 라이브러리 없음). 마지막 MaxPoints개만 표시 — RefreshIntervalSeconds와 조합하면
+/// 준실시간 스트리밍 차트가 된다(SignalR 푸시 정밀화는 후속).</summary>
+public sealed record TrendChartWidget : LayoutNode
+{
+    public string Label { get; init; } = "";
+    public string? QueryId { get; init; }
+    public string? ValueColumn { get; init; }
+    public int MaxPoints { get; init; } = 50;
+}

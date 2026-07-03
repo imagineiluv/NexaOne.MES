@@ -68,6 +68,30 @@
         </div>
         break;
 
+    @* 트렌드 차트(Phase-2 실시간 v2) — 네이티브 SVG 라인(외부 라이브러리 없음). 데이터 부재는 안내 문구. *@
+    case TrendChartWidget tc:
+    {
+        var points = TrendPoints(tc);
+        <div class="layout-kpi" style="min-width:16rem;">
+            <div class="layout-kpi-label">@tc.Label</div>
+            @if (points.Count < 2)
+            {
+                <div style="color:#9ca3af; font-size:0.75rem; padding:0.5rem 0;">표시할 데이터가 부족합니다.</div>
+            }
+            else
+            {
+                var (polyline, min, max, last) = TrendGeometry(points);
+                <svg viewBox="0 0 300 80" preserveAspectRatio="none" style="width:100%; height:80px; display:block;">
+                    <polyline points="@polyline" fill="none" stroke="#15b89a" stroke-width="2" vector-effect="non-scaling-stroke" />
+                </svg>
+                <div style="display:flex; justify-content:space-between; font-size:0.688rem; color:#6b7280;">
+                    <span>min @min</span><span>현재 @last</span><span>max @max</span>
+                </div>
+            }
+        </div>
+        break;
+    }
+
     @* 상태 뱃지(Phase-2) — 값→심각도 규칙 매칭. 미매칭 값은 neutral 원문 표시(신규 상태가 화면을 깨지 않게). *@
     case BadgeWidget bw:
     {
@@ -131,6 +155,40 @@
         var rows = RowsFor(k.QueryId);
         if (rows is not { Count: > 0 } || string.IsNullOrWhiteSpace(k.ValueColumn)) return "—";
         return rows[0].TryGetValue(k.ValueColumn, out var v) && v is not null ? v.ToString() ?? "—" : "—";
+    }
+
+    // 트렌드 포인트 — 바인딩 쿼리 행에서 ValueColumn 수치를 추출(비수치는 건너뜀), 마지막 MaxPoints개.
+    private List<decimal> TrendPoints(TrendChartWidget tc)
+    {
+        var rows = RowsFor(tc.QueryId);
+        var points = new List<decimal>();
+        if (rows is null || string.IsNullOrWhiteSpace(tc.ValueColumn)) return points;
+        foreach (var row in rows)
+            if (row.TryGetValue(tc.ValueColumn, out var v) && v is not null
+                && decimal.TryParse(v.ToString(), System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out var d))
+                points.Add(d);
+        var max = Math.Max(2, tc.MaxPoints);
+        return points.Count > max ? points.Skip(points.Count - max).ToList() : points;
+    }
+
+    // SVG 폴리라인 좌표(viewBox 300x80, 상하 4px 패딩) — min==max(평평한 선)는 중앙 수평선.
+    private static (string Polyline, decimal Min, decimal Max, decimal Last) TrendGeometry(List<decimal> points)
+    {
+        var min = points.Min();
+        var max = points.Max();
+        var range = max - min;
+        var sb = new System.Text.StringBuilder();
+        for (var i = 0; i < points.Count; i++)
+        {
+            var x = points.Count == 1 ? 0 : 300.0 * i / (points.Count - 1);
+            var y = range == 0 ? 40.0 : 76.0 - (double)((points[i] - min) / range) * 72.0;
+            if (i > 0) sb.Append(' ');
+            sb.Append(x.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+            sb.Append(',');
+            sb.Append(y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+        }
+        return (sb.ToString(), min, max, points[^1]);
     }
 
     private static readonly HashSet<string> KnownSeverities =

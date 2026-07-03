@@ -20,7 +20,7 @@ export interface GridColumnDefinition {
 
 export type LayoutNode =
   | SectionNode | RowNode | ColumnNode
-  | GridWidget | FormWidget | FieldWidget | ButtonWidget | TextWidget | KpiWidget | BadgeWidget
+  | GridWidget | FormWidget | FieldWidget | ButtonWidget | TextWidget | KpiWidget | BadgeWidget | TrendChartWidget
 
 interface NodeBase {
   id?: string
@@ -40,6 +40,8 @@ export interface KpiWidget   extends NodeBase { kind: 'kpi'; label: string; quer
 // 상태 뱃지(Phase-2) — 값→심각도 규칙 매칭(C# BadgeWidget/BadgeStyleRule 미러).
 export interface BadgeStyleRule { value: string; severity: string; displayText?: string | null }
 export interface BadgeWidget extends NodeBase { kind: 'statusBadge'; label?: string | null; queryId?: string | null; valueColumn?: string | null; styles?: BadgeStyleRule[] }
+// 트렌드 차트(Phase-2 실시간 v2) — 마지막 maxPoints개 수치의 SVG 라인(C# TrendChartWidget 미러).
+export interface TrendChartWidget extends NodeBase { kind: 'trendChart'; label: string; queryId?: string | null; valueColumn?: string | null; maxPoints?: number }
 
 export interface ScreenDefinitionDto {
   uiId: string
@@ -49,6 +51,7 @@ export interface ScreenDefinitionDto {
   queryId?: string | null
   saveQueryId?: string | null
   layout?: LayoutNode | null
+  refreshIntervalSeconds?: number | null   // 자동 새로고침 주기(초, Phase-2 실시간 v2) — 저장 왕복 보존 필수
 }
 
 export interface GrapesNode {

@@ -6,7 +6,7 @@ import type {
 const KIND_TO_TYPE: Record<LayoutNode['kind'], string> = {
   section: 'nx-section', row: 'nx-row', column: 'nx-column', grid: 'nx-grid',
   form: 'nx-form', field: 'nx-field', commandButton: 'nx-button', text: 'nx-text', kpi: 'nx-kpi',
-  statusBadge: 'nx-badge-widget',
+  statusBadge: 'nx-badge-widget', trendChart: 'nx-trend-chart',
 }
 const TYPE_TO_KIND: Record<string, LayoutNode['kind']> = Object.fromEntries(
   Object.entries(KIND_TO_TYPE).map(([k, v]) => [v, k as LayoutNode['kind']]),
@@ -82,6 +82,12 @@ export function layoutToComponent(node: LayoutNode): GrapesNode {
       if (node.valueColumn != null) attributes['data-value-column'] = node.valueColumn
       // styles(LIST 서브필드)는 JSON 인코딩 — value/displayText에 구분자가 있어도 무손실(columns/options 선례).
       if (node.styles != null && node.styles.length > 0) attributes['data-styles'] = JSON.stringify(node.styles)
+      break
+    case 'trendChart':
+      attributes['data-label'] = node.label
+      if (node.queryId != null) attributes['data-query-id'] = node.queryId
+      if (node.valueColumn != null) attributes['data-value-column'] = node.valueColumn
+      if (node.maxPoints != null) attributes['data-max-points'] = node.maxPoints
       break
   }
   return comp
@@ -201,13 +207,30 @@ export function componentToLayout(comp: GrapesNode): LayoutNode | null {
         ...(Array.isArray(styles) ? { styles } : {}),
       }
     }
+    case 'trendChart': {
+      const queryId = str(a, 'data-query-id')
+      const valueColumn = str(a, 'data-value-column')
+      const rawMax = a?.['data-max-points']
+      const maxPoints = typeof rawMax === 'number' ? rawMax : (typeof rawMax === 'string' && rawMax !== '' ? Number(rawMax) : undefined)
+      return {
+        kind, ...base, label: str(a, 'data-label') ?? '',
+        ...(queryId != null ? { queryId } : {}),
+        ...(valueColumn != null ? { valueColumn } : {}),
+        ...(maxPoints != null && !Number.isNaN(maxPoints) ? { maxPoints } : {}),
+      }
+    }
   }
 }
 
-export function buildDefinitionJson(uiId: string, title: string, layout: LayoutNode | null): string {
+export function buildDefinitionJson(
+  uiId: string, title: string, layout: LayoutNode | null,
+  refreshIntervalSeconds?: number | null,
+): string {
   const dto: ScreenDefinitionDto = {
     uiId, title, fields: [], columns: null, queryId: null, saveQueryId: null,
     layout: layout ?? null,
+    // 화면 수준 설정 보존 — 디자이너 재저장이 자동 새로고침 설정을 드랍하지 않게 한다(손실 방지).
+    ...(refreshIntervalSeconds != null ? { refreshIntervalSeconds } : {}),
   }
   return JSON.stringify(dto)
 }
@@ -220,6 +243,7 @@ export function parseDefinition(json: string): { title: string; layout: LayoutNo
       fields: Array.isArray(dto.fields) ? dto.fields : [],
       columns: dto.columns ?? null, queryId: dto.queryId ?? null, saveQueryId: dto.saveQueryId ?? null,
       layout: (dto.layout as LayoutNode | undefined) ?? null,
+      refreshIntervalSeconds: dto.refreshIntervalSeconds ?? null,
     }
     return { title: flat.title, layout: flat.layout ?? null, flat }
   } catch {

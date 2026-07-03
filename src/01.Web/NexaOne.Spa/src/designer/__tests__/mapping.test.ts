@@ -96,6 +96,29 @@ describe('LayoutNode ↔ GrapesJS 매핑', () => {
     expect(componentToLayout(sharedComp)).toEqual(shared)
   })
 
+  it('TrendChart(Phase-2 실시간 v2) 라운드트립 무손실 — maxPoints 숫자 속성 포함', () => {
+    const chart: LayoutNode = {
+      kind: 'trendChart', id: 'tc-1', label: '온도 트렌드',
+      queryId: 'FDC.CollectDataList', valueColumn: 'VALUE', maxPoints: 60,
+    }
+    const comp = layoutToComponent(chart)
+    expect(comp.type).toBe('nx-trend-chart')
+    expect(componentToLayout(comp)).toEqual(chart)
+
+    const bare: LayoutNode = { kind: 'trendChart', id: 'tc-2', label: '트렌드' }
+    expect(componentToLayout(layoutToComponent(bare))).toEqual(bare)
+  })
+
+  it('refreshIntervalSeconds(화면 수준)가 build/parse 왕복에서 보존된다 — 재저장 드랍 방지', () => {
+    const json = buildDefinitionJson('LIVE1', '실시간', null, 10)
+    const parsed = parseDefinition(json)
+    expect(parsed.flat!.refreshIntervalSeconds).toBe(10)
+
+    // 미지정이면 필드 자체가 없고(하위호환) 파싱은 null 정규화.
+    const legacy = parseDefinition(buildDefinitionJson('OLD1', '기존', null))
+    expect(legacy.flat!.refreshIntervalSeconds).toBeNull()
+  })
+
   it('그리드 컬럼 width(px, Phase-2)가 JSON 인코딩 라운드트립에서 보존된다', () => {
     const grid: LayoutNode = {
       kind: 'grid', id: 'g-w', queryId: 'MDM.PlantList',

@@ -83,9 +83,10 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         // 단일 쿼리를 5개 위젯이 공유(런타임이 distinct 쿼리 1회만 실행), 컬럼만 다르게 바인딩한다.
         Register(new ScreenDefinition("DASHBOARD_SUMMARY", "대시보드 — 운영 요약",
             Array.Empty<FieldDefinition>(),
+            RefreshIntervalSeconds: 30,
             Layout: new SectionNode
             {
-                Id = "dash-sec", Title = "운영 요약",
+                Id = "dash-sec", Title = "운영 요약(30초 자동 새로고침)",
                 Children = new LayoutNode[]
                 {
                     new RowNode { Id = "dash-row", Children = new LayoutNode[]
@@ -230,13 +231,14 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 },
             }));
 
-        // FDC — 팝업 모니터링 대시보드(EES_POPUP_MONITERING_DASHBOARD) v1 적응 점등. 레거시=실시간 스트리밍 차트 팝업이나
-        // 1차는 폴링 조회(화면 진입 시 1회): 요약 KPI + 설비 현재상태 + 활성 알람 + 최근 인터락. 실시간(SignalR 차트)은 후속.
-        Register(new ScreenDefinition("EES_POPUP_MONITERING_DASHBOARD", "설비 모니터링(요약)",
+        // FDC — 팝업 모니터링 대시보드(EES_POPUP_MONITERING_DASHBOARD) v2: 10초 자동 새로고침 + 수집값 트렌드 차트
+        // (네이티브 SVG). SignalR 푸시 정밀화(이벤트 즉시 반영)는 후속 — 폴링 주기가 준실시간을 담당한다.
+        Register(new ScreenDefinition("EES_POPUP_MONITERING_DASHBOARD", "설비 모니터링(실시간)",
             Array.Empty<FieldDefinition>(),
+            RefreshIntervalSeconds: 10,
             Layout: new SectionNode
             {
-                Id = "sec-mon", Title = "설비 모니터링 — v1 폴링(화면 진입 시 조회, 실시간 차트 후속)",
+                Id = "sec-mon", Title = "설비 모니터링 — 10초 자동 새로고침",
                 Children = new LayoutNode[]
                 {
                     new RowNode { Id = "mon-kpi", Children = new LayoutNode[]
@@ -264,6 +266,14 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                                 new("EQUIPMENT_ID", "설비", Width: 120), new("ALARM_CODE", "코드", Width: 100),
                                 new("ALARM_NAME", "알람명"), new("ALARM_LEVEL", "레벨", Width: 80), new("OCCURRED_AT", "발생 시각"),
                             } },
+                        } },
+                    } },
+                    new RowNode { Id = "mon-trend", Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 12, Children = new LayoutNode[]
+                        {
+                            // 최근 수집값 트렌드(최신 500행 중 마지막 60포인트) — 자동 새로고침과 조합해 준실시간 라인.
+                            new TrendChartWidget { Id = "c-trend", Label = "FDC 수집값 트렌드(최근)", QueryId = "FDC.CollectDataList", ValueColumn = "VALUE", MaxPoints = 60 },
                         } },
                     } },
                     new RowNode { Id = "mon-ilk", Children = new LayoutNode[]

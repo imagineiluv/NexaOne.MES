@@ -46,7 +46,7 @@ export interface ComponentTypeDef {
 export const COMPONENT_TYPE_DEFS: ComponentTypeDef[] = [
   { type: 'nx-section', name: 'Section', allowedChildren: ['nx-row'], allowedParents: [] },
   { type: 'nx-row', name: 'Row', allowedChildren: ['nx-column'], allowedParents: ['nx-section'] },
-  { type: 'nx-column', name: 'Column', allowedChildren: ['nx-grid', 'nx-form', 'nx-button', 'nx-text', 'nx-kpi', 'nx-badge-widget'], allowedParents: ['nx-row'] },
+  { type: 'nx-column', name: 'Column', allowedChildren: ['nx-grid', 'nx-form', 'nx-button', 'nx-text', 'nx-kpi', 'nx-badge-widget', 'nx-trend-chart'], allowedParents: ['nx-row'] },
   { type: 'nx-grid', name: 'DataGrid', allowedChildren: [], allowedParents: ['nx-column'] },
   { type: 'nx-form', name: 'Form', allowedChildren: ['nx-field'], allowedParents: ['nx-column'] },
   { type: 'nx-field', name: 'Field', allowedChildren: [], allowedParents: ['nx-form'] },
@@ -54,6 +54,7 @@ export const COMPONENT_TYPE_DEFS: ComponentTypeDef[] = [
   { type: 'nx-text', name: 'Text', allowedChildren: [], allowedParents: ['nx-column'] },
   { type: 'nx-kpi', name: 'KPI', allowedChildren: [], allowedParents: ['nx-column'] },
   { type: 'nx-badge-widget', name: 'StatusBadge', allowedChildren: [], allowedParents: ['nx-column'] },
+  { type: 'nx-trend-chart', name: 'TrendChart', allowedChildren: [], allowedParents: ['nx-column'] },
 ]
 
 export const BLOCK_DEFS: BlockDef[] = [
@@ -67,6 +68,7 @@ export const BLOCK_DEFS: BlockDef[] = [
   { id: 'nx-text', label: '텍스트', content: { type: 'nx-text', attributes: { 'data-text': '텍스트' } } },
   { id: 'nx-kpi', label: 'KPI 카드', content: { type: 'nx-kpi', attributes: { 'data-label': 'KPI' } } },
   { id: 'nx-badge-widget', label: '상태 뱃지', content: { type: 'nx-badge-widget', attributes: { 'data-label': '상태' } } },
+  { id: 'nx-trend-chart', label: '트렌드 차트', content: { type: 'nx-trend-chart', attributes: { 'data-label': '트렌드' } } },
 ]
 
 // GrapesJS 컴포넌트의 최소 형태(type 기반 비교) — droppable/draggable 함수가 받는 인자.
@@ -133,6 +135,12 @@ export function buildTraitDefs(queries: QueryCatalog): Record<string, TraitDef[]
       { type: 'select', name: 'data-query-id', label: '조회 쿼리', options: readOpts },
       { type: 'text', name: 'data-value-column', label: '값 컬럼' },
       { type: 'text', name: 'data-styles', label: '규칙(JSON: [{value,severity,displayText}])' },
+    ],
+    'nx-trend-chart': [
+      { type: 'text', name: 'data-label', label: '라벨' },
+      { type: 'select', name: 'data-query-id', label: '조회 쿼리', options: readOpts },
+      { type: 'text', name: 'data-value-column', label: '값 컬럼(수치)' },
+      { type: 'number', name: 'data-max-points', label: '최대 포인트(기본 50)' },
     ],
   }
 }

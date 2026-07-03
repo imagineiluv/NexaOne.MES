@@ -1,5 +1,6 @@
 @page "/meta/{UiId}"
 @attribute [Authorize]
+@implements IDisposable
 @inject IScreenDefinitionProvider Definitions
 @inject IApiClient Api
 
@@ -106,6 +107,8 @@ else
     private Dictionary<string, Dictionary<string, object?>> _formModels = new(StringComparer.Ordinal);
     // 스코프 키→격리 FormWidget — 명령 라우팅(SaveQueryId 매칭)·폼별 검증에 쓴다.
     private Dictionary<string, FormWidget> _isolatedForms = new(StringComparer.Ordinal);
+    // 자동 새로고침(Phase-2 실시간 v2) 루프 취소 토큰 — 화면 이탈/정의 재로드 시 이전 루프를 반드시 끊는다.
+    private CancellationTokenSource? _refreshCts;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -121,26 +124,15 @@ else
             }
         }
 
-        // 그리드 컬럼 + 명명 쿼리가 바인딩돼 있으면 파일 기반 쿼리 게이트웨이로 행을 조회한다.
-        // (403/5xx는 ApiClient가 빈 목록으로 흡수하고 전역 토스트가 사유를 알린다)
-        _rows = null;
-        if (_definition?.Columns is { Count: > 0 } && !string.IsNullOrWhiteSpace(_definition.QueryId))
-        {
-            _rows = await Api.ExecuteQueryAsync(_definition.QueryId);
-        }
+        // 데이터(그리드 행 + 레이아웃 결과맵) 조회 — 자동 새로고침과 공유하는 단일 경로.
+        await ReloadDataAsync();
 
-        // 레이아웃 화면: 트리에서 distinct read 쿼리를 수집해 각 1회 실행 → 위젯별 결과맵.
+        // 레이아웃 화면: 저장 버튼/멀티폼 인덱스는 정의 로드 시 1회만 구성한다(새로고침이 폼 상태를 건드리지 않게).
         _uncoveredSaveQueries = Array.Empty<string>();
         _formModels = new(StringComparer.Ordinal);
         _isolatedForms = new(StringComparer.Ordinal);
         if (_definition?.Layout is not null)
         {
-            var map = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>(StringComparer.Ordinal);
-            foreach (var queryId in CollectQueryIds(_definition.Layout))
-                if (!map.ContainsKey(queryId))
-                    map[queryId] = await Api.ExecuteQueryAsync(queryId);
-            _queryResults = map;
-
             // 명령 버튼이 커버하지 않는 폼 저장쿼리만 추려 암시적 저장 버튼을 렌더한다(중복 방지).
             var covered = new HashSet<string>(CollectButtonCommands(_definition.Layout), StringComparer.Ordinal);
             _uncoveredSaveQueries = CollectFormSaveQueries(_definition.Layout)
@@ -157,6 +149,56 @@ else
                 _formModels[key] = new Dictionary<string, object?>();
             }
         }
+
+        // 자동 새로고침(Phase-2 실시간 v2) — 정의의 RefreshIntervalSeconds>0면 주기 재조회(데이터만, 폼 상태 보존).
+        _refreshCts?.Cancel();
+        _refreshCts = null;
+        if (_definition?.RefreshIntervalSeconds is int interval && interval > 0)
+        {
+            var cts = new CancellationTokenSource();
+            _refreshCts = cts;
+            _ = AutoRefreshLoopAsync(interval, cts.Token);
+        }
+    }
+
+    // 데이터 재조회(그리드 행 + 레이아웃 위젯 결과맵) — 초기 로드와 자동 새로고침이 공유한다.
+    // (403/5xx는 ApiClient가 빈 목록으로 흡수하고 전역 토스트가 사유를 알린다)
+    private async Task ReloadDataAsync()
+    {
+        _rows = null;
+        if (_definition?.Columns is { Count: > 0 } && !string.IsNullOrWhiteSpace(_definition.QueryId))
+        {
+            _rows = await Api.ExecuteQueryAsync(_definition.QueryId);
+        }
+
+        if (_definition?.Layout is not null)
+        {
+            var map = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>(StringComparer.Ordinal);
+            foreach (var queryId in CollectQueryIds(_definition.Layout))
+                if (!map.ContainsKey(queryId))
+                    map[queryId] = await Api.ExecuteQueryAsync(queryId);
+            _queryResults = map;
+        }
+    }
+
+    private async Task AutoRefreshLoopAsync(int intervalSeconds, CancellationToken ct)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(Math.Max(2, intervalSeconds)));
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                await ReloadDataAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) { /* 화면 이탈/재로드 — 정상 종료 */ }
+    }
+
+    public void Dispose()
+    {
+        _refreshCts?.Cancel();
+        _refreshCts = null;
     }
 
     private void OnFormModelChanged((string Key, Dictionary<string, object?> Model) change)
@@ -248,6 +290,9 @@ else
                 break;
             case BadgeWidget bw when !string.IsNullOrWhiteSpace(bw.QueryId):
                 yield return bw.QueryId!;
+                break;
+            case TrendChartWidget tc when !string.IsNullOrWhiteSpace(tc.QueryId):
+                yield return tc.QueryId!;
                 break;
             case SectionNode s: foreach (var id in Children(s.Children)) yield return id; break;
             case RowNode r: foreach (var id in Children(r.Children)) yield return id; break;

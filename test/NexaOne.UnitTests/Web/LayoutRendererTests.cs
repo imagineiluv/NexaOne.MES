@@ -119,6 +119,39 @@ public sealed class LayoutRendererTests
     }
 
     [Fact]
+    public void Trend_chart_renders_svg_polyline_scaled_to_min_max()
+    {
+        using var ctx = new TestContext();
+        var layout = new TrendChartWidget
+        {
+            Id = "tc", Label = "온도 트렌드", QueryId = "FDC.CollectDataList", ValueColumn = "VALUE", MaxPoints = 3,
+        };
+        var results = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>
+        {
+            ["FDC.CollectDataList"] = new List<Dictionary<string, object?>>
+            {
+                new() { ["VALUE"] = 10m }, new() { ["VALUE"] = 99m },   // MaxPoints=3 초과분(앞쪽)은 잘려야 한다
+                new() { ["VALUE"] = 20m }, new() { ["VALUE"] = 80m }, new() { ["VALUE"] = 50m },
+            },
+        };
+
+        var cut = Render(ctx, layout, results: results);
+
+        cut.Markup.Should().Contain("온도 트렌드").And.Contain("<polyline", "네이티브 SVG 라인이어야 한다(외부 라이브러리 없음)");
+        cut.Markup.Should().Contain("min 20").And.Contain("max 80").And.Contain("현재 50",
+            "마지막 MaxPoints(3)개 [20,80,50] 기준 스케일이어야 한다(99는 잘림)");
+    }
+
+    [Fact]
+    public void Trend_chart_with_insufficient_data_shows_notice_not_broken_svg()
+    {
+        using var ctx = new TestContext();
+        var layout = new TrendChartWidget { Id = "tc2", Label = "빈 트렌드", QueryId = "NO.Data", ValueColumn = "VALUE" };
+        var cut = Render(ctx, layout);
+        cut.Markup.Should().Contain("데이터가 부족").And.NotContain("<polyline");
+    }
+
+    [Fact]
     public void Grid_widget_renders_rows_from_query_result_map()
     {
         using var ctx = new TestContext();

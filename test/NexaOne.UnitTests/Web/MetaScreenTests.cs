@@ -371,6 +371,45 @@ public sealed class MetaScreenTests
     }
 
     [Fact]
+    public void RefreshIntervalSeconds_re_executes_queries_periodically()
+    {
+        // Phase-2 실시간 v2 — 자동 새로고침 정의는 데이터 쿼리를 주기 재실행해야 한다(폼 상태는 본 검증 범위 외).
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var layout = new SectionNode
+        {
+            Id = "sec",
+            Children = new LayoutNode[]
+            {
+                new KpiWidget { Id = "k", Label = "카운트", QueryId = "Q.Count", ValueColumn = "N" },
+            },
+        };
+        var def = new ScreenDefinition("LIVE1", "실시간", Array.Empty<FieldDefinition>(),
+            Layout: layout, RefreshIntervalSeconds: 1);   // 렌더러가 최소 2초로 클램프
+
+        var calls = 0;
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryAsync("Q.Count", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .Callback(() => Interlocked.Increment(ref calls))
+           .ReturnsAsync(new List<Dictionary<string, object?>> { new() { ["N"] = 1L } });
+
+        ctx.Services.AddSingleton(Provider("LIVE1", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "LIVE1"));
+
+        cut.WaitForAssertion(() => calls.Should().BeGreaterThanOrEqualTo(2,
+            "초기 조회 후 주기 새로고침이 최소 1회는 더 실행돼야 한다"), TimeSpan.FromSeconds(6));
+
+        // 컴포넌트 폐기 후 루프가 멈춰야 한다(취소 토큰) — 잔여 타이머로 카운트가 계속 늘면 누수.
+        var atDispose = calls;
+        cut.Instance.Dispose();
+        Thread.Sleep(2500);
+        calls.Should().BeInRange(atDispose, atDispose + 1, "Dispose 후 새로고침 루프가 중단돼야 한다(경계 1회 허용)");
+    }
+
+    [Fact]
     public void Isolated_forms_keep_separate_models_and_post_only_their_own_values()
     {
         // Phase-2 멀티폼 — Isolated 폼 2개: 입력·검증·저장이 폼별로 격리돼야 한다(공유 모델이면 값이 섞인다).
