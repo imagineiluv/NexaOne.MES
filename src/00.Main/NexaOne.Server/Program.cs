@@ -89,9 +89,12 @@ if (modulesEnabled)
 
     // 실시간 복원 — 루트 Spring 컨텍스트의 messageBus(InMemoryMessageBus)에 SignalR 구독자를 붙여 도메인 이벤트를 UI로 푸시한다.
     // Kafka 모드(messageBus=KafkaMessageBus)는 KafkaConsumerService가 구독 경로를 담당하므로 여기선 인메모리만 배선한다.
+    // 실시간 v3 — 동일 구독이 ScreenRefreshNotifier(라이브 메타 화면 즉시 재조회, 인프로세스)로도 팬아웃한다.
     if (server.GetServerBean("messageBus") is NexaOne.Infrastructure.Messaging.InMemoryMessageBus inMemoryBus)
         builder.Services.AddSingleton<IHostedService>(sp =>
-            new NexaOne.Server.Realtime.InMemoryBusSubscriberService(inMemoryBus, sp.GetRequiredService<IServiceScopeFactory>()));
+            new NexaOne.Server.Realtime.InMemoryBusSubscriberService(
+                inMemoryBus, sp.GetRequiredService<IServiceScopeFactory>(),
+                sp.GetRequiredService<NexaOne.Server.Realtime.ScreenRefreshNotifier>()));
 
     // 복잡 서비스 얇은 브리지(ADR-008) — 모듈 빈을 공유 계약 인터페이스로 캐스트해 DI 등록(CQ-4 헬퍼).
     // 캐스트 실패 = 계약 어셈블리 ALC 동일성 위반(NexaOne.ServiceContracts가 plugin ALC로 복제 로드,
@@ -134,6 +137,10 @@ builder.Services.AddNexaOneGateway(builder.Configuration);
 // 배치 실행 엔진(V066/V068) — 수동 실행(run API)과 주기 워커(기본 OFF)가 Runner 단일 경로를 공유한다.
 builder.Services.AddScoped<BatchProcessRunner>();
 builder.Services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService, BatchProcessWorker>();
+// 실시간 v3 — 라이브 메타 화면 즉시 재조회 허브. 항상 등록(modules OFF에선 이벤트가 없어 폴링만 동작).
+builder.Services.AddSingleton<NexaOne.Server.Realtime.ScreenRefreshNotifier>();
+builder.Services.AddSingleton<NexaOne.Web.Services.Meta.IScreenRefreshNotifier>(
+    sp => sp.GetRequiredService<NexaOne.Server.Realtime.ScreenRefreshNotifier>());
 // 인증(무-브리지, 게이트웨이식) — 토큰 직접 발급(login/refresh). 게이트웨이 DI(IRuleDispatcher) 이후 호출.
 builder.Services.AddNexaOneAuth(builder.Configuration);
 // OEE 집계는 EST 모듈 소유(config/modules/est.xml의 oeeAggregationWorker) — modules-ON에서 IHostedService로 자동발견.

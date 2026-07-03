@@ -3,6 +3,7 @@
 @implements IDisposable
 @inject IScreenDefinitionProvider Definitions
 @inject IApiClient Api
+@inject IServiceProvider Services
 
 @* Phase 3 — 메타데이터 주도 화면: 정적 @@page 컴파일 화면이 아니라 UiId로 ScreenDefinition을 해석해 동적 렌더. *@
 <div class="page-header">
@@ -109,6 +110,9 @@ else
     private Dictionary<string, FormWidget> _isolatedForms = new(StringComparer.Ordinal);
     // 자동 새로고침(Phase-2 실시간 v2) 루프 취소 토큰 — 화면 이탈/정의 재로드 시 이전 루프를 반드시 끊는다.
     private CancellationTokenSource? _refreshCts;
+    // 실시간 v3 — 이벤트 푸시 구독 핸들(화면 이탈/재로드 시 해지)과 스로틀 기준 시각.
+    private IDisposable? _pushSubscription;
+    private DateTime _lastPushRefresh;
 
     protected override async Task OnParametersSetAsync()
     {
@@ -151,14 +155,38 @@ else
         }
 
         // 자동 새로고침(Phase-2 실시간 v2) — 정의의 RefreshIntervalSeconds>0면 주기 재조회(데이터만, 폼 상태 보존).
+        // 실시간 v3 — 라이브 화면은 도메인 이벤트 푸시(IScreenRefreshNotifier)도 구독해 폴링 주기를 기다리지 않고
+        // 즉시 재조회한다(1초 스로틀). 알림 포트 미등록 환경(테스트·modules OFF)은 폴링만 동작.
         _refreshCts?.Cancel();
         _refreshCts = null;
+        _pushSubscription?.Dispose();
+        _pushSubscription = null;
         if (_definition?.RefreshIntervalSeconds is int interval && interval > 0)
         {
             var cts = new CancellationTokenSource();
             _refreshCts = cts;
             _ = AutoRefreshLoopAsync(interval, cts.Token);
+            _pushSubscription = (Services.GetService(typeof(IScreenRefreshNotifier)) as IScreenRefreshNotifier)
+                ?.Subscribe(OnPushChangedAsync);
         }
+    }
+
+    // 이벤트 푸시 재조회 — 버스 스레드에서 호출되므로 렌더 갱신은 InvokeAsync로 회로 컨텍스트에 태운다.
+    private async Task OnPushChangedAsync()
+    {
+        var now = DateTime.UtcNow;
+        if ((now - _lastPushRefresh).TotalMilliseconds < 1000) return;   // 이벤트 폭주 스로틀(1초)
+        _lastPushRefresh = now;
+        try
+        {
+            await InvokeAsync(async () =>
+            {
+                await ReloadDataAsync();
+                StateHasChanged();
+            });
+        }
+        catch (ObjectDisposedException) { /* 회로 폐기 경합 — 구독 해지 직전 이벤트, 무시 */ }
+        catch (InvalidOperationException) { /* 회로 미부착 상태 — 무시 */ }
     }
 
     // 데이터 재조회(그리드 행 + 레이아웃 위젯 결과맵) — 초기 로드와 자동 새로고침이 공유한다.
@@ -199,6 +227,8 @@ else
     {
         _refreshCts?.Cancel();
         _refreshCts = null;
+        _pushSubscription?.Dispose();
+        _pushSubscription = null;
     }
 
     private void OnFormModelChanged((string Key, Dictionary<string, object?> Model) change)

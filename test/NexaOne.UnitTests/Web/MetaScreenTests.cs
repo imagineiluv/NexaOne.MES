@@ -410,6 +410,68 @@ public sealed class MetaScreenTests
     }
 
     [Fact]
+    public void Push_notification_triggers_immediate_reload_with_throttle_and_unsubscribes_on_dispose()
+    {
+        // 실시간 v3 — 라이브 화면은 이벤트 푸시로 즉시 재조회(1초 스로틀), 폐기 시 구독 해지.
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        var layout = new SectionNode
+        {
+            Id = "sec",
+            Children = new LayoutNode[] { new KpiWidget { Id = "k", Label = "N", QueryId = "Q.Push", ValueColumn = "N" } },
+        };
+        // 폴링 주기를 크게(300s) 두어 푸시 경로만 관찰한다.
+        var def = new ScreenDefinition("PUSH1", "푸시", Array.Empty<FieldDefinition>(),
+            Layout: layout, RefreshIntervalSeconds: 300);
+
+        var calls = 0;
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryAsync("Q.Push", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .Callback(() => Interlocked.Increment(ref calls))
+           .ReturnsAsync(new List<Dictionary<string, object?>> { new() { ["N"] = 1L } });
+
+        var notifier = new FakeNotifier();
+        ctx.Services.AddSingleton(Provider("PUSH1", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+        ctx.Services.AddSingleton<IScreenRefreshNotifier>(notifier);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "PUSH1"));
+        cut.WaitForAssertion(() => notifier.Callback.Should().NotBeNull("라이브 화면은 푸시를 구독해야 한다"));
+        var initial = calls;
+
+        // 이벤트 푸시 → 폴링 주기와 무관하게 즉시 재조회.
+        notifier.Callback!().GetAwaiter().GetResult();
+        cut.WaitForAssertion(() => calls.Should().Be(initial + 1, "푸시는 즉시 재조회를 유발해야 한다"));
+
+        // 1초 내 연속 푸시는 스로틀(이벤트 폭주 방어).
+        notifier.Callback!().GetAwaiter().GetResult();
+        calls.Should().Be(initial + 1, "1초 스로틀로 연속 푸시는 무시돼야 한다");
+
+        cut.Instance.Dispose();
+        notifier.Disposed.Should().BeTrue("폐기 시 구독이 해지돼야 한다(회로 누수 방지)");
+    }
+
+    private sealed class FakeNotifier : IScreenRefreshNotifier
+    {
+        public Func<Task>? Callback;
+        public bool Disposed;
+
+        public IDisposable Subscribe(Func<Task> onChanged)
+        {
+            Callback = onChanged;
+            return new Unsubscriber(this);
+        }
+
+        private sealed class Unsubscriber : IDisposable
+        {
+            private readonly FakeNotifier _owner;
+            public Unsubscriber(FakeNotifier owner) => _owner = owner;
+            public void Dispose() => _owner.Disposed = true;
+        }
+    }
+
+    [Fact]
     public void Isolated_forms_keep_separate_models_and_post_only_their_own_values()
     {
         // Phase-2 멀티폼 — Isolated 폼 2개: 입력·검증·저장이 폼별로 격리돼야 한다(공유 모델이면 값이 섞인다).

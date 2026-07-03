@@ -9,11 +9,14 @@ public sealed class InMemoryBusSubscriberService : IHostedService
 {
     private readonly InMemoryMessageBus _bus;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ScreenRefreshNotifier? _screenRefresh;
 
-    public InMemoryBusSubscriberService(InMemoryMessageBus bus, IServiceScopeFactory scopeFactory)
+    public InMemoryBusSubscriberService(
+        InMemoryMessageBus bus, IServiceScopeFactory scopeFactory, ScreenRefreshNotifier? screenRefresh = null)
     {
         _bus = bus;
         _scopeFactory = scopeFactory;
+        _screenRefresh = screenRefresh;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -24,6 +27,10 @@ public sealed class InMemoryBusSubscriberService : IHostedService
             var notifier = scope.ServiceProvider.GetRequiredService<IEesHubNotifier>();
             // 이벤트 유형별 세분 알림(상태/알람/작업지시/대시보드) — 컨트롤러 직접호출과 동일 충실도(ADR-002 §2.5).
             await RealtimeNotificationDispatch.DispatchAsync(notifier, msg.EventType, msg.AggregateId, msg.Payload, ct);
+
+            // 실시간 v3 — 라이브 메타 화면(Blazor 회로) 즉시 재조회 팬아웃(SignalR 외 인프로세스 경로).
+            if (_screenRefresh is not null)
+                await _screenRefresh.NotifyAsync();
         });
         return Task.CompletedTask;
     }
