@@ -191,6 +191,39 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 },
             }));
 
+        // 시스템관리 — 메뉴별 권한 관리(SYSTEM_2_MENU_AUTH_MANAGEMENT). SYS_MENU_ROLE(V031) 매핑 CRUD.
+        // 가시성 의미론: 미매핑 메뉴=공개(하위호환), 매핑 메뉴=역할 일치 시만 사이드바 노출(SYS.MenuTreeForUser).
+        Register(new ScreenDefinition("SYSTEM_2_MENU_AUTH_MANAGEMENT", "메뉴별 권한 관리",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Id = "sec-menurole", Title = "메뉴-역할 매핑(미매핑 메뉴=전체 공개, 매핑 시 해당 역할만 노출)",
+                Children = new LayoutNode[]
+                {
+                    new RowNode { Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 7, Children = new LayoutNode[]
+                        {
+                            new GridWidget { Id = "g-menurole", QueryId = "SYS.MenuRoleList", Columns = new GridColumnDefinition[]
+                            {
+                                new("MENU_ID", "메뉴 ID", Width: 200), new("MENU_NAME", "메뉴명"),
+                                new("ROLE_ID", "역할 ID", Width: 120), new("ROLE_NAME", "역할명"),
+                            } },
+                        } },
+                        new ColumnNode { Span = 5, Children = new LayoutNode[]
+                        {
+                            new FormWidget { Id = "f-menurole", SaveQueryId = "SYS.UpsertMenuRole", Fields = new FieldWidget[]
+                            {
+                                new() { FieldKey = "menuId", Field = new FieldDefinition("menuId", "메뉴 ID", FieldType.Text, Required: true) },
+                                new() { FieldKey = "roleId", Field = new FieldDefinition("roleId", "역할 ID", FieldType.Text, Required: true) },
+                            } },
+                            new ButtonWidget { Id = "b-menurole-save", Label = "저장", Command = "SYS.UpsertMenuRole", RequiredPermission = "sys:manage" },
+                            new ButtonWidget { Id = "b-menurole-del", Label = "삭제", Command = "SYS.DeleteMenuRole", RequiredPermission = "sys:manage" },
+                        } },
+                    } },
+                },
+            }));
+
         // FDC — VIRTUAL EVENT 관리(EES_FDC_VIRTUAL_EVENT_MANAGEMENT, V067). 레거시 FDC_TB_VIRTUAL_EVENT_PARAMETER 포팅.
         // 1차 범위 = 정의 CRUD까지 — 평가 엔진(CONDITION_FORMULA 판정·이벤트 데이터 수집)은 FDC 워커 후속.
         Register(new ScreenDefinition("EES_FDC_VIRTUAL_EVENT_MANAGEMENT", "VIRTUAL EVENT 관리",
@@ -1891,8 +1924,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         var roleCols = new GridColumnDefinition[] { new("ROLE_ID", "역할 ID"), new("ROLE_NAME", "역할명"), new("DESCRIPTION", "설명"), new("PERMISSIONS", "권한") };
         Register(new ScreenDefinition("SYSTEM_2_AUTH_MANAGEMENT", "권한 관리", Array.Empty<FieldDefinition>(), roleCols, QueryId: "SYS.ListRoles"));
         Register(new ScreenDefinition("SYSTEM_2_AUTH_MANAGEMENT_NEW", "권한 그룹 관리", Array.Empty<FieldDefinition>(), roleCols, QueryId: "SYS.ListRoles"));
-        Register(new ScreenDefinition("SYSTEM_2_MENU_AUTH_MANAGEMENT", "메뉴별 권한 관리", Array.Empty<FieldDefinition>(),
-            new GridColumnDefinition[] { new("MENU_ID", "메뉴 ID"), new("MENU_NAME", "메뉴명"), new("PARENT_MENU_ID", "상위"), new("MENU_TYPE", "유형"), new("UI_ID", "화면") }, QueryId: "SYS.ListMenus"));
+        // SYSTEM_2_MENU_AUTH_MANAGEMENT는 상단의 SYS_MENU_ROLE 매핑 CRUD 정의를 쓴다(구 읽기 전용 메뉴 목록 대체).
         Register(new ScreenDefinition("SYSTEM_2_UIID_MANAGEMENT", "UIID 관리", Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[] { new("UI_ID", "UI ID"), new("TITLE", "제목") }, QueryId: "SYS.ListScreenDefinitions"));
         Register(new ScreenDefinition("SYSTEM_2_CODE_MANAGEMENT", "코드 관리", Array.Empty<FieldDefinition>(), stdCodeCols, QueryId: "MDM.CodeList"));

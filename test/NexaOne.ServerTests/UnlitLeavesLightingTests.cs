@@ -47,11 +47,13 @@ public sealed class UnlitLeavesLightingTests : IClassFixture<UnlitLeavesLighting
         }
     }
 
-    private HttpClient Client(params string[] permissions)
+    private HttpClient Client(params string[] permissions) => ClientAs("unlit-tester", permissions);
+
+    private HttpClient ClientAs(string userId, params string[] permissions)
     {
         var client = _factory.CreateClient();
         var creds = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Secret)), SecurityAlgorithms.HmacSha256);
-        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, "unlit-tester") };
+        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, userId) };
         claims.AddRange(permissions.Select(p => new Claim(NexaOne.Common.Security.Permissions.ClaimType, p)));
         var token = new JwtSecurityToken(Issuer, Issuer, claims, expires: DateTime.UtcNow.AddMinutes(10), signingCredentials: creds);
         client.DefaultRequestHeaders.Authorization =
@@ -308,6 +310,96 @@ public sealed class UnlitLeavesLightingTests : IClassFixture<UnlitLeavesLighting
                 cmd.Parameters.AddWithValue("$pid", parameterId);
                 cmd.Parameters.AddWithValue("$val", value);
                 cmd.Parameters.AddWithValue("$at", at.ToString("yyyy-MM-dd HH:mm:ss.fff"));
+            });
+
+    // ── 메뉴-역할 매핑(SYSTEM_2_MENU_AUTH_MANAGEMENT) — CRUD 게이트 + 역할 필터 트리(미매핑=공개 하위호환). ──
+
+    [Fact]
+    public async Task Menu_role_mapping_crud_and_role_filtered_menu_tree()
+    {
+        // 시드 — 전권 아닌 역할 2종·사용자 2명·화면 메뉴 2개(공개/매핑 대상). admin('*')은 V001/V031 시드.
+        SeedRole("VIEWER-MR", "sys:read");
+        SeedRole("OPS-MR", "");
+        SeedUser("viewer-mr", "VIEWER-MR");
+        SeedUser("ops-mr", "OPS-MR");
+        SeedMenu("MS-PUB", "공개 화면");
+        SeedMenu("MS-SEC", "제한 화면");
+
+        // 권한 게이트 — sys:manage 없는 쓰기는 403(레지스트리 requiredPermission 집행).
+        (await Client("fdc:read").PostAsJsonAsync("/api/v1/command/SYS.UpsertMenuRole",
+            new Dictionary<string, object> { ["menuId"] = "MS-SEC", ["roleId"] = "VIEWER-MR" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var admin = Client("sys:manage");
+        (await admin.PostAsJsonAsync("/api/v1/command/SYS.UpsertMenuRole",
+            new Dictionary<string, object> { ["menuId"] = "MS-SEC", ["roleId"] = "VIEWER-MR" }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        // 업서트 멱등 — 같은 매핑 재저장은 PK 충돌이 아니라 갱신이어야 한다.
+        (await admin.PostAsJsonAsync("/api/v1/command/SYS.UpsertMenuRole",
+            new Dictionary<string, object> { ["menuId"] = "MS-SEC", ["roleId"] = "VIEWER-MR" }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await QueryAsync(admin, "SYS.MenuRoleList"))
+            .Count(r => Col(r, "MENU_ID") == "MS-SEC" && Col(r, "ROLE_ID") == "VIEWER-MR")
+            .Should().Be(1, "업서트는 갱신(중복 행 금지)");
+
+        // 역할 필터 트리 — 매핑된 역할은 보고, 다른 역할은 못 보고, 미매핑(MS-PUB)은 전원 공개.
+        var viewerTree = await MenuTreeAsync(ClientAs("viewer-mr"));
+        viewerTree.Should().Contain("MS-PUB").And.Contain("MS-SEC", "매핑된 역할의 사용자는 해당 메뉴를 본다");
+
+        var opsTree = await MenuTreeAsync(ClientAs("ops-mr"));
+        opsTree.Should().Contain("MS-PUB", "미매핑 메뉴는 공개(하위호환)");
+        opsTree.Should().NotContain("MS-SEC", "매핑된 메뉴는 다른 역할에게 숨긴다");
+
+        var adminTree = await MenuTreeAsync(ClientAs("admin"));
+        adminTree.Should().Contain("MS-SEC", "전권('*') 역할은 매핑과 무관하게 전체를 본다");
+
+        // 매핑 삭제(물리) → 공개 복귀.
+        (await admin.PostAsJsonAsync("/api/v1/command/SYS.DeleteMenuRole",
+            new Dictionary<string, object> { ["menuId"] = "MS-SEC", ["roleId"] = "VIEWER-MR" }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await MenuTreeAsync(ClientAs("ops-mr")))
+            .Should().Contain("MS-SEC", "마지막 매핑 제거 = 공개 복귀");
+    }
+
+    private static async Task<List<string>> MenuTreeAsync(HttpClient client)
+    {
+        var res = await client.GetAsync("/api/v1/sys/menu-tree");
+        res.StatusCode.Should().Be(HttpStatusCode.OK, "메뉴 트리는 인증만으로 조회 가능해야 한다");
+        var rows = (await res.Content.ReadFromJsonAsync<List<Dictionary<string, object?>>>())!;
+        return rows.Select(r => Col(r, "MENU_ID")).ToList();
+    }
+
+    private void SeedRole(string roleId, string permissions)
+        => ExecSql(@"INSERT OR IGNORE INTO SYS_ROLE
+            (ROLE_ID, ROLE_NAME, DESCRIPTION, PERMISSIONS, IS_DELETED, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES ($id, $id, '', $perms, 0, 'TEST', $now, 'TEST', $now)",
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", roleId);
+                cmd.Parameters.AddWithValue("$perms", permissions);
+                cmd.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
+            });
+
+    private void SeedUser(string userId, string roleId)
+        => ExecSql(@"INSERT OR IGNORE INTO SYS_USER
+            (USER_ID, USER_NAME, PASSWORD_HASH, EMAIL, ROLE_ID, LANGUAGE, IS_ACTIVE, IS_DELETED,
+             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES ($id, $id, 'x', $id || '@test.local', $rid, 'KoKr', 1, 0, 'TEST', $now, 'TEST', $now)",
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", userId);
+                cmd.Parameters.AddWithValue("$rid", roleId);
+                cmd.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
+            });
+
+    private void SeedMenu(string menuId, string name)
+        => ExecSql(@"INSERT OR IGNORE INTO SYS_MENU
+            (MENU_ID, MENU_NAME, PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, PROGRAM_ID, UI_ID, VALID_STATE)
+            VALUES ($id, $name, NULL, 999, 'Screen', '', $id, 'Valid')",
+            cmd =>
+            {
+                cmd.Parameters.AddWithValue("$id", menuId);
+                cmd.Parameters.AddWithValue("$name", name);
             });
 
     private void ExecSql(string sql, Action<Microsoft.Data.Sqlite.SqliteCommand> bind)

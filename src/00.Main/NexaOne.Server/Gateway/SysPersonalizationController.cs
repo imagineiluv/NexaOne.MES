@@ -29,6 +29,19 @@ public sealed class SysPersonalizationController : ControllerBase
         _registry = registry;
     }
 
+    // ── 메뉴 트리(역할 필터) ──
+
+    /// <summary>사이드바 메뉴 트리 — 미매핑 화면 메뉴=공개(하위호환), 매핑된 메뉴=사용자 역할 일치 시만,
+    /// 전권('*') 역할은 전체. SYS.MenuTreeForUser가 @currentUser를 요구하므로 토큰 바인딩 경로인
+    /// 이 엔드포인트가 정상 경로다(§20.12 개인화와 동일 규약).</summary>
+    [HttpGet("menu-tree")]
+    [ProducesResponseType<IReadOnlyList<IReadOnlyDictionary<string, object>>>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetMenuTree(CancellationToken ct)
+    {
+        var rows = await QueryAsync("SYS.MenuTreeForUser", new(), ct);
+        return Ok(rows);
+    }
+
     // ── 즐겨찾기 ──
 
     [HttpGet("favorites")]

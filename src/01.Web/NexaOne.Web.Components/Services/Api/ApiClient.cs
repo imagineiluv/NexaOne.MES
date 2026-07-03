@@ -722,6 +722,11 @@ public sealed class ApiClient : IApiClient
     // ── SYS - 사용자 메뉴 개인화 (설계서 20.12 즐겨찾기/최근 메뉴) ────────────
     // 호스트 SysPersonalizationController — 자기 데이터만(토큰 사용자 스코프), 권한 요구 없음(인증만).
 
+    // 역할 필터 메뉴 트리 — SYS.MenuTreeForUser(@currentUser)를 호스트가 토큰 사용자로 바인딩해 실행한다.
+    // 행 형태는 ExecuteQueryAsync와 동일(컬럼명 키 딕셔너리)이라 셸 ToNode 매핑을 그대로 쓴다.
+    public Task<List<Dictionary<string, object?>>> GetMenuTreeAsync(CancellationToken ct = default)
+        => GetListAsync<Dictionary<string, object?>>("api/v1/sys/menu-tree", ct);
+
     public Task<List<FavoriteMenuDto>> GetFavoriteMenusAsync(CancellationToken ct = default)
         => GetListAsync<FavoriteMenuDto>("api/v1/sys/favorites", ct);
 

@@ -150,21 +150,23 @@
         List<MenuNode> nodes;
         try
         {
-            var rows = await Api.ExecuteQueryAsync("SYS.MenuTree");
+            // 역할 필터 트리(GET /api/v1/sys/menu-tree) — 미매핑 메뉴=공개, 매핑 메뉴=역할 일치 시만.
+            // @currentUser 바인딩이 필요해 SYS.MenuTree 직접 조회 대신 호스트 엔드포인트를 쓴다.
+            var rows = await Api.GetMenuTreeAsync();
             nodes = rows.Select(ToNode).ToList();
             if (nodes.Count == 0)
             {
-                Logger.LogWarning("SYS.MenuTree가 0행 — 정적 폴백 메뉴를 사용합니다.");
+                Logger.LogWarning("메뉴 트리가 0행 — 정적 폴백 메뉴를 사용합니다.");
                 nodes = FallbackNodes();
             }
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "SYS.MenuTree 조회 실패 — 정적 폴백 메뉴를 사용합니다.");
+            Logger.LogWarning(ex, "메뉴 트리 조회 실패 — 정적 폴백 메뉴를 사용합니다.");
             nodes = FallbackNodes();
         }
 
-        _forest = BuildForest(nodes);
+        _forest = PruneEmptyFolders(BuildForest(nodes));
 
         // 파생 인덱스 — uiId→제목, uiId→조상 폴더 목록(활성 화면 진입 시 모든 상위 폴더 자동 펼침).
         _uiToTitle = new(StringComparer.OrdinalIgnoreCase);
@@ -194,6 +196,19 @@
         return nodes.Where(n => string.IsNullOrWhiteSpace(n.ParentId))
                     .OrderBy(n => n.Seq).ThenBy(n => n.Id, StringComparer.Ordinal)
                     .Select(Build).ToList();
+    }
+
+    // 역할 필터로 화면 잎이 모두 숨은 폴더는 표시하지 않는다(빈 폴더 방지). 잎은 그대로 통과.
+    private static List<MesMenuNode> PruneEmptyFolders(List<MesMenuNode> nodes)
+    {
+        var result = new List<MesMenuNode>();
+        foreach (var n in nodes)
+        {
+            if (!n.IsFolder) { result.Add(n); continue; }
+            var kids = PruneEmptyFolders(n.Children.ToList());
+            if (kids.Count > 0) result.Add(n with { Children = kids });
+        }
+        return result;
     }
 
     // 트리 1회 순회로 화면 잎의 제목·조상 인덱스를 채운다(폴더는 조상 경로에 누적).
