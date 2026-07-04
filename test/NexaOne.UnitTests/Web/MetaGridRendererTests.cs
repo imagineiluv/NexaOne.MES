@@ -102,7 +102,7 @@ public sealed class MetaGridRendererTests
             .Add(c => c.Columns, columns)
             .Add(c => c.Rows, new List<Dictionary<string, object?>> { new() { ["PLANT_ID"] = "P-1" } }));
 
-        cut.Markup.Should().Contain("table-layout:fixed", "폭 지정 컬럼이 있으면 고정 레이아웃이어야 한다");
+        cut.Find("table").ClassList.Should().Contain("fixed", "폭 지정 컬럼이 있으면 고정 레이아웃 클래스여야 한다(스타일은 CSS 단일 출처)");
         cut.FindAll("colgroup col").Count.Should().Be(2, "보이는 컬럼 수만큼 col(숨김 제외)");
         cut.Markup.Should().Contain("width:120px");
         cut.Markup.Should().NotContain("width:50px", "숨김 컬럼 폭은 렌더되지 않아야 한다");
@@ -114,7 +114,7 @@ public sealed class MetaGridRendererTests
         using var ctx = new TestContext();
         var cut = Render(ctx, rows: new List<Dictionary<string, object?>>());
 
-        cut.Markup.Should().NotContain("table-layout:fixed", "폭 미지정 화면은 기존 자동 레이아웃 유지(하위호환)");
+        cut.Find("table").ClassList.Should().NotContain("fixed", "폭 미지정 화면은 기존 자동 레이아웃 유지(하위호환)");
         cut.FindAll("colgroup").Should().BeEmpty();
     }
 

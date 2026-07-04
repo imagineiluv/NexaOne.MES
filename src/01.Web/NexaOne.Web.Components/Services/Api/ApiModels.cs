@@ -360,6 +360,9 @@ public record DeployFileDto(
     string UploadedBy,
     DateTime UploadedAt);
 
+// ── SYS - 사용자 언어(P3-14 다국어) ───────────────────────────────────────────
+public record UserLanguageDto(string Language);
+
 // ── FDC - 가상 이벤트 수동 평가(브리지 VirtualEventEvaluationDto 미러) ─────────
 public record VirtualEventEvaluationDto(
     string EquipmentId, string EventId, string EventName, bool IsOn, bool Changed, DateTime EvaluatedAt);

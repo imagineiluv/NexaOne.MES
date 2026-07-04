@@ -42,6 +42,31 @@ public sealed class SysPersonalizationController : ControllerBase
         return Ok(rows);
     }
 
+    // ── 사용자 언어(P3-14) ──
+
+    private static readonly string[] SupportedLanguages = { "KoKr", "EnUs" };
+
+    [HttpGet("language")]
+    [ProducesResponseType<UserLanguageResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetLanguage(CancellationToken ct)
+    {
+        var rows = await QueryAsync("SYS.UserLanguage", new(), ct);
+        var language = rows.Count > 0 ? Str(rows[0], "LANGUAGE") : "KoKr";
+        return Ok(new UserLanguageResponse(language.Length > 0 ? language : "KoKr"));
+    }
+
+    [HttpPut("language")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> SetLanguage([FromBody] UserLanguageRequest req, CancellationToken ct)
+    {
+        var language = req.Language?.Trim() ?? "";
+        if (!SupportedLanguages.Contains(language, StringComparer.Ordinal))
+            return BadRequest(new Error("LANGUAGE_UNSUPPORTED", "지원하지 않는 언어입니다. (KoKr | EnUs)", ErrorType.Validation));
+        await ExecuteAsync("SYS.UpdateUserLanguage", new() { ["language"] = language }, ct);
+        return NoContent();
+    }
+
     // ── 즐겨찾기 ──
 
     [HttpGet("favorites")]
@@ -263,6 +288,8 @@ public sealed class SysPersonalizationController : ControllerBase
 }
 
 public record MenuIdRequest(string MenuId);
+public record UserLanguageResponse(string Language);
+public record UserLanguageRequest(string Language);
 public record ReorderFavoritesRequest(List<string> MenuIds);
 public record FavoriteMenuResponse(
     string MenuId, string MenuName, string ProgramId, string? ImageId, string UiId, int DisplaySequence);

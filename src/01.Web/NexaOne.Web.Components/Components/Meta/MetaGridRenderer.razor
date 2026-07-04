@@ -5,10 +5,12 @@
    P3-9: 헤더 클릭 정렬(숫자 인지, ▲/▼ 토글)과 클라이언트 페이징(20행/페이지) — 서버 LIMIT 결과
    안에서의 표시 정렬/분할이며 데이터 소스는 불변이다. *@
 @using NexaOne.Web.Services.Meta
+@inject IServiceProvider Services
 
 @{ var cols = Columns.Where(c => c.Visible).ToList(); var view = View(); }
+@* 스타일은 smartux.css .meta-grid 규칙(테마 토큰) 단일 출처 — 인라인 금지(P3-17 다크모드). *@
 <div class="meta-grid @(OnRowSelect.HasDelegate ? "selectable" : "")">
-    <table style="@(cols.Any(c => c.Width is > 0) ? "width:100%; border-collapse:collapse; font-size:0.875rem; table-layout:fixed;" : "width:100%; border-collapse:collapse; font-size:0.875rem;")">
+    <table class="@(cols.Any(c => c.Width is > 0) ? "fixed" : null)">
         @* 컬럼 폭 메타(Phase-2) — Width(px) 지정 컬럼은 colgroup으로 고정하고(table-layout:fixed 필요),
            미지정 컬럼은 잔여 폭을 자동 분배한다. 표시 순서는 Columns 목록 순서가 담당. *@
         @if (cols.Any(c => c.Width is > 0))
@@ -26,8 +28,7 @@
                 @foreach (var col in cols)
                 {
                     var key = col.Key;
-                    <th class="sortable" style="text-align:left; border-bottom:2px solid #e2e8f0; padding:0.5rem; color:#334155; cursor:pointer; user-select:none;"
-                        title="클릭하여 정렬" @onclick="() => SortBy(key)">
+                    <th class="sortable" title="클릭하여 정렬" @onclick="() => SortBy(key)">
                         @col.Caption@(key == _sortKey ? (_sortDesc ? " ▼" : " ▲") : "")
                     </th>
                 }
@@ -40,7 +41,7 @@
                 <tr class="@(ReferenceEquals(r, _selected) ? "selected" : "")" @onclick="() => SelectAsync(r)">
                     @foreach (var col in cols)
                     {
-                        <td style="border-bottom:1px solid #f1f5f9; padding:0.5rem;">@Cell(r, col.Key)</td>
+                        <td>@Cell(r, col.Key)</td>
                     }
                 </tr>
             }
@@ -50,27 +51,27 @@
     @* P2-8 — 푸터 안내 공통 클래스(.meta-grid-note). 페이지가 여럿이면 페이저를 함께 렌더(P3-9). *@
     @if (Loading && Rows is not { Count: > 0 })
     {
-        <p class="meta-grid-note">조회 중…</p>
+        <p class="meta-grid-note">@T("common.loading", "조회 중…")</p>
     }
     else if (Rows is null)
     {
-        <p class="meta-grid-note">실행하면 결과가 표시됩니다.</p>
+        <p class="meta-grid-note">@T("common.runHint", "실행하면 결과가 표시됩니다.")</p>
     }
     else if (Rows.Count == 0)
     {
-        <p class="meta-grid-note">결과 없음</p>
+        <p class="meta-grid-note">@T("common.noResult", "결과 없음")</p>
     }
     else if (PageCount <= 1)
     {
-        <p class="meta-grid-note">@Rows.Count 행</p>
+        <p class="meta-grid-note">@Rows.Count @T("common.rowsUnit", "행")</p>
     }
     else
     {
         <div class="meta-grid-pager">
-            <span class="meta-grid-note">@Rows.Count 행</span>
-            <button class="pager-btn" disabled="@(_page == 0)" @onclick="() => _page--">‹ 이전</button>
+            <span class="meta-grid-note">@Rows.Count @T("common.rowsUnit", "행")</span>
+            <button class="pager-btn" disabled="@(_page == 0)" @onclick="() => _page--">@T("common.prev", "‹ 이전")</button>
             <span class="meta-grid-note">@(_page + 1) / @PageCount</span>
-            <button class="pager-btn" disabled="@(_page >= PageCount - 1)" @onclick="() => _page++">다음 ›</button>
+            <button class="pager-btn" disabled="@(_page >= PageCount - 1)" @onclick="() => _page++">@T("common.next", "다음 ›")</button>
         </div>
     }
 </div>
@@ -144,6 +145,20 @@
         if (!OnRowSelect.HasDelegate) return;
         _selected = row;
         await OnRowSelect.InvokeAsync(row);
+    }
+
+
+    // 다국어(P3-14) — 호스트 DI가 있으면 번역, 없으면(테스트) 한국어 폴백.
+    private NexaOne.Web.Services.UiTextService? _uiText;
+    private bool _uiTextLookedUp;
+    private string T(string key, string fallback)
+    {
+        if (!_uiTextLookedUp)
+        {
+            _uiTextLookedUp = true;
+            _uiText = Services.GetService(typeof(NexaOne.Web.Services.UiTextService)) as NexaOne.Web.Services.UiTextService;
+        }
+        return _uiText?.T(key, fallback) ?? fallback;
     }
 
     private static string Cell(Dictionary<string, object?> row, string key)

@@ -731,6 +731,23 @@ public sealed class ApiClient : IApiClient
     // ── SYS - 사용자 메뉴 개인화 (설계서 20.12 즐겨찾기/최근 메뉴) ────────────
     // 호스트 SysPersonalizationController — 자기 데이터만(토큰 사용자 스코프), 권한 요구 없음(인증만).
 
+    // 사용자 언어(P3-14) — 토큰 사용자 스코프. 리소스는 명명 쿼리로 읽는다(언어별 공통 문구, @currentUser 불요).
+    public async Task<string> GetUserLanguageAsync(CancellationToken ct = default)
+        => (await GetAsync<UserLanguageDto>("api/v1/sys/language", ct))?.Language ?? "KoKr";
+
+    public Task<bool> SetUserLanguageAsync(string language, CancellationToken ct = default)
+        => PutForStatusAsync("api/v1/sys/language", new { language }, ct);
+
+    public async Task<Dictionary<string, string>> GetLanguageResourcesAsync(string language, CancellationToken ct = default)
+    {
+        var rows = await ExecuteQueryAsync("SYS.LanguageResources", new { language }, ct);
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var row in rows)
+            if (row.TryGetValue("RESOURCE_KEY", out var k) && k is not null)
+                map[k.ToString()!] = row.TryGetValue("VALUE", out var v) ? v?.ToString() ?? "" : "";
+        return map;
+    }
+
     // 역할 필터 메뉴 트리 — SYS.MenuTreeForUser(@currentUser)를 호스트가 토큰 사용자로 바인딩해 실행한다.
     // 행 형태는 ExecuteQueryAsync와 동일(컬럼명 키 딕셔너리)이라 셸 ToNode 매핑을 그대로 쓴다.
     public Task<List<Dictionary<string, object?>>> GetMenuTreeAsync(CancellationToken ct = default)

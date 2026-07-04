@@ -1,5 +1,6 @@
 @* Phase 3 — ScreenDefinition을 받아 필드를 런타임 렌더하는 메타데이터 주도 폼. 값은 Dictionary 모델에 양방향 바인딩. *@
 @using NexaOne.Web.Services.Meta
+@inject IServiceProvider Services
 
 <div class="meta-form">
     @foreach (var field in Definition.Fields)
@@ -21,7 +22,7 @@
                             @* 값 미선택 상태를 명시한다 — 첫 옵션이 '보이기만 하고 모델에는 없는' 착시 방지. *@
                             @if (GetString(field.Key).Length == 0)
                             {
-                                <option value="" selected>(선택)</option>
+                                <option value="" selected>@T("common.select", "(선택)")</option>
                             }
                             @foreach (var opt in opts)
                             {
@@ -68,6 +69,20 @@
         => field.Options is { Count: > 0 } s ? s.Select(o => new MetaFieldOption(o, o)).ToList()
          : DynamicOptions is not null && DynamicOptions.TryGetValue(field.Key, out var d) ? d
          : Array.Empty<MetaFieldOption>();
+
+
+    // 다국어(P3-14) — 호스트 DI가 있으면 번역, 없으면(테스트) 한국어 폴백.
+    private NexaOne.Web.Services.UiTextService? _uiText;
+    private bool _uiTextLookedUp;
+    private string T(string key, string fallback)
+    {
+        if (!_uiTextLookedUp)
+        {
+            _uiTextLookedUp = true;
+            _uiText = Services.GetService(typeof(NexaOne.Web.Services.UiTextService)) as NexaOne.Web.Services.UiTextService;
+        }
+        return _uiText?.T(key, fallback) ?? fallback;
+    }
 
     private string GetString(string key) => Model.TryGetValue(key, out var v) ? v?.ToString() ?? string.Empty : string.Empty;
     private bool GetBool(string key) => Model.TryGetValue(key, out var v) && v is true;

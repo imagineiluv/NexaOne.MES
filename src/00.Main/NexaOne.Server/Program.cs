@@ -233,8 +233,10 @@ builder.Services.AddScoped<AuthenticationStateProvider>(sp => sp.GetRequiredServ
 builder.Services.AddScoped<AuthTokenService>();
 builder.Services.AddScoped<AuthContextService>();
 builder.Services.AddScoped<IAuthContext>(sp => sp.GetRequiredService<AuthContextService>());
-// API 실패(403/5xx)를 토스트로 노출하는 통지 채널 — ApiClient가 발신(슬라이스 최소 폐포; ApiToastHost UI는 미흡수).
+// API 실패(403/5xx)를 토스트로 노출하는 통지 채널 — ApiClient가 발신, ApiToastHost(셸)가 소비.
 builder.Services.AddScoped<ApiNotificationService>();
+// UI 공통 문구 다국어(P3-14 v1) — 셸이 사용자 언어 리소스를 로드해 주입, 미로드=한국어 폴백.
+builder.Services.AddScoped<NexaOne.Web.Services.UiTextService>();
 // MDI 탭 상태(서킷당 1개) — MesShellLayout이 /meta 내비게이션으로 열린 화면 탭을 추적/렌더한다.
 builder.Services.AddScoped<NexaOne.Server.Services.OpenedScreensState>();
 // Phase 5a — DB-backed 화면정의 제공자(게이트웨이 SYS.GetScreenDefinition, InMemory 시드 폴백).

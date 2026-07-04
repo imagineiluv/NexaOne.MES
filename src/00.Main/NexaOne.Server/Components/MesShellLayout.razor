@@ -7,6 +7,8 @@
 @inject NexaOne.Web.Services.Auth.AuthTokenService TokenService
 @inject NexaOne.Web.Services.Auth.JwtAuthStateProvider AuthState
 @inject NexaOne.Web.Services.Meta.IRealtimeAlertFeed AlertFeed
+@inject NexaOne.Web.Services.UiTextService Ui
+@inject Microsoft.JSInterop.IJSRuntime JS
 
 @* SmartUX(:9020) 레퍼런스 셸 재현 — 네이비 사이드바(계층 아코디언) + 화이트 상단바 + 본문(메타 화면) + 하단 MDI 탭.
    사이드바는 SYS.MenuTree(게이트웨이)로 데이터 주도 구축한다(대분류 Folder → 하위 Screen). 쿼리 실패/공백 시
@@ -29,7 +31,7 @@
             @* §20.12 — 즐겨찾기/최근 메뉴(개인화). 서버 영속이라 어느 브라우저에서 접속해도 동일하다. *@
             @if (_favorites.Count > 0)
             {
-                <div style="padding:0.375rem 0.875rem 0.125rem; font-size:0.688rem; color:#8ea0b8; letter-spacing:0.05em;">★ 즐겨찾기</div>
+                <div style="padding:0.375rem 0.875rem 0.125rem; font-size:0.688rem; color:#8ea0b8; letter-spacing:0.05em;">★ @Ui.T("shell.favorites", "즐겨찾기")</div>
                 @for (var i = 0; i < _favorites.Count; i++)
                 {
                     var idx = i;                      @* 람다 캡처용 로컬 복사(루프 변수 직접 캡처 금지) *@
@@ -54,7 +56,7 @@
             }
             @if (_recents.Count > 0)
             {
-                <div style="padding:0.375rem 0.875rem 0.125rem; font-size:0.688rem; color:#8ea0b8; letter-spacing:0.05em;">최근 사용</div>
+                <div style="padding:0.375rem 0.875rem 0.125rem; font-size:0.688rem; color:#8ea0b8; letter-spacing:0.05em;">@Ui.T("shell.recent", "최근 사용")</div>
                 @foreach (var recent in _recents)
                 {
                     <div style="padding:0.3rem 1.25rem; font-size:0.813rem; color:#aebccd; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
@@ -69,7 +71,7 @@
             }
             @* 트리 필터(P3-11) — 메뉴명/UI_ID 부분일치 잎+조상 폴더만 표시, 필터 중엔 전부 펼침. *@
             <div class="mes-navfilter">
-                <input placeholder="메뉴 필터…" value="@_navFilter" @oninput="OnNavFilterInput" aria-label="메뉴 필터" />
+                <input placeholder="@Ui.T("shell.menuFilter", "메뉴 필터…")" value="@_navFilter" @oninput="OnNavFilterInput" aria-label="메뉴 필터" />
             </div>
             <MesNavTree Nodes="VisibleForest" Depth="0" Open="EffectiveOpenFolders"
                         ActiveUiId="@ActiveUiId()"
@@ -77,7 +79,7 @@
         </nav>
         <div class="mes-pin">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 17v5M5 9h14l-1.5 8h-11z M8 9V5a4 4 0 0 1 8 0v4"/></svg>
-            메뉴 고정 기능
+            @Ui.T("shell.menuPin", "메뉴 고정 기능")
         </div>
     </aside>
 
@@ -124,10 +126,10 @@
                 @if (_alertsOpen)
                 {
                     <div class="alert-dropdown">
-                        <div class="alert-dd-head">알림</div>
+                        <div class="alert-dd-head">@Ui.T("shell.alerts", "알림")</div>
                         @if (_alerts.Count == 0)
                         {
-                            <div class="alert-dd-empty">알림이 없습니다.</div>
+                            <div class="alert-dd-empty">@Ui.T("shell.noAlerts", "알림이 없습니다.")</div>
                         }
                         @foreach (var alert in _alerts)
                         {
@@ -151,8 +153,10 @@
                 {
                     <div class="user-dropdown">
                         <div class="user-dd-id">@(_userId.Length > 0 ? _userId : "(사용자)")</div>
-                        <a class="user-dd-item" href="/change-password">비밀번호 변경</a>
-                        <div class="user-dd-item" @onclick="HandleLogoutAsync">로그아웃</div>
+                        <a class="user-dd-item" href="/change-password">@Ui.T("shell.changePassword", "비밀번호 변경")</a>
+                        <div class="user-dd-item" @onclick="ToggleThemeAsync">@(_darkTheme ? Ui.T("shell.lightMode", "라이트 모드") : Ui.T("shell.darkMode", "다크 모드"))</div>
+                        <div class="user-dd-item" @onclick="ToggleLanguageAsync">@(_language == "EnUs" ? "한국어로 전환" : "Switch to English")</div>
+                        <div class="user-dd-item" @onclick="HandleLogoutAsync">@Ui.T("shell.logout", "로그아웃")</div>
                     </div>
                 }
             </div>
@@ -273,12 +277,52 @@
         await BuildTreeAsync();
         await ReloadPersonalizationAsync();
         _userId = await TokenService.GetUserIdAsync() ?? string.Empty;
+        // 다국어(P3-14) — 사용자 언어 로드 후 비-한국어면 공통 문구 리소스를 주입(실패=한국어 폴백).
+        try
+        {
+            _language = await Api.GetUserLanguageAsync();
+            Ui.Load(_language, _language == "KoKr"
+                ? new Dictionary<string, string>(StringComparer.Ordinal)
+                : await Api.GetLanguageResourcesAsync(_language));
+        }
+        catch { /* 리소스 실패는 폴백(한국어)으로 — 셸을 깨지 않는다 */ }
         // 알림 센터(P3-20) — 최근 스냅숏 + 신규 알림 구독.
         _alerts = AlertFeed.Recent.ToList();
         _alertSubscription = AlertFeed.Subscribe(OnAlertAsync);
         Opened.Changed += OnOpenedChanged;
         Nav.LocationChanged += OnLocationChanged;
         SyncCurrentRoute();
+    }
+
+    // ── 다국어(P3-14)·테마(P3-17) ────────────────────────────────────────────
+    private string _language = "KoKr";
+    private bool _darkTheme;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // 저장된 테마 상태를 토글 라벨에 반영(적용 자체는 HostApp 부트 스크립트가 이미 완료).
+            _darkTheme = string.Equals(await JS.InvokeAsync<string>("nxGetTheme"), "dark", StringComparison.Ordinal);
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleThemeAsync()
+    {
+        _darkTheme = !_darkTheme;
+        await JS.InvokeVoidAsync("nxSetTheme", _darkTheme ? "dark" : "light");
+    }
+
+    // 언어 전환 — 서버 저장(SYS_USER.LANGUAGE) 성공 시에만 리소스 재로드(§20.8 원칙 미러).
+    private async Task ToggleLanguageAsync()
+    {
+        var next = _language == "EnUs" ? "KoKr" : "EnUs";
+        if (!await Api.SetUserLanguageAsync(next)) return;
+        _language = next;
+        Ui.Load(next, next == "KoKr"
+            ? new Dictionary<string, string>(StringComparer.Ordinal)
+            : await Api.GetLanguageResourcesAsync(next));
     }
 
     // ── 알림 센터(P3-20) ─────────────────────────────────────────────────────

@@ -1,0 +1,32 @@
+-- P3-14 다국어 v1 — UI 공통 문구 EnUs 리소스 시드(SYS_MULTI_LANGUAGE_RESOURCE, V031 테이블).
+-- 규약: 한국어가 기본(코드 인라인 폴백)이라 비-한국어만 시드한다. MENU_ID는 화면 귀속이 아닌
+-- 공통 문구이므로 'COMMON'. 키 체계: shell.*(셸 크롬) / common.*(메타 화면 공용 컨트롤).
+INSERT INTO SYS_MULTI_LANGUAGE_RESOURCE (RESOURCE_KEY, MENU_ID, LANGUAGE, VALUE) VALUES
+    ('shell.favorites',      'COMMON', 'EnUs', 'Favorites'),
+    ('shell.recent',         'COMMON', 'EnUs', 'Recent'),
+    ('shell.alerts',         'COMMON', 'EnUs', 'Notifications'),
+    ('shell.noAlerts',       'COMMON', 'EnUs', 'No notifications.'),
+    ('shell.changePassword', 'COMMON', 'EnUs', 'Change password'),
+    ('shell.logout',         'COMMON', 'EnUs', 'Sign out'),
+    ('shell.darkMode',       'COMMON', 'EnUs', 'Dark mode'),
+    ('shell.lightMode',      'COMMON', 'EnUs', 'Light mode'),
+    ('shell.menuFilter',     'COMMON', 'EnUs', 'Filter menus…'),
+    ('shell.menuPin',        'COMMON', 'EnUs', 'Pin menu'),
+    ('common.search',        'COMMON', 'EnUs', 'Search'),
+    ('common.save',          'COMMON', 'EnUs', 'Save'),
+    ('common.saving',        'COMMON', 'EnUs', 'Saving…'),
+    ('common.savedMark',     'COMMON', 'EnUs', 'Saved'),
+    ('common.refresh',       'COMMON', 'EnUs', 'Refresh'),
+    ('common.refreshing',    'COMMON', 'EnUs', 'Refreshing…'),
+    ('common.loading',       'COMMON', 'EnUs', 'Loading…'),
+    ('common.noResult',      'COMMON', 'EnUs', 'No results'),
+    ('common.rowsUnit',      'COMMON', 'EnUs', 'rows'),
+    ('common.runHint',       'COMMON', 'EnUs', 'Run a query to see results.'),
+    ('common.prev',          'COMMON', 'EnUs', '‹ Prev'),
+    ('common.next',          'COMMON', 'EnUs', 'Next ›'),
+    ('common.select',        'COMMON', 'EnUs', '(select)'),
+    ('common.condSaved',     'COMMON', 'EnUs', 'Saved conditions…'),
+    ('common.condName',      'COMMON', 'EnUs', 'Condition name'),
+    ('common.condSave',      'COMMON', 'EnUs', 'Save condition'),
+    ('common.condDelete',    'COMMON', 'EnUs', 'Delete condition'),
+    ('common.trendNoData',   'COMMON', 'EnUs', 'Not enough data to display.');

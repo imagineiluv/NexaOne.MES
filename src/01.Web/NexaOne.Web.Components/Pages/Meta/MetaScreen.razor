@@ -13,7 +13,7 @@
         @* 수동 새로고침 — 자동 새로고침(RefreshIntervalSeconds) 없는 화면에서도 재조회할 수 있게 한다.
            데이터만 재조회(ReloadDataAsync)하므로 폼 입력 상태는 보존된다. *@
         <button class="btn btn-ghost meta-refresh" @onclick="ManualRefreshAsync" disabled="@_refreshing">
-            @(_refreshing ? "새로고침 중…" : "새로고침")
+            @(_refreshing ? T("common.refreshing", "새로고침 중…") : T("common.refresh", "새로고침"))
         </button>
     }
 </div>
@@ -27,9 +27,9 @@
             <MetaFormRenderer Definition="_searchDefinition" @bind-Model="_searchModel" />
         </CascadingValue>
         <div class="meta-search-actions">
-            <button class="layout-command" @onclick="RunSearchAsync" disabled="@_refreshing">조회</button>
+            <button class="layout-command" @onclick="RunSearchAsync" disabled="@_refreshing">@T("common.search", "조회")</button>
             <select class="meta-cond-select" @onchange="OnSavedConditionSelected">
-                <option value="" selected="@(_selectedCondition.Length == 0)">저장된 조건…</option>
+                <option value="" selected="@(_selectedCondition.Length == 0)">@T("common.condSaved", "저장된 조건…")</option>
                 @foreach (var c in _savedConditions)
                 {
                     <option value="@c.Name" selected="@(c.Name == _selectedCondition)">@c.Name</option>
@@ -37,10 +37,10 @@
             </select>
             @if (_selectedCondition.Length > 0)
             {
-                <button class="btn btn-ghost" @onclick="DeleteSelectedConditionAsync">조건 삭제</button>
+                <button class="btn btn-ghost" @onclick="DeleteSelectedConditionAsync">@T("common.condDelete", "조건 삭제")</button>
             }
-            <input class="meta-cond-name" placeholder="조건명" @bind="_conditionName" />
-            <button class="btn btn-ghost" @onclick="SaveCurrentConditionAsync">조건 저장</button>
+            <input class="meta-cond-name" placeholder="@T("common.condName", "조건명")" @bind="_conditionName" />
+            <button class="btn btn-ghost" @onclick="SaveCurrentConditionAsync">@T("common.condSave", "조건 저장")</button>
         </div>
     </div>
 }
@@ -91,7 +91,7 @@ else if (_definition.Layout is not null)
         </div>
     }
 
-    @if (_saved) { <span class="save-ok" style="color:#15803d;">저장됨</span> }
+    @if (_saved) { <span class="save-ok">@T("common.savedMark", "저장됨")</span> }
 }
 else
 {
@@ -105,8 +105,8 @@ else
         </CascadingValue>
 
         <div class="meta-actions">
-            <button @onclick="Save" disabled="@_saving">@(_saving ? "저장 중…" : "저장")</button>
-            @if (_saved) { <span class="save-ok" style="color:#15803d; margin-left:0.5rem;">저장됨</span> }
+            <button @onclick="Save" disabled="@_saving">@(_saving ? T("common.saving", "저장 중…") : T("common.save", "저장"))</button>
+            @if (_saved) { <span class="save-ok" style="margin-left:0.5rem;">@T("common.savedMark", "저장됨")</span> }
         </div>
 
         @if (_errors.Count > 0)
@@ -146,6 +146,24 @@ else
         = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>();
     private bool _saving;
     private bool _saved;
+
+    // 다국어(P3-14) — 호스트 DI(UiTextService)가 있으면 번역, 없으면(테스트 등) 한국어 폴백.
+    // 셸의 리소스 로드가 본문 첫 렌더보다 늦을 수 있어 Changed를 구독해 로드/전환 시 리렌더한다
+    // (부모 리렌더가 자식 렌더러들도 갱신하므로 구독은 MetaScreen 한 곳이면 충분).
+    private NexaOne.Web.Services.UiTextService? _uiTextResolved;
+    private bool _uiTextLookedUp;
+    private string T(string key, string fallback)
+    {
+        if (!_uiTextLookedUp)
+        {
+            _uiTextLookedUp = true;
+            _uiTextResolved = Services.GetService(typeof(NexaOne.Web.Services.UiTextService)) as NexaOne.Web.Services.UiTextService;
+            if (_uiTextResolved is not null) _uiTextResolved.Changed += OnUiTextChanged;
+        }
+        return _uiTextResolved?.T(key, fallback) ?? fallback;
+    }
+
+    private void OnUiTextChanged() => _ = InvokeAsync(StateHasChanged);
     // 레이아웃 트리에서 명령 버튼으로 커버되지 않은 폼 저장쿼리 — 암시적 저장 버튼 대상(공백/중복 제외).
     private IReadOnlyList<string> _uncoveredSaveQueries = Array.Empty<string>();
     // Phase-2 멀티폼 — 격리 폼(Isolated)의 스코프 키→폼별 모델. 로드 시 트리를 훑어 사전 시드한다
@@ -475,6 +493,7 @@ else
         _refreshCts = null;
         _pushSubscription?.Dispose();
         _pushSubscription = null;
+        if (_uiTextResolved is not null) _uiTextResolved.Changed -= OnUiTextChanged;
     }
 
     private void OnFormModelChanged((string Key, Dictionary<string, object?> Model) change)

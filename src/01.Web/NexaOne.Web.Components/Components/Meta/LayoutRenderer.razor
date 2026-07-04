@@ -3,6 +3,7 @@
 @using NexaOne.Web.Services.Meta
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject Microsoft.AspNetCore.Components.NavigationManager Nav
+@inject IServiceProvider Services
 
 @switch (Node)
 {
@@ -82,7 +83,7 @@
             <div class="layout-kpi-label">@tc.Label</div>
             @if (points.Count < 2)
             {
-                <div style="color:#9ca3af; font-size:0.75rem; padding:0.5rem 0;">표시할 데이터가 부족합니다.</div>
+                <div style="color:#9ca3af; font-size:0.75rem; padding:0.5rem 0;">@T("common.trendNoData", "표시할 데이터가 부족합니다.")</div>
             }
             else
             {
@@ -248,6 +249,20 @@
             sb.Append(y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
         }
         return (sb.ToString(), pts, min, max, points[^1].Value);
+    }
+
+
+    // 다국어(P3-14) — 호스트 DI가 있으면 번역, 없으면(테스트) 한국어 폴백.
+    private NexaOne.Web.Services.UiTextService? _uiText;
+    private bool _uiTextLookedUp;
+    private string T(string key, string fallback)
+    {
+        if (!_uiTextLookedUp)
+        {
+            _uiTextLookedUp = true;
+            _uiText = Services.GetService(typeof(NexaOne.Web.Services.UiTextService)) as NexaOne.Web.Services.UiTextService;
+        }
+        return _uiText?.T(key, fallback) ?? fallback;
     }
 
     // KPI 드릴다운(P3-12) — LinkUiId 지정 카드만 이동.

@@ -128,6 +128,29 @@ DELETE FROM SYS_MENU_ROLE WHERE MENU_ID = @menuId AND ROLE_ID = @roleId
 ]]></statement>
   </query>
 
+  <!-- ===== 다국어(P3-14 v1) — 공통 문구 리소스(V031 테이블·V070 EnUs 시드)와 사용자 언어 설정. =====
+       UserLanguage/UpdateUserLanguage는 @currentUser 스코프 — 호스트 GET/PUT /api/v1/sys/language가 정상 경로. -->
+  <query id="SYS.LanguageResources">
+    <statement><![CDATA[
+SELECT RESOURCE_KEY, VALUE
+FROM SYS_MULTI_LANGUAGE_RESOURCE
+WHERE LANGUAGE = @language
+]]></statement>
+  </query>
+
+  <query id="SYS.UserLanguage">
+    <statement><![CDATA[
+SELECT LANGUAGE FROM SYS_USER WHERE USER_ID = @currentUser AND IS_DELETED = 0
+]]></statement>
+  </query>
+
+  <query id="SYS.UpdateUserLanguage" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+UPDATE SYS_USER SET LANGUAGE = @language, UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+WHERE USER_ID = @currentUser AND IS_DELETED = 0
+]]></statement>
+  </query>
+
   <!-- ===== 사용자 메뉴 개인화(§20.12 즐겨찾기/최근 메뉴) — 전부 @currentUser 스코프. =====
        쓰기는 서버 주입 @currentUser만 사용하므로 직접 /command 호출로도 타인 행 조작이 불가하고,
        읽기는 /query 직접 호출 시 @currentUser 미주입(DBNull)이라 0행 — 본 쿼리들은 호스트
