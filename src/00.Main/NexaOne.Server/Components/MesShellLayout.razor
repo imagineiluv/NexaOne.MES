@@ -4,6 +4,8 @@
 @inject Microsoft.AspNetCore.Components.NavigationManager Nav
 @inject NexaOne.Server.Services.OpenedScreensState Opened
 @inject Microsoft.Extensions.Logging.ILogger<MesShellLayout> Logger
+@inject NexaOne.Web.Services.Auth.AuthTokenService TokenService
+@inject NexaOne.Web.Services.Auth.JwtAuthStateProvider AuthState
 
 @* SmartUX(:9020) 레퍼런스 셸 재현 — 네이비 사이드바(계층 아코디언) + 화이트 상단바 + 본문(메타 화면) + 하단 MDI 탭.
    사이드바는 SYS.MenuTree(게이트웨이)로 데이터 주도 구축한다(대분류 Folder → 하위 Screen). 쿼리 실패/공백 시
@@ -75,9 +77,37 @@
                   title="@(IsActiveFavorite() ? "즐겨찾기 해제" : "즐겨찾기 등록")"
                   @onclick="ToggleActiveFavoriteAsync">@(IsActiveFavorite() ? "★" : "☆")</span>
             <span class="tb-title">제조실행시스템 (NexaOne MES)</span>
-            <div class="mes-quickmenu"><input placeholder="Quick Menu" /></div>
-            <span class="tb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.5-2-3.5-2.4 1a7 7 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7 7 0 0 0-1.7 1l-2.4-1-2 3.5 2 1.5a7 7 0 0 0 0 2l-2 1.5 2 3.5 2.4-1a7 7 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7 7 0 0 0 1.7-1l2.4 1 2-3.5-2-1.5a7 7 0 0 0 .1-1z"/></svg></span>
-            <span class="tb-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg></span>
+            @* Quick Menu — 사이드바 트리 인덱스(_uiToTitle) 기반 타이프어헤드 점프(레거시 퀵메뉴 미러, 서버 호출 없음). *@
+            <div class="mes-quickmenu">
+                <input placeholder="Quick Menu" value="@_quickQuery"
+                       @oninput="OnQuickInput" @onkeydown="OnQuickKeyDown" />
+                @if (_quickMatches.Count > 0)
+                {
+                    <div class="quick-results">
+                        @foreach (var m in _quickMatches)
+                        {
+                            <div class="quick-item" @key="m.UiId" @onclick="() => QuickGo(m)">
+                                <span>@m.Title</span><small>@m.UiId</small>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            @* 사용자 메뉴 — ID 표시·비밀번호 변경·로그아웃(리프레시 토큰 폐기 후 세션 종료).
+               (구 톱니 아이콘은 연결 기능이 없어 제거 — 장식 UI를 두지 않는다) *@
+            <div class="mes-usermenu">
+                <span class="tb-ico" title="사용자 메뉴" style="cursor:pointer;" @onclick="() => _userMenuOpen = !_userMenuOpen">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+                </span>
+                @if (_userMenuOpen)
+                {
+                    <div class="user-dropdown">
+                        <div class="user-dd-id">@(_userId.Length > 0 ? _userId : "(사용자)")</div>
+                        <a class="user-dd-item" href="/change-password">비밀번호 변경</a>
+                        <div class="user-dd-item" @onclick="HandleLogoutAsync">로그아웃</div>
+                    </div>
+                }
+            </div>
         </header>
 
         @* MDI 탭 — 열린 /meta 화면들. 활성 강조 + X로 닫기. 탭이 없으면 바를 숨긴다. *@
@@ -124,9 +154,63 @@
     {
         await BuildTreeAsync();
         await ReloadPersonalizationAsync();
+        _userId = await TokenService.GetUserIdAsync() ?? string.Empty;
         Opened.Changed += OnOpenedChanged;
         Nav.LocationChanged += OnLocationChanged;
         SyncCurrentRoute();
+    }
+
+    // ── 상단바: Quick Menu(타이프어헤드 점프) + 사용자 메뉴(로그아웃) ─────────
+    private string _quickQuery = string.Empty;
+    private List<QuickMatch> _quickMatches = new();
+    private bool _userMenuOpen;
+    private string _userId = string.Empty;
+
+    private sealed record QuickMatch(string UiId, string Title);
+
+    private void OnQuickInput(ChangeEventArgs e)
+    {
+        _quickQuery = e.Value?.ToString() ?? string.Empty;
+        var q = _quickQuery.Trim();
+        _quickMatches = q.Length == 0
+            ? new List<QuickMatch>()
+            : _uiToTitle
+                .Where(kv => kv.Value.Contains(q, StringComparison.OrdinalIgnoreCase)
+                          || kv.Key.Contains(q, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(kv => kv.Value, StringComparer.Ordinal)
+                .Take(8)
+                .Select(kv => new QuickMatch(kv.Key, kv.Value))
+                .ToList();
+    }
+
+    private void OnQuickKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") { _quickQuery = string.Empty; _quickMatches.Clear(); }
+        else if (e.Key == "Enter" && _quickMatches.Count > 0) QuickGo(_quickMatches[0]);
+    }
+
+    private void QuickGo(QuickMatch m)
+    {
+        _quickQuery = string.Empty;
+        _quickMatches.Clear();
+        NavigateTo(m.UiId, m.Title);
+    }
+
+    // 로그아웃 — 서버 리프레시 토큰 폐기(실패해도 로컬 세션은 종료) → 토큰 클리어 → 로그인으로.
+    private async Task HandleLogoutAsync()
+    {
+        _userMenuOpen = false;
+        try
+        {
+            var userId = await TokenService.GetUserIdAsync();
+            var refresh = await TokenService.GetRefreshTokenAsync();
+            if (userId is not null && refresh is not null)
+                await Api.LogoutAsync(userId, refresh);
+        }
+        catch { /* 서버 폐기 실패(오프라인 등)여도 로컬 종료는 진행한다 */ }
+        await TokenService.ClearAsync();
+        AuthState.NotifyAuthChanged(null);
+        Nav.NavigateTo("/login", forceLoad: true);
     }
 
     // §20.12 순서 변경 — 이웃과 교환한 전체 순서를 서버에 재부여(PUT favorites/order), 성공 시에만 캐시 갱신.
@@ -326,6 +410,7 @@
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
+        _userMenuOpen = false;   // 화면 이동 시 열린 드롭다운 정리
         SyncCurrentRoute();
         // 트리가 60초 이상 오래됐으면 이동 시 백그라운드 재조회 — 메뉴-역할 매핑/메뉴 변경이
         // 재로그인 없이 다음 화면 이동에서 반영된다(이동마다 조회하지 않는 스테일네스 게이트).
