@@ -23,13 +23,14 @@ export async function loadDefinition(uiId: string): Promise<{ title: string; lay
 export interface ScreenLevelExtras {
   refreshIntervalSeconds?: number | null
   searchFields?: FieldDefinition[] | null
+  countQueryId?: string | null
 }
 
 export async function saveDefinition(
   uiId: string, title: string, layout: LayoutNode | null, extras?: ScreenLevelExtras,
 ): Promise<number> {
   const definitionJson = buildDefinitionJson(
-    uiId, title, layout, extras?.refreshIntervalSeconds, extras?.searchFields)
+    uiId, title, layout, extras?.refreshIntervalSeconds, extras?.searchFields, extras?.countQueryId)
   const res = await apiFetch<AffectedRows>('/api/v1/command/SYS.UpsertScreenDefinition', {
     method: 'POST',
     body: JSON.stringify({ uiId, title, definitionJson }),

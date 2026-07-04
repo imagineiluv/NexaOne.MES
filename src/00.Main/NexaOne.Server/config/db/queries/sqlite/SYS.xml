@@ -380,7 +380,8 @@ SELECT RULE_ID, RULE_NAME, RULE_TYPE, IS_ACTIVE, DESCRIPTION FROM SYS_RULE ORDER
 SELECT FILE_ID, VERSION, FILE_NAME, FILE_SIZE, DESCRIPTION, FORCE_UPDATE, IS_ACTIVE, UPLOADED_BY, UPLOADED_AT FROM SYS_DEPLOY_FILE ORDER BY UPLOADED_AT DESC
 ]]></statement>
   </query>
-  <!-- SYSTEM2 요청 로그 뷰어 — API 요청 로그(V062) 최근 500. @method/@userId NULL-guard. -->
+  <!-- SYSTEM2 요청 로그 뷰어 — API 요청 로그(V062). @method/@userId NULL-guard.
+       서버측 페이징(P3-9 v2): @limit/@offset 미전달(직접 호출)이면 기존 최근 500 동작. -->
   <query id="SYS.RequestLogList">
     <statement><![CDATA[
 SELECT LOG_ID, METHOD, PATH, STATUS_CODE, ELAPSED_MS, USER_ID, CLIENT_IP, REQUESTED_AT
@@ -388,17 +389,34 @@ FROM SYS_REQUEST_LOG
 WHERE (@method IS NULL OR METHOD = @method)
   AND (@userId IS NULL OR USER_ID = @userId)
 ORDER BY REQUESTED_AT DESC
-LIMIT 500
+LIMIT COALESCE(@limit, 500) OFFSET COALESCE(@offset, 0)
 ]]></statement>
   </query>
-  <!-- LOG_VIEWER — 앱 로그(V064) 최근 500. @logLevel NULL-guard. -->
+  <!-- 요청 로그 총건수 — RequestLogList와 WHERE 일치(서버 페이저의 짝 count 쿼리, P3-9 v2). -->
+  <query id="SYS.RequestLogListCount">
+    <statement><![CDATA[
+SELECT COUNT(*) AS TOTAL
+FROM SYS_REQUEST_LOG
+WHERE (@method IS NULL OR METHOD = @method)
+  AND (@userId IS NULL OR USER_ID = @userId)
+]]></statement>
+  </query>
+  <!-- LOG_VIEWER — 앱 로그(V064). @logLevel NULL-guard. @limit/@offset 미전달이면 기존 최근 500. -->
   <query id="SYS.AppLogList">
     <statement><![CDATA[
 SELECT LOG_ID, LOG_LEVEL, CATEGORY, MESSAGE, EXCEPTION, LOGGED_AT
 FROM SYS_APP_LOG
 WHERE (@logLevel IS NULL OR LOG_LEVEL = @logLevel)
 ORDER BY LOGGED_AT DESC
-LIMIT 500
+LIMIT COALESCE(@limit, 500) OFFSET COALESCE(@offset, 0)
+]]></statement>
+  </query>
+  <!-- 앱 로그 총건수 — AppLogList와 WHERE 일치(서버 페이저의 짝 count 쿼리, P3-9 v2). -->
+  <query id="SYS.AppLogListCount">
+    <statement><![CDATA[
+SELECT COUNT(*) AS TOTAL
+FROM SYS_APP_LOG
+WHERE (@logLevel IS NULL OR LOG_LEVEL = @logLevel)
 ]]></statement>
   </query>
 </queries>

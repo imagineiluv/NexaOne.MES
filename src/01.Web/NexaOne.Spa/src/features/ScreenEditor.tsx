@@ -75,6 +75,7 @@ export function ScreenEditor() {
       await saveDefinition(uiId, title || uiId, readRootLayout(editor), {
         refreshIntervalSeconds: flatRef.current?.refreshIntervalSeconds,
         searchFields: flatRef.current?.searchFields,
+        countQueryId: flatRef.current?.countQueryId,
       })
       setStatus('저장됨')
     } catch {

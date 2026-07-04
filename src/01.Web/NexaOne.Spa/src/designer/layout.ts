@@ -55,6 +55,7 @@ export interface ScreenDefinitionDto {
   layout?: LayoutNode | null
   refreshIntervalSeconds?: number | null   // 자동 새로고침 주기(초, Phase-2 실시간 v2) — 저장 왕복 보존 필수
   searchFields?: FieldDefinition[] | null  // 검색 조건 영역(C# ScreenDefinition.SearchFields 미러) — 저장 왕복 보존 필수
+  countQueryId?: string | null             // 서버측 페이징 count 쿼리(P3-9 v2, C# CountQueryId 미러) — 저장 왕복 보존 필수
 }
 
 export interface GrapesNode {

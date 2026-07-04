@@ -161,4 +161,41 @@ public sealed class MetaGridRendererTests
         cut.Markup.Should().Contain("2 행");
         cut.FindAll("button").Should().BeEmpty("20행 이하는 페이저를 렌더하지 않는다");
     }
+
+    [Fact]
+    public void Server_paging_disables_client_slicing_and_delegates_page_change()
+    {
+        // P3-9 v2 — ServerTotal 지정 시: 행은 이미 한 페이지(분할 금지), 페이저는 서버 총건수 기준,
+        // 페이지 전환은 OnServerPageChange 콜백으로 부모(MetaScreen)가 @offset 재조회한다.
+        using var ctx = new TestContext();
+        var requested = -1;
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, Columns)
+            .Add(c => c.Rows, IdRows(Enumerable.Range(1, 20).Select(i => $"P-{i:D2}").ToArray()))
+            .Add(c => c.ServerTotal, 45)
+            .Add(c => c.ServerPage, 0)
+            .Add(c => c.OnServerPageChange, (int page) => requested = page));
+
+        cut.FindAll("tbody tr").Count.Should().Be(20, "서버 페이징은 받은 행을 그대로 렌더(클라 분할 없음)");
+        cut.Markup.Should().Contain("45 행").And.Contain("1 / 3", "페이저는 서버 총건수 기준");
+
+        cut.FindAll("button").First(b => b.TextContent.Contains("다음")).Click();
+        requested.Should().Be(1, "다음 클릭=부모 콜백으로 페이지 요청(자체 상태 변경 없음)");
+
+        cut.FindAll("button").First(b => b.TextContent.Contains("이전")).HasAttribute("disabled")
+            .Should().BeTrue("첫 페이지에서 이전은 비활성");
+    }
+
+    [Fact]
+    public void Server_paging_single_page_shows_total_without_pager()
+    {
+        using var ctx = new TestContext();
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, Columns)
+            .Add(c => c.Rows, IdRows("1", "2"))
+            .Add(c => c.ServerTotal, 2));
+
+        cut.Markup.Should().Contain("2 행");
+        cut.FindAll("button").Should().BeEmpty("총건수가 1페이지 이내면 서버 페이저를 렌더하지 않는다");
+    }
 }

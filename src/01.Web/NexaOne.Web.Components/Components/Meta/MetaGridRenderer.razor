@@ -61,12 +61,31 @@
     {
         <p class="meta-grid-note">@T("common.runHint", "실행하면 결과가 표시됩니다.")</p>
     }
-    else if (Rows.Count == 0)
+    else if (Rows.Count == 0 && (ServerTotal ?? 0) == 0)
     {
         <p class="meta-grid-note meta-grid-empty">
             <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5 5h14l3 7v7H2v-7z"/></svg>
             @T("common.noResult", "결과 없음")
         </p>
+    }
+    else if (ServerTotal is int total)
+    {
+        @* P3-9 v2 — 서버측 페이징: 페이지 전환은 부모(MetaScreen)가 @offset 재조회로 처리한다. *@
+        @if (ServerPageCount(total) <= 1)
+        {
+            <p class="meta-grid-note">@total @T("common.rowsUnit", "행")</p>
+        }
+        else
+        {
+            <div class="meta-grid-pager">
+                <span class="meta-grid-note">@total @T("common.rowsUnit", "행")</span>
+                <button class="pager-btn" disabled="@(ServerPage == 0)"
+                        @onclick="() => OnServerPageChange.InvokeAsync(ServerPage - 1)">@T("common.prev", "‹ 이전")</button>
+                <span class="meta-grid-note">@(ServerPage + 1) / @ServerPageCount(total)</span>
+                <button class="pager-btn" disabled="@(ServerPage >= ServerPageCount(total) - 1)"
+                        @onclick="() => OnServerPageChange.InvokeAsync(ServerPage + 1)">@T("common.next", "다음 ›")</button>
+            </div>
+        }
     }
     else if (PageCount <= 1)
     {
@@ -84,7 +103,8 @@
 </div>
 
 @code {
-    private const int PageSize = 20;
+    // 페이지 크기 — 클라이언트 분할과 서버측 페이징(MetaScreen @limit)의 단일 출처.
+    public const int PageSize = 20;
 
     // 보이는 컬럼만 캡션을 헤더로 그리고, 각 행에서 컬럼 Key로 값을 찾아 셀에 표시한다.
     [Parameter, EditorRequired]
@@ -98,6 +118,14 @@
 
     // P1-1 — 행 클릭 콜백(전체 행 딕셔너리 — 표시되지 않는 컬럼도 포함해 폼 채우기에 쓴다).
     [Parameter] public EventCallback<Dictionary<string, object?>> OnRowSelect { get; set; }
+
+    // P3-9 v2 — 서버측 페이징(CountQueryId 화면). ServerTotal 지정 시 클라이언트 분할을 끄고(행=이미 한 페이지)
+    // 서버 페이저를 렌더한다 — 페이지 전환은 OnServerPageChange로 부모가 @offset 재조회.
+    [Parameter] public int? ServerTotal { get; set; }
+    [Parameter] public int ServerPage { get; set; }
+    [Parameter] public EventCallback<int> OnServerPageChange { get; set; }
+
+    private static int ServerPageCount(int total) => total > 0 ? (total + PageSize - 1) / PageSize : 0;
 
     private Dictionary<string, object?>? _selected;
     private string? _sortKey;
@@ -118,6 +146,7 @@
     private int PageCount => Rows is { Count: > 0 } ? (Rows.Count + PageSize - 1) / PageSize : 0;
 
     // 정렬(선택 시) + 현재 페이지 분할. 숫자 컬럼(전 값이 숫자/공백)은 수치 정렬, 그 외 문자열 정렬.
+    // 서버 페이징 모드에선 분할을 끈다(행=이미 한 페이지; 정렬은 페이지 내 표시 정렬로 유지).
     private IEnumerable<Dictionary<string, object?>> View()
     {
         if (Rows is not { Count: > 0 }) return Array.Empty<Dictionary<string, object?>>();
@@ -137,7 +166,7 @@
                     ? v.OrderByDescending(r => Cell(r, key), StringComparer.Ordinal)
                     : v.OrderBy(r => Cell(r, key), StringComparer.Ordinal));
         }
-        return v.Skip(_page * PageSize).Take(PageSize);
+        return ServerTotal.HasValue ? v : v.Skip(_page * PageSize).Take(PageSize);
     }
 
     private void SortBy(string key)

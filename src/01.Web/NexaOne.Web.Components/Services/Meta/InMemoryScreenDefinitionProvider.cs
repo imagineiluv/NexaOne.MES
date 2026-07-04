@@ -1503,7 +1503,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             QueryId: "SYS.DeployFileList"));
 
         // 로그 뷰어(LOG_VIEWER) — 앱 로그(V064, DbLoggerProvider Warning+ 기록·SYS.AppLogList).
-        // SearchFields 1호 적용 — @logLevel NULL-가드 필터(빈 값=전체).
+        // SearchFields 1호 적용 — @logLevel NULL-가드 필터(빈 값=전체). 서버측 페이징 1호(P3-9 v2, CountQueryId).
         Register(new ScreenDefinition("LOG_VIEWER", "로그 뷰어",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
@@ -1515,7 +1515,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             SearchFields: new FieldDefinition[]
             {
                 new("logLevel", "레벨", FieldType.Select, Options: new[] { "Information", "Warning", "Error", "Critical" }),
-            }));
+            },
+            CountQueryId: "SYS.AppLogListCount"));
 
         // 요청 로그 뷰어(SYSTEM2_MONITOR_REQLOG) — API 요청 로그(V062, RequestLogMiddleware 기록·SYS.RequestLogList).
         Register(new ScreenDefinition("SYSTEM2_MONITOR_REQLOG", "요청 로그 뷰어",
@@ -1530,7 +1531,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             {
                 new("method", "메서드", FieldType.Select, Options: new[] { "GET", "POST", "PUT", "DELETE" }),
                 new("userId", "사용자 ID"),
-            }));
+            },
+            CountQueryId: "SYS.RequestLogListCount"));
 
         // 생산성 대시보드(FACTORY_DASHBOARD_MENU_PRODUCTIVITY) — 설비×일자 OEE 마트(EST.OeeSummaryList) 재사용.
         Register(new ScreenDefinition("FACTORY_DASHBOARD_MENU_PRODUCTIVITY", "생산성 대시보드",

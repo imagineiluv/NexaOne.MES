@@ -36,4 +36,18 @@ public sealed class ScreenDefinitionJsonTests
     [Fact]
     public void Deserialize_invalid_json_returns_null()
         => ScreenDefinitionJson.Deserialize("{ not valid").Should().BeNull();
+
+    [Fact]
+    public void CountQueryId_roundtrips_and_defaults_to_null()
+    {
+        // 서버측 페이징(P3-9 v2) — 화면 수준 설정이 저장/재로드에서 드랍되지 않아야 한다(SPA 미러와 동일 계약).
+        var def = new ScreenDefinition("S2", "로그", Array.Empty<FieldDefinition>(),
+            QueryId: "SYS.AppLogList", CountQueryId: "SYS.AppLogListCount");
+        var back = ScreenDefinitionJson.Deserialize(ScreenDefinitionJson.Serialize(def));
+        back!.CountQueryId.Should().Be("SYS.AppLogListCount");
+
+        // 기존 정의(속성 부재)는 null 정규화 — 하위호환.
+        ScreenDefinitionJson.Deserialize("""{"uiId":"OLD","title":"t","fields":[]}""")!
+            .CountQueryId.Should().BeNull();
+    }
 }

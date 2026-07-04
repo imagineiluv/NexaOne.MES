@@ -132,6 +132,15 @@ describe('LayoutNode ↔ GrapesJS 매핑', () => {
     expect(none.flat!.searchFields).toBeNull()
   })
 
+  it('countQueryId(서버측 페이징, 화면 수준)가 build/parse 왕복에서 보존된다 — 재저장 드랍 방지', () => {
+    const parsed = parseDefinition(buildDefinitionJson('LOGV2', '로그 뷰어', null, null, null, 'SYS.AppLogListCount'))
+    expect(parsed.flat!.countQueryId).toBe('SYS.AppLogListCount')
+
+    // 미지정/빈 문자열이면 필드 자체가 없고(하위호환) 파싱은 null 정규화.
+    const none = parseDefinition(buildDefinitionJson('OLD3', '기존', null, null, null, ''))
+    expect(none.flat!.countQueryId).toBeNull()
+  })
+
   it('그리드 컬럼 width(px, Phase-2)가 JSON 인코딩 라운드트립에서 보존된다', () => {
     const grid: LayoutNode = {
       kind: 'grid', id: 'g-w', queryId: 'MDM.PlantList',

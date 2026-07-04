@@ -7,7 +7,8 @@
 
 @* Phase 3 — 메타데이터 주도 화면: 정적 @@page 컴파일 화면이 아니라 UiId로 ScreenDefinition을 해석해 동적 렌더. *@
 <div class="page-header">
-    <h1 class="page-title">@(_definition?.Title ?? "준비 중인 화면")</h1>
+    @* 다국어(P3-14 v2) — 화면 제목은 screen.{UiId}.title 리소스, 미존재=정의 원문(한국어). *@
+    <h1 class="page-title">@(_definition is null ? "준비 중인 화면" : T($"screen.{_definition.UiId}.title", _definition.Title))</h1>
     @if (_definition is not null)
     {
         @* 수동 새로고침 — 자동 새로고침(RefreshIntervalSeconds) 없는 화면에서도 재조회할 수 있게 한다.
@@ -125,14 +126,18 @@ else
        SmartUX 레퍼런스의 '리스트 카드'(헤더+그리드) 형태로 감싼다. *@
     @if (_definition.Columns is { Count: > 0 })
     {
+        var serverPaged = !string.IsNullOrWhiteSpace(_definition.CountQueryId);
+        var resultCount = serverPaged ? _serverTotal : _rows?.Count ?? 0;
         <div class="mes-card">
             <div class="mes-card-head">
-                <span class="h-title">목록</span>
-                <span class="h-right">검색 결과@(_rows is { Count: > 0 } ? $" ({_rows.Count})" : "")</span>
+                <span class="h-title">@T("common.list", "목록")</span>
+                <span class="h-right">@T("common.searchResult", "검색 결과")@(resultCount > 0 ? $" ({resultCount})" : "")</span>
             </div>
             <div class="mes-card-body">
                 <MetaGridRenderer Columns="_definition.Columns" Rows="_rows"
-                                  Loading="_loadingData" OnRowSelect="_rowSelect" />
+                                  Loading="_loadingData" OnRowSelect="_rowSelect"
+                                  ServerTotal="serverPaged ? _serverTotal : (int?)null"
+                                  ServerPage="_serverPage" OnServerPageChange="OnServerPageChangeAsync" />
             </div>
         </div>
     }
@@ -223,6 +228,8 @@ else
             : default;
 
         // 데이터(그리드 행 + 레이아웃 결과맵) 조회 — 자동 새로고침과 공유하는 단일 경로.
+        _serverPage = 0;   // 화면 전환 시 서버 페이징 상태 초기화(P3-9 v2)
+        _serverTotal = 0;
         await ReloadDataAsync();
 
         // 레이아웃 화면: 저장 버튼/멀티폼 인덱스는 정의 로드 시 1회만 구성한다(새로고침이 폼 상태를 건드리지 않게).
@@ -330,6 +337,7 @@ else
         {
             // 마지막 조회 조건($latest) 자동 저장 — 다음 진입 시 복원(§20.8). 저장 실패해도 조회는 진행.
             await Api.SaveLatestConditionAsync(UiId, ToConditionValues());
+            _serverPage = 0;   // 조건 변경 = 첫 페이지부터(P3-9 v2)
             await ReloadDataAsync();
         }
         finally { _refreshing = false; }
@@ -411,6 +419,31 @@ else
     // 게이트웨이가 무시하므로 화면 내 여러 쿼리에 같은 조건 딕셔너리를 안전하게 공유한다.
     // (403/5xx는 ApiClient가 빈 목록으로 흡수하고 전역 토스트가 사유를 알린다)
     private bool _loadingData;   // P1-3 — 그리드 '조회 중…' 표시
+
+    // ── 서버측 페이징(P3-9 v2, CountQueryId 화면) ────────────────────────────
+    private int _serverPage;
+    private int _serverTotal;
+
+    private async Task OnServerPageChangeAsync(int page)
+    {
+        if (page < 0 || page == _serverPage) return;
+        _serverPage = page;
+        await ReloadDataAsync();
+    }
+
+    // 총건수 조회 — count 쿼리(단일 행 첫 컬럼)를 본 쿼리와 같은 검색 조건으로 실행한다.
+    private async Task<int> FetchCountAsync(string countQueryId, Dictionary<string, object?>? search)
+    {
+        var rows = await Api.ExecuteQueryAsync(countQueryId, search);
+        var first = rows.FirstOrDefault()?.Values.FirstOrDefault();
+        return first switch
+        {
+            int i => i,
+            long l => (int)l,
+            _ => int.TryParse(first?.ToString(), out var p) ? p : 0,
+        };
+    }
+
     private async Task ReloadDataAsync()
     {
         _loadingData = true;
@@ -420,7 +453,23 @@ else
             _rows = null;
             if (_definition?.Columns is { Count: > 0 } && !string.IsNullOrWhiteSpace(_definition.QueryId))
             {
-                _rows = await Api.ExecuteQueryAsync(_definition.QueryId, search);
+                if (_definition.CountQueryId is { Length: > 0 } countQueryId)
+                {
+                    // 서버측 페이징 — @limit/@offset을 검색 조건에 얹어 조회하고 총건수를 병행 조회한다.
+                    _serverTotal = await FetchCountAsync(countQueryId, search);
+                    var maxPage = _serverTotal > 0 ? (_serverTotal - 1) / MetaGridRenderer.PageSize : 0;
+                    if (_serverPage > maxPage) _serverPage = maxPage;   // 조건 변경/삭제로 범위 밖이면 마지막 페이지로
+                    var paged = search is null
+                        ? new Dictionary<string, object?>(StringComparer.Ordinal)
+                        : new Dictionary<string, object?>(search, StringComparer.Ordinal);
+                    paged["limit"] = MetaGridRenderer.PageSize;
+                    paged["offset"] = _serverPage * MetaGridRenderer.PageSize;
+                    _rows = await Api.ExecuteQueryAsync(_definition.QueryId, paged);
+                }
+                else
+                {
+                    _rows = await Api.ExecuteQueryAsync(_definition.QueryId, search);
+                }
             }
 
             if (_definition?.Layout is not null)

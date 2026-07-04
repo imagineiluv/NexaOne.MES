@@ -395,23 +395,45 @@ SELECT RULE_ID, RULE_NAME, RULE_TYPE, IS_ACTIVE, DESCRIPTION FROM SYS_RULE WITH 
 SELECT FILE_ID, VERSION, FILE_NAME, FILE_SIZE, DESCRIPTION, FORCE_UPDATE, IS_ACTIVE, UPLOADED_BY, UPLOADED_AT FROM SYS_DEPLOY_FILE WITH (NOLOCK) ORDER BY UPLOADED_AT DESC
 ]]></statement>
   </query>
-  <!-- SYSTEM2 요청 로그 뷰어 — API 요청 로그(V062) 최근 500. @method/@userId NULL-guard. -->
+  <!-- SYSTEM2 요청 로그 뷰어 — API 요청 로그(V062). @method/@userId NULL-guard.
+       서버측 페이징(P3-9 v2): @limit/@offset 미전달이면 기존 최근 500 동작.
+       OFFSET/FETCH 식은 변수·파라미터·스칼라 서브쿼리만 허용 — ISNULL 기본값은 서브쿼리로 감싼다.
+       (DECLARE 로컬 변수는 금지 — 게이트웨이 @토큰 스캔이 로컬명을 파라미터로 주입해 중복 선언 오류) -->
   <query id="SYS.RequestLogList">
     <statement><![CDATA[
-SELECT TOP 500 LOG_ID, METHOD, PATH, STATUS_CODE, ELAPSED_MS, USER_ID, CLIENT_IP, REQUESTED_AT
+SELECT LOG_ID, METHOD, PATH, STATUS_CODE, ELAPSED_MS, USER_ID, CLIENT_IP, REQUESTED_AT
 FROM SYS_REQUEST_LOG WITH (NOLOCK)
 WHERE (@method IS NULL OR METHOD = @method)
   AND (@userId IS NULL OR USER_ID = @userId)
 ORDER BY REQUESTED_AT DESC
+OFFSET (SELECT ISNULL(@offset, 0)) ROWS FETCH NEXT (SELECT ISNULL(@limit, 500)) ROWS ONLY
 ]]></statement>
   </query>
-  <!-- LOG_VIEWER — 앱 로그(V064) 최근 500. @logLevel NULL-guard. -->
+  <!-- 요청 로그 총건수 — RequestLogList와 WHERE 일치(서버 페이저의 짝 count 쿼리, P3-9 v2). -->
+  <query id="SYS.RequestLogListCount">
+    <statement><![CDATA[
+SELECT COUNT(*) AS TOTAL
+FROM SYS_REQUEST_LOG WITH (NOLOCK)
+WHERE (@method IS NULL OR METHOD = @method)
+  AND (@userId IS NULL OR USER_ID = @userId)
+]]></statement>
+  </query>
+  <!-- LOG_VIEWER — 앱 로그(V064). @logLevel NULL-guard. @limit/@offset 미전달이면 기존 최근 500. -->
   <query id="SYS.AppLogList">
     <statement><![CDATA[
-SELECT TOP 500 LOG_ID, LOG_LEVEL, CATEGORY, MESSAGE, EXCEPTION, LOGGED_AT
+SELECT LOG_ID, LOG_LEVEL, CATEGORY, MESSAGE, EXCEPTION, LOGGED_AT
 FROM SYS_APP_LOG WITH (NOLOCK)
 WHERE (@logLevel IS NULL OR LOG_LEVEL = @logLevel)
 ORDER BY LOGGED_AT DESC
+OFFSET (SELECT ISNULL(@offset, 0)) ROWS FETCH NEXT (SELECT ISNULL(@limit, 500)) ROWS ONLY
+]]></statement>
+  </query>
+  <!-- 앱 로그 총건수 — AppLogList와 WHERE 일치(서버 페이저의 짝 count 쿼리, P3-9 v2). -->
+  <query id="SYS.AppLogListCount">
+    <statement><![CDATA[
+SELECT COUNT(*) AS TOTAL
+FROM SYS_APP_LOG WITH (NOLOCK)
+WHERE (@logLevel IS NULL OR LOG_LEVEL = @logLevel)
 ]]></statement>
   </query>
 </queries>
