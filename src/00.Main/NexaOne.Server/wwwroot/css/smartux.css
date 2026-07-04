@@ -366,13 +366,28 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   --nx-severity-neutral-bg: #f3f4f6; --nx-severity-neutral-fg: #374151;
 }
 
-.layout-kpi { padding: 14px 18px; border: 1px solid var(--nx-widget-border); border-radius: 6px; background: var(--nx-widget-bg); min-width: 9rem; }
+/* P1 KPI 카드 재설계 — 그림자·좌측 액센트바·큰 숫자·다크 대비. 시맨틱(주의/경고/성공/정보)은
+   좌측 바+숫자 색으로 구분(알람>0=위험 등). --nx-* 토큰이라 다크에서 자동 대비. */
+.layout-kpi {
+  padding: 16px 18px 15px; border: 1px solid var(--nx-border); border-radius: var(--nx-radius-lg);
+  background: var(--nx-card); min-width: 11rem; box-shadow: var(--nx-shadow-sm);
+  position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 7px;
+  transition: box-shadow .15s ease, transform .15s ease;
+}
+.layout-kpi::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--nx-teal); }
 /* P3-12 — 드릴다운 링크 카드(LinkUiId) */
 .layout-kpi.linked { cursor: pointer; }
-.layout-kpi.linked:hover { border-color: var(--nx-teal); box-shadow: 0 2px 10px rgba(21,184,154,.18); }
-.layout-kpi-label { font-size: 11px; color: var(--nx-widget-muted); margin-bottom: 4px; }
-.layout-kpi-value { font-size: 26px; font-weight: 700; color: var(--nx-widget-text); line-height: 1; }
-.layout-kpi-unit { font-size: 12px; font-weight: 500; color: var(--nx-widget-muted); margin-left: 4px; }
+.layout-kpi.linked:hover { box-shadow: var(--nx-shadow-md); transform: translateY(-1px); }
+.layout-kpi-label { font-size: 12px; color: var(--nx-muted); font-weight: 600; letter-spacing: .02em; }
+.layout-kpi-value { font-size: 30px; font-weight: 700; color: var(--nx-text); line-height: 1.05; }
+.layout-kpi-unit { font-size: 13px; font-weight: 500; color: var(--nx-muted); margin-left: 5px; }
+/* 시맨틱 변형 — 좌측 바 + 숫자 색. */
+.layout-kpi.kpi-danger::before  { background: var(--nx-danger); }
+.layout-kpi.kpi-danger  .layout-kpi-value { color: var(--nx-danger); }
+.layout-kpi.kpi-warning::before { background: var(--nx-warning); }
+.layout-kpi.kpi-warning .layout-kpi-value { color: var(--nx-warning); }
+.layout-kpi.kpi-success::before { background: var(--nx-success); }
+.layout-kpi.kpi-info::before    { background: var(--nx-info); }
 
 .layout-badge { display: inline-flex; align-items: center; gap: 8px; }
 .layout-badge-label { font-size: 12px; color: var(--nx-widget-muted); }

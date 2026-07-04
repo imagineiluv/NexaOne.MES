@@ -64,8 +64,8 @@
     @* KPI 카드(Phase-2) — 바인딩 쿼리 첫 행의 ValueColumn 값을 큰 숫자로. 미실행/공백은 '—'(빈 카드 방지).
        스타일은 디자인 토큰 클래스(smartux.css --nx-*) 단일 출처. *@
     case KpiWidget k:
-        @* LinkUiId(P3-12) — 지정 시 카드 클릭=관련 화면 드릴다운. *@
-        <div class="layout-kpi @(string.IsNullOrWhiteSpace(k.LinkUiId) ? "" : "linked")"
+        @* LinkUiId(P3-12) — 지정 시 카드 클릭=관련 화면 드릴다운. P1 — 값·라벨로 시맨틱 색(알람>0=위험 등). *@
+        <div class="layout-kpi @(string.IsNullOrWhiteSpace(k.LinkUiId) ? "" : "linked") @KpiSeverityClass(k)"
              title="@(string.IsNullOrWhiteSpace(k.LinkUiId) ? null : "클릭하여 상세 화면으로 이동")"
              @onclick="() => KpiNavigate(k)">
             <div class="layout-kpi-label">@k.Label</div>
@@ -219,6 +219,25 @@
         var rows = RowsFor(k.QueryId);
         if (rows is not { Count: > 0 } || string.IsNullOrWhiteSpace(k.ValueColumn)) return "—";
         return rows[0].TryGetValue(k.ValueColumn, out var v) && v is not null ? v.ToString() ?? "—" : "—";
+    }
+
+    // P1 — KPI 시맨틱 색 클래스. 라벨이 알람/오류/실패류이고 값>0이면 위험(빨강), 대기/보류류면 경고(주황),
+    // 값이 0이면 성공(초록 액센트). 알려진 신호가 없으면 기본(틸). 계약 확장 없이 라벨·값 휴리스틱만 사용.
+    private string KpiSeverityClass(KpiWidget k)
+    {
+        var raw = KpiValue(k);
+        var isNumeric = decimal.TryParse(raw, out var n);
+        var label = k.Label ?? "";
+        var alarmy = label.Contains("알람") || label.Contains("경보") || label.Contains("오류")
+                  || label.Contains("실패") || label.Contains("인터락")
+                  || label.Contains("Alarm", StringComparison.OrdinalIgnoreCase)
+                  || label.Contains("Error", StringComparison.OrdinalIgnoreCase);
+        var waity = label.Contains("대기") || label.Contains("보류") || label.Contains("미처리")
+                 || label.Contains("Pending", StringComparison.OrdinalIgnoreCase);
+        if (isNumeric && n > 0 && alarmy) return "kpi-danger";
+        if (isNumeric && n > 0 && waity) return "kpi-warning";
+        if (isNumeric && n == 0 && (alarmy || waity)) return "kpi-success";
+        return "";
     }
 
     // 시리즈 색 팔레트(P3-13 v2) — 다중 시리즈 라인/범례 색(테마 무관 고정 대비색).
