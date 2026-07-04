@@ -97,7 +97,7 @@ public sealed class UserRegistrationService
     {
         var request = await _requests.GetByIdAsync(requestId, ct);
         return request is null
-            ? Result.Failure<UserRequest>(Error.NotFound(nameof(UserRequest), $"UserRequest '{requestId}'을(를) 찾을 수 없습니다."))
+            ? Result.Failure<UserRequest>(Error.NotFoundOf(nameof(UserRequest), requestId))
             : Result.Success(request);
     }
 
@@ -125,7 +125,7 @@ public sealed class UserRegistrationService
     {
         var request = await _requests.GetByIdAsync(requestId, ct);
         if (request is null)
-            return Result.Failure<(UserRequest, User)>(Error.NotFound(nameof(UserRequest), $"UserRequest '{requestId}'을(를) 찾을 수 없습니다."));
+            return Result.Failure<(UserRequest, User)>(Error.NotFoundOf(nameof(UserRequest), requestId));
 
         if (request.Status != UserRequestStatus.Request)
             return Result.Failure<(UserRequest, User)>(Error.Validation(
@@ -160,7 +160,7 @@ public sealed class UserRegistrationService
     {
         var request = await _requests.GetByIdAsync(requestId, ct);
         if (request is null)
-            return Result.Failure<UserRequest>(Error.NotFound(nameof(UserRequest), $"UserRequest '{requestId}'을(를) 찾을 수 없습니다."));
+            return Result.Failure<UserRequest>(Error.NotFoundOf(nameof(UserRequest), requestId));
 
         var reject = request.Reject(rejectedBy, reason, utcNow);
         if (reject.IsFailure)

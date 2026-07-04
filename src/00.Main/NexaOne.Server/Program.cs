@@ -169,7 +169,10 @@ if (builder.Configuration.GetValue("AppLogging:Db:Enabled", false))
     builder.Services.AddHostedService(sp => new NexaOne.Server.Logging.AppLogFlushWorker(
         appLogChannel.Reader, sp.GetRequiredService<IRuleDispatcher>()));
 }
-builder.Services.AddControllers()
+// 서버 오류 메시지 다국어(P3-14) — Error.MessageKey를 요청 언어(Accept-Language)로 번역하는 응답 경계 필터.
+// 리소스는 SYS_MULTI_LANGUAGE_RESOURCE(UI 다국어와 동일 테이블)를 언어별 1회 로드해 캐시한다.
+builder.Services.AddSingleton<NexaOne.Server.Gateway.IErrorLocalizer, NexaOne.Server.Gateway.ErrorLocalizer>();
+builder.Services.AddControllers(o => o.Filters.Add<NexaOne.Server.Gateway.ErrorLocalizationFilter>())
     .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(
         new System.Text.Json.Serialization.JsonStringEnumConverter()));
 builder.Services.AddHttpContextAccessor();

@@ -85,7 +85,7 @@ public sealed class EmsBridgeControllerTests : IClassFixture<EmsBridgeController
 
         public Task<Result> AdjustStockAsync(string partId, decimal delta, CancellationToken ct = default)
             => Task.FromResult(partId == "MISSING"
-                ? Result.Failure(Error.NotFound("SparePart", partId))
+                ? Result.Failure(Error.NotFoundOf("SparePart", partId))   // 다국어 키(error.notFound) 실린 표준 NotFound
                 : delta < -1000m
                     ? Result.Failure(Error.Validation(nameof(delta), "Insufficient stock."))
                     : Result.Success());
@@ -242,5 +242,38 @@ public sealed class EmsBridgeControllerTests : IClassFixture<EmsBridgeController
     {
         var res = await Client("ems:manage").PostAsJsonAsync("/api/v1/ems/spare-parts/SP1/adjust-stock", new { delta = -5000m });
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "재고 부족(Validation)은 400");
+    }
+
+    // ── 서버 오류 메시지 다국어(P3-14) — Error.MessageKey를 Accept-Language로 번역 ──
+
+    private static async Task<string?> ReadDescriptionAsync(HttpClient client, string acceptLanguage)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Post, "/api/v1/ems/spare-parts/MISSING/adjust-stock")
+        {
+            Content = JsonContent.Create(new { delta = 1m }),
+        };
+        req.Headers.Add("Accept-Language", acceptLanguage);
+        var res = await client.SendAsync(req);
+        res.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await res.Content.ReadFromJsonAsync<ErrorBody>();
+        return body?.Description;
+    }
+
+    private sealed record ErrorBody(string Code, string Description);
+
+    [Fact]
+    public async Task NotFound_description_is_english_when_accept_language_en()
+    {
+        // en-US 요청 → 응답 경계 필터가 error.notFound(EnUs) 리소스로 Description 치환.
+        var desc = await ReadDescriptionAsync(Client("ems:manage"), "en-US");
+        desc.Should().Be("SparePart 'MISSING' was not found.");
+    }
+
+    [Fact]
+    public async Task NotFound_description_stays_korean_without_english_accept_language()
+    {
+        // ko-KR(또는 미지정) → 한국어 원문(Description) 유지 — 한국어는 기본이라 번역하지 않는다.
+        var desc = await ReadDescriptionAsync(Client("ems:manage"), "ko-KR");
+        desc.Should().Be("SparePart 'MISSING'을(를) 찾을 수 없습니다.");
     }
 }

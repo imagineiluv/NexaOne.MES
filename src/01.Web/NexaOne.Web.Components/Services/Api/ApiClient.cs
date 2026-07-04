@@ -105,6 +105,9 @@ public sealed class ApiClient : IApiClient
         var req = new HttpRequestMessage(method, url);
         if (!string.IsNullOrEmpty(token))
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        // 서버 오류 메시지 다국어(P3-14) — 사용자 언어를 Accept-Language로 전파해 서버 응답 경계가
+        // Error.Description을 번역하게 한다(모든 query/command/GET/POST의 중앙 경로).
+        req.Headers.Add("Accept-Language", _ui.Language == "EnUs" ? "en-US" : "ko-KR");
         if (body is not null)
             req.Content = JsonContent.Create(body);
         return await _http.SendAsync(req, ct);
