@@ -360,6 +360,10 @@ public record DeployFileDto(
     string UploadedBy,
     DateTime UploadedAt);
 
+// ── FDC - 가상 이벤트 수동 평가(브리지 VirtualEventEvaluationDto 미러) ─────────
+public record VirtualEventEvaluationDto(
+    string EquipmentId, string EventId, string EventName, bool IsOn, bool Changed, DateTime EvaluatedAt);
+
 // ── SYS - ConditionSetting (설계서 20.8 조건 저장/불러오기) ───────────────────
 public record ConditionSettingDto(
     ConditionItemDto? Latest,

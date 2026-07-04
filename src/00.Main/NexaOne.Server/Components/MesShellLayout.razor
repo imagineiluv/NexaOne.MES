@@ -21,11 +21,25 @@
             @if (_favorites.Count > 0)
             {
                 <div style="padding:0.375rem 0.875rem 0.125rem; font-size:0.688rem; color:#8ea0b8; letter-spacing:0.05em;">★ 즐겨찾기</div>
-                @foreach (var fav in _favorites)
+                @for (var i = 0; i < _favorites.Count; i++)
                 {
-                    <div style="padding:0.3rem 1.25rem; font-size:0.813rem; color:#d2dcea; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
-                         title="@fav.MenuName" @onclick="() => NavigateTo(fav.UiId, fav.MenuName)">
-                        @fav.MenuName
+                    var idx = i;                      @* 람다 캡처용 로컬 복사(루프 변수 직접 캡처 금지) *@
+                    var fav = _favorites[idx];
+                    <div @key="fav.MenuId" style="display:flex; align-items:center; gap:0.25rem; padding:0.3rem 0.75rem 0.3rem 1.25rem; font-size:0.813rem; color:#d2dcea;"
+                         title="@fav.MenuName">
+                        <span style="flex:1; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+                              @onclick="() => NavigateTo(fav.UiId, fav.MenuName)">@fav.MenuName</span>
+                        @* §20.12 순서 변경 — ▲▼로 이웃과 교환, 성공 시에만 캐시 반영(§20.8 원칙). *@
+                        @if (idx > 0)
+                        {
+                            <span style="cursor:pointer; color:#8ea0b8; font-size:0.625rem;" title="위로"
+                                  @onclick="() => MoveFavoriteAsync(idx, -1)">▲</span>
+                        }
+                        @if (idx < _favorites.Count - 1)
+                        {
+                            <span style="cursor:pointer; color:#8ea0b8; font-size:0.625rem;" title="아래로"
+                                  @onclick="() => MoveFavoriteAsync(idx, +1)">▼</span>
+                        }
                     </div>
                 }
             }
@@ -102,6 +116,9 @@
     // §20.12 — 즐겨찾기/최근 메뉴(서버 영속). 실패는 빈 목록으로 흡수돼 셸을 깨지 않는다.
     private List<FavoriteMenuDto> _favorites = new();
     private List<RecentMenuDto> _recents = new();
+    // 사이드바 트리 스테일네스 게이트 — 이동 시 60초 초과면 재조회(메뉴-역할 변경 반영).
+    private DateTime _treeLoadedAt = DateTime.MinValue;
+    private bool _treeRefreshing;
 
     protected override async Task OnInitializedAsync()
     {
@@ -110,6 +127,17 @@
         Opened.Changed += OnOpenedChanged;
         Nav.LocationChanged += OnLocationChanged;
         SyncCurrentRoute();
+    }
+
+    // §20.12 순서 변경 — 이웃과 교환한 전체 순서를 서버에 재부여(PUT favorites/order), 성공 시에만 캐시 갱신.
+    private async Task MoveFavoriteAsync(int index, int delta)
+    {
+        var target = index + delta;
+        if (target < 0 || target >= _favorites.Count) return;
+        var reordered = new List<FavoriteMenuDto>(_favorites);
+        (reordered[index], reordered[target]) = (reordered[target], reordered[index]);
+        if (await Api.ReorderFavoriteMenusAsync(reordered.Select(f => f.MenuId).ToList()))
+            _favorites = reordered;
     }
 
     private async Task ReloadPersonalizationAsync()
@@ -167,6 +195,7 @@
         }
 
         _forest = PruneEmptyFolders(BuildForest(nodes));
+        _treeLoadedAt = DateTime.UtcNow;
 
         // 파생 인덱스 — uiId→제목, uiId→조상 폴더 목록(활성 화면 진입 시 모든 상위 폴더 자동 펼침).
         _uiToTitle = new(StringComparer.OrdinalIgnoreCase);
@@ -298,6 +327,19 @@
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
         SyncCurrentRoute();
+        // 트리가 60초 이상 오래됐으면 이동 시 백그라운드 재조회 — 메뉴-역할 매핑/메뉴 변경이
+        // 재로그인 없이 다음 화면 이동에서 반영된다(이동마다 조회하지 않는 스테일네스 게이트).
+        if (!_treeRefreshing && DateTime.UtcNow - _treeLoadedAt > TimeSpan.FromSeconds(60))
+        {
+            _treeRefreshing = true;
+            _ = InvokeAsync(async () =>
+            {
+                try { await BuildTreeAsync(); }
+                finally { _treeRefreshing = false; }
+                StateHasChanged();
+            });
+            return;
+        }
         InvokeAsync(StateHasChanged);
     }
 

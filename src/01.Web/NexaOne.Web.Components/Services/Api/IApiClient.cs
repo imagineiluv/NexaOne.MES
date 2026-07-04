@@ -154,6 +154,7 @@ public interface IApiClient
 
     // SYS - 사용자 메뉴 개인화 (설계서 20.12 즐겨찾기/최근 메뉴) — 토큰 사용자 스코프(자기 데이터만)
     // 쓰기는 성공 여부를 반환한다 — 실패 시 캐시를 갱신하지 않기 위함 (§20.8과 동일 원칙)
+    Task<VirtualEventEvaluationDto?> EvaluateVirtualEventAsync(string equipmentId, string eventId, CancellationToken ct = default);
     Task<List<Dictionary<string, object?>>> GetMenuTreeAsync(CancellationToken ct = default);
     Task<List<FavoriteMenuDto>> GetFavoriteMenusAsync(CancellationToken ct = default);
     Task<bool> AddFavoriteMenuAsync(string menuId, CancellationToken ct = default);

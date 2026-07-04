@@ -723,6 +723,11 @@ public sealed class ApiClient : IApiClient
     public Task RemovePermissionAsync(string roleId, string permission, CancellationToken ct = default)
         => DeleteWithBodyAsync($"api/v1/sys/admin/roles/{roleId}/permissions", new { permission }, ct);
 
+    // FDC 가상 이벤트 수동 평가(브리지, fdc:manage) — 워커 주기를 기다리지 않고 즉시 판정.
+    public Task<VirtualEventEvaluationDto?> EvaluateVirtualEventAsync(string equipmentId, string eventId, CancellationToken ct = default)
+        => PostAsync<VirtualEventEvaluationDto>(
+            $"api/v1/fdc/virtual-events/{Uri.EscapeDataString(equipmentId)}/{Uri.EscapeDataString(eventId)}/evaluate", new { }, ct);
+
     // ── SYS - 사용자 메뉴 개인화 (설계서 20.12 즐겨찾기/최근 메뉴) ────────────
     // 호스트 SysPersonalizationController — 자기 데이터만(토큰 사용자 스코프), 권한 요구 없음(인증만).
 

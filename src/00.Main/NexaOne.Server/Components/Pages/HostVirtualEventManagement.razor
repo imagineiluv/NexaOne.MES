@@ -1,0 +1,58 @@
+@page "/meta/EES_FDC_VIRTUAL_EVENT_MANAGEMENT"
+@attribute [Authorize]
+@inject IApiClient Api
+@using NexaOne.Web.Pages.Meta
+
+@* VIRTUAL EVENT 관리 + 수동 평가 툴바 — 평가는 브리지 REST(fdc:manage, 도메인 엔진 경유)라 메타
+   커맨드로 표현 불가 → 리터럴 라우트로 툴바만 감싸고 본문은 MetaScreen 자식 렌더로 메타 정의
+   (CRUD·검색 조건·전이 이력)를 그대로 재사용한다. 워커(주기 평가)와 동일 서비스 경로 공유. *@
+<PageTitle>VIRTUAL EVENT 관리</PageTitle>
+
+<div class="mes-card" style="padding:10px 14px; margin-bottom:4px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+    <strong style="font-size:13px; color:#44506a;">수동 평가</strong>
+    <input placeholder="설비 ID" @bind="_equipmentId"
+           style="width:9rem; padding:6px 9px; border:1px solid #d5dbe3; border-radius:3px; font-size:13px;" />
+    <input placeholder="이벤트 ID" @bind="_eventId"
+           style="width:9rem; padding:6px 9px; border:1px solid #d5dbe3; border-radius:3px; font-size:13px;" />
+    <button class="layout-command" @onclick="EvaluateAsync" disabled="@_busy">@(_busy ? "평가 중…" : "평가 실행")</button>
+    @if (_result is not null)
+    {
+        <span style="font-size:12.5px; color:#065f46; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:3px; padding:3px 8px;">
+            @_result.EventName — 판정 @(_result.IsOn ? "ON" : "OFF")@(_result.Changed ? " (전이 기록됨, V069)" : " (전이 없음)")
+        </span>
+    }
+    @if (_error is not null)
+    {
+        <span style="font-size:12.5px; color:#991b1b;">@_error</span>
+    }
+</div>
+
+<MetaScreen UiId="EES_FDC_VIRTUAL_EVENT_MANAGEMENT" />
+
+@code {
+    private string _equipmentId = string.Empty;
+    private string _eventId = string.Empty;
+    private bool _busy;
+    private VirtualEventEvaluationDto? _result;
+    private string? _error;
+
+    private async Task EvaluateAsync()
+    {
+        _result = null; _error = null;
+        var eq = _equipmentId.Trim();
+        var ev = _eventId.Trim();
+        if (eq.Length == 0 || ev.Length == 0)
+        {
+            _error = "설비 ID와 이벤트 ID를 입력해 주세요.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            // 404(정의 없음)/400(수식·값 문제)/403은 null — 사유는 전역 토스트가 알린다(ApiClient 규약).
+            _result = await Api.EvaluateVirtualEventAsync(eq, ev);
+            if (_result is null) _error = "평가에 실패했습니다(정의/수집값/권한 확인).";
+        }
+        finally { _busy = false; }
+    }
+}
