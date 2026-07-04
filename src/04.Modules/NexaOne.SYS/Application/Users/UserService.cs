@@ -54,7 +54,7 @@ public sealed class UserService
     {
         var user = await _userRepository.GetByIdAsync(userId, ct);
         return user is null
-            ? Result.Failure<User>(Error.NotFound(nameof(User), userId))
+            ? Result.Failure<User>(Error.NotFound(nameof(User), $"User '{userId}'을(를) 찾을 수 없습니다."))
             : Result.Success(user);
     }
 
@@ -123,7 +123,7 @@ public sealed class UserService
     {
         var user = await _userRepository.GetByIdAsync(userId, ct);
         if (user is null)
-            return Result.Failure(Error.NotFound(nameof(User), userId));
+            return Result.Failure(Error.NotFound(nameof(User), $"User '{userId}'을(를) 찾을 수 없습니다."));
 
         user.Unlock();
         await _userRepository.UpdateAsync(user, ct);
@@ -153,7 +153,7 @@ public sealed class UserService
     {
         var user = await _userRepository.GetByIdAsync(userId, ct);
         if (user is null)
-            return Result.Failure(Error.NotFound(nameof(User), userId));
+            return Result.Failure(Error.NotFound(nameof(User), $"User '{userId}'을(를) 찾을 수 없습니다."));
 
         if (!PasswordHasher.Verify(currentPassword, user.PasswordHash))
             return Result.Failure(Error.Failure("Auth.WrongPassword", "Current password is incorrect."));
@@ -172,7 +172,7 @@ public sealed class UserService
     {
         var user = await _userRepository.GetByIdAsync(userId, ct);
         if (user is null)
-            return Result.Failure(Error.NotFound(nameof(User), userId));
+            return Result.Failure(Error.NotFound(nameof(User), $"User '{userId}'을(를) 찾을 수 없습니다."));
 
         user.SetTemporaryPassword(newPasswordHash);
         await _userRepository.UpdateAsync(user, ct);
@@ -183,7 +183,7 @@ public sealed class UserService
     {
         var user = await _userRepository.GetByIdAsync(userId, ct);
         if (user is null)
-            return Result.Failure(Error.NotFound(nameof(User), userId));
+            return Result.Failure(Error.NotFound(nameof(User), $"User '{userId}'을(를) 찾을 수 없습니다."));
 
         user.Deactivate();
         await _userRepository.UpdateAsync(user, ct);
@@ -202,7 +202,7 @@ public sealed class UserService
     {
         var role = await _roleRepository.GetByIdAsync(roleId, ct);
         return role is null
-            ? Result.Failure<Role>(Error.NotFound(nameof(Role), roleId))
+            ? Result.Failure<Role>(Error.NotFound(nameof(Role), $"Role '{roleId}'을(를) 찾을 수 없습니다."))
             : Result.Success(role);
     }
 
@@ -227,7 +227,7 @@ public sealed class UserService
     {
         var role = await _roleRepository.GetByIdAsync(roleId, ct);
         if (role is null)
-            return Result.Failure(Error.NotFound(nameof(Role), roleId));
+            return Result.Failure(Error.NotFound(nameof(Role), $"Role '{roleId}'을(를) 찾을 수 없습니다."));
 
         role.AddPermission(permission);
         await _roleRepository.UpdateAsync(role, ct);
@@ -241,7 +241,7 @@ public sealed class UserService
     {
         var role = await _roleRepository.GetByIdAsync(roleId, ct);
         if (role is null)
-            return Result.Failure(Error.NotFound(nameof(Role), roleId));
+            return Result.Failure(Error.NotFound(nameof(Role), $"Role '{roleId}'을(를) 찾을 수 없습니다."));
 
         role.RemovePermission(permission);
         await _roleRepository.UpdateAsync(role, ct);

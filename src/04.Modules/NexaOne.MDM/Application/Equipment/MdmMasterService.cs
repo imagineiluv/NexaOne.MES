@@ -99,7 +99,7 @@ public sealed class MdmMasterService
     {
         var classExists = await _codeRepo.GetClassByIdAsync(codeClassId, ct);
         if (classExists is null)
-            return Result.Failure<Code>(Error.NotFound(nameof(CodeClass), codeClassId));
+            return Result.Failure<Code>(Error.NotFound(nameof(CodeClass), $"CodeClass '{codeClassId}'을(를) 찾을 수 없습니다."));
 
         var result = Code.Create(codeId, codeClassId, codeName, sortOrder);
         if (result.IsFailure) return result;

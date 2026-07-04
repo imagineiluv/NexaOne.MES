@@ -40,7 +40,7 @@ public sealed class ProductionOrderService
     {
         var order = await _orderRepository.GetByIdAsync(orderId, ct);
         if (order is null)
-            return Result.Failure(Error.NotFound(nameof(ProductionOrder), orderId));
+            return Result.Failure(Error.NotFound(nameof(ProductionOrder), $"ProductionOrder '{orderId}'을(를) 찾을 수 없습니다."));
 
         var startResult = order.Start(DateTime.UtcNow);
         if (startResult.IsFailure) return startResult;
@@ -53,7 +53,7 @@ public sealed class ProductionOrderService
     {
         var order = await _orderRepository.GetByIdAsync(orderId, ct);
         if (order is null)
-            return Result.Failure(Error.NotFound(nameof(ProductionOrder), orderId));
+            return Result.Failure(Error.NotFound(nameof(ProductionOrder), $"ProductionOrder '{orderId}'을(를) 찾을 수 없습니다."));
 
         var completeResult = order.Complete(actualQty, DateTime.UtcNow);
         if (completeResult.IsFailure) return completeResult;
@@ -66,7 +66,7 @@ public sealed class ProductionOrderService
     {
         var order = await _orderRepository.GetByIdAsync(orderId, ct);
         if (order is null)
-            return Result.Failure(Error.NotFound(nameof(ProductionOrder), orderId));
+            return Result.Failure(Error.NotFound(nameof(ProductionOrder), $"ProductionOrder '{orderId}'을(를) 찾을 수 없습니다."));
 
         var cancelResult = order.Cancel();
         if (cancelResult.IsFailure) return cancelResult;

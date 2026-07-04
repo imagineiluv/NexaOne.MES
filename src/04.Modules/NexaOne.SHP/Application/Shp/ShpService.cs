@@ -40,7 +40,7 @@ public sealed class ShpService
     public async Task<Result> ConfirmOrderAsync(string orderId, CancellationToken ct = default)
     {
         var order = await _orderRepository.GetByIdAsync(orderId, ct);
-        if (order is null) return Result.Failure(Error.NotFound(nameof(DeliveryOrder), orderId));
+        if (order is null) return Result.Failure(Error.NotFound(nameof(DeliveryOrder), $"DeliveryOrder '{orderId}'을(를) 찾을 수 없습니다."));
         var r = order.Confirm();
         if (r.IsFailure) return r;
         await _orderRepository.UpdateAsync(order, ct);
@@ -50,7 +50,7 @@ public sealed class ShpService
     public async Task<Result> ShipOrderAsync(string orderId, DateTime shippedDate, CancellationToken ct = default)
     {
         var order = await _orderRepository.GetByIdAsync(orderId, ct);
-        if (order is null) return Result.Failure(Error.NotFound(nameof(DeliveryOrder), orderId));
+        if (order is null) return Result.Failure(Error.NotFound(nameof(DeliveryOrder), $"DeliveryOrder '{orderId}'을(를) 찾을 수 없습니다."));
         var r = order.Ship(shippedDate);
         if (r.IsFailure) return r;
         await _orderRepository.UpdateAsync(order, ct);
@@ -60,7 +60,7 @@ public sealed class ShpService
     public async Task<Result> CancelOrderAsync(string orderId, CancellationToken ct = default)
     {
         var order = await _orderRepository.GetByIdAsync(orderId, ct);
-        if (order is null) return Result.Failure(Error.NotFound(nameof(DeliveryOrder), orderId));
+        if (order is null) return Result.Failure(Error.NotFound(nameof(DeliveryOrder), $"DeliveryOrder '{orderId}'을(를) 찾을 수 없습니다."));
         var r = order.Cancel();
         if (r.IsFailure) return r;
         await _orderRepository.UpdateAsync(order, ct);
@@ -85,7 +85,7 @@ public sealed class ShpService
     public async Task<Result> SetItemActualQtyAsync(string itemId, decimal qty, CancellationToken ct = default)
     {
         var item = await _itemRepository.GetByIdAsync(itemId, ct);
-        if (item is null) return Result.Failure(Error.NotFound(nameof(DeliveryItem), itemId));
+        if (item is null) return Result.Failure(Error.NotFound(nameof(DeliveryItem), $"DeliveryItem '{itemId}'을(를) 찾을 수 없습니다."));
         var r = item.SetActualQty(qty);
         if (r.IsFailure) return r;
         await _itemRepository.UpdateAsync(item, ct);

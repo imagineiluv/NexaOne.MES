@@ -41,7 +41,7 @@ public sealed class QmsService
     {
         var defect = await _defectRepository.GetByIdAsync(defectId, ct);
         if (defect is null)
-            return Result.Failure(Error.NotFound(nameof(Defect), defectId));
+            return Result.Failure(Error.NotFound(nameof(Defect), $"Defect '{defectId}'을(를) 찾을 수 없습니다."));
         var r = defect.Confirm(confirmerId);
         if (r.IsFailure) return r;
         await _defectRepository.UpdateAsync(defect, ct);
@@ -101,7 +101,7 @@ public sealed class QmsService
     {
         var spec = await _specRepository.GetByIdAsync(specId, ct);
         if (spec is null)
-            return Result.Failure<InspectionResult>(Error.NotFound(nameof(InspectionSpec), specId));
+            return Result.Failure<InspectionResult>(Error.NotFound(nameof(InspectionSpec), $"InspectionSpec '{specId}'을(를) 찾을 수 없습니다."));
 
         var result = InspectionResult.Create(resultId, specId, lotId, equipmentId, DateTime.UtcNow,
             inspectorId, measuredValue, attributeResult, isPass,
@@ -132,7 +132,7 @@ public sealed class QmsService
     {
         var param = await _spcParamRepository.GetByIdAsync(paramId, ct);
         if (param is null)
-            return Result.Failure(Error.NotFound(nameof(SpcParam), paramId));
+            return Result.Failure(Error.NotFound(nameof(SpcParam), $"SpcParam '{paramId}'을(를) 찾을 수 없습니다."));
         var r = param.UpdateControlLimits(mean, ucl, lcl);
         if (r.IsFailure) return r;
         await _spcParamRepository.UpdateAsync(param, ct);

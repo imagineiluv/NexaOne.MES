@@ -36,7 +36,7 @@ public sealed class FdcParameterGroupService
     {
         var group = await _groupRepository.GetByIdAsync(groupId, ct);
         if (group is null)
-            return Result.Failure<FdcParameterGroup>(Error.NotFound(nameof(FdcParameterGroup), groupId));
+            return Result.Failure<FdcParameterGroup>(Error.NotFound(nameof(FdcParameterGroup), $"FdcParameterGroup '{groupId}'을(를) 찾을 수 없습니다."));
 
         group.Rename(groupName);
         await _groupRepository.UpdateAsync(group, ct);
@@ -47,7 +47,7 @@ public sealed class FdcParameterGroupService
     {
         var group = await _groupRepository.GetByIdAsync(groupId, ct);
         if (group is null)
-            return Result.Failure<FdcParameterGroup>(Error.NotFound(nameof(FdcParameterGroup), groupId));
+            return Result.Failure<FdcParameterGroup>(Error.NotFound(nameof(FdcParameterGroup), $"FdcParameterGroup '{groupId}'을(를) 찾을 수 없습니다."));
 
         group.Deactivate();
         await _groupRepository.UpdateAsync(group, ct);

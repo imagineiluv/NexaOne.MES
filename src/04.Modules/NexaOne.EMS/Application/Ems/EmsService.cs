@@ -48,7 +48,7 @@ public sealed class EmsService
     {
         var wo = await _workOrderRepository.GetByIdAsync(woId, ct);
         if (wo is null)
-            return Result.Failure(Error.NotFound(nameof(WorkOrder), woId));
+            return Result.Failure(Error.NotFound(nameof(WorkOrder), $"WorkOrder '{woId}'을(를) 찾을 수 없습니다."));
 
         var startResult = wo.Start();
         if (startResult.IsFailure) return startResult;
@@ -61,7 +61,7 @@ public sealed class EmsService
     {
         var wo = await _workOrderRepository.GetByIdAsync(woId, ct);
         if (wo is null)
-            return Result.Failure(Error.NotFound(nameof(WorkOrder), woId));
+            return Result.Failure(Error.NotFound(nameof(WorkOrder), $"WorkOrder '{woId}'을(를) 찾을 수 없습니다."));
 
         var completeResult = wo.Complete(remark);
         if (completeResult.IsFailure) return completeResult;
@@ -74,7 +74,7 @@ public sealed class EmsService
     {
         var wo = await _workOrderRepository.GetByIdAsync(woId, ct);
         if (wo is null)
-            return Result.Failure(Error.NotFound(nameof(WorkOrder), woId));
+            return Result.Failure(Error.NotFound(nameof(WorkOrder), $"WorkOrder '{woId}'을(를) 찾을 수 없습니다."));
 
         var cancelResult = wo.Cancel();
         if (cancelResult.IsFailure) return cancelResult;

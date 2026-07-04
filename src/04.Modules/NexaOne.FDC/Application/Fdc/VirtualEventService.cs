@@ -26,7 +26,7 @@ public sealed class VirtualEventService
         var definition = await _repository.GetDefinitionAsync(equipmentId.Trim(), eventId.Trim(), ct);
         if (definition is null)
             return Result.Failure<VirtualEventEvaluation>(
-                Error.NotFound("VirtualEvent", $"{equipmentId}/{eventId}"));
+                Error.NotFound("VirtualEvent", $"가상 이벤트 정의를 찾을 수 없습니다: {equipmentId}/{eventId}"));
 
         return await EvaluateDefinitionAsync(definition, ct);
     }

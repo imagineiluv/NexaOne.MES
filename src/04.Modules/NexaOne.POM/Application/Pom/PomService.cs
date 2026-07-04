@@ -43,7 +43,7 @@ public sealed class PomService
     {
         var plan = await _planRepository.GetByIdAsync(planId, ct);
         if (plan is null)
-            return Result.Failure(Error.NotFound(nameof(ProductionPlan), planId));
+            return Result.Failure(Error.NotFound(nameof(ProductionPlan), $"ProductionPlan '{planId}'을(를) 찾을 수 없습니다."));
 
         var startResult = plan.Start();
         if (startResult.IsFailure) return startResult;
@@ -56,7 +56,7 @@ public sealed class PomService
     {
         var plan = await _planRepository.GetByIdAsync(planId, ct);
         if (plan is null)
-            return Result.Failure(Error.NotFound(nameof(ProductionPlan), planId));
+            return Result.Failure(Error.NotFound(nameof(ProductionPlan), $"ProductionPlan '{planId}'을(를) 찾을 수 없습니다."));
 
         var releaseResult = plan.Release();
         if (releaseResult.IsFailure) return releaseResult;
@@ -69,7 +69,7 @@ public sealed class PomService
     {
         var plan = await _planRepository.GetByIdAsync(planId, ct);
         if (plan is null)
-            return Result.Failure(Error.NotFound(nameof(ProductionPlan), planId));
+            return Result.Failure(Error.NotFound(nameof(ProductionPlan), $"ProductionPlan '{planId}'을(를) 찾을 수 없습니다."));
 
         var completeResult = plan.Complete();
         if (completeResult.IsFailure) return completeResult;
@@ -82,7 +82,7 @@ public sealed class PomService
     {
         var plan = await _planRepository.GetByIdAsync(planId, ct);
         if (plan is null)
-            return Result.Failure(Error.NotFound(nameof(ProductionPlan), planId));
+            return Result.Failure(Error.NotFound(nameof(ProductionPlan), $"ProductionPlan '{planId}'을(를) 찾을 수 없습니다."));
 
         var cancelResult = plan.Cancel();
         if (cancelResult.IsFailure) return cancelResult;

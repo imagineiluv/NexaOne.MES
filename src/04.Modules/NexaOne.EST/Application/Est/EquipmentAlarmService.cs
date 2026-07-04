@@ -34,7 +34,7 @@ public sealed class EquipmentAlarmService
     {
         var alarm = await _alarmRepository.GetByIdAsync(alarmId, ct);
         if (alarm is null)
-            return Result.Failure(Error.NotFound(nameof(EquipmentAlarm), alarmId));
+            return Result.Failure(Error.NotFound(nameof(EquipmentAlarm), $"EquipmentAlarm '{alarmId}'을(를) 찾을 수 없습니다."));
 
         alarm.Clear(clearedAt);
         await _alarmRepository.UpdateAsync(alarm, ct);

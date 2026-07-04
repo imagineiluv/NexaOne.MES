@@ -38,7 +38,7 @@ public sealed class EquipmentService
     {
         var equipment = await _equipmentRepository.GetByIdAsync(equipmentId, ct);
         return equipment is null
-            ? Result.Failure<Equipment>(Error.NotFound(nameof(Equipment), equipmentId))
+            ? Result.Failure<Equipment>(Error.NotFound(nameof(Equipment), $"Equipment '{equipmentId}'을(를) 찾을 수 없습니다."))
             : Result.Success(equipment);
     }
 
@@ -52,7 +52,7 @@ public sealed class EquipmentService
     {
         var equipment = await _equipmentRepository.GetByIdAsync(equipmentId, ct);
         if (equipment is null)
-            return Result.Failure(Error.NotFound(nameof(Equipment), equipmentId));
+            return Result.Failure(Error.NotFound(nameof(Equipment), $"Equipment '{equipmentId}'을(를) 찾을 수 없습니다."));
 
         equipment.Deactivate();
         await _equipmentRepository.UpdateAsync(equipment, ct);
@@ -70,7 +70,7 @@ public sealed class EquipmentService
     {
         var equipment = await _equipmentRepository.GetByIdAsync(equipmentId, ct);
         if (equipment is null)
-            return Result.Failure<Equipment>(Error.NotFound(nameof(Equipment), equipmentId));
+            return Result.Failure<Equipment>(Error.NotFound(nameof(Equipment), $"Equipment '{equipmentId}'을(를) 찾을 수 없습니다."));
 
         equipment.UpdateInfo(name, description, equipmentType, vendor, model);
         await _equipmentRepository.UpdateAsync(equipment, ct);

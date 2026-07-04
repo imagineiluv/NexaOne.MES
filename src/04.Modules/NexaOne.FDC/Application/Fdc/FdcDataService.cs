@@ -53,7 +53,7 @@ public sealed class FdcDataService
         // 변형 경로는 캐시를 거치지 않고 직접 조회한다(캐시된 공유 참조를 변형하지 않기 위해).
         var param = await _paramRepository.GetByIdAsync(parameterId, ct);
         if (param is null)
-            return Result.Failure(Error.NotFound(nameof(FdcParameter), parameterId));
+            return Result.Failure(Error.NotFound(nameof(FdcParameter), $"FdcParameter '{parameterId}'을(를) 찾을 수 없습니다."));
 
         param.AssignToGroup(groupId);
         await _paramRepository.UpdateAsync(param, ct);
@@ -86,7 +86,7 @@ public sealed class FdcDataService
             : await _cache.GetOrCreateAsync(ParamCacheKey(parameterId),
                 () => _paramRepository.GetByIdAsync(parameterId, ct), ct: ct);
         if (param is null)
-            return Result.Failure<FdcCollectData>(Error.NotFound(nameof(FdcParameter), parameterId));
+            return Result.Failure<FdcCollectData>(Error.NotFound(nameof(FdcParameter), $"FdcParameter '{parameterId}'을(를) 찾을 수 없습니다."));
 
         var result = FdcCollectData.Create(
             collectId, equipmentId, parameterId, value, DateTime.UtcNow,

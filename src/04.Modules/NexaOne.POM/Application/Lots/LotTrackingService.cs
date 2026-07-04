@@ -70,7 +70,7 @@ public sealed class LotTrackingService
     {
         var lot = await _lots.GetByIdAsync(lotId, ct);
         if (lot is null)
-            return Result.Failure<LotRouteView>(Error.NotFound(nameof(Lot), lotId));
+            return Result.Failure<LotRouteView>(Error.NotFound(nameof(Lot), $"Lot '{lotId}'을(를) 찾을 수 없습니다."));
 
         var histories = await _histories.GetByLotAsync(lot.PlantId, lot.Id, ct);
         var mixings = await _mixings.GetByOutputLotAsync(lot.PlantId, lot.Id, ct);
@@ -105,7 +105,7 @@ public sealed class LotTrackingService
         {
             var order = await _orders.GetByIdAsync(workOrderId.Trim(), ct);
             if (order is null)
-                return Result.Failure<Lot>(Error.NotFound("ProductionOrder", workOrderId.Trim()));
+                return Result.Failure<Lot>(Error.NotFound("ProductionOrder", $"ProductionOrder '{workOrderId.Trim()}'을(를) 찾을 수 없습니다."));
             if (!string.Equals(order.ProductId, productId?.Trim(), StringComparison.OrdinalIgnoreCase))
                 return Result.Failure<Lot>(Error.Validation(nameof(productId), "Lot 제품이 생산 지시 제품과 일치해야 합니다."));
         }
@@ -124,7 +124,7 @@ public sealed class LotTrackingService
         // 1. Lot 존재 및 Plant 일치
         var lot = await _lots.GetByIdAsync(command.LotId, ct);
         if (lot is null)
-            return Result.Failure<Lot>(Error.NotFound(nameof(Lot), command.LotId));
+            return Result.Failure<Lot>(Error.NotFound(nameof(Lot), $"Lot '{command.LotId}'을(를) 찾을 수 없습니다."));
         if (!string.Equals(lot.PlantId, command.PlantId?.Trim(), StringComparison.OrdinalIgnoreCase))
             return Result.Failure<Lot>(Error.Validation(nameof(command.PlantId), "Lot의 Plant와 요청 Plant가 일치하지 않습니다."));
 
@@ -179,7 +179,7 @@ public sealed class LotTrackingService
         // 1. Lot 존재 및 Plant 일치
         var lot = await _lots.GetByIdAsync(command.LotId, ct);
         if (lot is null)
-            return Result.Failure<Lot>(Error.NotFound(nameof(Lot), command.LotId));
+            return Result.Failure<Lot>(Error.NotFound(nameof(Lot), $"Lot '{command.LotId}'을(를) 찾을 수 없습니다."));
         if (!string.Equals(lot.PlantId, command.PlantId?.Trim(), StringComparison.OrdinalIgnoreCase))
             return Result.Failure<Lot>(Error.Validation(nameof(command.PlantId), "Lot의 Plant와 요청 Plant가 일치하지 않습니다."));
 
@@ -266,7 +266,7 @@ public sealed class LotTrackingService
         {
             var lot = await _lots.GetByIdAsync(input.LotId?.Trim() ?? string.Empty, ct);
             if (lot is null)
-                return Result.Failure<Lot>(Error.NotFound(nameof(Lot), input.LotId ?? string.Empty));
+                return Result.Failure<Lot>(Error.NotFound(nameof(Lot), $"Lot '{input.LotId ?? string.Empty}'을(를) 찾을 수 없습니다."));
             if (!string.Equals(lot.PlantId, plantId, StringComparison.OrdinalIgnoreCase))
                 return Result.Failure<Lot>(Error.Validation(nameof(command.Inputs), $"투입 Lot '{lot.Id}'의 Plant가 일치하지 않습니다."));
             if (lot.IsHold)
@@ -357,7 +357,7 @@ public sealed class LotTrackingService
     {
         var lot = await _lots.GetByIdAsync(lotId, ct);
         if (lot is null)
-            return Result.Failure(Error.NotFound(nameof(Lot), lotId));
+            return Result.Failure(Error.NotFound(nameof(Lot), $"Lot '{lotId}'을(를) 찾을 수 없습니다."));
 
         var held = lot.Hold(user);
         if (held.IsFailure) return held;
@@ -370,7 +370,7 @@ public sealed class LotTrackingService
     {
         var lot = await _lots.GetByIdAsync(lotId, ct);
         if (lot is null)
-            return Result.Failure(Error.NotFound(nameof(Lot), lotId));
+            return Result.Failure(Error.NotFound(nameof(Lot), $"Lot '{lotId}'을(를) 찾을 수 없습니다."));
 
         var released = lot.ReleaseHold(user);
         if (released.IsFailure) return released;
@@ -389,7 +389,7 @@ public sealed class LotTrackingService
 
         var equipment = await _master.GetEquipmentAsync(equipmentId.Trim(), ct);
         if (equipment is null)
-            return Result.Failure<TrackingEquipmentInfo>(Error.NotFound("Equipment", equipmentId.Trim()));
+            return Result.Failure<TrackingEquipmentInfo>(Error.NotFound("Equipment", $"Equipment '{equipmentId.Trim()}'을(를) 찾을 수 없습니다."));
         if (!string.Equals(equipment.PlantId, plantId?.Trim(), StringComparison.OrdinalIgnoreCase))
             return Result.Failure<TrackingEquipmentInfo>(Error.Validation(nameof(equipmentId), "설비의 Plant가 일치하지 않습니다."));
         if (!equipment.IsValid)

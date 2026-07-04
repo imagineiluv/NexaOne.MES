@@ -40,7 +40,7 @@ public sealed class MaintenancePlanService
     {
         var plan = await _planRepo.GetByIdAsync(planId, ct);
         if (plan is null)
-            return Result.Failure(Error.NotFound(nameof(MaintenancePlan), planId));
+            return Result.Failure(Error.NotFound(nameof(MaintenancePlan), $"MaintenancePlan '{planId}'을(를) 찾을 수 없습니다."));
         var r = plan.Start();
         if (r.IsFailure) return r;
         await _planRepo.UpdateAsync(plan, ct);
@@ -51,7 +51,7 @@ public sealed class MaintenancePlanService
     {
         var plan = await _planRepo.GetByIdAsync(planId, ct);
         if (plan is null)
-            return Result.Failure(Error.NotFound(nameof(MaintenancePlan), planId));
+            return Result.Failure(Error.NotFound(nameof(MaintenancePlan), $"MaintenancePlan '{planId}'을(를) 찾을 수 없습니다."));
         var r = plan.Complete();
         if (r.IsFailure) return r;
         await _planRepo.UpdateAsync(plan, ct);
@@ -62,7 +62,7 @@ public sealed class MaintenancePlanService
     {
         var plan = await _planRepo.GetByIdAsync(planId, ct);
         if (plan is null)
-            return Result.Failure(Error.NotFound(nameof(MaintenancePlan), planId));
+            return Result.Failure(Error.NotFound(nameof(MaintenancePlan), $"MaintenancePlan '{planId}'을(를) 찾을 수 없습니다."));
         var r = plan.Cancel();
         if (r.IsFailure) return r;
         await _planRepo.UpdateAsync(plan, ct);
@@ -94,7 +94,7 @@ public sealed class MaintenancePlanService
     {
         var part = await _partRepo.GetByIdAsync(partId, ct);
         if (part is null)
-            return Result.Failure(Error.NotFound(nameof(SparePart), partId));
+            return Result.Failure(Error.NotFound(nameof(SparePart), $"SparePart '{partId}'을(를) 찾을 수 없습니다."));
         var r = part.AdjustStock(delta);
         if (r.IsFailure) return r;
         await _partRepo.UpdateAsync(part, ct);
