@@ -13,7 +13,7 @@
 @* SmartUX(:9020) 레퍼런스 셸 재현 — 네이비 사이드바(계층 아코디언) + 화이트 상단바 + 본문(메타 화면) + 하단 MDI 탭.
    사이드바는 SYS.MenuTree(게이트웨이)로 데이터 주도 구축한다(대분류 Folder → 하위 Screen). 쿼리 실패/공백 시
    최소 정적 폴백으로 셸이 절대 빈 화면이 되지 않게 한다. /meta 화면(HostRoutes의 DefaultLayout). *@
-<div class="mes-shell @(_navCollapsed ? "nav-collapsed" : "")">
+<div class="mes-shell @(_navCollapsed ? "nav-collapsed" : "")" style="@(_navWidth is int w ? $"--mes-nav-width:{w}px" : null)">
     <aside class="mes-sidebar">
         @* NAF 브랜드 로고(픽셀 클러스터 + naf 워드마크 + NOW AND FUTURE) — 브랜드 이미지 벡터 재현. *@
         <div class="mes-logo">
@@ -84,6 +84,11 @@
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 17v5M5 9h14l-1.5 8h-11z M8 9V5a4 4 0 0 1 8 0v4"/></svg>
             @Ui.T("shell.menuPin", "메뉴 고정 기능")
         </div>
+        @* P3-11 — 사이드바 폭 드래그 조절(레일 모드가 아닐 때만). 부트 스크립트 nxSidebarResizeInit가 처리. *@
+        @if (!_navCollapsed)
+        {
+            <div class="mes-nav-resize" @ref="_navResizeHandle" aria-hidden="true"></div>
+        }
     </aside>
 
     <div class="mes-main">
@@ -309,9 +314,13 @@
         SyncCurrentRoute();
     }
 
-    // ── 다국어(P3-14)·테마(P3-17) ────────────────────────────────────────────
+    // ── 다국어(P3-14)·테마(P3-17)·사이드바 폭(P3-11) ─────────────────────────
     private string _language = "KoKr";
     private bool _darkTheme;
+    private int? _navWidth;                  // 사이드바 폭(px) — localStorage 'nx-nav-width' 복원값.
+    private ElementReference _navResizeHandle;
+    private DotNetObjectReference<MesShellLayout>? _selfRef;
+    private bool _navResizeInit;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -319,8 +328,31 @@
         {
             // 저장된 테마 상태를 토글 라벨에 반영(적용 자체는 HostApp 부트 스크립트가 이미 완료).
             _darkTheme = string.Equals(await JS.InvokeAsync<string>("nxGetTheme"), "dark", StringComparison.Ordinal);
+            // 저장된 사이드바 폭 복원(있으면).
+            var saved = await JS.InvokeAsync<int>("nxGetNavWidth");
+            if (saved > 0) _navWidth = saved;
             StateHasChanged();
         }
+        // 리사이즈 핸들은 레일 모드 진입/이탈로 붙었다 떨어지므로, 존재할 때 1회 배선한다(idempotent).
+        if (!_navCollapsed && !_navResizeInit)
+        {
+            _navResizeInit = true;
+            _selfRef ??= DotNetObjectReference.Create(this);
+            try { await JS.InvokeVoidAsync("nxSidebarResizeInit", _navResizeHandle, _selfRef); }
+            catch { /* JS 미탑재 — 폭 조절 없이 정상 동작 */ }
+        }
+        else if (_navCollapsed)
+        {
+            _navResizeInit = false;   // 레일 모드 이탈 시 재배선 허용
+        }
+    }
+
+    // 사이드바 폭 드래그 종료 콜백(부트 스크립트) — 반영 + localStorage 저장은 스크립트가 담당.
+    [JSInvokable]
+    public Task OnNavResized(int width)
+    {
+        _navWidth = width;
+        return InvokeAsync(StateHasChanged);
     }
 
     private async Task ToggleThemeAsync()
@@ -747,6 +779,7 @@
         Opened.Changed -= OnOpenedChanged;
         Nav.LocationChanged -= OnLocationChanged;
         _alertSubscription?.Dispose();
+        _selfRef?.Dispose();
     }
 
     // 셸이 절대 빈 사이드바가 되지 않도록 — 게이트웨이 실패/공백 시의 최소 정적 트리(데모 화면으로 매핑).

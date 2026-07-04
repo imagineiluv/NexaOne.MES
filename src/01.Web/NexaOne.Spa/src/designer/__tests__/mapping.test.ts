@@ -219,6 +219,15 @@ describe('field 이산 속성 매핑(트레이트 단일 출처)', () => {
     expect(componentToLayout(tc)).toEqual(trend)
   })
 
+  it('트렌드 valueColumns(다중 시리즈, P3-13 v2) 라운드트립 — 콤마 인코딩·부재 시 미기록', () => {
+    const multi: LayoutNode = { kind: 'trendChart', id: 't-m', label: '온도/압력', queryId: 'Q.T', valueColumns: ['TEMP', 'PRESSURE'], maxPoints: 60 }
+    const comp = layoutToComponent(multi)
+    expect(comp.attributes!['data-value-columns']).toBe('TEMP,PRESSURE')
+    expect(componentToLayout(comp)).toEqual(multi)
+    // 부재 시 속성 미기록(단일 valueColumn 하위호환).
+    expect(layoutToComponent({ kind: 'trendChart', id: 't-s', label: '단일', valueColumn: 'V' }).attributes!['data-value-columns']).toBeUndefined()
+  })
+
   it('버튼 confirmMessage 라운드트립(data-confirm) — 부재 시 속성 미기록', () => {
     const node: LayoutNode = {
       kind: 'commandButton', id: 'b-del', label: '삭제',

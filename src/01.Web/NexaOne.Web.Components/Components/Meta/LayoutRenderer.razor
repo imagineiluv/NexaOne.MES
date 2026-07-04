@@ -78,41 +78,61 @@
     @* 트렌드 차트(Phase-2 실시간 v2) — 네이티브 SVG 라인(외부 라이브러리 없음). 데이터 부재는 안내 문구. *@
     case TrendChartWidget tc:
     {
-        var points = TrendPoints(tc);
+        var series = TrendSeriesFor(tc);
+        var hasData = series.Any(s => s.Points.Count >= 2);
         <div class="layout-kpi" style="min-width:16rem;">
             <div class="layout-kpi-label">@tc.Label</div>
-            @if (points.Count < 2)
+            @if (!hasData)
             {
-                <div style="color:#9ca3af; font-size:0.75rem; padding:0.5rem 0;">@T("common.trendNoData", "표시할 데이터가 부족합니다.")</div>
+                <div style="color:var(--sux-muted); font-size:0.75rem; padding:0.5rem 0;">@T("common.trendNoData", "표시할 데이터가 부족합니다.")</div>
             }
             else
             {
-                var (polyline, pts, min, max, last) = TrendGeometry(points);
-                var firstTime = points[0].Time;
-                var lastTime = points[^1].Time;
-                @* P3-13 — 그리드라인(상/중/하) + 포인트 마커(네이티브 <title> 툴팁 = 값) + 마지막 점 강조. *@
+                @* 공통 Y 스케일 — 전 시리즈 값의 min/max로 모든 라인을 같은 축에 겹쳐 그린다. *@
+                var allValues = series.SelectMany(s => s.Points.Select(p => p.Value)).ToList();
+                var min = allValues.Min();
+                var max = allValues.Max();
+                var single = series.Count == 1;
+                var firstTime = series[0].Points.Count > 0 ? series[0].Points[0].Time : null;
+                var lastTime = series[0].Points.Count > 0 ? series[0].Points[^1].Time : null;
+                @* P3-13 — 그리드라인(상/중/하). v2: 시리즈마다 라인 1개(공통 스케일) + 범례. *@
                 <svg viewBox="0 0 300 80" preserveAspectRatio="none" style="width:100%; height:80px; display:block;">
-                    <line x1="0" y1="4" x2="300" y2="4" stroke="#eef1f4" stroke-width="1" vector-effect="non-scaling-stroke" />
-                    <line x1="0" y1="40" x2="300" y2="40" stroke="#e5e9ef" stroke-width="1" stroke-dasharray="4 4" vector-effect="non-scaling-stroke" />
-                    <line x1="0" y1="76" x2="300" y2="76" stroke="#eef1f4" stroke-width="1" vector-effect="non-scaling-stroke" />
-                    <polyline points="@polyline" fill="none" stroke="#15b89a" stroke-width="2" vector-effect="non-scaling-stroke" />
-                    @foreach (var pt in pts)
+                    <line x1="0" y1="4" x2="300" y2="4" stroke="var(--sux-border-soft)" stroke-width="1" vector-effect="non-scaling-stroke" />
+                    <line x1="0" y1="40" x2="300" y2="40" stroke="var(--sux-border)" stroke-width="1" stroke-dasharray="4 4" vector-effect="non-scaling-stroke" />
+                    <line x1="0" y1="76" x2="300" y2="76" stroke="var(--sux-border-soft)" stroke-width="1" vector-effect="non-scaling-stroke" />
+                    @foreach (var s in series.Where(s => s.Points.Count >= 2))
                     {
-                        <circle cx="@pt.X.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)"
-                                cy="@pt.Y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)"
-                                r="2" fill="#15b89a" opacity="0.85"><title>@pt.Tooltip</title></circle>
+                        var (polyline, pts) = TrendGeometry(s.Points, min, max);
+                        <polyline points="@polyline" fill="none" stroke="@s.Color" stroke-width="2" vector-effect="non-scaling-stroke" />
+                        @if (single)
+                        {
+                            @* 단일 시리즈만 포인트 마커+마지막 점 강조(다중은 과밀 방지로 라인만). *@
+                            foreach (var pt in pts)
+                            {
+                                <circle cx="@Fmt(pt.X)" cy="@Fmt(pt.Y)" r="2" fill="@s.Color" opacity="0.85"><title>@pt.Tooltip</title></circle>
+                            }
+                            <circle cx="@Fmt(pts[^1].X)" cy="@Fmt(pts[^1].Y)" r="3.2" fill="var(--sux-teal-d)"><title>현재 @pts[^1].Tooltip</title></circle>
+                        }
                     }
-                    <circle cx="@pts[^1].X.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)"
-                            cy="@pts[^1].Y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)"
-                            r="3.2" fill="#0fa085"><title>현재 @pts[^1].Tooltip</title></circle>
                 </svg>
-                <div style="display:flex; justify-content:space-between; font-size:0.688rem; color:#6b7280;">
-                    <span>min @min</span><span>현재 @last</span><span>max @max</span>
+                @* 범례(P3-13 v2) — 시리즈 2개 이상일 때만. 각 시리즈 색+이름. *@
+                @if (series.Count > 1)
+                {
+                    <div style="display:flex; flex-wrap:wrap; gap:2px 12px; font-size:0.688rem; color:var(--sux-text-2); margin-top:2px;">
+                        @foreach (var s in series)
+                        {
+                            <span style="display:inline-flex; align-items:center; gap:4px;">
+                                <span style="width:9px; height:3px; border-radius:2px; background:@s.Color; display:inline-block;"></span>@s.Name
+                            </span>
+                        }
+                    </div>
+                }
+                <div style="display:flex; justify-content:space-between; font-size:0.688rem; color:var(--sux-muted);">
+                    <span>min @min</span>@if (single) { <span>현재 @series[0].Points[^1].Value</span> }<span>max @max</span>
                 </div>
-                @* 시간축 라벨(P3-13, TimeColumn 지정 시) — 표시 구간의 첫/마지막 표본 시각. *@
                 @if (firstTime is not null || lastTime is not null)
                 {
-                    <div style="display:flex; justify-content:space-between; font-size:0.625rem; color:#9ca3af;">
+                    <div style="display:flex; justify-content:space-between; font-size:0.625rem; color:var(--sux-muted);">
                         <span>@firstTime</span><span>@lastTime</span>
                     </div>
                 }
@@ -201,39 +221,57 @@
         return rows[0].TryGetValue(k.ValueColumn, out var v) && v is not null ? v.ToString() ?? "—" : "—";
     }
 
-    // 트렌드 포인트 — 바인딩 쿼리 행에서 ValueColumn 수치를 추출(비수치는 건너뜀), 마지막 MaxPoints개.
+    // 시리즈 색 팔레트(P3-13 v2) — 다중 시리즈 라인/범례 색(테마 무관 고정 대비색).
+    private static readonly string[] SeriesPalette =
+        { "#15b89a", "#4a6cf7", "#f59e0b", "#e5484d", "#8b5cf6", "#0fa085", "#ec4899", "#14b8a6" };
+
+    private sealed record TrendSeries(string Name, string Color, List<(decimal Value, string? Time)> Points);
+
+    private static string Fmt(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    // 시리즈 목록 — ValueColumns(다중) 우선, 없으면 ValueColumn(단일, 하위호환). 컬럼마다 라인 1개.
     // 값(+선택적 시각) 수집 — TimeColumn(P3-13)이 있으면 표본 시각을 축 라벨/툴팁에 쓴다(HH:mm:ss 축약).
-    private List<(decimal Value, string? Time)> TrendPoints(TrendChartWidget tc)
+    private List<TrendSeries> TrendSeriesFor(TrendChartWidget tc)
     {
+        var columns = tc.ValueColumns is { Count: > 0 }
+            ? tc.ValueColumns.Where(c => !string.IsNullOrWhiteSpace(c)).ToList()
+            : (string.IsNullOrWhiteSpace(tc.ValueColumn) ? new List<string>() : new List<string> { tc.ValueColumn });
         var rows = RowsFor(tc.QueryId);
-        var points = new List<(decimal, string?)>();
-        if (rows is null || string.IsNullOrWhiteSpace(tc.ValueColumn)) return points;
-        foreach (var row in rows)
+        var maxPts = Math.Max(2, tc.MaxPoints);
+        var result = new List<TrendSeries>(columns.Count);
+        for (var ci = 0; ci < columns.Count; ci++)
         {
-            if (!row.TryGetValue(tc.ValueColumn, out var v) || v is null
-                || !decimal.TryParse(v.ToString(), System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture, out var d))
-                continue;
-            string? time = null;
-            if (!string.IsNullOrWhiteSpace(tc.TimeColumn)
-                && row.TryGetValue(tc.TimeColumn, out var t) && t is not null)
+            var col = columns[ci];
+            var points = new List<(decimal Value, string? Time)>();
+            if (rows is not null)
             {
-                var raw = t.ToString() ?? "";
-                time = DateTime.TryParse(raw, out var dt) ? dt.ToString("HH:mm:ss") : raw;
+                foreach (var row in rows)
+                {
+                    if (!row.TryGetValue(col, out var v) || v is null
+                        || !decimal.TryParse(v.ToString(), System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture, out var d))
+                        continue;
+                    string? time = null;
+                    if (!string.IsNullOrWhiteSpace(tc.TimeColumn)
+                        && row.TryGetValue(tc.TimeColumn, out var t) && t is not null)
+                    {
+                        var raw = t.ToString() ?? "";
+                        time = DateTime.TryParse(raw, out var dt) ? dt.ToString("HH:mm:ss") : raw;
+                    }
+                    points.Add((d, time));
+                }
             }
-            points.Add((d, time));
+            if (points.Count > maxPts) points = points.Skip(points.Count - maxPts).ToList();
+            result.Add(new TrendSeries(col, SeriesPalette[ci % SeriesPalette.Length], points));
         }
-        var max = Math.Max(2, tc.MaxPoints);
-        return points.Count > max ? points.Skip(points.Count - max).ToList() : points;
+        return result;
     }
 
-    // SVG 폴리라인 좌표(viewBox 300x80, 상하 4px 패딩) — min==max(평평한 선)는 중앙 수평선.
-    // P3-13 — 포인트별 좌표+툴팁(값, 시각 있으면 병기)도 반환한다(마커·<title>·마지막 점 강조).
-    private static (string Polyline, List<(double X, double Y, string Tooltip)> Points, decimal Min, decimal Max, decimal Last)
-        TrendGeometry(List<(decimal Value, string? Time)> points)
+    // SVG 폴리라인 좌표(viewBox 300x80, 상하 4px 패딩) — 공통 min/max로 스케일(다중 시리즈 겹침).
+    // min==max(평평한 선)는 중앙 수평선. 포인트별 좌표+툴팁(값, 시각 있으면 병기)도 반환한다.
+    private static (string Polyline, List<(double X, double Y, string Tooltip)> Points)
+        TrendGeometry(List<(decimal Value, string? Time)> points, decimal min, decimal max)
     {
-        var min = points.Min(p => p.Value);
-        var max = points.Max(p => p.Value);
         var range = max - min;
         var sb = new System.Text.StringBuilder();
         var pts = new List<(double X, double Y, string Tooltip)>(points.Count);
@@ -244,11 +282,11 @@
             var tooltip = points[i].Time is { } time ? $"{points[i].Value} ({time})" : points[i].Value.ToString();
             pts.Add((x, y, tooltip));
             if (i > 0) sb.Append(' ');
-            sb.Append(x.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+            sb.Append(Fmt(x));
             sb.Append(',');
-            sb.Append(y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+            sb.Append(Fmt(y));
         }
-        return (sb.ToString(), pts, min, max, points[^1].Value);
+        return (sb.ToString(), pts);
     }
 
 

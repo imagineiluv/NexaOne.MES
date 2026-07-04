@@ -109,13 +109,15 @@ public sealed class MetaGridRendererTests
     }
 
     [Fact]
-    public void No_width_meta_keeps_auto_layout_without_colgroup()
+    public void No_width_meta_keeps_auto_layout_with_bare_colgroup()
     {
+        // P3-9 v3 — colgroup은 리사이즈 핸들이 <col>에 폭을 쓰도록 항상 렌더하되, 폭 미지정 컬럼은 bare <col>
+        // (auto 레이아웃 불변). table.fixed 클래스는 실제 폭이 있을 때만 붙는다(하위호환).
         using var ctx = new TestContext();
         var cut = Render(ctx, rows: new List<Dictionary<string, object?>>());
 
         cut.Find("table").ClassList.Should().NotContain("fixed", "폭 미지정 화면은 기존 자동 레이아웃 유지(하위호환)");
-        cut.FindAll("colgroup").Should().BeEmpty();
+        cut.Markup.Should().NotContain("width:", "폭 미지정이면 col에 width 스타일이 없어야 한다(auto 유지)");
     }
 
     // ── P3-9 — 클라이언트 정렬(숫자 인지)·페이징(20행/페이지) ────────────────

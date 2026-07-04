@@ -131,4 +131,7 @@ public sealed record TrendChartWidget : LayoutNode
     public int MaxPoints { get; init; } = 50;
     /// <summary>시간축 컬럼(P3-13) — 지정 시 첫/마지막 표본 시각을 라벨로, 포인트 툴팁에 시각을 함께 표시한다.</summary>
     public string? TimeColumn { get; init; }
+    /// <summary>다중 시리즈 컬럼(P3-13 v2) — 지정 시 컬럼마다 라인 1개+범례를 그린다(공통 Y 스케일).
+    /// 미지정이면 ValueColumn 단일 라인(하위호환). 두 시리즈 이상일 때만 범례를 표시한다.</summary>
+    public IReadOnlyList<string>? ValueColumns { get; init; }
 }

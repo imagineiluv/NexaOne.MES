@@ -36,6 +36,22 @@ export function ScreenEditor() {
     const editor = grapesjs.init(buildEditorConfig(hostRef.current, blocksRef.current, traitsRef.current) as never)
     editorRef.current = editor
 
+    // P3-17 다크 모드 — GrapesJS 캔버스는 iframe이라 부모의 data-theme를 상속하지 않는다.
+    // 로드 시 캔버스 문서에 테마 속성 + 배경/텍스트 토큰 스타일을 주입한다(다크에서 흰 캔버스 방지).
+    editor.on('load', () => {
+      try {
+        const theme = document.documentElement.dataset.theme || 'light'
+        const cdoc = editor.Canvas.getDocument()
+        if (!cdoc) return
+        cdoc.documentElement.dataset.theme = theme
+        const style = cdoc.createElement('style')
+        style.textContent =
+          '[data-theme="dark"]{background:#0d1420;color:#dfe6f1;}' +
+          '[data-theme="dark"] *{border-color:#2b3750 !important;}'
+        cdoc.head.appendChild(style)
+      } catch { /* 캔버스 접근 실패(테스트 jsdom 등) — 무시 */ }
+    })
+
     listQueries()
       .then((cat: QueryCatalog) => {
         if (disposed) return { title: '', layout: null as LayoutNode | null, flat: null }

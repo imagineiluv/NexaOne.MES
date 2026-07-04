@@ -90,6 +90,7 @@ export function layoutToComponent(node: LayoutNode): GrapesNode {
       attributes['data-label'] = node.label
       if (node.queryId != null) attributes['data-query-id'] = node.queryId
       if (node.valueColumn != null) attributes['data-value-column'] = node.valueColumn
+      if (node.valueColumns != null && node.valueColumns.length > 0) attributes['data-value-columns'] = node.valueColumns.join(',')
       if (node.maxPoints != null) attributes['data-max-points'] = node.maxPoints
       if (node.timeColumn != null && node.timeColumn !== '') attributes['data-time-column'] = node.timeColumn
       break
@@ -225,12 +226,15 @@ export function componentToLayout(comp: GrapesNode): LayoutNode | null {
       const queryId = str(a, 'data-query-id')
       const valueColumn = str(a, 'data-value-column')
       const timeColumn = str(a, 'data-time-column')
+      const rawCols = str(a, 'data-value-columns')
+      const valueColumns = rawCols != null ? rawCols.split(',').map(s => s.trim()).filter(s => s.length > 0) : undefined
       const rawMax = a?.['data-max-points']
       const maxPoints = typeof rawMax === 'number' ? rawMax : (typeof rawMax === 'string' && rawMax !== '' ? Number(rawMax) : undefined)
       return {
         kind, ...base, label: str(a, 'data-label') ?? '',
         ...(queryId != null ? { queryId } : {}),
         ...(valueColumn != null ? { valueColumn } : {}),
+        ...(valueColumns != null && valueColumns.length > 0 ? { valueColumns } : {}),
         ...(maxPoints != null && !Number.isNaN(maxPoints) ? { maxPoints } : {}),
         ...(timeColumn != null ? { timeColumn } : {}),
       }

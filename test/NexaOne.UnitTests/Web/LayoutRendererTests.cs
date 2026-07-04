@@ -152,6 +152,34 @@ public sealed class LayoutRendererTests
     }
 
     [Fact]
+    public void Trend_chart_multi_series_renders_line_per_column_with_legend()
+    {
+        // P3-13 v2 — ValueColumns 지정 시 컬럼마다 라인 1개 + 범례(공통 Y 스케일). 마커/현재는 다중에서 생략.
+        using var ctx = new TestContext();
+        var layout = new TrendChartWidget
+        {
+            Id = "tcm", Label = "다중 트렌드", QueryId = "Q.M",
+            ValueColumns = new[] { "TEMP", "PRESSURE" }, MaxPoints = 3,
+        };
+        var results = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>
+        {
+            ["Q.M"] = new List<Dictionary<string, object?>>
+            {
+                new() { ["TEMP"] = 20m, ["PRESSURE"] = 5m },
+                new() { ["TEMP"] = 60m, ["PRESSURE"] = 8m },
+                new() { ["TEMP"] = 40m, ["PRESSURE"] = 3m },
+            },
+        };
+
+        var cut = Render(ctx, layout, results: results);
+
+        System.Text.RegularExpressions.Regex.Matches(cut.Markup, "<polyline").Count.Should().Be(2, "시리즈 2개 = 라인 2개");
+        cut.Markup.Should().Contain("TEMP").And.Contain("PRESSURE", "범례에 각 시리즈 이름이 표시돼야 한다");
+        cut.Markup.Should().Contain("min 3").And.Contain("max 60", "공통 스케일은 전 시리즈 값의 min/max여야 한다");
+        cut.Markup.Should().NotContain("현재", "다중 시리즈는 '현재' 강조를 생략한다");
+    }
+
+    [Fact]
     public void Grid_widget_renders_rows_from_query_result_map()
     {
         using var ctx = new TestContext();

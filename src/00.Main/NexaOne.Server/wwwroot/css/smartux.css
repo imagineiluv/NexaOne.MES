@@ -56,8 +56,11 @@ body {
 /* ===== 셸 ===== */
 .mes-shell { display: flex; height: 100vh; overflow: hidden; }
 
-/* 사이드바 */
-.mes-sidebar { width: 230px; flex: 0 0 230px; background: var(--sux-navy); display: flex; flex-direction: column; }
+/* 사이드바 — 폭은 --mes-nav-width(P3-11 드래그 조절, 기본 230px). 레일 모드는 아래에서 56px 고정. */
+.mes-sidebar { width: var(--mes-nav-width, 230px); flex: 0 0 var(--mes-nav-width, 230px); background: var(--sux-navy); display: flex; flex-direction: column; position: relative; }
+/* P3-11 폭 조절 핸들 — 사이드바 우측 경계(호버 시 틸 하이라이트). */
+.mes-nav-resize { position: absolute; top: 0; right: 0; width: 5px; height: 100%; cursor: col-resize; z-index: 20; }
+.mes-nav-resize:hover { background: var(--sux-teal); opacity: .5; }
 .mes-logo { height: 56px; display: flex; align-items: center; padding: 0 18px; background: var(--sux-card); border-bottom: 1px solid var(--sux-border); }
 /* NAF 브랜드 로고 — 라이트 배경=브랜드 네이비, 다크 배경에 쓸 땐 color만 #fff로(단색 마크). */
 :root { --naf-navy: #2b3a8f; --naf-teal: #4a9a8f; }
@@ -244,7 +247,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .meta-grid thead th {
   background: var(--sux-head); color: var(--sux-text-2); font-weight: 600; text-align: left;
   padding: 9px 12px; border: 1px solid var(--sux-border); border-top: none; white-space: nowrap;
+  position: relative;
 }
+/* P3-9 v3 — 컬럼 리사이즈 핸들(헤더 우측 경계). 호버 시 틸 하이라이트. */
+.meta-grid thead th .col-resize { position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: col-resize; touch-action: none; }
+.meta-grid thead th .col-resize:hover { background: var(--sux-teal); opacity: .5; }
+/* 키보드 포커스된 행 강조(P3-15) */
+.meta-grid tbody tr:focus-visible { outline: 2px solid var(--sux-teal); outline-offset: -2px; }
 /* overflow-wrap: 고정 폭(colgroup+fixed) 컬럼에서 긴 무공백 토큰(쿼리 ID 등)이 옆 칸을 침범하지 않게 셀 안에서 줄바꿈. */
 .meta-grid tbody td { padding: 8px 12px; border: 1px solid var(--sux-border-soft); color: var(--sux-text); overflow-wrap: anywhere; }
 .meta-grid tbody tr:nth-child(even) td { background: var(--sux-stripe); }

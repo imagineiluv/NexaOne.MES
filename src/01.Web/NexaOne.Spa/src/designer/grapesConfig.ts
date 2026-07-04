@@ -142,7 +142,8 @@ export function buildTraitDefs(queries: QueryCatalog): Record<string, TraitDef[]
     'nx-trend-chart': [
       { type: 'text', name: 'data-label', label: '라벨' },
       { type: 'select', name: 'data-query-id', label: '조회 쿼리', options: readOpts },
-      { type: 'text', name: 'data-value-column', label: '값 컬럼(수치)' },
+      { type: 'text', name: 'data-value-column', label: '값 컬럼(수치, 단일)' },
+      { type: 'text', name: 'data-value-columns', label: '값 컬럼(다중, 콤마 구분 — 범례)' },
       { type: 'number', name: 'data-max-points', label: '최대 포인트(기본 50)' },
       { type: 'text', name: 'data-time-column', label: '시간 컬럼(선택, 축 라벨)' },
     ],

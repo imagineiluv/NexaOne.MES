@@ -43,7 +43,8 @@ export interface KpiWidget   extends NodeBase { kind: 'kpi'; label: string; quer
 export interface BadgeStyleRule { value: string; severity: string; displayText?: string | null }
 export interface BadgeWidget extends NodeBase { kind: 'statusBadge'; label?: string | null; queryId?: string | null; valueColumn?: string | null; styles?: BadgeStyleRule[] }
 // 트렌드 차트(Phase-2 실시간 v2) — 마지막 maxPoints개 수치의 SVG 라인(C# TrendChartWidget 미러).
-export interface TrendChartWidget extends NodeBase { kind: 'trendChart'; label: string; queryId?: string | null; valueColumn?: string | null; maxPoints?: number; timeColumn?: string | null }
+// valueColumns(P3-13 v2): 다중 시리즈 컬럼(콤마 구분 data 속성). 지정 시 valueColumn보다 우선.
+export interface TrendChartWidget extends NodeBase { kind: 'trendChart'; label: string; queryId?: string | null; valueColumn?: string | null; valueColumns?: string[] | null; maxPoints?: number; timeColumn?: string | null }
 
 export interface ScreenDefinitionDto {
   uiId: string
