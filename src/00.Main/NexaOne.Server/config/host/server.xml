@@ -32,7 +32,9 @@
 
   <!-- 빈 ConfigurationManager(IConfiguration). 거의 모든 리포지토리가 outbox 게이트(config["Events:Outbox:Enabled"])
        판독에 공통 사용한다 — 빈 설정이라 null→off로 평가(이 호스트는 API 티어가 디스패처를 돌리므로 off가 올바른 기본, ADR-002). -->
-  <object id="appConfiguration" type="Microsoft.Extensions.Configuration.ConfigurationManager, Microsoft.Extensions.Configuration" />
+  <!-- 호스트 IConfiguration 브리지 — 종전의 빈 ConfigurationManager 새 인스턴스는 모듈 설정 읽기
+       (Events:Outbox:Enabled 등)를 무력화하는 실버그였다. Program.cs가 CreateServer 전에 Root를 설정한다. -->
+  <object id="appConfiguration" type="NexaOne.Common.Configuration.SpringHostConfiguration, NexaOne.Common" />
 
   <!-- OPC-UA 설비 드라이버(IPlcDriver). FDC 모듈이 설비 수집 시 GetServerBean("opcUaDriver")로 공통 호출한다(설계: 드라이버는
        서버 빈, 모듈에서 호출). lazy-init: 실제 참조될 때만 생성해 부팅 시 OPC-UA 라이브러리 초기화·연결 시도를 회피한다. -->

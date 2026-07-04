@@ -45,7 +45,12 @@ public sealed class ScheduledOutboxDispatchWorker : BackgroundService
         _scheduler = scheduler;
         _repo = repo;
         _bus = bus;
-        _enabled = enabled;
+        // Spring XML 상수 배선(enabled=false 기본)이라 IConfiguration을 받을 수 없다 — dev 활성화는 env
+        // 오버라이드(Worker__Outbox__Dispatch__Enabled=true, launchSettings)로 허용한다(FDC 워커와 동일 관례).
+        // 이 게이트가 꺼져 있으면 outbox→버스 발행이 없어 실시간 전체(SignalR·화면 갱신·알림 센터)가 무이벤트다.
+        _enabled = enabled || string.Equals(
+            Environment.GetEnvironmentVariable("Worker__Outbox__Dispatch__Enabled"), "true",
+            StringComparison.OrdinalIgnoreCase);
         _intervalSeconds = intervalSeconds;
         _topic = topic;
         _batchSize = batchSize;

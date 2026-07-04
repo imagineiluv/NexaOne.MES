@@ -49,6 +49,11 @@ if (modulesEnabled)
     // 컨텍스트 생성 '전' XML 패치가 유일한 안전 지점). 운영 MSSQL은 원래 단일 DB — 아무 일도 하지 않는다.
     springConfig = UnifySqliteDataSourceIfConfigured(springConfig, builder.Configuration);
 
+    // Spring appConfiguration 브리지 — 모듈 리포가 읽는 IConfiguration을 호스트 구성(env/appsettings)으로
+    // 연결한다. 리포 ctor가 CreateServer 도중 값을 스냅샷하므로 반드시 컨텍스트 생성 '전'에 설정한다.
+    // (종전엔 XML이 빈 ConfigurationManager를 새로 만들어 Events:Outbox:Enabled가 영구 꺼짐이던 실버그.)
+    NexaOne.Common.Configuration.SpringHostConfiguration.Root = builder.Configuration;
+
     // SQLite 모드면 컨텍스트 생성 전에 스키마를 부트스트랩한다(빈 DB일 때만, idempotent). server.xml의
     // eesDataSource Provider 타입으로 판별 — XML만 바꾸면 자동 적용(MSSQL이면 아무 일도 안 함).
     EnsureSqliteSchemaIfConfigured(springConfig);
@@ -99,7 +104,8 @@ if (modulesEnabled)
         builder.Services.AddSingleton<IHostedService>(sp =>
             new NexaOne.Server.Realtime.InMemoryBusSubscriberService(
                 inMemoryBus, sp.GetRequiredService<IServiceScopeFactory>(),
-                sp.GetRequiredService<NexaOne.Server.Realtime.ScreenRefreshNotifier>()));
+                sp.GetRequiredService<NexaOne.Server.Realtime.ScreenRefreshNotifier>(),
+                sp.GetRequiredService<NexaOne.Server.Realtime.RealtimeAlertFeed>()));
 
     // 복잡 서비스 얇은 브리지(ADR-008) — 모듈 빈을 공유 계약 인터페이스로 캐스트해 DI 등록(CQ-4 헬퍼).
     // 캐스트 실패 = 계약 어셈블리 ALC 동일성 위반(NexaOne.ServiceContracts가 plugin ALC로 복제 로드,
@@ -146,6 +152,10 @@ builder.Services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService, Batch
 builder.Services.AddSingleton<NexaOne.Server.Realtime.ScreenRefreshNotifier>();
 builder.Services.AddSingleton<NexaOne.Web.Services.Meta.IScreenRefreshNotifier>(
     sp => sp.GetRequiredService<NexaOne.Server.Realtime.ScreenRefreshNotifier>());
+// P3-20 — 셸 알림 센터(벨) 피드. 동일 규약: 항상 등록, 버스 없으면 조용히 비어 있다.
+builder.Services.AddSingleton<NexaOne.Server.Realtime.RealtimeAlertFeed>();
+builder.Services.AddSingleton<NexaOne.Web.Services.Meta.IRealtimeAlertFeed>(
+    sp => sp.GetRequiredService<NexaOne.Server.Realtime.RealtimeAlertFeed>());
 // 인증(무-브리지, 게이트웨이식) — 토큰 직접 발급(login/refresh). 게이트웨이 DI(IRuleDispatcher) 이후 호출.
 builder.Services.AddNexaOneAuth(builder.Configuration);
 // OEE 집계는 EST 모듈 소유(config/modules/est.xml의 oeeAggregationWorker) — modules-ON에서 IHostedService로 자동발견.

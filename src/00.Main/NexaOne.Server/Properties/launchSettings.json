@@ -7,7 +7,9 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "Worker__Sys__BatchProcess__Enabled": "true",
-        "Worker__Fdc__VirtualEvent__Enabled": "true"
+        "Worker__Fdc__VirtualEvent__Enabled": "true",
+        "Worker__Outbox__Dispatch__Enabled": "true",
+        "Events__Outbox__Enabled": "true"
       }
     }
   }
