@@ -13,6 +13,7 @@
         @* 수동 새로고침 — 자동 새로고침(RefreshIntervalSeconds) 없는 화면에서도 재조회할 수 있게 한다.
            데이터만 재조회(ReloadDataAsync)하므로 폼 입력 상태는 보존된다. *@
         <button class="btn btn-ghost meta-refresh" @onclick="ManualRefreshAsync" disabled="@_refreshing">
+            @if (_refreshing) { <span class="nx-spin" aria-hidden="true"></span> }
             @(_refreshing ? T("common.refreshing", "새로고침 중…") : T("common.refresh", "새로고침"))
         </button>
     }
@@ -105,7 +106,10 @@ else
         </CascadingValue>
 
         <div class="meta-actions">
-            <button @onclick="Save" disabled="@_saving">@(_saving ? T("common.saving", "저장 중…") : T("common.save", "저장"))</button>
+            <button @onclick="Save" disabled="@_saving">
+                @if (_saving) { <span class="nx-spin" aria-hidden="true"></span> }
+                @(_saving ? T("common.saving", "저장 중…") : T("common.save", "저장"))
+            </button>
             @if (_saved) { <span class="save-ok" style="margin-left:0.5rem;">@T("common.savedMark", "저장됨")</span> }
         </div>
 

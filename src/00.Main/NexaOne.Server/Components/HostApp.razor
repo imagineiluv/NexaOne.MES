@@ -13,6 +13,11 @@
             document.documentElement.dataset.theme = t;
         };
         window.nxGetTheme = function () { return document.documentElement.dataset.theme || 'light'; };
+        /* P3-9 셀 복사 — clipboard 미지원(비보안 컨텍스트 등)이면 조용히 no-op. */
+        window.nxCopy = function (t) {
+            return navigator.clipboard && navigator.clipboard.writeText
+                ? navigator.clipboard.writeText(t) : Promise.resolve();
+        };
     </script>
     <link rel="stylesheet" href="css/smartux.css" />
     <HeadOutlet @rendermode="@(new InteractiveServerRenderMode(prerender: false))" />

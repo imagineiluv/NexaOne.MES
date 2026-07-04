@@ -87,14 +87,16 @@
         <header class="mes-topbar">
             @* 사이드바 접기 토글(P3-11/16) — 좁은 화면에선 사이드바가 오버레이로 뜬다(CSS 미디어쿼리). *@
             <span class="tb-ico" role="button" tabindex="0" aria-label="메뉴 접기/펼치기" title="메뉴 접기/펼치기"
-                  style="cursor:pointer;" @onclick="() => _navCollapsed = !_navCollapsed">
+                  style="cursor:pointer;" @onclick="() => _navCollapsed = !_navCollapsed"
+                  @onkeydown="e => { if (IsActivateKey(e)) _navCollapsed = !_navCollapsed; }">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
             </span>
             @* §20.12 — 활성 화면 즐겨찾기 토글(★=등록됨). 메뉴 매핑이 없는 화면(직접 라우트 등)은 표시만 한다. *@
             <span class="star" role="button" tabindex="0" aria-label="@(IsActiveFavorite() ? "즐겨찾기 해제" : "즐겨찾기 등록")"
                   style="cursor:pointer; color:@(IsActiveFavorite() ? "#f59e0b" : "inherit")"
                   title="@(IsActiveFavorite() ? "즐겨찾기 해제" : "즐겨찾기 등록")"
-                  @onclick="ToggleActiveFavoriteAsync">@(IsActiveFavorite() ? "★" : "☆")</span>
+                  @onclick="ToggleActiveFavoriteAsync"
+                  @onkeydown="async e => { if (IsActivateKey(e)) await ToggleActiveFavoriteAsync(); }">@(IsActiveFavorite() ? "★" : "☆")</span>
             <span class="tb-title">제조실행시스템 (NexaOne MES)</span>
             @* Quick Menu — 사이드바 트리 인덱스(_uiToTitle) 기반 타이프어헤드 점프(레거시 퀵메뉴 미러, 서버 호출 없음). *@
             <div class="mes-quickmenu">
@@ -116,7 +118,8 @@
                열면 미읽음 뱃지 초기화. 피드는 회로 밖 스레드에서 콜백하므로 InvokeAsync로 전환한다. *@
             <div class="mes-alertmenu">
                 <span class="tb-ico" role="button" tabindex="0" aria-label="알림" title="알림"
-                      style="cursor:pointer; position:relative;" @onclick="ToggleAlerts">
+                      style="cursor:pointer; position:relative;" @onclick="ToggleAlerts"
+                      @onkeydown="e => { if (IsActivateKey(e)) ToggleAlerts(); }">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
                     @if (_alertUnread > 0)
                     {
@@ -146,7 +149,8 @@
                (구 톱니 아이콘은 연결 기능이 없어 제거 — 장식 UI를 두지 않는다) *@
             <div class="mes-usermenu">
                 <span class="tb-ico" role="button" tabindex="0" aria-label="사용자 메뉴" title="사용자 메뉴"
-                      style="cursor:pointer;" @onclick="() => _userMenuOpen = !_userMenuOpen">
+                      style="cursor:pointer;" @onclick="() => _userMenuOpen = !_userMenuOpen"
+                      @onkeydown="e => { if (IsActivateKey(e)) _userMenuOpen = !_userMenuOpen; }">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
                 </span>
                 @if (_userMenuOpen)
@@ -154,9 +158,12 @@
                     <div class="user-dropdown">
                         <div class="user-dd-id">@(_userId.Length > 0 ? _userId : "(사용자)")</div>
                         <a class="user-dd-item" href="/change-password">@Ui.T("shell.changePassword", "비밀번호 변경")</a>
-                        <div class="user-dd-item" @onclick="ToggleThemeAsync">@(_darkTheme ? Ui.T("shell.lightMode", "라이트 모드") : Ui.T("shell.darkMode", "다크 모드"))</div>
-                        <div class="user-dd-item" @onclick="ToggleLanguageAsync">@(_language == "EnUs" ? "한국어로 전환" : "Switch to English")</div>
-                        <div class="user-dd-item" @onclick="HandleLogoutAsync">@Ui.T("shell.logout", "로그아웃")</div>
+                        <div class="user-dd-item" role="menuitem" tabindex="0" @onclick="ToggleThemeAsync"
+                             @onkeydown="async e => { if (IsActivateKey(e)) await ToggleThemeAsync(); }">@(_darkTheme ? Ui.T("shell.lightMode", "라이트 모드") : Ui.T("shell.darkMode", "다크 모드"))</div>
+                        <div class="user-dd-item" role="menuitem" tabindex="0" @onclick="ToggleLanguageAsync"
+                             @onkeydown="async e => { if (IsActivateKey(e)) await ToggleLanguageAsync(); }">@(_language == "EnUs" ? "한국어로 전환" : "Switch to English")</div>
+                        <div class="user-dd-item" role="menuitem" tabindex="0" @onclick="HandleLogoutAsync"
+                             @onkeydown="async e => { if (IsActivateKey(e)) await HandleLogoutAsync(); }">@Ui.T("shell.logout", "로그아웃")</div>
                     </div>
                 }
             </div>
@@ -170,7 +177,12 @@
                 @foreach (var tab in Opened.Screens)
                 {
                     var tabActive = string.Equals(tab.UiId, Opened.ActiveUiId, StringComparison.OrdinalIgnoreCase);
-                    <div class="mes-mditab @(tabActive ? "active" : "")" @onclick="() => NavigateTo(tab.UiId, tab.Title)"
+                    @* P3-10 순서 변경 — HTML5 DnD: 잡은 탭을 놓은 탭 앞으로. dragover preventDefault가 있어야 drop이 발화한다. *@
+                    <div class="mes-mditab @(tabActive ? "active" : "")" @key="tab.UiId" draggable="true"
+                         @onclick="() => NavigateTo(tab.UiId, tab.Title)"
+                         @ondragstart="() => _dragTabUiId = tab.UiId"
+                         @ondragover:preventDefault="true" @ondragover="() => { }"
+                         @ondrop="() => DropTab(tab.UiId)"
                          @oncontextmenu="e => OpenTabMenu(e, tab.UiId)" @oncontextmenu:preventDefault="true">
                         <span class="mes-mditab-label">@tab.Title</span>
                         <span class="close" @onclick="() => CloseTab(tab.UiId)" @onclick:stopPropagation="true">&times;</span>
@@ -563,8 +575,18 @@
         };
     }
 
+    // 접근성(P3-15) — role="button" 요소의 키보드 활성화 판정(Enter/Space).
+    private static bool IsActivateKey(KeyboardEventArgs e) => e.Key is "Enter" or " " or "Spacebar";
+
     private void ToggleFolder(string folderId)
     {
+        // 레일 모드(P3-11)에선 하위가 숨어 있으므로 폴더 클릭 = 사이드바 복원 + 해당 폴더 펼침.
+        if (_navCollapsed)
+        {
+            _navCollapsed = false;
+            _openFolders.Add(folderId);
+            return;
+        }
         if (!_openFolders.Remove(folderId)) _openFolders.Add(folderId);
     }
 
@@ -576,6 +598,15 @@
         if (string.IsNullOrWhiteSpace(uiId)) return;
         Opened.Open(uiId, title);
         Nav.NavigateTo(MetaHref(uiId), forceLoad: false);
+    }
+
+    // P3-10 — 탭 드래그 순서 변경 상태(드래그 시작 탭). drop 시 대상 탭 앞으로 이동.
+    private string? _dragTabUiId;
+
+    private void DropTab(string targetUiId)
+    {
+        if (_dragTabUiId is { } dragged) Opened.Move(dragged, targetUiId);
+        _dragTabUiId = null;
     }
 
     private void CloseTab(string uiId)

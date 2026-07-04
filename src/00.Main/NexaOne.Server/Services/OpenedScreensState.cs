@@ -86,6 +86,21 @@ public sealed class OpenedScreensState
         Changed?.Invoke();
     }
 
+    /// <summary>드래그한 탭이 대상 탭의 슬롯을 차지한다(P3-10 순서 변경) — 왼쪽 이동은 대상 앞,
+    /// 오른쪽 이동은 대상 뒤(브라우저 탭 관례). 활성 탭은 그대로 유지 — 순서만 바뀌고 화면 전환은
+    /// 없다. 둘 중 하나라도 없거나 동일하면 아무것도 하지 않는다.</summary>
+    public void Move(string uiId, string beforeUiId)
+    {
+        if (string.Equals(uiId, beforeUiId, StringComparison.OrdinalIgnoreCase)) return;
+        var from = _screens.FindIndex(s => string.Equals(s.UiId, uiId, StringComparison.OrdinalIgnoreCase));
+        var to = _screens.FindIndex(s => string.Equals(s.UiId, beforeUiId, StringComparison.OrdinalIgnoreCase));
+        if (from < 0 || to < 0) return;
+        var moving = _screens[from];
+        _screens.RemoveAt(from);
+        _screens.Insert(to, moving);
+        Changed?.Invoke();
+    }
+
     /// <summary>모든 탭을 닫는다(우클릭 '모두 닫기'). 호출자가 기본 화면으로 내비게이트한다.</summary>
     public void CloseAll()
     {

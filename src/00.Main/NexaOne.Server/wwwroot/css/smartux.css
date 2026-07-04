@@ -19,6 +19,7 @@
   --sux-hover: #f5f7f9;
   --sux-hover-teal: #eefaf7;
   --sux-stripe: #fafbfc;
+  --sux-selected: #dff5ef;
 }
 
 /* P3-17 다크 모드 — <html data-theme="dark"> 시 표면 토큰만 교체(사이드바는 원래 다크).
@@ -35,6 +36,7 @@
   --sux-hover: #1e293c;
   --sux-hover-teal: #16302a;
   --sux-stripe: #131c2b;
+  --sux-selected: #1c4038;
 }
 /* 다크 보정 — 브랜드 로고는 흰색 변형, 폼 입력은 다크 표면, 배경 그라데이션 제거. */
 [data-theme="dark"] .naf-logo { color: #fff; }
@@ -94,8 +96,20 @@ body {
 .quick-item small { color: var(--sux-muted); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
 .mes-topbar .tb-ico { width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--sux-muted); }
 .mes-topbar .tb-ico svg { width: 18px; height: 18px; stroke: var(--sux-muted); }
-/* P3-11 — 사이드바 접기 + 트리 필터. P3-16 — 좁은 화면에선 사이드바가 오버레이로 뜬다. */
-.mes-shell.nav-collapsed .mes-sidebar { display: none; }
+/* P3-11 — 사이드바 접기 = 아이콘 레일(56px): 대분류 아이콘만 남긴다(title 툴팁). 레일에서 폴더 클릭은
+   셸이 복원+해당 폴더 펼침으로 처리. P3-16 — 좁은 화면에선 접힘=완전 숨김, 펼침=오버레이. */
+.mes-shell.nav-collapsed .mes-sidebar { width: 56px; flex-basis: 56px; }
+.mes-shell.nav-collapsed .mes-logo { padding: 0 8px; justify-content: center; }
+.mes-shell.nav-collapsed .naf-logo .naf-mark { width: 36px; }
+.mes-shell.nav-collapsed .naf-logo .naf-tag,
+.mes-shell.nav-collapsed .mes-navfilter,
+.mes-shell.nav-collapsed .mes-nav > div:not(.mes-nav-folder),
+.mes-shell.nav-collapsed .mes-nav > a.mes-nav-subitem,
+.mes-shell.nav-collapsed .mes-nav-item > span,
+.mes-shell.nav-collapsed .mes-nav-item .chev,
+.mes-shell.nav-collapsed .mes-nav-sub,
+.mes-shell.nav-collapsed .mes-pin { display: none; }
+.mes-shell.nav-collapsed .mes-nav-item { justify-content: center; padding: 11px 0 !important; }
 .mes-navfilter { padding: 4px 10px 6px; }
 .mes-navfilter input { width: 100%; box-sizing: border-box; padding: 5px 9px; font-size: 12px; color: #d2dcea;
   background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); border-radius: 3px; }
@@ -103,6 +117,13 @@ body {
 @media (max-width: 1100px) {
   .mes-shell:not(.nav-collapsed) .mes-sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 180;
     box-shadow: 6px 0 24px rgba(0,0,0,.35); }
+  .mes-shell.nav-collapsed .mes-sidebar { display: none; }
+}
+/* P3-16 — 좁은 화면 상단바: Quick Menu 숨김(사이드바 필터가 대체), 제목은 말줄임. */
+@media (max-width: 900px) {
+  .mes-quickmenu { display: none; }
+  .mes-topbar .tb-title { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mes-alertmenu { margin-left: auto; }
 }
 
 /* ===== 호스트 전용 페이지 공통(P2-5) — 로그인/가입/비밀번호 변경/승인/권한 관리를 메타 화면과
@@ -134,7 +155,9 @@ body {
 /* P1-1 — 선택 가능 그리드: 행 커서/호버, 선택 행 하이라이트 */
 .meta-grid.selectable tbody tr { cursor: pointer; }
 .meta-grid.selectable tbody tr:hover td { background: var(--sux-hover-teal); }
-.meta-grid tbody tr.selected td { background: #dff5ef !important; }
+.meta-grid tbody tr.selected td { background: var(--sux-selected) !important; }
+/* P3-9 — 셀 더블클릭 복사 피드백(1.2초 플래시) */
+.meta-grid tbody td.copied { background: var(--sux-selected) !important; transition: background .15s; }
 
 /* P3-20 — 알림 센터(벨): 미읽음 뱃지 + 최근 알림 드롭다운 */
 .mes-alertmenu { position: relative; }
@@ -165,6 +188,24 @@ body {
 .page-title { font-size: 17px; font-weight: 700; color: var(--sux-text); margin: 0; }
 /* FocusOnNavigate가 h1에 tabindex 부여 후 포커스 → 브라우저 포커스 박스가 제목을 감싸 보이는 것 억제 */
 .page-title:focus, .page-title:focus-visible { outline: none; }
+
+/* P3-15 접근성 2차 — 키보드 포커스 링(:focus-visible = 키보드 탐색에만, 마우스 클릭엔 안 뜸). */
+.tb-ico:focus-visible, .mes-topbar .star:focus-visible, .mes-nav-item:focus-visible,
+.mes-nav-subitem:focus-visible, .user-dd-item:focus-visible, .mes-mditab:focus-visible,
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible {
+  outline: 2px solid var(--sux-teal); outline-offset: 1px;
+}
+
+/* 로딩 스피너 — '조회 중…' 등 진행 문구 옆 회전 인디케이터(P1-3 시각 고도화). */
+.nx-spin { display: inline-block; width: 11px; height: 11px; border: 2px solid var(--sux-border);
+  border-top-color: var(--sux-teal); border-radius: 50%; vertical-align: -1px; animation: nx-rot .7s linear infinite; }
+@keyframes nx-rot { to { transform: rotate(360deg); } }
+/* 채워진(teal) 버튼 안에서는 흰 스피너 */
+.layout-command .nx-spin, .meta-actions button .nx-spin, .host-btn .nx-spin {
+  border-color: rgba(255,255,255,.4); border-top-color: #fff; }
+
+/* P2-8 — '결과 없음' 빈 상태(아이콘 병기) */
+.meta-grid-empty { display: flex; align-items: center; gap: 6px; }
 
 /* 빈/준비중 상태 — 미이식 화면(SmartUX 메뉴엔 있으나 ScreenDefinition 미존재) 안내 카드. */
 .mes-empty-state {

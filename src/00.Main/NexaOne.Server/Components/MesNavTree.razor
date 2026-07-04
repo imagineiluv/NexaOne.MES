@@ -10,8 +10,9 @@
         var isOpen = Open.Contains(node.Id);
         <div class="mes-nav-folder @(isOpen ? "open" : "")">
             <div class="mes-nav-item mes-folder-head @(isOpen ? "open" : "")"
-                 style="padding-left:@(Pad)px"
-                 @onclick="() => OnToggle.InvokeAsync(node.Id)">
+                 style="padding-left:@(Pad)px" role="button" tabindex="0" title="@node.Name"
+                 @onclick="() => OnToggle.InvokeAsync(node.Id)"
+                 @onkeydown="async e => { if (IsActivateKey(e)) await OnToggle.InvokeAsync(node.Id); }">
                 @if (Depth == 0)
                 {
                     @((MarkupString)Icon(IconFor(node.Name)))
@@ -56,6 +57,10 @@
     [Parameter] public string? ActiveUiId { get; set; }
     [Parameter] public EventCallback<string> OnToggle { get; set; }
     [Parameter] public EventCallback<MesMenuNode> OnNavigate { get; set; }
+
+    // 접근성(P3-15) — 폴더 헤드(div)의 키보드 활성화 판정(Enter/Space).
+    private static bool IsActivateKey(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+        => e.Key is "Enter" or " " or "Spacebar";
 
     private const int Indent = 14;
     // 깊이별 좌패딩 — depth0은 18px(기존 .mes-nav-item과 정렬), 이후 14px씩 들여쓴다.

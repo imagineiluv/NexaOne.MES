@@ -6,6 +6,7 @@
    안에서의 표시 정렬/분할이며 데이터 소스는 불변이다. *@
 @using NexaOne.Web.Services.Meta
 @inject IServiceProvider Services
+@inject Microsoft.JSInterop.IJSRuntime JS
 
 @{ var cols = Columns.Where(c => c.Visible).ToList(); var view = View(); }
 @* 스타일은 smartux.css .meta-grid 규칙(테마 토큰) 단일 출처 — 인라인 금지(P3-17 다크모드). *@
@@ -41,7 +42,10 @@
                 <tr class="@(ReferenceEquals(r, _selected) ? "selected" : "")" @onclick="() => SelectAsync(r)">
                     @foreach (var col in cols)
                     {
-                        <td>@Cell(r, col.Key)</td>
+                        var colKey = col.Key;   @* 람다 캡처용 로컬 복사 *@
+                        @* P3-9 — 더블클릭=셀 값 클립보드 복사(성공 시 셀 플래시). 빈 셀은 무시. *@
+                        <td class="@(IsCopied(r, colKey) ? "copied" : null)"
+                            @ondblclick="() => CopyCellAsync(r, colKey)">@Cell(r, colKey)</td>
                     }
                 </tr>
             }
@@ -51,7 +55,7 @@
     @* P2-8 — 푸터 안내 공통 클래스(.meta-grid-note). 페이지가 여럿이면 페이저를 함께 렌더(P3-9). *@
     @if (Loading && Rows is not { Count: > 0 })
     {
-        <p class="meta-grid-note">@T("common.loading", "조회 중…")</p>
+        <p class="meta-grid-note"><span class="nx-spin" aria-hidden="true"></span> @T("common.loading", "조회 중…")</p>
     }
     else if (Rows is null)
     {
@@ -59,7 +63,10 @@
     }
     else if (Rows.Count == 0)
     {
-        <p class="meta-grid-note">@T("common.noResult", "결과 없음")</p>
+        <p class="meta-grid-note meta-grid-empty">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5 5h14l3 7v7H2v-7z"/></svg>
+            @T("common.noResult", "결과 없음")
+        </p>
     }
     else if (PageCount <= 1)
     {
@@ -145,6 +152,25 @@
         if (!OnRowSelect.HasDelegate) return;
         _selected = row;
         await OnRowSelect.InvokeAsync(row);
+    }
+
+    // P3-9 — 셀 더블클릭 복사. 호스트 부트 스크립트의 nxCopy(navigator.clipboard 래퍼)를 쓰고,
+    // 미지원/거부 환경(비보안 컨텍스트 등)에선 표시 없이 무시한다. 성공 시 1.2초 셀 플래시.
+    private (Dictionary<string, object?> Row, string Key)? _copied;
+
+    private bool IsCopied(Dictionary<string, object?> row, string key)
+        => _copied is { } c && ReferenceEquals(c.Row, row) && string.Equals(c.Key, key, StringComparison.Ordinal);
+
+    private async Task CopyCellAsync(Dictionary<string, object?> row, string key)
+    {
+        var text = Cell(row, key);
+        if (text.Length == 0) return;
+        try { await JS.InvokeVoidAsync("nxCopy", text); }
+        catch { return; }
+        _copied = (row, key);
+        StateHasChanged();
+        await Task.Delay(1200);
+        if (IsCopied(row, key)) { _copied = null; StateHasChanged(); }
     }
 
 

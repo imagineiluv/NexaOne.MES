@@ -10,7 +10,7 @@
    (IApiClient/AuthTokenService/JwtAuthStateProvider)만으로 성립하는 자체 페이지를 둔다. 성공 시 토큰을 저장하고
    AuthState 재평가를 트리거한 뒤 ReturnUrl(또는 /meta 기본)로 이동한다. *@
 <div class="host-card">
-    @* NAF 브랜드 로고(P3-19) — 워드마크가 제목을 겸한다(브랜드 이미지 벡터 재현). *@
+    @* NAF 회사 로고(P3-19) + 제품명 — 제품명=NexaOne(MES), 회사명=NAF(사용자 확정 2026-07-04). *@
     <div class="host-brand">
         <div class="naf-logo naf-center" role="img" aria-label="NAF — Now and Future">
             <svg class="naf-mark" viewBox="0 0 120 50" fill="currentColor" aria-hidden="true">
@@ -22,7 +22,8 @@
             <small class="naf-tag">NOW AND FUTURE</small>
         </div>
     </div>
-    <p class="host-sub">통합 호스트 · Manufacturing Execution System</p>
+    <p class="host-title">NexaOne MES</p>
+    <p class="host-sub">제조실행시스템 · Manufacturing Execution System</p>
 
     <EditForm Model="@_model" OnValidSubmit="HandleLogin">
         <DataAnnotationsValidator />
