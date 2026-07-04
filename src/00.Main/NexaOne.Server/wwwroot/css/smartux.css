@@ -30,10 +30,15 @@ body {
 
 /* 사이드바 */
 .mes-sidebar { width: 230px; flex: 0 0 230px; background: var(--sux-navy); display: flex; flex-direction: column; }
-.mes-logo { height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 18px; background: #fff; border-bottom: 1px solid var(--sux-border); }
-.mes-logo .cube { width: 26px; height: 26px; flex: 0 0 26px; }
-.mes-logo .brand { font-weight: 800; font-size: 15px; letter-spacing: .5px; color: #1c2b46; }
-.mes-logo .brand small { display: block; font-size: 9px; font-weight: 600; color: var(--sux-teal); letter-spacing: 2px; }
+.mes-logo { height: 56px; display: flex; align-items: center; padding: 0 18px; background: #fff; border-bottom: 1px solid var(--sux-border); }
+/* NAF 브랜드 로고 — 라이트 배경=브랜드 네이비, 다크 배경에 쓸 땐 color만 #fff로(단색 마크). */
+:root { --naf-navy: #2b3a8f; --naf-teal: #4a9a8f; }
+.naf-logo { color: var(--naf-navy); display: flex; flex-direction: column; gap: 3px; }
+.naf-logo.naf-center { align-items: center; }
+.naf-logo .naf-mark { width: 86px; height: auto; display: block; }
+.naf-logo.naf-center .naf-mark { width: 112px; }
+.naf-logo .naf-tag { font-size: 7.5px; font-weight: 600; letter-spacing: 3.2px; color: currentColor; opacity: .8; padding-left: 2px; }
+.naf-logo.naf-center .naf-tag { font-size: 9px; letter-spacing: 4px; }
 .mes-nav { flex: 1; overflow-y: auto; padding: 6px 0; }
 .mes-nav::-webkit-scrollbar { width: 6px; } .mes-nav::-webkit-scrollbar-thumb { background: #2a3c5c; border-radius: 3px; }
 .mes-nav-item {

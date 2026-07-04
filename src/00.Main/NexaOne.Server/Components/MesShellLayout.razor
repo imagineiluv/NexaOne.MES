@@ -13,11 +13,17 @@
    최소 정적 폴백으로 셸이 절대 빈 화면이 되지 않게 한다. /meta 화면(HostRoutes의 DefaultLayout). *@
 <div class="mes-shell @(_navCollapsed ? "nav-collapsed" : "")">
     <aside class="mes-sidebar">
+        @* NAF 브랜드 로고(픽셀 클러스터 + naf 워드마크 + NOW AND FUTURE) — 브랜드 이미지 벡터 재현. *@
         <div class="mes-logo">
-            <svg class="cube" viewBox="0 0 24 24" fill="none" stroke="#15b89a" stroke-width="1.8" stroke-linejoin="round">
-                <path d="M12 2 3 7v10l9 5 9-5V7z" /><path d="M3 7l9 5 9-5" /><path d="M12 12v10" />
-            </svg>
-            <span class="brand">NexaOne<small>MES</small></span>
+            <div class="naf-logo" role="img" aria-label="NAF — Now and Future">
+                <svg class="naf-mark" viewBox="0 0 120 50" fill="currentColor" aria-hidden="true">
+                    <rect x="10" y="2" width="6" height="6"/><rect x="0" y="12" width="9" height="9"/><rect x="19" y="9" width="5" height="5"/>
+                    <rect x="32" y="20" width="7" height="28"/><rect x="32" y="20" width="24" height="7"/><rect x="49" y="20" width="7" height="28"/>
+                    <rect x="64" y="20" width="24" height="7"/><rect x="81" y="20" width="7" height="28"/><rect x="64" y="41" width="24" height="7"/><rect x="64" y="31" width="7" height="17"/>
+                    <rect x="96" y="8" width="7" height="40"/><rect x="96" y="8" width="22" height="7"/><rect x="96" y="26" width="18" height="7"/>
+                </svg>
+                <small class="naf-tag">NOW AND FUTURE</small>
+            </div>
         </div>
         <nav class="mes-nav">
             @* §20.12 — 즐겨찾기/최근 메뉴(개인화). 서버 영속이라 어느 브라우저에서 접속해도 동일하다. *@
