@@ -63,6 +63,21 @@ body {
 .quick-item small { color: var(--sux-muted); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
 .mes-topbar .tb-ico { width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #6b7686; }
 .mes-topbar .tb-ico svg { width: 18px; height: 18px; stroke: #6b7686; }
+/* ===== 호스트 전용 페이지 공통(P2-5) — 로그인/가입/비밀번호 변경/승인/권한 관리를 메타 화면과
+   동일 팔레트(teal 토큰)로 통일한다. 인라인 파랑(#2563eb) 스타일 대체. ===== */
+.host-card { max-width: 22rem; margin: 4rem auto; padding: 2rem; background: #fff; border: 1px solid var(--sux-border); border-radius: 6px; }
+.host-title { font-size: 1.25rem; font-weight: 700; text-align: center; color: var(--sux-text); margin: 0; }
+.host-sub { text-align: center; font-size: 0.813rem; color: var(--sux-muted); margin: 0.25rem 0 1.5rem; }
+.host-field { margin-bottom: 1rem; }
+.host-field label { display: block; font-size: 0.875rem; font-weight: 500; color: #44506a; margin-bottom: 0.25rem; }
+.host-input { width: 100%; padding: 0.5rem; border: 1px solid var(--sux-border); border-radius: 4px; font-size: 0.875rem; box-sizing: border-box; }
+.host-btn { width: 100%; padding: 0.55rem; background: var(--sux-teal); color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem; }
+.host-btn:hover { background: var(--sux-teal-d); }
+.host-btn:disabled { opacity: .6; cursor: default; }
+.host-link { color: var(--sux-teal-d); }
+.host-error { color: var(--sux-red); font-size: 0.875rem; margin-bottom: 1rem; }
+.host-help { margin-top: 1rem; text-align: center; font-size: 0.813rem; color: var(--sux-muted); }
+
 /* 전역 API 토스트(P1-4) — 우상단 고정 스택, 5초 자동 소멸. 심각도 색은 --nx-severity-* 토큰. */
 .nx-toasts { position: fixed; top: 68px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 200; max-width: 380px; }
 .nx-toast { padding: 10px 14px; border-radius: 4px; font-size: 12.5px; box-shadow: 0 6px 18px rgba(16,24,40,.16); border: 1px solid; }
@@ -134,10 +149,15 @@ body {
 .meta-grid tbody tr:hover td { background: #eefaf7; }
 .meta-grid .grid-empty { padding: 48px; text-align: center; color: #9aa3b2; border: 1px solid #eef1f4; border-top: none; }
 
-/* 폼/입력 — 라벨 고정 폭 + 입력 유연 폭(flex): 라벨이 길어도 입력칸을 침범하지 않는다. */
-.meta-field { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.meta-field label { flex: 0 0 110px; text-align: right; }
-.meta-field input:not([type=checkbox]), .meta-field select { flex: 1 1 auto; min-width: 0; }
+/* 폼/입력 — 라벨 고정 폭 + 입력 유연 폭(flex): 라벨이 길어도 입력칸을 침범하지 않는다.
+   P2-7: 입력+인라인 오류를 세로로 묶는 .meta-field-control 래퍼(오류가 행 정렬을 깨지 않게). */
+.meta-field { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+.meta-field label { flex: 0 0 110px; text-align: right; padding-top: 7px; }
+.meta-field-control { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.meta-field-control input:not([type=checkbox]), .meta-field-control select { width: 100%; box-sizing: border-box; }
+.meta-field-control input[type=checkbox] { margin-top: 8px; align-self: flex-start; }
+.meta-field-error { color: var(--sux-red); font-size: 11px; margin-top: 3px; }
+.meta-field input.invalid, .meta-field select.invalid { border-color: var(--sux-red); }
 .meta-form label { font-size: 12px; color: #44506a; font-weight: 500; }
 .meta-form input, .meta-form select { padding: 6px 9px; border: 1px solid var(--sux-border); border-radius: 3px; font-size: 13px; }
 .meta-refresh { margin-left: 10px; padding: 4px 12px; font-size: 12px; vertical-align: 2px; }
@@ -152,6 +172,8 @@ body {
 .meta-cond-name, .meta-cond-select { padding: 6px 9px; border: 1px solid var(--sux-border); border-radius: 3px; font-size: 13px; }
 .meta-cond-name { width: 10rem; }
 .meta-actions { margin-top: 12px; display: flex; gap: 8px; }
+/* P2-8 — 그리드 푸터 안내(조회 중/결과 없음/N행) 공통 표기 */
+.meta-grid-note { color: #9aa3b2; font-size: 12.5px; margin-top: 8px; }
 .validation-errors { color: var(--sux-red); font-size: 12.5px; margin: 8px 0 0; padding-left: 18px; }
 .save-ok { color: var(--sux-teal); font-weight: 600; }
 .layout-section { background: #fff; border: 1px solid var(--sux-border); border-radius: 4px; padding: 14px; margin-bottom: 12px; }

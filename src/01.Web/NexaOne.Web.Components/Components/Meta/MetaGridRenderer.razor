@@ -44,21 +44,22 @@
         </tbody>
     </table>
 
+    @* P2-8 — 푸터 안내 공통 클래스(.meta-grid-note)로 통일 *@
     @if (Loading && Rows is not { Count: > 0 })
     {
-        <p style="color:#94a3b8; font-size:0.8125rem; margin-top:0.5rem;">조회 중…</p>
+        <p class="meta-grid-note">조회 중…</p>
     }
     else if (Rows is null)
     {
-        <p style="color:#94a3b8; font-size:0.8125rem; margin-top:0.5rem;">실행하면 결과가 표시됩니다.</p>
+        <p class="meta-grid-note">실행하면 결과가 표시됩니다.</p>
     }
     else if (Rows.Count == 0)
     {
-        <p style="color:#94a3b8; font-size:0.8125rem; margin-top:0.5rem;">결과 없음</p>
+        <p class="meta-grid-note">결과 없음</p>
     }
     else
     {
-        <p style="color:#94a3b8; font-size:0.8125rem; margin-top:0.5rem;">@Rows.Count 행</p>
+        <p class="meta-grid-note">@Rows.Count 행</p>
     }
 </div>
 

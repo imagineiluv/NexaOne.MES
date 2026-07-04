@@ -4,35 +4,44 @@
 <div class="meta-form">
     @foreach (var field in Definition.Fields)
     {
+        var err = ErrorFor(field);
         <div class="meta-field">
             <label>@field.Label@(field.Required ? " *" : "")</label>
-            @switch (field.Type)
-            {
-                case FieldType.Boolean:
-                    <input type="checkbox" checked="@GetBool(field.Key)" disabled="@field.ReadOnly"
-                           @onchange="e => Set(field.Key, e.Value)" />
-                    break;
+            <div class="meta-field-control">
+                @switch (field.Type)
+                {
+                    case FieldType.Boolean:
+                        <input type="checkbox" checked="@GetBool(field.Key)" disabled="@field.ReadOnly"
+                               @onchange="e => Set(field.Key, e.Value)" />
+                        break;
 
-                case FieldType.Select:
-                    var opts = ResolveOptions(field);
-                    <select disabled="@field.ReadOnly" @onchange="e => Set(field.Key, e.Value)">
-                        @* 값 미선택 상태를 명시한다 — 첫 옵션이 '보이기만 하고 모델에는 없는' 착시 방지. *@
-                        @if (GetString(field.Key).Length == 0)
-                        {
-                            <option value="" selected>(선택)</option>
-                        }
-                        @foreach (var opt in opts)
-                        {
-                            <option value="@opt.Value" selected="@(GetString(field.Key) == opt.Value)">@opt.Label</option>
-                        }
-                    </select>
-                    break;
+                    case FieldType.Select:
+                        var opts = ResolveOptions(field);
+                        <select class="@(err is null ? null : "invalid")" disabled="@field.ReadOnly" @onchange="e => Set(field.Key, e.Value)">
+                            @* 값 미선택 상태를 명시한다 — 첫 옵션이 '보이기만 하고 모델에는 없는' 착시 방지. *@
+                            @if (GetString(field.Key).Length == 0)
+                            {
+                                <option value="" selected>(선택)</option>
+                            }
+                            @foreach (var opt in opts)
+                            {
+                                <option value="@opt.Value" selected="@(GetString(field.Key) == opt.Value)">@opt.Label</option>
+                            }
+                        </select>
+                        break;
 
-                default:
-                    <input type="@InputType(field.Type)" value="@GetString(field.Key)" readonly="@field.ReadOnly"
-                           @onchange="e => Set(field.Key, e.Value)" />
-                    break;
-            }
+                    default:
+                        <input type="@InputType(field.Type)" class="@(err is null ? null : "invalid")"
+                               value="@GetString(field.Key)" readonly="@field.ReadOnly"
+                               @onchange="e => Set(field.Key, e.Value)" />
+                        break;
+                }
+                @* P2-7 — 필드 인라인 오류(하단 목록 나열 대체). MetaScreen이 캐스케이딩으로 내려보낸다. *@
+                @if (err is not null)
+                {
+                    <div class="meta-field-error">@err</div>
+                }
+            </div>
         </div>
     }
 </div>
@@ -46,6 +55,13 @@
     // (LayoutRenderer가 재귀 렌더 중간에 있어도 파라미터 배관 없이 도달한다)
     [CascadingParameter(Name = "MetaDynamicOptions")]
     public Dictionary<string, IReadOnlyList<MetaFieldOption>>? DynamicOptions { get; set; }
+
+    // P2-7 — 필드별 검증 오류(키→메시지). MetaScreen이 저장/커맨드 검증 시 채워 내려보낸다.
+    [CascadingParameter(Name = "MetaFieldErrors")]
+    public Dictionary<string, string>? FieldErrors { get; set; }
+
+    private string? ErrorFor(FieldDefinition field)
+        => FieldErrors is not null && FieldErrors.TryGetValue(field.Key, out var msg) ? msg : null;
 
     // 정적 Options 우선, 없으면 동적 옵션(필드 Key 기준), 둘 다 없으면 빈 목록.
     private IReadOnlyList<MetaFieldOption> ResolveOptions(FieldDefinition field)

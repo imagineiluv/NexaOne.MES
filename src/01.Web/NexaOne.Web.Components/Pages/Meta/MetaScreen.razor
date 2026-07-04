@@ -65,10 +65,12 @@ else if (_definition.Layout is not null)
     @* 레이아웃 트리 화면 — 멀티 read 결과맵을 내려보내고, 명령/검증은 MetaScreen이 오케스트레이션한다.
        격리 폼(Isolated, Phase-2 멀티폼)은 폼별 모델(_formModels)에 바인딩된다. *@
     <CascadingValue Value="_dynamicOptions" Name="MetaDynamicOptions">
-        <LayoutRenderer Node="_definition.Layout" @bind-Model="_model"
-                        QueryResults="_queryResults" OnCommand="RunCommand"
-                        FormModels="_formModels" OnFormModelChanged="OnFormModelChanged"
-                        OnRowSelect="_rowSelect" LoadingData="_loadingData" />
+        <CascadingValue Value="_fieldErrors" Name="MetaFieldErrors">
+            <LayoutRenderer Node="_definition.Layout" @bind-Model="_model"
+                            QueryResults="_queryResults" OnCommand="RunCommand"
+                            FormModels="_formModels" OnFormModelChanged="OnFormModelChanged"
+                            OnRowSelect="_rowSelect" LoadingData="_loadingData" />
+        </CascadingValue>
     </CascadingValue>
 
     @if (_errors.Count > 0)
@@ -97,7 +99,9 @@ else
     @if (_definition.Fields.Count > 0)
     {
         <CascadingValue Value="_dynamicOptions" Name="MetaDynamicOptions">
-            <MetaFormRenderer Definition="_definition" @bind-Model="_model" />
+            <CascadingValue Value="_fieldErrors" Name="MetaFieldErrors">
+                <MetaFormRenderer Definition="_definition" @bind-Model="_model" />
+            </CascadingValue>
         </CascadingValue>
 
         <div class="meta-actions">
@@ -479,8 +483,9 @@ else
     private async Task Save()
     {
         _saved = false;
-        _errors = Validate();
-        if (_errors.Count > 0) return;
+        _errors = new();
+        _fieldErrors = Validate();
+        if (_fieldErrors.Count > 0) return;
 
         // SaveQueryId(명명 쓰기쿼리)가 바인딩돼 있으면 폼 값(필드 Key→값)을 command 게이트웨이로 보내 저장한다.
         // 감사 컬럼(@currentUser/@utcNow)은 서버 게이트웨이가 토큰·UTC로 주입하므로 폼이 보낼 필요가 없다.
@@ -505,22 +510,25 @@ else
 
     // 공유 경로 검증 — 격리 폼(Isolated) 내부 필드는 제외한다(값이 폼별 모델에 있어 공유 모델 기준으론
     // 항상 미입력으로 오판된다). 격리 폼 검증은 RunCommand의 폼별 경로가 담당.
-    private List<string> Validate()
+    // P2-7 — 검증 결과는 필드별 맵(_fieldErrors)으로 렌더러에 캐스케이드해 필드 아래 인라인 표시한다.
+    private Dictionary<string, string> _fieldErrors = new(StringComparer.Ordinal);
+
+    private Dictionary<string, string> Validate()
     {
-        if (_definition is null) return new List<string>();
+        if (_definition is null) return new(StringComparer.Ordinal);
         var fields = _definition.Layout is not null
             ? CollectFields(_definition.Layout, skipIsolatedForms: true)
             : _definition.Fields;
         return ValidateFields(fields, _model);
     }
 
-    private static List<string> ValidateFields(IEnumerable<FieldDefinition> fields, Dictionary<string, object?> model)
+    private static Dictionary<string, string> ValidateFields(IEnumerable<FieldDefinition> fields, Dictionary<string, object?> model)
     {
-        var errors = new List<string>();
+        var errors = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var field in fields.Where(f => f.Required))
         {
             if (!model.TryGetValue(field.Key, out var v) || string.IsNullOrWhiteSpace(v?.ToString()))
-                errors.Add($"{field.Label}은(는) 필수입니다.");
+                errors[field.Key] = $"{field.Label}은(는) 필수입니다.";
         }
         return errors;
     }
@@ -530,6 +538,7 @@ else
     private async Task RunCommand(string? command)
     {
         _saved = false;
+        _errors = new();
         if (string.IsNullOrWhiteSpace(command)) return;
 
         var isolated = _isolatedForms.Values.FirstOrDefault(f =>
@@ -537,16 +546,16 @@ else
         if (isolated is not null && LayoutRenderer.FormScopeKey(isolated) is { } key)
         {
             var formModel = _formModels.TryGetValue(key, out var m) ? m : new Dictionary<string, object?>();
-            _errors = ValidateFields(CollectFields(isolated), formModel);
-            if (_errors.Count > 0) return;
+            _fieldErrors = ValidateFields(CollectFields(isolated), formModel);
+            if (_fieldErrors.Count > 0) return;
             _saved = await Api.ExecuteCommandAsync(command, formModel);
             if (!_saved) _errors.Add("저장에 실패했습니다(권한/입력 확인).");
             else await ReloadDataAsync();   // 저장 결과를 그리드에 즉시 반영
             return;
         }
 
-        _errors = Validate();
-        if (_errors.Count > 0) return;
+        _fieldErrors = Validate();
+        if (_fieldErrors.Count > 0) return;
         _saved = await Api.ExecuteCommandAsync(command, _model);
         if (!_saved) _errors.Add("저장에 실패했습니다(권한/입력 확인).");
         else await ReloadDataAsync();   // 저장 결과를 그리드에 즉시 반영
