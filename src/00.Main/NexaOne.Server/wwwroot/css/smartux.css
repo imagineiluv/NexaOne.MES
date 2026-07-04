@@ -63,6 +63,18 @@ body {
 .quick-item small { color: var(--sux-muted); font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
 .mes-topbar .tb-ico { width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: #6b7686; }
 .mes-topbar .tb-ico svg { width: 18px; height: 18px; stroke: #6b7686; }
+/* 전역 API 토스트(P1-4) — 우상단 고정 스택, 5초 자동 소멸. 심각도 색은 --nx-severity-* 토큰. */
+.nx-toasts { position: fixed; top: 68px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 200; max-width: 380px; }
+.nx-toast { padding: 10px 14px; border-radius: 4px; font-size: 12.5px; box-shadow: 0 6px 18px rgba(16,24,40,.16); border: 1px solid; }
+.nx-toast-error   { background: var(--nx-severity-danger-bg);  color: var(--nx-severity-danger-fg);  border-color: #fecaca; }
+.nx-toast-warning { background: var(--nx-severity-warning-bg); color: var(--nx-severity-warning-fg); border-color: #fde68a; }
+.nx-toast-info    { background: var(--nx-severity-info-bg);    color: var(--nx-severity-info-fg);    border-color: #bfdbfe; }
+
+/* P1-1 — 선택 가능 그리드: 행 커서/호버, 선택 행 하이라이트 */
+.meta-grid.selectable tbody tr { cursor: pointer; }
+.meta-grid.selectable tbody tr:hover td { background: #f0f9f7; }
+.meta-grid tbody tr.selected td { background: #dff5ef !important; }
+
 /* 사용자 메뉴 드롭다운 — ID·비밀번호 변경·로그아웃 */
 .mes-usermenu { position: relative; }
 .user-dropdown { position: absolute; top: 100%; right: 0; margin-top: 6px; min-width: 180px;

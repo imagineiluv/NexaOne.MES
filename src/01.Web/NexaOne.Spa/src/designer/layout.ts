@@ -35,7 +35,7 @@ export interface GridWidget  extends NodeBase { kind: 'grid'; queryId?: string |
 // isolated=true(Phase-2 멀티폼) — 폼 전용 모델 격리(폼별 저장/검증). 기본 false=화면 공유 모델(하위호환).
 export interface FormWidget  extends NodeBase { kind: 'form'; saveQueryId?: string | null; fields?: FieldWidget[]; isolated?: boolean }
 export interface FieldWidget extends NodeBase { kind: 'field'; fieldKey?: string | null; field?: FieldDefinition | null }
-export interface ButtonWidget extends NodeBase { kind: 'commandButton'; label: string; command?: string | null }
+export interface ButtonWidget extends NodeBase { kind: 'commandButton'; label: string; command?: string | null; confirmMessage?: string | null }
 export interface TextWidget  extends NodeBase { kind: 'text'; text: string; isLabel?: boolean }
 // KPI 카드(Phase-2) — 바인딩 쿼리 첫 행의 valueColumn 값을 큰 숫자로 표시(C# KpiWidget 미러).
 export interface KpiWidget   extends NodeBase { kind: 'kpi'; label: string; queryId?: string | null; valueColumn?: string | null; unit?: string | null }

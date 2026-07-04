@@ -67,7 +67,8 @@ else if (_definition.Layout is not null)
     <CascadingValue Value="_dynamicOptions" Name="MetaDynamicOptions">
         <LayoutRenderer Node="_definition.Layout" @bind-Model="_model"
                         QueryResults="_queryResults" OnCommand="RunCommand"
-                        FormModels="_formModels" OnFormModelChanged="OnFormModelChanged" />
+                        FormModels="_formModels" OnFormModelChanged="OnFormModelChanged"
+                        OnRowSelect="_rowSelect" LoadingData="_loadingData" />
     </CascadingValue>
 
     @if (_errors.Count > 0)
@@ -122,7 +123,8 @@ else
                 <span class="h-right">검색 결과@(_rows is { Count: > 0 } ? $" ({_rows.Count})" : "")</span>
             </div>
             <div class="mes-card-body">
-                <MetaGridRenderer Columns="_definition.Columns" Rows="_rows" />
+                <MetaGridRenderer Columns="_definition.Columns" Rows="_rows"
+                                  Loading="_loadingData" OnRowSelect="_rowSelect" />
             </div>
         </div>
     }
@@ -186,6 +188,13 @@ else
                 if (setting.Latest is not null) ApplyConditionValues(setting.Latest.Values);
             }
         }
+
+        // P1-1 — 폼 필드가 있는 화면만 그리드 행 선택(클릭=폼 로드)을 켠다(조회 전용 화면은 선택 불가).
+        var hasFormFields = _definition is not null &&
+            (_definition.Layout is not null ? CollectFields(_definition.Layout).Any() : _definition.Fields.Count > 0);
+        _rowSelect = hasFormFields
+            ? EventCallback.Factory.Create<Dictionary<string, object?>>(this, OnRowSelectedAsync)
+            : default;
 
         // 데이터(그리드 행 + 레이아웃 결과맵) 조회 — 자동 새로고침과 공유하는 단일 경로.
         await ReloadDataAsync();
@@ -375,24 +384,72 @@ else
     // 검색 조건(SearchFields)이 있으면 값을 모든 읽기쿼리에 바인딩한다 — SQL이 선언하지 않은 파라미터는
     // 게이트웨이가 무시하므로 화면 내 여러 쿼리에 같은 조건 딕셔너리를 안전하게 공유한다.
     // (403/5xx는 ApiClient가 빈 목록으로 흡수하고 전역 토스트가 사유를 알린다)
+    private bool _loadingData;   // P1-3 — 그리드 '조회 중…' 표시
     private async Task ReloadDataAsync()
     {
-        var search = BuildSearchParameters();
-        _rows = null;
-        if (_definition?.Columns is { Count: > 0 } && !string.IsNullOrWhiteSpace(_definition.QueryId))
+        _loadingData = true;
+        try
         {
-            _rows = await Api.ExecuteQueryAsync(_definition.QueryId, search);
-        }
+            var search = BuildSearchParameters();
+            _rows = null;
+            if (_definition?.Columns is { Count: > 0 } && !string.IsNullOrWhiteSpace(_definition.QueryId))
+            {
+                _rows = await Api.ExecuteQueryAsync(_definition.QueryId, search);
+            }
 
-        if (_definition?.Layout is not null)
+            if (_definition?.Layout is not null)
+            {
+                var map = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>(StringComparer.Ordinal);
+                foreach (var queryId in CollectQueryIds(_definition.Layout))
+                    if (!map.ContainsKey(queryId))
+                        map[queryId] = await Api.ExecuteQueryAsync(queryId, search);
+                _queryResults = map;
+            }
+        }
+        finally
         {
-            var map = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>(StringComparer.Ordinal);
-            foreach (var queryId in CollectQueryIds(_definition.Layout))
-                if (!map.ContainsKey(queryId))
-                    map[queryId] = await Api.ExecuteQueryAsync(queryId, search);
-            _queryResults = map;
+            _loadingData = false;
         }
     }
+
+    // ── P1-1 그리드 행 선택 → 폼 로드(레거시 표준 편집 흐름) ────────────────────
+    // 컬럼 키(UPPER_SNAKE)와 필드 키(camel)는 구분자 제거·소문자 정규화로 매칭한다(BATCH_ID ↔ batchId).
+    // 행 딕셔너리의 모든 컬럼(표시 안 되는 컬럼 포함)을 대상으로 하며, 격리 폼은 폼별 모델에 반영한다.
+    private EventCallback<Dictionary<string, object?>> _rowSelect;
+
+    private Task OnRowSelectedAsync(Dictionary<string, object?> row)
+    {
+        if (_definition is null) return Task.CompletedTask;
+        var byNorm = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var (k, v) in row) byNorm[NormalizeRowKey(k)] = v;
+
+        void Apply(IEnumerable<FieldDefinition> fields, Dictionary<string, object?> model)
+        {
+            foreach (var f in fields)
+                if (byNorm.TryGetValue(NormalizeRowKey(f.Key), out var v))
+                    model[f.Key] = CoerceForField(f, v);
+        }
+
+        if (_definition.Layout is not null)
+        {
+            Apply(CollectFields(_definition.Layout, skipIsolatedForms: true), _model);
+            foreach (var (key, form) in _isolatedForms)
+                if (_formModels.TryGetValue(key, out var m)) Apply(CollectFields(form), m);
+        }
+        else
+        {
+            Apply(_definition.Fields, _model);
+        }
+        return Task.CompletedTask;
+    }
+
+    private static string NormalizeRowKey(string key) => key.Replace("_", "").ToLowerInvariant();
+
+    // Boolean 필드는 DB 표현(0/1·true) 정규화, 그 외는 입력 바인딩용 문자열.
+    private static object? CoerceForField(FieldDefinition f, object? v)
+        => f.Type == FieldType.Boolean
+            ? v is bool b ? b : v?.ToString() is "1" or "true" or "True" or "TRUE"
+            : v?.ToString();
 
     private async Task AutoRefreshLoopAsync(int intervalSeconds, CancellationToken ct)
     {

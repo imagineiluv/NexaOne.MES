@@ -295,6 +295,90 @@ public sealed class MetaScreenTests
     }
 
     [Fact]
+    public void Row_click_loads_row_values_into_form_fields()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+
+        // P1-1 — 행 클릭=폼 로드(레거시 표준 편집 흐름). 컬럼 UPPER_SNAKE ↔ 필드 camel 정규화 매칭,
+        // 표시되지 않는 컬럼(BATCH_NAME)도 행 딕셔너리에 있으면 폼에 채워져야 한다.
+        var def = new ScreenDefinition("ROWSEL", "배치",
+            new FieldDefinition[] { new("batchId", "배치 ID"), new("batchName", "배치명") },
+            new GridColumnDefinition[] { new("BATCH_ID", "배치 ID") },
+            QueryId: "Q.B", SaveQueryId: "SYS.X");
+
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryAsync("Q.B", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(new List<Dictionary<string, object?>>
+           {
+               new() { ["BATCH_ID"] = "B-1", ["BATCH_NAME"] = "야간 집계" },
+           });
+        ctx.Services.AddSingleton(Provider("ROWSEL", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "ROWSEL"));
+        cut.WaitForAssertion(() => cut.FindAll("tbody tr").Should().NotBeEmpty());
+
+        cut.Find("tbody tr").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var inputs = cut.FindAll(".meta-form input");
+            inputs[0].GetAttribute("value").Should().Be("B-1", "BATCH_ID → batchId 정규화 매칭");
+            inputs[1].GetAttribute("value").Should().Be("야간 집계", "미표시 컬럼도 행 값이 폼에 로드돼야 한다");
+            cut.Find("tbody tr").ClassList.Should().Contain("selected", "선택 행은 하이라이트");
+        }, TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public void Confirm_message_blocks_command_when_cancelled_and_runs_when_accepted()
+    {
+        // P1-2 — ConfirmMessage가 있는 버튼은 confirm=false면 커맨드 미실행, true면 실행.
+        ScreenDefinition Def() => new("CONF", "확인", Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Id = "s", Children = new LayoutNode[]
+                {
+                    new ButtonWidget { Id = "b", Label = "삭제", Command = "SYS.Del", ConfirmMessage = "정말 삭제하시겠습니까?" },
+                },
+            });
+
+        using (var ctx = new TestContext())
+        {
+            ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+            ctx.JSInterop.Setup<bool>("confirm", "정말 삭제하시겠습니까?").SetResult(false);
+            var api = new Mock<IApiClient>();
+            ctx.Services.AddSingleton(Provider("CONF", Def()).Object);
+            ctx.Services.AddSingleton(api.Object);
+
+            var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "CONF"));
+            cut.FindAll("button").First(b => b.TextContent.Trim() == "삭제").Click();
+
+            api.Verify(a => a.ExecuteCommandAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()),
+                Times.Never, "confirm 취소 시 커맨드를 실행하지 않아야 한다");
+        }
+
+        using (var ctx = new TestContext())
+        {
+            ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+            ctx.JSInterop.Setup<bool>("confirm", "정말 삭제하시겠습니까?").SetResult(true);
+            var api = new Mock<IApiClient>();
+            api.Setup(a => a.ExecuteCommandAsync("SYS.Del", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+               .ReturnsAsync(true);
+            ctx.Services.AddSingleton(Provider("CONF", Def()).Object);
+            ctx.Services.AddSingleton(api.Object);
+
+            var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "CONF"));
+            cut.FindAll("button").First(b => b.TextContent.Trim() == "삭제").Click();
+
+            cut.WaitForAssertion(() =>
+                api.Verify(a => a.ExecuteCommandAsync("SYS.Del", It.IsAny<object?>(), It.IsAny<CancellationToken>()),
+                    Times.Once, "confirm 수락 시 커맨드가 실행돼야 한다"),
+                TimeSpan.FromSeconds(2));
+        }
+    }
+
+    [Fact]
     public void Save_blocks_and_does_not_call_gateway_when_required_field_empty()
     {
         using var ctx = new TestContext();

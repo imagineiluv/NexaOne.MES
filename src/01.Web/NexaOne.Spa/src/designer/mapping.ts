@@ -66,6 +66,7 @@ export function layoutToComponent(node: LayoutNode): GrapesNode {
     case 'commandButton':
       attributes['data-label'] = node.label
       if (node.command != null) attributes['data-command'] = node.command
+      if (node.confirmMessage != null && node.confirmMessage !== '') attributes['data-confirm'] = node.confirmMessage
       break
     case 'text':
       attributes['data-text'] = node.text
@@ -183,7 +184,12 @@ export function componentToLayout(comp: GrapesNode): LayoutNode | null {
     }
     case 'commandButton': {
       const command = str(a, 'data-command')
-      return { kind, ...base, label: str(a, 'data-label') ?? '', ...(command != null ? { command } : {}) }
+      const confirmMessage = str(a, 'data-confirm')
+      return {
+        kind, ...base, label: str(a, 'data-label') ?? '',
+        ...(command != null ? { command } : {}),
+        ...(confirmMessage != null ? { confirmMessage } : {}),
+      }
     }
     case 'text':
       return { kind, ...base, text: str(a, 'data-text') ?? '', ...(a?.['data-is-label'] ? { isLabel: true } : {}) }

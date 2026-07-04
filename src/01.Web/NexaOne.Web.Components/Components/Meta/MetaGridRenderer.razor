@@ -1,10 +1,11 @@
 @* Phase 4 — ScreenDefinition.Columns(메타데이터)를 받아 행 데이터를 런타임 렌더하는 그리드.
    행은 파일 기반 쿼리 게이트웨이(ExecuteQueryAsync) 결과(컬럼명→값 Dictionary)로 공급된다 —
-   손코딩 .razor 없이 컬럼 메타 + 명명 쿼리만으로 조회 화면을 구성한다(고코드 타입드 리포와 공존). *@
+   손코딩 .razor 없이 컬럼 메타 + 명명 쿼리만으로 조회 화면을 구성한다(고코드 타입드 리포와 공존).
+   OnRowSelect가 배선되면 행 클릭=선택(하이라이트)+콜백 — MetaScreen이 폼에 로드한다(P1-1). *@
 @using NexaOne.Web.Services.Meta
 
 @{ var cols = Columns.Where(c => c.Visible).ToList(); }
-<div class="meta-grid">
+<div class="meta-grid @(OnRowSelect.HasDelegate ? "selectable" : "")">
     <table style="@(cols.Any(c => c.Width is > 0) ? "width:100%; border-collapse:collapse; font-size:0.875rem; table-layout:fixed;" : "width:100%; border-collapse:collapse; font-size:0.875rem;")">
         @* 컬럼 폭 메타(Phase-2) — Width(px) 지정 컬럼은 colgroup으로 고정하고(table-layout:fixed 필요),
            미지정 컬럼은 잔여 폭을 자동 분배한다. 표시 순서는 Columns 목록 순서가 담당. *@
@@ -31,10 +32,11 @@
             {
                 @foreach (var row in Rows)
                 {
-                    <tr>
+                    var r = row;   @* 람다 캡처용 로컬 복사 *@
+                    <tr class="@(ReferenceEquals(r, _selected) ? "selected" : "")" @onclick="() => SelectAsync(r)">
                         @foreach (var col in cols)
                         {
-                            <td style="border-bottom:1px solid #f1f5f9; padding:0.5rem;">@Cell(row, col.Key)</td>
+                            <td style="border-bottom:1px solid #f1f5f9; padding:0.5rem;">@Cell(r, col.Key)</td>
                         }
                     </tr>
                 }
@@ -42,7 +44,11 @@
         </tbody>
     </table>
 
-    @if (Rows is null)
+    @if (Loading && Rows is not { Count: > 0 })
+    {
+        <p style="color:#94a3b8; font-size:0.8125rem; margin-top:0.5rem;">조회 중…</p>
+    }
+    else if (Rows is null)
     {
         <p style="color:#94a3b8; font-size:0.8125rem; margin-top:0.5rem;">실행하면 결과가 표시됩니다.</p>
     }
@@ -63,6 +69,21 @@
 
     // null = 미실행(안내 문구), 빈 목록 = 결과 없음, 그 외 = 행 렌더.
     [Parameter] public IReadOnlyList<Dictionary<string, object?>>? Rows { get; set; }
+
+    // P1-3 — 조회 진행 중 표시(안내 문구 대체). 기존 행이 있으면 그대로 두고 문구만 생략.
+    [Parameter] public bool Loading { get; set; }
+
+    // P1-1 — 행 클릭 콜백(전체 행 딕셔너리 — 표시되지 않는 컬럼도 포함해 폼 채우기에 쓴다).
+    [Parameter] public EventCallback<Dictionary<string, object?>> OnRowSelect { get; set; }
+
+    private Dictionary<string, object?>? _selected;
+
+    private async Task SelectAsync(Dictionary<string, object?> row)
+    {
+        if (!OnRowSelect.HasDelegate) return;
+        _selected = row;
+        await OnRowSelect.InvokeAsync(row);
+    }
 
     private static string Cell(Dictionary<string, object?> row, string key)
         => row.TryGetValue(key, out var v) && v is not null ? v.ToString() ?? "" : "";

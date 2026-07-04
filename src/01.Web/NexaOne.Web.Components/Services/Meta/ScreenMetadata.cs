@@ -91,7 +91,8 @@ public sealed record FormWidget : LayoutNode
     public bool Isolated { get; init; }
 }
 public sealed record FieldWidget : LayoutNode { public string? FieldKey { get; init; } public FieldDefinition? Field { get; init; } }
-public sealed record ButtonWidget : LayoutNode { public string Label { get; init; } = ""; public string? Command { get; init; } }
+/// <summary>명령 버튼. <c>ConfirmMessage</c>가 있으면 실행 전 브라우저 확인을 통과해야 한다(파괴적 명령 보호, P1-2).</summary>
+public sealed record ButtonWidget : LayoutNode { public string Label { get; init; } = ""; public string? Command { get; init; } public string? ConfirmMessage { get; init; } }
 public sealed record TextWidget : LayoutNode { public string Text { get; init; } = ""; public bool IsLabel { get; init; } }
 /// <summary>KPI 카드(디자이너 Phase-2) — QueryId 결과 첫 행의 ValueColumn 값을 큰 숫자로 표시. 대시보드 요약용.</summary>
 public sealed record KpiWidget : LayoutNode

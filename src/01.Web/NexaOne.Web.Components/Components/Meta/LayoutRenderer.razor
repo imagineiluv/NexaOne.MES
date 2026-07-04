@@ -1,6 +1,7 @@
 @* Low-Code 레이아웃 트리 렌더러(재귀). Section/Row/Column/Text는 직접, Grid/Form/Field는 기존 렌더러 위임,
    CommandButton은 콜백. 데이터(QueryResults)·콜백(OnCommand)·공유 Model은 부모(MetaScreen)가 주입한다. *@
 @using NexaOne.Web.Services.Meta
+@inject Microsoft.JSInterop.IJSRuntime JS
 
 @switch (Node)
 {
@@ -24,7 +25,8 @@
         break;
 
     case GridWidget g:
-        <MetaGridRenderer Columns="g.Columns ?? Array.Empty<GridColumnDefinition>()" Rows="RowsFor(g.QueryId)" />
+        <MetaGridRenderer Columns="g.Columns ?? Array.Empty<GridColumnDefinition>()" Rows="RowsFor(g.QueryId)"
+                          Loading="LoadingData" OnRowSelect="OnRowSelect" />
         break;
 
     @* Form/Field는 기본적으로 화면 공유 Model(동일 Dictionary 참조)에 바인딩한다 — 위젯 간 값 즉시 공유(의도된 설계).
@@ -49,7 +51,7 @@
         break;
 
     case ButtonWidget b:
-        <button class="layout-command" @onclick="() => OnCommand.InvokeAsync(b.Command)" disabled="@string.IsNullOrWhiteSpace(b.Command)">@b.Label</button>
+        <button class="layout-command" @onclick="() => RunButtonAsync(b)" disabled="@string.IsNullOrWhiteSpace(b.Command)">@b.Label</button>
         break;
 
     case TextWidget t:
@@ -119,6 +121,19 @@
     [Parameter] public IReadOnlyDictionary<string, Dictionary<string, object?>> FormModels { get; set; }
         = new Dictionary<string, Dictionary<string, object?>>();
     [Parameter] public EventCallback<(string Key, Dictionary<string, object?> Model)> OnFormModelChanged { get; set; }
+    // P1-1 — 그리드 행 클릭 콜백(MetaScreen이 폼에 로드). 미배선이면 그리드가 선택 불가로 렌더된다.
+    [Parameter] public EventCallback<Dictionary<string, object?>> OnRowSelect { get; set; }
+    // P1-3 — 조회 진행 중 표시 전달.
+    [Parameter] public bool LoadingData { get; set; }
+
+    // P1-2 — 파괴적 명령 보호: ConfirmMessage가 있으면 브라우저 confirm 통과 시에만 실행한다.
+    private async Task RunButtonAsync(ButtonWidget b)
+    {
+        if (!string.IsNullOrWhiteSpace(b.ConfirmMessage)
+            && !await JS.InvokeAsync<bool>("confirm", b.ConfirmMessage))
+            return;
+        await OnCommand.InvokeAsync(b.Command);
+    }
 
     /// <summary>격리 폼 스코프 키 — Id 우선, 없으면 SaveQueryId, 둘 다 없으면 null(공유로 저하).</summary>
     internal static string? FormScopeKey(FormWidget f)
@@ -141,6 +156,8 @@
             builder.AddAttribute(5, nameof(OnCommand), OnCommand);
             builder.AddAttribute(6, nameof(FormModels), FormModels);
             builder.AddAttribute(7, nameof(OnFormModelChanged), OnFormModelChanged);
+            builder.AddAttribute(8, nameof(OnRowSelect), OnRowSelect);
+            builder.AddAttribute(9, nameof(LoadingData), LoadingData);
             builder.CloseComponent();
         }
     };

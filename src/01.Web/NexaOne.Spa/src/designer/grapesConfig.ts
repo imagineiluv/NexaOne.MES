@@ -122,6 +122,7 @@ export function buildTraitDefs(queries: QueryCatalog): Record<string, TraitDef[]
     'nx-button': [
       { type: 'text', name: 'data-label', label: '라벨' },
       { type: 'select', name: 'data-command', label: '명령 쿼리', options: writeOpts },
+      { type: 'text', name: 'data-confirm', label: '확인 문구(파괴적 명령용)' },
     ],
     'nx-text': [{ type: 'text', name: 'data-text', label: '텍스트' }],
     'nx-kpi': [

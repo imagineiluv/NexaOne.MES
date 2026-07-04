@@ -197,6 +197,19 @@ describe('field 이산 속성 매핑(트레이트 단일 출처)', () => {
     expect(plain.attributes!['data-field-options-query']).toBeUndefined()
   })
 
+  it('버튼 confirmMessage 라운드트립(data-confirm) — 부재 시 속성 미기록', () => {
+    const node: LayoutNode = {
+      kind: 'commandButton', id: 'b-del', label: '삭제',
+      command: 'SYS.DeleteMenuRole', confirmMessage: '정말 삭제하시겠습니까?',
+    }
+    const comp = layoutToComponent(node)
+    expect(comp.attributes!['data-confirm']).toBe('정말 삭제하시겠습니까?')
+    expect(componentToLayout(comp)).toEqual(node)
+
+    const plain = layoutToComponent({ kind: 'commandButton', id: 'b-save', label: '저장', command: 'SYS.Upsert' })
+    expect(plain.attributes!['data-confirm']).toBeUndefined()
+  })
+
   it('MAP-1: 콤마·콜론 포함 options가 라운드트립에서 정확히 보존된다(콤마-조인 부패 방지)', () => {
     const node: LayoutNode = {
       kind: 'field', id: 'f-opts', fieldKey: 'cat',

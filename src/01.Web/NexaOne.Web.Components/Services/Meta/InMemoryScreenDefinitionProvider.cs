@@ -185,7 +185,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                                 new() { FieldKey = "description", Field = new FieldDefinition("description", "설명", FieldType.Text) },
                             } },
                             new ButtonWidget { Id = "b-batch-save", Label = "저장", Command = "SYS.UpsertBatchProcess", RequiredPermission = "sys:manage" },
-                            new ButtonWidget { Id = "b-batch-del", Label = "삭제", Command = "SYS.DeleteBatchProcess", RequiredPermission = "sys:manage" },
+                            new ButtonWidget { Id = "b-batch-del", Label = "삭제", Command = "SYS.DeleteBatchProcess", RequiredPermission = "sys:manage", ConfirmMessage = "입력한 배치 ID의 정의를 삭제(비활성)하시겠습니까?" },
                         } },
                     } },
                     // 실행 이력(V068) — 배치 엔진(수동 run·주기 워커)이 기록. 검색 조건 @batchId로 필터.
@@ -237,7 +237,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                                 new() { FieldKey = "roleId", Field = new FieldDefinition("roleId", "역할", FieldType.Select, Required: true, OptionsQueryId: "SYS.ListRoles") },
                             } },
                             new ButtonWidget { Id = "b-menurole-save", Label = "저장", Command = "SYS.UpsertMenuRole", RequiredPermission = "sys:manage" },
-                            new ButtonWidget { Id = "b-menurole-del", Label = "삭제", Command = "SYS.DeleteMenuRole", RequiredPermission = "sys:manage" },
+                            new ButtonWidget { Id = "b-menurole-del", Label = "삭제", Command = "SYS.DeleteMenuRole", RequiredPermission = "sys:manage", ConfirmMessage = "선택한 메뉴-역할 매핑을 삭제하시겠습니까? 마지막 매핑을 지우면 해당 메뉴는 전체 공개로 돌아갑니다." },
                         } },
                     } },
                 },
@@ -277,7 +277,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                                 new() { FieldKey = "description", Field = new FieldDefinition("description", "설명", FieldType.Text) },
                             } },
                             new ButtonWidget { Id = "b-ve-save", Label = "저장", Command = "FDC.UpsertVirtualEvent", RequiredPermission = "fdc:manage" },
-                            new ButtonWidget { Id = "b-ve-del", Label = "삭제", Command = "FDC.DeleteVirtualEvent", RequiredPermission = "fdc:manage" },
+                            new ButtonWidget { Id = "b-ve-del", Label = "삭제", Command = "FDC.DeleteVirtualEvent", RequiredPermission = "fdc:manage", ConfirmMessage = "입력한 설비/이벤트의 가상 이벤트 정의를 삭제(비활성)하시겠습니까?" },
                         } },
                     } },
                     // 전이 이력(V069) — 평가 엔진이 상태 전이 시에만 기록. 검색 조건 @equipmentId/@eventId 필터.

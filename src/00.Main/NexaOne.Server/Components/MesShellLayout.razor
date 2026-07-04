@@ -129,6 +129,9 @@
             @Body
         </section>
     </div>
+
+    @* 전역 API 토스트(403/5xx/검증 실패) — ApiNotificationService의 유일한 소비자(P1-4). *@
+    <NexaOne.Web.Components.ApiToastHost />
 </div>
 
 @code {

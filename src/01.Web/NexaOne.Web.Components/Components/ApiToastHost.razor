@@ -1,0 +1,39 @@
+@* 전역 API 토스트 호스트 — ApiClient가 발신하는 403/5xx/검증 실패 통지(ApiNotificationService)를
+   화면 우상단에 표시하고 5초 후 자동 소멸한다. 셸(MesShellLayout)에 1개 배치한다.
+   (이 컴포넌트가 없으면 통지 구독자가 0이라 권한 거부·서버 오류가 사용자에게 조용히 사라진다 —
+   P1-4에서 발견된 공백을 메우는 유일한 소비자.) *@
+@using NexaOne.Web.Services
+@implements IDisposable
+@inject ApiNotificationService Notifier
+
+<div class="nx-toasts">
+    @foreach (var entry in _items)
+    {
+        <div @key="entry" class="nx-toast nx-toast-@entry.Notification.Severity.ToString().ToLowerInvariant()">
+            @entry.Notification.Message
+        </div>
+    }
+</div>
+
+@code {
+    private readonly List<Entry> _items = new();
+    private sealed record Entry(ApiNotification Notification);
+
+    protected override void OnInitialized() => Notifier.OnNotify += OnNotify;
+
+    // 발신은 백그라운드 스레드일 수 있어 InvokeAsync로 회로 컨텍스트에 태운다. 5초 후 자동 소멸.
+    private void OnNotify(ApiNotification notification)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            var entry = new Entry(notification);
+            _items.Add(entry);
+            StateHasChanged();
+            await Task.Delay(TimeSpan.FromSeconds(5));
+            _items.Remove(entry);
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose() => Notifier.OnNotify -= OnNotify;
+}
