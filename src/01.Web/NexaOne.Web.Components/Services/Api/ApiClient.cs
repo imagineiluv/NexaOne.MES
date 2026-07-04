@@ -12,16 +12,18 @@ public sealed class ApiClient : IApiClient
     private readonly AuthTokenService _tokenService;
     private readonly JwtAuthStateProvider _authState;
     private readonly ApiNotificationService _notifier;
+    private readonly UiTextService _ui;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private static readonly JwtSecurityTokenHandler _jwtHandler = new();
 
     public ApiClient(HttpClient http, AuthTokenService tokenService, JwtAuthStateProvider authState,
-        ApiNotificationService notifier)
+        ApiNotificationService notifier, UiTextService ui)
     {
         _http = http;
         _tokenService = tokenService;
         _authState = authState;
         _notifier = notifier;
+        _ui = ui;
     }
 
     // ── Token helpers ─────────────────────────────────────────────────────────
@@ -158,24 +160,31 @@ public sealed class ApiClient : IApiClient
     {
         if (resp.IsSuccessStatusCode || resp.StatusCode == HttpStatusCode.Unauthorized)
             return;   // 401은 인증 흐름(RefreshAsync의 갱신/로그아웃)이 처리한다
+        // 클라이언트 생성 일반 오류 문구(권한/서버/연결/폴백)는 현재 언어로 번역한다(P3-14 v4).
+        // 서버 모듈 Error.Description(자유 문장)은 ReadErrorAsync가 그대로 노출 — 서버측 메시지 다국어는 별도 아크.
         if (resp.StatusCode == HttpStatusCode.Forbidden)
-            _notifier.Notify("이 작업을 수행할 권한이 없습니다. 관리자에게 권한을 요청하세요.");
+            _notifier.Notify(_ui.T("error.forbidden", "이 작업을 수행할 권한이 없습니다. 관리자에게 권한을 요청하세요."));
         else if ((int)resp.StatusCode >= 500)
-            _notifier.Notify($"서버 오류가 발생했습니다 (HTTP {(int)resp.StatusCode}). 잠시 후 다시 시도해 주세요.");
+            _notifier.Notify(string.Format(
+                _ui.T("error.server", "서버 오류가 발생했습니다 (HTTP {0}). 잠시 후 다시 시도해 주세요."), (int)resp.StatusCode));
         else
             _notifier.Notify(await ReadErrorAsync(resp, ct));
     }
 
-    private static async Task<string> ReadErrorAsync(HttpResponseMessage resp, CancellationToken ct)
+    private async Task<string> ReadErrorAsync(HttpResponseMessage resp, CancellationToken ct)
     {
         try
         {
             var error = await resp.Content.ReadFromJsonAsync<ApiErrorPayload>(ct);
+            // 클라이언트 합성 오류(연결 실패)는 코드로 식별해 현재 언어로 번역한다.
+            if (error?.Code == "SERVER_UNREACHABLE")
+                return _ui.T("error.unreachable", error.Description ?? "서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+            // 서버 모듈 Error.Description은 그대로 노출(서버측 다국어는 별도 아크).
             if (!string.IsNullOrEmpty(error?.Description))
                 return error.Description;
         }
         catch { /* 오류 본문이 표준 형식이 아니면 상태 코드로 폴백 */ }
-        return $"요청에 실패했습니다 (HTTP {(int)resp.StatusCode}).";
+        return string.Format(_ui.T("error.requestFailed", "요청에 실패했습니다 (HTTP {0})."), (int)resp.StatusCode);
     }
 
     // ── HTTP helpers ──────────────────────────────────────────────────────────
@@ -808,20 +817,20 @@ public sealed class ApiClient : IApiClient
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException && !ct.IsCancellationRequested)
         {
-            return (null, "서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+            return (null, _ui.T("error.unreachable", "서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요."));
         }
         if (resp.IsSuccessStatusCode)
             return (await resp.Content.ReadFromJsonAsync<DeployFileDto>(ct), null);
 
         try
         {
-            // 서버 BadRequest 본문(Error)의 한국어 사유를 그대로 보여준다 (버전 중복/형식 오류 등)
+            // 서버 BadRequest 본문(Error)의 한국어 사유를 그대로 보여준다 (버전 중복/형식 오류 등 — 서버측 다국어는 별도 아크)
             var error = await resp.Content.ReadFromJsonAsync<ApiErrorPayload>(ct);
             if (!string.IsNullOrEmpty(error?.Description))
                 return (null, error.Description);
         }
         catch { /* 오류 본문이 표준 형식이 아니면 상태 코드로 폴백 */ }
-        return (null, $"업로드에 실패했습니다 (HTTP {(int)resp.StatusCode}).");
+        return (null, string.Format(_ui.T("error.uploadFailed", "업로드에 실패했습니다 (HTTP {0})."), (int)resp.StatusCode));
     }
 
     public Task<bool> SetDeployFileActiveAsync(string fileId, bool isActive, CancellationToken ct = default)

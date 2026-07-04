@@ -200,4 +200,52 @@ public sealed class MetaGridRendererTests
         cut.Markup.Should().Contain("2 행");
         cut.FindAll("button").Should().BeEmpty("총건수가 1페이지 이내면 서버 페이저를 렌더하지 않는다");
     }
+
+    // ── P3-9 v3 컬럼 리사이즈 · P3-15 행 키보드 내비 (인터롭 마크업/무해 동작) ────
+
+    [Fact]
+    public void Renders_resize_handle_per_header_and_always_has_colgroup()
+    {
+        // P3-9 v3 — 헤더마다 리사이즈 핸들(.col-resize) + colgroup 상시 렌더(핸들이 <col>에 폭 기록).
+        // JS(nxGridResizeInit)는 bUnit에 미탑재이나 OnAfterRender의 try/catch로 렌더는 정상이어야 한다.
+        using var ctx = new TestContext();
+        var cut = Render(ctx, IdRows("1", "2"));
+
+        cut.FindAll("thead th .col-resize").Count.Should().Be(2, "보이는 헤더마다 리사이즈 핸들 1개");
+        cut.FindAll("colgroup").Should().ContainSingle("리사이즈용 colgroup은 컬럼이 있으면 항상 렌더");
+        cut.Find("table").ClassList.Should().NotContain("fixed", "폭 미지정이면 자동 레이아웃 유지");
+    }
+
+    [Fact]
+    public void Selectable_grid_rows_are_keyboard_focusable_non_selectable_are_not()
+    {
+        // P3-15 — 선택 가능(OnRowSelect 배선) 그리드만 행 tabindex=0(방향키/Enter 대상).
+        using var ctx = new TestContext();
+        var selectable = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, Columns)
+            .Add(c => c.Rows, IdRows("1", "2"))
+            .Add(c => c.OnRowSelect, (Dictionary<string, object?> _) => { }));
+        selectable.FindAll("tbody tr[tabindex=\"0\"]").Count.Should().Be(2, "선택 가능 그리드 행은 포커스 가능해야 한다");
+
+        var plain = Render(ctx, IdRows("1", "2"));
+        plain.FindAll("tbody tr[tabindex=\"0\"]").Should().BeEmpty("선택 콜백이 없으면 행에 tabindex를 주지 않는다");
+    }
+
+    [Fact]
+    public void Row_keydown_selects_on_enter_without_js()
+    {
+        // Enter=선택은 JS 없이 동작(방향키만 JS 포커스 이동). 선택 콜백이 호출되고 행이 하이라이트돼야 한다.
+        using var ctx = new TestContext();
+        Dictionary<string, object?>? picked = null;
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, Columns)
+            .Add(c => c.Rows, IdRows("1", "2"))
+            .Add(c => c.OnRowSelect, (Dictionary<string, object?> r) => picked = r));
+
+        cut.FindAll("tbody tr")[1].KeyDown(new Microsoft.AspNetCore.Components.Web.KeyboardEventArgs { Key = "Enter" });
+
+        picked.Should().NotBeNull("Enter는 JS 없이 행을 선택해야 한다");
+        picked!["PLANT_ID"].Should().Be("2");
+        cut.FindAll("tbody tr.selected").Should().ContainSingle();
+    }
 }
