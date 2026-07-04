@@ -1,10 +1,13 @@
-@* Phase 3 — ScreenDefinition을 받아 필드를 런타임 렌더하는 메타데이터 주도 폼. 값은 Dictionary 모델에 양방향 바인딩. *@
+@* Phase 3 — ScreenDefinition을 받아 필드를 런타임 렌더하는 메타데이터 주도 폼. 값은 Dictionary 모델에
+   양방향 바인딩. 입력 컴포넌트는 Radzen Blazor(TextBox/Numeric/DatePicker/CheckBox/DropDown) —
+   딕셔너리(문자열) 모델 ↔ 타입드 입력은 필드별 get/set 어댑터로 잇는다(값은 항상 문자열로 저장). *@
 @using NexaOne.Web.Services.Meta
 @inject IServiceProvider Services
 
 <div class="meta-form">
     @foreach (var field in Definition.Fields)
     {
+        var key = field.Key;
         var err = ErrorFor(field);
         <div class="meta-field">
             <label>@field.Label@(field.Required ? " *" : "")</label>
@@ -12,29 +15,35 @@
                 @switch (field.Type)
                 {
                     case FieldType.Boolean:
-                        <input type="checkbox" checked="@GetBool(field.Key)" disabled="@field.ReadOnly"
-                               @onchange="e => Set(field.Key, e.Value)" />
+                        <RadzenCheckBox TValue="bool" Value="@GetBool(key)" Disabled="@field.ReadOnly"
+                                        Change="@(v => Set(key, v))" />
                         break;
 
                     case FieldType.Select:
                         var opts = ResolveOptions(field);
-                        <select class="@(err is null ? null : "invalid")" disabled="@field.ReadOnly" @onchange="e => Set(field.Key, e.Value)">
-                            @* 값 미선택 상태를 명시한다 — 첫 옵션이 '보이기만 하고 모델에는 없는' 착시 방지. *@
-                            @if (GetString(field.Key).Length == 0)
-                            {
-                                <option value="" selected>@T("common.select", "(선택)")</option>
-                            }
-                            @foreach (var opt in opts)
-                            {
-                                <option value="@opt.Value" selected="@(GetString(field.Key) == opt.Value)">@opt.Label</option>
-                            }
-                        </select>
+                        <RadzenDropDown TValue="string" Data="@opts" TextProperty="Label" ValueProperty="Value"
+                                        Value="@GetString(key)" Disabled="@field.ReadOnly" AllowClear="true"
+                                        Placeholder="@T("common.select", "(선택)")"
+                                        Change="@(v => Set(key, v))"
+                                        class="@(err is null ? null : "nx-invalid")" Style="width:100%" />
+                        break;
+
+                    case FieldType.Number:
+                        <RadzenNumeric TValue="decimal?" Value="@GetDecimal(key)" Disabled="@field.ReadOnly"
+                                       Change="@(v => Set(key, v?.ToString(System.Globalization.CultureInfo.InvariantCulture)))"
+                                       class="@(err is null ? null : "nx-invalid")" Style="width:100%" />
+                        break;
+
+                    case FieldType.Date:
+                        <RadzenDatePicker TValue="DateTime?" Value="@GetDate(key)" Disabled="@field.ReadOnly"
+                                          DateFormat="yyyy-MM-dd" Change="@(v => SetDate(key, v))"
+                                          class="@(err is null ? null : "nx-invalid")" Style="width:100%" />
                         break;
 
                     default:
-                        <input type="@InputType(field.Type)" class="@(err is null ? null : "invalid")"
-                               value="@GetString(field.Key)" readonly="@field.ReadOnly"
-                               @onchange="e => Set(field.Key, e.Value)" />
+                        <RadzenTextBox Value="@GetString(key)" ReadOnly="@field.ReadOnly"
+                                       Change="@(v => Set(key, v))"
+                                       class="@(err is null ? null : "nx-invalid")" Style="width:100%" />
                         break;
                 }
                 @* P2-7 — 필드 인라인 오류(하단 목록 나열 대체). MetaScreen이 캐스케이딩으로 내려보낸다. *@
@@ -84,19 +93,25 @@
         return _uiText?.T(key, fallback) ?? fallback;
     }
 
+    // 딕셔너리(문자열) 모델 ↔ 타입드 입력 어댑터. 값은 항상 문자열로 저장해 저장쿼리 @param 계약을 유지한다.
     private string GetString(string key) => Model.TryGetValue(key, out var v) ? v?.ToString() ?? string.Empty : string.Empty;
-    private bool GetBool(string key) => Model.TryGetValue(key, out var v) && v is true;
+    private bool GetBool(string key) => Model.TryGetValue(key, out var v) && (v is true || v?.ToString() is "1" or "true" or "True");
+
+    private decimal? GetDecimal(string key)
+        => decimal.TryParse(GetString(key), System.Globalization.NumberStyles.Any,
+               System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : null;
+
+    private DateTime? GetDate(string key)
+        => DateTime.TryParse(GetString(key), System.Globalization.CultureInfo.InvariantCulture,
+               System.Globalization.DateTimeStyles.None, out var dt) ? dt : null;
 
     private async Task Set(string key, object? value)
     {
-        Model[key] = value;
+        // Boolean은 bool 그대로(검증/저장이 0/1·true를 인지), 그 외는 문자열로 정규화.
+        Model[key] = value is bool ? value : value?.ToString();
         await ModelChanged.InvokeAsync(Model);
     }
 
-    private static string InputType(FieldType type) => type switch
-    {
-        FieldType.Number => "number",
-        FieldType.Date => "date",
-        _ => "text",
-    };
+    // 날짜는 ISO(yyyy-MM-dd) 문자열로 저장한다(저장쿼리 @param 계약 유지). null=미선택.
+    private Task SetDate(string key, DateTime? value) => Set(key, value?.ToString("yyyy-MM-dd"));
 }

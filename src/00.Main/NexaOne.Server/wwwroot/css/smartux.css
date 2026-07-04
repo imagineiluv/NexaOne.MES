@@ -64,6 +64,8 @@
   --rz-series-4: var(--nx-danger);
   --rz-border-radius: var(--nx-radius);
 }
+/* 폼 검증 실패 표시(P2-7) — Radzen 입력에 붙는 nx-invalid 클래스(빨간 보더). */
+.nx-invalid, .nx-invalid .rz-inputtext, .nx-invalid.rz-textbox, .nx-invalid.rz-dropdown, .nx-invalid.rz-numeric, .nx-invalid.rz-datepicker { border-color: var(--nx-danger) !important; }
 /* 자체 헤더 클릭 정렬(P3-9) — Radzen 컬럼 HeaderTemplate 안의 클릭 라벨. */
 .rz-column-title .nx-sort, .nx-sort { cursor: pointer; user-select: none; display: inline-block; }
 /* DataGrid 표면 — 헤더/셀/줄무늬/보더를 NexaOne 톤으로(가벼운 보더·부드러운 줄무늬). */

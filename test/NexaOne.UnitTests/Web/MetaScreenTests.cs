@@ -188,8 +188,10 @@ public sealed class MetaScreenTests
     {
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
-        // 동적 Select — OptionsQueryId 결과의 첫 컬럼=값, 둘째 컬럼=라벨 보조("값 — 라벨").
+        // 동적 Select — OptionsQueryId 결과를 MetaScreen이 조회해 RadzenDropDown 옵션으로 내려보낸다.
+        // (Radzen 드롭다운 옵션은 팝업 렌더라 정적 마크업에 없으므로, 옵션 쿼리 호출+드롭다운 렌더로 검증.)
         var def = new ScreenDefinition("SEL1", "매핑 등록",
             new FieldDefinition[] { new("roleId", "역할", FieldType.Select, Required: true, OptionsQueryId: "Q.Roles") },
             SaveQueryId: "SYS.UpsertMenuRole");
@@ -208,11 +210,9 @@ public sealed class MetaScreenTests
 
         cut.WaitForAssertion(() =>
         {
-            var options = cut.FindAll("select option");
-            options.Should().Contain(o => o.GetAttribute("value") == "ADMIN" && o.TextContent.Contains("Administrator"),
-                "옵션 값=첫 컬럼, 라벨은 '값 — 둘째 컬럼'이어야 한다");
-            options.Should().Contain(o => o.GetAttribute("value") == "VIEWER");
-            options.First().TextContent.Should().Contain("(선택)", "값 미선택 상태를 명시하는 자리표시 옵션");
+            api.Verify(a => a.ExecuteQueryAsync("Q.Roles", It.IsAny<object?>(), It.IsAny<CancellationToken>()),
+                Times.AtLeastOnce, "OptionsQueryId 화면은 동적 옵션 쿼리를 실행해야 한다");
+            cut.Markup.Should().Contain("rz-dropdown", "Select 필드는 RadzenDropDown으로 렌더돼야 한다");
         }, TimeSpan.FromSeconds(2));
     }
 
@@ -259,6 +259,7 @@ public sealed class MetaScreenTests
     {
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         var def = new ScreenDefinition("GRID-S2", "로그", Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[] { new("LOG_LEVEL", "레벨") },
@@ -282,8 +283,9 @@ public sealed class MetaScreenTests
 
         var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "GRID-S2"));
 
-        // 조건 선택 후 조회 — 첫 select=검색 필드(둘째는 저장된 조건 목록).
-        cut.FindAll(".meta-search select")[0].Change("Warning");
+        // 검색 필드(RadzenDropDown)의 Change를 직접 발화해 조건값 설정(Radzen 입력은 DOM Change 불가) → 조회.
+        var search = cut.FindComponent<Radzen.Blazor.RadzenDropDown<string>>();
+        cut.InvokeAsync(() => search.Instance.Change.InvokeAsync("Warning"));
         cut.FindAll("button").First(b => b.TextContent.Trim() == "조회").Click();
 
         cut.WaitForAssertion(() =>
@@ -310,30 +312,35 @@ public sealed class MetaScreenTests
             new GridColumnDefinition[] { new("BATCH_ID", "배치 ID") },
             QueryId: "Q.B", SaveQueryId: "SYS.X");
 
+        Dictionary<string, object?>? savedModel = null;
         var api = new Mock<IApiClient>();
         api.Setup(a => a.ExecuteQueryAsync("Q.B", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
            .ReturnsAsync(new List<Dictionary<string, object?>>
            {
                new() { ["BATCH_ID"] = "B-1", ["BATCH_NAME"] = "야간 집계" },
            });
+        api.Setup(a => a.ExecuteCommandAsync("SYS.X", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .Callback<string, object?, CancellationToken>((_, m, _) => savedModel = m as Dictionary<string, object?>)
+           .ReturnsAsync(true);
         ctx.Services.AddSingleton(Provider("ROWSEL", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
         var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "ROWSEL"));
         cut.WaitForAssertion(() => cut.FindAll(".rz-data-row").Should().NotBeEmpty());
 
-        // Radzen 행 클릭은 라이브러리 내부 메커니즘이라 bUnit이 직접 트리거하기 어렵다(브라우저 스모크로 검증).
-        // 여기선 그리드가 MetaScreen에 올려주는 OnRowSelect 콜백을 직접 호출해, MetaScreen이 소유한
-        // 정규화(UPPER_SNAKE↔camel)·미표시 컬럼 로드 로직을 검증한다(실제 시험 대상).
+        // Radzen 행 클릭은 라이브러리 내부라 bUnit이 직접 트리거하기 어렵고(브라우저 스모크로 검증), Radzen 입력
+        // 값은 정적 마크업에 안 드러난다. 그래서 그리드의 OnRowSelect 콜백을 직접 호출해 MetaScreen의 정규화
+        // (UPPER_SNAKE↔camel)·미표시 컬럼 로드를 채운 뒤, 저장으로 모델을 되받아 매핑 결과를 검증한다.
         var grid = cut.FindComponent<MetaGridRenderer>();
         cut.InvokeAsync(() => grid.Instance.OnRowSelect.InvokeAsync(
             new Dictionary<string, object?> { ["BATCH_ID"] = "B-1", ["BATCH_NAME"] = "야간 집계" }));
+        cut.FindAll("button").First(b => b.TextContent.Trim() is "저장").Click();
 
         cut.WaitForAssertion(() =>
         {
-            var inputs = cut.FindAll(".meta-form input");
-            inputs[0].GetAttribute("value").Should().Be("B-1", "BATCH_ID → batchId 정규화 매칭");
-            inputs[1].GetAttribute("value").Should().Be("야간 집계", "미표시 컬럼도 행 값이 폼에 로드돼야 한다");
+            savedModel.Should().NotBeNull("행 선택 후 저장 시 모델이 커맨드 게이트웨이로 전송돼야 한다");
+            savedModel!["batchId"].Should().Be("B-1", "BATCH_ID → batchId 정규화 매칭");
+            savedModel!["batchName"].Should().Be("야간 집계", "미표시 컬럼(BATCH_NAME)도 행 값이 폼 모델에 로드돼야 한다");
         }, TimeSpan.FromSeconds(2));
     }
 
