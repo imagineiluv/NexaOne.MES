@@ -10,13 +10,16 @@ public sealed class InMemoryBusSubscriberService : IHostedService
     private readonly InMemoryMessageBus _bus;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ScreenRefreshNotifier? _screenRefresh;
+    private readonly RealtimeAlertFeed? _alertFeed;
 
     public InMemoryBusSubscriberService(
-        InMemoryMessageBus bus, IServiceScopeFactory scopeFactory, ScreenRefreshNotifier? screenRefresh = null)
+        InMemoryMessageBus bus, IServiceScopeFactory scopeFactory,
+        ScreenRefreshNotifier? screenRefresh = null, RealtimeAlertFeed? alertFeed = null)
     {
         _bus = bus;
         _scopeFactory = scopeFactory;
         _screenRefresh = screenRefresh;
+        _alertFeed = alertFeed;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -31,6 +34,10 @@ public sealed class InMemoryBusSubscriberService : IHostedService
             // 실시간 v3 — 라이브 메타 화면(Blazor 회로) 즉시 재조회 팬아웃(SignalR 외 인프로세스 경로).
             if (_screenRefresh is not null)
                 await _screenRefresh.NotifyAsync();
+
+            // P3-20 — 알림성 이벤트(알람/인터락/작업지시)는 셸 알림 센터(벨)로도 팬아웃.
+            if (_alertFeed is not null && RealtimeAlertFeed.ToAlert(msg.EventType, msg.AggregateId) is { } alert)
+                await _alertFeed.PublishAsync(alert);
         });
         return Task.CompletedTask;
     }

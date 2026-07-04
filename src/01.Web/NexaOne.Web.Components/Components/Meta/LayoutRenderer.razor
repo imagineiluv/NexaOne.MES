@@ -82,9 +82,22 @@
             }
             else
             {
-                var (polyline, min, max, last) = TrendGeometry(points);
+                var (polyline, pts, min, max, last) = TrendGeometry(points);
+                @* P3-13 — 그리드라인(상/중/하) + 포인트 마커(네이티브 <title> 툴팁 = 값) + 마지막 점 강조. *@
                 <svg viewBox="0 0 300 80" preserveAspectRatio="none" style="width:100%; height:80px; display:block;">
+                    <line x1="0" y1="4" x2="300" y2="4" stroke="#eef1f4" stroke-width="1" vector-effect="non-scaling-stroke" />
+                    <line x1="0" y1="40" x2="300" y2="40" stroke="#e5e9ef" stroke-width="1" stroke-dasharray="4 4" vector-effect="non-scaling-stroke" />
+                    <line x1="0" y1="76" x2="300" y2="76" stroke="#eef1f4" stroke-width="1" vector-effect="non-scaling-stroke" />
                     <polyline points="@polyline" fill="none" stroke="#15b89a" stroke-width="2" vector-effect="non-scaling-stroke" />
+                    @foreach (var pt in pts)
+                    {
+                        <circle cx="@pt.X.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)"
+                                cy="@pt.Y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)"
+                                r="2" fill="#15b89a" opacity="0.85"><title>@pt.Value</title></circle>
+                    }
+                    <circle cx="@pts[^1].X.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)"
+                            cy="@pts[^1].Y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)"
+                            r="3.2" fill="#0fa085"><title>현재 @last</title></circle>
                 </svg>
                 <div style="display:flex; justify-content:space-between; font-size:0.688rem; color:#6b7280;">
                     <span>min @min</span><span>현재 @last</span><span>max @max</span>
@@ -190,22 +203,26 @@
     }
 
     // SVG 폴리라인 좌표(viewBox 300x80, 상하 4px 패딩) — min==max(평평한 선)는 중앙 수평선.
-    private static (string Polyline, decimal Min, decimal Max, decimal Last) TrendGeometry(List<decimal> points)
+    // P3-13 — 포인트별 좌표+값도 반환한다(마커·<title> 툴팁·마지막 점 강조).
+    private static (string Polyline, List<(double X, double Y, decimal Value)> Points, decimal Min, decimal Max, decimal Last)
+        TrendGeometry(List<decimal> points)
     {
         var min = points.Min();
         var max = points.Max();
         var range = max - min;
         var sb = new System.Text.StringBuilder();
+        var pts = new List<(double X, double Y, decimal Value)>(points.Count);
         for (var i = 0; i < points.Count; i++)
         {
             var x = points.Count == 1 ? 0 : 300.0 * i / (points.Count - 1);
             var y = range == 0 ? 40.0 : 76.0 - (double)((points[i] - min) / range) * 72.0;
+            pts.Add((x, y, points[i]));
             if (i > 0) sb.Append(' ');
             sb.Append(x.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
             sb.Append(',');
             sb.Append(y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
         }
-        return (sb.ToString(), min, max, points[^1]);
+        return (sb.ToString(), pts, min, max, points[^1]);
     }
 
     private static readonly HashSet<string> KnownSeverities =

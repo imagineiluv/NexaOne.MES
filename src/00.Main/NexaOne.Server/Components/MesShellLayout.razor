@@ -6,6 +6,7 @@
 @inject Microsoft.Extensions.Logging.ILogger<MesShellLayout> Logger
 @inject NexaOne.Web.Services.Auth.AuthTokenService TokenService
 @inject NexaOne.Web.Services.Auth.JwtAuthStateProvider AuthState
+@inject NexaOne.Web.Services.Meta.IRealtimeAlertFeed AlertFeed
 
 @* SmartUX(:9020) 레퍼런스 셸 재현 — 네이비 사이드바(계층 아코디언) + 화이트 상단바 + 본문(메타 화면) + 하단 MDI 탭.
    사이드바는 SYS.MenuTree(게이트웨이)로 데이터 주도 구축한다(대분류 Folder → 하위 Screen). 쿼리 실패/공백 시
@@ -93,6 +94,35 @@
                     </div>
                 }
             </div>
+            @* 알림 센터(P3-20) — 버스 알림성 이벤트(알람/인터락/작업지시)의 벨 아이콘+최근 목록.
+               열면 미읽음 뱃지 초기화. 피드는 회로 밖 스레드에서 콜백하므로 InvokeAsync로 전환한다. *@
+            <div class="mes-alertmenu">
+                <span class="tb-ico" title="알림" style="cursor:pointer; position:relative;" @onclick="ToggleAlerts">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+                    @if (_alertUnread > 0)
+                    {
+                        <span class="alert-badge">@(_alertUnread > 99 ? "99+" : _alertUnread.ToString())</span>
+                    }
+                </span>
+                @if (_alertsOpen)
+                {
+                    <div class="alert-dropdown">
+                        <div class="alert-dd-head">알림</div>
+                        @if (_alerts.Count == 0)
+                        {
+                            <div class="alert-dd-empty">알림이 없습니다.</div>
+                        }
+                        @foreach (var alert in _alerts)
+                        {
+                            <div class="alert-dd-item">
+                                <span class="alert-cat">@alert.Category</span>
+                                <span class="alert-title">@alert.Title</span>
+                                <small>@alert.OccurredAt.ToLocalTime().ToString("HH:mm:ss")</small>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
             @* 사용자 메뉴 — ID 표시·비밀번호 변경·로그아웃(리프레시 토큰 폐기 후 세션 종료).
                (구 톱니 아이콘은 연결 기능이 없어 제거 — 장식 UI를 두지 않는다) *@
             <div class="mes-usermenu">
@@ -171,9 +201,40 @@
         await BuildTreeAsync();
         await ReloadPersonalizationAsync();
         _userId = await TokenService.GetUserIdAsync() ?? string.Empty;
+        // 알림 센터(P3-20) — 최근 스냅숏 + 신규 알림 구독.
+        _alerts = AlertFeed.Recent.ToList();
+        _alertSubscription = AlertFeed.Subscribe(OnAlertAsync);
         Opened.Changed += OnOpenedChanged;
         Nav.LocationChanged += OnLocationChanged;
         SyncCurrentRoute();
+    }
+
+    // ── 알림 센터(P3-20) ─────────────────────────────────────────────────────
+    private List<NexaOne.Web.Services.Meta.RealtimeAlert> _alerts = new();
+    private IDisposable? _alertSubscription;
+    private bool _alertsOpen;
+    private int _alertUnread;
+
+    private void ToggleAlerts()
+    {
+        _alertsOpen = !_alertsOpen;
+        if (_alertsOpen) _alertUnread = 0;   // 열람 = 미읽음 초기화
+    }
+
+    private async Task OnAlertAsync(NexaOne.Web.Services.Meta.RealtimeAlert alert)
+    {
+        try
+        {
+            await InvokeAsync(() =>
+            {
+                _alerts.Insert(0, alert);
+                if (_alerts.Count > 50) _alerts.RemoveAt(_alerts.Count - 1);
+                if (!_alertsOpen) _alertUnread++;
+                StateHasChanged();
+            });
+        }
+        catch (ObjectDisposedException) { /* 회로 폐기 경합 — 무시 */ }
+        catch (InvalidOperationException) { /* 회로 미부착 — 무시 */ }
     }
 
     // ── 상단바: Quick Menu(타이프어헤드 점프) + 사용자 메뉴(로그아웃) ─────────
@@ -469,6 +530,7 @@
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
     {
         _userMenuOpen = false;   // 화면 이동 시 열린 드롭다운 정리
+        _alertsOpen = false;
         SyncCurrentRoute();
         // 트리가 60초 이상 오래됐으면 이동 시 백그라운드 재조회 — 메뉴-역할 매핑/메뉴 변경이
         // 재로그인 없이 다음 화면 이동에서 반영된다(이동마다 조회하지 않는 스테일네스 게이트).
@@ -521,6 +583,7 @@
     {
         Opened.Changed -= OnOpenedChanged;
         Nav.LocationChanged -= OnLocationChanged;
+        _alertSubscription?.Dispose();
     }
 
     // 셸이 절대 빈 사이드바가 되지 않도록 — 게이트웨이 실패/공백 시의 최소 정적 트리(데모 화면으로 매핑).
