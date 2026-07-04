@@ -77,6 +77,7 @@ export function layoutToComponent(node: LayoutNode): GrapesNode {
       if (node.queryId != null) attributes['data-query-id'] = node.queryId
       if (node.valueColumn != null) attributes['data-value-column'] = node.valueColumn
       if (node.unit != null) attributes['data-unit'] = node.unit
+      if (node.linkUiId != null && node.linkUiId !== '') attributes['data-link-uiid'] = node.linkUiId
       break
     case 'statusBadge':
       if (node.label != null) attributes['data-label'] = node.label
@@ -90,6 +91,7 @@ export function layoutToComponent(node: LayoutNode): GrapesNode {
       if (node.queryId != null) attributes['data-query-id'] = node.queryId
       if (node.valueColumn != null) attributes['data-value-column'] = node.valueColumn
       if (node.maxPoints != null) attributes['data-max-points'] = node.maxPoints
+      if (node.timeColumn != null && node.timeColumn !== '') attributes['data-time-column'] = node.timeColumn
       break
   }
   return comp
@@ -197,11 +199,13 @@ export function componentToLayout(comp: GrapesNode): LayoutNode | null {
       const queryId = str(a, 'data-query-id')
       const valueColumn = str(a, 'data-value-column')
       const unit = str(a, 'data-unit')
+      const linkUiId = str(a, 'data-link-uiid')
       return {
         kind, ...base, label: str(a, 'data-label') ?? '',
         ...(queryId != null ? { queryId } : {}),
         ...(valueColumn != null ? { valueColumn } : {}),
         ...(unit != null ? { unit } : {}),
+        ...(linkUiId != null ? { linkUiId } : {}),
       }
     }
     case 'statusBadge': {
@@ -220,6 +224,7 @@ export function componentToLayout(comp: GrapesNode): LayoutNode | null {
     case 'trendChart': {
       const queryId = str(a, 'data-query-id')
       const valueColumn = str(a, 'data-value-column')
+      const timeColumn = str(a, 'data-time-column')
       const rawMax = a?.['data-max-points']
       const maxPoints = typeof rawMax === 'number' ? rawMax : (typeof rawMax === 'string' && rawMax !== '' ? Number(rawMax) : undefined)
       return {
@@ -227,6 +232,7 @@ export function componentToLayout(comp: GrapesNode): LayoutNode | null {
         ...(queryId != null ? { queryId } : {}),
         ...(valueColumn != null ? { valueColumn } : {}),
         ...(maxPoints != null && !Number.isNaN(maxPoints) ? { maxPoints } : {}),
+        ...(timeColumn != null ? { timeColumn } : {}),
       }
     }
   }

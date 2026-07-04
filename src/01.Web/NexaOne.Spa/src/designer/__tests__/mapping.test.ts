@@ -197,6 +197,19 @@ describe('field 이산 속성 매핑(트레이트 단일 출처)', () => {
     expect(plain.attributes!['data-field-options-query']).toBeUndefined()
   })
 
+  it('KPI linkUiId·트렌드 timeColumn 라운드트립 — 부재 시 속성 미기록', () => {
+    const kpi: LayoutNode = { kind: 'kpi', id: 'k-1', label: '활성 알람', queryId: 'Q.A', valueColumn: 'CNT', linkUiId: 'EES_POPUP_MONITERING_DASHBOARD' }
+    const kc = layoutToComponent(kpi)
+    expect(kc.attributes!['data-link-uiid']).toBe('EES_POPUP_MONITERING_DASHBOARD')
+    expect(componentToLayout(kc)).toEqual(kpi)
+    expect(layoutToComponent({ kind: 'kpi', id: 'k-2', label: 'KPI' }).attributes!['data-link-uiid']).toBeUndefined()
+
+    const trend: LayoutNode = { kind: 'trendChart', id: 't-1', label: '트렌드', queryId: 'Q.T', valueColumn: 'VALUE', maxPoints: 60, timeColumn: 'COLLECTED_AT' }
+    const tc = layoutToComponent(trend)
+    expect(tc.attributes!['data-time-column']).toBe('COLLECTED_AT')
+    expect(componentToLayout(tc)).toEqual(trend)
+  })
+
   it('버튼 confirmMessage 라운드트립(data-confirm) — 부재 시 속성 미기록', () => {
     const node: LayoutNode = {
       kind: 'commandButton', id: 'b-del', label: '삭제',

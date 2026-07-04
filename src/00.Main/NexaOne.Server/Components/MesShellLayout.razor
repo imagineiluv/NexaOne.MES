@@ -11,7 +11,7 @@
 @* SmartUX(:9020) 레퍼런스 셸 재현 — 네이비 사이드바(계층 아코디언) + 화이트 상단바 + 본문(메타 화면) + 하단 MDI 탭.
    사이드바는 SYS.MenuTree(게이트웨이)로 데이터 주도 구축한다(대분류 Folder → 하위 Screen). 쿼리 실패/공백 시
    최소 정적 폴백으로 셸이 절대 빈 화면이 되지 않게 한다. /meta 화면(HostRoutes의 DefaultLayout). *@
-<div class="mes-shell">
+<div class="mes-shell @(_navCollapsed ? "nav-collapsed" : "")">
     <aside class="mes-sidebar">
         <div class="mes-logo">
             <svg class="cube" viewBox="0 0 24 24" fill="none" stroke="#15b89a" stroke-width="1.8" stroke-linejoin="round">
@@ -61,7 +61,11 @@
             {
                 <div style="margin:0.375rem 0.875rem; border-top:1px solid rgba(255,255,255,0.08);"></div>
             }
-            <MesNavTree Nodes="_forest" Depth="0" Open="_openFolders"
+            @* 트리 필터(P3-11) — 메뉴명/UI_ID 부분일치 잎+조상 폴더만 표시, 필터 중엔 전부 펼침. *@
+            <div class="mes-navfilter">
+                <input placeholder="메뉴 필터…" value="@_navFilter" @oninput="OnNavFilterInput" aria-label="메뉴 필터" />
+            </div>
+            <MesNavTree Nodes="VisibleForest" Depth="0" Open="EffectiveOpenFolders"
                         ActiveUiId="@ActiveUiId()"
                         OnToggle="ToggleFolder" OnNavigate="OnNavigateNode" />
         </nav>
@@ -73,8 +77,14 @@
 
     <div class="mes-main">
         <header class="mes-topbar">
+            @* 사이드바 접기 토글(P3-11/16) — 좁은 화면에선 사이드바가 오버레이로 뜬다(CSS 미디어쿼리). *@
+            <span class="tb-ico" role="button" tabindex="0" aria-label="메뉴 접기/펼치기" title="메뉴 접기/펼치기"
+                  style="cursor:pointer;" @onclick="() => _navCollapsed = !_navCollapsed">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+            </span>
             @* §20.12 — 활성 화면 즐겨찾기 토글(★=등록됨). 메뉴 매핑이 없는 화면(직접 라우트 등)은 표시만 한다. *@
-            <span class="star" style="cursor:pointer; color:@(IsActiveFavorite() ? "#f59e0b" : "inherit")"
+            <span class="star" role="button" tabindex="0" aria-label="@(IsActiveFavorite() ? "즐겨찾기 해제" : "즐겨찾기 등록")"
+                  style="cursor:pointer; color:@(IsActiveFavorite() ? "#f59e0b" : "inherit")"
                   title="@(IsActiveFavorite() ? "즐겨찾기 해제" : "즐겨찾기 등록")"
                   @onclick="ToggleActiveFavoriteAsync">@(IsActiveFavorite() ? "★" : "☆")</span>
             <span class="tb-title">제조실행시스템 (NexaOne MES)</span>
@@ -97,7 +107,8 @@
             @* 알림 센터(P3-20) — 버스 알림성 이벤트(알람/인터락/작업지시)의 벨 아이콘+최근 목록.
                열면 미읽음 뱃지 초기화. 피드는 회로 밖 스레드에서 콜백하므로 InvokeAsync로 전환한다. *@
             <div class="mes-alertmenu">
-                <span class="tb-ico" title="알림" style="cursor:pointer; position:relative;" @onclick="ToggleAlerts">
+                <span class="tb-ico" role="button" tabindex="0" aria-label="알림" title="알림"
+                      style="cursor:pointer; position:relative;" @onclick="ToggleAlerts">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
                     @if (_alertUnread > 0)
                     {
@@ -126,7 +137,8 @@
             @* 사용자 메뉴 — ID 표시·비밀번호 변경·로그아웃(리프레시 토큰 폐기 후 세션 종료).
                (구 톱니 아이콘은 연결 기능이 없어 제거 — 장식 UI를 두지 않는다) *@
             <div class="mes-usermenu">
-                <span class="tb-ico" title="사용자 메뉴" style="cursor:pointer;" @onclick="() => _userMenuOpen = !_userMenuOpen">
+                <span class="tb-ico" role="button" tabindex="0" aria-label="사용자 메뉴" title="사용자 메뉴"
+                      style="cursor:pointer;" @onclick="() => _userMenuOpen = !_userMenuOpen">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
                 </span>
                 @if (_userMenuOpen)
@@ -195,6 +207,60 @@
     // 사이드바 트리 스테일네스 게이트 — 이동 시 60초 초과면 재조회(메뉴-역할 변경 반영).
     private DateTime _treeLoadedAt = DateTime.MinValue;
     private bool _treeRefreshing;
+
+    // ── 사이드바 접기/트리 필터(P3-11) ──────────────────────────────────────
+    private bool _navCollapsed;
+    private string _navFilter = string.Empty;
+
+    private void OnNavFilterInput(ChangeEventArgs e) => _navFilter = e.Value?.ToString() ?? string.Empty;
+
+    // 필터 중엔 매칭 잎+조상 폴더만 남긴 트리(폴더명 매칭은 하위 전체 유지). 필터 없으면 원본.
+    private List<MesMenuNode> VisibleForest
+        => string.IsNullOrWhiteSpace(_navFilter) ? _forest : FilterForest(_forest, _navFilter.Trim());
+
+    // 필터 중엔 남은 폴더를 전부 펼쳐 매칭 잎이 바로 보이게 한다(수동 펼침 상태는 비필터 시 복원).
+    private HashSet<string> EffectiveOpenFolders
+        => string.IsNullOrWhiteSpace(_navFilter) ? _openFolders : CollectFolderIds(VisibleForest);
+
+    private static List<MesMenuNode> FilterForest(List<MesMenuNode> nodes, string query)
+    {
+        var result = new List<MesMenuNode>();
+        foreach (var node in nodes)
+        {
+            if (node.IsFolder)
+            {
+                if (node.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+                {
+                    result.Add(node);   // 폴더명 매칭 = 하위 전체 유지
+                    continue;
+                }
+                var kids = FilterForest(node.Children.ToList(), query);
+                if (kids.Count > 0) result.Add(node with { Children = kids });
+            }
+            else if (node.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                  || node.UiId.Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                result.Add(node);
+            }
+        }
+        return result;
+    }
+
+    private static HashSet<string> CollectFolderIds(List<MesMenuNode> nodes)
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Walk(IReadOnlyList<MesMenuNode> list)
+        {
+            foreach (var n in list)
+            {
+                if (!n.IsFolder) continue;
+                ids.Add(n.Id);
+                Walk(n.Children);
+            }
+        }
+        Walk(nodes);
+        return ids;
+    }
 
     protected override async Task OnInitializedAsync()
     {

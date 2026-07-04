@@ -130,6 +130,7 @@ export function buildTraitDefs(queries: QueryCatalog): Record<string, TraitDef[]
       { type: 'select', name: 'data-query-id', label: '조회 쿼리', options: readOpts },
       { type: 'text', name: 'data-value-column', label: '값 컬럼' },
       { type: 'text', name: 'data-unit', label: '단위(선택)' },
+      { type: 'text', name: 'data-link-uiid', label: '드릴다운 화면 UI_ID(선택)' },
     ],
     // styles(LIST 서브필드)는 JSON 인코딩 — 심각도는 success|warning|danger|info|neutral(C# 화이트리스트 미러).
     'nx-badge-widget': [
@@ -143,6 +144,7 @@ export function buildTraitDefs(queries: QueryCatalog): Record<string, TraitDef[]
       { type: 'select', name: 'data-query-id', label: '조회 쿼리', options: readOpts },
       { type: 'text', name: 'data-value-column', label: '값 컬럼(수치)' },
       { type: 'number', name: 'data-max-points', label: '최대 포인트(기본 50)' },
+      { type: 'text', name: 'data-time-column', label: '시간 컬럼(선택, 축 라벨)' },
     ],
   }
 }

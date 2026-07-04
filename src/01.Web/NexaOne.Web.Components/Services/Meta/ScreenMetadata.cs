@@ -101,6 +101,8 @@ public sealed record KpiWidget : LayoutNode
     public string? QueryId { get; init; }
     public string? ValueColumn { get; init; }
     public string? Unit { get; init; }
+    /// <summary>드릴다운 대상 화면 UiId(P3-12) — 지정 시 KPI 카드 클릭이 /meta/{LinkUiId}로 이동한다.</summary>
+    public string? LinkUiId { get; init; }
 }
 /// <summary>상태 뱃지(디자이너 Phase-2) — QueryId 결과 첫 행의 ValueColumn 값을 스타일 규칙(값→심각도)에
 /// 매칭해 색상 뱃지로 표시한다. 규칙 미매칭 값은 neutral로 원문 표시(상태 추가가 화면을 깨지 않게).</summary>
@@ -123,4 +125,6 @@ public sealed record TrendChartWidget : LayoutNode
     public string? QueryId { get; init; }
     public string? ValueColumn { get; init; }
     public int MaxPoints { get; init; } = 50;
+    /// <summary>시간축 컬럼(P3-13) — 지정 시 첫/마지막 표본 시각을 라벨로, 포인트 툴팁에 시각을 함께 표시한다.</summary>
+    public string? TimeColumn { get; init; }
 }

@@ -2,6 +2,7 @@
    CommandButton은 콜백. 데이터(QueryResults)·콜백(OnCommand)·공유 Model은 부모(MetaScreen)가 주입한다. *@
 @using NexaOne.Web.Services.Meta
 @inject Microsoft.JSInterop.IJSRuntime JS
+@inject Microsoft.AspNetCore.Components.NavigationManager Nav
 
 @switch (Node)
 {
@@ -62,7 +63,10 @@
     @* KPI 카드(Phase-2) — 바인딩 쿼리 첫 행의 ValueColumn 값을 큰 숫자로. 미실행/공백은 '—'(빈 카드 방지).
        스타일은 디자인 토큰 클래스(smartux.css --nx-*) 단일 출처. *@
     case KpiWidget k:
-        <div class="layout-kpi">
+        @* LinkUiId(P3-12) — 지정 시 카드 클릭=관련 화면 드릴다운. *@
+        <div class="layout-kpi @(string.IsNullOrWhiteSpace(k.LinkUiId) ? "" : "linked")"
+             title="@(string.IsNullOrWhiteSpace(k.LinkUiId) ? null : "클릭하여 상세 화면으로 이동")"
+             @onclick="() => KpiNavigate(k)">
             <div class="layout-kpi-label">@k.Label</div>
             <div class="layout-kpi-value">
                 @KpiValue(k)@if (!string.IsNullOrWhiteSpace(k.Unit)) { <small class="layout-kpi-unit">@k.Unit</small> }
@@ -83,6 +87,8 @@
             else
             {
                 var (polyline, pts, min, max, last) = TrendGeometry(points);
+                var firstTime = points[0].Time;
+                var lastTime = points[^1].Time;
                 @* P3-13 — 그리드라인(상/중/하) + 포인트 마커(네이티브 <title> 툴팁 = 값) + 마지막 점 강조. *@
                 <svg viewBox="0 0 300 80" preserveAspectRatio="none" style="width:100%; height:80px; display:block;">
                     <line x1="0" y1="4" x2="300" y2="4" stroke="#eef1f4" stroke-width="1" vector-effect="non-scaling-stroke" />
@@ -93,15 +99,22 @@
                     {
                         <circle cx="@pt.X.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)"
                                 cy="@pt.Y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)"
-                                r="2" fill="#15b89a" opacity="0.85"><title>@pt.Value</title></circle>
+                                r="2" fill="#15b89a" opacity="0.85"><title>@pt.Tooltip</title></circle>
                     }
                     <circle cx="@pts[^1].X.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)"
                             cy="@pts[^1].Y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)"
-                            r="3.2" fill="#0fa085"><title>현재 @last</title></circle>
+                            r="3.2" fill="#0fa085"><title>현재 @pts[^1].Tooltip</title></circle>
                 </svg>
                 <div style="display:flex; justify-content:space-between; font-size:0.688rem; color:#6b7280;">
                     <span>min @min</span><span>현재 @last</span><span>max @max</span>
                 </div>
+                @* 시간축 라벨(P3-13, TimeColumn 지정 시) — 표시 구간의 첫/마지막 표본 시각. *@
+                @if (firstTime is not null || lastTime is not null)
+                {
+                    <div style="display:flex; justify-content:space-between; font-size:0.625rem; color:#9ca3af;">
+                        <span>@firstTime</span><span>@lastTime</span>
+                    </div>
+                }
             }
         </div>
         break;
@@ -188,41 +201,60 @@
     }
 
     // 트렌드 포인트 — 바인딩 쿼리 행에서 ValueColumn 수치를 추출(비수치는 건너뜀), 마지막 MaxPoints개.
-    private List<decimal> TrendPoints(TrendChartWidget tc)
+    // 값(+선택적 시각) 수집 — TimeColumn(P3-13)이 있으면 표본 시각을 축 라벨/툴팁에 쓴다(HH:mm:ss 축약).
+    private List<(decimal Value, string? Time)> TrendPoints(TrendChartWidget tc)
     {
         var rows = RowsFor(tc.QueryId);
-        var points = new List<decimal>();
+        var points = new List<(decimal, string?)>();
         if (rows is null || string.IsNullOrWhiteSpace(tc.ValueColumn)) return points;
         foreach (var row in rows)
-            if (row.TryGetValue(tc.ValueColumn, out var v) && v is not null
-                && decimal.TryParse(v.ToString(), System.Globalization.NumberStyles.Any,
+        {
+            if (!row.TryGetValue(tc.ValueColumn, out var v) || v is null
+                || !decimal.TryParse(v.ToString(), System.Globalization.NumberStyles.Any,
                     System.Globalization.CultureInfo.InvariantCulture, out var d))
-                points.Add(d);
+                continue;
+            string? time = null;
+            if (!string.IsNullOrWhiteSpace(tc.TimeColumn)
+                && row.TryGetValue(tc.TimeColumn, out var t) && t is not null)
+            {
+                var raw = t.ToString() ?? "";
+                time = DateTime.TryParse(raw, out var dt) ? dt.ToString("HH:mm:ss") : raw;
+            }
+            points.Add((d, time));
+        }
         var max = Math.Max(2, tc.MaxPoints);
         return points.Count > max ? points.Skip(points.Count - max).ToList() : points;
     }
 
     // SVG 폴리라인 좌표(viewBox 300x80, 상하 4px 패딩) — min==max(평평한 선)는 중앙 수평선.
-    // P3-13 — 포인트별 좌표+값도 반환한다(마커·<title> 툴팁·마지막 점 강조).
-    private static (string Polyline, List<(double X, double Y, decimal Value)> Points, decimal Min, decimal Max, decimal Last)
-        TrendGeometry(List<decimal> points)
+    // P3-13 — 포인트별 좌표+툴팁(값, 시각 있으면 병기)도 반환한다(마커·<title>·마지막 점 강조).
+    private static (string Polyline, List<(double X, double Y, string Tooltip)> Points, decimal Min, decimal Max, decimal Last)
+        TrendGeometry(List<(decimal Value, string? Time)> points)
     {
-        var min = points.Min();
-        var max = points.Max();
+        var min = points.Min(p => p.Value);
+        var max = points.Max(p => p.Value);
         var range = max - min;
         var sb = new System.Text.StringBuilder();
-        var pts = new List<(double X, double Y, decimal Value)>(points.Count);
+        var pts = new List<(double X, double Y, string Tooltip)>(points.Count);
         for (var i = 0; i < points.Count; i++)
         {
             var x = points.Count == 1 ? 0 : 300.0 * i / (points.Count - 1);
-            var y = range == 0 ? 40.0 : 76.0 - (double)((points[i] - min) / range) * 72.0;
-            pts.Add((x, y, points[i]));
+            var y = range == 0 ? 40.0 : 76.0 - (double)((points[i].Value - min) / range) * 72.0;
+            var tooltip = points[i].Time is { } time ? $"{points[i].Value} ({time})" : points[i].Value.ToString();
+            pts.Add((x, y, tooltip));
             if (i > 0) sb.Append(' ');
             sb.Append(x.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
             sb.Append(',');
             sb.Append(y.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
         }
-        return (sb.ToString(), pts, min, max, points[^1]);
+        return (sb.ToString(), pts, min, max, points[^1].Value);
+    }
+
+    // KPI 드릴다운(P3-12) — LinkUiId 지정 카드만 이동.
+    private void KpiNavigate(KpiWidget k)
+    {
+        if (!string.IsNullOrWhiteSpace(k.LinkUiId))
+            Nav.NavigateTo($"/meta/{k.LinkUiId}");
     }
 
     private static readonly HashSet<string> KnownSeverities =

@@ -91,7 +91,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 {
                     new RowNode { Id = "dash-row", Children = new LayoutNode[]
                     {
-                        DashKpi("dash-alarm", "활성 알람", "ACTIVE_ALARMS"),
+                        // LinkUiId(P3-12) — 카드 클릭=관련 화면 드릴다운(대상 화면이 자명한 카드만).
+                        DashKpi("dash-alarm", "활성 알람", "ACTIVE_ALARMS", "EES_POPUP_MONITERING_DASHBOARD"),
                         DashKpi("dash-wo", "진행 작업지시", "OPEN_WORK_ORDERS"),
                         DashKpi("dash-plan", "가동 생산계획", "ACTIVE_PLANS"),
                         DashKpi("dash-recipe", "레시피 승인 대기", "PENDING_RECIPE_APPROVALS"),
@@ -344,7 +345,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                         new ColumnNode { Span = 12, Children = new LayoutNode[]
                         {
                             // 최근 수집값 트렌드(최신 500행 중 마지막 60포인트) — 자동 새로고침과 조합해 준실시간 라인.
-                            new TrendChartWidget { Id = "c-trend", Label = "FDC 수집값 트렌드(최근)", QueryId = "FDC.CollectDataList", ValueColumn = "VALUE", MaxPoints = 60 },
+                            new TrendChartWidget { Id = "c-trend", Label = "FDC 수집값 트렌드(최근)", QueryId = "FDC.CollectDataList", ValueColumn = "VALUE", MaxPoints = 60, TimeColumn = "COLLECTED_AT" },
                         } },
                     } },
                     new RowNode { Id = "mon-ilk", Children = new LayoutNode[]
@@ -2051,13 +2052,13 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
 
     // 대시보드 KPI 카드 열(12칸 중 2칸) — 요약 쿼리(SYS.DashboardSummary) 1행의 컬럼 하나를 카드로 바인딩.
-    private static ColumnNode DashKpi(string id, string label, string valueColumn)
+    private static ColumnNode DashKpi(string id, string label, string valueColumn, string? linkUiId = null)
         => new()
         {
             Id = $"col-{id}", Span = 2,
             Children = new LayoutNode[]
             {
-                new KpiWidget { Id = id, Label = label, QueryId = "SYS.DashboardSummary", ValueColumn = valueColumn, Unit = "건" },
+                new KpiWidget { Id = id, Label = label, QueryId = "SYS.DashboardSummary", ValueColumn = valueColumn, Unit = "건", LinkUiId = linkUiId },
             },
         };
 
