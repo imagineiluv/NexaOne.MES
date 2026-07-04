@@ -67,7 +67,7 @@ else
                                         <input placeholder="권한 추가(예: mdm:read)" @bind="_permInputs[roleId]"
                                                style="width:11rem; padding:0.25rem 0.5rem; border:1px solid #d1d5db; border-radius:0.25rem; font-size:0.781rem;" />
                                         <button @onclick="() => AddPermissionAsync(roleId)" disabled="@_busy"
-                                                style="padding:0.25rem 0.625rem; background:var(--sux-teal); color:#fff; border:none; border-radius:0.25rem; font-size:0.781rem; cursor:pointer;">추가</button>
+                                                style="padding:0.25rem 0.625rem; background:var(--nx-teal); color:#fff; border:none; border-radius:0.25rem; font-size:0.781rem; cursor:pointer;">추가</button>
                                     </span>
                                 </td>
                             </tr>
@@ -91,7 +91,7 @@ else
                     <input placeholder="설명(선택)" @bind="_newRoleDesc"
                            style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:0.375rem; margin-bottom:0.75rem;" />
                     <button @onclick="CreateRoleAsync" disabled="@_busy"
-                            style="width:100%; padding:0.5rem; background:var(--sux-teal); color:#fff; border:none; border-radius:0.375rem; cursor:pointer;">
+                            style="width:100%; padding:0.5rem; background:var(--nx-teal); color:#fff; border:none; border-radius:0.375rem; cursor:pointer;">
                         @(_busy ? "처리 중…" : "생성")
                     </button>
                 </div>
@@ -103,7 +103,7 @@ else
                     <input placeholder="사용자 ID" @bind="_unlockUserId"
                            style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:0.375rem; margin-bottom:0.75rem;" />
                     <button @onclick="UnlockAsync" disabled="@_busy"
-                            style="width:100%; padding:0.5rem; background:var(--sux-teal-d); color:#fff; border:none; border-radius:0.375rem; cursor:pointer;">
+                            style="width:100%; padding:0.5rem; background:var(--nx-teal-d); color:#fff; border:none; border-radius:0.375rem; cursor:pointer;">
                         잠금 해제
                     </button>
                 </div>

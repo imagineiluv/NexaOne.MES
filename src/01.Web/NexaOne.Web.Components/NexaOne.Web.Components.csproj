@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.Authorization" Version="8.*" />
+    <PackageReference Include="Radzen.Blazor" Version="11.1.0" />
     <!-- ApiClient/JwtAuthStateProvider/AuthContextService의 JWT 파싱 의존(이동한 폐포가 사용) -->
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="7.*" />
   </ItemGroup>

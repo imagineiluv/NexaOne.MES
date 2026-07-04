@@ -7,6 +7,7 @@ using System.Threading.RateLimiting;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Components.Authorization;
+using Radzen;
 using NexaOne.Application.Messaging;
 using NexaOne.Application.Query;
 using NexaOne.Infrastructure.Persistence;
@@ -175,6 +176,8 @@ builder.Services.AddSingleton<NexaOne.Server.Gateway.IErrorLocalizer, NexaOne.Se
 builder.Services.AddControllers(o => o.Filters.Add<NexaOne.Server.Gateway.ErrorLocalizationFilter>())
     .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(
         new System.Text.Json.Serialization.JsonStringEnumConverter()));
+// Radzen Blazor 컴포넌트(그리드/입력/차트) — DataGrid·다이얼로그·툴팁·알림 서비스 등록.
+builder.Services.AddRadzenComponents();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();

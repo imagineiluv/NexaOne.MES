@@ -2,41 +2,41 @@
    .NET 호스트(wwwroot/css/smartux.css)와 동일 토큰을 재사용해 시각적 일관성 유지.
    네이비 상단바 + 틸 주색 + 깔끔한 보더 패널. */
 :root {
-  --sux-navy: #0e2240;
-  --sux-navy-2: #0a1a33;
-  --sux-navy-hover: rgba(255, 255, 255, .08);
-  --sux-teal: #15b89a;
-  --sux-teal-d: #0fa085;
-  --sux-blue: #4a6cf7;
-  --sux-red: #e5484d;
-  --sux-bg: #eef1f5;
-  --sux-card: #ffffff;
-  --sux-border: #e2e6eb;
-  --sux-head: #f5f7f9;
-  --sux-text: #1f2937;
-  --sux-muted: #6b7280;
+  --nx-navy: #0e2240;
+  --nx-navy-2: #0a1a33;
+  --nx-navy-hover: rgba(255, 255, 255, .08);
+  --nx-teal: #15b89a;
+  --nx-teal-d: #0fa085;
+  --nx-blue: #4a6cf7;
+  --nx-red: #e5484d;
+  --nx-bg: #eef1f5;
+  --nx-card: #ffffff;
+  --nx-border: #e2e6eb;
+  --nx-head: #f5f7f9;
+  --nx-text: #1f2937;
+  --nx-muted: #6b7280;
 }
 
 /* P3-17 다크 모드 — 호스트 셸과 동일 토큰 오버라이드(<html data-theme="dark">). 디자이너 크롬(툴바·
    블록/속성 패널)이 다크로 전환된다. GrapesJS 캔버스 iframe은 ScreenEditor가 별도로 테마를 주입한다. */
 [data-theme="dark"] {
-  --sux-bg: #0d1420;
-  --sux-card: #161f2e;
-  --sux-border: #2b3750;
-  --sux-head: #1b2536;
-  --sux-text: #dfe6f1;
-  --sux-muted: #8c9ab0;
+  --nx-bg: #0d1420;
+  --nx-card: #161f2e;
+  --nx-border: #2b3750;
+  --nx-head: #1b2536;
+  --nx-text: #dfe6f1;
+  --nx-muted: #8c9ab0;
 }
-[data-theme="dark"] .sux-btn-ghost { background: var(--sux-head); color: var(--sux-text); }
+[data-theme="dark"] .sux-btn-ghost { background: var(--nx-head); color: var(--nx-text); }
 [data-theme="dark"] input, [data-theme="dark"] select, [data-theme="dark"] textarea {
-  background: var(--sux-head); color: var(--sux-text); border-color: var(--sux-border); }
+  background: var(--nx-head); color: var(--nx-text); border-color: var(--nx-border); }
 
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; padding: 0; height: 100%; }
 body {
   font-family: "Malgun Gothic", "Noto Sans KR", "Segoe UI", system-ui, sans-serif;
-  color: var(--sux-text);
-  background: var(--sux-bg);
+  color: var(--nx-text);
+  background: var(--nx-bg);
   font-size: 13px;
 }
 
@@ -47,36 +47,36 @@ body {
   line-height: 1.2;
 }
 .sux-btn:disabled { opacity: .5; cursor: not-allowed; }
-.sux-btn-teal { background: var(--sux-teal); color: #fff; }
-.sux-btn-teal:not(:disabled):hover { background: var(--sux-teal-d); }
-.sux-btn-blue { background: var(--sux-blue); color: #fff; }
+.sux-btn-teal { background: var(--nx-teal); color: #fff; }
+.sux-btn-teal:not(:disabled):hover { background: var(--nx-teal-d); }
+.sux-btn-blue { background: var(--nx-blue); color: #fff; }
 .sux-btn-blue:not(:disabled):hover { filter: brightness(.95); }
-.sux-btn-ghost { background: #fff; color: #44506a; border-color: var(--sux-border); }
-.sux-btn-ghost:not(:disabled):hover { background: var(--sux-head); }
-.sux-btn-red { background: var(--sux-red); color: #fff; }
+.sux-btn-ghost { background: #fff; color: #44506a; border-color: var(--nx-border); }
+.sux-btn-ghost:not(:disabled):hover { background: var(--nx-head); }
+.sux-btn-red { background: var(--nx-red); color: #fff; }
 .sux-btn-red:not(:disabled):hover { filter: brightness(.95); }
 
 /* ===== 공통 입력 ===== */
 .sux-input {
-  padding: 6px 9px; border: 1px solid var(--sux-border); border-radius: 3px;
-  font-size: 13px; font-family: inherit; color: var(--sux-text); background: #fff;
+  padding: 6px 9px; border: 1px solid var(--nx-border); border-radius: 3px;
+  font-size: 13px; font-family: inherit; color: var(--nx-text); background: #fff;
 }
-.sux-input:focus { outline: none; border-color: var(--sux-teal); box-shadow: 0 0 0 2px rgba(21, 184, 154, .15); }
+.sux-input:focus { outline: none; border-color: var(--nx-teal); box-shadow: 0 0 0 2px rgba(21, 184, 154, .15); }
 
 /* ===== 카드/패널 ===== */
-.sux-card { background: var(--sux-card); border: 1px solid var(--sux-border); border-radius: 4px; }
+.sux-card { background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: 4px; }
 
 /* ===== 디자이너 셸 ===== */
-.sux-designer { display: flex; flex-direction: column; height: 100vh; background: var(--sux-bg); }
+.sux-designer { display: flex; flex-direction: column; height: 100vh; background: var(--nx-bg); }
 
 /* 디자이너 상단바 — 네이비 + 화이트 텍스트 */
 .sux-designer-bar {
   display: flex; gap: 12px; align-items: center;
   height: 56px; flex: 0 0 56px; padding: 0 16px;
-  background: var(--sux-navy); color: #fff;
+  background: var(--nx-navy); color: #fff;
 }
 .sux-designer-bar .sux-brand { font-weight: 700; font-size: 15px; letter-spacing: .3px; color: #fff; }
-.sux-designer-bar .sux-brand small { color: var(--sux-teal); font-weight: 600; font-size: 10px; letter-spacing: 2px; display: block; }
+.sux-designer-bar .sux-brand small { color: var(--nx-teal); font-weight: 600; font-size: 10px; letter-spacing: 2px; display: block; }
 .sux-designer-bar .sux-uiid { color: #9fb0c8; font-size: 12px; }
 .sux-designer-bar .sux-input { background: #fff; }
 .sux-designer-bar .sux-status { margin-left: auto; color: #c3ccd9; font-size: 12.5px; }
@@ -85,54 +85,54 @@ body {
 .sux-designer-body { display: flex; flex: 1; min-height: 0; }
 .sux-panel {
   display: flex; flex-direction: column; overflow: hidden;
-  background: var(--sux-card); border-top: none;
+  background: var(--nx-card); border-top: none;
 }
-.sux-panel-blocks { width: 220px; flex: 0 0 220px; border-right: 1px solid var(--sux-border); }
-.sux-panel-traits { width: 260px; flex: 0 0 260px; border-left: 1px solid var(--sux-border); }
+.sux-panel-blocks { width: 220px; flex: 0 0 220px; border-right: 1px solid var(--nx-border); }
+.sux-panel-traits { width: 260px; flex: 0 0 260px; border-left: 1px solid var(--nx-border); }
 /* 패널 헤더 — 틸 액센트 */
 .sux-panel-head {
-  flex: 0 0 auto; padding: 9px 14px; background: var(--sux-head);
-  border-bottom: 1px solid var(--sux-border);
-  color: var(--sux-teal); font-weight: 700; font-size: 12.5px; letter-spacing: .2px;
+  flex: 0 0 auto; padding: 9px 14px; background: var(--nx-head);
+  border-bottom: 1px solid var(--nx-border);
+  color: var(--nx-teal); font-weight: 700; font-size: 12.5px; letter-spacing: .2px;
 }
 .sux-panel-scroll { flex: 1; overflow: auto; min-height: 0; }
 /* 캔버스 프레임 */
-.sux-canvas { flex: 1; min-height: 0; min-width: 0; background: var(--sux-bg); }
+.sux-canvas { flex: 1; min-height: 0; min-width: 0; background: var(--nx-bg); }
 
-.sux-gate { padding: 2rem; color: var(--sux-muted); }
+.sux-gate { padding: 2rem; color: var(--nx-muted); }
 
 /* GrapesJS 매니저를 SmartUX 팔레트에 살짝 맞춤(틸 액센트). 기능엔 영향 없음. */
 .sux-panel .gjs-block { border-radius: 3px; }
-.sux-panel .gjs-block:hover { color: var(--sux-teal-d); border-color: var(--sux-teal); }
+.sux-panel .gjs-block:hover { color: var(--nx-teal-d); border-color: var(--nx-teal); }
 
 /* ===== 로그인 ===== */
-.sux-login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--sux-navy); }
+.sux-login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--nx-navy); }
 .sux-login-card {
-  width: 340px; background: var(--sux-card); border-radius: 6px;
+  width: 340px; background: var(--nx-card); border-radius: 6px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, .25); padding: 28px 28px 24px;
   display: grid; gap: 12px;
 }
-.sux-login-card h1 { margin: 0 0 4px; font-size: 18px; font-weight: 700; color: var(--sux-navy); text-align: center; }
-.sux-login-card h1 small { display: block; color: var(--sux-teal); font-weight: 600; font-size: 11px; letter-spacing: 2px; margin-top: 4px; }
+.sux-login-card h1 { margin: 0 0 4px; font-size: 18px; font-weight: 700; color: var(--nx-navy); text-align: center; }
+.sux-login-card h1 small { display: block; color: var(--nx-teal); font-weight: 600; font-size: 11px; letter-spacing: 2px; margin-top: 4px; }
 .sux-login-card .sux-input { width: 100%; padding: 9px 11px; }
 .sux-login-card .sux-btn { width: 100%; padding: 9px; }
-.sux-error { color: var(--sux-red); font-size: 12.5px; margin: 0; }
+.sux-error { color: var(--nx-red); font-size: 12.5px; margin: 0; }
 
 /* ===== 대시보드/앱 셸 ===== */
 .sux-app { max-width: 860px; margin: 0 auto; padding: 0 16px 32px; }
 .sux-app-topbar {
   display: flex; justify-content: space-between; align-items: center;
-  background: var(--sux-navy); color: #fff;
+  background: var(--nx-navy); color: #fff;
   margin: 0 -16px 20px; padding: 0 16px; height: 56px;
 }
 .sux-app-topbar .sux-user { font-size: 13px; color: #e6ebf2; }
 .sux-app-topbar .sux-actions { display: flex; gap: 10px; align-items: center; }
-.sux-app-topbar a { color: var(--sux-teal); text-decoration: none; font-size: 13px; font-weight: 600; }
+.sux-app-topbar a { color: var(--nx-teal); text-decoration: none; font-size: 13px; font-weight: 600; }
 .sux-app-topbar a:hover { text-decoration: underline; }
 .sux-section-title { font-size: 15px; font-weight: 700; color: #1f2a3d; margin: 18px 0 8px; }
 .sux-list { list-style: none; padding: 0; margin: 0; }
 .sux-list li {
-  background: var(--sux-card); border: 1px solid var(--sux-border); border-radius: 4px;
+  background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: 4px;
   padding: 8px 12px; margin-bottom: 6px; font-size: 13px;
 }
-.sux-muted { color: var(--sux-muted); }
+.sux-muted { color: var(--nx-muted); }

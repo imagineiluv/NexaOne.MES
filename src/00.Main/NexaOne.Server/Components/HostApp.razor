@@ -87,6 +87,9 @@
             });
         };
     </script>
+    @* Radzen Blazor 테마(구조+CSS 변수) — smartux.css '앞'에 두어, smartux.css의 --rz-* → --nx-* 브리지
+       매핑이 뒤에서 이겨 NAF 브랜드/다크 토큰을 따르게 한다. *@
+    <link rel="stylesheet" href="_content/Radzen.Blazor/css/material-base.css" />
     <link rel="stylesheet" href="css/smartux.css" />
     <HeadOutlet @rendermode="@(new InteractiveServerRenderMode(prerender: false))" />
 </head>
@@ -96,5 +99,6 @@
        서킷 연결(클라이언트) 이후에만 렌더해 실제 인증 상태로 평가되게 한다. *@
     <HostRoutes @rendermode="@(new InteractiveServerRenderMode(prerender: false))" />
     <script src="_framework/blazor.web.js"></script>
+    <script src="_content/Radzen.Blazor/Radzen.Blazor.js"></script>
 </body>
 </html>

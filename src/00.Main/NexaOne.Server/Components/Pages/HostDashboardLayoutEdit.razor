@@ -30,7 +30,7 @@ else
             <input @bind="_newUiId" placeholder="새 화면 UI_ID (예: DASHBOARD_LINE1)"
                    style="width:20rem; padding:0.45rem 0.6rem; border:1px solid #d1d5db; border-radius:0.375rem;" />
             <a href="@DesignerHref(_newUiId)" target="_blank"
-               style="padding:0.45rem 0.875rem; background:var(--sux-teal-d); color:#fff; border-radius:0.375rem; text-decoration:none; font-size:0.813rem; @(string.IsNullOrWhiteSpace(_newUiId) ? "pointer-events:none; opacity:0.5;" : "")">
+               style="padding:0.45rem 0.875rem; background:var(--nx-teal-d); color:#fff; border-radius:0.375rem; text-decoration:none; font-size:0.813rem; @(string.IsNullOrWhiteSpace(_newUiId) ? "pointer-events:none; opacity:0.5;" : "")">
                 새 화면 디자인
             </a>
             <button @onclick="ReloadAsync" style="padding:0.45rem 0.75rem; background:#f3f4f6; border:1px solid #d1d5db; border-radius:0.375rem; font-size:0.813rem; cursor:pointer;">
@@ -57,9 +57,9 @@ else
                         <td style="@Td"><strong>@s.UiId</strong></td>
                         <td style="@Td">@s.Title</td>
                         <td style="@Td">
-                            <a href="@DesignerHref(s.UiId)" target="_blank" style="color:var(--sux-teal-d);">디자이너에서 편집</a>
+                            <a href="@DesignerHref(s.UiId)" target="_blank" style="color:var(--nx-teal-d);">디자이너에서 편집</a>
                             <span style="color:#d1d5db; margin:0 0.375rem;">|</span>
-                            <a href="/meta/@s.UiId" style="color:var(--sux-teal-d);">런타임 보기</a>
+                            <a href="/meta/@s.UiId" style="color:var(--nx-teal-d);">런타임 보기</a>
                         </td>
                     </tr>
                 }
