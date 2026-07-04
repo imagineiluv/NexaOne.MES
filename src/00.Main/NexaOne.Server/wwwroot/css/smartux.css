@@ -64,6 +64,8 @@
   --rz-series-4: var(--nx-danger);
   --rz-border-radius: var(--nx-radius);
 }
+/* 자체 헤더 클릭 정렬(P3-9) — Radzen 컬럼 HeaderTemplate 안의 클릭 라벨. */
+.rz-column-title .nx-sort, .nx-sort { cursor: pointer; user-select: none; display: inline-block; }
 /* DataGrid 표면 — 헤더/셀/줄무늬/보더를 NexaOne 톤으로(가벼운 보더·부드러운 줄무늬). */
 .rz-datatable, .rz-grid-table { font-size: 12.5px; }
 .rz-datatable .rz-column-title, .rz-grid-table thead th { background: var(--nx-head); color: var(--nx-text-2); font-weight: 600; }
