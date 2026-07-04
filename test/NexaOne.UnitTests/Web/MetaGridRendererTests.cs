@@ -117,4 +117,48 @@ public sealed class MetaGridRendererTests
         cut.Markup.Should().NotContain("table-layout:fixed", "폭 미지정 화면은 기존 자동 레이아웃 유지(하위호환)");
         cut.FindAll("colgroup").Should().BeEmpty();
     }
+
+    // ── P3-9 — 클라이언트 정렬(숫자 인지)·페이징(20행/페이지) ────────────────
+
+    private static List<Dictionary<string, object?>> IdRows(params string[] ids)
+        => ids.Select(id => new Dictionary<string, object?> { ["PLANT_ID"] = id, ["PLANT_NAME"] = $"이름{id}" }).ToList();
+
+    [Fact]
+    public void Pages_rows_in_chunks_of_twenty_with_pager()
+    {
+        using var ctx = new TestContext();
+        var cut = Render(ctx, IdRows(Enumerable.Range(1, 25).Select(i => $"P-{i:D2}").ToArray()));
+
+        cut.FindAll("tbody tr").Count.Should().Be(20, "첫 페이지는 20행");
+        cut.Markup.Should().Contain("25 행").And.Contain("1 / 2");
+
+        cut.FindAll("button").First(b => b.TextContent.Contains("다음")).Click();
+        cut.FindAll("tbody tr").Count.Should().Be(5, "둘째 페이지는 잔여 5행");
+        cut.Markup.Should().Contain("2 / 2");
+    }
+
+    [Fact]
+    public void Header_click_sorts_numerically_and_toggles_direction()
+    {
+        using var ctx = new TestContext();
+        // 숫자 컬럼 — 문자열 정렬이면 "10"이 "2"보다 앞이므로 수치 정렬 여부가 구분된다.
+        var cut = Render(ctx, IdRows("10", "2", "1"));
+
+        cut.FindAll("thead th").First(t => t.TextContent.Contains("공장 ID")).Click();
+        cut.FindAll("tbody tr")[0].TextContent.Should().Contain("이름1").And.NotContain("이름10", "오름차순 첫 행=1(수치 정렬)");
+        cut.FindAll("tbody tr")[2].TextContent.Should().Contain("이름10");
+
+        cut.FindAll("thead th").First(t => t.TextContent.Contains("공장 ID")).Click();
+        cut.FindAll("tbody tr")[0].TextContent.Should().Contain("이름10", "재클릭=내림차순 토글");
+    }
+
+    [Fact]
+    public void Small_result_shows_row_count_without_pager()
+    {
+        using var ctx = new TestContext();
+        var cut = Render(ctx, IdRows("1", "2"));
+
+        cut.Markup.Should().Contain("2 행");
+        cut.FindAll("button").Should().BeEmpty("20행 이하는 페이저를 렌더하지 않는다");
+    }
 }

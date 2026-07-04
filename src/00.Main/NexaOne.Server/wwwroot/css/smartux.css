@@ -174,6 +174,12 @@ body {
 .meta-actions { margin-top: 12px; display: flex; gap: 8px; }
 /* P2-8 — 그리드 푸터 안내(조회 중/결과 없음/N행) 공통 표기 */
 .meta-grid-note { color: #9aa3b2; font-size: 12.5px; margin-top: 8px; }
+/* P3-9 — 클라이언트 페이저(20행/페이지) + 정렬 가능 헤더 hover */
+.meta-grid-pager { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.pager-btn { padding: 3px 10px; font-size: 12px; background: #fff; border: 1px solid var(--sux-border); border-radius: 3px; color: #44506a; cursor: pointer; }
+.pager-btn:hover:not(:disabled) { background: #f5f7f9; }
+.pager-btn:disabled { opacity: .45; cursor: default; }
+.meta-grid thead th.sortable:hover { background: #f0f4f8; }
 .validation-errors { color: var(--sux-red); font-size: 12.5px; margin: 8px 0 0; padding-left: 18px; }
 .save-ok { color: var(--sux-teal); font-weight: 600; }
 .layout-section { background: #fff; border: 1px solid var(--sux-border); border-radius: 4px; padding: 14px; margin-bottom: 12px; }
@@ -256,4 +262,12 @@ body {
 .mes-mditab.active::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px; background: var(--sux-teal); }
 .mes-mditab .close { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 3px; font-size: 15px; line-height: 1; color: inherit; opacity: .55; }
 .mes-mditab .close:hover { opacity: 1; background: rgba(0,0,0,.12); }
+/* P3-10 — 탭 우클릭 컨텍스트 메뉴 */
+.tabmenu-backdrop { position: fixed; inset: 0; z-index: 240; }
+.tabmenu { position: fixed; z-index: 250; min-width: 160px; background: #fff; border: 1px solid var(--sux-border); border-radius: 4px; box-shadow: 0 6px 18px rgba(16,24,40,.16); padding: 4px 0; }
+.tabmenu-item { padding: 7px 14px; font-size: 12.5px; color: #44506a; cursor: pointer; }
+.tabmenu-item:hover { background: #eefaf7; }
+/* P3-18 — 즐겨찾기 순서 버튼은 행 hover 시에만 노출(시각 소음 감소) */
+.fav-item .fav-move { visibility: hidden; }
+.fav-item:hover .fav-move { visibility: visible; }
 .mes-mditab.active .close:hover { background: rgba(255,255,255,.18); }

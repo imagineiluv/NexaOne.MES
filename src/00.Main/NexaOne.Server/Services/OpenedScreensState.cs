@@ -74,6 +74,26 @@ public sealed class OpenedScreensState
         Changed?.Invoke();
         return wasActive ? next : null;
     }
+
+    /// <summary>지정 탭만 남기고 모두 닫는다(우클릭 '다른 탭 모두 닫기'). 활성은 남긴 탭으로.</summary>
+    public void CloseOthers(string uiId)
+    {
+        var keep = _screens.Find(s => string.Equals(s.UiId, uiId, StringComparison.OrdinalIgnoreCase));
+        if (keep is null) return;
+        _screens.Clear();
+        _screens.Add(keep);
+        ActiveUiId = keep.UiId;
+        Changed?.Invoke();
+    }
+
+    /// <summary>모든 탭을 닫는다(우클릭 '모두 닫기'). 호출자가 기본 화면으로 내비게이트한다.</summary>
+    public void CloseAll()
+    {
+        if (_screens.Count == 0) return;
+        _screens.Clear();
+        ActiveUiId = null;
+        Changed?.Invoke();
+    }
 }
 
 /// <summary>MDI 탭 한 칸 — 열린 화면의 식별자(uiId)와 표시 제목.</summary>

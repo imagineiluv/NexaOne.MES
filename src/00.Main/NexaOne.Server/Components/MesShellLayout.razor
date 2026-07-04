@@ -27,19 +27,19 @@
                 {
                     var idx = i;                      @* 람다 캡처용 로컬 복사(루프 변수 직접 캡처 금지) *@
                     var fav = _favorites[idx];
-                    <div @key="fav.MenuId" style="display:flex; align-items:center; gap:0.25rem; padding:0.3rem 0.75rem 0.3rem 1.25rem; font-size:0.813rem; color:#d2dcea;"
+                    <div @key="fav.MenuId" class="fav-item" style="display:flex; align-items:center; gap:0.25rem; padding:0.3rem 0.75rem 0.3rem 1.25rem; font-size:0.813rem; color:#d2dcea;"
                          title="@fav.MenuName">
                         <span style="flex:1; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
                               @onclick="() => NavigateTo(fav.UiId, fav.MenuName)">@fav.MenuName</span>
-                        @* §20.12 순서 변경 — ▲▼로 이웃과 교환, 성공 시에만 캐시 반영(§20.8 원칙). *@
+                        @* §20.12 순서 변경 — ▲▼로 이웃과 교환(행 hover 시에만 노출, P3-18), 성공 시에만 캐시 반영. *@
                         @if (idx > 0)
                         {
-                            <span style="cursor:pointer; color:#8ea0b8; font-size:0.625rem;" title="위로"
+                            <span class="fav-move" style="cursor:pointer; color:#8ea0b8; font-size:0.625rem;" title="위로"
                                   @onclick="() => MoveFavoriteAsync(idx, -1)">▲</span>
                         }
                         @if (idx < _favorites.Count - 1)
                         {
-                            <span style="cursor:pointer; color:#8ea0b8; font-size:0.625rem;" title="아래로"
+                            <span class="fav-move" style="cursor:pointer; color:#8ea0b8; font-size:0.625rem;" title="아래로"
                                   @onclick="() => MoveFavoriteAsync(idx, +1)">▼</span>
                         }
                     </div>
@@ -110,18 +110,31 @@
             </div>
         </header>
 
-        @* MDI 탭 — 열린 /meta 화면들. 활성 강조 + X로 닫기. 탭이 없으면 바를 숨긴다. *@
+        @* MDI 탭 — 열린 /meta 화면들. 활성 강조 + X로 닫기 + 우클릭 컨텍스트(닫기/다른 탭/모두, P3-10).
+           탭이 많으면 가로 스크롤(오버플로). 탭이 없으면 바를 숨긴다. *@
         @if (Opened.Screens.Count > 0)
         {
             <div class="mes-mditabs">
                 @foreach (var tab in Opened.Screens)
                 {
                     var tabActive = string.Equals(tab.UiId, Opened.ActiveUiId, StringComparison.OrdinalIgnoreCase);
-                    <div class="mes-mditab @(tabActive ? "active" : "")" @onclick="() => NavigateTo(tab.UiId, tab.Title)">
+                    <div class="mes-mditab @(tabActive ? "active" : "")" @onclick="() => NavigateTo(tab.UiId, tab.Title)"
+                         @oncontextmenu="e => OpenTabMenu(e, tab.UiId)" @oncontextmenu:preventDefault="true">
                         <span class="mes-mditab-label">@tab.Title</span>
                         <span class="close" @onclick="() => CloseTab(tab.UiId)" @onclick:stopPropagation="true">&times;</span>
                     </div>
                 }
+            </div>
+        }
+
+        @* 탭 우클릭 컨텍스트 메뉴 — 투명 백드롭 클릭으로 닫힘. *@
+        @if (_tabMenuUiId is not null)
+        {
+            <div class="tabmenu-backdrop" @onclick="CloseTabMenu" @oncontextmenu="CloseTabMenu" @oncontextmenu:preventDefault="true"></div>
+            <div class="tabmenu" style="left:@(_tabMenuX)px; top:@(_tabMenuY)px;">
+                <div class="tabmenu-item" @onclick="() => TabMenuClose()">닫기</div>
+                <div class="tabmenu-item" @onclick="() => TabMenuCloseOthers()">다른 탭 모두 닫기</div>
+                <div class="tabmenu-item" @onclick="() => TabMenuCloseAll()">모두 닫기</div>
             </div>
         }
 
@@ -395,6 +408,48 @@
         var curUi = ActiveUiId();
         if (string.Equals(curUi, uiId, StringComparison.OrdinalIgnoreCase))
             Nav.NavigateTo(MetaHref(next ?? "DEMO_GRID"), forceLoad: false);
+    }
+
+    // ── MDI 탭 우클릭 컨텍스트 메뉴(P3-10) ─────────────────────────────────────
+    private string? _tabMenuUiId;
+    private double _tabMenuX;
+    private double _tabMenuY;
+
+    private void OpenTabMenu(MouseEventArgs e, string uiId)
+    {
+        _tabMenuUiId = uiId;
+        _tabMenuX = e.ClientX;
+        _tabMenuY = e.ClientY;
+    }
+
+    private void CloseTabMenu() => _tabMenuUiId = null;
+
+    private void TabMenuClose()
+    {
+        var target = _tabMenuUiId;
+        CloseTabMenu();
+        if (target is not null) CloseTab(target);
+    }
+
+    private void TabMenuCloseOthers()
+    {
+        var target = _tabMenuUiId;
+        CloseTabMenu();
+        if (target is null) return;
+        Opened.CloseOthers(target);
+        // 남긴 탭이 현재 화면이 아니면 그 탭으로 이동한다.
+        if (!string.Equals(ActiveUiId(), target, StringComparison.OrdinalIgnoreCase))
+        {
+            var title = _uiToTitle.TryGetValue(target, out var t) ? t : target;
+            NavigateTo(target, title);
+        }
+    }
+
+    private void TabMenuCloseAll()
+    {
+        CloseTabMenu();
+        Opened.CloseAll();
+        Nav.NavigateTo(MetaHref("DEMO_GRID"), forceLoad: false);
     }
 
     private static string MetaHref(string uiId) => $"/meta/{uiId}";

@@ -1,10 +1,12 @@
 @* Phase 4 — ScreenDefinition.Columns(메타데이터)를 받아 행 데이터를 런타임 렌더하는 그리드.
    행은 파일 기반 쿼리 게이트웨이(ExecuteQueryAsync) 결과(컬럼명→값 Dictionary)로 공급된다 —
    손코딩 .razor 없이 컬럼 메타 + 명명 쿼리만으로 조회 화면을 구성한다(고코드 타입드 리포와 공존).
-   OnRowSelect가 배선되면 행 클릭=선택(하이라이트)+콜백 — MetaScreen이 폼에 로드한다(P1-1). *@
+   OnRowSelect가 배선되면 행 클릭=선택(하이라이트)+콜백 — MetaScreen이 폼에 로드한다(P1-1).
+   P3-9: 헤더 클릭 정렬(숫자 인지, ▲/▼ 토글)과 클라이언트 페이징(20행/페이지) — 서버 LIMIT 결과
+   안에서의 표시 정렬/분할이며 데이터 소스는 불변이다. *@
 @using NexaOne.Web.Services.Meta
 
-@{ var cols = Columns.Where(c => c.Visible).ToList(); }
+@{ var cols = Columns.Where(c => c.Visible).ToList(); var view = View(); }
 <div class="meta-grid @(OnRowSelect.HasDelegate ? "selectable" : "")">
     <table style="@(cols.Any(c => c.Width is > 0) ? "width:100%; border-collapse:collapse; font-size:0.875rem; table-layout:fixed;" : "width:100%; border-collapse:collapse; font-size:0.875rem;")">
         @* 컬럼 폭 메타(Phase-2) — Width(px) 지정 컬럼은 colgroup으로 고정하고(table-layout:fixed 필요),
@@ -23,28 +25,29 @@
             <tr>
                 @foreach (var col in cols)
                 {
-                    <th style="text-align:left; border-bottom:2px solid #e2e8f0; padding:0.5rem; color:#334155;">@col.Caption</th>
+                    var key = col.Key;
+                    <th class="sortable" style="text-align:left; border-bottom:2px solid #e2e8f0; padding:0.5rem; color:#334155; cursor:pointer; user-select:none;"
+                        title="클릭하여 정렬" @onclick="() => SortBy(key)">
+                        @col.Caption@(key == _sortKey ? (_sortDesc ? " ▼" : " ▲") : "")
+                    </th>
                 }
             </tr>
         </thead>
         <tbody>
-            @if (Rows is { Count: > 0 })
+            @foreach (var row in view)
             {
-                @foreach (var row in Rows)
-                {
-                    var r = row;   @* 람다 캡처용 로컬 복사 *@
-                    <tr class="@(ReferenceEquals(r, _selected) ? "selected" : "")" @onclick="() => SelectAsync(r)">
-                        @foreach (var col in cols)
-                        {
-                            <td style="border-bottom:1px solid #f1f5f9; padding:0.5rem;">@Cell(r, col.Key)</td>
-                        }
-                    </tr>
-                }
+                var r = row;   @* 람다 캡처용 로컬 복사 *@
+                <tr class="@(ReferenceEquals(r, _selected) ? "selected" : "")" @onclick="() => SelectAsync(r)">
+                    @foreach (var col in cols)
+                    {
+                        <td style="border-bottom:1px solid #f1f5f9; padding:0.5rem;">@Cell(r, col.Key)</td>
+                    }
+                </tr>
             }
         </tbody>
     </table>
 
-    @* P2-8 — 푸터 안내 공통 클래스(.meta-grid-note)로 통일 *@
+    @* P2-8 — 푸터 안내 공통 클래스(.meta-grid-note). 페이지가 여럿이면 페이저를 함께 렌더(P3-9). *@
     @if (Loading && Rows is not { Count: > 0 })
     {
         <p class="meta-grid-note">조회 중…</p>
@@ -57,13 +60,24 @@
     {
         <p class="meta-grid-note">결과 없음</p>
     }
-    else
+    else if (PageCount <= 1)
     {
         <p class="meta-grid-note">@Rows.Count 행</p>
+    }
+    else
+    {
+        <div class="meta-grid-pager">
+            <span class="meta-grid-note">@Rows.Count 행</span>
+            <button class="pager-btn" disabled="@(_page == 0)" @onclick="() => _page--">‹ 이전</button>
+            <span class="meta-grid-note">@(_page + 1) / @PageCount</span>
+            <button class="pager-btn" disabled="@(_page >= PageCount - 1)" @onclick="() => _page++">다음 ›</button>
+        </div>
     }
 </div>
 
 @code {
+    private const int PageSize = 20;
+
     // 보이는 컬럼만 캡션을 헤더로 그리고, 각 행에서 컬럼 Key로 값을 찾아 셀에 표시한다.
     [Parameter, EditorRequired]
     public IReadOnlyList<GridColumnDefinition> Columns { get; set; } = Array.Empty<GridColumnDefinition>();
@@ -78,6 +92,52 @@
     [Parameter] public EventCallback<Dictionary<string, object?>> OnRowSelect { get; set; }
 
     private Dictionary<string, object?>? _selected;
+    private string? _sortKey;
+    private bool _sortDesc;
+    private int _page;
+    private IReadOnlyList<Dictionary<string, object?>>? _lastRows;
+
+    // 재조회(새 Rows 인스턴스)면 페이지를 처음으로 되돌린다 — 정렬 선택은 유지(레거시 그리드 관례).
+    protected override void OnParametersSet()
+    {
+        if (!ReferenceEquals(_lastRows, Rows))
+        {
+            _lastRows = Rows;
+            _page = 0;
+        }
+    }
+
+    private int PageCount => Rows is { Count: > 0 } ? (Rows.Count + PageSize - 1) / PageSize : 0;
+
+    // 정렬(선택 시) + 현재 페이지 분할. 숫자 컬럼(전 값이 숫자/공백)은 수치 정렬, 그 외 문자열 정렬.
+    private IEnumerable<Dictionary<string, object?>> View()
+    {
+        if (Rows is not { Count: > 0 }) return Array.Empty<Dictionary<string, object?>>();
+        IEnumerable<Dictionary<string, object?>> v = Rows;
+        if (_sortKey is { } key)
+        {
+            var numeric = Rows.All(r =>
+            {
+                var s = Cell(r, key);
+                return s.Length == 0 || decimal.TryParse(s, out _);
+            });
+            v = numeric
+                ? (_sortDesc
+                    ? v.OrderByDescending(r => decimal.TryParse(Cell(r, key), out var d) ? d : decimal.MinValue)
+                    : v.OrderBy(r => decimal.TryParse(Cell(r, key), out var d) ? d : decimal.MinValue))
+                : (_sortDesc
+                    ? v.OrderByDescending(r => Cell(r, key), StringComparer.Ordinal)
+                    : v.OrderBy(r => Cell(r, key), StringComparer.Ordinal));
+        }
+        return v.Skip(_page * PageSize).Take(PageSize);
+    }
+
+    private void SortBy(string key)
+    {
+        if (_sortKey == key) _sortDesc = !_sortDesc;   // 같은 컬럼 재클릭 = 방향 토글
+        else { _sortKey = key; _sortDesc = false; }
+        _page = 0;
+    }
 
     private async Task SelectAsync(Dictionary<string, object?> row)
     {
