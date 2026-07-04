@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NexaOne (통합 호스트)</title>
     <base href="/" />
+    @* P3-17 다크 모드 — 첫 페인트 전에 저장된 테마를 적용해 깜빡임을 막는다. 토글은 셸 사용자 메뉴. *@
+    <script>
+        document.documentElement.dataset.theme = localStorage.getItem('nx-theme') || 'light';
+        window.nxSetTheme = function (t) {
+            localStorage.setItem('nx-theme', t);
+            document.documentElement.dataset.theme = t;
+        };
+        window.nxGetTheme = function () { return document.documentElement.dataset.theme || 'light'; };
+    </script>
     <link rel="stylesheet" href="css/smartux.css" />
     <HeadOutlet @rendermode="@(new InteractiveServerRenderMode(prerender: false))" />
 </head>
