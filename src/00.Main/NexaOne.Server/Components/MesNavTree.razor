@@ -5,12 +5,13 @@
    깊이별 좌패딩으로 들여쓰기를 표현한다(인라인 padding-left가 CSS shorthand의 left만 덮어씀). *@
 @foreach (var node in Nodes)
 {
+    var display = DisplayName?.Invoke(node) ?? node.Name;
     if (node.IsFolder)
     {
         var isOpen = Open.Contains(node.Id);
         <div class="mes-nav-folder @(isOpen ? "open" : "")">
             <div class="mes-nav-item mes-folder-head @(isOpen ? "open" : "")"
-                 style="padding-left:@(Pad)px" role="button" tabindex="0" title="@node.Name"
+                 style="padding-left:@(Pad)px" role="button" tabindex="0" title="@display"
                  @onclick="() => OnToggle.InvokeAsync(node.Id)"
                  @onkeydown="async e => { if (IsActivateKey(e)) await OnToggle.InvokeAsync(node.Id); }">
                 @if (Depth == 0)
@@ -21,14 +22,15 @@
                 {
                     <span class="dot"></span>
                 }
-                <span>@node.Name</span>
+                <span>@display</span>
                 <svg class="chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
             </div>
             <div class="mes-nav-sub @(isOpen ? "expanded" : "collapsed")">
                 @if (node.Children.Count > 0)
                 {
                     <MesNavTree Nodes="node.Children" Depth="Depth + 1" Open="Open"
-                                ActiveUiId="ActiveUiId" OnToggle="OnToggle" OnNavigate="OnNavigate" />
+                                ActiveUiId="ActiveUiId" OnToggle="OnToggle" OnNavigate="OnNavigate"
+                                DisplayName="DisplayName" />
                 }
                 else
                 {
@@ -42,10 +44,10 @@
         var isActive = string.Equals(node.UiId, ActiveUiId, StringComparison.OrdinalIgnoreCase);
         <a class="mes-nav-subitem @(isActive ? "active" : "")"
            style="padding-left:@(Pad)px"
-           href="@($"/meta/{node.UiId}")"
+           href="@($"/meta/{node.UiId}")" title="@display"
            @onclick="() => OnNavigate.InvokeAsync(node)" @onclick:preventDefault="true">
             <span class="dot"></span>
-            <span>@node.Name</span>
+            <span>@display</span>
         </a>
     }
 }
@@ -57,6 +59,8 @@
     [Parameter] public string? ActiveUiId { get; set; }
     [Parameter] public EventCallback<string> OnToggle { get; set; }
     [Parameter] public EventCallback<MesMenuNode> OnNavigate { get; set; }
+    // 다국어(P3-14 v2) — 표시명 변환(menu.{MENU_ID} 리소스). null이면 원본 메뉴명.
+    [Parameter] public Func<MesMenuNode, string>? DisplayName { get; set; }
 
     // 접근성(P3-15) — 폴더 헤드(div)의 키보드 활성화 판정(Enter/Space).
     private static bool IsActivateKey(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)

@@ -36,10 +36,11 @@
                 {
                     var idx = i;                      @* 람다 캡처용 로컬 복사(루프 변수 직접 캡처 금지) *@
                     var fav = _favorites[idx];
+                    var favName = Ui.T($"menu.{fav.MenuId}", fav.MenuName);
                     <div @key="fav.MenuId" class="fav-item" style="display:flex; align-items:center; gap:0.25rem; padding:0.3rem 0.75rem 0.3rem 1.25rem; font-size:0.813rem; color:#d2dcea;"
-                         title="@fav.MenuName">
+                         title="@favName">
                         <span style="flex:1; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
-                              @onclick="() => NavigateTo(fav.UiId, fav.MenuName)">@fav.MenuName</span>
+                              @onclick="() => NavigateTo(fav.UiId, fav.MenuName)">@favName</span>
                         @* §20.12 순서 변경 — ▲▼로 이웃과 교환(행 hover 시에만 노출, P3-18), 성공 시에만 캐시 반영. *@
                         @if (idx > 0)
                         {
@@ -59,9 +60,10 @@
                 <div style="padding:0.375rem 0.875rem 0.125rem; font-size:0.688rem; color:#8ea0b8; letter-spacing:0.05em;">@Ui.T("shell.recent", "최근 사용")</div>
                 @foreach (var recent in _recents)
                 {
+                    var recentName = Ui.T($"menu.{recent.MenuId}", recent.MenuName);
                     <div style="padding:0.3rem 1.25rem; font-size:0.813rem; color:#aebccd; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
-                         title="@recent.MenuName" @onclick="() => NavigateTo(recent.UiId, recent.MenuName)">
-                        @recent.MenuName
+                         title="@recentName" @onclick="() => NavigateTo(recent.UiId, recent.MenuName)">
+                        @recentName
                     </div>
                 }
             }
@@ -75,7 +77,8 @@
             </div>
             <MesNavTree Nodes="VisibleForest" Depth="0" Open="EffectiveOpenFolders"
                         ActiveUiId="@ActiveUiId()"
-                        OnToggle="ToggleFolder" OnNavigate="OnNavigateNode" />
+                        OnToggle="ToggleFolder" OnNavigate="OnNavigateNode"
+                        DisplayName="MenuDisplay" />
         </nav>
         <div class="mes-pin">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 17v5M5 9h14l-1.5 8h-11z M8 9V5a4 4 0 0 1 8 0v4"/></svg>
@@ -184,7 +187,7 @@
                          @ondragover:preventDefault="true" @ondragover="() => { }"
                          @ondrop="() => DropTab(tab.UiId)"
                          @oncontextmenu="e => OpenTabMenu(e, tab.UiId)" @oncontextmenu:preventDefault="true">
-                        <span class="mes-mditab-label">@tab.Title</span>
+                        <span class="mes-mditab-label">@TabTitle(tab)</span>
                         <span class="close" @onclick="() => CloseTab(tab.UiId)" @onclick:stopPropagation="true">&times;</span>
                     </div>
                 }
@@ -377,16 +380,29 @@
     {
         _quickQuery = e.Value?.ToString() ?? string.Empty;
         var q = _quickQuery.Trim();
+        // 다국어(P3-14 v2) — 표시는 번역명, 매칭은 한국어 원문/번역명/UI_ID 모두 허용(어느 언어로 쳐도 찾힌다).
         _quickMatches = q.Length == 0
             ? new List<QuickMatch>()
             : _uiToTitle
-                .Where(kv => kv.Value.Contains(q, StringComparison.OrdinalIgnoreCase)
-                          || kv.Key.Contains(q, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(kv => kv.Value, StringComparer.Ordinal)
+                .Select(kv => (UiId: kv.Key, Display: MenuDisplayByUiId(kv.Key, kv.Value), Original: kv.Value))
+                .Where(m => m.Original.Contains(q, StringComparison.OrdinalIgnoreCase)
+                         || m.Display.Contains(q, StringComparison.OrdinalIgnoreCase)
+                         || m.UiId.Contains(q, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(m => m.Display, StringComparer.Ordinal)
                 .Take(8)
-                .Select(kv => new QuickMatch(kv.Key, kv.Value))
+                .Select(m => new QuickMatch(m.UiId, m.Display))
                 .ToList();
     }
+
+    // ── 다국어(P3-14 v2) — 메뉴명/탭 제목 번역 헬퍼(menu.{MENU_ID} 리소스, 미존재=한국어 원문) ──
+    private string MenuDisplay(MesMenuNode n) => Ui.T($"menu.{n.Id}", n.Name);
+
+    private string MenuDisplayByUiId(string uiId, string fallback)
+        => _uiToMenuId.TryGetValue(uiId, out var menuId) ? Ui.T($"menu.{menuId}", fallback) : fallback;
+
+    // 탭 제목은 열 때의 메뉴명이 저장되지만 렌더 시 현재 언어로 번역한다(전환 즉시 반영).
+    private string TabTitle(NexaOne.Server.Services.OpenedScreen tab)
+        => MenuDisplayByUiId(tab.UiId, tab.Title);
 
     private void OnQuickKeyDown(KeyboardEventArgs e)
     {
