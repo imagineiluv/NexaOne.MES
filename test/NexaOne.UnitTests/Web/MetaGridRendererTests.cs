@@ -300,6 +300,33 @@ public sealed class MetaGridRendererTests
     }
 
     [Fact]
+    public void Select_mode_shows_checkbox_column_and_bulk_bar_and_tracks_selection()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("NAME", "이름") };
+        var rows = new List<Dictionary<string, object?>> { new() { ["NAME"] = "가" }, new() { ["NAME"] = "나" } };
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p.Add(c => c.Columns, cols).Add(c => c.Rows, rows));
+
+        // 초기(일반 모드): 일괄바·체크박스 없음, 선택 모드 토글 버튼은 있음.
+        cut.Markup.Should().Contain("checklist");
+        cut.FindAll(".nx-bulkbar").Should().BeEmpty();
+        cut.FindAll(".rz-data-row input[type=checkbox]").Should().BeEmpty();
+
+        // 선택 모드 진입 → 체크박스 컬럼 + 일괄 액션바.
+        var selBtn = cut.FindAll(".meta-grid-toolbar button")
+            .First(b => b.QuerySelector(".rzi")?.TextContent.Trim() == "checklist");
+        selBtn.Click();
+        cut.FindAll(".nx-bulkbar").Should().NotBeEmpty("선택 모드에서 일괄 액션바 노출");
+        var rowChecks = cut.FindAll(".rz-data-row input[type=checkbox]");
+        rowChecks.Count.Should().Be(2, "행마다 체크박스");
+        cut.Find(".nx-bulkbar-count").TextContent.Trim().Should().StartWith("0", "초기 선택 0");
+
+        // 한 행 선택 → 카운트 1.
+        rowChecks[0].Change(true);
+        cut.Find(".nx-bulkbar-count").TextContent.Trim().Should().StartWith("1", "행 선택 시 카운트 증가");
+    }
+
+    [Fact]
     public void Server_paged_grid_never_truncates_even_over_limit()
     {
         using var ctx = RadzenContext();

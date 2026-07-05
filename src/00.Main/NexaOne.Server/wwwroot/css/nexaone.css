@@ -141,6 +141,11 @@
 .meta-grid.nx-freeze-first .rz-datatable-data tr:nth-child(even) td:first-child { background: var(--nx-stripe); }
 .meta-grid.nx-freeze-first .rz-datatable-data tr:hover td:first-child { background: var(--nx-hover-teal); }
 .meta-grid.nx-freeze-first tr[data-selected] td:first-child { background: var(--nx-selected); box-shadow: inset 3px 0 0 var(--nx-teal), 1px 0 0 var(--nx-border); }
+/* 다중선택(선택 모드) 일괄 액션바 — 선택 수 + 선택 행 CSV/복사/해제. */
+.nx-bulkbar { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 5px 10px; background: var(--nx-selected); border: 1px solid var(--nx-teal); border-radius: var(--nx-radius); }
+.nx-bulkbar-count { font-size: 12.5px; font-weight: 700; color: var(--nx-teal-d); margin-right: 4px; }
+/* 체크박스 컬럼 셀은 가운데 정렬(Radzen TextAlign.Center 보조) */
+.meta-grid .rz-datatable td input[type=checkbox], .meta-grid .rz-datatable th input[type=checkbox] { cursor: pointer; }
 
 /* ===== 미세 폴리시(종합 점검 마감) — 스크롤바·마이크로 인터랙션·선택 행 강조 ===== */
 /* 전역 얇은 스크롤바(일관). 다크 사이드바는 아래에서 어두운 썸으로 되돌린다. */

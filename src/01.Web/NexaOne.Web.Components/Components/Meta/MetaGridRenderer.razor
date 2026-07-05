@@ -13,6 +13,22 @@
     var cols = Columns.Where(c => c.Visible && !_hiddenKeys.Contains(c.Key)).ToList();
     // 컬럼 정의 공유 프래그먼트 — 두 그리드 분기 중 하나에만 렌더되므로 중복 등록 없음.
     RenderFragment gridColumns =@<text>
+        @if (_selectMode)
+        {
+            @* 다중선택 체크박스 컬럼(선택 모드에서만). 헤더=전체 선택(현재 뷰 기준), 셀=행 선택.
+               체크박스 클릭은 행 선택(Radzen RowSelect)으로 전파되지 않게 stopPropagation. *@
+            <RadzenDataGridColumn TItem="System.Dynamic.ExpandoObject" Sortable="false" Width="42px"
+                                  TextAlign="Radzen.TextAlign.Center">
+                <HeaderTemplate>
+                    <input type="checkbox" checked="@AllVisibleSelected" @onchange="ToggleSelectAll"
+                           title="@T("common.selectAll", "전체 선택")" />
+                </HeaderTemplate>
+                <Template Context="row">
+                    <input type="checkbox" checked="@_selected.Contains(row)"
+                           @onchange="() => ToggleRowSelection(row)" @onclick:stopPropagation="true" />
+                </Template>
+            </RadzenDataGridColumn>
+        }
         @foreach (var col in cols)
         {
             var key = col.Key;
@@ -72,6 +88,11 @@
                        value="@_filterInput" @oninput="OnFilterInput" />
             }
             <span class="meta-grid-toolbar-spacer"></span>
+            @* 선택 모드 토글 — 켜면 체크박스 컬럼 + 일괄 액션바. 단일선택(폼로드)과 배타. *@
+            <RadzenButton Icon="checklist" Click="ToggleSelectModeAsync"
+                          title="@(_selectMode ? T("common.selectModeOff", "선택 모드 끄기") : T("common.selectModeOn", "선택 모드"))"
+                          ButtonStyle="@(_selectMode ? Radzen.ButtonStyle.Primary : Radzen.ButtonStyle.Light)"
+                          Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
             @* 첫 컬럼 고정 — 넓은 표(≥6열, 가로 스크롤 가능)에서만 노출. 좌측 식별자 컬럼을 가로 스크롤 시 유지. *@
             @if (cols.Count >= 6)
             {
@@ -115,6 +136,19 @@
                           ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
         </div>
     }
+    @if (_selectMode && Rows is { Count: > 0 })
+    {
+        @* 일괄 액션바(선택 모드) — 선택 수 + 선택 행 CSV/복사/해제. 액션은 선택 0이면 비활성. *@
+        <div class="nx-bulkbar" role="toolbar">
+            <span class="nx-bulkbar-count">@_selected.Count @T("common.selectedCount", "개 선택")</span>
+            <RadzenButton Icon="download" Text="@T("common.exportSelected", "선택 CSV")" Disabled="@(_selected.Count == 0)"
+                          Click="ExportSelectedCsvAsync" ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
+            <RadzenButton Icon="content_copy" Text="@T("common.copySelected", "복사")" Disabled="@(_selected.Count == 0)"
+                          Click="CopySelectedAsync" ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
+            <RadzenButton Icon="clear" Text="@T("common.clearSelection", "선택 해제")" Disabled="@(_selected.Count == 0)"
+                          Click="ClearSelection" ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
+        </div>
+    }
     @if (_truncatedFrom > 0)
     {
         @* P1 — 상한 초과 안내: 클라 페이징 화면이 대용량 결과 전체를 회로에 올리면 렌더가 폭주하므로
@@ -145,7 +179,9 @@
     {
         @* 서버측 페이징 — Radzen 페이징은 끄고(한 페이지만 표시) 자체 페이저로 부모 재조회를 요청한다.
            (Radzen LoadData는 외부 데이터 소유와 충돌해 재발화 루프가 생기므로, 서버 페이징은 외부 페이저로.) *@
-        <RadzenDataGrid TItem="System.Dynamic.ExpandoObject" Data="SortedItems()" AllowPaging="false"
+        @* @key=_selectMode — 선택 모드 토글 시 그리드를 재생성해 체크박스 컬럼이 마크업 순서(맨 좌측)로
+           등록되게 한다(Radzen은 동적 추가 컬럼을 끝에 붙여 우측에 생기던 문제 회피). *@
+        <RadzenDataGrid @key="_selectMode" TItem="System.Dynamic.ExpandoObject" Data="SortedItems()" AllowPaging="false"
                         AllowSorting="false" AllowColumnResize="true"
                         Density="Density.Compact" GridLines="DataGridGridLines.Horizontal"
                         SelectionMode="DataGridSelectionMode.Single"
@@ -175,7 +211,7 @@
     {
         @* 클라이언트 페이징/정렬 — 전체 행을 Radzen이 내부에서 페이지/정렬한다. *@
         var view = SortedItems();
-        <RadzenDataGrid TItem="System.Dynamic.ExpandoObject" Data="view"
+        <RadzenDataGrid @key="_selectMode" TItem="System.Dynamic.ExpandoObject" Data="view"
                         AllowPaging="true" PageSize="PageSize" AllowSorting="false" AllowColumnResize="true"
                         Density="Density.Compact" GridLines="DataGridGridLines.Horizontal"
                         SelectionMode="DataGridSelectionMode.Single"
@@ -265,6 +301,7 @@
             })
             .ToList();
         _selectedItem = null;   // 재조회(Rows 변경) 시에만 선택 해제
+        _selected.Clear();      // 다중선택 참조는 새 ExpandoObject라 무효 → 재조회 시 초기화
 
         // 컬럼 종류 추론 — 앞 InferSampleSize행 샘플로 숫자/시각/상태/불리언/빈/텍스트 판별(폭·정렬·셀 표현 결정).
         // 전 행 스캔은 대용량에서 낭비라 대표 샘플만 본다(혼합 컬럼은 '전부' 규칙상 안전하게 텍스트 폴백).
@@ -280,9 +317,15 @@
     // 자체 선택 추적 + RowRender로 행에 data-selected 속성을 얹고 CSS로 강조한다(class 대신 data-*라 rz-data-row 보존).
     private System.Dynamic.ExpandoObject? _selectedItem;
 
+    // 선택 모드(사용자 선택: 전 화면 토글) — 켜면 체크박스 컬럼 + 일괄 액션바가 뜨고 행 클릭은 다중선택 토글이
+    // 된다(단일선택=폼로드 마스터-디테일 흐름과 배타). 모드는 세션 한정(미영속), 선택 집합은 재조회 시 초기화.
+    private bool _selectMode;
+    private readonly HashSet<System.Dynamic.ExpandoObject> _selected = new();
+
     private void OnRowRender(Radzen.RowRenderEventArgs<System.Dynamic.ExpandoObject> args)
     {
-        if (ReferenceEquals(args.Data, _selectedItem)) args.Attributes["data-selected"] = "true";
+        var on = _selectMode ? _selected.Contains(args.Data) : ReferenceEquals(args.Data, _selectedItem);
+        if (on) args.Attributes["data-selected"] = "true";
     }
 
     // 자체 정렬(P3-9) — Radzen Property 정렬이 ExpandoObject에서 불가하므로 헤더 클릭으로 직접 정렬한다.
@@ -443,10 +486,64 @@
     // 선택 행을 기록해(모든 그리드에서 클릭 피드백) RowRender가 data-selected로 강조하게 한다.
     private async Task OnRowSelectedInternal(System.Dynamic.ExpandoObject item)
     {
+        // 선택 모드에선 행 클릭 = 다중선택 토글(폼로드 안 함). 일반 모드에선 단일선택 + 폼로드 콜백.
+        if (_selectMode) { ToggleRowSelection(item); return; }
         _selectedItem = item;
         if (!OnRowSelect.HasDelegate || Rows is null) return;
         var idx = _items.IndexOf(item);
         if (idx >= 0 && idx < Rows.Count) await OnRowSelect.InvokeAsync(Rows[idx]);
+    }
+
+    // ── 다중선택(선택 모드) ─────────────────────────────────────────────────────
+    // 현재 뷰(필터·정렬 적용분) 전체가 선택됐는지 — 헤더 전체선택 체크박스 상태.
+    private bool AllVisibleSelected { get { var v = SortedItems(); return v.Count > 0 && v.All(_selected.Contains); } }
+
+    private void ToggleRowSelection(System.Dynamic.ExpandoObject row)
+    {
+        if (!_selected.Remove(row)) _selected.Add(row);
+    }
+
+    // 전체 선택/해제 — 현재 뷰 기준. 이미 전부 선택돼 있으면 뷰 항목만 해제, 아니면 뷰 전체 추가.
+    private void ToggleSelectAll()
+    {
+        var view = SortedItems();
+        if (view.Count > 0 && view.All(_selected.Contains)) foreach (var r in view) _selected.Remove(r);
+        else foreach (var r in view) _selected.Add(r);
+    }
+
+    private void ClearSelection() => _selected.Clear();
+
+    private async Task ToggleSelectModeAsync()
+    {
+        _selectMode = !_selectMode;
+        _selected.Clear();          // 모드 전환 시 선택 초기화(모드 간 상태 누수 방지)
+        _selectedItem = null;       // 단일선택 강조도 해제(모드 배타)
+        await Task.CompletedTask;
+    }
+
+    // 선택 행 CSV — 보이는 컬럼×선택 행(뷰 순서 보존)을 CSV로 내보낸다(전체 CSV와 동일 빌더, 선택분만).
+    private async Task ExportSelectedCsvAsync()
+    {
+        var colsList = Columns.Where(c => c.Visible && !_hiddenKeys.Contains(c.Key)).ToList();
+        if (colsList.Count == 0 || _selected.Count == 0) return;
+        var sb = new System.Text.StringBuilder();
+        sb.Append(string.Join(",", colsList.Select(c => CsvField(c.Caption)))).Append('\n');
+        foreach (var row in SortedItems().Where(_selected.Contains))
+            sb.Append(string.Join(",", colsList.Select(c => CsvField(Cell(row, c.Key))))).Append('\n');
+        try { await JS.InvokeVoidAsync("nxDownloadCsv", "selected.csv", sb.ToString()); }
+        catch { /* JS 미탑재 — 무시 */ }
+    }
+
+    // 선택 행 복사 — 스프레드시트 붙여넣기용 TSV(보이는 컬럼×선택 행, 뷰 순서).
+    private async Task CopySelectedAsync()
+    {
+        var colsList = Columns.Where(c => c.Visible && !_hiddenKeys.Contains(c.Key)).ToList();
+        if (colsList.Count == 0 || _selected.Count == 0) return;
+        var sb = new System.Text.StringBuilder();
+        foreach (var row in SortedItems().Where(_selected.Contains))
+            sb.Append(string.Join("\t", colsList.Select(c => Cell(row, c.Key)))).Append('\n');
+        try { await JS.InvokeVoidAsync("nxCopy", sb.ToString()); }
+        catch { /* clipboard 미지원 — 무시 */ }
     }
 
     // 셀 값 조회(문자열). ExpandoObject를 IDictionary로 보고 Key로 찾는다.
