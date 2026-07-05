@@ -91,6 +91,9 @@
         }
     </aside>
 
+    @* 좁은 화면 사이드바 드로어 딤 배경 — 클릭 시 닫기. CSS로 좁은 화면+드로어 열림에서만 표시. *@
+    <div class="mes-nav-backdrop" @onclick="() => _navCollapsed = true" aria-hidden="true"></div>
+
     <div class="mes-main">
         <header class="mes-topbar">
             @* 사이드바 접기 토글(P3-11/16) — 좁은 화면에선 사이드바가 오버레이로 뜬다(CSS 미디어쿼리). *@
@@ -343,6 +346,10 @@
             // 저장된 사이드바 폭 복원(있으면).
             var saved = await JS.InvokeAsync<int>("nxGetNavWidth");
             if (saved > 0) _navWidth = saved;
+            // 반응형 뷰포트 감시 — 좁은 화면 진입 시 사이드바 자동 접기(오버레이 기본 노출 방지).
+            _selfRef ??= DotNetObjectReference.Create(this);
+            try { await JS.InvokeVoidAsync("nxViewportWatch", _selfRef); }
+            catch { /* JS 미탑재 — 반응형 자동접기 없이 정상 동작 */ }
             StateHasChanged();
         }
         // 리사이즈 핸들은 레일 모드 진입/이탈로 붙었다 떨어지므로, 존재할 때 1회 배선한다(idempotent).
@@ -364,6 +371,15 @@
     public Task OnNavResized(int width)
     {
         _navWidth = width;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    // 반응형 뷰포트 변화 콜백(nxViewportWatch) — 좁은 화면 진입=자동 접기(오버레이 기본 노출 방지),
+    // 넓어지면 복원. 경계 교차 시에만 호출되므로 같은 구간 내 사용자 토글은 보존된다.
+    [JSInvokable]
+    public Task OnViewportChanged(bool narrow)
+    {
+        _navCollapsed = narrow;
         return InvokeAsync(StateHasChanged);
     }
 

@@ -95,6 +95,19 @@
                 }
             });
         };
+        /* 반응형 — 좁은 화면(≤1100px) 진입/이탈을 .NET에 보고해 사이드바를 자동 접기/복원.
+           경계 교차 시에만 통지(같은 구간 내 사용자 토글 보존). 로드 시 1회 초기 보고. */
+        window.nxViewportWatch = function (dotnet) {
+            if (window.__nxVpWatch || !dotnet) return;
+            window.__nxVpWatch = true;
+            var narrow = null, t;
+            function report() {
+                var isNarrow = window.innerWidth <= 1100;
+                if (isNarrow !== narrow) { narrow = isNarrow; dotnet.invokeMethodAsync('OnViewportChanged', isNarrow); }
+            }
+            window.addEventListener('resize', function () { clearTimeout(t); t = setTimeout(report, 150); });
+            report();
+        };
     </script>
     @* Radzen Blazor 테마(구조+CSS 변수) — smartux.css '앞'에 두어, smartux.css의 --rz-* → --nx-* 브리지
        매핑이 뒤에서 이겨 NAF 브랜드/다크 토큰을 따르게 한다. *@
