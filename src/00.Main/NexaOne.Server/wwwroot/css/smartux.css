@@ -156,6 +156,11 @@ body {
 .naf-logo.naf-center .naf-tag { font-size: 9px; letter-spacing: 4px; }
 .mes-nav { flex: 1; overflow-y: auto; padding: 6px 0; }
 .mes-nav::-webkit-scrollbar { width: 6px; } .mes-nav::-webkit-scrollbar-thumb { background: #2a3c5c; border-radius: 3px; }
+/* 내비 IA 구역 헤더(5구역) — 다크 사이드바 위 은은한 소제목으로 최상위 메뉴를 구분. */
+.mes-nav-section { padding: 15px 18px 5px; font-size: 11px; font-weight: 700; letter-spacing: .02em; color: rgba(255,255,255,.42); text-transform: uppercase; }
+.mes-nav-section:first-child { padding-top: 4px; }
+/* 레일 모드(접힘)에선 구역 헤더 숨김(아이콘만 남는 좁은 레일). */
+.mes-shell.nav-collapsed .mes-nav-section { display: none; }
 .mes-nav-item {
   display: flex; align-items: center; gap: 12px; padding: 11px 18px;
   color: #c3ccd9; text-decoration: none; font-size: 13px; border-left: 3px solid transparent; cursor: pointer;
