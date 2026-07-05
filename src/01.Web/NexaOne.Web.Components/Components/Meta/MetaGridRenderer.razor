@@ -59,7 +59,7 @@
         <span>@T("common.noResult", "결과 없음")</span>
     </div>;
 }
-<div class="meta-grid @(_compact ? "" : "nx-density-roomy")">
+<div class="meta-grid @(_compact ? "" : "nx-density-roomy") @(_freezeFirst ? "nx-freeze-first" : "")">
     @if (Rows is { Count: > 0 })
     {
         <div class="meta-grid-toolbar">
@@ -72,6 +72,14 @@
                        value="@_filterInput" @oninput="OnFilterInput" />
             }
             <span class="meta-grid-toolbar-spacer"></span>
+            @* 첫 컬럼 고정 — 넓은 표(≥6열, 가로 스크롤 가능)에서만 노출. 좌측 식별자 컬럼을 가로 스크롤 시 유지. *@
+            @if (cols.Count >= 6)
+            {
+                <RadzenButton Icon="push_pin" Click="ToggleFreezeAsync"
+                              title="@(_freezeFirst ? T("common.unfreezeCol", "첫 컬럼 고정 해제") : T("common.freezeCol", "첫 컬럼 고정"))"
+                              ButtonStyle="@(_freezeFirst ? Radzen.ButtonStyle.Primary : Radzen.ButtonStyle.Light)"
+                              Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
+            }
             @* 밀도 토글 — 조밀(기본)/편안 전환. 화면별 localStorage 저장. *@
             <RadzenButton Icon="@(_compact ? "density_small" : "density_medium")" Click="ToggleDensityAsync"
                           title="@(_compact ? T("common.densityRoomy", "편안한 밀도로") : T("common.densityCompact", "조밀한 밀도로"))"
@@ -353,14 +361,16 @@
         _filterCts?.Dispose();
     }
 
-    // ── 그리드 개인화(밀도·컬럼 표시) — 화면별 localStorage 저장 ─────────────────────
+    // ── 그리드 개인화(밀도·컬럼 표시·첫 컬럼 고정) — 화면별 localStorage 저장 ────────────
     private bool _compact = true;                             // 기본 조밀(Radzen Compact)
+    private bool _freezeFirst;                                // 첫 컬럼 가로 고정(넓은 표에서 식별자 유지)
     private HashSet<string> _hiddenKeys = new(StringComparer.Ordinal);
     private bool _showColMenu;
     private string? _prefsLoadedFor;                          // 개인화를 로드한 ScreenKey(중복 로드 방지)
 
     private string DensityKey => $"nxgrid:{ScreenKey}:density";
     private string HiddenKey => $"nxgrid:{ScreenKey}:hidden";
+    private string FreezeKey => $"nxgrid:{ScreenKey}:freeze";
 
     // 화면(ScreenKey) 진입/전환 시 저장된 개인화를 1회 로드. JS(localStorage)는 렌더 이후에만 안전.
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -371,13 +381,16 @@
         {
             var density = await JS.InvokeAsync<string?>("localStorage.getItem", DensityKey);
             var hidden = await JS.InvokeAsync<string?>("localStorage.getItem", HiddenKey);
+            var freeze = await JS.InvokeAsync<string?>("localStorage.getItem", FreezeKey);
             var newCompact = density is null ? _compact : density != "roomy";
+            var newFreeze = freeze is null ? _freezeFirst : freeze == "1";
             var newHidden = string.IsNullOrEmpty(hidden)
                 ? new HashSet<string>(StringComparer.Ordinal)
                 : new HashSet<string>(hidden.Split(',', StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal);
-            if (newCompact != _compact || !newHidden.SetEquals(_hiddenKeys))
+            if (newCompact != _compact || newFreeze != _freezeFirst || !newHidden.SetEquals(_hiddenKeys))
             {
                 _compact = newCompact;
+                _freezeFirst = newFreeze;
                 _hiddenKeys = newHidden;
                 StateHasChanged();
             }
@@ -389,6 +402,12 @@
     {
         _compact = !_compact;
         await SaveAsync(DensityKey, _compact ? "compact" : "roomy");
+    }
+
+    private async Task ToggleFreezeAsync()
+    {
+        _freezeFirst = !_freezeFirst;
+        await SaveAsync(FreezeKey, _freezeFirst ? "1" : "0");
     }
 
     // 컬럼 표시/숨김 토글 — 마지막 한 컬럼은 숨길 수 없다(체크박스 disabled로도 가드하지만 이중 방어).

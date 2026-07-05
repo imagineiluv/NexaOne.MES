@@ -132,6 +132,15 @@
 .nx-colmenu-item:hover { background: var(--nx-hover); }
 .nx-colmenu-item input { margin: 0; }
 .nx-colmenu-item input:disabled { cursor: not-allowed; }
+/* 첫 컬럼 고정 — 넓은 표에서 가로 스크롤 시 좌측 식별자 컬럼을 sticky로 유지. 스크롤 시 내용이 비치지
+   않게 상태별(줄무늬/호버/선택) 불투명 배경을 맞추고, 세로 스티키 헤더와 겹치는 헤더 첫칸은 최상위 z. */
+.meta-grid.nx-freeze-first .rz-datatable thead th:first-child,
+.meta-grid.nx-freeze-first .rz-datatable tbody td:first-child { position: sticky; left: 0; box-shadow: 1px 0 0 var(--nx-border); }
+.meta-grid.nx-freeze-first .rz-datatable thead th:first-child { z-index: 5; background: var(--nx-head); }
+.meta-grid.nx-freeze-first .rz-datatable tbody td:first-child { z-index: 2; background: var(--nx-card); }
+.meta-grid.nx-freeze-first .rz-datatable-data tr:nth-child(even) td:first-child { background: var(--nx-stripe); }
+.meta-grid.nx-freeze-first .rz-datatable-data tr:hover td:first-child { background: var(--nx-hover-teal); }
+.meta-grid.nx-freeze-first tr[data-selected] td:first-child { background: var(--nx-selected); box-shadow: inset 3px 0 0 var(--nx-teal), 1px 0 0 var(--nx-border); }
 
 /* ===== 미세 폴리시(종합 점검 마감) — 스크롤바·마이크로 인터랙션·선택 행 강조 ===== */
 /* 전역 얇은 스크롤바(일관). 다크 사이드바는 아래에서 어두운 썸으로 되돌린다. */

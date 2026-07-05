@@ -274,6 +274,32 @@ public sealed class MetaGridRendererTests
     }
 
     [Fact]
+    public void Freeze_toggle_shown_only_on_wide_grids_and_applies_class()
+    {
+        using var ctx = RadzenContext();
+        // 좁은 표(5열) — 고정 버튼 미노출.
+        var narrow = new GridColumnDefinition[]
+            { new("A","A"), new("B","B"), new("C","C"), new("D","D"), new("E","E") };
+        var narrowRows = new List<Dictionary<string, object?>> { new() { ["A"]="1",["B"]="2",["C"]="3",["D"]="4",["E"]="5" } };
+        var cutN = ctx.RenderComponent<MetaGridRenderer>(p => p.Add(c => c.Columns, narrow).Add(c => c.Rows, narrowRows));
+        cutN.Markup.Should().NotContain("push_pin", "5열(좁은 표)에선 첫 컬럼 고정 버튼을 숨긴다");
+
+        // 넓은 표(6열) — 고정 버튼 노출, 클릭 시 nx-freeze-first 클래스 적용.
+        var wide = new GridColumnDefinition[]
+            { new("A","A"), new("B","B"), new("C","C"), new("D","D"), new("E","E"), new("F","F") };
+        var wideRows = new List<Dictionary<string, object?>> { new() { ["A"]="1",["B"]="2",["C"]="3",["D"]="4",["E"]="5",["F"]="6" } };
+        var cutW = ctx.RenderComponent<MetaGridRenderer>(p => p.Add(c => c.Columns, wide).Add(c => c.Rows, wideRows));
+        cutW.Markup.Should().Contain("push_pin", "6열(넓은 표)에선 첫 컬럼 고정 버튼을 보인다");
+        cutW.Find(".meta-grid").ClassList.Should().NotContain("nx-freeze-first");
+
+        // 고정 버튼 클릭 → 래퍼에 nx-freeze-first.
+        var freezeBtn = cutW.FindAll(".meta-grid-toolbar button")
+            .First(b => b.QuerySelector(".rzi")?.TextContent.Trim() == "push_pin");
+        freezeBtn.Click();
+        cutW.Find(".meta-grid").ClassList.Should().Contain("nx-freeze-first", "고정 시 래퍼 클래스 적용");
+    }
+
+    [Fact]
     public void Server_paged_grid_never_truncates_even_over_limit()
     {
         using var ctx = RadzenContext();
