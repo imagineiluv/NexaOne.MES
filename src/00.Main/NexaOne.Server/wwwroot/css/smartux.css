@@ -30,6 +30,9 @@
   --nx-warning: #d97706;  --nx-warning-bg: #fef3e2;
   --nx-danger:  #dc2626;  --nx-danger-bg:  #fdeaea;
   --nx-info:    #2563eb;  --nx-info-bg:    #e8f0fe;
+  /* 디자인 시스템 v2 — 4/8 스페이싱 리듬 + 명확한 타입 위계(페이지>섹션>본문>캡션). */
+  --nx-sp-1: 4px; --nx-sp-2: 8px; --nx-sp-3: 12px; --nx-sp-4: 16px; --nx-sp-5: 24px; --nx-sp-6: 32px;
+  --nx-fs-title: 20px; --nx-fs-section: 13px; --nx-fs-body: 13px; --nx-fs-caption: 12px;
 }
 
 /* Radzen Blazor → NexaOne 토큰 브리지. 핵심 표면/텍스트/주색/보더/시맨틱/차트 시리즈를 --nx-*에 매핑.
@@ -70,10 +73,13 @@
 .nx-invalid, .nx-invalid .rz-inputtext, .nx-invalid.rz-textbox, .nx-invalid.rz-dropdown, .nx-invalid.rz-numeric, .nx-invalid.rz-datepicker { border-color: var(--nx-danger) !important; }
 /* 자체 헤더 클릭 정렬(P3-9) — Radzen 컬럼 HeaderTemplate 안의 클릭 라벨. */
 .rz-column-title .nx-sort, .nx-sort { cursor: pointer; user-select: none; display: inline-block; }
-/* DataGrid 표면 — 헤더/셀/줄무늬/보더를 NexaOne 톤으로(가벼운 보더·부드러운 줄무늬). */
+/* DataGrid 표면 — 헤더/셀/줄무늬/보더를 NexaOne 톤으로(가벼운 보더·부드러운 줄무늬).
+   밀도 상향(MES 스캔성): 셀 패딩 축소·숫자 tabular·헤더 대비 강화. */
 .rz-datatable, .rz-grid-table { font-size: 12.5px; }
-.rz-datatable .rz-column-title, .rz-grid-table thead th { background: var(--nx-head); color: var(--nx-text-2); font-weight: 600; }
-.rz-datatable-data td, .rz-grid-table td { color: var(--nx-text); border-color: var(--nx-border-soft); }
+.rz-datatable .rz-column-title, .rz-grid-table thead th { background: var(--nx-head); color: var(--nx-text-2); font-weight: 700; letter-spacing: .01em; }
+.rz-datatable .rz-cell-data, .rz-datatable .rz-column-title, .rz-grid-table td, .rz-grid-table th { padding-top: 5px !important; padding-bottom: 5px !important; }
+.rz-datatable-data td, .rz-grid-table td { color: var(--nx-text); border-color: var(--nx-border-soft); font-variant-numeric: tabular-nums; }
+.rz-datatable thead th, .rz-grid-table thead th { border-bottom: 2px solid var(--nx-border) !important; }
 .rz-datatable-even, .rz-datatable-data tr:nth-child(even) { background: var(--nx-stripe); }
 .rz-datatable-data tr:hover td, .rz-grid-table tbody tr:hover td { background: var(--nx-hover-teal); }
 
@@ -235,11 +241,11 @@ body {
 .user-dd-item { display: block; padding: 8px 14px; font-size: 12.5px; color: var(--nx-text-2); cursor: pointer; text-decoration: none; }
 .user-dd-item:hover { background: var(--nx-hover); }
 
-.mes-content { flex: 1; overflow: auto; padding: 14px 16px; }
+.mes-content { flex: 1; overflow: auto; padding: var(--nx-sp-5) var(--nx-sp-5) var(--nx-sp-6); }
 
 /* ===== 화면 공통(메타 런타임) ===== */
-.page-header { margin: 0 0 12px; }
-.page-title { font-size: 17px; font-weight: 700; color: var(--nx-text); margin: 0; }
+.page-header { margin: 0 0 var(--nx-sp-4); display: flex; align-items: center; gap: var(--nx-sp-3); }
+.page-title { font-size: var(--nx-fs-title); font-weight: 700; letter-spacing: -0.01em; color: var(--nx-text); margin: 0; }
 /* FocusOnNavigate가 h1에 tabindex 부여 후 포커스 → 브라우저 포커스 박스가 제목을 감싸 보이는 것 억제 */
 .page-title:focus, .page-title:focus-visible { outline: none; }
 
@@ -276,7 +282,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .mes-chip { border: 1px solid var(--nx-border); border-radius: 3px; padding: 4px 10px; font-size: 12px; color: var(--nx-text-2); background: #fbfcfd; }
 
 /* 카드 */
-.mes-card { background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: 4px; }
+.mes-card { background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-lg); box-shadow: var(--nx-shadow-sm); }
 .mes-card-head { display: flex; align-items: center; padding: 9px 14px; border-bottom: 1px solid var(--nx-border); }
 .mes-card-head .h-title { color: var(--nx-teal); font-weight: 700; font-size: 13px; }
 .mes-card-head .h-right { margin-left: auto; color: var(--nx-muted); font-size: 12px; }
@@ -343,8 +349,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .meta-grid thead th.sortable:hover { background: var(--nx-hover); }
 .validation-errors { color: var(--nx-red); font-size: 12.5px; margin: 8px 0 0; padding-left: 18px; }
 .save-ok { color: var(--nx-teal); font-weight: 600; }
-.layout-section { background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: 4px; padding: 14px; margin-bottom: 12px; }
-.layout-section-title { color: var(--nx-teal); font-weight: 700; font-size: 13px; margin: 0 0 10px; }
+.layout-section { background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-lg); padding: var(--nx-sp-5); margin-bottom: var(--nx-sp-4); box-shadow: var(--nx-shadow-sm); }
+.layout-section-title { color: var(--nx-text); font-weight: 700; font-size: 13.5px; margin: 0 0 var(--nx-sp-4); padding-bottom: var(--nx-sp-3); border-bottom: 1px solid var(--nx-border-soft); display: flex; align-items: center; gap: var(--nx-sp-2); }
+.layout-section-title::before { content: ""; width: 3px; height: 14px; background: var(--nx-teal); border-radius: 2px; flex: 0 0 auto; }
 /* 명령/저장 버튼은 이제 RadzenButton(Primary·Small — 테마 브리지로 --nx-teal 계열) — 크롬/hover/disabled는
    Radzen이 소유. .layout-command/.layout-save 클래스는 마커로만 유지(테스트 셀렉터). 색은 지정하지 않는다. */
 
@@ -366,17 +373,20 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* P1 KPI 카드 재설계 — 그림자·좌측 액센트바·큰 숫자·다크 대비. 시맨틱(주의/경고/성공/정보)은
    좌측 바+숫자 색으로 구분(알람>0=위험 등). --nx-* 토큰이라 다크에서 자동 대비. */
 .layout-kpi {
-  padding: 16px 18px 15px; border: 1px solid var(--nx-border); border-radius: var(--nx-radius-lg);
-  background: var(--nx-card); min-width: 11rem; box-shadow: var(--nx-shadow-sm);
-  position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 7px;
-  transition: box-shadow .15s ease, transform .15s ease;
+  padding: 18px 20px 16px; border: 1px solid var(--nx-border); border-radius: var(--nx-radius-lg);
+  background: var(--nx-card); box-shadow: var(--nx-shadow-sm);
+  /* KPI 카드는 행 폭을 균등 분할해 채운다(좌상단 부유 → 풀폭 밴드). */
+  flex: 1 1 190px; min-width: 190px; max-width: 420px;
+  position: relative; overflow: hidden; display: flex; flex-direction: column; gap: var(--nx-sp-2);
+  transition: box-shadow .15s ease, transform .15s ease, border-color .15s ease;
 }
 .layout-kpi::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--nx-teal); }
+.layout-kpi:hover { border-color: var(--nx-teal); box-shadow: var(--nx-shadow-md); }
 /* P3-12 — 드릴다운 링크 카드(LinkUiId) */
 .layout-kpi.linked { cursor: pointer; }
-.layout-kpi.linked:hover { box-shadow: var(--nx-shadow-md); transform: translateY(-1px); }
-.layout-kpi-label { font-size: 12px; color: var(--nx-muted); font-weight: 600; letter-spacing: .02em; }
-.layout-kpi-value { font-size: 30px; font-weight: 700; color: var(--nx-text); line-height: 1.05; }
+.layout-kpi.linked:hover { transform: translateY(-2px); }
+.layout-kpi-label { font-size: var(--nx-fs-caption); color: var(--nx-muted); font-weight: 600; letter-spacing: .02em; }
+.layout-kpi-value { font-size: 36px; font-weight: 700; color: var(--nx-text); line-height: 1.0; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .layout-kpi-unit { font-size: 13px; font-weight: 500; color: var(--nx-muted); margin-left: 5px; }
 /* 시맨틱 변형 — 좌측 바 + 숫자 색. */
 .layout-kpi.kpi-danger::before  { background: var(--nx-danger); }
@@ -386,8 +396,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .layout-kpi.kpi-success::before { background: var(--nx-success); }
 .layout-kpi.kpi-info::before    { background: var(--nx-info); }
 
-/* 트렌드 차트(RadzenChart) 카드 — KPI 카드 톤 재사용, 폭만 넓게. */
-.layout-chart { min-width: 22rem; }
+/* 트렌드 차트(RadzenChart) 카드 — KPI 카드 톤 재사용, 폭만 넓게(그로우 상한 해제). */
+.layout-chart { flex: 2 1 24rem; min-width: 22rem; max-width: none; }
 .layout-chart::before { display: none; }
 .layout-chart .chart-empty { color: var(--nx-muted); font-size: 0.75rem; padding: 8px 0; }
 
