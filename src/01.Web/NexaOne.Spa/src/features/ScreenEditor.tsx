@@ -99,26 +99,26 @@ export function ScreenEditor() {
     }
   }
 
-  if (!canManage) return <div className="sux-gate">화면 디자이너 권한(sys:manage)이 없습니다.</div>
+  if (!canManage) return <div className="nx-gate">화면 디자이너 권한(sys:manage)이 없습니다.</div>
 
   return (
-    <div className="sux-designer">
-      <header className="sux-designer-bar">
-        <span className="sux-brand">화면 디자이너<small>SCREEN DESIGNER</small></span>
-        <input className="sux-input" aria-label="화면 제목" value={title} onChange={e => setTitle(e.target.value)} placeholder="화면 제목" />
-        <span className="sux-uiid">UI ID: {uiId ?? '(미지정)'}</span>
-        <button className="sux-btn sux-btn-teal" onClick={handleSave} disabled={!uiId}>저장</button>
-        <span className="sux-status">{status}</span>
+    <div className="nx-designer">
+      <header className="nx-designer-bar">
+        <span className="nx-brand">화면 디자이너<small>SCREEN DESIGNER</small></span>
+        <input className="nx-input" aria-label="화면 제목" value={title} onChange={e => setTitle(e.target.value)} placeholder="화면 제목" />
+        <span className="nx-uiid">UI ID: {uiId ?? '(미지정)'}</span>
+        <button className="nx-btn nx-btn-teal" onClick={handleSave} disabled={!uiId}>저장</button>
+        <span className="nx-status">{status}</span>
       </header>
-      <div className="sux-designer-body">
-        <div className="sux-panel sux-panel-blocks">
-          <div className="sux-panel-head">블록</div>
-          <div ref={blocksRef} className="sux-panel-scroll" />
+      <div className="nx-designer-body">
+        <div className="nx-panel nx-panel-blocks">
+          <div className="nx-panel-head">블록</div>
+          <div ref={blocksRef} className="nx-panel-scroll" />
         </div>
-        <div ref={hostRef} className="sux-canvas" />
-        <div className="sux-panel sux-panel-traits">
-          <div className="sux-panel-head">속성</div>
-          <div ref={traitsRef} className="sux-panel-scroll" />
+        <div ref={hostRef} className="nx-canvas" />
+        <div className="nx-panel nx-panel-traits">
+          <div className="nx-panel-head">속성</div>
+          <div ref={traitsRef} className="nx-panel-scroll" />
         </div>
       </div>
     </div>

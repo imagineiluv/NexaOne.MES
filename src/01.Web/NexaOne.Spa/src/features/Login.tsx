@@ -24,13 +24,13 @@ export function Login({ onLoggedIn }: { onLoggedIn: (session: LoginResponse) => 
   }
 
   return (
-    <div className="sux-login-wrap">
-      <form onSubmit={submit} className="sux-login-card">
+    <div className="nx-login-wrap">
+      <form onSubmit={submit} className="nx-login-card">
         <h1>NexaMes — React Pro-Code<small>NEXAMES MES</small></h1>
-        <input className="sux-input" placeholder="사용자 ID" value={userId} onChange={e => setUserId(e.target.value)} autoComplete="username" />
-        <input className="sux-input" placeholder="비밀번호" type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
-        <button className="sux-btn sux-btn-teal" type="submit" disabled={busy || !userId || !password}>{busy ? '로그인 중…' : '로그인'}</button>
-        {error && <p className="sux-error">{error}</p>}
+        <input className="nx-input" placeholder="사용자 ID" value={userId} onChange={e => setUserId(e.target.value)} autoComplete="username" />
+        <input className="nx-input" placeholder="비밀번호" type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
+        <button className="nx-btn nx-btn-teal" type="submit" disabled={busy || !userId || !password}>{busy ? '로그인 중…' : '로그인'}</button>
+        {error && <p className="nx-error">{error}</p>}
       </form>
     </div>
   )

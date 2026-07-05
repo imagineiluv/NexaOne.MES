@@ -53,28 +53,28 @@ export function Dashboard({ session, onLogout }: { session: LoginResponse; onLog
   }
 
   return (
-    <div className="sux-app">
-      <header className="sux-app-topbar">
-        <span className="sux-user">{session.userName} ({session.roles.join(', ')}) @ {session.plantId}</span>
-        <span className="sux-actions">
+    <div className="nx-app">
+      <header className="nx-app-topbar">
+        <span className="nx-user">{session.userName} ({session.roles.join(', ')}) @ {session.plantId}</span>
+        <span className="nx-actions">
           {canDesign && <Link to="/designer/DEMO_DESIGNER">화면 디자이너</Link>}
-          <button className="sux-btn sux-btn-ghost" onClick={handleLogout}>로그아웃</button>
+          <button className="nx-btn nx-btn-ghost" onClick={handleLogout}>로그아웃</button>
         </span>
       </header>
 
-      <h2 className="sux-section-title">FDC 파라미터 그룹 (EQ-001)</h2>
+      <h2 className="nx-section-title">FDC 파라미터 그룹 (EQ-001)</h2>
       {loadError
-        ? <p className="sux-error">{loadError}</p>
-        : <ul className="sux-list">{groups.map(g => <li key={g.id}>{g.groupName}</li>)}</ul>}
-      {!loadError && groups.length === 0 && <p className="sux-muted">데이터가 없습니다.</p>}
+        ? <p className="nx-error">{loadError}</p>
+        : <ul className="nx-list">{groups.map(g => <li key={g.id}>{g.groupName}</li>)}</ul>}
+      {!loadError && groups.length === 0 && <p className="nx-muted">데이터가 없습니다.</p>}
 
-      <h2 className="sux-section-title">설비 제어 (권한 게이트)</h2>
+      <h2 className="nx-section-title">설비 제어 (권한 게이트)</h2>
       {canControl
-        ? <button className="sux-btn sux-btn-teal" onClick={startEquipment}>설비 기동</button>
-        : <p className="sux-muted">제어 권한(fdc:control)이 없습니다.</p>}
+        ? <button className="nx-btn nx-btn-teal" onClick={startEquipment}>설비 기동</button>
+        : <p className="nx-muted">제어 권한(fdc:control)이 없습니다.</p>}
 
-      <h2 className="sux-section-title">실시간(SignalR): {hubState}</h2>
-      <p className="sux-muted">최근 이벤트: {lastEvent}</p>
+      <h2 className="nx-section-title">실시간(SignalR): {hubState}</h2>
+      <p className="nx-muted">최근 이벤트: {lastEvent}</p>
     </div>
   )
 }

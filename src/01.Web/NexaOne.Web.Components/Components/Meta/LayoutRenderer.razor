@@ -64,7 +64,7 @@
         break;
 
     @* KPI 카드(Phase-2) — 바인딩 쿼리 첫 행의 ValueColumn 값을 큰 숫자로. 미실행/공백은 '—'(빈 카드 방지).
-       스타일은 디자인 토큰 클래스(smartux.css --nx-*) 단일 출처. *@
+       스타일은 디자인 토큰 클래스(nexaone.css --nx-*) 단일 출처. *@
     case KpiWidget k:
         @* LinkUiId(P3-12) — 지정 시 카드 클릭=관련 화면 드릴다운. P1 — 값·라벨로 시맨틱 색(알람>0=위험 등). *@
         <div class="layout-kpi @(string.IsNullOrWhiteSpace(k.LinkUiId) ? "" : "linked") @KpiSeverityClass(k)"
