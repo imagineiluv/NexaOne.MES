@@ -72,7 +72,7 @@ else if (_definition.Layout is not null)
        격리 폼(Isolated, Phase-2 멀티폼)은 폼별 모델(_formModels)에 바인딩된다. *@
     <CascadingValue Value="_dynamicOptions" Name="MetaDynamicOptions">
         <CascadingValue Value="_fieldErrors" Name="MetaFieldErrors">
-            <LayoutRenderer Node="_definition.Layout" @bind-Model="_model"
+            <LayoutRenderer Node="_definition.Layout" @bind-Model="_model" ScreenKey="@UiId"
                             QueryResults="_queryResults" OnCommand="RunCommand"
                             FormModels="_formModels" OnFormModelChanged="OnFormModelChanged"
                             OnRowSelect="_rowSelect" LoadingData="_loadingData" />
@@ -142,7 +142,7 @@ else
             </div>
             <div class="mes-card-body">
                 <MetaGridRenderer Columns="_definition.Columns" Rows="_rows"
-                                  Loading="_loadingData" OnRowSelect="_rowSelect"
+                                  Loading="_loadingData" OnRowSelect="_rowSelect" ScreenKey="@UiId"
                                   ServerTotal="serverPaged ? _serverTotal : (int?)null"
                                   ServerPage="_serverPage" OnServerPageChange="OnServerPageChangeAsync" />
             </div>

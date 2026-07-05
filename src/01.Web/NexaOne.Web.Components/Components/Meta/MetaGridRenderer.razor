@@ -9,7 +9,8 @@
 @inject Microsoft.JSInterop.IJSRuntime JS
 
 @{
-    var cols = Columns.Where(c => c.Visible).ToList();
+    // 메타상 보이는 컬럼 중 사용자가 컬럼 선택기로 숨긴 것(_hiddenKeys)을 제외해 렌더한다.
+    var cols = Columns.Where(c => c.Visible && !_hiddenKeys.Contains(c.Key)).ToList();
     // 컬럼 정의 공유 프래그먼트 — 두 그리드 분기 중 하나에만 렌더되므로 중복 등록 없음.
     RenderFragment gridColumns =@<text>
         @foreach (var col in cols)
@@ -40,11 +41,13 @@
                     }
                     else if (kind == ColumnKind.Numeric)
                     {
-                        <span class="nx-cell-num" @ondblclick="() => CopyCellAsync(raw)">@raw</span>
+                        <span class="nx-cell-num" title="@raw" @ondblclick="() => CopyCellAsync(raw)">@raw</span>
                     }
                     else
                     {
-                        <span @ondblclick="() => CopyCellAsync(raw)">@FormatCell(raw)</span>
+                        @* title — 폭 제약으로 잘린 셀도 호버로 전체 값을 읽을 수 있게(밀도 높은 표의 가독성).
+                           FormatCell은 순수·저비용이라 title/본문 두 번 호출해도 무방. *@
+                        <span title="@FormatCell(raw)" @ondblclick="() => CopyCellAsync(raw)">@FormatCell(raw)</span>
                     }
                 </Template>
             </RadzenDataGridColumn>
@@ -56,7 +59,7 @@
         <span>@T("common.noResult", "결과 없음")</span>
     </div>;
 }
-<div class="meta-grid">
+<div class="meta-grid @(_compact ? "" : "nx-density-roomy")">
     @if (Rows is { Count: > 0 })
     {
         <div class="meta-grid-toolbar">
@@ -68,6 +71,38 @@
                 <input class="meta-grid-filter" placeholder="@T("common.filter", "필터…")"
                        value="@_filterInput" @oninput="OnFilterInput" />
             }
+            <span class="meta-grid-toolbar-spacer"></span>
+            @* 밀도 토글 — 조밀(기본)/편안 전환. 화면별 localStorage 저장. *@
+            <RadzenButton Icon="@(_compact ? "density_small" : "density_medium")" Click="ToggleDensityAsync"
+                          title="@(_compact ? T("common.densityRoomy", "편안한 밀도로") : T("common.densityCompact", "조밀한 밀도로"))"
+                          ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
+            @* 컬럼 선택기 — 보이는 컬럼을 체크박스로 숨기기/보이기(넓은 표 정돈). 화면별 localStorage 저장. *@
+            <div class="nx-colmenu-wrap">
+                <RadzenButton Icon="view_column" Click="() => _showColMenu = !_showColMenu"
+                              title="@T("common.columns", "컬럼 선택")"
+                              ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
+                @if (_showColMenu)
+                {
+                    <div class="nx-colmenu-backdrop" @onclick="() => _showColMenu = false"></div>
+                    <div class="nx-colmenu">
+                        <div class="nx-colmenu-head">
+                            <span>@T("common.columns", "컬럼 선택")</span>
+                            <a @onclick="ResetColumnsAsync" class="nx-colmenu-reset">@T("common.reset", "초기화")</a>
+                        </div>
+                        @foreach (var c in Columns.Where(c => c.Visible))
+                        {
+                            var key = c.Key;
+                            var shown = !_hiddenKeys.Contains(key);
+                            <label class="nx-colmenu-item">
+                                <input type="checkbox" checked="@shown"
+                                       disabled="@(shown && cols.Count <= 1)"
+                                       @onchange="() => ToggleColumnAsync(key)" />
+                                <span>@c.Caption</span>
+                            </label>
+                        }
+                    </div>
+                }
+            </div>
             <RadzenButton Icon="download" Text="CSV" Click="ExportCsvAsync" title="@T("common.exportCsv", "CSV로 내보내기")"
                           ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
         </div>
@@ -175,6 +210,9 @@
     [Parameter] public int? ServerTotal { get; set; }
     [Parameter] public int ServerPage { get; set; }
     [Parameter] public EventCallback<int> OnServerPageChange { get; set; }
+
+    // 화면별 그리드 개인화(밀도·숨긴 컬럼) 저장 키 — MetaScreen이 UiId를 넘긴다. 없으면 개인화는 세션 한정.
+    [Parameter] public string? ScreenKey { get; set; }
 
     // Radzen 바인딩용 변환분(원본 Rows와 동일 순서·인덱스). Radzen 동적 데이터는 ExpandoObject를 정식
     // 지원한다(IDictionary 인터페이스 자체는 Property 접근자 빌드가 실패). null 값은 렌더/정렬 안전상 ""으로.
@@ -313,6 +351,71 @@
     {
         _filterCts?.Cancel();
         _filterCts?.Dispose();
+    }
+
+    // ── 그리드 개인화(밀도·컬럼 표시) — 화면별 localStorage 저장 ─────────────────────
+    private bool _compact = true;                             // 기본 조밀(Radzen Compact)
+    private HashSet<string> _hiddenKeys = new(StringComparer.Ordinal);
+    private bool _showColMenu;
+    private string? _prefsLoadedFor;                          // 개인화를 로드한 ScreenKey(중복 로드 방지)
+
+    private string DensityKey => $"nxgrid:{ScreenKey}:density";
+    private string HiddenKey => $"nxgrid:{ScreenKey}:hidden";
+
+    // 화면(ScreenKey) 진입/전환 시 저장된 개인화를 1회 로드. JS(localStorage)는 렌더 이후에만 안전.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (string.IsNullOrEmpty(ScreenKey) || _prefsLoadedFor == ScreenKey) return;
+        _prefsLoadedFor = ScreenKey;
+        try
+        {
+            var density = await JS.InvokeAsync<string?>("localStorage.getItem", DensityKey);
+            var hidden = await JS.InvokeAsync<string?>("localStorage.getItem", HiddenKey);
+            var newCompact = density is null ? _compact : density != "roomy";
+            var newHidden = string.IsNullOrEmpty(hidden)
+                ? new HashSet<string>(StringComparer.Ordinal)
+                : new HashSet<string>(hidden.Split(',', StringSplitOptions.RemoveEmptyEntries), StringComparer.Ordinal);
+            if (newCompact != _compact || !newHidden.SetEquals(_hiddenKeys))
+            {
+                _compact = newCompact;
+                _hiddenKeys = newHidden;
+                StateHasChanged();
+            }
+        }
+        catch { /* localStorage 미지원/비보안 컨텍스트 — 개인화는 세션 한정으로 폴백 */ }
+    }
+
+    private async Task ToggleDensityAsync()
+    {
+        _compact = !_compact;
+        await SaveAsync(DensityKey, _compact ? "compact" : "roomy");
+    }
+
+    // 컬럼 표시/숨김 토글 — 마지막 한 컬럼은 숨길 수 없다(체크박스 disabled로도 가드하지만 이중 방어).
+    private async Task ToggleColumnAsync(string key)
+    {
+        if (_hiddenKeys.Contains(key)) _hiddenKeys.Remove(key);
+        else
+        {
+            var shownCount = Columns.Count(c => c.Visible && !_hiddenKeys.Contains(c.Key));
+            if (shownCount <= 1) return;   // 마지막 남은 컬럼은 유지
+            _hiddenKeys.Add(key);
+        }
+        await SaveAsync(HiddenKey, string.Join(',', _hiddenKeys));
+    }
+
+    private async Task ResetColumnsAsync()
+    {
+        _hiddenKeys.Clear();
+        _showColMenu = false;
+        await SaveAsync(HiddenKey, "");
+    }
+
+    private async Task SaveAsync(string key, string value)
+    {
+        if (string.IsNullOrEmpty(ScreenKey)) return;   // 저장 키 없으면 세션 한정(개인화는 유지되나 미영속)
+        try { await JS.InvokeVoidAsync("localStorage.setItem", key, value); }
+        catch { /* 저장 실패 — 무시(세션 내 상태는 유지) */ }
     }
 
     private static decimal ParseDec(string s) => decimal.TryParse(s, out var d) ? d : decimal.MinValue;

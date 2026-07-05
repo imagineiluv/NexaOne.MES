@@ -28,8 +28,9 @@
         break;
 
     case GridWidget g:
+        @* ScreenKey — 레이아웃 한 화면에 그리드가 여럿일 수 있어 위젯 단위로 키를 조합(개인화가 섞이지 않게). *@
         <MetaGridRenderer Columns="g.Columns ?? Array.Empty<GridColumnDefinition>()" Rows="RowsFor(g.QueryId)"
-                          Loading="LoadingData" OnRowSelect="OnRowSelect" />
+                          Loading="LoadingData" OnRowSelect="OnRowSelect" ScreenKey="@GridKey(g)" />
         break;
 
     @* Form/Field는 기본적으로 화면 공유 Model(동일 Dictionary 참조)에 바인딩한다 — 위젯 간 값 즉시 공유(의도된 설계).
@@ -141,6 +142,14 @@
     // P1-3 — 조회 진행 중 표시 전달.
     [Parameter] public bool LoadingData { get; set; }
 
+    // 화면 식별자(그리드 개인화 저장 키의 접두). MetaScreen이 UiId를 넘긴다. 위젯별로 조합해 그리드마다 분리한다.
+    [Parameter] public string? ScreenKey { get; set; }
+
+    // 그리드 위젯의 개인화 저장 키 — {화면}:{위젯}. Id 없으면 QueryId로 구분(한 화면 다중 그리드 대비).
+    private string? GridKey(GridWidget g)
+        => string.IsNullOrEmpty(ScreenKey) ? null
+            : $"{ScreenKey}:{(string.IsNullOrWhiteSpace(g.Id) ? g.QueryId : g.Id)}";
+
     // P1-2 — 파괴적 명령 보호: ConfirmMessage가 있으면 RadzenDialog 확인(비블로킹 모달) 통과 시에만 실행.
     // (이전엔 브라우저 confirm 블로킹 — 스타일 불일치·테스트 우회 문제. Confirm은 true/false/null 반환.)
     private async Task RunButtonAsync(ButtonWidget b)
@@ -177,6 +186,7 @@
             builder.AddAttribute(7, nameof(OnFormModelChanged), OnFormModelChanged);
             builder.AddAttribute(8, nameof(OnRowSelect), OnRowSelect);
             builder.AddAttribute(9, nameof(LoadingData), LoadingData);
+            builder.AddAttribute(10, nameof(ScreenKey), ScreenKey);   // 재귀 하위로 화면 키 전달(그리드 개인화)
             builder.CloseComponent();
         }
     };

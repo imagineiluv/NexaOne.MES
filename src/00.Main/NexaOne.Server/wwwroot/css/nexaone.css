@@ -71,8 +71,8 @@
   /* Radzen 컴포넌트도 자체호스팅 Pretendard를 쓰게 폰트 변수 재정의(아이콘 폰트는 .rzi가 별도 유지). */
   --rz-text-font-family: "Pretendard Variable", Pretendard, "Malgun Gothic", "Noto Sans KR", -apple-system, "Segoe UI", system-ui, sans-serif;
 }
-/* 그리드 툴바(CSV 내보내기 등) — 그리드 우상단 정렬. */
-.meta-grid-toolbar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+/* 그리드 툴바(필터·밀도·컬럼·CSV) — 필터 좌측, 버튼 묶음 우측(spacer 분리). 상세는 배치 B 절 참고. */
+.meta-grid-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 /* 폼 검증 실패 표시(P2-7) — Radzen 입력에 붙는 nx-invalid 클래스(빨간 보더). */
 .nx-invalid, .nx-invalid .rz-inputtext, .nx-invalid.rz-textbox, .nx-invalid.rz-dropdown, .nx-invalid.rz-numeric, .nx-invalid.rz-datepicker { border-color: var(--nx-danger) !important; }
 /* 자체 헤더 클릭 정렬(P3-9) — Radzen 컬럼 HeaderTemplate 안의 클릭 라벨. 호버 시 틸 힌트로 클릭 가능함을 알린다. */
@@ -113,6 +113,25 @@
 /* P1 안전장치 — 클라 페이징 상한(MaxClientRows) 초과 시 표시. 대용량 결과가 회로에 전량 적재되는 것을 막는다. */
 .nx-grid-trunc { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; padding: 6px 10px; font-size: 12px; color: var(--nx-text-2); background: var(--nx-warning-bg); border: 1px solid var(--nx-warning); border-radius: var(--nx-radius); }
 .nx-grid-trunc .rzi { font-size: 16px; color: var(--nx-warning); }
+
+/* ===== 배치 B — 그리드 UX 파워 기능(밀도 토글·컬럼 선택기) ===== */
+/* 툴바 spacer — 필터(좌)와 밀도/컬럼/CSV 버튼 묶음(우)을 분리. 툴바 flex 컨테이너는 위 .meta-grid-toolbar. */
+.meta-grid-toolbar-spacer { flex: 1 1 auto; }
+/* 밀도 토글 — 기본 조밀(Radzen Compact 5px). 편안 모드는 셀 상하 패딩↑. */
+.meta-grid.nx-density-roomy .rz-datatable .rz-cell-data,
+.meta-grid.nx-density-roomy .rz-datatable .rz-column-title { padding-top: 9px !important; padding-bottom: 9px !important; }
+/* 컬럼 선택기 — 버튼 아래 드롭다운 패널(체크박스로 컬럼 숨김/표시). 백드롭 클릭으로 닫힘. */
+.nx-colmenu-wrap { position: relative; display: inline-flex; }
+.nx-colmenu-backdrop { position: fixed; inset: 0; z-index: 40; }
+.nx-colmenu { position: absolute; top: calc(100% + 4px); right: 0; z-index: 41; min-width: 190px; max-height: 340px; overflow-y: auto;
+  background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: var(--nx-radius); box-shadow: 0 6px 20px rgba(0,0,0,.12); padding: 6px; }
+.nx-colmenu-head { display: flex; justify-content: space-between; align-items: center; padding: 4px 6px 6px; border-bottom: 1px solid var(--nx-border-soft); margin-bottom: 4px; font-size: 12px; font-weight: 700; color: var(--nx-text-2); }
+.nx-colmenu-reset { cursor: pointer; font-weight: 500; color: var(--nx-teal-d); font-size: 11.5px; }
+.nx-colmenu-reset:hover { text-decoration: underline; }
+.nx-colmenu-item { display: flex; align-items: center; gap: 7px; padding: 5px 6px; font-size: 12.5px; color: var(--nx-text); border-radius: 4px; cursor: pointer; }
+.nx-colmenu-item:hover { background: var(--nx-hover); }
+.nx-colmenu-item input { margin: 0; }
+.nx-colmenu-item input:disabled { cursor: not-allowed; }
 
 /* ===== 미세 폴리시(종합 점검 마감) — 스크롤바·마이크로 인터랙션·선택 행 강조 ===== */
 /* 전역 얇은 스크롤바(일관). 다크 사이드바는 아래에서 어두운 썸으로 되돌린다. */

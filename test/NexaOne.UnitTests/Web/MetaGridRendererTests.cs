@@ -214,6 +214,65 @@ public sealed class MetaGridRendererTests
         cut.FindAll(".nx-grid-trunc").Should().BeEmpty("상한 이내면 배너가 없어야 한다");
     }
 
+    // ── 배치 B(UX 파워 기능) — 셀 툴팁·툴바 컨트롤·컬럼 선택기 ──────────────────
+
+    [Fact]
+    public void Cells_carry_title_tooltip_for_truncated_values()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("NAME", "이름"), new("QTY", "수량") };
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["NAME"] = "아주 긴 설비 이름 값", ["QTY"] = "1234" },
+        };
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, cols)
+            .Add(c => c.Rows, rows));
+
+        // 폭 제약으로 잘려도 호버로 읽을 수 있게 셀 span에 title이 붙는다(텍스트/숫자 공통).
+        cut.Markup.Should().Contain("title=\"아주 긴 설비 이름 값\"");
+        cut.Markup.Should().Contain("title=\"1234\"");
+    }
+
+    [Fact]
+    public void Toolbar_renders_density_and_column_chooser_controls()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("NAME", "이름"), new("QTY", "수량") };
+        var rows = new List<Dictionary<string, object?>> { new() { ["NAME"] = "가", ["QTY"] = "1" } };
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, cols)
+            .Add(c => c.Rows, rows));
+
+        // 밀도 토글(density_small)·컬럼 선택기(view_column) 버튼이 툴바에 렌더된다.
+        cut.Markup.Should().Contain("density_small").And.Contain("view_column");
+        cut.FindAll(".nx-colmenu-wrap").Should().NotBeEmpty();
+        // 초기엔 컬럼 메뉴 패널이 닫혀 있다.
+        cut.FindAll(".nx-colmenu").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Column_chooser_hides_column_when_unchecked()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("NAME", "이름"), new("QTY", "수량") };
+        var rows = new List<Dictionary<string, object?>> { new() { ["NAME"] = "가공장", ["QTY"] = "1" } };
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, cols)
+            .Add(c => c.Rows, rows));
+
+        // 컬럼 메뉴 열기 → 체크박스 2개(보이는 컬럼 수).
+        cut.Find(".nx-colmenu-wrap button").Click();
+        var checks = cut.FindAll(".nx-colmenu-item input[type=checkbox]");
+        checks.Count.Should().Be(2, "보이는 컬럼마다 체크박스");
+        cut.Markup.Should().Contain("가공장", "숨기기 전엔 QTY열과 함께 NAME 값이 보인다");
+
+        // '이름' 컬럼 체크 해제 → 헤더에서 '이름' 캡션이 사라진다(QTY만 남음).
+        cut.FindAll(".nx-colmenu-item input[type=checkbox]")[0].Change(false);
+        cut.FindAll("th").Select(th => th.TextContent).Should()
+            .NotContain(t => t.Contains("이름"), "숨긴 컬럼은 헤더에서 제외");
+    }
+
     [Fact]
     public void Server_paged_grid_never_truncates_even_over_limit()
     {
