@@ -176,4 +176,60 @@ public sealed class MetaGridRendererTests
         // 서버측 페이징: 자체 페이저(총건수 + 이전/다음 + N/M).
         cut.Markup.Should().Contain("45 행").And.Contain("1 / 3");
     }
+
+    // ── P1 안전장치(무제한 클라 로드 상한) 회귀 가드 ────────────────────────────
+
+    [Fact]
+    public void Client_grid_caps_rows_and_shows_truncation_banner_over_limit()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("LOT_ID", "LOT") };
+        // 상한(MaxClientRows) 초과 결과 — 클라 페이징 화면이 전량을 회로에 올리지 않도록 잘라야 한다.
+        var rows = Enumerable.Range(1, MetaGridRenderer.MaxClientRows + 25)
+            .Select(i => new Dictionary<string, object?> { ["LOT_ID"] = $"L{i:D5}" })
+            .ToList();
+
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, cols)
+            .Add(c => c.Rows, rows));   // ServerTotal 없음 = 클라 페이징
+
+        cut.FindAll(".nx-grid-trunc").Should().NotBeEmpty("상한 초과 시 절단 배너를 보여야 한다");
+        // 원본 총수와 상한이 안내에 노출된다(전체 N행 중 처음 M행).
+        cut.Markup.Should().Contain(rows.Count.ToString()).And.Contain(MetaGridRenderer.MaxClientRows.ToString());
+    }
+
+    [Fact]
+    public void Client_grid_no_banner_when_within_limit()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("LOT_ID", "LOT") };
+        var rows = Enumerable.Range(1, 30)
+            .Select(i => new Dictionary<string, object?> { ["LOT_ID"] = $"L{i:D3}" })
+            .ToList();
+
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, cols)
+            .Add(c => c.Rows, rows));
+
+        cut.FindAll(".nx-grid-trunc").Should().BeEmpty("상한 이내면 배너가 없어야 한다");
+    }
+
+    [Fact]
+    public void Server_paged_grid_never_truncates_even_over_limit()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("LOT_ID", "LOT") };
+        // 서버 페이징 화면은 이미 페이지 단위라 상한을 적용하지 않는다(ServerTotal 지정).
+        var rows = Enumerable.Range(1, MetaGridRenderer.MaxClientRows + 10)
+            .Select(i => new Dictionary<string, object?> { ["LOT_ID"] = $"L{i:D5}" })
+            .ToList();
+
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, cols)
+            .Add(c => c.Rows, rows)
+            .Add(c => c.ServerTotal, 99999)
+            .Add(c => c.ServerPage, 0));
+
+        cut.FindAll(".nx-grid-trunc").Should().BeEmpty("서버 페이징 화면은 절단 배너를 띄우지 않는다");
+    }
 }

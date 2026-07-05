@@ -109,6 +109,9 @@
 /* 빈 결과 상태(P2) — 아이콘+문구. 텍스트만 있던 EmptyText 대체. */
 .nx-grid-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 34px 0; color: var(--nx-muted); font-size: 12.5px; }
 .nx-grid-empty .rzi { font-size: 34px; opacity: .45; }
+/* P1 안전장치 — 클라 페이징 상한(MaxClientRows) 초과 시 표시. 대용량 결과가 회로에 전량 적재되는 것을 막는다. */
+.nx-grid-trunc { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; padding: 6px 10px; font-size: 12px; color: var(--nx-text-2); background: var(--nx-warning-bg); border: 1px solid var(--nx-warning); border-radius: var(--nx-radius); }
+.nx-grid-trunc .rzi { font-size: 16px; color: var(--nx-warning); }
 
 /* ===== 미세 폴리시(종합 점검 마감) — 스크롤바·마이크로 인터랙션·선택 행 강조 ===== */
 /* 전역 얇은 스크롤바(일관). 다크 사이드바는 아래에서 어두운 썸으로 되돌린다. */

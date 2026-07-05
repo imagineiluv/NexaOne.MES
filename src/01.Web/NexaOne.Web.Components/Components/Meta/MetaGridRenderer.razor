@@ -4,6 +4,7 @@
    (클라/서버는 Radzen에서 LoadData 유무로 갈리는 배타 경로라 두 분기로 렌더, 컬럼은 공유 프래그먼트).
    심각도 값(Error/Warning 등)은 배지로, 타임스탬프 값은 사람이 읽는 형식으로 셀 템플릿에서 표시한다. *@
 @using NexaOne.Web.Services.Meta
+@implements IDisposable
 @inject IServiceProvider Services
 @inject Microsoft.JSInterop.IJSRuntime JS
 
@@ -63,11 +64,21 @@
                현재 페이지만 걸려 오해 소지가 있어 숨긴다). *@
             @if (ServerTotal is null)
             {
+                @* P2 — 디바운스 필터: 입력은 즉시 반영(_filterInput), 실제 필터/재정렬은 타이핑이 멈춘 뒤에만. *@
                 <input class="meta-grid-filter" placeholder="@T("common.filter", "필터…")"
-                       @bind="_filter" @bind:event="oninput" />
+                       value="@_filterInput" @oninput="OnFilterInput" />
             }
             <RadzenButton Icon="download" Text="CSV" Click="ExportCsvAsync" title="@T("common.exportCsv", "CSV로 내보내기")"
                           ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
+        </div>
+    }
+    @if (_truncatedFrom > 0)
+    {
+        @* P1 — 상한 초과 안내: 클라 페이징 화면이 대용량 결과 전체를 회로에 올리면 렌더가 폭주하므로
+           MaxClientRows까지만 표시한다. 전체 조회는 조건을 좁히거나(서버 필터) CSV 내보내기(원본 Rows 전량). *@
+        <div class="nx-grid-trunc" role="status">
+            <RadzenIcon Icon="warning_amber" />
+            <span>@string.Format(T("common.truncated", "결과 {0}행 중 처음 {1}행만 표시됩니다. 조건을 좁혀 조회하거나 CSV로 전체를 내보내세요."), _truncatedFrom, MaxClientRows)</span>
         </div>
     }
     @if (Loading && Rows is not { Count: > 0 })
@@ -137,6 +148,13 @@
     // 페이지 크기 — 클라이언트 분할과 서버측 페이징(MetaScreen @limit)의 단일 출처.
     public const int PageSize = 20;
 
+    // P1 안전장치 상한 — 클라 페이징 화면(ServerTotal 없음)이 한 번에 회로로 올릴 최대 행 수.
+    // 초과분은 변환/렌더하지 않고 배너로만 안내한다(전체는 CSV 내보내기가 원본 Rows 전량 처리).
+    public const int MaxClientRows = 500;
+
+    // P4 — 컬럼 종류 추론 샘플 크기(전 행 스캔 대신 앞 N행). 혼합 컬럼은 InferKind의 '전부' 규칙상 텍스트 폴백.
+    private const int InferSampleSize = 100;
+
     private static int PageCountOf(int total) => total > 0 ? (total + PageSize - 1) / PageSize : 0;
 
     // 보이는 컬럼만 헤더로 그리고, 각 행에서 컬럼 Key로 값을 찾아 셀에 표시한다.
@@ -171,12 +189,27 @@
     // (매번 재빌드하면 참조가 깨져 선택 강조가 즉시 리셋되던 버그).
     private IReadOnlyList<Dictionary<string, object?>>? _lastRows;
 
+    // 원본 행수(P1 상한 초과로 잘렸을 때만 > 0) — 절단 배너 표시용.
+    private int _truncatedFrom;
+
     protected override void OnParametersSet()
     {
         if (ReferenceEquals(Rows, _lastRows)) return;
         _lastRows = Rows;
+        _viewDirty = true;   // 데이터 변경 → 정렬/필터 뷰 캐시 무효화(P3)
 
-        _items = (Rows ?? (IReadOnlyList<Dictionary<string, object?>>)Array.Empty<Dictionary<string, object?>>())
+        // P1 안전장치 — 클라이언트 페이징 화면(ServerTotal 없음)이 대용량 결과 전체를 회로에 적재하면
+        // ExpandoObject 변환·SignalR diff·렌더가 폭주한다. 상한(MaxClientRows)까지만 변환하고 초과분은
+        // 배너로 알린다(서버 페이징 화면은 이미 페이지 단위라 미적용).
+        var source = Rows ?? (IReadOnlyList<Dictionary<string, object?>>)Array.Empty<Dictionary<string, object?>>();
+        _truncatedFrom = 0;
+        if (ServerTotal is null && source.Count > MaxClientRows)
+        {
+            _truncatedFrom = source.Count;
+            source = source.Take(MaxClientRows).ToList();
+        }
+
+        _items = source
             .Select(r =>
             {
                 var e = new System.Dynamic.ExpandoObject();
@@ -187,10 +220,12 @@
             .ToList();
         _selectedItem = null;   // 재조회(Rows 변경) 시에만 선택 해제
 
-        // 컬럼 종류 추론 — 보이는 컬럼별 값 샘플로 숫자/시각/상태/불리언/빈/텍스트 판별(폭·정렬·셀 표현 결정).
+        // 컬럼 종류 추론 — 앞 InferSampleSize행 샘플로 숫자/시각/상태/불리언/빈/텍스트 판별(폭·정렬·셀 표현 결정).
+        // 전 행 스캔은 대용량에서 낭비라 대표 샘플만 본다(혼합 컬럼은 '전부' 규칙상 안전하게 텍스트 폴백).
         _colKind = new Dictionary<string, ColumnKind>(StringComparer.Ordinal);
+        var sample = _items.Count > InferSampleSize ? _items.Take(InferSampleSize).ToList() : _items;
         foreach (var col in Columns.Where(c => c.Visible))
-            _colKind[col.Key] = InferKind(_items.Select(e => Cell(e, col.Key)).ToList());
+            _colKind[col.Key] = InferKind(sample.Select(e => Cell(e, col.Key)).ToList());
     }
 
     private ColumnKind KindOf(string key) => _colKind.TryGetValue(key, out var k) ? k : ColumnKind.Text;
@@ -215,9 +250,21 @@
         else { _sortKey = key; _sortDesc = false; }
     }
 
+    // P3 — 정렬/필터 뷰 캐시. 입력(_filter/_sortKey/_sortDesc/_items)이 그대로면 재계산하지 않는다.
+    // (무관한 부모 재렌더 — 행선택·폼로드 등 — 에도 전체 재정렬/재할당하던 낭비 제거). _items 참조 변경은
+    // OnParametersSet가 _viewDirty로, 필터/정렬 변경은 아래 캐시키 비교로 무효화한다.
+    private List<System.Dynamic.ExpandoObject> _view = new();
+    private bool _viewDirty = true;
+    private string _viewFilter = "";
+    private string? _viewSortKey;
+    private bool _viewSortDesc;
+
     // 필터(부분일치) → 정렬. 필터는 보이는 컬럼 무관 대소문자 무시 contains. 정렬은 숫자 컬럼이면 수치.
     private List<System.Dynamic.ExpandoObject> SortedItems()
     {
+        if (!_viewDirty && _viewFilter == _filter && _viewSortKey == _sortKey && _viewSortDesc == _sortDesc)
+            return _view;
+
         IEnumerable<System.Dynamic.ExpandoObject> items = _items;
 
         if (!string.IsNullOrWhiteSpace(_filter))
@@ -234,7 +281,38 @@
                 ? (_sortDesc ? items.OrderByDescending(e => ParseDec(Cell(e, key))) : items.OrderBy(e => ParseDec(Cell(e, key))))
                 : (_sortDesc ? items.OrderByDescending(e => Cell(e, key), StringComparer.Ordinal) : items.OrderBy(e => Cell(e, key), StringComparer.Ordinal));
         }
-        return items.ToList();
+
+        _view = items.ToList();
+        _viewDirty = false;
+        _viewFilter = _filter; _viewSortKey = _sortKey; _viewSortDesc = _sortDesc;
+        return _view;
+    }
+
+    // P2 — 빠른 필터 디바운스. Blazor Server는 입력마다 회로 왕복이라, 타이핑이 멈춘 뒤(FilterDebounceMs)에만
+    // 실제 필터(_filter)를 적용해 재정렬/재렌더한다. 입력값(_filterInput)은 즉시 보관해 다음 렌더에 반영.
+    private const int FilterDebounceMs = 250;
+    private string _filterInput = "";
+    private CancellationTokenSource? _filterCts;
+
+    private async Task OnFilterInput(ChangeEventArgs e)
+    {
+        _filterInput = e.Value?.ToString() ?? "";
+        _filterCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _filterCts = cts;
+        try
+        {
+            await Task.Delay(FilterDebounceMs, cts.Token);
+            _filter = _filterInput;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (TaskCanceledException) { /* 다음 입력이 이전 대기를 취소 — 무시 */ }
+    }
+
+    public void Dispose()
+    {
+        _filterCts?.Cancel();
+        _filterCts?.Dispose();
     }
 
     private static decimal ParseDec(string s) => decimal.TryParse(s, out var d) ? d : decimal.MinValue;
