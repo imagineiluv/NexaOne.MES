@@ -42,7 +42,8 @@
     @if (Rows is { Count: > 0 })
     {
         <div class="meta-grid-toolbar">
-            <button class="pager-btn" title="@T("common.exportCsv", "CSV로 내보내기")" @onclick="ExportCsvAsync">⬇ CSV</button>
+            <RadzenButton Text="⬇ CSV" Click="ExportCsvAsync" title="@T("common.exportCsv", "CSV로 내보내기")"
+                          ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
         </div>
     }
     @if (Loading && Rows is not { Count: > 0 })
@@ -72,11 +73,13 @@
         {
             <div class="meta-grid-pager">
                 <span class="meta-grid-note">@total @T("common.rowsUnit", "행")</span>
-                <button class="pager-btn" disabled="@(ServerPage == 0)"
-                        @onclick="() => OnServerPageChange.InvokeAsync(ServerPage - 1)">@T("common.prev", "‹ 이전")</button>
+                <RadzenButton Text="@T("common.prev", "‹ 이전")" Disabled="@(ServerPage == 0)" class="pager-btn"
+                              Click="() => OnServerPageChange.InvokeAsync(ServerPage - 1)"
+                              ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" />
                 <span class="meta-grid-note">@(ServerPage + 1) / @PageCountOf(total)</span>
-                <button class="pager-btn" disabled="@(ServerPage >= PageCountOf(total) - 1)"
-                        @onclick="() => OnServerPageChange.InvokeAsync(ServerPage + 1)">@T("common.next", "다음 ›")</button>
+                <RadzenButton Text="@T("common.next", "다음 ›")" Disabled="@(ServerPage >= PageCountOf(total) - 1)" class="pager-btn"
+                              Click="() => OnServerPageChange.InvokeAsync(ServerPage + 1)"
+                              ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" />
             </div>
         }
     }

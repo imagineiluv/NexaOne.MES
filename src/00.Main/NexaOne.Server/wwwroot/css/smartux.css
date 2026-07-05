@@ -338,16 +338,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .meta-grid-note { color: var(--nx-muted); font-size: 12.5px; margin-top: 8px; }
 /* P3-9 — 클라이언트 페이저(20행/페이지) + 정렬 가능 헤더 hover */
 .meta-grid-pager { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-.pager-btn { padding: 3px 10px; font-size: 12px; background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: 3px; color: var(--nx-text-2); cursor: pointer; }
-.pager-btn:hover:not(:disabled) { background: var(--nx-hover); }
-.pager-btn:disabled { opacity: .45; cursor: default; }
+/* 페이저/CSV 버튼은 이제 RadzenButton(Light·Flat·Small) — 크롬/hover/disabled는 Radzen이 소유.
+   .pager-btn 클래스는 마커로만 유지(테스트 셀렉터·레이아웃 스코프). 배경/보더/패딩은 지정하지 않는다. */
 .meta-grid thead th.sortable:hover { background: var(--nx-hover); }
 .validation-errors { color: var(--nx-red); font-size: 12.5px; margin: 8px 0 0; padding-left: 18px; }
 .save-ok { color: var(--nx-teal); font-weight: 600; }
 .layout-section { background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: 4px; padding: 14px; margin-bottom: 12px; }
 .layout-section-title { color: var(--nx-teal); font-weight: 700; font-size: 13px; margin: 0 0 10px; }
-.layout-command, .meta-actions button, button.layout-save { background: var(--nx-teal); color: #fff; border: none; border-radius: 3px; padding: 7px 16px; font-size: 13px; cursor: pointer; }
-.layout-command:hover, .meta-actions button:hover { background: var(--nx-teal-d); }
+/* 명령/저장 버튼은 이제 RadzenButton(Primary·Small — 테마 브리지로 --nx-teal 계열) — 크롬/hover/disabled는
+   Radzen이 소유. .layout-command/.layout-save 클래스는 마커로만 유지(테스트 셀렉터). 색은 지정하지 않는다. */
 
 /* ===== 메타 위젯 디자인 토큰(디자이너 Phase-2) =====
    위젯(KPI/StatusBadge 등)은 인라인 스타일 대신 이 토큰·클래스를 쓴다 — 팔레트 변경은 여기 한 곳.

@@ -54,7 +54,8 @@
         break;
 
     case ButtonWidget b:
-        <button class="layout-command" @onclick="() => RunButtonAsync(b)" disabled="@string.IsNullOrWhiteSpace(b.Command)">@b.Label</button>
+        <RadzenButton Text="@b.Label" Click="() => RunButtonAsync(b)" Disabled="@string.IsNullOrWhiteSpace(b.Command)"
+                      ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small" class="layout-command" />
         break;
 
     case TextWidget t:
