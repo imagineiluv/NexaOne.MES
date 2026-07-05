@@ -107,6 +107,19 @@
 .nx-grid-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 34px 0; color: var(--nx-muted); font-size: 12.5px; }
 .nx-grid-empty .rzi { font-size: 34px; opacity: .45; }
 
+/* ===== 미세 폴리시(종합 점검 마감) — 스크롤바·마이크로 인터랙션·선택 행 강조 ===== */
+/* 전역 얇은 스크롤바(일관). 다크 사이드바는 아래에서 어두운 썸으로 되돌린다. */
+* { scrollbar-width: thin; scrollbar-color: var(--nx-border) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--nx-border); border-radius: 5px; }
+::-webkit-scrollbar-thumb:hover { background: var(--nx-muted); }
+::-webkit-scrollbar-track { background: transparent; }
+.mes-sidebar, .mes-nav { scrollbar-color: #2a3c5c transparent; }
+/* 부드러운 마이크로 인터랙션(과하지 않게 — 0.1~0.12s). Radzen 행은 .rz-data-row. */
+.mes-nav-item, .mes-nav-subitem, .mes-mditab { transition: background-color .12s ease, color .12s ease; }
+.rz-data-row td { transition: background-color .1s ease; }
+/* (선택 행 강조는 RadzenDataGrid Value 바인딩 필요 — 컴포넌트 변경 후과제로 보류. 행 클릭=폼 로드는 동작.) */
+
 /* P3-17 다크 모드 — <html data-theme="dark"> 시 표면 토큰만 교체(사이드바는 원래 다크).
    토글은 셸 사용자 메뉴, 선택은 localStorage(nx-theme) + HostApp 부트 스크립트가 첫 페인트 전 적용. */
 [data-theme="dark"] {
