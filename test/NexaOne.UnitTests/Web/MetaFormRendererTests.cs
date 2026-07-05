@@ -69,11 +69,13 @@ public sealed class MetaFormRendererTests
     // ── 구조 · Required · 값 반영 ────────────────────────────────────────────
 
     [Fact]
-    public void Required_field_label_has_asterisk_suffix()
+    public void Required_field_label_has_styled_asterisk_marker()
     {
         using var ctx = RadzenContext();
         var cut = Render(ctx, FormWith(new FieldDefinition("name", "이름", FieldType.Text, Required: true)));
-        cut.Find("label").TextContent.Should().Be("이름 *", "Required 필드 라벨은 ' *' 접미사를 가져야 한다");
+        // 필수 표시는 라벨 텍스트 뒤 .req(빨강) 스팬의 '*'. (라벨 전체 TextContent = "이름*")
+        cut.Find("label").TextContent.Should().StartWith("이름").And.EndWith("*");
+        cut.Find("label span.req").TextContent.Should().Be("*", "필수 마커는 .req 스팬으로 렌더된다");
     }
 
     [Fact]

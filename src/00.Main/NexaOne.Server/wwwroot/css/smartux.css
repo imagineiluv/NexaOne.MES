@@ -345,25 +345,29 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .meta-grid tbody tr:hover td { background: var(--nx-hover-teal); }
 .meta-grid .grid-empty { padding: 48px; text-align: center; color: var(--nx-muted); border: 1px solid var(--nx-border-soft); border-top: none; }
 
-/* 폼/입력 — 라벨 고정 폭 + 입력 유연 폭(flex): 라벨이 길어도 입력칸을 침범하지 않는다.
-   P2-7: 입력+인라인 오류를 세로로 묶는 .meta-field-control 래퍼(오류가 행 정렬을 깨지 않게). */
-.meta-field { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
-.meta-field label { flex: 0 0 110px; text-align: right; padding-top: 7px; }
-.meta-field-control { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+/* 폼/입력(엔진 v2) — 라벨 상단 배치(모던) + 필드는 반응형 다열 그리드(넓으면 2~3열, 좁으면 1열)로
+   밀도↑·세로 스크롤↓. 우측정렬 고정폭 라벨(구식)에서 전환. .meta-field-control이 입력+인라인 오류를 묶는다. */
+.meta-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--nx-sp-4) var(--nx-sp-5); align-items: start; }
+.meta-field { display: flex; flex-direction: column; gap: var(--nx-sp-1); margin: 0; min-width: 0; }
+.meta-field label { text-align: left; padding: 0; }
+.meta-field .req { color: var(--nx-danger); margin-left: 2px; font-weight: 700; }
+.meta-field-control { min-width: 0; display: flex; flex-direction: column; }
 .meta-field-control input:not([type=checkbox]), .meta-field-control select { width: 100%; box-sizing: border-box; }
-.meta-field-control input[type=checkbox] { margin-top: 8px; align-self: flex-start; }
+.meta-field-control input[type=checkbox] { align-self: flex-start; }
+/* 숫자/날짜는 내용이 짧아 전폭이 어색 — 셀 안에서 적당 폭으로 좌측 정렬. */
+.meta-field-control .rz-numeric, .meta-field-control .rz-datepicker { max-width: 200px; }
 .meta-field-error { color: var(--nx-red); font-size: 11px; margin-top: 3px; }
 .meta-field input.invalid, .meta-field select.invalid { border-color: var(--nx-red); }
-.meta-form label { font-size: 12px; color: var(--nx-text-2); font-weight: 500; }
-.meta-form input, .meta-form select { padding: 6px 9px; border: 1px solid var(--nx-border); border-radius: 3px; font-size: 13px; }
+.meta-form label { font-size: 12px; color: var(--nx-text-2); font-weight: 600; }
+.meta-form input, .meta-form select { padding: 6px 9px; border: 1px solid var(--nx-border); border-radius: var(--nx-radius); font-size: 13px; }
 .meta-refresh { margin-left: 10px; padding: 4px 12px; font-size: 12px; vertical-align: 2px; }
 .page-header { display: flex; align-items: center; }
 
-/* 검색 조건 영역(SearchFields) — 조건 필드는 가로 흐름(레거시 SmartUX 상단 조건 영역 미러). */
-.meta-search { padding: 12px 14px; margin-bottom: 12px; }
-.meta-search .meta-form { display: flex; flex-wrap: wrap; gap: 4px 18px; }
-.meta-search .meta-field { margin-bottom: 4px; }
-.meta-search .meta-field label { flex: 0 0 auto; }
+/* 검색 조건 영역(SearchFields) — 조건 필드는 가로 흐름(레거시 SmartUX 상단 조건 영역 미러).
+   본문 폼은 그리드지만 검색은 인라인 흐름으로 되돌린다(라벨 상단·필터 나란히). */
+.meta-search { padding: var(--nx-sp-4); margin-bottom: var(--nx-sp-4); }
+.meta-search .meta-form { display: flex; flex-wrap: wrap; gap: var(--nx-sp-2) var(--nx-sp-5); }
+.meta-search .meta-field { min-width: 170px; }
 .meta-search-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .meta-cond-name, .meta-cond-select { padding: 6px 9px; border: 1px solid var(--nx-border); border-radius: 3px; font-size: 13px; }
 .meta-cond-name { width: 10rem; }

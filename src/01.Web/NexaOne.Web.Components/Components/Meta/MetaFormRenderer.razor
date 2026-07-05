@@ -10,7 +10,7 @@
         var key = field.Key;
         var err = ErrorFor(field);
         <div class="meta-field">
-            <label>@field.Label@(field.Required ? " *" : "")</label>
+            <label>@field.Label@if (field.Required) { <span class="req" aria-hidden="true">*</span> }</label>
             <div class="meta-field-control">
                 @switch (field.Type)
                 {
