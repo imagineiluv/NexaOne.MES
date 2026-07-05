@@ -3,8 +3,9 @@ using NexaOne.Common;
 namespace NexaOne.Server.Gateway;
 
 /// <summary>배치 주기 실행 워커(기본 OFF — Worker:Sys:BatchProcess:Enabled). 스케줄 규약:
-/// BATCH_TYPE='Interval' + BATCH_OPTIONS=주기(초) 또는 BATCH_TYPE='Cron' + BATCH_OPTIONS=6필드 cron식
-/// (초 분 시 일 월 요일, '?'=* — 레거시 Quartz 표기 수용, CronSchedule 참조). 그 외 유형은 정의 보존 +
+/// BATCH_TYPE='Interval' + BATCH_OPTIONS=주기(초) 또는 BATCH_TYPE='Cron' + BATCH_OPTIONS=Quartz cron식
+/// (6~7필드 초 분 시 일 월 요일 [연], 요일 1=일, dom·dow 중 한쪽 '?' — 시스템 스케줄러와 동일 엔진, CronSchedule 참조).
+/// 그 외 유형은 정의 보존 +
 /// 실행 스킵(경고 1회). 실행 자체는 BatchProcessRunner 단일 경로(수동 실행과 동일 규약).
 /// 스케줄 상태는 인메모리 추적 — 재기동 시 Interval은 주기 도래분 1회 즉시 실행, Cron은 다음 발생부터.</summary>
 public sealed class BatchProcessWorker : BackgroundService
@@ -75,7 +76,7 @@ public sealed class BatchProcessWorker : BackgroundService
                 if (!CronSchedule.TryParse(options, out var cron) || cron is null)
                 {
                     if (_warnedUnsupported.Add(batchId))
-                        _logger.LogWarning("배치 '{BatchId}' cron식 '{Options}' 파싱 불가 — 6필드(초 분 시 일 월 요일)여야 합니다.", batchId, options);
+                        _logger.LogWarning("배치 '{BatchId}' cron식 '{Options}' 파싱 불가 — Quartz 6~7필드(초 분 시 일 월 요일 [연], dom·dow 중 한쪽 '?')여야 합니다.", batchId, options);
                     continue;
                 }
                 // 표현식 변경/최초 발견 시 다음 발생부터 스케줄(재기동 직후 과거분 몰아 실행 방지).

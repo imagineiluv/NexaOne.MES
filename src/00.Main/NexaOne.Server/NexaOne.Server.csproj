@@ -17,7 +17,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Cronos" Version="0.13.0" />
+    <!-- 배치 cron 파서(Gateway/CronSchedule) — 시스템 스케줄러(NexusFramework QuartzScheduler)와 동일 엔진.
+         NexusFramework를 통해 전이 참조되지만, CronExpression을 직접 사용하므로 명시 참조로 고정한다. -->
+    <PackageReference Include="Quartz" Version="3.*" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.*" />
     <!-- 통합 호스트(접근 A) — WebApplication. Spring.NET 빈 컨테이너(ApplicationServer)와 공존:
          컨테이너는 모듈 서비스/워커, WebApplication은 HTTP + 워커 수명주기. Hosting은 Sdk.Web 프레임워크에 포함. -->
