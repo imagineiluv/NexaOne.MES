@@ -39,6 +39,12 @@
     </text>;
 }
 <div class="meta-grid">
+    @if (Rows is { Count: > 0 })
+    {
+        <div class="meta-grid-toolbar">
+            <button class="pager-btn" title="@T("common.exportCsv", "CSV로 내보내기")" @onclick="ExportCsvAsync">⬇ CSV</button>
+        </div>
+    }
     @if (Loading && Rows is not { Count: > 0 })
     {
         <p class="meta-grid-note"><span class="nx-spin" aria-hidden="true"></span> @T("common.loading", "조회 중…")</p>
@@ -188,6 +194,26 @@
         "Information" or "Info" or "Draft" or "Confirmed" or "Issued" or "Planned" => Radzen.BadgeStyle.Info,
         _ => null,
     };
+
+    // CSV 내보내기 — 보이는 컬럼×적재 행(서버 페이징은 현재 페이지)을 CSV로 만들어 다운로드한다.
+    // Radzen 내장 Export는 컬럼 Property로 값을 뽑는데 우리 컬럼은 Template-only(정렬 이슈로 Property 미지정)라
+    // 값이 비므로, 딕셔너리에서 직접 뽑는 자체 CSV 빌더를 쓴다.
+    private async Task ExportCsvAsync()
+    {
+        var cols = Columns.Where(c => c.Visible).ToList();
+        if (cols.Count == 0 || Rows is not { Count: > 0 }) return;
+        var sb = new System.Text.StringBuilder();
+        sb.Append(string.Join(",", cols.Select(c => CsvField(c.Caption)))).Append('\n');
+        foreach (var row in Rows)
+            sb.Append(string.Join(",", cols.Select(c => CsvField(RawCell(row, c.Key))))).Append('\n');
+        try { await JS.InvokeVoidAsync("nxDownloadCsv", "export.csv", sb.ToString()); }
+        catch { /* JS 미탑재 — 무시 */ }
+    }
+
+    private static string CsvField(string s) => "\"" + s.Replace("\"", "\"\"") + "\"";
+
+    private static string RawCell(Dictionary<string, object?> row, string key)
+        => row.TryGetValue(key, out var v) && v is not null ? v.ToString() ?? "" : "";
 
     // P3-9 — 셀 더블클릭 복사. 호스트 부트 스크립트 nxCopy(navigator.clipboard 래퍼). 미지원/거부는 무시.
     private async Task CopyCellAsync(string raw)

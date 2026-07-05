@@ -18,6 +18,15 @@
             return navigator.clipboard && navigator.clipboard.writeText
                 ? navigator.clipboard.writeText(t) : Promise.resolve();
         };
+        /* 그리드 CSV 내보내기 — 문자열 CSV를 Blob으로 다운로드. UTF-8 BOM으로 Excel 한글 깨짐 방지. */
+        window.nxDownloadCsv = function (filename, csv) {
+            var blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement("a");
+            a.href = url; a.download = filename || "export.csv";
+            document.body.appendChild(a); a.click();
+            document.body.removeChild(a); URL.revokeObjectURL(url);
+        };
         /* P3-9 v3 그리드 컬럼 리사이즈 — 헤더 경계(.col-resize) 드래그. 이벤트 델리게이션(루트당 1회).
            드래그 시작 시 모든 컬럼 폭을 동결(table-layout:fixed)하고, 종료 시 폭 배열을 .NET에 콜백한다. */
         window.nxGridResizeInit = function (root, dotnet) {

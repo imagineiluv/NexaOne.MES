@@ -64,6 +64,8 @@
   --rz-series-4: var(--nx-danger);
   --rz-border-radius: var(--nx-radius);
 }
+/* 그리드 툴바(CSV 내보내기 등) — 그리드 우상단 정렬. */
+.meta-grid-toolbar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
 /* 폼 검증 실패 표시(P2-7) — Radzen 입력에 붙는 nx-invalid 클래스(빨간 보더). */
 .nx-invalid, .nx-invalid .rz-inputtext, .nx-invalid.rz-textbox, .nx-invalid.rz-dropdown, .nx-invalid.rz-numeric, .nx-invalid.rz-datepicker { border-color: var(--nx-danger) !important; }
 /* 자체 헤더 클릭 정렬(P3-9) — Radzen 컬럼 HeaderTemplate 안의 클릭 라벨. */
@@ -201,12 +203,8 @@ body {
 .host-error { color: var(--nx-red); font-size: 0.875rem; margin-bottom: 1rem; }
 .host-help { margin-top: 1rem; text-align: center; font-size: 0.813rem; color: var(--nx-muted); }
 
-/* 전역 API 토스트(P1-4) — 우상단 고정 스택, 5초 자동 소멸. 심각도 색은 --nx-severity-* 토큰. */
-.nx-toasts { position: fixed; top: 68px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 200; max-width: 380px; }
-.nx-toast { padding: 10px 14px; border-radius: 4px; font-size: 12.5px; box-shadow: 0 6px 18px rgba(16,24,40,.16); border: 1px solid; }
-.nx-toast-error   { background: var(--nx-severity-danger-bg);  color: var(--nx-severity-danger-fg);  border-color: #fecaca; }
-.nx-toast-warning { background: var(--nx-severity-warning-bg); color: var(--nx-severity-warning-fg); border-color: #fde68a; }
-.nx-toast-info    { background: var(--nx-severity-info-bg);    color: var(--nx-severity-info-fg);    border-color: #bfdbfe; }
+/* 전역 API 토스트(P1-4)는 이제 Radzen 알림(NotificationService, <RadzenComponents/>)이 렌더한다.
+   과거 자체 토스트(.nx-toast*) 스타일은 ApiToastHost의 Radzen 브릿지 전환으로 제거됨. */
 
 /* P1-1 — 선택 가능 그리드: 행 커서/호버, 선택 행 하이라이트 */
 .meta-grid.selectable tbody tr { cursor: pointer; }

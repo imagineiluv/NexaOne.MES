@@ -1,38 +1,54 @@
-@* 전역 API 토스트 호스트 — ApiClient가 발신하는 403/5xx/검증 실패 통지(ApiNotificationService)를
-   화면 우상단에 표시하고 5초 후 자동 소멸한다. 셸(MesShellLayout)에 1개 배치한다.
+@* 전역 API 토스트 브릿지 — ApiClient가 발신하는 403/5xx/검증 실패 통지(ApiNotificationService)를
+   Radzen 알림(NotificationService)으로 전달한다. 실제 렌더는 셸의 <RadzenComponents /> 알림 호스트가 맡고,
+   이 컴포넌트는 채널 구독→전달만 한다(자체 마크업 없음). 셸(MesShellLayout)에 1개 배치한다.
    (이 컴포넌트가 없으면 통지 구독자가 0이라 권한 거부·서버 오류가 사용자에게 조용히 사라진다 —
    P1-4에서 발견된 공백을 메우는 유일한 소비자.) *@
 @using NexaOne.Web.Services
 @implements IDisposable
 @inject ApiNotificationService Notifier
-
-<div class="nx-toasts">
-    @foreach (var entry in _items)
-    {
-        <div @key="entry" class="nx-toast nx-toast-@entry.Notification.Severity.ToString().ToLowerInvariant()">
-            @entry.Notification.Message
-        </div>
-    }
-</div>
+@inject Radzen.NotificationService Notifications
 
 @code {
-    private readonly List<Entry> _items = new();
-    private sealed record Entry(ApiNotification Notification);
+    // 다국어(P3-14) — 호스트 DI가 있으면 번역, 없으면(테스트) 한국어 폴백. MetaGridRenderer.T와 동일 패턴.
+    [Inject] private IServiceProvider Services { get; set; } = default!;
+    private UiTextService? _uiText;
+    private bool _uiTextLookedUp;
 
     protected override void OnInitialized() => Notifier.OnNotify += OnNotify;
 
-    // 발신은 백그라운드 스레드일 수 있어 InvokeAsync로 회로 컨텍스트에 태운다. 5초 후 자동 소멸.
+    // 발신은 백그라운드 스레드일 수 있어 InvokeAsync로 회로 컨텍스트에 태운다. Radzen이 자동 소멸(5초).
     private void OnNotify(ApiNotification notification)
-    {
-        _ = InvokeAsync(async () =>
+        => _ = InvokeAsync(() => Notifications.Notify(new Radzen.NotificationMessage
         {
-            var entry = new Entry(notification);
-            _items.Add(entry);
-            StateHasChanged();
-            await Task.Delay(TimeSpan.FromSeconds(5));
-            _items.Remove(entry);
-            StateHasChanged();
-        });
+            Severity = SeverityOf(notification.Severity),
+            Summary = TitleOf(notification.Severity),
+            Detail = notification.Message,
+            Duration = 5000d,
+        }));
+
+    // API 심각도 → Radzen 알림 심각도(색/아이콘). Radzen엔 Info가 없어 그에 대응하는 값이 없으면 Info로 폴백.
+    internal static Radzen.NotificationSeverity SeverityOf(ApiNotificationSeverity severity) => severity switch
+    {
+        ApiNotificationSeverity.Error => Radzen.NotificationSeverity.Error,
+        ApiNotificationSeverity.Warning => Radzen.NotificationSeverity.Warning,
+        _ => Radzen.NotificationSeverity.Info,
+    };
+
+    private string TitleOf(ApiNotificationSeverity severity) => severity switch
+    {
+        ApiNotificationSeverity.Error => T("toast.error", "오류"),
+        ApiNotificationSeverity.Warning => T("toast.warning", "경고"),
+        _ => T("toast.info", "알림"),
+    };
+
+    private string T(string key, string fallback)
+    {
+        if (!_uiTextLookedUp)
+        {
+            _uiTextLookedUp = true;
+            _uiText = Services.GetService(typeof(UiTextService)) as UiTextService;
+        }
+        return _uiText?.T(key, fallback) ?? fallback;
     }
 
     public void Dispose() => Notifier.OnNotify -= OnNotify;
