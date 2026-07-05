@@ -4,6 +4,7 @@
 @inject Microsoft.JSInterop.IJSRuntime JS
 @inject Microsoft.AspNetCore.Components.NavigationManager Nav
 @inject IServiceProvider Services
+@inject Radzen.DialogService DialogService
 
 @switch (Node)
 {
@@ -139,12 +140,16 @@
     // P1-3 — 조회 진행 중 표시 전달.
     [Parameter] public bool LoadingData { get; set; }
 
-    // P1-2 — 파괴적 명령 보호: ConfirmMessage가 있으면 브라우저 confirm 통과 시에만 실행한다.
+    // P1-2 — 파괴적 명령 보호: ConfirmMessage가 있으면 RadzenDialog 확인(비블로킹 모달) 통과 시에만 실행.
+    // (이전엔 브라우저 confirm 블로킹 — 스타일 불일치·테스트 우회 문제. Confirm은 true/false/null 반환.)
     private async Task RunButtonAsync(ButtonWidget b)
     {
-        if (!string.IsNullOrWhiteSpace(b.ConfirmMessage)
-            && !await JS.InvokeAsync<bool>("confirm", b.ConfirmMessage))
-            return;
+        if (!string.IsNullOrWhiteSpace(b.ConfirmMessage))
+        {
+            var ok = await DialogService.Confirm(b.ConfirmMessage, T("common.confirmTitle", "확인"),
+                new Radzen.ConfirmOptions { OkButtonText = T("common.confirm", "확인"), CancelButtonText = T("common.cancel", "취소") });
+            if (ok != true) return;
+        }
         await OnCommand.InvokeAsync(b.Command);
     }
 

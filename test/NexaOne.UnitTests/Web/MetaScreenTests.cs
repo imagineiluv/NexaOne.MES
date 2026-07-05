@@ -33,6 +33,7 @@ public sealed class MetaScreenTests
     {
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         // 그리드 전용 정의: 폼 필드 없음 + 컬럼 메타 + 데이터 소스 쿼리(Q.Plants) 바인딩.
         var def = new ScreenDefinition("GRID1", "공장 목록",
@@ -68,6 +69,7 @@ public sealed class MetaScreenTests
     {
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         // 폼 전용 정의: 컬럼/쿼리 없음 — 쿼리 게이트웨이를 치면 안 된다.
         var def = new ScreenDefinition("FORM1", "파라미터 입력",
@@ -92,6 +94,7 @@ public sealed class MetaScreenTests
     {
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         // 저장(쓰기) 쿼리가 바인딩된 폼 — 필수 필드 1개.
         var def = new ScreenDefinition("SAVE1", "공장 등록",
@@ -123,6 +126,7 @@ public sealed class MetaScreenTests
     {
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         // 그리드+폼 화면: 저장 성공 시 그리드를 재조회해 새 행이 즉시 보여야 한다(실브라우저 스모크에서 발견된 공백).
         var def = new ScreenDefinition("SAVE3", "가상 이벤트",
@@ -159,6 +163,7 @@ public sealed class MetaScreenTests
     {
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         var def = new ScreenDefinition("GRID-R", "공장 목록",
             Array.Empty<FieldDefinition>(),
@@ -221,6 +226,7 @@ public sealed class MetaScreenTests
     {
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         // §20.8 — 재진입 시 '$latest'(마지막 조회 조건)를 복원해 초기 조회 파라미터로 바인딩해야 한다.
         var def = new ScreenDefinition("GRID-S", "로그", Array.Empty<FieldDefinition>(),
@@ -344,10 +350,21 @@ public sealed class MetaScreenTests
         }, TimeSpan.FromSeconds(2));
     }
 
+    // 파괴적 확인은 RadzenDialog(DialogService.Confirm) — 브라우저 confirm 대신 비블로킹 모달. 테스트는
+    // 결과(수락/취소)를 미리 정한 FakeDialogService를 주입해 커맨드 실행 여부를 검증한다(모달 렌더는 브라우저).
+    private sealed class FakeDialogService : Radzen.DialogService
+    {
+        private readonly bool? _result;
+        public FakeDialogService(bool? result) : base(null!, null!) => _result = result;
+        public override Task<bool?> Confirm(string message = "Confirm", string title = "Confirm",
+            Radzen.ConfirmOptions? options = null, CancellationToken? cancellationToken = null)
+            => Task.FromResult(_result);
+    }
+
     [Fact]
     public void Confirm_message_blocks_command_when_cancelled_and_runs_when_accepted()
     {
-        // P1-2 — ConfirmMessage가 있는 버튼은 confirm=false면 커맨드 미실행, true면 실행.
+        // P1-2 — ConfirmMessage가 있는 버튼은 확인 다이얼로그 취소(false)면 커맨드 미실행, 수락(true)면 실행.
         ScreenDefinition Def() => new("CONF", "확인", Array.Empty<FieldDefinition>(),
             Layout: new SectionNode
             {
@@ -360,7 +377,8 @@ public sealed class MetaScreenTests
         using (var ctx = new TestContext())
         {
             ctx.JSInterop.Mode = JSRuntimeMode.Loose;
-            ctx.JSInterop.Setup<bool>("confirm", "정말 삭제하시겠습니까?").SetResult(false);
+            ctx.Services.AddRadzenComponents();
+            ctx.Services.AddSingleton<Radzen.DialogService>(new FakeDialogService(false));   // 취소
             var api = new Mock<IApiClient>();
             ctx.Services.AddSingleton(Provider("CONF", Def()).Object);
             ctx.Services.AddSingleton(api.Object);
@@ -369,13 +387,14 @@ public sealed class MetaScreenTests
             cut.FindAll("button").First(b => b.TextContent.Trim() == "삭제").Click();
 
             api.Verify(a => a.ExecuteCommandAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()),
-                Times.Never, "confirm 취소 시 커맨드를 실행하지 않아야 한다");
+                Times.Never, "확인 취소 시 커맨드를 실행하지 않아야 한다");
         }
 
         using (var ctx = new TestContext())
         {
             ctx.JSInterop.Mode = JSRuntimeMode.Loose;
-            ctx.JSInterop.Setup<bool>("confirm", "정말 삭제하시겠습니까?").SetResult(true);
+            ctx.Services.AddRadzenComponents();
+            ctx.Services.AddSingleton<Radzen.DialogService>(new FakeDialogService(true));   // 수락
             var api = new Mock<IApiClient>();
             api.Setup(a => a.ExecuteCommandAsync("SYS.Del", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
                .ReturnsAsync(true);
@@ -387,7 +406,7 @@ public sealed class MetaScreenTests
 
             cut.WaitForAssertion(() =>
                 api.Verify(a => a.ExecuteCommandAsync("SYS.Del", It.IsAny<object?>(), It.IsAny<CancellationToken>()),
-                    Times.Once, "confirm 수락 시 커맨드가 실행돼야 한다"),
+                    Times.Once, "확인 수락 시 커맨드가 실행돼야 한다"),
                 TimeSpan.FromSeconds(2));
         }
     }
@@ -397,6 +416,7 @@ public sealed class MetaScreenTests
     {
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         var def = new ScreenDefinition("SAVE2", "공장 등록",
             new FieldDefinition[] { new("plantName", "공장명", FieldType.Text, Required: true) },
@@ -421,6 +441,7 @@ public sealed class MetaScreenTests
     {
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         var def = new ScreenDefinition("LAY1", "대시보드",
             Array.Empty<FieldDefinition>(),
@@ -459,6 +480,7 @@ public sealed class MetaScreenTests
     {
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         var def = new ScreenDefinition("LAY2", "등록",
             Array.Empty<FieldDefinition>(),
@@ -492,6 +514,7 @@ public sealed class MetaScreenTests
     {
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         var def = new ScreenDefinition("LAY3", "등록",
             Array.Empty<FieldDefinition>(),
@@ -522,6 +545,7 @@ public sealed class MetaScreenTests
     {
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         // 명령 버튼 없는 손코딩 레이아웃: FormWidget이 SaveQueryId만 가진다 → 암시적 저장 버튼이 생겨야 한다.
         var def = new ScreenDefinition("LAY4", "공장 등록",
@@ -576,6 +600,7 @@ public sealed class MetaScreenTests
     {
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         // 동일 저장쿼리를 가리키는 명령 버튼이 이미 있다 → 암시적 저장 버튼은 생기지 않아야 한다(중복 방지).
         var def = new ScreenDefinition("LAY5", "공장 등록",
@@ -618,6 +643,7 @@ public sealed class MetaScreenTests
     {
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         // 암시적 저장 버튼도 RunCommand 의미론을 따라 검증 실패 시 게이트웨이를 치면 안 된다.
         var def = new ScreenDefinition("LAY6", "공장 등록",
@@ -656,6 +682,7 @@ public sealed class MetaScreenTests
         // Phase-2 실시간 v2 — 자동 새로고침 정의는 데이터 쿼리를 주기 재실행해야 한다(폼 상태는 본 검증 범위 외).
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         var layout = new SectionNode
         {
@@ -695,6 +722,7 @@ public sealed class MetaScreenTests
         // 실시간 v3 — 라이브 화면은 이벤트 푸시로 즉시 재조회(1초 스로틀), 폐기 시 구독 해지.
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         var layout = new SectionNode
         {
@@ -757,6 +785,7 @@ public sealed class MetaScreenTests
         // Phase-2 멀티폼 — Isolated 폼 2개: 입력·검증·저장이 폼별로 격리돼야 한다(공유 모델이면 값이 섞인다).
         using var ctx = new TestContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
 
         var layout = new SectionNode
         {
