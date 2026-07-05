@@ -75,8 +75,9 @@
 .meta-grid-toolbar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
 /* 폼 검증 실패 표시(P2-7) — Radzen 입력에 붙는 nx-invalid 클래스(빨간 보더). */
 .nx-invalid, .nx-invalid .rz-inputtext, .nx-invalid.rz-textbox, .nx-invalid.rz-dropdown, .nx-invalid.rz-numeric, .nx-invalid.rz-datepicker { border-color: var(--nx-danger) !important; }
-/* 자체 헤더 클릭 정렬(P3-9) — Radzen 컬럼 HeaderTemplate 안의 클릭 라벨. */
-.rz-column-title .nx-sort, .nx-sort { cursor: pointer; user-select: none; display: inline-block; }
+/* 자체 헤더 클릭 정렬(P3-9) — Radzen 컬럼 HeaderTemplate 안의 클릭 라벨. 호버 시 틸 힌트로 클릭 가능함을 알린다. */
+.rz-column-title .nx-sort, .nx-sort { cursor: pointer; user-select: none; display: inline-block; border-radius: 3px; padding: 0 2px; transition: color .1s ease; }
+.rz-column-title .nx-sort:hover, .nx-sort:hover { color: var(--nx-teal-d); }
 /* DataGrid 표면 — 헤더/셀/줄무늬/보더를 NexaOne 톤으로(가벼운 보더·부드러운 줄무늬).
    밀도 상향(MES 스캔성): 셀 패딩 축소·숫자 tabular·헤더 대비 강화. */
 .rz-datatable, .rz-grid-table { font-size: 12.5px; }
@@ -291,12 +292,8 @@ body {
 /* 전역 API 토스트(P1-4)는 이제 Radzen 알림(NotificationService, <RadzenComponents/>)이 렌더한다.
    과거 자체 토스트(.nx-toast*) 스타일은 ApiToastHost의 Radzen 브릿지 전환으로 제거됨. */
 
-/* P1-1 — 선택 가능 그리드: 행 커서/호버, 선택 행 하이라이트 */
-.meta-grid.selectable tbody tr { cursor: pointer; }
-.meta-grid.selectable tbody tr:hover td { background: var(--nx-hover-teal); }
-.meta-grid tbody tr.selected td { background: var(--nx-selected) !important; }
-/* P3-9 — 셀 더블클릭 복사 피드백(1.2초 플래시) */
-.meta-grid tbody td.copied { background: var(--nx-selected) !important; transition: background .15s; }
+/* 선택 행 하이라이트는 RadzenDataGrid 선택 + tr[data-selected](RowRender)로 일원화됨(위 마이크로 인터랙션 절).
+   행 커서/호버는 Radzen .rz-selectable/.rz-data-row가 소유 — 옛 .meta-grid.selectable/.selected/.copied 규칙 제거. */
 
 /* P3-20 — 알림 센터(벨): 미읽음 뱃지 + 최근 알림 드롭다운 */
 .mes-alertmenu { position: relative; }
@@ -380,25 +377,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .btn-ghost { background: var(--nx-card); color: var(--nx-text-2); border-color: var(--nx-border); } .btn-ghost:hover { background: var(--nx-hover); }
 .btn-red { background: var(--nx-red); color: #fff; } .btn-red:hover { filter: brightness(.95); }
 
-/* 그리드(Kendo풍) */
+/* 그리드 — .meta-grid 래퍼 안의 Radzen 테이블(table/thead th/tbody td) 기본 표기. 정렬/페이징/리사이즈는
+   Radzen(.rz-datatable*)이 소유하고, 여기선 셀 보더·헤더 배경·줄무늬·호버만 얹는다.
+   (옛 수제 table 잔재 — table.fixed·.col-resize 핸들·tr:focus-visible 키보드포커스·.grid-empty — 는 제거함) */
 .meta-grid { background: var(--nx-card); }
 .meta-grid table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.meta-grid table.fixed { table-layout: fixed; }   /* 컬럼 폭 메타(colgroup) 지정 화면 */
 .meta-grid thead th {
   background: var(--nx-head); color: var(--nx-text-2); font-weight: 600; text-align: left;
   padding: 9px 12px; border: 1px solid var(--nx-border); border-top: none; white-space: nowrap;
-  position: relative;
 }
-/* P3-9 v3 — 컬럼 리사이즈 핸들(헤더 우측 경계). 호버 시 틸 하이라이트. */
-.meta-grid thead th .col-resize { position: absolute; top: 0; right: 0; width: 6px; height: 100%; cursor: col-resize; touch-action: none; }
-.meta-grid thead th .col-resize:hover { background: var(--nx-teal); opacity: .5; }
-/* 키보드 포커스된 행 강조(P3-15) */
-.meta-grid tbody tr:focus-visible { outline: 2px solid var(--nx-teal); outline-offset: -2px; }
-/* overflow-wrap: 고정 폭(colgroup+fixed) 컬럼에서 긴 무공백 토큰(쿼리 ID 등)이 옆 칸을 침범하지 않게 셀 안에서 줄바꿈. */
+/* overflow-wrap: 긴 무공백 토큰(쿼리 ID 등)이 옆 칸을 침범하지 않게 셀 안에서 줄바꿈. */
 .meta-grid tbody td { padding: 8px 12px; border: 1px solid var(--nx-border-soft); color: var(--nx-text); overflow-wrap: anywhere; }
 .meta-grid tbody tr:nth-child(even) td { background: var(--nx-stripe); }
 .meta-grid tbody tr:hover td { background: var(--nx-hover-teal); }
-.meta-grid .grid-empty { padding: 48px; text-align: center; color: var(--nx-muted); border: 1px solid var(--nx-border-soft); border-top: none; }
 
 /* 폼/입력(엔진 v2) — 라벨 상단 배치(모던) + 필드는 반응형 다열 그리드(넓으면 2~3열, 좁으면 1열)로
    밀도↑·세로 스크롤↓. 우측정렬 고정폭 라벨(구식)에서 전환. .meta-field-control이 입력+인라인 오류를 묶는다. */
@@ -429,11 +420,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .meta-actions { margin-top: 12px; display: flex; gap: 8px; }
 /* P2-8 — 그리드 푸터 안내(조회 중/결과 없음/N행) 공통 표기 */
 .meta-grid-note { color: var(--nx-muted); font-size: 12.5px; margin-top: 8px; }
-/* P3-9 — 클라이언트 페이저(20행/페이지) + 정렬 가능 헤더 hover */
+/* P3-9 — 클라이언트 페이저(20행/페이지). 정렬 헤더 hover는 .nx-sort(HeaderTemplate)가 소유. */
 .meta-grid-pager { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 /* 페이저/CSV 버튼은 이제 RadzenButton(Light·Flat·Small) — 크롬/hover/disabled는 Radzen이 소유.
    .pager-btn 클래스는 마커로만 유지(테스트 셀렉터·레이아웃 스코프). 배경/보더/패딩은 지정하지 않는다. */
-.meta-grid thead th.sortable:hover { background: var(--nx-hover); }
 .validation-errors { color: var(--nx-red); font-size: 12.5px; margin: 8px 0 0; padding-left: 18px; }
 .save-ok { color: var(--nx-teal); font-weight: 600; }
 .layout-section { background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-lg); padding: var(--nx-sp-5); margin-bottom: var(--nx-sp-4); box-shadow: var(--nx-shadow-sm); }

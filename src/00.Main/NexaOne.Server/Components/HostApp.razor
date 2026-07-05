@@ -27,49 +27,6 @@
             document.body.appendChild(a); a.click();
             document.body.removeChild(a); URL.revokeObjectURL(url);
         };
-        /* P3-9 v3 그리드 컬럼 리사이즈 — 헤더 경계(.col-resize) 드래그. 이벤트 델리게이션(루트당 1회).
-           드래그 시작 시 모든 컬럼 폭을 동결(table-layout:fixed)하고, 종료 시 폭 배열을 .NET에 콜백한다. */
-        window.nxGridResizeInit = function (root, dotnet) {
-            if (!root || root.__nxResize) return;
-            root.__nxResize = true; root.__nxDotNet = dotnet;
-            var active = null;
-            root.addEventListener('pointerdown', function (e) {
-                var handle = e.target.closest && e.target.closest('.col-resize');
-                if (!handle) return;
-                var table = root.querySelector('table'); if (!table || !table.tHead) return;
-                var th = handle.closest('th');
-                var cells = th.parentElement.children;
-                var idx = Array.prototype.indexOf.call(cells, th);
-                var cg = table.querySelector('colgroup'); if (!cg) return;
-                var cols = cg.children;
-                for (var i = 0; i < cells.length && i < cols.length; i++)
-                    cols[i].style.width = cells[i].getBoundingClientRect().width + 'px';
-                table.style.tableLayout = 'fixed';
-                active = { idx: idx, startX: e.clientX, startW: cells[idx].getBoundingClientRect().width, cols: cols };
-                e.preventDefault(); e.stopPropagation();
-                handle.setPointerCapture(e.pointerId);
-            });
-            root.addEventListener('pointermove', function (e) {
-                if (!active) return;
-                var w = Math.max(48, active.startW + (e.clientX - active.startX));
-                if (active.cols[active.idx]) active.cols[active.idx].style.width = w + 'px';
-            });
-            root.addEventListener('pointerup', function () {
-                if (!active) return;
-                var widths = Array.prototype.map.call(active.cols, function (c) { return Math.round(parseFloat(c.style.width) || 0); });
-                if (root.__nxDotNet) root.__nxDotNet.invokeMethodAsync('OnColumnsResized', widths);
-                active = null;
-            });
-        };
-        /* P3-15 그리드 행 키보드 내비 — 포커스된 tr[tabindex=0]에서 방향으로 이동. */
-        window.nxGridFocusMove = function (root, dir) {
-            if (!root) return;
-            var rows = Array.prototype.slice.call(root.querySelectorAll('tbody tr[tabindex="0"]'));
-            if (!rows.length) return;
-            var cur = rows.indexOf(document.activeElement);
-            var next = cur < 0 ? 0 : Math.min(rows.length - 1, Math.max(0, cur + dir));
-            rows[next].focus();
-        };
         /* P3-11 사이드바 폭 드래그 — 핸들 드래그로 --mes-nav-width 조절, localStorage 저장. */
         window.nxGetNavWidth = function () { return parseInt(localStorage.getItem('nx-nav-width') || '0', 10) || 0; };
         window.nxSidebarResizeInit = function (handle, dotnet) {
