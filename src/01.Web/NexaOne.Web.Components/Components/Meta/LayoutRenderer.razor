@@ -75,67 +75,33 @@
         </div>
         break;
 
-    @* 트렌드 차트(Phase-2 실시간 v2) — 네이티브 SVG 라인(외부 라이브러리 없음). 데이터 부재는 안내 문구. *@
+    @* 트렌드 차트(Phase-2 실시간 v2) — RadzenChart 라인(시간축·툴팁·범례·스무딩 라이브러리 제공).
+       시리즈마다 라인 1개(공통 Y 스케일). 데이터 부재(<2점)는 안내 문구. *@
     case TrendChartWidget tc:
     {
         var series = TrendSeriesFor(tc);
         var hasData = series.Any(s => s.Points.Count >= 2);
-        <div class="layout-kpi" style="min-width:16rem;">
+        <div class="layout-kpi layout-chart">
             <div class="layout-kpi-label">@tc.Label</div>
             @if (!hasData)
             {
-                <div style="color:var(--nx-muted); font-size:0.75rem; padding:0.5rem 0;">@T("common.trendNoData", "표시할 데이터가 부족합니다.")</div>
+                <div class="chart-empty">@T("common.trendNoData", "표시할 데이터가 부족합니다.")</div>
             }
             else
             {
-                @* 공통 Y 스케일 — 전 시리즈 값의 min/max로 모든 라인을 같은 축에 겹쳐 그린다. *@
-                var allValues = series.SelectMany(s => s.Points.Select(p => p.Value)).ToList();
-                var min = allValues.Min();
-                var max = allValues.Max();
-                var single = series.Count == 1;
-                var firstTime = series[0].Points.Count > 0 ? series[0].Points[0].Time : null;
-                var lastTime = series[0].Points.Count > 0 ? series[0].Points[^1].Time : null;
-                @* P3-13 — 그리드라인(상/중/하). v2: 시리즈마다 라인 1개(공통 스케일) + 범례. *@
-                <svg viewBox="0 0 300 80" preserveAspectRatio="none" style="width:100%; height:80px; display:block;">
-                    <line x1="0" y1="4" x2="300" y2="4" stroke="var(--nx-border-soft)" stroke-width="1" vector-effect="non-scaling-stroke" />
-                    <line x1="0" y1="40" x2="300" y2="40" stroke="var(--nx-border)" stroke-width="1" stroke-dasharray="4 4" vector-effect="non-scaling-stroke" />
-                    <line x1="0" y1="76" x2="300" y2="76" stroke="var(--nx-border-soft)" stroke-width="1" vector-effect="non-scaling-stroke" />
-                    @foreach (var s in series.Where(s => s.Points.Count >= 2))
+                <RadzenChart Style="height:150px; width:100%;">
+                    @foreach (var s in series.Where(x => x.Points.Count >= 2))
                     {
-                        var (polyline, pts) = TrendGeometry(s.Points, min, max);
-                        <polyline points="@polyline" fill="none" stroke="@s.Color" stroke-width="2" vector-effect="non-scaling-stroke" />
-                        @if (single)
-                        {
-                            @* 단일 시리즈만 포인트 마커+마지막 점 강조(다중은 과밀 방지로 라인만). *@
-                            foreach (var pt in pts)
-                            {
-                                <circle cx="@Fmt(pt.X)" cy="@Fmt(pt.Y)" r="2" fill="@s.Color" opacity="0.85"><title>@pt.Tooltip</title></circle>
-                            }
-                            <circle cx="@Fmt(pts[^1].X)" cy="@Fmt(pts[^1].Y)" r="3.2" fill="var(--nx-teal-d)"><title>현재 @pts[^1].Tooltip</title></circle>
-                        }
+                        <RadzenLineSeries Data="@ChartData(s.Points)" CategoryProperty="Category" ValueProperty="Value"
+                                          Title="@s.Name" Stroke="@s.Color" StrokeWidth="2" Smooth="true">
+                            <RadzenMarkers Visible="false" />
+                        </RadzenLineSeries>
                     }
-                </svg>
-                @* 범례(P3-13 v2) — 시리즈 2개 이상일 때만. 각 시리즈 색+이름. *@
-                @if (series.Count > 1)
-                {
-                    <div style="display:flex; flex-wrap:wrap; gap:2px 12px; font-size:0.688rem; color:var(--nx-text-2); margin-top:2px;">
-                        @foreach (var s in series)
-                        {
-                            <span style="display:inline-flex; align-items:center; gap:4px;">
-                                <span style="width:9px; height:3px; border-radius:2px; background:@s.Color; display:inline-block;"></span>@s.Name
-                            </span>
-                        }
-                    </div>
-                }
-                <div style="display:flex; justify-content:space-between; font-size:0.688rem; color:var(--nx-muted);">
-                    <span>min @min</span>@if (single) { <span>현재 @series[0].Points[^1].Value</span> }<span>max @max</span>
-                </div>
-                @if (firstTime is not null || lastTime is not null)
-                {
-                    <div style="display:flex; justify-content:space-between; font-size:0.625rem; color:var(--nx-muted);">
-                        <span>@firstTime</span><span>@lastTime</span>
-                    </div>
-                }
+                    @* 카테고리(시간) 축 라벨은 표본이 많으면 겹쳐 지저분하므로 숨긴다 — 시각은 포인트 호버 툴팁이 제공. *@
+                    <RadzenCategoryAxis Visible="false" />
+                    <RadzenValueAxis />
+                    @if (series.Count > 1) { <RadzenLegend Position="LegendPosition.Bottom" /> }
+                </RadzenChart>
             }
         </div>
         break;
@@ -246,7 +212,12 @@
 
     private sealed record TrendSeries(string Name, string Color, List<(decimal Value, string? Time)> Points);
 
-    private static string Fmt(double v) => v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+    // RadzenChart 바인딩 포인트 — Category(축 라벨=시각 또는 순번), Value(수치).
+    internal sealed record ChartPoint(string Category, double Value);
+
+    // 시리즈 포인트 → 차트 데이터. 시각(Time)이 있으면 축 라벨로, 없으면 1부터의 순번을 쓴다.
+    internal static List<ChartPoint> ChartData(List<(decimal Value, string? Time)> points)
+        => points.Select((p, i) => new ChartPoint(p.Time ?? (i + 1).ToString(), (double)p.Value)).ToList();
 
     // 시리즈 목록 — ValueColumns(다중) 우선, 없으면 ValueColumn(단일, 하위호환). 컬럼마다 라인 1개.
     // 값(+선택적 시각) 수집 — TimeColumn(P3-13)이 있으면 표본 시각을 축 라벨/툴팁에 쓴다(HH:mm:ss 축약).
@@ -285,29 +256,6 @@
         }
         return result;
     }
-
-    // SVG 폴리라인 좌표(viewBox 300x80, 상하 4px 패딩) — 공통 min/max로 스케일(다중 시리즈 겹침).
-    // min==max(평평한 선)는 중앙 수평선. 포인트별 좌표+툴팁(값, 시각 있으면 병기)도 반환한다.
-    private static (string Polyline, List<(double X, double Y, string Tooltip)> Points)
-        TrendGeometry(List<(decimal Value, string? Time)> points, decimal min, decimal max)
-    {
-        var range = max - min;
-        var sb = new System.Text.StringBuilder();
-        var pts = new List<(double X, double Y, string Tooltip)>(points.Count);
-        for (var i = 0; i < points.Count; i++)
-        {
-            var x = points.Count == 1 ? 0 : 300.0 * i / (points.Count - 1);
-            var y = range == 0 ? 40.0 : 76.0 - (double)((points[i].Value - min) / range) * 72.0;
-            var tooltip = points[i].Time is { } time ? $"{points[i].Value} ({time})" : points[i].Value.ToString();
-            pts.Add((x, y, tooltip));
-            if (i > 0) sb.Append(' ');
-            sb.Append(Fmt(x));
-            sb.Append(',');
-            sb.Append(Fmt(y));
-        }
-        return (sb.ToString(), pts);
-    }
-
 
     // 다국어(P3-14) — 호스트 DI가 있으면 번역, 없으면(테스트) 한국어 폴백.
     private NexaOne.Web.Services.UiTextService? _uiText;

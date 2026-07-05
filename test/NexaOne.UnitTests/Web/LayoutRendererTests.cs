@@ -1,4 +1,6 @@
 using Bunit;
+using Microsoft.Extensions.DependencyInjection;
+using Radzen;
 using NexaOne.Web.Components.Meta;
 using NexaOne.Web.Services.Meta;
 
@@ -17,6 +19,7 @@ public sealed class LayoutRendererTests
         Action<string>? onCommand = null)
     {
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();   // 트렌드 차트는 RadzenChart — 렌더에 Radzen 서비스 필요
         return ctx.RenderComponent<LayoutRenderer>(p => p
             .Add(c => c.Node, layout)
             .Add(c => c.Model, model ?? new Dictionary<string, object?>())
@@ -118,65 +121,31 @@ public sealed class LayoutRendererTests
         cut.FindAll(".nx-badge-neutral").Count.Should().Be(3, "IDLE(비정상 심각도)+PM(미등록)+무데이터 = neutral 3");
     }
 
-    [Fact]
-    public void Trend_chart_renders_svg_polyline_scaled_to_min_max()
-    {
-        using var ctx = new TestContext();
-        var layout = new TrendChartWidget
-        {
-            Id = "tc", Label = "온도 트렌드", QueryId = "FDC.CollectDataList", ValueColumn = "VALUE", MaxPoints = 3,
-        };
-        var results = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>
-        {
-            ["FDC.CollectDataList"] = new List<Dictionary<string, object?>>
-            {
-                new() { ["VALUE"] = 10m }, new() { ["VALUE"] = 99m },   // MaxPoints=3 초과분(앞쪽)은 잘려야 한다
-                new() { ["VALUE"] = 20m }, new() { ["VALUE"] = 80m }, new() { ["VALUE"] = 50m },
-            },
-        };
-
-        var cut = Render(ctx, layout, results: results);
-
-        cut.Markup.Should().Contain("온도 트렌드").And.Contain("<polyline", "네이티브 SVG 라인이어야 한다(외부 라이브러리 없음)");
-        cut.Markup.Should().Contain("min 20").And.Contain("max 80").And.Contain("현재 50",
-            "마지막 MaxPoints(3)개 [20,80,50] 기준 스케일이어야 한다(99는 잘림)");
-    }
+    // 트렌드 차트는 RadzenChart(라이브러리) — 실제 SVG/스케일/범례/툴팁은 라이브러리가 JS로 그리고
+    // bUnit 정적 렌더에선 JS 측정 부재로 렌더가 불안정하다(브라우저 스모크로 검증). 여기서는 우리가
+    // 소유한 것만: (a) 2점 미만이면 안내 문구, (b) 시리즈 포인트→차트 데이터 매핑(ChartData).
 
     [Fact]
-    public void Trend_chart_with_insufficient_data_shows_notice_not_broken_svg()
+    public void Trend_chart_with_insufficient_data_shows_notice_not_chart()
     {
         using var ctx = new TestContext();
         var layout = new TrendChartWidget { Id = "tc2", Label = "빈 트렌드", QueryId = "NO.Data", ValueColumn = "VALUE" };
         var cut = Render(ctx, layout);
-        cut.Markup.Should().Contain("데이터가 부족").And.NotContain("<polyline");
+        cut.Markup.Should().Contain("데이터가 부족").And.NotContain("rz-chart");
     }
 
     [Fact]
-    public void Trend_chart_multi_series_renders_line_per_column_with_legend()
+    public void ChartData_maps_time_to_category_or_falls_back_to_index()
     {
-        // P3-13 v2 — ValueColumns 지정 시 컬럼마다 라인 1개 + 범례(공통 Y 스케일). 마커/현재는 다중에서 생략.
-        using var ctx = new TestContext();
-        var layout = new TrendChartWidget
-        {
-            Id = "tcm", Label = "다중 트렌드", QueryId = "Q.M",
-            ValueColumns = new[] { "TEMP", "PRESSURE" }, MaxPoints = 3,
-        };
-        var results = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>
-        {
-            ["Q.M"] = new List<Dictionary<string, object?>>
-            {
-                new() { ["TEMP"] = 20m, ["PRESSURE"] = 5m },
-                new() { ["TEMP"] = 60m, ["PRESSURE"] = 8m },
-                new() { ["TEMP"] = 40m, ["PRESSURE"] = 3m },
-            },
-        };
+        // 시각이 있으면 축 라벨=시각, 없으면 1부터의 순번. 값은 double로 변환.
+        var withTime = LayoutRenderer.ChartData(new() { (20m, "10:00:00"), (80m, "10:00:01") });
+        withTime.Should().HaveCount(2);
+        withTime[0].Should().Be(new LayoutRenderer.ChartPoint("10:00:00", 20d));
+        withTime[1].Should().Be(new LayoutRenderer.ChartPoint("10:00:01", 80d));
 
-        var cut = Render(ctx, layout, results: results);
-
-        System.Text.RegularExpressions.Regex.Matches(cut.Markup, "<polyline").Count.Should().Be(2, "시리즈 2개 = 라인 2개");
-        cut.Markup.Should().Contain("TEMP").And.Contain("PRESSURE", "범례에 각 시리즈 이름이 표시돼야 한다");
-        cut.Markup.Should().Contain("min 3").And.Contain("max 60", "공통 스케일은 전 시리즈 값의 min/max여야 한다");
-        cut.Markup.Should().NotContain("현재", "다중 시리즈는 '현재' 강조를 생략한다");
+        var noTime = LayoutRenderer.ChartData(new() { (5m, null), (8m, null), (3m, null) });
+        noTime.Select(p => p.Category).Should().Equal("1", "2", "3");
+        noTime.Select(p => p.Value).Should().Equal(5d, 8d, 3d);
     }
 
     [Fact]
