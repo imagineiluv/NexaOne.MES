@@ -105,7 +105,16 @@
                   title="@(IsActiveFavorite() ? "즐겨찾기 해제" : "즐겨찾기 등록")"
                   @onclick="ToggleActiveFavoriteAsync"
                   @onkeydown="async e => { if (IsActivateKey(e)) await ToggleActiveFavoriteAsync(); }">@(IsActiveFavorite() ? "★" : "☆")</span>
-            <span class="tb-title">제조실행시스템 (NexaOne MES)</span>
+            @* 상단바 컨텍스트 — 제품명 + 활성 화면 브레드크럼(데드스페이스를 현재 위치로 채움). *@
+            <div class="tb-context">
+                <span class="tb-title">제조실행시스템 (NexaOne MES)</span>
+                @{ var _activeScreen = Opened.Screens.FirstOrDefault(s => string.Equals(s.UiId, Opened.ActiveUiId, StringComparison.OrdinalIgnoreCase)); }
+                @if (_activeScreen is not null)
+                {
+                    <span class="tb-crumb-sep" aria-hidden="true">›</span>
+                    <span class="tb-crumb">@Ui.T($"screen.{_activeScreen.UiId}.title", _activeScreen.Title)</span>
+                }
+            </div>
             @* Quick Menu — 사이드바 트리 인덱스(_uiToTitle) 기반 타이프어헤드 점프(레거시 퀵메뉴 미러, 서버 호출 없음). *@
             <div class="mes-quickmenu">
                 <input placeholder="Quick Menu" value="@_quickQuery"

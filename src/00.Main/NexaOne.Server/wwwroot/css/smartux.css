@@ -66,6 +66,8 @@
   --rz-series-3: var(--nx-warning);
   --rz-series-4: var(--nx-danger);
   --rz-border-radius: var(--nx-radius);
+  /* Radzen 컴포넌트도 자체호스팅 Pretendard를 쓰게 폰트 변수 재정의(아이콘 폰트는 .rzi가 별도 유지). */
+  --rz-text-font-family: "Pretendard Variable", Pretendard, "Malgun Gothic", "Noto Sans KR", -apple-system, "Segoe UI", system-ui, sans-serif;
 }
 /* 그리드 툴바(CSV 내보내기 등) — 그리드 우상단 정렬. */
 .meta-grid-toolbar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
@@ -106,9 +108,19 @@
 [data-theme="dark"] .nexa-host-body { background: var(--nx-bg); }
 
 * { box-sizing: border-box; }
+/* 자체호스팅 UI 폰트(디자인 v2) — Pretendard Variable(한글+라틴, OFL). CDN 의존 없이 wwwroot/fonts에서
+   서빙(오프라인/공장망 안전). 가변 폰트 1파일로 전 굵기. 미설치/미로드 시 시스템 스택으로 폴백. */
+@font-face {
+  font-family: "Pretendard Variable";
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+  src: local("Pretendard Variable"), url("/fonts/PretendardVariable.woff2") format("woff2-variations");
+}
+
 html, body { margin: 0; padding: 0; height: 100%; }
 body {
-  font-family: "Malgun Gothic", "Noto Sans KR", "Segoe UI", system-ui, sans-serif;
+  font-family: "Pretendard Variable", Pretendard, "Malgun Gothic", "Noto Sans KR", -apple-system, "Segoe UI", system-ui, sans-serif;
   color: var(--nx-text);
   background: var(--nx-bg);
   font-size: 13px;
@@ -122,9 +134,12 @@ body {
 /* P3-11 폭 조절 핸들 — 사이드바 우측 경계(호버 시 틸 하이라이트). */
 .mes-nav-resize { position: absolute; top: 0; right: 0; width: 5px; height: 100%; cursor: col-resize; z-index: 20; }
 .mes-nav-resize:hover { background: var(--nx-teal); opacity: .5; }
-.mes-logo { height: 56px; display: flex; align-items: center; padding: 0 18px; background: var(--nx-card); border-bottom: 1px solid var(--nx-border); }
+/* 로고 밴드 — 사이드바와 같은 네이비로 통일(흰 밴드 단절 제거 → 하나의 네이비 컬럼). 로고는 항상 흰색. */
+.mes-logo { height: 56px; display: flex; align-items: center; padding: 0 18px; background: var(--nx-navy); border-bottom: 1px solid rgba(255,255,255,.08); }
+.mes-logo .naf-logo { color: #fff; }
 /* NAF 브랜드 로고 — 라이트 배경=브랜드 네이비, 다크 배경에 쓸 땐 color만 #fff로(단색 마크). */
-:root { --naf-navy: #2b3a8f; --naf-teal: #4a9a8f; }
+/* 브랜드 토큰 — 틸은 UI 액센트(--nx-teal)로 단일화(두 틸 불일치 해소). 네이비는 로고(라이트 배경) 유지. */
+:root { --naf-navy: #2b3a8f; --naf-teal: var(--nx-teal); }
 .naf-logo { color: var(--naf-navy); display: flex; flex-direction: column; gap: 3px; }
 .naf-logo.naf-center { align-items: center; }
 .naf-logo .naf-mark { width: 86px; height: auto; display: block; }
@@ -149,9 +164,14 @@ body {
 .mes-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .mes-topbar { height: 56px; flex: 0 0 56px; background: var(--nx-card); border-bottom: 1px solid var(--nx-border); display: flex; align-items: center; padding: 0 16px; gap: 12px; }
 .mes-topbar .star { color: #c9ced6; font-size: 18px; }
-.mes-topbar .tb-title { font-weight: 600; font-size: 15px; color: var(--nx-text); }
+/* 컨텍스트: 제품명(보조) › 활성 화면(주). 데드스페이스를 현재 위치 정보로 채운다. */
+.tb-context { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.mes-topbar .tb-title { font-weight: 600; font-size: 13.5px; color: var(--nx-muted); white-space: nowrap; }
+.tb-crumb-sep { color: var(--nx-border); font-size: 16px; }
+.tb-crumb { font-weight: 700; font-size: 15px; color: var(--nx-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em; }
 .mes-quickmenu { margin-left: auto; position: relative; }
-.mes-quickmenu input { width: 220px; padding: 6px 10px; border: 1px solid var(--nx-border); border-radius: 3px; font-size: 12px; color: var(--nx-text); }
+.mes-quickmenu input { width: 300px; padding: 7px 12px; border: 1px solid var(--nx-border); border-radius: var(--nx-radius); font-size: 12.5px; color: var(--nx-text); background: var(--nx-hover); transition: border-color .15s, background .15s; }
+.mes-quickmenu input:focus { outline: none; border-color: var(--nx-teal); background: var(--nx-card); }
 /* Quick Menu 타이프어헤드 결과 — 입력 아래 드롭 목록, 클릭=해당 화면 이동 */
 .quick-results { position: absolute; top: 100%; right: 0; margin-top: 4px; width: 300px; max-height: 320px; overflow-y: auto;
   background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: 4px; box-shadow: 0 6px 18px rgba(16,24,40,.12); z-index: 60; }

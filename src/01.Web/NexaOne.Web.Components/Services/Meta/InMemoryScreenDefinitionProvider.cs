@@ -84,20 +84,45 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         Register(new ScreenDefinition("DASHBOARD_SUMMARY", "대시보드 — 운영 요약",
             Array.Empty<FieldDefinition>(),
             RefreshIntervalSeconds: 30,
-            Layout: new SectionNode
+            // 컨테이너(Span=12) 아래 두 섹션 스택 — 상단 KPI 밴드 + 하단 최근 활동 그리드(빈 공간 구조화, 디자인 v2 2차).
+            Layout: new ColumnNode
             {
-                Id = "dash-sec", Title = "운영 요약(30초 자동 새로고침)",
+                Id = "dash-stack", Span = 12,
                 Children = new LayoutNode[]
                 {
-                    new RowNode { Id = "dash-row", Children = new LayoutNode[]
+                    new SectionNode
                     {
-                        // LinkUiId(P3-12) — 카드 클릭=관련 화면 드릴다운(대상 화면이 자명한 카드만).
-                        DashKpi("dash-alarm", "활성 알람", "ACTIVE_ALARMS", "EES_POPUP_MONITERING_DASHBOARD"),
-                        DashKpi("dash-wo", "진행 작업지시", "OPEN_WORK_ORDERS"),
-                        DashKpi("dash-plan", "가동 생산계획", "ACTIVE_PLANS"),
-                        DashKpi("dash-recipe", "레시피 승인 대기", "PENDING_RECIPE_APPROVALS"),
-                        DashKpi("dash-ship", "출하 대기", "OPEN_DELIVERY_ORDERS"),
-                    } },
+                        Id = "dash-sec", Title = "운영 요약(30초 자동 새로고침)",
+                        Children = new LayoutNode[]
+                        {
+                            new RowNode { Id = "dash-row", Children = new LayoutNode[]
+                            {
+                                // LinkUiId(P3-12) — 카드 클릭=관련 화면 드릴다운(대상 화면이 자명한 카드만).
+                                DashKpi("dash-alarm", "활성 알람", "ACTIVE_ALARMS", "EES_POPUP_MONITERING_DASHBOARD"),
+                                DashKpi("dash-wo", "진행 작업지시", "OPEN_WORK_ORDERS"),
+                                DashKpi("dash-plan", "가동 생산계획", "ACTIVE_PLANS"),
+                                DashKpi("dash-recipe", "레시피 승인 대기", "PENDING_RECIPE_APPROVALS"),
+                                DashKpi("dash-ship", "출하 대기", "OPEN_DELIVERY_ORDERS"),
+                            } },
+                        },
+                    },
+                    // 최근 시스템 로그(SYS.AppLogList 재사용 — Warning+ 최근순). 운영자가 대시보드에서 이상 신호를 바로 본다.
+                    new SectionNode
+                    {
+                        Id = "dash-log-sec", Title = "최근 시스템 로그",
+                        Children = new LayoutNode[]
+                        {
+                            new GridWidget
+                            {
+                                Id = "dash-log", QueryId = "SYS.AppLogList",
+                                Columns = new GridColumnDefinition[]
+                                {
+                                    new("LOGGED_AT", "발생시각"), new("LOG_LEVEL", "레벨"),
+                                    new("CATEGORY", "카테고리"), new("MESSAGE", "메시지"),
+                                },
+                            },
+                        },
+                    },
                 },
             }));
 
