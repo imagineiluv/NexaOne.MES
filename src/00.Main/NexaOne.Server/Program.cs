@@ -441,7 +441,7 @@ static void EnsureSqliteSchemaIfConfigured(string serverXmlPath)
 }
 
 // 개발 SQLite 전용 — SYS_MENU가 비어 있을 때만 SmartUX(:9020) 실제 데스크톱 메뉴 트리를 시드한다(idempotent).
-// 임베드된 smartux-menu.json(SUX 카테고리 331행, 4단계 계층) + 동작하는 데모/관리 화면 폴더를 덧붙인다. 운영(MSSQL)은
+// 임베드된 nexaone-menu.json(SUX 카테고리 331행, 4단계 계층) + 동작하는 데모/관리 화면 폴더를 덧붙인다. 운영(MSSQL)은
 // 본 경로를 타지 않는다(상위 if가 Database:Provider==Sqlite && Development일 때만 호출). 직접 Dapper-free
 // Microsoft.Data.Sqlite 인서트 — 게이트웨이 DI/감사 컨텍스트 없이 부트스트랩 시점에 안전하게 채운다.
 static void SeedDevMenuIfEmpty(string connectionString)
@@ -951,13 +951,13 @@ static void SeedDevBatchDefinitionsIfEmpty(string connectionString)
     Console.WriteLine("[NexaOne.Server] SYS_BATCH_PROCESS seeded (log retention x2, worker OFF — run API로 즉시 실행 가능).");
 }
 
-// 임베드된 smartux-menu.json(SUX 데스크톱 트리)를 로드하고, 실제 동작하는 데모/관리 화면을 별도 폴더로 덧붙여 반환한다.
+// 임베드된 nexaone-menu.json(SUX 데스크톱 트리)를 로드하고, 실제 동작하는 데모/관리 화면을 별도 폴더로 덧붙여 반환한다.
 // 리소스가 없거나 비면 null을 반환(호출부가 최소 폴백 사용).
 static List<MenuSeedRow>? LoadSmartUxMenuSeed()
 {
     var asm = System.Reflection.Assembly.GetExecutingAssembly();
     var name = asm.GetManifestResourceNames()
-        .FirstOrDefault(n => n.EndsWith("smartux-menu.json", StringComparison.OrdinalIgnoreCase));
+        .FirstOrDefault(n => n.EndsWith("nexaone-menu.json", StringComparison.OrdinalIgnoreCase));
     if (name is null) return null;
     using var stream = asm.GetManifestResourceStream(name);
     if (stream is null) return null;
@@ -996,7 +996,7 @@ static List<MenuSeedRow> MinimalFallbackMenu() => new()
     new("M_SYS_MENU", "메뉴 관리", "M_SYS", 10, "Screen", "SYS_MENU_MGMT"),
 };
 
-// smartux-menu.json 한 행(camelCase JSON ↔ PascalCase 매핑은 PropertyNameCaseInsensitive로 처리).
+// nexaone-menu.json 한 행(camelCase JSON ↔ PascalCase 매핑은 PropertyNameCaseInsensitive로 처리).
 // UiId는 Screen에만 채워진다(Folder는 공백 → 클릭=토글). ParentMenuId는 최상위에서 null.
 internal sealed record MenuSeedRow(
     string MenuId, string MenuName, string? ParentMenuId, int DisplaySequence, string MenuType, string UiId);
