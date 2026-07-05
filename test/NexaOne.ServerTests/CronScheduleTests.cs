@@ -4,8 +4,8 @@ using Xunit;
 
 namespace NexaOne.ServerTests;
 
-/// <summary>배치 cron 스케줄(6필드) 파서/다음 발생 계산 — 레거시 Quartz 표기('?')·목록·범위·스텝·
-/// dom/dow OR 의미·잘못된 식 거부를 검증한다(no-DB 순수 단위).</summary>
+/// <summary>배치 cron 스케줄(6필드, Cronos 래퍼) 파싱/다음 발생 계산 — 레거시 Quartz 표기('?', 요일 7=일)·
+/// 목록·범위·스텝·dom+dow AND 의미·잘못된 식 거부·불가능 날짜 null을 검증한다(no-DB 순수 단위).</summary>
 public sealed class CronScheduleTests
 {
     private static DateTime Next(string expression, DateTime after)
@@ -56,11 +56,13 @@ public sealed class CronScheduleTests
     }
 
     [Fact]
-    public void Dom_and_dow_both_restricted_means_or_semantics()
+    public void Dom_and_dow_both_restricted_follows_cronos_and_semantics()
     {
-        // 표준 cron: 일(15일)과 요일(월요일) 둘 다 제한 → OR. 2026-07-03(금) 이후 첫 월요일=7/6 < 15일.
+        // 일(15일)·요일(월요일) 둘 다 제한 = Cronos AND 의미(15일이면서 월요일). 2026-07-03 이후 첫 해당일.
+        // (레거시는 Quartz 출신이라 항상 한쪽이 '?'고 둘 다 제한되는 경우는 실사용에서 발생하지 않는다 —
+        //  옛 수제 파서는 Vixie-OR였으나, 검증된 라이브러리의 정의된 의미를 따른다.)
         var after = new DateTime(2026, 7, 3, 12, 0, 0, DateTimeKind.Utc);
-        Next("0 0 0 15 * 1", after).Should().Be(new DateTime(2026, 7, 6, 0, 0, 0, DateTimeKind.Utc));
+        Next("0 0 0 15 * 1", after).Should().Be(new DateTime(2027, 2, 15, 0, 0, 0, DateTimeKind.Utc));
     }
 
     [Theory]

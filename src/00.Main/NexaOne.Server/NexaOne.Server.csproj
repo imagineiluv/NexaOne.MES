@@ -17,6 +17,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Cronos" Version="0.13.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.*" />
     <!-- 통합 호스트(접근 A) — WebApplication. Spring.NET 빈 컨테이너(ApplicationServer)와 공존:
          컨테이너는 모듈 서비스/워커, WebApplication은 HTTP + 워커 수명주기. Hosting은 Sdk.Web 프레임워크에 포함. -->
