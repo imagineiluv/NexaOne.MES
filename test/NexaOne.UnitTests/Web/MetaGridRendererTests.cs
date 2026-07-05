@@ -52,6 +52,27 @@ public sealed class MetaGridRendererTests
     public void Non_timestamp_value_is_returned_verbatim()
         => MetaGridRenderer.FormatCell("EQ01/TEMP 78.5").Should().Be("EQ01/TEMP 78.5");
 
+    // ColumnKind는 internal이라 public 테스트 시그니처에 못 쓴다 → 결과를 문자열로 비교(본문은 InternalsVisibleTo로 접근).
+    [Theory]
+    [InlineData(new[] { "Warning", "Error", "Information" }, "Status")]
+    [InlineData(new[] { "1", "0", "1" }, "Boolean")]                 // 0/1 → 불리언(숫자보다 우선)
+    [InlineData(new[] { "100", "250", "" }, "Numeric")]              // 빈 값 섞여도 숫자
+    [InlineData(new[] { "2026-07-04T12:30:44Z", "2026-07-05T00:00:00Z" }, "DateTime")]
+    [InlineData(new[] { "", "", "" }, "Empty")]
+    [InlineData(new[] { "P-1", "부산공장" }, "Text")]
+    [InlineData(new[] { "100", "abc" }, "Text")]                     // 혼합 → 텍스트 안전 폴백
+    public void InferKind_classifies_column_values(string[] values, string expected)
+        => MetaGridRenderer.InferKind(values).ToString().Should().Be(expected);
+
+    [Fact]
+    public void WidthFor_gives_narrow_types_fixed_width_and_flexes_text()
+    {
+        MetaGridRenderer.WidthFor(MetaGridRenderer.InferKind(new[] { "100", "250" }), "QTY").Should().Be("108px", "숫자=고정 좁은 폭");
+        MetaGridRenderer.WidthFor(MetaGridRenderer.InferKind(new[] { "", "" }), "NOTE").Should().Be("72px", "빈 컬럼=폭 축소");
+        MetaGridRenderer.WidthFor(MetaGridRenderer.InferKind(new[] { "가공장", "나공장" }), "NAME").Should().BeNull("일반 텍스트=유연(남는 폭 분배)");
+        MetaGridRenderer.WidthFor(MetaGridRenderer.InferKind(new[] { "MENU_A", "MENU_B" }), "MENU_ID").Should().Be("160px", "식별자 텍스트(_ID)=적당 폭(잘림 방지)");
+    }
+
     // ── Radzen 렌더 스모크(딕셔너리→ExpandoObject 바인딩 회귀 가드) ──────────────
 
     private static TestContext RadzenContext()
@@ -81,6 +102,25 @@ public sealed class MetaGridRendererTests
         cut.Markup.Should().NotContain("숨김", "Visible=false 컬럼은 렌더되지 않아야 한다");
         cut.Markup.Should().Contain("Warning").And.Contain("Error");
         cut.Markup.Should().Contain("2 행");
+    }
+
+    [Fact]
+    public void Numeric_column_renders_tabular_cell_and_client_grid_shows_quick_filter()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("QTY", "수량"), new("NAME", "이름") };
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["QTY"] = "100", ["NAME"] = "가공장" },
+            new() { ["QTY"] = "250", ["NAME"] = "나공장" },
+        };
+
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, cols)
+            .Add(c => c.Rows, rows));
+
+        cut.FindAll(".nx-cell-num").Should().NotBeEmpty("숫자 컬럼 셀은 tabular 클래스로 렌더돼야 한다(타입 인지)");
+        cut.FindAll("input.meta-grid-filter").Should().NotBeEmpty("클라이언트 화면은 빠른 필터 입력을 보여야 한다");
     }
 
     [Fact]

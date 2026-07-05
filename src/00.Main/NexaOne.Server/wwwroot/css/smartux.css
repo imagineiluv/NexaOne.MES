@@ -86,6 +86,12 @@
 .rz-datatable thead th, .rz-grid-table thead th { border-bottom: 2px solid var(--nx-border) !important; }
 .rz-datatable-even, .rz-datatable-data tr:nth-child(even) { background: var(--nx-stripe); }
 .rz-datatable-data tr:hover td, .rz-grid-table tbody tr:hover td { background: var(--nx-hover-teal); }
+/* 타입 인지 셀(그리드 엔진 v2) — 숫자=tabular, 불리언=아이콘 색, 빠른 필터 인풋. */
+.nx-cell-num { font-variant-numeric: tabular-nums; }
+.nx-cell-yes { color: var(--nx-success); font-size: 16px; }
+.nx-cell-no { color: var(--nx-muted); opacity: .45; font-size: 16px; }
+.meta-grid-filter { width: 180px; padding: 5px 10px; border: 1px solid var(--nx-border); border-radius: var(--nx-radius); font-size: 12.5px; color: var(--nx-text); background: var(--nx-card); margin-right: 8px; }
+.meta-grid-filter:focus { outline: none; border-color: var(--nx-teal); }
 
 /* P3-17 다크 모드 — <html data-theme="dark"> 시 표면 토큰만 교체(사이드바는 원래 다크).
    토글은 셸 사용자 메뉴, 선택은 localStorage(nx-theme) + HostApp 부트 스크립트가 첫 페인트 전 적용. */

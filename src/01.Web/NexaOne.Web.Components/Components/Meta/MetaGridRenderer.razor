@@ -14,20 +14,32 @@
         @foreach (var col in cols)
         {
             var key = col.Key;
+            var kind = KindOf(key);   // 값 샘플로 추론한 컬럼 종류(숫자/시각/상태/불리언/빈/텍스트)
             @* Property는 지정하지 않는다 — Radzen의 Property 기반 정렬은 ExpandoObject에서 접근자 빌드가
-               실패하므로, 정렬은 자체 헤더 클릭(HeaderTemplate)으로 처리하고 셀은 Template로 렌더한다. *@
+               실패하므로, 정렬은 자체 헤더 클릭(HeaderTemplate)으로 처리하고 셀은 Template로 렌더한다.
+               컬럼 종류로 폭·정렬·셀 표현을 결정한다(숫자=우측·tabular, 시각=포맷, 상태=배지, 불리언=아이콘). *@
             <RadzenDataGridColumn TItem="System.Dynamic.ExpandoObject" Title="@col.Caption" Sortable="false"
-                                  Width="@(col.Width is > 0 ? $"{col.Width}px" : null)">
+                                  TextAlign="@(kind == ColumnKind.Numeric ? Radzen.TextAlign.Right : Radzen.TextAlign.Left)"
+                                  Width="@(col.Width is > 0 ? $"{col.Width}px" : WidthFor(kind, key))">
                 <HeaderTemplate>
                     <span class="nx-sort" @onclick="() => SortBy(key)">
                         @col.Caption@(_sortKey == key ? (_sortDesc ? " ▼" : " ▲") : "")
                     </span>
                 </HeaderTemplate>
                 <Template Context="row">
-                    @{ var raw = Cell(row, key); var sev = SeverityOf(raw); }
-                    @if (sev is not null)
+                    @{ var raw = Cell(row, key); }
+                    @if (kind == ColumnKind.Status && SeverityOf(raw) is { } sev)
                     {
-                        <RadzenBadge Text="@raw" BadgeStyle="sev.Value" Variant="Variant.Flat" />
+                        <RadzenBadge Text="@raw" BadgeStyle="sev" Variant="Variant.Flat" />
+                    }
+                    else if (kind == ColumnKind.Boolean && raw.Length > 0)
+                    {
+                        <RadzenIcon Icon="@(IsTruthy(raw) ? "check" : "remove")"
+                                    class="@(IsTruthy(raw) ? "nx-cell-yes" : "nx-cell-no")" />
+                    }
+                    else if (kind == ColumnKind.Numeric)
+                    {
+                        <span class="nx-cell-num" @ondblclick="() => CopyCellAsync(raw)">@raw</span>
                     }
                     else
                     {
@@ -42,6 +54,13 @@
     @if (Rows is { Count: > 0 })
     {
         <div class="meta-grid-toolbar">
+            @* 빠른 필터 — 적재 행을 컬럼 무관 부분일치로 좁힌다(클라이언트 페이징 화면만; 서버 페이징은
+               현재 페이지만 걸려 오해 소지가 있어 숨긴다). *@
+            @if (ServerTotal is null)
+            {
+                <input class="meta-grid-filter" placeholder="@T("common.filter", "필터…")"
+                       @bind="_filter" @bind:event="oninput" />
+            }
             <RadzenButton Icon="download" Text="CSV" Click="ExportCsvAsync" title="@T("common.exportCsv", "CSV로 내보내기")"
                           ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
         </div>
@@ -86,14 +105,15 @@
     else
     {
         @* 클라이언트 페이징/정렬 — 전체 행을 Radzen이 내부에서 페이지/정렬한다. *@
-        <RadzenDataGrid TItem="System.Dynamic.ExpandoObject" Data="SortedItems()"
+        var view = SortedItems();
+        <RadzenDataGrid TItem="System.Dynamic.ExpandoObject" Data="view"
                         AllowPaging="true" PageSize="PageSize" AllowSorting="false" AllowColumnResize="true"
                         Density="Density.Compact" GridLines="DataGridGridLines.Horizontal"
                         SelectionMode="DataGridSelectionMode.Single"
                         RowSelect="OnRowSelectedInternal" EmptyText="@T("common.noResult", "결과 없음")">
             <Columns>@gridColumns</Columns>
         </RadzenDataGrid>
-        <p class="meta-grid-note">@_items.Count @T("common.rowsUnit", "행")</p>
+        <p class="meta-grid-note">@view.Count @(_filter is { Length: > 0 } ? $"/ {_items.Count} " : "")@T("common.rowsUnit", "행")</p>
     }
 </div>
 
@@ -126,6 +146,10 @@
     // 지원한다(IDictionary 인터페이스 자체는 Property 접근자 빌드가 실패). null 값은 렌더/정렬 안전상 ""으로.
     private List<System.Dynamic.ExpandoObject> _items = new();
 
+    // 필터(빠른 부분일치, 클라이언트 화면) + 컬럼 종류 캐시(데이터 적재 시 1회 추론).
+    private string _filter = "";
+    private Dictionary<string, ColumnKind> _colKind = new(StringComparer.Ordinal);
+
     protected override void OnParametersSet()
     {
         _items = (Rows ?? (IReadOnlyList<Dictionary<string, object?>>)Array.Empty<Dictionary<string, object?>>())
@@ -137,7 +161,14 @@
                 return e;
             })
             .ToList();
+
+        // 컬럼 종류 추론 — 보이는 컬럼별 값 샘플로 숫자/시각/상태/불리언/빈/텍스트 판별(폭·정렬·셀 표현 결정).
+        _colKind = new Dictionary<string, ColumnKind>(StringComparer.Ordinal);
+        foreach (var col in Columns.Where(c => c.Visible))
+            _colKind[col.Key] = InferKind(_items.Select(e => Cell(e, col.Key)).ToList());
     }
+
+    private ColumnKind KindOf(string key) => _colKind.TryGetValue(key, out var k) ? k : ColumnKind.Text;
 
     // 자체 정렬(P3-9) — Radzen Property 정렬이 ExpandoObject에서 불가하므로 헤더 클릭으로 직접 정렬한다.
     // 숫자 컬럼(전 값이 숫자/공백)은 수치 정렬, 그 외 문자열 정렬(옛 수제 그리드 로직 재사용).
@@ -150,22 +181,29 @@
         else { _sortKey = key; _sortDesc = false; }
     }
 
-    private IEnumerable<System.Dynamic.ExpandoObject> SortedItems()
+    // 필터(부분일치) → 정렬. 필터는 보이는 컬럼 무관 대소문자 무시 contains. 정렬은 숫자 컬럼이면 수치.
+    private List<System.Dynamic.ExpandoObject> SortedItems()
     {
-        if (_sortKey is not { } key || _items.Count == 0) return _items;
-        var numeric = _items.All(e =>
+        IEnumerable<System.Dynamic.ExpandoObject> items = _items;
+
+        if (!string.IsNullOrWhiteSpace(_filter))
         {
-            var s = Cell(e, key);
-            return s.Length == 0 || decimal.TryParse(s, out _);
-        });
-        return numeric
-            ? (_sortDesc
-                ? _items.OrderByDescending(e => decimal.TryParse(Cell(e, key), out var d) ? d : decimal.MinValue)
-                : _items.OrderBy(e => decimal.TryParse(Cell(e, key), out var d) ? d : decimal.MinValue))
-            : (_sortDesc
-                ? _items.OrderByDescending(e => Cell(e, key), StringComparer.Ordinal)
-                : _items.OrderBy(e => Cell(e, key), StringComparer.Ordinal));
+            var f = _filter.Trim();
+            var keys = Columns.Where(c => c.Visible).Select(c => c.Key).ToList();
+            items = items.Where(e => keys.Any(k => Cell(e, k).Contains(f, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        if (_sortKey is { } key && _items.Count > 0)
+        {
+            var numeric = _items.All(e => { var s = Cell(e, key); return s.Length == 0 || decimal.TryParse(s, out _); });
+            items = numeric
+                ? (_sortDesc ? items.OrderByDescending(e => ParseDec(Cell(e, key))) : items.OrderBy(e => ParseDec(Cell(e, key))))
+                : (_sortDesc ? items.OrderByDescending(e => Cell(e, key), StringComparer.Ordinal) : items.OrderBy(e => Cell(e, key), StringComparer.Ordinal));
+        }
+        return items.ToList();
     }
+
+    private static decimal ParseDec(string s) => decimal.TryParse(s, out var d) ? d : decimal.MinValue;
 
     // 행 선택 — Radzen이 넘긴 변환 항목의 인덱스로 원본 Rows를 되짚어 콜백한다(폼 로드용 전체 딕셔너리).
     private async Task OnRowSelectedInternal(System.Dynamic.ExpandoObject item)
@@ -185,6 +223,54 @@
                System.Globalization.DateTimeStyles.RoundtripKind, out var dt)
            ? dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
            : raw;
+
+    // 컬럼 종류 — 값 표현/폭/정렬을 결정한다. 스키마리스(문자열) 데이터라 값 샘플로 추론한다.
+    internal enum ColumnKind { Text, Numeric, DateTime, Status, Boolean, Empty }
+
+    // 컬럼 값 목록 → 종류 추론. 우선순위: 빈 > 상태(전부 화이트리스트) > 불리언 > 시각 > 숫자 > 텍스트.
+    // '전부' 규칙이라 혼합 컬럼은 텍스트로 안전 폴백(오분류로 정렬/정렬 깨짐 방지).
+    internal static ColumnKind InferKind(IReadOnlyList<string> values)
+    {
+        var nonEmpty = values.Where(v => v.Length > 0).ToList();
+        if (nonEmpty.Count == 0) return ColumnKind.Empty;
+        if (nonEmpty.All(v => SeverityOf(v) is not null)) return ColumnKind.Status;
+        if (nonEmpty.All(IsBooleanish)) return ColumnKind.Boolean;
+        if (nonEmpty.All(v => DateTime.TryParse(v, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind, out _))) return ColumnKind.DateTime;
+        if (nonEmpty.All(v => decimal.TryParse(v, System.Globalization.NumberStyles.Number,
+                System.Globalization.CultureInfo.InvariantCulture, out _))) return ColumnKind.Numeric;
+        return ColumnKind.Text;
+    }
+
+    // 종류별 기본 폭(px). 빈/불리언/숫자/시각/상태는 좁게 고정(빈 컬럼 폭 독식·코드 잘림 방지).
+    // 텍스트는 유연(남는 폭 분배)하되, 식별자(_ID/_CODE 등)는 잘리기 쉬워 적당 폭을 준다.
+    internal static string? WidthFor(ColumnKind kind, string key) => kind switch
+    {
+        ColumnKind.Numeric => "108px",
+        ColumnKind.DateTime => "168px",
+        ColumnKind.Status => "116px",
+        ColumnKind.Boolean => "76px",
+        ColumnKind.Empty => "72px",
+        ColumnKind.Text when IsIdentifierKey(key) => "160px",
+        _ => null,
+    };
+
+    // 식별자성 컬럼 키 — 대개 짧은 코드라 유연 분배 시 잘리기 쉽다. _ID/ID/_CODE/CODE 접미.
+    private static bool IsIdentifierKey(string key)
+        => key.EndsWith("_ID", StringComparison.OrdinalIgnoreCase) || key.Equals("ID", StringComparison.OrdinalIgnoreCase)
+        || key.EndsWith("_CODE", StringComparison.OrdinalIgnoreCase) || key.EndsWith("CODE", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsBooleanish(string v) => v.Trim() switch
+    {
+        "0" or "1" or "true" or "false" or "True" or "False" or "Y" or "N" or "Yes" or "No" or "y" or "n" => true,
+        _ => false,
+    };
+
+    private static bool IsTruthy(string v) => v.Trim() switch
+    {
+        "1" or "true" or "True" or "Y" or "Yes" or "y" => true,
+        _ => false,
+    };
 
     // 심각도 배지(P1) — 알려진 상태 단어만 색 배지로(오탐 방지). 그 외는 null(평문).
     internal static Radzen.BadgeStyle? SeverityOf(string raw) => raw.Trim() switch
