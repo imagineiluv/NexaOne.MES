@@ -98,6 +98,12 @@ if (modulesEnabled)
         builder.Services.AddSingleton<IHostedService>(w);
     Console.WriteLine($"[NexaOne.Server] {distinctWorkers.Count} background worker(s) discovered and registered.");
 
+    // 반복 스케줄러(Quartz) 브리지 — Spring 루트의 quartzScheduler 빈을 .NET DI로 노출한다. 호스트의
+    // BatchProcessWorker(.NET DI 워커)가 이 공유 스케줄러에 배치 정의를 Quartz 잡으로 등록/해제한다
+    // (Outbox·모듈 워커와 동일 스케줄러 인스턴스 — 잡 이름으로 격리). messageBus 브리지와 동일 패턴.
+    if (server.GetServerBean("quartzScheduler") is NexusFramework.Scheduling.IRecurringScheduler recurringScheduler)
+        builder.Services.AddSingleton(recurringScheduler);
+
     // 실시간 복원 — 루트 Spring 컨텍스트의 messageBus(InMemoryMessageBus)에 SignalR 구독자를 붙여 도메인 이벤트를 UI로 푸시한다.
     // Kafka 모드(messageBus=KafkaMessageBus)는 KafkaConsumerService가 구독 경로를 담당하므로 여기선 인메모리만 배선한다.
     // 실시간 v3 — 동일 구독이 ScreenRefreshNotifier(라이브 메타 화면 즉시 재조회, 인프로세스)로도 팬아웃한다.
@@ -147,8 +153,14 @@ else
 // 게이트웨이(하이브리드) — 명명 쿼리 데이터 경로(plugin 무관, Default ALC).
 builder.Services.AddNexaOneGateway(builder.Configuration);
 // 배치 실행 엔진(V066/V068) — 수동 실행(run API)과 주기 워커(기본 OFF)가 Runner 단일 경로를 공유한다.
+// 워커는 배치 정의를 공유 Quartz 스케줄러의 잡으로 등록/재조정한다 — modules OFF(스케줄러 미배선)면
+// IRecurringScheduler가 null로 주입돼 주기 실행이 자동 비활성(수동 run API만 동작).
 builder.Services.AddScoped<BatchProcessRunner>();
-builder.Services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService, BatchProcessWorker>();
+builder.Services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService>(sp => new BatchProcessWorker(
+    sp.GetRequiredService<IServiceScopeFactory>(),
+    sp.GetService<NexusFramework.Scheduling.IRecurringScheduler>(),
+    sp.GetRequiredService<IConfiguration>(),
+    sp.GetRequiredService<ILogger<BatchProcessWorker>>()));
 // 실시간 v3 — 라이브 메타 화면 즉시 재조회 허브. 항상 등록(modules OFF에선 이벤트가 없어 폴링만 동작).
 builder.Services.AddSingleton<NexaOne.Server.Realtime.ScreenRefreshNotifier>();
 builder.Services.AddSingleton<NexaOne.Web.Services.Meta.IScreenRefreshNotifier>(

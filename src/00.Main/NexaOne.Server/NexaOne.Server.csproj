@@ -6,6 +6,11 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- 순수 헬퍼(예: BatchProcessWorker.BuildDesired) 격리 단위 테스트를 위해 내부 가시성 부여. -->
+    <InternalsVisibleTo Include="NexaOne.ServerTests" />
+  </ItemGroup>
+
   <!-- SPA(React/GrapesJS) 빌드 통합 — vite.config.ts가 outDir=wwwroot/spa, emptyOutDir, base='/spa/'로 설정되어
        있으므로 SPA 디렉터리에서 `npm run build`를 돌리면 번들이 이 호스트의 wwwroot/spa로 출력된다(설계 Phase 4).
        publish 시에는 항상 빌드해 정적 자산 파이프라인이 자산을 수집하기 전에 wwwroot/spa가 채워지게 한다.
