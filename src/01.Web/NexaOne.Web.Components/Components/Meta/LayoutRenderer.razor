@@ -114,7 +114,7 @@
         var (text, severity) = BadgeFor(bw);
         <div class="layout-badge">
             @if (!string.IsNullOrWhiteSpace(bw.Label)) { <span class="layout-badge-label">@bw.Label</span> }
-            <span class="nx-badge nx-badge-@severity">@text</span>
+            <RadzenBadge Text="@text" BadgeStyle="@BadgeStyleOf(severity)" Variant="Variant.Flat" />
         </div>
         break;
     }
@@ -287,6 +287,16 @@
 
     // 뱃지 표시값/심각도 — 규칙 매칭(대소문자 무시). 미매칭=neutral 원문, 데이터 부재='—'.
     // 심각도는 화이트리스트로 정규화한다(임의 문자열이 CSS 클래스로 새는 것 차단).
+    // 심각도 문자열(BadgeStyleRule.Severity) → RadzenBadge 스타일. neutral/미매칭은 Light.
+    internal static Radzen.BadgeStyle BadgeStyleOf(string severity) => severity switch
+    {
+        "danger" => Radzen.BadgeStyle.Danger,
+        "warning" => Radzen.BadgeStyle.Warning,
+        "success" => Radzen.BadgeStyle.Success,
+        "info" => Radzen.BadgeStyle.Info,
+        _ => Radzen.BadgeStyle.Light,
+    };
+
     private (string Text, string Severity) BadgeFor(BadgeWidget bw)
     {
         var rows = RowsFor(bw.QueryId);
