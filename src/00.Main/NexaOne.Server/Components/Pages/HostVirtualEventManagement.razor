@@ -14,7 +14,7 @@
            style="width:9rem; padding:6px 9px; border:1px solid #d5dbe3; border-radius:3px; font-size:13px;" />
     <input placeholder="이벤트 ID" @bind="_eventId"
            style="width:9rem; padding:6px 9px; border:1px solid #d5dbe3; border-radius:3px; font-size:13px;" />
-    <RadzenButton Click="EvaluateAsync" Disabled="@_busy" class="layout-command"
+    <RadzenButton Icon="play_arrow" Click="EvaluateAsync" Disabled="@_busy" class="layout-command"
                   ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small"
                   Text="@(_busy ? "평가 중…" : "평가 실행")" />
     @if (_result is not null)

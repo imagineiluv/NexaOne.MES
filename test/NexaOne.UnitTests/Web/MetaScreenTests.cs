@@ -24,9 +24,10 @@ public sealed class MetaScreenTests
         return provider;
     }
 
-    // 헤더 새로고침 버튼이 DOM 첫 버튼이므로, 저장 클릭은 라벨로 특정한다.
+    // 저장 버튼은 클래스로 특정한다(RadzenButton이 아이콘 리게이처 텍스트 'save'를 TextContent에 더해
+    // 라벨 매칭이 깨지므로 — 폼/암시적 저장 버튼 모두 .layout-save 마커를 갖는다).
     private static AngleSharp.Dom.IElement SaveButton(IRenderedFragment cut)
-        => cut.FindAll("button").First(b => b.TextContent.Trim().StartsWith("저장"));
+        => cut.FindAll("button.layout-save").First();
 
     [Fact]
     public void Grid_definition_loads_rows_from_query_gateway_and_renders()
@@ -292,7 +293,7 @@ public sealed class MetaScreenTests
         // 검색 필드(RadzenDropDown)의 Change를 직접 발화해 조건값 설정(Radzen 입력은 DOM Change 불가) → 조회.
         var search = cut.FindComponent<Radzen.Blazor.RadzenDropDown<string>>();
         cut.InvokeAsync(() => search.Instance.Change.InvokeAsync("Warning"));
-        cut.FindAll("button").First(b => b.TextContent.Trim() == "조회").Click();
+        cut.Find("button.layout-command").Click();   // 조회(RadzenButton, search 아이콘) — 클래스로 특정
 
         cut.WaitForAssertion(() =>
         {
@@ -340,7 +341,7 @@ public sealed class MetaScreenTests
         var grid = cut.FindComponent<MetaGridRenderer>();
         cut.InvokeAsync(() => grid.Instance.OnRowSelect.InvokeAsync(
             new Dictionary<string, object?> { ["BATCH_ID"] = "B-1", ["BATCH_NAME"] = "야간 집계" }));
-        cut.FindAll("button").First(b => b.TextContent.Trim() is "저장").Click();
+        SaveButton(cut).Click();   // 저장(RadzenButton, save 아이콘) — .layout-save 클래스로 특정
 
         cut.WaitForAssertion(() =>
         {

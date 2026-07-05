@@ -15,7 +15,7 @@
            데이터만 재조회(ReloadDataAsync)하므로 폼 입력 상태는 보존된다. *@
         <RadzenButton Click="ManualRefreshAsync" Disabled="@_refreshing" class="meta-refresh"
                       ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small">
-            @if (_refreshing) { <span class="nx-spin" aria-hidden="true"></span> }
+            @if (_refreshing) { <span class="nx-spin" aria-hidden="true"></span> } else { <RadzenIcon Icon="refresh" /> }
             @(_refreshing ? T("common.refreshing", "새로고침 중…") : T("common.refresh", "새로고침"))
         </RadzenButton>
     }
@@ -30,7 +30,7 @@
             <MetaFormRenderer Definition="_searchDefinition" @bind-Model="_searchModel" />
         </CascadingValue>
         <div class="meta-search-actions">
-            <RadzenButton Text="@T("common.search", "조회")" Click="RunSearchAsync" Disabled="@_refreshing"
+            <RadzenButton Icon="search" Text="@T("common.search", "조회")" Click="RunSearchAsync" Disabled="@_refreshing"
                           ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small" class="layout-command" />
             <select class="meta-cond-select" @onchange="OnSavedConditionSelected">
                 <option value="" selected="@(_selectedCondition.Length == 0)">@T("common.condSaved", "저장된 조건…")</option>
@@ -41,11 +41,11 @@
             </select>
             @if (_selectedCondition.Length > 0)
             {
-                <RadzenButton Text="@T("common.condDelete", "조건 삭제")" Click="DeleteSelectedConditionAsync"
+                <RadzenButton Icon="delete" Text="@T("common.condDelete", "조건 삭제")" Click="DeleteSelectedConditionAsync"
                               ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" />
             }
             <input class="meta-cond-name" placeholder="@T("common.condName", "조건명")" @bind="_conditionName" />
-            <RadzenButton Text="@T("common.condSave", "조건 저장")" Click="SaveCurrentConditionAsync"
+            <RadzenButton Icon="bookmark_add" Text="@T("common.condSave", "조건 저장")" Click="SaveCurrentConditionAsync"
                           ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" />
         </div>
     </div>
@@ -93,6 +93,7 @@ else if (_definition.Layout is not null)
         <div class="meta-actions">
             <RadzenButton Click="() => RunCommand(saveQuery)" class="layout-save"
                           ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small">
+                <RadzenIcon Icon="save" />
                 @(_uncoveredSaveQueries.Count > 1 ? $"{T("common.save", "저장")}: {saveQuery}" : T("common.save", "저장"))
             </RadzenButton>
         </div>
@@ -112,9 +113,9 @@ else
         </CascadingValue>
 
         <div class="meta-actions">
-            <RadzenButton Click="Save" Disabled="@_saving"
+            <RadzenButton Click="Save" Disabled="@_saving" class="layout-save"
                           ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small">
-                @if (_saving) { <span class="nx-spin" aria-hidden="true"></span> }
+                @if (_saving) { <span class="nx-spin" aria-hidden="true"></span> } else { <RadzenIcon Icon="save" /> }
                 @(_saving ? T("common.saving", "저장 중…") : T("common.save", "저장"))
             </RadzenButton>
             @if (_saved) { <span class="save-ok" style="margin-left:0.5rem;">@T("common.savedMark", "저장됨")</span> }
