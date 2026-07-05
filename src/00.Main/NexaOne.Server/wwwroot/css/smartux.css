@@ -2,8 +2,10 @@
    컴포넌트는 Radzen Blazor(그리드/입력/차트) + 커스텀 셸. Radzen 변수는 아래 브리지로 --nx-*에 매핑해
    브랜드/다크를 자동으로 따르게 한다(--nx-*가 다크에서 전환되므로 Radzen도 함께 전환). */
 :root {
-  --nx-navy: #0e2240;
-  --nx-navy-2: #0a1a33;
+  /* 사이드바/브랜드 네이비 — 로고 브랜드(--naf-navy #2b3a8f, 페리윙클)와 색상 계열을 맞추려 약간 더
+     푸른(hue ~226°) 다크 네이비로 조율(near-black #0e2240 → 브랜드 친화). */
+  --nx-navy: #13244b;
+  --nx-navy-2: #0d1b3a;
   --nx-navy-hover: rgba(255,255,255,.08);
   --nx-teal: #15b89a;
   --nx-teal-d: #0fa085;

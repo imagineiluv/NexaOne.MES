@@ -419,4 +419,14 @@ FROM SYS_APP_LOG
 WHERE (@logLevel IS NULL OR LOG_LEVEL = @logLevel)
 ]]></statement>
   </query>
+
+  <!-- 대시보드 시간대별 로그 추이(TrendChartWidget) — 시간 버킷별 로그 건수. 라벨=HH:00, 값=건수. -->
+  <query id="SYS.AppLogHourlyTrend">
+    <statement><![CDATA[
+SELECT strftime('%H:00', LOGGED_AT) AS HOUR_LABEL, COUNT(*) AS LOG_COUNT
+FROM SYS_APP_LOG
+GROUP BY strftime('%Y-%m-%d %H', LOGGED_AT)
+ORDER BY strftime('%Y-%m-%d %H', LOGGED_AT) ASC
+]]></statement>
+  </query>
 </queries>

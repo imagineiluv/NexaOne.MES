@@ -106,6 +106,20 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                             } },
                         },
                     },
+                    // 시간대별 로그 추이(TrendChartWidget=RadzenChart) — SYS.AppLogHourlyTrend(시간 버킷별 건수).
+                    // 자체 RowNode에 단독 배치해 풀폭으로 그로우(.layout-chart), 섹션 카드와 톤 일관.
+                    new RowNode
+                    {
+                        Id = "dash-trend-row",
+                        Children = new LayoutNode[]
+                        {
+                            new TrendChartWidget
+                            {
+                                Id = "dash-trend", Label = "시간대별 로그 추이",
+                                QueryId = "SYS.AppLogHourlyTrend", TimeColumn = "HOUR_LABEL", ValueColumn = "LOG_COUNT",
+                            },
+                        },
+                    },
                     // 최근 시스템 로그(SYS.AppLogList 재사용 — Warning+ 최근순). 운영자가 대시보드에서 이상 신호를 바로 본다.
                     new SectionNode
                     {

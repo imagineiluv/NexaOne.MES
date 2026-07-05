@@ -881,12 +881,29 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
                  "VALUES (@id,@m,@p,@st,@ms,'admin','127.0.0.1',@at)",
             ("@id", rl.Item1), ("@m", rl.Item2), ("@p", rl.Item3), ("@st", rl.Item4), ("@ms", rl.Item5), ("@at", now));
 
-    // SYS_APP_LOG(로그 뷰어 화면용, V064) — 실기록은 DbLoggerProvider(기본 OFF)가 담당, 데모 2행.
-    foreach (var al in new[] {
-        ("AL01", "Warning", "NexaOne.FDC.Application", "수집 파라미터 임계 접근: EQ01/TEMP 78.5"),
-        ("AL02", "Error", "NexaOne.Server.Gateway", "명명 쿼리 실행 실패: timeout (재시도 성공)") })
+    // SYS_APP_LOG(로그 뷰어 + 대시보드 시간대별 추이용, V064) — 실기록은 DbLoggerProvider(기본 OFF)가 담당.
+    // 데모: 최근 ~11시간에 걸쳐 레벨/시간 분산(대시보드 추이 차트가 채워지고 일부 시간대는 2~3건).
+    var logBase = DateTime.UtcNow;
+    var demoLogs = new (string Lvl, string Cat, string Msg, int HoursAgo)[]
+    {
+        ("Information", "NexaOne.POM.Application", "작업지시 WO-2401 시작", 11),
+        ("Information", "NexaOne.EST.Application", "설비 EQ02 가동 전환", 10),
+        ("Warning",     "NexaOne.FDC.Application", "수집 파라미터 임계 접근: EQ01/TEMP 76.2", 9),
+        ("Information", "NexaOne.SHP.Application", "출하오더 SO-8842 확정", 9),
+        ("Warning",     "NexaOne.QMS.Application", "SPC 관리한계 근접: 공정 P-3", 7),
+        ("Information", "NexaOne.POM.Application", "Lot L-5521 트랙인", 6),
+        ("Error",       "NexaOne.Server.Gateway", "명명 쿼리 실행 실패: timeout (재시도 성공)", 6),
+        ("Warning",     "NexaOne.FDC.Application", "수집 파라미터 임계 접근: EQ01/TEMP 78.5", 6),
+        ("Information", "NexaOne.EMS.Application", "예방보전 WO 생성: EQ05", 3),
+        ("Warning",     "NexaOne.EST.Application", "설비 EQ03 대기 지연", 2),
+        ("Information", "NexaOne.POM.Application", "작업지시 WO-2402 완료", 1),
+        ("Error",       "NexaOne.FDC.Application", "인터락 발생: EQ01 도어 개방", 0),
+    };
+    var alIdx = 0;
+    foreach (var al in demoLogs)
         Exec(tx, "INSERT INTO SYS_APP_LOG (LOG_ID,LOG_LEVEL,CATEGORY,MESSAGE,LOGGED_AT) VALUES (@id,@lvl,@cat,@msg,@at)",
-            ("@id", al.Item1), ("@lvl", al.Item2), ("@cat", al.Item3), ("@msg", al.Item4), ("@at", now));
+            ("@id", $"AL{++alIdx:D2}"), ("@lvl", al.Lvl), ("@cat", al.Cat), ("@msg", al.Msg),
+            ("@at", logBase.AddHours(-al.HoursAgo).ToString("o")));
 
     tx.Commit();
     Console.WriteLine("[NexaOne.Server] MDM/QMS master data seeded (core + V035 ext: class/segment/process/routing/bom/qtime).");
