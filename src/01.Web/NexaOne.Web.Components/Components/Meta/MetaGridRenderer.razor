@@ -49,6 +49,11 @@
             </RadzenDataGridColumn>
         }
     </text>;
+    @* 빈 결과 상태(P2 상태화면) — 두 그리드 분기 공용. 텍스트만 대신 아이콘+문구로. *@
+    RenderFragment emptyState =@<div class="nx-grid-empty">
+        <RadzenIcon Icon="inbox" />
+        <span>@T("common.noResult", "결과 없음")</span>
+    </div>;
 }
 <div class="meta-grid">
     @if (Rows is { Count: > 0 })
@@ -67,7 +72,16 @@
     }
     @if (Loading && Rows is not { Count: > 0 })
     {
-        <p class="meta-grid-note"><span class="nx-spin" aria-hidden="true"></span> @T("common.loading", "조회 중…")</p>
+        @* 스켈레톤 로더(P2 상태화면) — 조회 중 shimmer 행으로 체감 성능↑(텍스트 스피너 대체).
+           컬럼 수만큼 셀을 그려 실제 표 형태를 예고한다. *@
+        <div class="nx-skeleton" role="status" aria-busy="true" aria-label="@T("common.loading", "조회 중…")">
+            @for (var r = 0; r < 7; r++)
+            {
+                <div class="nx-skel-row">
+                    @foreach (var _ in cols) { <div class="nx-skel-cell"></div> }
+                </div>
+            }
+        </div>
     }
     else if (Rows is null)
     {
@@ -81,8 +95,9 @@
                         AllowSorting="false" AllowColumnResize="true"
                         Density="Density.Compact" GridLines="DataGridGridLines.Horizontal"
                         SelectionMode="DataGridSelectionMode.Single"
-                        RowSelect="OnRowSelectedInternal" EmptyText="@T("common.noResult", "결과 없음")">
+                        RowSelect="OnRowSelectedInternal">
             <Columns>@gridColumns</Columns>
+            <EmptyTemplate>@emptyState</EmptyTemplate>
         </RadzenDataGrid>
         @if (PageCountOf(total) <= 1)
         {
@@ -110,8 +125,9 @@
                         AllowPaging="true" PageSize="PageSize" AllowSorting="false" AllowColumnResize="true"
                         Density="Density.Compact" GridLines="DataGridGridLines.Horizontal"
                         SelectionMode="DataGridSelectionMode.Single"
-                        RowSelect="OnRowSelectedInternal" EmptyText="@T("common.noResult", "결과 없음")">
+                        RowSelect="OnRowSelectedInternal">
             <Columns>@gridColumns</Columns>
+            <EmptyTemplate>@emptyState</EmptyTemplate>
         </RadzenDataGrid>
         <p class="meta-grid-note">@view.Count @(_filter is { Length: > 0 } ? $"/ {_items.Count} " : "")@T("common.rowsUnit", "행")</p>
     }

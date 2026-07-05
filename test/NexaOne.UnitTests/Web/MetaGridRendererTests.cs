@@ -105,6 +105,32 @@ public sealed class MetaGridRendererTests
     }
 
     [Fact]
+    public void Loading_with_no_rows_renders_skeleton_not_text_spinner()
+    {
+        using var ctx = RadzenContext();
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, Columns)   // 2 보이는 컬럼
+            .Add(c => c.Rows, (IReadOnlyList<Dictionary<string, object?>>?)null)
+            .Add(c => c.Loading, true));
+
+        cut.FindAll(".nx-skeleton").Should().NotBeEmpty("조회 중(행 없음)엔 스켈레톤 로더를 렌더해야 한다");
+        cut.FindAll(".nx-skel-row").Count.Should().Be(7, "스켈레톤은 7개 shimmer 행");
+        // 각 행의 셀 수 = 보이는 컬럼 수(2).
+        cut.FindAll(".nx-skel-row").First().Children.Length.Should().Be(2, "셀 수는 보이는 컬럼 수와 일치");
+    }
+
+    [Fact]
+    public void Empty_result_renders_styled_empty_state()
+    {
+        using var ctx = RadzenContext();
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, Columns)
+            .Add(c => c.Rows, new List<Dictionary<string, object?>>()));   // 빈 결과(로딩 아님)
+
+        cut.FindAll(".nx-grid-empty").Should().NotBeEmpty("빈 결과는 아이콘+문구 empty state로 렌더돼야 한다");
+    }
+
+    [Fact]
     public void Numeric_column_renders_tabular_cell_and_client_grid_shows_quick_filter()
     {
         using var ctx = RadzenContext();

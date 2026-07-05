@@ -92,6 +92,18 @@
 .nx-cell-no { color: var(--nx-muted); opacity: .45; font-size: 16px; }
 .meta-grid-filter { width: 180px; padding: 5px 10px; border: 1px solid var(--nx-border); border-radius: var(--nx-radius); font-size: 12.5px; color: var(--nx-text); background: var(--nx-card); margin-right: 8px; }
 .meta-grid-filter:focus { outline: none; border-color: var(--nx-teal); }
+/* 스켈레톤 로더(P2 상태화면) — 조회 중 shimmer 행. 텍스트 스피너 대체로 체감 성능↑. */
+.nx-skeleton { padding: 4px 0; }
+.nx-skel-row { display: flex; gap: 16px; padding: 10px 14px; border-bottom: 1px solid var(--nx-border-soft); }
+.nx-skel-cell { flex: 1; height: 12px; border-radius: 4px;
+  background: linear-gradient(90deg, var(--nx-hover) 25%, var(--nx-border-soft) 37%, var(--nx-hover) 63%);
+  background-size: 400% 100%; animation: nx-shimmer 1.4s ease infinite; }
+.nx-skel-row .nx-skel-cell:first-child { max-width: 120px; }
+@keyframes nx-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) { .nx-skel-cell { animation: none; } }
+/* 빈 결과 상태(P2) — 아이콘+문구. 텍스트만 있던 EmptyText 대체. */
+.nx-grid-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 34px 0; color: var(--nx-muted); font-size: 12.5px; }
+.nx-grid-empty .rzi { font-size: 34px; opacity: .45; }
 
 /* P3-17 다크 모드 — <html data-theme="dark"> 시 표면 토큰만 교체(사이드바는 원래 다크).
    토글은 셸 사용자 메뉴, 선택은 localStorage(nx-theme) + HostApp 부트 스크립트가 첫 페인트 전 적용. */
