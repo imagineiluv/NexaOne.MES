@@ -81,8 +81,11 @@
    밀도 상향(MES 스캔성): 셀 패딩 축소·숫자 tabular·헤더 대비 강화. */
 .rz-datatable, .rz-grid-table { font-size: 12.5px; }
 .rz-datatable .rz-column-title, .rz-grid-table thead th { background: var(--nx-head); color: var(--nx-text-2); font-weight: 700; letter-spacing: .01em; }
-/* (스티키 헤더는 Radzen 중첩 테이블 구조에서 안정적으로 붙지 않아 보류 — 탭바 뒤로 스티킹.
-   추후 Radzen 자체 frozen-header(그리드 height 지정) 또는 DOM 구조 대응으로 재시도.) */
+/* 스티키 헤더 — Radzen 스크롤 바디(.rz-data-grid-data)에 max-height를 줘 긴 표는 그리드 안에서
+   스크롤되게 하고, 헤더(thead th)를 그 안에서 top:0 스티키로 고정한다(짧은 표는 max-height에 안 닿아
+   그대로). 페이지 스크롤 대신 그리드 내부 스크롤이라 헤더가 항상 보인다(MES 데이터 스캔성). */
+.rz-data-grid-data { max-height: max(320px, calc(100vh - 300px)); }
+.rz-datatable thead th, .rz-grid-table thead th { position: sticky !important; top: 0; z-index: 3; }
 .rz-datatable .rz-cell-data, .rz-datatable .rz-column-title, .rz-grid-table td, .rz-grid-table th { padding-top: 5px !important; padding-bottom: 5px !important; }
 .rz-datatable-data td, .rz-grid-table td { color: var(--nx-text); border-color: var(--nx-border-soft); font-variant-numeric: tabular-nums; }
 .rz-datatable thead th, .rz-grid-table thead th { border-bottom: 2px solid var(--nx-border) !important; }
@@ -118,7 +121,10 @@
 /* 부드러운 마이크로 인터랙션(과하지 않게 — 0.1~0.12s). Radzen 행은 .rz-data-row. */
 .mes-nav-item, .mes-nav-subitem, .mes-mditab { transition: background-color .12s ease, color .12s ease; }
 .rz-data-row td { transition: background-color .1s ease; }
-/* (선택 행 강조는 RadzenDataGrid Value 바인딩 필요 — 컴포넌트 변경 후과제로 보류. 행 클릭=폼 로드는 동작.) */
+/* 선택 행 강조(마스터-디테일 행 클릭) — RowRender가 얹은 data-selected를 CSS로. 좌측 틸 인셋 + 하이라이트.
+   (@bind-Value가 ExpandoObject에서 하이라이트 클래스를 안 붙여서, 자체 추적+data-* 방식으로 우회.) */
+tr[data-selected] td { background: var(--nx-selected) !important; }
+tr[data-selected] td:first-child { box-shadow: inset 3px 0 0 var(--nx-teal); }
 
 /* P3-17 다크 모드 — <html data-theme="dark"> 시 표면 토큰만 교체(사이드바는 원래 다크).
    토글은 셸 사용자 메뉴, 선택은 localStorage(nx-theme) + HostApp 부트 스크립트가 첫 페인트 전 적용. */

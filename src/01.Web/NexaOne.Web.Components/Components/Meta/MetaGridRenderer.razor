@@ -95,7 +95,7 @@
                         AllowSorting="false" AllowColumnResize="true"
                         Density="Density.Compact" GridLines="DataGridGridLines.Horizontal"
                         SelectionMode="DataGridSelectionMode.Single"
-                        RowSelect="OnRowSelectedInternal">
+                        RowSelect="OnRowSelectedInternal" RowRender="OnRowRender">
             <Columns>@gridColumns</Columns>
             <EmptyTemplate>@emptyState</EmptyTemplate>
         </RadzenDataGrid>
@@ -125,7 +125,7 @@
                         AllowPaging="true" PageSize="PageSize" AllowSorting="false" AllowColumnResize="true"
                         Density="Density.Compact" GridLines="DataGridGridLines.Horizontal"
                         SelectionMode="DataGridSelectionMode.Single"
-                        RowSelect="OnRowSelectedInternal">
+                        RowSelect="OnRowSelectedInternal" RowRender="OnRowRender">
             <Columns>@gridColumns</Columns>
             <EmptyTemplate>@emptyState</EmptyTemplate>
         </RadzenDataGrid>
@@ -166,8 +166,16 @@
     private string _filter = "";
     private Dictionary<string, ColumnKind> _colKind = new(StringComparer.Ordinal);
 
+    // Rows 참조를 기억해, 변경됐을 때만 _items를 재빌드한다. 부모 재렌더(행 선택→폼 로드 등)로 Rows가
+    // 그대로면 재빌드를 건너뛰어 ExpandoObject 인스턴스·선택 강조(_selectedItem)·정렬을 보존한다
+    // (매번 재빌드하면 참조가 깨져 선택 강조가 즉시 리셋되던 버그).
+    private IReadOnlyList<Dictionary<string, object?>>? _lastRows;
+
     protected override void OnParametersSet()
     {
+        if (ReferenceEquals(Rows, _lastRows)) return;
+        _lastRows = Rows;
+
         _items = (Rows ?? (IReadOnlyList<Dictionary<string, object?>>)Array.Empty<Dictionary<string, object?>>())
             .Select(r =>
             {
@@ -177,6 +185,7 @@
                 return e;
             })
             .ToList();
+        _selectedItem = null;   // 재조회(Rows 변경) 시에만 선택 해제
 
         // 컬럼 종류 추론 — 보이는 컬럼별 값 샘플로 숫자/시각/상태/불리언/빈/텍스트 판별(폭·정렬·셀 표현 결정).
         _colKind = new Dictionary<string, ColumnKind>(StringComparer.Ordinal);
@@ -185,6 +194,15 @@
     }
 
     private ColumnKind KindOf(string key) => _colKind.TryGetValue(key, out var k) ? k : ColumnKind.Text;
+
+    // 선택 행 강조 — RadzenDataGrid @bind-Value는 ExpandoObject에서 하이라이트가 안 붙어(참조매칭 마찰),
+    // 자체 선택 추적 + RowRender로 행에 data-selected 속성을 얹고 CSS로 강조한다(class 대신 data-*라 rz-data-row 보존).
+    private System.Dynamic.ExpandoObject? _selectedItem;
+
+    private void OnRowRender(Radzen.RowRenderEventArgs<System.Dynamic.ExpandoObject> args)
+    {
+        if (ReferenceEquals(args.Data, _selectedItem)) args.Attributes["data-selected"] = "true";
+    }
 
     // 자체 정렬(P3-9) — Radzen Property 정렬이 ExpandoObject에서 불가하므로 헤더 클릭으로 직접 정렬한다.
     // 숫자 컬럼(전 값이 숫자/공백)은 수치 정렬, 그 외 문자열 정렬(옛 수제 그리드 로직 재사용).
@@ -222,8 +240,10 @@
     private static decimal ParseDec(string s) => decimal.TryParse(s, out var d) ? d : decimal.MinValue;
 
     // 행 선택 — Radzen이 넘긴 변환 항목의 인덱스로 원본 Rows를 되짚어 콜백한다(폼 로드용 전체 딕셔너리).
+    // 선택 행을 기록해(모든 그리드에서 클릭 피드백) RowRender가 data-selected로 강조하게 한다.
     private async Task OnRowSelectedInternal(System.Dynamic.ExpandoObject item)
     {
+        _selectedItem = item;
         if (!OnRowSelect.HasDelegate || Rows is null) return;
         var idx = _items.IndexOf(item);
         if (idx >= 0 && idx < Rows.Count) await OnRowSelect.InvokeAsync(Rows[idx]);
