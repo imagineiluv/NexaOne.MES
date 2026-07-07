@@ -103,7 +103,9 @@
                     @* 카테고리(시간) 축 라벨은 표본이 많으면 겹쳐 지저분하므로 숨긴다 — 시각은 포인트 호버 툴팁이 제공. *@
                     <RadzenCategoryAxis Visible="false" />
                     <RadzenValueAxis />
-                    @if (series.Count > 1) { <RadzenLegend Position="LegendPosition.Bottom" /> }
+                    @* 단일 시리즈는 범례 숨김 — 패널 라벨이 이미 의미를 주는데 raw 컬럼명(LOG_COUNT)이 중복 노출됨.
+                       (Radzen 기본 범례는 명시 Visible=false 없이는 항상 그려진다) *@
+                    <RadzenLegend Position="LegendPosition.Bottom" Visible="@(series.Count(x => x.Points.Count >= 2) > 1)" />
                 </RadzenChart>
             }
         </div>

@@ -106,27 +106,33 @@ else
     @* 폼(입력 필드)이 정의된 화면만 폼·저장 영역을 렌더한다 — 그리드 전용(조회) 화면은 폼이 비어 있을 수 있다. *@
     @if (_definition.Fields.Count > 0)
     {
-        <CascadingValue Value="_dynamicOptions" Name="MetaDynamicOptions">
-            <CascadingValue Value="_fieldErrors" Name="MetaFieldErrors">
-                <MetaFormRenderer Definition="_definition" @bind-Model="_model" />
-            </CascadingValue>
-        </CascadingValue>
+        @* 폼 카드화(디자인 배치 3) — 그리드(목록 카드)와 동일한 카드 언어로 감싸 마스터-디테일 시각 분리.
+           저장은 카드 푸터에 우측 정렬(주 행동의 자리를 고정). *@
+        <div class="mes-card meta-form-card">
+            <div class="mes-card-head"><span class="h-title">@T("common.detail", "상세 정보")</span></div>
+            <div class="mes-card-body">
+                <CascadingValue Value="_dynamicOptions" Name="MetaDynamicOptions">
+                    <CascadingValue Value="_fieldErrors" Name="MetaFieldErrors">
+                        <MetaFormRenderer Definition="_definition" @bind-Model="_model" />
+                    </CascadingValue>
+                </CascadingValue>
 
-        <div class="meta-actions">
-            <RadzenButton Click="Save" Disabled="@_saving" class="layout-save"
-                          ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small">
-                @if (_saving) { <span class="nx-spin" aria-hidden="true"></span> } else { <RadzenIcon Icon="save" /> }
-                @(_saving ? T("common.saving", "저장 중…") : T("common.save", "저장"))
-            </RadzenButton>
-            @if (_saved) { <span class="save-ok" style="margin-left:0.5rem;">@T("common.savedMark", "저장됨")</span> }
+                @if (_errors.Count > 0)
+                {
+                    <ul class="validation-errors">
+                        @foreach (var err in _errors) { <li>@err</li> }
+                    </ul>
+                }
+            </div>
+            <div class="meta-form-foot">
+                @if (_saved) { <span class="save-ok">@T("common.savedMark", "저장됨")</span> }
+                <RadzenButton Click="Save" Disabled="@_saving" class="layout-save"
+                              ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small">
+                    @if (_saving) { <span class="nx-spin" aria-hidden="true"></span> } else { <RadzenIcon Icon="save" /> }
+                    @(_saving ? T("common.saving", "저장 중…") : T("common.save", "저장"))
+                </RadzenButton>
+            </div>
         </div>
-
-        @if (_errors.Count > 0)
-        {
-            <ul class="validation-errors">
-                @foreach (var err in _errors) { <li>@err</li> }
-            </ul>
-        }
     }
 
     @* 그리드(컬럼) 메타가 있으면 명명 쿼리 결과를 런타임 렌더한다 — 손코딩 없이 메타+파일쿼리로 조회 화면 구성.

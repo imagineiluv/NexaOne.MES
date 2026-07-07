@@ -519,11 +519,23 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .page-header { display: flex; align-items: center; }
 
 /* 검색 조건 영역(SearchFields) — 조건 필드는 가로 흐름(레거시 SmartUX 상단 조건 영역 미러).
-   본문 폼은 그리드지만 검색은 인라인 흐름으로 되돌린다(라벨 상단·필터 나란히). */
-.meta-search { padding: var(--nx-sp-4); margin-bottom: var(--nx-sp-4); }
-.meta-search .meta-form { display: flex; flex-wrap: wrap; gap: var(--nx-sp-2) var(--nx-sp-5); }
+   배치 3 컴팩트: 필드와 액션(조회·조건저장)을 한 흐름으로 정렬 — 조건 1~2개 화면의 세로 낭비 제거. */
+.meta-search { padding: var(--nx-sp-3) var(--nx-sp-4); margin-bottom: var(--nx-sp-4);
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--nx-sp-2) var(--nx-sp-5); }
+.meta-search .meta-form { display: flex; flex-wrap: wrap; gap: var(--nx-sp-2) var(--nx-sp-5); flex: 1 1 auto; }
 .meta-search .meta-field { min-width: 170px; }
-.meta-search-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.meta-search-actions { display: flex; align-items: center; gap: 8px; margin-top: 0; flex: 0 0 auto; }
+
+/* 폼 카드(배치 3) — 평면 CRUD 폼을 목록 카드와 동일 언어로. 푸터에 주 행동(저장) 우측 고정. */
+.meta-form-card { margin-bottom: var(--nx-sp-4); }
+.meta-form-card .mes-card-body { padding: var(--nx-sp-4); }
+.meta-form-foot { display: flex; justify-content: flex-end; align-items: center; gap: 10px;
+  padding: 10px var(--nx-sp-4); border-top: 1px solid var(--nx-border-soft); background: var(--nx-head);
+  border-radius: 0 0 var(--nx-radius-lg) var(--nx-radius-lg); }
+/* 레이아웃 화면 마스터-디테일 — 필드를 품고 그리드는 없는 컬럼(우측 상세 폼)을 카드로 분리. */
+.layout-column:has(.meta-field):not(:has(.meta-grid)) {
+  background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-lg);
+  padding: var(--nx-sp-4); box-shadow: var(--nx-shadow-sm); align-self: flex-start; }
 .meta-cond-name, .meta-cond-select { padding: 6px 9px; border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); font-size: var(--nx-fs-body); }
 .meta-cond-name { width: 10rem; }
 .meta-actions { margin-top: 12px; display: flex; gap: 8px; }
