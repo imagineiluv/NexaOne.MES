@@ -11,55 +11,55 @@
 
 @if (!_canManage)
 {
-    <div style="padding:2rem; text-align:center; color:#6b7280;">
-        <h1 style="font-size:1.125rem; font-weight:600; color:#1f2937;">대시보드 레이아웃 관리</h1>
-        <p style="margin-top:0.5rem; font-size:0.875rem;">화면 편집(디자이너 저장)은 sys:manage 권한이 필요합니다.</p>
+    <div class="host-page">
+        <h1 class="page-title">대시보드 레이아웃 관리</h1>
+        <p class="host-desc">화면 편집(디자이너 저장)은 sys:manage 권한이 필요합니다.</p>
     </div>
 }
 else
 {
-    <div style="padding:1rem;">
-        <h1 style="font-size:1.125rem; font-weight:700; color:#111827; margin:0 0 0.25rem;">대시보드 레이아웃 관리</h1>
-        <p style="font-size:0.813rem; color:#6b7280; margin:0 0 0.75rem;">
+    <div class="host-page">
+        <h1 class="page-title">대시보드 레이아웃 관리</h1>
+        <p class="host-desc">
             화면은 GrapesJS 디자이너에서 위젯(그리드/폼/KPI/상태 뱃지)을 배치해 편집합니다.
-            저장된 정의는 즉시 <code>/meta/{'{'}UI_ID{'}'}</code> 런타임으로 렌더됩니다.
+            저장된 정의는 즉시 <code>/meta/@("{UI_ID}")</code> 런타임으로 렌더됩니다.
             디자이너는 새 탭에서 열리며 별도 로그인(동일 계정)이 필요할 수 있습니다.
         </p>
 
-        <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.75rem;">
+        <div class="host-toolbar">
             <input @bind="_newUiId" placeholder="새 화면 UI_ID (예: DASHBOARD_LINE1)"
-                   style="width:20rem; padding:0.45rem 0.6rem; border:1px solid #d1d5db; border-radius:0.375rem;" />
+                   class="host-input inline" />
             <a href="@DesignerHref(_newUiId)" target="_blank"
-               style="padding:0.45rem 0.875rem; background:var(--nx-teal-d); color:#fff; border-radius:0.375rem; text-decoration:none; font-size:0.813rem; @(string.IsNullOrWhiteSpace(_newUiId) ? "pointer-events:none; opacity:0.5;" : "")">
+               class="host-btn inline @(string.IsNullOrWhiteSpace(_newUiId) ? "is-disabled" : "")">
                 새 화면 디자인
             </a>
-            <button @onclick="ReloadAsync" style="padding:0.45rem 0.75rem; background:#f3f4f6; border:1px solid #d1d5db; border-radius:0.375rem; font-size:0.813rem; cursor:pointer;">
+            <button @onclick="ReloadAsync" class="host-btn-secondary">
                 새로고침
             </button>
         </div>
 
-        <table style="width:100%; border-collapse:collapse; font-size:0.813rem;">
+        <table class="host-table">
             <thead>
-                <tr style="background:#f9fafb; text-align:left;">
-                    <th style="@Th">UI_ID</th><th style="@Th">제목</th><th style="@Th">열기</th>
+                <tr>
+                    <th>UI_ID</th><th>제목</th><th>열기</th>
                 </tr>
             </thead>
             <tbody>
                 @if (_screens.Count == 0)
                 {
-                    <tr><td colspan="3" style="padding:1.5rem; text-align:center; color:#9ca3af;">
+                    <tr><td colspan="3" class="empty">
                         @(_loading ? "불러오는 중…" : "디자이너로 저장된 화면이 아직 없습니다 — 위에서 새 화면을 만들어 보세요.")
                     </td></tr>
                 }
                 @foreach (var s in _screens)
                 {
-                    <tr style="border-bottom:1px solid #f3f4f6;">
-                        <td style="@Td"><strong>@s.UiId</strong></td>
-                        <td style="@Td">@s.Title</td>
-                        <td style="@Td">
-                            <a href="@DesignerHref(s.UiId)" target="_blank" style="color:var(--nx-teal-d);">디자이너에서 편집</a>
-                            <span style="color:#d1d5db; margin:0 0.375rem;">|</span>
-                            <a href="/meta/@s.UiId" style="color:var(--nx-teal-d);">런타임 보기</a>
+                    <tr>
+                        <td><strong>@s.UiId</strong></td>
+                        <td>@s.Title</td>
+                        <td>
+                            <a href="@DesignerHref(s.UiId)" target="_blank" class="host-actionlink">디자이너에서 편집</a>
+                            <span class="host-sep">|</span>
+                            <a href="/meta/@s.UiId" class="host-actionlink">런타임 보기</a>
                         </td>
                     </tr>
                 }
@@ -69,9 +69,6 @@ else
 }
 
 @code {
-    private const string Th = "padding:0.5rem 0.75rem; border-bottom:1px solid #e5e7eb; font-weight:600; color:#374151;";
-    private const string Td = "padding:0.5rem 0.75rem; color:#1f2937;";
-
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private bool _canManage;

@@ -5,7 +5,7 @@
 
 @* §19.3.2/3 — 가입 신청(익명). 비밀번호는 받지 않는다 — 관리자 승인 시 임시 비밀번호가 발급되고 최초 로그인에서
    변경이 강제된다(PasswordState=Create). 아이디 중복확인은 익명 진입점(레이트리밋)을 호출한다. *@
-<div class="host-card" style="max-width:26rem; margin:3rem auto;">
+<div class="host-card">
     <h1 class="host-title">가입 신청</h1>
     <p class="host-sub">
         관리자 승인 후 임시 비밀번호가 발급됩니다
@@ -13,74 +13,76 @@
 
     @if (_submitted)
     {
-        <div style="padding:1rem; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:0.375rem; font-size:0.875rem; color:#065f46;">
+        <div class="host-help">
             <strong>신청이 접수되었습니다.</strong><br />
             관리자 승인 후 임시 비밀번호를 전달받아 로그인할 수 있습니다.
             최초 로그인 시 비밀번호 변경이 필요합니다.
         </div>
-        <a href="/login" class="host-link" style="margin-top:1rem; display:inline-block; font-size:0.875rem;">로그인으로</a>
+        <p class="host-help"><a href="/login" class="host-link">로그인으로</a></p>
     }
     else
     {
         <EditForm Model="@_model" OnValidSubmit="HandleSubmit">
-            <div style="margin-bottom:0.75rem;">
-                <label style="@LabelStyle">사용자 ID *</label>
-                <div style="display:flex; gap:0.5rem;">
+            <div class="host-field">
+                <label>사용자 ID *</label>
+                <div class="host-toolbar">
                     <input @bind="_model.UserId" @bind:after="ResetAvailability" placeholder="사용할 ID"
-                           style="flex:1; padding:0.5rem; border:1px solid #d1d5db; border-radius:0.375rem;" />
+                           class="host-input" />
                     <button type="button" @onclick="CheckAvailability" disabled="@(_checking || string.IsNullOrWhiteSpace(_model.UserId))"
-                            style="padding:0.5rem 0.75rem; background:#f3f4f6; border:1px solid #d1d5db; border-radius:0.375rem; cursor:pointer; white-space:nowrap;">
+                            class="host-btn-secondary">
                         중복확인
                     </button>
                 </div>
                 @if (_available is true)
                 {
-                    <span style="font-size:0.75rem; color:#059669;">사용 가능한 ID입니다.</span>
+                    <span class="host-help">사용 가능한 ID입니다.</span>
                 }
                 else if (_available is false)
                 {
-                    <span style="font-size:0.75rem; color:#dc2626;">이미 사용 중이거나 처리 대기 중인 ID입니다.</span>
+                    <span class="host-error">이미 사용 중이거나 처리 대기 중인 ID입니다.</span>
                 }
             </div>
 
-            <div style="margin-bottom:0.75rem;">
-                <label style="@LabelStyle">이름 *</label>
-                <input @bind="_model.UserName" style="@InputStyle" />
+            <div class="host-field">
+                <label>이름 *</label>
+                <input @bind="_model.UserName" class="host-input" />
             </div>
-            <div style="margin-bottom:0.75rem;">
-                <label style="@LabelStyle">이메일 *</label>
-                <input @bind="_model.Email" type="email" style="@InputStyle" />
+            <div class="host-field">
+                <label>이메일 *</label>
+                <input @bind="_model.Email" type="email" class="host-input" />
             </div>
-            <div style="display:flex; gap:0.5rem; margin-bottom:0.75rem;">
-                <div style="flex:1;">
-                    <label style="@LabelStyle">부서 *</label>
-                    <input @bind="_model.Department" style="@InputStyle" />
+            <div>
+                <div class="host-field">
+                    <label>부서 *</label>
+                    <input @bind="_model.Department" class="host-input" />
                 </div>
-                <div style="flex:1;">
-                    <label style="@LabelStyle">직위 *</label>
-                    <input @bind="_model.Position" style="@InputStyle" />
+                <div class="host-field">
+                    <label>직위 *</label>
+                    <input @bind="_model.Position" class="host-input" />
                 </div>
             </div>
-            <div style="margin-bottom:0.75rem;">
-                <label style="@LabelStyle">공장 ID *</label>
-                <input @bind="_model.PlantId" placeholder="예: DEFAULT" style="@InputStyle" />
+            <div class="host-field">
+                <label>공장 ID *</label>
+                <input @bind="_model.PlantId" placeholder="예: DEFAULT" class="host-input" />
             </div>
 
-            <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.813rem; color:#374151; margin-bottom:1rem;">
-                <input type="checkbox" @bind="_model.TermsAccepted" />
-                이용약관 및 개인정보 처리에 동의합니다 *
-            </label>
+            <div class="host-field">
+                <label>
+                    <input type="checkbox" @bind="_model.TermsAccepted" />
+                    이용약관 및 개인정보 처리에 동의합니다 *
+                </label>
+            </div>
 
             @if (!string.IsNullOrEmpty(_error))
             {
-                <div style="color:#dc2626; font-size:0.875rem; margin-bottom:1rem;">@_error</div>
+                <div class="host-error">@_error</div>
             }
 
             <button type="submit" class="host-btn" disabled="@(_loading || !CanSubmit)">
                 @(_loading ? "신청 중…" : "가입 신청")
             </button>
         </EditForm>
-        <a href="/login" style="margin-top:1rem; display:inline-block; font-size:0.813rem; color:#6b7280;">이미 계정이 있으신가요? 로그인</a>
+        <p class="host-help"><a href="/login" class="host-link">이미 계정이 있으신가요? 로그인</a></p>
     }
 </div>
 

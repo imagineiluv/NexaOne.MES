@@ -11,74 +11,74 @@
 
 @if (!_canManage)
 {
-    <div style="padding:2rem; text-align:center; color:#6b7280;">
-        <h1 style="font-size:1.125rem; font-weight:600; color:#1f2937;">사용자 신청 승인</h1>
-        <p style="margin-top:0.5rem; font-size:0.875rem;">이 화면은 sys:manage 권한이 필요합니다.</p>
+    <div class="host-page">
+        <h1 class="page-title">사용자 신청 승인</h1>
+        <p class="host-desc">이 화면은 sys:manage 권한이 필요합니다.</p>
     </div>
 }
 else
 {
-    <div style="padding:1rem;">
-        <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.75rem;">
-            <h1 style="font-size:1.125rem; font-weight:700; color:#111827; margin:0;">사용자 신청 승인</h1>
+    <div class="host-page">
+        <div class="host-toolbar">
+            <h1 class="page-title">사용자 신청 승인</h1>
             <select @bind="_statusFilter" @bind:after="ReloadAsync"
-                    style="padding:0.375rem 0.5rem; border:1px solid #d1d5db; border-radius:0.375rem; font-size:0.813rem;">
+                    class="host-input inline">
                 <option value="Request">대기(Request)</option>
                 <option value="Approved">승인됨</option>
                 <option value="Rejected">반려됨</option>
                 <option value="">전체</option>
             </select>
-            <button @onclick="ReloadAsync" style="padding:0.375rem 0.75rem; background:#f3f4f6; border:1px solid #d1d5db; border-radius:0.375rem; font-size:0.813rem; cursor:pointer;">
+            <button @onclick="ReloadAsync" class="host-btn-secondary">
                 새로고침
             </button>
         </div>
 
         @if (_approvedResult is not null)
         {
-            <div style="margin-bottom:0.75rem; padding:0.875rem 1rem; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:0.375rem; font-size:0.875rem; color:#065f46;">
+            <div>
                 <strong>'@_approvedResult.Request.UserId'</strong> 승인 완료 — 임시 비밀번호:
-                <code style="font-size:0.938rem; font-weight:700; background:#d1fae5; padding:0.125rem 0.375rem; border-radius:0.25rem;">@_approvedResult.TempPassword</code>
-                <span style="display:block; margin-top:0.25rem; font-size:0.75rem;">
+                <code class="host-chip ok">@_approvedResult.TempPassword</code>
+                <span class="host-desc">
                     지금만 표시됩니다 — 사용자에게 전달하세요. 최초 로그인 시 비밀번호 변경이 강제됩니다.
                 </span>
             </div>
         }
         @if (!string.IsNullOrEmpty(_error))
         {
-            <div style="margin-bottom:0.75rem; color:#dc2626; font-size:0.875rem;">@_error</div>
+            <div class="host-error">@_error</div>
         }
 
-        <table style="width:100%; border-collapse:collapse; font-size:0.813rem;">
+        <table class="host-table">
             <thead>
-                <tr style="background:#f9fafb; text-align:left;">
-                    <th style="@Th">신청일</th><th style="@Th">ID</th><th style="@Th">이름</th><th style="@Th">이메일</th>
-                    <th style="@Th">부서/직위</th><th style="@Th">공장</th><th style="@Th">상태</th><th style="@Th">처리</th>
+                <tr>
+                    <th>신청일</th><th>ID</th><th>이름</th><th>이메일</th>
+                    <th>부서/직위</th><th>공장</th><th>상태</th><th>처리</th>
                 </tr>
             </thead>
             <tbody>
                 @if (_requests.Count == 0)
                 {
-                    <tr><td colspan="8" style="padding:1.5rem; text-align:center; color:#9ca3af;">@(_loading ? "불러오는 중…" : "신청이 없습니다.")</td></tr>
+                    <tr><td colspan="8" class="empty">@(_loading ? "불러오는 중…" : "신청이 없습니다.")</td></tr>
                 }
                 @foreach (var r in _requests)
                 {
-                    <tr style="border-bottom:1px solid #f3f4f6;">
-                        <td style="@Td">@r.RequestedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
-                        <td style="@Td"><strong>@r.UserId</strong>@(r.RequestVersion > 1 ? $" (재신청 v{r.RequestVersion})" : "")</td>
-                        <td style="@Td">@r.UserName</td>
-                        <td style="@Td">@r.Email</td>
-                        <td style="@Td">@r.Department / @r.Position</td>
-                        <td style="@Td">@r.PlantId</td>
-                        <td style="@Td">
-                            @if (r.Status == "Request") { <span style="color:#d97706;">대기</span> }
-                            else if (r.Status == "Approved") { <span style="color:var(--nx-teal-d);">승인(@r.ApprovedBy)</span> }
-                            else { <span style="color:#dc2626;" title="@r.RejectReason">반려(@r.RejectedBy)</span> }
+                    <tr>
+                        <td>@r.RequestedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</td>
+                        <td><strong>@r.UserId</strong>@(r.RequestVersion > 1 ? $" (재신청 v{r.RequestVersion})" : "")</td>
+                        <td>@r.UserName</td>
+                        <td>@r.Email</td>
+                        <td>@r.Department / @r.Position</td>
+                        <td>@r.PlantId</td>
+                        <td>
+                            @if (r.Status == "Request") { <span class="host-chip write">대기</span> }
+                            else if (r.Status == "Approved") { <span class="host-chip ok">승인(@r.ApprovedBy)</span> }
+                            else { <span class="host-chip bad" title="@r.RejectReason">반려(@r.RejectedBy)</span> }
                         </td>
-                        <td style="@Td">
+                        <td>
                             @if (r.Status == "Request")
                             {
-                                <button @onclick="() => _actionTarget = (_actionTarget == r.RequestId ? null : r.RequestId)"
-                                        style="padding:0.25rem 0.625rem; background:#eff6ff; border:1px solid #bfdbfe; color:#1d4ed8; border-radius:0.25rem; cursor:pointer;">
+                                <button class="host-btn-secondary"
+                                        @onclick="() => _actionTarget = (_actionTarget == r.RequestId ? null : r.RequestId)">
                                     처리
                                 </button>
                             }
@@ -86,25 +86,23 @@ else
                     </tr>
                     @if (_actionTarget == r.RequestId)
                     {
-                        <tr style="background:#f9fafb;">
-                            <td colspan="8" style="padding:0.625rem 0.75rem;">
-                                <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
-                                    <label style="font-size:0.813rem; color:#374151;">부여 역할</label>
-                                    <select @bind="_selectedRoleId" style="padding:0.375rem 0.5rem; border:1px solid #d1d5db; border-radius:0.375rem;">
+                        <tr class="action-row">
+                            <td colspan="8">
+                                <div class="host-toolbar tight">
+                                    <label>부여 역할</label>
+                                    <select class="meta-cond-select" @bind="_selectedRoleId">
                                         @foreach (var role in _roles)
                                         {
                                             <option value="@role">@role</option>
                                         }
                                     </select>
-                                    <button @onclick="() => ApproveAsync(r.RequestId)" disabled="@_busy"
-                                            style="padding:0.375rem 0.875rem; background:var(--nx-teal-d); color:#fff; border:none; border-radius:0.375rem; cursor:pointer;">
+                                    <button class="host-btn inline" @onclick="() => ApproveAsync(r.RequestId)" disabled="@_busy">
                                         승인
                                     </button>
-                                    <span style="color:#d1d5db;">|</span>
-                                    <input @bind="_rejectReason" placeholder="반려 사유(필수)"
-                                           style="flex:1; min-width:12rem; padding:0.375rem 0.5rem; border:1px solid #d1d5db; border-radius:0.375rem;" />
-                                    <button @onclick="() => RejectAsync(r.RequestId)" disabled="@(_busy || string.IsNullOrWhiteSpace(_rejectReason))"
-                                            style="padding:0.375rem 0.875rem; background:#dc2626; color:#fff; border:none; border-radius:0.375rem; cursor:pointer;">
+                                    <span class="host-sep">|</span>
+                                    <input class="host-input inline" @bind="_rejectReason" placeholder="반려 사유(필수)" />
+                                    <button class="host-btn inline danger" @onclick="() => RejectAsync(r.RequestId)"
+                                            disabled="@(_busy || string.IsNullOrWhiteSpace(_rejectReason))">
                                         반려
                                     </button>
                                 </div>
