@@ -1,9 +1,10 @@
-/* SmartUX 디자인 시스템 — React SPA(GrapesJS 디자이너) 테마.
-   .NET 호스트(wwwroot/css/smartux.css)와 동일 토큰을 재사용해 시각적 일관성 유지.
-   네이비 상단바 + 틸 주색 + 깔끔한 보더 패널. */
+/* NexaOne 디자인 시스템 — React SPA(GrapesJS 디자이너) 테마.
+   .NET 호스트(wwwroot/css/nexaone.css)와 동일 --nx-* 토큰·타입 램프·Pretendard를 미러해 시각 일관성 유지.
+   토큰 원본은 호스트가 소유 — 이 블록은 미러(값 변경 시 양쪽 동기화, frontend-design 스킬 참조). */
 :root {
-  --nx-navy: #0e2240;
-  --nx-navy-2: #0a1a33;
+  /* 브랜드/표면 — 호스트와 동일 값(네이비는 브랜드 조율값 #13244b, 구 #0e2240 아님). */
+  --nx-navy: #13244b;
+  --nx-navy-2: #0d1b3a;
   --nx-navy-hover: rgba(255, 255, 255, .08);
   --nx-teal: #15b89a;
   --nx-teal-d: #0fa085;
@@ -12,9 +13,26 @@
   --nx-bg: #eef1f5;
   --nx-card: #ffffff;
   --nx-border: #e2e6eb;
+  --nx-border-soft: #eef1f4;
   --nx-head: #f5f7f9;
   --nx-text: #1f2937;
+  --nx-text-2: #44506a;
   --nx-muted: #6b7280;
+  --nx-hover: #f5f7f9;
+  --nx-hover-teal: #eefaf7;
+  /* 시맨틱 */
+  --nx-success: #16a34a;  --nx-success-bg: #e7f7ee;
+  --nx-warning: #d97706;  --nx-warning-bg: #fef3e2;
+  --nx-danger:  #dc2626;  --nx-danger-bg:  #fdeaea;
+  --nx-info:    #2563eb;  --nx-info-bg:    #e8f0fe;
+  /* 램프 — 라운드/그림자/타입(호스트 배치 2와 동일 6단). */
+  --nx-radius-sm: 4px; --nx-radius: 6px; --nx-radius-lg: 10px;
+  --nx-shadow-sm: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+  --nx-shadow-md: 0 4px 12px rgba(16,24,40,.10);
+  --nx-shadow-lg: 0 12px 32px rgba(16,24,40,.10);
+  --nx-fs-title: 20px; --nx-fs-section: 13px; --nx-fs-body: 13px;
+  --nx-fs-dense: 12.5px; --nx-fs-caption: 12px; --nx-fs-caption-s: 11px;
+  --nx-sp-1: 4px; --nx-sp-2: 8px; --nx-sp-3: 12px; --nx-sp-4: 16px; --nx-sp-5: 24px; --nx-sp-6: 32px;
 }
 
 /* P3-17 다크 모드 — 호스트 셸과 동일 토큰 오버라이드(<html data-theme="dark">). 디자이너 크롬(툴바·
@@ -23,27 +41,44 @@
   --nx-bg: #0d1420;
   --nx-card: #161f2e;
   --nx-border: #2b3750;
+  --nx-border-soft: #24304a;
   --nx-head: #1b2536;
   --nx-text: #dfe6f1;
+  --nx-text-2: #b9c4d6;
   --nx-muted: #8c9ab0;
+  --nx-hover: #1e293c;
+  --nx-hover-teal: #16302a;
+  --nx-success-bg: #12372a;
+  --nx-warning-bg: #3a2a12;
+  --nx-danger-bg:  #3a1a1e;
+  --nx-info-bg:    #16263f;
 }
 [data-theme="dark"] .nx-btn-ghost { background: var(--nx-head); color: var(--nx-text); }
 [data-theme="dark"] input, [data-theme="dark"] select, [data-theme="dark"] textarea {
   background: var(--nx-head); color: var(--nx-text); border-color: var(--nx-border); }
 
+/* 자체호스팅 Pretendard(호스트와 동일 파일 — 같은 오리진 /fonts에서 서빙, vite 단독 dev는 폴백 스택). */
+@font-face {
+  font-family: "Pretendard Variable";
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+  src: url("/fonts/PretendardVariable.woff2") format("woff2-variations");
+}
+
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; padding: 0; height: 100%; }
 body {
-  font-family: "Malgun Gothic", "Noto Sans KR", "Segoe UI", system-ui, sans-serif;
+  font-family: "Pretendard Variable", Pretendard, "Malgun Gothic", "Noto Sans KR", -apple-system, "Segoe UI", system-ui, sans-serif;
   color: var(--nx-text);
   background: var(--nx-bg);
-  font-size: 13px;
+  font-size: var(--nx-fs-body);
 }
 
 /* ===== 공통 버튼 ===== */
 .nx-btn {
-  border: 1px solid transparent; border-radius: 3px; padding: 7px 16px;
-  font-size: 13px; cursor: pointer; font-weight: 500; font-family: inherit;
+  border: 1px solid transparent; border-radius: var(--nx-radius-sm); padding: 7px 16px;
+  font-size: var(--nx-fs-body); cursor: pointer; font-weight: 500; font-family: inherit;
   line-height: 1.2;
 }
 .nx-btn:disabled { opacity: .5; cursor: not-allowed; }
@@ -51,25 +86,25 @@ body {
 .nx-btn-teal:not(:disabled):hover { background: var(--nx-teal-d); }
 .nx-btn-blue { background: var(--nx-blue); color: #fff; }
 .nx-btn-blue:not(:disabled):hover { filter: brightness(.95); }
-.nx-btn-ghost { background: #fff; color: #44506a; border-color: var(--nx-border); }
+.nx-btn-ghost { background: var(--nx-card); color: var(--nx-text-2); border-color: var(--nx-border); }
 .nx-btn-ghost:not(:disabled):hover { background: var(--nx-head); }
 .nx-btn-red { background: var(--nx-red); color: #fff; }
 .nx-btn-red:not(:disabled):hover { filter: brightness(.95); }
 
 /* ===== 공통 입력 ===== */
 .nx-input {
-  padding: 6px 9px; border: 1px solid var(--nx-border); border-radius: 3px;
-  font-size: 13px; font-family: inherit; color: var(--nx-text); background: #fff;
+  padding: 6px 9px; border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm);
+  font-size: var(--nx-fs-body); font-family: inherit; color: var(--nx-text); background: var(--nx-card);
 }
 .nx-input:focus { outline: none; border-color: var(--nx-teal); box-shadow: 0 0 0 2px rgba(21, 184, 154, .15); }
 
 /* ===== 카드/패널 ===== */
-.nx-card { background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: 4px; }
+.nx-card { background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: var(--nx-radius); }
 
 /* ===== 디자이너 셸 ===== */
 .nx-designer { display: flex; flex-direction: column; height: 100vh; background: var(--nx-bg); }
 
-/* 디자이너 상단바 — 네이비 + 화이트 텍스트 */
+/* 디자이너 상단바 — 네이비 + 화이트 텍스트(사이드바와 같은 고정 네이비 구역 — hex 허용). */
 .nx-designer-bar {
   display: flex; gap: 12px; align-items: center;
   height: 56px; flex: 0 0 56px; padding: 0 16px;
@@ -77,9 +112,9 @@ body {
 }
 .nx-designer-bar .nx-brand { font-weight: 700; font-size: 15px; letter-spacing: .3px; color: #fff; }
 .nx-designer-bar .nx-brand small { color: var(--nx-teal); font-weight: 600; font-size: 10px; letter-spacing: 2px; display: block; }
-.nx-designer-bar .nx-uiid { color: #9fb0c8; font-size: 12px; }
-.nx-designer-bar .nx-input { background: #fff; }
-.nx-designer-bar .nx-status { margin-left: auto; color: #c3ccd9; font-size: 12.5px; }
+.nx-designer-bar .nx-uiid { color: #9fb0c8; font-size: var(--nx-fs-caption); }
+.nx-designer-bar .nx-input { background: var(--nx-card); }
+.nx-designer-bar .nx-status { margin-left: auto; color: #c3ccd9; font-size: var(--nx-fs-dense); }
 
 /* 디자이너 본문(블록 | 캔버스 | 트레이트) */
 .nx-designer-body { display: flex; flex: 1; min-height: 0; }
@@ -93,7 +128,7 @@ body {
 .nx-panel-head {
   flex: 0 0 auto; padding: 9px 14px; background: var(--nx-head);
   border-bottom: 1px solid var(--nx-border);
-  color: var(--nx-teal); font-weight: 700; font-size: 12.5px; letter-spacing: .2px;
+  color: var(--nx-teal); font-weight: 700; font-size: var(--nx-fs-dense); letter-spacing: .2px;
 }
 .nx-panel-scroll { flex: 1; overflow: auto; min-height: 0; }
 /* 캔버스 프레임 */
@@ -101,22 +136,23 @@ body {
 
 .nx-gate { padding: 2rem; color: var(--nx-muted); }
 
-/* GrapesJS 매니저를 SmartUX 팔레트에 살짝 맞춤(틸 액센트). 기능엔 영향 없음. */
-.nx-panel .gjs-block { border-radius: 3px; }
+/* GrapesJS 매니저를 NexaOne 팔레트에 살짝 맞춤(틸 액센트). 기능엔 영향 없음. */
+.nx-panel .gjs-block { border-radius: var(--nx-radius-sm); }
 .nx-panel .gjs-block:hover { color: var(--nx-teal-d); border-color: var(--nx-teal); }
 
 /* ===== 로그인 ===== */
 .nx-login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--nx-navy); }
 .nx-login-card {
-  width: 340px; background: var(--nx-card); border-radius: 6px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, .25); padding: 28px 28px 24px;
+  width: 340px; background: var(--nx-card); border-radius: var(--nx-radius-lg);
+  box-shadow: var(--nx-shadow-lg); padding: 28px 28px 24px;
   display: grid; gap: 12px;
 }
-.nx-login-card h1 { margin: 0 0 4px; font-size: 18px; font-weight: 700; color: var(--nx-navy); text-align: center; }
-.nx-login-card h1 small { display: block; color: var(--nx-teal); font-weight: 600; font-size: 11px; letter-spacing: 2px; margin-top: 4px; }
+/* 제목은 표면 텍스트 토큰 — 구 --nx-navy 직지정은 다크에서 암전 텍스트가 됐다. */
+.nx-login-card h1 { margin: 0 0 4px; font-size: var(--nx-fs-title); font-weight: 700; color: var(--nx-text); text-align: center; }
+.nx-login-card h1 small { display: block; color: var(--nx-teal); font-weight: 600; font-size: var(--nx-fs-caption-s); letter-spacing: 2px; margin-top: 4px; }
 .nx-login-card .nx-input { width: 100%; padding: 9px 11px; }
 .nx-login-card .nx-btn { width: 100%; padding: 9px; }
-.nx-error { color: var(--nx-red); font-size: 12.5px; margin: 0; }
+.nx-error { color: var(--nx-red); font-size: var(--nx-fs-dense); margin: 0; }
 
 /* ===== 대시보드/앱 셸 ===== */
 .nx-app { max-width: 860px; margin: 0 auto; padding: 0 16px 32px; }
@@ -125,14 +161,14 @@ body {
   background: var(--nx-navy); color: #fff;
   margin: 0 -16px 20px; padding: 0 16px; height: 56px;
 }
-.nx-app-topbar .nx-user { font-size: 13px; color: #e6ebf2; }
+.nx-app-topbar .nx-user { font-size: var(--nx-fs-body); color: #e6ebf2; }
 .nx-app-topbar .nx-actions { display: flex; gap: 10px; align-items: center; }
-.nx-app-topbar a { color: var(--nx-teal); text-decoration: none; font-size: 13px; font-weight: 600; }
+.nx-app-topbar a { color: var(--nx-teal); text-decoration: none; font-size: var(--nx-fs-body); font-weight: 600; }
 .nx-app-topbar a:hover { text-decoration: underline; }
-.nx-section-title { font-size: 15px; font-weight: 700; color: #1f2a3d; margin: 18px 0 8px; }
+.nx-section-title { font-size: 14px; font-weight: 700; color: var(--nx-text); margin: 18px 0 8px; }
 .nx-list { list-style: none; padding: 0; margin: 0; }
 .nx-list li {
-  background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: 4px;
-  padding: 8px 12px; margin-bottom: 6px; font-size: 13px;
+  background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm);
+  padding: 8px 12px; margin-bottom: 6px; font-size: var(--nx-fs-body);
 }
 .nx-muted { color: var(--nx-muted); }

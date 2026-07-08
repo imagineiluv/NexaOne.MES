@@ -10,7 +10,7 @@ describe('SPA 라우팅', () => {
         <AppRoutes session={null} setSession={() => {}} />
       </MemoryRouter>,
     )
-    expect(screen.getByRole('heading', { name: /Pro-Code/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /NexaOne 디자이너/i })).toBeInTheDocument()
   })
 
   it('루트 경로는 로그인 화면', () => {
@@ -19,6 +19,6 @@ describe('SPA 라우팅', () => {
         <AppRoutes session={null} setSession={() => {}} />
       </MemoryRouter>,
     )
-    expect(screen.getByRole('heading', { name: /Pro-Code/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /NexaOne 디자이너/i })).toBeInTheDocument()
   })
 })
