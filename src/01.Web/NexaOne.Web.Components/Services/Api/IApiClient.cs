@@ -7,6 +7,11 @@ public interface IApiClient
     Task<IReadOnlyList<Dictionary<string, object?>>> ExecuteQueryAsync(
         string queryId, object? parameters = null, CancellationToken ct = default);
 
+    // 제네릭 서버 페이징(read) — /query/{id}/paged로 {total, rows}를 받는다(DB-레벨 LIMIT).
+    // null = 미지원/실패(404·422·구버전 서버) 신호 — 호출측(MetaScreen)이 전량 경로로 폴백한다.
+    Task<PagedQueryResult?> ExecuteQueryPagedAsync(
+        string queryId, object? parameters = null, int limit = 500, int offset = 0, CancellationToken ct = default);
+
     // 등록된 쓰기(command) query id 실행 — 성공 여부 반환(저코드 폼 저장 경로). 감사 컬럼은 게이트웨이가 주입.
     Task<bool> ExecuteCommandAsync(
         string queryId, object? parameters = null, CancellationToken ct = default);

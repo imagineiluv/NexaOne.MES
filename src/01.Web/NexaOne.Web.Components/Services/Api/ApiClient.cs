@@ -288,6 +288,19 @@ public sealed class ApiClient : IApiClient
             ?? new List<Dictionary<string, object?>>();
     }
 
+    // 제네릭 서버 페이징 — 등록 read 쿼리를 페이징 절로 감싼 {total, rows}. 실패(404/422/구버전)는 null로
+    // 신호해 호출측이 전량 경로(ExecuteQueryAsync)로 폴백한다(하이브리드 페이징의 안전판).
+    public async Task<PagedQueryResult?> ExecuteQueryPagedAsync(
+        string queryId, object? parameters = null, int limit = 500, int offset = 0, CancellationToken ct = default)
+    {
+        using var resp = await SendAsync(
+            HttpMethod.Post, $"api/v1/query/{Uri.EscapeDataString(queryId)}/paged",
+            new { parameters = parameters ?? new { }, limit, offset }, ct);
+        if (!resp.IsSuccessStatusCode) return null;
+        try { return await resp.Content.ReadFromJsonAsync<PagedQueryResult>(ct); }
+        catch { return null; }
+    }
+
     // 등록된 쓰기(command) query id를 실행한다(메타 화면 폼 저장 등). 성공 여부를 반환하고,
     // 403/5xx는 SendAsync가 전역 토스트로 노출한다(감사 컬럼은 게이트웨이가 토큰·UTC로 주입).
     public async Task<bool> ExecuteCommandAsync(

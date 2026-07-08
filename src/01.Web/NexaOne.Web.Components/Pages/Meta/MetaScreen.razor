@@ -141,7 +141,7 @@ else
        SmartUX 레퍼런스의 '리스트 카드'(헤더+그리드) 형태로 감싼다. *@
     @if (_definition.Columns is { Count: > 0 })
     {
-        var serverPaged = !string.IsNullOrWhiteSpace(_definition.CountQueryId);
+        var serverPaged = !string.IsNullOrWhiteSpace(_definition.CountQueryId) || _hybridServer;
         var resultCount = serverPaged ? _serverTotal : _rows?.Count ?? 0;
         <div class="mes-card">
             <div class="mes-card-head">
@@ -284,6 +284,7 @@ else
         // 데이터(그리드 행 + 레이아웃 결과맵) 조회 — 자동 새로고침과 공유하는 단일 경로.
         _serverPage = 0;   // 화면 전환 시 서버 페이징 상태 초기화(P3-9 v2)
         _serverTotal = 0;
+        _hybridServer = false;   // 하이브리드 서버 페이징도 화면 전환 시 리셋(첫 조회가 재판정)
         await ReloadDataAsync();
 
         // 레이아웃 화면: 저장 버튼/멀티폼 인덱스는 정의 로드 시 1회만 구성한다(새로고침이 폼 상태를 건드리지 않게).
@@ -477,6 +478,9 @@ else
     // ── 서버측 페이징(P3-9 v2, CountQueryId 화면) ────────────────────────────
     private int _serverPage;
     private int _serverTotal;
+    // 하이브리드 서버 페이징(DB-레벨 LIMIT) — CountQueryId 없는 화면이 첫 조회 total>상한이면 true로
+    // 전환돼 페이지 단위 재조회(paged 게이트웨이). 상한 이하/미지원은 false(기존 클라 모드).
+    private bool _hybridServer;
 
     private async Task OnServerPageChangeAsync(int page)
     {
@@ -522,7 +526,39 @@ else
                 }
                 else
                 {
-                    _rows = await Api.ExecuteQueryAsync(_definition.QueryId, search);
+                    // 하이브리드 서버 페이징(DB-레벨 LIMIT) — 첫 조회는 클라 상한(MaxClientRows)창으로 요청:
+                    // total ≤ 상한이면 전량 적재(클라 모드 — 빠른/컬럼 필터 유지), 초과면 서버 모드로 전환해
+                    // 페이지 단위(PageSize)만 오간다. paged 미지원(자체 LIMIT 쿼리·구버전 서버)은 null →
+                    // 기존 전량 경로 폴백(안전판). 검색 조건 변경은 RunSearchAsync가 _serverPage=0으로 재판정.
+                    var cap = MetaGridRenderer.MaxClientRows;
+                    var paged = _hybridServer
+                        ? await Api.ExecuteQueryPagedAsync(_definition.QueryId, search,
+                              MetaGridRenderer.PageSize, _serverPage * MetaGridRenderer.PageSize)
+                        : await Api.ExecuteQueryPagedAsync(_definition.QueryId, search, cap, 0);
+                    if (paged is null)
+                    {
+                        _hybridServer = false;
+                        _rows = await Api.ExecuteQueryAsync(_definition.QueryId, search);
+                    }
+                    else if (!_hybridServer && paged.Total > cap)
+                    {
+                        _hybridServer = true;
+                        _serverTotal = paged.Total;
+                        _serverPage = 0;
+                        _rows = paged.Rows.Take(MetaGridRenderer.PageSize).ToList();
+                    }
+                    else if (_hybridServer)
+                    {
+                        _serverTotal = paged.Total;
+                        var maxPage = paged.Total > 0 ? (paged.Total - 1) / MetaGridRenderer.PageSize : 0;
+                        if (_serverPage > maxPage) _serverPage = maxPage;
+                        _rows = paged.Rows;
+                        if (paged.Total <= cap) _hybridServer = false;   // 줄어들면 다음 조회부터 클라 모드 복귀
+                    }
+                    else
+                    {
+                        _rows = paged.Rows;   // total ≤ 상한 — 전량(클라 모드)
+                    }
                 }
             }
 

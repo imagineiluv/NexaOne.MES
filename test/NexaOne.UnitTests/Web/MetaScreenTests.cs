@@ -836,6 +836,73 @@ public sealed class MetaScreenTests
         posted["MDM.CreatePlant"].Keys.Should().NotContain("areaId", "폼 간 모델이 격리돼야 한다");
     }
 
+    // ── 하이브리드 서버 페이징(DB-레벨 LIMIT) — total≤상한=클라 모드, 초과=서버 모드, 미지원=전량 폴백 ──
+
+    [Fact]
+    public void Hybrid_small_total_stays_client_mode_with_full_rows()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
+        var def = new ScreenDefinition("HY1", "소형 목록", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("ID", "ID") }, QueryId: "Q.Small");
+
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryPagedAsync("Q.Small", It.IsAny<object?>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(new PagedQueryResult(2, new List<Dictionary<string, object?>>
+           {
+               new() { ["ID"] = "A" }, new() { ["ID"] = "B" },
+           }));
+        ctx.Services.AddSingleton(Provider("HY1", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "HY1"));
+        cut.WaitForAssertion(() =>
+        {
+            cut.FindAll(".rz-data-row").Count.Should().Be(2, "total≤상한이면 전량(클라 모드)");
+            cut.FindAll("input.meta-grid-filter").Should().NotBeEmpty("클라 모드는 빠른 필터 유지");
+        });
+        // 전량 경로(ExecuteQueryAsync)는 호출되지 않는다 — paged가 데이터 소스.
+        api.Verify(a => a.ExecuteQueryAsync("Q.Small", It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public void Hybrid_large_total_switches_to_server_paging_and_pages_by_offset()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
+        var def = new ScreenDefinition("HY2", "대형 목록", Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[] { new("ID", "ID") }, QueryId: "Q.Big");
+
+        var offsets = new List<(int Limit, int Offset)>();
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryPagedAsync("Q.Big", It.IsAny<object?>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+           .Callback<string, object?, int, int, CancellationToken>((_, _, l, o, _) => offsets.Add((l, o)))
+           .ReturnsAsync((string _, object? _, int limit, int offset, CancellationToken _) =>
+               new PagedQueryResult(1200, Enumerable.Range(offset, Math.Min(limit, 20))
+                   .Select(i => new Dictionary<string, object?> { ["ID"] = $"R{i:D4}" }).ToList()));
+        ctx.Services.AddSingleton(Provider("HY2", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "HY2"));
+        cut.WaitForAssertion(() =>
+        {
+            // total>상한 → 서버 모드: 총건수 페이저 + 현재 페이지(20행)만.
+            cut.Markup.Should().Contain("1200 행").And.Contain("1 / 60");
+            cut.FindAll(".rz-data-row").Count.Should().Be(20);
+            cut.FindAll("input.meta-grid-filter").Should().BeEmpty("서버 모드는 빠른 필터 숨김(현재 페이지만 걸려 오해)");
+        });
+
+        // 다음 페이지 → offset=20으로 페이지 단위 재조회.
+        cut.FindAll(".meta-grid-pager button").Last(b => !b.HasAttribute("disabled")).Click();
+        cut.WaitForAssertion(() =>
+        {
+            offsets.Should().Contain((MetaGridRenderer.PageSize, 20), "서버 모드 페이지 전환은 PageSize 창으로 재조회");
+            cut.Markup.Should().Contain("2 / 60");
+        });
+    }
+
     // ── 그리드 '추가' 팝업(사용자 요청) — 툴바 추가 → 모달 폼 → 저장=커맨드+재조회, 취소=닫기 ──────
 
     [Fact]

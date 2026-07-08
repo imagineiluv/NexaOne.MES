@@ -19,11 +19,14 @@ public sealed partial class QueryGatewayController : ControllerBase
 {
     private readonly IRuleDispatcher _dispatcher;
     private readonly IQueryRegistry _queryRegistry;
+    private readonly Microsoft.Extensions.Configuration.IConfiguration _config;
 
-    public QueryGatewayController(IRuleDispatcher dispatcher, IQueryRegistry queryRegistry)
+    public QueryGatewayController(IRuleDispatcher dispatcher, IQueryRegistry queryRegistry,
+        Microsoft.Extensions.Configuration.IConfiguration config)
     {
         _dispatcher = dispatcher;
         _queryRegistry = queryRegistry;
+        _config = config;
     }
 
     [HttpPost("query/{queryId}")]
@@ -45,6 +48,44 @@ public sealed partial class QueryGatewayController : ControllerBase
         var p = BuildParameters(def.Sql, parameters, injectAudit: false);
         var rows = await _dispatcher.QueryAsync(def.Sql, p, ct);
         return Ok(rows);
+    }
+
+    /// <summary>제네릭 서버 페이징(read 전용) — 등록 쿼리를 방언별 페이징 절로 감싸 {total, rows}를 반환한다.
+    /// 쿼리 원문 무수정(PagedSqlBuilder). 자체 상한 보유 쿼리는 422 — 클라이언트(MetaScreen)가 전량 경로로 폴백.</summary>
+    [HttpPost("query/{queryId}/paged")]
+    [ProducesResponseType<PagedQueryResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> ExecuteQueryPaged(
+        [FromRoute] string queryId, [FromBody] PagedQueryRequest request, CancellationToken ct)
+    {
+        if (!_queryRegistry.TryGet(queryId, out var def) || def is null)
+            return NotFound(new Error("QUERY_NOT_FOUND", $"Query '{queryId}' is not registered.", ErrorType.NotFound));
+        if (def.IsWrite)
+            return BadRequest(new Error("WRITE_QUERY_VIA_QUERY", $"Query '{queryId}' is a write query. Use POST /api/v1/command/{queryId}.", ErrorType.Validation));
+        if (!string.IsNullOrEmpty(def.RequiredPermission) && !User.HasPermission(def.RequiredPermission))
+            return Forbid();
+
+        var provider = _config["Database:Provider"] ?? "Sqlite";
+        if (!PagedSqlBuilder.TryBuild(def.Sql, provider, out var pageSql, out var countSql))
+            return UnprocessableEntity(new Error("QUERY_NOT_PAGEABLE",
+                $"Query '{queryId}' declares its own limit clause and cannot be server-paged.", ErrorType.Validation));
+
+        var p = BuildParameters(def.Sql, request.Parameters, injectAudit: false);
+        var countRows = await _dispatcher.QueryAsync(countSql, p, ct);
+        var first = countRows.FirstOrDefault()?.Values.FirstOrDefault();
+        var total = first switch { int i => i, long l => (int)l, _ => int.TryParse(first?.ToString(), out var n) ? n : 0 };
+
+        var paged = new Dictionary<string, object>(p, StringComparer.Ordinal)
+        {
+            ["__limit"] = Math.Clamp(request.Limit, 1, 500),
+            ["__offset"] = Math.Max(0, request.Offset),
+        };
+        var rows = await _dispatcher.QueryAsync(pageSql, paged, ct);
+        return Ok(new PagedQueryResponse(total, rows));
     }
 
     [HttpPost("command/{queryId}")]
@@ -106,3 +147,9 @@ public sealed partial class QueryGatewayController : ControllerBase
 
 /// <summary>쓰기 게이트웨이 영향 행 수 응답(RuleController의 AffectedRowsResponse와 동일 형태).</summary>
 public sealed record AffectedRowsResponse(int Affected);
+
+/// <summary>제네릭 서버 페이징 요청 — 검색 파라미터 + 페이지 창(limit 1~500 클램프).</summary>
+public sealed record PagedQueryRequest(Dictionary<string, object>? Parameters, int Limit, int Offset);
+
+/// <summary>제네릭 서버 페이징 응답 — 총건수(페이저용) + 현재 페이지 행.</summary>
+public sealed record PagedQueryResponse(int Total, IReadOnlyList<Dictionary<string, object?>> Rows);
