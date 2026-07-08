@@ -36,4 +36,17 @@
             DELETE FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID = @purchaseOrderId
         ]]></statement>
     </query>
+    <!-- 그리드 일괄 명령(kind="write") — BulkCommands가 선택 행마다 호출하는 가드된 상태전이(허용 소스 상태만 UPDATE, 그 외 행은 무영향=affected 0). DDL 주석의 STATUS 도메인이 근거. MSSQL판 동일. -->
+    <query id="PRC.OrderPurchaseOrder" kind="write" requiredPermission="prc:manage">
+        <statement><![CDATA[
+            UPDATE PRC_PURCHASE_ORDER SET STATUS = 'Ordered', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+            WHERE PURCHASE_ORDER_ID = @purchaseOrderId AND STATUS = 'Draft'
+        ]]></statement>
+    </query>
+    <query id="PRC.ClosePurchaseOrder" kind="write" requiredPermission="prc:manage">
+        <statement><![CDATA[
+            UPDATE PRC_PURCHASE_ORDER SET STATUS = 'Closed', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+            WHERE PURCHASE_ORDER_ID = @purchaseOrderId AND STATUS IN ('Ordered', 'Incoming')
+        ]]></statement>
+    </query>
 </queries>

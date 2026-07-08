@@ -45,6 +45,7 @@
         <MetaGridRenderer Columns="g.Columns ?? Array.Empty<GridColumnDefinition>()" Rows="RowsFor(g.QueryId)"
                           Loading="LoadingData" OnRowSelect="OnRowSelect" ScreenKey="@GridKey(g)"
                           CanAdd="CanAdd" OnAddNew="OnAddNew" CanDelete="CanDelete" OnDeleteRows="OnDeleteRows"
+                          BulkCommands="BulkCommands" OnBulkCommand="OnBulkCommand"
                           ServerTotal="paging?.Total" ServerPage="paging?.Page ?? 0"
                           OnServerPageChange="EventCallback.Factory.Create<int>(this, p => OnGridPageChange.InvokeAsync((qid!, p)))" />
         break;
@@ -172,6 +173,10 @@
     [Parameter] public bool CanDelete { get; set; }
     [Parameter] public EventCallback<List<Dictionary<string, object?>>> OnDeleteRows { get; set; }
 
+    // 그리드 일괄 명령(도메인 상태전이) — 화면 정의의 버튼/콜백을 그리드 위젯까지 내려보낸다.
+    [Parameter] public IReadOnlyList<BulkCommandDefinition>? BulkCommands { get; set; }
+    [Parameter] public EventCallback<(BulkCommandDefinition Command, List<Dictionary<string, object?>> Rows)> OnBulkCommand { get; set; }
+
     // 레이아웃 그리드 하이브리드 페이징 — 서버 모드 위젯(queryId)의 총건수/페이지 맵 + 페이지 전환 콜백.
     [Parameter] public IReadOnlyDictionary<string, (int Total, int Page)>? GridPaging { get; set; }
     [Parameter] public EventCallback<(string QueryId, int Page)> OnGridPageChange { get; set; }
@@ -225,6 +230,8 @@
             builder.AddAttribute(14, nameof(OnDeleteRows), OnDeleteRows);
             builder.AddAttribute(15, nameof(GridPaging), GridPaging);
             builder.AddAttribute(16, nameof(OnGridPageChange), OnGridPageChange);
+            builder.AddAttribute(17, nameof(BulkCommands), BulkCommands);
+            builder.AddAttribute(18, nameof(OnBulkCommand), OnBulkCommand);
             builder.CloseComponent();
         }
     };

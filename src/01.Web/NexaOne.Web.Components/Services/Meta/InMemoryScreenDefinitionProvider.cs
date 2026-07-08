@@ -1137,7 +1137,12 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("purchaseOrderName", "발주명"), new("vendorId", "거래처"),
                 new("orderQty", "발주수량", FieldType.Number, Required: true),
             },
-            prcOrderCols, QueryId: "PRC.PurchaseOrderList", SaveQueryId: "PRC.CreatePurchaseOrder", DeleteQueryId: "PRC.DeletePurchaseOrder"));
+            prcOrderCols, QueryId: "PRC.PurchaseOrderList", SaveQueryId: "PRC.CreatePurchaseOrder", DeleteQueryId: "PRC.DeletePurchaseOrder",
+            BulkCommands: new BulkCommandDefinition[]
+            {
+                new("발주", "PRC.OrderPurchaseOrder"),  // Draft→Ordered(가드)
+                new("마감", "PRC.ClosePurchaseOrder"),  // Ordered/Incoming→Closed(가드)
+            }));
         Register(new ScreenDefinition("FACTORY_PRC_REPORT_PURCHASEORDER", "구매오더 현황",
             Array.Empty<FieldDefinition>(), prcOrderCols, QueryId: "PRC.PurchaseOrderList"));
 
@@ -1158,7 +1163,12 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("STATUS", "상태"), new("IS_HOLD", "홀드"),
             },
             QueryId: "SLS.SalesOrderList",
-            SaveQueryId: "SLS.CreateSalesOrder", DeleteQueryId: "SLS.DeleteSalesOrder"));
+            SaveQueryId: "SLS.CreateSalesOrder", DeleteQueryId: "SLS.DeleteSalesOrder",
+            BulkCommands: new BulkCommandDefinition[]
+            {
+                new("확정", "SLS.ConfirmSalesOrder"),   // Draft→Confirmed(가드)
+                new("마감", "SLS.CloseSalesOrder"),     // Producing/Delivered→Closed(가드)
+            }));
 
         // 판매 요청(FACTORY_SLS_SALES_REQUEST) — 판매요청(SLS.SalesRequestList).
         Register(new ScreenDefinition("FACTORY_SLS_SALES_REQUEST", "판매 요청",
@@ -1506,7 +1516,12 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("workOrderName", "W/O명"), new("equipmentId", "설비"), new("productId", "품목"),
                 new("planQty", "계획수량", FieldType.Number, Required: true),
             },
-            pomWoCols, QueryId: "POM.WorkOrderList", SaveQueryId: "POM.CreateWorkOrder", DeleteQueryId: "POM.DeleteWorkOrder"));
+            pomWoCols, QueryId: "POM.WorkOrderList", SaveQueryId: "POM.CreateWorkOrder", DeleteQueryId: "POM.DeleteWorkOrder",
+            BulkCommands: new BulkCommandDefinition[]
+            {
+                new("확정", "POM.ReleaseWorkOrder"),   // Created→Released(가드)
+                new("취소", "POM.CancelWorkOrder"),    // Created/Released→Cancelled(가드)
+            }));
         Register(new ScreenDefinition("FACTORY_PPM_REPORT_WORKORDER", "작업지시 현황",
             Array.Empty<FieldDefinition>(), pomWoCols, QueryId: "POM.WorkOrderList"));
 

@@ -92,6 +92,8 @@ export function ScreenEditor() {
         refreshIntervalSeconds: flatRef.current?.refreshIntervalSeconds,
         searchFields: flatRef.current?.searchFields,
         countQueryId: flatRef.current?.countQueryId,
+        deleteQueryId: flatRef.current?.deleteQueryId,
+        bulkCommands: flatRef.current?.bulkCommands,
       })
       setStatus('저장됨')
     } catch {

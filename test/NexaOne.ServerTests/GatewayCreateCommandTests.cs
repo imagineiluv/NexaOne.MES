@@ -165,6 +165,47 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
         rows[0]["PHONE"].ToString().Should().Be("02-222-2222");
     }
 
+    [Fact]
+    public async Task Bulk_transition_commands_are_state_guarded()
+    {
+        // 그리드 일괄 명령 — 가드된 전이: 허용 소스 상태만 UPDATE, 그 외는 무영향(affected 0이어도 200).
+        var poId = $"PO_{Suffix()}";
+        var client = AuthedClient("bulk-prc", "prc:manage");
+        (await client.PostAsJsonAsync("/api/v1/command/PRC.CreatePurchaseOrder", new Dictionary<string, object>
+        {
+            ["purchaseOrderId"] = poId, ["plantId"] = "PLANT01", ["purchaseOrderName"] = "일괄 전이 검증",
+            ["vendorId"] = "V1", ["orderQty"] = 10,
+        })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        async Task<string> StatusOf() =>
+            (await Query("PRC.PurchaseOrderList", new()))
+                .Single(r => r["PURCHASE_ORDER_ID"].ToString() == poId)["STATUS"]!.ToString()!;
+
+        (await StatusOf()).Should().Be("Draft", "생성 기본 상태(DDL DEFAULT)");
+
+        // Draft 상태에서 '마감' 시도 → 가드 미충족(Ordered/Incoming 아님) — 200이지만 상태 불변.
+        (await client.PostAsJsonAsync("/api/v1/command/PRC.ClosePurchaseOrder",
+            new Dictionary<string, object> { ["purchaseOrderId"] = poId }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await StatusOf()).Should().Be("Draft", "가드된 전이는 소스 상태 밖 행을 건드리지 않는다");
+
+        // 발주(Draft→Ordered) → 마감(Ordered→Closed) 순차 전이.
+        (await client.PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
+            new Dictionary<string, object> { ["purchaseOrderId"] = poId }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await StatusOf()).Should().Be("Ordered");
+
+        (await client.PostAsJsonAsync("/api/v1/command/PRC.ClosePurchaseOrder",
+            new Dictionary<string, object> { ["purchaseOrderId"] = poId }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await StatusOf()).Should().Be("Closed");
+
+        // 무권한 → 403.
+        (await AuthedClient("bulk-noperm").PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
+            new Dictionary<string, object> { ["purchaseOrderId"] = poId }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)
     {
         var res = await AuthedClient("cmd-reader").PostAsJsonAsync($"/api/v1/query/{queryId}", p);

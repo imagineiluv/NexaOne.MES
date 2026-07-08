@@ -247,6 +247,8 @@ export function buildDefinitionJson(
   refreshIntervalSeconds?: number | null,
   searchFields?: FieldDefinition[] | null,
   countQueryId?: string | null,
+  deleteQueryId?: string | null,
+  bulkCommands?: import('./layout').BulkCommandDefinition[] | null,
 ): string {
   const dto: ScreenDefinitionDto = {
     uiId, title, fields: [], columns: null, queryId: null, saveQueryId: null,
@@ -255,6 +257,8 @@ export function buildDefinitionJson(
     ...(refreshIntervalSeconds != null ? { refreshIntervalSeconds } : {}),
     ...(searchFields != null && searchFields.length > 0 ? { searchFields } : {}),
     ...(countQueryId != null && countQueryId.length > 0 ? { countQueryId } : {}),
+    ...(deleteQueryId != null && deleteQueryId.length > 0 ? { deleteQueryId } : {}),
+    ...(bulkCommands != null && bulkCommands.length > 0 ? { bulkCommands } : {}),
   }
   return JSON.stringify(dto)
 }
@@ -270,6 +274,8 @@ export function parseDefinition(json: string): { title: string; layout: LayoutNo
       refreshIntervalSeconds: dto.refreshIntervalSeconds ?? null,
       searchFields: Array.isArray(dto.searchFields) && dto.searchFields.length > 0 ? dto.searchFields : null,
       countQueryId: dto.countQueryId ?? null,
+      deleteQueryId: dto.deleteQueryId ?? null,
+      bulkCommands: Array.isArray(dto.bulkCommands) && dto.bulkCommands.length > 0 ? dto.bulkCommands : null,
     }
     return { title: flat.title, layout: flat.layout ?? null, flat }
   } catch {

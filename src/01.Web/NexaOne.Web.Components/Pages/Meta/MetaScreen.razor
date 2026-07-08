@@ -78,6 +78,7 @@ else if (_definition.Layout is not null)
                             OnRowSelect="_rowSelect" LoadingData="_loadingData"
                             CanAdd="CanAddNew" OnAddNew="OnAddNewRequested"
                             CanDelete="@(_definition.DeleteQueryId is { Length: > 0 })" OnDeleteRows="OnDeleteRowsAsync"
+                            BulkCommands="_definition.BulkCommands" OnBulkCommand="OnBulkCommandAsync"
                             GridPaging="LayoutGridPaging" OnGridPageChange="OnLayoutGridPageChangeAsync" />
         </CascadingValue>
     </CascadingValue>
@@ -154,6 +155,7 @@ else
                                   Loading="_loadingData" OnRowSelect="_rowSelect" ScreenKey="@UiId"
                                   CanAdd="CanAddNew" OnAddNew="OnAddNewRequested"
                                   CanDelete="@(_definition.DeleteQueryId is { Length: > 0 })" OnDeleteRows="OnDeleteRowsAsync"
+                                  BulkCommands="_definition.BulkCommands" OnBulkCommand="OnBulkCommandAsync"
                                   ServerTotal="serverPaged ? _serverTotal : (int?)null"
                                   ServerPage="_serverPage" OnServerPageChange="OnServerPageChangeAsync" />
             </div>
@@ -722,6 +724,27 @@ else
         foreach (var row in rows)
             if (await Api.ExecuteCommandAsync(deleteQueryId, BuildDeleteParameters(row))) deleted++;
         if (deleted > 0) await ReloadDataAsync();   // 실패는 ApiClient 전역 토스트가 사유(403 등)를 알린다.
+    }
+
+    // 일괄 명령(상태전이) — 확인 다이얼로그 후 선택 행마다 가드된 전이 커맨드 실행, 완료 시 재조회.
+    // 소스 상태 밖 행은 쿼리 가드로 무영향(affected 0) — 혼합 선택도 안전하다.
+    private async Task OnBulkCommandAsync((BulkCommandDefinition Command, List<Dictionary<string, object?>> Rows) e)
+    {
+        if (e.Rows.Count == 0) return;
+        var dialogs = Services.GetService(typeof(Radzen.DialogService)) as Radzen.DialogService;
+        if (dialogs is not null)
+        {
+            var msg = e.Command.ConfirmMessage
+                ?? string.Format(T("common.bulkConfirm", "선택한 {0}건을 '{1}' 처리하시겠습니까?"), e.Rows.Count, e.Command.Label);
+            var ok = await dialogs.Confirm(msg, e.Command.Label,
+                new Radzen.ConfirmOptions { OkButtonText = e.Command.Label, CancelButtonText = T("common.cancel", "취소") });
+            if (ok != true) return;
+        }
+
+        var applied = 0;
+        foreach (var row in e.Rows)
+            if (await Api.ExecuteCommandAsync(e.Command.CommandQueryId, BuildDeleteParameters(row))) applied++;
+        if (applied > 0) await ReloadDataAsync();   // 실패는 ApiClient 전역 토스트가 사유를 알린다.
     }
 
     private static Dictionary<string, object?> BuildDeleteParameters(Dictionary<string, object?> row)

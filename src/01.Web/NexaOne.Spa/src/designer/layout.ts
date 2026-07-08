@@ -46,6 +46,9 @@ export interface BadgeWidget extends NodeBase { kind: 'statusBadge'; label?: str
 // valueColumns(P3-13 v2): 다중 시리즈 컬럼(콤마 구분 data 속성). 지정 시 valueColumn보다 우선.
 export interface TrendChartWidget extends NodeBase { kind: 'trendChart'; label: string; queryId?: string | null; valueColumn?: string | null; valueColumns?: string[] | null; maxPoints?: number; timeColumn?: string | null }
 
+// 그리드 일괄 명령(C# BulkCommandDefinition 미러) — 선택 행 상태전이 커맨드. 저장 왕복 보존 필수.
+export interface BulkCommandDefinition { label: string; commandQueryId: string; confirmMessage?: string | null }
+
 export interface ScreenDefinitionDto {
   uiId: string
   title: string
@@ -57,6 +60,8 @@ export interface ScreenDefinitionDto {
   refreshIntervalSeconds?: number | null   // 자동 새로고침 주기(초, Phase-2 실시간 v2) — 저장 왕복 보존 필수
   searchFields?: FieldDefinition[] | null  // 검색 조건 영역(C# ScreenDefinition.SearchFields 미러) — 저장 왕복 보존 필수
   countQueryId?: string | null             // 서버측 페이징 count 쿼리(P3-9 v2, C# CountQueryId 미러) — 저장 왕복 보존 필수
+  deleteQueryId?: string | null            // 그리드 표준 삭제(C# DeleteQueryId 미러) — 저장 왕복 보존 필수
+  bulkCommands?: BulkCommandDefinition[] | null // 그리드 일괄 명령 — 저장 왕복 보존 필수
 }
 
 export interface GrapesNode {

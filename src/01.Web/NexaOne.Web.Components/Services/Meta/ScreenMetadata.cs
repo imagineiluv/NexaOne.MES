@@ -20,6 +20,12 @@ public sealed record FieldDefinition(
 /// <summary>Select 옵션의 런타임 표현(값+표시 라벨) — 직렬화 계약이 아닌 렌더러 내부 타입.</summary>
 public sealed record MetaFieldOption(string Value, string Label);
 
+/// <summary>그리드 일괄 명령(도메인 상태전이) — 선택 행마다 명명 쓰기쿼리를 실행한다(툴바 버튼).
+/// <c>CommandQueryId</c>는 가드된 전이 UPDATE(예: STATUS='Created'인 행만 Released로) 관례 —
+/// 파라미터는 행 딕셔너리 듀얼키(원본 UPPER_SNAKE + camelCase)로 바인딩된다(DeleteQueryId와 동일).
+/// <c>ConfirmMessage</c> 미지정 시 런타임 기본 확인 문구("선택한 N건을 '{Label}' 처리…")를 쓴다.</summary>
+public sealed record BulkCommandDefinition(string Label, string CommandQueryId, string? ConfirmMessage = null);
+
 /// <summary>메타데이터 그리드 컬럼 정의. Width=고정 폭(px, null=자동) — 표시 순서는 목록 순서가 담당한다(Phase-2).</summary>
 public sealed record GridColumnDefinition(string Key, string Caption, bool Visible = true, int? Width = null);
 
@@ -46,7 +52,8 @@ public sealed record ScreenDefinition(
     int? RefreshIntervalSeconds = null,        // 자동 새로고침 주기(초, Phase-2 실시간 v2) — null/0=수동(기존 동작).
     IReadOnlyList<FieldDefinition>? SearchFields = null,
     string? CountQueryId = null,
-    string? DeleteQueryId = null);
+    string? DeleteQueryId = null,
+    IReadOnlyList<BulkCommandDefinition>? BulkCommands = null);
     // DeleteQueryId — 그리드 행 삭제(표준 CRUD)의 명명 쓰기쿼리. 지정 시 그리드 툴바에 삭제 버튼이 켜지고,
     // 선택 행(단일/선택모드 다중)을 확인 다이얼로그 후 /api/v1/command/{DeleteQueryId}로 보낸다.
     // @param 바인딩은 행 딕셔너리(원본 UPPER_SNAKE + camelCase 사본 병행)로 — PK 파라미터(@plantId 등)가

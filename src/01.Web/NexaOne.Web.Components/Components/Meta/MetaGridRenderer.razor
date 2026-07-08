@@ -94,6 +94,18 @@
                               title="@(SelectedCountForDelete == 0 ? T("common.deleteHint", "삭제할 행을 선택하세요") : null)"
                               ButtonStyle="Radzen.ButtonStyle.Danger" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
             }
+            @* 일괄 명령(상태전이) — 선택 행 대상. 가드된 전이 쿼리라 소스 상태 밖 행은 무영향. *@
+            @if (BulkCommands is { Count: > 0 } && OnBulkCommand.HasDelegate)
+            {
+                foreach (var cmd in BulkCommands)
+                {
+                    var c = cmd;
+                    <RadzenButton Icon="bolt" Text="@c.Label" Click="() => EmitBulkCommandAsync(c)"
+                                  Disabled="@(SelectedCountForDelete == 0)"
+                                  title="@(SelectedCountForDelete == 0 ? T("common.bulkHint", "대상 행을 선택하세요") : null)"
+                                  ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn nx-bulkcmd" />
+                }
+            }
             @* 빠른 필터 — 적재 행을 컬럼 무관 부분일치로 좁힌다(클라이언트 페이징 화면만; 서버 페이징은
                현재 페이지만 걸려 오해 소지가 있어 숨긴다). *@
             @if (ServerTotal is null && Rows.Count > 0)
@@ -328,6 +340,11 @@
     [Parameter] public bool CanDelete { get; set; }
     [Parameter] public EventCallback<List<Dictionary<string, object?>>> OnDeleteRows { get; set; }
 
+    // 그리드 일괄 명령(도메인 상태전이) — 화면 정의(BulkCommands)의 버튼을 툴바에 렌더하고,
+    // 클릭 시 선택 행(원본 딕셔너리)을 부모(MetaScreen)에 넘긴다(확인·실행·재조회는 부모 소유).
+    [Parameter] public IReadOnlyList<BulkCommandDefinition>? BulkCommands { get; set; }
+    [Parameter] public EventCallback<(BulkCommandDefinition Command, List<Dictionary<string, object?>> Rows)> OnBulkCommand { get; set; }
+
     // Radzen 바인딩용 변환분(원본 Rows와 동일 순서·인덱스). Radzen 동적 데이터는 ExpandoObject를 정식
     // 지원한다(IDictionary 인터페이스 자체는 Property 접근자 빌드가 실패). null 값은 렌더/정렬 안전상 ""으로.
     private List<System.Dynamic.ExpandoObject> _items = new();
@@ -458,11 +475,11 @@
     // 삭제 대상 수 — 일반 모드=단일 선택(0/1), 선택 모드=체크 수. 버튼 활성화 판단.
     private int SelectedCountForDelete => _selectMode ? _selected.Count : (_selectedItem is null ? 0 : 1);
 
-    // 선택 항목(Expando)을 원본 Rows 딕셔너리로 되짚어 부모에 넘긴다(삭제 파라미터 바인딩용 전체 컬럼).
-    private async Task DeleteSelectedAsync()
+    // 선택 항목(Expando)을 원본 Rows 딕셔너리로 되짚는다 — 삭제/일괄 명령 공용(전체 컬럼 파라미터 바인딩).
+    private List<Dictionary<string, object?>> SelectedOriginalRows()
     {
-        if (Rows is null || !OnDeleteRows.HasDelegate) return;
         var targets = new List<Dictionary<string, object?>>();
+        if (Rows is null) return targets;
         IEnumerable<System.Dynamic.ExpandoObject> picked = _selectMode ? _selected : (_selectedItem is null
             ? Enumerable.Empty<System.Dynamic.ExpandoObject>() : new[] { _selectedItem });
         foreach (var item in picked)
@@ -470,7 +487,21 @@
             var idx = _items.IndexOf(item);
             if (idx >= 0 && idx < Rows.Count) targets.Add(Rows[idx]);
         }
+        return targets;
+    }
+
+    private async Task DeleteSelectedAsync()
+    {
+        if (!OnDeleteRows.HasDelegate) return;
+        var targets = SelectedOriginalRows();
         if (targets.Count > 0) await OnDeleteRows.InvokeAsync(targets);
+    }
+
+    private async Task EmitBulkCommandAsync(BulkCommandDefinition command)
+    {
+        if (!OnBulkCommand.HasDelegate) return;
+        var targets = SelectedOriginalRows();
+        if (targets.Count > 0) await OnBulkCommand.InvokeAsync((command, targets));
     }
 
     // 컬럼 필터 — 적용본(_colFilters)과 편집 드래프트(_cfOp/_cfVal)를 분리(팝업에서 적용 눌러야 반영).

@@ -234,6 +234,40 @@ public sealed class MetaGridRendererTests
     }
 
     [Fact]
+    public void Bulk_commands_render_disabled_until_selection_and_emit_selected_rows()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("WORK_ORDER_ID", "W/O") };
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["WORK_ORDER_ID"] = "WO-1" }, new() { ["WORK_ORDER_ID"] = "WO-2" },
+        };
+        var cmds = new BulkCommandDefinition[] { new("확정", "POM.ReleaseWorkOrder") };
+        (BulkCommandDefinition Command, List<Dictionary<string, object?>> Rows)? emitted = null;
+
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, cols).Add(c => c.Rows, rows)
+            .Add(c => c.BulkCommands, cmds)
+            .Add(c => c.OnBulkCommand,
+                EventCallback.Factory.Create<(BulkCommandDefinition, List<Dictionary<string, object?>>)>(this, e => emitted = e)));
+
+        // 렌더 + 선택 전 비활성.
+        var btn = cut.FindAll(".meta-grid-toolbar button").First(b => b.TextContent.Contains("확정"));
+        btn.HasAttribute("disabled").Should().BeTrue("선택 행이 없으면 일괄 명령 비활성");
+
+        // 선택 모드 → 2행 체크 → 클릭 → (명령, 원본 행 2건) 방출.
+        cut.FindAll(".meta-grid-toolbar button").First(b => b.QuerySelector(".rzi")?.TextContent.Trim() == "checklist").Click();
+        var checks = cut.FindAll(".rz-data-row input[type=checkbox]");
+        checks[0].Change(true);
+        cut.FindAll(".rz-data-row input[type=checkbox]")[1].Change(true);
+        cut.FindAll(".meta-grid-toolbar button").First(b => b.TextContent.Contains("확정")).Click();
+
+        emitted.Should().NotBeNull();
+        emitted!.Value.Command.CommandQueryId.Should().Be("POM.ReleaseWorkOrder");
+        emitted.Value.Rows.Select(r => r["WORK_ORDER_ID"]).Should().BeEquivalentTo(new[] { "WO-1", "WO-2" });
+    }
+
+    [Fact]
     public void Column_filter_popup_applies_and_chips_show()
     {
         using var ctx = RadzenContext();

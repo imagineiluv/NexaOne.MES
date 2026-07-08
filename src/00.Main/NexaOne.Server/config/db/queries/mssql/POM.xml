@@ -176,4 +176,17 @@
             DELETE FROM POM_WORK_ORDER WHERE WORK_ORDER_ID = @workOrderId
         ]]></statement>
     </query>
+    <!-- 그리드 일괄 명령(kind="write") — BulkCommands가 선택 행마다 호출하는 가드된 상태전이(허용 소스 상태만 UPDATE, 그 외 행은 무영향=affected 0). DDL 주석의 STATUS 도메인이 근거. MSSQL판 동일. -->
+    <query id="POM.ReleaseWorkOrder" kind="write" requiredPermission="pom:manage">
+        <statement><![CDATA[
+            UPDATE POM_WORK_ORDER SET STATUS = 'Released', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+            WHERE WORK_ORDER_ID = @workOrderId AND STATUS = 'Created'
+        ]]></statement>
+    </query>
+    <query id="POM.CancelWorkOrder" kind="write" requiredPermission="pom:manage">
+        <statement><![CDATA[
+            UPDATE POM_WORK_ORDER SET STATUS = 'Cancelled', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+            WHERE WORK_ORDER_ID = @workOrderId AND STATUS IN ('Created', 'Released')
+        ]]></statement>
+    </query>
 </queries>
