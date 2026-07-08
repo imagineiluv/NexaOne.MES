@@ -466,7 +466,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 /* 필터/검색 바 */
 .mes-filterbar { display: flex; align-items: center; gap: 8px; background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); padding: 8px 10px; margin-bottom: 12px; }
-.mes-chip { border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); padding: 4px 10px; font-size: var(--nx-fs-caption); color: var(--nx-text-2); background: #fbfcfd; }
+.mes-chip { border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); padding: 4px 10px; font-size: var(--nx-fs-caption); color: var(--nx-text-2); background: var(--nx-hover); }
 
 /* 카드 */
 .mes-card { background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-lg); box-shadow: var(--nx-shadow-sm); }
@@ -550,6 +550,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .layout-section { background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-lg); padding: var(--nx-sp-5); margin-bottom: var(--nx-sp-4); box-shadow: var(--nx-shadow-sm); }
 .layout-section-title { color: var(--nx-text); font-weight: 700; font-size: var(--nx-fs-section); margin: 0 0 var(--nx-sp-4); padding-bottom: var(--nx-sp-3); border-bottom: 1px solid var(--nx-border-soft); display: flex; align-items: center; gap: var(--nx-sp-2); }
 .layout-section-title::before { content: ""; width: 3px; height: 14px; background: var(--nx-teal); border-radius: var(--nx-radius-sm); flex: 0 0 auto; }
+/* 섹션 제목 괄호 꼬리(메타정보) — 본제목보다 낮은 캡션 톤(배치 E). */
+.layout-section-meta { font-weight: 500; font-size: var(--nx-fs-caption); color: var(--nx-muted); margin-left: 2px; }
 /* 명령/저장 버튼은 이제 RadzenButton(Primary·Small — 테마 브리지로 --nx-teal 계열) — 크롬/hover/disabled는
    Radzen이 소유. .layout-command/.layout-save 클래스는 마커로만 유지(테스트 셀렉터). 색은 지정하지 않는다. */
 
@@ -585,6 +587,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .layout-kpi.linked:hover { transform: translateY(-2px); }
 .layout-kpi-label { font-size: var(--nx-fs-caption); color: var(--nx-muted); font-weight: 600; letter-spacing: .02em; }
 .layout-kpi-value { font-size: 36px; font-weight: 700; color: var(--nx-text); line-height: 1.0; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+/* 0 값 뮤트(배치 E) — 전부 0인 밴드의 '죽은 인상' 완화. 시맨틱 색(kpi-danger 등 >0)이 항상 우선. */
+.layout-kpi-value.zero { color: var(--nx-muted); font-weight: 600; }
 .layout-kpi-unit { font-size: var(--nx-fs-body); font-weight: 500; color: var(--nx-muted); margin-left: 5px; }
 /* 시맨틱 변형 — 좌측 바 + 숫자 색. */
 .layout-kpi.kpi-danger::before  { background: var(--nx-danger); }
@@ -594,6 +598,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .layout-kpi.kpi-success::before { background: var(--nx-success); }
 .layout-kpi.kpi-info::before    { background: var(--nx-info); }
 
+.layout-row { display: flex; flex-wrap: wrap; gap: 1rem; }
 /* 트렌드 차트(RadzenChart) 카드 — KPI 카드 톤 재사용, 폭만 넓게(그로우 상한 해제). */
 .layout-chart { flex: 2 1 24rem; min-width: 22rem; max-width: none; }
 .layout-chart::before { display: none; }
@@ -662,4 +667,16 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 /* P3-18 — 즐겨찾기 순서 버튼은 행 hover 시에만 노출(시각 소음 감소) */
 .fav-item .fav-move { visibility: hidden; }
 .fav-item:hover .fav-move { visibility: visible; }
+/* 사이드바 즐겨찾기(§20.12) 인라인 제거(배치 D) — 사이드바는 고정 네이비라 hex 허용 구역.
+   (최근 사용 섹션은 사용자 요청으로 사이드바에서 제거 — 셸 서버 추적은 유지) */
+.mes-side-caption { padding: 6px 14px 2px; font-size: var(--nx-fs-caption-s); color: #8ea0b8; letter-spacing: .05em; }
+.fav-item { display: flex; align-items: center; gap: 4px; padding: 5px 12px 5px 20px; font-size: var(--nx-fs-body); color: #d2dcea; }
+.fav-name { flex: 1; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fav-move { cursor: pointer; color: #8ea0b8; font-size: 10px; }
+.mes-side-divider { margin: 6px 14px; border-top: 1px solid rgba(255,255,255,.08); }
+/* 상단바 아이콘/별 — 인라인 cursor 제거(배치 D). 별 활성(즐겨찾기 등록됨)은 앰버 고정색. */
+.mes-topbar .tb-ico { cursor: pointer; }
+.mes-alertmenu .tb-ico { position: relative; }
+.mes-topbar .star { cursor: pointer; }
+.mes-topbar .star.active { color: #f59e0b; opacity: 1; }
 .mes-mditab.active .close:hover { background: rgba(255,255,255,.18); }

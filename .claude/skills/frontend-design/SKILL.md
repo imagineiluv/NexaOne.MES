@@ -11,6 +11,7 @@ Blazor Server 통합 호스트(NexaOne.Server) + RCL(NexaOne.Web.Components) + R
 ## 절대 규칙 (위반 = 리뷰 반려 수준)
 
 1. **인라인 `style=` 금지.** 전 스타일은 nexaone.css의 토큰 기반 클래스로. 동적 상태는 클래스 토글(`@(cond ? "is-disabled" : "")`).
+   **유일한 예외 = 런타임 계산 값**(컨텍스트 메뉴 좌표 `left/top`, 트리 깊이 패딩 `padding-left:@(Pad)px`, 사이드바 폭 CSS 변수, 레이아웃 span `flex-basis`) — 정적 색·폰트·간격은 예외 불가.
 2. **콘텐츠 영역에 hex 색 금지.** `--nx-*` 토큰만 — 인라인/하드코딩 hex는 `[data-theme="dark"]`에서 안 뒤집혀 다크 파손(흰 띠·암전 텍스트)을 만든다. 예외: 사이드바(항상 네이비 고정)의 `#2a3c5c` 계열, 로고 마크.
 3. **타입 램프 6단 밖 font-size 금지**: `--nx-fs-title`(20) / 14(강조) / `--nx-fs-section`·`--nx-fs-body`(13) / `--nx-fs-dense`(12.5, 그리드) / `--nx-fs-caption`(12) / `--nx-fs-caption-s`(11). 예외: 로고 태그(7.5/9), KPI 대형 수치(36), 아이콘 글리프.
 4. **radius 3단**: `--nx-radius-sm`(4, 인풋·칩) / `--nx-radius`(6) / `--nx-radius-lg`(10) + 999px(필)·50%(원). **그림자 3단**: `--nx-shadow-sm/md/lg`.

@@ -10,13 +10,21 @@
 {
     case SectionNode s:
         <section class="layout-section">
-            @if (!string.IsNullOrWhiteSpace(s.Title)) { <h3 class="layout-section-title">@s.Title</h3> }
+            @if (!string.IsNullOrWhiteSpace(s.Title))
+            {
+                @* 제목의 괄호 꼬리("운영 요약(30초 자동 새로고침)")는 메타정보 — 본제목과 동급 굵기로
+                   찍히던 것을 캡션 톤으로 분리한다(배치 E). 괄호 없으면 원문 그대로. *@
+                var open = s.Title.IndexOf('(');
+                var main = open > 0 ? s.Title[..open].TrimEnd() : s.Title;
+                var meta = open > 0 ? s.Title[open..] : null;
+                <h3 class="layout-section-title">@main@if (meta is not null) { <span class="layout-section-meta">@meta</span> }</h3>
+            }
             @RenderChildren(s.Children)
         </section>
         break;
 
     case RowNode r:
-        <div class="layout-row" style="display:flex; flex-wrap:wrap; gap:1rem;">
+        <div class="layout-row">
             @RenderChildren(r.Children)
         </div>
         break;
@@ -72,7 +80,9 @@
              title="@(string.IsNullOrWhiteSpace(k.LinkUiId) ? null : "클릭하여 상세 화면으로 이동")"
              @onclick="() => KpiNavigate(k)">
             <div class="layout-kpi-label">@k.Label</div>
-            <div class="layout-kpi-value">
+            @* 0 값은 뮤트(배치 E) — 전부 0인 대시보드에서 검정 대형 숫자가 지배하던 '죽은 인상' 완화.
+               위험/경고(>0)는 시맨틱 색이 우선하므로 0에만 적용된다. *@
+            <div class="layout-kpi-value @(KpiValue(k) == "0" ? "zero" : "")">
                 @KpiValue(k)@if (!string.IsNullOrWhiteSpace(k.Unit)) { <small class="layout-kpi-unit">@k.Unit</small> }
             </div>
         </div>

@@ -12,14 +12,13 @@
         <FocusOnNavigate RouteData="routeData" Selector="h1" />
     </Found>
     <NotFound>
-        @* 호스트는 슬라이스만 노출하므로 미흡수 화면 경로는 여기로 떨어진다 — 빈 화면 대신 안내. *@
+        @* 호스트는 슬라이스만 노출하므로 미흡수 화면 경로는 여기로 떨어진다 — 빈 화면 대신 안내.
+           (회로 내 내비 미스에만 렌더 — 직접 URL은 서버 하드 404. 토큰 클래스로 다크 자동 대응) *@
         <LayoutView Layout="typeof(HostLayout)">
-            <div style="padding:2rem; text-align:center;">
-                <h1 style="font-size:1.25rem; font-weight:600; color:#1f2937;">페이지를 찾을 수 없습니다 (404)</h1>
-                <p style="margin-top:0.5rem; font-size:0.875rem; color:#4b5563;">
-                    통합 호스트는 현재 메타 화면(/meta/{uiId})과 로그인만 제공합니다.
-                </p>
-                <a href="/login" style="margin-top:1rem; display:inline-block; font-size:0.875rem; color:#2563eb;">로그인으로</a>
+            <div class="mes-empty-state">
+                <p class="es-title">페이지를 찾을 수 없습니다 (404)</p>
+                <p class="es-sub">통합 호스트는 현재 메타 화면(/meta/{uiId})과 로그인만 제공합니다.</p>
+                <a class="host-actionlink" href="/login">로그인으로</a>
             </div>
         </LayoutView>
     </NotFound>
