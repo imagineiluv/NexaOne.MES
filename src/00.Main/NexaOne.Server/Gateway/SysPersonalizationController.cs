@@ -141,12 +141,12 @@ public sealed class SysPersonalizationController : ControllerBase
         return NoContent();
     }
 
-    // ── 조건 저장/불러오기(§20.8) — 규칙 상수는 모듈 ConditionSettingService 미러 ──
+    // ── 조건 저장/불러오기(§20.8) — 규칙 단일 출처 = ServiceContracts.Sys.PersonalizationRules(모듈과 공유) ──
 
-    private const string LatestName = "$latest";
-    private const int MaxSavedConditions = 10;        // 현행 App.config SaveConditionCount=10
-    private const int MaxValuesJsonLength = 16_384;   // NVARCHAR(MAX) 무제한 누적 방지
-    private const int MaxMenuIdLength = 100;
+    private const string LatestName = NexaOne.ServiceContracts.Sys.PersonalizationRules.LatestConditionName;
+    private const int MaxSavedConditions = NexaOne.ServiceContracts.Sys.PersonalizationRules.MaxSavedConditions;
+    private const int MaxValuesJsonLength = NexaOne.ServiceContracts.Sys.PersonalizationRules.MaxValuesJsonLength;
+    private const int MaxMenuIdLength = NexaOne.ServiceContracts.Sys.PersonalizationRules.MaxMenuIdLength;
 
     [HttpGet("conditions")]
     [ProducesResponseType<ConditionSettingResponse>(StatusCodes.Status200OK)]
@@ -172,8 +172,9 @@ public sealed class SysPersonalizationController : ControllerBase
         // DB 콜레이션(CI) 우회를 막기 위해 '$' 접두 조건명 전체를 예약한다($latest 자동 저장 행 보호)
         if (name.StartsWith('$'))
             return BadRequest(new Error("NAME_RESERVED", "'$'로 시작하는 조건명은 예약되어 사용할 수 없습니다.", ErrorType.Validation));
-        if (name.Length > 100)
-            return BadRequest(new Error("NAME_TOO_LONG", "조건명은 100자 이하여야 합니다.", ErrorType.Validation));
+        if (name.Length > NexaOne.ServiceContracts.Sys.PersonalizationRules.MaxConditionNameLength)
+            return BadRequest(new Error("NAME_TOO_LONG",
+                $"조건명은 {NexaOne.ServiceContracts.Sys.PersonalizationRules.MaxConditionNameLength}자 이하여야 합니다.", ErrorType.Validation));
 
         var validated = ValidateAndSerialize(req.MenuId, req.Values);
         if (validated.Error is not null) return BadRequest(validated.Error);

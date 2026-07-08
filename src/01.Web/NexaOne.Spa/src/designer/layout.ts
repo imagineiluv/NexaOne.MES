@@ -64,6 +64,24 @@ export interface ScreenDefinitionDto {
   bulkCommands?: BulkCommandDefinition[] | null // 그리드 일괄 명령 — 저장 왕복 보존 필수
 }
 
+// ── TS↔C# 계약 드리프트 가드 ─────────────────────────────────────────────────
+// 인터페이스는 런타임 소거되므로 vitest 대조용 키 상수를 유지한다(공유 픽스처 test/contract/*.json과 대조).
+// 타입 완전성 체크: DTO에 키를 추가하고 여기(또는 반대)를 빠뜨리면 아래 상수가 컴파일 오류(tsc)로 잡는다.
+export const SCREEN_DEFINITION_KEYS = [
+  'uiId', 'title', 'fields', 'columns', 'queryId', 'saveQueryId', 'layout',
+  'refreshIntervalSeconds', 'searchFields', 'countQueryId', 'deleteQueryId', 'bulkCommands',
+] as const
+type _MissingScreenKeys = Exclude<keyof ScreenDefinitionDto, typeof SCREEN_DEFINITION_KEYS[number]>
+type _ExtraScreenKeys = Exclude<typeof SCREEN_DEFINITION_KEYS[number], keyof ScreenDefinitionDto>
+const _screenKeysExhaustive: _MissingScreenKeys | _ExtraScreenKeys extends never ? true : never = true
+void _screenKeysExhaustive
+
+export const BULK_COMMAND_KEYS = ['label', 'commandQueryId', 'confirmMessage'] as const
+type _MissingBulkKeys = Exclude<keyof BulkCommandDefinition, typeof BULK_COMMAND_KEYS[number]>
+type _ExtraBulkKeys = Exclude<typeof BULK_COMMAND_KEYS[number], keyof BulkCommandDefinition>
+const _bulkKeysExhaustive: _MissingBulkKeys | _ExtraBulkKeys extends never ? true : never = true
+void _bulkKeysExhaustive
+
 export interface GrapesNode {
   type?: string
   attributes?: Record<string, unknown>

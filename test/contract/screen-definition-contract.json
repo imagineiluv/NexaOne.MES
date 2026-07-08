@@ -1,0 +1,22 @@
+{
+  "_comment": "TS↔C# 화면정의 계약 드리프트 가드의 단일 출처. C#(ScreenMetadata.cs ScreenDefinition)과 SPA(layout.ts ScreenDefinitionDto)가 이 목록과 각각 대조된다 — DeleteQueryId SPA 미러 누락 실사고(2026-07-09 보수)의 재발 방지. 속성 추가 시: ①C# record ②이 파일 ③layout.ts DTO+SCREEN_DEFINITION_KEYS ④mapping build/parse ⑤api extras ⑥ScreenEditor flatRef 순으로 — ①만 하면 xUnit이, ③을 빠뜨리면 vitest/tsc가 실패한다.",
+  "screenDefinition": [
+    "UiId",
+    "Title",
+    "Fields",
+    "Columns",
+    "QueryId",
+    "SaveQueryId",
+    "Layout",
+    "RefreshIntervalSeconds",
+    "SearchFields",
+    "CountQueryId",
+    "DeleteQueryId",
+    "BulkCommands"
+  ],
+  "bulkCommandDefinition": [
+    "Label",
+    "CommandQueryId",
+    "ConfirmMessage"
+  ]
+}

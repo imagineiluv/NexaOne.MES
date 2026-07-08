@@ -10,13 +10,14 @@ namespace NexaOne.SYS.Application.Conditions;
 /// </summary>
 public sealed class ConditionSettingService
 {
-    public const int DefaultMaxSavedConditions = 10;   // 현행 App.config SaveConditionCount=10
+    // 단일 출처 = NexaOne.ServiceContracts.Sys.PersonalizationRules (호스트 게이트웨이와 공유 — 미러 금지).
+    public const int DefaultMaxSavedConditions = NexaOne.ServiceContracts.Sys.PersonalizationRules.MaxSavedConditions;
 
     /// <summary>MENU_ID 컬럼(NVARCHAR(100))에 맞춘 menuId 최대 길이.</summary>
-    public const int MaxMenuIdLength = 100;
+    public const int MaxMenuIdLength = NexaOne.ServiceContracts.Sys.PersonalizationRules.MaxMenuIdLength;
 
     /// <summary>VALUES_JSON 저장 상한(문자 수). NVARCHAR(MAX) 무제한 누적을 막는다.</summary>
-    public const int MaxValuesJsonLength = 16_384;
+    public const int MaxValuesJsonLength = NexaOne.ServiceContracts.Sys.PersonalizationRules.MaxValuesJsonLength;
 
     private readonly IConditionSettingRepository _repository;
 

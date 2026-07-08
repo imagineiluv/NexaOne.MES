@@ -83,6 +83,7 @@
     <ProjectReference Include="..\..\04.Modules\NexaOne.FDC\NexaOne.FDC.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.RMS\NexaOne.RMS.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.QMS\NexaOne.QMS.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.EMS\NexaOne.EMS.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.POM\NexaOne.POM.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.SHP\NexaOne.SHP.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" ReferenceOutputAssembly="false" />
@@ -139,6 +140,12 @@
       <_ModulePluginDll Include="..\..\04.Modules\NexaOne.SYS\bin\$(Configuration)\net8.0\NexaOne.SYS.dll" />
     </ItemGroup>
     <Copy SourceFiles="@(_ModulePluginDll)" DestinationFolder="$(OutDir)Modules" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- publish 산출물에도 모듈 플러그인 복사 — publish는 계산된 파일 목록만 실어 OutDir의 Modules/를
+       가져가지 않는다(운영 배포 검증에서 발견: 게시본 부팅 시 모듈 0개 로드). -->
+  <Target Name="CopyDomainModulePluginsOnPublish" AfterTargets="Publish" DependsOnTargets="CopyDomainModulePlugins">
+    <Copy SourceFiles="@(_ModulePluginDll)" DestinationFolder="$(PublishDir)Modules" SkipUnchangedFiles="true" />
   </Target>
 
   <!-- 호스트 설정 — 역할별 폴더로 정리(Spring→config): config/app.xml(서비스 매니페스트),

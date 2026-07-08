@@ -13,10 +13,11 @@ namespace NexaOne.SYS.Application.Menus;
 public sealed class UserMenuService
 {
     /// <summary>최근 메뉴 보관 개수 — 현행 App.config RecentMenuCount=10 대응.</summary>
-    public const int MaxRecentMenus = 10;
+    // 단일 출처 = NexaOne.ServiceContracts.Sys.PersonalizationRules (호스트 게이트웨이와 공유 — 미러 금지).
+    public const int MaxRecentMenus = NexaOne.ServiceContracts.Sys.PersonalizationRules.MaxRecentMenus;
 
     /// <summary>즐겨찾기 상한 — 무제한 누적 방지용 웹 적응 한도 (현행에는 명시 한도 없음).</summary>
-    public const int MaxFavoriteMenus = 50;
+    public const int MaxFavoriteMenus = NexaOne.ServiceContracts.Sys.PersonalizationRules.MaxFavoriteMenus;
 
     private readonly IFavoriteMenuRepository _favorites;
     private readonly IRecentMenuRepository _recents;

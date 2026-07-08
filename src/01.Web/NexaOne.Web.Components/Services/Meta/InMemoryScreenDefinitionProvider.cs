@@ -346,8 +346,9 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("eventId", "이벤트 ID"),
             }));
 
-        // FDC — 팝업 모니터링 대시보드(EES_POPUP_MONITERING_DASHBOARD) v2: 10초 자동 새로고침 + 수집값 트렌드 차트
-        // (네이티브 SVG). SignalR 푸시 정밀화(이벤트 즉시 반영)는 후속 — 폴링 주기가 준실시간을 담당한다.
+        // FDC — 팝업 모니터링 대시보드(EES_POPUP_MONITERING_DASHBOARD, 실시간 v3 완결) : 10초 폴링 + 실시간 이벤트 푸시.
+        // RefreshIntervalSeconds>0 화면은 IScreenRefreshNotifier(실시간 v3)를 자동 구독해 도메인 이벤트 시
+        // 즉시 재조회(1초 스로틀)하고, 폴링 주기는 이벤트 부재 시 폴백이다. 트렌드 차트는 RadzenChart.
         Register(new ScreenDefinition("EES_POPUP_MONITERING_DASHBOARD", "설비 모니터링(실시간)",
             Array.Empty<FieldDefinition>(),
             RefreshIntervalSeconds: 10,
