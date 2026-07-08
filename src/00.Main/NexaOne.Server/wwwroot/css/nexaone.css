@@ -148,6 +148,18 @@
 .nx-colmenu-item:hover { background: var(--nx-hover); }
 .nx-colmenu-item input { margin: 0; }
 .nx-colmenu-item input:disabled { cursor: not-allowed; }
+/* 컬럼 필터 팝업(그리드 표준 CRUD) — 컬럼별 [포함/일치]+값. 콜메뉴 패널 재사용 + 넓은 폭. */
+.nx-filtermenu { min-width: 320px; }
+.nx-filtermenu-row { display: flex; align-items: center; gap: 6px; padding: 3px 6px; }
+.nx-filtermenu-cap { flex: 0 0 88px; font-size: var(--nx-fs-caption); color: var(--nx-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nx-filtermenu-op { flex: 0 0 auto; padding: 3px 4px; border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); font-size: var(--nx-fs-caption); background: var(--nx-card); color: var(--nx-text); }
+.nx-filtermenu-val { flex: 1 1 auto; min-width: 90px; padding: 3px 8px; border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); font-size: var(--nx-fs-caption); background: var(--nx-card); color: var(--nx-text); }
+.nx-filtermenu-val:focus { outline: none; border-color: var(--nx-teal); }
+.nx-filtermenu-foot { display: flex; justify-content: flex-end; padding: 6px 6px 2px; border-top: 1px solid var(--nx-border-soft); margin-top: 4px; }
+/* 활성 필터 칩 — 걸린 조건 가시화(× 개별 해제). */
+.nx-filterchips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 6px; }
+.nx-filterchip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; font-size: var(--nx-fs-caption-s); background: var(--nx-hover-teal); color: var(--nx-teal-d); border: 1px solid var(--nx-teal); }
+.nx-filterchip .x { border: none; background: none; color: inherit; cursor: pointer; padding: 0; font-weight: 700; line-height: 1; font-size: inherit; }
 /* 첫 컬럼 고정 — 넓은 표에서 가로 스크롤 시 좌측 식별자 컬럼을 sticky로 유지. 스크롤 시 내용이 비치지
    않게 상태별(줄무늬/호버/선택) 불투명 배경을 맞추고, 세로 스티키 헤더와 겹치는 헤더 첫칸은 최상위 z. */
 .meta-grid.nx-freeze-first .rz-datatable thead th:first-child,

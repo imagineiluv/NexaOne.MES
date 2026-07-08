@@ -331,4 +331,41 @@
                     @currentUser, @utcNow, @currentUser, @utcNow)
         ]]></statement>
     </query>
+    <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).
+         파라미터는 행 딕셔너리의 camelCase 사본이 자동 매칭. MSSQL판과 동일 ID·동일 의미. -->
+    <query id="MDM.DeletePlant" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            DELETE FROM MDM_PLANT WHERE PLANT_ID = @plantId
+        ]]></statement>
+    </query>
+    <query id="MDM.DeleteVendor" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            DELETE FROM MDM_VENDOR WHERE VENDOR_ID = @vendorId
+        ]]></statement>
+    </query>
+    <query id="MDM.DeleteShift" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            DELETE FROM MDM_SHIFT WHERE SHIFT_ID = @shiftId
+        ]]></statement>
+    </query>
+    <query id="MDM.DeleteLabel" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            DELETE FROM MDM_LABEL WHERE LABEL_ID = @labelId
+        ]]></statement>
+    </query>
+    <query id="MDM.DeleteBor" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            DELETE FROM MDM_BOR WHERE BOR_ID = @borId
+        ]]></statement>
+    </query>
+    <query id="MDM.DeleteLabelMapping" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            DELETE FROM MDM_LABEL_MAPPING WHERE MAPPING_ID = @mappingId
+        ]]></statement>
+    </query>
+    <query id="MDM.DeleteVendorItem" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            DELETE FROM MDM_VENDOR_ITEM WHERE VENDOR_ITEM_ID = @vendorItemId
+        ]]></statement>
+    </query>
 </queries>

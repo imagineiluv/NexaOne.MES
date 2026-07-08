@@ -195,4 +195,26 @@
                     @currentUser, @utcNow, @currentUser, @utcNow)
         ]]></statement>
     </query>
+    <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).
+         파라미터는 행 딕셔너리의 camelCase 사본이 자동 매칭. MSSQL판과 동일 ID·동일 의미. -->
+    <query id="EST.DeleteIndex" kind="write" requiredPermission="est:manage">
+        <statement><![CDATA[
+            DELETE FROM EST_EPT_INDEX WHERE INDEX_ID = @indexId
+        ]]></statement>
+    </query>
+    <query id="EST.DeleteEquipmentEvent" kind="write" requiredPermission="est:manage">
+        <statement><![CDATA[
+            DELETE FROM EST_EQUIPMENT_EVENT WHERE EVENT_ID = @eventId
+        ]]></statement>
+    </query>
+    <query id="EST.DeleteStateAlarmMap" kind="write" requiredPermission="est:manage">
+        <statement><![CDATA[
+            DELETE FROM EST_STATE_ALARM_MAP WHERE MAP_ID = @mapId
+        ]]></statement>
+    </query>
+    <query id="EST.DeleteStateEventMap" kind="write" requiredPermission="est:manage">
+        <statement><![CDATA[
+            DELETE FROM EST_STATE_EVENT_MAP WHERE MAP_ID = @mapId
+        ]]></statement>
+    </query>
 </queries>

@@ -76,16 +76,65 @@
     </div>;
 }
 <div class="meta-grid @(_compact ? "" : "nx-density-roomy") @(_freezeFirst ? "nx-freeze-first" : "")">
-    @if (Rows is { Count: > 0 })
+    @* 툴바는 조회 실행 후(Rows 비null)면 항상 — 빈 결과에서도 '추가'가 가능해야 한다(표준 CRUD). *@
+    @if (Rows is not null)
     {
         <div class="meta-grid-toolbar">
+            @* 그리드 표준 CRUD(좌측 데이터 조작 클러스터) — 추가=신규 입력 모드(폼 초기화),
+               삭제=선택 행(일반=단일선택, 선택모드=체크 다중). 확인/실행은 MetaScreen이 소유. *@
+            @if (CanAdd && OnAddNew.HasDelegate)
+            {
+                <RadzenButton Icon="add" Text="@T("common.add", "추가")" Click="OnAddNew"
+                              ButtonStyle="Radzen.ButtonStyle.Primary" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
+            }
+            @if (CanDelete && OnDeleteRows.HasDelegate)
+            {
+                <RadzenButton Icon="delete" Text="@T("common.delete", "삭제")" Click="DeleteSelectedAsync"
+                              Disabled="@(SelectedCountForDelete == 0)"
+                              title="@(SelectedCountForDelete == 0 ? T("common.deleteHint", "삭제할 행을 선택하세요") : null)"
+                              ButtonStyle="Radzen.ButtonStyle.Danger" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
+            }
             @* 빠른 필터 — 적재 행을 컬럼 무관 부분일치로 좁힌다(클라이언트 페이징 화면만; 서버 페이징은
                현재 페이지만 걸려 오해 소지가 있어 숨긴다). *@
-            @if (ServerTotal is null)
+            @if (ServerTotal is null && Rows.Count > 0)
             {
                 @* P2 — 디바운스 필터: 입력은 즉시 반영(_filterInput), 실제 필터/재정렬은 타이핑이 멈춘 뒤에만. *@
                 <input class="meta-grid-filter" placeholder="@T("common.filter", "필터…")"
                        value="@_filterInput" @oninput="OnFilterInput" />
+                @* 컬럼 필터 팝업(표준 CRUD) — 컬럼별 포함/일치 조건. 활성 수 배지 + 칩 표시. *@
+                <div class="nx-colmenu-wrap">
+                    <RadzenButton Icon="filter_alt" Click="OpenFilterMenu"
+                                  title="@T("common.colFilter", "컬럼 필터")"
+                                  ButtonStyle="@(_colFilters.Count > 0 ? Radzen.ButtonStyle.Primary : Radzen.ButtonStyle.Light)"
+                                  Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
+                    @if (_showFilterMenu)
+                    {
+                        <div class="nx-colmenu-backdrop" @onclick="() => _showFilterMenu = false"></div>
+                        <div class="nx-colmenu nx-filtermenu">
+                            <div class="nx-colmenu-head">
+                                <span>@T("common.colFilter", "컬럼 필터")</span>
+                                <a @onclick="ClearColumnFilters" class="nx-colmenu-reset">@T("common.reset", "초기화")</a>
+                            </div>
+                            @foreach (var c in cols)
+                            {
+                                var key = c.Key;
+                                <div class="nx-filtermenu-row">
+                                    <span class="nx-filtermenu-cap" title="@c.Caption">@c.Caption</span>
+                                    <select class="nx-filtermenu-op" value="@OpOf(key)" @onchange="e => SetFilterOp(key, e)">
+                                        <option value="contains">@T("common.opContains", "포함")</option>
+                                        <option value="equals">@T("common.opEquals", "일치")</option>
+                                    </select>
+                                    <input class="nx-filtermenu-val" value="@ValOf(key)"
+                                           @oninput="e => SetFilterVal(key, e)" @onkeydown="OnFilterKeyDown" />
+                                </div>
+                            }
+                            <div class="nx-filtermenu-foot">
+                                <RadzenButton Text="@T("common.apply", "적용")" Click="ApplyColumnFilters"
+                                              ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small" />
+                            </div>
+                        </div>
+                    }
+                </div>
             }
             <span class="meta-grid-toolbar-spacer"></span>
             @* 선택 모드 토글 — 켜면 체크박스 컬럼 + 일괄 액션바. 단일선택(폼로드)과 배타. *@
@@ -147,6 +196,20 @@
                           Click="CopySelectedAsync" ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
             <RadzenButton Icon="clear" Text="@T("common.clearSelection", "선택 해제")" Disabled="@(_selected.Count == 0)"
                           Click="ClearSelection" ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
+        </div>
+    }
+    @if (_colFilters.Count > 0)
+    {
+        @* 활성 컬럼 필터 칩 — 어떤 조건이 걸려 있는지 항상 가시화(×로 개별 해제). *@
+        <div class="nx-filterchips">
+            @foreach (var f in _colFilters)
+            {
+                var key = f.Key;
+                <span class="nx-filterchip">
+                    @(CaptionOf(key)) @(f.Value.Op == "equals" ? "=" : "~") "@f.Value.Val"
+                    <button class="x" title="@T("common.removeFilter", "필터 해제")" @onclick="() => RemoveColumnFilter(key)">×</button>
+                </span>
+            }
         </div>
     }
     @if (_truncatedFrom > 0)
@@ -219,7 +282,7 @@
             <Columns>@gridColumns</Columns>
             <EmptyTemplate>@emptyState</EmptyTemplate>
         </RadzenDataGrid>
-        <p class="meta-grid-note">@view.Count @(_filter is { Length: > 0 } ? $"/ {_items.Count} " : "")@T("common.rowsUnit", "행")</p>
+        <p class="meta-grid-note">@view.Count @(_filter is { Length: > 0 } || _colFilters.Count > 0 ? $"/ {_items.Count} " : "")@T("common.rowsUnit", "행")</p>
     }
 </div>
 
@@ -257,6 +320,13 @@
 
     // 화면별 그리드 개인화(밀도·숨긴 컬럼) 저장 키 — MetaScreen이 UiId를 넘긴다. 없으면 개인화는 세션 한정.
     [Parameter] public string? ScreenKey { get; set; }
+
+    // 그리드 표준 CRUD(디자인 심층검토 후속) — 추가=폼 초기화 콜백(신규 입력 모드), 삭제=선택 행 삭제 콜백.
+    // 실행·확인 다이얼로그·재조회는 부모(MetaScreen)가 소유하고, 그리드는 선택 상태와 버튼만 담당한다.
+    [Parameter] public bool CanAdd { get; set; }
+    [Parameter] public EventCallback OnAddNew { get; set; }
+    [Parameter] public bool CanDelete { get; set; }
+    [Parameter] public EventCallback<List<Dictionary<string, object?>>> OnDeleteRows { get; set; }
 
     // Radzen 바인딩용 변환분(원본 Rows와 동일 순서·인덱스). Radzen 동적 데이터는 ExpandoObject를 정식
     // 지원한다(IDictionary 인터페이스 자체는 Property 접근자 빌드가 실패). null 값은 렌더/정렬 안전상 ""으로.
@@ -351,7 +421,8 @@
     // 필터(부분일치) → 정렬. 필터는 보이는 컬럼 무관 대소문자 무시 contains. 정렬은 숫자 컬럼이면 수치.
     private List<System.Dynamic.ExpandoObject> SortedItems()
     {
-        if (!_viewDirty && _viewFilter == _filter && _viewSortKey == _sortKey && _viewSortDesc == _sortDesc)
+        if (!_viewDirty && _viewFilter == _filter && _viewSortKey == _sortKey && _viewSortDesc == _sortDesc
+            && _viewFilterRev == _filterRev)
             return _view;
 
         IEnumerable<System.Dynamic.ExpandoObject> items = _items;
@@ -363,6 +434,11 @@
             items = items.Where(e => keys.Any(k => Cell(e, k).Contains(f, StringComparison.OrdinalIgnoreCase)));
         }
 
+        // 컬럼 필터(팝업 적용본) — 컬럼별 포함/일치 AND 결합.
+        if (_colFilters.Count > 0)
+            foreach (var (cfKey, cf) in _colFilters)
+                items = items.Where(e => MatchColumnFilter(Cell(e, cfKey), cf.Op, cf.Val));
+
         if (_sortKey is { } key && _items.Count > 0)
         {
             var numeric = _items.All(e => { var s = Cell(e, key); return s.Length == 0 || decimal.TryParse(s, out _); });
@@ -373,9 +449,83 @@
 
         _view = items.ToList();
         _viewDirty = false;
-        _viewFilter = _filter; _viewSortKey = _sortKey; _viewSortDesc = _sortDesc;
+        _viewFilter = _filter; _viewSortKey = _sortKey; _viewSortDesc = _sortDesc; _viewFilterRev = _filterRev;
         return _view;
     }
+
+    // ── 그리드 표준 CRUD(추가/삭제) + 컬럼 필터 팝업 ─────────────────────────────
+
+    // 삭제 대상 수 — 일반 모드=단일 선택(0/1), 선택 모드=체크 수. 버튼 활성화 판단.
+    private int SelectedCountForDelete => _selectMode ? _selected.Count : (_selectedItem is null ? 0 : 1);
+
+    // 선택 항목(Expando)을 원본 Rows 딕셔너리로 되짚어 부모에 넘긴다(삭제 파라미터 바인딩용 전체 컬럼).
+    private async Task DeleteSelectedAsync()
+    {
+        if (Rows is null || !OnDeleteRows.HasDelegate) return;
+        var targets = new List<Dictionary<string, object?>>();
+        IEnumerable<System.Dynamic.ExpandoObject> picked = _selectMode ? _selected : (_selectedItem is null
+            ? Enumerable.Empty<System.Dynamic.ExpandoObject>() : new[] { _selectedItem });
+        foreach (var item in picked)
+        {
+            var idx = _items.IndexOf(item);
+            if (idx >= 0 && idx < Rows.Count) targets.Add(Rows[idx]);
+        }
+        if (targets.Count > 0) await OnDeleteRows.InvokeAsync(targets);
+    }
+
+    // 컬럼 필터 — 적용본(_colFilters)과 편집 드래프트(_cfOp/_cfVal)를 분리(팝업에서 적용 눌러야 반영).
+    private readonly Dictionary<string, (string Op, string Val)> _colFilters = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _cfOp = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _cfVal = new(StringComparer.Ordinal);
+    private bool _showFilterMenu;
+    private int _filterRev;                    // 적용/해제 시 증가 — SortedItems 메모 무효화 키.
+    private int _viewFilterRev = -1;
+
+    private string OpOf(string key) => _cfOp.TryGetValue(key, out var v) ? v : "contains";
+    private string ValOf(string key) => _cfVal.TryGetValue(key, out var v) ? v : "";
+    private void SetFilterOp(string key, ChangeEventArgs e) => _cfOp[key] = e.Value?.ToString() ?? "contains";
+    private void SetFilterVal(string key, ChangeEventArgs e) => _cfVal[key] = e.Value?.ToString() ?? "";
+    private void OnFilterKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    { if (e.Key == "Enter") ApplyColumnFilters(); }
+
+    private string CaptionOf(string key)
+        => Columns.FirstOrDefault(c => c.Key == key)?.Caption ?? key;
+
+    private void OpenFilterMenu()
+    {
+        // 드래프트를 적용본으로 시드(팝업 재오픈 시 현재 조건이 보이게).
+        foreach (var (k, f) in _colFilters) { _cfOp[k] = f.Op; _cfVal[k] = f.Val; }
+        _showFilterMenu = true;
+    }
+
+    private void ApplyColumnFilters()
+    {
+        _colFilters.Clear();
+        foreach (var (k, v) in _cfVal)
+            if (!string.IsNullOrWhiteSpace(v)) _colFilters[k] = (OpOf(k), v.Trim());
+        _filterRev++;
+        _showFilterMenu = false;
+    }
+
+    private void RemoveColumnFilter(string key)
+    {
+        _colFilters.Remove(key);
+        _cfVal.Remove(key);
+        _filterRev++;
+    }
+
+    private void ClearColumnFilters()
+    {
+        _colFilters.Clear(); _cfVal.Clear(); _cfOp.Clear();
+        _filterRev++;
+        _showFilterMenu = false;
+    }
+
+    private static bool MatchColumnFilter(string cell, string op, string val) => op switch
+    {
+        "equals" => string.Equals(cell, val, StringComparison.OrdinalIgnoreCase),
+        _ => cell.Contains(val, StringComparison.OrdinalIgnoreCase),
+    };
 
     // P2 — 빠른 필터 디바운스. Blazor Server는 입력마다 회로 왕복이라, 타이핑이 멈춘 뒤(FilterDebounceMs)에만
     // 실제 필터(_filter)를 적용해 재정렬/재렌더한다. 입력값(_filterInput)은 즉시 보관해 다음 렌더에 반영.

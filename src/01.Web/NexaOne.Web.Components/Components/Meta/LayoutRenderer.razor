@@ -38,7 +38,8 @@
     case GridWidget g:
         @* ScreenKey — 레이아웃 한 화면에 그리드가 여럿일 수 있어 위젯 단위로 키를 조합(개인화가 섞이지 않게). *@
         <MetaGridRenderer Columns="g.Columns ?? Array.Empty<GridColumnDefinition>()" Rows="RowsFor(g.QueryId)"
-                          Loading="LoadingData" OnRowSelect="OnRowSelect" ScreenKey="@GridKey(g)" />
+                          Loading="LoadingData" OnRowSelect="OnRowSelect" ScreenKey="@GridKey(g)"
+                          CanAdd="CanAdd" OnAddNew="OnAddNew" CanDelete="CanDelete" OnDeleteRows="OnDeleteRows" />
         break;
 
     @* Form/Field는 기본적으로 화면 공유 Model(동일 Dictionary 참조)에 바인딩한다 — 위젯 간 값 즉시 공유(의도된 설계).
@@ -157,6 +158,12 @@
     // 화면 식별자(그리드 개인화 저장 키의 접두). MetaScreen이 UiId를 넘긴다. 위젯별로 조합해 그리드마다 분리한다.
     [Parameter] public string? ScreenKey { get; set; }
 
+    // 그리드 표준 CRUD(추가/삭제) — MetaScreen이 소유한 콜백을 그리드 위젯까지 내려보낸다.
+    [Parameter] public bool CanAdd { get; set; }
+    [Parameter] public EventCallback OnAddNew { get; set; }
+    [Parameter] public bool CanDelete { get; set; }
+    [Parameter] public EventCallback<List<Dictionary<string, object?>>> OnDeleteRows { get; set; }
+
     // 그리드 위젯의 개인화 저장 키 — {화면}:{위젯}. Id 없으면 QueryId로 구분(한 화면 다중 그리드 대비).
     private string? GridKey(GridWidget g)
         => string.IsNullOrEmpty(ScreenKey) ? null
@@ -199,6 +206,11 @@
             builder.AddAttribute(8, nameof(OnRowSelect), OnRowSelect);
             builder.AddAttribute(9, nameof(LoadingData), LoadingData);
             builder.AddAttribute(10, nameof(ScreenKey), ScreenKey);   // 재귀 하위로 화면 키 전달(그리드 개인화)
+            // 그리드 표준 CRUD — 새 파라미터는 반드시 여기에도 추가(누락 시 깊은 위젯에서 조용히 기본값).
+            builder.AddAttribute(11, nameof(CanAdd), CanAdd);
+            builder.AddAttribute(12, nameof(OnAddNew), OnAddNew);
+            builder.AddAttribute(13, nameof(CanDelete), CanDelete);
+            builder.AddAttribute(14, nameof(OnDeleteRows), OnDeleteRows);
             builder.CloseComponent();
         }
     };

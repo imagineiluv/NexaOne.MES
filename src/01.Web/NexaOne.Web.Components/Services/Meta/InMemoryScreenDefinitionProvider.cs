@@ -46,12 +46,13 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("country", "국가", FieldType.Text),
                 new("timeZone", "표준시", FieldType.Text),
             },
-            SaveQueryId: "MDM.CreatePlant"));
+            SaveQueryId: "MDM.CreatePlant", DeleteQueryId: "MDM.DeletePlant"));
 
         // 데모 시드: 레이아웃(WYSIWYG) 화면 — 좌측 공장 그리드(MDM.PlantList) + 우측 등록 폼/저장 버튼(MDM.CreatePlant)을
         // 한 화면에 조합한다. /meta/DEMO_LAYOUT 이 LayoutRenderer로 렌더되는 레이아웃 런타임 end-to-end 시연.
         Register(new ScreenDefinition("DEMO_LAYOUT", "데모 — 레이아웃(그리드+폼)",
             Array.Empty<FieldDefinition>(),
+            DeleteQueryId: "MDM.DeletePlant",
             Layout: new SectionNode
             {
                 Id = "sec", Title = "공장 마스터",
@@ -196,6 +197,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         // 1차 범위 = 정의 CRUD까지 — 실행 엔진(BATCH_RULE 스케줄 실행)은 후속 슬라이스(마이그레이션 주석 참조).
         Register(new ScreenDefinition("SYSTEM_2_BATCH_PROC_MANAGEMENT", "배치 작업 관리",
             Array.Empty<FieldDefinition>(),
+            DeleteQueryId: "SYS.DeleteBatchProcess",
             Layout: new SectionNode
             {
                 Id = "sec-batch", Title = "배치 작업 정의(1차: 정의 관리 — 실행 엔진 후속)",
@@ -253,6 +255,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         // 가시성 의미론: 미매핑 메뉴=공개(하위호환), 매핑 메뉴=역할 일치 시만 사이드바 노출(SYS.MenuTreeForUser).
         Register(new ScreenDefinition("SYSTEM_2_MENU_AUTH_MANAGEMENT", "메뉴별 권한 관리",
             Array.Empty<FieldDefinition>(),
+            DeleteQueryId: "SYS.DeleteMenuRole",
             Layout: new SectionNode
             {
                 Id = "sec-menurole", Title = "메뉴-역할 매핑(미매핑 메뉴=전체 공개, 매핑 시 해당 역할만 노출)",
@@ -287,6 +290,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         // 1차 범위 = 정의 CRUD까지 — 평가 엔진(CONDITION_FORMULA 판정·이벤트 데이터 수집)은 FDC 워커 후속.
         Register(new ScreenDefinition("EES_FDC_VIRTUAL_EVENT_MANAGEMENT", "VIRTUAL EVENT 관리",
             Array.Empty<FieldDefinition>(),
+            DeleteQueryId: "FDC.DeleteVirtualEvent",
             Layout: new SectionNode
             {
                 Id = "sec-ve", Title = "가상 이벤트 정의(1차: 정의 관리 — 평가 엔진 후속)",
@@ -428,6 +432,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         // 공장 관리(FACTORY_MDM_PLANT) — 좌측 공장 그리드(MDM.PlantList) + 우측 등록 폼/저장(MDM.CreatePlant). 실동작 CRUD.
         Register(new ScreenDefinition("FACTORY_MDM_PLANT", "공장 관리",
             Array.Empty<FieldDefinition>(),
+            DeleteQueryId: "MDM.DeletePlant",
             Layout: new SectionNode
             {
                 Id = "sec", Title = "공장 마스터",
@@ -949,7 +954,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("UNIT", "단위"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "EST.IndexList",
-            SaveQueryId: "EST.CreateIndex"));
+            SaveQueryId: "EST.CreateIndex", DeleteQueryId: "EST.DeleteIndex"));
 
         // 지표 관리(EPT_STD_INDEX_MGNT) — 동일 KPI 지표 마스터 뷰.
         Register(new ScreenDefinition("EPT_STD_INDEX_MGNT", "지표 관리",
@@ -1072,7 +1077,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("END_TIME", "종료"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "MDM.ShiftList",
-            SaveQueryId: "MDM.CreateShift"));
+            SaveQueryId: "MDM.CreateShift", DeleteQueryId: "MDM.DeleteShift"));
 
         // ===== SmartUX FACTORY_QCA(품질검사) 점등 — 기존 QMS 검사 도메인(V037/V040)으로 전수 재사용, 마이그레이션 0.
         // FACTORY_QCA는 QMS 검사(수입/공정/출하·정의·항목·방법·규격)로 향하는 다른 메뉴 경로다. =====
@@ -1132,7 +1137,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("purchaseOrderName", "발주명"), new("vendorId", "거래처"),
                 new("orderQty", "발주수량", FieldType.Number, Required: true),
             },
-            prcOrderCols, QueryId: "PRC.PurchaseOrderList", SaveQueryId: "PRC.CreatePurchaseOrder"));
+            prcOrderCols, QueryId: "PRC.PurchaseOrderList", SaveQueryId: "PRC.CreatePurchaseOrder", DeleteQueryId: "PRC.DeletePurchaseOrder"));
         Register(new ScreenDefinition("FACTORY_PRC_REPORT_PURCHASEORDER", "구매오더 현황",
             Array.Empty<FieldDefinition>(), prcOrderCols, QueryId: "PRC.PurchaseOrderList"));
 
@@ -1153,7 +1158,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("STATUS", "상태"), new("IS_HOLD", "홀드"),
             },
             QueryId: "SLS.SalesOrderList",
-            SaveQueryId: "SLS.CreateSalesOrder"));
+            SaveQueryId: "SLS.CreateSalesOrder", DeleteQueryId: "SLS.DeleteSalesOrder"));
 
         // 판매 요청(FACTORY_SLS_SALES_REQUEST) — 판매요청(SLS.SalesRequestList).
         Register(new ScreenDefinition("FACTORY_SLS_SALES_REQUEST", "판매 요청",
@@ -1190,7 +1195,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "MDM.LabelList",
-            SaveQueryId: "MDM.CreateLabel"));
+            SaveQueryId: "MDM.CreateLabel", DeleteQueryId: "MDM.DeleteLabel"));
 
         // 라벨 발행 이력(FACTORY_STD_LABEL_ISSUE_HISTORY) — 발행 이력(MDM.LabelIssueList).
         Register(new ScreenDefinition("FACTORY_STD_LABEL_ISSUE_HISTORY", "라벨 발행 이력",
@@ -1216,7 +1221,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("LABEL_ID", "라벨"), new("PRINT_LIMIT_CNT", "출력한도"), new("PRINT_LIMIT_YN", "한도적용"),
             },
             QueryId: "MDM.LabelMappingList",
-            SaveQueryId: "MDM.CreateLabelMapping"));
+            SaveQueryId: "MDM.CreateLabelMapping", DeleteQueryId: "MDM.DeleteLabelMapping"));
 
         // ===== SmartUX EPT_STD(설비성능 표준) 점등 — 레거시 EPT_TB_LAYOUT/EQUIPMENT_EPT_PROPERTY를 V055(EST_EPT_*)로 포팅. =====
         // 레이아웃 관리(EPT_STD_LAYOUT_MGNT)·레이아웃 구성(EPT_STD_LAYOUT_EDIT) — 레이아웃 마스터(EST.LayoutList).
@@ -1278,7 +1283,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EQUIPMENT_ID", "설비"), new("EVENT_TYPE", "유형"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "EST.EquipmentEventList",
-            SaveQueryId: "EST.CreateEquipmentEvent"));
+            SaveQueryId: "EST.CreateEquipmentEvent", DeleteQueryId: "EST.DeleteEquipmentEvent"));
 
         // 설비 알람-상태 매핑(MICUBE_STANDARD_EQUIPMENT_STATE_ALARM_MAPPING) — 알람→상태(EST.StateAlarmMapList) + 등록 폼.
         Register(new ScreenDefinition("MICUBE_STANDARD_EQUIPMENT_STATE_ALARM_MAPPING", "설비 알람-상태 매핑",
@@ -1294,7 +1299,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("ALARM_DEF_ID", "알람정의"), new("SET_STATE", "설정 상태"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "EST.StateAlarmMapList",
-            SaveQueryId: "EST.CreateStateAlarmMap"));
+            SaveQueryId: "EST.CreateStateAlarmMap", DeleteQueryId: "EST.DeleteStateAlarmMap"));
 
         // 설비 이벤트-상태 매핑(MICUBE_STANDARD_EQUIPMENT_STATE_EVENT_MAPPING) — 이벤트→상태(EST.StateEventMapList) + 등록 폼.
         Register(new ScreenDefinition("MICUBE_STANDARD_EQUIPMENT_STATE_EVENT_MAPPING", "설비 이벤트-상태 매핑",
@@ -1310,7 +1315,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EVENT_ID", "이벤트"), new("SET_STATE", "설정 상태"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "EST.StateEventMapList",
-            SaveQueryId: "EST.CreateStateEventMap"));
+            SaveQueryId: "EST.CreateStateEventMap", DeleteQueryId: "EST.DeleteStateEventMap"));
 
         // ===== SmartUX MICUBE(알람메일 알림) → COM 이관 점등. 메일서버/수신자매핑/서비스(V057, COM_ 접두사). =====
         // 메일 서버 관리(MICUBE_STANDARD_MAIL_SERVER) — 메일 서버(COM.MailServerList).
@@ -1328,7 +1333,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("SENDER_ADDRESS", "발신주소"), new("USE_SSL", "SSL"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "COM.MailServerList",
-            SaveQueryId: "COM.CreateMailServer"));
+            SaveQueryId: "COM.CreateMailServer", DeleteQueryId: "COM.DeleteMailServer"));
 
         // 사용자-설비 메일 매핑(일반=MailRecipientList / 알람=AlarmMailRecipientList). 수신자 그리드 공용.
         // 알람메일 매핑 화면에는 등록 폼(COM.CreateMailRecipient, mailType Select)을 함께 둔다.
@@ -1344,7 +1349,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("userId", "사용자", Required: true), new("equipmentId", "설비"), new("mailAddress", "메일주소"),
                 new("mailType", "유형", FieldType.Select, Options: new[] { "Alarm", "Mail" }),
             },
-            mailRecipientCols, QueryId: "COM.AlarmMailRecipientList", SaveQueryId: "COM.CreateMailRecipient"));
+            mailRecipientCols, QueryId: "COM.AlarmMailRecipientList", SaveQueryId: "COM.CreateMailRecipient", DeleteQueryId: "COM.DeleteMailRecipient"));
         foreach (var (uiId, title, queryId) in new[] {
             ("MICUBE_STANDARD_STD_USER_ALARM_MAILING", "알람 메일 수신자 관리", "COM.AlarmMailRecipientList"),
             ("MICUBE_STANDARD_USER_EQUIPMENT_MAIL_MAP", "사용자-설비 메일 매핑", "COM.MailRecipientList"),
@@ -1378,7 +1383,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PRODUCT_ID", "품목"), new("BOR_TYPE", "유형"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "MDM.BorList",
-            SaveQueryId: "MDM.CreateBor"));
+            SaveQueryId: "MDM.CreateBor", DeleteQueryId: "MDM.DeleteBor"));
 
         // BOR 관리 자원 기준(FACTORY_STD_BOR_RESOURCE) — BOR 자원 상세(MDM.BorResourceList).
         Register(new ScreenDefinition("FACTORY_STD_BOR_RESOURCE", "BOR 관리(자원 기준)",
@@ -1470,7 +1475,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EMAIL", "이메일"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "MDM.VendorList",
-            SaveQueryId: "MDM.CreateVendor"));
+            SaveQueryId: "MDM.CreateVendor", DeleteQueryId: "MDM.DeleteVendor"));
         Register(new ScreenDefinition("MES_MDM_COM_VENDOR_ITEM", "벤더 품목 관리",
             new FieldDefinition[]
             {
@@ -1484,7 +1489,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("LEAD_TIME_DAYS", "리드타임(일)"), new("MOQ", "최소발주량"), new("BASE_PRICE", "기준단가"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "MDM.VendorItemList",
-            SaveQueryId: "MDM.CreateVendorItem"));
+            SaveQueryId: "MDM.CreateVendorItem", DeleteQueryId: "MDM.DeleteVendorItem"));
 
         // W/O 관리(FACTORY_PPM_WORK_ORDER, 등록 폼 포함)·작업지시 현황(REPORT, 조회 전용) — V060(POM.WorkOrderList). 기존 보류 해소.
         var pomWoCols = new GridColumnDefinition[]
@@ -1501,7 +1506,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("workOrderName", "W/O명"), new("equipmentId", "설비"), new("productId", "품목"),
                 new("planQty", "계획수량", FieldType.Number, Required: true),
             },
-            pomWoCols, QueryId: "POM.WorkOrderList", SaveQueryId: "POM.CreateWorkOrder"));
+            pomWoCols, QueryId: "POM.WorkOrderList", SaveQueryId: "POM.CreateWorkOrder", DeleteQueryId: "POM.DeleteWorkOrder"));
         Register(new ScreenDefinition("FACTORY_PPM_REPORT_WORKORDER", "작업지시 현황",
             Array.Empty<FieldDefinition>(), pomWoCols, QueryId: "POM.WorkOrderList"));
 
@@ -1520,7 +1525,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PROCEDURE_NAME", "프로시저"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "COM.ActionList",
-            SaveQueryId: "COM.CreateAction"));
+            SaveQueryId: "COM.CreateAction", DeleteQueryId: "COM.DeleteAction"));
         Register(new ScreenDefinition("FACTORY_COM_ALARM_ACTION", "알람별 액션 관리",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]

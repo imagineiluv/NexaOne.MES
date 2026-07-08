@@ -91,4 +91,21 @@
                     @currentUser, @utcNow, @currentUser, @utcNow)
         ]]></statement>
     </query>
+    <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).
+         파라미터는 행 딕셔너리의 camelCase 사본이 자동 매칭. MSSQL판과 동일 ID·동일 의미. -->
+    <query id="COM.DeleteMailServer" kind="write" requiredPermission="com:manage">
+        <statement><![CDATA[
+            DELETE FROM COM_MAIL_SERVER WHERE SERVER_ID = @serverId
+        ]]></statement>
+    </query>
+    <query id="COM.DeleteMailRecipient" kind="write" requiredPermission="com:manage">
+        <statement><![CDATA[
+            DELETE FROM COM_MAIL_RECIPIENT WHERE RECIPIENT_ID = @recipientId
+        ]]></statement>
+    </query>
+    <query id="COM.DeleteAction" kind="write" requiredPermission="com:manage">
+        <statement><![CDATA[
+            DELETE FROM COM_ACTION WHERE ACTION_ID = @actionId
+        ]]></statement>
+    </query>
 </queries>

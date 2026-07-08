@@ -160,4 +160,11 @@
             ORDER BY LOT_HISTORY_ID DESC
         ]]></statement>
     </query>
+    <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).
+         파라미터는 행 딕셔너리의 camelCase 사본이 자동 매칭. MSSQL판과 동일 ID·동일 의미. -->
+    <query id="POM.DeleteWorkOrder" kind="write" requiredPermission="pom:manage">
+        <statement><![CDATA[
+            DELETE FROM POM_WORK_ORDER WHERE WORK_ORDER_ID = @workOrderId
+        ]]></statement>
+    </query>
 </queries>

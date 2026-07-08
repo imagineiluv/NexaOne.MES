@@ -1,4 +1,5 @@
 using Bunit;
+using Microsoft.AspNetCore.Components;
 using NexaOne.Web.Components.Meta;
 using NexaOne.Web.Services.Meta;
 using Radzen;
@@ -177,6 +178,89 @@ public sealed class MetaGridRendererTests
         cut.Markup.Should().Contain("45 행").And.Contain("1 / 3");
     }
 
+    // ── 그리드 표준 CRUD(추가/삭제/컬럼 필터) ───────────────────────────────────
+
+    [Fact]
+    public void Add_and_delete_buttons_render_only_when_enabled()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("NAME", "이름") };
+        var rows = new List<Dictionary<string, object?>> { new() { ["NAME"] = "가" } };
+
+        // 미지정(조회 전용) — 추가/삭제 버튼 없음.
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p.Add(c => c.Columns, cols).Add(c => c.Rows, rows));
+        cut.Markup.Should().NotContain(">추가<").And.NotContain(">삭제<");
+
+        // CRUD 켜짐 — 추가 렌더, 삭제는 선택 전 비활성.
+        var added = false;
+        var cut2 = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, cols).Add(c => c.Rows, rows)
+            .Add(c => c.CanAdd, true).Add(c => c.OnAddNew, EventCallback.Factory.Create(this, () => added = true))
+            .Add(c => c.CanDelete, true)
+            .Add(c => c.OnDeleteRows, EventCallback.Factory.Create<List<Dictionary<string, object?>>>(this, _ => { })));
+        cut2.Markup.Should().Contain("추가").And.Contain("삭제");
+        var delBtn = cut2.FindAll("button").First(b => b.TextContent.Contains("삭제"));
+        delBtn.HasAttribute("disabled").Should().BeTrue("선택 행이 없으면 삭제 비활성");
+
+        // 추가 클릭 → 콜백.
+        cut2.FindAll("button").First(b => b.TextContent.Contains("추가")).Click();
+        added.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Delete_in_select_mode_emits_checked_rows()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("NAME", "이름") };
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["NAME"] = "가" }, new() { ["NAME"] = "나" }, new() { ["NAME"] = "다" },
+        };
+        List<Dictionary<string, object?>>? deleted = null;
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, cols).Add(c => c.Rows, rows)
+            .Add(c => c.CanDelete, true)
+            .Add(c => c.OnDeleteRows, EventCallback.Factory.Create<List<Dictionary<string, object?>>>(this, r => deleted = r)));
+
+        // 선택 모드 진입 → 1·3행 체크 → 삭제 클릭 → 원본 행 딕셔너리 2건이 콜백된다.
+        cut.FindAll(".meta-grid-toolbar button").First(b => b.QuerySelector(".rzi")?.TextContent.Trim() == "checklist").Click();
+        var checks = cut.FindAll(".rz-data-row input[type=checkbox]");
+        checks[0].Change(true);
+        cut.FindAll(".rz-data-row input[type=checkbox]")[2].Change(true);
+        cut.FindAll("button").First(b => b.TextContent.Contains("삭제")).Click();
+
+        deleted.Should().NotBeNull();
+        deleted!.Select(r => r["NAME"]).Should().BeEquivalentTo(new[] { "가", "다" });
+    }
+
+    [Fact]
+    public void Column_filter_popup_applies_and_chips_show()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("NAME", "이름"), new("QTY", "수량") };
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["NAME"] = "부산공장", ["QTY"] = "10" },
+            new() { ["NAME"] = "서울공장", ["QTY"] = "20" },
+            new() { ["NAME"] = "부산창고", ["QTY"] = "30" },
+        };
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p.Add(c => c.Columns, cols).Add(c => c.Rows, rows));
+
+        // 필터 팝업 열기 → NAME에 '부산' 입력 → 적용 → 2행만 남고 칩 노출.
+        cut.FindAll(".meta-grid-toolbar button").First(b => b.QuerySelector(".rzi")?.TextContent.Trim() == "filter_alt").Click();
+        cut.FindAll(".nx-filtermenu-row").Count.Should().Be(2, "보이는 컬럼마다 조건 행");
+        cut.FindAll(".nx-filtermenu-val")[0].Input("부산");
+        cut.FindAll(".nx-filtermenu-foot button").First().Click();
+
+        cut.FindAll(".rz-data-row").Count.Should().Be(2, "포함 필터로 2행");
+        cut.FindAll(".nx-filterchip").Count.Should().Be(1, "활성 필터 칩 1개");
+        cut.Markup.Should().Contain("2 / 3 행");
+
+        // 칩 × → 해제 → 전체 복원.
+        cut.Find(".nx-filterchip .x").Click();
+        cut.FindAll(".rz-data-row").Count.Should().Be(3);
+    }
+
     // ── P1 안전장치(무제한 클라 로드 상한) 회귀 가드 ────────────────────────────
 
     [Fact]
@@ -261,8 +345,8 @@ public sealed class MetaGridRendererTests
             .Add(c => c.Columns, cols)
             .Add(c => c.Rows, rows));
 
-        // 컬럼 메뉴 열기 → 체크박스 2개(보이는 컬럼 수).
-        cut.Find(".nx-colmenu-wrap button").Click();
+        // 컬럼 메뉴 열기(view_column 버튼 — 필터 팝업도 colmenu-wrap을 쓰므로 아이콘으로 특정) → 체크박스 2개.
+        cut.FindAll(".meta-grid-toolbar button").First(b => b.QuerySelector(".rzi")?.TextContent.Trim() == "view_column").Click();
         var checks = cut.FindAll(".nx-colmenu-item input[type=checkbox]");
         checks.Count.Should().Be(2, "보이는 컬럼마다 체크박스");
         cut.Markup.Should().Contain("가공장", "숨기기 전엔 QTY열과 함께 NAME 값이 보인다");

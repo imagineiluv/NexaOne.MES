@@ -45,7 +45,12 @@ public sealed record ScreenDefinition(
     LayoutNode? Layout = null,                 // null => 기존 평면 렌더(하위호환). 비null => LayoutRenderer가 렌더.
     int? RefreshIntervalSeconds = null,        // 자동 새로고침 주기(초, Phase-2 실시간 v2) — null/0=수동(기존 동작).
     IReadOnlyList<FieldDefinition>? SearchFields = null,
-    string? CountQueryId = null);
+    string? CountQueryId = null,
+    string? DeleteQueryId = null);
+    // DeleteQueryId — 그리드 행 삭제(표준 CRUD)의 명명 쓰기쿼리. 지정 시 그리드 툴바에 삭제 버튼이 켜지고,
+    // 선택 행(단일/선택모드 다중)을 확인 다이얼로그 후 /api/v1/command/{DeleteQueryId}로 보낸다.
+    // @param 바인딩은 행 딕셔너리(원본 UPPER_SNAKE + camelCase 사본 병행)로 — PK 파라미터(@plantId 등)가
+    // 자동 매칭된다. 권한은 서버 requiredPermission이 집행(대개 Create와 동일 module:manage).
     // SearchFields — 그리드 상단 검색 조건 영역(레거시 SmartUX 표준 패턴). 필드 Key=쿼리 @param 이름이며
     // 조회 시 화면의 모든 읽기쿼리에 함께 바인딩된다(SQL이 선언하지 않은 파라미터는 게이트웨이가 무시,
     // 누락 파라미터는 DBNull → NULL-가드 쿼리에서 전체 조회). §20.8 조건 저장/불러오기의 대상이기도 하다.

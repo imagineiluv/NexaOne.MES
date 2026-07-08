@@ -75,7 +75,9 @@ else if (_definition.Layout is not null)
             <LayoutRenderer Node="_definition.Layout" @bind-Model="_model" ScreenKey="@UiId"
                             QueryResults="_queryResults" OnCommand="RunCommand"
                             FormModels="_formModels" OnFormModelChanged="OnFormModelChanged"
-                            OnRowSelect="_rowSelect" LoadingData="_loadingData" />
+                            OnRowSelect="_rowSelect" LoadingData="_loadingData"
+                            CanAdd="CanAddNew" OnAddNew="OnAddNewRequested"
+                            CanDelete="@(_definition.DeleteQueryId is { Length: > 0 })" OnDeleteRows="OnDeleteRowsAsync" />
         </CascadingValue>
     </CascadingValue>
 
@@ -149,6 +151,8 @@ else
             <div class="mes-card-body">
                 <MetaGridRenderer Columns="_definition.Columns" Rows="_rows"
                                   Loading="_loadingData" OnRowSelect="_rowSelect" ScreenKey="@UiId"
+                                  CanAdd="CanAddNew" OnAddNew="OnAddNewRequested"
+                                  CanDelete="@(_definition.DeleteQueryId is { Length: > 0 })" OnDeleteRows="OnDeleteRowsAsync"
                                   ServerTotal="serverPaged ? _serverTotal : (int?)null"
                                   ServerPage="_serverPage" OnServerPageChange="OnServerPageChangeAsync" />
             </div>
@@ -498,6 +502,68 @@ else
         {
             _loadingData = false;
         }
+    }
+
+    // ── 그리드 표준 CRUD(추가/삭제) — 툴바 버튼은 그리드가, 실행·확인·재조회는 여기가 소유 ──────
+
+    // 추가 가능 = 저장 폼이 있는 화면(평면 Fields+SaveQueryId, 레이아웃은 폼 저장쿼리 존재).
+    private bool CanAddNew => _definition is not null && (_definition.Layout is null
+        ? _definition.Fields.Count > 0 && !string.IsNullOrWhiteSpace(_definition.SaveQueryId)
+        : CollectFormSaveQueries(_definition.Layout).Any());
+
+    // 추가 = 신규 입력 모드 — 폼 모델(공유+격리)을 비워 새 행 입력을 준비한다(그리드는 그대로).
+    private void OnAddNewRequested()
+    {
+        _model = new Dictionary<string, object?>();
+        foreach (var key in _formModels.Keys.ToList()) _formModels[key] = new Dictionary<string, object?>();
+        _fieldErrors = new(StringComparer.Ordinal);
+        _errors = new();
+        _saved = false;
+    }
+
+    // 삭제 — 확인 다이얼로그(비블로킹 모달) 후 선택 행마다 DeleteQueryId 커맨드 실행, 완료 시 재조회.
+    // 파라미터는 행 원본 키(UPPER_SNAKE) + camelCase 사본을 병행 전송 — 쿼리 @param(@plantId 등)이
+    // 어느 관례든 자동 매칭된다(선언 안 된 파라미터는 게이트웨이/디스패처가 무시).
+    private async Task OnDeleteRowsAsync(List<Dictionary<string, object?>> rows)
+    {
+        if (_definition?.DeleteQueryId is not { Length: > 0 } deleteQueryId || rows.Count == 0) return;
+
+        // DialogService는 호스트 DI(테스트 등 미등록 환경은 확인 생략 — 서버 권한이 최종 게이트).
+        var dialogs = Services.GetService(typeof(Radzen.DialogService)) as Radzen.DialogService;
+        if (dialogs is not null)
+        {
+            var msg = string.Format(T("common.deleteConfirm", "선택한 {0}건을 삭제하시겠습니까? 되돌릴 수 없습니다."), rows.Count);
+            var ok = await dialogs.Confirm(msg, T("common.deleteConfirmTitle", "삭제 확인"),
+                new Radzen.ConfirmOptions { OkButtonText = T("common.delete", "삭제"), CancelButtonText = T("common.cancel", "취소") });
+            if (ok != true) return;
+        }
+
+        var deleted = 0;
+        foreach (var row in rows)
+            if (await Api.ExecuteCommandAsync(deleteQueryId, BuildDeleteParameters(row))) deleted++;
+        if (deleted > 0) await ReloadDataAsync();   // 실패는 ApiClient 전역 토스트가 사유(403 등)를 알린다.
+    }
+
+    private static Dictionary<string, object?> BuildDeleteParameters(Dictionary<string, object?> row)
+    {
+        var p = new Dictionary<string, object?>(StringComparer.Ordinal);
+        foreach (var (k, v) in row)
+        {
+            p[k] = v;
+            p.TryAdd(CamelizeKey(k), v);   // PLANT_ID → plantId(쿼리 파라미터 관례)
+        }
+        return p;
+    }
+
+    // UPPER_SNAKE → camelCase(VENDOR_ITEM_ID → vendorItemId). 구분자 없는 키는 소문자 시작만 보정.
+    internal static string CamelizeKey(string key)
+    {
+        var parts = key.Split('_', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return key;
+        var head = parts[0].ToLowerInvariant();
+        var tail = string.Concat(parts.Skip(1).Select(s =>
+            char.ToUpperInvariant(s[0]) + (s.Length > 1 ? s[1..].ToLowerInvariant() : "")));
+        return head + tail;
     }
 
     // ── P1-1 그리드 행 선택 → 폼 로드(레거시 표준 편집 흐름) ────────────────────
