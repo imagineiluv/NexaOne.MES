@@ -36,11 +36,19 @@
         break;
 
     case GridWidget g:
-        @* ScreenKey — 레이아웃 한 화면에 그리드가 여럿일 수 있어 위젯 단위로 키를 조합(개인화가 섞이지 않게). *@
+    {
+        @* ScreenKey — 레이아웃 한 화면에 그리드가 여럿일 수 있어 위젯 단위로 키를 조합(개인화가 섞이지 않게).
+           GridPaging — 하이브리드 서버 모드로 전환된 위젯(queryId)만 총건수/페이지가 실려 서버 페이저를 켠다. *@
+        var qid = g.QueryId;
+        (int Total, int Page)? paging = qid is not null && GridPaging is not null
+            && GridPaging.TryGetValue(qid, out var pg) ? pg : null;
         <MetaGridRenderer Columns="g.Columns ?? Array.Empty<GridColumnDefinition>()" Rows="RowsFor(g.QueryId)"
                           Loading="LoadingData" OnRowSelect="OnRowSelect" ScreenKey="@GridKey(g)"
-                          CanAdd="CanAdd" OnAddNew="OnAddNew" CanDelete="CanDelete" OnDeleteRows="OnDeleteRows" />
+                          CanAdd="CanAdd" OnAddNew="OnAddNew" CanDelete="CanDelete" OnDeleteRows="OnDeleteRows"
+                          ServerTotal="paging?.Total" ServerPage="paging?.Page ?? 0"
+                          OnServerPageChange="EventCallback.Factory.Create<int>(this, p => OnGridPageChange.InvokeAsync((qid!, p)))" />
         break;
+    }
 
     @* Form/Field는 기본적으로 화면 공유 Model(동일 Dictionary 참조)에 바인딩한다 — 위젯 간 값 즉시 공유(의도된 설계).
        Isolated=true(Phase-2 멀티폼)면 폼 전용 모델(FormModels[key])에 바인딩해 폼 간 값이 섞이지 않는다. *@
@@ -164,6 +172,10 @@
     [Parameter] public bool CanDelete { get; set; }
     [Parameter] public EventCallback<List<Dictionary<string, object?>>> OnDeleteRows { get; set; }
 
+    // 레이아웃 그리드 하이브리드 페이징 — 서버 모드 위젯(queryId)의 총건수/페이지 맵 + 페이지 전환 콜백.
+    [Parameter] public IReadOnlyDictionary<string, (int Total, int Page)>? GridPaging { get; set; }
+    [Parameter] public EventCallback<(string QueryId, int Page)> OnGridPageChange { get; set; }
+
     // 그리드 위젯의 개인화 저장 키 — {화면}:{위젯}. Id 없으면 QueryId로 구분(한 화면 다중 그리드 대비).
     private string? GridKey(GridWidget g)
         => string.IsNullOrEmpty(ScreenKey) ? null
@@ -211,6 +223,8 @@
             builder.AddAttribute(12, nameof(OnAddNew), OnAddNew);
             builder.AddAttribute(13, nameof(CanDelete), CanDelete);
             builder.AddAttribute(14, nameof(OnDeleteRows), OnDeleteRows);
+            builder.AddAttribute(15, nameof(GridPaging), GridPaging);
+            builder.AddAttribute(16, nameof(OnGridPageChange), OnGridPageChange);
             builder.CloseComponent();
         }
     };

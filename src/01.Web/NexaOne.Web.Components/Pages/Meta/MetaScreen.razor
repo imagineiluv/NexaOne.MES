@@ -77,7 +77,8 @@ else if (_definition.Layout is not null)
                             FormModels="_formModels" OnFormModelChanged="OnFormModelChanged"
                             OnRowSelect="_rowSelect" LoadingData="_loadingData"
                             CanAdd="CanAddNew" OnAddNew="OnAddNewRequested"
-                            CanDelete="@(_definition.DeleteQueryId is { Length: > 0 })" OnDeleteRows="OnDeleteRowsAsync" />
+                            CanDelete="@(_definition.DeleteQueryId is { Length: > 0 })" OnDeleteRows="OnDeleteRowsAsync"
+                            GridPaging="LayoutGridPaging" OnGridPageChange="OnLayoutGridPageChangeAsync" />
         </CascadingValue>
     </CascadingValue>
 
@@ -285,6 +286,7 @@ else
         _serverPage = 0;   // 화면 전환 시 서버 페이징 상태 초기화(P3-9 v2)
         _serverTotal = 0;
         _hybridServer = false;   // 하이브리드 서버 페이징도 화면 전환 시 리셋(첫 조회가 재판정)
+        _layoutPaging = new(StringComparer.Ordinal);   // 레이아웃 그리드 페이징 상태도 리셋
         await ReloadDataAsync();
 
         // 레이아웃 화면: 저장 버튼/멀티폼 인덱스는 정의 로드 시 1회만 구성한다(새로고침이 폼 상태를 건드리지 않게).
@@ -482,6 +484,21 @@ else
     // 전환돼 페이지 단위 재조회(paged 게이트웨이). 상한 이하/미지원은 false(기존 클라 모드).
     private bool _hybridServer;
 
+    // 레이아웃 그리드 위젯별 페이징 상태(queryId → 하이브리드 여부/총건수/현재 페이지) — 그리드마다 독립.
+    private Dictionary<string, (bool Hybrid, int Total, int Page)> _layoutPaging = new(StringComparer.Ordinal);
+
+    // LayoutRenderer에 내려보낼 서버 모드 그리드 맵(총건수·페이지) — 하이브리드 전환된 위젯만.
+    private IReadOnlyDictionary<string, (int Total, int Page)> LayoutGridPaging
+        => _layoutPaging.Where(kv => kv.Value.Hybrid)
+            .ToDictionary(kv => kv.Key, kv => (kv.Value.Total, kv.Value.Page), StringComparer.Ordinal);
+
+    private async Task OnLayoutGridPageChangeAsync((string QueryId, int Page) e)
+    {
+        if (e.Page < 0 || !_layoutPaging.TryGetValue(e.QueryId, out var st) || !st.Hybrid || st.Page == e.Page) return;
+        _layoutPaging[e.QueryId] = (st.Hybrid, st.Total, e.Page);
+        await ReloadDataAsync();
+    }
+
     private async Task OnServerPageChangeAsync(int page)
     {
         if (page < 0 || page == _serverPage) return;
@@ -564,10 +581,50 @@ else
 
             if (_definition?.Layout is not null)
             {
+                // 레이아웃 그리드 하이브리드(위젯별 독립 페이징) — 그리드 '전용' 쿼리만 paged 게이트웨이로
+                // 요청한다. KPI/배지/차트가 함께 쓰는 쿼리는 집계 의미(첫 행/시계열 전체)가 깨지므로 전량 유지.
                 var map = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>(StringComparer.Ordinal);
+                var gridIds = new HashSet<string>(CollectGridQueryIds(_definition.Layout), StringComparer.Ordinal);
+                var nonGridIds = new HashSet<string>(CollectNonGridQueryIds(_definition.Layout), StringComparer.Ordinal);
+                var cap = MetaGridRenderer.MaxClientRows;
                 foreach (var queryId in CollectQueryIds(_definition.Layout))
-                    if (!map.ContainsKey(queryId))
+                {
+                    if (map.ContainsKey(queryId)) continue;
+                    var pageable = gridIds.Contains(queryId) && !nonGridIds.Contains(queryId);
+                    if (!pageable)
+                    {
                         map[queryId] = await Api.ExecuteQueryAsync(queryId, search);
+                        continue;
+                    }
+
+                    var st = _layoutPaging.TryGetValue(queryId, out var s) ? s : (Hybrid: false, Total: 0, Page: 0);
+                    var paged = st.Hybrid
+                        ? await Api.ExecuteQueryPagedAsync(queryId, search,
+                              MetaGridRenderer.PageSize, st.Page * MetaGridRenderer.PageSize)
+                        : await Api.ExecuteQueryPagedAsync(queryId, search, cap, 0);
+                    if (paged is null)
+                    {
+                        // paged 미지원(자체 LIMIT 쿼리 등) — 기존 전량 경로 폴백.
+                        _layoutPaging.Remove(queryId);
+                        map[queryId] = await Api.ExecuteQueryAsync(queryId, search);
+                    }
+                    else if (!st.Hybrid && paged.Total > cap)
+                    {
+                        _layoutPaging[queryId] = (true, paged.Total, 0);
+                        map[queryId] = paged.Rows.Take(MetaGridRenderer.PageSize).ToList();
+                    }
+                    else if (st.Hybrid)
+                    {
+                        var maxPage = paged.Total > 0 ? (paged.Total - 1) / MetaGridRenderer.PageSize : 0;
+                        _layoutPaging[queryId] = (paged.Total > cap, paged.Total, Math.Min(st.Page, maxPage));
+                        map[queryId] = paged.Rows;
+                    }
+                    else
+                    {
+                        _layoutPaging.Remove(queryId);
+                        map[queryId] = paged.Rows;   // total ≤ 상한 — 전량(클라 모드)
+                    }
+                }
                 _queryResults = map;
             }
         }
@@ -835,6 +892,44 @@ else
         _saved = await Api.ExecuteCommandAsync(command, _model);
         if (!_saved) _errors.Add("저장에 실패했습니다(권한/입력 확인).");
         else await ReloadDataAsync();   // 저장 결과를 그리드에 즉시 반영
+    }
+
+    // 그리드 위젯 '전용' 쿼리 id — 레이아웃 하이브리드 페이징 대상 판정용(GridWidget만).
+    private static IEnumerable<string> CollectGridQueryIds(LayoutNode node)
+    {
+        switch (node)
+        {
+            case GridWidget g when !string.IsNullOrWhiteSpace(g.QueryId):
+                yield return g.QueryId!;
+                break;
+            case SectionNode s: foreach (var id in Children(s.Children)) yield return id; break;
+            case RowNode r: foreach (var id in Children(r.Children)) yield return id; break;
+            case ColumnNode c: foreach (var id in Children(c.Children)) yield return id; break;
+        }
+        static IEnumerable<string> Children(IReadOnlyList<LayoutNode>? children)
+            => (children ?? Array.Empty<LayoutNode>()).SelectMany(CollectGridQueryIds);
+    }
+
+    // 비그리드 위젯(KPI/배지/차트) 쿼리 id — 이 쿼리들은 페이징하면 집계/시계열 의미가 깨지므로 전량 유지.
+    private static IEnumerable<string> CollectNonGridQueryIds(LayoutNode node)
+    {
+        switch (node)
+        {
+            case KpiWidget k when !string.IsNullOrWhiteSpace(k.QueryId):
+                yield return k.QueryId!;
+                break;
+            case BadgeWidget bw when !string.IsNullOrWhiteSpace(bw.QueryId):
+                yield return bw.QueryId!;
+                break;
+            case TrendChartWidget tc when !string.IsNullOrWhiteSpace(tc.QueryId):
+                yield return tc.QueryId!;
+                break;
+            case SectionNode s: foreach (var id in Children(s.Children)) yield return id; break;
+            case RowNode r: foreach (var id in Children(r.Children)) yield return id; break;
+            case ColumnNode c: foreach (var id in Children(c.Children)) yield return id; break;
+        }
+        static IEnumerable<string> Children(IReadOnlyList<LayoutNode>? children)
+            => (children ?? Array.Empty<LayoutNode>()).SelectMany(CollectNonGridQueryIds);
     }
 
     // 트리에서 그리드 위젯의 distinct read 쿼리 id를 수집(빈/공백 제외).

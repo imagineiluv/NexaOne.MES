@@ -903,6 +903,57 @@ public sealed class MetaScreenTests
         });
     }
 
+    [Fact]
+    public void Hybrid_layout_grid_pages_independently_and_kpi_query_stays_full()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
+
+        // 레이아웃: 대형 그리드(Q.BigLot) + KPI(Q.Kpi — 페이징 금지 대상).
+        var def = new ScreenDefinition("HYL", "레이아웃 하이브리드", Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Id = "s",
+                Children = new LayoutNode[]
+                {
+                    new KpiWidget { Id = "k", Label = "총계", QueryId = "Q.Kpi", ValueColumn = "CNT" },
+                    new GridWidget { Id = "g", QueryId = "Q.BigLot", Columns = new GridColumnDefinition[] { new("LOT_ID", "LOT") } },
+                },
+            });
+
+        var pagedCalls = new List<(string Query, int Limit, int Offset)>();
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryPagedAsync("Q.BigLot", It.IsAny<object?>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+           .Callback<string, object?, int, int, CancellationToken>((q, _, l, o, _) => pagedCalls.Add((q, l, o)))
+           .ReturnsAsync((string _, object? _, int limit, int offset, CancellationToken _) =>
+               new PagedQueryResult(900, Enumerable.Range(offset, Math.Min(limit, 20))
+                   .Select(i => new Dictionary<string, object?> { ["LOT_ID"] = $"L{i:D4}" }).ToList()));
+        api.Setup(a => a.ExecuteQueryAsync("Q.Kpi", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(new List<Dictionary<string, object?>> { new() { ["CNT"] = "900" } });
+        ctx.Services.AddSingleton(Provider("HYL", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "HYL"));
+        cut.WaitForAssertion(() =>
+        {
+            // 그리드는 서버 모드(총 900 → 페이저), KPI는 전량 경로 값 렌더.
+            cut.Markup.Should().Contain("900 행").And.Contain("1 / 45");
+            cut.FindAll(".rz-data-row").Count.Should().Be(20);
+            cut.Markup.Should().Contain("총계");
+        });
+        // KPI 쿼리는 paged로 요청되지 않는다(집계 의미 보존).
+        api.Verify(a => a.ExecuteQueryPagedAsync("Q.Kpi", It.IsAny<object?>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+
+        // 그리드 페이지 전환 → 해당 위젯만 PageSize 창으로 재조회(offset=20).
+        cut.FindAll(".meta-grid-pager button").Last(b => !b.HasAttribute("disabled")).Click();
+        cut.WaitForAssertion(() =>
+        {
+            pagedCalls.Should().Contain(("Q.BigLot", MetaGridRenderer.PageSize, 20));
+            cut.Markup.Should().Contain("2 / 45");
+        });
+    }
+
     // ── 그리드 '추가' 팝업(사용자 요청) — 툴바 추가 → 모달 폼 → 저장=커맨드+재조회, 취소=닫기 ──────
 
     [Fact]
