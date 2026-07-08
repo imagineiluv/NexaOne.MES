@@ -147,10 +147,16 @@
     <!-- 작업지시 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. -->
     <query id="POM.CreateWorkOrder" kind="write" requiredPermission="pom:manage">
         <statement><![CDATA[
-            INSERT INTO POM_WORK_ORDER (WORK_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, EQUIPMENT_ID, PRODUCT_ID, PLAN_QTY,
-                                        CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@workOrderId, @plantId, @workOrderName, @equipmentId, @productId, @planQty,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            INSERT INTO POM_WORK_ORDER (WORK_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, EQUIPMENT_ID, PRODUCT_ID, PLAN_QTY, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) VALUES (@workOrderId, @plantId, @workOrderName, @equipmentId, @productId, @planQty, @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(WORK_ORDER_ID) DO UPDATE SET
+                PLANT_ID = excluded.PLANT_ID,
+                WORK_ORDER_NAME = excluded.WORK_ORDER_NAME,
+                EQUIPMENT_ID = excluded.EQUIPMENT_ID,
+                PRODUCT_ID = excluded.PRODUCT_ID,
+                PLAN_QTY = excluded.PLAN_QTY,
+                UPDATED_BY = excluded.UPDATED_BY,
+                UPDATED_AT = excluded.UPDATED_AT
         ]]></statement>
     </query>
     <!-- LOT 추적 — Lot 이력 전체조회(POM_LOT_HISTORY, 최근 500). @plantId/@lotId 선택 필터. -->

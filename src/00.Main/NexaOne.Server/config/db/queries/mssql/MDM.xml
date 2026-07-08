@@ -24,10 +24,18 @@
          감사 컬럼은 게이트웨이가 @currentUser(토큰)·@utcNow(UTC)로 주입한다(방언 무관 바운드 파라미터). -->
     <query id="MDM.CreatePlant" kind="write" requiredPermission="mdm:manage">
         <statement><![CDATA[
-            INSERT INTO MDM_PLANT (PLANT_ID, PLANT_NAME, DESCRIPTION, COUNTRY, TIME_ZONE,
-                                   CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@plantId, @plantName, @description, @country, @timeZone,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 존재 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            MERGE MDM_PLANT AS t
+            USING (SELECT @plantId AS PLANT_ID) AS s ON t.PLANT_ID = s.PLANT_ID
+            WHEN MATCHED THEN UPDATE SET
+                PLANT_NAME = @plantName,
+                DESCRIPTION = @description,
+                COUNTRY = @country,
+                TIME_ZONE = @timeZone,
+                UPDATED_BY = @currentUser,
+                UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT (PLANT_ID, PLANT_NAME, DESCRIPTION, COUNTRY, TIME_ZONE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@plantId, @plantName, @description, @country, @timeZone, @currentUser, @utcNow, @currentUser, @utcNow);
         ]]></statement>
     </query>
     <!-- 감사 컬럼 조회 — 쓰기쿼리가 게이트웨이 주입(@currentUser/@utcNow)으로 채운 작성자/수정자를 확인. -->
@@ -283,50 +291,99 @@
     <!-- ===== 마스터 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. ===== -->
     <query id="MDM.CreateVendor" kind="write" requiredPermission="mdm:manage">
         <statement><![CDATA[
-            INSERT INTO MDM_VENDOR (VENDOR_ID, VENDOR_NAME, VENDOR_TYPE, PHONE, EMAIL,
-                                    CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@vendorId, @vendorName, @vendorType, @phone, @email,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 존재 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            MERGE MDM_VENDOR AS t
+            USING (SELECT @vendorId AS VENDOR_ID) AS s ON t.VENDOR_ID = s.VENDOR_ID
+            WHEN MATCHED THEN UPDATE SET
+                VENDOR_NAME = @vendorName,
+                VENDOR_TYPE = @vendorType,
+                PHONE = @phone,
+                EMAIL = @email,
+                UPDATED_BY = @currentUser,
+                UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT (VENDOR_ID, VENDOR_NAME, VENDOR_TYPE, PHONE, EMAIL, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@vendorId, @vendorName, @vendorType, @phone, @email, @currentUser, @utcNow, @currentUser, @utcNow);
         ]]></statement>
     </query>
     <query id="MDM.CreateShift" kind="write" requiredPermission="mdm:manage">
         <statement><![CDATA[
-            INSERT INTO MDM_SHIFT (SHIFT_ID, SHIFT_NAME, START_TIME, END_TIME,
-                                   CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@shiftId, @shiftName, @startTime, @endTime,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 존재 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            MERGE MDM_SHIFT AS t
+            USING (SELECT @shiftId AS SHIFT_ID) AS s ON t.SHIFT_ID = s.SHIFT_ID
+            WHEN MATCHED THEN UPDATE SET
+                SHIFT_NAME = @shiftName,
+                START_TIME = @startTime,
+                END_TIME = @endTime,
+                UPDATED_BY = @currentUser,
+                UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT (SHIFT_ID, SHIFT_NAME, START_TIME, END_TIME, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@shiftId, @shiftName, @startTime, @endTime, @currentUser, @utcNow, @currentUser, @utcNow);
         ]]></statement>
     </query>
     <query id="MDM.CreateLabel" kind="write" requiredPermission="mdm:manage">
         <statement><![CDATA[
-            INSERT INTO MDM_LABEL (LABEL_ID, PLANT_ID, LABEL_NAME, DESCRIPTION,
-                                   CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@labelId, @plantId, @labelName, @description,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 존재 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            MERGE MDM_LABEL AS t
+            USING (SELECT @labelId AS LABEL_ID) AS s ON t.LABEL_ID = s.LABEL_ID
+            WHEN MATCHED THEN UPDATE SET
+                PLANT_ID = @plantId,
+                LABEL_NAME = @labelName,
+                DESCRIPTION = @description,
+                UPDATED_BY = @currentUser,
+                UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT (LABEL_ID, PLANT_ID, LABEL_NAME, DESCRIPTION, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@labelId, @plantId, @labelName, @description, @currentUser, @utcNow, @currentUser, @utcNow);
         ]]></statement>
     </query>
     <query id="MDM.CreateBor" kind="write" requiredPermission="mdm:manage">
         <statement><![CDATA[
-            INSERT INTO MDM_BOR (BOR_ID, PLANT_ID, BOR_NAME, BOR_TYPE, PROCESS_ID, PRODUCT_ID,
-                                 CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@borId, @plantId, @borName, @borType, @processId, @productId,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 존재 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            MERGE MDM_BOR AS t
+            USING (SELECT @borId AS BOR_ID) AS s ON t.BOR_ID = s.BOR_ID
+            WHEN MATCHED THEN UPDATE SET
+                PLANT_ID = @plantId,
+                BOR_NAME = @borName,
+                BOR_TYPE = @borType,
+                PROCESS_ID = @processId,
+                PRODUCT_ID = @productId,
+                UPDATED_BY = @currentUser,
+                UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT (BOR_ID, PLANT_ID, BOR_NAME, BOR_TYPE, PROCESS_ID, PRODUCT_ID, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@borId, @plantId, @borName, @borType, @processId, @productId, @currentUser, @utcNow, @currentUser, @utcNow);
         ]]></statement>
     </query>
     <query id="MDM.CreateLabelMapping" kind="write" requiredPermission="mdm:manage">
         <statement><![CDATA[
-            INSERT INTO MDM_LABEL_MAPPING (MAPPING_ID, PLANT_ID, PROCESS_ID, ITEM_ID, LABEL_ID, PRINT_LIMIT_CNT,
-                                           CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@mappingId, @plantId, @processId, @itemId, @labelId, @printLimitCnt,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 존재 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            MERGE MDM_LABEL_MAPPING AS t
+            USING (SELECT @mappingId AS MAPPING_ID) AS s ON t.MAPPING_ID = s.MAPPING_ID
+            WHEN MATCHED THEN UPDATE SET
+                PLANT_ID = @plantId,
+                PROCESS_ID = @processId,
+                ITEM_ID = @itemId,
+                LABEL_ID = @labelId,
+                PRINT_LIMIT_CNT = @printLimitCnt,
+                UPDATED_BY = @currentUser,
+                UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT (MAPPING_ID, PLANT_ID, PROCESS_ID, ITEM_ID, LABEL_ID, PRINT_LIMIT_CNT, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@mappingId, @plantId, @processId, @itemId, @labelId, @printLimitCnt, @currentUser, @utcNow, @currentUser, @utcNow);
         ]]></statement>
     </query>
     <query id="MDM.CreateVendorItem" kind="write" requiredPermission="mdm:manage">
         <statement><![CDATA[
-            INSERT INTO MDM_VENDOR_ITEM (VENDOR_ITEM_ID, VENDOR_ID, PRODUCT_ID, LEAD_TIME_DAYS, MOQ, BASE_PRICE,
-                                         CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@vendorItemId, @vendorId, @productId, @leadTimeDays, @moq, @basePrice,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 존재 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            MERGE MDM_VENDOR_ITEM AS t
+            USING (SELECT @vendorItemId AS VENDOR_ITEM_ID) AS s ON t.VENDOR_ITEM_ID = s.VENDOR_ITEM_ID
+            WHEN MATCHED THEN UPDATE SET
+                VENDOR_ID = @vendorId,
+                PRODUCT_ID = @productId,
+                LEAD_TIME_DAYS = @leadTimeDays,
+                MOQ = @moq,
+                BASE_PRICE = @basePrice,
+                UPDATED_BY = @currentUser,
+                UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT (VENDOR_ITEM_ID, VENDOR_ID, PRODUCT_ID, LEAD_TIME_DAYS, MOQ, BASE_PRICE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@vendorItemId, @vendorId, @productId, @leadTimeDays, @moq, @basePrice, @currentUser, @utcNow, @currentUser, @utcNow);
         ]]></statement>
     </query>
     <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).

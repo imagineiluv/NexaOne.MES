@@ -69,26 +69,42 @@
     <!-- 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. -->
     <query id="COM.CreateMailServer" kind="write" requiredPermission="com:manage">
         <statement><![CDATA[
-            INSERT INTO COM_MAIL_SERVER (SERVER_ID, SERVER_NAME, HOST, PORT, SENDER_ADDRESS, USE_SSL,
-                                         CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@serverId, @serverName, @host, @port, @senderAddress, @useSsl,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            INSERT INTO COM_MAIL_SERVER (SERVER_ID, SERVER_NAME, HOST, PORT, SENDER_ADDRESS, USE_SSL, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) VALUES (@serverId, @serverName, @host, @port, @senderAddress, @useSsl, @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(SERVER_ID) DO UPDATE SET
+                SERVER_NAME = excluded.SERVER_NAME,
+                HOST = excluded.HOST,
+                PORT = excluded.PORT,
+                SENDER_ADDRESS = excluded.SENDER_ADDRESS,
+                USE_SSL = excluded.USE_SSL,
+                UPDATED_BY = excluded.UPDATED_BY,
+                UPDATED_AT = excluded.UPDATED_AT
         ]]></statement>
     </query>
     <query id="COM.CreateMailRecipient" kind="write" requiredPermission="com:manage">
         <statement><![CDATA[
-            INSERT INTO COM_MAIL_RECIPIENT (RECIPIENT_ID, PLANT_ID, USER_ID, EQUIPMENT_ID, MAIL_ADDRESS, MAIL_TYPE,
-                                            CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@recipientId, @plantId, @userId, @equipmentId, @mailAddress, @mailType,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            INSERT INTO COM_MAIL_RECIPIENT (RECIPIENT_ID, PLANT_ID, USER_ID, EQUIPMENT_ID, MAIL_ADDRESS, MAIL_TYPE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) VALUES (@recipientId, @plantId, @userId, @equipmentId, @mailAddress, @mailType, @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(RECIPIENT_ID) DO UPDATE SET
+                PLANT_ID = excluded.PLANT_ID,
+                USER_ID = excluded.USER_ID,
+                EQUIPMENT_ID = excluded.EQUIPMENT_ID,
+                MAIL_ADDRESS = excluded.MAIL_ADDRESS,
+                MAIL_TYPE = excluded.MAIL_TYPE,
+                UPDATED_BY = excluded.UPDATED_BY,
+                UPDATED_AT = excluded.UPDATED_AT
         ]]></statement>
     </query>
     <query id="COM.CreateAction" kind="write" requiredPermission="com:manage">
         <statement><![CDATA[
-            INSERT INTO COM_ACTION (ACTION_ID, ACTION_NAME, ACTION_TYPE, DESCRIPTION,
-                                    CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@actionId, @actionName, @actionType, @description,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            INSERT INTO COM_ACTION (ACTION_ID, ACTION_NAME, ACTION_TYPE, DESCRIPTION, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) VALUES (@actionId, @actionName, @actionType, @description, @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(ACTION_ID) DO UPDATE SET
+                ACTION_NAME = excluded.ACTION_NAME,
+                ACTION_TYPE = excluded.ACTION_TYPE,
+                DESCRIPTION = excluded.DESCRIPTION,
+                UPDATED_BY = excluded.UPDATED_BY,
+                UPDATED_AT = excluded.UPDATED_AT
         ]]></statement>
     </query>
     <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).

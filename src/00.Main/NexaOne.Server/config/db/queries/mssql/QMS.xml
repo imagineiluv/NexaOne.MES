@@ -274,10 +274,19 @@
     </query>
     <query id="QMS.CreateDefectClass" kind="write" requiredPermission="qms:manage">
         <statement><![CDATA[
-            INSERT INTO QMS_DEFECT_CLASS (DEFECT_CLASS_ID, DEFECT_CLASS_NAME, DESCRIPTION, SEVERITY,
-                                          IS_ACTIVE, IS_DELETED, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@defectClassId, @defectClassName, @description, @severity,
-                    1, 0, @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 존재 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            MERGE QMS_DEFECT_CLASS AS t
+            USING (SELECT @defectClassId AS DEFECT_CLASS_ID) AS s ON t.DEFECT_CLASS_ID = s.DEFECT_CLASS_ID
+            WHEN MATCHED THEN UPDATE SET
+                DEFECT_CLASS_NAME = @defectClassName,
+                DESCRIPTION = @description,
+                SEVERITY = @severity,
+                IS_ACTIVE = 1,
+                IS_DELETED = 0,
+                UPDATED_BY = @currentUser,
+                UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT (DEFECT_CLASS_ID, DEFECT_CLASS_NAME, DESCRIPTION, SEVERITY, IS_ACTIVE, IS_DELETED, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@defectClassId, @defectClassName, @description, @severity, 1, 0, @currentUser, @utcNow, @currentUser, @utcNow);
         ]]></statement>
     </query>
     <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).

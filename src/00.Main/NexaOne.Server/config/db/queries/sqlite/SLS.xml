@@ -29,10 +29,16 @@
     <!-- 판매오더 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. -->
     <query id="SLS.CreateSalesOrder" kind="write" requiredPermission="sls:manage">
         <statement><![CDATA[
-            INSERT INTO SLS_SALES_ORDER (SALES_ORDER_ID, PLANT_ID, SALES_ORDER_NAME, CUSTOMER_ID, PRODUCT_ID, PLAN_QTY,
-                                         CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@salesOrderId, @plantId, @salesOrderName, @customerId, @productId, @planQty,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            INSERT INTO SLS_SALES_ORDER (SALES_ORDER_ID, PLANT_ID, SALES_ORDER_NAME, CUSTOMER_ID, PRODUCT_ID, PLAN_QTY, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) VALUES (@salesOrderId, @plantId, @salesOrderName, @customerId, @productId, @planQty, @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(SALES_ORDER_ID) DO UPDATE SET
+                PLANT_ID = excluded.PLANT_ID,
+                SALES_ORDER_NAME = excluded.SALES_ORDER_NAME,
+                CUSTOMER_ID = excluded.CUSTOMER_ID,
+                PRODUCT_ID = excluded.PRODUCT_ID,
+                PLAN_QTY = excluded.PLAN_QTY,
+                UPDATED_BY = excluded.UPDATED_BY,
+                UPDATED_AT = excluded.UPDATED_AT
         ]]></statement>
     </query>
     <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).

@@ -137,6 +137,34 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "쓰기 쿼리는 /query 라우트로 실행될 수 없다(WRITE_QUERY_VIA_QUERY)");
     }
 
+    [Fact]
+    public async Task Create_command_upserts_on_same_pk_without_duplicate()
+    {
+        // 그리드 표준 편집(upsert 전환) — 행선택→폼수정→저장이 PK 충돌 대신 UPDATE가 되는지.
+        var vendorId = $"VEN_{Suffix()}";
+        var first = await AuthedClient("upsert-a", "mdm:manage").PostAsJsonAsync("/api/v1/command/MDM.CreateVendor",
+            new Dictionary<string, object>
+            {
+                ["vendorId"] = vendorId, ["vendorName"] = "최초 등록명", ["vendorType"] = "Material",
+                ["phone"] = "02-111-1111", ["email"] = "v1@x.com",
+            });
+        first.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 같은 PK로 이름/연락처만 바꿔 재저장 → 200(UPDATE, PK 충돌 아님).
+        var second = await AuthedClient("upsert-b", "mdm:manage").PostAsJsonAsync("/api/v1/command/MDM.CreateVendor",
+            new Dictionary<string, object>
+            {
+                ["vendorId"] = vendorId, ["vendorName"] = "수정된 공급사명", ["vendorType"] = "Material",
+                ["phone"] = "02-222-2222", ["email"] = "v2@x.com",
+            });
+        second.StatusCode.Should().Be(HttpStatusCode.OK, "동일 PK 재저장은 upsert(UPDATE)여야 한다");
+
+        var rows = (await Query("MDM.VendorList", new())).Where(r => r["VENDOR_ID"].ToString() == vendorId).ToList();
+        rows.Should().HaveCount(1, "upsert는 중복 행을 만들지 않는다");
+        rows[0]["VENDOR_NAME"].ToString().Should().Be("수정된 공급사명");
+        rows[0]["PHONE"].ToString().Should().Be("02-222-2222");
+    }
+
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)
     {
         var res = await AuthedClient("cmd-reader").PostAsJsonAsync($"/api/v1/query/{queryId}", p);

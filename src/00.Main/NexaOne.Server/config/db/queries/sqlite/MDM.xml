@@ -23,10 +23,15 @@
          MSSQL판과 동일 ID·동일 의미. 감사 컬럼은 게이트웨이가 @currentUser·@utcNow로 주입(바운드 파라미터). -->
     <query id="MDM.CreatePlant" kind="write" requiredPermission="mdm:manage">
         <statement><![CDATA[
-            INSERT INTO MDM_PLANT (PLANT_ID, PLANT_NAME, DESCRIPTION, COUNTRY, TIME_ZONE,
-                                   CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@plantId, @plantName, @description, @country, @timeZone,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            INSERT INTO MDM_PLANT (PLANT_ID, PLANT_NAME, DESCRIPTION, COUNTRY, TIME_ZONE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) VALUES (@plantId, @plantName, @description, @country, @timeZone, @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(PLANT_ID) DO UPDATE SET
+                PLANT_NAME = excluded.PLANT_NAME,
+                DESCRIPTION = excluded.DESCRIPTION,
+                COUNTRY = excluded.COUNTRY,
+                TIME_ZONE = excluded.TIME_ZONE,
+                UPDATED_BY = excluded.UPDATED_BY,
+                UPDATED_AT = excluded.UPDATED_AT
         ]]></statement>
     </query>
     <!-- 감사 컬럼 조회 — 쓰기쿼리가 게이트웨이 주입(@currentUser/@utcNow)으로 채운 작성자/수정자를 확인. -->
@@ -285,50 +290,81 @@
     <!-- ===== 마스터 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. ===== -->
     <query id="MDM.CreateVendor" kind="write" requiredPermission="mdm:manage">
         <statement><![CDATA[
-            INSERT INTO MDM_VENDOR (VENDOR_ID, VENDOR_NAME, VENDOR_TYPE, PHONE, EMAIL,
-                                    CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@vendorId, @vendorName, @vendorType, @phone, @email,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            INSERT INTO MDM_VENDOR (VENDOR_ID, VENDOR_NAME, VENDOR_TYPE, PHONE, EMAIL, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) VALUES (@vendorId, @vendorName, @vendorType, @phone, @email, @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(VENDOR_ID) DO UPDATE SET
+                VENDOR_NAME = excluded.VENDOR_NAME,
+                VENDOR_TYPE = excluded.VENDOR_TYPE,
+                PHONE = excluded.PHONE,
+                EMAIL = excluded.EMAIL,
+                UPDATED_BY = excluded.UPDATED_BY,
+                UPDATED_AT = excluded.UPDATED_AT
         ]]></statement>
     </query>
     <query id="MDM.CreateShift" kind="write" requiredPermission="mdm:manage">
         <statement><![CDATA[
-            INSERT INTO MDM_SHIFT (SHIFT_ID, SHIFT_NAME, START_TIME, END_TIME,
-                                   CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@shiftId, @shiftName, @startTime, @endTime,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            INSERT INTO MDM_SHIFT (SHIFT_ID, SHIFT_NAME, START_TIME, END_TIME, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) VALUES (@shiftId, @shiftName, @startTime, @endTime, @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(SHIFT_ID) DO UPDATE SET
+                SHIFT_NAME = excluded.SHIFT_NAME,
+                START_TIME = excluded.START_TIME,
+                END_TIME = excluded.END_TIME,
+                UPDATED_BY = excluded.UPDATED_BY,
+                UPDATED_AT = excluded.UPDATED_AT
         ]]></statement>
     </query>
     <query id="MDM.CreateLabel" kind="write" requiredPermission="mdm:manage">
         <statement><![CDATA[
-            INSERT INTO MDM_LABEL (LABEL_ID, PLANT_ID, LABEL_NAME, DESCRIPTION,
-                                   CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@labelId, @plantId, @labelName, @description,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            INSERT INTO MDM_LABEL (LABEL_ID, PLANT_ID, LABEL_NAME, DESCRIPTION, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) VALUES (@labelId, @plantId, @labelName, @description, @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(LABEL_ID) DO UPDATE SET
+                PLANT_ID = excluded.PLANT_ID,
+                LABEL_NAME = excluded.LABEL_NAME,
+                DESCRIPTION = excluded.DESCRIPTION,
+                UPDATED_BY = excluded.UPDATED_BY,
+                UPDATED_AT = excluded.UPDATED_AT
         ]]></statement>
     </query>
     <query id="MDM.CreateBor" kind="write" requiredPermission="mdm:manage">
         <statement><![CDATA[
-            INSERT INTO MDM_BOR (BOR_ID, PLANT_ID, BOR_NAME, BOR_TYPE, PROCESS_ID, PRODUCT_ID,
-                                 CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@borId, @plantId, @borName, @borType, @processId, @productId,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            INSERT INTO MDM_BOR (BOR_ID, PLANT_ID, BOR_NAME, BOR_TYPE, PROCESS_ID, PRODUCT_ID, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) VALUES (@borId, @plantId, @borName, @borType, @processId, @productId, @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(BOR_ID) DO UPDATE SET
+                PLANT_ID = excluded.PLANT_ID,
+                BOR_NAME = excluded.BOR_NAME,
+                BOR_TYPE = excluded.BOR_TYPE,
+                PROCESS_ID = excluded.PROCESS_ID,
+                PRODUCT_ID = excluded.PRODUCT_ID,
+                UPDATED_BY = excluded.UPDATED_BY,
+                UPDATED_AT = excluded.UPDATED_AT
         ]]></statement>
     </query>
     <query id="MDM.CreateLabelMapping" kind="write" requiredPermission="mdm:manage">
         <statement><![CDATA[
-            INSERT INTO MDM_LABEL_MAPPING (MAPPING_ID, PLANT_ID, PROCESS_ID, ITEM_ID, LABEL_ID, PRINT_LIMIT_CNT,
-                                           CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@mappingId, @plantId, @processId, @itemId, @labelId, @printLimitCnt,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            INSERT INTO MDM_LABEL_MAPPING (MAPPING_ID, PLANT_ID, PROCESS_ID, ITEM_ID, LABEL_ID, PRINT_LIMIT_CNT, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) VALUES (@mappingId, @plantId, @processId, @itemId, @labelId, @printLimitCnt, @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(MAPPING_ID) DO UPDATE SET
+                PLANT_ID = excluded.PLANT_ID,
+                PROCESS_ID = excluded.PROCESS_ID,
+                ITEM_ID = excluded.ITEM_ID,
+                LABEL_ID = excluded.LABEL_ID,
+                PRINT_LIMIT_CNT = excluded.PRINT_LIMIT_CNT,
+                UPDATED_BY = excluded.UPDATED_BY,
+                UPDATED_AT = excluded.UPDATED_AT
         ]]></statement>
     </query>
     <query id="MDM.CreateVendorItem" kind="write" requiredPermission="mdm:manage">
         <statement><![CDATA[
-            INSERT INTO MDM_VENDOR_ITEM (VENDOR_ITEM_ID, VENDOR_ID, PRODUCT_ID, LEAD_TIME_DAYS, MOQ, BASE_PRICE,
-                                         CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@vendorItemId, @vendorId, @productId, @leadTimeDays, @moq, @basePrice,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            INSERT INTO MDM_VENDOR_ITEM (VENDOR_ITEM_ID, VENDOR_ID, PRODUCT_ID, LEAD_TIME_DAYS, MOQ, BASE_PRICE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) VALUES (@vendorItemId, @vendorId, @productId, @leadTimeDays, @moq, @basePrice, @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(VENDOR_ITEM_ID) DO UPDATE SET
+                VENDOR_ID = excluded.VENDOR_ID,
+                PRODUCT_ID = excluded.PRODUCT_ID,
+                LEAD_TIME_DAYS = excluded.LEAD_TIME_DAYS,
+                MOQ = excluded.MOQ,
+                BASE_PRICE = excluded.BASE_PRICE,
+                UPDATED_BY = excluded.UPDATED_BY,
+                UPDATED_AT = excluded.UPDATED_AT
         ]]></statement>
     </query>
     <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).

@@ -69,26 +69,51 @@
     <!-- 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. -->
     <query id="COM.CreateMailServer" kind="write" requiredPermission="com:manage">
         <statement><![CDATA[
-            INSERT INTO COM_MAIL_SERVER (SERVER_ID, SERVER_NAME, HOST, PORT, SENDER_ADDRESS, USE_SSL,
-                                         CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@serverId, @serverName, @host, @port, @senderAddress, @useSsl,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 존재 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            MERGE COM_MAIL_SERVER AS t
+            USING (SELECT @serverId AS SERVER_ID) AS s ON t.SERVER_ID = s.SERVER_ID
+            WHEN MATCHED THEN UPDATE SET
+                SERVER_NAME = @serverName,
+                HOST = @host,
+                PORT = @port,
+                SENDER_ADDRESS = @senderAddress,
+                USE_SSL = @useSsl,
+                UPDATED_BY = @currentUser,
+                UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT (SERVER_ID, SERVER_NAME, HOST, PORT, SENDER_ADDRESS, USE_SSL, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@serverId, @serverName, @host, @port, @senderAddress, @useSsl, @currentUser, @utcNow, @currentUser, @utcNow);
         ]]></statement>
     </query>
     <query id="COM.CreateMailRecipient" kind="write" requiredPermission="com:manage">
         <statement><![CDATA[
-            INSERT INTO COM_MAIL_RECIPIENT (RECIPIENT_ID, PLANT_ID, USER_ID, EQUIPMENT_ID, MAIL_ADDRESS, MAIL_TYPE,
-                                            CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@recipientId, @plantId, @userId, @equipmentId, @mailAddress, @mailType,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 존재 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            MERGE COM_MAIL_RECIPIENT AS t
+            USING (SELECT @recipientId AS RECIPIENT_ID) AS s ON t.RECIPIENT_ID = s.RECIPIENT_ID
+            WHEN MATCHED THEN UPDATE SET
+                PLANT_ID = @plantId,
+                USER_ID = @userId,
+                EQUIPMENT_ID = @equipmentId,
+                MAIL_ADDRESS = @mailAddress,
+                MAIL_TYPE = @mailType,
+                UPDATED_BY = @currentUser,
+                UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT (RECIPIENT_ID, PLANT_ID, USER_ID, EQUIPMENT_ID, MAIL_ADDRESS, MAIL_TYPE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@recipientId, @plantId, @userId, @equipmentId, @mailAddress, @mailType, @currentUser, @utcNow, @currentUser, @utcNow);
         ]]></statement>
     </query>
     <query id="COM.CreateAction" kind="write" requiredPermission="com:manage">
         <statement><![CDATA[
-            INSERT INTO COM_ACTION (ACTION_ID, ACTION_NAME, ACTION_TYPE, DESCRIPTION,
-                                    CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@actionId, @actionName, @actionType, @description,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 존재 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            MERGE COM_ACTION AS t
+            USING (SELECT @actionId AS ACTION_ID) AS s ON t.ACTION_ID = s.ACTION_ID
+            WHEN MATCHED THEN UPDATE SET
+                ACTION_NAME = @actionName,
+                ACTION_TYPE = @actionType,
+                DESCRIPTION = @description,
+                UPDATED_BY = @currentUser,
+                UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT (ACTION_ID, ACTION_NAME, ACTION_TYPE, DESCRIPTION, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@actionId, @actionName, @actionType, @description, @currentUser, @utcNow, @currentUser, @utcNow);
         ]]></statement>
     </query>
     <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).

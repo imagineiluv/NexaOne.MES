@@ -143,10 +143,19 @@
     <!-- 작업지시 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. -->
     <query id="POM.CreateWorkOrder" kind="write" requiredPermission="pom:manage">
         <statement><![CDATA[
-            INSERT INTO POM_WORK_ORDER (WORK_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, EQUIPMENT_ID, PRODUCT_ID, PLAN_QTY,
-                                        CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@workOrderId, @plantId, @workOrderName, @equipmentId, @productId, @planQty,
-                    @currentUser, @utcNow, @currentUser, @utcNow)
+            -- 그리드 표준 편집(upsert) — PK 존재 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            MERGE POM_WORK_ORDER AS t
+            USING (SELECT @workOrderId AS WORK_ORDER_ID) AS s ON t.WORK_ORDER_ID = s.WORK_ORDER_ID
+            WHEN MATCHED THEN UPDATE SET
+                PLANT_ID = @plantId,
+                WORK_ORDER_NAME = @workOrderName,
+                EQUIPMENT_ID = @equipmentId,
+                PRODUCT_ID = @productId,
+                PLAN_QTY = @planQty,
+                UPDATED_BY = @currentUser,
+                UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT (WORK_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, EQUIPMENT_ID, PRODUCT_ID, PLAN_QTY, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@workOrderId, @plantId, @workOrderName, @equipmentId, @productId, @planQty, @currentUser, @utcNow, @currentUser, @utcNow);
         ]]></statement>
     </query>
     <query id="POM.LotTraceList">
