@@ -160,6 +160,40 @@ else
     }
 }
 
+@* 신규 등록 모달(그리드 '추가' 팝업) — 화면 폼과 독립된 모델(_addModel). 백드롭/×/취소=닫기, 저장=검증→커맨드→재조회. *@
+@if (_addOpen && _addFormDef is not null)
+{
+    <div class="nx-modal-backdrop" @onclick="() => _addOpen = false"></div>
+    <div class="nx-modal" role="dialog" aria-modal="true" aria-label="@T("common.addTitle", "신규 등록")">
+        <div class="mes-card-head">
+            <span class="h-title">@T("common.addTitle", "신규 등록")</span>
+            <button class="nx-modal-close" title="@T("common.close", "닫기")" @onclick="() => _addOpen = false">×</button>
+        </div>
+        <div class="nx-modal-body">
+            <CascadingValue Value="_dynamicOptions" Name="MetaDynamicOptions">
+                <CascadingValue Value="_addFieldErrors" Name="MetaFieldErrors">
+                    <MetaFormRenderer Definition="_addFormDef" @bind-Model="_addModel" />
+                </CascadingValue>
+            </CascadingValue>
+            @if (_addErrors.Count > 0)
+            {
+                <ul class="validation-errors">
+                    @foreach (var err in _addErrors) { <li>@err</li> }
+                </ul>
+            }
+        </div>
+        <div class="meta-form-foot">
+            <RadzenButton Text="@T("common.cancel", "취소")" Click="() => _addOpen = false"
+                          ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" />
+            <RadzenButton Click="SaveAddAsync" Disabled="@_addSaving" class="layout-save nx-modal-save"
+                          ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small">
+                @if (_addSaving) { <span class="nx-spin" aria-hidden="true"></span> } else { <RadzenIcon Icon="save" /> }
+                @(_addSaving ? T("common.saving", "저장 중…") : T("common.save", "저장"))
+            </RadzenButton>
+        </div>
+    </div>
+}
+
 @code {
     [Parameter] public string UiId { get; set; } = string.Empty;
 
@@ -219,6 +253,9 @@ else
 
         // 동적 Select 옵션(OptionsQueryId) — 정의 로드 시 1회 조회(마스터 목록은 화면 수명 동안 안정).
         _dynamicOptions = await LoadDynamicOptionsAsync();
+
+        // 그리드 '추가' 팝업 폼 구성 — 필드+저장쿼리가 있는 화면만(조회 전용은 추가 버튼 미노출).
+        BuildAddForm();
 
         // 검색 조건 초기화(§20.8) — 저장 조건 목록과 '$latest'(마지막 조회 조건)를 복원한 뒤 조회한다.
         _searchModel = new(StringComparer.Ordinal);
@@ -506,19 +543,69 @@ else
 
     // ── 그리드 표준 CRUD(추가/삭제) — 툴바 버튼은 그리드가, 실행·확인·재조회는 여기가 소유 ──────
 
-    // 추가 가능 = 저장 폼이 있는 화면(평면 Fields+SaveQueryId, 레이아웃은 폼 저장쿼리 존재).
-    private bool CanAddNew => _definition is not null && (_definition.Layout is null
-        ? _definition.Fields.Count > 0 && !string.IsNullOrWhiteSpace(_definition.SaveQueryId)
-        : CollectFormSaveQueries(_definition.Layout).Any());
+    // ── 추가 = 팝업 등록 폼(사용자 요청) — 화면 폼과 독립된 모델로 신규 행을 입력·저장한다. ──────
+    private bool _addOpen;
+    private bool _addSaving;
+    private Dictionary<string, object?> _addModel = new();
+    private Dictionary<string, string> _addFieldErrors = new(StringComparer.Ordinal);
+    private List<string> _addErrors = new();
+    private ScreenDefinition? _addFormDef;     // 팝업 폼 정의 — 평면=필드 그대로, 레이아웃=트리 필드 수집 래퍼.
+    private string? _addSaveQueryId;
 
-    // 추가 = 신규 입력 모드 — 폼 모델(공유+격리)을 비워 새 행 입력을 준비한다(그리드는 그대로).
+    private bool CanAddNew => _addFormDef is not null;
+
+    // 정의 로드 시 팝업 폼 구성(필드+저장쿼리). 조건 미충족(조회 전용)이면 추가 버튼 자체가 숨는다.
+    private void BuildAddForm()
+    {
+        _addFormDef = null; _addSaveQueryId = null; _addOpen = false;
+        if (_definition is null) return;
+        if (_definition.Layout is null)
+        {
+            if (_definition.Fields.Count > 0 && !string.IsNullOrWhiteSpace(_definition.SaveQueryId))
+            {
+                _addFormDef = new ScreenDefinition(string.Empty, string.Empty, _definition.Fields);
+                _addSaveQueryId = _definition.SaveQueryId;
+            }
+            return;
+        }
+        var fields = CollectFields(_definition.Layout).Where(f => f.Key.Length > 0).ToList();
+        var save = CollectFormSaveQueries(_definition.Layout).FirstOrDefault();
+        if (fields.Count > 0 && save is not null)
+        {
+            _addFormDef = new ScreenDefinition(string.Empty, string.Empty, fields);
+            _addSaveQueryId = save;
+        }
+    }
+
     private void OnAddNewRequested()
     {
-        _model = new Dictionary<string, object?>();
-        foreach (var key in _formModels.Keys.ToList()) _formModels[key] = new Dictionary<string, object?>();
-        _fieldErrors = new(StringComparer.Ordinal);
-        _errors = new();
-        _saved = false;
+        _addModel = new Dictionary<string, object?>();
+        _addFieldErrors = new(StringComparer.Ordinal);
+        _addErrors = new();
+        _addSaving = false;
+        _addOpen = true;
+    }
+
+    private async Task SaveAddAsync()
+    {
+        if (_addFormDef is null || _addSaveQueryId is null) return;
+        _addErrors = new();
+        _addFieldErrors = ValidateFields(_addFormDef.Fields, _addModel);
+        if (_addFieldErrors.Count > 0) return;
+        _addSaving = true;
+        try
+        {
+            if (await Api.ExecuteCommandAsync(_addSaveQueryId, _addModel))
+            {
+                _addOpen = false;
+                await ReloadDataAsync();   // 신규 행을 그리드에 즉시 반영
+            }
+            else
+            {
+                _addErrors.Add(T("common.saveFailed", "저장에 실패했습니다(권한/입력 확인)."));
+            }
+        }
+        finally { _addSaving = false; }
     }
 
     // 삭제 — 확인 다이얼로그(비블로킹 모달) 후 선택 행마다 DeleteQueryId 커맨드 실행, 완료 시 재조회.

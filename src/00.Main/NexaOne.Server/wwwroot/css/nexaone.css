@@ -692,3 +692,33 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .mes-topbar .star { cursor: pointer; }
 .mes-topbar .star.active { color: #f59e0b; opacity: 1; }
 .mes-mditab.active .close:hover { background: rgba(255,255,255,.18); }
+
+/* ===== 신규 등록 모달(그리드 '추가' 팝업) — 카드 언어 재사용, 중앙 고정, 다크 자동(토큰). ===== */
+.nx-modal-backdrop { position: fixed; inset: 0; background: rgba(10,20,40,.45); z-index: 300; }
+.nx-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 310;
+  width: min(680px, calc(100vw - 32px)); max-height: min(82vh, 760px); display: flex; flex-direction: column;
+  background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-lg); box-shadow: var(--nx-shadow-lg); }
+.nx-modal-close { margin-left: auto; border: none; background: none; cursor: pointer; font-size: 18px; color: var(--nx-muted); line-height: 1; }
+.nx-modal-close:hover { color: var(--nx-text); }
+.nx-modal-body { padding: var(--nx-sp-4); overflow-y: auto; }
+.nx-modal .meta-form-foot { border-radius: 0 0 var(--nx-radius-lg) var(--nx-radius-lg); }
+
+/* ===== 즐겨찾기 우측 슬라이드 드로어 — 상단바 북마크 버튼 토글. ===== */
+.mes-favdrawer-backdrop { position: fixed; inset: 0; background: rgba(10,20,40,.35); z-index: 240; }
+.mes-favdrawer { position: fixed; top: 0; right: 0; bottom: 0; width: 320px; max-width: 90vw; z-index: 250;
+  background: var(--nx-card); border-left: 1px solid var(--nx-border); box-shadow: -8px 0 24px rgba(0,0,0,.18);
+  transform: translateX(100%); transition: transform .22s ease; display: flex; flex-direction: column; }
+.mes-favdrawer.open { transform: translateX(0); }
+.mes-favdrawer-head { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--nx-border); }
+.mes-favdrawer-head .h-title { font-weight: 700; font-size: var(--nx-fs-section); color: var(--nx-text); }
+.mes-favdrawer-close { margin-left: auto; border: none; background: none; cursor: pointer; font-size: 18px; color: var(--nx-muted); line-height: 1; }
+.mes-favdrawer-close:hover { color: var(--nx-text); }
+.mes-favdrawer-empty { padding: 24px 16px; color: var(--nx-muted); font-size: var(--nx-fs-dense); line-height: 1.7; }
+.mes-favdrawer-list { overflow-y: auto; padding: 6px 0; }
+.mes-favdrawer-item { display: flex; align-items: center; gap: 6px; padding: 8px 16px; font-size: var(--nx-fs-body); color: var(--nx-text); }
+.mes-favdrawer-item:hover { background: var(--nx-hover-teal); }
+.mes-favdrawer-item .name { flex: 1; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mes-favdrawer-item .op { flex: 0 0 auto; border: none; background: none; cursor: pointer; color: var(--nx-muted); font-size: 11px; padding: 2px; line-height: 1; }
+.mes-favdrawer-item .op:hover { color: var(--nx-teal-d); }
+.mes-favdrawer-item .op.del:hover { color: var(--nx-danger); }
+@media (prefers-reduced-motion: reduce) { .mes-favdrawer { transition: none; } }

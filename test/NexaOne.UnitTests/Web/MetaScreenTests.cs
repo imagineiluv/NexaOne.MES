@@ -835,4 +835,80 @@ public sealed class MetaScreenTests
         posted["MDM.CreatePlant"]["plantId"]!.ToString().Should().Be("P-9");
         posted["MDM.CreatePlant"].Keys.Should().NotContain("areaId", "폼 간 모델이 격리돼야 한다");
     }
+
+    // ── 그리드 '추가' 팝업(사용자 요청) — 툴바 추가 → 모달 폼 → 저장=커맨드+재조회, 취소=닫기 ──────
+
+    [Fact]
+    public void Add_button_opens_modal_and_save_posts_command()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
+
+        // 그리드+폼(SaveQueryId) 화면 — 추가 버튼이 켜지는 조건.
+        var def = new ScreenDefinition("ADD1", "공장 관리",
+            new FieldDefinition[] { new("plantId", "공장 ID", Required: true), new("plantName", "공장명") },
+            new GridColumnDefinition[] { new("PLANT_ID", "공장 ID") },
+            QueryId: "Q.Plants", SaveQueryId: "MDM.CreatePlant");
+
+        Dictionary<string, object?>? posted = null;
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryAsync("Q.Plants", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(new List<Dictionary<string, object?>> { new() { ["PLANT_ID"] = "P-1" } });
+        api.Setup(a => a.ExecuteCommandAsync("MDM.CreatePlant", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .Callback<string, object?, CancellationToken>((_, body, _) => posted = body as Dictionary<string, object?>)
+           .ReturnsAsync(true);
+        ctx.Services.AddSingleton(Provider("ADD1", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "ADD1"));
+        cut.WaitForAssertion(() => cut.FindAll(".rz-data-row").Count.Should().Be(1));
+
+        // 초기엔 모달 없음 → 추가 클릭 → 모달 열림(팝업 등록 폼).
+        cut.FindAll(".nx-modal").Should().BeEmpty();
+        cut.FindAll(".meta-grid-toolbar button").First(b => b.TextContent.Contains("추가")).Click();
+        cut.WaitForAssertion(() => cut.FindAll(".nx-modal").Should().NotBeEmpty("추가는 팝업으로 진행"));
+
+        // 필수(plantId) 미입력 저장 → 인라인 오류, 커맨드 미호출.
+        cut.Find(".nx-modal .nx-modal-save").Click();
+        cut.WaitForAssertion(() => cut.FindAll(".nx-modal .meta-field-error").Should().NotBeEmpty());
+        posted.Should().BeNull();
+
+        // 입력 후 저장 → 커맨드 호출 + 모달 닫힘.
+        cut.FindAll(".nx-modal .meta-field input")[0].Change("P-NEW");
+        cut.Find(".nx-modal .nx-modal-save").Click();
+        cut.WaitForAssertion(() =>
+        {
+            posted.Should().NotBeNull("저장은 SaveQueryId 커맨드를 호출해야 한다");
+            cut.FindAll(".nx-modal").Should().BeEmpty("저장 성공 시 모달이 닫힌다");
+        });
+        posted!["plantId"]!.ToString().Should().Be("P-NEW");
+    }
+
+    [Fact]
+    public void Add_modal_cancel_closes_without_command()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
+        var def = new ScreenDefinition("ADD2", "작업조",
+            new FieldDefinition[] { new("shiftId", "작업조 ID") },
+            new GridColumnDefinition[] { new("SHIFT_ID", "ID") },
+            QueryId: "Q.S", SaveQueryId: "MDM.CreateShift");
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryAsync("Q.S", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+           .ReturnsAsync(new List<Dictionary<string, object?>>());
+        ctx.Services.AddSingleton(Provider("ADD2", def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "ADD2"));
+        cut.WaitForAssertion(() => cut.FindAll(".meta-grid-toolbar").Should().NotBeEmpty("빈 결과에서도 툴바(추가) 유지"));
+
+        cut.FindAll(".meta-grid-toolbar button").First(b => b.TextContent.Contains("추가")).Click();
+        cut.WaitForAssertion(() => cut.FindAll(".nx-modal").Should().NotBeEmpty());
+        cut.FindAll(".nx-modal + * , .nx-modal").Count.Should().BeGreaterThan(0);
+        cut.FindAll(".nx-modal .rz-button").First(b => b.TextContent.Contains("취소")).Click();
+        cut.WaitForAssertion(() => cut.FindAll(".nx-modal").Should().BeEmpty("취소는 커맨드 없이 닫힌다"));
+        api.Verify(a => a.ExecuteCommandAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
 }

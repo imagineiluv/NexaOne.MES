@@ -128,6 +128,12 @@
                     </div>
                 }
             </div>
+            @* 즐겨찾기 드로어 토글(사용자 요청) — 우측에서 슬라이드로 즐겨찾기 목록을 연다. *@
+            <span class="tb-ico" role="button" tabindex="0" aria-label="즐겨찾기 목록" title="즐겨찾기 목록"
+                  @onclick="() => _favDrawerOpen = !_favDrawerOpen"
+                  @onkeydown="e => { if (IsActivateKey(e)) _favDrawerOpen = !_favDrawerOpen; }">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h12v18l-6-4-6 4z"/></svg>
+            </span>
             @* 알림 센터(P3-20) — 버스 알림성 이벤트(알람/인터락/작업지시)의 벨 아이콘+최근 목록.
                열면 미읽음 뱃지 초기화. 피드는 회로 밖 스레드에서 콜백하므로 InvokeAsync로 전환한다. *@
             <div class="mes-alertmenu">
@@ -182,6 +188,45 @@
                 }
             </div>
         </header>
+
+        @* 즐겨찾기 우측 슬라이드 드로어(사용자 요청) — 이동/순서변경/해제. 항상 DOM에 두고 transform으로 슬라이드. *@
+        @if (_favDrawerOpen)
+        {
+            <div class="mes-favdrawer-backdrop" @onclick="() => _favDrawerOpen = false"></div>
+        }
+        <aside class="mes-favdrawer @(_favDrawerOpen ? "open" : "")" aria-hidden="@(!_favDrawerOpen)">
+            <div class="mes-favdrawer-head">
+                <span class="h-title">★ @Ui.T("shell.favorites", "즐겨찾기")</span>
+                <button class="mes-favdrawer-close" title="닫기" @onclick="() => _favDrawerOpen = false">×</button>
+            </div>
+            @if (_favorites.Count == 0)
+            {
+                <div class="mes-favdrawer-empty">@Ui.T("shell.noFavorites", "즐겨찾기가 없습니다 — 화면 상단의 ☆을 눌러 등록하세요.")</div>
+            }
+            else
+            {
+                <div class="mes-favdrawer-list">
+                    @for (var i = 0; i < _favorites.Count; i++)
+                    {
+                        var idx = i;                      @* 람다 캡처용 로컬 복사 *@
+                        var fav = _favorites[idx];
+                        var favName = Ui.T($"menu.{fav.MenuId}", fav.MenuName);
+                        <div @key="fav.MenuId" class="mes-favdrawer-item" title="@favName">
+                            <span class="name" @onclick="() => FavDrawerNavigate(fav)">@favName</span>
+                            @if (idx > 0)
+                            {
+                                <button class="op" title="위로" @onclick="() => MoveFavoriteAsync(idx, -1)">▲</button>
+                            }
+                            @if (idx < _favorites.Count - 1)
+                            {
+                                <button class="op" title="아래로" @onclick="() => MoveFavoriteAsync(idx, +1)">▼</button>
+                            }
+                            <button class="op del" title="즐겨찾기 해제" @onclick="() => RemoveFavoriteAsync(fav.MenuId)">×</button>
+                        </div>
+                    }
+                </div>
+            }
+        </aside>
 
         @* MDI 탭 — 열린 /meta 화면들. 활성 강조 + X로 닫기 + 우클릭 컨텍스트(닫기/다른 탭/모두, P3-10).
            탭이 많으면 가로 스크롤(오버플로). 탭이 없으면 바를 숨긴다. *@
@@ -518,6 +563,21 @@
     }
 
     // §20.12 순서 변경 — 이웃과 교환한 전체 순서를 서버에 재부여(PUT favorites/order), 성공 시에만 캐시 갱신.
+    // 즐겨찾기 드로어(사용자 요청) — 열림 상태 + 이동/해제. 이동 시 드로어를 닫아 콘텐츠에 집중.
+    private bool _favDrawerOpen;
+
+    private void FavDrawerNavigate(FavoriteMenuDto fav)
+    {
+        _favDrawerOpen = false;
+        NavigateTo(fav.UiId, fav.MenuName);
+    }
+
+    private async Task RemoveFavoriteAsync(string menuId)
+    {
+        if (await Api.RemoveFavoriteMenuAsync(menuId))
+            _favorites = await Api.GetFavoriteMenusAsync();   // 실패 시 캐시 미갱신(§20.8 원칙)
+    }
+
     private async Task MoveFavoriteAsync(int index, int delta)
     {
         var target = index + delta;
