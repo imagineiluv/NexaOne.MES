@@ -39,15 +39,20 @@
                     var fav = _favorites[idx];
                     var favName = Ui.T($"menu.{fav.MenuId}", fav.MenuName);
                     <div @key="fav.MenuId" class="fav-item" title="@favName">
-                        <span class="fav-name" @onclick="() => NavigateTo(fav.UiId, fav.MenuName)">@favName</span>
+                        <span class="fav-name" role="button" tabindex="0" @onclick="() => NavigateTo(fav.UiId, fav.MenuName)"
+                              @onkeydown="e => { if (IsActivateKey(e)) NavigateTo(fav.UiId, fav.MenuName); }">@favName</span>
                         @* §20.12 순서 변경 — ▲▼로 이웃과 교환(행 hover 시에만 노출, P3-18), 성공 시에만 캐시 반영. *@
                         @if (idx > 0)
                         {
-                            <span class="fav-move" title="위로" @onclick="() => MoveFavoriteAsync(idx, -1)">▲</span>
+                            <span class="fav-move" role="button" tabindex="0" title="위로" aria-label="@($"{favName} 위로")"
+                                  @onclick="() => MoveFavoriteAsync(idx, -1)"
+                                  @onkeydown="async e => { if (IsActivateKey(e)) await MoveFavoriteAsync(idx, -1); }">▲</span>
                         }
                         @if (idx < _favorites.Count - 1)
                         {
-                            <span class="fav-move" title="아래로" @onclick="() => MoveFavoriteAsync(idx, +1)">▼</span>
+                            <span class="fav-move" role="button" tabindex="0" title="아래로" aria-label="@($"{favName} 아래로")"
+                                  @onclick="() => MoveFavoriteAsync(idx, +1)"
+                                  @onkeydown="async e => { if (IsActivateKey(e)) await MoveFavoriteAsync(idx, +1); }">▼</span>
                         }
                     </div>
                 }
@@ -121,7 +126,8 @@
                     <div class="quick-results">
                         @foreach (var m in _quickMatches)
                         {
-                            <div class="quick-item" @key="m.UiId" @onclick="() => QuickGo(m)">
+                            <div class="quick-item" role="button" tabindex="0" @key="m.UiId" @onclick="() => QuickGo(m)"
+                                 @onkeydown='e => { if (IsActivateKey(e)) QuickGo(m); else if (e.Key == "Escape") { _quickQuery = string.Empty; _quickMatches.Clear(); } }'>
                                 <span>@m.Title</span><small>@m.UiId</small>
                             </div>
                         }
@@ -130,8 +136,8 @@
             </div>
             @* 즐겨찾기 드로어 토글(사용자 요청) — 우측에서 슬라이드로 즐겨찾기 목록을 연다. *@
             <span class="tb-ico" role="button" tabindex="0" aria-label="즐겨찾기 목록" title="즐겨찾기 목록"
-                  @onclick="() => _favDrawerOpen = !_favDrawerOpen"
-                  @onkeydown="e => { if (IsActivateKey(e)) _favDrawerOpen = !_favDrawerOpen; }">
+                  @onclick="ToggleFavDrawerAsync"
+                  @onkeydown="async e => { if (IsActivateKey(e)) await ToggleFavDrawerAsync(); }">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h12v18l-6-4-6 4z"/></svg>
             </span>
             @* 알림 센터(P3-20) — 버스 알림성 이벤트(알람/인터락/작업지시)의 벨 아이콘+최근 목록.
@@ -175,9 +181,10 @@
                 </span>
                 @if (_userMenuOpen)
                 {
-                    <div class="user-dropdown">
+                    <div class="user-dropdown" role="menu" aria-label="사용자 메뉴"
+                         @onkeydown='e => { if (e.Key == "Escape") _userMenuOpen = false; }'>
                         <div class="user-dd-id">@(_userId.Length > 0 ? _userId : "(사용자)")</div>
-                        <a class="user-dd-item" href="/change-password">@Ui.T("shell.changePassword", "비밀번호 변경")</a>
+                        <a class="user-dd-item" role="menuitem" href="/change-password">@Ui.T("shell.changePassword", "비밀번호 변경")</a>
                         <div class="user-dd-item" role="menuitem" tabindex="0" @onclick="ToggleThemeAsync"
                              @onkeydown="async e => { if (IsActivateKey(e)) await ToggleThemeAsync(); }">@(_darkTheme ? Ui.T("shell.lightMode", "라이트 모드") : Ui.T("shell.darkMode", "다크 모드"))</div>
                         <div class="user-dd-item" role="menuitem" tabindex="0" @onclick="ToggleLanguageAsync"
@@ -189,15 +196,19 @@
             </div>
         </header>
 
-        @* 즐겨찾기 우측 슬라이드 드로어(사용자 요청) — 이동/순서변경/해제. 항상 DOM에 두고 transform으로 슬라이드. *@
+        @* 즐겨찾기 우측 슬라이드 드로어(사용자 요청) — 이동/순서변경/해제. 항상 DOM에 두고 transform으로 슬라이드.
+           닫힘 상태 격리: inert(포커스/클릭 차단) + aria-hidden 문자열 바인딩 — bool 바인딩은 Blazor가
+           true를 빈 값(aria-hidden="")으로 렌더해 유효 ARIA 토큰이 아니다. Escape=닫기, 포커스는 nxDialog*. *@
         @if (_favDrawerOpen)
         {
-            <div class="mes-favdrawer-backdrop" @onclick="() => _favDrawerOpen = false"></div>
+            <div class="mes-favdrawer-backdrop" @onclick="CloseFavDrawerAsync"></div>
         }
-        <aside class="mes-favdrawer @(_favDrawerOpen ? "open" : "")" aria-hidden="@(!_favDrawerOpen)">
+        <aside class="mes-favdrawer @(_favDrawerOpen ? "open" : "")" aria-hidden="@(_favDrawerOpen ? "false" : "true")"
+               inert="@(!_favDrawerOpen)" @ref="_favDrawerRef"
+               @onkeydown='async e => { if (e.Key == "Escape") await CloseFavDrawerAsync(); }'>
             <div class="mes-favdrawer-head">
                 <span class="h-title">★ @Ui.T("shell.favorites", "즐겨찾기")</span>
-                <button class="mes-favdrawer-close" title="닫기" @onclick="() => _favDrawerOpen = false">×</button>
+                <button class="mes-favdrawer-close" title="닫기" aria-label="즐겨찾기 닫기" @onclick="CloseFavDrawerAsync">×</button>
             </div>
             @if (_favorites.Count == 0)
             {
@@ -212,7 +223,8 @@
                         var fav = _favorites[idx];
                         var favName = Ui.T($"menu.{fav.MenuId}", fav.MenuName);
                         <div @key="fav.MenuId" class="mes-favdrawer-item" title="@favName">
-                            <span class="name" @onclick="() => FavDrawerNavigate(fav)">@favName</span>
+                            <span class="name" role="button" tabindex="0" @onclick="() => FavDrawerNavigateAsync(fav)"
+                                  @onkeydown="async e => { if (IsActivateKey(e)) await FavDrawerNavigateAsync(fav); }">@favName</span>
                             @if (idx > 0)
                             {
                                 <button class="op" title="위로" @onclick="() => MoveFavoriteAsync(idx, -1)">▲</button>
@@ -232,19 +244,25 @@
            탭이 많으면 가로 스크롤(오버플로). 탭이 없으면 바를 숨긴다. *@
         @if (Opened.Screens.Count > 0)
         {
-            <div class="mes-mditabs">
+            <div class="mes-mditabs" role="tablist" aria-label="열린 화면">
                 @foreach (var tab in Opened.Screens)
                 {
                     var tabActive = string.Equals(tab.UiId, Opened.ActiveUiId, StringComparison.OrdinalIgnoreCase);
-                    @* P3-10 순서 변경 — HTML5 DnD: 잡은 탭을 놓은 탭 앞으로. dragover preventDefault가 있어야 drop이 발화한다. *@
+                    @* P3-10 순서 변경 — HTML5 DnD: 잡은 탭을 놓은 탭 앞으로. dragover preventDefault가 있어야 drop이 발화한다.
+                       키보드: Enter/Space=이동, Delete=닫기(tablist 관례). *@
                     <div class="mes-mditab @(tabActive ? "active" : "")" @key="tab.UiId" draggable="true"
+                         role="tab" aria-selected="@(tabActive ? "true" : "false")" tabindex="0"
                          @onclick="() => NavigateTo(tab.UiId, tab.Title)"
+                         @onkeydown='e => { if (IsActivateKey(e)) NavigateTo(tab.UiId, tab.Title); else if (e.Key == "Delete") CloseTab(tab.UiId); }'
                          @ondragstart="() => _dragTabUiId = tab.UiId"
                          @ondragover:preventDefault="true" @ondragover="() => { }"
                          @ondrop="() => DropTab(tab.UiId)"
                          @oncontextmenu="e => OpenTabMenu(e, tab.UiId)" @oncontextmenu:preventDefault="true">
                         <span class="mes-mditab-label">@TabTitle(tab)</span>
-                        <span class="close" @onclick="() => CloseTab(tab.UiId)" @onclick:stopPropagation="true">&times;</span>
+                        <span class="close" role="button" tabindex="0" aria-label="@($"{TabTitle(tab)} 탭 닫기")"
+                              @onclick="() => CloseTab(tab.UiId)" @onclick:stopPropagation="true"
+                              @onkeydown="e => { if (IsActivateKey(e)) CloseTab(tab.UiId); }"
+                              @onkeydown:stopPropagation="true">&times;</span>
                     </div>
                 }
             </div>
@@ -254,10 +272,14 @@
         @if (_tabMenuUiId is not null)
         {
             <div class="tabmenu-backdrop" @onclick="CloseTabMenu" @oncontextmenu="CloseTabMenu" @oncontextmenu:preventDefault="true"></div>
-            <div class="tabmenu" style="left:@(_tabMenuX)px; top:@(_tabMenuY)px;">
-                <div class="tabmenu-item" @onclick="() => TabMenuClose()">닫기</div>
-                <div class="tabmenu-item" @onclick="() => TabMenuCloseOthers()">다른 탭 모두 닫기</div>
-                <div class="tabmenu-item" @onclick="() => TabMenuCloseAll()">모두 닫기</div>
+            <div class="tabmenu" role="menu" aria-label="탭 메뉴" style="left:@(_tabMenuX)px; top:@(_tabMenuY)px;"
+                 @onkeydown='e => { if (e.Key == "Escape") CloseTabMenu(); }'>
+                <div class="tabmenu-item" role="menuitem" tabindex="0" @onclick="() => TabMenuClose()"
+                     @onkeydown="e => { if (IsActivateKey(e)) TabMenuClose(); }">닫기</div>
+                <div class="tabmenu-item" role="menuitem" tabindex="0" @onclick="() => TabMenuCloseOthers()"
+                     @onkeydown="e => { if (IsActivateKey(e)) TabMenuCloseOthers(); }">다른 탭 모두 닫기</div>
+                <div class="tabmenu-item" role="menuitem" tabindex="0" @onclick="() => TabMenuCloseAll()"
+                     @onkeydown="e => { if (IsActivateKey(e)) TabMenuCloseAll(); }">모두 닫기</div>
             </div>
         }
 
@@ -420,6 +442,13 @@
             catch { /* JS 미탑재 — 반응형 자동접기 없이 정상 동작 */ }
             StateHasChanged();
         }
+        // 즐겨찾기 드로어 열림 — inert가 벗겨진 렌더 이후에만 포커스 이동 가능(펜딩 플래그).
+        if (_favDrawerFocusPending && _favDrawerOpen)
+        {
+            _favDrawerFocusPending = false;
+            try { await JS.InvokeVoidAsync("nxDialogOpen", _favDrawerRef); }
+            catch { /* JS 미탑재 — 포커스 관리 없이 정상 동작 */ }
+        }
         // 리사이즈 핸들은 레일 모드 진입/이탈로 붙었다 떨어지므로, 존재할 때 1회 배선한다(idempotent).
         if (!_navCollapsed && !_navResizeInit)
         {
@@ -564,11 +593,29 @@
 
     // §20.12 순서 변경 — 이웃과 교환한 전체 순서를 서버에 재부여(PUT favorites/order), 성공 시에만 캐시 갱신.
     // 즐겨찾기 드로어(사용자 요청) — 열림 상태 + 이동/해제. 이동 시 드로어를 닫아 콘텐츠에 집중.
+    // 열기/닫기는 항상 아래 메서드 경유 — inert 해제 '이후'(렌더 후)에만 포커스 이동이 가능해서
+    // OnAfterRenderAsync 펜딩 플래그로 nxDialogOpen(첫 포커스+Tab 트랩)을 호출한다. 닫기는 포커스 복귀.
     private bool _favDrawerOpen;
+    private bool _favDrawerFocusPending;
+    private ElementReference _favDrawerRef;
 
-    private void FavDrawerNavigate(FavoriteMenuDto fav)
+    private async Task ToggleFavDrawerAsync()
     {
+        if (_favDrawerOpen) { await CloseFavDrawerAsync(); return; }
+        _favDrawerOpen = true;
+        _favDrawerFocusPending = true;
+    }
+
+    private async Task CloseFavDrawerAsync()
+    {
+        if (!_favDrawerOpen) return;
+        try { await JS.InvokeVoidAsync("nxDialogClose", _favDrawerRef); } catch { /* JS 미탑재 */ }
         _favDrawerOpen = false;
+    }
+
+    private async Task FavDrawerNavigateAsync(FavoriteMenuDto fav)
+    {
+        await CloseFavDrawerAsync();
         NavigateTo(fav.UiId, fav.MenuName);
     }
 
