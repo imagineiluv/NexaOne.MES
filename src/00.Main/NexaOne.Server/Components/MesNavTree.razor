@@ -45,7 +45,9 @@
     else
     {
         var isActive = string.Equals(node.UiId, ActiveUiId, StringComparison.OrdinalIgnoreCase);
-        var isPending = !Definitions.TryGet(node.UiId, out _);
+        // 점등 = 메타 정의 등록 '또는' 호스트 리터럴 라우트(@page "/meta/리터럴") — 후자 누락 시
+        // 동작하는 화면 4종(권한/신청승인/S O/레이아웃편집)이 회색 오표시되는 실사고가 있었다.
+        var isPending = !Definitions.TryGet(node.UiId, out _) && !NexaOne.Server.Services.HostLiteralMetaRoutes.Contains(node.UiId);
         <a class="mes-nav-subitem @(isActive ? "active" : "") @(isPending ? "pending" : "")"
            style="padding-left:@(Pad)px"
            href="@($"/meta/{node.UiId}")" title="@(isPending ? $"{display} — 준비 중" : display)"

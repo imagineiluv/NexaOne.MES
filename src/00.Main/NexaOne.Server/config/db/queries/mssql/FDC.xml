@@ -150,6 +150,24 @@
             WHERE EQUIPMENT_ID = @equipmentId AND EVENT_ID = @eventId
         ]]></statement>
     </query>
+    <!-- 동종 설비간 동일성 검정(tool-to-tool matching) v1 — 파라미터×설비 분포 요약 비교.
+         분산은 AVG(v*v)-AVG(v)*AVG(v) (SQLite 패리티 — 표준편차 표시는 화면 후처리 여지). -->
+    <query id="FDC.EquipmentParameterStats">
+        <statement><![CDATA[
+            SELECT TOP 500 PARAMETER_ID, EQUIPMENT_ID,
+                   COUNT(*)                          AS N,
+                   ROUND(AVG(VALUE), 4)              AS AVG_VALUE,
+                   MIN(VALUE)                        AS MIN_VALUE,
+                   MAX(VALUE)                        AS MAX_VALUE,
+                   ROUND(MAX(VALUE) - MIN(VALUE), 4) AS RANGE_VALUE,
+                   ROUND(AVG(VALUE * VALUE) - AVG(VALUE) * AVG(VALUE), 6) AS VARIANCE_VALUE
+            FROM FDC_COLLECT_DATA WITH (NOLOCK)
+            WHERE (@parameterId IS NULL OR PARAMETER_ID = @parameterId)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+            GROUP BY PARAMETER_ID, EQUIPMENT_ID
+            ORDER BY PARAMETER_ID, EQUIPMENT_ID
+        ]]></statement>
+    </query>
     <!-- 가상 이벤트 전이 이력 조회(V069) — 기록은 FDC 모듈 평가 엔진(VirtualEventService)이 수행. -->
     <query id="FDC.VirtualEventHistoryList">
         <statement><![CDATA[

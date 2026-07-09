@@ -740,6 +740,41 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "FDC.CollectDataList"));
 
+        // ===== FDC 잔여 3화면 점등(2026-07-10) — 250/250 완결. =====
+        // VIRTUAL EVENT 이력(V069) — 평가 엔진이 전이 시에만 기록. 백엔드(테이블·쿼리·워커) 기성, 화면만 부재였다.
+        Register(new ScreenDefinition("EES_FDC_VIRTUAL_EVENT_HI", "VIRTUAL EVENT 이력 조회",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("HISTORY_ID", "이력 ID", Width: 200), new("EQUIPMENT_ID", "설비 ID", Width: 110),
+                new("EVENT_ID", "이벤트 ID", Width: 130), new("EVENT_STATE", "상태", Width: 90),
+                new("FORMULA", "수식"), new("DETAILS", "상세"), new("EVALUATED_AT", "평가시각"),
+            },
+            QueryId: "FDC.VirtualEventHistoryList"));
+
+        // 사용자별 실시간 모니터링 — v1 최소판(수집 최근값 그리드, TRACE 모니터링과 동일 패턴).
+        // 충실판(사용자별 관심 파라미터 보드)은 사용자-파라미터 매핑 테이블 제품결정 후.
+        Register(new ScreenDefinition("EES_FDC_REAL_TIME_USER_MONITORING", "FDC 사용자별 실시간 모니터링",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("EQUIPMENT_ID", "설비 ID"), new("PARAMETER_ID", "파라미터 ID"), new("VALUE", "측정값"),
+                new("COLLECTED_AT", "수집시각"), new("QUALITY", "품질"), new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
+            },
+            QueryId: "FDC.CollectDataList", RefreshIntervalSeconds: 10));
+
+        // 동종 설비간 동일성 검정(tool-to-tool matching) v1 — 파라미터×설비 분포 요약(건수·평균·범위·분산) 비교
+        // 그리드. 통계 검정(t-test 등)·차트는 v2 분리(스카우트 권고).
+        Register(new ScreenDefinition("EES_FDC_TOOL_TO_TOOL_MATCHING", "동종 설비간 FDC 동일성 검정",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("PARAMETER_ID", "파라미터 ID", Width: 140), new("EQUIPMENT_ID", "설비 ID", Width: 110),
+                new("N", "표본수", Width: 90), new("AVG_VALUE", "평균"), new("MIN_VALUE", "최소"),
+                new("MAX_VALUE", "최대"), new("RANGE_VALUE", "범위"), new("VARIANCE_VALUE", "분산"),
+            },
+            QueryId: "FDC.EquipmentParameterStats"));
+
         // FDC SUMMARY 데이터 차트(EES_FDC_SUMMARY_DATA_CHART) — 수집 시계열 요약 뷰.
         Register(new ScreenDefinition("EES_FDC_SUMMARY_DATA_CHART", "FDC SUMMARY 데이터 차트",
             Array.Empty<FieldDefinition>(),

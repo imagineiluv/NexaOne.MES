@@ -346,6 +346,29 @@ public sealed class GatewayFdcQueryTests : IClassFixture<GatewayFdcQueryTests.Fd
     }
 
     [Fact]
+    public async Task EquipmentParameterStats_groups_per_equipment_for_tool_matching()
+    {
+        EnsureSchemaReady();
+        var param = "P_" + Suffix();
+        var eqA = "EQ_" + Suffix();
+        var eqB = "EQ_" + Suffix();
+        SeedCollectData($"C_{Suffix()}", eqA, param, 10m, DateTime.UtcNow.AddMinutes(-3));
+        SeedCollectData($"C_{Suffix()}", eqA, param, 20m, DateTime.UtcNow.AddMinutes(-2));
+        SeedCollectData($"C_{Suffix()}", eqB, param, 30m, DateTime.UtcNow.AddMinutes(-1));
+
+        var rows = await Query("FDC.EquipmentParameterStats", new() { ["parameterId"] = param });
+
+        rows.Should().HaveCount(2, "동일성 검정은 파라미터×설비 1행 집계(동종 설비 비교)");
+        var a = rows.Single(r => r["EQUIPMENT_ID"]!.ToString() == eqA);
+        // 게이트웨이 응답 값은 JsonElement — 문자열 경유 파싱(기존 테스트 관례).
+        int.Parse(a["N"]!.ToString()!).Should().Be(2);
+        decimal.Parse(a["AVG_VALUE"]!.ToString()!).Should().Be(15.0m);
+        decimal.Parse(a["RANGE_VALUE"]!.ToString()!).Should().Be(10.0m);
+        // 분산 = AVG(x^2) - AVG(x)^2 = (100+400)/2 - 225 = 25 (SQLite STDDEV 부재 우회식의 정확성 가드)
+        decimal.Parse(a["VARIANCE_VALUE"]!.ToString()!).Should().Be(25.0m);
+    }
+
+    [Fact]
     public async Task InterlockRuleList_returns_all_without_filter()
     {
         EnsureSchemaReady();
