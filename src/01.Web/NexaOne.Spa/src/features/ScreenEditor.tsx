@@ -37,20 +37,30 @@ export function ScreenEditor() {
     editorRef.current = editor
 
     // P3-17 다크 모드 — GrapesJS 캔버스는 iframe이라 부모의 data-theme를 상속하지 않는다.
-    // 로드 시 캔버스 문서에 테마 속성 + 배경/텍스트 토큰 스타일을 주입한다(다크에서 흰 캔버스 방지).
-    editor.on('load', () => {
+    // 캔버스 문서에 테마 속성 + 배경/텍스트 토큰 스타일을 주입한다(다크에서 흰 캔버스 방지).
+    // 스타일은 id 가드로 1회만 삽입, 이후엔 dataset.theme만 갱신 — 테마 '변경'도 MutationObserver로
+    // 즉시 재적용된다(크로스탭 storage 이벤트 → main.tsx가 루트 data-theme 갱신 → 여기서 캔버스 전파).
+    const applyCanvasTheme = () => {
       try {
         const theme = document.documentElement.dataset.theme || 'light'
         const cdoc = editor.Canvas.getDocument()
         if (!cdoc) return
         cdoc.documentElement.dataset.theme = theme
-        const style = cdoc.createElement('style')
-        style.textContent =
-          '[data-theme="dark"]{background:#0d1420;color:#dfe6f1;}' +
-          '[data-theme="dark"] *{border-color:#2b3750 !important;}'
-        cdoc.head.appendChild(style)
+        if (!cdoc.getElementById('nx-canvas-theme')) {
+          const style = cdoc.createElement('style')
+          style.id = 'nx-canvas-theme'
+          style.textContent =
+            '[data-theme="dark"]{background:#0d1420;color:#dfe6f1;}' +
+            '[data-theme="dark"] *{border-color:#2b3750 !important;}'
+          cdoc.head.appendChild(style)
+        }
       } catch { /* 캔버스 접근 실패(테스트 jsdom 등) — 무시 */ }
-    })
+    }
+    editor.on('load', applyCanvasTheme)
+    const themeObserver = new MutationObserver(applyCanvasTheme)
+    try {
+      themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    } catch { /* 관측 실패 — 진입 시 1회 적용으로 폴백 */ }
 
     listQueries()
       .then((cat: QueryCatalog) => {
@@ -80,7 +90,7 @@ export function ScreenEditor() {
       })
       .catch(() => { if (!disposed) setStatus('로드 실패(권한/네트워크 확인)') })
 
-    return () => { disposed = true; editor.destroy(); editorRef.current = null }
+    return () => { disposed = true; themeObserver.disconnect(); editor.destroy(); editorRef.current = null }
   }, [uiId, canManage])
 
   async function handleSave() {
