@@ -9,47 +9,62 @@
     {
         var key = field.Key;
         var err = ErrorFor(field);
+        @* 접근성 배선 — 라벨↔입력(id/for·aria-labelledby)·오류(aria-invalid/describedby·role=alert)·
+           필수(aria-required; 시각 *는 aria-hidden 유지). id는 인스턴스 접두사(_uid) 포함 —
+           레이아웃 화면에서 같은 정의가 위젯으로 2회 렌더돼도 페이지 내 중복되지 않는다. *@
+        var inputId = $"mf-{_uid}-{key}";
+        var labelId = $"{inputId}-label";
+        var errId = err is null ? null : $"{inputId}-err";
         <div class="meta-field">
-            <label>@field.Label@if (field.Required) { <span class="req" aria-hidden="true">*</span> }</label>
+            <label id="@labelId" for="@inputId">@field.Label@if (field.Required) { <span class="req" aria-hidden="true">*</span> }</label>
             <div class="meta-field-control">
                 @switch (field.Type)
                 {
                     case FieldType.Boolean:
                         <RadzenCheckBox TValue="bool" Value="@GetBool(key)" Disabled="@field.ReadOnly"
-                                        Change="@(v => Set(key, v))" />
+                                        Change="@(v => Set(key, v))"
+                                        InputAttributes="@BuildAria(inputId, labelId, errId, field.Required)"
+                                        class="@(err is null ? null : "nx-invalid")" />
                         break;
 
                     case FieldType.Select:
                         var opts = ResolveOptions(field);
+                        @* DropDown은 네이티브 select가 아니라 label for 연결이 불완전 — aria-labelledby가 확실하다. *@
                         <RadzenDropDown TValue="string" Data="@opts" TextProperty="Label" ValueProperty="Value"
                                         Value="@GetString(key)" Disabled="@field.ReadOnly" AllowClear="true"
                                         Placeholder="@T("common.select", "(선택)")"
                                         Change="@(v => Set(key, v))"
+                                        InputAttributes="@BuildAria(inputId, labelId, errId, field.Required)"
                                         class="@(err is null ? null : "nx-invalid")" Style="width:100%" />
                         break;
 
                     case FieldType.Number:
                         <RadzenNumeric TValue="decimal?" Value="@GetDecimal(key)" Disabled="@field.ReadOnly"
                                        Change="@(v => Set(key, v?.ToString(System.Globalization.CultureInfo.InvariantCulture)))"
+                                       InputAttributes="@BuildAria(inputId, labelId, errId, field.Required)"
                                        class="@(err is null ? null : "nx-invalid")" Style="width:100%" />
                         break;
 
                     case FieldType.Date:
                         <RadzenDatePicker TValue="DateTime?" Value="@GetDate(key)" Disabled="@field.ReadOnly"
                                           DateFormat="yyyy-MM-dd" Change="@(v => SetDate(key, v))"
+                                          InputAttributes="@BuildAria(inputId, labelId, errId, field.Required)"
                                           class="@(err is null ? null : "nx-invalid")" Style="width:100%" />
                         break;
 
                     default:
+                        @* TextBox는 루트가 input이라 스플랫(id/aria)이 입력 요소에 직접 얹힌다. *@
                         <RadzenTextBox Value="@GetString(key)" ReadOnly="@field.ReadOnly"
                                        Change="@(v => Set(key, v))"
+                                       @attributes="BuildAria(inputId, labelId, errId, field.Required)"
                                        class="@(err is null ? null : "nx-invalid")" Style="width:100%" />
                         break;
                 }
-                @* P2-7 — 필드 인라인 오류(하단 목록 나열 대체). MetaScreen이 캐스케이딩으로 내려보낸다. *@
+                @* P2-7 — 필드 인라인 오류(하단 목록 나열 대체). MetaScreen이 캐스케이딩으로 내려보낸다.
+                   role=alert — 검증 실패로 나타나는 순간 스크린리더가 즉시 낭독한다. *@
                 @if (err is not null)
                 {
-                    <div class="meta-field-error">@err</div>
+                    <div class="meta-field-error" id="@errId" role="alert">@err</div>
                 }
             </div>
         </div>
@@ -72,6 +87,18 @@
 
     private string? ErrorFor(FieldDefinition field)
         => FieldErrors is not null && FieldErrors.TryGetValue(field.Key, out var msg) ? msg : null;
+
+    // 접근성 속성 딕셔너리 — TextBox엔 @attributes 스플랫(루트=input), 나머지 Radzen 입력엔
+    // InputAttributes(내부 input 대상)로 전달한다. 인스턴스 접두사는 동일 정의 2회 렌더 시 id 충돌 방지.
+    private readonly string _uid = Guid.NewGuid().ToString("N")[..6];
+
+    private Dictionary<string, object> BuildAria(string inputId, string labelId, string? errId, bool required)
+    {
+        var d = new Dictionary<string, object> { ["id"] = inputId, ["aria-labelledby"] = labelId };
+        if (required) d["aria-required"] = "true";
+        if (errId is not null) { d["aria-invalid"] = "true"; d["aria-describedby"] = errId; }
+        return d;
+    }
 
     // 정적 Options 우선, 없으면 동적 옵션(필드 Key 기준), 둘 다 없으면 빈 목록.
     private IReadOnlyList<MetaFieldOption> ResolveOptions(FieldDefinition field)
