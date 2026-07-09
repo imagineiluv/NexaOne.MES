@@ -380,6 +380,15 @@ app.Lifetime.ApplicationStopped.Register(() =>
     if (modulesEnabled) server.Dispose();
 });
 
+// 운영 기본 자격 하드닝 — Production에서 admin이 V001 기본 해시(admin/admin) 그대로면 첫 로그인 시
+// 비밀번호 변경을 강제(PASSWORD_STATE='Create'). dev/테스트(Development)는 건드리지 않는다.
+if (app.Environment.IsProduction())
+{
+    var hardened = await NexaOne.Server.Gateway.DefaultAdminHardening.HardenAsync(app.Services);
+    if (hardened > 0)
+        Console.WriteLine("[NexaOne.Server] ⚠ 기본 admin 자격 감지 — PASSWORD_STATE='Create'로 강제(첫 로그인 시 변경 필수).");
+}
+
 Console.WriteLine("[NexaOne.Server] Ready (web host). Press Ctrl+C to stop.");
 await app.RunAsync();
 
