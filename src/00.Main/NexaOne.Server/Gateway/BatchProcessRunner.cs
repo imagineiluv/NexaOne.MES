@@ -17,12 +17,16 @@ public sealed class BatchProcessRunner
     private readonly IRuleDispatcher _dispatcher;
     private readonly IQueryRegistry _registry;
     private readonly ILogger<BatchProcessRunner> _logger;
+    private readonly IServiceProvider _services;
 
-    public BatchProcessRunner(IRuleDispatcher dispatcher, IQueryRegistry registry, ILogger<BatchProcessRunner> logger)
+    public BatchProcessRunner(
+        IRuleDispatcher dispatcher, IQueryRegistry registry, ILogger<BatchProcessRunner> logger,
+        IServiceProvider services)
     {
         _dispatcher = dispatcher;
         _registry = registry;
         _logger = logger;
+        _services = services;
     }
 
     /// <summary>유효(Valid) 배치 정의 전체 — 워커 스케줄링/수동 실행 조회 공용(SYS.BatchProcessList 단일 출처).</summary>
@@ -51,6 +55,10 @@ public sealed class BatchProcessRunner
     {
         if (string.IsNullOrWhiteSpace(rule))
             return BatchRunResult.Failed("BATCH_RULE이 비어 있습니다 — 실행할 명명 쓰기쿼리 ID를 지정하세요.");
+        // 브리지 룰(v2, MRP 스펙 백로그 ④) — 'bridge:{키}'는 명명쿼리가 아니라 등록된 모듈 브리지 호출.
+        // 모듈 OFF(게이트웨이 전용 부팅)면 해당 브리지가 DI에 없어 실패로 보고한다(무음 스킵 금지).
+        if (rule.Trim().StartsWith("bridge:", StringComparison.OrdinalIgnoreCase))
+            return await ExecuteBridgeRuleAsync(rule.Trim()["bridge:".Length..].Trim(), executedBy, ct);
         if (!_registry.TryGet(rule.Trim(), out var def) || def is null)
             return BatchRunResult.Failed($"BATCH_RULE '{rule}'이(가) 쿼리 레지스트리에 없습니다.");
         if (!def.IsWrite)
@@ -71,6 +79,33 @@ public sealed class BatchProcessRunner
         catch (JsonException je)
         {
             return BatchRunResult.Failed($"BATCH_INPUTDATA JSON 파싱 실패: {je.Message}");
+        }
+        catch (Exception ex)
+        {
+            return BatchRunResult.Failed(ex.Message);
+        }
+    }
+
+    // 브리지 룰 디스패치 — 지원 키만 명시(임의 리플렉션 호출 금지). 새 브리지 배치는 여기에 case 추가.
+    private async Task<BatchRunResult> ExecuteBridgeRuleAsync(string key, string executedBy, CancellationToken ct)
+    {
+        try
+        {
+            switch (key.ToLowerInvariant())
+            {
+                case "pom.mrp.run":
+                {
+                    var bridge = _services.GetService<NexaOne.ServiceContracts.Pom.IMrpBridge>();
+                    if (bridge is null)
+                        return BatchRunResult.Failed("IMrpBridge 미등록 — 모듈 OFF 부팅에선 브리지 배치를 실행할 수 없습니다.");
+                    var r = await bridge.RunAsync(executedBy, ct);
+                    return r.Status == "Success"
+                        ? BatchRunResult.Ok(r.PlannedOrderCount)
+                        : BatchRunResult.Failed(r.Message ?? "MRP 실행 실패");
+                }
+                default:
+                    return BatchRunResult.Failed($"알 수 없는 브리지 룰 '{key}' — 지원: pom.mrp.run");
+            }
         }
         catch (Exception ex)
         {

@@ -10,10 +10,14 @@
 
 <div class="mes-card host-toolbar">
     <strong>MRP 실행</strong>
-    <RadzenButton Icon="calculate" Click="RunAsync" Disabled="@_busy" class="layout-command"
+    <RadzenButton Icon="calculate" Click="RunAsync" Disabled="@(_busy || _converting)" class="layout-command"
                   ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small"
                   Text="@(_busy ? "전개 중…" : "소요량 전개 실행")" />
-    <span class="host-desc">수요(확정 수주) → BOM 전개 → 순소요 넷팅 → 계획오더 제안(append-only, 재실행 안전)</span>
+    @* v2 1단 — Proposed 제안 전량을 실오더로(구매=PO Ordered·생산=WO Released 직행, 단일 트랜잭션·멱등). *@
+    <RadzenButton Icon="published_with_changes" Click="ConvertAsync" Disabled="@(_busy || _converting)" class="layout-command"
+                  ButtonStyle="Radzen.ButtonStyle.Secondary" Size="Radzen.ButtonSize.Small"
+                  Text="@(_converting ? "전환 중…" : "실오더 전환")" />
+    <span class="host-desc">수요(확정 수주) → BOM 전개 → 순소요 넷팅 → 계획오더 제안 → 실오더 전환(PO/WO)</span>
     @if (_result is not null)
     {
         @if (_result.Status == "Success")
@@ -25,14 +29,27 @@
             <span class="host-chip bad" title="@_result.Message">실패 — @_result.Message</span>
         }
     }
+    @if (_convert is not null)
+    {
+        @if (_convert.Message is null)
+        {
+            <span class="host-chip ok">전환 @(_convert.Converted)건 — 구매 @(_convert.PurchaseOrders)·생산 @(_convert.WorkOrders)</span>
+        }
+        else
+        {
+            <span class="host-chip bad" title="@_convert.Message">@_convert.Message</span>
+        }
+    }
 </div>
 
 <MetaScreen UiId="NX_MRP_PLANNING" @key="_refreshSeq" />
 
 @code {
     private bool _busy;
+    private bool _converting;
     private int _refreshSeq;
     private MrpRunResultDto? _result;
+    private MrpConvertResultDto? _convert;
 
     private async Task RunAsync()
     {
@@ -41,8 +58,20 @@
         {
             // 403/모듈 OFF/5xx는 null — 사유는 전역 토스트가 알린다(ApiClient 규약).
             _result = await Api.RunMrpAsync();
+            _convert = null;   // 새 런 기준으로 전환 칩 초기화
             if (_result is { Status: "Success" }) _refreshSeq++;   // 자식 MetaScreen 재생성 = 제안/이력 재조회
         }
         finally { _busy = false; }
+    }
+
+    private async Task ConvertAsync()
+    {
+        _converting = true;
+        try
+        {
+            _convert = await Api.ConvertMrpAsync();   // 최신 실행의 Proposed 전량(멱등 — 재클릭 시 대상 0건)
+            if (_convert is { Message: null, Converted: > 0 }) _refreshSeq++;   // 상태/전환 오더 컬럼 재조회
+        }
+        finally { _converting = false; }
     }
 }

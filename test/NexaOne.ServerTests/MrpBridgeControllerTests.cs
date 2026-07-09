@@ -52,12 +52,21 @@ public sealed class MrpBridgeControllerTests : IClassFixture<MrpBridgeController
     public sealed class FakeBridge : IMrpBridge
     {
         public string? LastExecutedBy;
+        public string? LastConvertRunId;
         public MrpRunResult NextResult = new("MRP-TEST-0001", "Success", 2, 3, null);
+        public MrpConvertResult NextConvert = new("MRP-TEST-0001", 3, 2, 1, null);
 
         public Task<MrpRunResult> RunAsync(string executedBy, CancellationToken ct = default)
         {
             LastExecutedBy = executedBy;
             return Task.FromResult(NextResult);
+        }
+
+        public Task<MrpConvertResult> ConvertAsync(string? runId, string executedBy, CancellationToken ct = default)
+        {
+            LastExecutedBy = executedBy;
+            LastConvertRunId = runId;
+            return Task.FromResult(NextConvert);
         }
     }
 
@@ -101,6 +110,29 @@ public sealed class MrpBridgeControllerTests : IClassFixture<MrpBridgeController
         dto.DemandCount.Should().Be(1);
         dto.PlannedOrderCount.Should().Be(3);
         _factory.Bridge.LastExecutedBy.Should().Be("mrp-bridge-tester", "JWT sub가 실행자(EXECUTED_BY)로 전달돼야 한다");
+    }
+
+    [Fact]
+    public async Task Convert_without_pom_manage_is_forbidden()
+    {
+        var res = await Client("pom:read").PostAsJsonAsync("/api/v1/pom/mrp/convert", new { });
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "실오더 전환은 쓰기 — pom:manage 403 게이트");
+    }
+
+    [Fact]
+    public async Task Convert_with_pom_manage_returns_summary_and_passes_run_id()
+    {
+        _factory.Bridge.NextConvert = new("MRP-RUN-77", 3, 2, 1, null);
+
+        var res = await Client("pom:manage").PostAsJsonAsync("/api/v1/pom/mrp/convert", new { runId = "MRP-RUN-77" });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var dto = await res.Content.ReadFromJsonAsync<MrpConvertResult>();
+        dto!.Converted.Should().Be(3);
+        dto.PurchaseOrders.Should().Be(2);
+        dto.WorkOrders.Should().Be(1);
+        _factory.Bridge.LastConvertRunId.Should().Be("MRP-RUN-77");
+        _factory.Bridge.LastExecutedBy.Should().Be("mrp-bridge-tester");
     }
 
     [Fact]

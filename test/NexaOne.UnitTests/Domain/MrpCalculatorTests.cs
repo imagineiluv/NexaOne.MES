@@ -238,6 +238,21 @@ public sealed class MrpCalculatorTests
     }
 
     [Fact]
+    public void Plant_propagates_from_demand_to_dependent_components()
+    {
+        // 전환(v2)용 — 수요 공장이 제안·종속 구성품 제안까지 상속돼야 실오더 PLANT_ID를 채울 수 있다.
+        var bom = new[] { new MrpBomLine("A", "B", 2, 0) };
+        var planning = new Dictionary<string, MrpItemParameters> { ["A"] = new(0, null, 1, "Make") };
+
+        var result = Calc(
+            new[] { new MrpDemand("A", 100, null, "SO-1", PlantId: "PLANT-9") },
+            bom: bom, planning: planning);
+
+        result.Proposals.Single(p => p.ItemId == "A").PlantId.Should().Be("PLANT-9");
+        result.Proposals.Single(p => p.ItemId == "B").PlantId.Should().Be("PLANT-9", "종속 수요는 부모 공장 상속");
+    }
+
+    [Fact]
     public void Zero_and_negative_demands_are_ignored()
     {
         var result = Calc(new[]

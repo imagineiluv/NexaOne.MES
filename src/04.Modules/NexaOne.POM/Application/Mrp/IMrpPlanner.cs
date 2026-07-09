@@ -7,4 +7,7 @@ namespace NexaOne.POM.Application.Mrp;
 public interface IMrpPlanner
 {
     Task<MrpRunResult> RunAsync(string executedBy, CancellationToken ct = default);
+
+    /// <summary>Proposed 제안→실오더 전환(v2 1단) — 전 문장 단일 트랜잭션(MixingPersistAsync 패턴).</summary>
+    Task<MrpConvertResult> ConvertAsync(string? runId, string executedBy, CancellationToken ct = default);
 }

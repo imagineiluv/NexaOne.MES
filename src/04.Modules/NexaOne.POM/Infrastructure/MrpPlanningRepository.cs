@@ -51,9 +51,9 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
                 await _processor.ExecuteAsync(
                     "INSERT INTO MRP_PLANNED_ORDER (PLANNED_ORDER_ID, RUN_ID, ITEM_ID, ORDER_TYPE, GROSS_QTY, " +
                     "ON_HAND_QTY, ON_ORDER_QTY, SAFETY_STOCK_QTY, NET_QTY, SUGGESTED_QTY, DUE_DATE, RELEASE_DATE, " +
-                    "SOURCE_DEMAND, CREATED_BY, UPDATED_BY) " +
+                    "SOURCE_DEMAND, PLANT_ID, CREATED_BY, UPDATED_BY) " +
                     "VALUES (@id, @runId, @item, @type, @gross, @onHand, @onOrder, @safety, @net, @suggested, " +
-                    "@due, @release, @source, @by, @by)",
+                    "@due, @release, @source, @plant, @by, @by)",
                     new
                     {
                         id = $"{runId}_{++seq:D4}",
@@ -69,6 +69,7 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
                         due = p.DueDate?.ToString(Ts),
                         release = p.ReleaseDate?.ToString(Ts),
                         source = p.SourceDemand,
+                        plant = p.PlantId,
                         by = executedBy,
                     }, ct);
             }
@@ -85,6 +86,90 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
         }
     }
 
+    /// <summary>Proposed 제안→실오더 전환(v2 1단). 정책: Purchase→PRC 구매오더 'Ordered' 직행,
+    /// Production→POM 작업지시 'Released' 직행 — Draft/Created는 예정입고 집계(Ordered|Incoming /
+    /// Released|Started) 밖이라 전환 직후 MRP 재실행 시 같은 수요가 이중 제안되기 때문(설계 결정).
+    /// 원자성: 실오더 INSERT + 제안 Converted 마킹 전 문장을 단일 ExecuteManyAsync 트랜잭션으로 커밋
+    /// (MixingPersistAsync/DATA-3 패턴 — 부분 커밋 불가). ⚠ ExecuteManyAsync는 감사컬럼 자동주입이
+    /// 없어 CREATED_BY/UPDATED_BY를 문장에 명시한다(시각은 DDL DEFAULT).</summary>
+    public async Task<MrpConvertResult> ConvertAsync(string? runId, string executedBy, CancellationToken ct = default)
+    {
+        try
+        {
+            runId ??= (await QueryAsync<string>(
+                "SELECT RUN_ID FROM MRP_RUN WHERE STARTED_AT = (SELECT MAX(STARTED_AT) FROM MRP_RUN)", null, ct))
+                .FirstOrDefault();
+            if (runId is null)
+                return new MrpConvertResult("", 0, 0, 0, "실행 이력이 없습니다 — 먼저 MRP를 실행하세요.");
+
+            var rows = (await QueryAsync<dynamic>(
+                "SELECT PLANNED_ORDER_ID, ITEM_ID, ORDER_TYPE, SUGGESTED_QTY, DUE_DATE, RELEASE_DATE, PLANT_ID " +
+                "FROM MRP_PLANNED_ORDER WHERE RUN_ID = @runId AND STATUS = 'Proposed' ORDER BY PLANNED_ORDER_ID",
+                new { runId }, ct)).ToList();
+            if (rows.Count == 0)
+                return new MrpConvertResult(runId, 0, 0, 0, "전환 대상(Proposed)이 없습니다.");
+
+            const string MarkSql =
+                "UPDATE MRP_PLANNED_ORDER SET STATUS = 'Converted', CONVERTED_ORDER_ID = @newId, " +
+                "UPDATED_BY = @by, UPDATED_AT = @now WHERE PLANNED_ORDER_ID = @id AND STATUS = 'Proposed'";
+            var now = DateTime.UtcNow.ToString(Ts);
+            var stamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+            var statements = new List<(string Sql, object? Param)>();
+            int po = 0, wo = 0, seq = 0;
+
+            foreach (var r in rows)
+            {
+                seq++;
+                var plannedId = (string)r.PLANNED_ORDER_ID;
+                var item = (string)r.ITEM_ID;
+                var qty = Convert.ToDecimal(r.SUGGESTED_QTY);
+                var due = AsDate(r.DUE_DATE)?.ToString(Ts);
+                var release = AsDate(r.RELEASE_DATE)?.ToString(Ts);
+                var plant = (r.PLANT_ID as string) ?? "DEFAULT";   // 공장 미상(구 런/직접입력 수요) 폴백
+
+                if (string.Equals((string)r.ORDER_TYPE, "Purchase", StringComparison.OrdinalIgnoreCase))
+                {
+                    var orderId = $"PO-MRP-{stamp}-{seq:D3}";
+                    po++;
+                    statements.Add((
+                        "INSERT INTO PRC_PURCHASE_ORDER (PURCHASE_ORDER_ID, PLANT_ID, PURCHASE_ORDER_NAME, " +
+                        "ORDER_DATE, INCOMING_DATE, ORDER_QTY, PRODUCT_ID, STATUS, DESCRIPTION, CREATED_BY, UPDATED_BY) " +
+                        "VALUES (@id, @plant, @name, @orderDate, @incoming, @qty, @item, 'Ordered', @desc, @by, @by)",
+                        new
+                        {
+                            id = orderId, plant, name = $"MRP 전환 — {item}", orderDate = now, incoming = due,
+                            qty, item, desc = $"MRP {runId} / {plannedId}", by = executedBy,
+                        }));
+                    statements.Add((MarkSql, new { newId = orderId, id = plannedId, by = executedBy, now }));
+                }
+                else
+                {
+                    var orderId = $"WO-MRP-{stamp}-{seq:D3}";
+                    wo++;
+                    statements.Add((
+                        "INSERT INTO POM_WORK_ORDER (WORK_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, PRODUCT_ID, " +
+                        "PLAN_START_DATE, PLAN_END_DATE, PLAN_QTY, STATUS, DESCRIPTION, CREATED_BY, UPDATED_BY) " +
+                        "VALUES (@id, @plant, @name, @item, @planStart, @planEnd, @qty, 'Released', @desc, @by, @by)",
+                        new
+                        {
+                            id = orderId, plant, name = $"MRP 전환 — {item}", item,
+                            planStart = release ?? now, planEnd = due, qty,
+                            desc = $"MRP {runId} / {plannedId}", by = executedBy,
+                        }));
+                    statements.Add((MarkSql, new { newId = orderId, id = plannedId, by = executedBy, now }));
+                }
+            }
+
+            await _processor.ExecuteManyAsync(ct, statements.ToArray());
+            return new MrpConvertResult(runId, po + wo, po, wo, null);
+        }
+        catch (Exception ex)
+        {
+            var message = ex.Message.Length > 900 ? ex.Message[..900] : ex.Message;
+            return new MrpConvertResult(runId ?? "", 0, 0, 0, message);
+        }
+    }
+
     private Task FinalizeAsync(
         string runId, string status, int demandCount, int orderCount, string? message, string by, CancellationToken ct)
         => _processor.ExecuteAsync(
@@ -97,12 +182,13 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
     private async Task<IReadOnlyList<MrpDemand>> LoadDemandsAsync(CancellationToken ct)
     {
         var rows = await QueryAsync<dynamic>(
-            "SELECT SALES_ORDER_ID, PRODUCT_ID, (PLAN_QTY - COALESCE(DELIVERED_QTY, 0)) AS OPEN_QTY, PLAN_END_DATE " +
+            "SELECT SALES_ORDER_ID, PRODUCT_ID, (PLAN_QTY - COALESCE(DELIVERED_QTY, 0)) AS OPEN_QTY, PLAN_END_DATE, PLANT_ID " +
             "FROM SLS_SALES_ORDER " +
             "WHERE STATUS IN ('Confirmed', 'Producing') AND PRODUCT_ID IS NOT NULL " +
             "  AND (PLAN_QTY - COALESCE(DELIVERED_QTY, 0)) > 0", null, ct);
         return rows.Select(r => new MrpDemand(
-            (string)r.PRODUCT_ID, Convert.ToDecimal(r.OPEN_QTY), AsDate(r.PLAN_END_DATE), (string)r.SALES_ORDER_ID)).ToList();
+            (string)r.PRODUCT_ID, Convert.ToDecimal(r.OPEN_QTY), AsDate(r.PLAN_END_DATE), (string)r.SALES_ORDER_ID,
+            r.PLANT_ID as string)).ToList();
     }
 
     private async Task<IReadOnlyList<MrpBomLine>> LoadBomAsync(CancellationToken ct)

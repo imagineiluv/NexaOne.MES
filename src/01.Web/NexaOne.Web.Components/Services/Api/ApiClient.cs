@@ -297,6 +297,15 @@ public sealed class ApiClient : IApiClient
         catch { return null; }
     }
 
+    // MRP 실오더 전환(v2 1단) — Proposed 전량 전환(단일 트랜잭션). 실패는 null(전역 토스트).
+    public async Task<MrpConvertResultDto?> ConvertMrpAsync(string? runId = null, CancellationToken ct = default)
+    {
+        using var resp = await SendAsync(HttpMethod.Post, "api/v1/pom/mrp/convert", new { runId }, ct);
+        if (!resp.IsSuccessStatusCode) return null;
+        try { return await resp.Content.ReadFromJsonAsync<MrpConvertResultDto>(ct); }
+        catch { return null; }
+    }
+
     // 제네릭 서버 페이징 — 등록 read 쿼리를 페이징 절로 감싼 {total, rows}. 실패(404/422/구버전)는 null로
     // 신호해 호출측이 전량 경로(ExecuteQueryAsync)로 폴백한다(하이브리드 페이징의 안전판).
     public async Task<PagedQueryResult?> ExecuteQueryPagedAsync(

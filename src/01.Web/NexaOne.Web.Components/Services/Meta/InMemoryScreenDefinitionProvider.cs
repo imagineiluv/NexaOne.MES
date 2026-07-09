@@ -2146,6 +2146,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                                 new("GROSS_QTY", "총소요"), new("ON_HAND_QTY", "재고"), new("ON_ORDER_QTY", "예정입고"),
                                 new("SAFETY_STOCK_QTY", "안전재고"), new("NET_QTY", "순소요"), new("SUGGESTED_QTY", "제안수량"),
                                 new("RELEASE_DATE", "착수(발주)일"), new("DUE_DATE", "납기"), new("SOURCE_DEMAND", "근거 수요"),
+                                new("STATUS", "상태", Width: 100), new("CONVERTED_ORDER_ID", "전환 오더", Width: 170),
                             } },
                         } },
                     } },

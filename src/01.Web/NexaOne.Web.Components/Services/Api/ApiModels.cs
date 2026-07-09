@@ -14,6 +14,9 @@ public record LoginResponse(
 /// 메시지를 보존해 잠금 안내를 화면에 표시할 수 있게 한다.</summary>
 public record LoginResult(LoginResponse? Response, string? ErrorCode = null, string? ErrorMessage = null);
 
+/// <summary>MRP 실오더 전환 결과(POST /api/v1/pom/mrp/convert) — PO=Ordered/WO=Released 직행 생성 요약.</summary>
+public record MrpConvertResultDto(string RunId, int Converted, int PurchaseOrders, int WorkOrders, string? Message);
+
 /// <summary>MRP 실행 결과(POST /api/v1/pom/mrp/run) — 실행 이력 요약. 제안 상세는 POM.MrpPlannedOrderList.</summary>
 public record MrpRunResultDto(string RunId, string Status, int DemandCount, int PlannedOrderCount, string? Message);
 

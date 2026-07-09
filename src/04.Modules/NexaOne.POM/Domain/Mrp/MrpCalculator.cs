@@ -1,7 +1,8 @@
 namespace NexaOne.POM.Domain.Mrp;
 
-/// <summary>독립 수요 1건 — 확정 수주(SLS Confirmed/Producing)의 미납 수량. DueDate=납기(PLAN_END_DATE).</summary>
-public sealed record MrpDemand(string ItemId, decimal Qty, DateTime? DueDate, string SourceRef);
+/// <summary>독립 수요 1건 — 확정 수주(SLS Confirmed/Producing)의 미납 수량. DueDate=납기(PLAN_END_DATE).
+/// PlantId — 실오더 전환(v2) 대상 공장(수주 PLANT_ID). 종속 수요는 부모 공장을 상속한다.</summary>
+public sealed record MrpDemand(string ItemId, decimal Qty, DateTime? DueDate, string SourceRef, string? PlantId = null);
 
 /// <summary>BOM 1행 — 부모 1단위당 구성품 소요(QuantityPer) × (1+ScrapRate) 전개.</summary>
 public sealed record MrpBomLine(string ParentItemId, string ComponentItemId, decimal QuantityPer, decimal ScrapRate);
@@ -24,7 +25,8 @@ public sealed record MrpPlannedOrderProposal(
     decimal SuggestedQty,
     DateTime? DueDate,
     DateTime? ReleaseDate,
-    string? SourceDemand);
+    string? SourceDemand,
+    string? PlantId = null);    // 첫 기여 수요의 공장(전환 시 실오더 PLANT_ID — 미상은 전환기가 DEFAULT 폴백)
 
 public sealed record MrpCalculationResult(bool Success, IReadOnlyList<MrpPlannedOrderProposal> Proposals, string? Error);
 
@@ -86,11 +88,13 @@ public static class MrpCalculator
         var gross = new Dictionary<string, decimal>(StringComparer.Ordinal);
         var due = new Dictionary<string, DateTime?>(StringComparer.Ordinal);
         var sources = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var plants = new Dictionary<string, string?>(StringComparer.Ordinal);   // 첫 기여 수요의 공장(전환용)
         foreach (var d in demands.Where(d => d.Qty > 0))
         {
             gross[d.ItemId] = gross.GetValueOrDefault(d.ItemId) + d.Qty;
             MergeDue(due, d.ItemId, d.DueDate);
             (sources.TryGetValue(d.ItemId, out var list) ? list : sources[d.ItemId] = new()).Add(d.SourceRef);
+            if (!plants.ContainsKey(d.ItemId) && d.PlantId is not null) plants[d.ItemId] = d.PlantId;
         }
 
         // ── ②~⑥ 부모 먼저 처리 — Level 정의(부모 = 1 + max(자식))상 완제품이 최대 레벨이므로 '레벨 내림차순'.
@@ -120,11 +124,12 @@ public static class MrpCalculator
             var lead = p.LeadTimeDays ?? v?.LeadTimeDays ?? 0;
             var dueDate = due.GetValueOrDefault(item);
             var release = dueDate?.AddDays(-lead);
+            var plant = plants.GetValueOrDefault(item);
 
             proposals.Add(new MrpPlannedOrderProposal(
-                item, orderType, g, oh, oo, p.SafetyStock, net, suggested, dueDate, release, Summarize(sources, item)));
+                item, orderType, g, oh, oo, p.SafetyStock, net, suggested, dueDate, release, Summarize(sources, item), plant));
 
-            // ⑤ 종속 수요 전개 — 생산 제안 수량 기준(스크랩률 가산), 구성품 납기 = 부모 착수일.
+            // ⑤ 종속 수요 전개 — 생산 제안 수량 기준(스크랩률 가산), 구성품 납기 = 부모 착수일. 공장은 부모 상속.
             if (isMake && children.TryGetValue(item, out var lines))
                 foreach (var line in lines)
                 {
@@ -134,6 +139,7 @@ public static class MrpCalculator
                     MergeDue(due, line.ComponentItemId, release);
                     (sources.TryGetValue(line.ComponentItemId, out var cl) ? cl : sources[line.ComponentItemId] = new())
                         .Add($"{item} 생산 전개");
+                    if (!plants.ContainsKey(line.ComponentItemId) && plant is not null) plants[line.ComponentItemId] = plant;
                 }
         }
 

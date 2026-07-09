@@ -15,6 +15,9 @@ public interface IApiClient
     // MRP v1 실행(브리지 REST, pom:manage) — 실패(403/모듈 OFF 등)는 null(사유는 전역 토스트).
     Task<MrpRunResultDto?> RunMrpAsync(CancellationToken ct = default);
 
+    // MRP 실오더 전환(v2 1단) — Proposed 전량을 PO(Ordered)/WO(Released)로. runId null=최신 실행.
+    Task<MrpConvertResultDto?> ConvertMrpAsync(string? runId = null, CancellationToken ct = default);
+
     // 등록된 쓰기(command) query id 실행 — 성공 여부 반환(저코드 폼 저장 경로). 감사 컬럼은 게이트웨이가 주입.
     Task<bool> ExecuteCommandAsync(
         string queryId, object? parameters = null, CancellationToken ct = default);

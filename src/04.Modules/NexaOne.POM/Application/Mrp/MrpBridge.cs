@@ -12,4 +12,7 @@ public sealed class MrpBridge : IMrpBridge
 
     public Task<MrpRunResult> RunAsync(string executedBy, CancellationToken ct = default)
         => _planner.RunAsync(executedBy, ct);
+
+    public Task<MrpConvertResult> ConvertAsync(string? runId, string executedBy, CancellationToken ct = default)
+        => _planner.ConvertAsync(runId, executedBy, ct);
 }
