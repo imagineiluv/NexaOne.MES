@@ -4,6 +4,7 @@
 @inject IScreenDefinitionProvider Definitions
 @inject IApiClient Api
 @inject IServiceProvider Services
+@inject IJSRuntime JS
 
 @* Phase 3 — 메타데이터 주도 화면: 정적 @@page 컴파일 화면이 아니라 UiId로 ScreenDefinition을 해석해 동적 렌더. *@
 <div class="page-header">
@@ -163,14 +164,16 @@ else
     }
 }
 
-@* 신규 등록 모달(그리드 '추가' 팝업) — 화면 폼과 독립된 모델(_addModel). 백드롭/×/취소=닫기, 저장=검증→커맨드→재조회. *@
+@* 신규 등록 모달(그리드 '추가' 팝업) — 화면 폼과 독립된 모델(_addModel). 백드롭/×/취소/Escape=닫기, 저장=검증→커맨드→재조회.
+   포커스: 열릴 때 nxDialogOpen(첫 포커서블 이동+Tab 트랩), 닫힐 때 nxDialogClose(이전 포커스 복귀). *@
 @if (_addOpen && _addFormDef is not null)
 {
-    <div class="nx-modal-backdrop" @onclick="() => _addOpen = false"></div>
-    <div class="nx-modal" role="dialog" aria-modal="true" aria-label="@T("common.addTitle", "신규 등록")">
+    <div class="nx-modal-backdrop" @onclick="CloseAddAsync"></div>
+    <div class="nx-modal" role="dialog" aria-modal="true" aria-label="@T("common.addTitle", "신규 등록")"
+         tabindex="-1" @ref="_modalRef" @onkeydown="OnModalKeyDownAsync">
         <div class="mes-card-head">
             <span class="h-title">@T("common.addTitle", "신규 등록")</span>
-            <button class="nx-modal-close" title="@T("common.close", "닫기")" @onclick="() => _addOpen = false">×</button>
+            <button class="nx-modal-close" title="@T("common.close", "닫기")" @onclick="CloseAddAsync">×</button>
         </div>
         <div class="nx-modal-body">
             <CascadingValue Value="_dynamicOptions" Name="MetaDynamicOptions">
@@ -186,7 +189,7 @@ else
             }
         </div>
         <div class="meta-form-foot">
-            <RadzenButton Text="@T("common.cancel", "취소")" Click="() => _addOpen = false"
+            <RadzenButton Text="@T("common.cancel", "취소")" Click="CloseAddAsync"
                           ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" />
             <RadzenButton Click="SaveAddAsync" Disabled="@_addSaving" class="layout-save nx-modal-save"
                           ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small">
@@ -679,6 +682,32 @@ else
         _addErrors = new();
         _addSaving = false;
         _addOpen = true;
+        _modalFocusPending = true;   // 렌더 후 nxDialogOpen(첫 포커스 이동+Tab 트랩)
+    }
+
+    // 모달 포커스 관리 — JS interop은 렌더 이후에만 안전. try/catch는 bUnit(Loose JS) 보호 관례.
+    private ElementReference _modalRef;
+    private bool _modalFocusPending;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_modalFocusPending && _addOpen)
+        {
+            _modalFocusPending = false;
+            try { await JS.InvokeVoidAsync("nxDialogOpen", _modalRef); } catch { /* JS 미탑재(테스트) */ }
+        }
+    }
+
+    // 닫기 4경로(백드롭/×/취소/Escape) 단일화 — 요소가 아직 DOM에 있는 동안 트랩 해제+포커스 복귀 후 제거.
+    private async Task CloseAddAsync()
+    {
+        try { await JS.InvokeVoidAsync("nxDialogClose", _modalRef); } catch { /* JS 미탑재(테스트) */ }
+        _addOpen = false;
+    }
+
+    private async Task OnModalKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && !_addSaving) await CloseAddAsync();
     }
 
     private async Task SaveAddAsync()
@@ -692,7 +721,7 @@ else
         {
             if (await Api.ExecuteCommandAsync(_addSaveQueryId, _addModel))
             {
-                _addOpen = false;
+                await CloseAddAsync();
                 await ReloadDataAsync();   // 신규 행을 그리드에 즉시 반영
             }
             else

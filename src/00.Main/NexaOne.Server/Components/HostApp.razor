@@ -13,10 +13,37 @@
             document.documentElement.dataset.theme = t;
         };
         window.nxGetTheme = function () { return document.documentElement.dataset.theme || 'light'; };
-        /* P3-9 셀 복사 — clipboard 미지원(비보안 컨텍스트 등)이면 조용히 no-op. */
+        /* P3-9 셀 복사 — 성공 여부를 boolean으로 반환해 호출부가 토스트로 알릴 수 있게 한다.
+           false 경로: clipboard 미지원(HTTP 등 비보안 컨텍스트) 또는 권한 거부. */
         window.nxCopy = function (t) {
             return navigator.clipboard && navigator.clipboard.writeText
-                ? navigator.clipboard.writeText(t) : Promise.resolve();
+                ? navigator.clipboard.writeText(t).then(function () { return true; }, function () { return false; })
+                : Promise.resolve(false);
+        };
+        /* 다이얼로그 포커스 관리 — 열릴 때 이전 포커스 저장→내부 첫 포커서블로 이동, Tab 순환 트랩,
+           닫힐 때 저장 요소로 복귀. Blazor 커스텀 모달/드로어 공용(Radzen 다이얼로그는 자체 처리라 미사용). */
+        window.nxDialogOpen = function (el) {
+            if (!el) return;
+            el.__nxPrevFocus = document.activeElement;
+            var q = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+            var first = el.querySelector(q);
+            (first || el).focus();
+            el.__nxTrap = function (e) {
+                if (e.key !== 'Tab') return;
+                var items = Array.prototype.filter.call(el.querySelectorAll(q), function (n) { return n.offsetParent !== null; });
+                if (!items.length) return;
+                var f = items[0], l = items[items.length - 1];
+                if (e.shiftKey && document.activeElement === f) { l.focus(); e.preventDefault(); }
+                else if (!e.shiftKey && document.activeElement === l) { f.focus(); e.preventDefault(); }
+            };
+            el.addEventListener('keydown', el.__nxTrap);
+        };
+        window.nxDialogClose = function (el) {
+            if (!el) return;
+            if (el.__nxTrap) { el.removeEventListener('keydown', el.__nxTrap); el.__nxTrap = null; }
+            var prev = el.__nxPrevFocus;
+            el.__nxPrevFocus = null;
+            if (prev && prev.focus && document.contains(prev)) prev.focus();
         };
         /* 그리드 CSV 내보내기 — 문자열 CSV를 Blob으로 다운로드. UTF-8 BOM으로 Excel 한글 깨짐 방지. */
         window.nxDownloadCsv = function (filename, csv) {

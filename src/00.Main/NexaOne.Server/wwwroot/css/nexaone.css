@@ -87,8 +87,9 @@
   /* Radzen 컴포넌트도 자체호스팅 Pretendard를 쓰게 폰트 변수 재정의(아이콘 폰트는 .rzi가 별도 유지). */
   --rz-text-font-family: "Pretendard Variable", Pretendard, "Malgun Gothic", "Noto Sans KR", -apple-system, "Segoe UI", system-ui, sans-serif;
 }
-/* 그리드 툴바(필터·밀도·컬럼·CSV) — 필터 좌측, 버튼 묶음 우측(spacer 분리). 상세는 배치 B 절 참고. */
-.meta-grid-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+/* 그리드 툴바(필터·밀도·컬럼·CSV) — 필터 좌측, 버튼 묶음 우측(spacer 분리). 상세는 배치 B 절 참고.
+   wrap 필수 — 최악 11+N개 아이템이라 좁은 화면/긴 다국어 라벨에서 한 줄 강제 시 카드 밖으로 클리핑된다. */
+.meta-grid-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
 /* 폼 검증 실패 표시(P2-7) — Radzen 입력에 붙는 nx-invalid 클래스(빨간 보더). */
 .nx-invalid, .nx-invalid .rz-inputtext, .nx-invalid.rz-textbox, .nx-invalid.rz-dropdown, .nx-invalid.rz-numeric, .nx-invalid.rz-datepicker { border-color: var(--nx-danger) !important; }
 /* 자체 헤더 클릭 정렬(P3-9) — Radzen 컬럼 HeaderTemplate 안의 클릭 라벨. 호버 시 틸 힌트로 클릭 가능함을 알린다. */
@@ -112,7 +113,7 @@
 .nx-cell-num { font-variant-numeric: tabular-nums; }
 .nx-cell-yes { color: var(--nx-success); font-size: 16px; }
 .nx-cell-no { color: var(--nx-muted); opacity: .45; font-size: 16px; }
-.meta-grid-filter { width: 180px; padding: 5px 10px; border: 1px solid var(--nx-border); border-radius: var(--nx-radius); font-size: var(--nx-fs-dense); color: var(--nx-text); background: var(--nx-card); margin-right: 8px; }
+.meta-grid-filter { flex: 0 1 180px; min-width: 120px; padding: 5px 10px; border: 1px solid var(--nx-border); border-radius: var(--nx-radius); font-size: var(--nx-fs-dense); color: var(--nx-text); background: var(--nx-card); margin-right: 8px; }
 .meta-grid-filter:focus { outline: none; border-color: var(--nx-teal); }
 /* 스켈레톤 로더(P2 상태화면) — 조회 중 shimmer 행. 텍스트 스피너 대체로 체감 성능↑. */
 .nx-skeleton { padding: 4px 0; }
@@ -170,7 +171,7 @@
 .meta-grid.nx-freeze-first .rz-datatable-data tr:hover td:first-child { background: var(--nx-hover-teal); }
 .meta-grid.nx-freeze-first tr[data-selected] td:first-child { background: var(--nx-selected); box-shadow: inset 3px 0 0 var(--nx-teal), 1px 0 0 var(--nx-border); }
 /* 다중선택(선택 모드) 일괄 액션바 — 선택 수 + 선택 행 CSV/복사/해제. */
-.nx-bulkbar { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; padding: 5px 10px; background: var(--nx-selected); border: 1px solid var(--nx-teal); border-radius: var(--nx-radius); }
+.nx-bulkbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 6px; padding: 5px 10px; background: var(--nx-selected); border: 1px solid var(--nx-teal); border-radius: var(--nx-radius); }
 .nx-bulkbar-count { font-size: var(--nx-fs-dense); font-weight: 700; color: var(--nx-teal-d); margin-right: 4px; }
 /* 체크박스 컬럼 셀은 가운데 정렬(Radzen TextAlign.Center 보조) */
 .meta-grid .rz-datatable td input[type=checkbox], .meta-grid .rz-datatable th input[type=checkbox] { cursor: pointer; }

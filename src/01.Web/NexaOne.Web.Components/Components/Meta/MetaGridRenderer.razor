@@ -654,11 +654,19 @@
         await SaveAsync(HiddenKey, "");
     }
 
+    private bool _persistWarned;   // 개인화 저장 실패 경고는 1회만(토글마다 반복 토스트 방지)
+
     private async Task SaveAsync(string key, string value)
     {
         if (string.IsNullOrEmpty(ScreenKey)) return;   // 저장 키 없으면 세션 한정(개인화는 유지되나 미영속)
         try { await JS.InvokeVoidAsync("localStorage.setItem", key, value); }
-        catch { /* 저장 실패 — 무시(세션 내 상태는 유지) */ }
+        catch
+        {
+            // 세션 내 상태는 유지되나 새로고침 시 소실 — 사용자는 저장됐다고 믿으므로 1회 알린다.
+            if (_persistWarned) return;
+            _persistWarned = true;
+            Notify(Radzen.NotificationSeverity.Warning, T("grid.persistFail", "개인화 저장 안 됨 — 이 세션에서만 유지됩니다"));
+        }
     }
 
     private static decimal ParseDec(string s) => decimal.TryParse(s, out var d) ? d : decimal.MinValue;
@@ -712,7 +720,7 @@
         foreach (var row in SortedItems().Where(_selected.Contains))
             sb.Append(string.Join(",", colsList.Select(c => CsvField(Cell(row, c.Key))))).Append('\n');
         try { await JS.InvokeVoidAsync("nxDownloadCsv", "selected.csv", sb.ToString()); }
-        catch { /* JS 미탑재 — 무시 */ }
+        catch { Notify(Radzen.NotificationSeverity.Warning, T("grid.exportFail", "CSV 내보내기 실패")); }
     }
 
     // 선택 행 복사 — 스프레드시트 붙여넣기용 TSV(보이는 컬럼×선택 행, 뷰 순서).
@@ -723,8 +731,13 @@
         var sb = new System.Text.StringBuilder();
         foreach (var row in SortedItems().Where(_selected.Contains))
             sb.Append(string.Join("\t", colsList.Select(c => Cell(row, c.Key)))).Append('\n');
-        try { await JS.InvokeVoidAsync("nxCopy", sb.ToString()); }
-        catch { /* clipboard 미지원 — 무시 */ }
+        try
+        {
+            var ok = await JS.InvokeAsync<bool>("nxCopy", sb.ToString());
+            if (ok) Notify(Radzen.NotificationSeverity.Success, $"{_selected.Count}{T("grid.rowsCopied", "행 복사됨")}");
+            else Notify(Radzen.NotificationSeverity.Warning, T("grid.copyFail", "복사 실패 — 클립보드 미지원(HTTPS에서만 지원)"));
+        }
+        catch { Notify(Radzen.NotificationSeverity.Warning, T("grid.copyFail", "복사 실패 — 클립보드 미지원(HTTPS에서만 지원)")); }
     }
 
     // 셀 값 조회(문자열). ExpandoObject를 IDictionary로 보고 Key로 찾는다.
@@ -810,7 +823,7 @@
         foreach (var row in Rows)
             sb.Append(string.Join(",", cols.Select(c => CsvField(RawCell(row, c.Key))))).Append('\n');
         try { await JS.InvokeVoidAsync("nxDownloadCsv", "export.csv", sb.ToString()); }
-        catch { /* JS 미탑재 — 무시 */ }
+        catch { Notify(Radzen.NotificationSeverity.Warning, T("grid.exportFail", "CSV 내보내기 실패")); }
     }
 
     private static string CsvField(string s) => "\"" + s.Replace("\"", "\"\"") + "\"";
@@ -818,12 +831,18 @@
     private static string RawCell(Dictionary<string, object?> row, string key)
         => row.TryGetValue(key, out var v) && v is not null ? v.ToString() ?? "" : "";
 
-    // P3-9 — 셀 더블클릭 복사. 호스트 부트 스크립트 nxCopy(navigator.clipboard 래퍼). 미지원/거부는 무시.
+    // P3-9 — 셀 더블클릭 복사. nxCopy가 성공 여부를 boolean으로 반환(미지원/거부=false)하므로
+    // 결과를 토스트로 알린다 — 복사는 브라우저 고유 피드백이 없어 무음이면 성공 여부를 알 길이 없다.
     private async Task CopyCellAsync(string raw)
     {
         if (string.IsNullOrEmpty(raw)) return;
-        try { await JS.InvokeVoidAsync("nxCopy", raw); }
-        catch { /* clipboard 미지원(비보안 컨텍스트 등) — 무시 */ }
+        try
+        {
+            var ok = await JS.InvokeAsync<bool>("nxCopy", raw);
+            if (ok) Notify(Radzen.NotificationSeverity.Success, T("grid.copied", "복사됨"));
+            else Notify(Radzen.NotificationSeverity.Warning, T("grid.copyFail", "복사 실패 — 클립보드 미지원(HTTPS에서만 지원)"));
+        }
+        catch { Notify(Radzen.NotificationSeverity.Warning, T("grid.copyFail", "복사 실패 — 클립보드 미지원(HTTPS에서만 지원)")); }
     }
 
     // 다국어(P3-14) — 호스트 DI가 있으면 번역, 없으면(테스트) 한국어 폴백.
@@ -837,5 +856,19 @@
             _uiText = Services.GetService(typeof(NexaOne.Web.Services.UiTextService)) as NexaOne.Web.Services.UiTextService;
         }
         return _uiText?.T(key, fallback) ?? fallback;
+    }
+
+    // 작업 피드백 토스트(무음 실패 방지) — NotificationService는 UiTextService와 같은 옵셔널 lookup.
+    // @inject(필수 주입)로 바꾸면 미등록 DI인 bUnit 전 테스트가 깨진다. 렌더는 셸의 RadzenComponents 담당.
+    private Radzen.NotificationService? _notify;
+    private bool _notifyLookedUp;
+    private void Notify(Radzen.NotificationSeverity severity, string text)
+    {
+        if (!_notifyLookedUp)
+        {
+            _notifyLookedUp = true;
+            _notify = Services.GetService(typeof(Radzen.NotificationService)) as Radzen.NotificationService;
+        }
+        _notify?.Notify(new Radzen.NotificationMessage { Severity = severity, Summary = text, Duration = 2500 });
     }
 }
