@@ -15,6 +15,15 @@ window.addEventListener('storage', e => {
   if (e.key === 'nx-theme') document.documentElement.dataset.theme = e.newValue || 'light'
 })
 
+// 지연 청크 스테일 복구 — 재배포 후 열린 세션이 /designer 진입 시 구 해시 청크 404(React.lazy).
+// 1회 자동 새로고침으로 무증상 복구(세션 가드로 무한 리로드 방지 — 재실패 시 ErrorBoundary 수동 링크).
+window.addEventListener('vite:preloadError', e => {
+  if (sessionStorage.getItem('nx-chunk-reloaded')) return
+  sessionStorage.setItem('nx-chunk-reloaded', '1')
+  e.preventDefault()
+  location.reload()
+})
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ErrorBoundary>

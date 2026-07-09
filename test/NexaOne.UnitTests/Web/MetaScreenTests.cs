@@ -718,7 +718,7 @@ public sealed class MetaScreenTests
     }
 
     [Fact]
-    public void Push_notification_triggers_immediate_reload_with_throttle_and_unsubscribes_on_dispose()
+    public async Task Push_notification_triggers_immediate_reload_with_throttle_and_unsubscribes_on_dispose()
     {
         // 실시간 v3 — 라이브 화면은 이벤트 푸시로 즉시 재조회(1초 스로틀), 폐기 시 구독 해지.
         using var ctx = new TestContext();
@@ -750,11 +750,11 @@ public sealed class MetaScreenTests
         var initial = calls;
 
         // 이벤트 푸시 → 폴링 주기와 무관하게 즉시 재조회.
-        notifier.Callback!().GetAwaiter().GetResult();
+        await notifier.Callback!();
         cut.WaitForAssertion(() => calls.Should().Be(initial + 1, "푸시는 즉시 재조회를 유발해야 한다"));
 
         // 1초 내 연속 푸시는 스로틀(이벤트 폭주 방어).
-        notifier.Callback!().GetAwaiter().GetResult();
+        await notifier.Callback!();
         calls.Should().Be(initial + 1, "1초 스로틀로 연속 푸시는 무시돼야 한다");
 
         cut.Instance.Dispose();

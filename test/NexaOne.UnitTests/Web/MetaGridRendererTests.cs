@@ -30,7 +30,7 @@ public sealed class MetaGridRendererTests
     [InlineData("Active", BadgeStyle.Success)]
     [InlineData("Information", BadgeStyle.Info)]
     public void Known_severity_words_map_to_badge_style(string value, BadgeStyle expected)
-        => MetaGridRenderer.SeverityOf(value).Should().Be(expected);
+        => MetaGridFormat.SeverityOf(value).Should().Be(expected);
 
     [Theory]
     [InlineData("PLANT01")]
@@ -38,20 +38,20 @@ public sealed class MetaGridRendererTests
     [InlineData("")]
     [InlineData("2026-07-04")]
     public void Unknown_values_render_plain_no_badge(string value)
-        => MetaGridRenderer.SeverityOf(value).Should().BeNull("알려지지 않은 값은 배지로 오탐하지 않아야 한다");
+        => MetaGridFormat.SeverityOf(value).Should().BeNull("알려지지 않은 값은 배지로 오탐하지 않아야 한다");
 
     [Fact]
     public void Iso_timestamp_is_humanized()
     {
         // 원시 ISO(소수점·Z)를 "yyyy-MM-dd HH:mm:ss" 로컬로 정형화한다(P1 — 원시 타임스탬프 제거).
-        var formatted = MetaGridRenderer.FormatCell("2026-07-04T12:30:44.0049805Z");
+        var formatted = MetaGridFormat.FormatCell("2026-07-04T12:30:44.0049805Z");
         formatted.Should().MatchRegex(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$");
         formatted.Should().NotContain("T").And.NotContain("Z");
     }
 
     [Fact]
     public void Non_timestamp_value_is_returned_verbatim()
-        => MetaGridRenderer.FormatCell("EQ01/TEMP 78.5").Should().Be("EQ01/TEMP 78.5");
+        => MetaGridFormat.FormatCell("EQ01/TEMP 78.5").Should().Be("EQ01/TEMP 78.5");
 
     // ColumnKind는 internal이라 public 테스트 시그니처에 못 쓴다 → 결과를 문자열로 비교(본문은 InternalsVisibleTo로 접근).
     [Theory]
@@ -63,15 +63,15 @@ public sealed class MetaGridRendererTests
     [InlineData(new[] { "P-1", "부산공장" }, "Text")]
     [InlineData(new[] { "100", "abc" }, "Text")]                     // 혼합 → 텍스트 안전 폴백
     public void InferKind_classifies_column_values(string[] values, string expected)
-        => MetaGridRenderer.InferKind(values).ToString().Should().Be(expected);
+        => MetaGridFormat.InferKind(values).ToString().Should().Be(expected);
 
     [Fact]
     public void WidthFor_gives_narrow_types_fixed_width_and_flexes_text()
     {
-        MetaGridRenderer.WidthFor(MetaGridRenderer.InferKind(new[] { "100", "250" }), "QTY").Should().Be("108px", "숫자=고정 좁은 폭");
-        MetaGridRenderer.WidthFor(MetaGridRenderer.InferKind(new[] { "", "" }), "NOTE").Should().Be("72px", "빈 컬럼=폭 축소");
-        MetaGridRenderer.WidthFor(MetaGridRenderer.InferKind(new[] { "가공장", "나공장" }), "NAME").Should().BeNull("일반 텍스트=유연(남는 폭 분배)");
-        MetaGridRenderer.WidthFor(MetaGridRenderer.InferKind(new[] { "MENU_A", "MENU_B" }), "MENU_ID").Should().Be("160px", "식별자 텍스트(_ID)=적당 폭(잘림 방지)");
+        MetaGridFormat.WidthFor(MetaGridFormat.InferKind(new[] { "100", "250" }), "QTY").Should().Be("108px", "숫자=고정 좁은 폭");
+        MetaGridFormat.WidthFor(MetaGridFormat.InferKind(new[] { "", "" }), "NOTE").Should().Be("72px", "빈 컬럼=폭 축소");
+        MetaGridFormat.WidthFor(MetaGridFormat.InferKind(new[] { "가공장", "나공장" }), "NAME").Should().BeNull("일반 텍스트=유연(남는 폭 분배)");
+        MetaGridFormat.WidthFor(MetaGridFormat.InferKind(new[] { "MENU_A", "MENU_B" }), "MENU_ID").Should().Be("160px", "식별자 텍스트(_ID)=적당 폭(잘림 방지)");
     }
 
     // ── Radzen 렌더 스모크(딕셔너리→ExpandoObject 바인딩 회귀 가드) ──────────────

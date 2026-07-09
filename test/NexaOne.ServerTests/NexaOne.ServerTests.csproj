@@ -16,6 +16,8 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.*" />
     <!-- MSSQL 방언 실검증(MssqlDialectSyntaxTests, env-gate NEXAONE_MSSQL_TEST_CONN)용 — 미설정 시 소프트 스킵. -->
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.*" />
+    <PackageReference Include="bunit" Version="1.*" />
+    <PackageReference Include="Moq" Version="4.*" />
   </ItemGroup>
 
   <ItemGroup>

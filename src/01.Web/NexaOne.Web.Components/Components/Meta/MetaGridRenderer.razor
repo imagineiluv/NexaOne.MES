@@ -317,6 +317,7 @@
     }
 </div>
 
+@using static NexaOne.Web.Components.Meta.MetaGridFormat
 @code {
     // 페이지 크기 — 클라이언트 분할과 서버측 페이징(MetaScreen @limit)의 단일 출처.
     public const int PageSize = 20;
@@ -401,7 +402,7 @@
             .Select(r =>
             {
                 var e = new System.Dynamic.ExpandoObject();
-                var d = (IDictionary<string, object>)e;
+                var d = (IDictionary<string, object?>)e;   // ExpandoObject 실제 구현 시그니처(CS8619 방지)
                 foreach (var kv in r) d[kv.Key] = kv.Value ?? (object)"";
                 return e;
             })
@@ -430,7 +431,7 @@
 
     private void OnRowRender(Radzen.RowRenderEventArgs<System.Dynamic.ExpandoObject> args)
     {
-        var on = _selectMode ? _selected.Contains(args.Data) : ReferenceEquals(args.Data, _selectedItem);
+        var on = _selectMode ? args.Data is not null && _selected.Contains(args.Data) : ReferenceEquals(args.Data, _selectedItem);
         if (on) args.Attributes["data-selected"] = "true";
     }
 
@@ -689,8 +690,6 @@
         }
     }
 
-    private static decimal ParseDec(string s) => decimal.TryParse(s, out var d) ? d : decimal.MinValue;
-
     // 행 선택 — Radzen이 넘긴 변환 항목의 인덱스로 원본 Rows를 되짚어 콜백한다(폼 로드용 전체 딕셔너리).
     // 선택 행을 기록해(모든 그리드에서 클릭 피드백) RowRender가 data-selected로 강조하게 한다.
     private async Task OnRowSelectedInternal(System.Dynamic.ExpandoObject item)
@@ -760,77 +759,6 @@
         catch { Notify(Radzen.NotificationSeverity.Warning, T("grid.copyFail", "복사 실패 — 클립보드 미지원(HTTPS에서만 지원)")); }
     }
 
-    // 셀 값 조회(문자열). ExpandoObject를 IDictionary로 보고 Key로 찾는다.
-    private static string Cell(System.Dynamic.ExpandoObject row, string key)
-        => ((IDictionary<string, object>)row).TryGetValue(key, out var v) && v is not null ? v.ToString() ?? "" : "";
-
-    // 타임스탬프 포맷(P1) — ISO 등으로 파싱되는 DateTime은 "yyyy-MM-dd HH:mm:ss"(로컬)로. 그 외는 원문.
-    internal static string FormatCell(string raw)
-        => DateTime.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture,
-               System.Globalization.DateTimeStyles.RoundtripKind, out var dt)
-           ? dt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
-           : raw;
-
-    // 컬럼 종류 — 값 표현/폭/정렬을 결정한다. 스키마리스(문자열) 데이터라 값 샘플로 추론한다.
-    internal enum ColumnKind { Text, Numeric, DateTime, Status, Boolean, Empty }
-
-    // 컬럼 값 목록 → 종류 추론. 우선순위: 빈 > 상태(전부 화이트리스트) > 불리언 > 시각 > 숫자 > 텍스트.
-    // '전부' 규칙이라 혼합 컬럼은 텍스트로 안전 폴백(오분류로 정렬/정렬 깨짐 방지).
-    internal static ColumnKind InferKind(IReadOnlyList<string> values)
-    {
-        var nonEmpty = values.Where(v => v.Length > 0).ToList();
-        if (nonEmpty.Count == 0) return ColumnKind.Empty;
-        if (nonEmpty.All(v => SeverityOf(v) is not null)) return ColumnKind.Status;
-        if (nonEmpty.All(IsBooleanish)) return ColumnKind.Boolean;
-        if (nonEmpty.All(v => DateTime.TryParse(v, System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.RoundtripKind, out _))) return ColumnKind.DateTime;
-        if (nonEmpty.All(v => decimal.TryParse(v, System.Globalization.NumberStyles.Number,
-                System.Globalization.CultureInfo.InvariantCulture, out _))) return ColumnKind.Numeric;
-        return ColumnKind.Text;
-    }
-
-    // 종류별 기본 폭(px). 빈/불리언/숫자/시각/상태는 좁게 고정(빈 컬럼 폭 독식·코드 잘림 방지).
-    // 텍스트는 유연(남는 폭 분배)하되, 식별자(_ID/_CODE 등)는 잘리기 쉬워 적당 폭을 준다.
-    internal static string? WidthFor(ColumnKind kind, string key) => kind switch
-    {
-        ColumnKind.Numeric => "108px",
-        ColumnKind.DateTime => "168px",
-        ColumnKind.Status => "116px",
-        ColumnKind.Boolean => "76px",
-        ColumnKind.Empty => "72px",
-        ColumnKind.Text when IsIdentifierKey(key) => "160px",
-        _ => null,
-    };
-
-    // 식별자성 컬럼 키 — 대개 짧은 코드라 유연 분배 시 잘리기 쉽다. _ID/ID/_CODE/CODE 접미.
-    private static bool IsIdentifierKey(string key)
-        => key.EndsWith("_ID", StringComparison.OrdinalIgnoreCase) || key.Equals("ID", StringComparison.OrdinalIgnoreCase)
-        || key.EndsWith("_CODE", StringComparison.OrdinalIgnoreCase) || key.EndsWith("CODE", StringComparison.OrdinalIgnoreCase);
-
-    private static bool IsBooleanish(string v) => v.Trim() switch
-    {
-        "0" or "1" or "true" or "false" or "True" or "False" or "Y" or "N" or "Yes" or "No" or "y" or "n" => true,
-        _ => false,
-    };
-
-    private static bool IsTruthy(string v) => v.Trim() switch
-    {
-        "1" or "true" or "True" or "Y" or "Yes" or "y" => true,
-        _ => false,
-    };
-
-    // 심각도 배지(P1) — 알려진 상태 단어만 색 배지로(오탐 방지). 그 외는 null(평문).
-    internal static Radzen.BadgeStyle? SeverityOf(string raw) => raw.Trim() switch
-    {
-        "Error" or "Critical" or "Fatal" or "Fail" or "Failed" or "Danger" or "Down" or "Stopped" or "Interlock"
-            => Radzen.BadgeStyle.Danger,
-        "Warning" or "Warn" or "Pending" or "Idle" or "Hold" => Radzen.BadgeStyle.Warning,
-        "Success" or "OK" or "Normal" or "Active" or "Running" or "Completed" or "Done" or "Valid"
-            => Radzen.BadgeStyle.Success,
-        "Information" or "Info" or "Draft" or "Confirmed" or "Issued" or "Planned" => Radzen.BadgeStyle.Info,
-        _ => null,
-    };
-
     // CSV 내보내기 — 보이는 컬럼×적재 행(서버 페이징은 현재 페이지)을 CSV로 만들어 다운로드한다.
     // Radzen 내장 Export는 컬럼 Property로 값을 뽑는데 우리 컬럼은 Template-only(정렬 이슈로 Property 미지정)라
     // 값이 비므로, 딕셔너리에서 직접 뽑는 자체 CSV 빌더를 쓴다.
@@ -845,11 +773,6 @@
         try { await JS.InvokeVoidAsync("nxDownloadCsv", "export.csv", sb.ToString()); }
         catch { Notify(Radzen.NotificationSeverity.Warning, T("grid.exportFail", "CSV 내보내기 실패")); }
     }
-
-    private static string CsvField(string s) => "\"" + s.Replace("\"", "\"\"") + "\"";
-
-    private static string RawCell(Dictionary<string, object?> row, string key)
-        => row.TryGetValue(key, out var v) && v is not null ? v.ToString() ?? "" : "";
 
     // P3-9 — 셀 더블클릭 복사. nxCopy가 성공 여부를 boolean으로 반환(미지원/거부=false)하므로
     // 결과를 토스트로 알린다 — 복사는 브라우저 고유 피드백이 없어 무음이면 성공 여부를 알 길이 없다.
