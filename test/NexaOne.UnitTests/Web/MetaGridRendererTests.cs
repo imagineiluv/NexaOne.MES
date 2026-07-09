@@ -362,11 +362,18 @@ public sealed class MetaGridRendererTests
             .Add(c => c.Columns, cols)
             .Add(c => c.Rows, rows));
 
-        // 밀도 토글(density_small)·컬럼 선택기(view_column) 버튼이 툴바에 렌더된다.
-        cut.Markup.Should().Contain("density_small").And.Contain("view_column");
+        // 컬럼 선택기(view_column)·'더보기'(more_vert) 버튼이 툴바에 렌더된다.
+        // 밀도 토글은 '더보기' 메뉴로 접혀(툴바 과밀 완화) 초기 마크업엔 없다 — 메뉴를 열면 나타난다.
+        cut.Markup.Should().Contain("view_column").And.Contain("more_vert").And.NotContain("density_small");
         cut.FindAll(".nx-colmenu-wrap").Should().NotBeEmpty();
-        // 초기엔 컬럼 메뉴 패널이 닫혀 있다.
+        // 초기엔 컬럼/더보기 메뉴 패널이 닫혀 있다.
         cut.FindAll(".nx-colmenu").Should().BeEmpty();
+
+        // '더보기' 열기 → 밀도 토글 항목 노출.
+        cut.FindAll(".meta-grid-toolbar button")
+            .First(b => b.QuerySelector(".rzi")?.TextContent.Trim() == "more_vert").Click();
+        cut.Markup.Should().Contain("density_small", "더보기 메뉴 안에 밀도 토글");
+        cut.FindAll(".nx-moremenu-item").Should().NotBeEmpty();
     }
 
     [Fact]
@@ -399,22 +406,28 @@ public sealed class MetaGridRendererTests
         var narrow = new GridColumnDefinition[]
             { new("A","A"), new("B","B"), new("C","C"), new("D","D"), new("E","E") };
         var narrowRows = new List<Dictionary<string, object?>> { new() { ["A"]="1",["B"]="2",["C"]="3",["D"]="4",["E"]="5" } };
+        // 고정 항목은 '더보기' 메뉴 안에 있다 — 좁은 표에선 메뉴를 열어도 미노출.
         var cutN = ctx.RenderComponent<MetaGridRenderer>(p => p.Add(c => c.Columns, narrow).Add(c => c.Rows, narrowRows));
-        cutN.Markup.Should().NotContain("push_pin", "5열(좁은 표)에선 첫 컬럼 고정 버튼을 숨긴다");
+        cutN.FindAll(".meta-grid-toolbar button")
+            .First(b => b.QuerySelector(".rzi")?.TextContent.Trim() == "more_vert").Click();
+        cutN.Markup.Should().NotContain("push_pin", "5열(좁은 표)에선 첫 컬럼 고정 항목을 숨긴다");
 
-        // 넓은 표(6열) — 고정 버튼 노출, 클릭 시 nx-freeze-first 클래스 적용.
+        // 넓은 표(6열) — 더보기 메뉴에 고정 항목 노출, 클릭 시 nx-freeze-first 클래스 적용.
         var wide = new GridColumnDefinition[]
             { new("A","A"), new("B","B"), new("C","C"), new("D","D"), new("E","E"), new("F","F") };
         var wideRows = new List<Dictionary<string, object?>> { new() { ["A"]="1",["B"]="2",["C"]="3",["D"]="4",["E"]="5",["F"]="6" } };
         var cutW = ctx.RenderComponent<MetaGridRenderer>(p => p.Add(c => c.Columns, wide).Add(c => c.Rows, wideRows));
-        cutW.Markup.Should().Contain("push_pin", "6열(넓은 표)에선 첫 컬럼 고정 버튼을 보인다");
         cutW.Find(".meta-grid").ClassList.Should().NotContain("nx-freeze-first");
+        cutW.FindAll(".meta-grid-toolbar button")
+            .First(b => b.QuerySelector(".rzi")?.TextContent.Trim() == "more_vert").Click();
+        cutW.Markup.Should().Contain("push_pin", "6열(넓은 표)에선 더보기 메뉴에 첫 컬럼 고정 항목이 보인다");
 
-        // 고정 버튼 클릭 → 래퍼에 nx-freeze-first.
-        var freezeBtn = cutW.FindAll(".meta-grid-toolbar button")
+        // 고정 항목 클릭 → 래퍼에 nx-freeze-first(토글류라 메뉴는 유지 — 라벨로 상태 확인).
+        var freezeItem = cutW.FindAll(".nx-moremenu-item")
             .First(b => b.QuerySelector(".rzi")?.TextContent.Trim() == "push_pin");
-        freezeBtn.Click();
+        freezeItem.Click();
         cutW.Find(".meta-grid").ClassList.Should().Contain("nx-freeze-first", "고정 시 래퍼 클래스 적용");
+        cutW.FindAll(".nx-moremenu").Should().NotBeEmpty("토글 후에도 더보기 메뉴 유지");
     }
 
     [Fact]

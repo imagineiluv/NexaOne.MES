@@ -122,7 +122,7 @@
                     @if (_showFilterMenu)
                     {
                         <div class="nx-colmenu-backdrop" @onclick="() => _showFilterMenu = false"></div>
-                        <div class="nx-colmenu nx-filtermenu">
+                        <div class="nx-colmenu nx-filtermenu" @onkeydown='e => { if (e.Key == "Escape") _showFilterMenu = false; }'>
                             <div class="nx-colmenu-head">
                                 <span>@T("common.colFilter", "컬럼 필터")</span>
                                 <a @onclick="ClearColumnFilters" class="nx-colmenu-reset">@T("common.reset", "초기화")</a>
@@ -154,18 +154,6 @@
                           title="@(_selectMode ? T("common.selectModeOff", "선택 모드 끄기") : T("common.selectModeOn", "선택 모드"))"
                           ButtonStyle="@(_selectMode ? Radzen.ButtonStyle.Primary : Radzen.ButtonStyle.Light)"
                           Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
-            @* 첫 컬럼 고정 — 넓은 표(≥6열, 가로 스크롤 가능)에서만 노출. 좌측 식별자 컬럼을 가로 스크롤 시 유지. *@
-            @if (cols.Count >= 6)
-            {
-                <RadzenButton Icon="push_pin" Click="ToggleFreezeAsync"
-                              title="@(_freezeFirst ? T("common.unfreezeCol", "첫 컬럼 고정 해제") : T("common.freezeCol", "첫 컬럼 고정"))"
-                              ButtonStyle="@(_freezeFirst ? Radzen.ButtonStyle.Primary : Radzen.ButtonStyle.Light)"
-                              Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
-            }
-            @* 밀도 토글 — 조밀(기본)/편안 전환. 화면별 localStorage 저장. *@
-            <RadzenButton Icon="@(_compact ? "density_small" : "density_medium")" Click="ToggleDensityAsync"
-                          title="@(_compact ? T("common.densityRoomy", "편안한 밀도로") : T("common.densityCompact", "조밀한 밀도로"))"
-                          ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
             @* 컬럼 선택기 — 보이는 컬럼을 체크박스로 숨기기/보이기(넓은 표 정돈). 화면별 localStorage 저장. *@
             <div class="nx-colmenu-wrap">
                 <RadzenButton Icon="view_column" Click="() => _showColMenu = !_showColMenu"
@@ -174,7 +162,7 @@
                 @if (_showColMenu)
                 {
                     <div class="nx-colmenu-backdrop" @onclick="() => _showColMenu = false"></div>
-                    <div class="nx-colmenu">
+                    <div class="nx-colmenu" @onkeydown='e => { if (e.Key == "Escape") _showColMenu = false; }'>
                         <div class="nx-colmenu-head">
                             <span>@T("common.columns", "컬럼 선택")</span>
                             <a @onclick="ResetColumnsAsync" class="nx-colmenu-reset">@T("common.reset", "초기화")</a>
@@ -193,8 +181,39 @@
                     </div>
                 }
             </div>
-            <RadzenButton Icon="download" Text="CSV" Click="ExportCsvAsync" title="@T("common.exportCsv", "CSV로 내보내기")"
-                          ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
+            @* '더보기' — 보조 액션(첫 컬럼 고정·밀도·CSV)을 접어 툴바 과밀 완화(UX 감사 4번 2단계).
+               토글류(고정/밀도)는 클릭 후에도 메뉴를 유지해 라벨로 상태 변화를 확인하게 하고, CSV는 닫는다. *@
+            <div class="nx-colmenu-wrap">
+                <RadzenButton Icon="more_vert" Click="() => _showMoreMenu = !_showMoreMenu"
+                              title="@T("common.more", "더보기")"
+                              ButtonStyle="Radzen.ButtonStyle.Light" Variant="Radzen.Variant.Flat" Size="Radzen.ButtonSize.Small" class="pager-btn" />
+                @if (_showMoreMenu)
+                {
+                    <div class="nx-colmenu-backdrop" @onclick="() => _showMoreMenu = false"></div>
+                    <div class="nx-colmenu nx-moremenu" role="menu"
+                         @onkeydown='e => { if (e.Key == "Escape") _showMoreMenu = false; }'>
+                        @if (cols.Count >= 6)
+                        {
+                            @* 첫 컬럼 고정 — 넓은 표(≥6열, 가로 스크롤 가능)에서만. 좌측 식별자 컬럼 유지. *@
+                            <button type="button" role="menuitem" class="nx-moremenu-item @(_freezeFirst ? "active" : "")"
+                                    @onclick="ToggleFreezeAsync">
+                                <RadzenIcon Icon="push_pin" />
+                                @(_freezeFirst ? T("common.unfreezeCol", "첫 컬럼 고정 해제") : T("common.freezeCol", "첫 컬럼 고정"))
+                            </button>
+                        }
+                        @* 밀도 토글 — 조밀(기본)/편안 전환. 화면별 localStorage 저장. *@
+                        <button type="button" role="menuitem" class="nx-moremenu-item" @onclick="ToggleDensityAsync">
+                            <RadzenIcon Icon="@(_compact ? "density_small" : "density_medium")" />
+                            @(_compact ? T("common.densityRoomy", "편안한 밀도로") : T("common.densityCompact", "조밀한 밀도로"))
+                        </button>
+                        <button type="button" role="menuitem" class="nx-moremenu-item"
+                                @onclick="async () => { _showMoreMenu = false; await ExportCsvAsync(); }">
+                            <RadzenIcon Icon="download" />
+                            @T("common.exportCsv", "CSV로 내보내기")
+                        </button>
+                    </div>
+                }
+            </div>
         </div>
     }
     @if (_selectMode && Rows is { Count: > 0 })
@@ -590,6 +609,7 @@
     private bool _freezeFirst;                                // 첫 컬럼 가로 고정(넓은 표에서 식별자 유지)
     private HashSet<string> _hiddenKeys = new(StringComparer.Ordinal);
     private bool _showColMenu;
+    private bool _showMoreMenu;   // '더보기'(고정·밀도·CSV) 팝업 — 토글류는 클릭 후에도 유지
     private string? _prefsLoadedFor;                          // 개인화를 로드한 ScreenKey(중복 로드 방지)
 
     private string DensityKey => $"nxgrid:{ScreenKey}:density";

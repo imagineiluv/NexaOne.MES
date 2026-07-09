@@ -596,7 +596,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         // 신규 NULL-guard 전체조회 쿼리(EMS.WorkOrderList/MaintenancePlanList). 그리드 read는 형제와 동일하게 인증만(권한 무). =====
 
         // Spare Part 관리(FACTORY_EMS_STD_SPARE_PART) — 예비품 마스터 조회(EMS.SparePartsAll, 무파라미터 전체조회).
-        Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART", "Spare Part 관리",
+        Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART", "Spare Part 마스터",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
@@ -1369,7 +1369,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 Array.Empty<FieldDefinition>(), mailRecipientCols, QueryId: queryId));
 
         // 서비스 관리(MICUBE_STANDARD_SERVICE_MANAGEMENT) — 서비스 목록(COM.ServiceList).
-        Register(new ScreenDefinition("MICUBE_STANDARD_SERVICE_MANAGEMENT", "서비스 관리",
+        Register(new ScreenDefinition("MICUBE_STANDARD_SERVICE_MANAGEMENT", "서비스 정의",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
@@ -1440,7 +1440,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             Register(new ScreenDefinition(uiId, title, Array.Empty<FieldDefinition>(), pocTraceCols, QueryId: "POM.LotTraceList"));
 
         // POC FDC 데이터 차트 — 수집 시계열(FDC.CollectDataList) 재사용.
-        Register(new ScreenDefinition("POC_FDC_DATA_CHART", "FDC 데이터 차트",
+        Register(new ScreenDefinition("POC_FDC_DATA_CHART", "FDC 데이터 차트(POC)",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
@@ -1700,7 +1700,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             QueryId: "QMS.InspectionItemList"));
 
         // 검사 관리(QMS_STD_INSP_DEF) — 검사 정의(공정/품목 단위) 마스터(QMS.InspectionDefList).
-        Register(new ScreenDefinition("QMS_STD_INSP_DEF", "검사 관리",
+        Register(new ScreenDefinition("QMS_STD_INSP_DEF", "검사 정의 관리",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
@@ -1722,7 +1722,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         // ===== SmartUX QMS 계측기(Gauge) 관리 점등(V038 신설) — 계측기/검교정/RNR/수리. 그리드 read는 인증만. =====
 
         // 계측기 관리(QMS_GAUGE_MEASURE_EQUIPMENT_MGNT) — 계측기 마스터(QMS.GaugeList).
-        Register(new ScreenDefinition("QMS_GAUGE_MEASURE_EQUIPMENT_MGNT", "계측기 관리",
+        Register(new ScreenDefinition("QMS_GAUGE_MEASURE_EQUIPMENT_MGNT", "계측기 마스터 관리",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
@@ -2039,7 +2039,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         // SYSTEM_2_MENU_AUTH_MANAGEMENT는 상단의 SYS_MENU_ROLE 매핑 CRUD 정의를 쓴다(구 읽기 전용 메뉴 목록 대체).
         Register(new ScreenDefinition("SYSTEM_2_UIID_MANAGEMENT", "UIID 관리", Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[] { new("UI_ID", "UI ID"), new("TITLE", "제목") }, QueryId: "SYS.ListScreenDefinitions"));
-        Register(new ScreenDefinition("SYSTEM_2_CODE_MANAGEMENT", "코드 관리", Array.Empty<FieldDefinition>(), stdCodeCols, QueryId: "MDM.CodeList"));
+        Register(new ScreenDefinition("SYSTEM_2_CODE_MANAGEMENT", "시스템 코드 관리", Array.Empty<FieldDefinition>(), stdCodeCols, QueryId: "MDM.CodeList"));
 
         // ===== SmartUX 기준정보(FACTORY_STD) 신규 마스터 점등(V046 신설) — 작업자/작업조/달력/거래처/납품처. =====
         Register(new ScreenDefinition("FACTORY_STD_WORKER_CLASS", "작업자 그룹 관리", Array.Empty<FieldDefinition>(),

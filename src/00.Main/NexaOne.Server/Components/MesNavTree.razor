@@ -1,8 +1,11 @@
 @namespace NexaOne.Server.Components
+@inject NexaOne.Web.Services.Meta.IScreenDefinitionProvider Definitions
 
 @* SmartUX 사이드바의 계층 메뉴를 재귀 렌더한다(대분류 → 중분류 → … → 화면, N단계).
    Folder: 클릭=토글(자식 펼침). Screen: /meta/{UiId} 이동(부모가 OnNavigate 처리).
-   깊이별 좌패딩으로 들여쓰기를 표현한다(인라인 padding-left가 CSS shorthand의 left만 덮어씀). *@
+   깊이별 좌패딩으로 들여쓰기를 표현한다(인라인 padding-left가 CSS shorthand의 left만 덮어씀).
+   '준비 중' 잎(화면 정의 미등록)은 회색+표시 — 시드에 박제하지 않는 렌더 시점 판정이라
+   화면이 점등되면 별도 조치 없이 정상 표시로 돌아온다(죽은 클릭 사전 안내). *@
 @foreach (var node in Nodes)
 {
     var display = DisplayName?.Invoke(node) ?? node.Name;
@@ -42,9 +45,10 @@
     else
     {
         var isActive = string.Equals(node.UiId, ActiveUiId, StringComparison.OrdinalIgnoreCase);
-        <a class="mes-nav-subitem @(isActive ? "active" : "")"
+        var isPending = !Definitions.TryGet(node.UiId, out _);
+        <a class="mes-nav-subitem @(isActive ? "active" : "") @(isPending ? "pending" : "")"
            style="padding-left:@(Pad)px"
-           href="@($"/meta/{node.UiId}")" title="@display"
+           href="@($"/meta/{node.UiId}")" title="@(isPending ? $"{display} — 준비 중" : display)"
            @onclick="() => OnNavigate.InvokeAsync(node)" @onclick:preventDefault="true">
             <span class="dot"></span>
             <span>@display</span>

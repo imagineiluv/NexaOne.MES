@@ -149,6 +149,13 @@
 .nx-colmenu-item:hover { background: var(--nx-hover); }
 .nx-colmenu-item input { margin: 0; }
 .nx-colmenu-item input:disabled { cursor: not-allowed; }
+/* '더보기' 메뉴(툴바 과밀 완화) — 보조 액션(고정·밀도·CSV)을 콜메뉴 패널에 세로 나열. */
+.nx-moremenu { min-width: 185px; }
+.nx-moremenu-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: none; background: none; text-align: left; font-size: var(--nx-fs-dense); color: var(--nx-text); border-radius: var(--nx-radius-sm); cursor: pointer; }
+.nx-moremenu-item:hover { background: var(--nx-hover); }
+.nx-moremenu-item .rzi { font-size: 16px; color: var(--nx-text-2); }
+.nx-moremenu-item.active { color: var(--nx-teal-d); font-weight: 600; }
+.nx-moremenu-item.active .rzi { color: var(--nx-teal-d); }
 /* 컬럼 필터 팝업(그리드 표준 CRUD) — 컬럼별 [포함/일치]+값. 콜메뉴 패널 재사용 + 넓은 폭. */
 .nx-filtermenu { min-width: 320px; }
 .nx-filtermenu-row { display: flex; align-items: center; gap: 6px; padding: 3px 6px; }
@@ -654,6 +661,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .mes-nav-subitem.active .dot { background: var(--nx-teal); }
 .mes-nav-subitem.mes-empty { color: #5f7396; cursor: default; font-style: italic; }
 .mes-nav-subitem.mes-empty:hover { background: transparent; }
+/* '준비 중' 잎(화면 정의 미등록, 렌더 시점 판정) — 감쇠 표시로 죽은 클릭을 사전 안내. 점등되면 자동 복원. */
+.mes-nav-subitem.pending { opacity: .45; }
+.mes-nav-subitem.pending::after { content: "준비 중"; margin-left: auto; font-size: 10px; color: #5f7396; border: 1px solid #3d4d6b; border-radius: 999px; padding: 0 6px; line-height: 15px; flex: 0 0 auto; }
 
 /* ===== MDI 탭 바(상단바 아래, 본문 위) — 밝은 바·활성 탭은 짙은 네이비+틸 액센트 ===== */
 .mes-mditabs {
