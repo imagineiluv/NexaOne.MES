@@ -192,4 +192,23 @@
             WHERE WORK_ORDER_ID = @workOrderId AND STATUS IN ('Created', 'Released')
         ]]></statement>
     </query>
+    <!-- ===== MRP v1(2026-07-09) — 계획오더 제안/실행 이력 조회(read). 실행은 브리지(POST /api/v1/pom/mrp/run). ===== -->
+    <query id="POM.MrpPlannedOrderList">
+        <statement><![CDATA[
+            SELECT P.PLANNED_ORDER_ID, P.RUN_ID, P.ITEM_ID, P.ORDER_TYPE,
+                   P.GROSS_QTY, P.ON_HAND_QTY, P.ON_ORDER_QTY, P.SAFETY_STOCK_QTY, P.NET_QTY, P.SUGGESTED_QTY,
+                   P.DUE_DATE, P.RELEASE_DATE, P.SOURCE_DEMAND, P.STATUS
+            FROM MRP_PLANNED_ORDER P
+            WHERE P.RUN_ID = COALESCE(@runId, (SELECT R.RUN_ID FROM MRP_RUN R
+                                               WHERE R.STARTED_AT = (SELECT MAX(R2.STARTED_AT) FROM MRP_RUN R2)))
+            ORDER BY P.ORDER_TYPE, P.RELEASE_DATE, P.ITEM_ID
+        ]]></statement>
+    </query>
+    <query id="POM.MrpRunList">
+        <statement><![CDATA[
+            SELECT RUN_ID, STARTED_AT, FINISHED_AT, STATUS, DEMAND_COUNT, PLANNED_ORDER_COUNT, MESSAGE, EXECUTED_BY
+            FROM MRP_RUN
+            ORDER BY STARTED_AT DESC
+        ]]></statement>
+    </query>
 </queries>

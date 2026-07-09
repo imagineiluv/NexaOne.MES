@@ -129,6 +129,7 @@ if (modulesEnabled)
     RegisterBridge<IEquipmentStateBridge>("Est", "equipmentStateBridge");   // EST 설비상태
     RegisterBridge<IEquipmentAlarmBridge>("Est", "equipmentAlarmBridge");   // EST 설비알람
     RegisterBridge<IRecipeApprovalBridge>("Rms", "rmsRecipeBridge");        // RMS 레시피 승인
+    RegisterBridge<NexaOne.ServiceContracts.Pom.IMrpBridge>("Pom", "mrpBridge");  // MRP v1 실행
     RegisterBridge<IShipmentBridge>("Shp", "shipmentBridge");               // SHP 출하주문 생명주기
     RegisterBridge<IQmsBridge>("Qms", "qmsBridge");                         // QMS 부적합 확정·SPC 관리한계
     // MDM: 첫 미노출-모듈 브리지 부팅 — 캐스트 성공 = plugin ALC가 공유 계약을 Default ALC와 동일 타입으로 보는지 입증.
@@ -794,6 +795,16 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
                  "VALUES (@id,'판매 요청',@so,'CUST_X','ITEM01',@at,@qty,@st,'SYSTEM',@at,'SYSTEM',@at)",
             ("@id", sr.Item1), ("@so", sr.Item2), ("@qty", sr.Item3), ("@st", sr.Item4), ("@at", now));
 
+    // MDM_ITEM_PLANNING(MRP v1 데모, V079) — SO01(Confirmed, ITEM01×1000) + BOM(ITEM01→ITEM02/03)과 정합:
+    // ITEM01=생산(로트 100·리드 2일), ITEM02=구매(안전재고 50·리드 5일), ITEM03=구매(로트 500·리드 7일).
+    foreach (var ip in new[] {
+        ("ITEM01", 0m, 2, 100m, "Make", "완제품 A — 생산 계획"),
+        ("ITEM02", 50m, 5, 1m, "Buy", "반제품 B — 구매 조달"),
+        ("ITEM03", 0m, 7, 500m, "Buy", "원자재 C — 구매 조달") })
+        Exec(tx, "INSERT INTO MDM_ITEM_PLANNING (ITEM_ID,SAFETY_STOCK,LEAD_TIME_DAYS,LOT_SIZE,MAKE_OR_BUY,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@ss,@lt,@lot,@mb,@desc,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", ip.Item1), ("@ss", ip.Item2), ("@lt", ip.Item3), ("@lot", ip.Item4), ("@mb", ip.Item5), ("@desc", ip.Item6), ("@at", now));
+
     // MDM_LABEL*(FACTORY_STD 라벨 마스터/발행/매핑 화면용, V054). FK: 발행/매핑 → 라벨(선삽입).
     foreach (var lb in new[] { ("LBL01", "제품 라벨"), ("LBL02", "박스 라벨") })
         Exec(tx, "INSERT INTO MDM_LABEL (LABEL_ID,PLANT_ID,LABEL_NAME,DESCRIPTION,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
@@ -978,6 +989,9 @@ static IEnumerable<MenuSeedRow> DevDemoMenu() => new[]
     new MenuSeedRow("NX_DEV_DASH",   "대시보드(운영 요약)",    "NX_DEV", 5,    "Screen", "DASHBOARD_SUMMARY"),
     new MenuSeedRow("NX_DEV_MENU",   "메뉴 관리",             "NX_DEV", 10,   "Screen", "SYS_MENU_MGMT"),
     new MenuSeedRow("NX_DEV_USERREQ","사용자 신청 승인",       "NX_DEV", 15,   "Screen", "SYS_USER_REQUESTS"),
+    new MenuSeedRow("NX_DEV_MRP",    "자재 소요 계획(MRP)",     "NX_DEV", 16,   "Screen", "NX_MRP_PLANNING"),
+    new MenuSeedRow("NX_DEV_UOM",    "단위(UOM) 관리",          "NX_DEV", 17,   "Screen", "FACTORY_STD_UOM"),
+    new MenuSeedRow("NX_DEV_ITEMPLN","품목 계획 파라미터",      "NX_DEV", 18,   "Screen", "FACTORY_STD_ITEM_PLANNING"),
     new MenuSeedRow("NX_DEV_GRID",   "공장 관리(데모)",        "NX_DEV", 20,   "Screen", "DEMO_GRID"),
     new MenuSeedRow("NX_DEV_LAYOUT", "생산 현황(데모)",        "NX_DEV", 30,   "Screen", "DEMO_LAYOUT"),
     new MenuSeedRow("NX_DEV_PARAM",  "파라미터 입력(데모)",     "NX_DEV", 40,   "Screen", "DEMO_PARAM"),

@@ -404,4 +404,62 @@
             DELETE FROM MDM_VENDOR_ITEM WHERE VENDOR_ITEM_ID = @vendorItemId
         ]]></statement>
     </query>
+    <!-- ===== MRP v1 표준화(2026-07-09) — UOM 마스터·품목 계획 파라미터 CRUD(그리드 표준 CRUD 관례:
+         Create*=upsert(CREATED_* 보존)·Delete*=PK 삭제·듀얼키 파라미터). ===== -->
+    <query id="MDM.UomList">
+        <statement><![CDATA[
+            SELECT UOM_ID, UOM_NAME, UOM_TYPE, IS_ACTIVE, DESCRIPTION
+            FROM MDM_UOM
+            WHERE (@uomType IS NULL OR UOM_TYPE = @uomType)
+            ORDER BY UOM_TYPE, UOM_ID
+        ]]></statement>
+    </query>
+    <query id="MDM.CreateUom" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            INSERT INTO MDM_UOM (UOM_ID, UOM_NAME, UOM_TYPE, DESCRIPTION, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@uomId, @uomName, @uomType, @description, @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(UOM_ID) DO UPDATE SET
+                UOM_NAME = excluded.UOM_NAME,
+                UOM_TYPE = excluded.UOM_TYPE,
+                DESCRIPTION = excluded.DESCRIPTION,
+                UPDATED_BY = excluded.UPDATED_BY,
+                UPDATED_AT = excluded.UPDATED_AT
+        ]]></statement>
+    </query>
+    <query id="MDM.DeleteUom" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            DELETE FROM MDM_UOM WHERE UOM_ID = @uomId
+        ]]></statement>
+    </query>
+    <query id="MDM.ItemPlanningList">
+        <statement><![CDATA[
+            SELECT ITEM_ID, SAFETY_STOCK, LEAD_TIME_DAYS, LOT_SIZE, MAKE_OR_BUY, IS_ACTIVE, DESCRIPTION
+            FROM MDM_ITEM_PLANNING
+            WHERE (@itemId IS NULL OR ITEM_ID = @itemId)
+            ORDER BY ITEM_ID
+        ]]></statement>
+    </query>
+    <query id="MDM.CreateItemPlanning" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            INSERT INTO MDM_ITEM_PLANNING (ITEM_ID, SAFETY_STOCK, LEAD_TIME_DAYS, LOT_SIZE, MAKE_OR_BUY, DESCRIPTION,
+                                           CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@itemId, @safetyStock, @leadTimeDays, @lotSize, @makeOrBuy, @description,
+                    @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(ITEM_ID) DO UPDATE SET
+                SAFETY_STOCK = excluded.SAFETY_STOCK,
+                LEAD_TIME_DAYS = excluded.LEAD_TIME_DAYS,
+                LOT_SIZE = excluded.LOT_SIZE,
+                MAKE_OR_BUY = excluded.MAKE_OR_BUY,
+                DESCRIPTION = excluded.DESCRIPTION,
+                UPDATED_BY = excluded.UPDATED_BY,
+                UPDATED_AT = excluded.UPDATED_AT
+        ]]></statement>
+    </query>
+    <query id="MDM.DeleteItemPlanning" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            DELETE FROM MDM_ITEM_PLANNING WHERE ITEM_ID = @itemId
+        ]]></statement>
+    </query>
 </queries>

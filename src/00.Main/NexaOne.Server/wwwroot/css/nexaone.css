@@ -405,6 +405,7 @@ body {
 .host-inline { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 /* 툴바 안 섹션 제목은 아래 마진 제거(플렉스 세로 중앙 정렬 유지). 섹션 사이 간격 유틸. */
 .host-toolbar .host-card-title { margin: 0; }
+.host-toolbar .host-desc { margin: 0; }
 .host-gap-b { margin-bottom: var(--nx-sp-5); }
 
 /* 전역 API 토스트(P1-4)는 이제 Radzen 알림(NotificationService, <RadzenComponents/>)이 렌더한다.

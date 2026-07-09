@@ -1,0 +1,48 @@
+@page "/meta/NX_MRP_PLANNING"
+@attribute [Authorize]
+@inject IApiClient Api
+@using NexaOne.Web.Pages.Meta
+
+@* 자재 소요 계획(MRP v1) + 실행 툴바 — 실행은 브리지 REST(pom:manage, POM 모듈 IMrpPlanner 경유)라
+   메타 커맨드로 표현 불가 → 리터럴 라우트로 툴바만 감싸고 본문(계획오더 제안+실행 이력)은 MetaScreen
+   자식 렌더로 메타 정의를 그대로 재사용한다(VE 관리 규약 1호). 실행 성공 시 @key 갱신으로 재조회. *@
+<PageTitle>자재 소요 계획(MRP)</PageTitle>
+
+<div class="mes-card host-toolbar">
+    <strong>MRP 실행</strong>
+    <RadzenButton Icon="calculate" Click="RunAsync" Disabled="@_busy" class="layout-command"
+                  ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small"
+                  Text="@(_busy ? "전개 중…" : "소요량 전개 실행")" />
+    <span class="host-desc">수요(확정 수주) → BOM 전개 → 순소요 넷팅 → 계획오더 제안(append-only, 재실행 안전)</span>
+    @if (_result is not null)
+    {
+        @if (_result.Status == "Success")
+        {
+            <span class="host-chip ok">수요 @(_result.DemandCount)건 → 제안 @(_result.PlannedOrderCount)건 (@_result.RunId)</span>
+        }
+        else
+        {
+            <span class="host-chip bad" title="@_result.Message">실패 — @_result.Message</span>
+        }
+    }
+</div>
+
+<MetaScreen UiId="NX_MRP_PLANNING" @key="_refreshSeq" />
+
+@code {
+    private bool _busy;
+    private int _refreshSeq;
+    private MrpRunResultDto? _result;
+
+    private async Task RunAsync()
+    {
+        _busy = true;
+        try
+        {
+            // 403/모듈 OFF/5xx는 null — 사유는 전역 토스트가 알린다(ApiClient 규약).
+            _result = await Api.RunMrpAsync();
+            if (_result is { Status: "Success" }) _refreshSeq++;   // 자식 MetaScreen 재생성 = 제안/이력 재조회
+        }
+        finally { _busy = false; }
+    }
+}

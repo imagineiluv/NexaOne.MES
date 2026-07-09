@@ -53,4 +53,12 @@
     <constructor-arg ref="lotTrackingService" />
   </object>
 
+  <!-- MRP v1(2026-07-09) — 소요량 전개 실행. 리포(계산+영속) + ADR-008 브리지(호스트 GetBean("Pom","mrpBridge")). -->
+  <object id="mrpPlanningRepository" type="NexaOne.POM.Infrastructure.MrpPlanningRepository, NexaOne.POM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="mrpBridge" type="NexaOne.POM.Application.Mrp.MrpBridge, NexaOne.POM">
+    <constructor-arg ref="mrpPlanningRepository" />
+  </object>
+
 </objects>

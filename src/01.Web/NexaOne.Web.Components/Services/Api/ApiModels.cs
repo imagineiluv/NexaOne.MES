@@ -14,6 +14,9 @@ public record LoginResponse(
 /// 메시지를 보존해 잠금 안내를 화면에 표시할 수 있게 한다.</summary>
 public record LoginResult(LoginResponse? Response, string? ErrorCode = null, string? ErrorMessage = null);
 
+/// <summary>MRP 실행 결과(POST /api/v1/pom/mrp/run) — 실행 이력 요약. 제안 상세는 POM.MrpPlannedOrderList.</summary>
+public record MrpRunResultDto(string RunId, string Status, int DemandCount, int PlannedOrderCount, string? Message);
+
 /// <summary>제네릭 서버 페이징 결과(/query/{id}/paged) — 총건수 + 현재 페이지 행(하이브리드 페이징).</summary>
 public record PagedQueryResult(int Total, List<Dictionary<string, object?>> Rows);
 

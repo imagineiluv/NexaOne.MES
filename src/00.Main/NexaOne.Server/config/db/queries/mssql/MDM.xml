@@ -423,4 +423,59 @@
             DELETE FROM MDM_VENDOR_ITEM WHERE VENDOR_ITEM_ID = @vendorItemId
         ]]></statement>
     </query>
+    <!-- ===== MRP v1 표준화(2026-07-09) — UOM 마스터·품목 계획 파라미터 CRUD(그리드 표준 CRUD 관례:
+         Create*=upsert(CREATED_* 보존)·Delete*=PK 삭제·듀얼키 파라미터). ===== -->
+    <query id="MDM.UomList">
+        <statement><![CDATA[
+            SELECT UOM_ID, UOM_NAME, UOM_TYPE, IS_ACTIVE, DESCRIPTION
+            FROM MDM_UOM
+            WHERE (@uomType IS NULL OR UOM_TYPE = @uomType)
+            ORDER BY UOM_TYPE, UOM_ID
+        ]]></statement>
+    </query>
+    <query id="MDM.CreateUom" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            -- 그리드 표준 편집(upsert) — PK 존재 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            MERGE MDM_UOM AS t
+            USING (SELECT @uomId AS UOM_ID) AS s ON t.UOM_ID = s.UOM_ID
+            WHEN MATCHED THEN UPDATE SET
+                UOM_NAME = @uomName, UOM_TYPE = @uomType, DESCRIPTION = @description,
+                UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT (UOM_ID, UOM_NAME, UOM_TYPE, DESCRIPTION, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@uomId, @uomName, @uomType, @description, @currentUser, @utcNow, @currentUser, @utcNow);
+        ]]></statement>
+    </query>
+    <query id="MDM.DeleteUom" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            DELETE FROM MDM_UOM WHERE UOM_ID = @uomId
+        ]]></statement>
+    </query>
+    <query id="MDM.ItemPlanningList">
+        <statement><![CDATA[
+            SELECT ITEM_ID, SAFETY_STOCK, LEAD_TIME_DAYS, LOT_SIZE, MAKE_OR_BUY, IS_ACTIVE, DESCRIPTION
+            FROM MDM_ITEM_PLANNING
+            WHERE (@itemId IS NULL OR ITEM_ID = @itemId)
+            ORDER BY ITEM_ID
+        ]]></statement>
+    </query>
+    <query id="MDM.CreateItemPlanning" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            -- 그리드 표준 편집(upsert) — PK 존재 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
+            MERGE MDM_ITEM_PLANNING AS t
+            USING (SELECT @itemId AS ITEM_ID) AS s ON t.ITEM_ID = s.ITEM_ID
+            WHEN MATCHED THEN UPDATE SET
+                SAFETY_STOCK = @safetyStock, LEAD_TIME_DAYS = @leadTimeDays, LOT_SIZE = @lotSize,
+                MAKE_OR_BUY = @makeOrBuy, DESCRIPTION = @description,
+                UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT (ITEM_ID, SAFETY_STOCK, LEAD_TIME_DAYS, LOT_SIZE, MAKE_OR_BUY, DESCRIPTION,
+                                          CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@itemId, @safetyStock, @leadTimeDays, @lotSize, @makeOrBuy, @description,
+                        @currentUser, @utcNow, @currentUser, @utcNow);
+        ]]></statement>
+    </query>
+    <query id="MDM.DeleteItemPlanning" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            DELETE FROM MDM_ITEM_PLANNING WHERE ITEM_ID = @itemId
+        ]]></statement>
+    </query>
 </queries>

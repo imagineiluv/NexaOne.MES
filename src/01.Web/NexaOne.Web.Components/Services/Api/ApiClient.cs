@@ -288,6 +288,15 @@ public sealed class ApiClient : IApiClient
             ?? new List<Dictionary<string, object?>>();
     }
 
+    // MRP v1 실행 — 브리지 REST(pom:manage). 실패는 null(403/5xx 사유는 SendAsync 전역 토스트).
+    public async Task<MrpRunResultDto?> RunMrpAsync(CancellationToken ct = default)
+    {
+        using var resp = await SendAsync(HttpMethod.Post, "api/v1/pom/mrp/run", new { }, ct);
+        if (!resp.IsSuccessStatusCode) return null;
+        try { return await resp.Content.ReadFromJsonAsync<MrpRunResultDto>(ct); }
+        catch { return null; }
+    }
+
     // 제네릭 서버 페이징 — 등록 read 쿼리를 페이징 절로 감싼 {total, rows}. 실패(404/422/구버전)는 null로
     // 신호해 호출측이 전량 경로(ExecuteQueryAsync)로 폴백한다(하이브리드 페이징의 안전판).
     public async Task<PagedQueryResult?> ExecuteQueryPagedAsync(

@@ -2057,6 +2057,79 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         Register(new ScreenDefinition("FACTORY_STD_SINGLE_DELIVERY_ITEM", "납품처 품목 관리", Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[] { new("DELIVERY_ITEM_ID", "납품품목 ID"), new("CUSTOMER_ID", "거래처 ID"), new("PRODUCT_ID", "품목 ID"), new("DELIVERY_CODE", "납품코드"), new("UNIT_PRICE", "단가"), new("IS_ACTIVE", "활성") }, QueryId: "MDM.DeliveryItemList"));
 
+        // ===== MRP v1 표준화(2026-07-09, V079/V080) — 단위 마스터·품목 계획 파라미터·자재 소요 계획. =====
+        Register(new ScreenDefinition("FACTORY_STD_UOM", "단위(UOM) 관리",
+            new FieldDefinition[]
+            {
+                new("uomId", "단위 ID", Required: true),
+                new("uomName", "단위명", Required: true),
+                new("uomType", "구분", FieldType.Select, Options: new[] { "Count", "Weight", "Volume", "Length", "Time" }),
+                new("description", "설명"),
+            },
+            new GridColumnDefinition[]
+            {
+                new("UOM_ID", "단위 ID", Width: 100), new("UOM_NAME", "단위명"),
+                new("UOM_TYPE", "구분", Width: 110), new("IS_ACTIVE", "활성", Width: 80), new("DESCRIPTION", "설명"),
+            },
+            QueryId: "MDM.UomList", SaveQueryId: "MDM.CreateUom", DeleteQueryId: "MDM.DeleteUom"));
+
+        Register(new ScreenDefinition("FACTORY_STD_ITEM_PLANNING", "품목 계획 파라미터",
+            new FieldDefinition[]
+            {
+                new("itemId", "품목 ID", Required: true),
+                new("safetyStock", "안전재고", FieldType.Number),
+                new("leadTimeDays", "리드타임(일)", FieldType.Number),
+                new("lotSize", "로트 크기(배수)", FieldType.Number),
+                new("makeOrBuy", "조달 구분", FieldType.Select, Options: new[] { "Make", "Buy" }),
+                new("description", "설명"),
+            },
+            new GridColumnDefinition[]
+            {
+                new("ITEM_ID", "품목 ID", Width: 140), new("SAFETY_STOCK", "안전재고"),
+                new("LEAD_TIME_DAYS", "리드타임(일)"), new("LOT_SIZE", "로트 크기"),
+                new("MAKE_OR_BUY", "조달", Width: 90), new("IS_ACTIVE", "활성", Width: 80), new("DESCRIPTION", "설명"),
+            },
+            QueryId: "MDM.ItemPlanningList", SaveQueryId: "MDM.CreateItemPlanning", DeleteQueryId: "MDM.DeleteItemPlanning"));
+
+        // 자재 소요 계획(MRP) — 실행은 리터럴 라우트 페이지(HostMrpPlanning)의 브리지 REST 툴바가 담당,
+        // 본문(제안+실행 이력)은 이 메타 정의를 MetaScreen 자식으로 재사용한다(VE 관리 규약 1호).
+        Register(new ScreenDefinition("NX_MRP_PLANNING", "자재 소요 계획(MRP)",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Id = "sec-mrp", Title = "자재 소요 계획(MRP v1 — 수요 주도 순소요 전개)",
+                Children = new LayoutNode[]
+                {
+                    new RowNode { Id = "mrp-po", Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 12, Children = new LayoutNode[]
+                        {
+                            new TextWidget { Id = "t-po", Text = "계획오더 제안(최신 실행)", IsLabel = true },
+                            new GridWidget { Id = "g-po", QueryId = "POM.MrpPlannedOrderList", Columns = new GridColumnDefinition[]
+                            {
+                                new("ITEM_ID", "품목", Width: 120), new("ORDER_TYPE", "유형", Width: 100),
+                                new("GROSS_QTY", "총소요"), new("ON_HAND_QTY", "재고"), new("ON_ORDER_QTY", "예정입고"),
+                                new("SAFETY_STOCK_QTY", "안전재고"), new("NET_QTY", "순소요"), new("SUGGESTED_QTY", "제안수량"),
+                                new("RELEASE_DATE", "착수(발주)일"), new("DUE_DATE", "납기"), new("SOURCE_DEMAND", "근거 수요"),
+                            } },
+                        } },
+                    } },
+                    new RowNode { Id = "mrp-run", Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 12, Children = new LayoutNode[]
+                        {
+                            new TextWidget { Id = "t-run", Text = "실행 이력", IsLabel = true },
+                            new GridWidget { Id = "g-run", QueryId = "POM.MrpRunList", Columns = new GridColumnDefinition[]
+                            {
+                                new("RUN_ID", "실행 ID", Width: 220), new("STARTED_AT", "시작"), new("FINISHED_AT", "종료"),
+                                new("STATUS", "상태", Width: 100), new("DEMAND_COUNT", "수요 건수"),
+                                new("PLANNED_ORDER_COUNT", "제안 건수"), new("MESSAGE", "메시지"), new("EXECUTED_BY", "실행자", Width: 110),
+                            } },
+                        } },
+                    } },
+                },
+            }));
+
         // ===== SmartUX 시스템관리(SYSTEM_2) 신규 마스터 점등(V047 신설) — 공지/메시지/다국어/Rule. =====
         Register(new ScreenDefinition("SYSTEM_2_NOTICE_MANAGEMENT", "공지사항 관리", Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[] { new("NOTICE_ID", "공지 ID"), new("TITLE", "제목"), new("NOTICE_TYPE", "유형"), new("POSTED_BY", "게시자"), new("POSTED_AT", "게시일시"), new("IS_ACTIVE", "활성") }, QueryId: "SYS.NoticeList"));

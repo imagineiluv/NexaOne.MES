@@ -72,7 +72,10 @@ public static class SqliteSchemaInitializer
             foreach (var stmt in ddl.Split(';').Select(s => s.Trim()).Where(s => s.Length > 0))
             {
                 // 증분 생성 패스 — 테이블/인덱스 생성문만(IF NOT EXISTS라 멱등). ALTER/INSERT/기타는 제외.
-                if (!Regex.IsMatch(stmt, @"\bCREATE\s+(TABLE|(?:UNIQUE\s+)?INDEX)\b", RegexOptions.IgnoreCase))
+                // 분류는 -- 주석을 벗겨낸 코드로만 판정한다 — 주석에 CREATE TABLE이 '언급'된 ALTER 문장이
+                // 생성문으로 오분류돼 실행되면 기존 DB에서 duplicate column으로 기동이 죽는다(V080 실사고).
+                var code = Regex.Replace(stmt, @"--[^\n]*", "");
+                if (!Regex.IsMatch(code, @"\bCREATE\s+(TABLE|(?:UNIQUE\s+)?INDEX)\b", RegexOptions.IgnoreCase))
                     continue;
                 try
                 {
@@ -121,6 +124,37 @@ public static class SqliteSchemaInitializer
     private static string ToSqlite(string s)
     {
         const RegexOptions O = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+
+        // 1단계 — 타입/함수 '토큰' 치환은 문자열 리터럴('...') 밖에서만 수행한다. 시드 값이 타입 키워드와
+        // 겹치면 데이터가 오염된다(V079 실사고: UOM_TYPE 'Time'이 TIME→TEXT 치환에 물려 'TEXT'로 저장).
+        // 홑따옴표 분할 시 짝수 인덱스가 코드 구간이고, ''(이스케이프)는 빈 코드 구간으로 떨어져 무해하다.
+        var parts = s.Split('\'');
+        for (var i = 0; i < parts.Length; i += 2)
+            parts[i] = ReplaceTypeTokens(parts[i]);
+        s = string.Join("'", parts);
+
+        // 2단계 — '문장' 구조 재작성은 전체 텍스트에서 수행한다. 다중컬럼 ALTER가 리터럴을 품으면
+        // (V011: DEFAULT 'Normal', ...) 문장 전체를 봐야 끝(;)까지 매치해 분해할 수 있다.
+        // 1단계에서 DECIMAL(9,4)→NUMERIC이 끝난 뒤라 콤마 분해가 타입 인자를 자르지 않는다.
+        // (한계: DEFAULT 리터럴 '안'의 콤마는 분해를 오염시킨다 — 마이그레이션 관례상 금지.)
+        // MSSQL ALTER COLUMN(타입/길이 변경)은 SQLite 미지원 + TEXT는 길이 무개념이라 무의미 → 문장 제거(무해).
+        s = Regex.Replace(s, @"ALTER\s+TABLE\s+\w+\s+ALTER\s+COLUMN\s+.+?;", "", O | RegexOptions.Singleline);
+        // MSSQL 다중컬럼 ALTER TABLE t ADD c1 ..., c2 ...; → SQLite 단일 ADD COLUMN 반복
+        s = Regex.Replace(s, @"ALTER\s+TABLE\s+(\w+)\s+ADD\s+(.+?);", m =>
+        {
+            var tbl = m.Groups[1].Value;
+            var cols = m.Groups[2].Value.Split(',');
+            return string.Join("\n", cols.Select(c => $"ALTER TABLE {tbl} ADD COLUMN {c.Trim()};"));
+        }, O | RegexOptions.Singleline);
+        // 멱등 생성 — CREATE TABLE/INDEX에 IF NOT EXISTS 주입(증분 생성·반복 기동 안전, 빈 DB 적용엔 무해).
+        s = Regex.Replace(s, @"\bCREATE\s+TABLE\s+(?!IF\s+NOT\s+EXISTS\b)", "CREATE TABLE IF NOT EXISTS ", O);
+        s = Regex.Replace(s, @"\bCREATE\s+(UNIQUE\s+)?INDEX\s+(?!IF\s+NOT\s+EXISTS\b)", "CREATE $1INDEX IF NOT EXISTS ", O);
+        return s;
+    }
+
+    private static string ReplaceTypeTokens(string s)
+    {
+        const RegexOptions O = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
         // 문자열 타입
         s = Regex.Replace(s, @"\bN?VARCHAR\s*\(\s*\w+\s*\)", "TEXT", O);
         s = Regex.Replace(s, @"\bN?CHAR\s*\(\s*\w+\s*\)", "TEXT", O);
@@ -142,18 +176,6 @@ public static class SqliteSchemaInitializer
         s = Regex.Replace(s, @"\b(GETUTCDATE|SYSUTCDATETIME|SYSDATETIME|GETDATE)\s*\(\s*\)", "CURRENT_TIMESTAMP", O);
         // 명명된 DEFAULT 제약(CONSTRAINT DF_x DEFAULT ...) → 단순 DEFAULT (SQLite ALTER ADD에서 명명 제약 미지원)
         s = Regex.Replace(s, @"CONSTRAINT\s+\w+\s+DEFAULT\b", "DEFAULT", O);
-        // MSSQL ALTER COLUMN(타입/길이 변경)은 SQLite 미지원 + TEXT는 길이 무개념이라 무의미 → 문장 제거(무해).
-        s = Regex.Replace(s, @"ALTER\s+TABLE\s+\w+\s+ALTER\s+COLUMN\s+.+?;", "", O | RegexOptions.Singleline);
-        // MSSQL 다중컬럼 ALTER TABLE t ADD c1 ..., c2 ...; → SQLite 단일 ADD COLUMN 반복
-        s = Regex.Replace(s, @"ALTER\s+TABLE\s+(\w+)\s+ADD\s+(.+?);", m =>
-        {
-            var tbl = m.Groups[1].Value;
-            var cols = m.Groups[2].Value.Split(',');
-            return string.Join("\n", cols.Select(c => $"ALTER TABLE {tbl} ADD COLUMN {c.Trim()};"));
-        }, O | RegexOptions.Singleline);
-        // 멱등 생성 — CREATE TABLE/INDEX에 IF NOT EXISTS 주입(증분 생성·반복 기동 안전, 빈 DB 적용엔 무해).
-        s = Regex.Replace(s, @"\bCREATE\s+TABLE\s+(?!IF\s+NOT\s+EXISTS\b)", "CREATE TABLE IF NOT EXISTS ", O);
-        s = Regex.Replace(s, @"\bCREATE\s+(UNIQUE\s+)?INDEX\s+(?!IF\s+NOT\s+EXISTS\b)", "CREATE $1INDEX IF NOT EXISTS ", O);
         return s;
     }
 }
