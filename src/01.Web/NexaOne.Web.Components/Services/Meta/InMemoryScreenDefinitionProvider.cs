@@ -99,7 +99,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                             new RowNode { Id = "dash-row", Children = new LayoutNode[]
                             {
                                 // LinkUiId(P3-12) — 카드 클릭=관련 화면 드릴다운(대상 화면이 자명한 카드만).
-                                DashKpi("dash-alarm", "활성 알람", "ACTIVE_ALARMS", "EES_POPUP_MONITERING_DASHBOARD"),
+                                DashKpi("dash-alarm", "활성 알람", "ACTIVE_ALARMS", "EES_POPUP_MONITORING_DASHBOARD"),
                                 DashKpi("dash-wo", "진행 작업지시", "OPEN_WORK_ORDERS"),
                                 DashKpi("dash-plan", "가동 생산계획", "ACTIVE_PLANS"),
                                 DashKpi("dash-recipe", "레시피 승인 대기", "PENDING_RECIPE_APPROVALS"),
@@ -346,10 +346,10 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("eventId", "이벤트 ID"),
             }));
 
-        // FDC — 팝업 모니터링 대시보드(EES_POPUP_MONITERING_DASHBOARD, 실시간 v3 완결) : 10초 폴링 + 실시간 이벤트 푸시.
+        // FDC — 팝업 모니터링 대시보드(EES_POPUP_MONITORING_DASHBOARD, 실시간 v3 완결) : 10초 폴링 + 실시간 이벤트 푸시.
         // RefreshIntervalSeconds>0 화면은 IScreenRefreshNotifier(실시간 v3)를 자동 구독해 도메인 이벤트 시
         // 즉시 재조회(1초 스로틀)하고, 폴링 주기는 이벤트 부재 시 폴백이다. 트렌드 차트는 RadzenChart.
-        Register(new ScreenDefinition("EES_POPUP_MONITERING_DASHBOARD", "설비 모니터링(실시간)",
+        Register(new ScreenDefinition("EES_POPUP_MONITORING_DASHBOARD", "설비 모니터링(실시간)",
             Array.Empty<FieldDefinition>(),
             RefreshIntervalSeconds: 10,
             Layout: new SectionNode
@@ -912,8 +912,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         // ===== SmartUX EPT OEE(설비종합효율) 점등(Phase 4) — V050 마트. OEE=가용성×성능×품질. 사전집계 마트 read
         // (원자료→마트 집계는 배치/워커 소관, 후속). 비율 컬럼(AVAILABILITY/PERFORMANCE/QUALITY/OEE)은 분율(0~1). =====
 
-        // 설비 종합 지표(EES_EPT_OVERALL_EQUIPMENT_EFFECIVENESS) — 설비×일자 OEE 마트(EST.OeeSummaryList).
-        Register(new ScreenDefinition("EES_EPT_OVERALL_EQUIPMENT_EFFECIVENESS", "설비 종합 지표(OEE)",
+        // 설비 종합 지표(EES_EPT_OVERALL_EQUIPMENT_EFFECTIVENESS) — 설비×일자 OEE 마트(EST.OeeSummaryList).
+        Register(new ScreenDefinition("EES_EPT_OVERALL_EQUIPMENT_EFFECTIVENESS", "설비 종합 지표(OEE)",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
@@ -1946,8 +1946,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         Register(new ScreenDefinition("QMS_SPM_EVL_REPORT", "협력사 평가 현황", Array.Empty<FieldDefinition>(), spmReportCols, QueryId: "QMS.SpmEvalResultList"));
         Register(new ScreenDefinition("QMS_SPM_EVL_RESULT_COMPARISON", "협력사별 평가 결과 비교 조회", Array.Empty<FieldDefinition>(), spmReportCols, QueryId: "QMS.SpmEvalResultList"));
 
-        // 검사 현황(QMS_REP_ITEM_STATUS.js) — 전체 검사 실행 조회(QMS.InspectionList, 타입 무관). uiId의 .js 접미사는 SmartUX 원본 그대로.
-        Register(new ScreenDefinition("QMS_REP_ITEM_STATUS.js", "검사 현황",
+        // 검사 현황(QMS_REP_ITEM_STATUS) — 전체 검사 실행 조회(QMS.InspectionList, 타입 무관). 구 SmartUX ID 'QMS_REP_ITEM_STATUS.js'는 별칭+PROGRAM_ID로 보존.
+        Register(new ScreenDefinition("QMS_REP_ITEM_STATUS", "검사 현황",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
@@ -2160,7 +2160,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new("PROCESSED_BY", "처리자"), new("STATUS", "상태"),
         };
         Register(new ScreenDefinition("FACTORY_IVT_MATERIAL_INCOMING_MANAGEMENT", "입고 관리", Array.Empty<FieldDefinition>(), ivtTxCols, QueryId: "IVT.IncomingList"));
-        Register(new ScreenDefinition("FACTORY_IVT_MOVE_ODER", "자재 이동", Array.Empty<FieldDefinition>(), ivtTxCols, QueryId: "IVT.MoveList"));
+        Register(new ScreenDefinition("FACTORY_IVT_MOVE_ORDER", "자재 이동", Array.Empty<FieldDefinition>(), ivtTxCols, QueryId: "IVT.MoveList"));
         Register(new ScreenDefinition("FACTORY_IVT_MATERIAL_DISPENSING", "자재 불출 처리", Array.Empty<FieldDefinition>(), ivtTxCols, QueryId: "IVT.DispensingList"));
         Register(new ScreenDefinition("FACTORY_IVT_MATERIAL_DISPENSING_REQUEST", "자재 불출 요청", Array.Empty<FieldDefinition>(), ivtTxCols, QueryId: "IVT.DispensingList"));
 
@@ -2182,9 +2182,23 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new GridColumnDefinition[] { new("LABEL_ID", "라벨 ID"), new("LABEL_NAME", "라벨명"), new("LABEL_TYPE", "유형"), new("IS_ACTIVE", "활성") }, QueryId: "COM.LabelList"));
         Register(new ScreenDefinition("FACTORY_COM_CODE_ID_DEFINITION", "ID 채번 관리", Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[] { new("RULE_ID", "규칙 ID"), new("RULE_NAME", "규칙명"), new("PREFIX", "접두"), new("SEQ_LENGTH", "자릿수"), new("CURRENT_SEQ", "현재값"), new("RESET_CYCLE", "리셋주기"), new("DESCRIPTION", "설명") }, QueryId: "COM.IdRuleList"));
+
+        // ===== 구 UI_ID 별칭(2026-07-09 메뉴 ID 표준화, V081) — 오타 정정 전 ID로 열리던 URL(/meta/{구ID})·
+        // 잔존 즐겨찾기/최근 행이 계속 동작하게 정정된 정의를 구 ID로도 조회 가능하게 매핑한다.
+        // 신규 노출(메뉴 시드·i18n·KPI 링크)은 전부 새 ID를 쓴다. 원본 대응은 시드 legacyId(PROGRAM_ID)에 보존.
+        RegisterAlias("EES_EPT_OVERALL_EQUIPMENT_EFFECIVENESS", "EES_EPT_OVERALL_EQUIPMENT_EFFECTIVENESS");
+        RegisterAlias("EES_POPUP_MONITERING_DASHBOARD", "EES_POPUP_MONITORING_DASHBOARD");
+        RegisterAlias("FACTORY_IVT_MOVE_ODER", "FACTORY_IVT_MOVE_ORDER");
+        RegisterAlias("QMS_REP_ITEM_STATUS.js", "QMS_REP_ITEM_STATUS");
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;
+
+    // 구 ID 별칭 — 정의 인스턴스를 공유한다(UiId 속성은 새 ID 유지 → 제목 i18n 키도 새 키로 해석).
+    private void RegisterAlias(string legacyUiId, string uiId)
+    {
+        if (_defs.TryGetValue(uiId, out var d)) _defs[legacyUiId] = d;
+    }
 
     // 대시보드 KPI 카드 열(12칸 중 2칸) — 요약 쿼리(SYS.DashboardSummary) 1행의 컬럼 하나를 카드로 바인딩.
     private static ColumnNode DashKpi(string id, string label, string valueColumn, string? linkUiId = null)

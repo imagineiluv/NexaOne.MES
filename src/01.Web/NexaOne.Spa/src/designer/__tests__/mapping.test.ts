@@ -207,9 +207,9 @@ describe('field 이산 속성 매핑(트레이트 단일 출처)', () => {
   })
 
   it('KPI linkUiId·트렌드 timeColumn 라운드트립 — 부재 시 속성 미기록', () => {
-    const kpi: LayoutNode = { kind: 'kpi', id: 'k-1', label: '활성 알람', queryId: 'Q.A', valueColumn: 'CNT', linkUiId: 'EES_POPUP_MONITERING_DASHBOARD' }
+    const kpi: LayoutNode = { kind: 'kpi', id: 'k-1', label: '활성 알람', queryId: 'Q.A', valueColumn: 'CNT', linkUiId: 'EES_POPUP_MONITORING_DASHBOARD' }
     const kc = layoutToComponent(kpi)
-    expect(kc.attributes!['data-link-uiid']).toBe('EES_POPUP_MONITERING_DASHBOARD')
+    expect(kc.attributes!['data-link-uiid']).toBe('EES_POPUP_MONITORING_DASHBOARD')
     expect(componentToLayout(kc)).toEqual(kpi)
     expect(layoutToComponent({ kind: 'kpi', id: 'k-2', label: 'KPI' }).attributes!['data-link-uiid']).toBeUndefined()
 

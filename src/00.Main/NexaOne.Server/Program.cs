@@ -465,14 +465,15 @@ static void SeedDevMenuIfEmpty(string connectionString)
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText =
-            "INSERT INTO SYS_MENU (MENU_ID, MENU_NAME, PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, UI_ID, VALID_STATE) " +
-            "VALUES (@id, @name, @parent, @seq, @type, @uiId, 'Valid')";
+            "INSERT INTO SYS_MENU (MENU_ID, MENU_NAME, PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, UI_ID, PROGRAM_ID, VALID_STATE) " +
+            "VALUES (@id, @name, @parent, @seq, @type, @uiId, @legacy, 'Valid')";
         cmd.Parameters.AddWithValue("@id", r.MenuId);
         cmd.Parameters.AddWithValue("@name", r.MenuName);
         cmd.Parameters.AddWithValue("@parent", (object?)r.ParentMenuId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("@seq", r.DisplaySequence);
         cmd.Parameters.AddWithValue("@type", r.MenuType);
         cmd.Parameters.AddWithValue("@uiId", (object?)r.UiId ?? "");
+        cmd.Parameters.AddWithValue("@legacy", (object?)r.LegacyId ?? "");   // 원본 SmartUX ID(정정 항목만, V081)
         cmd.ExecuteNonQuery();
     }
     tx.Commit();
@@ -1012,8 +1013,10 @@ static List<MenuSeedRow> MinimalFallbackMenu() => new()
 
 // nexaone-menu.json 한 행(camelCase JSON ↔ PascalCase 매핑은 PropertyNameCaseInsensitive로 처리).
 // UiId는 Screen에만 채워진다(Folder는 공백 → 클릭=토글). ParentMenuId는 최상위에서 null.
+// LegacyId — 오타 정정(V081)으로 ID가 바뀐 항목의 원본 SmartUX ID(PROGRAM_ID로 시드, 이관 추적성).
 internal sealed record MenuSeedRow(
-    string MenuId, string MenuName, string? ParentMenuId, int DisplaySequence, string MenuType, string UiId);
+    string MenuId, string MenuName, string? ParentMenuId, int DisplaySequence, string MenuType, string UiId,
+    string? LegacyId = null);
 
 // WebApplicationFactory<Program> 진입점 노출(스모크 테스트용).
 public partial class Program { }
