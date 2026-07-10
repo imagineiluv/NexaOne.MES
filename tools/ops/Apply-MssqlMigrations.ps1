@@ -1,4 +1,4 @@
-# 운영 MSSQL 마이그레이션 적용 러너 — config/db/migrations/V*.sql 을 순서대로 1회씩 적용한다.
+﻿# 운영 MSSQL 마이그레이션 적용 러너 — config/db/migrations/V*.sql 을 순서대로 1회씩 적용한다.
 # 버전 추적: SYS_SCHEMA_MIGRATION(VERSION_ID PK) — 이미 적용된 파일은 건너뛴다(멱등).
 # 각 파일은 단일 트랜잭션(적용+버전 기록 원자) — 마이그레이션 파일엔 GO 배치 구분자가 없다(관례 확인됨).
 # 사용:

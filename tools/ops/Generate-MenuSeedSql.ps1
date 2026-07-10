@@ -1,4 +1,4 @@
-# 운영 MSSQL 메뉴 시드 SQL 생성기 — config/Seed/nexaone-menu.json(임베디드 dev 시드의 단일 출처)을
+﻿# 운영 MSSQL 메뉴 시드 SQL 생성기 — config/Seed/nexaone-menu.json(임베디드 dev 시드의 단일 출처)을
 # ops/sql/sys-menu-seed.mssql.sql 로 변환한다. 메뉴 JSON을 고치면 본 스크립트를 재실행해 산출물을 갱신·커밋한다.
 # 배경: SeedDevMenuIfEmpty는 Development+SQLite 이중 게이트라 운영 MSSQL은 메뉴 공급 경로가 없다(빈 사이드바).
 # 정책: SYS_MENU가 비었을 때만 일괄 삽입(dev 시드와 동일 의미론) — 운영 커스터마이징 덮어쓰기 방지.
