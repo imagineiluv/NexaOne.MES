@@ -16,8 +16,9 @@ public interface IApiClient
     // bucketDays/horizonBuckets 지정 시 기간 버킷(시간위상) 넷팅(v2 3단), 미지정=총량(v1).
     Task<MrpRunResultDto?> RunMrpAsync(int? bucketDays = null, int? horizonBuckets = null, CancellationToken ct = default);
 
-    // MRP 실오더 전환(v2 1단) — Proposed 전량을 PO(Ordered)/WO(Released)로. runId null=최신 실행.
-    Task<MrpConvertResultDto?> ConvertMrpAsync(string? runId = null, CancellationToken ct = default);
+    // MRP 실오더 전환 — Proposed를 PO(Ordered)/WO(Released)로. runId null=최신 실행,
+    // plannedOrderIds 지정=선택 행만(행 선택 전환 UX), null=전량.
+    Task<MrpConvertResultDto?> ConvertMrpAsync(string? runId = null, IReadOnlyList<string>? plannedOrderIds = null, CancellationToken ct = default);
 
     // 등록된 쓰기(command) query id 실행 — 성공 여부 반환(저코드 폼 저장 경로). 감사 컬럼은 게이트웨이가 주입.
     Task<bool> ExecuteCommandAsync(

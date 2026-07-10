@@ -46,7 +46,7 @@
     }
 </div>
 
-<MetaScreen UiId="NX_MRP_PLANNING" @key="_refreshSeq" />
+<MetaScreen UiId="NX_MRP_PLANNING" BridgeBulkHandler="OnBridgeBulkAsync" @key="_refreshSeq" />
 
 @code {
     private bool _busy;
@@ -70,6 +70,17 @@
             if (_result is { Status: "Success" }) _refreshSeq++;   // 자식 MetaScreen 재생성 = 제안/이력 재조회
         }
         finally { _busy = false; }
+    }
+
+    // 브리지 일괄명령(bridge:pom.mrp.convert) — 선택 행의 PLANNED_ORDER_ID만 원자 전환.
+    private async Task<bool> OnBridgeBulkAsync(BulkCommandDefinition cmd, List<Dictionary<string, object?>> rows)
+    {
+        var ids = rows.Select(r => r.GetValueOrDefault("PLANNED_ORDER_ID")?.ToString())
+            .Where(v => !string.IsNullOrEmpty(v)).Cast<string>().Distinct().ToList();
+        if (ids.Count == 0) return false;   // 제안 그리드가 아닌 곳(이력/페깅)의 선택 — 대상 없음
+        _convert = await Api.ConvertMrpAsync(null, ids);
+        StateHasChanged();                  // 결과 칩 즉시 갱신(핸들러는 자식 콜백 컨텍스트)
+        return _convert is { Message: null, Converted: > 0 };
     }
 
     private async Task ConvertAsync()

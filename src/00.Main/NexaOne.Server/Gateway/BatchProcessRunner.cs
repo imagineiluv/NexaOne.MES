@@ -58,7 +58,7 @@ public sealed class BatchProcessRunner
         // 브리지 룰(v2, MRP 스펙 백로그 ④) — 'bridge:{키}'는 명명쿼리가 아니라 등록된 모듈 브리지 호출.
         // 모듈 OFF(게이트웨이 전용 부팅)면 해당 브리지가 DI에 없어 실패로 보고한다(무음 스킵 금지).
         if (rule.Trim().StartsWith("bridge:", StringComparison.OrdinalIgnoreCase))
-            return await ExecuteBridgeRuleAsync(rule.Trim()["bridge:".Length..].Trim(), executedBy, ct);
+            return await ExecuteBridgeRuleAsync(rule.Trim()["bridge:".Length..].Trim(), inputData, executedBy, ct);
         if (!_registry.TryGet(rule.Trim(), out var def) || def is null)
             return BatchRunResult.Failed($"BATCH_RULE '{rule}'이(가) 쿼리 레지스트리에 없습니다.");
         if (!def.IsWrite)
@@ -87,7 +87,7 @@ public sealed class BatchProcessRunner
     }
 
     // 브리지 룰 디스패치 — 지원 키만 명시(임의 리플렉션 호출 금지). 새 브리지 배치는 여기에 case 추가.
-    private async Task<BatchRunResult> ExecuteBridgeRuleAsync(string key, string executedBy, CancellationToken ct)
+    private async Task<BatchRunResult> ExecuteBridgeRuleAsync(string key, string inputData, string executedBy, CancellationToken ct)
     {
         try
         {
@@ -98,7 +98,15 @@ public sealed class BatchProcessRunner
                     var bridge = _services.GetService<NexaOne.ServiceContracts.Pom.IMrpBridge>();
                     if (bridge is null)
                         return BatchRunResult.Failed("IMrpBridge 미등록 — 모듈 OFF 부팅에선 브리지 배치를 실행할 수 없습니다.");
-                    var r = await bridge.RunAsync(executedBy, null, ct);   // 배치는 총량 모드(운영 결정 전 기본)
+                    // 버킷 옵션은 배치 정의(BATCH_INPUTDATA JSON)가 소유 — {"bucketDays":7,"horizonBuckets":8}.
+                    // 미지정=총량 모드(v1). 정의 데이터로 제어하므로 코드 배포 없이 운영에서 전환 가능.
+                    var p = ParseInputData(inputData);
+                    NexaOne.ServiceContracts.Pom.MrpRunOptions? options = null;
+                    if (p.TryGetValue("bucketDays", out var bd) || p.TryGetValue("horizonBuckets", out var hb))
+                        options = new NexaOne.ServiceContracts.Pom.MrpRunOptions(
+                            p.TryGetValue("bucketDays", out bd) ? Convert.ToInt32(bd) : 7,
+                            p.TryGetValue("horizonBuckets", out hb) ? Convert.ToInt32(hb) : 8);
+                    var r = await bridge.RunAsync(executedBy, options, ct);
                     return r.Status == "Success"
                         ? BatchRunResult.Ok(r.PlannedOrderCount)
                         : BatchRunResult.Failed(r.Message ?? "MRP 실행 실패");
@@ -106,6 +114,10 @@ public sealed class BatchProcessRunner
                 default:
                     return BatchRunResult.Failed($"알 수 없는 브리지 룰 '{key}' — 지원: pom.mrp.run");
             }
+        }
+        catch (JsonException je)
+        {
+            return BatchRunResult.Failed($"BATCH_INPUTDATA JSON 파싱 실패: {je.Message}");
         }
         catch (Exception ex)
         {

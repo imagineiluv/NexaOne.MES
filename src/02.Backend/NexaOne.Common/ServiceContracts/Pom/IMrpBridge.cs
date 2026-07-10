@@ -32,6 +32,7 @@ public interface IMrpBridge
 {
     Task<MrpRunResult> RunAsync(string executedBy, MrpRunOptions? options = null, CancellationToken ct = default);
 
-    /// <summary>runId의 Proposed 제안 전량을 실오더로 전환(null=최신 실행). 멱등 — 재호출 시 대상 0건.</summary>
-    Task<MrpConvertResult> ConvertAsync(string? runId, string executedBy, CancellationToken ct = default);
+    /// <summary>runId의 Proposed 제안을 실오더로 전환(runId null=최신 실행). plannedOrderIds 지정 시
+    /// 해당 제안만(행 선택 전환 UX), null=전량. 멱등 — 재호출 시 대상 0건.</summary>
+    Task<MrpConvertResult> ConvertAsync(string? runId, IReadOnlyList<string>? plannedOrderIds, string executedBy, CancellationToken ct = default);
 }

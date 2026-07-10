@@ -118,7 +118,7 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
     /// 원자성: 실오더 INSERT + 제안 Converted 마킹 전 문장을 단일 ExecuteManyAsync 트랜잭션으로 커밋
     /// (MixingPersistAsync/DATA-3 패턴 — 부분 커밋 불가). ⚠ ExecuteManyAsync는 감사컬럼 자동주입이
     /// 없어 CREATED_BY/UPDATED_BY를 문장에 명시한다(시각은 DDL DEFAULT).</summary>
-    public async Task<MrpConvertResult> ConvertAsync(string? runId, string executedBy, CancellationToken ct = default)
+    public async Task<MrpConvertResult> ConvertAsync(string? runId, IReadOnlyList<string>? plannedOrderIds, string executedBy, CancellationToken ct = default)
     {
         try
         {
@@ -128,10 +128,13 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
             if (runId is null)
                 return new MrpConvertResult("", 0, 0, 0, "실행 이력이 없습니다 — 먼저 MRP를 실행하세요.");
 
+            // 행 선택 전환(UX) — ids 지정 시 해당 제안만(Dapper 리스트 IN 확장). null=전량.
+            var idFilter = plannedOrderIds is { Count: > 0 } ? " AND PLANNED_ORDER_ID IN @ids" : "";
             var rows = (await QueryAsync<dynamic>(
                 "SELECT PLANNED_ORDER_ID, ITEM_ID, ORDER_TYPE, SUGGESTED_QTY, DUE_DATE, RELEASE_DATE, PLANT_ID " +
-                "FROM MRP_PLANNED_ORDER WHERE RUN_ID = @runId AND STATUS = 'Proposed' ORDER BY PLANNED_ORDER_ID",
-                new { runId }, ct)).ToList();
+                "FROM MRP_PLANNED_ORDER WHERE RUN_ID = @runId AND STATUS = 'Proposed'" + idFilter +
+                " ORDER BY PLANNED_ORDER_ID",
+                new { runId, ids = plannedOrderIds }, ct)).ToList();
             if (rows.Count == 0)
                 return new MrpConvertResult(runId, 0, 0, 0, "전환 대상(Proposed)이 없습니다.");
 

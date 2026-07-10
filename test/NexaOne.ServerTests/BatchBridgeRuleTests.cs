@@ -62,7 +62,7 @@ public sealed class BatchBridgeRuleTests : IClassFixture<BatchBridgeRuleTests.Br
         return client;
     }
 
-    private void SeedBatch(string batchId, string rule)
+    private void SeedBatch(string batchId, string rule, string inputData = "{}")
     {
         using var conn = new SqliteConnection($"Data Source={_factory.DbPath};Foreign Keys=False");
         conn.Open();
@@ -70,10 +70,11 @@ public sealed class BatchBridgeRuleTests : IClassFixture<BatchBridgeRuleTests.Br
         cmd.CommandText = @"INSERT INTO SYS_BATCH_PROCESS
             (BATCH_ID, BATCH_NAME, BATCH_TYPE, BATCH_RULE, BATCH_OPTIONS, BATCH_INPUTDATA, DESCRIPTION,
              VALID_STATE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@id, @id, 'Interval', @rule, '86400', '{}', 'bridge rule test',
+            VALUES (@id, @id, 'Interval', @rule, '86400', @input, 'bridge rule test',
                     'Valid', 'SYSTEM', @now, 'SYSTEM', @now)";
         cmd.Parameters.AddWithValue("@id", batchId);
         cmd.Parameters.AddWithValue("@rule", rule);
+        cmd.Parameters.AddWithValue("@input", inputData);
         cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
         cmd.ExecuteNonQuery();
     }
@@ -90,6 +91,20 @@ public sealed class BatchBridgeRuleTests : IClassFixture<BatchBridgeRuleTests.Br
         res.StatusCode.Should().Be(HttpStatusCode.OK, "브리지 룰 성공 실행은 200 + 결과 본문");
         _factory.Bridge.LastExecutedBy.Should().Be("batch-bridge-tester", "배치 실행자가 브리지 executedBy로 전달");
         (await res.Content.ReadAsStringAsync()).Should().Contain("\"affected\":5", "affected=계획오더 제안 수");
+    }
+
+    [Fact]
+    public async Task Bridge_rule_reads_bucket_options_from_input_data()
+    {
+        using var client = Client();
+        SeedBatch("MRP-WEEKLY", "bridge:pom.mrp.run", "{\"bucketDays\":7,\"horizonBuckets\":4}");
+        _factory.Bridge.NextResult = new MrpRunResult("MRP-BATCH-B", "Success", 1, 2, null);
+
+        var res = await client.PostAsync("/api/v1/sys/admin/batch/MRP-WEEKLY/run", content: null);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        _factory.Bridge.LastRunOptions.Should().Be(new MrpRunOptions(7, 4),
+            "버킷 옵션은 배치 정의(BATCH_INPUTDATA)가 소유 — 코드 배포 없이 운영 전환");
     }
 
     [Fact]

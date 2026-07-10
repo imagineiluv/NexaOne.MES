@@ -65,10 +65,13 @@ public sealed class MrpBridgeControllerTests : IClassFixture<MrpBridgeController
             return Task.FromResult(NextResult);
         }
 
-        public Task<MrpConvertResult> ConvertAsync(string? runId, string executedBy, CancellationToken ct = default)
+        public IReadOnlyList<string>? LastConvertIds;
+
+        public Task<MrpConvertResult> ConvertAsync(string? runId, IReadOnlyList<string>? plannedOrderIds, string executedBy, CancellationToken ct = default)
         {
             LastExecutedBy = executedBy;
             LastConvertRunId = runId;
+            LastConvertIds = plannedOrderIds;
             return Task.FromResult(NextConvert);
         }
     }
@@ -148,6 +151,17 @@ public sealed class MrpBridgeControllerTests : IClassFixture<MrpBridgeController
         dto.WorkOrders.Should().Be(1);
         _factory.Bridge.LastConvertRunId.Should().Be("MRP-RUN-77");
         _factory.Bridge.LastExecutedBy.Should().Be("mrp-bridge-tester");
+    }
+
+    [Fact]
+    public async Task Convert_passes_selected_planned_order_ids()
+    {
+        var res = await Client("pom:manage").PostAsJsonAsync("/api/v1/pom/mrp/convert",
+            new { plannedOrderIds = new[] { "PO-A", "PO-B" } });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        _factory.Bridge.LastConvertIds.Should().BeEquivalentTo(new[] { "PO-A", "PO-B" },
+            "행 선택 전환은 선택 제안 ID만 브리지로 전달돼야 한다");
     }
 
     [Fact]

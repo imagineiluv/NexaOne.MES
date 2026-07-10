@@ -40,7 +40,7 @@ public sealed class MrpController : ControllerBase
         return Ok(result);
     }
 
-    public sealed record ConvertRequest(string? RunId);
+    public sealed record ConvertRequest(string? RunId, IReadOnlyList<string>? PlannedOrderIds);
 
     /// <summary>계획오더→실오더 전환(v2 1단) — runId의 Proposed 전량을 PRC PO(Ordered)/POM WO(Released)로
     /// 생성하고 Converted 마킹(단일 트랜잭션). runId 생략=최신 실행. 멱등 — 재호출 시 대상 0건.</summary>
@@ -51,7 +51,7 @@ public sealed class MrpController : ControllerBase
     [RequirePermission(Permissions.PomManage)]
     public async Task<IActionResult> Convert([FromBody] ConvertRequest? request, CancellationToken ct)
     {
-        var result = await _bridge.ConvertAsync(request?.RunId, User.CurrentUserId() ?? "SYSTEM", ct);
+        var result = await _bridge.ConvertAsync(request?.RunId, request?.PlannedOrderIds, User.CurrentUserId() ?? "SYSTEM", ct);
         return Ok(result);
     }
 }
