@@ -742,7 +742,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
 
         // ===== FDC 잔여 3화면 점등(2026-07-10) — 250/250 완결. =====
         // VIRTUAL EVENT 이력(V069) — 평가 엔진이 전이 시에만 기록. 백엔드(테이블·쿼리·워커) 기성, 화면만 부재였다.
-        Register(new ScreenDefinition("EES_FDC_VIRTUAL_EVENT_HI", "VIRTUAL EVENT 이력 조회",
+        Register(new ScreenDefinition("EES_FDC_VIRTUAL_EVENT_HISTORY", "VIRTUAL EVENT 이력 조회",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
@@ -1038,7 +1038,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             SaveQueryId: "EST.CreateIndex", DeleteQueryId: "EST.DeleteIndex"));
 
         // 지표 관리(EPT_STD_INDEX_MGNT) — 동일 KPI 지표 마스터 뷰.
-        Register(new ScreenDefinition("EPT_STD_INDEX_MGNT", "지표 관리",
+        Register(new ScreenDefinition("EPT_STD_INDEX_MANAGEMENT", "지표 관리",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
@@ -1318,7 +1318,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         // 레이아웃 관리(EPT_STD_LAYOUT_MGNT)·레이아웃 구성(EPT_STD_LAYOUT_EDIT) — 레이아웃 마스터(EST.LayoutList).
         // (구성=에디터 UI지만 우선 레이아웃 목록 렌더로 점등; 실 편집기는 후속.)
         foreach (var (uiId, title) in new[] {
-            ("EPT_STD_LAYOUT_MGNT", "레이아웃 관리"),
+            ("EPT_STD_LAYOUT_MANAGEMENT", "레이아웃 관리"),
             ("EPT_STD_LAYOUT_EDIT", "레이아웃 구성") })
             Register(new ScreenDefinition(uiId, title,
                 Array.Empty<FieldDefinition>(),
@@ -1802,7 +1802,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         // ===== SmartUX QMS 계측기(Gauge) 관리 점등(V038 신설) — 계측기/검교정/RNR/수리. 그리드 read는 인증만. =====
 
         // 계측기 관리(QMS_GAUGE_MEASURE_EQUIPMENT_MGNT) — 계측기 마스터(QMS.GaugeList).
-        Register(new ScreenDefinition("QMS_GAUGE_MEASURE_EQUIPMENT_MGNT", "계측기 마스터 관리",
+        Register(new ScreenDefinition("QMS_GAUGE_MEASURE_EQUIPMENT_MANAGEMENT", "계측기 마스터 관리",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
@@ -1917,7 +1917,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             QueryId: "QMS.SpmEvalResultList"));
 
         // 시정 조치 결과 등록(QMS_SPM_ADMIN_ACTION_RESULT_REGIST) — 협력사 시정 조치 이력(QMS.SpmActionResultList).
-        Register(new ScreenDefinition("QMS_SPM_ADMIN_ACTION_RESULT_REGIST", "시정 조치 결과 등록",
+        Register(new ScreenDefinition("QMS_SPM_ADMIN_ACTION_RESULT_REGISTRATION", "시정 조치 결과 등록",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
@@ -1934,14 +1934,14 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new("SAMPLE_QTY", "표본수"), new("DEFECT_QTY", "불량수"),
         };
         Register(new ScreenDefinition("QMS_INSP_IMPORT_INSPECTION", "수입 검사 등록", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.IncomingInspectionList"));
-        Register(new ScreenDefinition("QMS_INSP_IMPORT_REGIST_HIST", "수입 검사 이력 조회", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.IncomingInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_IMPORT_REGISTRATION_HIST", "수입 검사 이력 조회", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.IncomingInspectionList"));
         Register(new ScreenDefinition("QMS_REP_IMPORT_STATUS", "수입 검사 현황", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.IncomingInspectionList"));
         Register(new ScreenDefinition("QMS_INSP_PROCESS_INSPECTION", "공정 검사 등록", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ProcessInspectionList"));
         Register(new ScreenDefinition("QMS_INSP_PROCESS_INSPECTION_LOT", "공정 검사 등록 (LOT)", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ProcessInspectionList"));
-        Register(new ScreenDefinition("QMS_INSP_PROCESS_REGIST_HIST", "공정 검사 이력 조회", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ProcessInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_PROCESS_REGISTRATION_HIST", "공정 검사 이력 조회", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ProcessInspectionList"));
         Register(new ScreenDefinition("QMS_REP_PROCESS_STATUS", "공정 검사 현황", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ProcessInspectionList"));
         Register(new ScreenDefinition("QMS_INSP_SHIPPING_INSPECTION", "출하 검사 등록", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ShippingInspectionList"));
-        Register(new ScreenDefinition("QMS_INSP_SHIPPING_REGIST_HIST", "출하 검사 이력 조회", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ShippingInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_SHIPPING_REGISTRATION_HIST", "출하 검사 이력 조회", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ShippingInspectionList"));
         Register(new ScreenDefinition("QMS_REP_SHIPPING_STATUS", "출하 검사 현황", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ShippingInspectionList"));
 
         // ===== SmartUX QMS 장기재고검사(자재/제품) 점등(V041 신설 QMS_LONGTERM_INSPECTION) — 의뢰/결과/이력을 대상별 쿼리로. =====
@@ -1965,7 +1965,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new("PRODUCT_ID", "품목 ID"), new("CLAIM_TYPE", "유형"), new("OCCURRED_DATE", "발생일"),
             new("SEVERITY", "심각도"), new("STATUS", "상태"),
         };
-        Register(new ScreenDefinition("QMS_CLM_CLAIM_REGIST", "고객사 클레임 접수", Array.Empty<FieldDefinition>(), claimCols, QueryId: "QMS.ClaimList"));
+        Register(new ScreenDefinition("QMS_CLM_CLAIM_REGISTRATION", "고객사 클레임 접수", Array.Empty<FieldDefinition>(), claimCols, QueryId: "QMS.ClaimList"));
         Register(new ScreenDefinition("QMS_CLM_CLAIM_RESULT", "클레임 처리 결과 등록", Array.Empty<FieldDefinition>(), claimCols, QueryId: "QMS.ClaimList"));
         Register(new ScreenDefinition("QMS_CLM_STATUS_VIEW", "클레임 현황 조회", Array.Empty<FieldDefinition>(), claimCols, QueryId: "QMS.ClaimList"));
         Register(new ScreenDefinition("QMS_CLM_RPT_OCCUR_STATUS", "클레임 발생 현황", Array.Empty<FieldDefinition>(), claimCols, QueryId: "QMS.ClaimList"));
@@ -2283,6 +2283,16 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         RegisterAlias("EES_POPUP_MONITERING_DASHBOARD", "EES_POPUP_MONITORING_DASHBOARD");
         RegisterAlias("FACTORY_IVT_MOVE_ODER", "FACTORY_IVT_MOVE_ORDER");
         RegisterAlias("QMS_REP_ITEM_STATUS.js", "QMS_REP_ITEM_STATUS");
+        // ID 약어 정리(2026-07-10, V085) — MGNT→MANAGEMENT·REGIST→REGISTRATION·_HI→_HISTORY.
+        RegisterAlias("EPT_STD_INDEX_MGNT", "EPT_STD_INDEX_MANAGEMENT");
+        RegisterAlias("EPT_STD_LAYOUT_MGNT", "EPT_STD_LAYOUT_MANAGEMENT");
+        RegisterAlias("QMS_GAUGE_MEASURE_EQUIPMENT_MGNT", "QMS_GAUGE_MEASURE_EQUIPMENT_MANAGEMENT");
+        RegisterAlias("QMS_CLM_CLAIM_REGIST", "QMS_CLM_CLAIM_REGISTRATION");
+        RegisterAlias("QMS_INSP_IMPORT_REGIST_HIST", "QMS_INSP_IMPORT_REGISTRATION_HIST");
+        RegisterAlias("QMS_INSP_PROCESS_REGIST_HIST", "QMS_INSP_PROCESS_REGISTRATION_HIST");
+        RegisterAlias("QMS_INSP_SHIPPING_REGIST_HIST", "QMS_INSP_SHIPPING_REGISTRATION_HIST");
+        RegisterAlias("QMS_SPM_ADMIN_ACTION_RESULT_REGIST", "QMS_SPM_ADMIN_ACTION_RESULT_REGISTRATION");
+        RegisterAlias("EES_FDC_VIRTUAL_EVENT_HI", "EES_FDC_VIRTUAL_EVENT_HISTORY");
     }
 
     public void Register(ScreenDefinition definition) => _defs[definition.UiId] = definition;

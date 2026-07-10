@@ -89,12 +89,13 @@
         "uiId":  ""
     },
     {
-        "menuId":  "EPT_STD_LAYOUT_MGNT",
+        "menuId":  "EPT_STD_LAYOUT_MANAGEMENT",
+        "legacyId":  "EPT_STD_LAYOUT_MGNT",
         "menuName":  "레이아웃 관리",
         "parentMenuId":  "EPT_STD",
         "displaySequence":  1,
         "menuType":  "Screen",
-        "uiId":  "EPT_STD_LAYOUT_MGNT"
+        "uiId":  "EPT_STD_LAYOUT_MANAGEMENT"
     },
     {
         "menuId":  "FACTORY_COM_ALARM_CLASS",
@@ -506,12 +507,13 @@
         "uiId":  "QMS_4M_CHANGE_HISTORY"
     },
     {
-        "menuId":  "QMS_CLM_CLAIM_REGIST",
+        "menuId":  "QMS_CLM_CLAIM_REGISTRATION",
+        "legacyId":  "QMS_CLM_CLAIM_REGIST",
         "menuName":  "고객사 클레임 접수",
         "parentMenuId":  "QMS_CLM",
         "displaySequence":  1,
         "menuType":  "Screen",
-        "uiId":  "QMS_CLM_CLAIM_REGIST"
+        "uiId":  "QMS_CLM_CLAIM_REGISTRATION"
     },
     {
         "menuId":  "QMS_CLM_RPT_OCCUR_STATUS",
@@ -522,12 +524,13 @@
         "uiId":  "QMS_CLM_RPT_OCCUR_STATUS"
     },
     {
-        "menuId":  "QMS_GAUGE_MEASURE_EQUIPMENT_MGNT",
+        "menuId":  "QMS_GAUGE_MEASURE_EQUIPMENT_MANAGEMENT",
+        "legacyId":  "QMS_GAUGE_MEASURE_EQUIPMENT_MGNT",
         "menuName":  "계측기 마스터 관리",
         "parentMenuId":  "QMS_GAUGE",
         "displaySequence":  1,
         "menuType":  "Screen",
-        "uiId":  "QMS_GAUGE_MEASURE_EQUIPMENT_MGNT"
+        "uiId":  "QMS_GAUGE_MEASURE_EQUIPMENT_MANAGEMENT"
     },
     {
         "menuId":  "QMS_INSP_IMPORT_INSPECTION",
@@ -1179,12 +1182,13 @@
         "uiId":  "EES_FDC_SUMMARY_SPEC_MANAGEMENT"
     },
     {
-        "menuId":  "EES_FDC_VIRTUAL_EVENT_HI",
+        "menuId":  "EES_FDC_VIRTUAL_EVENT_HISTORY",
+        "legacyId":  "EES_FDC_VIRTUAL_EVENT_HI",
         "menuName":  "VIRTUAL EVENT 이력 조회",
         "parentMenuId":  "EES_FDC_DATA_ANALYSIS",
         "displaySequence":  3,
         "menuType":  "Screen",
-        "uiId":  "EES_FDC_VIRTUAL_EVENT_HI"
+        "uiId":  "EES_FDC_VIRTUAL_EVENT_HISTORY"
     },
     {
         "menuId":  "EES_FDC_VIRTUAL_PARAMETER_MANAGEMENT",
@@ -1572,12 +1576,13 @@
         "uiId":  "EES_FDC_SUMMARY_PARAMETER_MANAGEMENT"
     },
     {
-        "menuId":  "EPT_STD_INDEX_MGNT",
+        "menuId":  "EPT_STD_INDEX_MANAGEMENT",
+        "legacyId":  "EPT_STD_INDEX_MGNT",
         "menuName":  "지표 관리",
         "parentMenuId":  "EPT_STD",
         "displaySequence":  4,
         "menuType":  "Screen",
-        "uiId":  "EPT_STD_INDEX_MGNT"
+        "uiId":  "EPT_STD_INDEX_MANAGEMENT"
     },
     {
         "menuId":  "FACTORY_COM_ALARM_ACTION",
@@ -1748,12 +1753,13 @@
         "uiId":  "QMS_GAUGE_RNR_PLAN"
     },
     {
-        "menuId":  "QMS_INSP_IMPORT_REGIST_HIST",
+        "menuId":  "QMS_INSP_IMPORT_REGISTRATION_HIST",
+        "legacyId":  "QMS_INSP_IMPORT_REGIST_HIST",
         "menuName":  "수입 검사 이력 조회",
         "parentMenuId":  "QMS_INSP",
         "displaySequence":  4,
         "menuType":  "Screen",
-        "uiId":  "QMS_INSP_IMPORT_REGIST_HIST"
+        "uiId":  "QMS_INSP_IMPORT_REGISTRATION_HIST"
     },
     {
         "menuId":  "QMS_INSP_LONGTERM",
@@ -1996,12 +2002,13 @@
         "uiId":  "QMS_INSP_LONGTERM_PRODUCT_INSP_RESULT"
     },
     {
-        "menuId":  "QMS_INSP_PROCESS_REGIST_HIST",
+        "menuId":  "QMS_INSP_PROCESS_REGISTRATION_HIST",
+        "legacyId":  "QMS_INSP_PROCESS_REGIST_HIST",
         "menuName":  "공정 검사 이력 조회",
         "parentMenuId":  "QMS_INSP",
         "displaySequence":  5,
         "menuType":  "Screen",
-        "uiId":  "QMS_INSP_PROCESS_REGIST_HIST"
+        "uiId":  "QMS_INSP_PROCESS_REGISTRATION_HIST"
     },
     {
         "menuId":  "QMS_QCA",
@@ -2165,20 +2172,22 @@
         "uiId":  "QMS_INSP_LONGTERM_PRODUCT_INSP_HISTORY"
     },
     {
-        "menuId":  "QMS_INSP_SHIPPING_REGIST_HIST",
+        "menuId":  "QMS_INSP_SHIPPING_REGISTRATION_HIST",
+        "legacyId":  "QMS_INSP_SHIPPING_REGIST_HIST",
         "menuName":  "출하 검사 이력 조회",
         "parentMenuId":  "QMS_INSP",
         "displaySequence":  6,
         "menuType":  "Screen",
-        "uiId":  "QMS_INSP_SHIPPING_REGIST_HIST"
+        "uiId":  "QMS_INSP_SHIPPING_REGISTRATION_HIST"
     },
     {
-        "menuId":  "QMS_SPM_ADMIN_ACTION_RESULT_REGIST",
+        "menuId":  "QMS_SPM_ADMIN_ACTION_RESULT_REGISTRATION",
+        "legacyId":  "QMS_SPM_ADMIN_ACTION_RESULT_REGIST",
         "menuName":  "시정 조치 결과 등록",
         "parentMenuId":  "QMS_SPM",
         "displaySequence":  6,
         "menuType":  "Screen",
-        "uiId":  "QMS_SPM_ADMIN_ACTION_RESULT_REGIST"
+        "uiId":  "QMS_SPM_ADMIN_ACTION_RESULT_REGISTRATION"
     },
     {
         "menuId":  "SYSTEM_2_MESSAGE_CLASS_MANAGEMENT",

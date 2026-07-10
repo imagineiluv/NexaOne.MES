@@ -1,8 +1,8 @@
 ﻿-- ============================================================================
--- ?댁쁺 MSSQL SYS_MENU ?쒕뱶(SmartUX ?몃━ 320?? ??tools/ops/Generate-MenuSeedSql.ps1 ?앹꽦臾?
--- ?섎룞 ?몄쭛 湲덉?: ?먮낯? config/Seed/nexaone-menu.json ??蹂寃????앹꽦湲곕? ?ъ떎?됲빐 媛깆떊?쒕떎.
--- ?곸슜 ?쒖젏: 留덉씠洹몃젅?댁뀡(V001..V081+) ?곸슜 ?댄썑. V071(i18n)쨌V081(ID 由щℓ??? 蹂??쒕뱶? ?뺥빀.
--- 硫깅벑: SYS_MENU媛 鍮꾩뿀???뚮쭔 ?쎌엯(dev SeedDevMenuIfEmpty? ?숈씪 ?섎?濡? ???댁쁺 ?섏젙 蹂댁〈.
+-- 운영 MSSQL SYS_MENU 시드(SmartUX 트리 320행) — tools/ops/Generate-MenuSeedSql.ps1 생성물.
+-- 수동 편집 금지: 원본은 config/Seed/nexaone-menu.json — 변경 시 생성기를 재실행해 갱신한다.
+-- 적용 시점: 마이그레이션(V001..V081+) 적용 이후. V071(i18n)·V081(ID 리매핑)은 본 시드와 정합.
+-- 멱등: SYS_MENU가 비었을 때만 삽입(dev SeedDevMenuIfEmpty와 동일 의미론) — 운영 수정 보존.
 -- ============================================================================
 IF EXISTS (SELECT 1 FROM SYS_MENU)
 BEGIN
@@ -23,7 +23,7 @@ BEGIN
     (N'EES_FDC_REAL_TIME_TRACE_PARA_MONITORING', N'실시간 데이터 차트', N'EES_FDC_FDC_DATA_VIEW', 1, N'Screen', N'EES_FDC_REAL_TIME_TRACE_PARA_MONITORING', N'', N'Valid'),
     (N'EES_FDC_VIRTUAL_EVENT_MANAGEMENT', N'VIRTUAL EVENT 관리', N'EES_FDC', 3, N'Screen', N'EES_FDC_VIRTUAL_EVENT_MANAGEMENT', N'', N'Valid'),
     (N'EPT_STD', N'EPT 기준 정보', N'EES_EPT', 5, N'Folder', N'', N'', N'Valid'),
-    (N'EPT_STD_LAYOUT_MGNT', N'레이아웃 관리', N'EPT_STD', 1, N'Screen', N'EPT_STD_LAYOUT_MGNT', N'', N'Valid'),
+    (N'EPT_STD_LAYOUT_MANAGEMENT', N'레이아웃 관리', N'EPT_STD', 1, N'Screen', N'EPT_STD_LAYOUT_MANAGEMENT', N'EPT_STD_LAYOUT_MGNT', N'Valid'),
     (N'FACTORY_COM_ALARM_CLASS', N'알람 그룹 관리', N'FACTORY_COM_ALARM', 1, N'Screen', N'FACTORY_COM_ALARM_CLASS', N'', N'Valid'),
     (N'FACTORY_COM_CODE_CLASS', N'코드 그룹 관리', N'FACTORY_COM_CODE', 1, N'Screen', N'FACTORY_COM_CODE_CLASS', N'', N'Valid'),
     (N'FACTORY_COM_SERVICE', N'서비스 관리', N'FACTORY_COM', 1, N'Folder', N'', N'', N'Valid'),
@@ -75,9 +75,9 @@ BEGIN
     (N'MICUBE_STANDARD_SERVICE_MANAGEMENT', N'서비스 정의', N'FACTORY_COM_SERVICE', 1, N'Screen', N'MICUBE_STANDARD_SERVICE_MANAGEMENT', N'', N'Valid'),
     (N'MICUBE_STANDARD_USER_EQUIPMENT_MAIL_MAP', N'사용자 - 알람 액션 매핑', N'FACTORY_STD_MAIL', 1, N'Screen', N'MICUBE_STANDARD_USER_EQUIPMENT_MAIL_MAP', N'', N'Valid'),
     (N'QMS_4M_CHANGE_HISTORY', N'4M 변경 이력 관리', N'QMS_CHG', 1, N'Screen', N'QMS_4M_CHANGE_HISTORY', N'', N'Valid'),
-    (N'QMS_CLM_CLAIM_REGIST', N'고객사 클레임 접수', N'QMS_CLM', 1, N'Screen', N'QMS_CLM_CLAIM_REGIST', N'', N'Valid'),
+    (N'QMS_CLM_CLAIM_REGISTRATION', N'고객사 클레임 접수', N'QMS_CLM', 1, N'Screen', N'QMS_CLM_CLAIM_REGISTRATION', N'QMS_CLM_CLAIM_REGIST', N'Valid'),
     (N'QMS_CLM_RPT_OCCUR_STATUS', N'클레임 발생 현황', N'QMS_CLM_RPT', 1, N'Screen', N'QMS_CLM_RPT_OCCUR_STATUS', N'', N'Valid'),
-    (N'QMS_GAUGE_MEASURE_EQUIPMENT_MGNT', N'계측기 마스터 관리', N'QMS_GAUGE', 1, N'Screen', N'QMS_GAUGE_MEASURE_EQUIPMENT_MGNT', N'', N'Valid'),
+    (N'QMS_GAUGE_MEASURE_EQUIPMENT_MANAGEMENT', N'계측기 마스터 관리', N'QMS_GAUGE', 1, N'Screen', N'QMS_GAUGE_MEASURE_EQUIPMENT_MANAGEMENT', N'QMS_GAUGE_MEASURE_EQUIPMENT_MGNT', N'Valid'),
     (N'QMS_INSP_IMPORT_INSPECTION', N'수입 검사 등록', N'QMS_INSP', 1, N'Screen', N'QMS_INSP_IMPORT_INSPECTION', N'', N'Valid'),
     (N'QMS_INSP_LONGTERM_REQUEST', N'자재 장기재고 검사 의뢰 현황', N'QMS_INSP_LONGTERM', 1, N'Screen', N'QMS_INSP_LONGTERM_REQUEST', N'', N'Valid'),
     (N'QMS_QCA_NCR_ISSUE', N'NCR 관리', N'QMS_QCA', 1, N'Screen', N'QMS_QCA_NCR_ISSUE', N'', N'Valid'),
@@ -159,7 +159,7 @@ BEGIN
     (N'EES_FDC_PARAMETER_SPEC_MANAGEMENT', N'파라미터 스펙 관리', N'EES_FDC', 5, N'Folder', N'', N'', N'Valid'),
     (N'EES_FDC_SUMMARY_DATA_CHART', N'FDC SUMMARY 데이터 차트', N'EES_FDC_FDC_DATA_VIEW', 3, N'Screen', N'EES_FDC_SUMMARY_DATA_CHART', N'', N'Valid'),
     (N'EES_FDC_SUMMARY_SPEC_MANAGEMENT', N'SUMMARY 파라미터 스펙 관리', N'EES_FDC_PARAMETER_SPEC_MANAGEMENT', 3, N'Screen', N'EES_FDC_SUMMARY_SPEC_MANAGEMENT', N'', N'Valid'),
-    (N'EES_FDC_VIRTUAL_EVENT_HI', N'VIRTUAL EVENT 이력 조회', N'EES_FDC_DATA_ANALYSIS', 3, N'Screen', N'EES_FDC_VIRTUAL_EVENT_HI', N'', N'Valid'),
+    (N'EES_FDC_VIRTUAL_EVENT_HISTORY', N'VIRTUAL EVENT 이력 조회', N'EES_FDC_DATA_ANALYSIS', 3, N'Screen', N'EES_FDC_VIRTUAL_EVENT_HISTORY', N'EES_FDC_VIRTUAL_EVENT_HI', N'Valid'),
     (N'EES_FDC_VIRTUAL_PARAMETER_MANAGEMENT', N'VIRTUAL 파라미터 관리', N'EES_FDC_PARAMETER_MANAGEMENT', 3, N'Screen', N'EES_FDC_VIRTUAL_PARAMETER_MANAGEMENT', N'', N'Valid'),
     (N'EPT_STD_EQUIPMENT_PROPERTY', N'설비별 EPT 속성 관리', N'EPT_STD', 3, N'Screen', N'EPT_STD_EQUIPMENT_PROPERTY', N'', N'Valid'),
     (N'FACTORY_COM_ACTION_DEF', N'알람 액션 관리', N'FACTORY_COM_ALARM', 3, N'Screen', N'FACTORY_COM_ACTION_DEF', N'', N'Valid'),
@@ -208,7 +208,7 @@ BEGIN
     (N'EES_FDC_FDC_DATA_VIEW', N'FDC 데이터 조회', N'EES_FDC', 1, N'Folder', N'', N'', N'Valid'),
     (N'EES_FDC_INTERESTED_DATA_CHART', N'FDC 관심 데이터 차트', N'EES_FDC_FDC_DATA_VIEW', 4, N'Screen', N'EES_FDC_INTERESTED_DATA_CHART', N'', N'Valid'),
     (N'EES_FDC_SUMMARY_PARAMETER_MANAGEMENT', N'SUMMARY 파라미터 관리', N'EES_FDC_PARAMETER_MANAGEMENT', 4, N'Screen', N'EES_FDC_SUMMARY_PARAMETER_MANAGEMENT', N'', N'Valid'),
-    (N'EPT_STD_INDEX_MGNT', N'지표 관리', N'EPT_STD', 4, N'Screen', N'EPT_STD_INDEX_MGNT', N'', N'Valid'),
+    (N'EPT_STD_INDEX_MANAGEMENT', N'지표 관리', N'EPT_STD', 4, N'Screen', N'EPT_STD_INDEX_MANAGEMENT', N'EPT_STD_INDEX_MGNT', N'Valid'),
     (N'FACTORY_COM_ALARM_ACTION', N'알람별 액션 관리', N'FACTORY_COM_ALARM', 4, N'Screen', N'FACTORY_COM_ALARM_ACTION', N'', N'Valid'),
     (N'FACTORY_COM_CODE_STATE', N'상태 코드 관리', N'FACTORY_COM_CODE', 4, N'Screen', N'FACTORY_COM_CODE_STATE', N'', N'Valid'),
     (N'FACTORY_EMS_BM', N'고장 관리', N'FACTORY_EMS', 2, N'Folder', N'', N'', N'Valid'),
@@ -230,7 +230,7 @@ BEGIN
     (N'POC_MIXING_PROCESS', N'배합 공정 진행', N'FACTORY_WPM_SEGMENT', 4, N'Screen', N'POC_MIXING_PROCESS', N'', N'Valid'),
     (N'QMS_CLM_RPT', N'현황 보고서', N'QMS_CLM', 4, N'Folder', N'', N'', N'Valid'),
     (N'QMS_GAUGE_RNR_PLAN', N'RNR 계획 관리', N'QMS_GAUGE', 4, N'Screen', N'QMS_GAUGE_RNR_PLAN', N'', N'Valid'),
-    (N'QMS_INSP_IMPORT_REGIST_HIST', N'수입 검사 이력 조회', N'QMS_INSP', 4, N'Screen', N'QMS_INSP_IMPORT_REGIST_HIST', N'', N'Valid'),
+    (N'QMS_INSP_IMPORT_REGISTRATION_HIST', N'수입 검사 이력 조회', N'QMS_INSP', 4, N'Screen', N'QMS_INSP_IMPORT_REGISTRATION_HIST', N'QMS_INSP_IMPORT_REGIST_HIST', N'Valid'),
     (N'QMS_INSP_LONGTERM', N'장기재고검사', N'QMS', 2, N'Folder', N'', N'', N'Valid'),
     (N'QMS_INSP_LONGTERM_PRODUCT_REQUEST', N'제품 장기재고 검사 의뢰 현황', N'QMS_INSP_LONGTERM', 4, N'Screen', N'QMS_INSP_LONGTERM_PRODUCT_REQUEST', N'', N'Valid'),
     (N'QMS_QCA_PENDING_STATUS', N'Hold/Release(Risk Range) 현황', N'QMS_QCA', 4, N'Screen', N'QMS_QCA_PENDING_STATUS', N'', N'Valid'),
@@ -261,7 +261,7 @@ BEGIN
     (N'POC_COATING_PROCESS', N'공정 진행', N'FACTORY_WPM_SEGMENT', 5, N'Screen', N'POC_COATING_PROCESS', N'', N'Valid'),
     (N'QMS_GAUGE_RNR_RESULT', N'RNR 평가 등록', N'QMS_GAUGE', 5, N'Screen', N'QMS_GAUGE_RNR_RESULT', N'', N'Valid'),
     (N'QMS_INSP_LONGTERM_PRODUCT_INSP_RESULT', N'제품 장기재고 검사 결과 등록', N'QMS_INSP_LONGTERM', 5, N'Screen', N'QMS_INSP_LONGTERM_PRODUCT_INSP_RESULT', N'', N'Valid'),
-    (N'QMS_INSP_PROCESS_REGIST_HIST', N'공정 검사 이력 조회', N'QMS_INSP', 5, N'Screen', N'QMS_INSP_PROCESS_REGIST_HIST', N'', N'Valid'),
+    (N'QMS_INSP_PROCESS_REGISTRATION_HIST', N'공정 검사 이력 조회', N'QMS_INSP', 5, N'Screen', N'QMS_INSP_PROCESS_REGISTRATION_HIST', N'QMS_INSP_PROCESS_REGIST_HIST', N'Valid'),
     (N'QMS_QCA', N'부적합관리', N'QMS', 3, N'Folder', N'', N'', N'Valid'),
     (N'QMS_SPM_EVL_RESULT_VIEW', N'협력사 실적 조회', N'QMS_SPM', 5, N'Screen', N'QMS_SPM_EVL_RESULT_VIEW', N'', N'Valid'),
     (N'SYSTEM_2_LANGUAGE_MANAGEMENT', N'다국어 관리', N'SYSTEM2_COMMON', 5, N'Screen', N'SYSTEM_2_LANGUAGE_MANAGEMENT', N'', N'Valid'),
@@ -282,8 +282,8 @@ BEGIN
     (N'QMS_CHG', N'변경점 관리', N'QMS', 4, N'Folder', N'', N'', N'Valid'),
     (N'QMS_GAUGE_REPAIR_RESULT', N'수리 내역 등록', N'QMS_GAUGE', 6, N'Screen', N'QMS_GAUGE_REPAIR_RESULT', N'', N'Valid'),
     (N'QMS_INSP_LONGTERM_PRODUCT_INSP_HISTORY', N'제품 장기재고 검사 결과 이력', N'QMS_INSP_LONGTERM', 6, N'Screen', N'QMS_INSP_LONGTERM_PRODUCT_INSP_HISTORY', N'', N'Valid'),
-    (N'QMS_INSP_SHIPPING_REGIST_HIST', N'출하 검사 이력 조회', N'QMS_INSP', 6, N'Screen', N'QMS_INSP_SHIPPING_REGIST_HIST', N'', N'Valid'),
-    (N'QMS_SPM_ADMIN_ACTION_RESULT_REGIST', N'시정 조치 결과 등록', N'QMS_SPM', 6, N'Screen', N'QMS_SPM_ADMIN_ACTION_RESULT_REGIST', N'', N'Valid'),
+    (N'QMS_INSP_SHIPPING_REGISTRATION_HIST', N'출하 검사 이력 조회', N'QMS_INSP', 6, N'Screen', N'QMS_INSP_SHIPPING_REGISTRATION_HIST', N'QMS_INSP_SHIPPING_REGIST_HIST', N'Valid'),
+    (N'QMS_SPM_ADMIN_ACTION_RESULT_REGISTRATION', N'시정 조치 결과 등록', N'QMS_SPM', 6, N'Screen', N'QMS_SPM_ADMIN_ACTION_RESULT_REGISTRATION', N'QMS_SPM_ADMIN_ACTION_RESULT_REGIST', N'Valid'),
     (N'SYSTEM_2_MESSAGE_CLASS_MANAGEMENT', N'메세지 그룹 관리', N'SYSTEM2_COMMON', 6, N'Screen', N'SYSTEM_2_MESSAGE_CLASS_MANAGEMENT', N'', N'Valid'),
     (N'EES_EPT_CHANGE_EQUIPMENT_STATE', N'설비 상태 변경', N'EES_EPT_EQUIPMENT_HISTORY', 7, N'Screen', N'EES_EPT_CHANGE_EQUIPMENT_STATE', N'', N'Valid'),
     (N'EES_FDC_PARAMETER_STATE_CONDITION', N'파라미터별 설비 상태 변경 관리', N'EES_FDC_PARAMETER_MANAGEMENT', 7, N'Screen', N'EES_FDC_PARAMETER_STATE_CONDITION', N'', N'Valid'),
