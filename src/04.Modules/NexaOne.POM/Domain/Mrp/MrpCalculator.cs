@@ -26,7 +26,11 @@ public sealed record MrpPlannedOrderProposal(
     DateTime? DueDate,
     DateTime? ReleaseDate,
     string? SourceDemand,
-    string? PlantId = null);    // 첫 기여 수요의 공장(전환 시 실오더 PLANT_ID — 미상은 전환기가 DEFAULT 폴백)
+    string? PlantId = null,     // 첫 기여 수요의 공장(전환 시 실오더 PLANT_ID — 미상은 전환기가 DEFAULT 폴백)
+    IReadOnlyList<MrpContribution>? Contributions = null);   // 페깅(v2) — 총소요의 수요별 기여 분해
+
+/// <summary>페깅(수요 기여) 1건 — 제안 품목의 총소요가 어느 수요에서 얼마나 왔는지(v2 정밀 추적).</summary>
+public sealed record MrpContribution(string DemandRef, decimal Qty);
 
 public sealed record MrpCalculationResult(bool Success, IReadOnlyList<MrpPlannedOrderProposal> Proposals, string? Error);
 
@@ -89,11 +93,13 @@ public static class MrpCalculator
         var due = new Dictionary<string, DateTime?>(StringComparer.Ordinal);
         var sources = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var plants = new Dictionary<string, string?>(StringComparer.Ordinal);   // 첫 기여 수요의 공장(전환용)
+        var contribs = new Dictionary<string, List<MrpContribution>>(StringComparer.Ordinal);   // 페깅(v2)
         foreach (var d in demands.Where(d => d.Qty > 0))
         {
             gross[d.ItemId] = gross.GetValueOrDefault(d.ItemId) + d.Qty;
             MergeDue(due, d.ItemId, d.DueDate);
             (sources.TryGetValue(d.ItemId, out var list) ? list : sources[d.ItemId] = new()).Add(d.SourceRef);
+            (contribs.TryGetValue(d.ItemId, out var cb) ? cb : contribs[d.ItemId] = new()).Add(new(d.SourceRef, d.Qty));
             if (!plants.ContainsKey(d.ItemId) && d.PlantId is not null) plants[d.ItemId] = d.PlantId;
         }
 
@@ -127,7 +133,8 @@ public static class MrpCalculator
             var plant = plants.GetValueOrDefault(item);
 
             proposals.Add(new MrpPlannedOrderProposal(
-                item, orderType, g, oh, oo, p.SafetyStock, net, suggested, dueDate, release, Summarize(sources, item), plant));
+                item, orderType, g, oh, oo, p.SafetyStock, net, suggested, dueDate, release, Summarize(sources, item), plant,
+                contribs.TryGetValue(item, out var myContribs) ? myContribs.ToList() : null));
 
             // ⑤ 종속 수요 전개 — 생산 제안 수량 기준(스크랩률 가산), 구성품 납기 = 부모 착수일. 공장은 부모 상속.
             if (isMake && children.TryGetValue(item, out var lines))
@@ -139,6 +146,8 @@ public static class MrpCalculator
                     MergeDue(due, line.ComponentItemId, release);
                     (sources.TryGetValue(line.ComponentItemId, out var cl) ? cl : sources[line.ComponentItemId] = new())
                         .Add($"{item} 생산 전개");
+                    (contribs.TryGetValue(line.ComponentItemId, out var ccb) ? ccb : contribs[line.ComponentItemId] = new())
+                        .Add(new($"{item} 생산 전개", compQty));
                     if (!plants.ContainsKey(line.ComponentItemId) && plant is not null) plants[line.ComponentItemId] = plant;
                 }
         }

@@ -72,6 +72,23 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
                         plant = p.PlantId,
                         by = executedBy,
                     }, ct);
+
+                // 페깅(v2) — 총소요의 수요별 기여를 분해 보존(SOURCE_DEMAND 요약의 정밀판). append-only.
+                var pseq = 0;
+                foreach (var cb in p.Contributions ?? Array.Empty<MrpContribution>())
+                    await _processor.ExecuteAsync(
+                        "INSERT INTO MRP_PEGGING (PEGGING_ID, RUN_ID, PLANNED_ORDER_ID, ITEM_ID, DEMAND_REF, QTY, CREATED_BY) " +
+                        "VALUES (@id, @runId, @orderId, @item, @demandRef, @qty, @by)",
+                        new
+                        {
+                            id = $"{runId}_{seq:D4}_P{++pseq:D3}",
+                            runId,
+                            orderId = $"{runId}_{seq:D4}",
+                            item = p.ItemId,
+                            demandRef = cb.DemandRef,
+                            qty = cb.Qty,
+                            by = executedBy,
+                        }, ct);
             }
 
             await FinalizeAsync(runId, "Success", demands.Count, result.Proposals.Count, null, executedBy, ct);

@@ -204,6 +204,17 @@
             ORDER BY P.ORDER_TYPE, P.RELEASE_DATE, P.ITEM_ID
         ]]></statement>
     </query>
+    <!-- 페깅(v2) — 제안별 수요 기여 분해(최신 실행 기본). 독립 수요=수주 ID, 종속 수요=부모 전개. -->
+    <query id="POM.MrpPeggingList">
+        <statement><![CDATA[
+            SELECT G.PLANNED_ORDER_ID, G.ITEM_ID, G.DEMAND_REF, G.QTY
+            FROM MRP_PEGGING G
+            WHERE G.RUN_ID = COALESCE(@runId, (SELECT R.RUN_ID FROM MRP_RUN R
+                                               WHERE R.STARTED_AT = (SELECT MAX(R2.STARTED_AT) FROM MRP_RUN R2)))
+            ORDER BY G.PLANNED_ORDER_ID, G.PEGGING_ID
+            LIMIT 500
+        ]]></statement>
+    </query>
     <query id="POM.MrpRunList">
         <statement><![CDATA[
             SELECT RUN_ID, STARTED_AT, FINISHED_AT, STATUS, DEMAND_COUNT, PLANNED_ORDER_COUNT, MESSAGE, EXECUTED_BY

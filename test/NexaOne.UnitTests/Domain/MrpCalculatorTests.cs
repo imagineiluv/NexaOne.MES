@@ -238,6 +238,33 @@ public sealed class MrpCalculatorTests
     }
 
     [Fact]
+    public void Contributions_decompose_gross_per_demand_for_pegging()
+    {
+        // 페깅(v2) — 공유 구성품 C의 총소요 250이 어느 부모 전개에서 얼마나 왔는지 분해돼야 한다
+        // (SOURCE_DEMAND "SO-1 외 1건" 요약으로는 불가능했던 추적).
+        var bom = new[] { new MrpBomLine("A", "C", 1, 0), new MrpBomLine("B", "C", 3, 0) };
+        var planning = new Dictionary<string, MrpItemParameters>
+        {
+            ["A"] = new(0, null, 1, "Make"),
+            ["B"] = new(0, null, 1, "Make"),
+        };
+
+        var result = Calc(
+            new[] { new MrpDemand("A", 100, null, "SO-1"), new MrpDemand("B", 50, null, "SO-2") },
+            bom: bom, planning: planning);
+
+        var a = result.Proposals.Single(p => p.ItemId == "A");
+        a.Contributions.Should().ContainSingle().Which.Should().Be(new MrpContribution("SO-1", 100));
+
+        var cc = result.Proposals.Single(p => p.ItemId == "C").Contributions!;
+        cc.Should().HaveCount(2);
+        cc.Single(x => x.DemandRef == "A 생산 전개").Qty.Should().Be(100, "A 제안 100 × 1");
+        cc.Single(x => x.DemandRef == "B 생산 전개").Qty.Should().Be(150, "B 제안 50 × 3");
+        cc.Sum(x => x.Qty).Should().Be(result.Proposals.Single(p => p.ItemId == "C").GrossQty,
+            "기여 합 = 총소요(분해 무손실 불변식)");
+    }
+
+    [Fact]
     public void Plant_propagates_from_demand_to_dependent_components()
     {
         // 전환(v2)용 — 수요 공장이 제안·종속 구성품 제안까지 상속돼야 실오더 PLANT_ID를 채울 수 있다.
