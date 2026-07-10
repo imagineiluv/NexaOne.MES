@@ -153,19 +153,59 @@
          분산은 AVG(v*v)-AVG(v)*AVG(v) (SQLite STDDEV 부재 — 방언 동일식으로 패리티 유지). -->
     <query id="FDC.EquipmentParameterStats">
         <statement><![CDATA[
-            SELECT PARAMETER_ID, EQUIPMENT_ID,
+            SELECT FDC_COLLECT_DATA.PARAMETER_ID, EQUIPMENT_ID,
                    COUNT(*)                          AS N,
                    ROUND(AVG(VALUE), 4)              AS AVG_VALUE,
                    MIN(VALUE)                        AS MIN_VALUE,
                    MAX(VALUE)                        AS MAX_VALUE,
                    ROUND(MAX(VALUE) - MIN(VALUE), 4) AS RANGE_VALUE,
-                   ROUND(AVG(VALUE * VALUE) - AVG(VALUE) * AVG(VALUE), 6) AS VARIANCE_VALUE
+                   ROUND(AVG(VALUE * VALUE) - AVG(VALUE) * AVG(VALUE), 6) AS VARIANCE_VALUE,
+                   ROUND(AVG(VALUE) - GRAND.G_AVG, 4)                     AS DIFF_FROM_GRAND
             FROM FDC_COLLECT_DATA
-            WHERE (@parameterId IS NULL OR PARAMETER_ID = @parameterId)
+            JOIN (SELECT PARAMETER_ID AS G_PARAM, AVG(VALUE) AS G_AVG
+                  FROM FDC_COLLECT_DATA GROUP BY PARAMETER_ID) AS GRAND
+              ON GRAND.G_PARAM = FDC_COLLECT_DATA.PARAMETER_ID
+            WHERE (@parameterId IS NULL OR FDC_COLLECT_DATA.PARAMETER_ID = @parameterId)
               AND (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
-            GROUP BY PARAMETER_ID, EQUIPMENT_ID
-            ORDER BY PARAMETER_ID, EQUIPMENT_ID
+            GROUP BY FDC_COLLECT_DATA.PARAMETER_ID, EQUIPMENT_ID, GRAND.G_AVG
+            ORDER BY FDC_COLLECT_DATA.PARAMETER_ID, EQUIPMENT_ID
             LIMIT 500
+        ]]></statement>
+    </query>
+    <!-- 사용자별 관심 파라미터(V084) — 개인화 규약: 전 쿼리 @currentUser 서버 주입 스코프
+         (쓰기=서버 주입이라 원시 /command로도 타인 조작 불가). -->
+    <query id="FDC.UserParameterList">
+        <statement><![CDATA[
+            SELECT EQUIPMENT_ID, PARAMETER_ID, DISPLAY_SEQUENCE
+            FROM FDC_USER_PARAMETER
+            WHERE USER_ID = @currentUser
+            ORDER BY DISPLAY_SEQUENCE, EQUIPMENT_ID, PARAMETER_ID
+        ]]></statement>
+    </query>
+    <query id="FDC.CreateUserParameter" kind="write" requiredPermission="fdc:read">
+        <statement><![CDATA[
+            INSERT INTO FDC_USER_PARAMETER (USER_ID, EQUIPMENT_ID, PARAMETER_ID, DISPLAY_SEQUENCE, CREATED_BY, CREATED_AT)
+            VALUES (@currentUser, @equipmentId, @parameterId, COALESCE(@displaySequence, 0), @currentUser, @utcNow)
+            ON CONFLICT(USER_ID, EQUIPMENT_ID, PARAMETER_ID)
+            DO UPDATE SET DISPLAY_SEQUENCE = COALESCE(@displaySequence, DISPLAY_SEQUENCE)
+        ]]></statement>
+    </query>
+    <query id="FDC.DeleteUserParameter" kind="write" requiredPermission="fdc:read">
+        <statement><![CDATA[
+            DELETE FROM FDC_USER_PARAMETER
+            WHERE USER_ID = @currentUser AND EQUIPMENT_ID = @equipmentId AND PARAMETER_ID = @parameterId
+        ]]></statement>
+    </query>
+    <!-- 관심 파라미터의 실시간 값 — 수집 시계열을 내 관심 목록으로 좁힌다(모니터링 보드). -->
+    <query id="FDC.UserMonitoringData">
+        <statement><![CDATA[
+            SELECT C.EQUIPMENT_ID, C.PARAMETER_ID, C.VALUE, C.COLLECTED_AT, C.QUALITY, C.LOWER_LIMIT, C.UPPER_LIMIT
+            FROM FDC_COLLECT_DATA C
+            JOIN FDC_USER_PARAMETER U
+              ON U.EQUIPMENT_ID = C.EQUIPMENT_ID AND U.PARAMETER_ID = C.PARAMETER_ID
+            WHERE U.USER_ID = @currentUser
+            ORDER BY C.COLLECTED_AT DESC
+            LIMIT 200
         ]]></statement>
     </query>
     <!-- 가상 이벤트 전이 이력 조회(V069) — 기록은 FDC 모듈 평가 엔진(VirtualEventService)이 수행. -->

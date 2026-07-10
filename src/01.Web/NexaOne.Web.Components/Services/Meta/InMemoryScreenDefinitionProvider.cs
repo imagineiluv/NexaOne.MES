@@ -752,16 +752,60 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "FDC.VirtualEventHistoryList"));
 
-        // 사용자별 실시간 모니터링 — v1 최소판(수집 최근값 그리드, TRACE 모니터링과 동일 패턴).
-        // 충실판(사용자별 관심 파라미터 보드)은 사용자-파라미터 매핑 테이블 제품결정 후.
+        // 사용자별 실시간 모니터링 — 충실판(V084): 내 관심 파라미터(등록 폼+목록+해제 일괄명령) 위에
+        // 실시간 값 보드(JOIN, 10초 갱신). 전 쿼리 @currentUser 스코프(개인화 규약 — 타인 조작 불가).
         Register(new ScreenDefinition("EES_FDC_REAL_TIME_USER_MONITORING", "FDC 사용자별 실시간 모니터링",
             Array.Empty<FieldDefinition>(),
-            new GridColumnDefinition[]
+            RefreshIntervalSeconds: 10,
+            BulkCommands: new BulkCommandDefinition[]
             {
-                new("EQUIPMENT_ID", "설비 ID"), new("PARAMETER_ID", "파라미터 ID"), new("VALUE", "측정값"),
-                new("COLLECTED_AT", "수집시각"), new("QUALITY", "품질"), new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
+                new("관심 해제", "FDC.DeleteUserParameter", "선택한 관심 파라미터를 해제할까요?"),
             },
-            QueryId: "FDC.CollectDataList", RefreshIntervalSeconds: 10));
+            Layout: new SectionNode
+            {
+                Id = "sec-usermon", Title = "사용자별 실시간 모니터링(내 관심 파라미터)",
+                Children = new LayoutNode[]
+                {
+                    new RowNode { Id = "um-form", Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 12, Children = new LayoutNode[]
+                        {
+                            new TextWidget { Id = "um-t0", Text = "관심 파라미터 등록", IsLabel = true },
+                            new FormWidget
+                            {
+                                Id = "um-reg", SaveQueryId = "FDC.CreateUserParameter",
+                                Fields = new FieldWidget[]
+                                {
+                                    new() { Id = "um-f1", Field = new FieldDefinition("equipmentId", "설비 ID", Required: true) },
+                                    new() { Id = "um-f2", Field = new FieldDefinition("parameterId", "파라미터 ID", Required: true) },
+                                    new() { Id = "um-f3", Field = new FieldDefinition("displaySequence", "표시 순서", FieldType.Number) },
+                                },
+                            },
+                        } },
+                    } },
+                    new RowNode { Id = "um-list", Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 4, Children = new LayoutNode[]
+                        {
+                            new TextWidget { Id = "um-t1", Text = "내 관심 파라미터", IsLabel = true },
+                            new GridWidget { Id = "um-g1", QueryId = "FDC.UserParameterList", Columns = new GridColumnDefinition[]
+                            {
+                                new("EQUIPMENT_ID", "설비 ID"), new("PARAMETER_ID", "파라미터 ID"), new("DISPLAY_SEQUENCE", "순서", Width: 80),
+                            } },
+                        } },
+                        new ColumnNode { Span = 8, Children = new LayoutNode[]
+                        {
+                            new TextWidget { Id = "um-t2", Text = "실시간 값(10초 갱신)", IsLabel = true },
+                            new GridWidget { Id = "um-g2", QueryId = "FDC.UserMonitoringData", Columns = new GridColumnDefinition[]
+                            {
+                                new("EQUIPMENT_ID", "설비 ID", Width: 110), new("PARAMETER_ID", "파라미터 ID", Width: 130),
+                                new("VALUE", "측정값"), new("COLLECTED_AT", "수집시각"), new("QUALITY", "품질", Width: 90),
+                                new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
+                            } },
+                        } },
+                    } },
+                },
+            }));
 
         // 동종 설비간 동일성 검정(tool-to-tool matching) v1 — 파라미터×설비 분포 요약(건수·평균·범위·분산) 비교
         // 그리드. 통계 검정(t-test 등)·차트는 v2 분리(스카우트 권고).
@@ -772,6 +816,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PARAMETER_ID", "파라미터 ID", Width: 140), new("EQUIPMENT_ID", "설비 ID", Width: 110),
                 new("N", "표본수", Width: 90), new("AVG_VALUE", "평균"), new("MIN_VALUE", "최소"),
                 new("MAX_VALUE", "최대"), new("RANGE_VALUE", "범위"), new("VARIANCE_VALUE", "분산"),
+                new("DIFF_FROM_GRAND", "전체평균 대비 편차"),
             },
             QueryId: "FDC.EquipmentParameterStats"));
 
@@ -2147,6 +2192,18 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                                 new("SAFETY_STOCK_QTY", "안전재고"), new("NET_QTY", "순소요"), new("SUGGESTED_QTY", "제안수량"),
                                 new("RELEASE_DATE", "착수(발주)일"), new("DUE_DATE", "납기"), new("SOURCE_DEMAND", "근거 수요"),
                                 new("STATUS", "상태", Width: 100), new("CONVERTED_ORDER_ID", "전환 오더", Width: 170),
+                            } },
+                        } },
+                    } },
+                    new RowNode { Id = "mrp-peg", Children = new LayoutNode[]
+                    {
+                        new ColumnNode { Span = 12, Children = new LayoutNode[]
+                        {
+                            new TextWidget { Id = "t-peg", Text = "페깅 — 수요 기여 추적(최신 실행)", IsLabel = true },
+                            new GridWidget { Id = "g-peg", QueryId = "POM.MrpPeggingList", Columns = new GridColumnDefinition[]
+                            {
+                                new("PLANNED_ORDER_ID", "계획오더", Width: 220), new("ITEM_ID", "품목", Width: 120),
+                                new("DEMAND_REF", "근거 수요"), new("QTY", "기여 수량"),
                             } },
                         } },
                     } },

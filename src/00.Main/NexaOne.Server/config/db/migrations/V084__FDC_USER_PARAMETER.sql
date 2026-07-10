@@ -1,0 +1,15 @@
+-- FDC 사용자별 관심 파라미터(2026-07-10) — '사용자별 실시간 모니터링' 충실판의 근거 테이블.
+-- 레거시 개념(사용자가 고른 파라미터의 실시간 값 보드) 미러 — 기존 FDC_PARAMETER에 USER_ID가 없어
+-- 매핑 테이블을 신설한다. 개인화 규약: 조회/쓰기 전부 @currentUser 서버 주입 스코프(§20.8·개인화 패턴).
+-- 신규 테이블 — SQLite 증분 경로에서도 자동 생성(ALTER 아님).
+CREATE TABLE FDC_USER_PARAMETER (
+    USER_ID         NVARCHAR(50)    NOT NULL,
+    EQUIPMENT_ID    NVARCHAR(50)    NOT NULL,
+    PARAMETER_ID    NVARCHAR(50)    NOT NULL,
+    DISPLAY_SEQUENCE INT            NOT NULL DEFAULT 0,
+    CREATED_BY      NVARCHAR(50)    NOT NULL DEFAULT 'SYSTEM',
+    CREATED_AT      DATETIME2       NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_FDC_USER_PARAMETER PRIMARY KEY (USER_ID, EQUIPMENT_ID, PARAMETER_ID)
+);
+
+CREATE INDEX IX_FDC_USER_PARAMETER_USER ON FDC_USER_PARAMETER (USER_ID, DISPLAY_SEQUENCE);

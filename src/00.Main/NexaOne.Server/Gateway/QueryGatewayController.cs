@@ -45,7 +45,9 @@ public sealed partial class QueryGatewayController : ControllerBase
         if (!string.IsNullOrEmpty(def.RequiredPermission) && !User.HasPermission(def.RequiredPermission))
             return Forbid();
 
-        var p = BuildParameters(def.Sql, parameters, injectAudit: false);
+        // @currentUser/@utcNow는 read에도 서버 주입 — 개인화 read(FDC.UserParameterList 등)가 범용
+        // /query로 동작하고, 클라이언트가 보낸 currentUser 값은 덮어써 타인 데이터 스푸핑을 차단한다.
+        var p = BuildParameters(def.Sql, parameters, injectAudit: true);
         var rows = await _dispatcher.QueryAsync(def.Sql, p, ct);
         return Ok(rows);
     }
@@ -74,7 +76,7 @@ public sealed partial class QueryGatewayController : ControllerBase
             return UnprocessableEntity(new Error("QUERY_NOT_PAGEABLE",
                 $"Query '{queryId}' declares its own limit clause and cannot be server-paged.", ErrorType.Validation));
 
-        var p = BuildParameters(def.Sql, request.Parameters, injectAudit: false);
+        var p = BuildParameters(def.Sql, request.Parameters, injectAudit: true);   // read 주입 — 위 /query와 동일 근거
         var countRows = await _dispatcher.QueryAsync(countSql, p, ct);
         var first = countRows.FirstOrDefault()?.Values.FirstOrDefault();
         var total = first switch { int i => i, long l => (int)l, _ => int.TryParse(first?.ToString(), out var n) ? n : 0 };
@@ -117,8 +119,12 @@ public sealed partial class QueryGatewayController : ControllerBase
                 p[k] = JsonToClr(v) ?? (object)DBNull.Value;
         if (injectAudit)
         {
-            p["currentUser"] = CurrentUserId;
-            p["utcNow"] = DateTime.UtcNow;
+            // SQL이 토큰을 참조할 때만 주입 — Microsoft.Data.Sqlite는 문장에 없는 파라미터를 예외로 던진다.
+            // 참조 시엔 클라이언트 제공값을 '덮어써' 개인화 스코프 스푸핑을 차단한다(read/write 공통).
+            if (def_sql_has(sql, "currentUser")) p["currentUser"] = CurrentUserId;
+            if (def_sql_has(sql, "utcNow")) p["utcNow"] = DateTime.UtcNow;
+
+            static bool def_sql_has(string s, string token) => s.Contains("@" + token, StringComparison.Ordinal);
         }
         foreach (Match m in ParamToken().Matches(sql))
             if (!p.ContainsKey(m.Groups[1].Value)) p[m.Groups[1].Value] = DBNull.Value;

@@ -165,6 +165,20 @@ public sealed class GatewayFdcQueryTests : IClassFixture<GatewayFdcQueryTests.Fd
         });
 
     // FDC_COLLECT_DATA 1건 시드(수집 시계열, 감사 컬럼 없음 — COLLECTED_AT만). QUALITY는 DEFAULT 'Good'.
+    private void SeedUserParameter(string userId, string equipmentId, string parameterId)
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(_factory.ConnString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO FDC_USER_PARAMETER (USER_ID, EQUIPMENT_ID, PARAMETER_ID, DISPLAY_SEQUENCE, CREATED_BY, CREATED_AT)
+            VALUES (@u, @e, @p, 0, @u, @now)";
+        cmd.Parameters.AddWithValue("@u", userId);
+        cmd.Parameters.AddWithValue("@e", equipmentId);
+        cmd.Parameters.AddWithValue("@p", parameterId);
+        cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"));
+        cmd.ExecuteNonQuery();
+    }
+
     private void SeedCollectData(string collectId, string equipmentId, string parameterId, decimal value, DateTime collectedAt)
         => Exec(@"INSERT INTO FDC_COLLECT_DATA
             (COLLECT_ID, EQUIPMENT_ID, PARAMETER_ID, VALUE, COLLECTED_AT, QUALITY, LOWER_LIMIT, UPPER_LIMIT)
@@ -343,6 +357,24 @@ public sealed class GatewayFdcQueryTests : IClassFixture<GatewayFdcQueryTests.Fd
         var ids = rows.Select(r => r["COLLECT_ID"].ToString()).ToList();
         ids.Should().Contain(new[] { idA, idB }, "설비/파라미터 필터 없이 최근 수집 시계열이 조회돼야 한다(FDC 데이터 차트 점등)");
         rows.Should().OnlyContain(r => r.ContainsKey("VALUE") && r.ContainsKey("COLLECTED_AT"));
+    }
+
+    [Fact]
+    public async Task UserParameterList_scopes_to_token_user_and_ignores_spoofed_current_user()
+    {
+        EnsureSchemaReady();
+        var eq = "EQ_" + Suffix();
+        SeedUserParameter("fdc-e2e-user", eq, "P_MINE");
+        SeedUserParameter("someone-else", eq, "P_OTHER");
+
+        var mine = await Query("FDC.UserParameterList", new());
+        mine.Select(r => r["PARAMETER_ID"]!.ToString()).Should().Contain("P_MINE")
+            .And.NotContain("P_OTHER", "개인화 read는 토큰 사용자로 스코프돼야 한다");
+
+        // 스푸핑 시도 — 클라이언트가 currentUser 파라미터를 보내도 서버 주입이 덮어쓴다.
+        var spoof = await Query("FDC.UserParameterList", new() { ["currentUser"] = "someone-else" });
+        spoof.Select(r => r["PARAMETER_ID"]!.ToString()).Should().NotContain("P_OTHER",
+            "클라이언트 제공 @currentUser는 무시(서버 주입 우선)돼야 한다");
     }
 
     [Fact]
