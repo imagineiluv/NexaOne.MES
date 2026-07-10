@@ -462,4 +462,48 @@
             DELETE FROM MDM_ITEM_PLANNING WHERE ITEM_ID = @itemId
         ]]></statement>
     </query>
+    <!-- CRP v1(V087) — 워크센터·라우팅 스텝 CRUD. UOM 관례 미러(upsert=ON CONFLICT, CREATED_* 보존). -->
+    <query id="MDM.WorkCenterList">
+        <statement><![CDATA[
+            SELECT WORK_CENTER_ID, WORK_CENTER_NAME, PLANT_ID, DAILY_CAPACITY_MIN, IS_ACTIVE, DESCRIPTION
+            FROM MDM_WORK_CENTER ORDER BY WORK_CENTER_ID
+        ]]></statement>
+    </query>
+    <query id="MDM.CreateWorkCenter" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            INSERT INTO MDM_WORK_CENTER (WORK_CENTER_ID, WORK_CENTER_NAME, PLANT_ID, DAILY_CAPACITY_MIN, DESCRIPTION, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@workCenterId, @workCenterName, @plantId, COALESCE(@dailyCapacityMin, 480), @description, @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(WORK_CENTER_ID) DO UPDATE SET
+                WORK_CENTER_NAME = excluded.WORK_CENTER_NAME, PLANT_ID = excluded.PLANT_ID,
+                DAILY_CAPACITY_MIN = excluded.DAILY_CAPACITY_MIN, DESCRIPTION = excluded.DESCRIPTION,
+                UPDATED_BY = excluded.UPDATED_BY, UPDATED_AT = excluded.UPDATED_AT
+        ]]></statement>
+    </query>
+    <query id="MDM.DeleteWorkCenter" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            DELETE FROM MDM_WORK_CENTER WHERE WORK_CENTER_ID = @workCenterId
+        ]]></statement>
+    </query>
+    <query id="MDM.RoutingStepList">
+        <statement><![CDATA[
+            SELECT S.ROUTING_ID, R.PRODUCT_ID, S.STEP_NO, S.STEP_NAME, S.WORK_CENTER_ID, S.STD_TIME_MIN
+            FROM MDM_ROUTING_STEP S
+            JOIN MDM_ROUTING R ON R.ROUTING_ID = S.ROUTING_ID
+            ORDER BY S.ROUTING_ID, S.STEP_NO
+        ]]></statement>
+    </query>
+    <query id="MDM.CreateRoutingStep" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            INSERT INTO MDM_ROUTING_STEP (ROUTING_ID, STEP_NO, STEP_NAME, WORK_CENTER_ID, STD_TIME_MIN, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@routingId, @stepNo, @stepName, @workCenterId, COALESCE(@stdTimeMin, 0), @currentUser, @utcNow, @currentUser, @utcNow)
+            ON CONFLICT(ROUTING_ID, STEP_NO) DO UPDATE SET
+                STEP_NAME = excluded.STEP_NAME, WORK_CENTER_ID = excluded.WORK_CENTER_ID,
+                STD_TIME_MIN = excluded.STD_TIME_MIN, UPDATED_BY = excluded.UPDATED_BY, UPDATED_AT = excluded.UPDATED_AT
+        ]]></statement>
+    </query>
+    <query id="MDM.DeleteRoutingStep" kind="write" requiredPermission="mdm:manage">
+        <statement><![CDATA[
+            DELETE FROM MDM_ROUTING_STEP WHERE ROUTING_ID = @routingId AND STEP_NO = @stepNo
+        ]]></statement>
+    </query>
 </queries>

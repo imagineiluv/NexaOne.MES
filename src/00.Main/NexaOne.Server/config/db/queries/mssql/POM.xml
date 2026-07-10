@@ -211,6 +211,27 @@
             ORDER BY G.PLANNED_ORDER_ID, G.PEGGING_ID
         ]]></statement>
     </query>
+    <!-- CRP v1(V087) — 워크센터 부하: 최신 런(@runId NULL=최신)의 Production 제안(Proposed|Converted) ×
+         라우팅 스텝 표준시간. REQUIRED_DAYS = 부하 / 일 능력(0이면 NULL — 능력 미설정 가시화). -->
+    <query id="POM.CrpWorkCenterLoad">
+        <statement><![CDATA[
+            SELECT W.WORK_CENTER_ID, W.WORK_CENTER_NAME, W.DAILY_CAPACITY_MIN,
+                   COALESCE(SUM(P.SUGGESTED_QTY * S.STD_TIME_MIN), 0) AS LOAD_MIN,
+                   CASE WHEN W.DAILY_CAPACITY_MIN > 0
+                        THEN ROUND(COALESCE(SUM(P.SUGGESTED_QTY * S.STD_TIME_MIN), 0) * 1.0 / W.DAILY_CAPACITY_MIN, 2)
+                        ELSE NULL END AS REQUIRED_DAYS
+            FROM MDM_WORK_CENTER W WITH (NOLOCK)
+            LEFT JOIN MDM_ROUTING_STEP S WITH (NOLOCK) ON S.WORK_CENTER_ID = W.WORK_CENTER_ID
+            LEFT JOIN MDM_ROUTING R WITH (NOLOCK) ON R.ROUTING_ID = S.ROUTING_ID
+            LEFT JOIN MRP_PLANNED_ORDER P WITH (NOLOCK) ON P.ITEM_ID = R.PRODUCT_ID
+                 AND P.ORDER_TYPE = 'Production' AND P.STATUS IN ('Proposed', 'Converted')
+                 AND P.RUN_ID = COALESCE(@runId, (SELECT R2.RUN_ID FROM MRP_RUN R2
+                                                  WHERE R2.STARTED_AT = (SELECT MAX(R3.STARTED_AT) FROM MRP_RUN R3)))
+            WHERE W.IS_ACTIVE = 'Y'
+            GROUP BY W.WORK_CENTER_ID, W.WORK_CENTER_NAME, W.DAILY_CAPACITY_MIN
+            ORDER BY LOAD_MIN DESC
+        ]]></statement>
+    </query>
     <query id="POM.MrpRunList">
         <statement><![CDATA[
             SELECT RUN_ID, STARTED_AT, FINISHED_AT, STATUS, DEMAND_COUNT, PLANNED_ORDER_COUNT, MESSAGE, EXECUTED_BY

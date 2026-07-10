@@ -216,6 +216,26 @@ WHEN MATCHED THEN UPDATE SET LAST_USED_AT = @utcNow
 WHEN NOT MATCHED THEN INSERT (USER_ID, MENU_ID, LAST_USED_AT) VALUES (@currentUser, s.MENU_ID, @utcNow);
 ]]></statement>
   </query>
+  <!-- 메뉴 사용 통계(V086) — 전역 누적(트림 없음). 기록은 RecordRecentMenu와 동일 지점에서 호출. -->
+  <query id="SYS.RecordMenuUsage" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+MERGE SYS_MENU_USAGE AS T
+USING (SELECT M.MENU_ID FROM SYS_MENU M WITH (NOLOCK)
+       WHERE M.MENU_ID = @menuId AND M.VALID_STATE = 'Valid' AND M.MENU_TYPE = 'Screen') AS S
+   ON T.MENU_ID = S.MENU_ID
+WHEN MATCHED THEN UPDATE SET USE_COUNT = T.USE_COUNT + 1, LAST_USED_AT = @utcNow
+WHEN NOT MATCHED THEN INSERT (MENU_ID, USE_COUNT, LAST_USED_AT) VALUES (S.MENU_ID, 1, @utcNow);
+]]></statement>
+  </query>
+  <!-- 사용 통계 조회(관리) — 재배열 판단 근거: 잎별 전역 사용 횟수·최근 사용. -->
+  <query id="SYS.MenuUsageStats">
+    <statement><![CDATA[
+SELECT TOP 500 U.MENU_ID, M.MENU_NAME, M.UI_ID, U.USE_COUNT, U.LAST_USED_AT
+FROM SYS_MENU_USAGE U WITH (NOLOCK)
+JOIN SYS_MENU M WITH (NOLOCK) ON M.MENU_ID = U.MENU_ID
+ORDER BY U.USE_COUNT DESC, U.LAST_USED_AT DESC
+]]></statement>
+  </query>
   <query id="SYS.TrimRecentMenus" kind="write" requiredPermission="sys:manage">
     <statement><![CDATA[
 DELETE FROM SYS_RECENT_MENU

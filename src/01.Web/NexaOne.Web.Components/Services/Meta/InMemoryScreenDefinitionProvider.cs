@@ -2137,6 +2137,63 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         Register(new ScreenDefinition("FACTORY_STD_SINGLE_DELIVERY_ITEM", "납품처 품목 관리", Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[] { new("DELIVERY_ITEM_ID", "납품품목 ID"), new("CUSTOMER_ID", "거래처 ID"), new("PRODUCT_ID", "품목 ID"), new("DELIVERY_CODE", "납품코드"), new("UNIT_PRICE", "단가"), new("IS_ACTIVE", "활성") }, QueryId: "MDM.DeliveryItemList"));
 
+        // 메뉴 사용 통계(V086) — 트리 재배열(운영 메뉴 중심)의 판단 근거 화면. 전역 누적(read 전용).
+        Register(new ScreenDefinition("SYS_MENU_USAGE_STATS", "메뉴 사용 통계",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("MENU_ID", "메뉴 ID", Width: 240), new("MENU_NAME", "메뉴명"),
+                new("UI_ID", "화면 ID", Width: 240), new("USE_COUNT", "사용 횟수", Width: 110),
+                new("LAST_USED_AT", "최근 사용"),
+            },
+            QueryId: "SYS.MenuUsageStats"));
+
+        // ===== CRP v1(2026-07-10, V087) — 워크센터·라우팅 스텝 마스터 + 부하 화면. =====
+        Register(new ScreenDefinition("FACTORY_STD_WORK_CENTER", "워크센터 관리",
+            new FieldDefinition[]
+            {
+                new("workCenterId", "워크센터 ID", Required: true),
+                new("workCenterName", "워크센터명", Required: true),
+                new("plantId", "공장 ID"),
+                new("dailyCapacityMin", "일 능력(분)", FieldType.Number),
+                new("description", "설명"),
+            },
+            new GridColumnDefinition[]
+            {
+                new("WORK_CENTER_ID", "워크센터 ID", Width: 130), new("WORK_CENTER_NAME", "워크센터명"),
+                new("PLANT_ID", "공장", Width: 100), new("DAILY_CAPACITY_MIN", "일 능력(분)"),
+                new("IS_ACTIVE", "활성", Width: 80), new("DESCRIPTION", "설명"),
+            },
+            QueryId: "MDM.WorkCenterList", SaveQueryId: "MDM.CreateWorkCenter", DeleteQueryId: "MDM.DeleteWorkCenter"));
+
+        Register(new ScreenDefinition("FACTORY_STD_ROUTING_STEP", "라우팅 스텝 관리",
+            new FieldDefinition[]
+            {
+                new("routingId", "라우팅 ID", Required: true),
+                new("stepNo", "스텝 번호", FieldType.Number, Required: true),
+                new("stepName", "스텝명"),
+                new("workCenterId", "워크센터 ID", Required: true),
+                new("stdTimeMin", "표준시간(개당 분)", FieldType.Number),
+            },
+            new GridColumnDefinition[]
+            {
+                new("ROUTING_ID", "라우팅 ID", Width: 120), new("PRODUCT_ID", "품목", Width: 120),
+                new("STEP_NO", "스텝", Width: 80), new("STEP_NAME", "스텝명"),
+                new("WORK_CENTER_ID", "워크센터", Width: 120), new("STD_TIME_MIN", "표준시간(분/개)"),
+            },
+            QueryId: "MDM.RoutingStepList", SaveQueryId: "MDM.CreateRoutingStep", DeleteQueryId: "MDM.DeleteRoutingStep"));
+
+        // 부하 조회 — 최신 MRP 런 기준 워크센터 부하/필요일수(v1 총량, 버킷별 부하는 v2).
+        Register(new ScreenDefinition("NX_CRP_LOAD", "능력 소요(CRP) — 워크센터 부하",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("WORK_CENTER_ID", "워크센터", Width: 130), new("WORK_CENTER_NAME", "워크센터명"),
+                new("DAILY_CAPACITY_MIN", "일 능력(분)"), new("LOAD_MIN", "부하(분)"),
+                new("REQUIRED_DAYS", "필요 일수"),
+            },
+            QueryId: "POM.CrpWorkCenterLoad"));
+
         // ===== MRP v1 표준화(2026-07-09, V079/V080) — 단위 마스터·품목 계획 파라미터·자재 소요 계획. =====
         Register(new ScreenDefinition("FACTORY_STD_UOM", "단위(UOM) 관리",
             new FieldDefinition[]
@@ -2175,6 +2232,11 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         // 본문(제안+실행 이력)은 이 메타 정의를 MetaScreen 자식으로 재사용한다(VE 관리 규약 1호).
         Register(new ScreenDefinition("NX_MRP_PLANNING", "자재 소요 계획(MRP)",
             Array.Empty<FieldDefinition>(),
+            BulkCommands: new BulkCommandDefinition[]
+            {
+                // bridge: 접두 = 호스트 페이지(HostMrpPlanning) 배선 핸들러로 위임(원자 전환 — 선택 행만).
+                new("선택 실오더 전환", "bridge:pom.mrp.convert", "선택한 제안(Proposed)만 실오더로 전환할까요?"),
+            },
             Layout: new SectionNode
             {
                 Id = "sec-mrp", Title = "자재 소요 계획(MRP v1 — 수요 주도 순소요 전개)",

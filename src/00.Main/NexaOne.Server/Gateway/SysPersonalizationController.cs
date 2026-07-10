@@ -137,7 +137,13 @@ public sealed class SysPersonalizationController : ControllerBase
     {
         var affected = await ExecuteAsync("SYS.RecordRecentMenu", new() { ["menuId"] = req.MenuId?.Trim() ?? "" }, ct);
         if (affected > 0)
+        {
             await ExecuteAsync("SYS.TrimRecentMenus", new(), ct);
+            // 전역 사용 통계 누적(V086) — 최근메뉴는 10행 트림이라 장기 빈도가 소실됨. 통계 실패는
+            // 탐색을 막지 않는다(부수 기록 — 개인화 규약과 동일하게 조용히 계속).
+            try { await ExecuteAsync("SYS.RecordMenuUsage", new() { ["menuId"] = req.MenuId?.Trim() ?? "" }, ct); }
+            catch { /* 통계 누적 실패 무시 */ }
+        }
         return NoContent();
     }
 

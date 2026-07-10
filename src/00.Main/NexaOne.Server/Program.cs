@@ -815,6 +815,17 @@ static void SeedDevMasterDataIfEmpty(string connectionString)
                  "VALUES (@id,@ss,@lt,@lot,@mb,@desc,'SYSTEM',@at,'SYSTEM',@at)",
             ("@id", ip.Item1), ("@ss", ip.Item2), ("@lt", ip.Item3), ("@lot", ip.Item4), ("@mb", ip.Item5), ("@desc", ip.Item6), ("@at", now));
 
+    // CRP v1(V087) — 워크센터·라우팅 스텝(RT01/RT02는 위 라우팅 시드). WO 제안 500 기준 부하 실측 정합:
+    // WC01 = 500×2.0 = 1000분(480분/일 → 2.08일), WC02 = 500×1.0 = 500분(960분/일 → 0.52일).
+    foreach (var wc in new[] { ("WC01", "조립 셀", 480m, "1교대"), ("WC02", "가공 라인", 960m, "2교대") })
+        Exec(tx, "INSERT INTO MDM_WORK_CENTER (WORK_CENTER_ID,WORK_CENTER_NAME,PLANT_ID,DAILY_CAPACITY_MIN,DESCRIPTION,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@id,@name,'PLANT01',@cap,@desc,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@id", wc.Item1), ("@name", wc.Item2), ("@cap", wc.Item3), ("@desc", wc.Item4), ("@at", now));
+    foreach (var st in new[] { ("RT01", 10, "조립", "WC01", 2.0m), ("RT01", 20, "검사/가공", "WC02", 1.0m), ("RT02", 10, "가공", "WC02", 0.5m) })
+        Exec(tx, "INSERT INTO MDM_ROUTING_STEP (ROUTING_ID,STEP_NO,STEP_NAME,WORK_CENTER_ID,STD_TIME_MIN,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
+                 "VALUES (@rt,@no,@name,@wc,@t,'SYSTEM',@at,'SYSTEM',@at)",
+            ("@rt", st.Item1), ("@no", st.Item2), ("@name", st.Item3), ("@wc", st.Item4), ("@t", st.Item5), ("@at", now));
+
     // MDM_LABEL*(FACTORY_STD 라벨 마스터/발행/매핑 화면용, V054). FK: 발행/매핑 → 라벨(선삽입).
     foreach (var lb in new[] { ("LBL01", "제품 라벨"), ("LBL02", "박스 라벨") })
         Exec(tx, "INSERT INTO MDM_LABEL (LABEL_ID,PLANT_ID,LABEL_NAME,DESCRIPTION,IS_ACTIVE,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
@@ -1002,6 +1013,10 @@ static IEnumerable<MenuSeedRow> DevDemoMenu() => new[]
     new MenuSeedRow("NX_DEV_MRP",    "자재 소요 계획(MRP)",     "NX_DEV", 16,   "Screen", "NX_MRP_PLANNING"),
     new MenuSeedRow("NX_DEV_UOM",    "단위(UOM) 관리",          "NX_DEV", 17,   "Screen", "FACTORY_STD_UOM"),
     new MenuSeedRow("NX_DEV_ITEMPLN","품목 계획 파라미터",      "NX_DEV", 18,   "Screen", "FACTORY_STD_ITEM_PLANNING"),
+    new MenuSeedRow("NX_DEV_MENUUSE","메뉴 사용 통계",          "NX_DEV", 19,   "Screen", "SYS_MENU_USAGE_STATS"),
+    new MenuSeedRow("NX_DEV_CRP",    "능력 소요(CRP) 부하",     "NX_DEV", 20,   "Screen", "NX_CRP_LOAD"),
+    new MenuSeedRow("NX_DEV_WC",     "워크센터 관리",           "NX_DEV", 21,   "Screen", "FACTORY_STD_WORK_CENTER"),
+    new MenuSeedRow("NX_DEV_RTSTEP", "라우팅 스텝 관리",        "NX_DEV", 22,   "Screen", "FACTORY_STD_ROUTING_STEP"),
     new MenuSeedRow("NX_DEV_GRID",   "공장 관리(데모)",        "NX_DEV", 20,   "Screen", "DEMO_GRID"),
     new MenuSeedRow("NX_DEV_LAYOUT", "생산 현황(데모)",        "NX_DEV", 30,   "Screen", "DEMO_LAYOUT"),
     new MenuSeedRow("NX_DEV_PARAM",  "파라미터 입력(데모)",     "NX_DEV", 40,   "Screen", "DEMO_PARAM"),
