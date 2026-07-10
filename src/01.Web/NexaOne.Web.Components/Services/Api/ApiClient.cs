@@ -288,10 +288,10 @@ public sealed class ApiClient : IApiClient
             ?? new List<Dictionary<string, object?>>();
     }
 
-    // MRP v1 실행 — 브리지 REST(pom:manage). 실패는 null(403/5xx 사유는 SendAsync 전역 토스트).
-    public async Task<MrpRunResultDto?> RunMrpAsync(CancellationToken ct = default)
+    // MRP 실행 — 브리지 REST(pom:manage). 실패는 null(403/5xx 사유는 SendAsync 전역 토스트).
+    public async Task<MrpRunResultDto?> RunMrpAsync(int? bucketDays = null, int? horizonBuckets = null, CancellationToken ct = default)
     {
-        using var resp = await SendAsync(HttpMethod.Post, "api/v1/pom/mrp/run", new { }, ct);
+        using var resp = await SendAsync(HttpMethod.Post, "api/v1/pom/mrp/run", new { bucketDays, horizonBuckets }, ct);
         if (!resp.IsSuccessStatusCode) return null;
         try { return await resp.Content.ReadFromJsonAsync<MrpRunResultDto>(ct); }
         catch { return null; }

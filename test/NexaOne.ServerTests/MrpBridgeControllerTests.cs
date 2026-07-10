@@ -56,9 +56,12 @@ public sealed class MrpBridgeControllerTests : IClassFixture<MrpBridgeController
         public MrpRunResult NextResult = new("MRP-TEST-0001", "Success", 2, 3, null);
         public MrpConvertResult NextConvert = new("MRP-TEST-0001", 3, 2, 1, null);
 
-        public Task<MrpRunResult> RunAsync(string executedBy, CancellationToken ct = default)
+        public MrpRunOptions? LastRunOptions;
+
+        public Task<MrpRunResult> RunAsync(string executedBy, MrpRunOptions? options = null, CancellationToken ct = default)
         {
             LastExecutedBy = executedBy;
+            LastRunOptions = options;
             return Task.FromResult(NextResult);
         }
 
@@ -110,6 +113,18 @@ public sealed class MrpBridgeControllerTests : IClassFixture<MrpBridgeController
         dto.DemandCount.Should().Be(1);
         dto.PlannedOrderCount.Should().Be(3);
         _factory.Bridge.LastExecutedBy.Should().Be("mrp-bridge-tester", "JWT sub가 실행자(EXECUTED_BY)로 전달돼야 한다");
+    }
+
+    [Fact]
+    public async Task Run_with_bucket_options_passes_them_to_bridge()
+    {
+        var res = await Client("pom:manage").PostAsJsonAsync("/api/v1/pom/mrp/run", new { bucketDays = 7, horizonBuckets = 8 });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        _factory.Bridge.LastRunOptions.Should().Be(new MrpRunOptions(7, 8), "버킷 옵션이 브리지로 전달돼야 한다");
+
+        await Client("pom:manage").PostAsync("/api/v1/pom/mrp/run", content: null);
+        _factory.Bridge.LastRunOptions.Should().BeNull("무본문 실행은 총량 모드(v1)");
     }
 
     [Fact]

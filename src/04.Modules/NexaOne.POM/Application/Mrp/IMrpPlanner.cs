@@ -6,7 +6,7 @@ namespace NexaOne.POM.Application.Mrp;
 /// MRP_PLANNED_ORDER, append-only)을 한 번에 수행한다. 구현은 Infrastructure.MrpPlanningRepository.</summary>
 public interface IMrpPlanner
 {
-    Task<MrpRunResult> RunAsync(string executedBy, CancellationToken ct = default);
+    Task<MrpRunResult> RunAsync(string executedBy, MrpRunOptions? options = null, CancellationToken ct = default);
 
     /// <summary>Proposed 제안→실오더 전환(v2 1단) — 전 문장 단일 트랜잭션(MixingPersistAsync 패턴).</summary>
     Task<MrpConvertResult> ConvertAsync(string? runId, string executedBy, CancellationToken ct = default);

@@ -19,7 +19,7 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
     public MrpPlanningRepository(EesDataSource dataSource) : base(dataSource)
         => _processor = new ServiceObjectProcessor(dataSource);
 
-    public async Task<MrpRunResult> RunAsync(string executedBy, CancellationToken ct = default)
+    public async Task<MrpRunResult> RunAsync(string executedBy, MrpRunOptions? options = null, CancellationToken ct = default)
     {
         var runId = $"MRP_{DateTime.UtcNow:yyyyMMddHHmmss}_{Guid.NewGuid():N}"[..40];
         var startedAt = DateTime.UtcNow.ToString(Ts);
@@ -31,13 +31,22 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
         try
         {
             var demands = await LoadDemandsAsync(ct);
+            var receipts = await LoadScheduledReceiptsAsync(ct);
+            // 총량 모드 onOrder = 일자 예정입고의 품목별 합(단일 출처 — 두 모드 간 집계 드리프트 방지).
+            var onOrder = receipts.GroupBy(r => r.ItemId, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.Sum(x => x.Qty), StringComparer.Ordinal);
+            var bucketOptions = options is null
+                ? null
+                : new MrpBucketOptions(DateTime.UtcNow.Date, options.BucketDays, options.HorizonBuckets);
             var result = MrpCalculator.Calculate(
                 demands,
                 await LoadBomAsync(ct),
                 await LoadOnHandAsync(ct),
-                await LoadOnOrderAsync(ct),
+                onOrder,
                 await LoadPlanningAsync(ct),
-                await LoadVendorsAsync(ct));
+                await LoadVendorsAsync(ct),
+                bucketOptions,
+                receipts);
 
             if (!result.Success)
             {
@@ -225,19 +234,22 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
         return map;
     }
 
-    private async Task<IReadOnlyDictionary<string, decimal>> LoadOnOrderAsync(CancellationToken ct)
+    private async Task<IReadOnlyList<MrpScheduledReceipt>> LoadScheduledReceiptsAsync(CancellationToken ct)
     {
-        var map = new Dictionary<string, decimal>(StringComparer.Ordinal);
-        // 예정입고 ①구매(V080 PRODUCT_ID 링크가 있는 행만 — 표준 갭 보수분) ②생산(작업지시 미완수량).
+        var list = new List<MrpScheduledReceipt>();
+        // 예정입고 ①구매(V080 PRODUCT_ID 링크가 있는 행만 — 표준 갭 보수분, 입고예정일=INCOMING_DATE)
+        // ②생산(작업지시 미완수량, 완료예정일=PLAN_END_DATE). 버킷 모드는 일자 귀속, 총량 모드는 합산.
         var po = await QueryAsync<dynamic>(
-            "SELECT PRODUCT_ID, SUM(ORDER_QTY) AS QTY FROM PRC_PURCHASE_ORDER " +
-            "WHERE STATUS IN ('Ordered', 'Incoming') AND PRODUCT_ID IS NOT NULL GROUP BY PRODUCT_ID", null, ct);
-        foreach (var r in po) map[(string)r.PRODUCT_ID] = map.GetValueOrDefault((string)r.PRODUCT_ID) + Convert.ToDecimal(r.QTY);
+            "SELECT PRODUCT_ID, ORDER_QTY, INCOMING_DATE FROM PRC_PURCHASE_ORDER " +
+            "WHERE STATUS IN ('Ordered', 'Incoming') AND PRODUCT_ID IS NOT NULL", null, ct);
+        foreach (var r in po)
+            list.Add(new MrpScheduledReceipt((string)r.PRODUCT_ID, Convert.ToDecimal(r.ORDER_QTY), AsDate(r.INCOMING_DATE)));
         var wo = await QueryAsync<dynamic>(
-            "SELECT PRODUCT_ID, SUM(PLAN_QTY - COALESCE(COMPLETE_QTY, 0)) AS QTY FROM POM_WORK_ORDER " +
-            "WHERE STATUS IN ('Released', 'Started') AND PRODUCT_ID IS NOT NULL GROUP BY PRODUCT_ID", null, ct);
-        foreach (var r in wo) map[(string)r.PRODUCT_ID] = map.GetValueOrDefault((string)r.PRODUCT_ID) + Convert.ToDecimal(r.QTY);
-        return map;
+            "SELECT PRODUCT_ID, (PLAN_QTY - COALESCE(COMPLETE_QTY, 0)) AS QTY, PLAN_END_DATE FROM POM_WORK_ORDER " +
+            "WHERE STATUS IN ('Released', 'Started') AND PRODUCT_ID IS NOT NULL", null, ct);
+        foreach (var r in wo)
+            list.Add(new MrpScheduledReceipt((string)r.PRODUCT_ID, Convert.ToDecimal(r.QTY), AsDate(r.PLAN_END_DATE)));
+        return list;
     }
 
     private async Task<IReadOnlyDictionary<string, MrpItemParameters>> LoadPlanningAsync(CancellationToken ct)

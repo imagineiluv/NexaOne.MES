@@ -21,15 +21,22 @@ public sealed class MrpController : ControllerBase
 
     public MrpController(IMrpBridge bridge) => _bridge = bridge;
 
-    /// <summary>MRP 소요량 전개 실행 — 수요(확정 수주) 기준 gross-to-net → 계획오더 제안 생성.</summary>
+    public sealed record RunRequest(int? BucketDays, int? HorizonBuckets);
+
+    /// <summary>MRP 소요량 전개 실행 — 수요(확정 수주) 기준 gross-to-net → 계획오더 제안 생성.
+    /// body 옵션(v2 3단): bucketDays/horizonBuckets 지정 시 기간 버킷(시간위상) 넷팅 — 제안이
+    /// 품목×버킷 다행이 되고 DUE_DATE=버킷 시작일. 미지정=총량 넷팅(v1).</summary>
     [HttpPost("run")]
     [ProducesResponseType<MrpRunResult>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.PomManage)]
-    public async Task<IActionResult> Run(CancellationToken ct)
+    public async Task<IActionResult> Run([FromBody] RunRequest? request, CancellationToken ct)
     {
-        var result = await _bridge.RunAsync(User.CurrentUserId() ?? "SYSTEM", ct);
+        var options = request is { BucketDays: not null } or { HorizonBuckets: not null }
+            ? new MrpRunOptions(request!.BucketDays ?? 7, request.HorizonBuckets ?? 8)
+            : null;
+        var result = await _bridge.RunAsync(User.CurrentUserId() ?? "SYSTEM", options, ct);
         return Ok(result);
     }
 

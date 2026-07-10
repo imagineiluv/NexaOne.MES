@@ -32,6 +32,13 @@ public sealed record MrpPlannedOrderProposal(
 /// <summary>페깅(수요 기여) 1건 — 제안 품목의 총소요가 어느 수요에서 얼마나 왔는지(v2 정밀 추적).</summary>
 public sealed record MrpContribution(string DemandRef, decimal Qty);
 
+/// <summary>기간 버킷 옵션(v2 3단 — 시간위상 MRP). Today는 순수성 유지를 위해 호출자가 주입한다.</summary>
+public sealed record MrpBucketOptions(DateTime Today, int BucketDays, int HorizonBuckets);
+
+/// <summary>일자 예정입고 1건(버킷 모드 전용) — PO=INCOMING_DATE, WO=PLAN_END_DATE. 날짜 없음=버킷 0
+/// (v1 총량 집계와 동일하게 '가용'으로 간주 — 보수적).</summary>
+public sealed record MrpScheduledReceipt(string ItemId, decimal Qty, DateTime? Date);
+
 public sealed record MrpCalculationResult(bool Success, IReadOnlyList<MrpPlannedOrderProposal> Proposals, string? Error);
 
 /// <summary>MRP v1 순소요 전개(순수, 무DB) — 표준 gross-to-net 사이클.
@@ -53,8 +60,16 @@ public static class MrpCalculator
         IReadOnlyDictionary<string, decimal> onHand,
         IReadOnlyDictionary<string, decimal> onOrder,
         IReadOnlyDictionary<string, MrpItemParameters> planning,
-        IReadOnlyDictionary<string, MrpVendorParameters> vendors)
+        IReadOnlyDictionary<string, MrpVendorParameters> vendors,
+        MrpBucketOptions? buckets = null,
+        IReadOnlyList<MrpScheduledReceipt>? receipts = null)
     {
+        // 버킷 모드(v2 3단) — 시간위상 넷팅 별도 경로. 총량 모드(buckets=null)는 v1 코드 그대로
+        // (기존 테스트 불변 통과가 호환성 게이트 — 두 경로는 LLC/로트/판정 규칙을 공유한다).
+        if (buckets is not null)
+            return CalculateTimePhased(demands, bomLines, onHand, planning, vendors,
+                receipts ?? Array.Empty<MrpScheduledReceipt>(), buckets);
+
         // ── ① Low-Level Code(최장경로) + 순환 검출 ─────────────────────────────
         var children = bomLines.GroupBy(b => b.ParentItemId, StringComparer.Ordinal)
             .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
@@ -153,6 +168,152 @@ public static class MrpCalculator
         }
 
         return new MrpCalculationResult(true, proposals, null);
+    }
+
+    // ── v2 3단 — 시간위상(기간 버킷) 넷팅. 스펙: 볼트 2026-07-09-mrp-v1-design.md 'v2 3단' 절. ──
+    // 품목별 예상재고 전진 루프: projected(b)=projected(b-1)+receipts(b)-gross(b);
+    // projected<safety면 net=safety-projected → 로트 → 해당 버킷 계획오더 + projected 가산(이월).
+    private static MrpCalculationResult CalculateTimePhased(
+        IReadOnlyList<MrpDemand> demands,
+        IReadOnlyList<MrpBomLine> bomLines,
+        IReadOnlyDictionary<string, decimal> onHand,
+        IReadOnlyDictionary<string, MrpItemParameters> planning,
+        IReadOnlyDictionary<string, MrpVendorParameters> vendors,
+        IReadOnlyList<MrpScheduledReceipt> receipts,
+        MrpBucketOptions opt)
+    {
+        var children = bomLines.GroupBy(b => b.ParentItemId, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+        Dictionary<string, int> levels;
+        try
+        {
+            levels = ComputeLevels(children, demands);
+        }
+        catch (MrpCycleException ex)
+        {
+            return new MrpCalculationResult(false, Array.Empty<MrpPlannedOrderProposal>(), $"BOM 순환 감지: {ex.Message}");
+        }
+
+        var h = Math.Max(1, opt.HorizonBuckets);
+        // 버킷 귀속 — 과거=0(지연 수요 즉시 필요), 호라이즌 밖=마지막 클램프(누락 금지), 무납기=0(보수적).
+        int BucketOf(DateTime? date) => date is null ? 0
+            : Math.Clamp((date.Value.Date - opt.Today.Date).Days / opt.BucketDays, 0, h - 1);
+        DateTime BucketStart(int b) => opt.Today.Date.AddDays((double)b * opt.BucketDays);
+
+        // (품목, 버킷) 단위 누적 — 총량 모드의 품목 단위 사전들과 동형.
+        var gross = new Dictionary<(string Item, int B), decimal>();
+        var sources = new Dictionary<(string, int), List<string>>();
+        var contribs = new Dictionary<(string, int), List<MrpContribution>>();
+        var recv = new Dictionary<(string, int), decimal>();
+        var plants = new Dictionary<string, string?>(StringComparer.Ordinal);
+
+        foreach (var d in demands.Where(d => d.Qty > 0))
+        {
+            var key = (d.ItemId, BucketOf(d.DueDate));
+            gross[key] = gross.GetValueOrDefault(key) + d.Qty;
+            (sources.TryGetValue(key, out var sl) ? sl : sources[key] = new()).Add(d.SourceRef);
+            (contribs.TryGetValue(key, out var cl) ? cl : contribs[key] = new()).Add(new(d.SourceRef, d.Qty));
+            if (!plants.ContainsKey(d.ItemId) && d.PlantId is not null) plants[d.ItemId] = d.PlantId;
+        }
+        foreach (var r in receipts.Where(r => r.Qty > 0))
+        {
+            var key = (r.ItemId, BucketOf(r.Date));
+            recv[key] = recv.GetValueOrDefault(key) + r.Qty;
+        }
+
+        var items = demands.Select(d => d.ItemId)
+            .Concat(children.Keys)
+            .Concat(children.Values.SelectMany(l => l.Select(x => x.ComponentItemId)))
+            .Distinct(StringComparer.Ordinal)
+            .OrderByDescending(i => levels.GetValueOrDefault(i))
+            .ToList();
+
+        var proposals = new List<MrpPlannedOrderProposal>();
+        foreach (var item in items)
+        {
+            var p = planning.GetValueOrDefault(item) ?? new MrpItemParameters(0, null, 1, null);
+            var v = vendors.GetValueOrDefault(item);
+            var isMake = string.Equals(p.MakeOrBuy, "Make", StringComparison.OrdinalIgnoreCase)
+                || (p.MakeOrBuy is null && children.ContainsKey(item));
+            var lead = p.LeadTimeDays ?? v?.LeadTimeDays ?? 0;
+            var moq = v?.Moq ?? 0m;
+            var lot = p.LotSize > 0 ? p.LotSize : 1m;
+            var plant = plants.GetValueOrDefault(item);
+
+            var projected = onHand.GetValueOrDefault(item);
+            for (var b = 0; b < h; b++)
+            {
+                var g = gross.GetValueOrDefault((item, b));
+                var rec = recv.GetValueOrDefault((item, b));
+                if (g == 0 && rec == 0 && projected >= p.SafetyStock) continue;   // 무이벤트 버킷 스킵
+                var entering = projected;
+                projected += rec - g;
+                if (projected >= p.SafetyStock) continue;
+
+                var net = p.SafetyStock - projected;
+                var suggested = Math.Ceiling(Math.Max(net, moq) / lot) * lot;
+                projected += suggested;   // 로트 초과분은 다음 버킷으로 이월(표준)
+
+                var due = BucketStart(b);
+                var release = due.AddDays(-lead);
+                proposals.Add(new MrpPlannedOrderProposal(
+                    item, isMake ? "Production" : "Purchase",
+                    g, entering, rec, p.SafetyStock, net, suggested, due, release,
+                    SummarizeList(sources.GetValueOrDefault((item, b))), plant,
+                    contribs.TryGetValue((item, b), out var myC) ? myC.ToList() : null));
+
+                if (isMake && children.TryGetValue(item, out var lines))
+                    foreach (var line in lines)
+                    {
+                        var compQty = suggested * line.QuantityPer * (1 + line.ScrapRate);
+                        if (compQty <= 0) continue;
+                        var ck = (line.ComponentItemId, BucketOf(release));
+                        gross[ck] = gross.GetValueOrDefault(ck) + compQty;
+                        (sources.TryGetValue(ck, out var csl) ? csl : sources[ck] = new()).Add($"{item} 생산 전개");
+                        (contribs.TryGetValue(ck, out var ccl) ? ccl : contribs[ck] = new())
+                            .Add(new($"{item} 생산 전개", compQty));
+                        if (!plants.ContainsKey(line.ComponentItemId) && plant is not null)
+                            plants[line.ComponentItemId] = plant;
+                    }
+            }
+        }
+
+        return new MrpCalculationResult(true, proposals, null);
+    }
+
+    // LLC 산출(총량/버킷 공용) — 최장경로 + 순환 시 MrpCycleException.
+    private static Dictionary<string, int> ComputeLevels(
+        Dictionary<string, List<MrpBomLine>> children, IReadOnlyList<MrpDemand> demands)
+    {
+        var levels = new Dictionary<string, int>(StringComparer.Ordinal);
+        var visiting = new HashSet<string>(StringComparer.Ordinal);
+
+        int Level(string item, List<string> path)
+        {
+            if (levels.TryGetValue(item, out var known)) return known;
+            if (!visiting.Add(item))
+                throw new MrpCycleException(string.Join(" → ", path.SkipWhile(p => p != item).Append(item)));
+            path.Add(item);
+            var level = 0;
+            if (children.TryGetValue(item, out var lines))
+                foreach (var line in lines)
+                    level = Math.Max(level, 1 + Level(line.ComponentItemId, path));
+            path.RemoveAt(path.Count - 1);
+            visiting.Remove(item);
+            levels[item] = level;
+            return level;
+        }
+
+        foreach (var item in children.Keys) Level(item, new List<string>());
+        foreach (var d in demands) Level(d.ItemId, new List<string>());
+        return levels;
+    }
+
+    private static string? SummarizeList(List<string>? list)
+    {
+        if (list is null || list.Count == 0) return null;
+        var distinct = list.Distinct(StringComparer.Ordinal).ToList();
+        return distinct.Count == 1 ? distinct[0] : $"{distinct[0]} 외 {distinct.Count - 1}건";
     }
 
     private static IEnumerable<string> AllItems(

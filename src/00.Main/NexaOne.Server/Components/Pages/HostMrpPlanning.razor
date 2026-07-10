@@ -13,6 +13,10 @@
     <RadzenButton Icon="calculate" Click="RunAsync" Disabled="@(_busy || _converting)" class="layout-command"
                   ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small"
                   Text="@(_busy ? "전개 중…" : "소요량 전개 실행")" />
+    @* v2 3단 — 기간 버킷(주간×8) 시간위상 전개: 제안이 품목×버킷 다행, DUE=버킷 시작일. *@
+    <RadzenButton Icon="calendar_view_week" Click="RunBucketedAsync" Disabled="@(_busy || _converting)" class="layout-command"
+                  ButtonStyle="Radzen.ButtonStyle.Light" Size="Radzen.ButtonSize.Small"
+                  Text="@(_busy ? "전개 중…" : "주간 버킷 전개")" />
     @* v2 1단 — Proposed 제안 전량을 실오더로(구매=PO Ordered·생산=WO Released 직행, 단일 트랜잭션·멱등). *@
     <RadzenButton Icon="published_with_changes" Click="ConvertAsync" Disabled="@(_busy || _converting)" class="layout-command"
                   ButtonStyle="Radzen.ButtonStyle.Secondary" Size="Radzen.ButtonSize.Small"
@@ -51,13 +55,17 @@
     private MrpRunResultDto? _result;
     private MrpConvertResultDto? _convert;
 
-    private async Task RunAsync()
+    private Task RunAsync() => RunCoreAsync(null, null);
+
+    private Task RunBucketedAsync() => RunCoreAsync(7, 8);   // 주간×8버킷(스펙 기본값)
+
+    private async Task RunCoreAsync(int? bucketDays, int? horizonBuckets)
     {
         _busy = true;
         try
         {
             // 403/모듈 OFF/5xx는 null — 사유는 전역 토스트가 알린다(ApiClient 규약).
-            _result = await Api.RunMrpAsync();
+            _result = await Api.RunMrpAsync(bucketDays, horizonBuckets);
             _convert = null;   // 새 런 기준으로 전환 칩 초기화
             if (_result is { Status: "Success" }) _refreshSeq++;   // 자식 MetaScreen 재생성 = 제안/이력 재조회
         }

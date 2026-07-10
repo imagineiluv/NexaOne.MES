@@ -12,8 +12,9 @@ public interface IApiClient
     Task<PagedQueryResult?> ExecuteQueryPagedAsync(
         string queryId, object? parameters = null, int limit = 500, int offset = 0, CancellationToken ct = default);
 
-    // MRP v1 실행(브리지 REST, pom:manage) — 실패(403/모듈 OFF 등)는 null(사유는 전역 토스트).
-    Task<MrpRunResultDto?> RunMrpAsync(CancellationToken ct = default);
+    // MRP 실행(브리지 REST, pom:manage) — 실패(403/모듈 OFF 등)는 null(사유는 전역 토스트).
+    // bucketDays/horizonBuckets 지정 시 기간 버킷(시간위상) 넷팅(v2 3단), 미지정=총량(v1).
+    Task<MrpRunResultDto?> RunMrpAsync(int? bucketDays = null, int? horizonBuckets = null, CancellationToken ct = default);
 
     // MRP 실오더 전환(v2 1단) — Proposed 전량을 PO(Ordered)/WO(Released)로. runId null=최신 실행.
     Task<MrpConvertResultDto?> ConvertMrpAsync(string? runId = null, CancellationToken ct = default);

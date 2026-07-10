@@ -98,7 +98,7 @@ public sealed class BatchProcessRunner
                     var bridge = _services.GetService<NexaOne.ServiceContracts.Pom.IMrpBridge>();
                     if (bridge is null)
                         return BatchRunResult.Failed("IMrpBridge 미등록 — 모듈 OFF 부팅에선 브리지 배치를 실행할 수 없습니다.");
-                    var r = await bridge.RunAsync(executedBy, ct);
+                    var r = await bridge.RunAsync(executedBy, null, ct);   // 배치는 총량 모드(운영 결정 전 기본)
                     return r.Status == "Success"
                         ? BatchRunResult.Ok(r.PlannedOrderCount)
                         : BatchRunResult.Failed(r.Message ?? "MRP 실행 실패");
