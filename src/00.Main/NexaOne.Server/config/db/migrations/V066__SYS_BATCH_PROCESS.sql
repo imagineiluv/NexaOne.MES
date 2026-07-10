@@ -1,6 +1,6 @@
 -- SYS Module: 배치 작업 정의(설계 SmartUX 시스템 관리>배치 작업 관리). 레거시 SYS_TB_BATCH_PROCESS를
 -- 현행 관례로 포팅(감사 DEFAULT, CREATOR/MODIFIER→CREATED_BY/UPDATED_BY). SYSTEM_2_BATCH_PROC_MANAGEMENT 점등용.
--- 1차 범위 = 정의 관리(CRUD)까지 — 실행 엔진(BATCH_RULE 스케줄 실행, 레거시 Quartz 대응)은 후속 슬라이스.
+-- 실행 엔진 구현됨: Gateway/BatchProcessRunner(BATCH_RULE=명명 쓰기쿼리 또는 'bridge:{키}') + 워커/수동 run API.
 -- 현행 BackgroundService 워커(정적 등록)와의 통합 방식은 실행 엔진 설계 시 결정한다.
 CREATE TABLE SYS_BATCH_PROCESS (
     BATCH_ID            NVARCHAR(50)    NOT NULL,

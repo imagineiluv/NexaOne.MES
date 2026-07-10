@@ -1,6 +1,7 @@
 -- FDC Module: 가상 이벤트 정의(SmartUX FDC>이벤트 관리>VIRTUAL EVENT 관리). 레거시
 -- FDC_TB_VIRTUAL_EVENT_PARAMETER를 현행 관례로 포팅(다국어 EVENT_NAME_* 5종→단일 EVENT_NAME,
 -- 감사 DEFAULT). EES_FDC_VIRTUAL_EVENT_MANAGEMENT 점등용.
+-- 평가 엔진 구현됨: FDC VirtualEventFormula(재귀 하강 파서)+VirtualEventEvaluationWorker, 이력은 V069.
 -- 1차 범위 = 정의 관리(CRUD)까지 — 평가 엔진(CONDITION_FORMULA를 수집 데이터에 적용해 EVENT_ON/OFF 판정,
 -- 레거시 FDC_TB_VIRTUAL_EVENT_DATA_COLLECTION 기록)은 FDC 워커 후속 슬라이스.
 CREATE TABLE FDC_VIRTUAL_EVENT (

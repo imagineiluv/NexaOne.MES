@@ -29,8 +29,8 @@ using NexaOne.Web.Services.Meta;
 using NexusFramework;
 using NexusFramework.Utils;
 
-// 통합 호스트(접근 A, Phase 1) — WebApplication 위에서 Spring.NET 플러그인 컨텍스트 + IHostedService 워커 +
-// ASP.NET 파이프라인(HealthChecks·Swagger·JWT)을 한 프로세스로 구동한다. 컨트롤러·UI는 후속 Phase.
+// 통합 호스트(접근 A) — WebApplication 위에서 Spring.NET 플러그인 컨텍스트 + IHostedService 워커 +
+// ASP.NET 파이프라인(HealthChecks·Swagger·JWT·게이트웨이/브리지 컨트롤러·Blazor UI)을 한 프로세스로 구동한다.
 var builder = WebApplication.CreateBuilder(args);
 
 var server = ApplicationServer.GetInstance();
@@ -202,7 +202,7 @@ builder.Services.AddSignalR();
 builder.Services.AddSingleton<NexaOne.Server.Realtime.IEesHubNotifier, NexaOne.Server.Realtime.EesHubNotifier>();
 builder.Services.TryAddSingleton<NexaOne.Common.Telemetry.ActiveUserTracker>();
 
-// JWT 인증 — API와 동일 규약(강한 비밀키 강제, §18.7). 토큰 발급/컨트롤러는 후속 Phase, 여기선 인증 파이프라인만 활성.
+// JWT 인증 — 강한 비밀키 강제(§18.7). 발급은 GatewayLoginService(auth 컨트롤러), 여기선 검증 파이프라인 구성.
 var jwtSection = builder.Configuration.GetSection("Jwt");
 var secretKey = jwtSection["SecretKey"] ?? throw new InvalidOperationException("Jwt:SecretKey is required");
 if (secretKey.StartsWith("CHANGE_ME", StringComparison.Ordinal) || Encoding.UTF8.GetByteCount(secretKey) < 32)
