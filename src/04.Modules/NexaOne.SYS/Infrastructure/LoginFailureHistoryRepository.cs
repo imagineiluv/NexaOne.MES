@@ -1,7 +1,7 @@
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.SYS.Application.Users;
 using NexaOne.SYS.Domain;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 
 namespace NexaOne.SYS.Infrastructure;
 

@@ -3,8 +3,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using NexaOne.Application.Messaging;
 using NexaOne.Application.Query;
-using NexusCom.Data.Abstractions.Interfaces;
-using NexusCom.Data.Abstractions.Models;
+using NexaDB.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Models;
 
 namespace NexaOne.Application;
 

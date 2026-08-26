@@ -19,7 +19,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "03.Driver", "03.Driver", "{
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "01.Db", "01.Db", "{E87C0880-9524-420B-88FB-337DEB414ACC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexusCom.Data.MsSql", "submodules\NexusCom\src\NexusCom.Data.MsSql\NexusCom.Data.MsSql.csproj", "{46E0E3A7-24A7-4F45-8F81-C59DA3E688CF}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaDB.Data.MsSql", "submodules\NexaDB\src\NexaDB.Data.MsSql\NexaDB.Data.MsSql.csproj", "{46E0E3A7-24A7-4F45-8F81-C59DA3E688CF}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "02.Communication", "02.Communication", "{9A61DC4C-12A5-4059-986C-DF86433FD79B}"
 EndProject
@@ -51,9 +51,9 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "test", "test", "{C010724E-B
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaOne.UnitTests", "test\NexaOne.UnitTests\NexaOne.UnitTests.csproj", "{EF9C81B6-8801-4A33-A903-9F283BD92830}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexusCom.Messaging.Kafka", "submodules\NexusCom\src\NexusCom.Messaging.Kafka\NexusCom.Messaging.Kafka.csproj", "{334AF576-4BBD-4A06-901D-F8C5F1D26CAC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaDB.Messaging.Kafka", "submodules\NexaDB\src\NexaDB.Messaging.Kafka\NexaDB.Messaging.Kafka.csproj", "{334AF576-4BBD-4A06-901D-F8C5F1D26CAC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexusCom.Notify.SmtpEmail", "submodules\NexusCom\src\NexusCom.Notify.SmtpEmail\NexusCom.Notify.SmtpEmail.csproj", "{CA1256C2-DB7A-4964-AF81-2027269E47A8}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaDB.Notify.SmtpEmail", "submodules\NexaDB\src\NexaDB.Notify.SmtpEmail\NexaDB.Notify.SmtpEmail.csproj", "{CA1256C2-DB7A-4964-AF81-2027269E47A8}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NexaOne.ServerTests", "test\NexaOne.ServerTests\NexaOne.ServerTests.csproj", "{75248E42-1A0E-4ACF-B66D-FC9D2C19CC97}"
 EndProject

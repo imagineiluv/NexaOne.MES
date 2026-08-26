@@ -1,4 +1,4 @@
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 using NexaOne.Infrastructure.Diagnostics;
 
 namespace NexaOne.Infrastructure.Persistence;

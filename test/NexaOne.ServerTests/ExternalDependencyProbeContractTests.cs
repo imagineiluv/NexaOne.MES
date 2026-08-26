@@ -9,7 +9,7 @@ using NexaOne.Infrastructure.Diagnostics;
 using NexaOne.Infrastructure.Messaging;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.Server;
-using NexusCom.Data.Sqlite;
+using NexaDB.Data.Sqlite;
 using NexaFramework;
 using NexusLogic.Plc.Abstractions.Interfaces;
 using NexusLogic.Plc.Abstractions.Models;

@@ -8,7 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NexaOne.EST.Domain;
 using NexaOne.EST.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
 namespace NexaOne.ServerTests;

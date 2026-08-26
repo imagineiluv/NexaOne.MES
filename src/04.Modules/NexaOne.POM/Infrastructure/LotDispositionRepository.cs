@@ -3,8 +3,8 @@ using System.Data;
 using Dapper;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.POM.Application.Lots;
-using NexusCom.Data.Abstractions.Interfaces;
-using NexusCom.Data.Abstractions.Models;
+using NexaDB.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Models;
 
 namespace NexaOne.POM.Infrastructure;
 

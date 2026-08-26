@@ -141,7 +141,7 @@
        운영 기본은 host/server.xml(MSSQL). 이 파일은 Server:SpringConfig=config/host/server.sqlite.xml 로 명시 지정될 때만 사용된다.
        동일 빈 id(dbProvider/eesDialect/eesDataSource)라 nexaone.xml 참조는 그대로 유지된다. NexaOne.Server 기동 시
        db/migrations를 SQLite 방언으로 변환해 스키마를 자동 생성한다(SqliteSchemaInitializer, 빈 DB일 때만). -->
-  <object id="dbProvider" type="NexusCom.Data.Sqlite.SqliteProvider, NexusCom.Data.Sqlite" />
+  <object id="dbProvider" type="NexaDB.Data.Sqlite.SqliteProvider, NexaDB.Data.Sqlite" />
   <object id="eesDialect" type="NexaOne.Infrastructure.Persistence.SqliteEesDbCapability, NexaOne.Common" />
   <object id="eesDataSource" type="NexaOne.Infrastructure.Persistence.EesDataSource, NexaOne.Common">
     <property name="Provider" ref="dbProvider" />

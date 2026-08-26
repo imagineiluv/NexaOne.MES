@@ -35,7 +35,7 @@
     <PackageReference Include="FluentAssertions" Version="6.*" />
     <PackageReference Include="Moq" Version="4.*" />
     <!-- SqliteEesDbCapability 방언 SQL을 인메모리 SQLite로 검증 -->
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.*" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.30" />
     <!-- Blazor 컴포넌트 단위 테스트(헤드리스 렌더) — ApiToastHost 등 검증 -->
     <PackageReference Include="bunit" Version="1.*" />
   </ItemGroup>

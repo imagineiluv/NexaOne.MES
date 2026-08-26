@@ -1,6 +1,6 @@
 using NexaOne.EST.Application.Est;
 using NexaOne.Infrastructure.Persistence;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 using System.Data.Common;
 
 namespace NexaOne.EST.Infrastructure;

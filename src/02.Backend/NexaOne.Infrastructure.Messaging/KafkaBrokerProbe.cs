@@ -1,4 +1,4 @@
-using NexusCom.Messaging.Kafka;
+using NexaDB.Messaging.Kafka;
 using NexaOne.Infrastructure.Diagnostics;
 
 namespace NexaOne.Infrastructure.Messaging;

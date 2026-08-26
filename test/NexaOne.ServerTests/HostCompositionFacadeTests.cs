@@ -25,7 +25,7 @@ using NexaOne.Web.Services;
 using NexaOne.Web.Services.Api;
 using NexaOne.Web.Services.Auth;
 using NexaOne.Web.Services.Meta;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
 namespace NexaOne.ServerTests;

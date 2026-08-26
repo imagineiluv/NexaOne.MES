@@ -9,7 +9,7 @@ using NexaOne.EST.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Ems;
 using NexaOne.ServiceContracts.Est;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
 namespace NexaOne.ServerTests;

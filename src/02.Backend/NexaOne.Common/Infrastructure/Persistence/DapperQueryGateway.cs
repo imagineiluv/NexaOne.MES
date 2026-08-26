@@ -1,6 +1,6 @@
 using Dapper;
-using NexusCom.Data.Abstractions.Interfaces;
-using NexusCom.Data.Abstractions.Models;
+using NexaDB.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Models;
 
 namespace NexaOne.Infrastructure.Persistence;
 

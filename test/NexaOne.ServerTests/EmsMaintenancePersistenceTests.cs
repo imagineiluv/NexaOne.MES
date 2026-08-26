@@ -13,7 +13,7 @@ using NexaOne.EMS.Domain;
 using NexaOne.EMS.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Ems;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
 namespace NexaOne.ServerTests;

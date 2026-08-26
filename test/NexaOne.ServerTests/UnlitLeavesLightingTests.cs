@@ -10,7 +10,7 @@ using Microsoft.IdentityModel.Tokens;
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 using System.IdentityModel.Tokens.Jwt;
 using Xunit;
 

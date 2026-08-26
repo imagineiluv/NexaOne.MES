@@ -6,7 +6,7 @@ using NexaOne.Infrastructure.Persistence;
 using NexaOne.IVT.Application.Materials;
 using NexaOne.IVT.Infrastructure;
 using NexaOne.ServiceContracts.Ivt;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
 namespace NexaOne.ServerTests;

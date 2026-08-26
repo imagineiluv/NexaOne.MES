@@ -6,7 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.QMS.Domain;
 using NexaOne.QMS.Infrastructure;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
 namespace NexaOne.ServerTests;

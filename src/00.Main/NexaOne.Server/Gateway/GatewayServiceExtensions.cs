@@ -2,8 +2,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NexaOne.Application;
 using NexaOne.Infrastructure.Persistence;
-using NexusCom.Data.Abstractions.Interfaces;
-using NexusCom.Data.MsSql;
+using NexaDB.Data.Abstractions.Interfaces;
+using NexaDB.Data.MsSql;
 
 namespace NexaOne.Server.Gateway;
 
@@ -22,7 +22,7 @@ public static class GatewayServiceExtensions
         INexaOneEESDbCapability capability;
         if (string.Equals(dbProvider, "Sqlite", StringComparison.OrdinalIgnoreCase))
         {
-            provider = new NexusCom.Data.Sqlite.SqliteProvider();
+            provider = new NexaDB.Data.Sqlite.SqliteProvider();
             capability = new SqliteEesDbCapability();
         }
         else

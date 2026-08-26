@@ -1,7 +1,7 @@
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Sys;
 using NexaOne.SYS.Application.Screens;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 
 namespace NexaOne.SYS.Infrastructure;
 

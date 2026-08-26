@@ -2,7 +2,7 @@ using System.Text;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.POM.Application.Lots;
 using NexaOne.POM.Domain;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 
 namespace NexaOne.POM.Infrastructure;
 

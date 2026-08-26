@@ -148,17 +148,17 @@
        (SqliteSchemaInitializer, 빈 DB일 때만). 외부 DB 설치가 필요 없어 로컬/테스트에 적합하다. -->
 
   <!-- [MSSQL] 기본(운영) -->
-  <object id="dbProvider" type="NexusCom.Data.MsSql.MsSqlProvider, NexusCom.Data.MsSql" />
-  <object id="eesDialect" type="NexusCom.Data.MsSql.MsSqlProvider, NexusCom.Data.MsSql" />
+  <object id="dbProvider" type="NexaDB.Data.MsSql.MsSqlProvider, NexaDB.Data.MsSql" />
+  <object id="eesDialect" type="NexaDB.Data.MsSql.MsSqlProvider, NexaDB.Data.MsSql" />
   <object id="eesDataSource" type="NexaOne.Infrastructure.Persistence.EesDataSource, NexaOne.Common">
     <property name="Provider" ref="dbProvider" />
     <property name="ConnectionString" value="Server=localhost;Database=NexaOneEES;Integrated Security=true;TrustServerCertificate=true" />
   </object>
 
   <!-- [SQLite] 로컬/테스트 — 위 [MSSQL] 3개 객체를 주석 처리하고 아래 주석을 해제한다.
-       두 공급자 모두 NexusCom.Data 메타 참조로 출력에 상존하므로 어셈블리 한정 타입명으로 직접 지정한다.
-       (SqliteProvider/eesDialect는 NexusCom.Data.Sqlite, MsSql은 NexusCom.Data.MsSql.) SQL 방언은 SQLite 어댑터.
-  <object id="dbProvider" type="NexusCom.Data.Sqlite.SqliteProvider, NexusCom.Data.Sqlite" />
+       두 공급자 모두 NexaDB.Data 메타 참조로 출력에 상존하므로 어셈블리 한정 타입명으로 직접 지정한다.
+       (SqliteProvider/eesDialect는 NexaDB.Data.Sqlite, MsSql은 NexaDB.Data.MsSql.) SQL 방언은 SQLite 어댑터.
+  <object id="dbProvider" type="NexaDB.Data.Sqlite.SqliteProvider, NexaDB.Data.Sqlite" />
   <object id="eesDialect" type="NexaOne.Infrastructure.Persistence.SqliteEesDbCapability, NexaOne.Common" />
   <object id="eesDataSource" type="NexaOne.Infrastructure.Persistence.EesDataSource, NexaOne.Common">
     <property name="Provider" ref="dbProvider" />

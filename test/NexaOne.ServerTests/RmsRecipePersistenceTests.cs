@@ -8,7 +8,7 @@ using NexaOne.RMS.Application.Rms;
 using NexaOne.RMS.Domain;
 using NexaOne.RMS.Infrastructure;
 using NexaOne.ServiceContracts.Rms;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
 namespace NexaOne.ServerTests;

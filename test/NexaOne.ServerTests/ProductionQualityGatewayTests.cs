@@ -8,7 +8,7 @@ using NexaOne.Infrastructure.Persistence;
 using NexaOne.QMS.Application.Qms;
 using NexaOne.QMS.Infrastructure;
 using NexaOne.ServiceContracts.Qms;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
 namespace NexaOne.ServerTests;

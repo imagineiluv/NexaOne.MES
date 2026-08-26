@@ -3,8 +3,8 @@ using System.Data.Common;
 using Dapper;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.RMS.Application.Rms;
-using NexusCom.Data.Abstractions.Interfaces;
-using NexusCom.Data.Abstractions.Models;
+using NexaDB.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Models;
 
 namespace NexaOne.RMS.Infrastructure;
 

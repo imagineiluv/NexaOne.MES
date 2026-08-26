@@ -3,7 +3,7 @@ using NexaOne.Common;
 using NexaOne.EST.Application.Est;
 using NexaOne.EST.Domain;
 using NexaOne.Infrastructure.Persistence;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 
 namespace NexaOne.EST.Infrastructure;
 

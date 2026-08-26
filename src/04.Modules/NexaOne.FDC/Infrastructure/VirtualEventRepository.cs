@@ -1,6 +1,6 @@
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.Infrastructure.Persistence;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 
 namespace NexaOne.FDC.Infrastructure;
 

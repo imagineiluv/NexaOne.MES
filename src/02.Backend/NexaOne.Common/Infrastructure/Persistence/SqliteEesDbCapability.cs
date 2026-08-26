@@ -1,12 +1,12 @@
 using System.Data.Common;
 using Dapper;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 
 namespace NexaOne.Infrastructure.Persistence;
 
 /// <summary>
 /// SQLite 방언 INexaOneEESDbCapability 구현 — 테스트/로컬 실행용(MSSQL 대체).
-/// NexusCom.Data.Sqlite의 SqliteProvider(IDatabaseProvider)와 함께 등록한다.
+/// NexaDB.Data.Sqlite의 SqliteProvider(IDatabaseProvider)와 함께 등록한다.
 /// MsSqlProvider가 자체적으로 capability를 구현하는 것과 달리 SQLite는 본 어댑터로 분리한다.
 /// </summary>
 public sealed class SqliteEesDbCapability : INexaOneEESDbCapability

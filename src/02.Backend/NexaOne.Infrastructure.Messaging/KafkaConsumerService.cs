@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace NexaOne.Infrastructure.Messaging;
 
-/// <summary>도메인 이벤트 구독 글루 — Consumer 생성(프로토콜 설정)은 NexusCom KafkaDriver에
+/// <summary>도메인 이벤트 구독 글루 — Consumer 생성(프로토콜 설정)은 NexaDB KafkaDriver에
 /// 위임하고(§3.6.1), 본 클래스는 역직렬화·핸들러 호출·커밋 정책만 담당한다.</summary>
 public sealed class KafkaConsumerService : BackgroundService
 {

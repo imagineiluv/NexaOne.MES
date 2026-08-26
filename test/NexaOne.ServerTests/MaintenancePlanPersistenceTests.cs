@@ -6,7 +6,7 @@ using NexaOne.EMS.Application.Ems;
 using NexaOne.EMS.Domain;
 using NexaOne.EMS.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
-using NexusCom.Data.Sqlite;
+using NexaDB.Data.Sqlite;
 using Xunit;
 
 namespace NexaOne.ServerTests;

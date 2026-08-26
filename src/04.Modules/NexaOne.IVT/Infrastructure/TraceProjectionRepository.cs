@@ -5,7 +5,7 @@ using System.Globalization;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.IVT.Application.Materials;
 using NexaOne.IVT.Domain;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 
 namespace NexaOne.IVT.Infrastructure;
 
