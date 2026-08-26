@@ -12,7 +12,7 @@ public enum WorkOrderStatus
 
 public sealed class WorkOrder : AuditableEntity<string>
 {
-    private static readonly HashSet<string> ValidWoTypes = ["PM", "CM"];
+    private static readonly HashSet<string> ValidWoTypes = ["PM", "BM", "CM"];
 
     private WorkOrder(string woId) : base(woId) { }
 
@@ -42,8 +42,11 @@ public sealed class WorkOrder : AuditableEntity<string>
             return Result.Failure<WorkOrder>(Error.Validation(nameof(woId), "Work order ID is required."));
         if (string.IsNullOrWhiteSpace(equipmentId))
             return Result.Failure<WorkOrder>(Error.Validation(nameof(equipmentId), "Equipment ID is required."));
-        if (!ValidWoTypes.Contains(woType))
-            return Result.Failure<WorkOrder>(Error.Validation(nameof(woType), "Work order type must be 'PM' or 'CM'."));
+        var normalizedType = woType?.Trim().ToUpperInvariant() ?? string.Empty;
+        if (!ValidWoTypes.Contains(normalizedType))
+            return Result.Failure<WorkOrder>(Error.Validation(nameof(woType), "Work order type must be 'PM' or 'BM'."));
+        // CM is a legacy synonym. Persist the canonical user-facing term BM for all new work.
+        if (normalizedType == "CM") normalizedType = "BM";
         if (string.IsNullOrWhiteSpace(description))
             return Result.Failure<WorkOrder>(Error.Validation(nameof(description), "Description is required."));
         if (string.IsNullOrWhiteSpace(assigneeId))
@@ -53,7 +56,7 @@ public sealed class WorkOrder : AuditableEntity<string>
         {
             PlanId = planId,
             EquipmentId = equipmentId,
-            WoType = woType,
+            WoType = normalizedType,
             Description = description,
             AssigneeId = assigneeId,
             IssuedAt = issuedAt,
@@ -75,7 +78,7 @@ public sealed class WorkOrder : AuditableEntity<string>
         {
             PlanId = planId,
             EquipmentId = equipmentId,
-            WoType = woType,
+            WoType = string.Equals(woType, "CM", StringComparison.OrdinalIgnoreCase) ? "BM" : woType,
             Description = description,
             AssigneeId = assigneeId,
             IssuedAt = issuedAt,

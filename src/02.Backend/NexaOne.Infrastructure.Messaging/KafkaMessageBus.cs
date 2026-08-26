@@ -13,13 +13,16 @@ public sealed class KafkaMessageBus : IMessageBus, IDisposable
 {
     private readonly KafkaDriver _driver;
     private readonly ILogger<KafkaMessageBus> _logger;
+    private readonly string _bootstrapServers;
 
     public KafkaMessageBus(
         string bootstrapServers,
         ILogger<KafkaMessageBus> logger,
         ILogger<KafkaDriver> driverLogger)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(bootstrapServers);
         _logger = logger;
+        _bootstrapServers = bootstrapServers;
         _driver = new KafkaDriver(driverLogger);
         _driver.Configure(bootstrapServers, messageTimeoutMs: 10_000);
     }
@@ -62,6 +65,59 @@ public sealed class KafkaMessageBus : IMessageBus, IDisposable
     {
         foreach (var message in messages)
             await PublishAsync(topic, message, ct);
+    }
+
+    internal IConsumer<string, string> CreateConsumer(
+        KafkaConsumerOptions options,
+        Action<string>? onError)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return _driver.CreateConsumer(
+            options.GroupId,
+            _bootstrapServers,
+            sessionTimeoutMs: 10_000,
+            maxPollIntervalMs: 300_000,
+            onError: onError);
+    }
+
+    /// <summary>
+    /// Probes real broker metadata without publishing a synthetic message. Bootstrap addresses and
+    /// broker errors stay inside this implementation and must not be copied into public diagnostics.
+    /// </summary>
+    internal async ValueTask ProbeBrokerAsync(
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        if (timeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(timeout), "Probe timeout must be positive.");
+        cancellationToken.ThrowIfCancellationRequested();
+
+        await RunBlockingProbeAsync(() =>
+        {
+            using var admin = new AdminClientBuilder(new AdminClientConfig
+            {
+                BootstrapServers = _bootstrapServers,
+            }).Build();
+            var metadata = admin.GetMetadata(timeout);
+            if (metadata.Brokers.Count == 0)
+                throw new KafkaException(new Error(ErrorCode.Local_AllBrokersDown));
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Keeps the synchronous librdkafka metadata call off the caller thread and lets the caller
+    /// observe cancellation immediately. The native probe itself remains bounded by its explicit
+    /// metadata timeout and owns its resources until that bounded operation finishes.
+    /// </summary>
+    internal static Task RunBlockingProbeAsync(
+        Action probe,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(probe);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var probeTask = Task.Run(probe, CancellationToken.None);
+        return probeTask.WaitAsync(cancellationToken);
     }
 
     public void Dispose() => _driver.Dispose();

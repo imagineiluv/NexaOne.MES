@@ -1,19 +1,15 @@
 using System.Collections.Concurrent;
 using NexaOne.Common.Telemetry;
-using NexaOne.FDC.Infrastructure.Equipment;
-using NexusLogic.Plc.Abstractions.Models;
 
 namespace NexaOne.FDC.Application.Fdc;
 
 /// <summary>
-/// OPC-UA 설비 구독을 FDC 수집 데이터 적재로 잇는 오케스트레이터 (§10.4).
-/// <see cref="OpcUaDeviceInterface"/>(NexusLogic <c>IPlcConnection</c>)의 태그 변경 이벤트를 받아
+/// 정규화된 설비 샘플을 FDC 수집 데이터 적재로 잇는 오케스트레이터 (§10.4).
 /// <see cref="FdcDataService"/>로 FDC_TB_COLLECT_DATA에 기록한다.
 /// </summary>
 /// <remarks>
-/// 설비 등록·시작(PlantController/Machine lifecycle)은 호스트 측이 담당하고, 본 서비스는
-/// 이미 Start된 디바이스의 연결에 구독을 걸어 데이터 흐름만 책임진다. 파라미터 미정의·검증 실패는
-/// 수집 루프를 막지 않도록 예외를 전파하지 않는다(설비 데이터 폭주 시 한 건 실패가 전체를 멈추지 않게).
+/// 설비 lifecycle과 PLC 구독은 Infrastructure 어댑터가 담당한다. 파라미터 미정의·검증 실패는
+/// 수집 루프를 막지 않도록 예외를 전파하지 않는다.
 /// </remarks>
 public sealed class FdcCollectorService
 {
@@ -51,41 +47,17 @@ public sealed class FdcCollectorService
         _alarmService = alarmService;
     }
 
-    /// <summary>이미 초기화/시작된 디바이스의 연결에 태그 구독을 걸고, 변경 이벤트를 수집 데이터로 적재한다.</summary>
-    public async Task StartCollectingAsync(
-        OpcUaDeviceInterface device,
-        IEnumerable<PlcSubscription> subscriptions,
-        CancellationToken ct = default)
-    {
-        var conn = device.Connection
-            ?? throw new InvalidOperationException(
-                $"Device '{device.InterfaceName}' is not initialized (connect first via Machine lifecycle).");
-
-        // 연결이 비-null이라도 Ping 실패(Error)·정지(Stopped) 상태면 구독을 걸지 않는다(닫힌/실패 연결 보호)
-        if (device.State is not (NexusFramework.Resource.ResourceState.Ready
-                                 or NexusFramework.Resource.ResourceState.Running))
-            throw new InvalidOperationException(
-                $"Device '{device.InterfaceName}' is not in a startable state (state: {device.State}).");
-
-        await conn.SubscriptionProvider.StartAsync(
-            conn.Endpoint,
-            subscriptions,
-            evt => OnTagChangeAsync(device.InterfaceName, evt, ct),
-            ct);
-    }
-
     /// <summary>태그 변경 1건을 수집 데이터로 적재하고, 인터락 규칙을 평가한다.
     /// 파라미터 미정의·검증 실패는 삼킨다(폭주 방지) — 이 경우 인터락 평가도 건너뛴다.</summary>
-    public async Task OnTagChangeAsync(string equipmentId, PlcTagChangeEvent evt, CancellationToken ct = default)
+    public async Task OnTagChangeAsync(string equipmentId, FdcTagSample sample, CancellationToken ct = default)
     {
-        var value = ToDecimal(evt.After);
-        var quality = MapQuality(evt.Quality);
+        var quality = sample.Quality.ToString();
 
         var recorded = await _dataService.RecordDataAsync(
             collectId: Guid.NewGuid().ToString("N"),
             equipmentId: equipmentId,
-            parameterId: evt.TagName,
-            value: value,
+            parameterId: sample.ParameterId,
+            value: sample.Value,
             quality: quality,
             ct: ct);
 
@@ -100,19 +72,19 @@ public sealed class FdcCollectorService
 
         // 품질이 Good이 아니면(연결 끊김/Bad → ToDecimal이 0으로 뭉갬) 평가·해제하지 않는다.
         // 0으로 뭉개진 값이 활성 인터락/알람을 거짓 해제하거나 저값 규칙을 거짓 발동시키는 것을 방지.
-        if (quality != "Good") return;
+        if (sample.Quality != FdcSampleQuality.Good) return;
 
         // 같은 (설비|태그) 이벤트의 동시 처리를 직렬화 — TryAdd 후 RecordTrigger(INSERT)와
         // 정상 복귀 시 ResolveActive(미해제 행 해제)의 순서 역전(발동↔해제 비대칭)을 막는다.
-        var key = $"{equipmentId}|{evt.TagName}";
+        var key = $"{equipmentId}|{sample.ParameterId}";
         var gate = _keyGates.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct);
         try
         {
             if (_interlockService is not null)
-                await EvaluateInterlockAsync(equipmentId, evt.TagName, value, key, ct);
+                await EvaluateInterlockAsync(equipmentId, sample.ParameterId, sample.Value, key, ct);
             if (_alarmService is not null)
-                await EvaluateAlarmAsync(equipmentId, evt.TagName, value, key, ct);
+                await EvaluateAlarmAsync(equipmentId, sample.ParameterId, sample.Value, key, ct);
         }
         finally
         {
@@ -197,28 +169,6 @@ public sealed class FdcCollectorService
         "Warning"  => 1,
         _          => 0,
     };
-
-    /// <summary>NexusLogic <see cref="PlcQuality"/> → FDC 수집 품질("Good"/"Bad"/"Uncertain") 매핑.</summary>
-    public static string MapQuality(PlcQuality quality) => quality switch
-    {
-        PlcQuality.Good      => "Good",
-        PlcQuality.Uncertain => "Uncertain",
-        _                    => "Bad",   // Bad / Timeout / Disconnected / NotSupported
-    };
-
-    /// <summary>태그 값(object?) → decimal 변환. null·변환 불가 값은 0으로 처리한다.</summary>
-    public static decimal ToDecimal(object? value)
-    {
-        if (value is null) return 0m;
-        try
-        {
-            return Convert.ToDecimal(value);
-        }
-        catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
-        {
-            return 0m;
-        }
-    }
 }
 
 /// <summary>인터락 규칙 발동 이벤트 인자 (§10.4.2).</summary>

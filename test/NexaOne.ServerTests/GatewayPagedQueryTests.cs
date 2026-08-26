@@ -60,7 +60,7 @@ public sealed class GatewayPagedQueryTests : IClassFixture<GatewayPagedQueryTest
     [Fact]
     public async Task Paged_returns_total_and_window_and_offset_moves()
     {
-        var client = AuthedClient("paged-reader");
+        var client = AuthedClient("paged-reader", "mdm:read");
 
         // dev 시드 공장 2행 — limit=1: total=2 + 1행.
         var r1 = await client.PostAsJsonAsync("/api/v1/query/MDM.PlantList/paged",
@@ -90,7 +90,8 @@ public sealed class GatewayPagedQueryTests : IClassFixture<GatewayPagedQueryTest
             .StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         // 자체 상한 쿼리(@limit/@offset 수동 페이징 — SYS.AppLogList) → 422(클라 전량 폴백 신호).
-        (await client.PostAsJsonAsync("/api/v1/query/SYS.AppLogList/paged",
+        var sysClient = AuthedClient("paged-sys-admin", "sys:manage");
+        (await sysClient.PostAsJsonAsync("/api/v1/query/SYS.AppLogList/paged",
             new { parameters = new { }, limit = 10, offset = 0 }))
             .StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
     }

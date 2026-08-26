@@ -37,7 +37,11 @@ public sealed class RmsBridgeControllerTests : IClassFixture<RmsBridgeController
             builder.UseSetting("Jwt:Issuer", Issuer);
             builder.UseSetting("Jwt:Audience", Issuer);
             builder.UseSetting("RateLimiting:Enabled", "false");
-            builder.ConfigureTestServices(s => s.AddSingleton<IRecipeApprovalBridge>(new FakeBridge()));
+            builder.ConfigureTestServices(s =>
+            {
+                s.AddSingleton<IRecipeApprovalBridge>(new FakeBridge());
+                s.AddSingleton<IRecipeExecutionBridge>(new FakeExecutionBridge());
+            });
         }
         protected override void Dispose(bool disposing)
         {
@@ -49,13 +53,20 @@ public sealed class RmsBridgeControllerTests : IClassFixture<RmsBridgeController
     // 가짜 브리지 — recipeId/paramId 센티넬 값으로 Result 분기를 결정해 컨트롤러의 Result→HTTP 매핑만 격리 검증한다.
     private sealed class FakeBridge : IRecipeApprovalBridge
     {
+        private static readonly RecipeDto[] Recipes =
+        [
+            new("R1", "draft-a", "d", "EC1", 1, "Draft", null, null, null),
+            new("R2", "released-b", "d", "EC2", 2, "Released", "a1", "a2", DateTime.UtcNow),
+        ];
+
         public Task<IReadOnlyList<RecipeDto>> GetByEquipmentClassAsync(string equipmentClassId, CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<RecipeDto>>(
-                new[] { new RecipeDto("R1", "n", "d", "EC1", 1, "Draft", null, null, null) });
+            => Task.FromResult<IReadOnlyList<RecipeDto>>(string.IsNullOrWhiteSpace(equipmentClassId)
+                ? Recipes
+                : Recipes.Where(recipe => recipe.EquipmentClassId == equipmentClassId).ToArray());
 
         public Task<IReadOnlyList<RecipeDto>> GetByStateAsync(string state, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<RecipeDto>>(
-                new[] { new RecipeDto("R1", "n", "d", "EC1", 1, "Draft", null, null, null) });
+                Recipes.Where(recipe => recipe.ApprovalState.Equals(state, StringComparison.OrdinalIgnoreCase)).ToArray());
 
         public Task<Result<RecipeDto>> GetRecipeAsync(string recipeId, CancellationToken ct = default)
             => Task.FromResult(recipeId switch
@@ -107,11 +118,62 @@ public sealed class RmsBridgeControllerTests : IClassFixture<RmsBridgeController
         });
     }
 
+    private sealed class FakeExecutionBridge : IRecipeExecutionBridge
+    {
+        public static RecipeAssignmentCommand? LastAssignment { get; private set; }
+        public static RecipeExecutionCommand? LastExecution { get; private set; }
+
+        public Task<Result<RecipeAssignmentDto>> AssignAsync(
+            RecipeAssignmentCommand command, CancellationToken ct = default)
+        {
+            LastAssignment = command;
+            return Task.FromResult(Result.Success(new RecipeAssignmentDto(
+                command.AssignmentId, command.EquipmentId, command.EquipmentClassId,
+                command.RecipeId, command.RecipeVersion, command.EffectiveFrom ?? DateTime.UtcNow,
+                null, command.ActorId ?? "", true)));
+        }
+
+        public Task<IReadOnlyList<RecipeAssignmentDto>> GetAssignmentsAsync(
+            string? equipmentId = null,
+            string? equipmentClassId = null,
+            bool activeOnly = true,
+            CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<RecipeAssignmentDto>>(new[]
+            {
+                new RecipeAssignmentDto("A1", equipmentId ?? "EQ01", equipmentClassId,
+                    "R1", 1, DateTime.UtcNow, null, "operator", true),
+            });
+
+        public Task<Result<RecipeExecutionSnapshotDto>> RecordExecutionAsync(
+            RecipeExecutionCommand command, CancellationToken ct = default)
+        {
+            LastExecution = command;
+            return Task.FromResult(Result.Success(new RecipeExecutionSnapshotDto(
+                command.ExecutionId, command.IdempotencyKey, command.PlantId, command.EquipmentId,
+                command.ProcessLotId, command.WorkOrderId, command.ProcessId,
+                command.RecipeId, command.RecipeVersion, "{}", "[]",
+                command.ConditionSnapshotJson, command.ActorId ?? "", command.AppliedAt,
+                command.Source, command.TraceId, false)));
+        }
+
+        public Task<Result<RecipeExecutionSnapshotDto>> GetExecutionAsync(
+            string executionId, CancellationToken ct = default)
+            => Task.FromResult(Result.Success(new RecipeExecutionSnapshotDto(
+                executionId, "idem", "PLANT01", "EQ01", null, null, null,
+                "R1", 1, "{}", "[]", null, "operator", DateTime.UtcNow,
+                "Equipment", null, false)));
+    }
+
     private HttpClient Client(params string[] permissions)
+        => Client(includeActor: true, permissions);
+
+    private HttpClient Client(bool includeActor, params string[] permissions)
     {
         var client = _factory.CreateClient();
         var creds = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Secret)), SecurityAlgorithms.HmacSha256);
-        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, "bridge-tester") };
+        var claims = new List<Claim>();
+        if (includeActor)
+            claims.Add(new Claim(ClaimTypes.NameIdentifier, "bridge-tester"));
         claims.AddRange(permissions.Select(p => new Claim(NexaOne.Common.Security.Permissions.ClaimType, p)));
         var token = new JwtSecurityToken(Issuer, Issuer, claims, expires: DateTime.UtcNow.AddMinutes(10), signingCredentials: creds);
         client.DefaultRequestHeaders.Authorization =
@@ -168,11 +230,131 @@ public sealed class RmsBridgeControllerTests : IClassFixture<RmsBridgeController
     }
 
     [Fact]
+    public async Task Released_parameter_update_conflict_maps_to_409()
+    {
+        var res = await Client("rms:manage").PutAsJsonAsync(
+            "/api/v1/rms/recipes/params/__conflict__", new { newValue = "190" });
+
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task Released_parameter_delete_conflict_maps_to_409()
+    {
+        var res = await Client("rms:manage").DeleteAsync(
+            "/api/v1/rms/recipes/params/__conflict__");
+
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
     public async Task GetRecipes_by_state_returns_200_for_reader()
     {
-        var res = await Client().GetAsync("/api/v1/rms/recipes?state=Draft");
-        res.StatusCode.Should().Be(HttpStatusCode.OK, "읽기는 인증만 있으면 rms:manage 없이 200");
+        var res = await Client("rms:read").GetAsync("/api/v1/rms/recipes?state=Draft");
+        res.StatusCode.Should().Be(HttpStatusCode.OK, "rms:read 보유 조회는 200");
         var rows = await res.Content.ReadFromJsonAsync<List<RecipeDto>>();
         rows!.Should().ContainSingle(r => r.RecipeId == "R1");
+    }
+
+    [Fact]
+    public async Task GetRecipes_without_filters_returns_all_recipes()
+    {
+        var res = await Client("rms:read").GetAsync("/api/v1/rms/recipes");
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var rows = await res.Content.ReadFromJsonAsync<List<RecipeDto>>();
+        rows!.Select(recipe => recipe.RecipeId).Should().BeEquivalentTo("R1", "R2");
+    }
+
+    [Fact]
+    public async Task GetRecipes_combines_equipment_class_and_state_filters()
+    {
+        var res = await Client("rms:read").GetAsync(
+            "/api/v1/rms/recipes?equipmentClassId=EC2&state=Released");
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var rows = await res.Content.ReadFromJsonAsync<List<RecipeDto>>();
+        rows.Should().ContainSingle(recipe => recipe.RecipeId == "R2");
+    }
+
+    [Fact]
+    public async Task GetRecipes_combined_filter_does_not_leak_other_equipment_class()
+    {
+        var res = await Client("rms:read").GetAsync(
+            "/api/v1/rms/recipes?equipmentClassId=EC1&state=Released");
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var rows = await res.Content.ReadFromJsonAsync<List<RecipeDto>>();
+        rows.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Recipe_read_without_rms_read_is_forbidden()
+    {
+        var res = await Client("fdc:read").GetAsync("/api/v1/rms/recipes");
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Approval_without_identity_claim_is_unauthorized_and_never_uses_system_actor()
+    {
+        var res = await Client(includeActor: false, "rms:manage")
+            .PutAsync("/api/v1/rms/recipes/R1/approve1", null);
+
+        res.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Assignment_overwrites_body_actor_with_authenticated_identity()
+    {
+        var res = await Client("rms:manage").PostAsJsonAsync("/api/v1/rms/assignments", new
+        {
+            assignmentId = "A1",
+            equipmentId = "EQ01",
+            equipmentClassId = (string?)null,
+            recipeId = "R1",
+            recipeVersion = 1,
+            actorId = "spoofed",
+        });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        FakeExecutionBridge.LastAssignment!.ActorId.Should().Be("bridge-tester");
+    }
+
+    [Fact]
+    public async Task Execution_preserves_header_idempotency_key_and_authenticated_actor()
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/rms/executions")
+        {
+            Content = JsonContent.Create(new
+            {
+                executionId = "EXE1",
+                idempotencyKey = "body-key",
+                plantId = "PLANT01",
+                equipmentId = "EQ01",
+                recipeId = "R1",
+                recipeVersion = 1,
+                appliedAt = DateTime.UtcNow,
+                source = "Equipment",
+                actorId = "spoofed",
+            }),
+        };
+        request.Headers.Add("Idempotency-Key", "header-key");
+
+        var res = await Client("rms:manage").SendAsync(request);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        FakeExecutionBridge.LastExecution!.IdempotencyKey.Should().Be("header-key");
+        FakeExecutionBridge.LastExecution.ActorId.Should().Be("bridge-tester");
+    }
+
+    [Fact]
+    public async Task Assignment_read_requires_rms_read()
+    {
+        (await Client("fdc:read").GetAsync("/api/v1/rms/assignments"))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client("rms:read").GetAsync("/api/v1/rms/assignments"))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
     }
 }

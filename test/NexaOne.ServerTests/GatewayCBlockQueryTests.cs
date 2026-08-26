@@ -45,13 +45,14 @@ public sealed class GatewayCBlockQueryTests : IClassFixture<GatewayCBlockQueryTe
 
     private void EnsureSchemaReady() => _ = _factory.CreateClient();
 
-    private HttpClient AuthedClient()
+    private HttpClient AuthedClient(string permission)
     {
         var client = _factory.CreateClient();
         var creds = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Secret)), SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(Issuer, Issuer,
-            new[] { new Claim(ClaimTypes.NameIdentifier, "cblock-e2e-user") },
+            new[] { new Claim(ClaimTypes.NameIdentifier, "cblock-e2e-user"),
+                new Claim(NexaOne.Common.Security.Permissions.ClaimType, permission) },
             expires: DateTime.UtcNow.AddMinutes(10), signingCredentials: creds);
         client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", new JwtSecurityTokenHandler().WriteToken(token));
@@ -99,16 +100,27 @@ public sealed class GatewayCBlockQueryTests : IClassFixture<GatewayCBlockQueryTe
     }
 
     [Fact]
-    public async Task WorkOrderList_returns_seeded_and_status_filter_narrows()
+    public async Task WorkOrderList_returns_seeded_and_status_or_id_filter_narrows()
     {
         EnsureSchemaReady();
-        var plant = "P_" + Suffix();
+        var plant = "PLANT01";
+        var plan = $"PP_{Suffix()}";
+        var productionOrder = $"PO_{Suffix()}";
         var started = $"WO_{Suffix()}";
         var created = $"WO_{Suffix()}";
-        Exec("INSERT INTO POM_WORK_ORDER (WORK_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, PRODUCT_ID, PLAN_QTY, START_QTY, COMPLETE_QTY, SCRAP_QTY, STATUS, IS_HOLD) VALUES (@id, @plant, 'W/O', 'ITEM01', 100, 50, 0, 0, 'Started', 'N')",
-            cmd => { cmd.Parameters.AddWithValue("@id", started); cmd.Parameters.AddWithValue("@plant", plant); });
-        Exec("INSERT INTO POM_WORK_ORDER (WORK_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, PRODUCT_ID, PLAN_QTY, START_QTY, COMPLETE_QTY, SCRAP_QTY, STATUS, IS_HOLD) VALUES (@id, @plant, 'W/O', 'ITEM01', 200, 0, 0, 0, 'Created', 'N')",
-            cmd => { cmd.Parameters.AddWithValue("@id", created); cmd.Parameters.AddWithValue("@plant", plant); });
+        var now = DateTime.UtcNow.ToString("o");
+        Exec("INSERT INTO POM_PRODUCTION_PLAN (PLAN_ID, PLAN_NAME, PLANT_ID, PRODUCT_ID, PLANNED_QTY, PLANNED_START_DATE, PLANNED_END_DATE, STATUS, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) " +
+             "VALUES (@id, '테스트 계획', @plant, 'ITEM01', 200, @now, @now, 'Released', 'TEST', @now, 'TEST', @now)",
+            cmd => { cmd.Parameters.AddWithValue("@id", plan); cmd.Parameters.AddWithValue("@plant", plant); cmd.Parameters.AddWithValue("@now", now); });
+        Exec("INSERT INTO POM_PRODUCTION_ORDER (ORDER_ID, PLAN_ID, EQUIPMENT_ID, PRODUCT_ID, ORDER_QTY, SCHEDULED_START, SCHEDULED_END, STATUS, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) " +
+             "VALUES (@id, @plan, 'EQ01', 'ITEM01', 200, @now, @now, 'InProgress', 'TEST', @now, 'TEST', @now)",
+            cmd => { cmd.Parameters.AddWithValue("@id", productionOrder); cmd.Parameters.AddWithValue("@plan", plan); cmd.Parameters.AddWithValue("@now", now); });
+        Exec("INSERT INTO POM_WORK_ORDER (WORK_ORDER_ID, PRODUCTION_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, PRODUCT_ID, PLAN_QTY, START_QTY, COMPLETE_QTY, SCRAP_QTY, STATUS, IS_HOLD) " +
+             "VALUES (@id, @parent, @plant, 'W/O', 'ITEM01', 100, 50, 0, 0, 'Started', 'N')",
+            cmd => { cmd.Parameters.AddWithValue("@id", started); cmd.Parameters.AddWithValue("@parent", productionOrder); cmd.Parameters.AddWithValue("@plant", plant); });
+        Exec("INSERT INTO POM_WORK_ORDER (WORK_ORDER_ID, PRODUCTION_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, PRODUCT_ID, PLAN_QTY, START_QTY, COMPLETE_QTY, SCRAP_QTY, STATUS, IS_HOLD) " +
+             "VALUES (@id, @parent, @plant, 'W/O', 'ITEM01', 200, 0, 0, 0, 'Created', 'N')",
+            cmd => { cmd.Parameters.AddWithValue("@id", created); cmd.Parameters.AddWithValue("@parent", productionOrder); cmd.Parameters.AddWithValue("@plant", plant); });
 
         var all = await Query("POM.WorkOrderList", new() { ["plantId"] = plant });
         all.Select(r => r["WORK_ORDER_ID"].ToString()).Should().Contain(new[] { started, created }, "공장 작업지시가 조회돼야 한다(W/O 관리 점등)");
@@ -117,6 +129,11 @@ public sealed class GatewayCBlockQueryTests : IClassFixture<GatewayCBlockQueryTe
         var ids = startedOnly.Select(r => r["WORK_ORDER_ID"].ToString()).ToList();
         ids.Should().Contain(started);
         ids.Should().NotContain(created, "status 필터는 해당 상태만 반환");
+
+        var selected = await Query("POM.WorkOrderList", new() { ["workOrderId"] = created });
+        selected.Should().ContainSingle();
+        selected[0]["WORK_ORDER_ID"].ToString().Should().Be(created,
+            "작업실행 화면의 workOrderId 조건은 선택한 작업지시만 반환해야 한다");
     }
 
     [Fact]
@@ -154,7 +171,15 @@ public sealed class GatewayCBlockQueryTests : IClassFixture<GatewayCBlockQueryTe
 
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)
     {
-        var res = await AuthedClient().PostAsJsonAsync($"/api/v1/query/{queryId}", p);
+        var permission = queryId.Split('.')[0] switch
+        {
+            "COM" => "com:read",
+            "MDM" => "mdm:read",
+            "POM" => "pom:read",
+            "SYS" => "sys:manage",
+            _ => throw new InvalidOperationException($"No test read permission mapped for '{queryId}'."),
+        };
+        var res = await AuthedClient(permission).PostAsJsonAsync($"/api/v1/query/{queryId}", p);
         res.StatusCode.Should().Be(HttpStatusCode.OK, $"{queryId} 는 200이어야 한다");
         var rows = await res.Content.ReadFromJsonAsync<List<Dictionary<string, object>>>();
         rows.Should().NotBeNull();

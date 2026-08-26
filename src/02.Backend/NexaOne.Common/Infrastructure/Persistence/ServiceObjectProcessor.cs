@@ -77,6 +77,32 @@ public sealed class ServiceObjectProcessor
             return total;
         }, IsolationLevel.ReadCommitted, ct);
 
+    /// <summary>
+    /// 첫 문장을 낙관적 잠금 guard로 실행하고 정확히 한 행이 바뀐 경우에만 후속 문장을 실행한다.
+    /// guard가 0행이면 후속 실행 없이 false를 반환한다. 후속 문장 실패는 동일 트랜잭션 전체를 롤백한다.
+    /// </summary>
+    public Task<bool> ExecuteGuardedManyAsync(
+        CancellationToken ct,
+        params (string Sql, object? Param)[] statements)
+    {
+        if (statements is null || statements.Length == 0)
+            throw new ArgumentException("At least one guarded statement is required.", nameof(statements));
+
+        return _txnManager.ExecuteInTransactionAsync(_endpoint, async (conn, txn) =>
+        {
+            for (var i = 0; i < statements.Length; i++)
+            {
+                var (sql, param) = statements[i];
+                var affected = await conn.ExecuteAsync(sql, param, txn).ConfigureAwait(false);
+                if (i == 0 && affected == 0) return false;
+                if (affected != 1)
+                    throw new DBConcurrencyException(
+                        $"Guarded statement {i} affected {affected} rows; expected exactly one.");
+            }
+            return true;
+        }, IsolationLevel.ReadCommitted, ct);
+    }
+
     private Dictionary<string, object?> InjectAudit(object? param, bool isInsert)
     {
         var dict = param is null

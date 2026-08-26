@@ -9,4 +9,7 @@ public interface IRecipeParamRepository
     Task AddAsync(RecipeParam param, CancellationToken ct = default);
     Task UpdateAsync(RecipeParam param, CancellationToken ct = default);
     Task DeleteAsync(string paramId, CancellationToken ct = default);
+    Task<bool> TryAddIfRecipeEditableAsync(RecipeParam param, CancellationToken ct = default);
+    Task<bool> TryUpdateIfRecipeEditableAsync(RecipeParam param, CancellationToken ct = default);
+    Task<bool> TryDeleteIfRecipeEditableAsync(string paramId, CancellationToken ct = default);
 }

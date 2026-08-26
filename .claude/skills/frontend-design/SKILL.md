@@ -8,6 +8,15 @@ description: NexaOne MES 프론트엔드 디자인 작업 시 사용 — 화면/
 Blazor Server 통합 호스트(NexaOne.Server) + RCL(NexaOne.Web.Components) + Radzen Blazor 11.x.
 스타일 단일 출처: `src/00.Main/NexaOne.Server/wwwroot/css/nexaone.css` (--nx-* 토큰).
 
+## DESIGN.md 업무 원칙
+
+화면의 정보 계층·컴포넌트 선택·관리 화면 View 모드 기준은 Obsidian Wiki의
+`docs/design/NexaOne-DESIGN.md`를 함께 확인한다. getdesign.md의 Discord 분석에서는
+짙은 배경의 표면 계층, 강한 활성 상태, 8px 간격 리듬, 44px 터치 목표만 원칙으로 채택한다.
+Blurple·Magenta·과장된 대문자/그라데이션을 복제하지 않고 NexaOne 네이비·틸과 시맨틱 상태색을 유지한다.
+
+CSS·토큰의 기술적 단일 출처는 계속 이 스킬과 `nexaone.css`이며, Wiki는 업무 UX 의사결정의 단일 출처다.
+
 ## 절대 규칙 (위반 = 리뷰 반려 수준)
 
 1. **인라인 `style=` 금지.** 전 스타일은 nexaone.css의 토큰 기반 클래스로. 동적 상태는 클래스 토글(`@(cond ? "is-disabled" : "")`).

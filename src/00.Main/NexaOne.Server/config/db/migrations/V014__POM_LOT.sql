@@ -4,7 +4,7 @@
 CREATE TABLE POM_LOT (
     LOT_ID              NVARCHAR(50)    NOT NULL,
     PLANT_ID            NVARCHAR(50)    NOT NULL,
-    WORK_ORDER_ID       NVARCHAR(50)    NULL,           -- POM_PRODUCTION_ORDER.ORDER_ID (Mixing 출력 Lot은 NULL 가능)
+    WORK_ORDER_ID       NVARCHAR(50)    NULL,           -- POM_WORK_ORDER.WORK_ORDER_ID (Mixing output may be NULL)
     PRODUCT_ID          NVARCHAR(50)    NOT NULL,
     QTY                 DECIMAL(18,4)   NOT NULL,
     DEFECT_QTY          DECIMAL(18,4)   NOT NULL DEFAULT 0,

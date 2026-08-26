@@ -2,16 +2,16 @@ using System.Globalization;
 using NexaOne.EST.Application.Oee;
 using NexaOne.EST.Domain.Oee;
 using NexaOne.Infrastructure.Persistence;
+using NexaOne.ServiceContracts.Est;
 
 namespace NexaOne.EST.Infrastructure;
 
-/// <summary>OEE 집계 구현(EST 모듈 소유) — 원자료(EST_EQUIPMENT_STATE_HISTORY 상태전이 · POM_LOT 생산/불량 수량)를
+/// <summary>OEE 집계 구현(EST 모듈 소유) — 원자료(EST_EQUIPMENT_STATE_HISTORY 상태전이 · EST_EQUIPMENT_OUTPUT_EVENT 생산/불량 수량)를
 /// 설정(EST_STATE_CATEGORY · EST_OEE_TARGET)과 결합해 <see cref="OeeCalculator"/>로 계산하고 EST_OEE_SUMMARY/
 /// EST_OEE_LOSS 마트에 적재한다. DB 접근은 모듈 표준(<see cref="QueryRepository"/> 읽기 + <see cref="ServiceObjectProcessor"/>
 /// 쓰기, provider-agnostic Dapper) — SQLite/MSSQL 공통 ANSI SQL. 워커 산출물은 OEE_ID='AGG_*'/LOSS_ID='AGL_*'로
-/// 키잉해 데모 시드(OEE01~/LOSS01~)를 보존하고 delete+insert로 멱등이다. 작업조 인식은 근무달력(MDM_WORK_CALENDAR)→
-/// 활성 작업조(MDM_SHIFT)로 윈도를 해석하고 계획시간을 작업조 길이로 확정한다.
-/// 교차모듈 데이터(POM_LOT·MDM_SHIFT/CALENDAR/EQUIPMENT)는 C# 타입 결합 없이 순수 SQL로만 읽는다(ADR-001).</summary>
+/// 키잉해 데모 시드(OEE01~/LOSS01~)를 보존하고 delete+insert로 멱등이다. 외부 계획·생산 증거는
+/// <see cref="IOeeEvidenceSource"/> seam으로만 읽으므로 EST는 다른 업무 모듈의 물리 스키마를 소유하지 않는다.</summary>
 public sealed class OeeAggregationRepository : QueryRepository, IOeeAggregator
 {
     private const string Ts = "yyyy-MM-dd HH:mm:ss";
@@ -19,89 +19,187 @@ public sealed class OeeAggregationRepository : QueryRepository, IOeeAggregator
     private static readonly OeeStateCategory Unknown = new("Unknown", IsProductive: false, IsDowntime: false, IsScheduled: true);
 
     private readonly ServiceObjectProcessor _processor;
+    private readonly TaktAggregationRepository _taktAggregator;
+    private readonly IOeeEvidenceSource _evidenceSource;
 
-    public OeeAggregationRepository(EesDataSource dataSource) : base(dataSource)
-        => _processor = new ServiceObjectProcessor(dataSource);
+    public OeeAggregationRepository(EesDataSource dataSource, IOeeEvidenceSource evidenceSource) : base(dataSource)
+    {
+        _processor = new ServiceObjectProcessor(dataSource);
+        _taktAggregator = new TaktAggregationRepository(dataSource);
+        _evidenceSource = evidenceSource;
+    }
 
     public async Task<int> AggregateDayAsync(DateTime date, CancellationToken ct = default)
     {
         var dayStart = date.Date;
-        var dayEnd = dayStart.AddDays(1);
-
-        // 일자 범위의 기존 워커 산출물을 한 번에 제거(멱등) — 작업조/일자 모드 전환 시 잔여행 방지.
-        await DeleteWorkerRowsAsync(F(dayStart), F(dayEnd), ct);
-
-        var windows = await ResolveShiftWindowsAsync(dayStart, ct);
-        if (windows.Count == 0)
-            return await AggregateWindowInternalAsync(dayStart, dayEnd, shiftId: null, plannedOverride: 0m, deleteFirst: false, ct);
-
+        var definitions = await LoadTargetDefinitionsAsync(ct);
+        var plan = await _evidenceSource.LoadPlanAsync(
+            definitions.Select(static target => target.EquipmentId).ToArray(), dayStart, ct);
+        var targets = BindTargets(definitions, plan);
+        var plantDays = plan.PlantDays
+            .GroupBy(static plantDay => plantDay.PlantId, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.First(), StringComparer.Ordinal);
+        var expectedScopes = new HashSet<GeneratedScope>();
         int total = 0;
-        foreach (var w in windows)
-            total += await AggregateWindowInternalAsync(w.Start, w.End, w.ShiftId, w.PlannedMinutes, deleteFirst: false, ct);
+        foreach (var plantTargets in targets.GroupBy(static target => target.PlantId, StringComparer.Ordinal))
+        {
+            if (!plantDays.TryGetValue(plantTargets.Key, out var plantDay)
+                || plantDay.Windows.Count == 0)
+                continue;
+            var scopedTargets = plantTargets.ToList();
+            foreach (var window in plantDay.Windows)
+            {
+                var shiftId = NormalizeShiftId(window.ShiftId);
+                foreach (var target in scopedTargets)
+                    expectedScopes.Add(new GeneratedScope(target.PlantId, target.EquipmentId, shiftId));
+                total += await AggregateWindowInternalAsync(
+                    window.StartUtc, window.EndUtc, shiftId, window.PlannedMinutes,
+                    scopedTargets, dayStart, ct);
+            }
+        }
+        // Reconciliation runs only after every current scope was recomputed successfully. A failed target therefore
+        // keeps its previous rows, while deactivated targets, removed shifts and empty plans cannot leave stale marts.
+        await ReconcileGeneratedRowsAsync(dayStart, dayStart.AddDays(1), expectedScopes, ct);
         return total;
     }
 
-    public Task<int> AggregateWindowAsync(
+    public async Task<int> AggregateWindowAsync(
         DateTime windowStart, DateTime windowEnd, string? shiftId = null, decimal plannedOverride = 0m,
         CancellationToken ct = default)
-        => AggregateWindowInternalAsync(windowStart, windowEnd, shiftId, plannedOverride, deleteFirst: true, ct);
+    {
+        var definitions = await LoadTargetDefinitionsAsync(ct);
+        var plan = await _evidenceSource.LoadPlanAsync(
+            definitions.Select(static target => target.EquipmentId).ToArray(), localDay: null, ct);
+        var targets = BindTargets(definitions, plan);
+        var reportDate = windowStart.Date;
+        var normalizedShiftId = NormalizeShiftId(shiftId);
+        var written = await AggregateWindowInternalAsync(
+            windowStart, windowEnd, normalizedShiftId, plannedOverride,
+            targets, reportDate, ct);
+        var expectedScopes = targets
+            .Select(target => new GeneratedScope(target.PlantId, target.EquipmentId, normalizedShiftId))
+            .ToHashSet();
+        await ReconcileGeneratedRowsAsync(
+            reportDate, reportDate.AddDays(1), expectedScopes, ct,
+            new ReconciliationScope(normalizedShiftId));
+        return written;
+    }
 
     private async Task<int> AggregateWindowInternalAsync(
-        DateTime windowStart, DateTime windowEnd, string? shiftId, decimal plannedOverride, bool deleteFirst, CancellationToken ct)
+        DateTime windowStart, DateTime windowEnd, string? shiftId, decimal plannedOverride,
+        IReadOnlyList<TargetRow> targets, DateTime reportDate, CancellationToken ct)
     {
         var fromStr = F(windowStart);
         var toStr = F(windowEnd);
         var suffix = string.IsNullOrEmpty(shiftId) ? "ALLDAY" : shiftId!;
 
-        var categories = await LoadCategoriesAsync(ct);
-        var targets = await LoadTargetsAsync(ct);
         if (targets.Count == 0) return 0;
-
-        if (deleteFirst) await DeleteWorkerRowsAsync(fromStr, toStr, ct);
+        var categories = await LoadCategoriesAsync(ct);
 
         int written = 0;
         foreach (var t in targets)
         {
             var transitions = await LoadTransitionsAsync(t.EquipmentId, fromStr, toStr, ct);
-            var lots = await LoadLotCountsAsync(t.EquipmentId, fromStr, toStr, ct);
+            var production = await _evidenceSource.LoadProductionAsync(
+                t.PlantId, t.EquipmentId, windowStart, windowEnd, ct);
+            var lots = await LoadOutputCountsAsync(t.EquipmentId, fromStr, toStr, production, ct);
             var result = OeeCalculator.Compute(
                 windowStart, windowEnd, transitions, lots,
                 new OeeTarget(t.IdealCycleTimeSec, t.PlannedMinutes), categories, Unknown, plannedOverride);
 
-            var oeeId = $"AGG_{t.EquipmentId}_{windowStart:yyyyMMdd}_{suffix}";
-            await _processor.ExecuteAsync(InsertSummarySql, new
+            var oeeId = $"AGG_{t.EquipmentId}_{reportDate:yyyyMMdd}_{suffix}";
+            var lossPrefix = $"AGL_{t.EquipmentId}_{reportDate:yyyyMMdd}_{suffix}_";
+            var statements = new List<(string Sql, object? Param)>
             {
-                id = oeeId, plant = t.PlantId, eq = t.EquipmentId, date = fromStr,
-                shift = (object?)shiftId,
-                planned = result.PlannedMinutes, downtime = result.DowntimeMinutes,
-                operating = result.OperatingMinutes, ict = t.IdealCycleTimeSec,
-                total = result.TotalCount, good = result.GoodCount, defect = result.DefectCount,
-                av = result.Availability, pf = result.Performance, ql = result.Quality, oee = result.Oee,
-            }, ct);
-            written++;
+                ("DELETE FROM EST_OEE_SUMMARY WHERE OEE_ID = @id", new { id = oeeId }),
+                (@"DELETE FROM EST_OEE_LOSS
+                   WHERE LOSS_ID LIKE 'AGL_%' AND EQUIPMENT_ID = @eq AND OEE_DATE = @date
+                     AND ((@shift IS NULL AND SHIFT_ID IS NULL) OR SHIFT_ID = @shift)",
+                    new { eq = t.EquipmentId, date = F(reportDate), shift = (object?)shiftId }),
+                (InsertSummarySql, new
+                {
+                    id = oeeId, plant = t.PlantId, eq = t.EquipmentId, date = F(reportDate),
+                    shift = (object?)shiftId,
+                    planned = result.PlannedMinutes, downtime = result.DowntimeMinutes,
+                    operating = result.OperatingMinutes, ict = t.IdealCycleTimeSec,
+                    total = result.TotalCount, good = result.GoodCount, defect = result.DefectCount,
+                    av = result.Availability, pf = result.Performance, ql = result.Quality, oee = result.Oee,
+                })
+            };
 
             int lossIdx = 0;
             foreach (var loss in result.Losses)
             {
-                var lossId = $"AGL_{t.EquipmentId}_{windowStart:yyyyMMdd}_{suffix}_{lossIdx++}";
-                await _processor.ExecuteAsync(InsertLossSql, new
+                statements.Add((InsertLossSql, new
                 {
-                    id = lossId, plant = t.PlantId, eq = t.EquipmentId, date = fromStr,
+                    id = lossPrefix + lossIdx++, plant = t.PlantId, eq = t.EquipmentId, date = F(reportDate),
                     shift = (object?)shiftId, cat = loss.Category, min = loss.Minutes,
-                }, ct);
+                }));
             }
+
+            await _processor.ExecuteManyAsync(ct, statements.ToArray());
+            written++;
+            await _taktAggregator.AggregateEquipmentWindowAsync(
+                oeeId, t.PlantId, t.EquipmentId, reportDate, shiftId,
+                windowStart, windowEnd, production.TrackOuts, ct);
         }
         return written;
     }
 
-    private async Task DeleteWorkerRowsAsync(string fromStr, string toStr, CancellationToken ct)
+    private async Task<int> ReconcileGeneratedRowsAsync(
+        DateTime fromDate,
+        DateTime toDate,
+        IReadOnlySet<GeneratedScope> expectedScopes,
+        CancellationToken ct,
+        ReconciliationScope? scopeFilter = null)
     {
-        await _processor.ExecuteAsync(
-            "DELETE FROM EST_OEE_SUMMARY WHERE OEE_ID LIKE 'AGG_%' AND OEE_DATE >= @from AND OEE_DATE < @to",
-            new { from = fromStr, to = toStr }, ct);
-        await _processor.ExecuteAsync(
-            "DELETE FROM EST_OEE_LOSS WHERE LOSS_ID LIKE 'AGL_%' AND OEE_DATE >= @from AND OEE_DATE < @to",
-            new { from = fromStr, to = toStr }, ct);
+        var rows = await QueryAsync<dynamic>(
+            @"SELECT 'TAKT' AS ROW_KIND, TAKT_SUMMARY_ID AS ROW_ID, PLANT_ID, EQUIPMENT_ID, SHIFT_ID
+              FROM EST_TAKT_SUMMARY
+              WHERE TAKT_SUMMARY_ID LIKE 'TKT_%' AND TAKT_DATE >= @from AND TAKT_DATE < @to
+              UNION ALL
+              SELECT 'LOSS' AS ROW_KIND, LOSS_ID AS ROW_ID, PLANT_ID, EQUIPMENT_ID, SHIFT_ID
+              FROM EST_OEE_LOSS
+              WHERE LOSS_ID LIKE 'AGL_%' AND OEE_DATE >= @from AND OEE_DATE < @to
+              UNION ALL
+              SELECT 'OEE' AS ROW_KIND, OEE_ID AS ROW_ID, PLANT_ID, EQUIPMENT_ID, SHIFT_ID
+              FROM EST_OEE_SUMMARY
+              WHERE OEE_ID LIKE 'AGG_%' AND OEE_DATE >= @from AND OEE_DATE < @to",
+            new { from = F(fromDate), to = F(toDate) }, ct);
+        var staleRows = rows
+            .Select(Dict)
+            .Select(row => new GeneratedRow(
+                ParseGeneratedRowKind(Str(row, "ROW_KIND")),
+                Str(row, "ROW_ID"),
+                new GeneratedScope(
+                    Str(row, "PLANT_ID"),
+                    Str(row, "EQUIPMENT_ID"),
+                    NormalizeShiftId(NullableStr(row, "SHIFT_ID")))))
+            .Where(row => scopeFilter is null
+                          || string.Equals(row.Scope.ShiftId, scopeFilter.ShiftId, StringComparison.Ordinal))
+            .Where(row => !expectedScopes.Contains(row.Scope))
+            .ToArray();
+        if (staleRows.Length == 0) return 0;
+
+        // Exact primary-key deletes keep the SQL ANSI/provider-neutral and avoid empty/large IN-list behavior.
+        // All stale deletes share one transaction; dependents are ordered before OEE summaries for future FK safety.
+        var statements = staleRows
+            .OrderBy(static row => row.Kind)
+            .Select(static row => row.Kind switch
+            {
+                GeneratedRowKind.Takt => (
+                    "DELETE FROM EST_TAKT_SUMMARY WHERE TAKT_SUMMARY_ID = @id AND TAKT_SUMMARY_ID LIKE 'TKT_%'",
+                    (object?)new { id = row.Id }),
+                GeneratedRowKind.Loss => (
+                    "DELETE FROM EST_OEE_LOSS WHERE LOSS_ID = @id AND LOSS_ID LIKE 'AGL_%'",
+                    (object?)new { id = row.Id }),
+                GeneratedRowKind.Oee => (
+                    "DELETE FROM EST_OEE_SUMMARY WHERE OEE_ID = @id AND OEE_ID LIKE 'AGG_%'",
+                    (object?)new { id = row.Id }),
+                _ => throw new InvalidOperationException($"Unknown generated OEE row kind: {row.Kind}."),
+            })
+            .ToArray();
+        return await _processor.ExecuteManyAsync(ct, statements);
     }
 
     private const string InsertSummarySql = @"
@@ -130,16 +228,33 @@ public sealed class OeeAggregationRepository : QueryRepository, IOeeAggregator
         return map;
     }
 
-    private async Task<List<TargetRow>> LoadTargetsAsync(CancellationToken ct)
+    private async Task<List<TargetDefinition>> LoadTargetDefinitionsAsync(CancellationToken ct)
     {
         var rows = await QueryAsync<dynamic>(
-            @"SELECT t.EQUIPMENT_ID, e.PLANT_ID, t.IDEAL_CYCLE_TIME_SEC, t.PLANNED_MINUTES
-              FROM EST_OEE_TARGET t
-              JOIN MDM_EQUIPMENT e ON e.EQUIPMENT_ID = t.EQUIPMENT_ID
-              WHERE t.IS_ACTIVE = 1", null, ct);
-        return rows.Select(Dict).Select(d => new TargetRow(
-            Str(d, "EQUIPMENT_ID"), Str(d, "PLANT_ID"),
-            Dec(d, "IDEAL_CYCLE_TIME_SEC"), Dec(d, "PLANNED_MINUTES"))).ToList();
+            @"SELECT EQUIPMENT_ID, IDEAL_CYCLE_TIME_SEC, PLANNED_MINUTES
+              FROM EST_OEE_TARGET
+              WHERE IS_ACTIVE = 1", null, ct);
+        return rows.Select(Dict).Select(d => new TargetDefinition(
+            Str(d, "EQUIPMENT_ID"), Dec(d, "IDEAL_CYCLE_TIME_SEC"), Dec(d, "PLANNED_MINUTES"))).ToList();
+    }
+
+    private static IReadOnlyList<TargetRow> BindTargets(
+        IReadOnlyList<TargetDefinition> definitions,
+        OeePlanSnapshotDto plan)
+    {
+        var scopes = plan.EquipmentScopes
+            .Where(static scope => !string.IsNullOrWhiteSpace(scope.EquipmentId)
+                                   && !string.IsNullOrWhiteSpace(scope.PlantId))
+            .GroupBy(static scope => scope.EquipmentId, StringComparer.Ordinal)
+            .ToDictionary(static group => group.Key, static group => group.First(), StringComparer.Ordinal);
+        return definitions
+            .Where(definition => scopes.ContainsKey(definition.EquipmentId))
+            .Select(definition => new TargetRow(
+                definition.EquipmentId,
+                scopes[definition.EquipmentId].PlantId,
+                definition.IdealCycleTimeSec,
+                definition.PlannedMinutes))
+            .ToArray();
     }
 
     private async Task<IReadOnlyList<OeeStateTransition>> LoadTransitionsAsync(
@@ -151,66 +266,94 @@ public sealed class OeeAggregationRepository : QueryRepository, IOeeAggregator
               WHERE EQUIPMENT_ID = @eq AND CHANGED_AT >= @from AND CHANGED_AT < @to
               ORDER BY CHANGED_AT",
             new { eq = equipmentId, from = fromStr, to = toStr }, ct);
-        return rows.Select(Dict).Select(d => new OeeStateTransition(
+        var transitions = rows.Select(Dict).Select(d => new OeeStateTransition(
             Date(d, "CHANGED_AT"), Str(d, "FROM_STATE"), Str(d, "TO_STATE"))).ToList();
-    }
 
-    private async Task<OeeLotCounts> LoadLotCountsAsync(
-        string equipmentId, string fromStr, string toStr, CancellationToken ct)
-    {
-        var rows = await QueryAsync<dynamic>(
-            @"SELECT COALESCE(SUM(QTY), 0) AS TOTAL, COALESCE(SUM(DEFECT_QTY), 0) AS DEFECT
-              FROM POM_LOT
-              WHERE EQUIPMENT_ID = @eq AND TRACK_OUT_TIME >= @from AND TRACK_OUT_TIME < @to",
-            new { eq = equipmentId, from = fromStr, to = toStr }, ct);
-        var d = rows.Select(Dict).FirstOrDefault();
-        return new OeeLotCounts(Dec(d, "TOTAL"), Dec(d, "DEFECT"));
-    }
-
-    /// <summary>그 날의 작업조 윈도를 해석한다. 근무달력(MDM_WORK_CALENDAR, Holiday 제외)에 항목이 있으면 그 작업조만,
-    /// 없으면 활성 작업조(MDM_SHIFT) 전체를 매일 적용한다. 야간(종료≤시작)은 익일로 넘긴다. 파싱 불가 시간은 건너뛴다.</summary>
-    private async Task<List<ShiftWindow>> ResolveShiftWindowsAsync(DateTime day, CancellationToken ct)
-    {
-        var rows = await QueryAsync<dynamic>(
-            @"SELECT DISTINCT s.SHIFT_ID, s.START_TIME, s.END_TIME
-              FROM MDM_WORK_CALENDAR c
-              JOIN MDM_SHIFT s ON s.SHIFT_ID = c.SHIFT_ID
-              WHERE c.CALENDAR_DATE >= @day AND c.CALENDAR_DATE < @next
-                AND s.IS_ACTIVE = 1 AND (c.DAY_TYPE IS NULL OR c.DAY_TYPE <> 'Holiday')",
-            new { day = F(day), next = F(day.AddDays(1)) }, ct);
-        var list = rows.Select(Dict).ToList();
-        if (list.Count == 0)
-            list = (await QueryAsync<dynamic>(
-                "SELECT SHIFT_ID, START_TIME, END_TIME FROM MDM_SHIFT WHERE IS_ACTIVE = 1", null, ct))
-                .Select(Dict).ToList();
-
-        var windows = new List<ShiftWindow>();
-        foreach (var d in list)
+        var carryRows = await QueryAsync<dynamic>(
+            @"SELECT CHANGED_AT, FROM_STATE, TO_STATE
+              FROM EST_EQUIPMENT_STATE_HISTORY
+              WHERE EQUIPMENT_ID = @eq AND CHANGED_AT < @from
+              ORDER BY CHANGED_AT DESC",
+            new { eq = equipmentId, from = fromStr }, ct);
+        var carry = carryRows.Select(Dict).FirstOrDefault();
+        if (carry is not null)
         {
-            if (!TryTime(Str(d, "START_TIME"), out var start) || !TryTime(Str(d, "END_TIME"), out var end)) continue;
-            var startDt = day + start;
-            var endDt = day + end;
-            if (endDt <= startDt) endDt = endDt.AddDays(1); // 야간 교대
-            var planned = (decimal)(endDt - startDt).TotalMinutes;
-            if (planned <= 0m) continue;
-            windows.Add(new ShiftWindow(Str(d, "SHIFT_ID"), startDt, endDt, planned));
+            var state = Str(carry, "TO_STATE");
+            transitions.Insert(0, new OeeStateTransition(ParseTimestamp(fromStr), state, state));
         }
-        return windows;
+        return transitions;
     }
 
-    private static bool TryTime(string hhmm, out TimeSpan ts)
-        => TimeSpan.TryParse(hhmm, CultureInfo.InvariantCulture, out ts) && ts >= TimeSpan.Zero && ts < TimeSpan.FromDays(1);
+    private async Task<OeeLotCounts> LoadOutputCountsAsync(
+        string equipmentId,
+        string fromStr,
+        string toStr,
+        OeeProductionWindowDto production,
+        CancellationToken ct)
+    {
+        // Canonical non-LOT output and upstream LOT evidence can coexist in one window during rollout.
+        // If upstream LOT evidence exists, it remains authoritative for the LOT scope while canonical
+        // non-LOT events (carrier cleaning, tools, etc.) are added. Once upstream evidence is absent, canonical
+        // LOT events take over too. The explicit scope prevents both omission and double counting.
+        var outputRows = await QueryAsync<dynamic>(
+            @"SELECT COUNT(*) AS EVENT_COUNT,
+                     COALESCE(SUM(TOTAL_QTY), 0) AS TOTAL,
+                     COALESCE(SUM(DEFECT_QTY), 0) AS DEFECT,
+                     COALESCE(SUM(CASE
+                         WHEN COALESCE(IS_LOT_OUTPUT,
+                              CASE WHEN PROCESS_LOT_ID IS NULL THEN 0 ELSE 1 END) = 0
+                         THEN TOTAL_QTY ELSE 0 END), 0) AS NON_LOT_TOTAL,
+                     COALESCE(SUM(CASE
+                         WHEN COALESCE(IS_LOT_OUTPUT,
+                              CASE WHEN PROCESS_LOT_ID IS NULL THEN 0 ELSE 1 END) = 0
+                         THEN DEFECT_QTY ELSE 0 END), 0) AS NON_LOT_DEFECT
+              FROM EST_EQUIPMENT_OUTPUT_EVENT
+              WHERE EQUIPMENT_ID = @eq AND OCCURRED_AT >= @from AND OCCURRED_AT < @to",
+            new { eq = equipmentId, from = fromStr, to = toStr }, ct);
+        var output = outputRows.Select(Dict).FirstOrDefault();
+
+        if (production.LotEventCount > 0)
+            return new OeeLotCounts(
+                Dec(output, "NON_LOT_TOTAL") + production.LotTotalCount,
+                Dec(output, "NON_LOT_DEFECT") + production.LotDefectCount);
+
+        return new OeeLotCounts(Dec(output, "TOTAL"), Dec(output, "DEFECT"));
+    }
+
+    private static DateTime ParseTimestamp(string value)
+        => DateTime.ParseExact(value, Ts, CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
 
     private static string F(DateTime dt) => dt.ToString(Ts, CultureInfo.InvariantCulture);
 
-    private sealed record TargetRow(string EquipmentId, string PlantId, decimal IdealCycleTimeSec, decimal PlannedMinutes);
-    private sealed record ShiftWindow(string ShiftId, DateTime Start, DateTime End, decimal PlannedMinutes);
+    private static string? NormalizeShiftId(string? shiftId)
+        => string.IsNullOrWhiteSpace(shiftId) ? null : shiftId;
+
+    private static GeneratedRowKind ParseGeneratedRowKind(string value) => value switch
+    {
+        "TAKT" => GeneratedRowKind.Takt,
+        "LOSS" => GeneratedRowKind.Loss,
+        "OEE" => GeneratedRowKind.Oee,
+        _ => throw new InvalidOperationException($"Unknown generated OEE row kind: {value}."),
+    };
+
+    private sealed record TargetDefinition(
+        string EquipmentId, decimal IdealCycleTimeSec, decimal PlannedMinutes);
+    private sealed record TargetRow(
+        string EquipmentId, string PlantId, decimal IdealCycleTimeSec, decimal PlannedMinutes);
+    private sealed record GeneratedScope(string PlantId, string EquipmentId, string? ShiftId);
+    private sealed record ReconciliationScope(string? ShiftId);
+    private sealed record GeneratedRow(GeneratedRowKind Kind, string Id, GeneratedScope Scope);
+    private enum GeneratedRowKind { Takt, Loss, Oee }
 
     // ── provider 무관 값 강제변환(Dapper dynamic 행 = IDictionary<string,object>; boxed long/double/decimal/string/DBNull) ──
     private static IDictionary<string, object> Dict(dynamic row) => (IDictionary<string, object>)row;
 
     private static string Str(IDictionary<string, object>? r, string key)
         => r is not null && r.TryGetValue(key, out var v) && v is not null and not DBNull ? v.ToString()! : string.Empty;
+
+    private static string? NullableStr(IDictionary<string, object> r, string key)
+        => r.TryGetValue(key, out var v) && v is not null and not DBNull ? v.ToString() : null;
 
     private static decimal Dec(IDictionary<string, object>? r, string key)
     {

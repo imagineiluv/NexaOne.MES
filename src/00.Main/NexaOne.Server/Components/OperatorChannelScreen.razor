@@ -1,0 +1,121 @@
+@inject IApiClient Api
+@inject IJSRuntime JS
+
+@if (_loading)
+{
+    <div class="operator-state operator-loading-state" role="status" aria-live="polite">
+        <span class="operator-progress" aria-hidden="true"></span>
+        <strong>작업 화면을 확인하는 중입니다.</strong>
+        <span>채널과 진입 권한을 확인하고 있습니다.</span>
+    </div>
+}
+else if (_record is null)
+{
+    <div class="operator-state error" role="alert">
+        <span class="operator-state-icon" aria-hidden="true">!</span>
+        <strong>@(_failed ? "화면 정보를 불러오지 못했습니다." : "화면을 찾을 수 없습니다.")</strong>
+        <span>@(_failed ? "잠시 후 다시 시도하세요." : $"UI ID {UiId}가 DB에 등록되어 있는지 확인하세요.")</span>
+        <div class="operator-state-actions">
+            @if (_failed)
+            {
+                <button type="button" class="operator-secondary-action" @onclick="LoadAsync">다시 시도</button>
+            }
+            <a class="operator-secondary-action" href="@CatalogPath">화면 목록</a>
+        </div>
+    </div>
+}
+else if (!_channelAllowed)
+{
+    <div class="operator-state error" role="alert">
+        <span class="operator-state-icon" aria-hidden="true">!</span>
+        <strong>@TargetChannel 채널에서 열 수 없는 화면입니다.</strong>
+        <span>이 화면의 DB 채널은 <code>@_record.TargetChannel</code>입니다.</span>
+        <a class="operator-secondary-action" href="@CatalogPath">화면 목록</a>
+    </div>
+}
+else if (!_entryPathAllowed)
+{
+    <div class="operator-state error" role="alert">
+        <span class="operator-state-icon" aria-hidden="true">!</span>
+        <strong>화면 진입 경로가 현재 채널과 일치하지 않습니다.</strong>
+        <span>DB ENTRY_PATH: <code>@_record.EntryPath</code></span>
+        <a class="operator-secondary-action" href="@CatalogPath">화면 목록</a>
+    </div>
+}
+else
+{
+    <header class="operator-screen-context">
+        <a class="operator-back-action" href="@CatalogPath" aria-label="작업 화면 목록으로 돌아가기"><span aria-hidden="true">←</span> 작업 목록</a>
+        <div class="operator-screen-heading">
+            <span class="operator-channel-badge">@TargetChannel</span>
+            <strong>@_record.Title</strong>
+            @if (!string.IsNullOrWhiteSpace(DeviceId))
+            {
+                <small>단말 @DeviceId</small>
+            }
+        </div>
+    </header>
+    @if (IsWorkExecution)
+    {
+        <nav class="operator-workflow-nav" aria-label="작업 실행 섹션 바로가기">
+            <button type="button" @onclick='() => ScrollToRegionAsync("selection")'><span>1</span> 작업지시 선택</button>
+            <button type="button" @onclick='() => ScrollToRegionAsync("execution")'><span>2</span> 상세 · 실행</button>
+            <button type="button" @onclick='() => ScrollToRegionAsync("history")'><span>3</span> 실행 이력</button>
+        </nav>
+    }
+    <div id="operator-runtime-frame" class="operator-runtime-frame">
+        <NexaOne.Web.Pages.Meta.MetaScreen UiId="@UiId" ClientChannel="@TargetChannel" DeviceId="@DeviceId" />
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string UiId { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string TargetChannel { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string BasePath { get; set; } = string.Empty;
+    [Parameter] public string? DeviceId { get; set; }
+
+    private ScreenDefinitionRecordDto? _record;
+    private bool _loading = true;
+    private bool _failed;
+    private bool _channelAllowed;
+    private bool _entryPathAllowed;
+    private bool IsWorkExecution => UiId.Contains("WORK_EXECUTION", StringComparison.OrdinalIgnoreCase);
+    private string CatalogPath => string.IsNullOrWhiteSpace(DeviceId)
+        ? BasePath
+        : $"{BasePath}?deviceId={Uri.EscapeDataString(DeviceId.Trim())}";
+
+    /// <summary>긴 작업실행 화면에서 선택·실행·이력 영역으로 즉시 이동해 PDA/키오스크 스크롤을 줄인다.</summary>
+    private ValueTask ScrollToRegionAsync(string region)
+        => JS.InvokeVoidAsync("nexaOperator.scrollToRegion", region);
+
+    /// <summary>화면 정의를 조회하고 DB 채널·진입 경로가 현재 요청 경계와 일치하는지 검증한다.</summary>
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    /// <summary>현재 UI ID의 화면 정의와 채널 경계를 다시 조회해 재시도 흐름에서도 같은 검증을 적용한다.</summary>
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _failed = false;
+        try
+        {
+            _record = await Api.GetScreenDefinitionAsync(UiId);
+        }
+        catch
+        {
+            _record = null;
+            _failed = true;
+        }
+        _channelAllowed = _record is not null
+            && string.Equals(_record.TargetChannel, TargetChannel, StringComparison.OrdinalIgnoreCase);
+        _entryPathAllowed = _record is not null && IsExpectedEntryPath(_record.EntryPath);
+        _loading = false;
+    }
+
+    /// <summary>다른 채널용 화면을 URL만 바꿔 열 수 없도록 저장 경로를 현재 채널 경로와 비교한다.</summary>
+    private bool IsExpectedEntryPath(string? entryPath)
+    {
+        if (string.IsNullOrWhiteSpace(entryPath)) return false;
+        var expected = $"{BasePath}/{Uri.EscapeDataString(UiId)}";
+        return string.Equals(entryPath.TrimEnd('/'), expected, StringComparison.OrdinalIgnoreCase);
+    }
+}

@@ -13,11 +13,24 @@
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
   </object>
+  <object id="pomWorkOrderRepository" type="NexaOne.POM.Infrastructure.PomWorkOrderRepository, NexaOne.POM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
   <object id="pomService" type="NexaOne.POM.Application.Pom.PomService, NexaOne.POM">
     <constructor-arg ref="pomProductionPlanRepository" />
   </object>
   <object id="productionOrderService" type="NexaOne.POM.Application.Pom.ProductionOrderService, NexaOne.POM">
     <constructor-arg ref="pomProductionOrderRepository" />
+  </object>
+  <object id="pomWorkOrderService" type="NexaOne.POM.Application.WorkOrders.PomWorkOrderService, NexaOne.POM">
+    <constructor-arg ref="pomWorkOrderRepository" />
+    <constructor-arg ref="pomProductionOrderRepository" />
+    <!-- 직접 W/O 완료도 연결 LOT 종결 상태와 호스트 QMS 게이트를 통과해야 한다. -->
+    <constructor-arg ref="pomLotRepository" />
+    <constructor-arg ref="productionQualityGateway" />
+  </object>
+  <object id="pomWorkOrderBridge" type="NexaOne.POM.Application.WorkOrders.PomWorkOrderBridge, NexaOne.POM">
+    <constructor-arg ref="pomWorkOrderService" />
   </object>
 
   <!-- Lot 추적(TrackIn/TrackOut/Hold) 빈 — 기존에 미등록이라 브리지 노출과 함께 추가한다.
@@ -33,6 +46,8 @@
   <object id="pomLotMixingRelationRepository" type="NexaOne.POM.Infrastructure.LotMixingRelationRepository, NexaOne.POM">
     <constructor-arg ref="eesDataSource" />
   </object>
+  <!-- 라우팅 통제 정책은 교체 가능한 드라이버로 등록해 업종별 정책을 POM 서비스 코드와 분리한다. -->
+  <object id="routingPolicyEvaluator" type="NexaOne.POM.Domain.RoutingPolicyEvaluator, NexaOne.POM" />
   <!-- 교차 모듈 마스터 검증 포트(설계 19.4.2) — 이제 어댑터 구현은 호스트 server.xml의 trackingMasterGateway
        서버 빈이 소유한다(ADR-006: POM 플러그인은 MDM/RMS/QMS 스키마 미보유). lotTrackingService는 그 호스트
        빈을 cross-context ref로 주입받으며, 포트(ITrackingMasterGateway)는 ServiceContracts에 공유되어 타입 동일성이 유지된다. -->
@@ -40,8 +55,10 @@
     <constructor-arg ref="pomLotRepository" />
     <constructor-arg ref="pomLotHistoryRepository" />
     <constructor-arg ref="pomLotMixingRelationRepository" />
-    <constructor-arg ref="pomProductionOrderRepository" />
+    <constructor-arg ref="pomWorkOrderRepository" />
     <constructor-arg ref="trackingMasterGateway" />
+    <constructor-arg ref="productionQualityGateway" />
+    <constructor-arg ref="routingPolicyEvaluator" />
   </object>
 
   <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Pom","pomBridge")로 IPomBridge 캐스트.
@@ -51,6 +68,17 @@
     <constructor-arg ref="pomService" />
     <constructor-arg ref="productionOrderService" />
     <constructor-arg ref="lotTrackingService" />
+  </object>
+
+  <!-- 불량 관찰(Track-Out evidence)과 업무 처분(Scrap/Rework/Return/UseAsIs/Hold)을 분리한다. -->
+  <object id="lotDispositionRepository" type="NexaOne.POM.Infrastructure.LotDispositionRepository, NexaOne.POM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="lotDispositionService" type="NexaOne.POM.Application.Lots.LotDispositionService, NexaOne.POM">
+    <constructor-arg ref="lotDispositionRepository" />
+  </object>
+  <object id="lotDispositionBridge" type="NexaOne.POM.Application.Pom.LotDispositionBridge, NexaOne.POM">
+    <constructor-arg ref="lotDispositionService" />
   </object>
 
   <!-- MRP v1(2026-07-09) — 소요량 전개 실행. 리포(계산+영속) + ADR-008 브리지(호스트 GetBean("Pom","mrpBridge")). -->

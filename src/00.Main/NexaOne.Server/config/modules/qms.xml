@@ -21,17 +21,41 @@
   <object id="qmsSpcParamRepository" type="NexaOne.QMS.Infrastructure.SpcParamRepository, NexaOne.QMS">
     <constructor-arg ref="eesDataSource" />
   </object>
+  <object id="qmsReferenceRepository" type="NexaOne.QMS.Infrastructure.QmsReferenceRepository, NexaOne.QMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="qmsAiInspectionRepository" type="NexaOne.QMS.Infrastructure.AiInspectionRepository, NexaOne.QMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="qmsAdvancedQualityRepository" type="NexaOne.QMS.Infrastructure.AdvancedQualityRepository, NexaOne.QMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="qmsProductionQualityEvidenceRepository" type="NexaOne.QMS.Infrastructure.ProductionQualityGateEvidenceRepository, NexaOne.QMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="qmsProductionQualityGateway" type="NexaOne.QMS.Application.Qms.ProductionQualityGateService, NexaOne.QMS">
+    <constructor-arg ref="qmsProductionQualityEvidenceRepository" />
+  </object>
+  <object id="qmsAdvancedQualityService" type="NexaOne.QMS.Application.Qms.AdvancedQualityService, NexaOne.QMS">
+    <constructor-arg ref="qmsAdvancedQualityRepository" />
+  </object>
+  <object id="qmsAiInspectionService" type="NexaOne.QMS.Application.Qms.AiInspectionService, NexaOne.QMS">
+    <constructor-arg ref="qmsAiInspectionRepository" />
+  </object>
   <object id="qmsService" type="NexaOne.QMS.Application.Qms.QmsService, NexaOne.QMS">
     <constructor-arg ref="qmsDefectRepository" />
     <constructor-arg ref="qmsDefectClassRepository" />
     <constructor-arg ref="qmsInspectionSpecRepository" />
     <constructor-arg ref="qmsInspectionResultRepository" />
     <constructor-arg ref="qmsSpcParamRepository" />
+    <constructor-arg ref="qmsReferenceRepository" />
   </object>
 
   <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Qms","qmsBridge")로 IQmsBridge 캐스트. -->
   <object id="qmsBridge" type="NexaOne.QMS.Application.Qms.QmsBridge, NexaOne.QMS">
     <constructor-arg ref="qmsService" />
+    <constructor-arg ref="qmsAdvancedQualityService" />
+    <constructor-arg ref="qmsAiInspectionService" />
   </object>
 
 </objects>

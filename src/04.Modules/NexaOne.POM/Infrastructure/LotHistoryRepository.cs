@@ -21,11 +21,11 @@ public sealed class LotHistoryRepository : QueryRepository, ILotHistoryRepositor
     private const string InsertSql = @"INSERT INTO POM_LOT_HISTORY
             (PLANT_ID, LOT_ID, EQUIPMENT_ID, PROCESS_ID, RECIPE_DEF_ID, RECIPE_DEF_VERSION,
              TRACK_IN_TIME, TRACK_OUT_TIME, EXECUTION_ID, EXECUTION_USER,
-             QTY, DEFECT_QTY, LOT_STATE, PROCESS_STATE)
+             QTY, DEFECT_QTY, LOT_STATE, PROCESS_STATE, REASON, IDEMPOTENCY_KEY)
             VALUES
             (@PlantId, @LotId, @EquipmentId, @ProcessId, @RecipeDefId, @RecipeDefVersion,
              @TrackInTime, @TrackOutTime, @ExecutionId, @ExecutionUser,
-             @Qty, @DefectQty, @LotState, @ProcessState)";
+             @Qty, @DefectQty, @LotState, @ProcessState, @Reason, @IdempotencyKey)";
 
     public async Task AddAsync(LotHistory history, CancellationToken ct = default)
         => await _processor.InsertAsync(InsertSql, HistoryRow.FromDomain(history), ct);
@@ -84,11 +84,13 @@ public sealed class LotHistoryRepository : QueryRepository, ILotHistoryRepositor
         public string LotState { get; set; } = "";
         public string ProcessState { get; set; } = "";
         public DateTime CreatedAt { get; set; }
+        public string? Reason { get; set; }
+        public string? IdempotencyKey { get; set; }
 
         public LotHistory ToDomain() => new(
             LotHistoryId, PlantId, LotId, EquipmentId, ProcessId, RecipeDefId, RecipeDefVersion,
             TrackInTime, TrackOutTime, ExecutionId, ExecutionUser,
-            Qty, DefectQty, LotState, ProcessState, CreatedAt);
+            Qty, DefectQty, LotState, ProcessState, CreatedAt, Reason, IdempotencyKey);
 
         public static HistoryRow FromDomain(LotHistory h) => new()
         {
@@ -107,7 +109,9 @@ public sealed class LotHistoryRepository : QueryRepository, ILotHistoryRepositor
             DefectQty = h.DefectQty,
             LotState = h.LotState,
             ProcessState = h.ProcessState,
-            CreatedAt = h.CreatedAt
+            CreatedAt = h.CreatedAt,
+            Reason = h.Reason,
+            IdempotencyKey = h.IdempotencyKey
         };
     }
 }

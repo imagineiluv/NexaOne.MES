@@ -1,0 +1,119 @@
+@inject IApiClient Api
+
+<section id="operator-work-catalog" class="operator-catalog @ChannelClass" aria-labelledby="operator-catalog-title">
+    <header class="operator-page-head">
+        <div>
+            <h1 id="operator-catalog-title">@Title</h1>
+            <p>@Description</p>
+        </div>
+        <div class="operator-count" aria-label="사용 가능한 작업 화면 수">
+            <strong>@(_loading ? "…" : _screens.Count)</strong>
+            <span>사용 가능</span>
+        </div>
+    </header>
+
+    @if (_loading)
+    {
+        <div class="operator-state operator-loading-state" role="status" aria-live="polite">
+            <span class="operator-progress" aria-hidden="true"></span>
+            <strong>작업 화면을 준비하고 있습니다.</strong>
+            <span>배정된 공정과 화면 정보를 확인하는 중입니다.</span>
+        </div>
+    }
+    else if (_failed)
+    {
+        <div class="operator-state error" role="alert">
+            <span class="operator-state-icon" aria-hidden="true">!</span>
+            <strong>화면 목록을 불러오지 못했습니다.</strong>
+            <span>네트워크 연결을 확인한 뒤 다시 시도하세요.</span>
+            <button type="button" class="operator-secondary-action" @onclick="LoadAsync">다시 시도</button>
+        </div>
+    }
+    else if (_screens.Count == 0)
+    {
+        <div class="operator-state">
+            <span class="operator-state-icon" aria-hidden="true">0</span>
+            <strong>배정된 화면이 없습니다.</strong>
+            <span>Designer에서 @TargetChannel 채널과 진입 경로를 지정해 저장하세요.</span>
+        </div>
+    }
+    else
+    {
+        <div class="operator-card-grid">
+            @foreach (var screen in _screens)
+            {
+                var entryPath = SafeEntryPath(screen);
+                if (entryPath is null)
+                {
+                    <article class="operator-screen-card invalid" title="ENTRY_PATH 설정을 확인하세요.">
+                        <span class="operator-card-meta"><span>@TargetChannel</span><code>@screen.UiId</code></span>
+                        <span class="operator-screen-title">@screen.Title</span>
+                        <span class="operator-route-error">잘못된 진입 경로</span>
+                    </article>
+                }
+                else
+                {
+                    <a class="operator-screen-card" href="@entryPath" aria-label="@($"{screen.Title} 작업 시작")">
+                        <span class="operator-card-meta"><span>@TargetChannel</span><code>@screen.UiId</code></span>
+                        <span class="operator-screen-title">@screen.Title</span>
+                        <span class="operator-open-label"><span>작업 시작</span><span aria-hidden="true">→</span></span>
+                    </a>
+                }
+            }
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string TargetChannel { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string BasePath { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter] public string Eyebrow { get; set; } = "NexaOne MES";
+    [Parameter] public string Description { get; set; } = string.Empty;
+    [Parameter] public string? DeviceId { get; set; }
+
+    private List<ScreenDefinitionRecordDto> _screens = new();
+    private bool _loading = true;
+    private bool _failed;
+    private string ChannelClass => string.Equals(TargetChannel, "POP", StringComparison.OrdinalIgnoreCase)
+        ? "is-pop"
+        : "is-mobile";
+
+    /// <summary>채널 또는 기준 경로가 바뀔 때 해당 채널의 최신 화면 목록을 다시 조회한다.</summary>
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    /// <summary>DB에 저장된 화면 정의 중 현재 Mobile/POP 채널에 배정된 항목만 정렬해 표시한다.</summary>
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _failed = false;
+        try
+        {
+            _screens = (await Api.GetScreenDefinitionsAsync(TargetChannel))
+                .Where(s => string.Equals(s.TargetChannel, TargetChannel, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(s => s.Title, StringComparer.CurrentCultureIgnoreCase)
+                .ThenBy(s => s.UiId, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+        catch
+        {
+            _screens = new();
+            _failed = true;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    /// <summary>DB 진입 경로가 현재 채널과 UI ID로 계산한 경로와 정확히 일치할 때만 링크를 허용한다.</summary>
+    private string? SafeEntryPath(ScreenDefinitionRecordDto screen)
+    {
+        var path = screen.EntryPath?.Trim();
+        var expected = $"{BasePath}/{Uri.EscapeDataString(screen.UiId)}";
+        if (!string.Equals(path?.TrimEnd('/'), expected, StringComparison.OrdinalIgnoreCase)) return null;
+        return string.IsNullOrWhiteSpace(DeviceId)
+            ? path
+            : $"{path}?deviceId={Uri.EscapeDataString(DeviceId.Trim())}";
+    }
+}

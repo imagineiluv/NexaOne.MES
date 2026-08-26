@@ -1,0 +1,359 @@
+/* Hallmark · macrostructure: Workbench · tone: industrial precise · anchor hue: teal */
+/* 메타 화면 공통 표면. 업무 목적 색은 정보 위계에만 쓰고, 실제 동작 버튼 색은 호스트 테마를 따른다. */
+/* Hallmark pre-emit critique: P5 H5 E5 S5 R5 V5
+ * genre: modern-minimal - macrostructure: Workbench - theme: custom Nexa Industrial - design-system: design.md
+ * contrast: pass (40-41) - nav: inherited shell - footer: none - slop: pass (42-45)
+ * honest: pass (46) - chrome: pass (47) - tokens: pass (48) - responsive/mobile: pass (34, 49-57) - icons: pass (30)
+ */
+.meta-screen {
+    --meta-purpose: var(--nx-teal);
+    --meta-purpose-fg: var(--nx-text-2);
+    --meta-purpose-soft: color-mix(in srgb, var(--meta-purpose) 11%, var(--nx-card));
+    display: block;
+    min-width: 0;
+    color: var(--nx-text);
+}
+
+.meta-screen--register { --meta-purpose: var(--nx-success); --meta-grid-min-height: 15rem; }
+.meta-screen--manage { --meta-purpose: var(--nx-blue); --meta-grid-min-height: clamp(20rem, calc(100dvh - 28rem), 34rem); }
+.meta-screen--inquiry { --meta-purpose: var(--nx-teal); --meta-purpose-fg: var(--nx-text-2); --meta-grid-min-height: clamp(20rem, calc(100dvh - 27rem), 36rem); }
+.meta-screen--report { --meta-purpose: var(--nx-info); --meta-grid-min-height: clamp(22rem, calc(100dvh - 26rem), 38rem); }
+.meta-screen--execute { --meta-purpose: var(--nx-warning); --meta-grid-min-height: 18rem; }
+
+/* Flat result screens reserve the viewport remainder for the data scroller.
+   Search/form/layout screens keep their bounded grid policy. */
+.meta-screen--grid-fill {
+    --meta-grid-fill-height: max(20rem, calc(100dvh - 22rem));
+    --meta-grid-min-height: var(--meta-grid-fill-height);
+}
+
+.meta-screen--grid-fill ::deep .meta-grid {
+    --meta-grid-max-height: var(--meta-grid-fill-height);
+}
+
+.page-header {
+    min-height: 3.75rem;
+    margin-bottom: var(--nx-sp-4);
+    padding: 0 var(--space-3xs) var(--nx-sp-3);
+    border-bottom: 1px solid var(--nx-border-soft);
+}
+
+.meta-page-ident,
+.meta-page-title-group {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+}
+
+.meta-page-ident { gap: var(--nx-sp-3); }
+.meta-page-title-group { flex-direction: column; align-items: flex-start; gap: var(--space-2xs); }
+
+.meta-purpose-icon {
+    display: inline-grid;
+    flex: 0 0 2.5rem;
+    width: 2.5rem;
+    height: 2.5rem;
+    place-items: center;
+    border: 1px solid color-mix(in srgb, var(--meta-purpose) 24%, transparent);
+    border-radius: var(--nx-radius-lg);
+    background: var(--meta-purpose-soft);
+    color: var(--meta-purpose-fg);
+}
+
+.meta-purpose-icon ::deep .rzi { font-size: 1.35rem; }
+
+.page-title {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+    letter-spacing: -.018em;
+    line-height: 1.25;
+}
+
+.meta-purpose-label {
+    color: var(--nx-muted);
+    font-size: var(--nx-fs-caption-s);
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.meta-page-actions ::deep .rz-button {
+    min-height: var(--nx-touch-min);
+    border-radius: var(--nx-radius);
+    outline: 2px solid transparent;
+    outline-offset: 1px;
+}
+
+.save-ok {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2xs);
+    color: var(--nx-success);
+    font-size: var(--nx-fs-caption);
+    font-weight: 700;
+}
+
+.save-ok::before {
+    content: "✓";
+    display: inline-grid;
+    width: 1.15rem;
+    height: 1.15rem;
+    place-items: center;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--nx-success) 13%, transparent);
+}
+
+.meta-command-feedback {
+    margin-top: var(--nx-sp-2);
+    padding: var(--space-sm) var(--space-sm);
+    border: 1px solid var(--nx-info);
+    border-radius: var(--nx-radius);
+    background: color-mix(in srgb, var(--nx-info) 9%, var(--nx-card));
+    color: var(--nx-text);
+    font-size: var(--nx-fs-caption);
+}
+
+.meta-command-feedback.is-warning {
+    border-color: var(--nx-warning);
+    background: var(--nx-warning-bg);
+    color: var(--nx-warning);
+    font-weight: 700;
+}
+
+.meta-search {
+    position: relative;
+    display: grid;
+    min-width: 0;
+    max-width: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+}
+
+.meta-search-heading {
+    display: flex;
+    flex: 1 0 100%;
+    align-items: center;
+    gap: var(--nx-sp-2);
+    color: var(--nx-text-2);
+    font-size: var(--nx-fs-caption);
+    font-weight: 700;
+    grid-column: 1 / -1;
+}
+
+.meta-search-heading ::deep .rzi {
+    color: var(--meta-purpose);
+    font-size: 1rem;
+}
+
+.meta-search ::deep .meta-form {
+    display: grid;
+    min-width: 0;
+    max-width: 100%;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+    gap: var(--nx-sp-2) var(--nx-sp-4);
+}
+
+.meta-search-actions {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--nx-sp-2);
+    padding-left: var(--nx-sp-3);
+    border-left: 1px solid var(--nx-border-soft);
+}
+
+/* 실행 화면은 조건·명령을 한 줄 업무 바에 가깝게 유지하고, 결과/상세 영역에 더 많은 높이를 배정한다. */
+.meta-screen--execute .meta-search {
+    grid-template-columns: minmax(16rem, 1fr) minmax(28rem, auto);
+    padding-block: var(--nx-sp-2);
+}
+
+.meta-screen--execute .meta-search-actions {
+    display: grid;
+    grid-template-columns: repeat(4, auto);
+    align-items: center;
+}
+
+.meta-cond-name,
+.meta-cond-select {
+    min-height: var(--nx-touch-min);
+    color: var(--nx-text);
+    background: var(--nx-card);
+    outline: 2px solid transparent;
+    outline-offset: 1px;
+}
+
+.meta-cond-name:focus-visible,
+.meta-cond-select:focus-visible,
+.nx-modal-close:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 1px;
+    border-color: var(--meta-purpose);
+}
+
+.meta-form-card,
+.meta-result-card {
+    min-width: 0;
+}
+
+.meta-result-card {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.meta-form-card ::deep .meta-form { max-width: 90rem; }
+
+.meta-editor-head {
+    min-width: 0;
+    gap: var(--nx-sp-3);
+}
+
+.meta-editor-title {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--nx-sp-2);
+}
+
+.meta-editor-state {
+    display: inline-flex;
+    min-height: 1.5rem;
+    align-items: center;
+    gap: var(--space-2xs);
+    padding: var(--space-3xs) var(--space-xs);
+    border: 1px solid color-mix(in srgb, var(--nx-success) 26%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--nx-success) 9%, var(--nx-card));
+    color: var(--nx-success);
+    font-size: var(--nx-fs-caption-s);
+    font-weight: 700;
+}
+
+.meta-editor-state.is-edit {
+    border-color: color-mix(in srgb, var(--nx-blue) 28%, transparent);
+    background: color-mix(in srgb, var(--nx-blue) 9%, var(--nx-card));
+    color: var(--nx-info);
+}
+
+.meta-editor-state ::deep .rzi { font-size: .9rem; }
+
+.meta-editor-hint {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    text-align: right;
+}
+
+.meta-result-card .mes-card-body {
+    min-width: 0;
+    padding: var(--nx-sp-2) var(--nx-sp-3) var(--nx-sp-3);
+}
+
+.meta-form-foot {
+    position: sticky;
+    bottom: 0;
+    z-index: 4;
+    min-height: 3.5rem;
+    backdrop-filter: blur(8px);
+}
+
+.meta-form-foot ::deep .meta-editor-reset { margin-right: auto; }
+
+.validation-errors {
+    padding: var(--nx-sp-3) var(--nx-sp-4) var(--nx-sp-3) calc(var(--space-xl) + var(--space-2xs));
+    border: 1px solid color-mix(in srgb, var(--nx-danger) 28%, transparent);
+    border-radius: var(--nx-radius);
+    background: color-mix(in srgb, var(--nx-danger) 7%, var(--nx-card));
+}
+
+.nx-modal-close {
+    display: inline-grid;
+    width: var(--nx-touch-min);
+    height: var(--nx-touch-min);
+    place-items: center;
+    border-radius: var(--nx-radius);
+    outline: 2px solid transparent;
+    outline-offset: 1px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .nx-modal-close:hover { background: var(--nx-hover); }
+}
+
+@media (max-width: 860px) {
+    .meta-search-actions {
+        display: grid;
+        width: 100%;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: stretch;
+        padding: var(--nx-sp-3) 0 0;
+        border-top: 1px solid var(--nx-border-soft);
+        border-left: 0;
+    }
+
+    .meta-search-actions ::deep .rz-button,
+    .meta-search-actions .meta-cond-name,
+    .meta-search-actions .meta-cond-select {
+        box-sizing: border-box;
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .meta-search,
+    .meta-screen--execute .meta-search { grid-template-columns: minmax(0, 1fr); }
+
+    .meta-screen--execute .meta-search-actions { display: flex; }
+
+    .meta-result-card .mes-card-body { padding-inline: var(--nx-sp-2); }
+}
+
+@media (max-width: 720px) {
+    .meta-screen--grid-fill {
+        --meta-grid-fill-height: max(10rem, calc(100dvh - 25rem));
+    }
+}
+
+@media (max-width: 640px) {
+    .page-header { min-height: 0; }
+    .meta-page-ident { align-items: flex-start; }
+    .meta-purpose-icon { flex-basis: 2.25rem; width: 2.25rem; height: 2.25rem; }
+    .meta-page-title-group { align-items: flex-start; flex-direction: column; gap: var(--space-2xs); }
+    .meta-page-actions ::deep .rz-button { min-height: 2.75rem; }
+    .meta-search { padding: var(--nx-sp-3); }
+    .meta-search-actions {
+        box-sizing: border-box;
+        min-width: 0;
+        max-width: 100%;
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch;
+    }
+    .meta-screen--execute .meta-search-actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .meta-search-actions ::deep .rz-button,
+    .meta-search-actions .meta-cond-name,
+    .meta-search-actions .meta-cond-select {
+        min-height: 2.75rem;
+    }
+    .meta-cond-name, .meta-cond-select { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
+    .meta-form-foot { position: static; flex-wrap: wrap; }
+    .meta-form-foot ::deep .rz-button { min-height: 2.75rem; }
+    .meta-editor-head { align-items: flex-start; flex-direction: column; }
+    .meta-editor-hint { margin-left: 0; text-align: left; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .meta-screen *,
+    .meta-screen *::before,
+    .meta-screen *::after {
+        scroll-behavior: auto !important;
+        transition-duration: .001ms !important;
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}

@@ -105,7 +105,7 @@ public sealed class OeeCalculatorTests
     }
 
     [Fact]
-    public void Planned_override_takes_precedence_over_derived_scheduled_time()
+    public void Calendar_window_does_not_add_unscheduled_stops_back_to_planned_time()
     {
         // RUN 480(파생 계획 480). 그러나 작업조 override 720(12h)이 우선 → 가용성 = 480/720.
         var transitions = new[]
@@ -118,8 +118,8 @@ public sealed class OeeCalculatorTests
             new OeeLotCounts(1000m, 0m), new OeeTarget(30m, 480m), Cats, Unknown,
             plannedOverride: 720m);
 
-        result.PlannedMinutes.Should().Be(720m, "작업조/근무달력 계획시간 override가 파생값보다 우선");
+        result.PlannedMinutes.Should().Be(480m, "the 240 minute IDLE planned stop must remain excluded");
         result.OperatingMinutes.Should().Be(480m);
-        result.Availability.Should().Be(0.6667m, "480/720 반올림");
+        result.Availability.Should().Be(1.0m, "480 scheduled operating minutes / 480 planned minutes");
     }
 }

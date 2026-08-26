@@ -30,7 +30,9 @@ public sealed class MssqlDialectSyntaxTests
         if (string.IsNullOrWhiteSpace(connString))
             return;   // 소프트 스킵 — MSSQL 미가용 환경(로컬 SQLite/CI). 게이트 변수 설정 시에만 실검증.
 
-        var registry = FileQueryRegistry.Load("mssql", ResolveRepoRelative(treeRelativePath));
+        var registry = FileQueryRegistry.Load(
+            "mssql",
+            RepositorySource.GetDirectory(treeRelativePath));
         registry.Ids.Should().NotBeEmpty($"'{treeRelativePath}/mssql' 로드 실패 시 공허 통과 금지");
 
         using var conn = new SqlConnection(connString);
@@ -57,13 +59,4 @@ public sealed class MssqlDialectSyntaxTests
             $"[{treeRelativePath}] MSSQL 파서가 거부한 쿼리(방언 문법 오류): {string.Join(" | ", failures)}");
     }
 
-    // DialectParityTests.ResolveRepoRelative와 동일 규약(리포 루트 = NexaOne.sln 보유 디렉터리).
-    private static string ResolveRepoRelative(string relative)
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "NexaOne.sln"))) dir = dir.Parent;
-        if (dir is null)
-            throw new InvalidOperationException("리포 루트(NexaOne.sln) 미발견 — 방언 트리 경로 해석 실패.");
-        return Path.Combine(dir.FullName, relative.Replace('/', Path.DirectorySeparatorChar));
-    }
 }

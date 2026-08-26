@@ -235,8 +235,7 @@ public sealed class NexaMesTelemetryTests
                 .Returns(Task.CompletedTask);
         var collector = new FdcCollectorService(new FdcDataService(paramRepo.Object, dataRepo.Object));
 
-        var evt = new PlcTagChangeEvent("e", equipmentId, "TEMP01", "ns", null, 42.0,
-            PlcQuality.Good, DateTimeOffset.UnixEpoch, "polling", true);
+        var evt = new FdcTagSample("TEMP01", 42m, FdcSampleQuality.Good);
 
         var captured = await CollectAsync("nexames_fdc_collected_total",
             () => collector.OnTagChangeAsync(equipmentId, evt));
@@ -257,8 +256,7 @@ public sealed class NexaMesTelemetryTests
         var dataRepo = new Mock<IFdcCollectDataRepository>();
         var collector = new FdcCollectorService(new FdcDataService(paramRepo.Object, dataRepo.Object));
 
-        var evt = new PlcTagChangeEvent("e", equipmentId, "UNKNOWN", "ns", null, 1.0,
-            PlcQuality.Good, DateTimeOffset.UnixEpoch, "polling", true);
+        var evt = new FdcTagSample("UNKNOWN", 1m, FdcSampleQuality.Good);
 
         var captured = await CollectAsync("nexames_fdc_collected_total",
             () => collector.OnTagChangeAsync(equipmentId, evt));

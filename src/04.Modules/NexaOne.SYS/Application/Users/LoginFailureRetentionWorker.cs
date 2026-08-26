@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Hosting;
-using NexusFramework.Scheduling;
+using NexaFramework.Scheduling;
 
 namespace NexaOne.SYS.Application.Users;
 

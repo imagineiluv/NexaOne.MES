@@ -103,7 +103,7 @@ public sealed class GatewayDeleteCommandTests : IClassFixture<GatewayDeleteComma
 
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)
     {
-        var res = await AuthedClient("del-reader").PostAsJsonAsync($"/api/v1/query/{queryId}", p);
+        var res = await AuthedClient("del-reader", "mdm:read").PostAsJsonAsync($"/api/v1/query/{queryId}", p);
         res.StatusCode.Should().Be(HttpStatusCode.OK, $"{queryId} 는 200이어야 한다");
         var rows = await res.Content.ReadFromJsonAsync<List<Dictionary<string, object>>>();
         rows.Should().NotBeNull();

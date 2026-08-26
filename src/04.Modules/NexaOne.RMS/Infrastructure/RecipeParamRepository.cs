@@ -1,4 +1,5 @@
 using NexaOne.Infrastructure.Persistence;
+using NexaOne.Common;
 using NexaOne.RMS.Application.Rms;
 using NexaOne.RMS.Domain;
 
@@ -49,6 +50,55 @@ public sealed class RecipeParamRepository : QueryRepository, IRecipeParamReposit
     {
         const string sql = "DELETE FROM RMS_RECIPE_PARAM WHERE PARAM_ID = @paramId";
         await _processor.DeleteAsync(sql, new { paramId }, ct);
+    }
+
+    /// <summary>
+    /// 레시피 상태 확인과 parameter 쓰기를 한 SQL 문장으로 결합한다. 서비스가 Draft를 읽은 직후
+    /// 다른 요청이 Release해도 최종 DB 상태가 Released이면 영향 행 0으로 거부된다.
+    /// </summary>
+    public Task<bool> TryAddIfRecipeEditableAsync(RecipeParam param, CancellationToken ct = default)
+    {
+        const string sql = @"INSERT INTO RMS_RECIPE_PARAM
+            (PARAM_ID, RECIPE_ID, PARAM_NAME, PARAM_VALUE, UNIT, SORT_ORDER)
+            SELECT @ParamId, @RecipeId, @ParamName, @ParamValue, @Unit, @SortOrder
+            FROM RMS_RECIPE
+            WHERE RECIPE_ID = @RecipeId AND APPROVAL_STATE <> 'Released'";
+        return _processor.ExecuteGuardedManyAsync(ct, (sql, ParamRow.FromDomain(param)));
+    }
+
+    public Task<bool> TryUpdateIfRecipeEditableAsync(RecipeParam param, CancellationToken ct = default)
+    {
+        const string sql = @"UPDATE RMS_RECIPE_PARAM SET
+            PARAM_NAME = @ParamName, PARAM_VALUE = @ParamValue,
+            UNIT = @Unit, SORT_ORDER = @SortOrder,
+            UPDATED_BY = @UpdatedBy, UPDATED_AT = @UpdatedAt
+            WHERE PARAM_ID = @ParamId
+              AND EXISTS (
+                  SELECT 1 FROM RMS_RECIPE R
+                  WHERE R.RECIPE_ID = RMS_RECIPE_PARAM.RECIPE_ID
+                    AND R.APPROVAL_STATE <> 'Released')";
+        var row = ParamRow.FromDomain(param);
+        return _processor.ExecuteGuardedManyAsync(ct, (sql, new
+        {
+            row.ParamId,
+            row.ParamName,
+            row.ParamValue,
+            row.Unit,
+            row.SortOrder,
+            UpdatedBy = CurrentUserContext.UserId ?? "SYSTEM",
+            UpdatedAt = DateTime.UtcNow,
+        }));
+    }
+
+    public Task<bool> TryDeleteIfRecipeEditableAsync(string paramId, CancellationToken ct = default)
+    {
+        const string sql = @"DELETE FROM RMS_RECIPE_PARAM
+            WHERE PARAM_ID = @paramId
+              AND EXISTS (
+                  SELECT 1 FROM RMS_RECIPE R
+                  WHERE R.RECIPE_ID = RMS_RECIPE_PARAM.RECIPE_ID
+                    AND R.APPROVAL_STATE <> 'Released')";
+        return _processor.ExecuteGuardedManyAsync(ct, (sql, new { paramId }));
     }
 
     private sealed class ParamRow

@@ -46,7 +46,7 @@ internal sealed class NexaFrameworkRuleDispatcher : IRuleDispatcher
         IDictionary<string, object> body,
         CancellationToken ct = default)
     {
-        var server = NexusFramework.ApplicationServer.GetInstance();
+        var server = NexaFramework.ApplicationServer.GetInstance();
         try
         {
             var bean = server.GetBean("NexaOne", ruleName);
@@ -114,7 +114,21 @@ internal sealed class NexaFrameworkRuleDispatcher : IRuleDispatcher
             foreach (var kv in parameters)
                 param.Add(kv.Key, kv.Value is DBNull ? null : kv.Value);
         }
-        return await conn.ExecuteAsync(sql, param).ConfigureAwait(false);
+        // 명명 command는 한 SQL 배치 안에 둘 이상의 상태 변경을 포함할 수 있다
+        // (예: 화면정의 + SYS_SCREEN_TARGET). 실제 ADO 트랜잭션으로 감싸 부분 커밋을 차단한다.
+        // SQL 텍스트의 BEGIN/COMMIT에 의존하면 SQLite provider가 오류 시 앞 문장을 남기는 경우가 있다.
+        using var txn = conn.BeginTransaction();
+        try
+        {
+            var affected = await conn.ExecuteAsync(sql, param, txn).ConfigureAwait(false);
+            txn.Commit();
+            return affected;
+        }
+        catch
+        {
+            txn.Rollback();
+            throw;
+        }
     }
 
     public async Task<object?> ProcedureAsync(

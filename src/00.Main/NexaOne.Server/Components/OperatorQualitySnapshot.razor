@@ -1,0 +1,307 @@
+@using System.Globalization
+@using System.Text.Json
+@inject IApiClient Api
+
+<section id="operator-quality-snapshot" class="operator-quality-snapshot" aria-labelledby="operator-quality-title" aria-busy="@_metricsLoading">
+    <header class="operator-quality-head">
+        <div>
+            <h2 id="operator-quality-title">현장 품질 스냅샷</h2>
+            <p>최근 집계된 설비 효율과 Lot 검사 상태를 작업 시작 전에 확인합니다.</p>
+        </div>
+        <div class="operator-equipment-filter">
+            <label for="operator-equipment-id">설비 ID</label>
+            <input id="operator-equipment-id" @bind="_equipmentId" @bind:event="oninput"
+                   @onkeydown="OnEquipmentKeyDown" placeholder="전체 설비" autocomplete="off" />
+            <button type="button" class="operator-filter-action" @onclick="LoadMetricsAsync" disabled="@_metricsLoading">
+                @(_metricsLoading ? "조회 중" : "새로고침")
+            </button>
+        </div>
+    </header>
+
+    @if (_metricsLoading)
+    {
+        <div class="operator-quality-loading" role="status" aria-live="polite">
+            <span class="operator-progress" aria-hidden="true"></span>
+            <span>생산·품질 지표를 불러오는 중입니다.</span>
+        </div>
+    }
+    else
+    {
+        <div class="operator-kpi-grid" aria-live="polite">
+            <article class="operator-kpi-card operator-kpi-primary" aria-label="설비 종합 효율">
+                <span>OEE</span>
+                <strong>@Percent(_oeeRow, "OEE_PERCENT", "OEE")</strong>
+                <small>@MetricScope(_oeeRow)</small>
+            </article>
+            <article class="operator-kpi-card" aria-label="설비 가동률">
+                <span>가동률</span>
+                <strong>@Percent(_oeeRow, "AVAILABILITY_PERCENT", "AVAILABILITY")</strong>
+                <small>OEE Availability</small>
+            </article>
+            <article class="operator-kpi-card" aria-label="생산 양품률">
+                <span>양품률</span>
+                <strong>@Percent(_oeeRow, "QUALITY_PERCENT", "QUALITY")</strong>
+                <small>@QualityCount</small>
+            </article>
+            <article class="operator-kpi-card" aria-label="실제 및 목표 택트 시간">
+                <span>실제 / 목표 택트</span>
+                <strong>@TaktValue</strong>
+                <small>@TaktDetail</small>
+            </article>
+            <article class="operator-kpi-card @(_spcViolations.Count > 0 ? "has-alert" : string.Empty)" aria-label="SPC 이상 이력">
+                <span>SPC 이상 이력</span>
+                <strong>@_spcViolations.Count 건</strong>
+                <small>@SpcDetail</small>
+            </article>
+        </div>
+        @if (_metricLoadFailed)
+        {
+            <p class="operator-quality-note" role="alert">일부 지표를 불러오지 못했습니다. 다른 지표와 작업 화면은 계속 사용할 수 있습니다.</p>
+        }
+        else if (_metricRowsEmpty)
+        {
+            <p class="operator-quality-note">집계 데이터가 없습니다. OEE·택트 집계 실행 여부와 설비 필터를 확인하세요.</p>
+        }
+    }
+
+    <div class="operator-lot-check">
+        <div>
+            <strong>Lot 검사 결과</strong>
+            <span>Lot 번호로 현재 등록된 검사 결과 상태를 확인합니다.</span>
+        </div>
+        <div class="operator-lot-form">
+            <label class="operator-sr-only" for="operator-lot-id">Lot ID</label>
+            <input id="operator-lot-id" @bind="_lotId" @bind:event="oninput"
+                   @onkeydown="OnLotKeyDown" placeholder="Lot ID 스캔 또는 입력" autocomplete="off"
+                   enterkeyhint="search" autocapitalize="characters" />
+            <button type="button" class="operator-lot-button" @onclick="LookupLotAsync"
+                    disabled="@(_lotLoading || string.IsNullOrWhiteSpace(_lotId))">
+                @(_lotLoading ? "확인 중" : "검사 확인")
+            </button>
+        </div>
+        @if (_lotLookupAttempted)
+        {
+            <div class="operator-lot-result @LotStatusClass" role="status" aria-live="polite">
+                <span class="operator-result-mark" aria-hidden="true">@LotStatusMark</span>
+                <span class="operator-result-copy"><strong>@LotStatusTitle</strong><span>@LotStatusDetail</span></span>
+            </div>
+        }
+    </div>
+</section>
+
+@code {
+    private string _equipmentId = string.Empty;
+    private string _lotId = string.Empty;
+    private bool _metricsLoading = true;
+    private bool _metricLoadFailed;
+    private bool _lotLoading;
+    private bool _lotLookupAttempted;
+    private Dictionary<string, object?>? _oeeRow;
+    private Dictionary<string, object?>? _taktRow;
+    private IReadOnlyList<SpcRuleViolationDto> _spcViolations = Array.Empty<SpcRuleViolationDto>();
+    private LotInspectionStatusDto? _lotStatus;
+
+    /// <summary>설비 ID 스캐너가 Enter를 보내면 별도 터치 없이 최신 지표를 조회한다.</summary>
+    private async Task OnEquipmentKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !_metricsLoading) await LoadMetricsAsync();
+    }
+
+    /// <summary>Lot 바코드 스캔 완료 신호(Enter)를 받으면 즉시 검사 상태를 확인한다.</summary>
+    private async Task OnLotKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !_lotLoading && !string.IsNullOrWhiteSpace(_lotId))
+            await LookupLotAsync();
+    }
+
+    /// <summary>현장 화면 진입 시 최근 생산·품질 지표를 한 번 조회한다.</summary>
+    protected override Task OnInitializedAsync() => LoadMetricsAsync();
+
+    /// <summary>OEE, 택트, SPC를 병렬 조회하고 일부 조회 실패에도 나머지 지표를 계속 표시한다.</summary>
+    private async Task LoadMetricsAsync()
+    {
+        _metricsLoading = true;
+        _metricLoadFailed = false;
+        var equipmentId = NullIfBlank(_equipmentId);
+
+        // 서로 독립적인 지표는 동시에 조회해 작업자가 현장 화면을 기다리는 시간을 줄인다.
+        var oeeTask = TryAsync(() => Api.ExecuteQueryAsync("EST.OeeSummaryList", new
+        {
+            plantId = (string?)null,
+            equipmentId,
+        }), (IReadOnlyList<Dictionary<string, object?>>)Array.Empty<Dictionary<string, object?>>());
+        var taktTask = TryAsync(() => Api.ExecuteQueryAsync("EST.TaktSummaryList", new
+        {
+            plantId = (string?)null,
+            productId = (string?)null,
+            processId = (string?)null,
+            equipmentId,
+            shiftId = (string?)null,
+        }), (IReadOnlyList<Dictionary<string, object?>>)Array.Empty<Dictionary<string, object?>>());
+        var spcTask = TryAsync(() => Api.GetSpcViolationsAsync(), new List<SpcRuleViolationDto>());
+
+        var oee = await oeeTask;
+        var takt = await taktTask;
+        var spc = await spcTask;
+        _oeeRow = oee.Value.FirstOrDefault();
+        _taktRow = takt.Value.FirstOrDefault();
+        _spcViolations = spc.Value;
+        _metricLoadFailed = oee.Failed || takt.Failed || spc.Failed;
+        _metricsLoading = false;
+    }
+
+    /// <summary>스캔하거나 입력한 Lot의 검사 현황을 조회하되 완료 허용 여부는 서버 품질 게이트에 맡긴다.</summary>
+    private async Task LookupLotAsync()
+    {
+        var lotId = NullIfBlank(_lotId);
+        if (lotId is null) return;
+
+        _lotLoading = true;
+        _lotLookupAttempted = false;
+        try
+        {
+            _lotStatus = await Api.GetLotInspectionStatusAsync(lotId);
+        }
+        catch
+        {
+            _lotStatus = null;
+        }
+        finally
+        {
+            _lotLookupAttempted = true;
+            _lotLoading = false;
+        }
+    }
+
+    private bool _metricRowsEmpty => _oeeRow is null && _taktRow is null;
+
+    private string QualityCount
+    {
+        get
+        {
+            var good = DecimalValue(_oeeRow, "GOOD_COUNT");
+            var total = DecimalValue(_oeeRow, "TOTAL_COUNT");
+            return good.HasValue && total.HasValue
+                ? $"양품 {good.Value:0.##} / 총 {total.Value:0.##}"
+                : "생산 실적 없음";
+        }
+    }
+
+    private string TaktValue
+    {
+        get
+        {
+            var actual = DecimalValue(_taktRow, "ACTUAL_CYCLE_SECONDS_PER_UNIT");
+            var target = DecimalValue(_taktRow, "TARGET_TAKT_SECONDS_PER_UNIT");
+            if (!actual.HasValue && !target.HasValue) return "—";
+            return $"{FormatNumber(actual)} / {FormatNumber(target)} s/unit";
+        }
+    }
+
+    private string TaktDetail
+    {
+        get
+        {
+            var deviation = DecimalValue(_taktRow, "DEVIATION_PERCENT");
+            var equipment = StringValue(_taktRow, "EQUIPMENT_ID");
+            var detail = deviation.HasValue ? $"목표 대비 {deviation.Value:+0.##;-0.##;0}%" : "편차 미집계";
+            return string.IsNullOrWhiteSpace(equipment) ? detail : $"{equipment} · {detail}";
+        }
+    }
+
+    private string SpcDetail
+    {
+        get
+        {
+            var latest = _spcViolations.OrderByDescending(v => v.DetectedAt).FirstOrDefault();
+            return latest is null ? "조회된 위반 이력 없음" : $"최근 {latest.RuleCode} · {latest.DetectedAt.ToLocalTime():MM-dd HH:mm}";
+        }
+    }
+
+    private string LotStatusClass => _lotStatus switch
+    {
+        { HasResults: true, AllPassed: true } => "is-pass",
+        { HasResults: true, AllPassed: false } => "is-fail",
+        _ => "is-pending",
+    };
+
+    private string LotStatusTitle => _lotStatus switch
+    {
+        null => "검사 상태를 확인하지 못했습니다.",
+        { HasResults: false } => "검사 결과 없음",
+        { AllPassed: true } => "등록 결과 모두 통과",
+        _ => "등록 결과에 실패 있음",
+    };
+
+    private string LotStatusMark => _lotStatus switch
+    {
+        { HasResults: true, AllPassed: true } => "✓",
+        { HasResults: true, AllPassed: false } => "!",
+        _ => "?",
+    };
+
+    private string LotStatusDetail => _lotStatus switch
+    {
+        null => "연결 상태와 Lot ID를 확인한 뒤 다시 조회하세요.",
+        { HasResults: false } status => $"{status.LotId} · 검사 결과 없음 — 필수 검사 여부와 완료 가능 여부는 작업 완료 시 서버 품질 게이트가 최종 판정합니다.",
+        { } status => $"{status.LotId} · 결과 {status.ResultCount}건 · 실패 {status.FailedCount}건"
+            + (status.LastInspectedAt.HasValue ? $" · 최종 {status.LastInspectedAt.Value.ToLocalTime():MM-dd HH:mm}" : string.Empty)
+            + " · 완료 가능 여부는 서버 품질 게이트가 최종 판정합니다.",
+    };
+
+    /// <summary>지표가 집계된 공장·설비 범위를 사람이 읽기 쉬운 레이블로 만든다.</summary>
+    private static string MetricScope(Dictionary<string, object?>? row)
+    {
+        var plant = StringValue(row, "PLANT_ID");
+        var equipment = StringValue(row, "EQUIPMENT_ID");
+        if (string.IsNullOrWhiteSpace(plant) && string.IsNullOrWhiteSpace(equipment)) return "집계 데이터 없음";
+        return string.Join(" · ", new[] { plant, equipment }.Where(x => !string.IsNullOrWhiteSpace(x)));
+    }
+
+    /// <summary>백분율 열을 우선 사용하고, 없는 경우 0~1 비율 열을 백분율로 변환한다.</summary>
+    private static string Percent(Dictionary<string, object?>? row, string percentKey, string ratioKey)
+    {
+        var value = DecimalValue(row, percentKey);
+        if (!value.HasValue)
+        {
+            var ratio = DecimalValue(row, ratioKey);
+            value = ratio.HasValue ? ratio.Value * 100m : null;
+        }
+        return value.HasValue ? $"{value.Value:0.##}%" : "—";
+    }
+
+    /// <summary>단말 문화권과 무관하게 지표 숫자를 동일한 형식으로 표시한다.</summary>
+    private static string FormatNumber(decimal? value) => value.HasValue ? value.Value.ToString("0.##", CultureInfo.InvariantCulture) : "—";
+
+    /// <summary>선택 필터의 공백 입력을 API의 미지정 값인 null로 정규화한다.</summary>
+    private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>동적 API 행의 문자열 또는 JSON 값을 안전하게 문자열로 변환한다.</summary>
+    private static string StringValue(Dictionary<string, object?>? row, string key)
+    {
+        if (row is null || !row.TryGetValue(key, out var value) || value is null) return string.Empty;
+        return value is JsonElement json
+            ? json.ValueKind == JsonValueKind.String ? json.GetString() ?? string.Empty : json.ToString()
+            : Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+    }
+
+    /// <summary>동적 API 행의 CLR/JSON 숫자를 문화권 영향을 받지 않는 decimal 값으로 변환한다.</summary>
+    private static decimal? DecimalValue(Dictionary<string, object?>? row, string key)
+    {
+        if (row is null || !row.TryGetValue(key, out var value) || value is null) return null;
+        if (value is JsonElement json)
+        {
+            if (json.ValueKind == JsonValueKind.Number && json.TryGetDecimal(out var number)) return number;
+            return decimal.TryParse(json.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out number) ? number : null;
+        }
+        try { return Convert.ToDecimal(value, CultureInfo.InvariantCulture); }
+        catch { return null; }
+    }
+
+    /// <summary>한 지표 조회 실패가 전체 현장 스냅샷을 막지 않도록 실패 여부와 대체 값을 함께 반환한다.</summary>
+    private static async Task<(T Value, bool Failed)> TryAsync<T>(Func<Task<T>> operation, T fallback)
+    {
+        try { return (await operation(), false); }
+        catch { return (fallback, true); }
+    }
+}

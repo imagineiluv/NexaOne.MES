@@ -2,39 +2,60 @@
 <!-- 파일 기반 쿼리 레지스트리(MSSQL 방언) — IVT 자재/재고 read 슬라이스(자재LOT·재고 + 입출고 트랜잭션).
      SQLite판과 동일 ID·동일 @param이되 NOLOCK 힌트만 추가. 컬럼은 V048__IVT_MATERIAL 정합. -->
 <queries module="IVT">
-    <query id="IVT.MaterialLotList">
+    <query id="IVT.MaterialLotList" requiredPermission="ivt:read">
         <statement><![CDATA[
-            SELECT LOT_ID, MATERIAL_ID, LOT_NO, WAREHOUSE, CURRENT_QTY, UNIT, STATUS, RECEIVED_AT, EXPIRY_AT
+            SELECT LOT_ID, MATERIAL_ID, LOT_NO, WAREHOUSE, CURRENT_QTY, UNIT, STATUS,
+                   VERSION_NO, RECEIVED_AT, EXPIRY_AT
             FROM IVT_MATERIAL_LOT WITH (NOLOCK)
             WHERE (@warehouse IS NULL OR WAREHOUSE = @warehouse)
               AND (@materialId IS NULL OR MATERIAL_ID = @materialId)
             ORDER BY LOT_ID
         ]]></statement>
     </query>
-    <query id="IVT.MaterialTxList">
+    <query id="IVT.MaterialTxList" requiredPermission="ivt:read">
         <statement><![CDATA[
-            SELECT TX_ID, LOT_ID, MATERIAL_ID, TX_TYPE, QTY, FROM_WAREHOUSE, TO_WAREHOUSE, TX_AT, PROCESSED_BY, STATUS
+            SELECT TX_ID, LOT_ID, MATERIAL_ID, TX_TYPE, QTY, FROM_WAREHOUSE, TO_WAREHOUSE,
+                   BALANCE_BEFORE, BALANCE_AFTER, BALANCE_DELTA, RESULT_STATUS,
+                   IDEMPOTENCY_KEY, REQUEST_HASH, EXPECTED_VERSION, RESULT_VERSION,
+                   SOURCE_SYSTEM, SOURCE_EVENT_ID, CORRELATION_ID, METADATA_JSON,
+                   TX_AT, PROCESSED_BY, STATUS, REMARK
             FROM IVT_MATERIAL_TX WITH (NOLOCK)
             WHERE (@txType IS NULL OR TX_TYPE = @txType)
             ORDER BY TX_AT DESC
         ]]></statement>
     </query>
-    <query id="IVT.IncomingList">
+    <query id="IVT.IncomingList" requiredPermission="ivt:read">
         <statement><![CDATA[
             SELECT TX_ID, LOT_ID, MATERIAL_ID, TX_TYPE, QTY, FROM_WAREHOUSE, TO_WAREHOUSE, TX_AT, PROCESSED_BY, STATUS
             FROM IVT_MATERIAL_TX WITH (NOLOCK) WHERE TX_TYPE = 'Incoming' ORDER BY TX_AT DESC
         ]]></statement>
     </query>
-    <query id="IVT.MoveList">
+    <query id="IVT.MoveList" requiredPermission="ivt:read">
         <statement><![CDATA[
             SELECT TX_ID, LOT_ID, MATERIAL_ID, TX_TYPE, QTY, FROM_WAREHOUSE, TO_WAREHOUSE, TX_AT, PROCESSED_BY, STATUS
             FROM IVT_MATERIAL_TX WITH (NOLOCK) WHERE TX_TYPE = 'Move' ORDER BY TX_AT DESC
         ]]></statement>
     </query>
-    <query id="IVT.DispensingList">
+    <query id="IVT.DispensingList" requiredPermission="ivt:read">
         <statement><![CDATA[
             SELECT TX_ID, LOT_ID, MATERIAL_ID, TX_TYPE, QTY, FROM_WAREHOUSE, TO_WAREHOUSE, TX_AT, PROCESSED_BY, STATUS
             FROM IVT_MATERIAL_TX WITH (NOLOCK) WHERE TX_TYPE = 'Dispensing' ORDER BY TX_AT DESC
+        ]]></statement>
+    </query>
+    <query id="IVT.MaterialConsumptionHistoryList" requiredPermission="ivt:read">
+        <statement><![CDATA[
+            SELECT CONSUMPTION_ID, IDEMPOTENCY_KEY, PLANT_ID, EQUIPMENT_ID,
+                   MATERIAL_LOT_ID, MATERIAL_ID, PROCESS_LOT_ID, WORK_ORDER_ID, PROCESS_ID,
+                   RECIPE_ID, RECIPE_VERSION, CONSUMPTION_MODE, QUANTITY, UNIT,
+                   TRACE_ID, TAG_ID, SOURCE_EVENT_ID, SOURCE_SYSTEM, OPERATOR_ID,
+                   CORRELATION_ID, REVERSAL_OF_ID, STATUS, OCCURRED_AT
+            FROM IVT_MATERIAL_CONSUMPTION_HISTORY WITH (NOLOCK)
+            WHERE (@materialLotId IS NULL OR MATERIAL_LOT_ID = @materialLotId)
+              AND (@processLotId IS NULL OR PROCESS_LOT_ID = @processLotId)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@from IS NULL OR OCCURRED_AT >= @from)
+              AND (@to IS NULL OR OCCURRED_AT < @to)
+            ORDER BY OCCURRED_AT DESC, CONSUMPTION_ID DESC
         ]]></statement>
     </query>
 </queries>

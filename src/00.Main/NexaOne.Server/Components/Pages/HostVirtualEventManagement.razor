@@ -10,9 +10,9 @@
 
 <div class="mes-card host-toolbar">
     <strong>수동 평가</strong>
-    <input placeholder="설비 ID" @bind="_equipmentId"
+    <input placeholder="설비 ID" aria-label="수동 평가 설비 ID" @bind="_equipmentId"
            class="host-input inline" />
-    <input placeholder="이벤트 ID" @bind="_eventId"
+    <input placeholder="이벤트 ID" aria-label="수동 평가 이벤트 ID" @bind="_eventId"
            class="host-input inline" />
     <RadzenButton Icon="play_arrow" Click="EvaluateAsync" Disabled="@_busy" class="layout-command"
                   ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small"

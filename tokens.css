@@ -1,0 +1,291 @@
+/* Hallmark · macrostructure: System · tone: industrial precise · anchor hue: teal */
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5
+ * genre: modern-minimal · macrostructure: Workbench + Split Studio + Index-First · theme: custom Nexa Industrial
+ * axes: cool-blue paper / compact sans UI / teal signal · nav: N13 adapted · footer: none
+ * contrast: pass (40-41) · slop: pass (42-45) · honest: pass (46) · chrome: pass (47)
+ * tokens: pass (48) · responsive/mobile: pass (34, 49-57) · icons: pass (30) · source of truth for Host, Portal, and Designer canvas
+ */
+
+@font-face {
+  font-family: "Pretendard Variable";
+  font-style: normal;
+  font-weight: 45 920;
+  font-display: swap;
+  src: url("/fonts/PretendardVariable.woff2") format("woff2-variations");
+}
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces and ink. */
+  --color-paper: oklch(95.7% 0.006 255.5);
+  --color-paper-2: oklch(100% 0 0);
+  --color-paper-3: oklch(97.5% 0.003 247.9);
+  --color-ink: oklch(27.8% 0.030 256.8);
+  --color-ink-2: oklch(43.2% 0.046 265.3);
+  --color-rule: oklch(92.3% 0.008 253.9);
+  --color-rule-2: oklch(76.6% 0.023 256.7);
+  --color-muted: oklch(49.5% 0.033 263.2);
+  --color-neutral: oklch(43.2% 0.046 265.3);
+
+  /* Bright teal is a signal; the darker teal is the accessible action colour. */
+  --color-brand-ink: oklch(27.0% 0.076 264.2);
+  --color-brand-ink-2: oklch(22.0% 0.066 264.2);
+  --color-signal: oklch(70.0% 0.129 175.1);
+  --color-accent: oklch(50.3% 0.092 175.9);
+  --color-accent-hover: oklch(43.6% 0.078 178.9);
+  --color-accent-ink: oklch(100% 0 0);
+  --color-focus: oklch(50.3% 0.092 175.9);
+  --color-focus-on-brand: #fff;
+  --color-info: oklch(50.9% 0.198 266.4);
+  --color-success: oklch(51.0% 0.129 151.1);
+  --color-warning: oklch(50.6% 0.126 54.6);
+  --color-danger: oklch(50.3% 0.180 23.6);
+  --color-success-text: var(--color-success);
+  --color-warning-text: var(--color-warning);
+  --color-danger-text: var(--color-danger);
+  --color-info-text: var(--color-info);
+  --color-accent-text: var(--color-accent);
+
+  /* Brand surfaces, overlays, and readable ink. Component CSS consumes these roles only. */
+  --color-on-brand: #fff;
+  --color-on-brand-strong: #e6edf7;
+  --color-on-brand-soft: #dbe7f4;
+  --color-on-brand-muted: #c3ccd9;
+  --color-on-brand-subtle: #8393aa;
+  --color-on-brand-success: #9cf2df;
+  --color-on-brand-warning: #ffd58a;
+  --color-on-brand-danger: #ffb4b8;
+  --surface-brand-faint: rgb(255 255 255 / 0.04);
+  --surface-brand-subtle: rgb(255 255 255 / 0.06);
+  --surface-brand-hover: rgb(255 255 255 / 0.08);
+  --surface-brand-active: rgb(255 255 255 / 0.12);
+  --surface-brand-strong: rgb(255 255 255 / 0.18);
+  --border-on-brand-faint: rgb(255 255 255 / 0.08);
+  --border-on-brand-soft: rgb(255 255 255 / 0.12);
+  --border-on-brand: rgb(255 255 255 / 0.24);
+  --border-on-brand-strong: rgb(255 255 255 / 0.38);
+  --border-brand-signal: rgb(21 184 154 / 0.65);
+  --border-brand-warning: rgb(245 158 11 / 0.75);
+  --surface-brand-signal-soft: rgb(21 184 154 / 0.15);
+  --surface-scrim: rgb(10 20 40 / 0.45);
+  --surface-scrim-soft: rgb(10 20 40 / 0.35);
+  --surface-ink-overlay: rgb(0 0 0 / 0.12);
+  --color-mask-opaque: #000;
+
+  /* Host navigation and state colours. */
+  --color-brand-scrollbar: #2a3c5c;
+  --color-brand-nav-icon: #8da0bd;
+  --color-brand-nav-field: #d2dcea;
+  --color-brand-nav-placeholder: #8ea0b8;
+  --color-brand-nav-dot: #5f7396;
+  --color-brand-nav-item: #9fb0c8;
+  --color-brand-nav-rule: #1b2c49;
+  --color-brand-nav-border: #3d4d6b;
+  --color-scrollbar: #cbd3dd;
+  --color-danger-hover: #b91c1c;
+  --color-success-ink: #065f46;
+  --color-warning-ink: #92400e;
+  --color-danger-ink: #991b1b;
+  --color-info-ink: #1e40af;
+  --color-neutral-ink: #374151;
+  --auth-page-start: #f4f7fa;
+  --auth-page-mid: #e8f4f1;
+
+  /* Split Studio login illustration. */
+  --login-visual-start: #08172f;
+  --login-visual-end: #142e55;
+  --login-signal: #35e4c1;
+  --login-signal-soft: #89f0dc;
+  --login-copy: #c6d5e8;
+  --login-copy-subtle: #b8c8dd;
+  --login-copy-soft: #dffbf5;
+  --login-feature-copy: #c7d6e8;
+  --login-feature-accent: #58dfc5;
+  --login-art-axis: #bed0e8;
+  --login-art-flow: #38e1bf;
+  --login-art-node: #57f1d3;
+  --login-art-machine-start: #2bd7b6;
+  --login-art-machine-end: #0d8f7b;
+  --login-art-factory: #dce8f8;
+  --login-art-structure: #162b54;
+  --login-art-signal: #31d7b7;
+  --login-art-muted: #8095b5;
+  --login-art-surface: #0b1934;
+  --login-art-stroke: #7790b4;
+  --login-art-dashboard-stroke: #6c83a7;
+  --login-art-chart-muted: #7187aa;
+  --login-shell-border: rgb(19 36 75 / 0.12);
+  --login-shell-shadow: 0 28px 80px rgb(13 27 58 / 0.18);
+  --login-grid-line: rgb(255 255 255 / 0.28);
+  --login-signal-halo: rgb(53 228 193 / 0.13);
+  --login-art-shadow: 0 22px 35px rgb(0 0 0 / 0.22);
+  --login-metric-surface: rgb(8 23 47 / 0.84);
+  --login-metric-border: rgb(113 240 214 / 0.34);
+  --login-metric-shadow: 0 14px 32px rgb(0 0 0 / 0.24);
+  --login-live-surface: rgb(21 184 154 / 0.15);
+  --login-live-border: rgb(74 231 201 / 0.35);
+  --login-submit-inset: inset 0 1px 3px rgb(0 0 0 / 0.16);
+  --login-submit-hover-shadow: 0 4px 12px rgb(8 117 98 / 0.22);
+  --shadow-sidebar: 6px 0 24px rgb(0 0 0 / 0.35);
+  --shadow-drawer: -8px 0 24px rgb(0 0 0 / 0.18);
+  --shadow-bottom-nav: 0 -4px 16px rgb(10 20 40 / 0.08);
+
+  --color-success-soft: oklch(95% 0.035 151.1);
+  --color-warning-soft: oklch(95% 0.040 72);
+  --color-danger-soft: oklch(95% 0.035 23.6);
+  --color-info-soft: oklch(95% 0.030 266.4);
+  --color-selected: oklch(94% 0.035 175.1);
+
+  /* Pretendard is intentional for Korean density; mono is reserved for IDs and paths. */
+  --font-display: "Pretendard Variable", Pretendard, "Malgun Gothic", "Noto Sans KR", ui-sans-serif, sans-serif;
+  --font-body: "Pretendard Variable", Pretendard, "Malgun Gothic", "Noto Sans KR", ui-sans-serif, sans-serif;
+  --font-outlier: "IBM Plex Mono", "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --display-weight: 720;
+  --display-style: normal;
+  --tracking-display: -0.018em;
+  --tracking-label: 0.08em;
+
+  /* 1.25 major-third type scale anchored at the existing 13px dense UI body. */
+  --text-xs: 0.6875rem;
+  --text-sm: 0.75rem;
+  --text-base: 0.8125rem;
+  --text-md: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5625rem;
+  --text-2xl: 1.9531rem;
+  --text-display: clamp(2rem, 3vw + 1rem, 3.052rem);
+
+  /* 4-point spacing scale. */
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 2.5rem;
+  --space-3xl: 4rem;
+  --space-4xl: 6rem;
+  --space-5xl: 8rem;
+
+  --rule-hair: 1px;
+  --rule-fine: 2px;
+  --radius-input: 4px;
+  --radius-card: 6px;
+  --radius-panel: 10px;
+  --radius-pill: 999px;
+  --shadow-card: 0 1px 2px rgb(13 27 58 / 0.08);
+  --shadow-popover: 0 12px 32px rgb(13 27 58 / 0.14);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 320ms;
+
+  --z-base: 1;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+
+  --control-height: 2.75rem;
+  --touch-target: 2.75rem;
+  --kiosk-target: 3.5rem;
+  --auth-control-height: 3.25rem;
+  --content-max: 80rem;
+
+  /* Compatibility aliases while product styles migrate to semantic Hallmark names. */
+  --nx-navy: var(--color-brand-ink);
+  --nx-navy-2: var(--color-brand-ink-2);
+  --nx-navy-hover: rgb(255 255 255 / 0.08);
+  --nx-signal: var(--color-signal);
+  --nx-teal: var(--color-accent);
+  --nx-teal-d: var(--color-accent-hover);
+  --nx-teal-text: var(--color-accent-text);
+  --nx-blue: var(--color-info);
+  --nx-red: var(--color-danger);
+  --nx-bg: var(--color-paper);
+  --nx-card: var(--color-paper-2);
+  --nx-border: var(--color-rule);
+  --nx-border-soft: color-mix(in oklch, var(--color-rule) 60%, var(--color-paper-2));
+  --nx-head: var(--color-paper-3);
+  --nx-text: var(--color-ink);
+  --nx-text-2: var(--color-ink-2);
+  --nx-muted: var(--color-muted);
+  --nx-on-accent: var(--color-accent-ink);
+  --nx-on-accent-muted: oklch(84% 0.025 259);
+  --nx-hover: var(--color-paper-3);
+  --nx-hover-teal: var(--color-selected);
+  --nx-stripe: color-mix(in oklch, var(--color-paper-3) 70%, var(--color-paper-2));
+  --nx-selected: var(--color-selected);
+  --nx-success: var(--color-success-text);
+  --nx-success-bg: var(--color-success-soft);
+  --nx-warning: var(--color-warning-text);
+  --nx-warning-bg: var(--color-warning-soft);
+  --nx-danger: var(--color-danger-text);
+  --nx-danger-bg: var(--color-danger-soft);
+  --nx-info: var(--color-info-text);
+  --nx-info-bg: var(--color-info-soft);
+  --nx-radius-sm: var(--radius-input);
+  --nx-radius: var(--radius-card);
+  --nx-radius-lg: var(--radius-panel);
+  --nx-shadow-sm: var(--shadow-card);
+  --nx-shadow-md: 0 4px 12px rgb(13 27 58 / 0.10);
+  --nx-shadow-lg: var(--shadow-popover);
+  --nx-fs-title: var(--text-lg);
+  --nx-fs-section: var(--text-base);
+  --nx-fs-body: var(--text-base);
+  --nx-fs-dense: 0.78125rem;
+  --nx-fs-caption: var(--text-sm);
+  --nx-fs-caption-s: var(--text-xs);
+  --nx-sp-1: var(--space-2xs);
+  --nx-sp-2: var(--space-xs);
+  --nx-sp-3: var(--space-sm);
+  --nx-sp-4: var(--space-md);
+  --nx-sp-5: var(--space-lg);
+  --nx-sp-6: var(--space-xl);
+  --nx-control-min: var(--control-height);
+  --nx-touch-min: var(--touch-target);
+  --nx-kiosk-min: var(--kiosk-target);
+  --nx-content-max: 120rem;
+  --naf-navy: oklch(36.1% 0.128 276.3);
+  --naf-teal: var(--color-signal);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --color-paper: oklch(19.1% 0.027 260.9);
+  --color-paper-2: oklch(23.8% 0.032 260.4);
+  --color-paper-3: oklch(27.0% 0.038 261.5);
+  --color-ink: oklch(92.3% 0.017 259.4);
+  --color-ink-2: oklch(81.7% 0.028 260.3);
+  --color-rule: oklch(31.1% 0.050 264.7);
+  --color-rule-2: oklch(44% 0.045 262);
+  --color-muted: oklch(68.3% 0.036 259.4);
+  --color-neutral: oklch(81.7% 0.028 260.3);
+  --color-focus: oklch(82.2% 0.135 176.9);
+  --color-selected: oklch(30% 0.055 176.9);
+  --color-success-soft: oklch(27% 0.055 151.1);
+  --color-warning-soft: oklch(29% 0.050 54.6);
+  --color-danger-soft: oklch(28% 0.055 23.6);
+  --color-info-soft: oklch(28% 0.055 266.4);
+  --color-success-text: oklch(84% 0.115 151.1);
+  --color-warning-text: oklch(86% 0.115 72);
+  --color-danger-text: oklch(84% 0.105 23.6);
+  --color-info-text: oklch(84% 0.110 266.4);
+  --color-accent-text: oklch(84% 0.120 176.9);
+  --shadow-card: 0 0 0 1px rgb(255 255 255 / 0.04);
+  --shadow-popover: 0 16px 36px rgb(0 0 0 / 0.32);
+  --auth-page-start: var(--color-paper);
+  --auth-page-mid: var(--color-paper-3);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

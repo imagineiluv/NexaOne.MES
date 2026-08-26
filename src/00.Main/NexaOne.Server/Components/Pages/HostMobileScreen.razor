@@ -1,0 +1,11 @@
+@page "/Mobile/{UiId}"
+@attribute [Authorize]
+@layout MobileLayout
+
+<PageTitle>@UiId · 모바일 작업</PageTitle>
+<OperatorChannelScreen UiId="@UiId" TargetChannel="MOBILE" BasePath="/Mobile" DeviceId="@DeviceId" />
+
+@code {
+    [Parameter] public string UiId { get; set; } = string.Empty;
+    [Parameter, SupplyParameterFromQuery(Name = "deviceId")] public string? DeviceId { get; set; }
+}

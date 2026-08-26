@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.EST\NexaOne.EST.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.QMS\NexaOne.QMS.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.EMS\NexaOne.EMS.csproj" />
+    <ProjectReference Include="..\..\src\04.Modules\NexaOne.IVT\NexaOne.IVT.csproj" />
   </ItemGroup>
 
   <ItemGroup>

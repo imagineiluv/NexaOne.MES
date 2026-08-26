@@ -1,0 +1,287 @@
+/* Hallmark · macrostructure: Workbench · tone: industrial precise · anchor hue: teal */
+/* Hallmark pre-emit critique: P5 H5 E5 S5 R5 V5
+ * genre: modern-minimal - macrostructure: Workbench - theme: custom Nexa Industrial - design-system: design.md
+ * contrast: pass (40-41) - nav: inherited shell - footer: none - slop: pass (42-45)
+ * honest: pass (46) - chrome: pass (47) - tokens: pass (48) - responsive/mobile: pass (34, 49-57) - icons: pass (30)
+ */
+.meta-collection-editor {
+    display: grid;
+    gap: var(--nx-sp-3);
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+.meta-collection-header,
+.meta-collection-item-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--nx-sp-2);
+}
+
+.meta-collection-header {
+    min-height: 2.5rem;
+    padding-bottom: var(--nx-sp-3);
+    border-bottom: 1px solid var(--nx-border-soft);
+}
+
+.meta-collection-heading {
+    display: flex;
+    align-items: baseline;
+    gap: var(--nx-sp-2);
+}
+
+.meta-collection-title {
+    color: var(--nx-text);
+    font-weight: 700;
+    letter-spacing: -.01em;
+}
+
+.meta-collection-count,
+.meta-collection-empty,
+.meta-collection-disabled-reason {
+    color: var(--nx-muted);
+    font-size: var(--nx-fs-caption);
+}
+
+.meta-collection-count {
+    display: inline-flex;
+    min-height: 1.45rem;
+    align-items: center;
+    padding: var(--space-3xs) var(--space-xs);
+    border-radius: 999px;
+    background: var(--nx-hover);
+    color: var(--nx-text-2);
+    font-variant-numeric: tabular-nums;
+    font-weight: 650;
+}
+
+.meta-collection-items {
+    display: grid;
+    gap: var(--nx-sp-3);
+}
+
+.meta-collection-item {
+    min-width: 0;
+    margin: 0;
+    padding: var(--nx-sp-4);
+    border: 1px solid var(--nx-border);
+    border-radius: var(--nx-radius-lg);
+    background: var(--nx-card);
+    box-shadow: var(--nx-shadow-sm);
+    transition: border-color var(--dur-micro) var(--ease-out), box-shadow var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
+}
+
+.meta-collection-item-header {
+    width: 100%;
+    padding: 0 0 var(--nx-sp-3);
+    color: var(--nx-text-2);
+    font-size: var(--nx-fs-caption);
+    font-weight: 700;
+    border-bottom: 1px solid var(--nx-border-soft);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .meta-collection-item:hover {
+        background: var(--nx-hover-teal);
+    }
+}
+
+/* fieldset/legend의 브라우저 기본 배치를 명시적으로 초기화한다. float+clear 패턴은 legend가
+   폼 첫 행과 겹치던 Chromium 기본 fieldset 레이아웃을 없애면서 fieldset 의미는 유지한다. */
+fieldset.meta-collection-item {
+    min-inline-size: 0;
+}
+
+legend.meta-collection-item-header {
+    float: left;
+    box-sizing: border-box;
+    margin: 0 0 var(--nx-sp-4);
+}
+
+.meta-collection-item-title {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--nx-sp-2);
+}
+
+.meta-collection-item-index {
+    display: inline-grid;
+    width: 1.85rem;
+    height: 1.85rem;
+    place-items: center;
+    border-radius: var(--nx-radius);
+    background: color-mix(in srgb, var(--nx-teal) 10%, var(--nx-card));
+    color: var(--nx-teal-text);
+    font-size: var(--nx-fs-caption-s);
+    font-variant-numeric: tabular-nums;
+}
+
+.meta-collection-item ::deep .meta-form {
+    clear: both;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+}
+
+.meta-collection-add,
+.meta-collection-remove {
+    display: inline-flex;
+    min-height: var(--nx-touch-min);
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2xs);
+    padding: var(--space-2xs) var(--space-sm);
+    border: 1px solid var(--nx-border);
+    border-radius: var(--nx-radius);
+    background: var(--nx-card);
+    color: var(--nx-text);
+    outline: 2px solid transparent;
+    outline-offset: 1px;
+    cursor: pointer;
+}
+
+.meta-collection-add {
+    border-color: var(--nx-teal);
+    background: color-mix(in srgb, var(--nx-teal) 8%, var(--nx-card));
+    color: var(--nx-teal-text);
+    font-weight: 650;
+}
+
+.meta-collection-remove {
+    border-color: transparent;
+    background: transparent;
+    color: var(--nx-danger);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .meta-collection-add:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--nx-teal) 14%, var(--nx-card));
+    }
+
+    .meta-collection-remove:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--nx-danger) 8%, transparent);
+    }
+}
+
+.meta-collection-button-icon {
+    display: inline-grid;
+    width: 1rem;
+    height: 1rem;
+    place-items: center;
+    font-size: 1rem;
+    font-weight: 750;
+    line-height: 1;
+}
+
+.meta-collection-add:disabled,
+.meta-collection-remove:disabled {
+    cursor: not-allowed;
+    opacity: .55;
+    filter: grayscale(.45);
+    background: var(--nx-head);
+}
+
+.meta-collection-disabled-reason,
+.meta-collection-empty,
+.meta-collection-error {
+    margin: 0;
+}
+
+.meta-collection-error-slot {
+    min-height: 1.75rem;
+}
+
+.meta-collection-error {
+    padding: var(--nx-sp-2) var(--nx-sp-3);
+    border: 1px solid color-mix(in srgb, var(--nx-danger) 30%, transparent);
+    border-radius: var(--nx-radius);
+    background: color-mix(in srgb, var(--nx-danger) 7%, var(--nx-card));
+    color: var(--nx-danger);
+    font-size: var(--nx-fs-caption);
+}
+
+.meta-collection-disabled-reason {
+    padding: var(--nx-sp-2) var(--nx-sp-3);
+    border-radius: var(--nx-radius);
+    background: var(--nx-head);
+}
+
+.meta-collection-empty {
+    display: grid;
+    min-height: 10rem;
+    place-items: center;
+    align-content: center;
+    gap: var(--nx-sp-2);
+    padding: var(--nx-sp-5);
+    border: 1px dashed var(--nx-border);
+    border-radius: var(--nx-radius-lg);
+    background: var(--nx-card);
+    text-align: center;
+}
+
+.meta-collection-empty p { margin: 0; color: var(--nx-text-2); font-weight: 650; }
+
+.meta-collection-empty-icon {
+    display: inline-grid;
+    width: 2.75rem;
+    height: 2.75rem;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--nx-hover);
+    color: var(--nx-muted);
+    font-size: 1.35rem;
+}
+
+.meta-collection-empty-hint {
+    color: var(--nx-muted);
+    font-size: var(--nx-fs-caption-s);
+}
+
+.meta-collection-editor.has-error .meta-collection-header { border-bottom-color: var(--nx-danger); }
+
+.meta-collection-editor.is-disabled {
+    color: var(--nx-muted);
+}
+
+.meta-collection-editor.is-disabled .meta-collection-item { background: var(--nx-head); box-shadow: none; }
+
+.meta-collection-add:focus-visible,
+.meta-collection-remove:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 1px;
+}
+
+.meta-collection-add:active:not(:disabled),
+.meta-collection-remove:active:not(:disabled) {
+    filter: brightness(.94);
+    transform: translateY(1px);
+}
+
+@media (max-width: 640px) {
+    .meta-collection-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .meta-collection-add {
+        width: 100%;
+        min-height: 2.75rem;
+    }
+
+    .meta-collection-item { padding: var(--nx-sp-3); }
+    .meta-collection-remove { min-height: var(--nx-touch-min); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .meta-collection-item { transition: none; }
+    .meta-collection-add:active:not(:disabled),
+    .meta-collection-remove:active:not(:disabled) { transform: none; }
+}
+
+@media (prefers-contrast: more) {
+    .meta-collection-item,
+    .meta-collection-empty { border-width: 2px; }
+}

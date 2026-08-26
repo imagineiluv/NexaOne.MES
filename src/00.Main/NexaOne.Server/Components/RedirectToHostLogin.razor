@@ -5,6 +5,7 @@
 @code {
     protected override void OnInitialized()
     {
-        Nav.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(Nav.Uri)}", forceLoad: false);
+        var current = new Uri(Nav.Uri);
+        Nav.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(current.PathAndQuery)}", forceLoad: false);
     }
 }

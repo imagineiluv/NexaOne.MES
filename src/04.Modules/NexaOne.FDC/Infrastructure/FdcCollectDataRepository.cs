@@ -1,3 +1,4 @@
+using System.Globalization;
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
 using NexaOne.Infrastructure.Persistence;
@@ -41,6 +42,40 @@ public sealed class FdcCollectDataRepository : QueryRepository, IFdcCollectDataR
         return rows.Select(r => r.ToDomain()).OfType<FdcCollectData>().Reverse().ToList();
     }
 
+    public async Task<IReadOnlyList<FdcCollectData>> GetTraceAsync(
+        string equipmentId,
+        string parameterId,
+        DateTime effectiveFrom,
+        DateTime? effectiveTo,
+        DateTime? afterCollectedAt,
+        string? afterCollectId,
+        int limit,
+        CancellationToken ct = default)
+    {
+        var sql = _dialect.WrapPaged(
+            @"SELECT * FROM FDC_COLLECT_DATA
+              WHERE EQUIPMENT_ID = @equipmentId
+                AND PARAMETER_ID = @parameterId
+                AND COLLECTED_AT >= @effectiveFrom
+                AND (@effectiveTo IS NULL OR COLLECTED_AT < @effectiveTo)
+                AND (@afterCollectedAt IS NULL
+                     OR COLLECTED_AT > @afterCollectedAt
+                     OR (COLLECTED_AT = @afterCollectedAt AND COLLECT_ID > @afterCollectId))",
+            "COLLECTED_AT, COLLECT_ID",
+            0,
+            Math.Clamp(limit, 1, 5000));
+        var rows = await QueryAsync<DataRow>(sql, new
+        {
+            equipmentId,
+            parameterId,
+            effectiveFrom,
+            effectiveTo,
+            afterCollectedAt,
+            afterCollectId,
+        }, ct);
+        return rows.Select(row => row.ToDomain()).OfType<FdcCollectData>().ToList();
+    }
+
     // FDC_COLLECT_DATA는 감사 컬럼이 없어 8개 도메인 컬럼만 INSERT한다(감사 미주입 경로로 충분).
     private const string InsertSql = @"INSERT INTO FDC_COLLECT_DATA
             (COLLECT_ID, EQUIPMENT_ID, PARAMETER_ID, VALUE, COLLECTED_AT, QUALITY, LOWER_LIMIT, UPPER_LIMIT)
@@ -76,15 +111,28 @@ public sealed class FdcCollectDataRepository : QueryRepository, IFdcCollectDataR
         public string  CollectId   { get; set; } = "";
         public string  EquipmentId { get; set; } = "";
         public string  ParameterId { get; set; } = "";
-        public decimal Value       { get; set; }
+        public object? Value       { get; set; }
         public DateTime CollectedAt { get; set; }
         public string  Quality     { get; set; } = "Good";
-        public decimal LowerLimit  { get; set; }
-        public decimal UpperLimit  { get; set; }
+        public object? LowerLimit  { get; set; }
+        public object? UpperLimit  { get; set; }
 
         public FdcCollectData? ToDomain() =>
-            FdcCollectData.Create(CollectId, EquipmentId, ParameterId, Value, CollectedAt, Quality, LowerLimit, UpperLimit)
+            FdcCollectData.Create(
+                CollectId,
+                EquipmentId,
+                ParameterId,
+                ToDecimal(Value),
+                CollectedAt,
+                Quality,
+                ToDecimal(LowerLimit),
+                ToDecimal(UpperLimit))
                           .Value;
+
+        private static decimal ToDecimal(object? value) =>
+            value is null or DBNull
+                ? 0m
+                : Convert.ToDecimal(value, CultureInfo.InvariantCulture);
 
         public static DataRow FromDomain(FdcCollectData d) => new()
         {

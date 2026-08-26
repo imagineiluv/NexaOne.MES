@@ -19,10 +19,39 @@ public sealed class TrackingMasterGateway : QueryRepository, ITrackingMasterGate
             FROM MDM_EQUIPMENT WHERE EQUIPMENT_ID = @equipmentId";
         var row = await QueryFirstOrDefaultAsync<EquipmentRow>(sql, new { equipmentId }, ct);
         if (row is null) return null;
-        // VALID_STATE 'Active'만 사용 가능(설계 19.4.4 가용 설비). 그 외는 IsValid=false로 전달해 서비스가 Conflict로 거부.
+        // MDM Equipment의 공통 상태 어휘는 Valid/Invalid다. 그 외는 서비스가 Conflict로 거부한다.
         return new TrackingEquipmentInfo(
             row.EQUIPMENT_ID, row.PLANT_ID, row.EQUIPMENT_CLASS_ID,
-            string.Equals(row.VALID_STATE, "Active", StringComparison.OrdinalIgnoreCase));
+            string.Equals(row.VALID_STATE, "Valid", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Reads the product identity and ordered process mapping for a routing. A LEFT JOIN keeps an
+    /// empty routing distinguishable from a missing routing so the application can return a clear
+    /// configuration error instead of accepting caller-supplied steps without master evidence.
+    /// </summary>
+    public async Task<TrackingProductRouting?> GetProductRoutingAsync(
+        string routingId,
+        CancellationToken ct = default)
+    {
+        const string sql = @"SELECT R.ROUTING_ID, R.PRODUCT_ID, S.STEP_NO,
+                   CASE WHEN P.PROCESS_ID IS NULL THEN NULL ELSE S.PROCESS_ID END AS PROCESS_ID
+            FROM MDM_ROUTING R
+            LEFT JOIN MDM_ROUTING_STEP S ON S.ROUTING_ID = R.ROUTING_ID
+            LEFT JOIN MDM_PROCESS P ON P.PROCESS_ID = S.PROCESS_ID
+            WHERE R.ROUTING_ID = @routingId
+            ORDER BY S.STEP_NO";
+        var rows = (await QueryAsync<RoutingRow>(sql, new { routingId }, ct)).ToList();
+        if (rows.Count == 0) return null;
+
+        return new TrackingProductRouting(
+            rows[0].ROUTING_ID,
+            rows[0].PRODUCT_ID,
+            rows.Where(row => row.STEP_NO.HasValue)
+                .Select(row => new TrackingRoutingStep(
+                    row.STEP_NO!.Value,
+                    row.PROCESS_ID?.Trim() ?? string.Empty))
+                .ToList());
     }
 
     public async Task<bool> IsUsableRecipeAsync(
@@ -52,5 +81,13 @@ public sealed class TrackingMasterGateway : QueryRepository, ITrackingMasterGate
         public string PLANT_ID { get; set; } = "";
         public string EQUIPMENT_CLASS_ID { get; set; } = "";
         public string VALID_STATE { get; set; } = "";
+    }
+
+    private sealed class RoutingRow
+    {
+        public string ROUTING_ID { get; set; } = "";
+        public string PRODUCT_ID { get; set; } = "";
+        public int? STEP_NO { get; set; }
+        public string? PROCESS_ID { get; set; }
     }
 }

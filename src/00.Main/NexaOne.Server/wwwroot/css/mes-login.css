@@ -1,0 +1,387 @@
+/* Hallmark · macrostructure: Split Studio · tone: industrial precise · anchor hue: teal */
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5
+ * genre: modern-minimal · macrostructure: Split Studio · theme: custom Nexa Industrial
+ * contrast: pass (40-41) · nav: none · footer: none · slop: pass (42-45)
+ * honest: pass (46) · chrome: pass (47) · tokens: pass (48) · responsive/mobile: pass (34, 49-57) · icons: pass (30)
+ */
+.mes-login-shell {
+    width: min(1120px, 100%);
+    min-height: min(700px, calc(100dvh - 48px));
+    margin: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(340px, .82fr);
+    overflow: hidden;
+    background: var(--nx-card);
+    border: 1px solid var(--login-shell-border);
+    border-radius: var(--radius-panel);
+    box-shadow: var(--login-shell-shadow);
+}
+
+.mes-login-visual {
+    position: relative;
+    min-width: 0;
+    overflow: hidden;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-xl) var(--space-2xl) var(--space-3xl);
+    color: var(--color-on-brand);
+    background: linear-gradient(145deg, var(--login-visual-start) 0%, var(--nx-navy) 58%, var(--login-visual-end) 100%);
+}
+
+.mes-login-grid {
+    position: absolute;
+    z-index: -2;
+    inset: 0;
+    opacity: .13;
+    background-image:
+        linear-gradient(var(--login-grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--login-grid-line) 1px, transparent 1px);
+    background-size: 42px 42px;
+    mask-image: linear-gradient(to bottom, var(--color-mask-opaque) 0%, transparent 86%);
+}
+
+.mes-login-copy {
+    position: relative;
+    z-index: 2;
+    max-width: 32rem;
+}
+
+.mes-login-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    color: var(--login-signal-soft);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .18em;
+}
+
+.mes-login-eyebrow i,
+.mes-login-live i {
+    width: 8px;
+    height: 8px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: var(--login-signal);
+    box-shadow: 0 0 0 5px var(--login-signal-halo);
+}
+
+.mes-login-copy h1 {
+    margin: var(--space-md) 0 var(--space-md);
+    color: var(--color-on-brand);
+    font-size: clamp(34px, 4.2vw, 54px);
+    line-height: 1.12;
+    letter-spacing: -.045em;
+    font-weight: 760;
+}
+
+.mes-login-copy h1 strong {
+    color: var(--login-signal);
+    font-weight: inherit;
+}
+
+.mes-login-copy p {
+    max-width: 30rem;
+    margin: 0;
+    color: var(--login-copy);
+    font-size: 15px;
+    line-height: 1.72;
+}
+
+.mes-login-art {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 auto;
+    min-height: 340px;
+    margin: var(--space-xs) calc(-1 * calc(var(--space-md) + var(--space-2xs))) 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mes-login-art > svg {
+    width: min(100%, 620px);
+    height: auto;
+    overflow: visible;
+    filter: drop-shadow(var(--login-art-shadow));
+}
+
+.mes-art-panel {
+    stroke: var(--border-on-brand);
+    stroke-width: 1;
+}
+
+.mes-art-axis {
+    fill: none;
+    stroke: var(--login-art-axis);
+    stroke-opacity: .12;
+    stroke-width: 1;
+}
+
+.mes-art-flow path {
+    stroke: var(--login-art-flow);
+    stroke-width: 3;
+    stroke-opacity: .86;
+    stroke-dasharray: 7 13;
+}
+
+.mes-art-nodes circle {
+    fill: var(--login-art-node);
+}
+
+.mes-art-conveyor {
+    fill: none;
+    stroke: var(--login-signal);
+    stroke-width: 4;
+    stroke-linecap: round;
+    stroke-dasharray: 6 12;
+}
+
+.mes-login-metric {
+    position: absolute;
+    z-index: 3;
+    min-width: 154px;
+    padding: var(--space-sm) var(--space-sm);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-3xs) var(--space-xs);
+    color: var(--color-on-brand);
+    background: var(--login-metric-surface);
+    border: 1px solid var(--login-metric-border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--login-metric-shadow);
+    backdrop-filter: blur(10px);
+}
+
+.mes-login-metric span {
+    grid-column: 1 / -1;
+    color: var(--login-signal-soft);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .13em;
+}
+
+.mes-login-metric strong {
+    font-size: 15px;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.mes-login-metric small {
+    align-self: end;
+    color: var(--login-copy-subtle);
+    font-size: 9px;
+}
+
+.mes-metric-oee { left: 4%; bottom: 13%; }
+.mes-metric-quality { right: 1%; top: 23%; }
+
+.mes-login-live {
+    position: absolute;
+    right: 8%;
+    bottom: 13%;
+    padding: var(--space-xs) var(--space-sm);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    color: var(--login-copy-soft);
+    background: var(--login-live-surface);
+    border: 1px solid var(--login-live-border);
+    border-radius: 999px;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .12em;
+}
+
+.mes-login-live i { width: 6px; height: 6px; }
+
+.mes-login-features {
+    position: relative;
+    z-index: 2;
+    margin: var(--space-3xs) 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    border-top: 1px solid var(--border-on-brand-soft);
+}
+
+.mes-login-features li {
+    padding: var(--space-md) var(--space-xs) 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    color: var(--login-feature-copy);
+    font-size: 12px;
+    font-weight: 650;
+    white-space: nowrap;
+}
+
+.mes-login-features li:first-child { padding-left: 0; }
+
+.mes-login-features span {
+    color: var(--login-feature-accent);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .08em;
+}
+
+.mes-login-card {
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: var(--space-2xl);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: var(--nx-card);
+}
+
+.mes-login-form-inner { width: min(100%, 25rem); }
+.mes-login-card .host-brand { margin-bottom: var(--space-md); }
+
+.mes-login-form-kicker {
+    margin: 0 0 var(--space-xs);
+    text-align: center;
+    color: var(--nx-teal-text);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: .14em;
+}
+
+.mes-login-card .host-title {
+    font-size: clamp(1.35rem, 2.4vw, 1.65rem);
+    letter-spacing: -.025em;
+}
+
+.mes-login-card .host-sub {
+    margin: var(--space-xs) 0 var(--space-xl);
+    line-height: 1.5;
+}
+
+.mes-login-card .host-field { margin-bottom: calc(var(--space-md) + var(--space-2xs)); }
+.mes-login-card .host-field label { margin-bottom: var(--space-xs); font-weight: 650; }
+
+.mes-login-input-wrap { position: relative; }
+
+.mes-login-input-wrap > svg {
+    position: absolute;
+    z-index: 1;
+    left: 14px;
+    top: 50%;
+    width: 19px;
+    height: 19px;
+    color: var(--nx-muted);
+    stroke-width: 1.8;
+    transform: translateY(-50%);
+    pointer-events: none;
+}
+
+.mes-login-input-wrap .host-input {
+    min-height: var(--auth-control-height);
+    padding: var(--space-sm) var(--space-sm) var(--space-sm) calc(var(--space-2xl) + var(--space-2xs));
+    color: var(--nx-text);
+    background: var(--nx-card);
+    border-color: var(--nx-muted);
+    outline: 2px solid transparent;
+    outline-offset: 1px;
+    transition: border-color var(--dur-micro) var(--ease-out), box-shadow var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
+}
+
+.mes-login-input-wrap:focus-within > svg { color: var(--nx-teal-text); }
+
+.mes-login-input-wrap .host-input:focus-visible {
+    border-color: var(--nx-teal-d);
+    outline: 2px solid var(--color-focus);
+    outline-offset: 1px;
+    box-shadow: none;
+}
+
+.mes-login-submit {
+    min-height: var(--auth-control-height);
+    margin-top: var(--space-2xs);
+    padding: var(--space-sm) var(--space-md);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    color: var(--nx-on-accent);
+    background: var(--nx-teal);
+    border-radius: var(--radius-input);
+    font-weight: 800;
+    transition: background-color var(--dur-micro) var(--ease-out), box-shadow var(--dur-micro) var(--ease-out);
+}
+
+.mes-login-submit svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 2.3;
+}
+
+.mes-login-submit:active:not(:disabled) {
+    background: var(--nx-teal-d);
+    box-shadow: var(--login-submit-inset);
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .mes-login-submit:hover:not(:disabled) {
+        background: var(--nx-teal-d);
+    }
+}
+
+.mes-login-card .host-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--nx-touch-min);
+    color: var(--nx-teal-text);
+    font-weight: 700;
+    text-underline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+    .mes-login-shell {
+        max-width: 44rem;
+        min-height: 0;
+        grid-template-columns: 1fr;
+    }
+
+    .mes-login-visual { min-height: 420px; padding: var(--space-lg) var(--space-2xl) var(--space-2xl); }
+    .mes-login-copy h1 { font-size: 38px; }
+    .mes-login-art { min-height: 230px; margin-top: calc(-1 * var(--space-xs)); }
+    .mes-login-art > svg { max-height: 270px; }
+    .mes-login-card { padding: calc(var(--space-2xl) + var(--space-2xs)) calc(var(--space-xl) + var(--space-2xs)); }
+}
+
+@media (max-width: 560px) {
+    .mes-login-shell { border-radius: var(--radius-panel); }
+    .mes-login-visual { min-height: 345px; padding: var(--space-md) var(--space-lg) var(--space-lg); }
+    .mes-login-copy h1 { margin-top: var(--space-sm); font-size: 30px; }
+    .mes-login-copy p { font-size: 13px; line-height: 1.55; }
+    .mes-login-art { min-height: 170px; margin: calc(-1 * var(--space-xs)) calc(-1 * calc(var(--space-md) + var(--space-2xs))) calc(-1 * var(--space-xs)); }
+    .mes-login-art > svg { max-height: 205px; }
+    .mes-login-metric { min-width: 130px; padding: var(--space-xs) var(--space-sm); }
+    .mes-login-metric strong { font-size: 12px; }
+    .mes-metric-oee { left: 2%; bottom: 8%; }
+    .mes-metric-quality { right: 1%; top: 18%; }
+    .mes-login-live { right: 5%; bottom: 8%; }
+    .mes-login-features li { padding-top: var(--space-sm); font-size: 10px; gap: var(--space-2xs); }
+    .mes-login-card { padding: calc(var(--space-xl) + var(--space-2xs)) var(--space-lg); }
+}
+
+@media (max-height: 720px) and (min-width: 901px) {
+    .mes-login-shell { min-height: 620px; }
+    .mes-login-visual { padding-block: var(--space-lg) var(--space-xl); }
+    .mes-login-art { min-height: 270px; }
+    .mes-login-card { padding-block: var(--space-xl); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .mes-login-submit,
+    .mes-login-input-wrap .host-input {
+        transition: none;
+    }
+}

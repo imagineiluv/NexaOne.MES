@@ -9,7 +9,7 @@ public sealed class EstModuleBoundaryTests
     [Fact]
     public void EquipmentAlarmRepository_source_contains_no_foreign_MDM_table()
     {
-        var path = ResolveRepoFile(
+        var path = RepositorySource.GetFile(
             "src", "04.Modules", "NexaOne.EST", "Infrastructure", "EquipmentAlarmRepository.cs");
         var source = File.ReadAllText(path);
 
@@ -18,17 +18,24 @@ public sealed class EstModuleBoundaryTests
             + "IEquipmentDirectory가 푼다. \"MDM_\" 재등장은 교차 모듈 무음 결합 회귀를 뜻한다.");
     }
 
-    // ResolveHostBinDir(ServerTests)와 동일하게 AppContext.BaseDirectory에서 위로 올라가 리포 루트(NexaOne.sln)를 찾는다.
-    private static string ResolveRepoFile(params string[] relativeSegments)
+    [Fact]
+    public void Est_module_sources_contain_no_foreign_MDM_or_POM_physical_tables()
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "NexaOne.sln")))
-            dir = dir.Parent;
-        if (dir is null)
-            throw new InvalidOperationException("리포 루트(NexaOne.sln) 미발견 — 소스 파일 해석 실패.");
+        var estRoot = RepositorySource.GetDirectory("src", "04.Modules", "NexaOne.EST");
+        var violations = Directory.GetFiles(estRoot, "*.cs", SearchOption.AllDirectories)
+            .Where(file =>
+            {
+                var source = File.ReadAllText(file);
+                return source.Contains("MDM_", StringComparison.OrdinalIgnoreCase)
+                       || source.Contains("POM_", StringComparison.OrdinalIgnoreCase);
+            })
+            .Select(file => Path.GetRelativePath(estRoot, file))
+            .OrderBy(static file => file, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 
-        var path = Path.Combine(new[] { dir.FullName }.Concat(relativeSegments).ToArray());
-        File.Exists(path).Should().BeTrue($"검사 대상 소스가 존재해야 한다: {path}");
-        return path;
+        violations.Should().BeEmpty(
+            "EST는 자기 스키마와 Common IOeeEvidenceSource seam만 소유해야 하며, "
+            + "MDM/POM 물리 테이블은 호스트 orchestration adapter 뒤에 있어야 합니다");
     }
+
 }

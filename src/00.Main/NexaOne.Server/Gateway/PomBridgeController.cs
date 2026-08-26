@@ -137,8 +137,9 @@ public sealed class PomBridgeController : ControllerBase
     [RequirePermission(Permissions.PomManage)]
     public async Task<IActionResult> CreateLot([FromBody] CreateLotRequest req, CancellationToken ct)
     {
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
         return (await _bridge.CreateLotAsync(
-            req.PlantId, req.LotId, req.WorkOrderId, req.ProductId, req.Qty, req.RouteSteps ?? [], CurrentUserId, ct))
+            req.PlantId, req.LotId, req.WorkOrderId, req.ProductId, req.Qty, req.RouteSteps ?? [], actor, ct))
             .ToActionResult();
     }
 
@@ -148,11 +149,15 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [RequirePermission(Permissions.PomManage)]
+    [RequirePermission(Permissions.PomExecute)]
     public async Task<IActionResult> TrackIn(string lotId, [FromBody] TrackInRequest req, CancellationToken ct)
     {
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (!TryNormalizeClientChannel(req.ClientChannel, out var channel))
+            return BadRequest(Error.Validation(nameof(req.ClientChannel), "Client channel must be MES, MOBILE, or POP."));
         return (await _bridge.TrackInAsync(
-            req.PlantId, lotId, req.EquipmentId, req.RecipeDefId, req.RecipeDefVersion, CurrentUserId, ct))
+            req.PlantId, lotId, req.EquipmentId, req.RecipeDefId, req.RecipeDefVersion, actor, ct,
+            req.ExpectedVersion, req.IdempotencyKey, channel, req.DeviceId))
             .ToActionResult();
     }
 
@@ -162,11 +167,38 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [RequirePermission(Permissions.PomManage)]
+    [RequirePermission(Permissions.PomExecute)]
     public async Task<IActionResult> TrackOut(string lotId, [FromBody] TrackOutRequest req, CancellationToken ct)
     {
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (!TryNormalizeClientChannel(req.ClientChannel, out var channel))
+            return BadRequest(Error.Validation(nameof(req.ClientChannel), "Client channel must be MES, MOBILE, or POP."));
+        if (req.Defects is { } defects)
+        {
+            decimal defectTotal = 0;
+            foreach (var defect in defects)
+            {
+                if (defect is null)
+                    return BadRequest(Error.Validation(nameof(req.Defects),
+                        "Defect rows cannot be null."));
+                try
+                {
+                    defectTotal += defect.DefectQty;
+                }
+                catch (OverflowException)
+                {
+                    return BadRequest(Error.Validation(nameof(req.Defects),
+                        "Defect quantity total is outside the supported range."));
+                }
+            }
+
+            if (defectTotal > req.Qty)
+                return BadRequest(Error.Validation(nameof(req.Defects),
+                    "Defect quantity total cannot exceed Track-Out quantity."));
+        }
         return (await _bridge.TrackOutAsync(
-            req.PlantId, lotId, req.EquipmentId, req.Qty, req.Defects, req.CarrierId, CurrentUserId, ct))
+            req.PlantId, lotId, req.EquipmentId, req.Qty, req.Defects, req.CarrierId, actor, ct,
+            req.ExpectedVersion, req.IdempotencyKey, channel, req.DeviceId))
             .ToActionResult();
     }
 
@@ -175,10 +207,17 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [RequirePermission(Permissions.PomManage)]
-    public async Task<IActionResult> HoldLot(string lotId, CancellationToken ct)
+    [RequirePermission(Permissions.PomExecute)]
+    public async Task<IActionResult> HoldLot(string lotId, CancellationToken ct,
+        [FromQuery] int? expectedVersion = null, [FromQuery] string? idempotencyKey = null,
+        [FromQuery] string? reason = null, [FromQuery] string clientChannel = "MES",
+        [FromQuery] string? deviceId = null)
     {
-        return (await _bridge.HoldLotAsync(lotId, CurrentUserId, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (!TryNormalizeClientChannel(clientChannel, out var channel))
+            return BadRequest(Error.Validation(nameof(clientChannel), "Client channel must be MES, MOBILE, or POP."));
+        return (await _bridge.HoldLotAsync(
+            lotId, actor, ct, expectedVersion, idempotencyKey, reason, channel, deviceId)).ToActionResult();
     }
 
     [HttpPost("lots/{lotId}/release")]
@@ -186,10 +225,148 @@ public sealed class PomBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [RequirePermission(Permissions.PomManage)]
-    public async Task<IActionResult> ReleaseLot(string lotId, CancellationToken ct)
+    [RequirePermission(Permissions.PomExecute)]
+    public async Task<IActionResult> ReleaseLot(string lotId, CancellationToken ct,
+        [FromQuery] int? expectedVersion = null, [FromQuery] string? idempotencyKey = null,
+        [FromQuery] string? reason = null, [FromQuery] string clientChannel = "MES",
+        [FromQuery] string? deviceId = null)
     {
-        return (await _bridge.ReleaseLotHoldAsync(lotId, CurrentUserId, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (!TryNormalizeClientChannel(clientChannel, out var channel))
+            return BadRequest(Error.Validation(nameof(clientChannel), "Client channel must be MES, MOBILE, or POP."));
+        return (await _bridge.ReleaseLotHoldAsync(
+            lotId, actor, ct, expectedVersion, idempotencyKey, reason, channel, deviceId)).ToActionResult();
+    }
+
+    // ── LOT 라우팅 통제/예외 ──
+
+    /// <summary>스캔한 LOT의 현재·다음 공정, 통제 모드, 재작업 복귀점 및 예외 요청을 반환합니다.</summary>
+    [HttpGet("lots/{lotId}/routing-context")]
+    [ProducesResponseType<LotRoutingContextDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.PomRead)]
+    public async Task<IActionResult> GetLotRoutingContext(string lotId, CancellationToken ct)
+        => (await _bridge.GetLotRoutingContextAsync(lotId, ct)).ToActionResult();
+
+    /// <summary>편차 적용 전에 Strict/Flexible/NoControl 정책을 서버에서 판정합니다.</summary>
+    [HttpPost("lots/{lotId}/routing/evaluate")]
+    [ProducesResponseType<RoutingPolicyDecisionDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.PomRoutingRequest)]
+    public async Task<IActionResult> EvaluateLotRouting(
+        string lotId, [FromBody] EvaluateLotRoutingRequest req, CancellationToken ct)
+        => (await _bridge.EvaluateLotRoutingAsync(
+            req.PlantId, lotId, req.DeviationType, req.TargetStepIndex,
+            req.Reason, req.ExceptionId, ct)).ToActionResult();
+
+    /// <summary>LOT별 라우팅 통제 모드를 변경합니다. 운영 정책 변경이므로 POM 관리 권한이 필요합니다.</summary>
+    [HttpPost("lots/{lotId}/routing/control-mode")]
+    [ProducesResponseType<LotDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.PomManage)]
+    public async Task<IActionResult> ChangeLotRoutingControlMode(
+        string lotId, [FromBody] ChangeLotRoutingControlModeRequest req, CancellationToken ct)
+    {
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (!TryNormalizeClientChannel(req.ClientChannel, out var channel))
+            return BadRequest(Error.Validation(nameof(req.ClientChannel), "Client channel must be MES, MOBILE, or POP."));
+        return (await _bridge.ChangeLotRoutingControlModeAsync(
+            req.PlantId, lotId, req.ControlMode, req.Reason, actor,
+            req.ExpectedVersion, req.IdempotencyKey, channel,
+            req.DeviceId, ct)).ToActionResult();
+    }
+
+    /// <summary>NoControl 편차 또는 승인된 Flexible 예외를 한 번만 적용하고 감사 이력을 남깁니다.</summary>
+    [HttpPost("lots/{lotId}/routing/deviations")]
+    [ProducesResponseType<LotDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.PomRoutingRequest)]
+    public async Task<IActionResult> ApplyLotRouteDeviation(
+        string lotId, [FromBody] ApplyLotRouteDeviationRequest req, CancellationToken ct)
+    {
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (!TryNormalizeClientChannel(req.ClientChannel, out var channel))
+            return BadRequest(Error.Validation(nameof(req.ClientChannel), "Client channel must be MES, MOBILE, or POP."));
+        return (await _bridge.ApplyLotRouteDeviationAsync(
+            req.PlantId, lotId, req.DeviationType, req.TargetStepIndex,
+            req.Reason, actor, req.ExpectedVersion, req.IdempotencyKey,
+            req.ExceptionId, channel, req.DeviceId, ct)).ToActionResult();
+    }
+
+    /// <summary>Flexible 라우팅 편차를 관리자 승인 대기 상태로 등록합니다.</summary>
+    [HttpPost("lots/{lotId}/routing/exceptions")]
+    [ProducesResponseType<RouteExceptionDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.PomRoutingRequest)]
+    public async Task<IActionResult> RequestLotRouteException(
+        string lotId, [FromBody] RequestLotRouteExceptionRequest req, CancellationToken ct)
+    {
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (string.IsNullOrWhiteSpace(req.ExceptionId))
+            return BadRequest(Error.Validation(nameof(req.ExceptionId),
+                "ExceptionId is required so retried requests remain idempotent."));
+        if (!TryNormalizeClientChannel(req.ClientChannel, out var channel))
+            return BadRequest(Error.Validation(nameof(req.ClientChannel), "Client channel must be MES, MOBILE, or POP."));
+        var exceptionId = req.ExceptionId.Trim();
+        return (await _bridge.RequestLotRouteExceptionAsync(
+            exceptionId, req.PlantId, lotId, req.DeviationType, req.TargetStepIndex,
+            req.Reason, actor, req.ExpectedVersion, req.ExpiresAt,
+            channel, req.DeviceId, ct)).ToActionResult();
+    }
+
+    [HttpGet("routing/exceptions/{exceptionId}")]
+    [ProducesResponseType<RouteExceptionDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.PomRead)]
+    public async Task<IActionResult> GetLotRouteException(string exceptionId, CancellationToken ct)
+        => (await _bridge.GetLotRouteExceptionAsync(exceptionId, ct)).ToActionResult();
+
+    /// <summary>요청자와 분리된 승인자가 Flexible 라우팅 예외를 승인합니다.</summary>
+    [HttpPost("routing/exceptions/{exceptionId}/approve")]
+    [ProducesResponseType<RouteExceptionDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.PomRoutingApprove)]
+    public async Task<IActionResult> ApproveLotRouteException(
+        string exceptionId, [FromBody] ReviewLotRouteExceptionRequest req, CancellationToken ct)
+    {
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (!TryNormalizeClientChannel(req.ClientChannel, out var channel))
+            return BadRequest(Error.Validation(nameof(req.ClientChannel), "Client channel must be MES, MOBILE, or POP."));
+        return (await _bridge.ApproveLotRouteExceptionAsync(
+            exceptionId, actor, req.Reason, ct, channel, req.DeviceId)).ToActionResult();
+    }
+
+    /// <summary>승인 대기 중인 Flexible 라우팅 예외를 사유와 함께 반려합니다.</summary>
+    [HttpPost("routing/exceptions/{exceptionId}/reject")]
+    [ProducesResponseType<RouteExceptionDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.PomRoutingApprove)]
+    public async Task<IActionResult> RejectLotRouteException(
+        string exceptionId, [FromBody] ReviewLotRouteExceptionRequest req, CancellationToken ct)
+    {
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (!TryNormalizeClientChannel(req.ClientChannel, out var channel))
+            return BadRequest(Error.Validation(nameof(req.ClientChannel), "Client channel must be MES, MOBILE, or POP."));
+        return (await _bridge.RejectLotRouteExceptionAsync(
+            exceptionId, actor, req.Reason, ct, channel, req.DeviceId)).ToActionResult();
     }
 
     // ── Lot Mixing(다중 애그리거트 소비/병합) — DATA-3 원자화로 전 문장 단일 트랜잭션 커밋 ──
@@ -205,13 +382,24 @@ public sealed class PomBridgeController : ControllerBase
     [RequirePermission(Permissions.PomManage)]
     public async Task<IActionResult> MixingTrackInOut([FromBody] MixingTrackInOutRequest req, CancellationToken ct)
     {
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
         return (await _bridge.MixingTrackInOutAsync(
             req.PlantId, req.OutputLotId, req.ProductId, req.EquipmentId,
-            req.OutputRouteSteps ?? [], req.Inputs ?? [], CurrentUserId, ct))
+            req.OutputRouteSteps ?? [], req.Inputs ?? [], actor, ct))
             .ToActionResult();
     }
 
-    private string CurrentUserId => User.CurrentUserId() ?? "SYSTEM";
+    private bool TryGetExternalActor(out string actor)
+    {
+        actor = User.CurrentUserId()?.Trim() ?? string.Empty;
+        return actor.Length > 0;
+    }
+
+    private static bool TryNormalizeClientChannel(string? value, out string channel)
+    {
+        channel = value?.Trim().ToUpperInvariant() ?? string.Empty;
+        return channel is "MES" or "MOBILE" or "POP";
+    }
 }
 
 public record CreateProductionPlanRequest(
@@ -223,9 +411,28 @@ public record CreateProductionOrderRequest(
 public record CompleteProductionOrderRequest(decimal ActualQty);
 public record CreateLotRequest(
     string PlantId, string LotId, string? WorkOrderId, string ProductId, decimal Qty, IReadOnlyList<string>? RouteSteps);
-public record TrackInRequest(string PlantId, string EquipmentId, string? RecipeDefId, int? RecipeDefVersion);
+public record TrackInRequest(string PlantId, string EquipmentId, string? RecipeDefId, int? RecipeDefVersion,
+    int? ExpectedVersion = null, string? IdempotencyKey = null,
+    string ClientChannel = "MES", string? DeviceId = null);
 public record TrackOutRequest(
-    string PlantId, string EquipmentId, decimal Qty, IReadOnlyList<LotDefectInput>? Defects, string? CarrierId);
+    string PlantId, string EquipmentId, decimal Qty, IReadOnlyList<LotDefectInput>? Defects, string? CarrierId,
+    int? ExpectedVersion = null, string? IdempotencyKey = null,
+    string ClientChannel = "MES", string? DeviceId = null);
+public record EvaluateLotRoutingRequest(
+    string PlantId, string DeviationType, int TargetStepIndex, string? Reason = null, string? ExceptionId = null);
+public record ChangeLotRoutingControlModeRequest(
+    string PlantId, string ControlMode, string Reason, int ExpectedVersion, string IdempotencyKey,
+    string ClientChannel = "MES", string? DeviceId = null);
+public record ApplyLotRouteDeviationRequest(
+    string PlantId, string DeviationType, int TargetStepIndex, string Reason,
+    int ExpectedVersion, string IdempotencyKey, string? ExceptionId = null,
+    string ClientChannel = "MES", string? DeviceId = null);
+public record RequestLotRouteExceptionRequest(
+    string PlantId, string DeviationType, int TargetStepIndex, string Reason,
+    int ExpectedVersion, DateTime ExpiresAt, string ExceptionId,
+    string ClientChannel = "MES", string? DeviceId = null);
+public record ReviewLotRouteExceptionRequest(
+    string? Reason = null, string ClientChannel = "MES", string? DeviceId = null);
 public record MixingTrackInOutRequest(
     string PlantId, string OutputLotId, string ProductId, string EquipmentId,
     IReadOnlyList<string>? OutputRouteSteps, IReadOnlyList<MixingInputDto>? Inputs);

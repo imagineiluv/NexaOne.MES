@@ -1,0 +1,154 @@
+@inject IApiClient Api
+@inject DialogService Dialogs
+
+<section class="mrp-conversion-dialog" aria-labelledby="mrp-conversion-title" aria-describedby="mrp-conversion-summary">
+    <header class="mrp-conversion-head">
+        <span class="mrp-conversion-icon" aria-hidden="true">↗</span>
+        <div>
+            <h3 id="mrp-conversion-title">MRP 실오더 전환</h3>
+            <p id="mrp-conversion-summary">구매 제안 <strong>@PurchaseProposalCount</strong>건은 구매오더로 전환됩니다.</p>
+        </div>
+    </header>
+
+    @if (_loading)
+    {
+        <div class="mrp-conversion-state" role="status">
+            <span class="operator-progress" aria-hidden="true"></span>
+            <span>설비 목록을 불러오는 중입니다.</span>
+        </div>
+    }
+    else if (_failed)
+    {
+        <div class="mrp-conversion-state is-error" role="alert">
+            <strong>설비 목록을 불러오지 못했습니다.</strong>
+            <span>전환을 취소하고 다시 시도해 주세요.</span>
+        </div>
+    }
+    else if (_rows.Count == 0)
+    {
+        <div class="mrp-conversion-state">
+            <strong>설비 배정 대상이 없습니다.</strong>
+            <span>생산 제안이 없어 구매 제안만 전환됩니다.</span>
+        </div>
+    }
+    else
+    {
+        <div class="mrp-conversion-table-wrap" tabindex="0" role="region" aria-label="생산 제안별 설비 배정표">
+            <table class="rz-grid-table mrp-conversion-table">
+                <thead>
+                    <tr>
+                        <th>공장</th>
+                        <th>품목</th>
+                        <th>제안수량</th>
+                        <th>납기</th>
+                        <th>생산 설비</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in _rows)
+                    {
+                        <tr>
+                            <td>@row.Proposal.PlantId</td>
+                            <td>@row.Proposal.ItemId</td>
+                            <td>@row.Proposal.SuggestedQty</td>
+                            <td>@row.Proposal.DueDate?.ToString("yyyy-MM-dd")</td>
+                            <td>
+                                <RadzenDropDown TValue="string"
+                                                Data="@row.Equipment"
+                                                TextProperty="Label"
+                                                ValueProperty="EquipmentId"
+                                                @bind-Value="row.EquipmentId"
+                                                AllowClear="true"
+                                                Placeholder="활성 설비 선택"
+                                                class="mrp-equipment-picker"
+                                                aria-label="@($"{row.Proposal.ItemId} 생산 설비")" />
+                                @if (row.Equipment.Count == 0)
+                                {
+                                    <small class="mrp-equipment-error" role="alert">이 공장에 활성 설비가 없습니다.</small>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    <footer class="mrp-conversion-actions">
+        <RadzenButton Text="취소" ButtonStyle="ButtonStyle.Light" Click="Cancel" />
+        <RadzenButton Text="전환" Icon="published_with_changes" ButtonStyle="ButtonStyle.Primary"
+                      Disabled="@(!CanConfirm)" Click="Confirm" />
+    </footer>
+</section>
+
+@code {
+    [Parameter, EditorRequired]
+    public IReadOnlyList<MrpProductionProposalDto> ProductionProposals { get; set; }
+        = Array.Empty<MrpProductionProposalDto>();
+
+    [Parameter]
+    public int PurchaseProposalCount { get; set; }
+
+    private readonly List<AssignmentRow> _rows = new();
+    private bool _loading = true;
+    private bool _failed;
+    private bool CanConfirm => !_loading && !_failed && _rows.All(r => !string.IsNullOrWhiteSpace(r.EquipmentId));
+
+    /// <summary>생산 제안별 공장에 사용할 수 있는 활성 설비 선택 목록을 준비한다.</summary>
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var equipmentRows = await Api.ExecuteQueryAsync("MDM.EquipmentList", new { plantId = (string?)null, validState = (string?)null });
+            var equipment = equipmentRows
+                .Select(r => new EquipmentChoice(
+                    Cell(r, "EQUIPMENT_ID"),
+                    Cell(r, "EQUIPMENT_NAME"),
+                    Cell(r, "PLANT_ID"),
+                    Cell(r, "VALID_STATE")))
+                .Where(e => !string.IsNullOrWhiteSpace(e.EquipmentId)
+                    && (e.ValidState.Equals("Active", StringComparison.OrdinalIgnoreCase)
+                        || e.ValidState.Equals("Valid", StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+
+            foreach (var proposal in ProductionProposals)
+            {
+                var choices = equipment
+                    .Where(e => e.PlantId.Equals(proposal.PlantId, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(e => e.EquipmentName, StringComparer.CurrentCultureIgnoreCase)
+                    .ToList();
+                _rows.Add(new AssignmentRow(proposal, choices));
+            }
+        }
+        catch
+        {
+            _failed = true;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    /// <summary>모든 생산 제안의 설비 배정을 실오더 전환 요청 형식으로 반환한다.</summary>
+    private void Confirm() => Dialogs.Close(_rows
+        .Select(r => new MrpProductionAssignmentDto(r.Proposal.PlannedOrderId, r.EquipmentId!))
+        .ToList());
+
+    /// <summary>전환 결과 없이 대화상자를 닫는다.</summary>
+    private void Cancel() => Dialogs.Close();
+
+    /// <summary>동적 쿼리 행의 값을 공백이 제거된 문자열로 안전하게 읽는다.</summary>
+    private static string Cell(IReadOnlyDictionary<string, object?> row, string key)
+        => row.TryGetValue(key, out var value) ? value?.ToString()?.Trim() ?? string.Empty : string.Empty;
+
+    private sealed record EquipmentChoice(string EquipmentId, string EquipmentName, string PlantId, string ValidState)
+    {
+        public string Label => $"{EquipmentName} ({EquipmentId})";
+    }
+
+    private sealed record AssignmentRow(MrpProductionProposalDto Proposal, List<EquipmentChoice> Equipment)
+    {
+        public string? EquipmentId { get; set; }
+    }
+}

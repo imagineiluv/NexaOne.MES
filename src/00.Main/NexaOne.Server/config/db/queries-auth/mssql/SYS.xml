@@ -3,8 +3,8 @@
      운영 SYS UserRepository/UserService 의미론을 SQL로 1:1 재현한다. 수정 시 양쪽 동기화. -->
 <queries module="SYS">
 
-  <!-- 로그인 대상 1행(SYS_USER ⋈ 비삭제 SYS_ROLE). 역할 소프트삭제 시 R.* NULL → 권한은 기본 매핑만. -->
-  <query id="SYS.AuthUserById">
+  <!-- 로그인 대상 1행(SYS_USER ⋈ 비삭제 SYS_ROLE). 역할 누락/소프트삭제 시 R.* NULL → fail-closed 빈 권한. -->
+  <query id="SYS.AuthUserById" requiredPermission="auth:internal">
     <statement><![CDATA[
 SELECT U.USER_ID, U.USER_NAME, U.PASSWORD_HASH, U.EMAIL, U.ROLE_ID, U.LANGUAGE,
        U.IS_ACTIVE, U.IS_DELETED, U.LAST_LOGIN_AT, U.PASSWORD_STATE, U.FAIL_COUNT, U.LOCKED_UNTIL,
@@ -16,14 +16,14 @@ WHERE U.USER_ID = @userId
   </query>
 
   <!-- 실패 갱신 후 결과 잠금시각 재평가(운영 RecordLoginFailureAsync 사후 SELECT와 동일). -->
-  <query id="SYS.GetLockedUntil">
+  <query id="SYS.GetLockedUntil" requiredPermission="auth:internal">
     <statement><![CDATA[
 SELECT LOCKED_UNTIL FROM SYS_USER WITH (NOLOCK) WHERE USER_ID = @userId
 ]]></statement>
   </query>
 
   <!-- 실패 기록(원자 단일 UPDATE, 잠금 패리티) — UserRepository.RecordLoginFailureAsync와 동일 CASE식. -->
-  <query id="SYS.RecordLoginFailure">
+  <query id="SYS.RecordLoginFailure" requiredPermission="auth:internal">
     <statement><![CDATA[
 UPDATE SYS_USER SET
     FAIL_COUNT = CASE WHEN LOCKED_UNTIL IS NOT NULL AND LOCKED_UNTIL <= @utcNow
@@ -39,7 +39,7 @@ WHERE USER_ID = @userId
   </query>
 
   <!-- 성공(단일 UPDATE: LAST_LOGIN_AT·실패카운터·잠금 동시; PASSWORD_STATE 보존; @passwordHash NULL이면 해시 미변경). -->
-  <query id="SYS.RecordLoginSuccess">
+  <query id="SYS.RecordLoginSuccess" requiredPermission="auth:internal">
     <statement><![CDATA[
 UPDATE SYS_USER SET
     LAST_LOGIN_AT = @utcNow,
@@ -52,7 +52,7 @@ WHERE USER_ID = @userId
   </query>
 
   <!-- §20.10 관리자 잠금 해제 — 잠금은 보안 상태(인증 경로 소유, S7)라 브리지가 아닌 본 레지스트리에 둔다. -->
-  <query id="SYS.UnlockUser">
+  <query id="SYS.UnlockUser" requiredPermission="auth:internal">
     <statement><![CDATA[
 UPDATE SYS_USER SET
     FAIL_COUNT = 0,
@@ -63,7 +63,7 @@ WHERE USER_ID = @userId AND IS_DELETED = 0
   </query>
 
   <!-- 실패 이력(비존재 사용자도 기록 — FK 없음). FAILURE_ID는 호출부 생성. -->
-  <query id="SYS.InsertLoginFailureHist">
+  <query id="SYS.InsertLoginFailureHist" requiredPermission="auth:internal">
     <statement><![CDATA[
 INSERT INTO SYS_LOGIN_FAILURE_HIST
     (FAILURE_ID, USER_ID, IP_ADDRESS, USER_AGENT, FAILURE_REASON, OCCURRED_AT,
@@ -75,7 +75,7 @@ VALUES
   </query>
 
   <!-- 리프레시 토큰 발급(해시 저장). TOKEN_ID는 호출부 생성. -->
-  <query id="SYS.InsertRefreshToken">
+  <query id="SYS.InsertRefreshToken" requiredPermission="auth:internal">
     <statement><![CDATA[
 INSERT INTO SYS_REFRESH_TOKEN
     (TOKEN_ID, USER_ID, TOKEN_HASH, EXPIRES_AT, REVOKED_AT, CREATED_AT)
@@ -85,7 +85,7 @@ VALUES
   </query>
 
   <!-- 유효성(미폐기·미만료) 1행 존재 = 유효. -->
-  <query id="SYS.ValidateRefreshToken">
+  <query id="SYS.ValidateRefreshToken" requiredPermission="auth:internal">
     <statement><![CDATA[
 SELECT TOKEN_ID FROM SYS_REFRESH_TOKEN WITH (NOLOCK)
 WHERE USER_ID = @userId AND TOKEN_HASH = @tokenHash
@@ -94,7 +94,7 @@ WHERE USER_ID = @userId AND TOKEN_HASH = @tokenHash
   </query>
 
   <!-- 활성 토큰만 조건부 폐기 → 영향행수 1=회전 성공, 0=이미 폐기/만료(재생 탐지). -->
-  <query id="SYS.RevokeRefreshTokenIfActive">
+  <query id="SYS.RevokeRefreshTokenIfActive" requiredPermission="auth:internal">
     <statement><![CDATA[
 UPDATE SYS_REFRESH_TOKEN SET REVOKED_AT = @utcNow
 WHERE USER_ID = @userId AND TOKEN_HASH = @tokenHash
@@ -103,7 +103,7 @@ WHERE USER_ID = @userId AND TOKEN_HASH = @tokenHash
   </query>
 
   <!-- 사용자 전체 토큰 폐기. -->
-  <query id="SYS.RevokeAllRefreshTokens">
+  <query id="SYS.RevokeAllRefreshTokens" requiredPermission="auth:internal">
     <statement><![CDATA[
 UPDATE SYS_REFRESH_TOKEN SET REVOKED_AT = @utcNow
 WHERE USER_ID = @userId AND REVOKED_AT IS NULL
@@ -111,7 +111,7 @@ WHERE USER_ID = @userId AND REVOKED_AT IS NULL
   </query>
 
   <!-- 비밀번호 변경(change-password) — 해시 교체 + 상태 Normal 복귀. UPDATED_BY는 본인. -->
-  <query id="SYS.UpdatePassword">
+  <query id="SYS.UpdatePassword" requiredPermission="auth:internal">
     <statement><![CDATA[
 UPDATE SYS_USER SET
     PASSWORD_HASH = @passwordHash,
@@ -123,14 +123,14 @@ WHERE USER_ID = @userId AND IS_DELETED = 0
 
   <!-- 등록/승인 시 ROLE_ID 무결성 검증(SEC-1) + 권한 상승 가드용 PERMISSIONS 반환 — 활성(미삭제)이면 1행.
        PERMISSIONS('|' 조인)에 '*'가 있으면 전권 역할 — 부여는 전권 보유 관리자만(SEC-3). FK 부재 보완 겸용. -->
-  <query id="SYS.RoleExists">
+  <query id="SYS.RoleExists" requiredPermission="auth:internal">
     <statement><![CDATA[
 SELECT PERMISSIONS FROM SYS_ROLE WITH (NOLOCK) WHERE ROLE_ID = @roleId AND IS_DELETED = 0
 ]]></statement>
   </query>
 
   <!-- 사용자 등록(register, admin). PASSWORD_STATE='Create'=최초 로그인 시 변경 강제(관리자 발급 임시 비번 관례). -->
-  <query id="SYS.InsertUser">
+  <query id="SYS.InsertUser" requiredPermission="auth:internal">
     <statement><![CDATA[
 INSERT INTO SYS_USER
     (USER_ID, USER_NAME, PASSWORD_HASH, EMAIL, ROLE_ID, LANGUAGE,
@@ -144,27 +144,27 @@ VALUES
   </query>
 
   <!-- 만료 토큰 정리(retention 경과) — EXPIRES_AT < cutoff(=now-retention). 회전 churn·만료 누적 제거. -->
-  <query id="SYS.DeleteExpiredRefreshTokens">
+  <query id="SYS.DeleteExpiredRefreshTokens" requiredPermission="auth:internal">
     <statement><![CDATA[
 DELETE FROM SYS_REFRESH_TOKEN WHERE EXPIRES_AT < @cutoff
 ]]></statement>
   </query>
 
   <!-- 비밀번호 재설정(forgot/reset, V065) — 토큰 해시만 저장·조회·1회 사용 처리. -->
-  <query id="SYS.InsertPasswordReset">
+  <query id="SYS.InsertPasswordReset" requiredPermission="auth:internal">
     <statement><![CDATA[
 INSERT INTO SYS_PASSWORD_RESET (TOKEN_HASH, USER_ID, EXPIRES_AT, CREATED_AT)
 VALUES (@tokenHash, @userId, @expiresAt, @utcNow)
 ]]></statement>
   </query>
 
-  <query id="SYS.GetPasswordReset">
+  <query id="SYS.GetPasswordReset" requiredPermission="auth:internal">
     <statement><![CDATA[
 SELECT TOKEN_HASH, USER_ID, EXPIRES_AT, USED_AT FROM SYS_PASSWORD_RESET WITH (NOLOCK) WHERE TOKEN_HASH = @tokenHash
 ]]></statement>
   </query>
 
-  <query id="SYS.MarkPasswordResetUsed">
+  <query id="SYS.MarkPasswordResetUsed" requiredPermission="auth:internal">
     <statement><![CDATA[
 UPDATE SYS_PASSWORD_RESET SET USED_AT = @utcNow WHERE TOKEN_HASH = @tokenHash AND USED_AT IS NULL
 ]]></statement>

@@ -4,8 +4,8 @@
 @using NexaOne.Web.Services.Meta
 @inject IServiceProvider Services
 
-<div class="meta-form">
-    @foreach (var field in Definition.Fields)
+<div class="meta-form" role="group" aria-label="@(string.IsNullOrWhiteSpace(Definition.Title) ? null : T($"screen.{Definition.UiId}.title", Definition.Title))">
+    @foreach (var field in Definition.Fields.Where(field => !field.Hidden))
     {
         var key = field.Key;
         var err = ErrorFor(field);
@@ -15,15 +15,23 @@
         var inputId = $"mf-{_uid}-{key}";
         var labelId = $"{inputId}-label";
         var errId = err is null ? null : $"{inputId}-err";
-        <div class="meta-field">
-            <label id="@labelId" for="@inputId">@field.Label@if (field.Required) { <span class="req" aria-hidden="true">*</span> }</label>
-            <div class="meta-field-control">
+        <div class="@FieldCssClass(field, err)" data-field-key="@key" data-field-type="@field.Type.ToString().ToLowerInvariant()">
+            <label id="@labelId" for="@inputId">
+                <span>@FieldLabel(field.Key, field.Label)</span>
+                @if (field.Required) { <span class="req" aria-hidden="true">*</span> }
+                @if (field.ReadOnly)
+                {
+                    <span class="meta-field-readonly" title="@T("common.readOnly", "읽기 전용")"
+                          aria-label="@T("common.readOnly", "읽기 전용")"><RadzenIcon Icon="lock" aria-hidden="true" /></span>
+                }
+            </label>
+            <div class="meta-field-control" data-readonly="@field.ReadOnly.ToString().ToLowerInvariant()">
                 @switch (field.Type)
                 {
                     case FieldType.Boolean:
                         <RadzenCheckBox TValue="bool" Value="@GetBool(key)" Disabled="@field.ReadOnly"
                                         Change="@(v => Set(key, v))"
-                                        InputAttributes="@BuildAria(inputId, labelId, errId, field.Required)"
+                                        InputAttributes="@BuildAria(inputId, labelId, errId, field.Required, field.ReadOnly)"
                                         class="@(err is null ? null : "nx-invalid")" />
                         break;
 
@@ -34,38 +42,43 @@
                                         Value="@GetString(key)" Disabled="@field.ReadOnly" AllowClear="true"
                                         Placeholder="@T("common.select", "(선택)")"
                                         Change="@(v => Set(key, v))"
-                                        InputAttributes="@BuildAria(inputId, labelId, errId, field.Required)"
-                                        class="@(err is null ? null : "nx-invalid")" Style="width:100%" />
+                                        InputAttributes="@BuildAria(inputId, labelId, errId, field.Required, field.ReadOnly)"
+                                        class="@(err is null ? null : "nx-invalid")" />
                         break;
 
                     case FieldType.Number:
                         <RadzenNumeric TValue="decimal?" Value="@GetDecimal(key)" Disabled="@field.ReadOnly"
                                        Change="@(v => Set(key, v?.ToString(System.Globalization.CultureInfo.InvariantCulture)))"
-                                       InputAttributes="@BuildAria(inputId, labelId, errId, field.Required)"
-                                       class="@(err is null ? null : "nx-invalid")" Style="width:100%" />
+                                       InputAttributes="@BuildAria(inputId, labelId, errId, field.Required, field.ReadOnly)"
+                                       class="@(err is null ? null : "nx-invalid")" />
                         break;
 
                     case FieldType.Date:
                         <RadzenDatePicker TValue="DateTime?" Value="@GetDate(key)" Disabled="@field.ReadOnly"
                                           DateFormat="yyyy-MM-dd" Change="@(v => SetDate(key, v))"
-                                          InputAttributes="@BuildAria(inputId, labelId, errId, field.Required)"
-                                          class="@(err is null ? null : "nx-invalid")" Style="width:100%" />
+                                          InputAttributes="@BuildAria(inputId, labelId, errId, field.Required, field.ReadOnly)"
+                                          class="@(err is null ? null : "nx-invalid")" />
                         break;
 
                     default:
                         @* TextBox는 루트가 input이라 스플랫(id/aria)이 입력 요소에 직접 얹힌다. *@
                         <RadzenTextBox Value="@GetString(key)" ReadOnly="@field.ReadOnly"
                                        Change="@(v => Set(key, v))"
-                                       @attributes="BuildAria(inputId, labelId, errId, field.Required)"
-                                       class="@(err is null ? null : "nx-invalid")" Style="width:100%" />
+                                       @attributes="BuildAria(inputId, labelId, errId, field.Required, field.ReadOnly)"
+                                       class="@(err is null ? null : "nx-invalid")" />
                         break;
                 }
                 @* P2-7 — 필드 인라인 오류(하단 목록 나열 대체). MetaScreen이 캐스케이딩으로 내려보낸다.
                    role=alert — 검증 실패로 나타나는 순간 스크린리더가 즉시 낭독한다. *@
-                @if (err is not null)
-                {
-                    <div class="meta-field-error" id="@errId" role="alert">@err</div>
-                }
+                <div class="meta-field-message" aria-live="polite">
+                    @if (err is not null)
+                    {
+                        <div class="meta-field-error" id="@errId" role="alert">
+                            <RadzenIcon Icon="error_outline" aria-hidden="true" />
+                            <span>@err</span>
+                        </div>
+                    }
+                </div>
             </div>
         </div>
     }
@@ -92,19 +105,52 @@
     // InputAttributes(내부 input 대상)로 전달한다. 인스턴스 접두사는 동일 정의 2회 렌더 시 id 충돌 방지.
     private readonly string _uid = Guid.NewGuid().ToString("N")[..6];
 
-    private Dictionary<string, object> BuildAria(string inputId, string labelId, string? errId, bool required)
+    private Dictionary<string, object> BuildAria(
+        string inputId,
+        string labelId,
+        string? errId,
+        bool required,
+        bool readOnly)
     {
         var d = new Dictionary<string, object> { ["id"] = inputId, ["aria-labelledby"] = labelId };
         if (required) d["aria-required"] = "true";
+        if (readOnly) d["aria-readonly"] = "true";
         if (errId is not null) { d["aria-invalid"] = "true"; d["aria-describedby"] = errId; }
         return d;
     }
 
-    // 정적 Options 우선, 없으면 동적 옵션(필드 Key 기준), 둘 다 없으면 빈 목록.
+    /// <summary>필드 상태를 스타일 클래스에 반영해 오류·필수·읽기전용·불리언 변형을 재사용합니다.</summary>
+    private static string FieldCssClass(FieldDefinition field, string? error)
+    {
+        var classes = new List<string> { "meta-field", $"meta-field--{field.Type.ToString().ToLowerInvariant()}" };
+        if (field.Required) classes.Add("is-required");
+        if (field.ReadOnly) classes.Add("is-readonly");
+        if (error is not null) classes.Add("has-error");
+        return string.Join(' ', classes);
+    }
+
+    /// <summary>
+    /// 정적 옵션은 원본 계약 값을 유지하면서 상태 옵션의 표시 라벨만 현재 언어로 변환합니다.
+    /// 동적 옵션은 조회 결과가 값/라벨을 함께 제공하므로 서버 라벨을 그대로 사용합니다.
+    /// </summary>
     private IReadOnlyList<MetaFieldOption> ResolveOptions(FieldDefinition field)
-        => field.Options is { Count: > 0 } s ? s.Select(o => new MetaFieldOption(o, o)).ToList()
-         : DynamicOptions is not null && DynamicOptions.TryGetValue(field.Key, out var d) ? d
-         : Array.Empty<MetaFieldOption>();
+    {
+        if (field.Options is { Count: > 0 } staticOptions)
+        {
+            EnsureUiText();
+            var statusOptions = MetaStatusPresentation.IsStatusKey(field.Key)
+                || staticOptions.All(MetaStatusPresentation.IsKnown);
+            return staticOptions
+                .Select(value => new MetaFieldOption(
+                    value,
+                    statusOptions ? MetaStatusPresentation.LabelOf(value, _uiText) : value))
+                .ToList();
+        }
+
+        return DynamicOptions is not null && DynamicOptions.TryGetValue(field.Key, out var dynamicOptions)
+            ? dynamicOptions
+            : Array.Empty<MetaFieldOption>();
+    }
 
 
     // 다국어(P3-14) — 호스트 DI가 있으면 번역, 없으면(테스트) 한국어 폴백.
@@ -112,12 +158,22 @@
     private bool _uiTextLookedUp;
     private string T(string key, string fallback)
     {
-        if (!_uiTextLookedUp)
-        {
-            _uiTextLookedUp = true;
-            _uiText = Services.GetService(typeof(NexaOne.Web.Services.UiTextService)) as NexaOne.Web.Services.UiTextService;
-        }
+        EnsureUiText();
         return _uiText?.T(key, fallback) ?? fallback;
+    }
+
+    /// <summary>현재 언어의 명시 번역을 우선하고, 영문 리소스가 없는 신규 필드는 안정적인 키 라벨로 표시합니다.</summary>
+    private string FieldLabel(string key, string fallback)
+    {
+        EnsureUiText();
+        return _uiText?.Field(key, fallback) ?? fallback;
+    }
+
+    private void EnsureUiText()
+    {
+        if (_uiTextLookedUp) return;
+        _uiTextLookedUp = true;
+        _uiText = Services.GetService(typeof(NexaOne.Web.Services.UiTextService)) as NexaOne.Web.Services.UiTextService;
     }
 
     // 딕셔너리(문자열) 모델 ↔ 타입드 입력 어댑터. 값은 항상 문자열로 저장해 저장쿼리 @param 계약을 유지한다.

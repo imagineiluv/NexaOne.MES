@@ -1,5 +1,6 @@
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
+using NexaOne.FDC.Infrastructure.Equipment;
 using NexusLogic.Plc.Abstractions.Models;
 
 namespace NexaOne.UnitTests.Fdc;
@@ -24,7 +25,10 @@ public sealed class FdcEndpointMapperTests
 
         plc.EndpointId.Should().Be("EP1");
         plc.DriverKind.Should().Be(PlcDriverKind.OpcUa);
-        plc.Host.Should().Be("opc.tcp://host:4840");
+        plc.Host.Should().Be("host");
+        plc.Port.Should().Be(4840);
+        plc.Options["endpointUrl"].Should().Be("opc.tcp://host:4840",
+            "OPC UA discovery URL은 scheme/path를 포함한 원문을 보존해야 한다");
     }
 
     [Fact]
@@ -34,6 +38,34 @@ public sealed class FdcEndpointMapperTests
         var plc = FdcEndpointMapper.ToPlcEndpoint(
             FdcEquipmentEndpoint.Create("EP2", "EQ-001", "MitsubishiMc", "tcp://h:5007").Value);
         plc.DriverKind.Should().Be(PlcDriverKind.MitsubishiMc);
+        plc.Host.Should().Be("h");
+        plc.Port.Should().Be(5007);
+    }
+
+    [Theory]
+    [InlineData("OpcUa", PlcDriverKind.OpcUa)]
+    [InlineData("ModbusTcp", PlcDriverKind.ModbusTcp)]
+    [InlineData("ModbusRtu", PlcDriverKind.ModbusRtu)]
+    [InlineData("SiemensS7", PlcDriverKind.SiemensS7)]
+    [InlineData("MitsubishiMc", PlcDriverKind.MitsubishiMc)]
+    [InlineData("EtherNetIp", PlcDriverKind.EtherNetIp)]
+    [InlineData("OmronFins", PlcDriverKind.OmronFins)]
+    public void ToPlcEndpoint_maps_every_declared_protocol(string protocol, PlcDriverKind expected)
+    {
+        var endpoint = FdcEquipmentEndpoint.Restore("EP-KIND", "EQ-001", protocol, "tcp://plc:1234", 500, true);
+
+        FdcEndpointMapper.ToPlcEndpoint(endpoint).DriverKind.Should().Be(expected);
+    }
+
+    [Fact]
+    public void ToPlcEndpoint_rejects_drifted_unknown_protocol_with_endpoint_context()
+    {
+        var endpoint = FdcEquipmentEndpoint.Restore("EP-BAD", "EQ-001", "UnknownPlc", "tcp://plc:1234", 500, true);
+
+        var act = () => FdcEndpointMapper.ToPlcEndpoint(endpoint);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*EP-BAD*UnknownPlc*Supported protocols*");
     }
 
     [Fact]

@@ -1,0 +1,4 @@
+{
+  "description": "Historical POM work execution revision 1 fingerprint from the development database. uiId/title are replaced with __UI_ID__/__TITLE__, object keys are sorted recursively, arrays retain order, then UTF-8 SHA-256 is calculated.",
+  "sha256": "9b9746295a5a938328e5f4b1a7f0864e765471bf46e75dd024aa27a25d028376"
+}

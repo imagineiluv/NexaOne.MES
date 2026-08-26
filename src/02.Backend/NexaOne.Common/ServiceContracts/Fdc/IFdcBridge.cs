@@ -9,8 +9,10 @@ namespace NexaOne.ServiceContracts.Fdc;
 /// 워커 가드(ADR-006): 실시간 수집(FdcCollectorService/FdcCollectionWorker·OPC-UA 구독)·알람 평가(EvaluateAsync)·
 /// 인터락 평가(EvaluateAsync)·발생/해제 이력 기록(RecordAsync/ClearActiveAsync/ResolveActiveAsync)·수집데이터 기록
 /// (RecordDataAsync)은 하드웨어/라이브/배경 경로라 워커가 소유하므로 본 브리지는 절대 위임하지 않는다(REST 비노출).
-/// 순수 설정·이력 조회는 게이트웨이(FDC.xml)로 노출한다.</summary>
-public interface IFdcBridge
+/// 순수 설정·이력 조회는 게이트웨이(FDC.xml)로 노출한다. 다른 모듈의 영속 TRACE 읽기는 쓰기·실시간 책임과
+/// 섞지 않고 별도 읽기 계약 <see cref="IFdcTraceSource"/>로만 제공한다.</summary>
+[NexaModuleBridge("Fdc", "fdcBridge")]
+public interface IFdcBridge : INexaModuleBridge
 {
     // ── 파라미터그룹(FdcParameterGroup) 생성 — 단일 애그리거트, 비-실시간 설정 ──
     Task<Result<FdcParameterGroupDto>> CreateParameterGroupAsync(

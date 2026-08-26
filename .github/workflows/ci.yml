@@ -18,7 +18,7 @@ jobs:
       - name: Checkout (with submodules)
         uses: actions/checkout@v4
         with:
-          submodules: recursive   # NexusFramework / NexusCom / NexusLogic
+          submodules: recursive # NexusFramework / NexusCom / NexusLogic
 
       - name: Setup .NET (global.json 고정 — SDK 8.0.419)
         uses: actions/setup-dotnet@v4
@@ -28,22 +28,22 @@ jobs:
       - name: Setup Node (SPA — React/Vite/vitest)
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       # Pro-Code/디자이너 SPA(React+Vite+TS)는 dotnet 솔루션 밖이라 별도 게이트가 필요하다.
       # vitest로 단위/통합 회귀(디자이너 매핑·잠금설정·실 에디터 마운트·읽기경로 데이터손실 가드)를, tsc -b(strict)로
       # 타입 회귀를, vite build로 번들 회귀를 잡는다. 빌드 산출물은 NexaOne.Server/wwwroot/spa로 출력돼(vite base=/spa/)
       # .NET 배포에 임베드된다(git 미추적 — publish 시 csproj Target이 재생성). package-lock.json 커밋됨 → npm ci 사용.
-      - name: Install SPA deps (NexaOne.Spa)
-        working-directory: src/01.Web/NexaOne.Spa
+      - name: Install Portal client dependencies
+        working-directory: src/00.Main/NexaOne.Server/ClientApps/Portal
         run: npm ci
 
-      - name: Test SPA (NexaOne.Spa — vitest)
-        working-directory: src/01.Web/NexaOne.Spa
+      - name: Test Portal client (vitest)
+        working-directory: src/00.Main/NexaOne.Server/ClientApps/Portal
         run: npm test
 
-      - name: Build SPA (NexaOne.Spa — typecheck + bundle)
-        working-directory: src/01.Web/NexaOne.Spa
+      - name: Build Portal client (typecheck + bundle)
+        working-directory: src/00.Main/NexaOne.Server/ClientApps/Portal
         run: npm run build
 
       - name: Restore
@@ -58,6 +58,26 @@ jobs:
           --logger "trx;LogFileName=test-results.trx"
           --collect:"XPlat Code Coverage"
 
+      # NexusLogic는 git submodule이라 NexaOne.sln 밖에 있다. 가짜 TCP 서버/메모리 simulator를 사용하는
+      # 두 suite를 별도 필수 게이트로 실행해 connect/read/write/구독/취소/실패 계약을 실제 드라이버 경로에서 고정한다.
+      - name: Restore deterministic PLC contract suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet restore submodules/NexusLogic/tests/integration/NexusLogic.Plc.IntegrationTests/NexusLogic.Plc.IntegrationTests.csproj
+          dotnet restore submodules/NexusLogic/tests/hardware-simulation/NexusLogic.Plc.HardwareSimulationTests/NexusLogic.Plc.HardwareSimulationTests.csproj
+
+      - name: Test deterministic PLC integration and hardware simulation
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet test submodules/NexusLogic/tests/integration/NexusLogic.Plc.IntegrationTests/NexusLogic.Plc.IntegrationTests.csproj \
+            --configuration Release --no-restore \
+            --logger "trx;LogFileName=plc-integration-results.trx"
+          dotnet test submodules/NexusLogic/tests/hardware-simulation/NexusLogic.Plc.HardwareSimulationTests/NexusLogic.Plc.HardwareSimulationTests.csproj \
+            --configuration Release --no-restore \
+            --logger "trx;LogFileName=plc-hardware-simulation-results.trx"
+
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -65,3 +85,125 @@ jobs:
           name: test-results
           path: "**/TestResults/**/*"
           if-no-files-found: ignore
+
+  mssql-contract:
+    name: mssql-contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      MSSQL_CONTAINER_NAME: nexaone-mssql-contract
+      MSSQL_DATABASE: NexaOneContract
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup .NET (global.json)
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore MSSQL contract tests
+        run: dotnet restore test/NexaOne.ServerTests/NexaOne.ServerTests.csproj
+
+      - name: Build MSSQL contract tests
+        run: >
+          dotnet build test/NexaOne.ServerTests/NexaOne.ServerTests.csproj
+          --configuration Release --no-restore
+
+      - name: Start SQL Server 2022 Linux service
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mssql_password="NexaOne_$(openssl rand -hex 16)!Aa1"
+          printf '::add-mask::%s\n' "$mssql_password"
+          printf 'MSSQL_SA_PASSWORD=%s\n' "$mssql_password" >> "$GITHUB_ENV"
+          printf 'NEXAONE_MSSQL_TEST_CONN=Server=127.0.0.1,1433;Database=%s;User ID=sa;Password=%s;Encrypt=True;TrustServerCertificate=True;Connect Timeout=30\n' \
+            "$MSSQL_DATABASE" "$mssql_password" >> "$GITHUB_ENV"
+
+          export MSSQL_SA_PASSWORD="$mssql_password"
+          docker run --detach \
+            --name "$MSSQL_CONTAINER_NAME" \
+            --publish 1433:1433 \
+            --env ACCEPT_EULA=Y \
+            --env MSSQL_PID=Developer \
+            --env MSSQL_MEMORY_LIMIT_MB=2048 \
+            --env MSSQL_SA_PASSWORD \
+            mcr.microsoft.com/mssql/server:2022-latest >/dev/null
+
+      - name: Wait for SQL Server and create contract database
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sqlcmd_path=''
+          for candidate in /opt/mssql-tools18/bin/sqlcmd /opt/mssql-tools/bin/sqlcmd; do
+            if docker exec "$MSSQL_CONTAINER_NAME" test -x "$candidate"; then
+              sqlcmd_path="$candidate"
+              break
+            fi
+          done
+          if [[ -z "$sqlcmd_path" ]]; then
+            echo '::error::sqlcmd was not found in the SQL Server 2022 container.'
+            exit 1
+          fi
+
+          ready=false
+          for _ in {1..60}; do
+            if docker exec "$MSSQL_CONTAINER_NAME" "$sqlcmd_path" \
+              -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b -l 2 \
+              -Q 'SELECT 1' >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$ready" != true ]]; then
+            echo '::error::SQL Server did not become ready within the expected time.'
+            exit 1
+          fi
+
+          docker exec "$MSSQL_CONTAINER_NAME" "$sqlcmd_path" \
+            -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b -l 30 -d master \
+            -Q "IF DB_ID(N'$MSSQL_DATABASE') IS NULL EXEC(N'CREATE DATABASE [$MSSQL_DATABASE]');" \
+            >/dev/null
+          docker exec "$MSSQL_CONTAINER_NAME" "$sqlcmd_path" \
+            -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C -b -l 30 -d "$MSSQL_DATABASE" \
+            -Q 'SELECT 1' >/dev/null
+
+      - name: Apply full MSSQL migration set
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $migrationsPath = Join-Path $env:GITHUB_WORKSPACE 'src/00.Main/NexaOne.Server/config/db/migrations'
+          & ./tools/ops/Apply-MssqlMigrations.ps1 `
+            -ConnectionString $env:NEXAONE_MSSQL_TEST_CONN `
+            -MigrationsPath $migrationsPath
+
+      - name: Validate MSSQL dialect and QMS integrity contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${NEXAONE_MSSQL_TEST_CONN:-}" ]]; then
+            echo '::error::NEXAONE_MSSQL_TEST_CONN is required; refusing a soft skip.'
+            exit 1
+          fi
+          dotnet test test/NexaOne.ServerTests/NexaOne.ServerTests.csproj \
+            --configuration Release --no-build --no-restore \
+            --filter "FullyQualifiedName~NexaOne.ServerTests.MssqlDialectSyntaxTests|FullyQualifiedName~NexaOne.ServerTests.MssqlQmsInspectionContractTests" \
+            --logger "trx;LogFileName=mssql-contract.trx"
+
+      - name: Upload MSSQL contract results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mssql-contract-results
+          path: "**/TestResults/mssql-contract.trx"
+          if-no-files-found: ignore
+
+      - name: Stop SQL Server service
+        if: always()
+        shell: bash
+        run: docker rm --force "$MSSQL_CONTAINER_NAME" >/dev/null 2>&1 || true

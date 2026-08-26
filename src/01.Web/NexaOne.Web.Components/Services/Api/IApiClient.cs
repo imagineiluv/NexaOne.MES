@@ -16,9 +16,13 @@ public interface IApiClient
     // bucketDays/horizonBuckets 지정 시 기간 버킷(시간위상) 넷팅(v2 3단), 미지정=총량(v1).
     Task<MrpRunResultDto?> RunMrpAsync(int? bucketDays = null, int? horizonBuckets = null, CancellationToken ct = default);
 
-    // MRP 실오더 전환 — Proposed를 PO(Ordered)/WO(Released)로. runId null=최신 실행,
-    // plannedOrderIds 지정=선택 행만(행 선택 전환 UX), null=전량.
-    Task<MrpConvertResultDto?> ConvertMrpAsync(string? runId = null, IReadOnlyList<string>? plannedOrderIds = null, CancellationToken ct = default);
+    // MRP 실오더 전환 — 구매 제안은 구매오더, 생산 제안은 생산계획+생산관리오더로 전환한다.
+    // 생산 제안마다 같은 공장의 활성 설비 배정이 필수다.
+    Task<MrpConvertResultDto?> ConvertMrpAsync(
+        string? runId = null,
+        IReadOnlyList<string>? plannedOrderIds = null,
+        IReadOnlyList<MrpProductionAssignmentDto>? productionAssignments = null,
+        CancellationToken ct = default);
 
     // 등록된 쓰기(command) query id 실행 — 성공 여부 반환(저코드 폼 저장 경로). 감사 컬럼은 게이트웨이가 주입.
     Task<bool> ExecuteCommandAsync(
@@ -80,10 +84,17 @@ public interface IApiClient
 
     // Phase 4 후속 — Low-Code 화면 정의 저장소
     Task<List<ScreenDefinitionRecordDto>> GetScreenDefinitionsAsync(CancellationToken ct = default);
+    /// <summary>대상 채널(MES|MOBILE|POP)로 화면 정의 목록을 필터한다. null/빈 값은 전체.</summary>
+    Task<List<ScreenDefinitionRecordDto>> GetScreenDefinitionsAsync(
+        string? targetChannel, CancellationToken ct = default);
     /// <summary>명명 쿼리 카탈로그(sys:manage, SQL 비노출) — S/O 관리(메타 카탈로그)·디자이너 공용.</summary>
     Task<List<QueryCatalogItemDto>> GetQueryCatalogAsync(CancellationToken ct = default);
     Task<ScreenDefinitionRecordDto?> GetScreenDefinitionAsync(string uiId, CancellationToken ct = default);
     Task SaveScreenDefinitionAsync(string uiId, string title, string definitionJson, CancellationToken ct = default);
+    /// <summary>화면 정의와 진입 대상/완전 경로를 한 command로 원자 저장한다.</summary>
+    Task SaveScreenDefinitionAsync(
+        string uiId, string title, string definitionJson,
+        string targetChannel, string? entryPath = null, CancellationToken ct = default);
 
     // RMS
     Task<List<RecipeDto>> GetRecipesAsync(string? equipmentClassId = null, string? state = null, CancellationToken ct = default);
@@ -109,9 +120,24 @@ public interface IApiClient
     Task<InspectionSpecDto?> CreateInspectionSpecAsync(object req, CancellationToken ct = default);
     Task<List<InspectionResultDto>> GetInspectionResultsAsync(string lotId, CancellationToken ct = default);
     Task<InspectionResultDto?> RecordInspectionResultAsync(object req, CancellationToken ct = default);
+    /// <summary>서버 생성 ID와 멱등키를 사용하는 다항목 검사 실행 v2를 확정합니다.</summary>
+    Task<InspectionExecutionApiResult> RecordInspectionExecutionV2Async(
+        RecordInspectionExecutionV2Request req, CancellationToken ct = default);
+    Task<LotInspectionStatusDto?> GetLotInspectionStatusAsync(string lotId, CancellationToken ct = default);
     Task<List<SpcParamDto>> GetSpcParamsAsync(string equipmentId, CancellationToken ct = default);
     Task<SpcParamDto?> CreateSpcParamAsync(object req, CancellationToken ct = default);
     Task UpdateSpcLimitsAsync(string paramId, decimal mean, decimal ucl, decimal lcl, CancellationToken ct = default);
+    Task<SpcLimitRevisionDto?> AddSpcLimitRevisionAsync(object req, CancellationToken ct = default);
+    Task<SpcSubgroupEvaluationDto?> EvaluateSpcSubgroupAsync(object req, CancellationToken ct = default);
+    Task<List<SpcRuleViolationDto>> GetSpcViolationsAsync(string? paramId = null, string? subgroupId = null, CancellationToken ct = default);
+    Task<SamplingPlanRevisionDto?> AddSamplingPlanRevisionAsync(object req, CancellationToken ct = default);
+    Task<SamplingPlanRevisionDto?> SelectSamplingPlanAsync(int lotSize, DateTime? effectiveAt = null, CancellationToken ct = default);
+    Task<SamplingEvaluationDto?> EvaluateSamplingAsync(object req, CancellationToken ct = default);
+    Task<AiModelVersionDto?> RegisterAiModelVersionAsync(object req, CancellationToken ct = default);
+    Task<AiInferenceDto?> RecordAiInferenceAsync(object req, CancellationToken ct = default);
+    Task<AiInferenceDto?> GetAiInferenceAsync(string inferenceId, CancellationToken ct = default);
+    Task<List<AiReviewDto>> GetAiReviewsAsync(string inferenceId, CancellationToken ct = default);
+    Task<AiReviewDto?> ReviewAiInferenceAsync(string inferenceId, object req, CancellationToken ct = default);
 
     // EMS
     Task<List<WorkOrderDto>> GetWorkOrdersAsync(string? equipmentId = null, string? status = null, CancellationToken ct = default);
@@ -119,6 +145,36 @@ public interface IApiClient
     Task StartWorkOrderAsync(string woId, CancellationToken ct = default);
     Task CompleteWorkOrderAsync(string woId, string remark, CancellationToken ct = default);
     Task CancelWorkOrderAsync(string woId, CancellationToken ct = default);
+
+    // POM 작업지시 관리/실행은 EMS 작업지시와 다른 모델이다. release/cancel을 포함한 상태전이 REST 경계를 통해
+    // JWT 권한, 낙관적 버전, 멱등키, 채널/장치 감사 정보를 그대로 보존하고 HTTP 409도 호출자에게 돌려준다.
+    Task<PomWorkOrderActionResult> CreatePomWorkOrderAsync(
+        PomWorkOrderCreateRequest request,
+        CancellationToken ct = default);
+    Task<PomWorkOrderActionResult> ExecutePomWorkOrderActionAsync(
+        string action,
+        string workOrderId,
+        PomWorkOrderActionRequest request,
+        CancellationToken ct = default);
+
+    // POM LOT 라우팅 실행 — 오류 상태/차단 사유를 작업자 화면까지 보존합니다.
+    Task<PomRoutingApiResult<PomLotDto>> ExecutePomLotTrackInAsync(
+        string lotId, PomLotTrackInRequest request, CancellationToken ct = default);
+    Task<PomRoutingApiResult<PomLotDto>> ExecutePomLotTrackOutAsync(
+        string lotId, PomLotTrackOutRequest request, CancellationToken ct = default);
+    Task<PomRoutingApiResult<PomLotRoutingContextDto>> GetPomLotRoutingContextAsync(
+        string lotId, CancellationToken ct = default);
+    Task<PomRoutingApiResult<PomRoutingPolicyDecisionDto>> EvaluatePomLotRoutingAsync(
+        string lotId, PomEvaluateRoutingRequest request, CancellationToken ct = default);
+    Task<PomRoutingApiResult<PomLotDto>> ChangePomLotRoutingControlModeAsync(
+        string lotId, PomChangeRoutingControlModeRequest request, CancellationToken ct = default);
+    Task<PomRoutingApiResult<PomLotDto>> ApplyPomLotRouteDeviationAsync(
+        string lotId, PomApplyRouteDeviationRequest request, CancellationToken ct = default);
+    Task<PomRoutingApiResult<PomRouteExceptionDto>> RequestPomLotRouteExceptionAsync(
+        string lotId, PomRequestRouteExceptionRequest request, CancellationToken ct = default);
+    Task<PomRoutingApiResult<PomRouteExceptionDto>> ReviewPomLotRouteExceptionAsync(
+        string action, string exceptionId, PomReviewRouteExceptionRequest request, CancellationToken ct = default);
+
     Task<List<MaintenancePlanDto>> GetMaintenancePlansAsync(string? equipmentId = null, CancellationToken ct = default);
     Task<MaintenancePlanDto?> CreateMaintenancePlanAsync(object req, CancellationToken ct = default);
     Task StartMaintenancePlanAsync(string planId, CancellationToken ct = default);
@@ -149,7 +205,9 @@ public interface IApiClient
     Task<(LotDto? Lot, string? Error)> TrackOutAsync(string lotId, object req, CancellationToken ct = default);
     Task<(LotDto? Lot, string? Error)> MixingTrackInOutAsync(object req, CancellationToken ct = default);
     Task<bool> HoldLotAsync(string lotId, CancellationToken ct = default);
+    Task<bool> HoldLotAsync(string lotId, PomLotHoldRequest request, CancellationToken ct = default);
     Task<bool> ReleaseLotHoldAsync(string lotId, CancellationToken ct = default);
+    Task<bool> ReleaseLotHoldAsync(string lotId, PomLotHoldRequest request, CancellationToken ct = default);
 
     // DLV — 조회(오더/품목/이력)는 명명 쿼리(SHP.*)가 단일 경로, 브리지는 생성/전이만
     Task<DeliveryOrderDto?> CreateDeliveryOrderAsync(object req, CancellationToken ct = default);

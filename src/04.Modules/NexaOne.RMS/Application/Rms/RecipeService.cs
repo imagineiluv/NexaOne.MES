@@ -16,17 +16,20 @@ public class RecipeService
 
     public async Task<Result<IReadOnlyList<Recipe>>> GetByEquipmentClassAsync(
         string equipmentClassId, CancellationToken ct = default)
+        => await GetRecipesAsync(equipmentClassId, null, ct);
+
+    public async Task<Result<IReadOnlyList<Recipe>>> GetRecipesAsync(
+        string? equipmentClassId,
+        RecipeApprovalState? state,
+        CancellationToken ct = default)
     {
-        var list = await _recipeRepository.GetByEquipmentClassAsync(equipmentClassId, ct);
+        var list = await _recipeRepository.GetAsync(equipmentClassId, state, ct);
         return Result.Success(list);
     }
 
     public async Task<Result<IReadOnlyList<Recipe>>> GetByStateAsync(
         RecipeApprovalState state, CancellationToken ct = default)
-    {
-        var list = await _recipeRepository.GetByStateAsync(state, ct);
-        return Result.Success(list);
-    }
+        => await GetRecipesAsync(null, state, ct);
 
     public Task<int> GetCountByStateAsync(RecipeApprovalState state, CancellationToken ct = default)
         => _recipeRepository.GetCountByStateAsync(state, ct);
@@ -135,8 +138,11 @@ public class RecipeService
 
         var result = RecipeParam.Create(paramId, recipeId, paramName, paramValue, unit, sortOrder);
         if (result.IsFailure) return result;
-        await _paramRepository.AddAsync(result.Value, ct);
-        return result;
+        var added = await _paramRepository.TryAddIfRecipeEditableAsync(result.Value, ct);
+        return added
+            ? result
+            : Result.Failure<RecipeParam>(Error.Conflict(
+                "Recipe was released while its parameter was being added."));
     }
 
     public async Task<Result> UpdateParamAsync(
@@ -146,9 +152,20 @@ public class RecipeService
         if (param is null)
             return Result.Failure(Error.NotFoundOf(nameof(RecipeParam), paramId));
 
+        var recipe = await _recipeRepository.GetByIdAsync(param.RecipeId, ct);
+        if (recipe is null)
+            return Result.Failure(Error.NotFoundOf(nameof(Recipe), param.RecipeId));
+        if (recipe.ApprovalState == RecipeApprovalState.Released)
+            return Result.Failure(Error.Conflict("Cannot modify params of a Released recipe."));
+
+        var previousValue = param.ParamValue;
         param.UpdateValue(newValue);
-        await _paramRepository.UpdateAsync(param, ct);
-        return Result.Success();
+        if (await _paramRepository.TryUpdateIfRecipeEditableAsync(param, ct))
+            return Result.Success();
+
+        param.UpdateValue(previousValue);
+        return Result.Failure(Error.Conflict(
+            "Recipe was released while its parameter was being updated."));
     }
 
     public async Task<Result> DeleteParamAsync(string paramId, CancellationToken ct = default)
@@ -157,8 +174,16 @@ public class RecipeService
         if (param is null)
             return Result.Failure(Error.NotFoundOf(nameof(RecipeParam), paramId));
 
-        await _paramRepository.DeleteAsync(paramId, ct);
-        return Result.Success();
+        var recipe = await _recipeRepository.GetByIdAsync(param.RecipeId, ct);
+        if (recipe is null)
+            return Result.Failure(Error.NotFoundOf(nameof(Recipe), param.RecipeId));
+        if (recipe.ApprovalState == RecipeApprovalState.Released)
+            return Result.Failure(Error.Conflict("Cannot modify params of a Released recipe."));
+
+        return await _paramRepository.TryDeleteIfRecipeEditableAsync(paramId, ct)
+            ? Result.Success()
+            : Result.Failure(Error.Conflict(
+                "Recipe was released while its parameter was being deleted."));
     }
 
     public async Task<Result<Recipe>> CreateNewVersionAsync(
@@ -171,7 +196,23 @@ public class RecipeService
             return Result.Failure<Recipe>(Error.Conflict("Only Released recipes can have a new version."));
 
         var newVersion = source.CreateNewVersion(newRecipeId);
-        await _recipeRepository.AddAsync(newVersion, ct);
+        var sourceParams = await _paramRepository.GetByRecipeAsync(sourceRecipeId, ct);
+        var copiedParams = new List<RecipeParam>(sourceParams.Count);
+        foreach (var sourceParam in sourceParams)
+        {
+            var copied = RecipeParam.Create(
+                Guid.NewGuid().ToString("N"),
+                newRecipeId,
+                sourceParam.ParamName,
+                sourceParam.ParamValue,
+                sourceParam.Unit,
+                sourceParam.SortOrder);
+            if (copied.IsFailure)
+                return Result.Failure<Recipe>(copied.Error);
+            copiedParams.Add(copied.Value);
+        }
+
+        await _recipeRepository.AddVersionAsync(newVersion, copiedParams, ct);
         return Result.Success(newVersion);
     }
 }

@@ -7,10 +7,13 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.POM.Application.Lots;
-using NexaOne.POM.Application.Pom;
+using NexaOne.POM.Application.WorkOrders;
 using NexaOne.POM.Domain;
 using NexaOne.POM.Infrastructure;
 using NexaOne.Server.Gateway;
+using NexaOne.QMS.Application.Qms;
+using NexaOne.QMS.Infrastructure;
+using NexaOne.ServiceContracts.Qms;
 using NexusCom.Data.Abstractions.Interfaces;
 using Xunit;
 
@@ -46,15 +49,22 @@ public sealed class PomMixingAtomicityTests : IClassFixture<PomMixingAtomicityTe
         }
     }
 
-    /// <summary>orders 리포 스텁 — Mixing 경로는 생산오더를 조회하지 않는다(호출 시 즉시 실패로 드러남).</summary>
-    private sealed class UnusedOrders : IProductionOrderRepository
+    /// <summary>Mixing does not resolve work orders; any call exposes an unexpected dependency.</summary>
+    private sealed class UnusedWorkOrders : IPomWorkOrderRepository
     {
-        public Task<ProductionOrder?> GetByIdAsync(string orderId, CancellationToken ct = default)
-            => throw new InvalidOperationException("Mixing 경로는 생산오더를 조회하지 않아야 한다.");
-        public Task<IReadOnlyList<ProductionOrder>> GetByPlanAsync(string planId, CancellationToken ct = default)
+        public Task<PomWorkOrder?> GetByIdAsync(string workOrderId, CancellationToken ct = default)
+            => throw new InvalidOperationException("Mixing must not resolve work orders.");
+        public Task<IReadOnlyList<PomWorkOrder>> GetByProductionOrderAsync(
+            string productionOrderId, CancellationToken ct = default)
             => throw new InvalidOperationException();
-        public Task AddAsync(ProductionOrder order, CancellationToken ct = default) => throw new InvalidOperationException();
-        public Task UpdateAsync(ProductionOrder order, CancellationToken ct = default) => throw new InvalidOperationException();
+        public Task<bool> ExecutionExistsAsync(string idempotencyKey, CancellationToken ct = default)
+            => throw new InvalidOperationException();
+        public Task<PomWorkOrderExecution?> GetExecutionByIdempotencyKeyAsync(string idempotencyKey, CancellationToken ct = default)
+            => throw new InvalidOperationException();
+        public Task AddAsync(PomWorkOrder workOrder, CancellationToken ct = default) => throw new InvalidOperationException();
+        public Task<bool> UpdateAsync(PomWorkOrder workOrder, CancellationToken ct = default) => throw new InvalidOperationException();
+        public Task<bool> UpdateWithExecutionAsync(PomWorkOrder workOrder, PomWorkOrderExecution execution, CancellationToken ct = default)
+            => throw new InvalidOperationException();
     }
 
     private LotTrackingService BuildService()
@@ -70,8 +80,10 @@ public sealed class PomMixingAtomicityTests : IClassFixture<PomMixingAtomicityTe
             new LotRepository(ds, config),
             new LotHistoryRepository(ds, new SqliteEesDbCapability()),
             new LotMixingRelationRepository(ds),
-            new UnusedOrders(),
-            new TrackingMasterGateway(ds));
+            new UnusedWorkOrders(),
+            new TrackingMasterGateway(ds),
+            new ProductionQualityGateService(
+                new ProductionQualityGateEvidenceRepository(ds)));
     }
 
     private void Exec(string sql, Action<SqliteCommand> bind)
@@ -142,13 +154,10 @@ public sealed class PomMixingAtomicityTests : IClassFixture<PomMixingAtomicityTe
         SeedQueuedLot(inA, 5m);
         SeedQueuedLot(inB, 5m);
         // 두 번째 투입의 혼합관계 INSERT가 PK(PLANT,OUTPUT,INPUT) 충돌로 실패하도록 선점 행을 심는다.
-        Exec("INSERT INTO POM_LOT_MIXING_RELATION (PLANT_ID, OUTPUT_LOT_ID, INPUT_LOT_ID, INPUT_QTY, CONSUMED_AT, CONSUMED_BY) " +
-             "VALUES ('PLANT01', @output, @input, 1, @now, 'PRE')", cmd =>
-        {
-            cmd.Parameters.AddWithValue("@output", output);
-            cmd.Parameters.AddWithValue("@input", inB);
-            cmd.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture));
-        });
+        var trigger = $"TR_TEST_MIX_FAIL_{Suffix()}";
+        Exec($"CREATE TRIGGER {trigger} BEFORE INSERT ON POM_LOT_MIXING_RELATION " +
+             $"WHEN NEW.OUTPUT_LOT_ID = '{output}' AND NEW.INPUT_LOT_ID = '{inB}' " +
+             "BEGIN SELECT RAISE(ABORT, 'forced relation failure'); END", _ => { });
 
         var act = () => BuildService().MixingTrackInOutAsync(Command(output, new(inA, 5m), new(inB, 5m)));
         await act.Should().ThrowAsync<Exception>("배치 중 혼합관계 PK 충돌은 예외로 표면화돼야 한다");

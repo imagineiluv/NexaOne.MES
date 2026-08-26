@@ -8,6 +8,17 @@ namespace NexaOne.RMS.Infrastructure;
 
 public sealed class RecipeRepository : QueryRepository, IRecipeRepository
 {
+    private const string InsertSql = @"INSERT INTO RMS_RECIPE
+            (RECIPE_ID, RECIPE_NAME, DESCRIPTION, EQUIPMENT_CLASS_ID, VERSION, APPROVAL_STATE,
+             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES
+            (@RecipeId, @RecipeName, @Description, @EquipmentClassId, @Version, @ApprovalState,
+             @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt)";
+
+    private const string InsertParamSql = @"INSERT INTO RMS_RECIPE_PARAM
+            (PARAM_ID, RECIPE_ID, PARAM_NAME, PARAM_VALUE, UNIT, SORT_ORDER)
+            VALUES (@ParamId, @RecipeId, @ParamName, @ParamValue, @Unit, @SortOrder)";
+
     private readonly ServiceObjectProcessor _processor;
     private readonly bool _outboxEnabled;
 
@@ -26,16 +37,28 @@ public sealed class RecipeRepository : QueryRepository, IRecipeRepository
     }
 
     public async Task<IReadOnlyList<Recipe>> GetByEquipmentClassAsync(string equipmentClassId, CancellationToken ct = default)
-    {
-        const string sql = "SELECT * FROM RMS_RECIPE WHERE EQUIPMENT_CLASS_ID = @equipmentClassId";
-        var rows = await QueryAsync<RecipeRow>(sql, new { equipmentClassId }, ct);
-        return rows.Select(r => r.ToDomain()).OfType<Recipe>().ToList();
-    }
+        => await GetAsync(equipmentClassId, null, ct);
 
     public async Task<IReadOnlyList<Recipe>> GetByStateAsync(RecipeApprovalState state, CancellationToken ct = default)
+        => await GetAsync(null, state, ct);
+
+    public async Task<IReadOnlyList<Recipe>> GetAsync(
+        string? equipmentClassId,
+        RecipeApprovalState? state,
+        CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM RMS_RECIPE WHERE APPROVAL_STATE = @state";
-        var rows = await QueryAsync<RecipeRow>(sql, new { state = state.ToString() }, ct);
+        const string sql = @"SELECT * FROM RMS_RECIPE
+            WHERE (@equipmentClassId IS NULL OR EQUIPMENT_CLASS_ID = @equipmentClassId)
+              AND (@state IS NULL OR APPROVAL_STATE = @state)
+            ORDER BY RECIPE_ID, VERSION";
+        var normalizedClassId = string.IsNullOrWhiteSpace(equipmentClassId)
+            ? null
+            : equipmentClassId.Trim();
+        var rows = await QueryAsync<RecipeRow>(sql, new
+        {
+            equipmentClassId = normalizedClassId,
+            state = state?.ToString(),
+        }, ct);
         return rows.Select(r => r.ToDomain()).OfType<Recipe>().ToList();
     }
 
@@ -46,14 +69,41 @@ public sealed class RecipeRepository : QueryRepository, IRecipeRepository
     }
 
     public async Task AddAsync(Recipe recipe, CancellationToken ct = default)
+        => await _processor.InsertAsync(InsertSql, RecipeRow.FromDomain(recipe), ct);
+
+    /// <summary>
+    /// 새 버전 header와 복제된 parameter를 한 트랜잭션으로 기록한다. parameter INSERT 하나라도 실패하면
+    /// header까지 롤백되어 빈 Recipe 버전이 남지 않는다.
+    /// </summary>
+    public async Task AddVersionAsync(
+        Recipe recipe,
+        IReadOnlyList<RecipeParam> parameters,
+        CancellationToken ct = default)
     {
-        const string sql = @"INSERT INTO RMS_RECIPE
-            (RECIPE_ID, RECIPE_NAME, DESCRIPTION, EQUIPMENT_CLASS_ID, VERSION, APPROVAL_STATE,
-             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES
-            (@RecipeId, @RecipeName, @Description, @EquipmentClassId, @Version, @ApprovalState,
-             @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt)";
-        await _processor.InsertAsync(sql, RecipeRow.FromDomain(recipe), ct);
+        var auditUser = CurrentUserContext.UserId ?? "SYSTEM";
+        var now = DateTime.UtcNow;
+        var recipeRow = RecipeRow.FromDomain(recipe);
+        recipeRow.CreatedBy = auditUser;
+        recipeRow.CreatedAt = now;
+        recipeRow.UpdatedBy = auditUser;
+        recipeRow.UpdatedAt = now;
+
+        var statements = new List<(string Sql, object? Param)>
+        {
+            (InsertSql, recipeRow),
+        };
+        statements.AddRange(parameters.Select(parameter =>
+            (InsertParamSql, (object?)new
+            {
+                ParamId = parameter.Id,
+                RecipeId = parameter.RecipeId,
+                parameter.ParamName,
+                parameter.ParamValue,
+                parameter.Unit,
+                parameter.SortOrder,
+            })));
+
+        await _processor.ExecuteManyAsync(ct, statements.ToArray());
     }
 
     private const string UpdateSql = @"UPDATE RMS_RECIPE SET

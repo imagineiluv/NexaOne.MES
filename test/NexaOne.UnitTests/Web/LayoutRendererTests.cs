@@ -1,4 +1,5 @@
 using Bunit;
+using Microsoft.AspNetCore.Components;
 using Microsoft.Extensions.DependencyInjection;
 using Radzen;
 using NexaOne.Web.Components.Meta;
@@ -16,7 +17,10 @@ public sealed class LayoutRendererTests
     private static IRenderedComponent<LayoutRenderer> Render(
         TestContext ctx, LayoutNode layout, Dictionary<string, object?>? model = null,
         IReadOnlyDictionary<string, IReadOnlyList<Dictionary<string, object?>>>? results = null,
-        Action<string>? onCommand = null)
+        Action<ButtonWidget>? onCommand = null,
+        Func<string?, bool>? permissionGranted = null,
+        bool enableGridViewModes = false,
+        IReadOnlyDictionary<string, Dictionary<string, object?>>? scopeModels = null)
     {
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();   // 트렌드 차트는 RadzenChart — 렌더에 Radzen 서비스 필요
@@ -24,6 +28,10 @@ public sealed class LayoutRendererTests
             .Add(c => c.Node, layout)
             .Add(c => c.Model, model ?? new Dictionary<string, object?>())
             .Add(c => c.QueryResults, results ?? NoResults)
+            .Add(c => c.PermissionGranted, permissionGranted)
+            .Add(c => c.EnableGridViewModes, enableGridViewModes)
+            .Add(c => c.ScopeModels, scopeModels
+                ?? new Dictionary<string, Dictionary<string, object?>>())
             .Add(c => c.OnCommand, onCommand is null
                 ? default
                 : Microsoft.AspNetCore.Components.EventCallback.Factory.Create(new object(), onCommand)));
@@ -78,6 +86,37 @@ public sealed class LayoutRendererTests
             "KPI는 바인딩 쿼리 첫 행의 ValueColumn 값 + 단위를 표시해야 한다");
         cut.Markup.Should().Contain("—", "미실행/미바인딩 KPI는 대시(—)로 빈 카드를 방지해야 한다");
         cut.FindAll(".layout-kpi").Count.Should().Be(2);
+    }
+
+    [Fact]
+    public void Linked_kpi_exposes_link_semantics_keyboard_contract_and_visual_marker_class()
+    {
+        using var ctx = new TestContext();
+        var layout = new RowNode
+        {
+            Children = new LayoutNode[]
+            {
+                new KpiWidget { Label = "활성 알람", QueryId = "Q", ValueColumn = "VALUE", Unit = "건", LinkUiId = "ALARM_LIST" },
+                new KpiWidget { Label = "일반 지표", QueryId = "Q", ValueColumn = "VALUE", Unit = "건" },
+            },
+        };
+        var results = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>
+        {
+            ["Q"] = new List<Dictionary<string, object?>> { new() { ["VALUE"] = 3 } },
+        };
+
+        var cut = Render(ctx, layout, results: results);
+        var cards = cut.FindAll(".layout-kpi");
+        cards[0].ClassList.Should().Contain("linked");
+        cards[0].GetAttribute("role").Should().Be("link");
+        cards[0].GetAttribute("tabindex").Should().Be("0");
+        cards[0].GetAttribute("aria-label").Should().Contain("활성 알람").And.Contain("상세 화면으로 이동");
+        cards[1].ClassList.Should().NotContain("linked");
+        cards[1].GetAttribute("role").Should().Be("group");
+        cards[1].HasAttribute("tabindex").Should().BeFalse();
+
+        cards[0].KeyDown("Enter");
+        ctx.Services.GetRequiredService<NavigationManager>().Uri.Should().EndWith("/meta/ALARM_LIST");
     }
 
     [Fact]
@@ -182,16 +221,122 @@ public sealed class LayoutRendererTests
     }
 
     [Fact]
+    public void Grid_view_mode_flag_propagates_through_nested_section_row_and_column()
+    {
+        using var ctx = new TestContext();
+        var layout = new SectionNode
+        {
+            Children =
+            [
+                new RowNode
+                {
+                    Children =
+                    [
+                        new ColumnNode
+                        {
+                            Span = 12,
+                            Children =
+                            [
+                                new GridWidget
+                                {
+                                    Id = "nested-grid",
+                                    QueryId = "Q.Nested",
+                                    Columns = [new GridColumnDefinition("ITEM_ID", "항목 ID")],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        };
+        var results = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>
+        {
+            ["Q.Nested"] = new List<Dictionary<string, object?>> { new() { ["ITEM_ID"] = "I-1" } },
+        };
+
+        var cut = Render(ctx, layout, results: results, enableGridViewModes: true);
+
+        var grids = cut.FindComponents<MetaGridRenderer>();
+        grids.Should().ContainSingle();
+        var grid = grids.Single();
+        grid.Instance.EnableViewModes.Should().BeTrue(
+            "Section→Row→Column 재귀 렌더링에서도 관리 화면 보기 모드 플래그가 GridWidget까지 전달돼야 한다");
+        cut.FindAll(".nx-view-segments button").Should().HaveCount(4);
+    }
+
+    [Fact]
     public void Command_button_invokes_OnCommand_with_command_id()
     {
         using var ctx = new TestContext();
         string? invoked = null;
         var layout = new ButtonWidget { Label = "승인", Command = "SYS.Approve" };
 
-        var cut = Render(ctx, layout, onCommand: c => invoked = c);
+        var cut = Render(ctx, layout, onCommand: button => invoked = button.Command);
         cut.Find("button").Click();
 
         invoked.Should().Be("SYS.Approve", "명령 버튼은 OnCommand에 command id를 전달해야 한다");
+    }
+
+    [Fact]
+    public void Denied_parent_suppresses_its_entire_subtree()
+    {
+        using var ctx = new TestContext();
+        var layout = new SectionNode
+        {
+            RequiredPermission = "qms:read",
+            Children =
+            [
+                new TextWidget { Text = "보이면 안 되는 내용" },
+                new GridWidget { QueryId = "QMS.SecretList" },
+            ],
+        };
+
+        var cut = Render(ctx, layout, permissionGranted: _ => false);
+
+        cut.Markup.Should().NotContain("보이면 안 되는 내용");
+        cut.FindAll("table").Should().BeEmpty("권한이 없는 부모의 자식 위젯은 렌더하지 않아야 한다");
+        cut.Find(".meta-permission-denied").TextContent.Should().Contain("qms:read");
+    }
+
+    [Fact]
+    public void Denied_command_is_disabled_with_accessible_reason_and_never_invokes_callback()
+    {
+        using var ctx = new TestContext();
+        var invoked = false;
+        var layout = new ButtonWidget
+        {
+            Label = "승인",
+            Command = "QMS.Approve",
+            RequiredPermission = "qms:manage",
+        };
+
+        var cut = Render(ctx, layout, onCommand: _ => invoked = true, permissionGranted: _ => false);
+        var button = cut.Find("button");
+
+        button.HasAttribute("disabled").Should().BeTrue();
+        button.GetAttribute("title").Should().Contain("qms:manage");
+        button.GetAttribute("aria-label").Should().Contain("qms:manage");
+        button.Click();
+        invoked.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Allowed_command_passes_full_widget_metadata_to_callback()
+    {
+        using var ctx = new TestContext();
+        ButtonWidget? invoked = null;
+        var layout = new ButtonWidget
+        {
+            Label = "승인",
+            Command = "QMS.Approve",
+            RequiredPermission = "qms:manage",
+        };
+
+        var cut = Render(ctx, layout, onCommand: button => invoked = button, permissionGranted: _ => true);
+        cut.Find("button").Click();
+
+        invoked.Should().BeSameAs(layout);
+        invoked!.RequiredPermission.Should().Be("qms:manage");
     }
 
     [Fact]
@@ -213,5 +358,97 @@ public sealed class LayoutRendererTests
 
         model.Should().ContainKey("plantName");
         model["plantName"]!.ToString().Should().Be("플랜트1");
+    }
+
+    [Fact]
+    public void Collection_widget_binds_shared_model_and_prepares_minimum_items()
+    {
+        using var ctx = new TestContext();
+        var model = new Dictionary<string, object?>();
+        var layout = new CollectionWidget
+        {
+            CollectionKey = "items",
+            Label = "검사 항목",
+            ItemLabel = "항목",
+            MinItems = 1,
+            Fields =
+            [
+                new FieldWidget
+                {
+                    FieldKey = "specId",
+                    Field = new FieldDefinition("specId", "검사 규격", Required: true),
+                },
+            ],
+        };
+
+        var cut = Render(ctx, layout, model);
+
+        cut.FindComponents<MetaCollectionEditor>().Should().ContainSingle();
+        cut.FindAll("fieldset.meta-collection-item").Should().ContainSingle();
+        model["items"].Should().BeOfType<List<Dictionary<string, object?>>>()
+            .Which.Should().ContainSingle();
+
+        cut.Find("input").Change("SPEC-01");
+        var items = (List<Dictionary<string, object?>>)model["items"]!;
+        items.Single()["specId"].Should().Be("SPEC-01");
+    }
+
+    [Fact]
+    public void Scoped_collection_binds_only_its_aggregate_model()
+    {
+        using var ctx = new TestContext();
+        var shared = new Dictionary<string, object?>();
+        var lot = new Dictionary<string, object?>();
+        var layout = new CollectionWidget
+        {
+            CollectionKey = "DEFECTS",
+            BindingScope = "lot",
+            Label = "Track-Out 불량 내역",
+            MinItems = 1,
+            Fields =
+            [
+                new FieldWidget
+                {
+                    FieldKey = "DEFECT_CODE",
+                    Field = new FieldDefinition("DEFECT_CODE", "불량 코드", Required: true),
+                },
+            ],
+        };
+
+        var cut = Render(ctx, layout, shared,
+            scopeModels: new Dictionary<string, Dictionary<string, object?>> { ["lot"] = lot });
+        cut.Find("input").Change("SCRATCH");
+
+        shared.Should().NotContainKey("DEFECTS");
+        var defects = lot["DEFECTS"].Should().BeOfType<List<Dictionary<string, object?>>>().Subject;
+        defects.Should().ContainSingle().Which["DEFECT_CODE"].Should().Be("SCRATCH");
+    }
+
+    [Fact]
+    public void Denied_collection_shows_disabled_shell_without_exposing_child_fields()
+    {
+        using var ctx = new TestContext();
+        var layout = new CollectionWidget
+        {
+            CollectionKey = "items",
+            Label = "검사 항목",
+            MinItems = 1,
+            RequiredPermission = "qms:manage",
+            Fields =
+            [
+                new FieldWidget
+                {
+                    FieldKey = "secret",
+                    Field = new FieldDefinition("secret", "비공개 규격"),
+                },
+            ],
+        };
+
+        var cut = Render(ctx, layout, permissionGranted: _ => false);
+
+        cut.Find("section.meta-collection-editor").GetAttribute("aria-disabled").Should().Be("true");
+        cut.Find(".meta-collection-disabled-reason").TextContent.Should().Contain("qms:manage");
+        cut.FindAll(".meta-field").Should().BeEmpty();
+        cut.Markup.Should().NotContain("비공개 규격");
     }
 }

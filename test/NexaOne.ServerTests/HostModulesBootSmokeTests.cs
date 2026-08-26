@@ -9,24 +9,39 @@ using FluentAssertions;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using NexaOne.Common.Security;
+using NexaOne.ServiceContracts;
 using Xunit;
 using Xunit.Abstractions;
 
 namespace NexaOne.ServerTests;
 
+[CollectionDefinition(ChildProcessSmokeCollection.Name, DisableParallelization = true)]
+public sealed class ChildProcessSmokeCollection
+{
+    public const string Name = "Child-process host smoke";
+}
+
 /// <summary>통합 호스트 modules-ON 부팅 자동검증(Phase 6) — 빌드된 호스트를 자식 프로세스로 SQLite·modules-ON
-/// 기동해 9개 모듈 + 워커 + EST/RMS GetBean→캐스트 브리지가 한 프로세스에서 실제로 올라오는지 검증한다.
+/// 기동해 10개 모듈 + 워커 + 선언형 catalog의 전체 Bridge가 한 프로세스에서 실제로 올라오는지 검증한다.
 /// 정적 ApplicationServer 싱글톤 제약으로 in-proc WebApplicationFactory 불가 → 자식 프로세스 black-box 스모크.
 /// 기존 ServerTests(전부 modules-OFF)가 못 타는 실제 plugin/ALC/브리지 부팅 경로의 단일 안전망.</summary>
+[Collection(ChildProcessSmokeCollection.Name)]
 public sealed class HostModulesBootSmokeTests
 {
     private readonly ITestOutputHelper _o;
     public HostModulesBootSmokeTests(ITestOutputHelper o) => _o = o;
 
     [Fact]
-    public async Task Host_boots_all_nine_modules_workers_and_bridges_in_one_process()
+    public async Task Host_boots_all_ten_modules_workers_and_bridges_in_one_process()
     {
-        using var host = await HostProcess.StartAsync(_o, springConfig: "config/host/server.sqlite.xml", expectListening: true);
+        // Database:Provider alone must select the matching Spring parent context.
+        // This guards against gateway=SQLite / module=SQL Server split-brain startup.
+        using var host = await HostProcess.StartAsync(
+            _o,
+            springConfig: null,
+            expectListening: true,
+            concurrentServices: true,
+            enableBatchWorker: true);
 
         host.Listening.Should().BeTrue(
             $"modules-ON 호스트가 SQLite로 기동해 Kestrel이 리슨해야 한다 — 로그:\n{host.Log}");
@@ -42,11 +57,57 @@ public sealed class HostModulesBootSmokeTests
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         var root = doc.RootElement;
         root.GetProperty("modulesEnabled").GetBoolean().Should().BeTrue();
-        root.GetProperty("services").GetArrayLength().Should().Be(9,
-            "9개 도메인 모듈(Mdm·Est·Fdc·Rms·Qms·Ems·Pom·Shp·Sys)이 모두 로드돼야 한다 — "
-            + "성공적 /diag = EST/RMS GetBean→캐스트 브리지 fail-fast 통과(부팅이 리슨에 도달)");
+        root.GetProperty("services").GetArrayLength().Should().Be(10,
+            "10개 도메인 모듈(Mdm·Est·Fdc·Ivt·Rms·Qms·Ems·Pom·Shp·Sys)이 모두 로드돼야 한다 — "
+            + "성공적 /diag = 전체 선언형 Bridge의 Bean/계약 fail-fast 통과(부팅이 리슨에 도달)");
         root.GetProperty("workerCount").GetInt32().Should().BeGreaterThanOrEqualTo(1,
             "백그라운드 워커가 1개 이상 발견돼야 한다(실측 5)");
+
+        var expectedBridgeContracts = NexaModuleBridgeCatalog
+            .Discover(typeof(INexaModuleBridge).Assembly)
+            .Descriptors
+            .Select(descriptor => descriptor.ContractType.FullName)
+            .ToHashSet(StringComparer.Ordinal);
+        var bridges = root.GetProperty("bridges");
+        bridges.GetArrayLength().Should().Be(expectedBridgeContracts.Count,
+            "marker 계약 집합과 시작 시 검증된 Spring Bridge 집합이 정확히 같아야 한다");
+        bridges.EnumerateArray()
+            .Select(item => item.GetProperty("contract").GetString())
+            .Should().BeEquivalentTo(expectedBridgeContracts);
+        bridges.EnumerateArray().Should().OnlyContain(item =>
+                !string.IsNullOrWhiteSpace(item.GetProperty("module").GetString())
+                && !string.IsNullOrWhiteSpace(item.GetProperty("beanName").GetString())
+                && !string.IsNullOrWhiteSpace(item.GetProperty("implementation").GetString()),
+            "/diag는 연결 옵션 없이 검증된 module/bean/contract/implementation만 노출해야 한다");
+
+        var dependencies = root.GetProperty("externalDependencies").EnumerateArray()
+            .ToDictionary(item => item.GetProperty("id").GetString()!, StringComparer.Ordinal);
+        dependencies.Keys.Should().BeEquivalentTo(new[]
+        {
+            "nexaone.database", "nexaone.fdc.plc", "nexaone.messaging",
+        }, "실제 DB·메시징·PLC readiness가 모두 제품 catalog에 등록돼야 한다");
+
+        var database = dependencies["nexaone.database"];
+        database.GetProperty("kind").GetString().Should().Be("database");
+        database.GetProperty("status").GetString().Should().Be("Healthy");
+
+        var messaging = dependencies["nexaone.messaging"];
+        messaging.GetProperty("kind").GetString().Should().Be("messaging");
+        messaging.GetProperty("status").GetString().Should().Be("Healthy");
+        messaging.GetProperty("details").GetProperty("transport").GetString().Should().Be("in-memory");
+
+        var plc = dependencies["nexaone.fdc.plc"];
+        plc.GetProperty("id").GetString().Should().Be("nexaone.fdc.plc");
+        plc.GetProperty("kind").GetString().Should().Be("plc");
+        plc.GetProperty("status").GetString().Should().Be("Healthy");
+        plc.GetProperty("details").GetProperty("registeredProtocols").GetString()
+            .Should().ContainAll("OpcUa", "ModbusTcp", "SiemensS7", "MitsubishiMc", "EtherNetIp");
+        var diagnosticJson = root.GetRawText();
+        diagnosticJson.Should().NotContain(host.DatabasePath);
+        diagnosticJson.Should().NotContain($"Data Source={host.DatabasePath};Foreign Keys=False");
+        diagnosticJson.Should().NotContain(HostProcess.Secret);
+        diagnosticJson.Should().NotContain("ConnectionString", "진단 응답에 DB 연결 구성을 노출하면 안 된다");
+        diagnosticJson.Should().NotContain("Password", "진단 응답에 자격 증명 키를 노출하면 안 된다");
 
         // SignalR 허브 복원 회귀 검증(폐기 NexaOne.API → 통합 호스트 이식). SPA(createHub)가 /hubs/smartees에
         // access_token 쿼리로 연결하는 실경로를 그대로 재현한다. negotiate가 404면 MapHub 누락, 401이면 매핑됐고
@@ -168,7 +229,10 @@ public sealed class HostModulesBootSmokeTests
             using var reloginDoc = JsonDocument.Parse(reloginBody);
             sys.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
                 "Bearer", reloginDoc.RootElement.GetProperty("accessToken").GetString());
-            var business = await sys.PostAsJsonAsync("/api/v1/query/SYS.MenuTree", new Dictionary<string, object>());
+            // VIEWER 기본권한은 최소권한(fdc:read)만 유지한다. 로그인 직후 공통 UI 부트스트랩으로
+            // 실제 사용하는 자기 역할 메뉴 조회는 access="public"인 MenuTreeForUser다.
+            var business = await sys.PostAsJsonAsync(
+                "/api/v1/query/SYS.MenuTreeForUser", new Dictionary<string, object>());
             business.StatusCode.Should().Be(HttpStatusCode.OK,
                 "새 토큰(pwdChange 클레임 없음)은 업무 API 차단이 해제돼야 한다");
         }
@@ -213,6 +277,20 @@ public sealed class HostModulesBootSmokeTests
     }
 
     [Fact]
+    public void Host_smoke_defaults_to_the_current_test_build_output()
+    {
+        var currentOutput = Path.GetFullPath(AppContext.BaseDirectory);
+
+        var resolved = HostProcess.ResolveHostBinDir(
+            explicitHostDirectory: null,
+            currentTestOutputDirectory: currentOutput);
+
+        resolved.Should().Be(currentOutput,
+            "an unset override must launch the output that produced this test assembly, not a reconstructed repo bin path");
+        HostProcess.ValidateCurrentTestHostOutput(resolved);
+    }
+
+    [Fact]
     public async Task Host_boot_failure_surfaces_as_process_exit_not_silent_hang()
     {
         // 존재하지 않는 Spring 설정 → CreateServer/스키마 부팅이 throw → 프로세스 비정상 종료.
@@ -236,20 +314,37 @@ internal sealed class HostProcess : IDisposable
     public bool Exited => _proc.HasExited;
     public int ExitCode => _proc.HasExited ? _proc.ExitCode : 0;
     public string Log { get { lock (_sb) return _sb.ToString(); } }
+    public string DatabasePath => _gwDb;
 
     private readonly Process _proc;
     private readonly StringBuilder _sb = new();
     private readonly string _gwDb;
+    private readonly string _runtimeTemp;
 
-    private HostProcess(Process proc, string gwDb) { _proc = proc; _gwDb = gwDb; }
-
-    public static async Task<HostProcess> StartAsync(ITestOutputHelper o, string springConfig, bool expectListening)
+    private HostProcess(Process proc, string gwDb, string runtimeTemp)
     {
-        var hostDir = ResolveHostBinDir();
+        _proc = proc;
+        _gwDb = gwDb;
+        _runtimeTemp = runtimeTemp;
+    }
+
+    public static async Task<HostProcess> StartAsync(
+        ITestOutputHelper o,
+        string? springConfig,
+        bool expectListening,
+        bool concurrentServices = false,
+        bool enableBatchWorker = false)
+    {
+        var explicitHostDirectory = Environment.GetEnvironmentVariable("NEXAONE_TEST_HOST_BIN");
+        var hostDir = ResolveHostBinDir(explicitHostDirectory, AppContext.BaseDirectory);
+        if (string.IsNullOrWhiteSpace(explicitHostDirectory))
+            ValidateCurrentTestHostOutput(hostDir);
         var dll = Path.Combine(hostDir, "NexaOne.Server.dll");
         File.Exists(dll).Should().BeTrue($"호스트가 빌드돼 있어야 한다: {dll} (없으면 `dotnet build` 후 재시도)");
 
-        var gwDb = Path.Combine(Path.GetTempPath(), $"nexaone-boot-gw-{Guid.NewGuid():N}.db");
+        var runtimeTemp = Path.Combine(Path.GetTempPath(), $"nexaone-host-smoke-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(runtimeTemp);
+        var gwDb = Path.Combine(runtimeTemp, "gateway.db");
         var psi = new ProcessStartInfo("dotnet")
         {
             WorkingDirectory = hostDir,
@@ -262,16 +357,22 @@ internal sealed class HostProcess : IDisposable
         psi.ArgumentList.Add("http://127.0.0.1:0");   // 임의 빈 포트 — stdout의 "Now listening on"에서 실제 포트 파싱
         psi.Environment["ASPNETCORE_ENVIRONMENT"] = "Development";
         psi.Environment["Server__Modules__Enabled"] = "true";
-        psi.Environment["Server__SpringConfig"] = springConfig;
+        if (!string.IsNullOrWhiteSpace(springConfig))
+            psi.Environment["Server__SpringConfig"] = springConfig;
         psi.Environment["Database__Provider"] = "Sqlite";
         psi.Environment["ConnectionStrings__NexaOne"] = $"Data Source={gwDb};Foreign Keys=False";
         psi.Environment["Jwt__SecretKey"] = Secret;
         psi.Environment["Jwt__Issuer"] = Issuer;
         psi.Environment["Jwt__Audience"] = Issuer;
         psi.Environment["RateLimiting__Enabled"] = "false";
+        psi.Environment["Host__ServicesStartConcurrently"] = concurrentServices ? "true" : "false";
+        psi.Environment["Host__ServicesStopConcurrently"] = concurrentServices ? "true" : "false";
+        psi.Environment["Worker__Sys__BatchProcess__Enabled"] = enableBatchWorker ? "true" : "false";
+        psi.Environment["TMP"] = runtimeTemp;
+        psi.Environment["TEMP"] = runtimeTemp;
 
         var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        var hp = new HostProcess(proc, gwDb);
+        var hp = new HostProcess(proc, gwDb, runtimeTemp);
         var listenTcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
         var portRegex = new Regex(@"Now listening on:\s*https?://[\d.]+:(\d+)", RegexOptions.IgnoreCase);
 
@@ -316,21 +417,75 @@ internal sealed class HostProcess : IDisposable
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    private static string ResolveHostBinDir()
+    internal static string ResolveHostBinDir(
+        string? explicitHostDirectory,
+        string currentTestOutputDirectory)
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "NexaOne.sln"))) dir = dir.Parent;
-        if (dir is null)
-            throw new InvalidOperationException("리포 루트(NexaOne.sln) 미발견 — 호스트 bin 해석 실패.");
-        var sep = Path.DirectorySeparatorChar;
-        var config = AppContext.BaseDirectory.Contains($"{sep}Release{sep}") ? "Release" : "Debug";
-        return Path.Combine(dir.FullName, "src", "00.Main", "NexaOne.Server", "bin", config, "net8.0");
+        if (!string.IsNullOrWhiteSpace(explicitHostDirectory))
+            return Path.GetFullPath(explicitHostDirectory);
+
+        if (string.IsNullOrWhiteSpace(currentTestOutputDirectory))
+            throw new InvalidOperationException("현재 ServerTests 출력 경로가 비어 있습니다.");
+
+        return Path.GetFullPath(currentTestOutputDirectory);
     }
+
+    internal static void ValidateCurrentTestHostOutput(string hostDir)
+    {
+        var hostDll = Path.GetFullPath(Path.Combine(hostDir, "NexaOne.Server.dll"));
+        var loadedHostDll = Path.GetFullPath(typeof(Program).Assembly.Location);
+        if (!string.Equals(hostDll, loadedHostDll, PathComparison))
+        {
+            throw new InvalidOperationException(
+                $"Host smoke would not launch the Server assembly loaded by this test run. "
+                + $"expected={loadedHostDll}, selected={hostDll}");
+        }
+
+        var requiredHostFiles = new[]
+        {
+            "NexaOne.Server.deps.json",
+            "NexaOne.Server.runtimeconfig.json",
+            Path.Combine("config", "app.xml"),
+            Path.Combine("config", "host", "server.sqlite.xml"),
+        };
+        foreach (var relativePath in requiredHostFiles)
+        {
+            var path = Path.Combine(hostDir, relativePath);
+            if (!File.Exists(path))
+                throw new FileNotFoundException($"Current host-smoke output is incomplete: {path}", path);
+        }
+
+        var moduleNames = new[]
+        {
+            "NexaOne.MDM", "NexaOne.EST", "NexaOne.FDC", "NexaOne.IVT", "NexaOne.RMS",
+            "NexaOne.QMS", "NexaOne.EMS", "NexaOne.POM", "NexaOne.SHP", "NexaOne.SYS",
+        };
+        foreach (var moduleName in moduleNames)
+        {
+            var currentReference = Path.Combine(hostDir, moduleName + ".dll");
+            var plugin = Path.Combine(hostDir, "Modules", moduleName + ".dll");
+            if (!File.Exists(currentReference) || !File.Exists(plugin))
+            {
+                throw new FileNotFoundException(
+                    $"Current host-smoke plugin pair is incomplete: reference={currentReference}, plugin={plugin}");
+            }
+
+            if (!File.ReadAllBytes(currentReference).AsSpan().SequenceEqual(File.ReadAllBytes(plugin)))
+            {
+                throw new InvalidOperationException(
+                    $"Host-smoke plugin is stale relative to this test build: {moduleName}");
+            }
+        }
+    }
+
+    private static StringComparison PathComparison =>
+        OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
     public void Dispose()
     {
         try { if (!_proc.HasExited) { _proc.Kill(entireProcessTree: true); _proc.WaitForExit(5000); } } catch { }
         try { _proc.Dispose(); } catch { }
         try { if (File.Exists(_gwDb)) File.Delete(_gwDb); } catch { }
+        try { if (Directory.Exists(_runtimeTemp)) Directory.Delete(_runtimeTemp, recursive: true); } catch { }
     }
 }

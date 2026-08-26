@@ -16,7 +16,7 @@ namespace NexaOne.ServerTests;
 /// SYS_ROLE / SYS_MENU / SYS_USER 를 SqliteConnection 직접 INSERT로 시드한 뒤 명명 read 쿼리
 /// (ListRoles / GetRole / ListMenus / ListUsers) 라운드트립을 검증한다. + 미인증 401.
 /// 보안 가드(S7): 사용자 목록 응답에 PASSWORD_HASH(및 자격증명/잠금 컬럼)가 부재함을 단언한다 —
-/// 공개 게이트웨이는 비민감 컬럼만 노출하고, 자격증명은 격리 인증 경로(db/queries-auth)가 단독 소유한다.</summary>
+/// SYS 조회는 쿼리별 최소 권한을 요구하고, 자격증명은 격리 인증 경로(db/queries-auth)가 단독 소유한다.</summary>
 public sealed class GatewaySysQueryTests : IClassFixture<GatewaySysQueryTests.SysFactory>
 {
     private const string Secret = "s7-sys-gateway-e2e-jwt-secret-key-at-least-32-bytes!";
@@ -131,7 +131,7 @@ public sealed class GatewaySysQueryTests : IClassFixture<GatewaySysQueryTests.Sy
         SeedRole(r1, "역할1", "sys:manage|mdm:manage");
         SeedRole(r2, "역할2", "");
 
-        var rows = await Query("SYS.ListRoles", new());
+        var rows = await Query("SYS.ListRoles", new(), "sys:manage");
         var ids = rows.Select(r => r["ROLE_ID"].ToString()).ToList();
         ids.Should().Contain(new[] { r1, r2 });
         rows.Should().OnlyContain(r => r.ContainsKey("PERMISSIONS"));
@@ -144,7 +144,7 @@ public sealed class GatewaySysQueryTests : IClassFixture<GatewaySysQueryTests.Sy
         var rid = "R_" + Suffix();
         SeedRole(rid, "단일역할", "qms:manage");
 
-        var rows = await Query("SYS.GetRole", new() { ["roleId"] = rid });
+        var rows = await Query("SYS.GetRole", new() { ["roleId"] = rid }, "sys:manage");
         rows.Should().ContainSingle("roleId 필터는 1건만 반환");
         rows[0]["ROLE_NAME"].ToString().Should().Be("단일역할");
         rows[0]["PERMISSIONS"].ToString().Should().Be("qms:manage");
@@ -159,7 +159,7 @@ public sealed class GatewaySysQueryTests : IClassFixture<GatewaySysQueryTests.Sy
         SeedMenu(valid, "유효메뉴", "Valid");
         SeedMenu(invalid, "무효메뉴", "Invalid");
 
-        var rows = await Query("SYS.ListMenus", new());
+        var rows = await Query("SYS.ListMenus", new(), "sys:read");
         var ids = rows.Select(r => r["MENU_ID"].ToString()).ToList();
         ids.Should().Contain(valid, "Valid 메뉴는 반환돼야 한다");
         ids.Should().NotContain(invalid, "Invalid 메뉴는 제외돼야 한다");
@@ -175,7 +175,7 @@ public sealed class GatewaySysQueryTests : IClassFixture<GatewaySysQueryTests.Sy
         SeedUser(u1, role);
         SeedUser(deleted, role, isDeleted: true);
 
-        var rows = await Query("SYS.ListUsers", new() { ["roleId"] = role });
+        var rows = await Query("SYS.ListUsers", new() { ["roleId"] = role }, "sys:user.manage");
         var ids = rows.Select(r => r["USER_ID"].ToString()).ToList();
         ids.Should().Contain(u1);
         ids.Should().NotContain(deleted, "삭제 사용자는 제외돼야 한다");
@@ -189,7 +189,7 @@ public sealed class GatewaySysQueryTests : IClassFixture<GatewaySysQueryTests.Sy
         var uid = "U_" + Suffix();
         SeedUser(uid, role);
 
-        var rows = await Query("SYS.ListUsers", new() { ["roleId"] = role });
+        var rows = await Query("SYS.ListUsers", new() { ["roleId"] = role }, "sys:user.manage");
         rows.Should().NotBeEmpty();
         var user = rows.Single(r => r["USER_ID"].ToString() == uid);
 
@@ -207,22 +207,42 @@ public sealed class GatewaySysQueryTests : IClassFixture<GatewaySysQueryTests.Sy
     }
 
     [Theory]
-    [InlineData("SYS.NoticeList")]
-    [InlineData("SYS.MessageClassList")]
-    [InlineData("SYS.MessageList")]
-    [InlineData("SYS.LanguageClassList")]
-    [InlineData("SYS.I18nList")]
-    [InlineData("SYS.RuleList")]
-    public async Task V047_master_queries_execute_on_sqlite(string queryId)
+    [InlineData("SYS.NoticeList", null)]
+    [InlineData("SYS.MessageClassList", "sys:read")]
+    [InlineData("SYS.MessageList", "sys:read")]
+    [InlineData("SYS.LanguageClassList", "sys:read")]
+    [InlineData("SYS.I18nList", "sys:read")]
+    [InlineData("SYS.RuleList", "sys:manage")]
+    public async Task V047_master_queries_execute_on_sqlite(string queryId, string? permission)
     {
         EnsureSchemaReady();
-        var rows = await Query(queryId, new());
+        var rows = await Query(queryId, new(), permission is null ? Array.Empty<string>() : new[] { permission });
         rows.Should().NotBeNull("V047 신설 시스템 마스터 쿼리는 SQLite 스키마에서 유효 실행돼야 한다");
     }
 
-    private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)
+    [Theory]
+    [InlineData("SYS.ListUsers", "sys:user.manage")]
+    [InlineData("SYS.RequestLogList", "sys:manage")]
+    public async Task Sensitive_read_requires_its_management_permission(string queryId, string requiredPermission)
     {
-        var res = await AuthedClient().PostAsJsonAsync($"/api/v1/query/{queryId}", p);
+        EnsureSchemaReady();
+        var parameters = new Dictionary<string, object>();
+
+        var denied = await AuthedClient("fdc:read")
+            .PostAsJsonAsync($"/api/v1/query/{queryId}", parameters);
+        denied.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            $"fdc:read만으로 민감 SYS 조회 {queryId}를 실행할 수 없어야 한다");
+
+        var allowed = await AuthedClient(requiredPermission)
+            .PostAsJsonAsync($"/api/v1/query/{queryId}", parameters);
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK,
+            $"{requiredPermission} 보유자는 {queryId}를 조회할 수 있어야 한다");
+    }
+
+    private async Task<List<Dictionary<string, object>>> Query(
+        string queryId, Dictionary<string, object> p, params string[] permissions)
+    {
+        var res = await AuthedClient(permissions).PostAsJsonAsync($"/api/v1/query/{queryId}", p);
         res.StatusCode.Should().Be(HttpStatusCode.OK, $"{queryId} 는 200이어야 한다");
         var rows = await res.Content.ReadFromJsonAsync<List<Dictionary<string, object>>>();
         rows.Should().NotBeNull();

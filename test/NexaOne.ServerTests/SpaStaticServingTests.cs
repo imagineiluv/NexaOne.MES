@@ -41,7 +41,8 @@ public sealed class SpaStaticServingTests : IClassFixture<SpaStaticServingTests.
             // index.html 더미를 호스트 빌드 '전에' 깐다. 호스트 빌드 시점에 폴더가 실존해야 ASP.NET이 WebRootPath와
             // WebRootFileProvider를 그 디렉터리로 고정하므로(폴더 부재면 null이 되어 정적 서빙/폴백이 깨진다),
             // CreateHost가 아니라 여기(ConfigureWebHost)에서 선제 생성하는 것이 핵심이다. npm 빌드 의존 제거 + 병렬 무관.
-            var serverDir = ResolveServerProjectDir();
+            var serverDir = RepositorySource.GetDirectory(
+                "src", "00.Main", "NexaOne.Server");
             var webRoot = Path.Combine(serverDir, "wwwroot");
             var indexPath = Path.Combine(webRoot, "spa", "index.html");
             EnsureDummyIndex(indexPath);
@@ -57,18 +58,6 @@ public sealed class SpaStaticServingTests : IClassFixture<SpaStaticServingTests.
             Directory.CreateDirectory(Path.GetDirectoryName(indexPath)!);
             try { File.WriteAllText(indexPath, DummyIndexHtml); }
             catch (IOException) when (File.Exists(indexPath)) { /* 병렬 클래스가 먼저 생성 — 정상 */ }
-        }
-
-        // 테스트 어셈블리 출력(bin/Debug/net8.0)에서 위로 올라가 리포 루트를 찾고 NexaOne.Server 프로젝트 경로를 만든다.
-        // (MvcTestingAppManifest에 기대지 않고 직접 해석 — content root를 우리가 고정하므로 폴더 실존을 보장할 수 있다.)
-        private static string ResolveServerProjectDir()
-        {
-            var dir = new DirectoryInfo(AppContext.BaseDirectory);
-            while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "NexaOne.sln")))
-                dir = dir.Parent;
-            if (dir is null)
-                throw new InvalidOperationException("리포 루트(NexaOne.sln)를 찾지 못했습니다 — SPA 정적 서빙 테스트 web root 해석 실패.");
-            return Path.Combine(dir.FullName, "src", "00.Main", "NexaOne.Server");
         }
 
         protected override void Dispose(bool disposing)
@@ -102,6 +91,20 @@ public sealed class SpaStaticServingTests : IClassFixture<SpaStaticServingTests.
         res.StatusCode.Should().Be(HttpStatusCode.OK, "파일이 아닌 /spa/* 경로는 MapFallbackToFile로 index.html을 반환해야 한다");
         var body = await res.Content.ReadAsStringAsync();
         body.Should().Contain("id=\"root\"", "SPA 셸(index.html, React 마운트 지점)이 반환돼야 한다 — 더미·실 npm 빌드 공통 마커(빌드 상태 비의존)");
+    }
+
+    [Theory]
+    [InlineData("/Designer")]
+    [InlineData("/Designer/")]
+    [InlineData("/Designer/DEMO_DESIGNER")]
+    public async Task Designer_alias_serves_same_portal_shell(string path)
+    {
+        var client = _factory.CreateClient();
+        var res = await client.GetAsync(path);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK,
+            "Designer 공개 경로와 하위 화면 경로는 /spa/index.html 셸로 폴백돼야 한다");
+        (await res.Content.ReadAsStringAsync()).Should().Contain("id=\"root\"");
     }
 
     [Fact]

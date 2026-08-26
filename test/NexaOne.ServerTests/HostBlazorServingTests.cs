@@ -76,6 +76,44 @@ public sealed class HostBlazorServingTests : IClassFixture<HostBlazorServingTest
     }
 
     [Fact]
+    public async Task Root_redirects_to_mes_login()
+    {
+        var client = _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var res = await client.GetAsync("/");
+
+        res.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        res.Headers.Location.Should().Be(new Uri("/login", UriKind.Relative));
+    }
+
+    [Theory]
+    [InlineData("/Mobile")]
+    [InlineData("/Mobile/DEMO_MOBILE")]
+    [InlineData("/POP")]
+    [InlineData("/POP/DEMO_POP")]
+    public async Task Operator_channel_routes_serve_blazor_host_document(string path)
+    {
+        var client = _factory.CreateClient();
+        var res = await client.GetAsync(path);
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK,
+            "Mobile/POP 목록과 상세는 React 폴백이 아닌 호스트 Blazor 라우트여야 한다");
+        var body = await res.Content.ReadAsStringAsync();
+        body.Should().Contain(BlazorFrameworkScript);
+        body.Should().NotContain("id=\"root\"", "작업 채널은 Portal SPA 셸이 아니다");
+    }
+
+    [Fact]
+    public async Task Blazor_framework_asset_is_served_by_host()
+    {
+        var client = _factory.CreateClient();
+        var res = await client.GetAsync("/_framework/blazor.web.js");
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK,
+            "공개 Server가 Blazor 정적 자산을 직접 제공해야 Vite 프록시 없이 5173에서 동작한다");
+        res.Content.Headers.ContentType!.MediaType.Should().Be("text/javascript");
+    }
+
+    [Fact]
     public async Task Meta_route_serves_blazor_host_document()
     {
         // /meta/{uiId}는 RCL(NexaOne.Web.Components)의 Blazor 페이지 → 호스트가 같은 Blazor 앱으로 서빙해야 한다.

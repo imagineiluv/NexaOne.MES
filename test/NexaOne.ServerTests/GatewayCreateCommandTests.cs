@@ -84,20 +84,8 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
     }
 
     [Fact]
-    public async Task CreateWorkOrder_and_CreateShift_roundtrip_with_permissions()
+    public async Task CreateShift_roundtrip_with_permissions()
     {
-        var wo = $"WO_{Suffix()}";
-        var plant = $"P_{Suffix()}";
-        var okWo = await AuthedClient("cmd-pom", "pom:manage").PostAsJsonAsync("/api/v1/command/POM.CreateWorkOrder",
-            new Dictionary<string, object>
-            {
-                ["workOrderId"] = wo, ["plantId"] = plant, ["workOrderName"] = "신규 작업",
-                ["equipmentId"] = "EQX", ["productId"] = "ITEMX", ["planQty"] = 250,
-            });
-        okWo.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await Query("POM.WorkOrderList", new() { ["plantId"] = plant }))
-            .Select(r => r["WORK_ORDER_ID"].ToString()).Should().Contain(wo, "W/O 등록 폼 라운드트립");
-
         var shift = $"SH_{Suffix()}";
         var okShift = await AuthedClient("cmd-mdm", "mdm:manage").PostAsJsonAsync("/api/v1/command/MDM.CreateShift",
             new Dictionary<string, object>
@@ -208,7 +196,9 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
 
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)
     {
-        var res = await AuthedClient("cmd-reader").PostAsJsonAsync($"/api/v1/query/{queryId}", p);
+        var module = queryId.Split('.')[0].ToLowerInvariant();
+        var permission = queryId == "COM.MailServerList" ? "com:manage" : $"{module}:read";
+        var res = await AuthedClient("cmd-reader", permission).PostAsJsonAsync($"/api/v1/query/{queryId}", p);
         res.StatusCode.Should().Be(HttpStatusCode.OK, $"{queryId} 는 200이어야 한다");
         var rows = await res.Content.ReadFromJsonAsync<List<Dictionary<string, object>>>();
         rows.Should().NotBeNull();

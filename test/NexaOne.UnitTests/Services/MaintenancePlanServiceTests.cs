@@ -20,6 +20,17 @@ public sealed class MaintenancePlanServiceTests
         Mock<ISparePartRepository> partRepo) =>
         new(planRepo.Object, partRepo.Object);
 
+    private static SparePartAdjustmentContext Adjustment(string key, string? transactionType = null) => new(
+        MaintenanceCommandContext.Create(
+            "maintenance-login", key, "MES", "PANEL-01", "corr-parts").Value,
+        transactionType,
+        WorkOrderId: "WO001",
+        EquipmentId: "EQ001",
+        Remark: "bearing replacement");
+
+    private static MaintenanceCommandContext PlanCommand(string key, string actor = "maintenance-login") =>
+        MaintenanceCommandContext.Create(actor, key, "POP", "PANEL-01", "corr-plan").Value;
+
     // ── CreatePlanAsync ───────────────────────────────────────────────────────
 
     [Fact]
@@ -27,14 +38,39 @@ public sealed class MaintenancePlanServiceTests
     {
         var planRepo = new Mock<IMaintenancePlanRepository>();
         var partRepo = new Mock<ISparePartRepository>();
-        planRepo.Setup(r => r.AddAsync(It.IsAny<MaintenancePlan>(), default)).Returns(Task.CompletedTask);
+        planRepo.Setup(r => r.AddWithActionAsync(
+            It.IsAny<MaintenancePlan>(), It.IsAny<MaintenancePlanAction>(), default)).ReturnsAsync(true);
 
         var result = await BuildService(planRepo, partRepo)
-            .CreatePlanAsync("MP001", "월간 PM", "EQ001", "PM", "Monthly", Scheduled, 4m, "tech01");
+            .CreatePlanAsync("MP001", "월간 PM", "EQ001", "PM", "Monthly", Scheduled, 4m,
+                "tech01", PlanCommand("plan-create"));
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Status.Should().Be(MaintenancePlanStatus.Planned);
-        planRepo.Verify(r => r.AddAsync(It.IsAny<MaintenancePlan>(), default), Times.Once);
+        planRepo.Verify(r => r.AddWithActionAsync(
+            It.IsAny<MaintenancePlan>(),
+            It.Is<MaintenancePlanAction>(x => x.ActorId == "maintenance-login"
+                && x.IdempotencyKey == "plan-create"
+                && x.ClientChannel == "POP"
+                && x.DeviceId == "PANEL-01"
+                && x.CorrelationId == "corr-plan"
+                && x.ActionType == "Create"
+                && x.FromStatus == null
+                && x.ToStatus == "Planned"), default), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("BM", "BM")]
+    [InlineData("CM", "BM")]
+    public void MaintenancePlan_uses_BM_as_the_canonical_breakdown_term(
+        string input,
+        string expected)
+    {
+        var result = MaintenancePlan.Create(
+            "MP-BM", "고장 보전", "EQ001", input, "Monthly", Scheduled, 2m, "tech01");
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.PlanType.Should().Be(expected);
     }
 
     [Fact]
@@ -44,10 +80,95 @@ public sealed class MaintenancePlanServiceTests
         var partRepo = new Mock<ISparePartRepository>();
 
         var result = await BuildService(planRepo, partRepo)
-            .CreatePlanAsync("MP001", "월간 PM", "EQ001", "INVALID", "Monthly", Scheduled, 4m, "tech01");
+            .CreatePlanAsync("MP001", "월간 PM", "EQ001", "INVALID", "Monthly", Scheduled, 4m,
+                "tech01", PlanCommand("plan-invalid"));
 
         result.IsFailure.Should().BeTrue();
-        planRepo.Verify(r => r.AddAsync(It.IsAny<MaintenancePlan>(), default), Times.Never);
+        planRepo.Verify(r => r.AddWithActionAsync(
+            It.IsAny<MaintenancePlan>(), It.IsAny<MaintenancePlanAction>(), default), Times.Never);
+    }
+
+    [Fact]
+    public async Task CreatePlan_exact_replay_succeeds_but_changed_payload_conflicts()
+    {
+        var existing = PlannedPlan();
+        var action = new MaintenancePlanAction(
+            "A1", "MP001", "Create", null, "Planned", "maintenance-login",
+            "plan-create-replay", DateTime.UtcNow, "Manual", "POP", "PANEL-01", "corr-plan");
+        var planRepo = new Mock<IMaintenancePlanRepository>();
+        var partRepo = new Mock<ISparePartRepository>();
+        planRepo.Setup(r => r.GetActionByIdempotencyKeyAsync("plan-create-replay", default))
+            .ReturnsAsync(action);
+        planRepo.Setup(r => r.GetByIdAsync("MP001", default)).ReturnsAsync(existing);
+        var service = BuildService(planRepo, partRepo);
+
+        var replay = await service.CreatePlanAsync(
+            "MP001", "월간 PM", "EQ001", "PM", "Monthly", Scheduled, 4m, "tech01",
+            PlanCommand("plan-create-replay"));
+        var conflict = await service.CreatePlanAsync(
+            "MP001", "변경된 계획", "EQ001", "PM", "Monthly", Scheduled, 4m, "tech01",
+            PlanCommand("plan-create-replay"));
+
+        replay.IsSuccess.Should().BeTrue();
+        conflict.IsFailure.Should().BeTrue();
+        conflict.Error.Code.Should().Be("EMS.MaintenancePlan.IdempotencyConflict");
+        planRepo.Verify(r => r.AddWithActionAsync(
+            It.IsAny<MaintenancePlan>(), It.IsAny<MaintenancePlanAction>(), default), Times.Never);
+    }
+
+    [Fact]
+    public async Task StartPlan_lost_status_guard_returns_concurrent_write()
+    {
+        var plan = PlannedPlan();
+        var planRepo = new Mock<IMaintenancePlanRepository>();
+        var partRepo = new Mock<ISparePartRepository>();
+        planRepo.Setup(r => r.GetByIdAsync("MP001", default)).ReturnsAsync(plan);
+        planRepo.Setup(r => r.UpdateWithActionAsync(
+            plan, It.IsAny<MaintenancePlanAction>(), default)).ReturnsAsync(false);
+
+        var result = await BuildService(planRepo, partRepo)
+            .StartPlanAsync("MP001", PlanCommand("plan-start-race"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("EMS.MaintenancePlan.ConcurrentWrite");
+    }
+
+    [Fact]
+    public async Task StartPlan_exact_replay_does_not_load_or_write_the_plan()
+    {
+        var planRepo = new Mock<IMaintenancePlanRepository>();
+        var partRepo = new Mock<ISparePartRepository>();
+        planRepo.Setup(r => r.GetActionByIdempotencyKeyAsync("plan-start-replay", default))
+            .ReturnsAsync(new MaintenancePlanAction(
+                "A1", "MP001", "Start", "Planned", "InProgress", "maintenance-login",
+                "plan-start-replay", DateTime.UtcNow, "Manual", "POP", "PANEL-01", "corr-plan"));
+
+        var result = await BuildService(planRepo, partRepo)
+            .StartPlanAsync("MP001", PlanCommand("plan-start-replay"));
+
+        result.IsSuccess.Should().BeTrue();
+        planRepo.Verify(r => r.GetByIdAsync(It.IsAny<string>(), default), Times.Never);
+        planRepo.Verify(r => r.UpdateWithActionAsync(
+            It.IsAny<MaintenancePlan>(), It.IsAny<MaintenancePlanAction>(), default), Times.Never);
+    }
+
+    [Fact]
+    public async Task StartPlan_rejects_a_work_order_action_that_reused_the_same_global_key()
+    {
+        var planRepo = new Mock<IMaintenancePlanRepository>();
+        var partRepo = new Mock<ISparePartRepository>();
+        planRepo.Setup(r => r.GetActionByIdempotencyKeyAsync("shared-start-key", default))
+            .ReturnsAsync(new MaintenancePlanAction(
+                "A1", "MP001", "Start", "Issued", "InProgress", "maintenance-login",
+                "shared-start-key", DateTime.UtcNow, "Manual", "POP", "PANEL-01", "corr-plan",
+                WorkOrderId: "WO001"));
+
+        var result = await BuildService(planRepo, partRepo)
+            .StartPlanAsync("MP001", PlanCommand("shared-start-key"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("EMS.MaintenancePlan.IdempotencyConflict");
+        planRepo.Verify(r => r.GetByIdAsync(It.IsAny<string>(), default), Times.Never);
     }
 
     // ── StartPlanAsync ────────────────────────────────────────────────────────
@@ -59,13 +180,19 @@ public sealed class MaintenancePlanServiceTests
         var planRepo = new Mock<IMaintenancePlanRepository>();
         var partRepo = new Mock<ISparePartRepository>();
         planRepo.Setup(r => r.GetByIdAsync("MP001", default)).ReturnsAsync(plan);
-        planRepo.Setup(r => r.UpdateAsync(plan, default)).Returns(Task.CompletedTask);
+        planRepo.Setup(r => r.UpdateWithActionAsync(
+            plan, It.IsAny<MaintenancePlanAction>(), default)).ReturnsAsync(true);
 
-        var result = await BuildService(planRepo, partRepo).StartPlanAsync("MP001");
+        var result = await BuildService(planRepo, partRepo)
+            .StartPlanAsync("MP001", PlanCommand("plan-start"));
 
         result.IsSuccess.Should().BeTrue();
         plan.Status.Should().Be(MaintenancePlanStatus.InProgress);
-        planRepo.Verify(r => r.UpdateAsync(plan, default), Times.Once);
+        planRepo.Verify(r => r.UpdateWithActionAsync(
+            plan,
+            It.Is<MaintenancePlanAction>(x => x.ActionType == "Start"
+                && x.FromStatus == "Planned" && x.ToStatus == "InProgress"
+                && x.ActorId == "maintenance-login"), default), Times.Once);
     }
 
     [Fact]
@@ -75,7 +202,8 @@ public sealed class MaintenancePlanServiceTests
         var partRepo = new Mock<ISparePartRepository>();
         planRepo.Setup(r => r.GetByIdAsync("MP999", default)).ReturnsAsync((MaintenancePlan?)null);
 
-        var result = await BuildService(planRepo, partRepo).StartPlanAsync("MP999");
+        var result = await BuildService(planRepo, partRepo)
+            .StartPlanAsync("MP999", PlanCommand("plan-start-missing"));
 
         result.IsFailure.Should().BeTrue();
     }
@@ -90,9 +218,11 @@ public sealed class MaintenancePlanServiceTests
         var planRepo = new Mock<IMaintenancePlanRepository>();
         var partRepo = new Mock<ISparePartRepository>();
         planRepo.Setup(r => r.GetByIdAsync("MP001", default)).ReturnsAsync(plan);
-        planRepo.Setup(r => r.UpdateAsync(plan, default)).Returns(Task.CompletedTask);
+        planRepo.Setup(r => r.UpdateWithActionAsync(
+            plan, It.IsAny<MaintenancePlanAction>(), default)).ReturnsAsync(true);
 
-        var result = await BuildService(planRepo, partRepo).CompletePlanAsync("MP001");
+        var result = await BuildService(planRepo, partRepo)
+            .CompletePlanAsync("MP001", PlanCommand("plan-complete"));
 
         result.IsSuccess.Should().BeTrue();
         plan.Status.Should().Be(MaintenancePlanStatus.Completed);
@@ -106,10 +236,12 @@ public sealed class MaintenancePlanServiceTests
         var partRepo = new Mock<ISparePartRepository>();
         planRepo.Setup(r => r.GetByIdAsync("MP001", default)).ReturnsAsync(plan);
 
-        var result = await BuildService(planRepo, partRepo).CompletePlanAsync("MP001");
+        var result = await BuildService(planRepo, partRepo)
+            .CompletePlanAsync("MP001", PlanCommand("plan-complete-invalid"));
 
         result.IsFailure.Should().BeTrue();
-        planRepo.Verify(r => r.UpdateAsync(It.IsAny<MaintenancePlan>(), default), Times.Never);
+        planRepo.Verify(r => r.UpdateWithActionAsync(
+            It.IsAny<MaintenancePlan>(), It.IsAny<MaintenancePlanAction>(), default), Times.Never);
     }
 
     // ── CancelPlanAsync ───────────────────────────────────────────────────────
@@ -121,9 +253,11 @@ public sealed class MaintenancePlanServiceTests
         var planRepo = new Mock<IMaintenancePlanRepository>();
         var partRepo = new Mock<ISparePartRepository>();
         planRepo.Setup(r => r.GetByIdAsync("MP001", default)).ReturnsAsync(plan);
-        planRepo.Setup(r => r.UpdateAsync(plan, default)).Returns(Task.CompletedTask);
+        planRepo.Setup(r => r.UpdateWithActionAsync(
+            plan, It.IsAny<MaintenancePlanAction>(), default)).ReturnsAsync(true);
 
-        var result = await BuildService(planRepo, partRepo).CancelPlanAsync("MP001");
+        var result = await BuildService(planRepo, partRepo)
+            .CancelPlanAsync("MP001", PlanCommand("plan-cancel"));
 
         result.IsSuccess.Should().BeTrue();
         plan.Status.Should().Be(MaintenancePlanStatus.Cancelled);
@@ -136,14 +270,17 @@ public sealed class MaintenancePlanServiceTests
     {
         var planRepo = new Mock<IMaintenancePlanRepository>();
         var partRepo = new Mock<ISparePartRepository>();
-        partRepo.Setup(r => r.AddAsync(It.IsAny<SparePart>(), default)).Returns(Task.CompletedTask);
+        partRepo.Setup(r => r.AddAsync(
+            It.IsAny<SparePart>(), "maintenance-login", default)).Returns(Task.CompletedTask);
 
         var result = await BuildService(planRepo, partRepo)
-            .CreatePartAsync("SP001", "오일 필터", "P-001", "엔진 오일 필터", "EA", 10m, 3m, 50m, "A-01");
+            .CreatePartAsync("SP001", "오일 필터", "P-001", "엔진 오일 필터", "EA",
+                10m, 3m, 50m, "A-01", null, "maintenance-login");
 
         result.IsSuccess.Should().BeTrue();
         result.Value.CurrentStock.Should().Be(10m);
-        partRepo.Verify(r => r.AddAsync(It.IsAny<SparePart>(), default), Times.Once);
+        partRepo.Verify(r => r.AddAsync(
+            It.IsAny<SparePart>(), "maintenance-login", default), Times.Once);
     }
 
     // ── AdjustStockAsync ──────────────────────────────────────────────────────
@@ -155,12 +292,121 @@ public sealed class MaintenancePlanServiceTests
         var planRepo = new Mock<IMaintenancePlanRepository>();
         var partRepo = new Mock<ISparePartRepository>();
         partRepo.Setup(r => r.GetByIdAsync("SP001", default)).ReturnsAsync(part);
-        partRepo.Setup(r => r.UpdateAsync(part, default)).Returns(Task.CompletedTask);
+        partRepo.Setup(r => r.PersistAdjustmentAsync(
+            It.IsAny<SparePartStockTransaction>(), default)).ReturnsAsync(true);
 
-        var result = await BuildService(planRepo, partRepo).AdjustStockAsync("SP001", 5m);
+        var result = await BuildService(planRepo, partRepo).AdjustStockAsync(
+            "SP001", 5m, Adjustment("idem-parts-in"));
 
         result.IsSuccess.Should().BeTrue();
         part.CurrentStock.Should().Be(15m);
+        partRepo.Verify(r => r.PersistAdjustmentAsync(
+            It.Is<SparePartStockTransaction>(x => x.ActorId == "maintenance-login"
+                && x.IdempotencyKey == "idem-parts-in"
+                && x.TransactionType == "Incoming"
+                && x.BalanceBefore == 10m
+                && x.BalanceAfter == 15m
+                && x.Quantity == 5m), default), Times.Once);
+    }
+
+    [Fact]
+    public async Task AdjustStock_usage_with_equipment_builds_authenticated_usage_ledger()
+    {
+        var part = TestPart();
+        var planRepo = new Mock<IMaintenancePlanRepository>();
+        var partRepo = new Mock<ISparePartRepository>();
+        partRepo.Setup(r => r.GetByIdAsync("SP001", default)).ReturnsAsync(part);
+        partRepo.Setup(r => r.IsUsageScopeValidAsync(
+                "SP001", "EQ001", "BOM001", "WO001", default))
+            .ReturnsAsync(true);
+        partRepo.Setup(r => r.PersistAdjustmentAsync(
+            It.IsAny<SparePartStockTransaction>(), default)).ReturnsAsync(true);
+        var context = Adjustment("idem-parts-usage", "Usage") with { BomItemId = "BOM001" };
+
+        var result = await BuildService(planRepo, partRepo).AdjustStockAsync(
+            "SP001", -2m, context);
+
+        result.IsSuccess.Should().BeTrue();
+        partRepo.Verify(r => r.PersistAdjustmentAsync(
+            It.Is<SparePartStockTransaction>(x => x.Usage != null
+                && x.Usage.InoutId == x.InoutId
+                && x.Usage.PartId == "SP001"
+                && x.Usage.BomItemId == "BOM001"
+                && x.Usage.EquipmentId == "EQ001"
+                && x.Usage.WorkOrderId == "WO001"
+                && x.Usage.Quantity == 2m
+                && x.Usage.UsedBy == "maintenance-login"), default), Times.Once);
+    }
+
+    [Fact]
+    public async Task AdjustStock_usage_with_invalid_equipment_bom_or_work_order_is_rejected()
+    {
+        var part = TestPart();
+        var planRepo = new Mock<IMaintenancePlanRepository>();
+        var partRepo = new Mock<ISparePartRepository>();
+        partRepo.Setup(r => r.GetByIdAsync("SP001", default)).ReturnsAsync(part);
+        partRepo.Setup(r => r.IsUsageScopeValidAsync(
+                "SP001", "EQ001", "BOM-WRONG", "WO001", default))
+            .ReturnsAsync(false);
+        var context = Adjustment("idem-parts-invalid-scope", "Usage") with
+        {
+            BomItemId = "BOM-WRONG"
+        };
+
+        var result = await BuildService(planRepo, partRepo).AdjustStockAsync(
+            "SP001", -2m, context);
+
+        result.IsFailure.Should().BeTrue();
+        part.CurrentStock.Should().Be(10m, "a rejected usage must not mutate the loaded aggregate");
+        partRepo.Verify(r => r.PersistAdjustmentAsync(
+            It.IsAny<SparePartStockTransaction>(), default), Times.Never);
+    }
+
+    [Fact]
+    public async Task AdjustStock_usage_without_equipment_keeps_legacy_stock_ledger_behavior()
+    {
+        var part = TestPart();
+        var planRepo = new Mock<IMaintenancePlanRepository>();
+        var partRepo = new Mock<ISparePartRepository>();
+        partRepo.Setup(r => r.GetByIdAsync("SP001", default)).ReturnsAsync(part);
+        partRepo.Setup(r => r.PersistAdjustmentAsync(
+            It.IsAny<SparePartStockTransaction>(), default)).ReturnsAsync(true);
+        var context = Adjustment("idem-parts-legacy-usage", "Usage") with
+        {
+            EquipmentId = null
+        };
+
+        var result = await BuildService(planRepo, partRepo).AdjustStockAsync(
+            "SP001", -2m, context);
+
+        result.IsSuccess.Should().BeTrue();
+        partRepo.Verify(r => r.IsUsageScopeValidAsync(
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(),
+            It.IsAny<string?>(), default), Times.Never);
+        partRepo.Verify(r => r.PersistAdjustmentAsync(
+            It.Is<SparePartStockTransaction>(x => x.Usage == null
+                && x.TransactionType == "Usage"
+                && x.WorkOrderId == "WO001"), default), Times.Once);
+    }
+
+    [Fact]
+    public async Task AdjustStock_non_usage_with_bom_item_is_rejected_before_persistence()
+    {
+        var part = TestPart();
+        var planRepo = new Mock<IMaintenancePlanRepository>();
+        var partRepo = new Mock<ISparePartRepository>();
+        partRepo.Setup(r => r.GetByIdAsync("SP001", default)).ReturnsAsync(part);
+        var context = Adjustment("idem-parts-incoming-bom", "Incoming") with
+        {
+            BomItemId = "BOM001"
+        };
+
+        var result = await BuildService(planRepo, partRepo).AdjustStockAsync(
+            "SP001", 2m, context);
+
+        result.IsFailure.Should().BeTrue();
+        partRepo.Verify(r => r.PersistAdjustmentAsync(
+            It.IsAny<SparePartStockTransaction>(), default), Times.Never);
     }
 
     [Fact]
@@ -170,7 +416,8 @@ public sealed class MaintenancePlanServiceTests
         var partRepo = new Mock<ISparePartRepository>();
         partRepo.Setup(r => r.GetByIdAsync("SP999", default)).ReturnsAsync((SparePart?)null);
 
-        var result = await BuildService(planRepo, partRepo).AdjustStockAsync("SP999", 5m);
+        var result = await BuildService(planRepo, partRepo).AdjustStockAsync(
+            "SP999", 5m, Adjustment("idem-parts-missing"));
 
         result.IsFailure.Should().BeTrue();
     }
@@ -182,10 +429,39 @@ public sealed class MaintenancePlanServiceTests
         var planRepo = new Mock<IMaintenancePlanRepository>();
         var partRepo = new Mock<ISparePartRepository>();
         partRepo.Setup(r => r.GetByIdAsync("SP001", default)).ReturnsAsync(part);
+        partRepo.Setup(r => r.IsUsageScopeValidAsync(
+                "SP001", "EQ001", null, "WO001", default))
+            .ReturnsAsync(true);
 
-        var result = await BuildService(planRepo, partRepo).AdjustStockAsync("SP001", -100m);
+        var result = await BuildService(planRepo, partRepo).AdjustStockAsync(
+            "SP001", -100m, Adjustment("idem-parts-short", "Usage"));
 
         result.IsFailure.Should().BeTrue();
-        partRepo.Verify(r => r.UpdateAsync(It.IsAny<SparePart>(), default), Times.Never);
+        partRepo.Verify(r => r.PersistAdjustmentAsync(
+            It.IsAny<SparePartStockTransaction>(), default), Times.Never);
+    }
+
+    [Fact]
+    public async Task AdjustStock_same_idempotency_key_returns_success_without_second_write()
+    {
+        var planRepo = new Mock<IMaintenancePlanRepository>();
+        var partRepo = new Mock<ISparePartRepository>();
+        partRepo.Setup(r => r.GetTransactionByIdempotencyKeyAsync("idem-parts-replay", default))
+            .ReturnsAsync(new SparePartStockTransaction(
+                "TX1", "SP001", "Usage", 2m, 10m, 8m,
+                "maintenance-login", DateTime.UtcNow, "idem-parts-replay", "MES",
+                "PANEL-01", "corr-parts", "WO001", "EQ001", "A-01", null,
+                "bearing replacement",
+                new SparePartUsage(
+                    "US1", "TX1", "SP001", null, "EQ001", "WO001", 2m,
+                    "maintenance-login", DateTime.UtcNow, "bearing replacement")));
+
+        var result = await BuildService(planRepo, partRepo).AdjustStockAsync(
+            "SP001", -2m, Adjustment("idem-parts-replay", "Usage"));
+
+        result.IsSuccess.Should().BeTrue();
+        partRepo.Verify(r => r.GetByIdAsync(It.IsAny<string>(), default), Times.Never);
+        partRepo.Verify(r => r.PersistAdjustmentAsync(
+            It.IsAny<SparePartStockTransaction>(), default), Times.Never);
     }
 }

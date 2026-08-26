@@ -1,5 +1,5 @@
 @namespace NexaOne.Server.Components
-@inject NexaOne.Web.Services.Meta.IScreenDefinitionProvider Definitions
+@inject IServiceProvider Services
 
 @* SmartUX 사이드바의 계층 메뉴를 재귀 렌더한다(대분류 → 중분류 → … → 화면, N단계).
    Folder: 클릭=토글(자식 펼침). Screen: /meta/{UiId} 이동(부모가 OnNavigate 처리).
@@ -14,7 +14,7 @@
         var isOpen = Open.Contains(node.Id);
         <div class="mes-nav-folder @(isOpen ? "open" : "")">
             <div class="mes-nav-item mes-folder-head @(isOpen ? "open" : "")"
-                 style="padding-left:@(Pad)px" role="button" tabindex="0" title="@display"
+                 style="padding-left:@(Pad)px" role="button" tabindex="0" title="@display" aria-expanded="@isOpen"
                  @onclick="() => OnToggle.InvokeAsync(node.Id)"
                  @onkeydown="async e => { if (IsActivateKey(e)) await OnToggle.InvokeAsync(node.Id); }">
                 @if (Depth == 0)
@@ -26,18 +26,18 @@
                     <span class="dot"></span>
                 }
                 <span>@display</span>
-                <svg class="chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+                <svg class="chev" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
             </div>
             <div class="mes-nav-sub @(isOpen ? "expanded" : "collapsed")">
                 @if (node.Children.Count > 0)
                 {
                     <MesNavTree Nodes="node.Children" Depth="Depth + 1" Open="Open"
                                 ActiveUiId="ActiveUiId" OnToggle="OnToggle" OnNavigate="OnNavigate"
-                                DisplayName="DisplayName" />
+                                DisplayName="DisplayName" KnownScreenUiIds="KnownScreenUiIds" />
                 }
                 else
                 {
-                    <span class="mes-nav-subitem mes-empty" style="padding-left:@(Pad + Indent)px">하위 메뉴 없음</span>
+                    <span class="mes-nav-subitem mes-empty" style="padding-left:@(Pad + Indent)px">@T("shell.noSubmenu", "하위 메뉴 없음")</span>
                 }
             </div>
         </div>
@@ -47,10 +47,12 @@
         var isActive = string.Equals(node.UiId, ActiveUiId, StringComparison.OrdinalIgnoreCase);
         // 점등 = 메타 정의 등록 '또는' 호스트 리터럴 라우트(@page "/meta/리터럴") — 후자 누락 시
         // 동작하는 화면 4종(권한/신청승인/S O/레이아웃편집)이 회색 오표시되는 실사고가 있었다.
-        var isPending = !Definitions.TryGet(node.UiId, out _) && !NexaOne.Server.Services.HostLiteralMetaRoutes.Contains(node.UiId);
+        var isPending = !KnownScreenUiIds.Contains(node.UiId)
+            && !NexaOne.Server.Services.HostLiteralMetaRoutes.Contains(node.UiId);
         <a class="mes-nav-subitem @(isActive ? "active" : "") @(isPending ? "pending" : "")"
            style="padding-left:@(Pad)px"
-           href="@($"/meta/{node.UiId}")" title="@(isPending ? $"{display} — 준비 중" : display)"
+           href="@($"/meta/{node.UiId}")" title="@(isPending ? string.Format(T("shell.pendingNamed", "{0} — 준비 중"), display) : display)"
+           aria-label="@(isPending ? string.Format(T("shell.pendingNamedAria", "{0}, 준비 중"), display) : display)" aria-current="@(isActive ? "page" : null)"
            @onclick="() => OnNavigate.InvokeAsync(node)" @onclick:preventDefault="true">
             <span class="dot"></span>
             <span>@display</span>
@@ -65,16 +67,31 @@
     [Parameter] public string? ActiveUiId { get; set; }
     [Parameter] public EventCallback<string> OnToggle { get; set; }
     [Parameter] public EventCallback<MesMenuNode> OnNavigate { get; set; }
+    [Parameter, EditorRequired]
+    public IReadOnlySet<string> KnownScreenUiIds { get; set; }
+        = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     // 다국어(P3-14 v2) — 표시명 변환(menu.{MENU_ID} 리소스). null이면 원본 메뉴명.
     [Parameter] public Func<MesMenuNode, string>? DisplayName { get; set; }
+
+    private NexaOne.Web.Services.UiTextService? _uiText;
+    private bool _uiTextLookedUp;
+    private string T(string key, string fallback)
+    {
+        if (!_uiTextLookedUp)
+        {
+            _uiTextLookedUp = true;
+            _uiText = Services.GetService(typeof(NexaOne.Web.Services.UiTextService)) as NexaOne.Web.Services.UiTextService;
+        }
+        return _uiText?.T(key, fallback) ?? fallback;
+    }
 
     // 접근성(P3-15) — 폴더 헤드(div)의 키보드 활성화 판정(Enter/Space).
     private static bool IsActivateKey(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
         => e.Key is "Enter" or " " or "Spacebar";
 
-    private const int Indent = 14;
+    private const int Indent = 16;
     // 깊이별 좌패딩 — depth0은 18px(기존 .mes-nav-item과 정렬), 이후 14px씩 들여쓴다.
-    private int Pad => 18 + Depth * Indent;
+    private int Pad => 16 + Depth * Indent;
 
     // 대분류(depth0) 폴더 아이콘 — 메뉴명 키워드로 SmartUX풍 라인 아이콘 선택(없으면 그리드 기본).
     // 구체 키워드 우선(위→아래) — 과거 '관리' 광역 규칙이 출하/구매 관리를 렌치로 삼키고 PPM=WPM,
@@ -102,7 +119,7 @@
     // 사이드바 라인 아이콘(stroke=currentColor — CSS가 색 제어). 정적 입력이라 MarkupString 안전.
     private static string Icon(string key)
     {
-        const string open = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\">";
+        const string open = "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">";
         var body = key switch
         {
             "grid"      => "<rect x='3' y='3' width='7' height='7'/><rect x='14' y='3' width='7' height='7'/><rect x='3' y='14' width='7' height='7'/><rect x='14' y='14' width='7' height='7'/>",

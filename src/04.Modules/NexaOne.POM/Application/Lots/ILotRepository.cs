@@ -1,4 +1,5 @@
 using NexaOne.POM.Domain;
+using NexaOne.POM.Application.WorkOrders;
 
 namespace NexaOne.POM.Application.Lots;
 
@@ -15,6 +16,59 @@ public interface ILotRepository
     /// 부분 커밋(투입만 소비되고 출력 미생성 등)이 불가능하다. outbox 활성 시 도메인 이벤트도 같은 트랜잭션에 기록.</summary>
     Task MixingPersistAsync(MixingPersistPlan plan, CancellationToken ct = default);
 }
+/// <summary>Production persistence capability for an atomic, idempotent lot transition.</summary>
+public interface IAtomicLotRepository
+{
+    Task<LotExecutionRecord?> GetExecutionAsync(string idempotencyKey, CancellationToken ct = default);
+    Task<bool> PersistTransitionAsync(LotTransitionPersistPlan plan, CancellationToken ct = default);
+}
+
+/// <summary>라우팅 예외 승인 원장을 조회·추가·상태 변경하는 생산 저장소 기능이다.</summary>
+public interface IRouteExceptionRepository
+{
+    Task<RouteExceptionRequest?> GetRouteExceptionAsync(string exceptionId, CancellationToken ct = default);
+    Task<IReadOnlyList<RouteExceptionRequest>> GetRouteExceptionsByLotAsync(string lotId, CancellationToken ct = default);
+    Task AddRouteExceptionAsync(RouteExceptionRequest request, CancellationToken ct = default);
+    Task<bool> UpdateRouteExceptionAsync(
+        RouteExceptionRequest request,
+        RouteExceptionStatus expectedStatus,
+        CancellationToken ct = default);
+}
+
+public sealed record LotExecutionRecord(
+    string LotId, string Action, string IdempotencyKey, string RequestHash,
+    int ExpectedVersion, int ResultVersion);
+
+/// <summary>
+/// A code-level defect observation captured for one TrackOut execution. These records are
+/// append-only evidence; the aggregate total remains on <see cref="Lot.DefectQty"/>.
+/// </summary>
+public sealed record LotDefectExecution(
+    string ExecutionId,
+    string LotId,
+    string PlantId,
+    string ProcessId,
+    string DefectCode,
+    decimal DefectQty,
+    string ExecutionUser,
+    string ClientChannel,
+    string? DeviceId,
+    DateTime OccurredAt);
+
+public sealed record LotTransitionPersistPlan(
+    Lot Lot,
+    int ExpectedVersion,
+    string Action,
+    string IdempotencyKey,
+    string RequestHash,
+    IReadOnlyList<LotHistory> Histories,
+    PomWorkOrder? WorkOrder = null,
+    PomWorkOrderExecution? WorkOrderExecution = null,
+    RouteExceptionRequest? RouteException = null,
+    RoutingTransitionAudit? RoutingAudit = null,
+    string? ExecutionId = null,
+    IReadOnlyList<LotDefectExecution>? DefectExecutions = null);
+
 
 /// <summary>Mixing 영속 계획 — 서비스가 도메인 전이를 전부 in-memory로 끝낸 뒤 최종 상태만 담아 넘긴다.
 /// Histories는 전이 시점 순서대로(투입 Consume → 출력 TrackIn → TrackOut → Finish) 캡처된 스냅샷.</summary>

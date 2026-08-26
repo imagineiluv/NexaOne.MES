@@ -4,8 +4,7 @@ reference/
 # Build outputs
 bin/
 obj/
-# SPA build output (NexaOne.Spa → NexaOne.Server/wwwroot/spa [Phase 4 정적 서빙], 과거 NexaOne.Web/wwwroot/spa; `npm run build`로 재생성)
-# 글로브 하나로 호스트(NexaOne.Server)·구(NexaOne.Web) 두 위치를 모두 무시한다(빌드 산출물).
+# Portal client build output (NexaOne.Server/ClientApps/Portal → wwwroot/spa, npm run build로 재생성)
 **/wwwroot/spa/
 *.user
 *.suo

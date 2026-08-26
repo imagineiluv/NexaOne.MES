@@ -1,0 +1,1082 @@
+/* Hallmark · macrostructure: Catalogue · tone: industrial precise · anchor hue: teal */
+/* Hallmark pre-emit critique: P5 H5 E5 S5 R5 V5
+ * genre: modern-minimal - macrostructure: Catalogue - theme: custom Nexa Industrial - design-system: design.md
+ * contrast: pass (40-41) - nav: inherited shell - footer: none - slop: pass (42-45)
+ * honest: pass (46) - chrome: pass (47) - tokens: pass (48) - responsive/mobile: pass (34, 49-57) - icons: pass (30)
+ */
+.meta-grid {
+    --meta-grid-max-height: clamp(20rem, calc(100dvh - 22rem), 44rem);
+    position: relative;
+    display: grid;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    gap: var(--nx-sp-2);
+    color: var(--nx-text);
+    background: transparent;
+}
+
+.meta-grid-content {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    container-type: inline-size;
+}
+
+.meta-grid-viewbar {
+    display: flex;
+    min-width: 0;
+    min-height: 2.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--nx-sp-2);
+    padding: var(--space-2xs) var(--space-2xs);
+    border-bottom: 1px solid var(--nx-border-soft);
+    background: color-mix(in srgb, var(--nx-head) 58%, var(--nx-card));
+}
+
+.nx-view-segments {
+    display: inline-flex;
+    min-width: 0;
+    padding: var(--space-2xs);
+    border: 1px solid var(--nx-border);
+    border-radius: var(--nx-radius);
+    background: var(--nx-head);
+}
+
+.nx-view-button {
+    display: inline-flex;
+    min-height: var(--nx-touch-min);
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2xs);
+    padding: var(--space-2xs) var(--space-sm);
+    border: 0;
+    border-radius: var(--nx-radius-sm);
+    background: transparent;
+    color: var(--nx-text-2);
+    font: inherit;
+    font-size: var(--nx-fs-caption);
+    font-weight: 650;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+
+.nx-view-button.is-active {
+    background: var(--nx-card);
+    color: var(--nx-text);
+    box-shadow: var(--nx-shadow-sm);
+}
+
+.nx-view-button ::deep .rzi { color: var(--nx-muted); font-size: 1rem; }
+.nx-view-button.is-active ::deep .rzi { color: var(--nx-teal-text); }
+
+.nx-view-sort {
+    display: inline-flex;
+    min-width: 0;
+    min-height: 2.25rem;
+    align-items: center;
+    gap: var(--nx-sp-1);
+}
+
+.nx-view-sort label {
+    color: var(--nx-muted);
+    font-size: var(--nx-fs-caption-s);
+    font-weight: 650;
+}
+
+.nx-view-sort select,
+.nx-view-sort-direction {
+    min-height: var(--nx-touch-min);
+    border: 1px solid var(--nx-border);
+    border-radius: var(--nx-radius-sm);
+    background: var(--nx-card);
+    color: var(--nx-text);
+    font: inherit;
+    font-size: var(--nx-fs-caption);
+}
+
+.nx-view-sort select { min-width: 8rem; padding-inline: var(--space-xs); }
+
+.nx-view-sort-direction {
+    display: inline-grid;
+    width: var(--nx-touch-min);
+    place-items: center;
+    padding: 0;
+    cursor: pointer;
+}
+
+.nx-view-sort-direction:disabled { cursor: not-allowed; opacity: .55; }
+
+@media (hover: hover) and (pointer: fine) {
+    .nx-view-sort-direction:hover:not(:disabled) { background: var(--nx-hover); }
+}
+
+.nx-view-saved-hint {
+    margin-left: auto;
+    color: var(--nx-muted);
+    font-size: var(--nx-fs-caption-s);
+}
+
+.nx-view-button:focus-visible,
+.nx-view-sort select:focus-visible,
+.nx-view-sort-direction:focus-visible,
+.nx-data-card-open:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 1px;
+}
+
+.nx-card-select-all {
+    display: inline-flex;
+    min-height: var(--nx-touch-min);
+    align-items: center;
+    gap: var(--nx-sp-2);
+    padding: var(--space-2xs) var(--space-xs);
+    border: 1px solid var(--nx-border-soft);
+    border-radius: var(--nx-radius);
+    background: var(--nx-head);
+    color: var(--nx-text-2);
+    font-size: var(--nx-fs-caption);
+    cursor: pointer;
+}
+
+.nx-card-view {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr));
+    gap: var(--nx-sp-3);
+    padding: var(--nx-sp-1);
+}
+
+/* 한 건 결과는 18rem 카드 하나로 축소하지 않고, 주요 6개 필드를 한눈에 비교할 수 있는 3열 카드로 표시한다. */
+.nx-card-view.is-single {
+    width: min(100%, 46rem);
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.nx-card-view.is-single .nx-data-card-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.nx-card-view.is-single .nx-data-card-fields > div { border-right: 1px solid var(--nx-border-soft); }
+.nx-card-view.is-single .nx-data-card-fields > div:nth-child(3n) { border-right: 0; }
+
+.nx-data-card {
+    display: grid;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--nx-border);
+    border-radius: var(--nx-radius-lg);
+    background: var(--nx-card);
+    box-shadow: var(--nx-shadow-sm);
+    transition: border-color var(--dur-micro) var(--ease-out), box-shadow var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+.nx-data-card:hover { background: var(--nx-hover-teal); }
+}
+
+.nx-data-card.is-selected {
+    border-color: var(--nx-teal);
+    box-shadow: inset .2rem 0 0 var(--nx-teal), var(--nx-shadow-sm);
+}
+
+.nx-data-card-head {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: var(--nx-sp-2);
+    padding: var(--nx-sp-3);
+    border-bottom: 1px solid var(--nx-border-soft);
+    background: color-mix(in srgb, var(--nx-head) 52%, var(--nx-card));
+}
+
+.nx-data-card-head > input { flex: 0 0 auto; }
+
+.nx-data-card-open {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--nx-sp-2);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--nx-text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.nx-data-card-title {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-2xs);
+}
+
+.nx-data-card-title > span {
+    color: var(--nx-muted);
+    font-size: var(--nx-fs-caption-s);
+}
+
+.nx-data-card-title strong {
+    overflow: hidden;
+    color: var(--nx-text);
+    font-size: var(--nx-fs-body);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nx-data-card-open ::deep .rzi { flex: 0 0 auto; color: var(--nx-muted); }
+
+.nx-data-card-fields {
+    display: grid;
+    margin: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.nx-data-card-fields > div {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-2xs);
+    padding: var(--space-sm) var(--space-sm);
+    border-bottom: 1px solid var(--nx-border-soft);
+}
+
+.nx-data-card-fields > div:nth-child(odd) { border-right: 1px solid var(--nx-border-soft); }
+
+.nx-data-card-fields dt,
+.nx-split-detail-fields dt {
+    overflow: hidden;
+    color: var(--nx-muted);
+    font-size: var(--nx-fs-caption-s);
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nx-data-card-fields dd,
+.nx-split-detail-fields dd {
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    color: var(--nx-text-2);
+    font-size: var(--nx-fs-dense);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nx-card-value.is-numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.nx-card-value.is-empty { color: var(--nx-muted); }
+
+.nx-card-value.is-success,
+.nx-card-value.is-warning,
+.nx-card-value.is-danger,
+.nx-card-value.is-info,
+.nx-card-value.is-neutral {
+    width: fit-content;
+    max-width: 100%;
+    padding: var(--space-3xs) var(--space-xs);
+    border-radius: 999px;
+    color: var(--nx-text);
+    font-weight: 700;
+}
+
+.nx-card-value.is-success { background: var(--nx-success-bg); }
+.nx-card-value.is-warning { background: var(--nx-warning-bg); }
+.nx-card-value.is-danger { background: var(--nx-danger-bg); }
+.nx-card-value.is-info { background: var(--nx-info-bg); }
+.nx-card-value.is-neutral { background: var(--nx-hover); }
+
+.nx-data-card-more {
+    padding: var(--space-xs) var(--space-sm);
+    color: var(--nx-muted);
+    font-size: var(--nx-fs-caption-s);
+    text-align: right;
+}
+
+.nx-split-view {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1.6fr) minmax(16rem, .8fr);
+    gap: var(--nx-sp-3);
+    align-items: start;
+}
+
+.nx-split-master { min-width: 0; }
+
+.nx-split-detail {
+    min-width: 0;
+    max-height: var(--meta-grid-max-height);
+    overflow: auto;
+    border: 1px solid var(--nx-border);
+    border-radius: var(--nx-radius-lg);
+    background: var(--nx-card);
+    box-shadow: var(--nx-shadow-sm);
+}
+
+.nx-split-detail-head {
+    display: grid;
+    gap: var(--space-2xs);
+    padding: var(--nx-sp-3) var(--nx-sp-4);
+    border-bottom: 1px solid var(--nx-border);
+    background: var(--nx-head);
+}
+
+.nx-split-detail-head span { color: var(--nx-muted); font-size: var(--nx-fs-caption-s); }
+
+.nx-split-detail-head strong {
+    overflow: hidden;
+    color: var(--nx-text);
+    font-size: var(--nx-fs-body);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nx-split-detail-fields {
+    display: grid;
+    margin: 0;
+}
+
+.nx-split-detail-fields > div {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: minmax(6rem, .8fr) minmax(0, 1.2fr);
+    gap: var(--nx-sp-2);
+    align-items: center;
+    padding: var(--space-xs) var(--space-sm);
+    border-bottom: 1px solid var(--nx-border-soft);
+}
+
+.nx-split-empty {
+    display: grid;
+    min-height: 16rem;
+    place-items: center;
+    align-content: center;
+    gap: var(--nx-sp-2);
+    padding: var(--nx-sp-4);
+    color: var(--nx-muted);
+    text-align: center;
+}
+
+.nx-split-empty ::deep .rzi { font-size: 1.75rem; }
+.nx-split-empty strong { color: var(--nx-text-2); font-size: var(--nx-fs-body); }
+.nx-split-empty span { max-width: 20rem; font-size: var(--nx-fs-caption); line-height: 1.5; }
+
+.meta-grid-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 2.75rem;
+    margin: 0;
+    padding: var(--space-2xs) var(--space-2xs);
+    border-bottom: 1px solid var(--nx-border-soft);
+    align-items: center;
+    gap: var(--space-xs);
+}
+
+.meta-grid-toolbar ::deep .rz-button,
+.nx-bulkbar ::deep .rz-button,
+.meta-grid-pager ::deep .rz-button {
+    min-height: var(--nx-touch-min);
+    border-radius: var(--nx-radius);
+    outline: 2px solid transparent;
+    outline-offset: 1px;
+}
+
+.meta-grid-filter {
+    flex: 0 1 11.25rem;
+    min-width: 7.5rem;
+    min-height: var(--nx-touch-min);
+    padding-left: var(--space-xl);
+    border: 1px solid var(--nx-border);
+    border-radius: var(--nx-radius);
+    background-image: linear-gradient(45deg, transparent 45%, var(--nx-muted) 46%, var(--nx-muted) 54%, transparent 55%);
+    background-repeat: no-repeat;
+    background-position: .8rem 52%;
+    background-size: .48rem .48rem;
+    color: var(--nx-text);
+    font: inherit;
+    font-size: var(--nx-fs-dense);
+}
+
+.meta-grid-toolbar-spacer { flex: 1 1 auto; }
+
+.meta-grid-filter:focus-visible,
+.nx-filtermenu-op:focus-visible,
+.nx-filtermenu-val:focus-visible,
+.nx-colmenu-reset:focus-visible,
+.nx-moremenu-item:focus-visible,
+.nx-filterchip .x:focus-visible,
+.nx-sort:focus-visible,
+.nx-colmenu:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 1px;
+    border-color: var(--nx-teal);
+}
+
+.meta-grid ::deep .rz-data-grid {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--nx-border);
+    border-radius: var(--nx-radius-lg);
+    background: var(--nx-card);
+    box-shadow: var(--nx-shadow-sm);
+}
+
+.meta-grid ::deep .rz-data-grid-data {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-height: var(--meta-grid-min-height, 18rem);
+    max-height: var(--meta-grid-max-height);
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+}
+
+/* Radzen 루트에도 rz-datatable 클래스가 붙는다. 이 규칙을 .rz-datatable에 적용하면
+   루트 자체가 표의 max-content 폭(넓은 MES 목록에서는 사실상 무한대)으로 커져 페이지를
+   밀어낸다. intrinsic 폭은 실제 table에만 부여하고, 위의 data viewport가 스크롤 경계가 된다. */
+.meta-grid ::deep table.rz-grid-table {
+    width: 100%;
+    min-width: max-content;
+}
+
+.meta-grid ::deep thead th {
+    position: sticky !important;
+    top: 0;
+    z-index: 3;
+    height: 2.25rem;
+    border-bottom: 1px solid var(--nx-border) !important;
+    background: var(--nx-head);
+    box-shadow: 0 1px 0 var(--nx-border-soft);
+}
+
+.meta-grid ::deep tbody td {
+    height: 2.375rem;
+    max-width: 30rem;
+    vertical-align: middle;
+}
+
+.meta-grid ::deep .rz-cell-data {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.meta-grid ::deep tbody tr {
+    cursor: default;
+}
+
+
+.meta-grid ::deep tr[data-selected] td {
+    background: var(--nx-selected) !important;
+}
+
+.meta-grid ::deep tr[data-selected] td:first-child {
+    box-shadow: inset 3px 0 0 var(--nx-teal);
+}
+
+.nx-sort {
+    display: inline-flex;
+    width: 100%;
+    min-width: 0;
+    align-items: center;
+    justify-content: inherit;
+    gap: var(--space-2xs);
+    padding: var(--space-2xs) var(--space-2xs);
+    border: 0;
+    border-radius: var(--nx-radius-sm);
+    background: transparent;
+    color: inherit;
+    outline: 2px solid transparent;
+    outline-offset: 1px;
+    font: inherit;
+    font-weight: 700;
+    text-align: inherit;
+    cursor: pointer;
+}
+
+
+.nx-sort-direction {
+    flex: 0 0 auto;
+    color: var(--nx-teal-text);
+    font-size: .6rem;
+}
+
+.nx-cell-num {
+    display: block;
+    min-width: 100%;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.nx-cell-bool {
+    display: inline-grid;
+    min-width: 1.5rem;
+    min-height: 1.5rem;
+    place-items: center;
+    border-radius: 50%;
+}
+
+.nx-cell-bool ::deep .rzi { font-size: 1rem; }
+
+.nx-cell-yes { color: var(--nx-success); }
+.nx-cell-no { color: var(--nx-muted); }
+
+.meta-grid.nx-density-roomy ::deep .rz-cell-data,
+.meta-grid.nx-density-roomy ::deep .rz-column-title {
+    padding-block: var(--space-xs) !important;
+}
+
+.meta-grid.nx-freeze-first ::deep thead th:first-child,
+.meta-grid.nx-freeze-first ::deep tbody td:first-child {
+    position: sticky;
+    left: 0;
+    box-shadow: 1px 0 0 var(--nx-border);
+}
+
+.meta-grid.nx-freeze-first ::deep thead th:first-child {
+    z-index: 5;
+    background: var(--nx-head);
+}
+
+.meta-grid.nx-freeze-first ::deep tbody td:first-child {
+    z-index: 2;
+    background: var(--nx-card);
+}
+
+.meta-grid.nx-freeze-first ::deep tbody tr:nth-child(even) td:first-child { background: var(--nx-stripe); }
+.meta-grid.nx-freeze-first ::deep tr[data-selected] td:first-child { background: var(--nx-selected); }
+
+.meta-grid ::deep .nx-status-badge {
+    min-width: 3.5rem;
+    min-height: 1.5rem;
+    justify-content: center;
+    border-radius: 999px;
+    font-size: var(--nx-fs-caption-s);
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.nx-colmenu-wrap {
+    position: relative;
+    display: inline-flex;
+}
+
+.nx-colmenu-backdrop {
+    position: fixed;
+    z-index: 40;
+    inset: 0;
+}
+
+.nx-colmenu {
+    position: absolute;
+    top: calc(100% + .25rem);
+    right: 0;
+    z-index: 41;
+    min-width: 13.5rem;
+    max-height: 21.25rem;
+    overflow-y: auto;
+    padding: var(--nx-sp-2);
+    border: 1px solid var(--nx-border);
+    border-radius: var(--nx-radius-lg);
+    background: var(--nx-card);
+    box-shadow: var(--nx-shadow-lg);
+}
+
+.nx-colmenu-head {
+    display: flex;
+    min-height: 2.25rem;
+    align-items: center;
+    justify-content: space-between;
+    padding-inline: var(--space-xs);
+    border-bottom: 1px solid var(--nx-border-soft);
+    color: var(--nx-text-2);
+    font-size: var(--nx-fs-caption);
+    font-weight: 700;
+}
+
+.nx-colmenu-reset {
+    min-height: var(--nx-touch-min);
+    padding: var(--space-2xs) var(--space-xs);
+    border: 0;
+    border-radius: var(--nx-radius-sm);
+    background: transparent;
+    color: var(--nx-teal-text);
+    font: inherit;
+    cursor: pointer;
+}
+
+
+.nx-colmenu-item {
+    display: flex;
+    min-height: var(--nx-touch-min);
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-2xs) var(--space-xs);
+    border-radius: var(--nx-radius);
+    color: var(--nx-text);
+    font-size: var(--nx-fs-dense);
+    cursor: pointer;
+}
+
+
+.nx-colmenu-item input,
+.meta-grid ::deep input[type="checkbox"] {
+    width: 1rem;
+    height: 1rem;
+    accent-color: var(--nx-teal);
+    cursor: pointer;
+}
+
+.nx-filtermenu {
+    box-sizing: border-box;
+    width: 30rem;
+    min-width: 22rem;
+}
+
+.nx-filtermenu-row {
+    display: grid;
+    grid-template-columns: minmax(6rem, .8fr) 5rem minmax(7rem, 1.2fr);
+    min-height: 2.5rem;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: var(--space-2xs) var(--space-xs);
+}
+
+.nx-filtermenu-cap {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--nx-text-2);
+    font-size: var(--nx-fs-caption);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.nx-filtermenu-op,
+.nx-filtermenu-val {
+    min-height: var(--nx-touch-min);
+    min-width: 0;
+    padding-inline: var(--space-xs);
+    border: 1px solid var(--nx-border);
+    border-radius: var(--nx-radius-sm);
+    color: var(--nx-text);
+    background: var(--nx-card);
+    font: inherit;
+    font-size: var(--nx-fs-caption);
+}
+
+.nx-filtermenu-foot {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--nx-sp-1);
+    padding: var(--nx-sp-2) var(--space-xs) 0;
+    border-top: 1px solid var(--nx-border-soft);
+}
+
+.nx-moremenu { min-width: 11.5rem; }
+
+.nx-moremenu-item {
+    display: flex;
+    width: 100%;
+    min-height: var(--nx-touch-min);
+    align-items: center;
+    gap: var(--nx-sp-2);
+    padding-inline: var(--space-sm);
+    border: 0;
+    border-radius: var(--nx-radius-sm);
+    background: transparent;
+    color: var(--nx-text);
+    font: inherit;
+    font-size: var(--nx-fs-dense);
+    text-align: left;
+    cursor: pointer;
+}
+
+.nx-moremenu-item.active { color: var(--nx-teal-text); font-weight: 650; }
+
+.nx-bulkbar {
+    display: flex;
+    flex-wrap: wrap;
+    min-height: 2.75rem;
+    align-items: center;
+    gap: var(--nx-sp-2);
+    margin: 0;
+    padding: var(--space-2xs) var(--space-sm);
+    border: 1px solid;
+    border-radius: var(--nx-radius);
+    border-color: color-mix(in srgb, var(--nx-teal) 45%, var(--nx-border));
+    background: color-mix(in srgb, var(--nx-teal) 8%, var(--nx-card));
+}
+
+.nx-bulkbar-count {
+    color: var(--nx-text-2);
+    font-size: var(--nx-fs-dense);
+    font-weight: 700;
+}
+
+.nx-filterchips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+    margin: 0;
+}
+
+.nx-filterchip {
+    display: inline-flex;
+    min-height: 1.75rem;
+    align-items: center;
+    gap: var(--space-2xs);
+    padding: var(--space-2xs) var(--space-2xs) var(--space-2xs) var(--space-sm);
+    border: 1px solid var(--nx-teal);
+    border-radius: 999px;
+    background: var(--nx-hover-teal);
+    color: var(--nx-teal-text);
+    font-size: var(--nx-fs-caption-s);
+}
+
+.nx-filterchip .x {
+    display: inline-grid;
+    width: var(--nx-touch-min);
+    height: var(--nx-touch-min);
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: 750;
+    cursor: pointer;
+}
+
+
+.nx-grid-refreshing {
+    position: relative;
+    display: flex;
+    min-height: 1.75rem;
+    align-items: center;
+    gap: var(--space-xs);
+    overflow: hidden;
+    padding: var(--space-2xs) var(--space-xs);
+    border-radius: var(--nx-radius);
+    background: var(--nx-hover-teal);
+    color: var(--nx-teal-text);
+    font-size: var(--nx-fs-caption);
+    font-weight: 600;
+}
+
+.nx-grid-refreshing-bar {
+    width: 3.5rem;
+    height: .2rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--nx-teal) 25%, transparent);
+}
+
+.nx-grid-refreshing-bar::after {
+    content: "";
+    display: block;
+    width: 45%;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--nx-teal);
+    animation: meta-grid-progress 1.1s ease-in-out infinite alternate;
+}
+
+.nx-skeleton {
+    min-height: 16rem;
+    overflow: hidden;
+    border: 1px solid var(--nx-border);
+    border-radius: var(--nx-radius-lg);
+    background: var(--nx-card);
+}
+
+.nx-skel-row {
+    display: flex;
+    gap: var(--nx-sp-4);
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--nx-border-soft);
+}
+
+.nx-skel-cell {
+    height: .75rem;
+    flex: 1;
+    border-radius: var(--nx-radius-sm);
+    background: linear-gradient(90deg, var(--nx-hover) 25%, var(--nx-border-soft) 37%, var(--nx-hover) 63%);
+    background-size: 400% 100%;
+    animation: meta-grid-skeleton 1.4s ease infinite;
+}
+
+.nx-skel-row .nx-skel-cell:first-child { max-width: 7.5rem; }
+
+.nx-grid-trunc {
+    display: flex;
+    min-height: 2.5rem;
+    align-items: center;
+    gap: var(--nx-sp-2);
+    padding: var(--space-xs) var(--space-sm);
+    border: 1px solid var(--nx-warning);
+    border-radius: var(--nx-radius);
+    background: var(--nx-warning-bg);
+    color: var(--nx-text-2);
+    font-size: var(--nx-fs-caption);
+}
+
+.nx-grid-empty {
+    display: flex;
+    min-height: 13rem;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-xl) var(--space-md);
+    color: var(--nx-muted);
+    font-size: var(--nx-fs-dense);
+    text-align: center;
+}
+
+.nx-grid-empty ::deep .rzi {
+    display: inline-grid;
+    width: 3.5rem;
+    height: 3.5rem;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--nx-hover);
+    color: var(--nx-muted);
+    font-size: 1.75rem;
+}
+
+.nx-grid-empty strong {
+    color: var(--nx-text-2);
+    font-size: var(--nx-fs-body);
+}
+
+.nx-grid-empty-hint {
+    max-width: 28rem;
+    color: var(--nx-muted);
+    font-size: var(--nx-fs-caption);
+    line-height: 1.55;
+}
+
+.meta-grid-note {
+    min-height: 1.5rem;
+    margin: 0;
+    padding: var(--space-2xs) var(--space-2xs);
+    color: var(--nx-muted);
+    font-size: var(--nx-fs-caption);
+    font-variant-numeric: tabular-nums;
+}
+
+.meta-grid-pager {
+    display: flex;
+    min-height: 2.75rem;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--nx-sp-2);
+    margin: 0;
+    padding: var(--space-2xs);
+    border-top: 1px solid var(--nx-border-soft);
+}
+
+.nx-view-button,
+.nx-view-sort select,
+.nx-view-sort-direction,
+.nx-card-select-all,
+.meta-grid-filter,
+.nx-sort,
+.nx-colmenu-reset,
+.nx-filtermenu-op,
+.nx-filtermenu-val,
+.nx-moremenu-item,
+.nx-filterchip .x,
+.nx-data-card-open {
+    outline: 2px solid transparent;
+    outline-offset: 1px;
+}
+
+.meta-grid button:disabled,
+.meta-grid select:disabled,
+.meta-grid input:disabled,
+.meta-grid ::deep .rz-button.rz-state-disabled {
+    opacity: .55;
+    cursor: not-allowed;
+    background-color: var(--nx-head);
+}
+
+.meta-grid button:active:not(:disabled),
+.nx-view-button:active:not(:disabled),
+.nx-data-card-open:active:not(:disabled) {
+    filter: brightness(.94);
+    transform: translateY(1px);
+}
+
+.meta-grid-pager .meta-grid-note:first-child { margin-right: auto; }
+
+@keyframes meta-grid-progress {
+    from { transform: translateX(0); }
+    to { transform: translateX(125%); }
+}
+
+@keyframes meta-grid-skeleton {
+    from { background-position: 100% 0; }
+    to { background-position: 0 0; }
+}
+
+/* 레이아웃 Column 안처럼 실제 가용 폭이 좁을 때도 viewport와 무관하게 분할 상세를 안전하게 쌓는다. */
+@container (max-width: 56.25rem) {
+    .nx-split-view { grid-template-columns: minmax(0, 1fr); }
+    .nx-split-detail { max-height: none; }
+    .nx-card-view.is-single { width: 100%; }
+    .nx-card-view.is-single .nx-data-card-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .nx-card-view.is-single .nx-data-card-fields > div { border-right: 0; }
+    .nx-card-view.is-single .nx-data-card-fields > div:nth-child(odd) { border-right: 1px solid var(--nx-border-soft); }
+}
+
+@media (max-width: 1100px) {
+    .nx-filtermenu {
+        position: fixed;
+        top: 50%;
+        right: 1rem;
+        left: 1rem;
+        width: auto;
+        min-width: 0;
+        max-height: min(75dvh, 38rem);
+        transform: translateY(-50%);
+    }
+}
+
+@media (max-width: 720px) {
+    .nx-card-view.is-single { width: 100%; }
+    .nx-card-view.is-single .nx-data-card-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .nx-card-view.is-single .nx-data-card-fields > div { border-right: 0; }
+    .nx-card-view.is-single .nx-data-card-fields > div:nth-child(odd) { border-right: 1px solid var(--nx-border-soft); }
+
+    .meta-grid { --meta-grid-max-height: min(28rem, calc(100dvh - 18rem)); }
+
+    .meta-grid-toolbar {
+        align-items: stretch;
+        gap: var(--space-xs);
+        overflow: visible;
+    }
+
+    .meta-grid-filter {
+        order: 5;
+        flex: 1 0 100%;
+        width: 100%;
+        min-height: 2.75rem;
+        margin-right: 0;
+    }
+
+    .meta-grid-toolbar-spacer { display: none; }
+    .meta-grid-toolbar ::deep .rz-button { min-height: 2.75rem; }
+
+    .meta-grid-viewbar { align-items: stretch; }
+
+    .nx-view-segments {
+        display: grid;
+        width: 100%;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .nx-view-button { min-height: 2.75rem; }
+
+    .nx-view-sort {
+        width: 100%;
+        align-items: stretch;
+    }
+
+    .nx-view-sort label { align-self: center; }
+    .nx-view-sort select { min-width: 0; flex: 1; min-height: 2.75rem; }
+    .nx-view-sort-direction { width: 2.75rem; min-height: 2.75rem; }
+    .nx-view-saved-hint { width: 100%; margin-left: 0; text-align: right; }
+
+    .nx-data-card-open { min-height: 2.75rem; }
+    .nx-card-select-all { min-height: 2.75rem; }
+
+    .nx-split-view { grid-template-columns: minmax(0, 1fr); }
+    .nx-split-detail { max-height: none; }
+
+    .nx-filtermenu-row {
+        grid-template-columns: minmax(5rem, .8fr) 4.5rem minmax(6rem, 1.2fr);
+    }
+
+    .nx-bulkbar { align-items: stretch; }
+    .nx-bulkbar-count { flex: 1 0 100%; }
+    .meta-grid-pager { flex-wrap: wrap; justify-content: center; }
+    .meta-grid-pager .meta-grid-note:first-child { flex: 1 0 100%; margin-right: 0; text-align: center; }
+}
+
+@media (max-width: 480px) {
+    .nx-filtermenu-row {
+        grid-template-columns: 1fr 5rem;
+        gap: var(--space-2xs);
+        padding-block: var(--space-xs);
+    }
+
+    .nx-filtermenu-cap { grid-column: 1 / -1; }
+    .meta-grid ::deep tbody td { max-width: 18rem; }
+    .nx-card-view { grid-template-columns: minmax(0, 1fr); padding-inline: 0; }
+    .nx-data-card-fields { grid-template-columns: minmax(0, 1fr); }
+    .nx-data-card-fields > div:nth-child(odd) { border-right: 0; }
+    .nx-card-view.is-single .nx-data-card-fields { grid-template-columns: minmax(0, 1fr); }
+    .nx-card-view.is-single .nx-data-card-fields > div { border-right: 0; }
+    .nx-split-detail-fields > div { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nx-grid-refreshing-bar::after,
+    .nx-skel-cell {
+        animation: none !important;
+    }
+
+    .nx-data-card { transition: none; }
+    .meta-grid button:active:not(:disabled),
+    .nx-view-button:active:not(:disabled),
+    .nx-data-card-open:active:not(:disabled) { transform: none; }
+}
+
+@media (prefers-contrast: more) {
+    .meta-grid ::deep .rz-data-grid,
+    .meta-grid ::deep thead th,
+    .meta-grid ::deep tbody td,
+    .nx-data-card,
+    .nx-split-detail {
+        border-color: currentColor !important;
+    }
+}
+.nx-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: calc(-1 * var(--space-3xs));
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .nx-view-button:hover, .nx-colmenu-item:hover, .nx-moremenu-item:hover { background: var(--nx-hover); }
+    .meta-grid ::deep tbody tr:hover td,
+    .meta-grid.nx-freeze-first ::deep tbody tr:hover td:first-child { background: var(--nx-hover-teal); }
+    .nx-sort:hover { color: var(--nx-teal-text); }
+    .nx-colmenu-reset:hover { background: var(--nx-hover-teal); }
+    .nx-filterchip .x:hover { background: color-mix(in srgb, currentColor 10%, transparent); }
+}

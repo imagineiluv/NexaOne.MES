@@ -7,6 +7,7 @@
 @inject NexaOne.Web.Services.Auth.AuthTokenService TokenService
 @inject NexaOne.Web.Services.Auth.JwtAuthStateProvider AuthState
 @inject NexaOne.Web.Services.Meta.IRealtimeAlertFeed AlertFeed
+@inject NexaOne.Web.Services.Meta.IScreenDefinitionProvider Definitions
 @inject NexaOne.Web.Services.UiTextService Ui
 @inject Microsoft.JSInterop.IJSRuntime JS
 
@@ -14,6 +15,7 @@
    사이드바는 SYS.MenuTree(게이트웨이)로 데이터 주도 구축한다(대분류 Folder → 하위 Screen). 쿼리 실패/공백 시
    최소 정적 폴백으로 셸이 절대 빈 화면이 되지 않게 한다. /meta 화면(HostRoutes의 DefaultLayout). *@
 <div class="mes-shell @(_navCollapsed ? "nav-collapsed" : "")" style="@(_navWidth is int w ? $"--mes-nav-width:{w}px" : null)">
+    <a class="mes-skip-link" href="#mes-main-content">@Ui.T("shell.skipToContent", "본문 바로가기")</a>
     <aside class="mes-sidebar">
         @* NAF 브랜드 로고(픽셀 클러스터 + naf 워드마크 + NOW AND FUTURE) — 브랜드 이미지 벡터 재현. *@
         <div class="mes-logo">
@@ -27,7 +29,7 @@
                 <small class="naf-tag">NOW AND FUTURE</small>
             </div>
         </div>
-        <nav class="mes-nav">
+        <nav class="mes-nav" aria-label="@Ui.T("shell.businessMenu", "MES 업무 메뉴")">
             @* §20.12 — 즐겨찾기 메뉴(개인화). 서버 영속이라 어느 브라우저에서 접속해도 동일하다.
                (최근 사용 섹션은 사용자 요청으로 사이드바에서 제거 — 서버 추적(NavigateTo)은 유지) *@
             @if (_favorites.Count > 0)
@@ -41,18 +43,18 @@
                     <div @key="fav.MenuId" class="fav-item" title="@favName">
                         <span class="fav-name" role="button" tabindex="0" @onclick="() => NavigateTo(fav.UiId, fav.MenuName)"
                               @onkeydown="e => { if (IsActivateKey(e)) NavigateTo(fav.UiId, fav.MenuName); }">@favName</span>
-                        @* §20.12 순서 변경 — ▲▼로 이웃과 교환(행 hover 시에만 노출, P3-18), 성공 시에만 캐시 반영. *@
+                        @* §20.12 순서 변경 — 실제 button으로 키보드·터치 접근을 보장하고 성공 시에만 캐시 반영. *@
                         @if (idx > 0)
                         {
-                            <span class="fav-move" role="button" tabindex="0" title="위로" aria-label="@($"{favName} 위로")"
-                                  @onclick="() => MoveFavoriteAsync(idx, -1)"
-                                  @onkeydown="async e => { if (IsActivateKey(e)) await MoveFavoriteAsync(idx, -1); }">▲</span>
+                            <button type="button" class="fav-move" title="@Ui.T("common.up", "위로")"
+                                    aria-label="@string.Format(Ui.T("shell.moveFavoriteUp", "{0} 위로"), favName)"
+                                    @onclick="() => MoveFavoriteAsync(idx, -1)">▲</button>
                         }
                         @if (idx < _favorites.Count - 1)
                         {
-                            <span class="fav-move" role="button" tabindex="0" title="아래로" aria-label="@($"{favName} 아래로")"
-                                  @onclick="() => MoveFavoriteAsync(idx, +1)"
-                                  @onkeydown="async e => { if (IsActivateKey(e)) await MoveFavoriteAsync(idx, +1); }">▼</span>
+                            <button type="button" class="fav-move" title="@Ui.T("common.down", "아래로")"
+                                    aria-label="@string.Format(Ui.T("shell.moveFavoriteDown", "{0} 아래로"), favName)"
+                                    @onclick="() => MoveFavoriteAsync(idx, +1)">▼</button>
                         }
                     </div>
                 }
@@ -60,13 +62,15 @@
             }
             @* 트리 필터(P3-11) — 메뉴명/UI_ID 부분일치 잎+조상 폴더만 표시, 필터 중엔 전부 펼침. *@
             <div class="mes-navfilter">
-                <input placeholder="@Ui.T("shell.menuFilter", "메뉴 필터…")" value="@_navFilter" @oninput="OnNavFilterInput" aria-label="메뉴 필터" />
+                <input placeholder="@Ui.T("shell.menuFilter", "메뉴 필터…")" value="@_navFilter" @oninput="OnNavFilterInput"
+                       aria-label="@Ui.T("shell.menuFilter", "메뉴 필터")" />
             </div>
             @if (!string.IsNullOrWhiteSpace(_navFilter))
             {
                 @* 필터 중 — 구역 없이 평면 렌더(검색 결과 정확성). *@
                 <MesNavTree Nodes="VisibleForest" Depth="0" Open="EffectiveOpenFolders" ActiveUiId="@ActiveUiId()"
-                            OnToggle="ToggleFolder" OnNavigate="OnNavigateNode" DisplayName="MenuDisplay" />
+                            OnToggle="ToggleFolder" OnNavigate="OnNavigateNode" DisplayName="MenuDisplay"
+                            KnownScreenUiIds="_knownScreenUiIds" />
             }
             else
             {
@@ -75,18 +79,24 @@
                 {
                     <div class="mes-nav-section">@Ui.T(resKey, label)</div>
                     <MesNavTree Nodes="roots" Depth="0" Open="EffectiveOpenFolders" ActiveUiId="@ActiveUiId()"
-                                OnToggle="ToggleFolder" OnNavigate="OnNavigateNode" DisplayName="MenuDisplay" />
+                                OnToggle="ToggleFolder" OnNavigate="OnNavigateNode" DisplayName="MenuDisplay"
+                                KnownScreenUiIds="_knownScreenUiIds" />
                 }
             }
         </nav>
         <div class="mes-pin">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 17v5M5 9h14l-1.5 8h-11z M8 9V5a4 4 0 0 1 8 0v4"/></svg>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 17v5M5 9h14l-1.5 8h-11z M8 9V5a4 4 0 0 1 8 0v4"/></svg>
             @Ui.T("shell.menuPin", "메뉴 고정 기능")
         </div>
         @* P3-11 — 사이드바 폭 드래그 조절(레일 모드가 아닐 때만). 부트 스크립트 nxSidebarResizeInit가 처리. *@
         @if (!_navCollapsed)
         {
-            <div class="mes-nav-resize" @ref="_navResizeHandle" aria-hidden="true"></div>
+            <div class="mes-nav-resize" @ref="_navResizeHandle"
+                 role="separator" tabindex="0"
+                 aria-label="@Ui.T("shell.resizeNavigation", "탐색 영역 너비 조절")"
+                 aria-orientation="vertical" aria-valuemin="180" aria-valuemax="420"
+                 aria-valuenow="@(_navWidth ?? 230)"
+                 title="@Ui.T("shell.resizeNavigationHint", "드래그하거나 좌우 화살표 키로 너비 조절")"></div>
         }
     </aside>
 
@@ -96,20 +106,21 @@
     <div class="mes-main">
         <header class="mes-topbar">
             @* 사이드바 접기 토글(P3-11/16) — 좁은 화면에선 사이드바가 오버레이로 뜬다(CSS 미디어쿼리). *@
-            <span class="tb-ico" role="button" tabindex="0" aria-label="메뉴 접기/펼치기" title="메뉴 접기/펼치기"
+            <span class="tb-ico" role="button" tabindex="0" aria-label="@Ui.T("shell.toggleMenu", "메뉴 접기/펼치기")"
+                  title="@Ui.T("shell.toggleMenu", "메뉴 접기/펼치기")"
                   @onclick="() => _navCollapsed = !_navCollapsed"
                   @onkeydown="e => { if (IsActivateKey(e)) _navCollapsed = !_navCollapsed; }">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
             </span>
             @* §20.12 — 활성 화면 즐겨찾기 토글(★=등록됨). 메뉴 매핑이 없는 화면(직접 라우트 등)은 표시만 한다. *@
             <span class="star @(IsActiveFavorite() ? "active" : "")" role="button" tabindex="0"
-                  aria-label="@(IsActiveFavorite() ? "즐겨찾기 해제" : "즐겨찾기 등록")"
-                  title="@(IsActiveFavorite() ? "즐겨찾기 해제" : "즐겨찾기 등록")"
+                  aria-label="@(IsActiveFavorite() ? Ui.T("shell.removeFavorite", "즐겨찾기 해제") : Ui.T("shell.addFavorite", "즐겨찾기 등록"))"
+                  title="@(IsActiveFavorite() ? Ui.T("shell.removeFavorite", "즐겨찾기 해제") : Ui.T("shell.addFavorite", "즐겨찾기 등록"))"
                   @onclick="ToggleActiveFavoriteAsync"
                   @onkeydown="async e => { if (IsActivateKey(e)) await ToggleActiveFavoriteAsync(); }">@(IsActiveFavorite() ? "★" : "☆")</span>
             @* 상단바 컨텍스트 — 제품명 + 활성 화면 브레드크럼(데드스페이스를 현재 위치로 채움). *@
             <div class="tb-context">
-                <span class="tb-title">제조실행시스템 (NexaOne MES)</span>
+                <span class="tb-title">@Ui.T("shell.productName", "제조실행시스템 (NexaOne MES)")</span>
                 @{ var _activeScreen = Opened.Screens.FirstOrDefault(s => string.Equals(s.UiId, Opened.ActiveUiId, StringComparison.OrdinalIgnoreCase)); }
                 @if (_activeScreen is not null)
                 {
@@ -119,7 +130,7 @@
             </div>
             @* Quick Menu — 사이드바 트리 인덱스(_uiToTitle) 기반 타이프어헤드 점프(레거시 퀵메뉴 미러, 서버 호출 없음). *@
             <div class="mes-quickmenu">
-                <input placeholder="Quick Menu" value="@_quickQuery"
+                <input placeholder="@Ui.T("shell.quickMenu", "빠른 메뉴")" aria-label="@Ui.T("shell.quickMenu", "빠른 메뉴")" value="@_quickQuery"
                        @oninput="OnQuickInput" @onkeydown="OnQuickKeyDown" />
                 @if (_quickMatches.Count > 0)
                 {
@@ -135,18 +146,20 @@
                 }
             </div>
             @* 즐겨찾기 드로어 토글(사용자 요청) — 우측에서 슬라이드로 즐겨찾기 목록을 연다. *@
-            <span class="tb-ico" role="button" tabindex="0" aria-label="즐겨찾기 목록" title="즐겨찾기 목록"
+            <span class="tb-ico" role="button" tabindex="0" aria-label="@Ui.T("shell.favoriteList", "즐겨찾기 목록")"
+                  title="@Ui.T("shell.favoriteList", "즐겨찾기 목록")"
                   @onclick="ToggleFavDrawerAsync"
                   @onkeydown="async e => { if (IsActivateKey(e)) await ToggleFavDrawerAsync(); }">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3h12v18l-6-4-6 4z"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"/></svg>
             </span>
             @* 알림 센터(P3-20) — 버스 알림성 이벤트(알람/인터락/작업지시)의 벨 아이콘+최근 목록.
                열면 미읽음 뱃지 초기화. 피드는 회로 밖 스레드에서 콜백하므로 InvokeAsync로 전환한다. *@
             <div class="mes-alertmenu">
-                <span class="tb-ico" role="button" tabindex="0" aria-label="알림" title="알림"
+                <span class="tb-ico" role="button" tabindex="0" aria-label="@Ui.T("shell.alerts", "알림")"
+                      title="@Ui.T("shell.alerts", "알림")"
                       @onclick="ToggleAlerts"
                       @onkeydown='e => { if (IsActivateKey(e)) ToggleAlerts(); else if (e.Key == "Escape") _alertsOpen = false; }'>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
                     @if (_alertUnread > 0)
                     {
                         <span class="alert-badge">@(_alertUnread > 99 ? "99+" : _alertUnread.ToString())</span>
@@ -174,21 +187,22 @@
             @* 사용자 메뉴 — ID 표시·비밀번호 변경·로그아웃(리프레시 토큰 폐기 후 세션 종료).
                (구 톱니 아이콘은 연결 기능이 없어 제거 — 장식 UI를 두지 않는다) *@
             <div class="mes-usermenu">
-                <span class="tb-ico" role="button" tabindex="0" aria-label="사용자 메뉴" title="사용자 메뉴"
+                <span class="tb-ico" role="button" tabindex="0" aria-label="@Ui.T("shell.userMenu", "사용자 메뉴")"
+                      title="@Ui.T("shell.userMenu", "사용자 메뉴")"
                       @onclick="() => _userMenuOpen = !_userMenuOpen"
                       @onkeydown="e => { if (IsActivateKey(e)) _userMenuOpen = !_userMenuOpen; }">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
                 </span>
                 @if (_userMenuOpen)
                 {
-                    <div class="user-dropdown" role="menu" aria-label="사용자 메뉴"
+                    <div class="user-dropdown" role="menu" aria-label="@Ui.T("shell.userMenu", "사용자 메뉴")"
                          @onkeydown='e => { if (e.Key == "Escape") _userMenuOpen = false; }'>
-                        <div class="user-dd-id">@(_userId.Length > 0 ? _userId : "(사용자)")</div>
+                        <div class="user-dd-id">@(_userId.Length > 0 ? _userId : Ui.T("shell.userFallback", "(사용자)"))</div>
                         <a class="user-dd-item" role="menuitem" href="/change-password">@Ui.T("shell.changePassword", "비밀번호 변경")</a>
                         <div class="user-dd-item" role="menuitem" tabindex="0" @onclick="ToggleThemeAsync"
                              @onkeydown="async e => { if (IsActivateKey(e)) await ToggleThemeAsync(); }">@(_darkTheme ? Ui.T("shell.lightMode", "라이트 모드") : Ui.T("shell.darkMode", "다크 모드"))</div>
                         <div class="user-dd-item" role="menuitem" tabindex="0" @onclick="ToggleLanguageAsync"
-                             @onkeydown="async e => { if (IsActivateKey(e)) await ToggleLanguageAsync(); }">@(_language == "EnUs" ? "한국어로 전환" : "Switch to English")</div>
+                             @onkeydown="async e => { if (IsActivateKey(e)) await ToggleLanguageAsync(); }">@(_language == "EnUs" ? Ui.T("shell.switchToKorean", "한국어로 전환") : "Switch to English")</div>
                         <div class="user-dd-item" role="menuitem" tabindex="0" @onclick="HandleLogoutAsync"
                              @onkeydown="async e => { if (IsActivateKey(e)) await HandleLogoutAsync(); }">@Ui.T("shell.logout", "로그아웃")</div>
                     </div>
@@ -208,7 +222,8 @@
                @onkeydown='async e => { if (e.Key == "Escape") await CloseFavDrawerAsync(); }'>
             <div class="mes-favdrawer-head">
                 <span class="h-title">★ @Ui.T("shell.favorites", "즐겨찾기")</span>
-                <button class="mes-favdrawer-close" title="닫기" aria-label="즐겨찾기 닫기" @onclick="CloseFavDrawerAsync">×</button>
+                <button class="mes-favdrawer-close" title="@Ui.T("common.close", "닫기")"
+                        aria-label="@Ui.T("shell.closeFavorites", "즐겨찾기 닫기")" @onclick="CloseFavDrawerAsync">×</button>
             </div>
             @if (_favorites.Count == 0)
             {
@@ -227,13 +242,19 @@
                                   @onkeydown="async e => { if (IsActivateKey(e)) await FavDrawerNavigateAsync(fav); }">@favName</span>
                             @if (idx > 0)
                             {
-                                <button class="op" title="위로" @onclick="() => MoveFavoriteAsync(idx, -1)">▲</button>
+                                <button class="op" title="@Ui.T("common.up", "위로")"
+                                        aria-label="@string.Format(Ui.T("shell.moveFavoriteUp", "{0} 위로"), favName)"
+                                        @onclick="() => MoveFavoriteAsync(idx, -1)">▲</button>
                             }
                             @if (idx < _favorites.Count - 1)
                             {
-                                <button class="op" title="아래로" @onclick="() => MoveFavoriteAsync(idx, +1)">▼</button>
+                                <button class="op" title="@Ui.T("common.down", "아래로")"
+                                        aria-label="@string.Format(Ui.T("shell.moveFavoriteDown", "{0} 아래로"), favName)"
+                                        @onclick="() => MoveFavoriteAsync(idx, +1)">▼</button>
                             }
-                            <button class="op del" title="즐겨찾기 해제" @onclick="() => RemoveFavoriteAsync(fav.MenuId)">×</button>
+                            <button class="op del" title="@Ui.T("shell.removeFavorite", "즐겨찾기 해제")"
+                                    aria-label="@string.Format(Ui.T("shell.removeNamedFavorite", "{0} 즐겨찾기 해제"), favName)"
+                                    @onclick="() => RemoveFavoriteAsync(fav.MenuId)">×</button>
                         </div>
                     }
                 </div>
@@ -244,7 +265,7 @@
            탭이 많으면 가로 스크롤(오버플로). 탭이 없으면 바를 숨긴다. *@
         @if (Opened.Screens.Count > 0)
         {
-            <div class="mes-mditabs" role="tablist" aria-label="열린 화면">
+            <div class="mes-mditabs" role="tablist" aria-label="@Ui.T("shell.openScreens", "열린 화면")">
                 @foreach (var tab in Opened.Screens)
                 {
                     var tabActive = string.Equals(tab.UiId, Opened.ActiveUiId, StringComparison.OrdinalIgnoreCase);
@@ -259,7 +280,8 @@
                          @ondrop="() => DropTab(tab.UiId)"
                          @oncontextmenu="e => OpenTabMenu(e, tab.UiId)" @oncontextmenu:preventDefault="true">
                         <span class="mes-mditab-label">@TabTitle(tab)</span>
-                        <span class="close" role="button" tabindex="0" aria-label="@($"{TabTitle(tab)} 탭 닫기")"
+                        <span class="close" role="button" tabindex="0"
+                              aria-label="@string.Format(Ui.T("shell.closeNamedTab", "{0} 탭 닫기"), TabTitle(tab))"
                               @onclick="() => CloseTab(tab.UiId)" @onclick:stopPropagation="true"
                               @onkeydown="e => { if (IsActivateKey(e)) CloseTab(tab.UiId); }"
                               @onkeydown:stopPropagation="true">&times;</span>
@@ -272,19 +294,21 @@
         @if (_tabMenuUiId is not null)
         {
             <div class="tabmenu-backdrop" @onclick="CloseTabMenu" @oncontextmenu="CloseTabMenu" @oncontextmenu:preventDefault="true"></div>
-            <div class="tabmenu" role="menu" aria-label="탭 메뉴" style="left:@(_tabMenuX)px; top:@(_tabMenuY)px;"
+            <div class="tabmenu" role="menu" aria-label="@Ui.T("shell.tabMenu", "탭 메뉴")" style="left:@(_tabMenuX)px; top:@(_tabMenuY)px;"
                  @onkeydown='e => { if (e.Key == "Escape") CloseTabMenu(); }'>
                 <div class="tabmenu-item" role="menuitem" tabindex="0" @onclick="() => TabMenuClose()"
-                     @onkeydown="e => { if (IsActivateKey(e)) TabMenuClose(); }">닫기</div>
+                     @onkeydown="e => { if (IsActivateKey(e)) TabMenuClose(); }">@Ui.T("common.close", "닫기")</div>
                 <div class="tabmenu-item" role="menuitem" tabindex="0" @onclick="() => TabMenuCloseOthers()"
-                     @onkeydown="e => { if (IsActivateKey(e)) TabMenuCloseOthers(); }">다른 탭 모두 닫기</div>
+                     @onkeydown="e => { if (IsActivateKey(e)) TabMenuCloseOthers(); }">@Ui.T("shell.closeOtherTabs", "다른 탭 모두 닫기")</div>
                 <div class="tabmenu-item" role="menuitem" tabindex="0" @onclick="() => TabMenuCloseAll()"
-                     @onkeydown="e => { if (IsActivateKey(e)) TabMenuCloseAll(); }">모두 닫기</div>
+                     @onkeydown="e => { if (IsActivateKey(e)) TabMenuCloseAll(); }">@Ui.T("shell.closeAllTabs", "모두 닫기")</div>
             </div>
         }
 
-        <section class="mes-content">
-            @Body
+        <section id="mes-main-content" class="mes-content" tabindex="-1">
+            <div class="mes-content-inner">
+                @Body
+            </div>
         </section>
     </div>
 
@@ -300,6 +324,9 @@
     private sealed record MenuNode(string Id, string Name, string? ParentId, int Seq, string Type, string UiId);
 
     private List<MesMenuNode> _forest = new();
+    // 화면 점등 여부는 화면별 동기 DB 조회 대신 트리 갱신 시 한 번 읽은 ID 집합으로 판정한다.
+    private IReadOnlySet<string> _knownScreenUiIds
+        = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _openFolders = new(StringComparer.OrdinalIgnoreCase);
     // uiId → 메뉴명(MDI 탭 제목). 트리에서 파생.
     private Dictionary<string, string> _uiToTitle = new(StringComparer.OrdinalIgnoreCase);
@@ -357,14 +384,18 @@
     private HashSet<string> EffectiveOpenFolders
         => string.IsNullOrWhiteSpace(_navFilter) ? _openFolders : CollectFolderIds(VisibleForest);
 
-    private static List<MesMenuNode> FilterForest(List<MesMenuNode> nodes, string query)
+    private List<MesMenuNode> FilterForest(List<MesMenuNode> nodes, string query)
     {
         var result = new List<MesMenuNode>();
         foreach (var node in nodes)
         {
+            // 현재 언어에 표시되는 번역명도 검색 대상으로 삼는다. 영어 모드에서 보이는
+            // "Quality Inspection"을 입력했는데 한국어 원본만 비교해 결과가 사라지던 불일치를 막는다.
+            var displayName = MenuDisplay(node);
             if (node.IsFolder)
             {
-                if (node.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+                if (node.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                    || displayName.Contains(query, StringComparison.OrdinalIgnoreCase))
                 {
                     result.Add(node);   // 폴더명 매칭 = 하위 전체 유지
                     continue;
@@ -373,6 +404,7 @@
                 if (kids.Count > 0) result.Add(node with { Children = kids });
             }
             else if (node.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                  || displayName.Contains(query, StringComparison.OrdinalIgnoreCase)
                   || node.UiId.Contains(query, StringComparison.OrdinalIgnoreCase))
             {
                 result.Add(node);
@@ -421,6 +453,7 @@
 
     // ── 다국어(P3-14)·테마(P3-17)·사이드바 폭(P3-11) ─────────────────────────
     private string _language = "KoKr";
+    private string? _documentLanguageApplied;
     private bool _darkTheme;
     private int? _navWidth;                  // 사이드바 폭(px) — localStorage 'nx-nav-width' 복원값.
     private ElementReference _navResizeHandle;
@@ -441,6 +474,13 @@
             try { await JS.InvokeVoidAsync("nxViewportWatch", _selfRef); }
             catch { /* JS 미탑재 — 반응형 자동접기 없이 정상 동작 */ }
             StateHasChanged();
+        }
+        // 비동기 사용자 설정 로드는 첫 렌더 뒤에 끝날 수 있다. 실제 적용값이 달라질 때마다
+        // 다시 동기화해 저장된 EnUs로 첫 진입해도 <html lang="en">이 되도록 한다.
+        if (!string.Equals(_documentLanguageApplied, _language, StringComparison.Ordinal))
+        {
+            await JS.InvokeVoidAsync("nxSetLanguage", _language);
+            _documentLanguageApplied = _language;
         }
         // 즐겨찾기 드로어 열림 — inert가 벗겨진 렌더 이후에만 포커스 이동 가능(펜딩 플래그).
         if (_favDrawerFocusPending && _favDrawerOpen)
@@ -495,6 +535,9 @@
         Ui.Load(next, next == "KoKr"
             ? new Dictionary<string, string>(StringComparer.Ordinal)
             : await Api.GetLanguageResourcesAsync(next));
+        // 저장과 리소스 교체가 모두 성공한 뒤 문서 언어를 바꿔 실패 시 화면 상태가 어긋나지 않게 한다.
+        await JS.InvokeVoidAsync("nxSetLanguage", next);
+        _documentLanguageApplied = next;
     }
 
     // ── 알림 센터(P3-20) ─────────────────────────────────────────────────────
@@ -691,6 +734,16 @@
 
         _forest = PruneEmptyFolders(BuildForest(nodes));
         _treeLoadedAt = DateTime.UtcNow;
+
+        try
+        {
+            _knownScreenUiIds = await Definitions.GetKnownUiIdsAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "화면 정의 ID 카탈로그 조회 실패 — 리터럴 라우트만 점등합니다.");
+            _knownScreenUiIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
 
         // 파생 인덱스 — uiId→제목, uiId→조상 폴더 목록(활성 화면 진입 시 모든 상위 폴더 자동 펼침).
         _uiToTitle = new(StringComparer.OrdinalIgnoreCase);

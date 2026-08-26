@@ -7,7 +7,7 @@
      V018__FDC_INTERLOCK_HISTORY / V022__FDC_PARAMETER_GROUP 와 1:1 정합.
      선택필터 (@p IS NULL OR COL=@p) — 본문 없는 @param은 게이트웨이가 null로 채운다. 모두 read(kind 미표기). -->
 <queries module="FDC">
-    <query id="FDC.ParameterGroupsByEquipment">
+    <query id="FDC.ParameterGroupsByEquipment" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT GROUP_ID, GROUP_NAME, EQUIPMENT_ID, DESCRIPTION, DISPLAY_ORDER, IS_ACTIVE
             FROM FDC_PARAMETER_GROUP
@@ -15,7 +15,7 @@
             ORDER BY DISPLAY_ORDER, GROUP_NAME
         ]]></statement>
     </query>
-    <query id="FDC.ParametersByEquipment">
+    <query id="FDC.ParametersByEquipment" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT PARAMETER_ID, PARAMETER_NAME, EQUIPMENT_ID, GROUP_ID, UNIT,
                    LOWER_LIMIT, UPPER_LIMIT, LOWER_CONTROL_LIMIT, UPPER_CONTROL_LIMIT,
@@ -26,7 +26,7 @@
             ORDER BY PARAMETER_NAME
         ]]></statement>
     </query>
-    <query id="FDC.AlarmConfigsByEquipment">
+    <query id="FDC.AlarmConfigsByEquipment" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT ALARM_CONFIG_ID, EQUIPMENT_ID, PARAMETER_ID, ALARM_LEVEL, OPERATOR, THRESHOLD_VALUE, IS_ACTIVE
             FROM FDC_ALARM_CONFIG
@@ -35,7 +35,7 @@
             ORDER BY PARAMETER_ID, ALARM_LEVEL
         ]]></statement>
     </query>
-    <query id="FDC.InterlockRulesByEquipment">
+    <query id="FDC.InterlockRulesByEquipment" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT RULE_ID, RULE_NAME, EQUIPMENT_ID, PARAMETER_ID, OPERATOR, THRESHOLD_VALUE, ACTION, PRIORITY, IS_ACTIVE
             FROM FDC_INTERLOCK_RULE
@@ -44,7 +44,7 @@
             ORDER BY PARAMETER_ID, PRIORITY
         ]]></statement>
     </query>
-    <query id="FDC.AlarmHistoryByEquipment">
+    <query id="FDC.AlarmHistoryByEquipment" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT ALARM_ID, ALARM_CONFIG_ID, EQUIPMENT_ID, PARAMETER_ID, ALARM_LEVEL, TRIGGER_VALUE, MESSAGE,
                    OCCURRED_AT, CLEARED_AT, IS_CLEARED
@@ -55,7 +55,7 @@
             ORDER BY OCCURRED_AT DESC
         ]]></statement>
     </query>
-    <query id="FDC.InterlockHistoryByEquipment">
+    <query id="FDC.InterlockHistoryByEquipment" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT HISTORY_ID, RULE_ID, EQUIPMENT_ID, PARAMETER_ID, TRIGGER_VALUE, ACTION, MESSAGE,
                    TRIGGERED_AT, RESOLVED_AT, IS_RESOLVED
@@ -67,7 +67,7 @@
         ]]></statement>
     </query>
     <!-- SmartUX 화면 점등용 전체조회(NULL-guard) — 설비 필터 없이 마스터/이력 그리드를 채운다(미지정 @param은 게이트웨이가 null로 채움). -->
-    <query id="FDC.ParameterGroupList">
+    <query id="FDC.ParameterGroupList" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT GROUP_ID, GROUP_NAME, EQUIPMENT_ID, DESCRIPTION, DISPLAY_ORDER, IS_ACTIVE
             FROM FDC_PARAMETER_GROUP
@@ -75,7 +75,7 @@
             ORDER BY DISPLAY_ORDER, GROUP_NAME
         ]]></statement>
     </query>
-    <query id="FDC.ParameterList">
+    <query id="FDC.ParameterList" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT PARAMETER_ID, PARAMETER_NAME, EQUIPMENT_ID, GROUP_ID, UNIT,
                    LOWER_LIMIT, UPPER_LIMIT, LOWER_CONTROL_LIMIT, UPPER_CONTROL_LIMIT,
@@ -86,7 +86,7 @@
             ORDER BY PARAMETER_NAME
         ]]></statement>
     </query>
-    <query id="FDC.InterlockHistoryList">
+    <query id="FDC.InterlockHistoryList" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT HISTORY_ID, RULE_ID, EQUIPMENT_ID, PARAMETER_ID, TRIGGER_VALUE, ACTION, MESSAGE,
                    TRIGGERED_AT, RESOLVED_AT, IS_RESOLVED
@@ -97,7 +97,7 @@
         ]]></statement>
     </query>
     <!-- 수집 시계열(FDC 데이터 차트/실시간 모니터링) — 최근 500행. 컬럼은 V017__FDC_COLLECT_DATA와 1:1 정합. -->
-    <query id="FDC.CollectDataList">
+    <query id="FDC.CollectDataList" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT COLLECT_ID, EQUIPMENT_ID, PARAMETER_ID, VALUE, COLLECTED_AT, QUALITY, LOWER_LIMIT, UPPER_LIMIT
             FROM FDC_COLLECT_DATA
@@ -108,7 +108,7 @@
         ]]></statement>
     </query>
     <!-- 인터락 규칙 전체조회(파라미터별 설비 상태 변경 관리) — 컬럼은 V004__FDC_INTERLOCK_RULE과 1:1 정합. -->
-    <query id="FDC.InterlockRuleList">
+    <query id="FDC.InterlockRuleList" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT RULE_ID, RULE_NAME, EQUIPMENT_ID, PARAMETER_ID, OPERATOR, THRESHOLD_VALUE, ACTION, PRIORITY, IS_ACTIVE
             FROM FDC_INTERLOCK_RULE
@@ -118,7 +118,7 @@
         ]]></statement>
     </query>
     <!-- ===== 가상 이벤트 정의(V067, EES_FDC_VIRTUAL_EVENT_MANAGEMENT) — 1차=정의 CRUD, 평가 엔진 후속. ===== -->
-    <query id="FDC.VirtualEventList">
+    <query id="FDC.VirtualEventList" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT PLANT_ID, EQUIPMENT_ID, EVENT_ID, EVENT_NAME, EVENT_ON, EVENT_OFF,
                    CONDITION_FORMULA, DESCRIPTION, VALID_STATE, UPDATED_BY, UPDATED_AT
@@ -151,7 +151,7 @@
     </query>
     <!-- 동종 설비간 동일성 검정(tool-to-tool matching) v1 — 파라미터×설비 분포 요약 비교.
          분산은 AVG(v*v)-AVG(v)*AVG(v) (SQLite STDDEV 부재 — 방언 동일식으로 패리티 유지). -->
-    <query id="FDC.EquipmentParameterStats">
+    <query id="FDC.EquipmentParameterStats" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT FDC_COLLECT_DATA.PARAMETER_ID, EQUIPMENT_ID,
                    COUNT(*)                          AS N,
@@ -174,7 +174,7 @@
     </query>
     <!-- 사용자별 관심 파라미터(V084) — 개인화 규약: 전 쿼리 @currentUser 서버 주입 스코프
          (쓰기=서버 주입이라 원시 /command로도 타인 조작 불가). -->
-    <query id="FDC.UserParameterList">
+    <query id="FDC.UserParameterList" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT EQUIPMENT_ID, PARAMETER_ID, DISPLAY_SEQUENCE
             FROM FDC_USER_PARAMETER
@@ -197,7 +197,7 @@
         ]]></statement>
     </query>
     <!-- 관심 파라미터의 실시간 값 — 수집 시계열을 내 관심 목록으로 좁힌다(모니터링 보드). -->
-    <query id="FDC.UserMonitoringData">
+    <query id="FDC.UserMonitoringData" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT C.EQUIPMENT_ID, C.PARAMETER_ID, C.VALUE, C.COLLECTED_AT, C.QUALITY, C.LOWER_LIMIT, C.UPPER_LIMIT
             FROM FDC_COLLECT_DATA C
@@ -209,7 +209,7 @@
         ]]></statement>
     </query>
     <!-- 가상 이벤트 전이 이력 조회(V069) — 기록은 FDC 모듈 평가 엔진(VirtualEventService)이 수행. -->
-    <query id="FDC.VirtualEventHistoryList">
+    <query id="FDC.VirtualEventHistoryList" requiredPermission="fdc:read">
         <statement><![CDATA[
             SELECT HISTORY_ID, EQUIPMENT_ID, EVENT_ID, EVENT_STATE, FORMULA, DETAILS, EVALUATED_AT
             FROM FDC_VIRTUAL_EVENT_HISTORY

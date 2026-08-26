@@ -139,7 +139,7 @@ public sealed class UnlitLeavesLightingTests : IClassFixture<UnlitLeavesLighting
     [Fact]
     public async Task Batch_manual_run_executes_named_command_and_records_history()
     {
-        var admin = Client("sys:manage");
+        var admin = Client("sys:manage", "mdm:read");
 
         // 정의: MDM.CreatePlant를 입력 파라미터(JSON)로 실행하는 배치.
         var plantId = $"BP{Guid.NewGuid():N}"[..10];

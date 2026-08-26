@@ -78,28 +78,151 @@ public sealed class PomBridge : IPomBridge
 
     public async Task<Result<LotDto>> TrackInAsync(
         string plantId, string lotId, string equipmentId,
-        string? recipeDefId, int? recipeDefVersion, string user, CancellationToken ct = default)
+        string? recipeDefId, int? recipeDefVersion, string user, CancellationToken ct = default,
+        int? expectedVersion = null, string? idempotencyKey = null,
+        string clientChannel = "MES", string? deviceId = null)
     {
         var r = await _lotService.TrackInAsync(
-            new TrackInCommand(plantId, lotId, equipmentId, recipeDefId, recipeDefVersion, user), ct);
+            new TrackInCommand(
+                plantId, lotId, equipmentId, recipeDefId, recipeDefVersion, user,
+                expectedVersion, idempotencyKey, clientChannel, deviceId), ct);
         return r.IsSuccess ? Result.Success(ToDto(r.Value)) : Result.Failure<LotDto>(r.Error);
     }
 
     public async Task<Result<LotDto>> TrackOutAsync(
         string plantId, string lotId, string equipmentId, decimal qty,
-        IReadOnlyList<LotDefectInput>? defects, string? carrierId, string user, CancellationToken ct = default)
+        IReadOnlyList<LotDefectInput>? defects, string? carrierId, string user, CancellationToken ct = default,
+        int? expectedVersion = null, string? idempotencyKey = null,
+        string clientChannel = "MES", string? deviceId = null)
     {
         var mapped = defects?.Select(d => new DefectEntry(d.DefectCode, d.DefectQty)).ToList();
         var r = await _lotService.TrackOutAsync(
-            new TrackOutCommand(plantId, lotId, equipmentId, qty, mapped, carrierId, user), ct);
+            new TrackOutCommand(
+                plantId, lotId, equipmentId, qty, mapped, carrierId, user,
+                expectedVersion, idempotencyKey, clientChannel, deviceId), ct);
         return r.IsSuccess ? Result.Success(ToDto(r.Value)) : Result.Failure<LotDto>(r.Error);
     }
 
-    public Task<Result> HoldLotAsync(string lotId, string user, CancellationToken ct = default)
-        => _lotService.HoldAsync(lotId, user, ct);
+    public Task<Result> HoldLotAsync(string lotId, string user, CancellationToken ct = default,
+        int? expectedVersion = null, string? idempotencyKey = null, string? reason = null,
+        string clientChannel = "MES", string? deviceId = null)
+        => _lotService.HoldAsync(
+            lotId, user, ct, expectedVersion, idempotencyKey, reason, clientChannel, deviceId);
 
-    public Task<Result> ReleaseLotHoldAsync(string lotId, string user, CancellationToken ct = default)
-        => _lotService.ReleaseHoldAsync(lotId, user, ct);
+    public Task<Result> ReleaseLotHoldAsync(string lotId, string user, CancellationToken ct = default,
+        int? expectedVersion = null, string? idempotencyKey = null, string? reason = null,
+        string clientChannel = "MES", string? deviceId = null)
+        => _lotService.ReleaseHoldAsync(
+            lotId, user, ct, expectedVersion, idempotencyKey, reason, clientChannel, deviceId);
+
+    // ── LOT 라우팅 통제/예외 ──
+
+    public async Task<Result<LotRoutingContextDto>> GetLotRoutingContextAsync(
+        string lotId, CancellationToken ct = default)
+    {
+        var result = await _lotService.GetRoutingContextAsync(lotId, ct);
+        return result.IsSuccess
+            ? Result.Success(ToDto(result.Value))
+            : Result.Failure<LotRoutingContextDto>(result.Error);
+    }
+
+    public async Task<Result<RoutingPolicyDecisionDto>> EvaluateLotRoutingAsync(
+        string plantId, string lotId, string deviationType, int targetStepIndex,
+        string? reason, string? exceptionId = null, CancellationToken ct = default)
+    {
+        if (!Enum.TryParse<RouteDeviationType>(deviationType, true, out var parsedType))
+            return Result.Failure<RoutingPolicyDecisionDto>(Error.Validation(
+                nameof(deviationType), "Deviation type must be Bypass, Alternative, SequenceChange, Rework, or Return."));
+
+        var result = await _lotService.EvaluateRoutingAsync(
+            new EvaluateRoutingCommand(plantId, lotId, parsedType, targetStepIndex, reason, exceptionId), ct);
+        return result.IsSuccess
+            ? Result.Success(ToDto(result.Value))
+            : Result.Failure<RoutingPolicyDecisionDto>(result.Error);
+    }
+
+    public async Task<Result<LotDto>> ChangeLotRoutingControlModeAsync(
+        string plantId, string lotId, string controlMode, string reason, string user,
+        int expectedVersion, string idempotencyKey, string clientChannel,
+        string? deviceId = null, CancellationToken ct = default)
+    {
+        if (!Enum.TryParse<RoutingControlMode>(controlMode, true, out var parsedMode))
+            return Result.Failure<LotDto>(Error.Validation(
+                nameof(controlMode), "Control mode must be Strict, Flexible, or NoControl."));
+
+        var result = await _lotService.ChangeRoutingControlModeAsync(
+            new ChangeRoutingControlModeCommand(
+                plantId, lotId, parsedMode, reason, user, expectedVersion,
+                idempotencyKey, clientChannel, deviceId), ct);
+        return result.IsSuccess ? Result.Success(ToDto(result.Value)) : Result.Failure<LotDto>(result.Error);
+    }
+
+    public async Task<Result<LotDto>> ApplyLotRouteDeviationAsync(
+        string plantId, string lotId, string deviationType, int targetStepIndex,
+        string reason, string user, int expectedVersion, string idempotencyKey,
+        string? exceptionId, string clientChannel, string? deviceId = null,
+        CancellationToken ct = default)
+    {
+        if (!Enum.TryParse<RouteDeviationType>(deviationType, true, out var parsedType))
+            return Result.Failure<LotDto>(Error.Validation(
+                nameof(deviationType), "Deviation type must be Bypass, Alternative, SequenceChange, Rework, or Return."));
+
+        var result = await _lotService.ApplyRouteDeviationAsync(
+            new ApplyRouteDeviationCommand(
+                plantId, lotId, parsedType, targetStepIndex, reason, user, expectedVersion,
+                idempotencyKey, exceptionId, clientChannel, deviceId), ct);
+        return result.IsSuccess ? Result.Success(ToDto(result.Value)) : Result.Failure<LotDto>(result.Error);
+    }
+
+    public async Task<Result<RouteExceptionDto>> RequestLotRouteExceptionAsync(
+        string exceptionId, string plantId, string lotId, string deviationType,
+        int targetStepIndex, string reason, string user, int expectedVersion,
+        DateTime expiresAt, string clientChannel, string? deviceId = null,
+        CancellationToken ct = default)
+    {
+        if (!Enum.TryParse<RouteDeviationType>(deviationType, true, out var parsedType))
+            return Result.Failure<RouteExceptionDto>(Error.Validation(
+                nameof(deviationType), "Deviation type must be Bypass, Alternative, SequenceChange, Rework, or Return."));
+
+        var result = await _lotService.RequestRouteExceptionAsync(
+            new RequestRouteExceptionCommand(
+                exceptionId, plantId, lotId, parsedType, targetStepIndex, reason, user,
+                expectedVersion, expiresAt, clientChannel, deviceId), ct);
+        return result.IsSuccess
+            ? Result.Success(ToDto(result.Value))
+            : Result.Failure<RouteExceptionDto>(result.Error);
+    }
+
+    public async Task<Result<RouteExceptionDto>> ApproveLotRouteExceptionAsync(
+        string exceptionId, string reviewer, string? reason = null, CancellationToken ct = default,
+        string clientChannel = "MES", string? deviceId = null)
+    {
+        var result = await _lotService.ApproveRouteExceptionAsync(
+            new ReviewRouteExceptionCommand(exceptionId, reviewer, reason, clientChannel, deviceId), ct);
+        return result.IsSuccess
+            ? Result.Success(ToDto(result.Value))
+            : Result.Failure<RouteExceptionDto>(result.Error);
+    }
+
+    public async Task<Result<RouteExceptionDto>> RejectLotRouteExceptionAsync(
+        string exceptionId, string reviewer, string? reason = null, CancellationToken ct = default,
+        string clientChannel = "MES", string? deviceId = null)
+    {
+        var result = await _lotService.RejectRouteExceptionAsync(
+            new ReviewRouteExceptionCommand(exceptionId, reviewer, reason, clientChannel, deviceId), ct);
+        return result.IsSuccess
+            ? Result.Success(ToDto(result.Value))
+            : Result.Failure<RouteExceptionDto>(result.Error);
+    }
+
+    public async Task<Result<RouteExceptionDto>> GetLotRouteExceptionAsync(
+        string exceptionId, CancellationToken ct = default)
+    {
+        var result = await _lotService.GetRouteExceptionAsync(exceptionId, ct);
+        return result.IsSuccess
+            ? Result.Success(ToDto(result.Value))
+            : Result.Failure<RouteExceptionDto>(result.Error);
+    }
 
     // ── Lot Mixing(다중 애그리거트 소비/병합, DATA-3 단일 트랜잭션) ──
 
@@ -127,5 +250,38 @@ public sealed class PomBridge : IPomBridge
     private static LotDto ToDto(Lot l)
         => new(l.Id, l.PlantId, l.WorkOrderId, l.ProductId, l.Qty, l.DefectQty,
             l.State.ToString(), l.ProcessState.ToString(), l.RouteSteps, l.CurrentStepIndex,
-            l.CurrentProcessId, l.EquipmentId, l.RecipeDefId, l.RecipeDefVersion, l.CarrierId, l.IsHold);
+            l.CurrentProcessId, l.EquipmentId, l.RecipeDefId, l.RecipeDefVersion, l.CarrierId, l.IsHold, l.VersionNo,
+            l.ControlMode.ToString(), l.ReturnStepIndex, l.ReturnProcessId, l.IsInRework,
+            l.NextStepIndex, l.NextProcessId);
+
+    private static LotRoutingContextDto ToDto(LotRoutingContext context)
+        => new(
+            ToDto(context.Lot),
+            context.Lot.ControlMode.ToString(),
+            context.Lot.CurrentStepIndex,
+            context.Lot.CurrentProcessId,
+            context.Lot.NextStepIndex,
+            context.Lot.NextProcessId,
+            context.ReturnStepIndex,
+            context.ReturnProcessId,
+            context.Lot.IsInRework,
+            context.Exceptions.Select(ToDto).ToArray());
+
+    private static RoutingPolicyDecisionDto ToDto(RoutingPolicyDecision decision)
+        => new(
+            decision.Kind.ToString(), decision.Code, decision.Message,
+            decision.ControlMode.ToString(), decision.DeviationType.ToString(),
+            decision.FromStepIndex, decision.ToStepIndex, decision.RequiresReason,
+            decision.ExceptionId, decision.IsAllowed);
+
+    private static RouteExceptionDto ToDto(RouteExceptionRequest exception)
+        => new(
+            exception.Id, exception.LotId, exception.PlantId, exception.DeviationType.ToString(),
+            exception.FromStepIndex, exception.ToStepIndex, exception.FromProcessId, exception.ToProcessId,
+            exception.BoundLotVersion,
+            exception.Reason, exception.Status.ToString(), exception.RequestedBy,
+            exception.RequestedAt, exception.ExpiresAt, exception.ReviewedBy,
+            exception.ReviewedAt, exception.ReviewReason, exception.AppliedBy,
+            exception.AppliedAt, exception.AppliedExecutionId, exception.ClientChannel,
+            exception.DeviceId, exception.ReviewClientChannel, exception.ReviewDeviceId);
 }

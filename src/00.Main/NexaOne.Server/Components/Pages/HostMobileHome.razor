@@ -1,0 +1,15 @@
+@page "/Mobile"
+@attribute [Authorize]
+@layout MobileLayout
+
+<PageTitle>모바일 작업 · NexaOne</PageTitle>
+<OperatorChannelCatalog TargetChannel="MOBILE" BasePath="/Mobile"
+                        DeviceId="@DeviceId"
+                        Eyebrow="PDA · MOBILE"
+                        Title="모바일 작업"
+                        Description="배정된 작업 화면을 선택해 스캔·입력 업무를 시작하세요." />
+<OperatorQualitySnapshot />
+
+@code {
+    [Parameter, SupplyParameterFromQuery(Name = "deviceId")] public string? DeviceId { get; set; }
+}

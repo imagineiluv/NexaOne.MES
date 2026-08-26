@@ -1,5 +1,5 @@
 {
-  "_comment": "TS↔C# 화면정의 계약 드리프트 가드의 단일 출처. C#(ScreenMetadata.cs ScreenDefinition)과 SPA(layout.ts ScreenDefinitionDto)가 이 목록과 각각 대조된다 — DeleteQueryId SPA 미러 누락 실사고(2026-07-09 보수)의 재발 방지. 속성 추가 시: ①C# record ②이 파일 ③layout.ts DTO+SCREEN_DEFINITION_KEYS ④mapping build/parse ⑤api extras ⑥ScreenEditor flatRef 순으로 — ①만 하면 xUnit이, ③을 빠뜨리면 vitest/tsc가 실패한다.",
+  "_comment": "TS↔C# 화면정의 계약 드리프트 가드의 단일 출처. C#(ScreenMetadata.cs)과 Portal Designer(layout.ts)가 각각 대조한다. 속성·enum·Layout discriminator 추가 시 C# record/attribute, 이 파일, layout.ts 타입+상수, mapping, Designer trait/test를 함께 갱신한다.",
   "screenDefinition": [
     "UiId",
     "Title",
@@ -12,11 +12,80 @@
     "SearchFields",
     "CountQueryId",
     "DeleteQueryId",
-    "BulkCommands"
+    "BulkCommands",
+    "Purpose",
+    "ReadRequiredPermission",
+    "SaveRequiredPermission",
+    "DeleteRequiredPermission"
   ],
   "bulkCommandDefinition": [
     "Label",
     "CommandQueryId",
-    "ConfirmMessage"
+    "ConfirmMessage",
+    "RequiredPermission"
+  ],
+  "fieldDefinition": [
+    "Key",
+    "Label",
+    "Type",
+    "Required",
+    "ReadOnly",
+    "Options",
+    "OptionsQueryId",
+    "Hidden",
+    "ValueGenerator"
+  ],
+  "gridWidget": [
+    "QueryId",
+    "Columns",
+    "SelectionScope",
+    "SelectionDisabled"
+  ],
+  "formWidget": [
+    "SaveQueryId",
+    "Fields",
+    "Isolated",
+    "BindingScope"
+  ],
+  "collectionWidget": [
+    "CollectionKey",
+    "Label",
+    "ItemLabel",
+    "Fields",
+    "BindingScope",
+    "MinItems",
+    "MaxItems"
+  ],
+  "buttonWidget": [
+    "Label",
+    "Command",
+    "ConfirmMessage",
+    "BindingScope"
+  ],
+  "fieldValueGenerator": [
+    "None",
+    "UuidV4"
+  ],
+  "layoutKinds": [
+    "section",
+    "row",
+    "column",
+    "grid",
+    "form",
+    "field",
+    "collection",
+    "commandButton",
+    "text",
+    "kpi",
+    "statusBadge",
+    "trendChart"
+  ],
+  "screenPurpose": [
+    "Auto",
+    "Register",
+    "Manage",
+    "Inquiry",
+    "Report",
+    "Execute"
   ]
 }

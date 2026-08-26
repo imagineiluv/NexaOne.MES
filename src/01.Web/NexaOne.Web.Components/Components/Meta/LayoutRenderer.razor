@@ -6,10 +6,18 @@
 @inject IServiceProvider Services
 @inject Radzen.DialogService DialogService
 
+@if (!CanAccess(Node) && Node is not ButtonWidget and not CollectionWidget)
+{
+    @* 권한 없는 데이터/입력/컨테이너 노드는 본문과 하위 트리를 렌더하지 않는다. *@
+    <div class="meta-permission-denied" role="note">@PermissionDeniedReason(Node)</div>
+}
+else
+{
 @switch (Node)
 {
     case SectionNode s:
-        <section class="layout-section">
+        var sectionTitleId = $"{_uid}-section-title";
+        <section class="layout-section" aria-labelledby="@(string.IsNullOrWhiteSpace(s.Title) ? null : sectionTitleId)">
             @if (!string.IsNullOrWhiteSpace(s.Title))
             {
                 @* 제목의 괄호 꼬리("운영 요약(30초 자동 새로고침)")는 메타정보 — 본제목과 동급 굵기로
@@ -17,7 +25,7 @@
                 var open = s.Title.IndexOf('(');
                 var main = open > 0 ? s.Title[..open].TrimEnd() : s.Title;
                 var meta = open > 0 ? s.Title[open..] : null;
-                <h3 class="layout-section-title">@main@if (meta is not null) { <span class="layout-section-meta">@meta</span> }</h3>
+                <h2 id="@sectionTitleId" class="layout-section-title">@main@if (meta is not null) { <span class="layout-section-meta">@meta</span> }</h2>
             }
             @RenderChildren(s.Children)
         </section>
@@ -43,9 +51,12 @@
         (int Total, int Page)? paging = qid is not null && GridPaging is not null
             && GridPaging.TryGetValue(qid, out var pg) ? pg : null;
         <MetaGridRenderer Columns="g.Columns ?? Array.Empty<GridColumnDefinition>()" Rows="RowsFor(g.QueryId)"
-                          Loading="LoadingData" OnRowSelect="OnRowSelect" ScreenKey="@GridKey(g)"
-                          CanAdd="CanAdd" OnAddNew="OnAddNew" CanDelete="CanDelete" OnDeleteRows="OnDeleteRows"
+                          Loading="LoadingData" OnRowSelect="RowSelectFor(g)" ScreenKey="@GridKey(g)"
+                          EnableViewModes="EnableGridViewModes"
+                          CanAdd="CanAdd" OnAddNew="OnAddNew" AddDisabledReason="@AddDisabledReason"
+                          CanDelete="CanDelete" OnDeleteRows="OnDeleteRows" DeleteDisabledReason="@DeleteDisabledReason"
                           BulkCommands="BulkCommands" OnBulkCommand="OnBulkCommand"
+                          BulkCommandDisabledReason="BulkCommandDisabledReason"
                           ServerTotal="paging?.Total" ServerPage="paging?.Page ?? 0"
                           OnServerPageChange="EventCallback.Factory.Create<int>(this, p => OnGridPageChange.InvokeAsync((qid!, p)))" />
         break;
@@ -55,8 +66,14 @@
        Isolated=true(Phase-2 멀티폼)면 폼 전용 모델(FormModels[key])에 바인딩해 폼 간 값이 섞이지 않는다. *@
     case FormWidget f:
     {
+        var bindingScope = BindingScopeKey(f.BindingScope);
         var scopeKey = FormScopeKey(f);
-        @if (f.Isolated && scopeKey is not null && FormModels.TryGetValue(scopeKey, out var formModel))
+        @if (bindingScope is not null && ScopeModels.TryGetValue(bindingScope, out var scopedModel))
+        {
+            <MetaFormRenderer Definition="FormDefinition(f)" Model="scopedModel"
+                              ModelChanged="m => OnScopeModelChanged.InvokeAsync((bindingScope, m))" />
+        }
+        else if (f.Isolated && scopeKey is not null && FormModels.TryGetValue(scopeKey, out var formModel))
         {
             <MetaFormRenderer Definition="FormDefinition(f)" Model="formModel"
                               ModelChanged="m => OnFormModelChanged.InvokeAsync((scopeKey, m))" />
@@ -72,23 +89,67 @@
         <MetaFormRenderer Definition="SingleFieldDefinition(fw)" Model="Model" ModelChanged="OnModelChanged" />
         break;
 
-    case ButtonWidget b:
-        <RadzenButton Text="@b.Label" Click="() => RunButtonAsync(b)" Disabled="@string.IsNullOrWhiteSpace(b.Command)"
-                      ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small" class="layout-command" />
+    case CollectionWidget collection:
+    {
+        var collectionAllowed = CanAccess(collection);
+        var schema = CollectionSchema(collection);
+        var disabledReason = collectionAllowed ? null : PermissionDeniedReason(collection);
+        var bindingScope = BindingScopeKey(collection.BindingScope);
+        var collectionModel = bindingScope is not null && ScopeModels.TryGetValue(bindingScope, out var scopedCollectionModel)
+            ? scopedCollectionModel
+            : Model;
+        @* 차단된 collection은 빈 읽기전용 셸만 표시한다. MinItems 보정 콜백이 차단된 부모 모델에
+           되풀이되어 렌더 루프를 만들지 않도록 허용된 경우에만 최소 개수를 적용한다. *@
+        <MetaCollectionEditor CollectionKey="@collection.CollectionKey"
+                              Label="@collection.Label"
+                              ItemLabel="@collection.ItemLabel"
+                              Schema="schema"
+                              Items="@CollectionItems(collection, collectionModel)"
+                              ItemsChanged="items => OnCollectionItemsChangedAsync(collection, collectionModel, bindingScope, items)"
+                              MinItems="@(collectionAllowed ? collection.MinItems : 0)"
+                              MaxItems="@collection.MaxItems"
+                              Disabled="@(!collectionAllowed)"
+                              DisabledReason="@disabledReason"
+                              ItemFactory="@(() => MetaModelDefaults.CreateItem(schema))" />
         break;
+    }
+
+    case ButtonWidget b:
+    {
+        var disabledReason = !CanAccess(b)
+            ? PermissionDeniedReason(b)
+            : string.IsNullOrWhiteSpace(b.Command)
+            ? T("common.commandMissing", "실행 명령이 지정되지 않았습니다.")
+            : CommandDisabledReason?.Invoke(b);
+        <div class="layout-command-wrap @(disabledReason is null ? "is-enabled" : "is-disabled")">
+            <RadzenButton Text="@b.Label" Click="() => RunButtonAsync(b)" Disabled="@(disabledReason is not null)"
+                          title="@disabledReason"
+                          aria-label="@(disabledReason is null ? b.Label : $"{b.Label} — {disabledReason}")"
+                          ButtonStyle="Radzen.ButtonStyle.Primary" Size="Radzen.ButtonSize.Small" class="layout-command" />
+            @if (disabledReason is not null)
+            {
+                <span class="layout-command-reason" role="note">@disabledReason</span>
+            }
+        </div>
+        break;
+    }
 
     case TextWidget t:
-        @if (t.IsLabel) { <label class="layout-text">@t.Text</label> }
+        @* 연결 대상 없는 label 요소는 접근성 트리를 오염시키므로 강조 텍스트 클래스로 표현한다. *@
+        @if (t.IsLabel) { <span class="layout-text layout-text-label">@t.Text</span> }
         else { <span class="layout-text">@t.Text</span> }
         break;
 
     @* KPI 카드(Phase-2) — 바인딩 쿼리 첫 행의 ValueColumn 값을 큰 숫자로. 미실행/공백은 '—'(빈 카드 방지).
        스타일은 디자인 토큰 클래스(nexaone.css --nx-*) 단일 출처. *@
     case KpiWidget k:
+        var linked = !string.IsNullOrWhiteSpace(k.LinkUiId);
         @* LinkUiId(P3-12) — 지정 시 카드 클릭=관련 화면 드릴다운. P1 — 값·라벨로 시맨틱 색(알람>0=위험 등). *@
-        <div class="layout-kpi @(string.IsNullOrWhiteSpace(k.LinkUiId) ? "" : "linked") @KpiSeverityClass(k)"
-             title="@(string.IsNullOrWhiteSpace(k.LinkUiId) ? null : "클릭하여 상세 화면으로 이동")"
-             @onclick="() => KpiNavigate(k)">
+        <div class="layout-kpi @(linked ? "linked" : "") @KpiSeverityClass(k)"
+             role="@(linked ? "link" : "group")" tabindex="@(linked ? "0" : null)"
+             aria-label="@(linked ? $"{k.Label} {KpiValue(k)}{k.Unit}, 상세 화면으로 이동" : $"{k.Label} {KpiValue(k)}{k.Unit}")"
+             title="@(linked ? "클릭하여 상세 화면으로 이동" : null)"
+             @onclick="() => KpiNavigate(k)" @onkeydown="e => OnKpiKeyDown(k, e)">
             <div class="layout-kpi-label">@k.Label</div>
             @* 0 값은 뮤트(배치 E) — 전부 0인 대시보드에서 검정 대형 숫자가 지배하던 '죽은 인상' 완화.
                위험/경고(>0)는 시맨틱 색이 우선하므로 0에만 적용된다. *@
@@ -104,7 +165,7 @@
     {
         var series = TrendSeriesFor(tc);
         var hasData = series.Any(s => s.Points.Count >= 2);
-        <div class="layout-kpi layout-chart">
+        <div class="layout-kpi layout-chart" role="group" aria-label="@tc.Label">
             <div class="layout-kpi-label">@tc.Label</div>
             @if (!hasData)
             {
@@ -112,7 +173,17 @@
             }
             else
             {
-                <RadzenChart Style="height:150px; width:100%;">
+                <div class="layout-chart-summary" aria-label="@T("common.currentValues", "현재값")">
+                    @foreach (var s in series.Where(x => x.Points.Count > 0))
+                    {
+                        <span class="layout-chart-current @s.ToneClass">
+                            <span class="layout-chart-swatch" aria-hidden="true"></span>
+                            <span class="layout-chart-series">@s.Name</span>
+                            <strong>@s.Points[^1].Value</strong>
+                        </span>
+                    }
+                </div>
+                <RadzenChart class="layout-trend-chart">
                     @foreach (var s in series.Where(x => x.Points.Count >= 2))
                     {
                         <RadzenLineSeries Data="@ChartData(s.Points)" CategoryProperty="Category" ValueProperty="Value"
@@ -120,9 +191,10 @@
                             <RadzenMarkers Visible="false" />
                         </RadzenLineSeries>
                     }
-                    @* 카테고리(시간) 축 라벨은 표본이 많으면 겹쳐 지저분하므로 숨긴다 — 시각은 포인트 호버 툴팁이 제공. *@
-                    <RadzenCategoryAxis Visible="false" />
+                    @* 시간/순번 축을 노출하고 공유 툴팁으로 같은 시점의 시리즈 값을 함께 비교한다. *@
+                    <RadzenCategoryAxis Visible="true" />
                     <RadzenValueAxis />
+                    <RadzenChartTooltipOptions Visible="true" Shared="true" HighlightDataPoint="true" />
                     @* 단일 시리즈는 범례 숨김 — 패널 라벨이 이미 의미를 주는데 raw 컬럼명(LOG_COUNT)이 중복 노출됨.
                        (Radzen 기본 범례는 명시 Visible=false 없이는 항상 그려진다) *@
                     <RadzenLegend Position="LegendPosition.Bottom" Visible="@(series.Count(x => x.Points.Count >= 2) > 1)" />
@@ -136,7 +208,7 @@
     case BadgeWidget bw:
     {
         var (text, severity) = BadgeFor(bw);
-        <div class="layout-badge">
+        <div class="layout-badge" role="status" aria-label="@($"{bw.Label} {text}")">
             @if (!string.IsNullOrWhiteSpace(bw.Label)) { <span class="layout-badge-label">@bw.Label</span> }
             <RadzenBadge Text="@text" BadgeStyle="@BadgeStyleOf(severity)" Variant="Variant.Flat" />
         </div>
@@ -147,22 +219,37 @@
         @* 알 수 없는 노드 종류는 아무것도 렌더하지 않는다(서버/역직렬화 상위에서 검증됨). *@
         break;
 }
+}
 
 @code {
+    private readonly string _uid = $"lr-{Guid.NewGuid():N}";
+
     [Parameter, EditorRequired] public LayoutNode Node { get; set; } = default!;
     [Parameter] public Dictionary<string, object?> Model { get; set; } = new();
     [Parameter] public EventCallback<Dictionary<string, object?>> ModelChanged { get; set; }
     [Parameter] public IReadOnlyDictionary<string, IReadOnlyList<Dictionary<string, object?>>> QueryResults { get; set; }
         = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>();
-    [Parameter] public EventCallback<string> OnCommand { get; set; }
+    [Parameter] public EventCallback<ButtonWidget> OnCommand { get; set; }
+    [Parameter] public Func<ButtonWidget, string?>? CommandDisabledReason { get; set; }
+    [Parameter] public Func<LayoutNode, bool>? NodeAccessGranted { get; set; }
+    [Parameter] public Func<LayoutNode, string?>? NodeAccessDeniedReason { get; set; }
+    [Parameter] public Func<string?, bool>? PermissionGranted { get; set; }
     // Phase-2 멀티폼 — 격리 폼(Isolated)의 폼별 모델(스코프 키→모델). MetaScreen이 로드 시 사전 시드한다.
     [Parameter] public IReadOnlyDictionary<string, Dictionary<string, object?>> FormModels { get; set; }
         = new Dictionary<string, Dictionary<string, object?>>();
     [Parameter] public EventCallback<(string Key, Dictionary<string, object?> Model)> OnFormModelChanged { get; set; }
+    // 업무 aggregate 스코프 — 선택 행/폼/명령이 같은 키에서만 모델을 공유한다. 미지정 위젯은 기존 Model 경로.
+    [Parameter] public IReadOnlyDictionary<string, Dictionary<string, object?>> ScopeModels { get; set; }
+        = new Dictionary<string, Dictionary<string, object?>>();
+    [Parameter] public EventCallback<(string Key, Dictionary<string, object?> Model)> OnScopeModelChanged { get; set; }
+    [Parameter] public EventCallback<(string Scope, Dictionary<string, object?> Row)> OnScopedRowSelect { get; set; }
     // P1-1 — 그리드 행 클릭 콜백(MetaScreen이 폼에 로드). 미배선이면 그리드가 선택 불가로 렌더된다.
     [Parameter] public EventCallback<Dictionary<string, object?>> OnRowSelect { get; set; }
     // P1-3 — 조회 진행 중 표시 전달.
     [Parameter] public bool LoadingData { get; set; }
+
+    // 관리 화면의 그리드 보기 전환. 재귀 하위 GridWidget까지 RenderChildren에서 명시적으로 전달한다.
+    [Parameter] public bool EnableGridViewModes { get; set; }
 
     // 화면 식별자(그리드 개인화 저장 키의 접두). MetaScreen이 UiId를 넘긴다. 위젯별로 조합해 그리드마다 분리한다.
     [Parameter] public string? ScreenKey { get; set; }
@@ -170,12 +257,15 @@
     // 그리드 표준 CRUD(추가/삭제) — MetaScreen이 소유한 콜백을 그리드 위젯까지 내려보낸다.
     [Parameter] public bool CanAdd { get; set; }
     [Parameter] public EventCallback OnAddNew { get; set; }
+    [Parameter] public string? AddDisabledReason { get; set; }
     [Parameter] public bool CanDelete { get; set; }
     [Parameter] public EventCallback<List<Dictionary<string, object?>>> OnDeleteRows { get; set; }
+    [Parameter] public string? DeleteDisabledReason { get; set; }
 
     // 그리드 일괄 명령(도메인 상태전이) — 화면 정의의 버튼/콜백을 그리드 위젯까지 내려보낸다.
     [Parameter] public IReadOnlyList<BulkCommandDefinition>? BulkCommands { get; set; }
     [Parameter] public EventCallback<(BulkCommandDefinition Command, List<Dictionary<string, object?>> Rows)> OnBulkCommand { get; set; }
+    [Parameter] public Func<BulkCommandDefinition, IReadOnlyList<Dictionary<string, object?>>, string?>? BulkCommandDisabledReason { get; set; }
 
     // 레이아웃 그리드 하이브리드 페이징 — 서버 모드 위젯(queryId)의 총건수/페이지 맵 + 페이지 전환 콜백.
     [Parameter] public IReadOnlyDictionary<string, (int Total, int Page)>? GridPaging { get; set; }
@@ -190,18 +280,37 @@
     // (이전엔 브라우저 confirm 블로킹 — 스타일 불일치·테스트 우회 문제. Confirm은 true/false/null 반환.)
     private async Task RunButtonAsync(ButtonWidget b)
     {
+        if (!CanAccess(b) || CommandDisabledReason?.Invoke(b) is not null) return;
         if (!string.IsNullOrWhiteSpace(b.ConfirmMessage))
         {
             var ok = await DialogService.Confirm(b.ConfirmMessage, T("common.confirmTitle", "확인"),
                 new Radzen.ConfirmOptions { OkButtonText = T("common.confirm", "확인"), CancelButtonText = T("common.cancel", "취소") });
             if (ok != true) return;
         }
-        await OnCommand.InvokeAsync(b.Command);
+        await OnCommand.InvokeAsync(b);
     }
 
     /// <summary>격리 폼 스코프 키 — Id 우선, 없으면 SaveQueryId, 둘 다 없으면 null(공유로 저하).</summary>
     internal static string? FormScopeKey(FormWidget f)
         => f.Id is { Length: > 0 } ? f.Id : (f.SaveQueryId is { Length: > 0 } ? f.SaveQueryId : null);
+
+    internal static string? BindingScopeKey(string? scope)
+        => string.IsNullOrWhiteSpace(scope) ? null : scope.Trim();
+
+    /// <summary>
+    /// 조회 전용 그리드는 선택 콜백을 주지 않고, scope 그리드는 공유 모델 콜백 대신 scope가 포함된 콜백만 사용합니다.
+    /// scope 콜백이 배선되지 않은 호스트에서는 공유 모델로 저하하지 않아 aggregate 오염을 방지합니다.
+    /// </summary>
+    private EventCallback<Dictionary<string, object?>> RowSelectFor(GridWidget grid)
+    {
+        if (grid.SelectionDisabled) return default;
+        var scope = BindingScopeKey(grid.SelectionScope);
+        if (scope is null) return OnRowSelect;
+        return OnScopedRowSelect.HasDelegate
+            ? EventCallback.Factory.Create<Dictionary<string, object?>>(this,
+                row => OnScopedRowSelect.InvokeAsync((scope, row)))
+            : default;
+    }
 
     // 자식은 재귀로 child LayoutRenderer를 그린다. 시퀀스 번호는 소스 위치당 상수(반복마다 동일)로 두고,
     // 노드 정체성(Id 우선)으로 SetKey 해 디자이너의 재정렬/삽입/삭제 시 Blazor가 인스턴스를 유지(중첩 폼
@@ -232,6 +341,17 @@
             builder.AddAttribute(16, nameof(OnGridPageChange), OnGridPageChange);
             builder.AddAttribute(17, nameof(BulkCommands), BulkCommands);
             builder.AddAttribute(18, nameof(OnBulkCommand), OnBulkCommand);
+            builder.AddAttribute(19, nameof(BulkCommandDisabledReason), BulkCommandDisabledReason);
+            builder.AddAttribute(20, nameof(CommandDisabledReason), CommandDisabledReason);
+            builder.AddAttribute(21, nameof(PermissionGranted), PermissionGranted);
+            builder.AddAttribute(22, nameof(AddDisabledReason), AddDisabledReason);
+            builder.AddAttribute(23, nameof(DeleteDisabledReason), DeleteDisabledReason);
+            builder.AddAttribute(24, nameof(NodeAccessGranted), NodeAccessGranted);
+            builder.AddAttribute(25, nameof(NodeAccessDeniedReason), NodeAccessDeniedReason);
+            builder.AddAttribute(26, nameof(EnableGridViewModes), EnableGridViewModes);
+            builder.AddAttribute(27, nameof(ScopeModels), ScopeModels);
+            builder.AddAttribute(28, nameof(OnScopeModelChanged), OnScopeModelChanged);
+            builder.AddAttribute(29, nameof(OnScopedRowSelect), OnScopedRowSelect);
             builder.CloseComponent();
         }
     };
@@ -269,9 +389,9 @@
 
     // 시리즈 색 팔레트(P3-13 v2) — 다중 시리즈 라인/범례 색(테마 무관 고정 대비색).
     private static readonly string[] SeriesPalette =
-        { "#15b89a", "#4a6cf7", "#f59e0b", "#e5484d", "#8b5cf6", "#0fa085", "#ec4899", "#14b8a6" };
+        { "var(--nx-teal)", "var(--nx-blue)", "var(--nx-warning)", "var(--nx-danger)", "var(--nx-info)", "var(--nx-teal-d)" };
 
-    private sealed record TrendSeries(string Name, string Color, List<(decimal Value, string? Time)> Points);
+    private sealed record TrendSeries(string Name, string Color, string ToneClass, List<(decimal Value, string? Time)> Points);
 
     // RadzenChart 바인딩 포인트 — Category(축 라벨=시각 또는 순번), Value(수치).
     internal sealed record ChartPoint(string Category, double Value);
@@ -313,7 +433,7 @@
                 }
             }
             if (points.Count > maxPts) points = points.Skip(points.Count - maxPts).ToList();
-            result.Add(new TrendSeries(col, SeriesPalette[ci % SeriesPalette.Length], points));
+            result.Add(new TrendSeries(col, SeriesPalette[ci % SeriesPalette.Length], $"tone-{ci % SeriesPalette.Length}", points));
         }
         return result;
     }
@@ -336,6 +456,12 @@
     {
         if (!string.IsNullOrWhiteSpace(k.LinkUiId))
             Nav.NavigateTo($"/meta/{k.LinkUiId}");
+    }
+
+    /// <summary>드릴다운 KPI를 Enter/Space로도 활성화해 포인터와 키보드 동작을 맞춥니다.</summary>
+    private void OnKpiKeyDown(KpiWidget k, KeyboardEventArgs args)
+    {
+        if (args.Key is "Enter" or " ") KpiNavigate(k);
     }
 
     private static readonly HashSet<string> KnownSeverities =
@@ -383,5 +509,57 @@
     private static FieldDefinition ToField(FieldWidget fw)
         => fw.Field ?? new FieldDefinition(fw.FieldKey ?? string.Empty, fw.FieldKey ?? string.Empty);
 
+    private IReadOnlyList<FieldDefinition> CollectionSchema(CollectionWidget collection)
+    {
+        if (!CanAccess(collection)) return Array.Empty<FieldDefinition>();
+        return (collection.Fields ?? [])
+            .Where(CanAccess)
+            .Select(ToField)
+            .ToArray();
+    }
+
+    private List<Dictionary<string, object?>> CollectionItems(
+        CollectionWidget collection,
+        Dictionary<string, object?> model)
+    {
+        if (!CanAccess(collection) || string.IsNullOrWhiteSpace(collection.CollectionKey))
+            return new List<Dictionary<string, object?>>();
+
+        MetaModelDefaults.EnsureLayoutDefaults(collection, model, CanAccess);
+        var items = MetaModelDefaults.GetCollectionItems(model, collection.CollectionKey);
+        if (items is List<Dictionary<string, object?>> list) return list;
+
+        var normalized = items
+            .Select(item => new Dictionary<string, object?>(item, item.Comparer))
+            .ToList();
+        model[collection.CollectionKey] = normalized;
+        return normalized;
+    }
+
+    private async Task OnCollectionItemsChangedAsync(
+        CollectionWidget collection,
+        Dictionary<string, object?> model,
+        string? bindingScope,
+        List<Dictionary<string, object?>> items)
+    {
+        if (!CanAccess(collection) || string.IsNullOrWhiteSpace(collection.CollectionKey)) return;
+        model[collection.CollectionKey] = items;
+        if (bindingScope is not null)
+            await OnScopeModelChanged.InvokeAsync((bindingScope, model));
+        else
+            await ModelChanged.InvokeAsync(model);
+    }
+
     private Task OnModelChanged(Dictionary<string, object?> m) => ModelChanged.InvokeAsync(m);
+
+    private bool CanAccess(LayoutNode node)
+        => NodeAccessGranted?.Invoke(node)
+            ?? (string.IsNullOrWhiteSpace(node.RequiredPermission)
+                || PermissionGranted?.Invoke(node.RequiredPermission) == true);
+
+    private string PermissionDeniedReason(LayoutNode node)
+        => NodeAccessDeniedReason?.Invoke(node)
+            ?? (string.IsNullOrWhiteSpace(node.RequiredPermission)
+                ? "이 항목에 접근할 권한이 없습니다."
+                : $"필요 권한이 없습니다: {node.RequiredPermission.Trim()}");
 }

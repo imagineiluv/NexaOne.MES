@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 
@@ -52,6 +53,16 @@ public static class SqliteSchemaInitializer
                     $"SQLite 스키마 생성 실패 @ {Path.GetFileName(file)}: {ex.Message}", ex);
             }
         }
+
+        EnsureReadQueryRoleDefaults(conn);
+        EnsureEstEquipmentOutputScope(conn);
+        EnsurePomBoundaryTriggers(conn);
+        EnsureQmsInspectionExecutionV2(conn);
+        EnsureQmsAiEvidenceIntegrity(conn);
+        EnsureQmsInspectionIntegrity(conn);
+        EnsureEmsMaintenancePlanBoundary(conn);
+        EnsureEmsMaintenanceExecutionIntegrity(conn);
+        EnsureEmsSparePartManagementIntegrity(conn);
     }
 
     /// <summary>
@@ -65,21 +76,40 @@ public static class SqliteSchemaInitializer
         using var conn = new SqliteConnection(connectionString);
         conn.Open();
         Exec(conn, "PRAGMA foreign_keys = OFF;");
+        // V110의 테이블이 이미 존재하는 개발 DB에도 관리 서비스가 요구하는 버전/멱등 컬럼을
+        // 먼저 보강한다. 이후 루프가 새 filtered index를 만들 때 missing-column으로 실패하지 않는다.
+        EnsureEmsSparePartManagementColumns(conn);
 
         foreach (var file in Directory.GetFiles(dir, "V*.sql").OrderBy(f => f, StringComparer.Ordinal))
         {
             var ddl = ToSqlite(File.ReadAllText(file));
-            foreach (var stmt in ddl.Split(';').Select(s => s.Trim()).Where(s => s.Length > 0))
+            foreach (var stmt in SplitSqlStatements(ddl))
             {
                 // 증분 생성 패스 — 테이블/인덱스 생성문만(IF NOT EXISTS라 멱등). ALTER/INSERT/기타는 제외.
                 // 분류는 -- 주석을 벗겨낸 코드로만 판정한다 — 주석에 CREATE TABLE이 '언급'된 ALTER 문장이
                 // 생성문으로 오분류돼 실행되면 기존 DB에서 duplicate column으로 기동이 죽는다(V080 실사고).
-                var code = Regex.Replace(stmt, @"--[^\n]*", "");
+                var code = stmt;
+                var addColumn = Regex.Match(code,
+                    @"^\s*ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)\b",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+                if (addColumn.Success)
+                {
+                    var table = addColumn.Groups[1].Value;
+                    var column = addColumn.Groups[2].Value;
+                    if (HasColumn(conn, table, column)) continue;
+                    try { Exec(conn, code); }
+                    catch (SqliteException ex)
+                    {
+                        throw new InvalidOperationException(
+                            $"SQLite incremental column creation failed @ {Path.GetFileName(file)}: {ex.Message}", ex);
+                    }
+                    continue;
+                }
                 if (!Regex.IsMatch(code, @"\bCREATE\s+(TABLE|(?:UNIQUE\s+)?INDEX)\b", RegexOptions.IgnoreCase))
                     continue;
                 try
                 {
-                    Exec(conn, stmt);
+                    Exec(conn, code);
                 }
                 catch (SqliteException ex)
                 {
@@ -88,6 +118,311 @@ public static class SqliteSchemaInitializer
                 }
             }
         }
+
+        // 증분 경로는 일반 INSERT/UPDATE를 실행하지 않는다. 표준 역할의 정확한 레거시 값만
+        // 바꾸는 멱등 데이터 보정은 명시적으로 재조정한다. 사용자 커스텀 역할은 보존한다.
+        EnsureReadQueryRoleDefaults(conn);
+        EnsureEstEquipmentOutputScope(conn);
+        EnsurePomBoundaryTriggers(conn);
+        EnsureQmsInspectionExecutionV2(conn);
+        EnsureQmsAiEvidenceIntegrity(conn);
+        EnsureQmsInspectionIntegrity(conn);
+        EnsureEmsMaintenancePlanBoundary(conn);
+        EnsureEmsMaintenanceExecutionIntegrity(conn);
+        EnsureEmsSparePartManagementIntegrity(conn);
+    }
+
+    private static void EnsureEmsSparePartManagementColumns(SqliteConnection conn)
+    {
+        foreach (var table in new[]
+                 {
+                     "EMS_SPARE_PART_STOCK_POLICY",
+                     "EMS_SPARE_PART_SUPPLIER",
+                     "EMS_EQUIPMENT_PART_BOM",
+                 })
+        {
+            if (!HasTable(conn, table)) continue;
+            if (!HasColumn(conn, table, "VERSION_NO"))
+                Exec(conn, $"ALTER TABLE {table} ADD COLUMN VERSION_NO INTEGER NOT NULL DEFAULT 1;");
+            if (!HasColumn(conn, table, "LAST_IDEMPOTENCY_KEY"))
+                Exec(conn, $"ALTER TABLE {table} ADD COLUMN LAST_IDEMPOTENCY_KEY TEXT NOT NULL DEFAULT ''; ");
+            if (!HasColumn(conn, table, "LAST_REQUEST_HASH"))
+                Exec(conn, $"ALTER TABLE {table} ADD COLUMN LAST_REQUEST_HASH TEXT NOT NULL DEFAULT ''; ");
+        }
+    }
+
+    private static void EnsureEmsSparePartManagementIntegrity(SqliteConnection conn)
+    {
+        EnsureEmsSparePartManagementColumns(conn);
+
+        if (HasTable(conn, "EMS_SPARE_PART_STOCK_POLICY"))
+        {
+            const string policyChecks = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'EMS spare-part stock policy has invalid quantities or version')
+                    WHERE NEW.SAFETY_STOCK < 0 OR NEW.REORDER_POINT < 0
+                       OR NEW.TARGET_STOCK < NEW.SAFETY_STOCK
+                       OR NEW.TARGET_STOCK < NEW.REORDER_POINT
+                       OR NEW.RESERVED_QTY < 0 OR NEW.AVG_DAILY_USAGE < 0
+                       OR (NEW.SERVICE_LEVEL IS NOT NULL
+                           AND (NEW.SERVICE_LEVEL < 0 OR NEW.SERVICE_LEVEL > 1))
+                       OR (NEW.REVIEW_CYCLE_DAYS IS NOT NULL AND NEW.REVIEW_CYCLE_DAYS <= 0)
+                       OR NEW.VERSION_NO <= 0;
+                END;
+                """;
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_SPARE_STOCK_POLICY_BI;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_SPARE_STOCK_POLICY_BU;");
+            Exec(conn, $"CREATE TRIGGER TR_EMS_SPARE_STOCK_POLICY_BI BEFORE INSERT ON EMS_SPARE_PART_STOCK_POLICY {policyChecks}");
+            Exec(conn, $"CREATE TRIGGER TR_EMS_SPARE_STOCK_POLICY_BU BEFORE UPDATE ON EMS_SPARE_PART_STOCK_POLICY {policyChecks}");
+        }
+
+        if (HasTable(conn, "EMS_SPARE_PART_SUPPLIER"))
+        {
+            const string supplierChecks = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'EMS spare-part supplier has invalid commercial terms or version')
+                    WHERE NEW.LEAD_TIME_DAYS < 0
+                       OR (NEW.MOQ IS NOT NULL AND NEW.MOQ <= 0)
+                       OR (NEW.UNIT_PRICE IS NOT NULL AND NEW.UNIT_PRICE < 0)
+                       OR ((NEW.UNIT_PRICE IS NULL) <> (NEW.CURRENCY IS NULL))
+                       OR (NEW.IS_PRIMARY = 1 AND NEW.IS_ACTIVE <> 1)
+                       OR NEW.VERSION_NO <= 0;
+                END;
+                """;
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_SPARE_SUPPLIER_BI;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_SPARE_SUPPLIER_BU;");
+            Exec(conn, $"CREATE TRIGGER TR_EMS_SPARE_SUPPLIER_BI BEFORE INSERT ON EMS_SPARE_PART_SUPPLIER {supplierChecks}");
+            Exec(conn, $"CREATE TRIGGER TR_EMS_SPARE_SUPPLIER_BU BEFORE UPDATE ON EMS_SPARE_PART_SUPPLIER {supplierChecks}");
+        }
+
+        if (HasTable(conn, "EMS_EQUIPMENT_PART_BOM"))
+        {
+            const string bomChecks = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'EMS equipment spare-part BOM has invalid scope, quantity, cycle, or version')
+                    WHERE ((NEW.EQUIPMENT_ID IS NULL) = (NEW.EQUIPMENT_CLASS_ID IS NULL))
+                       OR NEW.QUANTITY_PER <= 0
+                       OR (NEW.CRITICALITY IS NOT NULL
+                           AND NEW.CRITICALITY NOT IN ('Critical', 'High', 'Medium', 'Low'))
+                       OR (NEW.REPLACEMENT_CYCLE_DAYS IS NOT NULL
+                           AND NEW.REPLACEMENT_CYCLE_DAYS <= 0)
+                       OR (NEW.REPLACEMENT_CYCLE_COUNT IS NOT NULL
+                           AND NEW.REPLACEMENT_CYCLE_COUNT <= 0)
+                       OR NEW.VERSION_NO <= 0;
+                END;
+                """;
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_EQUIPMENT_PART_BOM_BI;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_EQUIPMENT_PART_BOM_BU;");
+            Exec(conn, $"CREATE TRIGGER TR_EMS_EQUIPMENT_PART_BOM_BI BEFORE INSERT ON EMS_EQUIPMENT_PART_BOM {bomChecks}");
+            Exec(conn, $"CREATE TRIGGER TR_EMS_EQUIPMENT_PART_BOM_BU BEFORE UPDATE ON EMS_EQUIPMENT_PART_BOM {bomChecks}");
+        }
+    }
+
+    /// <summary>
+    /// SQLite legacy builds could store an EMS maintenance-plan id in EMS_WORK_ORDER.PLAN_ID because
+    /// foreign keys were intentionally disabled. V115 gives that relationship its own column. Only an
+    /// unambiguous EMS-only identifier is migrated; POM-only, ambiguous, and orphan values remain in the
+    /// legacy column for explicit operator review instead of being silently reinterpreted.
+    /// </summary>
+    private static void EnsureEmsMaintenancePlanBoundary(SqliteConnection conn)
+    {
+        if (!HasTable(conn, "EMS_WORK_ORDER")
+            || !HasTable(conn, "EMS_MAINTENANCE_PLAN")
+            || !HasTable(conn, "POM_PRODUCTION_PLAN")
+            || !HasColumn(conn, "EMS_WORK_ORDER", "MAINTENANCE_PLAN_ID"))
+            return;
+
+        Exec(conn, """
+            UPDATE EMS_WORK_ORDER
+            SET MAINTENANCE_PLAN_ID = PLAN_ID,
+                UPDATED_BY = 'SYSTEM_MIGRATION',
+                UPDATED_AT = CURRENT_TIMESTAMP
+            WHERE MAINTENANCE_PLAN_ID IS NULL
+              AND PLAN_ID IS NOT NULL
+              AND EXISTS (
+                  SELECT 1 FROM EMS_MAINTENANCE_PLAN E WHERE E.PLAN_ID = EMS_WORK_ORDER.PLAN_ID)
+              AND NOT EXISTS (
+                  SELECT 1 FROM POM_PRODUCTION_PLAN P WHERE P.PLAN_ID = EMS_WORK_ORDER.PLAN_ID);
+            """);
+    }
+
+    /// <summary>
+    /// V115 adds SQL Server FK/CHECK constraints with ALTER TABLE ... ADD CONSTRAINT. SQLite cannot
+    /// add those constraints after table creation, and this bootstrap intentionally disables native
+    /// FK enforcement, so equivalent write boundaries are recreated as triggers. Legacy spare-part
+    /// rows remain soft references: execution checks only apply once IDEMPOTENCY_KEY is populated.
+    /// </summary>
+    private static void EnsureEmsMaintenanceExecutionIntegrity(SqliteConnection conn)
+    {
+        if (HasTable(conn, "EMS_WORK_ORDER")
+            && HasTable(conn, "EMS_MAINTENANCE_PLAN")
+            && HasColumn(conn, "EMS_WORK_ORDER", "MAINTENANCE_PLAN_ID"))
+        {
+            const string maintenancePlanChecks = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'EMS_WORK_ORDER.MAINTENANCE_PLAN_ID must reference EMS_MAINTENANCE_PLAN')
+                    WHERE NEW.MAINTENANCE_PLAN_ID IS NOT NULL
+                      AND NOT EXISTS (
+                        SELECT 1 FROM EMS_MAINTENANCE_PLAN P
+                        WHERE P.PLAN_ID = NEW.MAINTENANCE_PLAN_ID
+                      );
+                END;
+                """;
+
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_WORK_ORDER_MAINT_PLAN_BI;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_WORK_ORDER_MAINT_PLAN_BU;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_MAINTENANCE_PLAN_WORK_ORDER_BU;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_MAINTENANCE_PLAN_WORK_ORDER_BD;");
+            Exec(conn, $"CREATE TRIGGER TR_EMS_WORK_ORDER_MAINT_PLAN_BI BEFORE INSERT ON EMS_WORK_ORDER {maintenancePlanChecks}");
+            Exec(conn, $"CREATE TRIGGER TR_EMS_WORK_ORDER_MAINT_PLAN_BU BEFORE UPDATE OF MAINTENANCE_PLAN_ID ON EMS_WORK_ORDER {maintenancePlanChecks}");
+            Exec(conn, """
+                CREATE TRIGGER TR_EMS_MAINTENANCE_PLAN_WORK_ORDER_BU
+                BEFORE UPDATE OF PLAN_ID ON EMS_MAINTENANCE_PLAN
+                WHEN NEW.PLAN_ID <> OLD.PLAN_ID
+                 AND EXISTS (
+                   SELECT 1 FROM EMS_WORK_ORDER W WHERE W.MAINTENANCE_PLAN_ID = OLD.PLAN_ID
+                 )
+                BEGIN
+                  SELECT RAISE(ABORT, 'EMS_MAINTENANCE_PLAN has child EMS_WORK_ORDER rows');
+                END;
+                """);
+            Exec(conn, """
+                CREATE TRIGGER TR_EMS_MAINTENANCE_PLAN_WORK_ORDER_BD
+                BEFORE DELETE ON EMS_MAINTENANCE_PLAN
+                WHEN EXISTS (
+                  SELECT 1 FROM EMS_WORK_ORDER W WHERE W.MAINTENANCE_PLAN_ID = OLD.PLAN_ID
+                )
+                BEGIN
+                  SELECT RAISE(ABORT, 'EMS_MAINTENANCE_PLAN has child EMS_WORK_ORDER rows');
+                END;
+                """);
+        }
+
+        if (!HasTable(conn, "EMS_SPARE_PART_INOUT")
+            || !HasTable(conn, "EMS_WORK_ORDER")
+            || !HasColumn(conn, "EMS_SPARE_PART_INOUT", "IDEMPOTENCY_KEY")
+            || !HasColumn(conn, "EMS_SPARE_PART_INOUT", "BALANCE_BEFORE")
+            || !HasColumn(conn, "EMS_SPARE_PART_INOUT", "BALANCE_AFTER")
+            || !HasColumn(conn, "EMS_SPARE_PART_INOUT", "CLIENT_CHANNEL")
+            || !HasColumn(conn, "EMS_SPARE_PART_INOUT", "WO_ID"))
+            return;
+
+        const string sparePartExecutionChecks = """
+            BEGIN
+              SELECT RAISE(ABORT, 'EMS_SPARE_PART_INOUT has invalid execution evidence')
+                WHERE NEW.IDEMPOTENCY_KEY IS NOT NULL
+                  AND (NEW.QUANTITY IS NULL OR NEW.QUANTITY <= 0
+                       OR NEW.BALANCE_BEFORE IS NULL OR NEW.BALANCE_BEFORE < 0
+                       OR NEW.BALANCE_AFTER IS NULL OR NEW.BALANCE_AFTER < 0
+                       OR NEW.PROCESSED_BY IS NULL
+                       OR NEW.CLIENT_CHANNEL IS NULL
+                       OR NEW.CLIENT_CHANNEL NOT IN ('MES', 'MOBILE', 'POP')
+                       OR (NEW.WO_ID IS NOT NULL AND NOT EXISTS (
+                         SELECT 1 FROM EMS_WORK_ORDER W WHERE W.WO_ID = NEW.WO_ID
+                       )));
+            END;
+            """;
+
+        Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_SPARE_PART_INOUT_EXECUTION_BI;");
+        Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_SPARE_PART_INOUT_EXECUTION_BU;");
+        Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_WORK_ORDER_SPARE_PART_INOUT_BU;");
+        Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_WORK_ORDER_SPARE_PART_INOUT_BD;");
+        Exec(conn, $"CREATE TRIGGER TR_EMS_SPARE_PART_INOUT_EXECUTION_BI BEFORE INSERT ON EMS_SPARE_PART_INOUT {sparePartExecutionChecks}");
+        Exec(conn, $"CREATE TRIGGER TR_EMS_SPARE_PART_INOUT_EXECUTION_BU BEFORE UPDATE ON EMS_SPARE_PART_INOUT {sparePartExecutionChecks}");
+        Exec(conn, """
+            CREATE TRIGGER TR_EMS_WORK_ORDER_SPARE_PART_INOUT_BU
+            BEFORE UPDATE OF WO_ID ON EMS_WORK_ORDER
+            WHEN NEW.WO_ID <> OLD.WO_ID
+             AND EXISTS (
+               SELECT 1 FROM EMS_SPARE_PART_INOUT I WHERE I.WO_ID = OLD.WO_ID
+             )
+            BEGIN
+              SELECT RAISE(ABORT, 'EMS_WORK_ORDER has child EMS_SPARE_PART_INOUT rows');
+            END;
+            """);
+        Exec(conn, """
+            CREATE TRIGGER TR_EMS_WORK_ORDER_SPARE_PART_INOUT_BD
+            BEFORE DELETE ON EMS_WORK_ORDER
+            WHEN EXISTS (
+              SELECT 1 FROM EMS_SPARE_PART_INOUT I WHERE I.WO_ID = OLD.WO_ID
+            )
+            BEGIN
+              SELECT RAISE(ABORT, 'EMS_WORK_ORDER has child EMS_SPARE_PART_INOUT rows');
+            END;
+            """);
+    }
+
+    private static void EnsureReadQueryRoleDefaults(SqliteConnection conn)
+    {
+        if (!HasTable(conn, "SYS_ROLE")) return;
+
+        Exec(conn, """
+            UPDATE SYS_ROLE
+            SET PERMISSIONS = 'fdc:control|fdc:read|mdm:read|est:read|pom:read|pom:execute|pom:routing.request|rms:read',
+                UPDATED_BY = 'SYSTEM',
+                UPDATED_AT = CURRENT_TIMESTAMP
+            WHERE ROLE_ID = 'OPERATOR'
+              AND IS_DELETED = 0
+              AND PERMISSIONS IN (
+                  '',
+                  'fdc:control|fdc:read',
+                  'fdc:control|fdc:read|pom:execute',
+                  'fdc:control|fdc:read|mdm:read|est:read|pom:read|pom:execute',
+                  'fdc:control|fdc:read|mdm:read|est:read|pom:read|pom:execute|pom:routing.request'
+              );
+
+            INSERT INTO SYS_ROLE
+                (ROLE_ID, ROLE_NAME, DESCRIPTION, PERMISSIONS, IS_DELETED,
+                 CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            SELECT
+                'MAINTENANCE', 'Maintenance', 'Equipment maintenance worker role',
+                'fdc:read|mdm:read|ems:read|ems:manage|est:read|pom:read|rms:read', 0,
+                'SYSTEM', CURRENT_TIMESTAMP, 'SYSTEM', CURRENT_TIMESTAMP
+            WHERE NOT EXISTS (SELECT 1 FROM SYS_ROLE WHERE ROLE_ID = 'MAINTENANCE');
+            """);
+    }
+
+    /// <summary>
+    /// V117의 데이터 보정과 NOT NULL/CHECK 경계를 SQLite에도 적용한다. 증분 경로는 일반 UPDATE와
+    /// ALTER ... ADD CONSTRAINT를 실행하지 않으므로, 기존 행을 한 번 분류하고 동등한 쓰기 경계를
+    /// 트리거로 만든다. BEGIN IMMEDIATE로 보정과 경계 설치 사이의 동시 쓰기 틈을 막는다.
+    /// </summary>
+    private static void EnsureEstEquipmentOutputScope(SqliteConnection conn)
+    {
+        if (!HasTable(conn, "EST_EQUIPMENT_OUTPUT_EVENT")
+            || !HasColumn(conn, "EST_EQUIPMENT_OUTPUT_EVENT", "IS_LOT_OUTPUT"))
+            return;
+
+        Exec(conn, """
+            BEGIN IMMEDIATE;
+
+            UPDATE EST_EQUIPMENT_OUTPUT_EVENT
+               SET IS_LOT_OUTPUT = CASE WHEN PROCESS_LOT_ID IS NULL THEN 0 ELSE 1 END
+             WHERE IS_LOT_OUTPUT IS NULL;
+
+            DROP TRIGGER IF EXISTS TR_EST_EQUIPMENT_OUTPUT_SCOPE_BI;
+            DROP TRIGGER IF EXISTS TR_EST_EQUIPMENT_OUTPUT_SCOPE_BU;
+
+            CREATE TRIGGER TR_EST_EQUIPMENT_OUTPUT_SCOPE_BI
+            BEFORE INSERT ON EST_EQUIPMENT_OUTPUT_EVENT
+            BEGIN
+              SELECT RAISE(ABORT, 'EST_EQUIPMENT_OUTPUT_EVENT has invalid output scope')
+                WHERE NEW.IS_LOT_OUTPUT IS NULL
+                   OR NEW.IS_LOT_OUTPUT NOT IN (0, 1)
+                   OR (NEW.IS_LOT_OUTPUT = 1 AND NEW.PROCESS_LOT_ID IS NULL);
+            END;
+
+            CREATE TRIGGER TR_EST_EQUIPMENT_OUTPUT_SCOPE_BU
+            BEFORE UPDATE OF IS_LOT_OUTPUT, PROCESS_LOT_ID ON EST_EQUIPMENT_OUTPUT_EVENT
+            BEGIN
+              SELECT RAISE(ABORT, 'EST_EQUIPMENT_OUTPUT_EVENT has invalid output scope')
+                WHERE NEW.IS_LOT_OUTPUT IS NULL
+                   OR NEW.IS_LOT_OUTPUT NOT IN (0, 1)
+                   OR (NEW.IS_LOT_OUTPUT = 1 AND NEW.PROCESS_LOT_ID IS NULL);
+            END;
+
+            COMMIT;
+            """);
     }
 
     private static bool HasUserTables(string connectionString)
@@ -101,11 +436,1026 @@ public static class SqliteSchemaInitializer
         return count > 0;
     }
 
+    private static bool HasColumn(SqliteConnection conn, string table, string column)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info([{table.Replace("]", "]]", StringComparison.Ordinal)}]);";
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
+    }
+
+    private static bool HasTable(SqliteConnection conn, string table)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = @name;";
+        cmd.Parameters.AddWithValue("@name", table);
+        return Convert.ToInt64(cmd.ExecuteScalar() ?? 0L) > 0;
+    }
+
+    private static void EnsureQmsInspectionIntegrity(SqliteConnection conn)
+    {
+        if (!HasTable(conn, "QMS_INSPECTION") || !HasTable(conn, "QMS_INSPECTION_RESULT") ||
+            !HasTable(conn, "QMS_INSPECTION_SPEC") || !HasTable(conn, "POM_LOT") ||
+            !HasTable(conn, "IVT_MATERIAL_LOT") ||
+            !HasTable(conn, "MDM_EQUIPMENT") ||
+            !HasColumn(conn, "QMS_INSPECTION_RESULT", "INSPECTION_ID"))
+            return;
+
+        Exec(conn, "UPDATE QMS_INSPECTION_RESULT SET INSPECTION_ID = RESULT_ID WHERE INSPECTION_ID IS NULL OR TRIM(INSPECTION_ID) = ''; ");
+        Exec(conn, "UPDATE QMS_INSPECTION_SPEC SET MEASURE_TYPE = 'Variable' WHERE MEASURE_TYPE = 'Numeric';");
+        Exec(conn, """
+            INSERT INTO QMS_INSPECTION
+                (INSPECTION_ID, INSPECTION_TYPE, LOT_ID, EQUIPMENT_ID, SPEC_ID,
+                 INSPECTED_AT, INSPECTOR_ID, RESULT, SAMPLE_QTY, DEFECT_QTY, IS_CONFIRMED,
+                 REMARK, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            SELECT R.RESULT_ID, 'Process', R.LOT_ID, R.EQUIPMENT_ID, R.SPEC_ID,
+                   R.INSPECTED_AT, R.INSPECTOR_ID,
+                   CASE WHEN R.IS_PASS = 1 THEN 'Pass' ELSE 'Fail' END,
+                   1, CASE WHEN R.IS_PASS = 1 THEN 0 ELSE 1 END, 1,
+                   R.REMARK, R.CREATED_BY, R.CREATED_AT, R.UPDATED_BY, R.UPDATED_AT
+            FROM QMS_INSPECTION_RESULT R
+            WHERE NOT EXISTS (
+                SELECT 1 FROM QMS_INSPECTION I WHERE I.INSPECTION_ID = R.RESULT_ID
+            );
+            """);
+
+        const string inspectionChecks = """
+            BEGIN
+              SELECT RAISE(ABORT, 'QMS_INSPECTION has invalid sample/defect quantities')
+                WHERE NOT ((NEW.SAMPLE_QTY IS NULL AND NEW.DEFECT_QTY IS NULL) OR
+                  (NEW.SAMPLE_QTY IS NOT NULL AND NEW.DEFECT_QTY IS NOT NULL AND
+                   NEW.SAMPLE_QTY >= 0 AND NEW.DEFECT_QTY >= 0 AND NEW.DEFECT_QTY <= NEW.SAMPLE_QTY));
+              SELECT RAISE(ABORT, 'QMS_INSPECTION references an unknown lot')
+                WHERE NEW.LOT_ID IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM POM_LOT L WHERE L.LOT_ID = NEW.LOT_ID)
+                  AND NOT EXISTS (SELECT 1 FROM IVT_MATERIAL_LOT L WHERE L.LOT_ID = NEW.LOT_ID);
+              SELECT RAISE(ABORT, 'QMS_INSPECTION references an unknown equipment')
+                WHERE NEW.EQUIPMENT_ID IS NOT NULL AND NOT EXISTS (SELECT 1 FROM MDM_EQUIPMENT E WHERE E.EQUIPMENT_ID = NEW.EQUIPMENT_ID);
+              SELECT RAISE(ABORT, 'QMS_INSPECTION references an unknown inspection spec')
+                WHERE NEW.SPEC_ID IS NOT NULL AND NOT EXISTS (SELECT 1 FROM QMS_INSPECTION_SPEC S WHERE S.SPEC_ID = NEW.SPEC_ID);
+            END
+            """;
+        Exec(conn, "DROP TRIGGER IF EXISTS TR_QMS_INSPECTION_INTEGRITY_BI;");
+        Exec(conn, "DROP TRIGGER IF EXISTS TR_QMS_INSPECTION_INTEGRITY_BU;");
+        Exec(conn, $"CREATE TRIGGER TR_QMS_INSPECTION_INTEGRITY_BI BEFORE INSERT ON QMS_INSPECTION {inspectionChecks}");
+        Exec(conn, $"CREATE TRIGGER TR_QMS_INSPECTION_INTEGRITY_BU BEFORE UPDATE ON QMS_INSPECTION {inspectionChecks}");
+
+        const string resultChecks = """
+            BEGIN
+              SELECT RAISE(ABORT, 'Confirmed QMS v2 inspections cannot accept additional result rows')
+                WHERE EXISTS (SELECT 1 FROM QMS_INSPECTION_EVENT E
+                              WHERE E.INSPECTION_ID = NEW.INSPECTION_ID
+                                AND E.EVENT_TYPE = 'Confirmed');
+              SELECT RAISE(ABORT, 'QMS inspection result requires a matching header and references')
+                WHERE COALESCE(TRIM(NEW.INSPECTION_ID), '') = ''
+                   OR NOT EXISTS (
+                       SELECT 1 FROM QMS_INSPECTION I
+                       WHERE I.INSPECTION_ID = NEW.INSPECTION_ID
+                         AND I.LOT_ID = NEW.LOT_ID
+                         AND I.EQUIPMENT_ID = NEW.EQUIPMENT_ID
+                         AND (I.IDEMPOTENCY_KEY IS NOT NULL OR I.SPEC_ID = NEW.SPEC_ID))
+                   OR (NOT EXISTS (SELECT 1 FROM POM_LOT L WHERE L.LOT_ID = NEW.LOT_ID)
+                       AND NOT EXISTS (SELECT 1 FROM IVT_MATERIAL_LOT L WHERE L.LOT_ID = NEW.LOT_ID))
+                   OR NOT EXISTS (SELECT 1 FROM MDM_EQUIPMENT E WHERE E.EQUIPMENT_ID = NEW.EQUIPMENT_ID)
+                   OR NOT EXISTS (SELECT 1 FROM QMS_INSPECTION_SPEC S WHERE S.SPEC_ID = NEW.SPEC_ID AND S.IS_ACTIVE = 1);
+              SELECT RAISE(ABORT, 'QMS inspection result has an invalid verdict')
+                WHERE NEW.IS_PASS NOT IN (0, 1);
+              SELECT RAISE(ABORT, 'QMS v2 result requires a matching v2 header, lot, equipment, and inspection type')
+                WHERE ((NEW.ITEM_SEQUENCE IS NOT NULL OR EXISTS (
+                          SELECT 1 FROM QMS_INSPECTION I
+                          WHERE I.INSPECTION_ID = NEW.INSPECTION_ID
+                            AND I.IDEMPOTENCY_KEY IS NOT NULL))
+                   AND NOT EXISTS (
+                       SELECT 1 FROM QMS_INSPECTION I
+                       WHERE I.INSPECTION_ID = NEW.INSPECTION_ID
+                         AND I.IDEMPOTENCY_KEY IS NOT NULL
+                         AND NEW.ITEM_SEQUENCE IS NOT NULL
+                         AND I.LOT_ID = NEW.LOT_ID
+                         AND I.EQUIPMENT_ID = NEW.EQUIPMENT_ID
+                         AND I.INSPECTION_TYPE IN ('Incoming', 'Process', 'Shipping')
+                         AND (EXISTS (SELECT 1 FROM POM_LOT L WHERE L.LOT_ID = NEW.LOT_ID)
+                              OR EXISTS (SELECT 1 FROM IVT_MATERIAL_LOT L WHERE L.LOT_ID = NEW.LOT_ID))));
+              SELECT RAISE(ABORT, 'QMS v2 result requires active equipment and an active inspection specification')
+                WHERE EXISTS (SELECT 1 FROM QMS_INSPECTION I
+                              WHERE I.INSPECTION_ID = NEW.INSPECTION_ID
+                                AND I.IDEMPOTENCY_KEY IS NOT NULL)
+                  AND (NOT EXISTS (SELECT 1 FROM MDM_EQUIPMENT E
+                                   WHERE E.EQUIPMENT_ID = NEW.EQUIPMENT_ID
+                                     AND E.VALID_STATE = 'Active')
+                       OR NOT EXISTS (SELECT 1 FROM QMS_INSPECTION_SPEC S
+                                     WHERE S.SPEC_ID = NEW.SPEC_ID AND S.IS_ACTIVE = 1));
+              SELECT RAISE(ABORT, 'QMS v2 result quantities must be positive/bounded and cannot exceed header quantities')
+                WHERE EXISTS (
+                    SELECT 1 FROM QMS_INSPECTION I
+                    WHERE I.INSPECTION_ID = NEW.INSPECTION_ID
+                      AND I.IDEMPOTENCY_KEY IS NOT NULL
+                      AND (NEW.SAMPLE_QTY IS NULL OR NEW.SAMPLE_QTY <= 0
+                           OR NEW.DEFECT_QTY IS NULL OR NEW.DEFECT_QTY < 0
+                           OR NEW.DEFECT_QTY > NEW.SAMPLE_QTY
+                           OR I.SAMPLE_QTY IS NULL OR NEW.SAMPLE_QTY > I.SAMPLE_QTY
+                           OR I.DEFECT_QTY IS NULL OR NEW.DEFECT_QTY > I.DEFECT_QTY));
+              SELECT RAISE(ABORT, 'QMS v2 result value/verdict does not match its inspection specification type')
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM QMS_INSPECTION I
+                    JOIN QMS_INSPECTION_SPEC S ON S.SPEC_ID = NEW.SPEC_ID
+                    WHERE I.INSPECTION_ID = NEW.INSPECTION_ID
+                      AND I.IDEMPOTENCY_KEY IS NOT NULL
+                      AND (
+                        (S.MEASURE_TYPE IN ('Variable', 'Numeric') AND
+                           (NEW.MEASURED_VALUE IS NULL OR S.NOMINAL_VALUE IS NULL OR
+                            NEW.IS_PASS <> CASE WHEN
+                              (NEW.MEASURED_VALUE <= S.NOMINAL_VALUE OR S.TOLERANCE_PLUS IS NULL
+                               OR NEW.MEASURED_VALUE - S.NOMINAL_VALUE <= S.TOLERANCE_PLUS)
+                              AND
+                              (NEW.MEASURED_VALUE >= S.NOMINAL_VALUE OR S.TOLERANCE_MINUS IS NULL
+                               OR S.NOMINAL_VALUE - NEW.MEASURED_VALUE <= S.TOLERANCE_MINUS)
+                              THEN 1 ELSE 0 END))
+                        OR
+                        (S.MEASURE_TYPE = 'Attribute' AND
+                           (NEW.MEASURED_VALUE IS NOT NULL
+                            OR NEW.ATTRIBUTE_RESULT IS NULL
+                            OR NEW.ATTRIBUTE_RESULT NOT IN ('Pass', 'Fail')
+                            OR NEW.IS_PASS <> CASE WHEN NEW.ATTRIBUTE_RESULT = 'Pass' THEN 1 ELSE 0 END))
+                        OR S.MEASURE_TYPE NOT IN ('Variable', 'Numeric', 'Attribute')));
+              SELECT RAISE(ABORT, 'A QMS v2 inspection specification can appear only once per execution')
+                WHERE EXISTS (SELECT 1 FROM QMS_INSPECTION I
+                              WHERE I.INSPECTION_ID = NEW.INSPECTION_ID
+                                AND I.IDEMPOTENCY_KEY IS NOT NULL)
+                  AND EXISTS (SELECT 1 FROM QMS_INSPECTION_RESULT R
+                              WHERE R.INSPECTION_ID = NEW.INSPECTION_ID
+                                AND R.RESULT_ID <> NEW.RESULT_ID
+                                AND R.SPEC_ID = NEW.SPEC_ID COLLATE NOCASE);
+            END
+            """;
+        // Rebuild instead of CREATE IF NOT EXISTS so a database bootstrapped by an older
+        // V093 runtime receives the expanded POM/IVT lot boundary on its next startup.
+        Exec(conn, "DROP TRIGGER IF EXISTS TR_QMS_RESULT_INTEGRITY_BI;");
+        Exec(conn, "DROP TRIGGER IF EXISTS TR_QMS_RESULT_INTEGRITY_BU;");
+        Exec(conn, $"CREATE TRIGGER TR_QMS_RESULT_INTEGRITY_BI BEFORE INSERT ON QMS_INSPECTION_RESULT {resultChecks}");
+        Exec(conn, $"CREATE TRIGGER TR_QMS_RESULT_INTEGRITY_BU BEFORE UPDATE ON QMS_INSPECTION_RESULT {resultChecks}");
+        Exec(conn, """
+            CREATE TRIGGER IF NOT EXISTS TR_QMS_INSPECTION_RESULT_BD
+            BEFORE DELETE ON QMS_INSPECTION
+            BEGIN
+              SELECT RAISE(ABORT, 'QMS inspection header has result rows')
+                WHERE EXISTS (SELECT 1 FROM QMS_INSPECTION_RESULT R WHERE R.INSPECTION_ID = OLD.INSPECTION_ID);
+            END;
+            """);
+    }
+
+    /// <summary>
+    /// V093의 SQLite UNIQUE(INSPECTION_ID)는 ALTER DROP으로 제거할 수 없으므로 결과 테이블을
+    /// 한 번 재구성해 1:N 항목을 허용합니다. 기존 DB와 빈 DB가 같은 v2 구조/불변 트리거를 갖게 합니다.
+    /// </summary>
+    private static void EnsureQmsInspectionExecutionV2(SqliteConnection conn)
+    {
+        if (!HasTable(conn, "QMS_INSPECTION") || !HasTable(conn, "QMS_INSPECTION_RESULT")
+            || !HasTable(conn, "QMS_INSPECTION_EVENT")
+            || !HasColumn(conn, "QMS_INSPECTION", "IDEMPOTENCY_KEY")
+            || !HasColumn(conn, "QMS_INSPECTION_RESULT", "ITEM_SEQUENCE"))
+            return;
+
+        if (HasUniqueIndexOnColumn(conn, "QMS_INSPECTION_RESULT", "INSPECTION_ID"))
+        {
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_QMS_RESULT_INTEGRITY_BI;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_QMS_RESULT_INTEGRITY_BU;");
+            Exec(conn, "ALTER TABLE QMS_INSPECTION_RESULT RENAME TO QMS_INSPECTION_RESULT_V1;");
+            Exec(conn, """
+                CREATE TABLE QMS_INSPECTION_RESULT (
+                    RESULT_ID TEXT NOT NULL PRIMARY KEY,
+                    SPEC_ID TEXT NOT NULL,
+                    LOT_ID TEXT NOT NULL,
+                    EQUIPMENT_ID TEXT NOT NULL,
+                    MEASURED_VALUE NUMERIC NULL,
+                    ATTRIBUTE_RESULT TEXT NULL,
+                    INSPECTED_AT TEXT NOT NULL,
+                    INSPECTOR_ID TEXT NOT NULL,
+                    IS_PASS INTEGER NOT NULL DEFAULT 0,
+                    REMARK TEXT NULL,
+                    CREATED_BY TEXT NOT NULL DEFAULT 'SYSTEM',
+                    CREATED_AT TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UPDATED_BY TEXT NOT NULL DEFAULT 'SYSTEM',
+                    UPDATED_AT TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    INSPECTION_ID TEXT NOT NULL,
+                    ITEM_SEQUENCE INTEGER NULL,
+                    SAMPLE_QTY INTEGER NULL,
+                    DEFECT_QTY INTEGER NULL
+                );
+                INSERT INTO QMS_INSPECTION_RESULT
+                    (RESULT_ID, SPEC_ID, LOT_ID, EQUIPMENT_ID, MEASURED_VALUE,
+                     ATTRIBUTE_RESULT, INSPECTED_AT, INSPECTOR_ID, IS_PASS, REMARK,
+                     CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT, INSPECTION_ID,
+                     ITEM_SEQUENCE, SAMPLE_QTY, DEFECT_QTY)
+                SELECT RESULT_ID, SPEC_ID, LOT_ID, EQUIPMENT_ID, MEASURED_VALUE,
+                       ATTRIBUTE_RESULT, INSPECTED_AT, INSPECTOR_ID, IS_PASS, REMARK,
+                       CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT, INSPECTION_ID,
+                       ITEM_SEQUENCE, SAMPLE_QTY, DEFECT_QTY
+                FROM QMS_INSPECTION_RESULT_V1;
+                DROP TABLE QMS_INSPECTION_RESULT_V1;
+                CREATE INDEX IF NOT EXISTS IX_QMS_INSP_RESULT_LOT
+                    ON QMS_INSPECTION_RESULT (LOT_ID, INSPECTED_AT DESC);
+                CREATE INDEX IF NOT EXISTS IX_QMS_INSP_RESULT_SPEC
+                    ON QMS_INSPECTION_RESULT (SPEC_ID, INSPECTED_AT DESC);
+                CREATE UNIQUE INDEX IF NOT EXISTS UX_QMS_INSPECTION_RESULT_SEQUENCE
+                    ON QMS_INSPECTION_RESULT (INSPECTION_ID, ITEM_SEQUENCE)
+                    WHERE ITEM_SEQUENCE IS NOT NULL;
+                """);
+        }
+
+        const string headerChecks = """
+            BEGIN
+              SELECT RAISE(ABORT, 'QMS v2 inspection has invalid immutable metadata')
+                WHERE NEW.IDEMPOTENCY_KEY IS NOT NULL AND
+                    (COALESCE(TRIM(NEW.IDEMPOTENCY_KEY), '') = '' OR
+                     LENGTH(NEW.IDEMPOTENCY_KEY) > 150 OR
+                     NEW.REQUEST_HASH IS NULL OR LENGTH(NEW.REQUEST_HASH) <> 64 OR
+                     NEW.REQUEST_HASH GLOB '*[^0-9A-Fa-f]*' OR
+                     COALESCE(TRIM(NEW.LOT_ID), '') = '' OR
+                     COALESCE(TRIM(NEW.EQUIPMENT_ID), '') = '' OR
+                     COALESCE(TRIM(NEW.INSPECTOR_ID), '') = '' OR
+                     NEW.INSPECTION_TYPE NOT IN ('Incoming', 'Process', 'Shipping') OR
+                     NEW.LOT_QTY IS NULL OR NEW.LOT_QTY <= 0 OR
+                     NEW.SAMPLE_QTY IS NULL OR NEW.SAMPLE_QTY <= 0 OR NEW.SAMPLE_QTY > NEW.LOT_QTY OR
+                     NEW.DEFECT_QTY IS NULL OR NEW.DEFECT_QTY < 0 OR NEW.DEFECT_QTY > NEW.SAMPLE_QTY OR
+                     NEW.RELATION_TYPE NOT IN ('Original', 'Correction', 'Reinspection') OR
+                     COALESCE(TRIM(NEW.ROOT_INSPECTION_ID), '') = '' OR
+                     (NEW.RELATION_TYPE = 'Original' AND NEW.PARENT_INSPECTION_ID IS NOT NULL) OR
+                     (NEW.RELATION_TYPE IN ('Correction', 'Reinspection') AND NEW.PARENT_INSPECTION_ID IS NULL));
+              SELECT RAISE(ABORT, 'QMS v2 original inspection must be its own root')
+                WHERE NEW.IDEMPOTENCY_KEY IS NOT NULL
+                  AND NEW.RELATION_TYPE = 'Original'
+                  AND NEW.ROOT_INSPECTION_ID <> NEW.INSPECTION_ID;
+              SELECT RAISE(ABORT, 'QMS v2 lineage requires a matching parent and root')
+                WHERE NEW.IDEMPOTENCY_KEY IS NOT NULL
+                  AND NEW.RELATION_TYPE IN ('Correction', 'Reinspection')
+                  AND NOT EXISTS (
+                    SELECT 1 FROM QMS_INSPECTION P
+                    WHERE P.INSPECTION_ID = NEW.PARENT_INSPECTION_ID
+                      AND P.ROOT_INSPECTION_ID = NEW.ROOT_INSPECTION_ID
+                      AND P.INSPECTION_TYPE = NEW.INSPECTION_TYPE
+                      AND P.LOT_ID = NEW.LOT_ID
+                      AND P.IDEMPOTENCY_KEY IS NOT NULL);
+              SELECT RAISE(ABORT, 'QMS v2 sampling revision does not exist')
+                WHERE NEW.IDEMPOTENCY_KEY IS NOT NULL
+                  AND NEW.SAMPLING_PLAN_REVISION_ID IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM QMS_SAMPLING_PLAN_REVISION S
+                                  WHERE S.PLAN_REVISION_ID = NEW.SAMPLING_PLAN_REVISION_ID);
+              SELECT RAISE(ABORT, 'QMS sampling-plan revision is not effective at inspection time')
+                WHERE NEW.IDEMPOTENCY_KEY IS NOT NULL
+                  AND NEW.SAMPLING_PLAN_REVISION_ID IS NOT NULL
+                  AND EXISTS (SELECT 1 FROM QMS_SAMPLING_PLAN_REVISION S
+                              WHERE S.PLAN_REVISION_ID = NEW.SAMPLING_PLAN_REVISION_ID
+                                AND S.EFFECTIVE_FROM > NEW.INSPECTED_AT);
+            END
+            """;
+        Exec(conn, "DROP TRIGGER IF EXISTS TR_QMS_V2_HEADER_BI;");
+        Exec(conn, $"CREATE TRIGGER TR_QMS_V2_HEADER_BI BEFORE INSERT ON QMS_INSPECTION {headerChecks}");
+        Exec(conn, "DROP TRIGGER IF EXISTS TR_QMS_V2_EVENT_BI;");
+        Exec(conn, """
+            CREATE TRIGGER TR_QMS_V2_EVENT_BI
+            BEFORE INSERT ON QMS_INSPECTION_EVENT
+            BEGIN
+              SELECT RAISE(ABORT, 'QMS inspection event has invalid metadata')
+                WHERE NEW.EVENT_TYPE NOT IN ('Confirmed', 'Cancelled', 'Corrected', 'Reinspected')
+                   OR COALESCE(TRIM(NEW.IDEMPOTENCY_KEY), '') = ''
+                   OR LENGTH(NEW.REQUEST_HASH) <> 64
+                   OR COALESCE(TRIM(NEW.ACTOR_ID), '') = '';
+              SELECT RAISE(ABORT, 'QMS inspection event requires a matching execution and root')
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM QMS_INSPECTION I
+                    WHERE I.INSPECTION_ID = NEW.INSPECTION_ID
+                      AND I.ROOT_INSPECTION_ID = NEW.ROOT_INSPECTION_ID
+                      AND I.IDEMPOTENCY_KEY IS NOT NULL);
+              SELECT RAISE(ABORT, 'QMS inspection event related execution is invalid')
+                WHERE NEW.RELATED_INSPECTION_ID IS NOT NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM QMS_INSPECTION I
+                    WHERE I.INSPECTION_ID = NEW.RELATED_INSPECTION_ID
+                      AND I.ROOT_INSPECTION_ID = NEW.ROOT_INSPECTION_ID
+                      AND I.IDEMPOTENCY_KEY IS NOT NULL);
+              SELECT RAISE(ABORT, 'QMS inspection event parent is invalid')
+                WHERE NEW.PARENT_INSPECTION_ID IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM QMS_INSPECTION I
+                                  WHERE I.INSPECTION_ID = NEW.PARENT_INSPECTION_ID
+                                    AND I.ROOT_INSPECTION_ID = NEW.ROOT_INSPECTION_ID
+                                    AND I.IDEMPOTENCY_KEY IS NOT NULL);
+              SELECT RAISE(ABORT, 'QMS correction/reinspection event has invalid successor lineage')
+                WHERE NEW.EVENT_TYPE IN ('Corrected', 'Reinspected')
+                  AND (NEW.RELATED_INSPECTION_ID IS NULL
+                       OR NEW.PARENT_INSPECTION_ID IS NULL
+                       OR NEW.PARENT_INSPECTION_ID <> NEW.INSPECTION_ID
+                       OR NOT EXISTS (
+                         SELECT 1 FROM QMS_INSPECTION C
+                         WHERE C.INSPECTION_ID = NEW.RELATED_INSPECTION_ID
+                           AND C.PARENT_INSPECTION_ID = NEW.INSPECTION_ID
+                           AND C.ROOT_INSPECTION_ID = NEW.ROOT_INSPECTION_ID
+                           AND ((NEW.EVENT_TYPE = 'Corrected' AND C.RELATION_TYPE = 'Correction')
+                                OR (NEW.EVENT_TYPE = 'Reinspected' AND C.RELATION_TYPE = 'Reinspection'))));
+              SELECT RAISE(ABORT, 'QMS confirmation/cancellation event cannot identify a successor')
+                WHERE NEW.EVENT_TYPE IN ('Confirmed', 'Cancelled')
+                  AND NEW.RELATED_INSPECTION_ID IS NOT NULL;
+              SELECT RAISE(ABORT, 'A QMS v2 inspection requires at least one result item before confirmation')
+                WHERE NEW.EVENT_TYPE = 'Confirmed'
+                  AND NOT EXISTS (SELECT 1 FROM QMS_INSPECTION_RESULT R
+                                  WHERE R.INSPECTION_ID = NEW.INSPECTION_ID
+                                    AND R.ITEM_SEQUENCE IS NOT NULL);
+              SELECT RAISE(ABORT, 'QMS inspection event actor does not exist')
+                WHERE EXISTS (SELECT 1 FROM SYS_USER)
+                  AND NOT EXISTS (SELECT 1 FROM SYS_USER U WHERE U.USER_ID = NEW.ACTOR_ID);
+            END;
+            """);
+        Exec(conn, """
+            DROP INDEX IF EXISTS UX_QMS_INSPECTION_RESULT_SPEC;
+            CREATE UNIQUE INDEX UX_QMS_INSPECTION_RESULT_SPEC
+                ON QMS_INSPECTION_RESULT (INSPECTION_ID, SPEC_ID COLLATE NOCASE)
+                WHERE ITEM_SEQUENCE IS NOT NULL;
+            CREATE UNIQUE INDEX IF NOT EXISTS UX_QMS_INSPECTION_EVENT_CANCELLED
+                ON QMS_INSPECTION_EVENT (INSPECTION_ID)
+                WHERE EVENT_TYPE = 'Cancelled';
+            CREATE TRIGGER IF NOT EXISTS TR_QMS_V2_RESULT_BI
+            BEFORE INSERT ON QMS_INSPECTION_RESULT
+            WHEN EXISTS (SELECT 1 FROM QMS_INSPECTION_EVENT E
+                         WHERE E.INSPECTION_ID = NEW.INSPECTION_ID
+                           AND E.EVENT_TYPE = 'Confirmed')
+            BEGIN SELECT RAISE(ABORT, 'Confirmed QMS v2 inspections cannot accept additional result rows'); END;
+            CREATE TRIGGER IF NOT EXISTS TR_QMS_V2_HEADER_BU
+            BEFORE UPDATE ON QMS_INSPECTION
+            WHEN OLD.IDEMPOTENCY_KEY IS NOT NULL
+            BEGIN SELECT RAISE(ABORT, 'Confirmed QMS v2 inspection headers are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS TR_QMS_V2_HEADER_BD
+            BEFORE DELETE ON QMS_INSPECTION
+            WHEN OLD.IDEMPOTENCY_KEY IS NOT NULL
+            BEGIN SELECT RAISE(ABORT, 'Confirmed QMS v2 inspection headers are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS TR_QMS_V2_RESULT_BU
+            BEFORE UPDATE ON QMS_INSPECTION_RESULT
+            WHEN EXISTS (SELECT 1 FROM QMS_INSPECTION I
+                         WHERE I.INSPECTION_ID = OLD.INSPECTION_ID AND I.IDEMPOTENCY_KEY IS NOT NULL)
+            BEGIN SELECT RAISE(ABORT, 'Confirmed QMS v2 inspection results are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS TR_QMS_V2_RESULT_BD
+            BEFORE DELETE ON QMS_INSPECTION_RESULT
+            WHEN EXISTS (SELECT 1 FROM QMS_INSPECTION I
+                         WHERE I.INSPECTION_ID = OLD.INSPECTION_ID AND I.IDEMPOTENCY_KEY IS NOT NULL)
+            BEGIN SELECT RAISE(ABORT, 'Confirmed QMS v2 inspection results are immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS TR_QMS_V2_EVENT_BU
+            BEFORE UPDATE ON QMS_INSPECTION_EVENT
+            BEGIN SELECT RAISE(ABORT, 'QMS inspection history is append-only'); END;
+            CREATE TRIGGER IF NOT EXISTS TR_QMS_V2_EVENT_BD
+            BEFORE DELETE ON QMS_INSPECTION_EVENT
+            BEGIN SELECT RAISE(ABORT, 'QMS inspection history is append-only'); END;
+            """);
+    }
+
+    /// <summary>
+    /// Keeps AI model, inference, and human-review evidence append-only and restores the
+    /// inspection/model/reviewer links when SQLite is intentionally opened with FK checks off.
+    /// </summary>
+    private static void EnsureQmsAiEvidenceIntegrity(SqliteConnection conn)
+    {
+        if (!HasTable(conn, "QMS_AI_MODEL_VERSION") || !HasTable(conn, "QMS_AI_INFERENCE")
+            || !HasTable(conn, "QMS_AI_REVIEW") || !HasTable(conn, "QMS_INSPECTION"))
+            return;
+
+        Exec(conn, """
+            DROP TRIGGER IF EXISTS TR_QMS_AI_INFERENCE_BI;
+            CREATE TRIGGER TR_QMS_AI_INFERENCE_BI
+            BEFORE INSERT ON QMS_AI_INFERENCE
+            BEGIN
+              SELECT RAISE(ABORT, 'QMS AI inference inspection does not exist')
+                WHERE NOT EXISTS (SELECT 1 FROM QMS_INSPECTION I
+                                  WHERE I.INSPECTION_ID = NEW.INSPECTION_ID);
+              SELECT RAISE(ABORT, 'QMS AI inference model version does not exist')
+                WHERE NOT EXISTS (SELECT 1 FROM QMS_AI_MODEL_VERSION M
+                                  WHERE M.MODEL_VERSION_ID = NEW.MODEL_VERSION_ID);
+              SELECT RAISE(ABORT, 'QMS AI model version is not effective at inference time')
+                WHERE EXISTS (SELECT 1 FROM QMS_AI_MODEL_VERSION M
+                              WHERE M.MODEL_VERSION_ID = NEW.MODEL_VERSION_ID
+                                AND M.EFFECTIVE_FROM > NEW.INFERRED_AT);
+            END;
+            DROP TRIGGER IF EXISTS TR_QMS_AI_REVIEW_BI;
+            CREATE TRIGGER TR_QMS_AI_REVIEW_BI
+            BEFORE INSERT ON QMS_AI_REVIEW
+            BEGIN
+              SELECT RAISE(ABORT, 'QMS AI review inference does not exist')
+                WHERE NOT EXISTS (SELECT 1 FROM QMS_AI_INFERENCE I
+                                  WHERE I.INFERENCE_ID = NEW.INFERENCE_ID);
+              SELECT RAISE(ABORT, 'QMS AI review actor does not exist')
+                WHERE EXISTS (SELECT 1 FROM SYS_USER)
+                  AND NOT EXISTS (SELECT 1 FROM SYS_USER U WHERE U.USER_ID = NEW.REVIEWER_ID);
+            END;
+            CREATE TRIGGER IF NOT EXISTS TR_QMS_AI_MODEL_VERSION_BU
+            BEFORE UPDATE ON QMS_AI_MODEL_VERSION
+            BEGIN SELECT RAISE(ABORT, 'QMS AI model evidence is append-only'); END;
+            CREATE TRIGGER IF NOT EXISTS TR_QMS_AI_MODEL_VERSION_BD
+            BEFORE DELETE ON QMS_AI_MODEL_VERSION
+            BEGIN SELECT RAISE(ABORT, 'QMS AI model evidence is append-only'); END;
+            CREATE TRIGGER IF NOT EXISTS TR_QMS_AI_INFERENCE_BU
+            BEFORE UPDATE ON QMS_AI_INFERENCE
+            BEGIN SELECT RAISE(ABORT, 'QMS AI inference evidence is append-only'); END;
+            CREATE TRIGGER IF NOT EXISTS TR_QMS_AI_INFERENCE_BD
+            BEFORE DELETE ON QMS_AI_INFERENCE
+            BEGIN SELECT RAISE(ABORT, 'QMS AI inference evidence is append-only'); END;
+            CREATE TRIGGER IF NOT EXISTS TR_QMS_AI_REVIEW_BU
+            BEFORE UPDATE ON QMS_AI_REVIEW
+            BEGIN SELECT RAISE(ABORT, 'QMS AI review evidence is append-only'); END;
+            CREATE TRIGGER IF NOT EXISTS TR_QMS_AI_REVIEW_BD
+            BEFORE DELETE ON QMS_AI_REVIEW
+            BEGIN SELECT RAISE(ABORT, 'QMS AI review evidence is append-only'); END;
+            """);
+    }
+
+    private static bool HasUniqueIndexOnColumn(
+        SqliteConnection conn, string table, string column)
+    {
+        using var indexes = conn.CreateCommand();
+        indexes.CommandText = $"PRAGMA index_list([{table.Replace("]", "]]", StringComparison.Ordinal)}]);";
+        using var reader = indexes.ExecuteReader();
+        var names = new List<string>();
+        while (reader.Read())
+            if (reader.GetInt32(2) == 1) names.Add(reader.GetString(1));
+        reader.Close();
+
+        foreach (var name in names)
+        {
+            using var columns = conn.CreateCommand();
+            columns.CommandText = $"PRAGMA index_info([{name.Replace("]", "]]", StringComparison.Ordinal)}]);";
+            using var columnReader = columns.ExecuteReader();
+            var indexed = new List<string>();
+            while (columnReader.Read()) indexed.Add(columnReader.GetString(2));
+            if (indexed.Count == 1
+                && string.Equals(indexed[0], column, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    private static void EnsurePomBoundaryTriggers(SqliteConnection conn)
+    {
+        if (HasTable(conn, "POM_WORK_ORDER") && HasTable(conn, "POM_PRODUCTION_ORDER")
+            && HasTable(conn, "POM_PRODUCTION_PLAN"))
+        {
+            Exec(conn, """
+                UPDATE POM_WORK_ORDER
+                SET PRODUCT_ID = (
+                    SELECT O.PRODUCT_ID FROM POM_PRODUCTION_ORDER O
+                    WHERE O.ORDER_ID = POM_WORK_ORDER.PRODUCTION_ORDER_ID
+                )
+                WHERE COALESCE(TRIM(PRODUCT_ID), '') = ''
+                  AND EXISTS (
+                      SELECT 1 FROM POM_PRODUCTION_ORDER O
+                      WHERE O.ORDER_ID = POM_WORK_ORDER.PRODUCTION_ORDER_ID
+                  );
+                """);
+
+            const string workOrderChecks = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_WORK_ORDER requires a matching production order, product, and plant')
+                    WHERE COALESCE(TRIM(NEW.PRODUCTION_ORDER_ID), '') = ''
+                       OR COALESCE(TRIM(NEW.PRODUCT_ID), '') = ''
+                       OR COALESCE(TRIM(NEW.PLANT_ID), '') = ''
+                       OR NOT EXISTS (
+                           SELECT 1
+                           FROM POM_PRODUCTION_ORDER O
+                           JOIN POM_PRODUCTION_PLAN P ON P.PLAN_ID = O.PLAN_ID
+                           WHERE O.ORDER_ID = NEW.PRODUCTION_ORDER_ID
+                             AND O.PRODUCT_ID = NEW.PRODUCT_ID
+                             AND P.PLANT_ID = NEW.PLANT_ID
+                       );
+                  SELECT RAISE(ABORT, 'POM_WORK_ORDER has an invalid status or hold flag')
+                    WHERE NEW.STATUS NOT IN ('Created', 'Released', 'Started', 'Completed', 'Cancelled')
+                       OR NEW.IS_HOLD NOT IN ('Y', 'N');
+                  SELECT RAISE(ABORT, 'POM_WORK_ORDER has invalid quantities or version')
+                    WHERE NEW.PLAN_QTY IS NULL OR NEW.PLAN_QTY <= 0
+                       OR NEW.START_QTY IS NULL OR NEW.START_QTY < 0 OR NEW.START_QTY > NEW.PLAN_QTY
+                       OR NEW.COMPLETE_QTY IS NULL OR NEW.COMPLETE_QTY < 0
+                       OR NEW.SCRAP_QTY IS NULL OR NEW.SCRAP_QTY < 0
+                       OR NEW.COMPLETE_QTY + NEW.SCRAP_QTY >
+                          CASE WHEN NEW.START_QTY > 0 THEN NEW.START_QTY ELSE NEW.PLAN_QTY END
+                       OR NEW.VERSION_NO IS NULL OR NEW.VERSION_NO < 1;
+                END;
+                """;
+
+            Exec(conn, $"CREATE TRIGGER IF NOT EXISTS TR_POM_WORK_ORDER_BOUNDARY_BI BEFORE INSERT ON POM_WORK_ORDER {workOrderChecks}");
+            Exec(conn, $"CREATE TRIGGER IF NOT EXISTS TR_POM_WORK_ORDER_BOUNDARY_BU BEFORE UPDATE ON POM_WORK_ORDER {workOrderChecks}");
+            Exec(conn, """
+                CREATE TRIGGER IF NOT EXISTS TR_POM_PRODUCTION_ORDER_CHILD_BD
+                BEFORE DELETE ON POM_PRODUCTION_ORDER
+                WHEN EXISTS (SELECT 1 FROM POM_WORK_ORDER W WHERE W.PRODUCTION_ORDER_ID = OLD.ORDER_ID)
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_PRODUCTION_ORDER has child POM_WORK_ORDER rows');
+                END;
+                """);
+        }
+
+        // SQLite drops ALTER TABLE ... ADD CONSTRAINT during dialect conversion. Recreate the
+        // V106 routing-scope invariant as INSERT/UPDATE triggers for fresh and upgraded DBs.
+        // Incremental schema creation intentionally skips migration UPDATE statements, so perform
+        // the one-time-compatible inference here before installing the guards.
+        if (HasTable(conn, "POM_WORK_ORDER") &&
+            HasColumn(conn, "POM_WORK_ORDER", "ROUTING_ID") &&
+            HasColumn(conn, "POM_WORK_ORDER", "ROUTING_STEP_NO") &&
+            HasColumn(conn, "POM_WORK_ORDER", "ROUTING_SCOPE"))
+        {
+            Exec(conn, """
+                UPDATE POM_WORK_ORDER
+                   SET ROUTING_SCOPE = 'Operation'
+                 WHERE ROUTING_SCOPE = 'Unbound'
+                   AND ROUTING_ID IS NOT NULL
+                   AND COALESCE(TRIM(ROUTING_ID), '') <> ''
+                   AND ROUTING_STEP_NO IS NOT NULL;
+                """);
+            const string workOrderRoutingChecks = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_WORK_ORDER has an invalid routing scope or binding')
+                    WHERE NEW.ROUTING_SCOPE IS NULL
+                       OR NEW.ROUTING_SCOPE NOT IN ('Unbound', 'Operation', 'SerialRoute')
+                       OR (NEW.ROUTING_SCOPE = 'Unbound'
+                           AND (NEW.ROUTING_ID IS NOT NULL OR NEW.ROUTING_STEP_NO IS NOT NULL))
+                       OR (NEW.ROUTING_SCOPE = 'Operation'
+                           AND (COALESCE(TRIM(NEW.ROUTING_ID), '') = ''
+                                OR NEW.ROUTING_STEP_NO IS NULL OR NEW.ROUTING_STEP_NO <= 0))
+                       OR (NEW.ROUTING_SCOPE = 'SerialRoute'
+                           AND (COALESCE(TRIM(NEW.ROUTING_ID), '') = ''
+                                OR NEW.ROUTING_STEP_NO IS NOT NULL
+                                OR NEW.PROCESS_ID IS NOT NULL));
+                END;
+                """;
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_WORK_ORDER_ROUTING_BI;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_WORK_ORDER_ROUTING_BU;");
+            Exec(conn, $"CREATE TRIGGER TR_POM_WORK_ORDER_ROUTING_BI BEFORE INSERT ON POM_WORK_ORDER {workOrderRoutingChecks}");
+            Exec(conn, $"CREATE TRIGGER TR_POM_WORK_ORDER_ROUTING_BU BEFORE UPDATE ON POM_WORK_ORDER {workOrderRoutingChecks}");
+        }
+
+        if (HasTable(conn, "POM_LOT") && HasTable(conn, "POM_WORK_ORDER"))
+        {
+            Exec(conn, """
+                CREATE TRIGGER IF NOT EXISTS TR_POM_LOT_WORK_ORDER_BI
+                BEFORE INSERT ON POM_LOT
+                WHEN NEW.WORK_ORDER_ID IS NOT NULL
+                 AND (COALESCE(TRIM(NEW.WORK_ORDER_ID), '') = ''
+                      OR NOT EXISTS (SELECT 1 FROM POM_WORK_ORDER W WHERE W.WORK_ORDER_ID = NEW.WORK_ORDER_ID))
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_LOT.WORK_ORDER_ID must reference POM_WORK_ORDER');
+                END;
+                """);
+            Exec(conn, """
+                CREATE TRIGGER IF NOT EXISTS TR_POM_LOT_WORK_ORDER_BU
+                BEFORE UPDATE OF WORK_ORDER_ID ON POM_LOT
+                WHEN NEW.WORK_ORDER_ID IS NOT NULL
+                 AND (COALESCE(TRIM(NEW.WORK_ORDER_ID), '') = ''
+                      OR NOT EXISTS (SELECT 1 FROM POM_WORK_ORDER W WHERE W.WORK_ORDER_ID = NEW.WORK_ORDER_ID))
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_LOT.WORK_ORDER_ID must reference POM_WORK_ORDER');
+                END;
+                """);
+        }
+
+
+        if (HasTable(conn, "POM_LOT"))
+        {
+            const string lotChecks = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_LOT has invalid quantities, state, hold flag, or version')
+                    WHERE NEW.QTY IS NULL OR NEW.QTY <= 0
+                       OR NEW.DEFECT_QTY IS NULL OR NEW.DEFECT_QTY < 0 OR NEW.DEFECT_QTY > NEW.QTY
+                       OR NEW.VERSION_NO IS NULL OR NEW.VERSION_NO < 1
+                       OR NEW.LOT_STATE NOT IN ('Created', 'Queued', 'Processing', 'Completed', 'Consumed')
+                       OR NEW.PROCESS_STATE NOT IN ('Idle', 'Run')
+                       OR NEW.IS_HOLD NOT IN ('Y', 'N');
+                END;
+                """;
+            Exec(conn, $"CREATE TRIGGER IF NOT EXISTS TR_POM_LOT_BOUNDARY_BI BEFORE INSERT ON POM_LOT {lotChecks}");
+            Exec(conn, $"CREATE TRIGGER IF NOT EXISTS TR_POM_LOT_BOUNDARY_BU BEFORE UPDATE ON POM_LOT {lotChecks}");
+        }
+
+        if (HasTable(conn, "POM_LOT") &&
+            HasColumn(conn, "POM_LOT", "CONTROL_MODE") &&
+            HasColumn(conn, "POM_LOT", "RETURN_STEP"))
+        {
+            const string lotRoutingChecks = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_LOT has invalid routing control values')
+                    WHERE NEW.CONTROL_MODE IS NULL
+                       OR NEW.CONTROL_MODE NOT IN ('Strict', 'Flexible', 'NoControl')
+                       OR NEW.CURRENT_STEP IS NULL OR NEW.CURRENT_STEP < 0
+                       OR (NEW.RETURN_STEP IS NOT NULL AND NEW.RETURN_STEP < 0);
+                END;
+                """;
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_LOT_ROUTING_BI;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_LOT_ROUTING_BU;");
+            Exec(conn, $"CREATE TRIGGER TR_POM_LOT_ROUTING_BI BEFORE INSERT ON POM_LOT {lotRoutingChecks}");
+            Exec(conn, $"CREATE TRIGGER TR_POM_LOT_ROUTING_BU BEFORE UPDATE ON POM_LOT {lotRoutingChecks}");
+        }
+
+        if (HasTable(conn, "POM_LOT") && HasTable(conn, "POM_WORK_ORDER"))
+        {
+            const string lotWorkOrderBoundary = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_LOT work-order plant/product mismatch')
+                    WHERE NEW.WORK_ORDER_ID IS NOT NULL
+                      AND NOT EXISTS (
+                        SELECT 1 FROM POM_WORK_ORDER W
+                        WHERE W.WORK_ORDER_ID = NEW.WORK_ORDER_ID
+                          AND W.PLANT_ID = NEW.PLANT_ID
+                          AND W.PRODUCT_ID = NEW.PRODUCT_ID
+                      );
+                END;
+                """;
+            Exec(conn, $"CREATE TRIGGER IF NOT EXISTS TR_POM_LOT_WO_BOUNDARY_BI BEFORE INSERT ON POM_LOT {lotWorkOrderBoundary}");
+            Exec(conn, $"CREATE TRIGGER IF NOT EXISTS TR_POM_LOT_WO_BOUNDARY_BU BEFORE UPDATE ON POM_LOT {lotWorkOrderBoundary}");
+        }
+
+        if (HasTable(conn, "POM_LOT_HISTORY") && HasTable(conn, "POM_LOT"))
+        {
+            Exec(conn, """
+                CREATE TRIGGER IF NOT EXISTS TR_POM_LOT_HISTORY_BOUNDARY_BI
+                BEFORE INSERT ON POM_LOT_HISTORY
+                WHEN NEW.QTY IS NULL OR NEW.QTY <= 0
+                  OR NEW.DEFECT_QTY IS NULL OR NEW.DEFECT_QTY < 0 OR NEW.DEFECT_QTY > NEW.QTY
+                  OR NOT EXISTS (
+                    SELECT 1 FROM POM_LOT L
+                    WHERE L.LOT_ID = NEW.LOT_ID AND L.PLANT_ID = NEW.PLANT_ID
+                  )
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_LOT_HISTORY requires a matching lot and valid quantities');
+                END;
+                """);
+        }
+
+        if (HasTable(conn, "POM_LOT_MIXING_RELATION") && HasTable(conn, "POM_LOT"))
+        {
+            Exec(conn, """
+                CREATE TRIGGER IF NOT EXISTS TR_POM_LOT_MIXING_BOUNDARY_BI
+                BEFORE INSERT ON POM_LOT_MIXING_RELATION
+                WHEN NEW.INPUT_QTY IS NULL OR NEW.INPUT_QTY <= 0
+                  OR (NEW.MIXING_RATE IS NOT NULL AND (NEW.MIXING_RATE <= 0 OR NEW.MIXING_RATE > 1))
+                  OR NOT EXISTS (
+                    SELECT 1 FROM POM_LOT L
+                    WHERE L.LOT_ID = NEW.INPUT_LOT_ID AND L.PLANT_ID = NEW.PLANT_ID
+                  )
+                  OR NOT EXISTS (
+                    SELECT 1 FROM POM_LOT L
+                    WHERE L.LOT_ID = NEW.OUTPUT_LOT_ID AND L.PLANT_ID = NEW.PLANT_ID
+                  )
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_LOT_MIXING_RELATION requires matching lots and positive quantity');
+                END;
+                """);
+        }
+
+        if (HasTable(conn, "POM_LOT_EXECUTION") && HasTable(conn, "POM_LOT"))
+        {
+            Exec(conn, """
+                CREATE TRIGGER IF NOT EXISTS TR_POM_LOT_EXECUTION_BOUNDARY_BI
+                BEFORE INSERT ON POM_LOT_EXECUTION
+                WHEN COALESCE(TRIM(NEW.IDEMPOTENCY_KEY), '') = ''
+                  OR COALESCE(TRIM(NEW.REQUEST_HASH), '') = ''
+                  OR NEW.EXPECTED_VERSION IS NULL OR NEW.EXPECTED_VERSION < 1
+                  OR NEW.RESULT_VERSION <> NEW.EXPECTED_VERSION + 1
+                  OR NOT EXISTS (SELECT 1 FROM POM_LOT L WHERE L.LOT_ID = NEW.LOT_ID)
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_LOT_EXECUTION requires a lot, idempotency key, and consecutive version');
+                END;
+                """);
+
+            if (HasColumn(conn, "POM_LOT_EXECUTION", "FROM_STEP") &&
+                HasColumn(conn, "POM_LOT_EXECUTION", "CONTROL_MODE") &&
+                HasColumn(conn, "POM_LOT_EXECUTION", "CLIENT_CHANNEL"))
+            {
+                const string executionRoutingChecks = """
+                    BEGIN
+                      SELECT RAISE(ABORT, 'POM_LOT_EXECUTION has invalid routing audit values')
+                        WHERE (NEW.FROM_STEP IS NOT NULL AND NEW.FROM_STEP < 0)
+                           OR (NEW.TO_STEP IS NOT NULL AND NEW.TO_STEP < 0)
+                           OR (NEW.CONTROL_MODE IS NOT NULL
+                               AND NEW.CONTROL_MODE NOT IN ('Strict', 'Flexible', 'NoControl'))
+                           OR (NEW.CLIENT_CHANNEL IS NOT NULL
+                               AND NEW.CLIENT_CHANNEL NOT IN ('MES', 'MOBILE', 'POP'));
+                    END;
+                    """;
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_LOT_EXECUTION_ROUTING_BI;");
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_LOT_EXECUTION_ROUTING_BU;");
+                Exec(conn, $"CREATE TRIGGER TR_POM_LOT_EXECUTION_ROUTING_BI BEFORE INSERT ON POM_LOT_EXECUTION {executionRoutingChecks}");
+                Exec(conn, $"CREATE TRIGGER TR_POM_LOT_EXECUTION_ROUTING_BU BEFORE UPDATE ON POM_LOT_EXECUTION {executionRoutingChecks}");
+            }
+        }
+
+        if (HasTable(conn, "POM_ROUTE_EXCEPTION") &&
+            HasTable(conn, "POM_LOT") &&
+            HasTable(conn, "POM_LOT_HISTORY") &&
+            HasTable(conn, "POM_LOT_EXECUTION") &&
+            HasTable(conn, "POM_LOT_DEFECT_EXECUTION") &&
+            HasTable(conn, "POM_LOT_MIXING_RELATION"))
+        {
+            const string routeExceptionLotChecks = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_ROUTE_EXCEPTION requires a matching lot and plant')
+                    WHERE NOT EXISTS (
+                      SELECT 1 FROM POM_LOT L
+                      WHERE L.LOT_ID = NEW.LOT_ID AND L.PLANT_ID = NEW.PLANT_ID
+                    );
+                END;
+                """;
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_ROUTE_EXCEPTION_LOT_BI;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_ROUTE_EXCEPTION_LOT_BU;");
+            Exec(conn, $"CREATE TRIGGER TR_POM_ROUTE_EXCEPTION_LOT_BI BEFORE INSERT ON POM_ROUTE_EXCEPTION {routeExceptionLotChecks}");
+            Exec(conn, $"CREATE TRIGGER TR_POM_ROUTE_EXCEPTION_LOT_BU BEFORE UPDATE OF LOT_ID, PLANT_ID ON POM_ROUTE_EXCEPTION {routeExceptionLotChecks}");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_LOT_ROUTE_EXCEPTION_BD;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_LOT_CHILD_BD;");
+            Exec(conn, """
+                CREATE TRIGGER TR_POM_LOT_CHILD_BD
+                BEFORE DELETE ON POM_LOT
+                WHEN EXISTS (
+                  SELECT 1 FROM POM_ROUTE_EXCEPTION R
+                  WHERE R.LOT_ID = OLD.LOT_ID AND R.PLANT_ID = OLD.PLANT_ID
+                )
+                OR EXISTS (
+                  SELECT 1 FROM POM_LOT_HISTORY H
+                  WHERE H.LOT_ID = OLD.LOT_ID AND H.PLANT_ID = OLD.PLANT_ID
+                )
+                OR EXISTS (SELECT 1 FROM POM_LOT_EXECUTION E WHERE E.LOT_ID = OLD.LOT_ID)
+                OR EXISTS (
+                  SELECT 1 FROM POM_LOT_DEFECT_EXECUTION D
+                  WHERE D.LOT_ID = OLD.LOT_ID AND D.PLANT_ID = OLD.PLANT_ID
+                )
+                OR EXISTS (
+                  SELECT 1 FROM POM_LOT_MIXING_RELATION M
+                  WHERE M.PLANT_ID = OLD.PLANT_ID
+                    AND (M.INPUT_LOT_ID = OLD.LOT_ID OR M.OUTPUT_LOT_ID = OLD.LOT_ID)
+                )
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_LOT has child tracking rows');
+                END;
+                """);
+        }
+
+        if (HasTable(conn, "POM_LOT_EXECUTION") &&
+            HasTable(conn, "POM_ROUTE_EXCEPTION") &&
+            HasColumn(conn, "POM_LOT_EXECUTION", "ROUTE_EXCEPTION_ID"))
+        {
+            const string lotExecutionExceptionChecks = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_LOT_EXECUTION route exception does not exist')
+                    WHERE NEW.ROUTE_EXCEPTION_ID IS NOT NULL
+                      AND (COALESCE(TRIM(NEW.ROUTE_EXCEPTION_ID), '') = ''
+                           OR NOT EXISTS (
+                             SELECT 1 FROM POM_ROUTE_EXCEPTION R
+                             WHERE R.EXCEPTION_ID = NEW.ROUTE_EXCEPTION_ID
+                               AND R.LOT_ID = NEW.LOT_ID
+                           ));
+                END;
+                """;
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_LOT_EXECUTION_EXCEPTION_BI;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_LOT_EXECUTION_EXCEPTION_BU;");
+            Exec(conn, $"CREATE TRIGGER TR_POM_LOT_EXECUTION_EXCEPTION_BI BEFORE INSERT ON POM_LOT_EXECUTION {lotExecutionExceptionChecks}");
+            Exec(conn, $"CREATE TRIGGER TR_POM_LOT_EXECUTION_EXCEPTION_BU BEFORE UPDATE OF ROUTE_EXCEPTION_ID, LOT_ID ON POM_LOT_EXECUTION {lotExecutionExceptionChecks}");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_ROUTE_EXCEPTION_EXECUTION_BU;");
+            Exec(conn, """
+                CREATE TRIGGER TR_POM_ROUTE_EXCEPTION_EXECUTION_BU
+                BEFORE UPDATE OF EXCEPTION_ID, LOT_ID ON POM_ROUTE_EXCEPTION
+                WHEN EXISTS (
+                  SELECT 1 FROM POM_LOT_EXECUTION E
+                  WHERE E.ROUTE_EXCEPTION_ID = OLD.EXCEPTION_ID
+                    AND (E.ROUTE_EXCEPTION_ID <> NEW.EXCEPTION_ID OR E.LOT_ID <> NEW.LOT_ID)
+                )
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_ROUTE_EXCEPTION cannot detach child lot execution rows');
+                END;
+                """);
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_ROUTE_EXCEPTION_EXECUTION_BD;");
+            Exec(conn, """
+                CREATE TRIGGER TR_POM_ROUTE_EXCEPTION_EXECUTION_BD
+                BEFORE DELETE ON POM_ROUTE_EXCEPTION
+                WHEN EXISTS (
+                  SELECT 1 FROM POM_LOT_EXECUTION E
+                  WHERE E.ROUTE_EXCEPTION_ID = OLD.EXCEPTION_ID
+                )
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_ROUTE_EXCEPTION has child lot execution rows');
+                END;
+                """);
+        }
+
+        if (HasTable(conn, "POM_LOT_DEFECT_EXECUTION") &&
+            HasTable(conn, "POM_LOT_EXECUTION") &&
+            HasTable(conn, "POM_LOT") &&
+            HasTable(conn, "POM_ROUTE_EXCEPTION"))
+        {
+            const string lotDefectExecutionParentChecks = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_LOT_DEFECT_EXECUTION requires a matching LOT execution and plant')
+                    WHERE NOT EXISTS (
+                      SELECT 1 FROM POM_LOT_EXECUTION E
+                      WHERE E.EXECUTION_ID = NEW.EXECUTION_ID
+                        AND E.LOT_ID = NEW.LOT_ID
+                    )
+                    OR NOT EXISTS (
+                      SELECT 1 FROM POM_LOT L
+                      WHERE L.LOT_ID = NEW.LOT_ID
+                        AND L.PLANT_ID = NEW.PLANT_ID
+                    );
+                END;
+                """;
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_LOT_DEFECT_EXECUTION_PARENT_BI;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_LOT_DEFECT_EXECUTION_PARENT_BU;");
+            Exec(conn, $"CREATE TRIGGER TR_POM_LOT_DEFECT_EXECUTION_PARENT_BI BEFORE INSERT ON POM_LOT_DEFECT_EXECUTION {lotDefectExecutionParentChecks}");
+            Exec(conn, $"CREATE TRIGGER TR_POM_LOT_DEFECT_EXECUTION_PARENT_BU BEFORE UPDATE OF EXECUTION_ID, LOT_ID, PLANT_ID ON POM_LOT_DEFECT_EXECUTION {lotDefectExecutionParentChecks}");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_LOT_EXECUTION_DEFECT_BD;");
+            Exec(conn, """
+                CREATE TRIGGER TR_POM_LOT_EXECUTION_DEFECT_BD
+                BEFORE DELETE ON POM_LOT_EXECUTION
+                WHEN EXISTS (
+                  SELECT 1 FROM POM_LOT_DEFECT_EXECUTION D
+                  WHERE D.EXECUTION_ID = OLD.EXECUTION_ID
+                )
+                OR EXISTS (
+                  SELECT 1 FROM POM_ROUTE_EXCEPTION R
+                  WHERE R.APPLIED_EXECUTION_ID = OLD.EXECUTION_ID
+                )
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_LOT_EXECUTION has child defect or approval rows');
+                END;
+                """);
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_LOT_EXECUTION_CHILD_BU;");
+            Exec(conn, """
+                CREATE TRIGGER TR_POM_LOT_EXECUTION_CHILD_BU
+                BEFORE UPDATE OF EXECUTION_ID, LOT_ID ON POM_LOT_EXECUTION
+                WHEN EXISTS (
+                  SELECT 1 FROM POM_LOT_DEFECT_EXECUTION D
+                  WHERE D.EXECUTION_ID = OLD.EXECUTION_ID
+                    AND (D.EXECUTION_ID <> NEW.EXECUTION_ID OR D.LOT_ID <> NEW.LOT_ID)
+                )
+                OR EXISTS (
+                  SELECT 1 FROM POM_ROUTE_EXCEPTION R
+                  WHERE R.APPLIED_EXECUTION_ID = OLD.EXECUTION_ID
+                    AND (R.APPLIED_EXECUTION_ID <> NEW.EXECUTION_ID OR R.LOT_ID <> NEW.LOT_ID)
+                )
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_LOT_EXECUTION cannot detach child audit rows');
+                END;
+                """);
+        }
+
+        if (HasTable(conn, "POM_ROUTE_EXCEPTION") && HasTable(conn, "POM_LOT_EXECUTION"))
+        {
+            const string appliedExecutionChecks = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_ROUTE_EXCEPTION applied execution must belong to the same LOT')
+                    WHERE NEW.APPLIED_EXECUTION_ID IS NOT NULL
+                      AND (COALESCE(TRIM(NEW.APPLIED_EXECUTION_ID), '') = ''
+                           OR NOT EXISTS (
+                             SELECT 1 FROM POM_LOT_EXECUTION E
+                             WHERE E.EXECUTION_ID = NEW.APPLIED_EXECUTION_ID
+                               AND E.LOT_ID = NEW.LOT_ID
+                           ));
+                END;
+                """;
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_ROUTE_EXCEPTION_APPLIED_EXECUTION_BI;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_ROUTE_EXCEPTION_APPLIED_EXECUTION_BU;");
+            Exec(conn, $"CREATE TRIGGER TR_POM_ROUTE_EXCEPTION_APPLIED_EXECUTION_BI BEFORE INSERT ON POM_ROUTE_EXCEPTION {appliedExecutionChecks}");
+            Exec(conn, $"CREATE TRIGGER TR_POM_ROUTE_EXCEPTION_APPLIED_EXECUTION_BU BEFORE UPDATE OF APPLIED_EXECUTION_ID, LOT_ID ON POM_ROUTE_EXCEPTION {appliedExecutionChecks}");
+        }
+
+        if (HasTable(conn, "POM_ROUTE_EXCEPTION") &&
+            HasColumn(conn, "POM_ROUTE_EXCEPTION", "REVIEW_CLIENT_CHANNEL") &&
+            HasColumn(conn, "POM_ROUTE_EXCEPTION", "REVIEW_DEVICE_ID"))
+        {
+            // V104 legacy rows predate separate reviewer provenance. Preserve their known request
+            // channel so later Apply updates do not erase or violate the new review boundary.
+            Exec(conn, """
+                UPDATE POM_ROUTE_EXCEPTION
+                   SET REVIEW_CLIENT_CHANNEL = CLIENT_CHANNEL
+                 WHERE REVIEWED_BY IS NOT NULL AND REVIEW_CLIENT_CHANNEL IS NULL;
+                """);
+            const string reviewProvenanceChecks = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_ROUTE_EXCEPTION has invalid review provenance')
+                    WHERE (NEW.REVIEW_CLIENT_CHANNEL IS NOT NULL
+                           AND NEW.REVIEW_CLIENT_CHANNEL NOT IN ('MES', 'MOBILE', 'POP'))
+                       OR (NEW.REVIEWED_BY IS NULL
+                           AND (NEW.REVIEW_CLIENT_CHANNEL IS NOT NULL OR NEW.REVIEW_DEVICE_ID IS NOT NULL))
+                       OR (NEW.REVIEWED_BY IS NOT NULL
+                           AND (NEW.REVIEWED_AT IS NULL OR NEW.REVIEW_CLIENT_CHANNEL IS NULL))
+                       OR (NEW.STATUS IN ('Approved', 'Rejected', 'Applied')
+                           AND (NEW.REVIEWED_BY IS NULL
+                                OR NEW.REVIEWED_AT IS NULL
+                                OR NEW.REVIEW_CLIENT_CHANNEL IS NULL))
+                       OR (NEW.REVIEW_DEVICE_ID IS NOT NULL AND LENGTH(NEW.REVIEW_DEVICE_ID) > 100);
+                END;
+                """;
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_ROUTE_EXCEPTION_REVIEW_BI;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_ROUTE_EXCEPTION_REVIEW_BU;");
+            Exec(conn, $"CREATE TRIGGER TR_POM_ROUTE_EXCEPTION_REVIEW_BI BEFORE INSERT ON POM_ROUTE_EXCEPTION {reviewProvenanceChecks}");
+            Exec(conn, $"CREATE TRIGGER TR_POM_ROUTE_EXCEPTION_REVIEW_BU BEFORE UPDATE ON POM_ROUTE_EXCEPTION {reviewProvenanceChecks}");
+        }
+
+        if (HasTable(conn, "POM_WORK_ORDER_EXECUTION") && HasTable(conn, "POM_WORK_ORDER"))
+        {
+            Exec(conn, """
+                CREATE TRIGGER IF NOT EXISTS TR_POM_WORK_ORDER_EXECUTION_PARENT_BI
+                BEFORE INSERT ON POM_WORK_ORDER_EXECUTION
+                WHEN NOT EXISTS (SELECT 1 FROM POM_WORK_ORDER W WHERE W.WORK_ORDER_ID = NEW.WORK_ORDER_ID)
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_WORK_ORDER_EXECUTION requires POM_WORK_ORDER');
+                END;
+                """);
+            if (HasColumn(conn, "POM_WORK_ORDER_EXECUTION", "EXPECTED_VERSION") &&
+                HasColumn(conn, "POM_WORK_ORDER_EXECUTION", "RESULT_VERSION"))
+            {
+                const string workOrderExecutionVersionChecks = """
+                    BEGIN
+                      SELECT RAISE(ABORT, 'POM_WORK_ORDER_EXECUTION has invalid version identity')
+                        WHERE (NEW.EXPECTED_VERSION IS NULL AND NEW.RESULT_VERSION IS NOT NULL)
+                           OR (NEW.EXPECTED_VERSION IS NOT NULL AND NEW.RESULT_VERSION IS NULL)
+                           OR (NEW.EXPECTED_VERSION IS NOT NULL
+                               AND (NEW.EXPECTED_VERSION < 1
+                                    OR NEW.RESULT_VERSION <> NEW.EXPECTED_VERSION + 1));
+                    END;
+                    """;
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_WORK_ORDER_EXECUTION_VERSION_BI;");
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_WORK_ORDER_EXECUTION_VERSION_BU;");
+                Exec(conn, $"CREATE TRIGGER TR_POM_WORK_ORDER_EXECUTION_VERSION_BI BEFORE INSERT ON POM_WORK_ORDER_EXECUTION {workOrderExecutionVersionChecks}");
+                Exec(conn, $"CREATE TRIGGER TR_POM_WORK_ORDER_EXECUTION_VERSION_BU BEFORE UPDATE ON POM_WORK_ORDER_EXECUTION {workOrderExecutionVersionChecks}");
+            }
+            Exec(conn, """
+                CREATE TRIGGER IF NOT EXISTS TR_POM_WORK_ORDER_CHILD_BD
+                BEFORE DELETE ON POM_WORK_ORDER
+                WHEN EXISTS (SELECT 1 FROM POM_LOT L WHERE L.WORK_ORDER_ID = OLD.WORK_ORDER_ID)
+                  OR EXISTS (SELECT 1 FROM POM_WORK_ORDER_EXECUTION E WHERE E.WORK_ORDER_ID = OLD.WORK_ORDER_ID)
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_WORK_ORDER has child lot or execution rows');
+                END;
+                """);
+        }
+    }
+
     private static void Exec(SqliteConnection conn, string sql)
     {
         using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;
         cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// SQLite 증분 실행용 SQL을 문자열 리터럴과 행 주석을 인식하면서 문장 단위로 분리한다.
+    /// 주석이나 문자열 안의 세미콜론이 실제 SQL 구분자로 오인되는 것을 방지한다.
+    /// </summary>
+    private static IEnumerable<string> SplitSqlStatements(string sql)
+    {
+        var statement = new StringBuilder();
+        var inString = false;
+        var inLineComment = false;
+
+        for (var index = 0; index < sql.Length; index++)
+        {
+            var current = sql[index];
+
+            if (inLineComment)
+            {
+                if (current is '\r' or '\n')
+                {
+                    inLineComment = false;
+                    statement.Append(current);
+                }
+                continue;
+            }
+
+            if (!inString && current == '-' && index + 1 < sql.Length && sql[index + 1] == '-')
+            {
+                inLineComment = true;
+                index++;
+                continue;
+            }
+
+            if (current == '\'')
+            {
+                statement.Append(current);
+                if (inString && index + 1 < sql.Length && sql[index + 1] == '\'')
+                {
+                    statement.Append(sql[++index]);
+                    continue;
+                }
+
+                inString = !inString;
+                continue;
+            }
+
+            if (!inString && current == ';')
+            {
+                var completed = statement.ToString().Trim();
+                if (completed.Length > 0) yield return completed;
+                statement.Clear();
+                continue;
+            }
+
+            statement.Append(current);
+        }
+
+        var remainder = statement.ToString().Trim();
+        if (remainder.Length > 0) yield return remainder;
     }
 
     private static string FindMigrationsDir()
@@ -125,6 +1475,10 @@ public static class SqliteSchemaInitializer
     {
         const RegexOptions O = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
 
+        // 운영 SQL Server 전용 트리거/구문은 명시 마커로 제외하고 SQLite 동등 트리거는 위에서 생성한다.
+        s = Regex.Replace(s, @"--\s*SQLITE-OMIT-BEGIN.*?--\s*SQLITE-OMIT-END", "",
+            O | RegexOptions.Singleline);
+
         // 1단계 — 타입/함수 '토큰' 치환은 문자열 리터럴('...') 밖에서만 수행한다. 시드 값이 타입 키워드와
         // 겹치면 데이터가 오염된다(V079 실사고: UOM_TYPE 'Time'이 TIME→TEXT 치환에 물려 'TEXT'로 저장).
         // 홑따옴표 분할 시 짝수 인덱스가 코드 구간이고, ''(이스케이프)는 빈 코드 구간으로 떨어져 무해하다.
@@ -139,6 +1493,10 @@ public static class SqliteSchemaInitializer
         // (한계: DEFAULT 리터럴 '안'의 콤마는 분해를 오염시킨다 — 마이그레이션 관례상 금지.)
         // MSSQL ALTER COLUMN(타입/길이 변경)은 SQLite 미지원 + TEXT는 길이 무개념이라 무의미 → 문장 제거(무해).
         s = Regex.Replace(s, @"ALTER\s+TABLE\s+\w+\s+ALTER\s+COLUMN\s+.+?;", "", O | RegexOptions.Singleline);
+        // SQLite cannot add a table constraint after creation. MSSQL keeps the real FK/CHECK constraints.
+        s = Regex.Replace(s, @"ALTER\s+TABLE\s+\w+\s+ADD\s+CONSTRAINT\s+.+?;", "", O | RegexOptions.Singleline);
+        // SQLite cannot drop a named table constraint. QMS v2 rebuilds the affected table explicitly.
+        s = Regex.Replace(s, @"ALTER\s+TABLE\s+\w+\s+DROP\s+CONSTRAINT\s+\w+\s*;", "", O);
         // MSSQL 다중컬럼 ALTER TABLE t ADD c1 ..., c2 ...; → SQLite 단일 ADD COLUMN 반복
         s = Regex.Replace(s, @"ALTER\s+TABLE\s+(\w+)\s+ADD\s+(.+?);", m =>
         {
@@ -174,6 +1532,8 @@ public static class SqliteSchemaInitializer
         s = Regex.Replace(s, @"\bIDENTITY\b", "", O);
         // 시각 함수 → SQLite
         s = Regex.Replace(s, @"\b(GETUTCDATE|SYSUTCDATETIME|SYSDATETIME|GETDATE)\s*\(\s*\)", "CURRENT_TIMESTAMP", O);
+        // SQL Server 문자열 길이 함수 → SQLite 동등 함수.
+        s = Regex.Replace(s, @"\bLEN\s*\(", "LENGTH(", O);
         // 명명된 DEFAULT 제약(CONSTRAINT DF_x DEFAULT ...) → 단순 DEFAULT (SQLite ALTER ADD에서 명명 제약 미지원)
         s = Regex.Replace(s, @"CONSTRAINT\s+\w+\s+DEFAULT\b", "DEFAULT", O);
         return s;

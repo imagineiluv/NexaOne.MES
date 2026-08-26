@@ -38,7 +38,7 @@ public sealed class DialectParityTests
     [MemberData(nameof(QueryTrees))]
     public void Mssql_and_sqlite_dialects_are_in_lockstep(string treeRelativePath)
     {
-        var treeRoot = ResolveRepoRelative(treeRelativePath);
+        var treeRoot = RepositorySource.GetDirectory(treeRelativePath);
         Directory.Exists(treeRoot).Should().BeTrue(
             $"방언 트리 경로가 해석돼야 한다(경로 해석 실패 시 테스트가 공허하게 통과하면 안 됨): {treeRoot}");
 
@@ -85,7 +85,131 @@ public sealed class DialectParityTests
             (mDef.RequiredPermission ?? "<none>").Should().Be(sDef.RequiredPermission ?? "<none>",
                 $"[{treeRelativePath}] '{id}' — requiredPermission 방언 불일치: " +
                 $"mssql='{mDef.RequiredPermission ?? "<none>"}', sqlite='{sDef.RequiredPermission ?? "<none>"}'");
+            mDef.IsPublic.Should().Be(sDef.IsPublic,
+                $"[{treeRelativePath}] '{id}' — access=public 방언 불일치");
         }
+    }
+
+    [Fact]
+    public void Qms_execution_queries_expose_effective_state_and_only_effective_sampling_revisions()
+    {
+        var root = RepositorySource.GetDirectory($"{DbRoot}/queries");
+        var mssql = FileQueryRegistry.Load("mssql", root);
+        var sqlite = FileQueryRegistry.Load("sqlite", root);
+
+        foreach (var id in new[]
+                 {
+                     "QMS.IncomingInspectionList",
+                     "QMS.ProcessInspectionList",
+                     "QMS.ShippingInspectionList"
+                 })
+        {
+            mssql.TryGet(id, out var m).Should().BeTrue();
+            sqlite.TryGet(id, out var s).Should().BeTrue();
+            foreach (var alias in new[] { "IS_CANCELLED", "IS_SUPERSEDED", "EFFECTIVE_RESULT" })
+            {
+                m!.Sql.Should().Contain(alias);
+                s!.Sql.Should().Contain(alias);
+            }
+        }
+
+        mssql.TryGet("QMS.SamplingPlanRevisionCombo", out var mCombo).Should().BeTrue();
+        sqlite.TryGet("QMS.SamplingPlanRevisionCombo", out var sCombo).Should().BeTrue();
+        mCombo!.Sql.Should().Contain("EFFECTIVE_FROM <= GETUTCDATE()", Exactly.Once());
+        sCombo!.Sql.Should().Contain("EFFECTIVE_FROM <= CURRENT_TIMESTAMP", Exactly.Once());
+    }
+
+    [Fact]
+    public void Pom_operator_ledgers_have_equivalent_500_row_caps_in_both_dialects()
+    {
+        var root = RepositorySource.GetDirectory($"{DbRoot}/queries");
+        var mssql = FileQueryRegistry.Load("mssql", root);
+        var sqlite = FileQueryRegistry.Load("sqlite", root);
+
+        foreach (var id in new[]
+                 {
+                     "POM.RouteExceptionList",
+                     "POM.RouteDeviationTimeline",
+                     "POM.LotDefectExecutionList"
+                 })
+        {
+            mssql.TryGet(id, out var mssqlDefinition).Should().BeTrue();
+            sqlite.TryGet(id, out var sqliteDefinition).Should().BeTrue();
+
+            mssqlDefinition!.Sql.Should().MatchRegex(@"(?is)^\s*SELECT\s+TOP\s+500\b",
+                $"{id} must keep an explicit MSSQL operator-screen safety cap");
+            sqliteDefinition!.Sql.Should().MatchRegex(@"(?is)\bLIMIT\s+500\s*$",
+                $"{id} must keep the same SQLite operator-screen safety cap");
+        }
+    }
+
+    [Fact]
+    public void Pom_automatic_return_timeline_projects_track_out_execution_provenance_in_both_dialects()
+    {
+        var root = RepositorySource.GetDirectory($"{DbRoot}/queries");
+        var mssql = FileQueryRegistry.Load("mssql", root);
+        var sqlite = FileQueryRegistry.Load("sqlite", root);
+        mssql.TryGet("POM.RouteDeviationTimeline", out var mssqlDefinition).Should().BeTrue();
+        sqlite.TryGet("POM.RouteDeviationTimeline", out var sqliteDefinition).Should().BeTrue();
+
+        foreach (var sql in new[] { mssqlDefinition!.Sql, sqliteDefinition!.Sql })
+        {
+            sql.Should().Contain("LEFT JOIN POM_LOT_EXECUTION RETURN_EXECUTION");
+            sql.Should().Contain("RETURN_EXECUTION.LOT_ID = H.LOT_ID");
+            sql.Should().Contain("RETURN_EXECUTION.EXECUTION_ID = H.IDEMPOTENCY_KEY");
+            sql.Should().Contain("RETURN_EXECUTION.ACTION = 'TrackOut'");
+            foreach (var column in new[]
+                     {
+                         "FROM_STEP", "TO_STEP", "FROM_PROCESS_ID", "TO_PROCESS_ID",
+                         "CLIENT_CHANNEL", "DEVICE_ID", "EXPECTED_VERSION", "RESULT_VERSION", "CREATED_BY"
+                     })
+                sql.Should().Contain($"RETURN_EXECUTION.{column}");
+        }
+    }
+
+    [Fact]
+    public void Qms_v2_mssql_migration_contains_sqlite_equivalent_lineage_and_evidence_guards()
+    {
+        var sql = File.ReadAllText(RepositorySource.GetFile(
+            $"{DbRoot}/migrations/V097__QMS_INSPECTION_EXECUTION_V2.sql"));
+
+        foreach (var guard in new[]
+                 {
+                     "TR_QMS_V2_INSPECTION_LINEAGE",
+                     "TR_QMS_V2_EVENT_LINEAGE",
+                     "TR_QMS_V2_RESULT_IMMUTABLE",
+                     "TR_QMS_V2_RESULT_INTEGRITY",
+                     "UX_QMS_INSPECTION_RESULT_SPEC",
+                     "UX_QMS_INSPECTION_EVENT_CANCELLED",
+                     "TR_QMS_AI_MODEL_VERSION_APPEND_ONLY",
+                     "TR_QMS_AI_INFERENCE_INTEGRITY",
+                     "TR_QMS_AI_INFERENCE_APPEND_ONLY",
+                     "TR_QMS_AI_REVIEW_APPEND_ONLY"
+                 })
+            sql.Should().Contain(guard);
+        sql.Should().Contain("Original QMS v2 inspections must be their own root.");
+        sql.Should().Contain("cannot accept additional result rows");
+        sql.Should().Contain("ON QMS_INSPECTION_RESULT AFTER INSERT, UPDATE AS");
+        sql.Should().Contain("FROM inserted R", AtLeast.Once());
+        sql.Should().Contain("LEFT JOIN deleted D ON D.RESULT_ID = N.RESULT_ID");
+        sql.Should().Contain("I.IDEMPOTENCY_KEY IS NULL");
+        sql.Should().Contain("I.LOT_ID <> R.LOT_ID");
+        sql.Should().Contain("I.EQUIPMENT_ID <> R.EQUIPMENT_ID");
+        sql.Should().Contain("S.IS_ACTIVE = 1");
+        sql.Should().Contain("R.SAMPLE_QTY > I.SAMPLE_QTY");
+        sql.Should().Contain("R.DEFECT_QTY > I.DEFECT_QTY");
+        sql.Should().Contain("R.ATTRIBUTE_RESULT IS NULL");
+        sql.Should().Contain("X.RESULT_ID <> R.RESULT_ID");
+        sql.Should().Contain("at least one result item before confirmation");
+
+        foreach (var trigger in new[]
+                 {
+                     "TR_QMS_V2_RESULT_IMMUTABLE",
+                     "TR_QMS_V2_RESULT_INTEGRITY",
+                     "TR_QMS_V2_EVENT_LINEAGE"
+                 })
+            Regex.Matches(sql, $@"CREATE\s+TRIGGER\s+{trigger}\b", RegexOptions.IgnoreCase)
+                .Should().ContainSingle($"migration reruns are tracked by version and each trigger must be declared once: {trigger}");
     }
 
     private static HashSet<string> ExtractParams(string sql) =>
@@ -97,14 +221,4 @@ public sealed class DialectParityTests
         return ordered.Count == 0 ? "{}" : "{" + string.Join(", ", ordered) + "}";
     }
 
-    /// <summary>리포 루트(NexaOne.sln 보유 디렉터리)를 BaseDirectory에서 상위로 탐색해 상대 경로를 결합한다
-    /// (HostModulesBootSmokeTests.ResolveHostBinDir와 동일 규약). 테스트 bin은 test/.../bin/Debug/net8.0 깊이.</summary>
-    private static string ResolveRepoRelative(string relative)
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "NexaOne.sln"))) dir = dir.Parent;
-        if (dir is null)
-            throw new InvalidOperationException("리포 루트(NexaOne.sln) 미발견 — 방언 트리 경로 해석 실패.");
-        return Path.Combine(dir.FullName, relative.Replace('/', Path.DirectorySeparatorChar));
-    }
 }

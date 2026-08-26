@@ -39,6 +39,10 @@ public sealed class SpcParam : AuditableEntity<string>
             return Result.Failure<SpcParam>(Error.Validation(nameof(processId), "Process ID is required."));
         if (ucl <= lcl)
             return Result.Failure<SpcParam>(Error.Validation(nameof(ucl), "UCL must be greater than LCL."));
+        if (mean < lcl || mean > ucl)
+            return Result.Failure<SpcParam>(Error.Validation(nameof(mean), "Mean must be between LCL and UCL."));
+        if (usl.HasValue && lsl.HasValue && usl.Value <= lsl.Value)
+            return Result.Failure<SpcParam>(Error.Validation(nameof(usl), "USL must be greater than LSL."));
         if (sampleSize <= 0)
             return Result.Failure<SpcParam>(Error.Validation(nameof(sampleSize), "Sample size must be positive."));
 
@@ -89,6 +93,8 @@ public sealed class SpcParam : AuditableEntity<string>
     {
         if (ucl <= lcl)
             return Result.Failure(Error.Validation(nameof(ucl), "UCL must be greater than LCL."));
+        if (mean < lcl || mean > ucl)
+            return Result.Failure(Error.Validation(nameof(mean), "Mean must be between LCL and UCL."));
 
         Mean = mean;
         Ucl = ucl;

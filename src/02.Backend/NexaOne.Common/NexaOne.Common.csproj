@@ -12,7 +12,7 @@
        네임스페이스는 불변(NexaOne.Application.* 등) — 어셈블리명과 독립이므로 소비자 코드 무변경.
        아래 의존성은 병합된 세 프로젝트 외부 의존성의 합집합(내부 ProjectReference는 단일화로 소멸). -->
   <ItemGroup>
-    <ProjectReference Include="..\..\..\submodules\NexusFramework\src\NexusFramework\NexusFramework.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexusFramework\src\NexaFramework\NexaFramework.csproj" />
     <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.Abstractions\NexusCom.Data.Abstractions.csproj" />
   </ItemGroup>
 

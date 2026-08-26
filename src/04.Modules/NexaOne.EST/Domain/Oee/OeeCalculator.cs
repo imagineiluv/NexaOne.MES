@@ -7,7 +7,7 @@ public sealed record OeeStateCategory(string Category, bool IsProductive, bool I
 /// <summary>상태 전이 1건(EST_EQUIPMENT_STATE_HISTORY). ChangedAt 시점에 FromState→ToState로 바뀌었다.</summary>
 public sealed record OeeStateTransition(DateTime ChangedAt, string FromState, string ToState);
 
-/// <summary>윈도 내 설비 생산 수량 집계(POM_LOT). Good = Total - Defect.</summary>
+/// <summary>윈도 내 표준 설비 출력 수량 집계. Good = Total - Defect.</summary>
 public sealed record OeeLotCounts(decimal TotalQty, decimal DefectQty);
 
 /// <summary>설비 OEE 목표(EST_OEE_TARGET). IdealCycleTimeSec=성능 계산 기준, PlannedMinutes=계획시간 폴백.</summary>
@@ -42,7 +42,7 @@ public static class OeeCalculator
         decimal plannedOverride = 0m)
     {
         // 상태별 구간 시간(분) 누적 — 카테고리 분류로 가동/비가동/계획/유실을 나눈다.
-        decimal operating = 0m, downtime = 0m, planned = 0m;
+        decimal operating = 0m, downtime = 0m, planned = 0m, unscheduled = 0m, attributed = 0m;
         var lossByCategory = new Dictionary<string, decimal>(StringComparer.Ordinal);
 
         void Attribute(string state, DateTime segStart, DateTime segEnd)
@@ -53,8 +53,10 @@ public static class OeeCalculator
             var minutes = (decimal)(segEnd - segStart).TotalMinutes;
             if (minutes <= 0m) return;
 
+            attributed += minutes;
             var cat = categories.TryGetValue(state, out var c) ? c : unknownCategory;
             if (cat.IsScheduled) planned += minutes;
+            else unscheduled += minutes;
             if (cat.IsProductive) operating += minutes;
             if (cat.IsDowntime)
             {
@@ -77,8 +79,17 @@ public static class OeeCalculator
         }
 
         // 계획시간 우선순위: 작업조/근무달력 override > 상태이력 파생 스케줄 > 목표 계획시간(폴백).
-        if (plannedOverride > 0m) planned = plannedOverride;
-        else if (planned <= 0m) planned = target.PlannedMinutes;
+        // Calendar time is a ceiling. Do not add planned stops back into the OEE denominator.
+        if (plannedOverride > 0m)
+        {
+            planned = attributed > 0m
+                ? Math.Max(0m, plannedOverride - unscheduled)
+                : plannedOverride;
+        }
+        else if (planned <= 0m)
+        {
+            planned = target.PlannedMinutes;
+        }
 
         var total = lots.TotalQty;
         var defect = lots.DefectQty;

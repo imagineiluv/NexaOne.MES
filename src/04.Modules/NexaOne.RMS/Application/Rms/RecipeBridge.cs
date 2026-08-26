@@ -12,6 +12,23 @@ public sealed class RecipeBridge : IRecipeApprovalBridge
 
     public RecipeBridge(RecipeService service) => _service = service;
 
+    public async Task<IReadOnlyList<RecipeDto>> GetRecipesAsync(
+        string? equipmentClassId = null,
+        string? state = null,
+        CancellationToken ct = default)
+    {
+        RecipeApprovalState? parsedState = null;
+        if (!string.IsNullOrWhiteSpace(state))
+        {
+            if (!Enum.TryParse<RecipeApprovalState>(state, ignoreCase: true, out var parsed))
+                return Array.Empty<RecipeDto>();
+            parsedState = parsed;
+        }
+
+        var result = await _service.GetRecipesAsync(equipmentClassId, parsedState, ct);
+        return result.IsSuccess ? result.Value.Select(ToDto).ToList() : Array.Empty<RecipeDto>();
+    }
+
     public async Task<IReadOnlyList<RecipeDto>> GetByEquipmentClassAsync(string equipmentClassId, CancellationToken ct = default)
     {
         var r = await _service.GetByEquipmentClassAsync(equipmentClassId, ct);

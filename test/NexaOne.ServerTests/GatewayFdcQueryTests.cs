@@ -52,6 +52,8 @@ public sealed class GatewayFdcQueryTests : IClassFixture<GatewayFdcQueryTests.Fd
         var creds = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Secret)), SecurityAlgorithms.HmacSha256);
         var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, "fdc-e2e-user") };
+        if (permissions.Length == 0)
+            claims.Add(new Claim(NexaOne.Common.Security.Permissions.ClaimType, "fdc:read"));
         claims.AddRange(permissions.Select(p => new Claim(NexaOne.Common.Security.Permissions.ClaimType, p)));
         var token = new JwtSecurityToken(Issuer, Issuer, claims, expires: DateTime.UtcNow.AddMinutes(10), signingCredentials: creds);
         client.DefaultRequestHeaders.Authorization =

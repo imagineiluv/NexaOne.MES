@@ -1,6 +1,7 @@
 @page "/meta/NX_MRP_PLANNING"
 @attribute [Authorize]
 @inject IApiClient Api
+@inject DialogService Dialogs
 @using NexaOne.Web.Pages.Meta
 
 @* 자재 소요 계획(MRP v1) + 실행 툴바 — 실행은 브리지 REST(pom:manage, POM 모듈 IMrpPlanner 경유)라
@@ -17,11 +18,11 @@
     <RadzenButton Icon="calendar_view_week" Click="RunBucketedAsync" Disabled="@(_busy || _converting)" class="layout-command"
                   ButtonStyle="Radzen.ButtonStyle.Light" Size="Radzen.ButtonSize.Small"
                   Text="@(_busy ? "전개 중…" : "주간 버킷 전개")" />
-    @* v2 1단 — Proposed 제안 전량을 실오더로(구매=PO Ordered·생산=WO Released 직행, 단일 트랜잭션·멱등). *@
+    @* 구매 제안은 구매오더, 생산 제안은 생산계획+생산관리오더로 전환하며 생산 설비를 명시한다. *@
     <RadzenButton Icon="published_with_changes" Click="ConvertAsync" Disabled="@(_busy || _converting)" class="layout-command"
                   ButtonStyle="Radzen.ButtonStyle.Secondary" Size="Radzen.ButtonSize.Small"
                   Text="@(_converting ? "전환 중…" : "실오더 전환")" />
-    <span class="host-desc">수요(확정 수주) → BOM 전개 → 순소요 넷팅 → 계획오더 제안 → 실오더 전환(PO/WO)</span>
+    <span class="host-desc">수요 → BOM 전개 → 계획오더 제안 → 구매오더 또는 생산계획·생산관리오더 전환</span>
     @if (_result is not null)
     {
         @if (_result.Status == "Success")
@@ -37,7 +38,7 @@
     {
         @if (_convert.Message is null)
         {
-            <span class="host-chip ok">전환 @(_convert.Converted)건 — 구매 @(_convert.PurchaseOrders)·생산 @(_convert.WorkOrders)</span>
+            <span class="host-chip ok">전환 @(_convert.Converted)건 — 구매오더 @(_convert.PurchaseOrders)·생산계획/오더 @(_convert.ProductionOrders)</span>
         }
         else
         {
@@ -75,22 +76,116 @@
     // 브리지 일괄명령(bridge:pom.mrp.convert) — 선택 행의 PLANNED_ORDER_ID만 원자 전환.
     private async Task<bool> OnBridgeBulkAsync(BulkCommandDefinition cmd, List<Dictionary<string, object?>> rows)
     {
-        var ids = rows.Select(r => r.GetValueOrDefault("PLANNED_ORDER_ID")?.ToString())
-            .Where(v => !string.IsNullOrEmpty(v)).Cast<string>().Distinct().ToList();
-        if (ids.Count == 0) return false;   // 제안 그리드가 아닌 곳(이력/페깅)의 선택 — 대상 없음
-        _convert = await Api.ConvertMrpAsync(null, ids);
-        StateHasChanged();                  // 결과 칩 즉시 갱신(핸들러는 자식 콜백 컨텍스트)
-        return _convert is { Message: null, Converted: > 0 };
+        // 이 호스트는 MRP 일괄 전환 계약만 소유한다. 다른 bridge 명령을 MRP 전환으로 오인하지 않고
+        // 해당 명령의 전용 드라이버 또는 호스트가 처리하도록 정확한 명령 ID만 허용한다.
+        if (!HandlesBridgeBulkCommand(cmd.CommandQueryId))
+            return false;
+
+        if (_converting) return false;
+        _converting = true;
+        try
+        {
+            var converted = await ConvertRowsAsync(rows);
+            StateHasChanged();
+            return converted;
+        }
+        finally
+        {
+            _converting = false;
+        }
     }
+
+    /// <summary>전달된 일괄 bridge 명령을 이 MRP 호스트가 소유하는지 확인합니다.</summary>
+    internal static bool HandlesBridgeBulkCommand(string commandId)
+        => string.Equals(
+            commandId,
+            MrpConversionMetaCommands.Convert,
+            StringComparison.OrdinalIgnoreCase);
 
     private async Task ConvertAsync()
     {
         _converting = true;
         try
         {
-            _convert = await Api.ConvertMrpAsync();   // 최신 실행의 Proposed 전량(멱등 — 재클릭 시 대상 0건)
-            if (_convert is { Message: null, Converted: > 0 }) _refreshSeq++;   // 상태/전환 오더 컬럼 재조회
+            var rows = await Api.ExecuteQueryAsync("POM.MrpPlannedOrderList", new { runId = _result?.RunId });
+            await ConvertRowsAsync(rows);
         }
         finally { _converting = false; }
     }
+
+    private async Task<bool> ConvertRowsAsync(IReadOnlyList<Dictionary<string, object?>> sourceRows)
+    {
+        var rows = sourceRows
+            .Where(r => Cell(r, "STATUS").Equals("Proposed", StringComparison.OrdinalIgnoreCase))
+            .Where(r => !string.IsNullOrWhiteSpace(Cell(r, "PLANNED_ORDER_ID")))
+            .ToList();
+
+        if (rows.Count == 0)
+        {
+            SetConversionError("전환할 Proposed 제안이 없습니다.");
+            return false;
+        }
+
+        var runIds = rows.Select(r => Cell(r, "RUN_ID"))
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (runIds.Count != 1)
+        {
+            SetConversionError("서로 다른 MRP 실행의 제안을 함께 전환할 수 없습니다.");
+            return false;
+        }
+
+        var production = rows
+            .Where(r => Cell(r, "ORDER_TYPE").Equals("Production", StringComparison.OrdinalIgnoreCase))
+            .Select(r => new MrpProductionProposalDto(
+                Cell(r, "PLANNED_ORDER_ID"),
+                Cell(r, "PLANT_ID"),
+                Cell(r, "ITEM_ID"),
+                DecimalCell(r, "SUGGESTED_QTY"),
+                DateCell(r, "RELEASE_DATE"),
+                DateCell(r, "DUE_DATE")))
+            .ToList();
+
+        var dialogResult = await Dialogs.OpenAsync<MrpConversionDialog>(
+            "MRP 실오더 전환",
+            new Dictionary<string, object?>
+            {
+                [nameof(MrpConversionDialog.ProductionProposals)] = production,
+                [nameof(MrpConversionDialog.PurchaseProposalCount)] = rows.Count - production.Count
+            },
+            new DialogOptions
+            {
+                Width = "920px",
+                CloseDialogOnOverlayClick = false,
+                Resizable = true,
+                Draggable = true
+            });
+
+        if (dialogResult is not List<MrpProductionAssignmentDto> assignments)
+            return false;
+
+        var ids = rows.Select(r => Cell(r, "PLANNED_ORDER_ID")).ToList();
+        _convert = await Api.ConvertMrpAsync(runIds[0], ids, assignments);
+        if (_convert is { Message: null, Converted: > 0 })
+        {
+            _refreshSeq++;
+            return true;
+        }
+        return false;
+    }
+
+    private void SetConversionError(string message)
+        => _convert = new MrpConvertResultDto(string.Empty, 0, 0, 0, message);
+
+    private static string Cell(IReadOnlyDictionary<string, object?> row, string key)
+        => row.TryGetValue(key, out var value) ? value?.ToString()?.Trim() ?? string.Empty : string.Empty;
+
+    private static decimal DecimalCell(IReadOnlyDictionary<string, object?> row, string key)
+        => decimal.TryParse(Cell(row, key), System.Globalization.NumberStyles.Any,
+            System.Globalization.CultureInfo.InvariantCulture, out var value) ? value : 0m;
+
+    private static DateTime? DateCell(IReadOnlyDictionary<string, object?> row, string key)
+        => DateTime.TryParse(Cell(row, key), System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal, out var value) ? value : null;
 }

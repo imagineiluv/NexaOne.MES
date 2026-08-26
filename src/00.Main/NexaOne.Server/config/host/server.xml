@@ -1,19 +1,19 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <objects xmlns="http://www.springframework.net"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
 
   <!-- ===== WorkflowManager ===== -->
 
-  <object id="workflowManagerPolicy" type="NexusFramework.Workflow.Tooling.ManagerExecutionPolicy, NexusFramework">
+  <object id="workflowManagerPolicy" type="NexaFramework.Workflow.Tooling.ManagerExecutionPolicy, NexaFramework">
     <property name="Mode" value="Parallel" />
     <property name="GlobalMaxConcurrency" value="4" />
     <property name="QueueCapacity" value="1024" />
   </object>
 
-  <object id="workflowRejectedHandler" type="NexusFramework.Concurrent.CallerRunsPolicy, NexusFramework" />
+  <object id="workflowRejectedHandler" type="NexaFramework.Concurrent.CallerRunsPolicy, NexaFramework" />
 
-  <object id="workflowExecutionExecutor" type="NexusFramework.Concurrent.ThreadPoolExecutor, NexusFramework">
+  <object id="workflowExecutionExecutor" type="NexaFramework.Concurrent.ThreadPoolExecutor, NexaFramework">
     <property name="CorePoolSize" value="4" />
     <property name="MaxPoolSize" value="8" />
     <property name="KeepAliveTime" value="00:00:30" />
@@ -21,7 +21,7 @@
     <property name="RejectedHandler" ref="workflowRejectedHandler" />
   </object>
 
-  <object id="workflowManager" type="NexusFramework.Workflow.Tooling.WorkflowManager, NexusFramework">
+  <object id="workflowManager" type="NexaFramework.Workflow.Tooling.WorkflowManager, NexaFramework">
     <constructor-arg ref="workflowManagerPolicy" />
     <constructor-arg ref="workflowExecutionExecutor" />
   </object>
@@ -36,13 +36,41 @@
        (Events:Outbox:Enabled 등)를 무력화하는 실버그였다. Program.cs가 CreateServer 전에 Root를 설정한다. -->
   <object id="appConfiguration" type="NexaOne.Common.Configuration.SpringHostConfiguration, NexaOne.Common" />
 
-  <!-- OPC-UA 설비 드라이버(IPlcDriver). FDC 모듈이 설비 수집 시 GetServerBean("opcUaDriver")로 공통 호출한다(설계: 드라이버는
-       서버 빈, 모듈에서 호출). lazy-init: 실제 참조될 때만 생성해 부팅 시 OPC-UA 라이브러리 초기화·연결 시도를 회피한다. -->
-  <object id="opcUaDriver" type="NexusLogic.Plc.OpcUa.OpcUaDriver, NexusLogic.Plc.OpcUa" lazy-init="true" />
+  <!-- PLC 프로토콜 드라이버와 NexusLogic DriverFactory. FDC는 구체 드라이버를 참조하지 않고
+       plcDriverFactory에서 엔드포인트의 PlcDriverKind에 맞는 구현을 선택한다. 연결은 Worker가 활성화되고
+       엔드포인트가 있을 때만 수행하므로 Bean 생성 자체는 외부 PLC에 접속하지 않는다. -->
+  <object id="opcUaDriver" type="NexusLogic.Plc.OpcUa.OpcUaDriver, NexusLogic.Plc.OpcUa" />
+  <object id="modbusTcpDriver" type="NexusLogic.Plc.ModbusTcp.ModbusTcpDriver, NexusLogic.Plc.ModbusTcp">
+    <constructor-arg><null /></constructor-arg>
+    <constructor-arg><null /></constructor-arg>
+  </object>
+  <object id="siemensS7Driver" type="NexusLogic.Plc.SiemensS7.SiemensS7Driver, NexusLogic.Plc.SiemensS7">
+    <constructor-arg><null /></constructor-arg>
+    <constructor-arg><null /></constructor-arg>
+  </object>
+  <object id="mitsubishiMcDriver" type="NexusLogic.Plc.MitsubishiMc.MitsubishiMcDriver, NexusLogic.Plc.MitsubishiMc">
+    <constructor-arg><null /></constructor-arg>
+    <constructor-arg><null /></constructor-arg>
+  </object>
+  <object id="etherNetIpDriver" type="NexusLogic.Plc.AllenBradley.EtherNetIpDriver, NexusLogic.Plc.AllenBradley">
+    <constructor-arg><null /></constructor-arg>
+    <constructor-arg><null /></constructor-arg>
+  </object>
+  <object id="plcDriverFactory" type="NexusLogic.Plc.Hosting.PlcDriverFactory, NexusLogic.Plc.Hosting">
+    <constructor-arg>
+      <list element-type="NexusLogic.Plc.Abstractions.Interfaces.IPlcDriver, NexusLogic.Plc.Abstractions">
+        <ref object="opcUaDriver" />
+        <ref object="modbusTcpDriver" />
+        <ref object="siemensS7Driver" />
+        <ref object="mitsubishiMcDriver" />
+        <ref object="etherNetIpDriver" />
+      </list>
+    </constructor-arg>
+  </object>
 
   <!-- 설비 제어(PlantController). FDC 수집 워커(ADR-006 Phase 2)가 GetServerBean("plantController")로 당겨 Machine
-       lifecycle을 수동 제어한다. 무인자 ctor(Spring property 주입). 부모 컨텍스트라 NexusFramework 타입 로드 가능. -->
-  <object id="plantController" type="NexusFramework.PlantController, NexusFramework" />
+       lifecycle을 수동 제어한다. 무인자 ctor(Spring property 주입). 부모 컨텍스트라 NexaFramework 타입 로드 가능. -->
+  <object id="plantController" type="NexaFramework.PlantController, NexaFramework" />
 
   <!-- 캐시(ICacheService) — 읽기 빈도 높은 마스터/조회 캐시(인메모리, IMemoryCache 기반). FDC 수집 핫패스 등
        자식 컨텍스트 서비스가 cross-context ref="cacheService"로 공통 호출한다. 무인자 ctor가 기본 옵션
@@ -54,7 +82,7 @@
        그리고 API 티어 디스패처와의 동시 가동 회피). API의 OutboxDispatcherService와 디스패치 의미는 동일하다. -->
 
   <!-- 반복 스케줄러(IRecurringScheduler). Quartz 기본 RAMJobStore라 외부 인프라 없이 in-process 동작. 무인자 ctor. -->
-  <object id="quartzScheduler" type="NexusFramework.Scheduling.QuartzScheduler, NexusFramework" />
+  <object id="quartzScheduler" type="NexaFramework.Scheduling.QuartzScheduler, NexaFramework" />
 
   <!-- Outbox 저장소(IOutboxRepository). ctor(EesDataSource, INexaOneEESDbCapability) — 공통 빈 eesDataSource·eesDialect 주입. -->
   <object id="outboxRepository" type="NexaOne.Infrastructure.Persistence.OutboxRepository, NexaOne.Common">
@@ -69,10 +97,22 @@
     <constructor-arg ref="eesDataSource" />
   </object>
 
+  <!-- POM-to-QMS sibling-context proxy. QMS owns evidence SQL and the completion decision. -->
+  <object id="productionQualityGateway" type="NexaOne.Server.Gateway.ProductionQualityGatewayProxy, NexaOne.Server" />
+
+  <!-- IVT-to-FDC sibling-context proxy. FDC owns persisted TRACE SQL and paging. -->
+  <object id="fdcTraceSource" type="NexaOne.Server.Gateway.FdcTraceSourceProxy, NexaOne.Server" />
+
   <!-- 교차 모듈 설비 디렉터리 어댑터(EST 포트 구현) — 호스트(Default ALC)가 소유, plugin EST가 cross-context ref로
        주입받는다(ADR-006: EST는 MDM 스키마 미보유). IEquipmentDirectory 포트는 ServiceContracts에 공유되어
        plugin/Default ALC 간 타입 동일성이 유지되며, 구현(MDM_EQUIPMENT read)은 호스트가 소유한다. -->
   <object id="equipmentDirectory" type="NexaOne.Server.Gateway.EquipmentDirectory, NexaOne.Server">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+
+  <!-- OEE 외부 증거 host orchestration adapter — MDM 계획/시간대와 legacy POM TrackOut을
+       Common IOeeEvidenceSource snapshot으로 축약해 EST plugin에 주입한다. EST는 타 모듈 물리 테이블을 읽지 않는다. -->
+  <object id="oeeEvidenceSource" type="NexaOne.Server.Gateway.OeeEvidenceSource, NexaOne.Server">
     <constructor-arg ref="eesDataSource" />
   </object>
 

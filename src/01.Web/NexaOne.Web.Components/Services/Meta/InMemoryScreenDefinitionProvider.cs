@@ -32,7 +32,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("COUNTRY", "국가"),
                 new("TIME_ZONE", "표준시"),
             },
-            QueryId: "MDM.PlantList"));
+            QueryId: "MDM.PlantList", Purpose: ScreenPurpose.Inquiry));
 
         // 데모 시드: 폼 저장(쓰기) 화면 — 필드 메타 + 명명 쓰기쿼리(MDM.CreatePlant, kind="write") 바인딩으로
         // /meta/DEMO_PLANT_FORM 폼 저장이 손코딩 없이 공장을 INSERT한다(저장 후 /meta/DEMO_GRID 에서 조회).
@@ -46,7 +46,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("country", "국가", FieldType.Text),
                 new("timeZone", "표준시", FieldType.Text),
             },
-            SaveQueryId: "MDM.CreatePlant", DeleteQueryId: "MDM.DeletePlant"));
+            SaveQueryId: "MDM.CreatePlant", DeleteQueryId: "MDM.DeletePlant",
+            Purpose: ScreenPurpose.Register));
 
         // 데모 시드: 레이아웃(WYSIWYG) 화면 — 좌측 공장 그리드(MDM.PlantList) + 우측 등록 폼/저장 버튼(MDM.CreatePlant)을
         // 한 화면에 조합한다. /meta/DEMO_LAYOUT 이 LayoutRenderer로 렌더되는 레이아웃 런타임 end-to-end 시연.
@@ -78,7 +79,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                         } },
                     } },
                 },
-            }));
+            },
+            Purpose: ScreenPurpose.Manage));
 
         // 대시보드(요약) — 모듈 횡단 카운트(SYS.DashboardSummary 1행)를 KPI 카드 5장으로 표시(Phase-2 KPI 위젯 1호).
         // 단일 쿼리를 5개 위젯이 공유(런타임이 distinct 쿼리 1회만 실행), 컬럼만 다르게 바인딩한다.
@@ -139,7 +141,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                         },
                     },
                 },
-            }));
+            },
+            Purpose: ScreenPurpose.Report));
 
         // 데모 시드: 그리드 전용(조회) 화면 — QMS 결함분류 목록을 파일 기반 명명 쿼리(QMS.DefectClassList) 바인딩으로
         // /meta/DEMO_QMS_DEFECT_CLASS 가 손코딩 없이 렌더한다(QMS 모듈 저코드 조회 경로 시연).
@@ -153,7 +156,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("SEVERITY", "심각도"),
                 new("IS_ACTIVE", "활성"),
             },
-            QueryId: "QMS.DefectClassList"));
+            QueryId: "QMS.DefectClassList", Purpose: ScreenPurpose.Inquiry));
 
         // 시스템관리 — 메뉴 관리(CRUD). DEMO_LAYOUT 구조 미러: 좌측 트리 그리드(SYS.MenuTree) + 우측 업서트 폼(SYS.UpsertMenu)·
         // 저장/삭제 명령 버튼(SYS.UpsertMenu/SYS.DeleteMenu). 폼 필드 Key는 쓰기쿼리 @param 이름과 1:1 일치
@@ -406,7 +409,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                         } },
                     } },
                 },
-            }));
+            },
+            Purpose: ScreenPurpose.Report));
 
         // 시스템관리 — 콘텐츠 매핑 서비스 관리(SYSTEM2_CONTENTMAPPINGSERVICE_MANAGEMENT): 아키텍처 대체 안내로 점등.
         // 레거시 화면↔서비스 매핑 테이블(SYS_TB_CONTENT_MAPPING_SERVICE)의 역할은 통합 호스트에서 화면정의
@@ -539,7 +543,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("MEAN", "평균"), new("UCL", "관리상한"), new("LCL", "관리하한"),
                 new("SAMPLE_SIZE", "표본수"), new("IS_ACTIVE", "활성"),
             },
-            QueryId: "QMS.SpcParamList"));
+            QueryId: "QMS.SpcParamList", Purpose: ScreenPurpose.Report));
 
         // ===== SmartUX MDM 잔여 업무화면 점등(V035 신설 테이블 백엔드) — 12종 조회 그리드. =====
         Register(new ScreenDefinition("FACTORY_MDM_EQUIPMENT_CLASS", "설비 그룹 관리",
@@ -614,7 +618,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PART_ID", "부품 ID"), new("PART_NAME", "부품명"), new("PART_NUMBER", "부품번호"),
                 new("CURRENT_STOCK", "현재고"), new("MIN_STOCK", "최소재고"), new("MAX_STOCK", "최대재고"), new("LOCATION", "위치"),
             },
-            QueryId: "EMS.SparePartsAll"));
+            QueryId: "EMS.SparePartsAll", Purpose: ScreenPurpose.Inquiry));
 
         // 설비 보전 결과(FACTORY_EMS_BM_ORDER_RESULT) — 작업지시 전체조회(EMS.WorkOrderList, NULL-guard).
         Register(new ScreenDefinition("FACTORY_EMS_BM_ORDER_RESULT", "설비 보전 결과",
@@ -704,7 +708,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PARAMETER_ID", "파라미터 ID"), new("TRIGGER_VALUE", "발동값"), new("ACTION", "조치"),
                 new("MESSAGE", "메시지"), new("TRIGGERED_AT", "발동시각"), new("RESOLVED_AT", "해제시각"), new("IS_RESOLVED", "해제"),
             },
-            QueryId: "FDC.InterlockHistoryList"));
+            QueryId: "FDC.InterlockHistoryList", Purpose: ScreenPurpose.Inquiry));
 
         // ===== SmartUX FDC(EES_FDC) 업무화면 점등(Phase 3) — 수집 데이터 차트/인터락 규칙/파라미터 뷰 확장.
         // FDC 데이터 차트류는 수집 시계열(FDC.CollectDataList) 그리드로, 파라미터 관리/스펙류는 단일 파라미터
@@ -718,7 +722,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EQUIPMENT_ID", "설비 ID"), new("PARAMETER_ID", "파라미터 ID"), new("VALUE", "측정값"),
                 new("COLLECTED_AT", "수집시각"), new("QUALITY", "품질"), new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
             },
-            QueryId: "FDC.CollectDataList"));
+            QueryId: "FDC.CollectDataList", Purpose: ScreenPurpose.Report));
 
         // FDC 관심 데이터 차트(EES_FDC_INTERESTED_DATA_CHART) — 동일 수집 시계열(관심 파라미터 뷰).
         Register(new ScreenDefinition("EES_FDC_INTERESTED_DATA_CHART", "FDC 관심 데이터 차트",
@@ -728,7 +732,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EQUIPMENT_ID", "설비 ID"), new("PARAMETER_ID", "파라미터 ID"), new("VALUE", "측정값"),
                 new("COLLECTED_AT", "수집시각"), new("QUALITY", "품질"), new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
             },
-            QueryId: "FDC.CollectDataList"));
+            QueryId: "FDC.CollectDataList", Purpose: ScreenPurpose.Report));
 
         // 실시간 데이터 차트(EES_FDC_REAL_TIME_TRACE_PARA_MONITORING) — 수집 시계열 최근값(실시간 모니터링).
         Register(new ScreenDefinition("EES_FDC_REAL_TIME_TRACE_PARA_MONITORING", "실시간 데이터 차트",
@@ -738,7 +742,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EQUIPMENT_ID", "설비 ID"), new("PARAMETER_ID", "파라미터 ID"), new("VALUE", "측정값"),
                 new("COLLECTED_AT", "수집시각"), new("QUALITY", "품질"), new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
             },
-            QueryId: "FDC.CollectDataList"));
+            QueryId: "FDC.CollectDataList", Purpose: ScreenPurpose.Report));
 
         // ===== FDC 잔여 3화면 점등(2026-07-10) — 250/250 완결. =====
         // VIRTUAL EVENT 이력(V069) — 평가 엔진이 전이 시에만 기록. 백엔드(테이블·쿼리·워커) 기성, 화면만 부재였다.
@@ -750,7 +754,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EVENT_ID", "이벤트 ID", Width: 130), new("EVENT_STATE", "상태", Width: 90),
                 new("FORMULA", "수식"), new("DETAILS", "상세"), new("EVALUATED_AT", "평가시각"),
             },
-            QueryId: "FDC.VirtualEventHistoryList"));
+            QueryId: "FDC.VirtualEventHistoryList", Purpose: ScreenPurpose.Inquiry));
 
         // 사용자별 실시간 모니터링 — 충실판(V084): 내 관심 파라미터(등록 폼+목록+해제 일괄명령) 위에
         // 실시간 값 보드(JOIN, 10초 갱신). 전 쿼리 @currentUser 스코프(개인화 규약 — 타인 조작 불가).
@@ -818,7 +822,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("MAX_VALUE", "최대"), new("RANGE_VALUE", "범위"), new("VARIANCE_VALUE", "분산"),
                 new("DIFF_FROM_GRAND", "전체평균 대비 편차"),
             },
-            QueryId: "FDC.EquipmentParameterStats"));
+            QueryId: "FDC.EquipmentParameterStats", Purpose: ScreenPurpose.Report));
 
         // FDC SUMMARY 데이터 차트(EES_FDC_SUMMARY_DATA_CHART) — 수집 시계열 요약 뷰.
         Register(new ScreenDefinition("EES_FDC_SUMMARY_DATA_CHART", "FDC SUMMARY 데이터 차트",
@@ -828,7 +832,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EQUIPMENT_ID", "설비 ID"), new("PARAMETER_ID", "파라미터 ID"), new("VALUE", "측정값"),
                 new("COLLECTED_AT", "수집시각"), new("QUALITY", "품질"), new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
             },
-            QueryId: "FDC.CollectDataList"));
+            QueryId: "FDC.CollectDataList", Purpose: ScreenPurpose.Report));
 
         // 파라미터별 설비 상태 변경 관리(EES_FDC_PARAMETER_STATE_CONDITION) — 인터락 규칙(파라미터 조건→조치) 조회(FDC.InterlockRuleList).
         Register(new ScreenDefinition("EES_FDC_PARAMETER_STATE_CONDITION", "파라미터별 설비 상태 변경 관리",
@@ -907,7 +911,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EQUIPMENT_ID", "설비 ID"), new("PLANT_ID", "공장"), new("CURRENT_STATE_ID", "현재 상태"),
                 new("STATE_CHANGED_AT", "상태변경시각"), new("STATE_VERSION", "버전"),
             },
-            QueryId: "EST.CurrentStateList"));
+            QueryId: "EST.CurrentStateList", Purpose: ScreenPurpose.Report));
 
         // 공장 모니터링(EES_EPT_PLANT_MONITORING) — 공장 단위 설비 현재 상태 현황(동일 현재상태 뷰).
         Register(new ScreenDefinition("EES_EPT_PLANT_MONITORING", "공장 모니터링",
@@ -917,7 +921,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PLANT_ID", "공장"), new("EQUIPMENT_ID", "설비 ID"), new("CURRENT_STATE_ID", "현재 상태"),
                 new("STATE_CHANGED_AT", "상태변경시각"), new("STATE_VERSION", "버전"),
             },
-            QueryId: "EST.CurrentStateList"));
+            QueryId: "EST.CurrentStateList", Purpose: ScreenPurpose.Report));
 
         // 설비 상태 변경(EES_EPT_CHANGE_EQUIPMENT_STATE) — 현재 상태 조회 그리드(변경 조작은 EST 브리지 소관, 조회 점등).
         Register(new ScreenDefinition("EES_EPT_CHANGE_EQUIPMENT_STATE", "설비 상태 변경",
@@ -938,7 +942,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("SET_STATE", "설정 상태"), new("CHANGED_AT", "변경시각"), new("CHANGED_BY", "변경자"),
                 new("REASON", "사유"), new("SOURCE_TYPE", "출처"),
             },
-            QueryId: "EST.StateHistoryList"));
+            QueryId: "EST.StateHistoryList", Purpose: ScreenPurpose.Inquiry));
 
         // 설비 이벤트 이력(EES_EPT_EQUIPMENT_EVENT_HISTORY) — 상태 전이를 이벤트 로그로 조회(동일 상태이력 뷰).
         Register(new ScreenDefinition("EES_EPT_EQUIPMENT_EVENT_HISTORY", "설비 이벤트 이력",
@@ -948,7 +952,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EQUIPMENT_ID", "설비 ID"), new("FROM_STATE", "이전 상태"), new("TO_STATE", "변경 상태"),
                 new("CHANGED_AT", "발생시각"), new("CHANGED_BY", "발생자"), new("SOURCE_TYPE", "출처"), new("REASON", "사유"),
             },
-            QueryId: "EST.StateHistoryList"));
+            QueryId: "EST.StateHistoryList", Purpose: ScreenPurpose.Inquiry));
 
         // 설비 가동 이력(EES_EPT_EQUIPMENT_PRODUCTIVE_HISTORY) — 상태 변경 이력을 가동 관점으로 조회(동일 상태이력 뷰).
         Register(new ScreenDefinition("EES_EPT_EQUIPMENT_PRODUCTIVE_HISTORY", "설비 가동 이력",
@@ -958,7 +962,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EQUIPMENT_ID", "설비 ID"), new("TO_STATE", "가동 상태"), new("CHANGED_AT", "변경시각"),
                 new("CHANGED_BY", "변경자"), new("SOURCE_TYPE", "출처"), new("REASON", "사유"),
             },
-            QueryId: "EST.StateHistoryList"));
+            QueryId: "EST.StateHistoryList", Purpose: ScreenPurpose.Inquiry));
 
         // 설비 알람 이력(EES_EPT_EQUIPMENT_ALARM_HISTORY) — 설비 알람(EST.EquipmentAlarmList).
         Register(new ScreenDefinition("EES_EPT_EQUIPMENT_ALARM_HISTORY", "설비 알람 이력",
@@ -968,7 +972,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EQUIPMENT_ID", "설비 ID"), new("ALARM_CODE", "알람 코드"), new("ALARM_NAME", "알람명"),
                 new("ALARM_LEVEL", "등급"), new("OCCURRED_AT", "발생시각"), new("CLEARED_AT", "해제시각"), new("ELAPSED_SECONDS", "지속(초)"),
             },
-            QueryId: "EST.EquipmentAlarmList"));
+            QueryId: "EST.EquipmentAlarmList", Purpose: ScreenPurpose.Inquiry));
 
         // 알람 발생 이력(EES_EPT_ALARM_HISTORY) — 동일 설비 알람 이력 뷰.
         Register(new ScreenDefinition("EES_EPT_ALARM_HISTORY", "알람 발생 이력",
@@ -978,7 +982,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EQUIPMENT_ID", "설비 ID"), new("ALARM_CODE", "알람 코드"), new("ALARM_NAME", "알람명"),
                 new("ALARM_LEVEL", "등급"), new("OCCURRED_AT", "발생시각"), new("CLEARED_AT", "해제시각"), new("ELAPSED_SECONDS", "지속(초)"),
             },
-            QueryId: "EST.EquipmentAlarmList"));
+            QueryId: "EST.EquipmentAlarmList", Purpose: ScreenPurpose.Inquiry));
 
         // WORST10 알람(EES_EPT_WORST10_ALARM) — 설비별 알람 발생 건수 상위 10(EST.WorstAlarmEquipment 집계).
         Register(new ScreenDefinition("EES_EPT_WORST10_ALARM", "WORST10 알람",
@@ -987,7 +991,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             {
                 new("EQUIPMENT_ID", "설비 ID"), new("ALARM_COUNT", "알람 건수"), new("LAST_OCCURRED_AT", "최근 발생시각"),
             },
-            QueryId: "EST.WorstAlarmEquipment"));
+            QueryId: "EST.WorstAlarmEquipment", Purpose: ScreenPurpose.Report));
 
         // ===== SmartUX EPT OEE(설비종합효율) 점등(Phase 4) — V050 마트. OEE=가용성×성능×품질. 사전집계 마트 read
         // (원자료→마트 집계는 배치/워커 소관, 후속). 비율 컬럼(AVAILABILITY/PERFORMANCE/QUALITY/OEE)은 분율(0~1). =====
@@ -998,11 +1002,54 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new GridColumnDefinition[]
             {
                 new("OEE_DATE", "일자"), new("EQUIPMENT_ID", "설비 ID"), new("PLANT_ID", "공장"),
-                new("AVAILABILITY", "가용성"), new("PERFORMANCE", "성능"), new("QUALITY", "품질"), new("OEE", "OEE"),
+                new("AVAILABILITY_PERCENT", "가동률/OEE 가용성 (%)"), new("PERFORMANCE_PERCENT", "성능가동률 (%)"),
+                new("QUALITY_PERCENT", "양품률 (%)"), new("OEE_PERCENT", "OEE (%)"),
                 new("PLANNED_MINUTES", "계획(분)"), new("DOWNTIME_MINUTES", "비가동(분)"),
                 new("TOTAL_COUNT", "총생산"), new("GOOD_COUNT", "양품"),
             },
-            QueryId: "EST.OeeSummaryList"));
+            QueryId: "EST.OeeSummaryList", Purpose: ScreenPurpose.Report));
+
+        Register(new ScreenDefinition("EES_EPT_TAKT_TIME", "택트타임 및 실제 사이클",
+            Array.Empty<FieldDefinition>(),
+            new GridColumnDefinition[]
+            {
+                new("TAKT_DATE", "기준일"), new("PLANT_ID", "공장"), new("PRODUCT_ID", "제품"),
+                new("PROCESS_ID", "공정"), new("EQUIPMENT_ID", "설비"), new("SHIFT_ID", "작업조"),
+                new("TARGET_TAKT_SECONDS_PER_UNIT", "목표 택트 (s/unit)"),
+                new("IDEAL_CYCLE_SECONDS_PER_UNIT", "이상 사이클 (s/unit)"),
+                new("ACTUAL_CYCLE_SECONDS_PER_UNIT", "실제 사이클 (s/unit)"),
+                new("DEVIATION_SECONDS_PER_UNIT", "목표 대비 편차 (s/unit)"),
+                new("DEVIATION_PERCENT", "목표 대비 편차 (%)"),
+                new("UTILIZATION_PERCENT", "가동률 (%, OEE Availability)"),
+                new("REQUIRED_QTY", "요구수량"), new("ACTUAL_QTY", "TrackOut 실적"),
+                new("MEASURED_QTY", "사이클 측정수량"), new("QUANTITY_UOM", "수량 UOM"),
+                new("NET_AVAILABLE_SECONDS", "순가용시간 (s)"), new("ACTUAL_RUN_SECONDS", "측정 가동시간 (s)"),
+            },
+            QueryId: "EST.TaktSummaryList", Purpose: ScreenPurpose.Report));
+
+        Register(new ScreenDefinition("EPT_STD_TAKT_TARGET", "택트타임 목표 관리",
+            new FieldDefinition[]
+            {
+                new("taktTargetId", "목표 ID", Required: true), new("plantId", "공장", Required: true),
+                new("productId", "제품", Required: true), new("processId", "공정", Required: true),
+                new("equipmentId", "설비", Required: true), new("shiftId", "작업조 (공백=일전체)"),
+                new("effectiveFrom", "유효 시작", Required: true), new("effectiveTo", "유효 종료"),
+                new("requiredQty", "요구수량", FieldType.Number, Required: true),
+                new("netAvailableSeconds", "순가용시간 (s)", FieldType.Number, Required: true),
+                new("idealCycleSecondsPerUnit", "이상 사이클 (s/unit)", FieldType.Number, Required: true),
+                new("quantityUom", "수량 UOM", Required: true),
+                new("timeUom", "시간 UOM", FieldType.Select, Required: true, Options: new[] { "s/unit" }),
+                new("description", "설명"),
+            },
+            new GridColumnDefinition[]
+            {
+                new("TAKT_TARGET_ID", "목표 ID"), new("PLANT_ID", "공장"), new("PRODUCT_ID", "제품"),
+                new("PROCESS_ID", "공정"), new("EQUIPMENT_ID", "설비"), new("SHIFT_ID", "작업조"),
+                new("REQUIRED_QTY", "요구수량"), new("NET_AVAILABLE_SECONDS", "순가용시간 (s)"),
+                new("IDEAL_CYCLE_SECONDS_PER_UNIT", "이상 사이클 (s/unit)"), new("QUANTITY_UOM", "수량 UOM"),
+                new("TIME_UOM", "시간 UOM"), new("EFFECTIVE_FROM", "유효 시작"), new("EFFECTIVE_TO", "유효 종료"),
+            }, QueryId: "EST.TaktTargetList", SaveQueryId: "EST.SaveTaktTarget", DeleteQueryId: "EST.DeleteTaktTarget",
+            Purpose: ScreenPurpose.Manage));
 
         // 설비 유실 분석(EES_EPT_EQUIPMENT_LOSS_ANALYSIS) — 6대 손실 카테고리별 손실 집계(EST.LossByCategory).
         Register(new ScreenDefinition("EES_EPT_EQUIPMENT_LOSS_ANALYSIS", "설비 유실 분석",
@@ -1011,7 +1058,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             {
                 new("LOSS_CATEGORY", "손실 유형"), new("LOSS_COUNT", "발생 건수"), new("TOTAL_MINUTES", "총 손실(분)"),
             },
-            QueryId: "EST.LossByCategory"));
+            QueryId: "EST.LossByCategory", Purpose: ScreenPurpose.Report));
 
         // WORST5 유실(EES_EPT_WORST5_LOSS) — 설비별 총 손실 시간 상위 5(EST.WorstLossEquipment 집계).
         Register(new ScreenDefinition("EES_EPT_WORST5_LOSS", "WORST5 유실",
@@ -1020,7 +1067,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             {
                 new("EQUIPMENT_ID", "설비 ID"), new("TOTAL_MINUTES", "총 손실(분)"), new("LOSS_COUNT", "손실 건수"),
             },
-            QueryId: "EST.WorstLossEquipment"));
+            QueryId: "EST.WorstLossEquipment", Purpose: ScreenPurpose.Report));
 
         // 관심 지표 등록(EES_EPT_INTERESTED_INDEX_MANAGEMENT) — KPI 지표 마스터(EST.IndexList) + 등록 폼(EST.CreateIndex).
         Register(new ScreenDefinition("EES_EPT_INTERESTED_INDEX_MANAGEMENT", "관심 지표 등록",
@@ -1055,7 +1102,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("OEE_DATE", "일자"), new("INDEX_ID", "지표 ID"), new("EQUIPMENT_ID", "설비 ID"),
                 new("PLANT_ID", "공장"), new("SHIFT_ID", "작업조"), new("INDEX_VALUE", "값"),
             },
-            QueryId: "EST.IndexValueList"));
+            QueryId: "EST.IndexValueList", Purpose: ScreenPurpose.Inquiry));
 
         // ===== SmartUX POM(PPM)·SHP(DLV) 업무화면 점등(Phase 2) — 생산오더/출하지시·출하이력 조회.
         // 메뉴 접두사 PPM=POM, DLV=SHP. 기존 쿼리는 필수 @param이라 점등용 NULL-guard 전체조회 쿼리 신설.
@@ -1081,7 +1128,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("ACTUAL_QTY", "실적수량"), new("SCHEDULED_START", "예정시작"), new("ACTUAL_START", "실적시작"),
                 new("ACTUAL_END", "실적종료"), new("STATUS", "상태"),
             },
-            QueryId: "POM.ProductionOrderList"));
+            QueryId: "POM.ProductionOrderList", Purpose: ScreenPurpose.Report));
 
         // ===== SmartUX WPM(작업진행)·RPT·MDM_COM 점등 — 기존 테이블(POM_LOT/POM_LOT_HISTORY/MDM_SHIFT)만 사용, 마이그레이션 0. =====
 
@@ -1096,8 +1143,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "POM.LotList"));
 
-        // LOT Hold(FACTORY_WPM_LOT_HOLD)·Hold 해제(FACTORY_WPM_LOT_HOLD_RELEASE) — 홀드 상태 Lot 조회(POM.LotHoldList).
-        Register(new ScreenDefinition("FACTORY_WPM_LOT_HOLD", "LOT Hold",
+        // LOT 보류(FACTORY_WPM_LOT_HOLD)·보류 해제(FACTORY_WPM_LOT_HOLD_RELEASE) — 보류 상태 LOT 조회(POM.LotHoldList).
+        Register(new ScreenDefinition("FACTORY_WPM_LOT_HOLD", "LOT 보류",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
@@ -1105,7 +1152,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("LOT_STATE", "LOT상태"), new("PROCESS_STATE", "공정상태"), new("EQUIPMENT_ID", "설비"), new("IS_HOLD", "홀드"),
             },
             QueryId: "POM.LotHoldList"));
-        Register(new ScreenDefinition("FACTORY_WPM_LOT_HOLD_RELEASE", "LOT Hold 해제",
+        Register(new ScreenDefinition("FACTORY_WPM_LOT_HOLD_RELEASE", "LOT 보류 해제",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
@@ -1132,7 +1179,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PRODUCT_ID", "품목"), new("LOT_COUNT", "LOT수"), new("TOTAL_QTY", "총생산"),
                 new("DEFECT_QTY", "불량"), new("GOOD_QTY", "양품"),
             },
-            QueryId: "POM.YieldByProduct"));
+            QueryId: "POM.YieldByProduct", Purpose: ScreenPurpose.Report));
 
         // LOT 추적(FACTORY_RPT_LOT_TRACE) — Lot 이력 조회(POM.LotTraceList).
         Register(new ScreenDefinition("FACTORY_RPT_LOT_TRACE", "LOT 추적",
@@ -1143,7 +1190,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("TRACK_IN_TIME", "In시각"), new("TRACK_OUT_TIME", "Out시각"), new("EXECUTION_ID", "실행"),
                 new("QTY", "수량"), new("DEFECT_QTY", "불량"), new("LOT_STATE", "LOT상태"),
             },
-            QueryId: "POM.LotTraceList"));
+            QueryId: "POM.LotTraceList", Purpose: ScreenPurpose.Inquiry));
 
         // 작업조 관리(MES_MDM_COM_SHIFT) — 작업조 마스터 조회(MDM.ShiftList) + 등록 폼(MDM.CreateShift).
         Register(new ScreenDefinition("MES_MDM_COM_SHIFT", "작업조 관리",
@@ -1158,15 +1205,15 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("END_TIME", "종료"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "MDM.ShiftList",
-            SaveQueryId: "MDM.CreateShift", DeleteQueryId: "MDM.DeleteShift"));
+            SaveQueryId: "MDM.CreateShift", DeleteQueryId: "MDM.DeleteShift", Purpose: ScreenPurpose.Manage));
 
         // ===== SmartUX FACTORY_QCA(품질검사) 점등 — 기존 QMS 검사 도메인(V037/V040)으로 전수 재사용, 마이그레이션 0.
         // FACTORY_QCA는 QMS 검사(수입/공정/출하·정의·항목·방법·규격)로 향하는 다른 메뉴 경로다. =====
-        RegisterQcaInspection("FACTORY_QCA_IMPORT_INSPECTION", "수입검사 관리", "QMS.IncomingInspectionList");
+        RegisterQcaInspection("FACTORY_QCA_IMPORT_INSPECTION", "수입검사 관리", "QMS.IncomingInspectionList", QmsInspectionMetaCommands.RecordIncoming);
         RegisterQcaInspection("FACTORY_QCA_REPORT_IMPORT_INSPECTION_STATUS", "수입검사 현황", "QMS.IncomingInspectionList");
-        RegisterQcaInspection("FACTORY_QCA_SEGMENT_INSPECTION", "공정검사 관리", "QMS.ProcessInspectionList");
+        RegisterQcaInspection("FACTORY_QCA_SEGMENT_INSPECTION", "공정검사 관리", "QMS.ProcessInspectionList", QmsInspectionMetaCommands.RecordProcess);
         RegisterQcaInspection("FACTORY_QCA_REPORT_SEGMENT_INSPECTION_STATUS", "공정검사 현황", "QMS.ProcessInspectionList");
-        RegisterQcaInspection("FACTORY_QCA_DELIVERY_INSPECTION", "출하검사 관리", "QMS.ShippingInspectionList");
+        RegisterQcaInspection("FACTORY_QCA_DELIVERY_INSPECTION", "출하검사 관리", "QMS.ShippingInspectionList", QmsInspectionMetaCommands.RecordShipping);
         RegisterQcaInspection("FACTORY_QCA_REPORT_DELIVERY_INSPECTION_STATUS", "출하검사 현황", "QMS.ShippingInspectionList");
 
         // 검사 정의(FACTORY_QCA_INSPECTION_CLASS) — 검사 정의 마스터(QMS.InspectionDefList).
@@ -1189,8 +1236,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "QMS.InspectionItemList"));
 
-        // 수입검사 정보연결(FACTORY_QCA_IMPORT_INSPECTION_MAPPING) — 수입검사 방법 설정(QMS.IncomingInspMethodList).
-        Register(new ScreenDefinition("FACTORY_QCA_IMPORT_INSPECTION_MAPPING", "수입검사 정보연결",
+        // 수입검사 정보 연결(FACTORY_QCA_IMPORT_INSPECTION_MAPPING) — 수입검사 방법 설정(QMS.IncomingInspMethodList).
+        Register(new ScreenDefinition("FACTORY_QCA_IMPORT_INSPECTION_MAPPING", "수입검사 정보 연결",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
@@ -1199,9 +1246,9 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             QueryId: "QMS.IncomingInspMethodList"));
 
-        // 공정/출하검사 정보연결(FACTORY_QCA_{PROCESS,SHIPMENT}_INSPECTION_MAPPING) — 검사 규격 카탈로그(QMS.InspectionSpecList).
-        RegisterQcaSpecMapping("FACTORY_QCA_PROCESS_INSPECTION_MAPPING", "공정검사 정보연결");
-        RegisterQcaSpecMapping("FACTORY_QCA_SHIPMENT_INSPECTION_MAPPING", "출하검사 정보연결");
+        // 공정/출하검사 정보 연결(FACTORY_QCA_{PROCESS,SHIPMENT}_INSPECTION_MAPPING) — 검사 규격 카탈로그(QMS.InspectionSpecList).
+        RegisterQcaSpecMapping("FACTORY_QCA_PROCESS_INSPECTION_MAPPING", "공정검사 정보 연결");
+        RegisterQcaSpecMapping("FACTORY_QCA_SHIPMENT_INSPECTION_MAPPING", "출하검사 정보 연결");
 
         // ===== SmartUX FACTORY_PRC(구매) 점등 — 레거시 PRC_TB_PURCHASE_ORDER를 V052로 단순 포팅. 이동오더는 후속(IVT 이동 모델). =====
         // 구매오더 관리(FACTORY_PRC_PURCHASE_ORDER, 등록 폼 포함)·구매오더 현황(REPORT, 조회 전용) — 발주 헤더(PRC.PurchaseOrderList).
@@ -1225,52 +1272,66 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("마감", "PRC.ClosePurchaseOrder"),  // Ordered/Incoming→Closed(가드)
             }));
         Register(new ScreenDefinition("FACTORY_PRC_REPORT_PURCHASEORDER", "구매오더 현황",
-            Array.Empty<FieldDefinition>(), prcOrderCols, QueryId: "PRC.PurchaseOrderList"));
+            Array.Empty<FieldDefinition>(), prcOrderCols, QueryId: "PRC.PurchaseOrderList", Purpose: ScreenPurpose.Report));
 
-        // ===== SmartUX FACTORY_SLS(판매) 점등 — 레거시 SLS_TB_SALES_ORDER/REQUEST를 V053으로 포팅. 납품현황은 SHP 재사용. =====
-        // 판매 오더 관리(FACTORY_SLS_SALES_ORDER) — 판매오더 헤더(SLS.SalesOrderList) + 등록 폼(SLS.CreateSalesOrder).
-        Register(new ScreenDefinition("FACTORY_SLS_SALES_ORDER", "판매 오더 관리",
+        // ===== SmartUX FACTORY_SLS(영업) 점등 — 레거시 SLS_TB_SALES_ORDER/REQUEST를 V053으로 포팅. 출하현황은 SHP 재사용. =====
+        // 수주 관리(FACTORY_SLS_SALES_ORDER) — 수주 헤더(SLS.SalesOrderList) + 등록 폼(SLS.CreateSalesOrder).
+        Register(new ScreenDefinition("FACTORY_SLS_SALES_ORDER", "수주 관리",
             new FieldDefinition[]
             {
-                new("salesOrderId", "판매오더 ID", Required: true), new("plantId", "공장", Required: true),
-                new("salesOrderName", "판매오더명"), new("customerId", "고객"), new("productId", "품목"),
+                new("salesOrderId", "수주 번호", Required: true),
+                new("plantId", "공장", FieldType.Select, Required: true, OptionsQueryId: "MDM.PlantCombo"),
+                new("salesOrderName", "수주명", Required: true),
+                new("customerId", "고객", FieldType.Select, Required: true, OptionsQueryId: "MDM.CustomerCombo"),
+                new("productId", "품목", FieldType.Select, Required: true, OptionsQueryId: "MDM.ProductCombo"),
+                new("planStartDate", "계획 시작일", FieldType.Date),
+                new("planEndDate", "납기 예정일", FieldType.Date, Required: true),
                 new("planQty", "계획수량", FieldType.Number, Required: true),
             },
             new GridColumnDefinition[]
             {
-                new("SALES_ORDER_ID", "판매오더 ID"), new("SALES_ORDER_NAME", "판매오더명"), new("PLANT_ID", "공장"),
-                new("CUSTOMER_ID", "고객"), new("PRODUCT_ID", "품목"), new("PLAN_START_DATE", "계획시작"),
-                new("PLAN_END_DATE", "계획종료"), new("PLAN_QTY", "계획수량"), new("DELIVERED_QTY", "납품수량"),
-                new("STATUS", "상태"), new("IS_HOLD", "홀드"),
+                // 카드 보기는 기본키를 제외한 앞 6개를 요약하므로, 업무 판단 핵심(고객·품목·납기·상태·수량)을 앞에 둔다.
+                new("SALES_ORDER_ID", "수주 번호"), new("SALES_ORDER_NAME", "수주명"), new("CUSTOMER_ID", "고객"),
+                new("PRODUCT_ID", "품목"), new("PLAN_END_DATE", "납기 예정일"), new("STATUS", "상태"),
+                new("PLAN_QTY", "계획수량"), new("PLANT_ID", "공장"), new("PLAN_START_DATE", "계획 시작일"),
+                new("DELIVERED_QTY", "납품수량"), new("IS_HOLD", "홀드"),
             },
             QueryId: "SLS.SalesOrderList",
             SaveQueryId: "SLS.CreateSalesOrder", DeleteQueryId: "SLS.DeleteSalesOrder",
+            SearchFields: new FieldDefinition[]
+            {
+                new("plantId", "공장", FieldType.Select, OptionsQueryId: "MDM.PlantCombo"),
+                new("customerId", "고객", FieldType.Select, OptionsQueryId: "MDM.CustomerCombo"),
+                new("status", "상태", FieldType.Select,
+                    Options: new[] { "Draft", "Confirmed", "Producing", "Delivered", "Closed" }),
+            },
             BulkCommands: new BulkCommandDefinition[]
             {
                 new("확정", "SLS.ConfirmSalesOrder"),   // Draft→Confirmed(가드)
                 new("마감", "SLS.CloseSalesOrder"),     // Producing/Delivered→Closed(가드)
-            }));
+            },
+            Purpose: ScreenPurpose.Manage));
 
-        // 판매 요청(FACTORY_SLS_SALES_REQUEST) — 판매요청(SLS.SalesRequestList).
+        // 판매 요청(FACTORY_SLS_SALES_REQUEST) — 판매 요청 목록(SLS.SalesRequestList).
         Register(new ScreenDefinition("FACTORY_SLS_SALES_REQUEST", "판매 요청",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
-                new("SALES_REQUEST_ID", "요청 ID"), new("SALES_REQUEST_NAME", "요청명"), new("SALES_ORDER_ID", "판매오더"),
+                new("SALES_REQUEST_ID", "요청 ID"), new("SALES_REQUEST_NAME", "요청명"), new("SALES_ORDER_ID", "수주 번호"),
                 new("CUSTOMER_ID", "고객"), new("PRODUCT_ID", "품목"), new("REQUEST_DATE", "요청일"),
                 new("REQUEST_QTY", "요청수량"), new("STATUS", "상태"),
             },
             QueryId: "SLS.SalesRequestList"));
 
-        // 납품 현황(FACTORY_SLS_REPORT_DELIVERY) — 출하 이력 재사용(SHP.ShipmentHistoryList).
-        Register(new ScreenDefinition("FACTORY_SLS_REPORT_DELIVERY", "납품 현황",
+        // 출하 현황(FACTORY_SLS_REPORT_DELIVERY) — 출하 이력 재사용(SHP.ShipmentHistoryList).
+        Register(new ScreenDefinition("FACTORY_SLS_REPORT_DELIVERY", "출하 현황",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
                 new("HISTORY_ID", "이력 ID"), new("DELIVERY_ORDER_ID", "출하지시"), new("SHIPPED_AT", "출하시각"),
                 new("SHIPPED_QTY", "출하수량"), new("SHIPPED_BY", "출하자"), new("CARRIER", "운송사"), new("TRACKING_NO", "송장번호"),
             },
-            QueryId: "SHP.ShipmentHistoryList"));
+            QueryId: "SHP.ShipmentHistoryList", Purpose: ScreenPurpose.Report));
 
         // ===== SmartUX FACTORY_STD 라벨 점등 — 레거시 STD_TB_LABEL* 를 V054(MDM_LABEL*)로 포팅. BOR은 레거시 테이블 부재로 보류. =====
         // 라벨 마스터(FACTORY_STD_LABEL_MASTER) — 라벨 정의(MDM.LabelList) + 등록 폼(MDM.CreateLabel).
@@ -1286,7 +1347,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "MDM.LabelList",
-            SaveQueryId: "MDM.CreateLabel", DeleteQueryId: "MDM.DeleteLabel"));
+            SaveQueryId: "MDM.CreateLabel", DeleteQueryId: "MDM.DeleteLabel", Purpose: ScreenPurpose.Manage));
 
         // 라벨 발행 이력(FACTORY_STD_LABEL_ISSUE_HISTORY) — 발행 이력(MDM.LabelIssueList).
         Register(new ScreenDefinition("FACTORY_STD_LABEL_ISSUE_HISTORY", "라벨 발행 이력",
@@ -1296,7 +1357,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("ISSUE_ID", "발행 ID"), new("PLANT_ID", "공장"), new("LABEL_ID", "라벨"), new("ITEM_ID", "품목"),
                 new("LOT_ID", "LOT"), new("SERIAL_NUM", "시리얼"), new("PRINT_CNT", "출력수"), new("ISSUED_AT", "발행시각"),
             },
-            QueryId: "MDM.LabelIssueList"));
+            QueryId: "MDM.LabelIssueList", Purpose: ScreenPurpose.Inquiry));
 
         // 라벨 매핑 관리(FACTORY_STD_LABEL_MAPPING_MANAGEMENT) — 공정/품목↔라벨 매핑(MDM.LabelMappingList) + 등록 폼.
         Register(new ScreenDefinition("FACTORY_STD_LABEL_MAPPING_MANAGEMENT", "라벨 매핑 관리",
@@ -1312,7 +1373,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("LABEL_ID", "라벨"), new("PRINT_LIMIT_CNT", "출력한도"), new("PRINT_LIMIT_YN", "한도적용"),
             },
             QueryId: "MDM.LabelMappingList",
-            SaveQueryId: "MDM.CreateLabelMapping", DeleteQueryId: "MDM.DeleteLabelMapping"));
+            SaveQueryId: "MDM.CreateLabelMapping", DeleteQueryId: "MDM.DeleteLabelMapping", Purpose: ScreenPurpose.Manage));
 
         // ===== SmartUX EPT_STD(설비성능 표준) 점등 — 레거시 EPT_TB_LAYOUT/EQUIPMENT_EPT_PROPERTY를 V055(EST_EPT_*)로 포팅. =====
         // 레이아웃 관리(EPT_STD_LAYOUT_MGNT)·레이아웃 구성(EPT_STD_LAYOUT_EDIT) — 레이아웃 마스터(EST.LayoutList).
@@ -1374,7 +1435,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EQUIPMENT_ID", "설비"), new("EVENT_TYPE", "유형"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "EST.EquipmentEventList",
-            SaveQueryId: "EST.CreateEquipmentEvent", DeleteQueryId: "EST.DeleteEquipmentEvent"));
+            SaveQueryId: "EST.CreateEquipmentEvent", DeleteQueryId: "EST.DeleteEquipmentEvent", Purpose: ScreenPurpose.Manage));
 
         // 설비 알람-상태 매핑(MICUBE_STANDARD_EQUIPMENT_STATE_ALARM_MAPPING) — 알람→상태(EST.StateAlarmMapList) + 등록 폼.
         Register(new ScreenDefinition("MICUBE_STANDARD_EQUIPMENT_STATE_ALARM_MAPPING", "설비 알람-상태 매핑",
@@ -1390,7 +1451,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("ALARM_DEF_ID", "알람정의"), new("SET_STATE", "설정 상태"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "EST.StateAlarmMapList",
-            SaveQueryId: "EST.CreateStateAlarmMap", DeleteQueryId: "EST.DeleteStateAlarmMap"));
+            SaveQueryId: "EST.CreateStateAlarmMap", DeleteQueryId: "EST.DeleteStateAlarmMap", Purpose: ScreenPurpose.Manage));
 
         // 설비 이벤트-상태 매핑(MICUBE_STANDARD_EQUIPMENT_STATE_EVENT_MAPPING) — 이벤트→상태(EST.StateEventMapList) + 등록 폼.
         Register(new ScreenDefinition("MICUBE_STANDARD_EQUIPMENT_STATE_EVENT_MAPPING", "설비 이벤트-상태 매핑",
@@ -1406,7 +1467,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EVENT_ID", "이벤트"), new("SET_STATE", "설정 상태"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "EST.StateEventMapList",
-            SaveQueryId: "EST.CreateStateEventMap", DeleteQueryId: "EST.DeleteStateEventMap"));
+            SaveQueryId: "EST.CreateStateEventMap", DeleteQueryId: "EST.DeleteStateEventMap", Purpose: ScreenPurpose.Manage));
 
         // ===== SmartUX MICUBE(알람메일 알림) → COM 이관 점등. 메일서버/수신자매핑/서비스(V057, COM_ 접두사). =====
         // 메일 서버 관리(MICUBE_STANDARD_MAIL_SERVER) — 메일 서버(COM.MailServerList).
@@ -1424,7 +1485,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("SENDER_ADDRESS", "발신주소"), new("USE_SSL", "SSL"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "COM.MailServerList",
-            SaveQueryId: "COM.CreateMailServer", DeleteQueryId: "COM.DeleteMailServer"));
+            SaveQueryId: "COM.CreateMailServer", DeleteQueryId: "COM.DeleteMailServer", Purpose: ScreenPurpose.Manage));
 
         // 사용자-설비 메일 매핑(일반=MailRecipientList / 알람=AlarmMailRecipientList). 수신자 그리드 공용.
         // 알람메일 매핑 화면에는 등록 폼(COM.CreateMailRecipient, mailType Select)을 함께 둔다.
@@ -1440,7 +1501,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("userId", "사용자", Required: true), new("equipmentId", "설비"), new("mailAddress", "메일주소"),
                 new("mailType", "유형", FieldType.Select, Options: new[] { "Alarm", "Mail" }),
             },
-            mailRecipientCols, QueryId: "COM.AlarmMailRecipientList", SaveQueryId: "COM.CreateMailRecipient", DeleteQueryId: "COM.DeleteMailRecipient"));
+            mailRecipientCols, QueryId: "COM.AlarmMailRecipientList", SaveQueryId: "COM.CreateMailRecipient", DeleteQueryId: "COM.DeleteMailRecipient",
+            Purpose: ScreenPurpose.Manage));
         foreach (var (uiId, title, queryId) in new[] {
             ("MICUBE_STANDARD_STD_USER_ALARM_MAILING", "알람 메일 수신자 관리", "COM.AlarmMailRecipientList"),
             ("MICUBE_STANDARD_USER_EQUIPMENT_MAIL_MAP", "사용자-설비 메일 매핑", "COM.MailRecipientList"),
@@ -1474,7 +1536,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PRODUCT_ID", "품목"), new("BOR_TYPE", "유형"), new("DESCRIPTION", "설명"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "MDM.BorList",
-            SaveQueryId: "MDM.CreateBor", DeleteQueryId: "MDM.DeleteBor"));
+            SaveQueryId: "MDM.CreateBor", DeleteQueryId: "MDM.DeleteBor", Purpose: ScreenPurpose.Manage));
 
         // BOR 관리 자원 기준(FACTORY_STD_BOR_RESOURCE) — BOR 자원 상세(MDM.BorResourceList).
         Register(new ScreenDefinition("FACTORY_STD_BOR_RESOURCE", "BOR 관리(자원 기준)",
@@ -1496,7 +1558,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("FROM_WAREHOUSE", "출발창고"), new("TO_WAREHOUSE", "도착창고"), new("TX_AT", "이동시각"),
                 new("PROCESSED_BY", "처리자"), new("STATUS", "상태"),
             },
-            QueryId: "IVT.MoveList"));
+            QueryId: "IVT.MoveList", Purpose: ScreenPurpose.Report));
 
         // ===== SmartUX 잔여(c 블록) 재사용 점등 — POC/WPM 자재를 기존 쿼리로(마이그레이션 0). =====
         // POC 진행중 LOT/공정 진행(코팅·믹싱·롤투롤) — Lot 마스터(POM.LotList) 재사용.
@@ -1505,10 +1567,13 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new("LOT_ID", "LOT"), new("PLANT_ID", "공장"), new("PRODUCT_ID", "품목"), new("QTY", "수량"),
             new("LOT_STATE", "LOT상태"), new("PROCESS_STATE", "공정상태"), new("CURRENT_STEP", "스텝"), new("EQUIPMENT_ID", "설비"), new("IS_HOLD", "홀드"),
         };
+        Register(new ScreenDefinition("POC_INPROCESS_LOT", "진행중 LOT 현황",
+            Array.Empty<FieldDefinition>(), pocLotCols, QueryId: "POM.LotList", Purpose: ScreenPurpose.Report));
         foreach (var (uiId, title) in new[] {
-            ("POC_INPROCESS_LOT", "진행중 LOT 현황"), ("POC_COATING_PROCESS", "코팅 공정 진행"),
+            ("POC_COATING_PROCESS", "코팅 공정 진행"),
             ("POC_MIXING_PROCESS", "믹싱 공정 진행"), ("POC_ROLLING_PROCESS", "롤투롤 공정 진행") })
-            Register(new ScreenDefinition(uiId, title, Array.Empty<FieldDefinition>(), pocLotCols, QueryId: "POM.LotList"));
+            Register(new ScreenDefinition(uiId, title, Array.Empty<FieldDefinition>(), pocLotCols,
+                QueryId: "POM.LotList", Purpose: ScreenPurpose.Report));
 
         // POC 생산 LOT 추적(목록/트리) — Lot 이력(POM.LotTraceList) 재사용.
         var pocTraceCols = new GridColumnDefinition[]
@@ -1517,7 +1582,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new("TRACK_IN_TIME", "In시각"), new("TRACK_OUT_TIME", "Out시각"), new("EXECUTION_ID", "실행"), new("QTY", "수량"), new("LOT_STATE", "LOT상태"),
         };
         foreach (var (uiId, title) in new[] { ("POC_LOT_TRACE", "생산 LOT 추적"), ("POC_LOT_TRACE_TREE", "생산 LOT 추적(트리)") })
-            Register(new ScreenDefinition(uiId, title, Array.Empty<FieldDefinition>(), pocTraceCols, QueryId: "POM.LotTraceList"));
+            Register(new ScreenDefinition(uiId, title, Array.Empty<FieldDefinition>(), pocTraceCols,
+                QueryId: "POM.LotTraceList", Purpose: ScreenPurpose.Inquiry));
 
         // POC FDC 데이터 차트 — 수집 시계열(FDC.CollectDataList) 재사용.
         Register(new ScreenDefinition("POC_FDC_DATA_CHART", "FDC 데이터 차트(POC)",
@@ -1527,17 +1593,48 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EQUIPMENT_ID", "설비"), new("PARAMETER_ID", "파라미터"), new("VALUE", "측정값"),
                 new("COLLECTED_AT", "수집시각"), new("QUALITY", "품질"), new("LOWER_LIMIT", "하한"), new("UPPER_LIMIT", "상한"),
             },
-            QueryId: "FDC.CollectDataList"));
+            QueryId: "FDC.CollectDataList", Purpose: ScreenPurpose.Report));
 
-        // POC 작업지시 관리 — 생산오더(POM.ProductionOrderList)를 작업지시 대용으로 재사용.
+        var pomWoFields = new FieldDefinition[]
+        {
+            new("workOrderId", "작업지시 ID", Required: true),
+            new("productionOrderId", "생산관리오더 ID", Required: true),
+            new("plantId", "공장 ID", Required: true),
+            new("workOrderName", "작업지시명", Required: true),
+            new("productId", "품목 ID", Required: true),
+            new("planQty", "계획 수량", FieldType.Number, Required: true),
+            new("routingScope", "라우팅 실행 범위", FieldType.Select, Required: true,
+                Options: new[] { "Unbound", "Operation", "SerialRoute" }),
+            new("routingId", "제품 라우팅 ID"),
+            new("routingStepNo", "공정 순번", FieldType.Number),
+            new("processId", "공정 ID"),
+            new("workCenterId", "워크센터 ID"),
+            new("areaId", "구역 ID"),
+            new("equipmentId", "설비 ID"),
+            new("ownerId", "담당자 ID"),
+            new("planStartDate", "계획 시작일", FieldType.Date),
+            new("planEndDate", "계획 종료일", FieldType.Date),
+            new("workOrderType", "작업지시 유형"),
+            new("salesOrderId", "수주 번호"),
+            new("description", "설명"),
+        };
+        var pomWoCols = new GridColumnDefinition[]
+        {
+            new("WORK_ORDER_ID", "W/O ID"), new("WORK_ORDER_NAME", "W/O명"), new("PLANT_ID", "공장"),
+            new("PRODUCTION_ORDER_ID", "생산관리오더"), new("ROUTING_SCOPE", "라우팅 실행 범위"),
+            new("ROUTING_ID", "제품 라우팅"), new("ROUTING_STEP_NO", "공정 순번"), new("PROCESS_ID", "공정"),
+            new("WORK_CENTER_ID", "워크센터"), new("EQUIPMENT_ID", "설비"), new("OWNER_ID", "작업자"),
+            new("PRODUCT_ID", "품목"), new("PLAN_QTY", "계획수량"), new("START_QTY", "착수수량"),
+            new("COMPLETE_QTY", "완료수량"), new("SCRAP_QTY", "불량수량"), new("STATUS", "상태"), new("IS_HOLD", "홀드"),
+            new("VERSION_NO", "버전"),
+        };
+
+        // POC 작업지시 관리 — 공정 단위(Operation)와 단일 W/O 전체 라우팅(SerialRoute)을 함께 조회한다.
         Register(new ScreenDefinition("POC_PPM_WORK_ORDER", "작업지시 관리",
-            Array.Empty<FieldDefinition>(),
-            new GridColumnDefinition[]
-            {
-                new("ORDER_ID", "오더 ID"), new("PLAN_ID", "계획"), new("EQUIPMENT_ID", "설비"), new("PRODUCT_ID", "품목"),
-                new("ORDER_QTY", "지시수량"), new("ACTUAL_QTY", "실적수량"), new("SCHEDULED_START", "예정시작"), new("STATUS", "상태"),
-            },
-            QueryId: "POM.ProductionOrderList"));
+            pomWoFields,
+            pomWoCols,
+            QueryId: "POM.WorkOrderList", SaveQueryId: PomWorkOrderMetaCommands.Create,
+            Purpose: ScreenPurpose.Manage, SaveRequiredPermission: "pom:manage"));
 
         // WPM 투입 자재/불출 현황 — 자재 트랜잭션(IVT.MaterialTxList/DispensingList) 재사용.
         var wpmMaterialTxCols = new GridColumnDefinition[]
@@ -1546,14 +1643,14 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new("FROM_WAREHOUSE", "출발창고"), new("TO_WAREHOUSE", "도착창고"), new("TX_AT", "시각"), new("PROCESSED_BY", "처리자"), new("STATUS", "상태"),
         };
         Register(new ScreenDefinition("FACTORY_WPM_REPORT_CONSUME_MATERIAL_LOT", "투입 자재 현황",
-            Array.Empty<FieldDefinition>(), wpmMaterialTxCols, QueryId: "IVT.MaterialTxList"));
+            Array.Empty<FieldDefinition>(), wpmMaterialTxCols, QueryId: "IVT.MaterialTxList", Purpose: ScreenPurpose.Report));
         Register(new ScreenDefinition("FACTORY_WPM_REPORT_MATERIAL_DISPENSING_ORDER", "자재 불출 현황",
-            Array.Empty<FieldDefinition>(), wpmMaterialTxCols, QueryId: "IVT.DispensingList"));
+            Array.Empty<FieldDefinition>(), wpmMaterialTxCols, QueryId: "IVT.DispensingList", Purpose: ScreenPurpose.Report));
 
         // ===== SmartUX 잔여(c 블록) 레거시 포팅 점등 — 벤더(V059)·작업지시(V060)·COM 액션(V061)·파일(V012 재사용). =====
 
-        // 벤더 관리(MES_MDM_COM_VENDOR)·벤더 품목 관리(MES_MDM_COM_VENDOR_ITEM) — V059(MDM.Vendor*List).
-        Register(new ScreenDefinition("MES_MDM_COM_VENDOR", "벤더 관리",
+        // 협력사 관리(MES_MDM_COM_VENDOR)·협력사 품목 관리(MES_MDM_COM_VENDOR_ITEM) — V059(MDM.Vendor*List).
+        Register(new ScreenDefinition("MES_MDM_COM_VENDOR", "협력사 관리",
             new FieldDefinition[]
             {
                 new("vendorId", "벤더 ID", Required: true), new("vendorName", "벤더명", Required: true),
@@ -1566,8 +1663,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("EMAIL", "이메일"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "MDM.VendorList",
-            SaveQueryId: "MDM.CreateVendor", DeleteQueryId: "MDM.DeleteVendor"));
-        Register(new ScreenDefinition("MES_MDM_COM_VENDOR_ITEM", "벤더 품목 관리",
+            SaveQueryId: "MDM.CreateVendor", DeleteQueryId: "MDM.DeleteVendor", Purpose: ScreenPurpose.Manage));
+        Register(new ScreenDefinition("MES_MDM_COM_VENDOR_ITEM", "협력사 품목 관리",
             new FieldDefinition[]
             {
                 new("vendorItemId", "매핑 ID", Required: true), new("vendorId", "벤더", Required: true),
@@ -1580,31 +1677,24 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("LEAD_TIME_DAYS", "리드타임(일)"), new("MOQ", "최소발주량"), new("BASE_PRICE", "기준단가"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "MDM.VendorItemList",
-            SaveQueryId: "MDM.CreateVendorItem", DeleteQueryId: "MDM.DeleteVendorItem"));
+            SaveQueryId: "MDM.CreateVendorItem", DeleteQueryId: "MDM.DeleteVendorItem", Purpose: ScreenPurpose.Manage));
 
-        // W/O 관리(FACTORY_PPM_WORK_ORDER, 등록 폼 포함)·작업지시 현황(REPORT, 조회 전용) — V060(POM.WorkOrderList). 기존 보류 해소.
-        var pomWoCols = new GridColumnDefinition[]
-        {
-            new("WORK_ORDER_ID", "W/O ID"), new("WORK_ORDER_NAME", "W/O명"), new("PLANT_ID", "공장"),
-            new("PRODUCTION_ORDER_ID", "생산오더"), new("EQUIPMENT_ID", "설비"), new("PRODUCT_ID", "품목"),
-            new("PLAN_QTY", "계획수량"), new("START_QTY", "착수수량"), new("COMPLETE_QTY", "완료수량"),
-            new("PLAN_START_DATE", "계획시작"), new("STATUS", "상태"), new("IS_HOLD", "홀드"),
-        };
+        // 작업지시 쓰기는 raw SQL이 아니라 aggregate/API bridge만 사용한다.
         Register(new ScreenDefinition("FACTORY_PPM_WORK_ORDER", "W/O 관리",
-            new FieldDefinition[]
-            {
-                new("workOrderId", "W/O ID", Required: true), new("plantId", "공장", Required: true),
-                new("workOrderName", "W/O명"), new("equipmentId", "설비"), new("productId", "품목"),
-                new("planQty", "계획수량", FieldType.Number, Required: true),
-            },
-            pomWoCols, QueryId: "POM.WorkOrderList", SaveQueryId: "POM.CreateWorkOrder", DeleteQueryId: "POM.DeleteWorkOrder",
-            BulkCommands: new BulkCommandDefinition[]
-            {
-                new("확정", "POM.ReleaseWorkOrder"),   // Created→Released(가드)
-                new("취소", "POM.CancelWorkOrder"),    // Created/Released→Cancelled(가드)
-            }));
+            pomWoFields, pomWoCols, QueryId: "POM.WorkOrderList",
+            SaveQueryId: PomWorkOrderMetaCommands.Create, Purpose: ScreenPurpose.Manage,
+            SaveRequiredPermission: "pom:manage",
+            BulkCommands:
+            [
+                new BulkCommandDefinition(
+                    "W/O 릴리즈", PomWorkOrderMetaCommands.Release,
+                    "선택한 W/O를 릴리즈하시겠습니까?", "pom:manage"),
+                new BulkCommandDefinition(
+                    "W/O 취소", PomWorkOrderMetaCommands.Cancel,
+                    "선택한 W/O를 취소하시겠습니까?", "pom:manage"),
+            ]));
         Register(new ScreenDefinition("FACTORY_PPM_REPORT_WORKORDER", "작업지시 현황",
-            Array.Empty<FieldDefinition>(), pomWoCols, QueryId: "POM.WorkOrderList"));
+            Array.Empty<FieldDefinition>(), pomWoCols, QueryId: "POM.WorkOrderList", Purpose: ScreenPurpose.Report));
 
         // 알람 액션 관리(FACTORY_COM_ACTION_DEF)·알람별 액션 관리(FACTORY_COM_ALARM_ACTION) — V061(COM.ActionList/AlarmActionList).
         Register(new ScreenDefinition("FACTORY_COM_ACTION_DEF", "알람 액션 관리",
@@ -1621,7 +1711,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PROCEDURE_NAME", "프로시저"), new("IS_ACTIVE", "활성"),
             },
             QueryId: "COM.ActionList",
-            SaveQueryId: "COM.CreateAction", DeleteQueryId: "COM.DeleteAction"));
+            SaveQueryId: "COM.CreateAction", DeleteQueryId: "COM.DeleteAction", Purpose: ScreenPurpose.Manage));
         Register(new ScreenDefinition("FACTORY_COM_ALARM_ACTION", "알람별 액션 관리",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
@@ -1656,7 +1746,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             {
                 new("logLevel", "레벨", FieldType.Select, Options: new[] { "Information", "Warning", "Error", "Critical" }),
             },
-            CountQueryId: "SYS.AppLogListCount"));
+            CountQueryId: "SYS.AppLogListCount", Purpose: ScreenPurpose.Inquiry));
 
         // 요청 로그 뷰어(SYSTEM2_MONITOR_REQLOG) — API 요청 로그(V062, RequestLogMiddleware 기록·SYS.RequestLogList).
         Register(new ScreenDefinition("SYSTEM2_MONITOR_REQLOG", "요청 로그 뷰어",
@@ -1672,18 +1762,18 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("method", "메서드", FieldType.Select, Options: new[] { "GET", "POST", "PUT", "DELETE" }),
                 new("userId", "사용자 ID"),
             },
-            CountQueryId: "SYS.RequestLogListCount"));
+            CountQueryId: "SYS.RequestLogListCount", Purpose: ScreenPurpose.Inquiry));
 
         // 생산성 대시보드(FACTORY_DASHBOARD_MENU_PRODUCTIVITY) — 설비×일자 OEE 마트(EST.OeeSummaryList) 재사용.
         Register(new ScreenDefinition("FACTORY_DASHBOARD_MENU_PRODUCTIVITY", "생산성 대시보드",
             Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
-                new("OEE_DATE", "일자"), new("EQUIPMENT_ID", "설비"), new("AVAILABILITY", "가용성"),
-                new("PERFORMANCE", "성능"), new("QUALITY", "품질"), new("OEE", "OEE"),
+                new("OEE_DATE", "일자"), new("EQUIPMENT_ID", "설비"), new("AVAILABILITY_PERCENT", "가동률 (%)"),
+                new("PERFORMANCE_PERCENT", "성능가동률 (%)"), new("QUALITY_PERCENT", "양품률 (%)"), new("OEE_PERCENT", "OEE (%)"),
                 new("TOTAL_COUNT", "총생산"), new("GOOD_COUNT", "양품"),
             },
-            QueryId: "EST.OeeSummaryList"));
+            QueryId: "EST.OeeSummaryList", Purpose: ScreenPurpose.Report));
 
         // 대시보드 샘플 화면(FACTORY_DASHBOARD_MENU_SAMPLE_TEST) — 품목별 수율 집계(POM.YieldByProduct) 샘플 바인딩.
         Register(new ScreenDefinition("FACTORY_DASHBOARD_MENU_SAMPLE_TEST", "대시보드 샘플",
@@ -1693,7 +1783,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PRODUCT_ID", "품목"), new("LOT_COUNT", "LOT수"), new("TOTAL_QTY", "총생산"),
                 new("DEFECT_QTY", "불량"), new("GOOD_QTY", "양품"),
             },
-            QueryId: "POM.YieldByProduct"));
+            QueryId: "POM.YieldByProduct", Purpose: ScreenPurpose.Report));
 
         // 출하 지시 관리(FACTORY_DLV_DELIVERY_ORDER) — 출하지시 마스터 조회(SHP.DeliveryOrderList).
         Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_ORDER", "출하 지시 관리",
@@ -1713,7 +1803,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("ORDER_ID", "출하지시 ID"), new("CUSTOMER_NAME", "고객"), new("PLANT_ID", "공장 ID"),
                 new("REQUESTED_DATE", "요청일"), new("SHIPPED_DATE", "출하일"), new("STATUS", "상태"),
             },
-            QueryId: "SHP.DeliveryOrderList"));
+            QueryId: "SHP.DeliveryOrderList", Purpose: ScreenPurpose.Report));
 
         // 출하 처리(FACTORY_DLV_DELIVERY_RESULT) — 출하 이력 조회(SHP.ShipmentHistoryList).
         Register(new ScreenDefinition("FACTORY_DLV_DELIVERY_RESULT", "출하 처리",
@@ -1736,7 +1826,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("DEFECT_CLASS_ID", "결함분류"), new("DEFECT_COUNT", "결함수"), new("DEFECT_RATE", "결함률"),
                 new("INSPECTED_AT", "검사시각"), new("INSPECTOR_ID", "검사자"), new("IS_CONFIRMED", "확정"),
             },
-            QueryId: "QMS.DefectList"));
+            QueryId: "QMS.DefectList", Purpose: ScreenPurpose.Report));
 
         // 설비 점검 항목 그룹 관리(FACTORY_EMS_STD_MAINT_ITEM_CLASS) — V036 신설 마스터(EMS.MaintItemClassList).
         Register(new ScreenDefinition("FACTORY_EMS_STD_MAINT_ITEM_CLASS", "설비 점검 항목 그룹 관리",
@@ -1914,7 +2004,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("RESULT_ID", "실적 ID"), new("SUPPLIER_ID", "협력사 ID"), new("SUPPLIER_NAME", "협력사명"),
                 new("EVAL_PERIOD", "평가기간"), new("TOTAL_SCORE", "총점"), new("GRADE", "등급"), new("EVALUATED_AT", "평가일시"),
             },
-            QueryId: "QMS.SpmEvalResultList"));
+            QueryId: "QMS.SpmEvalResultList", Purpose: ScreenPurpose.Inquiry));
 
         // 시정 조치 결과 등록(QMS_SPM_ADMIN_ACTION_RESULT_REGIST) — 협력사 시정 조치 이력(QMS.SpmActionResultList).
         Register(new ScreenDefinition("QMS_SPM_ADMIN_ACTION_RESULT_REGISTRATION", "시정 조치 결과 등록",
@@ -1927,22 +2017,16 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             QueryId: "QMS.SpmActionResultList"));
 
         // ===== SmartUX QMS 검사(수입/공정/출하) 점등(V040 신설 QMS_INSPECTION) — 등록/이력/현황을 타입별 쿼리로 바인딩. =====
-        var inspIncomingCols = new GridColumnDefinition[]
-        {
-            new("INSPECTION_ID", "검사 ID"), new("INSPECTION_TYPE", "유형"), new("LOT_ID", "LOT ID"),
-            new("PRODUCT_ID", "품목 ID"), new("INSPECTED_AT", "검사일시"), new("RESULT", "결과"),
-            new("SAMPLE_QTY", "표본수"), new("DEFECT_QTY", "불량수"),
-        };
-        Register(new ScreenDefinition("QMS_INSP_IMPORT_INSPECTION", "수입 검사 등록", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.IncomingInspectionList"));
-        Register(new ScreenDefinition("QMS_INSP_IMPORT_REGISTRATION_HIST", "수입 검사 이력 조회", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.IncomingInspectionList"));
-        Register(new ScreenDefinition("QMS_REP_IMPORT_STATUS", "수입 검사 현황", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.IncomingInspectionList"));
-        Register(new ScreenDefinition("QMS_INSP_PROCESS_INSPECTION", "공정 검사 등록", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ProcessInspectionList"));
-        Register(new ScreenDefinition("QMS_INSP_PROCESS_INSPECTION_LOT", "공정 검사 등록 (LOT)", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ProcessInspectionList"));
-        Register(new ScreenDefinition("QMS_INSP_PROCESS_REGISTRATION_HIST", "공정 검사 이력 조회", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ProcessInspectionList"));
-        Register(new ScreenDefinition("QMS_REP_PROCESS_STATUS", "공정 검사 현황", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ProcessInspectionList"));
-        Register(new ScreenDefinition("QMS_INSP_SHIPPING_INSPECTION", "출하 검사 등록", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ShippingInspectionList"));
-        Register(new ScreenDefinition("QMS_INSP_SHIPPING_REGISTRATION_HIST", "출하 검사 이력 조회", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ShippingInspectionList"));
-        Register(new ScreenDefinition("QMS_REP_SHIPPING_STATUS", "출하 검사 현황", Array.Empty<FieldDefinition>(), inspIncomingCols, QueryId: "QMS.ShippingInspectionList"));
+        RegisterQcaInspection("QMS_INSP_IMPORT_INSPECTION", "수입 검사 등록", "QMS.IncomingInspectionList", QmsInspectionMetaCommands.RecordIncoming);
+        RegisterQcaInspection("QMS_INSP_IMPORT_REGISTRATION_HIST", "수입 검사 이력 조회", "QMS.IncomingInspectionList", purpose: ScreenPurpose.Inquiry);
+        RegisterQcaInspection("QMS_REP_IMPORT_STATUS", "수입 검사 현황", "QMS.IncomingInspectionList", purpose: ScreenPurpose.Report);
+        RegisterQcaInspection("QMS_INSP_PROCESS_INSPECTION", "공정 검사 등록", "QMS.ProcessInspectionList", QmsInspectionMetaCommands.RecordProcess);
+        RegisterQcaInspection("QMS_INSP_PROCESS_INSPECTION_LOT", "공정 검사 등록 (LOT)", "QMS.ProcessInspectionList", QmsInspectionMetaCommands.RecordProcess);
+        RegisterQcaInspection("QMS_INSP_PROCESS_REGISTRATION_HIST", "공정 검사 이력 조회", "QMS.ProcessInspectionList", purpose: ScreenPurpose.Inquiry);
+        RegisterQcaInspection("QMS_REP_PROCESS_STATUS", "공정 검사 현황", "QMS.ProcessInspectionList", purpose: ScreenPurpose.Report);
+        RegisterQcaInspection("QMS_INSP_SHIPPING_INSPECTION", "출하 검사 등록", "QMS.ShippingInspectionList", QmsInspectionMetaCommands.RecordShipping);
+        RegisterQcaInspection("QMS_INSP_SHIPPING_REGISTRATION_HIST", "출하 검사 이력 조회", "QMS.ShippingInspectionList", purpose: ScreenPurpose.Inquiry);
+        RegisterQcaInspection("QMS_REP_SHIPPING_STATUS", "출하 검사 현황", "QMS.ShippingInspectionList", purpose: ScreenPurpose.Report);
 
         // ===== SmartUX QMS 장기재고검사(자재/제품) 점등(V041 신설 QMS_LONGTERM_INSPECTION) — 의뢰/결과/이력을 대상별 쿼리로. =====
         var ltInspCols = new GridColumnDefinition[]
@@ -1951,12 +2035,16 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new("WAREHOUSE", "창고"), new("REQUEST_DATE", "의뢰일"), new("INSPECTED_AT", "검사일시"),
             new("RESULT", "결과"), new("STATUS", "상태"),
         };
-        Register(new ScreenDefinition("QMS_INSP_LONGTERM_REQUEST", "자재 장기재고 검사 의뢰 현황", Array.Empty<FieldDefinition>(), ltInspCols, QueryId: "QMS.MaterialLongtermInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_LONGTERM_REQUEST", "자재 장기재고 검사 의뢰 현황", Array.Empty<FieldDefinition>(), ltInspCols,
+            QueryId: "QMS.MaterialLongtermInspectionList", Purpose: ScreenPurpose.Report));
         Register(new ScreenDefinition("QMS_LONGTERM_INSP_RESULT", "자재 장기재고 검사 결과 등록", Array.Empty<FieldDefinition>(), ltInspCols, QueryId: "QMS.MaterialLongtermInspectionList"));
-        Register(new ScreenDefinition("QMS_INSP_LONGTERM_HISTORY", "자재 장기재고 검사 결과 이력", Array.Empty<FieldDefinition>(), ltInspCols, QueryId: "QMS.MaterialLongtermInspectionList"));
-        Register(new ScreenDefinition("QMS_INSP_LONGTERM_PRODUCT_REQUEST", "제품 장기재고 검사 의뢰 현황", Array.Empty<FieldDefinition>(), ltInspCols, QueryId: "QMS.ProductLongtermInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_LONGTERM_HISTORY", "자재 장기재고 검사 결과 이력", Array.Empty<FieldDefinition>(), ltInspCols,
+            QueryId: "QMS.MaterialLongtermInspectionList", Purpose: ScreenPurpose.Inquiry));
+        Register(new ScreenDefinition("QMS_INSP_LONGTERM_PRODUCT_REQUEST", "제품 장기재고 검사 의뢰 현황", Array.Empty<FieldDefinition>(), ltInspCols,
+            QueryId: "QMS.ProductLongtermInspectionList", Purpose: ScreenPurpose.Report));
         Register(new ScreenDefinition("QMS_INSP_LONGTERM_PRODUCT_INSP_RESULT", "제품 장기재고 검사 결과 등록", Array.Empty<FieldDefinition>(), ltInspCols, QueryId: "QMS.ProductLongtermInspectionList"));
-        Register(new ScreenDefinition("QMS_INSP_LONGTERM_PRODUCT_INSP_HISTORY", "제품 장기재고 검사 결과 이력", Array.Empty<FieldDefinition>(), ltInspCols, QueryId: "QMS.ProductLongtermInspectionList"));
+        Register(new ScreenDefinition("QMS_INSP_LONGTERM_PRODUCT_INSP_HISTORY", "제품 장기재고 검사 결과 이력", Array.Empty<FieldDefinition>(), ltInspCols,
+            QueryId: "QMS.ProductLongtermInspectionList", Purpose: ScreenPurpose.Inquiry));
 
         // ===== SmartUX QMS 클레임(QMS_CLM) 점등(V042 신설 QMS_CLAIM). =====
         var claimCols = new GridColumnDefinition[]
@@ -1967,9 +2055,12 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         };
         Register(new ScreenDefinition("QMS_CLM_CLAIM_REGISTRATION", "고객사 클레임 접수", Array.Empty<FieldDefinition>(), claimCols, QueryId: "QMS.ClaimList"));
         Register(new ScreenDefinition("QMS_CLM_CLAIM_RESULT", "클레임 처리 결과 등록", Array.Empty<FieldDefinition>(), claimCols, QueryId: "QMS.ClaimList"));
-        Register(new ScreenDefinition("QMS_CLM_STATUS_VIEW", "클레임 현황 조회", Array.Empty<FieldDefinition>(), claimCols, QueryId: "QMS.ClaimList"));
-        Register(new ScreenDefinition("QMS_CLM_RPT_OCCUR_STATUS", "클레임 발생 현황", Array.Empty<FieldDefinition>(), claimCols, QueryId: "QMS.ClaimList"));
-        Register(new ScreenDefinition("QMS_CLM_REPORT_ACTION_STATUS", "클레임 처리 현황", Array.Empty<FieldDefinition>(), claimCols, QueryId: "QMS.ClaimList"));
+        Register(new ScreenDefinition("QMS_CLM_STATUS_VIEW", "클레임 현황 조회", Array.Empty<FieldDefinition>(), claimCols,
+            QueryId: "QMS.ClaimList", Purpose: ScreenPurpose.Inquiry));
+        Register(new ScreenDefinition("QMS_CLM_RPT_OCCUR_STATUS", "클레임 발생 현황", Array.Empty<FieldDefinition>(), claimCols,
+            QueryId: "QMS.ClaimList", Purpose: ScreenPurpose.Report));
+        Register(new ScreenDefinition("QMS_CLM_REPORT_ACTION_STATUS", "클레임 처리 현황", Array.Empty<FieldDefinition>(), claimCols,
+            QueryId: "QMS.ClaimList", Purpose: ScreenPurpose.Report));
 
         // ===== SmartUX QMS 품질보증(QCA) 점등(V043 신설) — NCR + Hold/Release. =====
         var ncrCols = new GridColumnDefinition[]
@@ -1978,14 +2069,16 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new("PRODUCT_ID", "품목 ID"), new("ISSUED_DATE", "발행일"), new("DISPOSITION", "처리"), new("STATUS", "상태"),
         };
         Register(new ScreenDefinition("QMS_QCA_NCR_ISSUE", "NCR 관리", Array.Empty<FieldDefinition>(), ncrCols, QueryId: "QMS.NcrList"));
-        Register(new ScreenDefinition("QMS_QCA_NCR_OVERVIEW", "NCR 현황", Array.Empty<FieldDefinition>(), ncrCols, QueryId: "QMS.NcrList"));
+        Register(new ScreenDefinition("QMS_QCA_NCR_OVERVIEW", "NCR 현황", Array.Empty<FieldDefinition>(), ncrCols,
+            QueryId: "QMS.NcrList", Purpose: ScreenPurpose.Report));
         var holdCols = new GridColumnDefinition[]
         {
             new("HOLD_ID", "Hold ID"), new("LOT_ID", "LOT ID"), new("PRODUCT_ID", "품목 ID"), new("HOLD_TYPE", "유형"),
             new("RISK_RANGE", "Risk Range"), new("REQUESTED_BY", "요청자"), new("REQUESTED_AT", "요청일시"), new("STATUS", "상태"),
         };
         Register(new ScreenDefinition("QMS_QCA_RELEASE_HOLD_REG", "Hold/Release(Risk Range)", Array.Empty<FieldDefinition>(), holdCols, QueryId: "QMS.HoldReleaseList"));
-        Register(new ScreenDefinition("QMS_QCA_PENDING_STATUS", "Hold/Release(Risk Range) 현황", Array.Empty<FieldDefinition>(), holdCols, QueryId: "QMS.HoldReleaseList"));
+        Register(new ScreenDefinition("QMS_QCA_PENDING_STATUS", "Hold/Release(Risk Range) 현황", Array.Empty<FieldDefinition>(), holdCols,
+            QueryId: "QMS.HoldReleaseList", Purpose: ScreenPurpose.Report));
 
         // ===== SmartUX QMS 4M 변경 점등(V044 신설 QMS_4M_CHANGE). =====
         var fourMCols = new GridColumnDefinition[]
@@ -1994,7 +2087,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new("EQUIPMENT_ID", "설비 ID"), new("PRODUCT_ID", "품목 ID"), new("CHANGE_DATE", "변경일"), new("APPROVAL_STATUS", "승인상태"),
         };
         Register(new ScreenDefinition("QMS_4M_CHANGE_HISTORY", "4M 변경 이력 관리", Array.Empty<FieldDefinition>(), fourMCols, QueryId: "QMS.FourMChangeList"));
-        Register(new ScreenDefinition("QMS_REP_CHANGE_STATUS", "변경점 발생 현황", Array.Empty<FieldDefinition>(), fourMCols, QueryId: "QMS.FourMChangeList"));
+        Register(new ScreenDefinition("QMS_REP_CHANGE_STATUS", "변경점 발생 현황", Array.Empty<FieldDefinition>(), fourMCols,
+            QueryId: "QMS.FourMChangeList", Purpose: ScreenPurpose.Report));
 
         // ===== SmartUX QMS 보고서성 잎 점등 — 신규 테이블 없이 기존 쿼리 재사용(계측기/협력사). =====
         var gaugeReportCols = new GridColumnDefinition[]
@@ -2002,29 +2096,33 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new("GAUGE_ID", "계측기 ID"), new("GAUGE_NAME", "계측기명"), new("GAUGE_TYPE", "유형"),
             new("LOCATION", "위치"), new("NEXT_CALIBRATION_AT", "차기검교정"), new("IS_ACTIVE", "활성"),
         };
-        Register(new ScreenDefinition("QMS_MEASURE_INSTRUMENT_REPORT", "계측기 현황", Array.Empty<FieldDefinition>(), gaugeReportCols, QueryId: "QMS.GaugeList"));
-        Register(new ScreenDefinition("QMS_MEQ_MEASURE_FAILURE_RATE", "계측기 측정 불량 현황", Array.Empty<FieldDefinition>(), gaugeReportCols, QueryId: "QMS.GaugeList"));
+        Register(new ScreenDefinition("QMS_MEASURE_INSTRUMENT_REPORT", "계측기 현황", Array.Empty<FieldDefinition>(), gaugeReportCols,
+            QueryId: "QMS.GaugeList", Purpose: ScreenPurpose.Report));
+        Register(new ScreenDefinition("QMS_MEQ_MEASURE_FAILURE_RATE", "계측기 측정 불량 현황", Array.Empty<FieldDefinition>(), gaugeReportCols,
+            QueryId: "QMS.GaugeList", Purpose: ScreenPurpose.Report));
         Register(new ScreenDefinition("QMS_MEQ_CALIBRATION_STATUS", "계측기 검교정 현황", Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
                 new("RESULT_ID", "내역 ID"), new("GAUGE_ID", "계측기 ID"), new("CALIBRATED_AT", "검교정일시"),
                 new("RESULT", "결과"), new("CERTIFICATE_NO", "성적서번호"), new("NEXT_DUE_AT", "차기예정"),
             },
-            QueryId: "QMS.GaugeCalibrationResultList"));
+            QueryId: "QMS.GaugeCalibrationResultList", Purpose: ScreenPurpose.Report));
         Register(new ScreenDefinition("QMS_MEQ_MEASURE_REPAIR_DETAILS", "계측기 수리 현황", Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[]
             {
                 new("REPAIR_ID", "수리 ID"), new("GAUGE_ID", "계측기 ID"), new("REPAIRED_AT", "수리일시"),
                 new("REPAIRED_BY", "수리자"), new("FAILURE_DESC", "고장내용"), new("REPAIR_DESC", "수리내용"),
             },
-            QueryId: "QMS.GaugeRepairResultList"));
+            QueryId: "QMS.GaugeRepairResultList", Purpose: ScreenPurpose.Report));
         var spmReportCols = new GridColumnDefinition[]
         {
             new("RESULT_ID", "실적 ID"), new("SUPPLIER_ID", "협력사 ID"), new("SUPPLIER_NAME", "협력사명"),
             new("EVAL_PERIOD", "평가기간"), new("TOTAL_SCORE", "총점"), new("GRADE", "등급"), new("EVALUATED_AT", "평가일시"),
         };
-        Register(new ScreenDefinition("QMS_SPM_EVL_REPORT", "협력사 평가 현황", Array.Empty<FieldDefinition>(), spmReportCols, QueryId: "QMS.SpmEvalResultList"));
-        Register(new ScreenDefinition("QMS_SPM_EVL_RESULT_COMPARISON", "협력사별 평가 결과 비교 조회", Array.Empty<FieldDefinition>(), spmReportCols, QueryId: "QMS.SpmEvalResultList"));
+        Register(new ScreenDefinition("QMS_SPM_EVL_REPORT", "협력사 평가 현황", Array.Empty<FieldDefinition>(), spmReportCols,
+            QueryId: "QMS.SpmEvalResultList", Purpose: ScreenPurpose.Report));
+        Register(new ScreenDefinition("QMS_SPM_EVL_RESULT_COMPARISON", "협력사별 평가 결과 비교 조회", Array.Empty<FieldDefinition>(), spmReportCols,
+            QueryId: "QMS.SpmEvalResultList", Purpose: ScreenPurpose.Inquiry));
 
         // 검사 현황(QMS_REP_ITEM_STATUS) — 전체 검사 실행 조회(QMS.InspectionList, 타입 무관). 구 SmartUX ID 'QMS_REP_ITEM_STATUS.js'는 별칭+PROGRAM_ID로 보존.
         Register(new ScreenDefinition("QMS_REP_ITEM_STATUS", "검사 현황",
@@ -2034,7 +2132,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("INSPECTION_ID", "검사 ID"), new("INSPECTION_TYPE", "유형"), new("LOT_ID", "LOT ID"),
                 new("PRODUCT_ID", "품목 ID"), new("INSPECTED_AT", "검사일시"), new("RESULT", "결과"), new("IS_CONFIRMED", "확정"),
             },
-            QueryId: "QMS.InspectionList"));
+            QueryId: "QMS.InspectionList", Purpose: ScreenPurpose.Report));
 
         // ===== SmartUX EMS 예비품 그룹/입출고 점등(V045 신설) + 잔여 BM/PM 오더(기존 EMS 쿼리 재사용). =====
         Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART_CLASS", "Spare Part 그룹 관리",
@@ -2051,7 +2149,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART_MOVE_GRIDTYPE", "Spare Part 이동 그리드", Array.Empty<FieldDefinition>(), spareInoutCols, QueryId: "EMS.SparePartMoveList"));
         Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART_SCRAP", "Spare Part 폐기", Array.Empty<FieldDefinition>(), spareInoutCols, QueryId: "EMS.SparePartScrapList"));
         Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART_SCRAP_GRIDTYPE", "Spare Part 폐기 그리드", Array.Empty<FieldDefinition>(), spareInoutCols, QueryId: "EMS.SparePartScrapList"));
-        Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART_INOUT_HISTORY", "Spare Part 입출고 이력", Array.Empty<FieldDefinition>(), spareInoutCols, QueryId: "EMS.SparePartInoutList"));
+        Register(new ScreenDefinition("FACTORY_EMS_STD_SPARE_PART_INOUT_HISTORY", "Spare Part 입출고 이력", Array.Empty<FieldDefinition>(), spareInoutCols,
+            QueryId: "EMS.SparePartInoutList", Purpose: ScreenPurpose.Inquiry));
 
         // 잔여 BM(작업지시) 화면 — 기존 EMS.WorkOrderList 재사용.
         var bmOrderCols = new GridColumnDefinition[]
@@ -2071,7 +2170,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new("CYCLE_TYPE", "주기"), new("SCHEDULED_DATE", "예정일"), new("STATUS", "상태"),
         };
         Register(new ScreenDefinition("FACTORY_EMS_PM_ORDER_RESULT_RESULT", "PM 결과 등록", Array.Empty<FieldDefinition>(), pmPlanCols, QueryId: "EMS.MaintenancePlanList"));
-        Register(new ScreenDefinition("FACTORY_EMS_PM_ORDER_RESULT_LIST", "PM 결과 조회", Array.Empty<FieldDefinition>(), pmPlanCols, QueryId: "EMS.MaintenancePlanList"));
+        Register(new ScreenDefinition("FACTORY_EMS_PM_ORDER_RESULT_LIST", "PM 결과 조회", Array.Empty<FieldDefinition>(), pmPlanCols,
+            QueryId: "EMS.MaintenancePlanList", Purpose: ScreenPurpose.Inquiry));
 
         // ===== SmartUX 기준정보(FACTORY_STD) — SmartUX 'SINGLE' 기준정보 메뉴는 기존 MDM 마스터의 별칭 경로다. 신규 백엔드 없이 기존 MDM 쿼리 재사용. =====
         var stdPlantCols = new GridColumnDefinition[] { new("PLANT_ID", "공장 ID"), new("PLANT_NAME", "공장명"), new("DESCRIPTION", "설명"), new("COUNTRY", "국가"), new("TIME_ZONE", "표준시") };
@@ -2146,7 +2246,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("UI_ID", "화면 ID", Width: 240), new("USE_COUNT", "사용 횟수", Width: 110),
                 new("LAST_USED_AT", "최근 사용"),
             },
-            QueryId: "SYS.MenuUsageStats"));
+            QueryId: "SYS.MenuUsageStats", Purpose: ScreenPurpose.Report));
 
         // ===== CRP v1(2026-07-10, V087) — 워크센터·라우팅 스텝 마스터 + 부하 화면. =====
         Register(new ScreenDefinition("FACTORY_STD_WORK_CENTER", "워크센터 관리",
@@ -2164,24 +2264,28 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("PLANT_ID", "공장", Width: 100), new("DAILY_CAPACITY_MIN", "일 능력(분)"),
                 new("IS_ACTIVE", "활성", Width: 80), new("DESCRIPTION", "설명"),
             },
-            QueryId: "MDM.WorkCenterList", SaveQueryId: "MDM.CreateWorkCenter", DeleteQueryId: "MDM.DeleteWorkCenter"));
+            QueryId: "MDM.WorkCenterList", SaveQueryId: "MDM.CreateWorkCenter", DeleteQueryId: "MDM.DeleteWorkCenter",
+            Purpose: ScreenPurpose.Manage));
 
         Register(new ScreenDefinition("FACTORY_STD_ROUTING_STEP", "라우팅 스텝 관리",
             new FieldDefinition[]
             {
                 new("routingId", "라우팅 ID", Required: true),
-                new("stepNo", "스텝 번호", FieldType.Number, Required: true),
-                new("stepName", "스텝명"),
+                new("stepNo", "공정 순번", FieldType.Number, Required: true),
+                new("stepName", "공정명"),
+                new("processId", "공정 ID", Required: true),
                 new("workCenterId", "워크센터 ID", Required: true),
                 new("stdTimeMin", "표준시간(개당 분)", FieldType.Number),
             },
             new GridColumnDefinition[]
             {
                 new("ROUTING_ID", "라우팅 ID", Width: 120), new("PRODUCT_ID", "품목", Width: 120),
-                new("STEP_NO", "스텝", Width: 80), new("STEP_NAME", "스텝명"),
+                new("STEP_NO", "공정 순번", Width: 90), new("STEP_NAME", "공정명"),
+                new("PROCESS_ID", "공정 ID", Width: 120),
                 new("WORK_CENTER_ID", "워크센터", Width: 120), new("STD_TIME_MIN", "표준시간(분/개)"),
             },
-            QueryId: "MDM.RoutingStepList", SaveQueryId: "MDM.CreateRoutingStep", DeleteQueryId: "MDM.DeleteRoutingStep"));
+            QueryId: "MDM.RoutingStepList", SaveQueryId: "MDM.CreateRoutingStep", DeleteQueryId: "MDM.DeleteRoutingStep",
+            Purpose: ScreenPurpose.Manage));
 
         // 부하 조회 — 최신 MRP 런 기준 워크센터 부하/필요일수(v1 총량, 버킷별 부하는 v2).
         Register(new ScreenDefinition("NX_CRP_LOAD", "능력 소요(CRP) — 워크센터 부하",
@@ -2192,7 +2296,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("DAILY_CAPACITY_MIN", "일 능력(분)"), new("LOAD_MIN", "부하(분)"),
                 new("REQUIRED_DAYS", "필요 일수"),
             },
-            QueryId: "POM.CrpWorkCenterLoad"));
+            QueryId: "POM.CrpWorkCenterLoad", Purpose: ScreenPurpose.Report));
 
         // ===== MRP v1 표준화(2026-07-09, V079/V080) — 단위 마스터·품목 계획 파라미터·자재 소요 계획. =====
         Register(new ScreenDefinition("FACTORY_STD_UOM", "단위(UOM) 관리",
@@ -2208,7 +2312,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("UOM_ID", "단위 ID", Width: 100), new("UOM_NAME", "단위명"),
                 new("UOM_TYPE", "구분", Width: 110), new("IS_ACTIVE", "활성", Width: 80), new("DESCRIPTION", "설명"),
             },
-            QueryId: "MDM.UomList", SaveQueryId: "MDM.CreateUom", DeleteQueryId: "MDM.DeleteUom"));
+            QueryId: "MDM.UomList", SaveQueryId: "MDM.CreateUom", DeleteQueryId: "MDM.DeleteUom",
+            Purpose: ScreenPurpose.Manage));
 
         Register(new ScreenDefinition("FACTORY_STD_ITEM_PLANNING", "품목 계획 파라미터",
             new FieldDefinition[]
@@ -2226,7 +2331,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("LEAD_TIME_DAYS", "리드타임(일)"), new("LOT_SIZE", "로트 크기"),
                 new("MAKE_OR_BUY", "조달", Width: 90), new("IS_ACTIVE", "활성", Width: 80), new("DESCRIPTION", "설명"),
             },
-            QueryId: "MDM.ItemPlanningList", SaveQueryId: "MDM.CreateItemPlanning", DeleteQueryId: "MDM.DeleteItemPlanning"));
+            QueryId: "MDM.ItemPlanningList", SaveQueryId: "MDM.CreateItemPlanning", DeleteQueryId: "MDM.DeleteItemPlanning",
+            Purpose: ScreenPurpose.Manage));
 
         // 자재 소요 계획(MRP) — 실행은 리터럴 라우트 페이지(HostMrpPlanning)의 브리지 REST 툴바가 담당,
         // 본문(제안+실행 이력)은 이 메타 정의를 MetaScreen 자식으로 재사용한다(VE 관리 규약 1호).
@@ -2283,7 +2389,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                         } },
                     } },
                 },
-            }));
+            },
+            Purpose: ScreenPurpose.Execute));
 
         // ===== SmartUX 시스템관리(SYSTEM_2) 신규 마스터 점등(V047 신설) — 공지/메시지/다국어/Rule. =====
         Register(new ScreenDefinition("SYSTEM_2_NOTICE_MANAGEMENT", "공지사항 관리", Array.Empty<FieldDefinition>(),
@@ -2338,6 +2445,10 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         Register(new ScreenDefinition("FACTORY_COM_CODE_ID_DEFINITION", "ID 채번 관리", Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[] { new("RULE_ID", "규칙 ID"), new("RULE_NAME", "규칙명"), new("PREFIX", "접두"), new("SEQ_LENGTH", "자릿수"), new("CURRENT_SEQ", "현재값"), new("RESET_CYCLE", "리셋주기"), new("DESCRIPTION", "설명") }, QueryId: "COM.IdRuleList"));
 
+        // canonical 코드 시드를 모두 모은 뒤 기능 계약 기반 목적 결정을 한 번만 적용한다.
+        // 이후 등록하는 legacy alias는 같은 결정이 적용된 정의 인스턴스를 공유한다.
+        SeedScreenPurposeDecisions.ApplyTo(_defs);
+
         // ===== 구 UI_ID 별칭(2026-07-09 메뉴 ID 표준화, V081) — 오타 정정 전 ID로 열리던 URL(/meta/{구ID})·
         // 잔존 즐겨찾기/최근 행이 계속 동작하게 정정된 정의를 구 ID로도 조회 가능하게 매핑한다.
         // 신규 노출(메뉴 시드·i18n·KPI 링크)은 전부 새 ID를 쓴다. 원본 대응은 시드 legacyId(PROGRAM_ID)에 보존.
@@ -2376,17 +2487,202 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
         };
 
-    // FACTORY_QCA 검사 실행(수입/공정/출하) 공용 그리드 — QMS_INSPECTION 컬럼 동일(제목/쿼리만 상이).
-    private void RegisterQcaInspection(string uiId, string title, string queryId)
-        => Register(new ScreenDefinition(uiId, title,
+    // 수입/공정/출하 검사 화면 공통 템플릿. commandId가 있으면 헤더+반복 검사 항목을 한 번에 보내는 등록 화면,
+    // 없으면 같은 이력을 읽는 조회 화면이다. 등록은 typed bridge로만 수행해 검사 유형·JWT 검사자·서버 판정·
+    // 원자 저장과 멱등 처리를 우회하지 않는다. QMS/FACTORY 메뉴가 모두 이 생성기를 사용한다.
+    private void RegisterQcaInspection(
+        string uiId,
+        string title,
+        string queryId,
+        string? commandId = null,
+        ScreenPurpose purpose = ScreenPurpose.Auto)
+    {
+        var isRegistration = !string.IsNullOrWhiteSpace(commandId);
+        var columns = QmsInspectionHistoryColumns();
+        if (!isRegistration)
+        {
+            Register(new ScreenDefinition(
+                uiId,
+                title,
+                Array.Empty<FieldDefinition>(),
+                columns,
+                QueryId: queryId,
+                SearchFields:
+                [
+                    new("lotId", "LOT", FieldType.Select, OptionsQueryId: "QMS.InspectionLotCombo"),
+                ],
+                Purpose: purpose == ScreenPurpose.Auto ? ScreenPurpose.Report : purpose,
+                ReadRequiredPermission: "qms:read"));
+            return;
+        }
+
+        var headerFields = new FieldWidget[]
+        {
+            QmsField("header", "lotId", "LOT", FieldType.Select, required: true,
+                optionsQueryId: "QMS.InspectionLotCombo", requiredPermission: "qms:read"),
+            QmsField("header", "equipmentId", "검사 설비", FieldType.Select, required: true,
+                optionsQueryId: "QMS.InspectionEquipmentCombo", requiredPermission: "qms:read"),
+            QmsField("header", "lotQuantity", "LOT 수량", FieldType.Number, required: true),
+            QmsField("header", "sampleQuantity", "헤더 샘플 수량", FieldType.Number, required: true),
+            QmsField("header", "defectQuantity", "헤더 불량 수량", FieldType.Number, required: true),
+            QmsField("header", "samplingPlanRevisionId", "샘플링 계획 개정", FieldType.Select,
+                optionsQueryId: "QMS.SamplingPlanRevisionCombo", requiredPermission: "qms:read"),
+            QmsField("header", "relationType", "후속 실행 유형", FieldType.Select,
+                options: ["Original", "Correction", "Reinspection"]),
+            QmsField("header", "parentInspectionId", "상위 검사 ID"),
+            QmsField("header", "remark", "헤더 비고"),
+            QmsField("header", "idempotencyKey", "멱등 키", required: true, hidden: true,
+                valueGenerator: FieldValueGenerator.UuidV4),
+        };
+        var itemFields = new FieldWidget[]
+        {
+            QmsField("item", "specId", "검사 규격", FieldType.Select, required: true,
+                optionsQueryId: "QMS.InspectionSpecCombo", requiredPermission: "qms:read"),
+            QmsField("item", "measuredValue", "측정값 (계량형)", FieldType.Number),
+            QmsField("item", "attributeResult", "판정 (속성형)", FieldType.Select, options: ["Pass", "Fail"]),
+            QmsField("item", "sampleQuantity", "항목 샘플 수량", FieldType.Number, required: true),
+            QmsField("item", "defectQuantity", "항목 불량 수량", FieldType.Number, required: true),
+            QmsField("item", "remark", "항목 비고"),
+        };
+
+        var layout = new SectionNode
+        {
+            Id = $"qms-registration-{uiId}",
+            Title = "검사 실행 등록",
+            Children =
+            [
+                new RowNode
+                {
+                    Id = $"qms-input-row-{uiId}",
+                    Children =
+                    [
+                        new ColumnNode
+                        {
+                            Id = $"qms-input-column-{uiId}", Span = 12,
+                            Children =
+                            [
+                                new FormWidget
+                                {
+                                    Id = $"qms-header-form-{uiId}",
+                                    SaveQueryId = commandId,
+                                    RequiredPermission = "qms:manage",
+                                    Fields = headerFields,
+                                },
+                                new CollectionWidget
+                                {
+                                    Id = $"qms-items-{uiId}",
+                                    CollectionKey = "items",
+                                    Label = "검사 항목",
+                                    ItemLabel = "검사 항목",
+                                    Fields = itemFields,
+                                    MinItems = 1,
+                                    RequiredPermission = "qms:manage",
+                                },
+                                new ButtonWidget
+                                {
+                                    Id = $"qms-save-{uiId}",
+                                    Label = "검사 등록",
+                                    Command = commandId,
+                                    RequiredPermission = "qms:manage",
+                                },
+                            ],
+                        },
+                    ],
+                },
+                new RowNode
+                {
+                    Id = $"qms-history-row-{uiId}",
+                    Children =
+                    [
+                        new ColumnNode
+                        {
+                            Id = $"qms-history-column-{uiId}", Span = 12,
+                            Children =
+                            [
+                                new GridWidget
+                                {
+                                    Id = $"qms-history-{uiId}",
+                                    QueryId = queryId,
+                                    Columns = columns,
+                                    RequiredPermission = "qms:read",
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        };
+
+        Register(new ScreenDefinition(
+            uiId,
+            title,
             Array.Empty<FieldDefinition>(),
-            new GridColumnDefinition[]
-            {
-                new("INSPECTION_ID", "검사 ID"), new("LOT_ID", "LOT"), new("PRODUCT_ID", "품목"), new("EQUIPMENT_ID", "설비"),
-                new("SPEC_ID", "규격"), new("INSPECTED_AT", "검사시각"), new("INSPECTOR_ID", "검사자"),
-                new("RESULT", "결과"), new("SAMPLE_QTY", "샘플수"), new("DEFECT_QTY", "불량수"), new("IS_CONFIRMED", "확정"),
-            },
-            QueryId: queryId));
+            Layout: layout,
+            SearchFields:
+            [
+                new("lotId", "LOT", FieldType.Select, OptionsQueryId: "QMS.InspectionLotCombo"),
+            ],
+            Purpose: ScreenPurpose.Register,
+            ReadRequiredPermission: "qms:read",
+            SaveRequiredPermission: "qms:manage"));
+    }
+
+    /// <summary>검사 실행 헤더와 반복 항목이 공유하는 FieldWidget 생성기입니다.</summary>
+    private static FieldWidget QmsField(
+        string scope,
+        string key,
+        string label,
+        FieldType type = FieldType.Text,
+        bool required = false,
+        IReadOnlyList<string>? options = null,
+        string? optionsQueryId = null,
+        string? requiredPermission = null,
+        bool hidden = false,
+        FieldValueGenerator valueGenerator = FieldValueGenerator.None)
+        => new()
+        {
+            Id = $"qms-{scope}-{key}",
+            FieldKey = key,
+            RequiredPermission = requiredPermission,
+            Field = new FieldDefinition(
+                key,
+                label,
+                type,
+                required,
+                Options: options,
+                OptionsQueryId: optionsQueryId,
+                Hidden: hidden,
+                ValueGenerator: valueGenerator),
+        };
+
+    /// <summary>헤더와 항목 수량, 취소/대체 상태를 혼동 없이 보여 주는 검사 실행 이력 컬럼입니다.</summary>
+    private static IReadOnlyList<GridColumnDefinition> QmsInspectionHistoryColumns()
+        =>
+        [
+            new("INSPECTION_ID", "검사 ID", Width: 145),
+            new("RESULT_ID", "결과 ID", Width: 145),
+            new("ITEM_SEQUENCE", "항목 순번", Width: 85),
+            new("INSPECTION_TYPE", "유형", Width: 90),
+            new("LOT_ID", "LOT", Width: 130),
+            new("PRODUCT_ID", "품목", Width: 120),
+            new("EQUIPMENT_ID", "설비", Width: 110),
+            new("SPEC_ID", "규격", Width: 120),
+            new("LOT_QTY", "헤더 LOT 수량", Width: 105),
+            new("SAMPLE_QTY", "헤더 샘플 수량", Width: 110),
+            new("DEFECT_QTY", "헤더 불량 수량", Width: 110),
+            new("ITEM_SAMPLE_QTY", "항목 샘플 수량", Width: 110),
+            new("ITEM_DEFECT_QTY", "항목 불량 수량", Width: 110),
+            new("MEASURED_VALUE", "측정값", Width: 90),
+            new("ATTRIBUTE_RESULT", "속성 판정", Width: 90),
+            new("RESULT", "헤더 결과", Width: 85),
+            new("EFFECTIVE_RESULT", "유효 결과", Width: 95),
+            new("IS_CANCELLED", "취소", Width: 70),
+            new("IS_SUPERSEDED", "후속 실행 대체", Width: 105),
+            new("IS_CONFIRMED", "확정", Width: 70),
+            new("INSPECTED_AT", "검사시각", Width: 155),
+            new("INSPECTOR_ID", "검사자", Width: 100),
+            new("REMARK", "비고", Width: 180),
+        ];
 
     // FACTORY_QCA 공정/출하 정보연결 — 검사 규격 카탈로그(QMS_INSPECTION_SPEC).
     private void RegisterQcaSpecMapping(string uiId, string title)
@@ -2408,4 +2704,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
 
     public Task<ScreenDefinition?> GetAsync(string uiId, CancellationToken ct = default)
         => Task.FromResult(Get(uiId));
+
+    public Task<IReadOnlySet<string>> GetKnownUiIdsAsync(CancellationToken ct = default)
+        => Task.FromResult<IReadOnlySet<string>>(
+            _defs.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase));
 }

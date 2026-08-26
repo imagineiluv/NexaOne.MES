@@ -16,6 +16,17 @@
   <object id="sparePartRepository" type="NexaOne.EMS.Infrastructure.SparePartRepository, NexaOne.EMS">
     <constructor-arg ref="eesDataSource" />
   </object>
+  <!-- 예비부품 정책·공급처·설비 BOM과 보충 추천. 기존 sparePartRepository/IEmsBridge
+       수불 경로와 분리해 관리 불변식과 추천 계산을 한 deep module에 둔다. -->
+  <object id="sparePartManagementRepository" type="NexaOne.EMS.Infrastructure.SparePartManagementRepository, NexaOne.EMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="sparePartService" type="NexaOne.EMS.Application.SpareParts.SparePartService, NexaOne.EMS">
+    <constructor-arg ref="sparePartManagementRepository" />
+  </object>
+  <object id="sparePartBridge" type="NexaOne.EMS.Application.SpareParts.SparePartBridge, NexaOne.EMS">
+    <constructor-arg ref="sparePartService" />
+  </object>
   <object id="emsService" type="NexaOne.EMS.Application.Ems.EmsService, NexaOne.EMS">
     <constructor-arg ref="workOrderRepository" />
   </object>
@@ -29,6 +40,41 @@
   <object id="emsBridge" type="NexaOne.EMS.Application.Ems.EmsBridge, NexaOne.EMS">
     <constructor-arg ref="emsService" />
     <constructor-arg ref="maintenancePlanService" />
+  </object>
+
+  <!-- 수동 PM Calendar/Meter/Condition 스케줄 쓰기. 조회는 EMS query XML이 담당하고,
+       이 경계는 trigger 검증·낙관적 버전·도래 확인 원장의 원자성만 소유한다. -->
+  <object id="maintenanceScheduleRepository" type="NexaOne.EMS.Infrastructure.MaintenanceScheduleRepository, NexaOne.EMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="maintenanceScheduleService" type="NexaOne.EMS.Application.MaintenanceSchedules.MaintenanceScheduleService, NexaOne.EMS">
+    <constructor-arg ref="maintenanceScheduleRepository" />
+  </object>
+  <object id="maintenanceScheduleBridge" type="NexaOne.EMS.Application.MaintenanceSchedules.MaintenanceScheduleBridge, NexaOne.EMS">
+    <constructor-arg ref="maintenanceScheduleService" />
+  </object>
+
+  <!-- 수동 보전 작업의 체크리스트·작업시간 증거. 인증 사용자, 재시도 키, 작업자 매핑과
+       낙관적 완료 버전을 한 경계에서 강제하고 계획/스케줄과 분리한다. -->
+  <object id="maintenanceExecutionRepository" type="NexaOne.EMS.Infrastructure.MaintenanceExecutionRepository, NexaOne.EMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="maintenanceExecutionService" type="NexaOne.EMS.Application.MaintenanceExecution.MaintenanceExecutionService, NexaOne.EMS">
+    <constructor-arg ref="maintenanceExecutionRepository" />
+  </object>
+  <object id="maintenanceExecutionBridge" type="NexaOne.EMS.Application.MaintenanceExecution.MaintenanceExecutionBridge, NexaOne.EMS">
+    <constructor-arg ref="maintenanceExecutionService" />
+  </object>
+
+  <!-- 생산 툴 lifecycle. Gauge/계측기 교정은 QMS 소유이며, 설비별 신호 매핑은 plugin에 둔다. -->
+  <object id="toolRepository" type="NexaOne.EMS.Infrastructure.ToolRepository, NexaOne.EMS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="toolService" type="NexaOne.EMS.Application.Tools.ToolService, NexaOne.EMS">
+    <constructor-arg ref="toolRepository" />
+  </object>
+  <object id="toolBridge" type="NexaOne.EMS.Application.Tools.ToolBridge, NexaOne.EMS">
+    <constructor-arg ref="toolService" />
   </object>
 
   <!-- 예방정비 도래 점검 워커(BackgroundService) — 모듈 소유 주기 작업. quartzScheduler/messageBus는 부모(server.xml)

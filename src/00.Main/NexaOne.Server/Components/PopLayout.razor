@@ -1,0 +1,33 @@
+@inherits LayoutComponentBase
+@inject AuthTokenService TokenService
+@inject JwtAuthStateProvider AuthState
+@inject NavigationManager Nav
+
+<div class="operator-shell operator-pop">
+    <a class="operator-skip-link" href="#operator-main">본문 바로가기</a>
+    <header class="operator-topbar">
+        <a class="operator-brand" href="/POP" aria-label="POP 작업 홈">
+            <span class="operator-brand-mark">NX</span>
+            <span><strong>NexaOne POP</strong><small>Production Operator Panel</small></span>
+        </a>
+        <a class="operator-home-action" href="/POP">작업 선택</a>
+        <span class="operator-station"><span aria-hidden="true">●</span> 현장 작업 단말</span>
+        <button type="button" class="operator-logout" @onclick="LogoutAsync" aria-label="POP 로그아웃">
+            <span class="operator-logout-icon" aria-hidden="true">↪</span>
+            <span>로그아웃</span>
+        </button>
+    </header>
+    <main id="operator-main" class="operator-content" tabindex="-1">
+        @Body
+    </main>
+</div>
+
+@code {
+    /// <summary>공용 단말에 인증 정보가 남지 않도록 토큰과 인증 상태를 지운 뒤 POP 로그인으로 돌아간다.</summary>
+    private async Task LogoutAsync()
+    {
+        await TokenService.ClearAsync();
+        AuthState.NotifyAuthChanged(null);
+        Nav.NavigateTo("/login?returnUrl=%2FPOP", forceLoad: true);
+    }
+}

@@ -57,11 +57,11 @@ else
                                     {
                                         <span class="host-chip read perm">
                                             @perm
-                                            <button class="x" title="권한 회수" @onclick="() => RemovePermissionAsync(roleId, perm)" disabled="@_busy">×</button>
+                                            <button class="x" title="권한 회수" aria-label="@($"{roleId} 역할에서 {perm} 권한 회수")" @onclick="() => RemovePermissionAsync(roleId, perm)" disabled="@_busy">×</button>
                                         </span>
                                     }
                                     <span class="host-inline">
-                                        <input class="host-input inline" placeholder="권한 추가(예: mdm:read)" @bind="_permInputs[roleId]" />
+                                        <input class="host-input inline" placeholder="권한 추가(예: mdm:read)" aria-label="@($"{roleId} 역할에 추가할 권한")" @bind="_permInputs[roleId]" />
                                         <button class="host-btn inline" @onclick="() => AddPermissionAsync(roleId)" disabled="@_busy">추가</button>
                                     </span>
                                 </td>
@@ -80,9 +80,9 @@ else
                 <div class="mes-card host-card-pad">
                     <h2 class="host-card-title">역할 생성</h2>
                     <div class="host-stack">
-                        <input class="host-input" placeholder="역할 ID (예: OPERATOR2)" @bind="_newRoleId" />
-                        <input class="host-input" placeholder="역할명" @bind="_newRoleName" />
-                        <input class="host-input" placeholder="설명(선택)" @bind="_newRoleDesc" />
+                        <input class="host-input" placeholder="역할 ID (예: OPERATOR2)" aria-label="새 역할 ID" @bind="_newRoleId" />
+                        <input class="host-input" placeholder="역할명" aria-label="새 역할명" @bind="_newRoleName" />
+                        <input class="host-input" placeholder="설명(선택)" aria-label="새 역할 설명" @bind="_newRoleDesc" />
                         <button class="host-btn" @onclick="CreateRoleAsync" disabled="@_busy">
                             @(_busy ? "처리 중…" : "생성")
                         </button>
@@ -94,7 +94,7 @@ else
                     <h2 class="host-card-title">계정 잠금 해제</h2>
                     <p class="host-desc">비밀번호 연속 오류로 잠긴 계정을 즉시 해제합니다.</p>
                     <div class="host-stack">
-                        <input class="host-input" placeholder="사용자 ID" @bind="_unlockUserId" />
+                        <input class="host-input" placeholder="사용자 ID" aria-label="잠금을 해제할 사용자 ID" @bind="_unlockUserId" />
                         <button class="host-btn" @onclick="UnlockAsync" disabled="@_busy">잠금 해제</button>
                     </div>
                 </div>

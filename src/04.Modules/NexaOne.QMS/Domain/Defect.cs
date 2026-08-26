@@ -38,8 +38,8 @@ public sealed class Defect : AuditableEntity<string>
             return Result.Failure<Defect>(Error.Validation(nameof(defectClassId), "Defect class ID is required."));
         if (defectCount < 0)
             return Result.Failure<Defect>(Error.Validation(nameof(defectCount), "Defect count must be non-negative."));
-        if (defectRate < 0)
-            return Result.Failure<Defect>(Error.Validation(nameof(defectRate), "Defect rate must be non-negative."));
+        if (defectRate < 0 || defectRate > 1)
+            return Result.Failure<Defect>(Error.Validation(nameof(defectRate), "Defect rate must be between 0 and 1."));
         if (string.IsNullOrWhiteSpace(inspectorId))
             return Result.Failure<Defect>(Error.Validation(nameof(inspectorId), "Inspector ID is required."));
 

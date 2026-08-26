@@ -30,6 +30,10 @@
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="eesDialect" />
   </object>
+  <!-- FDC 소유 영속 TRACE 원천. 소비 모듈에는 Common IFdcTraceSource만 노출하고 SQL/방언/인덱스는 FDC가 감춘다. -->
+  <object id="fdcTraceSource" type="NexaOne.FDC.Application.Fdc.FdcTraceSource, NexaOne.FDC">
+    <constructor-arg ref="fdcCollectDataRepository" />
+  </object>
   <object id="fdcParameterGroupRepository" type="NexaOne.FDC.Infrastructure.FdcParameterGroupRepository, NexaOne.FDC">
     <constructor-arg ref="eesDataSource" />
   </object>
@@ -83,26 +87,31 @@
     <constructor-arg ref="virtualEventService" />
   </object>
 
-  <!-- FdcCollectorService(dataService, interlockService?, alarmService?) — OPC-UA device/구독은 StartCollectingAsync
-       메서드 인자(생성자 아님)라 opcUaDriver는 ctor에 들어가지 않는다. 선택적 2·3번째 서비스는 명시 주입. -->
+  <!-- FdcCollectorService(dataService, interlockService?, alarmService?) — PLC transport는 Infrastructure
+       worker/device adapter가 소유하고 Application에는 정규화된 FdcTagSample만 전달한다. -->
   <object id="fdcCollectorService" type="NexaOne.FDC.Application.Fdc.FdcCollectorService, NexaOne.FDC">
     <constructor-arg ref="fdcDataService" />
     <constructor-arg ref="fdcInterlockService" />
     <constructor-arg ref="fdcAlarmService" />
   </object>
+  <!-- 프로토콜 선택은 NexusLogic PlcDriverFactory(부모 컨텍스트)가 담당하고, FDC 어댑터는
+       FdcEquipmentEndpoint를 프로토콜 중립 PlcDeviceInterface로 변환한다. -->
+  <object id="fdcPlcDeviceFactory" type="NexaOne.FDC.Infrastructure.Equipment.FdcPlcDeviceFactory, NexaOne.FDC">
+    <constructor-arg ref="plcDriverFactory" />
+  </object>
   <!-- FDC 실시간 수집 워커(BackgroundService, ADR-006 Phase 2) — 모듈 소유 오케스트레이션. FDC 타입은 plugin ALC에서
        해석돼야 하므로 워커는 이 자식 컨텍스트에서 조립한다(Program.cs는 IHostedService로만 당겨 호스팅).
-       plantController/opcUaDriver/messageBus는 부모(server.xml) 빈을 cross-context ref로 주입한다.
+       plantController/messageBus는 부모(server.xml) 빈을 cross-context ref로 주입한다.
        ctor: (FdcCollectorService, IFdcEquipmentEndpointRepository, IFdcParameterRepository, PlantController,
-              IPlcDriver, IMessageBus, bool enabled, string topic). topic 기본 "nexaone.events". -->
-  <object id="fdcCollectionWorker" type="NexaOne.FDC.Application.Fdc.FdcCollectionWorker, NexaOne.FDC">
+              FdcPlcDeviceFactory, IMessageBus, bool enabled, string topic). topic 기본 "nexaone.events". -->
+  <object id="fdcCollectionWorker" type="NexaOne.FDC.Infrastructure.Equipment.FdcCollectionWorker, NexaOne.FDC">
     <constructor-arg ref="fdcCollectorService" />
     <constructor-arg ref="fdcEquipmentEndpointRepository" />
     <constructor-arg ref="fdcParameterRepository" />
     <constructor-arg ref="plantController" />
-    <constructor-arg ref="opcUaDriver" />
+    <constructor-arg ref="fdcPlcDeviceFactory" />
     <constructor-arg ref="messageBus" />
-    <!-- FDC 수집 워커 enable 스위치(Worker:Fdc:Enabled). true로 바꾸면 기동 시 OPC-UA 수집 시작. 기본 false(외부 OPC-UA 서버 없는 환경 보호). -->
+    <!-- FDC 수집 워커 enable 스위치(Worker:Fdc:Enabled). true로 바꾸면 기동 시 PLC 수집 시작. 기본 false(외부 PLC 없는 환경 보호). -->
     <constructor-arg value="false" />
     <constructor-arg value="nexaone.events" />
   </object>

@@ -10,28 +10,27 @@ namespace NexaOne.UnitTests.Fdc;
 /// 적재하는 오케스트레이터의 품질/값 변환과 저장 연결을 검증한다.</summary>
 public sealed class FdcCollectorServiceTests
 {
-    private static PlcTagChangeEvent Event(string tag, object? after, PlcQuality quality) =>
-        new("ev-1", "EQ-001", tag, $"ns=2;s={tag}", Before: null, After: after,
-            quality, OccurredAt: DateTimeOffset.UnixEpoch, Source: "polling", IsChanged: true);
+    private static FdcTagSample Event(string tag, object? after, PlcQuality quality) =>
+        new(tag, PlcDeviceInterface.ToDecimal(after), PlcDeviceInterface.MapQuality(quality));
 
     [Theory]
-    [InlineData(PlcQuality.Good, "Good")]
-    [InlineData(PlcQuality.Uncertain, "Uncertain")]
-    [InlineData(PlcQuality.Bad, "Bad")]
-    [InlineData(PlcQuality.Timeout, "Bad")]
-    [InlineData(PlcQuality.Disconnected, "Bad")]
-    [InlineData(PlcQuality.NotSupported, "Bad")]
-    public void MapQuality_maps_plc_quality_to_fdc_quality(PlcQuality input, string expected)
-        => FdcCollectorService.MapQuality(input).Should().Be(expected);
+    [InlineData(PlcQuality.Good, FdcSampleQuality.Good)]
+    [InlineData(PlcQuality.Uncertain, FdcSampleQuality.Uncertain)]
+    [InlineData(PlcQuality.Bad, FdcSampleQuality.Bad)]
+    [InlineData(PlcQuality.Timeout, FdcSampleQuality.Bad)]
+    [InlineData(PlcQuality.Disconnected, FdcSampleQuality.Bad)]
+    [InlineData(PlcQuality.NotSupported, FdcSampleQuality.Bad)]
+    public void MapQuality_maps_plc_quality_to_fdc_quality(PlcQuality input, FdcSampleQuality expected)
+        => PlcDeviceInterface.MapQuality(input).Should().Be(expected);
 
     [Fact]
     public void ToDecimal_handles_null_numeric_and_unparsable()
     {
-        FdcCollectorService.ToDecimal(null).Should().Be(0m, "null 값은 0으로 처리한다");
-        FdcCollectorService.ToDecimal(42).Should().Be(42m);
-        FdcCollectorService.ToDecimal(55.5).Should().Be(55.5m);
-        FdcCollectorService.ToDecimal("12.25").Should().Be(12.25m);
-        FdcCollectorService.ToDecimal("not-a-number").Should().Be(0m, "변환 불가 값은 0으로 처리한다");
+        PlcDeviceInterface.ToDecimal(null).Should().Be(0m, "null 값은 0으로 처리한다");
+        PlcDeviceInterface.ToDecimal(42).Should().Be(42m);
+        PlcDeviceInterface.ToDecimal(55.5).Should().Be(55.5m);
+        PlcDeviceInterface.ToDecimal("12.25").Should().Be(12.25m);
+        PlcDeviceInterface.ToDecimal("not-a-number").Should().Be(0m, "변환 불가 값은 0으로 처리한다");
     }
 
     [Fact]
@@ -214,10 +213,10 @@ public sealed class FdcCollectorServiceTests
             Times.Exactly(2), "기록 실패가 활성 표시를 막지 않아 다음 변화에서 재기록을 시도한다");
     }
 
-    // ── 구독 연결 end-to-end (OpcUaDeviceInterface + FdcCollectorService) ──────────
+    // ── 구독 연결 end-to-end (PlcDeviceInterface + FdcCollectorService) ──────────
 
     [Fact]
-    public async Task StartCollecting_subscribes_and_records_on_tag_change()
+    public async Task Device_subscription_normalizes_and_records_with_domain_equipment_id()
     {
         // NexusLogic 연결 모킹: SubscriptionProvider.StartAsync가 onEvent 콜백을 포착하도록 설정
         var endpoint = new PlcEndpoint("EP1", PlcDriverKind.OpcUa, "opc.tcp://host:4840");
@@ -235,10 +234,12 @@ public sealed class FdcCollectorServiceTests
         conn.Setup(c => c.OpenAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
         var driver = new Mock<IPlcDriver>();
+        driver.SetupGet(d => d.Kind).Returns(PlcDriverKind.OpcUa);
+        driver.SetupGet(d => d.Name).Returns("fake-opcua");
         driver.Setup(d => d.ConnectAsync(It.IsAny<PlcEndpoint>(), It.IsAny<CancellationToken>()))
               .ReturnsAsync(conn.Object);
 
-        var device = new OpcUaDeviceInterface("EP1", endpoint, driver.Object);
+        var device = new PlcDeviceInterface("EP1", endpoint, driver.Object);
         await device.InitializeAsync();
 
         var param = FdcParameter.Create("TEMP01", "Temp", "EQ-001", "C", 0m, 100m).Value;
@@ -252,27 +253,29 @@ public sealed class FdcCollectorServiceTests
         var collector = new FdcCollectorService(new FdcDataService(paramRepo.Object, dataRepo.Object));
 
         var sub = new PlcSubscription("EP1::sub", "EP1", new[] { "TEMP01" }, TimeSpan.FromSeconds(1));
-        await collector.StartCollectingAsync(device, new[] { sub });
+        await device.SubscribeAsync(
+            new[] { sub },
+            sample => collector.OnTagChangeAsync("EQ-001", sample));
 
         onEvent.Should().NotBeNull("구독이 SubscriptionProvider에 연결된다");
         await onEvent!(new PlcTagChangeEvent("e", "EP1", "TEMP01", "ns", null, 42.0,
             PlcQuality.Good, DateTimeOffset.UnixEpoch, "polling", true));
 
         saved.Should().NotBeNull("구독 콜백이 수집 데이터로 적재된다");
-        saved!.ParameterId.Should().Be("TEMP01");
+        saved!.EquipmentId.Should().Be("EQ-001", "endpoint id와 domain equipment id를 혼동하지 않는다");
+        saved.ParameterId.Should().Be("TEMP01");
         saved.Value.Should().Be(42m);
         saved.Quality.Should().Be("Good");
     }
 
     [Fact]
-    public async Task StartCollecting_throws_when_device_not_initialized()
+    public async Task Device_subscription_throws_when_device_not_initialized()
     {
-        var device = new OpcUaDeviceInterface("EP1",
-            new PlcEndpoint("EP1", PlcDriverKind.OpcUa, "opc.tcp://h:1"), Mock.Of<IPlcDriver>());
-        var collector = new FdcCollectorService(
-            new FdcDataService(Mock.Of<IFdcParameterRepository>(), Mock.Of<IFdcCollectDataRepository>()));
+        var device = new PlcDeviceInterface("EP1",
+            new PlcEndpoint("EP1", PlcDriverKind.OpcUa, "opc.tcp://h:1"),
+            Mock.Of<IPlcDriver>(driver => driver.Kind == PlcDriverKind.OpcUa));
 
-        var act = () => collector.StartCollectingAsync(device, Array.Empty<PlcSubscription>());
+        var act = () => device.SubscribeAsync(Array.Empty<PlcSubscription>(), _ => Task.CompletedTask);
 
         await act.Should().ThrowAsync<InvalidOperationException>("초기화 전에는 구독을 걸 수 없다");
     }

@@ -1,6 +1,6 @@
 namespace NexaOne.EST.Application.Oee;
 
-/// <summary>OEE 집계 계약(EST 모듈 소유) — 원자료(상태이력·POM_LOT)를 설정(상태분류·목표)과 결합해 OEE 마트를 계산·적재한다.
+/// <summary>OEE 집계 계약(EST 모듈 소유) — 원자료(상태이력·표준 설비 출력 이벤트)를 설정(상태분류·목표)과 결합해 OEE 마트를 계산·적재한다.
 /// 구현은 Infrastructure의 OeeAggregationRepository(EesDataSource·명명 SQL). 워커/수동 트리거가 이 계약에 의존한다.</summary>
 public interface IOeeAggregator
 {

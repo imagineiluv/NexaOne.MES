@@ -3,9 +3,13 @@
     "NexaOne.Server": {
       "commandName": "Project",
       "launchBrowser": false,
-      "applicationUrl": "http://localhost:8080",
+      "applicationUrl": "http://localhost:5173",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
+        "Server__Port": "5173",
+        "ApiBaseUrl": "http://localhost:5173/",
+        "Jwt__Issuer": "nexaone-local-dev",
+        "Jwt__Audience": "nexaone-local-dev",
         "Worker__Sys__BatchProcess__Enabled": "true",
         "Worker__Fdc__VirtualEvent__Enabled": "true",
         "Worker__Outbox__Dispatch__Enabled": "true",
