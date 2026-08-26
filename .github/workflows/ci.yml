@@ -15,10 +15,22 @@ jobs:
   build-test:
     runs-on: ubuntu-latest
     steps:
+      - name: Require private submodule credential
+        shell: bash
+        env:
+          NEXA_SUBMODULE_TOKEN: ${{ secrets.NEXA_SUBMODULE_TOKEN }}
+        run: |
+          if [[ -z "$NEXA_SUBMODULE_TOKEN" ]]; then
+            echo '::error::Repository secret NEXA_SUBMODULE_TOKEN is required to read the private NexaFramework, NexaDB, and NexusLogic submodules.'
+            exit 1
+          fi
+
       - name: Checkout (with submodules)
         uses: actions/checkout@v4
         with:
           submodules: recursive # NexusFramework / NexaDB / NexusLogic
+          token: ${{ secrets.NEXA_SUBMODULE_TOKEN }}
+          persist-credentials: false
 
       - name: Setup .NET (global.json 고정 — SDK 8.0.419)
         uses: actions/setup-dotnet@v4
@@ -94,10 +106,22 @@ jobs:
       MSSQL_CONTAINER_NAME: nexaone-mssql-contract
       MSSQL_DATABASE: NexaOneContract
     steps:
+      - name: Require private submodule credential
+        shell: bash
+        env:
+          NEXA_SUBMODULE_TOKEN: ${{ secrets.NEXA_SUBMODULE_TOKEN }}
+        run: |
+          if [[ -z "$NEXA_SUBMODULE_TOKEN" ]]; then
+            echo '::error::Repository secret NEXA_SUBMODULE_TOKEN is required to read the private NexaFramework, NexaDB, and NexusLogic submodules.'
+            exit 1
+          fi
+
       - name: Checkout (with submodules)
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          token: ${{ secrets.NEXA_SUBMODULE_TOKEN }}
+          persist-credentials: false
 
       - name: Setup .NET (global.json)
         uses: actions/setup-dotnet@v4
