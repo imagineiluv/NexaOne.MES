@@ -2,7 +2,7 @@
 
 작성 2026-07-09, 저장소 미러 2026-07-10(클라이언트 진입 경로 반영) — 원본은 옵시디언 볼트(`NexaMes/docs/design/Deployment-Operations.md`)이며
 저장소만 받는 운영자/CI를 위해 여기 미러한다. **갱신 시 볼트와 함께 수정할 것**(비밀값 없음 확인 후 커밋).
-게시 파이프라인은 실검증됨: publish 산출물 단독 부팅 → 9모듈 로드·/health Healthy·로그인 JWT 발급 확인.
+게시 파이프라인은 실검증됨: publish 산출물 단독 부팅 → 11모듈 로드·/health Healthy·로그인 JWT 발급 확인.
 
 ## 1. 게시(Publish)
 
@@ -12,8 +12,8 @@ dotnet publish src/00.Main/NexaOne.Server/NexaOne.Server.csproj -c Release -o <�
 
 - **Portal 클라이언트** 소스는 `src/00.Main/NexaOne.Server/ClientApps/Portal/`이며, `BuildPortalClientBundle` Target이 자동 빌드해 `wwwroot/spa/`로 포함한다(Node.js 필요).
 - `ClientApps/`의 소스·`node_modules`·로컬 빌드 산출물은 게시물에서 제외한다.
-- **모듈 플러그인 9종**은 `Modules/`로 포함된다(`CopyDomainModulePluginsOnPublish` Target).
-- 산출물 필수 구성 확인: `Modules/*.dll 9개`, `wwwroot/spa/`, `wwwroot/fonts/PretendardVariable.woff2`,
+- **모듈 플러그인 11종**은 `Modules/`로 포함된다(`CopyDomainModulePluginsOnPublish` Target).
+- 산출물 필수 구성 확인: `Modules/*.dll 11개`, `wwwroot/spa/`, `wwwroot/fonts/PretendardVariable.woff2`,
   `wwwroot/css/nexaone.css`, `config/`(app.xml·host/·modules/), `db/`(migrations·queries 양 방언).
 - **자동 검증**: `tools/ops/Test-Publish.ps1` — 게시→산출물 구성 검사→단독 부팅→/health→로그인까지 무인 검증.
 
@@ -69,7 +69,7 @@ dotnet NexaOne.Server.dll --urls http://localhost:8080
 ```
 
 기동 확인 체크리스트:
-1. 부팅 로그에 `Service 'Mdm|Est|Fdc|Rms|Qms|Ems|Pom|Shp|Sys' registered` **9건**.
+1. 부팅 로그에 `Service 'Mdm|Est|Fdc|Rms|Qms|Ems|Ivt|Pom|Prc|Shp|Sys' registered` **11건**.
 2. `GET /health` → `Healthy`.
 3. `/login` 렌더 → 관리자 로그인 → 사이드바 메뉴 트리 렌더.
 4. `/Designer` 디자이너 로그인·화면 목록 렌더.
