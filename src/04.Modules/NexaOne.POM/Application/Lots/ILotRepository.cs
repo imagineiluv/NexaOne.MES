@@ -20,7 +20,15 @@ public interface ILotRepository
 public interface IAtomicLotRepository
 {
     Task<LotExecutionRecord?> GetExecutionAsync(string idempotencyKey, CancellationToken ct = default);
-    Task<bool> PersistTransitionAsync(LotTransitionPersistPlan plan, CancellationToken ct = default);
+    Task<LotTransitionPersistResult> PersistTransitionAsync(
+        LotTransitionPersistPlan plan,
+        CancellationToken ct = default);
+}
+
+public enum LotTransitionPersistResult
+{
+    Conflict = 0,
+    Persisted = 1,
 }
 
 /// <summary>라우팅 예외 승인 원장을 조회·추가·상태 변경하는 생산 저장소 기능이다.</summary>
@@ -28,11 +36,19 @@ public interface IRouteExceptionRepository
 {
     Task<RouteExceptionRequest?> GetRouteExceptionAsync(string exceptionId, CancellationToken ct = default);
     Task<IReadOnlyList<RouteExceptionRequest>> GetRouteExceptionsByLotAsync(string lotId, CancellationToken ct = default);
-    Task AddRouteExceptionAsync(RouteExceptionRequest request, CancellationToken ct = default);
+    Task<RouteExceptionAddResult> TryAddRouteExceptionAsync(
+        RouteExceptionRequest request,
+        CancellationToken ct = default);
     Task<bool> UpdateRouteExceptionAsync(
         RouteExceptionRequest request,
         RouteExceptionStatus expectedStatus,
         CancellationToken ct = default);
+}
+
+public enum RouteExceptionAddResult
+{
+    Added = 0,
+    AlreadyExists = 1,
 }
 
 public sealed record LotExecutionRecord(

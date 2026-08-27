@@ -70,6 +70,7 @@ public sealed class EquipmentDirectoryBoundaryTests
 
     [Theory]
     [InlineData("EquipmentDirectoryProxy.cs", "Mdm", "equipmentDirectory")]
+    [InlineData("EquipmentOutputMasterDirectoryProxy.cs", "Mdm", "equipmentOutputMasterDirectory")]
     [InlineData("VendorDirectoryProxy.cs", "Mdm", "vendorDirectory")]
     [InlineData("MaintenanceIdentityDirectoryProxy.cs", "Sys", "maintenanceIdentityDirectory")]
     public void Host_directory_adapters_are_thin_sibling_context_proxies(
@@ -81,9 +82,12 @@ public sealed class EquipmentDirectoryBoundaryTests
             "src", "00.Main", "NexaOne.Server", "Gateway", fileName);
         var source = File.ReadAllText(path);
 
-        source.Should().Contain("GetBean(");
+        source.Should().Contain("ModuleBeanResolver");
+        source.Should().Contain("_resolver.Resolve<");
         source.Should().Contain($"\"{module}\"");
         source.Should().Contain($"\"{beanName}\"");
+        source.Should().NotContain("ApplicationServer.GetInstance");
+        source.Should().NotContain("GetBean(");
         source.Should().NotContain("QueryRepository");
         source.Should().NotContain("EesDataSource");
         source.Should().NotContain("SELECT ");
@@ -95,12 +99,16 @@ public sealed class EquipmentDirectoryBoundaryTests
     {
         var equipment = File.ReadAllText(RepositorySource.GetFile(
             "src", "04.Modules", "NexaOne.MDM", "Infrastructure", "EquipmentDirectory.cs"));
+        var outputScope = File.ReadAllText(RepositorySource.GetFile(
+            "src", "04.Modules", "NexaOne.MDM", "Infrastructure", "EquipmentOutputMasterDirectory.cs"));
         var vendor = File.ReadAllText(RepositorySource.GetFile(
             "src", "04.Modules", "NexaOne.MDM", "Infrastructure", "VendorDirectory.cs"));
         var identity = File.ReadAllText(RepositorySource.GetFile(
             "src", "04.Modules", "NexaOne.SYS", "Infrastructure", "MaintenanceIdentityDirectory.cs"));
 
         equipment.Should().Contain("MDM_EQUIPMENT");
+        outputScope.Should().Contain("MDM_EQUIPMENT");
+        outputScope.Should().Contain("MDM_CARRIER");
         vendor.Should().Contain("MDM_VENDOR");
         identity.Should().Contain("SYS_USER");
         identity.Should().Contain("MDM_WORKER_USER_MAP");
@@ -108,6 +116,7 @@ public sealed class EquipmentDirectoryBoundaryTests
 
     [Theory]
     [InlineData("mdm.xml", "equipmentDirectory", "NexaOne.MDM.Infrastructure.EquipmentDirectory, NexaOne.MDM")]
+    [InlineData("mdm.xml", "equipmentOutputMasterDirectory", "NexaOne.MDM.Infrastructure.EquipmentOutputMasterDirectory, NexaOne.MDM")]
     [InlineData("mdm.xml", "vendorDirectory", "NexaOne.MDM.Infrastructure.VendorDirectory, NexaOne.MDM")]
     [InlineData("sys.xml", "maintenanceIdentityDirectory", "NexaOne.SYS.Infrastructure.MaintenanceIdentityDirectory, NexaOne.SYS")]
     public void Owner_module_xml_registers_each_directory_adapter(
@@ -127,6 +136,7 @@ public sealed class EquipmentDirectoryBoundaryTests
 
     [Theory]
     [InlineData("equipmentDirectory", "NexaOne.Server.Gateway.EquipmentDirectoryProxy, NexaOne.Server")]
+    [InlineData("equipmentOutputMasterDirectory", "NexaOne.Server.Gateway.EquipmentOutputMasterDirectoryProxy, NexaOne.Server")]
     [InlineData("vendorDirectory", "NexaOne.Server.Gateway.VendorDirectoryProxy, NexaOne.Server")]
     [InlineData("maintenanceIdentityDirectory", "NexaOne.Server.Gateway.MaintenanceIdentityDirectoryProxy, NexaOne.Server")]
     public void Parent_context_registers_only_directory_proxies(string beanId, string expectedType)
@@ -141,7 +151,24 @@ public sealed class EquipmentDirectoryBoundaryTests
                                    && (string?)element.Attribute("id") == beanId);
 
             ((string?)bean.Attribute("type")).Should().Be(expectedType);
-            bean.Elements().Should().BeEmpty("parent proxies have no database dependency");
+            var constructor = bean.Elements()
+                .Single(element => element.Name.LocalName == "constructor-arg");
+            ((string?)constructor.Attribute("ref")).Should().Be(
+                "moduleBeanResolver",
+                "parent proxies receive only the typed module resolver and no database dependency");
         }
+    }
+
+    [Fact]
+    public void Equipment_output_master_contract_is_an_MDM_owned_typed_seam()
+    {
+        var path = RepositorySource.GetFile(
+            "src", "02.Backend", "NexaOne.Common", "ServiceContracts", "Mdm",
+            "IEquipmentOutputMasterDirectory.cs");
+        var source = File.ReadAllText(path);
+
+        source.Should().Contain("namespace NexaOne.ServiceContracts.Mdm;");
+        source.Should().Contain("[NexaModuleBridge(\"Mdm\", \"equipmentOutputMasterDirectory\")]");
+        source.Should().Contain("interface IEquipmentOutputMasterDirectory : INexaModuleBridge");
     }
 }

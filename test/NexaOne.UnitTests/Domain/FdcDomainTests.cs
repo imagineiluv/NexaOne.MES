@@ -24,9 +24,28 @@ public sealed class FdcDomainTests
     }
 
     [Fact]
-    public void Create_rule_invalid_action_fails()
+    public void Create_rule_accepts_project_specific_opaque_action_key()
     {
         var result = FdcInterlockRule.Create("RULE001", "규칙", "EQ001", "PARAM001", "GT", 100m, "PAUSE", 1);
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Action.Should().Be("PAUSE");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Create_rule_missing_action_key_fails(string action)
+    {
+        var result = FdcInterlockRule.Create(
+            "RULE001", "규칙", "EQ001", "PARAM001", "GT", 100m, action, 1);
+        result.IsFailure.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Create_rule_action_key_over_storage_limit_fails()
+    {
+        var result = FdcInterlockRule.Create(
+            "RULE001", "규칙", "EQ001", "PARAM001", "GT", 100m, new string('A', 201), 1);
         result.IsFailure.Should().BeTrue();
     }
 

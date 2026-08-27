@@ -23,6 +23,7 @@ public sealed class TraceMaterialConsumptionWorker : BackgroundService
     private readonly bool _enabled;
     private readonly TimeSpan _pollInterval;
     private readonly int _batchSize;
+    internal TimeSpan LeaseReleaseTimeout { get; init; } = TimeSpan.FromSeconds(5);
 
     public TraceMaterialConsumptionWorker(
         TraceIngestionService ingestionService,
@@ -178,7 +179,7 @@ public sealed class TraceMaterialConsumptionWorker : BackgroundService
                         RecipeVersion: feed.RecipeVersion,
                         TraceId: item.CollectId,
                         TagId: item.ParameterId,
-                        OperatorId: "SYSTEM",
+                        OperatorId: feed.MountedBy,
                         CorrelationId: feed.FeedSessionId,
                         MetadataJson: JsonSerializer.Serialize(new
                         {
@@ -221,12 +222,20 @@ public sealed class TraceMaterialConsumptionWorker : BackgroundService
                 .Select(item => (item.BindingId, LeaseOwnerId: item.LeaseOwnerId!))
                 .Distinct()
                 .ToList();
+            using var cleanup = new CancellationTokenSource(LeaseReleaseTimeout);
             foreach (var lease in leases)
             {
+                if (cleanup.IsCancellationRequested) break;
                 try
                 {
                     await _repository.ReleaseLeaseAsync(
-                        lease.BindingId, lease.LeaseOwnerId, CancellationToken.None);
+                        lease.BindingId, lease.LeaseOwnerId, cleanup.Token);
+                }
+                catch (OperationCanceledException) when (cleanup.IsCancellationRequested)
+                {
+                    // Leases have a durable expiry. Host shutdown must not wait one provider
+                    // timeout per binding when best-effort cleanup cannot reach the database.
+                    break;
                 }
                 catch (Exception ex)
                 {

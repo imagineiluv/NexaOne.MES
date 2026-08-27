@@ -11,12 +11,15 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using NexaOne.Infrastructure.Persistence;
+using NexaOne.POM.Application.Mrp;
+using NexaOne.POM.Domain.Mrp;
+using NexaOne.ServiceContracts.Prc;
 using MdmEquipmentDirectory = NexaOne.MDM.Infrastructure.EquipmentDirectory;
 using MdmMrpMasterDirectory = NexaOne.MDM.Infrastructure.MrpMasterDirectory;
 using IvtMrpInventoryDirectory = NexaOne.IVT.Infrastructure.MrpInventoryDirectory;
 using PomLegacySalesOrderMrpProjection = NexaOne.POM.Infrastructure.LegacySalesOrderMrpProjection;
 using PomMrpPlanningRepository = NexaOne.POM.Infrastructure.MrpPlanningRepository;
-using PrcPurchaseOrderPlanningBridge = NexaOne.PRC.Infrastructure.PurchaseOrderPlanningBridge;
+using PrcModule = NexaOne.PRC.Module;
 using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
@@ -178,6 +181,123 @@ public sealed class MrpRunPersistenceTests : IClassFixture<MrpRunPersistenceTest
             .Should().Be("Converted");
     }
 
+    [Fact]
+    public async Task Run_caller_cancellation_is_rethrown_and_run_is_finalized_best_effort()
+    {
+        _ = _factory.CreateClient();
+        using var cancellation = new CancellationTokenSource();
+        var actor = $"cancel-run-{Guid.NewGuid():N}";
+        var dataSource = DataSource();
+        var repository = new PomMrpPlanningRepository(
+            dataSource,
+            new CancelingDemandSource(cancellation),
+            new MdmMrpMasterDirectory(dataSource),
+            new IvtMrpInventoryDirectory(dataSource),
+            new PrcModule(dataSource).GetPurchaseOrderPlanningBridge(),
+            new MdmEquipmentDirectory(dataSource));
+
+        Func<Task> act = () => repository.RunAsync(actor, ct: cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        Scalar<string>(
+                "SELECT STATUS FROM MRP_RUN WHERE EXECUTED_BY=@actor ORDER BY STARTED_AT DESC LIMIT 1",
+                ("@actor", actor))
+            .Should().Be("Failed", "a started run must not remain Running after caller cancellation");
+    }
+
+    [Fact]
+    public async Task Run_finalization_failure_does_not_mask_caller_cancellation()
+    {
+        _ = _factory.CreateClient();
+        using var cancellation = new CancellationTokenSource();
+        var actor = $"cancel-cleanup-{Guid.NewGuid():N}";
+        var trigger = $"TR_MRP_CANCEL_CLEANUP_{Guid.NewGuid():N}";
+        Execute($@"CREATE TRIGGER {trigger} BEFORE UPDATE OF STATUS ON MRP_RUN
+                   WHEN NEW.STATUS = 'Failed' AND NEW.EXECUTED_BY = '{actor}'
+                   BEGIN SELECT RAISE(ABORT, 'forced MRP cleanup failure'); END");
+        var dataSource = DataSource();
+        var repository = new PomMrpPlanningRepository(
+            dataSource,
+            new CancelingDemandSource(cancellation),
+            new MdmMrpMasterDirectory(dataSource),
+            new IvtMrpInventoryDirectory(dataSource),
+            new PrcModule(dataSource).GetPurchaseOrderPlanningBridge(),
+            new MdmEquipmentDirectory(dataSource));
+
+        try
+        {
+            Func<Task> act = () => repository.RunAsync(actor, ct: cancellation.Token);
+            await act.Should().ThrowAsync<OperationCanceledException>(
+                "a cleanup database failure must not replace caller cancellation");
+        }
+        finally
+        {
+            Execute($"DROP TRIGGER IF EXISTS {trigger}");
+        }
+    }
+
+    [Fact]
+    public async Task Convert_caller_cancellation_is_not_translated_to_a_business_result()
+    {
+        _ = _factory.CreateClient();
+        using var cancellation = new CancellationTokenSource();
+        var suffix = Guid.NewGuid().ToString("N")[..12];
+        var runId = $"MRP_CANCEL_{suffix}";
+        var plannedId = $"MRP_PUR_{suffix}";
+        Execute(
+            "INSERT INTO MRP_RUN (RUN_ID, STARTED_AT, FINISHED_AT, STATUS, EXECUTED_BY, CREATED_BY, UPDATED_BY) " +
+            "VALUES (@run, '2030-01-01 00:00:00', '2030-01-01 00:00:01', 'Success', 'TEST', 'TEST', 'TEST')",
+            ("@run", runId));
+        Execute(
+            "INSERT INTO MRP_PLANNED_ORDER " +
+            "(PLANNED_ORDER_ID, RUN_ID, ITEM_ID, ORDER_TYPE, GROSS_QTY, NET_QTY, SUGGESTED_QTY, " +
+            "DUE_DATE, RELEASE_DATE, STATUS, PLANT_ID, CREATED_BY, UPDATED_BY) " +
+            "VALUES (@id, @run, 'MAT01', 'Purchase', 12, 12, 12, '2030-02-01 00:00:00', " +
+            "'2030-01-15 00:00:00', 'Proposed', 'PLANT01', 'TEST', 'TEST')",
+            ("@id", plannedId), ("@run", runId));
+        var dataSource = DataSource();
+        var repository = new PomMrpPlanningRepository(
+            dataSource,
+            new PomLegacySalesOrderMrpProjection(dataSource),
+            new MdmMrpMasterDirectory(dataSource),
+            new IvtMrpInventoryDirectory(dataSource),
+            new CancelingPurchaseOrderBridge(cancellation),
+            new MdmEquipmentDirectory(dataSource));
+
+        Func<Task> act = () => repository.ConvertAsync(
+            runId, new[] { plannedId }, null, "cancel-convert", cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        Scalar<string>("SELECT STATUS FROM MRP_PLANNED_ORDER WHERE PLANNED_ORDER_ID=@id", ("@id", plannedId))
+            .Should().Be("Proposed");
+    }
+
+    private sealed class CancelingDemandSource(CancellationTokenSource cancellation) : IMrpDemandSource
+    {
+        public Task<IReadOnlyList<MrpDemand>> GetOpenDemandsAsync(CancellationToken ct = default)
+        {
+            cancellation.Cancel();
+            ct.ThrowIfCancellationRequested();
+            throw new InvalidOperationException("The cancellation token should have interrupted demand loading.");
+        }
+    }
+
+    private sealed class CancelingPurchaseOrderBridge(CancellationTokenSource cancellation)
+        : IPurchaseOrderPlanningBridge
+    {
+        public Task<IReadOnlyList<MrpPurchaseReceipt>> GetScheduledReceiptsAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<MrpPurchaseReceipt>>([]);
+
+        public Task<PurchaseOrderEnsureResult> EnsureMrpPurchaseOrderAsync(
+            MrpPurchaseOrderRequest request,
+            CancellationToken ct = default)
+        {
+            cancellation.Cancel();
+            ct.ThrowIfCancellationRequested();
+            throw new InvalidOperationException("The cancellation token should have interrupted conversion.");
+        }
+    }
+
     private EesDataSource DataSource() => new()
     {
         Provider = _factory.Services.GetRequiredService<IDatabaseProvider>(),
@@ -192,7 +312,7 @@ public sealed class MrpRunPersistenceTests : IClassFixture<MrpRunPersistenceTest
             new PomLegacySalesOrderMrpProjection(dataSource),
             new MdmMrpMasterDirectory(dataSource),
             new IvtMrpInventoryDirectory(dataSource),
-            new PrcPurchaseOrderPlanningBridge(dataSource),
+            new PrcModule(dataSource).GetPurchaseOrderPlanningBridge(),
             new MdmEquipmentDirectory(dataSource));
     }
 

@@ -10,6 +10,7 @@ public sealed class ServiceObjectProcessor
     private readonly ITransactionManager _txnManager;
     private readonly DatabaseEndpoint _endpoint;
     private readonly string? _currentUserOverride;
+    private readonly int? _commandTimeoutSeconds;
 
     /// <param name="currentUser">감사 사용자 명시 지정(테스트/특수 경로). null이면 요청 앰비언트
     /// (<see cref="CurrentUserContext.UserId"/>)를 호출 시점에 읽고, 그것도 없으면 "SYSTEM"으로 폴백한다.</param>
@@ -18,6 +19,15 @@ public sealed class ServiceObjectProcessor
         _txnManager = dataSource.Provider.TransactionManager;
         _endpoint = dataSource.CreateEndpoint();
         _currentUserOverride = currentUser;
+        _commandTimeoutSeconds = dataSource.QueryGatewayOptions.CommandTimeoutSeconds;
+
+        if (_commandTimeoutSeconds is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(dataSource),
+                _commandTimeoutSeconds,
+                "Command timeout must be greater than zero seconds.");
+        }
     }
 
     // 감사 사용자: 명시 override > 요청 앰비언트(미들웨어 설정) > "SYSTEM"(백그라운드/비인증).
@@ -30,7 +40,7 @@ public sealed class ServiceObjectProcessor
         _txnManager.ExecuteInTransactionAsync(_endpoint, async (conn, txn) =>
         {
             var enriched = InjectAudit(param, isInsert: true);
-            return await conn.ExecuteAsync(sql, enriched, txn).ConfigureAwait(false);
+            return await ExecuteCommandAsync(conn, txn, sql, enriched, ct).ConfigureAwait(false);
         }, IsolationLevel.ReadCommitted, ct);
 
     public Task<int> UpdateAsync(
@@ -40,7 +50,7 @@ public sealed class ServiceObjectProcessor
         _txnManager.ExecuteInTransactionAsync(_endpoint, async (conn, txn) =>
         {
             var enriched = InjectAudit(param, isInsert: false);
-            return await conn.ExecuteAsync(sql, enriched, txn).ConfigureAwait(false);
+            return await ExecuteCommandAsync(conn, txn, sql, enriched, ct).ConfigureAwait(false);
         }, IsolationLevel.ReadCommitted, ct);
 
     public Task<int> DeleteAsync(
@@ -48,7 +58,7 @@ public sealed class ServiceObjectProcessor
         object? param = null,
         CancellationToken ct = default) =>
         _txnManager.ExecuteInTransactionAsync(_endpoint, async (conn, txn) =>
-            await conn.ExecuteAsync(sql, param, txn).ConfigureAwait(false),
+            await ExecuteCommandAsync(conn, txn, sql, param, ct).ConfigureAwait(false),
         IsolationLevel.ReadCommitted, ct);
 
     /// <summary>감사필드 주입 없이 파라미터를 그대로 실행(트랜잭션). capability가 생성한 업서트 SQL +
@@ -60,7 +70,7 @@ public sealed class ServiceObjectProcessor
         object? param = null,
         CancellationToken ct = default) =>
         _txnManager.ExecuteInTransactionAsync(_endpoint, async (conn, txn) =>
-            await conn.ExecuteAsync(sql, param, txn).ConfigureAwait(false),
+            await ExecuteCommandAsync(conn, txn, sql, param, ct).ConfigureAwait(false),
         IsolationLevel.ReadCommitted, ct);
 
     /// <summary>여러 문장을 단일 트랜잭션에서 순서대로 실행한다(감사 미주입 raw). 어느 한 문장이라도
@@ -73,8 +83,27 @@ public sealed class ServiceObjectProcessor
         {
             var total = 0;
             foreach (var (sql, param) in statements)
-                total += await conn.ExecuteAsync(sql, param, txn).ConfigureAwait(false);
+                total += await ExecuteCommandAsync(conn, txn, sql, param, ct).ConfigureAwait(false);
             return total;
+        }, IsolationLevel.ReadCommitted, ct);
+
+    /// <summary>
+    /// 여러 문장을 한 트랜잭션에서 실행하되 문장별 영향 행 수를 보존한다. inbox 행과 그 cursor를
+    /// 같은 원자 배치로 전진시키면서 실제 신규 inbox 행 수만 계산하는 경로처럼, 합계만으로는
+    /// 결과 의미를 구분할 수 없을 때 사용한다.
+    /// </summary>
+    public Task<IReadOnlyList<int>> ExecuteManyWithResultsAsync(
+        CancellationToken ct,
+        params (string Sql, object? Param)[] statements) =>
+        _txnManager.ExecuteInTransactionAsync<IReadOnlyList<int>>(_endpoint, async (conn, txn) =>
+        {
+            var results = new int[statements.Length];
+            for (var i = 0; i < statements.Length; i++)
+            {
+                var (sql, param) = statements[i];
+                results[i] = await ExecuteCommandAsync(conn, txn, sql, param, ct).ConfigureAwait(false);
+            }
+            return results;
         }, IsolationLevel.ReadCommitted, ct);
 
     /// <summary>
@@ -93,7 +122,7 @@ public sealed class ServiceObjectProcessor
             for (var i = 0; i < statements.Length; i++)
             {
                 var (sql, param) = statements[i];
-                var affected = await conn.ExecuteAsync(sql, param, txn).ConfigureAwait(false);
+                var affected = await ExecuteCommandAsync(conn, txn, sql, param, ct).ConfigureAwait(false);
                 if (i == 0 && affected == 0) return false;
                 if (affected != 1)
                     throw new DBConcurrencyException(
@@ -102,6 +131,19 @@ public sealed class ServiceObjectProcessor
             return true;
         }, IsolationLevel.ReadCommitted, ct);
     }
+
+    private Task<int> ExecuteCommandAsync(
+        IDbConnection connection,
+        IDbTransaction transaction,
+        string sql,
+        object? param,
+        CancellationToken ct) =>
+        connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            param,
+            transaction,
+            commandTimeout: _commandTimeoutSeconds,
+            cancellationToken: ct));
 
     private Dictionary<string, object?> InjectAudit(object? param, bool isInsert)
     {

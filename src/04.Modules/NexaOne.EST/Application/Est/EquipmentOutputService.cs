@@ -2,6 +2,7 @@ using NexaOne.Application.Auditing;
 using NexaOne.Application.Idempotency;
 using NexaOne.Common;
 using NexaOne.ServiceContracts.Est;
+using NexaOne.ServiceContracts.Mdm;
 
 namespace NexaOne.EST.Application.Est;
 

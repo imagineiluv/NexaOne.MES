@@ -679,7 +679,9 @@ internal sealed class NexaOneMesRuntimeState : IDisposable
         }
 
         temporaryConfigPath = patchedPath;
-        Console.WriteLine($"[NexaOne.Server] SQLite 통일 — eesDataSource를 게이트웨이 DB로 재지정({gatewayConnection}).");
+        // Connection strings can contain credentials and absolute host paths. Never emit the raw
+        // value; successful unification is sufficient operational evidence.
+        Console.WriteLine("[NexaOne.Server] SQLite 통일 — eesDataSource를 구성된 게이트웨이 DB로 재지정했습니다.");
         return patchedPath;
     }
 

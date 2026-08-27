@@ -1,4 +1,3 @@
-using NexaFramework;
 using NexaOne.ServiceContracts.Fdc;
 
 namespace NexaOne.Server.Gateway;
@@ -9,19 +8,17 @@ namespace NexaOne.Server.Gateway;
 /// </summary>
 public sealed class FdcTraceSourceProxy : IFdcTraceSource
 {
+    private readonly ModuleBeanResolver _resolver;
+
+    public FdcTraceSourceProxy(ModuleBeanResolver resolver)
+        => _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
+
     public Task<IReadOnlyList<FdcTraceSample>> ReadAsync(
         IReadOnlyCollection<FdcTraceReadScope> scopes,
         int maxCount,
         CancellationToken ct = default)
     {
-        var bean = ApplicationServer.GetInstance().GetBean("Fdc", "fdcTraceSource");
-        if (bean is not IFdcTraceSource source)
-        {
-            throw new InvalidOperationException(
-                $"Module bridge bean 'Fdc/fdcTraceSource' is '{bean.GetType().FullName}', "
-                + $"not '{typeof(IFdcTraceSource).FullName}'.");
-        }
-
-        return source.ReadAsync(scopes, maxCount, ct);
+        return _resolver.Resolve<IFdcTraceSource>("Fdc", "fdcTraceSource")
+            .ReadAsync(scopes, maxCount, ct);
     }
 }

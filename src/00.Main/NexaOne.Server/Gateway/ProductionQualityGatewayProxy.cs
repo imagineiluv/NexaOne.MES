@@ -1,5 +1,4 @@
 using NexaOne.ServiceContracts.Qms;
-using NexaFramework;
 
 namespace NexaOne.Server.Gateway;
 
@@ -9,22 +8,19 @@ namespace NexaOne.Server.Gateway;
 /// </summary>
 public sealed class ProductionQualityGatewayProxy : IProductionQualityGateway
 {
+    private readonly ModuleBeanResolver _resolver;
+
+    public ProductionQualityGatewayProxy(ModuleBeanResolver resolver)
+        => _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
+
     public Task<ProductionQualityGateResult> EvaluateAsync(
         string lotId,
         string processId,
         string? workOrderId,
         CancellationToken ct = default)
     {
-        var bean = ApplicationServer.GetInstance().GetBean(
-            "Qms",
-            "qmsProductionQualityGateway");
-        if (bean is not IProductionQualityGateway gateway)
-        {
-            throw new InvalidOperationException(
-                $"Module bridge bean 'Qms/qmsProductionQualityGateway' is "
-                + $"'{bean.GetType().FullName}', not '{typeof(IProductionQualityGateway).FullName}'.");
-        }
-
-        return gateway.EvaluateAsync(lotId, processId, workOrderId, ct);
+        return _resolver.Resolve<IProductionQualityGateway>(
+                "Qms", "qmsProductionQualityGateway")
+            .EvaluateAsync(lotId, processId, workOrderId, ct);
     }
 }

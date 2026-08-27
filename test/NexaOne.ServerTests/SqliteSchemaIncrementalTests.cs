@@ -840,15 +840,35 @@ public sealed class SqliteSchemaIncrementalTests
             SqliteSchemaInitializer.Apply(cs);
             if (incremental)
             {
-                // Simulate a database that stopped at V128: remove V129/V130 indexes, restore the
-                // old V114 work definition, and restore V115's redundant checklist index.
                 ExecSql(cs, """
-                    DROP INDEX IX_IVT_TRACE_INBOX_BINDING_CURSOR;
-                    DROP INDEX IX_IVT_TRACE_INBOX_WORK;
+                    INSERT INTO IVT_TRACE_CONSUMPTION_BINDING
+                        (BINDING_ID, PLANT_ID, EQUIPMENT_ID, PARAMETER_ID, FEED_POINT_ID,
+                         CALCULATION_MODE, SCALE_FACTOR, OUTPUT_UNIT)
+                    VALUES ('B_CURSOR', 'P1', 'EQ1', 'FLOW', 'FEED1', 'Direct', 1, 'L');
+                    INSERT INTO IVT_TRACE_PROJECTION_INBOX
+                        (BINDING_ID, COLLECT_ID, PLANT_ID, EQUIPMENT_ID, PARAMETER_ID,
+                         FEED_POINT_ID, CALCULATION_MODE, SCALE_FACTOR, OUTPUT_UNIT,
+                         RAW_VALUE, QUALITY, COLLECTED_AT, STATUS)
+                    VALUES
+                        ('B_CURSOR', 'C1', 'P1', 'EQ1', 'FLOW', 'FEED1', 'Direct', 1, 'L', 1, 'Good', '2030-01-01 00:00:00', 'Pending'),
+                        ('B_CURSOR', 'C2', 'P1', 'EQ1', 'FLOW', 'FEED1', 'Direct', 1, 'L', 2, 'Good', '2030-01-01 00:01:00', 'Ignored'),
+                        ('B_CURSOR', 'C3', 'P1', 'EQ1', 'FLOW', 'FEED1', 'Direct', 1, 'L', 3, 'Good', '2030-01-01 00:01:00', 'Applied');
+                    """);
+                // Simulate a pre-V142 database: remove the durable cursor/new filtered work path,
+                // including the work-set column, restore the old inbox-derived indexes, and restore
+                // V115's redundant checklist.
+                ExecSql(cs, """
+                    DROP INDEX IX_IVT_TRACE_INBOX_READY;
+                    DROP TABLE IVT_TRACE_INGESTION_CURSOR;
+                    ALTER TABLE IVT_TRACE_PROJECTION_INBOX DROP COLUMN IS_WORK_ITEM;
+                    CREATE INDEX IX_IVT_TRACE_INBOX_BINDING_CURSOR
+                        ON IVT_TRACE_PROJECTION_INBOX
+                           (BINDING_ID, COLLECTED_AT DESC, COLLECT_ID DESC);
                     CREATE INDEX IX_IVT_TRACE_INBOX_WORK
                         ON IVT_TRACE_PROJECTION_INBOX (STATUS, COLLECTED_AT, BINDING_ID);
                     DROP INDEX IX_EMS_TOOL_USAGE_MOUNT;
                     DROP INDEX IX_EMS_WO_EQUIPMENT_ISSUED;
+                    DROP INDEX IX_EMS_WO_ISSUED;
                     CREATE INDEX IX_EMS_WORK_ORDER_CHECK_RESULT_WO
                         ON EMS_WORK_ORDER_CHECK_RESULT (WO_ID, ITEM_SEQUENCE);
                     """);
@@ -857,14 +877,33 @@ public sealed class SqliteSchemaIncrementalTests
                 SqliteSchemaInitializer.EnsureSchema(cs);
             }
 
-            IndexKeys(cs, "IX_IVT_TRACE_INBOX_BINDING_CURSOR").Should().Equal(
-                "BINDING_ID:ASC", "COLLECTED_AT:DESC", "COLLECT_ID:DESC");
-            IndexKeys(cs, "IX_IVT_TRACE_INBOX_WORK").Should().Equal(
-                "STATUS:ASC", "COLLECTED_AT:ASC", "COLLECT_ID:ASC", "BINDING_ID:ASC");
+            TableExists(cs, "IVT_TRACE_INGESTION_CURSOR").Should().BeTrue();
+            if (incremental)
+            {
+                using var cursorConnection = new SqliteConnection(cs);
+                cursorConnection.Open();
+                Scalar(cursorConnection, "SELECT LAST_COLLECT_ID FROM IVT_TRACE_INGESTION_CURSOR WHERE BINDING_ID='B_CURSOR'")
+                    .Should().Be("C3", "the latest timestamp and collect-id tie-breaker define the restart cursor");
+                Scalar(cursorConnection, "SELECT IS_WORK_ITEM FROM IVT_TRACE_PROJECTION_INBOX WHERE COLLECT_ID='C1'")
+                    .Should().Be("1");
+                Scalar(cursorConnection, "SELECT IS_WORK_ITEM FROM IVT_TRACE_PROJECTION_INBOX WHERE COLLECT_ID='C2'")
+                    .Should().Be("0");
+                Scalar(cursorConnection, "SELECT IS_WORK_ITEM FROM IVT_TRACE_PROJECTION_INBOX WHERE COLLECT_ID='C3'")
+                    .Should().Be("0");
+            }
+            Columns(cs, "IVT_TRACE_PROJECTION_INBOX").Should().Contain("IS_WORK_ITEM");
+            IndexExists(cs, "IX_IVT_TRACE_INBOX_BINDING_CURSOR").Should().BeFalse();
+            IndexExists(cs, "IX_IVT_TRACE_INBOX_WORK").Should().BeFalse();
+            IndexKeys(cs, "IX_IVT_TRACE_INBOX_READY").Should().Equal(
+                "COLLECTED_AT:ASC", "COLLECT_ID:ASC", "BINDING_ID:ASC");
+            IndexSql(cs, "IX_IVT_TRACE_INBOX_READY")
+                .Should().Contain("WHERE IS_WORK_ITEM = 1");
             IndexKeys(cs, "IX_EMS_TOOL_USAGE_MOUNT").Should().Equal(
                 "MOUNT_ID:ASC", "USED_AT:DESC");
             IndexKeys(cs, "IX_EMS_WO_EQUIPMENT_ISSUED").Should().Equal(
                 "EQUIPMENT_ID:ASC", "ISSUED_AT:DESC");
+            IndexKeys(cs, "IX_EMS_WO_ISSUED").Should().Equal(
+                "ISSUED_AT:DESC", "WO_ID:DESC");
 
             IndexExists(cs, "IX_EMS_WORK_ORDER_CHECK_RESULT_WO").Should().BeFalse(
                 "UQ_EMS_WORK_ORDER_CHECK_SEQUENCE already provides this exact access path");
@@ -872,15 +911,35 @@ public sealed class SqliteSchemaIncrementalTests
                 .Should().Be(1, "removing the explicit duplicate must preserve the UNIQUE constraint index");
 
             QueryPlan(cs, """
-                SELECT COLLECT_ID FROM IVT_TRACE_PROJECTION_INBOX
-                WHERE BINDING_ID='B1'
-                ORDER BY COLLECTED_AT DESC, COLLECT_ID DESC LIMIT 1
-                """).Should().Contain("IX_IVT_TRACE_INBOX_BINDING_CURSOR");
+                SELECT B.BINDING_ID, C.LAST_COLLECT_ID, C.LAST_COLLECTED_AT
+                FROM IVT_TRACE_CONSUMPTION_BINDING B
+                LEFT JOIN IVT_TRACE_INGESTION_CURSOR C ON C.BINDING_ID=B.BINDING_ID
+                WHERE B.IS_ACTIVE=1
+                """).Should().Contain("sqlite_autoindex_IVT_TRACE_INGESTION_CURSOR_1",
+                    "source progress must be read from one PK row per binding, not the inbox");
             QueryPlan(cs, """
                 SELECT BINDING_ID, COLLECT_ID FROM IVT_TRACE_PROJECTION_INBOX
-                WHERE STATUS='Pending'
+                WHERE IS_WORK_ITEM=1 AND STATUS IN ('Pending', 'Error')
                 ORDER BY COLLECTED_AT, COLLECT_ID, BINDING_ID LIMIT 100
-                """).Should().Contain("IX_IVT_TRACE_INBOX_WORK");
+                """).Should().Contain("IX_IVT_TRACE_INBOX_READY");
+            IndexKeys(cs, "IX_FDC_INTERLOCK_OPEN_EQUIPMENT_PARAMETER").Should().Equal(
+                "EQUIPMENT_ID:ASC", "PARAMETER_ID:ASC", "TRIGGERED_AT:DESC");
+            IndexSql(cs, "IX_FDC_INTERLOCK_OPEN_EQUIPMENT_PARAMETER")
+                .Should().Contain("WHERE IS_RESOLVED = 0");
+            IndexKeys(cs, "IX_FDC_ALARM_OPEN_EQUIPMENT_PARAMETER").Should().Equal(
+                "EQUIPMENT_ID:ASC", "PARAMETER_ID:ASC", "OCCURRED_AT:DESC");
+            IndexSql(cs, "IX_FDC_ALARM_OPEN_EQUIPMENT_PARAMETER")
+                .Should().Contain("WHERE IS_CLEARED = 0");
+            QueryPlan(cs, """
+                SELECT HISTORY_ID FROM FDC_INTERLOCK_HISTORY
+                WHERE EQUIPMENT_ID='EQ1' AND PARAMETER_ID='P1' AND IS_RESOLVED=0
+                ORDER BY TRIGGERED_AT DESC
+                """).Should().Contain("IX_FDC_INTERLOCK_OPEN_EQUIPMENT_PARAMETER");
+            QueryPlan(cs, """
+                SELECT ALARM_ID FROM FDC_ALARM_HISTORY
+                WHERE EQUIPMENT_ID='EQ1' AND PARAMETER_ID='P1' AND IS_CLEARED=0
+                ORDER BY OCCURRED_AT DESC
+                """).Should().Contain("IX_FDC_ALARM_OPEN_EQUIPMENT_PARAMETER");
             QueryPlan(cs, """
                 SELECT MAX(USED_AT) FROM EMS_TOOL_USAGE_HISTORY WHERE MOUNT_ID='M1'
                 """).Should().Contain("IX_EMS_TOOL_USAGE_MOUNT");
@@ -889,6 +948,13 @@ public sealed class SqliteSchemaIncrementalTests
                 WHERE EQUIPMENT_ID='EQ1' AND ISSUED_AT >= '2025-01-01'
                 ORDER BY ISSUED_AT DESC
                 """).Should().Contain("IX_EMS_WO_EQUIPMENT_ISSUED");
+            var emsWorkOrderListSql = NamedQuerySql("sqlite", "EMS", "EMS.WorkOrderList")
+                .Replace("@equipmentId", "NULL", StringComparison.Ordinal)
+                .Replace("@status", "NULL", StringComparison.Ordinal);
+            emsWorkOrderListSql.Should().Contain("ORDER BY ISSUED_AT DESC, WO_ID DESC");
+            emsWorkOrderListSql.Should().Contain("LIMIT 500");
+            QueryPlan(cs, emsWorkOrderListSql).Should().Contain("IX_EMS_WO_ISSUED",
+                "the unfiltered named query must scan only the newest bounded work-order path");
         }
         finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
     }
@@ -923,8 +989,15 @@ public sealed class SqliteSchemaIncrementalTests
                     DROP INDEX IX_POM_LOT_PLANT_CREATED;
                     CREATE INDEX IX_POM_LOT_PLANT_CREATED
                         ON POM_LOT (PLANT_ID, LOT_ID);
+                    DROP INDEX IX_POM_LOT_CREATED;
+                    CREATE INDEX IX_POM_LOT_CREATED
+                        ON POM_LOT (LOT_ID, CREATED_AT);
+                    DROP INDEX IX_POM_LOT_HOLD_CREATED;
+                    DROP INDEX IX_POM_LOT_DEFECT_QTY;
+                    DROP INDEX IX_POM_WORK_ORDER_PLAN_START;
                     DROP INDEX IX_POM_LOT_DISPOSITION_PLANT_DATE;
-                    DROP INDEX IX_POM_LOT_MIXING_OUTPUT;
+                    CREATE INDEX IX_POM_LOT_MIXING_OUTPUT
+                        ON POM_LOT_MIXING_RELATION (PLANT_ID, OUTPUT_LOT_ID, INPUT_LOT_ID);
                     """);
 
                 SqliteSchemaInitializer.EnsureSchema(cs);
@@ -953,10 +1026,22 @@ public sealed class SqliteSchemaIncrementalTests
 
             IndexKeys(cs, "IX_POM_LOT_PLANT_CREATED").Should().Equal(
                 "PLANT_ID:ASC", "CREATED_AT:DESC", "LOT_ID:ASC");
+            IndexKeys(cs, "IX_POM_LOT_CREATED").Should().Equal(
+                "CREATED_AT:DESC", "LOT_ID:ASC");
+            IndexKeys(cs, "IX_POM_LOT_HOLD_CREATED").Should().Equal(
+                "CREATED_AT:DESC", "LOT_ID:ASC");
+            IndexSql(cs, "IX_POM_LOT_HOLD_CREATED").Should().Contain("WHERE IS_HOLD = 'Y'");
+            IndexKeys(cs, "IX_POM_LOT_DEFECT_QTY").Should().Equal(
+                "DEFECT_QTY:DESC", "CREATED_AT:DESC", "LOT_ID:ASC");
+            IndexSql(cs, "IX_POM_LOT_DEFECT_QTY").Should().Contain("WHERE DEFECT_QTY > 0");
+            IndexKeys(cs, "IX_POM_WORK_ORDER_PLAN_START").Should().Equal(
+                "PLAN_START_DATE:DESC", "WORK_ORDER_ID:ASC");
             IndexKeys(cs, "IX_POM_LOT_DISPOSITION_PLANT_DATE").Should().Equal(
                 "PLANT_ID:ASC", "DECIDED_AT:DESC", "DISPOSITION_ID:DESC");
-            IndexKeys(cs, "IX_POM_LOT_MIXING_OUTPUT").Should().Equal(
-                "PLANT_ID:ASC", "OUTPUT_LOT_ID:ASC", "INPUT_LOT_ID:ASC");
+            IndexExists(cs, "IX_POM_LOT_MIXING_OUTPUT").Should().BeFalse(
+                "the POM mixing primary key already owns this exact access path");
+            CountIndexesWithKeys(cs, "POM_LOT_MIXING_RELATION",
+                "PLANT_ID", "OUTPUT_LOT_ID", "INPUT_LOT_ID").Should().Be(1);
 
             // Material trace already has one narrow time-ordered path per selectable owner;
             // keep those V109 indexes instead of adding another overlapping write cost.
@@ -1023,16 +1108,36 @@ public sealed class SqliteSchemaIncrementalTests
                 SELECT LOT_ID FROM POM_LOT
                 WHERE PLANT_ID='P1' ORDER BY CREATED_AT DESC LIMIT 500
                 """).Should().Contain("IX_POM_LOT_PLANT_CREATED");
+            var lotListSql = NamedQuerySql("sqlite", "POM", "POM.LotList")
+                .Replace("@plantId", "NULL", StringComparison.Ordinal)
+                .Replace("@lotState", "NULL", StringComparison.Ordinal)
+                .Replace("@isHold", "NULL", StringComparison.Ordinal);
+            QueryPlan(cs, lotListSql).Should().Contain("IX_POM_LOT_CREATED");
+            QueryPlan(cs, NamedQuerySql("sqlite", "POM", "POM.LotHoldList"))
+                .Should().Contain("IX_POM_LOT_HOLD_CREATED");
+            QueryPlan(cs, NamedQuerySql("sqlite", "POM", "POM.LotDefectList"))
+                .Should().Contain("IX_POM_LOT_DEFECT_QTY");
+            var workOrderListSql = NamedQuerySql("sqlite", "POM", "POM.WorkOrderList")
+                .Replace("@plantId", "NULL", StringComparison.Ordinal)
+                .Replace("@workOrderId", "NULL", StringComparison.Ordinal)
+                .Replace("@productionOrderId", "NULL", StringComparison.Ordinal)
+                .Replace("@routingScope", "NULL", StringComparison.Ordinal)
+                .Replace("@processId", "NULL", StringComparison.Ordinal)
+                .Replace("@equipmentId", "NULL", StringComparison.Ordinal)
+                .Replace("@ownerId", "NULL", StringComparison.Ordinal)
+                .Replace("@status", "NULL", StringComparison.Ordinal);
+            QueryPlan(cs, workOrderListSql).Should().Contain("IX_POM_WORK_ORDER_PLAN_START");
             QueryPlan(cs, """
                 SELECT DISPOSITION_ID FROM POM_LOT_DISPOSITION
                 WHERE PLANT_ID='P1' AND DECIDED_AT >= '2025-01-01'
                 ORDER BY DECIDED_AT DESC, DISPOSITION_ID DESC LIMIT 500
                 """).Should().Contain("IX_POM_LOT_DISPOSITION_PLANT_DATE");
-            QueryPlan(cs, """
+            var mixingPlan = QueryPlan(cs, """
                 SELECT INPUT_LOT_ID FROM POM_LOT_MIXING_RELATION
                 WHERE PLANT_ID='P1' AND OUTPUT_LOT_ID='OUT1'
                 ORDER BY INPUT_LOT_ID
-                """).Should().Contain("IX_POM_LOT_MIXING_OUTPUT");
+                """);
+            mixingPlan.Should().Contain("sqlite_autoindex_POM_LOT_MIXING_RELATION_1");
             QueryPlan(cs, """
                 SELECT CONSUMPTION_ID FROM IVT_MATERIAL_CONSUMPTION_HISTORY
                 WHERE MATERIAL_LOT_ID='MAT1' AND OCCURRED_AT >= '2025-01-01'
@@ -1721,7 +1826,31 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
-    public void V121_through_v140_migrations_keep_unique_numeric_versions_and_module_owned_names()
+    public void Dashboard_lot_and_work_order_queries_are_bounded_and_deterministic_in_both_dialects()
+    {
+        var contracts = new[]
+        {
+            (Module: "POM", QueryId: "POM.LotList", Order: "ORDER BY CREATED_AT DESC, LOT_ID"),
+            (Module: "POM", QueryId: "POM.LotHoldList", Order: "ORDER BY CREATED_AT DESC, LOT_ID"),
+            (Module: "POM", QueryId: "POM.LotDefectList", Order: "ORDER BY DEFECT_QTY DESC, CREATED_AT DESC, LOT_ID"),
+            (Module: "POM", QueryId: "POM.WorkOrderList", Order: "ORDER BY PLAN_START_DATE DESC, WORK_ORDER_ID"),
+            (Module: "EMS", QueryId: "EMS.WorkOrderList", Order: "ORDER BY ISSUED_AT DESC, WO_ID DESC"),
+        };
+
+        foreach (var contract in contracts)
+        {
+            var sqlite = NamedQuerySql("sqlite", contract.Module, contract.QueryId);
+            var mssql = NamedQuerySql("mssql", contract.Module, contract.QueryId);
+
+            sqlite.Should().Contain(contract.Order);
+            sqlite.Should().Contain("LIMIT 500");
+            mssql.Should().Contain(contract.Order);
+            mssql.Should().Contain("SELECT TOP 500");
+        }
+    }
+
+    [Fact]
+    public void V121_through_v142_migrations_keep_unique_numeric_versions_and_module_owned_names()
     {
         var migrationDirectory = Path.GetDirectoryName(RepositorySource.GetFile(
             "src", "00.Main", "NexaOne.Server", "config", "db", "migrations",
@@ -1748,6 +1877,8 @@ public sealed class SqliteSchemaIncrementalTests
             [138] = ("V138__EMS_TOOL_MASTER_CONCURRENCY.sql", "EMS"),
             [139] = ("V139__EMS_SPARE_MASTER_COMMAND_LEDGER.sql", "EMS"),
             [140] = ("V140__EMS_WORK_ORDER_CREATE_COMMAND.sql", "EMS"),
+            [141] = ("V141__FDC_OPEN_STATE_RECOVERY_INDEXES.sql", "FDC"),
+            [142] = ("V142__IVT_TRACE_INGESTION_CURSOR.sql", "IVT"),
         };
         var recentFiles = Directory.EnumerateFiles(migrationDirectory, "V*.sql")
             .Select(Path.GetFileName)
@@ -1755,7 +1886,7 @@ public sealed class SqliteSchemaIncrementalTests
             .Select(name => (Name: name!, Match: Regex.Match(name!, @"^V(?<version>[0-9]{3})__")))
             .Where(item => item.Match.Success)
             .Select(item => (item.Name, Version: int.Parse(item.Match.Groups["version"].Value)))
-            .Where(item => item.Version is >= 121 and <= 140)
+            .Where(item => item.Version is >= 121 and <= 142)
             .ToArray();
 
         recentFiles.GroupBy(item => item.Version).Should().OnlyContain(group => group.Count() == 1);

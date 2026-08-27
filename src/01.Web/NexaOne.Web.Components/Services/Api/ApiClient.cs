@@ -1103,14 +1103,8 @@ public sealed class ApiClient : IApiClient
     public Task<(LotDto? Lot, string? Error)> MixingTrackInOutAsync(object req, CancellationToken ct = default)
         => PostWithErrorAsync<LotDto>("api/v1/pom/lots/mixing/track-in-out", req, ct);
 
-    public Task<bool> HoldLotAsync(string lotId, CancellationToken ct = default)
-        => HoldLotAsync(lotId, new PomLotHoldRequest(), ct);
-
     public Task<bool> HoldLotAsync(string lotId, PomLotHoldRequest request, CancellationToken ct = default)
         => PostForStatusAsync(PomLotHoldUri(lotId, "hold", request), null, ct);
-
-    public Task<bool> ReleaseLotHoldAsync(string lotId, CancellationToken ct = default)
-        => ReleaseLotHoldAsync(lotId, new PomLotHoldRequest(), ct);
 
     public Task<bool> ReleaseLotHoldAsync(string lotId, PomLotHoldRequest request, CancellationToken ct = default)
         => PostForStatusAsync(PomLotHoldUri(lotId, "release", request), null, ct);
@@ -1120,11 +1114,9 @@ public sealed class ApiClient : IApiClient
         var query = new List<string>
         {
             $"clientChannel={Uri.EscapeDataString(request.ClientChannel)}",
+            $"expectedVersion={request.ExpectedVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
+            $"idempotencyKey={Uri.EscapeDataString(request.IdempotencyKey)}",
         };
-        if (request.ExpectedVersion is int version)
-            query.Add($"expectedVersion={version.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
-        if (!string.IsNullOrWhiteSpace(request.IdempotencyKey))
-            query.Add($"idempotencyKey={Uri.EscapeDataString(request.IdempotencyKey)}");
         if (!string.IsNullOrWhiteSpace(request.Reason))
             query.Add($"reason={Uri.EscapeDataString(request.Reason)}");
         if (!string.IsNullOrWhiteSpace(request.DeviceId))

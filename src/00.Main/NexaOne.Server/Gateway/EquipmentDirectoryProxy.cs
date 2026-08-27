@@ -1,4 +1,3 @@
-using NexaFramework;
 using NexaOne.ServiceContracts.Mdm;
 
 namespace NexaOne.Server.Gateway;
@@ -9,6 +8,11 @@ namespace NexaOne.Server.Gateway;
 /// </summary>
 public sealed class EquipmentDirectoryProxy : IEquipmentDirectory
 {
+    private readonly ModuleBeanResolver _resolver;
+
+    public EquipmentDirectoryProxy(ModuleBeanResolver resolver)
+        => _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
+
     public Task<IReadOnlyList<string>> GetEquipmentIdsByPlantAsync(
         string plantId,
         CancellationToken ct = default)
@@ -24,10 +28,6 @@ public sealed class EquipmentDirectoryProxy : IEquipmentDirectory
         CancellationToken ct = default)
         => Resolve().EquipmentClassExistsAsync(equipmentClassId, ct);
 
-    private static IEquipmentDirectory Resolve()
-    {
-        var bean = ApplicationServer.GetInstance().GetBean("Mdm", "equipmentDirectory");
-        return bean as IEquipmentDirectory
-            ?? throw ModuleProxy.TypeMismatch<IEquipmentDirectory>("Mdm", "equipmentDirectory", bean);
-    }
+    private IEquipmentDirectory Resolve() =>
+        _resolver.Resolve<IEquipmentDirectory>("Mdm", "equipmentDirectory");
 }

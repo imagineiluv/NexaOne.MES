@@ -1,3 +1,6 @@
+using System.Data;
+using System.Data.Common;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using NexaOne.Common;
 using NexaOne.Infrastructure.Persistence;
@@ -199,7 +202,9 @@ public sealed class LotRepository : QueryRepository, ILotRepository, IAtomicLotR
          @GoodQty, @DefectQty, @UserId, @EquipmentId, @ClientChannel, @DeviceId,
          @OccurredAt, @Remark, @ExpectedVersion, @ResultVersion, @UserId, @OccurredAt)";
 
-    public async Task<bool> PersistTransitionAsync(LotTransitionPersistPlan plan, CancellationToken ct = default)
+    public async Task<LotTransitionPersistResult> PersistTransitionAsync(
+        LotTransitionPersistPlan plan,
+        CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
         var user = string.IsNullOrWhiteSpace(plan.Histories.FirstOrDefault()?.ExecutionUser)
@@ -302,13 +307,60 @@ public sealed class LotRepository : QueryRepository, ILotRepository, IAtomicLotR
         if (_outboxEnabled)
             statements.AddRange(OutboxStatements.For(plan.Lot.DomainEvents.OfType<IOutboxEvent>(), user, now));
 
-        var persisted = await _processor.ExecuteGuardedManyAsync(ct, statements.ToArray());
-        if (!persisted) return false;
+        bool persisted;
+        try
+        {
+            persisted = await _processor.ExecuteGuardedManyAsync(ct, statements.ToArray());
+        }
+        catch (DBConcurrencyException)
+        {
+            // The first LOT guard returns false; later guards report the same optimistic race as
+            // DBConcurrencyException. Normalize both repository-internal signals at this boundary.
+            return LotTransitionPersistResult.Conflict;
+        }
+        catch (DbException exception) when (IsLotTransitionIdempotencyRace(exception))
+        {
+            // A concurrent request can pass the pre-read and then lose either append-only
+            // idempotency constraint. Only those two known unique keys are a semantic conflict;
+            // foreign-key, check, trigger and connectivity faults must still escape unchanged.
+            return LotTransitionPersistResult.Conflict;
+        }
+        if (!persisted) return LotTransitionPersistResult.Conflict;
 
         plan.Lot.AcceptPersistedVersion();
         plan.WorkOrder?.AcceptPersistedVersion();
         plan.Lot.ClearDomainEvents();
-        return true;
+        return LotTransitionPersistResult.Persisted;
+    }
+
+    private static bool IsLotTransitionIdempotencyRace(DbException exception)
+    {
+        var uniqueViolation = exception switch
+        {
+            SqliteException sqlite => sqlite.SqliteErrorCode == 19
+                                      && sqlite.SqliteExtendedErrorCode is 1555 or 2067,
+            _ when string.Equals(
+                    exception.GetType().FullName,
+                    "Microsoft.Data.SqlClient.SqlException",
+                    StringComparison.Ordinal)
+                => exception.GetType().GetProperty("Number")?.GetValue(exception) is int number
+                   && number is 2601 or 2627,
+            _ => false,
+        };
+        if (!uniqueViolation) return false;
+
+        return exception.Message.Contains(
+                   "UX_POM_LOT_HISTORY_IDEMPOTENCY",
+                   StringComparison.OrdinalIgnoreCase)
+               || exception.Message.Contains(
+                   "POM_LOT_HISTORY.IDEMPOTENCY_KEY",
+                   StringComparison.OrdinalIgnoreCase)
+               || exception.Message.Contains(
+                   "UQ_POM_LOT_EXECUTION_KEY",
+                   StringComparison.OrdinalIgnoreCase)
+               || exception.Message.Contains(
+                   "POM_LOT_EXECUTION.IDEMPOTENCY_KEY",
+                   StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ValidateDefectExecutions(
@@ -379,8 +431,48 @@ public sealed class LotRepository : QueryRepository, ILotRepository, IAtomicLotR
     }
 
     /// <summary>새 라우팅 예외 요청을 append-only 원장에 추가한다.</summary>
-    public Task AddRouteExceptionAsync(RouteExceptionRequest request, CancellationToken ct = default)
-        => _processor.InsertAsync(InsertRouteExceptionSql, RouteExceptionRow.FromDomain(request), ct);
+    public async Task<RouteExceptionAddResult> TryAddRouteExceptionAsync(
+        RouteExceptionRequest request,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var affected = await _processor.InsertAsync(
+                InsertRouteExceptionSql, RouteExceptionRow.FromDomain(request), ct);
+            if (affected != 1)
+                throw new InvalidOperationException(
+                    $"Route exception insert affected {affected} rows; expected exactly one.");
+            return RouteExceptionAddResult.Added;
+        }
+        catch (DbException exception) when (IsRouteExceptionIdentityRace(exception))
+        {
+            return RouteExceptionAddResult.AlreadyExists;
+        }
+    }
+
+    private static bool IsRouteExceptionIdentityRace(DbException exception)
+    {
+        var uniqueViolation = exception switch
+        {
+            SqliteException sqlite => sqlite.SqliteErrorCode == 19
+                                      && sqlite.SqliteExtendedErrorCode is 1555 or 2067,
+            _ when string.Equals(
+                    exception.GetType().FullName,
+                    "Microsoft.Data.SqlClient.SqlException",
+                    StringComparison.Ordinal)
+                => exception.GetType().GetProperty("Number")?.GetValue(exception) is int number
+                   && number is 2601 or 2627,
+            _ => false,
+        };
+        if (!uniqueViolation) return false;
+
+        return exception.Message.Contains(
+                   "PK_POM_ROUTE_EXCEPTION",
+                   StringComparison.OrdinalIgnoreCase)
+               || exception.Message.Contains(
+                   "POM_ROUTE_EXCEPTION.EXCEPTION_ID",
+                   StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>예상 상태가 일치할 때만 승인·반려·적용 상태를 변경한다.</summary>
     public async Task<bool> UpdateRouteExceptionAsync(

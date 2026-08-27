@@ -54,6 +54,10 @@ jobs:
         working-directory: src/00.Main/NexaOne.Server/ClientApps/Portal
         run: npm test
 
+      - name: Audit Portal production dependencies
+        working-directory: src/00.Main/NexaOne.Server/ClientApps/Portal
+        run: npm audit --audit-level=moderate
+
       - name: Build Portal client (typecheck + bundle)
         working-directory: src/00.Main/NexaOne.Server/ClientApps/Portal
         run: npm run build
@@ -62,7 +66,7 @@ jobs:
         run: dotnet restore NexaOne.sln
 
       - name: Build (Release)
-        run: dotnet build NexaOne.sln --configuration Release --no-restore
+        run: dotnet build NexaOne.sln --configuration Release --no-restore --warnaserror
 
       - name: Test (unit + server on SQLite) (+ coverage)
         run: >
@@ -134,7 +138,7 @@ jobs:
       - name: Build MSSQL contract tests
         run: >
           dotnet build test/NexaOne.ServerTests/NexaOne.ServerTests.csproj
-          --configuration Release --no-restore
+          --configuration Release --no-restore --warnaserror
 
       - name: Start SQL Server 2022 Linux service
         shell: bash

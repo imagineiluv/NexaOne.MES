@@ -82,6 +82,48 @@ public sealed class ConsumptionServiceTests
         }
     }
 
+    [Fact]
+    public async Task Optional_storage_identifiers_are_validated_before_provider_persistence()
+    {
+        var service = new ConsumptionService(_repository);
+        var baseCommand = Command();
+        var invalidCommands = new[]
+        {
+            baseCommand with { ProcessLotId = new string('P', 51) },
+            baseCommand with { WorkOrderId = new string('W', 51) },
+            baseCommand with { ProcessId = new string('S', 51) },
+            baseCommand with { RecipeId = new string('R', 51) },
+            baseCommand with { TraceId = new string('T', 101) },
+            baseCommand with { TagId = new string('G', 101) },
+            baseCommand with { CorrelationId = new string('C', 101) },
+        };
+
+        foreach (var command in invalidCommands)
+        {
+            var result = await service.ConsumeAsync(command);
+            result.IsFailure.Should().BeTrue();
+            result.Error.Type.Should().Be(NexaOne.Common.ErrorType.Validation);
+        }
+
+        _repository.Records.Should().BeEmpty(
+            "SQLite TEXT must not accept values that SQL Server NVARCHAR would reject");
+    }
+
+    [Fact]
+    public async Task Reversal_correlation_id_uses_the_same_storage_boundary()
+    {
+        var service = new ConsumptionService(_repository);
+        (await service.ConsumeAsync(Command())).IsSuccess.Should().BeTrue();
+
+        var result = await service.ReverseAsync(new MaterialConsumptionReversalCommand(
+            "REV-1", "reverse-key", "CONSUME-1", "operator correction",
+            DateTime.UtcNow, "MES", "operator-01", new string('C', 101)));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Type.Should().Be(NexaOne.Common.ErrorType.Validation);
+        _repository.Records.Should().ContainSingle();
+    }
+
     private static MaterialConsumptionCommand Command(
         string idempotencyKey = "consume-key",
         string sourceEventId = "PLC-42") => new(

@@ -1,5 +1,3 @@
-using NexaOne.ServiceContracts.Fdc;
-
 namespace NexaOne.IVT.Domain;
 
 /// <summary>IVT 소비 바인딩과 영속 TRACE 원천의 재시작 커서를 묶은 읽기 범위다.</summary>
@@ -18,16 +16,7 @@ public sealed record TraceProjectionBinding(
     DateTime? LastEnqueuedAt,
     string? LastEnqueuedCollectId)
 {
-    public FdcTraceReadScope ToReadScope() => new(
-        BindingId,
-        EquipmentId,
-        ParameterId,
-        EffectiveFrom,
-        EffectiveTo,
-        LastEnqueuedAt,
-        LastEnqueuedCollectId);
-
-    public TraceProjectionItem Snapshot(FdcTraceSample sample)
+    public TraceProjectionItem Snapshot(TraceSourceObservation sample)
     {
         ArgumentNullException.ThrowIfNull(sample);
         if (!string.Equals(sample.ScopeId, BindingId, StringComparison.Ordinal)
@@ -54,6 +43,19 @@ public sealed record TraceProjectionBinding(
             sample.CollectedAt);
     }
 }
+
+/// <summary>
+/// IVT가 외부 TRACE 계약에서 받아들인 표본의 도메인 중립 형태다. FDC 계약 DTO는
+/// Application 경계에서 이 값으로 변환되며 IVT Domain으로 전파되지 않는다.
+/// </summary>
+public sealed record TraceSourceObservation(
+    string ScopeId,
+    string CollectId,
+    string EquipmentId,
+    string ParameterId,
+    decimal Value,
+    string Quality,
+    DateTime CollectedAt);
 
 /// <summary>A persisted FDC sample with the effective binding configuration snapshotted in the inbox.</summary>
 public sealed record TraceProjectionItem(
@@ -92,6 +94,7 @@ public sealed record MaterialFeedSession(
     string? ProcessId,
     string? RecipeId,
     int? RecipeVersion,
+    string MountedBy,
     DateTime MountedAt,
     DateTime? UnmountedAt);
 

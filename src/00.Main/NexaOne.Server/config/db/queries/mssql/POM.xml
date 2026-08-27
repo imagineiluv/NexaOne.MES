@@ -92,30 +92,30 @@
     <!-- ===== SmartUX WPM(작업진행)·RPT 점등 — POM_LOT/POM_LOT_HISTORY 전체조회(V014). 신규 테이블 0. ===== -->
     <query id="POM.LotList" requiredPermission="pom:read">
         <statement><![CDATA[
-            SELECT LOT_ID, PLANT_ID, WORK_ORDER_ID, PRODUCT_ID, QTY, DEFECT_QTY,
+            SELECT TOP 500 LOT_ID, PLANT_ID, WORK_ORDER_ID, PRODUCT_ID, QTY, DEFECT_QTY,
                    LOT_STATE, PROCESS_STATE, ROUTE_STEPS, CURRENT_STEP, EQUIPMENT_ID,
                    CARRIER_ID, IS_HOLD, VERSION_NO, CONTROL_MODE, RETURN_STEP
             FROM POM_LOT WITH (NOLOCK)
             WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
               AND (@lotState IS NULL OR LOT_STATE = @lotState)
               AND (@isHold IS NULL OR IS_HOLD = @isHold)
-            ORDER BY CREATED_AT DESC
+            ORDER BY CREATED_AT DESC, LOT_ID
         ]]></statement>
     </query>
     <query id="POM.LotHoldList" requiredPermission="pom:read">
         <statement><![CDATA[
-            SELECT LOT_ID, PLANT_ID, PRODUCT_ID, QTY, LOT_STATE, PROCESS_STATE, EQUIPMENT_ID, IS_HOLD
+            SELECT TOP 500 LOT_ID, PLANT_ID, PRODUCT_ID, QTY, LOT_STATE, PROCESS_STATE, EQUIPMENT_ID, IS_HOLD
             FROM POM_LOT WITH (NOLOCK)
             WHERE IS_HOLD = 'Y'
-            ORDER BY CREATED_AT DESC
+            ORDER BY CREATED_AT DESC, LOT_ID
         ]]></statement>
     </query>
     <query id="POM.LotDefectList" requiredPermission="pom:read">
         <statement><![CDATA[
-            SELECT LOT_ID, PLANT_ID, PRODUCT_ID, QTY, DEFECT_QTY, LOT_STATE, EQUIPMENT_ID
+            SELECT TOP 500 LOT_ID, PLANT_ID, PRODUCT_ID, QTY, DEFECT_QTY, LOT_STATE, EQUIPMENT_ID
             FROM POM_LOT WITH (NOLOCK)
             WHERE DEFECT_QTY > 0
-            ORDER BY DEFECT_QTY DESC
+            ORDER BY DEFECT_QTY DESC, CREATED_AT DESC, LOT_ID
         ]]></statement>
     </query>
     <query id="POM.YieldByProduct" requiredPermission="pom:read">
@@ -133,7 +133,7 @@
     <!-- 작업지시(V060) — W/O 관리/현황 전체조회(NULL-guard). -->
     <query id="POM.WorkOrderList" requiredPermission="pom:read">
         <statement><![CDATA[
-            SELECT WORK_ORDER_ID, PRODUCTION_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, PRODUCT_ID,
+            SELECT TOP 500 WORK_ORDER_ID, PRODUCTION_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, PRODUCT_ID,
                    ROUTING_SCOPE, ROUTING_ID, ROUTING_STEP_NO, PROCESS_ID, WORK_CENTER_ID, EQUIPMENT_ID,
                    WORK_ORDER_TYPE, OWNER_ID, PLAN_START_DATE, PLAN_END_DATE, PLAN_QTY,
                    START_QTY, COMPLETE_QTY, SCRAP_QTY, STATUS, IS_HOLD, STARTED_AT,

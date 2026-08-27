@@ -1,15 +1,4 @@
--- Owner: IVT. TRACE projection hot-path indexes.
--- The cursor index serves the latest sample per binding. The work index replaces (rather than
--- duplicates) V114's narrower index so pending/error scans keep one write-maintained work index.
-
-CREATE INDEX IX_IVT_TRACE_INBOX_BINDING_CURSOR
-    ON IVT_TRACE_PROJECTION_INBOX (BINDING_ID, COLLECTED_AT DESC, COLLECT_ID DESC);
-
--- SQL Server requires the table-qualified DROP syntax. SQLite omits this statement and the shared
--- initializer compares/rebuilds the index definition on both fresh and incremental databases.
--- SQLITE-OMIT-BEGIN
-DROP INDEX IX_IVT_TRACE_INBOX_WORK ON IVT_TRACE_PROJECTION_INBOX;
--- SQLITE-OMIT-END
-
-CREATE INDEX IX_IVT_TRACE_INBOX_WORK
-    ON IVT_TRACE_PROJECTION_INBOX (STATUS, COLLECTED_AT, COLLECT_ID, BINDING_ID);
+-- Owner: IVT. Reserved migration number from the pre-release TRACE query-index prototype.
+-- V142 replaces the inbox-derived cursor and status-led work index with a durable binding cursor
+-- plus a filtered ready-work index. Keeping this migration intentionally data-neutral prevents an
+-- upgrade from building large transient indexes only to drop them again later in the same release.

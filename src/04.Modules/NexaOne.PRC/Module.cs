@@ -1,4 +1,5 @@
 using NexaOne.Infrastructure.Persistence;
+using NexaOne.PRC.Application.PurchaseOrders;
 using NexaOne.PRC.Infrastructure;
 using NexaOne.ServiceContracts.Prc;
 
@@ -12,7 +13,9 @@ public sealed class Module
     public Module(EesDataSource dataSource)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
-        _purchaseOrderPlanningBridge = new PurchaseOrderPlanningBridge(dataSource);
+        var store = new PurchaseOrderPlanningRepository(dataSource);
+        var service = new PurchaseOrderPlanningService(store);
+        _purchaseOrderPlanningBridge = new PurchaseOrderPlanningBridge(service);
     }
 
     public IPurchaseOrderPlanningBridge GetPurchaseOrderPlanningBridge() => _purchaseOrderPlanningBridge;

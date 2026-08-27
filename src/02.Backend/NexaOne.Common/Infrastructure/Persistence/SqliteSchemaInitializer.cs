@@ -74,13 +74,16 @@ public static class SqliteSchemaInitializer
         EnsureUtilityMeterConfigurationHistory(conn);
         EnsureAppendOnlyEvidenceGuards(conn);
         EnsureEmsToolMountPositionGuard(conn);
+        EnsureTraceProjectionPerformanceSchema(conn);
+        EnsureFdcOpenStateIndexes(conn);
         EnsureQueryPerformanceIndexes(conn);
     }
 
     /// <summary>
-    /// 이미 테이블이 있는 DB에 누락 테이블/인덱스만 멱등 생성한다(CREATE TABLE/INDEX는 IF NOT EXISTS로 변환됨).
-    /// ALTER(컬럼 추가/변경)·INSERT(1회성 시드)는 건너뛴다 — 기존 데이터·시드를 보존하면서 신규 테이블만 추가한다.
-    /// 컬럼 추가형 스키마 진화는 빈 DB 전체 적용 경로에서만 반영된다(증분 패스의 의도적 한계).
+    /// 이미 테이블이 있는 DB에 누락 테이블/인덱스와 단순 ADD COLUMN을 멱등 적용한다
+    /// (CREATE TABLE/INDEX는 IF NOT EXISTS로 변환하고, 컬럼은 실제 존재 여부를 먼저 확인한다).
+    /// 컬럼 변경·삭제와 일반 INSERT/UPDATE 같은 데이터 migration은 이 공통 루프에서 건너뛰며,
+    /// 보정이 필요한 버전은 아래의 명시적 Ensure* reconciliation 단계가 검증·적용한다.
     /// </summary>
     public static void CreateMissingTables(string connectionString)
     {
@@ -98,7 +101,7 @@ public static class SqliteSchemaInitializer
             var ddl = ToSqlite(File.ReadAllText(file));
             foreach (var stmt in SplitSqlStatements(ddl))
             {
-                // 증분 생성 패스 — 테이블/인덱스 생성문만(IF NOT EXISTS라 멱등). ALTER/INSERT/기타는 제외.
+                // 증분 생성 패스 — 누락 컬럼의 ALTER TABLE ADD COLUMN과 멱등 CREATE TABLE/INDEX만 실행한다.
                 // 분류는 -- 주석을 벗겨낸 코드로만 판정한다 — 주석에 CREATE TABLE이 '언급'된 ALTER 문장이
                 // 생성문으로 오분류돼 실행되면 기존 DB에서 duplicate column으로 기동이 죽는다(V080 실사고).
                 var code = stmt;
@@ -147,6 +150,8 @@ public static class SqliteSchemaInitializer
         EnsureUtilityMeterConfigurationHistory(conn);
         EnsureAppendOnlyEvidenceGuards(conn);
         EnsureEmsToolMountPositionGuard(conn);
+        EnsureTraceProjectionPerformanceSchema(conn);
+        EnsureFdcOpenStateIndexes(conn);
         EnsureQueryPerformanceIndexes(conn);
     }
 
@@ -202,44 +207,139 @@ public static class SqliteSchemaInitializer
     }
 
     /// <summary>
-    /// Reconciles V129-V134 query-index definitions for existing SQLite databases. CREATE INDEX IF
+    /// Reconciles the V142 cursor/work-set schema for databases upgraded through the incremental
+    /// path. That path deliberately skips UPDATE/INSERT backfills, so they are repeated here as
+    /// idempotent SQLite operations. Terminal inbox evidence remains queryable but is excluded from
+    /// the small retry queue and no longer participates in source-cursor reads.
+    /// </summary>
+    private static void EnsureTraceProjectionPerformanceSchema(SqliteConnection conn)
+    {
+        if (!HasTable(conn, "IVT_TRACE_PROJECTION_INBOX")) return;
+
+        if (!HasColumn(conn, "IVT_TRACE_PROJECTION_INBOX", "IS_WORK_ITEM"))
+        {
+            Exec(conn, """
+                ALTER TABLE IVT_TRACE_PROJECTION_INBOX
+                    ADD COLUMN IS_WORK_ITEM INTEGER NOT NULL DEFAULT 1;
+                """);
+        }
+
+        Exec(conn, """
+            UPDATE IVT_TRACE_PROJECTION_INBOX
+               SET IS_WORK_ITEM = CASE
+                   WHEN STATUS IN ('Pending', 'Error') THEN 1 ELSE 0 END
+             WHERE IS_WORK_ITEM <> CASE
+                   WHEN STATUS IN ('Pending', 'Error') THEN 1 ELSE 0 END;
+            """);
+
+        if (HasTable(conn, "IVT_TRACE_CONSUMPTION_BINDING")
+            && !HasTable(conn, "IVT_TRACE_INGESTION_CURSOR"))
+        {
+            Exec(conn, """
+                CREATE TABLE IVT_TRACE_INGESTION_CURSOR (
+                    BINDING_ID TEXT NOT NULL PRIMARY KEY,
+                    LAST_COLLECT_ID TEXT NOT NULL,
+                    LAST_COLLECTED_AT TEXT NOT NULL,
+                    CREATED_BY TEXT NOT NULL DEFAULT 'SYSTEM',
+                    CREATED_AT TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UPDATED_BY TEXT NOT NULL DEFAULT 'SYSTEM',
+                    UPDATED_AT TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+                """);
+        }
+
+        if (HasTable(conn, "IVT_TRACE_INGESTION_CURSOR"))
+        {
+            Exec(conn, """
+                WITH RankedInbox AS (
+                    SELECT I.BINDING_ID,
+                           I.COLLECT_ID,
+                           I.COLLECTED_AT,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY I.BINDING_ID
+                               ORDER BY I.COLLECTED_AT DESC, I.COLLECT_ID DESC) AS RN
+                      FROM IVT_TRACE_PROJECTION_INBOX I
+                )
+                INSERT OR IGNORE INTO IVT_TRACE_INGESTION_CURSOR
+                    (BINDING_ID, LAST_COLLECT_ID, LAST_COLLECTED_AT,
+                     CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                SELECT I.BINDING_ID, I.COLLECT_ID, I.COLLECTED_AT,
+                       'SYSTEM', CURRENT_TIMESTAMP, 'SYSTEM', CURRENT_TIMESTAMP
+                  FROM RankedInbox I
+                 WHERE I.RN = 1;
+                """);
+        }
+
+        if (HasIndex(conn, "IX_IVT_TRACE_INBOX_BINDING_CURSOR"))
+            Exec(conn, "DROP INDEX IX_IVT_TRACE_INBOX_BINDING_CURSOR;");
+        if (HasIndex(conn, "IX_IVT_TRACE_INBOX_WORK"))
+            Exec(conn, "DROP INDEX IX_IVT_TRACE_INBOX_WORK;");
+
+        EnsureSqliteIndex(
+            conn,
+            "IVT_TRACE_PROJECTION_INBOX",
+            "IX_IVT_TRACE_INBOX_READY",
+            unique: false,
+            partial: true,
+            """
+            CREATE INDEX IX_IVT_TRACE_INBOX_READY
+                ON IVT_TRACE_PROJECTION_INBOX (COLLECTED_AT, COLLECT_ID, BINDING_ID)
+                WHERE IS_WORK_ITEM = 1;
+            """,
+            new IndexKey("COLLECTED_AT", Descending: false),
+            new IndexKey("COLLECT_ID", Descending: false),
+            new IndexKey("BINDING_ID", Descending: false));
+    }
+
+    /// <summary>Locks the V141 process-restart recovery access paths on SQLite upgrades.</summary>
+    private static void EnsureFdcOpenStateIndexes(SqliteConnection conn)
+    {
+        if (HasTable(conn, "FDC_INTERLOCK_HISTORY"))
+        {
+            EnsureSqliteIndex(
+                conn,
+                "FDC_INTERLOCK_HISTORY",
+                "IX_FDC_INTERLOCK_OPEN_EQUIPMENT_PARAMETER",
+                unique: false,
+                partial: true,
+                """
+                CREATE INDEX IX_FDC_INTERLOCK_OPEN_EQUIPMENT_PARAMETER
+                    ON FDC_INTERLOCK_HISTORY
+                       (EQUIPMENT_ID, PARAMETER_ID, TRIGGERED_AT DESC)
+                    WHERE IS_RESOLVED = 0;
+                """,
+                new IndexKey("EQUIPMENT_ID", Descending: false),
+                new IndexKey("PARAMETER_ID", Descending: false),
+                new IndexKey("TRIGGERED_AT", Descending: true));
+        }
+
+        if (HasTable(conn, "FDC_ALARM_HISTORY"))
+        {
+            EnsureSqliteIndex(
+                conn,
+                "FDC_ALARM_HISTORY",
+                "IX_FDC_ALARM_OPEN_EQUIPMENT_PARAMETER",
+                unique: false,
+                partial: true,
+                """
+                CREATE INDEX IX_FDC_ALARM_OPEN_EQUIPMENT_PARAMETER
+                    ON FDC_ALARM_HISTORY
+                       (EQUIPMENT_ID, PARAMETER_ID, OCCURRED_AT DESC)
+                    WHERE IS_CLEARED = 0;
+                """,
+                new IndexKey("EQUIPMENT_ID", Descending: false),
+                new IndexKey("PARAMETER_ID", Descending: false),
+                new IndexKey("OCCURRED_AT", Descending: true));
+        }
+    }
+
+    /// <summary>
+    /// Reconciles query-index definitions for existing SQLite databases. CREATE INDEX IF
     /// NOT EXISTS cannot replace stale definitions, so keys, direction, uniqueness and filters are
     /// compared before rebuilding. The exact V115 checklist duplicate is removed while its UNIQUE
     /// constraint index remains.
     /// </summary>
     private static void EnsureQueryPerformanceIndexes(SqliteConnection conn)
     {
-        if (HasTable(conn, "IVT_TRACE_PROJECTION_INBOX"))
-        {
-            EnsureSqliteIndex(
-                conn,
-                "IVT_TRACE_PROJECTION_INBOX",
-                "IX_IVT_TRACE_INBOX_BINDING_CURSOR",
-                unique: false,
-                partial: false,
-                """
-                CREATE INDEX IX_IVT_TRACE_INBOX_BINDING_CURSOR
-                    ON IVT_TRACE_PROJECTION_INBOX (BINDING_ID, COLLECTED_AT DESC, COLLECT_ID DESC);
-                """,
-                new IndexKey("BINDING_ID", Descending: false),
-                new IndexKey("COLLECTED_AT", Descending: true),
-                new IndexKey("COLLECT_ID", Descending: true));
-            EnsureSqliteIndex(
-                conn,
-                "IVT_TRACE_PROJECTION_INBOX",
-                "IX_IVT_TRACE_INBOX_WORK",
-                unique: false,
-                partial: false,
-                """
-                CREATE INDEX IX_IVT_TRACE_INBOX_WORK
-                    ON IVT_TRACE_PROJECTION_INBOX (STATUS, COLLECTED_AT, COLLECT_ID, BINDING_ID);
-                """,
-                new IndexKey("STATUS", Descending: false),
-                new IndexKey("COLLECTED_AT", Descending: false),
-                new IndexKey("COLLECT_ID", Descending: false),
-                new IndexKey("BINDING_ID", Descending: false));
-        }
-
         if (HasTable(conn, "EMS_TOOL_USAGE_HISTORY"))
         {
             EnsureSqliteIndex(
@@ -270,6 +370,18 @@ public static class SqliteSchemaInitializer
                 """,
                 new IndexKey("EQUIPMENT_ID", Descending: false),
                 new IndexKey("ISSUED_AT", Descending: true));
+            EnsureSqliteIndex(
+                conn,
+                "EMS_WORK_ORDER",
+                "IX_EMS_WO_ISSUED",
+                unique: false,
+                partial: false,
+                """
+                CREATE INDEX IX_EMS_WO_ISSUED
+                    ON EMS_WORK_ORDER (ISSUED_AT DESC, WO_ID DESC);
+                """,
+                new IndexKey("ISSUED_AT", Descending: true),
+                new IndexKey("WO_ID", Descending: true));
         }
 
         if (HasTable(conn, "EMS_SPARE_PART_USAGE"))
@@ -388,6 +500,61 @@ public static class SqliteSchemaInitializer
                 new IndexKey("PLANT_ID", Descending: false),
                 new IndexKey("CREATED_AT", Descending: true),
                 new IndexKey("LOT_ID", Descending: false));
+            EnsureSqliteIndex(
+                conn,
+                "POM_LOT",
+                "IX_POM_LOT_CREATED",
+                unique: false,
+                partial: false,
+                """
+                CREATE INDEX IX_POM_LOT_CREATED
+                    ON POM_LOT (CREATED_AT DESC, LOT_ID);
+                """,
+                new IndexKey("CREATED_AT", Descending: true),
+                new IndexKey("LOT_ID", Descending: false));
+            EnsureSqliteIndex(
+                conn,
+                "POM_LOT",
+                "IX_POM_LOT_HOLD_CREATED",
+                unique: false,
+                partial: true,
+                """
+                CREATE INDEX IX_POM_LOT_HOLD_CREATED
+                    ON POM_LOT (CREATED_AT DESC, LOT_ID)
+                    WHERE IS_HOLD = 'Y';
+                """,
+                new IndexKey("CREATED_AT", Descending: true),
+                new IndexKey("LOT_ID", Descending: false));
+            EnsureSqliteIndex(
+                conn,
+                "POM_LOT",
+                "IX_POM_LOT_DEFECT_QTY",
+                unique: false,
+                partial: true,
+                """
+                CREATE INDEX IX_POM_LOT_DEFECT_QTY
+                    ON POM_LOT (DEFECT_QTY DESC, CREATED_AT DESC, LOT_ID)
+                    WHERE DEFECT_QTY > 0;
+                """,
+                new IndexKey("DEFECT_QTY", Descending: true),
+                new IndexKey("CREATED_AT", Descending: true),
+                new IndexKey("LOT_ID", Descending: false));
+        }
+
+        if (HasTable(conn, "POM_WORK_ORDER"))
+        {
+            EnsureSqliteIndex(
+                conn,
+                "POM_WORK_ORDER",
+                "IX_POM_WORK_ORDER_PLAN_START",
+                unique: false,
+                partial: false,
+                """
+                CREATE INDEX IX_POM_WORK_ORDER_PLAN_START
+                    ON POM_WORK_ORDER (PLAN_START_DATE DESC, WORK_ORDER_ID);
+                """,
+                new IndexKey("PLAN_START_DATE", Descending: true),
+                new IndexKey("WORK_ORDER_ID", Descending: false));
         }
 
         if (HasTable(conn, "POM_LOT_DISPOSITION"))
@@ -407,22 +574,8 @@ public static class SqliteSchemaInitializer
                 new IndexKey("DISPOSITION_ID", Descending: true));
         }
 
-        if (HasTable(conn, "POM_LOT_MIXING_RELATION"))
-        {
-            EnsureSqliteIndex(
-                conn,
-                "POM_LOT_MIXING_RELATION",
-                "IX_POM_LOT_MIXING_OUTPUT",
-                unique: false,
-                partial: false,
-                """
-                CREATE INDEX IX_POM_LOT_MIXING_OUTPUT
-                    ON POM_LOT_MIXING_RELATION (PLANT_ID, OUTPUT_LOT_ID, INPUT_LOT_ID);
-                """,
-                new IndexKey("PLANT_ID", Descending: false),
-                new IndexKey("OUTPUT_LOT_ID", Descending: false),
-                new IndexKey("INPUT_LOT_ID", Descending: false));
-        }
+        if (HasIndex(conn, "IX_POM_LOT_MIXING_OUTPUT"))
+            Exec(conn, "DROP INDEX IX_POM_LOT_MIXING_OUTPUT;");
 
         if (HasIndex(conn, "IX_EMS_WORK_ORDER_CHECK_RESULT_WO"))
             Exec(conn, "DROP INDEX IX_EMS_WORK_ORDER_CHECK_RESULT_WO;");

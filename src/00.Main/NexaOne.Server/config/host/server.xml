@@ -36,6 +36,15 @@
        (Events:Outbox:Enabled 등)를 무력화하는 실버그였다. Program.cs가 CreateServer 전에 Root를 설정한다. -->
   <object id="appConfiguration" type="NexaOne.Common.Configuration.SpringHostConfiguration, NexaOne.Common" />
 
+  <!-- Spring 형제 컨텍스트 proxy는 전역 service locator를 직접 호출하지 않는다. 조립 루트에서
+       현재 ApplicationServer singleton을 한 번 취득해 typed resolver로 명시 주입한다. -->
+  <object id="applicationServer"
+          type="NexaFramework.ApplicationServer, NexaFramework"
+          factory-method="GetInstance" />
+  <object id="moduleBeanResolver" type="NexaOne.Server.Gateway.ModuleBeanResolver, NexaOne.Server">
+    <constructor-arg ref="applicationServer" />
+  </object>
+
   <!-- PLC 프로토콜 드라이버와 NexaLogic DriverFactory. FDC는 구체 드라이버를 참조하지 않고
        plcDriverFactory에서 엔드포인트의 PlcDriverKind에 맞는 구현을 선택한다. 연결은 Worker가 활성화되고
        엔드포인트가 있을 때만 수행하므로 Bean 생성 자체는 외부 PLC에 접속하지 않는다. -->
@@ -98,27 +107,28 @@
   </object>
 
   <!-- POM-to-QMS sibling-context proxy. QMS owns evidence SQL and the completion decision. -->
-  <object id="productionQualityGateway" type="NexaOne.Server.Gateway.ProductionQualityGatewayProxy, NexaOne.Server" />
+  <object id="productionQualityGateway" type="NexaOne.Server.Gateway.ProductionQualityGatewayProxy, NexaOne.Server">
+    <constructor-arg ref="moduleBeanResolver" />
+  </object>
 
   <!-- IVT-to-FDC sibling-context proxy. FDC owns persisted TRACE SQL and paging. -->
-  <object id="fdcTraceSource" type="NexaOne.Server.Gateway.FdcTraceSourceProxy, NexaOne.Server" />
+  <object id="fdcTraceSource" type="NexaOne.Server.Gateway.FdcTraceSourceProxy, NexaOne.Server">
+    <constructor-arg ref="moduleBeanResolver" />
+  </object>
 
   <!-- MDM/SYS와 소비 모듈은 형제 plugin context이므로 부모에는 공용 계약만 위임하는 proxy를 둔다.
        물리 SQL은 각 소유 모듈의 equipmentDirectory/vendorDirectory/maintenanceIdentityDirectory bean에 남는다. -->
-  <object id="equipmentDirectory" type="NexaOne.Server.Gateway.EquipmentDirectoryProxy, NexaOne.Server" />
-  <object id="vendorDirectory" type="NexaOne.Server.Gateway.VendorDirectoryProxy, NexaOne.Server" />
-  <object id="maintenanceIdentityDirectory" type="NexaOne.Server.Gateway.MaintenanceIdentityDirectoryProxy, NexaOne.Server" />
-  <object id="productionLotDirectory" type="NexaOne.Server.Gateway.ProductionLotDirectoryProxy, NexaOne.Server" />
-  <object id="materialLotDirectory" type="NexaOne.Server.Gateway.MaterialLotDirectoryProxy, NexaOne.Server" />
-  <object id="processDirectory" type="NexaOne.Server.Gateway.ProcessDirectoryProxy, NexaOne.Server" />
-  <object id="userDirectory" type="NexaOne.Server.Gateway.UserDirectoryProxy, NexaOne.Server" />
-  <object id="mrpMasterDirectory" type="NexaOne.Server.Gateway.MrpMasterDirectoryProxy, NexaOne.Server" />
-  <object id="mrpInventoryDirectory" type="NexaOne.Server.Gateway.MrpInventoryDirectoryProxy, NexaOne.Server" />
-  <object id="purchaseOrderPlanningBridge" type="NexaOne.Server.Gateway.PurchaseOrderPlanningBridgeProxy, NexaOne.Server" />
-
-  <object id="equipmentOutputMasterDirectory" type="NexaOne.Server.Gateway.EquipmentOutputMasterDirectory, NexaOne.Server">
-    <constructor-arg ref="eesDataSource" />
-  </object>
+  <object id="equipmentDirectory" type="NexaOne.Server.Gateway.EquipmentDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="vendorDirectory" type="NexaOne.Server.Gateway.VendorDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="maintenanceIdentityDirectory" type="NexaOne.Server.Gateway.MaintenanceIdentityDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="productionLotDirectory" type="NexaOne.Server.Gateway.ProductionLotDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="materialLotDirectory" type="NexaOne.Server.Gateway.MaterialLotDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="processDirectory" type="NexaOne.Server.Gateway.ProcessDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="userDirectory" type="NexaOne.Server.Gateway.UserDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="mrpMasterDirectory" type="NexaOne.Server.Gateway.MrpMasterDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="mrpInventoryDirectory" type="NexaOne.Server.Gateway.MrpInventoryDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="purchaseOrderPlanningBridge" type="NexaOne.Server.Gateway.PurchaseOrderPlanningBridgeProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="equipmentOutputMasterDirectory" type="NexaOne.Server.Gateway.EquipmentOutputMasterDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
 
   <!-- OEE 외부 증거 host orchestration adapter — MDM 계획/시간대와 legacy POM TrackOut을
        Common IOeeEvidenceSource snapshot으로 축약해 EST plugin에 주입한다. EST는 타 모듈 물리 테이블을 읽지 않는다. -->

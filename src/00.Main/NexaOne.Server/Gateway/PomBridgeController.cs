@@ -153,11 +153,13 @@ public sealed class PomBridgeController : ControllerBase
     public async Task<IActionResult> TrackIn(string lotId, [FromBody] TrackInRequest req, CancellationToken ct)
     {
         if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (ValidateLotExecutionIdentity(req.ExpectedVersion, req.IdempotencyKey) is { } identityError)
+            return BadRequest(identityError);
         if (!TryNormalizeClientChannel(req.ClientChannel, out var channel))
             return BadRequest(Error.Validation(nameof(req.ClientChannel), "Client channel must be MES, MOBILE, or POP."));
         return (await _bridge.TrackInAsync(
-            req.PlantId, lotId, req.EquipmentId, req.RecipeDefId, req.RecipeDefVersion, actor, ct,
-            req.ExpectedVersion, req.IdempotencyKey, channel, req.DeviceId))
+            req.PlantId, lotId, req.EquipmentId, req.RecipeDefId, req.RecipeDefVersion, actor,
+            req.ExpectedVersion, req.IdempotencyKey, channel, req.DeviceId, ct))
             .ToActionResult();
     }
 
@@ -171,6 +173,8 @@ public sealed class PomBridgeController : ControllerBase
     public async Task<IActionResult> TrackOut(string lotId, [FromBody] TrackOutRequest req, CancellationToken ct)
     {
         if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (ValidateLotExecutionIdentity(req.ExpectedVersion, req.IdempotencyKey) is { } identityError)
+            return BadRequest(identityError);
         if (!TryNormalizeClientChannel(req.ClientChannel, out var channel))
             return BadRequest(Error.Validation(nameof(req.ClientChannel), "Client channel must be MES, MOBILE, or POP."));
         if (req.Defects is { } defects)
@@ -197,45 +201,53 @@ public sealed class PomBridgeController : ControllerBase
                     "Defect quantity total cannot exceed Track-Out quantity."));
         }
         return (await _bridge.TrackOutAsync(
-            req.PlantId, lotId, req.EquipmentId, req.Qty, req.Defects, req.CarrierId, actor, ct,
-            req.ExpectedVersion, req.IdempotencyKey, channel, req.DeviceId))
+            req.PlantId, lotId, req.EquipmentId, req.Qty, req.Defects, req.CarrierId, actor,
+            req.ExpectedVersion, req.IdempotencyKey, channel, req.DeviceId, ct))
             .ToActionResult();
     }
 
     [HttpPost("lots/{lotId}/hold")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.PomExecute)]
-    public async Task<IActionResult> HoldLot(string lotId, CancellationToken ct,
-        [FromQuery] int? expectedVersion = null, [FromQuery] string? idempotencyKey = null,
+    public async Task<IActionResult> HoldLot(
+        string lotId, [FromQuery] int expectedVersion, [FromQuery] string idempotencyKey,
+        CancellationToken ct,
         [FromQuery] string? reason = null, [FromQuery] string clientChannel = "MES",
         [FromQuery] string? deviceId = null)
     {
         if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (ValidateLotExecutionIdentity(expectedVersion, idempotencyKey) is { } identityError)
+            return BadRequest(identityError);
         if (!TryNormalizeClientChannel(clientChannel, out var channel))
             return BadRequest(Error.Validation(nameof(clientChannel), "Client channel must be MES, MOBILE, or POP."));
         return (await _bridge.HoldLotAsync(
-            lotId, actor, ct, expectedVersion, idempotencyKey, reason, channel, deviceId)).ToActionResult();
+            lotId, actor, expectedVersion, idempotencyKey, reason, channel, deviceId, ct)).ToActionResult();
     }
 
     [HttpPost("lots/{lotId}/release")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.PomExecute)]
-    public async Task<IActionResult> ReleaseLot(string lotId, CancellationToken ct,
-        [FromQuery] int? expectedVersion = null, [FromQuery] string? idempotencyKey = null,
+    public async Task<IActionResult> ReleaseLot(
+        string lotId, [FromQuery] int expectedVersion, [FromQuery] string idempotencyKey,
+        CancellationToken ct,
         [FromQuery] string? reason = null, [FromQuery] string clientChannel = "MES",
         [FromQuery] string? deviceId = null)
     {
         if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (ValidateLotExecutionIdentity(expectedVersion, idempotencyKey) is { } identityError)
+            return BadRequest(identityError);
         if (!TryNormalizeClientChannel(clientChannel, out var channel))
             return BadRequest(Error.Validation(nameof(clientChannel), "Client channel must be MES, MOBILE, or POP."));
         return (await _bridge.ReleaseLotHoldAsync(
-            lotId, actor, ct, expectedVersion, idempotencyKey, reason, channel, deviceId)).ToActionResult();
+            lotId, actor, expectedVersion, idempotencyKey, reason, channel, deviceId, ct)).ToActionResult();
     }
 
     // ── LOT 라우팅 통제/예외 ──
@@ -400,6 +412,17 @@ public sealed class PomBridgeController : ControllerBase
         channel = value?.Trim().ToUpperInvariant() ?? string.Empty;
         return channel is "MES" or "MOBILE" or "POP";
     }
+
+    private static Error? ValidateLotExecutionIdentity(int expectedVersion, string? idempotencyKey)
+    {
+        if (expectedVersion < 1)
+            return Error.Validation(nameof(expectedVersion), "Expected version must be at least 1.");
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+            return Error.Validation(nameof(idempotencyKey), "Idempotency key is required.");
+        return idempotencyKey.Trim().Length <= 100
+            ? null
+            : Error.Validation(nameof(idempotencyKey), "Idempotency key cannot exceed 100 characters.");
+    }
 }
 
 public record CreateProductionPlanRequest(
@@ -411,12 +434,12 @@ public record CreateProductionOrderRequest(
 public record CompleteProductionOrderRequest(decimal ActualQty);
 public record CreateLotRequest(
     string PlantId, string LotId, string? WorkOrderId, string ProductId, decimal Qty, IReadOnlyList<string>? RouteSteps);
-public record TrackInRequest(string PlantId, string EquipmentId, string? RecipeDefId, int? RecipeDefVersion,
-    int? ExpectedVersion = null, string? IdempotencyKey = null,
+public record TrackInRequest(string PlantId, string EquipmentId, int ExpectedVersion, string IdempotencyKey,
+    string? RecipeDefId = null, int? RecipeDefVersion = null,
     string ClientChannel = "MES", string? DeviceId = null);
 public record TrackOutRequest(
-    string PlantId, string EquipmentId, decimal Qty, IReadOnlyList<LotDefectInput>? Defects, string? CarrierId,
-    int? ExpectedVersion = null, string? IdempotencyKey = null,
+    string PlantId, string EquipmentId, decimal Qty, int ExpectedVersion, string IdempotencyKey,
+    IReadOnlyList<LotDefectInput>? Defects = null, string? CarrierId = null,
     string ClientChannel = "MES", string? DeviceId = null);
 public record EvaluateLotRoutingRequest(
     string PlantId, string DeviationType, int TargetStepIndex, string? Reason = null, string? ExceptionId = null);

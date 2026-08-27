@@ -31,8 +31,9 @@ public sealed class FdcInterlockRule : AuditableEntity<string>
             return Result.Failure<FdcInterlockRule>(Error.Validation(nameof(ruleName), "Rule name is required."));
         if (@operator is not ("GT" or "LT" or "GTE" or "LTE" or "EQ"))
             return Result.Failure<FdcInterlockRule>(Error.Validation(nameof(@operator), "Operator must be GT, LT, GTE, LTE, or EQ."));
-        if (action is not ("STOP" or "ALARM" or "NOTIFY"))
-            return Result.Failure<FdcInterlockRule>(Error.Validation(nameof(action), "Action must be STOP, ALARM, or NOTIFY."));
+        if (string.IsNullOrWhiteSpace(action) || action.Length > 200)
+            return Result.Failure<FdcInterlockRule>(Error.Validation(
+                nameof(action), "Action key is required and must be 200 characters or fewer."));
 
         var rule = new FdcInterlockRule(ruleId)
         {

@@ -212,9 +212,7 @@ public interface IApiClient
     Task<(LotDto? Lot, string? Error)> TrackInAsync(string lotId, object req, CancellationToken ct = default);
     Task<(LotDto? Lot, string? Error)> TrackOutAsync(string lotId, object req, CancellationToken ct = default);
     Task<(LotDto? Lot, string? Error)> MixingTrackInOutAsync(object req, CancellationToken ct = default);
-    Task<bool> HoldLotAsync(string lotId, CancellationToken ct = default);
     Task<bool> HoldLotAsync(string lotId, PomLotHoldRequest request, CancellationToken ct = default);
-    Task<bool> ReleaseLotHoldAsync(string lotId, CancellationToken ct = default);
     Task<bool> ReleaseLotHoldAsync(string lotId, PomLotHoldRequest request, CancellationToken ct = default);
 
     // DLV — 조회(오더/품목/이력)는 명명 쿼리(SHP.*)가 단일 경로, 브리지는 생성/전이만

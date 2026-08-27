@@ -90,7 +90,7 @@
         ]]></statement>
     </query>
     <!-- ===== SmartUX WPM(작업진행)·RPT 점등 — POM_LOT/POM_LOT_HISTORY 전체조회(V014). 신규 테이블 0. ===== -->
-    <!-- LOT 관리 — 전체 Lot(NULL-guard). @plantId/@lotState/@isHold 선택 필터. -->
+    <!-- LOT 관리 — 전체 Lot(NULL-guard). @plantId/@lotState/@isHold 선택 필터, 최근 500건 상한. -->
     <query id="POM.LotList" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT LOT_ID, PLANT_ID, WORK_ORDER_ID, PRODUCT_ID, QTY, DEFECT_QTY,
@@ -100,7 +100,8 @@
             WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
               AND (@lotState IS NULL OR LOT_STATE = @lotState)
               AND (@isHold IS NULL OR IS_HOLD = @isHold)
-            ORDER BY CREATED_AT DESC
+            ORDER BY CREATED_AT DESC, LOT_ID
+            LIMIT 500
         ]]></statement>
     </query>
     <!-- LOT Hold/Hold 해제 — 홀드 상태 Lot(IS_HOLD='Y', 타입 고정). -->
@@ -109,7 +110,8 @@
             SELECT LOT_ID, PLANT_ID, PRODUCT_ID, QTY, LOT_STATE, PROCESS_STATE, EQUIPMENT_ID, IS_HOLD
             FROM POM_LOT
             WHERE IS_HOLD = 'Y'
-            ORDER BY CREATED_AT DESC
+            ORDER BY CREATED_AT DESC, LOT_ID
+            LIMIT 500
         ]]></statement>
     </query>
     <!-- 불량 수리 — 불량 수량 존재 Lot(DEFECT_QTY>0, 타입 고정). -->
@@ -118,7 +120,8 @@
             SELECT LOT_ID, PLANT_ID, PRODUCT_ID, QTY, DEFECT_QTY, LOT_STATE, EQUIPMENT_ID
             FROM POM_LOT
             WHERE DEFECT_QTY > 0
-            ORDER BY DEFECT_QTY DESC
+            ORDER BY DEFECT_QTY DESC, CREATED_AT DESC, LOT_ID
+            LIMIT 500
         ]]></statement>
     </query>
     <!-- 수율 현황 — 품목별 생산/불량/양품 집계(POM_LOT). 파라미터 없음. -->
@@ -152,6 +155,7 @@
               AND (@ownerId IS NULL OR OWNER_ID = @ownerId)
               AND (@status IS NULL OR STATUS = @status)
             ORDER BY PLAN_START_DATE DESC, WORK_ORDER_ID
+            LIMIT 500
         ]]></statement>
     </query>
     <query id="POM.WorkOrderExecutionList" requiredPermission="pom:read">

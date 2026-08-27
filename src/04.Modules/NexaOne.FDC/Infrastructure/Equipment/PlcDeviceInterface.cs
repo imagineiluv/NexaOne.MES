@@ -119,11 +119,24 @@ public sealed class PlcDeviceInterface : IDeviceInterface
         return _connection!.SubscriptionProvider.StartAsync(
             _connection.Endpoint,
             subscriptions,
-            plcEvent => onSample(new FdcTagSample(
-                plcEvent.TagName,
-                ToDecimal(plcEvent.After),
-                MapQuality(plcEvent.Quality))),
+            plcEvent => onSample(NormalizeSample(plcEvent)),
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Converts a transport event into an FDC sample without allowing a null or non-numeric
+    /// payload to retain <see cref="FdcSampleQuality.Good"/>. The fallback zero is persisted only
+    /// as a bad observation and is therefore excluded from alarm and interlock evaluation.
+    /// </summary>
+    internal static FdcTagSample NormalizeSample(PlcTagChangeEvent plcEvent)
+    {
+        ArgumentNullException.ThrowIfNull(plcEvent);
+
+        var quality = MapQuality(plcEvent.Quality);
+        if (!TryConvertToDecimal(plcEvent.After, out var value))
+            quality = FdcSampleQuality.Bad;
+
+        return new FdcTagSample(plcEvent.TagName, value, quality);
     }
 
     internal static FdcSampleQuality MapQuality(PlcQuality quality) => quality switch
@@ -133,16 +146,23 @@ public sealed class PlcDeviceInterface : IDeviceInterface
         _ => FdcSampleQuality.Bad,
     };
 
-    internal static decimal ToDecimal(object? value)
+    private static bool TryConvertToDecimal(object? value, out decimal result)
     {
-        if (value is null) return 0m;
+        if (value is null)
+        {
+            result = 0m;
+            return false;
+        }
+
         try
         {
-            return Convert.ToDecimal(value, CultureInfo.InvariantCulture);
+            result = Convert.ToDecimal(value, CultureInfo.InvariantCulture);
+            return true;
         }
         catch (Exception error) when (error is FormatException or InvalidCastException or OverflowException)
         {
-            return 0m;
+            result = 0m;
+            return false;
         }
     }
 

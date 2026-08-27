@@ -64,12 +64,12 @@
     <!-- SmartUX 화면 점등용 전체조회(NULL-guard) — 설비 필터 없이 마스터 그리드를 채운다(미지정 @param은 게이트웨이가 null로 채움). -->
     <query id="EMS.WorkOrderList" requiredPermission="ems:read">
         <statement><![CDATA[
-            SELECT WO_ID, MAINTENANCE_PLAN_ID AS PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION, ASSIGNEE_ID,
+            SELECT TOP 500 WO_ID, MAINTENANCE_PLAN_ID AS PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION, ASSIGNEE_ID,
                    ISSUED_AT, STARTED_AT, COMPLETED_AT, STATUS, FAILURE_CODE_ID, REMARK
             FROM EMS_WORK_ORDER WITH (NOLOCK)
             WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
               AND (@status IS NULL OR STATUS = @status)
-            ORDER BY ISSUED_AT DESC
+            ORDER BY ISSUED_AT DESC, WO_ID DESC
         ]]></statement>
     </query>
     <query id="EMS.MaintenancePlanList" requiredPermission="ems:read">

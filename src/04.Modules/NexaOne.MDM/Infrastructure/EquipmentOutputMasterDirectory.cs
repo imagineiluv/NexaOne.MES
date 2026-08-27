@@ -1,11 +1,10 @@
 using NexaOne.Infrastructure.Persistence;
-using NexaOne.ServiceContracts.Est;
+using NexaOne.ServiceContracts.Mdm;
 
-namespace NexaOne.Server.Gateway;
+namespace NexaOne.MDM.Infrastructure;
 
 /// <summary>
-/// EST 출력 서비스의 MDM 조회 어댑터입니다. Default ALC의 조립 루트만
-/// MDM_EQUIPMENT/MDM_CARRIER 스키마를 알고 축소 snapshot을 반환합니다.
+/// MDM 소유 설비·캐리어 master를 설비 출력용 축소 snapshot으로 제공하는 adapter입니다.
 /// </summary>
 public sealed class EquipmentOutputMasterDirectory : QueryRepository, IEquipmentOutputMasterDirectory
 {

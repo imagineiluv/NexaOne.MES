@@ -63,11 +63,21 @@ public sealed class TraceIngestionPersistenceTests
                         COLLECTED_AT TEXT NOT NULL,
                         STATUS TEXT NOT NULL,
                         ATTEMPT_COUNT INTEGER NOT NULL,
+                        IS_WORK_ITEM INTEGER NOT NULL DEFAULT 1,
                         CREATED_BY TEXT NOT NULL,
                         CREATED_AT TEXT NOT NULL,
                         UPDATED_BY TEXT NOT NULL,
                         UPDATED_AT TEXT NOT NULL,
                         PRIMARY KEY (BINDING_ID, COLLECT_ID));
+
+                    CREATE TABLE IVT_TRACE_INGESTION_CURSOR (
+                        BINDING_ID TEXT NOT NULL PRIMARY KEY,
+                        LAST_COLLECT_ID TEXT NOT NULL,
+                        LAST_COLLECTED_AT TEXT NOT NULL,
+                        CREATED_BY TEXT NOT NULL,
+                        CREATED_AT TEXT NOT NULL,
+                        UPDATED_BY TEXT NOT NULL,
+                        UPDATED_AT TEXT NOT NULL);
 
                     INSERT INTO IVT_TRACE_CONSUMPTION_BINDING VALUES
                         ('BIND-1', 'PLANT-1', 'EQ-1', 'PARAM-1', 'FEED-1',
@@ -102,6 +112,8 @@ public sealed class TraceIngestionPersistenceTests
             replay.Should().Be(0);
             equalTimestampContinuation.Should().Be(1);
             ReadCollectIds(connectionString).Should().Equal("C-1", "C-2", "C-3");
+            ReadCursor(connectionString).Should().Be("C-3",
+                "the durable binding cursor must advance on the equal-timestamp tie-breaker");
         }
         finally
         {
@@ -141,5 +153,17 @@ public sealed class TraceIngestionPersistenceTests
         var ids = new List<string>();
         while (reader.Read()) ids.Add(reader.GetString(0));
         return ids;
+    }
+
+    private static string ReadCursor(string connectionString)
+    {
+        using var connection = new SqliteConnection(connectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT LAST_COLLECT_ID FROM IVT_TRACE_INGESTION_CURSOR
+            WHERE BINDING_ID = 'BIND-1';
+            """;
+        return (string)command.ExecuteScalar()!;
     }
 }

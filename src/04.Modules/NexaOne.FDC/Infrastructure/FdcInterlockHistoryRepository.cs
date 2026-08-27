@@ -18,6 +18,16 @@ public sealed class FdcInterlockHistoryRepository : QueryRepository, IFdcInterlo
         _outboxEnabled = string.Equals(config["Events:Outbox:Enabled"], "true", StringComparison.OrdinalIgnoreCase);
     }
 
+    public async Task<FdcInterlockHistory?> GetByIdAsync(
+        string effectId,
+        CancellationToken ct = default)
+    {
+        const string sql = @"SELECT * FROM FDC_INTERLOCK_HISTORY
+            WHERE HISTORY_ID = @effectId";
+        var rows = await QueryAsync<HistRow>(sql, new { effectId }, ct);
+        return rows.FirstOrDefault()?.ToDomain();
+    }
+
     public async Task<IReadOnlyList<FdcInterlockHistory>> GetByEquipmentAsync(
         string equipmentId, DateTime from, DateTime to, CancellationToken ct = default)
     {
@@ -37,6 +47,20 @@ public sealed class FdcInterlockHistoryRepository : QueryRepository, IFdcInterlo
             WHERE EQUIPMENT_ID = @equipmentId AND IS_RESOLVED = 0
             ORDER BY TRIGGERED_AT DESC";
         var rows = await QueryAsync<HistRow>(sql, new { equipmentId }, ct);
+        return rows.Select(r => r.ToDomain()).OfType<FdcInterlockHistory>().ToList();
+    }
+
+    public async Task<IReadOnlyList<FdcInterlockHistory>> GetUnresolvedAsync(
+        string equipmentId,
+        string parameterId,
+        CancellationToken ct = default)
+    {
+        const string sql = @"SELECT * FROM FDC_INTERLOCK_HISTORY
+            WHERE EQUIPMENT_ID = @equipmentId
+              AND PARAMETER_ID = @parameterId
+              AND IS_RESOLVED = 0
+            ORDER BY TRIGGERED_AT DESC";
+        var rows = await QueryAsync<HistRow>(sql, new { equipmentId, parameterId }, ct);
         return rows.Select(r => r.ToDomain()).OfType<FdcInterlockHistory>().ToList();
     }
 

@@ -76,8 +76,10 @@ public sealed class PomMixingAtomicityTests : IClassFixture<PomMixingAtomicityTe
             ConnectionString = _factory.ConnString,
         };
         var config = new ConfigurationBuilder().Build(); // outbox off
+        var lots = new LotRepository(ds, config);
         return new LotTrackingService(
-            new LotRepository(ds, config),
+            lots,
+            lots,
             new LotHistoryRepository(ds, new SqliteEesDbCapability()),
             new LotMixingRelationRepository(ds),
             new UnusedWorkOrders(),

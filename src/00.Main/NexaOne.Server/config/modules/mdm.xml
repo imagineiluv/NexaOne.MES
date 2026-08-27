@@ -14,6 +14,9 @@
   <object id="equipmentDirectory" type="NexaOne.MDM.Infrastructure.EquipmentDirectory, NexaOne.MDM">
     <constructor-arg ref="eesDataSource" />
   </object>
+  <object id="equipmentOutputMasterDirectory" type="NexaOne.MDM.Infrastructure.EquipmentOutputMasterDirectory, NexaOne.MDM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
   <object id="vendorDirectory" type="NexaOne.MDM.Infrastructure.VendorDirectory, NexaOne.MDM">
     <constructor-arg ref="eesDataSource" />
   </object>

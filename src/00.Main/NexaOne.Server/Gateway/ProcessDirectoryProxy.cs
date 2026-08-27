@@ -1,4 +1,3 @@
-using NexaFramework;
 using NexaOne.ServiceContracts.Mdm;
 
 namespace NexaOne.Server.Gateway;
@@ -6,13 +5,14 @@ namespace NexaOne.Server.Gateway;
 /// <summary>MDM 공정 directory를 QMS 형제 컨텍스트에 연결하는 부모 프록시입니다.</summary>
 public sealed class ProcessDirectoryProxy : IProcessDirectory
 {
+    private readonly ModuleBeanResolver _resolver;
+
+    public ProcessDirectoryProxy(ModuleBeanResolver resolver)
+        => _resolver = resolver ?? throw new ArgumentNullException(nameof(resolver));
+
     public Task<bool> ProcessExistsAsync(string processId, CancellationToken ct = default)
         => Resolve().ProcessExistsAsync(processId, ct);
 
-    private static IProcessDirectory Resolve()
-    {
-        var bean = ApplicationServer.GetInstance().GetBean("Mdm", "processDirectory");
-        return bean as IProcessDirectory
-            ?? throw ModuleProxy.TypeMismatch<IProcessDirectory>("Mdm", "processDirectory", bean);
-    }
+    private IProcessDirectory Resolve() =>
+        _resolver.Resolve<IProcessDirectory>("Mdm", "processDirectory");
 }

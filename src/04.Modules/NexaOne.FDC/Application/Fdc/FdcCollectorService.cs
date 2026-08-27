@@ -17,15 +17,20 @@ public sealed class FdcCollectorService
     private readonly FdcInterlockService? _interlockService;
     private readonly FdcAlarmService? _alarmService;
 
-    // 현재 발동 중인 (설비|파라미터) 집합 — 중복 발동 방지 + 정상 복귀 시에만 해제 처리
-    private readonly ConcurrentDictionary<string, byte> _activeInterlocks = new();
+    // 현재 발동 중인 (설비|파라미터) episode. EffectId는 즉시 신호와 durable 이력 재시도 전 구간에서 고정한다.
+    private readonly ConcurrentDictionary<string, ActiveInterlockEpisode> _activeInterlocks = new();
+    // 정상 복귀 신호 뒤 DB 해제가 실패한 episode. 다음 Good 샘플에서 이력 해제만 재시도한다.
+    private readonly ConcurrentDictionary<string, Queue<PendingInterlockResolution>> _pendingInterlockResolutions = new();
+    // durable 이력 조회를 완료한 키. 프로세스 재시작 후 첫 Good 샘플에서 open 상태를 한 번 복원한다.
+    private readonly ConcurrentDictionary<string, byte> _loadedInterlockStates = new();
     // 현재 발생 중인 알람의 최고 심각도(레벨) — 심각도 상승(Warning→Critical) 통지 판단용
     private readonly ConcurrentDictionary<string, string> _activeAlarms = new();
+    private readonly ConcurrentDictionary<string, byte> _loadedAlarmStates = new();
     // (설비|파라미터) 키별 평가-기록-해제 직렬화 — 동시 태그 이벤트의 발동↔해제 순서 역전 방지
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _keyGates = new();
 
-    /// <summary>인터락 규칙이 발동했을 때 발생한다. 인터락 이력 기록·설비 정지·SignalR 알림 등
-    /// 후속 처리는 호스트(구독자)가 담당한다 (§10.4.2).</summary>
+    /// <summary>인터락 규칙이 최초 발동했을 때 DB 기록보다 먼저 한 번 발생한다. 액션 해석과 실제 설비 제어는
+    /// 프로젝트별 플러그인/소비자가 담당하며, 공통 FDC의 버스 알림 워커는 물리 안전 동작이 아니다 (§10.4.2).</summary>
     public event EventHandler<FdcInterlockTriggeredEventArgs>? InterlockTriggered;
 
     /// <summary>발동했던 인터락이 정상 범위 복귀로 해제됐을 때 발생한다 (§10.4.2).</summary>
@@ -70,8 +75,8 @@ public sealed class FdcCollectorService
 
         if (_interlockService is null && _alarmService is null) return;
 
-        // 품질이 Good이 아니면(연결 끊김/Bad → ToDecimal이 0으로 뭉갬) 평가·해제하지 않는다.
-        // 0으로 뭉개진 값이 활성 인터락/알람을 거짓 해제하거나 저값 규칙을 거짓 발동시키는 것을 방지.
+        // 품질이 Good이 아니면 평가·해제하지 않는다. 연결 끊김이나 변환 불가 payload의 Bad 표본이
+        // fallback 0으로 저장되더라도 활성 인터락/알람을 거짓 해제하거나 저값 규칙을 발동시키지 않는다.
         if (sample.Quality != FdcSampleQuality.Good) return;
 
         // 같은 (설비|태그) 이벤트의 동시 처리를 직렬화 — TryAdd 후 RecordTrigger(INSERT)와
@@ -82,9 +87,16 @@ public sealed class FdcCollectorService
         try
         {
             if (_interlockService is not null)
+            {
+                await RetryPendingInterlockResolutionAsync(equipmentId, sample.ParameterId, key, ct);
+                await RestoreInterlockStateAsync(equipmentId, sample.ParameterId, key, ct);
                 await EvaluateInterlockAsync(equipmentId, sample.ParameterId, sample.Value, key, ct);
+            }
             if (_alarmService is not null)
+            {
+                await RestoreAlarmStateAsync(equipmentId, sample.ParameterId, key, ct);
                 await EvaluateAlarmAsync(equipmentId, sample.ParameterId, sample.Value, key, ct);
+            }
         }
         finally
         {
@@ -98,31 +110,131 @@ public sealed class FdcCollectorService
 
         if (interlock.IsTriggered)
         {
-            // 신규 발동만 기록·통지 (이미 발동 중이면 중복 억제)
-            if (_activeInterlocks.TryAdd(key, 0))
+            // 이미 발동 중이면 action/event는 중복하지 않는다. 이전 기록이 실패한 경우에만 최초 episode의
+            // EffectId/값/규칙을 그대로 사용해 durable 이력을 재시도한다.
+            if (_activeInterlocks.TryGetValue(key, out var active))
             {
-                try
-                {
-                    await _interlockService.RecordTriggerAsync(equipmentId, tagName, value, interlock, ct);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    // 기록(INSERT) 실패 시 활성 표시를 롤백한다. 롤백하지 않으면 활성 표시만 남아 이후 발동이
-                    // 영구 억제되고(STOP 등 안전 동작 누락), 정상 복귀 시 기록 없는 인터락을 거짓 해제한다.
-                    // 표시를 제거해 다음 태그 변화에서 재평가·재기록·재통지되도록 하고, 이번 통지는 생략한다.
-                    _activeInterlocks.TryRemove(key, out _);
-                    return;
-                }
+                await RecordPendingInterlockAsync(equipmentId, tagName, active, ct);
+                return;
+            }
+
+            var episode = new ActiveInterlockEpisode(
+                Guid.NewGuid().ToString("N"), value, interlock, DateTime.UtcNow, historyPending: true);
+            if (!_activeInterlocks.TryAdd(key, episode)) return;
+
+            // 안전 관련 프로젝트 소비자가 DB 상태와 무관하게 첫 신호를 받을 수 있도록 반드시 기록보다 먼저 발생시킨다.
+            // 구독자 예외가 나더라도 finally에서 이력 기록은 시도하고, active episode는 유지해 중복 action을 막는다.
+            try
+            {
                 InterlockTriggered?.Invoke(this,
-                    new FdcInterlockTriggeredEventArgs(equipmentId, tagName, value, interlock));
+                    new FdcInterlockTriggeredEventArgs(
+                        episode.EffectId, equipmentId, tagName, value, interlock));
+            }
+            finally
+            {
+                await RecordPendingInterlockAsync(equipmentId, tagName, episode, ct);
             }
         }
-        else if (_activeInterlocks.TryRemove(key, out _))
+        else if (_activeInterlocks.TryRemove(key, out var episode))
         {
-            // 발동 중이던 항목이 정상 범위로 복귀 — 미해제 이력 자동 해제
-            await _interlockService.ResolveActiveAsync(equipmentId, tagName, ct);
-            InterlockResolved?.Invoke(this,
-                new FdcInterlockResolvedEventArgs(equipmentId, tagName, value));
+            // 정상 복귀도 DB 장애가 실시간 사실 통지를 억제하지 않게 메모리 episode를 먼저 닫고 신호를 낸다.
+            // durable 해제 실패는 별도 pending으로 남겨 다음 Good 샘플에서 재시도한다.
+            var resolvedAt = DateTime.UtcNow;
+            var pendingResolutions = _pendingInterlockResolutions.GetOrAdd(
+                key, _ => new Queue<PendingInterlockResolution>());
+            pendingResolutions.Enqueue(new PendingInterlockResolution(episode, value, resolvedAt));
+            try
+            {
+                InterlockResolved?.Invoke(this,
+                    new FdcInterlockResolvedEventArgs(
+                        episode.EffectId, episode.Result.RuleId, equipmentId, tagName, value, resolvedAt));
+            }
+            finally
+            {
+                await RetryPendingInterlockResolutionAsync(equipmentId, tagName, key, ct);
+            }
+        }
+    }
+
+    private async Task RecordPendingInterlockAsync(
+        string equipmentId,
+        string parameterId,
+        ActiveInterlockEpisode episode,
+        CancellationToken ct)
+    {
+        if (!episode.HistoryPending) return;
+        if (!_interlockService!.IsHistoryPersistenceConfigured)
+        {
+            // 경량(no-history) 구성은 의도적인 비영속 모드다. 매 샘플마다 동일 validation failure를 반복하지 않는다.
+            episode.HistoryPending = false;
+            return;
+        }
+
+        try
+        {
+            var recorded = await _interlockService.RecordTriggerAsync(
+                episode.EffectId,
+                equipmentId,
+                parameterId,
+                episode.TriggerValue,
+                episode.Result,
+                episode.TriggeredAt,
+                ct);
+            if (recorded.IsSuccess)
+                episode.HistoryPending = false;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // DB 장애는 최초 신호를 되돌리거나 같은 episode의 action/event를 재발행하지 않는다.
+            // HistoryPending을 유지해 다음 위반 샘플에서 동일 EffectId로 기록만 재시도한다.
+        }
+    }
+
+    private async Task RetryPendingInterlockResolutionAsync(
+        string equipmentId,
+        string parameterId,
+        string key,
+        CancellationToken ct)
+    {
+        if (!_pendingInterlockResolutions.TryGetValue(key, out var pendingQueue)
+            || pendingQueue.Count == 0)
+            return;
+
+        // 이력 저장소를 의도적으로 생략한 경량 구성에는 durable 재시도 대상이 없다.
+        if (!_interlockService!.IsHistoryPersistenceConfigured)
+        {
+            _pendingInterlockResolutions.TryRemove(key, out _);
+            return;
+        }
+
+        try
+        {
+            while (pendingQueue.Count > 0)
+            {
+                var pending = pendingQueue.Peek();
+                // trigger INSERT가 실패한 채 정상 복귀했더라도 trigger→resolve 증거 순서를 보존한다.
+                // 같은 ActiveInterlockEpisode 객체를 보관하므로 EffectId/최초 값/규칙/시각이 바뀌지 않는다.
+                await RecordPendingInterlockAsync(equipmentId, parameterId, pending.Episode, ct);
+                if (pending.Episode.HistoryPending) return;
+
+                var resolved = await _interlockService.ResolveEffectAsync(
+                    pending.Episode.EffectId,
+                    equipmentId,
+                    parameterId,
+                    pending.Value,
+                    pending.ResolvedAt,
+                    ct);
+                // 0건은 성공이 아니다. 아직 trigger 행이 보이지 않거나 다른 장애가 있었을 수 있으므로
+                // 다음 Good 샘플에서 같은 EffectId로 다시 확인한다.
+                if (resolved == 0) return;
+                pendingQueue.Dequeue();
+            }
+
+            _pendingInterlockResolutions.TryRemove(key, out _);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // 정상 복귀 신호는 이미 1회 발생했다. durable 해제만 다음 Good 샘플에서 재시도한다.
         }
     }
 
@@ -149,17 +261,55 @@ public sealed class FdcCollectorService
                 {
                     // 기록 실패 시 활성 레벨을 갱신하지 않는다 — 갱신해 버리면 기록 없는 알람이 이후 동일/하위
                     // 레벨을 거짓 억제한다. 갱신을 미뤄 다음 태그 변화에서 재평가·재기록되도록 한다.
+                    _loadedAlarmStates.TryRemove(key, out _);
                     return;
                 }
                 _activeAlarms[key] = top.AlarmLevel;   // 기록 성공 후에만 활성 레벨 갱신
                 AlarmRaised?.Invoke(this, new FdcAlarmRaisedEventArgs(equipmentId, tagName, value, top));
             }
         }
-        else if (_activeAlarms.TryRemove(key, out _))
+        else if (_activeAlarms.ContainsKey(key))
         {
             await _alarmService.ClearActiveAsync(equipmentId, tagName, ct);
+            _activeAlarms.TryRemove(key, out _);
             AlarmCleared?.Invoke(this, new FdcAlarmClearedEventArgs(equipmentId, tagName, value));
         }
+    }
+
+    private async Task RestoreInterlockStateAsync(
+        string equipmentId,
+        string parameterId,
+        string key,
+        CancellationToken ct)
+    {
+        if (_loadedInterlockStates.ContainsKey(key)) return;
+
+        var unresolved = await _interlockService!.GetLatestUnresolvedAsync(equipmentId, parameterId, ct);
+        if (unresolved is not null)
+        {
+            _activeInterlocks.TryAdd(key, new ActiveInterlockEpisode(
+                unresolved.Id,
+                unresolved.TriggerValue,
+                InterlockResult.Triggered(
+                    unresolved.Action, unresolved.Message, unresolved.RuleId),
+                unresolved.TriggeredAt,
+                historyPending: false));
+        }
+        _loadedInterlockStates.TryAdd(key, 0);
+    }
+
+    private async Task RestoreAlarmStateAsync(
+        string equipmentId,
+        string parameterId,
+        string key,
+        CancellationToken ct)
+    {
+        if (_loadedAlarmStates.ContainsKey(key)) return;
+
+        var level = await _alarmService!.GetHighestOpenLevelAsync(equipmentId, parameterId, ct);
+        if (level is not null)
+            _activeAlarms[key] = level;
+        _loadedAlarmStates.TryAdd(key, 0);
     }
 
     /// <summary>알람 심각도 순위(Critical &gt; Warning &gt; 기타). 심각도 상승 통지 판단에 사용.</summary>
@@ -171,8 +321,37 @@ public sealed class FdcCollectorService
     };
 }
 
+internal sealed class ActiveInterlockEpisode
+{
+    public ActiveInterlockEpisode(
+        string effectId,
+        decimal triggerValue,
+        InterlockResult result,
+        DateTime triggeredAt,
+        bool historyPending)
+    {
+        EffectId = effectId;
+        TriggerValue = triggerValue;
+        Result = result;
+        TriggeredAt = triggeredAt;
+        HistoryPending = historyPending;
+    }
+
+    public string EffectId { get; }
+    public decimal TriggerValue { get; }
+    public InterlockResult Result { get; }
+    public DateTime TriggeredAt { get; }
+    public bool HistoryPending { get; set; }
+}
+
+internal sealed record PendingInterlockResolution(
+    ActiveInterlockEpisode Episode,
+    decimal Value,
+    DateTime ResolvedAt);
+
 /// <summary>인터락 규칙 발동 이벤트 인자 (§10.4.2).</summary>
 public sealed record FdcInterlockTriggeredEventArgs(
+    string EffectId,
     string EquipmentId,
     string ParameterId,
     decimal Value,
@@ -180,9 +359,12 @@ public sealed record FdcInterlockTriggeredEventArgs(
 
 /// <summary>인터락 해제(정상 복귀) 이벤트 인자 (§10.4.2).</summary>
 public sealed record FdcInterlockResolvedEventArgs(
+    string EffectId,
+    string? RuleId,
     string EquipmentId,
     string ParameterId,
-    decimal Value);
+    decimal Value,
+    DateTime ResolvedAt);
 
 /// <summary>임계치 알람 발생 이벤트 인자 (§10.4.1).</summary>
 public sealed record FdcAlarmRaisedEventArgs(

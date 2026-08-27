@@ -57,6 +57,8 @@
        빈을 cross-context ref로 주입받으며, 포트(ITrackingMasterGateway)는 ServiceContracts에 공유되어 타입 동일성이 유지된다. -->
   <object id="lotTrackingService" type="NexaOne.POM.Application.Lots.LotTrackingService, NexaOne.POM">
     <constructor-arg ref="pomLotRepository" />
+    <!-- 동일 구현이 조회 포트와 원자적 전이 포트를 모두 제공한다. 원자적 포트는 필수 의존성이다. -->
+    <constructor-arg ref="pomLotRepository" />
     <constructor-arg ref="pomLotHistoryRepository" />
     <constructor-arg ref="pomLotMixingRelationRepository" />
     <constructor-arg ref="pomWorkOrderRepository" />

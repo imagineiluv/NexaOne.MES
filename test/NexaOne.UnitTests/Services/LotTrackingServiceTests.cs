@@ -14,11 +14,17 @@ namespace NexaOne.UnitTests.Services;
 /// </summary>
 public sealed class LotTrackingServiceTests
 {
+    private const int ObservedVersion = 1;
+    private const string TrackInKey = "unit:track-in";
+    private const string TrackOutKey = "unit:track-out";
+    private const string HoldKey = "unit:hold";
+    private const string ReleaseHoldKey = "unit:release-hold";
     private static readonly DateTime ServerTime = new(2026, 6, 1, 9, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime SchedStart = new(2026, 6, 1, 8, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime SchedEnd   = new(2026, 6, 1, 18, 0, 0, DateTimeKind.Utc);
 
     private readonly Mock<ILotRepository> _lots = new();
+    private readonly Mock<IAtomicLotRepository> _atomicLots = new();
     private readonly Mock<ILotHistoryRepository> _histories = new();
     private readonly Mock<ILotMixingRelationRepository> _mixings = new();
     private readonly Mock<IPomWorkOrderRepository> _workOrders = new();
@@ -45,10 +51,26 @@ public sealed class LotTrackingServiceTests
         _mixings.Setup(r => r.AddAsync(It.IsAny<LotMixingRelation>(), default)).Returns(Task.CompletedTask);
         _workOrders.Setup(r => r.UpdateWithExecutionAsync(
             It.IsAny<PomWorkOrder>(), It.IsAny<PomWorkOrderExecution>(), default)).ReturnsAsync(true);
+        _atomicLots.Setup(r => r.GetExecutionAsync(It.IsAny<string>(), default))
+            .ReturnsAsync((LotExecutionRecord?)null);
+        // The mock represents the repository transaction boundary. Forwarding the committed plan
+        // to the legacy port mocks preserves the detailed state/history assertions in these unit tests
+        // without reintroducing a production compatibility fallback.
+        _atomicLots.Setup(r => r.PersistTransitionAsync(It.IsAny<LotTransitionPersistPlan>(), default))
+            .Callback<LotTransitionPersistPlan, CancellationToken>((plan, ct) =>
+            {
+                _ = _lots.Object.UpdateAsync(plan.Lot, ct);
+                foreach (var history in plan.Histories)
+                    _ = _histories.Object.AddAsync(history, ct);
+                if (plan.WorkOrder is not null && plan.WorkOrderExecution is not null)
+                    _ = _workOrders.Object.UpdateWithExecutionAsync(
+                        plan.WorkOrder, plan.WorkOrderExecution, ct);
+            })
+            .ReturnsAsync(LotTransitionPersistResult.Persisted);
     }
 
     private LotTrackingService Build() =>
-        new(_lots.Object, _histories.Object, _mixings.Object, _workOrders.Object, _master.Object,
+        new(_lots.Object, _atomicLots.Object, _histories.Object, _mixings.Object, _workOrders.Object, _master.Object,
             _productionQuality.Object);
 
     private static Lot QueuedLot(
@@ -199,6 +221,33 @@ public sealed class LotTrackingServiceTests
 
     // ── TrackInAsync ──────────────────────────────────────────────────────────
 
+    [Theory]
+    [InlineData(0, "unit:provided-key")]
+    [InlineData(1, null)]
+    public async Task Lot_mutations_require_explicit_version_and_idempotency_key(
+        int expectedVersion,
+        string? idempotencyKey)
+    {
+        var lot = QueuedLot();
+        _lots.Setup(r => r.GetByIdAsync(lot.Id, default)).ReturnsAsync(lot);
+
+        var trackIn = await Build().TrackInAsync(new TrackInCommand(
+            "P1", lot.Id, "EQ001", null, null, "worker", expectedVersion, idempotencyKey!));
+        var trackOut = await Build().TrackOutAsync(new TrackOutCommand(
+            "P1", lot.Id, "EQ001", 10m, null, null, "worker", expectedVersion, idempotencyKey!));
+        var hold = await Build().HoldAsync(lot.Id, "worker", expectedVersion, idempotencyKey!);
+        var release = await Build().ReleaseHoldAsync(lot.Id, "worker", expectedVersion, idempotencyKey!);
+
+        trackIn.IsFailure.Should().BeTrue();
+        trackOut.IsFailure.Should().BeTrue();
+        hold.IsFailure.Should().BeTrue();
+        release.IsFailure.Should().BeTrue();
+        lot.State.Should().Be(LotState.Queued);
+        lot.IsHold.Should().BeFalse();
+        _lots.Verify(r => r.UpdateAsync(It.IsAny<Lot>(), default), Times.Never);
+        _histories.Verify(r => r.AddAsync(It.IsAny<LotHistory>(), default), Times.Never);
+    }
+
     [Fact]
     public async Task TrackIn_queued_lot_succeeds_and_records_history()
     {
@@ -206,7 +255,7 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(lot);
 
         var result = await Build().TrackInAsync(
-            new TrackInCommand("P1", "LOT001", "EQ001", "RCP01", 1, "worker"));
+            new TrackInCommand("P1", "LOT001", "EQ001", "RCP01", 1, "worker", ObservedVersion, TrackInKey));
 
         result.IsSuccess.Should().BeTrue();
         lot.State.Should().Be(LotState.Processing);
@@ -223,7 +272,7 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync("LXXX", default)).ReturnsAsync((Lot?)null);
 
         var result = await Build().TrackInAsync(
-            new TrackInCommand("P1", "LXXX", "EQ001", null, null, "worker"));
+            new TrackInCommand("P1", "LXXX", "EQ001", null, null, "worker", ObservedVersion, TrackInKey));
 
         result.IsFailure.Should().BeTrue();
     }
@@ -234,7 +283,7 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(QueuedLot());
 
         var result = await Build().TrackInAsync(
-            new TrackInCommand("P2", "LOT001", "EQ001", null, null, "worker"));
+            new TrackInCommand("P2", "LOT001", "EQ001", null, null, "worker", ObservedVersion, TrackInKey));
 
         result.IsFailure.Should().BeTrue();
         _lots.Verify(r => r.UpdateAsync(It.IsAny<Lot>(), default), Times.Never);
@@ -248,7 +297,7 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(lot);
 
         var result = await Build().TrackInAsync(
-            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker"));
+            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker", ObservedVersion, TrackInKey));
 
         result.IsFailure.Should().BeTrue();
         _master.Verify(m => m.GetEquipmentAsync(It.IsAny<string>(), default), Times.Never,
@@ -261,7 +310,7 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(ProcessingLot());
 
         var result = await Build().TrackInAsync(
-            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker"));
+            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker", ObservedVersion, TrackInKey));
 
         result.IsFailure.Should().BeTrue();
         _master.Verify(m => m.GetEquipmentAsync(It.IsAny<string>(), default), Times.Never);
@@ -275,7 +324,7 @@ public sealed class LotTrackingServiceTests
             .ReturnsAsync((TrackingEquipmentInfo?)null);
 
         var result = await Build().TrackInAsync(
-            new TrackInCommand("P1", "LOT001", "EQ404", null, null, "worker"));
+            new TrackInCommand("P1", "LOT001", "EQ404", null, null, "worker", ObservedVersion, TrackInKey));
 
         result.IsFailure.Should().BeTrue();
         _lots.Verify(r => r.UpdateAsync(It.IsAny<Lot>(), default), Times.Never);
@@ -289,7 +338,7 @@ public sealed class LotTrackingServiceTests
             .ReturnsAsync(new TrackingEquipmentInfo("EQ001", "P2", "CLS01", true));
 
         var result = await Build().TrackInAsync(
-            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker"));
+            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker", ObservedVersion, TrackInKey));
 
         result.IsFailure.Should().BeTrue();
     }
@@ -302,7 +351,7 @@ public sealed class LotTrackingServiceTests
             .ReturnsAsync(new TrackingEquipmentInfo("EQ001", "P1", "CLS01", false));
 
         var result = await Build().TrackInAsync(
-            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker"));
+            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker", ObservedVersion, TrackInKey));
 
         result.IsFailure.Should().BeTrue("ValidState가 Valid가 아닌 설비는 TrackIn할 수 없다");
     }
@@ -313,7 +362,7 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(QueuedLot());
 
         var result = await Build().TrackInAsync(
-            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker"));
+            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker", ObservedVersion, TrackInKey));
 
         result.IsSuccess.Should().BeTrue("Recipe 미지정은 현행 setIsUseValidationRecipe(false)의 적응으로 허용된다");
         _master.Verify(m => m.IsUsableRecipeAsync(
@@ -327,7 +376,7 @@ public sealed class LotTrackingServiceTests
         _master.Setup(m => m.IsUsableRecipeAsync("RCP01", 1, "CLS01", default)).ReturnsAsync(false);
 
         var result = await Build().TrackInAsync(
-            new TrackInCommand("P1", "LOT001", "EQ001", "RCP01", 1, "worker"));
+            new TrackInCommand("P1", "LOT001", "EQ001", "RCP01", 1, "worker", ObservedVersion, TrackInKey));
 
         result.IsFailure.Should().BeTrue();
         _lots.Verify(r => r.UpdateAsync(It.IsAny<Lot>(), default), Times.Never);
@@ -339,7 +388,7 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(QueuedLot());
 
         await Build().TrackInAsync(
-            new TrackInCommand("P1", "LOT001", "EQ001", "RCP01", 2, "worker"));
+            new TrackInCommand("P1", "LOT001", "EQ001", "RCP01", 2, "worker", ObservedVersion, TrackInKey));
 
         _master.Verify(m => m.IsUsableRecipeAsync("RCP01", 2, "CLS01", default), Times.Once,
             "Recipe는 TrackIn 설비의 클래스 기준으로 검증해야 한다");
@@ -354,7 +403,7 @@ public sealed class LotTrackingServiceTests
         _workOrders.Setup(r => r.ExecutionExistsAsync("LOT:LOT001:TRACK_IN", default)).ReturnsAsync(false);
 
         var result = await Build().TrackInAsync(
-            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker"));
+            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker", ObservedVersion, TrackInKey));
 
         result.IsSuccess.Should().BeTrue();
         order.Status.Should().Be(PomWorkOrderStatus.Started);
@@ -380,7 +429,7 @@ public sealed class LotTrackingServiceTests
             .ReturnsAsync([predecessor, target]);
 
         var result = await Build().TrackInAsync(
-            new TrackInCommand("P1", lot.Id, "EQ001", null, null, "worker"));
+            new TrackInCommand("P1", lot.Id, "EQ001", null, null, "worker", ObservedVersion, TrackInKey));
 
         result.IsFailure.Should().BeTrue();
         result.Error.Description.Should().Contain("ROUTE_PREDECESSOR_INCOMPLETE")
@@ -399,7 +448,7 @@ public sealed class LotTrackingServiceTests
         _workOrders.Setup(r => r.GetByIdAsync(order.Id, default)).ReturnsAsync(order);
 
         var result = await Build().TrackInAsync(
-            new TrackInCommand("P1", lot.Id, "EQ001", null, null, "worker"));
+            new TrackInCommand("P1", lot.Id, "EQ001", null, null, "worker", ObservedVersion, TrackInKey));
 
         result.IsSuccess.Should().BeTrue();
         order.Status.Should().Be(PomWorkOrderStatus.Started);
@@ -421,7 +470,7 @@ public sealed class LotTrackingServiceTests
         _workOrders.Setup(r => r.GetByIdAsync("WO001", default)).ReturnsAsync(order);
 
         var result = await Build().TrackInAsync(
-            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker"));
+            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker", ObservedVersion, TrackInKey));
 
         result.IsSuccess.Should().BeTrue();
         _workOrders.Verify(r => r.UpdateWithExecutionAsync(
@@ -435,7 +484,7 @@ public sealed class LotTrackingServiceTests
         _workOrders.Setup(r => r.GetByIdAsync("WO404", default)).ReturnsAsync((PomWorkOrder?)null);
 
         var result = await Build().TrackInAsync(
-            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker"));
+            new TrackInCommand("P1", "LOT001", "EQ001", null, null, "worker", ObservedVersion, TrackInKey));
 
         result.IsFailure.Should().BeTrue();
         _lots.Verify(r => r.UpdateAsync(It.IsAny<Lot>(), default), Times.Never);
@@ -450,7 +499,7 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(lot);
 
         var result = await Build().TrackOutAsync(
-            new TrackOutCommand("P1", "LOT001", "EQ001", 10m, null, null, "worker"));
+            new TrackOutCommand("P1", "LOT001", "EQ001", 10m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         result.IsSuccess.Should().BeTrue();
         lot.State.Should().Be(LotState.Queued, "중간 공정 TrackOut은 다음 공정 대기로 돌아간다");
@@ -467,7 +516,7 @@ public sealed class LotTrackingServiceTests
             .ReturnsAsync(ProductionQualityGateResult.Pending(1, 0, "SPEC-CUT"));
 
         var result = await Build().TrackOutAsync(
-            new TrackOutCommand("P1", lot.Id, "EQ001", 10m, null, null, "worker"));
+            new TrackOutCommand("P1", lot.Id, "EQ001", 10m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         result.IsFailure.Should().BeTrue();
         result.Error.Description.Should().Contain("Pending").And.Contain("SPEC-CUT");
@@ -492,7 +541,7 @@ public sealed class LotTrackingServiceTests
             .ReturnsAsync(ProductionQualityGateResult.Failed(1, 0, "SPEC-RW"));
 
         var result = await Build().TrackOutAsync(
-            new TrackOutCommand("P1", lot.Id, "EQ001", 10m, null, null, "worker"));
+            new TrackOutCommand("P1", lot.Id, "EQ001", 10m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         result.IsFailure.Should().BeTrue();
         lot.State.Should().Be(LotState.Processing);
@@ -511,7 +560,7 @@ public sealed class LotTrackingServiceTests
             .Returns(Task.CompletedTask);
 
         await Build().TrackOutAsync(
-            new TrackOutCommand("P1", "LOT001", "EQ001", 10m, null, null, "worker"));
+            new TrackOutCommand("P1", "LOT001", "EQ001", 10m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         lot.EquipmentId.Should().BeNull("TrackOut은 설비 점유를 반납한다");
         var history = recorded.Should().ContainSingle(h => h.ExecutionId == LotExecutionId.TrackOut).Subject;
@@ -527,7 +576,7 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(lot);
 
         var result = await Build().TrackOutAsync(
-            new TrackOutCommand("P1", "LOT001", "EQ001", 10m, null, null, "worker"));
+            new TrackOutCommand("P1", "LOT001", "EQ001", 10m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         result.IsSuccess.Should().BeTrue();
         lot.State.Should().Be(LotState.Completed);
@@ -552,7 +601,7 @@ public sealed class LotTrackingServiceTests
             .ReturnsAsync(decision);
 
         var result = await Build().TrackOutAsync(
-            new TrackOutCommand("P1", "LOT001", "EQ001", 10m, null, null, "worker"));
+            new TrackOutCommand("P1", "LOT001", "EQ001", 10m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         result.IsFailure.Should().BeTrue();
         result.Error.Description.Should().Contain(status.ToString()).And.Contain("SPEC-CUT");
@@ -572,7 +621,7 @@ public sealed class LotTrackingServiceTests
             .ReturnsAsync(ProductionQualityGateResult.Passed(2));
 
         var result = await Build().TrackOutAsync(
-            new TrackOutCommand("P1", "LOT001", "EQ001", 10m, null, null, "worker"));
+            new TrackOutCommand("P1", "LOT001", "EQ001", 10m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         result.IsSuccess.Should().BeTrue();
         lot.State.Should().Be(LotState.Completed);
@@ -586,7 +635,8 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(lot);
 
         var result = await Build().TrackOutAsync(new TrackOutCommand(
-            "P1", "LOT001", "EQ001", 10m, [new DefectEntry("D1", -1)], null, "worker"));
+            "P1", "LOT001", "EQ001", 10m, [new DefectEntry("D1", -1)], null, "worker",
+            ObservedVersion, TrackOutKey));
 
         result.IsFailure.Should().BeTrue();
         lot.State.Should().Be(LotState.Processing, "검증 실패 시 상태가 변하면 안 된다");
@@ -600,7 +650,7 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(lot);
 
         var result = await Build().TrackOutAsync(new TrackOutCommand(
-            "P1", "LOT001", "EQ001", 0m, null, null, "worker"));
+            "P1", "LOT001", "EQ001", 0m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         result.IsFailure.Should().BeTrue();
         lot.State.Should().Be(LotState.Processing);
@@ -616,7 +666,8 @@ public sealed class LotTrackingServiceTests
 
         var result = await Build().TrackOutAsync(new TrackOutCommand(
             "P1", "LOT001", "EQ001", 10m,
-            [new DefectEntry("D1", 1), new DefectEntry("d1", 2)], null, "worker"));
+            [new DefectEntry("D1", 1), new DefectEntry("d1", 2)], null, "worker",
+            ObservedVersion, TrackOutKey));
 
         result.IsFailure.Should().BeTrue();
         _lots.Verify(r => r.UpdateAsync(It.IsAny<Lot>(), default), Times.Never);
@@ -630,7 +681,8 @@ public sealed class LotTrackingServiceTests
         _master.Setup(m => m.IsValidDefectCodeAsync("BAD", default)).ReturnsAsync(false);
 
         var result = await Build().TrackOutAsync(new TrackOutCommand(
-            "P1", "LOT001", "EQ001", 10m, [new DefectEntry("BAD", 1)], null, "worker"));
+            "P1", "LOT001", "EQ001", 10m, [new DefectEntry("BAD", 1)], null, "worker",
+            ObservedVersion, TrackOutKey));
 
         result.IsFailure.Should().BeTrue("QMS 불량 분류에 없는 코드는 거부해야 한다");
         lot.State.Should().Be(LotState.Processing);
@@ -645,7 +697,8 @@ public sealed class LotTrackingServiceTests
 
         var result = await Build().TrackOutAsync(new TrackOutCommand(
             "P1", "LOT001", "EQ001", 10m,
-            [new DefectEntry("D1", 1), new DefectEntry("D2", 2)], null, "worker"));
+            [new DefectEntry("D1", 1), new DefectEntry("D2", 2)], null, "worker",
+            ObservedVersion, TrackOutKey));
 
         result.IsSuccess.Should().BeTrue();
         lot.DefectQty.Should().Be(3m);
@@ -663,7 +716,8 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(lot);
 
         var result = await Build().TrackOutAsync(new TrackOutCommand(
-            "P1", "LOT001", "EQ001", 5m, [new DefectEntry("D1", 2m)], null, "worker"));
+            "P1", "LOT001", "EQ001", 5m, [new DefectEntry("D1", 2m)], null, "worker",
+            ObservedVersion, TrackOutKey));
 
         result.IsFailure.Should().BeTrue();
         lot.State.Should().Be(LotState.Processing);
@@ -679,13 +733,13 @@ public sealed class LotTrackingServiceTests
     {
         var lot = ProcessingLot();
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(lot);
-        var atomic = _lots.As<IAtomicLotRepository>();
+        var atomic = _atomicLots;
         atomic.Setup(r => r.GetExecutionAsync(It.IsAny<string>(), default))
             .ReturnsAsync((LotExecutionRecord?)null);
         LotTransitionPersistPlan? captured = null;
         atomic.Setup(r => r.PersistTransitionAsync(It.IsAny<LotTransitionPersistPlan>(), default))
             .Callback<LotTransitionPersistPlan, CancellationToken>((plan, _) => captured = plan)
-            .ReturnsAsync(true);
+            .ReturnsAsync(LotTransitionPersistResult.Persisted);
 
         var result = await Build().TrackOutAsync(new TrackOutCommand(
             "P1", "LOT001", "EQ001", 10m,
@@ -712,7 +766,7 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync("LXXX", default)).ReturnsAsync((Lot?)null);
 
         var result = await Build().TrackOutAsync(
-            new TrackOutCommand("P1", "LXXX", "EQ001", 10m, null, null, "worker"));
+            new TrackOutCommand("P1", "LXXX", "EQ001", 10m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         result.IsFailure.Should().BeTrue();
     }
@@ -723,7 +777,7 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(ProcessingLot());
 
         var result = await Build().TrackOutAsync(
-            new TrackOutCommand("P2", "LOT001", "EQ001", 10m, null, null, "worker"));
+            new TrackOutCommand("P2", "LOT001", "EQ001", 10m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         result.IsFailure.Should().BeTrue();
     }
@@ -735,7 +789,7 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(lot);
 
         var result = await Build().TrackOutAsync(
-            new TrackOutCommand("P1", "LOT001", "EQ999", 10m, null, null, "worker"));
+            new TrackOutCommand("P1", "LOT001", "EQ999", 10m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         result.IsFailure.Should().BeTrue("TrackIn 설비와 다른 설비로는 TrackOut할 수 없다");
         _lots.Verify(r => r.UpdateAsync(It.IsAny<Lot>(), default), Times.Never);
@@ -757,7 +811,7 @@ public sealed class LotTrackingServiceTests
         _workOrders.Setup(r => r.ExecutionExistsAsync("WO:WO001:AUTO_COMPLETE", default)).ReturnsAsync(false);
 
         var result = await Build().TrackOutAsync(
-            new TrackOutCommand("P1", "LOT001", "EQ001", 8m, null, null, "worker"));
+            new TrackOutCommand("P1", "LOT001", "EQ001", 8m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         result.IsSuccess.Should().BeTrue();
         order.Status.Should().Be(PomWorkOrderStatus.Completed);
@@ -781,7 +835,7 @@ public sealed class LotTrackingServiceTests
         _lots.Setup(r => r.GetByIdAsync(lot.Id, default)).ReturnsAsync(lot);
 
         var result = await Build().TrackOutAsync(
-            new TrackOutCommand("P1", lot.Id, "EQ001", 10m, null, null, "worker"));
+            new TrackOutCommand("P1", lot.Id, "EQ001", 10m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         result.IsSuccess.Should().BeTrue();
         lot.State.Should().Be(LotState.Queued);
@@ -805,7 +859,7 @@ public sealed class LotTrackingServiceTests
         _workOrders.Setup(r => r.GetByIdAsync(order.Id, default)).ReturnsAsync(order);
 
         var result = await Build().TrackOutAsync(
-            new TrackOutCommand("P1", lot.Id, "EQ001", 9m, null, null, "worker"));
+            new TrackOutCommand("P1", lot.Id, "EQ001", 9m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         result.IsSuccess.Should().BeTrue();
         lot.State.Should().Be(LotState.Completed);
@@ -829,7 +883,7 @@ public sealed class LotTrackingServiceTests
             .ReturnsAsync(new List<Lot> { lot, sibling });
 
         var result = await Build().TrackOutAsync(
-            new TrackOutCommand("P1", "LOT001", "EQ001", 10m, null, null, "worker"));
+            new TrackOutCommand("P1", "LOT001", "EQ001", 10m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         result.IsSuccess.Should().BeTrue();
         _workOrders.Verify(r => r.GetByIdAsync(It.IsAny<string>(), default), Times.Never,
@@ -847,7 +901,7 @@ public sealed class LotTrackingServiceTests
         _workOrders.Setup(r => r.GetByIdAsync("WO001", default)).ReturnsAsync(order);
 
         var result = await Build().TrackOutAsync(
-            new TrackOutCommand("P1", "LOT001", "EQ001", 10m, null, null, "worker"));
+            new TrackOutCommand("P1", "LOT001", "EQ001", 10m, null, null, "worker", ObservedVersion, TrackOutKey));
 
         result.IsSuccess.Should().BeTrue("자동 마감 실패는 TrackOut 자체에 영향을 주지 않는다");
         order.Status.Should().Be(PomWorkOrderStatus.Released);
@@ -1076,7 +1130,7 @@ public sealed class LotTrackingServiceTests
         var lot = QueuedLot();
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(lot);
 
-        var result = await Build().HoldAsync("LOT001", "admin");
+        var result = await Build().HoldAsync("LOT001", "admin", ObservedVersion, HoldKey);
 
         result.IsSuccess.Should().BeTrue();
         lot.IsHold.Should().BeTrue();
@@ -1090,7 +1144,7 @@ public sealed class LotTrackingServiceTests
         lot.TrackOut("EQ001", 10m, 0, null, "worker", ServerTime);
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(lot);
 
-        var result = await Build().HoldAsync("LOT001", "admin");
+        var result = await Build().HoldAsync("LOT001", "admin", ObservedVersion, HoldKey);
 
         result.IsFailure.Should().BeTrue("종결된 Lot은 Hold할 수 없다");
         _lots.Verify(r => r.UpdateAsync(It.IsAny<Lot>(), default), Times.Never);
@@ -1101,7 +1155,7 @@ public sealed class LotTrackingServiceTests
     {
         _lots.Setup(r => r.GetByIdAsync("LXXX", default)).ReturnsAsync((Lot?)null);
 
-        var result = await Build().HoldAsync("LXXX", "admin");
+        var result = await Build().HoldAsync("LXXX", "admin", ObservedVersion, HoldKey);
 
         result.IsFailure.Should().BeTrue();
     }
@@ -1113,7 +1167,7 @@ public sealed class LotTrackingServiceTests
         lot.Hold("admin");
         _lots.Setup(r => r.GetByIdAsync("LOT001", default)).ReturnsAsync(lot);
 
-        var result = await Build().ReleaseHoldAsync("LOT001", "admin");
+        var result = await Build().ReleaseHoldAsync("LOT001", "admin", ObservedVersion, ReleaseHoldKey);
 
         result.IsSuccess.Should().BeTrue();
         lot.IsHold.Should().BeFalse();
@@ -1131,9 +1185,11 @@ public sealed class LotTrackingServiceTests
 
         var result = release
             ? await Build().ReleaseHoldAsync(
-                "LOT001", "admin", clientChannel: "UNKNOWN", deviceId: "DEVICE-01")
+                "LOT001", "admin", ObservedVersion, ReleaseHoldKey,
+                clientChannel: "UNKNOWN", deviceId: "DEVICE-01")
             : await Build().HoldAsync(
-                "LOT001", "admin", clientChannel: "UNKNOWN", deviceId: "DEVICE-01");
+                "LOT001", "admin", ObservedVersion, HoldKey,
+                clientChannel: "UNKNOWN", deviceId: "DEVICE-01");
 
         result.IsFailure.Should().BeTrue();
         _lots.Verify(r => r.GetByIdAsync(It.IsAny<string>(), default), Times.Never,

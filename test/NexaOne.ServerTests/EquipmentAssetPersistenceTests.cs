@@ -9,7 +9,6 @@ using NexaOne.EST.Application.Est;
 using NexaOne.EST.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.MDM.Infrastructure;
-using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Ems;
 using NexaOne.ServiceContracts.Est;
 using NexaDB.Data.Abstractions.Interfaces;

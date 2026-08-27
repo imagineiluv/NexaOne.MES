@@ -146,13 +146,80 @@ public sealed class ModuleDependencyBoundaryTests
             "생산 품질 정책과 SQL은 QMS 모듈이 소유하고 호스트에는 단일 프록시만 있어야 합니다");
 
         var source = File.ReadAllText(gatewayFiles.Single());
-        source.Should().Contain("GetBean(");
+        source.Should().Contain("ModuleBeanResolver");
         source.Should().Contain("qmsProductionQualityGateway");
+        source.Should().NotContain("ApplicationServer.GetInstance()");
         source.Should().NotContain("QueryRepository");
         source.Should().NotContain("EesDataSource");
         source.Should().NotContain("QMS_");
         source.Should().NotContain("SELECT ");
         source.Should().NotContain("FROM ");
+    }
+
+    [Fact]
+    public void Host_module_proxies_use_the_injected_resolver_not_the_global_server_locator()
+    {
+        var proxyFiles = Directory.GetFiles(
+            Path.Combine(ServerRoot, "Gateway"), "*Proxy.cs", SearchOption.TopDirectoryOnly);
+        proxyFiles.Should().NotBeEmpty();
+
+        var globalLocatorUsers = proxyFiles
+            .Where(file => File.ReadAllText(file).Contains(
+                "ApplicationServer.GetInstance()", StringComparison.Ordinal))
+            .Select(file => Path.GetFileName(file))
+            .ToArray();
+
+        globalLocatorUsers.Should().BeEmpty(
+            "Spring sibling proxies must receive the host-owned resolver at the XML composition root");
+    }
+
+    [Fact]
+    public void Spring_host_injects_one_module_resolver_into_every_sibling_proxy()
+    {
+        foreach (var configFile in new[] { "server.xml", "server.sqlite.xml" })
+        {
+            var document = XDocument.Load(Path.Combine(
+                ServerRoot, "config", "host", configFile));
+            var objects = document.Descendants()
+                .Where(element => element.Name.LocalName == "object")
+                .ToArray();
+
+            var applicationServer = objects.Single(element =>
+                (string?)element.Attribute("id") == "applicationServer");
+            ((string?)applicationServer.Attribute("factory-method")).Should().Be("GetInstance");
+
+            var resolver = objects.Single(element =>
+                (string?)element.Attribute("id") == "moduleBeanResolver");
+            resolver.Elements().Single(element => element.Name.LocalName == "constructor-arg")
+                .Attribute("ref")?.Value.Should().Be("applicationServer");
+
+            var proxies = objects.Where(element =>
+                    ((string?)element.Attribute("type"))?.Contains(
+                        "Proxy, NexaOne.Server", StringComparison.Ordinal) == true)
+                .ToArray();
+            proxies.Should().NotBeEmpty();
+            foreach (var proxy in proxies)
+            {
+                proxy.Elements().Single(element => element.Name.LocalName == "constructor-arg")
+                    .Attribute("ref")?.Value.Should().Be("moduleBeanResolver");
+            }
+        }
+    }
+
+    [Fact]
+    public void Domain_sources_do_not_import_service_contract_dtos()
+    {
+        var violations = FindModuleDirectories()
+            .Select(directory => Path.Combine(directory, "Domain"))
+            .Where(Directory.Exists)
+            .SelectMany(directory => Directory.GetFiles(directory, "*.cs", SearchOption.AllDirectories))
+            .Where(file => File.ReadAllText(file).Contains(
+                "using NexaOne.ServiceContracts.", StringComparison.Ordinal))
+            .Select(file => Path.GetRelativePath(RepoRoot, file))
+            .ToArray();
+
+        violations.Should().BeEmpty(
+            "Domain은 모듈 간 전송 DTO 대신 자체 값 형식을 사용하고 Application 경계에서 변환해야 합니다");
     }
 
     [Fact]

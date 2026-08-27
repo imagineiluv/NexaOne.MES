@@ -77,6 +77,10 @@ public sealed class IvtTraceProjectionPersistenceTests
         Scalar<string>(
             "SELECT CONSUMPTION_MODE FROM IVT_MATERIAL_CONSUMPTION_HISTORY WHERE MATERIAL_LOT_ID=@id",
             ("@id", ids.LotId)).Should().Be("Trace");
+        Scalar<string>(
+            "SELECT OPERATOR_ID FROM IVT_MATERIAL_CONSUMPTION_HISTORY WHERE MATERIAL_LOT_ID=@id",
+            ("@id", ids.LotId)).Should().Be("operator",
+                "TRACE consumption must retain the authenticated actor who mounted the material");
         Scalar<long>(
             "SELECT COUNT(*) FROM IVT_MATERIAL_TX WHERE LOT_ID=@id AND TX_TYPE='Consumption'",
             ("@id", ids.LotId)).Should().Be(1);
@@ -92,6 +96,13 @@ public sealed class IvtTraceProjectionPersistenceTests
         Scalar<string>(
             "SELECT LAST_COLLECT_ID FROM IVT_TRACE_PROJECTION_STATE WHERE BINDING_ID=@id",
             ("@id", ids.BindingId)).Should().Be(ids.SecondCollectId);
+        Scalar<string>(
+            "SELECT LAST_COLLECT_ID FROM IVT_TRACE_INGESTION_CURSOR WHERE BINDING_ID=@id",
+            ("@id", ids.BindingId)).Should().Be(ids.SecondCollectId);
+        Scalar<long>(
+            "SELECT COUNT(*) FROM IVT_TRACE_PROJECTION_INBOX WHERE BINDING_ID=@id AND IS_WORK_ITEM=1",
+            ("@id", ids.BindingId)).Should().Be(0,
+                "terminal TRACE evidence must leave the filtered retry work set");
     }
 
     [Fact]
@@ -109,6 +120,10 @@ public sealed class IvtTraceProjectionPersistenceTests
         Scalar<long>(
             "SELECT COUNT(*) FROM IVT_TRACE_PROJECTION_INBOX WHERE BINDING_ID=@id AND STATUS='Pending'",
             ("@id", ids.BindingId)).Should().Be(1, "later rows remain unprocessed to preserve counter order");
+        Scalar<long>(
+            "SELECT COUNT(*) FROM IVT_TRACE_PROJECTION_INBOX WHERE BINDING_ID=@id AND IS_WORK_ITEM=1",
+            ("@id", ids.BindingId)).Should().Be(2,
+                "error and pending rows must remain visible to the filtered retry queue");
         Scalar<long>(
             "SELECT COUNT(*) FROM IVT_MATERIAL_CONSUMPTION_HISTORY WHERE MATERIAL_LOT_ID=@id",
             ("@id", ids.LotId)).Should().Be(0);

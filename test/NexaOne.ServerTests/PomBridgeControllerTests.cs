@@ -93,9 +93,9 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
 
         public Task<Result<LotDto>> TrackInAsync(
             string plantId, string lotId, string equipmentId,
-            string? recipeDefId, int? recipeDefVersion, string user, CancellationToken ct = default,
-            int? expectedVersion = null, string? idempotencyKey = null,
-            string clientChannel = "MES", string? deviceId = null)
+            string? recipeDefId, int? recipeDefVersion, string user,
+            int expectedVersion, string idempotencyKey,
+            string clientChannel = "MES", string? deviceId = null, CancellationToken ct = default)
             => Task.FromResult(lotId switch
             {
                 "MISSING" => Result.Failure<LotDto>(Error.NotFound("Lot", lotId)),
@@ -105,9 +105,9 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
 
         public Task<Result<LotDto>> TrackOutAsync(
             string plantId, string lotId, string equipmentId, decimal qty,
-            IReadOnlyList<LotDefectInput>? defects, string? carrierId, string user, CancellationToken ct = default,
-            int? expectedVersion = null, string? idempotencyKey = null,
-            string clientChannel = "MES", string? deviceId = null)
+            IReadOnlyList<LotDefectInput>? defects, string? carrierId, string user,
+            int expectedVersion, string idempotencyKey,
+            string clientChannel = "MES", string? deviceId = null, CancellationToken ct = default)
             => Task.FromResult(lotId switch
             {
                 "MISSING" => Result.Failure<LotDto>(Error.NotFound("Lot", lotId)),
@@ -119,17 +119,19 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
                 _ => Result.Success(Lot(lotId, plantId, "PROD01", qty, "Completed")),
             });
 
-        public Task<Result> HoldLotAsync(string lotId, string user, CancellationToken ct = default,
-            int? expectedVersion = null, string? idempotencyKey = null, string? reason = null,
-            string clientChannel = "MES", string? deviceId = null)
+        public Task<Result> HoldLotAsync(
+            string lotId, string user, int expectedVersion, string idempotencyKey,
+            string? reason = null, string clientChannel = "MES", string? deviceId = null,
+            CancellationToken ct = default)
         {
             _lastHoldChannel = clientChannel;
             _lastHoldDeviceId = deviceId;
             return Transition(lotId);
         }
-        public Task<Result> ReleaseLotHoldAsync(string lotId, string user, CancellationToken ct = default,
-            int? expectedVersion = null, string? idempotencyKey = null, string? reason = null,
-            string clientChannel = "MES", string? deviceId = null) => Transition(lotId);
+        public Task<Result> ReleaseLotHoldAsync(
+            string lotId, string user, int expectedVersion, string idempotencyKey,
+            string? reason = null, string clientChannel = "MES", string? deviceId = null,
+            CancellationToken ct = default) => Transition(lotId);
 
         public Task<Result<LotRoutingContextDto>> GetLotRoutingContextAsync(
             string lotId, CancellationToken ct = default)
@@ -399,6 +401,26 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
     // ── Lot 추적 ──
 
     [Fact]
+    public async Task Lot_mutations_without_explicit_execution_identity_return_400()
+    {
+        var client = Client("pom:execute");
+
+        var trackIn = await client.PostAsJsonAsync(
+            "/api/v1/pom/lots/LOT1/track-in",
+            new { plantId = "P1", equipmentId = "EQ1" });
+        var trackOut = await client.PostAsJsonAsync(
+            "/api/v1/pom/lots/LOT1/track-out",
+            new { plantId = "P1", equipmentId = "EQ1", qty = 10m });
+        var hold = await client.PostAsync("/api/v1/pom/lots/LOT1/hold", content: null);
+        var release = await client.PostAsync("/api/v1/pom/lots/LOT1/release", content: null);
+
+        trackIn.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        trackOut.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        hold.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        release.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task CreateLot_with_pom_manage_returns_200_with_dto()
     {
         var res = await Client("pom:manage").PostAsJsonAsync("/api/v1/pom/lots",
@@ -427,7 +449,11 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
     public async Task TrackIn_success_returns_200()
     {
         var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/LOT1/track-in",
-            new { plantId = "P1", equipmentId = "EQ1", recipeDefId = "RCP01", recipeDefVersion = 1 });
+            new
+            {
+                plantId = "P1", equipmentId = "EQ1", expectedVersion = 1,
+                idempotencyKey = "http:track-in:lot1", recipeDefId = "RCP01", recipeDefVersion = 1
+            });
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         var dto = await res.Content.ReadFromJsonAsync<LotDto>();
         dto!.State.Should().Be("Processing");
@@ -437,7 +463,12 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
     public async Task TrackIn_missing_lot_maps_to_404()
     {
         var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/MISSING/track-in",
-            new { plantId = "P1", equipmentId = "EQ1", recipeDefId = (string?)null, recipeDefVersion = (int?)null });
+            new
+            {
+                plantId = "P1", equipmentId = "EQ1", expectedVersion = 1,
+                idempotencyKey = "http:track-in:missing", recipeDefId = (string?)null,
+                recipeDefVersion = (int?)null
+            });
         res.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
@@ -445,7 +476,12 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
     public async Task TrackOut_conflict_maps_to_409()
     {
         var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/CONFLICT/track-out",
-            new { plantId = "P1", equipmentId = "EQ1", qty = 10m, defects = (object?)null, carrierId = (string?)null });
+            new
+            {
+                plantId = "P1", equipmentId = "EQ1", qty = 10m, expectedVersion = 1,
+                idempotencyKey = "http:track-out:conflict", defects = (object?)null,
+                carrierId = (string?)null
+            });
         res.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
@@ -453,7 +489,12 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
     public async Task TrackOut_quality_gate_conflict_maps_to_409()
     {
         var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/QUALITY_PENDING/track-out",
-            new { plantId = "P1", equipmentId = "EQ1", qty = 10m, defects = (object?)null, carrierId = (string?)null });
+            new
+            {
+                plantId = "P1", equipmentId = "EQ1", qty = 10m, expectedVersion = 1,
+                idempotencyKey = "http:track-out:quality", defects = (object?)null,
+                carrierId = (string?)null
+            });
 
         res.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
@@ -462,7 +503,8 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
     public async Task TrackOut_negative_defect_maps_to_400()
     {
         var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/LOT1/track-out",
-            new { plantId = "P1", equipmentId = "EQ1", qty = 10m,
+            new { plantId = "P1", equipmentId = "EQ1", qty = 10m, expectedVersion = 1,
+                  idempotencyKey = "http:track-out:negative-defect",
                   defects = new[] { new { defectCode = "D1", defectQty = -1m } }, carrierId = (string?)null });
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -473,7 +515,8 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
         var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/LOT1/track-out",
             new
             {
-                plantId = "P1", equipmentId = "EQ1", qty = 10m,
+                plantId = "P1", equipmentId = "EQ1", qty = 10m, expectedVersion = 1,
+                idempotencyKey = "http:track-out:defect-total",
                 defects = new[] { new { defectCode = "D1", defectQty = 11m } },
                 carrierId = (string?)null, clientChannel = "POP", deviceId = "KIOSK-03"
             });
@@ -487,7 +530,8 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
         var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/LOT1/track-out",
             new
             {
-                plantId = "P1", equipmentId = "EQ1", qty = 10m,
+                plantId = "P1", equipmentId = "EQ1", qty = 10m, expectedVersion = 1,
+                idempotencyKey = "http:track-out:null-defect",
                 defects = new object?[] { null }, carrierId = (string?)null,
                 clientChannel = "MOBILE", deviceId = "PDA-07"
             });
@@ -499,7 +543,11 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
     public async Task Lot_tracking_rejects_unknown_client_channel()
     {
         var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/LOT1/track-in",
-            new { plantId = "P1", equipmentId = "EQ1", clientChannel = "UNKNOWN" });
+            new
+            {
+                plantId = "P1", equipmentId = "EQ1", expectedVersion = 1,
+                idempotencyKey = "http:track-in:bad-channel", clientChannel = "UNKNOWN"
+            });
 
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
@@ -507,7 +555,9 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
     [Fact]
     public async Task HoldLot_success_returns_204()
     {
-        var res = await Client("pom:execute").PostAsync("/api/v1/pom/lots/LOT1/hold", content: null);
+        var res = await Client("pom:execute").PostAsync(
+            "/api/v1/pom/lots/LOT1/hold?expectedVersion=1&idempotencyKey=http%3Ahold%3Alot1",
+            content: null);
         res.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
 
@@ -518,7 +568,7 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
         _lastHoldDeviceId = null;
 
         var res = await Client("pom:execute").PostAsync(
-            "/api/v1/pom/lots/LOT1/hold?clientChannel=POP&deviceId=KIOSK-03",
+            "/api/v1/pom/lots/LOT1/hold?expectedVersion=1&idempotencyKey=http%3Ahold%3Apop&clientChannel=POP&deviceId=KIOSK-03",
             content: null);
 
         res.StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -531,16 +581,22 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
     {
         var client = ClientWithoutActor("pom:execute");
 
-        (await client.PostAsync("/api/v1/pom/lots/LOT1/hold", content: null)).StatusCode
+        (await client.PostAsync(
+            "/api/v1/pom/lots/LOT1/hold?expectedVersion=1&idempotencyKey=http%3Ahold%3Ano-actor",
+            content: null)).StatusCode
             .Should().Be(HttpStatusCode.Unauthorized);
-        (await client.PostAsync("/api/v1/pom/lots/LOT1/release", content: null)).StatusCode
+        (await client.PostAsync(
+            "/api/v1/pom/lots/LOT1/release?expectedVersion=1&idempotencyKey=http%3Arelease%3Ano-actor",
+            content: null)).StatusCode
             .Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
     public async Task ReleaseLot_not_found_maps_to_404()
     {
-        var res = await Client("pom:execute").PostAsync("/api/v1/pom/lots/MISSING/release", content: null);
+        var res = await Client("pom:execute").PostAsync(
+            "/api/v1/pom/lots/MISSING/release?expectedVersion=1&idempotencyKey=http%3Arelease%3Amissing",
+            content: null);
         res.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 

@@ -202,6 +202,32 @@ public sealed class ConsumptionService
         if (sourceEventId.Length > 100)
             return Result.Failure<ConsumptionRecord>(Error.Validation(nameof(command.SourceEventId), "SourceEventId cannot exceed 100 characters."));
 
+        var processLotId = Clean(command.ProcessLotId);
+        var workOrderId = Clean(command.WorkOrderId);
+        var processId = Clean(command.ProcessId);
+        var recipeId = Clean(command.RecipeId);
+        var traceId = Clean(command.TraceId);
+        var tagId = Clean(command.TagId);
+        var correlationId = Clean(command.CorrelationId);
+        var optional = new (string Name, string? Value, int Max)[]
+        {
+            (nameof(command.ProcessLotId), processLotId, IdentifierLength),
+            (nameof(command.WorkOrderId), workOrderId, IdentifierLength),
+            (nameof(command.ProcessId), processId, IdentifierLength),
+            (nameof(command.RecipeId), recipeId, IdentifierLength),
+            (nameof(command.TraceId), traceId, 100),
+            (nameof(command.TagId), tagId, 100),
+            (nameof(command.CorrelationId), correlationId, 100),
+        };
+        foreach (var item in optional)
+        {
+            if (item.Value?.Length > item.Max)
+            {
+                return Result.Failure<ConsumptionRecord>(Error.Validation(
+                    item.Name, $"{item.Name} cannot exceed {item.Max} characters."));
+            }
+        }
+
         var actorResult = CommandActor.Resolve(command.OperatorId, nameof(command.OperatorId));
         if (actorResult.IsFailure)
             return Result.Failure<ConsumptionRecord>(actorResult.Error);
@@ -213,21 +239,21 @@ public sealed class ConsumptionService
             command.EquipmentId.Trim(), command.MaterialLotId.Trim(), command.MaterialId.Trim(),
             quantity.ToString(CultureInfo.InvariantCulture), command.Unit.Trim(), mode,
             occurredAt.ToString("O", CultureInfo.InvariantCulture), sourceEventId,
-            Clean(command.ProcessLotId) ?? string.Empty, Clean(command.WorkOrderId) ?? string.Empty,
-            Clean(command.ProcessId) ?? string.Empty, Clean(command.RecipeId) ?? string.Empty,
+            processLotId ?? string.Empty, workOrderId ?? string.Empty,
+            processId ?? string.Empty, recipeId ?? string.Empty,
             command.RecipeVersion?.ToString(CultureInfo.InvariantCulture) ?? string.Empty,
-            Clean(command.TraceId) ?? string.Empty, Clean(command.TagId) ?? string.Empty,
-            command.SourceSystem.Trim(), actor, Clean(command.CorrelationId) ?? string.Empty,
+            traceId ?? string.Empty, tagId ?? string.Empty,
+            command.SourceSystem.Trim(), actor, correlationId ?? string.Empty,
             Clean(command.MetadataJson) ?? string.Empty,
         };
 
         return Result.Success(new ConsumptionRecord(
             command.ConsumptionId.Trim(), command.IdempotencyKey.Trim(), Hash(values),
             command.PlantId.Trim(), command.EquipmentId.Trim(), command.MaterialLotId.Trim(),
-            command.MaterialId.Trim(), Clean(command.ProcessLotId), Clean(command.WorkOrderId),
-            Clean(command.ProcessId), Clean(command.RecipeId), command.RecipeVersion, mode,
-            quantity, command.Unit.Trim(), Clean(command.TraceId), Clean(command.TagId),
-            sourceEventId, command.SourceSystem.Trim(), actor, Clean(command.CorrelationId), null,
+            command.MaterialId.Trim(), processLotId, workOrderId,
+            processId, recipeId, command.RecipeVersion, mode,
+            quantity, command.Unit.Trim(), traceId, tagId,
+            sourceEventId, command.SourceSystem.Trim(), actor, correlationId, null,
             "Committed", Clean(command.MetadataJson), occurredAt));
     }
 
@@ -244,6 +270,8 @@ public sealed class ConsumptionService
             return Error.Validation(nameof(command.Reason), "Reason is required and cannot exceed 500 characters.");
         if (string.IsNullOrWhiteSpace(command.SourceSystem) || command.SourceSystem.Trim().Length > IdentifierLength)
             return Error.Validation(nameof(command.SourceSystem), "SourceSystem is required and cannot exceed 50 characters.");
+        if (Clean(command.CorrelationId)?.Length > 100)
+            return Error.Validation(nameof(command.CorrelationId), "CorrelationId cannot exceed 100 characters.");
         return null;
     }
 

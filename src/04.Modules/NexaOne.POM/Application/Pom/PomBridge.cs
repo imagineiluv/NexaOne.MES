@@ -78,9 +78,9 @@ public sealed class PomBridge : IPomBridge
 
     public async Task<Result<LotDto>> TrackInAsync(
         string plantId, string lotId, string equipmentId,
-        string? recipeDefId, int? recipeDefVersion, string user, CancellationToken ct = default,
-        int? expectedVersion = null, string? idempotencyKey = null,
-        string clientChannel = "MES", string? deviceId = null)
+        string? recipeDefId, int? recipeDefVersion, string user,
+        int expectedVersion, string idempotencyKey,
+        string clientChannel = "MES", string? deviceId = null, CancellationToken ct = default)
     {
         var r = await _lotService.TrackInAsync(
             new TrackInCommand(
@@ -91,9 +91,9 @@ public sealed class PomBridge : IPomBridge
 
     public async Task<Result<LotDto>> TrackOutAsync(
         string plantId, string lotId, string equipmentId, decimal qty,
-        IReadOnlyList<LotDefectInput>? defects, string? carrierId, string user, CancellationToken ct = default,
-        int? expectedVersion = null, string? idempotencyKey = null,
-        string clientChannel = "MES", string? deviceId = null)
+        IReadOnlyList<LotDefectInput>? defects, string? carrierId, string user,
+        int expectedVersion, string idempotencyKey,
+        string clientChannel = "MES", string? deviceId = null, CancellationToken ct = default)
     {
         var mapped = defects?.Select(d => new DefectEntry(d.DefectCode, d.DefectQty)).ToList();
         var r = await _lotService.TrackOutAsync(
@@ -103,17 +103,19 @@ public sealed class PomBridge : IPomBridge
         return r.IsSuccess ? Result.Success(ToDto(r.Value)) : Result.Failure<LotDto>(r.Error);
     }
 
-    public Task<Result> HoldLotAsync(string lotId, string user, CancellationToken ct = default,
-        int? expectedVersion = null, string? idempotencyKey = null, string? reason = null,
-        string clientChannel = "MES", string? deviceId = null)
+    public Task<Result> HoldLotAsync(
+        string lotId, string user, int expectedVersion, string idempotencyKey,
+        string? reason = null, string clientChannel = "MES", string? deviceId = null,
+        CancellationToken ct = default)
         => _lotService.HoldAsync(
-            lotId, user, ct, expectedVersion, idempotencyKey, reason, clientChannel, deviceId);
+            lotId, user, expectedVersion, idempotencyKey, reason, clientChannel, deviceId, ct);
 
-    public Task<Result> ReleaseLotHoldAsync(string lotId, string user, CancellationToken ct = default,
-        int? expectedVersion = null, string? idempotencyKey = null, string? reason = null,
-        string clientChannel = "MES", string? deviceId = null)
+    public Task<Result> ReleaseLotHoldAsync(
+        string lotId, string user, int expectedVersion, string idempotencyKey,
+        string? reason = null, string clientChannel = "MES", string? deviceId = null,
+        CancellationToken ct = default)
         => _lotService.ReleaseHoldAsync(
-            lotId, user, ct, expectedVersion, idempotencyKey, reason, clientChannel, deviceId);
+            lotId, user, expectedVersion, idempotencyKey, reason, clientChannel, deviceId, ct);
 
     // ── LOT 라우팅 통제/예외 ──
 

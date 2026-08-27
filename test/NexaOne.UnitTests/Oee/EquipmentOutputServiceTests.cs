@@ -1,6 +1,7 @@
 using FluentAssertions;
 using NexaOne.EST.Application.Est;
 using NexaOne.ServiceContracts.Est;
+using NexaOne.ServiceContracts.Mdm;
 
 namespace NexaOne.UnitTests.Oee;
 

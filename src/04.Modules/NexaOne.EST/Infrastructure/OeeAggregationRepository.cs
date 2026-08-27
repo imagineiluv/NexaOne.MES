@@ -17,6 +17,7 @@ namespace NexaOne.EST.Infrastructure;
 public sealed class OeeAggregationRepository : QueryRepository, IOeeAggregator
 {
     private const string Ts = "yyyy-MM-dd HH:mm:ss";
+    private static readonly TimeSpan RunFinalizationTimeout = TimeSpan.FromSeconds(2);
     // 미분류 상태 폴백 — 계획시간엔 포함하되 가동/비가동 어느쪽도 아님(중립). 데이터 이상이 OEE를 왜곡하지 않게 한다.
     private static readonly OeeStateCategory Unknown = new("Unknown", IsProductive: false, IsDowntime: false, IsScheduled: true);
 
@@ -95,7 +96,7 @@ public sealed class OeeAggregationRepository : QueryRepository, IOeeAggregator
         }
         catch (Exception ex)
         {
-            await FailRunAsync(run.RunId, ex, CancellationToken.None);
+            await TryFailRunAsync(run.RunId, ex);
             throw;
         }
     }
@@ -219,7 +220,7 @@ public sealed class OeeAggregationRepository : QueryRepository, IOeeAggregator
         }
         catch (Exception ex)
         {
-            await FailRunAsync(run.RunId, ex, CancellationToken.None);
+            await TryFailRunAsync(run.RunId, ex);
             throw;
         }
     }
@@ -755,6 +756,20 @@ public sealed class OeeAggregationRepository : QueryRepository, IOeeAggregator
             error = message,
             completed = P(DateTime.UtcNow),
         }));
+    }
+
+    private async Task TryFailRunAsync(string runId, Exception exception)
+    {
+        using var cleanup = new CancellationTokenSource(RunFinalizationTimeout);
+        try
+        {
+            await FailRunAsync(runId, exception, cleanup.Token);
+        }
+        catch (Exception)
+        {
+            // Run finalization is bounded best effort. Preserve the original aggregation
+            // cancellation/failure even when the audit update itself fails or times out.
+        }
     }
 
     private static AggregationRun NewRun(

@@ -28,7 +28,14 @@ public sealed class TraceIngestionService
 
         var byId = bindings.ToDictionary(binding => binding.BindingId, StringComparer.Ordinal);
         var samples = await _source.ReadAsync(
-            bindings.Select(binding => binding.ToReadScope()).ToArray(),
+            bindings.Select(binding => new FdcTraceReadScope(
+                binding.BindingId,
+                binding.EquipmentId,
+                binding.ParameterId,
+                binding.EffectiveFrom,
+                binding.EffectiveTo,
+                binding.LastEnqueuedAt,
+                binding.LastEnqueuedCollectId)).ToArray(),
             limit,
             ct);
         if (samples.Count == 0) return 0;
@@ -42,7 +49,14 @@ public sealed class TraceIngestionService
                     $"FDC TRACE source returned unknown scope '{sample.ScopeId}'.");
             }
 
-            items.Add(binding.Snapshot(sample));
+            items.Add(binding.Snapshot(new TraceSourceObservation(
+                sample.ScopeId,
+                sample.CollectId,
+                sample.EquipmentId,
+                sample.ParameterId,
+                sample.Value,
+                sample.Quality,
+                sample.CollectedAt)));
         }
 
         return await _repository.AddToInboxAsync(items, ct);

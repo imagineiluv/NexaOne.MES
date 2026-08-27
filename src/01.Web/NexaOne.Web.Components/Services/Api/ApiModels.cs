@@ -572,8 +572,8 @@ public sealed record PomLotTrackOutRequest(
     string? DeviceId = null);
 
 public sealed record PomLotHoldRequest(
-    int? ExpectedVersion = null,
-    string? IdempotencyKey = null,
+    int ExpectedVersion,
+    string IdempotencyKey,
     string? Reason = null,
     string ClientChannel = "MES",
     string? DeviceId = null);

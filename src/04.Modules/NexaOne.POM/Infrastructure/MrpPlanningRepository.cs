@@ -17,6 +17,7 @@ namespace NexaOne.POM.Infrastructure;
 public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
 {
     private const string Ts = "yyyy-MM-dd HH:mm:ss";
+    private static readonly TimeSpan FinalizationTimeout = TimeSpan.FromSeconds(2);
     private const string FinalizeSql =
         "UPDATE MRP_RUN SET STATUS = @status, FINISHED_AT = @finishedAt, DEMAND_COUNT = @demandCount, " +
         "PLANNED_ORDER_COUNT = @orderCount, MESSAGE = @message, UPDATED_BY = @by WHERE RUN_ID = @runId";
@@ -92,7 +93,7 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
 
             if (!result.Success)
             {
-                await FinalizeAsync(runId, "Failed", demands.Count, 0, result.Error, executedBy, CancellationToken.None);
+                await TryFinalizeAsync(runId, demands.Count, result.Error, executedBy);
                 return new MrpRunResult(runId, "Failed", demands.Count, 0, result.Error);
             }
 
@@ -159,11 +160,16 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
             await _processor.ExecuteManyAsync(ct, statements.ToArray());
             return new MrpRunResult(runId, "Success", demands.Count, result.Proposals.Count, null);
         }
+        catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
+        {
+            await TryFinalizeAsync(runId, 0, ex.Message, executedBy);
+            throw;
+        }
         catch (Exception ex)
         {
             // 적재/계산 예외 — 런을 Failed로 마감해 이력에 사유를 남긴다(원자료 무변경이라 재실행 안전).
             var message = ex.Message.Length > 900 ? ex.Message[..900] : ex.Message;
-            await FinalizeAsync(runId, "Failed", 0, 0, message, executedBy, CancellationToken.None);
+            await TryFinalizeAsync(runId, 0, message, executedBy);
             return new MrpRunResult(runId, "Failed", 0, 0, message);
         }
     }
@@ -333,6 +339,10 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
             return new MrpConvertResult(runId, purchaseOrders + productionOrders,
                 purchaseOrders, productionOrders, null);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             var message = ex.Message.Length > 900 ? ex.Message[..900] : ex.Message;
@@ -345,6 +355,25 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
         => _processor.ExecuteAsync(
             FinalizeSql,
             new { runId, status, finishedAt = DateTime.UtcNow.ToString(Ts), demandCount, orderCount, message, by }, ct);
+
+    private async Task TryFinalizeAsync(
+        string runId,
+        int demandCount,
+        string? message,
+        string by)
+    {
+        var boundedMessage = message is { Length: > 900 } ? message[..900] : message;
+        using var cleanup = new CancellationTokenSource(FinalizationTimeout);
+        try
+        {
+            await FinalizeAsync(runId, "Failed", demandCount, 0, boundedMessage, by, cleanup.Token);
+        }
+        catch (Exception)
+        {
+            // Finalization is bounded best effort. Its failure must not replace the caller's
+            // cancellation or the original planning failure/result.
+        }
+    }
 
     private async Task<IReadOnlyList<MrpScheduledReceipt>> LoadProductionReceiptsAsync(CancellationToken ct)
     {

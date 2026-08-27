@@ -2,6 +2,7 @@ using Dapper;
 using System.Data;
 using System.Data.Common;
 using System.Globalization;
+using Microsoft.Data.Sqlite;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.IVT.Application.Materials;
 using NexaOne.IVT.Domain;
@@ -42,41 +43,27 @@ public sealed class TraceProjectionRepository : QueryRepository, ITraceProjectio
         CancellationToken ct = default)
     {
         const string bindingSql = @"
-            SELECT BINDING_ID AS BindingId,
-                   PLANT_ID AS PlantId,
-                   EQUIPMENT_ID AS EquipmentId,
-                   PARAMETER_ID AS ParameterId,
-                   FEED_POINT_ID AS FeedPointId,
-                   CALCULATION_MODE AS CalculationMode,
-                   SCALE_FACTOR AS ScaleFactor,
-                   PULSE_QUANTITY AS PulseQuantity,
-                   OUTPUT_UNIT AS OutputUnit,
-                   EFFECTIVE_FROM AS EffectiveFrom,
-                   EFFECTIVE_TO AS EffectiveTo
-            FROM IVT_TRACE_CONSUMPTION_BINDING
-            WHERE IS_ACTIVE = 1";
-        const string cursorSql = @"
-            SELECT I.BINDING_ID AS BindingId,
-                   I.COLLECT_ID AS CollectId,
-                   I.COLLECTED_AT AS CollectedAt
-            FROM IVT_TRACE_PROJECTION_INBOX I
-            WHERE NOT EXISTS (
-                SELECT 1
-                FROM IVT_TRACE_PROJECTION_INBOX N
-                WHERE N.BINDING_ID = I.BINDING_ID
-                  AND (N.COLLECTED_AT > I.COLLECTED_AT
-                       OR (N.COLLECTED_AT = I.COLLECTED_AT AND N.COLLECT_ID > I.COLLECT_ID)))";
+            SELECT B.BINDING_ID AS BindingId,
+                   B.PLANT_ID AS PlantId,
+                   B.EQUIPMENT_ID AS EquipmentId,
+                   B.PARAMETER_ID AS ParameterId,
+                   B.FEED_POINT_ID AS FeedPointId,
+                   B.CALCULATION_MODE AS CalculationMode,
+                   B.SCALE_FACTOR AS ScaleFactor,
+                   B.PULSE_QUANTITY AS PulseQuantity,
+                   B.OUTPUT_UNIT AS OutputUnit,
+                   B.EFFECTIVE_FROM AS EffectiveFrom,
+                   B.EFFECTIVE_TO AS EffectiveTo,
+                   C.LAST_COLLECT_ID AS LastCollectId,
+                   C.LAST_COLLECTED_AT AS LastCollectedAt
+              FROM IVT_TRACE_CONSUMPTION_BINDING B
+              LEFT JOIN IVT_TRACE_INGESTION_CURSOR C
+                ON C.BINDING_ID = B.BINDING_ID
+             WHERE B.IS_ACTIVE = 1";
 
         var bindingRows = await QueryAsync<BindingRow>(bindingSql, null, ct);
         if (bindingRows.Count == 0) return Array.Empty<TraceProjectionBinding>();
-        var cursorRows = await QueryAsync<SourceCursorRow>(cursorSql, null, ct);
-        var cursors = cursorRows.ToDictionary(row => row.BindingId, StringComparer.OrdinalIgnoreCase);
-
-        return bindingRows.Select(row =>
-        {
-            cursors.TryGetValue(row.BindingId, out var cursor);
-            return row.ToDomain(cursor);
-        }).ToList();
+        return bindingRows.Select(row => row.ToDomain()).ToList();
     }
 
     public async Task<int> AddToInboxAsync(
@@ -91,20 +78,50 @@ public sealed class TraceProjectionRepository : QueryRepository, ITraceProjectio
             (BINDING_ID, COLLECT_ID, PLANT_ID, EQUIPMENT_ID, PARAMETER_ID, FEED_POINT_ID,
              CALCULATION_MODE, SCALE_FACTOR, PULSE_QUANTITY, OUTPUT_UNIT, RAW_VALUE,
              QUALITY, COLLECTED_AT, STATUS, ATTEMPT_COUNT, CREATED_BY, CREATED_AT,
-             UPDATED_BY, UPDATED_AT)
+             UPDATED_BY, UPDATED_AT, IS_WORK_ITEM)
             SELECT @BindingId, @CollectId, @PlantId, @EquipmentId, @ParameterId, @FeedPointId,
                    @CalculationMode, @ScaleFactor, @PulseQuantity, @OutputUnit, @RawValue,
-                   @Quality, @CollectedAt, 'Pending', 0, 'SYSTEM', @Now, 'SYSTEM', @Now
+                   @Quality, @CollectedAt, 'Pending', 0, 'SYSTEM', @Now, 'SYSTEM', @Now, 1
             WHERE NOT EXISTS (
                 SELECT 1 FROM IVT_TRACE_PROJECTION_INBOX
                 WHERE BINDING_ID = @BindingId AND COLLECT_ID = @CollectId)";
+        const string updateCursorSql = @"
+            UPDATE IVT_TRACE_INGESTION_CURSOR SET
+                LAST_COLLECT_ID = @CollectId,
+                LAST_COLLECTED_AT = @CollectedAt,
+                UPDATED_BY = 'SYSTEM',
+                UPDATED_AT = @Now
+            WHERE BINDING_ID = @BindingId
+              AND (LAST_COLLECTED_AT < @CollectedAt
+                   OR (LAST_COLLECTED_AT = @CollectedAt AND LAST_COLLECT_ID < @CollectId))
+              AND EXISTS (
+                  SELECT 1 FROM IVT_TRACE_PROJECTION_INBOX
+                  WHERE BINDING_ID = @BindingId
+                    AND COLLECT_ID = @CollectId
+                    AND COLLECTED_AT = @CollectedAt)";
+        const string insertCursorSql = @"
+            INSERT INTO IVT_TRACE_INGESTION_CURSOR
+                (BINDING_ID, LAST_COLLECT_ID, LAST_COLLECTED_AT,
+                 CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            SELECT @BindingId, @CollectId, @CollectedAt,
+                   'SYSTEM', @Now, 'SYSTEM', @Now
+            WHERE EXISTS (
+                  SELECT 1 FROM IVT_TRACE_PROJECTION_INBOX
+                  WHERE BINDING_ID = @BindingId
+                    AND COLLECT_ID = @CollectId
+                    AND COLLECTED_AT = @CollectedAt)
+              AND NOT EXISTS (
+                  SELECT 1 FROM IVT_TRACE_INGESTION_CURSOR
+                  WHERE BINDING_ID = @BindingId)";
 
         var uniqueItems = items
             .DistinctBy(item => (item.BindingId, item.CollectId))
             .ToArray();
         var now = DateTime.UtcNow;
-        var statements = uniqueItems.Select(item =>
-            (insertSql, (object?)new
+        var statements = new List<(string Sql, object? Param)>(uniqueItems.Length * 3);
+        foreach (var item in uniqueItems)
+        {
+            var param = new
             {
                 item.BindingId,
                 item.CollectId,
@@ -120,8 +137,28 @@ public sealed class TraceProjectionRepository : QueryRepository, ITraceProjectio
                 item.Quality,
                 item.CollectedAt,
                 Now = now,
-            })).ToArray();
-        return await _processor.ExecuteManyAsync(ct, statements);
+            };
+            statements.Add((insertSql, param));
+            statements.Add((updateCursorSql, param));
+            statements.Add((insertCursorSql, param));
+        }
+
+        IReadOnlyList<int> results;
+        try
+        {
+            results = await _processor.ExecuteManyWithResultsAsync(ct, statements.ToArray());
+        }
+        catch (DbException exception) when (IsCursorIdentityRace(exception))
+        {
+            // Two hosts can observe a missing binding cursor concurrently. The loser transaction is
+            // rolled back in full; replay once after the winner's PK row becomes visible.
+            results = await _processor.ExecuteManyWithResultsAsync(ct, statements.ToArray());
+        }
+
+        var inserted = 0;
+        for (var index = 0; index < results.Count; index += 3)
+            inserted += results[index];
+        return inserted;
     }
 
     public async Task<IReadOnlyList<TraceProjectionItem>> GetPendingAsync(
@@ -144,7 +181,8 @@ public sealed class TraceProjectionRepository : QueryRepository, ITraceProjectio
                      QUALITY AS Quality,
                      COLLECTED_AT AS CollectedAt
               FROM IVT_TRACE_PROJECTION_INBOX
-              WHERE STATUS IN ('Pending', 'Error')",
+              WHERE IS_WORK_ITEM = 1
+                AND STATUS IN ('Pending', 'Error')",
             "COLLECTED_AT, COLLECT_ID, BINDING_ID",
             0,
             limit);
@@ -202,6 +240,7 @@ public sealed class TraceProjectionRepository : QueryRepository, ITraceProjectio
                      PROCESS_ID AS ProcessId,
                      RECIPE_ID AS RecipeId,
                      RECIPE_VERSION AS RecipeVersion,
+                     MOUNTED_BY AS MountedBy,
                      MOUNTED_AT AS MountedAt,
                      UNMOUNTED_AT AS UnmountedAt
               FROM IVT_MATERIAL_FEED_SESSION
@@ -248,6 +287,7 @@ public sealed class TraceProjectionRepository : QueryRepository, ITraceProjectio
                 LAST_ERROR = @Detail,
                 CONSUMPTION_ID = @ConsumptionId,
                 PROCESSED_AT = @Now,
+                IS_WORK_ITEM = 0,
                 UPDATED_BY = 'SYSTEM',
                 UPDATED_AT = @Now
             WHERE BINDING_ID = @BindingId AND COLLECT_ID = @CollectId
@@ -360,11 +400,59 @@ public sealed class TraceProjectionRepository : QueryRepository, ITraceProjectio
         {
             return await _processor.ExecuteAsync(insert, param, ct) == 1 ? ownerId : null;
         }
-        catch (DbException)
+        catch (DbException exception) when (IsLeaseIdentityRace(exception))
         {
             // Another host won the binding PK race after our NOT EXISTS read.
             return null;
         }
+    }
+
+    internal static bool IsLeaseIdentityRace(DbException exception)
+    {
+        var uniqueViolation = exception switch
+        {
+            SqliteException sqlite => sqlite.SqliteErrorCode == 19
+                                      && sqlite.SqliteExtendedErrorCode is 1555 or 2067,
+            _ when string.Equals(
+                    exception.GetType().FullName,
+                    "Microsoft.Data.SqlClient.SqlException",
+                    StringComparison.Ordinal)
+                => exception.GetType().GetProperty("Number")?.GetValue(exception) is int number
+                   && number is 2601 or 2627,
+            _ => false,
+        };
+        if (!uniqueViolation) return false;
+
+        return exception.Message.Contains(
+                   "PK_IVT_TRACE_PROJECTION_LEASE",
+                   StringComparison.OrdinalIgnoreCase)
+               || exception.Message.Contains(
+                   "IVT_TRACE_PROJECTION_LEASE.BINDING_ID",
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
+    internal static bool IsCursorIdentityRace(DbException exception)
+    {
+        var uniqueViolation = exception switch
+        {
+            SqliteException sqlite => sqlite.SqliteErrorCode == 19
+                                      && sqlite.SqliteExtendedErrorCode is 1555 or 2067,
+            _ when string.Equals(
+                    exception.GetType().FullName,
+                    "Microsoft.Data.SqlClient.SqlException",
+                    StringComparison.Ordinal)
+                => exception.GetType().GetProperty("Number")?.GetValue(exception) is int number
+                   && number is 2601 or 2627,
+            _ => false,
+        };
+        if (!uniqueViolation) return false;
+
+        return exception.Message.Contains(
+                   "PK_IVT_TRACE_INGESTION_CURSOR",
+                   StringComparison.OrdinalIgnoreCase)
+               || exception.Message.Contains(
+                   "IVT_TRACE_INGESTION_CURSOR.BINDING_ID",
+                   StringComparison.OrdinalIgnoreCase);
     }
 
     private static string RequireLease(TraceProjectionItem item)
@@ -406,8 +494,10 @@ public sealed class TraceProjectionRepository : QueryRepository, ITraceProjectio
         public string OutputUnit { get; set; } = string.Empty;
         public DateTime EffectiveFrom { get; set; }
         public DateTime? EffectiveTo { get; set; }
+        public string? LastCollectId { get; set; }
+        public DateTime? LastCollectedAt { get; set; }
 
-        public TraceProjectionBinding ToDomain(SourceCursorRow? cursor) => new(
+        public TraceProjectionBinding ToDomain() => new(
             BindingId,
             PlantId,
             EquipmentId,
@@ -419,15 +509,8 @@ public sealed class TraceProjectionRepository : QueryRepository, ITraceProjectio
             OutputUnit,
             EffectiveFrom,
             EffectiveTo,
-            cursor?.CollectedAt,
-            cursor?.CollectId);
-    }
-
-    private sealed class SourceCursorRow
-    {
-        public string BindingId { get; set; } = string.Empty;
-        public string CollectId { get; set; } = string.Empty;
-        public DateTime CollectedAt { get; set; }
+            LastCollectedAt,
+            LastCollectId);
     }
 
     private sealed class InboxRow
@@ -475,12 +558,13 @@ public sealed class TraceProjectionRepository : QueryRepository, ITraceProjectio
         public string? ProcessId { get; set; }
         public string? RecipeId { get; set; }
         public int? RecipeVersion { get; set; }
+        public string MountedBy { get; set; } = string.Empty;
         public DateTime MountedAt { get; set; }
         public DateTime? UnmountedAt { get; set; }
 
         public MaterialFeedSession ToDomain() => new(
             FeedSessionId, PlantId, EquipmentId, FeedPointId, MaterialLotId, MaterialId,
-            ProcessLotId, WorkOrderId, ProcessId, RecipeId, RecipeVersion, MountedAt,
-            UnmountedAt);
+            ProcessLotId, WorkOrderId, ProcessId, RecipeId, RecipeVersion, MountedBy,
+            MountedAt, UnmountedAt);
     }
 }

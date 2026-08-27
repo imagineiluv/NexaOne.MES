@@ -44,6 +44,7 @@ public sealed class NexaModuleBridgeCatalogTests
         new(typeof(IMaterialLotDirectory), "Ivt", "materialLotDirectory"),
         new(typeof(IMrpInventoryDirectory), "Ivt", "mrpInventoryDirectory"),
         new(typeof(IEquipmentDirectory), "Mdm", "equipmentDirectory"),
+        new(typeof(IEquipmentOutputMasterDirectory), "Mdm", "equipmentOutputMasterDirectory"),
         new(typeof(IMdmEquipmentBridge), "Mdm", "mdmEquipmentBridge"),
         new(typeof(IMdmMasterBridge), "Mdm", "mdmMasterBridge"),
         new(typeof(IMrpMasterDirectory), "Mdm", "mrpMasterDirectory"),
@@ -72,7 +73,7 @@ public sealed class NexaModuleBridgeCatalogTests
         var first = NexaModuleBridgeCatalog.Discover(typeof(INexaModuleBridge).Assembly);
         var second = NexaModuleBridgeCatalog.Discover(typeof(INexaModuleBridge).Assembly);
 
-        first.Descriptors.Should().HaveCount(37);
+        first.Descriptors.Should().HaveCount(38);
         first.Descriptors.Should().Equal(ExpectedProductionDescriptors);
         second.Descriptors.Should().Equal(first.Descriptors);
         first.Descriptors.Should().OnlyContain(descriptor =>

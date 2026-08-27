@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Data.Common;
 using NexaOne.Application.Idempotency;
 using NexaOne.Common;
 using NexaOne.POM.Application.WorkOrders;
@@ -12,7 +11,7 @@ namespace NexaOne.POM.Application.Lots;
 public sealed record TrackInCommand(
     string PlantId, string LotId, string EquipmentId,
     string? RecipeDefId, int? RecipeDefVersion, string User,
-    int? ExpectedVersion = null, string? IdempotencyKey = null,
+    int ExpectedVersion, string IdempotencyKey,
     string ClientChannel = "MES", string? DeviceId = null);
 
 public sealed record DefectEntry(string DefectCode, decimal DefectQty);
@@ -20,7 +19,7 @@ public sealed record DefectEntry(string DefectCode, decimal DefectQty);
 public sealed record TrackOutCommand(
     string PlantId, string LotId, string EquipmentId, decimal Qty,
     IReadOnlyList<DefectEntry>? Defects, string? CarrierId, string User,
-    int? ExpectedVersion = null, string? IdempotencyKey = null,
+    int ExpectedVersion, string IdempotencyKey,
     string ClientChannel = "MES", string? DeviceId = null);
 
 public sealed record MixingInput(string LotId, decimal InQty);
@@ -46,6 +45,7 @@ public sealed class LotTrackingService
     public static readonly TimeSpan MaximumRouteExceptionLifetime = TimeSpan.FromHours(8);
 
     private readonly ILotRepository _lots;
+    private readonly IAtomicLotRepository _atomicLots;
     private readonly ILotHistoryRepository _histories;
     private readonly ILotMixingRelationRepository _mixings;
     private readonly IPomWorkOrderRepository _workOrders;
@@ -55,18 +55,20 @@ public sealed class LotTrackingService
 
     public LotTrackingService(
         ILotRepository lots,
+        IAtomicLotRepository atomicLots,
         ILotHistoryRepository histories,
         ILotMixingRelationRepository mixings,
         IPomWorkOrderRepository workOrders,
         ITrackingMasterGateway master,
         IProductionQualityGateway productionQuality)
-        : this(lots, histories, mixings, workOrders, master, productionQuality, new RoutingPolicyEvaluator())
+        : this(lots, atomicLots, histories, mixings, workOrders, master, productionQuality, new RoutingPolicyEvaluator())
     {
     }
 
     /// <summary>업종별 라우팅 정책 드라이버를 주입할 수 있는 확장 생성자다.</summary>
     public LotTrackingService(
         ILotRepository lots,
+        IAtomicLotRepository atomicLots,
         ILotHistoryRepository histories,
         ILotMixingRelationRepository mixings,
         IPomWorkOrderRepository workOrders,
@@ -75,6 +77,7 @@ public sealed class LotTrackingService
         IRoutingPolicyEvaluator routingPolicy)
     {
         _lots = lots;
+        _atomicLots = atomicLots ?? throw new ArgumentNullException(nameof(atomicLots));
         _histories = histories;
         _mixings = mixings;
         _workOrders = workOrders;
@@ -156,9 +159,6 @@ public sealed class LotTrackingService
     public async Task<Result<Lot>> ChangeRoutingControlModeAsync(
         ChangeRoutingControlModeCommand command, CancellationToken ct = default)
     {
-        if (_lots is not IAtomicLotRepository)
-            return Result.Failure<Lot>(Error.Conflict(
-                "Routing mode changes require an atomic lot repository."));
         if (!IsSupportedChannel(command.ClientChannel))
             return Result.Failure<Lot>(Error.Validation(
                 nameof(command.ClientChannel), "Client channel must be MES, MOBILE, or POP."));
@@ -277,23 +277,22 @@ public sealed class LotTrackingService
             requestedAt, expiresAt, command.ClientChannel, command.DeviceId);
         if (requested.IsFailure) return requested;
 
-        try
-        {
-            await repository.AddRouteExceptionAsync(requested.Value, ct);
+        var addResult = await repository.TryAddRouteExceptionAsync(requested.Value, ct);
+        if (addResult == RouteExceptionAddResult.Added)
             return requested;
-        }
-        catch (DbException)
-        {
-            // Two callers can pass the initial lookup concurrently. Reload the unique key so an
-            // exact retry succeeds, while a genuinely different request receives a 409-style result.
-            var concurrent = await repository.GetRouteExceptionAsync(requested.Value.Id, ct);
-            if (concurrent is null)
-                throw;
-            return SameRouteExceptionRequest(concurrent, command)
-                ? Result.Success(ProjectExpirationForRead(concurrent, DateTime.UtcNow))
-                : Result.Failure<RouteExceptionRequest>(Error.Conflict(
-                    $"Route exception ID '{command.ExceptionId}' was created concurrently for a different request."));
-        }
+        if (addResult != RouteExceptionAddResult.AlreadyExists)
+            throw new InvalidOperationException($"Unknown route exception add result '{addResult}'.");
+
+        // Two callers can pass the initial lookup concurrently. Reload the unique key so an exact
+        // retry succeeds, while a genuinely different request receives a 409-style result.
+        var concurrent = await repository.GetRouteExceptionAsync(requested.Value.Id, ct);
+        if (concurrent is null)
+            throw new InvalidOperationException(
+                $"Route exception '{requested.Value.Id}' was reported as existing but could not be loaded.");
+        return SameRouteExceptionRequest(concurrent, command)
+            ? Result.Success(ProjectExpirationForRead(concurrent, DateTime.UtcNow))
+            : Result.Failure<RouteExceptionRequest>(Error.Conflict(
+                $"Route exception ID '{command.ExceptionId}' was created concurrently for a different request."));
     }
 
     /// <summary>요청자와 다른 검토자가 유효기간 안의 예외 요청을 승인한다.</summary>
@@ -326,9 +325,6 @@ public sealed class LotTrackingService
     public async Task<Result<Lot>> ApplyRouteDeviationAsync(
         ApplyRouteDeviationCommand command, CancellationToken ct = default)
     {
-        if (_lots is not IAtomicLotRepository)
-            return Result.Failure<Lot>(Error.Conflict(
-                "Route deviations require an atomic lot repository."));
         if (!IsSupportedChannel(command.ClientChannel))
             return Result.Failure<Lot>(Error.Validation(
                 nameof(command.ClientChannel), "Client channel must be MES, MOBILE, or POP."));
@@ -1033,9 +1029,10 @@ public sealed class LotTrackingService
 
     // ── Hold / Release ───────────────────────────────────────────────────────
 
-    public async Task<Result> HoldAsync(string lotId, string user, CancellationToken ct = default,
-        int? expectedVersion = null, string? idempotencyKey = null, string? reason = null,
-        string clientChannel = "MES", string? deviceId = null)
+    public async Task<Result> HoldAsync(
+        string lotId, string user, int expectedVersion, string idempotencyKey,
+        string? reason = null, string clientChannel = "MES", string? deviceId = null,
+        CancellationToken ct = default)
     {
         if (!IsSupportedChannel(clientChannel))
             return Result.Failure(Error.Validation(
@@ -1076,9 +1073,10 @@ public sealed class LotTrackingService
         return Result.Success();
     }
 
-    public async Task<Result> ReleaseHoldAsync(string lotId, string user, CancellationToken ct = default,
-        int? expectedVersion = null, string? idempotencyKey = null, string? reason = null,
-        string clientChannel = "MES", string? deviceId = null)
+    public async Task<Result> ReleaseHoldAsync(
+        string lotId, string user, int expectedVersion, string idempotencyKey,
+        string? reason = null, string clientChannel = "MES", string? deviceId = null,
+        CancellationToken ct = default)
     {
         if (!IsSupportedChannel(clientChannel))
             return Result.Failure(Error.Validation(
@@ -1125,44 +1123,42 @@ public sealed class LotTrackingService
         int ExpectedVersion, string IdempotencyKey, string RequestHash, string Action, bool IsReplay);
 
     private async Task<Result<TransitionRequest>> PrepareTransitionAsync(
-        Lot lot, string action, int? requestedVersion, string? requestedKey, string requestHash,
+        Lot lot, string action, int requestedVersion, string? requestedKey, string requestHash,
         CancellationToken ct)
     {
-        var expectedVersion = requestedVersion ?? lot.VersionNo;
-        if (expectedVersion < 1)
+        if (requestedVersion < 1)
             return Result.Failure<TransitionRequest>(
                 Error.Validation(nameof(requestedVersion), "Expected version must be at least 1."));
 
-        var idempotencyKey = string.IsNullOrWhiteSpace(requestedKey)
-            ? $"AUTO:{action}:{lot.Id}:{Guid.NewGuid():N}"
-            : requestedKey.Trim();
+        if (string.IsNullOrWhiteSpace(requestedKey))
+            return Result.Failure<TransitionRequest>(
+                Error.Validation(nameof(requestedKey), "Idempotency key is required."));
+
+        var idempotencyKey = requestedKey.Trim();
         if (idempotencyKey.Length > 100)
             return Result.Failure<TransitionRequest>(
                 Error.Validation(nameof(requestedKey), "Idempotency key cannot exceed 100 characters."));
 
-        if (_lots is IAtomicLotRepository atomic)
+        var previous = await _atomicLots.GetExecutionAsync(idempotencyKey, ct);
+        if (previous is not null)
         {
-            var previous = await atomic.GetExecutionAsync(idempotencyKey, ct);
-            if (previous is not null)
-            {
-                var exactReplay = string.Equals(previous.LotId, lot.Id, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(previous.Action, action, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(previous.RequestHash, requestHash, StringComparison.Ordinal)
-                    && previous.ExpectedVersion == expectedVersion;
-                if (!exactReplay)
-                    return Result.Failure<TransitionRequest>(
-                        Error.Conflict("The idempotency key was already used for a different lot operation."));
-                return Result.Success(new TransitionRequest(
-                    expectedVersion, idempotencyKey, requestHash, action, IsReplay: true));
-            }
+            var exactReplay = string.Equals(previous.LotId, lot.Id, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(previous.Action, action, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(previous.RequestHash, requestHash, StringComparison.Ordinal)
+                && previous.ExpectedVersion == requestedVersion;
+            if (!exactReplay)
+                return Result.Failure<TransitionRequest>(
+                    Error.Conflict("The idempotency key was already used for a different lot operation."));
+            return Result.Success(new TransitionRequest(
+                requestedVersion, idempotencyKey, requestHash, action, IsReplay: true));
         }
 
-        if (lot.VersionNo != expectedVersion)
+        if (lot.VersionNo != requestedVersion)
             return Result.Failure<TransitionRequest>(
-                Error.Conflict($"Lot version conflict. Expected {expectedVersion}, current {lot.VersionNo}."));
+                Error.Conflict($"Lot version conflict. Expected {requestedVersion}, current {lot.VersionNo}."));
 
         return Result.Success(new TransitionRequest(
-            expectedVersion, idempotencyKey, requestHash, action, IsReplay: false));
+            requestedVersion, idempotencyKey, requestHash, action, IsReplay: false));
     }
 
     private async Task<bool> PersistTransitionAsync(
@@ -1177,41 +1173,20 @@ public sealed class LotTrackingService
         string? executionId = null,
         IReadOnlyList<LotDefectExecution>? defectExecutions = null)
     {
-        if (_lots is IAtomicLotRepository atomic)
-        {
-            bool persisted;
-            try
-            {
-                persisted = await atomic.PersistTransitionAsync(new LotTransitionPersistPlan(
-                    lot, transition.ExpectedVersion, transition.Action, transition.IdempotencyKey,
-                    transition.RequestHash, histories, workOrder, workOrderExecution,
-                    routeException, routingAudit, executionId, defectExecutions), ct);
-            }
-            catch (System.Data.DBConcurrencyException)
-            {
-                // A later guarded statement (for example one-time exception consumption) lost a
-                // race after the LOT guard. The repository rolls the transaction back; surface it
-                // as a normal optimistic-concurrency conflict instead of an HTTP 500.
-                return false;
-            }
-            if (persisted) return true;
+        var persistResult = await _atomicLots.PersistTransitionAsync(new LotTransitionPersistPlan(
+            lot, transition.ExpectedVersion, transition.Action, transition.IdempotencyKey,
+            transition.RequestHash, histories, workOrder, workOrderExecution,
+            routeException, routingAudit, executionId, defectExecutions), ct);
+        if (persistResult == LotTransitionPersistResult.Persisted) return true;
+        if (persistResult != LotTransitionPersistResult.Conflict)
+            throw new InvalidOperationException($"Unknown lot transition persist result '{persistResult}'.");
 
-            var concurrent = await atomic.GetExecutionAsync(transition.IdempotencyKey, ct);
-            return concurrent is not null
-                && string.Equals(concurrent.LotId, lot.Id, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(concurrent.Action, transition.Action, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(concurrent.RequestHash, transition.RequestHash, StringComparison.Ordinal)
-                && concurrent.ExpectedVersion == transition.ExpectedVersion;
-        }
-
-        // Unit-test and compatibility repositories retain the old calls; the production repository
-        // implements IAtomicLotRepository and commits this entire plan in one transaction.
-        await _lots.UpdateAsync(lot, ct);
-        foreach (var history in histories)
-            await _histories.AddAsync(history, ct);
-        if (workOrder is not null && workOrderExecution is not null)
-            return await _workOrders.UpdateWithExecutionAsync(workOrder, workOrderExecution, ct);
-        return true;
+        var concurrent = await _atomicLots.GetExecutionAsync(transition.IdempotencyKey, ct);
+        return concurrent is not null
+            && string.Equals(concurrent.LotId, lot.Id, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(concurrent.Action, transition.Action, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(concurrent.RequestHash, transition.RequestHash, StringComparison.Ordinal)
+            && concurrent.ExpectedVersion == transition.ExpectedVersion;
     }
 
     /// <summary>예외 요청 승인·반려의 공통 조회, 서버시각 상태 전이와 조건부 저장을 수행한다.</summary>

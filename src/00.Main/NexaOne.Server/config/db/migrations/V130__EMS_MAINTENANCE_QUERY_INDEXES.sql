@@ -9,6 +9,11 @@ CREATE INDEX IX_EMS_TOOL_USAGE_MOUNT
 CREATE INDEX IX_EMS_WO_EQUIPMENT_ISSUED
     ON EMS_WORK_ORDER (EQUIPMENT_ID, ISSUED_AT DESC);
 
+-- EMS.WorkOrderList permits an equipment-free dashboard read. Keep it bounded and serve its
+-- deterministic newest-first order without sorting the full maintenance history.
+CREATE INDEX IX_EMS_WO_ISSUED
+    ON EMS_WORK_ORDER (ISSUED_AT DESC, WO_ID DESC);
+
 -- UQ_EMS_WORK_ORDER_CHECK_SEQUENCE already owns a unique (WO_ID, ITEM_SEQUENCE) index. The explicit
 -- non-unique copy from V115 adds identical write cost without a distinct access path.
 -- SQLITE-OMIT-BEGIN

@@ -64,8 +64,10 @@ public sealed class PomLotPersistenceTests : IClassFixture<PomLotPersistenceTest
     private LotTrackingService BuildService()
     {
         var ds = DataSource();
+        var lots = new LotRepository(ds, new ConfigurationBuilder().Build());
         return new LotTrackingService(
-            new LotRepository(ds, new ConfigurationBuilder().Build()),
+            lots,
+            lots,
             new LotHistoryRepository(ds, new SqliteEesDbCapability()),
             new LotMixingRelationRepository(ds),
             new PomWorkOrderRepository(ds),
@@ -367,7 +369,7 @@ public sealed class PomLotPersistenceTests : IClassFixture<PomLotPersistenceTest
     }
 
     [Fact]
-    public async Task History_failure_rolls_back_lot_work_order_and_execution()
+    public async Task History_idempotency_race_returns_conflict_and_rolls_back_lot_work_order_and_execution()
     {
         var (lot, workOrder) = SeedReleasedWorkOrderLot();
         var key = $"ROLLBACK:{lot}";
@@ -379,9 +381,9 @@ public sealed class PomLotPersistenceTests : IClassFixture<PomLotPersistenceTest
             VALUES ('PLANT01', @lot, 'CUT', 'Hold', 'PRE', 10, 0, 'Queued', 'Idle', @key, @now);
             """, ("@lot", lot), ("@key", key), ("@now", now));
 
-        var act = () => BuildService().TrackInAsync(new TrackInCommand(
+        var result = await BuildService().TrackInAsync(new TrackInCommand(
             "PLANT01", lot, "EQ01", null, null, "operator", ExpectedVersion: 1, IdempotencyKey: key));
-        await act.Should().ThrowAsync<SqliteException>();
+        result.IsFailure.Should().BeTrue("the known history idempotency race is a domain conflict");
 
         Scalar<string>("SELECT LOT_STATE FROM POM_LOT WHERE LOT_ID=@lot", ("@lot", lot)).Should().Be("Queued");
         Scalar<long>("SELECT VERSION_NO FROM POM_LOT WHERE LOT_ID=@lot", ("@lot", lot)).Should().Be(1);
@@ -568,6 +570,165 @@ public sealed class PomLotPersistenceTests : IClassFixture<PomLotPersistenceTest
     }
 
     [Fact]
+    public async Task Route_exception_repository_translates_only_the_duplicate_identity()
+    {
+        var (lot, _) = SeedReleasedWorkOrderLot();
+        var repository = new LotRepository(DataSource(), new ConfigurationBuilder().Build());
+        var now = DateTime.UtcNow;
+        var exceptionId = $"EX_DUP_{Guid.NewGuid():N}";
+        var request = RouteExceptionRequest.Request(
+            exceptionId, lot, "PLANT01", RouteDeviationType.Bypass,
+            0, 1, "CUT", "PACK", 1, "duplicate identity", "operator",
+            now, now.AddHours(1)).Value;
+
+        (await repository.TryAddRouteExceptionAsync(request))
+            .Should().Be(RouteExceptionAddResult.Added);
+        (await repository.TryAddRouteExceptionAsync(request))
+            .Should().Be(RouteExceptionAddResult.AlreadyExists);
+
+        var invalidBoundary = RouteExceptionRequest.Request(
+            $"EX_INVALID_{Guid.NewGuid():N}", "NO_SUCH_LOT", "PLANT01",
+            RouteDeviationType.Bypass, 0, 1, "CUT", "PACK", 1,
+            "invalid boundary", "operator", now, now.AddHours(1)).Value;
+        var invalidWrite = () => repository.TryAddRouteExceptionAsync(invalidBoundary);
+
+        await invalidWrite.Should().ThrowAsync<SqliteException>(
+            "non-identity database faults must not be reported as an idempotency race");
+    }
+
+    [Fact]
+    public async Task Lot_repository_translates_a_later_guard_race_and_rolls_back_the_transition()
+    {
+        var (lotId, _) = SeedReleasedWorkOrderLot();
+        var repository = new LotRepository(DataSource(), new ConfigurationBuilder().Build());
+        var lot = (await repository.GetByIdAsync(lotId))!;
+        lot.Hold("operator").IsSuccess.Should().BeTrue();
+
+        var now = DateTime.UtcNow;
+        var exceptionId = $"EX_GUARD_{Guid.NewGuid():N}";
+        var routeException = RouteExceptionRequest.Request(
+            exceptionId, lotId, "PLANT01", RouteDeviationType.Bypass,
+            0, 1, "CUT", "PACK", 1, "guard race", "requester",
+            now, now.AddHours(1)).Value;
+        (await repository.TryAddRouteExceptionAsync(routeException))
+            .Should().Be(RouteExceptionAddResult.Added);
+
+        routeException.Approve("supervisor", null, now.AddMinutes(1)).IsSuccess.Should().BeTrue();
+        var executionId = $"EXEC_GUARD_{Guid.NewGuid():N}";
+        routeException.MarkApplied("operator", executionId, now.AddMinutes(2))
+            .IsSuccess.Should().BeTrue();
+        var idempotencyKey = $"GUARD:{Guid.NewGuid():N}";
+        var history = LotHistory.Of(
+            lot, LotExecutionId.Hold, "operator", lot.Qty, lot.DefectQty) with
+        {
+            IdempotencyKey = idempotencyKey,
+        };
+
+        var result = await repository.PersistTransitionAsync(new LotTransitionPersistPlan(
+            lot, 1, LotExecutionId.Hold, idempotencyKey, "guard-race-hash", [history],
+            RouteException: routeException, ExecutionId: executionId));
+
+        result.Should().Be(LotTransitionPersistResult.Conflict);
+        Scalar<long>("SELECT VERSION_NO FROM POM_LOT WHERE LOT_ID=@lot", ("@lot", lotId))
+            .Should().Be(1);
+        Scalar<string>("SELECT IS_HOLD FROM POM_LOT WHERE LOT_ID=@lot", ("@lot", lotId))
+            .Should().Be("N");
+        Scalar<long>("SELECT COUNT(*) FROM POM_LOT_EXECUTION WHERE IDEMPOTENCY_KEY=@key",
+                ("@key", idempotencyKey))
+            .Should().Be(0);
+        Scalar<string>("SELECT STATUS FROM POM_ROUTE_EXCEPTION WHERE EXCEPTION_ID=@id",
+                ("@id", exceptionId))
+            .Should().Be("Requested");
+    }
+
+    [Fact]
+    public async Task Lot_repository_maps_cross_lot_idempotency_race_to_conflict_and_rolls_back_loser()
+    {
+        var (firstLotId, _) = SeedReleasedWorkOrderLot();
+        var (secondLotId, _) = SeedReleasedWorkOrderLot();
+        var repository = new LotRepository(DataSource(), new ConfigurationBuilder().Build());
+        var firstLot = (await repository.GetByIdAsync(firstLotId))!;
+        var secondLot = (await repository.GetByIdAsync(secondLotId))!;
+        firstLot.Hold("operator").IsSuccess.Should().BeTrue();
+        secondLot.Hold("operator").IsSuccess.Should().BeTrue();
+
+        var key = $"CROSS-LOT:{Guid.NewGuid():N}";
+        var firstHistory = LotHistory.Of(
+            firstLot, LotExecutionId.Hold, "operator", firstLot.Qty, firstLot.DefectQty) with
+        {
+            IdempotencyKey = key,
+        };
+        var secondHistory = LotHistory.Of(
+            secondLot, LotExecutionId.Hold, "operator", secondLot.Qty, secondLot.DefectQty) with
+        {
+            IdempotencyKey = key,
+        };
+
+        var winner = await repository.PersistTransitionAsync(new LotTransitionPersistPlan(
+            firstLot, 1, LotExecutionId.Hold, key, "winner-hash", [firstHistory]));
+        var loser = await repository.PersistTransitionAsync(new LotTransitionPersistPlan(
+            secondLot, 1, LotExecutionId.Hold, key, "loser-hash", [secondHistory]));
+
+        winner.Should().Be(LotTransitionPersistResult.Persisted);
+        loser.Should().Be(LotTransitionPersistResult.Conflict);
+        Scalar<long>("SELECT VERSION_NO FROM POM_LOT WHERE LOT_ID=@lot", ("@lot", firstLotId))
+            .Should().Be(2);
+        Scalar<long>("SELECT VERSION_NO FROM POM_LOT WHERE LOT_ID=@lot", ("@lot", secondLotId))
+            .Should().Be(1);
+        Scalar<string>("SELECT IS_HOLD FROM POM_LOT WHERE LOT_ID=@lot", ("@lot", secondLotId))
+            .Should().Be("N");
+        Scalar<long>("SELECT COUNT(*) FROM POM_LOT_EXECUTION WHERE IDEMPOTENCY_KEY=@key", ("@key", key))
+            .Should().Be(1);
+        Scalar<long>("SELECT COUNT(*) FROM POM_LOT_HISTORY WHERE LOT_ID=@lot AND IDEMPOTENCY_KEY=@key",
+                ("@lot", secondLotId), ("@key", key))
+            .Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Lot_repository_does_not_hide_unrelated_database_faults_as_conflicts()
+    {
+        var (lotId, _) = SeedReleasedWorkOrderLot();
+        var repository = new LotRepository(DataSource(), new ConfigurationBuilder().Build());
+        var lot = (await repository.GetByIdAsync(lotId))!;
+        lot.Hold("operator").IsSuccess.Should().BeTrue();
+        var key = $"FORCED-FAULT:{Guid.NewGuid():N}";
+        var trigger = $"TR_POM_LOT_FAULT_{Guid.NewGuid():N}";
+        var history = LotHistory.Of(
+            lot, LotExecutionId.Hold, "operator", lot.Qty, lot.DefectQty) with
+        {
+            IdempotencyKey = key,
+        };
+        Exec($$"""
+            CREATE TRIGGER {{trigger}}
+            BEFORE INSERT ON POM_LOT_HISTORY
+            WHEN NEW.IDEMPOTENCY_KEY = '{{key}}'
+            BEGIN
+                SELECT RAISE(ABORT, 'forced non-idempotency database fault');
+            END;
+            """);
+
+        try
+        {
+            var act = () => repository.PersistTransitionAsync(new LotTransitionPersistPlan(
+                lot, 1, LotExecutionId.Hold, key, "forced-fault-hash", [history]));
+
+            await act.Should().ThrowAsync<SqliteException>()
+                .WithMessage("*forced non-idempotency database fault*");
+        }
+        finally
+        {
+            Exec($"DROP TRIGGER IF EXISTS {trigger};");
+        }
+
+        Scalar<long>("SELECT VERSION_NO FROM POM_LOT WHERE LOT_ID=@lot", ("@lot", lotId))
+            .Should().Be(1);
+        Scalar<string>("SELECT IS_HOLD FROM POM_LOT WHERE LOT_ID=@lot", ("@lot", lotId))
+            .Should().Be("N");
+        Scalar<long>("SELECT COUNT(*) FROM POM_LOT_EXECUTION WHERE IDEMPOTENCY_KEY=@key", ("@key", key))
+            .Should().Be(0);
+    }
+
+    [Fact]
     public async Task Flexible_bypass_atomically_consumes_exception_and_persists_route_audit()
     {
         var (lot, _) = SeedReleasedWorkOrderLot();
@@ -622,7 +783,7 @@ public sealed class PomLotPersistenceTests : IClassFixture<PomLotPersistenceTest
     }
 
     [Fact]
-    public async Task Route_history_insert_failure_rolls_back_lot_execution_and_exception_consumption()
+    public async Task Route_history_idempotency_race_returns_conflict_and_rolls_back_the_transition()
     {
         var (lot, _) = SeedReleasedWorkOrderLot();
         var suffix = Guid.NewGuid().ToString("N")[..8];
@@ -653,10 +814,10 @@ public sealed class PomLotPersistenceTests : IClassFixture<PomLotPersistenceTest
                     'Queued', 'Idle', @key, @now);
             """, ("@lot", lot), ("@process", process10), ("@key", key), ("@now", now));
 
-        var act = () => service.ApplyRouteDeviationAsync(new ApplyRouteDeviationCommand(
+        var result = await service.ApplyRouteDeviationAsync(new ApplyRouteDeviationCommand(
             "PLANT01", lot, RouteDeviationType.Bypass, 1,
             "rollback proof", "operator", 1, key, exceptionId));
-        await act.Should().ThrowAsync<SqliteException>();
+        result.IsFailure.Should().BeTrue("the known history idempotency race is a domain conflict");
 
         Scalar<long>("SELECT CURRENT_STEP FROM POM_LOT WHERE LOT_ID=@lot", ("@lot", lot)).Should().Be(0);
         Scalar<long>("SELECT VERSION_NO FROM POM_LOT WHERE LOT_ID=@lot", ("@lot", lot)).Should().Be(1);

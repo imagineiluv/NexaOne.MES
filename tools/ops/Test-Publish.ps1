@@ -32,7 +32,25 @@ try {
         foreach ($p in 'wwwroot\spa\index.html', 'wwwroot\css\nexaone.css', 'config\host\server.sqlite.xml', 'db\migrations') {
             if (-not (Test-Path (Join-Path $script:out $p))) { throw ("산출물 누락: " + $p) }
         }
-        Write-Host ("  Modules {0}개, spa/css/config/db 확인" -f $modules.Count)
+        $allFiles = @(Get-ChildItem -LiteralPath $script:out -Recurse -File)
+        $legacyName = @($allFiles | Where-Object {
+            $_.Name -match 'NexusCom|NexusFramework|NexusLogic'
+        })
+        if ($legacyName.Count -gt 0) {
+            throw ("legacy Nexus 파일명 잔존: " + (($legacyName | ForEach-Object FullName) -join ', '))
+        }
+
+        $runtimeText = @($allFiles | Where-Object {
+            $_.Extension -in '.json', '.xml', '.config', '.props', '.targets',
+                '.js', '.css', '.html', '.sql', '.txt', '.yml', '.yaml'
+        })
+        $legacyReference = @($runtimeText | Select-String -Pattern 'NexusCom|NexusFramework|NexusLogic' -List)
+        if ($legacyReference.Count -gt 0) {
+            throw ("legacy Nexus 런타임 참조 잔존: " + (($legacyReference | ForEach-Object Path) -join ', '))
+        }
+
+        Write-Host ("  Files {0}개, Modules {1}개, spa/css/config/db 및 legacy 명칭 0건 확인" -f
+            $allFiles.Count, $modules.Count)
     }
 
     Step '게시본 단독 부팅(SQLite, modules ON)' {

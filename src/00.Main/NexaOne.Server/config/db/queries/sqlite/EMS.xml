@@ -69,7 +69,8 @@
             FROM EMS_WORK_ORDER
             WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
               AND (@status IS NULL OR STATUS = @status)
-            ORDER BY ISSUED_AT DESC
+            ORDER BY ISSUED_AT DESC, WO_ID DESC
+            LIMIT 500
         ]]></statement>
     </query>
     <query id="EMS.MaintenancePlanList" requiredPermission="ems:read">

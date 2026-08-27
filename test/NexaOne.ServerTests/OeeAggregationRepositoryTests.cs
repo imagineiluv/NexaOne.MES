@@ -78,6 +78,27 @@ public sealed class OeeAggregationRepositoryTests : IClassFixture<OeeAggregation
             => Task.FromResult(production);
     }
 
+    private sealed class CancelingEvidenceSource(CancellationTokenSource cancellation) : IOeeEvidenceSource
+    {
+        public Task<OeePlanSnapshotDto> LoadPlanAsync(
+            IReadOnlyList<string> targetEquipmentIds,
+            DateTime? localDay,
+            CancellationToken ct = default)
+        {
+            cancellation.Cancel();
+            ct.ThrowIfCancellationRequested();
+            throw new InvalidOperationException("The cancellation token should have interrupted plan loading.");
+        }
+
+        public Task<OeeProductionWindowDto> LoadProductionAsync(
+            string plantId,
+            string equipmentId,
+            DateTime fromUtc,
+            DateTime toUtc,
+            CancellationToken ct = default)
+            => throw new InvalidOperationException("Production loading is not reached in this scenario.");
+    }
+
     private void Exec(string sql, Action<SqliteCommand> bind)
     {
         using var conn = new SqliteConnection(_factory.ConnString);
@@ -617,6 +638,58 @@ public sealed class OeeAggregationRepositoryTests : IClassFixture<OeeAggregation
             && run.From == Ts(start) && run.To == Ts(start.AddHours(4)));
         runs.Should().Contain(run => run.Actor == "operator-b"
             && run.From == Ts(start.AddHours(1)) && run.To == Ts(start.AddHours(5)));
+    }
+
+    [Fact]
+    public async Task Manual_window_caller_cancellation_is_rethrown_and_run_is_finalized_best_effort()
+    {
+        _ = _factory.CreateClient();
+        using var cancellation = new CancellationTokenSource();
+        var actor = $"cancel-oee-{Guid.NewGuid():N}";
+        var start = new DateTime(2033, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+        var repository = new OeeAggregationRepository(DataSource(), new CancelingEvidenceSource(cancellation));
+
+        Func<Task> act = () => repository.AggregateWindowManuallyAsync(
+            start, start.AddHours(1), null, 60m, actor, cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        using var connection = new SqliteConnection(_factory.ConnString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = @"SELECT STATUS
+                                FROM EST_OEE_AGGREGATION_RUN
+                                WHERE ACTOR_ID = @actor
+                                ORDER BY STARTED_AT DESC, RUN_ID DESC
+                                LIMIT 1";
+        command.Parameters.AddWithValue("@actor", actor);
+        command.ExecuteScalar().Should().Be("Failed",
+            "a started manual aggregation must not remain Started after caller cancellation");
+    }
+
+    [Fact]
+    public async Task Manual_window_finalization_failure_does_not_mask_caller_cancellation()
+    {
+        _ = _factory.CreateClient();
+        using var cancellation = new CancellationTokenSource();
+        var actor = $"oee-clean-{Guid.NewGuid():N}";
+        var trigger = $"TR_OEE_CANCEL_CLEANUP_{Guid.NewGuid():N}";
+        Exec($@"CREATE TRIGGER {trigger} BEFORE UPDATE OF STATUS ON EST_OEE_AGGREGATION_RUN
+                WHEN NEW.STATUS = 'Failed' AND NEW.ACTOR_ID = '{actor}'
+                BEGIN SELECT RAISE(ABORT, 'forced OEE cleanup failure'); END", _ => { });
+        var start = new DateTime(2033, 6, 2, 0, 0, 0, DateTimeKind.Utc);
+        var repository = new OeeAggregationRepository(DataSource(), new CancelingEvidenceSource(cancellation));
+
+        try
+        {
+            Func<Task> act = () => repository.AggregateWindowManuallyAsync(
+                start, start.AddHours(1), null, 60m, actor, cancellation.Token);
+            await act.Should().ThrowAsync<OperationCanceledException>(
+                "a cleanup database failure must not replace caller cancellation");
+        }
+        finally
+        {
+            Exec($"DROP TRIGGER IF EXISTS {trigger}", _ => { });
+        }
     }
 
     [Fact]

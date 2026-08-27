@@ -47,7 +47,7 @@ public sealed class FdcBridgeControllerTests : IClassFixture<FdcBridgeController
         }
     }
 
-    // 가짜 브리지 — 생성은 도메인 검증 실패 입력(잘못된 레벨/연산자/액션·역전 한도)이면 Validation Error를
+    // 가짜 브리지 — 생성은 도메인 검증 실패 입력(잘못된 레벨/연산자/빈 action key·역전 한도)이면 Validation Error를
     // 흉내내 400으로 매핑되는지 본다. 정상 입력이면 스냅샷 DTO를 성공으로 반환한다.
     private sealed class FakeBridge : IFdcBridge
     {
@@ -67,9 +67,10 @@ public sealed class FdcBridgeControllerTests : IClassFixture<FdcBridgeController
         public Task<Result<FdcInterlockRuleDto>> CreateInterlockRuleAsync(
             string ruleId, string ruleName, string equipmentId, string parameterId, string @operator,
             decimal threshold, string action, int priority, CancellationToken ct = default)
-            => Task.FromResult(action is "STOP" or "ALARM" or "NOTIFY" && @operator is "GT" or "LT" or "GTE" or "LTE" or "EQ"
+            => Task.FromResult(!string.IsNullOrWhiteSpace(action) && action.Length <= 200
+                && @operator is "GT" or "LT" or "GTE" or "LTE" or "EQ"
                 ? Result.Success(new FdcInterlockRuleDto(ruleId, ruleName, equipmentId, parameterId, @operator, threshold, action, priority, true))
-                : Result.Failure<FdcInterlockRuleDto>(Error.Validation(nameof(action), "Action must be STOP, ALARM, or NOTIFY.")));
+                : Result.Failure<FdcInterlockRuleDto>(Error.Validation(nameof(action), "Action key is required and must be 200 characters or fewer.")));
 
         // 가상 이벤트 평가 — id 규약: "MISSING"→404, "BADFORMULA"→400(수식 오류), 그 외 On/전이 성공.
         public Task<Result<VirtualEventEvaluationDto>> EvaluateVirtualEventAsync(
@@ -177,11 +178,11 @@ public sealed class FdcBridgeControllerTests : IClassFixture<FdcBridgeController
     }
 
     [Fact]
-    public async Task CreateInterlockRule_invalid_action_maps_to_400()
+    public async Task CreateInterlockRule_missing_action_key_maps_to_400()
     {
         var res = await Client("fdc:manage").PostAsJsonAsync("/api/v1/fdc/interlock-rules",
-            new { ruleId = "R1", ruleName = "과열정지", equipmentId = "EQ1", parameterId = "P1", @operator = "GT", threshold = 200m, action = "SHUTDOWN", priority = 1 });
-        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "허용되지 않은 액션(Validation)은 400");
+            new { ruleId = "R1", ruleName = "과열정지", equipmentId = "EQ1", parameterId = "P1", @operator = "GT", threshold = 200m, action = " ", priority = 1 });
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "비어 있는 프로젝트 action key(Validation)는 400");
     }
 
     [Fact]

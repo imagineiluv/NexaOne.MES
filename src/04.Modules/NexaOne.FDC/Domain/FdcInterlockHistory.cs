@@ -52,7 +52,8 @@ public sealed class FdcInterlockHistory : AuditableEntity<string>
         };
         // ADR-002: 인터락 발동을 도메인 이벤트로 발행한다. 리포가 발동 이력과 동일 트랜잭션에 outbox로 기록한다(opt-in).
         // (Restore는 new(...) 직접 경로라 이벤트를 발행하지 않는다 — 읽기경로 재구성은 발행 대상이 아니다.)
-        history.RaiseDomainEvent(new FdcInterlockTriggeredDomainEvent(historyId, ruleId, equipmentId, parameterId, action, triggerValue));
+        history.RaiseDomainEvent(new FdcInterlockTriggeredDomainEvent(
+            historyId, ruleId, equipmentId, parameterId, action, history.Message, triggerValue));
         return history;
     }
 
@@ -82,12 +83,13 @@ public sealed class FdcInterlockHistory : AuditableEntity<string>
     }
 
     /// <summary>인터락 해제 — 해제 시각을 기록하고 IS_RESOLVED를 true로 한다. (멱등)</summary>
-    public void Resolve(DateTime resolvedAt)
+    public void Resolve(DateTime resolvedAt, decimal? resolvedValue = null)
     {
         if (IsResolved) return;
         ResolvedAt = resolvedAt;
         IsResolved = true;
         // ADR-002: 인터락 해제를 도메인 이벤트로 발행한다. 리포가 해제(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
-        RaiseDomainEvent(new FdcInterlockResolvedDomainEvent(Id, RuleId, EquipmentId, resolvedAt));
+        RaiseDomainEvent(new FdcInterlockResolvedDomainEvent(
+            Id, RuleId, EquipmentId, ParameterId, resolvedValue ?? TriggerValue, resolvedAt));
     }
 }

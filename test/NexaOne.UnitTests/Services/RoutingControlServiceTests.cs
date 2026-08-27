@@ -10,6 +10,7 @@ namespace NexaOne.UnitTests.Services;
 public sealed class RoutingControlServiceTests
 {
     private readonly Mock<ILotRepository> _lots = new();
+    private readonly Mock<IAtomicLotRepository> _atomicLots = new();
     private readonly Mock<ILotHistoryRepository> _histories = new();
     private readonly Mock<ILotMixingRelationRepository> _mixings = new();
     private readonly Mock<IPomWorkOrderRepository> _workOrders = new();
@@ -23,11 +24,15 @@ public sealed class RoutingControlServiceTests
         _quality.Setup(q => q.EvaluateAsync(
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), default))
             .ReturnsAsync(ProductionQualityGateResult.NotRequired());
+        _atomicLots.Setup(r => r.GetExecutionAsync(It.IsAny<string>(), default))
+            .ReturnsAsync((LotExecutionRecord?)null);
+        _atomicLots.Setup(r => r.PersistTransitionAsync(It.IsAny<LotTransitionPersistPlan>(), default))
+            .ReturnsAsync(LotTransitionPersistResult.Persisted);
     }
 
     private LotTrackingService Build(IRoutingPolicyEvaluator? evaluator = null) => evaluator is null
-        ? new(_lots.Object, _histories.Object, _mixings.Object, _workOrders.Object, _master.Object, _quality.Object)
-        : new(_lots.Object, _histories.Object, _mixings.Object, _workOrders.Object, _master.Object, _quality.Object, evaluator);
+        ? new(_lots.Object, _atomicLots.Object, _histories.Object, _mixings.Object, _workOrders.Object, _master.Object, _quality.Object)
+        : new(_lots.Object, _atomicLots.Object, _histories.Object, _mixings.Object, _workOrders.Object, _master.Object, _quality.Object, evaluator);
 
     private static Lot FlexibleLot() => Lot.Create(
         "LOT-FLEX", "P1", null, "ITEM1", 10m,
@@ -36,10 +41,7 @@ public sealed class RoutingControlServiceTests
     private (Mock<IRouteExceptionRepository> Exceptions, Mock<IAtomicLotRepository> Atomic) AddCapabilities()
     {
         var exceptions = _lots.As<IRouteExceptionRepository>();
-        var atomic = _lots.As<IAtomicLotRepository>();
-        atomic.Setup(r => r.GetExecutionAsync(It.IsAny<string>(), default))
-            .ReturnsAsync((LotExecutionRecord?)null);
-        return (exceptions, atomic);
+        return (exceptions, _atomicLots);
     }
 
     [Fact]
@@ -49,9 +51,9 @@ public sealed class RoutingControlServiceTests
         _lots.Setup(r => r.GetByIdAsync(lot.Id, default)).ReturnsAsync(lot);
         var (exceptions, _) = AddCapabilities();
         RouteExceptionRequest? captured = null;
-        exceptions.Setup(r => r.AddRouteExceptionAsync(It.IsAny<RouteExceptionRequest>(), default))
+        exceptions.Setup(r => r.TryAddRouteExceptionAsync(It.IsAny<RouteExceptionRequest>(), default))
             .Callback<RouteExceptionRequest, CancellationToken>((request, _) => captured = request)
-            .Returns(Task.CompletedTask);
+            .ReturnsAsync(RouteExceptionAddResult.Added);
         var before = DateTime.UtcNow;
 
         var result = await Build().RequestRouteExceptionAsync(new RequestRouteExceptionCommand(
@@ -103,8 +105,8 @@ public sealed class RoutingControlServiceTests
         exceptions.SetupSequence(r => r.GetRouteExceptionAsync(concurrent.Id, default))
             .ReturnsAsync((RouteExceptionRequest?)null)
             .ReturnsAsync(concurrent);
-        exceptions.Setup(r => r.AddRouteExceptionAsync(It.IsAny<RouteExceptionRequest>(), default))
-            .ThrowsAsync(new DuplicateRouteException());
+        exceptions.Setup(r => r.TryAddRouteExceptionAsync(It.IsAny<RouteExceptionRequest>(), default))
+            .ReturnsAsync(RouteExceptionAddResult.AlreadyExists);
 
         var result = await Build().RequestRouteExceptionAsync(new RequestRouteExceptionCommand(
             concurrent.Id, "P1", lot.Id, RouteDeviationType.Bypass, 2,
@@ -112,6 +114,75 @@ public sealed class RoutingControlServiceTests
 
         result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Description : string.Empty);
         result.Value.Should().BeSameAs(concurrent);
+    }
+
+    [Fact]
+    public async Task Concurrent_duplicate_insert_with_different_request_returns_conflict()
+    {
+        var lot = FlexibleLot();
+        _lots.Setup(r => r.GetByIdAsync(lot.Id, default)).ReturnsAsync(lot);
+        var (exceptions, _) = AddCapabilities();
+        var now = DateTime.UtcNow;
+        var concurrent = RouteExceptionRequest.Request(
+            "EX-RACE-CONFLICT", lot.Id, lot.PlantId, RouteDeviationType.Bypass,
+            0, 2, "OP10", "OP30", 1, "different request", "other-operator",
+            now, now.AddHours(1)).Value;
+        exceptions.SetupSequence(r => r.GetRouteExceptionAsync(concurrent.Id, default))
+            .ReturnsAsync((RouteExceptionRequest?)null)
+            .ReturnsAsync(concurrent);
+        exceptions.Setup(r => r.TryAddRouteExceptionAsync(It.IsAny<RouteExceptionRequest>(), default))
+            .ReturnsAsync(RouteExceptionAddResult.AlreadyExists);
+
+        var result = await Build().RequestRouteExceptionAsync(new RequestRouteExceptionCommand(
+            concurrent.Id, "P1", lot.Id, RouteDeviationType.Bypass, 2,
+            "urgent", "operator", 1, now.AddHours(1)));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Description.Should().Contain("created concurrently");
+    }
+
+    [Fact]
+    public async Task Route_exception_insert_fault_is_not_treated_as_an_identity_race()
+    {
+        var lot = FlexibleLot();
+        _lots.Setup(r => r.GetByIdAsync(lot.Id, default)).ReturnsAsync(lot);
+        var (exceptions, _) = AddCapabilities();
+        var repositoryFault = new InvalidOperationException("database unavailable");
+        exceptions.Setup(r => r.TryAddRouteExceptionAsync(
+                It.IsAny<RouteExceptionRequest>(), default))
+            .ThrowsAsync(repositoryFault);
+
+        var act = () => Build().RequestRouteExceptionAsync(new RequestRouteExceptionCommand(
+            "EX-FAULT", "P1", lot.Id, RouteDeviationType.Bypass, 2,
+            "urgent", "operator", 1, DateTime.UtcNow.AddHours(1)));
+
+        (await act.Should().ThrowAsync<InvalidOperationException>())
+            .Which.Should().BeSameAs(repositoryFault);
+        exceptions.Verify(r => r.GetRouteExceptionAsync("EX-FAULT", default), Times.Once,
+            "an arbitrary write fault must not enter the duplicate-key reload path");
+    }
+
+    [Fact]
+    public async Task Route_exception_insert_cancellation_propagates()
+    {
+        var lot = FlexibleLot();
+        using var cancellation = new CancellationTokenSource();
+        var token = cancellation.Token;
+        _lots.Setup(r => r.GetByIdAsync(lot.Id, token)).ReturnsAsync(lot);
+        var (exceptions, _) = AddCapabilities();
+        exceptions.Setup(r => r.GetRouteExceptionAsync("EX-CANCEL", token))
+            .ReturnsAsync((RouteExceptionRequest?)null);
+        exceptions.Setup(r => r.TryAddRouteExceptionAsync(
+                It.IsAny<RouteExceptionRequest>(), token))
+            .ThrowsAsync(new OperationCanceledException(token));
+
+        var act = () => Build().RequestRouteExceptionAsync(new RequestRouteExceptionCommand(
+            "EX-CANCEL", "P1", lot.Id, RouteDeviationType.Bypass, 2,
+            "urgent", "operator", 1, DateTime.UtcNow.AddHours(1)), token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        exceptions.Verify(r => r.GetRouteExceptionAsync("EX-CANCEL", token), Times.Once,
+            "cancellation must not enter the duplicate-key reload path");
     }
 
     [Fact]
@@ -251,7 +322,7 @@ public sealed class RoutingControlServiceTests
         LotTransitionPersistPlan? captured = null;
         atomic.Setup(r => r.PersistTransitionAsync(It.IsAny<LotTransitionPersistPlan>(), default))
             .Callback<LotTransitionPersistPlan, CancellationToken>((plan, _) => captured = plan)
-            .ReturnsAsync(true);
+            .ReturnsAsync(LotTransitionPersistResult.Persisted);
 
         var result = await Build().ApplyRouteDeviationAsync(new ApplyRouteDeviationCommand(
             "P1", lot.Id, RouteDeviationType.Bypass, 2, "line bottleneck", "operator",
@@ -290,7 +361,7 @@ public sealed class RoutingControlServiceTests
         LotTransitionPersistPlan? captured = null;
         atomic.Setup(r => r.PersistTransitionAsync(It.IsAny<LotTransitionPersistPlan>(), default))
             .Callback<LotTransitionPersistPlan, CancellationToken>((plan, _) => captured = plan)
-            .ReturnsAsync(true);
+            .ReturnsAsync(LotTransitionPersistResult.Persisted);
 
         var result = await Build().ApplyRouteDeviationAsync(new ApplyRouteDeviationCommand(
             "P1", lot.Id, RouteDeviationType.Alternative, 2, "use available cell", "operator",
@@ -362,21 +433,17 @@ public sealed class RoutingControlServiceTests
     }
 
     [Fact]
-    public async Task Route_deviation_fails_closed_without_atomic_repository_capability()
+    public void Atomic_repository_is_a_required_constructor_dependency()
     {
-        var lot = FlexibleLot();
-        _lots.Setup(r => r.GetByIdAsync(lot.Id, default)).ReturnsAsync(lot);
+        var act = () => new LotTrackingService(
+            _lots.Object, null!, _histories.Object, _mixings.Object, _workOrders.Object,
+            _master.Object, _quality.Object);
 
-        var result = await Build().ApplyRouteDeviationAsync(new ApplyRouteDeviationCommand(
-            "P1", lot.Id, RouteDeviationType.Bypass, 2, "urgent", "operator",
-            1, "NO-ATOMIC"));
-
-        result.IsFailure.Should().BeTrue();
-        result.Error.Description.Should().Contain("atomic lot repository");
+        act.Should().Throw<ArgumentNullException>().WithParameterName("atomicLots");
     }
 
     [Fact]
-    public async Task Later_exception_guard_concurrency_is_returned_as_conflict()
+    public async Task Later_guard_concurrency_result_is_returned_as_conflict()
     {
         var lot = Lot.Create(
             "LOT-RACE", "P1", null, "ITEM1", 10m,
@@ -384,7 +451,7 @@ public sealed class RoutingControlServiceTests
         _lots.Setup(r => r.GetByIdAsync(lot.Id, default)).ReturnsAsync(lot);
         var (_, atomic) = AddCapabilities();
         atomic.Setup(r => r.PersistTransitionAsync(It.IsAny<LotTransitionPersistPlan>(), default))
-            .ThrowsAsync(new System.Data.DBConcurrencyException("exception was consumed"));
+            .ReturnsAsync(LotTransitionPersistResult.Conflict);
 
         var result = await Build().ApplyRouteDeviationAsync(new ApplyRouteDeviationCommand(
             "P1", lot.Id, RouteDeviationType.Alternative, 1, "capacity", "operator",
@@ -405,7 +472,7 @@ public sealed class RoutingControlServiceTests
         LotTransitionPersistPlan? captured = null;
         atomic.Setup(r => r.PersistTransitionAsync(It.IsAny<LotTransitionPersistPlan>(), default))
             .Callback<LotTransitionPersistPlan, CancellationToken>((plan, _) => captured = plan)
-            .ReturnsAsync(true);
+            .ReturnsAsync(LotTransitionPersistResult.Persisted);
         var command = new TrackInCommand(
             "P1", lot.Id, "EQ", null, null, "operator-a",
             1, "USER-BOUND-KEY", "MOBILE", "PDA-01");
@@ -457,7 +524,7 @@ public sealed class RoutingControlServiceTests
         LotTransitionPersistPlan? captured = null;
         atomic.Setup(r => r.PersistTransitionAsync(It.IsAny<LotTransitionPersistPlan>(), default))
             .Callback<LotTransitionPersistPlan, CancellationToken>((plan, _) => captured = plan)
-            .ReturnsAsync(true);
+            .ReturnsAsync(LotTransitionPersistResult.Persisted);
 
         var result = await Build().ApplyRouteDeviationAsync(new ApplyRouteDeviationCommand(
             "P1", lot.Id, RouteDeviationType.Rework, 0, "inspection failed", "operator",
@@ -476,7 +543,4 @@ public sealed class RoutingControlServiceTests
         });
     }
 
-    private sealed class DuplicateRouteException : System.Data.Common.DbException
-    {
-    }
 }

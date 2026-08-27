@@ -94,7 +94,9 @@ public sealed class FdcAlarmTests
         var a1 = FdcAlarmHistory.Create("AH1", "AC", "EQ-001", "TEMP01", "Critical", 95m, "m", At).Value;
         var a2 = FdcAlarmHistory.Create("AH2", "AW", "EQ-001", "PRESS01", "Warning", 9m, "m", At).Value;
         var histRepo = new Mock<IFdcAlarmHistoryRepository>();
-        histRepo.Setup(r => r.GetOpenAsync("EQ-001", It.IsAny<CancellationToken>())).ReturnsAsync(new[] { a1, a2 });
+        histRepo.Setup(r => r.GetOpenAsync(
+                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { a1 });
         var svc = new FdcAlarmService(Mock.Of<IFdcAlarmConfigRepository>(), histRepo.Object);
 
         var count = await svc.ClearActiveAsync("EQ-001", "TEMP01");
@@ -102,5 +104,23 @@ public sealed class FdcAlarmTests
         count.Should().Be(1);
         a1.IsCleared.Should().BeTrue();
         a2.IsCleared.Should().BeFalse("다른 파라미터 알람은 유지된다");
+    }
+
+    [Fact]
+    public async Task GetHighestOpenLevelAsync_returns_the_durable_maximum_severity()
+    {
+        var warning = FdcAlarmHistory.Create(
+            "AH1", "AW", "EQ-001", "TEMP01", "Warning", 80m, "m", At).Value;
+        var critical = FdcAlarmHistory.Create(
+            "AH2", "AC", "EQ-001", "TEMP01", "Critical", 95m, "m", At).Value;
+        var repository = new Mock<IFdcAlarmHistoryRepository>();
+        repository.Setup(r => r.GetOpenAsync(
+                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { warning, critical });
+        var service = new FdcAlarmService(
+            Mock.Of<IFdcAlarmConfigRepository>(), repository.Object);
+
+        (await service.GetHighestOpenLevelAsync("EQ-001", "TEMP01"))
+            .Should().Be("Critical");
     }
 }

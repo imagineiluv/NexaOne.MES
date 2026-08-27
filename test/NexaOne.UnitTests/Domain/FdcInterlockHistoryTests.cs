@@ -7,22 +7,23 @@ namespace NexaOne.UnitTests.Domain;
 public sealed class FdcInterlockHistoryTests
 {
     [Fact]
-    public void Create_raises_FdcInterlockTriggered_event_with_outbox_envelope()
+    public void Create_raises_canonical_InterlockTriggered_event_with_outbox_envelope()
     {
         var history = FdcInterlockHistory.Create(
             "IH-1", "RULE-1", "EQ-1", "PARAM-1", 42.5m, "STOP", "[FDC] 인터록 발동", DateTime.UtcNow).Value;
 
         var ev = history.DomainEvents.OfType<FdcInterlockTriggeredDomainEvent>().Should().ContainSingle().Subject;
-        ev.EventType.Should().Be("FdcInterlockTriggered");
+        ev.EventType.Should().Be("InterlockTriggered");
         ev.Module.Should().Be("FDC");
         ev.AggregateId.Should().Be("EQ-1", "설비별 순서 보장을 위해 AGGREGATE_ID는 EquipmentId여야 한다");
 
         using var doc = JsonDocument.Parse(ev.Payload);
-        doc.RootElement.GetProperty("HistoryId").GetString().Should().Be("IH-1");
+        doc.RootElement.GetProperty("EffectId").GetString().Should().Be("IH-1");
         doc.RootElement.GetProperty("RuleId").GetString().Should().Be("RULE-1");
         doc.RootElement.GetProperty("ParameterId").GetString().Should().Be("PARAM-1");
         doc.RootElement.GetProperty("Action").GetString().Should().Be("STOP");
-        doc.RootElement.GetProperty("TriggerValue").GetDecimal().Should().Be(42.5m);
+        doc.RootElement.GetProperty("Message").GetString().Should().Be("[FDC] 인터록 발동");
+        doc.RootElement.GetProperty("Value").GetDecimal().Should().Be(42.5m);
     }
 
     [Fact]
@@ -32,7 +33,7 @@ public sealed class FdcInterlockHistoryTests
             .DomainEvents.Should().BeEmpty("읽기경로 재구성(Restore)은 도메인 이벤트 발행 대상이 아니다");
 
     [Fact]
-    public void Resolve_raises_FdcInterlockResolved_event_with_outbox_envelope()
+    public void Resolve_raises_canonical_InterlockResolved_event_with_outbox_envelope()
     {
         var triggered = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var history = FdcInterlockHistory.Create(
@@ -40,16 +41,18 @@ public sealed class FdcInterlockHistoryTests
         history.ClearDomainEvents();   // 발동 이벤트 제거 — 해제 이벤트만 검증
 
         var resolvedAt = triggered.AddMinutes(5);
-        history.Resolve(resolvedAt);
+        history.Resolve(resolvedAt, 0.5m);
 
         var ev = history.DomainEvents.OfType<FdcInterlockResolvedDomainEvent>().Should().ContainSingle().Subject;
-        ev.EventType.Should().Be("FdcInterlockResolved");
+        ev.EventType.Should().Be("InterlockResolved");
         ev.Module.Should().Be("FDC");
         ev.AggregateId.Should().Be("EQ-9");
 
         using var doc = JsonDocument.Parse(ev.Payload);
-        doc.RootElement.GetProperty("HistoryId").GetString().Should().Be("IH-3");
+        doc.RootElement.GetProperty("EffectId").GetString().Should().Be("IH-3");
         doc.RootElement.GetProperty("RuleId").GetString().Should().Be("RULE-9");
+        doc.RootElement.GetProperty("ParameterId").GetString().Should().Be("PARAM-9");
+        doc.RootElement.GetProperty("Value").GetDecimal().Should().Be(0.5m);
         doc.RootElement.GetProperty("ResolvedAt").GetDateTime().Should().Be(resolvedAt);
     }
 

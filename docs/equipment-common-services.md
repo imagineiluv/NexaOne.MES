@@ -25,6 +25,17 @@ MES 양쪽에서 검증되기 전에는 이 업무 테이블과 서비스를 Nex
 Common `IFdcTraceSource` 범위/커서 계약으로 표본을 받은 뒤, 소비 바인딩 스냅샷과 재시작 가능한 inbox만
 소유한다. 형제 Spring 컨텍스트 연결은 호스트 부모 프록시가 맡아 두 모듈 구현 DLL의 직접 참조를 만들지 않는다.
 
+FDC 수집 워커는 인터락 action 문자열을 불투명한 사건 payload로만 발행한다. `STOP` 같은 문자열을 공통
+서비스가 직접 해석해 Machine을 정지하거나 실제 readback 없이 `Stopped` 상태를 만들지 않는다. 물리 정지와
+상태 확정은 설비 플러그인/제어 어댑터가 driver 결과와 safety evidence를 확인해 수행한다. PLC 원본이 null 또는
+숫자로 변환되지 않으면 driver가 `Good`을 보냈더라도 FDC에서는 `Bad` 표본으로 강등하고 인터락·알람 평가에서 제외한다.
+
+인터락 이력 장애는 최초 신호를 억제하지 않으며 같은 episode의 stable `EffectId`로 trigger 기록과 resolve를
+순서대로 재시도한다. direct bus와 outbox도 같은 `InterlockTriggered`/`InterlockResolved` payload를 사용한다.
+그러나 현재 collect 적재·재시작 open-state 복원·규칙 평가는 여전히 DB hot path이고 워커 알림은 fire-and-forget이다.
+따라서 검증된 immutable rule snapshot의 기동 전 preload/fail-closed, 필수 project action port의 awaited ack/readback,
+controller 재기동 reconciliation과 HIL이 들어오기 전에는 물리 인터락 완료·Production 승인으로 간주하지 않는다.
+
 OEE의 신규 출력은 EST 표준 output event를 사용해 LOT 없는 캐리어 세척도 같은 방식으로 집계한다. 기존 LOT
 실적 fallback과 MDM 설비·작업조·시간대는 Common `IOeeEvidenceSource`가 계획/생산 snapshot으로 제공한다.
 현재 production adapter는 호스트 조립 루트에서 MDM/POM을 읽지만 EST와 Takt 구현에는 타 모듈 물리 테이블명이
@@ -47,6 +58,10 @@ reconcile한다. 비활성 target, 삭제된 shift와 휴일·빈 계획은 stal
 지정된 경우 로그인 사용자와 매핑된 작업자가 일치해야 하며, 진행 중인 작업시간이 남아 있으면 W/O를
 `Complete` 또는 `Cancel` 할 수 없다. 이 규칙은 서비스의 사전 검사뿐 아니라 저장소의 조건부 갱신에도
 적용해 동시 요청 사이의 우회를 막는다.
+
+LOT TrackIn/TrackOut/Hold/Release도 호출자가 관측한 `ExpectedVersion`과 재시도에 재사용할 안정된
+`IdempotencyKey`를 필수로 전달한다. 서버는 현재 version을 대신 채우거나 임의 키를 만들지 않으며, 같은 키의
+정확한 재실행만 기존 결과로 수렴시키고 다른 payload·version 재사용은 충돌로 거부한다.
 
 ## 자재 LOT와 소비 정책
 
@@ -91,8 +106,10 @@ NexaFramework 이관 후보로 삼는다.
 NexaMES 호스트 내부의 새 웹/API 구성은 Microsoft DI를 기본으로 사용한다. Spring.NET의 `CreateServer`와
 모듈 XML은 기존 NexaFramework 기반 모듈을 독립 ALC로 로드하고 조립하는 composition boundary로만 유지한다.
 컨트롤러는 Spring bean을 직접 탐색하거나 업무 서비스를 상속하지 않고 Common bridge 계약을 DI로 받으며,
-호스트 프록시가 필요한 Spring bean 연결을 한곳에서 처리한다. 따라서 XML은 배선과 교체 가능 구현을 담고,
-업무 규칙·SQL·설비별 조건은 담지 않는다.
+호스트 프록시가 필요한 Spring bean 연결을 한곳에서 처리한다. XML 조립 루트가 현재 `ApplicationServer`를
+한 번 취득해 `ModuleBeanResolver`에 주입하고 모든 형제-context 프록시는 이 typed resolver만 사용한다.
+프록시의 요청별 전역 `GetInstance().GetBean()` 탐색은 허용하지 않는다. 따라서 XML은 배선과 교체 가능 구현을
+담고, 업무 규칙·SQL·설비별 조건은 담지 않는다.
 
 Motion·I/O·Serial·Vision·SECS/GEM은 드라이버로 직접 주입하거나 프로젝트에서 명시적으로 참조한다.
 `NexaFramework.Drivers.Hosting`은 여러 드라이버의 발견·수명주기·상태진단을 표준화해야 할 때 쓰는 선택적
@@ -101,8 +118,13 @@ Motion·I/O·Serial·Vision·SECS/GEM은 드라이버로 직접 주입하거나 
 ## DB 조회 성능과 모듈 소유권
 
 조회 성능은 테이블이나 View 개수가 아니라 실제 Repository/named query의 `WHERE`·`JOIN`·`ORDER BY`로
-관리한다. V129~V134는 TRACE cursor/work queue, Tool 사용·보전 W/O, W/O별 Spare 사용, Recipe 적용기간,
-OEE/Takt/Loss 일자 reconciliation, LOT·처분·mixing 경로에 복합·filtered index를 추가한다. SQLite 증분
+관리한다. V130~V134는 Tool 사용·보전 W/O, W/O별 Spare 사용, Recipe 적용기간, OEE/Takt/Loss 일자
+reconciliation, LOT·처분 경로에 복합·filtered index를 추가한다. V141은 재시작 시 FDC open 알람·인터락을
+설비/파라미터 단위로 복원하는 filtered index를 제공하고, V142는 누적 inbox를 매 poll마다 스캔하던 TRACE
+cursor를 binding별 단일 영속 행으로 분리하며 `IS_WORK_ITEM=1`인 retry 행만 시간순으로 읽는다. POM LOT/Hold/
+Defect/W/O와 EMS W/O의 선택 필터 없는 화면 조회는 고유 tie-break 정렬과 최근 500건 상한을 가지며, 그 실제
+named-query 형태에 맞는 전역·filtered index를 사용한다. V142 증분 cursor backfill은 상관 anti-join 대신 binding별
+`ROW_NUMBER()` 1회 정렬로 최신 행을 고른다. POM mixing의 PK와 동일했던 중복 index는 제거한다. SQLite 증분
 회귀는 이름만 확인하지 않고 key 순서·정렬·partial 조건과 대표 쿼리의 `EXPLAIN QUERY PLAN` 선택까지 검증한다.
 
 일반 View는 SQL 의미를 캡슐화할 뿐 결과를 저장하지 않으므로 그 자체를 성능 개선으로 간주하지 않는다.
@@ -110,7 +132,14 @@ OEE/Takt/Loss 일자 reconciliation, LOT·처분·mixing 경로에 복합·filte
 반복 계산 비용이 큰 경로는 summary/projection table을 materialized read model로 유지한다. SQL Server indexed
 view·columnstore·partition은 Query Store의 logical read와 쓰기 증폭을 측정한 뒤 별도 운영 ADR로 승인한다.
 
-QMS와 POM 저장소는 다른 모듈 물리 테이블을 직접 조회하지 않는다. POM·IVT·MDM·SYS·PRC 소유 directory/bridge와
+완료된 TRACE inbox 행은 filtered work set에서 즉시 빠지지만 감사·재처리 근거로 남는다. 장기 보존량이 확인되면
+source FDC 원장, 소비 원장과의 재처리 경계를 먼저 고정한 뒤 archive/purge를 적용한다. 목록의 500건 상한은
+무제한 scan 방지선이며, 대규모 운영 화면은 다음 단계에서 인증된 Plant/Equipment scope와 keyset pagination을
+필수 계약으로 승격한다. 선택 필터의 `(@filter IS NULL OR COLUMN=@filter)`와 MSSQL `NOLOCK`은 실제 Query Store
+계획과 운영 일관성 요구를 확인해 scope별 query 또는 snapshot isolation 정책으로 교체할지 결정한다.
+
+QMS와 POM 저장소는 다른 모듈 물리 테이블을 직접 조회하지 않는다. EST 출력 검증에 필요했던 설비·캐리어 조회도
+Server SQL에서 MDM 소유 `IEquipmentOutputMasterDirectory`로 이동했다. POM·IVT·MDM·SYS·PRC 소유 directory/bridge와
 호스트의 SQL 없는 형제 Spring-context proxy를 사용한다. 현재 예외는 SLS 모듈 부재에 따른 읽기 전용
 `LegacySalesOrderMrpProjection`과 로그인–보전 작업자 매핑을 SYS가 제공하는 `MaintenanceIdentityDirectory` 두
 건뿐이며, 각각 ADR-0002/0003의 정확한 파일 allowlist와 2026-11-30 검토 기한으로 제한한다.
@@ -128,13 +157,13 @@ QMS와 POM 저장소는 다른 모듈 물리 테이블을 직접 조회하지 �
 ## 2026-08-28 검증 기록
 
 - Release solution build(`-warnaserror`): 경고 0, 오류 0
-- Unit: 1,713/1,713 통과
-- Server/SQLite integration: 850/850 통과
+- Unit: 1,759/1,759 통과
+- Server/SQLite integration: 863/863 통과
 - Portal: 116/116, production build 성공, `npm audit` 취약점 0
 - NexaLogic PLC: Integration 14/14, Hardware Simulation 43/43 통과
-- modules-ON child-process smoke: 11개 모듈과 선언형 bridge 37개를 최신 Release 호스트에서 실제 부팅
-- migration: V001~V140 strict 이름·숫자 순서·중복 검증 통과, 신규/증분 SQLite와 MSSQL 정적 계약 통과
-- publish: Release publish 성공, 산출물 500개에서 `NexusCom`·`NexusFramework`·`NexusLogic` 이름/설정 참조 0건
+- modules-ON child-process smoke: 11개 모듈과 선언형 bridge 38개를 최신 Release 호스트에서 실제 부팅
+- migration: V001~V142 strict 이름·숫자 순서·중복 검증 통과, 신규/증분 SQLite와 MSSQL 정적 계약 통과
+- publish: Release publish 성공, 산출물 502개에서 `NexusCom`·`NexusFramework`·`NexusLogic` 파일명/설정 참조 0건
 - 정적 경계: QMS/POM 저장소 foreign physical-table SQL 0건(ADR 예외 2건만 허용), 충돌 marker·diff whitespace 오류 0건
 
 이 실행 환경에는 `NEXAONE_MSSQL_TEST_CONN`, `sqlcmd`, SQL Server 서비스가 없고 Docker daemon도 실행되지

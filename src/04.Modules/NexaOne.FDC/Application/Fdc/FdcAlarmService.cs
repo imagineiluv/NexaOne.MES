@@ -93,13 +93,35 @@ public sealed class FdcAlarmService
     {
         if (_historyRepository is null) return 0;
 
-        var open = await _historyRepository.GetOpenAsync(equipmentId, ct);
-        var targets = open.Where(h => h.ParameterId == parameterId).ToList();
+        var targets = await _historyRepository.GetOpenAsync(equipmentId, parameterId, ct);
         foreach (var history in targets)
         {
             history.Clear(DateTime.UtcNow);
             await _historyRepository.UpdateAsync(history, ct);
         }
         return targets.Count;
+    }
+
+    /// <summary>
+    /// 프로세스 재시작 뒤 수집기의 메모리 상태를 복원할 수 있도록 해당 태그의 durable open 알람 중
+    /// 가장 높은 심각도를 반환한다. 이력 저장소가 없거나 open 알람이 없으면 null이다.
+    /// </summary>
+    public async Task<string?> GetHighestOpenLevelAsync(
+        string equipmentId,
+        string parameterId,
+        CancellationToken ct = default)
+    {
+        if (_historyRepository is null) return null;
+
+        var open = await _historyRepository.GetOpenAsync(equipmentId, parameterId, ct);
+        return open
+            .Select(static history => history.AlarmLevel)
+            .OrderByDescending(static level => level switch
+            {
+                "Critical" => 2,
+                "Warning" => 1,
+                _ => 0,
+            })
+            .FirstOrDefault();
     }
 }

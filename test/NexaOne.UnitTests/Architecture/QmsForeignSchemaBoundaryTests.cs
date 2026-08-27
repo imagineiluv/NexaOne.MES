@@ -60,9 +60,10 @@ public sealed class QmsForeignSchemaBoundaryTests
             "src", "00.Main", "NexaOne.Server", "Gateway", fileName);
         var source = File.ReadAllText(path);
 
-        source.Should().Contain("GetBean(");
+        source.Should().Contain("_resolver.Resolve<");
         source.Should().Contain($"\"{module}\"");
         source.Should().Contain($"\"{beanName}\"");
+        source.Should().NotContain("ApplicationServer.GetInstance()");
         source.Should().NotContain("EesDataSource");
         source.Should().NotContain("QueryRepository");
         source.Should().NotContain("SELECT ");
@@ -107,7 +108,10 @@ public sealed class QmsForeignSchemaBoundaryTests
                 && (string?)element.Attribute("id") == beanId);
 
             ((string?)bean.Attribute("type")).Should().Be(expectedType);
-            bean.Elements().Should().BeEmpty("parent proxies must not own a database dependency");
+            bean.Elements().Should().ContainSingle(
+                "parent proxies must receive only the shared module resolver");
+            ((string?)bean.Elements().Single().Attribute("ref"))
+                .Should().Be("moduleBeanResolver");
         }
     }
 
