@@ -3,16 +3,17 @@ using System.Text;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.POM.Application.Mrp;
 using NexaOne.POM.Domain.Mrp;
+using NexaOne.ServiceContracts.Ivt;
+using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Pom;
+using NexaOne.ServiceContracts.Prc;
 
 namespace NexaOne.POM.Infrastructure;
 
-/// <summary>MRP v1 실행 구현(POM 모듈 소유) — 원자료(SLS 수요·PRC/POM 예정입고·MDM BOM/계획파라미터/
-/// 벤더품목·IVT 재고)를 읽어 <see cref="MrpCalculator"/>(순수)로 넷팅하고 MRP_RUN/MRP_PLANNED_ORDER에
-/// append-only 영속한다. DB 접근은 모듈 표준(QueryRepository 읽기 + ServiceObjectProcessor 쓰기,
-/// provider-agnostic Dapper — SQLite/MSSQL 공통 ANSI SQL). 교차모듈 데이터는 C# 타입 결합 없이 순수
-/// SQL로만 읽는다(OEE 집계 리포 선례). ⚠ V080 ALTER 컬럼(MDM_BOM.SCRAP_RATE·PRC.PRODUCT_ID)을
-/// 참조하므로 V080 미적용 DB(구 dev)는 재생성이 필요하다(스펙/런북 문서화).</summary>
+/// <summary>
+/// POM 소유 MRP 실행기입니다. 계산과 POM 실행/제안 원장만 소유하며 MDM·IVT·PRC 원자료와 PRC command는
+/// 각 모듈의 축소 계약으로 위임합니다. SLS 수요는 소유 모듈이 생길 때까지 별도 전환 projection 뒤에 격리합니다.
+/// </summary>
 public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
 {
     private const string Ts = "yyyy-MM-dd HH:mm:ss";
@@ -20,9 +21,27 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
         "UPDATE MRP_RUN SET STATUS = @status, FINISHED_AT = @finishedAt, DEMAND_COUNT = @demandCount, " +
         "PLANNED_ORDER_COUNT = @orderCount, MESSAGE = @message, UPDATED_BY = @by WHERE RUN_ID = @runId";
     private readonly ServiceObjectProcessor _processor;
+    private readonly IMrpDemandSource _demandSource;
+    private readonly IMrpMasterDirectory _masterDirectory;
+    private readonly IMrpInventoryDirectory _inventoryDirectory;
+    private readonly IPurchaseOrderPlanningBridge _purchaseOrders;
+    private readonly IEquipmentDirectory _equipmentDirectory;
 
-    public MrpPlanningRepository(EesDataSource dataSource) : base(dataSource)
-        => _processor = new ServiceObjectProcessor(dataSource);
+    public MrpPlanningRepository(
+        EesDataSource dataSource,
+        IMrpDemandSource demandSource,
+        IMrpMasterDirectory masterDirectory,
+        IMrpInventoryDirectory inventoryDirectory,
+        IPurchaseOrderPlanningBridge purchaseOrders,
+        IEquipmentDirectory equipmentDirectory) : base(dataSource)
+    {
+        _processor = new ServiceObjectProcessor(dataSource);
+        _demandSource = demandSource;
+        _masterDirectory = masterDirectory;
+        _inventoryDirectory = inventoryDirectory;
+        _purchaseOrders = purchaseOrders;
+        _equipmentDirectory = equipmentDirectory;
+    }
 
     public async Task<MrpRunResult> RunAsync(string executedBy, MrpRunOptions? options = null, CancellationToken ct = default)
     {
@@ -35,8 +54,14 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
 
         try
         {
-            var demands = await LoadDemandsAsync(ct);
-            var receipts = await LoadScheduledReceiptsAsync(ct);
+            var demands = await _demandSource.GetOpenDemandsAsync(ct);
+            var master = await _masterDirectory.GetSnapshotAsync(ct);
+            var inventory = await _inventoryDirectory.GetBalancesAsync(ct);
+            var receipts = (await _purchaseOrders.GetScheduledReceiptsAsync(ct))
+                .Select(static receipt => new MrpScheduledReceipt(
+                    receipt.ProductId, receipt.Quantity, receipt.IncomingDate))
+                .Concat(await LoadProductionReceiptsAsync(ct))
+                .ToArray();
             // 총량 모드 onOrder = 일자 예정입고의 품목별 합(단일 출처 — 두 모드 간 집계 드리프트 방지).
             var onOrder = receipts.GroupBy(r => r.ItemId, StringComparer.Ordinal)
                 .ToDictionary(g => g.Key, g => g.Sum(x => x.Qty), StringComparer.Ordinal);
@@ -45,11 +70,23 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
                 : new MrpBucketOptions(DateTime.UtcNow.Date, options.BucketDays, options.HorizonBuckets);
             var result = MrpCalculator.Calculate(
                 demands,
-                await LoadBomAsync(ct),
-                await LoadOnHandAsync(ct),
+                master.Bom.Select(static line => new MrpBomLine(
+                    line.ProductId, line.ComponentId, line.Quantity, line.ScrapRate)).ToArray(),
+                inventory.ToDictionary(
+                    static balance => balance.MaterialId,
+                    static balance => balance.Quantity,
+                    StringComparer.Ordinal),
                 onOrder,
-                await LoadPlanningAsync(ct),
-                await LoadVendorsAsync(ct),
+                master.Items.ToDictionary(
+                    static item => item.ItemId,
+                    static item => new MrpItemParameters(
+                        item.SafetyStock, item.LeadTimeDays, item.LotSize, item.MakeOrBuy),
+                    StringComparer.Ordinal),
+                master.Vendors.ToDictionary(
+                    static vendor => vendor.ProductId,
+                    static vendor => new MrpVendorParameters(
+                        vendor.LeadTimeDays, vendor.MinimumOrderQuantity),
+                    StringComparer.Ordinal),
                 bucketOptions,
                 receipts);
 
@@ -133,9 +170,8 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
 
     /// <summary>Proposed 제안→실오더 전환. Purchase는 PRC 구매오더로, Production은
     /// POM 생산계획과 생산관리지시로 전환한다. 공정 작업지시는 라우팅 전개 서비스가 별도로 생성한다.
-    /// 원자성: 실오더 INSERT + 제안 Converted 마킹 전 문장을 단일 ExecuteManyAsync 트랜잭션으로 커밋
-    /// (MixingPersistAsync/DATA-3 패턴 — 부분 커밋 불가). ⚠ ExecuteManyAsync는 감사컬럼 자동주입이
-    /// 없어 CREATED_BY/UPDATED_BY를 문장에 명시한다(시각은 DDL DEFAULT).</summary>
+    /// POM 생산오더/제안 마킹은 단일 로컬 트랜잭션입니다. PRC는 별도 소유 원장이므로 분산 트랜잭션 대신
+    /// 안정 ID 기반 멱등 command를 먼저 보장하고, POM 커밋 실패 시 같은 요청 재실행으로 수렴합니다.</summary>
     public async Task<MrpConvertResult> ConvertAsync(
         string? runId, IReadOnlyList<string>? plannedOrderIds,
         IReadOnlyList<MrpProductionAssignment>? productionAssignments, string executedBy, CancellationToken ct = default)
@@ -166,6 +202,7 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
                 "AND RUN_ID = @runId AND STATUS = 'Proposed'";
             var now = DateTime.UtcNow.ToString(Ts);
             var statements = new List<(string Sql, object? Param)>();
+            var purchaseCommands = new List<(MrpPurchaseOrderRequest Request, string PlannedOrderId)>();
             int purchaseOrders = 0, productionOrders = 0;
 
             var productionIds = rows
@@ -193,13 +230,11 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
 
             var equipmentIds = assignmentMap.Values.Where(v => v.Length > 0)
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            var equipmentRows = equipmentIds.Count == 0
-                ? new List<dynamic>()
-                : (await QueryAsync<dynamic>(
-                    "SELECT EQUIPMENT_ID, PLANT_ID, VALID_STATE FROM MDM_EQUIPMENT WHERE EQUIPMENT_ID IN @equipmentIds",
-                    new { equipmentIds }, ct)).ToList();
-            var equipmentMap = equipmentRows.ToDictionary(
-                r => (string)r.EQUIPMENT_ID, r => r, StringComparer.OrdinalIgnoreCase);
+            var equipmentEntries = await Task.WhenAll(equipmentIds.Select(async id =>
+                (Id: id, Entry: await _equipmentDirectory.GetEquipmentAsync(id, ct))));
+            var equipmentMap = equipmentEntries
+                .Where(static pair => pair.Entry is not null)
+                .ToDictionary(static pair => pair.Id, static pair => pair.Entry!, StringComparer.OrdinalIgnoreCase);
 
             foreach (var r in rows)
             {
@@ -217,17 +252,18 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
                             $"구매 제안 {plannedId}의 공장 또는 수량이 올바르지 않습니다.");
                     var orderId = StableId("PUR", plannedId);
                     purchaseOrders++;
-                    statements.Add((
-                        "INSERT INTO PRC_PURCHASE_ORDER (PURCHASE_ORDER_ID, PLANT_ID, PURCHASE_ORDER_NAME, " +
-                        "ORDER_DATE, INCOMING_DATE, ORDER_QTY, PRODUCT_ID, STATUS, DESCRIPTION, CREATED_BY, UPDATED_BY) " +
-                        "VALUES (@id, @plant, @name, @orderDate, @incoming, @qty, @item, 'Ordered', @desc, @by, @by)",
-                        new
-                        {
-                            id = orderId, plant, name = $"MRP 전환 — {item}", orderDate = now,
-                            incoming = dueDate?.ToString(Ts),
-                            qty, item, desc = $"MRP {runId} / {plannedId}", by = executedBy,
-                        }));
-                    statements.Add((MarkSql, new { newId = orderId, id = plannedId, runId, by = executedBy, now }));
+                    purchaseCommands.Add((
+                        new MrpPurchaseOrderRequest(
+                            orderId,
+                            plant,
+                            $"MRP 전환 — {item}",
+                            DateTime.UtcNow,
+                            dueDate,
+                            qty,
+                            item,
+                            $"MRP {runId} / {plannedId}",
+                            executedBy),
+                        plannedId));
                 }
                 else
                 {
@@ -238,13 +274,11 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
                         equipmentId.Length == 0 || !equipmentMap.TryGetValue(equipmentId, out var equipment))
                         return new MrpConvertResult(runId, 0, 0, 0,
                             $"생산 제안 {plannedId}에 존재하는 설비를 배정해야 합니다.");
-                    var equipmentPlant = ((string)equipment.PLANT_ID).Trim();
-                    var validState = ((string)equipment.VALID_STATE).Trim();
+                    var equipmentPlant = equipment.PlantId.Trim();
                     if (!string.Equals(equipmentPlant, plant, StringComparison.OrdinalIgnoreCase))
                         return new MrpConvertResult(runId, 0, 0, 0,
                             $"설비 {equipmentId}의 공장이 생산 제안 {plannedId}와 일치하지 않습니다.");
-                    if (!string.Equals(validState, "Active", StringComparison.OrdinalIgnoreCase) &&
-                        !string.Equals(validState, "Valid", StringComparison.OrdinalIgnoreCase))
+                    if (!equipment.IsValid)
                         return new MrpConvertResult(runId, 0, 0, 0,
                             $"설비 {equipmentId}은(는) 활성 상태가 아닙니다.");
 
@@ -280,6 +314,21 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
                 }
             }
 
+            // 모든 제안과 설비를 먼저 검증한 뒤 외부 소유 command를 보낸다. PRC 성공 후 POM 로컬
+            // 커밋이 실패해도 stable order id 덕분에 재실행은 기존 오더를 확인하고 제안 마킹으로 수렴한다.
+            foreach (var command in purchaseCommands)
+            {
+                await _purchaseOrders.EnsureMrpPurchaseOrderAsync(command.Request, ct);
+                statements.Add((MarkSql, new
+                {
+                    newId = command.Request.PurchaseOrderId,
+                    id = command.PlannedOrderId,
+                    runId,
+                    by = executedBy,
+                    now,
+                }));
+            }
+
             await _processor.ExecuteManyAsync(ct, statements.ToArray());
             return new MrpConvertResult(runId, purchaseOrders + productionOrders,
                 purchaseOrders, productionOrders, null);
@@ -297,47 +346,11 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
             FinalizeSql,
             new { runId, status, finishedAt = DateTime.UtcNow.ToString(Ts), demandCount, orderCount, message, by }, ct);
 
-    // ── 원자료 적재(순수 SQL — 교차모듈 read, ADR-001) ─────────────────────────
-
-    private async Task<IReadOnlyList<MrpDemand>> LoadDemandsAsync(CancellationToken ct)
-    {
-        var rows = await QueryAsync<dynamic>(
-            "SELECT SALES_ORDER_ID, PRODUCT_ID, (PLAN_QTY - COALESCE(DELIVERED_QTY, 0)) AS OPEN_QTY, PLAN_END_DATE, PLANT_ID " +
-            "FROM SLS_SALES_ORDER " +
-            "WHERE STATUS IN ('Confirmed', 'Producing') AND PRODUCT_ID IS NOT NULL " +
-            "  AND (PLAN_QTY - COALESCE(DELIVERED_QTY, 0)) > 0", null, ct);
-        return rows.Select(r => new MrpDemand(
-            (string)r.PRODUCT_ID, Convert.ToDecimal(r.OPEN_QTY), AsDate(r.PLAN_END_DATE), (string)r.SALES_ORDER_ID,
-            r.PLANT_ID as string)).ToList();
-    }
-
-    private async Task<IReadOnlyList<MrpBomLine>> LoadBomAsync(CancellationToken ct)
-    {
-        var rows = await QueryAsync<dynamic>(
-            "SELECT PRODUCT_ID, COMPONENT_ID, QUANTITY, COALESCE(SCRAP_RATE, 0) AS SCRAP_RATE FROM MDM_BOM", null, ct);
-        return rows.Select(r => new MrpBomLine(
-            (string)r.PRODUCT_ID, (string)r.COMPONENT_ID, Convert.ToDecimal(r.QUANTITY), Convert.ToDecimal(r.SCRAP_RATE))).ToList();
-    }
-
-    private async Task<IReadOnlyDictionary<string, decimal>> LoadOnHandAsync(CancellationToken ct)
-    {
-        var rows = await QueryAsync<dynamic>(
-            "SELECT MATERIAL_ID, SUM(CURRENT_QTY) AS QTY FROM IVT_MATERIAL_LOT GROUP BY MATERIAL_ID", null, ct);
-        var map = new Dictionary<string, decimal>(StringComparer.Ordinal);
-        foreach (var r in rows) map[(string)r.MATERIAL_ID] = Convert.ToDecimal(r.QTY);
-        return map;
-    }
-
-    private async Task<IReadOnlyList<MrpScheduledReceipt>> LoadScheduledReceiptsAsync(CancellationToken ct)
+    private async Task<IReadOnlyList<MrpScheduledReceipt>> LoadProductionReceiptsAsync(CancellationToken ct)
     {
         var list = new List<MrpScheduledReceipt>();
-        // 예정입고 ①구매(V080 PRODUCT_ID 링크가 있는 행만 — 표준 갭 보수분, 입고예정일=INCOMING_DATE)
-        // ②생산(생산관리지시 미완수량, 완료예정일=SCHEDULED_END). 공정 작업지시는 중복 집계하지 않는다.
-        var po = await QueryAsync<dynamic>(
-            "SELECT PRODUCT_ID, ORDER_QTY, INCOMING_DATE FROM PRC_PURCHASE_ORDER " +
-            "WHERE STATUS IN ('Ordered', 'Incoming') AND PRODUCT_ID IS NOT NULL", null, ct);
-        foreach (var r in po)
-            list.Add(new MrpScheduledReceipt((string)r.PRODUCT_ID, Convert.ToDecimal(r.ORDER_QTY), AsDate(r.INCOMING_DATE)));
+        // POM 생산관리지시 미완수량만 계산한다. 구매 예정입고는 PRC 소유 bridge가 제공하며,
+        // 공정 작업지시는 중복 집계하지 않는다.
         var productionOrders = await QueryAsync<dynamic>(
             "SELECT PRODUCT_ID, (ORDER_QTY - COALESCE(ACTUAL_QTY, 0)) AS QTY, SCHEDULED_END " +
             "FROM POM_PRODUCTION_ORDER WHERE STATUS IN ('Issued', 'InProgress') AND PRODUCT_ID IS NOT NULL " +
@@ -345,34 +358,6 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
         foreach (var r in productionOrders)
             list.Add(new MrpScheduledReceipt((string)r.PRODUCT_ID, Convert.ToDecimal(r.QTY), AsDate(r.SCHEDULED_END)));
         return list;
-    }
-
-    private async Task<IReadOnlyDictionary<string, MrpItemParameters>> LoadPlanningAsync(CancellationToken ct)
-    {
-        var rows = await QueryAsync<dynamic>(
-            "SELECT ITEM_ID, SAFETY_STOCK, LEAD_TIME_DAYS, LOT_SIZE, MAKE_OR_BUY " +
-            "FROM MDM_ITEM_PLANNING WHERE IS_ACTIVE = 'Y'", null, ct);
-        var map = new Dictionary<string, MrpItemParameters>(StringComparer.Ordinal);
-        foreach (var r in rows)
-            map[(string)r.ITEM_ID] = new MrpItemParameters(
-                Convert.ToDecimal(r.SAFETY_STOCK),
-                r.LEAD_TIME_DAYS is null ? null : (int?)Convert.ToInt32(r.LEAD_TIME_DAYS),
-                Convert.ToDecimal(r.LOT_SIZE),
-                r.MAKE_OR_BUY as string);
-        return map;
-    }
-
-    private async Task<IReadOnlyDictionary<string, MrpVendorParameters>> LoadVendorsAsync(CancellationToken ct)
-    {
-        var rows = await QueryAsync<dynamic>(
-            "SELECT PRODUCT_ID, MIN(LEAD_TIME_DAYS) AS LEAD_TIME_DAYS, MIN(MOQ) AS MOQ " +
-            "FROM MDM_VENDOR_ITEM GROUP BY PRODUCT_ID", null, ct);
-        var map = new Dictionary<string, MrpVendorParameters>(StringComparer.Ordinal);
-        foreach (var r in rows)
-            map[(string)r.PRODUCT_ID] = new MrpVendorParameters(
-                r.LEAD_TIME_DAYS is null ? null : (int?)Convert.ToInt32(r.LEAD_TIME_DAYS),
-                r.MOQ is null ? null : (decimal?)Convert.ToDecimal(r.MOQ));
-        return map;
     }
 
     private static string StableId(string kind, string plannedOrderId)

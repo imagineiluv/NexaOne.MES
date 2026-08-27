@@ -17,12 +17,18 @@
   </object>
   <object id="qmsInspectionResultRepository" type="NexaOne.QMS.Infrastructure.InspectionResultRepository, NexaOne.QMS">
     <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="productionLotDirectory" />
+    <constructor-arg ref="materialLotDirectory" />
   </object>
   <object id="qmsSpcParamRepository" type="NexaOne.QMS.Infrastructure.SpcParamRepository, NexaOne.QMS">
     <constructor-arg ref="eesDataSource" />
   </object>
   <object id="qmsReferenceRepository" type="NexaOne.QMS.Infrastructure.QmsReferenceRepository, NexaOne.QMS">
-    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="productionLotDirectory" />
+    <constructor-arg ref="materialLotDirectory" />
+    <constructor-arg ref="equipmentDirectory" />
+    <constructor-arg ref="processDirectory" />
+    <constructor-arg ref="userDirectory" />
   </object>
   <object id="qmsAiInspectionRepository" type="NexaOne.QMS.Infrastructure.AiInspectionRepository, NexaOne.QMS">
     <constructor-arg ref="eesDataSource" />

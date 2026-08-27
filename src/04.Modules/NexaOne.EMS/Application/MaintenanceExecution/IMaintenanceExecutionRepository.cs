@@ -4,7 +4,6 @@ public interface IMaintenanceExecutionRepository
 {
     Task<string?> GetWorkOrderStatusAsync(string workOrderId, CancellationToken ct = default);
     Task<bool> MaintenanceItemExistsAsync(string itemId, CancellationToken ct = default);
-    Task<string?> GetActiveWorkerIdAsync(string userId, DateTime at, CancellationToken ct = default);
     Task<MaintenanceCheckRecord?> GetCheckByIdempotencyKeyAsync(
         string idempotencyKey, CancellationToken ct = default);
     Task<bool> TryAddCheckAsync(MaintenanceCheckRecord record, CancellationToken ct = default);

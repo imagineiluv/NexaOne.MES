@@ -9,6 +9,14 @@
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
   </object>
+  <!-- SYS-owned login-user to maintenance-worker identity projection. EMS receives only the
+       shared contract through the parent proxy and never imports SYS/MDM physical SQL. -->
+  <object id="maintenanceIdentityDirectory" type="NexaOne.SYS.Infrastructure.MaintenanceIdentityDirectory, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="userDirectory" type="NexaOne.SYS.Infrastructure.UserDirectory, NexaOne.SYS">
+    <constructor-arg ref="eesDataSource" />
+  </object>
   <object id="roleRepository" type="NexaOne.SYS.Infrastructure.RoleRepository, NexaOne.SYS">
     <constructor-arg ref="eesDataSource" />
   </object>

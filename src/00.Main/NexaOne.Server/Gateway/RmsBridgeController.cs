@@ -39,70 +39,113 @@ public sealed class RmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.RmsManage)]
-    public async Task<IActionResult> CreateRecipe([FromBody] CreateRecipeRequest req, CancellationToken ct)
+    public async Task<IActionResult> CreateRecipe(
+        [FromBody] CreateRecipeRequest req,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken ct)
     {
-        if (!TryGetExternalActor(out _)) return Unauthorized();
-        return (await _bridge.CreateRecipeAsync(req.RecipeId, req.Name, req.Description, req.EquipmentClassId, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (!TryCommandContext(actor, idempotencyKey, out var context))
+            return BadRequest(Error.Validation(nameof(idempotencyKey), "Idempotency-Key header is required."));
+        return (await _bridge.CreateRecipeAsync(new RecipeCreateCommand(
+            req.RecipeId, req.Name, req.Description, req.EquipmentClassId,
+            context.IdempotencyKey, context.ActorId), ct)).ToActionResult();
     }
 
     [HttpPut("recipes/{recipeId}/request-approval")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.RmsManage)]
-    public async Task<IActionResult> RequestApproval(string recipeId, CancellationToken ct)
+    public async Task<IActionResult> RequestApproval(
+        string recipeId,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken ct)
     {
-        if (!TryGetExternalActor(out _)) return Unauthorized();
-        return (await _bridge.RequestApprovalAsync(recipeId, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (!TryCommandContext(actor, idempotencyKey, out var context))
+            return BadRequest(Error.Validation(nameof(idempotencyKey), "Idempotency-Key header is required."));
+        return (await _bridge.RequestApprovalAsync(
+            recipeId, context, ct)).ToActionResult();
     }
 
     [HttpPut("recipes/{recipeId}/approve1")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.RmsManage)]
-    public async Task<IActionResult> Approve1(string recipeId, CancellationToken ct)
+    public async Task<IActionResult> Approve1(
+        string recipeId,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken ct)
     {
         if (!TryGetExternalActor(out var actor)) return Unauthorized();
-        return (await _bridge.Approve1Async(recipeId, actor, ct)).ToActionResult();
+        if (!TryCommandContext(actor, idempotencyKey, out var context))
+            return BadRequest(Error.Validation(nameof(idempotencyKey), "Idempotency-Key header is required."));
+        return (await _bridge.Approve1Async(
+            recipeId, context, ct)).ToActionResult();
     }
 
     [HttpPut("recipes/{recipeId}/approve2")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.RmsManage)]
-    public async Task<IActionResult> Approve2(string recipeId, CancellationToken ct)
+    public async Task<IActionResult> Approve2(
+        string recipeId,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken ct)
     {
         if (!TryGetExternalActor(out var actor)) return Unauthorized();
-        return (await _bridge.Approve2Async(recipeId, actor, ct)).ToActionResult();
+        if (!TryCommandContext(actor, idempotencyKey, out var context))
+            return BadRequest(Error.Validation(nameof(idempotencyKey), "Idempotency-Key header is required."));
+        return (await _bridge.Approve2Async(
+            recipeId, context, ct)).ToActionResult();
     }
 
     [HttpPut("recipes/{recipeId}/release")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.RmsManage)]
-    public async Task<IActionResult> Release(string recipeId, CancellationToken ct)
+    public async Task<IActionResult> Release(
+        string recipeId,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken ct)
     {
         if (!TryGetExternalActor(out var actor)) return Unauthorized();
-        return (await _bridge.ReleaseAsync(recipeId, actor, ct)).ToActionResult();
+        if (!TryCommandContext(actor, idempotencyKey, out var context))
+            return BadRequest(Error.Validation(nameof(idempotencyKey), "Idempotency-Key header is required."));
+        return (await _bridge.ReleaseAsync(
+            recipeId, context, ct)).ToActionResult();
     }
 
     [HttpPut("recipes/{recipeId}/reject")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.RmsManage)]
-    public async Task<IActionResult> Reject(string recipeId, [FromBody] RejectRequest req, CancellationToken ct)
+    public async Task<IActionResult> Reject(
+        string recipeId,
+        [FromBody] RejectRequest req,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken ct)
     {
-        if (!TryGetExternalActor(out _)) return Unauthorized();
-        return (await _bridge.RejectAsync(recipeId, req.Reason, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (!TryCommandContext(actor, idempotencyKey, out var context))
+            return BadRequest(Error.Validation(nameof(idempotencyKey), "Idempotency-Key header is required."));
+        return (await _bridge.RejectAsync(
+            recipeId, req.Reason, context, ct)).ToActionResult();
     }
 
     [HttpPost("recipes/{recipeId}/new-version")]
@@ -111,10 +154,17 @@ public sealed class RmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.RmsManage)]
-    public async Task<IActionResult> CreateNewVersion(string recipeId, [FromBody] NewVersionRequest req, CancellationToken ct)
+    public async Task<IActionResult> CreateNewVersion(
+        string recipeId,
+        [FromBody] NewVersionRequest req,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken ct)
     {
-        if (!TryGetExternalActor(out _)) return Unauthorized();
-        return (await _bridge.CreateNewVersionAsync(recipeId, req.NewRecipeId, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (!TryCommandContext(actor, idempotencyKey, out var context))
+            return BadRequest(Error.Validation(nameof(idempotencyKey), "Idempotency-Key header is required."));
+        return (await _bridge.CreateNewVersionAsync(new RecipeVersionCreateCommand(
+            recipeId, req.NewRecipeId, context.IdempotencyKey, context.ActorId), ct)).ToActionResult();
     }
 
     [HttpGet("recipes/{recipeId}/params")]
@@ -129,22 +179,39 @@ public sealed class RmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.RmsManage)]
-    public async Task<IActionResult> AddParam(string recipeId, [FromBody] AddParamRequest req, CancellationToken ct)
+    public async Task<IActionResult> AddParam(
+        string recipeId,
+        [FromBody] AddParamRequest req,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken ct)
     {
-        if (!TryGetExternalActor(out _)) return Unauthorized();
-        return (await _bridge.AddParamAsync(req.ParamId, recipeId, req.ParamName, req.ParamValue, req.Unit, req.SortOrder, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (!TryCommandContext(actor, idempotencyKey, out var context))
+            return BadRequest(Error.Validation(nameof(idempotencyKey), "Idempotency-Key header is required."));
+        return (await _bridge.AddParamAsync(new RecipeParamAddCommand(
+            req.ParamId, recipeId, req.ParamName, req.ParamValue, req.Unit, req.SortOrder,
+            context.IdempotencyKey, context.ActorId), ct)).ToActionResult();
     }
 
     [HttpPut("recipes/params/{paramId}")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.RmsManage)]
-    public async Task<IActionResult> UpdateParam(string paramId, [FromBody] UpdateParamRequest req, CancellationToken ct)
+    public async Task<IActionResult> UpdateParam(
+        string paramId,
+        [FromBody] UpdateParamRequest req,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken ct)
     {
-        if (!TryGetExternalActor(out _)) return Unauthorized();
-        return (await _bridge.UpdateParamAsync(paramId, req.NewValue, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (!TryCommandContext(actor, idempotencyKey, out var context))
+            return BadRequest(Error.Validation(nameof(idempotencyKey), "Idempotency-Key header is required."));
+        return (await _bridge.UpdateParamAsync(new RecipeParamUpdateCommand(
+            paramId, req.NewValue, req.ExpectedVersion, context.IdempotencyKey, context.ActorId), ct))
+            .ToActionResult();
     }
 
     [HttpDelete("recipes/params/{paramId}")]
@@ -153,10 +220,17 @@ public sealed class RmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.RmsManage)]
-    public async Task<IActionResult> DeleteParam(string paramId, CancellationToken ct)
+    public async Task<IActionResult> DeleteParam(
+        string paramId,
+        [FromQuery] int expectedVersion,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        CancellationToken ct)
     {
-        if (!TryGetExternalActor(out _)) return Unauthorized();
-        return (await _bridge.DeleteParamAsync(paramId, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        if (!TryCommandContext(actor, idempotencyKey, out var context))
+            return BadRequest(Error.Validation(nameof(idempotencyKey), "Idempotency-Key header is required."));
+        return (await _bridge.DeleteParamAsync(new RecipeParamDeleteCommand(
+            paramId, expectedVersion, context.IdempotencyKey, context.ActorId), ct)).ToActionResult();
     }
 
     private bool TryGetExternalActor(out string actor)
@@ -164,10 +238,17 @@ public sealed class RmsBridgeController : ControllerBase
         actor = User.CurrentUserId()?.Trim() ?? string.Empty;
         return actor.Length > 0;
     }
+
+    private static bool TryCommandContext(
+        string actor, string? idempotencyKey, out RecipeCommandContext context)
+    {
+        context = new RecipeCommandContext(actor, idempotencyKey?.Trim() ?? string.Empty);
+        return context.IdempotencyKey.Length > 0;
+    }
 }
 
 public record CreateRecipeRequest(string RecipeId, string Name, string Description, string EquipmentClassId);
 public record RejectRequest(string Reason);
 public record NewVersionRequest(string NewRecipeId);
 public record AddParamRequest(string ParamId, string ParamName, string ParamValue, string Unit, int SortOrder);
-public record UpdateParamRequest(string NewValue);
+public record UpdateParamRequest(string NewValue, int ExpectedVersion);

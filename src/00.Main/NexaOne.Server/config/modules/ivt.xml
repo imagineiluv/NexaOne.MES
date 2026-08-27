@@ -3,44 +3,25 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
 
-  <!-- IVT owns material-lot inventory and the immutable material-consumption ledger. -->
-  <object id="consumptionRepository" type="NexaOne.IVT.Infrastructure.ConsumptionRepository, NexaOne.IVT">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="traceProjectionRepository" type="NexaOne.IVT.Infrastructure.TraceProjectionRepository, NexaOne.IVT">
+  <!-- IVT owns material-lot inventory and the immutable material-consumption ledger. The XML
+       surface is deliberately limited to one module composition root plus its public bridges/worker. -->
+  <object id="ivtModule" type="NexaOne.IVT.Module, NexaOne.IVT">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="eesDialect" />
-  </object>
-  <object id="traceIngestionService" type="NexaOne.IVT.Application.Materials.TraceIngestionService, NexaOne.IVT">
     <constructor-arg ref="fdcTraceSource" />
-    <constructor-arg ref="traceProjectionRepository" />
+    <constructor-arg ref="appConfiguration" />
   </object>
-  <object id="consumptionService" type="NexaOne.IVT.Application.Materials.ConsumptionService, NexaOne.IVT">
-    <constructor-arg ref="consumptionRepository" />
-  </object>
-  <object id="materialLotRepository" type="NexaOne.IVT.Infrastructure.MaterialLotRepository, NexaOne.IVT">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="materialLotService" type="NexaOne.IVT.Application.Materials.MaterialLotService, NexaOne.IVT">
-    <constructor-arg ref="materialLotRepository" />
-  </object>
-  <object id="materialBridge" type="NexaOne.IVT.Application.Materials.MaterialBridge, NexaOne.IVT">
-    <constructor-arg ref="consumptionService" />
-  </object>
-  <object id="materialLotBridge" type="NexaOne.IVT.Application.Materials.MaterialLotBridge, NexaOne.IVT">
-    <constructor-arg ref="materialLotService" />
-  </object>
+
+  <object id="materialBridge" factory-object="ivtModule" factory-method="GetMaterialBridge" />
+  <object id="materialLotBridge" factory-object="ivtModule" factory-method="GetMaterialLotBridge" />
+  <object id="materialLotDirectory" factory-object="ivtModule" factory-method="GetMaterialLotDirectory" />
+  <object id="mrpInventoryDirectory" factory-object="ivtModule" factory-method="GetMrpInventoryDirectory" />
 
   <!-- Durable FDC source -> IVT consumption projection through the Common IFdcTraceSource contract.
        It intentionally does not use messageBus: the persisted inbox is the restart-safe accounting seam. Enable with
        Worker:Ivt:TraceMaterialConsumption:Enabled=true after bindings/feed sessions are configured. -->
-  <object id="traceMaterialConsumptionWorker" type="NexaOne.IVT.Infrastructure.TraceMaterialConsumptionWorker, NexaOne.IVT">
-    <constructor-arg ref="traceIngestionService" />
-    <constructor-arg ref="traceProjectionRepository" />
-    <constructor-arg ref="consumptionService" />
-    <constructor-arg ref="appConfiguration" />
-    <constructor-arg value="5" />
-    <constructor-arg value="200" />
-  </object>
+  <object id="traceMaterialConsumptionWorker"
+          factory-object="ivtModule"
+          factory-method="GetTraceMaterialConsumptionWorker" />
 
 </objects>

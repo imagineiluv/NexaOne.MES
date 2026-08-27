@@ -1,11 +1,11 @@
 using NexaOne.FDC.Infrastructure.Equipment;
 using NexaFramework.Resource;
-using NexusLogic.Plc.Abstractions.Interfaces;
-using NexusLogic.Plc.Abstractions.Models;
+using NexaLogic.Plc.Abstractions.Interfaces;
+using NexaLogic.Plc.Abstractions.Models;
 
 namespace NexaOne.UnitTests.Fdc;
 
-/// <summary>§3.6.3/§10.4 — NexusLogic IPlcDriver를 NexaFramework IDeviceInterface로
+/// <summary>§3.6.3/§10.4 — NexaLogic IPlcDriver를 NexaFramework IDeviceInterface로
 /// 노출하는 프로토콜 중립 어댑터의 lifecycle, 상태 전이, 에러 전파를 검증한다.</summary>
 public sealed class PlcDeviceInterfaceTests
 {
@@ -60,7 +60,7 @@ public sealed class PlcDeviceInterfaceTests
         await sut.InitializeAsync();
 
         sut.State.Should().Be(ResourceState.Ready);
-        sut.Connection.Should().BeSameAs(conn.Object, "초기화 후 NexusLogic 연결이 노출된다");
+        sut.Connection.Should().BeSameAs(conn.Object, "초기화 후 NexaLogic 연결이 노출된다");
         driver.Verify(d => d.ConnectAsync(It.IsAny<PlcEndpoint>(), It.IsAny<CancellationToken>()), Times.Once);
         conn.Verify(c => c.OpenAsync(It.IsAny<CancellationToken>()), Times.Once);
     }

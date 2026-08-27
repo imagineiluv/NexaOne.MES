@@ -3,10 +3,10 @@ using NexaOne.Common;
 namespace NexaOne.FDC.Domain;
 
 /// <summary>설비↔설비-프로토콜 엔드포인트 매핑 (FDC_EQUIPMENT_ENDPOINT, design 10.4.2).
-/// NexusLogic 설비 프로토콜(OPC-UA 등) 연결 정보를 FDC bounded context가 소유한다.</summary>
+/// NexaLogic 설비 프로토콜(OPC-UA 등) 연결 정보를 FDC bounded context가 소유한다.</summary>
 public sealed class FdcEquipmentEndpoint : AuditableEntity<string>
 {
-    /// <summary>NexusLogic PlcDriverKind와 매핑되는 허용 프로토콜.</summary>
+    /// <summary>NexaLogic PlcDriverKind와 매핑되는 허용 프로토콜.</summary>
     private static readonly HashSet<string> AllowedProtocols = new(StringComparer.OrdinalIgnoreCase)
     {
         "OpcUa", "ModbusTcp", "ModbusRtu", "SiemensS7", "MitsubishiMc", "EtherNetIp", "OmronFins"

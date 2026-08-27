@@ -3,9 +3,9 @@ using NexaOne.FDC.Domain;
 using NexaOne.FDC.Infrastructure.Equipment;
 using NexaOne.Infrastructure.Messaging;
 using NexaFramework;
-using NexusLogic.Plc.Abstractions.Interfaces;
-using NexusLogic.Plc.Abstractions.Models;
-using NexusLogic.Plc.Hosting;
+using NexaLogic.Plc.Abstractions.Interfaces;
+using NexaLogic.Plc.Abstractions.Models;
+using NexaLogic.Plc.Hosting;
 
 namespace NexaOne.UnitTests.Fdc;
 

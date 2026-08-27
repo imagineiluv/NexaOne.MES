@@ -22,7 +22,12 @@ public sealed class UtilityController : ControllerBase
     {
         var actor = User.CurrentUserId();
         if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
-        return (await _bridge.SaveMeterAsync(command with { ActorId = actor }, ct)).ToActionResult();
+        var headerKey = Request.Headers["Idempotency-Key"].FirstOrDefault();
+        return (await _bridge.SaveMeterAsync(command with
+        {
+            ActorId = actor,
+            IdempotencyKey = string.IsNullOrWhiteSpace(headerKey) ? command.IdempotencyKey : headerKey,
+        }, ct)).ToActionResult();
     }
 
     [HttpPost("readings")]
@@ -33,6 +38,27 @@ public sealed class UtilityController : ControllerBase
         if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
         return (await _bridge.RecordReadingAsync(command with { ActorId = actor }, ct)).ToActionResult();
     }
+
+    [HttpPost("meter-events")]
+    [RequirePermission(Permissions.EstManage)]
+    public async Task<IActionResult> RecordMeterEvent(
+        [FromBody] UtilityMeterEventCommand command, CancellationToken ct)
+    {
+        var actor = User.CurrentUserId();
+        if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
+        return (await _bridge.RecordMeterEventAsync(command with { ActorId = actor }, ct)).ToActionResult();
+    }
+
+    [HttpGet("meters/{meterId}/events")]
+    [RequirePermission(Permissions.EstRead)]
+    public async Task<IActionResult> GetMeterEventHistory(
+        string meterId, [FromQuery] DateTime from, [FromQuery] DateTime to, CancellationToken ct)
+        => (await _bridge.GetMeterEventHistoryAsync(meterId, from, to, ct)).ToActionResult();
+
+    [HttpGet("meters/{meterId}/config-history")]
+    [RequirePermission(Permissions.EstRead)]
+    public async Task<IActionResult> GetMeterConfigHistory(string meterId, CancellationToken ct)
+        => (await _bridge.GetMeterConfigHistoryAsync(meterId, ct)).ToActionResult();
 
     [HttpPost("summaries")]
     [RequirePermission(Permissions.EstManage)]

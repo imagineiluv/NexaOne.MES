@@ -35,7 +35,7 @@ public sealed class MaintenanceScheduleService
         if (definition.IsFailure) return Result.Failure<MaintenanceScheduleRecord>(definition.Error);
         if (!await _repository.MaintenancePlanExistsAsync(definition.Value.MaintenancePlanId, ct))
             return Result.Failure<MaintenanceScheduleRecord>(
-                Error.NotFoundOf("MaintenancePlan", definition.Value.MaintenancePlanId));
+                PreventivePlanRequired(definition.Value.MaintenancePlanId));
 
         var now = DateTime.UtcNow;
         var schedule = definition.Value.ToRecord(actor, now);
@@ -72,7 +72,7 @@ public sealed class MaintenanceScheduleService
             return VersionConflict<MaintenanceScheduleRecord>(command.ExpectedVersion, existing.Version);
         if (!await _repository.MaintenancePlanExistsAsync(definition.Value.MaintenancePlanId, ct))
             return Result.Failure<MaintenanceScheduleRecord>(
-                Error.NotFoundOf("MaintenancePlan", definition.Value.MaintenancePlanId));
+                PreventivePlanRequired(definition.Value.MaintenancePlanId));
 
         var now = DateTime.UtcNow;
         var updated = definition.Value.ToRecord(actor, now) with
@@ -119,6 +119,9 @@ public sealed class MaintenanceScheduleService
                 Error.NotFoundOf("MaintenanceSchedule", scheduleId));
         if (schedule.Version != command.ExpectedVersion)
             return VersionConflict<MaintenanceScheduleAcknowledgementRecord>(command.ExpectedVersion, schedule.Version);
+        if (!await _repository.MaintenancePlanExistsAsync(schedule.MaintenancePlanId, ct))
+            return Result.Failure<MaintenanceScheduleAcknowledgementRecord>(
+                PreventivePlanRequired(schedule.MaintenancePlanId));
         if (!schedule.IsActive)
             return Result.Failure<MaintenanceScheduleAcknowledgementRecord>(Error.Conflict(
                 "EMS.MaintenanceSchedule.Inactive", "An inactive schedule cannot be acknowledged."));
@@ -378,6 +381,10 @@ public sealed class MaintenanceScheduleService
 
     private static Result<MaintenanceScheduleRecord> InvalidSchedule(string code, string description)
         => Result.Failure<MaintenanceScheduleRecord>(Error.Validation(code, description));
+    private static Error PreventivePlanRequired(string maintenancePlanId)
+        => Error.Conflict(
+            "EMS.MaintenanceSchedule.PreventivePlanRequired",
+            $"Maintenance plan '{maintenancePlanId}' must exist and have plan type PM.");
     private static Result<DueOccurrence> InvalidOccurrence(string code, string description)
         => Result.Failure<DueOccurrence>(Error.Conflict(code, description));
     private static string? RequiredText(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

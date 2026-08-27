@@ -263,6 +263,18 @@
             LIMIT 500
         ]]></statement>
     </query>
+    <query id="EMS.SparePartUsageByWorkOrder" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT USAGE_ID, INOUT_ID, PART_ID, BOM_ITEM_ID, EQUIPMENT_ID, WO_ID,
+                   QUANTITY, USED_BY, USED_AT, REMOVAL_REASON, SERIAL_NO, LOT_NO
+            FROM EMS_SPARE_PART_USAGE
+            WHERE WO_ID=@workOrderId
+              AND (@from IS NULL OR USED_AT>=@from)
+              AND (@to IS NULL OR USED_AT<@to)
+            ORDER BY USED_AT DESC
+            LIMIT 500
+        ]]></statement>
+    </query>
     <query id="EMS.ToolList" requiredPermission="ems:read">
         <statement><![CDATA[
             SELECT TOOL_ID, TOOL_NAME, TOOL_TYPE, TOOL_NUMBER, SERIAL_NO, EQUIPMENT_CLASS_ID,

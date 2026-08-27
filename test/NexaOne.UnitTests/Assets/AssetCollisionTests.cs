@@ -84,16 +84,28 @@ public sealed class AssetCollisionTests
     }
 
     [Fact]
-    public void Duplicate_numeric_migration_versions_fail_fast_even_with_different_padding()
+    public void Duplicate_numeric_migration_versions_fail_fast()
     {
         using var fixture = new AssetFixture();
         fixture.WriteMigration("V001__SYS_USER.sql");
-        fixture.WriteMigration("V1__POM_LOT.sql");
+        fixture.WriteMigration("V001__POM_LOT.sql");
 
         var act = () => AssetCollisionGuard.ValidateMigrations(fixture.Root);
 
         act.Should().Throw<InvalidDataException>()
-            .WithMessage("*version 1*V001__SYS_USER.sql*V1__POM_LOT.sql*");
+            .WithMessage("*version 1*V001__POM_LOT.sql*V001__SYS_USER.sql*");
+    }
+
+    [Fact]
+    public void Migration_versions_require_exactly_three_digits()
+    {
+        using var fixture = new AssetFixture();
+        fixture.WriteMigration("V1__SYS_USER.sql");
+
+        var act = () => AssetCollisionGuard.ValidateMigrations(fixture.Root);
+
+        act.Should().Throw<InvalidDataException>()
+            .WithMessage("*V1__SYS_USER.sql*V###__DESCRIPTION.sql*");
     }
 
     [Fact]
@@ -151,7 +163,7 @@ public sealed class AssetCollisionTests
             new(RequiredDialects, StringComparer.OrdinalIgnoreCase);
 
         private static readonly Regex MigrationFileName = new(
-            @"^V(?<version>[0-9]+)__(?<description>[A-Z0-9]+(?:_[A-Z0-9]+)*)\.sql$",
+            @"^V(?<version>[0-9]{3})__(?<description>[A-Z0-9]+(?:_[A-Z0-9]+)*)\.sql$",
             RegexOptions.CultureInvariant);
 
         private static readonly Regex MigrationCandidateFileName = new(
@@ -335,7 +347,7 @@ public sealed class AssetCollisionTests
                 if (!match.Success)
                 {
                     throw new InvalidDataException(
-                        $"Migration asset '{Display(repositoryRoot, file)}' must match V{{number}}__{{DESCRIPTION}}.sql.");
+                        $"Migration asset '{Display(repositoryRoot, file)}' must match V###__DESCRIPTION.sql.");
                 }
 
                 if (!long.TryParse(

@@ -16,6 +16,10 @@
   <object id="pomWorkOrderRepository" type="NexaOne.POM.Infrastructure.PomWorkOrderRepository, NexaOne.POM">
     <constructor-arg ref="eesDataSource" />
   </object>
+  <!-- POM-owned production LOT reference directory for sibling consumers such as QMS. -->
+  <object id="productionLotDirectory" type="NexaOne.POM.Infrastructure.ProductionLotDirectory, NexaOne.POM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
   <object id="pomService" type="NexaOne.POM.Application.Pom.PomService, NexaOne.POM">
     <constructor-arg ref="pomProductionPlanRepository" />
   </object>
@@ -81,9 +85,17 @@
     <constructor-arg ref="lotDispositionService" />
   </object>
 
-  <!-- MRP v1(2026-07-09) — 소요량 전개 실행. 리포(계산+영속) + ADR-008 브리지(호스트 GetBean("Pom","mrpBridge")). -->
+  <!-- MRP — POM 계산/원장과 owner bridge 입력을 조립한다. SLS만 ADR-0002의 임시 projection이다. -->
+  <object id="salesOrderMrpDemandSource" type="NexaOne.POM.Infrastructure.LegacySalesOrderMrpProjection, NexaOne.POM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
   <object id="mrpPlanningRepository" type="NexaOne.POM.Infrastructure.MrpPlanningRepository, NexaOne.POM">
     <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="salesOrderMrpDemandSource" />
+    <constructor-arg ref="mrpMasterDirectory" />
+    <constructor-arg ref="mrpInventoryDirectory" />
+    <constructor-arg ref="purchaseOrderPlanningBridge" />
+    <constructor-arg ref="equipmentDirectory" />
   </object>
   <object id="mrpBridge" type="NexaOne.POM.Application.Mrp.MrpBridge, NexaOne.POM">
     <constructor-arg ref="mrpPlanningRepository" />

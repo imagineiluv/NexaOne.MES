@@ -12,23 +12,47 @@ namespace NexaOne.EST.Application.Est;
 public sealed class EquipmentOutputService
 {
     private readonly IEquipmentOutputRepository _repository;
+    private readonly IEquipmentOutputMasterDirectory _masterDirectory;
 
-    public EquipmentOutputService(IEquipmentOutputRepository repository) => _repository = repository;
+    public EquipmentOutputService(
+        IEquipmentOutputRepository repository,
+        IEquipmentOutputMasterDirectory masterDirectory)
+    {
+        _repository = repository;
+        _masterDirectory = masterDirectory;
+    }
 
     public async Task<Result<EquipmentOutputRecord>> RecordAsync(
         EquipmentOutputCommand command,
         CancellationToken ct = default)
     {
-        var validation = Validate(command);
+        var quantities = CanonicalQuantities.From(command);
+        var validation = Validate(command, quantities);
         if (validation is not null)
             return Result.Failure<EquipmentOutputRecord>(validation);
+
+        var carrierId = Text(command.CarrierId);
+        var scope = await _masterDirectory.GetScopeAsync(
+            command.EquipmentId.Trim(), carrierId, ct);
+        if (scope is null)
+            return Result.Failure<EquipmentOutputRecord>(Error.Validation(
+                nameof(command.EquipmentId), "EquipmentId does not reference an equipment master."));
+        if (!scope.IsEquipmentValid)
+            return Result.Failure<EquipmentOutputRecord>(Error.Validation(
+                nameof(command.EquipmentId), "Equipment must be active before output can be recorded."));
+        if (!string.Equals(scope.PlantId, command.PlantId.Trim(), StringComparison.Ordinal))
+            return Result.Failure<EquipmentOutputRecord>(Error.Validation(
+                nameof(command.PlantId), "Equipment does not belong to the requested plant."));
+        if (carrierId is not null && !scope.CarrierExists)
+            return Result.Failure<EquipmentOutputRecord>(Error.Validation(
+                nameof(command.CarrierId), "CarrierId does not reference a carrier master."));
 
         var occurredAt = Utc(command.OccurredAt);
         var actorResult = CommandActor.Resolve(command.ActorId, nameof(command.ActorId));
         if (actorResult.IsFailure)
             return Result.Failure<EquipmentOutputRecord>(actorResult.Error);
         var actor = actorResult.Value;
-        var requestHash = Hash(command, occurredAt, actor);
+        var requestHash = Hash(command, quantities, occurredAt, actor);
         var existing = await _repository.GetByIdempotencyKeyAsync(command.IdempotencyKey.Trim(), ct);
         if (existing is not null)
             return Replay(existing, requestHash);
@@ -49,15 +73,15 @@ public sealed class EquipmentOutputService
             command.PlantId.Trim(),
             command.EquipmentId.Trim(),
             command.OutputType.Trim(),
-            Text(command.CarrierId),
+            carrierId,
             Text(command.ProcessLotId),
             Text(command.WorkOrderId),
             Text(command.ProcessId),
             Text(command.RecipeId),
             command.RecipeVersion,
-            command.TotalQuantity,
-            command.GoodQuantity,
-            command.DefectQuantity,
+            quantities.Total,
+            quantities.Good,
+            quantities.Defect,
             command.Unit.Trim(),
             source,
             sourceEventId,
@@ -96,7 +120,9 @@ public sealed class EquipmentOutputService
             $"Source event '{existing.Source}/{existing.SourceEventId}' was already recorded as " +
             $"output '{existing.OutputEventId}'. Reuse its original idempotency key."));
 
-    private static Error? Validate(EquipmentOutputCommand command)
+    private static Error? Validate(
+        EquipmentOutputCommand command,
+        CanonicalQuantities quantities)
     {
         if (string.IsNullOrWhiteSpace(command.IdempotencyKey))
             return Error.Validation(nameof(command.IdempotencyKey), "IdempotencyKey is required.");
@@ -110,23 +136,43 @@ public sealed class EquipmentOutputService
             return Error.Validation(nameof(command.Unit), "Unit is required.");
         if (string.IsNullOrWhiteSpace(command.Source))
             return Error.Validation(nameof(command.Source), "Source is required.");
-        if (command.TotalQuantity <= 0m)
+        if (command.OccurredAt == default)
+            return Error.Validation(nameof(command.OccurredAt), "OccurredAt is required.");
+        if (command.TotalQuantity <= 0m || quantities.Total <= 0m)
             return Error.Validation(nameof(command.TotalQuantity), "TotalQuantity must be greater than zero.");
         if (command.GoodQuantity < 0m || command.DefectQuantity < 0m)
             return Error.Validation("Output quantities cannot be negative.");
-        if (command.GoodQuantity + command.DefectQuantity != command.TotalQuantity)
-            return Error.Validation("GoodQuantity + DefectQuantity must equal TotalQuantity.");
+        if (command.TotalQuantity > CanonicalQuantities.MaxValue
+            || command.GoodQuantity > CanonicalQuantities.MaxValue
+            || command.DefectQuantity > CanonicalQuantities.MaxValue)
+            return Error.Validation("Output quantities exceed DECIMAL(18,4) storage range.");
+        if (quantities.Good + quantities.Defect != quantities.Total)
+            return Error.Validation(
+                "GoodQuantity + DefectQuantity must equal TotalQuantity after DECIMAL(18,4) normalization.");
         if (command.RecipeVersion is < 0)
             return Error.Validation(nameof(command.RecipeVersion), "RecipeVersion cannot be negative.");
         if (command.IsLotOutput && string.IsNullOrWhiteSpace(command.ProcessLotId))
             return Error.Validation(nameof(command.ProcessLotId), "LOT output requires ProcessLotId.");
+        if (string.Equals(command.OutputType.Trim(), "CarrierCleaned", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(command.CarrierId))
+                return Error.Validation(nameof(command.CarrierId), "CarrierCleaned output requires CarrierId.");
+            if (command.IsLotOutput || !string.IsNullOrWhiteSpace(command.ProcessLotId))
+                return Error.Validation(
+                    nameof(command.ProcessLotId),
+                    "CarrierCleaned is a carrier-only output and cannot reference a process LOT.");
+        }
         return null;
     }
 
-    private static string Hash(EquipmentOutputCommand c, DateTime occurredAt, string actor)
+    private static string Hash(
+        EquipmentOutputCommand c,
+        CanonicalQuantities quantities,
+        DateTime occurredAt,
+        string actor)
         => CanonicalRequestHash.Compute(
             c.PlantId.Trim(), c.EquipmentId.Trim(), c.OutputType.Trim(),
-            c.TotalQuantity, c.GoodQuantity, c.DefectQuantity, c.Unit.Trim(),
+            quantities.Total, quantities.Good, quantities.Defect, c.Unit.Trim(),
             occurredAt, c.Source.Trim(), Text(c.SourceEventId), Text(c.CarrierId),
             Text(c.ProcessLotId), Text(c.WorkOrderId), Text(c.ProcessId), Text(c.RecipeId),
             c.RecipeVersion, Text(c.CorrelationId), Text(c.MetadataJson), actor, c.IsLotOutput);
@@ -140,4 +186,17 @@ public sealed class EquipmentOutputService
         DateTimeKind.Local => value.ToUniversalTime(),
         _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
     };
+
+    private readonly record struct CanonicalQuantities(decimal Total, decimal Good, decimal Defect)
+    {
+        internal const decimal MaxValue = 99999999999999.9999m;
+
+        internal static CanonicalQuantities From(EquipmentOutputCommand command) => new(
+            Normalize(command.TotalQuantity),
+            Normalize(command.GoodQuantity),
+            Normalize(command.DefectQuantity));
+
+        private static decimal Normalize(decimal value)
+            => decimal.Round(value, 4, MidpointRounding.AwayFromZero);
+    }
 }

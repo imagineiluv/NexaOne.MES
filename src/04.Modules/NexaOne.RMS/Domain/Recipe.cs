@@ -25,16 +25,24 @@ public sealed class Recipe : AuditableEntity<string>
     {
         if (string.IsNullOrWhiteSpace(recipeId))
             return Result.Failure<Recipe>(Error.Validation(nameof(recipeId), "Recipe ID is required."));
+        if (recipeId.Trim().Length > 50)
+            return Result.Failure<Recipe>(Error.Validation(nameof(recipeId), "Recipe ID cannot exceed 50 characters."));
         if (string.IsNullOrWhiteSpace(recipeName))
             return Result.Failure<Recipe>(Error.Validation(nameof(recipeName), "Recipe name is required."));
+        if (recipeName.Trim().Length > 200)
+            return Result.Failure<Recipe>(Error.Validation(nameof(recipeName), "Recipe name cannot exceed 200 characters."));
         if (string.IsNullOrWhiteSpace(equipmentClassId))
             return Result.Failure<Recipe>(Error.Validation(nameof(equipmentClassId), "Equipment class ID is required."));
+        if (equipmentClassId.Trim().Length > 50)
+            return Result.Failure<Recipe>(Error.Validation(nameof(equipmentClassId), "Equipment class ID cannot exceed 50 characters."));
+        if ((description ?? string.Empty).Length > 500)
+            return Result.Failure<Recipe>(Error.Validation(nameof(description), "Description cannot exceed 500 characters."));
 
-        var recipe = new Recipe(recipeId)
+        var recipe = new Recipe(recipeId.Trim())
         {
-            RecipeName = recipeName,
-            Description = description,
-            EquipmentClassId = equipmentClassId,
+            RecipeName = recipeName.Trim(),
+            Description = description ?? string.Empty,
+            EquipmentClassId = equipmentClassId.Trim(),
             Version = 1,
             ApprovalState = RecipeApprovalState.Draft
         };
@@ -126,6 +134,9 @@ public sealed class Recipe : AuditableEntity<string>
         // 릴리스(승인 완료)된 레시피는 반려할 수 없다 — 승인 불변식 보호.
         if (ApprovalState == RecipeApprovalState.Released)
             return Result.Failure(Error.Conflict($"Released recipe cannot be rejected. Current state: {ApprovalState}."));
+        if (ApprovalState == RecipeApprovalState.Rejected)
+            return Result.Failure(Error.Conflict(
+                "Recipe is already Rejected. Replay the original idempotency key instead of creating a no-op transition."));
         if (string.IsNullOrWhiteSpace(reason))
             return Result.Failure(Error.Validation(nameof(reason), "Rejection reason is required."));
 
@@ -135,15 +146,15 @@ public sealed class Recipe : AuditableEntity<string>
         return Result.Success();
     }
 
-    public Recipe CreateNewVersion(string newId) => new(newId)
+    public Result<Recipe> CreateNewVersion(string newId)
     {
-        RecipeName = RecipeName,
-        Description = Description,
-        EquipmentClassId = EquipmentClassId,
-        Version = Version + 1,
-        ApprovalState = RecipeApprovalState.Draft
-    };
+        // 새 식별자도 우회 생성하지 않고 동일 factory 검증을 통과시킨다.
+        var created = Create(newId, RecipeName, Description, EquipmentClassId);
+        if (created.IsFailure) return created;
+        created.Value.Version = Version + 1;
+        return created;
+    }
 
     // Parameterless overload kept for unit tests; production code should supply a new ID
-    public Recipe CreateNewVersion() => CreateNewVersion(Id);
+    public Recipe CreateNewVersion() => CreateNewVersion(Id).Value;
 }

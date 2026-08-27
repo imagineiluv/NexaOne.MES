@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -16,7 +16,7 @@
     <!-- 도메인 이벤트 발행 백본(IMessageBus·DomainEventMessage) — 도래 통지를 버스로 발행. -->
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure.Messaging\NexaOne.Infrastructure.Messaging.csproj" />
     <!-- 주기 스케줄러(IRecurringScheduler/QuartzScheduler) — server.xml quartzScheduler 빈으로 워커 구동. -->
-    <ProjectReference Include="..\..\..\submodules\NexusFramework\src\NexaFramework\NexaFramework.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework\NexaFramework.csproj" />
   </ItemGroup>
 
 </Project>

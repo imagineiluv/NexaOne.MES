@@ -5,7 +5,7 @@ using Xunit.Abstractions;
 
 namespace NexaOne.ServerTests;
 
-/// <summary>NexusLogic PLC DriverFactory의 Spring 부모 조립과 FDC plugin ALC 주입만 빠르게 검증한다.</summary>
+/// <summary>NexaLogic PLC DriverFactory의 Spring 부모 조립과 FDC plugin ALC 주입만 빠르게 검증한다.</summary>
 [Collection(ChildProcessSmokeCollection.Name)]
 public sealed class FdcDriverBootSmokeTests
 {

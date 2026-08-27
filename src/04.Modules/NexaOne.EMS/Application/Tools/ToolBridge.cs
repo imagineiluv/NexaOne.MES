@@ -21,7 +21,7 @@ public sealed class ToolBridge : IToolBridge
 
     private static ToolDto ToDto(ToolRecord r) => new(r.ToolId, r.ToolName, r.ToolType, r.Status,
         r.CurrentUseCount, r.CurrentUseMinutes, r.MaxUseCount, r.MaxUseMinutes,
-        r.NextInspectionDueAt, r.NextCalibrationDueAt, r.IsActive);
+        r.NextInspectionDueAt, r.NextCalibrationDueAt, r.IsActive, r.Version);
     private static ToolMountDto ToDto(ToolMountRecord r) => new(r.MountId, r.ToolId, r.EquipmentId,
         r.PositionCode, r.MountedAt, r.MountedBy, r.UnmountedAt, r.UnmountedBy, r.UnmountReason);
     private static ToolUsageDto ToDto(ToolUsageRecord r) => new(r.UsageId, r.ToolId, r.EquipmentId,

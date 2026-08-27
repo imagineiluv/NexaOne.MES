@@ -1,10 +1,10 @@
 using NexaOne.Infrastructure.Diagnostics;
-using NexusLogic.Plc.Hosting;
+using NexaLogic.Plc.Hosting;
 
 namespace NexaOne.Server;
 
 /// <summary>
-/// Spring 루트의 NexusLogic PLC factory 등록 상태를 제품 readiness catalog에 연결한다.
+/// Spring 루트의 NexaLogic PLC factory 등록 상태를 제품 readiness catalog에 연결한다.
 /// 이 probe는 외부 PLC에 접속하지 않고 등록된 프로토콜 구현과 구성 상태만 진단한다.
 /// </summary>
 internal sealed class FdcPlcProtocolCatalogProbe : IExternalDependencyProbe

@@ -68,7 +68,7 @@ Designer는 `Ctrl+K` 검색 포커스와 편집기 iframe 준비 상태를 확�
 - Portal production build: 성공
 - ScreenEditor lazy chunk: **1,036.63 kB raw / 286.23 kB gzip**, 300 KiB gzip 예산 통과
 - NexaOne.Server Release build: **경고 0 / 오류 0**
-- 전체 기준선: Unit **1,470/1,470**, Server **672/672**, NexusFramework **34/34** 통과
+- 전체 기준선: Unit **1,470/1,470**, Server **672/672**, NexaFramework **34/34** 통과
 - PLC Integration **10/10**, Hardware simulation **27/27** 통과
 - Kafka runtime factory/dispatcher **3/3** 통과
 

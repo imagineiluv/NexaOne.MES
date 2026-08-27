@@ -1,16 +1,104 @@
 using FluentAssertions;
 using NexaOne.EMS.Application.Tools;
 using NexaOne.ServiceContracts.Ems;
+using NexaOne.ServiceContracts.Mdm;
 
 namespace NexaOne.UnitTests.Services;
 
 public sealed class ToolServiceTests
 {
     [Fact]
+    public async Task Master_save_uses_version_CAS_and_replays_the_persisted_command_result()
+    {
+        var repository = new MemoryRepository();
+        var service = Service(repository);
+        var create = new ToolCommand(
+            "TOOL-CAS", "Nozzle jig", "Fixture", ActorId: "admin",
+            ExpectedVersion: 0, IdempotencyKey: "tool:create");
+
+        var first = await service.SaveAsync(create);
+        var update = await service.SaveAsync(create with
+        {
+            ToolName = "Nozzle jig v2", ExpectedVersion = 1, IdempotencyKey = "tool:update",
+        });
+        var originalReplay = await service.SaveAsync(create);
+        var stale = await service.SaveAsync(create with
+        {
+            ToolName = "stale", ExpectedVersion = 1, IdempotencyKey = "tool:stale",
+        });
+        var conflict = await service.SaveAsync(create with { ToolName = "changed" });
+
+        first.IsSuccess.Should().BeTrue();
+        first.Value.Version.Should().Be(1);
+        update.IsSuccess.Should().BeTrue();
+        update.Value.Version.Should().Be(2);
+        originalReplay.IsSuccess.Should().BeTrue();
+        originalReplay.Value.Should().Be(first.Value, "replay returns the immutable command result, not current master state");
+        stale.IsFailure.Should().BeTrue();
+        stale.Error.Code.Should().Be("EMS.Tool.VersionConflict");
+        conflict.IsFailure.Should().BeTrue();
+        conflict.Error.Code.Should().Be("EMS.Tool.IdempotencyConflict");
+    }
+
+    [Fact]
+    public void Constructor_requires_equipment_directory()
+    {
+        Action create = () => new ToolService(new MemoryRepository(), null!);
+
+        create.Should().Throw<ArgumentNullException>()
+            .WithParameterName("equipmentDirectory");
+    }
+
+    [Fact]
+    public async Task Master_save_validates_equipment_class_through_directory()
+    {
+        var repository = new MemoryRepository();
+        var service = new ToolService(
+            repository,
+            new EquipmentDirectoryStub(
+                "EQ01",
+                "EQC-GENERAL",
+                equipmentClassExists: false));
+
+        var result = await service.SaveAsync(new ToolCommand(
+            "TOOL-01", "Nozzle jig", "Fixture",
+            EquipmentClassId: "EQC-MISSING", ActorId: "admin"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Type.Should().Be(NexaOne.Common.ErrorType.NotFound);
+        repository.Tool.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(false, "EQC-GENERAL", "EMS.Tool.EquipmentInactive")]
+    [InlineData(true, "EQC-OTHER", "EMS.Tool.EquipmentClassMismatch")]
+    public async Task Usage_validates_equipment_state_and_class_through_directory(
+        bool equipmentIsValid,
+        string equipmentClassId,
+        string expectedCode)
+    {
+        var repository = new MemoryRepository
+        {
+            Tool = AvailableTool() with { EquipmentClassId = "EQC-GENERAL" },
+        };
+        var service = new ToolService(
+            repository,
+            new EquipmentDirectoryStub("EQ01", equipmentClassId, equipmentIsValid));
+
+        var result = await service.RecordUsageAsync(new ToolUsageCommand(
+            "usage-directory", "TOOL-01", "EQ01", 1m, 0m,
+            DateTime.UtcNow, ActorId: "operator"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be(expectedCode);
+        repository.Usages.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Mount_usage_and_calibration_keep_separate_actor_and_context_history()
     {
         var repo = new MemoryRepository();
-        var service = new ToolService(repo);
+        var service = Service(repo);
         (await service.SaveAsync(new ToolCommand(
             "TOOL-01", "Nozzle jig", "Fixture", MaxUseCount: 100m,
             InspectionCycleDays: 30, CalibrationCycleDays: 180, ActorId: "admin"))).IsSuccess.Should().BeTrue();
@@ -37,7 +125,7 @@ public sealed class ToolServiceTests
     public async Task Replays_identical_usage_and_rejects_changed_payload()
     {
         var repo = new MemoryRepository { Tool = AvailableTool() };
-        var service = new ToolService(repo);
+        var service = Service(repo);
         var command = new ToolUsageCommand(
             "usage-1", "TOOL-01", "EQ01", 1m, 0m, DateTime.UtcNow, ActorId: "operator");
 
@@ -66,7 +154,7 @@ public sealed class ToolServiceTests
         {
             Tool = AvailableTool() with { Status = status, IsActive = isActive },
         };
-        var service = new ToolService(repo);
+        var service = Service(repo);
         var at = new DateTime(2026, 8, 26, 2, 0, 0, DateTimeKind.Utc);
 
         var usage = await service.RecordUsageAsync(new ToolUsageCommand(
@@ -89,7 +177,7 @@ public sealed class ToolServiceTests
         {
             Tool = AvailableTool() with { CurrentUseCount = 100m },
         };
-        var service = new ToolService(repo);
+        var service = Service(repo);
         var at = new DateTime(2026, 8, 26, 3, 0, 0, DateTimeKind.Utc);
 
         var usage = await service.RecordUsageAsync(new ToolUsageCommand(
@@ -112,7 +200,7 @@ public sealed class ToolServiceTests
         {
             Tool = AvailableTool() with { NextCalibrationDueAt = at.AddSeconds(-1) },
         };
-        var service = new ToolService(repo);
+        var service = Service(repo);
 
         var mount = await service.MountAsync(new ToolMountCommand(
             "mount-expired", "TOOL-01", "EQ01", at, ActorId: "operator"));
@@ -130,16 +218,117 @@ public sealed class ToolServiceTests
     public async Task Master_save_cannot_overwrite_lifecycle_status_while_tool_is_mounted()
     {
         var repo = new MemoryRepository { Tool = AvailableTool() };
-        var service = new ToolService(repo);
+        var service = Service(repo);
         var at = new DateTime(2026, 8, 26, 3, 0, 0, DateTimeKind.Utc);
         (await service.MountAsync(new ToolMountCommand(
             "mount-active", "TOOL-01", "EQ01", at, ActorId: "operator"))).IsSuccess.Should().BeTrue();
 
         var save = await service.SaveAsync(new ToolCommand(
-            "TOOL-01", "Nozzle jig", "Fixture", Status: "Available", ActorId: "admin"));
+            "TOOL-01", "Nozzle jig", "Fixture", Status: "Available", ActorId: "admin",
+            ExpectedVersion: 1, IdempotencyKey: "tool-mounted-save"));
 
         save.IsFailure.Should().BeTrue();
         repo.Tool!.Status.Should().Be("Mounted");
+    }
+
+    [Fact]
+    public async Task Master_save_cannot_change_equipment_class_while_tool_is_mounted()
+    {
+        var repo = new MemoryRepository
+        {
+            Tool = AvailableTool() with { EquipmentClassId = "EQC-GENERAL" },
+        };
+        var service = Service(repo);
+        var at = new DateTime(2026, 8, 26, 3, 30, 0, DateTimeKind.Utc);
+        (await service.MountAsync(new ToolMountCommand(
+            "mount-class-active", "TOOL-01", "EQ01", at, ActorId: "operator")))
+            .IsSuccess.Should().BeTrue();
+
+        var save = await service.SaveAsync(new ToolCommand(
+            "TOOL-01", "Nozzle jig", "Fixture", EquipmentClassId: "EQC-PRECISION",
+            Status: "Mounted", ActorId: "admin", ExpectedVersion: 1,
+            IdempotencyKey: "tool-mounted-class-save"));
+
+        save.IsFailure.Should().BeTrue();
+        save.Error.Code.Should().Be("EMS.Tool.ActiveMountState");
+        repo.Tool!.EquipmentClassId.Should().Be("EQC-GENERAL");
+    }
+
+    [Fact]
+    public async Task Usage_cannot_precede_its_matching_mount()
+    {
+        var repo = new MemoryRepository { Tool = AvailableTool() };
+        var service = Service(repo);
+        var mountedAt = new DateTime(2026, 8, 26, 4, 0, 0, DateTimeKind.Utc);
+        var mount = await service.MountAsync(new ToolMountCommand(
+            "mount-chronology", "TOOL-01", "EQ01", mountedAt, ActorId: "operator"));
+
+        var usage = await service.RecordUsageAsync(new ToolUsageCommand(
+            "usage-before-mount", "TOOL-01", "EQ01", 1m, 0m,
+            mountedAt.AddSeconds(-1), MountId: mount.Value.MountId, ActorId: "operator"));
+
+        usage.IsFailure.Should().BeTrue();
+        usage.Error.Code.Should().Be(nameof(ToolUsageCommand.UsedAt));
+        repo.Usages.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Unmount_cannot_precede_usage_already_recorded_for_the_mount()
+    {
+        var repo = new MemoryRepository { Tool = AvailableTool() };
+        var service = Service(repo);
+        var mountedAt = new DateTime(2026, 8, 26, 4, 0, 0, DateTimeKind.Utc);
+        var mount = await service.MountAsync(new ToolMountCommand(
+            "mount-unmount-chronology", "TOOL-01", "EQ01", mountedAt, ActorId: "operator"));
+        (await service.RecordUsageAsync(new ToolUsageCommand(
+            "usage-before-unmount", "TOOL-01", "EQ01", 1m, 0m,
+            mountedAt.AddMinutes(10), MountId: mount.Value.MountId, ActorId: "operator")))
+            .IsSuccess.Should().BeTrue();
+
+        var unmount = await service.UnmountAsync(new ToolUnmountCommand(
+            "unmount-before-usage", mount.Value.MountId, mountedAt.AddMinutes(5),
+            ActorId: "operator"));
+
+        unmount.IsFailure.Should().BeTrue();
+        unmount.Error.Code.Should().Be(nameof(ToolUnmountCommand.UnmountedAt));
+        repo.Mounts.Single().UnmountedAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Mount_rejects_a_tool_for_a_different_equipment_class()
+    {
+        var repo = new MemoryRepository
+        {
+            Tool = AvailableTool() with { EquipmentClassId = "EQC-PRECISION" },
+        };
+
+        var result = await new ToolService(
+            repo,
+            new EquipmentDirectoryStub("EQ01", "EQC-GENERAL")).MountAsync(new ToolMountCommand(
+            "mount-class-mismatch", "TOOL-01", "EQ01", DateTime.UtcNow,
+            "PORT-A", "operator"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("EMS.Tool.EquipmentClassMismatch");
+        repo.Mounts.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Mount_rejects_an_equipment_position_that_is_already_occupied()
+    {
+        var repo = new MemoryRepository { Tool = AvailableTool() };
+        repo.Mounts.Add(new ToolMountRecord(
+            "MOUNT-OTHER", "mount-other", "hash-other", "TOOL-OTHER", "EQ01",
+            "PORT-A", DateTime.UtcNow.AddMinutes(-1), "operator", null, null,
+            null, null, null, DateTime.UtcNow.AddMinutes(-1)));
+
+        var result = await Service(repo).MountAsync(new ToolMountCommand(
+            "mount-position-conflict", "TOOL-01", "EQ01", DateTime.UtcNow,
+            "PORT-A", "operator"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("EMS.Tool.PositionOccupied");
+        repo.Mounts.Should().ContainSingle();
     }
 
     [Fact]
@@ -149,7 +338,7 @@ public sealed class ToolServiceTests
         try
         {
             NexaOne.Infrastructure.Persistence.CurrentUserContext.UserId = null;
-            var result = await new ToolService(new MemoryRepository()).SaveAsync(
+            var result = await Service(new MemoryRepository()).SaveAsync(
                 new ToolCommand("TOOL-01", "Nozzle jig", "Fixture"));
 
             result.IsFailure.Should().BeTrue();
@@ -165,44 +354,105 @@ public sealed class ToolServiceTests
         "TOOL-01", "Nozzle jig", "Fixture", null, null, null, 100m, null,
         0m, 0m, 30, 180, null, null, null, null, "Available", null, true);
 
+    private static ToolService Service(MemoryRepository repository)
+        => new(repository, new EquipmentDirectoryStub("EQ01", "EQC-GENERAL"));
+
+    private sealed class EquipmentDirectoryStub(
+        string equipmentId,
+        string equipmentClassId,
+        bool isValid = true,
+        bool equipmentClassExists = true) : IEquipmentDirectory
+    {
+        public Task<IReadOnlyList<string>> GetEquipmentIdsByPlantAsync(
+            string plantId, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<string>>([equipmentId]);
+
+        public Task<EquipmentDirectoryEntry?> GetEquipmentAsync(
+            string requestedEquipmentId, CancellationToken ct = default)
+            => Task.FromResult<EquipmentDirectoryEntry?>(
+                requestedEquipmentId == equipmentId
+                    ? new EquipmentDirectoryEntry(equipmentId, "PLANT01", equipmentClassId, isValid)
+                    : null);
+
+        public Task<bool> EquipmentClassExistsAsync(
+            string requestedEquipmentClassId,
+            CancellationToken ct = default)
+            => Task.FromResult(equipmentClassExists);
+    }
+
     private sealed class MemoryRepository : IToolRepository
     {
         public ToolRecord? Tool { get; set; }
         public List<ToolMountRecord> Mounts { get; } = new();
         public List<ToolUsageRecord> Usages { get; } = new();
         public List<ToolInspectionRecord> Inspections { get; } = new();
+        public List<ToolSaveCommandRecord> SaveCommands { get; } = new();
 
         public Task<ToolRecord?> GetToolAsync(string toolId, CancellationToken ct = default)
             => Task.FromResult(Tool?.ToolId == toolId ? Tool : null);
+        public Task<ToolSaveCommandRecord?> GetSaveCommandAsync(
+            string idempotencyKey, CancellationToken ct = default)
+            => Task.FromResult(SaveCommands.SingleOrDefault(x => x.IdempotencyKey == idempotencyKey));
         public Task<bool> TrySaveToolAsync(
-            ToolRecord tool, string? expectedStatus, string actorId, CancellationToken ct = default)
+            ToolRecord tool,
+            string? expectedStatus,
+            int expectedVersion,
+            ToolSaveCommandRecord command,
+            string actorId,
+            CancellationToken ct = default)
         {
             var active = Mounts.SingleOrDefault(x => x.ToolId == tool.ToolId && x.UnmountedAt is null);
+            if (SaveCommands.Any(x => x.IdempotencyKey == command.IdempotencyKey))
+                return Task.FromResult(false);
+            if ((Tool is null && expectedVersion != 0)
+                || (Tool is not null && Tool.Version != expectedVersion))
+                return Task.FromResult(false);
             if (Tool is not null && !string.Equals(Tool.Status, expectedStatus, StringComparison.OrdinalIgnoreCase))
                 return Task.FromResult(false);
             if (active is not null && (Tool is null || !tool.IsActive
-                                      || !string.Equals(tool.Status, Tool.Status, StringComparison.OrdinalIgnoreCase)))
+                                      || !string.Equals(tool.Status, Tool.Status, StringComparison.OrdinalIgnoreCase)
+                                      || !string.Equals(tool.EquipmentClassId, Tool.EquipmentClassId, StringComparison.OrdinalIgnoreCase)))
                 return Task.FromResult(false);
             if (active is null && tool.Status.Equals("Mounted", StringComparison.OrdinalIgnoreCase))
                 return Task.FromResult(false);
             Tool = tool;
+            SaveCommands.Add(command);
             return Task.FromResult(true);
         }
-        public Task<bool> EquipmentExistsAsync(string equipmentId, CancellationToken ct = default)
-            => Task.FromResult(equipmentId == "EQ01");
-        public Task<bool> EquipmentClassExistsAsync(string equipmentClassId, CancellationToken ct = default)
-            => Task.FromResult(true);
         public Task<ToolMountRecord?> GetMountAsync(string mountId, CancellationToken ct = default)
             => Task.FromResult(Mounts.SingleOrDefault(x => x.MountId == mountId));
         public Task<ToolMountRecord?> GetActiveMountAsync(string toolId, CancellationToken ct = default)
             => Task.FromResult(Mounts.SingleOrDefault(x => x.ToolId == toolId && x.UnmountedAt is null));
+        public Task<ToolMountRecord?> GetActiveMountAtPositionAsync(
+            string equipmentId, string positionCode, CancellationToken ct = default)
+            => Task.FromResult(Mounts.SingleOrDefault(x => x.EquipmentId == equipmentId
+                                                          && x.PositionCode == positionCode
+                                                          && x.UnmountedAt is null));
         public Task<ToolMountRecord?> GetMountByIdempotencyKeyAsync(string key, CancellationToken ct = default)
             => Task.FromResult(Mounts.SingleOrDefault(x => x.IdempotencyKey == key));
         public Task<ToolMountRecord?> GetUnmountByIdempotencyKeyAsync(string key, CancellationToken ct = default)
             => Task.FromResult(Mounts.SingleOrDefault(x => x.UnmountIdempotencyKey == key));
-        public Task<bool> TryMountAsync(ToolMountRecord mount, CancellationToken ct = default)
+        public Task<DateTime?> GetLatestUsageAtAsync(string mountId, CancellationToken ct = default)
+            => Task.FromResult(Usages
+                .Where(x => x.MountId == mountId)
+                .Select(x => (DateTime?)x.UsedAt)
+                .Max());
+        public Task<bool> TryMountAsync(
+            ToolMountRecord mount,
+            string? expectedEquipmentClassId,
+            CancellationToken ct = default)
         {
             if (Mounts.Any(x => x.ToolId == mount.ToolId && x.UnmountedAt is null)) return Task.FromResult(false);
+            if (!string.Equals(
+                    Tool!.EquipmentClassId,
+                    expectedEquipmentClassId,
+                    StringComparison.OrdinalIgnoreCase))
+                return Task.FromResult(false);
+            if (mount.PositionCode is not null
+                && Mounts.Any(x => x.EquipmentId == mount.EquipmentId
+                                   && x.PositionCode == mount.PositionCode
+                                   && x.UnmountedAt is null))
+                return Task.FromResult(false);
             Mounts.Add(mount);
             Tool = Tool! with { Status = "Mounted" };
             return Task.FromResult(true);
@@ -218,9 +468,17 @@ public sealed class ToolServiceTests
         }
         public Task<ToolUsageRecord?> GetUsageByIdempotencyKeyAsync(string key, CancellationToken ct = default)
             => Task.FromResult(Usages.SingleOrDefault(x => x.IdempotencyKey == key));
-        public Task<bool> TryRecordUsageAsync(ToolUsageRecord usage, CancellationToken ct = default)
+        public Task<bool> TryRecordUsageAsync(
+            ToolUsageRecord usage,
+            string? expectedEquipmentClassId,
+            CancellationToken ct = default)
         {
             if (Usages.Any(x => x.IdempotencyKey == usage.IdempotencyKey)) return Task.FromResult(false);
+            if (!string.Equals(
+                    Tool!.EquipmentClassId,
+                    expectedEquipmentClassId,
+                    StringComparison.OrdinalIgnoreCase))
+                return Task.FromResult(false);
             Usages.Add(usage);
             Tool = Tool! with { CurrentUseCount = Tool.CurrentUseCount + usage.UseCount, CurrentUseMinutes = Tool.CurrentUseMinutes + usage.UseMinutes };
             return Task.FromResult(true);

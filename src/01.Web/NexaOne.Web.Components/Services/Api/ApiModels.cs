@@ -200,7 +200,8 @@ public record RecipeParamDto(
     string ParamName,
     string ParamValue,
     string Unit,
-    int SortOrder);
+    int SortOrder,
+    int Version);
 
 // ── QMS ──────────────────────────────────────────────────────────────────────
 public record DefectClassDto(string Id, string DefectClassName, string Description, string Severity, bool IsActive);

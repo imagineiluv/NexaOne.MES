@@ -24,7 +24,7 @@ dotnet publish src/00.Main/NexaOne.Server/NexaOne.Server.csproj -c Release -o <�
 ### CI 비공개 서브모듈 인증
 
 GitHub Actions의 `GITHUB_TOKEN`은 현재 저장소 범위만 읽을 수 있으므로, 비공개
-`NexaFramework`·`NexaDB`·`NexusLogic` 서브모듈 checkout에는 저장소 secret
+`NexaFramework`·`NexaDB`·`NexaLogic` 서브모듈 checkout에는 저장소 secret
 `NEXA_SUBMODULE_TOKEN`이 필요하다. 토큰은 세 upstream 저장소의 **Contents: Read-only**만 허용한
 fine-grained PAT 또는 동등한 GitHub App 설치 토큰을 사용하고, 비밀값을 XML·설정 파일·로그에 기록하지 않는다.
 CI는 secret이 없으면 checkout 전에 명시적으로 실패하며, 토큰이 준비된 뒤 실패 run을 재실행한다.

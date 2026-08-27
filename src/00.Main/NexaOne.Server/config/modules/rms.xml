@@ -23,6 +23,7 @@
     <constructor-arg ref="rmsRecipeRepository" />
     <constructor-arg ref="rmsRecipeParamRepository" />
     <constructor-arg ref="rmsRecipeExecutionRepository" />
+    <constructor-arg ref="equipmentDirectory" />
   </object>
 
   <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Rms","rmsRecipeBridge")로 IRecipeApprovalBridge 캐스트. -->

@@ -7,7 +7,9 @@ namespace NexaOne.ServiceContracts.Est;
 [NexaModuleBridge("Est", "oeeAggregationBridge")]
 public interface IOeeAggregationBridge : INexaModuleBridge
 {
-    Task<int> AggregateDayAsync(DateTime date, CancellationToken ct = default);
-    Task<int> AggregateWindowAsync(
-        DateTime windowStart, DateTime windowEnd, string? shiftId, decimal plannedOverride, CancellationToken ct = default);
+    Task<int> AggregateDayManuallyAsync(
+        DateTime localDate, string actorId, CancellationToken ct = default);
+    Task<int> AggregateWindowManuallyAsync(
+        DateTime windowStart, DateTime windowEnd, string? shiftId, decimal plannedOverride,
+        string actorId, CancellationToken ct = default);
 }

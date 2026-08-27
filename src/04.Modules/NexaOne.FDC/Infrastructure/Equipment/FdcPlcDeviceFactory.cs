@@ -1,11 +1,11 @@
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
-using NexusLogic.Plc.Abstractions.Models;
-using NexusLogic.Plc.Hosting;
+using NexaLogic.Plc.Abstractions.Models;
+using NexaLogic.Plc.Hosting;
 
 namespace NexaOne.FDC.Infrastructure.Equipment;
 
-/// <summary>FDC 엔드포인트의 프로토콜에 맞는 NexusLogic 드라이버를 선택해 장치 어댑터를 만든다.</summary>
+/// <summary>FDC 엔드포인트의 프로토콜에 맞는 NexaLogic 드라이버를 선택해 장치 어댑터를 만든다.</summary>
 public sealed class FdcPlcDeviceFactory
 {
     private readonly IPlcDriverFactory _drivers;
@@ -46,7 +46,7 @@ public sealed class FdcPlcDeviceFactory
     }
 }
 
-/// <summary>엔드포인트 프로토콜은 유효하지만 해당 NexusLogic 드라이버가 호스트에 등록되지 않은 구성 오류.</summary>
+/// <summary>엔드포인트 프로토콜은 유효하지만 해당 NexaLogic 드라이버가 호스트에 등록되지 않은 구성 오류.</summary>
 public sealed class FdcPlcDriverNotRegisteredException : InvalidOperationException
 {
     /// <summary>엔드포인트가 요구하는 드라이버와 호스트에 등록된 드라이버 목록을 포함한 구성 예외를 생성한다.</summary>

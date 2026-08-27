@@ -19,15 +19,21 @@ public sealed class OeeAggregationWorkerTests
             })
             .Build();
         var scheduler = new Mock<IRecurringScheduler>();
+        Func<CancellationToken, Task>? scheduledJob = null;
         scheduler.Setup(x => x.StartAsync(It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
         scheduler.Setup(x => x.ScheduleRecurringAsync(
                 It.IsAny<string>(), It.IsAny<TimeSpan>(),
                 It.IsAny<Func<CancellationToken, Task>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, TimeSpan, Func<CancellationToken, Task>, CancellationToken>(
+                (_, _, job, _) => scheduledJob = job)
             .Returns(Task.CompletedTask);
         scheduler.Setup(x => x.StopAsync(It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
         var aggregator = new Mock<IOeeAggregator>();
+        aggregator.Setup(x => x.AggregateRecentLocalDaysAsync(
+                It.IsAny<DateTime>(), 2, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(3);
         var worker = new OeeAggregationWorker(
             scheduler.Object, aggregator.Object, configuration);
 
@@ -38,6 +44,12 @@ public sealed class OeeAggregationWorkerTests
             "est-oee-aggregation",
             TimeSpan.FromSeconds(17),
             It.IsAny<Func<CancellationToken, Task>>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+        scheduledJob.Should().NotBeNull();
+        await scheduledJob!(CancellationToken.None);
+        aggregator.Verify(x => x.AggregateRecentLocalDaysAsync(
+            It.Is<DateTime>(value => value.Kind == DateTimeKind.Utc),
+            2,
             It.IsAny<CancellationToken>()), Times.Once);
 
         await worker.StopAsync(CancellationToken.None);

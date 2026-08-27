@@ -1,15 +1,20 @@
 using NexaOne.Common;
 using NexaOne.EMS.Domain;
+using NexaOne.Application.Idempotency;
 
 namespace NexaOne.EMS.Application.Ems;
 
 public sealed class EmsService
 {
     private readonly IWorkOrderRepository _workOrderRepository;
+    private readonly IMaintenancePlanRepository _maintenancePlanRepository;
 
-    public EmsService(IWorkOrderRepository workOrderRepository)
+    public EmsService(
+        IWorkOrderRepository workOrderRepository,
+        IMaintenancePlanRepository maintenancePlanRepository)
     {
         _workOrderRepository = workOrderRepository;
+        _maintenancePlanRepository = maintenancePlanRepository;
     }
 
     public async Task<Result<IReadOnlyList<WorkOrder>>> GetByEquipmentAsync(
@@ -47,21 +52,68 @@ public sealed class EmsService
             woId, equipmentId, woType, desc, assigneeId, DateTime.UtcNow, maintenancePlanId);
         if (requested.IsFailure) return requested;
 
+        var requestHash = CanonicalRequestHash.Compute(
+            requested.Value.Id, requested.Value.EquipmentId, requested.Value.WoType,
+            requested.Value.Description, requested.Value.AssigneeId, requested.Value.PlanId,
+            command.ActorId, command.Source, command.ClientChannel, command.DeviceId,
+            command.CorrelationId);
+        var createReplay = await _workOrderRepository.GetCreateCommandAsync(
+            command.IdempotencyKey, ct);
+        if (createReplay is not null)
+            return ReplayCreatedWorkOrder(createReplay, requestHash);
+
         var replay = await IsReplayAsync(woId, "Create", command, null, ct);
         if (replay.IsFailure) return Result.Failure<WorkOrder>(replay.Error);
         if (replay.Value)
-            return await ReplayCreatedWorkOrderAsync(requested.Value, command.IdempotencyKey, ct);
+            return await ReplayCreatedWorkOrderAsync(
+                requested.Value, command.IdempotencyKey, requestHash, ct);
 
+        if (!string.IsNullOrWhiteSpace(requested.Value.PlanId))
+        {
+            var plan = await _maintenancePlanRepository.GetByIdAsync(requested.Value.PlanId, ct);
+            if (plan is null)
+                return Result.Failure<WorkOrder>(
+                    Error.NotFoundOf(nameof(MaintenancePlan), requested.Value.PlanId));
+            if (!string.Equals(
+                    plan.EquipmentId,
+                    requested.Value.EquipmentId,
+                    StringComparison.OrdinalIgnoreCase))
+                return Result.Failure<WorkOrder>(Error.Conflict(
+                    "EMS.WorkOrder.PlanEquipmentMismatch",
+                    $"Maintenance plan '{plan.Id}' belongs to equipment '{plan.EquipmentId}', not '{requested.Value.EquipmentId}'."));
+            if (!string.Equals(
+                    plan.PlanType,
+                    requested.Value.WoType,
+                    StringComparison.OrdinalIgnoreCase))
+                return Result.Failure<WorkOrder>(Error.Conflict(
+                    "EMS.WorkOrder.PlanTypeMismatch",
+                    $"Maintenance plan '{plan.Id}' is '{plan.PlanType}', not '{requested.Value.WoType}'."));
+        }
+
+        var now = DateTime.UtcNow;
+        var createCommand = new WorkOrderCreateCommandRecord(
+            $"WOC_{Guid.NewGuid():N}", command.IdempotencyKey, requestHash,
+            requested.Value.Id, requested.Value.EquipmentId, requested.Value.WoType,
+            requested.Value.Description, requested.Value.AssigneeId, requested.Value.PlanId,
+            requested.Value.IssuedAt, command.ActorId, command.Source, command.ClientChannel,
+            command.DeviceId, command.CorrelationId, now);
         var persisted = await _workOrderRepository.AddWithActionAsync(
             requested.Value,
             NewAction(requested.Value, "Create", null, requested.Value.Status, command, null),
+            createCommand,
             ct);
         if (persisted) return requested;
+
+        createReplay = await _workOrderRepository.GetCreateCommandAsync(
+            command.IdempotencyKey, ct);
+        if (createReplay is not null)
+            return ReplayCreatedWorkOrder(createReplay, requestHash);
 
         replay = await IsReplayAsync(woId, "Create", command, null, ct);
         if (replay.IsFailure) return Result.Failure<WorkOrder>(replay.Error);
         return replay.Value
-            ? await ReplayCreatedWorkOrderAsync(requested.Value, command.IdempotencyKey, ct)
+            ? await ReplayCreatedWorkOrderAsync(
+                requested.Value, command.IdempotencyKey, requestHash, ct)
             : Result.Failure<WorkOrder>(ConcurrentWrite("create", woId));
     }
 
@@ -181,8 +233,12 @@ public sealed class EmsService
     private async Task<Result<WorkOrder>> ReplayCreatedWorkOrderAsync(
         WorkOrder requested,
         string idempotencyKey,
+        string requestHash,
         CancellationToken ct)
     {
+        var command = await _workOrderRepository.GetCreateCommandAsync(idempotencyKey, ct);
+        if (command is not null) return ReplayCreatedWorkOrder(command, requestHash);
+
         var existing = await _workOrderRepository.GetByIdAsync(requested.Id, ct);
         if (existing is null)
             return Result.Failure<WorkOrder>(Error.Conflict(
@@ -192,6 +248,19 @@ public sealed class EmsService
         return SameCreatePayload(existing, requested)
             ? Result.Success(existing)
             : Result.Failure<WorkOrder>(IdempotencyConflict(idempotencyKey));
+    }
+
+    private static Result<WorkOrder> ReplayCreatedWorkOrder(
+        WorkOrderCreateCommandRecord command,
+        string requestHash)
+    {
+        if (!string.Equals(command.RequestHash, requestHash, StringComparison.Ordinal))
+            return Result.Failure<WorkOrder>(IdempotencyConflict(command.IdempotencyKey));
+        return Result.Success(WorkOrder.Restore(
+            command.WorkOrderId, command.MaintenancePlanId, command.EquipmentId,
+            command.WorkOrderType, command.Description, command.AssigneeId,
+            command.IssuedAt, null, null, WorkOrderStatus.Issued, null, null,
+            command.ActorId, command.CreatedAt, command.ActorId, command.CreatedAt));
     }
 
     private async Task<Result> ResolveTransitionWriteRaceAsync(

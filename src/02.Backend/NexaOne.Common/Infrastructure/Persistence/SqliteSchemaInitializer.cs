@@ -12,6 +12,10 @@ namespace NexaOne.Infrastructure.Persistence;
 /// </summary>
 public static class SqliteSchemaInitializer
 {
+    private static readonly Regex MigrationFileNamePattern = new(
+        @"^V(?<version>[0-9]{3})__(?<description>[A-Z0-9]+(?:_[A-Z0-9]+)*)\.sql$",
+        RegexOptions.CultureInvariant);
+
     /// <summary>
     /// 스키마를 보장한다(idempotent). 빈 DB면 전체 마이그레이션을 1회 적용하고(시드·ALTER 포함),
     /// 이미 사용자 테이블이 있으면 '새로 추가된 마이그레이션의 누락 테이블'만 증분 생성한다.
@@ -20,6 +24,8 @@ public static class SqliteSchemaInitializer
     /// </summary>
     public static void EnsureSchema(string connectionString)
     {
+        // Validate the release bundle before HasUserTables opens (and may create) the SQLite file.
+        _ = GetOrderedMigrationFiles(FindMigrationsDir());
         if (HasUserTables(connectionString))
         {
             CreateMissingTables(connectionString);
@@ -35,12 +41,13 @@ public static class SqliteSchemaInitializer
     public static void Apply(string connectionString)
     {
         var dir = FindMigrationsDir();
+        var migrationFiles = GetOrderedMigrationFiles(dir);
         using var conn = new SqliteConnection(connectionString);
         conn.Open();
         // FK는 단순화를 위해 비강제(마이그레이션 순서·일부 교차참조 무시). 운영(MSSQL)은 FK를 그대로 강제한다.
         Exec(conn, "PRAGMA foreign_keys = OFF;");
 
-        foreach (var file in Directory.GetFiles(dir, "V*.sql").OrderBy(f => f, StringComparer.Ordinal))
+        foreach (var file in migrationFiles)
         {
             var ddl = ToSqlite(File.ReadAllText(file));
             try
@@ -63,6 +70,11 @@ public static class SqliteSchemaInitializer
         EnsureEmsMaintenancePlanBoundary(conn);
         EnsureEmsMaintenanceExecutionIntegrity(conn);
         EnsureEmsSparePartManagementIntegrity(conn);
+        EnsureEmsMdmMasterIntegrity(conn);
+        EnsureUtilityMeterConfigurationHistory(conn);
+        EnsureAppendOnlyEvidenceGuards(conn);
+        EnsureEmsToolMountPositionGuard(conn);
+        EnsureQueryPerformanceIndexes(conn);
     }
 
     /// <summary>
@@ -73,6 +85,7 @@ public static class SqliteSchemaInitializer
     public static void CreateMissingTables(string connectionString)
     {
         var dir = FindMigrationsDir();
+        var migrationFiles = GetOrderedMigrationFiles(dir);
         using var conn = new SqliteConnection(connectionString);
         conn.Open();
         Exec(conn, "PRAGMA foreign_keys = OFF;");
@@ -80,7 +93,7 @@ public static class SqliteSchemaInitializer
         // 먼저 보강한다. 이후 루프가 새 filtered index를 만들 때 missing-column으로 실패하지 않는다.
         EnsureEmsSparePartManagementColumns(conn);
 
-        foreach (var file in Directory.GetFiles(dir, "V*.sql").OrderBy(f => f, StringComparer.Ordinal))
+        foreach (var file in migrationFiles)
         {
             var ddl = ToSqlite(File.ReadAllText(file));
             foreach (var stmt in SplitSqlStatements(ddl))
@@ -130,6 +143,686 @@ public static class SqliteSchemaInitializer
         EnsureEmsMaintenancePlanBoundary(conn);
         EnsureEmsMaintenanceExecutionIntegrity(conn);
         EnsureEmsSparePartManagementIntegrity(conn);
+        EnsureEmsMdmMasterIntegrity(conn);
+        EnsureUtilityMeterConfigurationHistory(conn);
+        EnsureAppendOnlyEvidenceGuards(conn);
+        EnsureEmsToolMountPositionGuard(conn);
+        EnsureQueryPerformanceIndexes(conn);
+    }
+
+    /// <summary>
+    /// V121's SQL Server migration reports conflicting active mounts before creating its filtered
+    /// unique index. SQLite omits that server-only block, so reproduce the same preflight here and
+    /// fail with the physical equipment/position and mount ids instead of a bare UNIQUE error.
+    /// </summary>
+    private static void EnsureEmsToolMountPositionGuard(SqliteConnection conn)
+    {
+        if (!HasTable(conn, "EMS_TOOL_MOUNT_HISTORY")
+            || !HasColumn(conn, "EMS_TOOL_MOUNT_HISTORY", "EQUIPMENT_ID")
+            || !HasColumn(conn, "EMS_TOOL_MOUNT_HISTORY", "POSITION_CODE")
+            || !HasColumn(conn, "EMS_TOOL_MOUNT_HISTORY", "UNMOUNTED_AT"))
+            return;
+
+        using (var duplicate = conn.CreateCommand())
+        {
+            duplicate.CommandText = """
+                SELECT EQUIPMENT_ID, POSITION_CODE, COUNT(*) AS DUPLICATE_COUNT,
+                       GROUP_CONCAT(MOUNT_ID, ',') AS MOUNT_IDS
+                FROM EMS_TOOL_MOUNT_HISTORY
+                WHERE UNMOUNTED_AT IS NULL AND POSITION_CODE IS NOT NULL
+                GROUP BY EQUIPMENT_ID, POSITION_CODE
+                HAVING COUNT(*) > 1
+                ORDER BY DUPLICATE_COUNT DESC, EQUIPMENT_ID, POSITION_CODE
+                LIMIT 1;
+                """;
+            using var reader = duplicate.ExecuteReader();
+            if (reader.Read())
+            {
+                throw new InvalidOperationException(
+                    "V121 cannot create UX_EMS_TOOL_ACTIVE_EQUIPMENT_POSITION. " +
+                    $"Duplicate active mounts: equipment='{reader.GetString(0)}', " +
+                    $"position='{reader.GetString(1)}', count={reader.GetInt64(2)}, " +
+                    $"mountIds='{reader.GetString(3)}'. Reconcile the physical mount state first.");
+            }
+        }
+
+        EnsureSqliteIndex(
+            conn,
+            "EMS_TOOL_MOUNT_HISTORY",
+            "UX_EMS_TOOL_ACTIVE_EQUIPMENT_POSITION",
+            unique: true,
+            partial: true,
+            """
+            CREATE UNIQUE INDEX UX_EMS_TOOL_ACTIVE_EQUIPMENT_POSITION
+                ON EMS_TOOL_MOUNT_HISTORY (EQUIPMENT_ID, POSITION_CODE)
+                WHERE UNMOUNTED_AT IS NULL AND POSITION_CODE IS NOT NULL;
+            """,
+            new IndexKey("EQUIPMENT_ID", Descending: false),
+            new IndexKey("POSITION_CODE", Descending: false));
+    }
+
+    /// <summary>
+    /// Reconciles V129-V134 query-index definitions for existing SQLite databases. CREATE INDEX IF
+    /// NOT EXISTS cannot replace stale definitions, so keys, direction, uniqueness and filters are
+    /// compared before rebuilding. The exact V115 checklist duplicate is removed while its UNIQUE
+    /// constraint index remains.
+    /// </summary>
+    private static void EnsureQueryPerformanceIndexes(SqliteConnection conn)
+    {
+        if (HasTable(conn, "IVT_TRACE_PROJECTION_INBOX"))
+        {
+            EnsureSqliteIndex(
+                conn,
+                "IVT_TRACE_PROJECTION_INBOX",
+                "IX_IVT_TRACE_INBOX_BINDING_CURSOR",
+                unique: false,
+                partial: false,
+                """
+                CREATE INDEX IX_IVT_TRACE_INBOX_BINDING_CURSOR
+                    ON IVT_TRACE_PROJECTION_INBOX (BINDING_ID, COLLECTED_AT DESC, COLLECT_ID DESC);
+                """,
+                new IndexKey("BINDING_ID", Descending: false),
+                new IndexKey("COLLECTED_AT", Descending: true),
+                new IndexKey("COLLECT_ID", Descending: true));
+            EnsureSqliteIndex(
+                conn,
+                "IVT_TRACE_PROJECTION_INBOX",
+                "IX_IVT_TRACE_INBOX_WORK",
+                unique: false,
+                partial: false,
+                """
+                CREATE INDEX IX_IVT_TRACE_INBOX_WORK
+                    ON IVT_TRACE_PROJECTION_INBOX (STATUS, COLLECTED_AT, COLLECT_ID, BINDING_ID);
+                """,
+                new IndexKey("STATUS", Descending: false),
+                new IndexKey("COLLECTED_AT", Descending: false),
+                new IndexKey("COLLECT_ID", Descending: false),
+                new IndexKey("BINDING_ID", Descending: false));
+        }
+
+        if (HasTable(conn, "EMS_TOOL_USAGE_HISTORY"))
+        {
+            EnsureSqliteIndex(
+                conn,
+                "EMS_TOOL_USAGE_HISTORY",
+                "IX_EMS_TOOL_USAGE_MOUNT",
+                unique: false,
+                partial: false,
+                """
+                CREATE INDEX IX_EMS_TOOL_USAGE_MOUNT
+                    ON EMS_TOOL_USAGE_HISTORY (MOUNT_ID, USED_AT DESC);
+                """,
+                new IndexKey("MOUNT_ID", Descending: false),
+                new IndexKey("USED_AT", Descending: true));
+        }
+
+        if (HasTable(conn, "EMS_WORK_ORDER"))
+        {
+            EnsureSqliteIndex(
+                conn,
+                "EMS_WORK_ORDER",
+                "IX_EMS_WO_EQUIPMENT_ISSUED",
+                unique: false,
+                partial: false,
+                """
+                CREATE INDEX IX_EMS_WO_EQUIPMENT_ISSUED
+                    ON EMS_WORK_ORDER (EQUIPMENT_ID, ISSUED_AT DESC);
+                """,
+                new IndexKey("EQUIPMENT_ID", Descending: false),
+                new IndexKey("ISSUED_AT", Descending: true));
+        }
+
+        if (HasTable(conn, "EMS_SPARE_PART_USAGE"))
+        {
+            EnsureSqliteIndex(
+                conn,
+                "EMS_SPARE_PART_USAGE",
+                "IX_EMS_SPARE_USAGE_WO_TIME",
+                unique: false,
+                partial: true,
+                """
+                CREATE INDEX IX_EMS_SPARE_USAGE_WO_TIME
+                    ON EMS_SPARE_PART_USAGE (WO_ID, USED_AT DESC)
+                    WHERE WO_ID IS NOT NULL;
+                """,
+                new IndexKey("WO_ID", Descending: false),
+                new IndexKey("USED_AT", Descending: true));
+        }
+
+        if (HasTable(conn, "RMS_RECIPE_EQUIPMENT_ASSIGNMENT"))
+        {
+            EnsureSqliteIndex(
+                conn,
+                "RMS_RECIPE_EQUIPMENT_ASSIGNMENT",
+                "IX_RMS_RECIPE_ASSIGNMENT_EQUIPMENT_EFFECTIVE",
+                unique: false,
+                partial: true,
+                """
+                CREATE INDEX IX_RMS_RECIPE_ASSIGNMENT_EQUIPMENT_EFFECTIVE
+                    ON RMS_RECIPE_EQUIPMENT_ASSIGNMENT
+                       (EQUIPMENT_ID, EFFECTIVE_FROM DESC, ASSIGNMENT_ID, EFFECTIVE_TO)
+                    WHERE EQUIPMENT_ID IS NOT NULL;
+                """,
+                new IndexKey("EQUIPMENT_ID", Descending: false),
+                new IndexKey("EFFECTIVE_FROM", Descending: true),
+                new IndexKey("ASSIGNMENT_ID", Descending: false),
+                new IndexKey("EFFECTIVE_TO", Descending: false));
+            EnsureSqliteIndex(
+                conn,
+                "RMS_RECIPE_EQUIPMENT_ASSIGNMENT",
+                "IX_RMS_RECIPE_ASSIGNMENT_CLASS_EFFECTIVE",
+                unique: false,
+                partial: true,
+                """
+                CREATE INDEX IX_RMS_RECIPE_ASSIGNMENT_CLASS_EFFECTIVE
+                    ON RMS_RECIPE_EQUIPMENT_ASSIGNMENT
+                       (EQUIPMENT_CLASS_ID, EFFECTIVE_FROM DESC, ASSIGNMENT_ID, EFFECTIVE_TO)
+                    WHERE EQUIPMENT_CLASS_ID IS NOT NULL;
+                """,
+                new IndexKey("EQUIPMENT_CLASS_ID", Descending: false),
+                new IndexKey("EFFECTIVE_FROM", Descending: true),
+                new IndexKey("ASSIGNMENT_ID", Descending: false),
+                new IndexKey("EFFECTIVE_TO", Descending: false));
+        }
+
+        if (HasTable(conn, "EST_TAKT_SUMMARY"))
+        {
+            EnsureSqliteIndex(
+                conn,
+                "EST_TAKT_SUMMARY",
+                "IX_EST_TAKT_RECONCILIATION_DATE",
+                unique: false,
+                partial: false,
+                """
+                CREATE INDEX IX_EST_TAKT_RECONCILIATION_DATE
+                    ON EST_TAKT_SUMMARY (TAKT_DATE, TAKT_SUMMARY_ID);
+                """,
+                new IndexKey("TAKT_DATE", Descending: false),
+                new IndexKey("TAKT_SUMMARY_ID", Descending: false));
+        }
+
+        if (HasTable(conn, "EST_OEE_LOSS"))
+        {
+            EnsureSqliteIndex(
+                conn,
+                "EST_OEE_LOSS",
+                "IX_EST_OEE_LOSS_RECONCILIATION_DATE",
+                unique: false,
+                partial: false,
+                """
+                CREATE INDEX IX_EST_OEE_LOSS_RECONCILIATION_DATE
+                    ON EST_OEE_LOSS (OEE_DATE, LOSS_ID);
+                """,
+                new IndexKey("OEE_DATE", Descending: false),
+                new IndexKey("LOSS_ID", Descending: false));
+        }
+
+        if (HasTable(conn, "EST_OEE_SUMMARY"))
+        {
+            EnsureSqliteIndex(
+                conn,
+                "EST_OEE_SUMMARY",
+                "IX_EST_OEE_SUMMARY_RECONCILIATION_DATE",
+                unique: false,
+                partial: false,
+                """
+                CREATE INDEX IX_EST_OEE_SUMMARY_RECONCILIATION_DATE
+                    ON EST_OEE_SUMMARY (OEE_DATE, OEE_ID);
+                """,
+                new IndexKey("OEE_DATE", Descending: false),
+                new IndexKey("OEE_ID", Descending: false));
+        }
+
+        if (HasTable(conn, "POM_LOT"))
+        {
+            EnsureSqliteIndex(
+                conn,
+                "POM_LOT",
+                "IX_POM_LOT_PLANT_CREATED",
+                unique: false,
+                partial: false,
+                """
+                CREATE INDEX IX_POM_LOT_PLANT_CREATED
+                    ON POM_LOT (PLANT_ID, CREATED_AT DESC, LOT_ID);
+                """,
+                new IndexKey("PLANT_ID", Descending: false),
+                new IndexKey("CREATED_AT", Descending: true),
+                new IndexKey("LOT_ID", Descending: false));
+        }
+
+        if (HasTable(conn, "POM_LOT_DISPOSITION"))
+        {
+            EnsureSqliteIndex(
+                conn,
+                "POM_LOT_DISPOSITION",
+                "IX_POM_LOT_DISPOSITION_PLANT_DATE",
+                unique: false,
+                partial: false,
+                """
+                CREATE INDEX IX_POM_LOT_DISPOSITION_PLANT_DATE
+                    ON POM_LOT_DISPOSITION (PLANT_ID, DECIDED_AT DESC, DISPOSITION_ID DESC);
+                """,
+                new IndexKey("PLANT_ID", Descending: false),
+                new IndexKey("DECIDED_AT", Descending: true),
+                new IndexKey("DISPOSITION_ID", Descending: true));
+        }
+
+        if (HasTable(conn, "POM_LOT_MIXING_RELATION"))
+        {
+            EnsureSqliteIndex(
+                conn,
+                "POM_LOT_MIXING_RELATION",
+                "IX_POM_LOT_MIXING_OUTPUT",
+                unique: false,
+                partial: false,
+                """
+                CREATE INDEX IX_POM_LOT_MIXING_OUTPUT
+                    ON POM_LOT_MIXING_RELATION (PLANT_ID, OUTPUT_LOT_ID, INPUT_LOT_ID);
+                """,
+                new IndexKey("PLANT_ID", Descending: false),
+                new IndexKey("OUTPUT_LOT_ID", Descending: false),
+                new IndexKey("INPUT_LOT_ID", Descending: false));
+        }
+
+        if (HasIndex(conn, "IX_EMS_WORK_ORDER_CHECK_RESULT_WO"))
+            Exec(conn, "DROP INDEX IX_EMS_WORK_ORDER_CHECK_RESULT_WO;");
+    }
+
+    private static void EnsureSqliteIndex(
+        SqliteConnection conn,
+        string table,
+        string index,
+        bool unique,
+        bool partial,
+        string createSql,
+        params IndexKey[] keys)
+    {
+        if (IndexMatches(conn, table, index, unique, partial, createSql, keys)) return;
+        if (HasIndex(conn, index))
+            Exec(conn, $"DROP INDEX [{index.Replace("]", "]]", StringComparison.Ordinal)}];");
+        Exec(conn, createSql);
+    }
+
+    private static bool IndexMatches(
+        SqliteConnection conn,
+        string table,
+        string index,
+        bool unique,
+        bool partial,
+        string expectedCreateSql,
+        IReadOnlyList<IndexKey> expectedKeys)
+    {
+        var found = false;
+        using (var list = conn.CreateCommand())
+        {
+            list.CommandText = $"PRAGMA index_list([{table.Replace("]", "]]", StringComparison.Ordinal)}]);";
+            using var reader = list.ExecuteReader();
+            while (reader.Read())
+            {
+                if (!string.Equals(reader.GetString(1), index, StringComparison.OrdinalIgnoreCase)) continue;
+                found = reader.GetInt64(2) == (unique ? 1 : 0)
+                        && reader.GetInt64(4) == (partial ? 1 : 0);
+                break;
+            }
+        }
+        if (!found) return false;
+
+        var actualKeys = new List<IndexKey>();
+        using var info = conn.CreateCommand();
+        info.CommandText = $"PRAGMA index_xinfo([{index.Replace("]", "]]", StringComparison.Ordinal)}]);";
+        using var infoReader = info.ExecuteReader();
+        while (infoReader.Read())
+        {
+            if (infoReader.GetInt64(5) != 1 || infoReader.IsDBNull(2)) continue;
+            actualKeys.Add(new IndexKey(infoReader.GetString(2), infoReader.GetInt64(3) == 1));
+        }
+        if (!actualKeys.SequenceEqual(expectedKeys)) return false;
+        if (!partial) return true;
+
+        using var definition = conn.CreateCommand();
+        definition.CommandText = "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = @name;";
+        definition.Parameters.AddWithValue("@name", index);
+        var actualCreateSql = Convert.ToString(
+            definition.ExecuteScalar(),
+            System.Globalization.CultureInfo.InvariantCulture);
+
+        return string.Equals(
+            NormalizeIndexPredicate(actualCreateSql),
+            NormalizeIndexPredicate(expectedCreateSql),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? NormalizeIndexPredicate(string? createSql)
+    {
+        if (string.IsNullOrWhiteSpace(createSql)) return null;
+        var match = Regex.Match(
+            createSql,
+            @"\bWHERE\b(?<predicate>.+?)\s*;?\s*$",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline);
+        if (!match.Success) return null;
+        return Regex.Replace(
+                match.Groups["predicate"].Value,
+                @"\s+",
+                " ",
+                RegexOptions.CultureInvariant)
+            .Trim();
+    }
+
+    private static bool HasIndex(SqliteConnection conn, string index)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = @name;";
+        cmd.Parameters.AddWithValue("@name", index);
+        return Convert.ToInt64(cmd.ExecuteScalar() ?? 0L) > 0;
+    }
+
+    private readonly record struct IndexKey(string Name, bool Descending);
+
+    /// <summary>
+    /// V127 introduced immutable utility-meter configuration snapshots. The generic incremental pass deliberately
+    /// skips migration DML, so upgraded SQLite databases need this explicit idempotent seed/backfill boundary.
+    /// A blank reading PLANT_ID is the unambiguous legacy marker created by ADD COLUMN; already-versioned readings
+    /// are never reinterpreted through the current master on later boots.
+    /// </summary>
+    private static void EnsureUtilityMeterConfigurationHistory(SqliteConnection conn)
+    {
+        if (!HasTable(conn, "EST_UTILITY_METER")
+            || !HasTable(conn, "EST_UTILITY_READING")
+            || !HasTable(conn, "EST_UTILITY_METER_EVENT")
+            || !HasTable(conn, "EST_UTILITY_METER_CONFIG_HISTORY")
+            || !HasColumn(conn, "EST_UTILITY_METER", "CONFIG_VERSION")
+            || !HasColumn(conn, "EST_UTILITY_READING", "METER_CONFIG_VERSION")
+            || !HasColumn(conn, "EST_UTILITY_READING", "PLANT_ID")
+            || !HasColumn(conn, "EST_UTILITY_READING", "READING_MODE")
+            || !HasColumn(conn, "EST_UTILITY_METER_EVENT", "METER_CONFIG_VERSION"))
+            return;
+
+        Exec(conn, """
+            BEGIN IMMEDIATE;
+            INSERT INTO EST_UTILITY_METER_CONFIG_HISTORY
+                (HISTORY_ID, METER_ID, CONFIG_VERSION, METER_NAME, PLANT_ID, EQUIPMENT_ID,
+                 UTILITY_TYPE, UNIT, FDC_PARAMETER_ID, READING_MODE, SCALE_FACTOR,
+                 COST_PER_UNIT, CARBON_PER_UNIT, IS_ACTIVE, CHANGED_BY, CHANGED_AT)
+            SELECT M.METER_ID, M.METER_ID, 1, M.METER_NAME, M.PLANT_ID, M.EQUIPMENT_ID,
+                   M.UTILITY_TYPE, M.UNIT, M.FDC_PARAMETER_ID, M.READING_MODE, M.SCALE_FACTOR,
+                   M.COST_PER_UNIT, M.CARBON_PER_UNIT, M.IS_ACTIVE, M.UPDATED_BY, M.UPDATED_AT
+            FROM EST_UTILITY_METER M
+            WHERE M.CONFIG_VERSION = 1
+              AND NOT EXISTS (
+                  SELECT 1 FROM EST_UTILITY_METER_CONFIG_HISTORY H
+                  WHERE H.METER_ID = M.METER_ID AND H.CONFIG_VERSION = 1
+              );
+
+            UPDATE EST_UTILITY_READING
+               SET METER_CONFIG_VERSION = 1,
+                   PLANT_ID = (SELECT H.PLANT_ID FROM EST_UTILITY_METER_CONFIG_HISTORY H
+                               WHERE H.METER_ID = EST_UTILITY_READING.METER_ID
+                                 AND H.CONFIG_VERSION = 1),
+                   READING_MODE = (SELECT H.READING_MODE FROM EST_UTILITY_METER_CONFIG_HISTORY H
+                                   WHERE H.METER_ID = EST_UTILITY_READING.METER_ID
+                                     AND H.CONFIG_VERSION = 1),
+                   COST_PER_UNIT = (SELECT H.COST_PER_UNIT FROM EST_UTILITY_METER_CONFIG_HISTORY H
+                                    WHERE H.METER_ID = EST_UTILITY_READING.METER_ID
+                                      AND H.CONFIG_VERSION = 1),
+                   CARBON_PER_UNIT = (SELECT H.CARBON_PER_UNIT FROM EST_UTILITY_METER_CONFIG_HISTORY H
+                                      WHERE H.METER_ID = EST_UTILITY_READING.METER_ID
+                                        AND H.CONFIG_VERSION = 1)
+             WHERE COALESCE(TRIM(PLANT_ID), '') = ''
+               AND EXISTS (
+                   SELECT 1 FROM EST_UTILITY_METER_CONFIG_HISTORY H
+                   WHERE H.METER_ID = EST_UTILITY_READING.METER_ID AND H.CONFIG_VERSION = 1
+               );
+            COMMIT;
+            """);
+
+        using var verify = conn.CreateCommand();
+        verify.CommandText = """
+            SELECT OBJECT_TYPE, OBJECT_ID, CONFIG_VERSION
+            FROM (
+                SELECT 'METER' AS OBJECT_TYPE, M.METER_ID AS OBJECT_ID,
+                       M.CONFIG_VERSION AS CONFIG_VERSION
+                FROM EST_UTILITY_METER M
+                LEFT JOIN EST_UTILITY_METER_CONFIG_HISTORY H
+                  ON H.METER_ID = M.METER_ID AND H.CONFIG_VERSION = M.CONFIG_VERSION
+                WHERE H.METER_ID IS NULL OR COALESCE(TRIM(H.PLANT_ID), '') = ''
+                UNION ALL
+                SELECT 'METER_HISTORY_GAP', M.METER_ID, M.CONFIG_VERSION
+                FROM EST_UTILITY_METER M
+                WHERE (SELECT COUNT(*)
+                       FROM EST_UTILITY_METER_CONFIG_HISTORY H
+                       WHERE H.METER_ID = M.METER_ID
+                         AND H.CONFIG_VERSION BETWEEN 1 AND M.CONFIG_VERSION) <> M.CONFIG_VERSION
+                UNION ALL
+                SELECT 'READING', R.READING_ID, R.METER_CONFIG_VERSION
+                FROM EST_UTILITY_READING R
+                LEFT JOIN EST_UTILITY_METER_CONFIG_HISTORY H
+                  ON H.METER_ID = R.METER_ID AND H.CONFIG_VERSION = R.METER_CONFIG_VERSION
+                WHERE H.METER_ID IS NULL
+                   OR COALESCE(TRIM(H.PLANT_ID), '') = ''
+                   OR COALESCE(TRIM(R.PLANT_ID), '') = ''
+                UNION ALL
+                SELECT 'EVENT', E.EVENT_ID, E.METER_CONFIG_VERSION
+                FROM EST_UTILITY_METER_EVENT E
+                LEFT JOIN EST_UTILITY_METER_CONFIG_HISTORY H
+                  ON H.METER_ID = E.METER_ID AND H.CONFIG_VERSION = E.METER_CONFIG_VERSION
+                WHERE H.METER_ID IS NULL OR COALESCE(TRIM(H.PLANT_ID), '') = ''
+            )
+            LIMIT 1;
+            """;
+        using var invalid = verify.ExecuteReader();
+        if (invalid.Read())
+        {
+            throw new InvalidOperationException(
+                "V128 utility configuration reconciliation failed: " +
+                $"objectType='{invalid.GetString(0)}', objectId='{invalid.GetString(1)}', " +
+                $"configVersion={invalid.GetInt64(2)}. Repair the meter snapshot reference before startup.");
+        }
+    }
+
+    private static void EnsureAppendOnlyEvidenceGuards(SqliteConnection conn)
+    {
+        if (HasTable(conn, "IVT_MATERIAL_CONSUMPTION_HISTORY"))
+        {
+            Exec(conn, """
+                DROP TRIGGER IF EXISTS TR_IVT_MATERIAL_CONSUMPTION_BU;
+                DROP TRIGGER IF EXISTS TR_IVT_MATERIAL_CONSUMPTION_BD;
+                DROP TRIGGER IF EXISTS TR_IVT_MATERIAL_CONSUMPTION_BR;
+                CREATE TRIGGER TR_IVT_MATERIAL_CONSUMPTION_BU
+                BEFORE UPDATE ON IVT_MATERIAL_CONSUMPTION_HISTORY
+                BEGIN SELECT RAISE(ABORT, 'IVT_MATERIAL_CONSUMPTION_HISTORY is append-only'); END;
+                CREATE TRIGGER TR_IVT_MATERIAL_CONSUMPTION_BD
+                BEFORE DELETE ON IVT_MATERIAL_CONSUMPTION_HISTORY
+                BEGIN SELECT RAISE(ABORT, 'IVT_MATERIAL_CONSUMPTION_HISTORY is append-only'); END;
+                CREATE TRIGGER TR_IVT_MATERIAL_CONSUMPTION_BR
+                BEFORE INSERT ON IVT_MATERIAL_CONSUMPTION_HISTORY
+                WHEN EXISTS (
+                    SELECT 1 FROM IVT_MATERIAL_CONSUMPTION_HISTORY H
+                    WHERE H.CONSUMPTION_ID = NEW.CONSUMPTION_ID
+                       OR H.IDEMPOTENCY_KEY = NEW.IDEMPOTENCY_KEY
+                       OR (NEW.REVERSAL_OF_ID IS NOT NULL
+                           AND H.REVERSAL_OF_ID = NEW.REVERSAL_OF_ID)
+                       OR (NEW.REVERSAL_OF_ID IS NULL AND H.REVERSAL_OF_ID IS NULL
+                           AND H.SOURCE_SYSTEM = NEW.SOURCE_SYSTEM
+                           AND H.SOURCE_EVENT_ID = NEW.SOURCE_EVENT_ID))
+                BEGIN SELECT RAISE(ABORT, 'IVT_MATERIAL_CONSUMPTION_HISTORY replacement is forbidden'); END;
+                """);
+        }
+
+        if (HasTable(conn, "EMS_TOOL_SAVE_COMMAND"))
+        {
+            Exec(conn, """
+                DROP TRIGGER IF EXISTS TR_EMS_TOOL_SAVE_COMMAND_BU;
+                DROP TRIGGER IF EXISTS TR_EMS_TOOL_SAVE_COMMAND_BD;
+                DROP TRIGGER IF EXISTS TR_EMS_TOOL_SAVE_COMMAND_BR;
+                CREATE TRIGGER TR_EMS_TOOL_SAVE_COMMAND_BU
+                BEFORE UPDATE ON EMS_TOOL_SAVE_COMMAND
+                BEGIN SELECT RAISE(ABORT, 'EMS_TOOL_SAVE_COMMAND is append-only'); END;
+                CREATE TRIGGER TR_EMS_TOOL_SAVE_COMMAND_BD
+                BEFORE DELETE ON EMS_TOOL_SAVE_COMMAND
+                BEGIN SELECT RAISE(ABORT, 'EMS_TOOL_SAVE_COMMAND is append-only'); END;
+                CREATE TRIGGER TR_EMS_TOOL_SAVE_COMMAND_BR
+                BEFORE INSERT ON EMS_TOOL_SAVE_COMMAND
+                WHEN EXISTS (
+                    SELECT 1 FROM EMS_TOOL_SAVE_COMMAND C
+                    WHERE C.COMMAND_ID = NEW.COMMAND_ID
+                       OR C.IDEMPOTENCY_KEY = NEW.IDEMPOTENCY_KEY)
+                BEGIN SELECT RAISE(ABORT, 'EMS_TOOL_SAVE_COMMAND replacement is forbidden'); END;
+                """);
+        }
+
+        if (HasTable(conn, "EMS_SPARE_MASTER_COMMAND"))
+        {
+            Exec(conn, """
+                DROP TRIGGER IF EXISTS TR_EMS_SPARE_MASTER_COMMAND_BU;
+                DROP TRIGGER IF EXISTS TR_EMS_SPARE_MASTER_COMMAND_BD;
+                DROP TRIGGER IF EXISTS TR_EMS_SPARE_MASTER_COMMAND_BR;
+                CREATE TRIGGER TR_EMS_SPARE_MASTER_COMMAND_BU
+                BEFORE UPDATE ON EMS_SPARE_MASTER_COMMAND
+                BEGIN SELECT RAISE(ABORT, 'EMS_SPARE_MASTER_COMMAND is append-only'); END;
+                CREATE TRIGGER TR_EMS_SPARE_MASTER_COMMAND_BD
+                BEFORE DELETE ON EMS_SPARE_MASTER_COMMAND
+                BEGIN SELECT RAISE(ABORT, 'EMS_SPARE_MASTER_COMMAND is append-only'); END;
+                CREATE TRIGGER TR_EMS_SPARE_MASTER_COMMAND_BR
+                BEFORE INSERT ON EMS_SPARE_MASTER_COMMAND
+                WHEN EXISTS (
+                    SELECT 1 FROM EMS_SPARE_MASTER_COMMAND C
+                    WHERE C.COMMAND_ID = NEW.COMMAND_ID
+                       OR C.IDEMPOTENCY_KEY = NEW.IDEMPOTENCY_KEY)
+                BEGIN SELECT RAISE(ABORT, 'EMS_SPARE_MASTER_COMMAND replacement is forbidden'); END;
+                """);
+        }
+
+        if (HasTable(conn, "EMS_WORK_ORDER_CREATE_COMMAND"))
+        {
+            Exec(conn, """
+                DROP TRIGGER IF EXISTS TR_EMS_WORK_ORDER_CREATE_COMMAND_BU;
+                DROP TRIGGER IF EXISTS TR_EMS_WORK_ORDER_CREATE_COMMAND_BD;
+                DROP TRIGGER IF EXISTS TR_EMS_WORK_ORDER_CREATE_COMMAND_BR;
+                CREATE TRIGGER TR_EMS_WORK_ORDER_CREATE_COMMAND_BU
+                BEFORE UPDATE ON EMS_WORK_ORDER_CREATE_COMMAND
+                BEGIN SELECT RAISE(ABORT, 'EMS_WORK_ORDER_CREATE_COMMAND is append-only'); END;
+                CREATE TRIGGER TR_EMS_WORK_ORDER_CREATE_COMMAND_BD
+                BEFORE DELETE ON EMS_WORK_ORDER_CREATE_COMMAND
+                BEGIN SELECT RAISE(ABORT, 'EMS_WORK_ORDER_CREATE_COMMAND is append-only'); END;
+                CREATE TRIGGER TR_EMS_WORK_ORDER_CREATE_COMMAND_BR
+                BEFORE INSERT ON EMS_WORK_ORDER_CREATE_COMMAND
+                WHEN EXISTS (
+                    SELECT 1 FROM EMS_WORK_ORDER_CREATE_COMMAND C
+                    WHERE C.COMMAND_ID = NEW.COMMAND_ID
+                       OR C.IDEMPOTENCY_KEY = NEW.IDEMPOTENCY_KEY)
+                BEGIN SELECT RAISE(ABORT, 'EMS_WORK_ORDER_CREATE_COMMAND replacement is forbidden'); END;
+                """);
+        }
+
+        if (HasTable(conn, "RMS_RECIPE_APPROVAL_HISTORY"))
+        {
+            Exec(conn, """
+                DROP TRIGGER IF EXISTS TR_RMS_RECIPE_APPROVAL_HISTORY_BU;
+                DROP TRIGGER IF EXISTS TR_RMS_RECIPE_APPROVAL_HISTORY_BD;
+                DROP TRIGGER IF EXISTS TR_RMS_RECIPE_APPROVAL_HISTORY_BR;
+                CREATE TRIGGER TR_RMS_RECIPE_APPROVAL_HISTORY_BU
+                BEFORE UPDATE ON RMS_RECIPE_APPROVAL_HISTORY
+                BEGIN SELECT RAISE(ABORT, 'RMS_RECIPE_APPROVAL_HISTORY is append-only'); END;
+                CREATE TRIGGER TR_RMS_RECIPE_APPROVAL_HISTORY_BD
+                BEFORE DELETE ON RMS_RECIPE_APPROVAL_HISTORY
+                BEGIN SELECT RAISE(ABORT, 'RMS_RECIPE_APPROVAL_HISTORY is append-only'); END;
+                CREATE TRIGGER TR_RMS_RECIPE_APPROVAL_HISTORY_BR
+                BEFORE INSERT ON RMS_RECIPE_APPROVAL_HISTORY
+                WHEN EXISTS (
+                    SELECT 1 FROM RMS_RECIPE_APPROVAL_HISTORY H
+                    WHERE H.HISTORY_ID = NEW.HISTORY_ID
+                       OR H.IDEMPOTENCY_KEY = NEW.IDEMPOTENCY_KEY)
+                BEGIN SELECT RAISE(ABORT, 'RMS_RECIPE_APPROVAL_HISTORY replacement is forbidden'); END;
+                """);
+        }
+
+        if (HasTable(conn, "RMS_RECIPE_COMMAND"))
+        {
+            Exec(conn, """
+                DROP TRIGGER IF EXISTS TR_RMS_RECIPE_COMMAND_BU;
+                DROP TRIGGER IF EXISTS TR_RMS_RECIPE_COMMAND_BD;
+                DROP TRIGGER IF EXISTS TR_RMS_RECIPE_COMMAND_BR;
+                CREATE TRIGGER TR_RMS_RECIPE_COMMAND_BU
+                BEFORE UPDATE ON RMS_RECIPE_COMMAND
+                BEGIN SELECT RAISE(ABORT, 'RMS_RECIPE_COMMAND is append-only'); END;
+                CREATE TRIGGER TR_RMS_RECIPE_COMMAND_BD
+                BEFORE DELETE ON RMS_RECIPE_COMMAND
+                BEGIN SELECT RAISE(ABORT, 'RMS_RECIPE_COMMAND is append-only'); END;
+                CREATE TRIGGER TR_RMS_RECIPE_COMMAND_BR
+                BEFORE INSERT ON RMS_RECIPE_COMMAND
+                WHEN EXISTS (
+                    SELECT 1 FROM RMS_RECIPE_COMMAND C
+                    WHERE C.COMMAND_ID = NEW.COMMAND_ID
+                       OR C.IDEMPOTENCY_KEY = NEW.IDEMPOTENCY_KEY)
+                BEGIN SELECT RAISE(ABORT, 'RMS_RECIPE_COMMAND replacement is forbidden'); END;
+                """);
+        }
+
+        if (HasTable(conn, "RMS_RECIPE_PARAM_COMMAND"))
+        {
+            Exec(conn, """
+                DROP TRIGGER IF EXISTS TR_RMS_RECIPE_PARAM_COMMAND_BU;
+                DROP TRIGGER IF EXISTS TR_RMS_RECIPE_PARAM_COMMAND_BD;
+                DROP TRIGGER IF EXISTS TR_RMS_RECIPE_PARAM_COMMAND_BR;
+                CREATE TRIGGER TR_RMS_RECIPE_PARAM_COMMAND_BU
+                BEFORE UPDATE ON RMS_RECIPE_PARAM_COMMAND
+                BEGIN SELECT RAISE(ABORT, 'RMS_RECIPE_PARAM_COMMAND is append-only'); END;
+                CREATE TRIGGER TR_RMS_RECIPE_PARAM_COMMAND_BD
+                BEFORE DELETE ON RMS_RECIPE_PARAM_COMMAND
+                BEGIN SELECT RAISE(ABORT, 'RMS_RECIPE_PARAM_COMMAND is append-only'); END;
+                CREATE TRIGGER TR_RMS_RECIPE_PARAM_COMMAND_BR
+                BEFORE INSERT ON RMS_RECIPE_PARAM_COMMAND
+                WHEN EXISTS (
+                    SELECT 1 FROM RMS_RECIPE_PARAM_COMMAND C
+                    WHERE C.COMMAND_ID = NEW.COMMAND_ID
+                       OR C.IDEMPOTENCY_KEY = NEW.IDEMPOTENCY_KEY)
+                BEGIN SELECT RAISE(ABORT, 'RMS_RECIPE_PARAM_COMMAND replacement is forbidden'); END;
+                """);
+        }
+
+        if (HasTable(conn, "EST_UTILITY_METER_EVENT"))
+        {
+            Exec(conn, """
+                DROP TRIGGER IF EXISTS TR_EST_UTILITY_METER_EVENT_BU;
+                DROP TRIGGER IF EXISTS TR_EST_UTILITY_METER_EVENT_BD;
+                DROP TRIGGER IF EXISTS TR_EST_UTILITY_METER_EVENT_BR;
+                CREATE TRIGGER TR_EST_UTILITY_METER_EVENT_BU
+                BEFORE UPDATE ON EST_UTILITY_METER_EVENT
+                BEGIN SELECT RAISE(ABORT, 'EST_UTILITY_METER_EVENT is append-only'); END;
+                CREATE TRIGGER TR_EST_UTILITY_METER_EVENT_BD
+                BEFORE DELETE ON EST_UTILITY_METER_EVENT
+                BEGIN SELECT RAISE(ABORT, 'EST_UTILITY_METER_EVENT is append-only'); END;
+                CREATE TRIGGER TR_EST_UTILITY_METER_EVENT_BR
+                BEFORE INSERT ON EST_UTILITY_METER_EVENT
+                WHEN EXISTS (
+                    SELECT 1 FROM EST_UTILITY_METER_EVENT E
+                    WHERE E.EVENT_ID = NEW.EVENT_ID
+                       OR E.IDEMPOTENCY_KEY = NEW.IDEMPOTENCY_KEY)
+                BEGIN SELECT RAISE(ABORT, 'EST_UTILITY_METER_EVENT replacement is forbidden'); END;
+                """);
+        }
+
+        if (HasTable(conn, "EST_UTILITY_METER_CONFIG_HISTORY"))
+        {
+            Exec(conn, """
+                DROP TRIGGER IF EXISTS TR_EST_UTILITY_CONFIG_HISTORY_BU;
+                DROP TRIGGER IF EXISTS TR_EST_UTILITY_CONFIG_HISTORY_BD;
+                DROP TRIGGER IF EXISTS TR_EST_UTILITY_CONFIG_HISTORY_BR;
+                CREATE TRIGGER TR_EST_UTILITY_CONFIG_HISTORY_BU
+                BEFORE UPDATE ON EST_UTILITY_METER_CONFIG_HISTORY
+                BEGIN SELECT RAISE(ABORT, 'EST_UTILITY_METER_CONFIG_HISTORY is append-only'); END;
+                CREATE TRIGGER TR_EST_UTILITY_CONFIG_HISTORY_BD
+                BEFORE DELETE ON EST_UTILITY_METER_CONFIG_HISTORY
+                BEGIN SELECT RAISE(ABORT, 'EST_UTILITY_METER_CONFIG_HISTORY is append-only'); END;
+                CREATE TRIGGER TR_EST_UTILITY_CONFIG_HISTORY_BR
+                BEFORE INSERT ON EST_UTILITY_METER_CONFIG_HISTORY
+                WHEN EXISTS (
+                    SELECT 1 FROM EST_UTILITY_METER_CONFIG_HISTORY H
+                    WHERE (H.METER_ID = NEW.METER_ID AND H.CONFIG_VERSION = NEW.CONFIG_VERSION)
+                       OR H.HISTORY_ID = NEW.HISTORY_ID)
+                BEGIN SELECT RAISE(ABORT, 'EST_UTILITY_METER_CONFIG_HISTORY replacement is forbidden'); END;
+                """);
+        }
     }
 
     private static void EnsureEmsSparePartManagementColumns(SqliteConnection conn)
@@ -260,11 +953,14 @@ public static class SqliteSchemaInitializer
         {
             const string maintenancePlanChecks = """
                 BEGIN
-                  SELECT RAISE(ABORT, 'EMS_WORK_ORDER.MAINTENANCE_PLAN_ID must reference EMS_MAINTENANCE_PLAN')
+                  SELECT RAISE(ABORT, 'EMS_WORK_ORDER maintenance plan scope/type mismatch')
                     WHERE NEW.MAINTENANCE_PLAN_ID IS NOT NULL
                       AND NOT EXISTS (
                         SELECT 1 FROM EMS_MAINTENANCE_PLAN P
                         WHERE P.PLAN_ID = NEW.MAINTENANCE_PLAN_ID
+                          AND P.EQUIPMENT_ID = NEW.EQUIPMENT_ID
+                          AND (CASE WHEN P.PLAN_TYPE = 'CM' THEN 'BM' ELSE P.PLAN_TYPE END)
+                              = (CASE WHEN NEW.WO_TYPE = 'CM' THEN 'BM' ELSE NEW.WO_TYPE END)
                       );
                 END;
                 """;
@@ -274,16 +970,20 @@ public static class SqliteSchemaInitializer
             Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_MAINTENANCE_PLAN_WORK_ORDER_BU;");
             Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_MAINTENANCE_PLAN_WORK_ORDER_BD;");
             Exec(conn, $"CREATE TRIGGER TR_EMS_WORK_ORDER_MAINT_PLAN_BI BEFORE INSERT ON EMS_WORK_ORDER {maintenancePlanChecks}");
-            Exec(conn, $"CREATE TRIGGER TR_EMS_WORK_ORDER_MAINT_PLAN_BU BEFORE UPDATE OF MAINTENANCE_PLAN_ID ON EMS_WORK_ORDER {maintenancePlanChecks}");
+            Exec(conn, $"CREATE TRIGGER TR_EMS_WORK_ORDER_MAINT_PLAN_BU BEFORE UPDATE OF MAINTENANCE_PLAN_ID,EQUIPMENT_ID,WO_TYPE ON EMS_WORK_ORDER {maintenancePlanChecks}");
             Exec(conn, """
                 CREATE TRIGGER TR_EMS_MAINTENANCE_PLAN_WORK_ORDER_BU
-                BEFORE UPDATE OF PLAN_ID ON EMS_MAINTENANCE_PLAN
-                WHEN NEW.PLAN_ID <> OLD.PLAN_ID
-                 AND EXISTS (
-                   SELECT 1 FROM EMS_WORK_ORDER W WHERE W.MAINTENANCE_PLAN_ID = OLD.PLAN_ID
-                 )
+                BEFORE UPDATE OF PLAN_ID,EQUIPMENT_ID,PLAN_TYPE ON EMS_MAINTENANCE_PLAN
+                WHEN EXISTS (
+                  SELECT 1 FROM EMS_WORK_ORDER W
+                  WHERE W.MAINTENANCE_PLAN_ID = OLD.PLAN_ID
+                    AND (NEW.PLAN_ID <> OLD.PLAN_ID
+                         OR NEW.EQUIPMENT_ID <> W.EQUIPMENT_ID
+                         OR (CASE WHEN NEW.PLAN_TYPE = 'CM' THEN 'BM' ELSE NEW.PLAN_TYPE END)
+                            <> (CASE WHEN W.WO_TYPE = 'CM' THEN 'BM' ELSE W.WO_TYPE END))
+                )
                 BEGIN
-                  SELECT RAISE(ABORT, 'EMS_MAINTENANCE_PLAN has child EMS_WORK_ORDER rows');
+                  SELECT RAISE(ABORT, 'EMS_MAINTENANCE_PLAN has incompatible child EMS_WORK_ORDER rows');
                 END;
                 """);
             Exec(conn, """
@@ -311,10 +1011,17 @@ public static class SqliteSchemaInitializer
             BEGIN
               SELECT RAISE(ABORT, 'EMS_SPARE_PART_INOUT has invalid execution evidence')
                 WHERE NEW.IDEMPOTENCY_KEY IS NOT NULL
-                  AND (NEW.QUANTITY IS NULL OR NEW.QUANTITY <= 0
+                  AND (NEW.QUANTITY IS NULL
+                       OR (NEW.TRANSACTION_TYPE = 'Opening'
+                           AND (NEW.QUANTITY < 0
+                                OR NEW.BALANCE_BEFORE <> 0
+                                OR NEW.BALANCE_AFTER <> NEW.QUANTITY
+                                OR NEW.WO_ID IS NOT NULL
+                                OR NEW.EQUIPMENT_ID IS NOT NULL))
+                       OR (NEW.TRANSACTION_TYPE <> 'Opening' AND NEW.QUANTITY <= 0)
                        OR NEW.BALANCE_BEFORE IS NULL OR NEW.BALANCE_BEFORE < 0
                        OR NEW.BALANCE_AFTER IS NULL OR NEW.BALANCE_AFTER < 0
-                       OR NEW.PROCESSED_BY IS NULL
+                       OR COALESCE(TRIM(NEW.PROCESSED_BY), '') = ''
                        OR NEW.CLIENT_CHANNEL IS NULL
                        OR NEW.CLIENT_CHANNEL NOT IN ('MES', 'MOBILE', 'POP')
                        OR (NEW.WO_ID IS NOT NULL AND NOT EXISTS (
@@ -350,6 +1057,104 @@ public static class SqliteSchemaInitializer
               SELECT RAISE(ABORT, 'EMS_WORK_ORDER has child EMS_SPARE_PART_INOUT rows');
             END;
             """);
+    }
+
+    /// <summary>
+    /// V124/V125 use SQL Server triggers for append-only equipment history and EMS cross-row guards.
+    /// SQLite receives equivalent triggers here on both fresh and incremental startup paths. The
+    /// insert-collision guard also blocks INSERT OR REPLACE when recursive_triggers is disabled.
+    /// </summary>
+    private static void EnsureEmsMdmMasterIntegrity(SqliteConnection conn)
+    {
+        if (HasTable(conn, "MDM_EQUIPMENT_CHANGE_HISTORY"))
+        {
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_MDM_EQUIPMENT_CHANGE_APPEND_ONLY_BU;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_MDM_EQUIPMENT_CHANGE_APPEND_ONLY_BD;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_MDM_EQUIPMENT_CHANGE_APPEND_ONLY_BR;");
+            Exec(conn, """
+                CREATE TRIGGER TR_MDM_EQUIPMENT_CHANGE_APPEND_ONLY_BU
+                BEFORE UPDATE ON MDM_EQUIPMENT_CHANGE_HISTORY
+                BEGIN
+                  SELECT RAISE(ABORT, 'MDM_EQUIPMENT_CHANGE_HISTORY is append-only');
+                END;
+                """);
+            Exec(conn, """
+                CREATE TRIGGER TR_MDM_EQUIPMENT_CHANGE_APPEND_ONLY_BD
+                BEFORE DELETE ON MDM_EQUIPMENT_CHANGE_HISTORY
+                BEGIN
+                  SELECT RAISE(ABORT, 'MDM_EQUIPMENT_CHANGE_HISTORY is append-only');
+                END;
+                """);
+            Exec(conn, """
+                CREATE TRIGGER TR_MDM_EQUIPMENT_CHANGE_APPEND_ONLY_BR
+                BEFORE INSERT ON MDM_EQUIPMENT_CHANGE_HISTORY
+                WHEN EXISTS (
+                  SELECT 1 FROM MDM_EQUIPMENT_CHANGE_HISTORY H
+                  WHERE H.CHANGE_ID = NEW.CHANGE_ID
+                )
+                BEGIN
+                  SELECT RAISE(ABORT, 'MDM_EQUIPMENT_CHANGE_HISTORY replacement is forbidden');
+                END;
+                """);
+        }
+
+        if (HasTable(conn, "EMS_TOOL") && HasTable(conn, "EMS_TOOL_MOUNT_HISTORY"))
+        {
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_TOOL_MOUNTED_CLASS_BU;");
+            Exec(conn, """
+                CREATE TRIGGER TR_EMS_TOOL_MOUNTED_CLASS_BU
+                BEFORE UPDATE OF EQUIPMENT_CLASS_ID ON EMS_TOOL
+                WHEN NEW.EQUIPMENT_CLASS_ID IS NOT OLD.EQUIPMENT_CLASS_ID
+                 AND EXISTS (
+                   SELECT 1 FROM EMS_TOOL_MOUNT_HISTORY M
+                   WHERE M.TOOL_ID = OLD.TOOL_ID AND M.UNMOUNTED_AT IS NULL
+                 )
+                BEGIN
+                  SELECT RAISE(ABORT, 'Mounted tool equipment class is immutable');
+                END;
+                """);
+        }
+
+        if (HasTable(conn, "EMS_TOOL_USAGE_HISTORY")
+            && HasTable(conn, "EMS_TOOL_MOUNT_HISTORY"))
+        {
+            const string usageMountTimeCheck = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'Tool usage cannot precede its mount')
+                    WHERE NEW.MOUNT_ID IS NOT NULL
+                      AND EXISTS (
+                        SELECT 1 FROM EMS_TOOL_MOUNT_HISTORY M
+                        WHERE M.MOUNT_ID = NEW.MOUNT_ID
+                          AND NEW.USED_AT < M.MOUNTED_AT
+                      );
+                  SELECT RAISE(ABORT, 'Tool usage cannot follow its unmount')
+                    WHERE NEW.MOUNT_ID IS NOT NULL
+                      AND EXISTS (
+                        SELECT 1 FROM EMS_TOOL_MOUNT_HISTORY M
+                        WHERE M.MOUNT_ID = NEW.MOUNT_ID
+                          AND M.UNMOUNTED_AT IS NOT NULL
+                          AND NEW.USED_AT > M.UNMOUNTED_AT
+                      );
+                END;
+                """;
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_TOOL_USAGE_MOUNT_TIME_BI;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_TOOL_USAGE_MOUNT_TIME_BU;");
+            Exec(conn, $"CREATE TRIGGER TR_EMS_TOOL_USAGE_MOUNT_TIME_BI BEFORE INSERT ON EMS_TOOL_USAGE_HISTORY {usageMountTimeCheck}");
+            Exec(conn, $"CREATE TRIGGER TR_EMS_TOOL_USAGE_MOUNT_TIME_BU BEFORE UPDATE OF MOUNT_ID,USED_AT ON EMS_TOOL_USAGE_HISTORY {usageMountTimeCheck}");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_TOOL_UNMOUNT_USAGE_TIME_BU;");
+            Exec(conn, """
+                CREATE TRIGGER TR_EMS_TOOL_UNMOUNT_USAGE_TIME_BU
+                BEFORE UPDATE OF UNMOUNTED_AT ON EMS_TOOL_MOUNT_HISTORY
+                WHEN NEW.UNMOUNTED_AT IS NOT NULL
+                 AND EXISTS (
+                   SELECT 1 FROM EMS_TOOL_USAGE_HISTORY U
+                   WHERE U.MOUNT_ID = NEW.MOUNT_ID AND U.USED_AT > NEW.UNMOUNTED_AT
+                 )
+                BEGIN
+                  SELECT RAISE(ABORT, 'Tool unmount cannot precede recorded usage');
+                END;
+                """);
+        }
     }
 
     private static void EnsureReadQueryRoleDefaults(SqliteConnection conn)
@@ -409,16 +1214,49 @@ public static class SqliteSchemaInitializer
               SELECT RAISE(ABORT, 'EST_EQUIPMENT_OUTPUT_EVENT has invalid output scope')
                 WHERE NEW.IS_LOT_OUTPUT IS NULL
                    OR NEW.IS_LOT_OUTPUT NOT IN (0, 1)
-                   OR (NEW.IS_LOT_OUTPUT = 1 AND NEW.PROCESS_LOT_ID IS NULL);
+                   OR (NEW.IS_LOT_OUTPUT = 1 AND NEW.PROCESS_LOT_ID IS NULL)
+                   OR (UPPER(TRIM(NEW.OUTPUT_TYPE)) = 'CARRIERCLEANED'
+                       AND (COALESCE(TRIM(NEW.CARRIER_ID), '') = ''
+                            OR NEW.IS_LOT_OUTPUT <> 0
+                            OR NEW.PROCESS_LOT_ID IS NOT NULL));
+              SELECT RAISE(ABORT, 'EST_EQUIPMENT_OUTPUT_EVENT has invalid equipment/plant master scope')
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM MDM_EQUIPMENT E
+                  WHERE E.EQUIPMENT_ID = NEW.EQUIPMENT_ID
+                    AND E.PLANT_ID = NEW.PLANT_ID
+                    AND UPPER(E.VALID_STATE) = 'VALID'
+                );
+              SELECT RAISE(ABORT, 'EST_EQUIPMENT_OUTPUT_EVENT has unknown carrier')
+                WHERE NEW.CARRIER_ID IS NOT NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM MDM_CARRIER C WHERE C.CARRIER_ID = NEW.CARRIER_ID
+                  );
             END;
 
             CREATE TRIGGER TR_EST_EQUIPMENT_OUTPUT_SCOPE_BU
-            BEFORE UPDATE OF IS_LOT_OUTPUT, PROCESS_LOT_ID ON EST_EQUIPMENT_OUTPUT_EVENT
+            BEFORE UPDATE OF IS_LOT_OUTPUT, PROCESS_LOT_ID, PLANT_ID, EQUIPMENT_ID,
+                             OUTPUT_TYPE, CARRIER_ID ON EST_EQUIPMENT_OUTPUT_EVENT
             BEGIN
               SELECT RAISE(ABORT, 'EST_EQUIPMENT_OUTPUT_EVENT has invalid output scope')
                 WHERE NEW.IS_LOT_OUTPUT IS NULL
                    OR NEW.IS_LOT_OUTPUT NOT IN (0, 1)
-                   OR (NEW.IS_LOT_OUTPUT = 1 AND NEW.PROCESS_LOT_ID IS NULL);
+                   OR (NEW.IS_LOT_OUTPUT = 1 AND NEW.PROCESS_LOT_ID IS NULL)
+                   OR (UPPER(TRIM(NEW.OUTPUT_TYPE)) = 'CARRIERCLEANED'
+                       AND (COALESCE(TRIM(NEW.CARRIER_ID), '') = ''
+                            OR NEW.IS_LOT_OUTPUT <> 0
+                            OR NEW.PROCESS_LOT_ID IS NOT NULL));
+              SELECT RAISE(ABORT, 'EST_EQUIPMENT_OUTPUT_EVENT has invalid equipment/plant master scope')
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM MDM_EQUIPMENT E
+                  WHERE E.EQUIPMENT_ID = NEW.EQUIPMENT_ID
+                    AND E.PLANT_ID = NEW.PLANT_ID
+                    AND UPPER(E.VALID_STATE) = 'VALID'
+                );
+              SELECT RAISE(ABORT, 'EST_EQUIPMENT_OUTPUT_EVENT has unknown carrier')
+                WHERE NEW.CARRIER_ID IS NOT NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM MDM_CARRIER C WHERE C.CARRIER_ID = NEW.CARRIER_ID
+                  );
             END;
 
             COMMIT;
@@ -1456,6 +2294,58 @@ public static class SqliteSchemaInitializer
 
         var remainder = statement.ToString().Trim();
         if (remainder.Length > 0) yield return remainder;
+    }
+
+    /// <summary>
+    /// Keeps SQLite bootstrap identity identical to the MSSQL runner: strict V### names, one file
+    /// per numeric version, and numeric ordering. Validation completes before the SQLite connection
+    /// is opened so a malformed release bundle cannot partially mutate a local database.
+    /// </summary>
+    internal static IReadOnlyList<string> GetOrderedMigrationFiles(string migrationsDirectory)
+    {
+        var candidates = Directory.EnumerateFiles(migrationsDirectory, "*", SearchOption.TopDirectoryOnly)
+            .Where(path => string.Equals(Path.GetExtension(path), ".sql", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        if (candidates.Length == 0)
+            throw new InvalidDataException($"No migrations found at '{migrationsDirectory}'.");
+
+        var migrations = new List<(int Version, string Name, string Path)>(candidates.Length);
+        var versions = new Dictionary<int, string>();
+        foreach (var path in candidates)
+        {
+            var name = Path.GetFileName(path);
+            var match = MigrationFileNamePattern.Match(name);
+            if (!match.Success)
+            {
+                throw new InvalidDataException(
+                    $"Invalid migration file '{name}': expected V###__UPPER_SNAKE_DESCRIPTION.sql.");
+            }
+
+            if (!int.TryParse(
+                    match.Groups["version"].Value,
+                    System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out var version)
+                || version <= 0)
+            {
+                throw new InvalidDataException(
+                    $"Invalid migration version in '{name}': version must be greater than zero.");
+            }
+
+            if (!versions.TryAdd(version, name))
+            {
+                throw new InvalidDataException(
+                    $"Duplicate migration version {version}: '{versions[version]}' and '{name}'.");
+            }
+
+            migrations.Add((version, name, path));
+        }
+
+        return migrations
+            .OrderBy(migration => migration.Version)
+            .ThenBy(migration => migration.Name, StringComparer.Ordinal)
+            .Select(migration => migration.Path)
+            .ToArray();
     }
 
     private static string FindMigrationsDir()

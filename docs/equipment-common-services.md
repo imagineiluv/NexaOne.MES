@@ -98,6 +98,23 @@ Motion·I/O·Serial·Vision·SECS/GEM은 드라이버로 직접 주입하거나 
 `NexaFramework.Drivers.Hosting`은 여러 드라이버의 발견·수명주기·상태진단을 표준화해야 할 때 쓰는 선택적
 편의 계층이며 현재 NexaMES 공통 업무 서비스의 필수 의존으로 추가하지 않는다.
 
+## DB 조회 성능과 모듈 소유권
+
+조회 성능은 테이블이나 View 개수가 아니라 실제 Repository/named query의 `WHERE`·`JOIN`·`ORDER BY`로
+관리한다. V129~V134는 TRACE cursor/work queue, Tool 사용·보전 W/O, W/O별 Spare 사용, Recipe 적용기간,
+OEE/Takt/Loss 일자 reconciliation, LOT·처분·mixing 경로에 복합·filtered index를 추가한다. SQLite 증분
+회귀는 이름만 확인하지 않고 key 순서·정렬·partial 조건과 대표 쿼리의 `EXPLAIN QUERY PLAN` 선택까지 검증한다.
+
+일반 View는 SQL 의미를 캡슐화할 뿐 결과를 저장하지 않으므로 그 자체를 성능 개선으로 간주하지 않는다.
+여러 소비자가 공유할 안정된 read contract가 생길 때 소유 모듈 안에 View를 만들고, OEE·Takt·Utility·TRACE처럼
+반복 계산 비용이 큰 경로는 summary/projection table을 materialized read model로 유지한다. SQL Server indexed
+view·columnstore·partition은 Query Store의 logical read와 쓰기 증폭을 측정한 뒤 별도 운영 ADR로 승인한다.
+
+QMS와 POM 저장소는 다른 모듈 물리 테이블을 직접 조회하지 않는다. POM·IVT·MDM·SYS·PRC 소유 directory/bridge와
+호스트의 SQL 없는 형제 Spring-context proxy를 사용한다. 현재 예외는 SLS 모듈 부재에 따른 읽기 전용
+`LegacySalesOrderMrpProjection`과 로그인–보전 작업자 매핑을 SYS가 제공하는 `MaintenanceIdentityDirectory` 두
+건뿐이며, 각각 ADR-0002/0003의 정확한 파일 allowlist와 2026-11-30 검토 기한으로 제한한다.
+
 ## 프레임워크 이관 게이트
 
 다음 조건을 모두 만족한 계약만 NexaFramework 후보가 된다.
@@ -108,15 +125,17 @@ Motion·I/O·Serial·Vision·SECS/GEM은 드라이버로 직접 주입하거나 
 4. SQL Server와 SQLite에서 동일한 업무 결과를 낸다.
 5. 실제 로그인 작업자, correlation/source event와 원본 TRACE를 역추적할 수 있다.
 
-## 2026-08-27 검증 기록
+## 2026-08-28 검증 기록
 
-- Release solution build: 오류 0, 기존 NexaFramework `DictionaryExtensions<TKey>` nullability 경고 2
-- Unit: 1,588/1,588 통과
-- Server/SQLite integration: 770/770 통과
-- modules-ON child-process smoke: 10개 모듈과 선언형 bridge 27개를 최신 Release 호스트에서 실제 부팅
-- Spring/query XML: 전체 파싱 통과
-- migration: V001~V120 버전 중복 없음, 신규 DB와 증분 SQLite 경로 통과
-- 정적 경계: IVT의 FDC 및 EST의 MDM/POM 물리 테이블 참조 0건, 충돌 marker·diff whitespace 오류 0건
+- Release solution build(`-warnaserror`): 경고 0, 오류 0
+- Unit: 1,713/1,713 통과
+- Server/SQLite integration: 850/850 통과
+- Portal: 116/116, production build 성공, `npm audit` 취약점 0
+- NexaLogic PLC: Integration 14/14, Hardware Simulation 43/43 통과
+- modules-ON child-process smoke: 11개 모듈과 선언형 bridge 37개를 최신 Release 호스트에서 실제 부팅
+- migration: V001~V140 strict 이름·숫자 순서·중복 검증 통과, 신규/증분 SQLite와 MSSQL 정적 계약 통과
+- publish: Release publish 성공, 산출물 500개에서 `NexusCom`·`NexusFramework`·`NexusLogic` 이름/설정 참조 0건
+- 정적 경계: QMS/POM 저장소 foreign physical-table SQL 0건(ADR 예외 2건만 허용), 충돌 marker·diff whitespace 오류 0건
 
 이 실행 환경에는 `NEXAONE_MSSQL_TEST_CONN`, `sqlcmd`, SQL Server 서비스가 없고 Docker daemon도 실행되지
 않아 실제 SQL Server 왕복 테스트는 수행하지 못했다. SQL Server 검증과 Cleaner 실제 하드웨어 Recovery HIL은

@@ -6,6 +6,8 @@ using NexaOne.EMS.Application.Ems;
 using NexaOne.EMS.Domain;
 using NexaOne.EMS.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
+using NexaOne.MDM.Infrastructure;
+using NexaOne.Server.Gateway;
 using NexaDB.Data.Sqlite;
 using Xunit;
 
@@ -191,21 +193,35 @@ public sealed class MaintenancePlanPersistenceTests : IDisposable
     }
 
     [Fact]
-    public async Task Legacy_part_creation_persists_the_authenticated_actor()
+    public async Task Part_creation_persists_authenticated_actor_and_opening_balance()
     {
+        var command = MaintenanceCommandContext.Create(
+            "logged-maintainer", "part-create:01", "MOBILE", "TABLET-01", "corr-part-create").Value;
         var created = await Service(false).CreatePartAsync(
             "PART-01", "Bearing", "BR-01", "Drive bearing", "EA",
-            10m, 2m, 30m, "RACK-A", null, "logged-maintainer");
+            10m, 2m, 30m, "RACK-A", null, command);
 
         created.IsSuccess.Should().BeTrue(created.IsFailure ? created.Error.Description : string.Empty);
         var stored = await new SparePartRepository(_dataSource).GetByIdAsync("PART-01");
         stored.Should().NotBeNull();
         stored!.CreatedBy.Should().Be("logged-maintainer");
         stored.UpdatedBy.Should().Be("logged-maintainer");
+        Scalar<long>("SELECT COUNT(*) FROM EMS_SPARE_PART_INOUT WHERE IDEMPOTENCY_KEY='part-create:01'")
+            .Should().Be(1);
+        Scalar<string>("SELECT TRANSACTION_TYPE FROM EMS_SPARE_PART_INOUT WHERE IDEMPOTENCY_KEY='part-create:01'")
+            .Should().Be("Opening");
+        Scalar<decimal>("SELECT BALANCE_BEFORE FROM EMS_SPARE_PART_INOUT WHERE IDEMPOTENCY_KEY='part-create:01'")
+            .Should().Be(0m);
+        Scalar<decimal>("SELECT BALANCE_AFTER FROM EMS_SPARE_PART_INOUT WHERE IDEMPOTENCY_KEY='part-create:01'")
+            .Should().Be(10m);
+        Scalar<string>("SELECT CLIENT_CHANNEL FROM EMS_SPARE_PART_INOUT WHERE IDEMPOTENCY_KEY='part-create:01'")
+            .Should().Be("MOBILE");
     }
 
     private MaintenancePlanService Service(bool outboxEnabled) => new(
-        Repository(outboxEnabled), new SparePartRepository(_dataSource));
+        Repository(outboxEnabled),
+        new SparePartRepository(_dataSource),
+        new EquipmentDirectory(_dataSource));
 
     private MaintenancePlanRepository Repository(bool outboxEnabled) => new(
         _dataSource,
@@ -324,6 +340,48 @@ public sealed class MaintenancePlanPersistenceTests : IDisposable
                 CREATED_AT TEXT NOT NULL,
                 UPDATED_BY TEXT NOT NULL,
                 UPDATED_AT TEXT NOT NULL
+            );
+
+            CREATE TABLE EMS_SPARE_PART_INOUT (
+                INOUT_ID TEXT NOT NULL PRIMARY KEY,
+                PART_ID TEXT NOT NULL,
+                TRANSACTION_TYPE TEXT NOT NULL,
+                QUANTITY NUMERIC NOT NULL,
+                FROM_LOCATION TEXT NULL,
+                TO_LOCATION TEXT NULL,
+                TRANSACTION_AT TEXT NOT NULL,
+                PROCESSED_BY TEXT NOT NULL,
+                REMARK TEXT NULL,
+                IDEMPOTENCY_KEY TEXT NULL,
+                CORRELATION_ID TEXT NULL,
+                WO_ID TEXT NULL,
+                EQUIPMENT_ID TEXT NULL,
+                BALANCE_BEFORE NUMERIC NULL,
+                BALANCE_AFTER NUMERIC NULL,
+                CLIENT_CHANNEL TEXT NULL,
+                DEVICE_ID TEXT NULL,
+                CREATED_BY TEXT NOT NULL,
+                CREATED_AT TEXT NOT NULL,
+                UPDATED_BY TEXT NOT NULL,
+                UPDATED_AT TEXT NOT NULL
+            );
+            CREATE UNIQUE INDEX UX_EMS_SPARE_PART_INOUT_IDEMPOTENCY
+                ON EMS_SPARE_PART_INOUT (IDEMPOTENCY_KEY)
+                WHERE IDEMPOTENCY_KEY IS NOT NULL;
+
+            CREATE TABLE EMS_SPARE_PART_USAGE (
+                USAGE_ID TEXT NOT NULL PRIMARY KEY,
+                INOUT_ID TEXT NOT NULL,
+                PART_ID TEXT NOT NULL,
+                BOM_ITEM_ID TEXT NULL,
+                EQUIPMENT_ID TEXT NOT NULL,
+                WO_ID TEXT NULL,
+                QUANTITY NUMERIC NOT NULL,
+                USED_BY TEXT NOT NULL,
+                USED_AT TEXT NOT NULL,
+                REMOVAL_REASON TEXT NULL,
+                CREATED_BY TEXT NOT NULL,
+                CREATED_AT TEXT NOT NULL
             );
             """;
         command.ExecuteNonQuery();

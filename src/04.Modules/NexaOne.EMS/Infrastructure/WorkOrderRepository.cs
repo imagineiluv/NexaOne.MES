@@ -68,6 +68,16 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
         return row?.ToDomain();
     }
 
+    public async Task<WorkOrderCreateCommandRecord?> GetCreateCommandAsync(
+        string idempotencyKey,
+        CancellationToken ct = default)
+    {
+        var row = await QueryFirstOrDefaultAsync<CreateCommandRow>(
+            CreateCommandSelectSql + " WHERE IDEMPOTENCY_KEY=@idempotencyKey",
+            new { idempotencyKey }, ct);
+        return row?.ToRecord();
+    }
+
     private const string SelectWorkOrderSql = @"SELECT
         WO_ID, MAINTENANCE_PLAN_ID AS PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION,
         ASSIGNEE_ID, ISSUED_AT, STARTED_AT, COMPLETED_AT, STATUS, FAILURE_CODE_ID,
@@ -99,7 +109,14 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
                 SELECT 1 FROM EMS_MAINTENANCE_ACTION_HISTORY
                  WHERE IDEMPOTENCY_KEY = @IdempotencyKey)
               AND NOT EXISTS (
-                SELECT 1 FROM EMS_WORK_ORDER WHERE WO_ID = @WoId)";
+                SELECT 1 FROM EMS_WORK_ORDER WHERE WO_ID = @WoId)
+              AND (@PlanId IS NULL OR EXISTS (
+                SELECT 1
+                FROM EMS_MAINTENANCE_PLAN p
+                WHERE p.PLAN_ID = @PlanId
+                  AND p.EQUIPMENT_ID = @EquipmentId
+                  AND (CASE WHEN p.PLAN_TYPE = 'CM' THEN 'BM' ELSE p.PLAN_TYPE END)
+                      = (CASE WHEN @WoType = 'CM' THEN 'BM' ELSE @WoType END)))";
         var now = DateTime.UtcNow;
         var actor = action.ActorId;
         try
@@ -107,6 +124,53 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
             return await _processor.ExecuteGuardedManyAsync(ct,
                 (insert, InsertParam(wo, action.IdempotencyKey, actor, now)),
                 (InsertActionSql, ActionParam(wo, action, actor, now)));
+        }
+        catch (DbException ex) when (IsExpectedUniqueRace(ex, allowWorkOrderIdentity: true))
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> AddWithActionAsync(
+        WorkOrder wo,
+        MaintenanceAction action,
+        WorkOrderCreateCommandRecord command,
+        CancellationToken ct = default)
+    {
+        const string insert = @"INSERT INTO EMS_WORK_ORDER
+            (WO_ID, MAINTENANCE_PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION, ASSIGNEE_ID, ISSUED_AT, STATUS,
+             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            SELECT @WoId, @PlanId, @EquipmentId, @WoType, @Description, @AssigneeId, @IssuedAt, @Status,
+                   @Actor, @Now, @Actor, @Now
+            WHERE NOT EXISTS (
+                SELECT 1 FROM EMS_MAINTENANCE_ACTION_HISTORY
+                 WHERE IDEMPOTENCY_KEY = @IdempotencyKey)
+              AND NOT EXISTS (
+                SELECT 1 FROM EMS_WORK_ORDER_CREATE_COMMAND
+                 WHERE IDEMPOTENCY_KEY = @IdempotencyKey)
+              AND NOT EXISTS (
+                SELECT 1 FROM EMS_WORK_ORDER WHERE WO_ID = @WoId)
+              AND (@PlanId IS NULL OR EXISTS (
+                SELECT 1 FROM EMS_MAINTENANCE_PLAN p
+                WHERE p.PLAN_ID = @PlanId
+                  AND p.EQUIPMENT_ID = @EquipmentId
+                  AND (CASE WHEN p.PLAN_TYPE = 'CM' THEN 'BM' ELSE p.PLAN_TYPE END)
+                      = (CASE WHEN @WoType = 'CM' THEN 'BM' ELSE @WoType END)))";
+        var actor = command.ActorId;
+        var now = command.CreatedAt;
+        var createParameters = InsertParam(wo, command.IdempotencyKey, actor, now);
+        createParameters.Add("CommandId", command.CommandId);
+        createParameters.Add("RequestHash", command.RequestHash);
+        createParameters.Add("Source", command.Source);
+        createParameters.Add("ClientChannel", command.ClientChannel);
+        createParameters.Add("DeviceId", command.DeviceId);
+        createParameters.Add("CorrelationId", command.CorrelationId);
+        try
+        {
+            return await _processor.ExecuteGuardedManyAsync(ct,
+                (insert, createParameters),
+                (InsertActionSql, ActionParam(wo, action, actor, now)),
+                (InsertCreateCommandSql, createParameters));
         }
         catch (DbException ex) when (IsExpectedUniqueRace(ex, allowWorkOrderIdentity: true))
         {
@@ -216,6 +280,25 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
          @FailureCodeId, @ActionRemark, @ActionAt, @IdempotencyKey, @FromStatus, @ToStatus,
          @CorrelationId, @Actor, @Now)";
 
+    private const string InsertCreateCommandSql = @"
+        INSERT INTO EMS_WORK_ORDER_CREATE_COMMAND
+        (COMMAND_ID, IDEMPOTENCY_KEY, REQUEST_HASH, WO_ID, EQUIPMENT_ID, WO_TYPE,
+         DESCRIPTION, ASSIGNEE_ID, MAINTENANCE_PLAN_ID, ISSUED_AT, ACTOR_ID,
+         SOURCE, CLIENT_CHANNEL, DEVICE_ID, CORRELATION_ID, CREATED_AT)
+        VALUES
+        (@CommandId, @IdempotencyKey, @RequestHash, @WoId, @EquipmentId, @WoType,
+         @Description, @AssigneeId, @PlanId, @IssuedAt, @Actor,
+         @Source, @ClientChannel, @DeviceId, @CorrelationId, @Now)";
+
+    private const string CreateCommandSelectSql = @"SELECT
+        COMMAND_ID AS CommandId, IDEMPOTENCY_KEY AS IdempotencyKey,
+        REQUEST_HASH AS RequestHash, WO_ID AS WorkOrderId, EQUIPMENT_ID AS EquipmentId,
+        WO_TYPE AS WorkOrderType, DESCRIPTION AS Description, ASSIGNEE_ID AS AssigneeId,
+        MAINTENANCE_PLAN_ID AS MaintenancePlanId, ISSUED_AT AS IssuedAt,
+        ACTOR_ID AS ActorId, SOURCE AS Source, CLIENT_CHANNEL AS ClientChannel,
+        DEVICE_ID AS DeviceId, CORRELATION_ID AS CorrelationId, CREATED_AT AS CreatedAt
+        FROM EMS_WORK_ORDER_CREATE_COMMAND";
+
     private static Dapper.DynamicParameters InsertParam(
         WorkOrder wo,
         string idempotencyKey,
@@ -295,12 +378,42 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
                 StringComparison.OrdinalIgnoreCase)
             || message.Contains(
                 "EMS_MAINTENANCE_ACTION_HISTORY.IDEMPOTENCY_KEY",
+                StringComparison.OrdinalIgnoreCase)
+            || message.Contains(
+                "UX_EMS_WORK_ORDER_CREATE_COMMAND_IDEMPOTENCY",
+                StringComparison.OrdinalIgnoreCase)
+            || message.Contains(
+                "EMS_WORK_ORDER_CREATE_COMMAND.IDEMPOTENCY_KEY",
                 StringComparison.OrdinalIgnoreCase))
             return true;
 
         return allowWorkOrderIdentity
                && (message.Contains("PK_EMS_WORK_ORDER", StringComparison.OrdinalIgnoreCase)
                    || message.Contains("EMS_WORK_ORDER.WO_ID", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private sealed class CreateCommandRow
+    {
+        public string CommandId { get; set; } = "";
+        public string IdempotencyKey { get; set; } = "";
+        public string RequestHash { get; set; } = "";
+        public string WorkOrderId { get; set; } = "";
+        public string EquipmentId { get; set; } = "";
+        public string WorkOrderType { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string AssigneeId { get; set; } = "";
+        public string? MaintenancePlanId { get; set; }
+        public DateTime IssuedAt { get; set; }
+        public string ActorId { get; set; } = "";
+        public string Source { get; set; } = "";
+        public string ClientChannel { get; set; } = "";
+        public string? DeviceId { get; set; }
+        public string? CorrelationId { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public WorkOrderCreateCommandRecord ToRecord() => new(
+            CommandId, IdempotencyKey, RequestHash, WorkOrderId, EquipmentId,
+            WorkOrderType, Description, AssigneeId, MaintenancePlanId, IssuedAt,
+            ActorId, Source, ClientChannel, DeviceId, CorrelationId, CreatedAt);
     }
 
     private sealed class ActionRow

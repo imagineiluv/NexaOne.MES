@@ -2,6 +2,7 @@ using Moq;
 using NexaOne.EMS.Application.Ems;
 using NexaOne.EMS.Domain;
 using NexaOne.Common;
+using NexaOne.ServiceContracts.Mdm;
 
 namespace NexaOne.UnitTests.Services;
 
@@ -18,7 +19,7 @@ public sealed class MaintenancePlanServiceTests
     private MaintenancePlanService BuildService(
         Mock<IMaintenancePlanRepository> planRepo,
         Mock<ISparePartRepository> partRepo) =>
-        new(planRepo.Object, partRepo.Object);
+        new(planRepo.Object, partRepo.Object, new TestEquipmentDirectory());
 
     private static SparePartAdjustmentContext Adjustment(string key, string? transactionType = null) => new(
         MaintenanceCommandContext.Create(
@@ -270,17 +271,26 @@ public sealed class MaintenancePlanServiceTests
     {
         var planRepo = new Mock<IMaintenancePlanRepository>();
         var partRepo = new Mock<ISparePartRepository>();
-        partRepo.Setup(r => r.AddAsync(
-            It.IsAny<SparePart>(), "maintenance-login", default)).Returns(Task.CompletedTask);
+        partRepo.Setup(r => r.TryAddWithOpeningBalanceAsync(
+            It.IsAny<SparePart>(), It.IsAny<SparePartStockTransaction>(), default))
+            .ReturnsAsync(true);
 
         var result = await BuildService(planRepo, partRepo)
             .CreatePartAsync("SP001", "오일 필터", "P-001", "엔진 오일 필터", "EA",
-                10m, 3m, 50m, "A-01", null, "maintenance-login");
+                10m, 3m, 50m, "A-01", null, PlanCommand("part-create"));
 
         result.IsSuccess.Should().BeTrue();
         result.Value.CurrentStock.Should().Be(10m);
-        partRepo.Verify(r => r.AddAsync(
-            It.IsAny<SparePart>(), "maintenance-login", default), Times.Once);
+        partRepo.Verify(r => r.TryAddWithOpeningBalanceAsync(
+            It.IsAny<SparePart>(),
+            It.Is<SparePartStockTransaction>(x =>
+                x.TransactionType == "Opening"
+                && x.Quantity == 10m
+                && x.BalanceBefore == 0m
+                && x.BalanceAfter == 10m
+                && x.ActorId == "maintenance-login"
+                && x.IdempotencyKey == "part-create"),
+            default), Times.Once);
     }
 
     // ── AdjustStockAsync ──────────────────────────────────────────────────────
@@ -293,7 +303,7 @@ public sealed class MaintenancePlanServiceTests
         var partRepo = new Mock<ISparePartRepository>();
         partRepo.Setup(r => r.GetByIdAsync("SP001", default)).ReturnsAsync(part);
         partRepo.Setup(r => r.PersistAdjustmentAsync(
-            It.IsAny<SparePartStockTransaction>(), default)).ReturnsAsync(true);
+            It.IsAny<SparePartStockTransaction>(), It.IsAny<string?>(), default)).ReturnsAsync(true);
 
         var result = await BuildService(planRepo, partRepo).AdjustStockAsync(
             "SP001", 5m, Adjustment("idem-parts-in"));
@@ -306,7 +316,7 @@ public sealed class MaintenancePlanServiceTests
                 && x.TransactionType == "Incoming"
                 && x.BalanceBefore == 10m
                 && x.BalanceAfter == 15m
-                && x.Quantity == 5m), default), Times.Once);
+                && x.Quantity == 5m), It.IsAny<string?>(), default), Times.Once);
     }
 
     [Fact]
@@ -317,10 +327,10 @@ public sealed class MaintenancePlanServiceTests
         var partRepo = new Mock<ISparePartRepository>();
         partRepo.Setup(r => r.GetByIdAsync("SP001", default)).ReturnsAsync(part);
         partRepo.Setup(r => r.IsUsageScopeValidAsync(
-                "SP001", "EQ001", "BOM001", "WO001", default))
+                "SP001", "EQ001", "CLASS01", "BOM001", "WO001", default))
             .ReturnsAsync(true);
         partRepo.Setup(r => r.PersistAdjustmentAsync(
-            It.IsAny<SparePartStockTransaction>(), default)).ReturnsAsync(true);
+            It.IsAny<SparePartStockTransaction>(), It.IsAny<string?>(), default)).ReturnsAsync(true);
         var context = Adjustment("idem-parts-usage", "Usage") with { BomItemId = "BOM001" };
 
         var result = await BuildService(planRepo, partRepo).AdjustStockAsync(
@@ -335,7 +345,7 @@ public sealed class MaintenancePlanServiceTests
                 && x.Usage.EquipmentId == "EQ001"
                 && x.Usage.WorkOrderId == "WO001"
                 && x.Usage.Quantity == 2m
-                && x.Usage.UsedBy == "maintenance-login"), default), Times.Once);
+                && x.Usage.UsedBy == "maintenance-login"), "CLASS01", default), Times.Once);
     }
 
     [Fact]
@@ -346,7 +356,7 @@ public sealed class MaintenancePlanServiceTests
         var partRepo = new Mock<ISparePartRepository>();
         partRepo.Setup(r => r.GetByIdAsync("SP001", default)).ReturnsAsync(part);
         partRepo.Setup(r => r.IsUsageScopeValidAsync(
-                "SP001", "EQ001", "BOM-WRONG", "WO001", default))
+                "SP001", "EQ001", "CLASS01", "BOM-WRONG", "WO001", default))
             .ReturnsAsync(false);
         var context = Adjustment("idem-parts-invalid-scope", "Usage") with
         {
@@ -359,19 +369,18 @@ public sealed class MaintenancePlanServiceTests
         result.IsFailure.Should().BeTrue();
         part.CurrentStock.Should().Be(10m, "a rejected usage must not mutate the loaded aggregate");
         partRepo.Verify(r => r.PersistAdjustmentAsync(
-            It.IsAny<SparePartStockTransaction>(), default), Times.Never);
+            It.IsAny<SparePartStockTransaction>(), It.IsAny<string?>(), default), Times.Never);
     }
 
-    [Fact]
-    public async Task AdjustStock_usage_without_equipment_keeps_legacy_stock_ledger_behavior()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Usage")]
+    public async Task AdjustStock_usage_without_equipment_is_rejected_before_loading_stock(
+        string? transactionType)
     {
-        var part = TestPart();
         var planRepo = new Mock<IMaintenancePlanRepository>();
         var partRepo = new Mock<ISparePartRepository>();
-        partRepo.Setup(r => r.GetByIdAsync("SP001", default)).ReturnsAsync(part);
-        partRepo.Setup(r => r.PersistAdjustmentAsync(
-            It.IsAny<SparePartStockTransaction>(), default)).ReturnsAsync(true);
-        var context = Adjustment("idem-parts-legacy-usage", "Usage") with
+        var context = Adjustment("idem-parts-no-equipment-usage", transactionType) with
         {
             EquipmentId = null
         };
@@ -379,14 +388,40 @@ public sealed class MaintenancePlanServiceTests
         var result = await BuildService(planRepo, partRepo).AdjustStockAsync(
             "SP001", -2m, context);
 
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be(nameof(SparePartAdjustmentContext.EquipmentId));
+        partRepo.Verify(r => r.GetByIdAsync(It.IsAny<string>(), default), Times.Never);
+        partRepo.Verify(r => r.PersistAdjustmentAsync(
+            It.IsAny<SparePartStockTransaction>(), It.IsAny<string?>(), default), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("Scrap")]
+    [InlineData("Adjustment")]
+    public async Task AdjustStock_equipment_independent_decrease_requires_explicit_non_usage_type(
+        string transactionType)
+    {
+        var part = TestPart();
+        var planRepo = new Mock<IMaintenancePlanRepository>();
+        var partRepo = new Mock<ISparePartRepository>();
+        partRepo.Setup(r => r.GetByIdAsync("SP001", default)).ReturnsAsync(part);
+        partRepo.Setup(r => r.PersistAdjustmentAsync(
+            It.IsAny<SparePartStockTransaction>(), It.IsAny<string?>(), default)).ReturnsAsync(true);
+        var context = Adjustment($"idem-parts-{transactionType}", transactionType) with
+        {
+            EquipmentId = null,
+            WorkOrderId = null
+        };
+
+        var result = await BuildService(planRepo, partRepo).AdjustStockAsync(
+            "SP001", -2m, context);
+
         result.IsSuccess.Should().BeTrue();
-        partRepo.Verify(r => r.IsUsageScopeValidAsync(
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(),
-            It.IsAny<string?>(), default), Times.Never);
         partRepo.Verify(r => r.PersistAdjustmentAsync(
             It.Is<SparePartStockTransaction>(x => x.Usage == null
-                && x.TransactionType == "Usage"
-                && x.WorkOrderId == "WO001"), default), Times.Once);
+                && x.EquipmentId == null
+                && x.TransactionType == transactionType
+                && x.BalanceAfter == 8m), null, default), Times.Once);
     }
 
     [Fact]
@@ -406,7 +441,7 @@ public sealed class MaintenancePlanServiceTests
 
         result.IsFailure.Should().BeTrue();
         partRepo.Verify(r => r.PersistAdjustmentAsync(
-            It.IsAny<SparePartStockTransaction>(), default), Times.Never);
+            It.IsAny<SparePartStockTransaction>(), It.IsAny<string?>(), default), Times.Never);
     }
 
     [Fact]
@@ -430,7 +465,7 @@ public sealed class MaintenancePlanServiceTests
         var partRepo = new Mock<ISparePartRepository>();
         partRepo.Setup(r => r.GetByIdAsync("SP001", default)).ReturnsAsync(part);
         partRepo.Setup(r => r.IsUsageScopeValidAsync(
-                "SP001", "EQ001", null, "WO001", default))
+                "SP001", "EQ001", "CLASS01", null, "WO001", default))
             .ReturnsAsync(true);
 
         var result = await BuildService(planRepo, partRepo).AdjustStockAsync(
@@ -438,7 +473,7 @@ public sealed class MaintenancePlanServiceTests
 
         result.IsFailure.Should().BeTrue();
         partRepo.Verify(r => r.PersistAdjustmentAsync(
-            It.IsAny<SparePartStockTransaction>(), default), Times.Never);
+            It.IsAny<SparePartStockTransaction>(), It.IsAny<string?>(), default), Times.Never);
     }
 
     [Fact]
@@ -462,6 +497,60 @@ public sealed class MaintenancePlanServiceTests
         result.IsSuccess.Should().BeTrue();
         partRepo.Verify(r => r.GetByIdAsync(It.IsAny<string>(), default), Times.Never);
         partRepo.Verify(r => r.PersistAdjustmentAsync(
-            It.IsAny<SparePartStockTransaction>(), default), Times.Never);
+            It.IsAny<SparePartStockTransaction>(), It.IsAny<string?>(), default), Times.Never);
+    }
+
+    [Fact]
+    public async Task AdjustStock_guard_race_replays_the_same_idempotency_winner()
+    {
+        var part = TestPart();
+        var winner = new SparePartStockTransaction(
+            "TX-WINNER", "SP001", "Usage", 2m, 10m, 8m,
+            "maintenance-login", DateTime.UtcNow, "idem-parts-race", "MES",
+            "PANEL-01", "corr-parts", "WO001", "EQ001", "A-01", null,
+            "bearing replacement",
+            new SparePartUsage(
+                "US-WINNER", "TX-WINNER", "SP001", null, "EQ001", "WO001", 2m,
+                "maintenance-login", DateTime.UtcNow, "bearing replacement"));
+        var planRepo = new Mock<IMaintenancePlanRepository>();
+        var partRepo = new Mock<ISparePartRepository>();
+        partRepo.SetupSequence(r => r.GetTransactionByIdempotencyKeyAsync("idem-parts-race", default))
+            .ReturnsAsync((SparePartStockTransaction?)null)
+            .ReturnsAsync(winner);
+        partRepo.Setup(r => r.GetByIdAsync("SP001", default)).ReturnsAsync(part);
+        partRepo.Setup(r => r.IsUsageScopeValidAsync(
+                "SP001", "EQ001", "CLASS01", null, "WO001", default))
+            .ReturnsAsync(true);
+        partRepo.Setup(r => r.PersistAdjustmentAsync(
+            It.IsAny<SparePartStockTransaction>(), It.IsAny<string?>(), default)).ReturnsAsync(false);
+
+        var result = await BuildService(planRepo, partRepo).AdjustStockAsync(
+            "SP001", -2m, Adjustment("idem-parts-race", "Usage"));
+
+        result.IsSuccess.Should().BeTrue();
+        partRepo.Verify(r => r.GetTransactionByIdempotencyKeyAsync("idem-parts-race", default),
+            Times.Exactly(2));
+    }
+
+    private sealed class TestEquipmentDirectory : IEquipmentDirectory
+    {
+        public Task<IReadOnlyList<string>> GetEquipmentIdsByPlantAsync(
+            string plantId,
+            CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<string>>(["EQ001"]);
+
+        public Task<EquipmentDirectoryEntry?> GetEquipmentAsync(
+            string equipmentId,
+            CancellationToken ct = default)
+            => Task.FromResult<EquipmentDirectoryEntry?>(
+                string.Equals(equipmentId, "EQ001", StringComparison.OrdinalIgnoreCase)
+                    ? new EquipmentDirectoryEntry(equipmentId, "PLANT01", "CLASS01", true)
+                    : null);
+
+        public Task<bool> EquipmentClassExistsAsync(
+            string equipmentClassId,
+            CancellationToken ct = default)
+            => Task.FromResult(string.Equals(
+                equipmentClassId, "CLASS01", StringComparison.OrdinalIgnoreCase));
     }
 }

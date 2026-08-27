@@ -2,6 +2,7 @@ using Moq;
 using NexaOne.RMS.Application.Rms;
 using NexaOne.RMS.Domain;
 using NexaOne.Common;
+using NexaOne.ServiceContracts.Rms;
 
 namespace NexaOne.UnitTests.Services;
 
@@ -20,10 +21,53 @@ public sealed class RecipeServiceTests
         return r;
     }
 
+    private static Recipe RecipeAtState(RecipeApprovalState state)
+    {
+        var recipe = DraftRecipe();
+        if (state == RecipeApprovalState.Draft) return recipe;
+        recipe.RequestApproval();
+        if (state == RecipeApprovalState.WaitApproval) return recipe;
+        if (state == RecipeApprovalState.Rejected)
+        {
+            recipe.Reject("revise");
+            return recipe;
+        }
+        recipe.Approve1("user01");
+        if (state == RecipeApprovalState.Approved1) return recipe;
+        recipe.Approve2("user02");
+        if (state == RecipeApprovalState.Approved) return recipe;
+        recipe.Release("user03");
+        return recipe;
+    }
+
     private RecipeService BuildService(
         Mock<IRecipeRepository> repo,
         Mock<IRecipeParamRepository>? paramRepo = null) =>
         new(repo.Object, (paramRepo ?? new Mock<IRecipeParamRepository>()).Object);
+
+    private static RecipeCommandContext Context(string actor, string key = "recipe-command-key")
+        => new(actor, key);
+
+    private static RecipeParamUpdateCommand ParamUpdate(
+        RecipeParam parameter, string newValue = "190", string key = "recipe-param-key")
+        => new(parameter.Id, newValue, parameter.Version, key, "engineer-1");
+
+    private static RecipeCreateCommand CreateCommand(
+        string id = "RCP001", string key = "recipe-create-key")
+        => new(id, "Test Recipe", "desc", "CLASS01", key, "engineer-1");
+
+    private static RecipeParamAddCommand ParamAdd(
+        string recipeId, string paramId = "PARAM02", string key = "recipe-param-add-key")
+        => new(paramId, recipeId, "Pressure", "2", "bar", 2, key, "engineer-1");
+
+    private static RecipeParamDeleteCommand ParamDelete(
+        RecipeParam parameter, string key = "recipe-param-delete-key")
+        => new(parameter.Id, parameter.Version, key, "engineer-1");
+
+    private static RecipeVersionCreateCommand VersionCommand(
+        string sourceId = "RCP001", string newId = "RCP001_v2",
+        string key = "recipe-version-key")
+        => new(sourceId, newId, key, "engineer-1");
 
     [Fact]
     public async Task GetRecipes_without_filters_delegates_as_unfiltered_list()
@@ -62,23 +106,27 @@ public sealed class RecipeServiceTests
     public async Task CreateRecipe_valid_data_succeeds()
     {
         var repo = new Mock<IRecipeRepository>();
-        repo.Setup(r => r.AddAsync(It.IsAny<Recipe>(), default)).Returns(Task.CompletedTask);
+        repo.Setup(r => r.TryAddAsync(
+            It.IsAny<Recipe>(), It.IsAny<RecipeWriteRecord>(), default)).ReturnsAsync(true);
 
-        var result = await BuildService(repo).CreateRecipeAsync("RCP001", "Test Recipe", "desc", "CLASS01");
+        var result = await BuildService(repo).CreateRecipeAsync(CreateCommand());
 
         result.IsSuccess.Should().BeTrue();
         result.Value.ApprovalState.Should().Be(RecipeApprovalState.Draft);
         result.Value.Version.Should().Be(1);
-        repo.Verify(r => r.AddAsync(It.IsAny<Recipe>(), default), Times.Once);
+        repo.Verify(r => r.TryAddAsync(
+            It.IsAny<Recipe>(), It.Is<RecipeWriteRecord>(w =>
+                w.CommandType == "Create" && w.ActorId == "engineer-1"), default), Times.Once);
     }
 
     [Fact]
     public async Task CreateRecipe_missing_id_fails()
     {
         var repo = new Mock<IRecipeRepository>();
-        var result = await BuildService(repo).CreateRecipeAsync("", "Test Recipe", "desc", "CLASS01");
+        var result = await BuildService(repo).CreateRecipeAsync(CreateCommand(id: ""));
         result.IsFailure.Should().BeTrue();
-        repo.Verify(r => r.AddAsync(It.IsAny<Recipe>(), default), Times.Never);
+        repo.Verify(r => r.TryAddAsync(
+            It.IsAny<Recipe>(), It.IsAny<RecipeWriteRecord>(), default), Times.Never);
     }
 
     // ── RequestApprovalAsync ──────────────────────────────────────────────────
@@ -89,9 +137,14 @@ public sealed class RecipeServiceTests
         var recipe = DraftRecipe();
         var repo = new Mock<IRecipeRepository>();
         repo.Setup(r => r.GetByIdAsync("RCP001", default)).ReturnsAsync(recipe);
-        repo.Setup(r => r.UpdateAsync(It.IsAny<Recipe>(), default)).Returns(Task.CompletedTask);
+        repo.Setup(r => r.TryTransitionAsync(
+                It.IsAny<Recipe>(), RecipeApprovalState.Draft,
+                It.Is<RecipeTransitionWrite>(write =>
+                    write.ActorId == "requester" && write.IdempotencyKey == "request-key"), default))
+            .ReturnsAsync(true);
 
-        var result = await BuildService(repo).RequestApprovalAsync("RCP001");
+        var result = await BuildService(repo).RequestApprovalAsync(
+            "RCP001", Context("requester", "request-key"));
 
         result.IsSuccess.Should().BeTrue();
         recipe.ApprovalState.Should().Be(RecipeApprovalState.WaitApproval);
@@ -103,7 +156,8 @@ public sealed class RecipeServiceTests
         var repo = new Mock<IRecipeRepository>();
         repo.Setup(r => r.GetByIdAsync("RXXX", default)).ReturnsAsync((Recipe?)null);
 
-        var result = await BuildService(repo).RequestApprovalAsync("RXXX");
+        var result = await BuildService(repo).RequestApprovalAsync(
+            "RXXX", Context("requester", "missing-key"));
 
         result.IsFailure.Should().BeTrue();
     }
@@ -117,9 +171,13 @@ public sealed class RecipeServiceTests
         recipe.RequestApproval();
         var repo = new Mock<IRecipeRepository>();
         repo.Setup(r => r.GetByIdAsync("RCP001", default)).ReturnsAsync(recipe);
-        repo.Setup(r => r.UpdateAsync(It.IsAny<Recipe>(), default)).Returns(Task.CompletedTask);
+        repo.Setup(r => r.TryTransitionAsync(
+                It.IsAny<Recipe>(), RecipeApprovalState.WaitApproval,
+                It.Is<RecipeTransitionWrite>(write => write.ActorId == "approver01"), default))
+            .ReturnsAsync(true);
 
-        var result = await BuildService(repo).Approve1Async("RCP001", "approver01");
+        var result = await BuildService(repo).Approve1Async(
+            "RCP001", Context("approver01"));
 
         result.IsSuccess.Should().BeTrue();
         recipe.ApprovalState.Should().Be(RecipeApprovalState.Approved1);
@@ -132,10 +190,13 @@ public sealed class RecipeServiceTests
         var repo = new Mock<IRecipeRepository>();
         repo.Setup(r => r.GetByIdAsync("RCP001", default)).ReturnsAsync(recipe);
 
-        var result = await BuildService(repo).Approve1Async("RCP001", "approver01");
+        var result = await BuildService(repo).Approve1Async(
+            "RCP001", Context("approver01"));
 
         result.IsFailure.Should().BeTrue();
-        repo.Verify(r => r.UpdateAsync(It.IsAny<Recipe>(), default), Times.Never);
+        repo.Verify(r => r.TryTransitionAsync(
+            It.IsAny<Recipe>(), It.IsAny<RecipeApprovalState>(), It.IsAny<RecipeTransitionWrite>(),
+            default), Times.Never);
     }
 
     // ── Approve2Async ─────────────────────────────────────────────────────────
@@ -148,9 +209,13 @@ public sealed class RecipeServiceTests
         recipe.Approve1("user01");
         var repo = new Mock<IRecipeRepository>();
         repo.Setup(r => r.GetByIdAsync("RCP001", default)).ReturnsAsync(recipe);
-        repo.Setup(r => r.UpdateAsync(It.IsAny<Recipe>(), default)).Returns(Task.CompletedTask);
+        repo.Setup(r => r.TryTransitionAsync(
+                It.IsAny<Recipe>(), RecipeApprovalState.Approved1,
+                It.Is<RecipeTransitionWrite>(write => write.ActorId == "user02"), default))
+            .ReturnsAsync(true);
 
-        var result = await BuildService(repo).Approve2Async("RCP001", "user02");
+        var result = await BuildService(repo).Approve2Async(
+            "RCP001", Context("user02"));
 
         result.IsSuccess.Should().BeTrue();
         recipe.ApprovalState.Should().Be(RecipeApprovalState.Approved);
@@ -165,7 +230,8 @@ public sealed class RecipeServiceTests
         var repo = new Mock<IRecipeRepository>();
         repo.Setup(r => r.GetByIdAsync("RCP001", default)).ReturnsAsync(recipe);
 
-        var result = await BuildService(repo).Approve2Async("RCP001", "user01");
+        var result = await BuildService(repo).Approve2Async(
+            "RCP001", Context("user01"));
 
         result.IsFailure.Should().BeTrue();
     }
@@ -181,13 +247,38 @@ public sealed class RecipeServiceTests
         recipe.Approve2("user02");
         var repo = new Mock<IRecipeRepository>();
         repo.Setup(r => r.GetByIdAsync("RCP001", default)).ReturnsAsync(recipe);
-        repo.Setup(r => r.UpdateAsync(It.IsAny<Recipe>(), default)).Returns(Task.CompletedTask);
+        repo.Setup(r => r.TryTransitionAsync(
+                It.IsAny<Recipe>(), RecipeApprovalState.Approved,
+                It.Is<RecipeTransitionWrite>(write => write.ActorId == "user03"), default))
+            .ReturnsAsync(true);
 
-        var result = await BuildService(repo).ReleaseAsync("RCP001", "user03");
+        var result = await BuildService(repo).ReleaseAsync(
+            "RCP001", Context("user03"));
 
         result.IsSuccess.Should().BeTrue();
         recipe.ApprovalState.Should().Be(RecipeApprovalState.Released);
         recipe.ReleasedAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Concurrent_approval_transition_loser_returns_conflict()
+    {
+        var recipe = RecipeAtState(RecipeApprovalState.Approved);
+        var repo = new Mock<IRecipeRepository>();
+        repo.Setup(r => r.GetByIdAsync(recipe.Id, default)).ReturnsAsync(recipe);
+        repo.Setup(r => r.TryTransitionAsync(
+                It.IsAny<Recipe>(), RecipeApprovalState.Approved,
+                It.Is<RecipeTransitionWrite>(write => write.ActorId == "user03"), default))
+            .ReturnsAsync(false);
+
+        var result = await BuildService(repo).ReleaseAsync(
+            recipe.Id, Context("user03"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("RMS.Recipe.ConcurrentTransition");
+        repo.Verify(r => r.TryTransitionAsync(
+            It.IsAny<Recipe>(), RecipeApprovalState.Approved,
+            It.Is<RecipeTransitionWrite>(write => write.ActorId == "user03"), default), Times.Once);
     }
 
     // ── RejectAsync ───────────────────────────────────────────────────────────
@@ -199,9 +290,14 @@ public sealed class RecipeServiceTests
         recipe.RequestApproval();
         var repo = new Mock<IRecipeRepository>();
         repo.Setup(r => r.GetByIdAsync("RCP001", default)).ReturnsAsync(recipe);
-        repo.Setup(r => r.UpdateAsync(It.IsAny<Recipe>(), default)).Returns(Task.CompletedTask);
+        repo.Setup(r => r.TryTransitionAsync(
+                It.IsAny<Recipe>(), RecipeApprovalState.WaitApproval,
+                It.Is<RecipeTransitionWrite>(write =>
+                    write.ActorId == "reviewer" && write.Reason == "Does not meet spec"), default))
+            .ReturnsAsync(true);
 
-        var result = await BuildService(repo).RejectAsync("RCP001", "Does not meet spec");
+        var result = await BuildService(repo).RejectAsync(
+            "RCP001", "Does not meet spec", Context("reviewer"));
 
         result.IsSuccess.Should().BeTrue();
         recipe.ApprovalState.Should().Be(RecipeApprovalState.Rejected);
@@ -215,9 +311,27 @@ public sealed class RecipeServiceTests
         var repo = new Mock<IRecipeRepository>();
         repo.Setup(r => r.GetByIdAsync("RCP001", default)).ReturnsAsync(recipe);
 
-        var result = await BuildService(repo).RejectAsync("RCP001", "");
+        var result = await BuildService(repo).RejectAsync(
+            "RCP001", "", Context("reviewer"));
 
         result.IsFailure.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Rejecting_an_already_rejected_recipe_with_a_new_key_is_not_a_noop_transition()
+    {
+        var recipe = RecipeAtState(RecipeApprovalState.Rejected);
+        var repo = new Mock<IRecipeRepository>();
+        repo.Setup(r => r.GetByIdAsync(recipe.Id, default)).ReturnsAsync(recipe);
+
+        var result = await BuildService(repo).RejectAsync(
+            recipe.Id, "another reason", Context("reviewer", "new-reject-key"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Description.Should().Contain("already Rejected");
+        repo.Verify(r => r.TryTransitionAsync(
+            It.IsAny<Recipe>(), It.IsAny<RecipeApprovalState>(),
+            It.IsAny<RecipeTransitionWrite>(), default), Times.Never);
     }
 
     // ── GetCountByStateAsync ──────────────────────────────────────────────────
@@ -240,11 +354,15 @@ public sealed class RecipeServiceTests
     // ── CreateNewVersionAsync ─────────────────────────────────────────────────
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task Released_recipe_blocks_parameter_update_and_delete(bool update)
+    [InlineData(RecipeApprovalState.WaitApproval)]
+    [InlineData(RecipeApprovalState.Approved1)]
+    [InlineData(RecipeApprovalState.Approved)]
+    [InlineData(RecipeApprovalState.Released)]
+    [InlineData(RecipeApprovalState.Rejected)]
+    public async Task Only_draft_recipe_can_add_update_or_delete_parameters(
+        RecipeApprovalState state)
     {
-        var recipe = ReleasedRecipe();
+        var recipe = RecipeAtState(state);
         var parameter = RecipeParam.Restore("PARAM01", recipe.Id, "Temperature", "180", "C", 1);
         var repo = new Mock<IRecipeRepository>();
         repo.Setup(r => r.GetByIdAsync(recipe.Id, default)).ReturnsAsync(recipe);
@@ -252,15 +370,23 @@ public sealed class RecipeServiceTests
         paramRepo.Setup(r => r.GetByIdAsync(parameter.Id, default)).ReturnsAsync(parameter);
         var service = BuildService(repo, paramRepo);
 
-        var result = update
-            ? await service.UpdateParamAsync(parameter.Id, "190")
-            : await service.DeleteParamAsync(parameter.Id);
+        var add = await service.AddParamAsync(ParamAdd(recipe.Id));
+        var update = await service.UpdateParamAsync(ParamUpdate(parameter));
+        var delete = await service.DeleteParamAsync(ParamDelete(parameter));
 
-        result.IsFailure.Should().BeTrue();
-        result.Error.Description.Should().Contain("Released");
+        add.IsFailure.Should().BeTrue();
+        update.IsFailure.Should().BeTrue();
+        delete.IsFailure.Should().BeTrue();
+        add.Error.Description.Should().Contain("Draft");
+        update.Error.Description.Should().Contain("Draft");
+        delete.Error.Description.Should().Contain("Draft");
         parameter.ParamValue.Should().Be("180");
-        paramRepo.Verify(r => r.UpdateAsync(It.IsAny<RecipeParam>(), default), Times.Never);
-        paramRepo.Verify(r => r.DeleteAsync(It.IsAny<string>(), default), Times.Never);
+        paramRepo.Verify(r => r.TryAddAsync(
+            It.IsAny<RecipeParam>(), It.IsAny<RecipeParamWriteRecord>(), It.IsAny<CancellationToken>()), Times.Never);
+        paramRepo.Verify(r => r.TryUpdateAsync(
+            It.IsAny<RecipeParamWriteRecord>(), It.IsAny<CancellationToken>()), Times.Never);
+        paramRepo.Verify(r => r.TryDeleteAsync(
+            It.IsAny<RecipeParamWriteRecord>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Theory]
@@ -274,18 +400,23 @@ public sealed class RecipeServiceTests
         repo.Setup(r => r.GetByIdAsync(recipe.Id, default)).ReturnsAsync(recipe);
         var paramRepo = new Mock<IRecipeParamRepository>();
         paramRepo.Setup(r => r.GetByIdAsync(parameter.Id, default)).ReturnsAsync(parameter);
-        paramRepo.Setup(r => r.TryUpdateIfRecipeEditableAsync(parameter, default)).ReturnsAsync(false);
-        paramRepo.Setup(r => r.TryDeleteIfRecipeEditableAsync(parameter.Id, default)).ReturnsAsync(false);
+        paramRepo.Setup(r => r.TryUpdateAsync(
+            It.IsAny<RecipeParamWriteRecord>(), default)).ReturnsAsync(false);
+        paramRepo.Setup(r => r.TryDeleteAsync(
+            It.IsAny<RecipeParamWriteRecord>(), default)).ReturnsAsync(false);
 
         var result = update
-            ? await BuildService(repo, paramRepo).UpdateParamAsync(parameter.Id, "190")
-            : await BuildService(repo, paramRepo).DeleteParamAsync(parameter.Id);
+            ? await BuildService(repo, paramRepo).UpdateParamAsync(ParamUpdate(parameter))
+            : await BuildService(repo, paramRepo).DeleteParamAsync(ParamDelete(parameter));
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Description.Should().ContainEquivalentOf("released");
+        if (update)
+            result.Error.Code.Should().Be("RMS.RecipeParam.ConcurrentUpdate");
+        else
+            result.Error.Code.Should().Be("RMS.RecipeParam.ConcurrentDelete");
         parameter.ParamValue.Should().Be("180", "a rejected guarded update must not leak a changed aggregate");
-        paramRepo.Verify(r => r.UpdateAsync(It.IsAny<RecipeParam>(), default), Times.Never);
-        paramRepo.Verify(r => r.DeleteAsync(It.IsAny<string>(), default), Times.Never);
+        paramRepo.Verify(r => r.TryDeleteAsync(
+            It.IsAny<RecipeParamWriteRecord>(), default), update ? Times.Never() : Times.Once());
     }
 
     [Fact]
@@ -295,16 +426,19 @@ public sealed class RecipeServiceTests
         var repo = new Mock<IRecipeRepository>();
         repo.Setup(r => r.GetByIdAsync(recipe.Id, default)).ReturnsAsync(recipe);
         var paramRepo = new Mock<IRecipeParamRepository>();
-        paramRepo.Setup(r => r.TryAddIfRecipeEditableAsync(
-                It.IsAny<RecipeParam>(), default))
+        paramRepo.Setup(r => r.TryAddAsync(
+                It.IsAny<RecipeParam>(), It.IsAny<RecipeParamWriteRecord>(), default))
             .ReturnsAsync(false);
 
         var result = await BuildService(repo, paramRepo).AddParamAsync(
-            "PARAM01", recipe.Id, "Temperature", "180", "C", 1);
+            new RecipeParamAddCommand(
+                "PARAM01", recipe.Id, "Temperature", "180", "C", 1,
+                "add-race-key", "engineer-1"));
 
         result.IsFailure.Should().BeTrue();
-        result.Error.Description.Should().ContainEquivalentOf("released");
-        paramRepo.Verify(r => r.AddAsync(It.IsAny<RecipeParam>(), default), Times.Never);
+        result.Error.Description.Should().ContainEquivalentOf("Draft");
+        paramRepo.Verify(r => r.TryAddAsync(
+            It.IsAny<RecipeParam>(), It.IsAny<RecipeParamWriteRecord>(), default), Times.Once);
     }
 
     [Fact]
@@ -320,19 +454,20 @@ public sealed class RecipeServiceTests
         repo.Setup(r => r.GetByIdAsync("RCP001", default)).ReturnsAsync(source);
         Recipe? persistedHeader = null;
         IReadOnlyList<RecipeParam>? persistedParams = null;
-        repo.Setup(r => r.AddVersionAsync(
-                It.IsAny<Recipe>(), It.IsAny<IReadOnlyList<RecipeParam>>(), default))
-            .Callback<Recipe, IReadOnlyList<RecipeParam>, CancellationToken>((header, parameters, _) =>
+        repo.Setup(r => r.TryAddVersionAsync(
+                It.IsAny<Recipe>(), It.IsAny<IReadOnlyList<RecipeParam>>(),
+                It.IsAny<RecipeWriteRecord>(), default))
+            .Callback<Recipe, IReadOnlyList<RecipeParam>, RecipeWriteRecord, CancellationToken>((header, parameters, _, _) =>
             {
                 persistedHeader = header;
                 persistedParams = parameters;
             })
-            .Returns(Task.CompletedTask);
+            .ReturnsAsync(true);
         var paramRepo = new Mock<IRecipeParamRepository>();
         paramRepo.Setup(r => r.GetByRecipeAsync(source.Id, default)).ReturnsAsync(sourceParams);
 
         var result = await BuildService(repo, paramRepo)
-            .CreateNewVersionAsync("RCP001", "RCP001_v2");
+            .CreateNewVersionAsync(VersionCommand());
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Version.Should().Be(2);
@@ -348,8 +483,10 @@ public sealed class RecipeServiceTests
         copiedParams.Select(parameter => (parameter.ParamName, parameter.ParamValue, parameter.Unit, parameter.SortOrder))
             .Should().Equal(sourceParams.Select(parameter =>
                 (parameter.ParamName, parameter.ParamValue, parameter.Unit, parameter.SortOrder)));
-        repo.Verify(r => r.AddAsync(It.IsAny<Recipe>(), It.IsAny<CancellationToken>()), Times.Never,
-            "header만 별도 커밋하면 parameter 복사 실패 시 빈 버전이 남을 수 있다");
+        repo.Verify(r => r.TryAddVersionAsync(
+            It.IsAny<Recipe>(), It.IsAny<IReadOnlyList<RecipeParam>>(),
+            It.Is<RecipeWriteRecord>(w => w.ActorId == "engineer-1"), default), Times.Once,
+            "header·parameter·command ledger는 하나의 repository transaction이어야 한다");
     }
 
     [Fact]
@@ -359,11 +496,12 @@ public sealed class RecipeServiceTests
         var repo = new Mock<IRecipeRepository>();
         repo.Setup(r => r.GetByIdAsync("RCP001", default)).ReturnsAsync(source);
 
-        var result = await BuildService(repo).CreateNewVersionAsync("RCP001", "RCP001_v2");
+        var result = await BuildService(repo).CreateNewVersionAsync(VersionCommand());
 
         result.IsFailure.Should().BeTrue();
-        repo.Verify(r => r.AddVersionAsync(
-            It.IsAny<Recipe>(), It.IsAny<IReadOnlyList<RecipeParam>>(), default), Times.Never);
+        repo.Verify(r => r.TryAddVersionAsync(
+            It.IsAny<Recipe>(), It.IsAny<IReadOnlyList<RecipeParam>>(),
+            It.IsAny<RecipeWriteRecord>(), default), Times.Never);
     }
 
     [Fact]
@@ -372,8 +510,26 @@ public sealed class RecipeServiceTests
         var repo = new Mock<IRecipeRepository>();
         repo.Setup(r => r.GetByIdAsync("RXXX", default)).ReturnsAsync((Recipe?)null);
 
-        var result = await BuildService(repo).CreateNewVersionAsync("RXXX", "RXXX_v2");
+        var result = await BuildService(repo).CreateNewVersionAsync(
+            VersionCommand("RXXX", "RXXX_v2"));
 
         result.IsFailure.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CreateNewVersion_invalid_new_id_is_rejected_by_the_recipe_factory()
+    {
+        var source = ReleasedRecipe();
+        var repo = new Mock<IRecipeRepository>();
+        repo.Setup(r => r.GetByIdAsync(source.Id, default)).ReturnsAsync(source);
+
+        var result = await BuildService(repo).CreateNewVersionAsync(
+            VersionCommand(source.Id, "   ", "invalid-version-key"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Type.Should().Be(ErrorType.Validation);
+        repo.Verify(r => r.TryAddVersionAsync(
+            It.IsAny<Recipe>(), It.IsAny<IReadOnlyList<RecipeParam>>(),
+            It.IsAny<RecipeWriteRecord>(), default), Times.Never);
     }
 }

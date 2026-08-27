@@ -13,8 +13,15 @@ public sealed record OeeLotCounts(decimal TotalQty, decimal DefectQty);
 /// <summary>설비 OEE 목표(EST_OEE_TARGET). IdealCycleTimeSec=성능 계산 기준, PlannedMinutes=계획시간 폴백.</summary>
 public sealed record OeeTarget(decimal IdealCycleTimeSec, decimal PlannedMinutes);
 
-/// <summary>카테고리별 유실 시간(분) — EST_OEE_LOSS 적재용.</summary>
-public sealed record OeeLossLine(string Category, decimal Minutes);
+/// <summary>
+/// 한 번의 유실 발생 구간입니다. 같은 카테고리가 여러 번 발생해도 합치지 않아
+/// EST_OEE_LOSS의 행 수와 실제 상태 전이 시각이 발생 건수/시각을 보존합니다.
+/// </summary>
+public sealed record OeeLossLine(
+    string Category,
+    decimal Minutes,
+    DateTime OccurredAt,
+    DateTime EndedAt);
 
 /// <summary>계산된 OEE 지표 1행(설비×윈도). 비율은 분율(0~1)로 반올림 4자리.</summary>
 public sealed record OeeResult(
@@ -43,9 +50,9 @@ public static class OeeCalculator
     {
         // 상태별 구간 시간(분) 누적 — 카테고리 분류로 가동/비가동/계획/유실을 나눈다.
         decimal operating = 0m, downtime = 0m, planned = 0m, unscheduled = 0m, attributed = 0m;
-        var lossByCategory = new Dictionary<string, decimal>(StringComparer.Ordinal);
+        var losses = new List<OeeLossLine>();
 
-        void Attribute(string state, DateTime segStart, DateTime segEnd)
+        void Attribute(string state, DateTime segStart, DateTime segEnd, DateTime occurredAt)
         {
             // 윈도 밖으로 삐져나온 구간은 클램프하고, 0/음수 길이는 버린다.
             if (segStart < windowStart) segStart = windowStart;
@@ -61,7 +68,7 @@ public static class OeeCalculator
             if (cat.IsDowntime)
             {
                 downtime += minutes;
-                lossByCategory[cat.Category] = lossByCategory.GetValueOrDefault(cat.Category) + minutes;
+                losses.Add(new OeeLossLine(cat.Category, Round(minutes), occurredAt, segEnd));
             }
         }
 
@@ -70,11 +77,11 @@ public static class OeeCalculator
             // 정렬 보장(호출부가 ASC로 주더라도 방어적으로 정렬).
             var ordered = transitions.OrderBy(t => t.ChangedAt).ToList();
             // [윈도시작, 첫 전이) = 첫 전이의 이전 상태(FromState).
-            Attribute(ordered[0].FromState, windowStart, ordered[0].ChangedAt);
+            Attribute(ordered[0].FromState, windowStart, ordered[0].ChangedAt, windowStart);
             for (int i = 0; i < ordered.Count; i++)
             {
                 var segEnd = i + 1 < ordered.Count ? ordered[i + 1].ChangedAt : windowEnd;
-                Attribute(ordered[i].ToState, ordered[i].ChangedAt, segEnd);
+                Attribute(ordered[i].ToState, ordered[i].ChangedAt, segEnd, ordered[i].ChangedAt);
             }
         }
 
@@ -103,16 +110,11 @@ public static class OeeCalculator
             : 0m;
         var oee = availability * performance * quality;
 
-        var losses = lossByCategory
-            .Select(kv => new OeeLossLine(kv.Key, Round(kv.Value)))
-            .OrderByDescending(l => l.Minutes)
-            .ToList();
-
         return new OeeResult(
             Round(planned), Round(operating), Round(downtime),
             total, good, defect,
             Round(availability), Round(performance), Round(quality), Round(oee),
-            losses);
+            losses.OrderBy(static loss => loss.OccurredAt).ToArray());
     }
 
     private static decimal Clamp01(decimal v) => v < 0m ? 0m : v > 1m ? 1m : v;

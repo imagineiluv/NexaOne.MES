@@ -30,6 +30,7 @@
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.QMS\NexaOne.QMS.csproj" />
     <!-- POM Lot Mixing 원자화(DATA-3) SQLite 원자성 통합검증용 — 동일 패턴으로 POM 리포/서비스를 직접 구성한다. -->
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.POM\NexaOne.POM.csproj" />
+    <ProjectReference Include="..\..\src\04.Modules\NexaOne.PRC\NexaOne.PRC.csproj" />
     <!-- RMS Recipe 새 버전 header/parameter 원자 저장 및 복합 필터 통합검증용. -->
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.RMS\NexaOne.RMS.csproj" />
     <!-- SYS Approve 원자화(DATA-6) SQLite 원자성 통합검증용. -->
@@ -55,6 +56,7 @@
       <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.QMS.dll" />
       <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.EMS.dll" />
       <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.POM.dll" />
+      <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.PRC.dll" />
       <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.SHP.dll" />
       <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.SYS.dll" />
     </ItemGroup>

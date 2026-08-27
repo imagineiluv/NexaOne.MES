@@ -1,5 +1,6 @@
 using NexaOne.Common;
 using NexaOne.EMS.Domain;
+using NexaOne.ServiceContracts.Mdm;
 
 namespace NexaOne.EMS.Application.Ems;
 
@@ -7,11 +8,17 @@ public sealed class MaintenancePlanService
 {
     private readonly IMaintenancePlanRepository _planRepo;
     private readonly ISparePartRepository _partRepo;
+    private readonly IEquipmentDirectory _equipmentDirectory;
 
-    public MaintenancePlanService(IMaintenancePlanRepository planRepo, ISparePartRepository partRepo)
+    public MaintenancePlanService(
+        IMaintenancePlanRepository planRepo,
+        ISparePartRepository partRepo,
+        IEquipmentDirectory equipmentDirectory)
     {
-        _planRepo = planRepo;
-        _partRepo = partRepo;
+        _planRepo = planRepo ?? throw new ArgumentNullException(nameof(planRepo));
+        _partRepo = partRepo ?? throw new ArgumentNullException(nameof(partRepo));
+        _equipmentDirectory = equipmentDirectory
+                              ?? throw new ArgumentNullException(nameof(equipmentDirectory));
     }
 
     // ── Maintenance Plans ─────────────────────────────────────────────────────
@@ -142,18 +149,37 @@ public sealed class MaintenancePlanService
     public async Task<Result<SparePart>> CreatePartAsync(
         string partId, string partName, string partNumber, string description,
         string unitOfMeasure, decimal currentStock, decimal minStock, decimal maxStock,
-        string location, string? equipmentClassId, string actorId,
+        string location, string? equipmentClassId, MaintenanceCommandContext command,
         CancellationToken ct = default)
     {
-        var actor = Trimmed(actorId);
-        if (actor is null || actor.Length > 50)
-            return Result.Failure<SparePart>(Error.Validation(
-                nameof(actorId), "Authenticated spare-part actor is required and cannot exceed 50 characters."));
+        var normalized = Normalize(command);
+        if (normalized.IsFailure) return Result.Failure<SparePart>(normalized.Error);
+        command = normalized.Value;
         var result = SparePart.Create(partId, partName, partNumber, description,
             unitOfMeasure, currentStock, minStock, maxStock, location, equipmentClassId);
         if (result.IsFailure) return result;
-        await _partRepo.AddAsync(result.Value, actor, ct);
-        return result;
+
+        var replay = await _partRepo.GetTransactionByIdempotencyKeyAsync(
+            command.IdempotencyKey, ct);
+        if (replay is not null)
+            return await ReplayCreatedPartAsync(result.Value, replay, command, ct);
+
+        var now = DateTime.UtcNow;
+        var opening = new SparePartStockTransaction(
+            Guid.NewGuid().ToString("N"), result.Value.Id, "Opening", result.Value.CurrentStock,
+            0m, result.Value.CurrentStock, command.ActorId, now,
+            command.IdempotencyKey, command.ClientChannel, command.DeviceId,
+            command.CorrelationId, ToLocation: result.Value.Location,
+            Remark: "Opening balance");
+        if (await _partRepo.TryAddWithOpeningBalanceAsync(result.Value, opening, ct))
+            return result;
+
+        replay = await _partRepo.GetTransactionByIdempotencyKeyAsync(command.IdempotencyKey, ct);
+        if (replay is not null)
+            return await ReplayCreatedPartAsync(result.Value, replay, command, ct);
+        return Result.Failure<SparePart>(Error.Conflict(
+            "EMS.SparePart.IdentityConflict",
+            $"Spare part '{result.Value.Id}' already exists or changed concurrently."));
     }
 
     public async Task<Result> AdjustStockAsync(
@@ -170,8 +196,14 @@ public sealed class MaintenancePlanService
 
         var type = context.ResolveTransactionType(delta);
         if (type.IsFailure) return Result.Failure(type.Error);
+        var equipmentId = Trimmed(context.EquipmentId);
+        var isUsage = string.Equals(type.Value, "Usage", StringComparison.OrdinalIgnoreCase);
+        if (isUsage && equipmentId is null)
+            return Result.Failure(Error.Validation(
+                nameof(context.EquipmentId),
+                "EquipmentId is required for Usage. Use Scrap or Adjustment for an equipment-independent stock decrease."));
         if (Trimmed(context.BomItemId) is not null
-            && !string.Equals(type.Value, "Usage", StringComparison.OrdinalIgnoreCase))
+            && !isUsage)
             return Result.Failure(Error.Validation(
                 nameof(context.BomItemId), "BomItemId can only be supplied for a Usage adjustment."));
 
@@ -179,29 +211,21 @@ public sealed class MaintenancePlanService
             normalized.Value.IdempotencyKey, ct);
         if (existing is not null)
         {
-            var requestedEquipmentId = Trimmed(context.EquipmentId);
-            var requiresUsageLedger = string.Equals(type.Value, "Usage", StringComparison.OrdinalIgnoreCase)
-                                      && requestedEquipmentId is not null;
-            var same = string.Equals(existing.PartId, partId, StringComparison.OrdinalIgnoreCase)
-                       && existing.Delta == delta
-                       && string.Equals(existing.TransactionType, type.Value, StringComparison.OrdinalIgnoreCase)
-                       && string.Equals(existing.ActorId, normalized.Value.ActorId, StringComparison.OrdinalIgnoreCase)
-                       && string.Equals(existing.ClientChannel, normalized.Value.ClientChannel, StringComparison.OrdinalIgnoreCase)
-                       && string.Equals(Trimmed(existing.DeviceId), normalized.Value.DeviceId, StringComparison.OrdinalIgnoreCase)
-                       && string.Equals(Trimmed(existing.CorrelationId), normalized.Value.CorrelationId, StringComparison.OrdinalIgnoreCase)
-                       && string.Equals(Trimmed(existing.WorkOrderId), Trimmed(context.WorkOrderId), StringComparison.OrdinalIgnoreCase)
-                       && string.Equals(Trimmed(existing.EquipmentId), Trimmed(context.EquipmentId), StringComparison.OrdinalIgnoreCase)
-                       && (existing.Usage is not null) == requiresUsageLedger
-                       && string.Equals(Trimmed(existing.Usage?.BomItemId), Trimmed(context.BomItemId), StringComparison.OrdinalIgnoreCase)
-                       && (Trimmed(context.FromLocation) is null
-                           || string.Equals(Trimmed(existing.FromLocation), Trimmed(context.FromLocation), StringComparison.OrdinalIgnoreCase))
-                       && (Trimmed(context.ToLocation) is null
-                           || string.Equals(Trimmed(existing.ToLocation), Trimmed(context.ToLocation), StringComparison.OrdinalIgnoreCase))
-                       && string.Equals(Trimmed(existing.Remark), Trimmed(context.Remark), StringComparison.Ordinal);
-            return same
+            return SameAdjustment(existing, partId, delta, type.Value, normalized.Value, context, isUsage)
                 ? Result.Success()
-                : Result.Failure(Error.Conflict(
-                    $"Idempotency key '{normalized.Value.IdempotencyKey}' was already used by another spare-part adjustment."));
+                : Result.Failure(AdjustmentIdempotencyConflict(normalized.Value.IdempotencyKey));
+        }
+
+        EquipmentDirectoryEntry? usageEquipment = null;
+        if (isUsage)
+        {
+            usageEquipment = await _equipmentDirectory.GetEquipmentAsync(equipmentId!, ct);
+            if (usageEquipment is null)
+                return Result.Failure(Error.NotFoundOf("Equipment", equipmentId!));
+            if (!usageEquipment.IsValid)
+                return Result.Failure(Error.Conflict(
+                    "EMS.SparePart.EquipmentInactive",
+                    $"Equipment '{equipmentId}' is not active."));
         }
 
         var part = await _partRepo.GetByIdAsync(partId, ct);
@@ -209,16 +233,14 @@ public sealed class MaintenancePlanService
             return Result.Failure(Error.NotFoundOf(nameof(SparePart), partId));
 
         var command = normalized.Value;
-        var equipmentId = Trimmed(context.EquipmentId);
         var bomItemId = Trimmed(context.BomItemId);
         var workOrderId = Trimmed(context.WorkOrderId);
-        var requiresUsage = string.Equals(type.Value, "Usage", StringComparison.OrdinalIgnoreCase)
-                            && equipmentId is not null;
         if (bomItemId is not null && equipmentId is null)
             return Result.Failure(Error.Validation(
                 nameof(context.BomItemId), "EquipmentId is required when BomItemId is supplied."));
-        if (requiresUsage && !await _partRepo.IsUsageScopeValidAsync(
-                part.Id, equipmentId!, bomItemId, workOrderId, ct))
+        if (isUsage && !await _partRepo.IsUsageScopeValidAsync(
+                part.Id, equipmentId!, usageEquipment!.EquipmentClassId,
+                bomItemId, workOrderId, ct))
             return Result.Failure(Error.Validation(
                 nameof(context.EquipmentId),
                 "Equipment, BOM item, or maintenance work order does not match this spare-part usage."));
@@ -229,7 +251,7 @@ public sealed class MaintenancePlanService
 
         var inoutId = Guid.NewGuid().ToString("N");
         var transactionAt = DateTime.UtcNow;
-        var usage = requiresUsage
+        var usage = isUsage
             ? new SparePartUsage(
                 Guid.NewGuid().ToString("N"), inoutId, part.Id, bomItemId, equipmentId!,
                 workOrderId, Math.Abs(delta), command.ActorId, transactionAt,
@@ -243,12 +265,100 @@ public sealed class MaintenancePlanService
             Trimmed(context.FromLocation) ?? (delta < 0 ? part.Location : null),
             Trimmed(context.ToLocation) ?? (delta > 0 ? part.Location : null),
             Trimmed(context.Remark), usage);
-        var persisted = await _partRepo.PersistAdjustmentAsync(transaction, ct);
-        return persisted
-            ? Result.Success()
-            : Result.Failure(Error.Conflict(
-                "Spare-part stock changed concurrently; reload the balance before retrying."));
+        var persisted = await _partRepo.PersistAdjustmentAsync(
+            transaction, usageEquipment?.EquipmentClassId, ct);
+        if (persisted) return Result.Success();
+
+        var winner = await _partRepo.GetTransactionByIdempotencyKeyAsync(
+            command.IdempotencyKey, ct);
+        if (winner is not null)
+            return SameAdjustment(winner, partId, delta, type.Value, command, context, isUsage)
+                ? Result.Success()
+                : Result.Failure(AdjustmentIdempotencyConflict(command.IdempotencyKey));
+        return Result.Failure(Error.Conflict(
+            "Spare-part stock changed concurrently; reload the balance before retrying."));
     }
+
+    private async Task<Result<SparePart>> ReplayCreatedPartAsync(
+        SparePart requested,
+        SparePartStockTransaction opening,
+        MaintenanceCommandContext command,
+        CancellationToken ct)
+    {
+        var persisted = await _partRepo.GetByIdAsync(requested.Id, ct);
+        if (persisted is null)
+            return Result.Failure<SparePart>(Error.Conflict(
+                "EMS.SparePart.IdempotencyStateConflict",
+                "The opening-balance idempotency key exists but its spare-part master is missing."));
+
+        var same = string.Equals(opening.PartId, requested.Id, StringComparison.OrdinalIgnoreCase)
+                   && string.Equals(opening.TransactionType, "Opening", StringComparison.OrdinalIgnoreCase)
+                   && opening.Quantity == requested.CurrentStock
+                   && opening.BalanceBefore == 0m
+                   && opening.BalanceAfter == requested.CurrentStock
+                   && string.Equals(opening.ActorId, command.ActorId, StringComparison.OrdinalIgnoreCase)
+                   && string.Equals(opening.ClientChannel, command.ClientChannel, StringComparison.OrdinalIgnoreCase)
+                   && string.Equals(Trimmed(opening.DeviceId), command.DeviceId, StringComparison.OrdinalIgnoreCase)
+                   && string.Equals(Trimmed(opening.CorrelationId), command.CorrelationId, StringComparison.OrdinalIgnoreCase)
+                   && opening.WorkOrderId is null
+                   && opening.EquipmentId is null
+                   && opening.FromLocation is null
+                   && string.Equals(opening.ToLocation, requested.Location, StringComparison.Ordinal)
+                   && string.Equals(opening.Remark, "Opening balance", StringComparison.Ordinal)
+                   && SamePart(persisted, requested);
+        return same
+            ? Result.Success(persisted)
+            : Result.Failure<SparePart>(Error.Conflict(
+                "EMS.SparePart.IdempotencyConflict",
+                $"Idempotency key '{command.IdempotencyKey}' was already used for different spare-part data."));
+    }
+
+    private static bool SamePart(SparePart existing, SparePart requested) =>
+        string.Equals(existing.Id, requested.Id, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(existing.PartName, requested.PartName, StringComparison.Ordinal)
+        && string.Equals(existing.PartNumber, requested.PartNumber, StringComparison.Ordinal)
+        && string.Equals(existing.Description, requested.Description, StringComparison.Ordinal)
+        && string.Equals(existing.UnitOfMeasure, requested.UnitOfMeasure, StringComparison.OrdinalIgnoreCase)
+        && existing.CurrentStock == requested.CurrentStock
+        && existing.MinStock == requested.MinStock
+        && existing.MaxStock == requested.MaxStock
+        && string.Equals(existing.Location, requested.Location, StringComparison.Ordinal)
+        && string.Equals(existing.EquipmentClassId, requested.EquipmentClassId, StringComparison.OrdinalIgnoreCase);
+
+    private static bool SameAdjustment(
+        SparePartStockTransaction existing,
+        string partId,
+        decimal delta,
+        string transactionType,
+        MaintenanceCommandContext command,
+        SparePartAdjustmentContext context,
+        bool isUsage)
+        => string.Equals(existing.PartId, partId, StringComparison.OrdinalIgnoreCase)
+           && existing.Delta == delta
+           && string.Equals(existing.TransactionType, transactionType, StringComparison.OrdinalIgnoreCase)
+           && string.Equals(existing.ActorId, command.ActorId, StringComparison.OrdinalIgnoreCase)
+           && string.Equals(existing.ClientChannel, command.ClientChannel, StringComparison.OrdinalIgnoreCase)
+           && string.Equals(Trimmed(existing.DeviceId), command.DeviceId, StringComparison.OrdinalIgnoreCase)
+           && string.Equals(Trimmed(existing.CorrelationId), command.CorrelationId, StringComparison.OrdinalIgnoreCase)
+           && string.Equals(Trimmed(existing.WorkOrderId), Trimmed(context.WorkOrderId), StringComparison.OrdinalIgnoreCase)
+           && string.Equals(Trimmed(existing.EquipmentId), Trimmed(context.EquipmentId), StringComparison.OrdinalIgnoreCase)
+           && (existing.Usage is not null) == isUsage
+           && string.Equals(Trimmed(existing.Usage?.BomItemId), Trimmed(context.BomItemId), StringComparison.OrdinalIgnoreCase)
+           && (!isUsage
+               || (existing.Usage is not null
+                   && existing.Usage.Quantity == Math.Abs(delta)
+                   && string.Equals(Trimmed(existing.Usage.EquipmentId), Trimmed(context.EquipmentId), StringComparison.OrdinalIgnoreCase)
+                   && string.Equals(Trimmed(existing.Usage.WorkOrderId), Trimmed(context.WorkOrderId), StringComparison.OrdinalIgnoreCase)
+                   && string.Equals(existing.Usage.UsedBy, command.ActorId, StringComparison.OrdinalIgnoreCase)))
+           && (Trimmed(context.FromLocation) is null
+               || string.Equals(Trimmed(existing.FromLocation), Trimmed(context.FromLocation), StringComparison.OrdinalIgnoreCase))
+           && (Trimmed(context.ToLocation) is null
+               || string.Equals(Trimmed(existing.ToLocation), Trimmed(context.ToLocation), StringComparison.OrdinalIgnoreCase))
+           && string.Equals(Trimmed(existing.Remark), Trimmed(context.Remark), StringComparison.Ordinal);
+
+    private static Error AdjustmentIdempotencyConflict(string idempotencyKey) => Error.Conflict(
+        "EMS.SparePart.IdempotencyConflict",
+        $"Idempotency key '{idempotencyKey}' was already used by another spare-part adjustment.");
 
     private static string? Trimmed(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();

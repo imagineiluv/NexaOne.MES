@@ -16,7 +16,7 @@ public sealed class MaintenanceScheduleRepository : QueryRepository, IMaintenanc
         string maintenancePlanId,
         CancellationToken ct = default)
         => await CountAsync(
-            "SELECT COUNT(*) FROM EMS_MAINTENANCE_PLAN WHERE PLAN_ID=@maintenancePlanId",
+            "SELECT COUNT(*) FROM EMS_MAINTENANCE_PLAN WHERE PLAN_ID=@maintenancePlanId AND PLAN_TYPE='PM'",
             new { maintenancePlanId }, ct) > 0;
 
     public async Task<MaintenanceScheduleRecord?> GetAsync(
@@ -116,7 +116,8 @@ public sealed class MaintenanceScheduleRepository : QueryRepository, IMaintenanc
                @MeterBaselineValue, @NextMeterDueValue, @ConditionRuleId, @AutoCreateWorkOrder,
                @IsActive, @Version, @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt
         WHERE EXISTS (
-            SELECT 1 FROM EMS_MAINTENANCE_PLAN WHERE PLAN_ID=@MaintenancePlanId)
+            SELECT 1 FROM EMS_MAINTENANCE_PLAN
+             WHERE PLAN_ID=@MaintenancePlanId AND PLAN_TYPE='PM')
           AND NOT EXISTS (
             SELECT 1 FROM EMS_MAINTENANCE_SCHEDULE
              WHERE SCHEDULE_ID=@ScheduleId OR MAINTENANCE_PLAN_ID=@MaintenancePlanId)";
@@ -132,7 +133,8 @@ public sealed class MaintenanceScheduleRepository : QueryRepository, IMaintenanc
             AUTO_CREATE_WO=@AutoCreateWorkOrder, IS_ACTIVE=@IsActive,
             VERSION_NO=@Version, UPDATED_BY=@UpdatedBy, UPDATED_AT=@UpdatedAt
         WHERE SCHEDULE_ID=@ScheduleId AND VERSION_NO=@ExpectedVersion
-          AND EXISTS (SELECT 1 FROM EMS_MAINTENANCE_PLAN WHERE PLAN_ID=@MaintenancePlanId)
+          AND EXISTS (SELECT 1 FROM EMS_MAINTENANCE_PLAN
+                       WHERE PLAN_ID=@MaintenancePlanId AND PLAN_TYPE='PM')
           AND NOT EXISTS (
               SELECT 1 FROM EMS_MAINTENANCE_SCHEDULE
                WHERE MAINTENANCE_PLAN_ID=@MaintenancePlanId AND SCHEDULE_ID<>@ScheduleId)";
@@ -144,6 +146,8 @@ public sealed class MaintenanceScheduleRepository : QueryRepository, IMaintenanc
             NEXT_METER_DUE_VALUE=@NextMeterDueValue,
             VERSION_NO=@Version, UPDATED_BY=@UpdatedBy, UPDATED_AT=@UpdatedAt
         WHERE SCHEDULE_ID=@ScheduleId AND VERSION_NO=@ExpectedVersion AND IS_ACTIVE=1
+          AND EXISTS (SELECT 1 FROM EMS_MAINTENANCE_PLAN
+                       WHERE PLAN_ID=@MaintenancePlanId AND PLAN_TYPE='PM')
           AND NOT EXISTS (
               SELECT 1 FROM EMS_MAINTENANCE_SCHEDULE_ACK_HISTORY
                WHERE IDEMPOTENCY_KEY=@IdempotencyKey)";

@@ -44,6 +44,27 @@ public sealed class OeeCalculatorTests
     }
 
     [Fact]
+    public void Keeps_repeated_loss_category_as_separate_timestamped_occurrences()
+    {
+        var transitions = new[]
+        {
+            new OeeStateTransition(T0, "IDLE", "RUN"),
+            new OeeStateTransition(T0.AddHours(1), "RUN", "DOWN"),
+            new OeeStateTransition(T0.AddHours(2), "DOWN", "RUN"),
+            new OeeStateTransition(T0.AddHours(3), "RUN", "DOWN"),
+            new OeeStateTransition(T0.AddHours(4), "DOWN", "RUN"),
+        };
+
+        var result = OeeCalculator.Compute(
+            T0, T0.AddHours(5), transitions,
+            new OeeLotCounts(0m, 0m), new OeeTarget(30m, 300m), Cats, Unknown);
+
+        result.Losses.Should().Equal(
+            new OeeLossLine("Breakdown", 60m, T0.AddHours(1), T0.AddHours(2)),
+            new OeeLossLine("Breakdown", 60m, T0.AddHours(3), T0.AddHours(4)));
+    }
+
+    [Fact]
     public void Idle_time_is_excluded_from_planned_time()
     {
         // RUN 480 + IDLE 120. IDLE는 비계획이라 계획시간에서 제외 → 가용성 = 480/480 = 1.

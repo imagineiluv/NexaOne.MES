@@ -17,9 +17,16 @@ public sealed class MaintenanceExecutionService
     };
 
     private readonly IMaintenanceExecutionRepository _repository;
+    private readonly IMaintenanceIdentityDirectory _identityDirectory;
 
-    public MaintenanceExecutionService(IMaintenanceExecutionRepository repository)
-        => _repository = repository ?? throw new ArgumentNullException(nameof(repository));
+    public MaintenanceExecutionService(
+        IMaintenanceExecutionRepository repository,
+        IMaintenanceIdentityDirectory identityDirectory)
+    {
+        _repository = repository ?? throw new ArgumentNullException(nameof(repository));
+        _identityDirectory = identityDirectory
+                             ?? throw new ArgumentNullException(nameof(identityDirectory));
+    }
 
     public async Task<Result<MaintenanceCheckRecord>> RecordCheckAsync(
         MaintenanceCheckCommand? command,
@@ -45,6 +52,11 @@ public sealed class MaintenanceExecutionService
         var replay = await _repository.GetCheckByIdempotencyKeyAsync(
             context.Value.IdempotencyKey, ct);
         if (replay is not null) return Replay(replay, replay.RequestHash, requestHash);
+
+        var identity = await _identityDirectory.GetActiveIdentityAsync(
+            context.Value.ActorId, recordedAt, ct);
+        if (identity is null)
+            return Result.Failure<MaintenanceCheckRecord>(InactiveActor(context.Value.ActorId));
 
         var status = await _repository.GetWorkOrderStatusAsync(command.WorkOrderId.Trim(), ct);
         if (status is null)
@@ -99,6 +111,11 @@ public sealed class MaintenanceExecutionService
             context.Value.IdempotencyKey, ct);
         if (replay is not null) return Replay(replay, replay.StartRequestHash, requestHash);
 
+        var identity = await _identityDirectory.GetActiveIdentityAsync(
+            context.Value.ActorId, startedAt, ct);
+        if (identity is null)
+            return Result.Failure<MaintenanceLaborRecord>(InactiveActor(context.Value.ActorId));
+
         var status = await _repository.GetWorkOrderStatusAsync(command.WorkOrderId.Trim(), ct);
         if (status is null)
             return Result.Failure<MaintenanceLaborRecord>(
@@ -108,8 +125,7 @@ public sealed class MaintenanceExecutionService
                 "EMS.MaintenanceExecution.WorkOrderNotActive",
                 "Labor can only start while the work order is InProgress."));
 
-        var mappedWorkerId = await _repository.GetActiveWorkerIdAsync(
-            context.Value.ActorId, startedAt, ct);
+        var mappedWorkerId = identity.WorkerId;
         if (requestedWorkerId is not null
             && !string.Equals(requestedWorkerId, mappedWorkerId, StringComparison.OrdinalIgnoreCase))
         {
@@ -160,6 +176,11 @@ public sealed class MaintenanceExecutionService
         var replay = await _repository.GetLaborByEndIdempotencyKeyAsync(
             context.Value.IdempotencyKey, ct);
         if (replay is not null) return Replay(replay, replay.EndRequestHash ?? string.Empty, requestHash);
+
+        var identity = await _identityDirectory.GetActiveIdentityAsync(
+            context.Value.ActorId, endedAt, ct);
+        if (identity is null)
+            return Result.Failure<MaintenanceLaborRecord>(InactiveActor(context.Value.ActorId));
 
         var current = await _repository.GetLaborAsync(command.LaborId.Trim(), ct);
         if (current is null)
@@ -252,6 +273,10 @@ public sealed class MaintenanceExecutionService
             : Result.Failure<T>(Error.Conflict(
                 "EMS.MaintenanceExecution.IdempotencyConflict",
                 "The idempotency key was already used for different maintenance data."));
+
+    private static Error InactiveActor(string actorId) => Error.Conflict(
+        "EMS.MaintenanceExecution.ActorInactive",
+        $"Authenticated user '{actorId}' is not an active maintenance identity.");
 
     private static bool ValidId(string? value)
         => !string.IsNullOrWhiteSpace(value) && value.Trim().Length <= IdLength;

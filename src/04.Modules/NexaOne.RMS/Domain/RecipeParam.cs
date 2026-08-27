@@ -11,6 +11,7 @@ public sealed class RecipeParam : Entity<string>
     public string ParamValue { get; private set; } = string.Empty;
     public string Unit { get; private set; } = string.Empty;
     public int SortOrder { get; private set; }
+    public int Version { get; private set; } = 1;
 
     public static Result<RecipeParam> Create(
         string paramId,
@@ -22,18 +23,31 @@ public sealed class RecipeParam : Entity<string>
     {
         if (string.IsNullOrWhiteSpace(paramId))
             return Result.Failure<RecipeParam>(Error.Validation(nameof(paramId), "Parameter ID is required."));
+        if (paramId.Trim().Length > 50)
+            return Result.Failure<RecipeParam>(Error.Validation(nameof(paramId), "Parameter ID cannot exceed 50 characters."));
         if (string.IsNullOrWhiteSpace(recipeId))
             return Result.Failure<RecipeParam>(Error.Validation(nameof(recipeId), "Recipe ID is required."));
+        if (recipeId.Trim().Length > 50)
+            return Result.Failure<RecipeParam>(Error.Validation(nameof(recipeId), "Recipe ID cannot exceed 50 characters."));
         if (string.IsNullOrWhiteSpace(paramName))
             return Result.Failure<RecipeParam>(Error.Validation(nameof(paramName), "Parameter name is required."));
+        if (paramName.Trim().Length > 200)
+            return Result.Failure<RecipeParam>(Error.Validation(nameof(paramName), "Parameter name cannot exceed 200 characters."));
+        if (paramValue is null)
+            return Result.Failure<RecipeParam>(Error.Validation(nameof(paramValue), "Parameter value is required."));
+        if (paramValue.Length > 500)
+            return Result.Failure<RecipeParam>(Error.Validation(nameof(paramValue), "Parameter value cannot exceed 500 characters."));
+        if ((unit ?? string.Empty).Length > 50)
+            return Result.Failure<RecipeParam>(Error.Validation(nameof(unit), "Unit cannot exceed 50 characters."));
 
-        var param = new RecipeParam(paramId)
+        var param = new RecipeParam(paramId.Trim())
         {
-            RecipeId = recipeId,
-            ParamName = paramName,
+            RecipeId = recipeId.Trim(),
+            ParamName = paramName.Trim(),
             ParamValue = paramValue,
-            Unit = unit,
-            SortOrder = sortOrder
+            Unit = unit ?? string.Empty,
+            SortOrder = sortOrder,
+            Version = 1,
         };
         return param;
     }
@@ -43,14 +57,16 @@ public sealed class RecipeParam : Entity<string>
     /// null이 되어 해당 행이 읽기경로에서 통째로 유실된다(GetByRecipe의 OfType 필터가 이 null을 가린다).
     /// Restore는 영속된 값을 그대로 재구성해 이 상태손실을 막는다.</summary>
     public static RecipeParam Restore(
-        string paramId, string recipeId, string paramName, string paramValue, string unit, int sortOrder)
+        string paramId, string recipeId, string paramName, string paramValue, string unit, int sortOrder,
+        int version = 1)
         => new(paramId)
         {
             RecipeId = recipeId,
             ParamName = paramName,
             ParamValue = paramValue,
             Unit = unit,
-            SortOrder = sortOrder
+            SortOrder = sortOrder,
+            Version = version,
         };
 
     public void UpdateValue(string newValue) => ParamValue = newValue;

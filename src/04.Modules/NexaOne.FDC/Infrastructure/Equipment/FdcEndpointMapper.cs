@@ -1,9 +1,9 @@
 using NexaOne.FDC.Domain;
-using NexusLogic.Plc.Abstractions.Models;
+using NexaLogic.Plc.Abstractions.Models;
 
 namespace NexaOne.FDC.Infrastructure.Equipment;
 
-/// <summary>FDC 설비-엔드포인트 매핑(FdcEquipmentEndpoint)을 NexusLogic 수집 계약
+/// <summary>FDC 설비-엔드포인트 매핑(FdcEquipmentEndpoint)을 NexaLogic 수집 계약
 /// (<see cref="PlcEndpoint"/>·<see cref="PlcSubscription"/>)으로 변환한다. 순수 변환 — 부수효과 없음.</summary>
 public static class FdcEndpointMapper
 {
@@ -19,7 +19,7 @@ public static class FdcEndpointMapper
             ["OmronFins"] = PlcDriverKind.OmronFins,
         };
 
-    /// <summary>설비 엔드포인트 → NexusLogic PlcEndpoint. Protocol 문자열은 PlcDriverKind로 파싱한다.</summary>
+    /// <summary>설비 엔드포인트 → NexaLogic PlcEndpoint. Protocol 문자열은 PlcDriverKind로 파싱한다.</summary>
     public static PlcEndpoint ToPlcEndpoint(FdcEquipmentEndpoint endpoint)
     {
         ArgumentNullException.ThrowIfNull(endpoint);

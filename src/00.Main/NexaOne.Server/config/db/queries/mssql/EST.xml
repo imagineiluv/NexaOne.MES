@@ -316,6 +316,18 @@
             DELETE FROM EST_TAKT_TARGET WHERE TAKT_TARGET_ID = @taktTargetId
         ]]></statement>
     </query>
+    <!-- 수동 OEE 재집계 감사 — 작업자와 실제 윈도/성공 여부를 최근 순으로 조회. -->
+    <query id="EST.OeeAggregationRunList" requiredPermission="est:read">
+        <statement><![CDATA[
+            SELECT TOP 500 RUN_ID, RUN_TYPE, SCOPE_KEY, LOCAL_DATE, WINDOW_START_UTC, WINDOW_END_UTC,
+                   SHIFT_ID, PLANNED_MINUTES, ACTOR_ID, STATUS, AFFECTED_ROWS,
+                   ERROR_MESSAGE, STARTED_AT, COMPLETED_AT
+            FROM EST_OEE_AGGREGATION_RUN WITH (NOLOCK)
+            WHERE (@actorId IS NULL OR ACTOR_ID = @actorId)
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY STARTED_AT DESC
+        ]]></statement>
+    </query>
     <query id="EST.EquipmentOutputEventList" requiredPermission="est:read">
         <statement><![CDATA[
             SELECT TOP 500 OUTPUT_EVENT_ID, PLANT_ID, EQUIPMENT_ID, OUTPUT_TYPE, CARRIER_ID,

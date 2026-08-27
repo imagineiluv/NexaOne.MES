@@ -15,14 +15,12 @@ public sealed class SparePartManagementRepository : QueryRepository, ISparePartM
     public async Task<bool> PartExistsAsync(string partId, CancellationToken ct = default)
         => await CountAsync("SELECT COUNT(*) FROM EMS_SPARE_PART WHERE PART_ID=@partId", new { partId }, ct) > 0;
 
-    public async Task<bool> VendorExistsAsync(string vendorId, CancellationToken ct = default)
-        => await CountAsync("SELECT COUNT(*) FROM MDM_VENDOR WHERE VENDOR_ID=@vendorId", new { vendorId }, ct) > 0;
-
-    public async Task<bool> EquipmentExistsAsync(string equipmentId, CancellationToken ct = default)
-        => await CountAsync("SELECT COUNT(*) FROM MDM_EQUIPMENT WHERE EQUIPMENT_ID=@equipmentId", new { equipmentId }, ct) > 0;
-
-    public async Task<bool> EquipmentClassExistsAsync(string equipmentClassId, CancellationToken ct = default)
-        => await CountAsync("SELECT COUNT(*) FROM MDM_EQUIPMENT_CLASS WHERE EQUIPMENT_CLASS_ID=@equipmentClassId", new { equipmentClassId }, ct) > 0;
+    public async Task<SparePartMasterCommandRecord?> GetCommandAsync(
+        string idempotencyKey,
+        CancellationToken ct = default)
+        => (await QueryFirstOrDefaultAsync<CommandRow>(
+            CommandSelect + " WHERE IDEMPOTENCY_KEY=@idempotencyKey",
+            new { idempotencyKey }, ct))?.ToRecord();
 
     public async Task<SparePartStockPolicyRecord?> GetStockPolicyAsync(string partId, CancellationToken ct = default)
         => (await QueryFirstOrDefaultAsync<PolicyRow>(PolicySelect + " WHERE PART_ID=@partId", new { partId }, ct))?.ToRecord();
@@ -58,6 +56,20 @@ public sealed class SparePartManagementRepository : QueryRepository, ISparePartM
             return false;
         }
     }
+
+    public Task<bool> TryCreateStockPolicyAsync(
+        SparePartStockPolicyRecord record,
+        SparePartMasterCommandRecord command,
+        CancellationToken ct = default)
+        => TryWriteWithCommandAsync(InsertPolicySql, PolicyParam(record), command, ct);
+
+    public Task<bool> TryUpdateStockPolicyAsync(
+        SparePartStockPolicyRecord record,
+        int expectedVersion,
+        SparePartMasterCommandRecord command,
+        CancellationToken ct = default)
+        => TryWriteWithCommandAsync(
+            UpdatePolicySql, PolicyParam(record, expectedVersion), command, ct);
 
     public async Task<SparePartSupplierRecord?> GetSupplierAsync(string partSupplierId, CancellationToken ct = default)
         => (await QueryFirstOrDefaultAsync<SupplierRow>(SupplierSelect + " WHERE PART_SUPPLIER_ID=@partSupplierId", new { partSupplierId }, ct))?.ToRecord();
@@ -97,6 +109,20 @@ public sealed class SparePartManagementRepository : QueryRepository, ISparePartM
         }
     }
 
+    public Task<bool> TryCreateSupplierAsync(
+        SparePartSupplierRecord record,
+        SparePartMasterCommandRecord command,
+        CancellationToken ct = default)
+        => TryWriteWithCommandAsync(InsertSupplierSql, SupplierParam(record), command, ct);
+
+    public Task<bool> TryUpdateSupplierAsync(
+        SparePartSupplierRecord record,
+        int expectedVersion,
+        SparePartMasterCommandRecord command,
+        CancellationToken ct = default)
+        => TryWriteWithCommandAsync(
+            UpdateSupplierSql, SupplierParam(record, expectedVersion), command, ct);
+
     public async Task<EquipmentPartBomRecord?> GetEquipmentBomAsync(string bomItemId, CancellationToken ct = default)
         => (await QueryFirstOrDefaultAsync<BomRow>(BomSelect + " WHERE BOM_ITEM_ID=@bomItemId", new { bomItemId }, ct))?.ToRecord();
 
@@ -131,6 +157,20 @@ public sealed class SparePartManagementRepository : QueryRepository, ISparePartM
             return false;
         }
     }
+
+    public Task<bool> TryCreateEquipmentBomAsync(
+        EquipmentPartBomRecord record,
+        SparePartMasterCommandRecord command,
+        CancellationToken ct = default)
+        => TryWriteWithCommandAsync(InsertBomSql, BomParam(record), command, ct);
+
+    public Task<bool> TryUpdateEquipmentBomAsync(
+        EquipmentPartBomRecord record,
+        int expectedVersion,
+        SparePartMasterCommandRecord command,
+        CancellationToken ct = default)
+        => TryWriteWithCommandAsync(
+            UpdateBomSql, BomParam(record, expectedVersion), command, ct);
 
     public async Task<SparePartReplenishmentInput?> GetReplenishmentInputAsync(
         string partId,
@@ -178,6 +218,13 @@ public sealed class SparePartManagementRepository : QueryRepository, ISparePartM
         CREATED_BY AS CreatedBy, CREATED_AT AS CreatedAt, UPDATED_BY AS UpdatedBy,
         UPDATED_AT AS UpdatedAt FROM EMS_EQUIPMENT_PART_BOM";
 
+    private const string CommandSelect = @"SELECT
+        COMMAND_ID AS CommandId, ENTITY_TYPE AS EntityType, ENTITY_ID AS EntityId,
+        IDEMPOTENCY_KEY AS IdempotencyKey, REQUEST_HASH AS RequestHash,
+        EXPECTED_VERSION AS ExpectedVersion, RESULT_VERSION AS ResultVersion,
+        RESULT_JSON AS ResultJson, ACTOR_ID AS ActorId, CREATED_AT AS CreatedAt
+        FROM EMS_SPARE_MASTER_COMMAND";
+
     private const string InsertPolicySql = @"INSERT INTO EMS_SPARE_PART_STOCK_POLICY
         (PART_ID, SAFETY_STOCK, REORDER_POINT, TARGET_STOCK, RESERVED_QTY,
          AVG_DAILY_USAGE, SERVICE_LEVEL, REVIEW_CYCLE_DAYS, IS_ACTIVE, VERSION_NO,
@@ -207,7 +254,6 @@ public sealed class SparePartManagementRepository : QueryRepository, ISparePartM
                @MinimumOrderQuantity, @UnitPrice, @Currency, @IsPrimary, @IsActive, @Version,
                @LastIdempotencyKey, @LastRequestHash, @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt
         WHERE EXISTS (SELECT 1 FROM EMS_SPARE_PART WHERE PART_ID=@PartId)
-          AND EXISTS (SELECT 1 FROM MDM_VENDOR WHERE VENDOR_ID=@VendorId)
           AND NOT EXISTS (SELECT 1 FROM EMS_SPARE_PART_SUPPLIER WHERE PART_SUPPLIER_ID=@PartSupplierId)
           AND NOT EXISTS (SELECT 1 FROM EMS_SPARE_PART_SUPPLIER WHERE LAST_IDEMPOTENCY_KEY=@LastIdempotencyKey)
           AND (@IsPrimary=0 OR @IsActive=0 OR NOT EXISTS (
@@ -222,7 +268,6 @@ public sealed class SparePartManagementRepository : QueryRepository, ISparePartM
         UPDATED_BY=@UpdatedBy, UPDATED_AT=@UpdatedAt
         WHERE PART_SUPPLIER_ID=@PartSupplierId AND VERSION_NO=@ExpectedVersion
           AND EXISTS (SELECT 1 FROM EMS_SPARE_PART WHERE PART_ID=@PartId)
-          AND EXISTS (SELECT 1 FROM MDM_VENDOR WHERE VENDOR_ID=@VendorId)
           AND NOT EXISTS (SELECT 1 FROM EMS_SPARE_PART_SUPPLIER x
                           WHERE x.LAST_IDEMPOTENCY_KEY=@LastIdempotencyKey
                             AND x.PART_SUPPLIER_ID<>@PartSupplierId)
@@ -241,10 +286,6 @@ public sealed class SparePartManagementRepository : QueryRepository, ISparePartM
                @IsActive, @Version, @LastIdempotencyKey, @LastRequestHash,
                @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt
         WHERE EXISTS (SELECT 1 FROM EMS_SPARE_PART WHERE PART_ID=@PartId)
-          AND (@EquipmentId IS NULL OR EXISTS (
-              SELECT 1 FROM MDM_EQUIPMENT WHERE EQUIPMENT_ID=@EquipmentId))
-          AND (@EquipmentClassId IS NULL OR EXISTS (
-              SELECT 1 FROM MDM_EQUIPMENT_CLASS WHERE EQUIPMENT_CLASS_ID=@EquipmentClassId))
           AND NOT EXISTS (SELECT 1 FROM EMS_EQUIPMENT_PART_BOM WHERE BOM_ITEM_ID=@BomItemId)
           AND NOT EXISTS (SELECT 1 FROM EMS_EQUIPMENT_PART_BOM WHERE LAST_IDEMPOTENCY_KEY=@LastIdempotencyKey)";
 
@@ -257,12 +298,46 @@ public sealed class SparePartManagementRepository : QueryRepository, ISparePartM
         LAST_REQUEST_HASH=@LastRequestHash, UPDATED_BY=@UpdatedBy, UPDATED_AT=@UpdatedAt
         WHERE BOM_ITEM_ID=@BomItemId AND VERSION_NO=@ExpectedVersion
           AND EXISTS (SELECT 1 FROM EMS_SPARE_PART WHERE PART_ID=@PartId)
-          AND (@EquipmentId IS NULL OR EXISTS (
-              SELECT 1 FROM MDM_EQUIPMENT WHERE EQUIPMENT_ID=@EquipmentId))
-          AND (@EquipmentClassId IS NULL OR EXISTS (
-              SELECT 1 FROM MDM_EQUIPMENT_CLASS WHERE EQUIPMENT_CLASS_ID=@EquipmentClassId))
           AND NOT EXISTS (SELECT 1 FROM EMS_EQUIPMENT_PART_BOM x
                           WHERE x.LAST_IDEMPOTENCY_KEY=@LastIdempotencyKey AND x.BOM_ITEM_ID<>@BomItemId)";
+
+    private const string InsertCommandSql = @"INSERT INTO EMS_SPARE_MASTER_COMMAND
+        (COMMAND_ID, ENTITY_TYPE, ENTITY_ID, IDEMPOTENCY_KEY, REQUEST_HASH,
+         EXPECTED_VERSION, RESULT_VERSION, RESULT_JSON, ACTOR_ID, CREATED_AT)
+        VALUES
+        (@CommandId, @EntityType, @EntityId, @CommandIdempotencyKey, @CommandRequestHash,
+         @CommandExpectedVersion, @ResultVersion, @ResultJson, @ActorId, @CommandCreatedAt)";
+
+    private async Task<bool> TryWriteWithCommandAsync(
+        string writeSql,
+        object entityParameters,
+        SparePartMasterCommandRecord command,
+        CancellationToken ct)
+    {
+        var parameters = new Dapper.DynamicParameters(entityParameters);
+        parameters.Add("CommandId", command.CommandId);
+        parameters.Add("EntityType", command.EntityType);
+        parameters.Add("EntityId", command.EntityId);
+        parameters.Add("CommandIdempotencyKey", command.IdempotencyKey);
+        parameters.Add("CommandRequestHash", command.RequestHash);
+        parameters.Add("CommandExpectedVersion", command.ExpectedVersion);
+        parameters.Add("ResultVersion", command.ResultVersion);
+        parameters.Add("ResultJson", command.ResultJson);
+        parameters.Add("ActorId", command.ActorId);
+        parameters.Add("CommandCreatedAt", command.CreatedAt);
+        try
+        {
+            return await _processor.ExecuteGuardedManyAsync(
+                ct, (writeSql, parameters), (InsertCommandSql, parameters));
+        }
+        catch (DbException exception)
+        {
+            if (IsUniqueViolation(exception)
+                || await GetCommandAsync(command.IdempotencyKey, ct) is not null)
+                return false;
+            throw;
+        }
+    }
 
     private static object PolicyParam(SparePartStockPolicyRecord x, int? expectedVersion = null) => new
     {
@@ -302,6 +377,17 @@ public sealed class SparePartManagementRepository : QueryRepository, ISparePartM
         };
         return unique && exception.Message.Contains(table, StringComparison.OrdinalIgnoreCase);
     }
+
+    private static bool IsUniqueViolation(DbException exception) => exception switch
+    {
+        SqliteException sqlite => sqlite.SqliteErrorCode == 19
+                                  && sqlite.SqliteExtendedErrorCode is 1555 or 2067,
+        _ when string.Equals(exception.GetType().FullName,
+                "Microsoft.Data.SqlClient.SqlException", StringComparison.Ordinal)
+            => exception.GetType().GetProperty("Number")?.GetValue(exception) is int number
+               && number is 2601 or 2627,
+        _ => false,
+    };
 
     // Microsoft.Data.Sqlite may expose DECIMAL affinity as Int64, Double, Decimal, or text,
     // depending on the inserted value. Mapping straight to decimal? makes Dapper call a typed
@@ -393,5 +479,22 @@ public sealed class SparePartManagementRepository : QueryRepository, ISparePartM
             ReplacementCycleDays, NullableDecimal(ReplacementCycleCount), PositionCode,
             IsActive, Version,
             LastIdempotencyKey, LastRequestHash, CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
+    }
+
+    private sealed class CommandRow
+    {
+        public string CommandId { get; set; } = "";
+        public string EntityType { get; set; } = "";
+        public string EntityId { get; set; } = "";
+        public string IdempotencyKey { get; set; } = "";
+        public string RequestHash { get; set; } = "";
+        public int ExpectedVersion { get; set; }
+        public int ResultVersion { get; set; }
+        public string ResultJson { get; set; } = "";
+        public string ActorId { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+        public SparePartMasterCommandRecord ToRecord() => new(
+            CommandId, EntityType, EntityId, IdempotencyKey, RequestHash,
+            ExpectedVersion, ResultVersion, ResultJson, ActorId, CreatedAt);
     }
 }

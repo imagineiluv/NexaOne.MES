@@ -26,6 +26,16 @@ public interface IOeeEvidenceSource
         DateTime fromUtc,
         DateTime toUtc,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// 자동 집계 시점의 plant별 로컬 일자를 반환합니다. UTC 자정 하나를 모든 공장에
+    /// 적용하면 동/서반구 공장의 현재 작업일이 달라지는 문제를 피하기 위한 clock seam입니다.
+    /// </summary>
+    Task<IReadOnlyList<OeePlantLocalDateDto>> LoadPlantLocalDatesAsync(
+        IReadOnlyList<string> targetEquipmentIds,
+        DateTime utcNow,
+        CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<OeePlantLocalDateDto>>([]);
 }
 
 /// <summary>목표 설비 소속과 선택 일자의 plant별 교대 계획 snapshot입니다.</summary>
@@ -35,6 +45,9 @@ public sealed record OeePlanSnapshotDto(
 
 /// <summary>OEE 목표 설비가 속한 plant입니다.</summary>
 public sealed record OeeEquipmentScopeDto(string EquipmentId, string PlantId);
+
+/// <summary>자동 집계 기준 시각에 확정된 plant 로컬 달력 일자입니다.</summary>
+public sealed record OeePlantLocalDateDto(string PlantId, DateTime LocalDate);
 
 /// <summary>
 /// 한 plant의 로컬 일자 계획입니다. 휴일이거나 적용 가능한 교대가 없으면
@@ -61,7 +74,20 @@ public sealed record OeeProductionWindowDto(
     int LotEventCount,
     decimal LotTotalCount,
     decimal LotDefectCount,
-    IReadOnlyList<OeeTrackOutDto> TrackOuts);
+    IReadOnlyList<OeeTrackOutDto> TrackOuts,
+    IReadOnlyList<OeeLotOutputDto>? LotOutputs = null);
+
+/// <summary>
+/// legacy POM TrackOut 한 건의 LOT 출력 증거입니다. EST 표준 원장으로 투영된 같은 건은
+/// EvidenceId 또는 LOT/공정/수량의 다중집합 키로 제거하고, 표준 원장에만 있는 LOT은 유지합니다.
+/// </summary>
+public sealed record OeeLotOutputDto(
+    string EvidenceId,
+    string ProcessLotId,
+    string ProcessId,
+    decimal TotalQuantity,
+    decimal DefectQuantity,
+    string Unit);
 
 /// <summary>takt/cycle 계산에 필요한 최소 TrackOut 증거입니다.</summary>
 public sealed record OeeTrackOutDto(
@@ -70,4 +96,5 @@ public sealed record OeeTrackOutDto(
     decimal Qty,
     DateTime? TrackInTimeUtc,
     DateTime TrackOutTimeUtc,
-    string QuantityUom);
+    string QuantityUom,
+    string? ProcessLotId = null);

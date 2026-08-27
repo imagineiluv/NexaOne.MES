@@ -11,7 +11,12 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using NexaOne.Infrastructure.Persistence;
-using NexaOne.POM.Infrastructure;
+using MdmEquipmentDirectory = NexaOne.MDM.Infrastructure.EquipmentDirectory;
+using MdmMrpMasterDirectory = NexaOne.MDM.Infrastructure.MrpMasterDirectory;
+using IvtMrpInventoryDirectory = NexaOne.IVT.Infrastructure.MrpInventoryDirectory;
+using PomLegacySalesOrderMrpProjection = NexaOne.POM.Infrastructure.LegacySalesOrderMrpProjection;
+using PomMrpPlanningRepository = NexaOne.POM.Infrastructure.MrpPlanningRepository;
+using PrcPurchaseOrderPlanningBridge = NexaOne.PRC.Infrastructure.PurchaseOrderPlanningBridge;
 using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
@@ -54,7 +59,7 @@ public sealed class MrpRunPersistenceTests : IClassFixture<MrpRunPersistenceTest
     public async Task Run_publication_is_atomic_and_consumers_ignore_failed_runs()
     {
         _ = _factory.CreateClient(); // schema + deterministic development seed
-        var repository = new MrpPlanningRepository(DataSource());
+        var repository = Repository();
         var trigger = $"TR_MRP_PEG_FAIL_{Guid.NewGuid():N}";
         Execute($"CREATE TRIGGER {trigger} BEFORE INSERT ON MRP_PEGGING " +
                 "BEGIN SELECT RAISE(ABORT, 'forced pegging failure'); END");
@@ -118,11 +123,78 @@ public sealed class MrpRunPersistenceTests : IClassFixture<MrpRunPersistenceTest
             "CRP must not derive capacity load from a failed run");
     }
 
+    [Fact]
+    public async Task Purchase_conversion_recovers_after_prc_commit_and_pom_mark_failure_without_duplicate_order()
+    {
+        _ = _factory.CreateClient();
+        var repository = Repository();
+        var suffix = Guid.NewGuid().ToString("N")[..12];
+        var runId = $"MRP_RECOVERY_{suffix}";
+        var plannedId = $"MRP_PUR_{suffix}";
+        var trigger = $"TR_MRP_MARK_FAIL_{suffix}";
+        var description = $"MRP {runId} / {plannedId}";
+
+        Execute(
+            "INSERT INTO MRP_RUN (RUN_ID, STARTED_AT, FINISHED_AT, STATUS, EXECUTED_BY, CREATED_BY, UPDATED_BY) " +
+            "VALUES (@run, '2030-01-01 00:00:00', '2030-01-01 00:00:01', 'Success', 'TEST', 'TEST', 'TEST')",
+            ("@run", runId));
+        Execute(
+            "INSERT INTO MRP_PLANNED_ORDER " +
+            "(PLANNED_ORDER_ID, RUN_ID, ITEM_ID, ORDER_TYPE, GROSS_QTY, NET_QTY, SUGGESTED_QTY, " +
+            "DUE_DATE, RELEASE_DATE, STATUS, PLANT_ID, CREATED_BY, UPDATED_BY) " +
+            "VALUES (@id, @run, 'MAT01', 'Purchase', 12, 12, 12, '2030-02-01 00:00:00', " +
+            "'2030-01-15 00:00:00', 'Proposed', 'PLANT01', 'TEST', 'TEST')",
+            ("@id", plannedId), ("@run", runId));
+        Execute(
+            $"CREATE TRIGGER {trigger} BEFORE UPDATE OF STATUS ON MRP_PLANNED_ORDER " +
+            "WHEN NEW.STATUS = 'Converted' BEGIN SELECT RAISE(ABORT, 'forced pom mark failure'); END");
+
+        try
+        {
+            var first = await repository.ConvertAsync(runId, new[] { plannedId }, null, "mrp-test");
+
+            first.Converted.Should().Be(0);
+            first.Message.Should().Contain("forced pom mark failure");
+            Scalar<long>("SELECT COUNT(*) FROM PRC_PURCHASE_ORDER WHERE DESCRIPTION=@description",
+                    ("@description", description))
+                .Should().Be(1, "the PRC owner command commits independently before POM marks its proposal");
+            Scalar<string>("SELECT STATUS FROM MRP_PLANNED_ORDER WHERE PLANNED_ORDER_ID=@id", ("@id", plannedId))
+                .Should().Be("Proposed");
+        }
+        finally
+        {
+            Execute($"DROP TRIGGER IF EXISTS {trigger}");
+        }
+
+        var retry = await repository.ConvertAsync(runId, new[] { plannedId }, null, "mrp-test");
+
+        retry.Message.Should().BeNull();
+        retry.Converted.Should().Be(1);
+        retry.PurchaseOrders.Should().Be(1);
+        Scalar<long>("SELECT COUNT(*) FROM PRC_PURCHASE_ORDER WHERE DESCRIPTION=@description",
+                ("@description", description))
+            .Should().Be(1, "stable PRC command ids make retries idempotent");
+        Scalar<string>("SELECT STATUS FROM MRP_PLANNED_ORDER WHERE PLANNED_ORDER_ID=@id", ("@id", plannedId))
+            .Should().Be("Converted");
+    }
+
     private EesDataSource DataSource() => new()
     {
         Provider = _factory.Services.GetRequiredService<IDatabaseProvider>(),
         ConnectionString = _factory.ConnString,
     };
+
+    private PomMrpPlanningRepository Repository()
+    {
+        var dataSource = DataSource();
+        return new PomMrpPlanningRepository(
+            dataSource,
+            new PomLegacySalesOrderMrpProjection(dataSource),
+            new MdmMrpMasterDirectory(dataSource),
+            new IvtMrpInventoryDirectory(dataSource),
+            new PrcPurchaseOrderPlanningBridge(dataSource),
+            new MdmEquipmentDirectory(dataSource));
+    }
 
     private void Execute(string sql, params (string Key, object Value)[] parameters)
     {

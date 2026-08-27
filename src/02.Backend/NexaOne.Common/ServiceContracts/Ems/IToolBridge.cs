@@ -30,7 +30,9 @@ public sealed record ToolCommand(
     string Status = "Available",
     string? Location = null,
     bool IsActive = true,
-    string? ActorId = null);
+    string? ActorId = null,
+    int ExpectedVersion = 0,
+    string? IdempotencyKey = null);
 
 public sealed record ToolMountCommand(
     string IdempotencyKey,
@@ -88,7 +90,8 @@ public sealed record ToolDto(
     decimal? MaxUseMinutes,
     DateTime? NextInspectionDueAt,
     DateTime? NextCalibrationDueAt,
-    bool IsActive);
+    bool IsActive,
+    int Version = 1);
 
 public sealed record ToolMountDto(
     string MountId,

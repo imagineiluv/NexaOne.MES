@@ -10,7 +10,7 @@ namespace NexaOne.Common.Telemetry;
 /// </summary>
 /// <remarks>
 /// 현재는 수집 호스트의 채널 수립(1)·해제(0)를 반영한다. 운영 중 일시적 단절/재연결의 실시간 반영은
-/// NexusLogic 연결 상태 변경 이벤트 연동 시점의 과제로 둔다(§17.3 동일 관례).
+/// NexaLogic 연결 상태 변경 이벤트 연동 시점의 과제로 둔다(§17.3 동일 관례).
 /// </remarks>
 public sealed class EquipmentChannelStatusRegistry
 {

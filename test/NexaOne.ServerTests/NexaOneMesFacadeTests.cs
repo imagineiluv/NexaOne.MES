@@ -16,10 +16,13 @@ using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.IdentityModel.Tokens;
+using Moq;
 using NexaOne.Application.Query;
 using NexaOne.Server;
 using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts;
+using NexaOne.ServiceContracts.Ems;
+using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Pom;
 using NexaOne.Web.Services.Meta;
 using NexaFramework;
@@ -56,10 +59,38 @@ public sealed class NexaOneMesFacadeTests
         runtime.ModulesEnabled.Should().BeFalse();
         runtime.WorkerCount.Should().Be(0);
         var bridgeCatalog = provider.GetRequiredService<INexaModuleBridgeCatalog>();
-        bridgeCatalog.Descriptors.Should().HaveCount(27,
+        var declaredBridges = NexaModuleBridgeCatalog
+            .Discover(typeof(INexaModuleBridge).Assembly)
+            .Descriptors;
+        bridgeCatalog.Descriptors.Should().Equal(declaredBridges,
             "modules-OFF에서도 계약 메타데이터는 검증하되 Spring Bridge 인스턴스는 만들지 않는다");
         services.Should().NotContain(descriptor =>
             bridgeCatalog.Descriptors.Any(bridge => bridge.ContractType == descriptor.ServiceType));
+    }
+
+    [Fact]
+    public void Add_facade_preserves_project_specific_master_directory_adapters()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        var equipment = Mock.Of<IEquipmentDirectory>();
+        var vendor = Mock.Of<IVendorDirectory>();
+        var identity = Mock.Of<IMaintenanceIdentityDirectory>();
+        services.AddSingleton(equipment);
+        services.AddSingleton(vendor);
+        services.AddSingleton(identity);
+
+        var settings = Settings("Data Source=:memory:");
+        settings["Server:Modules:Enabled"] = "true";
+        services.AddNexaOneMes(new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
+
+        using var provider = services.BuildServiceProvider(validateScopes: true);
+        provider.GetRequiredService<IEquipmentDirectory>().Should().BeSameAs(equipment);
+        provider.GetRequiredService<IVendorDirectory>().Should().BeSameAs(vendor);
+        provider.GetRequiredService<IMaintenanceIdentityDirectory>().Should().BeSameAs(identity);
+        services.Count(descriptor => descriptor.ServiceType == typeof(IEquipmentDirectory)).Should().Be(1);
+        services.Count(descriptor => descriptor.ServiceType == typeof(IVendorDirectory)).Should().Be(1);
+        services.Count(descriptor => descriptor.ServiceType == typeof(IMaintenanceIdentityDirectory)).Should().Be(1);
     }
 
     [Fact]
@@ -75,7 +106,10 @@ public sealed class NexaOneMesFacadeTests
 
         using var provider = services.BuildServiceProvider(validateScopes: true);
         var catalog = provider.GetRequiredService<INexaModuleBridgeCatalog>();
-        catalog.Descriptors.Should().HaveCount(27);
+        var declaredBridges = NexaModuleBridgeCatalog
+            .Discover(typeof(INexaModuleBridge).Assembly)
+            .Descriptors;
+        catalog.Descriptors.Should().Equal(declaredBridges);
         catalog.Descriptors.Select(descriptor => descriptor.ContractType)
             .Should().OnlyHaveUniqueItems();
         foreach (var descriptor in catalog.Descriptors)

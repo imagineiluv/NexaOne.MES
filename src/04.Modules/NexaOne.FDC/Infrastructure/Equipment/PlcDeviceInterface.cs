@@ -1,18 +1,18 @@
 using System.Globalization;
 using NexaOne.FDC.Application.Fdc;
 using NexaFramework.Resource;
-using NexusLogic.Plc.Abstractions.Interfaces;
-using NexusLogic.Plc.Abstractions.Models;
+using NexaLogic.Plc.Abstractions.Interfaces;
+using NexaLogic.Plc.Abstractions.Models;
 
 namespace NexaOne.FDC.Infrastructure.Equipment;
 
 /// <summary>
-/// NexusLogic <see cref="IPlcDriver"/>를 NexaFramework <see cref="IDeviceInterface"/>로
+/// NexaLogic <see cref="IPlcDriver"/>를 NexaFramework <see cref="IDeviceInterface"/>로
 /// 노출하는 프로토콜 중립 어댑터. PlantController가 관리하는 Machine에 장착되어 PLC 연결의
 /// lifecycle(Initialize → Start → Stop)을 담당한다.
 /// </summary>
 /// <remarks>
-/// 프로토콜 본체(세션·재연결·구독·품질상태)는 NexusLogic 서브모듈이 소유한다. 본 어댑터는
+/// 프로토콜 본체(세션·재연결·구독·품질상태)는 NexaLogic 서브모듈이 소유한다. 본 어댑터는
 /// IDeviceInterface 계약 변환과 에러 전파만 책임지며, 태그 구독·수집 데이터의 FDC_TB_COLLECT_DATA
 /// 적재 같은 비즈니스 로직은 <see cref="Connection"/>(IPlcConnection)을 통해 상위 수집 서비스가 수행한다.
 /// </remarks>
@@ -52,7 +52,7 @@ public sealed class PlcDeviceInterface : IDeviceInterface
     /// <summary>연결된 엔드포인트의 드라이버 종류.</summary>
     public PlcDriverKind DriverKind => _endpoint.DriverKind;
 
-    /// <summary>초기화 이후 노출되는 NexusLogic 연결. 태그 읽기/쓰기/구독은 이 연결을 통해 수행한다.</summary>
+    /// <summary>초기화 이후 노출되는 NexaLogic 연결. 태그 읽기/쓰기/구독은 이 연결을 통해 수행한다.</summary>
     public IPlcConnection? Connection => _connection;
 
     /// <summary>장치 초기화·실행 중 오류가 발생했을 때 발행된다.</summary>

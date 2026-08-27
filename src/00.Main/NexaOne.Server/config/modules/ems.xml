@@ -23,16 +23,20 @@
   </object>
   <object id="sparePartService" type="NexaOne.EMS.Application.SpareParts.SparePartService, NexaOne.EMS">
     <constructor-arg ref="sparePartManagementRepository" />
+    <constructor-arg ref="vendorDirectory" />
+    <constructor-arg ref="equipmentDirectory" />
   </object>
   <object id="sparePartBridge" type="NexaOne.EMS.Application.SpareParts.SparePartBridge, NexaOne.EMS">
     <constructor-arg ref="sparePartService" />
   </object>
   <object id="emsService" type="NexaOne.EMS.Application.Ems.EmsService, NexaOne.EMS">
     <constructor-arg ref="workOrderRepository" />
+    <constructor-arg ref="maintenancePlanRepository" />
   </object>
   <object id="maintenancePlanService" type="NexaOne.EMS.Application.Ems.MaintenancePlanService, NexaOne.EMS">
     <constructor-arg ref="maintenancePlanRepository" />
     <constructor-arg ref="sparePartRepository" />
+    <constructor-arg ref="equipmentDirectory" />
   </object>
 
   <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Ems","emsBridge")로 IEmsBridge 캐스트.
@@ -61,6 +65,7 @@
   </object>
   <object id="maintenanceExecutionService" type="NexaOne.EMS.Application.MaintenanceExecution.MaintenanceExecutionService, NexaOne.EMS">
     <constructor-arg ref="maintenanceExecutionRepository" />
+    <constructor-arg ref="maintenanceIdentityDirectory" />
   </object>
   <object id="maintenanceExecutionBridge" type="NexaOne.EMS.Application.MaintenanceExecution.MaintenanceExecutionBridge, NexaOne.EMS">
     <constructor-arg ref="maintenanceExecutionService" />
@@ -72,6 +77,7 @@
   </object>
   <object id="toolService" type="NexaOne.EMS.Application.Tools.ToolService, NexaOne.EMS">
     <constructor-arg ref="toolRepository" />
+    <constructor-arg ref="equipmentDirectory" />
   </object>
   <object id="toolBridge" type="NexaOne.EMS.Application.Tools.ToolBridge, NexaOne.EMS">
     <constructor-arg ref="toolService" />

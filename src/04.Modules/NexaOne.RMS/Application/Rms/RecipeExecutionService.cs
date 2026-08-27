@@ -4,6 +4,7 @@ using NexaOne.Application.Auditing;
 using NexaOne.Application.Idempotency;
 using NexaOne.Common;
 using NexaOne.RMS.Domain;
+using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Rms;
 
 namespace NexaOne.RMS.Application.Rms;
@@ -18,15 +19,19 @@ public sealed class RecipeExecutionService
     private readonly IRecipeRepository _recipes;
     private readonly IRecipeParamRepository _parameters;
     private readonly IRecipeExecutionRepository _executions;
+    private readonly IEquipmentDirectory _equipmentDirectory;
 
     public RecipeExecutionService(
         IRecipeRepository recipes,
         IRecipeParamRepository parameters,
-        IRecipeExecutionRepository executions)
+        IRecipeExecutionRepository executions,
+        IEquipmentDirectory equipmentDirectory)
     {
         _recipes = recipes;
         _parameters = parameters;
         _executions = executions;
+        _equipmentDirectory = equipmentDirectory
+                              ?? throw new ArgumentNullException(nameof(equipmentDirectory));
     }
 
     public async Task<Result<RecipeEquipmentAssignment>> AssignAsync(
@@ -58,13 +63,37 @@ public sealed class RecipeExecutionService
             return Result.Failure<RecipeEquipmentAssignment>(Error.Conflict(
                 $"Recipe '{recipe.Id}' belongs to equipment class '{recipe.EquipmentClassId}', not '{equipmentClassId}'."));
 
+        var now = DateTime.UtcNow;
+        var effectiveFrom = Utc(command.EffectiveFrom ?? now);
+        if (effectiveFrom > now)
+            return Result.Failure<RecipeEquipmentAssignment>(Error.Conflict(
+                "Future-effective recipe assignments are not supported. Activate the assignment when it becomes current."));
+
+        var equipmentId = Text(command.EquipmentId);
+        if (equipmentId is not null)
+        {
+            var equipment = await _equipmentDirectory.GetEquipmentAsync(equipmentId, ct);
+            if (equipment is null)
+                return Result.Failure<RecipeEquipmentAssignment>(Error.NotFoundOf("Equipment", equipmentId));
+            if (!equipment.IsValid)
+                return Result.Failure<RecipeEquipmentAssignment>(Error.Conflict(
+                    "RMS.RecipeAssignment.EquipmentInactive",
+                    $"Equipment '{equipmentId}' is not active."));
+            if (!recipe.EquipmentClassId.Equals(
+                    equipment.EquipmentClassId, StringComparison.OrdinalIgnoreCase))
+                return Result.Failure<RecipeEquipmentAssignment>(Error.Conflict(
+                    "RMS.RecipeAssignment.EquipmentClassMismatch",
+                    $"Recipe '{recipe.Id}' belongs to equipment class '{recipe.EquipmentClassId}', not "
+                    + $"'{equipment.EquipmentClassId}'."));
+        }
+
         var assignment = new RecipeEquipmentAssignment(
             command.AssignmentId.Trim(),
-            Text(command.EquipmentId),
+            equipmentId,
             equipmentClassId,
             recipe.Id,
             recipe.Version,
-            Utc(command.EffectiveFrom ?? DateTime.UtcNow),
+            effectiveFrom,
             null,
             actor.Value,
             true);
@@ -130,6 +159,19 @@ public sealed class RecipeExecutionService
         if (replay is not null)
             return Replay(replay, requestHash);
 
+        var equipment = await _equipmentDirectory.GetEquipmentAsync(normalized.EquipmentId, ct);
+        if (equipment is null)
+            return Result.Failure<RecipeExecutionSnapshot>(
+                Error.NotFoundOf("Equipment", normalized.EquipmentId));
+        if (!equipment.IsValid)
+            return Result.Failure<RecipeExecutionSnapshot>(Error.Conflict(
+                "RMS.RecipeExecution.EquipmentInactive",
+                $"Equipment '{normalized.EquipmentId}' is not active."));
+        if (!equipment.PlantId.Equals(normalized.PlantId, StringComparison.OrdinalIgnoreCase))
+            return Result.Failure<RecipeExecutionSnapshot>(Error.Conflict(
+                "RMS.RecipeExecution.PlantMismatch",
+                $"Equipment '{normalized.EquipmentId}' belongs to plant '{equipment.PlantId}', not '{normalized.PlantId}'."));
+
         var recipe = await _recipes.GetByIdAsync(normalized.RecipeId, ct);
         if (recipe is null)
             return Result.Failure<RecipeExecutionSnapshot>(
@@ -140,6 +182,29 @@ public sealed class RecipeExecutionService
         if (recipe.Version != normalized.RecipeVersion)
             return Result.Failure<RecipeExecutionSnapshot>(Error.Conflict(
                 $"Recipe '{recipe.Id}' is version {recipe.Version}, not {normalized.RecipeVersion}."));
+        if (!recipe.EquipmentClassId.Equals(
+                equipment.EquipmentClassId, StringComparison.OrdinalIgnoreCase))
+            return Result.Failure<RecipeExecutionSnapshot>(Error.Conflict(
+                "RMS.RecipeExecution.EquipmentClassMismatch",
+                $"Recipe '{recipe.Id}' belongs to equipment class '{recipe.EquipmentClassId}', not "
+                + $"'{equipment.EquipmentClassId}'."));
+
+        var assignment = await _executions.GetEffectiveAssignmentAsync(
+            normalized.EquipmentId,
+            equipment.EquipmentClassId,
+            normalized.AppliedAt,
+            ct);
+        if (assignment is null)
+            return Result.Failure<RecipeExecutionSnapshot>(Error.Conflict(
+                "RMS.RecipeExecution.AssignmentRequired",
+                $"Equipment '{normalized.EquipmentId}' has no effective recipe assignment at {normalized.AppliedAt:O}."));
+        if (!assignment.RecipeId.Equals(recipe.Id, StringComparison.OrdinalIgnoreCase)
+            || assignment.RecipeVersion != recipe.Version)
+            return Result.Failure<RecipeExecutionSnapshot>(Error.Conflict(
+                "RMS.RecipeExecution.AssignmentMismatch",
+                $"Effective assignment '{assignment.AssignmentId}' selects recipe "
+                + $"'{assignment.RecipeId}' version {assignment.RecipeVersion}, not "
+                + $"'{recipe.Id}' version {recipe.Version}."));
 
         var parameters = await _parameters.GetByRecipeAsync(recipe.Id, ct);
         var recipeJson = JsonSerializer.Serialize(new
@@ -151,6 +216,7 @@ public sealed class RecipeExecutionService
             version = recipe.Version,
             approvalState = recipe.ApprovalState.ToString(),
             releasedAt = recipe.ReleasedAt,
+            assignmentId = assignment.AssignmentId,
         }, SnapshotJson);
         var parameterJson = JsonSerializer.Serialize(parameters
             .OrderBy(parameter => parameter.SortOrder)
@@ -185,7 +251,8 @@ public sealed class RecipeExecutionService
             normalized.TraceId,
             DateTime.UtcNow);
 
-        if (await _executions.TryAddExecutionAsync(snapshot, ct))
+        if (await _executions.TryAddAssignedExecutionAsync(
+                snapshot, assignment.AssignmentId, equipment.EquipmentClassId, ct))
             return Result.Success(snapshot);
 
         var winner = await _executions.GetExecutionByIdempotencyKeyAsync(
@@ -193,7 +260,7 @@ public sealed class RecipeExecutionService
         return winner is not null
             ? Replay(winner, requestHash)
             : Result.Failure<RecipeExecutionSnapshot>(Error.Conflict(
-                "Recipe was not Released at the guarded execution write, or it changed concurrently."));
+                "Recipe or its effective equipment assignment changed during the guarded execution write."));
     }
 
     public async Task<Result<RecipeExecutionSnapshot>> GetExecutionAsync(

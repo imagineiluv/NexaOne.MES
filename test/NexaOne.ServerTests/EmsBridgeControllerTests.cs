@@ -131,10 +131,10 @@ public sealed class EmsBridgeControllerTests : IClassFixture<EmsBridgeController
         public Task<Result<SparePartDto>> CreatePartAsync(
             string partId, string partName, string partNumber, string description, string unitOfMeasure,
             decimal currentStock, decimal minStock, decimal maxStock, string location,
-            string? equipmentClassId, string actorId, CancellationToken ct = default)
+            string? equipmentClassId, EmsCommandContextDto command, CancellationToken ct = default)
         {
-            LastPartActor = actorId;
-            InvocationCount++;
+            Capture(command);
+            LastPartActor = command.ActorId;
             return Task.FromResult(maxStock > minStock
                 ? Result.Success(new SparePartDto(partId, partName, partNumber, description, unitOfMeasure,
                     currentStock, minStock, maxStock, location, equipmentClassId, currentStock <= minStock))
@@ -287,7 +287,8 @@ public sealed class EmsBridgeControllerTests : IClassFixture<EmsBridgeController
     {
         var res = await Client("ems:manage").PostAsJsonAsync("/api/v1/ems/spare-parts",
             new { partId = "SP1", partName = "베어링", partNumber = "BR-001", description = "구동부", unitOfMeasure = "EA",
-                  currentStock = 10m, minStock = 5m, maxStock = 50m, location = "A-1", equipmentClassId = (string?)null });
+                  currentStock = 10m, minStock = 5m, maxStock = 50m, location = "A-1", equipmentClassId = (string?)null,
+                  idempotencyKey = "part-create" });
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         var dto = await res.Content.ReadFromJsonAsync<SparePartDto>();
         dto!.PartId.Should().Be("SP1");
@@ -300,7 +301,8 @@ public sealed class EmsBridgeControllerTests : IClassFixture<EmsBridgeController
     {
         var res = await Client("ems:manage").PostAsJsonAsync("/api/v1/ems/spare-parts",
             new { partId = "SP1", partName = "베어링", partNumber = "BR-001", description = "구동부", unitOfMeasure = "EA",
-                  currentStock = 10m, minStock = 50m, maxStock = 5m, location = "A-1", equipmentClassId = (string?)null });
+                  currentStock = 10m, minStock = 50m, maxStock = 5m, location = "A-1", equipmentClassId = (string?)null,
+                  idempotencyKey = "part-create-invalid" });
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "max<=min 검증 실패는 400");
     }
 

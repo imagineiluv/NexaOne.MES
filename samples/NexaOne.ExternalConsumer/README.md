@@ -6,7 +6,7 @@
 
 project가 직접 참조하는 저장소 project는 다음 하나뿐이다.
 
-- `submodules/NexusFramework/src/NexaFramework.Drivers.Hosting/NexaFramework.Drivers.Hosting.csproj`
+- `submodules/NexaFramework/src/NexaFramework.Drivers.Hosting/NexaFramework.Drivers.Hosting.csproj`
 
 이 sample은 NexaOne 제품 Hosting extension, Bridge, controller 또는 업무 DTO를 참조하지 않는다. 패키지 소비로 전환할 때는 project reference를 배포된 `NexaFramework.Drivers.Hosting` package reference로 바꾸면 된다.
 

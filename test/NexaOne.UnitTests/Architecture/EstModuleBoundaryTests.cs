@@ -2,7 +2,7 @@ namespace NexaOne.UnitTests.Architecture;
 
 /// <summary>ADR-006 모듈 경계 회귀 가드 — EST 인프라(EquipmentAlarmRepository)가 타 모듈(MDM)의 물리 테이블을
 /// 자신의 SQL에 다시 박지 못하게 한다. 과거 GetActiveAlarmsAsync가 EST_EQUIPMENT_ALARM ⋈ MDM_EQUIPMENT 조인으로
-/// plantId를 풀었으나(EST.csproj는 MDM 미참조 → 런타임 무음 결합), 이제 호스트 IEquipmentDirectory가 plantId→설비
+/// plantId를 풀었으나(EST.csproj는 MDM 미참조 → 런타임 무음 결합), 이제 MDM IEquipmentDirectory가 plantId→설비
 /// ID를 풀어 넘긴다. 이 테스트는 그 결합이 소스에 다시 들어오면 즉시 빨갛게 만든다(소스 텍스트에 "MDM_" 부재 단언).</summary>
 public sealed class EstModuleBoundaryTests
 {

@@ -12,7 +12,19 @@ public sealed class EmsServiceTests
     private static WorkOrder IssuedWo(string id = "WO001") =>
         WorkOrder.Create(id, "EQ001", "PM", "Scheduled maintenance", "tech01", Issued).Value;
 
-    private EmsService BuildService(Mock<IWorkOrderRepository> repo) => new(repo.Object);
+    private EmsService BuildService(
+        Mock<IWorkOrderRepository> repo,
+        Mock<IMaintenancePlanRepository>? plans = null)
+    {
+        if (plans is null)
+        {
+            plans = new Mock<IMaintenancePlanRepository>();
+            plans.Setup(r => r.GetByIdAsync(It.IsAny<string>(), default))
+                .ReturnsAsync((string id, CancellationToken _) => MaintenancePlan.Create(
+                    id, id, "EQ001", "PM", "Monthly", DateTime.UtcNow, 1m, "tech01").Value);
+        }
+        return new EmsService(repo.Object, plans.Object);
+    }
 
     private static MaintenanceCommandContext Command(string key) =>
         MaintenanceCommandContext.Create("login-tech", key, "MES", correlationId: "corr-ems").Value;
@@ -53,7 +65,8 @@ public sealed class EmsServiceTests
     {
         var repo = new Mock<IWorkOrderRepository>();
         repo.Setup(r => r.AddWithActionAsync(
-            It.IsAny<WorkOrder>(), It.IsAny<MaintenanceAction>(), default)).ReturnsAsync(true);
+            It.IsAny<WorkOrder>(), It.IsAny<MaintenanceAction>(),
+            It.IsAny<WorkOrderCreateCommandRecord>(), default)).ReturnsAsync(true);
 
         var result = await BuildService(repo).CreateWorkOrderAsync(
             "WO001", "EQ001", "PM", "Maintenance", "tech01", "MP001", Command("idem-create"));
@@ -65,7 +78,40 @@ public sealed class EmsServiceTests
             It.Is<MaintenanceAction>(a => a.ActorId == "login-tech"
                 && a.IdempotencyKey == "idem-create"
                 && a.FromStatus == null
-                && a.ToStatus == "Issued"), default), Times.Once);
+                && a.ToStatus == "Issued"),
+            It.Is<WorkOrderCreateCommandRecord>(c => c.ActorId == "login-tech"
+                && c.IdempotencyKey == "idem-create"), default), Times.Once);
+    }
+
+    [Fact]
+    public async Task CreateWorkOrder_replays_persistent_creation_payload_and_actor()
+    {
+        const string key = "idem-create-ledger";
+        WorkOrderCreateCommandRecord? ledger = null;
+        var repo = new Mock<IWorkOrderRepository>();
+        repo.Setup(r => r.GetCreateCommandAsync(key, default))
+            .ReturnsAsync(() => ledger);
+        repo.Setup(r => r.AddWithActionAsync(
+                It.IsAny<WorkOrder>(), It.IsAny<MaintenanceAction>(),
+                It.IsAny<WorkOrderCreateCommandRecord>(), default))
+            .Callback<WorkOrder, MaintenanceAction, WorkOrderCreateCommandRecord, CancellationToken>(
+                (_, _, command, _) => ledger = command)
+            .ReturnsAsync(true);
+        var service = BuildService(repo);
+
+        var first = await service.CreateWorkOrderAsync(
+            "WO001", "EQ001", "PM", "Maintenance", "tech01", "MP001", Command(key));
+        var replay = await service.CreateWorkOrderAsync(
+            "WO001", "EQ001", "PM", "Maintenance", "tech01", "MP001", Command(key));
+
+        first.IsSuccess.Should().BeTrue();
+        replay.IsSuccess.Should().BeTrue();
+        replay.Value.Status.Should().Be(WorkOrderStatus.Issued);
+        replay.Value.IssuedAt.Should().Be(first.Value.IssuedAt);
+        ledger!.ActorId.Should().Be("login-tech");
+        repo.Verify(r => r.AddWithActionAsync(
+            It.IsAny<WorkOrder>(), It.IsAny<MaintenanceAction>(),
+            It.IsAny<WorkOrderCreateCommandRecord>(), default), Times.Once);
     }
 
     [Fact]
@@ -76,7 +122,34 @@ public sealed class EmsServiceTests
             "WO001", "EQ001", "INVALID", "desc", "tech01", null, Command("idem-invalid"));
         result.IsFailure.Should().BeTrue();
         repo.Verify(r => r.AddWithActionAsync(
-            It.IsAny<WorkOrder>(), It.IsAny<MaintenanceAction>(), default), Times.Never);
+            It.IsAny<WorkOrder>(), It.IsAny<MaintenanceAction>(),
+            It.IsAny<WorkOrderCreateCommandRecord>(), default), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("EQ002", "PM", "EMS.WorkOrder.PlanEquipmentMismatch")]
+    [InlineData("EQ001", "BM", "EMS.WorkOrder.PlanTypeMismatch")]
+    public async Task CreateWorkOrder_rejects_a_plan_with_incompatible_scope_or_type(
+        string planEquipmentId,
+        string planType,
+        string expectedCode)
+    {
+        var repo = new Mock<IWorkOrderRepository>();
+        var plans = new Mock<IMaintenancePlanRepository>();
+        plans.Setup(r => r.GetByIdAsync("MP001", default)).ReturnsAsync(
+            MaintenancePlan.Create(
+                "MP001", "Plan", planEquipmentId, planType, "Monthly",
+                DateTime.UtcNow, 1m, "tech01").Value);
+
+        var result = await BuildService(repo, plans).CreateWorkOrderAsync(
+            "WO001", "EQ001", "PM", "Maintenance", "tech01", "MP001",
+            Command($"idem-{expectedCode}"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be(expectedCode);
+        repo.Verify(r => r.AddWithActionAsync(
+            It.IsAny<WorkOrder>(), It.IsAny<MaintenanceAction>(),
+            It.IsAny<WorkOrderCreateCommandRecord>(), default), Times.Never);
     }
 
     [Fact]
@@ -90,7 +163,8 @@ public sealed class EmsServiceTests
             .ReturnsAsync((MaintenanceAction?)null)
             .ReturnsAsync(Winner("Create", key, null, "Issued"));
         repo.Setup(r => r.AddWithActionAsync(
-            It.IsAny<WorkOrder>(), It.IsAny<MaintenanceAction>(), default)).ReturnsAsync(false);
+            It.IsAny<WorkOrder>(), It.IsAny<MaintenanceAction>(),
+            It.IsAny<WorkOrderCreateCommandRecord>(), default)).ReturnsAsync(false);
         repo.Setup(r => r.GetByIdAsync("WO001", default)).ReturnsAsync(existing);
 
         var result = await BuildService(repo).CreateWorkOrderAsync(
@@ -112,7 +186,8 @@ public sealed class EmsServiceTests
             .ReturnsAsync((MaintenanceAction?)null)
             .ReturnsAsync(Winner("Create", key, null, "Issued"));
         repo.Setup(r => r.AddWithActionAsync(
-            It.IsAny<WorkOrder>(), It.IsAny<MaintenanceAction>(), default)).ReturnsAsync(false);
+            It.IsAny<WorkOrder>(), It.IsAny<MaintenanceAction>(),
+            It.IsAny<WorkOrderCreateCommandRecord>(), default)).ReturnsAsync(false);
         repo.Setup(r => r.GetByIdAsync("WO001", default)).ReturnsAsync(winner);
 
         var result = await BuildService(repo).CreateWorkOrderAsync(

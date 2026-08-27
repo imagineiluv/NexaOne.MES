@@ -30,18 +30,6 @@ public sealed class MaintenanceExecutionRepository : QueryRepository, IMaintenan
             "SELECT COUNT(*) FROM EMS_MAINT_ITEM WHERE ITEM_ID=@itemId",
             new { itemId }, ct) > 0;
 
-    public Task<string?> GetActiveWorkerIdAsync(
-        string userId,
-        DateTime at,
-        CancellationToken ct = default)
-        => QueryFirstOrDefaultAsync<string>(@"
-            SELECT WORKER_ID
-              FROM MDM_WORKER_USER_MAP
-             WHERE USER_ID=@userId AND IS_ACTIVE=1
-               AND EFFECTIVE_FROM<=@at
-               AND (EFFECTIVE_TO IS NULL OR EFFECTIVE_TO>@at)",
-            new { userId, at }, ct);
-
     public async Task<MaintenanceCheckRecord?> GetCheckByIdempotencyKeyAsync(
         string idempotencyKey,
         CancellationToken ct = default)
@@ -203,12 +191,6 @@ public sealed class MaintenanceExecutionRepository : QueryRepository, IMaintenan
          WHERE EXISTS (
                SELECT 1 FROM EMS_WORK_ORDER
                 WHERE WO_ID=@WorkOrderId AND STATUS='InProgress')
-           AND EXISTS (SELECT 1 FROM SYS_USER WHERE USER_ID=@UserId)
-           AND (@WorkerId IS NULL OR EXISTS (
-               SELECT 1 FROM MDM_WORKER_USER_MAP
-                WHERE USER_ID=@UserId AND WORKER_ID=@WorkerId AND IS_ACTIVE=1
-                  AND EFFECTIVE_FROM<=@StartedAt
-                  AND (EFFECTIVE_TO IS NULL OR EFFECTIVE_TO>@StartedAt)))
            AND NOT EXISTS (
                SELECT 1 FROM EMS_WORK_ORDER_LABOR
                 WHERE LABOR_ID=@LaborId OR START_IDEMPOTENCY_KEY=@StartIdempotencyKey

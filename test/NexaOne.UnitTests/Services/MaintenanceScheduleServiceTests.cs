@@ -39,6 +39,19 @@ public sealed class MaintenanceScheduleServiceTests
     }
 
     [Fact]
+    public async Task Create_requires_a_preventive_maintenance_plan()
+    {
+        var service = new MaintenanceScheduleService(new MemoryRepository("PLAN-PM"));
+
+        var result = await service.CreateAsync(new MaintenanceScheduleCreateCommand(
+            "BM-SCHEDULE", "PLAN-BM", "Calendar", 1m, "Day",
+            NextDueAt: DateTime.UtcNow.AddDays(1), ActorId: "planner"));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("EMS.MaintenanceSchedule.PreventivePlanRequired");
+    }
+
+    [Fact]
     public async Task Update_uses_version_guard_and_preserves_authenticated_audit()
     {
         var repository = new MemoryRepository("PLAN-1");

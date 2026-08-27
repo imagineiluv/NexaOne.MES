@@ -1,5 +1,6 @@
 using NexaOne.EMS.Application.SpareParts;
 using NexaOne.ServiceContracts.Ems;
+using NexaOne.ServiceContracts.Mdm;
 
 namespace NexaOne.UnitTests.Services;
 
@@ -9,7 +10,7 @@ public sealed class SparePartServiceTests
     public async Task Same_policy_create_replays_but_changed_payload_conflicts()
     {
         var repository = MemoryRepository.Ready();
-        var bridge = new SparePartBridge(new SparePartService(repository));
+        var bridge = Bridge(repository);
         var command = Policy();
 
         var first = await bridge.SaveStockPolicyAsync(command);
@@ -27,7 +28,7 @@ public sealed class SparePartServiceTests
     public async Task Policy_update_uses_expected_version_and_preserves_the_winner()
     {
         var repository = MemoryRepository.Ready();
-        var bridge = new SparePartBridge(new SparePartService(repository));
+        var bridge = Bridge(repository);
         (await bridge.SaveStockPolicyAsync(Policy())).IsSuccess.Should().BeTrue();
 
         var winner = await bridge.SaveStockPolicyAsync(
@@ -43,9 +44,46 @@ public sealed class SparePartServiceTests
     }
 
     [Fact]
+    public async Task Old_policy_command_replays_its_original_result_after_later_update()
+    {
+        var repository = MemoryRepository.Ready();
+        var bridge = Bridge(repository);
+        var create = Policy("policy-original");
+
+        var first = await bridge.SaveStockPolicyAsync(create);
+        var second = await bridge.SaveStockPolicyAsync(
+            Policy("policy-update") with { ExpectedVersion = 1, TargetStock = 25m });
+        var replay = await bridge.SaveStockPolicyAsync(create);
+
+        first.IsSuccess.Should().BeTrue();
+        second.IsSuccess.Should().BeTrue();
+        replay.Value.Should().Be(first.Value);
+        replay.Value.Version.Should().Be(1);
+        replay.Value.TargetStock.Should().Be(20m);
+        repository.Policy!.Version.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Legacy_last_policy_command_replays_after_command_ledger_upgrade()
+    {
+        var repository = MemoryRepository.Ready();
+        var bridge = Bridge(repository);
+        var command = Policy("legacy-policy-command");
+
+        var first = await bridge.SaveStockPolicyAsync(command);
+        repository.Commands.Clear();
+        var replay = await bridge.SaveStockPolicyAsync(command);
+
+        first.IsSuccess.Should().BeTrue();
+        replay.IsSuccess.Should().BeTrue();
+        replay.Value.Should().Be(first.Value);
+        repository.Commands.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Supplier_and_bom_reject_missing_or_ambiguous_master_scope()
     {
-        var bridge = new SparePartBridge(new SparePartService(MemoryRepository.Ready()));
+        var bridge = Bridge(MemoryRepository.Ready());
 
         var missingVendor = await bridge.SaveSupplierAsync(Supplier() with { VendorId = "UNKNOWN" });
         var bothScopes = await bridge.SaveEquipmentBomAsync(
@@ -61,7 +99,7 @@ public sealed class SparePartServiceTests
     public async Task Recommendation_uses_primary_supplier_lead_demand_reserved_stock_and_moq()
     {
         var repository = MemoryRepository.Ready(currentStock: 7m);
-        var bridge = new SparePartBridge(new SparePartService(repository));
+        var bridge = Bridge(repository);
         (await bridge.SaveStockPolicyAsync(Policy())).IsSuccess.Should().BeTrue();
         (await bridge.SaveSupplierAsync(Supplier("SUP-FAST", "VENDOR-FAST", 1, false, 2m))).IsSuccess.Should().BeTrue();
         (await bridge.SaveSupplierAsync(Supplier("SUP-PRIMARY", "VENDOR01", 4, true, 10m))).IsSuccess.Should().BeTrue();
@@ -94,7 +132,13 @@ public sealed class SparePartServiceTests
         "BOM01", "PART01", 2m, "EQ01", null, "Critical", 90, 1000m,
         "P01", true, 0, "bom-create", "operator");
 
-    private sealed class MemoryRepository : ISparePartManagementRepository
+    private static SparePartBridge Bridge(MemoryRepository repository)
+        => new(new SparePartService(repository, repository, repository));
+
+    private sealed class MemoryRepository :
+        ISparePartManagementRepository,
+        IVendorDirectory,
+        IEquipmentDirectory
     {
         public HashSet<string> Parts { get; } = ["PART01"];
         public HashSet<string> Vendors { get; } = ["VENDOR01", "VENDOR-FAST"];
@@ -104,15 +148,27 @@ public sealed class SparePartServiceTests
         public SparePartStockPolicyRecord? Policy { get; private set; }
         public List<SparePartSupplierRecord> Suppliers { get; } = [];
         public EquipmentPartBomRecord? BomItem { get; private set; }
+        public List<SparePartMasterCommandRecord> Commands { get; } = [];
 
         public static MemoryRepository Ready(decimal currentStock = 50m) => new() { CurrentStock = currentStock };
 
         public Task<bool> PartExistsAsync(string partId, CancellationToken ct = default)
             => Task.FromResult(Parts.Contains(partId));
+        public Task<SparePartMasterCommandRecord?> GetCommandAsync(
+            string idempotencyKey, CancellationToken ct = default)
+            => Task.FromResult(Commands.SingleOrDefault(x => x.IdempotencyKey == idempotencyKey));
         public Task<bool> VendorExistsAsync(string vendorId, CancellationToken ct = default)
             => Task.FromResult(Vendors.Contains(vendorId));
-        public Task<bool> EquipmentExistsAsync(string equipmentId, CancellationToken ct = default)
-            => Task.FromResult(Equipment.Contains(equipmentId));
+        public Task<IReadOnlyList<string>> GetEquipmentIdsByPlantAsync(
+            string plantId,
+            CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<string>>(Equipment.ToArray());
+        public Task<EquipmentDirectoryEntry?> GetEquipmentAsync(
+            string equipmentId,
+            CancellationToken ct = default)
+            => Task.FromResult<EquipmentDirectoryEntry?>(Equipment.Contains(equipmentId)
+                ? new EquipmentDirectoryEntry(equipmentId, "PLANT01", "EQC01", true)
+                : null);
         public Task<bool> EquipmentClassExistsAsync(string equipmentClassId, CancellationToken ct = default)
             => Task.FromResult(EquipmentClasses.Contains(equipmentClassId));
         public Task<SparePartStockPolicyRecord?> GetStockPolicyAsync(string partId, CancellationToken ct = default)
@@ -144,6 +200,20 @@ public sealed class SparePartServiceTests
             return Task.FromResult(true);
         }
 
+        public async Task<bool> TryCreateStockPolicyAsync(
+            SparePartStockPolicyRecord record,
+            SparePartMasterCommandRecord command,
+            CancellationToken ct = default)
+            => await PersistCommandAsync(command, () => TryCreateStockPolicyAsync(record, ct));
+
+        public async Task<bool> TryUpdateStockPolicyAsync(
+            SparePartStockPolicyRecord record,
+            int expectedVersion,
+            SparePartMasterCommandRecord command,
+            CancellationToken ct = default)
+            => await PersistCommandAsync(
+                command, () => TryUpdateStockPolicyAsync(record, expectedVersion, ct));
+
         public Task<bool> TryCreateSupplierAsync(SparePartSupplierRecord record, CancellationToken ct = default)
         {
             if (Suppliers.Any(x => x.PartSupplierId == record.PartSupplierId)) return Task.FromResult(false);
@@ -159,6 +229,20 @@ public sealed class SparePartServiceTests
             return Task.FromResult(true);
         }
 
+        public async Task<bool> TryCreateSupplierAsync(
+            SparePartSupplierRecord record,
+            SparePartMasterCommandRecord command,
+            CancellationToken ct = default)
+            => await PersistCommandAsync(command, () => TryCreateSupplierAsync(record, ct));
+
+        public async Task<bool> TryUpdateSupplierAsync(
+            SparePartSupplierRecord record,
+            int expectedVersion,
+            SparePartMasterCommandRecord command,
+            CancellationToken ct = default)
+            => await PersistCommandAsync(
+                command, () => TryUpdateSupplierAsync(record, expectedVersion, ct));
+
         public Task<bool> TryCreateEquipmentBomAsync(EquipmentPartBomRecord record, CancellationToken ct = default)
         {
             if (BomItem is not null) return Task.FromResult(false);
@@ -173,9 +257,33 @@ public sealed class SparePartServiceTests
             return Task.FromResult(true);
         }
 
+        public async Task<bool> TryCreateEquipmentBomAsync(
+            EquipmentPartBomRecord record,
+            SparePartMasterCommandRecord command,
+            CancellationToken ct = default)
+            => await PersistCommandAsync(command, () => TryCreateEquipmentBomAsync(record, ct));
+
+        public async Task<bool> TryUpdateEquipmentBomAsync(
+            EquipmentPartBomRecord record,
+            int expectedVersion,
+            SparePartMasterCommandRecord command,
+            CancellationToken ct = default)
+            => await PersistCommandAsync(
+                command, () => TryUpdateEquipmentBomAsync(record, expectedVersion, ct));
+
         public Task<SparePartReplenishmentInput?> GetReplenishmentInputAsync(string partId, CancellationToken ct = default)
             => Task.FromResult(Policy is null || !Parts.Contains(partId)
                 ? null
                 : new SparePartReplenishmentInput(partId, CurrentStock, Policy, Suppliers.Where(x => x.PartId == partId).ToArray()));
+
+        private async Task<bool> PersistCommandAsync(
+            SparePartMasterCommandRecord command,
+            Func<Task<bool>> persist)
+        {
+            if (Commands.Any(x => x.IdempotencyKey == command.IdempotencyKey)) return false;
+            if (!await persist()) return false;
+            Commands.Add(command);
+            return true;
+        }
     }
 }

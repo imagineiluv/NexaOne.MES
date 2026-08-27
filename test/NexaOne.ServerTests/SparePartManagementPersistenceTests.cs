@@ -7,6 +7,8 @@ using Microsoft.Extensions.DependencyInjection;
 using NexaOne.EMS.Application.SpareParts;
 using NexaOne.EMS.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
+using NexaOne.MDM.Infrastructure;
+using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Ems;
 using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
@@ -45,6 +47,41 @@ public sealed class SparePartManagementPersistenceTests :
             base.Dispose(disposing);
             try { if (File.Exists(DbPath)) File.Delete(DbPath); } catch { /* best effort */ }
         }
+    }
+
+    [Fact]
+    public async Task Persistent_command_ledger_replays_the_original_policy_result_after_later_updates()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..10];
+        var partId = $"PART-LEDGER-{suffix}";
+        SeedPart(partId, 7m);
+        var service = Service();
+        var create = Policy(partId, $"policy:ledger:create:{suffix}");
+
+        var first = await service.SaveStockPolicyAsync(create);
+        var second = await service.SaveStockPolicyAsync(create with
+        {
+            TargetStock = 25m, ExpectedVersion = 1,
+            IdempotencyKey = $"policy:ledger:update:{suffix}", ActorId = "planner-2",
+        });
+        var replay = await service.SaveStockPolicyAsync(create);
+        var conflict = await service.SaveStockPolicyAsync(create with { TargetStock = 30m });
+
+        first.IsSuccess.Should().BeTrue(first.IsFailure ? first.Error.Description : string.Empty);
+        second.IsSuccess.Should().BeTrue(second.IsFailure ? second.Error.Description : string.Empty);
+        replay.Value.Should().Be(first.Value);
+        replay.Value.Version.Should().Be(1);
+        replay.Value.TargetStock.Should().Be(20m);
+        conflict.IsFailure.Should().BeTrue();
+        conflict.Error.Code.Should().Be("EMS.SparePart.IdempotencyConflict");
+        Scalar<long>(
+                "SELECT COUNT(*) FROM EMS_SPARE_MASTER_COMMAND WHERE ENTITY_TYPE='StockPolicy' AND ENTITY_ID=@id",
+                ("@id", partId))
+            .Should().Be(2);
+        Scalar<long>(
+                "SELECT MAX(RESULT_VERSION) FROM EMS_SPARE_MASTER_COMMAND WHERE ENTITY_TYPE='StockPolicy' AND ENTITY_ID=@id",
+                ("@id", partId))
+            .Should().Be(2);
     }
 
     [Fact]
@@ -164,6 +201,14 @@ public sealed class SparePartManagementPersistenceTests :
         bomUpdate.IsSuccess.Should().BeTrue();
         bomUpdate.Value.Version.Should().Be(2);
         bomUpdate.Value.UpdatedBy.Should().Be("planner-2");
+        Scalar<long>(
+                "SELECT COUNT(*) FROM EMS_SPARE_MASTER_COMMAND WHERE ENTITY_TYPE='Supplier' AND ENTITY_ID=@id",
+                ("@id", primaryId))
+            .Should().Be(2);
+        Scalar<long>(
+                "SELECT COUNT(*) FROM EMS_SPARE_MASTER_COMMAND WHERE ENTITY_TYPE='EquipmentBom' AND ENTITY_ID=@id",
+                ("@id", bomId))
+            .Should().Be(2);
 
         Action secondPrimary = () => Execute(
             "UPDATE EMS_SPARE_PART_SUPPLIER SET IS_PRIMARY=1 WHERE PART_ID=@part AND VENDOR_ID=@vendor",
@@ -276,7 +321,14 @@ public sealed class SparePartManagementPersistenceTests :
         }
     }
 
-    private SparePartService Service() => new(Repository());
+    private SparePartService Service()
+    {
+        var dataSource = DataSource();
+        return new SparePartService(
+            new SparePartManagementRepository(dataSource),
+            new VendorDirectory(dataSource),
+            new EquipmentDirectory(dataSource));
+    }
 
     private SparePartManagementRepository Repository() => new(DataSource());
 

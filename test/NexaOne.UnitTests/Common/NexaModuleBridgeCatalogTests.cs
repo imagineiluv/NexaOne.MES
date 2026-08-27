@@ -7,6 +7,7 @@ using NexaOne.ServiceContracts.Fdc;
 using NexaOne.ServiceContracts.Ivt;
 using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Pom;
+using NexaOne.ServiceContracts.Prc;
 using NexaOne.ServiceContracts.Qms;
 using NexaOne.ServiceContracts.Rms;
 using NexaOne.ServiceContracts.Shp;
@@ -40,19 +41,29 @@ public sealed class NexaModuleBridgeCatalogTests
         new(typeof(IFdcTraceSource), "Fdc", "fdcTraceSource"),
         new(typeof(IMaterialBridge), "Ivt", "materialBridge"),
         new(typeof(IMaterialLotBridge), "Ivt", "materialLotBridge"),
+        new(typeof(IMaterialLotDirectory), "Ivt", "materialLotDirectory"),
+        new(typeof(IMrpInventoryDirectory), "Ivt", "mrpInventoryDirectory"),
+        new(typeof(IEquipmentDirectory), "Mdm", "equipmentDirectory"),
         new(typeof(IMdmEquipmentBridge), "Mdm", "mdmEquipmentBridge"),
         new(typeof(IMdmMasterBridge), "Mdm", "mdmMasterBridge"),
+        new(typeof(IMrpMasterDirectory), "Mdm", "mrpMasterDirectory"),
+        new(typeof(IProcessDirectory), "Mdm", "processDirectory"),
+        new(typeof(IVendorDirectory), "Mdm", "vendorDirectory"),
         new(typeof(ILotDispositionBridge), "Pom", "lotDispositionBridge"),
         new(typeof(IMrpBridge), "Pom", "mrpBridge"),
         new(typeof(IPomBridge), "Pom", "pomBridge"),
         new(typeof(IPomWorkOrderBridge), "Pom", "pomWorkOrderBridge"),
+        new(typeof(IProductionLotDirectory), "Pom", "productionLotDirectory"),
+        new(typeof(IPurchaseOrderPlanningBridge), "Prc", "purchaseOrderPlanningBridge"),
         new(typeof(IQmsBridge), "Qms", "qmsBridge"),
         new(typeof(IProductionQualityGateway), "Qms", "qmsProductionQualityGateway"),
         new(typeof(IRecipeApprovalBridge), "Rms", "rmsRecipeBridge"),
         new(typeof(IRecipeExecutionBridge), "Rms", "rmsRecipeExecutionBridge"),
         new(typeof(IShipmentBridge), "Shp", "shipmentBridge"),
         new(typeof(IDeployBridge), "Sys", "deployBridge"),
+        new(typeof(IMaintenanceIdentityDirectory), "Sys", "maintenanceIdentityDirectory"),
         new(typeof(ISysBridge), "Sys", "sysBridge"),
+        new(typeof(IUserDirectory), "Sys", "userDirectory"),
     };
 
     [Fact]
@@ -61,7 +72,7 @@ public sealed class NexaModuleBridgeCatalogTests
         var first = NexaModuleBridgeCatalog.Discover(typeof(INexaModuleBridge).Assembly);
         var second = NexaModuleBridgeCatalog.Discover(typeof(INexaModuleBridge).Assembly);
 
-        first.Descriptors.Should().HaveCount(27);
+        first.Descriptors.Should().HaveCount(37);
         first.Descriptors.Should().Equal(ExpectedProductionDescriptors);
         second.Descriptors.Should().Equal(first.Descriptors);
         first.Descriptors.Should().OnlyContain(descriptor =>

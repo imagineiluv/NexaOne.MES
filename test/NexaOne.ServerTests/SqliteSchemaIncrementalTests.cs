@@ -1,6 +1,8 @@
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using NexaOne.Infrastructure.Persistence;
+using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Xunit;
 
 namespace NexaOne.ServerTests;
@@ -20,6 +22,18 @@ public sealed class SqliteSchemaIncrementalTests
     private static string MigrationSql(string fileName)
         => File.ReadAllText(RepositorySource.GetFile(
             "src", "00.Main", "NexaOne.Server", "config", "db", "migrations", fileName));
+
+    private static string NamedQuerySql(string dialect, string module, string queryId)
+    {
+        var document = XDocument.Load(RepositorySource.GetFile(
+            "src", "00.Main", "NexaOne.Server", "config", "db", "queries", dialect, $"{module}.xml"));
+        return document.Root!
+            .Elements("query")
+            .Single(element => string.Equals((string?)element.Attribute("id"), queryId, StringComparison.Ordinal))
+            .Element("statement")!
+            .Value
+            .Trim();
+    }
 
     private static bool TableExists(string cs, string name)
     {
@@ -66,6 +80,76 @@ public sealed class SqliteSchemaIncrementalTests
         var result = new List<string>();
         while (reader.Read()) result.Add(reader.GetString(1));
         return result;
+    }
+
+    private static bool IndexExists(string cs, string index)
+    {
+        using var c = new SqliteConnection(cs); c.Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=@name";
+        cmd.Parameters.AddWithValue("@name", index);
+        return Convert.ToInt64(cmd.ExecuteScalar() ?? 0L) > 0;
+    }
+
+    private static IReadOnlyList<string> IndexKeys(string cs, string index)
+    {
+        using var c = new SqliteConnection(cs); c.Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = $"PRAGMA index_xinfo([{index.Replace("]", "]]", StringComparison.Ordinal)}])";
+        using var reader = cmd.ExecuteReader();
+        var result = new List<string>();
+        while (reader.Read())
+        {
+            if (reader.GetInt64(5) != 1 || reader.IsDBNull(2)) continue;
+            result.Add($"{reader.GetString(2)}:{(reader.GetInt64(3) == 1 ? "DESC" : "ASC")}");
+        }
+        return result;
+    }
+
+    private static string IndexSql(string cs, string index)
+    {
+        using var c = new SqliteConnection(cs); c.Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT sql FROM sqlite_master WHERE type='index' AND name=@name";
+        cmd.Parameters.AddWithValue("@name", index);
+        return Convert.ToString(cmd.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+    }
+
+    private static int CountIndexesWithKeys(string cs, string table, params string[] expectedKeys)
+    {
+        using var c = new SqliteConnection(cs); c.Open();
+        var names = new List<string>();
+        using (var list = c.CreateCommand())
+        {
+            list.CommandText = $"PRAGMA index_list([{table.Replace("]", "]]", StringComparison.Ordinal)}])";
+            using var reader = list.ExecuteReader();
+            while (reader.Read()) names.Add(reader.GetString(1));
+        }
+
+        var matches = 0;
+        foreach (var name in names)
+        {
+            using var info = c.CreateCommand();
+            info.CommandText = $"PRAGMA index_xinfo([{name.Replace("]", "]]", StringComparison.Ordinal)}])";
+            using var reader = info.ExecuteReader();
+            var keys = new List<string>();
+            while (reader.Read())
+            {
+                if (reader.GetInt64(5) == 1 && !reader.IsDBNull(2)) keys.Add(reader.GetString(2));
+            }
+            if (keys.SequenceEqual(expectedKeys, StringComparer.OrdinalIgnoreCase)) matches++;
+        }
+        return matches;
+    }
+
+    private static string QueryPlan(string cs, string sql)
+    {
+        using var c = new SqliteConnection(cs); c.Open();
+        using var cmd = c.CreateCommand(); cmd.CommandText = $"EXPLAIN QUERY PLAN {sql}";
+        using var reader = cmd.ExecuteReader();
+        var details = new List<string>();
+        while (reader.Read()) details.Add(reader.GetString(3));
+        return string.Join(Environment.NewLine, details);
     }
 
     private static void CreatePreV115EmsTables(string cs)
@@ -148,6 +232,77 @@ public sealed class SqliteSchemaIncrementalTests
                'CarrierCleaned', 'C1', NULL, 1, 1, 0, 'EA', 'TEST', 'tester', CURRENT_TIMESTAMP),
               ('OUT_LOT', 'IDEM_LOT', 'HASH_LOT', 'P1', 'EQ1',
                'TrackOut', NULL, 'LOT1', 1, 1, 0, 'EA', 'TEST', 'tester', CURRENT_TIMESTAMP);
+            """);
+    }
+
+    private static void CreatePreV127UtilityTables(string cs)
+    {
+        ExecSql(cs, """
+            CREATE TABLE EST_UTILITY_METER (
+                METER_ID TEXT NOT NULL PRIMARY KEY,
+                METER_NAME TEXT NOT NULL,
+                PLANT_ID TEXT NOT NULL,
+                EQUIPMENT_ID TEXT NULL,
+                UTILITY_TYPE TEXT NOT NULL,
+                UNIT TEXT NOT NULL,
+                FDC_PARAMETER_ID TEXT NULL,
+                READING_MODE TEXT NOT NULL DEFAULT 'Cumulative',
+                SCALE_FACTOR NUMERIC NOT NULL DEFAULT 1,
+                COST_PER_UNIT NUMERIC NULL,
+                CARBON_PER_UNIT NUMERIC NULL,
+                IS_ACTIVE INTEGER NOT NULL DEFAULT 1,
+                CREATED_BY TEXT NOT NULL DEFAULT 'SYSTEM',
+                CREATED_AT TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UPDATED_BY TEXT NOT NULL DEFAULT 'SYSTEM',
+                UPDATED_AT TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE EST_UTILITY_READING (
+                READING_ID TEXT NOT NULL PRIMARY KEY,
+                METER_ID TEXT NOT NULL,
+                EQUIPMENT_ID TEXT NULL,
+                PROCESS_LOT_ID TEXT NULL,
+                WORK_ORDER_ID TEXT NULL,
+                RECIPE_ID TEXT NULL,
+                RECIPE_VERSION INTEGER NULL,
+                RAW_VALUE NUMERIC NOT NULL,
+                NORMALIZED_VALUE NUMERIC NOT NULL,
+                UNIT TEXT NOT NULL,
+                SOURCE TEXT NOT NULL,
+                SOURCE_EVENT_ID TEXT NOT NULL,
+                REQUEST_HASH TEXT NOT NULL,
+                QUALITY TEXT NOT NULL DEFAULT 'Good',
+                RECORDED_AT TEXT NOT NULL,
+                RECORDED_BY TEXT NOT NULL,
+                CREATED_AT TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE EST_UTILITY_METER_EVENT (
+                EVENT_ID TEXT NOT NULL PRIMARY KEY,
+                IDEMPOTENCY_KEY TEXT NOT NULL,
+                REQUEST_HASH TEXT NOT NULL,
+                METER_ID TEXT NOT NULL,
+                PLANT_ID TEXT NOT NULL,
+                EQUIPMENT_ID TEXT NULL,
+                EVENT_TYPE TEXT NOT NULL,
+                OCCURRED_AT TEXT NOT NULL,
+                REASON TEXT NOT NULL,
+                PREVIOUS_VALUE NUMERIC NULL,
+                AFTER_VALUE NUMERIC NULL,
+                BASELINE_VALUE NUMERIC NULL,
+                UNIT TEXT NOT NULL,
+                ACTOR_USER_ID TEXT NOT NULL,
+                CREATED_AT TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO EST_UTILITY_METER
+              (METER_ID, METER_NAME, PLANT_ID, EQUIPMENT_ID, UTILITY_TYPE, UNIT,
+               READING_MODE, SCALE_FACTOR, COST_PER_UNIT, CARBON_PER_UNIT,
+               UPDATED_BY, UPDATED_AT)
+            VALUES ('M_PRE127', 'Legacy power', 'P_LEGACY', 'EQ_LEGACY', 'Electricity', 'kWh',
+                    'Delta', 2.5, 11.25, 0.42, 'legacy-operator', '2025-01-02 03:04:05');
+            INSERT INTO EST_UTILITY_READING
+              (READING_ID, METER_ID, RAW_VALUE, NORMALIZED_VALUE, UNIT, SOURCE,
+               SOURCE_EVENT_ID, REQUEST_HASH, RECORDED_AT, RECORDED_BY)
+            VALUES ('R_PRE127', 'M_PRE127', 4, 10, 'kWh', 'PLC', 'PLC-1', 'HASH-1',
+                    '2025-01-02 04:00:00', 'legacy-operator');
             """);
     }
 
@@ -604,6 +759,355 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void EnsureSchema_existing_utility_rows_seed_v1_history_and_backfill_immutable_snapshots_idempotently()
+    {
+        var cs = NewDb();
+        try
+        {
+            CreatePreV127UtilityTables(cs);
+
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            SqliteSchemaInitializer.EnsureSchema(cs);
+
+            Count(cs, "EST_UTILITY_METER_CONFIG_HISTORY").Should().Be(1,
+                "the V127 upgrade seed must be durable and idempotent");
+            ScalarString(cs, "SELECT CONFIG_VERSION FROM EST_UTILITY_METER_CONFIG_HISTORY WHERE METER_ID='M_PRE127'")
+                .Should().Be("1");
+            ScalarString(cs, "SELECT CHANGED_BY FROM EST_UTILITY_METER_CONFIG_HISTORY WHERE METER_ID='M_PRE127'")
+                .Should().Be("legacy-operator");
+            ScalarString(cs, "SELECT PLANT_ID FROM EST_UTILITY_READING WHERE READING_ID='R_PRE127'")
+                .Should().Be("P_LEGACY");
+            ScalarString(cs, "SELECT READING_MODE FROM EST_UTILITY_READING WHERE READING_ID='R_PRE127'")
+                .Should().Be("Delta");
+            ScalarString(cs, "SELECT COST_PER_UNIT FROM EST_UTILITY_READING WHERE READING_ID='R_PRE127'")
+                .Should().Be("11.25");
+            ScalarString(cs, "SELECT CARBON_PER_UNIT FROM EST_UTILITY_READING WHERE READING_ID='R_PRE127'")
+                .Should().Be("0.42");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Fact]
+    public void Apply_fresh_utility_schema_creates_exactly_one_v1_history_for_each_seeded_meter()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.Apply(cs);
+
+            ScalarString(cs, """
+                SELECT CASE WHEN COUNT(*) =
+                    (SELECT COUNT(*) FROM EST_UTILITY_METER)
+                    THEN 'true' ELSE 'false' END
+                FROM EST_UTILITY_METER_CONFIG_HISTORY
+                WHERE CONFIG_VERSION = 1
+                """).Should().Be("true");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Fact]
+    public void EnsureSchema_rejects_legacy_utility_rows_without_an_immutable_meter_snapshot()
+    {
+        var cs = NewDb();
+        try
+        {
+            CreatePreV127UtilityTables(cs);
+            ExecSql(cs, """
+                INSERT INTO EST_UTILITY_READING
+                  (READING_ID, METER_ID, RAW_VALUE, NORMALIZED_VALUE, UNIT, SOURCE,
+                   SOURCE_EVENT_ID, REQUEST_HASH, RECORDED_AT, RECORDED_BY)
+                VALUES ('R_ORPHAN', 'M_MISSING', 1, 1, 'kWh', 'PLC',
+                        'PLC-ORPHAN', 'HASH-ORPHAN', CURRENT_TIMESTAMP, 'legacy-operator');
+                """);
+
+            Action upgrade = () => SqliteSchemaInitializer.EnsureSchema(cs);
+
+            upgrade.Should().Throw<InvalidOperationException>()
+                .WithMessage("*V128*objectType='READING'*objectId='R_ORPHAN'*configVersion=1*");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Performance_indexes_match_hot_query_contracts_for_fresh_and_incremental_schema(bool incremental)
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.Apply(cs);
+            if (incremental)
+            {
+                // Simulate a database that stopped at V128: remove V129/V130 indexes, restore the
+                // old V114 work definition, and restore V115's redundant checklist index.
+                ExecSql(cs, """
+                    DROP INDEX IX_IVT_TRACE_INBOX_BINDING_CURSOR;
+                    DROP INDEX IX_IVT_TRACE_INBOX_WORK;
+                    CREATE INDEX IX_IVT_TRACE_INBOX_WORK
+                        ON IVT_TRACE_PROJECTION_INBOX (STATUS, COLLECTED_AT, BINDING_ID);
+                    DROP INDEX IX_EMS_TOOL_USAGE_MOUNT;
+                    DROP INDEX IX_EMS_WO_EQUIPMENT_ISSUED;
+                    CREATE INDEX IX_EMS_WORK_ORDER_CHECK_RESULT_WO
+                        ON EMS_WORK_ORDER_CHECK_RESULT (WO_ID, ITEM_SEQUENCE);
+                    """);
+
+                SqliteSchemaInitializer.EnsureSchema(cs);
+                SqliteSchemaInitializer.EnsureSchema(cs);
+            }
+
+            IndexKeys(cs, "IX_IVT_TRACE_INBOX_BINDING_CURSOR").Should().Equal(
+                "BINDING_ID:ASC", "COLLECTED_AT:DESC", "COLLECT_ID:DESC");
+            IndexKeys(cs, "IX_IVT_TRACE_INBOX_WORK").Should().Equal(
+                "STATUS:ASC", "COLLECTED_AT:ASC", "COLLECT_ID:ASC", "BINDING_ID:ASC");
+            IndexKeys(cs, "IX_EMS_TOOL_USAGE_MOUNT").Should().Equal(
+                "MOUNT_ID:ASC", "USED_AT:DESC");
+            IndexKeys(cs, "IX_EMS_WO_EQUIPMENT_ISSUED").Should().Equal(
+                "EQUIPMENT_ID:ASC", "ISSUED_AT:DESC");
+
+            IndexExists(cs, "IX_EMS_WORK_ORDER_CHECK_RESULT_WO").Should().BeFalse(
+                "UQ_EMS_WORK_ORDER_CHECK_SEQUENCE already provides this exact access path");
+            CountIndexesWithKeys(cs, "EMS_WORK_ORDER_CHECK_RESULT", "WO_ID", "ITEM_SEQUENCE")
+                .Should().Be(1, "removing the explicit duplicate must preserve the UNIQUE constraint index");
+
+            QueryPlan(cs, """
+                SELECT COLLECT_ID FROM IVT_TRACE_PROJECTION_INBOX
+                WHERE BINDING_ID='B1'
+                ORDER BY COLLECTED_AT DESC, COLLECT_ID DESC LIMIT 1
+                """).Should().Contain("IX_IVT_TRACE_INBOX_BINDING_CURSOR");
+            QueryPlan(cs, """
+                SELECT BINDING_ID, COLLECT_ID FROM IVT_TRACE_PROJECTION_INBOX
+                WHERE STATUS='Pending'
+                ORDER BY COLLECTED_AT, COLLECT_ID, BINDING_ID LIMIT 100
+                """).Should().Contain("IX_IVT_TRACE_INBOX_WORK");
+            QueryPlan(cs, """
+                SELECT MAX(USED_AT) FROM EMS_TOOL_USAGE_HISTORY WHERE MOUNT_ID='M1'
+                """).Should().Contain("IX_EMS_TOOL_USAGE_MOUNT");
+            QueryPlan(cs, """
+                SELECT WO_ID FROM EMS_WORK_ORDER
+                WHERE EQUIPMENT_ID='EQ1' AND ISSUED_AT >= '2025-01-01'
+                ORDER BY ISSUED_AT DESC
+                """).Should().Contain("IX_EMS_WO_EQUIPMENT_ISSUED");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Second_pass_query_indexes_match_repository_contracts_for_fresh_and_incremental_schema(bool incremental)
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.Apply(cs);
+            if (incremental)
+            {
+                // Simulate a V130 database. A few names intentionally retain a stale definition
+                // so reconciliation proves more than CREATE INDEX IF NOT EXISTS behavior.
+                ExecSql(cs, """
+                    DROP INDEX IX_EMS_SPARE_USAGE_WO_TIME;
+                    CREATE INDEX IX_EMS_SPARE_USAGE_WO_TIME
+                        ON EMS_SPARE_PART_USAGE (WO_ID, USED_AT DESC)
+                        WHERE WO_ID IS NULL;
+                    DROP INDEX IX_RMS_RECIPE_ASSIGNMENT_EQUIPMENT_EFFECTIVE;
+                    CREATE INDEX IX_RMS_RECIPE_ASSIGNMENT_EQUIPMENT_EFFECTIVE
+                        ON RMS_RECIPE_EQUIPMENT_ASSIGNMENT (EQUIPMENT_ID, EFFECTIVE_FROM);
+                    DROP INDEX IX_RMS_RECIPE_ASSIGNMENT_CLASS_EFFECTIVE;
+                    DROP INDEX IX_EST_TAKT_RECONCILIATION_DATE;
+                    DROP INDEX IX_EST_OEE_LOSS_RECONCILIATION_DATE;
+                    DROP INDEX IX_EST_OEE_SUMMARY_RECONCILIATION_DATE;
+                    CREATE INDEX IX_EST_OEE_SUMMARY_RECONCILIATION_DATE
+                        ON EST_OEE_SUMMARY (OEE_ID, OEE_DATE);
+                    DROP INDEX IX_POM_LOT_PLANT_CREATED;
+                    CREATE INDEX IX_POM_LOT_PLANT_CREATED
+                        ON POM_LOT (PLANT_ID, LOT_ID);
+                    DROP INDEX IX_POM_LOT_DISPOSITION_PLANT_DATE;
+                    DROP INDEX IX_POM_LOT_MIXING_OUTPUT;
+                    """);
+
+                SqliteSchemaInitializer.EnsureSchema(cs);
+                SqliteSchemaInitializer.EnsureSchema(cs);
+            }
+
+            IndexKeys(cs, "IX_EMS_SPARE_USAGE_WO_TIME").Should().Equal(
+                "WO_ID:ASC", "USED_AT:DESC");
+            IndexSql(cs, "IX_EMS_SPARE_USAGE_WO_TIME").Should().Contain("WHERE WO_ID IS NOT NULL");
+
+            IndexKeys(cs, "IX_RMS_RECIPE_ASSIGNMENT_EQUIPMENT_EFFECTIVE").Should().Equal(
+                "EQUIPMENT_ID:ASC", "EFFECTIVE_FROM:DESC", "ASSIGNMENT_ID:ASC", "EFFECTIVE_TO:ASC");
+            IndexKeys(cs, "IX_RMS_RECIPE_ASSIGNMENT_CLASS_EFFECTIVE").Should().Equal(
+                "EQUIPMENT_CLASS_ID:ASC", "EFFECTIVE_FROM:DESC", "ASSIGNMENT_ID:ASC", "EFFECTIVE_TO:ASC");
+            IndexSql(cs, "IX_RMS_RECIPE_ASSIGNMENT_EQUIPMENT_EFFECTIVE")
+                .Should().Contain("WHERE EQUIPMENT_ID IS NOT NULL");
+            IndexSql(cs, "IX_RMS_RECIPE_ASSIGNMENT_CLASS_EFFECTIVE")
+                .Should().Contain("WHERE EQUIPMENT_CLASS_ID IS NOT NULL");
+
+            IndexKeys(cs, "IX_EST_TAKT_RECONCILIATION_DATE").Should().Equal(
+                "TAKT_DATE:ASC", "TAKT_SUMMARY_ID:ASC");
+            IndexKeys(cs, "IX_EST_OEE_LOSS_RECONCILIATION_DATE").Should().Equal(
+                "OEE_DATE:ASC", "LOSS_ID:ASC");
+            IndexKeys(cs, "IX_EST_OEE_SUMMARY_RECONCILIATION_DATE").Should().Equal(
+                "OEE_DATE:ASC", "OEE_ID:ASC");
+
+            IndexKeys(cs, "IX_POM_LOT_PLANT_CREATED").Should().Equal(
+                "PLANT_ID:ASC", "CREATED_AT:DESC", "LOT_ID:ASC");
+            IndexKeys(cs, "IX_POM_LOT_DISPOSITION_PLANT_DATE").Should().Equal(
+                "PLANT_ID:ASC", "DECIDED_AT:DESC", "DISPOSITION_ID:DESC");
+            IndexKeys(cs, "IX_POM_LOT_MIXING_OUTPUT").Should().Equal(
+                "PLANT_ID:ASC", "OUTPUT_LOT_ID:ASC", "INPUT_LOT_ID:ASC");
+
+            // Material trace already has one narrow time-ordered path per selectable owner;
+            // keep those V109 indexes instead of adding another overlapping write cost.
+            IndexKeys(cs, "IX_IVT_MATERIAL_CONSUMPTION_LOT").Should().Equal(
+                "MATERIAL_LOT_ID:ASC", "OCCURRED_AT:DESC");
+            IndexKeys(cs, "IX_IVT_MATERIAL_CONSUMPTION_PROCESS_LOT").Should().Equal(
+                "PROCESS_LOT_ID:ASC", "OCCURRED_AT:DESC");
+            IndexKeys(cs, "IX_IVT_MATERIAL_CONSUMPTION_EQUIPMENT").Should().Equal(
+                "EQUIPMENT_ID:ASC", "OCCURRED_AT:DESC");
+
+            var spareUsageByWorkOrderSql = NamedQuerySql(
+                "sqlite", "EMS", "EMS.SparePartUsageByWorkOrder");
+            spareUsageByWorkOrderSql.Should().Contain("WHERE WO_ID=@workOrderId");
+            spareUsageByWorkOrderSql.Should().Contain("(@from IS NULL OR USED_AT>=@from)");
+            spareUsageByWorkOrderSql.Should().Contain("(@to IS NULL OR USED_AT<@to)");
+            var boundSpareUsageSql = spareUsageByWorkOrderSql
+                .Replace("@workOrderId", "'WO1'", StringComparison.Ordinal)
+                .Replace("@from", "'2025-01-01'", StringComparison.Ordinal)
+                .Replace("@to", "'2025-02-01'", StringComparison.Ordinal);
+            QueryPlan(cs, boundSpareUsageSql).Should().Contain("IX_EMS_SPARE_USAGE_WO_TIME",
+                "the exact SQLite named-query shape must use the V131 work-order index");
+            QueryPlan(cs, """
+                SELECT ASSIGNMENT_ID FROM RMS_RECIPE_EQUIPMENT_ASSIGNMENT
+                WHERE EQUIPMENT_ID='EQ1' AND EFFECTIVE_FROM <= '2025-01-02'
+                  AND (EFFECTIVE_TO IS NULL OR EFFECTIVE_TO > '2025-01-02')
+                ORDER BY EFFECTIVE_FROM DESC, ASSIGNMENT_ID LIMIT 1
+                """).Should().Contain("IX_RMS_RECIPE_ASSIGNMENT_EQUIPMENT_EFFECTIVE");
+            QueryPlan(cs, """
+                SELECT ASSIGNMENT_ID FROM RMS_RECIPE_EQUIPMENT_ASSIGNMENT
+                WHERE EQUIPMENT_ID IS NULL AND EQUIPMENT_CLASS_ID='CLASS1'
+                  AND EFFECTIVE_FROM <= '2025-01-02'
+                  AND (EFFECTIVE_TO IS NULL OR EFFECTIVE_TO > '2025-01-02')
+                ORDER BY EFFECTIVE_FROM DESC, ASSIGNMENT_ID LIMIT 1
+                """).Should().Contain("IX_RMS_RECIPE_ASSIGNMENT_CLASS_EFFECTIVE");
+            var effectiveAssignmentPlan = QueryPlan(cs, """
+                SELECT ASSIGNMENT_ID FROM RMS_RECIPE_EQUIPMENT_ASSIGNMENT
+                WHERE EFFECTIVE_FROM <= '2025-01-02'
+                  AND (EFFECTIVE_TO IS NULL OR EFFECTIVE_TO > '2025-01-02')
+                  AND (EQUIPMENT_ID='EQ1'
+                    OR (EQUIPMENT_ID IS NULL AND EQUIPMENT_CLASS_ID='CLASS1'))
+                ORDER BY CASE WHEN EQUIPMENT_ID IS NOT NULL THEN 0 ELSE 1 END,
+                         EFFECTIVE_FROM DESC, ASSIGNMENT_ID LIMIT 1
+                """);
+            effectiveAssignmentPlan.Should().Contain("IX_RMS_RECIPE_ASSIGNMENT_EQUIPMENT_EFFECTIVE");
+            effectiveAssignmentPlan.Should().Contain("IX_RMS_RECIPE_ASSIGNMENT_CLASS_EFFECTIVE");
+
+            QueryPlan(cs, """
+                SELECT TAKT_SUMMARY_ID FROM EST_TAKT_SUMMARY
+                WHERE TAKT_SUMMARY_ID LIKE 'TKT_%'
+                  AND TAKT_DATE >= '2025-01-01' AND TAKT_DATE < '2025-01-02'
+                """).Should().Contain("IX_EST_TAKT_RECONCILIATION_DATE");
+            QueryPlan(cs, """
+                SELECT LOSS_ID FROM EST_OEE_LOSS
+                WHERE LOSS_ID LIKE 'AGL_%'
+                  AND OEE_DATE >= '2025-01-01' AND OEE_DATE < '2025-01-02'
+                """).Should().Contain("IX_EST_OEE_LOSS_RECONCILIATION_DATE");
+            QueryPlan(cs, """
+                SELECT OEE_ID FROM EST_OEE_SUMMARY
+                WHERE OEE_ID LIKE 'AGG_%'
+                  AND OEE_DATE >= '2025-01-01' AND OEE_DATE < '2025-01-02'
+                """).Should().Contain("IX_EST_OEE_SUMMARY_RECONCILIATION_DATE");
+
+            QueryPlan(cs, """
+                SELECT LOT_ID FROM POM_LOT
+                WHERE PLANT_ID='P1' ORDER BY CREATED_AT DESC LIMIT 500
+                """).Should().Contain("IX_POM_LOT_PLANT_CREATED");
+            QueryPlan(cs, """
+                SELECT DISPOSITION_ID FROM POM_LOT_DISPOSITION
+                WHERE PLANT_ID='P1' AND DECIDED_AT >= '2025-01-01'
+                ORDER BY DECIDED_AT DESC, DISPOSITION_ID DESC LIMIT 500
+                """).Should().Contain("IX_POM_LOT_DISPOSITION_PLANT_DATE");
+            QueryPlan(cs, """
+                SELECT INPUT_LOT_ID FROM POM_LOT_MIXING_RELATION
+                WHERE PLANT_ID='P1' AND OUTPUT_LOT_ID='OUT1'
+                ORDER BY INPUT_LOT_ID
+                """).Should().Contain("IX_POM_LOT_MIXING_OUTPUT");
+            QueryPlan(cs, """
+                SELECT CONSUMPTION_ID FROM IVT_MATERIAL_CONSUMPTION_HISTORY
+                WHERE MATERIAL_LOT_ID='MAT1' AND OCCURRED_AT >= '2025-01-01'
+                ORDER BY OCCURRED_AT DESC, CONSUMPTION_ID DESC LIMIT 500
+                """).Should().Contain("IX_IVT_MATERIAL_CONSUMPTION_LOT");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Fact]
+    public void EnsureSchema_reports_deployed_duplicate_active_tool_positions_before_unique_index_creation()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.Apply(cs);
+            ExecSql(cs, """
+                DROP INDEX UX_EMS_TOOL_ACTIVE_EQUIPMENT_POSITION;
+                INSERT INTO EMS_TOOL_MOUNT_HISTORY
+                  (MOUNT_ID, IDEMPOTENCY_KEY, REQUEST_HASH, TOOL_ID, EQUIPMENT_ID,
+                   POSITION_CODE, MOUNTED_AT, MOUNTED_BY, CREATED_BY, UPDATED_BY)
+                VALUES
+                  ('M_DUP_1', 'IDEM_DUP_1', 'HASH_DUP_1', 'TOOL_DUP_1', 'EQ_DUP',
+                   'P01', CURRENT_TIMESTAMP, 'tester', 'tester', 'tester'),
+                  ('M_DUP_2', 'IDEM_DUP_2', 'HASH_DUP_2', 'TOOL_DUP_2', 'EQ_DUP',
+                   'P01', CURRENT_TIMESTAMP, 'tester', 'tester', 'tester');
+                """);
+
+            Action upgrade = () => SqliteSchemaInitializer.EnsureSchema(cs);
+
+            upgrade.Should().Throw<InvalidOperationException>()
+                .WithMessage("*V121*equipment='EQ_DUP'*position='P01'*M_DUP_1*M_DUP_2*");
+            IndexExists(cs, "UX_EMS_TOOL_ACTIVE_EQUIPMENT_POSITION").Should().BeFalse(
+                "the initializer must not silently select one physical mount");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Theory]
+    [InlineData("2025-01-01 00:00:00", "cannot precede its mount")]
+    [InlineData("2025-01-04 00:00:00", "cannot follow its unmount")]
+    public void Tool_usage_time_guard_reports_the_failed_mount_boundary(
+        string usedAt,
+        string expectedMessage)
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.Apply(cs);
+            ExecSql(cs, """
+                INSERT INTO EMS_TOOL_MOUNT_HISTORY
+                  (MOUNT_ID, IDEMPOTENCY_KEY, REQUEST_HASH, TOOL_ID, EQUIPMENT_ID,
+                   POSITION_CODE, MOUNTED_AT, MOUNTED_BY, UNMOUNTED_AT, UNMOUNTED_BY,
+                   UNMOUNT_IDEMPOTENCY_KEY, UNMOUNT_REQUEST_HASH, CREATED_BY, UPDATED_BY)
+                VALUES
+                  ('M_TIME', 'IDEM_M_TIME', 'HASH_M_TIME', 'TOOL_TIME', 'EQ_TIME',
+                   'P01', '2025-01-02 00:00:00', 'tester', '2025-01-03 00:00:00', 'tester',
+                   'IDEM_U_TIME', 'HASH_U_TIME', 'tester', 'tester');
+                """);
+
+            Action write = () => ExecSql(cs, $"""
+                INSERT INTO EMS_TOOL_USAGE_HISTORY
+                  (USAGE_ID, IDEMPOTENCY_KEY, REQUEST_HASH, TOOL_ID, MOUNT_ID, EQUIPMENT_ID,
+                   USE_COUNT, USE_MINUTES, USED_AT, USED_BY, CREATED_BY, CREATED_AT)
+                VALUES
+                  ('U_TIME', 'IDEM_U_USAGE', 'HASH_U_USAGE', 'TOOL_TIME', 'M_TIME', 'EQ_TIME',
+                   1, 0, '{usedAt}', 'tester', 'tester', CURRENT_TIMESTAMP);
+                """);
+
+            write.Should().Throw<SqliteException>().WithMessage($"*{expectedMessage}*");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Fact]
     public void EnsureSchema_ExistingDb_AddsScreenTargetTableWithoutAlterOrRecreate()
     {
         var cs = NewDb();
@@ -873,5 +1377,505 @@ public sealed class SqliteSchemaIncrementalTests
         sql.Should().Contain("ROUTING_STEP_NO IS NULL AND PROCESS_ID IS NULL");
         sql.Should().Contain("ALTER TABLE MDM_ROUTING_STEP ADD PROCESS_ID NVARCHAR(50) NULL");
         sql.Should().Contain("FOREIGN KEY (PROCESS_ID) REFERENCES MDM_PROCESS (PROCESS_ID)");
+    }
+
+    [Fact]
+    public void V121_mssql_migration_reports_duplicate_active_tool_positions_before_unique_index()
+    {
+        var sql = MigrationSql("V121__EMS_TOOL_MOUNT_POSITION_GUARD.sql");
+
+        var preflight = sql.IndexOf("HAVING COUNT_BIG(*) > 1", StringComparison.Ordinal);
+        var message = sql.IndexOf("DECLARE @ConflictMessage NVARCHAR(2048)", StringComparison.Ordinal);
+        var failure = sql.IndexOf("THROW 51221", StringComparison.Ordinal);
+        var create = sql.IndexOf("CREATE UNIQUE INDEX UX_EMS_TOOL_ACTIVE_EQUIPMENT_POSITION", StringComparison.Ordinal);
+
+        preflight.Should().BeGreaterThanOrEqualTo(0);
+        message.Should().BeGreaterThan(preflight);
+        failure.Should().BeGreaterThan(message);
+        create.Should().BeGreaterThan(failure,
+            "deployed conflicts must stop the migration before index construction");
+        sql.Should().Contain("@ConflictEquipmentId = EQUIPMENT_ID");
+        sql.Should().Contain("@ConflictToolPosition = POSITION_CODE");
+        sql.Should().Contain("@ConflictCount = COUNT_BIG(*)");
+        sql.Should().Contain("@FirstMountId = MIN(MOUNT_ID)");
+        sql.Should().Contain("EQUIPMENT_ID='");
+        sql.Should().Contain("TOOL_POSITION='");
+        sql.Should().Contain("ACTIVE_COUNT=");
+        sql.Should().Contain("FIRST_MOUNT_ID='");
+        sql.Should().Contain("THROW 51221, @ConflictMessage, 1",
+            "ExecuteNonQuery must surface the actionable conflict in its exception message");
+    }
+
+    [Fact]
+    public void V128_mssql_migration_reconciles_in_batches_and_verifies_all_utility_snapshot_references()
+    {
+        var sql = MigrationSql("V128__EST_UTILITY_CONFIG_BACKFILL_VERIFICATION.sql");
+
+        sql.Should().Contain("SELECT TOP (5000) R.READING_ID");
+        sql.Should().Contain("AND NOT EXISTS");
+        sql.Should().Contain("WHERE M.CONFIG_VERSION = 1");
+        sql.Should().Contain("H.CONFIG_VERSION BETWEEN 1 AND M.CONFIG_VERSION");
+        sql.Should().Contain("METER_HISTORY_GAP");
+        sql.Should().Contain("H.CONFIG_VERSION = M.CONFIG_VERSION");
+        sql.Should().Contain("H.CONFIG_VERSION = R.METER_CONFIG_VERSION");
+        sql.Should().Contain("H.CONFIG_VERSION = E.METER_CONFIG_VERSION");
+        sql.Should().Contain("THROW 51228");
+        sql.Should().Contain("-- SQLITE-OMIT-BEGIN");
+        sql.Should().Contain("-- SQLITE-OMIT-END");
+    }
+
+    [Fact]
+    public void Append_only_evidence_rejects_update_delete_and_replace_with_recursive_triggers_disabled()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.Apply(cs);
+            using var connection = new SqliteConnection(cs);
+            connection.Open();
+
+            Execute(connection, "PRAGMA recursive_triggers=OFF;");
+            Scalar(connection, "PRAGMA recursive_triggers;").Should().Be("0");
+            Execute(connection, """
+                INSERT INTO MDM_EQUIPMENT_CHANGE_HISTORY
+                  (CHANGE_ID, EQUIPMENT_ID, CHANGE_TYPE, ACTOR_ID, BEFORE_STATE_JSON,
+                   AFTER_STATE_JSON, CHANGED_AT, CREATED_BY, CREATED_AT)
+                VALUES ('CHG_APPEND', 'EQ_APPEND', 'Create', 'tester', NULL,
+                        '{}', CURRENT_TIMESTAMP, 'tester', CURRENT_TIMESTAMP);
+
+                INSERT INTO RMS_RECIPE_APPROVAL_HISTORY
+                  (HISTORY_ID, IDEMPOTENCY_KEY, REQUEST_HASH, RECIPE_ID, FROM_STATE,
+                   TO_STATE, CHANGED_BY, REASON, CHANGED_AT)
+                VALUES ('RAH_APPEND', 'IDEM_RAH_APPEND', 'HASH_RAH_APPEND', 'RECIPE_APPEND',
+                        'Draft', 'Pending', 'tester', 'test', CURRENT_TIMESTAMP);
+                INSERT INTO RMS_RECIPE_COMMAND
+                  (COMMAND_ID, COMMAND_TYPE, IDEMPOTENCY_KEY, REQUEST_HASH, RECIPE_ID,
+                   SOURCE_RECIPE_ID, ACTOR_ID, CREATED_AT)
+                VALUES ('RWC_APPEND', 'Create', 'IDEM_RWC_APPEND', 'HASH_RWC_APPEND',
+                        'RECIPE_APPEND', NULL, 'tester', CURRENT_TIMESTAMP);
+                INSERT INTO RMS_RECIPE_PARAM_COMMAND
+                  (COMMAND_ID, COMMAND_TYPE, IDEMPOTENCY_KEY, REQUEST_HASH, PARAM_ID,
+                   RECIPE_ID, PARAM_NAME, PARAM_VALUE, UNIT, SORT_ORDER,
+                   EXPECTED_VERSION, RESULT_VERSION, CHANGED_BY, CHANGED_AT)
+                VALUES ('RPC_APPEND', 'Update', 'IDEM_RPC_APPEND', 'HASH_RPC_APPEND',
+                        'PARAM_APPEND', 'RECIPE_APPEND', 'Temperature', '42', 'C', 1,
+                        1, 2, 'tester', CURRENT_TIMESTAMP);
+
+                INSERT INTO IVT_MATERIAL_CONSUMPTION_HISTORY
+                  (CONSUMPTION_ID, IDEMPOTENCY_KEY, REQUEST_HASH, PLANT_ID, EQUIPMENT_ID,
+                   MATERIAL_LOT_ID, MATERIAL_ID, CONSUMPTION_MODE, QUANTITY, UNIT,
+                   SOURCE_EVENT_ID, SOURCE_SYSTEM, OPERATOR_ID, STATUS, OCCURRED_AT,
+                   CREATED_BY, CREATED_AT)
+                VALUES ('CON_APPEND', 'IDEM_CON_APPEND', 'HASH_CON_APPEND', 'P1', 'EQ1',
+                        'LOT_APPEND', 'MAT1', 'Manual', 1, 'EA', 'SOURCE_CON_APPEND',
+                        'TEST', 'tester', 'Committed', CURRENT_TIMESTAMP, 'tester', CURRENT_TIMESTAMP);
+                INSERT INTO EMS_TOOL_SAVE_COMMAND
+                  (COMMAND_ID, IDEMPOTENCY_KEY, REQUEST_HASH, TOOL_ID, EXPECTED_VERSION,
+                   RESULT_VERSION, RESULT_JSON, ACTOR_ID, CREATED_AT)
+                VALUES ('TSC_APPEND', 'IDEM_TSC_APPEND', 'HASH_TSC_APPEND', 'TOOL_APPEND',
+                        0, 1, '{}', 'tester', CURRENT_TIMESTAMP);
+                INSERT INTO EMS_SPARE_MASTER_COMMAND
+                  (COMMAND_ID, ENTITY_TYPE, ENTITY_ID, IDEMPOTENCY_KEY, REQUEST_HASH,
+                   EXPECTED_VERSION, RESULT_VERSION, RESULT_JSON, ACTOR_ID, CREATED_AT)
+                VALUES ('SPC_APPEND', 'StockPolicy', 'PART_APPEND', 'IDEM_SPC_APPEND',
+                        'HASH_SPC_APPEND', 0, 1, '{}', 'tester', CURRENT_TIMESTAMP);
+                INSERT INTO EMS_WORK_ORDER_CREATE_COMMAND
+                  (COMMAND_ID, IDEMPOTENCY_KEY, REQUEST_HASH, WO_ID, EQUIPMENT_ID, WO_TYPE,
+                   DESCRIPTION, ASSIGNEE_ID, ISSUED_AT, ACTOR_ID, SOURCE, CLIENT_CHANNEL, CREATED_AT)
+                VALUES ('WOC_APPEND', 'IDEM_WOC_APPEND', 'HASH_WOC_APPEND', 'WO_APPEND',
+                        'EQ_APPEND', 'PM', 'Append test', 'tech', CURRENT_TIMESTAMP,
+                        'tester', 'Manual', 'MES', CURRENT_TIMESTAMP);
+
+                INSERT INTO EST_UTILITY_METER
+                  (METER_ID, METER_NAME, PLANT_ID, UTILITY_TYPE, UNIT, READING_MODE,
+                   SCALE_FACTOR, UPDATED_BY, UPDATED_AT, CONFIG_VERSION)
+                VALUES ('M_APPEND', 'Append meter', 'P1', 'Electricity', 'kWh', 'Cumulative',
+                        1, 'tester', CURRENT_TIMESTAMP, 1);
+                INSERT INTO EST_UTILITY_METER_EVENT
+                  (EVENT_ID, IDEMPOTENCY_KEY, REQUEST_HASH, METER_ID, PLANT_ID, EVENT_TYPE,
+                   OCCURRED_AT, REASON, PREVIOUS_VALUE, AFTER_VALUE, UNIT, ACTOR_USER_ID,
+                   METER_CONFIG_VERSION)
+                VALUES ('ME_APPEND', 'IDEM_ME_APPEND', 'HASH_ME_APPEND', 'M_APPEND', 'P1',
+                        'Replacement', CURRENT_TIMESTAMP, 'test', 10, 1, 'kWh', 'tester', 1);
+                INSERT INTO EST_UTILITY_METER_CONFIG_HISTORY
+                  (HISTORY_ID, METER_ID, CONFIG_VERSION, METER_NAME, PLANT_ID, UTILITY_TYPE,
+                   UNIT, READING_MODE, SCALE_FACTOR, IS_ACTIVE, CHANGED_BY, CHANGED_AT)
+                VALUES ('MCH_APPEND', 'M_APPEND', 1, 'Append meter', 'P1', 'Electricity',
+                        'kWh', 'Cumulative', 1, 1, 'tester', CURRENT_TIMESTAMP);
+                """);
+
+            AssertAppendOnly(
+                connection,
+                "MDM_EQUIPMENT_CHANGE_HISTORY",
+                "CHANGE_ID='CHG_APPEND'",
+                "ACTOR_ID=ACTOR_ID",
+                """
+                INSERT OR REPLACE INTO MDM_EQUIPMENT_CHANGE_HISTORY
+                  (CHANGE_ID, EQUIPMENT_ID, CHANGE_TYPE, ACTOR_ID, BEFORE_STATE_JSON,
+                   AFTER_STATE_JSON, CHANGED_AT, CREATED_BY, CREATED_AT)
+                VALUES ('CHG_APPEND', 'EQ_APPEND', 'Create', 'replacer', NULL,
+                        '{}', CURRENT_TIMESTAMP, 'replacer', CURRENT_TIMESTAMP);
+                """);
+            AssertAppendOnly(
+                connection,
+                "RMS_RECIPE_APPROVAL_HISTORY",
+                "HISTORY_ID='RAH_APPEND'",
+                "REASON=REASON",
+                """
+                INSERT OR REPLACE INTO RMS_RECIPE_APPROVAL_HISTORY
+                  (HISTORY_ID, IDEMPOTENCY_KEY, REQUEST_HASH, RECIPE_ID, FROM_STATE,
+                   TO_STATE, CHANGED_BY, REASON, CHANGED_AT)
+                VALUES ('RAH_APPEND', 'IDEM_RAH_APPEND', 'HASH_CHANGED', 'RECIPE_APPEND',
+                        'Draft', 'Pending', 'replacer', 'changed', CURRENT_TIMESTAMP);
+                """);
+            AssertAppendOnly(
+                connection,
+                "RMS_RECIPE_COMMAND",
+                "COMMAND_ID='RWC_APPEND'",
+                "ACTOR_ID=ACTOR_ID",
+                """
+                INSERT OR REPLACE INTO RMS_RECIPE_COMMAND
+                  (COMMAND_ID, COMMAND_TYPE, IDEMPOTENCY_KEY, REQUEST_HASH, RECIPE_ID,
+                   SOURCE_RECIPE_ID, ACTOR_ID, CREATED_AT)
+                VALUES ('RWC_APPEND', 'Create', 'IDEM_RWC_APPEND', 'HASH_CHANGED',
+                        'RECIPE_APPEND', NULL, 'replacer', CURRENT_TIMESTAMP);
+                """);
+            AssertAppendOnly(
+                connection,
+                "RMS_RECIPE_PARAM_COMMAND",
+                "COMMAND_ID='RPC_APPEND'",
+                "PARAM_VALUE=PARAM_VALUE",
+                """
+                INSERT OR REPLACE INTO RMS_RECIPE_PARAM_COMMAND
+                  (COMMAND_ID, COMMAND_TYPE, IDEMPOTENCY_KEY, REQUEST_HASH, PARAM_ID,
+                   RECIPE_ID, PARAM_NAME, PARAM_VALUE, UNIT, SORT_ORDER,
+                   EXPECTED_VERSION, RESULT_VERSION, CHANGED_BY, CHANGED_AT)
+                VALUES ('RPC_APPEND', 'Update', 'IDEM_RPC_APPEND', 'HASH_CHANGED',
+                        'PARAM_APPEND', 'RECIPE_APPEND', 'Temperature', '43', 'C', 1,
+                        1, 2, 'replacer', CURRENT_TIMESTAMP);
+                """);
+            AssertAppendOnly(
+                connection,
+                "IVT_MATERIAL_CONSUMPTION_HISTORY",
+                "CONSUMPTION_ID='CON_APPEND'",
+                "STATUS=STATUS",
+                """
+                INSERT OR REPLACE INTO IVT_MATERIAL_CONSUMPTION_HISTORY
+                  (CONSUMPTION_ID, IDEMPOTENCY_KEY, REQUEST_HASH, PLANT_ID, EQUIPMENT_ID,
+                   MATERIAL_LOT_ID, MATERIAL_ID, CONSUMPTION_MODE, QUANTITY, UNIT,
+                   SOURCE_EVENT_ID, SOURCE_SYSTEM, OPERATOR_ID, STATUS, OCCURRED_AT,
+                   CREATED_BY, CREATED_AT)
+                VALUES ('CON_APPEND', 'IDEM_CON_APPEND', 'HASH_CHANGED', 'P1', 'EQ1',
+                        'LOT_APPEND', 'MAT1', 'Manual', 1, 'EA', 'SOURCE_CON_APPEND',
+                        'TEST', 'replacer', 'Committed', CURRENT_TIMESTAMP, 'replacer', CURRENT_TIMESTAMP);
+                """);
+            AssertAppendOnly(
+                connection,
+                "EMS_TOOL_SAVE_COMMAND",
+                "COMMAND_ID='TSC_APPEND'",
+                "RESULT_JSON=RESULT_JSON",
+                """
+                INSERT OR REPLACE INTO EMS_TOOL_SAVE_COMMAND
+                  (COMMAND_ID, IDEMPOTENCY_KEY, REQUEST_HASH, TOOL_ID, EXPECTED_VERSION,
+                   RESULT_VERSION, RESULT_JSON, ACTOR_ID, CREATED_AT)
+                VALUES ('TSC_APPEND', 'IDEM_TSC_APPEND', 'HASH_CHANGED', 'TOOL_APPEND',
+                        0, 1, '{"changed":true}', 'replacer', CURRENT_TIMESTAMP);
+                """);
+            AssertAppendOnly(
+                connection,
+                "EMS_SPARE_MASTER_COMMAND",
+                "COMMAND_ID='SPC_APPEND'",
+                "RESULT_JSON=RESULT_JSON",
+                """
+                INSERT OR REPLACE INTO EMS_SPARE_MASTER_COMMAND
+                  (COMMAND_ID, ENTITY_TYPE, ENTITY_ID, IDEMPOTENCY_KEY, REQUEST_HASH,
+                   EXPECTED_VERSION, RESULT_VERSION, RESULT_JSON, ACTOR_ID, CREATED_AT)
+                VALUES ('SPC_APPEND', 'StockPolicy', 'PART_APPEND', 'IDEM_SPC_APPEND',
+                        'HASH_CHANGED', 0, 1, '{"changed":true}', 'replacer', CURRENT_TIMESTAMP);
+                """);
+            AssertAppendOnly(
+                connection,
+                "EMS_WORK_ORDER_CREATE_COMMAND",
+                "COMMAND_ID='WOC_APPEND'",
+                "DESCRIPTION=DESCRIPTION",
+                """
+                INSERT OR REPLACE INTO EMS_WORK_ORDER_CREATE_COMMAND
+                  (COMMAND_ID, IDEMPOTENCY_KEY, REQUEST_HASH, WO_ID, EQUIPMENT_ID, WO_TYPE,
+                   DESCRIPTION, ASSIGNEE_ID, ISSUED_AT, ACTOR_ID, SOURCE, CLIENT_CHANNEL, CREATED_AT)
+                VALUES ('WOC_APPEND', 'IDEM_WOC_APPEND', 'HASH_CHANGED', 'WO_APPEND',
+                        'EQ_APPEND', 'PM', 'Changed', 'tech', CURRENT_TIMESTAMP,
+                        'replacer', 'Manual', 'MES', CURRENT_TIMESTAMP);
+                """);
+            AssertAppendOnly(
+                connection,
+                "EST_UTILITY_METER_EVENT",
+                "EVENT_ID='ME_APPEND'",
+                "REASON=REASON",
+                """
+                INSERT OR REPLACE INTO EST_UTILITY_METER_EVENT
+                  (EVENT_ID, IDEMPOTENCY_KEY, REQUEST_HASH, METER_ID, PLANT_ID, EVENT_TYPE,
+                   OCCURRED_AT, REASON, PREVIOUS_VALUE, AFTER_VALUE, UNIT, ACTOR_USER_ID,
+                   METER_CONFIG_VERSION)
+                VALUES ('ME_APPEND', 'IDEM_ME_APPEND', 'HASH_CHANGED', 'M_APPEND', 'P1',
+                        'Replacement', CURRENT_TIMESTAMP, 'changed', 10, 1, 'kWh', 'replacer', 1);
+                """);
+            AssertAppendOnly(
+                connection,
+                "EST_UTILITY_METER_CONFIG_HISTORY",
+                "METER_ID='M_APPEND' AND CONFIG_VERSION=1",
+                "METER_NAME=METER_NAME",
+                """
+                INSERT OR REPLACE INTO EST_UTILITY_METER_CONFIG_HISTORY
+                  (HISTORY_ID, METER_ID, CONFIG_VERSION, METER_NAME, PLANT_ID, UTILITY_TYPE,
+                   UNIT, READING_MODE, SCALE_FACTOR, IS_ACTIVE, CHANGED_BY, CHANGED_AT)
+                VALUES ('MCH_APPEND', 'M_APPEND', 1, 'Changed meter', 'P1', 'Electricity',
+                        'kWh', 'Cumulative', 1, 1, 'replacer', CURRENT_TIMESTAMP);
+                """);
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Fact]
+    public void EnsureSchema_rejects_non_contiguous_utility_meter_configuration_history()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.Apply(cs);
+            ExecSql(cs, """
+                INSERT INTO EST_UTILITY_METER
+                  (METER_ID, METER_NAME, PLANT_ID, UTILITY_TYPE, UNIT, READING_MODE,
+                   SCALE_FACTOR, UPDATED_BY, UPDATED_AT, CONFIG_VERSION)
+                VALUES ('M_GAP', 'Gap meter', 'P1', 'Electricity', 'kWh', 'Cumulative',
+                        1, 'tester', CURRENT_TIMESTAMP, 3);
+                INSERT INTO EST_UTILITY_METER_CONFIG_HISTORY
+                  (HISTORY_ID, METER_ID, CONFIG_VERSION, METER_NAME, PLANT_ID, UTILITY_TYPE,
+                   UNIT, READING_MODE, SCALE_FACTOR, IS_ACTIVE, CHANGED_BY, CHANGED_AT)
+                VALUES
+                  ('M_GAP_V1', 'M_GAP', 1, 'Gap meter v1', 'P1', 'Electricity',
+                   'kWh', 'Cumulative', 1, 1, 'tester', CURRENT_TIMESTAMP),
+                  ('M_GAP_V3', 'M_GAP', 3, 'Gap meter v3', 'P1', 'Electricity',
+                   'kWh', 'Cumulative', 1, 1, 'tester', CURRENT_TIMESTAMP);
+                """);
+
+            Action restart = () => SqliteSchemaInitializer.EnsureSchema(cs);
+
+            restart.Should().Throw<InvalidOperationException>()
+                .WithMessage("*V128*objectType='METER_HISTORY_GAP'*objectId='M_GAP'*configVersion=3*");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Theory]
+    [InlineData("V124__MDM_EQUIPMENT_CHANGE_HISTORY.sql", "TR_MDM_EQUIPMENT_CHANGE_APPEND_ONLY", "PK_MDM_EQUIPMENT_CHANGE_HISTORY")]
+    [InlineData("V126__RMS_RECIPE_APPROVAL_HISTORY.sql", "TR_RMS_RECIPE_APPROVAL_HISTORY_APPEND_ONLY", "UX_RMS_RECIPE_APPROVAL_HISTORY_IDEMPOTENCY")]
+    [InlineData("V136__RMS_RECIPE_PARAMETER_CONCURRENCY.sql", "TR_RMS_RECIPE_COMMAND_APPEND_ONLY", "UX_RMS_RECIPE_COMMAND_IDEMPOTENCY")]
+    [InlineData("V136__RMS_RECIPE_PARAMETER_CONCURRENCY.sql", "TR_RMS_RECIPE_PARAM_COMMAND_APPEND_ONLY", "UX_RMS_RECIPE_PARAM_COMMAND_IDEMPOTENCY")]
+    [InlineData("V137__IVT_MATERIAL_CONSUMPTION_APPEND_ONLY.sql", "TR_IVT_MATERIAL_CONSUMPTION_APPEND_ONLY", "UX_IVT_MATERIAL_CONSUMPTION_KEY")]
+    [InlineData("V138__EMS_TOOL_MASTER_CONCURRENCY.sql", "TR_EMS_TOOL_SAVE_COMMAND_APPEND_ONLY", "UX_EMS_TOOL_SAVE_COMMAND_IDEMPOTENCY")]
+    [InlineData("V139__EMS_SPARE_MASTER_COMMAND_LEDGER.sql", "TR_EMS_SPARE_MASTER_COMMAND_APPEND_ONLY", "UX_EMS_SPARE_MASTER_COMMAND_IDEMPOTENCY")]
+    [InlineData("V140__EMS_WORK_ORDER_CREATE_COMMAND.sql", "TR_EMS_WORK_ORDER_CREATE_COMMAND_APPEND_ONLY", "UX_EMS_WORK_ORDER_CREATE_COMMAND_IDEMPOTENCY")]
+    public void Mssql_evidence_migrations_define_append_only_update_delete_guards(
+        string migrationFile, string triggerName, string collisionConstraint)
+    {
+        var sql = MigrationSql(migrationFile);
+
+        sql.Should().Contain($"CREATE TRIGGER {triggerName}");
+        sql.Should().Contain("AFTER UPDATE, DELETE");
+        sql.Should().Contain("is append-only");
+        sql.Should().Contain(collisionConstraint,
+            "SQL Server must reject an insert collision instead of replacing immutable evidence");
+    }
+
+    [Fact]
+    public void V127_mssql_migration_guards_both_utility_evidence_ledgers()
+    {
+        var sql = MigrationSql("V127__EST_UTILITY_CONFIG_HISTORY.sql");
+        var eventSql = MigrationSql("V122__EST_UTILITY_METER_EVENT.sql");
+
+        sql.Should().Contain("CREATE TRIGGER TR_EST_UTILITY_METER_EVENT_APPEND_ONLY");
+        sql.Should().Contain("CREATE TRIGGER TR_EST_UTILITY_CONFIG_HISTORY_APPEND_ONLY");
+        Regex.Matches(sql, "AFTER UPDATE, DELETE", RegexOptions.CultureInvariant)
+            .Should().HaveCount(2);
+        sql.Should().Contain("PK_EST_UTILITY_METER_CONFIG_HISTORY");
+        sql.Should().Contain("UX_EST_UTILITY_METER_CONFIG_HISTORY_ID");
+        eventSql.Should().Contain("PK_EST_UTILITY_METER_EVENT");
+        eventSql.Should().Contain("UX_EST_UTILITY_METER_EVENT_IDEMPOTENCY");
+    }
+
+    [Fact]
+    public void Spare_part_usage_by_work_order_named_query_has_matching_dialect_contracts()
+    {
+        var sqlite = NamedQuerySql("sqlite", "EMS", "EMS.SparePartUsageByWorkOrder");
+        var mssql = NamedQuerySql("mssql", "EMS", "EMS.SparePartUsageByWorkOrder");
+
+        foreach (var sql in new[] { sqlite, mssql })
+        {
+            sql.Should().Contain("WHERE WO_ID=@workOrderId");
+            sql.Should().Contain("(@from IS NULL OR USED_AT>=@from)");
+            sql.Should().Contain("(@to IS NULL OR USED_AT<@to)");
+            sql.Should().NotContain("@workOrderId IS NULL",
+                "the dedicated query must preserve a sargable required work-order equality");
+            sql.Should().Contain("ORDER BY USED_AT DESC");
+        }
+    }
+
+    [Fact]
+    public void V121_through_v140_migrations_keep_unique_numeric_versions_and_module_owned_names()
+    {
+        var migrationDirectory = Path.GetDirectoryName(RepositorySource.GetFile(
+            "src", "00.Main", "NexaOne.Server", "config", "db", "migrations",
+            "V121__EMS_TOOL_MOUNT_POSITION_GUARD.sql"))!;
+        var expected = new Dictionary<int, (string FileName, string Owner)>
+        {
+            [121] = ("V121__EMS_TOOL_MOUNT_POSITION_GUARD.sql", "EMS"),
+            [122] = ("V122__EST_UTILITY_METER_EVENT.sql", "EST"),
+            [123] = ("V123__EST_OEE_AGGREGATION_INTEGRITY.sql", "EST"),
+            [124] = ("V124__MDM_EQUIPMENT_CHANGE_HISTORY.sql", "MDM"),
+            [125] = ("V125__EMS_MASTER_INTEGRITY.sql", "EMS"),
+            [126] = ("V126__RMS_RECIPE_APPROVAL_HISTORY.sql", "RMS"),
+            [127] = ("V127__EST_UTILITY_CONFIG_HISTORY.sql", "EST"),
+            [128] = ("V128__EST_UTILITY_CONFIG_BACKFILL_VERIFICATION.sql", "EST"),
+            [129] = ("V129__IVT_TRACE_PROJECTION_QUERY_INDEXES.sql", "IVT"),
+            [130] = ("V130__EMS_MAINTENANCE_QUERY_INDEXES.sql", "EMS"),
+            [131] = ("V131__EMS_SPARE_USAGE_WORK_ORDER_INDEX.sql", "EMS"),
+            [132] = ("V132__RMS_ASSIGNMENT_EFFECTIVE_WINDOW_INDEXES.sql", "RMS"),
+            [133] = ("V133__EST_OEE_RECONCILIATION_DATE_INDEXES.sql", "EST"),
+            [134] = ("V134__POM_LOT_READ_PATH_INDEXES.sql", "POM"),
+            [135] = ("V135__EST_CARRIER_OUTPUT_SCOPE.sql", "EST"),
+            [136] = ("V136__RMS_RECIPE_PARAMETER_CONCURRENCY.sql", "RMS"),
+            [137] = ("V137__IVT_MATERIAL_CONSUMPTION_APPEND_ONLY.sql", "IVT"),
+            [138] = ("V138__EMS_TOOL_MASTER_CONCURRENCY.sql", "EMS"),
+            [139] = ("V139__EMS_SPARE_MASTER_COMMAND_LEDGER.sql", "EMS"),
+            [140] = ("V140__EMS_WORK_ORDER_CREATE_COMMAND.sql", "EMS"),
+        };
+        var recentFiles = Directory.EnumerateFiles(migrationDirectory, "V*.sql")
+            .Select(Path.GetFileName)
+            .Where(name => name is not null)
+            .Select(name => (Name: name!, Match: Regex.Match(name!, @"^V(?<version>[0-9]{3})__")))
+            .Where(item => item.Match.Success)
+            .Select(item => (item.Name, Version: int.Parse(item.Match.Groups["version"].Value)))
+            .Where(item => item.Version is >= 121 and <= 140)
+            .ToArray();
+
+        recentFiles.GroupBy(item => item.Version).Should().OnlyContain(group => group.Count() == 1);
+        foreach (var (version, contract) in expected)
+        {
+            var file = recentFiles.SingleOrDefault(item => item.Version == version).Name;
+            file.Should().Be(contract.FileName);
+            File.ReadLines(Path.Combine(migrationDirectory, contract.FileName)).First()
+                .Should().StartWith($"-- Owner: {contract.Owner}.");
+        }
+    }
+
+    [Fact]
+    public void Sqlite_migration_catalog_requires_strict_names_and_numeric_order()
+    {
+        var directory = Directory.CreateTempSubdirectory("nexa-sqlite-migrations-").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "V010__EMS_TEN.sql"), "-- ten");
+            File.WriteAllText(Path.Combine(directory, "V002__MDM_TWO.sql"), "-- two");
+            File.WriteAllText(Path.Combine(directory, "V001__SYS_ONE.sql"), "-- one");
+
+            SqliteSchemaInitializer.GetOrderedMigrationFiles(directory)
+                .Select(Path.GetFileName)
+                .Should().Equal(
+                    "V001__SYS_ONE.sql",
+                    "V002__MDM_TWO.sql",
+                    "V010__EMS_TEN.sql");
+        }
+        finally { try { Directory.Delete(directory, recursive: true); } catch { /* best-effort cleanup */ } }
+    }
+
+    [Fact]
+    public void Sqlite_migration_catalog_rejects_invalid_width_and_duplicate_numeric_versions()
+    {
+        var invalidDirectory = Directory.CreateTempSubdirectory("nexa-sqlite-invalid-migrations-").FullName;
+        var duplicateDirectory = Directory.CreateTempSubdirectory("nexa-sqlite-duplicate-migrations-").FullName;
+        try
+        {
+            File.WriteAllText(Path.Combine(invalidDirectory, "V1__SYS_INVALID.sql"), "-- invalid");
+            Action invalid = () => SqliteSchemaInitializer.GetOrderedMigrationFiles(invalidDirectory);
+            invalid.Should().Throw<InvalidDataException>()
+                .WithMessage("*V1__SYS_INVALID.sql*V###__UPPER_SNAKE_DESCRIPTION.sql*");
+
+            File.WriteAllText(Path.Combine(duplicateDirectory, "V001__SYS_ONE.sql"), "-- one");
+            File.WriteAllText(Path.Combine(duplicateDirectory, "V001__MDM_OTHER.sql"), "-- duplicate");
+            Action duplicate = () => SqliteSchemaInitializer.GetOrderedMigrationFiles(duplicateDirectory);
+            duplicate.Should().Throw<InvalidDataException>()
+                .WithMessage("*Duplicate migration version 1*V001__*");
+        }
+        finally
+        {
+            try { Directory.Delete(invalidDirectory, recursive: true); } catch { /* best-effort cleanup */ }
+            try { Directory.Delete(duplicateDirectory, recursive: true); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Fact]
+    public void Sqlite_fresh_and_incremental_paths_validate_the_same_catalog_before_opening_the_database()
+    {
+        var source = File.ReadAllText(RepositorySource.GetFile(
+            "src", "02.Backend", "NexaOne.Common", "Infrastructure", "Persistence",
+            "SqliteSchemaInitializer.cs"));
+        var applyStart = source.IndexOf("public static void Apply", StringComparison.Ordinal);
+        var ensureStart = source.IndexOf("public static void EnsureSchema", StringComparison.Ordinal);
+        var incrementalStart = source.IndexOf("public static void CreateMissingTables", StringComparison.Ordinal);
+        var ensureBody = source[ensureStart..applyStart];
+        var applyBody = source[applyStart..incrementalStart];
+        var incrementalBody = source[incrementalStart..source.IndexOf(
+            "private static void EnsureEmsToolMountPositionGuard", incrementalStart, StringComparison.Ordinal)];
+
+        foreach (var body in new[] { applyBody, incrementalBody })
+        {
+            var validation = body.IndexOf("GetOrderedMigrationFiles(dir)", StringComparison.Ordinal);
+            var open = body.IndexOf("conn.Open()", StringComparison.Ordinal);
+            validation.Should().BeGreaterThanOrEqualTo(0);
+            open.Should().BeGreaterThan(validation,
+                "fresh and incremental schema paths must reject a malformed bundle before DB access");
+            body.Should().Contain("foreach (var file in migrationFiles)");
+        }
+
+        var ensureValidation = ensureBody.IndexOf(
+            "GetOrderedMigrationFiles(FindMigrationsDir())", StringComparison.Ordinal);
+        var firstDatabaseAccess = ensureBody.IndexOf("HasUserTables(connectionString)", StringComparison.Ordinal);
+        ensureValidation.Should().BeGreaterThanOrEqualTo(0);
+        firstDatabaseAccess.Should().BeGreaterThan(ensureValidation,
+            "EnsureSchema must validate before its first SQLite connection is opened");
+    }
+
+    private static void Execute(SqliteConnection connection, string sql)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+    }
+
+    private static string Scalar(SqliteConnection connection, string sql)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        return Convert.ToString(command.ExecuteScalar(), System.Globalization.CultureInfo.InvariantCulture)
+               ?? string.Empty;
+    }
+
+    private static void AssertAppendOnly(
+        SqliteConnection connection,
+        string table,
+        string predicate,
+        string updateAssignment,
+        string replaceSql)
+    {
+        Action update = () => Execute(connection, $"UPDATE {table} SET {updateAssignment} WHERE {predicate};");
+        update.Should().Throw<SqliteException>().WithMessage("*append-only*");
+
+        Action delete = () => Execute(connection, $"DELETE FROM {table} WHERE {predicate};");
+        delete.Should().Throw<SqliteException>().WithMessage("*append-only*");
+
+        Action replace = () => Execute(connection, replaceSql);
+        replace.Should().Throw<SqliteException>().WithMessage("*replacement is forbidden*");
+
+        Scalar(connection, $"SELECT COUNT(*) FROM {table} WHERE {predicate};").Should().Be("1");
     }
 }

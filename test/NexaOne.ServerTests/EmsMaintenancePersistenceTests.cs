@@ -12,7 +12,10 @@ using NexaOne.EMS.Application.MaintenanceExecution;
 using NexaOne.EMS.Domain;
 using NexaOne.EMS.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
+using NexaOne.MDM.Infrastructure;
+using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Ems;
+using NexaOne.SYS.Infrastructure;
 using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
@@ -66,17 +69,27 @@ public sealed class EmsMaintenancePersistenceTests :
     private MaintenancePlanService PartsService()
     {
         var plans = new Mock<IMaintenancePlanRepository>(MockBehavior.Strict);
-        return new MaintenancePlanService(plans.Object, new SparePartRepository(DataSource()));
+        var dataSource = DataSource();
+        return new MaintenancePlanService(
+            plans.Object,
+            new SparePartRepository(dataSource),
+            new EquipmentDirectory(dataSource));
     }
 
-    private EmsService WorkOrders() => new(new WorkOrderRepository(
-        DataSource(), new ConfigurationBuilder().Build()));
+    private EmsService WorkOrders() => new(
+        new WorkOrderRepository(DataSource(), new ConfigurationBuilder().Build()),
+        new MaintenancePlanRepository(DataSource(), new ConfigurationBuilder().Build()));
 
     private MaintenanceScheduleService MaintenanceSchedules()
         => new(new MaintenanceScheduleRepository(DataSource()));
 
     private MaintenanceExecutionService MaintenanceExecution()
-        => new(new MaintenanceExecutionRepository(DataSource()));
+    {
+        var dataSource = DataSource();
+        return new MaintenanceExecutionService(
+            new MaintenanceExecutionRepository(dataSource),
+            new MaintenanceIdentityDirectory(dataSource));
+    }
 
     private void Execute(string sql, params (string Name, object? Value)[] parameters)
     {
@@ -173,16 +186,16 @@ public sealed class EmsMaintenancePersistenceTests :
             ("@bom", bomItemId), ("@equipment", equipmentId), ("@part", partId));
     }
 
-    private void SeedMaintenancePlan(string planId)
+    private void SeedMaintenancePlan(string planId, string planType = "PM")
     {
         Execute(@"INSERT INTO EMS_MAINTENANCE_PLAN
             (PLAN_ID, PLAN_NAME, EQUIPMENT_ID, PLAN_TYPE, CYCLE_TYPE, SCHEDULED_DATE,
              ESTIMATED_DURATION_HOURS, ASSIGNEE_ID, STATUS,
              CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
             VALUES
-            (@plan, @plan, 'EQ-PM', 'PM', 'Manual', CURRENT_TIMESTAMP,
+            (@plan, @plan, 'EQ-PM', @planType, 'Manual', CURRENT_TIMESTAMP,
              1, 'maintainer', 'Planned', 'seed', CURRENT_TIMESTAMP, 'seed', CURRENT_TIMESTAMP)",
-            ("@plan", planId));
+            ("@plan", planId), ("@planType", planType));
     }
 
     [Fact]
@@ -245,6 +258,39 @@ public sealed class EmsMaintenancePersistenceTests :
     }
 
     [Fact]
+    public async Task Parallel_spare_part_usage_retries_converge_on_one_atomic_ledger()
+    {
+        var partId = Id("SP-RACE");
+        var key = Id("PART-IDEM-RACE");
+        var equipmentId = Id("EQ-RACE");
+        var workOrderId = Id("EMS-WO-RACE");
+        var bomItemId = Id("BOM-RACE");
+        SeedPart(partId, 10m);
+        SeedEquipment(equipmentId);
+        SeedWorkOrder(workOrderId, equipmentId);
+        SeedBom(bomItemId, partId, equipmentId);
+        var context = new SparePartAdjustmentContext(
+            MaintenanceCommandContext.Create(
+                "login-maintainer", key, "POP", "PANEL-01", "corr-parts-race").Value,
+            "Usage", workOrderId, equipmentId, Remark: "bearing replacement",
+            BomItemId: bomItemId);
+        var service = PartsService();
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 8)
+            .Select(_ => service.AdjustStockAsync(partId, -2m, context)));
+
+        results.Should().OnlyContain(result => result.IsSuccess);
+        Scalar<decimal>("SELECT CURRENT_STOCK FROM EMS_SPARE_PART WHERE PART_ID=@id", ("@id", partId))
+            .Should().Be(8m);
+        Scalar<long>("SELECT COUNT(*) FROM EMS_SPARE_PART_INOUT WHERE IDEMPOTENCY_KEY=@key", ("@key", key))
+            .Should().Be(1);
+        Scalar<long>(@"SELECT COUNT(*) FROM EMS_SPARE_PART_USAGE u
+                       JOIN EMS_SPARE_PART_INOUT i ON i.INOUT_ID=u.INOUT_ID
+                       WHERE i.IDEMPOTENCY_KEY=@key", ("@key", key))
+            .Should().Be(1);
+    }
+
+    [Fact]
     public async Task AdjustStock_ledger_failure_rolls_back_balance_update()
     {
         var partId = Id("SP-ROLLBACK");
@@ -257,7 +303,7 @@ public sealed class EmsMaintenancePersistenceTests :
             BEGIN SELECT RAISE(ABORT, 'forced EMS ledger failure'); END;");
         var context = new SparePartAdjustmentContext(
             MaintenanceCommandContext.Create("login-maintainer", key, "MES").Value,
-            "Usage");
+            "Scrap");
 
         var act = () => PartsService().AdjustStockAsync(partId, -4m, context);
         await act.Should().ThrowAsync<Exception>();
@@ -265,6 +311,87 @@ public sealed class EmsMaintenancePersistenceTests :
         Scalar<decimal>("SELECT CURRENT_STOCK FROM EMS_SPARE_PART WHERE PART_ID=@id", ("@id", partId))
             .Should().Be(10m, "a failed ledger insert must roll the guarded stock update back");
         Scalar<long>("SELECT COUNT(*) FROM EMS_SPARE_PART_INOUT WHERE PART_ID=@id", ("@id", partId))
+            .Should().Be(0);
+    }
+
+    [Fact]
+    public async Task AdjustStock_usage_without_equipment_fails_without_any_stock_or_ledger_write()
+    {
+        var partId = Id("SP-USAGE-NO-EQ");
+        var key = Id("PART-USAGE-NO-EQ");
+        SeedPart(partId, 10m);
+        var context = new SparePartAdjustmentContext(
+            MaintenanceCommandContext.Create("login-maintainer", key, "MES").Value,
+            "Usage", EquipmentId: null);
+
+        var result = await PartsService().AdjustStockAsync(partId, -2m, context);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be(nameof(SparePartAdjustmentContext.EquipmentId));
+        Scalar<decimal>("SELECT CURRENT_STOCK FROM EMS_SPARE_PART WHERE PART_ID=@id", ("@id", partId))
+            .Should().Be(10m);
+        Scalar<long>("SELECT COUNT(*) FROM EMS_SPARE_PART_INOUT WHERE IDEMPOTENCY_KEY=@key", ("@key", key))
+            .Should().Be(0);
+        Scalar<long>("SELECT COUNT(*) FROM EMS_SPARE_PART_USAGE WHERE PART_ID=@id", ("@id", partId))
+            .Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("EQ-BYPASS")]
+    public async Task SparePart_repository_rejects_usage_that_bypasses_the_usage_ledger(
+        string? equipmentId)
+    {
+        var partId = Id("SP-USAGE-BYPASS");
+        var key = Id("PART-USAGE-BYPASS");
+        SeedPart(partId, 10m);
+        var now = DateTime.UtcNow;
+        var transaction = new SparePartStockTransaction(
+            Id("INOUT"), partId, "Usage", 2m, 10m, 8m, "login-maintainer", now,
+            key, "MES", EquipmentId: equipmentId, Usage: null);
+
+        var persisted = await new SparePartRepository(DataSource())
+            .PersistAdjustmentAsync(transaction, null);
+
+        persisted.Should().BeFalse();
+        Scalar<decimal>("SELECT CURRENT_STOCK FROM EMS_SPARE_PART WHERE PART_ID=@id", ("@id", partId))
+            .Should().Be(10m);
+        Scalar<long>("SELECT COUNT(*) FROM EMS_SPARE_PART_INOUT WHERE IDEMPOTENCY_KEY=@key", ("@key", key))
+            .Should().Be(0);
+        Scalar<long>("SELECT COUNT(*) FROM EMS_SPARE_PART_USAGE WHERE PART_ID=@id", ("@id", partId))
+            .Should().Be(0);
+    }
+
+    [Fact]
+    public async Task SparePart_repository_atomic_guard_rejects_a_usage_with_wrong_bom_scope()
+    {
+        var partId = Id("SP-REPO-SCOPE");
+        var otherPartId = Id("SP-REPO-OTHER");
+        var equipmentId = Id("EQ-REPO-SCOPE");
+        var bomItemId = Id("BOM-REPO-SCOPE");
+        var key = Id("PART-REPO-SCOPE");
+        SeedPart(partId, 10m);
+        SeedPart(otherPartId, 10m);
+        SeedEquipment(equipmentId);
+        SeedBom(bomItemId, otherPartId, equipmentId);
+        var now = DateTime.UtcNow;
+        var inoutId = Id("INOUT-REPO-SCOPE");
+        var transaction = new SparePartStockTransaction(
+            inoutId, partId, "Usage", 2m, 10m, 8m, "login-maintainer", now,
+            key, "MES", EquipmentId: equipmentId,
+            Usage: new SparePartUsage(
+                Id("USAGE-REPO-SCOPE"), inoutId, partId, bomItemId, equipmentId,
+                null, 2m, "login-maintainer", now));
+
+        var persisted = await new SparePartRepository(DataSource())
+            .PersistAdjustmentAsync(transaction, "CLASS-A");
+
+        persisted.Should().BeFalse();
+        Scalar<decimal>("SELECT CURRENT_STOCK FROM EMS_SPARE_PART WHERE PART_ID=@id", ("@id", partId))
+            .Should().Be(10m);
+        Scalar<long>("SELECT COUNT(*) FROM EMS_SPARE_PART_INOUT WHERE IDEMPOTENCY_KEY=@key", ("@key", key))
+            .Should().Be(0);
+        Scalar<long>("SELECT COUNT(*) FROM EMS_SPARE_PART_USAGE WHERE PART_ID=@id", ("@id", partId))
             .Should().Be(0);
     }
 
@@ -361,10 +488,16 @@ public sealed class EmsMaintenancePersistenceTests :
             workOrderId, "EQ01", "PM", "Monthly inspection", "tech01", planId, create);
         var started = await WorkOrders().StartWorkOrderAsync(workOrderId, start);
         var replay = await WorkOrders().StartWorkOrderAsync(workOrderId, start);
+        var createReplay = await WorkOrders().CreateWorkOrderAsync(
+            workOrderId, "EQ01", "PM", "Monthly inspection", "tech01", planId, create);
 
         created.IsSuccess.Should().BeTrue(created.IsFailure ? created.Error.Description : string.Empty);
         started.IsSuccess.Should().BeTrue(started.IsFailure ? started.Error.Description : string.Empty);
         replay.IsSuccess.Should().BeTrue("a repeated start command must not attempt the transition twice");
+        createReplay.IsSuccess.Should().BeTrue();
+        createReplay.Value.Status.Should().Be(
+            WorkOrderStatus.Issued,
+            "creation replay returns the immutable creation result even after the live W/O starts");
         Scalar<string>("SELECT MAINTENANCE_PLAN_ID FROM EMS_WORK_ORDER WHERE WO_ID=@id", ("@id", workOrderId))
             .Should().Be(planId);
         Scalar<string>("SELECT STATUS FROM EMS_WORK_ORDER WHERE WO_ID=@id", ("@id", workOrderId))
@@ -379,6 +512,8 @@ public sealed class EmsMaintenancePersistenceTests :
             .Should().Be("InProgress");
         Scalar<string>("SELECT CORRELATION_ID FROM EMS_MAINTENANCE_ACTION_HISTORY WHERE IDEMPOTENCY_KEY=@key", ("@key", startKey))
             .Should().Be("corr-wo");
+        Scalar<string>("SELECT ACTOR_ID FROM EMS_WORK_ORDER_CREATE_COMMAND WHERE IDEMPOTENCY_KEY=@key", ("@key", create.IdempotencyKey))
+            .Should().Be("planner-login");
     }
 
     [Fact]
@@ -405,6 +540,10 @@ public sealed class EmsMaintenancePersistenceTests :
             .Should().Be(1);
         Scalar<long>("SELECT COUNT(*) FROM EMS_MAINTENANCE_ACTION_HISTORY WHERE IDEMPOTENCY_KEY=@key", ("@key", key))
             .Should().Be(1);
+        Scalar<long>("SELECT COUNT(*) FROM EMS_WORK_ORDER_CREATE_COMMAND WHERE IDEMPOTENCY_KEY=@key", ("@key", key))
+            .Should().Be(1);
+        Scalar<string>("SELECT ACTOR_ID FROM EMS_WORK_ORDER_CREATE_COMMAND WHERE IDEMPOTENCY_KEY=@key", ("@key", key))
+            .Should().Be("planner-login");
     }
 
     [Fact]
@@ -540,6 +679,55 @@ public sealed class EmsMaintenancePersistenceTests :
             .Should().Be("corr-pm");
         Scalar<long>("SELECT LENGTH(REQUEST_HASH) FROM EMS_MAINTENANCE_SCHEDULE_ACK_HISTORY WHERE IDEMPOTENCY_KEY=@key", ("@key", key))
             .Should().Be(64);
+    }
+
+    [Fact]
+    public async Task Maintenance_schedule_rejects_bm_plan_in_service_and_atomic_repository_guard()
+    {
+        var planId = Id("BM-PLAN");
+        var pmPlanId = Id("PM-PLAN-GUARD");
+        var serviceScheduleId = Id("BM-SCHEDULE-SERVICE");
+        var repositoryScheduleId = Id("BM-SCHEDULE-REPO");
+        var updateScheduleId = Id("PM-SCHEDULE-UPDATE-GUARD");
+        var due = new DateTime(2026, 8, 26, 0, 0, 0, DateTimeKind.Utc);
+        SeedMaintenancePlan(planId, "BM");
+        SeedMaintenancePlan(pmPlanId);
+        var repository = new MaintenanceScheduleRepository(DataSource());
+
+        var serviceResult = await new MaintenanceScheduleService(repository).CreateAsync(
+            new MaintenanceScheduleCreateCommand(
+                serviceScheduleId, planId, "Calendar", 1m, "Day", NextDueAt: due,
+                ActorId: "planner-login"));
+        var repositoryResult = await repository.TryCreateAsync(new MaintenanceScheduleRecord(
+            repositoryScheduleId, planId, "Calendar", 1m, "Day", "UTC",
+            null, due, null, null, null, null, null, false, true, 1,
+            "planner-login", DateTime.UtcNow, "planner-login", DateTime.UtcNow));
+        var pmSchedule = new MaintenanceScheduleRecord(
+            updateScheduleId, pmPlanId, "Calendar", 1m, "Day", "UTC",
+            null, due, null, null, null, null, null, false, true, 1,
+            "planner-login", DateTime.UtcNow, "planner-login", DateTime.UtcNow);
+        (await repository.TryCreateAsync(pmSchedule)).Should().BeTrue();
+        var updateResult = await repository.TryUpdateAsync(
+            pmSchedule with
+            {
+                MaintenancePlanId = planId,
+                Version = 2,
+                UpdatedAt = DateTime.UtcNow,
+            },
+            1);
+
+        serviceResult.IsFailure.Should().BeTrue();
+        serviceResult.Error.Code.Should().Be("EMS.MaintenanceSchedule.PreventivePlanRequired");
+        repositoryResult.Should().BeFalse();
+        updateResult.Should().BeFalse();
+        Scalar<long>(
+                "SELECT COUNT(*) FROM EMS_MAINTENANCE_SCHEDULE WHERE MAINTENANCE_PLAN_ID=@plan",
+                ("@plan", planId))
+            .Should().Be(0);
+        Scalar<string>(
+                "SELECT MAINTENANCE_PLAN_ID FROM EMS_MAINTENANCE_SCHEDULE WHERE SCHEDULE_ID=@id",
+                ("@id", updateScheduleId))
+            .Should().Be(pmPlanId);
     }
 
     [Fact]

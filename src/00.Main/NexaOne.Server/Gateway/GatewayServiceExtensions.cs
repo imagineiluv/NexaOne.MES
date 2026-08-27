@@ -3,7 +3,9 @@ using Microsoft.Extensions.DependencyInjection;
 using NexaOne.Application;
 using NexaOne.Infrastructure.Persistence;
 using NexaDB.Data.Abstractions.Interfaces;
+using NexaDB.Data.Hosting;
 using NexaDB.Data.MsSql;
+using NexaDB.Diagnostics;
 
 namespace NexaOne.Server.Gateway;
 
@@ -32,9 +34,15 @@ public static class GatewayServiceExtensions
             capability = mssql;
         }
 
+        services.AddNexaDBDataDiagnosticsMetrics(registerAsDiagnosticSink: true);
         services.AddSingleton(provider);
         services.AddSingleton(capability);
-        services.AddSingleton(new EesDataSource { Provider = provider, ConnectionString = connStr });
+        services.AddSingleton(serviceProvider => new EesDataSource
+        {
+            Provider = provider,
+            ConnectionString = connStr,
+            QueryDiagnosticSink = serviceProvider.GetRequiredService<IDiagnosticEventSink>()
+        });
 
         services.AddNexaOneEES(configuration);
         return services;

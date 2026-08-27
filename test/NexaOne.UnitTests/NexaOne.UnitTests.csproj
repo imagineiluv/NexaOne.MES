@@ -19,6 +19,7 @@
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.MDM\NexaOne.MDM.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.RMS\NexaOne.RMS.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.POM\NexaOne.POM.csproj" />
+    <ProjectReference Include="..\..\src\04.Modules\NexaOne.PRC\NexaOne.PRC.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.SHP\NexaOne.SHP.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.FDC\NexaOne.FDC.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.EST\NexaOne.EST.csproj" />

@@ -2,6 +2,7 @@ namespace NexaOne.EMS.Application.MaintenanceSchedules;
 
 public interface IMaintenanceScheduleRepository
 {
+    /// <summary>True only when the referenced plan exists and is a preventive-maintenance (PM) plan.</summary>
     Task<bool> MaintenancePlanExistsAsync(string maintenancePlanId, CancellationToken ct = default);
     Task<MaintenanceScheduleRecord?> GetAsync(string scheduleId, CancellationToken ct = default);
     Task<bool> TryCreateAsync(MaintenanceScheduleRecord schedule, CancellationToken ct = default);

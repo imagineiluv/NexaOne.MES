@@ -214,15 +214,21 @@ public sealed class ApiClient : IApiClient
     private async Task<List<T>> GetListAsync<T>(string url, CancellationToken ct)
         => await GetAsync<List<T>>(url, ct) ?? new List<T>();
 
-    private async Task<T?> PostAsync<T>(string url, object body, CancellationToken ct) where T : class
+    private async Task<T?> PostAsync<T>(
+        string url, object body, CancellationToken ct,
+        IReadOnlyDictionary<string, string>? headers = null) where T : class
     {
-        using var resp = await SendAsync(HttpMethod.Post, url, body, ct);
+        using var resp = await SendAsync(HttpMethod.Post, url, body, ct, headers: headers);
         return resp.IsSuccessStatusCode ? await resp.Content.ReadFromJsonAsync<T>(ct) : null;
     }
 
-    private async Task PutAsync(string url, object? body, CancellationToken ct)
+    private async Task PutAsync(
+        string url,
+        object? body,
+        CancellationToken ct,
+        IReadOnlyDictionary<string, string>? headers = null)
     {
-        using var _ = await SendAsync(HttpMethod.Put, url, body ?? new { }, ct);
+        using var _ = await SendAsync(HttpMethod.Put, url, body ?? new { }, ct, headers: headers);
     }
 
     // 상태전이 POST용(응답 본문 불필요) — 통합 호스트 브리지 전이 엔드포인트는 POST 규약이다(구 API의 PUT 아님).
@@ -238,9 +244,11 @@ public sealed class ApiClient : IApiClient
         return resp.IsSuccessStatusCode;
     }
 
-    private async Task<bool> DeleteAsync(string url, CancellationToken ct)
+    private async Task<bool> DeleteAsync(
+        string url, CancellationToken ct,
+        IReadOnlyDictionary<string, string>? headers = null)
     {
-        using var resp = await SendAsync(HttpMethod.Delete, url, null, ct);
+        using var resp = await SendAsync(HttpMethod.Delete, url, null, ct, headers: headers);
         return resp.IsSuccessStatusCode;
     }
 
@@ -622,38 +630,68 @@ public sealed class ApiClient : IApiClient
         return GetListAsync<RecipeDto>(url, ct);
     }
 
-    public Task<RecipeDto?> CreateRecipeAsync(object req, CancellationToken ct = default)
-        => PostAsync<RecipeDto>("api/v1/rms/recipes", req, ct);
+    public Task<RecipeDto?> CreateRecipeAsync(
+        object req, string idempotencyKey, CancellationToken ct = default)
+        => PostAsync<RecipeDto>("api/v1/rms/recipes", req, ct,
+            IdempotencyHeader(idempotencyKey));
 
-    public Task RequestRecipeApprovalAsync(string recipeId, CancellationToken ct = default)
-        => PutAsync($"api/v1/rms/recipes/{recipeId}/request-approval", null, ct);
+    public Task RequestRecipeApprovalAsync(
+        string recipeId, string idempotencyKey, CancellationToken ct = default)
+        => PutAsync($"api/v1/rms/recipes/{recipeId}/request-approval", null, ct,
+            IdempotencyHeader(idempotencyKey));
 
-    public Task ApproveRecipe1Async(string recipeId, string approverId, CancellationToken ct = default)
-        => PutAsync($"api/v1/rms/recipes/{recipeId}/approve1", new { approverId }, ct);
+    public Task ApproveRecipe1Async(
+        string recipeId, string idempotencyKey, CancellationToken ct = default)
+        => PutAsync($"api/v1/rms/recipes/{recipeId}/approve1", null, ct,
+            IdempotencyHeader(idempotencyKey));
 
-    public Task ApproveRecipe2Async(string recipeId, string approverId, CancellationToken ct = default)
-        => PutAsync($"api/v1/rms/recipes/{recipeId}/approve2", new { approverId }, ct);
+    public Task ApproveRecipe2Async(
+        string recipeId, string idempotencyKey, CancellationToken ct = default)
+        => PutAsync($"api/v1/rms/recipes/{recipeId}/approve2", null, ct,
+            IdempotencyHeader(idempotencyKey));
 
-    public Task ReleaseRecipeAsync(string recipeId, string approverId, CancellationToken ct = default)
-        => PutAsync($"api/v1/rms/recipes/{recipeId}/release", new { approverId }, ct);
+    public Task ReleaseRecipeAsync(
+        string recipeId, string idempotencyKey, CancellationToken ct = default)
+        => PutAsync($"api/v1/rms/recipes/{recipeId}/release", null, ct,
+            IdempotencyHeader(idempotencyKey));
 
-    public Task RejectRecipeAsync(string recipeId, string reason, CancellationToken ct = default)
-        => PutAsync($"api/v1/rms/recipes/{recipeId}/reject", new { reason }, ct);
+    public Task RejectRecipeAsync(
+        string recipeId, string reason, string idempotencyKey, CancellationToken ct = default)
+        => PutAsync($"api/v1/rms/recipes/{recipeId}/reject", new { reason }, ct,
+            IdempotencyHeader(idempotencyKey));
 
-    public Task<RecipeDto?> CreateRecipeVersionAsync(string recipeId, string newRecipeId, CancellationToken ct = default)
-        => PostAsync<RecipeDto>($"api/v1/rms/recipes/{recipeId}/new-version", new { newRecipeId }, ct);
+    public Task<RecipeDto?> CreateRecipeVersionAsync(
+        string recipeId, string newRecipeId, string idempotencyKey,
+        CancellationToken ct = default)
+        => PostAsync<RecipeDto>($"api/v1/rms/recipes/{recipeId}/new-version",
+            new { newRecipeId }, ct, IdempotencyHeader(idempotencyKey));
 
     public Task<List<RecipeParamDto>> GetRecipeParamsAsync(string recipeId, CancellationToken ct = default)
         => GetListAsync<RecipeParamDto>($"api/v1/rms/recipes/{recipeId}/params", ct);
 
-    public Task<RecipeParamDto?> AddRecipeParamAsync(string recipeId, object req, CancellationToken ct = default)
-        => PostAsync<RecipeParamDto>($"api/v1/rms/recipes/{recipeId}/params", req, ct);
+    public Task<RecipeParamDto?> AddRecipeParamAsync(
+        string recipeId, object req, string idempotencyKey, CancellationToken ct = default)
+        => PostAsync<RecipeParamDto>($"api/v1/rms/recipes/{recipeId}/params", req, ct,
+            IdempotencyHeader(idempotencyKey));
 
-    public Task UpdateRecipeParamAsync(string paramId, string newValue, CancellationToken ct = default)
-        => PutAsync($"api/v1/rms/recipes/params/{paramId}", new { newValue }, ct);
+    public Task UpdateRecipeParamAsync(
+        string paramId, string newValue, int expectedVersion, string idempotencyKey,
+        CancellationToken ct = default)
+        => PutAsync($"api/v1/rms/recipes/params/{paramId}",
+            new { newValue, expectedVersion }, ct, IdempotencyHeader(idempotencyKey));
 
-    public Task DeleteRecipeParamAsync(string paramId, CancellationToken ct = default)
-        => DeleteAsync($"api/v1/rms/recipes/params/{paramId}", ct);
+    private static IReadOnlyDictionary<string, string> IdempotencyHeader(string key)
+        => new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Idempotency-Key"] = key,
+        };
+
+    public Task DeleteRecipeParamAsync(
+        string paramId, int expectedVersion, string idempotencyKey,
+        CancellationToken ct = default)
+        => DeleteAsync(
+            $"api/v1/rms/recipes/params/{paramId}?expectedVersion={expectedVersion}",
+            ct, IdempotencyHeader(idempotencyKey));
 
     // ── QMS ───────────────────────────────────────────────────────────────────
 

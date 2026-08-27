@@ -9,6 +9,20 @@
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
   </object>
+  <!-- MDM-owned cross-module directories. Sibling modules receive parent proxies with the same
+       shared contracts; MS DI resolves these public module beans through the bridge catalog. -->
+  <object id="equipmentDirectory" type="NexaOne.MDM.Infrastructure.EquipmentDirectory, NexaOne.MDM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="vendorDirectory" type="NexaOne.MDM.Infrastructure.VendorDirectory, NexaOne.MDM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="processDirectory" type="NexaOne.MDM.Infrastructure.ProcessDirectory, NexaOne.MDM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
+  <object id="mrpMasterDirectory" type="NexaOne.MDM.Infrastructure.MrpMasterDirectory, NexaOne.MDM">
+    <constructor-arg ref="eesDataSource" />
+  </object>
   <object id="equipmentService" type="NexaOne.MDM.Application.Equipments.EquipmentService, NexaOne.MDM">
     <constructor-arg ref="equipmentRepository" />
   </object>

@@ -11,7 +11,7 @@ public sealed class MaintenanceExecutionServiceTests
     public async Task Checklist_requires_evidence_and_replays_only_the_exact_request()
     {
         var repository = new MemoryRepository();
-        var service = new MaintenanceExecutionService(repository);
+        var service = new MaintenanceExecutionService(repository, repository);
         var context = new EmsCommandContextDto("login-maintainer", "check-key", "POP", "PANEL-01");
         var empty = new MaintenanceCheckCommand(
             "CHECK-EMPTY", "WO-1", 1, "Temperature", At, context);
@@ -43,7 +43,7 @@ public sealed class MaintenanceExecutionServiceTests
     public async Task Labor_resolves_authenticated_worker_and_uses_optimistic_completion()
     {
         var repository = new MemoryRepository { WorkerId = "WORKER-1" };
-        var service = new MaintenanceExecutionService(repository);
+        var service = new MaintenanceExecutionService(repository, repository);
         var spoof = await service.StartLaborAsync(new MaintenanceLaborStartCommand(
             "LABOR-SPOOF", "WO-1", "Work", At,
             new EmsCommandContextDto("login-maintainer", "start-spoof"),
@@ -80,7 +80,7 @@ public sealed class MaintenanceExecutionServiceTests
     public async Task Execution_requires_an_active_work_order_and_authenticated_command_context()
     {
         var repository = new MemoryRepository { WorkOrderStatus = "Completed" };
-        var service = new MaintenanceExecutionService(repository);
+        var service = new MaintenanceExecutionService(repository, repository);
 
         var inactive = await service.RecordCheckAsync(new MaintenanceCheckCommand(
             "CHECK-1", "WO-1", 1, "Temperature", At,
@@ -96,10 +96,28 @@ public sealed class MaintenanceExecutionServiceTests
         repository.Labors.Should().BeEmpty();
     }
 
-    private sealed class MemoryRepository : IMaintenanceExecutionRepository
+    [Fact]
+    public async Task Execution_rejects_an_inactive_login_identity_before_writing_evidence()
+    {
+        var repository = new MemoryRepository { IdentityActive = false };
+        var service = new MaintenanceExecutionService(repository, repository);
+
+        var result = await service.RecordCheckAsync(new MaintenanceCheckCommand(
+            "CHECK-1", "WO-1", 1, "Temperature", At,
+            new EmsCommandContextDto("disabled-maintainer", "check-key"), IsPass: true));
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("EMS.MaintenanceExecution.ActorInactive");
+        repository.Checks.Should().BeEmpty();
+    }
+
+    private sealed class MemoryRepository :
+        IMaintenanceExecutionRepository,
+        IMaintenanceIdentityDirectory
     {
         public string? WorkOrderStatus { get; set; } = "InProgress";
         public string? WorkerId { get; set; }
+        public bool IdentityActive { get; set; } = true;
         public List<MaintenanceCheckRecord> Checks { get; } = [];
         public List<MaintenanceLaborRecord> Labors { get; } = [];
 
@@ -109,8 +127,12 @@ public sealed class MaintenanceExecutionServiceTests
         public Task<bool> MaintenanceItemExistsAsync(string itemId, CancellationToken ct = default)
             => Task.FromResult(true);
 
-        public Task<string?> GetActiveWorkerIdAsync(string userId, DateTime at, CancellationToken ct = default)
-            => Task.FromResult(WorkerId);
+        public Task<MaintenanceIdentityEntry?> GetActiveIdentityAsync(
+            string userId,
+            DateTime at,
+            CancellationToken ct = default)
+            => Task.FromResult<MaintenanceIdentityEntry?>(
+                IdentityActive ? new MaintenanceIdentityEntry(userId, WorkerId) : null);
 
         public Task<MaintenanceCheckRecord?> GetCheckByIdempotencyKeyAsync(
             string idempotencyKey,

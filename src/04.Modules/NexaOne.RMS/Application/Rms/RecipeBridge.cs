@@ -50,52 +50,58 @@ public sealed class RecipeBridge : IRecipeApprovalBridge
         return r.IsSuccess ? Result.Success(ToDto(r.Value)) : Result.Failure<RecipeDto>(r.Error);
     }
 
-    public async Task<Result<RecipeDto>> CreateRecipeAsync(string recipeId, string name, string desc, string equipmentClassId, CancellationToken ct = default)
+    public async Task<Result<RecipeDto>> CreateRecipeAsync(
+        RecipeCreateCommand command, CancellationToken ct = default)
     {
-        var r = await _service.CreateRecipeAsync(recipeId, name, desc, equipmentClassId, ct);
+        var r = await _service.CreateRecipeAsync(command, ct);
         return r.IsSuccess ? Result.Success(ToDto(r.Value)) : Result.Failure<RecipeDto>(r.Error);
     }
 
-    public Task<Result> RequestApprovalAsync(string recipeId, CancellationToken ct = default)
-        => _service.RequestApprovalAsync(recipeId, ct);
+    public Task<Result> RequestApprovalAsync(
+        string recipeId, RecipeCommandContext context, CancellationToken ct = default)
+        => _service.RequestApprovalAsync(recipeId, context, ct);
 
-    public Task<Result> Approve1Async(string recipeId, string approverId, CancellationToken ct = default)
-        => _service.Approve1Async(recipeId, approverId, ct);
+    public Task<Result> Approve1Async(string recipeId, RecipeCommandContext context, CancellationToken ct = default)
+        => _service.Approve1Async(recipeId, context, ct);
 
-    public Task<Result> Approve2Async(string recipeId, string approverId, CancellationToken ct = default)
-        => _service.Approve2Async(recipeId, approverId, ct);
+    public Task<Result> Approve2Async(string recipeId, RecipeCommandContext context, CancellationToken ct = default)
+        => _service.Approve2Async(recipeId, context, ct);
 
-    public Task<Result> ReleaseAsync(string recipeId, string releaserId, CancellationToken ct = default)
-        => _service.ReleaseAsync(recipeId, releaserId, ct);
+    public Task<Result> ReleaseAsync(string recipeId, RecipeCommandContext context, CancellationToken ct = default)
+        => _service.ReleaseAsync(recipeId, context, ct);
 
-    public Task<Result> RejectAsync(string recipeId, string reason, CancellationToken ct = default)
-        => _service.RejectAsync(recipeId, reason, ct);
+    public Task<Result> RejectAsync(
+        string recipeId, string reason, RecipeCommandContext context, CancellationToken ct = default)
+        => _service.RejectAsync(recipeId, reason, context, ct);
 
-    public async Task<Result<RecipeDto>> CreateNewVersionAsync(string sourceRecipeId, string newRecipeId, CancellationToken ct = default)
+    public async Task<Result<RecipeDto>> CreateNewVersionAsync(
+        RecipeVersionCreateCommand command, CancellationToken ct = default)
     {
-        var r = await _service.CreateNewVersionAsync(sourceRecipeId, newRecipeId, ct);
+        var r = await _service.CreateNewVersionAsync(command, ct);
         return r.IsSuccess ? Result.Success(ToDto(r.Value)) : Result.Failure<RecipeDto>(r.Error);
     }
 
     public async Task<IReadOnlyList<RecipeParamDto>> GetParamsAsync(string recipeId, CancellationToken ct = default)
         => (await _service.GetParamsAsync(recipeId, ct)).Select(ToDto).ToList();
 
-    public async Task<Result<RecipeParamDto>> AddParamAsync(string paramId, string recipeId, string paramName, string paramValue, string unit, int sortOrder, CancellationToken ct = default)
+    public async Task<Result<RecipeParamDto>> AddParamAsync(
+        RecipeParamAddCommand command, CancellationToken ct = default)
     {
-        var r = await _service.AddParamAsync(paramId, recipeId, paramName, paramValue, unit, sortOrder, ct);
+        var r = await _service.AddParamAsync(command, ct);
         return r.IsSuccess ? Result.Success(ToDto(r.Value)) : Result.Failure<RecipeParamDto>(r.Error);
     }
 
-    public Task<Result> UpdateParamAsync(string paramId, string newValue, CancellationToken ct = default)
-        => _service.UpdateParamAsync(paramId, newValue, ct);
+    public Task<Result> UpdateParamAsync(RecipeParamUpdateCommand command, CancellationToken ct = default)
+        => _service.UpdateParamAsync(command, ct);
 
-    public Task<Result> DeleteParamAsync(string paramId, CancellationToken ct = default)
-        => _service.DeleteParamAsync(paramId, ct);
+    public Task<Result> DeleteParamAsync(
+        RecipeParamDeleteCommand command, CancellationToken ct = default)
+        => _service.DeleteParamAsync(command, ct);
 
     private static RecipeDto ToDto(Recipe r)
         => new(r.Id, r.RecipeName, r.Description, r.EquipmentClassId, r.Version,
                r.ApprovalState.ToString(), r.FirstApproverId, r.SecondApproverId, r.ReleasedAt);
 
     private static RecipeParamDto ToDto(RecipeParam p)
-        => new(p.Id, p.RecipeId, p.ParamName, p.ParamValue, p.Unit, p.SortOrder);
+        => new(p.Id, p.RecipeId, p.ParamName, p.ParamValue, p.Unit, p.SortOrder, p.Version);
 }

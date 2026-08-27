@@ -7,9 +7,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop, staging]
+    branches: [main, develop, staging, release]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, release]
 
 jobs:
   build-test:
@@ -21,14 +21,14 @@ jobs:
           NEXA_SUBMODULE_TOKEN: ${{ secrets.NEXA_SUBMODULE_TOKEN }}
         run: |
           if [[ -z "$NEXA_SUBMODULE_TOKEN" ]]; then
-            echo '::error::Repository secret NEXA_SUBMODULE_TOKEN is required to read the private NexaFramework, NexaDB, and NexusLogic submodules.'
+            echo '::error::Repository secret NEXA_SUBMODULE_TOKEN is required to read the private NexaFramework, NexaDB, and NexaLogic submodules.'
             exit 1
           fi
 
       - name: Checkout (with submodules)
         uses: actions/checkout@v4
         with:
-          submodules: recursive # NexusFramework / NexaDB / NexusLogic
+          submodules: recursive # NexaFramework / NexaDB / NexaLogic
           token: ${{ secrets.NEXA_SUBMODULE_TOKEN }}
           persist-credentials: false
 
@@ -70,23 +70,23 @@ jobs:
           --logger "trx;LogFileName=test-results.trx"
           --collect:"XPlat Code Coverage"
 
-      # NexusLogic는 git submodule이라 NexaOne.sln 밖에 있다. 가짜 TCP 서버/메모리 simulator를 사용하는
+      # NexaLogic는 git submodule이라 NexaOne.sln 밖에 있다. 가짜 TCP 서버/메모리 simulator를 사용하는
       # 두 suite를 별도 필수 게이트로 실행해 connect/read/write/구독/취소/실패 계약을 실제 드라이버 경로에서 고정한다.
       - name: Restore deterministic PLC contract suites
         shell: bash
         run: |
           set -euo pipefail
-          dotnet restore submodules/NexusLogic/tests/integration/NexusLogic.Plc.IntegrationTests/NexusLogic.Plc.IntegrationTests.csproj
-          dotnet restore submodules/NexusLogic/tests/hardware-simulation/NexusLogic.Plc.HardwareSimulationTests/NexusLogic.Plc.HardwareSimulationTests.csproj
+          dotnet restore submodules/NexaLogic/tests/integration/NexaLogic.Plc.IntegrationTests/NexaLogic.Plc.IntegrationTests.csproj
+          dotnet restore submodules/NexaLogic/tests/hardware-simulation/NexaLogic.Plc.HardwareSimulationTests/NexaLogic.Plc.HardwareSimulationTests.csproj
 
       - name: Test deterministic PLC integration and hardware simulation
         shell: bash
         run: |
           set -euo pipefail
-          dotnet test submodules/NexusLogic/tests/integration/NexusLogic.Plc.IntegrationTests/NexusLogic.Plc.IntegrationTests.csproj \
+          dotnet test submodules/NexaLogic/tests/integration/NexaLogic.Plc.IntegrationTests/NexaLogic.Plc.IntegrationTests.csproj \
             --configuration Release --no-restore \
             --logger "trx;LogFileName=plc-integration-results.trx"
-          dotnet test submodules/NexusLogic/tests/hardware-simulation/NexusLogic.Plc.HardwareSimulationTests/NexusLogic.Plc.HardwareSimulationTests.csproj \
+          dotnet test submodules/NexaLogic/tests/hardware-simulation/NexaLogic.Plc.HardwareSimulationTests/NexaLogic.Plc.HardwareSimulationTests.csproj \
             --configuration Release --no-restore \
             --logger "trx;LogFileName=plc-hardware-simulation-results.trx"
 
@@ -112,7 +112,7 @@ jobs:
           NEXA_SUBMODULE_TOKEN: ${{ secrets.NEXA_SUBMODULE_TOKEN }}
         run: |
           if [[ -z "$NEXA_SUBMODULE_TOKEN" ]]; then
-            echo '::error::Repository secret NEXA_SUBMODULE_TOKEN is required to read the private NexaFramework, NexaDB, and NexusLogic submodules.'
+            echo '::error::Repository secret NEXA_SUBMODULE_TOKEN is required to read the private NexaFramework, NexaDB, and NexaLogic submodules.'
             exit 1
           fi
 

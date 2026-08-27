@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Data.SqlClient;
+using NexaOne.Infrastructure.Persistence;
 using System.Globalization;
 using Xunit;
 
@@ -224,11 +225,7 @@ public sealed class MssqlQmsInspectionContractTests
 
             var migrationsPath = RepositorySource.GetDirectory(
                 "src/00.Main/NexaOne.Server/config/db/migrations");
-            var migrationFiles = Directory.GetFiles(migrationsPath, "V*.sql")
-                .OrderBy(Path.GetFileName, StringComparer.Ordinal)
-                .ToArray();
-            if (migrationFiles.Length == 0)
-                throw new InvalidOperationException("No MSSQL migrations were found for the contract test.");
+            var migrationFiles = SqliteSchemaInitializer.GetOrderedMigrationFiles(migrationsPath);
 
             foreach (var migrationFile in migrationFiles)
             {

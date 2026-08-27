@@ -29,15 +29,15 @@ public interface IRecipeApprovalBridge : INexaModuleBridge
     Task<IReadOnlyList<RecipeDto>> GetByEquipmentClassAsync(string equipmentClassId, CancellationToken ct = default);
     Task<IReadOnlyList<RecipeDto>> GetByStateAsync(string state, CancellationToken ct = default);
     Task<Result<RecipeDto>> GetRecipeAsync(string recipeId, CancellationToken ct = default);
-    Task<Result<RecipeDto>> CreateRecipeAsync(string recipeId, string name, string desc, string equipmentClassId, CancellationToken ct = default);
-    Task<Result> RequestApprovalAsync(string recipeId, CancellationToken ct = default);
-    Task<Result> Approve1Async(string recipeId, string approverId, CancellationToken ct = default);
-    Task<Result> Approve2Async(string recipeId, string approverId, CancellationToken ct = default);
-    Task<Result> ReleaseAsync(string recipeId, string releaserId, CancellationToken ct = default);
-    Task<Result> RejectAsync(string recipeId, string reason, CancellationToken ct = default);
-    Task<Result<RecipeDto>> CreateNewVersionAsync(string sourceRecipeId, string newRecipeId, CancellationToken ct = default);
+    Task<Result<RecipeDto>> CreateRecipeAsync(RecipeCreateCommand command, CancellationToken ct = default);
+    Task<Result> RequestApprovalAsync(string recipeId, RecipeCommandContext context, CancellationToken ct = default);
+    Task<Result> Approve1Async(string recipeId, RecipeCommandContext context, CancellationToken ct = default);
+    Task<Result> Approve2Async(string recipeId, RecipeCommandContext context, CancellationToken ct = default);
+    Task<Result> ReleaseAsync(string recipeId, RecipeCommandContext context, CancellationToken ct = default);
+    Task<Result> RejectAsync(string recipeId, string reason, RecipeCommandContext context, CancellationToken ct = default);
+    Task<Result<RecipeDto>> CreateNewVersionAsync(RecipeVersionCreateCommand command, CancellationToken ct = default);
     Task<IReadOnlyList<RecipeParamDto>> GetParamsAsync(string recipeId, CancellationToken ct = default);
-    Task<Result<RecipeParamDto>> AddParamAsync(string paramId, string recipeId, string paramName, string paramValue, string unit, int sortOrder, CancellationToken ct = default);
-    Task<Result> UpdateParamAsync(string paramId, string newValue, CancellationToken ct = default);
-    Task<Result> DeleteParamAsync(string paramId, CancellationToken ct = default);
+    Task<Result<RecipeParamDto>> AddParamAsync(RecipeParamAddCommand command, CancellationToken ct = default);
+    Task<Result> UpdateParamAsync(RecipeParamUpdateCommand command, CancellationToken ct = default);
+    Task<Result> DeleteParamAsync(RecipeParamDeleteCommand command, CancellationToken ct = default);
 }

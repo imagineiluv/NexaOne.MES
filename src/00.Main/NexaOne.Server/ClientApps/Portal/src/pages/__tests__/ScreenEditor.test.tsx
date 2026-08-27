@@ -71,7 +71,7 @@ function LocationProbe() {
 
 function renderEditor(initialUiId = 'QMS_REGISTER') {
   return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={[`/Designer/${initialUiId}`]}>
+    <MemoryRouter initialEntries={[`/Designer/${initialUiId}`]}>
       <Routes>
         <Route path="/Designer/:uiId" element={<><ScreenEditor /><LocationProbe /></>} />
       </Routes>

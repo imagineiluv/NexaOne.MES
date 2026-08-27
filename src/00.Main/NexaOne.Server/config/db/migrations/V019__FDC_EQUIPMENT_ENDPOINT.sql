@@ -1,5 +1,5 @@
 -- FDC Module: equipment-to-protocol-endpoint mapping (design 10.4.2)
--- 설비를 NexusLogic 설비 프로토콜 엔드포인트(OPC-UA 등)에 매핑한다. 통신 관심사는
+-- 설비를 NexaLogic 설비 프로토콜 엔드포인트(OPC-UA 등)에 매핑한다. 통신 관심사는
 -- 마스터(MDM_EQUIPMENT)와 분리하여 FDC bounded context가 소유한다. 한 설비에 복수 엔드포인트 가능.
 CREATE TABLE FDC_EQUIPMENT_ENDPOINT (
     ENDPOINT_ID           NVARCHAR(50)    NOT NULL,

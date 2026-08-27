@@ -3,7 +3,7 @@ using NexaOne.Common.Caching;
 using NexaOne.Common.Telemetry;
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
-using NexusLogic.Plc.Abstractions.Models;
+using NexaLogic.Plc.Abstractions.Models;
 
 namespace NexaOne.UnitTests.Telemetry;
 

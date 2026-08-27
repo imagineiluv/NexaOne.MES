@@ -98,17 +98,25 @@ public interface IApiClient
 
     // RMS
     Task<List<RecipeDto>> GetRecipesAsync(string? equipmentClassId = null, string? state = null, CancellationToken ct = default);
-    Task<RecipeDto?> CreateRecipeAsync(object req, CancellationToken ct = default);
-    Task RequestRecipeApprovalAsync(string recipeId, CancellationToken ct = default);
-    Task ApproveRecipe1Async(string recipeId, string approverId, CancellationToken ct = default);
-    Task ApproveRecipe2Async(string recipeId, string approverId, CancellationToken ct = default);
-    Task ReleaseRecipeAsync(string recipeId, string approverId, CancellationToken ct = default);
-    Task RejectRecipeAsync(string recipeId, string reason, CancellationToken ct = default);
-    Task<RecipeDto?> CreateRecipeVersionAsync(string recipeId, string newRecipeId, CancellationToken ct = default);
+    Task<RecipeDto?> CreateRecipeAsync(
+        object req, string idempotencyKey, CancellationToken ct = default);
+    Task RequestRecipeApprovalAsync(string recipeId, string idempotencyKey, CancellationToken ct = default);
+    Task ApproveRecipe1Async(string recipeId, string idempotencyKey, CancellationToken ct = default);
+    Task ApproveRecipe2Async(string recipeId, string idempotencyKey, CancellationToken ct = default);
+    Task ReleaseRecipeAsync(string recipeId, string idempotencyKey, CancellationToken ct = default);
+    Task RejectRecipeAsync(string recipeId, string reason, string idempotencyKey, CancellationToken ct = default);
+    Task<RecipeDto?> CreateRecipeVersionAsync(
+        string recipeId, string newRecipeId, string idempotencyKey,
+        CancellationToken ct = default);
     Task<List<RecipeParamDto>> GetRecipeParamsAsync(string recipeId, CancellationToken ct = default);
-    Task<RecipeParamDto?> AddRecipeParamAsync(string recipeId, object req, CancellationToken ct = default);
-    Task UpdateRecipeParamAsync(string paramId, string newValue, CancellationToken ct = default);
-    Task DeleteRecipeParamAsync(string paramId, CancellationToken ct = default);
+    Task<RecipeParamDto?> AddRecipeParamAsync(
+        string recipeId, object req, string idempotencyKey, CancellationToken ct = default);
+    Task UpdateRecipeParamAsync(
+        string paramId, string newValue, int expectedVersion, string idempotencyKey,
+        CancellationToken ct = default);
+    Task DeleteRecipeParamAsync(
+        string paramId, int expectedVersion, string idempotencyKey,
+        CancellationToken ct = default);
 
     // QMS
     Task<List<DefectDto>> GetDefectsAsync(string lotId, CancellationToken ct = default);

@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
-    <ProjectReference Include="..\..\submodules\NexusFramework\src\NexaFramework.Drivers.Hosting\NexaFramework.Drivers.Hosting.csproj" />
+    <ProjectReference Include="..\..\submodules\NexaFramework\src\NexaFramework.Drivers.Hosting\NexaFramework.Drivers.Hosting.csproj" />
   </ItemGroup>
 
 </Project>

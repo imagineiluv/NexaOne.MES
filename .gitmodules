@@ -1,9 +1,9 @@
-[submodule "submodules/NexusFramework"]
-	path = submodules/NexusFramework
-	url = https://github.com/imagineiluv/NexusFramework.git
+[submodule "submodules/NexaFramework"]
+	path = submodules/NexaFramework
+	url = https://github.com/imagineiluv/NexaFramework.git
 [submodule "submodules/NexaDB"]
 	path = submodules/NexaDB
 	url = https://github.com/imagineiluv/NexaDB.git
-[submodule "submodules/NexusLogic"]
-	path = submodules/NexusLogic
-	url = https://github.com/imagineiluv/NexusLogic.git
+[submodule "submodules/NexaLogic"]
+	path = submodules/NexaLogic
+	url = https://github.com/imagineiluv/NexaLogic.git

@@ -25,7 +25,7 @@ public sealed class FdcEquipmentEndpointTests
     [InlineData("MitsubishiMc")]
     [InlineData("EtherNetIp")]
     [InlineData("OmronFins")]
-    public void Create_accepts_all_nexuslogic_protocols(string protocol)
+    public void Create_accepts_all_nexalogic_protocols(string protocol)
         => FdcEquipmentEndpoint.Create("EP1", "EQ-001", protocol, "tcp://host:502").IsFailure.Should().BeFalse();
 
     [Theory]

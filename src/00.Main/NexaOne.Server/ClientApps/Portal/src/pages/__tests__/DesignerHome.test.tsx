@@ -45,7 +45,7 @@ describe('DesignerHome', () => {
     ])
 
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/Designer']}>
+      <MemoryRouter initialEntries={['/Designer']}>
         <DesignerHome session={session} onLogout={() => {}} />
       </MemoryRouter>,
     )
@@ -66,7 +66,7 @@ describe('DesignerHome', () => {
   it('MES 신규 화면은 기본 대상 채널로 저장한 뒤 해당 편집 경로로 이동', async () => {
     apiMocks.listDefinitions.mockResolvedValue([])
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/Designer']}>
+      <MemoryRouter initialEntries={['/Designer']}>
         <Routes>
           <Route path="/Designer" element={<DesignerHome session={session} onLogout={() => {}} />} />
           <Route path="/Designer/POM_MES_WORK_EXECUTION" element={<h1>MES 편집 경로 도착</h1>} />
@@ -89,7 +89,7 @@ describe('DesignerHome', () => {
   it('신규 화면의 UI ID·제목·대상 채널을 저장한 뒤 편집 경로로 이동', async () => {
     apiMocks.listDefinitions.mockResolvedValue([])
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/Designer']}>
+      <MemoryRouter initialEntries={['/Designer']}>
         <Routes>
           <Route path="/Designer" element={<DesignerHome session={session} onLogout={() => {}} />} />
           <Route path="/Designer/:uiId" element={<h1>편집 경로 도착</h1>} />
@@ -119,7 +119,7 @@ describe('DesignerHome', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/Designer']}>
+      <MemoryRouter initialEntries={['/Designer']}>
         <Routes>
           <Route path="/Designer" element={<DesignerHome session={session} onLogout={() => {}} />} />
           <Route path="/Designer/FACTORY_SLS_SALES_ORDER" element={<h1>시드 편집 경로 도착</h1>} />
@@ -152,7 +152,7 @@ describe('DesignerHome', () => {
     }])
 
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/Designer']}>
+      <MemoryRouter initialEntries={['/Designer']}>
         <DesignerHome session={session} onLogout={() => {}} />
       </MemoryRouter>,
     )
@@ -169,7 +169,7 @@ describe('DesignerHome', () => {
     }])
 
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/Designer']}>
+      <MemoryRouter initialEntries={['/Designer']}>
         <DesignerHome session={session} onLogout={() => {}} />
       </MemoryRouter>,
     )
@@ -194,7 +194,7 @@ describe('DesignerHome', () => {
     })))
 
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/Designer']}>
+      <MemoryRouter initialEntries={['/Designer']}>
         <DesignerHome session={session} onLogout={() => {}} />
       </MemoryRouter>,
     )
@@ -218,7 +218,7 @@ describe('DesignerHome', () => {
     apiMocks.previewScreenSeed.mockResolvedValue({ uiId: 'FACTORY_SLS_SALES_ORDER', title: '수주 관리' })
 
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/Designer']}>
+      <MemoryRouter initialEntries={['/Designer']}>
         <DesignerHome session={session} onLogout={() => {}} />
       </MemoryRouter>,
     )
@@ -239,7 +239,7 @@ describe('DesignerHome', () => {
     apiMocks.previewScreenSeed.mockRejectedValue(new ApiError(503, 'unavailable'))
 
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/Designer']}>
+      <MemoryRouter initialEntries={['/Designer']}>
         <DesignerHome session={session} onLogout={() => {}} />
       </MemoryRouter>,
     )
@@ -258,7 +258,7 @@ describe('DesignerHome', () => {
     apiMocks.listDefinitions.mockResolvedValue([])
 
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/Designer']}>
+      <MemoryRouter initialEntries={['/Designer']}>
         <DesignerHome session={session} onLogout={() => {}} />
       </MemoryRouter>,
     )

@@ -10,10 +10,13 @@ public sealed class OeeAggregationBridge : IOeeAggregationBridge
 
     public OeeAggregationBridge(IOeeAggregator aggregator) => _aggregator = aggregator;
 
-    public Task<int> AggregateDayAsync(DateTime date, CancellationToken ct = default)
-        => _aggregator.AggregateDayAsync(date, ct);
+    public Task<int> AggregateDayManuallyAsync(
+        DateTime localDate, string actorId, CancellationToken ct = default)
+        => _aggregator.AggregateDayManuallyAsync(localDate, actorId, ct);
 
-    public Task<int> AggregateWindowAsync(
-        DateTime windowStart, DateTime windowEnd, string? shiftId, decimal plannedOverride, CancellationToken ct = default)
-        => _aggregator.AggregateWindowAsync(windowStart, windowEnd, shiftId, plannedOverride, ct);
+    public Task<int> AggregateWindowManuallyAsync(
+        DateTime windowStart, DateTime windowEnd, string? shiftId, decimal plannedOverride,
+        string actorId, CancellationToken ct = default)
+        => _aggregator.AggregateWindowManuallyAsync(
+            windowStart, windowEnd, shiftId, plannedOverride, actorId, ct);
 }

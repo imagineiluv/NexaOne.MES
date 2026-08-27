@@ -17,8 +17,8 @@
     <constructor-arg ref="eesDialect" />
     <constructor-arg ref="appConfiguration" />
   </object>
-  <!-- equipmentDirectory는 호스트 server.xml의 서버 빈(IEquipmentDirectory 구현)을 cross-context ref로 주입한다
-       (ADR-006: EST는 MDM 스키마 미보유 — plantId→설비 ID 조회를 호스트에 위임). pom.xml의 lotTrackingService가
+  <!-- equipmentDirectory는 호스트 server.xml의 부모 proxy(IEquipmentDirectory 구현)를 cross-context ref로 주입한다.
+       실제 조회는 MDM 모듈 bean이 소유한다(ADR-006: EST는 MDM 스키마 미보유). pom.xml의 lotTrackingService가
        trackingMasterGateway를 참조하는 것과 동일한 패턴. -->
   <object id="equipmentAlarmService" type="NexaOne.EST.Application.Est.EquipmentAlarmService, NexaOne.EST">
     <constructor-arg ref="equipmentAlarmRepository" />
@@ -36,12 +36,14 @@
   </object>
   <object id="equipmentOutputService" type="NexaOne.EST.Application.Est.EquipmentOutputService, NexaOne.EST">
     <constructor-arg ref="equipmentOutputRepository" />
+    <constructor-arg ref="equipmentOutputMasterDirectory" />
   </object>
   <object id="equipmentOutputBridge" type="NexaOne.EST.Application.Est.EquipmentOutputBridge, NexaOne.EST">
     <constructor-arg ref="equipmentOutputService" />
   </object>
 
-  <!-- Utility master/readings/period summary. FDC tag mapping remains a project adapter concern. -->
+  <!-- Utility master/readings/meter-discontinuity history/period summary.
+       FDC tag mapping and vendor-specific reset detection remain project adapter concerns. -->
   <object id="utilityRepository" type="NexaOne.EST.Infrastructure.UtilityRepository, NexaOne.EST">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="eesDialect" />

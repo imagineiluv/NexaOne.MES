@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using System.Text.RegularExpressions;
 
 namespace NexaOne.UnitTests.Architecture;
 
@@ -14,8 +15,8 @@ public sealed class ModuleDependencyBoundaryTests
 
     private static readonly string[] ReusableFrameworkProjects =
     [
-        Path.Combine(RepoRoot, "submodules", "NexusFramework", "src", "NexaFramework", "NexaFramework.csproj"),
-        Path.Combine(RepoRoot, "submodules", "NexusFramework", "src", "NexaFramework.Hosting", "NexaFramework.Hosting.csproj"),
+        Path.Combine(RepoRoot, "submodules", "NexaFramework", "src", "NexaFramework", "NexaFramework.csproj"),
+        Path.Combine(RepoRoot, "submodules", "NexaFramework", "src", "NexaFramework.Hosting", "NexaFramework.Hosting.csproj"),
     ];
 
     private static readonly string[] ProductAssemblyRoots =
@@ -25,6 +26,36 @@ public sealed class ModuleDependencyBoundaryTests
         "NexaMes",
         "MES",
     ];
+
+    private static readonly ApprovedProjection[] ApprovedForeignSchemaProjections =
+    [
+        new(
+            Path.Combine("src", "04.Modules", "NexaOne.POM", "Infrastructure", "LegacySalesOrderMrpProjection.cs"),
+            "SLS_SALES_ORDER",
+            Path.Combine("docs", "adr", "0002-temporary-sls-mrp-demand-projection.md")),
+        new(
+            Path.Combine("src", "04.Modules", "NexaOne.SYS", "Infrastructure", "MaintenanceIdentityDirectory.cs"),
+            "MDM_WORKER_USER_MAP",
+            Path.Combine("docs", "adr", "0003-maintenance-identity-projection-ownership.md")),
+    ];
+
+    private static readonly IReadOnlyDictionary<string, string> PhysicalSchemaOwners =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["MDM"] = "MDM",
+            ["EST"] = "EST",
+            ["FDC"] = "FDC",
+            ["RMS"] = "RMS",
+            ["QMS"] = "QMS",
+            ["EMS"] = "EMS",
+            ["IVT"] = "IVT",
+            ["POM"] = "POM",
+            ["MRP"] = "POM",
+            ["SHP"] = "SHP",
+            ["SYS"] = "SYS",
+            ["SLS"] = "SLS",
+            ["PRC"] = "PRC",
+        };
 
     [Fact]
     public void Every_domain_module_directory_owns_exactly_one_project()
@@ -93,7 +124,7 @@ public sealed class ModuleDependencyBoundaryTests
                 var source = File.ReadAllText(file);
                 var ownInfrastructure = $"using {moduleName}.Infrastructure";
                 if (source.Contains(ownInfrastructure, StringComparison.Ordinal)
-                    || source.Contains("using NexusLogic.Plc.", StringComparison.Ordinal))
+                    || source.Contains("using NexaLogic.Plc.", StringComparison.Ordinal))
                 {
                     violations.Add(Path.GetRelativePath(RepoRoot, file));
                 }
@@ -122,6 +153,68 @@ public sealed class ModuleDependencyBoundaryTests
         source.Should().NotContain("QMS_");
         source.Should().NotContain("SELECT ");
         source.Should().NotContain("FROM ");
+    }
+
+    [Fact]
+    public void Domain_module_sources_do_not_reference_foreign_physical_tables_outside_approved_projections()
+    {
+        var physicalTables = DiscoverPhysicalTables();
+        physicalTables.Should().NotBeEmpty("migration DDL에서 실제 업무 테이블을 찾아야 검사가 공허 통과하지 않습니다");
+
+        var violations = new List<string>();
+        var usedApprovals = new HashSet<ApprovedProjection>();
+        foreach (var moduleDirectory in FindModuleDirectories())
+        {
+            var owner = Path.GetFileName(moduleDirectory)["NexaOne.".Length..].ToUpperInvariant();
+            foreach (var file in Directory.GetFiles(moduleDirectory, "*.cs", SearchOption.AllDirectories))
+            {
+                var relative = Path.GetRelativePath(RepoRoot, file);
+                var source = File.ReadAllText(file);
+                foreach (var table in FindReferencedPhysicalTables(source, physicalTables))
+                {
+                    var tableOwner = GetPhysicalSchemaOwner(table);
+                    if (tableOwner is null || string.Equals(tableOwner, owner, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var approval = ApprovedForeignSchemaProjections.SingleOrDefault(candidate =>
+                        PathsEqual(Path.Combine(RepoRoot, candidate.SourcePath), file)
+                        && string.Equals(candidate.Table, table, StringComparison.OrdinalIgnoreCase));
+                    if (approval is not null)
+                    {
+                        File.Exists(Path.Combine(RepoRoot, approval.AdrPath)).Should().BeTrue(
+                            $"승인 projection {relative} -> {table}의 ADR이 존재해야 합니다");
+                        usedApprovals.Add(approval);
+                        continue;
+                    }
+
+                    violations.Add($"{relative} -> {table}");
+                }
+            }
+        }
+
+        violations.Should().BeEmpty(
+            "업무 Module은 다른 Module의 물리 테이블 대신 owner query/command contract를 사용해야 합니다");
+        usedApprovals.Should().BeEquivalentTo(ApprovedForeignSchemaProjections,
+            "allowlist는 실제로 사용되는 정확한 projection 예외만 포함해야 합니다");
+    }
+
+    [Theory]
+    [InlineData("NexaOne.QMS", "Infrastructure/QmsReferenceRepository.cs")]
+    [InlineData("NexaOne.QMS", "Infrastructure/InspectionResultRepository.cs")]
+    [InlineData("NexaOne.POM", "Infrastructure/MrpPlanningRepository.cs")]
+    public void Qms_and_pom_orchestrators_contain_no_foreign_schema_identifiers(
+        string module,
+        string relativeSource)
+    {
+        var owner = module["NexaOne.".Length..].ToUpperInvariant();
+        var file = Path.Combine(ModulesRoot, module, relativeSource.Replace('/', Path.DirectorySeparatorChar));
+        File.Exists(file).Should().BeTrue();
+
+        var foreignTables = FindReferencedPhysicalTables(File.ReadAllText(file), DiscoverPhysicalTables())
+            .Where(table => GetPhysicalSchemaOwner(table) is { } tableOwner
+                            && !string.Equals(tableOwner, owner, StringComparison.OrdinalIgnoreCase));
+        foreignTables.Should().BeEmpty(
+            "QMS/POM orchestration 저장소는 foreign schema SQL을 소유하지 않아야 합니다");
     }
 
     [Fact]
@@ -197,6 +290,45 @@ public sealed class ModuleDependencyBoundaryTests
             .OrderBy(static path => path, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
+    private static IReadOnlySet<string> DiscoverPhysicalTables()
+    {
+        var migrations = Path.Combine(ServerRoot, "config", "db", "migrations");
+        var tables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var createTable = new Regex(
+            @"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?<table>[A-Z][A-Z0-9_]+)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        foreach (var file in Directory.GetFiles(migrations, "*.sql", SearchOption.TopDirectoryOnly))
+        {
+            foreach (System.Text.RegularExpressions.Match match in createTable.Matches(File.ReadAllText(file)))
+                tables.Add(match.Groups["table"].Value.ToUpperInvariant());
+        }
+
+        return tables;
+    }
+
+    private static IReadOnlyList<string> FindReferencedPhysicalTables(
+        string source,
+        IReadOnlySet<string> physicalTables)
+    {
+        var identifiers = Regex.Matches(
+                source,
+                @"\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            .Select(static match => match.Value.ToUpperInvariant())
+            .Where(physicalTables.Contains)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(static table => table, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        return identifiers;
+    }
+
+    private static string? GetPhysicalSchemaOwner(string table)
+    {
+        var separator = table.IndexOf('_');
+        if (separator <= 0) return null;
+        return PhysicalSchemaOwners.GetValueOrDefault(table[..separator]);
+    }
+
     private static IReadOnlyList<DeclaredReference> ReadDeclaredReferences(string projectPath)
     {
         var document = XDocument.Load(projectPath);
@@ -257,4 +389,5 @@ public sealed class ModuleDependencyBoundaryTests
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
     private sealed record DeclaredReference(string Kind, string Include);
+    private sealed record ApprovedProjection(string SourcePath, string Table, string AdrPath);
 }

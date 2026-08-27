@@ -191,7 +191,9 @@ public static class NexaOneMesServiceCollectionExtensions
         services.AddSingleton<NexaFramework.Scheduling.IRecurringScheduler, NexaOneMesRecurringScheduler>();
         foreach (var descriptor in bridgeCatalog.Descriptors)
         {
-            services.AddSingleton(descriptor.ContractType, serviceProvider =>
+            // 프로젝트별 plugin/adapter가 같은 공용 계약을 먼저 등록하면 그 선택을 보존한다.
+            // 기본 구현은 Spring 모듈의 공개 bridge bean을 지연 해석한다.
+            services.TryAddSingleton(descriptor.ContractType, serviceProvider =>
                 serviceProvider.GetRequiredService<NexaOneMesRuntimeState>().GetBridge(
                     descriptor.ContractType,
                     descriptor.Module,

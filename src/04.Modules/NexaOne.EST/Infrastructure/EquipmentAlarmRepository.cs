@@ -37,7 +37,7 @@ public sealed class EquipmentAlarmRepository : QueryRepository, IEquipmentAlarmR
 
     public async Task<IReadOnlyList<EquipmentAlarm>> GetActiveAlarmsByEquipmentIdsAsync(IReadOnlyList<string> equipmentIds, CancellationToken ct = default)
     {
-        // ADR-006: 더 이상 MDM 설비 테이블을 조인하지 않는다. 호스트 IEquipmentDirectory가 plantId→설비 ID를 풀어
+        // ADR-006: 더 이상 MDM 설비 테이블을 조인하지 않는다. MDM IEquipmentDirectory가 plantId→설비 ID를 풀어
         // 넘기고, 여기서는 자기 테이블만 그 ID들로 필터링한다. 빈 목록을 IN @...에 넘기면 Dapper가 잘못된 SQL을
         // 만들거나 throw하므로 호출 전 빈 목록을 즉시 차단한다(서비스도 단락하지만 리포지토리에서도 방어한다).
         if (equipmentIds.Count == 0) return Array.Empty<EquipmentAlarm>();

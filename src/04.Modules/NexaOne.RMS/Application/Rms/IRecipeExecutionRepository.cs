@@ -12,14 +12,33 @@ public interface IRecipeExecutionRepository
         bool activeOnly,
         CancellationToken ct = default);
 
+    Task<RecipeEquipmentAssignment?> GetEffectiveAssignmentAsync(
+        string equipmentId,
+        string equipmentClassId,
+        DateTime appliedAt,
+        CancellationToken ct = default)
+        => Task.FromResult<RecipeEquipmentAssignment?>(null);
+
     Task<RecipeExecutionSnapshot?> GetExecutionAsync(
         string executionId, CancellationToken ct = default);
 
     Task<RecipeExecutionSnapshot?> GetExecutionByIdempotencyKeyAsync(
         string idempotencyKey, CancellationToken ct = default);
 
+    /// <summary>
+    /// Legacy compatibility seam. An execution without the selected assignment cannot satisfy the
+    /// atomic execution invariant, so the built-in repository fails this path closed.
+    /// </summary>
     Task<bool> TryAddExecutionAsync(
-        RecipeExecutionSnapshot snapshot, CancellationToken ct = default);
+        RecipeExecutionSnapshot snapshot,
+        CancellationToken ct = default);
+
+    Task<bool> TryAddAssignedExecutionAsync(
+        RecipeExecutionSnapshot snapshot,
+        string assignmentId,
+        string equipmentClassId,
+        CancellationToken ct = default)
+        => Task.FromResult(false);
 }
 
 public sealed record RecipeEquipmentAssignment(

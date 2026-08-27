@@ -90,15 +90,21 @@ public sealed class OeeAggregationRepositoryTests : IClassFixture<OeeAggregation
 
     private static string Ts(DateTime dt) => dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
 
-    private void SeedHistory(string equipmentId, string fromState, string toState, DateTime changedAt)
+    private void SeedHistory(
+        string equipmentId,
+        string fromState,
+        string toState,
+        DateTime changedAt,
+        string? setState = null)
         => Exec(@"INSERT INTO EST_EQUIPMENT_STATE_HISTORY
             (HIST_ID, EQUIPMENT_ID, FROM_STATE, TO_STATE, SET_STATE, CHANGED_AT, CHANGED_BY, SOURCE_TYPE)
-            VALUES (@id, @eq, @from, @to, @to, @at, 'TEST', 'TEST')", cmd =>
+            VALUES (@id, @eq, @from, @to, @set, @at, 'TEST', 'TEST')", cmd =>
         {
             cmd.Parameters.AddWithValue("@id", $"{equipmentId}_{changedAt:yyyyMMddHHmmssfff}");
             cmd.Parameters.AddWithValue("@eq", equipmentId);
             cmd.Parameters.AddWithValue("@from", fromState);
             cmd.Parameters.AddWithValue("@to", toState);
+            cmd.Parameters.AddWithValue("@set", setState ?? toState);
             cmd.Parameters.AddWithValue("@at", Ts(changedAt));
         });
 
@@ -129,13 +135,19 @@ public sealed class OeeAggregationRepositoryTests : IClassFixture<OeeAggregation
         });
     }
 
-    private void SeedOutput(string eventId, string equipmentId, decimal qty, decimal defectQty, DateTime occurredAt)
+    private void SeedOutput(
+        string eventId,
+        string equipmentId,
+        decimal qty,
+        decimal defectQty,
+        DateTime occurredAt,
+        string unit = "EA")
         => Exec(@"INSERT INTO EST_EQUIPMENT_OUTPUT_EVENT
             (OUTPUT_EVENT_ID, IDEMPOTENCY_KEY, REQUEST_HASH, PLANT_ID, EQUIPMENT_ID, OUTPUT_TYPE,
-             TOTAL_QTY, GOOD_QTY, DEFECT_QTY, UNIT, SOURCE, ACTOR_ID, OCCURRED_AT, CREATED_BY, CREATED_AT,
+             CARRIER_ID, TOTAL_QTY, GOOD_QTY, DEFECT_QTY, UNIT, SOURCE, ACTOR_ID, OCCURRED_AT, CREATED_BY, CREATED_AT,
              IS_LOT_OUTPUT)
             VALUES (@id, @key, @hash, 'PLANT01', @eq, 'CarrierCleaned',
-                    @qty, @good, @def, 'EA', 'TEST', 'TEST', @at, 'TEST', @at, 0)", cmd =>
+                    'CR01', @qty, @good, @def, @unit, 'TEST', 'TEST', @at, 'TEST', @at, 0)", cmd =>
         {
             cmd.Parameters.AddWithValue("@id", eventId);
             cmd.Parameters.AddWithValue("@key", "idem:" + eventId);
@@ -144,6 +156,7 @@ public sealed class OeeAggregationRepositoryTests : IClassFixture<OeeAggregation
             cmd.Parameters.AddWithValue("@qty", qty);
             cmd.Parameters.AddWithValue("@good", qty - defectQty);
             cmd.Parameters.AddWithValue("@def", defectQty);
+            cmd.Parameters.AddWithValue("@unit", unit);
             cmd.Parameters.AddWithValue("@at", Ts(occurredAt));
         });
 
@@ -283,6 +296,57 @@ public sealed class OeeAggregationRepositoryTests : IClassFixture<OeeAggregation
             && fact.ProcessId == "PROC_MACH"
             && fact.Qty == 42m
             && fact.QuantityUom == "EA");
+        production.LotOutputs.Should().ContainSingle(fact =>
+            fact.ProcessLotId == "LOT_EVIDENCE_20280203"
+            && fact.ProcessId == "PROC_MACH"
+            && fact.TotalQuantity == 42m
+            && fact.DefectQuantity == 2m
+            && fact.Unit == "EA");
+    }
+
+    [Fact]
+    public async Task Evidence_source_resolves_each_plant_current_local_date_from_its_time_zone()
+    {
+        _ = _factory.CreateClient();
+        Exec("UPDATE MDM_PLANT SET TIME_ZONE = 'America/New_York' WHERE PLANT_ID = 'PLANT02'", _ => { });
+        try
+        {
+            var instant = new DateTime(2026, 1, 1, 1, 0, 0, DateTimeKind.Utc);
+            var clocks = await new OeeEvidenceSource(DataSource())
+                .LoadPlantLocalDatesAsync(["EQ01", "EQ03"], instant);
+
+            clocks.Should().ContainSingle(clock =>
+                clock.PlantId == "PLANT01" && clock.LocalDate == new DateTime(2026, 1, 1));
+            clocks.Should().ContainSingle(clock =>
+                clock.PlantId == "PLANT02" && clock.LocalDate == new DateTime(2025, 12, 31));
+        }
+        finally
+        {
+            Exec("UPDATE MDM_PLANT SET TIME_ZONE = 'Asia/Seoul' WHERE PLANT_ID = 'PLANT02'", _ => { });
+        }
+    }
+
+    [Fact]
+    public async Task Automatic_recent_days_aggregate_each_plant_on_its_own_current_local_date()
+    {
+        _ = _factory.CreateClient();
+        Exec("UPDATE MDM_PLANT SET TIME_ZONE = 'America/New_York' WHERE PLANT_ID = 'PLANT02'", _ => { });
+        try
+        {
+            await Repo().AggregateRecentLocalDaysAsync(
+                new DateTime(2031, 1, 1, 1, 0, 0, DateTimeKind.Utc), lookbackDays: 1);
+
+            ReadSummary("AGG_EQ01_20310101_DAY").Should().NotBeNull(
+                "PLANT01/Seoul local date is already January 1");
+            ReadSummary("AGG_EQ03_20301231_DAY").Should().NotBeNull(
+                "PLANT02/New York local date is still December 31");
+            ReadSummary("AGG_EQ01_20301231_DAY").Should().BeNull();
+            ReadSummary("AGG_EQ03_20310101_DAY").Should().BeNull();
+        }
+        finally
+        {
+            Exec("UPDATE MDM_PLANT SET TIME_ZONE = 'Asia/Seoul' WHERE PLANT_ID = 'PLANT02'", _ => { });
+        }
     }
 
     [Fact]
@@ -338,6 +402,46 @@ public sealed class OeeAggregationRepositoryTests : IClassFixture<OeeAggregation
     }
 
     [Fact]
+    public async Task AggregateWindow_classifies_set_state_and_preserves_each_loss_occurrence_time()
+    {
+        _ = _factory.CreateClient();
+        var start = new DateTime(2026, 3, 16, 0, 0, 0, DateTimeKind.Utc);
+        // Raw equipment states are deliberately not in EST_STATE_CATEGORY. SET_STATE is the OEE contract.
+        SeedHistory("EQ01", "RAW_IDLE", "RAW_AUTO", start, setState: "RUN");
+        SeedHistory("EQ01", "RAW_AUTO", "RAW_FAULT_A", start.AddHours(1), setState: "DOWN");
+        SeedHistory("EQ01", "RAW_FAULT_A", "RAW_AUTO", start.AddHours(2), setState: "RUN");
+        SeedHistory("EQ01", "RAW_AUTO", "RAW_FAULT_B", start.AddHours(3), setState: "DOWN");
+        SeedHistory("EQ01", "RAW_FAULT_B", "RAW_AUTO", start.AddHours(4), setState: "RUN");
+
+        await Repo().AggregateWindowAsync(start, start.AddHours(5));
+
+        var summary = ReadSummary("AGG_EQ01_20260316_ALLDAY");
+        summary.Should().NotBeNull();
+        D(summary!["OPERATING_MINUTES"]).Should().Be(180m);
+        D(summary["DOWNTIME_MINUTES"]).Should().Be(120m);
+
+        using var connection = new SqliteConnection(_factory.ConnString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = @"SELECT OCCURRED_AT, ENDED_AT, LOSS_MINUTES
+                                FROM EST_OEE_LOSS
+                                WHERE EQUIPMENT_ID = 'EQ01' AND LOSS_ID LIKE 'AGL_EQ01_20260316_%'
+                                ORDER BY OCCURRED_AT";
+        using var reader = command.ExecuteReader();
+        var occurrences = new List<(string Started, string Ended, decimal Minutes)>();
+        while (reader.Read())
+        {
+            occurrences.Add((
+                reader.GetValue(0).ToString()!,
+                reader.GetValue(1).ToString()!,
+                D(reader.GetValue(2))));
+        }
+        occurrences.Should().Equal(
+            (Ts(start.AddHours(1)), Ts(start.AddHours(2)), 60m),
+            (Ts(start.AddHours(3)), Ts(start.AddHours(4)), 60m));
+    }
+
+    [Fact]
     public async Task AggregateWindow_counts_non_lot_carrier_output_from_canonical_event_ledger()
     {
         _ = _factory.CreateClient();
@@ -358,7 +462,25 @@ public sealed class OeeAggregationRepositoryTests : IClassFixture<OeeAggregation
     }
 
     [Fact]
-    public async Task AggregateWindow_combines_non_lot_output_with_legacy_lot_without_double_counting_projected_lot()
+    public async Task AggregateWindow_uses_a_start_inclusive_end_exclusive_output_boundary()
+    {
+        _ = _factory.CreateClient();
+        var start = new DateTime(2026, 12, 2, 0, 0, 0, DateTimeKind.Utc);
+        SeedHistory("EQ01", "IDLE", "RUN", start);
+        SeedHistory("EQ01", "RUN", "IDLE", start.AddHours(8));
+        SeedOutput("OUT_AT_WINDOW_START", "EQ01", 2m, 0m, start);
+        SeedOutput("OUT_AT_WINDOW_END", "EQ01", 3m, 0m, start.AddHours(8));
+
+        await Repo().AggregateWindowAsync(start, start.AddHours(8));
+
+        var row = ReadSummary("AGG_EQ01_20261202_ALLDAY");
+        row.Should().NotBeNull();
+        D(row!["TOTAL_COUNT"]).Should().Be(2m,
+            "[start, end) includes an exact lower boundary and excludes an exact upper boundary");
+    }
+
+    [Fact]
+    public async Task AggregateWindow_combines_mixed_sources_without_dropping_canonical_only_lot_or_double_counting_projection()
     {
         _ = _factory.CreateClient();
         var start = new DateTime(2027, 1, 2, 0, 0, 0, DateTimeKind.Utc);
@@ -368,16 +490,40 @@ public sealed class OeeAggregationRepositoryTests : IClassFixture<OeeAggregation
         SeedLotOutput(
             "OUT_PROJECTED_LOT_20270102", "EQ01", "LOT_MIXED_20270102",
             100m, 10m, start.AddHours(2));
+        SeedLotOutput(
+            "OUT_CANONICAL_ONLY_LOT_20270102", "EQ01", "LOT_CANONICAL_ONLY_20270102",
+            25m, 2m, start.AddHours(3));
         SeedOutput("OUT_CARRIER_20270102", "EQ01", 10m, 1m, start.AddHours(4));
 
         await Repo().AggregateWindowAsync(start, start.AddHours(8));
 
         var row = ReadSummary("AGG_EQ01_20270102_ALLDAY");
         row.Should().NotBeNull();
-        D(row!["TOTAL_COUNT"]).Should().Be(110m,
-            "legacy LOT is authoritative during migration and non-LOT output is still included");
-        D(row["DEFECT_COUNT"]).Should().Be(11m);
-        D(row["GOOD_COUNT"]).Should().Be(99m);
+        D(row!["TOTAL_COUNT"]).Should().Be(135m,
+            "projected LOT is counted once while canonical-only LOT and non-LOT output remain included");
+        D(row["DEFECT_COUNT"]).Should().Be(13m);
+        D(row["GOOD_COUNT"]).Should().Be(122m);
+    }
+
+    [Fact]
+    public async Task AggregateWindow_fails_closed_when_included_outputs_have_mixed_units()
+    {
+        _ = _factory.CreateClient();
+        var start = new DateTime(2027, 1, 3, 0, 0, 0, DateTimeKind.Utc);
+        SeedHistory("EQ01", "IDLE", "RUN", start);
+        SeedHistory("EQ01", "RUN", "IDLE", start.AddHours(8));
+        SeedTrackOut("LOT_UNIT_20270103", "EQ01", 100m, 0m, start.AddHours(2));
+        var repository = Repo();
+        await repository.AggregateWindowAsync(start, start.AddHours(8));
+        ReadSummary("AGG_EQ01_20270103_ALLDAY").Should().NotBeNull();
+        SeedOutput("OUT_CYCLE_20270103", "EQ01", 1m, 0m, start.AddHours(3), unit: "CYCLE");
+
+        Func<Task> act = () => repository.AggregateWindowAsync(start, start.AddHours(8));
+
+        var failure = await act.Should().ThrowAsync<InvalidOperationException>();
+        failure.Which.Message.Should().Contain("mixed units").And.Contain("EA").And.Contain("CYCLE");
+        ReadSummary("AGG_EQ01_20270103_ALLDAY").Should().BeNull(
+            "a dimensionally invalid output window must not publish an OEE row");
     }
 
     [Fact]
@@ -424,6 +570,134 @@ public sealed class OeeAggregationRepositoryTests : IClassFixture<OeeAggregation
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM EST_OEE_SUMMARY WHERE OEE_ID = 'AGG_EQ01_20260420_ALLDAY'";
         Convert.ToInt64(cmd.ExecuteScalar()).Should().Be(1, "재실행해도 윈도당 1행만 유지돼야 한다(멱등)");
+    }
+
+    [Fact]
+    public async Task Manual_aggregation_keeps_distinct_windows_and_audits_actor_and_exact_window()
+    {
+        _ = _factory.CreateClient();
+        var start = new DateTime(2026, 4, 21, 0, 0, 0, DateTimeKind.Utc);
+        SeedHistory("EQ01", "IDLE", "RUN", start);
+        SeedHistory("EQ01", "RUN", "IDLE", start.AddHours(8));
+        var repository = Repo();
+
+        await repository.AggregateWindowManuallyAsync(
+            start, start.AddHours(4), "MANUAL", 240m, "operator-a");
+        await repository.AggregateWindowManuallyAsync(
+            start.AddHours(1), start.AddHours(5), "MANUAL", 240m, "operator-b");
+        await repository.AggregateWindowManuallyAsync(
+            start, start.AddHours(4), "MANUAL", 240m, "operator-a");
+
+        using var connection = new SqliteConnection(_factory.ConnString);
+        connection.Open();
+        using var summary = connection.CreateCommand();
+        summary.CommandText = @"SELECT COUNT(*) FROM EST_OEE_SUMMARY
+                                WHERE EQUIPMENT_ID = 'EQ01'
+                                  AND AGGREGATION_KIND = 'ManualWindow'
+                                  AND SHIFT_ID = 'MANUAL'";
+        Convert.ToInt64(summary.ExecuteScalar()).Should().Be(2,
+            "rerunning one manual window replaces only that window and preserves another window on the same day/shift");
+
+        using var audit = connection.CreateCommand();
+        audit.CommandText = @"SELECT ACTOR_ID, WINDOW_START_UTC, WINDOW_END_UTC, STATUS
+                              FROM EST_OEE_AGGREGATION_RUN
+                              WHERE RUN_TYPE = 'ManualWindow'
+                                AND WINDOW_START_UTC >= @from AND WINDOW_START_UTC < @to
+                              ORDER BY STARTED_AT, RUN_ID";
+        audit.Parameters.AddWithValue("@from", Ts(start));
+        audit.Parameters.AddWithValue("@to", Ts(start.AddDays(1)));
+        using var reader = audit.ExecuteReader();
+        var runs = new List<(string Actor, string From, string To, string Status)>();
+        while (reader.Read())
+            runs.Add((reader.GetString(0), reader.GetValue(1).ToString()!, reader.GetValue(2).ToString()!, reader.GetString(3)));
+
+        runs.Should().HaveCount(3);
+        runs.Should().OnlyContain(run => run.Status == "Completed");
+        runs.Should().Contain(run => run.Actor == "operator-a"
+            && run.From == Ts(start) && run.To == Ts(start.AddHours(4)));
+        runs.Should().Contain(run => run.Actor == "operator-b"
+            && run.From == Ts(start.AddHours(1)) && run.To == Ts(start.AddHours(5)));
+    }
+
+    [Fact]
+    public async Task Manual_day_publishes_every_mart_row_with_the_completed_run_provenance()
+    {
+        _ = _factory.CreateClient();
+        var day = new DateTime(2032, 5, 14);
+        var shiftStartUtc = new DateTime(2032, 5, 13, 23, 0, 0, DateTimeKind.Utc);
+        SeedHistory("EQ01", "IDLE", "RUN", shiftStartUtc);
+        SeedHistory("EQ01", "RUN", "DOWN", shiftStartUtc.AddHours(1));
+        SeedHistory("EQ01", "DOWN", "RUN", shiftStartUtc.AddHours(2));
+
+        await Repo().AggregateDayManuallyAsync(day, "manual-day-operator");
+
+        using var connection = new SqliteConnection(_factory.ConnString);
+        connection.Open();
+        using var runCommand = connection.CreateCommand();
+        runCommand.CommandText = @"SELECT RUN_ID, STATUS, AFFECTED_ROWS
+                                   FROM EST_OEE_AGGREGATION_RUN
+                                   WHERE RUN_TYPE = 'ManualDay' AND ACTOR_ID = 'manual-day-operator'
+                                     AND LOCAL_DATE = @day
+                                   ORDER BY STARTED_AT DESC, RUN_ID DESC
+                                   LIMIT 1";
+        runCommand.Parameters.AddWithValue("@day", Ts(day));
+        using var runReader = runCommand.ExecuteReader();
+        runReader.Read().Should().BeTrue();
+        var runId = runReader.GetString(0);
+        runReader.GetString(1).Should().Be("Completed");
+        runReader.GetInt32(2).Should().BeGreaterThan(0);
+        runReader.Close();
+
+        using var summaryCommand = connection.CreateCommand();
+        summaryCommand.CommandText = @"SELECT COUNT(*),
+                                              SUM(CASE WHEN AGGREGATION_KIND = 'ManualDay'
+                                                        AND AGGREGATION_RUN_ID = @run THEN 1 ELSE 0 END)
+                                       FROM EST_OEE_SUMMARY
+                                       WHERE OEE_ID LIKE 'AGG_%' AND OEE_DATE = @day";
+        summaryCommand.Parameters.AddWithValue("@run", runId);
+        summaryCommand.Parameters.AddWithValue("@day", Ts(day));
+        using var summaryReader = summaryCommand.ExecuteReader();
+        summaryReader.Read().Should().BeTrue();
+        var summaryCount = summaryReader.GetInt64(0);
+        summaryCount.Should().BeGreaterThan(0);
+        summaryReader.GetInt64(1).Should().Be(summaryCount,
+            "a manual day is one auditable run, not an automatic aggregation with detached provenance");
+        summaryReader.Close();
+
+        using var lossCommand = connection.CreateCommand();
+        lossCommand.CommandText = @"SELECT COUNT(*),
+                                           SUM(CASE WHEN AGGREGATION_KIND = 'ManualDay'
+                                                     AND AGGREGATION_RUN_ID = @run THEN 1 ELSE 0 END)
+                                    FROM EST_OEE_LOSS
+                                    WHERE LOSS_ID LIKE 'AGL_%' AND OEE_DATE = @day";
+        lossCommand.Parameters.AddWithValue("@run", runId);
+        lossCommand.Parameters.AddWithValue("@day", Ts(day));
+        using var lossReader = lossCommand.ExecuteReader();
+        lossReader.Read().Should().BeTrue();
+        var lossCount = lossReader.GetInt64(0);
+        lossCount.Should().BeGreaterThan(0);
+        lossReader.GetInt64(1).Should().Be(lossCount);
+    }
+
+    [Fact]
+    public async Task AggregateWindow_does_not_publish_earlier_equipment_when_a_later_equipment_is_invalid()
+    {
+        _ = _factory.CreateClient();
+        var start = new DateTime(2032, 6, 15, 0, 0, 0, DateTimeKind.Utc);
+        SeedOutput("OUT_EQ02_EA_20320615", "EQ02", 10m, 0m, start.AddHours(1), unit: "EA");
+        SeedOutput("OUT_EQ02_CYCLE_20320615", "EQ02", 1m, 0m, start.AddHours(2), unit: "CYCLE");
+
+        Func<Task> act = () => Repo().AggregateWindowAsync(start, start.AddHours(8));
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        using var connection = new SqliteConnection(_factory.ConnString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = @"SELECT COUNT(*) FROM EST_OEE_SUMMARY
+                                WHERE OEE_ID LIKE 'AGG_%' AND OEE_DATE = @day";
+        command.Parameters.AddWithValue("@day", Ts(start.Date));
+        Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture).Should().Be(0,
+            "all equipment calculations must succeed before any mart row is published");
     }
 
     [Fact]

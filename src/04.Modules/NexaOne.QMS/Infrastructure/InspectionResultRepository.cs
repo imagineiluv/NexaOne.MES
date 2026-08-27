@@ -3,6 +3,8 @@ using System.Text.Json.Serialization;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.QMS.Application.Qms;
 using NexaOne.QMS.Domain;
+using NexaOne.ServiceContracts.Ivt;
+using NexaOne.ServiceContracts.Pom;
 
 namespace NexaOne.QMS.Infrastructure;
 
@@ -14,9 +16,18 @@ public sealed class InspectionResultRepository : QueryRepository, IInspectionRes
     };
 
     private readonly ServiceObjectProcessor _processor;
+    private readonly IProductionLotDirectory _productionLots;
+    private readonly IMaterialLotDirectory _materialLots;
 
-    public InspectionResultRepository(EesDataSource dataSource) : base(dataSource)
-        => _processor = new ServiceObjectProcessor(dataSource);
+    public InspectionResultRepository(
+        EesDataSource dataSource,
+        IProductionLotDirectory productionLots,
+        IMaterialLotDirectory materialLots) : base(dataSource)
+    {
+        _processor = new ServiceObjectProcessor(dataSource);
+        _productionLots = productionLots ?? throw new ArgumentNullException(nameof(productionLots));
+        _materialLots = materialLots ?? throw new ArgumentNullException(nameof(materialLots));
+    }
 
     public async Task<IReadOnlyList<InspectionResult>> GetByLotAsync(
         string lotId, CancellationToken ct = default)
@@ -60,14 +71,13 @@ public sealed class InspectionResultRepository : QueryRepository, IInspectionRes
              INSPECTED_AT, INSPECTOR_ID, RESULT, SAMPLE_QTY, DEFECT_QTY, IS_CONFIRMED, REMARK,
              CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
             VALUES
-            (@InspectionId, @InspectionType, @LotId,
-             COALESCE((SELECT PRODUCT_ID FROM POM_LOT WHERE LOT_ID = @LotId),
-                      (SELECT MATERIAL_ID FROM IVT_MATERIAL_LOT WHERE LOT_ID = @LotId)),
+            (@InspectionId, @InspectionType, @LotId, @ProductId,
              @EquipmentId, @SpecId,
              @InspectedAt, @InspectorId, @Verdict, @SampleQuantity, @DefectQuantity, 1, @Remark,
              @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt)";
 
         var now = DateTime.UtcNow;
+        var productId = await ResolveInspectionSubjectIdAsync(result.LotId, ct);
         var row = new
         {
             ResultId = result.Id,
@@ -93,6 +103,7 @@ public sealed class InspectionResultRepository : QueryRepository, IInspectionRes
             result.InspectionId,
             InspectionType = result.InspectionType.ToString(),
             result.LotId,
+            ProductId = productId,
             result.EquipmentId,
             result.SpecId,
             result.InspectedAt,
@@ -162,9 +173,7 @@ public sealed class InspectionResultRepository : QueryRepository, IInspectionRes
              RELATION_TYPE, PARENT_INSPECTION_ID, ROOT_INSPECTION_ID,
              CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
             VALUES
-            (@InspectionId, @InspectionType, @LotId,
-             COALESCE((SELECT PRODUCT_ID FROM POM_LOT WHERE LOT_ID = @LotId),
-                      (SELECT MATERIAL_ID FROM IVT_MATERIAL_LOT WHERE LOT_ID = @LotId)),
+            (@InspectionId, @InspectionType, @LotId, @ProductId,
              @EquipmentId, NULL, @InspectedAt, @InspectorId, @Result,
              @LotQuantity, @SampleQuantity, @DefectQuantity, 1, @Remark,
              @IdempotencyKey, @RequestHash, @SamplingPlanRevisionId, @SamplingSnapshotJson,
@@ -181,6 +190,7 @@ public sealed class InspectionResultRepository : QueryRepository, IInspectionRes
              @IsPass, @Remark, @ItemSequence, @SampleQuantity, @DefectQuantity,
              @InspectorId, @InspectedAt, @InspectorId, @InspectedAt)";
 
+        var productId = await ResolveInspectionSubjectIdAsync(execution.LotId, ct);
         var statements = new List<(string Sql, object? Param)>
         {
             (headerSql, new
@@ -188,6 +198,7 @@ public sealed class InspectionResultRepository : QueryRepository, IInspectionRes
                 execution.InspectionId,
                 InspectionType = execution.InspectionType.ToString(),
                 execution.LotId,
+                ProductId = productId,
                 execution.EquipmentId,
                 execution.InspectedAt,
                 execution.InspectorId,
@@ -233,6 +244,21 @@ public sealed class InspectionResultRepository : QueryRepository, IInspectionRes
         statements.Add(HistoryStatement(confirmation));
         if (parentRelation is not null) statements.Add(HistoryStatement(parentRelation));
         await _processor.ExecuteManyAsync(ct, statements.ToArray());
+    }
+
+    /// <summary>
+    /// 기존 COALESCE 서브쿼리와 같은 우선순위로 생산 LOT의 제품을 먼저 사용하고,
+    /// 생산 LOT가 없을 때 자재 LOT의 자재를 검사 대상 ID로 사용합니다.
+    /// </summary>
+    private async Task<string?> ResolveInspectionSubjectIdAsync(
+        string lotId,
+        CancellationToken ct)
+    {
+        var productionLot = await _productionLots.GetLotAsync(lotId, ct);
+        if (!string.IsNullOrWhiteSpace(productionLot?.ProductId))
+            return productionLot.ProductId;
+
+        return (await _materialLots.GetLotAsync(lotId, ct))?.MaterialId;
     }
 
     public async Task<InspectionExecutionHistory?> GetHistoryByIdempotencyKeyAsync(

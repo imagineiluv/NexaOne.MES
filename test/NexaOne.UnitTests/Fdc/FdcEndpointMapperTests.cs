@@ -1,11 +1,11 @@
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
 using NexaOne.FDC.Infrastructure.Equipment;
-using NexusLogic.Plc.Abstractions.Models;
+using NexaLogic.Plc.Abstractions.Models;
 
 namespace NexaOne.UnitTests.Fdc;
 
-/// <summary>FDC 설비-엔드포인트 매핑을 NexusLogic PlcEndpoint/PlcSubscription으로 변환하는 로직을 검증한다.</summary>
+/// <summary>FDC 설비-엔드포인트 매핑을 NexaLogic PlcEndpoint/PlcSubscription으로 변환하는 로직을 검증한다.</summary>
 public sealed class FdcEndpointMapperTests
 {
     private static FdcEquipmentEndpoint Endpoint(string protocol = "OpcUa", int samplingMs = 500) =>

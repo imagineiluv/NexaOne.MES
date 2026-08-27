@@ -67,11 +67,10 @@ public sealed class OeeAggregationWorker : BackgroundService
     {
         try
         {
-            // 최근 N일을 일자(UTC) 단위로 작업조 인식 재집계(멱등 delete+insert). 오늘 포함.
-            var today = DateTime.UtcNow.Date;
-            int total = 0;
-            for (int d = _lookbackDays - 1; d >= 0; d--)
-                total += await _aggregator.AggregateDayAsync(today.AddDays(-d), ct);
+            // plant별 시간대로 확정한 현재 로컬 일자를 기준으로 최근 N일을 재집계한다.
+            // UTC 자정을 공통 작업일로 사용하면 서울/뉴욕처럼 날짜가 다른 공장의 당일 마트가 누락된다.
+            var total = await _aggregator.AggregateRecentLocalDaysAsync(
+                DateTime.UtcNow, _lookbackDays, ct);
             Console.WriteLine($"[OeeAggregationWorker] aggregated OEE for {total} equipment-shift row(s) over {_lookbackDays} day(s).");
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }

@@ -36,29 +36,29 @@
        (Events:Outbox:Enabled 등)를 무력화하는 실버그였다. Program.cs가 CreateServer 전에 Root를 설정한다. -->
   <object id="appConfiguration" type="NexaOne.Common.Configuration.SpringHostConfiguration, NexaOne.Common" />
 
-  <!-- PLC 프로토콜 드라이버와 NexusLogic DriverFactory. FDC는 구체 드라이버를 참조하지 않고
+  <!-- PLC 프로토콜 드라이버와 NexaLogic DriverFactory. FDC는 구체 드라이버를 참조하지 않고
        plcDriverFactory에서 엔드포인트의 PlcDriverKind에 맞는 구현을 선택한다. 연결은 Worker가 활성화되고
        엔드포인트가 있을 때만 수행하므로 Bean 생성 자체는 외부 PLC에 접속하지 않는다. -->
-  <object id="opcUaDriver" type="NexusLogic.Plc.OpcUa.OpcUaDriver, NexusLogic.Plc.OpcUa" />
-  <object id="modbusTcpDriver" type="NexusLogic.Plc.ModbusTcp.ModbusTcpDriver, NexusLogic.Plc.ModbusTcp">
+  <object id="opcUaDriver" type="NexaLogic.Plc.OpcUa.OpcUaDriver, NexaLogic.Plc.OpcUa" />
+  <object id="modbusTcpDriver" type="NexaLogic.Plc.ModbusTcp.ModbusTcpDriver, NexaLogic.Plc.ModbusTcp">
     <constructor-arg><null /></constructor-arg>
     <constructor-arg><null /></constructor-arg>
   </object>
-  <object id="siemensS7Driver" type="NexusLogic.Plc.SiemensS7.SiemensS7Driver, NexusLogic.Plc.SiemensS7">
+  <object id="siemensS7Driver" type="NexaLogic.Plc.SiemensS7.SiemensS7Driver, NexaLogic.Plc.SiemensS7">
     <constructor-arg><null /></constructor-arg>
     <constructor-arg><null /></constructor-arg>
   </object>
-  <object id="mitsubishiMcDriver" type="NexusLogic.Plc.MitsubishiMc.MitsubishiMcDriver, NexusLogic.Plc.MitsubishiMc">
+  <object id="mitsubishiMcDriver" type="NexaLogic.Plc.MitsubishiMc.MitsubishiMcDriver, NexaLogic.Plc.MitsubishiMc">
     <constructor-arg><null /></constructor-arg>
     <constructor-arg><null /></constructor-arg>
   </object>
-  <object id="etherNetIpDriver" type="NexusLogic.Plc.AllenBradley.EtherNetIpDriver, NexusLogic.Plc.AllenBradley">
+  <object id="etherNetIpDriver" type="NexaLogic.Plc.AllenBradley.EtherNetIpDriver, NexaLogic.Plc.AllenBradley">
     <constructor-arg><null /></constructor-arg>
     <constructor-arg><null /></constructor-arg>
   </object>
-  <object id="plcDriverFactory" type="NexusLogic.Plc.Hosting.PlcDriverFactory, NexusLogic.Plc.Hosting">
+  <object id="plcDriverFactory" type="NexaLogic.Plc.Hosting.PlcDriverFactory, NexaLogic.Plc.Hosting">
     <constructor-arg>
-      <list element-type="NexusLogic.Plc.Abstractions.Interfaces.IPlcDriver, NexusLogic.Plc.Abstractions">
+      <list element-type="NexaLogic.Plc.Abstractions.Interfaces.IPlcDriver, NexaLogic.Plc.Abstractions">
         <ref object="opcUaDriver" />
         <ref object="modbusTcpDriver" />
         <ref object="siemensS7Driver" />
@@ -103,10 +103,20 @@
   <!-- IVT-to-FDC sibling-context proxy. FDC owns persisted TRACE SQL and paging. -->
   <object id="fdcTraceSource" type="NexaOne.Server.Gateway.FdcTraceSourceProxy, NexaOne.Server" />
 
-  <!-- 교차 모듈 설비 디렉터리 어댑터(EST 포트 구현) — 호스트(Default ALC)가 소유, plugin EST가 cross-context ref로
-       주입받는다(ADR-006: EST는 MDM 스키마 미보유). IEquipmentDirectory 포트는 ServiceContracts에 공유되어
-       plugin/Default ALC 간 타입 동일성이 유지되며, 구현(MDM_EQUIPMENT read)은 호스트가 소유한다. -->
-  <object id="equipmentDirectory" type="NexaOne.Server.Gateway.EquipmentDirectory, NexaOne.Server">
+  <!-- MDM/SYS와 소비 모듈은 형제 plugin context이므로 부모에는 공용 계약만 위임하는 proxy를 둔다.
+       물리 SQL은 각 소유 모듈의 equipmentDirectory/vendorDirectory/maintenanceIdentityDirectory bean에 남는다. -->
+  <object id="equipmentDirectory" type="NexaOne.Server.Gateway.EquipmentDirectoryProxy, NexaOne.Server" />
+  <object id="vendorDirectory" type="NexaOne.Server.Gateway.VendorDirectoryProxy, NexaOne.Server" />
+  <object id="maintenanceIdentityDirectory" type="NexaOne.Server.Gateway.MaintenanceIdentityDirectoryProxy, NexaOne.Server" />
+  <object id="productionLotDirectory" type="NexaOne.Server.Gateway.ProductionLotDirectoryProxy, NexaOne.Server" />
+  <object id="materialLotDirectory" type="NexaOne.Server.Gateway.MaterialLotDirectoryProxy, NexaOne.Server" />
+  <object id="processDirectory" type="NexaOne.Server.Gateway.ProcessDirectoryProxy, NexaOne.Server" />
+  <object id="userDirectory" type="NexaOne.Server.Gateway.UserDirectoryProxy, NexaOne.Server" />
+  <object id="mrpMasterDirectory" type="NexaOne.Server.Gateway.MrpMasterDirectoryProxy, NexaOne.Server" />
+  <object id="mrpInventoryDirectory" type="NexaOne.Server.Gateway.MrpInventoryDirectoryProxy, NexaOne.Server" />
+  <object id="purchaseOrderPlanningBridge" type="NexaOne.Server.Gateway.PurchaseOrderPlanningBridgeProxy, NexaOne.Server" />
+
+  <object id="equipmentOutputMasterDirectory" type="NexaOne.Server.Gateway.EquipmentOutputMasterDirectory, NexaOne.Server">
     <constructor-arg ref="eesDataSource" />
   </object>
 
@@ -141,11 +151,15 @@
        운영 기본은 host/server.xml(MSSQL). 이 파일은 Server:SpringConfig=config/host/server.sqlite.xml 로 명시 지정될 때만 사용된다.
        동일 빈 id(dbProvider/eesDialect/eesDataSource)라 nexaone.xml 참조는 그대로 유지된다. NexaOne.Server 기동 시
        db/migrations를 SQLite 방언으로 변환해 스키마를 자동 생성한다(SqliteSchemaInitializer, 빈 DB일 때만). -->
+  <object id="queryDiagnosticSink" type="NexaDB.Data.Hosting.DataDiagnosticsMeterSink, NexaDB.Data.Hosting">
+    <constructor-arg><null /></constructor-arg>
+  </object>
   <object id="dbProvider" type="NexaDB.Data.Sqlite.SqliteProvider, NexaDB.Data.Sqlite" />
   <object id="eesDialect" type="NexaOne.Infrastructure.Persistence.SqliteEesDbCapability, NexaOne.Common" />
   <object id="eesDataSource" type="NexaOne.Infrastructure.Persistence.EesDataSource, NexaOne.Common">
     <property name="Provider" ref="dbProvider" />
     <property name="ConnectionString" value="Data Source=nexaone-modules-test.db;Foreign Keys=False" />
+    <property name="QueryDiagnosticSink" ref="queryDiagnosticSink" />
   </object>
 
 </objects>

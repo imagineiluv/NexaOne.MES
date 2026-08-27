@@ -4,8 +4,12 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using NexaOne.Infrastructure.Persistence;
+using NexaOne.IVT.Infrastructure;
+using NexaOne.MDM.Infrastructure;
+using NexaOne.POM.Infrastructure;
 using NexaOne.QMS.Domain;
 using NexaOne.QMS.Infrastructure;
+using NexaOne.SYS.Infrastructure;
 using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
@@ -45,7 +49,26 @@ public sealed class QmsInspectionPersistenceTests : IClassFixture<QmsInspectionP
             Provider = _factory.Services.GetRequiredService<IDatabaseProvider>(),
             ConnectionString = _factory.ConnString
         };
-        return new InspectionResultRepository(ds);
+        return new InspectionResultRepository(
+            ds,
+            new ProductionLotDirectory(ds),
+            new MaterialLotDirectory(ds));
+    }
+
+    private QmsReferenceRepository ReferenceRepo()
+    {
+        _ = _factory.CreateClient();
+        var ds = new EesDataSource
+        {
+            Provider = _factory.Services.GetRequiredService<IDatabaseProvider>(),
+            ConnectionString = _factory.ConnString
+        };
+        return new QmsReferenceRepository(
+            new ProductionLotDirectory(ds),
+            new MaterialLotDirectory(ds),
+            new EquipmentDirectory(ds),
+            new ProcessDirectory(ds),
+            new UserDirectory(ds));
     }
 
     private AiInspectionRepository AiRepo()
@@ -142,6 +165,57 @@ public sealed class QmsInspectionPersistenceTests : IClassFixture<QmsInspectionP
                       SELECT 1 FROM POM_LOT L WHERE L.LOT_ID = I.LOT_ID))
               )
             """).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Qms_references_are_resolved_by_owner_directories_on_sqlite()
+    {
+        var suffix = Guid.NewGuid().ToString("N");
+        var productionLotId = $"PLOT-{suffix}";
+        var materialLotId = $"MLOT-{suffix}";
+        var equipmentId = $"EQ-{suffix}";
+        var invalidEquipmentId = $"EQ-INVALID-{suffix}";
+        var processId = $"PROC-{suffix}";
+        var userId = $"USER-{suffix}";
+        var inactiveUserId = $"USER-INACTIVE-{suffix}";
+        Exec($"""
+            INSERT INTO POM_LOT
+              (LOT_ID, PLANT_ID, PRODUCT_ID, QTY, DEFECT_QTY, LOT_STATE, PROCESS_STATE,
+               ROUTE_STEPS, CURRENT_STEP, IS_HOLD, CREATED_BY, CREATED_AT)
+            VALUES ('{productionLotId}', 'PLANT01', 'PRODUCT-{suffix}', 1, 0, 'Created', 'Idle',
+                    'PROC01', 0, 'N', 'TEST', CURRENT_TIMESTAMP);
+            INSERT INTO IVT_MATERIAL_LOT
+              (LOT_ID, MATERIAL_ID, STATUS, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES ('{materialLotId}', 'MATERIAL-{suffix}', 'InStock', 'TEST', CURRENT_TIMESTAMP,
+                    'TEST', CURRENT_TIMESTAMP);
+            INSERT INTO MDM_EQUIPMENT
+              (EQUIPMENT_ID, EQUIPMENT_NAME, PLANT_ID, AREA_ID, EQUIPMENT_TYPE,
+               EQUIPMENT_CLASS_ID, VALID_STATE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES ('{equipmentId}', 'QMS equipment', 'PLANT01', 'AREA01', 'Inspection',
+                    'QMS', 'Valid', 'TEST', CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP),
+                   ('{invalidEquipmentId}', 'Inactive QMS equipment', 'PLANT01', 'AREA01', 'Inspection',
+                    'QMS', 'Invalid', 'TEST', CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP);
+            INSERT INTO MDM_PROCESS
+              (PROCESS_ID, PROCESS_NAME, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES ('{processId}', 'QMS process', 'TEST', CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP);
+            INSERT INTO SYS_USER
+              (USER_ID, USER_NAME, PASSWORD_HASH, EMAIL, ROLE_ID, LANGUAGE, IS_ACTIVE, IS_DELETED,
+               CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES ('{userId}', 'QMS Inspector', '{new string('a', 64)}', '{userId}@test.local',
+                    'ADMIN', 'KoKr', 1, 0, 'TEST', CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP),
+                   ('{inactiveUserId}', 'Inactive Inspector', '{new string('b', 64)}', '{inactiveUserId}@test.local',
+                    'ADMIN', 'KoKr', 0, 0, 'TEST', CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP);
+            """);
+        var references = ReferenceRepo();
+
+        (await references.LotExistsAsync(productionLotId)).Should().BeTrue();
+        (await references.LotExistsAsync(materialLotId)).Should().BeTrue();
+        (await references.LotExistsAsync($"UNKNOWN-{suffix}")).Should().BeFalse();
+        (await references.EquipmentExistsAsync(equipmentId)).Should().BeTrue();
+        (await references.EquipmentExistsAsync(invalidEquipmentId)).Should().BeFalse();
+        (await references.ProcessExistsAsync(processId)).Should().BeTrue();
+        (await references.UserExistsAsync(userId)).Should().BeTrue();
+        (await references.UserExistsAsync(inactiveUserId)).Should().BeFalse();
     }
 
     [Fact]

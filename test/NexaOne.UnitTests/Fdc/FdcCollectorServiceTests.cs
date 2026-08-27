@@ -1,12 +1,12 @@
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
 using NexaOne.FDC.Infrastructure.Equipment;
-using NexusLogic.Plc.Abstractions.Interfaces;
-using NexusLogic.Plc.Abstractions.Models;
+using NexaLogic.Plc.Abstractions.Interfaces;
+using NexaLogic.Plc.Abstractions.Models;
 
 namespace NexaOne.UnitTests.Fdc;
 
-/// <summary>§10.4 — OPC-UA 태그 변경 이벤트(NexusLogic PlcTagChangeEvent)를 FDC 수집 데이터로
+/// <summary>§10.4 — OPC-UA 태그 변경 이벤트(NexaLogic PlcTagChangeEvent)를 FDC 수집 데이터로
 /// 적재하는 오케스트레이터의 품질/값 변환과 저장 연결을 검증한다.</summary>
 public sealed class FdcCollectorServiceTests
 {
@@ -218,7 +218,7 @@ public sealed class FdcCollectorServiceTests
     [Fact]
     public async Task Device_subscription_normalizes_and_records_with_domain_equipment_id()
     {
-        // NexusLogic 연결 모킹: SubscriptionProvider.StartAsync가 onEvent 콜백을 포착하도록 설정
+        // NexaLogic 연결 모킹: SubscriptionProvider.StartAsync가 onEvent 콜백을 포착하도록 설정
         var endpoint = new PlcEndpoint("EP1", PlcDriverKind.OpcUa, "opc.tcp://host:4840");
         Func<PlcTagChangeEvent, Task>? onEvent = null;
         var subProvider = new Mock<IPlcSubscriptionProvider>();

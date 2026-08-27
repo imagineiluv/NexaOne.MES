@@ -14,7 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
     <!-- 주기 스케줄러(IRecurringScheduler/QuartzScheduler) — server.xml quartzScheduler 빈으로 워커 구동. -->
-    <ProjectReference Include="..\..\..\submodules\NexusFramework\src\NexaFramework\NexaFramework.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework\NexaFramework.csproj" />
   </ItemGroup>
 
 </Project>

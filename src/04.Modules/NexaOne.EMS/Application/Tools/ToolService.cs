@@ -2,6 +2,8 @@ using NexaOne.Application.Auditing;
 using NexaOne.Application.Idempotency;
 using NexaOne.Common;
 using NexaOne.ServiceContracts.Ems;
+using NexaOne.ServiceContracts.Mdm;
+using System.Text.Json;
 
 namespace NexaOne.EMS.Application.Tools;
 
@@ -10,8 +12,14 @@ public sealed class ToolService
     private static readonly HashSet<string> Statuses = new(StringComparer.OrdinalIgnoreCase)
         { "Available", "Mounted", "Due", "Blocked", "Retired" };
     private readonly IToolRepository _repository;
+    private readonly IEquipmentDirectory _equipmentDirectory;
 
-    public ToolService(IToolRepository repository) => _repository = repository;
+    public ToolService(IToolRepository repository, IEquipmentDirectory equipmentDirectory)
+    {
+        _repository = repository;
+        _equipmentDirectory = equipmentDirectory
+                              ?? throw new ArgumentNullException(nameof(equipmentDirectory));
+    }
 
     public async Task<Result<ToolRecord>> SaveAsync(ToolCommand command, CancellationToken ct = default)
     {
@@ -19,31 +27,57 @@ public sealed class ToolService
         if (error is not null) return Result.Failure<ToolRecord>(error);
         var actorResult = CommandActor.Resolve(command.ActorId, nameof(command.ActorId));
         if (actorResult.IsFailure) return Result.Failure<ToolRecord>(actorResult.Error);
+        var actor = actorResult.Value;
+        var toolId = command.ToolId.Trim();
+        var idempotencyKey = Text(command.IdempotencyKey)
+                             ?? $"tool-master:{toolId}:v{command.ExpectedVersion}";
         var equipmentClassId = Text(command.EquipmentClassId);
+        var status = Canonical(Statuses, command.Status);
+        var requestHash = Hash(
+            "ToolMaster", toolId, command.ToolName.Trim(), command.ToolType.Trim(),
+            Text(command.ToolNumber), Text(command.SerialNumber), equipmentClassId,
+            command.MaxUseCount, command.MaxUseMinutes, command.InspectionCycleDays,
+            command.CalibrationCycleDays, status, Text(command.Location), command.IsActive,
+            command.ExpectedVersion, actor);
+        var replay = await _repository.GetSaveCommandAsync(idempotencyKey, ct);
+        if (replay is not null) return ReplaySave(replay, requestHash);
         if (equipmentClassId is not null
-            && !await _repository.EquipmentClassExistsAsync(equipmentClassId, ct))
+            && !await _equipmentDirectory.EquipmentClassExistsAsync(equipmentClassId, ct))
             return Result.Failure<ToolRecord>(Error.NotFoundOf("EquipmentClass", equipmentClassId));
 
-        var existing = await _repository.GetToolAsync(command.ToolId.Trim(), ct);
+        var existing = await _repository.GetToolAsync(toolId, ct);
+        if (command.ExpectedVersion == 0 && existing is not null)
+            return Result.Failure<ToolRecord>(Error.Conflict(
+                "EMS.Tool.IdentityConflict", $"Tool '{toolId}' already exists."));
+        if (command.ExpectedVersion > 0 && existing is null)
+            return Result.Failure<ToolRecord>(Error.NotFoundOf("Tool", toolId));
+        if (existing is not null && existing.Version != command.ExpectedVersion)
+            return Result.Failure<ToolRecord>(Error.Conflict(
+                "EMS.Tool.VersionConflict",
+                $"Tool '{toolId}' is version {existing.Version}, not {command.ExpectedVersion}."));
         var tool = new ToolRecord(
-            command.ToolId.Trim(), command.ToolName.Trim(), command.ToolType.Trim(), Text(command.ToolNumber),
+            toolId, command.ToolName.Trim(), command.ToolType.Trim(), Text(command.ToolNumber),
             Text(command.SerialNumber), equipmentClassId, command.MaxUseCount, command.MaxUseMinutes,
             existing?.CurrentUseCount ?? 0m, existing?.CurrentUseMinutes ?? 0m,
             command.InspectionCycleDays, command.CalibrationCycleDays,
             existing?.LastInspectedAt, existing?.LastCalibratedAt,
             existing?.NextInspectionDueAt, existing?.NextCalibrationDueAt,
-            Canonical(Statuses, command.Status), Text(command.Location), command.IsActive);
+            status, Text(command.Location), command.IsActive, command.ExpectedVersion + 1);
 
         var activeMount = await _repository.GetActiveMountAsync(tool.ToolId, ct);
         if (activeMount is not null)
         {
             if (existing is null
                 || !tool.IsActive
-                || !string.Equals(tool.Status, existing.Status, StringComparison.OrdinalIgnoreCase))
+                || !string.Equals(tool.Status, existing.Status, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(
+                    tool.EquipmentClassId,
+                    existing.EquipmentClassId,
+                    StringComparison.OrdinalIgnoreCase))
             {
                 return Result.Failure<ToolRecord>(Error.Conflict(
                     "EMS.Tool.ActiveMountState",
-                    "A mounted tool must remain active and its lifecycle status cannot be overwritten by a master-data save."));
+                    "A mounted tool must remain active; its lifecycle status and equipment class cannot be overwritten by a master-data save."));
             }
         }
         else if (tool.Status.Equals("Mounted", StringComparison.OrdinalIgnoreCase))
@@ -61,10 +95,19 @@ public sealed class ToolService
                 "A tool past its life, inspection, or calibration limit cannot be marked Available."));
         }
 
-        if (!await _repository.TrySaveToolAsync(tool, existing?.Status, actorResult.Value, ct))
+        var write = new ToolSaveCommandRecord(
+            $"TSC_{Guid.NewGuid():N}", idempotencyKey, requestHash, tool.ToolId,
+            command.ExpectedVersion, tool.Version, JsonSerializer.Serialize(tool), actor,
+            DateTime.UtcNow);
+        if (!await _repository.TrySaveToolAsync(
+                tool, existing?.Status, command.ExpectedVersion, write, actor, ct))
+        {
+            var winner = await _repository.GetSaveCommandAsync(idempotencyKey, ct);
+            if (winner is not null) return ReplaySave(winner, requestHash);
             return Result.Failure<ToolRecord>(Error.Conflict(
                 "EMS.Tool.ConcurrentSave",
-                "The tool lifecycle state or mount changed concurrently."));
+                "The tool version, lifecycle state, or mount changed concurrently."));
+        }
         return Result.Success(tool);
     }
 
@@ -79,20 +122,42 @@ public sealed class ToolService
         var at = Utc(command.MountedAt);
         var toolId = command.ToolId.Trim();
         var equipmentId = command.EquipmentId.Trim();
-        var hash = Hash(toolId, equipmentId, Text(command.PositionCode), at, actor);
+        var positionCode = Text(command.PositionCode);
+        var hash = Hash(toolId, equipmentId, positionCode, at, actor);
         var existing = await _repository.GetMountByIdempotencyKeyAsync(command.IdempotencyKey.Trim(), ct);
         if (existing is not null) return Replay(existing, existing.RequestHash, hash);
         var tool = await _repository.GetToolAsync(toolId, ct);
         if (tool is null) return Result.Failure<ToolMountRecord>(Error.NotFoundOf("Tool", command.ToolId));
-        if (!await _repository.EquipmentExistsAsync(equipmentId, ct))
+        var equipment = await _equipmentDirectory.GetEquipmentAsync(equipmentId, ct);
+        if (equipment is null)
             return Result.Failure<ToolMountRecord>(Error.NotFoundOf("Equipment", equipmentId));
+        if (!equipment.IsValid)
+            return Result.Failure<ToolMountRecord>(Error.Conflict(
+                "EMS.Tool.EquipmentInactive",
+                $"Equipment '{equipmentId}' is not active."));
+        if (tool.EquipmentClassId is not null)
+        {
+            if (!string.Equals(
+                    tool.EquipmentClassId,
+                    equipment.EquipmentClassId,
+                    StringComparison.OrdinalIgnoreCase))
+                return Result.Failure<ToolMountRecord>(Error.Conflict(
+                    "EMS.Tool.EquipmentClassMismatch",
+                    $"Tool '{tool.ToolId}' is assigned to equipment class '{tool.EquipmentClassId}', not '{equipment.EquipmentClassId}'."));
+        }
+        if (positionCode is not null
+            && await _repository.GetActiveMountAtPositionAsync(equipmentId, positionCode, ct) is not null)
+            return Result.Failure<ToolMountRecord>(Error.Conflict(
+                "EMS.Tool.PositionOccupied",
+                $"Equipment '{equipmentId}' position '{positionCode}' already has an active tool mount."));
         if (!tool.Status.Equals("Available", StringComparison.OrdinalIgnoreCase) || !CanUse(tool, at))
             return Result.Failure<ToolMountRecord>(Error.Conflict("EMS.Tool.NotMountable", $"Tool '{tool.ToolId}' is not available."));
         var mount = new ToolMountRecord(
             $"TMT_{Guid.NewGuid():N}", command.IdempotencyKey.Trim(), hash, tool.ToolId,
-            equipmentId, Text(command.PositionCode), at, actor,
+            equipmentId, positionCode, at, actor,
             null, null, null, null, null, DateTime.UtcNow);
-        if (await _repository.TryMountAsync(mount, ct)) return Result.Success(mount);
+        if (await _repository.TryMountAsync(mount, tool.EquipmentClassId, ct))
+            return Result.Success(mount);
         var winner = await _repository.GetMountByIdempotencyKeyAsync(mount.IdempotencyKey, ct);
         return winner is not null
             ? Replay(winner, winner.RequestHash, hash)
@@ -116,6 +181,11 @@ public sealed class ToolService
         if (mount.UnmountedAt is not null)
             return Result.Failure<ToolMountRecord>(Error.Conflict("EMS.Tool.AlreadyUnmounted", "The tool has already been unmounted."));
         if (at < mount.MountedAt) return InvalidMount(nameof(command.UnmountedAt), "UnmountedAt cannot precede MountedAt.");
+        var latestUsageAt = await _repository.GetLatestUsageAtAsync(mount.MountId, ct);
+        if (latestUsageAt.HasValue && at < latestUsageAt.Value)
+            return InvalidMount(
+                nameof(command.UnmountedAt),
+                "UnmountedAt cannot precede usage already recorded for the mount.");
         if (!await _repository.TryUnmountAsync(mount, command.IdempotencyKey.Trim(), hash, at, actor, Text(command.Reason), ct))
         {
             var winner = await _repository.GetUnmountByIdempotencyKeyAsync(command.IdempotencyKey.Trim(), ct);
@@ -149,8 +219,21 @@ public sealed class ToolService
         var tool = await _repository.GetToolAsync(command.ToolId.Trim(), ct);
         if (tool is null) return Result.Failure<ToolUsageRecord>(Error.NotFoundOf("Tool", command.ToolId));
         var equipmentId = command.EquipmentId.Trim();
-        if (!await _repository.EquipmentExistsAsync(equipmentId, ct))
+        var equipment = await _equipmentDirectory.GetEquipmentAsync(equipmentId, ct);
+        if (equipment is null)
             return Result.Failure<ToolUsageRecord>(Error.NotFoundOf("Equipment", equipmentId));
+        if (!equipment.IsValid)
+            return Result.Failure<ToolUsageRecord>(Error.Conflict(
+                "EMS.Tool.EquipmentInactive",
+                $"Equipment '{equipmentId}' is not active."));
+        if (tool.EquipmentClassId is not null
+            && !string.Equals(
+                tool.EquipmentClassId,
+                equipment.EquipmentClassId,
+                StringComparison.OrdinalIgnoreCase))
+            return Result.Failure<ToolUsageRecord>(Error.Conflict(
+                "EMS.Tool.EquipmentClassMismatch",
+                $"Tool '{tool.ToolId}' is assigned to equipment class '{tool.EquipmentClassId}', not '{equipment.EquipmentClassId}'."));
         if (!CanUse(tool, at) || !WithinLifeAfterUsage(tool, command.UseCount, command.UseMinutes))
             return Result.Failure<ToolUsageRecord>(Error.Conflict("EMS.Tool.NotUsable", $"Tool '{tool.ToolId}' cannot be used in status '{tool.Status}'."));
         var activeMount = await _repository.GetActiveMountAsync(tool.ToolId, ct);
@@ -160,6 +243,10 @@ public sealed class ToolService
                 || !string.Equals(activeMount.MountId, command.MountId.Trim(), StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(activeMount.EquipmentId, equipmentId, StringComparison.OrdinalIgnoreCase))
                 return Result.Failure<ToolUsageRecord>(Error.Conflict("EMS.Tool.InvalidMount", "The active mount does not match the tool/equipment."));
+            if (at < activeMount.MountedAt)
+                return InvalidUsage(
+                    nameof(command.UsedAt),
+                    "UsedAt cannot precede the matching tool mount.");
         }
         else if (!string.IsNullOrWhiteSpace(command.MountId)
                  || tool.Status.Equals("Mounted", StringComparison.OrdinalIgnoreCase))
@@ -170,7 +257,8 @@ public sealed class ToolService
             equipmentId, Text(command.ProcessLotId), Text(command.WorkOrderId), Text(command.ProcessId),
             Text(command.RecipeId), command.RecipeVersion, command.UseCount, command.UseMinutes, at, actor,
             Text(command.TraceId), Text(command.ConditionSnapshotJson), DateTime.UtcNow);
-        if (await _repository.TryRecordUsageAsync(usage, ct)) return Result.Success(usage);
+        if (await _repository.TryRecordUsageAsync(usage, tool.EquipmentClassId, ct))
+            return Result.Success(usage);
         var usageWinner = await _repository.GetUsageByIdempotencyKeyAsync(usage.IdempotencyKey, ct);
         return usageWinner is not null
             ? Replay(usageWinner, usageWinner.RequestHash, hash)
@@ -226,6 +314,8 @@ public sealed class ToolService
         if (!Statuses.Contains(c.Status)) return Error.Validation(nameof(c.Status), "Unknown tool status.");
         if (c.MaxUseCount is < 0m || c.MaxUseMinutes is < 0m) return Error.Validation("Tool life limits cannot be negative.");
         if (c.InspectionCycleDays is < 1 || c.CalibrationCycleDays is < 1) return Error.Validation("Inspection/calibration cycle must be positive.");
+        if (c.ExpectedVersion < 0) return Error.Validation(nameof(c.ExpectedVersion), "ExpectedVersion cannot be negative.");
+        if (Text(c.IdempotencyKey)?.Length > 100) return Error.Validation(nameof(c.IdempotencyKey), "IdempotencyKey cannot exceed 100 characters.");
         return null;
     }
 
@@ -259,4 +349,17 @@ public sealed class ToolService
         => string.Equals(storedHash, requestHash, StringComparison.Ordinal)
             ? Result.Success(value)
             : Result.Failure<T>(Error.Conflict("EMS.Tool.IdempotencyConflict", "The idempotency key was already used for different data."));
+
+    private static Result<ToolRecord> ReplaySave(ToolSaveCommandRecord command, string requestHash)
+    {
+        if (!string.Equals(command.RequestHash, requestHash, StringComparison.Ordinal))
+            return Result.Failure<ToolRecord>(Error.Conflict(
+                "EMS.Tool.IdempotencyConflict",
+                "The idempotency key was already used for different tool-master data."));
+        var result = JsonSerializer.Deserialize<ToolRecord>(command.ResultJson);
+        return result is null
+            ? Result.Failure<ToolRecord>(Error.Conflict(
+                "EMS.Tool.IdempotencyStateConflict", "The persisted tool command result is invalid."))
+            : Result.Success(result);
+    }
 }

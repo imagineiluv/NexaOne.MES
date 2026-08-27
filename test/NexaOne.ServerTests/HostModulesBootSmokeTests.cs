@@ -22,7 +22,7 @@ public sealed class ChildProcessSmokeCollection
 }
 
 /// <summary>통합 호스트 modules-ON 부팅 자동검증(Phase 6) — 빌드된 호스트를 자식 프로세스로 SQLite·modules-ON
-/// 기동해 10개 모듈 + 워커 + 선언형 catalog의 전체 Bridge가 한 프로세스에서 실제로 올라오는지 검증한다.
+/// 기동해 11개 모듈 + 워커 + 선언형 catalog의 전체 Bridge가 한 프로세스에서 실제로 올라오는지 검증한다.
 /// 정적 ApplicationServer 싱글톤 제약으로 in-proc WebApplicationFactory 불가 → 자식 프로세스 black-box 스모크.
 /// 기존 ServerTests(전부 modules-OFF)가 못 타는 실제 plugin/ALC/브리지 부팅 경로의 단일 안전망.</summary>
 [Collection(ChildProcessSmokeCollection.Name)]
@@ -32,7 +32,7 @@ public sealed class HostModulesBootSmokeTests
     public HostModulesBootSmokeTests(ITestOutputHelper o) => _o = o;
 
     [Fact]
-    public async Task Host_boots_all_ten_modules_workers_and_bridges_in_one_process()
+    public async Task Host_boots_all_eleven_modules_workers_and_bridges_in_one_process()
     {
         // Database:Provider alone must select the matching Spring parent context.
         // This guards against gateway=SQLite / module=SQL Server split-brain startup.
@@ -57,8 +57,8 @@ public sealed class HostModulesBootSmokeTests
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         var root = doc.RootElement;
         root.GetProperty("modulesEnabled").GetBoolean().Should().BeTrue();
-        root.GetProperty("services").GetArrayLength().Should().Be(10,
-            "10개 도메인 모듈(Mdm·Est·Fdc·Ivt·Rms·Qms·Ems·Pom·Shp·Sys)이 모두 로드돼야 한다 — "
+        root.GetProperty("services").GetArrayLength().Should().Be(11,
+            "11개 도메인 모듈(Mdm·Est·Fdc·Ivt·Rms·Qms·Ems·Pom·Prc·Shp·Sys)이 모두 로드돼야 한다 — "
             + "성공적 /diag = 전체 선언형 Bridge의 Bean/계약 fail-fast 통과(부팅이 리슨에 도달)");
         root.GetProperty("workerCount").GetInt32().Should().BeGreaterThanOrEqualTo(1,
             "백그라운드 워커가 1개 이상 발견돼야 한다(실측 5)");
@@ -147,7 +147,8 @@ public sealed class HostModulesBootSmokeTests
             oee.DefaultRequestHeaders.Authorization = null;
 
             oee.DefaultRequestHeaders.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", HostProcess.MintToken(Permissions.EstManage));
+                new System.Net.Http.Headers.AuthenticationHeaderValue(
+                    "Bearer", HostProcess.MintToken(Permissions.EstManage, Permissions.EstRead));
             var agg = await oee.PostAsJsonAsync("/api/v1/oee/aggregate-day", new { date = "2026-06-01" });
             agg.StatusCode.Should().Be(HttpStatusCode.OK,
                 $"est:manage 토큰이면 OEE 수동 집계 200이어야 한다(브리지 배선+집계 실행) — 로그:\n{host.Log}");
@@ -165,6 +166,65 @@ public sealed class HostModulesBootSmokeTests
             matrix.StatusCode.Should().Be(HttpStatusCode.OK);
             (await matrix.Content.ReadAsStringAsync()).Should().Contain("IDLE",
                 "업서트한 전이(IDLE→RUN)가 실브리지 조회로 라운드트립돼야 한다(TEST-3)");
+
+            // Utility V122 실브리지/XML 부팅 검증 — meter/readings/discontinuity/history/summary가 같은
+            // utilityBridge를 관통하고 reset 계수 점프가 소비량에서 제외돼야 한다.
+            var utilitySuffix = Guid.NewGuid().ToString("N")[..8];
+            var meterId = $"SMOKE-UTILITY-{utilitySuffix}";
+            var meterStart = new DateTime(2026, 8, 26, 0, 0, 0, DateTimeKind.Utc);
+            (await oee.PostAsJsonAsync("/api/v1/est/utilities/meters", new
+            {
+                meterId,
+                meterName = "Smoke utility meter",
+                plantId = "SMOKEPL",
+                utilityType = "Water",
+                unit = "m3",
+                readingMode = "Cumulative",
+                expectedVersion = 0,
+                idempotencyKey = $"smoke-utility-meter:{utilitySuffix}",
+            })).StatusCode.Should().Be(HttpStatusCode.OK, $"utility meter XML bridge write — 로그:\n{host.Log}");
+            (await oee.PostAsJsonAsync("/api/v1/est/utilities/readings", new
+            {
+                meterId,
+                rawValue = 100m,
+                source = "SMOKE",
+                sourceEventId = $"{utilitySuffix}:before",
+                recordedAt = meterStart,
+            })).StatusCode.Should().Be(HttpStatusCode.OK);
+            (await oee.PostAsJsonAsync("/api/v1/est/utilities/readings", new
+            {
+                meterId,
+                rawValue = 30m,
+                source = "SMOKE",
+                sourceEventId = $"{utilitySuffix}:after",
+                recordedAt = meterStart.AddHours(2),
+            })).StatusCode.Should().Be(HttpStatusCode.OK);
+            (await oee.PostAsJsonAsync("/api/v1/est/utilities/meter-events", new
+            {
+                idempotencyKey = $"smoke-meter-event:{utilitySuffix}",
+                meterId,
+                eventType = "Reset",
+                occurredAt = meterStart.AddHours(1),
+                reason = "smoke reset",
+                previousValue = 150m,
+                afterValue = 0m,
+            })).StatusCode.Should().Be(HttpStatusCode.OK, $"V122 meter event XML bridge write — 로그:\n{host.Log}");
+            var utilitySummary = await oee.PostAsJsonAsync("/api/v1/est/utilities/summaries", new
+            {
+                meterId,
+                periodType = "Shift",
+                periodStart = meterStart,
+                periodEnd = meterStart.AddHours(3),
+            });
+            utilitySummary.StatusCode.Should().Be(HttpStatusCode.OK, $"discontinuity-aware summary — 로그:\n{host.Log}");
+            using (var utilityDoc = JsonDocument.Parse(await utilitySummary.Content.ReadAsStringAsync()))
+                utilityDoc.RootElement.GetProperty("consumption").GetDecimal().Should().Be(80m);
+            var historyFrom = Uri.EscapeDataString(meterStart.ToString("O"));
+            var historyTo = Uri.EscapeDataString(meterStart.AddHours(3).ToString("O"));
+            var utilityHistory = await oee.GetAsync(
+                $"/api/v1/est/utilities/meters/{meterId}/events?from={historyFrom}&to={historyTo}");
+            utilityHistory.StatusCode.Should().Be(HttpStatusCode.OK, "utility event history needs est:read");
+            (await utilityHistory.Content.ReadAsStringAsync()).Should().Contain("smoke reset");
         }
 
         // 회원가입 신청→승인 풀사이클(§19.3) — 익명 신청이 plugin-ALC UserRegistrationService를 실제로 관통해

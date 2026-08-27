@@ -107,11 +107,13 @@ public sealed class EmsBridge : IEmsBridge
     public async Task<Result<SparePartDto>> CreatePartAsync(
         string partId, string partName, string partNumber, string description, string unitOfMeasure,
         decimal currentStock, decimal minStock, decimal maxStock, string location,
-        string? equipmentClassId, string actorId, CancellationToken ct = default)
+        string? equipmentClassId, EmsCommandContextDto command, CancellationToken ct = default)
     {
+        var context = ToDomain(command);
+        if (context.IsFailure) return Result.Failure<SparePartDto>(context.Error);
         var r = await _planService.CreatePartAsync(
             partId, partName, partNumber, description, unitOfMeasure,
-            currentStock, minStock, maxStock, location, equipmentClassId, actorId, ct);
+            currentStock, minStock, maxStock, location, equipmentClassId, context.Value, ct);
         return r.IsSuccess ? Result.Success(ToDto(r.Value)) : Result.Failure<SparePartDto>(r.Error);
     }
 

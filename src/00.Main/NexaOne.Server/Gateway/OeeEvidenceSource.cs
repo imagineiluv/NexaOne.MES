@@ -112,7 +112,7 @@ public sealed class OeeEvidenceSource : QueryRepository, IOeeEvidenceSource
             throw new ArgumentException("Production window end must be after start.", nameof(toUtc));
 
         var rows = await QueryAsync<TrackOutRow>(
-            @"SELECT l.PRODUCT_ID, h.PROCESS_ID, h.QTY, h.DEFECT_QTY,
+            @"SELECT h.LOT_HISTORY_ID, h.LOT_ID, l.PRODUCT_ID, h.PROCESS_ID, h.QTY, h.DEFECT_QTY,
                      h.TRACK_IN_TIME, h.TRACK_OUT_TIME, COALESCE(p.UNIT, '') AS QUANTITY_UOM
               FROM POM_LOT_HISTORY h
               JOIN POM_LOT l ON l.PLANT_ID = h.PLANT_ID AND l.LOT_ID = h.LOT_ID
@@ -133,13 +133,55 @@ public sealed class OeeEvidenceSource : QueryRepository, IOeeEvidenceSource
             row.Qty,
             row.TrackInTime,
             row.TrackOutTime,
+            row.QuantityUom,
+            row.LotId)).ToArray();
+        var lotOutputs = rows.Select(static row => new OeeLotOutputDto(
+            row.LotHistoryId.ToString(CultureInfo.InvariantCulture),
+            row.LotId,
+            row.ProcessId,
+            row.Qty,
+            row.DefectQty,
             row.QuantityUom)).ToArray();
 
         return new OeeProductionWindowDto(
             rows.Count,
             rows.Sum(static row => row.Qty),
             rows.Sum(static row => row.DefectQty),
-            trackOuts);
+            trackOuts,
+            lotOutputs);
+    }
+
+    public async Task<IReadOnlyList<OeePlantLocalDateDto>> LoadPlantLocalDatesAsync(
+        IReadOnlyList<string> targetEquipmentIds,
+        DateTime utcNow,
+        CancellationToken ct = default)
+    {
+        var equipmentIds = targetEquipmentIds
+            .Where(static id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (equipmentIds.Length == 0) return [];
+
+        var rows = await QueryAsync<EquipmentRow>(
+            @"SELECT e.EQUIPMENT_ID, e.PLANT_ID, COALESCE(p.TIME_ZONE, 'UTC') AS TIME_ZONE
+              FROM MDM_EQUIPMENT e
+              LEFT JOIN MDM_PLANT p ON p.PLANT_ID = e.PLANT_ID
+              WHERE e.EQUIPMENT_ID IN @equipmentIds",
+            new { equipmentIds }, ct);
+        var instant = utcNow.Kind switch
+        {
+            DateTimeKind.Utc => utcNow,
+            DateTimeKind.Local => utcNow.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(utcNow, DateTimeKind.Utc),
+        };
+        return rows
+            .GroupBy(static row => row.PlantId, StringComparer.Ordinal)
+            .Select(group => new OeePlantLocalDateDto(
+                group.Key,
+                TimeZoneInfo.ConvertTimeFromUtc(
+                    instant,
+                    ResolveTimeZone(group.First().TimeZone)).Date))
+            .ToArray();
     }
 
     private static OeeShiftWindowDto? ResolveWindow(DateTime day, ShiftRow shift, TimeZoneInfo timeZone)
@@ -202,6 +244,8 @@ public sealed class OeeEvidenceSource : QueryRepository, IOeeEvidenceSource
 
     private sealed class TrackOutRow
     {
+        public long LotHistoryId { get; set; }
+        public string LotId { get; set; } = string.Empty;
         public string ProductId { get; set; } = string.Empty;
         public string ProcessId { get; set; } = string.Empty;
         public decimal Qty { get; set; }

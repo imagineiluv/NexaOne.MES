@@ -165,7 +165,8 @@ public sealed class EmsBridgeController : ControllerBase
         return (await _bridge.CreatePartAsync(
             req.PartId, req.PartName, req.PartNumber, req.Description, req.UnitOfMeasure,
             req.CurrentStock, req.MinStock, req.MaxStock, req.Location, req.EquipmentClassId,
-            actor, ct)).ToActionResult();
+            Command(actor, req.IdempotencyKey, req.ClientChannel,
+                req.DeviceId, req.CorrelationId), ct)).ToActionResult();
     }
 
     [HttpPost("spare-parts/{partId}/adjust-stock")]
@@ -241,7 +242,9 @@ public record MaintenancePlanOperationRequest(
     string? CorrelationId = null);
 public record CreateSparePartRequest(
     string PartId, string PartName, string PartNumber, string Description, string UnitOfMeasure,
-    decimal CurrentStock, decimal MinStock, decimal MaxStock, string Location, string? EquipmentClassId);
+    decimal CurrentStock, decimal MinStock, decimal MaxStock, string Location, string? EquipmentClassId,
+    string IdempotencyKey, string ClientChannel = "MES", string? DeviceId = null,
+    string? CorrelationId = null);
 public record AdjustStockRequest(
     decimal Delta,
     string IdempotencyKey,

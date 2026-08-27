@@ -12,6 +12,9 @@ public interface IWorkOrderRepository
     Task<MaintenanceAction?> GetActionByIdempotencyKeyAsync(
         string idempotencyKey,
         CancellationToken ct = default);
+    Task<WorkOrderCreateCommandRecord?> GetCreateCommandAsync(
+        string idempotencyKey,
+        CancellationToken ct = default);
     Task AddAsync(WorkOrder wo, CancellationToken ct = default);
     Task UpdateAsync(WorkOrder wo, CancellationToken ct = default);
 
@@ -23,6 +26,11 @@ public interface IWorkOrderRepository
         WorkOrder wo,
         MaintenanceAction action,
         CancellationToken ct = default);
+    Task<bool> AddWithActionAsync(
+        WorkOrder wo,
+        MaintenanceAction action,
+        WorkOrderCreateCommandRecord command,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Atomically applies the status guard and appends its action. Returns false for a lost status
@@ -33,3 +41,21 @@ public interface IWorkOrderRepository
         MaintenanceAction action,
         CancellationToken ct = default);
 }
+
+public sealed record WorkOrderCreateCommandRecord(
+    string CommandId,
+    string IdempotencyKey,
+    string RequestHash,
+    string WorkOrderId,
+    string EquipmentId,
+    string WorkOrderType,
+    string Description,
+    string AssigneeId,
+    string? MaintenancePlanId,
+    DateTime IssuedAt,
+    string ActorId,
+    string Source,
+    string ClientChannel,
+    string? DeviceId,
+    string? CorrelationId,
+    DateTime CreatedAt);

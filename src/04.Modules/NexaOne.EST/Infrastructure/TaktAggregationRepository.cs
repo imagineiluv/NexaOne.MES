@@ -54,70 +54,126 @@ public sealed class TaktAggregationRepository : QueryRepository
             return 0;
         }
 
-        var targets = await LoadTargetsAsync(plantId, equipmentId, reportDate.Date, shiftId, ct);
-        var statements = new List<(string Sql, object? Param)> { delete };
-        var written = 0;
+        var batch = await StageEquipmentWindowsAsync(
+            [new TaktWindowInput(
+                plantId, equipmentId, reportDate, shiftId, windowStartUtc, windowEndUtc,
+                oee.Value, trackOuts)], ct);
+        await _processor.ExecuteManyAsync(ct, batch.Statements.ToArray());
+        return batch.Written;
+    }
 
-        foreach (var target in ResolveEffectiveTargets(targets, shiftId))
+    /// <summary>
+    /// 여러 설비의 택트 결과를 계산만 하고 SQL 배치를 반환한다. 호출자가 OEE/Loss와 같은 트랜잭션으로
+    /// 게시할 수 있어 뒤쪽 설비 계산 실패가 앞쪽 설비 마트를 부분 갱신하지 않는다.
+    /// </summary>
+    internal async Task<TaktAggregationBatch> StageEquipmentWindowsAsync(
+        IReadOnlyList<TaktWindowInput> windows,
+        CancellationToken ct = default)
+    {
+        if (windows.Count == 0)
+            return new TaktAggregationBatch([], 0);
+
+        foreach (var window in windows)
         {
-            var scopedFacts = trackOuts
-                .Where(f => string.Equals(f.ProductId, target.ProductId, StringComparison.Ordinal)
-                    && string.Equals(f.ProcessId, target.ProcessId, StringComparison.Ordinal))
-                .ToList();
-            if (scopedFacts.Any(f => !string.Equals(
-                    f.QuantityUom, target.QuantityUom, StringComparison.OrdinalIgnoreCase)))
-            {
-                throw new InvalidOperationException(
-                    $"TrackOut UOM does not match takt target {target.TargetId} ({target.QuantityUom}).");
-            }
-
-            // TrackIn 시각이 없는 TrackOut도 생산 수량에는 포함하되, 실제 사이클 시간 산정에서는 제외한다.
-            var actualQty = scopedFacts.Sum(f => f.Qty);
-            var measurable = scopedFacts
-                .Where(f => f.TrackInTimeUtc.HasValue && f.TrackOutTimeUtc > f.TrackInTimeUtc.Value)
-                .ToList();
-            var measuredQty = measurable.Sum(f => f.Qty);
-            var actualRunSeconds = measurable.Sum(
-                f => (decimal)(f.TrackOutTimeUtc - f.TrackInTimeUtc!.Value).TotalSeconds);
-            var result = TaktTimeCalculator.Compute(
-                new TaktTargetDefinition(
-                    target.NetAvailableSeconds, target.RequiredQty,
-                    target.IdealCycleSecondsPerUnit, target.QuantityUom, target.TimeUom),
-                new TaktActuals(actualQty, measuredQty, actualRunSeconds, target.QuantityUom),
-                oee.Value);
-
-            statements.Add((InsertSummarySql, new
-            {
-                id = DeterministicId(target.TargetId, equipmentId, reportDate.Date, shiftId),
-                target = target.TargetId,
-                date = Format(reportDate.Date),
-                from = Format(windowStartUtc),
-                to = Format(windowEndUtc),
-                plant = plantId,
-                product = target.ProductId,
-                process = target.ProcessId,
-                equipment = equipmentId,
-                shift = (object?)shiftId,
-                requiredQty = target.RequiredQty,
-                actualQty = result.ActualQty,
-                measuredQty = result.MeasuredQty,
-                netSeconds = target.NetAvailableSeconds,
-                runSeconds = result.ActualRunSeconds,
-                targetTakt = result.TargetTaktSecondsPerUnit,
-                idealCycle = result.IdealCycleSecondsPerUnit,
-                actualCycle = result.ActualCycleSecondsPerUnit,
-                deviationSeconds = result.DeviationSecondsPerUnit,
-                deviationRatio = result.DeviationRatio,
-                availability = result.AvailabilityRatio,
-                quantityUom = result.QuantityUom,
-                timeUom = result.TimeUom,
-            }));
-            written++;
+            if (window.WindowEndUtc <= window.WindowStartUtc)
+                throw new ArgumentException("Takt aggregation window end must be after start.", nameof(windows));
         }
 
-        // 먼저 기존 요약을 지우고 새 결과를 넣는 전 문장을 한 트랜잭션으로 묶어 부분 갱신을 방지한다.
-        await _processor.ExecuteManyAsync(ct, statements.ToArray());
-        return written;
+        var equipmentIds = windows
+            .Select(static window => window.EquipmentId)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        var earliestDate = windows.Min(static window => window.ReportDate.Date);
+        var latestDate = windows.Max(static window => window.ReportDate.Date);
+        var targets = await LoadTargetsAsync(equipmentIds, earliestDate, latestDate, ct);
+        var targetsByScope = targets
+            .GroupBy(static target => new TaktScope(target.PlantId, target.EquipmentId))
+            .ToDictionary(static group => group.Key, static group => group.ToArray());
+        var statements = new List<(string Sql, object? Param)>();
+        var written = 0;
+
+        foreach (var window in windows)
+        {
+            var effectiveAt = window.ReportDate.Date.AddDays(1).AddSeconds(-1);
+            statements.Add((DeleteSummarySql, new
+            {
+                plant = window.PlantId,
+                equipment = window.EquipmentId,
+                date = Format(window.ReportDate.Date),
+                shift = (object?)window.ShiftId,
+            }));
+
+            targetsByScope.TryGetValue(
+                new TaktScope(window.PlantId, window.EquipmentId), out var scopedTargets);
+            foreach (var target in ResolveEffectiveTargets(
+                         (scopedTargets ?? [])
+                         .Where(target => target.EffectiveFrom <= effectiveAt
+                                          && (!target.EffectiveTo.HasValue
+                                              || target.EffectiveTo.Value >= effectiveAt))
+                         .Where(target => window.ShiftId is null
+                             ? target.ShiftId is null
+                             : target.ShiftId is null
+                               || string.Equals(target.ShiftId, window.ShiftId, StringComparison.Ordinal)),
+                         window.ShiftId))
+            {
+                var scopedFacts = window.TrackOuts
+                    .Where(f => string.Equals(f.ProductId, target.ProductId, StringComparison.Ordinal)
+                                && string.Equals(f.ProcessId, target.ProcessId, StringComparison.Ordinal))
+                    .ToList();
+                if (scopedFacts.Any(f => !string.Equals(
+                        f.QuantityUom, target.QuantityUom, StringComparison.OrdinalIgnoreCase)))
+                {
+                    throw new InvalidOperationException(
+                        $"TrackOut UOM does not match takt target {target.TargetId} ({target.QuantityUom}).");
+                }
+
+                // TrackIn 시각이 없는 TrackOut도 생산 수량에는 포함하되, 실제 사이클 시간 산정에서는 제외한다.
+                var actualQty = scopedFacts.Sum(f => f.Qty);
+                var measurable = scopedFacts
+                    .Where(f => f.TrackInTimeUtc.HasValue && f.TrackOutTimeUtc > f.TrackInTimeUtc.Value)
+                    .ToList();
+                var measuredQty = measurable.Sum(f => f.Qty);
+                var actualRunSeconds = measurable.Sum(
+                    f => (decimal)(f.TrackOutTimeUtc - f.TrackInTimeUtc!.Value).TotalSeconds);
+                var result = TaktTimeCalculator.Compute(
+                    new TaktTargetDefinition(
+                        target.NetAvailableSeconds, target.RequiredQty,
+                        target.IdealCycleSecondsPerUnit, target.QuantityUom, target.TimeUom),
+                    new TaktActuals(actualQty, measuredQty, actualRunSeconds, target.QuantityUom),
+                    window.Availability);
+
+                statements.Add((InsertSummarySql, new
+                {
+                    id = DeterministicId(
+                        target.TargetId, window.EquipmentId, window.ReportDate.Date, window.ShiftId),
+                    target = target.TargetId,
+                    date = Format(window.ReportDate.Date),
+                    from = Format(window.WindowStartUtc),
+                    to = Format(window.WindowEndUtc),
+                    plant = window.PlantId,
+                    product = target.ProductId,
+                    process = target.ProcessId,
+                    equipment = window.EquipmentId,
+                    shift = (object?)window.ShiftId,
+                    requiredQty = target.RequiredQty,
+                    actualQty = result.ActualQty,
+                    measuredQty = result.MeasuredQty,
+                    netSeconds = target.NetAvailableSeconds,
+                    runSeconds = result.ActualRunSeconds,
+                    targetTakt = result.TargetTaktSecondsPerUnit,
+                    idealCycle = result.IdealCycleSecondsPerUnit,
+                    actualCycle = result.ActualCycleSecondsPerUnit,
+                    deviationSeconds = result.DeviationSecondsPerUnit,
+                    deviationRatio = result.DeviationRatio,
+                    availability = result.AvailabilityRatio,
+                    quantityUom = result.QuantityUom,
+                    timeUom = result.TimeUom,
+                }));
+                written++;
+            }
+        }
+
+        return new TaktAggregationBatch(statements, written);
     }
 
     private async Task<decimal?> LoadOeeAvailabilityAsync(string oeeId, CancellationToken ct)
@@ -130,28 +186,30 @@ public sealed class TaktAggregationRepository : QueryRepository
     }
 
     private async Task<List<TargetRow>> LoadTargetsAsync(
-        string plantId, string equipmentId, DateTime reportDate, string? shiftId, CancellationToken ct)
+        IReadOnlyList<string> equipmentIds,
+        DateTime earliestDate,
+        DateTime latestDate,
+        CancellationToken ct)
     {
         var rows = await QueryAsync<dynamic>(
-            @"SELECT TAKT_TARGET_ID, PRODUCT_ID, PROCESS_ID, SHIFT_ID, EFFECTIVE_FROM,
+            @"SELECT TAKT_TARGET_ID, PLANT_ID, EQUIPMENT_ID, PRODUCT_ID, PROCESS_ID, SHIFT_ID,
+                     EFFECTIVE_FROM, EFFECTIVE_TO,
                      REQUIRED_QTY, NET_AVAILABLE_SECONDS, IDEAL_CYCLE_SECONDS_PER_UNIT,
                      QUANTITY_UOM, TIME_UOM
               FROM EST_TAKT_TARGET
-              WHERE IS_ACTIVE = 1 AND PLANT_ID = @plant AND EQUIPMENT_ID = @equipment
-                AND EFFECTIVE_FROM <= @date
-                AND (EFFECTIVE_TO IS NULL OR EFFECTIVE_TO >= @date)
-                AND ((@shift IS NULL AND SHIFT_ID IS NULL)
-                  OR (@shift IS NOT NULL AND (SHIFT_ID = @shift OR SHIFT_ID IS NULL)))",
+              WHERE IS_ACTIVE = 1 AND EQUIPMENT_ID IN @equipmentIds
+                AND EFFECTIVE_FROM < @latestEnd
+                AND (EFFECTIVE_TO IS NULL OR EFFECTIVE_TO >= @earliest)",
             new
             {
-                plant = plantId,
-                equipment = equipmentId,
-                date = Format(reportDate.AddDays(1).AddTicks(-1)),
-                shift = (object?)shiftId,
+                equipmentIds,
+                earliest = Format(earliestDate.Date),
+                latestEnd = Format(latestDate.Date.AddDays(1)),
             }, ct);
         return rows.Select(ToDictionary).Select(r => new TargetRow(
-            String(r, "TAKT_TARGET_ID"), String(r, "PRODUCT_ID"), String(r, "PROCESS_ID"),
-            NullableString(r, "SHIFT_ID"), Date(r, "EFFECTIVE_FROM"),
+            String(r, "TAKT_TARGET_ID"), String(r, "PLANT_ID"), String(r, "EQUIPMENT_ID"),
+            String(r, "PRODUCT_ID"), String(r, "PROCESS_ID"), NullableString(r, "SHIFT_ID"),
+            Date(r, "EFFECTIVE_FROM"), NullableDate(r, "EFFECTIVE_TO"),
             Decimal(r, "REQUIRED_QTY"), Decimal(r, "NET_AVAILABLE_SECONDS"),
             Decimal(r, "IDEAL_CYCLE_SECONDS_PER_UNIT"), String(r, "QUANTITY_UOM"),
             String(r, "TIME_UOM"))).ToList();
@@ -218,8 +276,22 @@ public sealed class TaktAggregationRepository : QueryRepository
             ? parsed : null;
     }
 
+    internal sealed record TaktWindowInput(
+        string PlantId,
+        string EquipmentId,
+        DateTime ReportDate,
+        string? ShiftId,
+        DateTime WindowStartUtc,
+        DateTime WindowEndUtc,
+        decimal Availability,
+        IReadOnlyList<OeeTrackOutDto> TrackOuts);
+    internal sealed record TaktAggregationBatch(
+        IReadOnlyList<(string Sql, object? Param)> Statements,
+        int Written);
+    private sealed record TaktScope(string PlantId, string EquipmentId);
     private sealed record TargetRow(
-        string TargetId, string ProductId, string ProcessId, string? ShiftId, DateTime EffectiveFrom,
+        string TargetId, string PlantId, string EquipmentId,
+        string ProductId, string ProcessId, string? ShiftId, DateTime EffectiveFrom, DateTime? EffectiveTo,
         decimal RequiredQty, decimal NetAvailableSeconds, decimal IdealCycleSecondsPerUnit,
         string QuantityUom, string TimeUom);
 }

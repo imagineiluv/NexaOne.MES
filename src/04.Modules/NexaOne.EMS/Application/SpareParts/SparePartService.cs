@@ -1,8 +1,10 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using NexaOne.Common;
 using NexaOne.ServiceContracts.Ems;
+using NexaOne.ServiceContracts.Mdm;
 
 namespace NexaOne.EMS.Application.SpareParts;
 
@@ -13,9 +15,19 @@ public sealed class SparePartService
 {
     private static readonly string[] Criticalities = ["Critical", "High", "Medium", "Low"];
     private readonly ISparePartManagementRepository _repository;
+    private readonly IVendorDirectory _vendorDirectory;
+    private readonly IEquipmentDirectory _equipmentDirectory;
 
-    public SparePartService(ISparePartManagementRepository repository)
-        => _repository = repository ?? throw new ArgumentNullException(nameof(repository));
+    public SparePartService(
+        ISparePartManagementRepository repository,
+        IVendorDirectory vendorDirectory,
+        IEquipmentDirectory equipmentDirectory)
+    {
+        _repository = repository ?? throw new ArgumentNullException(nameof(repository));
+        _vendorDirectory = vendorDirectory ?? throw new ArgumentNullException(nameof(vendorDirectory));
+        _equipmentDirectory = equipmentDirectory
+                              ?? throw new ArgumentNullException(nameof(equipmentDirectory));
+    }
 
     public async Task<Result<SparePartStockPolicyRecord>> SaveStockPolicyAsync(
         SparePartStockPolicyCommand command,
@@ -32,8 +44,11 @@ public sealed class SparePartService
             command.ServiceLevel, command.ReviewCycleDays, command.IsActive,
             command.ExpectedVersion, actor);
 
-        var replay = await _repository.GetStockPolicyByIdempotencyKeyAsync(key, ct);
-        if (replay is not null) return Replay(replay, partId, hash);
+        var replay = await _repository.GetCommandAsync(key, ct);
+        if (replay is not null)
+            return Replay<SparePartStockPolicyRecord>(replay, "StockPolicy", partId, hash);
+        var legacyReplay = await _repository.GetStockPolicyByIdempotencyKeyAsync(key, ct);
+        if (legacyReplay is not null) return ReplayLegacy(legacyReplay, partId, hash);
 
         var existing = await _repository.GetStockPolicyAsync(partId, ct);
         var stateError = ValidateWriteState(existing, command.ExpectedVersion, "stock policy", partId);
@@ -47,9 +62,10 @@ public sealed class SparePartService
             command.ReservedQuantity, command.AverageDailyUsage, command.ServiceLevel,
             command.ReviewCycleDays, command.IsActive, command.ExpectedVersion + 1,
             key, hash, existing?.CreatedBy ?? actor, existing?.CreatedAt ?? now, actor, now);
+        var write = NewCommand("StockPolicy", partId, key, hash, command.ExpectedVersion, record, actor, now);
         var persisted = command.ExpectedVersion == 0
-            ? await _repository.TryCreateStockPolicyAsync(record, ct)
-            : await _repository.TryUpdateStockPolicyAsync(record, command.ExpectedVersion, ct);
+            ? await _repository.TryCreateStockPolicyAsync(record, write, ct)
+            : await _repository.TryUpdateStockPolicyAsync(record, command.ExpectedVersion, write, ct);
         if (persisted) return record;
 
         return await ResolvePolicyRaceAsync(partId, key, hash, command.ExpectedVersion, ct);
@@ -73,15 +89,18 @@ public sealed class SparePartService
             command.LeadTimeDays, command.MinimumOrderQuantity, command.UnitPrice, currency,
             command.IsPrimary, command.IsActive, command.ExpectedVersion, actor);
 
-        var replay = await _repository.GetSupplierByIdempotencyKeyAsync(key, ct);
-        if (replay is not null) return Replay(replay, id, hash);
+        var replay = await _repository.GetCommandAsync(key, ct);
+        if (replay is not null)
+            return Replay<SparePartSupplierRecord>(replay, "Supplier", id, hash);
+        var legacyReplay = await _repository.GetSupplierByIdempotencyKeyAsync(key, ct);
+        if (legacyReplay is not null) return ReplayLegacy(legacyReplay, id, hash);
 
         var existing = await _repository.GetSupplierAsync(id, ct);
         var stateError = ValidateWriteState(existing, command.ExpectedVersion, "supplier", id);
         if (stateError is not null) return Result.Failure<SparePartSupplierRecord>(stateError);
         if (!await _repository.PartExistsAsync(partId, ct))
             return Result.Failure<SparePartSupplierRecord>(Missing("SparePart", partId));
-        if (!await _repository.VendorExistsAsync(vendorId, ct))
+        if (!await _vendorDirectory.VendorExistsAsync(vendorId, ct))
             return Result.Failure<SparePartSupplierRecord>(Missing("Vendor", vendorId));
         if (command.IsPrimary && command.IsActive
             && await _repository.HasOtherActivePrimarySupplierAsync(partId, id, ct))
@@ -95,9 +114,10 @@ public sealed class SparePartService
             command.MinimumOrderQuantity, command.UnitPrice, currency, command.IsPrimary,
             command.IsActive, command.ExpectedVersion + 1, key, hash,
             existing?.CreatedBy ?? actor, existing?.CreatedAt ?? now, actor, now);
+        var write = NewCommand("Supplier", id, key, hash, command.ExpectedVersion, record, actor, now);
         var persisted = command.ExpectedVersion == 0
-            ? await _repository.TryCreateSupplierAsync(record, ct)
-            : await _repository.TryUpdateSupplierAsync(record, command.ExpectedVersion, ct);
+            ? await _repository.TryCreateSupplierAsync(record, write, ct)
+            : await _repository.TryUpdateSupplierAsync(record, command.ExpectedVersion, write, ct);
         if (persisted) return record;
 
         return await ResolveSupplierRaceAsync(id, key, hash, command.ExpectedVersion, ct);
@@ -123,18 +143,22 @@ public sealed class SparePartService
             command.ReplacementCycleCount, positionCode, command.IsActive,
             command.ExpectedVersion, actor);
 
-        var replay = await _repository.GetEquipmentBomByIdempotencyKeyAsync(key, ct);
-        if (replay is not null) return Replay(replay, id, hash);
+        var replay = await _repository.GetCommandAsync(key, ct);
+        if (replay is not null)
+            return Replay<EquipmentPartBomRecord>(replay, "EquipmentBom", id, hash);
+        var legacyReplay = await _repository.GetEquipmentBomByIdempotencyKeyAsync(key, ct);
+        if (legacyReplay is not null) return ReplayLegacy(legacyReplay, id, hash);
 
         var existing = await _repository.GetEquipmentBomAsync(id, ct);
         var stateError = ValidateWriteState(existing, command.ExpectedVersion, "equipment BOM", id);
         if (stateError is not null) return Result.Failure<EquipmentPartBomRecord>(stateError);
         if (!await _repository.PartExistsAsync(partId, ct))
             return Result.Failure<EquipmentPartBomRecord>(Missing("SparePart", partId));
-        if (equipmentId is not null && !await _repository.EquipmentExistsAsync(equipmentId, ct))
+        if (equipmentId is not null
+            && await _equipmentDirectory.GetEquipmentAsync(equipmentId, ct) is null)
             return Result.Failure<EquipmentPartBomRecord>(Missing("Equipment", equipmentId));
         if (equipmentClassId is not null
-            && !await _repository.EquipmentClassExistsAsync(equipmentClassId, ct))
+            && !await _equipmentDirectory.EquipmentClassExistsAsync(equipmentClassId, ct))
             return Result.Failure<EquipmentPartBomRecord>(Missing("EquipmentClass", equipmentClassId));
 
         var now = DateTime.UtcNow;
@@ -143,9 +167,10 @@ public sealed class SparePartService
             command.ReplacementCycleDays, command.ReplacementCycleCount, positionCode,
             command.IsActive, command.ExpectedVersion + 1, key, hash,
             existing?.CreatedBy ?? actor, existing?.CreatedAt ?? now, actor, now);
+        var write = NewCommand("EquipmentBom", id, key, hash, command.ExpectedVersion, record, actor, now);
         var persisted = command.ExpectedVersion == 0
-            ? await _repository.TryCreateEquipmentBomAsync(record, ct)
-            : await _repository.TryUpdateEquipmentBomAsync(record, command.ExpectedVersion, ct);
+            ? await _repository.TryCreateEquipmentBomAsync(record, write, ct)
+            : await _repository.TryUpdateEquipmentBomAsync(record, command.ExpectedVersion, write, ct);
         if (persisted) return record;
 
         return await ResolveBomRaceAsync(id, key, hash, command.ExpectedVersion, ct);
@@ -207,8 +232,11 @@ public sealed class SparePartService
     private async Task<Result<SparePartStockPolicyRecord>> ResolvePolicyRaceAsync(
         string id, string key, string hash, int expectedVersion, CancellationToken ct)
     {
-        var replay = await _repository.GetStockPolicyByIdempotencyKeyAsync(key, ct);
-        if (replay is not null) return Replay(replay, id, hash);
+        var replay = await _repository.GetCommandAsync(key, ct);
+        if (replay is not null)
+            return Replay<SparePartStockPolicyRecord>(replay, "StockPolicy", id, hash);
+        var legacyReplay = await _repository.GetStockPolicyByIdempotencyKeyAsync(key, ct);
+        if (legacyReplay is not null) return ReplayLegacy(legacyReplay, id, hash);
         var current = await _repository.GetStockPolicyAsync(id, ct);
         return Result.Failure<SparePartStockPolicyRecord>(RaceError(current is not null, expectedVersion, id));
     }
@@ -216,8 +244,11 @@ public sealed class SparePartService
     private async Task<Result<SparePartSupplierRecord>> ResolveSupplierRaceAsync(
         string id, string key, string hash, int expectedVersion, CancellationToken ct)
     {
-        var replay = await _repository.GetSupplierByIdempotencyKeyAsync(key, ct);
-        if (replay is not null) return Replay(replay, id, hash);
+        var replay = await _repository.GetCommandAsync(key, ct);
+        if (replay is not null)
+            return Replay<SparePartSupplierRecord>(replay, "Supplier", id, hash);
+        var legacyReplay = await _repository.GetSupplierByIdempotencyKeyAsync(key, ct);
+        if (legacyReplay is not null) return ReplayLegacy(legacyReplay, id, hash);
         var current = await _repository.GetSupplierAsync(id, ct);
         return Result.Failure<SparePartSupplierRecord>(RaceError(current is not null, expectedVersion, id));
     }
@@ -225,13 +256,49 @@ public sealed class SparePartService
     private async Task<Result<EquipmentPartBomRecord>> ResolveBomRaceAsync(
         string id, string key, string hash, int expectedVersion, CancellationToken ct)
     {
-        var replay = await _repository.GetEquipmentBomByIdempotencyKeyAsync(key, ct);
-        if (replay is not null) return Replay(replay, id, hash);
+        var replay = await _repository.GetCommandAsync(key, ct);
+        if (replay is not null)
+            return Replay<EquipmentPartBomRecord>(replay, "EquipmentBom", id, hash);
+        var legacyReplay = await _repository.GetEquipmentBomByIdempotencyKeyAsync(key, ct);
+        if (legacyReplay is not null) return ReplayLegacy(legacyReplay, id, hash);
         var current = await _repository.GetEquipmentBomAsync(id, ct);
         return Result.Failure<EquipmentPartBomRecord>(RaceError(current is not null, expectedVersion, id));
     }
 
-    private static Result<T> Replay<T>(T stored, string expectedId, string hash) where T : class
+    private static Result<T> Replay<T>(
+        SparePartMasterCommandRecord command,
+        string expectedType,
+        string expectedId,
+        string hash) where T : class
+    {
+        if (!string.Equals(command.EntityType, expectedType, StringComparison.Ordinal)
+            || !string.Equals(command.EntityId, expectedId, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(command.RequestHash, hash, StringComparison.Ordinal))
+            return Result.Failure<T>(Error.Conflict(
+                "EMS.SparePart.IdempotencyConflict",
+                "The idempotency key was already used for different spare-part data."));
+        var stored = JsonSerializer.Deserialize<T>(command.ResultJson);
+        return stored is not null
+            ? Result.Success(stored)
+            : Result.Failure<T>(Error.Conflict(
+                "EMS.SparePart.IdempotencyStateConflict",
+                "The persisted spare-part command result is invalid."));
+    }
+
+    private static SparePartMasterCommandRecord NewCommand<T>(
+        string entityType,
+        string entityId,
+        string key,
+        string hash,
+        int expectedVersion,
+        T result,
+        string actor,
+        DateTime at) where T : class => new(
+        $"SPC_{Guid.NewGuid():N}", entityType, entityId, key, hash, expectedVersion,
+        expectedVersion + 1, JsonSerializer.Serialize(result), actor, at);
+
+    private static Result<T> ReplayLegacy<T>(T stored, string expectedId, string hash)
+        where T : class
     {
         var (id, storedHash) = stored switch
         {

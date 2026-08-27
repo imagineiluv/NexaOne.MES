@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -53,7 +53,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\submodules\NexusFramework\src\NexaFramework\NexaFramework.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework\NexaFramework.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure.Messaging\NexaOne.Infrastructure.Messaging.csproj" />
     <!-- Phase 4 Task 3 — 공유 Blazor 컴포넌트 RCL(MetaScreen·렌더러·인증/ApiClient 서비스). Default ALC 일반 참조로
@@ -62,16 +62,19 @@
     <ProjectReference Include="..\..\01.Web\NexaOne.Web.Components\NexaOne.Web.Components.csproj" />
     <!-- PLC DriverFactory와 실제 프로토콜 드라이버는 공통 서버(Spring 부모) 빈으로 조합한다.
          부모 컨텍스트(Default ALC)에 Hosting/IPlcDriver 타입이 있어야 FDC 플러그인 모듈과 타입 동일성이 유지된다. -->
-    <ProjectReference Include="..\..\..\submodules\NexusLogic\src\NexusLogic.Plc.Hosting\NexusLogic.Plc.Hosting.csproj" />
-    <ProjectReference Include="..\..\..\submodules\NexusLogic\src\NexusLogic.Plc.OpcUa\NexusLogic.Plc.OpcUa.csproj" />
-    <ProjectReference Include="..\..\..\submodules\NexusLogic\src\NexusLogic.Plc.ModbusTcp\NexusLogic.Plc.ModbusTcp.csproj" />
-    <ProjectReference Include="..\..\..\submodules\NexusLogic\src\NexusLogic.Plc.SiemensS7\NexusLogic.Plc.SiemensS7.csproj" />
-    <ProjectReference Include="..\..\..\submodules\NexusLogic\src\NexusLogic.Plc.MitsubishiMc\NexusLogic.Plc.MitsubishiMc.csproj" />
-    <ProjectReference Include="..\..\..\submodules\NexusLogic\src\NexusLogic.Plc.AllenBradley\NexusLogic.Plc.AllenBradley.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.Hosting\NexaLogic.Plc.Hosting.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.OpcUa\NexaLogic.Plc.OpcUa.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.ModbusTcp\NexaLogic.Plc.ModbusTcp.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.SiemensS7\NexaLogic.Plc.SiemensS7.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.MitsubishiMc\NexaLogic.Plc.MitsubishiMc.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.AllenBradley\NexaLogic.Plc.AllenBradley.csproj" />
     <!-- DB 공급자는 NexaDB.Data 메타 패키지 '하나'로 참조한다 — 이 단일 참조가 MsSql·Sqlite 두 공급자
          어셈블리를 함께 출력에 끌어온다(어셈블리는 분리 유지). 따라서 코드 재빌드 없이 server.xml만 바꿔
          MSSQL↔SQLite를 전환할 수 있다(두 공급자 DLL이 호스트 Default ALC에 상존). -->
     <ProjectReference Include="..\..\..\submodules\NexaDB\src\NexaDB.Data\NexaDB.Data.csproj" />
+    <!-- 공통 Dapper 조회 seam의 성공/지연/timeout/error를 System.Diagnostics.Metrics로 노출한다.
+         Hosting 프로젝트의 서비스 호스트는 사용하지 않고 DataDiagnosticsMeterSink만 조합한다. -->
+    <ProjectReference Include="..\..\..\submodules\NexaDB\src\NexaDB.Data.Hosting\NexaDB.Data.Hosting.csproj" />
     <ProjectReference Include="..\..\..\submodules\NexaDB\src\NexaDB.Data.PostgreSql\NexaDB.Data.PostgreSql.csproj" Condition="'$(DbmsType)'=='PostgreSQL'" />
     <ProjectReference Include="..\..\..\submodules\NexaDB\src\NexaDB.Data.MySql\NexaDB.Data.MySql.csproj" Condition="'$(DbmsType)'=='MySQL'" />
   </ItemGroup>
@@ -110,6 +113,7 @@
     <ProjectReference Include="..\..\04.Modules\NexaOne.EMS\NexaOne.EMS.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.IVT\NexaOne.IVT.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.POM\NexaOne.POM.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.PRC\NexaOne.PRC.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.SHP\NexaOne.SHP.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>

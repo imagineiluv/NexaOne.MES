@@ -16,7 +16,7 @@ const unauthorizedSession: LoginResponse = {
 describe('SPA 라우팅', () => {
   it('미인증 상태에서 /Designer/:uiId는 목적 경로를 유지한 디자이너 로그인', () => {
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/Designer/DEMO']}>
+      <MemoryRouter initialEntries={['/Designer/DEMO']}>
         <AppRoutes session={null} setSession={() => {}} />
         <PathProbe />
       </MemoryRouter>,
@@ -27,7 +27,7 @@ describe('SPA 라우팅', () => {
 
   it('루트 경로는 Dashboard 대신 /Designer로 수렴', async () => {
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/']}>
+      <MemoryRouter initialEntries={['/']}>
         <AppRoutes session={null} setSession={() => {}} />
         <PathProbe />
       </MemoryRouter>,
@@ -38,7 +38,7 @@ describe('SPA 라우팅', () => {
 
   it('/spa/designer/:uiId 호환 경로는 정식 /Designer/:uiId로 리다이렉트', async () => {
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/spa/designer/LEGACY']}>
+      <MemoryRouter initialEntries={['/spa/designer/LEGACY']}>
         <AppRoutes session={null} setSession={() => {}} />
         <PathProbe />
       </MemoryRouter>,
@@ -49,7 +49,7 @@ describe('SPA 라우팅', () => {
 
   it('인증됐지만 sys:manage가 없으면 디자이너 접근을 거부', () => {
     render(
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={['/Designer']}>
+      <MemoryRouter initialEntries={['/Designer']}>
         <AppRoutes session={unauthorizedSession} setSession={() => {}} />
       </MemoryRouter>,
     )

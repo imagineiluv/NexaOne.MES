@@ -75,39 +75,102 @@ public sealed class RmsBridgeControllerTests : IClassFixture<RmsBridgeController
                 _ => Result.Success(new RecipeDto(recipeId, "n", "d", "EC1", 1, "Released", null, null, null)),
             });
 
-        public Task<Result<RecipeDto>> CreateRecipeAsync(string recipeId, string name, string desc, string equipmentClassId, CancellationToken ct = default)
-            => Task.FromResult(recipeId switch
+        public static RecipeCreateCommand? LastCreate { get; private set; }
+        public static RecipeVersionCreateCommand? LastVersionCreate { get; private set; }
+        public static RecipeParamAddCommand? LastParamAdd { get; private set; }
+        public static RecipeParamDeleteCommand? LastParamDelete { get; private set; }
+
+        public Task<Result<RecipeDto>> CreateRecipeAsync(
+            RecipeCreateCommand command, CancellationToken ct = default)
+        {
+            LastCreate = command;
+            return Task.FromResult(command.RecipeId switch
             {
                 "__validation__" => Result.Failure<RecipeDto>(Error.Validation("x", "bad")),
-                _ => Result.Success(new RecipeDto(recipeId, name, desc, equipmentClassId, 1, "Draft", null, null, null)),
+                _ => Result.Success(new RecipeDto(
+                    command.RecipeId, command.Name, command.Description,
+                    command.EquipmentClassId, 1, "Draft", null, null, null)),
             });
+        }
 
-        public Task<Result> RequestApprovalAsync(string recipeId, CancellationToken ct = default) => MapResult(recipeId);
-        public Task<Result> Approve1Async(string recipeId, string approverId, CancellationToken ct = default) => MapResult(recipeId);
-        public Task<Result> Approve2Async(string recipeId, string approverId, CancellationToken ct = default) => MapResult(recipeId);
-        public Task<Result> ReleaseAsync(string recipeId, string releaserId, CancellationToken ct = default) => MapResult(recipeId);
-        public Task<Result> RejectAsync(string recipeId, string reason, CancellationToken ct = default) => MapResult(recipeId);
+        public static RecipeCommandContext? LastApprovalContext { get; private set; }
+        public static RecipeParamUpdateCommand? LastParamUpdate { get; private set; }
 
-        public Task<Result<RecipeDto>> CreateNewVersionAsync(string sourceRecipeId, string newRecipeId, CancellationToken ct = default)
-            => Task.FromResult(sourceRecipeId switch
+        public Task<Result> RequestApprovalAsync(
+            string recipeId, RecipeCommandContext context, CancellationToken ct = default)
+        {
+            LastApprovalContext = context;
+            return MapResult(recipeId);
+        }
+
+        public Task<Result> Approve1Async(
+            string recipeId, RecipeCommandContext context, CancellationToken ct = default)
+        {
+            LastApprovalContext = context;
+            return MapResult(recipeId);
+        }
+
+        public Task<Result> Approve2Async(
+            string recipeId, RecipeCommandContext context, CancellationToken ct = default)
+        {
+            LastApprovalContext = context;
+            return MapResult(recipeId);
+        }
+
+        public Task<Result> ReleaseAsync(
+            string recipeId, RecipeCommandContext context, CancellationToken ct = default)
+        {
+            LastApprovalContext = context;
+            return MapResult(recipeId);
+        }
+
+        public Task<Result> RejectAsync(
+            string recipeId, string reason, RecipeCommandContext context, CancellationToken ct = default)
+        {
+            LastApprovalContext = context;
+            return MapResult(recipeId);
+        }
+
+        public Task<Result<RecipeDto>> CreateNewVersionAsync(
+            RecipeVersionCreateCommand command, CancellationToken ct = default)
+        {
+            LastVersionCreate = command;
+            return Task.FromResult(command.SourceRecipeId switch
             {
                 "__conflict__" => Result.Failure<RecipeDto>(Error.Conflict("c")),
-                _ => Result.Success(new RecipeDto(newRecipeId, "n", "d", "EC1", 2, "Draft", null, null, null)),
+                _ => Result.Success(new RecipeDto(command.NewRecipeId, "n", "d", "EC1", 2, "Draft", null, null, null)),
             });
+        }
 
         public Task<IReadOnlyList<RecipeParamDto>> GetParamsAsync(string recipeId, CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<RecipeParamDto>>(
-                new[] { new RecipeParamDto("P1", recipeId, "p", "v", "u", 1) });
+                new[] { new RecipeParamDto("P1", recipeId, "p", "v", "u", 1, 1) });
 
-        public Task<Result<RecipeParamDto>> AddParamAsync(string paramId, string recipeId, string paramName, string paramValue, string unit, int sortOrder, CancellationToken ct = default)
-            => Task.FromResult(recipeId switch
+        public Task<Result<RecipeParamDto>> AddParamAsync(
+            RecipeParamAddCommand command, CancellationToken ct = default)
+        {
+            LastParamAdd = command;
+            return Task.FromResult(command.RecipeId switch
             {
                 "__conflict__" => Result.Failure<RecipeParamDto>(Error.Conflict("c")),
-                _ => Result.Success(new RecipeParamDto(paramId, recipeId, paramName, paramValue, unit, sortOrder)),
+                _ => Result.Success(new RecipeParamDto(
+                    command.ParamId, command.RecipeId, command.ParamName, command.ParamValue,
+                    command.Unit, command.SortOrder, 1)),
             });
+        }
 
-        public Task<Result> UpdateParamAsync(string paramId, string newValue, CancellationToken ct = default) => MapResult(paramId);
-        public Task<Result> DeleteParamAsync(string paramId, CancellationToken ct = default) => MapResult(paramId);
+        public Task<Result> UpdateParamAsync(
+            RecipeParamUpdateCommand command, CancellationToken ct = default)
+        {
+            LastParamUpdate = command;
+            return MapResult(command.ParamId);
+        }
+        public Task<Result> DeleteParamAsync(
+            RecipeParamDeleteCommand command, CancellationToken ct = default)
+        {
+            LastParamDelete = command;
+            return MapResult(command.ParamId);
+        }
 
         // 비-제네릭 Result 분기 공통: __conflict__→409, __notfound__→404, 그 외 성공(→204).
         private static Task<Result> MapResult(string id) => Task.FromResult(id switch
@@ -181,35 +244,70 @@ public sealed class RmsBridgeControllerTests : IClassFixture<RmsBridgeController
         return client;
     }
 
+    private static Task<HttpResponseMessage> PutCommandAsync(
+        HttpClient client, string url, object? body = null, string key = "rms-command-test")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Put, url)
+        {
+            Content = body is null ? null : JsonContent.Create(body),
+        };
+        request.Headers.Add("Idempotency-Key", key);
+        return client.SendAsync(request);
+    }
+
+    private static Task<HttpResponseMessage> PostCommandAsync(
+        HttpClient client, string url, object body, string key = "rms-command-test")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(body),
+        };
+        request.Headers.Add("Idempotency-Key", key);
+        return client.SendAsync(request);
+    }
+
+    private static Task<HttpResponseMessage> DeleteCommandAsync(
+        HttpClient client, string url, string key = "rms-command-test")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Delete, url);
+        request.Headers.Add("Idempotency-Key", key);
+        return client.SendAsync(request);
+    }
+
     [Fact]
     public async Task Create_recipe_success_returns_200_with_dto()
     {
-        var res = await Client("rms:manage").PostAsJsonAsync("/api/v1/rms/recipes",
-            new { recipeId = "R1", name = "n", description = "d", equipmentClassId = "EC1" });
+        var res = await PostCommandAsync(Client("rms:manage"), "/api/v1/rms/recipes",
+            new { recipeId = "R1", name = "n", description = "d", equipmentClassId = "EC1" },
+            "create-r1");
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         var dto = await res.Content.ReadFromJsonAsync<RecipeDto>();
         dto!.RecipeId.Should().Be("R1");
         dto.ApprovalState.Should().Be("Draft");
+        FakeBridge.LastCreate.Should().Be(new RecipeCreateCommand(
+            "R1", "n", "d", "EC1", "create-r1", "bridge-tester"));
     }
 
     [Fact]
     public async Task Approve1_conflict_maps_to_409()
     {
-        var res = await Client("rms:manage").PutAsync("/api/v1/rms/recipes/__conflict__/approve1", null);
+        var res = await PutCommandAsync(
+            Client("rms:manage"), "/api/v1/rms/recipes/__conflict__/approve1");
         res.StatusCode.Should().Be(HttpStatusCode.Conflict, "상태위반(Conflict)은 409로 매핑");
     }
 
     [Fact]
     public async Task RequestApproval_notfound_maps_to_404()
     {
-        var res = await Client("rms:manage").PutAsync("/api/v1/rms/recipes/__notfound__/request-approval", null);
+        var res = await PutCommandAsync(
+            Client("rms:manage"), "/api/v1/rms/recipes/__notfound__/request-approval");
         res.StatusCode.Should().Be(HttpStatusCode.NotFound, "미존재(NotFound)는 404로 매핑");
     }
 
     [Fact]
     public async Task Create_recipe_validation_maps_to_400()
     {
-        var res = await Client("rms:manage").PostAsJsonAsync("/api/v1/rms/recipes",
+        var res = await PostCommandAsync(Client("rms:manage"), "/api/v1/rms/recipes",
             new { recipeId = "__validation__", name = "n", description = "d", equipmentClassId = "EC1" });
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest, "검증실패(Validation)는 400으로 매핑");
     }
@@ -225,26 +323,67 @@ public sealed class RmsBridgeControllerTests : IClassFixture<RmsBridgeController
     [Fact]
     public async Task Approve1_success_returns_204()
     {
-        var res = await Client("rms:manage").PutAsync("/api/v1/rms/recipes/R1/approve1", null);
+        var res = await PutCommandAsync(
+            Client("rms:manage"), "/api/v1/rms/recipes/R1/approve1", key: "approve-1-key");
         res.StatusCode.Should().Be(HttpStatusCode.NoContent, "비제네릭 Result 성공은 204(NoContent)로 매핑");
+        FakeBridge.LastApprovalContext.Should().Be(
+            new RecipeCommandContext("bridge-tester", "approve-1-key"));
     }
 
     [Fact]
     public async Task Released_parameter_update_conflict_maps_to_409()
     {
-        var res = await Client("rms:manage").PutAsJsonAsync(
-            "/api/v1/rms/recipes/params/__conflict__", new { newValue = "190" });
+        var res = await PutCommandAsync(
+            Client("rms:manage"),
+            "/api/v1/rms/recipes/params/__conflict__",
+            new { newValue = "190", expectedVersion = 3 },
+            "param-update-key");
 
         res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        FakeBridge.LastParamUpdate.Should().Be(new RecipeParamUpdateCommand(
+            "__conflict__", "190", 3, "param-update-key", "bridge-tester"));
     }
 
     [Fact]
     public async Task Released_parameter_delete_conflict_maps_to_409()
     {
-        var res = await Client("rms:manage").DeleteAsync(
-            "/api/v1/rms/recipes/params/__conflict__");
+        var res = await DeleteCommandAsync(Client("rms:manage"),
+            "/api/v1/rms/recipes/params/__conflict__?expectedVersion=3",
+            "param-delete-key");
 
         res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        FakeBridge.LastParamDelete.Should().Be(new RecipeParamDeleteCommand(
+            "__conflict__", 3, "param-delete-key", "bridge-tester"));
+    }
+
+    [Fact]
+    public async Task New_version_and_parameter_add_preserve_authenticated_actor_and_header_key()
+    {
+        var client = Client("rms:manage");
+        var version = await PostCommandAsync(
+            client, "/api/v1/rms/recipes/R1/new-version",
+            new { newRecipeId = "R1_V2" }, "version-key");
+        var add = await PostCommandAsync(
+            client, "/api/v1/rms/recipes/R1/params",
+            new { paramId = "P1", paramName = "Temperature", paramValue = "180", unit = "C", sortOrder = 1 },
+            "param-add-key");
+
+        version.StatusCode.Should().Be(HttpStatusCode.OK);
+        add.StatusCode.Should().Be(HttpStatusCode.OK);
+        FakeBridge.LastVersionCreate.Should().Be(new RecipeVersionCreateCommand(
+            "R1", "R1_V2", "version-key", "bridge-tester"));
+        FakeBridge.LastParamAdd.Should().Be(new RecipeParamAddCommand(
+            "P1", "R1", "Temperature", "180", "C", 1,
+            "param-add-key", "bridge-tester"));
+    }
+
+    [Fact]
+    public async Task Recipe_create_without_idempotency_header_is_bad_request()
+    {
+        var res = await Client("rms:manage").PostAsJsonAsync("/api/v1/rms/recipes",
+            new { recipeId = "R_NO_KEY", name = "n", description = "d", equipmentClassId = "EC1" });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]
@@ -299,10 +438,20 @@ public sealed class RmsBridgeControllerTests : IClassFixture<RmsBridgeController
     [Fact]
     public async Task Approval_without_identity_claim_is_unauthorized_and_never_uses_system_actor()
     {
-        var res = await Client(includeActor: false, "rms:manage")
-            .PutAsync("/api/v1/rms/recipes/R1/approve1", null);
+        var res = await PutCommandAsync(
+            Client(includeActor: false, "rms:manage"),
+            "/api/v1/rms/recipes/R1/approve1");
 
         res.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Approval_without_idempotency_header_is_bad_request()
+    {
+        var res = await Client("rms:manage")
+            .PutAsync("/api/v1/rms/recipes/R1/approve1", null);
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]

@@ -37,7 +37,7 @@ public interface IEmsBridge : INexaModuleBridge
     Task<Result<SparePartDto>> CreatePartAsync(
         string partId, string partName, string partNumber, string description, string unitOfMeasure,
         decimal currentStock, decimal minStock, decimal maxStock, string location,
-        string? equipmentClassId, string actorId, CancellationToken ct = default);
+        string? equipmentClassId, EmsCommandContextDto command, CancellationToken ct = default);
     Task<Result> AdjustStockAsync(
         string partId, SparePartAdjustmentDto adjustment, CancellationToken ct = default);
 }

@@ -31,8 +31,7 @@ public sealed class ConsumptionRepository : QueryRepository, IConsumptionReposit
         string consumptionId,
         CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM IVT_MATERIAL_CONSUMPTION_HISTORY
-                             WHERE CONSUMPTION_ID = @consumptionId";
+        const string sql = ConsumptionSelect + " WHERE H.CONSUMPTION_ID = @consumptionId";
         var row = await QueryFirstOrDefaultAsync<ConsumptionRow>(sql, new { consumptionId }, ct);
         return row?.ToDomain();
     }
@@ -41,8 +40,7 @@ public sealed class ConsumptionRepository : QueryRepository, IConsumptionReposit
         string idempotencyKey,
         CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM IVT_MATERIAL_CONSUMPTION_HISTORY
-                             WHERE IDEMPOTENCY_KEY = @idempotencyKey";
+        const string sql = ConsumptionSelect + " WHERE H.IDEMPOTENCY_KEY = @idempotencyKey";
         var row = await QueryFirstOrDefaultAsync<ConsumptionRow>(sql, new { idempotencyKey }, ct);
         return row?.ToDomain();
     }
@@ -52,10 +50,9 @@ public sealed class ConsumptionRepository : QueryRepository, IConsumptionReposit
         string sourceEventId,
         CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM IVT_MATERIAL_CONSUMPTION_HISTORY
-                             WHERE SOURCE_SYSTEM = @sourceSystem
-                               AND SOURCE_EVENT_ID = @sourceEventId
-                               AND REVERSAL_OF_ID IS NULL";
+        const string sql = ConsumptionSelect + @" WHERE H.SOURCE_SYSTEM = @sourceSystem
+                               AND H.SOURCE_EVENT_ID = @sourceEventId
+                               AND H.REVERSAL_OF_ID IS NULL";
         var row = await QueryFirstOrDefaultAsync<ConsumptionRow>(
             sql, new { sourceSystem, sourceEventId }, ct);
         return row?.ToDomain();
@@ -125,20 +122,23 @@ public sealed class ConsumptionRepository : QueryRepository, IConsumptionReposit
         try
         {
             return await _processor.ExecuteGuardedManyAsync(ct,
-                (@"UPDATE IVT_MATERIAL_CONSUMPTION_HISTORY SET
-                       STATUS = 'Reversed', REVERSED_BY = @Actor, REVERSED_AT = @Now, REVERSAL_REASON = @Reason
-                   WHERE CONSUMPTION_ID = @OriginalId AND STATUS = 'Committed' AND REVERSAL_OF_ID IS NULL
-                     AND EXISTS (SELECT 1 FROM IVT_MATERIAL_LOT L
-                                 WHERE L.LOT_ID = @MaterialLotId
-                                   AND L.MATERIAL_ID = @MaterialId
-                                   AND L.STATUS <> 'Scrapped')", param),
                 (@"UPDATE IVT_MATERIAL_LOT SET
                        CURRENT_QTY = CAST(COALESCE(CURRENT_QTY, 0) AS DECIMAL(38,9))
                                      + CAST(@Quantity AS DECIMAL(38,9)),
                        STATUS = CASE WHEN STATUS = 'Consumed' THEN 'InStock' ELSE STATUS END,
                        VERSION_NO = VERSION_NO + 1,
                        UPDATED_BY = @Actor, UPDATED_AT = @Now
-                   WHERE LOT_ID = @MaterialLotId AND MATERIAL_ID = @MaterialId", param),
+                   WHERE LOT_ID = @MaterialLotId AND MATERIAL_ID = @MaterialId
+                     AND STATUS <> 'Scrapped'
+                     AND EXISTS (
+                         SELECT 1 FROM IVT_MATERIAL_CONSUMPTION_HISTORY H
+                         WHERE H.CONSUMPTION_ID = @OriginalId
+                           AND H.REVERSAL_OF_ID IS NULL
+                           AND H.MATERIAL_LOT_ID = @MaterialLotId
+                           AND H.MATERIAL_ID = @MaterialId)
+                     AND NOT EXISTS (
+                         SELECT 1 FROM IVT_MATERIAL_CONSUMPTION_HISTORY R
+                         WHERE R.REVERSAL_OF_ID = @OriginalId)", param),
                 (InsertConsumptionSql, param),
                 (InsertReversalTransactionSql, param));
         }
@@ -175,6 +175,13 @@ public sealed class ConsumptionRepository : QueryRepository, IConsumptionReposit
          @RecipeId, @RecipeVersion, @Mode, @Quantity, @Unit, @TraceId, @TagId,
          @SourceEventId, @SourceSystem, @OperatorId, @CorrelationId, @ReversalOfId,
          @Status, @MetadataJson, @OccurredAt, @Actor, @Now)";
+
+    private const string ConsumptionSelect = @"SELECT H.*,
+        CASE WHEN H.REVERSAL_OF_ID IS NULL AND EXISTS (
+            SELECT 1 FROM IVT_MATERIAL_CONSUMPTION_HISTORY R
+            WHERE R.REVERSAL_OF_ID = H.CONSUMPTION_ID)
+        THEN 'Reversed' ELSE H.STATUS END AS EFFECTIVE_STATUS
+        FROM IVT_MATERIAL_CONSUMPTION_HISTORY H";
 
     private const string InsertTransactionSql = @"
         INSERT INTO IVT_MATERIAL_TX
@@ -280,6 +287,7 @@ public sealed class ConsumptionRepository : QueryRepository, IConsumptionReposit
         public string? CorrelationId { get; set; }
         public string? ReversalOfId { get; set; }
         public string Status { get; set; } = string.Empty;
+        public string EffectiveStatus { get; set; } = string.Empty;
         public string? MetadataJson { get; set; }
         public DateTime OccurredAt { get; set; }
 
@@ -287,6 +295,8 @@ public sealed class ConsumptionRepository : QueryRepository, IConsumptionReposit
             ConsumptionId, IdempotencyKey, RequestHash, PlantId, EquipmentId,
             MaterialLotId, MaterialId, ProcessLotId, WorkOrderId, ProcessId, RecipeId,
             RecipeVersion, ConsumptionMode, ToDecimal(Quantity), Unit, TraceId, TagId, SourceEventId,
-            SourceSystem, OperatorId, CorrelationId, ReversalOfId, Status, MetadataJson, OccurredAt);
+            SourceSystem, OperatorId, CorrelationId, ReversalOfId,
+            string.IsNullOrEmpty(EffectiveStatus) ? Status : EffectiveStatus,
+            MetadataJson, OccurredAt);
     }
 }

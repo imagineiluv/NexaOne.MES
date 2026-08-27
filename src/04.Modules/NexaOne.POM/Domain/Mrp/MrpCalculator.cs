@@ -7,10 +7,10 @@ public sealed record MrpDemand(string ItemId, decimal Qty, DateTime? DueDate, st
 /// <summary>BOM 1행 — 부모 1단위당 구성품 소요(QuantityPer) × (1+ScrapRate) 전개.</summary>
 public sealed record MrpBomLine(string ParentItemId, string ComponentItemId, decimal QuantityPer, decimal ScrapRate);
 
-/// <summary>품목 계획 파라미터(MDM_ITEM_PLANNING) — 미등록 품목은 기본값(안전재고 0·로트 1·자동 판정).</summary>
+/// <summary>품목 계획 파라미터 — 미등록 품목은 기본값(안전재고 0·로트 1·자동 판정).</summary>
 public sealed record MrpItemParameters(decimal SafetyStock, int? LeadTimeDays, decimal LotSize, string? MakeOrBuy);
 
-/// <summary>조달 파라미터(MDM_VENDOR_ITEM 집계) — 품목별 MIN(리드타임)/MIN(MOQ).</summary>
+/// <summary>조달 파라미터 — 품목별 최소 리드타임과 최소 주문수량.</summary>
 public sealed record MrpVendorParameters(int? LeadTimeDays, decimal? Moq);
 
 /// <summary>계획오더 제안 1건 — 넷팅 근거(Gross/OnHand/OnOrder/Safety/Net)를 함께 담아 화면에서 산식 추적 가능.</summary>

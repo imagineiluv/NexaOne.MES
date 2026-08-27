@@ -3,7 +3,8 @@ namespace NexaOne.Infrastructure.Persistence;
 /// <summary>
 /// 모든 읽기 데이터 접근의 단일 게이트웨이(ADR-001). 연결 획득·실행·명명 쿼리 해석·관측을 한 지점에 집중해
 /// 비전의 "모든 데이터 접근이 Query Engine을 통과"를 리포지토리 시그니처 변경 없이 달성한다.
-/// 타입 매핑은 Dapper를 그대로 사용한다.
+/// 타입 매핑은 Dapper를 그대로 사용한다. 취소 토큰은 연결 열기와 DB 명령 양쪽에 적용되며, 명령 제한 시간과
+/// 진단 정책은 구현이 숨긴다. 호출자는 SQL·파라미터를 진단용으로 복제하거나 기록하지 않는다.
 /// </summary>
 public interface IQueryGateway
 {

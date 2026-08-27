@@ -94,7 +94,7 @@
     <constructor-arg ref="fdcInterlockService" />
     <constructor-arg ref="fdcAlarmService" />
   </object>
-  <!-- 프로토콜 선택은 NexusLogic PlcDriverFactory(부모 컨텍스트)가 담당하고, FDC 어댑터는
+  <!-- 프로토콜 선택은 NexaLogic PlcDriverFactory(부모 컨텍스트)가 담당하고, FDC 어댑터는
        FdcEquipmentEndpoint를 프로토콜 중립 PlcDeviceInterface로 변환한다. -->
   <object id="fdcPlcDeviceFactory" type="NexaOne.FDC.Infrastructure.Equipment.FdcPlcDeviceFactory, NexaOne.FDC">
     <constructor-arg ref="plcDriverFactory" />

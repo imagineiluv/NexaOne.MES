@@ -1,0 +1,6 @@
+-- Owner: EST. Carrier cleaning is an equipment output, never a process-LOT output.
+ALTER TABLE EST_EQUIPMENT_OUTPUT_EVENT
+    ADD CONSTRAINT CK_EST_OUTPUT_CARRIER_NOT_LOT CHECK (
+        UPPER(LTRIM(RTRIM(OUTPUT_TYPE))) <> 'CARRIERCLEANED'
+        OR (IS_LOT_OUTPUT = 0 AND PROCESS_LOT_ID IS NULL)
+    );
