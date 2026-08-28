@@ -42,11 +42,33 @@ CI는 secret이 없으면 checkout 전에 명시적으로 실패하며, 토큰�
 | `Server__SpringConfig` | `config/host/server.xml`(MSSQL) / `config/host/server.sqlite.xml` | 방언 전환 |
 | `Database__Provider` | `MsSql` / `Sqlite` | SpringConfig와 짝 |
 | `Email__Smtp__User/Password` | SMTP 자격 | 메일 기능 사용 시, **env 전용** |
-| `Worker__Fdc__VirtualEvent__Enabled` | `true` | FDC 가상이벤트 워커(Spring 상수라 env만 유효) |
+| `Worker__Fdc__Enabled` | `false` | PLC/STO action adapter·ack/readback HIL 완료 전에는 반드시 OFF |
+| `Worker__Fdc__InterlockActionTimeoutSeconds` | `10` | action readiness·apply·reconcile·release 최대 caller 대기; 0 이하는 기동 거부 |
+| `Worker__Fdc__RuntimeHealth__FreshnessTimeoutSeconds` | `30` | 마지막 완료 PLC poll 허용 경과; 초과·listener 종료 시 permit 철회, 0 이하는 기동 거부 |
+| `Worker__Fdc__DriverCleanupTimeoutSeconds` | `10` | driver별 Stop/Dispose 단계의 독립 최대 대기; timeout 뒤에도 다음 단계·다음 driver 정리를 계속 |
+| `Worker__Fdc__Retention__Enabled` | `false` | 수집 원장 보존 정리; 주기/보존일은 `IntervalSeconds`/`RetentionDays` |
+| `Worker__Fdc__VirtualEvent__Enabled` | `false` | FDC 가상이벤트 평가; 규칙 검증 후 명시 활성화, `IntervalSeconds`로 주기 조정 |
+| `Worker__Fdc__Topic` | `nexaone.events` | 생략 시 `Events__Outbox__Topic`, 이후 기본 토픽 순으로 fallback |
+| `Worker__Ems__MaintenanceDue__Enabled` | `false` | 예방정비 도래 이벤트 발행; 구독자·토픽 검증 후 활성화 |
+| `Worker__Ems__MaintenanceDue__IntervalSeconds` | `3600` | 최소 60초로 제한 |
+| `Worker__Ems__MaintenanceDue__Topic` | `nexaone.events` | 생략 시 `Events__Outbox__Topic`, 이후 기본 토픽 순으로 fallback |
+| `Worker__Sys__LoginFailureRetention__Enabled` | `false` | 로그인 실패 이력 삭제; 보존·감사 정책과 백업 검증 후 활성화 |
+| `Worker__Sys__LoginFailureRetention__IntervalSeconds` | `86400` | 최소 60초로 제한 |
+| `Worker__Sys__LoginFailureRetention__RetentionDays` | `90` | 최소 1일로 제한 |
 | `ApiBaseUrl` | 예: `http://localhost:8080/` | **8080 외 포트/프록시 뒤 기동 시 필수** — 호스트 자기호출 기준 |
 
+FDC 수집 활성화 전에는 다음을 모두 확인한다.
+
+- 활성 parameter마다 `FDC_PARAMETER.ENDPOINT_ID`가 정확히 한 활성 endpoint를 가리키고, endpoint별 `TAG_MAP_PATH`가 존재해야 한다. 상대경로는 서비스의 현재 디렉터리가 아니라 `AppContext.BaseDirectory` 기준이다. 외부 절대경로는 허용하지만 tag map에 자격증명·비밀값을 넣지 않는다.
+- 현재 FDC의 원자적 구독+baseline 지원은 `ModbusTcp`, `SiemensS7`, `MitsubishiMc`, `EtherNetIp`만 해당한다. OPC UA·Modbus RTU·Omron FINS는 `Worker__Fdc__Enabled=true` 운영 대상으로 승인하지 않는다.
+- 프로젝트 `IFdcInterlockActionPort`의 모든 opaque action key가 ack/readback과 cancellation/deadline fencing까지 확인되고, 전체 unresolved effect inventory에 삭제된 설비/파라미터가 없어야 한다. EffectId별 durable command journal과 controller readback을 유지하며 V146의 Prepared→Applied→ConditionNormalized→ReleasePending→Resolved 재조정에 응답해야 한다. DB에 없고 adapter journal에만 남은 effect도 완전한 원 trigger 증거와 같은 EffectId로 반환해야 하며, 기동 시 모든 미해제 상태를 먼저 reconcile한 뒤 현재 PLC snapshot이 정상인 경우에만 Release한다.
+- caller 대기는 `InterlockActionTimeoutSeconds`로 제한되지만 cancellation을 무시한 adapter의 실제 장치 명령은 백그라운드에서 늦게 끝날 수 있다. 특히 timeout 뒤 Release가 물리 해제를 완료하지 않도록 adapter/controller 자체 deadline 또는 fencing을 HIL로 증명해야 하며, readiness가 이를 확인하지 않으면 기동을 거부한다. 각 PLC 구독은 listener completion/fault와 monotonic 완료-poll 진행을 제공해야 한다. endpoint별 정상 poll+read timeout+최대 reconnect backoff보다 작은 freshness는 구성 오류로 기동 거부하고, 그 예산을 넘긴 frozen stream은 permit을 철회한다.
+- FDC worker는 설비 `PlantController`나 Auto 모드를 시작하지 않는다. 실제 설비 운전 admission은 별도 equipment orchestration이 담당한다. Cleaner Auto Start/Resume에는 아직 FDC permit 기반 cross-process lease가 연결되지 않았으므로 Production 자동운전을 승인하지 않는다. 단순 상태 조회가 아니라 최초 거부·generation fencing·heartbeat/TTL·단절 즉시 철회·기존 Stop 경로 직렬화를 구현하고 HIL로 확인해야 한다.
+- permit 철회와 FDC driver close는 safety PLC/STO의 물리 de-energize를 대체하지 않는다. driver health/fatal fault 전달, wiring/readback, 실제 PLC/STO HIL이 끝날 때까지 worker 기본값을 OFF로 유지한다.
+
 워커/게이트 기본값(샘플 파일이 프로덕션 권장값으로 켜 둠): RateLimiting·RequestLogging·AppLogging(Db)·
-RefreshTokenCleanup·BatchProcess·Outbox(Dispatch+Events)·OEE Aggregation.
+RefreshTokenCleanup·BatchProcess·Outbox(Dispatch+Events)·OEE Aggregation. EMS 예방정비 도래 발행과 SYS 로그인 실패
+이력 삭제는 데이터 발행·삭제 정책이므로 샘플에서도 기본 OFF이며, 각각의 운영 검증 후 명시적으로 활성화한다.
 
 **기본 관리자 하드닝(자동)**: Production 기동 시 admin이 V001 기본 해시 그대로면 `PASSWORD_STATE='Create'`로
 강제 전이 — 첫 로그인 시 비밀번호 변경이 강제된다(`DefaultAdminHardening`).
@@ -82,12 +104,41 @@ dotnet NexaOne.Server.dll --urls http://localhost:8080
   ⚠ ALTER·UPDATE형 마이그레이션은 증분 경로 미적용 — dev DB는 재생성으로 반영).
 - `V089__SYS_SCREEN_TARGET.sql`은 신규 테이블 방식이므로 기존 SQLite DB에도 증분 적용된다. 화면의 `TARGET_CHANNEL`과 `ENTRY_PATH`를 저장한다.
 - **MSSQL 적용 러너**: `tools/ops/Apply-MssqlMigrations.ps1 -ConnectionString $env:... [-DryRun] [-IncludeOpsSeed]`
-  — `SYS_SCHEMA_MIGRATION` 버전 추적, 파일당 단일 트랜잭션, 멱등. 접속 문자열은 env/보안 저장소 전용.
+  — `SYS_SCHEMA_MIGRATION`이 파일명과 LF 정규화 SHA-256을 추적하며, 이미 적용된 파일의 개명·내용 변경은
+  즉시 실패한다. 파일당 적용과 이력 기록은 한 트랜잭션이다. 접속 문자열은 env/보안 저장소 전용.
+- **기존 체크섬 없는 DB의 1회 전환**: 먼저 전체 백업을 만들고, 배포 DB의 마이그레이션 목록과 승인된
+  release 소스가 일치하는지 DBA/릴리즈 담당자가 검토한다. staging 복원본에 동일 러너를 실행해 schema 계약과
+  애플리케이션 회귀를 통과한 뒤에만 운영에서 `-AdoptMissingChecksums`를 한 번 사용한다. 이 옵션은 과거에 실제
+  실행된 SQL을 역증명하지 않고 현재 승인 소스를 기준선으로 신뢰하므로 자동 CI나 일반 기동에 넣지 않는다.
+- **대용량 업그레이드**: V130~V144의 신규/교체 index와 V142/V146/V147의 backfill·상태 제약은 hot table의 쓰기 증폭·build lock·transaction log를
+  유발할 수 있다. 특히 V142 TRACE cursor 전환은 백필용 정렬 index로 full sort를 줄여도 terminal inbox 전행 갱신,
+  index build/drop과 cursor backfill이 남고, V144는 `POM_LOT_HISTORY`의 TrackOut filtered/covering index를 build한다.
+  운영과 유사한 행 수의 복원본에서 table/index 크기, log 여유, blocking, 300초 파일 transaction timeout과 timeout 뒤
+  rollback 시간을 측정한다. 전환 중 TRACE/POM 구버전 writer를 중지하고 maintenance window·abort/rollback 기준을
+  승인해야 한다. SQL Server edition별 ONLINE/RESUMABLE 지원 여부와 별도 online build 절차를 DBA가 확정하기 전에는
+  운영에 적용하지 않는다. V142/V144, FDC history를 확장하는 V146, TRACE work-state를 검증하는 V147이 pending이면
+  러너가 기본 실패한다. 위 준비를
+  실제로 완료한 승인 실행에서만 `-ApproveHighImpactMigrations`를 지정한다. 이 스위치는 준비 상태를 자동 증명하지
+  않으며 CI의 빈 임시 DB에서는 계약 검증 목적으로만 명시한다.
 - **운영 초기 데이터(ops 시드 팩)**: `ops/sql/sys-menu-seed.mssql.sql`(메뉴 320행 — 빈 테이블 가드,
   원본은 `config/Seed/nexaone-menu.json` + 생성기 `tools/ops/Generate-MenuSeedSql.ps1`) ·
   `ops/sql/sys-batch-seed.mssql.sql`(로그 보존 정리 배치 2종 — 행 단위 멱등). 러너 `-IncludeOpsSeed`로 일괄 적용.
-- **MSSQL 사전 검증**: 노드 접근 가능 시 `NEXAONE_MSSQL_TEST_CONN` 설정 후 `MssqlDialectSyntaxTests` 실행
-  (전 mssql 쿼리 SET PARSEONLY) — 테스트 노드 온라인 시 수행할 미결 항목.
+- **MSSQL 사전 검증**: 노드 접근 가능 시 `NEXAONE_MSSQL_TEST_CONN` 설정 후
+  `dotnet test test/NexaOne.ServerTests/NexaOne.ServerTests.csproj -c Release --filter Category=MssqlContract` 실행.
+  전 migration 적용·runtime 무결성 계약과 mssql 쿼리 `SET PARSEONLY`를 함께 확인한다. 테스트 노드 온라인 시
+  수행할 필수 릴리즈 gate다.
+- **성능 기준선(읽기 전용)**: 운영과 동일한 권한·부하 구간에서
+  `tools/ops/Get-MssqlPerformanceBaseline.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -LookbackDays 7`
+  을 실행한다. Query Store 상위 logical-read 쿼리, index read/write 사용량, statistics 갱신 시각·sampling·변경 건수,
+  missing-index DMV 힌트, key/include/크기, View 목록과 indexed-view 실제 index 정의·사용량을 UTC run-id별
+  `artifacts/mssql-performance/<run-id>/`에 덮어쓰기 없이
+  수집한다. `manifest.json`의 DB·엔진 버전·edition·DMV counter 시작 시각·보고서별 성공 여부와 최소 두 개의 대표
+  구간을 함께 비교하고 실행 계획을 검토하기 전에는 자동으로 index를 생성·삭제하지 않는다. Query Store/DMV 또는
+  `VIEW DEFINITION`, SQL Server 버전에 맞는 `VIEW DATABASE [PERFORMANCE] STATE` 및
+  `VIEW SERVER [PERFORMANCE] STATE` 권한 때문에 필수 보고서가 빠지면 기본 실행은 실패한다. 진단 목적의 불완전 수집만
+  `-AllowPartial`로 명시하고 Production 승인 근거로 사용하지 않는다. 물리 fragmentation은 기본 수집에 포함하지
+  않으며 maintenance 점검 창에서만 `-IncludePhysicalStats -Top 100 -PhysicalStatsMinPageCount 1000`으로 큰 index
+  후보를 명시적으로 제한해 `LIMITED` 모드로 수집한다.
 - **백업**: SQLite=DB 파일 복사(정지 후), MSSQL=표준 백업 절차.
 
 ## 5. 롤백·업그레이드

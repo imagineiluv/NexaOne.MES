@@ -38,6 +38,10 @@ src/04.Modules/NexaOne.<NAME>/
 
 `Module.cs`는 작은 Interface 뒤에 조립 복잡성을 숨겨야 한다. 단순히 내부 타입을 모두 다시 노출하는 얕은 Module은 표준 구조를 지킨 것으로 보지 않는다.
 
+현재 모든 업무 Module은 최상위 `Module.cs`를 조립 진입점으로 사용한다. `config/modules/<module>.xml`은
+`<module>Module` 하나에 외부 capability만 전달하고, 공개 bridge·directory·worker는 그 객체의 factory method로만
+export한다. 저장소나 application service 구현 타입을 Spring XML에 직접 등록하지 않는다.
+
 ## 의존 방향
 
 허용 방향은 다음과 같다.
@@ -72,6 +76,8 @@ Module 간 협력의 기본 Seam은 `src/02.Backend/NexaOne.Common/ServiceContra
 
 - 공유 계약에는 Interface, 요청/응답 DTO, 식별자와 이벤트 스키마만 둔다.
 - 공유 계약은 Module implementation, persistence 타입, Spring bean, ASP.NET 타입을 노출하지 않는다.
+- `INexaModuleBridge`는 container-neutral marker일 뿐이다. Module 이름, Spring bean 이름, descriptor와 catalog는
+  제품 조립 루트인 `NexaOne.Server`의 `NexaOneMesBridgeCatalog`가 명시적으로 소유하며 reflection discovery를 사용하지 않는다.
 - 요청/응답 협력은 공유 Interface를 통해 호출하고, 비동기 협력은 versioned domain/integration event를 사용한다.
 - 호스트가 여러 Module의 결과를 묶어야 하면 orchestration은 호스트 Adapter에 두되, 각 업무 판정은 소유 Module Interface로 되돌린다.
 - 다른 Module의 테이블을 직접 join하거나 갱신하지 않는다. 데이터 소유 Module이 query Interface, Bridge 또는 이벤트 projection을 제공한다.
@@ -116,8 +122,11 @@ DB, Kafka, PLC/OPC-UA, 파일 시스템과 원격 시스템은 다음 규칙을 
 `ModuleDependencyBoundaryTests`는 다음 회귀를 막는다.
 
 - 모든 `src/04.Modules/NexaOne.*` 디렉터리가 정확히 하나의 project를 소유하는지 확인
+- 모든 업무 Module에 `Module.cs`가 있고 Spring XML이 단일 root + factory export만 노출하는지 확인
 - 업무 Module에서 `NexaOne.Server`로 향하는 참조 차단
 - 업무 Module 사이의 직접 참조 차단
+- 호스트 SQL adapter가 MDM/RMS/QMS/POM 소유 query interface를 우회하지 않는지 확인
+- Common 계약에 Spring module/bean metadata나 reflection catalog가 되돌아오지 않는지 확인
 - `NexaFramework`와 `NexaFramework.Hosting`에서 제품/MES 참조 차단
 
 집중 실행 명령:
