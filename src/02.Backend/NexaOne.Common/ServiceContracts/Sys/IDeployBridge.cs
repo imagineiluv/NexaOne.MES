@@ -14,7 +14,6 @@ public sealed record DeployDownloadDto(DeployFileDto File, Stream Content);
 /// DeployService(버전 형식/파일명 검증·System.Version 기반 latest 선정·비활성 회수·바이너리 저장/정리)에
 /// 위임한다. Stream은 공유 시스템 타입이라 ALC 경계를 안전하게 넘는다(업로드는 요청 스트림, 다운로드는
 /// 저장소 읽기 스트림). 순수 목록 조회도 latest 선정과 함께 서비스가 소유한다(정렬 규칙 단일 출처).</summary>
-[NexaModuleBridge("Sys", "deployBridge")]
 public interface IDeployBridge : INexaModuleBridge
 {
     Task<Result<DeployFileDto>> UploadAsync(

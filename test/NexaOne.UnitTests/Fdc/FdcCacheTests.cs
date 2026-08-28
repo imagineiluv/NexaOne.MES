@@ -7,7 +7,7 @@ namespace NexaOne.UnitTests.Fdc;
 /// <summary>
 /// FDC 수집 핫패스 캐싱 회귀 안전망 — 태그 변경마다 반복되는 마스터/설정 조회를 캐시하고
 /// 쓰기 경로에서 무효화하는지 검증한다(MdmMasterService 캐시 패턴 재사용).
-/// 안전(STOP) 인터락 규칙은 응답성을 위해 의도적으로 캐시하지 않으므로(FdcInterlockService 미변경) 여기서 다루지 않는다.
+/// 운영 인터락 규칙은 별도의 기동 시 불변 runtime snapshot이 소유하므로 이 legacy cache 회귀 범위에서 다루지 않는다.
 /// 캐시는 선택적 생성자 인자라 미주입 시 직접 조회한다 — 이 테스트는 캐시를 주입한 경우의 동작을 고정한다.
 /// </summary>
 public sealed class FdcCacheTests

@@ -16,6 +16,134 @@ public static class SqliteSchemaInitializer
         @"^V(?<version>[0-9]{3})__(?<description>[A-Z0-9]+(?:_[A-Z0-9]+)*)\.sql$",
         RegexOptions.CultureInvariant);
 
+    private const string TraceInboxWorkStateInsertTrigger = """
+        CREATE TRIGGER TR_IVT_TRACE_INBOX_WORK_STATE_BI
+        BEFORE INSERT ON IVT_TRACE_PROJECTION_INBOX
+        WHEN NOT (
+            (NEW.STATUS IN ('Pending', 'Error') AND NEW.IS_WORK_ITEM = 1)
+            OR (NEW.STATUS IN ('Applied', 'Ignored') AND NEW.IS_WORK_ITEM = 0))
+        BEGIN
+            SELECT RAISE(ABORT, 'IVT TRACE inbox STATUS and IS_WORK_ITEM must agree');
+        END;
+        """;
+
+    private const string TraceInboxWorkStateUpdateTrigger = """
+        CREATE TRIGGER TR_IVT_TRACE_INBOX_WORK_STATE_BU
+        BEFORE UPDATE OF STATUS, IS_WORK_ITEM ON IVT_TRACE_PROJECTION_INBOX
+        WHEN NOT (
+            (NEW.STATUS IN ('Pending', 'Error') AND NEW.IS_WORK_ITEM = 1)
+            OR (NEW.STATUS IN ('Applied', 'Ignored') AND NEW.IS_WORK_ITEM = 0))
+        BEGIN
+            SELECT RAISE(ABORT, 'IVT TRACE inbox STATUS and IS_WORK_ITEM must agree');
+        END;
+        """;
+
+    private const string FdcEffectLifecycleInsertTrigger = """
+        CREATE TRIGGER TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BI
+        BEFORE INSERT ON FDC_INTERLOCK_HISTORY
+        WHEN TYPEOF(NEW.VERSION) <> 'integer' OR NEW.VERSION <= 0
+          OR TYPEOF(NEW.IS_RESOLVED) <> 'integer'
+          OR NEW.EFFECT_STATE NOT IN ('Prepared', 'Applied', 'ConditionNormalized', 'ReleasePending', 'Resolved')
+          OR NOT (
+              (NEW.IS_RESOLVED = 0 AND NEW.EFFECT_STATE <> 'Resolved')
+              OR (NEW.IS_RESOLVED = 1 AND NEW.EFFECT_STATE = 'Resolved'))
+          OR NOT (
+              (NEW.EFFECT_STATE = 'Prepared'
+               AND NEW.APPLY_ACK_ID IS NULL
+               AND NEW.APPLY_CONFIRMED_AT IS NULL
+               AND NEW.CONDITION_NORMALIZED_AT IS NULL
+               AND NEW.CONDITION_NORMALIZED_VALUE IS NULL
+               AND NEW.RELEASE_ACK_ID IS NULL
+               AND NEW.RELEASE_CONFIRMED_AT IS NULL)
+              OR (
+                  NEW.EFFECT_STATE = 'Applied'
+                  AND NULLIF(TRIM(NEW.APPLY_ACK_ID), '') IS NOT NULL
+                  AND NEW.APPLY_CONFIRMED_AT IS NOT NULL
+                  AND NEW.CONDITION_NORMALIZED_AT IS NULL
+                  AND NEW.CONDITION_NORMALIZED_VALUE IS NULL
+                  AND NEW.RELEASE_ACK_ID IS NULL
+                  AND NEW.RELEASE_CONFIRMED_AT IS NULL)
+              OR (
+                  NEW.EFFECT_STATE IN ('ConditionNormalized', 'ReleasePending')
+                  AND NULLIF(TRIM(NEW.APPLY_ACK_ID), '') IS NOT NULL
+                  AND NEW.APPLY_CONFIRMED_AT IS NOT NULL
+                  AND NEW.CONDITION_NORMALIZED_AT IS NOT NULL
+                  AND NEW.CONDITION_NORMALIZED_VALUE IS NOT NULL
+                  AND NEW.CONDITION_NORMALIZED_AT >= NEW.APPLY_CONFIRMED_AT
+                  AND NEW.RELEASE_ACK_ID IS NULL
+                  AND NEW.RELEASE_CONFIRMED_AT IS NULL)
+              OR (
+                  NEW.EFFECT_STATE = 'Resolved'
+                  AND ((
+                      NULLIF(TRIM(NEW.APPLY_ACK_ID), '') IS NOT NULL
+                      AND NEW.APPLY_CONFIRMED_AT IS NOT NULL
+                      AND NEW.CONDITION_NORMALIZED_AT IS NOT NULL
+                      AND NEW.CONDITION_NORMALIZED_VALUE IS NOT NULL
+                      AND NULLIF(TRIM(NEW.RELEASE_ACK_ID), '') IS NOT NULL
+                      AND NEW.RELEASE_CONFIRMED_AT IS NOT NULL
+                      AND NEW.RESOLVED_AT IS NOT NULL
+                      AND NEW.CONDITION_NORMALIZED_AT >= NEW.APPLY_CONFIRMED_AT
+                      AND NEW.RELEASE_CONFIRMED_AT >= NEW.CONDITION_NORMALIZED_AT
+                      AND NEW.RESOLVED_AT >= NEW.RELEASE_CONFIRMED_AT)
+                  OR NEW.LAST_ERROR = 'LegacyResolvedBeforeV146')))
+        BEGIN
+            SELECT RAISE(ABORT, 'FDC interlock effect lifecycle state is invalid');
+        END;
+        """;
+
+    private const string FdcEffectLifecycleUpdateTrigger = """
+        CREATE TRIGGER TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BU
+        BEFORE UPDATE ON FDC_INTERLOCK_HISTORY
+        WHEN TYPEOF(NEW.VERSION) <> 'integer' OR NEW.VERSION <= 0
+          OR TYPEOF(NEW.IS_RESOLVED) <> 'integer'
+          OR NEW.EFFECT_STATE NOT IN ('Prepared', 'Applied', 'ConditionNormalized', 'ReleasePending', 'Resolved')
+          OR NOT (
+              (NEW.IS_RESOLVED = 0 AND NEW.EFFECT_STATE <> 'Resolved')
+              OR (NEW.IS_RESOLVED = 1 AND NEW.EFFECT_STATE = 'Resolved'))
+          OR NOT (
+              (NEW.EFFECT_STATE = 'Prepared'
+               AND NEW.APPLY_ACK_ID IS NULL
+               AND NEW.APPLY_CONFIRMED_AT IS NULL
+               AND NEW.CONDITION_NORMALIZED_AT IS NULL
+               AND NEW.CONDITION_NORMALIZED_VALUE IS NULL
+               AND NEW.RELEASE_ACK_ID IS NULL
+               AND NEW.RELEASE_CONFIRMED_AT IS NULL)
+              OR (
+                  NEW.EFFECT_STATE = 'Applied'
+                  AND NULLIF(TRIM(NEW.APPLY_ACK_ID), '') IS NOT NULL
+                  AND NEW.APPLY_CONFIRMED_AT IS NOT NULL
+                  AND NEW.CONDITION_NORMALIZED_AT IS NULL
+                  AND NEW.CONDITION_NORMALIZED_VALUE IS NULL
+                  AND NEW.RELEASE_ACK_ID IS NULL
+                  AND NEW.RELEASE_CONFIRMED_AT IS NULL)
+              OR (
+                  NEW.EFFECT_STATE IN ('ConditionNormalized', 'ReleasePending')
+                  AND NULLIF(TRIM(NEW.APPLY_ACK_ID), '') IS NOT NULL
+                  AND NEW.APPLY_CONFIRMED_AT IS NOT NULL
+                  AND NEW.CONDITION_NORMALIZED_AT IS NOT NULL
+                  AND NEW.CONDITION_NORMALIZED_VALUE IS NOT NULL
+                  AND NEW.CONDITION_NORMALIZED_AT >= NEW.APPLY_CONFIRMED_AT
+                  AND NEW.RELEASE_ACK_ID IS NULL
+                  AND NEW.RELEASE_CONFIRMED_AT IS NULL)
+              OR (
+                  NEW.EFFECT_STATE = 'Resolved'
+                  AND ((
+                      NULLIF(TRIM(NEW.APPLY_ACK_ID), '') IS NOT NULL
+                      AND NEW.APPLY_CONFIRMED_AT IS NOT NULL
+                      AND NEW.CONDITION_NORMALIZED_AT IS NOT NULL
+                      AND NEW.CONDITION_NORMALIZED_VALUE IS NOT NULL
+                      AND NULLIF(TRIM(NEW.RELEASE_ACK_ID), '') IS NOT NULL
+                      AND NEW.RELEASE_CONFIRMED_AT IS NOT NULL
+                      AND NEW.RESOLVED_AT IS NOT NULL
+                      AND NEW.CONDITION_NORMALIZED_AT >= NEW.APPLY_CONFIRMED_AT
+                      AND NEW.RELEASE_CONFIRMED_AT >= NEW.CONDITION_NORMALIZED_AT
+                      AND NEW.RESOLVED_AT >= NEW.RELEASE_CONFIRMED_AT)
+                  OR NEW.LAST_ERROR = 'LegacyResolvedBeforeV146')))
+        BEGIN
+            SELECT RAISE(ABORT, 'FDC interlock effect lifecycle state is invalid');
+        END;
+        """;
+
     /// <summary>
     /// 스키마를 보장한다(idempotent). 빈 DB면 전체 마이그레이션을 1회 적용하고(시드·ALTER 포함),
     /// 이미 사용자 테이블이 있으면 '새로 추가된 마이그레이션의 누락 테이블'만 증분 생성한다.
@@ -74,8 +202,10 @@ public static class SqliteSchemaInitializer
         EnsureUtilityMeterConfigurationHistory(conn);
         EnsureAppendOnlyEvidenceGuards(conn);
         EnsureEmsToolMountPositionGuard(conn);
-        EnsureTraceProjectionPerformanceSchema(conn);
+        EnsureTraceProjectionPerformanceSchema(conn, migrationDmlAlreadyApplied: true);
+        EnsureFdcInterlockEffectLifecycleSchema(conn, migrationDmlAlreadyApplied: true);
         EnsureFdcOpenStateIndexes(conn);
+        EnsureFdcEndpointConfigurationIntegrity(conn);
         EnsureQueryPerformanceIndexes(conn);
     }
 
@@ -123,6 +253,14 @@ public static class SqliteSchemaInitializer
                 }
                 if (!Regex.IsMatch(code, @"\bCREATE\s+(TABLE|(?:UNIQUE\s+)?INDEX)\b", RegexOptions.IgnoreCase))
                     continue;
+                // V142's partial ready index must be built only after the one-time terminal-row
+                // backfill. Creating it here would first index the entire legacy inbox (default=1)
+                // and then delete most entries again in the reconciliation phase below.
+                if (Regex.IsMatch(
+                        code,
+                        @"\bCREATE\s+INDEX\s+IX_IVT_TRACE_INBOX_READY\b",
+                        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                    continue;
                 try
                 {
                     Exec(conn, code);
@@ -150,8 +288,10 @@ public static class SqliteSchemaInitializer
         EnsureUtilityMeterConfigurationHistory(conn);
         EnsureAppendOnlyEvidenceGuards(conn);
         EnsureEmsToolMountPositionGuard(conn);
-        EnsureTraceProjectionPerformanceSchema(conn);
+        EnsureTraceProjectionPerformanceSchema(conn, migrationDmlAlreadyApplied: false);
+        EnsureFdcInterlockEffectLifecycleSchema(conn, migrationDmlAlreadyApplied: false);
         EnsureFdcOpenStateIndexes(conn);
+        EnsureFdcEndpointConfigurationIntegrity(conn);
         EnsureQueryPerformanceIndexes(conn);
     }
 
@@ -208,11 +348,14 @@ public static class SqliteSchemaInitializer
 
     /// <summary>
     /// Reconciles the V142 cursor/work-set schema for databases upgraded through the incremental
-    /// path. That path deliberately skips UPDATE/INSERT backfills, so they are repeated here as
-    /// idempotent SQLite operations. Terminal inbox evidence remains queryable but is excluded from
-    /// the small retry queue and no longer participates in source-cursor reads.
+    /// path. That path deliberately skips UPDATE/INSERT backfills, so a SQLite-only durable marker
+    /// runs them once. Repeating EnsureSchema must never scan/sort the ever-growing inbox again.
+    /// Terminal inbox evidence remains queryable but is excluded from the small retry queue and no
+    /// longer participates in source-cursor reads.
     /// </summary>
-    private static void EnsureTraceProjectionPerformanceSchema(SqliteConnection conn)
+    private static void EnsureTraceProjectionPerformanceSchema(
+        SqliteConnection conn,
+        bool migrationDmlAlreadyApplied)
     {
         if (!HasTable(conn, "IVT_TRACE_PROJECTION_INBOX")) return;
 
@@ -223,14 +366,6 @@ public static class SqliteSchemaInitializer
                     ADD COLUMN IS_WORK_ITEM INTEGER NOT NULL DEFAULT 1;
                 """);
         }
-
-        Exec(conn, """
-            UPDATE IVT_TRACE_PROJECTION_INBOX
-               SET IS_WORK_ITEM = CASE
-                   WHEN STATUS IN ('Pending', 'Error') THEN 1 ELSE 0 END
-             WHERE IS_WORK_ITEM <> CASE
-                   WHEN STATUS IN ('Pending', 'Error') THEN 1 ELSE 0 END;
-            """);
 
         if (HasTable(conn, "IVT_TRACE_CONSUMPTION_BINDING")
             && !HasTable(conn, "IVT_TRACE_INGESTION_CURSOR"))
@@ -247,32 +382,135 @@ public static class SqliteSchemaInitializer
                 """);
         }
 
-        if (HasTable(conn, "IVT_TRACE_INGESTION_CURSOR"))
+        var hasCursorSchema = HasTable(conn, "IVT_TRACE_CONSUMPTION_BINDING")
+                              && HasTable(conn, "IVT_TRACE_INGESTION_CURSOR");
+        if (hasCursorSchema)
         {
-            Exec(conn, """
-                WITH RankedInbox AS (
-                    SELECT I.BINDING_ID,
-                           I.COLLECT_ID,
-                           I.COLLECTED_AT,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY I.BINDING_ID
-                               ORDER BY I.COLLECTED_AT DESC, I.COLLECT_ID DESC) AS RN
-                      FROM IVT_TRACE_PROJECTION_INBOX I
-                )
-                INSERT OR IGNORE INTO IVT_TRACE_INGESTION_CURSOR
-                    (BINDING_ID, LAST_COLLECT_ID, LAST_COLLECTED_AT,
-                     CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-                SELECT I.BINDING_ID, I.COLLECT_ID, I.COLLECTED_AT,
-                       'SYSTEM', CURRENT_TIMESTAMP, 'SYSTEM', CURRENT_TIMESTAMP
-                  FROM RankedInbox I
-                 WHERE I.RN = 1;
-                """);
+            EnsureSqliteReconciliationLedger(conn);
+        }
+
+        // BEGIN IMMEDIATE prevents an old process from writing between reconciliation and the
+        // invariant becoming durable. The marker is committed only after canonical triggers are
+        // installed. A stale/missing trigger is repaired transactionally; inconsistent data fails
+        // closed and rolls the previous definitions back.
+        using (var transaction = conn.BeginTransaction(deferred: false))
+        {
+            try
+            {
+                const string reconciliationId = "V142__IVT_TRACE_INGESTION_CURSOR";
+                var hasMarker = hasCursorSchema
+                                && HasSqliteReconciliation(conn, transaction, reconciliationId);
+                var triggersCanonical = SqliteObjectDefinitionMatches(
+                                            conn,
+                                            transaction,
+                                            "trigger",
+                                            "TR_IVT_TRACE_INBOX_WORK_STATE_BI",
+                                            TraceInboxWorkStateInsertTrigger)
+                                        && SqliteObjectDefinitionMatches(
+                                            conn,
+                                            transaction,
+                                            "trigger",
+                                            "TR_IVT_TRACE_INBOX_WORK_STATE_BU",
+                                            TraceInboxWorkStateUpdateTrigger);
+
+                if (!triggersCanonical)
+                {
+                    Exec(conn, "DROP TRIGGER IF EXISTS TR_IVT_TRACE_INBOX_WORK_STATE_BI;", transaction);
+                    Exec(conn, "DROP TRIGGER IF EXISTS TR_IVT_TRACE_INBOX_WORK_STATE_BU;", transaction);
+                }
+
+                if (hasCursorSchema && !hasMarker && !migrationDmlAlreadyApplied)
+                {
+                    Exec(conn, """
+                        UPDATE IVT_TRACE_PROJECTION_INBOX
+                           SET IS_WORK_ITEM = CASE
+                               WHEN STATUS IN ('Pending', 'Error') THEN 1 ELSE 0 END
+                         WHERE IS_WORK_ITEM <> CASE
+                               WHEN STATUS IN ('Pending', 'Error') THEN 1 ELSE 0 END;
+                        """, transaction);
+
+                    Exec(conn, """
+                        WITH MissingBinding AS (
+                            SELECT DISTINCT I.BINDING_ID
+                              FROM IVT_TRACE_PROJECTION_INBOX I
+                              LEFT JOIN IVT_TRACE_INGESTION_CURSOR C
+                                ON C.BINDING_ID = I.BINDING_ID
+                             WHERE C.BINDING_ID IS NULL
+                        ),
+                        RankedInbox AS (
+                            SELECT I.BINDING_ID,
+                                   I.COLLECT_ID,
+                                   I.COLLECTED_AT,
+                                   ROW_NUMBER() OVER (
+                                       PARTITION BY I.BINDING_ID
+                                       ORDER BY I.COLLECTED_AT DESC, I.COLLECT_ID DESC) AS RN
+                              FROM IVT_TRACE_PROJECTION_INBOX I
+                              JOIN MissingBinding M ON M.BINDING_ID = I.BINDING_ID
+                        )
+                        INSERT INTO IVT_TRACE_INGESTION_CURSOR
+                            (BINDING_ID, LAST_COLLECT_ID, LAST_COLLECTED_AT,
+                             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                        SELECT I.BINDING_ID, I.COLLECT_ID, I.COLLECTED_AT,
+                               'SYSTEM', CURRENT_TIMESTAMP, 'SYSTEM', CURRENT_TIMESTAMP
+                          FROM RankedInbox I
+                         WHERE I.RN = 1;
+                        """, transaction);
+                }
+
+                if (!hasMarker || !triggersCanonical)
+                {
+                    using var mismatch = conn.CreateCommand();
+                    mismatch.Transaction = transaction;
+                    mismatch.CommandText = """
+                        SELECT COUNT(*)
+                          FROM IVT_TRACE_PROJECTION_INBOX
+                         WHERE NOT (
+                             (STATUS IN ('Pending', 'Error') AND IS_WORK_ITEM = 1)
+                             OR (STATUS IN ('Applied', 'Ignored') AND IS_WORK_ITEM = 0));
+                        """;
+                    var mismatchCount = Convert.ToInt64(mismatch.ExecuteScalar() ?? 0L);
+                    if (mismatchCount != 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"V142 SQLite reconciliation found {mismatchCount} TRACE inbox row(s) " +
+                            "whose STATUS and IS_WORK_ITEM disagree. Repair the rows before startup.");
+                    }
+                }
+
+                if (!triggersCanonical)
+                {
+                    Exec(conn, TraceInboxWorkStateInsertTrigger, transaction);
+                    Exec(conn, TraceInboxWorkStateUpdateTrigger, transaction);
+                }
+
+                if (hasCursorSchema && !hasMarker)
+                {
+                    using var marker = conn.CreateCommand();
+                    marker.Transaction = transaction;
+                    marker.CommandText = """
+                        INSERT INTO SYS_SQLITE_RECONCILIATION
+                            (RECONCILIATION_ID, APPLIED_AT)
+                        VALUES (@id, CURRENT_TIMESTAMP);
+                        """;
+                    marker.Parameters.AddWithValue("@id", reconciliationId);
+                    marker.ExecuteNonQuery();
+                }
+
+                transaction.Commit();
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw;
+            }
         }
 
         if (HasIndex(conn, "IX_IVT_TRACE_INBOX_BINDING_CURSOR"))
             Exec(conn, "DROP INDEX IX_IVT_TRACE_INBOX_BINDING_CURSOR;");
         if (HasIndex(conn, "IX_IVT_TRACE_INBOX_WORK"))
             Exec(conn, "DROP INDEX IX_IVT_TRACE_INBOX_WORK;");
+        if (HasIndex(conn, "IX_IVT_TRACE_INBOX_CURSOR_BACKFILL"))
+            Exec(conn, "DROP INDEX IX_IVT_TRACE_INBOX_CURSOR_BACKFILL;");
 
         EnsureSqliteIndex(
             conn,
@@ -288,6 +526,219 @@ public static class SqliteSchemaInitializer
             new IndexKey("COLLECTED_AT", Descending: false),
             new IndexKey("COLLECT_ID", Descending: false),
             new IndexKey("BINDING_ID", Descending: false));
+    }
+
+    private static void EnsureSqliteReconciliationLedger(SqliteConnection conn) =>
+        Exec(conn, """
+            CREATE TABLE IF NOT EXISTS SYS_SQLITE_RECONCILIATION (
+                RECONCILIATION_ID TEXT NOT NULL PRIMARY KEY,
+                APPLIED_AT TEXT NOT NULL);
+            """);
+
+    private static bool HasSqliteReconciliation(
+        SqliteConnection conn,
+        SqliteTransaction transaction,
+        string reconciliationId)
+    {
+        using var command = conn.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT 1
+              FROM SYS_SQLITE_RECONCILIATION
+             WHERE RECONCILIATION_ID = @id
+             LIMIT 1;
+            """;
+        command.Parameters.AddWithValue("@id", reconciliationId);
+        return command.ExecuteScalar() is not null;
+    }
+
+    private static bool SqliteObjectDefinitionMatches(
+        SqliteConnection conn,
+        SqliteTransaction transaction,
+        string type,
+        string name,
+        string expectedSql)
+    {
+        using var command = conn.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT sql
+              FROM sqlite_master
+             WHERE type = @type AND name = @name;
+            """;
+        command.Parameters.AddWithValue("@type", type);
+        command.Parameters.AddWithValue("@name", name);
+        var actualSql = Convert.ToString(
+            command.ExecuteScalar(),
+            System.Globalization.CultureInfo.InvariantCulture);
+        return string.Equals(
+            NormalizeSqliteDefinition(actualSql),
+            NormalizeSqliteDefinition(expectedSql),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? NormalizeSqliteDefinition(string? sql)
+    {
+        if (string.IsNullOrWhiteSpace(sql)) return null;
+        return Regex.Replace(sql, @"\s+", " ", RegexOptions.CultureInvariant)
+            .Trim()
+            .TrimEnd(';');
+    }
+
+    /// <summary>
+    /// V146 maps pre-lifecycle terminal rows to Resolved exactly once and installs the SQLite
+    /// equivalent of the SQL Server lifecycle CHECK constraints. Backfill, canonical triggers and
+    /// the durable marker share one immediate transaction so an older writer cannot enter between
+    /// data reconciliation and invariant publication.
+    /// </summary>
+    private static void EnsureFdcInterlockEffectLifecycleSchema(
+        SqliteConnection conn,
+        bool migrationDmlAlreadyApplied)
+    {
+        const string table = "FDC_INTERLOCK_HISTORY";
+        if (!HasTable(conn, table)
+            || !HasColumn(conn, table, "EFFECT_STATE")
+            || !HasColumn(conn, table, "APPLY_ACK_ID")
+            || !HasColumn(conn, table, "APPLY_CONFIRMED_AT")
+            || !HasColumn(conn, table, "CONDITION_NORMALIZED_AT")
+            || !HasColumn(conn, table, "CONDITION_NORMALIZED_VALUE")
+            || !HasColumn(conn, table, "RELEASE_ACK_ID")
+            || !HasColumn(conn, table, "RELEASE_CONFIRMED_AT")
+            || !HasColumn(conn, table, "LAST_ERROR")
+            || !HasColumn(conn, table, "VERSION"))
+            return;
+
+        EnsureSqliteReconciliationLedger(conn);
+        using (var transaction = conn.BeginTransaction(deferred: false))
+        {
+            try
+            {
+                const string reconciliationId = "V146__FDC_INTERLOCK_EFFECT_LIFECYCLE";
+                var hasMarker = HasSqliteReconciliation(conn, transaction, reconciliationId);
+                var triggersCanonical = SqliteObjectDefinitionMatches(
+                                            conn,
+                                            transaction,
+                                            "trigger",
+                                            "TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BI",
+                                            FdcEffectLifecycleInsertTrigger)
+                                        && SqliteObjectDefinitionMatches(
+                                            conn,
+                                            transaction,
+                                            "trigger",
+                                            "TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BU",
+                                            FdcEffectLifecycleUpdateTrigger);
+
+                if (!triggersCanonical)
+                {
+                    Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BI;", transaction);
+                    Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BU;", transaction);
+                }
+
+                if (!hasMarker && !migrationDmlAlreadyApplied)
+                {
+                    Exec(conn, """
+                        UPDATE FDC_INTERLOCK_HISTORY
+                           SET EFFECT_STATE = CASE
+                               WHEN IS_RESOLVED = 1 THEN 'Resolved' ELSE 'Prepared' END,
+                               LAST_ERROR = CASE
+                               WHEN IS_RESOLVED = 1 THEN 'LegacyResolvedBeforeV146' ELSE LAST_ERROR END,
+                               VERSION = CASE
+                               WHEN TYPEOF(VERSION) = 'integer' AND VERSION > 0 THEN VERSION ELSE 1 END;
+                        """, transaction);
+                }
+
+                if (!hasMarker || !triggersCanonical)
+                {
+                    using var invalid = conn.CreateCommand();
+                    invalid.Transaction = transaction;
+                    invalid.CommandText = """
+                        SELECT COUNT(*)
+                          FROM FDC_INTERLOCK_HISTORY
+                         WHERE TYPEOF(VERSION) <> 'integer'
+                            OR VERSION <= 0
+                            OR TYPEOF(IS_RESOLVED) <> 'integer'
+                            OR EFFECT_STATE NOT IN (
+                                'Prepared', 'Applied', 'ConditionNormalized', 'ReleasePending', 'Resolved')
+                            OR NOT (
+                                (IS_RESOLVED = 0 AND EFFECT_STATE <> 'Resolved')
+                                OR (IS_RESOLVED = 1 AND EFFECT_STATE = 'Resolved'))
+                            OR NOT (
+                                (EFFECT_STATE = 'Prepared'
+                                 AND APPLY_ACK_ID IS NULL
+                                 AND APPLY_CONFIRMED_AT IS NULL
+                                 AND CONDITION_NORMALIZED_AT IS NULL
+                                 AND CONDITION_NORMALIZED_VALUE IS NULL
+                                 AND RELEASE_ACK_ID IS NULL
+                                 AND RELEASE_CONFIRMED_AT IS NULL)
+                                OR (
+                                    EFFECT_STATE = 'Applied'
+                                    AND NULLIF(TRIM(APPLY_ACK_ID), '') IS NOT NULL
+                                    AND APPLY_CONFIRMED_AT IS NOT NULL
+                                    AND CONDITION_NORMALIZED_AT IS NULL
+                                    AND CONDITION_NORMALIZED_VALUE IS NULL
+                                    AND RELEASE_ACK_ID IS NULL
+                                    AND RELEASE_CONFIRMED_AT IS NULL)
+                                OR (
+                                    EFFECT_STATE IN ('ConditionNormalized', 'ReleasePending')
+                                    AND NULLIF(TRIM(APPLY_ACK_ID), '') IS NOT NULL
+                                    AND APPLY_CONFIRMED_AT IS NOT NULL
+                                    AND CONDITION_NORMALIZED_AT IS NOT NULL
+                                    AND CONDITION_NORMALIZED_VALUE IS NOT NULL
+                                    AND CONDITION_NORMALIZED_AT >= APPLY_CONFIRMED_AT
+                                    AND RELEASE_ACK_ID IS NULL
+                                    AND RELEASE_CONFIRMED_AT IS NULL)
+                                OR (
+                                    EFFECT_STATE = 'Resolved'
+                                    AND ((
+                                        NULLIF(TRIM(APPLY_ACK_ID), '') IS NOT NULL
+                                        AND APPLY_CONFIRMED_AT IS NOT NULL
+                                        AND CONDITION_NORMALIZED_AT IS NOT NULL
+                                        AND CONDITION_NORMALIZED_VALUE IS NOT NULL
+                                        AND NULLIF(TRIM(RELEASE_ACK_ID), '') IS NOT NULL
+                                        AND RELEASE_CONFIRMED_AT IS NOT NULL
+                                        AND RESOLVED_AT IS NOT NULL
+                                        AND CONDITION_NORMALIZED_AT >= APPLY_CONFIRMED_AT
+                                        AND RELEASE_CONFIRMED_AT >= CONDITION_NORMALIZED_AT
+                                        AND RESOLVED_AT >= RELEASE_CONFIRMED_AT)
+                                    OR LAST_ERROR = 'LegacyResolvedBeforeV146')));
+                        """;
+                    var invalidCount = Convert.ToInt64(invalid.ExecuteScalar() ?? 0L);
+                    if (invalidCount != 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"V146 SQLite reconciliation found {invalidCount} invalid FDC interlock " +
+                            "effect lifecycle row(s). Repair the rows before startup.");
+                    }
+                }
+
+                if (!triggersCanonical)
+                {
+                    Exec(conn, FdcEffectLifecycleInsertTrigger, transaction);
+                    Exec(conn, FdcEffectLifecycleUpdateTrigger, transaction);
+                }
+
+                if (!hasMarker)
+                {
+                    using var marker = conn.CreateCommand();
+                    marker.Transaction = transaction;
+                    marker.CommandText = """
+                        INSERT INTO SYS_SQLITE_RECONCILIATION
+                            (RECONCILIATION_ID, APPLIED_AT)
+                        VALUES (@id, CURRENT_TIMESTAMP);
+                        """;
+                    marker.Parameters.AddWithValue("@id", reconciliationId);
+                    marker.ExecuteNonQuery();
+                }
+
+                transaction.Commit();
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw;
+            }
+        }
+
     }
 
     /// <summary>Locks the V141 process-restart recovery access paths on SQLite upgrades.</summary>
@@ -329,6 +780,126 @@ public static class SqliteSchemaInitializer
                 new IndexKey("EQUIPMENT_ID", Descending: false),
                 new IndexKey("PARAMETER_ID", Descending: false),
                 new IndexKey("OCCURRED_AT", Descending: true));
+        }
+    }
+
+    /// <summary>V145의 구조화 PLC endpoint 옵션과 timeout/recovery 제약을 SQLite에도 재조정한다.
+    /// ALTER TABLE ADD CONSTRAINT를 제거하는 방언 변환 특성 때문에 fresh/incremental 양쪽에서 동일한
+    /// 사전검사와 INSERT/UPDATE trigger를 설치한다. 임의 options/비밀 컬럼은 만들지 않는다.</summary>
+    private static void EnsureFdcEndpointConfigurationIntegrity(SqliteConnection conn)
+    {
+        const string table = "FDC_EQUIPMENT_ENDPOINT";
+        if (!HasTable(conn, table)) return;
+
+        EnsureColumn("MODBUS_UNIT_ID", "INTEGER NULL");
+        EnsureColumn("S7_RACK", "INTEGER NULL");
+        EnsureColumn("S7_SLOT", "INTEGER NULL");
+        EnsureColumn("MITSUBISHI_STATION_NO", "INTEGER NULL");
+        EnsureColumn("MITSUBISHI_NETWORK_NO", "INTEGER NULL");
+        EnsureColumn("MITSUBISHI_PC_NO", "INTEGER NULL");
+        EnsureColumn("MITSUBISHI_IO_NO", "INTEGER NULL");
+        EnsureColumn("MITSUBISHI_FRAME_FORMAT", "TEXT NULL");
+        EnsureColumn("CONNECTION_TIMEOUT_MS", "INTEGER NOT NULL DEFAULT 5000");
+        EnsureColumn("READ_WRITE_TIMEOUT_MS", "INTEGER NOT NULL DEFAULT 5000");
+        EnsureColumn("HEARTBEAT_TIMEOUT_MS", "INTEGER NOT NULL DEFAULT 5000");
+        EnsureColumn("POLLING_DISCONNECT_BACKOFF_MS", "INTEGER NOT NULL DEFAULT 100");
+        EnsureColumn("POLLING_MAX_DISCONNECT_BACKOFF_MS", "INTEGER NOT NULL DEFAULT 1000");
+
+        // A deliberately tiny legacy test table can omit the V019 base columns. The additive V145
+        // columns are still reconciled, while validation triggers wait until the real base contract exists.
+        if (!HasColumn(conn, table, "PROTOCOL") || !HasColumn(conn, table, "ENDPOINT_URL"))
+            return;
+
+        // Some development databases may already contain nullable preview columns. Preserve explicit
+        // values and supply only the V145 production defaults that a normal ADD NOT NULL would provide.
+        Exec(conn, """
+            UPDATE FDC_EQUIPMENT_ENDPOINT
+               SET CONNECTION_TIMEOUT_MS = COALESCE(CONNECTION_TIMEOUT_MS, 5000),
+                   READ_WRITE_TIMEOUT_MS = COALESCE(READ_WRITE_TIMEOUT_MS, 5000),
+                   HEARTBEAT_TIMEOUT_MS = COALESCE(HEARTBEAT_TIMEOUT_MS, 5000),
+                   POLLING_DISCONNECT_BACKOFF_MS = COALESCE(POLLING_DISCONNECT_BACKOFF_MS, 100),
+                   POLLING_MAX_DISCONNECT_BACKOFF_MS = COALESCE(POLLING_MAX_DISCONNECT_BACKOFF_MS, 1000);
+            """);
+
+        const string invalidPredicate = """
+            CONNECTION_TIMEOUT_MS IS NULL OR CONNECTION_TIMEOUT_MS <= 0
+            OR READ_WRITE_TIMEOUT_MS IS NULL OR READ_WRITE_TIMEOUT_MS <= 0
+            OR HEARTBEAT_TIMEOUT_MS IS NULL OR HEARTBEAT_TIMEOUT_MS <= 0
+            OR POLLING_DISCONNECT_BACKOFF_MS IS NULL OR POLLING_DISCONNECT_BACKOFF_MS <= 0
+            OR POLLING_MAX_DISCONNECT_BACKOFF_MS IS NULL
+            OR POLLING_MAX_DISCONNECT_BACKOFF_MS < POLLING_DISCONNECT_BACKOFF_MS
+            OR MODBUS_UNIT_ID < 0 OR MODBUS_UNIT_ID > 255
+            OR S7_RACK < 0 OR S7_RACK > 7
+            OR S7_SLOT < 0 OR S7_SLOT > 31
+            OR MITSUBISHI_STATION_NO < 0 OR MITSUBISHI_STATION_NO > 255
+            OR MITSUBISHI_NETWORK_NO < 0 OR MITSUBISHI_NETWORK_NO > 255
+            OR MITSUBISHI_PC_NO < 0 OR MITSUBISHI_PC_NO > 255
+            OR MITSUBISHI_IO_NO < 0 OR MITSUBISHI_IO_NO > 65535
+            OR (MITSUBISHI_FRAME_FORMAT IS NOT NULL
+                AND UPPER(MITSUBISHI_FRAME_FORMAT) NOT IN ('BINARY', 'ASCII'))
+            OR (MODBUS_UNIT_ID IS NOT NULL AND UPPER(PROTOCOL) <> 'MODBUSTCP')
+            OR ((S7_RACK IS NOT NULL OR S7_SLOT IS NOT NULL) AND UPPER(PROTOCOL) <> 'SIEMENSS7')
+            OR ((MITSUBISHI_STATION_NO IS NOT NULL
+                 OR MITSUBISHI_NETWORK_NO IS NOT NULL
+                 OR MITSUBISHI_PC_NO IS NOT NULL
+                 OR MITSUBISHI_IO_NO IS NOT NULL
+                 OR MITSUBISHI_FRAME_FORMAT IS NOT NULL)
+                AND UPPER(PROTOCOL) <> 'MITSUBISHIMC')
+            OR INSTR(ENDPOINT_URL, '@') > 0
+            OR INSTR(ENDPOINT_URL, '?') > 0
+            OR INSTR(ENDPOINT_URL, '#') > 0
+            OR INSTR(ENDPOINT_URL, '\') > 0
+            OR (INSTR(ENDPOINT_URL, '://') > 0
+                AND UPPER(SUBSTR(TRIM(ENDPOINT_URL), 1, 6)) <> 'TCP://')
+            OR (INSTR(ENDPOINT_URL, '://') > 0
+                AND INSTR(SUBSTR(ENDPOINT_URL, INSTR(ENDPOINT_URL, '://') + 3), '/') > 0)
+            OR (INSTR(ENDPOINT_URL, '://') = 0 AND INSTR(ENDPOINT_URL, '/') > 0)
+            """;
+        var triggerInvalidPredicate = Regex.Replace(
+            invalidPredicate,
+            @"\b(CONNECTION_TIMEOUT_MS|READ_WRITE_TIMEOUT_MS|HEARTBEAT_TIMEOUT_MS|POLLING_DISCONNECT_BACKOFF_MS|POLLING_MAX_DISCONNECT_BACKOFF_MS|MODBUS_UNIT_ID|S7_RACK|S7_SLOT|MITSUBISHI_STATION_NO|MITSUBISHI_NETWORK_NO|MITSUBISHI_PC_NO|MITSUBISHI_IO_NO|MITSUBISHI_FRAME_FORMAT|PROTOCOL|ENDPOINT_URL)\b",
+            "NEW.$1",
+            RegexOptions.CultureInvariant);
+
+        using (var invalid = conn.CreateCommand())
+        {
+            invalid.CommandText = $"""
+                SELECT ENDPOINT_ID
+                  FROM FDC_EQUIPMENT_ENDPOINT
+                 WHERE {invalidPredicate}
+                 ORDER BY ENDPOINT_ID
+                 LIMIT 1;
+                """;
+            var endpointId = Convert.ToString(invalid.ExecuteScalar());
+            if (!string.IsNullOrEmpty(endpointId))
+            {
+                throw new InvalidOperationException(
+                    $"V145 cannot enable FDC PLC endpoint configuration. Invalid or secret-bearing endpoint='{endpointId}'.");
+            }
+        }
+
+        Exec(conn, $"""
+            DROP TRIGGER IF EXISTS TR_FDC_ENDPOINT_CONFIG_VALIDATE_INSERT;
+            CREATE TRIGGER TR_FDC_ENDPOINT_CONFIG_VALIDATE_INSERT
+            BEFORE INSERT ON FDC_EQUIPMENT_ENDPOINT
+            WHEN {triggerInvalidPredicate}
+            BEGIN
+                SELECT RAISE(ABORT, 'V145 FDC PLC endpoint configuration is invalid');
+            END;
+
+            DROP TRIGGER IF EXISTS TR_FDC_ENDPOINT_CONFIG_VALIDATE_UPDATE;
+            CREATE TRIGGER TR_FDC_ENDPOINT_CONFIG_VALIDATE_UPDATE
+            BEFORE UPDATE ON FDC_EQUIPMENT_ENDPOINT
+            WHEN {triggerInvalidPredicate}
+            BEGIN
+                SELECT RAISE(ABORT, 'V145 FDC PLC endpoint configuration is invalid');
+            END;
+            """);
+
+        void EnsureColumn(string columnName, string definition)
+        {
+            if (!HasColumn(conn, table, columnName))
+                Exec(conn, $"ALTER TABLE {table} ADD COLUMN {columnName} {definition};");
         }
     }
 
@@ -539,6 +1110,24 @@ public static class SqliteSchemaInitializer
                 new IndexKey("DEFECT_QTY", Descending: true),
                 new IndexKey("CREATED_AT", Descending: true),
                 new IndexKey("LOT_ID", Descending: false));
+        }
+
+        if (HasTable(conn, "POM_LOT_HISTORY"))
+        {
+            EnsureSqliteIndex(
+                conn,
+                "POM_LOT_HISTORY",
+                "IX_POM_LOT_HISTORY_OEE_TRACK_OUT",
+                unique: false,
+                partial: true,
+                """
+                CREATE INDEX IX_POM_LOT_HISTORY_OEE_TRACK_OUT
+                    ON POM_LOT_HISTORY (PLANT_ID, EQUIPMENT_ID, TRACK_OUT_TIME)
+                    WHERE EXECUTION_ID = 'TrackOut' AND TRACK_OUT_TIME IS NOT NULL;
+                """,
+                new IndexKey("PLANT_ID", Descending: false),
+                new IndexKey("EQUIPMENT_ID", Descending: false),
+                new IndexKey("TRACK_OUT_TIME", Descending: false));
         }
 
         if (HasTable(conn, "POM_WORK_ORDER"))
@@ -2383,9 +2972,13 @@ public static class SqliteSchemaInitializer
         }
     }
 
-    private static void Exec(SqliteConnection conn, string sql)
+    private static void Exec(
+        SqliteConnection conn,
+        string sql,
+        SqliteTransaction? transaction = null)
     {
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = sql;
         cmd.ExecuteNonQuery();
     }

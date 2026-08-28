@@ -8,7 +8,7 @@ namespace NexaOne.FDC.Infrastructure.Equipment;
 
 /// <summary>
 /// NexaLogic <see cref="IPlcDriver"/>를 NexaFramework <see cref="IDeviceInterface"/>로
-/// 노출하는 프로토콜 중립 어댑터. PlantController가 관리하는 Machine에 장착되어 PLC 연결의
+/// 노출하는 프로토콜 중립 어댑터. FDC worker가 직접 DI 받아 PLC 연결의
 /// lifecycle(Initialize → Start → Stop)을 담당한다.
 /// </summary>
 /// <remarks>
@@ -21,6 +21,7 @@ public sealed class PlcDeviceInterface : IDeviceInterface
     private readonly IPlcDriver _driver;
     private readonly PlcEndpoint _endpoint;
     private IPlcConnection? _connection;
+    private IPlcSubscriptionRuntimeHealth? _subscriptionRuntimeHealth;
 
     /// <summary>표준 PLC 엔드포인트와 이를 처리할 드라이버를 NexaFramework 장치 어댑터로 구성한다.</summary>
     public PlcDeviceInterface(string interfaceName, PlcEndpoint endpoint, IPlcDriver driver)
@@ -43,7 +44,7 @@ public sealed class PlcDeviceInterface : IDeviceInterface
         _driver = driver;
     }
 
-    /// <summary>PlantController에서 장치를 식별할 인터페이스 이름.</summary>
+    /// <summary>FDC worker에서 장치를 식별할 인터페이스 이름.</summary>
     public string InterfaceName { get; }
 
     /// <summary>현재 PLC 연결 수명 주기 상태.</summary>
@@ -54,6 +55,9 @@ public sealed class PlcDeviceInterface : IDeviceInterface
 
     /// <summary>초기화 이후 노출되는 NexaLogic 연결. 태그 읽기/쓰기/구독은 이 연결을 통해 수행한다.</summary>
     public IPlcConnection? Connection => _connection;
+
+    /// <summary>원자적 구독이 시작된 뒤 worker가 listener 종료와 poll freshness를 감독할 health 계약.</summary>
+    internal IPlcSubscriptionRuntimeHealth? SubscriptionRuntimeHealth => _subscriptionRuntimeHealth;
 
     /// <summary>장치 초기화·실행 중 오류가 발생했을 때 발행된다.</summary>
     public event EventHandler<DeviceErrorEventArgs>? ErrorOccurred;
@@ -92,15 +96,45 @@ public sealed class PlcDeviceInterface : IDeviceInterface
         }
     }
 
-    /// <summary>열린 PLC 세션을 닫고 장치를 정지 상태로 전환한다.</summary>
+    /// <summary>
+    /// 구독 listener를 먼저 중단한 뒤 PLC transport를 닫는다. 구독 중단 실패가 transport close를
+    /// 건너뛰게 하지 않으며, 두 단계의 실패를 모두 보존해 호출자에게 전달한다.
+    /// </summary>
     public async Task StopAsync(CancellationToken cancellationToken = default)
     {
-        if (_connection is not null)
+        var connection = _connection;
+        if (connection is null)
         {
-            State = ResourceState.Stopping;
-            await _connection.CloseAsync(cancellationToken);
+            _subscriptionRuntimeHealth = null;
+            State = ResourceState.Stopped;
+            return;
         }
-        State = ResourceState.Stopped;
+
+        State = ResourceState.Stopping;
+        var errors = new List<Exception>(capacity: 2);
+
+        // Subscription providers own polling/listener tasks. Closing the transport first can leave those tasks
+        // racing a disposed session, so provider shutdown is an explicit and ordered lifecycle step.
+        await TryStopStepAsync(
+            () => connection.SubscriptionProvider.StopAsync(_endpoint.EndpointId, CancellationToken.None),
+            cancellationToken,
+            errors);
+        await TryStopStepAsync(
+            () => connection.CloseAsync(CancellationToken.None),
+            cancellationToken,
+            errors);
+
+        _subscriptionRuntimeHealth = null;
+        if (errors.Count == 0)
+        {
+            State = ResourceState.Stopped;
+            return;
+        }
+
+        State = ResourceState.Error;
+        throw new AggregateException(
+            $"PLC device interface '{InterfaceName}' failed to stop cleanly.",
+            errors);
     }
 
     /// <summary>
@@ -124,6 +158,59 @@ public sealed class PlcDeviceInterface : IDeviceInterface
     }
 
     /// <summary>
+    /// Atomically establishes one subscription and returns the exact driver baseline that seeds
+    /// its stream. Rebuilding PlcTagDefinition outside the driver or issuing a separate read would
+    /// leave a causal cutover gap, so providers without this capability are rejected at startup.
+    /// </summary>
+    public async Task<IReadOnlyList<FdcTagSample>> SubscribeWithSnapshotAsync(
+        PlcSubscription subscription,
+        Func<FdcTagSample, Task> onSample,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(subscription);
+        ArgumentNullException.ThrowIfNull(onSample);
+        EnsureInitialized();
+        var provider = _connection!.SubscriptionProvider;
+        if (provider is not IPlcAtomicSubscriptionSnapshotProvider atomic)
+            throw new FdcInterlockRuntimeUnavailableException(
+                $"PLC endpoint '{_endpoint.EndpointId}' does not expose an atomic subscription snapshot capability.");
+        if (provider is not IPlcSubscriptionRuntimeHealth runtimeHealth)
+            throw new FdcInterlockRuntimeUnavailableException(
+                $"PLC endpoint '{_endpoint.EndpointId}' does not expose a subscription runtime health capability.");
+
+        var values = await atomic.StartWithSnapshotAsync(
+            _connection.Endpoint,
+            subscription,
+            plcEvent => onSample(NormalizeSample(plcEvent)),
+            cancellationToken);
+        if (values is null)
+            throw new FdcInterlockRuntimeUnavailableException(
+                $"PLC endpoint '{_endpoint.EndpointId}' returned no atomic subscription snapshot.");
+
+        var expected = subscription.TagNames.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var actual = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var samples = new List<FdcTagSample>(values.Count);
+        foreach (var value in values)
+        {
+            if (!expected.Contains(value.TagName))
+                throw new FdcInterlockRuntimeUnavailableException(
+                    $"PLC endpoint '{_endpoint.EndpointId}' returned unexpected snapshot tag '{value.TagName}'.");
+            if (!actual.Add(value.TagName))
+                throw new FdcInterlockRuntimeUnavailableException(
+                    $"PLC endpoint '{_endpoint.EndpointId}' returned duplicate snapshot tag '{value.TagName}'.");
+            samples.Add(NormalizeSample(value));
+        }
+
+        var missing = expected.Except(actual, StringComparer.OrdinalIgnoreCase).OrderBy(static value => value).ToArray();
+        if (missing.Length > 0)
+            throw new FdcInterlockRuntimeUnavailableException(
+                $"PLC endpoint '{_endpoint.EndpointId}' snapshot is missing active tags: {string.Join(", ", missing)}.");
+
+        _subscriptionRuntimeHealth = runtimeHealth;
+        return samples;
+    }
+
+    /// <summary>
     /// Converts a transport event into an FDC sample without allowing a null or non-numeric
     /// payload to retain <see cref="FdcSampleQuality.Good"/>. The fallback zero is persisted only
     /// as a bad observation and is therefore excluded from alarm and interlock evaluation.
@@ -132,11 +219,22 @@ public sealed class PlcDeviceInterface : IDeviceInterface
     {
         ArgumentNullException.ThrowIfNull(plcEvent);
 
-        var quality = MapQuality(plcEvent.Quality);
-        if (!TryConvertToDecimal(plcEvent.After, out var value))
+        return NormalizeSample(plcEvent.TagName, plcEvent.After, plcEvent.Quality);
+    }
+
+    private static FdcTagSample NormalizeSample(PlcTagValue value) =>
+        NormalizeSample(value.TagName, value.Value, value.Quality);
+
+    private static FdcTagSample NormalizeSample(
+        string tagName,
+        object? rawValue,
+        PlcQuality plcQuality)
+    {
+        var quality = MapQuality(plcQuality);
+        if (!TryConvertToDecimal(rawValue, out var value))
             quality = FdcSampleQuality.Bad;
 
-        return new FdcTagSample(plcEvent.TagName, value, quality);
+        return new FdcTagSample(tagName, value, quality);
     }
 
     internal static FdcSampleQuality MapQuality(PlcQuality quality) => quality switch
@@ -166,6 +264,45 @@ public sealed class PlcDeviceInterface : IDeviceInterface
         }
     }
 
+    private static async Task TryStopStepAsync(
+        Func<Task> startOperation,
+        CancellationToken cancellationToken,
+        ICollection<Exception> errors)
+    {
+        Task operation;
+        try
+        {
+            // Invoke even when the token is already canceled so every cleanup stage is attempted.
+            operation = startOperation();
+        }
+        catch (Exception ex)
+        {
+            errors.Add(ex);
+            return;
+        }
+
+        try
+        {
+            // Some protocol providers do not complete their returned task. The caller deadline bounds this
+            // wait, while each cleanup operation is still started with a fresh token so one expired stage
+            // cannot prevent the following transport-close attempt.
+            await operation.WaitAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            if (!operation.IsCompleted)
+                ObserveLateFault(operation);
+            errors.Add(ex);
+        }
+    }
+
+    private static void ObserveLateFault(Task operation) =>
+        _ = operation.ContinueWith(
+            static completed => _ = completed.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously | TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+
     /// <summary>드라이버 연결이 소유한 비동기 자원을 해제한다.</summary>
     public async ValueTask DisposeAsync()
     {
@@ -173,6 +310,7 @@ public sealed class PlcDeviceInterface : IDeviceInterface
         {
             await _connection.DisposeAsync();
             _connection = null;
+            _subscriptionRuntimeHealth = null;
         }
     }
 

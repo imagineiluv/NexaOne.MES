@@ -30,7 +30,6 @@ public sealed record MrpConvertResult(
 /// 되고 DUE_DATE=버킷 시작일이 버킷을 식별한다(스키마 무변경).</summary>
 public sealed record MrpRunOptions(int BucketDays = 7, int HorizonBuckets = 8);
 
-[NexaModuleBridge("Pom", "mrpBridge")]
 public interface IMrpBridge : INexaModuleBridge
 {
     Task<MrpRunResult> RunAsync(string executedBy, MrpRunOptions? options = null, CancellationToken ct = default);

@@ -29,7 +29,6 @@ public sealed record FdcTraceSample(
 /// FDC 영속 TRACE 원천의 모듈 경계다. 소비 모듈은 FDC 테이블이나 저장 방언을 알지 않고,
 /// 범위별 단조 커서 이후의 표본만 시간순으로 읽는다.
 /// </summary>
-[NexaModuleBridge("Fdc", "fdcTraceSource")]
 public interface IFdcTraceSource : INexaModuleBridge
 {
     Task<IReadOnlyList<FdcTraceSample>> ReadAsync(

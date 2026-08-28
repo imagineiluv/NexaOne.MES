@@ -115,14 +115,15 @@ public sealed class EquipmentDirectoryBoundaryTests
     }
 
     [Theory]
-    [InlineData("mdm.xml", "equipmentDirectory", "NexaOne.MDM.Infrastructure.EquipmentDirectory, NexaOne.MDM")]
-    [InlineData("mdm.xml", "equipmentOutputMasterDirectory", "NexaOne.MDM.Infrastructure.EquipmentOutputMasterDirectory, NexaOne.MDM")]
-    [InlineData("mdm.xml", "vendorDirectory", "NexaOne.MDM.Infrastructure.VendorDirectory, NexaOne.MDM")]
-    [InlineData("sys.xml", "maintenanceIdentityDirectory", "NexaOne.SYS.Infrastructure.MaintenanceIdentityDirectory, NexaOne.SYS")]
-    public void Owner_module_xml_registers_each_directory_adapter(
+    [InlineData("mdm.xml", "mdmModule", "equipmentDirectory", "GetEquipmentDirectory")]
+    [InlineData("mdm.xml", "mdmModule", "equipmentOutputMasterDirectory", "GetEquipmentOutputMasterDirectory")]
+    [InlineData("mdm.xml", "mdmModule", "vendorDirectory", "GetVendorDirectory")]
+    [InlineData("sys.xml", "sysModule", "maintenanceIdentityDirectory", "GetMaintenanceIdentityDirectory")]
+    public void Owner_module_xml_exports_each_directory_from_its_composition_root(
         string configFile,
+        string moduleBeanId,
         string beanId,
-        string expectedType)
+        string factoryMethod)
     {
         var path = RepositorySource.GetFile(
             "src", "00.Main", "NexaOne.Server", "config", "modules", configFile);
@@ -131,7 +132,10 @@ public sealed class EquipmentDirectoryBoundaryTests
             .Single(element => element.Name.LocalName == "object"
                                && (string?)element.Attribute("id") == beanId);
 
-        ((string?)bean.Attribute("type")).Should().Be(expectedType);
+        bean.Attribute("type").Should().BeNull(
+            "Spring must not construct module-owned repository adapters directly");
+        ((string?)bean.Attribute("factory-object")).Should().Be(moduleBeanId);
+        ((string?)bean.Attribute("factory-method")).Should().Be(factoryMethod);
     }
 
     [Theory]
@@ -168,7 +172,8 @@ public sealed class EquipmentDirectoryBoundaryTests
         var source = File.ReadAllText(path);
 
         source.Should().Contain("namespace NexaOne.ServiceContracts.Mdm;");
-        source.Should().Contain("[NexaModuleBridge(\"Mdm\", \"equipmentOutputMasterDirectory\")]");
         source.Should().Contain("interface IEquipmentOutputMasterDirectory : INexaModuleBridge");
+        source.Should().NotContain("NexaModuleBridge(",
+            "shared contracts must not embed Spring module or bean metadata");
     }
 }

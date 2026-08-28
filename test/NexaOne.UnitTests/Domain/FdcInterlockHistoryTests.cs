@@ -29,8 +29,50 @@ public sealed class FdcInterlockHistoryTests
     [Fact]
     public void Restore_raises_no_domain_events()
         => FdcInterlockHistory.Restore("IH-2", "RULE-1", "EQ-1", "PARAM-1", 1m, "ALARM", "msg",
-                DateTime.UtcNow, DateTime.UtcNow, true)
+                DateTime.UtcNow, DateTime.UtcNow, true,
+                effectState: FdcInterlockEffectState.Resolved,
+                lastError: "LegacyResolvedBeforeV146")
             .DomainEvents.Should().BeEmpty("읽기경로 재구성(Restore)은 도메인 이벤트 발행 대상이 아니다");
+
+    [Fact]
+    public void Restore_rejects_inconsistent_terminal_state()
+    {
+        var restore = () => FdcInterlockHistory.Restore(
+            "IH-BAD", "RULE-1", "EQ-1", "PARAM-1", 1m, "STOP", "msg",
+            DateTime.UtcNow, DateTime.UtcNow, true,
+            effectState: FdcInterlockEffectState.Applied);
+
+        restore.Should().Throw<InvalidOperationException>()
+            .WithMessage("*inconsistent resolved/state*");
+    }
+
+    [Fact]
+    public void Lifecycle_rejects_skipping_apply_normalization_or_release_evidence()
+    {
+        var history = FdcInterlockHistory.Create(
+            "IH-ORDER", "RULE-1", "EQ-1", "PARAM-1", 1m, "STOP", "msg", DateTime.UtcNow).Value;
+
+        var normalizePrepared = () => history.MarkConditionNormalized(DateTime.UtcNow, 0m);
+        normalizePrepared.Should().Throw<InvalidOperationException>().WithMessage("*cannot normalize from state 'Prepared'*");
+
+        var releasePrepared = () => history.MarkReleasePending("invalid transition");
+        releasePrepared.Should().Throw<InvalidOperationException>().WithMessage("*cannot await release from state 'Prepared'*");
+
+        var resolvePrepared = () => history.Resolve(DateTime.UtcNow, 0m);
+        resolvePrepared.Should().Throw<InvalidOperationException>().WithMessage("*cannot resolve from state 'Prepared'*");
+    }
+
+    [Fact]
+    public void Restore_rejects_applied_state_without_acknowledgement_evidence()
+    {
+        var restore = () => FdcInterlockHistory.Restore(
+            "IH-NO-ACK", "RULE-1", "EQ-1", "PARAM-1", 1m, "STOP", "msg",
+            DateTime.UtcNow, null, false,
+            effectState: FdcInterlockEffectState.Applied);
+
+        restore.Should().Throw<InvalidOperationException>()
+            .WithMessage("*no confirmed apply evidence*");
+    }
 
     [Fact]
     public void Resolve_raises_canonical_InterlockResolved_event_with_outbox_envelope()
@@ -41,6 +83,9 @@ public sealed class FdcInterlockHistoryTests
         history.ClearDomainEvents();   // 발동 이벤트 제거 — 해제 이벤트만 검증
 
         var resolvedAt = triggered.AddMinutes(5);
+        history.MarkApplied("apply-3", triggered.AddMinutes(1));
+        history.MarkConditionNormalized(triggered.AddMinutes(4), 0.5m);
+        history.MarkReleaseConfirmed("release-3", resolvedAt);
         history.Resolve(resolvedAt, 0.5m);
 
         var ev = history.DomainEvents.OfType<FdcInterlockResolvedDomainEvent>().Should().ContainSingle().Subject;
@@ -61,7 +106,13 @@ public sealed class FdcInterlockHistoryTests
     {
         var history = FdcInterlockHistory.Create(
             "IH-4", "RULE-1", "EQ-1", "PARAM-1", 1m, "STOP", "msg", DateTime.UtcNow).Value;
-        history.Resolve(DateTime.UtcNow);
+        var appliedAt = DateTime.UtcNow;
+        var normalizedAt = appliedAt.AddSeconds(1);
+        var resolvedAt = normalizedAt.AddSeconds(1);
+        history.MarkApplied("apply-4", appliedAt);
+        history.MarkConditionNormalized(normalizedAt, 0m);
+        history.MarkReleaseConfirmed("release-4", resolvedAt);
+        history.Resolve(resolvedAt);
         history.ClearDomainEvents();   // 첫 해제 이벤트 제거
 
         history.Resolve(DateTime.UtcNow);   // 멱등 — 전이 없음

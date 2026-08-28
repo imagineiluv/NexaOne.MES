@@ -3,129 +3,21 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
 
-  <!-- ===== FDC (Fault Detection and Classification) ===== -->
-
-  <object id="fdcInterlockRuleRepository" type="NexaOne.FDC.Infrastructure.FdcInterlockRuleRepository, NexaOne.FDC">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="fdcInterlockHistoryRepository" type="NexaOne.FDC.Infrastructure.FdcInterlockHistoryRepository, NexaOne.FDC">
-    <constructor-arg ref="eesDataSource" />
-    <constructor-arg ref="appConfiguration" />
-  </object>
-  <object id="fdcAlarmConfigRepository" type="NexaOne.FDC.Infrastructure.FdcAlarmConfigRepository, NexaOne.FDC">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="fdcAlarmHistoryRepository" type="NexaOne.FDC.Infrastructure.FdcAlarmHistoryRepository, NexaOne.FDC">
-    <constructor-arg ref="eesDataSource" />
-    <constructor-arg ref="appConfiguration" />
-  </object>
-  <object id="fdcParameterRepository" type="NexaOne.FDC.Infrastructure.FdcParameterRepository, NexaOne.FDC">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <!-- FdcCollectionWorker(ADR-006 Phase 2)가 기동 시 활성 엔드포인트를 로드하는 데 사용. ctor: (EesDataSource). -->
-  <object id="fdcEquipmentEndpointRepository" type="NexaOne.FDC.Infrastructure.FdcEquipmentEndpointRepository, NexaOne.FDC">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="fdcCollectDataRepository" type="NexaOne.FDC.Infrastructure.FdcCollectDataRepository, NexaOne.FDC">
+  <object id="fdcModule" type="NexaOne.FDC.Module, NexaOne.FDC">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="eesDialect" />
-  </object>
-  <!-- FDC 소유 영속 TRACE 원천. 소비 모듈에는 Common IFdcTraceSource만 노출하고 SQL/방언/인덱스는 FDC가 감춘다. -->
-  <object id="fdcTraceSource" type="NexaOne.FDC.Application.Fdc.FdcTraceSource, NexaOne.FDC">
-    <constructor-arg ref="fdcCollectDataRepository" />
-  </object>
-  <object id="fdcParameterGroupRepository" type="NexaOne.FDC.Infrastructure.FdcParameterGroupRepository, NexaOne.FDC">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <!-- FdcDataService(paramRepo, collectDataRepo, cache?) — cache는 server.xml 공통 빈(cross-context ref).
-       수집 핫패스(RecordDataAsync)의 파라미터 한도 조회를 캐시한다(AssignParameterToGroup 시 무효화). -->
-  <object id="fdcDataService" type="NexaOne.FDC.Application.Fdc.FdcDataService, NexaOne.FDC">
-    <constructor-arg ref="fdcParameterRepository" />
-    <constructor-arg ref="fdcCollectDataRepository" />
+    <constructor-arg ref="appConfiguration" />
     <constructor-arg ref="cacheService" />
-  </object>
-  <object id="fdcParameterGroupService" type="NexaOne.FDC.Application.Fdc.FdcParameterGroupService, NexaOne.FDC">
-    <constructor-arg ref="fdcParameterGroupRepository" />
-  </object>
-  <!-- FdcInterlockService(ruleRepository, historyRepository?) — Spring은 C# 선택적 파라미터를 인식하지 못하므로 2번째도 명시. -->
-  <object id="fdcInterlockService" type="NexaOne.FDC.Application.Fdc.FdcInterlockService, NexaOne.FDC">
-    <constructor-arg ref="fdcInterlockRuleRepository" />
-    <constructor-arg ref="fdcInterlockHistoryRepository" />
-  </object>
-  <!-- FdcAlarmService(configRepository, historyRepository?, cache?) — 선택적 인자도 Spring은 명시 필요.
-       cache는 server.xml 공통 빈 — Good 이벤트마다 읽는 활성 알람 설정을 캐시한다(설정 생성 시 무효화).
-       인터락 규칙은 안전(STOP) 응답성을 위해 의도적으로 캐시하지 않는다(fdcInterlockService 미변경). -->
-  <object id="fdcAlarmService" type="NexaOne.FDC.Application.Fdc.FdcAlarmService, NexaOne.FDC">
-    <constructor-arg ref="fdcAlarmConfigRepository" />
-    <constructor-arg ref="fdcAlarmHistoryRepository" />
-    <constructor-arg ref="cacheService" />
-  </object>
-  <!-- 가상 이벤트 평가 엔진(V067 정의→V069 전이 이력) — 정의 CRUD는 게이트웨이 소유, 평가/기록은 모듈 소유.
-       주기 워커는 기본 OFF(enabled=false) — 수동 평가(브리지 evaluate)와 동일 서비스 경로를 공유한다. -->
-  <object id="virtualEventRepository" type="NexaOne.FDC.Infrastructure.VirtualEventRepository, NexaOne.FDC">
-    <constructor-arg ref="eesDataSource" />
-    <constructor-arg ref="eesDialect" />
-  </object>
-  <object id="virtualEventService" type="NexaOne.FDC.Application.Fdc.VirtualEventService, NexaOne.FDC">
-    <constructor-arg ref="virtualEventRepository" />
-  </object>
-  <object id="virtualEventEvaluationWorker" type="NexaOne.FDC.Application.Fdc.VirtualEventEvaluationWorker, NexaOne.FDC">
-    <constructor-arg ref="virtualEventService" />
-    <constructor-arg value="false" />
-    <constructor-arg value="30" />
-  </object>
-
-  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Fdc","fdcBridge")로 IFdcBridge 캐스트.
-       파라미터그룹(FdcParameterGroupService)·임계치 알람설정(FdcAlarmService)·인터락규칙(FdcInterlockService)의
-       비-실시간 설정 생성(단일 애그리거트 쓰기) + 가상 이벤트 수동 평가(VirtualEventService)를 위임한다.
-       실시간 수집/평가/이력(FdcCollectorService·EvaluateAsync·RecordAsync·ClearActive·ResolveActive·
-       RecordDataAsync)은 워커 소유라 위임하지 않는다(ADR-006, REST 비노출). -->
-  <object id="fdcBridge" type="NexaOne.FDC.Application.Fdc.FdcBridge, NexaOne.FDC">
-    <constructor-arg ref="fdcParameterGroupService" />
-    <constructor-arg ref="fdcAlarmService" />
-    <constructor-arg ref="fdcInterlockService" />
-    <constructor-arg ref="virtualEventService" />
-  </object>
-
-  <!-- FdcCollectorService(dataService, interlockService?, alarmService?) — PLC transport는 Infrastructure
-       worker/device adapter가 소유하고 Application에는 정규화된 FdcTagSample만 전달한다. -->
-  <object id="fdcCollectorService" type="NexaOne.FDC.Application.Fdc.FdcCollectorService, NexaOne.FDC">
-    <constructor-arg ref="fdcDataService" />
-    <constructor-arg ref="fdcInterlockService" />
-    <constructor-arg ref="fdcAlarmService" />
-  </object>
-  <!-- 프로토콜 선택은 NexaLogic PlcDriverFactory(부모 컨텍스트)가 담당하고, FDC 어댑터는
-       FdcEquipmentEndpoint를 프로토콜 중립 PlcDeviceInterface로 변환한다. -->
-  <object id="fdcPlcDeviceFactory" type="NexaOne.FDC.Infrastructure.Equipment.FdcPlcDeviceFactory, NexaOne.FDC">
+    <constructor-arg ref="fdcInterlockActionPort" />
     <constructor-arg ref="plcDriverFactory" />
-  </object>
-  <!-- FDC 실시간 수집 워커(BackgroundService, ADR-006 Phase 2) — 모듈 소유 오케스트레이션. FDC 타입은 plugin ALC에서
-       해석돼야 하므로 워커는 이 자식 컨텍스트에서 조립한다(Program.cs는 IHostedService로만 당겨 호스팅).
-       plantController/messageBus는 부모(server.xml) 빈을 cross-context ref로 주입한다.
-       ctor: (FdcCollectorService, IFdcEquipmentEndpointRepository, IFdcParameterRepository, PlantController,
-              FdcPlcDeviceFactory, IMessageBus, bool enabled, string topic). topic 기본 "nexaone.events". -->
-  <object id="fdcCollectionWorker" type="NexaOne.FDC.Infrastructure.Equipment.FdcCollectionWorker, NexaOne.FDC">
-    <constructor-arg ref="fdcCollectorService" />
-    <constructor-arg ref="fdcEquipmentEndpointRepository" />
-    <constructor-arg ref="fdcParameterRepository" />
-    <constructor-arg ref="plantController" />
-    <constructor-arg ref="fdcPlcDeviceFactory" />
     <constructor-arg ref="messageBus" />
-    <!-- FDC 수집 워커 enable 스위치(Worker:Fdc:Enabled). true로 바꾸면 기동 시 PLC 수집 시작. 기본 false(외부 PLC 없는 환경 보호). -->
-    <constructor-arg value="false" />
-    <constructor-arg value="nexaone.events" />
+    <constructor-arg ref="quartzScheduler" />
   </object>
 
-  <!-- FDC 수집데이터 보존정리 워커(BackgroundService) — 모듈 소유 주기 작업. quartzScheduler는 부모(server.xml)
-       빈을 cross-context ref로 주입한다. Program.cs가 IHostedService로 자동발견해 호스팅한다. messageBus 불필요(정리 작업).
-       ctor: (IRecurringScheduler, IFdcCollectDataRepository, bool enabled, int intervalSeconds, int retentionDays). -->
-  <object id="fdcCollectDataRetentionWorker" type="NexaOne.FDC.Application.Fdc.FdcCollectDataRetentionWorker, NexaOne.FDC">
-    <constructor-arg ref="quartzScheduler" />
-    <constructor-arg ref="fdcCollectDataRepository" />
-    <!-- 보존정리 워커 enable 스위치(Worker:Fdc:Retention:Enabled). 기본 false(추가형·게이트 OFF). -->
-    <constructor-arg value="false" />
-    <constructor-arg value="86400" />
-    <constructor-arg value="30" />
-  </object>
+  <object id="fdcBridge" factory-object="fdcModule" factory-method="GetFdcBridge" />
+  <object id="fdcTraceSource" factory-object="fdcModule" factory-method="GetTraceSource" />
+  <object id="fdcCollectionWorker" factory-object="fdcModule" factory-method="GetCollectionWorker" />
+  <object id="fdcCollectDataRetentionWorker" factory-object="fdcModule" factory-method="GetRetentionWorker" />
+  <object id="virtualEventEvaluationWorker" factory-object="fdcModule" factory-method="GetVirtualEventWorker" />
 
 </objects>

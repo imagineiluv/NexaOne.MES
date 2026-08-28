@@ -81,6 +81,11 @@
        lifecycle을 수동 제어한다. 무인자 ctor(Spring property 주입). 부모 컨텍스트라 NexaFramework 타입 로드 가능. -->
   <object id="plantController" type="NexaFramework.PlantController, NexaFramework" />
 
+  <!-- 프로젝트 소유 FDC 물리 action seam. 로컬/테스트 기본값도 fail-closed이며,
+       Worker:Fdc를 켜려면 실제 adapter와 ack/readback 검증을 명시 구성해야 한다. -->
+  <object id="fdcInterlockActionPort"
+          type="NexaOne.Server.Gateway.UnconfiguredFdcInterlockActionAdapter, NexaOne.Server" />
+
   <!-- 캐시(ICacheService) — 읽기 빈도 높은 마스터/조회 캐시(인메모리, IMemoryCache 기반). FDC 수집 핫패스 등
        자식 컨텍스트 서비스가 cross-context ref="cacheService"로 공통 호출한다. 무인자 ctor가 기본 옵션
        MemoryCache를 자체 생성한다(API 티어는 MS DI로 동일 ICacheService 주입, ServiceCollectionExtensions). -->
@@ -99,11 +104,13 @@
     <constructor-arg ref="eesDialect" />
   </object>
 
-  <!-- 교차 모듈 마스터 검증 어댑터(POM 포트 구현) — 호스트(Default ALC)가 소유, plugin POM이 cross-context ref로
-       주입받는다(ADR-006: POM은 타 모듈 스키마 미보유). ITrackingMasterGateway 포트는 ServiceContracts에 공유되어
-       plugin/Default ALC 간 타입 동일성이 유지되며, 구현(MDM/RMS/QMS read)은 호스트가 소유한다. -->
+  <!-- 교차 모듈 마스터 검증 어댑터(POM 포트 구현). 물리 조회는 MDM/RMS/QMS owner directory가
+       소유하고 호스트는 축소 계약만 조합한다. -->
   <object id="trackingMasterGateway" type="NexaOne.Server.Gateway.TrackingMasterGateway, NexaOne.Server">
-    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="equipmentDirectory" />
+    <constructor-arg ref="trackingRoutingDirectory" />
+    <constructor-arg ref="trackingRecipeDirectory" />
+    <constructor-arg ref="trackingDefectDirectory" />
   </object>
 
   <!-- POM-to-QMS sibling-context proxy. QMS owns evidence SQL and the completion decision. -->
@@ -119,6 +126,11 @@
   <!-- MDM/SYS와 소비 모듈은 형제 plugin context이므로 부모에는 공용 계약만 위임하는 proxy를 둔다.
        물리 SQL은 각 소유 모듈의 equipmentDirectory/vendorDirectory/maintenanceIdentityDirectory bean에 남는다. -->
   <object id="equipmentDirectory" type="NexaOne.Server.Gateway.EquipmentDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="trackingRoutingDirectory" type="NexaOne.Server.Gateway.TrackingRoutingDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="trackingRecipeDirectory" type="NexaOne.Server.Gateway.TrackingRecipeDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="trackingDefectDirectory" type="NexaOne.Server.Gateway.TrackingDefectDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="oeePlanDirectory" type="NexaOne.Server.Gateway.OeePlanDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="oeeProductionDirectory" type="NexaOne.Server.Gateway.OeeProductionDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="vendorDirectory" type="NexaOne.Server.Gateway.VendorDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="maintenanceIdentityDirectory" type="NexaOne.Server.Gateway.MaintenanceIdentityDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="productionLotDirectory" type="NexaOne.Server.Gateway.ProductionLotDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
@@ -130,10 +142,10 @@
   <object id="purchaseOrderPlanningBridge" type="NexaOne.Server.Gateway.PurchaseOrderPlanningBridgeProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="equipmentOutputMasterDirectory" type="NexaOne.Server.Gateway.EquipmentOutputMasterDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
 
-  <!-- OEE 외부 증거 host orchestration adapter — MDM 계획/시간대와 legacy POM TrackOut을
-       Common IOeeEvidenceSource snapshot으로 축약해 EST plugin에 주입한다. EST는 타 모듈 물리 테이블을 읽지 않는다. -->
+  <!-- OEE 외부 증거 host orchestration adapter — MDM 계획·단위와 POM TrackOut owner snapshot을 조합한다. -->
   <object id="oeeEvidenceSource" type="NexaOne.Server.Gateway.OeeEvidenceSource, NexaOne.Server">
-    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="oeePlanDirectory" />
+    <constructor-arg ref="oeeProductionDirectory" />
   </object>
 
   <!-- 스케줄러 구동 Outbox 디스패치 워커(IHostedService). enabled="false"가 기본 게이트 — 켜려면 "true"로 변경한다. -->

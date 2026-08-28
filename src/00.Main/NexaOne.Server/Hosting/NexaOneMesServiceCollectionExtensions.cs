@@ -181,9 +181,9 @@ public static class NexaOneMesServiceCollectionExtensions
         services.AddSingleton(sp => new NexaOneMesRuntimeState(
             sp.GetRequiredService<ApplicationServer>(), configuration, modulesEnabled));
 
-        // 구현 플러그인 DLL은 별도 ALC에서 Spring이 생성한다. 호스트는 Default ALC에 공유된 계약
-        // 어셈블리만 스캔해 메타데이터와 DI 연결을 만들므로 플러그인을 중복 로드하지 않는다.
-        var bridgeCatalog = NexaModuleBridgeCatalog.Discover(typeof(INexaModuleBridge).Assembly);
+        // 구현 플러그인 DLL은 별도 ALC에서 Spring이 생성한다. 계약↔Bean 연결 메타데이터는
+        // 공유 계약 어셈블리를 reflection scan하지 않고 제품 composition root가 명시적으로 소유한다.
+        var bridgeCatalog = NexaOneMesBridgeCatalog.Create();
         services.AddSingleton<INexaModuleBridgeCatalog>(bridgeCatalog);
 
         if (!modulesEnabled) return;

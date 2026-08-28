@@ -207,6 +207,54 @@ public sealed class ModuleDependencyBoundaryTests
     }
 
     [Fact]
+    public void Every_domain_module_has_one_code_composition_root_and_exports_only_factory_products()
+    {
+        var moduleDirectories = FindModuleDirectories();
+        var moduleConfigRoot = Path.Combine(ServerRoot, "config", "modules");
+
+        foreach (var directory in moduleDirectories)
+        {
+            var assemblyName = Path.GetFileName(directory);
+            var moduleCode = Path.Combine(directory, "Module.cs");
+            File.Exists(moduleCode).Should().BeTrue(
+                $"{assemblyName}은 저장소와 application 구현 그래프를 숨기는 Module.cs 조립 진입점을 가져야 합니다");
+
+            var moduleKey = assemblyName["NexaOne.".Length..].ToLowerInvariant();
+            var configPath = Path.Combine(moduleConfigRoot, $"{moduleKey}.xml");
+            File.Exists(configPath).Should().BeTrue(
+                $"{assemblyName}의 Spring 경계는 module root와 공개 export만 선언해야 합니다");
+
+            var objects = XDocument.Load(configPath)
+                .Descendants()
+                .Where(static element => element.Name.LocalName == "object")
+                .ToArray();
+            var rootId = $"{moduleKey}Module";
+            var roots = objects.Where(element =>
+                    string.Equals((string?)element.Attribute("id"), rootId, StringComparison.Ordinal))
+                .ToArray();
+            roots.Should().ContainSingle();
+
+            var root = roots.Single();
+            ((string?)root.Attribute("type")).Should().Be($"{assemblyName}.Module, {assemblyName}");
+            root.Attribute("factory-object").Should().BeNull();
+            root.Elements().Should().OnlyContain(static element => element.Name.LocalName == "constructor-arg",
+                "Spring은 모듈 외부 의존성만 Module.cs에 전달해야 합니다");
+
+            var exports = objects.Except(roots).ToArray();
+            exports.Should().NotBeEmpty($"{assemblyName}은 최소 하나의 공개 bridge/worker를 export해야 합니다");
+            foreach (var export in exports)
+            {
+                export.Attribute("type").Should().BeNull(
+                    "모듈 내부 구현 타입은 Spring XML이 아니라 Module.cs가 소유해야 합니다");
+                ((string?)export.Attribute("factory-object")).Should().Be(rootId);
+                ((string?)export.Attribute("factory-method")).Should().NotBeNullOrWhiteSpace();
+                export.Elements().Should().BeEmpty(
+                    "factory export는 추가 의존성을 받아 모듈 캡슐화를 우회하지 않아야 합니다");
+            }
+        }
+    }
+
+    [Fact]
     public void Domain_sources_do_not_import_service_contract_dtos()
     {
         var violations = FindModuleDirectories()

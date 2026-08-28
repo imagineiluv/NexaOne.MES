@@ -26,19 +26,19 @@ jobs:
           fi
 
       - name: Checkout (with submodules)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive # NexaFramework / NexaDB / NexaLogic
           token: ${{ secrets.NEXA_SUBMODULE_TOKEN }}
           persist-credentials: false
 
       - name: Setup .NET (global.json 고정 — SDK 8.0.419)
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
       - name: Setup Node (SPA — React/Vite/vitest)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "20"
 
@@ -96,7 +96,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: "**/TestResults/**/*"
@@ -109,6 +109,7 @@ jobs:
     env:
       MSSQL_CONTAINER_NAME: nexaone-mssql-contract
       MSSQL_DATABASE: NexaOneContract
+      NEXAONE_MSSQL_CONTRACT_REQUIRED: "true"
     steps:
       - name: Require private submodule credential
         shell: bash
@@ -121,14 +122,14 @@ jobs:
           fi
 
       - name: Checkout (with submodules)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
           token: ${{ secrets.NEXA_SUBMODULE_TOKEN }}
           persist-credentials: false
 
       - name: Setup .NET (global.json)
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
@@ -208,9 +209,10 @@ jobs:
           $migrationsPath = Join-Path $env:GITHUB_WORKSPACE 'src/00.Main/NexaOne.Server/config/db/migrations'
           & ./tools/ops/Apply-MssqlMigrations.ps1 `
             -ConnectionString $env:NEXAONE_MSSQL_TEST_CONN `
-            -MigrationsPath $migrationsPath
+            -MigrationsPath $migrationsPath `
+            -ApproveHighImpactMigrations
 
-      - name: Validate MSSQL dialect and QMS integrity contracts
+      - name: Validate MSSQL dialect and runtime contracts
         shell: bash
         run: |
           set -euo pipefail
@@ -220,12 +222,12 @@ jobs:
           fi
           dotnet test test/NexaOne.ServerTests/NexaOne.ServerTests.csproj \
             --configuration Release --no-build --no-restore \
-            --filter "FullyQualifiedName~NexaOne.ServerTests.MssqlDialectSyntaxTests|FullyQualifiedName~NexaOne.ServerTests.MssqlQmsInspectionContractTests" \
+            --filter "Category=MssqlContract" \
             --logger "trx;LogFileName=mssql-contract.trx"
 
       - name: Upload MSSQL contract results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mssql-contract-results
           path: "**/TestResults/mssql-contract.trx"

@@ -5,7 +5,6 @@ namespace NexaOne.ServiceContracts.Est;
 /// <summary>복잡 서비스 얇은 브리지(ADR-008) — EST 설비상태. plugin(EST)이 구현하고 호스트가 GetBean→캐스트로
 /// Default-ALC DI에 등록한다. Result&lt;T&gt;로 도메인 분기(Conflict/InvalidTransition/Validation/Success)를
 /// 손실 없이 전달해 컨트롤러가 409/400/200으로 매핑한다.</summary>
-[NexaModuleBridge("Est", "equipmentStateBridge")]
 public interface IEquipmentStateBridge : INexaModuleBridge
 {
     Task<IReadOnlyList<EquipmentStateMatrixDto>> GetMatrixAsync(string plantId, CancellationToken ct = default);

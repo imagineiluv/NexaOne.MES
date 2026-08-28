@@ -1,6 +1,5 @@
 using FluentAssertions;
 using Microsoft.Data.SqlClient;
-using NexaOne.Infrastructure.Persistence;
 using System.Globalization;
 using Xunit;
 
@@ -11,9 +10,9 @@ namespace NexaOne.ServerTests;
 /// environment-gated so the ordinary local/SQLite suite stays self-contained. The dedicated CI job
 /// requires the variable before invoking this class, which prevents an accidental soft skip there.
 /// </summary>
+[Trait("Category", "MssqlContract")]
 public sealed class MssqlQmsInspectionContractTests
 {
-    private const string ConnectionEnvironmentVariable = "NEXAONE_MSSQL_TEST_CONN";
     private static readonly string ValidRequestHash = new('a', 64);
 
     [Fact]
@@ -170,15 +169,15 @@ public sealed class MssqlQmsInspectionContractTests
 
     private static async Task<DatabaseScope?> OpenMigratedScopeAsync()
     {
-        var connectionString = Environment.GetEnvironmentVariable(ConnectionEnvironmentVariable);
+        var connectionString = MssqlContractDatabase.GetConnectionStringOrThrowIfRequired();
         if (string.IsNullOrWhiteSpace(connectionString))
             return null;
 
+        await MssqlContractDatabase.ValidateFullMigrationSetAsync(connectionString);
         var connection = new SqlConnection(connectionString);
         await connection.OpenAsync();
         try
         {
-            await ApplyFullMigrationSetAsync(connection);
             var transaction = (SqlTransaction)await connection.BeginTransactionAsync();
             return new DatabaseScope(connection, transaction);
         }
@@ -186,95 +185,6 @@ public sealed class MssqlQmsInspectionContractTests
         {
             await connection.DisposeAsync();
             throw;
-        }
-    }
-
-    private static async Task ApplyFullMigrationSetAsync(SqlConnection connection)
-    {
-        var lockResult = await ExecuteScalarWithoutTransactionAsync<int>(connection, """
-            DECLARE @result INT;
-            EXEC @result = sys.sp_getapplock
-                @Resource = N'NexaOne.SchemaMigrations',
-                @LockMode = N'Exclusive',
-                @LockOwner = N'Session',
-                @LockTimeout = 60000;
-            SELECT @result;
-            """);
-        if (lockResult < 0)
-            throw new InvalidOperationException("Could not acquire the SQL Server migration lock.");
-
-        try
-        {
-            await ExecuteWithoutTransactionAsync(connection, """
-                IF OBJECT_ID(N'SYS_SCHEMA_MIGRATION', N'U') IS NULL
-                    CREATE TABLE SYS_SCHEMA_MIGRATION (
-                        VERSION_ID NVARCHAR(200) NOT NULL,
-                        APPLIED_AT DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
-                        CONSTRAINT PK_SYS_SCHEMA_MIGRATION PRIMARY KEY (VERSION_ID)
-                    );
-                """);
-
-            var applied = new HashSet<string>(StringComparer.Ordinal);
-            await using (var appliedCommand = connection.CreateCommand())
-            {
-                appliedCommand.CommandText = "SELECT VERSION_ID FROM SYS_SCHEMA_MIGRATION;";
-                await using var reader = await appliedCommand.ExecuteReaderAsync();
-                while (await reader.ReadAsync())
-                    applied.Add(reader.GetString(0));
-            }
-
-            var migrationsPath = RepositorySource.GetDirectory(
-                "src/00.Main/NexaOne.Server/config/db/migrations");
-            var migrationFiles = SqliteSchemaInitializer.GetOrderedMigrationFiles(migrationsPath);
-
-            foreach (var migrationFile in migrationFiles)
-            {
-                var version = Path.GetFileName(migrationFile);
-                if (applied.Contains(version))
-                    continue;
-
-                var sql = await File.ReadAllTextAsync(migrationFile);
-                await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync();
-                try
-                {
-                    await using var migrationCommand = connection.CreateCommand();
-                    migrationCommand.Transaction = transaction;
-                    migrationCommand.CommandTimeout = 300;
-                    migrationCommand.CommandText = sql;
-                    await migrationCommand.ExecuteNonQueryAsync();
-
-                    await using var versionCommand = connection.CreateCommand();
-                    versionCommand.Transaction = transaction;
-                    versionCommand.CommandText =
-                        "INSERT INTO SYS_SCHEMA_MIGRATION (VERSION_ID) VALUES (@version);";
-                    versionCommand.Parameters.AddWithValue("@version", version);
-                    await versionCommand.ExecuteNonQueryAsync();
-                    await transaction.CommitAsync();
-                }
-                catch
-                {
-                    await transaction.RollbackAsync();
-                    throw;
-                }
-            }
-
-            var requiredVersions = await ExecuteScalarWithoutTransactionAsync<int>(connection, """
-                SELECT COUNT(*)
-                FROM SYS_SCHEMA_MIGRATION
-                WHERE VERSION_ID IN (
-                    N'V093__QMS_INSPECTION_INTEGRITY.sql',
-                    N'V097__QMS_INSPECTION_EXECUTION_V2.sql');
-                """);
-            if (requiredVersions != 2)
-                throw new InvalidOperationException("The final V093/V097 QMS schema was not applied.");
-        }
-        finally
-        {
-            await ExecuteWithoutTransactionAsync(connection, """
-                EXEC sys.sp_releaseapplock
-                    @Resource = N'NexaOne.SchemaMigrations',
-                    @LockOwner = N'Session';
-                """);
         }
     }
 
@@ -417,25 +327,6 @@ public sealed class MssqlQmsInspectionContractTests
         var value = await command.ExecuteScalarAsync();
         if (value is null or DBNull)
             throw new InvalidOperationException("The MSSQL contract scalar query returned no value.");
-        return (T)Convert.ChangeType(value, typeof(T), CultureInfo.InvariantCulture);
-    }
-
-    private static async Task ExecuteWithoutTransactionAsync(SqlConnection connection, string sql)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        await command.ExecuteNonQueryAsync();
-    }
-
-    private static async Task<T> ExecuteScalarWithoutTransactionAsync<T>(
-        SqlConnection connection,
-        string sql)
-    {
-        await using var command = connection.CreateCommand();
-        command.CommandText = sql;
-        var value = await command.ExecuteScalarAsync();
-        if (value is null or DBNull)
-            throw new InvalidOperationException("The MSSQL migration scalar query returned no value.");
         return (T)Convert.ChangeType(value, typeof(T), CultureInfo.InvariantCulture);
     }
 

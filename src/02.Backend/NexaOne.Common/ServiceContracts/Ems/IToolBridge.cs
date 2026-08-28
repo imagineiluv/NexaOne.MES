@@ -6,7 +6,6 @@ namespace NexaOne.ServiceContracts.Ems;
 /// 생산 툴의 마스터·장착·사용·점검/교정 원장을 관리한다. 측정기는 QMS gauge/calibration이 소유하며,
 /// 설비별 사용 조건과 PLC 태그 해석은 프로젝트 플러그인이 표준 명령으로 변환한다.
 /// </summary>
-[NexaModuleBridge("Ems", "toolBridge")]
 public interface IToolBridge : INexaModuleBridge
 {
     Task<Result<ToolDto>> SaveAsync(ToolCommand command, CancellationToken ct = default);

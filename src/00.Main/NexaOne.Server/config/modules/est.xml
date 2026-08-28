@@ -3,88 +3,21 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
 
-  <!-- ===== EST (Equipment State Tracking) ===== -->
-
-  <object id="equipmentAlarmRepository" type="NexaOne.EST.Infrastructure.EquipmentAlarmRepository, NexaOne.EST">
-    <constructor-arg ref="eesDataSource" />
-    <constructor-arg ref="appConfiguration" />
-  </object>
-  <object id="equipmentStateMatrixRepository" type="NexaOne.EST.Infrastructure.EquipmentStateMatrixRepository, NexaOne.EST">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="equipmentStateRepository" type="NexaOne.EST.Infrastructure.EquipmentStateRepository, NexaOne.EST">
+  <object id="estModule" type="NexaOne.EST.Module, NexaOne.EST">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="eesDialect" />
     <constructor-arg ref="appConfiguration" />
-  </object>
-  <!-- equipmentDirectory는 호스트 server.xml의 부모 proxy(IEquipmentDirectory 구현)를 cross-context ref로 주입한다.
-       실제 조회는 MDM 모듈 bean이 소유한다(ADR-006: EST는 MDM 스키마 미보유). pom.xml의 lotTrackingService가
-       trackingMasterGateway를 참조하는 것과 동일한 패턴. -->
-  <object id="equipmentAlarmService" type="NexaOne.EST.Application.Est.EquipmentAlarmService, NexaOne.EST">
-    <constructor-arg ref="equipmentAlarmRepository" />
     <constructor-arg ref="equipmentDirectory" />
-  </object>
-  <object id="equipmentStateService" type="NexaOne.EST.Application.Est.EquipmentStateService, NexaOne.EST">
-    <constructor-arg ref="equipmentStateMatrixRepository" />
-    <constructor-arg ref="equipmentStateRepository" />
-  </object>
-
-  <!-- LOT/Carrier 공통 출력 원장. 장비별 완료 신호 해석은 프로젝트 plugin이 수행하고 이 서비스에는
-       표준화된 수량과 멱등키만 전달한다. OEE는 이 원장을 우선 집계하고 legacy POM LOT은 fallback으로 사용한다. -->
-  <object id="equipmentOutputRepository" type="NexaOne.EST.Infrastructure.EquipmentOutputRepository, NexaOne.EST">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="equipmentOutputService" type="NexaOne.EST.Application.Est.EquipmentOutputService, NexaOne.EST">
-    <constructor-arg ref="equipmentOutputRepository" />
     <constructor-arg ref="equipmentOutputMasterDirectory" />
-  </object>
-  <object id="equipmentOutputBridge" type="NexaOne.EST.Application.Est.EquipmentOutputBridge, NexaOne.EST">
-    <constructor-arg ref="equipmentOutputService" />
-  </object>
-
-  <!-- Utility master/readings/meter-discontinuity history/period summary.
-       FDC tag mapping and vendor-specific reset detection remain project adapter concerns. -->
-  <object id="utilityRepository" type="NexaOne.EST.Infrastructure.UtilityRepository, NexaOne.EST">
-    <constructor-arg ref="eesDataSource" />
-    <constructor-arg ref="eesDialect" />
-  </object>
-  <object id="utilityService" type="NexaOne.EST.Application.Est.UtilityService, NexaOne.EST">
-    <constructor-arg ref="utilityRepository" />
-  </object>
-  <object id="utilityBridge" type="NexaOne.EST.Application.Est.UtilityBridge, NexaOne.EST">
-    <constructor-arg ref="utilityService" />
-  </object>
-
-  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Est","equipmentStateBridge")로 IEquipmentStateBridge 캐스트. -->
-  <object id="equipmentStateBridge" type="NexaOne.EST.Application.Est.EquipmentStateBridge, NexaOne.EST">
-    <constructor-arg ref="equipmentStateService" />
-  </object>
-
-  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Est","equipmentAlarmBridge")로 IEquipmentAlarmBridge 캐스트. -->
-  <object id="equipmentAlarmBridge" type="NexaOne.EST.Application.Est.EquipmentAlarmBridge, NexaOne.EST">
-    <constructor-arg ref="equipmentAlarmService" />
-  </object>
-
-  <!-- ===== OEE(설비종합효율) 집계 — 원자료(상태이력·표준 출력 이벤트)를 설정(상태분류·목표)과 결합해 OEE 마트를 계산·적재. ===== -->
-  <object id="oeeAggregationRepository" type="NexaOne.EST.Infrastructure.OeeAggregationRepository, NexaOne.EST">
-    <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="oeeEvidenceSource" />
-  </object>
-
-  <!-- OEE 집계 워커(BackgroundService) — 모듈 소유 주기 작업. quartzScheduler는 부모(server.xml) 빈을 cross-context
-       ref로 주입한다. Program.cs가 IHostedService로 자동발견해 호스팅한다. ctor: (IRecurringScheduler, IOeeAggregator,
-       bool enabled, int intervalSeconds, int lookbackDays). enabled 기본 false(테스트/CI 무영향) — 'Oee:Aggregation:Enabled'로 켠다. -->
-  <object id="oeeAggregationWorker" type="NexaOne.EST.Infrastructure.OeeAggregationWorker, NexaOne.EST">
     <constructor-arg ref="quartzScheduler" />
-    <constructor-arg ref="oeeAggregationRepository" />
-    <constructor-arg ref="appConfiguration" />
-    <constructor-arg value="3600" />
-    <constructor-arg value="1" />
   </object>
 
-  <!-- ADR-008 얇은 브리지 — OEE 수동 집계 트리거. 호스트가 GetBean("Est","oeeAggregationBridge")로 IOeeAggregationBridge 캐스트. -->
-  <object id="oeeAggregationBridge" type="NexaOne.EST.Application.Oee.OeeAggregationBridge, NexaOne.EST">
-    <constructor-arg ref="oeeAggregationRepository" />
-  </object>
+  <object id="equipmentAlarmBridge" factory-object="estModule" factory-method="GetAlarmBridge" />
+  <object id="equipmentStateBridge" factory-object="estModule" factory-method="GetStateBridge" />
+  <object id="equipmentOutputBridge" factory-object="estModule" factory-method="GetOutputBridge" />
+  <object id="utilityBridge" factory-object="estModule" factory-method="GetUtilityBridge" />
+  <object id="oeeAggregationBridge" factory-object="estModule" factory-method="GetOeeBridge" />
+  <object id="oeeAggregationWorker" factory-object="estModule" factory-method="GetOeeWorker" />
 
 </objects>

@@ -6,7 +6,6 @@ namespace NexaOne.ServiceContracts.Ems;
 /// Manual maintenance execution ledger. It records authenticated checklist and labor evidence for
 /// an existing EMS work order; scheduling and work-order lifecycle remain separate modules.
 /// </summary>
-[NexaModuleBridge("Ems", "maintenanceExecutionBridge")]
 public interface IMaintenanceExecutionBridge : INexaModuleBridge
 {
     Task<Result<MaintenanceCheckDto>> RecordCheckAsync(

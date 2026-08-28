@@ -71,16 +71,18 @@ public sealed class QmsForeignSchemaBoundaryTests
     }
 
     [Theory]
-    [InlineData("pom.xml", "productionLotDirectory", "NexaOne.POM.Infrastructure.ProductionLotDirectory, NexaOne.POM")]
-    [InlineData("mdm.xml", "processDirectory", "NexaOne.MDM.Infrastructure.ProcessDirectory, NexaOne.MDM")]
-    [InlineData("sys.xml", "userDirectory", "NexaOne.SYS.Infrastructure.UserDirectory, NexaOne.SYS")]
-    public void Owner_module_xml_registers_directory_adapter(
+    [InlineData("pom.xml", "productionLotDirectory", "pomModule", "GetProductionLotDirectory")]
+    [InlineData("mdm.xml", "processDirectory", "mdmModule", "GetProcessDirectory")]
+    [InlineData("sys.xml", "userDirectory", "sysModule", "GetUserDirectory")]
+    public void Owner_module_xml_exports_directory_from_composition_root(
         string configFile,
         string beanId,
-        string expectedType)
+        string moduleBean,
+        string factoryMethod)
     {
         var bean = ModuleBean(configFile, beanId);
-        ((string?)bean.Attribute("type")).Should().Be(expectedType);
+        ((string?)bean.Attribute("factory-object")).Should().Be(moduleBean);
+        ((string?)bean.Attribute("factory-method")).Should().Be(factoryMethod);
     }
 
     [Fact]
@@ -118,13 +120,11 @@ public sealed class QmsForeignSchemaBoundaryTests
     [Fact]
     public void Qms_xml_injects_owner_directories_in_constructor_order()
     {
-        var inspection = ModuleBean("qms.xml", "qmsInspectionResultRepository");
-        inspection.Elements().Select(element => (string?)element.Attribute("ref"))
-            .Should().Equal("eesDataSource", "productionLotDirectory", "materialLotDirectory");
-
-        var references = ModuleBean("qms.xml", "qmsReferenceRepository");
-        references.Elements().Select(element => (string?)element.Attribute("ref"))
+        var module = ModuleBean("qms.xml", "qmsModule");
+        module.Elements().Select(element => (string?)element.Attribute("ref"))
             .Should().Equal(
+                "eesDataSource",
+                "appConfiguration",
                 "productionLotDirectory",
                 "materialLotDirectory",
                 "equipmentDirectory",
@@ -133,24 +133,28 @@ public sealed class QmsForeignSchemaBoundaryTests
     }
 
     [Fact]
-    public void Owner_directory_contracts_are_declared_for_automatic_ms_di_registration()
+    public void Owner_directory_contracts_are_container_neutral_and_declared_by_the_host_catalog()
     {
-        var catalog = NexaModuleBridgeCatalog.Discover(typeof(INexaModuleBridge).Assembly);
-        var expected = new[]
+        var expected = new Type[]
         {
-            new NexaModuleBridgeDescriptor(
-                typeof(IProductionLotDirectory), "Pom", "productionLotDirectory"),
-            new NexaModuleBridgeDescriptor(
-                typeof(IMaterialLotDirectory), "Ivt", "materialLotDirectory"),
-            new NexaModuleBridgeDescriptor(typeof(IProcessDirectory), "Mdm", "processDirectory"),
-            new NexaModuleBridgeDescriptor(typeof(IUserDirectory), "Sys", "userDirectory")
+            typeof(IProductionLotDirectory),
+            typeof(IMaterialLotDirectory),
+            typeof(IProcessDirectory),
+            typeof(IUserDirectory),
         };
-
-        foreach (var descriptor in expected)
+        expected.Should().OnlyContain(type => typeof(INexaModuleBridge).IsAssignableFrom(type));
+        foreach (var type in expected)
         {
-            catalog.TryGet(descriptor.ContractType, out var actual).Should().BeTrue();
-            actual.Should().Be(descriptor);
+            var source = File.ReadAllText(RepositorySource.GetFile(
+                "src", "02.Backend", "NexaOne.Common", "ServiceContracts",
+                type.Namespace!["NexaOne.ServiceContracts.".Length..], type.Name + ".cs"));
+            source.Should().NotContain("NexaModuleBridge(");
         }
+
+        var catalogSource = File.ReadAllText(RepositorySource.GetFile(
+            "src", "00.Main", "NexaOne.Server", "Hosting", "NexaOneMesBridgeCatalog.cs"));
+        foreach (var type in expected)
+            catalogSource.Should().Contain($"Bind<{type.Name}>");
     }
 
     private static System.Xml.Linq.XElement ModuleBean(string configFile, string beanId)

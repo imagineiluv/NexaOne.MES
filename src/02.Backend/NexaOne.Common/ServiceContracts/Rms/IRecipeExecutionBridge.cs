@@ -6,7 +6,6 @@ namespace NexaOne.ServiceContracts.Rms;
 /// 설비/설비등급의 레시피 선택과 실제 실행 시점의 불변 증거를 관리한다.
 /// PLC 주소·단위 변환·다운로드 순서는 프로젝트 플러그인의 책임이며 이 계약에 포함하지 않는다.
 /// </summary>
-[NexaModuleBridge("Rms", "rmsRecipeExecutionBridge")]
 public interface IRecipeExecutionBridge : INexaModuleBridge
 {
     Task<Result<RecipeAssignmentDto>> AssignAsync(

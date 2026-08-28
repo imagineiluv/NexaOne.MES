@@ -5,7 +5,6 @@ namespace NexaOne.ServiceContracts.Mdm;
 /// <summary>
 /// MRP 계산에 필요한 MDM 원자료를 물리 테이블과 분리해 제공하는 축소 snapshot 계약입니다.
 /// </summary>
-[NexaModuleBridge("Mdm", "mrpMasterDirectory")]
 public interface IMrpMasterDirectory : INexaModuleBridge
 {
     Task<MrpMasterSnapshot> GetSnapshotAsync(CancellationToken ct = default);

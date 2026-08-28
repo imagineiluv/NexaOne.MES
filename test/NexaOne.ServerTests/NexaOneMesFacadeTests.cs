@@ -59,8 +59,8 @@ public sealed class NexaOneMesFacadeTests
         runtime.ModulesEnabled.Should().BeFalse();
         runtime.WorkerCount.Should().Be(0);
         var bridgeCatalog = provider.GetRequiredService<INexaModuleBridgeCatalog>();
-        var declaredBridges = NexaModuleBridgeCatalog
-            .Discover(typeof(INexaModuleBridge).Assembly)
+        var declaredBridges = NexaOneMesBridgeCatalog
+            .Create()
             .Descriptors;
         bridgeCatalog.Descriptors.Should().Equal(declaredBridges,
             "modules-OFF에서도 계약 메타데이터는 검증하되 Spring Bridge 인스턴스는 만들지 않는다");
@@ -106,8 +106,8 @@ public sealed class NexaOneMesFacadeTests
 
         using var provider = services.BuildServiceProvider(validateScopes: true);
         var catalog = provider.GetRequiredService<INexaModuleBridgeCatalog>();
-        var declaredBridges = NexaModuleBridgeCatalog
-            .Discover(typeof(INexaModuleBridge).Assembly)
+        var declaredBridges = NexaOneMesBridgeCatalog
+            .Create()
             .Descriptors;
         catalog.Descriptors.Should().Equal(declaredBridges);
         catalog.Descriptors.Select(descriptor => descriptor.ContractType)
@@ -115,7 +115,7 @@ public sealed class NexaOneMesFacadeTests
         foreach (var descriptor in catalog.Descriptors)
         {
             services.Count(service => service.ServiceType == descriptor.ContractType).Should().Be(1,
-                $"{descriptor.ContractType.Name}은 attribute catalog에서 자동으로 한 번만 등록돼야 한다");
+                $"{descriptor.ContractType.Name}은 host composition catalog에서 한 번만 등록돼야 한다");
         }
     }
 

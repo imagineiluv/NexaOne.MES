@@ -6,7 +6,6 @@ namespace NexaOne.ServiceContracts.Ems;
 /// 인증 사용자와 보전 작업자 마스터의 현재 유효한 연결을 해석하는 directory 계약입니다.
 /// SYS adapter가 사용자/작업자 매핑을 소유하고 EMS에는 축소된 identity만 반환합니다.
 /// </summary>
-[NexaModuleBridge("Sys", "maintenanceIdentityDirectory")]
 public interface IMaintenanceIdentityDirectory : INexaModuleBridge
 {
     /// <summary>

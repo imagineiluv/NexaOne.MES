@@ -6,44 +6,50 @@ namespace NexaOne.UnitTests.Fdc;
 public sealed class FdcEquipmentEndpointTests
 {
     [Fact]
-    public void Create_succeeds_for_opcua_endpoint()
+    public void Create_succeeds_for_modbus_tcp_endpoint()
     {
-        var result = FdcEquipmentEndpoint.Create("EP1", "EQ-001", "OpcUa", "opc.tcp://host:4840", 500);
+        var result = FdcEquipmentEndpoint.Create("EP1", "EQ-001", "ModbusTcp", "tcp://host:502", 500);
 
         result.IsFailure.Should().BeFalse();
         var e = result.Value;
         e.EquipmentId.Should().Be("EQ-001");
-        e.Protocol.Should().Be("OpcUa");
-        e.EndpointUrl.Should().Be("opc.tcp://host:4840");
+        e.Protocol.Should().Be("ModbusTcp");
+        e.EndpointUrl.Should().Be("tcp://host:502");
+        e.TagMapPath.Should().BeNull("the nullable migration preserves existing endpoint rows");
         e.SamplingIntervalMs.Should().Be(500);
         e.IsActive.Should().BeTrue();
     }
 
     [Theory]
-    [InlineData("ModbusTcp")]
     [InlineData("SiemensS7")]
     [InlineData("MitsubishiMc")]
     [InlineData("EtherNetIp")]
-    [InlineData("OmronFins")]
-    public void Create_accepts_all_nexalogic_protocols(string protocol)
+    public void Create_accepts_all_currently_installable_nexalogic_protocols(string protocol)
         => FdcEquipmentEndpoint.Create("EP1", "EQ-001", protocol, "tcp://host:502").IsFailure.Should().BeFalse();
 
     [Theory]
-    [InlineData("", "EQ-001", "OpcUa", "opc.tcp://h:1")]   // endpointId 누락
-    [InlineData("EP1", "", "OpcUa", "opc.tcp://h:1")]      // equipmentId 누락
+    [InlineData("OpcUa")]
+    [InlineData("ModbusRtu")]
+    [InlineData("OmronFins")]
+    public void Create_rejects_protocols_without_an_atomic_subscription_snapshot_implementation(string protocol)
+        => FdcEquipmentEndpoint.Create("EP1", "EQ-001", protocol, "tcp://host:502").IsFailure.Should().BeTrue();
+
+    [Theory]
+    [InlineData("", "EQ-001", "ModbusTcp", "tcp://h:502")] // endpointId 누락
+    [InlineData("EP1", "", "ModbusTcp", "tcp://h:502")]    // equipmentId 누락
     [InlineData("EP1", "EQ-001", "Carrier", "x")]          // 미지원 프로토콜
-    [InlineData("EP1", "EQ-001", "OpcUa", "")]             // URL 누락
+    [InlineData("EP1", "EQ-001", "ModbusTcp", "")]         // URL 누락
     public void Create_fails_on_invalid_input(string id, string eq, string protocol, string url)
         => FdcEquipmentEndpoint.Create(id, eq, protocol, url).IsFailure.Should().BeTrue();
 
     [Fact]
     public void Create_fails_on_non_positive_sampling_interval()
-        => FdcEquipmentEndpoint.Create("EP1", "EQ-001", "OpcUa", "opc.tcp://h:1", 0).IsFailure.Should().BeTrue();
+        => FdcEquipmentEndpoint.Create("EP1", "EQ-001", "ModbusTcp", "tcp://h:502", 0).IsFailure.Should().BeTrue();
 
     [Fact]
     public void Deactivate_sets_inactive()
     {
-        var e = FdcEquipmentEndpoint.Create("EP1", "EQ-001", "OpcUa", "opc.tcp://h:1").Value;
+        var e = FdcEquipmentEndpoint.Create("EP1", "EQ-001", "ModbusTcp", "tcp://h:502").Value;
         e.Deactivate();
         e.IsActive.Should().BeFalse();
     }
@@ -51,16 +57,16 @@ public sealed class FdcEquipmentEndpointTests
     [Fact]
     public void Update_helpers_apply_only_valid_values()
     {
-        var e = FdcEquipmentEndpoint.Create("EP1", "EQ-001", "OpcUa", "opc.tcp://h:1", 1000).Value;
+        var e = FdcEquipmentEndpoint.Create("EP1", "EQ-001", "ModbusTcp", "tcp://h:502", 1000).Value;
 
-        e.UpdateUrl("opc.tcp://new:4840");
+        e.UpdateUrl("tcp://new:502");
         e.SetSamplingInterval(250);
-        e.EndpointUrl.Should().Be("opc.tcp://new:4840");
+        e.EndpointUrl.Should().Be("tcp://new:502");
         e.SamplingIntervalMs.Should().Be(250);
 
         e.UpdateUrl("   ");          // 무효값 무시
         e.SetSamplingInterval(0);    // 무효값 무시
-        e.EndpointUrl.Should().Be("opc.tcp://new:4840");
+        e.EndpointUrl.Should().Be("tcp://new:502");
         e.SamplingIntervalMs.Should().Be(250);
     }
 

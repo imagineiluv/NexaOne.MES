@@ -7,6 +7,9 @@ public sealed class MssqlMigrationRunnerTests
     private static string RunnerPath
         => RepositorySource.GetFile("tools", "ops", "Apply-MssqlMigrations.ps1");
 
+    private static string PerformanceBaselinePath
+        => RepositorySource.GetFile("tools", "ops", "Get-MssqlPerformanceBaseline.ps1");
+
     [Fact]
     public void ValidateOnly_orders_migrations_by_numeric_version_without_opening_a_database()
     {
@@ -57,7 +60,7 @@ public sealed class MssqlMigrationRunnerTests
     }
 
     [Fact]
-    public void Runner_serializes_schema_changes_and_rejects_applied_filename_drift()
+    public void Runner_serializes_schema_changes_and_rejects_applied_filename_or_content_drift()
     {
         var source = File.ReadAllText(RunnerPath);
 
@@ -65,9 +68,72 @@ public sealed class MssqlMigrationRunnerTests
         source.Should().Contain("@LockOwner = N'Session'");
         source.Should().Contain("$appliedByVersion");
         source.Should().Contain("migration history drift at version");
+        source.Should().Contain("Get-MigrationHash");
+        source.Should().Contain("CONTENT_SHA256");
+        source.Should().Contain("migration content drift");
+        source.Should().Contain("AdoptMissingChecksums");
+        source.Should().Contain("ApproveHighImpactMigrations");
+        source.Should().Contain("$highImpactVersions = @(142, 144, 146, 147)");
+        source.Should().Contain("high-impact migration approval is required");
         source.IndexOf("$migrationNamePattern.Match($file.Name)", StringComparison.Ordinal)
             .Should().BeLessThan(source.IndexOf("$conn.Open()", StringComparison.Ordinal),
                 "local migration validation must finish before SQL Server access");
+    }
+
+    [Fact]
+    public async Task Performance_baseline_script_parses_and_fails_closed_on_incomplete_observability()
+    {
+        var source = File.ReadAllText(PerformanceBaselinePath);
+        source.Should().Contain("Query Store must be READ_WRITE");
+        source.Should().Contain("metadata-visibility-prerequisite");
+        source.Should().Contain("AND i.type IN (1, 2)");
+        source.Should().Contain("$serverDataSource = $connection.DataSource");
+        source.Should().Contain("statistics-freshness");
+        source.Should().Contain("sys.dm_db_stats_properties");
+        source.Should().Contain("indexed-view-index-definition");
+        source.Should().Contain("IS_SCHEMA_BOUND");
+        source.Should().Contain("if ($IncludePhysicalStats)");
+        source.Should().Contain("PhysicalStatsMinPageCount");
+        source.Should().Contain("sys.dm_db_index_physical_stats");
+        source.Should().Contain("candidate.object_id, candidate.index_id, NULL, 'LIMITED'");
+        source.Should().NotMatchRegex(@"(?im)^\s*(CREATE|ALTER|DROP)\s+(INDEX|STATISTICS)\b");
+        source.Should().NotMatchRegex(@"(?im)^\s*(UPDATE\s+STATISTICS|DBCC\b)");
+
+        var startInfo = new ProcessStartInfo("pwsh")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        startInfo.Environment["NEXA_TEST_PS_SCRIPT"] = PerformanceBaselinePath;
+        startInfo.ArgumentList.Add("-NoLogo");
+        startInfo.ArgumentList.Add("-NoProfile");
+        startInfo.ArgumentList.Add("-NonInteractive");
+        startInfo.ArgumentList.Add("-Command");
+        startInfo.ArgumentList.Add(
+            "$tokens=$null; $errors=$null; " +
+            "[void][System.Management.Automation.Language.Parser]::ParseFile(" +
+            "$env:NEXA_TEST_PS_SCRIPT,[ref]$tokens,[ref]$errors); " +
+            "if($errors.Count){$errors | ForEach-Object Message; exit 1}");
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Unable to start pwsh for baseline-script validation.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            process.Kill(entireProcessTree: true);
+            throw new TimeoutException("Baseline PowerShell parser validation did not finish within 30 seconds.");
+        }
+        var standardOutput = await output;
+        var standardError = await error;
+        process.ExitCode.Should().Be(0, standardOutput + Environment.NewLine + standardError);
     }
 
     private static ProcessResult Run(string migrationsPath, bool validateOnly)

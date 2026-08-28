@@ -4,7 +4,6 @@ namespace NexaOne.ServiceContracts.Rms;
 
 /// <summary>ADR-008 얇은 브리지 — RMS 레시피 승인 상태기계. plugin(RMS)이 구현, 호스트가 GetBean→캐스트로 DI 등록.
 /// 상태위반은 Result(Error.Conflict)→409, 검증실패→400, NotFound→404로 매핑된다. 승인/배포자는 토큰 주체(비-부인성).</summary>
-[NexaModuleBridge("Rms", "rmsRecipeBridge")]
 public interface IRecipeApprovalBridge : INexaModuleBridge
 {
     /// <summary>

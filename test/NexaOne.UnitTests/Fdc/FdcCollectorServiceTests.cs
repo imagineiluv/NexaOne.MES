@@ -1,3 +1,4 @@
+using NexaOne.ServiceContracts.Fdc;
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
 using NexaOne.FDC.Infrastructure.Equipment;
@@ -6,14 +7,26 @@ using NexaLogic.Plc.Abstractions.Models;
 
 namespace NexaOne.UnitTests.Fdc;
 
-/// <summary>§10.4 — OPC-UA 태그 변경 이벤트(NexaLogic PlcTagChangeEvent)를 FDC 수집 데이터로
+/// <summary>§10.4 — PLC 태그 변경 이벤트(NexaLogic PlcTagChangeEvent)를 FDC 수집 데이터로
 /// 적재하는 오케스트레이터의 품질/값 변환과 저장 연결을 검증한다.</summary>
 public sealed class FdcCollectorServiceTests
 {
+    private static readonly IReadOnlyList<FdcInterlockTopology> InterlockTopology =
+        [new("EQ-001", ["TEMP01"])];
+
     private static FdcTagSample Event(string tag, object? after, PlcQuality quality) =>
         PlcDeviceInterface.NormalizeSample(new PlcTagChangeEvent(
             "test-event", "test-endpoint", tag, "test-address", null, after,
             quality, DateTimeOffset.UnixEpoch, "test", true));
+
+    [Fact]
+    public void Runtime_key_preserves_equipment_and_parameter_boundaries()
+    {
+        var first = new FdcRuntimeKey("EQ\u001fZONE", "TEMP");
+        var second = new FdcRuntimeKey("EQ", "ZONE\u001fTEMP");
+
+        first.Should().NotBe(second);
+    }
 
     [Theory]
     [InlineData(PlcQuality.Good, FdcSampleQuality.Good)]
@@ -88,8 +101,10 @@ public sealed class FdcCollectorServiceTests
 
         var ruleRepo = new Mock<IFdcInterlockRuleRepository>();
         var dataService = new FdcDataService(paramRepo.Object, dataRepo.Object);
-        var interlock = new FdcInterlockService(ruleRepo.Object);
-        return (new FdcCollectorService(dataService, interlock), ruleRepo);
+        var historyRepo = EmptyInterlockHistory();
+        var interlock = new FdcInterlockService(ruleRepo.Object, historyRepo.Object);
+        return (new FdcCollectorService(
+            dataService, interlock, actionPort: new ConfirmedInterlockActionPort()), ruleRepo);
     }
 
     [Fact]
@@ -97,8 +112,9 @@ public sealed class FdcCollectorServiceTests
     {
         var (sut, ruleRepo) = BuildWithInterlock();
         var rule = FdcInterlockRule.Create("R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
-        ruleRepo.Setup(r => r.GetActiveRulesAsync("EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+        ruleRepo.Setup(r => r.GetByEquipmentAsync("EQ-001", It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new[] { rule });
+        await InitializeInterlockAsync(sut);
 
         FdcInterlockTriggeredEventArgs? fired = null;
         sut.InterlockTriggered += (_, e) => fired = e;
@@ -118,8 +134,9 @@ public sealed class FdcCollectorServiceTests
     {
         var (sut, ruleRepo) = BuildWithInterlock();
         var rule = FdcInterlockRule.Create("R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
-        ruleRepo.Setup(r => r.GetActiveRulesAsync("EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+        ruleRepo.Setup(r => r.GetByEquipmentAsync("EQ-001", It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new[] { rule });
+        await InitializeInterlockAsync(sut);
 
         var fired = false;
         sut.InterlockTriggered += (_, _) => fired = true;
@@ -132,7 +149,7 @@ public sealed class FdcCollectorServiceTests
     private static void SetupRule((FdcCollectorService sut, Mock<IFdcInterlockRuleRepository> ruleRepo) t)
     {
         var rule = FdcInterlockRule.Create("R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
-        t.ruleRepo.Setup(r => r.GetActiveRulesAsync("EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+        t.ruleRepo.Setup(r => r.GetByEquipmentAsync("EQ-001", It.IsAny<CancellationToken>()))
                   .ReturnsAsync(new[] { rule });
     }
 
@@ -141,6 +158,7 @@ public sealed class FdcCollectorServiceTests
     {
         var t = BuildWithInterlock();
         SetupRule(t);
+        await InitializeInterlockAsync(t.sut);
         var triggers = 0;
         t.sut.InterlockTriggered += (_, _) => triggers++;
 
@@ -155,6 +173,7 @@ public sealed class FdcCollectorServiceTests
     {
         var t = BuildWithInterlock();
         SetupRule(t);
+        await InitializeInterlockAsync(t.sut);
         FdcInterlockResolvedEventArgs? resolved = null;
         t.sut.InterlockResolved += (_, e) => resolved = e;
 
@@ -171,6 +190,7 @@ public sealed class FdcCollectorServiceTests
     {
         var t = BuildWithInterlock();
         SetupRule(t);
+        await InitializeInterlockAsync(t.sut);
         var resolvedFired = false;
         t.sut.InterlockResolved += (_, _) => resolvedFired = true;
 
@@ -182,7 +202,7 @@ public sealed class FdcCollectorServiceTests
     [Fact]
     public async Task OnTagChange_signals_once_and_retries_history_after_record_failure()
     {
-        // 안전 신호는 이력 DB보다 먼저 나가야 한다. 기록 실패는 같은 episode의 신호를 다시 내보내지 않고
+        // 인터락 신호는 이력 DB보다 먼저 나가야 한다. 기록 실패는 같은 episode의 신호를 다시 내보내지 않고
         // 동일 EffectId로 다음 위반 샘플에서 이력만 재시도한다.
         var param = FdcParameter.Create("TEMP01", "Temperature", "EQ-001", "C", 0m, 100m).Value;
         var paramRepo = new Mock<IFdcParameterRepository>();
@@ -191,15 +211,17 @@ public sealed class FdcCollectorServiceTests
 
         var ruleRepo = new Mock<IFdcInterlockRuleRepository>();
         var rule = FdcInterlockRule.Create("R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
-        ruleRepo.Setup(r => r.GetActiveRulesAsync("EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+        ruleRepo.Setup(r => r.GetByEquipmentAsync("EQ-001", It.IsAny<CancellationToken>()))
                 .ReturnsAsync(new[] { rule });
 
         // 첫 AddAsync는 DB 오류로 실패, 두 번째는 성공.
         var addCalls = 0;
         var attemptedHistoryIds = new List<string>();
         var historyRepo = new Mock<IFdcInterlockHistoryRepository>();
+        historyRepo.Setup(r => r.GetAllUnresolvedAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FdcInterlockHistory>());
         historyRepo.Setup(r => r.GetUnresolvedAsync(
-                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+                "EQ-001", It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<FdcInterlockHistory>());
         historyRepo.Setup(r => r.AddAsync(It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()))
                    .Callback<FdcInterlockHistory, CancellationToken>((history, _) => attemptedHistoryIds.Add(history.Id))
@@ -208,7 +230,11 @@ public sealed class FdcCollectorServiceTests
                        : Task.CompletedTask);
 
         var interlock = new FdcInterlockService(ruleRepo.Object, historyRepo.Object);
-        var sut = new FdcCollectorService(new FdcDataService(paramRepo.Object, dataRepo.Object), interlock);
+        var sut = new FdcCollectorService(
+            new FdcDataService(paramRepo.Object, dataRepo.Object),
+            interlock,
+            actionPort: new ConfirmedInterlockActionPort());
+        await InitializeInterlockAsync(sut);
 
         var triggers = new List<FdcInterlockTriggeredEventArgs>();
         sut.InterlockTriggered += (_, args) => triggers.Add(args);
@@ -228,7 +254,7 @@ public sealed class FdcCollectorServiceTests
     }
 
     [Fact]
-    public async Task OnTagChange_normal_sample_closes_a_history_pending_episode()
+    public async Task OnTagChange_does_not_release_an_effect_without_durable_prepared_and_applied_evidence()
     {
         var parameter = FdcParameter.Create(
             "TEMP01", "Temperature", "EQ-001", "C", 0m, 100m).Value;
@@ -239,12 +265,15 @@ public sealed class FdcCollectorServiceTests
         var rule = FdcInterlockRule.Create(
             "R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
         var ruleRepository = new Mock<IFdcInterlockRuleRepository>();
-        ruleRepository.Setup(repository => repository.GetActiveRulesAsync(
-                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+        ruleRepository.Setup(repository => repository.GetByEquipmentAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { rule });
         var historyRepository = new Mock<IFdcInterlockHistoryRepository>();
+        historyRepository.Setup(repository => repository.GetAllUnresolvedAsync(
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FdcInterlockHistory>());
         historyRepository.Setup(repository => repository.GetUnresolvedAsync(
-                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+                "EQ-001", It.IsAny<CancellationToken>()))
             .ReturnsAsync(Array.Empty<FdcInterlockHistory>());
         historyRepository.Setup(repository => repository.AddAsync(
                 It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()))
@@ -252,7 +281,9 @@ public sealed class FdcCollectorServiceTests
 
         var collector = new FdcCollectorService(
             new FdcDataService(parameterRepository.Object, Mock.Of<IFdcCollectDataRepository>()),
-            new FdcInterlockService(ruleRepository.Object, historyRepository.Object));
+            new FdcInterlockService(ruleRepository.Object, historyRepository.Object),
+            actionPort: new ConfirmedInterlockActionPort());
+        await InitializeInterlockAsync(collector);
         var triggered = new List<FdcInterlockTriggeredEventArgs>();
         var resolved = new List<FdcInterlockResolvedEventArgs>();
         collector.InterlockTriggered += (_, args) => triggered.Add(args);
@@ -260,13 +291,15 @@ public sealed class FdcCollectorServiceTests
 
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
-        await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 91m, PlcQuality.Good));
+        var retry = () => collector.OnTagChangeAsync(
+            "EQ-001", Event("TEMP01", 91m, PlcQuality.Good));
+        await retry.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
+            .WithMessage("*run permit*");
 
-        triggered.Should().HaveCount(2, "정상 복귀 뒤 위반은 새 episode다");
-        triggered[1].EffectId.Should().NotBe(triggered[0].EffectId);
-        resolved.Should().ContainSingle();
-        resolved[0].EffectId.Should().Be(triggered[0].EffectId);
-        resolved[0].Value.Should().Be(50m);
+        triggered.Should().ContainSingle(
+            "DB 장애 중에는 물리 action을 유지하고 새 episode를 만들지 않는다");
+        resolved.Should().BeEmpty(
+            "Prepared/Applied 증거 없이는 release 자체를 시도하지 않는다");
     }
 
     [Fact]
@@ -281,19 +314,24 @@ public sealed class FdcCollectorServiceTests
         var rule = FdcInterlockRule.Create(
             "R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
         var ruleRepository = new Mock<IFdcInterlockRuleRepository>();
-        ruleRepository.Setup(repository => repository.GetActiveRulesAsync(
-                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+        ruleRepository.Setup(repository => repository.GetByEquipmentAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { rule });
 
         FdcInterlockHistory? durable = null;
         var addAttempts = 0;
         var persistenceOrder = new List<string>();
         var historyRepository = new Mock<IFdcInterlockHistoryRepository>();
+        historyRepository.Setup(repository => repository.GetAllUnresolvedAsync(
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => durable is null
+                ? Array.Empty<FdcInterlockHistory>()
+                : new[] { durable });
         historyRepository.Setup(repository => repository.GetByIdAsync(
                 It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => durable);
         historyRepository.Setup(repository => repository.GetUnresolvedAsync(
-                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+                "EQ-001", It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => durable is { IsResolved: false }
                 ? new[] { durable }
                 : Array.Empty<FdcInterlockHistory>());
@@ -309,14 +347,16 @@ public sealed class FdcCollectorServiceTests
                 return Task.CompletedTask;
             });
         historyRepository.Setup(repository => repository.UpdateAsync(
-                It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()))
-            .Callback<FdcInterlockHistory, CancellationToken>((history, _) =>
-                persistenceOrder.Add($"resolve:{history.Id}"))
-            .Returns(Task.CompletedTask);
+                It.IsAny<FdcInterlockHistory>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Callback<FdcInterlockHistory, int, CancellationToken>((history, _, _) =>
+                persistenceOrder.Add($"state:{history.EffectState}:{history.Id}"))
+            .ReturnsAsync(true);
 
         var collector = new FdcCollectorService(
             new FdcDataService(parameterRepository.Object, Mock.Of<IFdcCollectDataRepository>()),
-            new FdcInterlockService(ruleRepository.Object, historyRepository.Object));
+            new FdcInterlockService(ruleRepository.Object, historyRepository.Object),
+            actionPort: new ConfirmedInterlockActionPort());
+        await InitializeInterlockAsync(collector);
         var triggered = new List<FdcInterlockTriggeredEventArgs>();
         var resolved = new List<FdcInterlockResolvedEventArgs>();
         collector.InterlockTriggered += (_, args) => triggered.Add(args);
@@ -327,28 +367,119 @@ public sealed class FdcCollectorServiceTests
 
         triggered.Should().ContainSingle();
         resolved.Should().ContainSingle();
-        durable.Should().BeNull("첫 위반과 정상 전환 시점에는 DB가 계속 실패했다");
+        durable.Should().NotBeNull("정상 전환은 pending Prepared 기록을 같은 EffectId로 즉시 재시도한다");
 
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 49m, PlcQuality.Good));
 
         durable.Should().NotBeNull();
         durable!.Id.Should().Be(triggered[0].EffectId);
         durable.IsResolved.Should().BeTrue();
-        persistenceOrder.Should().EndWith(
-            new[]
-            {
-                $"add:3:{triggered[0].EffectId}",
-                $"resolve:{triggered[0].EffectId}",
-            },
-            "DB 복구 뒤 동일 EffectId의 trigger를 먼저 쓰고 resolve해야 한다");
+        persistenceOrder.Should().ContainInOrder(
+            $"add:3:{triggered[0].EffectId}",
+            $"state:Applied:{triggered[0].EffectId}",
+            $"state:Resolved:{triggered[0].EffectId}");
         historyRepository.Verify(repository => repository.UpdateAsync(
             It.Is<FdcInterlockHistory>(history => history.Id == triggered[0].EffectId),
-            It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
 
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 48m, PlcQuality.Good));
         historyRepository.Verify(repository => repository.UpdateAsync(
-            It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()), Times.Once,
-            "완료된 pending resolution은 다시 실행하지 않는다");
+            It.IsAny<FdcInterlockHistory>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.AtLeastOnce,
+            "완료된 lifecycle은 CAS 상태로 수렴한다");
+    }
+
+    [Fact]
+    public async Task OnTagChange_reapplies_with_a_new_effect_when_violation_recurs_after_physical_release_but_before_db_resolution()
+    {
+        var parameter = FdcParameter.Create(
+            "TEMP01", "Temperature", "EQ-001", "C", 0m, 100m).Value;
+        var parameterRepository = new Mock<IFdcParameterRepository>();
+        parameterRepository.Setup(repository => repository.GetByIdAsync(
+                "TEMP01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(parameter);
+        var rule = FdcInterlockRule.Create(
+            "R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
+        var ruleRepository = new Mock<IFdcInterlockRuleRepository>();
+        ruleRepository.Setup(repository => repository.GetByEquipmentAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([rule]);
+
+        var durable = new Dictionary<string, FdcInterlockHistory>(StringComparer.Ordinal);
+        var terminalPersistenceAvailable = false;
+        var historyRepository = new Mock<IFdcInterlockHistoryRepository>();
+        historyRepository.Setup(repository => repository.GetAllUnresolvedAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => durable.Values.Where(effect => !effect.IsResolved).Select(CopyHistory).ToArray());
+        historyRepository.Setup(repository => repository.GetUnresolvedAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => durable.Values.Where(effect => !effect.IsResolved).Select(CopyHistory).ToArray());
+        historyRepository.Setup(repository => repository.GetByIdAsync(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string effectId, CancellationToken _) =>
+                durable.TryGetValue(effectId, out var effect) ? CopyHistory(effect) : null);
+        historyRepository.Setup(repository => repository.AddAsync(
+                It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()))
+            .Callback<FdcInterlockHistory, CancellationToken>((effect, _) =>
+                durable.Add(effect.Id, CopyHistory(effect)))
+            .Returns(Task.CompletedTask);
+        historyRepository.Setup(repository => repository.UpdateAsync(
+                It.IsAny<FdcInterlockHistory>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((FdcInterlockHistory effect, int expectedVersion, CancellationToken _) =>
+            {
+                if (!durable.TryGetValue(effect.Id, out var current)
+                    || current.Version != expectedVersion
+                    || (effect.EffectState == FdcInterlockEffectState.Resolved
+                        && !terminalPersistenceAvailable))
+                    return false;
+                durable[effect.Id] = CopyHistory(effect);
+                return true;
+            });
+
+        var applied = new List<FdcInterlockActionRequest>();
+        var released = new List<FdcInterlockReleaseRequest>();
+        var action = new Mock<IFdcInterlockActionPort>();
+        action.Setup(port => port.CheckReadyAsync(
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockActionReadiness.Ready());
+        action.Setup(port => port.ApplyAsync(
+                It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<FdcInterlockActionRequest, CancellationToken>((request, _) => applied.Add(request))
+            .ReturnsAsync((FdcInterlockActionRequest request, CancellationToken _) =>
+                FdcInterlockActionResult.Confirmed($"apply:{request.EffectId}"));
+        action.Setup(port => port.ReconcileAsync(
+                It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((FdcInterlockActionRequest request, CancellationToken _) =>
+                FdcInterlockActionResult.Confirmed($"reconcile:{request.EffectId}"));
+        action.Setup(port => port.ReleaseAsync(
+                It.IsAny<FdcInterlockReleaseRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<FdcInterlockReleaseRequest, CancellationToken>((request, _) => released.Add(request))
+            .ReturnsAsync((FdcInterlockReleaseRequest request, CancellationToken _) =>
+                FdcInterlockReleaseResult.Confirmed($"release:{request.EffectId}"));
+
+        var collector = new FdcCollectorService(
+            new FdcDataService(parameterRepository.Object, Mock.Of<IFdcCollectDataRepository>()),
+            new FdcInterlockService(ruleRepository.Object, historyRepository.Object),
+            actionPort: action.Object);
+        var resolved = new List<FdcInterlockResolvedEventArgs>();
+        collector.InterlockResolved += (_, args) => resolved.Add(args);
+        await InitializeInterlockAsync(collector);
+
+        await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
+        var firstEffectId = applied.Single().EffectId;
+        await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
+        await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 91m, PlcQuality.Good));
+
+        applied.Should().HaveCount(2);
+        applied.Select(request => request.EffectId).Should().OnlyHaveUniqueItems();
+        released.Should().ContainSingle(request => request.EffectId == firstEffectId);
+        resolved.Should().BeEmpty("terminal DB evidence is still unavailable");
+        durable[firstEffectId].IsResolved.Should().BeFalse();
+
+        terminalPersistenceAvailable = true;
+        await collector.RetryPendingEffectPersistenceAsync();
+
+        durable[firstEffectId].IsResolved.Should().BeTrue();
+        durable[applied[1].EffectId].IsResolved.Should().BeFalse();
+        resolved.Should().ContainSingle(args => args.EffectId == firstEffectId);
     }
 
     [Fact]
@@ -363,28 +494,34 @@ public sealed class FdcCollectorServiceTests
         var rule = FdcInterlockRule.Create(
             "R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
         var ruleRepository = new Mock<IFdcInterlockRuleRepository>();
-        ruleRepository.Setup(r => r.GetActiveRulesAsync(
-                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+        ruleRepository.Setup(r => r.GetByEquipmentAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { rule });
         var durable = FdcInterlockHistory.Create(
             "H-OPEN", "R1", "EQ-001", "TEMP01", 90m, "STOP", "open", DateTime.UtcNow).Value;
         var historyRepository = new Mock<IFdcInterlockHistoryRepository>();
+        historyRepository.Setup(r => r.GetAllUnresolvedAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => durable.IsResolved
+                ? Array.Empty<FdcInterlockHistory>()
+                : new[] { durable });
         historyRepository.Setup(r => r.GetByIdAsync(
                 "H-OPEN", It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => durable);
         historyRepository.Setup(r => r.GetUnresolvedAsync(
-                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+                "EQ-001", It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => durable.IsResolved
                 ? Array.Empty<FdcInterlockHistory>()
                 : new[] { durable });
         historyRepository.Setup(r => r.UpdateAsync(
-                durable, It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+                durable, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
         var collector = new FdcCollectorService(
             new FdcDataService(parameterRepository.Object, Mock.Of<IFdcCollectDataRepository>()),
-            new FdcInterlockService(ruleRepository.Object, historyRepository.Object));
+            new FdcInterlockService(ruleRepository.Object, historyRepository.Object),
+            actionPort: new ConfirmedInterlockActionPort());
         var resolved = 0;
         collector.InterlockResolved += (_, _) => resolved++;
+        await InitializeInterlockAsync(collector);
 
         await collector.OnTagChangeAsync(
             "EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
@@ -392,7 +529,7 @@ public sealed class FdcCollectorServiceTests
         durable.IsResolved.Should().BeTrue();
         resolved.Should().Be(1, "the first normal sample after restart must clear durable open state");
         historyRepository.Verify(r => r.UpdateAsync(
-            durable, It.IsAny<CancellationToken>()), Times.Once);
+            durable, It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.AtLeastOnce);
     }
 
     [Fact]
@@ -407,18 +544,22 @@ public sealed class FdcCollectorServiceTests
         var rule = FdcInterlockRule.Create(
             "R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
         var ruleRepository = new Mock<IFdcInterlockRuleRepository>();
-        ruleRepository.Setup(r => r.GetActiveRulesAsync(
-                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+        ruleRepository.Setup(r => r.GetByEquipmentAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { rule });
         var durable = FdcInterlockHistory.Create(
             "H-OPEN", "R1", "EQ-001", "TEMP01", 90m, "STOP", "open", DateTime.UtcNow).Value;
         var historyRepository = new Mock<IFdcInterlockHistoryRepository>();
+        historyRepository.Setup(r => r.GetAllUnresolvedAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { durable });
         historyRepository.Setup(r => r.GetUnresolvedAsync(
-                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+                "EQ-001", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { durable });
         var collector = new FdcCollectorService(
             new FdcDataService(parameterRepository.Object, Mock.Of<IFdcCollectDataRepository>()),
-            new FdcInterlockService(ruleRepository.Object, historyRepository.Object));
+            new FdcInterlockService(ruleRepository.Object, historyRepository.Object),
+            actionPort: new ConfirmedInterlockActionPort());
+        await InitializeInterlockAsync(collector, initialValue: 95m);
 
         await collector.OnTagChangeAsync(
             "EQ-001", Event("TEMP01", 95m, PlcQuality.Good));
@@ -486,7 +627,7 @@ public sealed class FdcCollectorServiceTests
     [Theory]
     [InlineData(null)]
     [InlineData("not-a-number")]
-    public async Task Device_subscription_marks_invalid_good_payload_bad_and_skips_interlock(object? payload)
+    public async Task Device_subscription_marks_invalid_good_payload_bad_and_revokes_interlock_permit(object? payload)
     {
         var endpoint = new PlcEndpoint("EP1", PlcDriverKind.OpcUa, "opc.tcp://host:4840");
         Func<PlcTagChangeEvent, Task>? onEvent = null;
@@ -533,26 +674,33 @@ public sealed class FdcCollectorServiceTests
         var rule = FdcInterlockRule.Create(
             "RULE-LOW", "Underflow", "EQ-001", "TEMP01", "LT", 10m, "STOP", 1).Value;
         var ruleRepository = new Mock<IFdcInterlockRuleRepository>();
-        ruleRepository.Setup(repository => repository.GetActiveRulesAsync(
-                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+        ruleRepository.Setup(repository => repository.GetByEquipmentAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new[] { rule });
+        var historyRepository = EmptyInterlockHistory();
         var collector = new FdcCollectorService(
             new FdcDataService(parameterRepository.Object, dataRepository.Object),
-            new FdcInterlockService(ruleRepository.Object));
+            new FdcInterlockService(ruleRepository.Object, historyRepository.Object),
+            actionPort: new ConfirmedInterlockActionPort());
         var interlockTriggered = false;
         collector.InterlockTriggered += (_, _) => interlockTriggered = true;
+        await InitializeInterlockAsync(collector);
 
         await device.SubscribeAsync(
             new[] { new PlcSubscription("EP1::sub", "EP1", new[] { "TEMP01" }, TimeSpan.FromSeconds(1)) },
             sample => collector.OnTagChangeAsync("EQ-001", sample));
-        await onEvent!(new PlcTagChangeEvent(
+        var act = () => onEvent!(new PlcTagChangeEvent(
             "event-1", "EP1", "TEMP01", "ns", null, payload,
             PlcQuality.Good, DateTimeOffset.UnixEpoch, "polling", true));
+
+        await act.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
+            .WithMessage("*quality is 'Bad'*");
 
         saved.Should().NotBeNull("invalid transport payloads remain observable as bad samples");
         saved!.Value.Should().Be(0m);
         saved.Quality.Should().Be("Bad", "an invalid payload cannot retain transport-reported Good quality");
         interlockTriggered.Should().BeFalse("the fallback zero is not a valid process value");
+        collector.IsRunPermitted.Should().BeFalse();
         ruleRepository.Verify(repository => repository.GetActiveRulesAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -650,6 +798,52 @@ public sealed class FdcCollectorServiceTests
     }
 
     [Fact]
+    public async Task OnTagChange_clears_only_normalized_config_while_lower_alarm_remains_active()
+    {
+        var parameter = FdcParameter.Create(
+            "TEMP01", "Temperature", "EQ-001", "C", 0m, 100m).Value;
+        var parameterRepository = new Mock<IFdcParameterRepository>();
+        parameterRepository.Setup(r => r.GetByIdAsync(
+                "TEMP01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(parameter);
+        var warning = FdcAlarmConfig.Create(
+            "AW", "EQ-001", "TEMP01", "Warning", "GT", 70m).Value;
+        var critical = FdcAlarmConfig.Create(
+            "AC", "EQ-001", "TEMP01", "Critical", "GT", 90m).Value;
+        var configRepository = new Mock<IFdcAlarmConfigRepository>();
+        configRepository.Setup(r => r.GetActiveConfigsAsync(
+                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { warning, critical });
+        var histories = new List<FdcAlarmHistory>();
+        var historyRepository = new Mock<IFdcAlarmHistoryRepository>();
+        historyRepository.Setup(r => r.GetOpenAsync(
+                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => histories.Where(static history => !history.IsCleared).ToArray());
+        historyRepository.Setup(r => r.AddAsync(
+                It.IsAny<FdcAlarmHistory>(), It.IsAny<CancellationToken>()))
+            .Callback<FdcAlarmHistory, CancellationToken>((history, _) => histories.Add(history))
+            .Returns(Task.CompletedTask);
+        historyRepository.Setup(r => r.UpdateAsync(
+                It.IsAny<FdcAlarmHistory>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var collector = new FdcCollectorService(
+            new FdcDataService(parameterRepository.Object, Mock.Of<IFdcCollectDataRepository>()),
+            alarmService: new FdcAlarmService(configRepository.Object, historyRepository.Object));
+        var cleared = new List<string>();
+        collector.AlarmCleared += (_, args) => cleared.Add(args.AlarmConfigId);
+
+        await collector.OnTagChangeAsync(
+            "EQ-001", Event("TEMP01", 95m, PlcQuality.Good));
+        await collector.OnTagChangeAsync(
+            "EQ-001", Event("TEMP01", 80m, PlcQuality.Good));
+
+        histories.Should().HaveCount(2);
+        histories.Single(history => history.AlarmConfigId == "AC").IsCleared.Should().BeTrue();
+        histories.Single(history => history.AlarmConfigId == "AW").IsCleared.Should().BeFalse();
+        cleared.Should().Equal("AC");
+    }
+
+    [Fact]
     public async Task OnTagChange_after_restart_clears_durable_alarm_without_duplicate_history()
     {
         var parameter = FdcParameter.Create(
@@ -699,13 +893,19 @@ public sealed class FdcCollectorServiceTests
     {
         var t = BuildWithInterlock();
         SetupRule(t);   // GT 80 STOP
+        await InitializeInterlockAsync(t.sut);
         FdcInterlockResolvedEventArgs? resolved = null;
         t.sut.InterlockResolved += (_, e) => resolved = e;
 
         await t.sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 90.0, PlcQuality.Good));  // 발동
-        await t.sut.OnTagChangeAsync("EQ-001", Event("TEMP01", null, PlcQuality.Disconnected));  // 끊김→0
+        var act = () => t.sut.OnTagChangeAsync(
+            "EQ-001", Event("TEMP01", null, PlcQuality.Disconnected));  // 끊김→0
+
+        await act.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
+            .WithMessage("*quality is 'Bad'*");
 
         resolved.Should().BeNull("Bad/Disconnected 품질 읽기는 활성 인터락을 거짓 해제하지 않는다");
+        t.sut.IsRunPermitted.Should().BeFalse();
     }
 
     [Fact]
@@ -713,13 +913,96 @@ public sealed class FdcCollectorServiceTests
     {
         var t = BuildWithInterlock();
         var rule = FdcInterlockRule.Create("R1", "Underflow", "EQ-001", "TEMP01", "LT", 10m, "STOP", 1).Value;
-        t.ruleRepo.Setup(r => r.GetActiveRulesAsync("EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+        t.ruleRepo.Setup(r => r.GetByEquipmentAsync("EQ-001", It.IsAny<CancellationToken>()))
                   .ReturnsAsync(new[] { rule });
+        await InitializeInterlockAsync(t.sut);
         var fired = false;
         t.sut.InterlockTriggered += (_, _) => fired = true;
 
-        await t.sut.OnTagChangeAsync("EQ-001", Event("TEMP01", null, PlcQuality.Disconnected));  // 0, Bad
+        var act = () => t.sut.OnTagChangeAsync(
+            "EQ-001", Event("TEMP01", null, PlcQuality.Disconnected));  // 0, Bad
+
+        await act.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
+            .WithMessage("*quality is 'Bad'*");
 
         fired.Should().BeFalse("Bad 품질로 0이 된 값은 저값 인터락(LT 10)을 거짓 발동시키지 않는다");
+        t.sut.IsRunPermitted.Should().BeFalse();
+    }
+
+    private static async Task InitializeInterlockAsync(
+        FdcCollectorService collector,
+        decimal initialValue = 20m)
+    {
+        await collector.InitializeInterlockRuntimeAsync(InterlockTopology);
+        await collector.EvaluateInitialSnapshotAsync(
+            "EQ-001",
+            [Event("TEMP01", initialValue, PlcQuality.Good)]);
+        collector.CompleteInterlockRuntimeInitialization();
+    }
+
+    private static Mock<IFdcInterlockHistoryRepository> EmptyInterlockHistory(
+        IReadOnlyList<FdcInterlockHistory>? open = null)
+    {
+        var repository = new Mock<IFdcInterlockHistoryRepository>();
+        var durable = (open ?? Array.Empty<FdcInterlockHistory>())
+            .ToDictionary(item => item.Id, StringComparer.Ordinal);
+        repository.Setup(x => x.GetAllUnresolvedAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => durable.Values.Where(item => !item.IsResolved).ToArray());
+        repository.Setup(x => x.GetUnresolvedAsync("EQ-001", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => durable.Values.Where(item => !item.IsResolved).ToArray());
+        repository.Setup(x => x.GetByIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string id, CancellationToken _) => durable.GetValueOrDefault(id));
+        repository.Setup(x => x.AddAsync(It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()))
+            .Callback<FdcInterlockHistory, CancellationToken>((item, _) => durable[item.Id] = item)
+            .Returns(Task.CompletedTask);
+        repository.Setup(x => x.UpdateAsync(
+                It.IsAny<FdcInterlockHistory>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        return repository;
+    }
+
+    private static FdcInterlockHistory CopyHistory(FdcInterlockHistory history) =>
+        FdcInterlockHistory.Restore(
+            history.Id,
+            history.RuleId,
+            history.EquipmentId,
+            history.ParameterId,
+            history.TriggerValue,
+            history.Action,
+            history.Message,
+            history.TriggeredAt,
+            history.ResolvedAt,
+            history.IsResolved,
+            history.CreatedBy,
+            history.CreatedAt,
+            history.UpdatedBy,
+            history.UpdatedAt,
+            history.EffectState,
+            history.ApplyAcknowledgementId,
+            history.ApplyConfirmedAt,
+            history.ConditionNormalizedAt,
+            history.ConditionNormalizedValue,
+            history.ReleaseAcknowledgementId,
+            history.ReleaseConfirmedAt,
+            history.LastError,
+            history.Version);
+
+    private sealed class ConfirmedInterlockActionPort : IFdcInterlockActionPort
+    {
+        public Task<FdcInterlockActionReadiness> CheckReadyAsync(
+            IReadOnlyCollection<string> requiredActions,
+            CancellationToken ct = default) =>
+            Task.FromResult(FdcInterlockActionReadiness.Ready());
+
+        public Task<FdcInterlockActionResult> ApplyAsync(
+            FdcInterlockActionRequest request,
+            CancellationToken ct = default) =>
+            Task.FromResult(FdcInterlockActionResult.Confirmed($"test:{request.EffectId}"));
+
+        public Task<FdcInterlockActionResult> ReconcileAsync(FdcInterlockActionRequest request, CancellationToken ct = default) =>
+            ApplyAsync(request, ct);
+
+        public Task<FdcInterlockReleaseResult> ReleaseAsync(FdcInterlockReleaseRequest request, CancellationToken ct = default) =>
+            Task.FromResult(FdcInterlockReleaseResult.Confirmed($"release:{request.EffectId}"));
     }
 }

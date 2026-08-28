@@ -8,7 +8,6 @@ namespace NexaOne.ServiceContracts.Pom;
 /// Result로 상태전이/팩토리 검증 분기(Conflict/Validation/
 /// NotFound/Success)를 손실 없이 전달한다. 순수 조회는 게이트웨이(POM.xml)로. Lot Mixing(다중 애그리거트
 /// 소비/병합)은 DATA-3 원자화(MixingPersistAsync 단일 트랜잭션)로 제외 사유가 해소되어 노출한다.</summary>
-[NexaModuleBridge("Pom", "pomBridge")]
 public interface IPomBridge : INexaModuleBridge
 {
     // ── 생산계획(ProductionPlan) 생명주기 ──

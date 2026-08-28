@@ -829,6 +829,141 @@ public sealed class SqliteSchemaIncrementalTests
         finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
     }
 
+    [Fact]
+    public void EnsureSchema_incrementally_applies_V143_Fdc_endpoint_mapping_columns_and_index()
+    {
+        var cs = NewDb();
+        try
+        {
+            ExecSql(cs, """
+                CREATE TABLE FDC_EQUIPMENT_ENDPOINT (
+                    ENDPOINT_ID TEXT NOT NULL PRIMARY KEY,
+                    EQUIPMENT_ID TEXT NOT NULL,
+                    IS_ACTIVE INTEGER NOT NULL DEFAULT 1
+                );
+                CREATE TABLE FDC_PARAMETER (
+                    PARAMETER_ID TEXT NOT NULL PRIMARY KEY,
+                    EQUIPMENT_ID TEXT NOT NULL,
+                    IS_ACTIVE INTEGER NOT NULL DEFAULT 1
+                );
+                """);
+
+            SqliteSchemaInitializer.EnsureSchema(cs);
+
+            Columns(cs, "FDC_EQUIPMENT_ENDPOINT").Should().Contain("TAG_MAP_PATH");
+            Columns(cs, "FDC_PARAMETER").Should().Contain("ENDPOINT_ID");
+            IndexExists(cs, "IX_FDC_PARAMETER_ENDPOINT_ACTIVE").Should().BeTrue();
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Fact]
+    public void EnsureSchema_incrementally_applies_V146_Fdc_effect_lifecycle()
+    {
+        var cs = NewDb();
+        try
+        {
+            ExecSql(cs, """
+                CREATE TABLE FDC_INTERLOCK_HISTORY (
+                    HISTORY_ID TEXT NOT NULL PRIMARY KEY,
+                    RULE_ID TEXT NOT NULL,
+                    EQUIPMENT_ID TEXT NOT NULL,
+                    PARAMETER_ID TEXT NOT NULL,
+                    TRIGGER_VALUE NUMERIC NOT NULL,
+                    ACTION TEXT NOT NULL,
+                    MESSAGE TEXT NOT NULL,
+                    TRIGGERED_AT TEXT NOT NULL,
+                    RESOLVED_AT TEXT NULL,
+                    IS_RESOLVED INTEGER NOT NULL DEFAULT 0,
+                    CREATED_BY TEXT NOT NULL DEFAULT 'SYSTEM',
+                    CREATED_AT TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UPDATED_BY TEXT NULL,
+                    UPDATED_AT TEXT NULL
+                );
+                INSERT INTO FDC_INTERLOCK_HISTORY
+                  (HISTORY_ID, RULE_ID, EQUIPMENT_ID, PARAMETER_ID, TRIGGER_VALUE,
+                   ACTION, MESSAGE, TRIGGERED_AT)
+                VALUES ('FX-LEGACY', 'R1', 'EQ1', 'P1', 90, 'STOP', 'legacy', CURRENT_TIMESTAMP);
+                INSERT INTO FDC_INTERLOCK_HISTORY
+                  (HISTORY_ID, RULE_ID, EQUIPMENT_ID, PARAMETER_ID, TRIGGER_VALUE,
+                   ACTION, MESSAGE, TRIGGERED_AT, RESOLVED_AT, IS_RESOLVED)
+                VALUES ('FX-RESOLVED', 'R1', 'EQ1', 'P1', 90, 'STOP', 'legacy resolved',
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 1);
+                """);
+
+            SqliteSchemaInitializer.EnsureSchema(cs);
+
+            Columns(cs, "FDC_INTERLOCK_HISTORY").Should().Contain([
+                "EFFECT_STATE", "APPLY_ACK_ID", "APPLY_CONFIRMED_AT",
+                "CONDITION_NORMALIZED_AT", "CONDITION_NORMALIZED_VALUE", "RELEASE_ACK_ID",
+                "RELEASE_CONFIRMED_AT", "LAST_ERROR", "VERSION"]);
+            ScalarString(cs,
+                "SELECT EFFECT_STATE FROM FDC_INTERLOCK_HISTORY WHERE HISTORY_ID='FX-LEGACY'")
+                .Should().Be("Prepared", "pre-V146 open effects require action reconciliation and fresh ack evidence");
+            ScalarString(cs,
+                "SELECT EFFECT_STATE FROM FDC_INTERLOCK_HISTORY WHERE HISTORY_ID='FX-RESOLVED'")
+                .Should().Be("Resolved", "pre-V146 terminal evidence must map to the terminal lifecycle state");
+            ScalarString(cs,
+                "SELECT LAST_ERROR FROM FDC_INTERLOCK_HISTORY WHERE HISTORY_ID='FX-RESOLVED'")
+                .Should().Be("LegacyResolvedBeforeV146", "legacy terminal rows cannot invent missing action evidence");
+            ScalarString(cs, """
+                SELECT COUNT(*) FROM SYS_SQLITE_RECONCILIATION
+                 WHERE RECONCILIATION_ID='V146__FDC_INTERLOCK_EFFECT_LIFECYCLE'
+                """).Should().Be("1");
+            IndexExists(cs, "IX_FDC_INTERLOCK_EFFECT_LIFECYCLE").Should().BeFalse(
+                "no runtime query filters or orders by the removed state/update key combination");
+
+            // A stale preview trigger is replaced, but the durable data marker is not duplicated.
+            ExecSql(cs, """
+                DROP TRIGGER TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BU;
+                CREATE TRIGGER TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BU
+                BEFORE UPDATE OF IS_RESOLVED, EFFECT_STATE, VERSION ON FDC_INTERLOCK_HISTORY
+                BEGIN SELECT 1; END;
+                """);
+            SqliteSchemaInitializer.EnsureSchema(cs);
+
+            Action inconsistentResolution = () => ExecSql(cs, """
+                UPDATE FDC_INTERLOCK_HISTORY SET EFFECT_STATE='Applied'
+                 WHERE HISTORY_ID='FX-RESOLVED';
+                """);
+            inconsistentResolution.Should().Throw<SqliteException>()
+                .WithMessage("*lifecycle state is invalid*");
+
+            Action missingApplyEvidence = () => ExecSql(cs, """
+                UPDATE FDC_INTERLOCK_HISTORY SET EFFECT_STATE='Applied', VERSION=2
+                 WHERE HISTORY_ID='FX-LEGACY';
+                """);
+            missingApplyEvidence.Should().Throw<SqliteException>()
+                .WithMessage("*lifecycle state is invalid*");
+
+            Action invalidVersion = () => ExecSql(cs, """
+                UPDATE FDC_INTERLOCK_HISTORY SET VERSION=0
+                 WHERE HISTORY_ID='FX-LEGACY';
+                """);
+            invalidVersion.Should().Throw<SqliteException>()
+                .WithMessage("*lifecycle state is invalid*");
+
+            ExecSql(cs, """
+                INSERT INTO FDC_INTERLOCK_HISTORY
+                    (HISTORY_ID, RULE_ID, EQUIPMENT_ID, PARAMETER_ID, TRIGGER_VALUE,
+                     ACTION, MESSAGE, TRIGGERED_AT, IS_RESOLVED, EFFECT_STATE,
+                     APPLY_ACK_ID, APPLY_CONFIRMED_AT, VERSION)
+                VALUES
+                    ('FX-APPLIED', 'R1', 'EQ1', 'P1', 90,
+                     'STOP', 'applied', '2026-01-01 00:00:00', 0, 'Applied',
+                     'apply-ack', '2026-01-01 00:00:01', 2);
+                """);
+            Action acknowledgementOnlyBypass = () => ExecSql(cs, """
+                UPDATE FDC_INTERLOCK_HISTORY SET APPLY_ACK_ID=NULL
+                 WHERE HISTORY_ID='FX-APPLIED';
+                """);
+            acknowledgementOnlyBypass.Should().Throw<SqliteException>()
+                .WithMessage("*lifecycle state is invalid*",
+                    "ACK-only updates must not bypass the SQLite equivalent of the MSSQL CHECK constraint");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -841,6 +976,8 @@ public sealed class SqliteSchemaIncrementalTests
             if (incremental)
             {
                 ExecSql(cs, """
+                    DROP TRIGGER IF EXISTS TR_IVT_TRACE_INBOX_WORK_STATE_BI;
+                    DROP TRIGGER IF EXISTS TR_IVT_TRACE_INBOX_WORK_STATE_BU;
                     INSERT INTO IVT_TRACE_CONSUMPTION_BINDING
                         (BINDING_ID, PLANT_ID, EQUIPMENT_ID, PARAMETER_ID, FEED_POINT_ID,
                          CALCULATION_MODE, SCALE_FACTOR, OUTPUT_UNIT)
@@ -860,6 +997,8 @@ public sealed class SqliteSchemaIncrementalTests
                 ExecSql(cs, """
                     DROP INDEX IX_IVT_TRACE_INBOX_READY;
                     DROP TABLE IVT_TRACE_INGESTION_CURSOR;
+                    DROP TRIGGER IF EXISTS TR_IVT_TRACE_INBOX_WORK_STATE_BI;
+                    DROP TRIGGER IF EXISTS TR_IVT_TRACE_INBOX_WORK_STATE_BU;
                     ALTER TABLE IVT_TRACE_PROJECTION_INBOX DROP COLUMN IS_WORK_ITEM;
                     CREATE INDEX IX_IVT_TRACE_INBOX_BINDING_CURSOR
                         ON IVT_TRACE_PROJECTION_INBOX
@@ -871,10 +1010,49 @@ public sealed class SqliteSchemaIncrementalTests
                     DROP INDEX IX_EMS_WO_ISSUED;
                     CREATE INDEX IX_EMS_WORK_ORDER_CHECK_RESULT_WO
                         ON EMS_WORK_ORDER_CHECK_RESULT (WO_ID, ITEM_SEQUENCE);
+                    DELETE FROM SYS_SQLITE_RECONCILIATION
+                     WHERE RECONCILIATION_ID = 'V142__IVT_TRACE_INGESTION_CURSOR';
                     """);
 
                 SqliteSchemaInitializer.EnsureSchema(cs);
+
+                // V142 data reconciliation is a migration, not a boot-time repair loop. A durable
+                // marker must prevent later EnsureSchema calls from rebuilding a deleted cursor.
+                // A stale trigger definition is nevertheless repaired in the same startup.
+                ExecSql(cs, """
+                    DELETE FROM IVT_TRACE_INGESTION_CURSOR WHERE BINDING_ID = 'B_CURSOR';
+                    DROP TRIGGER TR_IVT_TRACE_INBOX_WORK_STATE_BU;
+                    CREATE TRIGGER TR_IVT_TRACE_INBOX_WORK_STATE_BU
+                    BEFORE UPDATE OF STATUS, IS_WORK_ITEM ON IVT_TRACE_PROJECTION_INBOX
+                    BEGIN
+                        SELECT 1;
+                    END;
+                    """);
                 SqliteSchemaInitializer.EnsureSchema(cs);
+                using (var markerConnection = new SqliteConnection(cs))
+                {
+                    markerConnection.Open();
+                    Scalar(markerConnection, """
+                        SELECT COUNT(*) FROM SYS_SQLITE_RECONCILIATION
+                         WHERE RECONCILIATION_ID='V142__IVT_TRACE_INGESTION_CURSOR'
+                        """).Should().Be("1");
+                    Scalar(markerConnection, """
+                        SELECT COUNT(*) FROM IVT_TRACE_INGESTION_CURSOR
+                         WHERE BINDING_ID='B_CURSOR'
+                        """).Should().Be("0", "completed V142 cursor backfill must not rerun during normal boot");
+                }
+                ExecSql(cs, """
+                    INSERT INTO IVT_TRACE_INGESTION_CURSOR
+                        (BINDING_ID, LAST_COLLECT_ID, LAST_COLLECTED_AT)
+                    VALUES ('B_CURSOR', 'C3', '2030-01-01 00:01:00');
+                    """);
+
+                Action hidePendingWork = () => ExecSql(cs, """
+                    UPDATE IVT_TRACE_PROJECTION_INBOX SET IS_WORK_ITEM = 0
+                     WHERE BINDING_ID = 'B_CURSOR' AND COLLECT_ID = 'C1';
+                    """);
+                hidePendingWork.Should().Throw<SqliteException>()
+                    .WithMessage("*STATUS and IS_WORK_ITEM must agree*");
             }
 
             TableExists(cs, "IVT_TRACE_INGESTION_CURSOR").Should().BeTrue();
@@ -894,6 +1072,8 @@ public sealed class SqliteSchemaIncrementalTests
             Columns(cs, "IVT_TRACE_PROJECTION_INBOX").Should().Contain("IS_WORK_ITEM");
             IndexExists(cs, "IX_IVT_TRACE_INBOX_BINDING_CURSOR").Should().BeFalse();
             IndexExists(cs, "IX_IVT_TRACE_INBOX_WORK").Should().BeFalse();
+            IndexExists(cs, "IX_IVT_TRACE_INBOX_CURSOR_BACKFILL").Should().BeFalse(
+                "the upgrade-only ordering index must not add permanent write amplification");
             IndexKeys(cs, "IX_IVT_TRACE_INBOX_READY").Should().Equal(
                 "COLLECTED_AT:ASC", "COLLECT_ID:ASC", "BINDING_ID:ASC");
             IndexSql(cs, "IX_IVT_TRACE_INBOX_READY")
@@ -994,6 +1174,9 @@ public sealed class SqliteSchemaIncrementalTests
                         ON POM_LOT (LOT_ID, CREATED_AT);
                     DROP INDEX IX_POM_LOT_HOLD_CREATED;
                     DROP INDEX IX_POM_LOT_DEFECT_QTY;
+                    DROP INDEX IX_POM_LOT_HISTORY_OEE_TRACK_OUT;
+                    CREATE INDEX IX_POM_LOT_HISTORY_OEE_TRACK_OUT
+                        ON POM_LOT_HISTORY (TRACK_IN_TIME, TRACK_OUT_TIME);
                     DROP INDEX IX_POM_WORK_ORDER_PLAN_START;
                     DROP INDEX IX_POM_LOT_DISPOSITION_PLANT_DATE;
                     CREATE INDEX IX_POM_LOT_MIXING_OUTPUT
@@ -1034,6 +1217,10 @@ public sealed class SqliteSchemaIncrementalTests
             IndexKeys(cs, "IX_POM_LOT_DEFECT_QTY").Should().Equal(
                 "DEFECT_QTY:DESC", "CREATED_AT:DESC", "LOT_ID:ASC");
             IndexSql(cs, "IX_POM_LOT_DEFECT_QTY").Should().Contain("WHERE DEFECT_QTY > 0");
+            IndexKeys(cs, "IX_POM_LOT_HISTORY_OEE_TRACK_OUT").Should().Equal(
+                "PLANT_ID:ASC", "EQUIPMENT_ID:ASC", "TRACK_OUT_TIME:ASC");
+            IndexSql(cs, "IX_POM_LOT_HISTORY_OEE_TRACK_OUT")
+                .Should().Contain("WHERE EXECUTION_ID = 'TrackOut' AND TRACK_OUT_TIME IS NOT NULL");
             IndexKeys(cs, "IX_POM_WORK_ORDER_PLAN_START").Should().Equal(
                 "PLAN_START_DATE:DESC", "WORK_ORDER_ID:ASC");
             IndexKeys(cs, "IX_POM_LOT_DISPOSITION_PLANT_DATE").Should().Equal(
@@ -1117,6 +1304,13 @@ public sealed class SqliteSchemaIncrementalTests
                 .Should().Contain("IX_POM_LOT_HOLD_CREATED");
             QueryPlan(cs, NamedQuerySql("sqlite", "POM", "POM.LotDefectList"))
                 .Should().Contain("IX_POM_LOT_DEFECT_QTY");
+            QueryPlan(cs, """
+                SELECT LOT_HISTORY_ID, LOT_ID, PROCESS_ID, QTY, DEFECT_QTY,
+                       TRACK_IN_TIME, TRACK_OUT_TIME
+                FROM POM_LOT_HISTORY
+                WHERE EXECUTION_ID='TrackOut' AND PLANT_ID='P1' AND EQUIPMENT_ID='EQ1'
+                  AND TRACK_OUT_TIME >= '2025-01-01' AND TRACK_OUT_TIME < '2025-01-02'
+                """).Should().Contain("IX_POM_LOT_HISTORY_OEE_TRACK_OUT");
             var workOrderListSql = NamedQuerySql("sqlite", "POM", "POM.WorkOrderList")
                 .Replace("@plantId", "NULL", StringComparison.Ordinal)
                 .Replace("@workOrderId", "NULL", StringComparison.Ordinal)
@@ -1850,7 +2044,7 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
-    public void V121_through_v142_migrations_keep_unique_numeric_versions_and_module_owned_names()
+    public void V121_through_v147_migrations_keep_unique_numeric_versions_and_module_owned_names()
     {
         var migrationDirectory = Path.GetDirectoryName(RepositorySource.GetFile(
             "src", "00.Main", "NexaOne.Server", "config", "db", "migrations",
@@ -1879,6 +2073,11 @@ public sealed class SqliteSchemaIncrementalTests
             [140] = ("V140__EMS_WORK_ORDER_CREATE_COMMAND.sql", "EMS"),
             [141] = ("V141__FDC_OPEN_STATE_RECOVERY_INDEXES.sql", "FDC"),
             [142] = ("V142__IVT_TRACE_INGESTION_CURSOR.sql", "IVT"),
+            [143] = ("V143__FDC_ENDPOINT_TAG_MAP.sql", "FDC"),
+            [144] = ("V144__POM_OEE_TRACK_OUT_INDEX.sql", "POM"),
+            [145] = ("V145__FDC_PLC_ENDPOINT_CONFIGURATION.sql", "FDC"),
+            [146] = ("V146__FDC_INTERLOCK_EFFECT_LIFECYCLE.sql", "FDC"),
+            [147] = ("V147__IVT_TRACE_WORK_STATE_INTEGRITY.sql", "IVT"),
         };
         var recentFiles = Directory.EnumerateFiles(migrationDirectory, "V*.sql")
             .Select(Path.GetFileName)
@@ -1886,7 +2085,7 @@ public sealed class SqliteSchemaIncrementalTests
             .Select(name => (Name: name!, Match: Regex.Match(name!, @"^V(?<version>[0-9]{3})__")))
             .Where(item => item.Match.Success)
             .Select(item => (item.Name, Version: int.Parse(item.Match.Groups["version"].Value)))
-            .Where(item => item.Version is >= 121 and <= 142)
+            .Where(item => item.Version is >= 121 and <= 147)
             .ToArray();
 
         recentFiles.GroupBy(item => item.Version).Should().OnlyContain(group => group.Count() == 1);

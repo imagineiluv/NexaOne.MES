@@ -61,6 +61,13 @@ public sealed class PomLotPersistenceTests : IClassFixture<PomLotPersistenceTest
     private static IProductionQualityGateway QualityGateway(EesDataSource dataSource) =>
         new ProductionQualityGateService(new ProductionQualityGateEvidenceRepository(dataSource));
 
+    private static TrackingMasterGateway TrackingGateway(EesDataSource dataSource) =>
+        new(
+            new NexaOne.MDM.Infrastructure.EquipmentDirectory(dataSource),
+            new NexaOne.MDM.Infrastructure.TrackingRoutingDirectory(dataSource),
+            new NexaOne.RMS.Infrastructure.TrackingRecipeDirectory(dataSource),
+            new NexaOne.QMS.Infrastructure.TrackingDefectDirectory(dataSource));
+
     private LotTrackingService BuildService()
     {
         var ds = DataSource();
@@ -71,7 +78,7 @@ public sealed class PomLotPersistenceTests : IClassFixture<PomLotPersistenceTest
             new LotHistoryRepository(ds, new SqliteEesDbCapability()),
             new LotMixingRelationRepository(ds),
             new PomWorkOrderRepository(ds),
-            new TrackingMasterGateway(ds),
+            TrackingGateway(ds),
             QualityGateway(ds));
     }
 

@@ -2,10 +2,10 @@ using Microsoft.Extensions.Hosting;
 
 namespace NexaOne.FDC.Application.Fdc;
 
-/// <summary>가상 이벤트 주기 평가 워커(기본 OFF — Spring enabled 인자). 유효 정의 전체를 주기 평가하고
+/// <summary>가상 이벤트 주기 평가 워커(기본 OFF — Module configuration). 유효 정의 전체를 주기 평가하고
 /// 전이는 VirtualEventService가 V069에 기록한다. 개별 정의 실패(수식 오류/값 부재)는 콘솔 경고 후 계속.
 /// Program.cs가 Spring 컨텍스트에서 IHostedService로 자동발견해 호스팅한다(LoginFailureRetentionWorker 관례 —
-/// Spring 배선이라 ILogger 선택 인자를 두지 않는다: 선택적 파라미터는 Spring이 해석하지 못한다).</summary>
+/// Module.cs가 IConfiguration을 해석해 명시적인 실행 정책을 전달한다).</summary>
 public sealed class VirtualEventEvaluationWorker : BackgroundService
 {
     private readonly VirtualEventService _service;
@@ -15,12 +15,7 @@ public sealed class VirtualEventEvaluationWorker : BackgroundService
     public VirtualEventEvaluationWorker(VirtualEventService service, bool enabled, int intervalSeconds)
     {
         _service = service;
-        // Spring XML 상수 배선(fdc.xml enabled=false)이라 IConfiguration을 받을 수 없다 — dev 활성화는
-        // env 오버라이드로 허용한다(launchSettings Worker__Fdc__VirtualEvent__Enabled=true; 이름은 해당
-        // 설정 키의 env 표기와 동일). 테스트/운영 기본은 XML false + env 부재 = OFF 유지.
-        _enabled = enabled || string.Equals(
-            Environment.GetEnvironmentVariable("Worker__Fdc__VirtualEvent__Enabled"), "true",
-            StringComparison.OrdinalIgnoreCase);
+        _enabled = enabled;
         _intervalSeconds = Math.Max(5, intervalSeconds);
     }
 

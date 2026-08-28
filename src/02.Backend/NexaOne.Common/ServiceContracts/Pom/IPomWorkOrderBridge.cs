@@ -9,7 +9,6 @@ namespace NexaOne.ServiceContracts.Pom;
 /// 이 계약의 완료는 작업지시 실적 마감이며, LOT 공정 완료 시 QMS 판정은
 /// <see cref="IProductionQualityGateway"/>를 통해 별도로 적용한다.
 /// </summary>
-[NexaModuleBridge("Pom", "pomWorkOrderBridge")]
 public interface IPomWorkOrderBridge : INexaModuleBridge
 {
     /// <summary>생산관리오더에 연결된 공정 실행 작업지시를 생성한다.</summary>

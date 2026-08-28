@@ -12,10 +12,9 @@ namespace NexaOne.ServerTests;
 /// env-gate: NEXAONE_MSSQL_TEST_CONN(연결 문자열) 미설정이면 소프트 스킵(단언 없이 통과) — CI/로컬 SQLite
 /// 환경에서 무해하고, MSSQL 접근 가능한 환경(자사 dev 등)에서 변수만 세팅하면 전 쿼리를 실검증한다.
 /// 접속 정보는 저장소에 절대 넣지 않는다(환경변수 전용).</summary>
+[Trait("Category", "MssqlContract")]
 public sealed class MssqlDialectSyntaxTests
 {
-    private const string ConnEnvVar = "NEXAONE_MSSQL_TEST_CONN";
-
     public static IEnumerable<object[]> QueryTrees() => new[]
     {
         new object[] { "src/00.Main/NexaOne.Server/config/db/queries" },        // 공개 게이트웨이 트리
@@ -26,7 +25,7 @@ public sealed class MssqlDialectSyntaxTests
     [MemberData(nameof(QueryTrees))]
     public void Every_mssql_query_parses_on_real_sql_server(string treeRelativePath)
     {
-        var connString = Environment.GetEnvironmentVariable(ConnEnvVar);
+        var connString = MssqlContractDatabase.GetConnectionStringOrThrowIfRequired();
         if (string.IsNullOrWhiteSpace(connString))
             return;   // 소프트 스킵 — MSSQL 미가용 환경(로컬 SQLite/CI). 게이트 변수 설정 시에만 실검증.
 

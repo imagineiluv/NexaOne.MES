@@ -7,7 +7,6 @@ namespace NexaOne.ServiceContracts.Ivt;
 /// 호출자는 소비 의미를 해석해 한 건의 명령으로 전달하고, 구현은 멱등성·재고 차감·TRACE 원장·재고 TX를
 /// 한 트랜잭션으로 처리한다. 소비 방식별 구현 클래스를 호출자에게 노출하지 않는다.
 /// </summary>
-[NexaModuleBridge("Ivt", "materialBridge")]
 public interface IMaterialBridge : INexaModuleBridge
 {
     Task<Result<MaterialConsumptionDto>> ConsumeAsync(

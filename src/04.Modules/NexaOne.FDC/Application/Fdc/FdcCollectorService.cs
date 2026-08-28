@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
+using NexaOne.ServiceContracts.Fdc;
 using NexaOne.Common.Telemetry;
+using NexaOne.FDC.Domain;
 
 namespace NexaOne.FDC.Application.Fdc;
 
@@ -16,21 +18,28 @@ public sealed class FdcCollectorService
     private readonly FdcDataService _dataService;
     private readonly FdcInterlockService? _interlockService;
     private readonly FdcAlarmService? _alarmService;
+    private readonly IFdcInterlockActionPort? _actionPort;
+    private readonly TimeSpan _actionTimeout;
+    private readonly object _runtimeStateGate = new();
+    private readonly HashSet<FdcRuntimeKey> _pendingInitialSnapshots = new();
+    private int? _preparedRuntimeRevision;
+    private int _runPermit;
 
-    // 현재 발동 중인 (설비|파라미터) episode. EffectId는 즉시 신호와 durable 이력 재시도 전 구간에서 고정한다.
-    private readonly ConcurrentDictionary<string, ActiveInterlockEpisode> _activeInterlocks = new();
+    // 현재 발동 중인 (설비|파라미터)의 모든 episode. 잘못 중복 생성된 durable open 행도 재시작 때
+    // EffectId별로 빠짐없이 action 재조정하고 정상 복귀 시 각각 해제한다.
+    private readonly ConcurrentDictionary<FdcRuntimeKey, List<ActiveInterlockEpisode>> _activeInterlocks = new();
     // 정상 복귀 신호 뒤 DB 해제가 실패한 episode. 다음 Good 샘플에서 이력 해제만 재시도한다.
-    private readonly ConcurrentDictionary<string, Queue<PendingInterlockResolution>> _pendingInterlockResolutions = new();
-    // durable 이력 조회를 완료한 키. 프로세스 재시작 후 첫 Good 샘플에서 open 상태를 한 번 복원한다.
-    private readonly ConcurrentDictionary<string, byte> _loadedInterlockStates = new();
-    // 현재 발생 중인 알람의 최고 심각도(레벨) — 심각도 상승(Warning→Critical) 통지 판단용
-    private readonly ConcurrentDictionary<string, string> _activeAlarms = new();
-    private readonly ConcurrentDictionary<string, byte> _loadedAlarmStates = new();
+    private readonly ConcurrentDictionary<FdcRuntimeKey, Queue<PendingInterlockResolution>> _pendingInterlockResolutions = new();
+    // 현재 발생 중인 알람을 설정 ID별 episode로 유지한다. 같은 parameter의 다른 규칙이 계속
+    // hit하더라도 정상화된 설정만 독립적으로 clear할 수 있어야 한다.
+    private readonly ConcurrentDictionary<FdcRuntimeKey, Dictionary<string, string>> _activeAlarms = new();
+    private readonly ConcurrentDictionary<FdcRuntimeKey, byte> _loadedAlarmStates = new();
     // (설비|파라미터) 키별 평가-기록-해제 직렬화 — 동시 태그 이벤트의 발동↔해제 순서 역전 방지
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _keyGates = new();
+    private readonly ConcurrentDictionary<FdcRuntimeKey, SemaphoreSlim> _keyGates = new();
 
-    /// <summary>인터락 규칙이 최초 발동했을 때 DB 기록보다 먼저 한 번 발생한다. 액션 해석과 실제 설비 제어는
-    /// 프로젝트별 플러그인/소비자가 담당하며, 공통 FDC의 버스 알림 워커는 물리 안전 동작이 아니다 (§10.4.2).</summary>
+    /// <summary>인터락 규칙의 프로젝트 action이 ack/readback까지 확인된 뒤 episode당 한 번 발생한다.
+    /// Prepared/Applied DB 증거는 먼저 시도하되 장애 시 같은 EffectId로 재시도한다. 공통 FDC의 버스 알림은
+    /// 장치 제어 출력이 아니다 (§10.4.2).</summary>
     public event EventHandler<FdcInterlockTriggeredEventArgs>? InterlockTriggered;
 
     /// <summary>발동했던 인터락이 정상 범위 복귀로 해제됐을 때 발생한다 (§10.4.2).</summary>
@@ -42,22 +51,281 @@ public sealed class FdcCollectorService
     /// <summary>발생했던 알람이 정상 범위 복귀로 해제됐을 때 발생한다 (§10.4.1).</summary>
     public event EventHandler<FdcAlarmClearedEventArgs>? AlarmCleared;
 
+    /// <summary>
+    /// Runtime-only supervision signal. The FDC worker uses it to close its driver sessions when an
+    /// already-published operational run permit is revoked. It is not a device-control output.
+    /// </summary>
+    internal event Action? RunPermitRevoked;
+
     public FdcCollectorService(
         FdcDataService dataService,
         FdcInterlockService? interlockService = null,
-        FdcAlarmService? alarmService = null)
+        FdcAlarmService? alarmService = null,
+        IFdcInterlockActionPort? actionPort = null,
+        TimeSpan? actionTimeout = null)
     {
         _dataService = dataService;
         _interlockService = interlockService;
         _alarmService = alarmService;
+        _actionPort = actionPort;
+        _actionTimeout = actionTimeout ?? TimeSpan.FromSeconds(10);
+        if (_actionTimeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(
+                nameof(actionTimeout), _actionTimeout, "Interlock action timeout must be positive.");
+        _runPermit = interlockService is null ? 1 : 0;
+        if (interlockService is not null)
+            interlockService.RuntimeInvalidated += OnInterlockRuntimeInvalidated;
     }
 
-    /// <summary>태그 변경 1건을 수집 데이터로 적재하고, 인터락 규칙을 평가한다.
-    /// 파라미터 미정의·검증 실패는 삼킨다(폭주 방지) — 이 경우 인터락 평가도 건너뛴다.</summary>
-    public async Task OnTagChangeAsync(string equipmentId, FdcTagSample sample, CancellationToken ct = default)
+    /// <summary>
+    /// 기동 시 topology/규칙/open effect/action adapter를 모두 검증하고, 모든 열린 EffectId가 실제 장치
+    /// readback까지 재확인된 뒤에만 운전을 허가한다.
+    /// </summary>
+    public async Task InitializeInterlockRuntimeAsync(
+        IReadOnlyCollection<FdcInterlockTopology> topology,
+        CancellationToken ct = default)
     {
-        var quality = sample.Quality.ToString();
+        lock (_runtimeStateGate)
+        {
+            Volatile.Write(ref _runPermit, 0);
+            _preparedRuntimeRevision = null;
+            _pendingInitialSnapshots.Clear();
+        }
+        _activeInterlocks.Clear();
+        _pendingInterlockResolutions.Clear();
+        _activeAlarms.Clear();
+        _loadedAlarmStates.Clear();
 
+        FdcInterlockRuntimeBootstrap? bootstrap = null;
+        if (_interlockService is not null)
+        {
+            if (_actionPort is null)
+                throw new FdcInterlockRuntimeUnavailableException(
+                    "A project-owned IFdcInterlockActionPort is required; run permit is denied.");
+
+            bootstrap = await _interlockService.InitializeRuntimeAsync(topology, ct);
+            FdcInterlockActionReadiness readiness;
+            try
+            {
+                readiness = await AwaitActionPortAsync(
+                    token => _actionPort.CheckReadyAsync(bootstrap.RequiredActions, token),
+                    ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                throw new FdcInterlockRuntimeUnavailableException(
+                    "The project interlock action adapter readiness check failed; run permit is denied.", ex);
+            }
+
+            if (readiness is null || !readiness.IsAvailable || !readiness.CancellationFencingConfirmed)
+                throw new FdcInterlockRuntimeUnavailableException(
+                    "The project interlock action adapter is unavailable or did not confirm " +
+                    $"cancellation/deadline fencing: {readiness?.Detail ?? "no result"}.");
+
+            if (readiness.OutstandingEffects is null)
+                throw new FdcInterlockRuntimeUnavailableException(
+                    "The project interlock action adapter returned no durable outstanding-effect inventory.");
+
+            var openEffects = bootstrap.OpenEffects.ToDictionary(effect => effect.Id, StringComparer.Ordinal);
+            var adapterEffectIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var outstanding in readiness.OutstandingEffects)
+            {
+                if (outstanding?.Request is null
+                    || !adapterEffectIds.Add(outstanding.Request.EffectId))
+                    throw new FdcInterlockRuntimeUnavailableException(
+                        "The project interlock action adapter returned a null or duplicate outstanding EffectId.");
+
+                var imported = await _interlockService.ImportOutstandingEffectAsync(outstanding, ct);
+                openEffects[imported.Id] = imported;
+            }
+
+            // Never trust a persisted ConditionNormalized/ReleasePending state before current PLC input is known.
+            // Reassert every unresolved physical effect first; the initial Good snapshot below is the sole release gate.
+            foreach (var history in openEffects.Values
+                         .OrderBy(effect => effect.TriggeredAt)
+                         .ThenBy(effect => effect.Id, StringComparer.Ordinal))
+            {
+                var episode = new ActiveInterlockEpisode(
+                    history.Id,
+                    history.TriggerValue,
+                    InterlockResult.Triggered(history.Action, history.Message, history.RuleId),
+                    history.TriggeredAt,
+                    historyPending: false);
+                await ApplyActionAsync(history.EquipmentId, history.ParameterId, episode, isRecovery: true, reconcile: true, ct);
+                AddActiveEpisode(RuntimeKey(history.EquipmentId, history.ParameterId), episode);
+                RaiseInterlockTriggered(history.EquipmentId, history.ParameterId, episode, isRecovery: true);
+            }
+        }
+
+        await PreloadAlarmStateAsync(topology, ct);
+
+        lock (_runtimeStateGate)
+        {
+            if (_interlockService is not null && !_interlockService.IsRuntimeCurrent(bootstrap!.Revision))
+                throw new FdcInterlockRuntimeUnavailableException(
+                    "Interlock rules changed during action readiness/reconciliation; explicit re-initialization is required.");
+
+            _preparedRuntimeRevision = bootstrap?.Revision;
+            foreach (var equipment in topology)
+            {
+                foreach (var parameterId in equipment.ParameterIds)
+                    _pendingInitialSnapshots.Add(RuntimeKey(equipment.EquipmentId, parameterId));
+            }
+        }
+    }
+
+    /// <summary>
+    /// 열린 PLC 연결에서 명시적으로 읽은 현재값을 평가한다. 이 단계는 아직 run permit을 요구하지 않지만
+    /// 동일한 action ack/readback과 telemetry ordering을 적용한다.
+    /// </summary>
+    public async Task EvaluateInitialSnapshotAsync(
+        string equipmentId,
+        IReadOnlyCollection<FdcTagSample> samples,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(samples);
+        EnsureRuntimePreparedForInitialSnapshot();
+
+        foreach (var sample in samples)
+            await ProcessSampleAsync(equipmentId, sample, requireRunPermit: false, markInitialSnapshot: true, ct);
+    }
+
+    /// <summary>
+    /// 모든 활성 topology 값의 초기 평가가 끝난 뒤 run permit을 원자적으로 게시한다.
+    /// callback 버퍼를 소유한 worker가 그 버퍼 gate 안에서 호출해야 snapshot과 live stream 사이에 틈이 없다.
+    /// </summary>
+    public void CompleteInterlockRuntimeInitialization()
+    {
+        lock (_runtimeStateGate)
+        {
+            if (_interlockService is null)
+            {
+                Volatile.Write(ref _runPermit, 1);
+                return;
+            }
+
+            if (_preparedRuntimeRevision is null || !_interlockService.IsRuntimeCurrent(_preparedRuntimeRevision.Value))
+                throw new FdcInterlockRuntimeUnavailableException(
+                    "FDC interlock runtime is not prepared or changed during initial snapshot evaluation.");
+
+            if (_pendingInitialSnapshots.Count > 0)
+            {
+                var missing = string.Join(", ", _pendingInitialSnapshots
+                    .Select(static key => $"{key.EquipmentId}/{key.ParameterId}")
+                    .OrderBy(static key => key, StringComparer.Ordinal));
+                throw new FdcInterlockRuntimeUnavailableException(
+                    $"FDC initial snapshot is incomplete; missing active parameters: {missing}.");
+            }
+
+            Volatile.Write(ref _runPermit, 1);
+        }
+    }
+
+    /// <summary>규칙·topology·action adapter·모든 open effect가 검증된 경우에만 true다.</summary>
+    public bool IsRunPermitted => _interlockService is null || Volatile.Read(ref _runPermit) == 1;
+
+    /// <summary>태그 변경 1건을 인터락 스냅샷으로 먼저 평가·적용한 뒤 수집 데이터로 적재한다.
+    /// telemetry DB 지연/장애가 프로젝트 action 실행을 선행 차단하지 않는다.</summary>
+    public async Task OnTagChangeAsync(string equipmentId, FdcTagSample sample, CancellationToken ct = default)
+        => await ProcessSampleAsync(equipmentId, sample, requireRunPermit: true, markInitialSnapshot: false, ct);
+
+    internal async Task OnBufferedStartupTagChangeAsync(
+        string equipmentId,
+        FdcTagSample sample,
+        CancellationToken ct = default)
+        => await ProcessSampleAsync(equipmentId, sample, requireRunPermit: false, markInitialSnapshot: false, ct);
+
+    internal void DenyRunPermit()
+    {
+        lock (_runtimeStateGate)
+            RevokeRunPermit();
+    }
+
+    /// <summary>
+    /// Driver sample 변화와 무관하게 Prepared/Applied/ReleasePending 영속화를 재시도한다.
+    /// Worker supervisor만 호출하며 각 parameter gate로 live callback과 직렬화한다.
+    /// </summary>
+    internal async Task RetryPendingEffectPersistenceAsync(CancellationToken ct = default)
+    {
+        foreach (var key in _activeInterlocks.Keys
+                     .Concat(_pendingInterlockResolutions.Keys)
+                     .Distinct())
+        {
+            var gate = _keyGates.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync(ct);
+            try
+            {
+                if (_activeInterlocks.TryGetValue(key, out var episodes))
+                {
+                    foreach (var episode in episodes.ToArray())
+                        await RecordPendingInterlockAsync(key.EquipmentId, key.ParameterId, episode, ct);
+                }
+                await RetryPendingInterlockResolutionAsync(
+                    key.EquipmentId, key.ParameterId, key, ct);
+            }
+            finally { gate.Release(); }
+        }
+    }
+
+    private async Task ProcessSampleAsync(
+        string equipmentId,
+        FdcTagSample sample,
+        bool requireRunPermit,
+        bool markInitialSnapshot,
+        CancellationToken ct)
+    {
+        if (requireRunPermit)
+            EnsureRunPermitted();
+        else
+            EnsureRuntimePreparedForInitialSnapshot();
+
+        var key = RuntimeKey(equipmentId, sample.ParameterId);
+        var gate = _keyGates.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+        FdcInterlockRuntimeUnavailableException? qualityFailure = null;
+
+        if (sample.Quality != FdcSampleQuality.Good && _interlockService is not null)
+        {
+            bool isInterlockParameter;
+            try
+            {
+                isInterlockParameter = _interlockService.IsInterlockParameterRuntime(equipmentId, sample.ParameterId);
+            }
+            catch (FdcInterlockRuntimeUnavailableException)
+            {
+                RevokeRunPermit();
+                throw;
+            }
+
+            if (isInterlockParameter)
+            {
+                // Bad/Disconnected payload의 fallback 숫자는 규칙 값으로 평가하지 않는다. 다만 인터락 입력을
+                // 관찰할 수 없다는 사실 자체로 permit을 DB 접근 전에 즉시 철회한다.
+                RevokeRunPermit();
+                qualityFailure = new FdcInterlockRuntimeUnavailableException(
+                    $"Interlock input '{equipmentId}/{sample.ParameterId}' quality is '{sample.Quality}'; "
+                    + "run permit is denied until an explicit runtime re-initialization and Good snapshot.");
+            }
+        }
+
+        // 품질이 Good일 때만 인터락 평가/해제를 수행한다. 연결 끊김이나 변환 불가 payload의 fallback 0은
+        // 저값 규칙을 거짓 발동시키거나 열린 effect를 거짓 해제할 수 없다.
+        if (sample.Quality == FdcSampleQuality.Good && _interlockService is not null)
+        {
+            await gate.WaitAsync(ct);
+            try
+            {
+                // 규칙 평가는 메모리 전용이며 action의 ack/readback까지 여기서 await한다.
+                // history/telemetry DB 작업은 이 결정 뒤에만 실행한다.
+                await EvaluateInterlockAsync(equipmentId, sample.ParameterId, sample.Value, key, ct);
+                await RetryPendingInterlockResolutionAsync(equipmentId, sample.ParameterId, key, ct);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+
+        var quality = sample.Quality.ToString();
         var recorded = await _dataService.RecordDataAsync(
             collectId: Guid.NewGuid().ToString("N"),
             equipmentId: equipmentId,
@@ -66,94 +334,150 @@ public sealed class FdcCollectorService
             quality: quality,
             ct: ct);
 
-        if (recorded.IsFailure) return;   // 미정의 파라미터·검증 실패 — 인터락 평가 생략
+        if (qualityFailure is not null)
+            throw qualityFailure;
+
+        if (markInitialSnapshot)
+        {
+            lock (_runtimeStateGate)
+                _pendingInitialSnapshots.Remove(key);
+        }
+
+        if (recorded.IsFailure) return;
 
         // §17.5 nexames_fdc_collection_rate 적응 — 적재 성공 1건 계측 (대시보드가 기대 대비 수집률 산정)
         NexaMesMetrics.FdcCollected.Add(1,
             new KeyValuePair<string, object?>("equipmentId", equipmentId),
             new KeyValuePair<string, object?>("quality", quality));
 
-        if (_interlockService is null && _alarmService is null) return;
+        if (sample.Quality != FdcSampleQuality.Good || _alarmService is null) return;
 
-        // 품질이 Good이 아니면 평가·해제하지 않는다. 연결 끊김이나 변환 불가 payload의 Bad 표본이
-        // fallback 0으로 저장되더라도 활성 인터락/알람을 거짓 해제하거나 저값 규칙을 발동시키지 않는다.
-        if (sample.Quality != FdcSampleQuality.Good) return;
-
-        // 같은 (설비|태그) 이벤트의 동시 처리를 직렬화 — TryAdd 후 RecordTrigger(INSERT)와
-        // 정상 복귀 시 ResolveActive(미해제 행 해제)의 순서 역전(발동↔해제 비대칭)을 막는다.
-        var key = $"{equipmentId}|{sample.ParameterId}";
-        var gate = _keyGates.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct);
         try
         {
-            if (_interlockService is not null)
-            {
-                await RetryPendingInterlockResolutionAsync(equipmentId, sample.ParameterId, key, ct);
-                await RestoreInterlockStateAsync(equipmentId, sample.ParameterId, key, ct);
-                await EvaluateInterlockAsync(equipmentId, sample.ParameterId, sample.Value, key, ct);
-            }
-            if (_alarmService is not null)
-            {
-                await RestoreAlarmStateAsync(equipmentId, sample.ParameterId, key, ct);
-                await EvaluateAlarmAsync(equipmentId, sample.ParameterId, sample.Value, key, ct);
-            }
+            await RestoreAlarmStateAsync(equipmentId, sample.ParameterId, key, ct);
+            await EvaluateAlarmAsync(equipmentId, sample.ParameterId, sample.Value, key, ct);
         }
-        finally
-        {
-            gate.Release();
-        }
+        finally { gate.Release(); }
     }
 
-    private async Task EvaluateInterlockAsync(string equipmentId, string tagName, decimal value, string key, CancellationToken ct)
+    private async Task EvaluateInterlockAsync(
+        string equipmentId,
+        string tagName,
+        decimal value,
+        FdcRuntimeKey key,
+        CancellationToken ct)
     {
-        var interlock = await _interlockService!.EvaluateAsync(equipmentId, tagName, value, ct);
-
-        if (interlock.IsTriggered)
+        IReadOnlyList<InterlockResult> matches;
+        try
         {
-            // 이미 발동 중이면 action/event는 중복하지 않는다. 이전 기록이 실패한 경우에만 최초 episode의
-            // EffectId/값/규칙을 그대로 사용해 durable 이력을 재시도한다.
-            if (_activeInterlocks.TryGetValue(key, out var active))
-            {
-                await RecordPendingInterlockAsync(equipmentId, tagName, active, ct);
-                return;
-            }
+            matches = _interlockService!.EvaluateRuntime(equipmentId, tagName, value);
+        }
+        catch (FdcInterlockRuntimeUnavailableException)
+        {
+            RevokeRunPermit();
+            throw;
+        }
 
-            var episode = new ActiveInterlockEpisode(
-                Guid.NewGuid().ToString("N"), value, interlock, DateTime.UtcNow, historyPending: true);
-            if (!_activeInterlocks.TryAdd(key, episode)) return;
+        _activeInterlocks.TryGetValue(key, out var activeEpisodes);
+        if (matches.Count > 0)
+        {
+            activeEpisodes ??= _activeInterlocks.GetOrAdd(key, _ => new List<ActiveInterlockEpisode>());
+            foreach (var interlock in matches)
+            {
+                if (string.IsNullOrWhiteSpace(interlock.RuleId))
+                    throw new FdcInterlockRuntimeUnavailableException(
+                        $"A matching interlock for '{equipmentId}/{tagName}' has no rule ID.");
 
-            // 안전 관련 프로젝트 소비자가 DB 상태와 무관하게 첫 신호를 받을 수 있도록 반드시 기록보다 먼저 발생시킨다.
-            // 구독자 예외가 나더라도 finally에서 이력 기록은 시도하고, active episode는 유지해 중복 action을 막는다.
-            try
-            {
-                InterlockTriggered?.Invoke(this,
-                    new FdcInterlockTriggeredEventArgs(
-                        episode.EffectId, equipmentId, tagName, value, interlock));
-            }
-            finally
-            {
+                // Episode는 parameter가 아니라 rule별로 유지한다. 같은 입력에서 Warning과 STOP이 동시에
+                // match해도 한 action이 다른 action을 마스킹하지 않는다.
+                var existing = activeEpisodes
+                    .Where(episode => string.Equals(
+                        episode.Result.RuleId, interlock.RuleId, StringComparison.Ordinal))
+                    .ToArray();
+                if (existing.Length > 0)
+                {
+                    foreach (var active in existing)
+                        await RecordPendingInterlockAsync(equipmentId, tagName, active, ct);
+                    continue;
+                }
+
+                var episode = new ActiveInterlockEpisode(
+                    Guid.NewGuid().ToString("N"), value, interlock, DateTime.UtcNow, historyPending: true);
+                AddActiveEpisode(key, episode);
+
+                // Prepared 기록은 action 이전에 최선 시도한다. DB 장애가 물리 STOP을 억제해서는 안 되므로
+                // 실패해도 같은 EffectId로 action을 계속 수행하고 supervisor가 durable retry를 이어간다.
                 await RecordPendingInterlockAsync(equipmentId, tagName, episode, ct);
+
+                // action은 프로젝트 adapter가 EffectId 멱등 키로 실행하고 ack+readback을 모두 확인해야 한다.
+                // 실패해도 감지 evidence는 finally에서 보존하며 runtime은 fail-closed로 전환된다.
+                try
+                {
+                    await ApplyActionAsync(equipmentId, tagName, episode, isRecovery: false, reconcile: false, ct);
+                    RaiseInterlockTriggered(equipmentId, tagName, episode, isRecovery: false);
+                }
+                finally
+                {
+                    await RecordPendingInterlockAsync(equipmentId, tagName, episode, ct);
+                }
             }
         }
-        else if (_activeInterlocks.TryRemove(key, out var episode))
+
+        if (activeEpisodes is null)
+            return;
+
+        var matchingRuleIds = matches
+            .Select(static result => result.RuleId!)
+            .ToHashSet(StringComparer.Ordinal);
+        var resolvedEpisodes = activeEpisodes
+            .Where(episode => episode.Result.RuleId is not null
+                              && !matchingRuleIds.Contains(episode.Result.RuleId))
+            .ToArray();
+        foreach (var episode in resolvedEpisodes)
         {
-            // 정상 복귀도 DB 장애가 실시간 사실 통지를 억제하지 않게 메모리 episode를 먼저 닫고 신호를 낸다.
-            // durable 해제 실패는 별도 pending으로 남겨 다음 Good 샘플에서 재시도한다.
-            var resolvedAt = DateTime.UtcNow;
+            await RecordPendingInterlockAsync(equipmentId, tagName, episode, ct);
+            if (episode.HistoryPending || episode.AppliedPersistencePending)
+            {
+                RevokeRunPermit();
+                continue;
+            }
+
+            var normalizedAt = DateTime.UtcNow;
+            if (episode.ActionConfirmedAt is { } actionConfirmedAt && normalizedAt < actionConfirmedAt)
+                normalizedAt = actionConfirmedAt;
+            if (!await _interlockService.MarkConditionNormalizedAsync(
+                    episode.EffectId, normalizedAt, value, ct))
+            {
+                RevokeRunPermit();
+                continue;
+            }
+            var release = await ReleaseActionAsync(
+                equipmentId, tagName, episode, value, isRecovery: false, ct);
+            if (!release.IsConfirmed)
+            {
+                await _interlockService.MarkReleasePendingAsync(episode.EffectId, release.Detail, ct);
+                RevokeRunPermit();
+                continue;
+            }
+            var releaseConfirmedAt = DateTime.UtcNow;
+            if (releaseConfirmedAt < normalizedAt)
+                releaseConfirmedAt = normalizedAt;
+
             var pendingResolutions = _pendingInterlockResolutions.GetOrAdd(
                 key, _ => new Queue<PendingInterlockResolution>());
-            pendingResolutions.Enqueue(new PendingInterlockResolution(episode, value, resolvedAt));
-            try
-            {
-                InterlockResolved?.Invoke(this,
-                    new FdcInterlockResolvedEventArgs(
-                        episode.EffectId, episode.Result.RuleId, equipmentId, tagName, value, resolvedAt));
-            }
-            finally
-            {
-                await RetryPendingInterlockResolutionAsync(equipmentId, tagName, key, ct);
-            }
+            if (!pendingResolutions.Any(pending => pending.Episode.EffectId == episode.EffectId))
+                pendingResolutions.Enqueue(new PendingInterlockResolution(
+                    episode, value, normalizedAt, releaseConfirmedAt, release));
+
+            // Physical release is already confirmed. DB terminal persistence is a separate EffectId ledger;
+            // leaving this episode physically active would mask a new violation while the DB is unavailable.
+            activeEpisodes.Remove(episode);
+            await RetryPendingInterlockResolutionAsync(equipmentId, tagName, key, ct);
         }
+
+        if (activeEpisodes.Count == 0)
+            _activeInterlocks.TryRemove(key, out _);
     }
 
     private async Task RecordPendingInterlockAsync(
@@ -162,38 +486,56 @@ public sealed class FdcCollectorService
         ActiveInterlockEpisode episode,
         CancellationToken ct)
     {
-        if (!episode.HistoryPending) return;
+        if (!episode.HistoryPending && !episode.AppliedPersistencePending) return;
         if (!_interlockService!.IsHistoryPersistenceConfigured)
         {
             // 경량(no-history) 구성은 의도적인 비영속 모드다. 매 샘플마다 동일 validation failure를 반복하지 않는다.
             episode.HistoryPending = false;
+            episode.MarkAppliedPersisted();
             return;
         }
 
         try
         {
-            var recorded = await _interlockService.RecordTriggerAsync(
-                episode.EffectId,
-                equipmentId,
-                parameterId,
-                episode.TriggerValue,
-                episode.Result,
-                episode.TriggeredAt,
-                ct);
-            if (recorded.IsSuccess)
-                episode.HistoryPending = false;
+            if (episode.HistoryPending)
+            {
+                var recorded = await _interlockService.RecordTriggerAsync(
+                    episode.EffectId,
+                    equipmentId,
+                    parameterId,
+                    episode.TriggerValue,
+                    episode.Result,
+                    episode.TriggeredAt,
+                    ct);
+                if (recorded.IsSuccess)
+                    episode.HistoryPending = false;
+            }
+
+            // Apply may have completed while the Prepared INSERT was unavailable. Once that row
+            // becomes durable, persist the same acknowledgement/readback instead of leaving the
+            // lifecycle permanently at Prepared. A false CAS result remains pending for the worker
+            // supervisor; it is not silently treated as evidence.
+            if (!episode.HistoryPending
+                && episode.AppliedPersistencePending
+                && episode.ActionResult is { IsConfirmed: true } actionResult
+                && episode.ActionConfirmedAt is { } actionConfirmedAt
+                && await _interlockService.MarkAppliedAsync(
+                    episode.EffectId, actionResult, actionConfirmedAt, ct))
+            {
+                episode.MarkAppliedPersisted();
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // DB 장애는 최초 신호를 되돌리거나 같은 episode의 action/event를 재발행하지 않는다.
-            // HistoryPending을 유지해 다음 위반 샘플에서 동일 EffectId로 기록만 재시도한다.
+            // 각 pending flag를 유지해 다음 샘플 또는 supervisor에서 같은 EffectId로 재시도한다.
         }
     }
 
     private async Task RetryPendingInterlockResolutionAsync(
         string equipmentId,
         string parameterId,
-        string key,
+        FdcRuntimeKey key,
         CancellationToken ct)
     {
         if (!_pendingInterlockResolutions.TryGetValue(key, out var pendingQueue)
@@ -203,6 +545,14 @@ public sealed class FdcCollectorService
         // 이력 저장소를 의도적으로 생략한 경량 구성에는 durable 재시도 대상이 없다.
         if (!_interlockService!.IsHistoryPersistenceConfigured)
         {
+            while (pendingQueue.Count > 0)
+            {
+                var pending = pendingQueue.Dequeue();
+                InterlockResolved?.Invoke(this,
+                    new FdcInterlockResolvedEventArgs(
+                        pending.Episode.EffectId, pending.Episode.Result.RuleId,
+                        equipmentId, parameterId, pending.Value, pending.ReleaseConfirmedAt));
+            }
             _pendingInterlockResolutions.TryRemove(key, out _);
             return;
         }
@@ -215,19 +565,24 @@ public sealed class FdcCollectorService
                 // trigger INSERT가 실패한 채 정상 복귀했더라도 trigger→resolve 증거 순서를 보존한다.
                 // 같은 ActiveInterlockEpisode 객체를 보관하므로 EffectId/최초 값/규칙/시각이 바뀌지 않는다.
                 await RecordPendingInterlockAsync(equipmentId, parameterId, pending.Episode, ct);
-                if (pending.Episode.HistoryPending) return;
+                if (pending.Episode.HistoryPending || pending.Episode.AppliedPersistencePending) return;
 
                 var resolved = await _interlockService.ResolveEffectAsync(
                     pending.Episode.EffectId,
                     equipmentId,
                     parameterId,
                     pending.Value,
-                    pending.ResolvedAt,
+                    pending.ReleaseConfirmedAt,
+                    pending.ReleaseResult,
                     ct);
                 // 0건은 성공이 아니다. 아직 trigger 행이 보이지 않거나 다른 장애가 있었을 수 있으므로
                 // 다음 Good 샘플에서 같은 EffectId로 다시 확인한다.
                 if (resolved == 0) return;
                 pendingQueue.Dequeue();
+                InterlockResolved?.Invoke(this,
+                    new FdcInterlockResolvedEventArgs(
+                        pending.Episode.EffectId, pending.Episode.Result.RuleId,
+                        equipmentId, parameterId, pending.Value, pending.ReleaseConfirmedAt));
             }
 
             _pendingInterlockResolutions.TryRemove(key, out _);
@@ -238,78 +593,299 @@ public sealed class FdcCollectorService
         }
     }
 
-    private async Task EvaluateAlarmAsync(string equipmentId, string tagName, decimal value, string key, CancellationToken ct)
-    {
-        var alarms = await _alarmService!.EvaluateAsync(equipmentId, tagName, value, ct);
-
-        if (alarms.Count > 0)
-        {
-            // 동시에 여러 레벨이 잡히면 가장 심각한 것을 채택
-            var top = alarms.Any(a => a.AlarmLevel == "Critical")
-                ? alarms.First(a => a.AlarmLevel == "Critical")
-                : alarms[0];
-
-            // 신규 발생 또는 심각도 상승(예: Warning→Critical)만 기록·통지 (동일 레벨 반복은 억제)
-            var isNew = !_activeAlarms.TryGetValue(key, out var current);
-            if (isNew || SeverityRank(top.AlarmLevel) > SeverityRank(current!))
-            {
-                try
-                {
-                    await _alarmService.RecordAsync(equipmentId, tagName, value, top, ct);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    // 기록 실패 시 활성 레벨을 갱신하지 않는다 — 갱신해 버리면 기록 없는 알람이 이후 동일/하위
-                    // 레벨을 거짓 억제한다. 갱신을 미뤄 다음 태그 변화에서 재평가·재기록되도록 한다.
-                    _loadedAlarmStates.TryRemove(key, out _);
-                    return;
-                }
-                _activeAlarms[key] = top.AlarmLevel;   // 기록 성공 후에만 활성 레벨 갱신
-                AlarmRaised?.Invoke(this, new FdcAlarmRaisedEventArgs(equipmentId, tagName, value, top));
-            }
-        }
-        else if (_activeAlarms.ContainsKey(key))
-        {
-            await _alarmService.ClearActiveAsync(equipmentId, tagName, ct);
-            _activeAlarms.TryRemove(key, out _);
-            AlarmCleared?.Invoke(this, new FdcAlarmClearedEventArgs(equipmentId, tagName, value));
-        }
-    }
-
-    private async Task RestoreInterlockStateAsync(
+    private async Task EvaluateAlarmAsync(
         string equipmentId,
-        string parameterId,
-        string key,
+        string tagName,
+        decimal value,
+        FdcRuntimeKey key,
         CancellationToken ct)
     {
-        if (_loadedInterlockStates.ContainsKey(key)) return;
+        var alarms = await _alarmService!.EvaluateAsync(equipmentId, tagName, value, ct);
+        var hits = alarms
+            .GroupBy(static alarm => alarm.AlarmConfigId, StringComparer.Ordinal)
+            .Select(static group => group
+                .OrderByDescending(alarm => SeverityRank(alarm.AlarmLevel))
+                .First())
+            .ToDictionary(static alarm => alarm.AlarmConfigId, StringComparer.Ordinal);
+        var active = _activeAlarms.GetOrAdd(
+            key, static _ => new Dictionary<string, string>(StringComparer.Ordinal));
 
-        var unresolved = await _interlockService!.GetLatestUnresolvedAsync(equipmentId, parameterId, ct);
-        if (unresolved is not null)
+        // 한 parameter에 Warning과 Critical이 함께 열려 있어도 현재 정상화된 config만 닫는다.
+        foreach (var alarmConfigId in active.Keys
+                     .Where(configId => !hits.ContainsKey(configId))
+                     .ToArray())
         {
-            _activeInterlocks.TryAdd(key, new ActiveInterlockEpisode(
-                unresolved.Id,
-                unresolved.TriggerValue,
-                InterlockResult.Triggered(
-                    unresolved.Action, unresolved.Message, unresolved.RuleId),
-                unresolved.TriggeredAt,
-                historyPending: false));
+            await _alarmService.ClearActiveAsync(equipmentId, tagName, alarmConfigId, ct);
+            active.Remove(alarmConfigId);
+            AlarmCleared?.Invoke(this,
+                new FdcAlarmClearedEventArgs(equipmentId, tagName, value, alarmConfigId));
         }
-        _loadedInterlockStates.TryAdd(key, 0);
+
+        // 낮은 심각도부터 게시하면 같은 샘플의 최종 UI 상태가 가장 높은 심각도로 끝난다.
+        foreach (var alarm in hits.Values
+                     .OrderBy(alarm => SeverityRank(alarm.AlarmLevel))
+                     .ThenBy(static alarm => alarm.AlarmConfigId, StringComparer.Ordinal))
+        {
+            if (active.ContainsKey(alarm.AlarmConfigId))
+                continue;
+
+            try
+            {
+                await _alarmService.RecordAsync(equipmentId, tagName, value, alarm, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // 기록 실패 시 해당 config를 활성화하지 않는다. 다음 샘플은 DB open state를 다시 읽고
+                // 같은 config를 재평가한다.
+                _loadedAlarmStates.TryRemove(key, out _);
+                return;
+            }
+            active[alarm.AlarmConfigId] = alarm.AlarmLevel;
+            AlarmRaised?.Invoke(this, new FdcAlarmRaisedEventArgs(equipmentId, tagName, value, alarm));
+        }
+
+        if (active.Count == 0)
+            _activeAlarms.TryRemove(key, out _);
     }
+
+    private async Task ApplyActionAsync(
+        string equipmentId,
+        string parameterId,
+        ActiveInterlockEpisode episode,
+        bool isRecovery,
+        bool reconcile,
+        CancellationToken ct)
+    {
+        if (_actionPort is null)
+        {
+            RevokeRunPermit();
+            throw new FdcInterlockRuntimeUnavailableException(
+                "A project-owned IFdcInterlockActionPort is required; run permit is denied.");
+        }
+
+        FdcInterlockActionResult result;
+        try
+        {
+            result = await AwaitActionPortAsync(
+                token => (reconcile ? _actionPort.ReconcileAsync(
+                    new FdcInterlockActionRequest(
+                        episode.EffectId, episode.Result.RuleId!, equipmentId, parameterId,
+                        episode.TriggerValue, episode.Result.Action, isRecovery,
+                        episode.TriggeredAt, episode.Result.Message), token) : _actionPort.ApplyAsync(
+                    new FdcInterlockActionRequest(
+                        episode.EffectId,
+                        episode.Result.RuleId!,
+                        equipmentId,
+                        parameterId,
+                        episode.TriggerValue,
+                        episode.Result.Action,
+                        isRecovery,
+                        episode.TriggeredAt,
+                        episode.Result.Message),
+                    token)),
+                ct);
+        }
+        catch (OperationCanceledException)
+        {
+            RevokeRunPermit();
+            throw;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            RevokeRunPermit();
+            try { await _interlockService!.MarkActionErrorAsync(episode.EffectId, ex.Message, ct); }
+            catch (Exception persistenceError) when (persistenceError is not OperationCanceledException) { }
+            throw new FdcInterlockActionFailedException(
+                episode.EffectId,
+                $"Interlock action '{episode.Result.Action}' threw before acknowledgement/readback; run permit is denied.",
+                ex);
+        }
+
+        if (result is null || !result.IsConfirmed)
+        {
+            RevokeRunPermit();
+            try
+            {
+                await _interlockService!.MarkActionErrorAsync(
+                    episode.EffectId, result?.Detail ?? "Action acknowledgement/readback was not confirmed.", ct);
+            }
+            catch (Exception persistenceError) when (persistenceError is not OperationCanceledException) { }
+            throw new FdcInterlockActionFailedException(
+                episode.EffectId,
+                $"Interlock action '{episode.Result.Action}' was not confirmed by acknowledgement and readback: " +
+                $"{result?.Detail ?? "no result"}.");
+        }
+
+        var confirmedAt = DateTime.UtcNow;
+        episode.MarkActionApplied(result, confirmedAt);
+        try
+        {
+            if (await _interlockService!.MarkAppliedAsync(episode.EffectId, result, confirmedAt, ct))
+                episode.MarkAppliedPersisted();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The physical action remains confirmed. Its durable state is retried independently
+            // from the Prepared insert so a recovered row cannot remain permanently Prepared.
+        }
+    }
+
+    private async Task<FdcInterlockReleaseResult> ReleaseActionAsync(
+        string equipmentId, string parameterId, ActiveInterlockEpisode episode,
+        decimal normalizedValue, bool isRecovery, CancellationToken ct)
+    {
+        if (_actionPort is null)
+            return new FdcInterlockReleaseResult(false, false, true, null, "Action adapter is unavailable.");
+
+        try
+        {
+            var result = await AwaitActionPortAsync(token => _actionPort.ReleaseAsync(
+                new FdcInterlockReleaseRequest(
+                    episode.EffectId, episode.Result.RuleId!, equipmentId, parameterId,
+                    episode.Result.Action, normalizedValue, FdcInterlockResetPolicy.ManualRequired, isRecovery), token), ct);
+            if (result is null || !result.IsConfirmed) RevokeRunPermit();
+            return result ?? new FdcInterlockReleaseResult(false, false, true, null, "No release result.");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            RevokeRunPermit();
+            return new FdcInterlockReleaseResult(false, false, true, null, ex.Message);
+        }
+    }
+
+    private async Task<T> AwaitActionPortAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken ct)
+    {
+        using var adapterCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        try
+        {
+            return await operation(adapterCancellation.Token).WaitAsync(_actionTimeout, ct);
+        }
+        catch (TimeoutException)
+        {
+            // WaitAsync bounds even an adapter that ignores cancellation. EffectId is the mandatory idempotency
+            // key if the adapter finishes after this caller has already failed closed.
+            adapterCancellation.Cancel();
+            throw;
+        }
+    }
+
+    private void RaiseInterlockTriggered(
+        string equipmentId,
+        string parameterId,
+        ActiveInterlockEpisode episode,
+        bool isRecovery)
+    {
+        if (episode.ActionResult is null)
+            throw new InvalidOperationException("An interlock effect cannot be published before action confirmation.");
+
+        InterlockTriggered?.Invoke(this,
+            new FdcInterlockTriggeredEventArgs(
+                episode.EffectId,
+                equipmentId,
+                parameterId,
+                episode.TriggerValue,
+                episode.Result,
+                episode.ActionResult,
+                isRecovery));
+    }
+
+    private void AddActiveEpisode(FdcRuntimeKey key, ActiveInterlockEpisode episode)
+    {
+        var episodes = _activeInterlocks.GetOrAdd(key, _ => new List<ActiveInterlockEpisode>());
+        if (episodes.All(candidate => candidate.EffectId != episode.EffectId))
+            episodes.Add(episode);
+    }
+
+    private void EnsureRunPermitted()
+    {
+        if (_interlockService is null) return;
+        if (Volatile.Read(ref _runPermit) == 1 && _interlockService.IsRuntimeInitialized) return;
+
+        RevokeRunPermit();
+        throw new FdcInterlockRuntimeUnavailableException(
+            "FDC interlock runtime is not initialized or was invalidated; run permit is denied.");
+    }
+
+    private void EnsureRuntimePreparedForInitialSnapshot()
+    {
+        if (_interlockService is null) return;
+
+        lock (_runtimeStateGate)
+        {
+            if (_preparedRuntimeRevision is not null
+                && _interlockService.IsRuntimeCurrent(_preparedRuntimeRevision.Value))
+                return;
+        }
+
+        RevokeRunPermit();
+        throw new FdcInterlockRuntimeUnavailableException(
+            "FDC interlock runtime is not prepared for initial snapshot evaluation; run permit is denied.");
+    }
+
+    private void OnInterlockRuntimeInvalidated()
+    {
+        lock (_runtimeStateGate)
+        {
+            _preparedRuntimeRevision = null;
+        }
+        RevokeRunPermit();
+    }
+
+    private void RevokeRunPermit()
+    {
+        if (_interlockService is null)
+            return;
+
+        if (Interlocked.Exchange(ref _runPermit, 0) == 1)
+            RunPermitRevoked?.Invoke();
+    }
+
+    private static FdcRuntimeKey RuntimeKey(string equipmentId, string parameterId) =>
+        new(equipmentId, parameterId);
 
     private async Task RestoreAlarmStateAsync(
         string equipmentId,
         string parameterId,
-        string key,
+        FdcRuntimeKey key,
         CancellationToken ct)
     {
         if (_loadedAlarmStates.ContainsKey(key)) return;
 
-        var level = await _alarmService!.GetHighestOpenLevelAsync(equipmentId, parameterId, ct);
-        if (level is not null)
-            _activeAlarms[key] = level;
+        var open = await _alarmService!.GetOpenByParameterAsync(equipmentId, parameterId, ct);
+        if (open.Count > 0)
+            _activeAlarms[key] = ToActiveAlarmMap(open);
         _loadedAlarmStates.TryAdd(key, 0);
+    }
+
+    private async Task PreloadAlarmStateAsync(
+        IReadOnlyCollection<FdcInterlockTopology> topology,
+        CancellationToken ct)
+    {
+        if (_alarmService is null) return;
+
+        foreach (var equipment in topology
+                     .GroupBy(item => item.EquipmentId, StringComparer.Ordinal)
+                     .Select(group => new
+                     {
+                         EquipmentId = group.Key,
+                         ParameterIds = group.SelectMany(item => item.ParameterIds)
+                             .Distinct(StringComparer.Ordinal)
+                             .ToArray()
+                     }))
+        {
+            var open = await _alarmService.GetOpenByEquipmentAsync(equipment.EquipmentId, ct);
+            foreach (var parameterGroup in open.GroupBy(history => history.ParameterId, StringComparer.Ordinal))
+            {
+                _activeAlarms[RuntimeKey(equipment.EquipmentId, parameterGroup.Key)] =
+                    ToActiveAlarmMap(parameterGroup);
+            }
+
+            // 모든 topology key를 loaded로 표시해 첫 샘플의 parameter-scoped DB point-read를 제거한다.
+            foreach (var parameterId in equipment.ParameterIds)
+                _loadedAlarmStates[RuntimeKey(equipment.EquipmentId, parameterId)] = 0;
+        }
     }
 
     /// <summary>알람 심각도 순위(Critical &gt; Warning &gt; 기타). 심각도 상승 통지 판단에 사용.</summary>
@@ -319,7 +895,21 @@ public sealed class FdcCollectorService
         "Warning"  => 1,
         _          => 0,
     };
+
+    private static Dictionary<string, string> ToActiveAlarmMap(
+        IEnumerable<FdcAlarmHistory> histories) =>
+        histories
+            .GroupBy(static history => history.AlarmConfigId, StringComparer.Ordinal)
+            .ToDictionary(
+                static group => group.Key,
+                static group => group
+                    .Select(history => history.AlarmLevel)
+                    .OrderByDescending(SeverityRank)
+                    .First(),
+                StringComparer.Ordinal);
 }
+
+internal readonly record struct FdcRuntimeKey(string EquipmentId, string ParameterId);
 
 internal sealed class ActiveInterlockEpisode
 {
@@ -342,12 +932,26 @@ internal sealed class ActiveInterlockEpisode
     public InterlockResult Result { get; }
     public DateTime TriggeredAt { get; }
     public bool HistoryPending { get; set; }
+    public FdcInterlockActionResult? ActionResult { get; private set; }
+    public DateTime? ActionConfirmedAt { get; private set; }
+    public bool AppliedPersistencePending { get; private set; }
+
+    public void MarkActionApplied(FdcInterlockActionResult result, DateTime confirmedAt)
+    {
+        ActionResult = result;
+        ActionConfirmedAt = confirmedAt;
+        AppliedPersistencePending = true;
+    }
+
+    public void MarkAppliedPersisted() => AppliedPersistencePending = false;
 }
 
 internal sealed record PendingInterlockResolution(
     ActiveInterlockEpisode Episode,
     decimal Value,
-    DateTime ResolvedAt);
+    DateTime ConditionNormalizedAt,
+    DateTime ReleaseConfirmedAt,
+    FdcInterlockReleaseResult ReleaseResult);
 
 /// <summary>인터락 규칙 발동 이벤트 인자 (§10.4.2).</summary>
 public sealed record FdcInterlockTriggeredEventArgs(
@@ -355,7 +959,9 @@ public sealed record FdcInterlockTriggeredEventArgs(
     string EquipmentId,
     string ParameterId,
     decimal Value,
-    InterlockResult Result);
+    InterlockResult Result,
+    FdcInterlockActionResult ActionResult,
+    bool IsRecovery);
 
 /// <summary>인터락 해제(정상 복귀) 이벤트 인자 (§10.4.2).</summary>
 public sealed record FdcInterlockResolvedEventArgs(
@@ -377,4 +983,16 @@ public sealed record FdcAlarmRaisedEventArgs(
 public sealed record FdcAlarmClearedEventArgs(
     string EquipmentId,
     string ParameterId,
-    decimal Value);
+    decimal Value,
+    string AlarmConfigId);
+
+public sealed class FdcInterlockActionFailedException : InvalidOperationException
+{
+    public FdcInterlockActionFailedException(string effectId, string message)
+        : base(message) => EffectId = effectId;
+
+    public FdcInterlockActionFailedException(string effectId, string message, Exception innerException)
+        : base(message, innerException) => EffectId = effectId;
+
+    public string EffectId { get; }
+}

@@ -78,7 +78,7 @@ public sealed class FdcDomainTests
         // 읽기경로 상태손실 회귀: Create는 IsActive를 true로 고정하므로 비활성 룰은 Restore로만 보존된다.
         var rule = FdcInterlockRule.Restore("RULE001", "온도 상한", "EQ001", "PARAM001", "GT", 100m, "STOP", 1, isActive: false);
 
-        rule.IsActive.Should().BeFalse("비활성화된 인터록 룰이 읽기경로에서 활성으로 되살아나면 안 된다(SAFETY)");
+        rule.IsActive.Should().BeFalse("비활성화된 인터록 룰이 읽기경로에서 활성으로 되살아나면 안 된다");
         rule.Id.Should().Be("RULE001");
         rule.RuleName.Should().Be("온도 상한");
         rule.Operator.Should().Be("GT");

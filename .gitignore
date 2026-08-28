@@ -38,3 +38,4 @@ secrets.json
 *.swp
 
 TestResults/
+artifacts/

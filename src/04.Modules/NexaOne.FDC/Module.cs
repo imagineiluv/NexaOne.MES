@@ -1,0 +1,167 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
+using NexaOne.Common.Caching;
+using NexaOne.FDC.Application.Fdc;
+using NexaOne.FDC.Infrastructure;
+using NexaOne.FDC.Infrastructure.Equipment;
+using NexaOne.Infrastructure.Messaging;
+using NexaOne.Infrastructure.Persistence;
+using NexaOne.ServiceContracts.Fdc;
+using NexaDB.Data.Abstractions.Interfaces;
+using NexaFramework.Scheduling;
+using NexaLogic.Plc.Hosting;
+
+namespace NexaOne.FDC;
+
+/// <summary>
+/// FDC 저장소·평가·PLC 수집 그래프를 숨기고 공개 bridge, TRACE source와 worker만 노출하는 조립 진입점입니다.
+/// 프로젝트 action adapter는 필수 외부 의존성이며, collector run permit 검증 전에 내부 기본 구현으로 대체하지 않습니다.
+/// </summary>
+public sealed class Module
+{
+    private readonly IFdcBridge _fdcBridge;
+    private readonly IFdcTraceSource _traceSource;
+    private readonly IHostedService _collectionWorker;
+    private readonly IHostedService _retentionWorker;
+    private readonly IHostedService _virtualEventWorker;
+
+    public Module(
+        EesDataSource dataSource,
+        INexaOneEESDbCapability dialect,
+        IConfiguration configuration,
+        ICacheService cache,
+        IFdcInterlockActionPort actionPort,
+        IPlcDriverFactory plcDriverFactory,
+        IMessageBus messageBus,
+        IRecurringScheduler scheduler)
+    {
+        ArgumentNullException.ThrowIfNull(dataSource);
+        ArgumentNullException.ThrowIfNull(dialect);
+        ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(cache);
+        ArgumentNullException.ThrowIfNull(actionPort);
+        ArgumentNullException.ThrowIfNull(plcDriverFactory);
+        ArgumentNullException.ThrowIfNull(messageBus);
+        ArgumentNullException.ThrowIfNull(scheduler);
+
+        var options = FdcModuleOptions.FromConfiguration(configuration);
+
+        var interlockRules = new FdcInterlockRuleRepository(dataSource);
+        var interlockHistory = new FdcInterlockHistoryRepository(dataSource, configuration);
+        var alarmConfigs = new FdcAlarmConfigRepository(dataSource);
+        var alarmHistory = new FdcAlarmHistoryRepository(dataSource, configuration);
+        var parameters = new FdcParameterRepository(dataSource);
+        var endpoints = new FdcEquipmentEndpointRepository(dataSource);
+        var collectData = new FdcCollectDataRepository(dataSource, dialect);
+        var groups = new FdcParameterGroupRepository(dataSource);
+        var virtualEvents = new VirtualEventRepository(dataSource, dialect);
+
+        var dataService = new FdcDataService(parameters, collectData, cache);
+        var interlockService = new FdcInterlockService(interlockRules, interlockHistory);
+        var alarmService = new FdcAlarmService(alarmConfigs, alarmHistory, cache);
+        var virtualEventService = new VirtualEventService(virtualEvents);
+        var collector = new FdcCollectorService(
+            dataService,
+            interlockService,
+            alarmService,
+            actionPort,
+            actionTimeout: TimeSpan.FromSeconds(options.InterlockActionTimeoutSeconds));
+
+        _fdcBridge = new FdcBridge(
+            new FdcParameterGroupService(groups),
+            alarmService,
+            interlockService,
+            virtualEventService);
+        _traceSource = new FdcTraceSource(collectData);
+        _collectionWorker = new FdcCollectionWorker(
+            collector,
+            endpoints,
+            parameters,
+            new FdcPlcDeviceFactory(plcDriverFactory),
+            messageBus,
+            enabled: options.CollectionEnabled,
+            topic: options.EventTopic,
+            streamFreshnessTimeout: TimeSpan.FromSeconds(options.RuntimeHealthFreshnessTimeoutSeconds),
+            driverCleanupTimeout: TimeSpan.FromSeconds(options.DriverCleanupTimeoutSeconds));
+        _retentionWorker = new FdcCollectDataRetentionWorker(
+            scheduler,
+            collectData,
+            enabled: options.RetentionEnabled,
+            intervalSeconds: options.RetentionIntervalSeconds,
+            retentionDays: options.RetentionDays);
+        _virtualEventWorker = new VirtualEventEvaluationWorker(
+            virtualEventService,
+            enabled: options.VirtualEventEnabled,
+            intervalSeconds: options.VirtualEventIntervalSeconds);
+    }
+
+    public IFdcBridge GetFdcBridge() => _fdcBridge;
+    public IFdcTraceSource GetTraceSource() => _traceSource;
+    public IHostedService GetCollectionWorker() => _collectionWorker;
+    public IHostedService GetRetentionWorker() => _retentionWorker;
+    public IHostedService GetVirtualEventWorker() => _virtualEventWorker;
+}
+
+/// <summary>
+/// Spring XML에 실행 정책 상수를 다시 노출하지 않도록 FDC worker 설정을 한곳에서 정규화합니다.
+/// 일반 정리 주기는 보수적인 최소값으로 제한하고, 안전 관련 action/freshness timeout의 0 이하는 기동을 거부합니다.
+/// 활성화 키가 없으면 모든 worker는 OFF입니다.
+/// </summary>
+internal sealed record FdcModuleOptions(
+    bool CollectionEnabled,
+    string EventTopic,
+    bool RetentionEnabled,
+    int RetentionIntervalSeconds,
+    int RetentionDays,
+    bool VirtualEventEnabled,
+    int VirtualEventIntervalSeconds,
+    int InterlockActionTimeoutSeconds,
+    int RuntimeHealthFreshnessTimeoutSeconds,
+    int DriverCleanupTimeoutSeconds)
+{
+    private const string DefaultEventTopic = "nexaone.events";
+
+    public static FdcModuleOptions FromConfiguration(IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        return new FdcModuleOptions(
+            CollectionEnabled: configuration.GetValue("Worker:Fdc:Enabled", false),
+            EventTopic: FirstNonBlank(
+                configuration["Worker:Fdc:Topic"],
+                configuration["Events:Outbox:Topic"],
+                DefaultEventTopic),
+            RetentionEnabled: configuration.GetValue("Worker:Fdc:Retention:Enabled", false),
+            RetentionIntervalSeconds: PositiveOrMinimum(
+                configuration.GetValue("Worker:Fdc:Retention:IntervalSeconds", 86_400),
+                minimum: 60),
+            RetentionDays: PositiveOrMinimum(
+                configuration.GetValue("Worker:Fdc:Retention:RetentionDays", 30),
+                minimum: 1),
+            VirtualEventEnabled: configuration.GetValue("Worker:Fdc:VirtualEvent:Enabled", false),
+            VirtualEventIntervalSeconds: PositiveOrMinimum(
+                configuration.GetValue("Worker:Fdc:VirtualEvent:IntervalSeconds", 30),
+                minimum: 5),
+            InterlockActionTimeoutSeconds: RequiredPositive(
+                configuration, "Worker:Fdc:InterlockActionTimeoutSeconds", 10),
+            RuntimeHealthFreshnessTimeoutSeconds: RequiredPositive(
+                configuration, "Worker:Fdc:RuntimeHealth:FreshnessTimeoutSeconds", 30),
+            DriverCleanupTimeoutSeconds: RequiredPositive(
+                configuration, "Worker:Fdc:DriverCleanupTimeoutSeconds", 10));
+    }
+
+    private static int PositiveOrMinimum(int value, int minimum) => Math.Max(value, minimum);
+
+    private static int RequiredPositive(IConfiguration configuration, string key, int defaultValue)
+    {
+        var value = configuration.GetValue(key, defaultValue);
+        if (value <= 0)
+            throw new InvalidOperationException($"FDC setting '{key}' must be positive.");
+        return value;
+    }
+
+    private static string FirstNonBlank(params string?[] candidates) =>
+        candidates
+            .Select(static candidate => candidate?.Trim())
+            .First(static candidate => !string.IsNullOrWhiteSpace(candidate))!;
+}

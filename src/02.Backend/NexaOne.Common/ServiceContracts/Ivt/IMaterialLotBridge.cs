@@ -6,7 +6,6 @@ namespace NexaOne.ServiceContracts.Ivt;
 /// 자재 LOT의 상태·위치·수량 변경을 하나의 원자적 수불 이벤트로 실행한다.
 /// 호출자는 작업 종류만 지정하고, 구현은 상태 규칙·멱등성·낙관적 잠금·원장 기록을 숨긴다.
 /// </summary>
-[NexaModuleBridge("Ivt", "materialLotBridge")]
 public interface IMaterialLotBridge : INexaModuleBridge
 {
     Task<Result<MaterialLotEventDto>> ExecuteAsync(

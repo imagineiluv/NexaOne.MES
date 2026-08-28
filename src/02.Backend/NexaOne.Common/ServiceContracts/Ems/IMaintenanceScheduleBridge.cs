@@ -6,7 +6,6 @@ namespace NexaOne.ServiceContracts.Ems;
 /// 수동 운전 단계의 PM Calendar/Meter/Condition 스케줄 상태와 도래 확인 원장을 관리한다.
 /// 조회는 EMS 파일 쿼리 레지스트리가 소유하고 이 브리지는 검증이 필요한 쓰기만 노출한다.
 /// </summary>
-[NexaModuleBridge("Ems", "maintenanceScheduleBridge")]
 public interface IMaintenanceScheduleBridge : INexaModuleBridge
 {
     Task<Result<MaintenanceScheduleDto>> CreateAsync(

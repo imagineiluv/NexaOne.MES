@@ -54,8 +54,13 @@ public sealed class OeeAggregationRepositoryTests : IClassFixture<OeeAggregation
     private OeeAggregationRepository Repo()
     {
         var dataSource = DataSource();
-        return new OeeAggregationRepository(dataSource, new OeeEvidenceSource(dataSource));
+        return new OeeAggregationRepository(dataSource, EvidenceSource(dataSource));
     }
+
+    private static OeeEvidenceSource EvidenceSource(EesDataSource dataSource) =>
+        new(
+            new NexaOne.MDM.Infrastructure.OeePlanDirectory(dataSource),
+            new NexaOne.POM.Infrastructure.OeeProductionDirectory(dataSource));
 
     private sealed class StubEvidenceSource(OeeProductionWindowDto production) : IOeeEvidenceSource
     {
@@ -297,7 +302,7 @@ public sealed class OeeAggregationRepositoryTests : IClassFixture<OeeAggregation
         _ = _factory.CreateClient();
         var start = new DateTime(2028, 2, 3, 0, 0, 0, DateTimeKind.Utc);
         SeedTrackOut("LOT_EVIDENCE_20280203", "EQ01", 42m, 2m, start.AddHours(3));
-        var source = new OeeEvidenceSource(DataSource());
+        var source = EvidenceSource(DataSource());
 
         var plan = await source.LoadPlanAsync(["EQ01"], start.Date);
         plan.EquipmentScopes.Should().ContainSingle(scope =>
@@ -333,7 +338,7 @@ public sealed class OeeAggregationRepositoryTests : IClassFixture<OeeAggregation
         try
         {
             var instant = new DateTime(2026, 1, 1, 1, 0, 0, DateTimeKind.Utc);
-            var clocks = await new OeeEvidenceSource(DataSource())
+            var clocks = await EvidenceSource(DataSource())
                 .LoadPlantLocalDatesAsync(["EQ01", "EQ03"], instant);
 
             clocks.Should().ContainSingle(clock =>

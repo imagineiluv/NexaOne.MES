@@ -63,7 +63,6 @@ public sealed record ProductionQualityGateResult(
 /// 작업지시는 QMS 영속 모델을 알지 않고 이 축약 계약만 재사용한다.
 /// 현재 판정 범위는 LOT과 공정이며 작업지시 식별자로 검사 증거를 추가 필터링하지 않는다.
 /// </summary>
-[NexaModuleBridge("Qms", "qmsProductionQualityGateway")]
 public interface IProductionQualityGateway : INexaModuleBridge
 {
     /// <summary>

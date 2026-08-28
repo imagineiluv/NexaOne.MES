@@ -107,6 +107,31 @@ public sealed class FdcAlarmTests
     }
 
     [Fact]
+    public async Task ClearActiveAsync_with_config_id_clears_only_that_alarm_episode()
+    {
+        var warning = FdcAlarmHistory.Create(
+            "AH-W", "AW", "EQ-001", "TEMP01", "Warning", 80m, "warning", At).Value;
+        var critical = FdcAlarmHistory.Create(
+            "AH-C", "AC", "EQ-001", "TEMP01", "Critical", 95m, "critical", At).Value;
+        var repository = new Mock<IFdcAlarmHistoryRepository>();
+        repository.Setup(r => r.GetOpenAsync(
+                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { warning, critical });
+        var service = new FdcAlarmService(
+            Mock.Of<IFdcAlarmConfigRepository>(), repository.Object);
+
+        var count = await service.ClearActiveAsync("EQ-001", "TEMP01", "AC");
+
+        count.Should().Be(1);
+        critical.IsCleared.Should().BeTrue();
+        warning.IsCleared.Should().BeFalse("the still-matching warning config owns a separate episode");
+        repository.Verify(r => r.UpdateAsync(
+            critical, It.IsAny<CancellationToken>()), Times.Once);
+        repository.Verify(r => r.UpdateAsync(
+            warning, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task GetHighestOpenLevelAsync_returns_the_durable_maximum_severity()
     {
         var warning = FdcAlarmHistory.Create(

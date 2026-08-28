@@ -8,6 +8,7 @@ public sealed class FdcParameter : AuditableEntity<string>
 
     public string ParameterName { get; private set; } = string.Empty;
     public string EquipmentId { get; private set; } = string.Empty;
+    public string? EndpointId { get; private set; }
     public string? GroupId { get; private set; }
     public string Unit { get; private set; } = string.Empty;
     public decimal LowerLimit { get; private set; }
@@ -23,7 +24,8 @@ public sealed class FdcParameter : AuditableEntity<string>
         string equipmentId,
         string unit,
         decimal lowerLimit,
-        decimal upperLimit)
+        decimal upperLimit,
+        string? endpointId = null)
     {
         if (string.IsNullOrWhiteSpace(parameterId))
             return Result.Failure<FdcParameter>(Error.Validation(nameof(parameterId), "Parameter ID is required."));
@@ -38,6 +40,7 @@ public sealed class FdcParameter : AuditableEntity<string>
         {
             ParameterName = parameterName,
             EquipmentId = equipmentId,
+            EndpointId = endpointId,
             Unit = unit,
             LowerLimit = lowerLimit,
             UpperLimit = upperLimit,
@@ -69,6 +72,15 @@ public sealed class FdcParameter : AuditableEntity<string>
     /// <summary>파라미터를 그룹(FDC_PARAMETER_GROUP)에 배정한다. null이면 그룹 해제.</summary>
     public void AssignToGroup(string? groupId) => GroupId = groupId;
 
+    public Result AssignEndpoint(string endpointId)
+    {
+        if (string.IsNullOrWhiteSpace(endpointId))
+            return Result.Failure(Error.Validation(nameof(endpointId), "Endpoint ID is required."));
+
+        EndpointId = endpointId;
+        return Result.Success();
+    }
+
     public void Deactivate() => IsActive = false;
 
     /// <summary>영속된 행을 검증 없이 도메인으로 재구성한다(읽기경로 Restore 패턴).
@@ -90,12 +102,14 @@ public sealed class FdcParameter : AuditableEntity<string>
         string? createdBy = null,
         DateTime? createdAt = null,
         string? updatedBy = null,
-        DateTime? updatedAt = null)
+        DateTime? updatedAt = null,
+        string? endpointId = null)
     {
         var parameter = new FdcParameter(parameterId)
         {
             ParameterName = parameterName,
             EquipmentId = equipmentId,
+            EndpointId = endpointId,
             GroupId = groupId,
             Unit = unit,
             LowerLimit = lowerLimit,

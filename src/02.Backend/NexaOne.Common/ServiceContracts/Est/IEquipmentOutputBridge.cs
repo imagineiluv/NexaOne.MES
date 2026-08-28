@@ -6,7 +6,6 @@ namespace NexaOne.ServiceContracts.Est;
 /// LOT 생산과 carrier 같은 non-LOT 설비 출력을 동일한 OEE 실적으로 기록하는 모듈 경계.
 /// 설비별 PLC/FDC 의미 해석은 프로젝트 플러그인이 수행하고, EST는 멱등 원장과 집계를 소유한다.
 /// </summary>
-[NexaModuleBridge("Est", "equipmentOutputBridge")]
 public interface IEquipmentOutputBridge : INexaModuleBridge
 {
     Task<Result<EquipmentOutputDto>> RecordAsync(

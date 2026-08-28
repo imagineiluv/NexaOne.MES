@@ -9,6 +9,7 @@ using FluentAssertions;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using NexaOne.Common.Security;
+using NexaOne.Server;
 using NexaOne.ServiceContracts;
 using Xunit;
 using Xunit.Abstractions;
@@ -63,8 +64,8 @@ public sealed class HostModulesBootSmokeTests
         root.GetProperty("workerCount").GetInt32().Should().BeGreaterThanOrEqualTo(1,
             "백그라운드 워커가 1개 이상 발견돼야 한다(실측 5)");
 
-        var expectedBridgeContracts = NexaModuleBridgeCatalog
-            .Discover(typeof(INexaModuleBridge).Assembly)
+        var expectedBridgeContracts = NexaOneMesBridgeCatalog
+            .Create()
             .Descriptors
             .Select(descriptor => descriptor.ContractType.FullName)
             .ToHashSet(StringComparer.Ordinal);
@@ -337,6 +338,27 @@ public sealed class HostModulesBootSmokeTests
     }
 
     [Fact]
+    public async Task Host_binds_ems_and_sys_module_worker_settings_through_spring_configuration()
+    {
+        using var host = await HostProcess.StartAsync(
+            _o,
+            springConfig: null,
+            expectListening: true,
+            enableEmsSysWorkers: true);
+
+        host.Listening.Should().BeTrue(
+            $"modules-ON 호스트가 EMS/SYS worker 설정과 함께 부팅돼야 한다 — 로그:\n{host.Log}");
+        (await host.WaitForLogAsync(
+                "[MaintenanceDueCheckWorker] started (topic=boot-smoke.events, interval=120s).",
+                TimeSpan.FromSeconds(10)))
+            .Should().BeTrue($"EMS worker가 IConfiguration 값을 받아 시작해야 한다 — 로그:\n{host.Log}");
+        (await host.WaitForLogAsync(
+                "[LoginFailureRetentionWorker] started (interval=300s, retentionDays=14).",
+                TimeSpan.FromSeconds(10)))
+            .Should().BeTrue($"SYS worker가 IConfiguration 값을 받아 시작해야 한다 — 로그:\n{host.Log}");
+    }
+
+    [Fact]
     public void Host_smoke_defaults_to_the_current_test_build_output()
     {
         var currentOutput = Path.GetFullPath(AppContext.BaseDirectory);
@@ -393,7 +415,8 @@ internal sealed class HostProcess : IDisposable
         string? springConfig,
         bool expectListening,
         bool concurrentServices = false,
-        bool enableBatchWorker = false)
+        bool enableBatchWorker = false,
+        bool enableEmsSysWorkers = false)
     {
         var explicitHostDirectory = Environment.GetEnvironmentVariable("NEXAONE_TEST_HOST_BIN");
         var hostDir = ResolveHostBinDir(explicitHostDirectory, AppContext.BaseDirectory);
@@ -428,6 +451,12 @@ internal sealed class HostProcess : IDisposable
         psi.Environment["Host__ServicesStartConcurrently"] = concurrentServices ? "true" : "false";
         psi.Environment["Host__ServicesStopConcurrently"] = concurrentServices ? "true" : "false";
         psi.Environment["Worker__Sys__BatchProcess__Enabled"] = enableBatchWorker ? "true" : "false";
+        psi.Environment["Worker__Ems__MaintenanceDue__Enabled"] = enableEmsSysWorkers ? "true" : "false";
+        psi.Environment["Worker__Ems__MaintenanceDue__IntervalSeconds"] = "120";
+        psi.Environment["Worker__Ems__MaintenanceDue__Topic"] = "boot-smoke.events";
+        psi.Environment["Worker__Sys__LoginFailureRetention__Enabled"] = enableEmsSysWorkers ? "true" : "false";
+        psi.Environment["Worker__Sys__LoginFailureRetention__IntervalSeconds"] = "300";
+        psi.Environment["Worker__Sys__LoginFailureRetention__RetentionDays"] = "14";
         psi.Environment["TMP"] = runtimeTemp;
         psi.Environment["TEMP"] = runtimeTemp;
 
@@ -464,6 +493,21 @@ internal sealed class HostProcess : IDisposable
             o.WriteLine($"[host did not listen] springConfig={springConfig}\n{hp.Log}");
         }
         return hp;
+    }
+
+    public async Task<bool> WaitForLogAsync(string expected, TimeSpan timeout)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(expected);
+
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (Log.Contains(expected, StringComparison.Ordinal)) return true;
+            if (_proc.HasExited) return false;
+            await Task.Delay(50);
+        }
+
+        return Log.Contains(expected, StringComparison.Ordinal);
     }
 
     public static string MintToken(params string[] permissions)

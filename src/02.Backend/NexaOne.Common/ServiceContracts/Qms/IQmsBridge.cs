@@ -2,7 +2,6 @@ using NexaOne.Common;
 
 namespace NexaOne.ServiceContracts.Qms;
 
-[NexaModuleBridge("Qms", "qmsBridge")]
 public interface IQmsBridge : INexaModuleBridge
 {
     Task<IReadOnlyList<DefectDto>> GetDefectsByLotAsync(string lotId, CancellationToken ct = default);

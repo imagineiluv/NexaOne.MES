@@ -7,7 +7,6 @@ namespace NexaOne.ServiceContracts.Ems;
 /// 버전의 갱신을 뜻하며, 같은 IdempotencyKey는 동일 명령만 재생할 수 있다.
 /// 재고 수불·실사용 원장은 하위 호환을 위해 <see cref="IEmsBridge"/>가 계속 소유한다.
 /// </summary>
-[NexaModuleBridge("Ems", "sparePartBridge")]
 public interface ISparePartBridge : INexaModuleBridge
 {
     Task<Result<SparePartStockPolicyDto>> SaveStockPolicyAsync(

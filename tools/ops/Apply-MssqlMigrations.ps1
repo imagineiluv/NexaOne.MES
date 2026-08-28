@@ -1,9 +1,11 @@
 ﻿# 운영 MSSQL 마이그레이션 적용 러너 — config/db/migrations/V*.sql 을 순서대로 1회씩 적용한다.
-# 버전 추적: SYS_SCHEMA_MIGRATION(VERSION_ID PK) — 파일명과 숫자 버전을 함께 검증한다.
+# 버전 추적: SYS_SCHEMA_MIGRATION(VERSION_ID PK, CONTENT_SHA256) — 파일명·숫자 버전·내용을 함께 검증한다.
 # 각 파일은 단일 트랜잭션(적용+버전 기록 원자) — 마이그레이션 파일엔 GO 배치 구분자가 없다(관례 확인됨).
 # 사용:
 #   .\Apply-MssqlMigrations.ps1 -ConnectionString "Server=...;Database=...;..." [-DryRun]
 #   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -IncludeOpsSeed
+#   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -AdoptMissingChecksums # 기존 이력 1회 명시 승인
+#   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -ApproveHighImpactMigrations # V142/V144/V146/V147 운영 승인
 #   .\Apply-MssqlMigrations.ps1 -MigrationsPath <path> -ValidateOnly
 # ⚠ 접속 문자열은 env/보안 저장소에서만 — 스크립트·저장소에 하드코딩 금지.
 param(
@@ -12,10 +14,32 @@ param(
     [string]$OpsSqlPath = (Join-Path $PSScriptRoot '..\..\ops\sql'),
     [switch]$IncludeOpsSeed,   # 마이그레이션 후 ops/sql/*.mssql.sql(메뉴·배치 시드)도 적용
     [switch]$DryRun,           # DB 이력과 대기 목록만 조회
-    [switch]$ValidateOnly      # DB에 접속하지 않고 로컬 파일 계약·순서만 검증
+    [switch]$ValidateOnly,     # DB에 접속하지 않고 로컬 파일 계약·순서만 검증
+    [switch]$AdoptMissingChecksums, # 구형 이력의 NULL 체크섬을 현재 소스로 채우는 명시적 1회 승인
+    [switch]$ApproveHighImpactMigrations # 대형 history/inbox backfill·index build 운영 준비의 명시적 승인
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ($DryRun -and $AdoptMissingChecksums) {
+    throw 'DryRun and AdoptMissingChecksums cannot be used together.'
+}
+
+function Get-MigrationHash([System.IO.FileInfo]$File) {
+    # Git/OS checkout의 CRLF 차이만으로 drift가 발생하지 않도록 UTF-8 텍스트를 LF로 정규화한다.
+    # 그 외 공백·주석·SQL 변경은 모두 체크섬 변경으로 검출한다.
+    $utf8Strict = [System.Text.UTF8Encoding]::new($false, $true)
+    $text = [System.IO.File]::ReadAllText($File.FullName, $utf8Strict)
+    $canonical = $text.Replace("`r`n", "`n").Replace("`r", "`n")
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($canonical)
+        return ([System.BitConverter]::ToString($sha256.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha256.Dispose()
+    }
+}
 
 # SQL Server 접속 전에 모든 로컬 자산을 검증한다. PowerShell의 -match는 기본적으로
 # 대소문자를 구분하지 않으므로 Regex 객체를 사용해 대문자 계약까지 강제한다.
@@ -44,6 +68,7 @@ $migrations = @(
             Version = $version
             Name = $file.Name
             File = $file
+            Hash = Get-MigrationHash $file
         }
     }
 )
@@ -93,25 +118,39 @@ IF @LockResult < 0
     $ensure = $conn.CreateCommand()
     $ensure.CommandText = @"
 IF OBJECT_ID(N'SYS_SCHEMA_MIGRATION', N'U') IS NULL
+BEGIN
     CREATE TABLE SYS_SCHEMA_MIGRATION (
-        VERSION_ID  NVARCHAR(200) NOT NULL,
-        APPLIED_AT  DATETIME2     NOT NULL DEFAULT GETUTCDATE(),
+        VERSION_ID     NVARCHAR(200) NOT NULL,
+        CONTENT_SHA256 CHAR(64)      NOT NULL,
+        APPLIED_AT     DATETIME2     NOT NULL DEFAULT GETUTCDATE(),
         CONSTRAINT PK_SYS_SCHEMA_MIGRATION PRIMARY KEY (VERSION_ID)
     );
+END
+ELSE IF COL_LENGTH(N'SYS_SCHEMA_MIGRATION', N'CONTENT_SHA256') IS NULL
+BEGIN
+    -- 기존 배포는 값의 진위를 자동 추정하지 않는다. 아래 검증에서 명시적 adoption을 요구한다.
+    ALTER TABLE SYS_SCHEMA_MIGRATION ADD CONTENT_SHA256 CHAR(64) NULL;
+END;
 "@
     [void]$ensure.ExecuteNonQuery()
 
     $appliedCmd = $conn.CreateCommand()
-    $appliedCmd.CommandText = 'SELECT VERSION_ID FROM SYS_SCHEMA_MIGRATION'
-    $applied = New-Object System.Collections.Generic.HashSet[string]
+    $appliedCmd.CommandText = 'SELECT VERSION_ID, CONTENT_SHA256 FROM SYS_SCHEMA_MIGRATION'
+    $applied = New-Object System.Collections.Generic.List[object]
     $reader = $appliedCmd.ExecuteReader()
-    while ($reader.Read()) { [void]$applied.Add($reader.GetString(0)) }
+    while ($reader.Read()) {
+        $applied.Add([pscustomobject]@{
+            Name = $reader.GetString(0)
+            Hash = if ($reader.IsDBNull(1)) { $null } else { $reader.GetString(1).Trim() }
+        })
+    }
     $reader.Close()
 
     # VERSION_ID는 기존 배포와의 호환을 위해 파일명을 저장하되, 숫자 버전으로도
     # 이력을 재구성한다. 같은 버전의 파일 개명은 미적용으로 오인하면 안 된다.
     $appliedByVersion = @{}
-    foreach ($versionId in $applied) {
+    foreach ($history in $applied) {
+        $versionId = [string]$history.Name
         $historyMatch = $migrationNamePattern.Match($versionId)
         if (-not $historyMatch.Success) {
             throw ("invalid migration history VERSION_ID '{0}': expected V###__UPPER_SNAKE_DESCRIPTION.sql" -f $versionId)
@@ -124,25 +163,79 @@ IF OBJECT_ID(N'SYS_SCHEMA_MIGRATION', N'U') IS NULL
             throw ("duplicate applied migration version {0}: {1}, {2}" -f
                 $historyVersion, $appliedByVersion[$historyVersion], $versionId)
         }
-        $appliedByVersion[$historyVersion] = $versionId
+        $appliedByVersion[$historyVersion] = $history
     }
 
     $pending = New-Object System.Collections.Generic.List[object]
+    $missingChecksums = New-Object System.Collections.Generic.List[object]
     foreach ($migration in $migrations) {
         if (-not $appliedByVersion.ContainsKey($migration.Version)) {
             $pending.Add($migration)
             continue
         }
 
-        $recordedName = [string]$appliedByVersion[$migration.Version]
+        $history = $appliedByVersion[$migration.Version]
+        $recordedName = [string]$history.Name
         if (-not [string]::Equals($recordedName, $migration.Name, [System.StringComparison]::Ordinal)) {
             throw ("migration history drift at version {0}: database has '{1}', source has '{2}'" -f
                 $migration.Version, $recordedName, $migration.Name)
+        }
+
+        $recordedHash = [string]$history.Hash
+        if ([string]::IsNullOrWhiteSpace($recordedHash)) {
+            if (-not $AdoptMissingChecksums) {
+                throw ("migration history checksum missing for '{0}'. Verify the deployed schema/source, then rerun once with -AdoptMissingChecksums." -f
+                    $migration.Name)
+            }
+            $missingChecksums.Add($migration)
+            continue
+        }
+
+        if (-not [string]::Equals($recordedHash, $migration.Hash, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw ("migration content drift for '{0}': database checksum {1}, source checksum {2}" -f
+                $migration.Name, $recordedHash, $migration.Hash)
         }
     }
 
     Write-Host ("migrations: total {0}, applied {1}, pending {2}" -f $migrations.Count, $applied.Count, $pending.Count)
     if ($DryRun) { $pending | ForEach-Object { Write-Host ("  pending: " + $_.Name) }; return }
+
+    # These migrations touch append-only operational history/inbox tables. The switch is an
+    # explicit assertion that a current backup, production-sized restore rehearsal, writer
+    # quiescence, maintenance window, transaction-log capacity and rollback criteria were approved.
+    # It is deliberately evaluated from the pending set so already-applied databases are unaffected.
+    $highImpactVersions = @(142, 144, 146, 147)
+    $highImpactPending = @($pending | Where-Object { $highImpactVersions -contains $_.Version })
+    if ($highImpactPending.Count -gt 0 -and -not $ApproveHighImpactMigrations) {
+        $highImpactNames = ($highImpactPending | ForEach-Object Name) -join ', '
+        throw ("high-impact migration approval is required for: {0}. " -f $highImpactNames) +
+              'Complete backup/rehearsal/writer-quiescence/log-capacity/rollback review, then rerun with -ApproveHighImpactMigrations.'
+    }
+
+    if ($missingChecksums.Count -gt 0) {
+        $adoptTx = $conn.BeginTransaction()
+        try {
+            foreach ($migration in $missingChecksums) {
+                $adopt = $conn.CreateCommand(); $adopt.Transaction = $adoptTx
+                $adopt.CommandText = @"
+UPDATE SYS_SCHEMA_MIGRATION
+SET CONTENT_SHA256 = @hash
+WHERE VERSION_ID = @version AND CONTENT_SHA256 IS NULL;
+"@
+                [void]$adopt.Parameters.AddWithValue('@hash', $migration.Hash)
+                [void]$adopt.Parameters.AddWithValue('@version', $migration.Name)
+                if ($adopt.ExecuteNonQuery() -ne 1) {
+                    throw ("could not adopt migration checksum for '{0}' because its history changed concurrently" -f $migration.Name)
+                }
+                Write-Host ("  adopted checksum: " + $migration.Name)
+            }
+            $adoptTx.Commit()
+        }
+        catch {
+            $adoptTx.Rollback()
+            throw
+        }
+    }
 
     foreach ($migration in $pending) {
         $sql = Get-Content -Raw -Encoding UTF8 $migration.File.FullName
@@ -152,8 +245,9 @@ IF OBJECT_ID(N'SYS_SCHEMA_MIGRATION', N'U') IS NULL
             $cmd.CommandText = $sql
             [void]$cmd.ExecuteNonQuery()
             $ver = $conn.CreateCommand(); $ver.Transaction = $tx
-            $ver.CommandText = 'INSERT INTO SYS_SCHEMA_MIGRATION (VERSION_ID) VALUES (@v)'
+            $ver.CommandText = 'INSERT INTO SYS_SCHEMA_MIGRATION (VERSION_ID, CONTENT_SHA256) VALUES (@v, @hash)'
             [void]$ver.Parameters.AddWithValue('@v', $migration.Name)
+            [void]$ver.Parameters.AddWithValue('@hash', $migration.Hash)
             [void]$ver.ExecuteNonQuery()
             $tx.Commit()
             Write-Host ("  applied: " + $migration.Name)

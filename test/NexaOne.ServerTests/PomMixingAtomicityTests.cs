@@ -83,7 +83,11 @@ public sealed class PomMixingAtomicityTests : IClassFixture<PomMixingAtomicityTe
             new LotHistoryRepository(ds, new SqliteEesDbCapability()),
             new LotMixingRelationRepository(ds),
             new UnusedWorkOrders(),
-            new TrackingMasterGateway(ds),
+            new TrackingMasterGateway(
+                new NexaOne.MDM.Infrastructure.EquipmentDirectory(ds),
+                new NexaOne.MDM.Infrastructure.TrackingRoutingDirectory(ds),
+                new NexaOne.RMS.Infrastructure.TrackingRecipeDirectory(ds),
+                new NexaOne.QMS.Infrastructure.TrackingDefectDirectory(ds)),
             new ProductionQualityGateService(
                 new ProductionQualityGateEvidenceRepository(ds)));
     }

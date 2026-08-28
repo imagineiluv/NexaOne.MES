@@ -6,7 +6,6 @@ namespace NexaOne.ServiceContracts.Est;
 /// 전력·용수·가스·CDA 등 설비 utility의 계기, 판독값, 기간 사용량을 관리한다.
 /// FDC/설비 플러그인은 태그를 표준 판독값으로 변환하고 EST가 비용·탄소를 포함한 원장을 소유한다.
 /// </summary>
-[NexaModuleBridge("Est", "utilityBridge")]
 public interface IUtilityBridge : INexaModuleBridge
 {
     Task<Result<UtilityMeterDto>> SaveMeterAsync(UtilityMeterCommand command, CancellationToken ct = default);

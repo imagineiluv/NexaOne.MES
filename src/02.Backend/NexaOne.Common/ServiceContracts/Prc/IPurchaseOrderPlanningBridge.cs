@@ -5,7 +5,6 @@ namespace NexaOne.ServiceContracts.Prc;
 /// <summary>
 /// MRP와 PRC 사이의 소유권 경계입니다. 예정입고 조회와 구매오더 생성 규칙은 PRC가 소유합니다.
 /// </summary>
-[NexaModuleBridge("Prc", "purchaseOrderPlanningBridge")]
 public interface IPurchaseOrderPlanningBridge : INexaModuleBridge
 {
     Task<IReadOnlyList<MrpPurchaseReceipt>> GetScheduledReceiptsAsync(CancellationToken ct = default);

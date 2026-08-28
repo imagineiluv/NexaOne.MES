@@ -1,3 +1,4 @@
+using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Infrastructure.Equipment;
 using NexaFramework.Resource;
 using NexaLogic.Plc.Abstractions.Interfaces;
@@ -14,11 +15,16 @@ public sealed class PlcDeviceInterfaceTests
 
     private static (Mock<IPlcDriver> driver, Mock<IPlcConnection> conn) MockDriver()
     {
+        var subscriptions = new Mock<IPlcSubscriptionProvider>();
+        subscriptions.Setup(provider => provider.StopAsync(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
         var conn = new Mock<IPlcConnection>();
         conn.Setup(c => c.OpenAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         conn.Setup(c => c.PingAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         conn.Setup(c => c.CloseAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
         conn.Setup(c => c.DisposeAsync()).Returns(ValueTask.CompletedTask);
+        conn.SetupGet(c => c.SubscriptionProvider).Returns(subscriptions.Object);
 
         var driver = new Mock<IPlcDriver>();
         driver.SetupGet(d => d.Kind).Returns(PlcDriverKind.OpcUa);
@@ -93,6 +99,75 @@ public sealed class PlcDeviceInterfaceTests
     }
 
     [Fact]
+    public async Task Stop_stops_subscription_provider_before_closing_transport()
+    {
+        var lifecycle = new List<string>();
+        var subscriptions = new Mock<IPlcSubscriptionProvider>();
+        subscriptions.Setup(provider => provider.StopAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
+            .Callback(() => lifecycle.Add("subscription"))
+            .Returns(Task.CompletedTask);
+        var (driver, conn) = MockDriver();
+        conn.SetupGet(connection => connection.SubscriptionProvider).Returns(subscriptions.Object);
+        conn.Setup(connection => connection.CloseAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => lifecycle.Add("transport"))
+            .Returns(Task.CompletedTask);
+        var sut = new PlcDeviceInterface("if-1", OpcUaEndpoint(), driver.Object);
+        await sut.InitializeAsync();
+
+        await sut.StopAsync();
+
+        lifecycle.Should().Equal("subscription", "transport");
+        sut.State.Should().Be(ResourceState.Stopped);
+    }
+
+    [Fact]
+    public async Task Stop_attempts_transport_close_and_aggregates_both_failures()
+    {
+        var subscriptions = new Mock<IPlcSubscriptionProvider>();
+        subscriptions.Setup(provider => provider.StopAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("listener stop failed"));
+        var (driver, conn) = MockDriver();
+        conn.SetupGet(connection => connection.SubscriptionProvider).Returns(subscriptions.Object);
+        conn.Setup(connection => connection.CloseAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("transport close failed"));
+        var sut = new PlcDeviceInterface("if-1", OpcUaEndpoint(), driver.Object);
+        await sut.InitializeAsync();
+
+        var act = () => sut.StopAsync();
+
+        var error = await act.Should().ThrowAsync<AggregateException>();
+        error.Which.InnerExceptions.Should().HaveCount(2);
+        error.Which.InnerExceptions.Select(exception => exception.Message)
+            .Should().Contain(["listener stop failed", "transport close failed"]);
+        conn.Verify(connection => connection.CloseAsync(It.IsAny<CancellationToken>()), Times.Once);
+        sut.State.Should().Be(ResourceState.Error);
+    }
+
+    [Fact]
+    public async Task Stop_cancellation_fences_a_hung_provider_and_still_attempts_transport_close()
+    {
+        var never = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var subscriptions = new Mock<IPlcSubscriptionProvider>();
+        subscriptions.Setup(provider => provider.StopAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
+            .Returns(never.Task);
+        var (driver, conn) = MockDriver();
+        conn.SetupGet(connection => connection.SubscriptionProvider).Returns(subscriptions.Object);
+        var sut = new PlcDeviceInterface("if-1", OpcUaEndpoint(), driver.Object);
+        await sut.InitializeAsync();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(20));
+
+        var stop = sut.StopAsync(deadline.Token);
+        var error = await Record.ExceptionAsync(
+            () => stop.WaitAsync(TimeSpan.FromSeconds(1)));
+
+        error.Should().BeOfType<AggregateException>();
+        conn.Verify(connection => connection.CloseAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task Start_before_initialize_throws()
     {
         var (driver, _) = MockDriver();
@@ -120,7 +195,7 @@ public sealed class PlcDeviceInterfaceTests
 
         await act.Should().ThrowAsync<TimeoutException>();
         sut.State.Should().Be(ResourceState.Error);
-        captured.Should().NotBeNull("에러는 PlantController에 이벤트로 전파된다");
+        captured.Should().NotBeNull("드라이버 오류는 FDC worker가 감독할 수 있게 표준 이벤트로 전파된다");
         captured!.InterfaceName.Should().Be("if-err");
         captured.DeviceName.Should().Be("EQ-9");
     }
@@ -135,5 +210,46 @@ public sealed class PlcDeviceInterfaceTests
         await sut.DisposeAsync();
 
         conn.Verify(c => c.DisposeAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task SubscribeWithSnapshot_rejects_a_provider_without_atomic_cutover_capability()
+    {
+        var (driver, conn) = MockDriver();
+        conn.SetupGet(candidate => candidate.SubscriptionProvider)
+            .Returns(Mock.Of<IPlcSubscriptionProvider>());
+        var sut = new PlcDeviceInterface("if-1", OpcUaEndpoint(), driver.Object);
+        await sut.InitializeAsync();
+        var subscription = new PlcSubscription(
+            "sub-1", "EQ-001", ["TEMP01"], TimeSpan.FromSeconds(1));
+
+        var act = () => sut.SubscribeWithSnapshotAsync(
+            subscription, _ => Task.CompletedTask);
+
+        await act.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
+            .WithMessage("*atomic subscription snapshot capability*");
+        conn.Verify(candidate => candidate.PingAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SubscribeWithSnapshot_rejects_an_atomic_provider_without_runtime_health()
+    {
+        var provider = new Mock<IPlcSubscriptionProvider>();
+        provider.As<IPlcAtomicSubscriptionSnapshotProvider>()
+            .Setup(candidate => candidate.StartWithSnapshotAsync(
+                It.IsAny<PlcEndpoint>(), It.IsAny<PlcSubscription>(),
+                It.IsAny<Func<PlcTagChangeEvent, Task>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new PlcTagValue("TEMP01", 20m, PlcQuality.Good, DateTimeOffset.UtcNow, "40001")]);
+        var (driver, conn) = MockDriver();
+        conn.SetupGet(candidate => candidate.SubscriptionProvider).Returns(provider.Object);
+        var sut = new PlcDeviceInterface("if-1", OpcUaEndpoint(), driver.Object);
+        await sut.InitializeAsync();
+
+        var act = () => sut.SubscribeWithSnapshotAsync(
+            new PlcSubscription("sub-1", "EQ-001", ["TEMP01"], TimeSpan.FromSeconds(1)),
+            _ => Task.CompletedTask);
+
+        await act.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
+            .WithMessage("*runtime health capability*");
     }
 }

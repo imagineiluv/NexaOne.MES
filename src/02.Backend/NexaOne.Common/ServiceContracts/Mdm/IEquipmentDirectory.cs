@@ -8,7 +8,6 @@ namespace NexaOne.ServiceContracts.Mdm;
 /// 자신의 SQL에 박지 않고 이 포트로 위임하도록 한다(ADR-006: 모듈은 타 모듈 스키마 미보유).
 /// 포트는 ServiceContracts에 공유되어 plugin/Default ALC 간 타입 동일성이 유지된다.
 /// </summary>
-[NexaModuleBridge("Mdm", "equipmentDirectory")]
 public interface IEquipmentDirectory : INexaModuleBridge
 {
     /// <summary>지정 plantId에 소속된 설비 ID 목록을 반환한다(없으면 빈 목록).</summary>

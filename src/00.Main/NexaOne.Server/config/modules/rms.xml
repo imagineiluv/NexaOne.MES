@@ -3,35 +3,14 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
 
-  <!-- ===== RMS (Recipe Management System) ===== -->
-
-  <object id="rmsRecipeRepository" type="NexaOne.RMS.Infrastructure.RecipeRepository, NexaOne.RMS">
+  <object id="rmsModule" type="NexaOne.RMS.Module, NexaOne.RMS">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
-  </object>
-  <object id="rmsRecipeParamRepository" type="NexaOne.RMS.Infrastructure.RecipeParamRepository, NexaOne.RMS">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="rmsRecipeExecutionRepository" type="NexaOne.RMS.Infrastructure.RecipeExecutionRepository, NexaOne.RMS">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="rmsRecipeService" type="NexaOne.RMS.Application.Rms.RecipeService, NexaOne.RMS">
-    <constructor-arg ref="rmsRecipeRepository" />
-    <constructor-arg ref="rmsRecipeParamRepository" />
-  </object>
-  <object id="rmsRecipeExecutionService" type="NexaOne.RMS.Application.Rms.RecipeExecutionService, NexaOne.RMS">
-    <constructor-arg ref="rmsRecipeRepository" />
-    <constructor-arg ref="rmsRecipeParamRepository" />
-    <constructor-arg ref="rmsRecipeExecutionRepository" />
     <constructor-arg ref="equipmentDirectory" />
   </object>
 
-  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Rms","rmsRecipeBridge")로 IRecipeApprovalBridge 캐스트. -->
-  <object id="rmsRecipeBridge" type="NexaOne.RMS.Application.Rms.RecipeBridge, NexaOne.RMS">
-    <constructor-arg ref="rmsRecipeService" />
-  </object>
-  <object id="rmsRecipeExecutionBridge" type="NexaOne.RMS.Application.Rms.RecipeExecutionBridge, NexaOne.RMS">
-    <constructor-arg ref="rmsRecipeExecutionService" />
-  </object>
+  <object id="rmsRecipeBridge" factory-object="rmsModule" factory-method="GetRecipeBridge" />
+  <object id="rmsRecipeExecutionBridge" factory-object="rmsModule" factory-method="GetExecutionBridge" />
+  <object id="trackingRecipeDirectory" factory-object="rmsModule" factory-method="GetTrackingRecipeDirectory" />
 
 </objects>

@@ -7,7 +7,6 @@ namespace NexaOne.ServiceContracts.Ems;
 /// Default-ALC DI에 등록한다. Result로 상태전이/팩토리 검증 분기(Conflict/Validation/NotFound/Success)를
 /// 손실 없이 전달한다. 순수 조회는 게이트웨이(EMS.xml)로, MaintenancePlan→WorkOrder 캐스케이드(다중
 /// 애그리거트)는 UnitOfWork 선결로 본 브리지에서 제외한다.</summary>
-[NexaModuleBridge("Ems", "emsBridge")]
 public interface IEmsBridge : INexaModuleBridge
 {
     // ── 작업지시(WorkOrder) 생명주기 ──
