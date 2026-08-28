@@ -26,19 +26,23 @@ jobs:
           fi
 
       - name: Checkout (with submodules)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           submodules: recursive # NexaFramework / NexaDB / NexaLogic
           token: ${{ secrets.NEXA_SUBMODULE_TOKEN }}
           persist-credentials: false
 
+      - name: Verify immutable CI action pins
+        shell: pwsh
+        run: ./tools/ci/Verify-CiActionPins.ps1
+
       - name: Setup .NET (global.json 고정 — SDK 8.0.419)
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0, Node 24
         with:
           global-json-file: global.json
 
       - name: Setup Node (SPA — React/Vite/vitest)
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0, Node 24
         with:
           node-version: "20"
 
@@ -96,7 +100,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
         with:
           name: test-results
           path: "**/TestResults/**/*"
@@ -122,14 +126,18 @@ jobs:
           fi
 
       - name: Checkout (with submodules)
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
         with:
           submodules: recursive
           token: ${{ secrets.NEXA_SUBMODULE_TOKEN }}
           persist-credentials: false
 
+      - name: Verify immutable CI action pins
+        shell: pwsh
+        run: ./tools/ci/Verify-CiActionPins.ps1
+
       - name: Setup .NET (global.json)
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0, Node 24
         with:
           global-json-file: global.json
 
@@ -227,7 +235,7 @@ jobs:
 
       - name: Upload MSSQL contract results
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, Node 24
         with:
           name: mssql-contract-results
           path: "**/TestResults/mssql-contract.trx"
