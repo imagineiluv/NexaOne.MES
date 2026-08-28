@@ -969,6 +969,15 @@ public sealed class SqliteSchemaIncrementalTests
                 .WithMessage("*transition is invalid*",
                     "every durable direct-writer mutation must advance the optimistic version");
 
+            Action replaceEffectIdentity = () => ExecSql(cs, """
+                UPDATE FDC_INTERLOCK_HISTORY
+                   SET HISTORY_ID='FX-RENAMED', VERSION=3
+                 WHERE HISTORY_ID='FX-APPLIED';
+                """);
+            replaceEffectIdentity.Should().Throw<SqliteException>()
+                .WithMessage("*transition is invalid*",
+                    "SQLite must preserve the same stable EffectId just like the SQL Server delete/update guard");
+
             // The runtime is allowed to normalize and then reassert the same STOP as Applied on
             // restart before it trusts a fresh PLC snapshot.
             ExecSql(cs, """
@@ -1076,6 +1085,133 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void EnsureSchema_hardens_legacy_V149_scope_insert_and_release_tuple_transitions()
+    {
+        var cs = NewDb();
+        try
+        {
+            ExecSql(cs, """
+                CREATE TABLE LEGACY_BOOT_MARKER (ID INTEGER NOT NULL PRIMARY KEY);
+                CREATE TABLE FDC_RUNTIME_OWNERSHIP (
+                    LEASE_SCOPE TEXT NOT NULL PRIMARY KEY,
+                    OWNER_ID TEXT NULL,
+                    FENCE_TOKEN INTEGER NOT NULL,
+                    LEASE_EXPIRES_AT TEXT NULL,
+                    HEARTBEAT_AT TEXT NULL,
+                    CONFIG_REVISION TEXT NULL,
+                    LEASE_SECRET_HASH TEXT NULL,
+                    CREATED_BY TEXT NOT NULL,
+                    CREATED_AT TEXT NOT NULL,
+                    UPDATED_BY TEXT NOT NULL,
+                    UPDATED_AT TEXT NOT NULL);
+                INSERT INTO FDC_RUNTIME_OWNERSHIP VALUES
+                    ('GLOBAL', NULL, 17, NULL, NULL, NULL, NULL,
+                     'SYSTEM', CURRENT_TIMESTAMP, 'SYSTEM', CURRENT_TIMESTAMP);
+                """);
+
+            SqliteSchemaInitializer.EnsureSchema(cs);
+
+            Action replaceFence = () => ExecSql(cs, """
+                PRAGMA recursive_triggers=OFF;
+                INSERT OR REPLACE INTO FDC_RUNTIME_OWNERSHIP VALUES
+                    ('GLOBAL', NULL, 0, NULL, NULL, NULL, NULL,
+                     'SYSTEM', CURRENT_TIMESTAMP, 'SYSTEM', CURRENT_TIMESTAMP);
+                """);
+            replaceFence.Should().Throw<SqliteException>()
+                .WithMessage("*ownership row is invalid*");
+            ScalarString(cs, "SELECT FENCE_TOKEN FROM FDC_RUNTIME_OWNERSHIP")
+                .Should().Be("17", "INSERT OR REPLACE must not reset a durable fence counter");
+
+            Action invalidInsert = () => ExecSql(cs, """
+                INSERT INTO FDC_RUNTIME_OWNERSHIP VALUES
+                    ('OTHER', NULL, 0, NULL, NULL, NULL, NULL,
+                     'SYSTEM', CURRENT_TIMESTAMP, 'SYSTEM', CURRENT_TIMESTAMP);
+                """);
+            invalidInsert.Should().Throw<SqliteException>()
+                .WithMessage("*ownership row is invalid*");
+
+            ExecSql(cs, """
+                UPDATE FDC_RUNTIME_OWNERSHIP SET
+                    OWNER_ID='owner-1',
+                    FENCE_TOKEN=18,
+                    HEARTBEAT_AT=STRFTIME('%Y-%m-%d %H:%M:%f', 'now'),
+                    LEASE_EXPIRES_AT=STRFTIME('%Y-%m-%d %H:%M:%f', 'now', '+1 minute'),
+                    CONFIG_REVISION=PRINTF('%064d', 0),
+                    LEASE_SECRET_HASH=PRINTF('%064d', 0)
+                 WHERE LEASE_SCOPE='GLOBAL';
+                """);
+
+            Action partialRelease = () => ExecSql(cs, """
+                UPDATE FDC_RUNTIME_OWNERSHIP SET OWNER_ID=NULL
+                 WHERE LEASE_SCOPE='GLOBAL';
+                """);
+            partialRelease.Should().Throw<SqliteException>()
+                .WithMessage("*transition or fence token is invalid*");
+
+            Action renameScope = () => ExecSql(cs, """
+                UPDATE FDC_RUNTIME_OWNERSHIP SET LEASE_SCOPE='OTHER'
+                 WHERE LEASE_SCOPE='GLOBAL';
+                """);
+            renameScope.Should().Throw<SqliteException>()
+                .WithMessage("*transition or fence token is invalid*");
+
+            ExecSql(cs, """
+                UPDATE FDC_RUNTIME_OWNERSHIP SET
+                    OWNER_ID=NULL, LEASE_EXPIRES_AT=NULL, HEARTBEAT_AT=NULL,
+                    CONFIG_REVISION=NULL, LEASE_SECRET_HASH=NULL
+                 WHERE LEASE_SCOPE='GLOBAL';
+                """);
+            ScalarString(cs, "SELECT OWNER_ID FROM FDC_RUNTIME_OWNERSHIP")
+                .Should().BeEmpty();
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Fact]
+    public void V149_runtime_owner_rejects_offset_timestamps_that_can_reverse_text_order()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.Apply(cs);
+            ExecSql(cs, """
+                DROP TRIGGER TR_FDC_RUNTIME_OWNERSHIP_FENCE_BD;
+                DELETE FROM FDC_RUNTIME_OWNERSHIP WHERE LEASE_SCOPE='GLOBAL';
+                """);
+
+            Action offsetLease = () => ExecSql(cs, """
+                INSERT INTO FDC_RUNTIME_OWNERSHIP
+                    (LEASE_SCOPE, OWNER_ID, FENCE_TOKEN, LEASE_EXPIRES_AT, HEARTBEAT_AT,
+                     CONFIG_REVISION, LEASE_SECRET_HASH,
+                     CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES
+                    ('GLOBAL', 'owner-offset', 1,
+                     '2026-01-01T00:00:00+10:00', '2026-01-01 00:00:00',
+                     PRINTF('%064d', 0), PRINTF('%064d', 0),
+                     'TEST', CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP);
+                """);
+
+            offsetLease.Should().Throw<SqliteException>()
+                .WithMessage("*ownership row is invalid*");
+
+            Action invalidCalendarLease = () => ExecSql(cs, """
+                INSERT INTO FDC_RUNTIME_OWNERSHIP
+                    (LEASE_SCOPE, OWNER_ID, FENCE_TOKEN, LEASE_EXPIRES_AT, HEARTBEAT_AT,
+                     CONFIG_REVISION, LEASE_SECRET_HASH,
+                     CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES
+                    ('GLOBAL', 'owner-invalid-date', 1,
+                     '2026-03-01 00:00:00.000', '2026-02-30 00:00:00.000',
+                     PRINTF('%064d', 0), PRINTF('%064d', 0),
+                     'TEST', CURRENT_TIMESTAMP, 'TEST', CURRENT_TIMESTAMP);
+                """);
+            invalidCalendarLease.Should().Throw<SqliteException>()
+                .WithMessage("*ownership row is invalid*");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Fact]
     public void EnsureSchema_never_recreates_a_missing_V149_fence_counter_after_marker()
     {
         var cs = NewDb();
@@ -1092,6 +1228,243 @@ public sealed class SqliteSchemaIncrementalTests
             restart.Should().Throw<InvalidOperationException>()
                 .WithMessage("*durable marker exists*recreating fence token 0 would reuse issued tokens*");
             Count(cs, "FDC_RUNTIME_OWNERSHIP").Should().Be(0);
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void V150_retention_state_is_singleton_monotonic_and_canonical(bool incremental)
+    {
+        var cs = NewDb();
+        try
+        {
+            if (incremental)
+            {
+                ExecSql(cs, "CREATE TABLE LEGACY_BOOT_MARKER (ID INTEGER NOT NULL PRIMARY KEY);");
+                SqliteSchemaInitializer.EnsureSchema(cs);
+            }
+            else
+            {
+                SqliteSchemaInitializer.Apply(cs);
+            }
+
+            Count(cs, "FDC_TRACE_RETENTION_STATE").Should().Be(1);
+            ScalarString(cs, "SELECT STATE_ID FROM FDC_TRACE_RETENTION_STATE").Should().Be("GLOBAL");
+            ScalarString(cs, "SELECT COMPLETENESS_BOUNDARY FROM FDC_TRACE_RETENTION_STATE")
+                .Should().NotBeEmpty("an empty database is only provably complete from V150 initialization time");
+            ScalarString(cs, """
+                SELECT COUNT(*) FROM SYS_SQLITE_RECONCILIATION
+                 WHERE RECONCILIATION_ID='V150__FDC_TRACE_RETENTION_STATE'
+                """).Should().Be("1");
+
+            ExecSql(cs, """
+                UPDATE FDC_TRACE_RETENTION_STATE
+                   SET COMPLETENESS_BOUNDARY='2099-01-02 03:04:05.1234567'
+                 WHERE STATE_ID='GLOBAL';
+                """);
+            Action backward = () => ExecSql(cs, """
+                UPDATE FDC_TRACE_RETENTION_STATE
+                   SET COMPLETENESS_BOUNDARY='2099-01-02 03:04:05.1234566'
+                 WHERE STATE_ID='GLOBAL';
+                """);
+            backward.Should().Throw<SqliteException>()
+                .WithMessage("*boundary cannot move backward*");
+
+            Action offsetBackward = () => ExecSql(cs, """
+                UPDATE FDC_TRACE_RETENTION_STATE
+                   SET COMPLETENESS_BOUNDARY='2099-01-02T03:04:05+10:00'
+                 WHERE STATE_ID='GLOBAL';
+                """);
+            offsetBackward.Should().Throw<SqliteException>()
+                .WithMessage("*retention completeness boundary*");
+
+            Action invalidCalendarBoundary = () => ExecSql(cs, """
+                UPDATE FDC_TRACE_RETENTION_STATE
+                   SET COMPLETENESS_BOUNDARY='2099-02-30 03:04:05.1234567'
+                 WHERE STATE_ID='GLOBAL';
+                """);
+            invalidCalendarBoundary.Should().Throw<SqliteException>()
+                .WithMessage("*retention completeness boundary*");
+
+            Action replaceBoundary = () => ExecSql(cs, """
+                PRAGMA recursive_triggers=OFF;
+                INSERT OR REPLACE INTO FDC_TRACE_RETENTION_STATE
+                    (STATE_ID, COMPLETENESS_BOUNDARY, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES
+                    ('GLOBAL', '2020-01-01 00:00:00',
+                     'SYSTEM', CURRENT_TIMESTAMP, 'SYSTEM', CURRENT_TIMESTAMP);
+                """);
+            replaceBoundary.Should().Throw<SqliteException>()
+                .WithMessage("*retention state is invalid*");
+            ScalarString(cs, "SELECT COMPLETENESS_BOUNDARY FROM FDC_TRACE_RETENTION_STATE")
+                .Should().Be("2099-01-02 03:04:05.1234567",
+                    "INSERT OR REPLACE must not move the durable boundary backward");
+
+            Action offsetInsert = () => ExecSql(cs, """
+                INSERT INTO FDC_COLLECT_DATA
+                    (COLLECT_ID, EQUIPMENT_ID, PARAMETER_ID, VALUE, COLLECTED_AT,
+                     QUALITY, LOWER_LIMIT, UPPER_LIMIT)
+                VALUES
+                    ('OFFSET-DIRECT-INSERT', 'EQ-1', 'P-1', 1,
+                     '2099-01-01T23:30:00-10:00', 'Good', 0, 100);
+                """);
+            offsetInsert.Should().Throw<SqliteException>()
+                .WithMessage("*timestamp is invalid or older than its completeness boundary*");
+
+            Action backdatedInsert = () => ExecSql(cs, """
+                INSERT INTO FDC_COLLECT_DATA
+                    (COLLECT_ID, EQUIPMENT_ID, PARAMETER_ID, VALUE, COLLECTED_AT,
+                     QUALITY, LOWER_LIMIT, UPPER_LIMIT)
+                VALUES
+                    ('BACKDATED-DIRECT-INSERT', 'EQ-1', 'P-1', 1,
+                     '2099-01-02 03:04:05.1234566', 'Good', 0, 100);
+                """);
+            backdatedInsert.Should().Throw<SqliteException>()
+                .WithMessage("*older than its completeness boundary*");
+
+            Action delete = () => ExecSql(cs,
+                "DELETE FROM FDC_TRACE_RETENTION_STATE WHERE STATE_ID='GLOBAL';");
+            delete.Should().Throw<SqliteException>()
+                .WithMessage("*completeness state is not deletable*");
+
+            Action secondRow = () => ExecSql(cs, """
+                INSERT INTO FDC_TRACE_RETENTION_STATE
+                    (STATE_ID, COMPLETENESS_BOUNDARY, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES ('OTHER', NULL, 'SYSTEM', CURRENT_TIMESTAMP, 'SYSTEM', CURRENT_TIMESTAMP);
+                """);
+            secondRow.Should().Throw<SqliteException>()
+                .WithMessage("*retention state is invalid*");
+
+            ExecSql(cs, """
+                INSERT INTO FDC_COLLECT_DATA
+                    (COLLECT_ID, EQUIPMENT_ID, PARAMETER_ID, VALUE, COLLECTED_AT,
+                     QUALITY, LOWER_LIMIT, UPPER_LIMIT)
+                VALUES
+                    ('DIRECT-DELETE', 'EQ-1', 'P-1', 1,
+                     '2100-01-01 00:00:00', 'Good', 0, 100);
+                """);
+            Action rawUpdate = () => ExecSql(cs, """
+                UPDATE FDC_COLLECT_DATA
+                   SET COLLECTED_AT='2100-01-02 00:00:00'
+                 WHERE COLLECT_ID='DIRECT-DELETE';
+                """);
+            rawUpdate.Should().Throw<SqliteException>()
+                .WithMessage("*raw TRACE is append-only*");
+
+            Action rawReplace = () => ExecSql(cs, """
+                PRAGMA recursive_triggers=OFF;
+                INSERT OR REPLACE INTO FDC_COLLECT_DATA
+                    (COLLECT_ID, EQUIPMENT_ID, PARAMETER_ID, VALUE, COLLECTED_AT,
+                     QUALITY, LOWER_LIMIT, UPPER_LIMIT)
+                VALUES
+                    ('DIRECT-DELETE', 'EQ-1', 'P-1', 999,
+                     '2100-01-03 00:00:00', 'Bad', 0, 100);
+                """);
+            rawReplace.Should().Throw<SqliteException>()
+                .WithMessage("*timestamp is invalid or older than its completeness boundary*");
+            ScalarString(cs, "SELECT VALUE FROM FDC_COLLECT_DATA WHERE COLLECT_ID='DIRECT-DELETE'")
+                .Should().Be("1", "INSERT OR REPLACE must not mutate an append-only TRACE row");
+
+            ExecSql(cs, """
+                DROP TRIGGER TR_FDC_COLLECT_RETENTION_DELETE_GUARD;
+                CREATE TRIGGER TR_FDC_COLLECT_RETENTION_DELETE_GUARD
+                BEFORE DELETE ON FDC_COLLECT_DATA
+                BEGIN SELECT 1; END;
+                """);
+            SqliteSchemaInitializer.EnsureSchema(cs);
+
+            Action downlevelDelete = () => ExecSql(cs,
+                "DELETE FROM FDC_COLLECT_DATA WHERE COLLECT_ID='DIRECT-DELETE';");
+            downlevelDelete.Should().Throw<SqliteException>()
+                .WithMessage("*before advancing its completeness boundary*");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Fact]
+    public void EnsureSchema_revalidates_raw_TRACE_after_the_V150_marker()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.Apply(cs);
+            ExecSql(cs, """
+                DROP TRIGGER TR_FDC_COLLECT_COMPLETENESS_BI;
+                DROP INDEX IX_FDC_COLLECT_INVALID_TIMESTAMP;
+                INSERT INTO FDC_COLLECT_DATA
+                    (COLLECT_ID, EQUIPMENT_ID, PARAMETER_ID, VALUE, COLLECTED_AT,
+                     QUALITY, LOWER_LIMIT, UPPER_LIMIT)
+                VALUES
+                    ('POST-MARKER-OFFSET', 'EQ-1', 'P-1', 1,
+                     '2100-01-01T00:00:00Z', 'Good', 0, 100);
+                """);
+
+            Action restart = () => SqliteSchemaInitializer.EnsureSchema(cs);
+
+            restart.Should().Throw<InvalidOperationException>()
+                .WithMessage("*raw TRACE row(s)*canonical UTC COLLECTED_AT*");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Fact]
+    public void V150_incremental_seed_is_one_tick_after_the_earliest_retained_TRACE_timestamp()
+    {
+        var cs = NewDb();
+        try
+        {
+            ExecSql(cs, """
+                CREATE TABLE LEGACY_BOOT_MARKER (ID INTEGER NOT NULL PRIMARY KEY);
+                CREATE TABLE FDC_COLLECT_DATA (
+                    COLLECT_ID TEXT NOT NULL PRIMARY KEY,
+                    EQUIPMENT_ID TEXT NOT NULL,
+                    PARAMETER_ID TEXT NOT NULL,
+                    VALUE NUMERIC NOT NULL,
+                    COLLECTED_AT TEXT NOT NULL,
+                    QUALITY TEXT NOT NULL,
+                    LOWER_LIMIT NUMERIC NOT NULL,
+                    UPPER_LIMIT NUMERIC NOT NULL);
+                INSERT INTO FDC_COLLECT_DATA VALUES
+                    ('EARLIEST-A', 'EQ-1', 'P-1', 1, '2025-01-01 00:00:00.1234567', 'Good', 0, 100),
+                    ('EARLIEST-B', 'EQ-1', 'P-1', 2, '2025-01-01 00:00:00.1234567', 'Good', 0, 100),
+                    ('LATER', 'EQ-1', 'P-1', 3, '2025-01-02 00:00:00', 'Good', 0, 100);
+                """);
+
+            SqliteSchemaInitializer.EnsureSchema(cs);
+
+            ScalarString(cs, "SELECT COMPLETENESS_BOUNDARY FROM FDC_TRACE_RETENTION_STATE")
+                .Should().Be("2025-01-01 00:00:00.1234568");
+            ExecSql(cs, """
+                DELETE FROM FDC_COLLECT_DATA
+                 WHERE COLLECT_ID IN ('EARLIEST-A', 'EARLIEST-B');
+                """);
+            Action deleteLater = () => ExecSql(cs,
+                "DELETE FROM FDC_COLLECT_DATA WHERE COLLECT_ID='LATER';");
+            deleteLater.Should().Throw<SqliteException>()
+                .WithMessage("*before advancing its completeness boundary*");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Fact]
+    public void EnsureSchema_never_recreates_a_missing_V150_completeness_boundary_after_marker()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.Apply(cs);
+            ExecSql(cs, """
+                DROP TRIGGER TR_FDC_TRACE_RETENTION_STATE_BD;
+                DELETE FROM FDC_TRACE_RETENTION_STATE WHERE STATE_ID='GLOBAL';
+                """);
+
+            Action restart = () => SqliteSchemaInitializer.EnsureSchema(cs);
+
+            restart.Should().Throw<InvalidOperationException>()
+                .WithMessage("*durable marker exists*forget a prior deletion boundary*");
+            Count(cs, "FDC_TRACE_RETENTION_STATE").Should().Be(0);
         }
         finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
     }
@@ -1142,6 +1515,13 @@ public sealed class SqliteSchemaIncrementalTests
                     DROP INDEX IX_EMS_WO_ISSUED;
                     CREATE INDEX IX_EMS_WORK_ORDER_CHECK_RESULT_WO
                         ON EMS_WORK_ORDER_CHECK_RESULT (WO_ID, ITEM_SEQUENCE);
+                    DROP INDEX IX_FDC_COLLECT_RETENTION;
+                    CREATE INDEX IX_FDC_COLLECT_RETENTION
+                        ON FDC_COLLECT_DATA (COLLECT_ID, COLLECTED_AT DESC);
+                    DROP INDEX IX_FDC_TRACE_SOURCE;
+                    CREATE INDEX ix_fdc_trace_source
+                        ON FDC_COLLECT_DATA
+                           (EQUIPMENT_ID, PARAMETER_ID, COLLECTED_AT, COLLECT_ID);
                     DELETE FROM SYS_SQLITE_RECONCILIATION
                      WHERE RECONCILIATION_ID = 'V142__IVT_TRACE_INGESTION_CURSOR';
                     """);
@@ -1244,6 +1624,39 @@ public sealed class SqliteSchemaIncrementalTests
                 .Should().Contain("WHERE IS_CLEARED = 0");
             IndexKeys(cs, "IX_FDC_COLLECT_RETENTION").Should().Equal(
                 "COLLECTED_AT:ASC", "COLLECT_ID:ASC");
+            IndexSql(cs, "IX_FDC_TRACE_SOURCE").Should().Contain(
+                "CASE", "the cursor index must use the same normalized timestamp key as TRACE paging");
+            IndexSql(cs, "IX_FDC_COLLECT_INVALID_TIMESTAMP").Should().Contain(
+                "WHERE NOT",
+                "normal boots must validate an empty partial index instead of rescanning all TRACE rows");
+            var traceCursorPlan = QueryPlan(cs, """
+                SELECT COLLECT_ID FROM FDC_COLLECT_DATA
+                WHERE EQUIPMENT_ID='EQ1' AND PARAMETER_ID='P1'
+                  AND CASE
+                          WHEN LENGTH(COLLECTED_AT)=19 THEN COLLECTED_AT || '.0000000'
+                          ELSE SUBSTR(COLLECTED_AT || '0000000', 1, 27)
+                      END >= '2030-01-01 00:00:00.0000000'
+                  AND (CASE
+                           WHEN LENGTH(COLLECTED_AT)=19 THEN COLLECTED_AT || '.0000000'
+                           ELSE SUBSTR(COLLECTED_AT || '0000000', 1, 27)
+                       END > '2030-01-01 00:00:00.0000000'
+                       OR (CASE
+                               WHEN LENGTH(COLLECTED_AT)=19 THEN COLLECTED_AT || '.0000000'
+                               ELSE SUBSTR(COLLECTED_AT || '0000000', 1, 27)
+                           END = '2030-01-01 00:00:00.0000000'
+                           AND COLLECT_ID > 'C0'))
+                ORDER BY CASE
+                             WHEN LENGTH(COLLECTED_AT)=19 THEN COLLECTED_AT || '.0000000'
+                             ELSE SUBSTR(COLLECTED_AT || '0000000', 1, 27)
+                         END,
+                         COLLECT_ID
+                LIMIT 100
+                """);
+            traceCursorPlan.Should().Contain("IX_FDC_TRACE_SOURCE");
+            traceCursorPlan.Should().NotContain("USE TEMP B-TREE",
+                "bounded TRACE paging must not sort the entire effective range before LIMIT");
+            traceCursorPlan.Should().Contain(">?",
+                "a resumed page must seek the normalized index from its cursor, not rescan effectiveFrom");
             QueryPlan(cs, """
                 SELECT COLLECT_ID FROM FDC_COLLECT_DATA
                 WHERE COLLECTED_AT < '2030-01-01'
@@ -2167,6 +2580,33 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V150_mssql_migration_preserves_a_monotonic_full_precision_retention_boundary()
+    {
+        var sql = MigrationSql("V150__FDC_TRACE_RETENTION_STATE.sql");
+
+        sql.Should().Contain("CONSTRAINT PK_FDC_TRACE_RETENTION_STATE PRIMARY KEY (STATE_ID)");
+        sql.Should().Contain("CONSTRAINT CK_FDC_TRACE_RETENTION_STATE_ID CHECK (STATE_ID = 'GLOBAL')");
+        sql.Should().Contain("COMPLETENESS_BOUNDARY    DATETIME2(7)");
+        sql.Should().Contain("DATEADD(NANOSECOND, 100, MIN(COLLECTED_AT))");
+        sql.Should().Contain("FROM FDC_COLLECT_DATA WITH (TABLOCKX, HOLDLOCK)",
+            "the migration transaction must exclude downlevel retention deletes until the seed and guard commit");
+        sql.Should().Contain("CREATE TRIGGER TR_FDC_TRACE_RETENTION_STATE_GUARD");
+        sql.Should().Contain("CREATE TRIGGER TR_FDC_COLLECT_RETENTION_DELETE_GUARD");
+        sql.Should().Contain("CREATE TRIGGER TR_FDC_COLLECT_COMPLETENESS_INSERT_GUARD");
+        sql.Should().Contain("FROM FDC_TRACE_RETENTION_STATE S WITH (READCOMMITTEDLOCK, HOLDLOCK)",
+            "the insert guard must see the current boundary under READ_COMMITTED_SNAPSHOT without serializing peer inserts");
+        sql.Should().Contain("I.COLLECTED_AT >= S.COMPLETENESS_BOUNDARY");
+        sql.Should().Contain("CREATE TRIGGER TR_FDC_COLLECT_APPEND_ONLY_UPDATE");
+        sql.Should().Contain("FDC raw TRACE is append-only");
+        sql.Should().Contain("AFTER UPDATE, DELETE");
+        sql.Should().Contain("I.COMPLETENESS_BOUNDARY < D.COMPLETENESS_BOUNDARY");
+        sql.Should().Contain("completeness state is not deletable");
+        sql.Should().Contain("D.COLLECTED_AT < S.COMPLETENESS_BOUNDARY");
+        sql.Should().Contain("-- SQLITE-OMIT-BEGIN");
+        sql.Should().Contain("-- SQLITE-OMIT-END");
+    }
+
+    [Fact]
     public void Spare_part_usage_by_work_order_named_query_has_matching_dialect_contracts()
     {
         var sqlite = NamedQuerySql("sqlite", "EMS", "EMS.SparePartUsageByWorkOrder");
@@ -2208,7 +2648,7 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
-    public void V121_through_v149_migrations_keep_unique_numeric_versions_and_module_owned_names()
+    public void V121_through_v150_migrations_keep_unique_numeric_versions_and_module_owned_names()
     {
         var migrationDirectory = Path.GetDirectoryName(RepositorySource.GetFile(
             "src", "00.Main", "NexaOne.Server", "config", "db", "migrations",
@@ -2244,6 +2684,7 @@ public sealed class SqliteSchemaIncrementalTests
             [147] = ("V147__IVT_TRACE_WORK_STATE_INTEGRITY.sql", "IVT"),
             [148] = ("V148__FDC_LIFECYCLE_TRANSITION_AND_RETENTION.sql", "FDC"),
             [149] = ("V149__FDC_RUNTIME_OWNERSHIP_FENCE.sql", "FDC"),
+            [150] = ("V150__FDC_TRACE_RETENTION_STATE.sql", "FDC"),
         };
         var recentFiles = Directory.EnumerateFiles(migrationDirectory, "V*.sql")
             .Select(Path.GetFileName)
@@ -2251,7 +2692,7 @@ public sealed class SqliteSchemaIncrementalTests
             .Select(name => (Name: name!, Match: Regex.Match(name!, @"^V(?<version>[0-9]{3})__")))
             .Where(item => item.Match.Success)
             .Select(item => (item.Name, Version: int.Parse(item.Match.Groups["version"].Value)))
-            .Where(item => item.Version is >= 121 and <= 149)
+            .Where(item => item.Version is >= 121 and <= 150)
             .ToArray();
 
         recentFiles.GroupBy(item => item.Version).Should().OnlyContain(group => group.Count() == 1);

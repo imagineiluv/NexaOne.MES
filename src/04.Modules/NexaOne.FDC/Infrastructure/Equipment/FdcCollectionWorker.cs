@@ -101,6 +101,7 @@ public sealed class FdcCollectionWorker : BackgroundService
         AggregateException? cleanupFailure = null;
         try
         {
+            var acquisitionStartedTimestamp = Stopwatch.GetTimestamp();
             var acquisition = await _runtimeLease.TryAcquireAsync(
                 _leaseOptions.OwnerId,
                 _leaseOptions.ConfigRevisionSha256,
@@ -110,8 +111,16 @@ public sealed class FdcCollectionWorker : BackgroundService
                 throw new FdcInterlockRuntimeUnavailableException(
                     "FDC runtime writer lease is already held or could not issue an opaque grant; collection remains disabled.");
 
-            leaseSession = new RuntimeLeaseSession(acquisition.Grant);
-            _collector.BindRuntimeAuthority(acquisition.Grant.Authority);
+            var acquisitionDeadlineTimestamp = FdcMonotonicDeadline.FromOperationStart(
+                acquisitionStartedTimestamp, _leaseOptions.Duration);
+            // Keep the opaque grant reachable by finally even when the conservative local TTL was consumed
+            // by the acquire round trip, so a still-valid DB lease is released instead of waiting for expiry.
+            leaseSession = new RuntimeLeaseSession(acquisition.Grant, acquisitionDeadlineTimestamp);
+            if (FdcMonotonicDeadline.IsExpired(acquisitionDeadlineTimestamp))
+                throw new FdcInterlockRuntimeUnavailableException(
+                    "FDC runtime writer lease acquisition consumed its configured local TTL; collection remains disabled.");
+
+            _collector.BindRuntimeAuthority(acquisition.Grant.Authority, acquisitionDeadlineTimestamp);
             leaseRenewal = RenewRuntimeLeaseAsync(
                 leaseSession,
                 leaseFaulted,
@@ -245,14 +254,44 @@ public sealed class FdcCollectionWorker : BackgroundService
             while (true)
             {
                 await Task.Delay(_leaseOptions.RenewInterval, ct);
-                var renewed = await _runtimeLease.TryRenewAsync(
-                    session.Grant, _leaseOptions.Duration, ct);
+                var current = session.Current;
+                var remaining = FdcMonotonicDeadline.Remaining(current.MonotonicDeadlineTimestamp);
+                if (remaining <= TimeSpan.Zero)
+                    throw new FdcInterlockRuntimeUnavailableException(
+                        "FDC runtime writer lease expired before its heartbeat could complete.");
+
+                using var renewalDeadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                renewalDeadline.CancelAfter(remaining);
+                var renewalStartedTimestamp = Stopwatch.GetTimestamp();
+                var renewedDeadlineTimestamp = FdcMonotonicDeadline.FromOperationStart(
+                    renewalStartedTimestamp, _leaseOptions.Duration);
+                var renewal = _runtimeLease.TryRenewAsync(
+                    current.Grant, _leaseOptions.Duration, renewalDeadline.Token);
+
+                FdcRuntimeLeaseGrant? renewed;
+                try
+                {
+                    // Bound a provider that ignores cancellation as well as a normal DB call. Once the opaque
+                    // grant expires, collection/action authority is revoked even if a late renew task remains.
+                    renewed = await renewal.WaitAsync(renewalDeadline.Token);
+                }
+                catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+                {
+                    ObserveLateRenewalFault(renewal);
+                    throw new FdcInterlockRuntimeUnavailableException(
+                        "FDC runtime writer lease renewal exceeded the current grant expiry; action publication is fenced.",
+                        ex);
+                }
                 if (renewed is null)
                     throw new FdcInterlockRuntimeUnavailableException(
                         "FDC runtime writer lease renewal lost its opaque grant CAS or expired.");
+                if (FdcMonotonicDeadline.IsExpired(current.MonotonicDeadlineTimestamp)
+                    || FdcMonotonicDeadline.IsExpired(renewedDeadlineTimestamp))
+                    throw new FdcInterlockRuntimeUnavailableException(
+                        "FDC runtime writer lease renewal completed after local authority continuity expired.");
 
-                session.Grant = renewed;
-                _collector.BindRuntimeAuthority(renewed.Authority);
+                session.Update(renewed, renewedDeadlineTimestamp);
+                _collector.BindRuntimeAuthority(renewed.Authority, renewedDeadlineTimestamp);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -263,6 +302,7 @@ public sealed class FdcCollectionWorker : BackgroundService
             var failure = ex as FdcInterlockRuntimeUnavailableException
                           ?? new FdcInterlockRuntimeUnavailableException(
                               "FDC runtime writer lease heartbeat failed; collection is fenced immediately.", ex);
+            _collector.ClearRuntimeAuthority();
             _collector.DenyRunPermit(failure);
             leaseFaulted.TrySetResult(failure);
         }
@@ -486,13 +526,14 @@ public sealed class FdcCollectionWorker : BackgroundService
             await Task.Delay(checkInterval, ct);
             EnsureFresh(registrations);
             foreach (var registration in registrations)
-                await EvaluateLatestCompletedPollAsync(registration, ct);
+                await EvaluateLatestCompletedPollAsync(registration, registrations, ct);
             await _collector.RetryPendingEffectPersistenceAsync(ct);
         }
     }
 
     private async Task EvaluateLatestCompletedPollAsync(
         RuntimeHealthRegistration registration,
+        IReadOnlyList<RuntimeHealthRegistration> registrations,
         CancellationToken ct)
     {
         while (true)
@@ -502,14 +543,14 @@ public sealed class FdcCollectionWorker : BackgroundService
                 || snapshot.CompletedPollCount <= registration.LastEvaluatedCompletedPollCount)
                 return;
 
-            if (!IsSnapshotCurrent(registration, snapshot))
+            if (!IsReleaseSnapshotCurrentAndFresh(registration, snapshot, registrations))
                 return;
 
             var samples = ValidateAndNormalizeSnapshot(registration, snapshot);
             var accepted = await _collector.EvaluateCompletedPollSnapshotAsync(
                 registration.EquipmentId,
                 samples,
-                () => IsSnapshotCurrent(registration, snapshot),
+                () => IsReleaseSnapshotCurrentAndFresh(registration, snapshot, registrations),
                 ct);
             if (!accepted)
                 continue;
@@ -534,6 +575,25 @@ public sealed class FdcCollectionWorker : BackgroundService
                && latest.CompletedPollCount == snapshot.CompletedPollCount
                && snapshot.StartedPollCount == snapshot.CompletedPollCount
                && startedPollCount == snapshot.StartedPollCount;
+    }
+
+    internal static bool IsReleaseSnapshotCurrentAndFresh(
+        RuntimeHealthRegistration registration,
+        PlcCompletedPollSnapshot snapshot,
+        IReadOnlyList<RuntimeHealthRegistration> allRegistrations)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        ArgumentNullException.ThrowIfNull(allRegistrations);
+
+        if (!IsSnapshotCurrent(registration, snapshot))
+            return false;
+
+        // A release reopens a global automatic-run admission path, so every active endpoint must still be
+        // running and fresh. Recheck the target poll fence after reading all health providers because those
+        // reads can race the next poll start/generation change.
+        EnsureFresh(allRegistrations);
+        return IsSnapshotCurrent(registration, snapshot);
     }
 
     private static IReadOnlyList<FdcTagSample> ValidateAndNormalizeSnapshot(
@@ -577,23 +637,31 @@ public sealed class FdcCollectionWorker : BackgroundService
 
     internal static TimeSpan CalculateStreamFreshnessDeadline(
         FdcEquipmentEndpoint endpoint,
-        TimeSpan additionalGrace)
+        TimeSpan configuredTimeout)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
-        if (additionalGrace <= TimeSpan.Zero)
-            throw new ArgumentOutOfRangeException(nameof(additionalGrace), additionalGrace,
-                "PLC stream freshness grace must be positive.");
+        if (configuredTimeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(configuredTimeout), configuredTimeout,
+                "PLC stream freshness timeout must be positive.");
 
         try
         {
-            // Poll completion-to-completion includes the configured sampling delay, one bounded read/reconnect
-            // attempt, and the worst configured disconnect recovery backoff. The global setting is retained as
-            // callback/scheduler grace instead of incorrectly acting as one fixed deadline for every endpoint.
+            // FreshnessTimeout is the actual maximum age, not grace added on top of endpoint timing. Reject a
+            // timeout that cannot contain one configured sample delay, bounded read, and worst reconnect backoff;
+            // silently stretching it would make an operator's fail-closed deadline ineffective.
             var pollingBudgetMs = checked(
                 (long)endpoint.SamplingIntervalMs
                 + endpoint.PlcSettings.ReadWriteTimeoutMs
                 + endpoint.PlcSettings.PollingMaxDisconnectBackoffMs);
-            return additionalGrace + TimeSpan.FromMilliseconds(pollingBudgetMs);
+            var minimumTimeout = TimeSpan.FromMilliseconds(pollingBudgetMs);
+            if (configuredTimeout < minimumTimeout)
+            {
+                throw new FdcInterlockRuntimeUnavailableException(
+                    $"PLC endpoint '{endpoint.Id}' freshness timeout {configuredTimeout} is below its configured "
+                    + $"poll/read/reconnect budget of {minimumTimeout}.");
+            }
+
+            return configuredTimeout;
         }
         catch (OverflowException ex)
         {
@@ -639,7 +707,7 @@ public sealed class FdcCollectionWorker : BackgroundService
         FdcEquipmentEndpoint endpoint,
         IReadOnlyCollection<FdcParameter> parameters,
         PlcDeviceInterface device,
-        TimeSpan additionalGrace)
+        TimeSpan configuredTimeout)
     {
         var health = device.SubscriptionRuntimeHealth
                      ?? throw new FdcInterlockRuntimeUnavailableException(
@@ -666,7 +734,7 @@ public sealed class FdcCollectionWorker : BackgroundService
                 .ToHashSet(StringComparer.OrdinalIgnoreCase),
             health,
             generation,
-            CalculateStreamFreshnessDeadline(endpoint, additionalGrace),
+            CalculateStreamFreshnessDeadline(endpoint, configuredTimeout),
             completion,
             latestSnapshot.CompletedPollCount);
     }
@@ -763,6 +831,13 @@ public sealed class FdcCollectionWorker : BackgroundService
     }
 
     private static void ObserveLateCleanupFault(Task operation) =>
+        _ = operation.ContinueWith(
+            static completed => _ = completed.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously | TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+
+    private static void ObserveLateRenewalFault(Task operation) =>
         _ = operation.ContinueWith(
             static completed => _ = completed.Exception,
             CancellationToken.None,
@@ -904,7 +979,7 @@ public sealed class FdcCollectionWorker : BackgroundService
         private sealed record BufferedSample(string EquipmentId, FdcTagSample Sample);
     }
 
-    private sealed class RuntimeHealthRegistration(
+    internal sealed class RuntimeHealthRegistration(
         string endpointId,
         string equipmentId,
         IReadOnlySet<string> parameterIds,
@@ -924,16 +999,28 @@ public sealed class FdcCollectionWorker : BackgroundService
         public long LastEvaluatedCompletedPollCount { get; set; } = lastEvaluatedCompletedPollCount;
     }
 
-    private sealed class RuntimeLeaseSession(FdcRuntimeLeaseGrant grant)
+    private sealed class RuntimeLeaseSession(
+        FdcRuntimeLeaseGrant grant,
+        long monotonicDeadlineTimestamp)
     {
-        private FdcRuntimeLeaseGrant _grant = grant ?? throw new ArgumentNullException(nameof(grant));
+        private RuntimeLeaseGrantWindow _current = new(
+            grant ?? throw new ArgumentNullException(nameof(grant)),
+            monotonicDeadlineTimestamp);
 
-        public FdcRuntimeLeaseGrant Grant
-        {
-            get => Volatile.Read(ref _grant);
-            set => Volatile.Write(ref _grant, value ?? throw new ArgumentNullException(nameof(value)));
-        }
+        public RuntimeLeaseGrantWindow Current => Volatile.Read(ref _current);
+        public FdcRuntimeLeaseGrant Grant => Current.Grant;
+
+        public void Update(FdcRuntimeLeaseGrant renewedGrant, long renewedDeadlineTimestamp) =>
+            Volatile.Write(
+                ref _current,
+                new RuntimeLeaseGrantWindow(
+                    renewedGrant ?? throw new ArgumentNullException(nameof(renewedGrant)),
+                    renewedDeadlineTimestamp));
     }
+
+    private sealed record RuntimeLeaseGrantWindow(
+        FdcRuntimeLeaseGrant Grant,
+        long MonotonicDeadlineTimestamp);
 }
 
 /// <summary>FDC worker의 단일 writer lease heartbeat 정책입니다.</summary>

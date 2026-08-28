@@ -12,6 +12,7 @@
     <constructor-arg ref="plcDriverFactory" />
     <constructor-arg ref="messageBus" />
     <constructor-arg ref="quartzScheduler" />
+    <constructor-arg ref="fdcTraceRetentionGuard" />
   </object>
 
   <object id="fdcBridge" factory-object="fdcModule" factory-method="GetFdcBridge" />

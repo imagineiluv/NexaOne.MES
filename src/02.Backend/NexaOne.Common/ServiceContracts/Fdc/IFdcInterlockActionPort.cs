@@ -48,8 +48,68 @@ public sealed record FdcInterlockActionRequest(
     string Action,
     bool IsRecovery,
     DateTime TriggeredAt,
-    string Message,
-    FdcRuntimeAuthority? RuntimeAuthority = null);
+    string Message)
+{
+    /// <summary>
+    /// 선택적 runtime fence extension. Positional constructor/Deconstruct는 기존 plugin ABI를 유지한다.
+    /// Production adapter는 이 값의 fence token을 controller journal의 high-water와 비교하고
+    /// controller 현재 UTC가 LeaseExpiresAt 이상이면 요청을 거부해야 한다.
+    /// </summary>
+    public FdcRuntimeAuthority? RuntimeAuthority { get; init; }
+
+    /// <summary>
+    /// RuntimeAuthority가 positional parameter였던 직전 계약과 이미 컴파일된 plugin의 binary ABI를
+    /// 보존한다. 짧은 legacy constructor도 primary constructor로 계속 제공한다.
+    /// </summary>
+    public FdcInterlockActionRequest(
+        string EffectId,
+        string RuleId,
+        string EquipmentId,
+        string ParameterId,
+        decimal TriggerValue,
+        string Action,
+        bool IsRecovery,
+        DateTime TriggeredAt,
+        string Message,
+        FdcRuntimeAuthority? RuntimeAuthority = null)
+        : this(
+            EffectId,
+            RuleId,
+            EquipmentId,
+            ParameterId,
+            TriggerValue,
+            Action,
+            IsRecovery,
+            TriggeredAt,
+            Message)
+    {
+        this.RuntimeAuthority = RuntimeAuthority;
+    }
+
+    public void Deconstruct(
+        out string effectId,
+        out string ruleId,
+        out string equipmentId,
+        out string parameterId,
+        out decimal triggerValue,
+        out string action,
+        out bool isRecovery,
+        out DateTime triggeredAt,
+        out string message,
+        out FdcRuntimeAuthority? runtimeAuthority)
+    {
+        effectId = EffectId;
+        ruleId = RuleId;
+        equipmentId = EquipmentId;
+        parameterId = ParameterId;
+        triggerValue = TriggerValue;
+        action = Action;
+        isRecovery = IsRecovery;
+        triggeredAt = TriggeredAt;
+        message = Message;
+        runtimeAuthority = RuntimeAuthority;
+    }
+}
 
 /// <summary>
 /// 프로젝트 action adapter/controller가 durable하게 수락했고 아직 release하지 않은 물리 effect 증거다.
@@ -64,13 +124,49 @@ public sealed record FdcInterlockActionReadiness(
     bool IsAvailable,
     bool CancellationFencingConfirmed,
     string? Detail,
-    IReadOnlyCollection<FdcInterlockOutstandingEffect> OutstandingEffects,
-    bool AggregateEffectOwnershipConfirmed = false,
-    bool RuntimeFencePersistenceConfirmed = false)
+    IReadOnlyCollection<FdcInterlockOutstandingEffect> OutstandingEffects)
 {
+    /// <summary>공유 출력의 활성 EffectId 집합을 controller가 durable하게 관리한다는 명시적 증거다.</summary>
+    public bool AggregateEffectOwnershipConfirmed { get; init; }
+
+    /// <summary>controller가 runtime fence high-water를 영속하고 stale token을 거부한다는 명시적 증거다.</summary>
+    public bool RuntimeFencePersistenceConfirmed { get; init; }
+
+    /// <summary>직전 6-field positional 계약과 이미 컴파일된 adapter의 binary ABI를 보존한다.</summary>
+    public FdcInterlockActionReadiness(
+        bool IsAvailable,
+        bool CancellationFencingConfirmed,
+        string? Detail,
+        IReadOnlyCollection<FdcInterlockOutstandingEffect> OutstandingEffects,
+        bool AggregateEffectOwnershipConfirmed = false,
+        bool RuntimeFencePersistenceConfirmed = false)
+        : this(IsAvailable, CancellationFencingConfirmed, Detail, OutstandingEffects)
+    {
+        this.AggregateEffectOwnershipConfirmed = AggregateEffectOwnershipConfirmed;
+        this.RuntimeFencePersistenceConfirmed = RuntimeFencePersistenceConfirmed;
+    }
+
+    public void Deconstruct(
+        out bool isAvailable,
+        out bool cancellationFencingConfirmed,
+        out string? detail,
+        out IReadOnlyCollection<FdcInterlockOutstandingEffect> outstandingEffects,
+        out bool aggregateEffectOwnershipConfirmed,
+        out bool runtimeFencePersistenceConfirmed)
+    {
+        isAvailable = IsAvailable;
+        cancellationFencingConfirmed = CancellationFencingConfirmed;
+        detail = Detail;
+        outstandingEffects = OutstandingEffects;
+        aggregateEffectOwnershipConfirmed = AggregateEffectOwnershipConfirmed;
+        runtimeFencePersistenceConfirmed = RuntimeFencePersistenceConfirmed;
+    }
+
     /// <summary>
-    /// 호출자는 이 factory로 cancellation/deadline fencing과 공유 출력의 EffectId aggregate ownership을
-    /// 모두 확인했음을 선언한다. 실제 controller journal/readback 및 HIL 증거 없이 사용하면 안 된다.
+    /// 기본 준비 완료 결과를 만든다. cancellation/deadline fencing은 필수이지만, 공유 출력의
+    /// EffectId aggregate ownership과 runtime fence 영속성은 호출자가 각각 명시적으로 확인해야 한다.
+    /// 두 확인값의 기본값은 fail-closed(false)이며, 실제 controller journal/readback 및 HIL 증거 없이
+    /// true로 지정하면 안 된다.
     /// </summary>
     public static FdcInterlockActionReadiness Ready(
         IReadOnlyCollection<FdcInterlockOutstandingEffect>? outstandingEffects = null) =>
@@ -78,18 +174,32 @@ public sealed record FdcInterlockActionReadiness(
             true,
             true,
             null,
-            outstandingEffects ?? Array.Empty<FdcInterlockOutstandingEffect>(),
-            AggregateEffectOwnershipConfirmed: true,
-            RuntimeFencePersistenceConfirmed: true);
+            outstandingEffects ?? Array.Empty<FdcInterlockOutstandingEffect>());
+
+    /// <summary>
+    /// 기존 Ready ABI와 구분해 aggregate ownership과 runtime fencing 증거를 명시적으로 선언한다.
+    /// 두 bool은 실제 controller journal/readback/HIL 증거가 있을 때만 true여야 한다.
+    /// </summary>
+    public static FdcInterlockActionReadiness ReadyWithEvidence(
+        bool aggregateEffectOwnershipConfirmed,
+        bool runtimeFencePersistenceConfirmed,
+        IReadOnlyCollection<FdcInterlockOutstandingEffect>? outstandingEffects = null) =>
+        new(
+            true,
+            true,
+            null,
+            outstandingEffects ?? Array.Empty<FdcInterlockOutstandingEffect>())
+        {
+            AggregateEffectOwnershipConfirmed = aggregateEffectOwnershipConfirmed,
+            RuntimeFencePersistenceConfirmed = runtimeFencePersistenceConfirmed,
+        };
 
     public static FdcInterlockActionReadiness Unavailable(string detail) =>
         new(
             false,
             false,
             detail,
-            Array.Empty<FdcInterlockOutstandingEffect>(),
-            AggregateEffectOwnershipConfirmed: false,
-            RuntimeFencePersistenceConfirmed: false);
+            Array.Empty<FdcInterlockOutstandingEffect>());
 }
 
 public sealed record FdcInterlockActionResult(
@@ -122,8 +232,58 @@ public sealed record FdcInterlockReleaseRequest(
     string Action,
     decimal NormalizedValue,
     FdcInterlockResetPolicy ResetPolicy,
-    bool IsRecovery,
-    FdcRuntimeAuthority? RuntimeAuthority = null);
+    bool IsRecovery)
+{
+    /// <summary>선택적 runtime fence extension. 기존 positional plugin ABI는 유지한다.
+    /// Controller는 fence high-water와 LeaseExpiresAt을 모두 검증해야 한다.</summary>
+    public FdcRuntimeAuthority? RuntimeAuthority { get; init; }
+
+    /// <summary>직전 runtime-authority positional 계약의 binary ABI를 보존한다.</summary>
+    public FdcInterlockReleaseRequest(
+        string EffectId,
+        string RuleId,
+        string EquipmentId,
+        string ParameterId,
+        string Action,
+        decimal NormalizedValue,
+        FdcInterlockResetPolicy ResetPolicy,
+        bool IsRecovery,
+        FdcRuntimeAuthority? RuntimeAuthority = null)
+        : this(
+            EffectId,
+            RuleId,
+            EquipmentId,
+            ParameterId,
+            Action,
+            NormalizedValue,
+            ResetPolicy,
+            IsRecovery)
+    {
+        this.RuntimeAuthority = RuntimeAuthority;
+    }
+
+    public void Deconstruct(
+        out string effectId,
+        out string ruleId,
+        out string equipmentId,
+        out string parameterId,
+        out string action,
+        out decimal normalizedValue,
+        out FdcInterlockResetPolicy resetPolicy,
+        out bool isRecovery,
+        out FdcRuntimeAuthority? runtimeAuthority)
+    {
+        effectId = EffectId;
+        ruleId = RuleId;
+        equipmentId = EquipmentId;
+        parameterId = ParameterId;
+        action = Action;
+        normalizedValue = NormalizedValue;
+        resetPolicy = ResetPolicy;
+        isRecovery = IsRecovery;
+        runtimeAuthority = RuntimeAuthority;
+    }
+}
 
 public sealed record FdcInterlockReleaseResult(
     bool Acknowledged,

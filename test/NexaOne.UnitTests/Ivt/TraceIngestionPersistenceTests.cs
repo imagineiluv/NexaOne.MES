@@ -33,6 +33,16 @@ public sealed class TraceIngestionPersistenceTests
                         LOWER_LIMIT NUMERIC NOT NULL,
                         UPPER_LIMIT NUMERIC NOT NULL);
 
+                    CREATE TABLE FDC_TRACE_RETENTION_STATE (
+                        STATE_ID TEXT NOT NULL PRIMARY KEY,
+                        COMPLETENESS_BOUNDARY TEXT NOT NULL,
+                        CREATED_BY TEXT NOT NULL,
+                        CREATED_AT TEXT NOT NULL,
+                        UPDATED_BY TEXT NOT NULL,
+                        UPDATED_AT TEXT NOT NULL);
+                    INSERT INTO FDC_TRACE_RETENTION_STATE VALUES
+                        ('GLOBAL', @retentionBoundary, 'SYSTEM', CURRENT_TIMESTAMP, 'SYSTEM', CURRENT_TIMESTAMP);
+
                     CREATE TABLE IVT_TRACE_CONSUMPTION_BINDING (
                         BINDING_ID TEXT NOT NULL PRIMARY KEY,
                         PLANT_ID TEXT NOT NULL,
@@ -87,6 +97,7 @@ public sealed class TraceIngestionPersistenceTests
                         ('C-2', 'EQ-1', 'PARAM-1', 12.5, @t2, 'Good', 0, 100);
                     """;
                 command.Parameters.AddWithValue("@effectiveFrom", t0.AddMinutes(-1));
+                command.Parameters.AddWithValue("@retentionBoundary", t0.AddYears(-1));
                 command.Parameters.AddWithValue("@t1", t0.AddSeconds(1));
                 command.Parameters.AddWithValue("@t2", t0.AddSeconds(2));
                 command.ExecuteNonQuery();

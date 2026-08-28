@@ -1,11 +1,38 @@
 using Microsoft.Extensions.Configuration;
 using NexaOne.FDC;
+using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Infrastructure.Equipment;
+using NexaFramework.Scheduling;
 
 namespace NexaOne.UnitTests.Fdc;
 
 public sealed class FdcModuleOptionsTests
 {
+    [Fact]
+    public void Retention_guard_addition_preserves_legacy_public_constructor_ABI()
+    {
+        var moduleConstructorLengths = typeof(NexaOne.FDC.Module).GetConstructors()
+            .Select(constructor => constructor.GetParameters().Length)
+            .ToArray();
+        moduleConstructorLengths.Should().Contain(8);
+        moduleConstructorLengths.Should().Contain(9);
+        typeof(FdcCollectDataRetentionWorker).GetConstructor(
+        [
+            typeof(IRecurringScheduler),
+            typeof(IFdcCollectDataRepository),
+            typeof(bool),
+            typeof(int),
+            typeof(int),
+        ]).Should().NotBeNull();
+
+        var act = () => new FdcCollectDataRetentionWorker(
+            Mock.Of<IRecurringScheduler>(),
+            Mock.Of<IFdcCollectDataRepository>(),
+            enabled: true);
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*legacy constructor*IVT retention guard*");
+    }
+
     [Fact]
     public void Missing_configuration_keeps_all_workers_fail_safe_off()
     {
@@ -17,6 +44,7 @@ public sealed class FdcModuleOptionsTests
             CollectionEnabled: false,
             EventTopic: "nexaone.events",
             RetentionEnabled: false,
+            RetentionBindingChangesQuiesced: false,
             RetentionIntervalSeconds: 86_400,
             RetentionDays: 30,
             VirtualEventEnabled: false,
@@ -37,6 +65,7 @@ public sealed class FdcModuleOptionsTests
             ["Worker:Fdc:Enabled"] = "true",
             ["Worker:Fdc:Topic"] = " fdc.events ",
             ["Worker:Fdc:Retention:Enabled"] = "true",
+            ["Worker:Fdc:Retention:BindingChangesQuiesced"] = "true",
             ["Worker:Fdc:Retention:IntervalSeconds"] = "120",
             ["Worker:Fdc:Retention:RetentionDays"] = "45",
             ["Worker:Fdc:VirtualEvent:Enabled"] = "true",
@@ -55,6 +84,7 @@ public sealed class FdcModuleOptionsTests
         options.CollectionEnabled.Should().BeTrue();
         options.EventTopic.Should().Be("fdc.events");
         options.RetentionEnabled.Should().BeTrue();
+        options.RetentionBindingChangesQuiesced.Should().BeTrue();
         options.RetentionIntervalSeconds.Should().Be(120);
         options.RetentionDays.Should().Be(45);
         options.VirtualEventEnabled.Should().BeTrue();
@@ -62,9 +92,15 @@ public sealed class FdcModuleOptionsTests
         options.InterlockActionTimeoutSeconds.Should().Be(7);
         options.RuntimeHealthFreshnessTimeoutSeconds.Should().Be(19);
         options.DriverCleanupTimeoutSeconds.Should().Be(11);
-        options.RuntimeLease.Should().Be(new FdcLeaseOptions(
-            "fdc-node-a", new string('a', 64),
-            TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(20)));
+        options.RuntimeLease.OwnerId.Should().StartWith("fdc-node-a:");
+        options.RuntimeLease.OwnerId.Length.Should().BeLessThanOrEqualTo(100);
+        options.RuntimeLease.ConfigRevisionSha256.Should().Be(new string('a', 64));
+        options.RuntimeLease.Duration.Should().Be(TimeSpan.FromSeconds(60));
+        options.RuntimeLease.RenewInterval.Should().Be(TimeSpan.FromSeconds(20));
+
+        FdcModuleOptions.FromConfiguration(configuration).RuntimeLease.OwnerId
+            .Should().Be(options.RuntimeLease.OwnerId,
+                "one process must reuse its process-start identity while each restart gets a new nonce");
     }
 
     [Fact]

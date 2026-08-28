@@ -67,14 +67,32 @@ public sealed class MssqlMigrationRunnerTests
         source.Should().Contain("sys.sp_getapplock");
         source.Should().Contain("@LockOwner = N'Session'");
         source.Should().Contain("$appliedByVersion");
+        source.Should().Contain("$localByVersion");
+        source.Should().Contain("database contains migration absent from this source");
+        source.Should().Contain("migration history is not a contiguous source prefix");
+        source.Should().Contain("Refuse out-of-order replay");
+        source.Should().Contain("if ($DryRun) { $pending | ForEach-Object");
+        source.Should().Contain("read-only DryRun treats every local migration as pending");
         source.Should().Contain("migration history drift at version");
         source.Should().Contain("Get-MigrationHash");
         source.Should().Contain("CONTENT_SHA256");
         source.Should().Contain("migration content drift");
         source.Should().Contain("AdoptMissingChecksums");
         source.Should().Contain("ApproveHighImpactMigrations");
-        source.Should().Contain("$highImpactVersions = @(142, 144, 146, 147, 148)");
+        source.Should().Contain("$highImpactVersions = @(142, 144, 146, 147, 148, 150)");
         source.Should().Contain("high-impact migration approval is required");
+        var historyMutation = source.IndexOf(
+            "ALTER TABLE SYS_SCHEMA_MIGRATION ADD CONTENT_SHA256",
+            StringComparison.Ordinal);
+        source.IndexOf("database contains migration absent from this source", StringComparison.Ordinal)
+            .Should().BeLessThan(historyMutation,
+                "a downlevel runner must reject DB-only versions before changing migration history");
+        source.IndexOf("migration history is not a contiguous source prefix", StringComparison.Ordinal)
+            .Should().BeLessThan(historyMutation,
+                "an out-of-order history must be rejected before changing migration history");
+        source.IndexOf("$highImpactVersions = @(142, 144, 146, 147, 148, 150)", StringComparison.Ordinal)
+            .Should().BeLessThan(historyMutation,
+                "the explicit production approval gate must run before migration-history DDL");
         source.IndexOf("$migrationNamePattern.Match($file.Name)", StringComparison.Ordinal)
             .Should().BeLessThan(source.IndexOf("$conn.Open()", StringComparison.Ordinal),
                 "local migration validation must finish before SQL Server access");
@@ -90,8 +108,18 @@ public sealed class MssqlMigrationRunnerTests
         source.Should().Contain("$serverDataSource = $connection.DataSource");
         source.Should().Contain("statistics-freshness");
         source.Should().Contain("sys.dm_db_stats_properties");
+        source.Should().Contain("AUTO_CREATE_STATISTICS_ON");
+        source.Should().Contain("AUTO_UPDATE_STATISTICS_ON");
+        source.Should().Contain("AUTO_UPDATE_STATISTICS_ASYNC_ON");
+        source.Should().Contain("statistics-options-prerequisite");
+        source.Should().Contain("view-inventory");
         source.Should().Contain("indexed-view-index-definition");
         source.Should().Contain("IS_SCHEMA_BOUND");
+        source.Should().Contain("FOR XML PATH(''), TYPE");
+        source.Should().NotContain("STRING_AGG");
+        source.Should().Contain("ic.key_ordinal > 0");
+        source.Should().Contain("ic.partition_ordinal > 0");
+        source.Should().Contain("PARTITION_COLUMNS");
         source.Should().Contain("if ($IncludePhysicalStats)");
         source.Should().Contain("PhysicalStatsMinPageCount");
         source.Should().Contain("sys.dm_db_index_physical_stats");

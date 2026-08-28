@@ -34,6 +34,8 @@ public sealed class IvtModuleCompositionTests
         module.GetMaterialLotDirectory().Should().BeSameAs(module.GetMaterialLotDirectory());
         module.GetMrpInventoryDirectory().Should().BeAssignableTo<IMrpInventoryDirectory>();
         module.GetMrpInventoryDirectory().Should().BeSameAs(module.GetMrpInventoryDirectory());
+        module.GetFdcTraceRetentionGuard().Should().BeAssignableTo<IFdcTraceRetentionGuard>();
+        module.GetFdcTraceRetentionGuard().Should().BeSameAs(module.GetFdcTraceRetentionGuard());
         module.GetTraceMaterialConsumptionWorker().Should().BeAssignableTo<IHostedService>();
         module.GetTraceMaterialConsumptionWorker()
             .Should().BeSameAs(module.GetTraceMaterialConsumptionWorker());
@@ -54,11 +56,12 @@ public sealed class IvtModuleCompositionTests
             .LoadObjectDefinitions(new FileSystemResource(path));
         factory.PreInstantiateSingletons();
 
-        loaded.Should().Be(6);
+        loaded.Should().Be(7);
         factory.GetObject<IMaterialBridge>("materialBridge").Should().NotBeNull();
         factory.GetObject<IMaterialLotBridge>("materialLotBridge").Should().NotBeNull();
         factory.GetObject<IMaterialLotDirectory>("materialLotDirectory").Should().NotBeNull();
         factory.GetObject<IMrpInventoryDirectory>("mrpInventoryDirectory").Should().NotBeNull();
+        factory.GetObject<IFdcTraceRetentionGuard>("fdcTraceRetentionGuard").Should().NotBeNull();
         factory.GetObjectsOfType(typeof(IHostedService)).Keys
             .Should().ContainSingle().Which.Should().Be("traceMaterialConsumptionWorker");
     }

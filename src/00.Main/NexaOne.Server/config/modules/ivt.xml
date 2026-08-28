@@ -16,6 +16,7 @@
   <object id="materialLotBridge" factory-object="ivtModule" factory-method="GetMaterialLotBridge" />
   <object id="materialLotDirectory" factory-object="ivtModule" factory-method="GetMaterialLotDirectory" />
   <object id="mrpInventoryDirectory" factory-object="ivtModule" factory-method="GetMrpInventoryDirectory" />
+  <object id="fdcTraceRetentionGuard" factory-object="ivtModule" factory-method="GetFdcTraceRetentionGuard" />
 
   <!-- Durable FDC source -> IVT consumption projection through the Common IFdcTraceSource contract.
        It intentionally does not use messageBus: the persisted inbox is the restart-safe accounting seam. Enable with

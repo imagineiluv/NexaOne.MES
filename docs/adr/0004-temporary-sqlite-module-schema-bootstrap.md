@@ -19,7 +19,9 @@
 
 - source: `SqliteSchemaInitializer.cs`
 - target: `FDC_INTERLOCK_HISTORY`의 V146 lifecycle evidence,
-  `FDC_RUNTIME_OWNERSHIP`의 V149 단일 GLOBAL seed·monotonic fence·lease secret hash/DB-time guard와
+`FDC_RUNTIME_OWNERSHIP`의 V149 단일 GLOBAL seed·monotonic fence·lease secret hash/DB-time guard,
+`FDC_TRACE_RETENTION_STATE`와 `FDC_COLLECT_DATA`의 V150 completeness seed·단조 경계·late INSERT/UPDATE/DELETE/
+`INSERT OR REPLACE` guard·invalid timestamp partial index와
   `IVT_TRACE_PROJECTION_INBOX`/`IVT_TRACE_INGESTION_CURSOR`의 V142·V147 reconciliation
 - 허용 동작: migration asset 적용, legacy backfill, 불일치 검증, canonical trigger와 reconciliation marker 설치
 - 금지 동작: FDC action 판단, TRACE 소비량 계산, 다른 모듈 서비스 호출, 런타임 업무 상태 전이
@@ -35,7 +37,7 @@ Server가 모듈을 로드하기 전 다음을 만족하는 module-owned SQLite 
 1. 각 모듈 `Resources/`의 migration/reconciliation asset이 stable ID와 checksum을 제공한다.
 2. 호스트의 generic runner가 contribution을 dependency 순서로 한 connection/transaction에서 실행한다.
 3. FDC·IVT가 위 객체의 seed·backfill·trigger·marker를 소유하고 Common은 업무 테이블명을 알지 않는다.
-4. 기존 pre-V142/pre-V146/pre-V149 DB upgrade와 crash 재기동 회귀가 그대로 통과한다.
+4. 기존 pre-V142/pre-V146/pre-V149/pre-V150 DB upgrade와 crash 재기동 회귀가 그대로 통과한다.
 
 이 분리는 NexaFramework 이관과 Production release 승인 전에 재검토하며, 검토 기한 연장은 새 ADR 없이는
 허용하지 않는다.

@@ -107,7 +107,7 @@ query/projection으로 adapter를 교체해도 OEE Interface와 계산은
 FDC worker 실행 정책도 module XML 상수가 아니라 `IConfiguration`이 소유한다. `Worker:Fdc:Enabled`,
 `Worker:Fdc:InterlockActionTimeoutSeconds`, `Worker:Fdc:RuntimeHealth:FreshnessTimeoutSeconds`,
 `Worker:Fdc:DriverCleanupTimeoutSeconds`,
-`Worker:Fdc:Retention:{Enabled,IntervalSeconds,RetentionDays}`,
+`Worker:Fdc:Retention:{Enabled,BindingChangesQuiesced,IntervalSeconds,RetentionDays}`,
 `Worker:Fdc:VirtualEvent:{Enabled,IntervalSeconds}`를 사용하며 모두 기본 OFF다. 이벤트 토픽은
 `Worker:Fdc:Topic`, `Events:Outbox:Topic`, `nexaone.events` 순서로 결정한다.
 
@@ -207,6 +207,11 @@ backfill→불일치 검증→canonical trigger→durable marker를 원자적으
 `IS_WORK_ITEM`의 동치를 강제한다. POM mixing의 PK와 동일했던 중복
 index는 제거한다. SQLite 증분
 회귀는 이름만 확인하지 않고 key 순서·정렬·partial 조건과 대표 쿼리의 `EXPLAIN QUERY PLAN` 선택까지 검증한다.
+TRACE cursor는 SQLite의 가변 소수 정밀도 시각을 7자리로 보정한 expression key와 `COLLECT_ID`로 정렬한다.
+SQLite의 `IX_FDC_TRACE_SOURCE`도 같은 expression을 사용해 `LIMIT` 전에 전체 유효 범위를 임시 정렬하지 않으며,
+재개 cursor가 있으면 `max(EFFECTIVE_FROM, cursor)`를 index seek 시작점으로 써 반복 page가 과거 행을 다시 훑지
+않는다. 일반 parameter 최신/기간 조회는 가변 정밀도 간 동시각 순서가 업무 결과를 바꾸지 않으므로 V017의
+raw 시간 index를 그대로 사용해 불필요한 expression sort를 피한다.
 현재 Common initializer가 FDC/IVT의 legacy backfill·trigger·marker를 아는 구조는 ADR-0004의 한시 예외이며,
 module-owned schema contribution을 도입해 NexaFramework 이관과 Production release 승인 전에 제거한다.
 
@@ -214,14 +219,18 @@ module-owned schema contribution을 도입해 NexaFramework 이관과 Production
 여러 소비자가 공유할 안정된 read contract가 생길 때 소유 모듈 안에 View를 만들고, OEE·Takt·Utility·TRACE처럼
 반복 계산 비용이 큰 경로는 summary/projection table을 materialized read model로 유지한다. SQL Server indexed
 view·columnstore·partition은 Query Store의 logical read와 쓰기 증폭을 측정한 뒤 별도 운영 ADR로 승인한다.
-`Get-MssqlPerformanceBaseline.ps1`은 Query Store 상위 logical-read 쿼리, index read/write 사용량·key/include·크기,
+`Get-MssqlPerformanceBaseline.ps1`은 Query Store 상위 logical-read 쿼리, DB의 자동 통계 생성·갱신 옵션,
+index read/write 사용량·실제 key/include/partition column·크기,
 통계 갱신 시각·sampling·변경 건수, missing-index DMV 힌트와 View/indexed-view의 실제 index 정의·사용량을 UTC
 run-id별 읽기 전용 CSV와 manifest로 수집한다. 물리 fragmentation은 기본 수집에서 제외하며, 점검 창에
 `-IncludePhysicalStats`를 지정한 경우에만 `-Top` 및 `-PhysicalStatsMinPageCount`로 제한한 큰 index 후보를
 `LIMITED` 모드로 읽는다. Query Store가
 `READ_WRITE`가 아니거나 `VIEW DEFINITION`/필수 DMV 보고가 빠지면 기본적으로 전체 실행을 실패시키며 명시적 partial
-결과는 승인 근거로 쓰지 않는다. DMV 힌트는 현재
+결과는 승인 근거로 쓰지 않는다. `AUTO_CREATE_STATISTICS`·`AUTO_UPDATE_STATISTICS`가 OFF인 DB도 같은
+fail-closed 전제조건으로 처리한다. DMV 힌트는 현재
 index와의 중복, 필터 선택도, 변경 빈도, 저장 공간을 검토하는 후보 자료일 뿐 자동 DDL의 근거로 사용하지 않는다.
+성능 승인 기준선의 최소 엔진 계약은 Query Store를 제공하는 SQL Server 2016 이상이며, index key/include 집계는
+2016에서도 동작하는 ordered `FOR XML PATH` 방식으로 수집한다.
 
 Statistics는 앱 서비스·드라이버 기능이 아니라 DB 운영 계약으로 둔다. SQL Server는
 `AUTO_CREATE_STATISTICS`·`AUTO_UPDATE_STATISTICS` ON을 기본으로 하되, Query Store 계획 회귀와
@@ -235,28 +244,71 @@ V148은 `FDC_COLLECT_DATA` 보존 삭제에 시간 선행
 `IX_FDC_COLLECT_RETENTION(COLLECTED_AT, COLLECT_ID)`를 제공한다. repository는 기본 1,000행별 짧은
 transaction을 사용하고 호출당 최대 100 batch에서 양보하며 다음 주기가 같은 cutoff를
 이어서 처리한다. 이 상한이 lock·transaction log·SQLite single-writer 독점을 제어하므로,
-backlog가 연속 상한에 닿을 때는 최고 행 연령·소요시간·writer 대기를 측정한 뒤 주기 또는
-점검 창을 조정하고, 검증 없이 batch 크기를 키우지 않는다.
+backlog가 연속 상한에 닿을 때 worker가 기록한 최고 행 연령·호출 소요시간과 SQL Server Query
+Store/대기 DMV 또는 SQLite busy/lock 계측에서 얻은 writer 대기를 함께 비교한 뒤 주기 또는 점검
+창을 조정한다. repository 반환값의 전체 소요시간을 DB writer 대기시간으로 오인하거나, 검증 없이
+batch 크기를 키우지 않는다.
+
+V150은 보존 실행 전에 `FDC_TRACE_RETENTION_STATE/GLOBAL.COMPLETENESS_BOUNDARY`를 같은 transaction에서
+단조 증가시키고, 실제 DELETE는 그 경계가 기록된 경우에만 수행한다. requested cutoff는 Common
+`IFdcTraceRetentionGuard`를 통해 IVT가 계산한 활성 binding 전역 low-watermark보다 앞으로 갈 수 없다. IVT는
+binding마다 `max(EFFECTIVE_FROM, LAST_COLLECTED_AT)`를 사용하고 cursor가 아직 없으면 `EFFECTIVE_FROM`부터
+보호하며 FDC는 IVT
+물리 테이블을 직접 조회하지 않는다. SQLite guard는 활성 binding/cursor 값을 행별 canonical UTC로 검증하고
+파싱된 실제 시각의 최소값을 사용하므로 lexical `MIN(TEXT)`에 의존하지 않는다. 한 행이라도 invalid/T/Z/offset
+형식이면 보존 실행을 fail-closed한다. purge와 동시 읽기 또는 이후 새 binding의 resume 지점이 completeness
+boundary보다 오래되면 `FdcTraceGapException`으로 중단하고 빈 페이지나 다음 남은 표본으로 조용히 건너뛰지
+않는다. 최초 전환은 남은 `MIN(COLLECTED_AT) + 100ns`(빈 DB는 DB UTC)를 보수적으로 seed하며,
+SQL Server에서 seed~직접 DELETE guard commit 동안 `TABLOCKX, HOLDLOCK`으로 구버전 writer 우회를 막는다.
+따라서 V150은 복원본에서 lock 대기·timeout·rollback을 측정하고 구/신 FDC collection·retention writer를 중지한
+maintenance window에서만 명시 승인으로 적용한다. SQL Server 신규 TRACE INSERT guard는 RCSI에서도
+`READCOMMITTEDLOCK, HOLDLOCK`으로 최신 경계를 공유 잠금해 purge와 직렬화하되 일반 INSERT끼리는 병렬 실행한다.
+SQLite도 singleton 삭제·경계 후퇴와 `INSERT OR REPLACE`에 의한 V149 fence/V150 경계 초기화를 canonical BEFORE
+INSERT trigger로 차단하고, V148 retention index의 동일 이름
+오정의는 기동 reconciliation에서 정확한 `(COLLECTED_AT, COLLECT_ID)` 순서로 교체한다. SQLite 안전 시각은
+`yyyy-MM-dd HH:mm:ss[.fffffff]` UTC text만 허용하고 `T`/`Z`/offset, 7자리를 넘는 소수, 존재하지 않는 달력
+날짜를 거부한다. 새 TRACE write는 항상 7자리로 저장하며 legacy 가변 소수 정밀도는 동일한 padded key로 비교한다.
+보존 경계보다 오래된 late/backdated INSERT, 기존 raw TRACE UPDATE와 `INSERT OR REPLACE`도 거부해 원천을
+append-only로 유지한다. 정상 기동은 invalid timestamp partial index를 검사하고, 제약/index가 누락·변조된
+경우에는 전체 재검증 후 오염 행이 하나라도 있으면 fail-closed한다.
+schema object 이름은 SQLite 식별자 규칙대로 대소문자 무시로 찾되, trigger/index SQL 정의는 문자열 리터럴의
+대소문자 의미를 보존하도록 ordinal 비교해 stale 안전 제약을 정상 정의로 교체한다.
+현재 guard 조회와 FDC purge는 하나의 cross-module DB transaction이 아니므로 binding 보호 시작점을 낮추는
+online 변경과의 원자성은 아직 제공하지 않는다. 따라서 retention을 켜려면 전체 프로세스 실행기간 동안 binding
+INSERT/활성화·재활성화, `EFFECTIVE_FROM/TO` 변경과 cursor 수동 후퇴를 운영 절차로 동결하고
+`BindingChangesQuiesced=true`를 함께 설정해야 한다. 기본값은 false이며 서약이 없으면 조립 즉시 실패한다.
+지속 online 변경은 binding mutation과 purge가 공유하는 durable revision/advisory-lock protocol을 도입한 뒤에만 승인한다.
 
 V149는 `FDC_RUNTIME_OWNERSHIP`의 단일 `GLOBAL` 행으로 FDC 실시간 writer를 선출한다. 획득은 DB가 관찰한
 기존 owner+fence를 CAS하고 DB UTC 시각으로 만료를 판정하며, 새 소유권마다 `FENCE_TOKEN`을 정확히 증가시킨다.
+각 action readiness/apply/reconcile/release 호출은 일반 action timeout과 캡처한 wall-clock/monotonic lease
+잔여시간 중 가장 짧은 값으로 adapter token과 caller 대기를 제한한다. 성공 응답도 같은 owner/fence/config가
+유효한지 다시 확인한 뒤에만 수락하므로 lease 직전 시작한 늦은 Release를 confirmed로 처리하지 않는다.
 각 acquire는 재사용하지 않는 256-bit random secret을 만들고 DB에는 lowercase SHA-256 hash만 저장한다. 성공
 호출자만 secret을 숨긴 opaque grant를 받으며 renew/release는 이 grant의 owner+fence+설정 digest+secret hash가
 모두 같은 경우에만 성공한다. 공개 state의 `HasOwnerTuple`은 만료 여부와 무관한 tuple 존재 표시이며 운전 권한이
 아니다. `CONFIG_REVISION`은 임의 label이 아니라 canonical 설정 snapshot의 lowercase 64자리 SHA-256 hex digest다.
 lease duration은 두 DB 모두 동일하게 integer millisecond로 ceil하며, trigger는 writer가 제공한 시각이 아니라 DB
 현재 시각으로 acquire/renew 만료를 판정하고 heartbeat가 DB now 부근인지와 expiry가 최대 1일인지 검증한다.
+각 acquire/renew 호출 직전에 `Stopwatch` timestamp를 고정하고 설정 TTL을 더한 보수적 process-local deadline도
+같이 발행한다. DB 응답 지연과 DB/host wall-clock 차이는 이 local 권한을 늘리지 않고 남은 시간을 줄이며,
+permit 조회·startup/live sample·DB retry·action 경계는 heartbeat continuation과 무관하게 이 deadline을 동기 확인한다.
 release는 소유 tuple과 secret hash만 비우고 행과 마지막 fence는 영구 보존하므로 DB 복구·정리 절차에서 이 행을
 삭제하거나 token을 0으로 재시드하면 안 된다.
+물리 Release 전에는 completed poll의 모든 interlock 입력 품질을 먼저 검사한다. 이후 DB 영속화 대기 뒤와 adapter 호출 직전에
+대상 poll generation/count가 여전히 current인지, 그리고 다른 endpoint를 포함한 전체 활성 subscription이 running/fresh인지
+재확인한다. 뒤쪽 Bad 입력이나 await 중 freshness 초과가 하나라도 있으면 어떤 EffectId도 Release하지 않고 fail-closed한다.
 이 DB lease만으로 물리 명령의 split-brain을 막을 수는 없다. Cleaner action adapter/controller가 모든 명령과
 ack journal에서 fence를 저장하고 이전 token을 거부하는 단계가 완료되기 전에는 자동 운전 권한으로 사용하지 않는다.
 
 SQL Server 마이그레이션 이력은 파일명뿐 아니라 LF 정규화 SHA-256을 저장한다. 적용된 SQL의 내용 drift는
 배포를 중단하며, 체크섬이 없던 기존 DB는 백업·승인 소스 대조·staging 복원 리허설 뒤 명시적인 1회 adoption만
-허용한다. V142처럼 대량 기존 행을 갱신하는 버전은 보조 index가 있어도 transaction log·lock 비용이 남으므로
+허용한다. DB에만 있는 미래 version과 중간 누락 뒤의 later-applied version은 어떤 DDL·ops seed보다 먼저
+거부해 downlevel binary 및 out-of-order migration 실행을 막는다. `-DryRun`은 advisory lock과 이력 조회만
+수행하며 누락된 history table/column을 생성하지 않는다. V142처럼 대량 기존 행을 갱신하는 버전은 보조 index가 있어도 transaction log·lock 비용이 남으므로
 운영 규모 데이터의 upgrade rehearsal을 별도 릴리즈 gate로 둔다. V144와 V130~V141의 hot-table index build도
 크기·blocking·쓰기 증폭을 같은 기준으로 측정하며, 전환 중 TRACE/POM writer 정지와 edition별 ONLINE/RESUMABLE
-가능 여부를 DBA가 승인한다. V142/V144/V146/V147/V148 pending 적용은 이 준비를 완료한 승인 실행에서
+가능 여부를 DBA가 승인한다. V142/V144/V146/V147/V148/V150 pending 적용은 이 준비를 완료한 승인 실행에서
 `-ApproveHighImpactMigrations`를 주지 않으면 러너가 거부한다.
 
 완료된 TRACE inbox 행은 filtered work set에서 즉시 빠지지만 감사·재처리 근거로 남는다. 장기 보존량이 확인되면
@@ -284,14 +336,15 @@ Server SQL에서 MDM 소유 `IEquipmentOutputMasterDirectory`로 이동했다. P
 ## 2026-08-28 검증 기록
 
 - Release solution build(`-warnaserror`): 경고 0, 오류 0
-- Unit: 1,858/1,858 통과(FDC lease lifecycle·completed-poll fence·runtime key 경계 회귀 포함)
+- Unit: 1,890/1,890 통과(FDC monotonic lease·in-flight action clamp/post-check·전체 endpoint freshness·completed-poll 품질/fence·runtime key·TRACE cursor/retention 회귀 포함)
+- FDC Unit namespace focused: 256/256 통과
 - FDC/Spring focused boot: 18/18 통과(worker 기본 OFF + fail-closed adapter 조립 포함)
-- Server/SQLite integration: 908/908 통과
+- Server/SQLite integration: 916/916 통과
 - Portal: 116/116, production build 성공, `npm audit` 취약점 0
 - NexaLogic PLC: Unit 12/12, Core 57/57, Integration 14/14, Hardware Simulation 43/43 — 합계 126/126 통과
-- modules-ON child-process smoke: 11개 모듈과 호스트 소유 선언형 bridge 44개를 최신 Release 호스트에서 실제 부팅
-- migration: V001~V149 strict 이름·숫자 순서·중복·LF 정규화 SHA-256 검증 통과, 신규/증분 SQLite와 MSSQL 정적 계약 통과
-- publish: Release publish 성공, 산출물 507개·모듈 11개, 독립 `/health`·JWT 로그인 통과,
+- modules-ON child-process smoke: 11개 모듈과 호스트 소유 선언형 bridge 45개를 최신 Release 호스트에서 실제 부팅
+- migration: V001~V150 strict 이름·숫자 순서·중복·LF 정규화 SHA-256 검증 통과, 신규/증분 SQLite와 MSSQL 정적 계약 통과
+- publish: Release publish 성공, 산출물 510개·모듈 11개, 독립 `/health`·JWT 로그인 통과,
   `NexusCom`·`NexusFramework`·`NexusLogic` 파일명/설정 참조 0건
 - 정적 경계: QMS/POM 저장소 foreign physical-table SQL 0건(ADR-0002/0003만 허용), Common SQLite bootstrap은
   ADR-0004의 FDC·IVT target whitelist architecture test로 제한, 충돌 marker·diff whitespace 오류 0건

@@ -5,7 +5,7 @@
 #   .\Apply-MssqlMigrations.ps1 -ConnectionString "Server=...;Database=...;..." [-DryRun]
 #   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -IncludeOpsSeed
 #   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -AdoptMissingChecksums # 기존 이력 1회 명시 승인
-#   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -ApproveHighImpactMigrations # V142/V144/V146/V147/V148 운영 승인
+#   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -ApproveHighImpactMigrations # V142/V144/V146/V147/V148/V150 운영 승인
 #   .\Apply-MssqlMigrations.ps1 -MigrationsPath <path> -ValidateOnly
 # ⚠ 접속 문자열은 env/보안 저장소에서만 — 스크립트·저장소에 하드코딩 금지.
 param(
@@ -114,37 +114,39 @@ IF @LockResult < 0
 "@
     [void]$lock.ExecuteNonQuery()
 
-    # 버전 테이블 보장
-    $ensure = $conn.CreateCommand()
-    $ensure.CommandText = @"
-IF OBJECT_ID(N'SYS_SCHEMA_MIGRATION', N'U') IS NULL
-BEGIN
-    CREATE TABLE SYS_SCHEMA_MIGRATION (
-        VERSION_ID     NVARCHAR(200) NOT NULL,
-        CONTENT_SHA256 CHAR(64)      NOT NULL,
-        APPLIED_AT     DATETIME2     NOT NULL DEFAULT GETUTCDATE(),
-        CONSTRAINT PK_SYS_SCHEMA_MIGRATION PRIMARY KEY (VERSION_ID)
-    );
-END
-ELSE IF COL_LENGTH(N'SYS_SCHEMA_MIGRATION', N'CONTENT_SHA256') IS NULL
-BEGIN
-    -- 기존 배포는 값의 진위를 자동 추정하지 않는다. 아래 검증에서 명시적 adoption을 요구한다.
-    ALTER TABLE SYS_SCHEMA_MIGRATION ADD CONTENT_SHA256 CHAR(64) NULL;
-END;
+    $historyShape = $conn.CreateCommand()
+    $historyShape.CommandText = @"
+SELECT
+    CAST(CASE WHEN OBJECT_ID(N'SYS_SCHEMA_MIGRATION', N'U') IS NULL THEN 0 ELSE 1 END AS INT) AS TABLE_EXISTS,
+    CAST(CASE WHEN COL_LENGTH(N'SYS_SCHEMA_MIGRATION', N'CONTENT_SHA256') IS NULL THEN 0 ELSE 1 END AS INT) AS HASH_COLUMN_EXISTS;
 "@
-    [void]$ensure.ExecuteNonQuery()
+    $shapeReader = $historyShape.ExecuteReader()
+    [void]$shapeReader.Read()
+    $historyTableExists = $shapeReader.GetInt32(0) -eq 1
+    $historyHashColumnExists = $shapeReader.GetInt32(1) -eq 1
+    $shapeReader.Close()
 
-    $appliedCmd = $conn.CreateCommand()
-    $appliedCmd.CommandText = 'SELECT VERSION_ID, CONTENT_SHA256 FROM SYS_SCHEMA_MIGRATION'
-    $applied = New-Object System.Collections.Generic.List[object]
-    $reader = $appliedCmd.ExecuteReader()
-    while ($reader.Read()) {
-        $applied.Add([pscustomobject]@{
-            Name = $reader.GetString(0)
-            Hash = if ($reader.IsDBNull(1)) { $null } else { $reader.GetString(1).Trim() }
-        })
+    if ($DryRun -and -not $historyTableExists) {
+        Write-Host 'migration history table is absent; read-only DryRun treats every local migration as pending.'
     }
-    $reader.Close()
+
+    $applied = New-Object System.Collections.Generic.List[object]
+    if ($historyTableExists) {
+        $appliedCmd = $conn.CreateCommand()
+        $appliedCmd.CommandText = if ($historyHashColumnExists) {
+            'SELECT VERSION_ID, CONTENT_SHA256 FROM SYS_SCHEMA_MIGRATION'
+        } else {
+            'SELECT VERSION_ID, CAST(NULL AS CHAR(64)) AS CONTENT_SHA256 FROM SYS_SCHEMA_MIGRATION'
+        }
+        $reader = $appliedCmd.ExecuteReader()
+        while ($reader.Read()) {
+            $applied.Add([pscustomobject]@{
+                Name = $reader.GetString(0)
+                Hash = if ($reader.IsDBNull(1)) { $null } else { $reader.GetString(1).Trim() }
+            })
+        }
+        $reader.Close()
+    }
 
     # VERSION_ID는 기존 배포와의 호환을 위해 파일명을 저장하되, 숫자 버전으로도
     # 이력을 재구성한다. 같은 버전의 파일 개명은 미적용으로 오인하면 안 된다.
@@ -164,6 +166,38 @@ END;
                 $historyVersion, $appliedByVersion[$historyVersion], $versionId)
         }
         $appliedByVersion[$historyVersion] = $history
+    }
+
+    # The database history must be an exact prefix of the local immutable catalog. A database-only
+    # version means this runner/app is older than the schema; a hole followed by a later applied
+    # version means an old migration would be replayed out of order. Both cases fail before migration
+    # DDL or ops seed execution instead of allowing a downlevel binary to attach to a newer schema.
+    $localByVersion = @{}
+    foreach ($migration in $migrations) {
+        $localByVersion[$migration.Version] = $migration
+    }
+    foreach ($historyVersion in $appliedByVersion.Keys) {
+        if (-not $localByVersion.ContainsKey($historyVersion)) {
+            $databaseOnlyName = [string]$appliedByVersion[$historyVersion].Name
+            throw ("database contains migration absent from this source at version {0}: '{1}'. " -f
+                $historyVersion, $databaseOnlyName) +
+                'Refuse to run a downlevel application or migration catalog.'
+        }
+    }
+
+    $encounteredPendingVersion = $null
+    foreach ($migration in $migrations) {
+        if (-not $appliedByVersion.ContainsKey($migration.Version)) {
+            if ($null -eq $encounteredPendingVersion) {
+                $encounteredPendingVersion = $migration.Version
+            }
+            continue
+        }
+        if ($null -ne $encounteredPendingVersion) {
+            throw ("migration history is not a contiguous source prefix: version {0} is missing " -f
+                $encounteredPendingVersion) +
+                ("but later version {0} is already applied. Refuse out-of-order replay." -f $migration.Version)
+        }
     }
 
     $pending = New-Object System.Collections.Generic.List[object]
@@ -204,13 +238,35 @@ END;
     # explicit assertion that a current backup, production-sized restore rehearsal, writer
     # quiescence, maintenance window, transaction-log capacity and rollback criteria were approved.
     # It is deliberately evaluated from the pending set so already-applied databases are unaffected.
-    $highImpactVersions = @(142, 144, 146, 147, 148)
+    $highImpactVersions = @(142, 144, 146, 147, 148, 150)
     $highImpactPending = @($pending | Where-Object { $highImpactVersions -contains $_.Version })
     if ($highImpactPending.Count -gt 0 -and -not $ApproveHighImpactMigrations) {
         $highImpactNames = ($highImpactPending | ForEach-Object Name) -join ', '
         throw ("high-impact migration approval is required for: {0}. " -f $highImpactNames) +
               'Complete backup/rehearsal/writer-quiescence/log-capacity/rollback review, then rerun with -ApproveHighImpactMigrations.'
     }
+
+    # Only mutate migration history after every read-only catalog/prefix/checksum check and the
+    # high-impact gate have passed. In particular, an older runner attached to a future schema must
+    # fail without even adding CONTENT_SHA256 to the history table.
+    $ensure = $conn.CreateCommand()
+    $ensure.CommandText = @"
+IF OBJECT_ID(N'SYS_SCHEMA_MIGRATION', N'U') IS NULL
+BEGIN
+    CREATE TABLE SYS_SCHEMA_MIGRATION (
+        VERSION_ID     NVARCHAR(200) NOT NULL,
+        CONTENT_SHA256 CHAR(64)      NOT NULL,
+        APPLIED_AT     DATETIME2     NOT NULL DEFAULT GETUTCDATE(),
+        CONSTRAINT PK_SYS_SCHEMA_MIGRATION PRIMARY KEY (VERSION_ID)
+    );
+END
+ELSE IF COL_LENGTH(N'SYS_SCHEMA_MIGRATION', N'CONTENT_SHA256') IS NULL
+BEGIN
+    -- 기존 배포는 값의 진위를 자동 추정하지 않는다. 위 검증에서 명시적 adoption을 요구했다.
+    ALTER TABLE SYS_SCHEMA_MIGRATION ADD CONTENT_SHA256 CHAR(64) NULL;
+END;
+"@
+    [void]$ensure.ExecuteNonQuery()
 
     if ($missingChecksums.Count -gt 0) {
         $adoptTx = $conn.BeginTransaction()

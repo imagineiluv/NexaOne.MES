@@ -10,10 +10,15 @@ public sealed class FdcTraceSource : IFdcTraceSource
 {
     private const int MaximumPageSize = 5000;
     private readonly IFdcCollectDataRepository _repository;
+    private readonly IFdcTraceRetentionStateRepository _retentionState;
 
     public FdcTraceSource(IFdcCollectDataRepository repository)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
+        _retentionState = repository as IFdcTraceRetentionStateRepository
+            ?? throw new ArgumentException(
+                "FDC TRACE source repository must expose durable retention state.",
+                nameof(repository));
     }
 
     public async Task<IReadOnlyList<FdcTraceSample>> ReadAsync(
@@ -27,11 +32,24 @@ public sealed class FdcTraceSource : IFdcTraceSource
         if (scopes.Count == 0) return Array.Empty<FdcTraceSample>();
 
         var scopeIds = new HashSet<string>(StringComparer.Ordinal);
-        var samples = new List<FdcTraceSample>();
+        var normalizedScopes = new List<FdcTraceReadScope>(scopes.Count);
         foreach (var scope in scopes)
         {
+            ArgumentNullException.ThrowIfNull(scope);
+            var normalized = NormalizeUtc(scope);
+            Validate(normalized, scopeIds);
+            normalizedScopes.Add(normalized);
+        }
+
+        var retentionAtReadStart = await _retentionState.GetTraceRetentionStateAsync(ct);
+        EnsureNoTraceGap(
+            normalizedScopes,
+            NormalizeUtc(retentionAtReadStart.CompletenessBoundary));
+
+        var samples = new List<FdcTraceSample>();
+        foreach (var scope in normalizedScopes)
+        {
             ct.ThrowIfCancellationRequested();
-            Validate(scope, scopeIds);
 
             var rows = await _repository.GetTraceAsync(
                 scope.EquipmentId,
@@ -62,12 +80,35 @@ public sealed class FdcTraceSource : IFdcTraceSource
             }
         }
 
+        // A purge can advance the durable boundary after the first check but before a scope query
+        // materializes. Re-read after all rows are materialized so that overlap becomes an explicit
+        // gap instead of a plausible-looking partial page.
+        var retentionAtReadEnd = await _retentionState.GetTraceRetentionStateAsync(ct);
+        EnsureNoTraceGap(
+            normalizedScopes,
+            NormalizeUtc(retentionAtReadEnd.CompletenessBoundary));
+
         return samples
             .OrderBy(sample => sample.CollectedAt)
             .ThenBy(sample => sample.CollectId, StringComparer.Ordinal)
             .ThenBy(sample => sample.ScopeId, StringComparer.Ordinal)
             .Take(maxCount)
             .ToList();
+    }
+
+    private static void EnsureNoTraceGap(
+        IEnumerable<FdcTraceReadScope> scopes,
+        DateTime completenessBoundary)
+    {
+        foreach (var scope in scopes)
+        {
+            var requestedFrom = scope.AfterCollectedAt is { } cursor
+                                && cursor > scope.EffectiveFrom
+                ? cursor
+                : scope.EffectiveFrom;
+            if (requestedFrom < completenessBoundary)
+                throw new FdcTraceGapException(scope.ScopeId, requestedFrom, completenessBoundary);
+        }
     }
 
     private static void Validate(FdcTraceReadScope scope, ISet<string> scopeIds)
@@ -88,4 +129,22 @@ public sealed class FdcTraceSource : IFdcTraceSource
                 "AfterCollectedAt and AfterCollectId must be supplied together.",
                 nameof(scope));
     }
+
+    private static FdcTraceReadScope NormalizeUtc(FdcTraceReadScope scope) => scope with
+    {
+        EffectiveFrom = NormalizeUtc(scope.EffectiveFrom),
+        EffectiveTo = scope.EffectiveTo is { } effectiveTo
+            ? NormalizeUtc(effectiveTo)
+            : null,
+        AfterCollectedAt = scope.AfterCollectedAt is { } afterCollectedAt
+            ? NormalizeUtc(afterCollectedAt)
+            : null,
+    };
+
+    private static DateTime NormalizeUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+    };
 }

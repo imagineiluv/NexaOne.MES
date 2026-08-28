@@ -9,39 +9,32 @@ namespace NexaOne.UnitTests.Fdc;
 public sealed class FdcRuntimeHealthPolicyTests
 {
     [Fact]
-    public void Endpoint_deadline_adds_polling_read_and_reconnect_budgets_to_global_grace()
+    public void Endpoint_deadline_uses_the_configured_timeout_when_it_covers_the_polling_budget()
     {
         var endpoint = SlowEndpoint();
 
         var deadline = FdcCollectionWorker.CalculateStreamFreshnessDeadline(
-            endpoint, TimeSpan.FromSeconds(30));
+            endpoint, TimeSpan.FromSeconds(90));
 
-        deadline.Should().Be(TimeSpan.FromSeconds(97),
-            "60s sampling + 5s bounded read + 2s reconnect backoff need to complete before the 30s grace starts");
+        deadline.Should().Be(TimeSpan.FromSeconds(90),
+            "the operator-provided freshness timeout is the fail-closed deadline, not extra grace");
     }
 
     [Fact]
-    public void Slow_but_progressing_endpoint_is_not_compared_to_the_global_grace_alone()
+    public void Endpoint_timeout_below_polling_read_and_reconnect_budget_is_rejected()
     {
-        var deadline = FdcCollectionWorker.CalculateStreamFreshnessDeadline(
+        var act = () => FdcCollectionWorker.CalculateStreamFreshnessDeadline(
             SlowEndpoint(), TimeSpan.FromSeconds(30));
-        var health = new StubRuntimeHealth(
-            generation: 7,
-            isRunning: true,
-            completedPollCount: 3,
-            timeSinceLastCompletedPoll: TimeSpan.FromSeconds(80));
 
-        var act = () => FdcCollectionWorker.EnsureRuntimeHealthFresh(
-            "EP-SLOW", health, expectedGeneration: 7, deadline);
-
-        act.Should().NotThrow("80s is stale against the old global 30s rule but valid inside the 97s endpoint budget");
+        act.Should().Throw<FdcInterlockRuntimeUnavailableException>()
+            .WithMessage("*EP-SLOW*freshness timeout*below*poll/read/reconnect budget*00:01:07*");
     }
 
     [Fact]
     public void Endpoint_deadline_still_fails_closed_after_its_full_polling_budget()
     {
         var deadline = FdcCollectionWorker.CalculateStreamFreshnessDeadline(
-            SlowEndpoint(), TimeSpan.FromSeconds(30));
+            SlowEndpoint(), TimeSpan.FromSeconds(90));
         var health = new StubRuntimeHealth(
             generation: 7,
             isRunning: true,

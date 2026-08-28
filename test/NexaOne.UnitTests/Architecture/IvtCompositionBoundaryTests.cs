@@ -34,6 +34,7 @@ public sealed class IvtCompositionBoundaryTests
             ["materialLotBridge"] = "GetMaterialLotBridge",
             ["materialLotDirectory"] = "GetMaterialLotDirectory",
             ["mrpInventoryDirectory"] = "GetMrpInventoryDirectory",
+            ["fdcTraceRetentionGuard"] = "GetFdcTraceRetentionGuard",
             ["traceMaterialConsumptionWorker"] = "GetTraceMaterialConsumptionWorker",
         });
     }

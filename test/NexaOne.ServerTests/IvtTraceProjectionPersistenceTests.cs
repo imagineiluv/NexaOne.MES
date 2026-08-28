@@ -199,7 +199,17 @@ public sealed class IvtTraceProjectionPersistenceTests
         var feedId = $"F_{suffix}";
         var firstCollectId = $"C1_{suffix}";
         var secondCollectId = $"C2_{suffix}";
-        var firstAt = DateTime.UtcNow.AddMinutes(-2);
+        // V150 initializes an empty raw TRACE store as provably complete only from its durable
+        // boundary forward. Seed this ingestion fixture after that boundary; inserting an older
+        // binding/sample would correctly exercise the explicit late-arrival gap path instead of
+        // the normal projection path covered by these tests.
+        var completenessBoundary = DateTime.Parse(
+            Scalar<string>(
+                "SELECT COMPLETENESS_BOUNDARY FROM FDC_TRACE_RETENTION_STATE WHERE STATE_ID='GLOBAL'"),
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+        var effectiveFrom = completenessBoundary.AddMilliseconds(1);
+        var firstAt = effectiveFrom.AddSeconds(1);
         var secondAt = firstAt.AddSeconds(1);
 
         Exec("""
@@ -235,7 +245,7 @@ public sealed class IvtTraceProjectionPersistenceTests
             """,
             ("@lot", lotId), ("@material", $"M_{suffix}"), ("@parameter", parameterId),
             ("@equipment", equipmentId), ("@binding", bindingId),
-            ("@effectiveFrom", DbDate(firstAt.AddMinutes(-1))),
+            ("@effectiveFrom", DbDate(effectiveFrom)),
             ("@firstCollect", firstCollectId), ("@secondCollect", secondCollectId),
             ("@firstAt", DbDate(firstAt)), ("@secondAt", DbDate(secondAt)),
             ("@now", DbDate(DateTime.UtcNow)));
@@ -251,7 +261,7 @@ public sealed class IvtTraceProjectionPersistenceTests
                         @mountedAt, 'operator', 'Mounted', 'TEST', @now, 'TEST', @now);
                 """,
                 ("@feed", feedId), ("@equipment", equipmentId), ("@lot", lotId),
-                ("@material", $"M_{suffix}"), ("@mountedAt", DbDate(firstAt.AddMinutes(-1))),
+                ("@material", $"M_{suffix}"), ("@mountedAt", DbDate(effectiveFrom)),
                 ("@now", DbDate(DateTime.UtcNow)));
         }
 

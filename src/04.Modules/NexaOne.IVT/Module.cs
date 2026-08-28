@@ -19,6 +19,7 @@ public sealed class Module
     private readonly IMaterialLotBridge _materialLotBridge;
     private readonly IMaterialLotDirectory _materialLotDirectory;
     private readonly IMrpInventoryDirectory _mrpInventoryDirectory;
+    private readonly IFdcTraceRetentionGuard _fdcTraceRetentionGuard;
     private readonly IHostedService _traceMaterialConsumptionWorker;
 
     public Module(
@@ -40,6 +41,7 @@ public sealed class Module
             new MaterialLotService(new MaterialLotRepository(dataSource)));
         _materialLotDirectory = new MaterialLotDirectory(dataSource);
         _mrpInventoryDirectory = new MrpInventoryDirectory(dataSource);
+        _fdcTraceRetentionGuard = new FdcTraceRetentionGuard(dataSource);
         _traceMaterialConsumptionWorker = new TraceMaterialConsumptionWorker(
             new TraceIngestionService(traceSource, traceRepository),
             traceRepository,
@@ -58,6 +60,9 @@ public sealed class Module
 
     /// <summary>MRP 계산용 품목별 가용 재고 snapshot을 반환합니다.</summary>
     public IMrpInventoryDirectory GetMrpInventoryDirectory() => _mrpInventoryDirectory;
+
+    /// <summary>활성 IVT ingestion 범위가 요구하는 FDC raw TRACE 보존 경계를 반환합니다.</summary>
+    public IFdcTraceRetentionGuard GetFdcTraceRetentionGuard() => _fdcTraceRetentionGuard;
 
     /// <summary>영속 TRACE를 자재 소비 원장에 투영하는 모듈 worker를 반환합니다.</summary>
     public IHostedService GetTraceMaterialConsumptionWorker() => _traceMaterialConsumptionWorker;

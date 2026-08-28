@@ -67,7 +67,9 @@ public abstract class FdcRuntimeLeaseGrant
 
 /// <summary>
 /// 현재 FDC writer가 controller/action adapter에 전달하는 lease authority입니다. Controller는
-/// <see cref="FenceToken"/>의 영속 최대값보다 작은 모든 apply/release를 거부해야 합니다.
+/// <see cref="FenceToken"/>의 영속 최대값보다 작은 모든 apply/release와, controller가 관찰한 현재 UTC가
+/// <see cref="LeaseExpiresAt"/> 이상인 요청을 거부해야 합니다. MES caller도 process-local monotonic deadline으로
+/// action 대기를 제한하고 결과 수락 직전에 동일 owner/fence/config authority를 다시 검증합니다.
 /// <see cref="ConfigRevision"/>은 canonical 설정 snapshot의 lowercase 64자리 SHA-256 hex digest입니다.
 /// </summary>
 public sealed record FdcRuntimeAuthority(

@@ -403,6 +403,43 @@ public sealed class FdcPlcDeviceFactoryTests
     }
 
     [Fact]
+    public async Task Collection_worker_fences_at_grant_expiry_when_lease_renewal_ignores_cancellation_forever()
+    {
+        var leaseOptions = new FdcLeaseOptions(
+            "test-fdc-node",
+            new string('c', 64),
+            TimeSpan.FromSeconds(3),
+            TimeSpan.FromSeconds(1));
+        var lease = new ScriptedRuntimeLease(
+            renewalBehavior: LeaseRenewalBehavior.IgnoreCancellationAndNeverComplete);
+        var fixture = CreateRuntimeLeaseWorkerFixture(lease, leaseOptions);
+
+        await fixture.Worker.StartAsync(CancellationToken.None);
+        await fixture.Running.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await lease.FirstRenewalEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        fixture.Collector.IsRunPermitted.Should().BeTrue();
+
+        var act = async () =>
+        {
+            if (fixture.Worker.ExecuteTask is not null)
+                await fixture.Worker.ExecuteTask.WaitAsync(TimeSpan.FromSeconds(8));
+        };
+
+        var error = await act.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>();
+        error.WithMessage("*lease*expir*action publication is fenced*",
+            "either the renewal waiter or a synchronous collector boundary may observe the same deadline first");
+        lease.AcquiredLeaseExpiresAt.Should().NotBeNull();
+        DateTime.UtcNow.Should().BeOnOrAfter(lease.AcquiredLeaseExpiresAt!.Value,
+            "an uncooperative renewal cannot revoke authority before the issued grant deadline");
+        await fixture.Closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        fixture.Collector.IsRunPermitted.Should().BeFalse();
+        fixture.Connection.Verify(
+            connection => connection.CloseAsync(It.IsAny<CancellationToken>()),
+            Times.Once,
+            "grant expiry must close the worker-owned PLC session");
+    }
+
+    [Fact]
     public async Task Collection_worker_closes_owned_driver_before_releasing_latest_opaque_runtime_lease_grant()
     {
         var lifecycle = new ConcurrentQueue<string>();
@@ -519,7 +556,9 @@ public sealed class FdcPlcDeviceFactoryTests
         var actionBeforeDeviceStart = false;
         var action = new Mock<IFdcInterlockActionPort>();
         action.Setup(x => x.CheckReadyAsync(It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(FdcInterlockActionReadiness.Ready());
+            .ReturnsAsync(FdcInterlockActionReadiness.ReadyWithEvidence(
+                aggregateEffectOwnershipConfirmed: true,
+                runtimeFencePersistenceConfirmed: true));
         action.Setup(x => x.ApplyAsync(It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
             .Callback(() =>
             {
@@ -921,7 +960,8 @@ public sealed class FdcPlcDeviceFactoryTests
         Succeed,
         ReturnNull,
         Throw,
-        SucceedOnceThenBlock
+        SucceedOnceThenBlock,
+        IgnoreCancellationAndNeverComplete
     }
 
     private sealed class ScriptedRuntimeLease : IFdcRuntimeLease
@@ -951,10 +991,15 @@ public sealed class FdcPlcDeviceFactoryTests
 
         public TaskCompletionSource<bool> SecondRenewalEntered { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> FirstRenewalEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private TaskCompletionSource<bool> NeverCompletingRenewal { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public FdcRuntimeLeaseGrant? FirstSuccessfulGrant { get; private set; }
         public FdcRuntimeLeaseGrant? SecondRenewalInput { get; private set; }
         public FdcRuntimeLeaseGrant? ReleasedGrant { get; private set; }
+        public DateTime? AcquiredLeaseExpiresAt { get; private set; }
         public int ReleaseCallCount => Volatile.Read(ref _releaseCallCount);
 
         public Task<FdcRuntimeLeaseAcquireResult> TryAcquireAsync(
@@ -974,6 +1019,7 @@ public sealed class FdcPlcDeviceFactoryTests
 
             var authority = new FdcRuntimeAuthority(
                 ownerId, 1, configRevisionSha256, DateTime.UtcNow.Add(leaseDuration));
+            AcquiredLeaseExpiresAt = authority.LeaseExpiresAt;
             _currentGrant = new TestGrant(authority);
             return Task.FromResult(new FdcRuntimeLeaseAcquireResult(
                 true,
@@ -987,6 +1033,10 @@ public sealed class FdcPlcDeviceFactoryTests
             CancellationToken ct = default)
         {
             var call = Interlocked.Increment(ref _renewalCallCount);
+            if (call == 1)
+                FirstRenewalEntered.TrySetResult(true);
+            if (_renewalBehavior == LeaseRenewalBehavior.IgnoreCancellationAndNeverComplete)
+                await NeverCompletingRenewal.Task;
             if (_renewalBehavior == LeaseRenewalBehavior.SucceedOnceThenBlock && call == 2)
             {
                 SecondRenewalInput = grant;
@@ -1061,7 +1111,9 @@ public sealed class FdcPlcDeviceFactoryTests
         public Task<FdcInterlockActionReadiness> CheckReadyAsync(
             IReadOnlyCollection<string> requiredActions,
             CancellationToken ct = default) =>
-            Task.FromResult(FdcInterlockActionReadiness.Ready());
+            Task.FromResult(FdcInterlockActionReadiness.ReadyWithEvidence(
+                aggregateEffectOwnershipConfirmed: true,
+                runtimeFencePersistenceConfirmed: true));
 
         public Task<FdcInterlockActionResult> ApplyAsync(
             FdcInterlockActionRequest request,

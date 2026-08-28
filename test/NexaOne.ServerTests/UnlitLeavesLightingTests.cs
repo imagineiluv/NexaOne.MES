@@ -238,8 +238,9 @@ public sealed class UnlitLeavesLightingTests : IClassFixture<UnlitLeavesLighting
         var service = BuildEngine(out var repo);
         SeedParameter("TEMP");
         SeedParameter("PRESSURE");
-        SeedCollect("EQ-ENG", "TEMP", 85m, DateTime.UtcNow.AddSeconds(-10));
-        SeedCollect("EQ-ENG", "PRESSURE", 3.5m, DateTime.UtcNow.AddSeconds(-9));
+        var traceStart = DateTime.UtcNow.AddMinutes(1);
+        SeedCollect("EQ-ENG", "TEMP", 85m, traceStart);
+        SeedCollect("EQ-ENG", "PRESSURE", 3.5m, traceStart.AddSeconds(1));
 
         // 1차 평가 → On + 전이 기록(첫 평가).
         var first = await service.EvaluateAsync("EQ-ENG", "VE-HOT");
@@ -253,7 +254,7 @@ public sealed class UnlitLeavesLightingTests : IClassFixture<UnlitLeavesLighting
         second.Value.Changed.Should().BeFalse("동일 상태 반복 평가는 미기록");
 
         // 최신값 하락 → Off 전이 1회 기록.
-        SeedCollect("EQ-ENG", "TEMP", 60m, DateTime.UtcNow);
+        SeedCollect("EQ-ENG", "TEMP", 60m, traceStart.AddSeconds(2));
         var third = await service.EvaluateAsync("EQ-ENG", "VE-HOT");
         third.Value.IsOn.Should().BeFalse();
         third.Value.Changed.Should().BeTrue();

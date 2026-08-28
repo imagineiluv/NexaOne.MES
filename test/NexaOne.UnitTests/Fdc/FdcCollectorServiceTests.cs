@@ -179,6 +179,7 @@ public sealed class FdcCollectorServiceTests
 
         await t.sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 90.0, PlcQuality.Good));   // 발동
         await t.sut.OnTagChangeAsync("EQ-001", Event("TEMP01", 50.0, PlcQuality.Good));   // 정상 복귀
+        await EvaluateFreshPollAsync(t.sut, 50m);
 
         resolved.Should().NotBeNull("정상 복귀 시 해제 이벤트가 발생한다");
         resolved!.EquipmentId.Should().Be("EQ-001");
@@ -291,6 +292,7 @@ public sealed class FdcCollectorServiceTests
 
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
+        await EvaluateFreshPollAsync(collector, 50m);
         await collector.OnTagChangeAsync(
             "EQ-001", Event("TEMP01", 91m, PlcQuality.Good));
 
@@ -364,6 +366,7 @@ public sealed class FdcCollectorServiceTests
 
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
+        await EvaluateFreshPollAsync(collector, 50m);
 
         triggered.Should().ContainSingle();
         resolved.Should().ContainSingle();
@@ -439,7 +442,9 @@ public sealed class FdcCollectorServiceTests
         var action = new Mock<IFdcInterlockActionPort>();
         action.Setup(port => port.CheckReadyAsync(
                 It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(FdcInterlockActionReadiness.Ready());
+            .ReturnsAsync(FdcInterlockActionReadiness.ReadyWithEvidence(
+                aggregateEffectOwnershipConfirmed: true,
+                runtimeFencePersistenceConfirmed: true));
         action.Setup(port => port.ApplyAsync(
                 It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
             .Callback<FdcInterlockActionRequest, CancellationToken>((request, _) => applied.Add(request))
@@ -466,6 +471,7 @@ public sealed class FdcCollectorServiceTests
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
         var firstEffectId = applied.Single().EffectId;
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
+        await EvaluateFreshPollAsync(collector, 50m);
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 91m, PlcQuality.Good));
 
         applied.Should().HaveCount(2);
@@ -525,6 +531,7 @@ public sealed class FdcCollectorServiceTests
 
         await collector.OnTagChangeAsync(
             "EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
+        await EvaluateFreshPollAsync(collector, 50m);
 
         durable.IsResolved.Should().BeTrue();
         resolved.Should().Be(1, "the first normal sample after restart must clear durable open state");
@@ -949,7 +956,9 @@ public sealed class FdcCollectorServiceTests
         var action = new Mock<IFdcInterlockActionPort>();
         action.Setup(port => port.CheckReadyAsync(
                 It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(FdcInterlockActionReadiness.Ready());
+            .ReturnsAsync(FdcInterlockActionReadiness.ReadyWithEvidence(
+                aggregateEffectOwnershipConfirmed: true,
+                runtimeFencePersistenceConfirmed: true));
         action.Setup(port => port.ApplyAsync(
                 It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((FdcInterlockActionRequest request, CancellationToken _) =>
@@ -981,8 +990,12 @@ public sealed class FdcCollectorServiceTests
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
 
         collector.IsRunPermitted.Should().BeFalse();
-        releaseAttempts.Should().Be(1);
+        releaseAttempts.Should().Be(0,
+            "live tag changes may record normalization but cannot physically release");
         resolved.Should().BeEmpty();
+
+        await EvaluateFreshPollAsync(collector, 50m);
+        releaseAttempts.Should().Be(1);
 
         await collector.RetryPendingEffectPersistenceAsync();
 
@@ -1022,7 +1035,9 @@ public sealed class FdcCollectorServiceTests
         var action = new Mock<IFdcInterlockActionPort>();
         action.Setup(port => port.CheckReadyAsync(
                 It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(FdcInterlockActionReadiness.Ready());
+            .ReturnsAsync(FdcInterlockActionReadiness.ReadyWithEvidence(
+                aggregateEffectOwnershipConfirmed: true,
+                runtimeFencePersistenceConfirmed: true));
         action.Setup(port => port.ApplyAsync(
                 It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(FdcInterlockActionResult.Confirmed("apply-confirmed"));
@@ -1040,6 +1055,9 @@ public sealed class FdcCollectorServiceTests
         await InitializeInterlockAsync(collector);
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
+        releaseAttempts.Should().Be(0);
+
+        await EvaluateFreshPollAsync(collector, 50m);
         releaseAttempts.Should().Be(1);
 
         var accepted = await collector.EvaluateCompletedPollSnapshotAsync(
@@ -1049,6 +1067,267 @@ public sealed class FdcCollectorServiceTests
 
         accepted.Should().BeFalse();
         releaseAttempts.Should().Be(1);
+        collector.IsRunPermitted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Completed_poll_preflights_every_interlock_quality_before_releasing_an_earlier_normal_input()
+    {
+        var topology = new[] { new FdcInterlockTopology("EQ-001", ["TEMP01", "PRESS01"]) };
+        var parameterRepository = new Mock<IFdcParameterRepository>();
+        parameterRepository.Setup(repository => repository.GetByIdAsync(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string parameterId, CancellationToken _) => FdcParameter.Create(
+                parameterId, parameterId, "EQ-001", "unit", 0m, 100m).Value);
+        var rules = new[]
+        {
+            FdcInterlockRule.Create(
+                "R-TEMP", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP.TEMP", 1).Value,
+            FdcInterlockRule.Create(
+                "R-PRESS", "OverPressure", "EQ-001", "PRESS01", "GT", 80m, "STOP.PRESS", 1).Value,
+        };
+        var ruleRepository = new Mock<IFdcInterlockRuleRepository>();
+        ruleRepository.Setup(repository => repository.GetByEquipmentAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(rules);
+        var historyRepository = EmptyInterlockHistory();
+        var action = new Mock<IFdcInterlockActionPort>();
+        action.Setup(port => port.CheckReadyAsync(
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockActionReadiness.ReadyWithEvidence(
+                aggregateEffectOwnershipConfirmed: true,
+                runtimeFencePersistenceConfirmed: true));
+        action.Setup(port => port.ApplyAsync(
+                It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockActionResult.Confirmed("apply-confirmed"));
+        action.Setup(port => port.ReleaseAsync(
+                It.IsAny<FdcInterlockReleaseRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockReleaseResult.Confirmed("release-confirmed"));
+        var collector = new FdcCollectorService(
+            new FdcDataService(parameterRepository.Object, Mock.Of<IFdcCollectDataRepository>()),
+            new FdcInterlockService(ruleRepository.Object, historyRepository.Object),
+            actionPort: action.Object);
+        await collector.InitializeInterlockRuntimeAsync(topology);
+        await collector.EvaluateInitialSnapshotAsync(
+            "EQ-001",
+            [Event("TEMP01", 20m, PlcQuality.Good), Event("PRESS01", 20m, PlcQuality.Good)]);
+        collector.CompleteInterlockRuntimeInitialization();
+        await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
+
+        var evaluate = () => collector.EvaluateCompletedPollSnapshotAsync(
+            "EQ-001",
+            [Event("TEMP01", 50m, PlcQuality.Good), Event("PRESS01", 0m, PlcQuality.Bad)],
+            isSnapshotCurrent: static () => true);
+
+        await evaluate.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
+            .WithMessage("*PRESS01*quality*completed PLC poll*");
+        action.Verify(port => port.ReleaseAsync(
+            It.IsAny<FdcInterlockReleaseRequest>(), It.IsAny<CancellationToken>()), Times.Never,
+            "the entire completed poll must be safe before any physical effect is released");
+        collector.IsRunPermitted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Completed_poll_final_freshness_failure_revokes_an_open_permit_even_without_an_active_effect()
+    {
+        var fixture = BuildWithInterlock();
+        SetupRule(fixture);
+        await InitializeInterlockAsync(fixture.sut);
+        fixture.sut.IsRunPermitted.Should().BeTrue();
+        var predicateCalls = 0;
+        var runtimeFaults = 0;
+        fixture.sut.RuntimeFaulted += _ => runtimeFaults++;
+
+        var evaluate = () => fixture.sut.EvaluateCompletedPollSnapshotAsync(
+            "EQ-001",
+            [Event("TEMP01", 20m, PlcQuality.Good)],
+            isSnapshotCurrent: () => Interlocked.Increment(ref predicateCalls) < 6
+                ? true
+                : throw new FdcInterlockRuntimeUnavailableException(
+                    "endpoint freshness expired at the final completed-poll fence"));
+
+        await evaluate.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
+            .WithMessage("*freshness expired*final completed-poll fence*");
+        fixture.sut.IsRunPermitted.Should().BeFalse();
+        runtimeFaults.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Completed_poll_that_becomes_stale_during_condition_persistence_never_releases_or_reopens_admission()
+    {
+        var parameterRepository = new Mock<IFdcParameterRepository>();
+        parameterRepository.Setup(repository => repository.GetByIdAsync(
+                "TEMP01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcParameter.Create(
+                "TEMP01", "Temperature", "EQ-001", "C", 0m, 100m).Value);
+        var rule = FdcInterlockRule.Create(
+            "R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
+        var ruleRepository = new Mock<IFdcInterlockRuleRepository>();
+        ruleRepository.Setup(repository => repository.GetByEquipmentAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([rule]);
+
+        var persistenceEntered = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowPersistence = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var historyRepository = EmptyInterlockHistory();
+        historyRepository.Setup(repository => repository.UpdateAsync(
+                It.Is<FdcInterlockHistory>(history =>
+                    history.EffectState == FdcInterlockEffectState.ConditionNormalized),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(async (FdcInterlockHistory _, int _, CancellationToken ct) =>
+            {
+                persistenceEntered.TrySetResult(true);
+                await allowPersistence.Task.WaitAsync(ct);
+                return true;
+            });
+
+        var action = new Mock<IFdcInterlockActionPort>();
+        action.Setup(port => port.CheckReadyAsync(
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockActionReadiness.ReadyWithEvidence(
+                aggregateEffectOwnershipConfirmed: true,
+                runtimeFencePersistenceConfirmed: true));
+        action.Setup(port => port.ApplyAsync(
+                It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockActionResult.Confirmed("apply-confirmed"));
+        action.Setup(port => port.ReleaseAsync(
+                It.IsAny<FdcInterlockReleaseRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockReleaseResult.Confirmed("release-confirmed"));
+        var collector = new FdcCollectorService(
+            new FdcDataService(parameterRepository.Object, Mock.Of<IFdcCollectDataRepository>()),
+            new FdcInterlockService(ruleRepository.Object, historyRepository.Object),
+            actionPort: action.Object);
+        await InitializeInterlockAsync(collector);
+        await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
+
+        var snapshotCurrent = 1;
+        var evaluation = collector.EvaluateCompletedPollSnapshotAsync(
+            "EQ-001",
+            [Event("TEMP01", 50m, PlcQuality.Good)],
+            isSnapshotCurrent: () => Volatile.Read(ref snapshotCurrent) == 1);
+        await persistenceEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Interlocked.Exchange(ref snapshotCurrent, 0);
+        allowPersistence.TrySetResult(true);
+
+        var accepted = await evaluation;
+
+        accepted.Should().BeFalse();
+        action.Verify(port => port.ReleaseAsync(
+            It.IsAny<FdcInterlockReleaseRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+        collector.IsRunPermitted.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Completed_poll_never_releases_when_target_or_peer_endpoint_becomes_stale_during_db_persistence(
+        bool peerEndpointBecomesStale)
+    {
+        var parameterRepository = new Mock<IFdcParameterRepository>();
+        parameterRepository.Setup(repository => repository.GetByIdAsync(
+                "TEMP01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcParameter.Create(
+                "TEMP01", "Temperature", "EQ-001", "C", 0m, 100m).Value);
+        var ruleRepository = new Mock<IFdcInterlockRuleRepository>();
+        ruleRepository.Setup(repository => repository.GetByEquipmentAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                FdcInterlockRule.Create(
+                    "R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value
+            ]);
+
+        var persistenceEntered = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowPersistence = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var historyRepository = EmptyInterlockHistory();
+        historyRepository.Setup(repository => repository.UpdateAsync(
+                It.Is<FdcInterlockHistory>(history =>
+                    history.EffectState == FdcInterlockEffectState.ConditionNormalized),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(async (FdcInterlockHistory _, int _, CancellationToken ct) =>
+            {
+                persistenceEntered.TrySetResult(true);
+                await allowPersistence.Task.WaitAsync(ct);
+                return true;
+            });
+
+        var action = new Mock<IFdcInterlockActionPort>();
+        action.Setup(port => port.CheckReadyAsync(
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockActionReadiness.ReadyWithEvidence(
+                aggregateEffectOwnershipConfirmed: true,
+                runtimeFencePersistenceConfirmed: true));
+        action.Setup(port => port.ApplyAsync(
+                It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockActionResult.Confirmed("apply-confirmed"));
+        action.Setup(port => port.ReleaseAsync(
+                It.IsAny<FdcInterlockReleaseRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockReleaseResult.Confirmed("release-confirmed"));
+        var collector = new FdcCollectorService(
+            new FdcDataService(parameterRepository.Object, Mock.Of<IFdcCollectDataRepository>()),
+            new FdcInterlockService(ruleRepository.Object, historyRepository.Object),
+            actionPort: action.Object);
+        await InitializeInterlockAsync(collector);
+        await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
+
+        var snapshot = new PlcCompletedPollSnapshot(
+            subscriptionGeneration: 1,
+            startedPollCount: 1,
+            completedPollCount: 1,
+            completedAt: DateTimeOffset.UtcNow,
+            values:
+            [
+                new PlcTagValue(
+                    "TEMP01", 50m, PlcQuality.Good, DateTimeOffset.UtcNow, "test")
+            ]);
+        var freshnessExpired = 0;
+        var targetHealth = new Mock<IPlcCompletedPollSnapshotRuntimeHealth>();
+        targetHealth.SetupGet(health => health.SubscriptionGeneration).Returns(1);
+        targetHealth.SetupGet(health => health.IsRunning).Returns(true);
+        targetHealth.SetupGet(health => health.StartedPollCount).Returns(1);
+        targetHealth.SetupGet(health => health.CompletedPollCount).Returns(1);
+        targetHealth.SetupGet(health => health.LatestCompletedPollSnapshot).Returns(snapshot);
+        targetHealth.SetupGet(health => health.TimeSinceLastCompletedPoll)
+            .Returns(() => Volatile.Read(ref freshnessExpired) == 1 && !peerEndpointBecomesStale
+                ? TimeSpan.FromSeconds(2)
+                : TimeSpan.Zero);
+        var peerHealth = new Mock<IPlcCompletedPollSnapshotRuntimeHealth>();
+        peerHealth.SetupGet(health => health.SubscriptionGeneration).Returns(7);
+        peerHealth.SetupGet(health => health.IsRunning).Returns(true);
+        peerHealth.SetupGet(health => health.StartedPollCount).Returns(1);
+        peerHealth.SetupGet(health => health.CompletedPollCount).Returns(1);
+        peerHealth.SetupGet(health => health.TimeSinceLastCompletedPoll)
+            .Returns(() => Volatile.Read(ref freshnessExpired) == 1 && peerEndpointBecomesStale
+                ? TimeSpan.FromSeconds(2)
+                : TimeSpan.Zero);
+        var targetRegistration = new FdcCollectionWorker.RuntimeHealthRegistration(
+            "EP-TARGET", "EQ-001", new HashSet<string>(["TEMP01"]), targetHealth.Object,
+            1, TimeSpan.FromSeconds(1), Task.CompletedTask, 0);
+        var peerRegistration = new FdcCollectionWorker.RuntimeHealthRegistration(
+            "EP-PEER", "EQ-002", new HashSet<string>(["OTHER01"]), peerHealth.Object,
+            7, TimeSpan.FromSeconds(1), Task.CompletedTask, 0);
+        FdcCollectionWorker.RuntimeHealthRegistration[] registrations =
+            [targetRegistration, peerRegistration];
+
+        var evaluation = collector.EvaluateCompletedPollSnapshotAsync(
+            "EQ-001",
+            [Event("TEMP01", 50m, PlcQuality.Good)],
+            isSnapshotCurrent: () => FdcCollectionWorker.IsReleaseSnapshotCurrentAndFresh(
+                targetRegistration, snapshot, registrations));
+        await persistenceEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Interlocked.Exchange(ref freshnessExpired, 1);
+        allowPersistence.TrySetResult(true);
+
+        var awaitEvaluation = async () => await evaluation;
+        await awaitEvaluation.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
+            .WithMessage(peerEndpointBecomesStale ? "*EP-PEER*stale*" : "*EP-TARGET*stale*");
+        action.Verify(port => port.ReleaseAsync(
+            It.IsAny<FdcInterlockReleaseRequest>(), It.IsAny<CancellationToken>()), Times.Never);
         collector.IsRunPermitted.Should().BeFalse();
     }
 
@@ -1069,7 +1348,9 @@ public sealed class FdcCollectorServiceTests
         var action = new Mock<IFdcInterlockActionPort>();
         action.Setup(port => port.CheckReadyAsync(
                 It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(FdcInterlockActionReadiness.Ready());
+            .ReturnsAsync(FdcInterlockActionReadiness.ReadyWithEvidence(
+                aggregateEffectOwnershipConfirmed: true,
+                runtimeFencePersistenceConfirmed: true));
         action.Setup(port => port.ApplyAsync(
                 It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(FdcInterlockActionResult.Confirmed("apply-confirmed"));
@@ -1085,8 +1366,9 @@ public sealed class FdcCollectorServiceTests
         await InitializeInterlockAsync(collector);
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
 
-        var release = () => collector.OnTagChangeAsync(
+        await collector.OnTagChangeAsync(
             "EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
+        var release = () => EvaluateFreshPollAsync(collector, 50m);
 
         await release.Should().ThrowAsync<OperationCanceledException>();
         collector.IsRunPermitted.Should().BeFalse();
@@ -1111,7 +1393,9 @@ public sealed class FdcCollectorServiceTests
         var action = new Mock<IFdcInterlockActionPort>();
         action.Setup(port => port.CheckReadyAsync(
                 It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(FdcInterlockActionReadiness.Ready());
+            .ReturnsAsync(FdcInterlockActionReadiness.ReadyWithEvidence(
+                aggregateEffectOwnershipConfirmed: true,
+                runtimeFencePersistenceConfirmed: true));
         action.Setup(port => port.ApplyAsync(
                 It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(FdcInterlockActionResult.Confirmed("apply-confirmed"));
@@ -1127,8 +1411,9 @@ public sealed class FdcCollectorServiceTests
         await InitializeInterlockAsync(collector);
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
 
-        var release = () => collector.OnTagChangeAsync(
+        await collector.OnTagChangeAsync(
             "EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
+        var release = () => EvaluateFreshPollAsync(collector, 50m);
 
         await release.Should().ThrowAsync<FdcInterlockActionFailedException>()
             .WithMessage("*unknown physical outcome*");
@@ -1146,6 +1431,14 @@ public sealed class FdcCollectorServiceTests
             [Event("TEMP01", initialValue, PlcQuality.Good)]);
         collector.CompleteInterlockRuntimeInitialization();
     }
+
+    private static Task<bool> EvaluateFreshPollAsync(
+        FdcCollectorService collector,
+        decimal value) =>
+        collector.EvaluateCompletedPollSnapshotAsync(
+            "EQ-001",
+            [Event("TEMP01", value, PlcQuality.Good)],
+            isSnapshotCurrent: static () => true);
 
     private static Mock<IFdcInterlockHistoryRepository> EmptyInterlockHistory(
         IReadOnlyList<FdcInterlockHistory>? open = null)
@@ -1199,7 +1492,9 @@ public sealed class FdcCollectorServiceTests
         public Task<FdcInterlockActionReadiness> CheckReadyAsync(
             IReadOnlyCollection<string> requiredActions,
             CancellationToken ct = default) =>
-            Task.FromResult(FdcInterlockActionReadiness.Ready());
+            Task.FromResult(FdcInterlockActionReadiness.ReadyWithEvidence(
+                aggregateEffectOwnershipConfirmed: true,
+                runtimeFencePersistenceConfirmed: true));
 
         public Task<FdcInterlockActionResult> ApplyAsync(
             FdcInterlockActionRequest request,

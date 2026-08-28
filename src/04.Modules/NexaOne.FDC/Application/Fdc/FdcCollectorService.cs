@@ -30,6 +30,11 @@ public sealed class FdcCollectorService
     private int _pendingResolutionCount;
     private Exception? _runtimeFault;
     private FdcRuntimeAuthority? _runtimeAuthority;
+    private long _runtimeAuthorityDeadlineTimestamp;
+
+    private readonly record struct ActionAuthoritySnapshot(
+        FdcRuntimeAuthority? Authority,
+        long MonotonicDeadlineTimestamp);
 
     // 현재 발동 중인 (설비|파라미터)의 모든 episode. 잘못 중복 생성된 durable open 행도 재시작 때
     // EffectId별로 빠짐없이 action 재조정하고 정상 복귀 시 각각 해제한다.
@@ -90,11 +95,28 @@ public sealed class FdcCollectorService
     internal void BindRuntimeAuthority(FdcRuntimeAuthority authority)
     {
         ArgumentNullException.ThrowIfNull(authority);
+        var remainingWallClockValidity = authority.LeaseExpiresAt - DateTime.UtcNow;
+        if (remainingWallClockValidity <= TimeSpan.Zero)
+            throw new FdcInterlockRuntimeUnavailableException(
+                "An already-expired FDC runtime authority cannot be bound to the collector.");
+
+        BindRuntimeAuthority(authority, FdcMonotonicDeadline.FromNow(remainingWallClockValidity));
+    }
+
+    internal void BindRuntimeAuthority(FdcRuntimeAuthority authority, long monotonicDeadlineTimestamp)
+    {
+        ArgumentNullException.ThrowIfNull(authority);
         ArgumentException.ThrowIfNullOrWhiteSpace(authority.OwnerId);
         ArgumentException.ThrowIfNullOrWhiteSpace(authority.ConfigRevision);
         if (authority.FenceToken <= 0)
             throw new ArgumentOutOfRangeException(
                 nameof(authority), authority.FenceToken, "Runtime fence token must be positive.");
+        if (authority.LeaseExpiresAt <= DateTime.UtcNow)
+            throw new FdcInterlockRuntimeUnavailableException(
+                "An already-expired FDC runtime authority cannot be bound to the collector.");
+        if (FdcMonotonicDeadline.IsExpired(monotonicDeadlineTimestamp))
+            throw new FdcInterlockRuntimeUnavailableException(
+                "An already-expired FDC monotonic authority deadline cannot be bound to the collector.");
 
         lock (_runtimeStateGate)
         {
@@ -106,13 +128,17 @@ public sealed class FdcCollectorService
                     "FDC runtime authority identity changed without a full worker restart.");
 
             _runtimeAuthority = authority;
+            _runtimeAuthorityDeadlineTimestamp = monotonicDeadlineTimestamp;
         }
     }
 
     internal void ClearRuntimeAuthority()
     {
         lock (_runtimeStateGate)
+        {
             _runtimeAuthority = null;
+            _runtimeAuthorityDeadlineTimestamp = 0;
+        }
     }
 
     /// <summary>
@@ -153,7 +179,7 @@ public sealed class FdcCollectorService
             try
             {
                 readiness = await AwaitActionPortAsync(
-                    token => _actionPort.CheckReadyAsync(bootstrap.RequiredActions, token),
+                    (_, token) => _actionPort.CheckReadyAsync(bootstrap.RequiredActions, token),
                     ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -248,6 +274,7 @@ public sealed class FdcCollectorService
     /// </summary>
     public void CompleteInterlockRuntimeInitialization()
     {
+        EnsureRuntimeAuthorityCurrent();
         lock (_runtimeStateGate)
         {
             if (_interlockService is null)
@@ -276,7 +303,19 @@ public sealed class FdcCollectorService
     }
 
     /// <summary>규칙·topology·action adapter·모든 open effect가 검증된 경우에만 true다.</summary>
-    public bool IsRunPermitted => _interlockService is null || Volatile.Read(ref _runPermit) == 1;
+    public bool IsRunPermitted
+    {
+        get
+        {
+            if (_interlockService is null)
+                return true;
+            if (TryGetRuntimeAuthorityFailure() is not { } failure)
+                return Volatile.Read(ref _runPermit) == 1;
+
+            FailRuntime(failure);
+            return false;
+        }
+    }
 
     /// <summary>태그 변경 1건을 인터락 스냅샷으로 먼저 평가·적용한 뒤 수집 데이터로 적재한다.
     /// telemetry DB 지연/장애가 프로젝트 action 실행을 선행 차단하지 않는다.</summary>
@@ -298,6 +337,7 @@ public sealed class FdcCollectorService
     /// </summary>
     internal async Task RetryPendingEffectPersistenceAsync(CancellationToken ct = default)
     {
+        EnsureRuntimeAuthorityCurrent();
         foreach (var key in _activeInterlocks.Keys
                      .Concat(_pendingInterlockResolutions.Keys)
                      .Distinct())
@@ -321,7 +361,8 @@ public sealed class FdcCollectorService
             finally { gate.Release(); }
         }
 
-        TryGrantRunPermitIfSafe();
+        // Persistence-only retry never reopens automatic-run admission. A current completed PLC poll must
+        // observe the final physical state before permit publication.
     }
 
     /// <summary>
@@ -341,9 +382,33 @@ public sealed class FdcCollectorService
         ArgumentNullException.ThrowIfNull(isSnapshotCurrent);
         EnsureRuntimeOperational();
 
+        bool IsCurrent()
+        {
+            try
+            {
+                return isSnapshotCurrent();
+            }
+            catch (FdcInterlockRuntimeUnavailableException ex)
+            {
+                FailRuntime(ex);
+                throw;
+            }
+        }
+
+        try
+        {
+            if (!PreflightCompletedPollSnapshot(equipmentId, samples, IsCurrent))
+                return false;
+        }
+        catch (FdcInterlockRuntimeUnavailableException ex)
+        {
+            FailRuntime(ex);
+            throw;
+        }
+
         foreach (var sample in samples)
         {
-            if (!isSnapshotCurrent())
+            if (!IsCurrent())
                 return false;
 
             var key = RuntimeKey(equipmentId, sample.ParameterId);
@@ -353,7 +418,7 @@ public sealed class FdcCollectorService
             {
                 // Recheck under the same per-parameter serialization gate used by live callbacks. A completed
                 // newer callback or an already-started next poll invalidates this release candidate.
-                if (!isSnapshotCurrent())
+                if (!IsCurrent())
                     return false;
 
                 if (sample.Quality != FdcSampleQuality.Good)
@@ -371,7 +436,9 @@ public sealed class FdcCollectorService
                 }
 
                 await EvaluateInterlockAsync(
-                    equipmentId, sample.ParameterId, sample.Value, key, ct);
+                    equipmentId, sample.ParameterId, sample.Value, key,
+                    releaseFence: IsCurrent,
+                    ct);
                 await RetryPendingInterlockResolutionAsync(
                     equipmentId, sample.ParameterId, key, ct);
             }
@@ -386,8 +453,17 @@ public sealed class FdcCollectorService
             }
         }
 
+        if (!IsCurrent())
+            return false;
+
         TryGrantRunPermitIfSafe();
-        return isSnapshotCurrent();
+        if (!IsCurrent())
+        {
+            HoldRunPermit();
+            return false;
+        }
+
+        return true;
     }
 
     private async Task ProcessSampleAsync(
@@ -439,7 +515,10 @@ public sealed class FdcCollectorService
             {
                 // 규칙 평가는 메모리 전용이며 action의 ack/readback까지 여기서 await한다.
                 // history/telemetry DB 작업은 이 결정 뒤에만 실행한다.
-                await EvaluateInterlockAsync(equipmentId, sample.ParameterId, sample.Value, key, ct);
+                await EvaluateInterlockAsync(
+                    equipmentId, sample.ParameterId, sample.Value, key,
+                    releaseFence: null,
+                    ct);
                 await RetryPendingInterlockResolutionAsync(equipmentId, sample.ParameterId, key, ct);
             }
             finally
@@ -489,6 +568,7 @@ public sealed class FdcCollectorService
         string tagName,
         decimal value,
         FdcRuntimeKey key,
+        Func<bool>? releaseFence,
         CancellationToken ct)
     {
         IReadOnlyList<InterlockResult> matches;
@@ -579,7 +659,7 @@ public sealed class FdcCollectorService
                 normalizedAt = actionConfirmedAt;
             episode.ObserveNormalizedCondition(value, normalizedAt, isRecovery: false);
             await TryAdvancePendingReleaseAsync(
-                equipmentId, tagName, key, activeEpisodes, episode, ct);
+                equipmentId, tagName, key, activeEpisodes, episode, releaseFence, ct);
         }
 
         if (activeEpisodes.Count == 0)
@@ -649,6 +729,7 @@ public sealed class FdcCollectorService
         FdcRuntimeKey key,
         List<ActiveInterlockEpisode> activeEpisodes,
         ActiveInterlockEpisode episode,
+        Func<bool>? releaseFence,
         CancellationToken ct)
     {
         var pending = episode.PendingRelease;
@@ -664,13 +745,22 @@ public sealed class FdcCollectorService
         if (!pending.ConditionPersisted)
             return false;
 
+        // Live/startup callbacks may observe and durably record normalization, but they never deassert a
+        // physical effect. Release is exclusively authorized by a generation-fenced completed-poll cut.
+        // Recheck after all asynchronous DB work and again at the action-port call boundary below.
+        if (releaseFence is null || !releaseFence())
+            return false;
+
         var release = await ReleaseActionAsync(
             equipmentId,
             parameterId,
             episode,
             pending.Value,
             pending.IsRecovery,
+            releaseFence,
             ct);
+        if (release is null)
+            return false;
         if (!release.IsConfirmed)
         {
             pending.ObserveReleasePending(release.Detail);
@@ -695,7 +785,6 @@ public sealed class FdcCollectorService
         // keeping it in the physical active set would mask a new violation while the DB is unavailable.
         RemoveActiveEpisode(key, activeEpisodes, episode);
         await RetryPendingInterlockResolutionAsync(equipmentId, parameterId, key, ct);
-        TryGrantRunPermitIfSafe();
         return true;
     }
 
@@ -799,7 +888,6 @@ public sealed class FdcCollectorService
             }
 
             _pendingInterlockResolutions.TryRemove(key, out _);
-            TryGrantRunPermitIfSafe();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -882,11 +970,14 @@ public sealed class FdcCollectorService
         try
         {
             result = await AwaitActionPortAsync(
-                token => (reconcile ? _actionPort.ReconcileAsync(
+                (authority, token) => (reconcile ? _actionPort.ReconcileAsync(
                     new FdcInterlockActionRequest(
                         episode.EffectId, episode.Result.RuleId!, equipmentId, parameterId,
                         episode.TriggerValue, episode.Result.Action, isRecovery,
-                        episode.TriggeredAt, episode.Result.Message, GetRuntimeAuthority()), token) : _actionPort.ApplyAsync(
+                        episode.TriggeredAt, episode.Result.Message)
+                    {
+                        RuntimeAuthority = authority,
+                    }, token) : _actionPort.ApplyAsync(
                     new FdcInterlockActionRequest(
                         episode.EffectId,
                         episode.Result.RuleId!,
@@ -896,8 +987,10 @@ public sealed class FdcCollectorService
                         episode.Result.Action,
                         isRecovery,
                         episode.TriggeredAt,
-                        episode.Result.Message,
-                        GetRuntimeAuthority()),
+                        episode.Result.Message)
+                    {
+                        RuntimeAuthority = authority,
+                    },
                     token)),
                 ct);
         }
@@ -948,9 +1041,9 @@ public sealed class FdcCollectorService
         }
     }
 
-    private async Task<FdcInterlockReleaseResult> ReleaseActionAsync(
+    private async Task<FdcInterlockReleaseResult?> ReleaseActionAsync(
         string equipmentId, string parameterId, ActiveInterlockEpisode episode,
-        decimal normalizedValue, bool isRecovery, CancellationToken ct)
+        decimal normalizedValue, bool isRecovery, Func<bool> releaseFence, CancellationToken ct)
     {
         if (_actionPort is null)
         {
@@ -960,11 +1053,19 @@ public sealed class FdcCollectorService
 
         try
         {
-            var result = await AwaitActionPortAsync(token => _actionPort.ReleaseAsync(
+            // This is the final synchronous observation before invoking the project adapter. If a newer poll
+            // has already started, leave the same EffectId pending for the next completed snapshot.
+            if (!releaseFence())
+                return null;
+
+            var result = await AwaitActionPortAsync((authority, token) => _actionPort.ReleaseAsync(
                 new FdcInterlockReleaseRequest(
                     episode.EffectId, episode.Result.RuleId!, equipmentId, parameterId,
                     episode.Result.Action, normalizedValue, FdcInterlockResetPolicy.ManualRequired,
-                    isRecovery, GetRuntimeAuthority()), token), ct);
+                    isRecovery)
+                {
+                    RuntimeAuthority = authority,
+                }, token), ct);
             if (result is null || !result.IsConfirmed) HoldRunPermit();
             return result ?? new FdcInterlockReleaseResult(false, false, true, null, "No release result.");
         }
@@ -996,13 +1097,19 @@ public sealed class FdcCollectorService
     }
 
     private async Task<T> AwaitActionPortAsync<T>(
-        Func<CancellationToken, Task<T>> operation,
+        Func<FdcRuntimeAuthority?, CancellationToken, Task<T>> operation,
         CancellationToken ct)
     {
+        var authority = CaptureActionAuthority();
+        var timeout = GetActionCallTimeout(authority);
         using var adapterCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        adapterCancellation.CancelAfter(timeout);
         try
         {
-            return await operation(adapterCancellation.Token).WaitAsync(_actionTimeout, ct);
+            var result = await operation(authority.Authority, adapterCancellation.Token)
+                .WaitAsync(timeout, ct);
+            EnsureActionAuthorityCurrent(authority);
+            return result;
         }
         catch (TimeoutException)
         {
@@ -1011,6 +1118,76 @@ public sealed class FdcCollectorService
             adapterCancellation.Cancel();
             throw;
         }
+    }
+
+    private ActionAuthoritySnapshot CaptureActionAuthority()
+    {
+        if (!_requireRuntimeAuthority)
+            return new ActionAuthoritySnapshot(null, 0);
+
+        EnsureRuntimeAuthorityCurrent();
+        FdcRuntimeAuthority? authority;
+        long monotonicDeadlineTimestamp;
+        lock (_runtimeStateGate)
+        {
+            authority = _runtimeAuthority;
+            monotonicDeadlineTimestamp = _runtimeAuthorityDeadlineTimestamp;
+        }
+
+        if (authority is not null && monotonicDeadlineTimestamp != 0)
+            return new ActionAuthoritySnapshot(authority, monotonicDeadlineTimestamp);
+
+        var failure = new FdcInterlockRuntimeUnavailableException(
+            "The FDC runtime lease authority disappeared before an action-port call could be fenced.");
+        FailRuntime(failure);
+        throw failure;
+    }
+
+    private TimeSpan GetActionCallTimeout(ActionAuthoritySnapshot authority)
+    {
+        if (!_requireRuntimeAuthority)
+            return _actionTimeout;
+
+        var remaining = FdcMonotonicDeadline.Remaining(authority.MonotonicDeadlineTimestamp);
+        var remainingWallClock = authority.Authority!.LeaseExpiresAt - DateTime.UtcNow;
+        if (remainingWallClock < remaining)
+            remaining = remainingWallClock;
+        if (remaining <= TimeSpan.Zero)
+        {
+            EnsureActionAuthorityCurrent(authority);
+            throw new FdcInterlockRuntimeUnavailableException(
+                "The FDC runtime lease authority expired before the action-port call started.");
+        }
+
+        return remaining < _actionTimeout ? remaining : _actionTimeout;
+    }
+
+    private void EnsureActionAuthorityCurrent(ActionAuthoritySnapshot captured)
+    {
+        if (!_requireRuntimeAuthority)
+            return;
+
+        FdcRuntimeAuthority? current;
+        lock (_runtimeStateGate)
+            current = _runtimeAuthority;
+
+        var authority = captured.Authority;
+        if (authority is null
+            || current is null
+            || current.OwnerId != authority.OwnerId
+            || current.FenceToken != authority.FenceToken
+            || current.ConfigRevision != authority.ConfigRevision
+            || authority.LeaseExpiresAt <= DateTime.UtcNow
+            || FdcMonotonicDeadline.IsExpired(captured.MonotonicDeadlineTimestamp))
+        {
+            var failure = new FdcInterlockRuntimeUnavailableException(
+                "The FDC runtime lease authority changed or expired before the action result was accepted; "
+                + "the physical outcome requires reconciliation.");
+            FailRuntime(failure);
+            throw failure;
+        }
+
+        EnsureRuntimeAuthorityCurrent();
     }
 
     private void RaiseInterlockTriggered(
@@ -1097,6 +1274,7 @@ public sealed class FdcCollectorService
     private void EnsureRuntimeOperational()
     {
         if (_interlockService is null) return;
+        EnsureRuntimeAuthorityCurrent();
         if (Volatile.Read(ref _runtimeOperational) == 1 && _interlockService.IsRuntimeInitialized) return;
 
         var failure = new FdcInterlockRuntimeUnavailableException(
@@ -1108,6 +1286,7 @@ public sealed class FdcCollectorService
     private void EnsureRuntimePreparedForInitialSnapshot()
     {
         if (_interlockService is null) return;
+        EnsureRuntimeAuthorityCurrent();
 
         lock (_runtimeStateGate)
         {
@@ -1143,14 +1322,24 @@ public sealed class FdcCollectorService
 
     private FdcRuntimeAuthority? GetRuntimeAuthority()
     {
+        EnsureRuntimeAuthorityCurrent();
+        FdcRuntimeAuthority? authority;
         lock (_runtimeStateGate)
-            return _runtimeAuthority;
+            authority = _runtimeAuthority;
+
+        return authority;
     }
 
     private void TryGrantRunPermitIfSafe()
     {
         if (_interlockService is null)
             return;
+
+        if (TryGetRuntimeAuthorityFailure() is { } authorityFailure)
+        {
+            FailRuntime(authorityFailure);
+            return;
+        }
 
         lock (_runtimeStateGate)
         {
@@ -1164,6 +1353,78 @@ public sealed class FdcCollectorService
                 _runPermit = 1;
             }
         }
+    }
+
+    private bool PreflightCompletedPollSnapshot(
+        string equipmentId,
+        IReadOnlyCollection<FdcTagSample> samples,
+        Func<bool> isSnapshotCurrent)
+    {
+        if (!isSnapshotCurrent())
+            return false;
+
+        foreach (var sample in samples)
+        {
+            if (!isSnapshotCurrent())
+                return false;
+            if (sample.Quality == FdcSampleQuality.Good)
+                continue;
+
+            bool isInterlockParameter;
+            try
+            {
+                isInterlockParameter = _interlockService!.IsInterlockParameterRuntime(
+                    equipmentId, sample.ParameterId);
+            }
+            catch (FdcInterlockRuntimeUnavailableException ex)
+            {
+                FailRuntime(ex);
+                throw;
+            }
+
+            if (!isInterlockParameter)
+                continue;
+
+            var failure = new FdcInterlockRuntimeUnavailableException(
+                $"Interlock input '{equipmentId}/{sample.ParameterId}' quality is '{sample.Quality}' "
+                + "in a completed PLC poll; run permit is denied before any physical release.");
+            FailRuntime(failure);
+            throw failure;
+        }
+
+        return isSnapshotCurrent();
+    }
+
+    private void EnsureRuntimeAuthorityCurrent()
+    {
+        if (TryGetRuntimeAuthorityFailure() is not { } failure)
+            return;
+
+        FailRuntime(failure);
+        throw failure;
+    }
+
+    private FdcInterlockRuntimeUnavailableException? TryGetRuntimeAuthorityFailure()
+    {
+        if (!_requireRuntimeAuthority)
+            return null;
+
+        FdcRuntimeAuthority? authority;
+        long monotonicDeadlineTimestamp;
+        lock (_runtimeStateGate)
+        {
+            authority = _runtimeAuthority;
+            monotonicDeadlineTimestamp = _runtimeAuthorityDeadlineTimestamp;
+        }
+
+        return authority is null
+               || authority.LeaseExpiresAt <= DateTime.UtcNow
+               || monotonicDeadlineTimestamp == 0
+               || FdcMonotonicDeadline.IsExpired(monotonicDeadlineTimestamp)
+            ? new FdcInterlockRuntimeUnavailableException(
+                "The FDC runtime lease authority is missing or expired at its conservative monotonic deadline; "
+                + "action publication is fenced.")
+            : null;
     }
 
     private void FailRuntime(Exception? cause = null)

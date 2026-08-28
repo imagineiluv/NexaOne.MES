@@ -70,43 +70,127 @@ public static class SqliteSchemaInitializer
         END;
         """;
 
-    private const string FdcRuntimeOwnershipUpdateTrigger = """
+    /// <summary>
+    /// SQLite stores these safety timestamps as UTC text. Offset/T/Z forms are intentionally
+    /// rejected: their lexical order can disagree with elapsed-time order. Fractional precision
+    /// may be omitted or contain one to seven digits; comparisons use a padded seven-digit key.
+    /// </summary>
+    private static string BuildSqliteUtcTimestampPredicate(string expression) => $"""
+        TYPEOF({expression}) = 'text'
+        AND LENGTH({expression}) BETWEEN 19 AND 27
+        AND SUBSTR({expression}, 1, 19) GLOB
+            '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]'
+        AND SUBSTR({expression}, 1, 4) BETWEEN '0001' AND '9999'
+        AND (
+            LENGTH({expression}) = 19
+            OR (
+                LENGTH({expression}) BETWEEN 21 AND 27
+                AND SUBSTR({expression}, 20, 1) = '.'
+                AND SUBSTR({expression}, 21) NOT GLOB '*[^0-9]*'))
+        AND JULIANDAY({expression}) IS NOT NULL
+        AND STRFTIME('%Y-%m-%d %H:%M:%S', {expression}, '+0 seconds')
+            = SUBSTR({expression}, 1, 19)
+        """;
+
+    private static string BuildSqliteUtcTimestampKey(string expression) => $"""
+        CASE
+            WHEN LENGTH({expression}) = 19 THEN {expression} || '.0000000'
+            ELSE SUBSTR({expression} || '0000000', 1, 27)
+        END
+        """;
+
+    private static readonly string FdcRuntimeOwnershipInsertTrigger = $"""
+        CREATE TRIGGER TR_FDC_RUNTIME_OWNERSHIP_FENCE_BI
+        BEFORE INSERT ON FDC_RUNTIME_OWNERSHIP
+        WHEN EXISTS (
+            SELECT 1 FROM FDC_RUNTIME_OWNERSHIP
+             WHERE LEASE_SCOPE = NEW.LEASE_SCOPE)
+          OR COALESCE((
+            NEW.LEASE_SCOPE = 'GLOBAL'
+            AND TYPEOF(NEW.FENCE_TOKEN) = 'integer'
+            AND NEW.FENCE_TOKEN >= 0
+            AND (
+                (NEW.OWNER_ID IS NULL
+                 AND NEW.LEASE_EXPIRES_AT IS NULL
+                 AND NEW.HEARTBEAT_AT IS NULL
+                 AND NEW.CONFIG_REVISION IS NULL
+                 AND NEW.LEASE_SECRET_HASH IS NULL)
+                OR
+                (NULLIF(TRIM(NEW.OWNER_ID), '') IS NOT NULL
+                 AND NEW.LEASE_EXPIRES_AT IS NOT NULL
+                 AND NEW.HEARTBEAT_AT IS NOT NULL
+                 AND ({BuildSqliteUtcTimestampPredicate("NEW.LEASE_EXPIRES_AT")})
+                 AND ({BuildSqliteUtcTimestampPredicate("NEW.HEARTBEAT_AT")})
+                 AND {BuildSqliteUtcTimestampKey("NEW.LEASE_EXPIRES_AT")}
+                     > {BuildSqliteUtcTimestampKey("NEW.HEARTBEAT_AT")}
+                 AND LENGTH(NEW.CONFIG_REVISION) = 64
+                 AND NEW.CONFIG_REVISION NOT GLOB '*[^0-9a-f]*'
+                 AND LENGTH(NEW.LEASE_SECRET_HASH) = 64
+                 AND NEW.LEASE_SECRET_HASH NOT GLOB '*[^0-9a-f]*'
+                 AND {BuildSqliteUtcTimestampKey("NEW.LEASE_EXPIRES_AT")} <=
+                     {BuildSqliteUtcTimestampKey("STRFTIME('%Y-%m-%d %H:%M:%f', NEW.HEARTBEAT_AT, '+1 day')")}))), 0) = 0
+        BEGIN
+            SELECT RAISE(ABORT, 'FDC runtime ownership row is invalid');
+        END;
+        """;
+
+    private static readonly string FdcRuntimeOwnershipUpdateTrigger = $"""
         CREATE TRIGGER TR_FDC_RUNTIME_OWNERSHIP_FENCE_BU
         BEFORE UPDATE ON FDC_RUNTIME_OWNERSHIP
-        WHEN NOT (
-            (NEW.FENCE_TOKEN = OLD.FENCE_TOKEN
-             AND OLD.OWNER_ID IS NOT NULL
-             AND NEW.OWNER_ID = OLD.OWNER_ID
-             AND NEW.CONFIG_REVISION = OLD.CONFIG_REVISION
-             AND NEW.LEASE_SECRET_HASH = OLD.LEASE_SECRET_HASH
-             AND NEW.HEARTBEAT_AT >= OLD.HEARTBEAT_AT
-             AND OLD.LEASE_EXPIRES_AT > STRFTIME('%Y-%m-%d %H:%M:%f', 'now')
-             AND NEW.HEARTBEAT_AT BETWEEN
-                 STRFTIME('%Y-%m-%d %H:%M:%f', 'now', '-5 seconds')
-                 AND STRFTIME('%Y-%m-%d %H:%M:%f', 'now')
-             AND NEW.LEASE_EXPIRES_AT >= OLD.LEASE_EXPIRES_AT
-             AND NEW.LEASE_EXPIRES_AT > NEW.HEARTBEAT_AT
-             AND NEW.LEASE_EXPIRES_AT <=
-                 STRFTIME('%Y-%m-%d %H:%M:%f', NEW.HEARTBEAT_AT, '+1 day'))
-            OR
-            (NEW.FENCE_TOKEN = OLD.FENCE_TOKEN
-             AND OLD.OWNER_ID IS NOT NULL
-             AND NEW.OWNER_ID IS NULL)
-            OR
-            (OLD.FENCE_TOKEN = NEW.FENCE_TOKEN - 1
-             AND NEW.OWNER_ID IS NOT NULL
-             AND LENGTH(NEW.CONFIG_REVISION) = 64
-             AND NEW.CONFIG_REVISION NOT GLOB '*[^0-9a-f]*'
-             AND LENGTH(NEW.LEASE_SECRET_HASH) = 64
-             AND NEW.LEASE_SECRET_HASH NOT GLOB '*[^0-9a-f]*'
-             AND (OLD.OWNER_ID IS NULL
-                  OR OLD.LEASE_EXPIRES_AT <= STRFTIME('%Y-%m-%d %H:%M:%f', 'now'))
-             AND NEW.HEARTBEAT_AT BETWEEN
-                 STRFTIME('%Y-%m-%d %H:%M:%f', 'now', '-5 seconds')
-                 AND STRFTIME('%Y-%m-%d %H:%M:%f', 'now')
-             AND NEW.LEASE_EXPIRES_AT > NEW.HEARTBEAT_AT
-             AND NEW.LEASE_EXPIRES_AT <=
-                 STRFTIME('%Y-%m-%d %H:%M:%f', NEW.HEARTBEAT_AT, '+1 day')))
+        WHEN COALESCE((
+            NEW.LEASE_SCOPE = OLD.LEASE_SCOPE
+            AND NEW.LEASE_SCOPE = 'GLOBAL'
+            AND (
+                (NEW.FENCE_TOKEN = OLD.FENCE_TOKEN
+                 AND OLD.OWNER_ID IS NOT NULL
+                 AND NEW.OWNER_ID = OLD.OWNER_ID
+                 AND NEW.CONFIG_REVISION = OLD.CONFIG_REVISION
+                 AND NEW.LEASE_SECRET_HASH = OLD.LEASE_SECRET_HASH
+                 AND ({BuildSqliteUtcTimestampPredicate("OLD.HEARTBEAT_AT")})
+                 AND ({BuildSqliteUtcTimestampPredicate("OLD.LEASE_EXPIRES_AT")})
+                 AND ({BuildSqliteUtcTimestampPredicate("NEW.HEARTBEAT_AT")})
+                 AND ({BuildSqliteUtcTimestampPredicate("NEW.LEASE_EXPIRES_AT")})
+                 AND {BuildSqliteUtcTimestampKey("NEW.HEARTBEAT_AT")}
+                     >= {BuildSqliteUtcTimestampKey("OLD.HEARTBEAT_AT")}
+                 AND {BuildSqliteUtcTimestampKey("OLD.LEASE_EXPIRES_AT")}
+                     > {BuildSqliteUtcTimestampKey("STRFTIME('%Y-%m-%d %H:%M:%f', 'now')")}
+                 AND {BuildSqliteUtcTimestampKey("NEW.HEARTBEAT_AT")} BETWEEN
+                     {BuildSqliteUtcTimestampKey("STRFTIME('%Y-%m-%d %H:%M:%f', 'now', '-5 seconds')")}
+                     AND {BuildSqliteUtcTimestampKey("STRFTIME('%Y-%m-%d %H:%M:%f', 'now')")}
+                 AND {BuildSqliteUtcTimestampKey("NEW.LEASE_EXPIRES_AT")}
+                     >= {BuildSqliteUtcTimestampKey("OLD.LEASE_EXPIRES_AT")}
+                 AND {BuildSqliteUtcTimestampKey("NEW.LEASE_EXPIRES_AT")}
+                     > {BuildSqliteUtcTimestampKey("NEW.HEARTBEAT_AT")}
+                 AND {BuildSqliteUtcTimestampKey("NEW.LEASE_EXPIRES_AT")} <=
+                     {BuildSqliteUtcTimestampKey("STRFTIME('%Y-%m-%d %H:%M:%f', NEW.HEARTBEAT_AT, '+1 day')")})
+                OR
+                (NEW.FENCE_TOKEN = OLD.FENCE_TOKEN
+                 AND OLD.OWNER_ID IS NOT NULL
+                 AND NEW.OWNER_ID IS NULL
+                 AND NEW.LEASE_EXPIRES_AT IS NULL
+                 AND NEW.HEARTBEAT_AT IS NULL
+                 AND NEW.CONFIG_REVISION IS NULL
+                 AND NEW.LEASE_SECRET_HASH IS NULL)
+                OR
+                (OLD.FENCE_TOKEN = NEW.FENCE_TOKEN - 1
+                 AND NEW.OWNER_ID IS NOT NULL
+                 AND LENGTH(NEW.CONFIG_REVISION) = 64
+                 AND NEW.CONFIG_REVISION NOT GLOB '*[^0-9a-f]*'
+                 AND LENGTH(NEW.LEASE_SECRET_HASH) = 64
+                 AND NEW.LEASE_SECRET_HASH NOT GLOB '*[^0-9a-f]*'
+                 AND (OLD.OWNER_ID IS NULL
+                      OR (({BuildSqliteUtcTimestampPredicate("OLD.LEASE_EXPIRES_AT")})
+                          AND {BuildSqliteUtcTimestampKey("OLD.LEASE_EXPIRES_AT")}
+                              <= {BuildSqliteUtcTimestampKey("STRFTIME('%Y-%m-%d %H:%M:%f', 'now')")}))
+                 AND ({BuildSqliteUtcTimestampPredicate("NEW.HEARTBEAT_AT")})
+                 AND ({BuildSqliteUtcTimestampPredicate("NEW.LEASE_EXPIRES_AT")})
+                 AND {BuildSqliteUtcTimestampKey("NEW.HEARTBEAT_AT")} BETWEEN
+                     {BuildSqliteUtcTimestampKey("STRFTIME('%Y-%m-%d %H:%M:%f', 'now', '-5 seconds')")}
+                     AND {BuildSqliteUtcTimestampKey("STRFTIME('%Y-%m-%d %H:%M:%f', 'now')")}
+                 AND {BuildSqliteUtcTimestampKey("NEW.LEASE_EXPIRES_AT")}
+                     > {BuildSqliteUtcTimestampKey("NEW.HEARTBEAT_AT")}
+                 AND {BuildSqliteUtcTimestampKey("NEW.LEASE_EXPIRES_AT")} <=
+                     {BuildSqliteUtcTimestampKey("STRFTIME('%Y-%m-%d %H:%M:%f', NEW.HEARTBEAT_AT, '+1 day')")}))), 0) = 0
         BEGIN
             SELECT RAISE(ABORT, 'FDC runtime ownership transition or fence token is invalid');
         END;
@@ -117,6 +201,94 @@ public static class SqliteSchemaInitializer
         BEFORE DELETE ON FDC_RUNTIME_OWNERSHIP
         BEGIN
             SELECT RAISE(ABORT, 'FDC runtime ownership row and fence counter are not deletable');
+        END;
+        """;
+
+    private static readonly string FdcTraceRetentionStateInsertTrigger = $"""
+        CREATE TRIGGER TR_FDC_TRACE_RETENTION_STATE_BI
+        BEFORE INSERT ON FDC_TRACE_RETENTION_STATE
+        WHEN EXISTS (
+            SELECT 1 FROM FDC_TRACE_RETENTION_STATE
+             WHERE STATE_ID = NEW.STATE_ID)
+          OR NEW.STATE_ID <> 'GLOBAL'
+          OR NEW.COMPLETENESS_BOUNDARY IS NULL
+          OR NOT ({BuildSqliteUtcTimestampPredicate("NEW.COMPLETENESS_BOUNDARY")})
+        BEGIN
+            SELECT RAISE(ABORT, 'FDC TRACE retention state is invalid');
+        END;
+        """;
+
+    private static readonly string FdcTraceRetentionStateUpdateTrigger = $"""
+        CREATE TRIGGER TR_FDC_TRACE_RETENTION_STATE_BU
+        BEFORE UPDATE ON FDC_TRACE_RETENTION_STATE
+        WHEN NEW.STATE_ID <> OLD.STATE_ID
+          OR NEW.STATE_ID <> 'GLOBAL'
+          OR NEW.COMPLETENESS_BOUNDARY IS NULL
+          OR NOT ({BuildSqliteUtcTimestampPredicate("NEW.COMPLETENESS_BOUNDARY")})
+          OR NOT ({BuildSqliteUtcTimestampPredicate("OLD.COMPLETENESS_BOUNDARY")})
+          OR (OLD.COMPLETENESS_BOUNDARY IS NOT NULL
+              AND (NEW.COMPLETENESS_BOUNDARY IS NULL
+                   OR {BuildSqliteUtcTimestampKey("NEW.COMPLETENESS_BOUNDARY")}
+                      < {BuildSqliteUtcTimestampKey("OLD.COMPLETENESS_BOUNDARY")}))
+        BEGIN
+            SELECT RAISE(ABORT, 'FDC TRACE retention completeness boundary cannot move backward');
+        END;
+        """;
+
+    private static readonly string FdcCollectRetentionDeleteTrigger = $"""
+        CREATE TRIGGER TR_FDC_COLLECT_RETENTION_DELETE_GUARD
+        BEFORE DELETE ON FDC_COLLECT_DATA
+        WHEN NOT EXISTS (
+            SELECT 1
+             FROM FDC_TRACE_RETENTION_STATE S
+              WHERE S.STATE_ID = 'GLOBAL'
+               AND ({BuildSqliteUtcTimestampPredicate("OLD.COLLECTED_AT")})
+               AND ({BuildSqliteUtcTimestampPredicate("S.COMPLETENESS_BOUNDARY")})
+               AND {BuildSqliteUtcTimestampKey("OLD.COLLECTED_AT")}
+                   < {BuildSqliteUtcTimestampKey("S.COMPLETENESS_BOUNDARY")})
+        BEGIN
+            SELECT RAISE(ABORT, 'FDC raw TRACE cannot be deleted before advancing its completeness boundary');
+        END;
+        """;
+
+    private static readonly string FdcCollectCompletenessInsertTrigger = $"""
+        CREATE TRIGGER TR_FDC_COLLECT_COMPLETENESS_BI
+        BEFORE INSERT ON FDC_COLLECT_DATA
+        WHEN EXISTS (
+            SELECT 1 FROM FDC_COLLECT_DATA
+             WHERE COLLECT_ID = NEW.COLLECT_ID)
+          OR NOT ({BuildSqliteUtcTimestampPredicate("NEW.COLLECTED_AT")})
+          OR NOT EXISTS (
+              SELECT 1
+                FROM FDC_TRACE_RETENTION_STATE S
+               WHERE S.STATE_ID = 'GLOBAL'
+                 AND ({BuildSqliteUtcTimestampPredicate("S.COMPLETENESS_BOUNDARY")})
+                 AND {BuildSqliteUtcTimestampKey("NEW.COLLECTED_AT")}
+                     >= {BuildSqliteUtcTimestampKey("S.COMPLETENESS_BOUNDARY")})
+        BEGIN
+            SELECT RAISE(ABORT, 'FDC raw TRACE timestamp is invalid or older than its completeness boundary');
+        END;
+        """;
+
+    private const string FdcCollectAppendOnlyUpdateTrigger = """
+        CREATE TRIGGER TR_FDC_COLLECT_APPEND_ONLY_BU
+        BEFORE UPDATE ON FDC_COLLECT_DATA
+        BEGIN
+            SELECT RAISE(ABORT, 'FDC raw TRACE is append-only');
+        END;
+        """;
+
+    private static readonly string FdcCollectInvalidTimestampIndex = $"""
+        CREATE INDEX IX_FDC_COLLECT_INVALID_TIMESTAMP
+            ON FDC_COLLECT_DATA (COLLECT_ID)
+         WHERE NOT ({BuildSqliteUtcTimestampPredicate("COLLECTED_AT")});
+        """;
+
+    private const string FdcTraceRetentionStateDeleteTrigger = """
+        CREATE TRIGGER TR_FDC_TRACE_RETENTION_STATE_BD
+        BEFORE DELETE ON FDC_TRACE_RETENTION_STATE
+        BEGIN
+            SELECT RAISE(ABORT, 'FDC TRACE retention completeness state is not deletable');
         END;
         """;
 
@@ -181,7 +353,8 @@ public static class SqliteSchemaInitializer
     private static string BuildFdcLifecycleTransitionValidityPredicate(
         string newQualifier,
         string oldQualifier) => $"""
-        {newQualifier}VERSION > {oldQualifier}VERSION
+        {newQualifier}HISTORY_ID = {oldQualifier}HISTORY_ID
+        AND {newQualifier}VERSION > {oldQualifier}VERSION
         AND {oldQualifier}EFFECT_STATE <> 'Resolved'
         AND (
             ({oldQualifier}EFFECT_STATE = 'Prepared'
@@ -255,6 +428,7 @@ public static class SqliteSchemaInitializer
         EnsureTraceProjectionPerformanceSchema(conn, migrationDmlAlreadyApplied: true);
         EnsureFdcInterlockEffectLifecycleSchema(conn, migrationDmlAlreadyApplied: true);
         EnsureFdcRuntimeOwnershipSchema(conn);
+        EnsureFdcTraceRetentionStateSchema(conn);
         EnsureFdcOpenStateIndexes(conn);
         EnsureFdcEndpointConfigurationIntegrity(conn);
         EnsureQueryPerformanceIndexes(conn);
@@ -342,6 +516,7 @@ public static class SqliteSchemaInitializer
         EnsureTraceProjectionPerformanceSchema(conn, migrationDmlAlreadyApplied: false);
         EnsureFdcInterlockEffectLifecycleSchema(conn, migrationDmlAlreadyApplied: false);
         EnsureFdcRuntimeOwnershipSchema(conn);
+        EnsureFdcTraceRetentionStateSchema(conn);
         EnsureFdcOpenStateIndexes(conn);
         EnsureFdcEndpointConfigurationIntegrity(conn);
         EnsureQueryPerformanceIndexes(conn);
@@ -616,7 +791,7 @@ public static class SqliteSchemaInitializer
         command.CommandText = """
             SELECT sql
               FROM sqlite_master
-             WHERE type = @type AND name = @name;
+             WHERE type = @type AND name = @name COLLATE NOCASE;
             """;
         command.Parameters.AddWithValue("@type", type);
         command.Parameters.AddWithValue("@name", name);
@@ -626,7 +801,10 @@ public static class SqliteSchemaInitializer
         return string.Equals(
             NormalizeSqliteDefinition(actualSql),
             NormalizeSqliteDefinition(expectedSql),
-            StringComparison.OrdinalIgnoreCase);
+            // SQL keywords are case-insensitive, but TEXT literals are not. A broader
+            // OrdinalIgnoreCase comparison could accept a stale safety trigger containing
+            // 'global' where the canonical contract requires the distinct value 'GLOBAL'.
+            StringComparison.Ordinal);
     }
 
     private static string? NormalizeSqliteDefinition(string? sql)
@@ -783,6 +961,12 @@ public static class SqliteSchemaInitializer
                                         conn,
                                         transaction,
                                         "trigger",
+                                        "TR_FDC_RUNTIME_OWNERSHIP_FENCE_BI",
+                                        FdcRuntimeOwnershipInsertTrigger)
+                                    && SqliteObjectDefinitionMatches(
+                                        conn,
+                                        transaction,
+                                        "trigger",
                                         "TR_FDC_RUNTIME_OWNERSHIP_FENCE_BU",
                                         FdcRuntimeOwnershipUpdateTrigger)
                                     && SqliteObjectDefinitionMatches(
@@ -794,6 +978,7 @@ public static class SqliteSchemaInitializer
 
             if (!triggersCanonical)
             {
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_RUNTIME_OWNERSHIP_FENCE_BI;", transaction);
                 Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_RUNTIME_OWNERSHIP_FENCE_BU;", transaction);
                 Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_RUNTIME_OWNERSHIP_FENCE_BD;", transaction);
             }
@@ -830,7 +1015,7 @@ public static class SqliteSchemaInitializer
             using (var invalid = conn.CreateCommand())
             {
                 invalid.Transaction = transaction;
-                invalid.CommandText = """
+                invalid.CommandText = $"""
                     SELECT COUNT(*)
                       FROM FDC_RUNTIME_OWNERSHIP
                      WHERE LEASE_SCOPE <> 'GLOBAL'
@@ -847,17 +1032,18 @@ public static class SqliteSchemaInitializer
                              AND NULLIF(TRIM(OWNER_ID), '') IS NOT NULL
                              AND LEASE_EXPIRES_AT IS NOT NULL
                              AND HEARTBEAT_AT IS NOT NULL
-                             AND JULIANDAY(LEASE_EXPIRES_AT) IS NOT NULL
-                             AND JULIANDAY(HEARTBEAT_AT) IS NOT NULL
-                             AND LEASE_EXPIRES_AT > HEARTBEAT_AT
+                             AND ({BuildSqliteUtcTimestampPredicate("LEASE_EXPIRES_AT")})
+                             AND ({BuildSqliteUtcTimestampPredicate("HEARTBEAT_AT")})
+                             AND {BuildSqliteUtcTimestampKey("LEASE_EXPIRES_AT")}
+                                 > {BuildSqliteUtcTimestampKey("HEARTBEAT_AT")}
                              AND CONFIG_REVISION IS NOT NULL
                              AND LENGTH(CONFIG_REVISION) = 64
                              AND CONFIG_REVISION NOT GLOB '*[^0-9a-f]*'
                              AND LEASE_SECRET_HASH IS NOT NULL
                              AND LENGTH(LEASE_SECRET_HASH) = 64
                              AND LEASE_SECRET_HASH NOT GLOB '*[^0-9a-f]*'
-                             AND LEASE_EXPIRES_AT <=
-                                 STRFTIME('%Y-%m-%d %H:%M:%f', HEARTBEAT_AT, '+1 day')));
+                             AND {BuildSqliteUtcTimestampKey("LEASE_EXPIRES_AT")} <=
+                                 {BuildSqliteUtcTimestampKey("STRFTIME('%Y-%m-%d %H:%M:%f', HEARTBEAT_AT, '+1 day')")}));
                     """;
                 var invalidCount = Convert.ToInt64(invalid.ExecuteScalar() ?? 0L);
                 if (invalidCount != 0)
@@ -870,6 +1056,7 @@ public static class SqliteSchemaInitializer
 
             if (!triggersCanonical)
             {
+                Exec(conn, FdcRuntimeOwnershipInsertTrigger, transaction);
                 Exec(conn, FdcRuntimeOwnershipUpdateTrigger, transaction);
                 Exec(conn, FdcRuntimeOwnershipDeleteTrigger, transaction);
             }
@@ -894,6 +1081,260 @@ public static class SqliteSchemaInitializer
             transaction.Rollback();
             throw;
         }
+    }
+
+    /// <summary>
+    /// V150의 단일 FDC TRACE completeness boundary를 보장한다. 증분 경로에서 최초 행을 한 번만
+    /// 만들고 durable marker 이후 삭제된 행은 과거 삭제 경계를 잊게 되므로 재생성하지 않는다.
+    /// legacy SQLite 테이블의 누락된 CHECK는 canonical INSERT/UPDATE/DELETE trigger로 보강한다.
+    /// </summary>
+    private static void EnsureFdcTraceRetentionStateSchema(SqliteConnection conn)
+    {
+        const string table = "FDC_TRACE_RETENTION_STATE";
+        if (!HasTable(conn, table)) return;
+
+        EnsureSqliteReconciliationLedger(conn);
+        using var transaction = conn.BeginTransaction(deferred: false);
+        try
+        {
+            const string reconciliationId = "V150__FDC_TRACE_RETENTION_STATE";
+            var hasMarker = HasSqliteReconciliation(conn, transaction, reconciliationId);
+            var triggersCanonical = SqliteObjectDefinitionMatches(
+                                        conn,
+                                        transaction,
+                                        "trigger",
+                                        "TR_FDC_TRACE_RETENTION_STATE_BI",
+                                        FdcTraceRetentionStateInsertTrigger)
+                                    && SqliteObjectDefinitionMatches(
+                                        conn,
+                                        transaction,
+                                        "trigger",
+                                        "TR_FDC_TRACE_RETENTION_STATE_BU",
+                                        FdcTraceRetentionStateUpdateTrigger)
+                                    && SqliteObjectDefinitionMatches(
+                                        conn,
+                                        transaction,
+                                        "trigger",
+                                        "TR_FDC_TRACE_RETENTION_STATE_BD",
+                                        FdcTraceRetentionStateDeleteTrigger)
+                                    && SqliteObjectDefinitionMatches(
+                                        conn,
+                                        transaction,
+                                        "trigger",
+                                        "TR_FDC_COLLECT_RETENTION_DELETE_GUARD",
+                                        FdcCollectRetentionDeleteTrigger)
+                                    && SqliteObjectDefinitionMatches(
+                                        conn,
+                                        transaction,
+                                        "trigger",
+                                        "TR_FDC_COLLECT_COMPLETENESS_BI",
+                                        FdcCollectCompletenessInsertTrigger)
+                                    && SqliteObjectDefinitionMatches(
+                                        conn,
+                                        transaction,
+                                        "trigger",
+                                        "TR_FDC_COLLECT_APPEND_ONLY_BU",
+                                        FdcCollectAppendOnlyUpdateTrigger)
+                                    && SqliteObjectDefinitionMatches(
+                                        conn,
+                                        transaction,
+                                        "index",
+                                        "IX_FDC_COLLECT_INVALID_TIMESTAMP",
+                                        FdcCollectInvalidTimestampIndex);
+            if (!triggersCanonical)
+            {
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_TRACE_RETENTION_STATE_BI;", transaction);
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_TRACE_RETENTION_STATE_BU;", transaction);
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_TRACE_RETENTION_STATE_BD;", transaction);
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_COLLECT_RETENTION_DELETE_GUARD;", transaction);
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_COLLECT_COMPLETENESS_BI;", transaction);
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_COLLECT_APPEND_ONLY_BU;", transaction);
+                Exec(conn, "DROP INDEX IF EXISTS IX_FDC_COLLECT_INVALID_TIMESTAMP;", transaction);
+            }
+
+            ValidateFdcCollectTimestamps(conn, transaction);
+
+            using (var count = conn.CreateCommand())
+            {
+                count.Transaction = transaction;
+                count.CommandText = "SELECT COUNT(*) FROM FDC_TRACE_RETENTION_STATE;";
+                var rowCount = Convert.ToInt64(count.ExecuteScalar() ?? 0L);
+                if (rowCount == 0 && !hasMarker)
+                {
+                    using var seed = conn.CreateCommand();
+                    seed.Transaction = transaction;
+                    seed.CommandText = """
+                        INSERT INTO FDC_TRACE_RETENTION_STATE
+                            (STATE_ID, COMPLETENESS_BOUNDARY,
+                             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                        VALUES
+                            ('GLOBAL', @boundary,
+                             'SYSTEM', CURRENT_TIMESTAMP, 'SYSTEM', CURRENT_TIMESTAMP);
+                        """;
+                    seed.Parameters.AddWithValue(
+                        "@boundary",
+                        FormatSqliteUtcTimestamp(
+                            GetFdcTraceInitialCompletenessBoundary(conn, transaction)));
+                    seed.ExecuteNonQuery();
+                    rowCount = 1;
+                }
+
+                if (rowCount != 1)
+                {
+                    var reason = rowCount == 0 && hasMarker
+                        ? "The durable marker exists, so recreating the row would forget a prior deletion boundary."
+                        : "Exactly one GLOBAL retention state row is required.";
+                    throw new InvalidOperationException(
+                        $"V150 SQLite reconciliation found {rowCount} FDC TRACE retention rows. {reason}");
+                }
+            }
+
+            using (var nullBoundary = conn.CreateCommand())
+            {
+                nullBoundary.Transaction = transaction;
+                nullBoundary.CommandText = """
+                    SELECT COUNT(*)
+                      FROM FDC_TRACE_RETENTION_STATE
+                     WHERE STATE_ID='GLOBAL' AND COMPLETENESS_BOUNDARY IS NULL;
+                    """;
+                var nullCount = Convert.ToInt64(nullBoundary.ExecuteScalar() ?? 0L);
+                if (nullCount != 0)
+                {
+                    if (hasMarker)
+                    {
+                        throw new InvalidOperationException(
+                            "V150 SQLite reconciliation found a missing GLOBAL completeness boundary. "
+                            + "The durable marker exists, so reseeding would forget a prior deletion boundary.");
+                    }
+
+                    using var backfill = conn.CreateCommand();
+                    backfill.Transaction = transaction;
+                    backfill.CommandText = """
+                        UPDATE FDC_TRACE_RETENTION_STATE
+                           SET COMPLETENESS_BOUNDARY=@boundary,
+                               UPDATED_BY='SYSTEM',
+                               UPDATED_AT=CURRENT_TIMESTAMP
+                         WHERE STATE_ID='GLOBAL' AND COMPLETENESS_BOUNDARY IS NULL;
+                        """;
+                    backfill.Parameters.AddWithValue(
+                        "@boundary",
+                        FormatSqliteUtcTimestamp(
+                            GetFdcTraceInitialCompletenessBoundary(conn, transaction)));
+                    if (backfill.ExecuteNonQuery() != 1)
+                    {
+                        throw new InvalidOperationException(
+                            "V150 SQLite reconciliation could not initialize the GLOBAL completeness boundary.");
+                    }
+                }
+            }
+
+            using (var invalid = conn.CreateCommand())
+            {
+                invalid.Transaction = transaction;
+                invalid.CommandText = $"""
+                    SELECT COUNT(*)
+                     FROM FDC_TRACE_RETENTION_STATE
+                     WHERE STATE_ID <> 'GLOBAL'
+                        OR COMPLETENESS_BOUNDARY IS NULL
+                        OR NOT ({BuildSqliteUtcTimestampPredicate("COMPLETENESS_BOUNDARY")});
+                    """;
+                var invalidCount = Convert.ToInt64(invalid.ExecuteScalar() ?? 0L);
+                if (invalidCount != 0)
+                {
+                    throw new InvalidOperationException(
+                        $"V150 SQLite reconciliation found {invalidCount} invalid FDC TRACE retention row(s). "
+                        + "Repair the singleton without decreasing its completeness boundary before startup.");
+                }
+            }
+
+            if (!triggersCanonical)
+            {
+                Exec(conn, FdcTraceRetentionStateInsertTrigger, transaction);
+                Exec(conn, FdcTraceRetentionStateUpdateTrigger, transaction);
+                Exec(conn, FdcTraceRetentionStateDeleteTrigger, transaction);
+                Exec(conn, FdcCollectRetentionDeleteTrigger, transaction);
+                Exec(conn, FdcCollectCompletenessInsertTrigger, transaction);
+                Exec(conn, FdcCollectAppendOnlyUpdateTrigger, transaction);
+                Exec(conn, FdcCollectInvalidTimestampIndex, transaction);
+            }
+
+            if (!hasMarker)
+            {
+                using var marker = conn.CreateCommand();
+                marker.Transaction = transaction;
+                marker.CommandText = """
+                    INSERT INTO SYS_SQLITE_RECONCILIATION
+                        (RECONCILIATION_ID, APPLIED_AT)
+                    VALUES (@id, CURRENT_TIMESTAMP);
+                    """;
+                marker.Parameters.AddWithValue("@id", reconciliationId);
+                marker.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
+
+    private static DateTime GetFdcTraceInitialCompletenessBoundary(
+        SqliteConnection conn,
+        SqliteTransaction transaction)
+    {
+        using var oldest = conn.CreateCommand();
+        oldest.Transaction = transaction;
+        oldest.CommandText = $"SELECT MIN({BuildSqliteUtcTimestampKey("COLLECTED_AT")}) FROM FDC_COLLECT_DATA;";
+        var value = oldest.ExecuteScalar();
+        if (value is null or DBNull) return DateTime.UtcNow;
+
+        var collectedAt = Convert.ToDateTime(
+            value,
+            System.Globalization.CultureInfo.InvariantCulture);
+        if (collectedAt == DateTime.MaxValue)
+        {
+            throw new InvalidOperationException(
+                "V150 cannot seed a completeness boundary after DateTime.MaxValue.");
+        }
+
+        if (collectedAt.Kind != DateTimeKind.Utc)
+            collectedAt = DateTime.SpecifyKind(collectedAt, DateTimeKind.Utc);
+        return collectedAt.AddTicks(1);
+    }
+
+    private static void ValidateFdcCollectTimestamps(
+        SqliteConnection conn,
+        SqliteTransaction transaction)
+    {
+        using var invalid = conn.CreateCommand();
+        invalid.Transaction = transaction;
+        invalid.CommandText = $"""
+            SELECT COUNT(*)
+              FROM FDC_COLLECT_DATA
+             WHERE NOT ({BuildSqliteUtcTimestampPredicate("COLLECTED_AT")});
+            """;
+        var invalidCount = Convert.ToInt64(invalid.ExecuteScalar() ?? 0L);
+        if (invalidCount != 0)
+        {
+            throw new InvalidOperationException(
+                $"V150 SQLite reconciliation found {invalidCount} raw TRACE row(s) without "
+                + "a canonical UTC COLLECTED_AT. Repair or archive them before startup.");
+        }
+    }
+
+    private static string FormatSqliteUtcTimestamp(DateTime value)
+    {
+        var utc = value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+        };
+        return utc.ToString(
+            "yyyy-MM-dd HH:mm:ss.fffffff",
+            System.Globalization.CultureInfo.InvariantCulture);
     }
 
     /// <summary>Locks the V141 process-restart recovery access paths on SQLite upgrades.</summary>
@@ -1066,6 +1507,39 @@ public static class SqliteSchemaInitializer
     /// </summary>
     private static void EnsureQueryPerformanceIndexes(SqliteConnection conn)
     {
+        if (HasTable(conn, "FDC_COLLECT_DATA"))
+        {
+            // SQLite TEXT timestamps may legitimately use different fractional precision. The
+            // TRACE cursor compares a padded seven-digit key, so keep the query and index
+            // expressions identical; otherwise LIMIT would require a range-wide temp sort.
+            EnsureSqliteExpressionIndex(
+                conn,
+                "IX_FDC_TRACE_SOURCE",
+                """
+                CREATE INDEX IX_FDC_TRACE_SOURCE
+                    ON FDC_COLLECT_DATA (
+                        EQUIPMENT_ID,
+                        PARAMETER_ID,
+                        CASE
+                            WHEN LENGTH(COLLECTED_AT)=19 THEN COLLECTED_AT || '.0000000'
+                            ELSE SUBSTR(COLLECTED_AT || '0000000', 1, 27)
+                        END,
+                        COLLECT_ID);
+                """);
+            EnsureSqliteIndex(
+                conn,
+                "FDC_COLLECT_DATA",
+                "IX_FDC_COLLECT_RETENTION",
+                unique: false,
+                partial: false,
+                """
+                CREATE INDEX IX_FDC_COLLECT_RETENTION
+                    ON FDC_COLLECT_DATA (COLLECTED_AT, COLLECT_ID);
+                """,
+                new IndexKey("COLLECTED_AT", Descending: false),
+                new IndexKey("COLLECT_ID", Descending: false));
+        }
+
         if (HasTable(conn, "EMS_TOOL_USAGE_HISTORY"))
         {
             EnsureSqliteIndex(
@@ -1340,6 +1814,29 @@ public static class SqliteSchemaInitializer
         Exec(conn, createSql);
     }
 
+    private static void EnsureSqliteExpressionIndex(
+        SqliteConnection conn,
+        string index,
+        string createSql)
+    {
+        using var definition = conn.CreateCommand();
+        definition.CommandText =
+            "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = @name COLLATE NOCASE;";
+        definition.Parameters.AddWithValue("@name", index);
+        var actualSql = Convert.ToString(
+            definition.ExecuteScalar(),
+            System.Globalization.CultureInfo.InvariantCulture);
+        if (string.Equals(
+                NormalizeSqliteDefinition(actualSql),
+                NormalizeSqliteDefinition(createSql),
+                StringComparison.Ordinal))
+            return;
+
+        if (HasIndex(conn, index))
+            Exec(conn, $"DROP INDEX [{index.Replace("]", "]]", StringComparison.Ordinal)}];");
+        Exec(conn, createSql);
+    }
+
     private static bool IndexMatches(
         SqliteConnection conn,
         string table,
@@ -1377,7 +1874,8 @@ public static class SqliteSchemaInitializer
         if (!partial) return true;
 
         using var definition = conn.CreateCommand();
-        definition.CommandText = "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = @name;";
+        definition.CommandText =
+            "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = @name COLLATE NOCASE;";
         definition.Parameters.AddWithValue("@name", index);
         var actualCreateSql = Convert.ToString(
             definition.ExecuteScalar(),
@@ -1386,7 +1884,7 @@ public static class SqliteSchemaInitializer
         return string.Equals(
             NormalizeIndexPredicate(actualCreateSql),
             NormalizeIndexPredicate(expectedCreateSql),
-            StringComparison.OrdinalIgnoreCase);
+            StringComparison.Ordinal);
     }
 
     private static string? NormalizeIndexPredicate(string? createSql)
@@ -1408,7 +1906,8 @@ public static class SqliteSchemaInitializer
     private static bool HasIndex(SqliteConnection conn, string index)
     {
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = @name;";
+        cmd.CommandText =
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = @name COLLATE NOCASE;";
         cmd.Parameters.AddWithValue("@name", index);
         return Convert.ToInt64(cmd.ExecuteScalar() ?? 0L) > 0;
     }
@@ -2185,7 +2684,8 @@ public static class SqliteSchemaInitializer
     private static bool HasTable(SqliteConnection conn, string table)
     {
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = @name;";
+        cmd.CommandText =
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = @name COLLATE NOCASE;";
         cmd.Parameters.AddWithValue("@name", table);
         return Convert.ToInt64(cmd.ExecuteScalar() ?? 0L) > 0;
     }

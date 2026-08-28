@@ -132,6 +132,9 @@ SELECT
     DB_NAME() AS DATABASE_NAME,
     d.compatibility_level AS COMPATIBILITY_LEVEL,
     d.is_read_committed_snapshot_on AS READ_COMMITTED_SNAPSHOT_ON,
+    d.is_auto_create_stats_on AS AUTO_CREATE_STATISTICS_ON,
+    d.is_auto_update_stats_on AS AUTO_UPDATE_STATISTICS_ON,
+    d.is_auto_update_stats_async_on AS AUTO_UPDATE_STATISTICS_ASYNC_ON,
     qso.actual_state_desc AS QUERY_STORE_STATE,
     qso.readonly_reason AS QUERY_STORE_READONLY_REASON,
     qso.current_storage_size_mb AS QUERY_STORE_SIZE_MB,
@@ -153,6 +156,22 @@ WHERE d.database_id = DB_ID();
                 File = $null
                 SqlErrorNumber = $null
                 Error = $queryStoreError
+            })
+        }
+
+        $autoCreateStatistics = [int]$databaseOptions.Rows[0]['AUTO_CREATE_STATISTICS_ON']
+        $autoUpdateStatistics = [int]$databaseOptions.Rows[0]['AUTO_UPDATE_STATISTICS_ON']
+        if ($autoCreateStatistics -ne 1 -or $autoUpdateStatistics -ne 1) {
+            $statisticsOptionsError =
+                'AUTO_CREATE_STATISTICS and AUTO_UPDATE_STATISTICS must both be ON for the approved baseline.'
+            Write-Warning $statisticsOptionsError
+            $reportResults.Add([pscustomobject]@{
+                Name = 'statistics-options-prerequisite'
+                Success = $false
+                RowCount = $null
+                File = $null
+                SqlErrorNumber = $null
+                Error = $statisticsOptionsError
             })
         }
     }
@@ -219,22 +238,50 @@ ORDER BY COALESCE(u.user_updates, 0) DESC,
     $null = Export-Report -Connection $connection -Name 'index-definition-size' -Sql @"
 WITH IndexColumns AS (
     SELECT
-        ic.object_id,
-        ic.index_id,
-        STRING_AGG(
-            CASE WHEN ic.is_included_column = 0
-                 THEN CONVERT(NVARCHAR(MAX), QUOTENAME(c.name))
-                      + CASE WHEN ic.is_descending_key = 1 THEN ' DESC' ELSE ' ASC' END
-            END, ', ') WITHIN GROUP (ORDER BY ic.index_column_id) AS KEY_COLUMNS,
-        STRING_AGG(
-            CASE WHEN ic.is_included_column = 1
-                 THEN CONVERT(NVARCHAR(MAX), QUOTENAME(c.name)) END,
-            ', ') WITHIN GROUP (ORDER BY ic.index_column_id) AS INCLUDED_COLUMNS
-    FROM sys.index_columns AS ic
-    JOIN sys.columns AS c
-      ON c.object_id = ic.object_id
-     AND c.column_id = ic.column_id
-    GROUP BY ic.object_id, ic.index_id
+        base.object_id,
+        base.index_id,
+        STUFF((
+            SELECT N', ' + CONVERT(NVARCHAR(MAX), QUOTENAME(c.name))
+                   + CASE WHEN ic.is_descending_key = 1 THEN N' DESC' ELSE N' ASC' END
+            FROM sys.index_columns AS ic
+            JOIN sys.columns AS c
+              ON c.object_id = ic.object_id
+             AND c.column_id = ic.column_id
+            WHERE ic.object_id = base.object_id
+              AND ic.index_id = base.index_id
+              AND ic.is_included_column = 0
+              AND ic.key_ordinal > 0
+            ORDER BY ic.key_ordinal, ic.index_column_id
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), 1, 2, N'') AS KEY_COLUMNS,
+        STUFF((
+            SELECT N', ' + CONVERT(NVARCHAR(MAX), QUOTENAME(c.name))
+            FROM sys.index_columns AS ic
+            JOIN sys.columns AS c
+              ON c.object_id = ic.object_id
+             AND c.column_id = ic.column_id
+            WHERE ic.object_id = base.object_id
+              AND ic.index_id = base.index_id
+              AND ic.is_included_column = 1
+            ORDER BY ic.index_column_id
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), 1, 2, N'') AS INCLUDED_COLUMNS,
+        STUFF((
+            SELECT N', ' + CONVERT(NVARCHAR(MAX), QUOTENAME(c.name))
+            FROM sys.index_columns AS ic
+            JOIN sys.columns AS c
+              ON c.object_id = ic.object_id
+             AND c.column_id = ic.column_id
+            WHERE ic.object_id = base.object_id
+              AND ic.index_id = base.index_id
+              AND ic.partition_ordinal > 0
+            ORDER BY ic.partition_ordinal, ic.index_column_id
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), 1, 2, N'') AS PARTITION_COLUMNS
+    FROM (
+        SELECT DISTINCT object_id, index_id
+        FROM sys.index_columns
+    ) AS base
 ), IndexSize AS (
     SELECT
         object_id,
@@ -253,6 +300,7 @@ SELECT
     i.is_unique AS IS_UNIQUE,
     cols.KEY_COLUMNS,
     cols.INCLUDED_COLUMNS,
+    cols.PARTITION_COLUMNS,
     i.filter_definition AS FILTER_DEFINITION,
     COALESCE(sz.ROW_COUNT, 0) AS ROW_COUNT,
     COALESCE(sz.RESERVED_MB, 0) AS RESERVED_MB,
@@ -396,22 +444,50 @@ ORDER BY s.name, v.name;
     $null = Export-Report -Connection $connection -Name 'indexed-view-index-definition' -Sql @"
 WITH IndexColumns AS (
     SELECT
-        ic.object_id,
-        ic.index_id,
-        STRING_AGG(
-            CASE WHEN ic.is_included_column = 0
-                 THEN CONVERT(NVARCHAR(MAX), QUOTENAME(c.name))
-                      + CASE WHEN ic.is_descending_key = 1 THEN ' DESC' ELSE ' ASC' END
-            END, ', ') WITHIN GROUP (ORDER BY ic.index_column_id) AS KEY_COLUMNS,
-        STRING_AGG(
-            CASE WHEN ic.is_included_column = 1
-                 THEN CONVERT(NVARCHAR(MAX), QUOTENAME(c.name)) END,
-            ', ') WITHIN GROUP (ORDER BY ic.index_column_id) AS INCLUDED_COLUMNS
-    FROM sys.index_columns AS ic
-    JOIN sys.columns AS c
-      ON c.object_id = ic.object_id
-     AND c.column_id = ic.column_id
-    GROUP BY ic.object_id, ic.index_id
+        base.object_id,
+        base.index_id,
+        STUFF((
+            SELECT N', ' + CONVERT(NVARCHAR(MAX), QUOTENAME(c.name))
+                   + CASE WHEN ic.is_descending_key = 1 THEN N' DESC' ELSE N' ASC' END
+            FROM sys.index_columns AS ic
+            JOIN sys.columns AS c
+              ON c.object_id = ic.object_id
+             AND c.column_id = ic.column_id
+            WHERE ic.object_id = base.object_id
+              AND ic.index_id = base.index_id
+              AND ic.is_included_column = 0
+              AND ic.key_ordinal > 0
+            ORDER BY ic.key_ordinal, ic.index_column_id
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), 1, 2, N'') AS KEY_COLUMNS,
+        STUFF((
+            SELECT N', ' + CONVERT(NVARCHAR(MAX), QUOTENAME(c.name))
+            FROM sys.index_columns AS ic
+            JOIN sys.columns AS c
+              ON c.object_id = ic.object_id
+             AND c.column_id = ic.column_id
+            WHERE ic.object_id = base.object_id
+              AND ic.index_id = base.index_id
+              AND ic.is_included_column = 1
+            ORDER BY ic.index_column_id
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), 1, 2, N'') AS INCLUDED_COLUMNS,
+        STUFF((
+            SELECT N', ' + CONVERT(NVARCHAR(MAX), QUOTENAME(c.name))
+            FROM sys.index_columns AS ic
+            JOIN sys.columns AS c
+              ON c.object_id = ic.object_id
+             AND c.column_id = ic.column_id
+            WHERE ic.object_id = base.object_id
+              AND ic.index_id = base.index_id
+              AND ic.partition_ordinal > 0
+            ORDER BY ic.partition_ordinal, ic.index_column_id
+            FOR XML PATH(''), TYPE
+        ).value('.', 'NVARCHAR(MAX)'), 1, 2, N'') AS PARTITION_COLUMNS
+    FROM (
+        SELECT DISTINCT object_id, index_id
+        FROM sys.index_columns
+    ) AS base
 ), IndexSize AS (
     SELECT
         object_id,
@@ -432,6 +508,7 @@ SELECT
     i.is_primary_key AS IS_PRIMARY_KEY,
     cols.KEY_COLUMNS,
     cols.INCLUDED_COLUMNS,
+    cols.PARTITION_COLUMNS,
     i.has_filter AS HAS_FILTER,
     i.filter_definition AS FILTER_DEFINITION,
     COALESCE(sz.ROW_COUNT, 0) AS ROW_COUNT,

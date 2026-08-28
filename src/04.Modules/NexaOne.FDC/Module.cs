@@ -26,6 +26,10 @@ public sealed class Module
     private readonly IHostedService _retentionWorker;
     private readonly IHostedService _virtualEventWorker;
 
+    /// <summary>
+    /// 이전 8-argument binary constructor ABI를 보존한다. TRACE retention이 꺼진 legacy 조립만
+    /// 허용하며, 활성화된 구성은 IVT guard가 있는 신규 constructor를 사용해야 한다.
+    /// </summary>
     public Module(
         EesDataSource dataSource,
         INexaOneEESDbCapability dialect,
@@ -35,6 +39,29 @@ public sealed class Module
         IPlcDriverFactory plcDriverFactory,
         IMessageBus messageBus,
         IRecurringScheduler scheduler)
+        : this(
+            dataSource,
+            dialect,
+            configuration,
+            cache,
+            actionPort,
+            plcDriverFactory,
+            messageBus,
+            scheduler,
+            RequireDisabledLegacyRetentionGuard(configuration))
+    {
+    }
+
+    public Module(
+        EesDataSource dataSource,
+        INexaOneEESDbCapability dialect,
+        IConfiguration configuration,
+        ICacheService cache,
+        IFdcInterlockActionPort actionPort,
+        IPlcDriverFactory plcDriverFactory,
+        IMessageBus messageBus,
+        IRecurringScheduler scheduler,
+        IFdcTraceRetentionGuard traceRetentionGuard)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(dialect);
@@ -44,6 +71,7 @@ public sealed class Module
         ArgumentNullException.ThrowIfNull(plcDriverFactory);
         ArgumentNullException.ThrowIfNull(messageBus);
         ArgumentNullException.ThrowIfNull(scheduler);
+        ArgumentNullException.ThrowIfNull(traceRetentionGuard);
 
         var options = FdcModuleOptions.FromConfiguration(configuration);
 
@@ -91,13 +119,28 @@ public sealed class Module
         _retentionWorker = new FdcCollectDataRetentionWorker(
             scheduler,
             collectData,
+            traceRetentionGuard,
             enabled: options.RetentionEnabled,
+            bindingChangesQuiesced: options.RetentionBindingChangesQuiesced,
             intervalSeconds: options.RetentionIntervalSeconds,
             retentionDays: options.RetentionDays);
         _virtualEventWorker = new VirtualEventEvaluationWorker(
             virtualEventService,
             enabled: options.VirtualEventEnabled,
             intervalSeconds: options.VirtualEventIntervalSeconds);
+    }
+
+    private static IFdcTraceRetentionGuard RequireDisabledLegacyRetentionGuard(
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        if (configuration.GetValue("Worker:Fdc:Retention:Enabled", false))
+        {
+            throw new InvalidOperationException(
+                "FDC TRACE retention cannot be enabled through the legacy Module constructor without an IVT retention guard.");
+        }
+
+        return DisabledFdcTraceRetentionGuard.Instance;
     }
 
     public IFdcBridge GetFdcBridge() => _fdcBridge;
@@ -117,6 +160,7 @@ internal sealed record FdcModuleOptions(
     bool CollectionEnabled,
     string EventTopic,
     bool RetentionEnabled,
+    bool RetentionBindingChangesQuiesced,
     int RetentionIntervalSeconds,
     int RetentionDays,
     bool VirtualEventEnabled,
@@ -126,6 +170,10 @@ internal sealed record FdcModuleOptions(
     int DriverCleanupTimeoutSeconds,
     FdcLeaseOptions RuntimeLease)
 {
+    private const int MaximumOwnerIdLength = 100;
+    private static readonly string ProcessOwnerSuffix =
+        $":{Environment.ProcessId:x}:{Guid.NewGuid():N}";
+
     private const string DefaultEventTopic = "nexaone.events";
 
     public static FdcModuleOptions FromConfiguration(IConfiguration configuration)
@@ -140,6 +188,8 @@ internal sealed record FdcModuleOptions(
                 configuration["Events:Outbox:Topic"],
                 DefaultEventTopic),
             RetentionEnabled: configuration.GetValue("Worker:Fdc:Retention:Enabled", false),
+            RetentionBindingChangesQuiesced: configuration.GetValue(
+                "Worker:Fdc:Retention:BindingChangesQuiesced", false),
             RetentionIntervalSeconds: PositiveOrMinimum(
                 configuration.GetValue("Worker:Fdc:Retention:IntervalSeconds", 86_400),
                 minimum: 60),
@@ -172,10 +222,14 @@ internal sealed record FdcModuleOptions(
                 TimeSpan.FromSeconds(10));
         }
 
-        var ownerId = configuration["Worker:Fdc:Ownership:OwnerId"]?.Trim();
-        if (string.IsNullOrWhiteSpace(ownerId) || ownerId.Length > 100)
+        var ownerPrefix = configuration["Worker:Fdc:Ownership:OwnerId"]?.Trim();
+        if (string.IsNullOrWhiteSpace(ownerPrefix))
             throw new InvalidOperationException(
-                "FDC setting 'Worker:Fdc:Ownership:OwnerId' is required and must be at most 100 characters when collection is enabled.");
+                "FDC setting 'Worker:Fdc:Ownership:OwnerId' is required as a deployment-instance prefix when collection is enabled.");
+        var maximumPrefixLength = MaximumOwnerIdLength - ProcessOwnerSuffix.Length;
+        var ownerId = string.Concat(
+            ownerPrefix.AsSpan(0, Math.Min(ownerPrefix.Length, maximumPrefixLength)),
+            ProcessOwnerSuffix);
 
         var configDigest = configuration["Worker:Fdc:Ownership:ConfigRevisionSha256"]?.Trim();
         if (configDigest is null
