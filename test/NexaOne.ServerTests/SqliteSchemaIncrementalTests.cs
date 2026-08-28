@@ -927,21 +927,21 @@ public sealed class SqliteSchemaIncrementalTests
                  WHERE HISTORY_ID='FX-RESOLVED';
                 """);
             inconsistentResolution.Should().Throw<SqliteException>()
-                .WithMessage("*lifecycle state is invalid*");
+                .WithMessage("*lifecycle state*invalid*");
 
             Action missingApplyEvidence = () => ExecSql(cs, """
                 UPDATE FDC_INTERLOCK_HISTORY SET EFFECT_STATE='Applied', VERSION=2
                  WHERE HISTORY_ID='FX-LEGACY';
                 """);
             missingApplyEvidence.Should().Throw<SqliteException>()
-                .WithMessage("*lifecycle state is invalid*");
+                .WithMessage("*lifecycle state*invalid*");
 
             Action invalidVersion = () => ExecSql(cs, """
                 UPDATE FDC_INTERLOCK_HISTORY SET VERSION=0
                  WHERE HISTORY_ID='FX-LEGACY';
                 """);
             invalidVersion.Should().Throw<SqliteException>()
-                .WithMessage("*lifecycle state is invalid*");
+                .WithMessage("*lifecycle state*invalid*");
 
             ExecSql(cs, """
                 INSERT INTO FDC_INTERLOCK_HISTORY
@@ -958,8 +958,140 @@ public sealed class SqliteSchemaIncrementalTests
                  WHERE HISTORY_ID='FX-APPLIED';
                 """);
             acknowledgementOnlyBypass.Should().Throw<SqliteException>()
-                .WithMessage("*lifecycle state is invalid*",
+                .WithMessage("*lifecycle state*invalid*",
                     "ACK-only updates must not bypass the SQLite equivalent of the MSSQL CHECK constraint");
+
+            Action sameVersion = () => ExecSql(cs, """
+                UPDATE FDC_INTERLOCK_HISTORY SET LAST_ERROR='retry without version'
+                 WHERE HISTORY_ID='FX-APPLIED';
+                """);
+            sameVersion.Should().Throw<SqliteException>()
+                .WithMessage("*transition is invalid*",
+                    "every durable direct-writer mutation must advance the optimistic version");
+
+            // The runtime is allowed to normalize and then reassert the same STOP as Applied on
+            // restart before it trusts a fresh PLC snapshot.
+            ExecSql(cs, """
+                UPDATE FDC_INTERLOCK_HISTORY
+                   SET EFFECT_STATE='ConditionNormalized', VERSION=3,
+                       CONDITION_NORMALIZED_AT='2026-01-01 00:00:02',
+                       CONDITION_NORMALIZED_VALUE=50
+                 WHERE HISTORY_ID='FX-APPLIED';
+                UPDATE FDC_INTERLOCK_HISTORY
+                   SET EFFECT_STATE='Applied', VERSION=4,
+                       CONDITION_NORMALIZED_AT=NULL, CONDITION_NORMALIZED_VALUE=NULL
+                 WHERE HISTORY_ID='FX-APPLIED';
+                """);
+
+            Action illegalBackwardJump = () => ExecSql(cs, """
+                UPDATE FDC_INTERLOCK_HISTORY
+                   SET EFFECT_STATE='Prepared', VERSION=5,
+                       APPLY_ACK_ID=NULL, APPLY_CONFIRMED_AT=NULL
+                 WHERE HISTORY_ID='FX-APPLIED';
+                """);
+            illegalBackwardJump.Should().Throw<SqliteException>()
+                .WithMessage("*transition is invalid*");
+
+            Action mutateTerminal = () => ExecSql(cs, """
+                UPDATE FDC_INTERLOCK_HISTORY SET VERSION=2, UPDATED_AT=CURRENT_TIMESTAMP
+                 WHERE HISTORY_ID='FX-RESOLVED';
+                """);
+            mutateTerminal.Should().Throw<SqliteException>()
+                .WithMessage("*transition is invalid*",
+                    "a resolved physical-effect ledger row is terminal evidence");
+
+            Action deleteEvidence = () => ExecSql(cs, """
+                DELETE FROM FDC_INTERLOCK_HISTORY WHERE HISTORY_ID='FX-APPLIED';
+                """);
+            deleteEvidence.Should().Throw<SqliteException>()
+                .WithMessage("*effect history is append-only*");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Fact]
+    public void EnsureSchema_incrementally_seeds_exactly_one_V149_global_runtime_owner()
+    {
+        var cs = NewDb();
+        try
+        {
+            ExecSql(cs, "CREATE TABLE LEGACY_BOOT_MARKER (ID INTEGER NOT NULL PRIMARY KEY);");
+
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            SqliteSchemaInitializer.EnsureSchema(cs);
+
+            Count(cs, "FDC_RUNTIME_OWNERSHIP").Should().Be(1);
+            ScalarString(cs, "SELECT LEASE_SCOPE FROM FDC_RUNTIME_OWNERSHIP").Should().Be("GLOBAL");
+            ScalarString(cs, "SELECT FENCE_TOKEN FROM FDC_RUNTIME_OWNERSHIP").Should().Be("0");
+            ScalarString(cs, """
+                SELECT COUNT(*) FROM pragma_table_info('FDC_RUNTIME_OWNERSHIP')
+                 WHERE name='LEASE_SECRET_HASH'
+                """).Should().Be("1");
+            ScalarString(cs, """
+                SELECT COUNT(*) FROM SYS_SQLITE_RECONCILIATION
+                 WHERE RECONCILIATION_ID='V149__FDC_RUNTIME_OWNERSHIP_FENCE'
+                """).Should().Be("1");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Fact]
+    public void EnsureSchema_adds_secret_hash_to_an_unowned_pre_hardening_V149_row_without_resetting_fence()
+    {
+        var cs = NewDb();
+        try
+        {
+            ExecSql(cs, """
+                CREATE TABLE LEGACY_BOOT_MARKER (ID INTEGER NOT NULL PRIMARY KEY);
+                CREATE TABLE FDC_RUNTIME_OWNERSHIP (
+                    LEASE_SCOPE TEXT NOT NULL PRIMARY KEY,
+                    OWNER_ID TEXT NULL,
+                    FENCE_TOKEN INTEGER NOT NULL,
+                    LEASE_EXPIRES_AT TEXT NULL,
+                    HEARTBEAT_AT TEXT NULL,
+                    CONFIG_REVISION TEXT NULL,
+                    CREATED_BY TEXT NOT NULL,
+                    CREATED_AT TEXT NOT NULL,
+                    UPDATED_BY TEXT NOT NULL,
+                    UPDATED_AT TEXT NOT NULL);
+                INSERT INTO FDC_RUNTIME_OWNERSHIP
+                    (LEASE_SCOPE, OWNER_ID, FENCE_TOKEN, LEASE_EXPIRES_AT, HEARTBEAT_AT,
+                     CONFIG_REVISION, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES
+                    ('GLOBAL', NULL, 17, NULL, NULL, NULL,
+                     'SYSTEM', CURRENT_TIMESTAMP, 'SYSTEM', CURRENT_TIMESTAMP);
+                """);
+
+            SqliteSchemaInitializer.EnsureSchema(cs);
+
+            ScalarString(cs, "SELECT FENCE_TOKEN FROM FDC_RUNTIME_OWNERSHIP").Should().Be("17");
+            ScalarString(cs, """
+                SELECT COUNT(*) FROM pragma_table_info('FDC_RUNTIME_OWNERSHIP')
+                 WHERE name='LEASE_SECRET_HASH'
+                """).Should().Be("1");
+            ScalarString(cs, "SELECT LEASE_SECRET_HASH FROM FDC_RUNTIME_OWNERSHIP")
+                .Should().BeEmpty();
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
+    }
+
+    [Fact]
+    public void EnsureSchema_never_recreates_a_missing_V149_fence_counter_after_marker()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.Apply(cs);
+            ExecSql(cs, """
+                DROP TRIGGER TR_FDC_RUNTIME_OWNERSHIP_FENCE_BD;
+                DELETE FROM FDC_RUNTIME_OWNERSHIP WHERE LEASE_SCOPE='GLOBAL';
+                """);
+
+            Action restart = () => SqliteSchemaInitializer.EnsureSchema(cs);
+
+            restart.Should().Throw<InvalidOperationException>()
+                .WithMessage("*durable marker exists*recreating fence token 0 would reuse issued tokens*");
+            Count(cs, "FDC_RUNTIME_OWNERSHIP").Should().Be(0);
         }
         finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort temporary file cleanup */ } }
     }
@@ -1110,6 +1242,14 @@ public sealed class SqliteSchemaIncrementalTests
                 "EQUIPMENT_ID:ASC", "PARAMETER_ID:ASC", "OCCURRED_AT:DESC");
             IndexSql(cs, "IX_FDC_ALARM_OPEN_EQUIPMENT_PARAMETER")
                 .Should().Contain("WHERE IS_CLEARED = 0");
+            IndexKeys(cs, "IX_FDC_COLLECT_RETENTION").Should().Equal(
+                "COLLECTED_AT:ASC", "COLLECT_ID:ASC");
+            QueryPlan(cs, """
+                SELECT COLLECT_ID FROM FDC_COLLECT_DATA
+                WHERE COLLECTED_AT < '2030-01-01'
+                ORDER BY COLLECTED_AT, COLLECT_ID LIMIT 1000
+                """).Should().Contain("IX_FDC_COLLECT_RETENTION",
+                    "bounded retention must seek the time-leading index instead of scanning TRACE history");
             QueryPlan(cs, """
                 SELECT HISTORY_ID FROM FDC_INTERLOCK_HISTORY
                 WHERE EQUIPMENT_ID='EQ1' AND PARAMETER_ID='P1' AND IS_RESOLVED=0
@@ -2003,6 +2143,30 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V149_mssql_migration_preserves_singleton_fence_and_guards_transitions()
+    {
+        var sql = MigrationSql("V149__FDC_RUNTIME_OWNERSHIP_FENCE.sql");
+
+        sql.Should().Contain("CONSTRAINT PK_FDC_RUNTIME_OWNERSHIP PRIMARY KEY (LEASE_SCOPE)");
+        sql.Should().Contain("CONSTRAINT CK_FDC_RUNTIME_OWNERSHIP_SCOPE CHECK (LEASE_SCOPE = 'GLOBAL')");
+        sql.Should().Contain("FENCE_TOKEN         BIGINT");
+        sql.Should().Contain("CONFIG_REVISION     NVARCHAR(64)");
+        sql.Should().Contain("LEASE_SECRET_HASH   NVARCHAR(64)");
+        sql.Should().Contain("CK_FDC_RUNTIME_OWNERSHIP_DIGESTS");
+        sql.Should().Contain("LEASE_SECRET_HASH COLLATE Latin1_General_100_BIN2");
+        sql.Should().Contain("CREATE TRIGGER TR_FDC_RUNTIME_OWNERSHIP_FENCE");
+        sql.Should().Contain("AFTER UPDATE, DELETE");
+        sql.Should().Contain("DECLARE @Now DATETIME2(3) = SYSUTCDATETIME()");
+        sql.Should().Contain("D.LEASE_EXPIRES_AT <= @Now");
+        sql.Should().Contain("I.HEARTBEAT_AT BETWEEN DATEADD(SECOND, -5, @Now) AND @Now");
+        sql.Should().Contain("I.LEASE_EXPIRES_AT <= DATEADD(DAY, 1, I.HEARTBEAT_AT)");
+        sql.Should().Contain("D.FENCE_TOKEN = I.FENCE_TOKEN - 1");
+        sql.Should().Contain("row and fence counter are not deletable");
+        sql.Should().Contain("-- SQLITE-OMIT-BEGIN");
+        sql.Should().Contain("-- SQLITE-OMIT-END");
+    }
+
+    [Fact]
     public void Spare_part_usage_by_work_order_named_query_has_matching_dialect_contracts()
     {
         var sqlite = NamedQuerySql("sqlite", "EMS", "EMS.SparePartUsageByWorkOrder");
@@ -2044,7 +2208,7 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
-    public void V121_through_v147_migrations_keep_unique_numeric_versions_and_module_owned_names()
+    public void V121_through_v149_migrations_keep_unique_numeric_versions_and_module_owned_names()
     {
         var migrationDirectory = Path.GetDirectoryName(RepositorySource.GetFile(
             "src", "00.Main", "NexaOne.Server", "config", "db", "migrations",
@@ -2078,6 +2242,8 @@ public sealed class SqliteSchemaIncrementalTests
             [145] = ("V145__FDC_PLC_ENDPOINT_CONFIGURATION.sql", "FDC"),
             [146] = ("V146__FDC_INTERLOCK_EFFECT_LIFECYCLE.sql", "FDC"),
             [147] = ("V147__IVT_TRACE_WORK_STATE_INTEGRITY.sql", "IVT"),
+            [148] = ("V148__FDC_LIFECYCLE_TRANSITION_AND_RETENTION.sql", "FDC"),
+            [149] = ("V149__FDC_RUNTIME_OWNERSHIP_FENCE.sql", "FDC"),
         };
         var recentFiles = Directory.EnumerateFiles(migrationDirectory, "V*.sql")
             .Select(Path.GetFileName)
@@ -2085,7 +2251,7 @@ public sealed class SqliteSchemaIncrementalTests
             .Select(name => (Name: name!, Match: Regex.Match(name!, @"^V(?<version>[0-9]{3})__")))
             .Where(item => item.Match.Success)
             .Select(item => (item.Name, Version: int.Parse(item.Match.Groups["version"].Value)))
-            .Where(item => item.Version is >= 121 and <= 147)
+            .Where(item => item.Version is >= 121 and <= 149)
             .ToArray();
 
         recentFiles.GroupBy(item => item.Version).Should().OnlyContain(group => group.Count() == 1);

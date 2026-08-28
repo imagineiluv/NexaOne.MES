@@ -69,8 +69,7 @@ public class FdcInterlockService
             throw new FdcInterlockRuntimeUnavailableException(
                 "Every FDC equipment topology entry requires an equipment ID and at least one parameter.");
 
-        var compiled = ImmutableDictionary.CreateBuilder<string, ImmutableArray<CompiledInterlockRule>>(
-            StringComparer.Ordinal);
+        var compiled = ImmutableDictionary.CreateBuilder<InterlockRuntimeKey, ImmutableArray<CompiledInterlockRule>>();
         var openEffects = new List<FdcInterlockHistory>();
         var requiredActions = new HashSet<string>(StringComparer.Ordinal);
 
@@ -154,7 +153,7 @@ public class FdcInterlockService
                     throw new FdcInterlockRuntimeUnavailableException(
                         $"Rule '{rule.Id}' references parameter '{rule.ParameterId}' outside the loaded topology for '{equipmentId}'.");
 
-                var key = RuntimeKey(equipmentId, rule.ParameterId);
+                var key = new InterlockRuntimeKey(equipmentId, rule.ParameterId);
                 var value = new CompiledInterlockRule(
                     rule.Id,
                     rule.RuleName,
@@ -171,14 +170,13 @@ public class FdcInterlockService
 
         var ordered = compiled.ToImmutableDictionary(
             item => item.Key,
-            item => item.Value.OrderBy(rule => rule.Priority).ToImmutableArray(),
-            StringComparer.Ordinal);
+            item => item.Value.OrderBy(rule => rule.Priority).ToImmutableArray());
         var snapshot = new InterlockRuleSnapshot(
             normalizedTopology.ToImmutableDictionary(StringComparer.Ordinal),
             ordered);
         foreach (var effect in openEffects)
         {
-            if (!ordered.TryGetValue(RuntimeKey(effect.EquipmentId, effect.ParameterId), out var rules)
+            if (!ordered.TryGetValue(new InterlockRuntimeKey(effect.EquipmentId, effect.ParameterId), out var rules)
                 || !rules.Any(rule => string.Equals(rule.Id, effect.RuleId, StringComparison.Ordinal)
                                       && string.Equals(rule.Action, effect.Action, StringComparison.Ordinal)))
                 throw new FdcInterlockRuntimeUnavailableException(
@@ -226,7 +224,7 @@ public class FdcInterlockService
                 $"Outstanding action effect '{request.EffectId}' has incomplete or inconsistent durable evidence.");
 
         var snapshot = GetRuntimeSnapshotFor(request.EquipmentId, request.ParameterId);
-        if (!snapshot.Rules.TryGetValue(RuntimeKey(request.EquipmentId, request.ParameterId), out var rules)
+        if (!snapshot.Rules.TryGetValue(new InterlockRuntimeKey(request.EquipmentId, request.ParameterId), out var rules)
             || !rules.Any(rule => string.Equals(rule.Id, request.RuleId, StringComparison.Ordinal)
                                   && string.Equals(rule.Action, request.Action, StringComparison.Ordinal)))
             throw new FdcInterlockRuntimeUnavailableException(
@@ -285,7 +283,7 @@ public class FdcInterlockService
     {
         var snapshot = GetRuntimeSnapshotFor(equipmentId, parameterId);
 
-        if (!snapshot.Rules.TryGetValue(RuntimeKey(equipmentId, parameterId), out var rules))
+        if (!snapshot.Rules.TryGetValue(new InterlockRuntimeKey(equipmentId, parameterId), out var rules))
             return Array.Empty<InterlockResult>();
 
         return rules
@@ -301,7 +299,7 @@ public class FdcInterlockService
     internal bool IsInterlockParameterRuntime(string equipmentId, string parameterId)
     {
         var snapshot = GetRuntimeSnapshotFor(equipmentId, parameterId);
-        return snapshot.Rules.TryGetValue(RuntimeKey(equipmentId, parameterId), out var rules)
+        return snapshot.Rules.TryGetValue(new InterlockRuntimeKey(equipmentId, parameterId), out var rules)
                && rules.Length > 0;
     }
 
@@ -553,9 +551,6 @@ public class FdcInterlockService
         CancellationToken ct = default)
         => await GetLatestUnresolvedAsync(equipmentId, parameterId, ct) is not null;
 
-    private static string RuntimeKey(string equipmentId, string parameterId) =>
-        $"{equipmentId}\u001f{parameterId}";
-
     private InterlockRuleSnapshot GetRuntimeSnapshotFor(string equipmentId, string parameterId)
     {
         var snapshot = Volatile.Read(ref _runtimeSnapshot)
@@ -583,7 +578,11 @@ public class FdcInterlockService
 
     private sealed record InterlockRuleSnapshot(
         ImmutableDictionary<string, ImmutableHashSet<string>> Topology,
-        ImmutableDictionary<string, ImmutableArray<CompiledInterlockRule>> Rules);
+        ImmutableDictionary<InterlockRuntimeKey, ImmutableArray<CompiledInterlockRule>> Rules);
+
+    private readonly record struct InterlockRuntimeKey(
+        string EquipmentId,
+        string ParameterId);
 
     private sealed record CompiledInterlockRule(
         string Id,

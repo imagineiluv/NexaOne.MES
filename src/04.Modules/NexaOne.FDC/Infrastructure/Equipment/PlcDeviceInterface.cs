@@ -21,7 +21,7 @@ public sealed class PlcDeviceInterface : IDeviceInterface
     private readonly IPlcDriver _driver;
     private readonly PlcEndpoint _endpoint;
     private IPlcConnection? _connection;
-    private IPlcSubscriptionRuntimeHealth? _subscriptionRuntimeHealth;
+    private IPlcCompletedPollSnapshotRuntimeHealth? _subscriptionRuntimeHealth;
 
     /// <summary>표준 PLC 엔드포인트와 이를 처리할 드라이버를 NexaFramework 장치 어댑터로 구성한다.</summary>
     public PlcDeviceInterface(string interfaceName, PlcEndpoint endpoint, IPlcDriver driver)
@@ -57,7 +57,7 @@ public sealed class PlcDeviceInterface : IDeviceInterface
     public IPlcConnection? Connection => _connection;
 
     /// <summary>원자적 구독이 시작된 뒤 worker가 listener 종료와 poll freshness를 감독할 health 계약.</summary>
-    internal IPlcSubscriptionRuntimeHealth? SubscriptionRuntimeHealth => _subscriptionRuntimeHealth;
+    internal IPlcCompletedPollSnapshotRuntimeHealth? SubscriptionRuntimeHealth => _subscriptionRuntimeHealth;
 
     /// <summary>장치 초기화·실행 중 오류가 발생했을 때 발행된다.</summary>
     public event EventHandler<DeviceErrorEventArgs>? ErrorOccurred;
@@ -174,9 +174,9 @@ public sealed class PlcDeviceInterface : IDeviceInterface
         if (provider is not IPlcAtomicSubscriptionSnapshotProvider atomic)
             throw new FdcInterlockRuntimeUnavailableException(
                 $"PLC endpoint '{_endpoint.EndpointId}' does not expose an atomic subscription snapshot capability.");
-        if (provider is not IPlcSubscriptionRuntimeHealth runtimeHealth)
+        if (provider is not IPlcCompletedPollSnapshotRuntimeHealth runtimeHealth)
             throw new FdcInterlockRuntimeUnavailableException(
-                $"PLC endpoint '{_endpoint.EndpointId}' does not expose a subscription runtime health capability.");
+                $"PLC endpoint '{_endpoint.EndpointId}' does not expose a completed-poll snapshot runtime health capability.");
 
         var values = await atomic.StartWithSnapshotAsync(
             _connection.Endpoint,
@@ -222,7 +222,7 @@ public sealed class PlcDeviceInterface : IDeviceInterface
         return NormalizeSample(plcEvent.TagName, plcEvent.After, plcEvent.Quality);
     }
 
-    private static FdcTagSample NormalizeSample(PlcTagValue value) =>
+    internal static FdcTagSample NormalizeSample(PlcTagValue value) =>
         NormalizeSample(value.TagName, value.Value, value.Quality);
 
     private static FdcTagSample NormalizeSample(

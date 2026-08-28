@@ -254,7 +254,7 @@ public sealed class FdcCollectorServiceTests
     }
 
     [Fact]
-    public async Task OnTagChange_does_not_release_an_effect_without_durable_prepared_and_applied_evidence()
+    public async Task OnTagChange_keeps_monitoring_and_reasserts_an_effect_without_durable_evidence()
     {
         var parameter = FdcParameter.Create(
             "TEMP01", "Temperature", "EQ-001", "C", 0m, 100m).Value;
@@ -291,15 +291,15 @@ public sealed class FdcCollectorServiceTests
 
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
         await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
-        var retry = () => collector.OnTagChangeAsync(
+        await collector.OnTagChangeAsync(
             "EQ-001", Event("TEMP01", 91m, PlcQuality.Good));
-        await retry.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
-            .WithMessage("*run permit*");
 
         triggered.Should().ContainSingle(
             "DB 장애 중에는 물리 action을 유지하고 새 episode를 만들지 않는다");
         resolved.Should().BeEmpty(
             "Prepared/Applied 증거 없이는 release 자체를 시도하지 않는다");
+        collector.IsRunPermitted.Should().BeFalse(
+            "DB 증거가 복구될 때까지 운전 허가는 닫되 PLC 감시는 계속해야 한다");
     }
 
     [Fact]
@@ -927,6 +927,213 @@ public sealed class FdcCollectorServiceTests
 
         fired.Should().BeFalse("Bad 품질로 0이 된 값은 저값 인터락(LT 10)을 거짓 발동시키지 않는다");
         t.sut.IsRunPermitted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Pending_manual_release_retries_only_from_a_fresh_completed_poll()
+    {
+        var parameter = FdcParameter.Create(
+            "TEMP01", "Temperature", "EQ-001", "C", 0m, 100m).Value;
+        var parameterRepository = new Mock<IFdcParameterRepository>();
+        parameterRepository.Setup(repository => repository.GetByIdAsync(
+                "TEMP01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(parameter);
+        var rule = FdcInterlockRule.Create(
+            "R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
+        var ruleRepository = new Mock<IFdcInterlockRuleRepository>();
+        ruleRepository.Setup(repository => repository.GetByEquipmentAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([rule]);
+        var historyRepository = EmptyInterlockHistory();
+        var releaseAttempts = 0;
+        var action = new Mock<IFdcInterlockActionPort>();
+        action.Setup(port => port.CheckReadyAsync(
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockActionReadiness.Ready());
+        action.Setup(port => port.ApplyAsync(
+                It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((FdcInterlockActionRequest request, CancellationToken _) =>
+                FdcInterlockActionResult.Confirmed($"apply:{request.EffectId}"));
+        action.Setup(port => port.ReconcileAsync(
+                It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((FdcInterlockActionRequest request, CancellationToken _) =>
+                FdcInterlockActionResult.Confirmed($"reconcile:{request.EffectId}"));
+        action.Setup(port => port.ReleaseAsync(
+                It.IsAny<FdcInterlockReleaseRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((FdcInterlockReleaseRequest request, CancellationToken _) =>
+                ++releaseAttempts == 1
+                    ? new FdcInterlockReleaseResult(
+                        Acknowledged: false,
+                        ReadbackConfirmed: false,
+                        ManualResetRequired: true,
+                        AcknowledgementId: null,
+                        Detail: "operator reset is still required")
+                    : FdcInterlockReleaseResult.Confirmed($"release:{request.EffectId}"));
+        var collector = new FdcCollectorService(
+            new FdcDataService(parameterRepository.Object, Mock.Of<IFdcCollectDataRepository>()),
+            new FdcInterlockService(ruleRepository.Object, historyRepository.Object),
+            actionPort: action.Object);
+        var resolved = new List<FdcInterlockResolvedEventArgs>();
+        collector.InterlockResolved += (_, args) => resolved.Add(args);
+        await InitializeInterlockAsync(collector);
+
+        await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
+        await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
+
+        collector.IsRunPermitted.Should().BeFalse();
+        releaseAttempts.Should().Be(1);
+        resolved.Should().BeEmpty();
+
+        await collector.RetryPendingEffectPersistenceAsync();
+
+        releaseAttempts.Should().Be(1,
+            "the DB retry supervisor must never release from a cached condition value");
+        resolved.Should().BeEmpty();
+        collector.IsRunPermitted.Should().BeFalse();
+
+        var accepted = await collector.EvaluateCompletedPollSnapshotAsync(
+            "EQ-001",
+            [Event("TEMP01", 50m, PlcQuality.Good)],
+            isSnapshotCurrent: () => true);
+
+        accepted.Should().BeTrue();
+        releaseAttempts.Should().Be(2,
+            "a fully delivered and still-current PLC poll may re-check a manual reset without a tag change");
+        resolved.Should().ContainSingle();
+        collector.IsRunPermitted.Should().BeTrue(
+            "admission can reopen only after physical release and terminal evidence both converge");
+    }
+
+    [Fact]
+    public async Task Stale_completed_poll_does_not_retry_pending_manual_release()
+    {
+        var parameterRepository = new Mock<IFdcParameterRepository>();
+        parameterRepository.Setup(repository => repository.GetByIdAsync(
+                "TEMP01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcParameter.Create(
+                "TEMP01", "Temperature", "EQ-001", "C", 0m, 100m).Value);
+        var rule = FdcInterlockRule.Create(
+            "R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
+        var ruleRepository = new Mock<IFdcInterlockRuleRepository>();
+        ruleRepository.Setup(repository => repository.GetByEquipmentAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([rule]);
+        var releaseAttempts = 0;
+        var action = new Mock<IFdcInterlockActionPort>();
+        action.Setup(port => port.CheckReadyAsync(
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockActionReadiness.Ready());
+        action.Setup(port => port.ApplyAsync(
+                It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockActionResult.Confirmed("apply-confirmed"));
+        action.Setup(port => port.ReleaseAsync(
+                It.IsAny<FdcInterlockReleaseRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                releaseAttempts++;
+                return new FdcInterlockReleaseResult(false, false, true, null, "manual reset pending");
+            });
+        var collector = new FdcCollectorService(
+            new FdcDataService(parameterRepository.Object, Mock.Of<IFdcCollectDataRepository>()),
+            new FdcInterlockService(ruleRepository.Object, EmptyInterlockHistory().Object),
+            actionPort: action.Object);
+        await InitializeInterlockAsync(collector);
+        await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
+        await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
+        releaseAttempts.Should().Be(1);
+
+        var accepted = await collector.EvaluateCompletedPollSnapshotAsync(
+            "EQ-001",
+            [Event("TEMP01", 50m, PlcQuality.Good)],
+            isSnapshotCurrent: () => false);
+
+        accepted.Should().BeFalse();
+        releaseAttempts.Should().Be(1);
+        collector.IsRunPermitted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Release_cancellation_faults_runtime_and_revokes_admission_immediately()
+    {
+        var parameterRepository = new Mock<IFdcParameterRepository>();
+        parameterRepository.Setup(repository => repository.GetByIdAsync(
+                "TEMP01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcParameter.Create(
+                "TEMP01", "Temperature", "EQ-001", "C", 0m, 100m).Value);
+        var rule = FdcInterlockRule.Create(
+            "R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
+        var ruleRepository = new Mock<IFdcInterlockRuleRepository>();
+        ruleRepository.Setup(repository => repository.GetByEquipmentAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([rule]);
+        var action = new Mock<IFdcInterlockActionPort>();
+        action.Setup(port => port.CheckReadyAsync(
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockActionReadiness.Ready());
+        action.Setup(port => port.ApplyAsync(
+                It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockActionResult.Confirmed("apply-confirmed"));
+        action.Setup(port => port.ReleaseAsync(
+                It.IsAny<FdcInterlockReleaseRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException("release cancelled"));
+        var collector = new FdcCollectorService(
+            new FdcDataService(parameterRepository.Object, Mock.Of<IFdcCollectDataRepository>()),
+            new FdcInterlockService(ruleRepository.Object, EmptyInterlockHistory().Object),
+            actionPort: action.Object);
+        var runtimeFaults = 0;
+        collector.RuntimeFaulted += _ => runtimeFaults++;
+        await InitializeInterlockAsync(collector);
+        await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
+
+        var release = () => collector.OnTagChangeAsync(
+            "EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
+
+        await release.Should().ThrowAsync<OperationCanceledException>();
+        collector.IsRunPermitted.Should().BeFalse();
+        runtimeFaults.Should().Be(1,
+            "an unknown late release outcome requires a full runtime reconciliation before restart");
+    }
+
+    [Fact]
+    public async Task Release_timeout_is_a_terminal_fault_instead_of_a_retryable_manual_wait()
+    {
+        var parameterRepository = new Mock<IFdcParameterRepository>();
+        parameterRepository.Setup(repository => repository.GetByIdAsync(
+                "TEMP01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcParameter.Create(
+                "TEMP01", "Temperature", "EQ-001", "C", 0m, 100m).Value);
+        var rule = FdcInterlockRule.Create(
+            "R1", "OverTemp", "EQ-001", "TEMP01", "GT", 80m, "STOP", 1).Value;
+        var ruleRepository = new Mock<IFdcInterlockRuleRepository>();
+        ruleRepository.Setup(repository => repository.GetByEquipmentAsync(
+                "EQ-001", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([rule]);
+        var action = new Mock<IFdcInterlockActionPort>();
+        action.Setup(port => port.CheckReadyAsync(
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockActionReadiness.Ready());
+        action.Setup(port => port.ApplyAsync(
+                It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockActionResult.Confirmed("apply-confirmed"));
+        action.Setup(port => port.ReleaseAsync(
+                It.IsAny<FdcInterlockReleaseRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("controller deadline elapsed"));
+        var collector = new FdcCollectorService(
+            new FdcDataService(parameterRepository.Object, Mock.Of<IFdcCollectDataRepository>()),
+            new FdcInterlockService(ruleRepository.Object, EmptyInterlockHistory().Object),
+            actionPort: action.Object);
+        Exception? runtimeFault = null;
+        collector.RuntimeFaulted += failure => runtimeFault = failure;
+        await InitializeInterlockAsync(collector);
+        await collector.OnTagChangeAsync("EQ-001", Event("TEMP01", 90m, PlcQuality.Good));
+
+        var release = () => collector.OnTagChangeAsync(
+            "EQ-001", Event("TEMP01", 50m, PlcQuality.Good));
+
+        await release.Should().ThrowAsync<FdcInterlockActionFailedException>()
+            .WithMessage("*unknown physical outcome*");
+        runtimeFault.Should().BeOfType<FdcInterlockActionFailedException>();
+        collector.IsRunPermitted.Should().BeFalse();
     }
 
     private static async Task InitializeInterlockAsync(

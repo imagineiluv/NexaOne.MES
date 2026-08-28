@@ -77,12 +77,12 @@
     </constructor-arg>
   </object>
 
-  <!-- 설비 제어(PlantController). FDC 수집 워커(ADR-006 Phase 2)가 GetServerBean("plantController")로 당겨 Machine
-       lifecycle을 수동 제어한다. 무인자 ctor(Spring property 주입). 부모 컨텍스트라 NexaFramework 타입 로드 가능. -->
+  <!-- 설비 제어(PlantController) 공용 lifecycle bean. 설비 orchestration 소유자가 명시적으로 사용하며,
+       FDC 수집 워커는 이 bean을 조회·호출하지 않고 자신이 생성한 PLC 수집 driver만 관리한다. -->
   <object id="plantController" type="NexaFramework.PlantController, NexaFramework" />
 
   <!-- 프로젝트 소유 FDC 물리 action seam. 이 기본 adapter는 의도적으로 unavailable을 반환해
-       Worker:Fdc를 켠 상태에서 PLC/STO 구현과 ack/readback HIL 검증 없이 Plant가 시작되는 것을 막는다.
+       PLC/STO 구현과 ack/readback HIL 검증 없이 FDC runtime readiness/permit이 열리는 것을 막는다.
        설비 프로젝트는 동일 bean id에 IFdcInterlockActionPort 구현을 교체한다. -->
   <object id="fdcInterlockActionPort"
           type="NexaOne.Server.Gateway.UnconfiguredFdcInterlockActionAdapter, NexaOne.Server" />

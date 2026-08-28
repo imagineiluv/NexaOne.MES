@@ -16,6 +16,7 @@
 
   <object id="fdcBridge" factory-object="fdcModule" factory-method="GetFdcBridge" />
   <object id="fdcTraceSource" factory-object="fdcModule" factory-method="GetTraceSource" />
+  <object id="fdcRuntimeLease" factory-object="fdcModule" factory-method="GetRuntimeLease" />
   <object id="fdcCollectionWorker" factory-object="fdcModule" factory-method="GetCollectionWorker" />
   <object id="fdcCollectDataRetentionWorker" factory-object="fdcModule" factory-method="GetRetentionWorker" />
   <object id="virtualEventEvaluationWorker" factory-object="fdcModule" factory-method="GetVirtualEventWorker" />

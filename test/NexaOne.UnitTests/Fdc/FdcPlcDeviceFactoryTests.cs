@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using NexaOne.ServiceContracts.Fdc;
 using NexaOne.FDC.Application.Fdc;
@@ -14,6 +15,16 @@ namespace NexaOne.UnitTests.Fdc;
 public sealed class FdcPlcDeviceFactoryTests
 {
     private static string ExistingTagMapPath => typeof(FdcPlcDeviceFactoryTests).Assembly.Location;
+    private static FdcLeaseOptions RuntimeLeaseOptions { get; } = new(
+        "test-fdc-node",
+        new string('a', 64),
+        TimeSpan.FromSeconds(30),
+        TimeSpan.FromSeconds(10));
+    private static FdcLeaseOptions FastRuntimeLeaseOptions { get; } = new(
+        "test-fdc-node",
+        new string('b', 64),
+        TimeSpan.FromSeconds(6),
+        TimeSpan.FromSeconds(1));
 
     [Fact]
     public async Task Collection_worker_treats_STOP_as_opaque_and_does_not_stop_the_machine()
@@ -101,6 +112,8 @@ public sealed class FdcPlcDeviceFactoryTests
             parameterRepository.Object,
             new FdcPlcDeviceFactory(new PlcDriverFactory(new[] { driver.Object })),
             bus.Object,
+            new ConfirmedRuntimeLease(),
+            RuntimeLeaseOptions,
             enabled: true,
             topic: "nexaone.events");
 
@@ -207,10 +220,12 @@ public sealed class FdcPlcDeviceFactoryTests
             parameterRepository.Object,
             deviceFactory,
             Mock.Of<IMessageBus>(),
+            new ConfirmedRuntimeLease(),
+            RuntimeLeaseOptions,
             enabled: true,
             topic: "nexaone.events");
 
-        var act = () => worker.StartAsync(CancellationToken.None);
+        var act = () => StartAndAwaitExecutionAsync(worker);
 
         await act.Should().ThrowAsync<FdcPlcDriverNotRegisteredException>()
             .WithMessage("*EP-MC*MitsubishiMc*");
@@ -254,10 +269,12 @@ public sealed class FdcPlcDeviceFactoryTests
             parameterRepository.Object,
             new FdcPlcDeviceFactory(new PlcDriverFactory([driver.Object])),
             Mock.Of<IMessageBus>(),
+            new ConfirmedRuntimeLease(),
+            RuntimeLeaseOptions,
             enabled: true,
             topic: "nexaone.events");
 
-        var act = () => worker.StartAsync(CancellationToken.None);
+        var act = () => StartAndAwaitExecutionAsync(worker);
 
         await act.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
             .WithMessage("*project action adapter offline*");
@@ -306,15 +323,111 @@ public sealed class FdcPlcDeviceFactoryTests
             parameters.Object,
             new FdcPlcDeviceFactory(new PlcDriverFactory([driver.Object])),
             Mock.Of<IMessageBus>(),
+            new ConfirmedRuntimeLease(),
+            RuntimeLeaseOptions,
             enabled: true,
             topic: "nexaone.events");
 
-        var act = () => worker.StartAsync(CancellationToken.None);
+        var act = () => StartAndAwaitExecutionAsync(worker);
 
         await act.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
             .WithMessage("*R-OLD*OLD01*outside the loaded topology*");
         driver.Verify(x => x.ConnectAsync(
             It.IsAny<PlcEndpoint>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Collection_worker_denies_start_before_driver_connect_when_runtime_lease_acquisition_is_rejected()
+    {
+        var lease = new ScriptedRuntimeLease(acquire: false);
+        var fixture = CreateRuntimeLeaseWorkerFixture(lease, FastRuntimeLeaseOptions);
+
+        var act = () => StartAndAwaitExecutionAsync(fixture.Worker);
+
+        await act.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
+            .WithMessage("*runtime writer lease*already held*collection remains disabled*");
+        fixture.Driver.Verify(x => x.ConnectAsync(
+            It.IsAny<PlcEndpoint>(), It.IsAny<CancellationToken>()), Times.Never,
+            "the writer lease must be acquired before any driver session is created");
+        fixture.Collector.IsRunPermitted.Should().BeFalse();
+        lease.ReleaseCallCount.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Collection_worker_revokes_permit_closes_owned_driver_and_preserves_lease_renewal_fault(
+        bool renewalThrows)
+    {
+        var allowRenewal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var leaseCause = new InvalidOperationException("sentinel lease heartbeat failure");
+        var lease = new ScriptedRuntimeLease(
+            renewalBehavior: renewalThrows
+                ? LeaseRenewalBehavior.Throw
+                : LeaseRenewalBehavior.ReturnNull,
+            renewalGate: allowRenewal.Task,
+            renewalFailure: leaseCause);
+        var fixture = CreateRuntimeLeaseWorkerFixture(lease, FastRuntimeLeaseOptions);
+
+        await fixture.Worker.StartAsync(CancellationToken.None);
+        await fixture.Running.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        fixture.Collector.IsRunPermitted.Should().BeTrue();
+
+        allowRenewal.TrySetResult(true);
+        var act = async () =>
+        {
+            if (fixture.Worker.ExecuteTask is not null)
+                await fixture.Worker.ExecuteTask;
+        };
+
+        var error = await act.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>();
+        if (renewalThrows)
+        {
+            error.WithMessage("*lease heartbeat failed*collection is fenced immediately*");
+            error.Which.InnerException.Should().BeSameAs(leaseCause,
+                "the lease failure must remain the causal exception after driver cleanup");
+        }
+        else
+        {
+            error.WithMessage("*lease renewal lost its opaque grant CAS or expired*");
+            error.Which.InnerException.Should().BeNull();
+        }
+
+        await fixture.Closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        fixture.Collector.IsRunPermitted.Should().BeFalse();
+        fixture.Connection.Verify(
+            x => x.CloseAsync(It.IsAny<CancellationToken>()), Times.Once,
+            "lease loss must close every driver session owned by this worker");
+        error.Which.Data.Contains(FdcCollectionWorker.DriverCleanupFailureDataKey).Should().BeFalse(
+            "successful cleanup must not replace or decorate the causal lease fault");
+    }
+
+    [Fact]
+    public async Task Collection_worker_closes_owned_driver_before_releasing_latest_opaque_runtime_lease_grant()
+    {
+        var lifecycle = new ConcurrentQueue<string>();
+        var lease = new ScriptedRuntimeLease(
+            renewalBehavior: LeaseRenewalBehavior.SucceedOnceThenBlock,
+            recordLifecycle: lifecycle.Enqueue);
+        var fixture = CreateRuntimeLeaseWorkerFixture(
+            lease,
+            FastRuntimeLeaseOptions,
+            lifecycle.Enqueue);
+
+        await fixture.Worker.StartAsync(CancellationToken.None);
+        await fixture.Running.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await lease.SecondRenewalEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await fixture.Worker.StopAsync(CancellationToken.None);
+
+        lease.FirstSuccessfulGrant.Should().NotBeNull();
+        lease.SecondRenewalInput.Should().BeSameAs(lease.FirstSuccessfulGrant,
+            "the heartbeat loop must CAS from the latest opaque grant");
+        lease.ReleasedGrant.Should().BeSameAs(lease.FirstSuccessfulGrant,
+            "shutdown must release the latest successfully renewed opaque grant");
+        lease.ReleaseCallCount.Should().Be(1);
+        fixture.Connection.Verify(x => x.CloseAsync(It.IsAny<CancellationToken>()), Times.Once);
+        lifecycle.Should().ContainInOrder("driver-close", "lease-release");
     }
 
     [Theory]
@@ -425,6 +538,8 @@ public sealed class FdcPlcDeviceFactoryTests
             parameters.Object,
             new FdcPlcDeviceFactory(new PlcDriverFactory([driver.Object])),
             Mock.Of<IMessageBus>(),
+            new ConfirmedRuntimeLease(),
+            RuntimeLeaseOptions,
             enabled: true,
             topic: "nexaone.events",
             streamFreshnessTimeout: failureMode is "stale" or "freeze"
@@ -433,7 +548,7 @@ public sealed class FdcPlcDeviceFactoryTests
 
         if (failureMode == "stale")
         {
-            var staleStart = () => worker.StartAsync(CancellationToken.None);
+            var staleStart = () => StartAndAwaitExecutionAsync(worker);
             await staleStart.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
                 .WithMessage("*subscription stream is stale*");
             await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -449,7 +564,8 @@ public sealed class FdcPlcDeviceFactoryTests
             It.Is<FdcInterlockActionRequest>(request => request.TriggerValue == 90m),
             It.IsAny<CancellationToken>()), Times.Once);
         connection.Verify(x => x.PingAsync(It.IsAny<CancellationToken>()), Times.Once);
-        collector.IsRunPermitted.Should().BeTrue();
+        collector.IsRunPermitted.Should().BeFalse(
+            "the violating startup snapshot keeps automatic-run admission closed without stopping supervision");
 
         if (failureMode == "callback")
         {
@@ -527,10 +643,12 @@ public sealed class FdcPlcDeviceFactoryTests
             parameters.Object,
             new FdcPlcDeviceFactory(new PlcDriverFactory([driver.Object])),
             Mock.Of<IMessageBus>(),
+            new ConfirmedRuntimeLease(),
+            RuntimeLeaseOptions,
             enabled: true,
             topic: "nexaone.events");
 
-        var act = () => worker.StartAsync(CancellationToken.None);
+        var act = () => StartAndAwaitExecutionAsync(worker);
 
         var error = await act.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>();
         error.WithMessage("*bounded capacity of 4096*");
@@ -611,24 +729,331 @@ public sealed class FdcPlcDeviceFactoryTests
         return driver;
     }
 
-    private static Mock<IPlcSubscriptionRuntimeHealth> AttachRuntimeHealth(
+    private static RuntimeLeaseWorkerFixture CreateRuntimeLeaseWorkerFixture(
+        IFdcRuntimeLease lease,
+        FdcLeaseOptions leaseOptions,
+        Action<string>? recordLifecycle = null)
+    {
+        var endpoint = FdcEquipmentEndpoint.Create(
+            "EP-LEASE", "EQ-LEASE", "ModbusTcp", "tcp://plc.local:502", 500,
+            ExistingTagMapPath).Value;
+        var parameter = FdcParameter.Create(
+            "TEMP01", "Temperature", "EQ-LEASE", "C", 0m, 100m, "EP-LEASE").Value;
+
+        var endpoints = new Mock<IFdcEquipmentEndpointRepository>();
+        endpoints.Setup(x => x.GetAllActiveAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync([endpoint]);
+        var parameters = new Mock<IFdcParameterRepository>();
+        parameters.Setup(x => x.GetByEquipmentAsync("EQ-LEASE", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([parameter]);
+        parameters.Setup(x => x.GetByIdAsync("TEMP01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(parameter);
+        var collected = new Mock<IFdcCollectDataRepository>();
+        collected.Setup(x => x.AddAsync(It.IsAny<FdcCollectData>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var rules = new Mock<IFdcInterlockRuleRepository>();
+        rules.Setup(x => x.GetByEquipmentAsync("EQ-LEASE", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                FdcInterlockRule.Create(
+                    "RULE-LEASE", "Lease guard", "EQ-LEASE", "TEMP01", "GT", 80m, "STOP", 1).Value
+            ]);
+        var history = new Mock<IFdcInterlockHistoryRepository>();
+        history.Setup(x => x.GetAllUnresolvedAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FdcInterlockHistory>());
+        history.Setup(x => x.GetUnresolvedAsync("EQ-LEASE", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<FdcInterlockHistory>());
+
+        var subscriptions = new Mock<IPlcSubscriptionProvider>();
+        AttachRuntimeHealth(subscriptions);
+        subscriptions.As<IPlcAtomicSubscriptionSnapshotProvider>()
+            .Setup(x => x.StartWithSnapshotAsync(
+                It.IsAny<PlcEndpoint>(),
+                It.IsAny<PlcSubscription>(),
+                It.IsAny<Func<PlcTagChangeEvent, Task>>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync([
+                new PlcTagValue(
+                    "TEMP01", 20m, PlcQuality.Good, DateTimeOffset.UtcNow, "ns=2;s=TEMP01")
+            ]);
+        subscriptions.Setup(x => x.StopAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var running = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var connection = new Mock<IPlcConnection>();
+        connection.SetupGet(x => x.Endpoint)
+            .Returns(new PlcEndpoint("EP-LEASE", PlcDriverKind.ModbusTcp, "plc.local", 502));
+        connection.SetupGet(x => x.SubscriptionProvider).Returns(subscriptions.Object);
+        connection.Setup(x => x.OpenAsync(It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        connection.Setup(x => x.PingAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => running.TrySetResult(true))
+            .Returns(Task.CompletedTask);
+        connection.Setup(x => x.CloseAsync(It.IsAny<CancellationToken>()))
+            .Callback(() =>
+            {
+                recordLifecycle?.Invoke("driver-close");
+                closed.TrySetResult(true);
+            })
+            .Returns(Task.CompletedTask);
+        connection.Setup(x => x.DisposeAsync()).Returns(ValueTask.CompletedTask);
+
+        var driver = Driver(PlcDriverKind.ModbusTcp, "lease-test-driver");
+        driver.Setup(x => x.ConnectAsync(It.IsAny<PlcEndpoint>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(connection.Object);
+
+        var collector = new FdcCollectorService(
+            new FdcDataService(parameters.Object, collected.Object),
+            new FdcInterlockService(rules.Object, history.Object),
+            actionPort: new ConfirmedInterlockActionPort(),
+            requireRuntimeAuthority: true);
+        var worker = new FdcCollectionWorker(
+            collector,
+            endpoints.Object,
+            parameters.Object,
+            new FdcPlcDeviceFactory(new PlcDriverFactory([driver.Object])),
+            Mock.Of<IMessageBus>(),
+            lease,
+            leaseOptions,
+            enabled: true,
+            topic: "nexaone.events");
+        return new RuntimeLeaseWorkerFixture(
+            worker, collector, driver, connection, running, closed);
+    }
+
+    private static Mock<IPlcCompletedPollSnapshotRuntimeHealth> AttachRuntimeHealth(
         Mock<IPlcSubscriptionProvider> provider,
         Task? completion = null,
         TimeSpan? initialPollAge = null)
     {
         var elapsed = Stopwatch.StartNew();
         var initialAge = initialPollAge ?? TimeSpan.Zero;
-        var health = provider.As<IPlcSubscriptionRuntimeHealth>();
+        var health = provider.As<IPlcCompletedPollSnapshotRuntimeHealth>();
         health.SetupGet(candidate => candidate.Completion).Returns(
             completion ?? new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously).Task);
         health.SetupGet(candidate => candidate.SubscriptionGeneration).Returns(1);
         health.SetupGet(candidate => candidate.IsRunning).Returns(true);
+        health.SetupGet(candidate => candidate.StartedPollCount).Returns(1);
         health.SetupGet(candidate => candidate.CompletedPollCount).Returns(1);
         health.SetupGet(candidate => candidate.TimeSinceLastCompletedPoll)
             .Returns(() => initialAge + elapsed.Elapsed);
         health.SetupGet(candidate => candidate.LastCompletedPollAt)
             .Returns(() => DateTimeOffset.UtcNow - initialAge - elapsed.Elapsed);
+        health.SetupGet(candidate => candidate.LatestCompletedPollSnapshot)
+            .Returns(() => new PlcCompletedPollSnapshot(
+                subscriptionGeneration: 1,
+                startedPollCount: 1,
+                completedPollCount: 1,
+                completedAt: DateTimeOffset.UtcNow - initialAge - elapsed.Elapsed,
+                values:
+                [
+                    new PlcTagValue(
+                        "TEMP01", 20m, PlcQuality.Good,
+                        DateTimeOffset.UtcNow - initialAge - elapsed.Elapsed,
+                        "test")
+                ]));
         return health;
+    }
+
+    private sealed class ConfirmedRuntimeLease : IFdcRuntimeLease
+    {
+        private FdcRuntimeLeaseGrant? _grant;
+
+        public Task<FdcRuntimeLeaseAcquireResult> TryAcquireAsync(
+            string ownerId,
+            string configRevisionSha256,
+            TimeSpan leaseDuration,
+            CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            var authority = new FdcRuntimeAuthority(
+                ownerId, 1, configRevisionSha256, DateTime.UtcNow.Add(leaseDuration));
+            _grant = new TestGrant(authority);
+            return Task.FromResult(new FdcRuntimeLeaseAcquireResult(
+                true,
+                State(authority),
+                _grant));
+        }
+
+        public Task<FdcRuntimeLeaseGrant?> TryRenewAsync(
+            FdcRuntimeLeaseGrant grant,
+            TimeSpan leaseDuration,
+            CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            var renewed = new TestGrant(
+                grant.Authority with { LeaseExpiresAt = DateTime.UtcNow.Add(leaseDuration) });
+            _grant = renewed;
+            return Task.FromResult<FdcRuntimeLeaseGrant?>(renewed);
+        }
+
+        public Task<bool> TryReleaseAsync(
+            FdcRuntimeLeaseGrant grant,
+            CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            var released = ReferenceEquals(_grant, grant);
+            if (released) _grant = null;
+            return Task.FromResult(released);
+        }
+
+        public Task<FdcRuntimeLeaseState> GetStateAsync(CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult(_grant is null
+                ? new FdcRuntimeLeaseState(null, 1, null, null, null)
+                : State(_grant.Authority));
+        }
+
+        private static FdcRuntimeLeaseState State(FdcRuntimeAuthority authority) => new(
+            authority.OwnerId,
+            authority.FenceToken,
+            authority.LeaseExpiresAt,
+            DateTime.UtcNow,
+            authority.ConfigRevision);
+
+        private sealed class TestGrant(FdcRuntimeAuthority authority)
+            : FdcRuntimeLeaseGrant(authority);
+    }
+
+    private enum LeaseRenewalBehavior
+    {
+        Succeed,
+        ReturnNull,
+        Throw,
+        SucceedOnceThenBlock
+    }
+
+    private sealed class ScriptedRuntimeLease : IFdcRuntimeLease
+    {
+        private readonly bool _acquire;
+        private readonly LeaseRenewalBehavior _renewalBehavior;
+        private readonly Task _renewalGate;
+        private readonly Exception _renewalFailure;
+        private readonly Action<string>? _recordLifecycle;
+        private FdcRuntimeLeaseGrant? _currentGrant;
+        private int _renewalCallCount;
+        private int _releaseCallCount;
+
+        public ScriptedRuntimeLease(
+            bool acquire = true,
+            LeaseRenewalBehavior renewalBehavior = LeaseRenewalBehavior.Succeed,
+            Task? renewalGate = null,
+            Exception? renewalFailure = null,
+            Action<string>? recordLifecycle = null)
+        {
+            _acquire = acquire;
+            _renewalBehavior = renewalBehavior;
+            _renewalGate = renewalGate ?? Task.CompletedTask;
+            _renewalFailure = renewalFailure ?? new InvalidOperationException("scripted lease renewal failure");
+            _recordLifecycle = recordLifecycle;
+        }
+
+        public TaskCompletionSource<bool> SecondRenewalEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public FdcRuntimeLeaseGrant? FirstSuccessfulGrant { get; private set; }
+        public FdcRuntimeLeaseGrant? SecondRenewalInput { get; private set; }
+        public FdcRuntimeLeaseGrant? ReleasedGrant { get; private set; }
+        public int ReleaseCallCount => Volatile.Read(ref _releaseCallCount);
+
+        public Task<FdcRuntimeLeaseAcquireResult> TryAcquireAsync(
+            string ownerId,
+            string configRevisionSha256,
+            TimeSpan leaseDuration,
+            CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!_acquire)
+            {
+                return Task.FromResult(new FdcRuntimeLeaseAcquireResult(
+                    false,
+                    new FdcRuntimeLeaseState(null, 1, null, DateTime.UtcNow, null),
+                    null));
+            }
+
+            var authority = new FdcRuntimeAuthority(
+                ownerId, 1, configRevisionSha256, DateTime.UtcNow.Add(leaseDuration));
+            _currentGrant = new TestGrant(authority);
+            return Task.FromResult(new FdcRuntimeLeaseAcquireResult(
+                true,
+                State(authority),
+                _currentGrant));
+        }
+
+        public async Task<FdcRuntimeLeaseGrant?> TryRenewAsync(
+            FdcRuntimeLeaseGrant grant,
+            TimeSpan leaseDuration,
+            CancellationToken ct = default)
+        {
+            var call = Interlocked.Increment(ref _renewalCallCount);
+            if (_renewalBehavior == LeaseRenewalBehavior.SucceedOnceThenBlock && call == 2)
+            {
+                SecondRenewalInput = grant;
+                SecondRenewalEntered.TrySetResult(true);
+                await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            }
+
+            await _renewalGate.WaitAsync(ct);
+            if (_renewalBehavior == LeaseRenewalBehavior.ReturnNull)
+                return null;
+            if (_renewalBehavior == LeaseRenewalBehavior.Throw)
+                throw _renewalFailure;
+
+            var renewed = new TestGrant(
+                grant.Authority with { LeaseExpiresAt = DateTime.UtcNow.Add(leaseDuration) });
+            _currentGrant = renewed;
+            if (call == 1)
+                FirstSuccessfulGrant = renewed;
+            return renewed;
+        }
+
+        public Task<bool> TryReleaseAsync(
+            FdcRuntimeLeaseGrant grant,
+            CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            Interlocked.Increment(ref _releaseCallCount);
+            ReleasedGrant = grant;
+            _recordLifecycle?.Invoke("lease-release");
+            var released = ReferenceEquals(_currentGrant, grant);
+            if (released)
+                _currentGrant = null;
+            return Task.FromResult(released);
+        }
+
+        public Task<FdcRuntimeLeaseState> GetStateAsync(CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult(_currentGrant is null
+                ? new FdcRuntimeLeaseState(null, 1, null, DateTime.UtcNow, null)
+                : State(_currentGrant.Authority));
+        }
+
+        private static FdcRuntimeLeaseState State(FdcRuntimeAuthority authority) => new(
+            authority.OwnerId,
+            authority.FenceToken,
+            authority.LeaseExpiresAt,
+            DateTime.UtcNow,
+            authority.ConfigRevision);
+
+        private sealed class TestGrant(FdcRuntimeAuthority authority)
+            : FdcRuntimeLeaseGrant(authority);
+    }
+
+    private sealed record RuntimeLeaseWorkerFixture(
+        FdcCollectionWorker Worker,
+        FdcCollectorService Collector,
+        Mock<IPlcDriver> Driver,
+        Mock<IPlcConnection> Connection,
+        TaskCompletionSource<bool> Running,
+        TaskCompletionSource<bool> Closed);
+
+    private static async Task StartAndAwaitExecutionAsync(FdcCollectionWorker worker)
+    {
+        await worker.StartAsync(CancellationToken.None);
+        if (worker.ExecuteTask is not null)
+            await worker.ExecuteTask;
     }
 
     private sealed class ConfirmedInterlockActionPort : IFdcInterlockActionPort

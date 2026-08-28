@@ -1,4 +1,5 @@
 using NexaLogic.Plc.Abstractions.Interfaces;
+using NexaLogic.Plc.Abstractions.Models;
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
 using NexaOne.FDC.Infrastructure.Equipment;
@@ -100,19 +101,21 @@ public sealed class FdcRuntimeHealthPolicyTests
         long generation,
         bool isRunning,
         long completedPollCount,
-        TimeSpan? timeSinceLastCompletedPoll) : IPlcSubscriptionRuntimeHealth
+        TimeSpan? timeSinceLastCompletedPoll) : IPlcCompletedPollSnapshotRuntimeHealth
     {
         public Task Completion { get; } = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously).Task;
 
         public long SubscriptionGeneration { get; } = generation;
         public bool IsRunning { get; } = isRunning;
+        public long StartedPollCount { get; } = completedPollCount;
         public long CompletedPollCount { get; } = completedPollCount;
         public TimeSpan? TimeSinceLastCompletedPoll { get; } = timeSinceLastCompletedPoll;
         public DateTimeOffset? LastCompletedPollAt => null;
+        public PlcCompletedPollSnapshot? LatestCompletedPollSnapshot => null;
     }
 
-    private sealed class ChangingGenerationRuntimeHealth : IPlcSubscriptionRuntimeHealth
+    private sealed class ChangingGenerationRuntimeHealth : IPlcCompletedPollSnapshotRuntimeHealth
     {
         private int _generationReadCount;
 
@@ -120,8 +123,10 @@ public sealed class FdcRuntimeHealthPolicyTests
         public long SubscriptionGeneration =>
             Interlocked.Increment(ref _generationReadCount) == 1 ? 7 : 8;
         public bool IsRunning => true;
+        public long StartedPollCount => 1;
         public long CompletedPollCount => 1;
         public TimeSpan? TimeSinceLastCompletedPoll => TimeSpan.Zero;
         public DateTimeOffset? LastCompletedPollAt => null;
+        public PlcCompletedPollSnapshot? LatestCompletedPollSnapshot => null;
     }
 }

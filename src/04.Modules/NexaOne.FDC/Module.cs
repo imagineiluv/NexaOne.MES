@@ -21,6 +21,7 @@ public sealed class Module
 {
     private readonly IFdcBridge _fdcBridge;
     private readonly IFdcTraceSource _traceSource;
+    private readonly IFdcRuntimeLease _runtimeLease;
     private readonly IHostedService _collectionWorker;
     private readonly IHostedService _retentionWorker;
     private readonly IHostedService _virtualEventWorker;
@@ -53,6 +54,7 @@ public sealed class Module
         var parameters = new FdcParameterRepository(dataSource);
         var endpoints = new FdcEquipmentEndpointRepository(dataSource);
         var collectData = new FdcCollectDataRepository(dataSource, dialect);
+        _runtimeLease = new FdcRuntimeLease(dataSource);
         var groups = new FdcParameterGroupRepository(dataSource);
         var virtualEvents = new VirtualEventRepository(dataSource, dialect);
 
@@ -65,7 +67,8 @@ public sealed class Module
             interlockService,
             alarmService,
             actionPort,
-            actionTimeout: TimeSpan.FromSeconds(options.InterlockActionTimeoutSeconds));
+            actionTimeout: TimeSpan.FromSeconds(options.InterlockActionTimeoutSeconds),
+            requireRuntimeAuthority: true);
 
         _fdcBridge = new FdcBridge(
             new FdcParameterGroupService(groups),
@@ -79,6 +82,8 @@ public sealed class Module
             parameters,
             new FdcPlcDeviceFactory(plcDriverFactory),
             messageBus,
+            _runtimeLease,
+            options.RuntimeLease,
             enabled: options.CollectionEnabled,
             topic: options.EventTopic,
             streamFreshnessTimeout: TimeSpan.FromSeconds(options.RuntimeHealthFreshnessTimeoutSeconds),
@@ -97,6 +102,7 @@ public sealed class Module
 
     public IFdcBridge GetFdcBridge() => _fdcBridge;
     public IFdcTraceSource GetTraceSource() => _traceSource;
+    public IFdcRuntimeLease GetRuntimeLease() => _runtimeLease;
     public IHostedService GetCollectionWorker() => _collectionWorker;
     public IHostedService GetRetentionWorker() => _retentionWorker;
     public IHostedService GetVirtualEventWorker() => _virtualEventWorker;
@@ -117,16 +123,18 @@ internal sealed record FdcModuleOptions(
     int VirtualEventIntervalSeconds,
     int InterlockActionTimeoutSeconds,
     int RuntimeHealthFreshnessTimeoutSeconds,
-    int DriverCleanupTimeoutSeconds)
+    int DriverCleanupTimeoutSeconds,
+    FdcLeaseOptions RuntimeLease)
 {
     private const string DefaultEventTopic = "nexaone.events";
 
     public static FdcModuleOptions FromConfiguration(IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
+        var collectionEnabled = configuration.GetValue("Worker:Fdc:Enabled", false);
 
         return new FdcModuleOptions(
-            CollectionEnabled: configuration.GetValue("Worker:Fdc:Enabled", false),
+            CollectionEnabled: collectionEnabled,
             EventTopic: FirstNonBlank(
                 configuration["Worker:Fdc:Topic"],
                 configuration["Events:Outbox:Topic"],
@@ -147,7 +155,48 @@ internal sealed record FdcModuleOptions(
             RuntimeHealthFreshnessTimeoutSeconds: RequiredPositive(
                 configuration, "Worker:Fdc:RuntimeHealth:FreshnessTimeoutSeconds", 30),
             DriverCleanupTimeoutSeconds: RequiredPositive(
-                configuration, "Worker:Fdc:DriverCleanupTimeoutSeconds", 10));
+                configuration, "Worker:Fdc:DriverCleanupTimeoutSeconds", 10),
+            RuntimeLease: ReadRuntimeLease(configuration, collectionEnabled));
+    }
+
+    private static FdcLeaseOptions ReadRuntimeLease(
+        IConfiguration configuration,
+        bool collectionEnabled)
+    {
+        if (!collectionEnabled)
+        {
+            return new FdcLeaseOptions(
+                "disabled",
+                new string('0', 64),
+                TimeSpan.FromSeconds(30),
+                TimeSpan.FromSeconds(10));
+        }
+
+        var ownerId = configuration["Worker:Fdc:Ownership:OwnerId"]?.Trim();
+        if (string.IsNullOrWhiteSpace(ownerId) || ownerId.Length > 100)
+            throw new InvalidOperationException(
+                "FDC setting 'Worker:Fdc:Ownership:OwnerId' is required and must be at most 100 characters when collection is enabled.");
+
+        var configDigest = configuration["Worker:Fdc:Ownership:ConfigRevisionSha256"]?.Trim();
+        if (configDigest is null
+            || configDigest.Length != 64
+            || configDigest.Any(static character => !Uri.IsHexDigit(character)))
+            throw new InvalidOperationException(
+                "FDC setting 'Worker:Fdc:Ownership:ConfigRevisionSha256' must be a 64-character SHA-256 hexadecimal digest when collection is enabled.");
+
+        var durationSeconds = RequiredPositive(
+            configuration, "Worker:Fdc:Ownership:LeaseDurationSeconds", 30);
+        var renewSeconds = RequiredPositive(
+            configuration, "Worker:Fdc:Ownership:RenewIntervalSeconds", 10);
+        if (durationSeconds < 3 || durationSeconds > 86_400 || renewSeconds > durationSeconds / 3)
+            throw new InvalidOperationException(
+                "FDC ownership lease duration must be 3..86400 seconds and renew interval must be no more than one third of it.");
+
+        return new FdcLeaseOptions(
+            ownerId,
+            configDigest.ToLowerInvariant(),
+            TimeSpan.FromSeconds(durationSeconds),
+            TimeSpan.FromSeconds(renewSeconds));
     }
 
     private static int PositiveOrMinimum(int value, int minimum) => Math.Max(value, minimum);

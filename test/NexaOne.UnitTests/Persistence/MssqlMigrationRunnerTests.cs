@@ -73,7 +73,7 @@ public sealed class MssqlMigrationRunnerTests
         source.Should().Contain("migration content drift");
         source.Should().Contain("AdoptMissingChecksums");
         source.Should().Contain("ApproveHighImpactMigrations");
-        source.Should().Contain("$highImpactVersions = @(142, 144, 146, 147)");
+        source.Should().Contain("$highImpactVersions = @(142, 144, 146, 147, 148)");
         source.Should().Contain("high-impact migration approval is required");
         source.IndexOf("$migrationNamePattern.Match($file.Name)", StringComparison.Ordinal)
             .Should().BeLessThan(source.IndexOf("$conn.Open()", StringComparison.Ordinal),

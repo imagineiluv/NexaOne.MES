@@ -53,6 +53,72 @@ public sealed class FdcInterlockRuntimeTests
     }
 
     [Fact]
+    public async Task Startup_fails_closed_when_adapter_does_not_confirm_shared_output_ownership()
+    {
+        var rules = new Mock<IFdcInterlockRuleRepository>();
+        rules.Setup(x => x.GetByEquipmentAsync("EQ-001", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([Rule("R1", "TEMP01", "STOP")]);
+        var action = new Mock<IFdcInterlockActionPort>();
+        action.Setup(x => x.CheckReadyAsync(
+                It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FdcInterlockActionReadiness(
+                IsAvailable: true,
+                CancellationFencingConfirmed: true,
+                Detail: "shared STOP output is not reference-counted",
+                OutstandingEffects: Array.Empty<FdcInterlockOutstandingEffect>(),
+                AggregateEffectOwnershipConfirmed: false));
+        var collector = Collector(rules.Object, EmptyHistory().Object, action.Object);
+
+        var act = () => collector.InitializeInterlockRuntimeAsync(Topology);
+
+        await act.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
+            .WithMessage("*aggregate EffectId ownership*shared STOP output*");
+        collector.IsRunPermitted.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Production_runtime_requires_a_bound_durable_authority_before_readiness()
+    {
+        var rules = new Mock<IFdcInterlockRuleRepository>();
+        rules.Setup(x => x.GetByEquipmentAsync("EQ-001", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([Rule("R1", "TEMP01", "STOP")]);
+        var action = ReadyAction();
+        var collector = Collector(
+            rules.Object, EmptyHistory().Object, action.Object, requireRuntimeAuthority: true);
+
+        var act = () => collector.InitializeInterlockRuntimeAsync(Topology);
+
+        await act.Should().ThrowAsync<FdcInterlockRuntimeUnavailableException>()
+            .WithMessage("*runtime lease/fence authority*");
+        action.Verify(x => x.CheckReadyAsync(
+            It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Bound_runtime_authority_is_attached_to_every_physical_action_request()
+    {
+        var rules = new Mock<IFdcInterlockRuleRepository>();
+        rules.Setup(x => x.GetByEquipmentAsync("EQ-001", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([Rule("R1", "TEMP01", "STOP")]);
+        var action = ReadyAction();
+        FdcInterlockActionRequest? applied = null;
+        action.Setup(x => x.ApplyAsync(
+                It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<FdcInterlockActionRequest, CancellationToken>((request, _) => applied = request)
+            .ReturnsAsync(FdcInterlockActionResult.Confirmed("ack"));
+        var collector = Collector(
+            rules.Object, EmptyHistory().Object, action.Object, requireRuntimeAuthority: true);
+        var authority = new FdcRuntimeAuthority(
+            "fdc-node-a", 42, new string('a', 64), DateTime.UtcNow.AddSeconds(30));
+        collector.BindRuntimeAuthority(authority);
+
+        await InitializeAndPrimeAsync(collector, _ => 90m);
+
+        applied.Should().NotBeNull();
+        applied!.RuntimeAuthority.Should().Be(authority);
+    }
+
+    [Fact]
     public void Action_results_require_a_nonblank_acknowledgement_id()
     {
         new FdcInterlockActionResult(true, true, " ", null).IsConfirmed.Should().BeFalse();
@@ -171,7 +237,8 @@ public sealed class FdcInterlockRuntimeTests
         await collector.OnTagChangeAsync("EQ-001", Sample("TEMP01", 90m));
         await collector.OnTagChangeAsync("EQ-001", Sample("TEMP01", 95m));
 
-        collector.IsRunPermitted.Should().BeTrue();
+        collector.IsRunPermitted.Should().BeFalse(
+            "an active physical interlock effect must hold automatic-run admission while monitoring stays alive");
         rules.Verify(x => x.GetByEquipmentAsync("EQ-001", It.IsAny<CancellationToken>()), Times.Once);
         rules.Verify(x => x.GetActiveRulesAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never,
@@ -670,7 +737,8 @@ public sealed class FdcInterlockRuntimeTests
         IFdcInterlockRuleRepository rules,
         IFdcInterlockHistoryRepository history,
         IFdcInterlockActionPort action,
-        TimeSpan? actionTimeout = null)
+        TimeSpan? actionTimeout = null,
+        bool requireRuntimeAuthority = false)
     {
         var parameterRepository = new Mock<IFdcParameterRepository>();
         parameterRepository.Setup(x => x.GetByIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -683,7 +751,8 @@ public sealed class FdcInterlockRuntimeTests
             new FdcDataService(parameterRepository.Object, dataRepository.Object),
             new FdcInterlockService(rules, history),
             actionPort: action,
-            actionTimeout: actionTimeout);
+            actionTimeout: actionTimeout,
+            requireRuntimeAuthority: requireRuntimeAuthority);
     }
 
     private static async Task InitializeAndPrimeAsync(

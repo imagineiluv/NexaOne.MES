@@ -8,6 +8,8 @@ namespace NexaOne.ServiceContracts.Fdc;
 /// 이 durable acceptance와 Reconcile inventory가 action→MES DB crash window의 최종 fail-safe 경계다.
 /// 구현은 전달된 cancellation을 장치 명령의 deadline/fence로 강제해야 한다. 특히 Release는 timeout 뒤
 /// 늦게 물리 해제를 완료해서는 안 되며, 이 보장은 caller의 WaitAsync만으로 대신할 수 없다.
+/// 여러 EffectId가 같은 물리 출력(STOP/STO 등)을 공유할 때는 adapter/controller가 출력별 활성 EffectId
+/// 집합을 영속 관리하고 마지막 소유자가 해제될 때만 출력을 deassert해야 한다.
 /// </summary>
 public interface IFdcInterlockActionPort
 {
@@ -46,7 +48,8 @@ public sealed record FdcInterlockActionRequest(
     string Action,
     bool IsRecovery,
     DateTime TriggeredAt,
-    string Message);
+    string Message,
+    FdcRuntimeAuthority? RuntimeAuthority = null);
 
 /// <summary>
 /// 프로젝트 action adapter/controller가 durable하게 수락했고 아직 release하지 않은 물리 effect 증거다.
@@ -61,15 +64,32 @@ public sealed record FdcInterlockActionReadiness(
     bool IsAvailable,
     bool CancellationFencingConfirmed,
     string? Detail,
-    IReadOnlyCollection<FdcInterlockOutstandingEffect> OutstandingEffects)
+    IReadOnlyCollection<FdcInterlockOutstandingEffect> OutstandingEffects,
+    bool AggregateEffectOwnershipConfirmed = false,
+    bool RuntimeFencePersistenceConfirmed = false)
 {
-    /// <summary>호출자는 이 factory로 장치 명령의 cancellation/deadline fencing까지 확인했음을 선언한다.</summary>
+    /// <summary>
+    /// 호출자는 이 factory로 cancellation/deadline fencing과 공유 출력의 EffectId aggregate ownership을
+    /// 모두 확인했음을 선언한다. 실제 controller journal/readback 및 HIL 증거 없이 사용하면 안 된다.
+    /// </summary>
     public static FdcInterlockActionReadiness Ready(
         IReadOnlyCollection<FdcInterlockOutstandingEffect>? outstandingEffects = null) =>
-        new(true, true, null, outstandingEffects ?? Array.Empty<FdcInterlockOutstandingEffect>());
+        new(
+            true,
+            true,
+            null,
+            outstandingEffects ?? Array.Empty<FdcInterlockOutstandingEffect>(),
+            AggregateEffectOwnershipConfirmed: true,
+            RuntimeFencePersistenceConfirmed: true);
 
     public static FdcInterlockActionReadiness Unavailable(string detail) =>
-        new(false, false, detail, Array.Empty<FdcInterlockOutstandingEffect>());
+        new(
+            false,
+            false,
+            detail,
+            Array.Empty<FdcInterlockOutstandingEffect>(),
+            AggregateEffectOwnershipConfirmed: false,
+            RuntimeFencePersistenceConfirmed: false);
 }
 
 public sealed record FdcInterlockActionResult(
@@ -102,7 +122,8 @@ public sealed record FdcInterlockReleaseRequest(
     string Action,
     decimal NormalizedValue,
     FdcInterlockResetPolicy ResetPolicy,
-    bool IsRecovery);
+    bool IsRecovery,
+    FdcRuntimeAuthority? RuntimeAuthority = null);
 
 public sealed record FdcInterlockReleaseResult(
     bool Acknowledged,

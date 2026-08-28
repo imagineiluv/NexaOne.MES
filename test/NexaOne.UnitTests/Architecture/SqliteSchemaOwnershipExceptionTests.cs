@@ -41,6 +41,7 @@ public sealed class SqliteSchemaOwnershipExceptionTests
         identifiers.Should().BeEquivalentTo(
         [
             "FDC_INTERLOCK_HISTORY",
+            "FDC_RUNTIME_OWNERSHIP",
             "IVT_TRACE_CONSUMPTION_BINDING",
             "IVT_TRACE_INGESTION_CURSOR",
             "IVT_TRACE_PROJECTION_INBOX",

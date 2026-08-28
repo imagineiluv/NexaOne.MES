@@ -20,10 +20,16 @@ public sealed class FdcCollectorService
     private readonly FdcAlarmService? _alarmService;
     private readonly IFdcInterlockActionPort? _actionPort;
     private readonly TimeSpan _actionTimeout;
+    private readonly bool _requireRuntimeAuthority;
     private readonly object _runtimeStateGate = new();
     private readonly HashSet<FdcRuntimeKey> _pendingInitialSnapshots = new();
     private int? _preparedRuntimeRevision;
+    private int _runtimeOperational;
     private int _runPermit;
+    private int _activeEffectCount;
+    private int _pendingResolutionCount;
+    private Exception? _runtimeFault;
+    private FdcRuntimeAuthority? _runtimeAuthority;
 
     // 현재 발동 중인 (설비|파라미터)의 모든 episode. 잘못 중복 생성된 durable open 행도 재시작 때
     // EffectId별로 빠짐없이 action 재조정하고 정상 복귀 시 각각 해제한다.
@@ -52,29 +58,61 @@ public sealed class FdcCollectorService
     public event EventHandler<FdcAlarmClearedEventArgs>? AlarmCleared;
 
     /// <summary>
-    /// Runtime-only supervision signal. The FDC worker uses it to close its driver sessions when an
-    /// already-published operational run permit is revoked. It is not a device-control output.
+    /// Runtime-only supervision signal. The FDC worker uses it to close its driver sessions after a
+    /// fatal runtime loss (bad input quality, invalidated rules, or an unconfirmed apply/reconcile).
+    /// An ordinary automatic-run hold caused by an active effect does not stop monitoring.
     /// </summary>
-    internal event Action? RunPermitRevoked;
+    internal event Action<Exception>? RuntimeFaulted;
 
     public FdcCollectorService(
         FdcDataService dataService,
         FdcInterlockService? interlockService = null,
         FdcAlarmService? alarmService = null,
         IFdcInterlockActionPort? actionPort = null,
-        TimeSpan? actionTimeout = null)
+        TimeSpan? actionTimeout = null,
+        bool requireRuntimeAuthority = false)
     {
         _dataService = dataService;
         _interlockService = interlockService;
         _alarmService = alarmService;
         _actionPort = actionPort;
+        _requireRuntimeAuthority = requireRuntimeAuthority;
         _actionTimeout = actionTimeout ?? TimeSpan.FromSeconds(10);
         if (_actionTimeout <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(
                 nameof(actionTimeout), _actionTimeout, "Interlock action timeout must be positive.");
+        _runtimeOperational = interlockService is null ? 1 : 0;
         _runPermit = interlockService is null ? 1 : 0;
         if (interlockService is not null)
             interlockService.RuntimeInvalidated += OnInterlockRuntimeInvalidated;
+    }
+
+    internal void BindRuntimeAuthority(FdcRuntimeAuthority authority)
+    {
+        ArgumentNullException.ThrowIfNull(authority);
+        ArgumentException.ThrowIfNullOrWhiteSpace(authority.OwnerId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(authority.ConfigRevision);
+        if (authority.FenceToken <= 0)
+            throw new ArgumentOutOfRangeException(
+                nameof(authority), authority.FenceToken, "Runtime fence token must be positive.");
+
+        lock (_runtimeStateGate)
+        {
+            if (_runtimeAuthority is { } current
+                && (current.OwnerId != authority.OwnerId
+                    || current.FenceToken != authority.FenceToken
+                    || current.ConfigRevision != authority.ConfigRevision))
+                throw new FdcInterlockRuntimeUnavailableException(
+                    "FDC runtime authority identity changed without a full worker restart.");
+
+            _runtimeAuthority = authority;
+        }
+    }
+
+    internal void ClearRuntimeAuthority()
+    {
+        lock (_runtimeStateGate)
+            _runtimeAuthority = null;
     }
 
     /// <summary>
@@ -87,7 +125,11 @@ public sealed class FdcCollectorService
     {
         lock (_runtimeStateGate)
         {
-            Volatile.Write(ref _runPermit, 0);
+            _runtimeOperational = 0;
+            _runPermit = 0;
+            _activeEffectCount = 0;
+            _pendingResolutionCount = 0;
+            _runtimeFault = null;
             _preparedRuntimeRevision = null;
             _pendingInitialSnapshots.Clear();
         }
@@ -99,6 +141,9 @@ public sealed class FdcCollectorService
         FdcInterlockRuntimeBootstrap? bootstrap = null;
         if (_interlockService is not null)
         {
+            if (_requireRuntimeAuthority && GetRuntimeAuthority() is null)
+                throw new FdcInterlockRuntimeUnavailableException(
+                    "A durable FDC runtime lease/fence authority is required before interlock initialization.");
             if (_actionPort is null)
                 throw new FdcInterlockRuntimeUnavailableException(
                     "A project-owned IFdcInterlockActionPort is required; run permit is denied.");
@@ -117,10 +162,16 @@ public sealed class FdcCollectorService
                     "The project interlock action adapter readiness check failed; run permit is denied.", ex);
             }
 
-            if (readiness is null || !readiness.IsAvailable || !readiness.CancellationFencingConfirmed)
+            if (readiness is null
+                || !readiness.IsAvailable
+                || !readiness.CancellationFencingConfirmed
+                || !readiness.AggregateEffectOwnershipConfirmed
+                || (_requireRuntimeAuthority && !readiness.RuntimeFencePersistenceConfirmed))
                 throw new FdcInterlockRuntimeUnavailableException(
-                    "The project interlock action adapter is unavailable or did not confirm " +
-                    $"cancellation/deadline fencing: {readiness?.Detail ?? "no result"}.");
+                    "The project interlock action adapter is unavailable or did not confirm "
+                    + "cancellation/deadline fencing, shared-output aggregate EffectId ownership, "
+                    + "and durable runtime-fence rejection: "
+                    + $"{readiness?.Detail ?? "no result"}.");
 
             if (readiness.OutstandingEffects is null)
                 throw new FdcInterlockRuntimeUnavailableException(
@@ -187,7 +238,8 @@ public sealed class FdcCollectorService
         EnsureRuntimePreparedForInitialSnapshot();
 
         foreach (var sample in samples)
-            await ProcessSampleAsync(equipmentId, sample, requireRunPermit: false, markInitialSnapshot: true, ct);
+            await ProcessSampleAsync(
+                equipmentId, sample, requireOperationalRuntime: false, markInitialSnapshot: true, ct);
     }
 
     /// <summary>
@@ -200,7 +252,8 @@ public sealed class FdcCollectorService
         {
             if (_interlockService is null)
             {
-                Volatile.Write(ref _runPermit, 1);
+                _runtimeOperational = 1;
+                _runPermit = 1;
                 return;
             }
 
@@ -217,7 +270,8 @@ public sealed class FdcCollectorService
                     $"FDC initial snapshot is incomplete; missing active parameters: {missing}.");
             }
 
-            Volatile.Write(ref _runPermit, 1);
+            _runtimeOperational = 1;
+            _runPermit = _activeEffectCount == 0 && _pendingResolutionCount == 0 ? 1 : 0;
         }
     }
 
@@ -227,19 +281,16 @@ public sealed class FdcCollectorService
     /// <summary>태그 변경 1건을 인터락 스냅샷으로 먼저 평가·적용한 뒤 수집 데이터로 적재한다.
     /// telemetry DB 지연/장애가 프로젝트 action 실행을 선행 차단하지 않는다.</summary>
     public async Task OnTagChangeAsync(string equipmentId, FdcTagSample sample, CancellationToken ct = default)
-        => await ProcessSampleAsync(equipmentId, sample, requireRunPermit: true, markInitialSnapshot: false, ct);
+        => await ProcessSampleAsync(equipmentId, sample, requireOperationalRuntime: true, markInitialSnapshot: false, ct);
 
     internal async Task OnBufferedStartupTagChangeAsync(
         string equipmentId,
         FdcTagSample sample,
         CancellationToken ct = default)
-        => await ProcessSampleAsync(equipmentId, sample, requireRunPermit: false, markInitialSnapshot: false, ct);
+        => await ProcessSampleAsync(equipmentId, sample, requireOperationalRuntime: false, markInitialSnapshot: false, ct);
 
-    internal void DenyRunPermit()
-    {
-        lock (_runtimeStateGate)
-            RevokeRunPermit();
-    }
+    internal void DenyRunPermit(Exception? cause = null)
+        => FailRuntime(cause);
 
     /// <summary>
     /// Driver sample 변화와 무관하게 Prepared/Applied/ReleasePending 영속화를 재시도한다.
@@ -258,24 +309,96 @@ public sealed class FdcCollectorService
                 if (_activeInterlocks.TryGetValue(key, out var episodes))
                 {
                     foreach (var episode in episodes.ToArray())
+                    {
                         await RecordPendingInterlockAsync(key.EquipmentId, key.ParameterId, episode, ct);
+                        if (episode.PendingRelease is not null)
+                            await PersistPendingReleaseEvidenceAsync(episode, ct);
+                    }
                 }
                 await RetryPendingInterlockResolutionAsync(
                     key.EquipmentId, key.ParameterId, key, ct);
             }
             finally { gate.Release(); }
         }
+
+        TryGrantRunPermitIfSafe();
+    }
+
+    /// <summary>
+    /// Re-evaluates one generation-fenced, fully delivered PLC poll without duplicating telemetry/alarm rows.
+    /// The worker supplies a predicate that remains true only while no newer poll has started. Physical release
+    /// retry is allowed only inside this fresh observation path; the persistence supervisor never releases from
+    /// a previously cached value.
+    /// </summary>
+    internal async Task<bool> EvaluateCompletedPollSnapshotAsync(
+        string equipmentId,
+        IReadOnlyCollection<FdcTagSample> samples,
+        Func<bool> isSnapshotCurrent,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(equipmentId);
+        ArgumentNullException.ThrowIfNull(samples);
+        ArgumentNullException.ThrowIfNull(isSnapshotCurrent);
+        EnsureRuntimeOperational();
+
+        foreach (var sample in samples)
+        {
+            if (!isSnapshotCurrent())
+                return false;
+
+            var key = RuntimeKey(equipmentId, sample.ParameterId);
+            var gate = _keyGates.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync(ct);
+            try
+            {
+                // Recheck under the same per-parameter serialization gate used by live callbacks. A completed
+                // newer callback or an already-started next poll invalidates this release candidate.
+                if (!isSnapshotCurrent())
+                    return false;
+
+                if (sample.Quality != FdcSampleQuality.Good)
+                {
+                    if (_interlockService!.IsInterlockParameterRuntime(equipmentId, sample.ParameterId))
+                    {
+                        var failure = new FdcInterlockRuntimeUnavailableException(
+                            $"Interlock input '{equipmentId}/{sample.ParameterId}' quality is '{sample.Quality}' "
+                            + "in a completed PLC poll; run permit is denied.");
+                        FailRuntime(failure);
+                        throw failure;
+                    }
+
+                    continue;
+                }
+
+                await EvaluateInterlockAsync(
+                    equipmentId, sample.ParameterId, sample.Value, key, ct);
+                await RetryPendingInterlockResolutionAsync(
+                    equipmentId, sample.ParameterId, key, ct);
+            }
+            catch (FdcInterlockRuntimeUnavailableException ex)
+            {
+                FailRuntime(ex);
+                throw;
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+
+        TryGrantRunPermitIfSafe();
+        return isSnapshotCurrent();
     }
 
     private async Task ProcessSampleAsync(
         string equipmentId,
         FdcTagSample sample,
-        bool requireRunPermit,
+        bool requireOperationalRuntime,
         bool markInitialSnapshot,
         CancellationToken ct)
     {
-        if (requireRunPermit)
-            EnsureRunPermitted();
+        if (requireOperationalRuntime)
+            EnsureRuntimeOperational();
         else
             EnsureRuntimePreparedForInitialSnapshot();
 
@@ -290,9 +413,9 @@ public sealed class FdcCollectorService
             {
                 isInterlockParameter = _interlockService.IsInterlockParameterRuntime(equipmentId, sample.ParameterId);
             }
-            catch (FdcInterlockRuntimeUnavailableException)
+            catch (FdcInterlockRuntimeUnavailableException ex)
             {
-                RevokeRunPermit();
+                FailRuntime(ex);
                 throw;
             }
 
@@ -300,10 +423,10 @@ public sealed class FdcCollectorService
             {
                 // Bad/Disconnected payload의 fallback 숫자는 규칙 값으로 평가하지 않는다. 다만 인터락 입력을
                 // 관찰할 수 없다는 사실 자체로 permit을 DB 접근 전에 즉시 철회한다.
-                RevokeRunPermit();
                 qualityFailure = new FdcInterlockRuntimeUnavailableException(
                     $"Interlock input '{equipmentId}/{sample.ParameterId}' quality is '{sample.Quality}'; "
                     + "run permit is denied until an explicit runtime re-initialization and Good snapshot.");
+                FailRuntime(qualityFailure);
             }
         }
 
@@ -373,15 +496,19 @@ public sealed class FdcCollectorService
         {
             matches = _interlockService!.EvaluateRuntime(equipmentId, tagName, value);
         }
-        catch (FdcInterlockRuntimeUnavailableException)
+        catch (FdcInterlockRuntimeUnavailableException ex)
         {
-            RevokeRunPermit();
+            FailRuntime(ex);
             throw;
         }
 
         _activeInterlocks.TryGetValue(key, out var activeEpisodes);
         if (matches.Count > 0)
         {
+            // A confirmed interlock effect and an operational monitoring runtime are different states.
+            // Keep the PLC/session supervisor alive, but do not publish automatic-run permission while
+            // any effect is active or being reasserted.
+            HoldRunPermit();
             activeEpisodes ??= _activeInterlocks.GetOrAdd(key, _ => new List<ActiveInterlockEpisode>());
             foreach (var interlock in matches)
             {
@@ -398,7 +525,18 @@ public sealed class FdcCollectorService
                 if (existing.Length > 0)
                 {
                     foreach (var active in existing)
+                    {
+                        if (active.PendingRelease is not null)
+                        {
+                            // The process condition violated again before release was confirmed. Fence the
+                            // pending release locally and re-confirm the original EffectId's physical action.
+                            active.ClearPendingRelease();
+                            await ApplyActionAsync(
+                                equipmentId, tagName, active,
+                                isRecovery: false, reconcile: true, ct);
+                        }
                         await RecordPendingInterlockAsync(equipmentId, tagName, active, ct);
+                    }
                     continue;
                 }
 
@@ -436,44 +574,12 @@ public sealed class FdcCollectorService
             .ToArray();
         foreach (var episode in resolvedEpisodes)
         {
-            await RecordPendingInterlockAsync(equipmentId, tagName, episode, ct);
-            if (episode.HistoryPending || episode.AppliedPersistencePending)
-            {
-                RevokeRunPermit();
-                continue;
-            }
-
             var normalizedAt = DateTime.UtcNow;
             if (episode.ActionConfirmedAt is { } actionConfirmedAt && normalizedAt < actionConfirmedAt)
                 normalizedAt = actionConfirmedAt;
-            if (!await _interlockService.MarkConditionNormalizedAsync(
-                    episode.EffectId, normalizedAt, value, ct))
-            {
-                RevokeRunPermit();
-                continue;
-            }
-            var release = await ReleaseActionAsync(
-                equipmentId, tagName, episode, value, isRecovery: false, ct);
-            if (!release.IsConfirmed)
-            {
-                await _interlockService.MarkReleasePendingAsync(episode.EffectId, release.Detail, ct);
-                RevokeRunPermit();
-                continue;
-            }
-            var releaseConfirmedAt = DateTime.UtcNow;
-            if (releaseConfirmedAt < normalizedAt)
-                releaseConfirmedAt = normalizedAt;
-
-            var pendingResolutions = _pendingInterlockResolutions.GetOrAdd(
-                key, _ => new Queue<PendingInterlockResolution>());
-            if (!pendingResolutions.Any(pending => pending.Episode.EffectId == episode.EffectId))
-                pendingResolutions.Enqueue(new PendingInterlockResolution(
-                    episode, value, normalizedAt, releaseConfirmedAt, release));
-
-            // Physical release is already confirmed. DB terminal persistence is a separate EffectId ledger;
-            // leaving this episode physically active would mask a new violation while the DB is unavailable.
-            activeEpisodes.Remove(episode);
-            await RetryPendingInterlockResolutionAsync(equipmentId, tagName, key, ct);
+            episode.ObserveNormalizedCondition(value, normalizedAt, isRecovery: false);
+            await TryAdvancePendingReleaseAsync(
+                equipmentId, tagName, key, activeEpisodes, episode, ct);
         }
 
         if (activeEpisodes.Count == 0)
@@ -532,6 +638,113 @@ public sealed class FdcCollectorService
         }
     }
 
+    /// <summary>
+    /// Advances a normalized episode independently of PLC value-change callbacks. Manual reset or a
+    /// transient action-adapter failure can therefore converge from the worker supervisor while the
+    /// input remains steadily normal. The original EffectId remains the adapter idempotency key.
+    /// </summary>
+    private async Task<bool> TryAdvancePendingReleaseAsync(
+        string equipmentId,
+        string parameterId,
+        FdcRuntimeKey key,
+        List<ActiveInterlockEpisode> activeEpisodes,
+        ActiveInterlockEpisode episode,
+        CancellationToken ct)
+    {
+        var pending = episode.PendingRelease;
+        if (pending is null)
+            return false;
+
+        HoldRunPermit();
+        await RecordPendingInterlockAsync(equipmentId, parameterId, episode, ct);
+        if (episode.HistoryPending || episode.AppliedPersistencePending)
+            return false;
+
+        await PersistPendingReleaseEvidenceAsync(episode, ct);
+        if (!pending.ConditionPersisted)
+            return false;
+
+        var release = await ReleaseActionAsync(
+            equipmentId,
+            parameterId,
+            episode,
+            pending.Value,
+            pending.IsRecovery,
+            ct);
+        if (!release.IsConfirmed)
+        {
+            pending.ObserveReleasePending(release.Detail);
+            await PersistPendingReleaseEvidenceAsync(episode, ct);
+            return false;
+        }
+
+        var releaseConfirmedAt = DateTime.UtcNow;
+        if (releaseConfirmedAt < pending.NormalizedAt)
+            releaseConfirmedAt = pending.NormalizedAt;
+
+        EnqueuePendingResolution(
+            key,
+            new PendingInterlockResolution(
+                episode,
+                pending.Value,
+                pending.NormalizedAt,
+                releaseConfirmedAt,
+                release));
+
+        // Physical release is already confirmed. DB terminal persistence is a separate EffectId ledger;
+        // keeping it in the physical active set would mask a new violation while the DB is unavailable.
+        RemoveActiveEpisode(key, activeEpisodes, episode);
+        await RetryPendingInterlockResolutionAsync(equipmentId, parameterId, key, ct);
+        TryGrantRunPermitIfSafe();
+        return true;
+    }
+
+    private async Task PersistPendingReleaseEvidenceAsync(
+        ActiveInterlockEpisode episode,
+        CancellationToken ct)
+    {
+        var pending = episode.PendingRelease;
+        if (pending is null)
+            return;
+
+        if (!_interlockService!.IsHistoryPersistenceConfigured)
+        {
+            pending.MarkConditionPersisted();
+            pending.MarkReleasePendingPersisted();
+            return;
+        }
+
+        if (!pending.ConditionPersisted)
+        {
+            try
+            {
+                if (await _interlockService.MarkConditionNormalizedAsync(
+                        episode.EffectId, pending.NormalizedAt, pending.Value, ct))
+                    pending.MarkConditionPersisted();
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                return;
+            }
+        }
+
+        if (!pending.ConditionPersisted
+            || !pending.ReleasePendingObserved
+            || pending.ReleasePendingPersisted)
+            return;
+
+        try
+        {
+            if (await _interlockService.MarkReleasePendingAsync(
+                    episode.EffectId, pending.ReleasePendingDetail, ct))
+                pending.MarkReleasePendingPersisted();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The in-memory release intent remains authoritative and the DB-only supervisor retries it.
+        }
+    }
+
     private async Task RetryPendingInterlockResolutionAsync(
         string equipmentId,
         string parameterId,
@@ -547,7 +760,7 @@ public sealed class FdcCollectorService
         {
             while (pendingQueue.Count > 0)
             {
-                var pending = pendingQueue.Dequeue();
+                var pending = DequeuePendingResolution(pendingQueue);
                 InterlockResolved?.Invoke(this,
                     new FdcInterlockResolvedEventArgs(
                         pending.Episode.EffectId, pending.Episode.Result.RuleId,
@@ -578,7 +791,7 @@ public sealed class FdcCollectorService
                 // 0건은 성공이 아니다. 아직 trigger 행이 보이지 않거나 다른 장애가 있었을 수 있으므로
                 // 다음 Good 샘플에서 같은 EffectId로 다시 확인한다.
                 if (resolved == 0) return;
-                pendingQueue.Dequeue();
+                DequeuePendingResolution(pendingQueue);
                 InterlockResolved?.Invoke(this,
                     new FdcInterlockResolvedEventArgs(
                         pending.Episode.EffectId, pending.Episode.Result.RuleId,
@@ -586,6 +799,7 @@ public sealed class FdcCollectorService
             }
 
             _pendingInterlockResolutions.TryRemove(key, out _);
+            TryGrantRunPermitIfSafe();
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -658,9 +872,10 @@ public sealed class FdcCollectorService
     {
         if (_actionPort is null)
         {
-            RevokeRunPermit();
-            throw new FdcInterlockRuntimeUnavailableException(
+            var failure = new FdcInterlockRuntimeUnavailableException(
                 "A project-owned IFdcInterlockActionPort is required; run permit is denied.");
+            FailRuntime(failure);
+            throw failure;
         }
 
         FdcInterlockActionResult result;
@@ -671,7 +886,7 @@ public sealed class FdcCollectorService
                     new FdcInterlockActionRequest(
                         episode.EffectId, episode.Result.RuleId!, equipmentId, parameterId,
                         episode.TriggerValue, episode.Result.Action, isRecovery,
-                        episode.TriggeredAt, episode.Result.Message), token) : _actionPort.ApplyAsync(
+                        episode.TriggeredAt, episode.Result.Message, GetRuntimeAuthority()), token) : _actionPort.ApplyAsync(
                     new FdcInterlockActionRequest(
                         episode.EffectId,
                         episode.Result.RuleId!,
@@ -681,39 +896,42 @@ public sealed class FdcCollectorService
                         episode.Result.Action,
                         isRecovery,
                         episode.TriggeredAt,
-                        episode.Result.Message),
+                        episode.Result.Message,
+                        GetRuntimeAuthority()),
                     token)),
                 ct);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
-            RevokeRunPermit();
+            FailRuntime(ex);
             throw;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            RevokeRunPermit();
-            try { await _interlockService!.MarkActionErrorAsync(episode.EffectId, ex.Message, ct); }
-            catch (Exception persistenceError) when (persistenceError is not OperationCanceledException) { }
-            throw new FdcInterlockActionFailedException(
+            var failure = new FdcInterlockActionFailedException(
                 episode.EffectId,
                 $"Interlock action '{episode.Result.Action}' threw before acknowledgement/readback; run permit is denied.",
                 ex);
+            FailRuntime(failure);
+            try { await _interlockService!.MarkActionErrorAsync(episode.EffectId, ex.Message, ct); }
+            catch (Exception persistenceError) when (persistenceError is not OperationCanceledException) { }
+            throw failure;
         }
 
         if (result is null || !result.IsConfirmed)
         {
-            RevokeRunPermit();
+            var failure = new FdcInterlockActionFailedException(
+                episode.EffectId,
+                $"Interlock action '{episode.Result.Action}' was not confirmed by acknowledgement and readback: " +
+                $"{result?.Detail ?? "no result"}.");
+            FailRuntime(failure);
             try
             {
                 await _interlockService!.MarkActionErrorAsync(
                     episode.EffectId, result?.Detail ?? "Action acknowledgement/readback was not confirmed.", ct);
             }
             catch (Exception persistenceError) when (persistenceError is not OperationCanceledException) { }
-            throw new FdcInterlockActionFailedException(
-                episode.EffectId,
-                $"Interlock action '{episode.Result.Action}' was not confirmed by acknowledgement and readback: " +
-                $"{result?.Detail ?? "no result"}.");
+            throw failure;
         }
 
         var confirmedAt = DateTime.UtcNow;
@@ -735,20 +953,44 @@ public sealed class FdcCollectorService
         decimal normalizedValue, bool isRecovery, CancellationToken ct)
     {
         if (_actionPort is null)
+        {
+            HoldRunPermit();
             return new FdcInterlockReleaseResult(false, false, true, null, "Action adapter is unavailable.");
+        }
 
         try
         {
             var result = await AwaitActionPortAsync(token => _actionPort.ReleaseAsync(
                 new FdcInterlockReleaseRequest(
                     episode.EffectId, episode.Result.RuleId!, equipmentId, parameterId,
-                    episode.Result.Action, normalizedValue, FdcInterlockResetPolicy.ManualRequired, isRecovery), token), ct);
-            if (result is null || !result.IsConfirmed) RevokeRunPermit();
+                    episode.Result.Action, normalizedValue, FdcInterlockResetPolicy.ManualRequired,
+                    isRecovery, GetRuntimeAuthority()), token), ct);
+            if (result is null || !result.IsConfirmed) HoldRunPermit();
             return result ?? new FdcInterlockReleaseResult(false, false, true, null, "No release result.");
+        }
+        catch (OperationCanceledException ex)
+        {
+            // Cancellation leaves release confirmation unknown. Revoke both admission and runtime health so
+            // the worker closes its sessions; a restart must reconcile the durable EffectId before any grant.
+            FailRuntime(ex);
+            throw;
+        }
+        catch (TimeoutException ex)
+        {
+            // The caller no longer knows whether a release that ignored cancellation can complete late.
+            // Without a returned controller fence/readback this is a terminal runtime fault, not an
+            // ordinary manual-reset wait.
+            var failure = new FdcInterlockActionFailedException(
+                episode.EffectId,
+                $"Interlock release for action '{episode.Result.Action}' timed out with an unknown physical outcome; " +
+                "full runtime reconciliation is required.",
+                ex);
+            FailRuntime(failure);
+            throw failure;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            RevokeRunPermit();
+            HoldRunPermit();
             return new FdcInterlockReleaseResult(false, false, true, null, ex.Message);
         }
     }
@@ -794,18 +1036,73 @@ public sealed class FdcCollectorService
     private void AddActiveEpisode(FdcRuntimeKey key, ActiveInterlockEpisode episode)
     {
         var episodes = _activeInterlocks.GetOrAdd(key, _ => new List<ActiveInterlockEpisode>());
-        if (episodes.All(candidate => candidate.EffectId != episode.EffectId))
+        lock (_runtimeStateGate)
+        {
+            if (episodes.Any(candidate => candidate.EffectId == episode.EffectId))
+                return;
+
+            _runPermit = 0;
             episodes.Add(episode);
+            _activeEffectCount++;
+        }
     }
 
-    private void EnsureRunPermitted()
+    private void RemoveActiveEpisode(
+        FdcRuntimeKey key,
+        List<ActiveInterlockEpisode> episodes,
+        ActiveInterlockEpisode episode)
+    {
+        lock (_runtimeStateGate)
+        {
+            if (!episodes.Remove(episode))
+                return;
+            _activeEffectCount--;
+            if (_activeEffectCount < 0)
+                throw new InvalidOperationException("FDC active-effect count became negative.");
+        }
+
+        if (episodes.Count == 0)
+            _activeInterlocks.TryRemove(key, out _);
+    }
+
+    private void EnqueuePendingResolution(
+        FdcRuntimeKey key,
+        PendingInterlockResolution pending)
+    {
+        var queue = _pendingInterlockResolutions.GetOrAdd(
+            key, _ => new Queue<PendingInterlockResolution>());
+        lock (_runtimeStateGate)
+        {
+            if (queue.Any(candidate => candidate.Episode.EffectId == pending.Episode.EffectId))
+                return;
+            _runPermit = 0;
+            queue.Enqueue(pending);
+            _pendingResolutionCount++;
+        }
+    }
+
+    private PendingInterlockResolution DequeuePendingResolution(
+        Queue<PendingInterlockResolution> queue)
+    {
+        lock (_runtimeStateGate)
+        {
+            var pending = queue.Dequeue();
+            _pendingResolutionCount--;
+            if (_pendingResolutionCount < 0)
+                throw new InvalidOperationException("FDC pending-resolution count became negative.");
+            return pending;
+        }
+    }
+
+    private void EnsureRuntimeOperational()
     {
         if (_interlockService is null) return;
-        if (Volatile.Read(ref _runPermit) == 1 && _interlockService.IsRuntimeInitialized) return;
+        if (Volatile.Read(ref _runtimeOperational) == 1 && _interlockService.IsRuntimeInitialized) return;
 
-        RevokeRunPermit();
-        throw new FdcInterlockRuntimeUnavailableException(
-            "FDC interlock runtime is not initialized or was invalidated; run permit is denied.");
+        var failure = new FdcInterlockRuntimeUnavailableException(
+            "FDC interlock monitoring runtime is not initialized or was invalidated; run permit is denied.");
+        FailRuntime(failure);
+        throw failure;
     }
 
     private void EnsureRuntimePreparedForInitialSnapshot()
@@ -819,9 +1116,10 @@ public sealed class FdcCollectorService
                 return;
         }
 
-        RevokeRunPermit();
-        throw new FdcInterlockRuntimeUnavailableException(
+        var failure = new FdcInterlockRuntimeUnavailableException(
             "FDC interlock runtime is not prepared for initial snapshot evaluation; run permit is denied.");
+        FailRuntime(failure);
+        throw failure;
     }
 
     private void OnInterlockRuntimeInvalidated()
@@ -830,16 +1128,64 @@ public sealed class FdcCollectorService
         {
             _preparedRuntimeRevision = null;
         }
-        RevokeRunPermit();
+        FailRuntime(new FdcInterlockRuntimeUnavailableException(
+            "FDC interlock rule/topology snapshot was invalidated while the runtime was active."));
     }
 
-    private void RevokeRunPermit()
+    private void HoldRunPermit()
     {
         if (_interlockService is null)
             return;
 
-        if (Interlocked.Exchange(ref _runPermit, 0) == 1)
-            RunPermitRevoked?.Invoke();
+        lock (_runtimeStateGate)
+            _runPermit = 0;
+    }
+
+    private FdcRuntimeAuthority? GetRuntimeAuthority()
+    {
+        lock (_runtimeStateGate)
+            return _runtimeAuthority;
+    }
+
+    private void TryGrantRunPermitIfSafe()
+    {
+        if (_interlockService is null)
+            return;
+
+        lock (_runtimeStateGate)
+        {
+            if (_runtimeOperational == 1
+                && _preparedRuntimeRevision is { } revision
+                && _interlockService.IsRuntimeCurrent(revision)
+                && _pendingInitialSnapshots.Count == 0
+                && _activeEffectCount == 0
+                && _pendingResolutionCount == 0)
+            {
+                _runPermit = 1;
+            }
+        }
+    }
+
+    private void FailRuntime(Exception? cause = null)
+    {
+        if (_interlockService is null)
+            return;
+
+        bool notify;
+        Exception fault;
+        lock (_runtimeStateGate)
+        {
+            notify = _runtimeOperational == 1;
+            _runtimeFault ??= cause ?? new FdcInterlockRuntimeUnavailableException(
+                "FDC interlock monitoring runtime entered a fail-closed terminal state.");
+            fault = _runtimeFault;
+            _runtimeOperational = 0;
+            _runPermit = 0;
+            _preparedRuntimeRevision = null;
+        }
+
+        if (notify)
+            RuntimeFaulted?.Invoke(fault);
     }
 
     private static FdcRuntimeKey RuntimeKey(string equipmentId, string parameterId) =>
@@ -935,6 +1281,7 @@ internal sealed class ActiveInterlockEpisode
     public FdcInterlockActionResult? ActionResult { get; private set; }
     public DateTime? ActionConfirmedAt { get; private set; }
     public bool AppliedPersistencePending { get; private set; }
+    public PendingInterlockRelease? PendingRelease { get; private set; }
 
     public void MarkActionApplied(FdcInterlockActionResult result, DateTime confirmedAt)
     {
@@ -944,6 +1291,46 @@ internal sealed class ActiveInterlockEpisode
     }
 
     public void MarkAppliedPersisted() => AppliedPersistencePending = false;
+
+    public void ObserveNormalizedCondition(decimal value, DateTime normalizedAt, bool isRecovery)
+        => PendingRelease ??= new PendingInterlockRelease(value, normalizedAt, isRecovery);
+
+    public void ClearPendingRelease() => PendingRelease = null;
+}
+
+internal sealed class PendingInterlockRelease
+{
+    public PendingInterlockRelease(decimal value, DateTime normalizedAt, bool isRecovery)
+    {
+        Value = value;
+        NormalizedAt = normalizedAt;
+        IsRecovery = isRecovery;
+    }
+
+    public decimal Value { get; }
+    public DateTime NormalizedAt { get; }
+    public bool IsRecovery { get; }
+    public bool ConditionPersisted { get; private set; }
+    public bool ReleasePendingObserved { get; private set; }
+    public bool ReleasePendingPersisted { get; private set; }
+    public string? ReleasePendingDetail { get; private set; }
+
+    public void MarkConditionPersisted() => ConditionPersisted = true;
+
+    public void ObserveReleasePending(string? detail)
+    {
+        if (!ReleasePendingObserved
+            || !string.Equals(ReleasePendingDetail, detail, StringComparison.Ordinal))
+            ReleasePendingPersisted = false;
+        ReleasePendingObserved = true;
+        ReleasePendingDetail = detail;
+    }
+
+    public void MarkReleasePendingPersisted()
+    {
+        if (ReleasePendingObserved)
+            ReleasePendingPersisted = true;
+    }
 }
 
 internal sealed record PendingInterlockResolution(

@@ -38,110 +38,160 @@ public static class SqliteSchemaInitializer
         END;
         """;
 
-    private const string FdcEffectLifecycleInsertTrigger = """
+    private static readonly string FdcEffectLifecycleInsertTrigger = $"""
         CREATE TRIGGER TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BI
         BEFORE INSERT ON FDC_INTERLOCK_HISTORY
-        WHEN TYPEOF(NEW.VERSION) <> 'integer' OR NEW.VERSION <= 0
-          OR TYPEOF(NEW.IS_RESOLVED) <> 'integer'
-          OR NEW.EFFECT_STATE NOT IN ('Prepared', 'Applied', 'ConditionNormalized', 'ReleasePending', 'Resolved')
-          OR NOT (
-              (NEW.IS_RESOLVED = 0 AND NEW.EFFECT_STATE <> 'Resolved')
-              OR (NEW.IS_RESOLVED = 1 AND NEW.EFFECT_STATE = 'Resolved'))
-          OR NOT (
-              (NEW.EFFECT_STATE = 'Prepared'
-               AND NEW.APPLY_ACK_ID IS NULL
-               AND NEW.APPLY_CONFIRMED_AT IS NULL
-               AND NEW.CONDITION_NORMALIZED_AT IS NULL
-               AND NEW.CONDITION_NORMALIZED_VALUE IS NULL
-               AND NEW.RELEASE_ACK_ID IS NULL
-               AND NEW.RELEASE_CONFIRMED_AT IS NULL)
-              OR (
-                  NEW.EFFECT_STATE = 'Applied'
-                  AND NULLIF(TRIM(NEW.APPLY_ACK_ID), '') IS NOT NULL
-                  AND NEW.APPLY_CONFIRMED_AT IS NOT NULL
-                  AND NEW.CONDITION_NORMALIZED_AT IS NULL
-                  AND NEW.CONDITION_NORMALIZED_VALUE IS NULL
-                  AND NEW.RELEASE_ACK_ID IS NULL
-                  AND NEW.RELEASE_CONFIRMED_AT IS NULL)
-              OR (
-                  NEW.EFFECT_STATE IN ('ConditionNormalized', 'ReleasePending')
-                  AND NULLIF(TRIM(NEW.APPLY_ACK_ID), '') IS NOT NULL
-                  AND NEW.APPLY_CONFIRMED_AT IS NOT NULL
-                  AND NEW.CONDITION_NORMALIZED_AT IS NOT NULL
-                  AND NEW.CONDITION_NORMALIZED_VALUE IS NOT NULL
-                  AND NEW.CONDITION_NORMALIZED_AT >= NEW.APPLY_CONFIRMED_AT
-                  AND NEW.RELEASE_ACK_ID IS NULL
-                  AND NEW.RELEASE_CONFIRMED_AT IS NULL)
-              OR (
-                  NEW.EFFECT_STATE = 'Resolved'
-                  AND ((
-                      NULLIF(TRIM(NEW.APPLY_ACK_ID), '') IS NOT NULL
-                      AND NEW.APPLY_CONFIRMED_AT IS NOT NULL
-                      AND NEW.CONDITION_NORMALIZED_AT IS NOT NULL
-                      AND NEW.CONDITION_NORMALIZED_VALUE IS NOT NULL
-                      AND NULLIF(TRIM(NEW.RELEASE_ACK_ID), '') IS NOT NULL
-                      AND NEW.RELEASE_CONFIRMED_AT IS NOT NULL
-                      AND NEW.RESOLVED_AT IS NOT NULL
-                      AND NEW.CONDITION_NORMALIZED_AT >= NEW.APPLY_CONFIRMED_AT
-                      AND NEW.RELEASE_CONFIRMED_AT >= NEW.CONDITION_NORMALIZED_AT
-                      AND NEW.RESOLVED_AT >= NEW.RELEASE_CONFIRMED_AT)
-                  OR NEW.LAST_ERROR = 'LegacyResolvedBeforeV146')))
+        WHEN NOT (
+        {BuildFdcLifecycleRowValidityPredicate("NEW.")}
+        )
         BEGIN
             SELECT RAISE(ABORT, 'FDC interlock effect lifecycle state is invalid');
         END;
         """;
 
-    private const string FdcEffectLifecycleUpdateTrigger = """
+    private static readonly string FdcEffectLifecycleUpdateTrigger = $"""
         CREATE TRIGGER TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BU
         BEFORE UPDATE ON FDC_INTERLOCK_HISTORY
-        WHEN TYPEOF(NEW.VERSION) <> 'integer' OR NEW.VERSION <= 0
-          OR TYPEOF(NEW.IS_RESOLVED) <> 'integer'
-          OR NEW.EFFECT_STATE NOT IN ('Prepared', 'Applied', 'ConditionNormalized', 'ReleasePending', 'Resolved')
-          OR NOT (
-              (NEW.IS_RESOLVED = 0 AND NEW.EFFECT_STATE <> 'Resolved')
-              OR (NEW.IS_RESOLVED = 1 AND NEW.EFFECT_STATE = 'Resolved'))
-          OR NOT (
-              (NEW.EFFECT_STATE = 'Prepared'
-               AND NEW.APPLY_ACK_ID IS NULL
-               AND NEW.APPLY_CONFIRMED_AT IS NULL
-               AND NEW.CONDITION_NORMALIZED_AT IS NULL
-               AND NEW.CONDITION_NORMALIZED_VALUE IS NULL
-               AND NEW.RELEASE_ACK_ID IS NULL
-               AND NEW.RELEASE_CONFIRMED_AT IS NULL)
-              OR (
-                  NEW.EFFECT_STATE = 'Applied'
-                  AND NULLIF(TRIM(NEW.APPLY_ACK_ID), '') IS NOT NULL
-                  AND NEW.APPLY_CONFIRMED_AT IS NOT NULL
-                  AND NEW.CONDITION_NORMALIZED_AT IS NULL
-                  AND NEW.CONDITION_NORMALIZED_VALUE IS NULL
-                  AND NEW.RELEASE_ACK_ID IS NULL
-                  AND NEW.RELEASE_CONFIRMED_AT IS NULL)
-              OR (
-                  NEW.EFFECT_STATE IN ('ConditionNormalized', 'ReleasePending')
-                  AND NULLIF(TRIM(NEW.APPLY_ACK_ID), '') IS NOT NULL
-                  AND NEW.APPLY_CONFIRMED_AT IS NOT NULL
-                  AND NEW.CONDITION_NORMALIZED_AT IS NOT NULL
-                  AND NEW.CONDITION_NORMALIZED_VALUE IS NOT NULL
-                  AND NEW.CONDITION_NORMALIZED_AT >= NEW.APPLY_CONFIRMED_AT
-                  AND NEW.RELEASE_ACK_ID IS NULL
-                  AND NEW.RELEASE_CONFIRMED_AT IS NULL)
-              OR (
-                  NEW.EFFECT_STATE = 'Resolved'
-                  AND ((
-                      NULLIF(TRIM(NEW.APPLY_ACK_ID), '') IS NOT NULL
-                      AND NEW.APPLY_CONFIRMED_AT IS NOT NULL
-                      AND NEW.CONDITION_NORMALIZED_AT IS NOT NULL
-                      AND NEW.CONDITION_NORMALIZED_VALUE IS NOT NULL
-                      AND NULLIF(TRIM(NEW.RELEASE_ACK_ID), '') IS NOT NULL
-                      AND NEW.RELEASE_CONFIRMED_AT IS NOT NULL
-                      AND NEW.RESOLVED_AT IS NOT NULL
-                      AND NEW.CONDITION_NORMALIZED_AT >= NEW.APPLY_CONFIRMED_AT
-                      AND NEW.RELEASE_CONFIRMED_AT >= NEW.CONDITION_NORMALIZED_AT
-                      AND NEW.RESOLVED_AT >= NEW.RELEASE_CONFIRMED_AT)
-                  OR NEW.LAST_ERROR = 'LegacyResolvedBeforeV146')))
+        WHEN NOT (
+        {BuildFdcLifecycleRowValidityPredicate("NEW.")}
+        ) OR NOT (
+        {BuildFdcLifecycleTransitionValidityPredicate("NEW.", "OLD.")}
+        )
         BEGIN
-            SELECT RAISE(ABORT, 'FDC interlock effect lifecycle state is invalid');
+            SELECT RAISE(ABORT, 'FDC interlock effect lifecycle state or transition is invalid');
         END;
+        """;
+
+    private const string FdcEffectLifecycleDeleteTrigger = """
+        CREATE TRIGGER TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BD
+        BEFORE DELETE ON FDC_INTERLOCK_HISTORY
+        BEGIN
+            SELECT RAISE(ABORT, 'FDC interlock effect history is append-only');
+        END;
+        """;
+
+    private const string FdcRuntimeOwnershipUpdateTrigger = """
+        CREATE TRIGGER TR_FDC_RUNTIME_OWNERSHIP_FENCE_BU
+        BEFORE UPDATE ON FDC_RUNTIME_OWNERSHIP
+        WHEN NOT (
+            (NEW.FENCE_TOKEN = OLD.FENCE_TOKEN
+             AND OLD.OWNER_ID IS NOT NULL
+             AND NEW.OWNER_ID = OLD.OWNER_ID
+             AND NEW.CONFIG_REVISION = OLD.CONFIG_REVISION
+             AND NEW.LEASE_SECRET_HASH = OLD.LEASE_SECRET_HASH
+             AND NEW.HEARTBEAT_AT >= OLD.HEARTBEAT_AT
+             AND OLD.LEASE_EXPIRES_AT > STRFTIME('%Y-%m-%d %H:%M:%f', 'now')
+             AND NEW.HEARTBEAT_AT BETWEEN
+                 STRFTIME('%Y-%m-%d %H:%M:%f', 'now', '-5 seconds')
+                 AND STRFTIME('%Y-%m-%d %H:%M:%f', 'now')
+             AND NEW.LEASE_EXPIRES_AT >= OLD.LEASE_EXPIRES_AT
+             AND NEW.LEASE_EXPIRES_AT > NEW.HEARTBEAT_AT
+             AND NEW.LEASE_EXPIRES_AT <=
+                 STRFTIME('%Y-%m-%d %H:%M:%f', NEW.HEARTBEAT_AT, '+1 day'))
+            OR
+            (NEW.FENCE_TOKEN = OLD.FENCE_TOKEN
+             AND OLD.OWNER_ID IS NOT NULL
+             AND NEW.OWNER_ID IS NULL)
+            OR
+            (OLD.FENCE_TOKEN = NEW.FENCE_TOKEN - 1
+             AND NEW.OWNER_ID IS NOT NULL
+             AND LENGTH(NEW.CONFIG_REVISION) = 64
+             AND NEW.CONFIG_REVISION NOT GLOB '*[^0-9a-f]*'
+             AND LENGTH(NEW.LEASE_SECRET_HASH) = 64
+             AND NEW.LEASE_SECRET_HASH NOT GLOB '*[^0-9a-f]*'
+             AND (OLD.OWNER_ID IS NULL
+                  OR OLD.LEASE_EXPIRES_AT <= STRFTIME('%Y-%m-%d %H:%M:%f', 'now'))
+             AND NEW.HEARTBEAT_AT BETWEEN
+                 STRFTIME('%Y-%m-%d %H:%M:%f', 'now', '-5 seconds')
+                 AND STRFTIME('%Y-%m-%d %H:%M:%f', 'now')
+             AND NEW.LEASE_EXPIRES_AT > NEW.HEARTBEAT_AT
+             AND NEW.LEASE_EXPIRES_AT <=
+                 STRFTIME('%Y-%m-%d %H:%M:%f', NEW.HEARTBEAT_AT, '+1 day')))
+        BEGIN
+            SELECT RAISE(ABORT, 'FDC runtime ownership transition or fence token is invalid');
+        END;
+        """;
+
+    private const string FdcRuntimeOwnershipDeleteTrigger = """
+        CREATE TRIGGER TR_FDC_RUNTIME_OWNERSHIP_FENCE_BD
+        BEFORE DELETE ON FDC_RUNTIME_OWNERSHIP
+        BEGIN
+            SELECT RAISE(ABORT, 'FDC runtime ownership row and fence counter are not deletable');
+        END;
+        """;
+
+    /// <summary>
+    /// SQLite cannot add V146's SQL Server CHECK constraints to an existing table. Keep the row
+    /// shape in one expression so INSERT, UPDATE, and boot-time reconciliation cannot drift.
+    /// </summary>
+    private static string BuildFdcLifecycleRowValidityPredicate(string qualifier) => $"""
+        TYPEOF({qualifier}VERSION) = 'integer'
+        AND {qualifier}VERSION > 0
+        AND TYPEOF({qualifier}IS_RESOLVED) = 'integer'
+        AND {qualifier}EFFECT_STATE IN ('Prepared', 'Applied', 'ConditionNormalized', 'ReleasePending', 'Resolved')
+        AND (
+            ({qualifier}IS_RESOLVED = 0 AND {qualifier}EFFECT_STATE <> 'Resolved')
+            OR ({qualifier}IS_RESOLVED = 1 AND {qualifier}EFFECT_STATE = 'Resolved'))
+        AND (
+            ({qualifier}EFFECT_STATE = 'Prepared'
+             AND {qualifier}APPLY_ACK_ID IS NULL
+             AND {qualifier}APPLY_CONFIRMED_AT IS NULL
+             AND {qualifier}CONDITION_NORMALIZED_AT IS NULL
+             AND {qualifier}CONDITION_NORMALIZED_VALUE IS NULL
+             AND {qualifier}RELEASE_ACK_ID IS NULL
+             AND {qualifier}RELEASE_CONFIRMED_AT IS NULL)
+            OR (
+                {qualifier}EFFECT_STATE = 'Applied'
+                AND NULLIF(TRIM({qualifier}APPLY_ACK_ID), '') IS NOT NULL
+                AND {qualifier}APPLY_CONFIRMED_AT IS NOT NULL
+                AND {qualifier}CONDITION_NORMALIZED_AT IS NULL
+                AND {qualifier}CONDITION_NORMALIZED_VALUE IS NULL
+                AND {qualifier}RELEASE_ACK_ID IS NULL
+                AND {qualifier}RELEASE_CONFIRMED_AT IS NULL)
+            OR (
+                {qualifier}EFFECT_STATE IN ('ConditionNormalized', 'ReleasePending')
+                AND NULLIF(TRIM({qualifier}APPLY_ACK_ID), '') IS NOT NULL
+                AND {qualifier}APPLY_CONFIRMED_AT IS NOT NULL
+                AND {qualifier}CONDITION_NORMALIZED_AT IS NOT NULL
+                AND {qualifier}CONDITION_NORMALIZED_VALUE IS NOT NULL
+                AND {qualifier}CONDITION_NORMALIZED_AT >= {qualifier}APPLY_CONFIRMED_AT
+                AND {qualifier}RELEASE_ACK_ID IS NULL
+                AND {qualifier}RELEASE_CONFIRMED_AT IS NULL)
+            OR (
+                {qualifier}EFFECT_STATE = 'Resolved'
+                AND ((
+                    NULLIF(TRIM({qualifier}APPLY_ACK_ID), '') IS NOT NULL
+                    AND {qualifier}APPLY_CONFIRMED_AT IS NOT NULL
+                    AND {qualifier}CONDITION_NORMALIZED_AT IS NOT NULL
+                    AND {qualifier}CONDITION_NORMALIZED_VALUE IS NOT NULL
+                    AND NULLIF(TRIM({qualifier}RELEASE_ACK_ID), '') IS NOT NULL
+                    AND {qualifier}RELEASE_CONFIRMED_AT IS NOT NULL
+                    AND {qualifier}RESOLVED_AT IS NOT NULL
+                    AND {qualifier}CONDITION_NORMALIZED_AT >= {qualifier}APPLY_CONFIRMED_AT
+                    AND {qualifier}RELEASE_CONFIRMED_AT >= {qualifier}CONDITION_NORMALIZED_AT
+                    AND {qualifier}RESOLVED_AT >= {qualifier}RELEASE_CONFIRMED_AT)
+                OR {qualifier}LAST_ERROR = 'LegacyResolvedBeforeV146')))
+        """;
+
+    /// <summary>
+    /// Reconciliation may deliberately reassert a normalized/release-pending STOP and return to
+    /// Applied before trusting a fresh PLC snapshot. Other backward jumps, terminal mutation, and
+    /// non-increasing concurrency versions are invalid direct-writer transitions.
+    /// </summary>
+    private static string BuildFdcLifecycleTransitionValidityPredicate(
+        string newQualifier,
+        string oldQualifier) => $"""
+        {newQualifier}VERSION > {oldQualifier}VERSION
+        AND {oldQualifier}EFFECT_STATE <> 'Resolved'
+        AND (
+            ({oldQualifier}EFFECT_STATE = 'Prepared'
+             AND {newQualifier}EFFECT_STATE IN ('Prepared', 'Applied'))
+            OR ({oldQualifier}EFFECT_STATE = 'Applied'
+                AND {newQualifier}EFFECT_STATE IN ('Applied', 'ConditionNormalized'))
+            OR ({oldQualifier}EFFECT_STATE = 'ConditionNormalized'
+                AND {newQualifier}EFFECT_STATE IN ('Applied', 'ConditionNormalized', 'ReleasePending', 'Resolved'))
+            OR ({oldQualifier}EFFECT_STATE = 'ReleasePending'
+                AND {newQualifier}EFFECT_STATE IN ('Applied', 'ReleasePending', 'Resolved')))
         """;
 
     /// <summary>
@@ -204,6 +254,7 @@ public static class SqliteSchemaInitializer
         EnsureEmsToolMountPositionGuard(conn);
         EnsureTraceProjectionPerformanceSchema(conn, migrationDmlAlreadyApplied: true);
         EnsureFdcInterlockEffectLifecycleSchema(conn, migrationDmlAlreadyApplied: true);
+        EnsureFdcRuntimeOwnershipSchema(conn);
         EnsureFdcOpenStateIndexes(conn);
         EnsureFdcEndpointConfigurationIntegrity(conn);
         EnsureQueryPerformanceIndexes(conn);
@@ -290,6 +341,7 @@ public static class SqliteSchemaInitializer
         EnsureEmsToolMountPositionGuard(conn);
         EnsureTraceProjectionPerformanceSchema(conn, migrationDmlAlreadyApplied: false);
         EnsureFdcInterlockEffectLifecycleSchema(conn, migrationDmlAlreadyApplied: false);
+        EnsureFdcRuntimeOwnershipSchema(conn);
         EnsureFdcOpenStateIndexes(conn);
         EnsureFdcEndpointConfigurationIntegrity(conn);
         EnsureQueryPerformanceIndexes(conn);
@@ -626,12 +678,19 @@ public static class SqliteSchemaInitializer
                                             transaction,
                                             "trigger",
                                             "TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BU",
-                                            FdcEffectLifecycleUpdateTrigger);
+                                            FdcEffectLifecycleUpdateTrigger)
+                                        && SqliteObjectDefinitionMatches(
+                                            conn,
+                                            transaction,
+                                            "trigger",
+                                            "TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BD",
+                                            FdcEffectLifecycleDeleteTrigger);
 
                 if (!triggersCanonical)
                 {
                     Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BI;", transaction);
                     Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BU;", transaction);
+                    Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_INTERLOCK_EFFECT_LIFECYCLE_BD;", transaction);
                 }
 
                 if (!hasMarker && !migrationDmlAlreadyApplied)
@@ -651,56 +710,12 @@ public static class SqliteSchemaInitializer
                 {
                     using var invalid = conn.CreateCommand();
                     invalid.Transaction = transaction;
-                    invalid.CommandText = """
+                    invalid.CommandText = $"""
                         SELECT COUNT(*)
                           FROM FDC_INTERLOCK_HISTORY
-                         WHERE TYPEOF(VERSION) <> 'integer'
-                            OR VERSION <= 0
-                            OR TYPEOF(IS_RESOLVED) <> 'integer'
-                            OR EFFECT_STATE NOT IN (
-                                'Prepared', 'Applied', 'ConditionNormalized', 'ReleasePending', 'Resolved')
-                            OR NOT (
-                                (IS_RESOLVED = 0 AND EFFECT_STATE <> 'Resolved')
-                                OR (IS_RESOLVED = 1 AND EFFECT_STATE = 'Resolved'))
-                            OR NOT (
-                                (EFFECT_STATE = 'Prepared'
-                                 AND APPLY_ACK_ID IS NULL
-                                 AND APPLY_CONFIRMED_AT IS NULL
-                                 AND CONDITION_NORMALIZED_AT IS NULL
-                                 AND CONDITION_NORMALIZED_VALUE IS NULL
-                                 AND RELEASE_ACK_ID IS NULL
-                                 AND RELEASE_CONFIRMED_AT IS NULL)
-                                OR (
-                                    EFFECT_STATE = 'Applied'
-                                    AND NULLIF(TRIM(APPLY_ACK_ID), '') IS NOT NULL
-                                    AND APPLY_CONFIRMED_AT IS NOT NULL
-                                    AND CONDITION_NORMALIZED_AT IS NULL
-                                    AND CONDITION_NORMALIZED_VALUE IS NULL
-                                    AND RELEASE_ACK_ID IS NULL
-                                    AND RELEASE_CONFIRMED_AT IS NULL)
-                                OR (
-                                    EFFECT_STATE IN ('ConditionNormalized', 'ReleasePending')
-                                    AND NULLIF(TRIM(APPLY_ACK_ID), '') IS NOT NULL
-                                    AND APPLY_CONFIRMED_AT IS NOT NULL
-                                    AND CONDITION_NORMALIZED_AT IS NOT NULL
-                                    AND CONDITION_NORMALIZED_VALUE IS NOT NULL
-                                    AND CONDITION_NORMALIZED_AT >= APPLY_CONFIRMED_AT
-                                    AND RELEASE_ACK_ID IS NULL
-                                    AND RELEASE_CONFIRMED_AT IS NULL)
-                                OR (
-                                    EFFECT_STATE = 'Resolved'
-                                    AND ((
-                                        NULLIF(TRIM(APPLY_ACK_ID), '') IS NOT NULL
-                                        AND APPLY_CONFIRMED_AT IS NOT NULL
-                                        AND CONDITION_NORMALIZED_AT IS NOT NULL
-                                        AND CONDITION_NORMALIZED_VALUE IS NOT NULL
-                                        AND NULLIF(TRIM(RELEASE_ACK_ID), '') IS NOT NULL
-                                        AND RELEASE_CONFIRMED_AT IS NOT NULL
-                                        AND RESOLVED_AT IS NOT NULL
-                                        AND CONDITION_NORMALIZED_AT >= APPLY_CONFIRMED_AT
-                                        AND RELEASE_CONFIRMED_AT >= CONDITION_NORMALIZED_AT
-                                        AND RESOLVED_AT >= RELEASE_CONFIRMED_AT)
-                                    OR LAST_ERROR = 'LegacyResolvedBeforeV146')));
+                         WHERE NOT (
+                         {BuildFdcLifecycleRowValidityPredicate(string.Empty)}
+                         );
                         """;
                     var invalidCount = Convert.ToInt64(invalid.ExecuteScalar() ?? 0L);
                     if (invalidCount != 0)
@@ -715,6 +730,7 @@ public static class SqliteSchemaInitializer
                 {
                     Exec(conn, FdcEffectLifecycleInsertTrigger, transaction);
                     Exec(conn, FdcEffectLifecycleUpdateTrigger, transaction);
+                    Exec(conn, FdcEffectLifecycleDeleteTrigger, transaction);
                 }
 
                 if (!hasMarker)
@@ -739,6 +755,145 @@ public static class SqliteSchemaInitializer
             }
         }
 
+    }
+
+    /// <summary>
+    /// V149의 GLOBAL writer 행과 fence counter를 보장한다. 증분 migration loop는 일반 INSERT를
+    /// 실행하지 않으므로 최초 upgrade에서만 seed를 만들고 durable marker 이후 행이 사라지면
+    /// token 0으로 재생성하지 않고 fail-closed 한다. canonical trigger는 직접 writer의 fence
+    /// 감소·재사용과 행 삭제를 차단한다.
+    /// </summary>
+    private static void EnsureFdcRuntimeOwnershipSchema(SqliteConnection conn)
+    {
+        const string table = "FDC_RUNTIME_OWNERSHIP";
+        if (!HasTable(conn, table)) return;
+
+        EnsureSqliteReconciliationLedger(conn);
+        using var transaction = conn.BeginTransaction(deferred: false);
+        try
+        {
+            const string reconciliationId = "V149__FDC_RUNTIME_OWNERSHIP_FENCE";
+            var hasMarker = HasSqliteReconciliation(conn, transaction, reconciliationId);
+            if (!HasColumn(conn, table, "LEASE_SECRET_HASH"))
+            {
+                Exec(conn, "ALTER TABLE FDC_RUNTIME_OWNERSHIP ADD COLUMN LEASE_SECRET_HASH TEXT NULL;", transaction);
+            }
+
+            var triggersCanonical = SqliteObjectDefinitionMatches(
+                                        conn,
+                                        transaction,
+                                        "trigger",
+                                        "TR_FDC_RUNTIME_OWNERSHIP_FENCE_BU",
+                                        FdcRuntimeOwnershipUpdateTrigger)
+                                    && SqliteObjectDefinitionMatches(
+                                        conn,
+                                        transaction,
+                                        "trigger",
+                                        "TR_FDC_RUNTIME_OWNERSHIP_FENCE_BD",
+                                        FdcRuntimeOwnershipDeleteTrigger);
+
+            if (!triggersCanonical)
+            {
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_RUNTIME_OWNERSHIP_FENCE_BU;", transaction);
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_FDC_RUNTIME_OWNERSHIP_FENCE_BD;", transaction);
+            }
+
+            using (var count = conn.CreateCommand())
+            {
+                count.Transaction = transaction;
+                count.CommandText = "SELECT COUNT(*) FROM FDC_RUNTIME_OWNERSHIP;";
+                var rowCount = Convert.ToInt64(count.ExecuteScalar() ?? 0L);
+                if (rowCount == 0 && !hasMarker)
+                {
+                    Exec(conn, """
+                        INSERT INTO FDC_RUNTIME_OWNERSHIP
+                            (LEASE_SCOPE, OWNER_ID, FENCE_TOKEN, LEASE_EXPIRES_AT, HEARTBEAT_AT,
+                             CONFIG_REVISION, LEASE_SECRET_HASH,
+                             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                        VALUES
+                            ('GLOBAL', NULL, 0, NULL, NULL, NULL, NULL,
+                             'SYSTEM', CURRENT_TIMESTAMP, 'SYSTEM', CURRENT_TIMESTAMP);
+                        """, transaction);
+                    rowCount = 1;
+                }
+
+                if (rowCount != 1)
+                {
+                    var reason = rowCount == 0 && hasMarker
+                        ? "The durable marker exists, so recreating fence token 0 would reuse issued tokens."
+                        : "Exactly one GLOBAL writer row is required.";
+                    throw new InvalidOperationException(
+                        $"V149 SQLite reconciliation found {rowCount} FDC runtime ownership rows. {reason}");
+                }
+            }
+
+            using (var invalid = conn.CreateCommand())
+            {
+                invalid.Transaction = transaction;
+                invalid.CommandText = """
+                    SELECT COUNT(*)
+                      FROM FDC_RUNTIME_OWNERSHIP
+                     WHERE LEASE_SCOPE <> 'GLOBAL'
+                        OR TYPEOF(FENCE_TOKEN) <> 'integer'
+                        OR FENCE_TOKEN < 0
+                        OR NOT (
+                            (OWNER_ID IS NULL
+                             AND LEASE_EXPIRES_AT IS NULL
+                             AND HEARTBEAT_AT IS NULL
+                             AND CONFIG_REVISION IS NULL
+                             AND LEASE_SECRET_HASH IS NULL)
+                            OR
+                            (OWNER_ID IS NOT NULL
+                             AND NULLIF(TRIM(OWNER_ID), '') IS NOT NULL
+                             AND LEASE_EXPIRES_AT IS NOT NULL
+                             AND HEARTBEAT_AT IS NOT NULL
+                             AND JULIANDAY(LEASE_EXPIRES_AT) IS NOT NULL
+                             AND JULIANDAY(HEARTBEAT_AT) IS NOT NULL
+                             AND LEASE_EXPIRES_AT > HEARTBEAT_AT
+                             AND CONFIG_REVISION IS NOT NULL
+                             AND LENGTH(CONFIG_REVISION) = 64
+                             AND CONFIG_REVISION NOT GLOB '*[^0-9a-f]*'
+                             AND LEASE_SECRET_HASH IS NOT NULL
+                             AND LENGTH(LEASE_SECRET_HASH) = 64
+                             AND LEASE_SECRET_HASH NOT GLOB '*[^0-9a-f]*'
+                             AND LEASE_EXPIRES_AT <=
+                                 STRFTIME('%Y-%m-%d %H:%M:%f', HEARTBEAT_AT, '+1 day')));
+                    """;
+                var invalidCount = Convert.ToInt64(invalid.ExecuteScalar() ?? 0L);
+                if (invalidCount != 0)
+                {
+                    throw new InvalidOperationException(
+                        $"V149 SQLite reconciliation found {invalidCount} invalid FDC runtime " +
+                        "ownership row(s). Repair the row without decreasing its fence before startup.");
+                }
+            }
+
+            if (!triggersCanonical)
+            {
+                Exec(conn, FdcRuntimeOwnershipUpdateTrigger, transaction);
+                Exec(conn, FdcRuntimeOwnershipDeleteTrigger, transaction);
+            }
+
+            if (!hasMarker)
+            {
+                using var marker = conn.CreateCommand();
+                marker.Transaction = transaction;
+                marker.CommandText = """
+                    INSERT INTO SYS_SQLITE_RECONCILIATION
+                        (RECONCILIATION_ID, APPLIED_AT)
+                    VALUES (@id, CURRENT_TIMESTAMP);
+                    """;
+                marker.Parameters.AddWithValue("@id", reconciliationId);
+                marker.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
     }
 
     /// <summary>Locks the V141 process-restart recovery access paths on SQLite upgrades.</summary>

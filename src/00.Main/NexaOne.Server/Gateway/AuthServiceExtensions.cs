@@ -1,5 +1,8 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using System.Globalization;
+using System.Net;
+using System.Net.Mail;
 using NexaOne.Application.Auth;
 using NexaOne.Application.Messaging;
 using NexaOne.Application.Query;
@@ -39,17 +42,11 @@ public static class AuthServiceExtensions
         services.AddHostedService(sp => new RefreshTokenCleanupWorker(
             sp.GetRequiredService<SysRefreshTokenStore>(), cleanupEnabled, cleanupInterval, cleanupRetention));
 
-        // 메일 발송(forgot-password 토큰 전달) — 기본 무발송, Email:Smtp:Enabled=true + Host 설정 시 SMTP 실발송.
+        // 메일 발송(forgot-password 토큰 전달) — 기본 무발송. 활성화된 SMTP는 불완전한 설정으로
+        // NullEmailSender에 폴백하지 않고 조립 단계에서 실패해 비밀번호 재설정 메일의 무음 유실을 막는다.
         var smtpEnabled = configuration.GetValue("Email:Smtp:Enabled", false);
-        var smtpHost = configuration["Email:Smtp:Host"];
-        if (smtpEnabled && !string.IsNullOrWhiteSpace(smtpHost))
-            services.AddSingleton<IEmailSender>(new SmtpEmailSender(
-                smtpHost!,
-                configuration.GetValue("Email:Smtp:Port", 587),
-                configuration["Email:Smtp:Sender"] ?? "noreply@nexaone.local",
-                configuration["Email:Smtp:User"],
-                configuration["Email:Smtp:Password"],
-                configuration.GetValue("Email:Smtp:UseSsl", true)));
+        if (smtpEnabled)
+            services.AddSingleton<IEmailSender>(CreateSmtpEmailSender(configuration));
         else
             services.AddSingleton<IEmailSender>(new NullEmailSender());
 
@@ -60,6 +57,40 @@ public static class AuthServiceExtensions
 
         return services;
     }
+
+    private static SmtpEmailSender CreateSmtpEmailSender(IConfiguration configuration)
+    {
+        var host = configuration["Email:Smtp:Host"]?.Trim();
+        if (string.IsNullOrWhiteSpace(host))
+            throw InvalidSmtpConfiguration("Email:Smtp:Host", "a non-blank SMTP host is required");
+        if (Uri.CheckHostName(host) == UriHostNameType.Unknown)
+            throw InvalidSmtpConfiguration("Email:Smtp:Host", "the SMTP host is not a valid DNS name or IP address");
+
+        var rawPort = configuration["Email:Smtp:Port"]?.Trim();
+        if (!int.TryParse(rawPort, NumberStyles.None, CultureInfo.InvariantCulture, out var port)
+            || port is < 1 or > IPEndPoint.MaxPort)
+            throw InvalidSmtpConfiguration("Email:Smtp:Port", "an integer from 1 through 65535 is required");
+
+        var sender = configuration["Email:Smtp:Sender"]?.Trim();
+        if (string.IsNullOrWhiteSpace(sender)
+            || !MailAddress.TryCreate(sender, out var parsedSender)
+            || !string.Equals(parsedSender.Address, sender, StringComparison.OrdinalIgnoreCase)
+            || parsedSender.Host.Length == 0
+            || Uri.CheckHostName(parsedSender.Host) == UriHostNameType.Unknown)
+            throw InvalidSmtpConfiguration("Email:Smtp:Sender", "a valid sender email address is required");
+
+        return new SmtpEmailSender(
+            host,
+            port,
+            sender,
+            configuration["Email:Smtp:User"],
+            configuration["Email:Smtp:Password"],
+            configuration.GetValue("Email:Smtp:UseSsl", true));
+    }
+
+    private static InvalidOperationException InvalidSmtpConfiguration(string key, string reason)
+        => new($"SMTP is enabled but '{key}' is invalid: {reason}. " +
+               "Disable Email:Smtp:Enabled or provide a complete SMTP configuration.");
 
     // override가 있으면 그 디렉터리를, 없으면 BaseDirectory에서 상위로 db/queries-auth를 찾는다(db/queries 규약과 동형).
     private static string? ResolveAuthQueriesRoot(string? overrideDirectory)

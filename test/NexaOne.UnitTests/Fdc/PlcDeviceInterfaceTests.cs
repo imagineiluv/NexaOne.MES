@@ -157,11 +157,12 @@ public sealed class PlcDeviceInterfaceTests
         conn.SetupGet(connection => connection.SubscriptionProvider).Returns(subscriptions.Object);
         var sut = new PlcDeviceInterface("if-1", OpcUaEndpoint(), driver.Object);
         await sut.InitializeAsync();
-        using var deadline = new CancellationTokenSource(TimeSpan.FromMilliseconds(20));
+        using var deadline = new CancellationTokenSource();
 
         var stop = sut.StopAsync(deadline.Token);
+        deadline.Cancel();
         var error = await Record.ExceptionAsync(
-            () => stop.WaitAsync(TimeSpan.FromSeconds(1)));
+            () => stop.WaitAsync(TimeSpan.FromSeconds(5)));
 
         error.Should().BeOfType<AggregateException>();
         conn.Verify(connection => connection.CloseAsync(It.IsAny<CancellationToken>()), Times.Once);

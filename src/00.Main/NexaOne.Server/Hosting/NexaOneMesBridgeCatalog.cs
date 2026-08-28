@@ -59,6 +59,7 @@ internal sealed class NexaOneMesBridgeCatalog : INexaModuleBridgeCatalog
             Bind<IOeeAggregationBridge>("Est", "oeeAggregationBridge"),
             Bind<IUtilityBridge>("Est", "utilityBridge"),
             Bind<IFdcBridge>("Fdc", "fdcBridge"),
+            Bind<IFdcRuntimeLease>("Fdc", "fdcRuntimeLease"),
             Bind<IFdcTraceSource>("Fdc", "fdcTraceSource"),
             Bind<IMaterialBridge>("Ivt", "materialBridge"),
             Bind<IMaterialLotBridge>("Ivt", "materialLotBridge"),

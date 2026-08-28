@@ -70,6 +70,70 @@ public sealed class FdcTraceSourceTests
     }
 
     [Fact]
+    public async Task DeleteOlderThanAsync_uses_bounded_batches_and_leaves_newer_samples()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"nexaone-fdc-retention-{Guid.NewGuid():N}.db");
+        var connectionString = $"Data Source={path}";
+        try
+        {
+            using (var connection = new SqliteConnection(connectionString))
+            {
+                connection.Open();
+                using var command = connection.CreateCommand();
+                command.CommandText = """
+                    CREATE TABLE FDC_COLLECT_DATA (
+                        COLLECT_ID TEXT NOT NULL PRIMARY KEY,
+                        EQUIPMENT_ID TEXT NOT NULL,
+                        PARAMETER_ID TEXT NOT NULL,
+                        VALUE NUMERIC NOT NULL,
+                        COLLECTED_AT TEXT NOT NULL,
+                        QUALITY TEXT NOT NULL,
+                        LOWER_LIMIT NUMERIC NOT NULL,
+                        UPPER_LIMIT NUMERIC NOT NULL);
+                    CREATE INDEX IX_FDC_COLLECT_RETENTION
+                        ON FDC_COLLECT_DATA (COLLECTED_AT, COLLECT_ID);
+                    INSERT INTO FDC_COLLECT_DATA VALUES
+                        ('OLD-1', 'EQ-1', 'P-1', 1, '2025-01-01 00:00:00', 'Good', 0, 100),
+                        ('OLD-2', 'EQ-1', 'P-1', 2, '2025-01-01 00:00:00', 'Good', 0, 100),
+                        ('OLD-3', 'EQ-1', 'P-1', 3, '2025-01-02 00:00:00', 'Good', 0, 100),
+                        ('OLD-4', 'EQ-1', 'P-1', 4, '2025-01-03 00:00:00', 'Good', 0, 100),
+                        ('OLD-5', 'EQ-1', 'P-1', 5, '2025-01-04 00:00:00', 'Good', 0, 100),
+                        ('OLD-6', 'EQ-1', 'P-1', 6, '2025-01-05 00:00:00', 'Good', 0, 100),
+                        ('NEW-1', 'EQ-1', 'P-1', 7, '2027-01-01 00:00:00', 'Good', 0, 100);
+                    """;
+                command.ExecuteNonQuery();
+            }
+
+            var dataSource = new EesDataSource
+            {
+                Provider = new SqliteTestDatabaseProvider(),
+                ConnectionString = connectionString,
+            };
+            var repository = new FdcCollectDataRepository(
+                dataSource,
+                new SqliteEesDbCapability(),
+                retentionBatchSize: 2,
+                maxRetentionBatchesPerCall: 2);
+            var cutoff = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+            (await repository.DeleteOlderThanAsync(cutoff)).Should().Be(4,
+                "one invocation is capped at batch-size times maximum batches");
+            (await repository.DeleteOlderThanAsync(cutoff)).Should().Be(2,
+                "the next maintenance pass resumes the remaining indexed backlog");
+
+            using var verify = new SqliteConnection(connectionString);
+            verify.Open();
+            using var count = verify.CreateCommand();
+            count.CommandText = "SELECT GROUP_CONCAT(COLLECT_ID, ',') FROM FDC_COLLECT_DATA";
+            Convert.ToString(count.ExecuteScalar()).Should().Be("NEW-1");
+        }
+        finally
+        {
+            try { if (File.Exists(path)) File.Delete(path); } catch { }
+        }
+    }
+
+    [Fact]
     public async Task ReadAsync_returns_one_globally_ordered_bounded_stream_for_all_scopes()
     {
         var t0 = new DateTime(2026, 8, 26, 1, 0, 0, DateTimeKind.Utc);

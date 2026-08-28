@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using NexaDB.Data.Abstractions.Interfaces;
@@ -5,6 +7,7 @@ using NexaOne.EMS.Application.Ems;
 using NexaOne.EMS.Domain;
 using NexaOne.EMS.Infrastructure;
 using NexaOne.EST.Infrastructure;
+using NexaOne.FDC.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.IVT.Domain;
 using NexaOne.IVT.Infrastructure;
@@ -178,7 +181,13 @@ public sealed class MssqlRuntimeContractTests
             new { effectId });
         await invalidVersion.Should().ThrowAsync<Microsoft.Data.SqlClient.SqlException>();
 
-        await database.ExecuteAsync(
+        Func<Task> unchangedVersion = () => database.ExecuteAsync(
+            "UPDATE FDC_INTERLOCK_HISTORY SET LAST_ERROR='retry' WHERE HISTORY_ID=@effectId;",
+            new { effectId });
+        await unchangedVersion.Should().ThrowAsync<Microsoft.Data.SqlClient.SqlException>(
+            "every durable direct-writer mutation must advance the optimistic version");
+
+        Func<Task> skipNormalization = () => database.ExecuteAsync(
             """
             UPDATE FDC_INTERLOCK_HISTORY
                SET IS_RESOLVED=1, EFFECT_STATE='Resolved', VERSION=2,
@@ -190,6 +199,95 @@ public sealed class MssqlRuntimeContractTests
              WHERE HISTORY_ID=@effectId;
             """,
             new { effectId });
+        await skipNormalization.Should().ThrowAsync<Microsoft.Data.SqlClient.SqlException>(
+            "an Applied effect cannot jump directly across the normalized/release lifecycle");
+
+        await database.ExecuteAsync(
+            """
+            UPDATE FDC_INTERLOCK_HISTORY
+               SET EFFECT_STATE='ConditionNormalized', VERSION=2,
+                   CONDITION_NORMALIZED_AT=DATEADD(millisecond, 1, APPLY_CONFIRMED_AT),
+                   CONDITION_NORMALIZED_VALUE=50
+             WHERE HISTORY_ID=@effectId;
+
+            UPDATE FDC_INTERLOCK_HISTORY
+               SET EFFECT_STATE='Applied', VERSION=3,
+                   CONDITION_NORMALIZED_AT=NULL, CONDITION_NORMALIZED_VALUE=NULL
+             WHERE HISTORY_ID=@effectId;
+
+            UPDATE FDC_INTERLOCK_HISTORY
+               SET EFFECT_STATE='ConditionNormalized', VERSION=4,
+                   CONDITION_NORMALIZED_AT=DATEADD(millisecond, 1, APPLY_CONFIRMED_AT),
+                   CONDITION_NORMALIZED_VALUE=50
+             WHERE HISTORY_ID=@effectId;
+
+            UPDATE FDC_INTERLOCK_HISTORY
+               SET IS_RESOLVED=1, EFFECT_STATE='Resolved', VERSION=6,
+                   RELEASE_ACK_ID='release-contract',
+                   RELEASE_CONFIRMED_AT=DATEADD(millisecond, 2, APPLY_CONFIRMED_AT),
+                   RESOLVED_AT=DATEADD(millisecond, 2, APPLY_CONFIRMED_AT)
+             WHERE HISTORY_ID=@effectId;
+            """,
+            new { effectId });
+
+        Func<Task> mutateTerminal = () => database.ExecuteAsync(
+            "UPDATE FDC_INTERLOCK_HISTORY SET VERSION=7 WHERE HISTORY_ID=@effectId;",
+            new { effectId });
+        await mutateTerminal.Should().ThrowAsync<Microsoft.Data.SqlClient.SqlException>(
+            "resolved physical-effect evidence is terminal");
+
+        Func<Task> deleteEvidence = () => database.ExecuteAsync(
+            "DELETE FROM FDC_INTERLOCK_HISTORY WHERE HISTORY_ID=@effectId;",
+            new { effectId });
+        await deleteEvidence.Should().ThrowAsync<Microsoft.Data.SqlClient.SqlException>(
+            "physical-effect history is append-only");
+    }
+
+    [Fact]
+    public async Task Fdc_runtime_lease_uses_monotonic_fence_and_owner_CAS()
+    {
+        var database = await MssqlContractDatabase.TryCreateAsync(_output);
+        if (database is null)
+            return;
+
+        var lease = new FdcRuntimeLease(database.DataSource);
+        var before = await lease.GetStateAsync();
+        before.HasOwnerTuple.Should().BeFalse(
+            "the isolated MSSQL contract database must not have a live FDC runtime writer");
+
+        var firstOwner = $"contract-a-{Suffix()}";
+        var firstRevision = Revision("contract-a");
+        var first = await lease.TryAcquireAsync(
+            firstOwner, firstRevision, TimeSpan.FromSeconds(30));
+        first.Acquired.Should().BeTrue();
+        first.Grant.Should().NotBeNull();
+        first.State.FenceToken.Should().BeGreaterThan(before.FenceToken);
+
+        var competing = await lease.TryAcquireAsync(
+            $"contract-rival-{Suffix()}", Revision("rival"), TimeSpan.FromSeconds(30));
+        competing.Acquired.Should().BeFalse();
+        competing.Grant.Should().BeNull();
+        competing.State.FenceToken.Should().Be(first.State.FenceToken);
+
+        Func<Task> decrementFence = () => database.ExecuteAsync(
+            "UPDATE FDC_RUNTIME_OWNERSHIP SET FENCE_TOKEN=FENCE_TOKEN-1 WHERE LEASE_SCOPE='GLOBAL';");
+        await decrementFence.Should().ThrowAsync<Microsoft.Data.SqlClient.SqlException>();
+
+        Func<Task> deleteFence = () => database.ExecuteAsync(
+            "DELETE FROM FDC_RUNTIME_OWNERSHIP WHERE LEASE_SCOPE='GLOBAL';");
+        await deleteFence.Should().ThrowAsync<Microsoft.Data.SqlClient.SqlException>();
+
+        var renewed = await lease.TryRenewAsync(first.Grant!, TimeSpan.FromSeconds(30));
+        renewed.Should().NotBeNull();
+        (await lease.TryReleaseAsync(renewed!)).Should().BeTrue();
+
+        var secondOwner = $"contract-b-{Suffix()}";
+        var second = await lease.TryAcquireAsync(
+            secondOwner, Revision("contract-b"), TimeSpan.FromSeconds(30));
+        second.Acquired.Should().BeTrue();
+        second.State.FenceToken.Should().Be(first.State.FenceToken + 1);
+        (await lease.TryReleaseAsync(first.Grant!)).Should().BeFalse();
+        (await lease.TryReleaseAsync(second.Grant!)).Should().BeTrue();
     }
 
     [Fact]
@@ -531,6 +629,9 @@ public sealed class MssqlRuntimeContractTests
     }
 
     private static string Suffix() => Guid.NewGuid().ToString("N")[..10];
+
+    private static string Revision(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
 
     private static string Value(IDictionary<string, object> row, string key) =>
         Convert.ToString(row[key], System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;

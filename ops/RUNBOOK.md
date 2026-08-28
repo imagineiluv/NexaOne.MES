@@ -41,6 +41,7 @@ CI는 secret이 없으면 checkout 전에 명시적으로 실패하며, 토큰�
 | `Jwt__SecretKey` | 32바이트+ 랜덤 | **env 전용** |
 | `Server__SpringConfig` | `config/host/server.xml`(MSSQL) / `config/host/server.sqlite.xml` | 방언 전환 |
 | `Database__Provider` | `MsSql` / `Sqlite` | SpringConfig와 짝 |
+| `Email__Smtp__Enabled/Host/Port/Sender` | SMTP 활성/발송 정보 | Enabled=true이면 Host·Sender·1~65535 Port를 모두 명시; 누락·잘못된 값은 기동 실패 |
 | `Email__Smtp__User/Password` | SMTP 자격 | 메일 기능 사용 시, **env 전용** |
 | `Worker__Fdc__Enabled` | `false` | PLC/STO action adapter·ack/readback HIL 완료 전에는 반드시 OFF |
 | `Worker__Fdc__InterlockActionTimeoutSeconds` | `10` | action readiness·apply·reconcile·release 최대 caller 대기; 0 이하는 기동 거부 |
@@ -61,8 +62,9 @@ FDC 수집 활성화 전에는 다음을 모두 확인한다.
 
 - 활성 parameter마다 `FDC_PARAMETER.ENDPOINT_ID`가 정확히 한 활성 endpoint를 가리키고, endpoint별 `TAG_MAP_PATH`가 존재해야 한다. 상대경로는 서비스의 현재 디렉터리가 아니라 `AppContext.BaseDirectory` 기준이다. 외부 절대경로는 허용하지만 tag map에 자격증명·비밀값을 넣지 않는다.
 - 현재 FDC의 원자적 구독+baseline 지원은 `ModbusTcp`, `SiemensS7`, `MitsubishiMc`, `EtherNetIp`만 해당한다. OPC UA·Modbus RTU·Omron FINS는 `Worker__Fdc__Enabled=true` 운영 대상으로 승인하지 않는다.
-- 프로젝트 `IFdcInterlockActionPort`의 모든 opaque action key가 ack/readback과 cancellation/deadline fencing까지 확인되고, 전체 unresolved effect inventory에 삭제된 설비/파라미터가 없어야 한다. EffectId별 durable command journal과 controller readback을 유지하며 V146의 Prepared→Applied→ConditionNormalized→ReleasePending→Resolved 재조정에 응답해야 한다. DB에 없고 adapter journal에만 남은 effect도 완전한 원 trigger 증거와 같은 EffectId로 반환해야 하며, 기동 시 모든 미해제 상태를 먼저 reconcile한 뒤 현재 PLC snapshot이 정상인 경우에만 Release한다.
-- caller 대기는 `InterlockActionTimeoutSeconds`로 제한되지만 cancellation을 무시한 adapter의 실제 장치 명령은 백그라운드에서 늦게 끝날 수 있다. 특히 timeout 뒤 Release가 물리 해제를 완료하지 않도록 adapter/controller 자체 deadline 또는 fencing을 HIL로 증명해야 하며, readiness가 이를 확인하지 않으면 기동을 거부한다. 각 PLC 구독은 listener completion/fault와 monotonic 완료-poll 진행을 제공해야 한다. endpoint별 정상 poll+read timeout+최대 reconnect backoff보다 작은 freshness는 구성 오류로 기동 거부하고, 그 예산을 넘긴 frozen stream은 permit을 철회한다.
+- 프로젝트 `IFdcInterlockActionPort`의 모든 opaque action key가 ack/readback과 cancellation/deadline fencing까지 확인되고, 전체 unresolved effect inventory에 삭제된 설비/파라미터가 없어야 한다. EffectId별 durable command journal과 controller readback을 유지하며 V146의 Prepared→Applied→ConditionNormalized→ReleasePending→Resolved 재조정에 응답해야 한다. 여러 EffectId가 같은 STOP/STO 출력을 공유하면 출력별 활성 EffectId 집합을 영속 관리하고 마지막 소유자만 deassert해야 한다. DB에 없고 adapter journal에만 남은 effect도 완전한 원 trigger 증거와 같은 EffectId로 반환해야 하며, readiness가 aggregate ownership을 확인하지 않으면 기동을 거부한다.
+- 활성 effect·ReleasePending·terminal DB CAS 대기 중에는 자동운전 permit만 닫고 FDC PLC 감시와 supervisor는 유지한다. 수동 reset 후 값 변화가 없어도 모든 callback이 끝난 최신 completed-poll snapshot을 재평가하되, 다음 read/callback 전에 증가하는 `StartedPollCount`와 snapshot count가 같은 순간에만 같은 EffectId의 Release를 재확인한다. DB persistence supervisor는 cached 값으로 물리 Release하지 않는다. 재위반은 pending release를 취소하고 STOP을 먼저 reconcile한다. 활성 effect와 terminal pending이 모두 0이 된 뒤에만 permit이 다시 열린다. Bad 품질·apply/reconcile 미확인·release cancellation/timeout은 unknown physical outcome의 terminal runtime fault로 처리해 원인 예외를 보존하고 driver를 닫은 뒤 전체 재기동 reconciliation을 요구한다.
+- caller 대기는 `InterlockActionTimeoutSeconds`로 제한되지만 cancellation을 무시한 adapter의 실제 장치 명령은 백그라운드에서 늦게 끝날 수 있다. 특히 timeout 뒤 Release가 물리 해제를 완료하지 않도록 adapter/controller 자체 deadline 또는 fencing을 HIL로 증명해야 하며, readiness가 이를 확인하지 않으면 기동을 거부한다. 각 PLC 구독은 listener completion/fault와 monotonic 진행을 제공하고, FDC용 단일 atomic stream은 별도 선택적 capability로 immutable latest completed-poll snapshot과 callback/read 시작 fence를 제공해야 한다. 일반·다중 subscription에는 completed snapshot을 게시하지 않으며 callback을 뒤로 미루는 jitter/coalescing window는 이 atomic 모드와 함께 쓰지 않는다. callback 예외는 해당 poll을 완료 처리하지 않고 listener fault로 전파한다. endpoint별 정상 poll+read timeout+최대 reconnect backoff보다 작은 freshness는 구성 오류로 기동 거부하고, 그 예산을 넘긴 frozen stream은 permit을 철회한다.
 - FDC worker는 설비 `PlantController`나 Auto 모드를 시작하지 않는다. 실제 설비 운전 admission은 별도 equipment orchestration이 담당한다. Cleaner Auto Start/Resume에는 아직 FDC permit 기반 cross-process lease가 연결되지 않았으므로 Production 자동운전을 승인하지 않는다. 단순 상태 조회가 아니라 최초 거부·generation fencing·heartbeat/TTL·단절 즉시 철회·기존 Stop 경로 직렬화를 구현하고 HIL로 확인해야 한다.
 - permit 철회와 FDC driver close는 safety PLC/STO의 물리 de-energize를 대체하지 않는다. driver health/fatal fault 전달, wiring/readback, 실제 PLC/STO HIL이 끝날 때까지 worker 기본값을 OFF로 유지한다.
 
@@ -110,13 +112,14 @@ dotnet NexaOne.Server.dll --urls http://localhost:8080
   release 소스가 일치하는지 DBA/릴리즈 담당자가 검토한다. staging 복원본에 동일 러너를 실행해 schema 계약과
   애플리케이션 회귀를 통과한 뒤에만 운영에서 `-AdoptMissingChecksums`를 한 번 사용한다. 이 옵션은 과거에 실제
   실행된 SQL을 역증명하지 않고 현재 승인 소스를 기준선으로 신뢰하므로 자동 CI나 일반 기동에 넣지 않는다.
-- **대용량 업그레이드**: V130~V144의 신규/교체 index와 V142/V146/V147의 backfill·상태 제약은 hot table의 쓰기 증폭·build lock·transaction log를
+- **대용량 업그레이드**: V130~V144의 신규/교체 index와 V142/V146/V147/V148의 backfill·상태/전이 제약·FDC retention index는 hot table의 쓰기 증폭·build lock·transaction log를
   유발할 수 있다. 특히 V142 TRACE cursor 전환은 백필용 정렬 index로 full sort를 줄여도 terminal inbox 전행 갱신,
   index build/drop과 cursor backfill이 남고, V144는 `POM_LOT_HISTORY`의 TrackOut filtered/covering index를 build한다.
   운영과 유사한 행 수의 복원본에서 table/index 크기, log 여유, blocking, 300초 파일 transaction timeout과 timeout 뒤
   rollback 시간을 측정한다. 전환 중 TRACE/POM 구버전 writer를 중지하고 maintenance window·abort/rollback 기준을
   승인해야 한다. SQL Server edition별 ONLINE/RESUMABLE 지원 여부와 별도 online build 절차를 DBA가 확정하기 전에는
-  운영에 적용하지 않는다. V142/V144, FDC history를 확장하는 V146, TRACE work-state를 검증하는 V147이 pending이면
+  운영에 적용하지 않는다. V142/V144, FDC history를 확장하는 V146, TRACE work-state를 검증하는 V147,
+  effect transition/append-only와 TRACE retention index를 추가하는 V148이 pending이면
   러너가 기본 실패한다. 위 준비를
   실제로 완료한 승인 실행에서만 `-ApproveHighImpactMigrations`를 지정한다. 이 스위치는 준비 상태를 자동 증명하지
   않으며 CI의 빈 임시 DB에서는 계약 검증 목적으로만 명시한다.
@@ -139,6 +142,32 @@ dotnet NexaOne.Server.dll --urls http://localhost:8080
   `-AllowPartial`로 명시하고 Production 승인 근거로 사용하지 않는다. 물리 fragmentation은 기본 수집에 포함하지
   않으며 maintenance 점검 창에서만 `-IncludePhysicalStats -Top 100 -PhysicalStatsMinPageCount 1000`으로 큰 index
   후보를 명시적으로 제한해 `LIMITED` 모드로 수집한다.
+- **SQL Server 통계 유지보수**: DB의 `AUTO_CREATE_STATISTICS`·`AUTO_UPDATE_STATISTICS`를 기본 ON으로
+  유지하고, `AUTO_UPDATE_STATISTICS_ASYNC`는 즉시 계획 정확성과 동기 재컴파일 지연을 비교해 DBA가 DB별로
+  결정한다. 위 기준선의 statistics 갱신 시각·sampling·`modification_counter`와 Query Store 계획 회귀를
+  같이 보고, 대량 backfill·retention·bulk load 후 편향이 확인된 테이블/통계만 점검 창에서
+  `UPDATE STATISTICS [schema].[table] [stat] WITH RESAMPLE` 형태로 갱신한다. 전체 DB `FULLSCAN`을 앱
+  기동·마이그레이션에 묶지 않고, 실행 전후 계획·logical read·CPU·재컴파일 영향을 기록한다.
+- **SQLite 통계 유지보수**: 요청 hot path나 부팅 schema initializer에 `ANALYZE`를 넣지 않는다. 대량
+  migration·retention·import 후 쓰기를 일시 중지한 점검 창에서 백업한 뒤 `PRAGMA optimize;`를 우선
+  실행해 SQLite가 필요한 통계만 갱신하게 한다. 그 후에도 `EXPLAIN QUERY PLAN`의 index 선택이
+  회귀하고 `sqlite_stat1`이 부정확한 경우에만 대상 테이블 `ANALYZE table_name;`을 수동 실행한다.
+  `VACUUM`은 파일 공간 회수 작업이지 통계 갱신이 아니며, 별도 downtime/디스크 용량 계획 없이
+  병합하지 않는다.
+- **FDC 수집 보존(V148)**: `IX_FDC_COLLECT_RETENTION(COLLECTED_AT, COLLECT_ID)`의 시간 선행 경로를
+  사용해 기본 1,000행씩 별도 짧은 transaction으로 삭제하며, 한 worker 실행은 최대 100 batch
+  (100,000행)에서 끝난다. 다음 주기가 같은 cutoff를 이어서 처리하므로 단일 대량 DELETE로
+  lock·transaction log·SQLite writer를 장시간 점유하지 않는다. 연속으로 상한에 도달하면 최고 보존 행 시각과
+  batch 소요시간을 먼저 경보하고, 운영 부하 리허설 없이 batch 크기를 키우지 않는다.
+- **FDC runtime writer lease(V149)**: `FDC_RUNTIME_OWNERSHIP/GLOBAL`은 삭제하지 않는 fence counter다.
+  각 프로세스 시작은 재사용하지 않는 owner id와 canonical 설정 snapshot의 lowercase 64자리 SHA-256
+  `CONFIG_REVISION`으로 acquire한다. 성공 호출자에게만 256-bit secret을 감춘 opaque grant가 반환되고 DB에는
+  secret의 SHA-256 hash만 남는다. heartbeat 주기는 lease TTL의 1/3 이하로 두고, renew 성공 때 반환된 최신 grant로
+  교체한다. renew 1회 실패·DB 연결 단절·관찰한 owner/fence 변경은 즉시 소유권 상실로 처리하고 action 발행을
+  중단한다. 공개 `HasOwnerTuple`은 현재 권한 판정에 사용하지 않는다. 정상 종료의 release는 best-effort이며 crash 후에는 DB UTC 만료로만
+  takeover한다. 백업/복원·수동 정리 때 GLOBAL 행 삭제, `FENCE_TOKEN` 감소/0 재시드, lease tuple 직접 변경을
+  금지한다. V149는 새 singleton table이라 high-impact 승인 대상은 아니지만, controller가 명령별 fence를
+  영속하고 stale token을 거부하기 전에는 이 lease를 설비 자동 운전 승인으로 연결하지 않는다.
 - **백업**: SQLite=DB 파일 복사(정지 후), MSSQL=표준 백업 절차.
 
 ## 5. 롤백·업그레이드

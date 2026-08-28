@@ -9,7 +9,7 @@ namespace NexaOne.Infrastructure.Messaging;
 /// </summary>
 public sealed class InMemoryMessageBus : IMessageBus
 {
-    private readonly List<Func<DomainEventMessage, CancellationToken, Task>> _handlers = new();
+    private readonly List<Subscription> _subscriptions = new();
     private readonly object _lock = new();
     private readonly ILogger<InMemoryMessageBus>? _logger;
 
@@ -18,16 +18,23 @@ public sealed class InMemoryMessageBus : IMessageBus
     /// <summary>server.xml 등 zero-arg 리플렉션 컨테이너용 무인자 생성자(전 선택적 파라미터라 실제 무인자 ctor 부재).</summary>
     public InMemoryMessageBus() : this(null) { }
 
-    /// <summary>인프로세스 구독자 등록. 발행된 모든 메시지가 등록 순서대로 이 핸들러에 전달된다.</summary>
-    public void Subscribe(Func<DomainEventMessage, CancellationToken, Task> handler)
+    /// <summary>
+    /// 인프로세스 구독자 등록. 발행된 모든 메시지가 등록 순서대로 이 핸들러에 전달된다.
+    /// 반환된 토큰을 폐기하면 해당 구독만 멱등적으로 해제된다.
+    /// </summary>
+    public IDisposable Subscribe(Func<DomainEventMessage, CancellationToken, Task> handler)
     {
-        lock (_lock) _handlers.Add(handler);
+        ArgumentNullException.ThrowIfNull(handler);
+
+        var subscription = new Subscription(this, handler);
+        lock (_lock) _subscriptions.Add(subscription);
+        return subscription;
     }
 
     public async Task PublishAsync(string topic, DomainEventMessage message, CancellationToken ct = default)
     {
         Func<DomainEventMessage, CancellationToken, Task>[] snapshot;
-        lock (_lock) snapshot = _handlers.ToArray();
+        lock (_lock) snapshot = _subscriptions.Select(static subscription => subscription.Handler).ToArray();
 
         // 한 구독자의 실패가 다른 구독자/발행 자체를 막지 않도록 격리한다(디스패처는 발행 성공으로 간주).
         foreach (var handler in snapshot)
@@ -45,5 +52,27 @@ public sealed class InMemoryMessageBus : IMessageBus
         }
 
         _logger?.LogDebug("InMemory 발행 {EventType} → 구독자 {Count}건", message.EventType, snapshot.Length);
+    }
+
+    private void Unsubscribe(Subscription subscription)
+    {
+        lock (_lock) _subscriptions.Remove(subscription);
+    }
+
+    private sealed class Subscription : IDisposable
+    {
+        private InMemoryMessageBus? _owner;
+
+        public Subscription(
+            InMemoryMessageBus owner,
+            Func<DomainEventMessage, CancellationToken, Task> handler)
+        {
+            _owner = owner;
+            Handler = handler;
+        }
+
+        public Func<DomainEventMessage, CancellationToken, Task> Handler { get; }
+
+        public void Dispose() => Interlocked.Exchange(ref _owner, null)?.Unsubscribe(this);
     }
 }

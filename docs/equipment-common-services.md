@@ -29,7 +29,9 @@ FDC 수집 워커는 `STOP` 같은 인터락 action key를 공통 코드에서 �
 `IFdcInterlockActionPort`가 stable `EffectId`를 멱등 키로 프로젝트별 동작을 수행하며, acknowledgement와 장치
 readback을 모두 확인해야 적용 성공으로 인정한다. 이 운영 인터락 action은 collect/history DB보다 먼저 await하고,
 그 뒤의 메시지 버스는 관제/UI 알림일 뿐 action 성공 판정에 참여하지 않는다. 한 입력에 여러 규칙이 동시에 맞으면
-priority 순으로 각 rule/action을 모두 실행하고, 정상 범위로 돌아온 rule의 episode만 개별 해제한다.
+priority 순으로 각 rule/action을 모두 실행하고, 정상 범위로 돌아온 rule의 episode만 개별 해제한다. 여러 EffectId가
+같은 STOP/STO 출력을 공유할 수 있으므로 adapter/controller는 출력별 활성 EffectId 집합을 영속 관리하고 마지막
+소유자가 해제될 때만 출력을 deassert해야 하며, readiness에서 이 aggregate ownership을 확인하지 않으면 기동을 거부한다.
 
 Worker 기동은 활성 endpoint/parameter topology, 활성 규칙의 불변 snapshot, DB의 전체 durable open effect와
 프로젝트 adapter의 durable 미해제 EffectId inventory, open alarm을 먼저 preload한다. DB에는 없고 adapter에만 남은
@@ -45,6 +47,25 @@ episode는 즉시 active set에서 제거해 같은 규칙의 재위반이 새 E
 acknowledgement/readback과 DB CAS가 모두 성공하기 전에는 `IS_RESOLVED`나 resolved 이벤트를 게시하지 않는다.
 범위 일괄 해제 API는 이 증거 경계를 우회하므로 제공하지 않는다.
 
+운전 허가와 FDC 감시 runtime 생존은 별도 상태다. 활성 effect, `ReleasePending`, terminal DB CAS 대기가 하나라도
+있으면 자동운전 permit은 닫지만 PLC 구독과 supervisor는 계속 살아 있다. 따라서 수동 reset이 끝난 뒤 입력값이
+그대로 정상 범위에 머물러 새 tag-change가 없어도 NexaLogic이 모든 callback 완료 뒤 게시한 immutable poll snapshot을
+supervisor가 재평가해 같은 EffectId의 `ReleaseAsync`를 다시 확인한다. 단, 다음 transport poll은 read/callback 전에
+`StartedPollCount`를 먼저 증가시키므로 `StartedPollCount == LatestCompletedPollSnapshot.CompletedPollCount`인
+generation-fenced cut에서만 물리 해제를 재시도한다. 일반 persistence supervisor는 cached 값으로 Release하지 않고
+Prepared/Applied/ConditionNormalized/ReleasePending/Resolved DB 증거만 재시도한다. 해제 확인 전에 값이 다시 위반하면
+보류된 release intent를 폐기하고 같은 EffectId의 STOP을 먼저 reconcile한다. Bad 품질, 규칙 snapshot 무효화,
+apply/reconcile 미확인, release cancellation·timeout처럼 물리 결과를 신뢰할 수 없는 경우에는 runtime 자체를 fault
+처리해 원인 예외를 worker에 전달하고 driver를 닫은 뒤 명시적 재기동·재조정을 요구한다. permit은 활성 물리 effect와
+terminal DB pending이 모두 0일 때만 다시 열린다.
+
+completed-poll snapshot은 기존 runtime-health ABI를 바꾸지 않는 선택적 capability다. NexaLogic은
+`StartWithSnapshotAsync`로 만든 단일 atomic stream에서만 이를 게시하고 일반·다중 subscription에는 모호한 snapshot을
+게시하지 않는다. callback을 다음 poll 뒤로 미루는 jitter/coalescing window와 atomic 완료 snapshot의 조합은
+기동 시 거부한다. callback 예외는 진단만 남기고 삼키지 않으며 listener를 fault 처리해 해당 poll의 completed count와
+snapshot을 전진시키지 않는다. snapshot 자체도 generation, started/completed count, 완료 시각과 방어 복사된 값 묶음을
+함께 보유한다.
+
 임계치 알람은 parameter의 최고 severity 한 값이 아니라 `AlarmConfigId`별 episode로 추적한다. 같은 온도에서
 Warning 규칙은 계속 성립하지만 Critical 규칙만 정상화되는 경우 Critical 이력만 해제하고 Warning은 open으로
 유지한다. 재시작 시에도 durable open 행을 config별로 복원하며, 이 경계가 No.200처럼 다른 규칙이 함께 걸린
@@ -55,8 +76,9 @@ FDC worker는 `PlantController`를 호출하지 않는다. 즉 전체 Machine �
 `StartWithSnapshotAsync`로 구독과 그 stream의 인과 baseline을 함께 받고, callback은 4,096건 bounded buffer에 둔 채
 baseline과 후속 callback을 순서대로 평가한다. 모든 action ack/readback 뒤 FDC 소유 device만 `StartAsync`(Ping)하고,
 잔여 buffer drain과 permit/live 전환을 같은 gate에서 완료한다. overflow·Bad/Disconnected 인터락 입력·callback 예외·
-action 실패·runtime 무효화·listener 종료·완료 poll freshness 초과는 permit을 철회하고 worker supervisor가 소유 driver를
-역순 Stop/Dispose한다. caller의 action readiness/apply/reconcile/release 대기는 bounded timeout으로 제한되지만,
+apply/reconcile 실패·release cancellation·runtime 무효화·listener 종료·완료 poll freshness 초과는 runtime을 fault
+처리하고 worker supervisor가 소유 driver를 역순 Stop/Dispose한다. 확인되지 않은 일반 release/수동 reset 대기는
+운전 permit만 닫고 supervisor 재시도를 유지한다. caller의 action readiness/apply/reconcile/release 대기는 bounded timeout으로 제한되지만,
 그 timeout은 cancellation을 무시하는 adapter의 늦은 물리 동작까지 중단시키지 못한다. 프로젝트 adapter는 readiness에서
 cancellation/deadline fencing을 명시 확인하고, 특히 timeout 뒤 늦은 Release가 발생하지 않도록 controller 또는 durable
 command journal에서 강제해야 한다. 별도
@@ -201,12 +223,40 @@ run-id별 읽기 전용 CSV와 manifest로 수집한다. 물리 fragmentation은
 결과는 승인 근거로 쓰지 않는다. DMV 힌트는 현재
 index와의 중복, 필터 선택도, 변경 빈도, 저장 공간을 검토하는 후보 자료일 뿐 자동 DDL의 근거로 사용하지 않는다.
 
+Statistics는 앱 서비스·드라이버 기능이 아니라 DB 운영 계약으로 둔다. SQL Server는
+`AUTO_CREATE_STATISTICS`·`AUTO_UPDATE_STATISTICS` ON을 기본으로 하되, Query Store 계획 회귀와
+`sys.dm_db_stats_properties` 변경량·sampling을 함께 확인해 편향된 통계만 점검 창에서
+`UPDATE STATISTICS ... WITH RESAMPLE`로 갱신한다. 전체 `FULLSCAN`을 마이그레이션이나 호스트 기동에
+묶지 않는다. SQLite는 대량 migration·retention·import 후 백업과 쓰기 정지를 확보한 점검
+창에서 `PRAGMA optimize;`를 우선하고, 실행 계획 회귀가 남은 특정 테이블에만 수동
+`ANALYZE table_name;`을 적용한다. 요청 hot path와 Common schema initializer에서는 둘 다 자동 실행하지 않는다.
+
+V148은 `FDC_COLLECT_DATA` 보존 삭제에 시간 선행
+`IX_FDC_COLLECT_RETENTION(COLLECTED_AT, COLLECT_ID)`를 제공한다. repository는 기본 1,000행별 짧은
+transaction을 사용하고 호출당 최대 100 batch에서 양보하며 다음 주기가 같은 cutoff를
+이어서 처리한다. 이 상한이 lock·transaction log·SQLite single-writer 독점을 제어하므로,
+backlog가 연속 상한에 닿을 때는 최고 행 연령·소요시간·writer 대기를 측정한 뒤 주기 또는
+점검 창을 조정하고, 검증 없이 batch 크기를 키우지 않는다.
+
+V149는 `FDC_RUNTIME_OWNERSHIP`의 단일 `GLOBAL` 행으로 FDC 실시간 writer를 선출한다. 획득은 DB가 관찰한
+기존 owner+fence를 CAS하고 DB UTC 시각으로 만료를 판정하며, 새 소유권마다 `FENCE_TOKEN`을 정확히 증가시킨다.
+각 acquire는 재사용하지 않는 256-bit random secret을 만들고 DB에는 lowercase SHA-256 hash만 저장한다. 성공
+호출자만 secret을 숨긴 opaque grant를 받으며 renew/release는 이 grant의 owner+fence+설정 digest+secret hash가
+모두 같은 경우에만 성공한다. 공개 state의 `HasOwnerTuple`은 만료 여부와 무관한 tuple 존재 표시이며 운전 권한이
+아니다. `CONFIG_REVISION`은 임의 label이 아니라 canonical 설정 snapshot의 lowercase 64자리 SHA-256 hex digest다.
+lease duration은 두 DB 모두 동일하게 integer millisecond로 ceil하며, trigger는 writer가 제공한 시각이 아니라 DB
+현재 시각으로 acquire/renew 만료를 판정하고 heartbeat가 DB now 부근인지와 expiry가 최대 1일인지 검증한다.
+release는 소유 tuple과 secret hash만 비우고 행과 마지막 fence는 영구 보존하므로 DB 복구·정리 절차에서 이 행을
+삭제하거나 token을 0으로 재시드하면 안 된다.
+이 DB lease만으로 물리 명령의 split-brain을 막을 수는 없다. Cleaner action adapter/controller가 모든 명령과
+ack journal에서 fence를 저장하고 이전 token을 거부하는 단계가 완료되기 전에는 자동 운전 권한으로 사용하지 않는다.
+
 SQL Server 마이그레이션 이력은 파일명뿐 아니라 LF 정규화 SHA-256을 저장한다. 적용된 SQL의 내용 drift는
 배포를 중단하며, 체크섬이 없던 기존 DB는 백업·승인 소스 대조·staging 복원 리허설 뒤 명시적인 1회 adoption만
 허용한다. V142처럼 대량 기존 행을 갱신하는 버전은 보조 index가 있어도 transaction log·lock 비용이 남으므로
 운영 규모 데이터의 upgrade rehearsal을 별도 릴리즈 gate로 둔다. V144와 V130~V141의 hot-table index build도
 크기·blocking·쓰기 증폭을 같은 기준으로 측정하며, 전환 중 TRACE/POM writer 정지와 edition별 ONLINE/RESUMABLE
-가능 여부를 DBA가 승인한다. V142/V144/V146/V147 pending 적용은 이 준비를 완료한 승인 실행에서
+가능 여부를 DBA가 승인한다. V142/V144/V146/V147/V148 pending 적용은 이 준비를 완료한 승인 실행에서
 `-ApproveHighImpactMigrations`를 주지 않으면 러너가 거부한다.
 
 완료된 TRACE inbox 행은 filtered work set에서 즉시 빠지지만 감사·재처리 근거로 남는다. 장기 보존량이 확인되면
@@ -234,13 +284,13 @@ Server SQL에서 MDM 소유 `IEquipmentOutputMasterDirectory`로 이동했다. P
 ## 2026-08-28 검증 기록
 
 - Release solution build(`-warnaserror`): 경고 0, 오류 0
-- Unit: 1,841/1,841 통과(FDC alarm/config episode 및 runtime key 경계 회귀 포함)
+- Unit: 1,858/1,858 통과(FDC lease lifecycle·completed-poll fence·runtime key 경계 회귀 포함)
 - FDC/Spring focused boot: 18/18 통과(worker 기본 OFF + fail-closed adapter 조립 포함)
-- Server/SQLite integration: 881/881 통과
+- Server/SQLite integration: 908/908 통과
 - Portal: 116/116, production build 성공, `npm audit` 취약점 0
-- NexaLogic PLC: Unit 12/12, Core 48/48, Integration 14/14, Hardware Simulation 43/43 — 합계 117/117 통과
-- modules-ON child-process smoke: 11개 모듈과 호스트 소유 선언형 bridge 43개를 최신 Release 호스트에서 실제 부팅
-- migration: V001~V147 strict 이름·숫자 순서·중복·LF 정규화 SHA-256 검증 통과, 신규/증분 SQLite와 MSSQL 정적 계약 통과
+- NexaLogic PLC: Unit 12/12, Core 57/57, Integration 14/14, Hardware Simulation 43/43 — 합계 126/126 통과
+- modules-ON child-process smoke: 11개 모듈과 호스트 소유 선언형 bridge 44개를 최신 Release 호스트에서 실제 부팅
+- migration: V001~V149 strict 이름·숫자 순서·중복·LF 정규화 SHA-256 검증 통과, 신규/증분 SQLite와 MSSQL 정적 계약 통과
 - publish: Release publish 성공, 산출물 507개·모듈 11개, 독립 `/health`·JWT 로그인 통과,
   `NexusCom`·`NexusFramework`·`NexusLogic` 파일명/설정 참조 0건
 - 정적 경계: QMS/POM 저장소 foreign physical-table SQL 0건(ADR-0002/0003만 허용), Common SQLite bootstrap은

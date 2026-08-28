@@ -8,13 +8,36 @@ namespace NexaOne.FDC.Infrastructure;
 
 public sealed class FdcCollectDataRepository : QueryRepository, IFdcCollectDataRepository
 {
+    // Each DELETE owns one short transaction. A single maintenance invocation is also bounded so
+    // continuous back-dated ingestion cannot monopolize the writer indefinitely; the next run
+    // resumes from the same indexed cutoff path.
+    internal const int DefaultRetentionBatchSize = 1_000;
+    internal const int DefaultMaxRetentionBatchesPerCall = 100;
+
     private readonly ServiceObjectProcessor _processor;
     private readonly INexaOneEESDbCapability _dialect;
+    private readonly int _retentionBatchSize;
+    private readonly int _maxRetentionBatchesPerCall;
 
-    public FdcCollectDataRepository(EesDataSource dataSource, INexaOneEESDbCapability dialect) : base(dataSource)
+    public FdcCollectDataRepository(EesDataSource dataSource, INexaOneEESDbCapability dialect)
+        : this(dataSource, dialect, DefaultRetentionBatchSize, DefaultMaxRetentionBatchesPerCall)
     {
+    }
+
+    internal FdcCollectDataRepository(
+        EesDataSource dataSource,
+        INexaOneEESDbCapability dialect,
+        int retentionBatchSize,
+        int maxRetentionBatchesPerCall) : base(dataSource)
+    {
+        if (retentionBatchSize <= 0)
+            throw new ArgumentOutOfRangeException(nameof(retentionBatchSize));
+        if (maxRetentionBatchesPerCall <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxRetentionBatchesPerCall));
         _processor = new ServiceObjectProcessor(dataSource);
         _dialect = dialect;
+        _retentionBatchSize = retentionBatchSize;
+        _maxRetentionBatchesPerCall = maxRetentionBatchesPerCall;
     }
 
     public async Task<IReadOnlyList<FdcCollectData>> GetByParameterAsync(
@@ -89,10 +112,31 @@ public sealed class FdcCollectDataRepository : QueryRepository, IFdcCollectDataR
 
     public async Task<int> DeleteOlderThanAsync(DateTime cutoff, CancellationToken ct = default)
     {
-        // 보존정리: 기준시각 이전 시계열 행을 삭제한다. 기준시각은 호출부(C#)에서 산정해 파라미터로 넘겨
-        // MSSQL/SQLite 날짜 방언 분기를 피한다. DeleteAsync는 감사 미주입 raw 실행이며 영향 행 수를 반환한다.
-        const string sql = "DELETE FROM FDC_COLLECT_DATA WHERE COLLECTED_AT < @cutoff";
-        return await _processor.DeleteAsync(sql, new { cutoff }, ct);
+        // 보존정리: IX_FDC_COLLECT_RETENTION(COLLECTED_AT, COLLECT_ID)에서 결정적 후보만 뽑아
+        // MSSQL/SQLite 모두 짧은 독립 트랜잭션으로 삭제한다. 한 번의 무제한 DELETE는 SQL Server log와
+        // SQLite writer lock을 장시간 점유하므로 금지한다.
+        var candidates = _dialect.WrapPaged(
+            "SELECT COLLECT_ID FROM FDC_COLLECT_DATA WHERE COLLECTED_AT < @cutoff",
+            "COLLECTED_AT, COLLECT_ID",
+            offset: 0,
+            limit: _retentionBatchSize);
+        var sql = $"""
+            DELETE FROM FDC_COLLECT_DATA
+             WHERE COLLECTED_AT < @cutoff
+               AND COLLECT_ID IN ({candidates})
+            """;
+
+        var total = 0;
+        for (var batch = 0; batch < _maxRetentionBatchesPerCall; batch++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var deleted = await _processor.DeleteAsync(sql, new { cutoff }, ct);
+            total = checked(total + deleted);
+            if (deleted < _retentionBatchSize)
+                break;
+        }
+
+        return total;
     }
 
     public async Task AddBatchAsync(IEnumerable<FdcCollectData> data, CancellationToken ct = default)

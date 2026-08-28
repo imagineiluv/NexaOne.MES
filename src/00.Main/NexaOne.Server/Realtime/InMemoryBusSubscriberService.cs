@@ -9,6 +9,8 @@ public sealed class InMemoryBusSubscriberService : IHostedService
 {
     private readonly InMemoryMessageBus _bus;
     private readonly RealtimeBusMessageDispatcher _dispatcher;
+    private readonly object _lifecycleGate = new();
+    private IDisposable? _subscription;
 
     public InMemoryBusSubscriberService(
         InMemoryMessageBus bus, IServiceScopeFactory scopeFactory,
@@ -20,9 +22,19 @@ public sealed class InMemoryBusSubscriberService : IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        _bus.Subscribe(_dispatcher.DispatchAsync);
+        lock (_lifecycleGate)
+            _subscription ??= _bus.Subscribe(_dispatcher.DispatchAsync);
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        lock (_lifecycleGate)
+        {
+            _subscription?.Dispose();
+            _subscription = null;
+        }
+
+        return Task.CompletedTask;
+    }
 }
