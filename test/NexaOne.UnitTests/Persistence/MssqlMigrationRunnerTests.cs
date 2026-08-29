@@ -44,7 +44,8 @@ public sealed class MssqlMigrationRunnerTests
         // width (Linux CI currently splits "expected V###..."). Treat that whitespace as display
         // formatting while keeping the exact contract text and the pre-connection ordering check.
         var normalizedOutput = Regex.Replace(result.Output, @"\s+", " ");
-        normalizedOutput.Should().Contain("expected V###__UPPER_SNAKE_DESCRIPTION.sql");
+        normalizedOutput.Should().MatchRegex(
+            @"expected\s*(?:\|\s*)?V###__UPPER_SNAKE_DESCRIPTION\.sql");
         result.Output.Should().NotContain("SqlException");
     }
 
