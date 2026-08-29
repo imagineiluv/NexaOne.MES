@@ -114,3 +114,21 @@ action pin·migration catalog·Portal 테스트/빌드/audit·whitespace 검증�
 릴리즈 브랜치와 DLL/manifest 운영은 [영구 release 브랜치 정책](docs/RELEASE_BRANCH_POLICY.md)을
 따릅니다. 버전별 브랜치를 만들지 않고 하나의 `release` 브랜치에 승인된 버전 디렉터리만
 추가하며, 실 MSSQL·CI·게시 smoke 증거 전에는 산출물을 공개 릴리즈로 표시하지 않습니다.
+
+승인된 버전의 DLL/ZIP/manifest 생성은 다음 명령으로 수행합니다. 스크립트는 기존 버전
+디렉터리를 덮어쓰지 않고, `Test-Publish.ps1` 스모크와 Release publish를 다시 실행한 뒤
+`release/<version>/dll`, `release/<version>/artifacts`, `release/<version>/release-manifest.json`을
+생성합니다. 버전은 반드시 승인된 SemVer를 전달해야 합니다.
+
+```powershell
+pwsh -NoProfile -File tools/ops/Publish-ReleaseBundle.ps1 -Version 1.0.0
+```
+
+생성된 manifest의 source commit·submodule pin·각 DLL/ZIP SHA-256을 검토한 뒤에만
+release 브랜치에 커밋하고 annotated tag와 GitHub Release를 발행합니다.
+
+반영 전후의 산출물 무결성은 다음 명령으로 독립 검증할 수 있습니다.
+
+```powershell
+pwsh -NoProfile -File tools/ops/Verify-ReleaseBundle.ps1 -Version 1.0.0
+```

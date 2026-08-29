@@ -40,3 +40,7 @@ config/submodules.local.json
 
 TestResults/
 artifacts/
+
+# Approved versioned release bundles are intentionally tracked on the single release branch.
+!release/
+!release/**
