@@ -20,7 +20,7 @@ public record LogoutRequest(string RefreshToken);
 
 public record ChangePasswordRequest(string CurrentPassword, string NewPassword, string ConfirmPassword);
 
-// 관리자 사용자 등록. PlantId/Language는 선택(기본). RoleId는 필수(권한 합성 기반).
+// 관리자 사용자 등록. PlantId/Language는 선택(기본). RoleId는 활성 DB 역할이어야 한다.
 public record RegisterRequest(
     string UserId, string UserName, string Password, string Email, string RoleId, string Language = "KoKr");
 

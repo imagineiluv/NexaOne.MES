@@ -16,3 +16,26 @@ public record SparePartDto(
     string PartId, string PartName, string PartNumber, string Description, string UnitOfMeasure,
     decimal CurrentStock, decimal MinStock, decimal MaxStock, string Location,
     string? EquipmentClassId, bool IsLowStock);
+
+/// <summary>
+/// EMS 쓰기 명령의 인증·재시도·추적 문맥. ActorId는 서버가 ClaimsPrincipal에서 채우며 요청 body actor를
+/// 신뢰하지 않는다.
+/// </summary>
+public sealed record EmsCommandContextDto(
+    string ActorId,
+    string IdempotencyKey,
+    string ClientChannel = "MES",
+    string? DeviceId = null,
+    string? CorrelationId = null);
+
+/// <summary>재고 증감과 원장에 함께 보존할 예비부품 추적 문맥.</summary>
+public sealed record SparePartAdjustmentDto(
+    decimal Delta,
+    EmsCommandContextDto Command,
+    string? TransactionType = null,
+    string? WorkOrderId = null,
+    string? EquipmentId = null,
+    string? FromLocation = null,
+    string? ToLocation = null,
+    string? Remark = null,
+    string? BomItemId = null);

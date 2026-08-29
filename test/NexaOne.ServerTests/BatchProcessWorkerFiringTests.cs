@@ -7,7 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using NexaOne.Server.Gateway;
-using NexusFramework.Scheduling;
+using NexaFramework.Scheduling;
 using Xunit;
 
 namespace NexaOne.ServerTests;

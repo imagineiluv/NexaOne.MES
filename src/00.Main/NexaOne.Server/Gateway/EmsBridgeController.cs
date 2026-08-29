@@ -29,8 +29,11 @@ public sealed class EmsBridgeController : ControllerBase
     [RequirePermission(Permissions.EmsManage)]
     public async Task<IActionResult> CreateWorkOrder([FromBody] CreateWorkOrderRequest req, CancellationToken ct)
     {
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
         return (await _bridge.CreateWorkOrderAsync(
-            req.WoId, req.EquipmentId, req.WoType, req.Description, req.AssigneeId, ct)).ToActionResult();
+            req.WoId, req.EquipmentId, req.WoType, req.Description, req.AssigneeId,
+            req.MaintenancePlanId, Command(actor, req.IdempotencyKey, req.ClientChannel,
+                req.DeviceId, req.CorrelationId), ct)).ToActionResult();
     }
 
     [HttpPost("work-orders/{woId}/start")]
@@ -39,9 +42,15 @@ public sealed class EmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.EmsManage)]
-    public async Task<IActionResult> StartWorkOrder(string woId, CancellationToken ct)
+    public async Task<IActionResult> StartWorkOrder(
+        string woId,
+        [FromBody] WorkOrderOperationRequest req,
+        CancellationToken ct)
     {
-        return (await _bridge.StartWorkOrderAsync(woId, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        return (await _bridge.StartWorkOrderAsync(
+            woId, Command(actor, req.IdempotencyKey, req.ClientChannel,
+                req.DeviceId, req.CorrelationId), ct)).ToActionResult();
     }
 
     [HttpPost("work-orders/{woId}/complete")]
@@ -52,7 +61,10 @@ public sealed class EmsBridgeController : ControllerBase
     [RequirePermission(Permissions.EmsManage)]
     public async Task<IActionResult> CompleteWorkOrder(string woId, [FromBody] CompleteWorkOrderRequest req, CancellationToken ct)
     {
-        return (await _bridge.CompleteWorkOrderAsync(woId, req.Remark, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        return (await _bridge.CompleteWorkOrderAsync(
+            woId, req.Remark, Command(actor, req.IdempotencyKey, req.ClientChannel,
+                req.DeviceId, req.CorrelationId), ct)).ToActionResult();
     }
 
     [HttpPost("work-orders/{woId}/cancel")]
@@ -61,9 +73,15 @@ public sealed class EmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.EmsManage)]
-    public async Task<IActionResult> CancelWorkOrder(string woId, CancellationToken ct)
+    public async Task<IActionResult> CancelWorkOrder(
+        string woId,
+        [FromBody] WorkOrderOperationRequest req,
+        CancellationToken ct)
     {
-        return (await _bridge.CancelWorkOrderAsync(woId, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        return (await _bridge.CancelWorkOrderAsync(
+            woId, Command(actor, req.IdempotencyKey, req.ClientChannel,
+                req.DeviceId, req.CorrelationId), ct)).ToActionResult();
     }
 
     // ── 보전계획(MaintenancePlan) ──
@@ -75,9 +93,12 @@ public sealed class EmsBridgeController : ControllerBase
     [RequirePermission(Permissions.EmsManage)]
     public async Task<IActionResult> CreatePlan([FromBody] CreateMaintenancePlanRequest req, CancellationToken ct)
     {
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
         return (await _bridge.CreatePlanAsync(
             req.PlanId, req.PlanName, req.EquipmentId, req.PlanType, req.CycleType,
-            req.ScheduledDate, req.EstimatedHours, req.AssigneeId, ct)).ToActionResult();
+            req.ScheduledDate, req.EstimatedHours, req.AssigneeId,
+            Command(actor, req.IdempotencyKey, req.ClientChannel,
+                req.DeviceId, req.CorrelationId), ct)).ToActionResult();
     }
 
     [HttpPost("plans/{planId}/start")]
@@ -86,9 +107,15 @@ public sealed class EmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.EmsManage)]
-    public async Task<IActionResult> StartPlan(string planId, CancellationToken ct)
+    public async Task<IActionResult> StartPlan(
+        string planId,
+        [FromBody] MaintenancePlanOperationRequest req,
+        CancellationToken ct)
     {
-        return (await _bridge.StartPlanAsync(planId, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        return (await _bridge.StartPlanAsync(
+            planId, Command(actor, req.IdempotencyKey, req.ClientChannel,
+                req.DeviceId, req.CorrelationId), ct)).ToActionResult();
     }
 
     [HttpPost("plans/{planId}/complete")]
@@ -97,9 +124,15 @@ public sealed class EmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.EmsManage)]
-    public async Task<IActionResult> CompletePlan(string planId, CancellationToken ct)
+    public async Task<IActionResult> CompletePlan(
+        string planId,
+        [FromBody] MaintenancePlanOperationRequest req,
+        CancellationToken ct)
     {
-        return (await _bridge.CompletePlanAsync(planId, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        return (await _bridge.CompletePlanAsync(
+            planId, Command(actor, req.IdempotencyKey, req.ClientChannel,
+                req.DeviceId, req.CorrelationId), ct)).ToActionResult();
     }
 
     [HttpPost("plans/{planId}/cancel")]
@@ -108,9 +141,15 @@ public sealed class EmsBridgeController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [RequirePermission(Permissions.EmsManage)]
-    public async Task<IActionResult> CancelPlan(string planId, CancellationToken ct)
+    public async Task<IActionResult> CancelPlan(
+        string planId,
+        [FromBody] MaintenancePlanOperationRequest req,
+        CancellationToken ct)
     {
-        return (await _bridge.CancelPlanAsync(planId, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        return (await _bridge.CancelPlanAsync(
+            planId, Command(actor, req.IdempotencyKey, req.ClientChannel,
+                req.DeviceId, req.CorrelationId), ct)).ToActionResult();
     }
 
     // ── 예비품(SparePart) ──
@@ -122,9 +161,12 @@ public sealed class EmsBridgeController : ControllerBase
     [RequirePermission(Permissions.EmsManage)]
     public async Task<IActionResult> CreatePart([FromBody] CreateSparePartRequest req, CancellationToken ct)
     {
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
         return (await _bridge.CreatePartAsync(
             req.PartId, req.PartName, req.PartNumber, req.Description, req.UnitOfMeasure,
-            req.CurrentStock, req.MinStock, req.MaxStock, req.Location, req.EquipmentClassId, ct)).ToActionResult();
+            req.CurrentStock, req.MinStock, req.MaxStock, req.Location, req.EquipmentClassId,
+            Command(actor, req.IdempotencyKey, req.ClientChannel,
+                req.DeviceId, req.CorrelationId), ct)).ToActionResult();
     }
 
     [HttpPost("spare-parts/{partId}/adjust-stock")]
@@ -135,17 +177,84 @@ public sealed class EmsBridgeController : ControllerBase
     [RequirePermission(Permissions.EmsManage)]
     public async Task<IActionResult> AdjustStock(string partId, [FromBody] AdjustStockRequest req, CancellationToken ct)
     {
-        return (await _bridge.AdjustStockAsync(partId, req.Delta, ct)).ToActionResult();
+        if (!TryGetExternalActor(out var actor)) return Unauthorized();
+        var adjustment = new SparePartAdjustmentDto(
+            req.Delta,
+            Command(actor, req.IdempotencyKey, req.ClientChannel, req.DeviceId, req.CorrelationId),
+            req.TransactionType, req.WorkOrderId, req.EquipmentId,
+            req.FromLocation, req.ToLocation, req.Remark, req.BomItemId);
+        return (await _bridge.AdjustStockAsync(partId, adjustment, ct)).ToActionResult();
     }
 
+    // 감사 대상 EMS 명령은 JWT에 사용자 식별자가 없으면 SYSTEM으로 대체하지 않고 닫힌 상태로 거부한다.
+    private bool TryGetExternalActor(out string actor)
+    {
+        actor = User.CurrentUserId()?.Trim() ?? string.Empty;
+        return actor.Length > 0;
+    }
+
+    private static EmsCommandContextDto Command(
+        string actor,
+        string? idempotencyKey,
+        string? clientChannel,
+        string? deviceId,
+        string? correlationId) => new(
+        actor,
+        idempotencyKey?.Trim() ?? string.Empty,
+        string.IsNullOrWhiteSpace(clientChannel) ? "MES" : clientChannel,
+        deviceId,
+        correlationId);
 }
 
-public record CreateWorkOrderRequest(string WoId, string EquipmentId, string WoType, string Description, string AssigneeId);
-public record CompleteWorkOrderRequest(string Remark);
+public record CreateWorkOrderRequest(
+    string WoId,
+    string EquipmentId,
+    string WoType,
+    string Description,
+    string AssigneeId,
+    string IdempotencyKey,
+    string? MaintenancePlanId = null,
+    string ClientChannel = "MES",
+    string? DeviceId = null,
+    string? CorrelationId = null);
+public record WorkOrderOperationRequest(
+    string IdempotencyKey,
+    string ClientChannel = "MES",
+    string? DeviceId = null,
+    string? CorrelationId = null);
+public record CompleteWorkOrderRequest(
+    string Remark,
+    string IdempotencyKey,
+    string ClientChannel = "MES",
+    string? DeviceId = null,
+    string? CorrelationId = null);
 public record CreateMaintenancePlanRequest(
     string PlanId, string PlanName, string EquipmentId, string PlanType, string CycleType,
-    DateTime ScheduledDate, decimal EstimatedHours, string AssigneeId);
+    DateTime ScheduledDate, decimal EstimatedHours, string AssigneeId,
+    string IdempotencyKey,
+    string ClientChannel = "MES",
+    string? DeviceId = null,
+    string? CorrelationId = null);
+public record MaintenancePlanOperationRequest(
+    string IdempotencyKey,
+    string ClientChannel = "MES",
+    string? DeviceId = null,
+    string? CorrelationId = null);
 public record CreateSparePartRequest(
     string PartId, string PartName, string PartNumber, string Description, string UnitOfMeasure,
-    decimal CurrentStock, decimal MinStock, decimal MaxStock, string Location, string? EquipmentClassId);
-public record AdjustStockRequest(decimal Delta);
+    decimal CurrentStock, decimal MinStock, decimal MaxStock, string Location, string? EquipmentClassId,
+    string IdempotencyKey, string ClientChannel = "MES", string? DeviceId = null,
+    string? CorrelationId = null);
+public record AdjustStockRequest(
+    decimal Delta,
+    string IdempotencyKey,
+    string ClientChannel = "MES",
+    string? DeviceId = null,
+    string? CorrelationId = null,
+    string? TransactionType = null,
+    string? WorkOrderId = null,
+    string? EquipmentId = null,
+    string? FromLocation = null,
+    string? ToLocation = null,
+    string? Remark = null,
+    string? BomItemId = null);

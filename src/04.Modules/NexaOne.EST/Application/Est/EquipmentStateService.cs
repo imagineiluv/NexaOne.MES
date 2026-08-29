@@ -43,9 +43,27 @@ public sealed class EquipmentStateService
         // Bootstrap: if no state record exists, create one with IDLE as initial state
         if (current is null)
         {
-            current = EquipmentCurrentState.Create(equipmentId, plantId, "IDLE");
-            await _stateRepo.UpsertAsync(current, ct);
+            var initial = EquipmentCurrentState.Create(equipmentId, plantId, "IDLE");
+            if (await _stateRepo.TryInitializeAsync(initial, ct))
+            {
+                current = initial;
+            }
+            else
+            {
+                // 다른 요청이 최초 상태를 먼저 만들었다. 그 승자 상태를 다시 읽어야 하며,
+                // Upsert로 덮어쓰면 이미 진행된 전이를 IDLE/version 1로 되돌릴 수 있다.
+                current = await _stateRepo.GetAsync(equipmentId, ct);
+                if (current is null)
+                    return Result.Failure<EquipmentCurrentState>(Error.Conflict(
+                        "EST.EquipmentState.InitializationRace",
+                        "Equipment state initialization raced with another request; reload and retry."));
+            }
         }
+
+        if (!current.PlantId.Equals(plantId, StringComparison.OrdinalIgnoreCase))
+            return Result.Failure<EquipmentCurrentState>(Error.Conflict(
+                "EST.EquipmentState.PlantMismatch",
+                $"Equipment '{equipmentId}' belongs to plant '{current.PlantId}', not '{plantId}'."));
 
         // Optimistic concurrency check
         if (expectedVersion.HasValue && current.StateVersion != expectedVersion.Value)
@@ -53,6 +71,7 @@ public sealed class EquipmentStateService
                 Error.Conflict($"Equipment state was changed concurrently. Current version: {current.StateVersion}."));
 
         var fromState = current.CurrentStateId;
+        var persistedVersion = current.StateVersion;
 
         // Matrix validation
         var matrix = await _matrixRepo.FindAsync(plantId, fromState, toState, ct);
@@ -76,11 +95,17 @@ public sealed class EquipmentStateService
             histId, equipmentId, fromState, toState, setState,
             current.StateChangedAt, requestedBy, reason, sourceType);
 
-        if (histResult.IsSuccess)
-            await _stateRepo.ChangeStateWithHistoryAsync(current, histResult.Value, ct);
-        else
-            // 이력 도메인 검증 실패(비정상 입력)는 상태 변경만 반영해 기존 동작을 보존한다.
-            await _stateRepo.UpsertAsync(current, ct);
+        if (histResult.IsFailure)
+            return Result.Failure<EquipmentCurrentState>(histResult.Error);
+
+        if (!await _stateRepo.TryChangeStateWithHistoryAsync(
+                current, histResult.Value, persistedVersion, ct))
+        {
+            var winner = await _stateRepo.GetAsync(equipmentId, ct);
+            return Result.Failure<EquipmentCurrentState>(Error.Conflict(
+                "EST.EquipmentState.ConcurrentChange",
+                $"Equipment state was changed concurrently. Current version: {winner?.StateVersion}."));
+        }
 
         return Result.Success(current);
     }

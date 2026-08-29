@@ -6,7 +6,7 @@
      STATUS/LOT_STATE/PROCESS_STATE는 enum.ToString() 문자열로 저장된다.
      선택필터 (@p IS NULL OR COL=@p) — 본문 없는 @param은 게이트웨이가 null로 채운다. 모두 read(kind 미표기). -->
 <queries module="POM">
-    <query id="POM.PlansByPlant">
+    <query id="POM.PlansByPlant" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT PLAN_ID, PLAN_NAME, PLANT_ID, PRODUCT_ID, PLANNED_QTY,
                    PLANNED_START_DATE, PLANNED_END_DATE, STATUS, REMARK
@@ -16,7 +16,7 @@
             ORDER BY PLANNED_START_DATE
         ]]></statement>
     </query>
-    <query id="POM.PlanCountByStatus">
+    <query id="POM.PlanCountByStatus" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT STATUS, COUNT(*) AS CNT
             FROM POM_PRODUCTION_PLAN
@@ -26,7 +26,7 @@
             ORDER BY STATUS
         ]]></statement>
     </query>
-    <query id="POM.OrdersByPlan">
+    <query id="POM.OrdersByPlan" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT ORDER_ID, PLAN_ID, EQUIPMENT_ID, PRODUCT_ID, ORDER_QTY, ACTUAL_QTY,
                    SCHEDULED_START, SCHEDULED_END, ACTUAL_START, ACTUAL_END, STATUS
@@ -36,7 +36,7 @@
             ORDER BY SCHEDULED_START
         ]]></statement>
     </query>
-    <query id="POM.OrdersByEquipment">
+    <query id="POM.OrdersByEquipment" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT ORDER_ID, PLAN_ID, EQUIPMENT_ID, PRODUCT_ID, ORDER_QTY, ACTUAL_QTY,
                    SCHEDULED_START, SCHEDULED_END, ACTUAL_START, ACTUAL_END, STATUS
@@ -46,7 +46,7 @@
             ORDER BY SCHEDULED_START DESC
         ]]></statement>
     </query>
-    <query id="POM.LotsByPlant">
+    <query id="POM.LotsByPlant" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT LOT_ID, PLANT_ID, WORK_ORDER_ID, PRODUCT_ID, QTY, DEFECT_QTY,
                    LOT_STATE, PROCESS_STATE, ROUTE_STEPS, CURRENT_STEP,
@@ -57,7 +57,7 @@
             ORDER BY CREATED_AT DESC
         ]]></statement>
     </query>
-    <query id="POM.LotsByWorkOrder">
+    <query id="POM.LotsByWorkOrder" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT LOT_ID, PLANT_ID, WORK_ORDER_ID, PRODUCT_ID, QTY, DEFECT_QTY,
                    LOT_STATE, PROCESS_STATE, ROUTE_STEPS, CURRENT_STEP,
@@ -67,7 +67,7 @@
             ORDER BY LOT_ID
         ]]></statement>
     </query>
-    <query id="POM.LotHistoryByLot">
+    <query id="POM.LotHistoryByLot" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT LOT_HISTORY_ID, PLANT_ID, LOT_ID, EQUIPMENT_ID, PROCESS_ID,
                    RECIPE_DEF_ID, RECIPE_DEF_VERSION, TRACK_IN_TIME, TRACK_OUT_TIME,
@@ -78,7 +78,7 @@
         ]]></statement>
     </query>
     <!-- SmartUX 화면 점등용 전체조회(NULL-guard) — 계획/설비 필터 없이 생산오더 그리드를 채운다. -->
-    <query id="POM.ProductionOrderList">
+    <query id="POM.ProductionOrderList" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT ORDER_ID, PLAN_ID, EQUIPMENT_ID, PRODUCT_ID, ORDER_QTY, ACTUAL_QTY,
                    SCHEDULED_START, SCHEDULED_END, ACTUAL_START, ACTUAL_END, STATUS
@@ -90,38 +90,42 @@
         ]]></statement>
     </query>
     <!-- ===== SmartUX WPM(작업진행)·RPT 점등 — POM_LOT/POM_LOT_HISTORY 전체조회(V014). 신규 테이블 0. ===== -->
-    <!-- LOT 관리 — 전체 Lot(NULL-guard). @plantId/@lotState/@isHold 선택 필터. -->
-    <query id="POM.LotList">
+    <!-- LOT 관리 — 전체 Lot(NULL-guard). @plantId/@lotState/@isHold 선택 필터, 최근 500건 상한. -->
+    <query id="POM.LotList" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT LOT_ID, PLANT_ID, WORK_ORDER_ID, PRODUCT_ID, QTY, DEFECT_QTY,
-                   LOT_STATE, PROCESS_STATE, CURRENT_STEP, EQUIPMENT_ID, IS_HOLD
+                   LOT_STATE, PROCESS_STATE, ROUTE_STEPS, CURRENT_STEP, EQUIPMENT_ID,
+                   CARRIER_ID, IS_HOLD, VERSION_NO, CONTROL_MODE, RETURN_STEP
             FROM POM_LOT
             WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
               AND (@lotState IS NULL OR LOT_STATE = @lotState)
               AND (@isHold IS NULL OR IS_HOLD = @isHold)
-            ORDER BY CREATED_AT DESC
+            ORDER BY CREATED_AT DESC, LOT_ID
+            LIMIT 500
         ]]></statement>
     </query>
     <!-- LOT Hold/Hold 해제 — 홀드 상태 Lot(IS_HOLD='Y', 타입 고정). -->
-    <query id="POM.LotHoldList">
+    <query id="POM.LotHoldList" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT LOT_ID, PLANT_ID, PRODUCT_ID, QTY, LOT_STATE, PROCESS_STATE, EQUIPMENT_ID, IS_HOLD
             FROM POM_LOT
             WHERE IS_HOLD = 'Y'
-            ORDER BY CREATED_AT DESC
+            ORDER BY CREATED_AT DESC, LOT_ID
+            LIMIT 500
         ]]></statement>
     </query>
     <!-- 불량 수리 — 불량 수량 존재 Lot(DEFECT_QTY>0, 타입 고정). -->
-    <query id="POM.LotDefectList">
+    <query id="POM.LotDefectList" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT LOT_ID, PLANT_ID, PRODUCT_ID, QTY, DEFECT_QTY, LOT_STATE, EQUIPMENT_ID
             FROM POM_LOT
             WHERE DEFECT_QTY > 0
-            ORDER BY DEFECT_QTY DESC
+            ORDER BY DEFECT_QTY DESC, CREATED_AT DESC, LOT_ID
+            LIMIT 500
         ]]></statement>
     </query>
     <!-- 수율 현황 — 품목별 생산/불량/양품 집계(POM_LOT). 파라미터 없음. -->
-    <query id="POM.YieldByProduct">
+    <query id="POM.YieldByProduct" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT PRODUCT_ID,
                    COUNT(*) AS LOT_COUNT,
@@ -134,37 +138,205 @@
         ]]></statement>
     </query>
     <!-- 작업지시(V060) — W/O 관리/현황 전체조회(NULL-guard). -->
-    <query id="POM.WorkOrderList">
+    <query id="POM.WorkOrderList" requiredPermission="pom:read">
         <statement><![CDATA[
-            SELECT WORK_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, PRODUCTION_ORDER_ID, EQUIPMENT_ID, WORK_ORDER_TYPE,
-                   PRODUCT_ID, PLAN_START_DATE, PLAN_END_DATE, PLAN_QTY, START_QTY, COMPLETE_QTY, SCRAP_QTY, STATUS, IS_HOLD
+            SELECT WORK_ORDER_ID, PRODUCTION_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, PRODUCT_ID,
+                   ROUTING_SCOPE, ROUTING_ID, ROUTING_STEP_NO, PROCESS_ID, WORK_CENTER_ID, EQUIPMENT_ID,
+                   WORK_ORDER_TYPE, OWNER_ID, PLAN_START_DATE, PLAN_END_DATE, PLAN_QTY,
+                   START_QTY, COMPLETE_QTY, SCRAP_QTY, STATUS, IS_HOLD, STARTED_AT,
+                   COMPLETED_AT, DESCRIPTION, VERSION_NO
             FROM POM_WORK_ORDER
             WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@workOrderId IS NULL OR WORK_ORDER_ID = @workOrderId)
+              AND (@productionOrderId IS NULL OR PRODUCTION_ORDER_ID = @productionOrderId)
+              AND (@routingScope IS NULL OR ROUTING_SCOPE = @routingScope)
+              AND (@processId IS NULL OR PROCESS_ID = @processId)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@ownerId IS NULL OR OWNER_ID = @ownerId)
               AND (@status IS NULL OR STATUS = @status)
-            ORDER BY PLAN_START_DATE DESC
+            ORDER BY PLAN_START_DATE DESC, WORK_ORDER_ID
+            LIMIT 500
         ]]></statement>
     </query>
-    <!-- 작업지시 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. -->
-    <query id="POM.CreateWorkOrder" kind="write" requiredPermission="pom:manage">
+    <query id="POM.WorkOrderExecutionList" requiredPermission="pom:read">
         <statement><![CDATA[
-            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
-            INSERT INTO POM_WORK_ORDER (WORK_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, EQUIPMENT_ID, PRODUCT_ID, PLAN_QTY, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) VALUES (@workOrderId, @plantId, @workOrderName, @equipmentId, @productId, @planQty, @currentUser, @utcNow, @currentUser, @utcNow)
-            ON CONFLICT(WORK_ORDER_ID) DO UPDATE SET
-                PLANT_ID = excluded.PLANT_ID,
-                WORK_ORDER_NAME = excluded.WORK_ORDER_NAME,
-                EQUIPMENT_ID = excluded.EQUIPMENT_ID,
-                PRODUCT_ID = excluded.PRODUCT_ID,
-                PLAN_QTY = excluded.PLAN_QTY,
-                UPDATED_BY = excluded.UPDATED_BY,
-                UPDATED_AT = excluded.UPDATED_AT
+            SELECT EXECUTION_ID, WORK_ORDER_ID, IDEMPOTENCY_KEY, ACTION, FROM_STATUS, TO_STATUS,
+                   GOOD_QTY, DEFECT_QTY, USER_ID, EQUIPMENT_ID, CLIENT_CHANNEL, DEVICE_ID,
+                   OCCURRED_AT, REMARK
+            FROM POM_WORK_ORDER_EXECUTION
+            WHERE (@workOrderId IS NULL OR WORK_ORDER_ID = @workOrderId)
+              AND (@action IS NULL OR ACTION = @action)
+            ORDER BY OCCURRED_AT DESC, EXECUTION_ID DESC
+        ]]></statement>
+    </query>
+    <!-- 작업 관리 — 생산 W/O·LOT가 없는 Carrier 세척과 Batch/Campaign/Equipment 범위를 위한 조회. -->
+    <query id="POM.WorkScopeList" requiredPermission="pom:read">
+        <statement><![CDATA[
+            SELECT WORK_SCOPE_ID, PLANT_ID, SCOPE_TYPE, TARGET_ID, NAME,
+                   PARENT_SCOPE_ID, WORK_ORDER_ID, CARRIER_ID, EQUIPMENT_ID,
+                   PRODUCT_ID, PROCESS_ID, RECIPE_ID, RECIPE_VERSION, PLAN_QTY,
+                   START_QTY, COMPLETE_QTY, SCRAP_QTY, OWNER_ID, STATUS, IS_HOLD,
+                   STARTED_AT, COMPLETED_AT, DESCRIPTION, VERSION_NO
+            FROM POM_WORK_SCOPE
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@scopeType IS NULL OR SCOPE_TYPE = @scopeType)
+              AND (@targetId IS NULL OR TARGET_ID = @targetId)
+              AND (@workScopeId IS NULL OR WORK_SCOPE_ID = @workScopeId)
+              AND (@parentScopeId IS NULL OR PARENT_SCOPE_ID = @parentScopeId)
+              AND (@workOrderId IS NULL OR WORK_ORDER_ID = @workOrderId)
+              AND (@carrierId IS NULL OR CARRIER_ID = @carrierId)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY CREATED_AT DESC, WORK_SCOPE_ID
+            LIMIT 500
+        ]]></statement>
+    </query>
+    <query id="POM.WorkScopeMemberList" requiredPermission="pom:read">
+        <statement><![CDATA[
+            SELECT M.MEMBER_ID, M.WORK_SCOPE_ID, M.MEMBER_SCOPE_ID,
+                   M.MEMBER_TYPE, M.MEMBER_TARGET_ID, M.SEQUENCE_NO, M.CREATED_AT
+            FROM POM_WORK_SCOPE_MEMBER M
+            WHERE (@workScopeId IS NULL OR M.WORK_SCOPE_ID = @workScopeId)
+              AND (@memberScopeId IS NULL OR M.MEMBER_SCOPE_ID = @memberScopeId)
+            ORDER BY M.WORK_SCOPE_ID, M.SEQUENCE_NO, M.MEMBER_ID
+            LIMIT 500
+        ]]></statement>
+    </query>
+    <query id="POM.WorkScopeExecutionList" requiredPermission="pom:read">
+        <statement><![CDATA[
+            SELECT EXECUTION_ID, WORK_SCOPE_ID, IDEMPOTENCY_KEY, ACTION,
+                   FROM_STATUS, TO_STATUS, GOOD_QTY, DEFECT_QTY, USER_ID,
+                   EQUIPMENT_ID, CLIENT_CHANNEL, DEVICE_ID, OCCURRED_AT, REMARK,
+                   EXPECTED_VERSION, RESULT_VERSION, CARRIER_ID, RESULT_CODE,
+                   RESULT_METADATA_JSON
+            FROM POM_WORK_SCOPE_EXECUTION
+            WHERE (@workScopeId IS NULL OR WORK_SCOPE_ID = @workScopeId)
+              AND (@action IS NULL OR ACTION = @action)
+              AND (@carrierId IS NULL OR CARRIER_ID = @carrierId)
+            ORDER BY OCCURRED_AT DESC, EXECUTION_ID DESC
+            LIMIT 500
+        ]]></statement>
+    </query>
+    <!-- 작업실행 공통 화면 — LOT 경로를 json_each ordinal로 찾아 현재/다음/재작업 복귀점을 함께 반환한다. -->
+    <query id="POM.LotRoutingContextList" requiredPermission="pom:read">
+        <statement><![CDATA[
+            SELECT L.LOT_ID, L.PLANT_ID, L.WORK_ORDER_ID, L.PRODUCT_ID,
+                   L.QTY, L.DEFECT_QTY, L.LOT_STATE, L.PROCESS_STATE, L.ROUTE_STEPS,
+                   L.CURRENT_STEP, CURRENT_ROUTE.[value] AS CURRENT_PROCESS_ID,
+                   CASE WHEN NEXT_ROUTE.[value] IS NULL THEN NULL
+                        ELSE COALESCE(L.RETURN_STEP, L.CURRENT_STEP + 1) END AS NEXT_STEP,
+                   NEXT_ROUTE.[value] AS NEXT_PROCESS_ID,
+                   L.RETURN_STEP, RETURN_ROUTE.[value] AS RETURN_PROCESS_ID,
+                   CASE WHEN L.RETURN_STEP IS NULL THEN 'N' ELSE 'Y' END AS IS_IN_REWORK,
+                   L.EQUIPMENT_ID, L.RECIPE_DEF_ID, L.RECIPE_DEF_VERSION, L.CARRIER_ID,
+                   L.IS_HOLD, L.VERSION_NO, L.CONTROL_MODE
+            FROM POM_LOT L
+            LEFT JOIN json_each(
+                '[' || REPLACE(json_quote(L.ROUTE_STEPS), '>', '","') || ']'
+            ) CURRENT_ROUTE
+              ON CAST(CURRENT_ROUTE.[key] AS INTEGER) = L.CURRENT_STEP
+            LEFT JOIN json_each(
+                '[' || REPLACE(json_quote(L.ROUTE_STEPS), '>', '","') || ']'
+            ) NEXT_ROUTE
+              ON CAST(NEXT_ROUTE.[key] AS INTEGER) = COALESCE(L.RETURN_STEP, L.CURRENT_STEP + 1)
+            LEFT JOIN json_each(
+                '[' || REPLACE(json_quote(L.ROUTE_STEPS), '>', '","') || ']'
+            ) RETURN_ROUTE
+              ON L.RETURN_STEP IS NOT NULL
+             AND CAST(RETURN_ROUTE.[key] AS INTEGER) = L.RETURN_STEP
+            WHERE (@plantId IS NULL OR L.PLANT_ID = @plantId)
+              AND (@lotId IS NULL OR L.LOT_ID = @lotId)
+              AND (@controlMode IS NULL OR L.CONTROL_MODE = @controlMode)
+            ORDER BY L.UPDATED_AT DESC, L.CREATED_AT DESC, L.LOT_ID
+        ]]></statement>
+    </query>
+    <!-- Flexible 승인 원장. 적용 버튼이 선택 행을 그대로 사용할 수 있도록 목표/버전 alias를 함께 제공한다. -->
+    <query id="POM.RouteExceptionList" requiredPermission="pom:read">
+        <statement><![CDATA[
+            SELECT EXCEPTION_ID, LOT_ID, PLANT_ID, DEVIATION_TYPE,
+                   FROM_STEP, TO_STEP, TO_STEP AS TARGET_STEP_INDEX,
+                   FROM_PROCESS_ID, TO_PROCESS_ID,
+                   BOUND_LOT_VERSION, BOUND_LOT_VERSION AS VERSION_NO,
+                   REASON,
+                   CASE WHEN STATUS IN ('Requested', 'Approved')
+                             AND datetime(EXPIRES_AT) <= CURRENT_TIMESTAMP
+                        THEN 'Expired' ELSE STATUS END AS STATUS,
+                   REQUESTED_BY, REQUESTED_AT, EXPIRES_AT,
+                   REVIEWED_BY, REVIEWED_AT, REVIEW_REASON,
+                   REVIEW_CLIENT_CHANNEL, REVIEW_DEVICE_ID,
+                   APPLIED_BY, APPLIED_AT, APPLIED_EXECUTION_ID,
+                   CLIENT_CHANNEL, DEVICE_ID
+            FROM POM_ROUTE_EXCEPTION
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@lotId IS NULL OR LOT_ID = @lotId)
+              AND (@deviationType IS NULL OR DEVIATION_TYPE = @deviationType)
+              AND (@exceptionStatus IS NULL OR
+                   CASE WHEN STATUS IN ('Requested', 'Approved')
+                             AND datetime(EXPIRES_AT) <= CURRENT_TIMESTAMP
+                        THEN 'Expired' ELSE STATUS END = @exceptionStatus)
+            ORDER BY REQUESTED_AT DESC, EXCEPTION_ID DESC
+            LIMIT 500
+        ]]></statement>
+    </query>
+    <!-- 성공한 통제모드 변경/공정 편차의 append-only 실행 원장. 차단 사유는 REST 409로 즉시 노출한다. -->
+    <query id="POM.RouteDeviationTimeline" requiredPermission="pom:read">
+        <statement><![CDATA[
+            SELECT EXECUTION_ID, LOT_ID, ACTION, ROUTE_EXCEPTION_ID,
+                   FROM_STEP, TO_STEP, FROM_PROCESS_ID, TO_PROCESS_ID,
+                   CONTROL_MODE, CLIENT_CHANNEL, DEVICE_ID, REASON,
+                   EXPECTED_VERSION, RESULT_VERSION, CREATED_BY, CREATED_AT
+            FROM (
+                SELECT E.EXECUTION_ID, E.LOT_ID, L.PLANT_ID, E.ACTION, E.ROUTE_EXCEPTION_ID,
+                       E.FROM_STEP, E.TO_STEP, E.FROM_PROCESS_ID, E.TO_PROCESS_ID,
+                       E.CONTROL_MODE, E.CLIENT_CHANNEL, E.DEVICE_ID, E.REASON,
+                       E.EXPECTED_VERSION, E.RESULT_VERSION, E.CREATED_BY, E.CREATED_AT
+                FROM POM_LOT_EXECUTION E
+                INNER JOIN POM_LOT L ON L.LOT_ID = E.LOT_ID
+                WHERE E.ACTION IN ('RoutingModeChange', 'Bypass', 'Alternative', 'SequenceChange', 'Rework', 'Return')
+                UNION ALL
+                -- 재작업 완료 후 자동 복귀는 LOT 상태 이력에 기록되므로 같은 타임라인으로 투영한다.
+                SELECT 'HIST-' || CAST(H.LOT_HISTORY_ID AS TEXT), H.LOT_ID, H.PLANT_ID, 'Return', NULL,
+                       RETURN_EXECUTION.FROM_STEP, RETURN_EXECUTION.TO_STEP,
+                       RETURN_EXECUTION.FROM_PROCESS_ID, RETURN_EXECUTION.TO_PROCESS_ID,
+                       RETURN_EXECUTION.CONTROL_MODE, RETURN_EXECUTION.CLIENT_CHANNEL,
+                       RETURN_EXECUTION.DEVICE_ID, H.REASON,
+                       RETURN_EXECUTION.EXPECTED_VERSION, RETURN_EXECUTION.RESULT_VERSION,
+                       COALESCE(RETURN_EXECUTION.CREATED_BY, H.EXECUTION_USER), H.CREATED_AT
+                FROM POM_LOT_HISTORY H
+                LEFT JOIN POM_LOT_EXECUTION RETURN_EXECUTION
+                  ON RETURN_EXECUTION.LOT_ID = H.LOT_ID
+                 AND RETURN_EXECUTION.EXECUTION_ID = H.IDEMPOTENCY_KEY
+                 AND RETURN_EXECUTION.ACTION = 'TrackOut'
+                WHERE H.EXECUTION_ID = 'Return'
+            ) TIMELINE
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@lotId IS NULL OR LOT_ID = @lotId)
+              AND (@deviationType IS NULL OR ACTION = @deviationType)
+            ORDER BY CREATED_AT DESC, EXECUTION_ID DESC
+            LIMIT 500
+        ]]></statement>
+    </query>
+    <!-- Track-Out 시 입력한 코드별 불량 원장. QMS 판정 결과와 분리된 생산 실적 추적 데이터다. -->
+    <query id="POM.LotDefectExecutionList" requiredPermission="pom:read">
+        <statement><![CDATA[
+            SELECT EXECUTION_ID, LOT_ID, PLANT_ID, PROCESS_ID,
+                   DEFECT_CODE, DEFECT_QTY, EXECUTION_USER,
+                   CLIENT_CHANNEL, DEVICE_ID, OCCURRED_AT, CREATED_AT
+            FROM POM_LOT_DEFECT_EXECUTION
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@lotId IS NULL OR LOT_ID = @lotId)
+              AND (@processId IS NULL OR PROCESS_ID = @processId)
+              AND (@defectCode IS NULL OR DEFECT_CODE = @defectCode)
+            ORDER BY OCCURRED_AT DESC, EXECUTION_ID DESC, DEFECT_CODE
+            LIMIT 500
         ]]></statement>
     </query>
     <!-- LOT 추적 — Lot 이력 전체조회(POM_LOT_HISTORY, 최근 500). @plantId/@lotId 선택 필터. -->
-    <query id="POM.LotTraceList">
+    <query id="POM.LotTraceList" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT LOT_HISTORY_ID, PLANT_ID, LOT_ID, EQUIPMENT_ID, PROCESS_ID,
                    TRACK_IN_TIME, TRACK_OUT_TIME, EXECUTION_ID, EXECUTION_USER,
-                   QTY, DEFECT_QTY, LOT_STATE, PROCESS_STATE
+                   QTY, DEFECT_QTY, LOT_STATE, PROCESS_STATE, REASON, IDEMPOTENCY_KEY
             FROM POM_LOT_HISTORY
             WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
               AND (@lotId IS NULL OR LOT_ID = @lotId)
@@ -172,52 +344,36 @@
             LIMIT 500
         ]]></statement>
     </query>
-    <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).
-         파라미터는 행 딕셔너리의 camelCase 사본이 자동 매칭. MSSQL판과 동일 ID·동일 의미. -->
-    <query id="POM.DeleteWorkOrder" kind="write" requiredPermission="pom:manage">
-        <statement><![CDATA[
-            DELETE FROM POM_WORK_ORDER WHERE WORK_ORDER_ID = @workOrderId
-        ]]></statement>
-    </query>
-    <!-- 그리드 일괄 명령(kind="write") — BulkCommands가 선택 행마다 호출하는 가드된 상태전이(허용 소스 상태만 UPDATE, 그 외 행은 무영향=affected 0). DDL 주석의 STATUS 도메인이 근거. MSSQL판 동일. -->
-    <query id="POM.ReleaseWorkOrder" kind="write" requiredPermission="pom:manage">
-        <statement><![CDATA[
-            UPDATE POM_WORK_ORDER SET STATUS = 'Released', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
-            WHERE WORK_ORDER_ID = @workOrderId AND STATUS = 'Created'
-        ]]></statement>
-    </query>
-    <query id="POM.CancelWorkOrder" kind="write" requiredPermission="pom:manage">
-        <statement><![CDATA[
-            UPDATE POM_WORK_ORDER SET STATUS = 'Cancelled', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
-            WHERE WORK_ORDER_ID = @workOrderId AND STATUS IN ('Created', 'Released')
-        ]]></statement>
-    </query>
     <!-- ===== MRP v1(2026-07-09) — 계획오더 제안/실행 이력 조회(read). 실행은 브리지(POST /api/v1/pom/mrp/run). ===== -->
-    <query id="POM.MrpPlannedOrderList">
+    <query id="POM.MrpPlannedOrderList" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT P.PLANNED_ORDER_ID, P.RUN_ID, P.ITEM_ID, P.ORDER_TYPE,
                    P.GROSS_QTY, P.ON_HAND_QTY, P.ON_ORDER_QTY, P.SAFETY_STOCK_QTY, P.NET_QTY, P.SUGGESTED_QTY,
                    P.DUE_DATE, P.RELEASE_DATE, P.SOURCE_DEMAND, P.STATUS, P.PLANT_ID, P.CONVERTED_ORDER_ID
             FROM MRP_PLANNED_ORDER P
+            INNER JOIN MRP_RUN SR ON SR.RUN_ID = P.RUN_ID AND SR.STATUS = 'Success'
             WHERE P.RUN_ID = COALESCE(@runId, (SELECT R.RUN_ID FROM MRP_RUN R
-                                               WHERE R.STARTED_AT = (SELECT MAX(R2.STARTED_AT) FROM MRP_RUN R2)))
+                                               WHERE R.STATUS = 'Success'
+                                               ORDER BY R.STARTED_AT DESC, R.RUN_ID DESC LIMIT 1))
             ORDER BY P.ORDER_TYPE, P.RELEASE_DATE, P.ITEM_ID
         ]]></statement>
     </query>
     <!-- 페깅(v2) — 제안별 수요 기여 분해(최신 실행 기본). 독립 수요=수주 ID, 종속 수요=부모 전개. -->
-    <query id="POM.MrpPeggingList">
+    <query id="POM.MrpPeggingList" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT G.PLANNED_ORDER_ID, G.ITEM_ID, G.DEMAND_REF, G.QTY
             FROM MRP_PEGGING G
+            INNER JOIN MRP_RUN SR ON SR.RUN_ID = G.RUN_ID AND SR.STATUS = 'Success'
             WHERE G.RUN_ID = COALESCE(@runId, (SELECT R.RUN_ID FROM MRP_RUN R
-                                               WHERE R.STARTED_AT = (SELECT MAX(R2.STARTED_AT) FROM MRP_RUN R2)))
+                                               WHERE R.STATUS = 'Success'
+                                               ORDER BY R.STARTED_AT DESC, R.RUN_ID DESC LIMIT 1))
             ORDER BY G.PLANNED_ORDER_ID, G.PEGGING_ID
             LIMIT 500
         ]]></statement>
     </query>
     <!-- CRP v1(V087) — 워크센터 부하: 최신 런(@runId NULL=최신)의 Production 제안(Proposed|Converted) ×
          라우팅 스텝 표준시간. REQUIRED_DAYS = 부하 / 일 능력(0이면 NULL — 능력 미설정 가시화). -->
-    <query id="POM.CrpWorkCenterLoad">
+    <query id="POM.CrpWorkCenterLoad" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT W.WORK_CENTER_ID, W.WORK_CENTER_NAME, W.DAILY_CAPACITY_MIN,
                    COALESCE(SUM(P.SUGGESTED_QTY * S.STD_TIME_MIN), 0) AS LOAD_MIN,
@@ -230,17 +386,38 @@
             LEFT JOIN MRP_PLANNED_ORDER P ON P.ITEM_ID = R.PRODUCT_ID
                  AND P.ORDER_TYPE = 'Production' AND P.STATUS IN ('Proposed', 'Converted')
                  AND P.RUN_ID = COALESCE(@runId, (SELECT R2.RUN_ID FROM MRP_RUN R2
-                                                  WHERE R2.STARTED_AT = (SELECT MAX(R3.STARTED_AT) FROM MRP_RUN R3)))
+                                                  WHERE R2.STATUS = 'Success'
+                                                  ORDER BY R2.STARTED_AT DESC, R2.RUN_ID DESC LIMIT 1))
+                 AND EXISTS (SELECT 1 FROM MRP_RUN SR
+                             WHERE SR.RUN_ID = P.RUN_ID AND SR.STATUS = 'Success')
             WHERE W.IS_ACTIVE = 'Y'
             GROUP BY W.WORK_CENTER_ID, W.WORK_CENTER_NAME, W.DAILY_CAPACITY_MIN
             ORDER BY LOAD_MIN DESC
         ]]></statement>
     </query>
-    <query id="POM.MrpRunList">
+    <query id="POM.MrpRunList" requiredPermission="pom:read">
         <statement><![CDATA[
             SELECT RUN_ID, STARTED_AT, FINISHED_AT, STATUS, DEMAND_COUNT, PLANNED_ORDER_COUNT, MESSAGE, EXECUTED_BY
             FROM MRP_RUN
             ORDER BY STARTED_AT DESC
+        ]]></statement>
+    </query>
+    <!-- Track-Out 불량 관찰과 별도로 확정된 폐기/재작업/반송/특채/보류 처분 원장. -->
+    <query id="POM.LotDispositionList" requiredPermission="pom:read">
+        <statement><![CDATA[
+            SELECT DISPOSITION_ID, PLANT_ID, LOT_ID, WORK_ORDER_ID, PROCESS_ID,
+                   DEFECT_EXECUTION_ID, DEFECT_CODE, DISPOSITION_TYPE, QUANTITY,
+                   REASON_CODE, REASON, DECIDED_BY, APPROVED_BY, DECIDED_AT,
+                   SOURCE_EXECUTION_ID, CLIENT_CHANNEL, DEVICE_ID
+            FROM POM_LOT_DISPOSITION
+            WHERE PLANT_ID = @plantId
+              AND (@lotId IS NULL OR LOT_ID = @lotId)
+              AND (@workOrderId IS NULL OR WORK_ORDER_ID = @workOrderId)
+              AND (@dispositionType IS NULL OR DISPOSITION_TYPE = @dispositionType)
+              AND (@from IS NULL OR DECIDED_AT >= @from)
+              AND (@to IS NULL OR DECIDED_AT < @to)
+            ORDER BY DECIDED_AT DESC, DISPOSITION_ID DESC
+            LIMIT 500
         ]]></statement>
     </query>
 </queries>

@@ -33,6 +33,29 @@ public sealed class MetaFormRendererTests
             if (model is not null) p.Add(c => c.Model, model);
         });
 
+    [Fact]
+    public void English_mode_localizes_form_and_field_labels_with_resource_first_fallback()
+    {
+        using var ctx = RadzenContext();
+        var ui = new NexaOne.Web.Services.UiTextService();
+        ui.Load("EnUs", new Dictionary<string, string>
+        {
+            ["screen.FORM.title"] = "Inventory Form",
+            ["field.STOCK_QTY"] = "On-hand Quantity",
+        });
+        ctx.Services.AddSingleton(ui);
+
+        var cut = Render(ctx, FormWith(
+            new FieldDefinition("STOCK_QTY", "현재고", FieldType.Number),
+            new FieldDefinition("RECEIVED_AT", "입고일시", FieldType.Date)));
+
+        cut.Find(".meta-form").GetAttribute("aria-label").Should().Be("Inventory Form");
+        cut.FindAll(".meta-field > label").Select(label => label.TextContent.Trim())
+            .Should().ContainInOrder("On-hand Quantity", "Received At")
+            .And.NotContain("현재고")
+            .And.NotContain("입고일시");
+    }
+
     // ── 필드 타입 → Radzen 컨트롤 매핑(우리가 소유한 switch) ──────────────────
 
     [Theory]
@@ -56,6 +79,44 @@ public sealed class MetaFormRendererTests
         var cut = Render(ctx, def);
 
         cut.Markup.Should().Contain("rz-dropdown", "Select 필드는 RadzenDropDown으로 렌더돼야 한다");
+    }
+
+    [Fact]
+    public void Status_select_localizes_static_labels_but_keeps_contract_values()
+    {
+        using var ctx = RadzenContext();
+        var values = new[] { "Draft", "Confirmed", "Producing", "Delivered", "Closed" };
+        var cut = Render(ctx, FormWith(new FieldDefinition(
+            "status", "상태", FieldType.Select, Options: values)));
+
+        var data = cut.FindComponent<Radzen.Blazor.RadzenDropDown<string>>().Instance.Data;
+        data.Should().NotBeNull();
+        var options = data!.Cast<MetaFieldOption>().ToList();
+
+        options.Select(option => option.Value).Should().Equal(values,
+            "API/쿼리로 전달되는 상태 계약 값은 번역하지 않아야 한다");
+        options.Select(option => option.Label).Should()
+            .Equal("초안", "확정", "생산 중", "납품 완료", "마감");
+    }
+
+    [Fact]
+    public void English_status_select_uses_natural_labels_even_before_resource_sync()
+    {
+        using var ctx = RadzenContext();
+        var ui = new NexaOne.Web.Services.UiTextService();
+        ui.Load("EnUs", new Dictionary<string, string>());
+        ctx.Services.AddSingleton(ui);
+        var cut = Render(ctx, FormWith(new FieldDefinition(
+            "ORDER_STATUS", "상태", FieldType.Select,
+            Options: new[] { "Draft", "Confirmed", "Producing", "Delivered", "Closed" })));
+
+        var data = cut.FindComponent<Radzen.Blazor.RadzenDropDown<string>>().Instance.Data;
+        data.Should().NotBeNull();
+        var options = data!.Cast<MetaFieldOption>().ToList();
+
+        options.Select(option => option.Label).Should()
+            .Equal(new[] { "Draft", "Confirmed", "Producing", "Delivered", "Closed" },
+                "영문 리소스 배포 시차가 있어도 한국어 상태명이 섞이면 안 된다");
     }
 
     [Fact]
@@ -86,6 +147,20 @@ public sealed class MetaFormRendererTests
         cut.Find("label").TextContent.Should().Be("이름", "Required가 아닌 필드 라벨에는 ' *'가 없어야 한다");
     }
 
+    [Fact]
+    public void Date_field_accepts_database_datetime_text_when_editing_a_selected_row()
+    {
+        using var ctx = RadzenContext();
+        var cut = Render(
+            ctx,
+            FormWith(new FieldDefinition("planEndDate", "납기 예정일", FieldType.Date)),
+            new Dictionary<string, object?> { ["planEndDate"] = "2026-07-31 00:00:00" });
+
+        var picker = cut.FindComponent<Radzen.Blazor.RadzenDatePicker<DateTime?>>();
+        picker.Instance.Value.Should().Be(new DateTime(2026, 7, 31),
+            "DB datetime 문자열도 관리 폼의 날짜 선택기에 복원돼야 한다");
+    }
+
     // (값 반영/Change→ModelChanged 양방향은 Radzen 내부 렌더·이벤트라 bUnit 정적 마크업엔 안 드러난다.
     //  MetaScreen 행선택 테스트가 값 반영을, 실브라우저 스모크가 편집 왕복을 실증한다.)
 
@@ -105,6 +180,22 @@ public sealed class MetaFormRendererTests
     }
 
     [Fact]
+    public void Hidden_system_field_is_not_rendered_as_user_input()
+    {
+        using var ctx = RadzenContext();
+        var cut = Render(ctx, FormWith(
+            new FieldDefinition("name", "이름"),
+            new FieldDefinition(
+                "idempotencyKey",
+                "멱등 키",
+                Hidden: true,
+                ValueGenerator: FieldValueGenerator.UuidV4)));
+
+        cut.FindAll(".meta-field").Should().ContainSingle();
+        cut.Markup.Should().Contain("이름").And.NotContain("멱등 키");
+    }
+
+    [Fact]
     public void Field_error_renders_inline_message()
     {
         using var ctx = RadzenContext();
@@ -117,5 +208,22 @@ public sealed class MetaFormRendererTests
         });
 
         cut.Find(".meta-field-error").TextContent.Should().Contain("필수");
+        cut.Find(".meta-field").ClassList.Should().Contain("has-error");
+        cut.Find("input").GetAttribute("aria-invalid").Should().Be("true");
+    }
+
+    [Fact]
+    public void Readonly_required_field_exposes_state_classes_and_accessibility_attributes()
+    {
+        using var ctx = RadzenContext();
+        var cut = Render(ctx, FormWith(new FieldDefinition(
+            "orderNo", "수주 번호", FieldType.Text, Required: true, ReadOnly: true)));
+
+        var field = cut.Find(".meta-field");
+        field.ClassList.Should().Contain("is-required").And.Contain("is-readonly")
+            .And.Contain("meta-field--text");
+        cut.Find("input").GetAttribute("aria-required").Should().Be("true");
+        cut.Find("input").GetAttribute("aria-readonly").Should().Be("true");
+        cut.Find(".meta-field-readonly").GetAttribute("aria-label").Should().Be("읽기 전용");
     }
 }

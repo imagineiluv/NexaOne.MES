@@ -5,7 +5,7 @@
 @using NexaOne.Common.Security
 
 @* SmartUX '대시보드 레이아웃 관리' 점등 — 레거시 위젯 배치 편집기의 현대 대응은 GrapesJS 디자이너
-   (SPA /spa/designer/{uiId}) + SYS_SCREEN_DEFINITION + Phase-2 위젯(KPI/StatusBadge)이다.
+   (SPA /Designer/{uiId}) + SYS_SCREEN_DEFINITION + Phase-2 위젯(KPI/StatusBadge)이다.
    본 페이지는 그 진입점: DB 저장 화면 목록 + 편집/신규 링크. 리터럴 라우트가 MetaScreen보다 우선. *@
 <PageTitle>대시보드 레이아웃 관리</PageTitle>
 
@@ -22,15 +22,18 @@ else
         <h1 class="page-title">대시보드 레이아웃 관리</h1>
         <p class="host-desc">
             화면은 GrapesJS 디자이너에서 위젯(그리드/폼/KPI/상태 뱃지)을 배치해 편집합니다.
-            저장된 정의는 즉시 <code>/meta/@("{UI_ID}")</code> 런타임으로 렌더됩니다.
+            저장된 정의는 DB에 등록된 MES·MOBILE·POP 채널별 진입 경로에서 즉시 렌더됩니다.
             디자이너는 새 탭에서 열리며 별도 로그인(동일 계정)이 필요할 수 있습니다.
         </p>
 
         <div class="host-toolbar">
-            <input @bind="_newUiId" placeholder="새 화면 UI_ID (예: DASHBOARD_LINE1)"
+            <input @bind="_newUiId" placeholder="새 화면 UI_ID (예: DASHBOARD_LINE1)" aria-label="새 화면 UI ID"
                    class="host-input inline" />
-            <a href="@DesignerHref(_newUiId)" target="_blank"
-               class="host-btn inline @(string.IsNullOrWhiteSpace(_newUiId) ? "is-disabled" : "")">
+            <a href="@(CanOpenNewDesigner ? DesignerHref(_newUiId) : null)"
+               target="@(CanOpenNewDesigner ? "_blank" : null)"
+               aria-disabled="@(!CanOpenNewDesigner)"
+               tabindex="@(CanOpenNewDesigner ? null : "-1")"
+               class="host-btn inline @(CanOpenNewDesigner ? "" : "is-disabled")">
                 새 화면 디자인
             </a>
             <button @onclick="ReloadAsync" class="host-btn-secondary">
@@ -41,13 +44,13 @@ else
         <table class="host-table">
             <thead>
                 <tr>
-                    <th>UI_ID</th><th>제목</th><th>열기</th>
+                    <th>UI_ID</th><th>제목</th><th>채널</th><th>진입 경로</th><th>열기</th>
                 </tr>
             </thead>
             <tbody>
                 @if (_screens.Count == 0)
                 {
-                    <tr><td colspan="3" class="empty">
+                    <tr><td colspan="5" class="empty">
                         @(_loading ? "불러오는 중…" : "디자이너로 저장된 화면이 아직 없습니다 — 위에서 새 화면을 만들어 보세요.")
                     </td></tr>
                 }
@@ -56,10 +59,12 @@ else
                     <tr>
                         <td><strong>@s.UiId</strong></td>
                         <td>@s.Title</td>
+                        <td>@s.TargetChannel</td>
+                        <td><code>@s.EntryPath</code></td>
                         <td>
                             <a href="@DesignerHref(s.UiId)" target="_blank" class="host-actionlink">디자이너에서 편집</a>
                             <span class="host-sep">|</span>
-                            <a href="/meta/@s.UiId" class="host-actionlink">런타임 보기</a>
+                            <a href="@s.EntryPath" class="host-actionlink">런타임 보기</a>
                         </td>
                     </tr>
                 }
@@ -74,6 +79,7 @@ else
     private bool _canManage;
     private bool _loading;
     private string _newUiId = string.Empty;
+    private bool CanOpenNewDesigner => !string.IsNullOrWhiteSpace(_newUiId);
     private List<ScreenDefinitionRecordDto> _screens = new();
 
     protected override async Task OnInitializedAsync()
@@ -91,5 +97,5 @@ else
     }
 
     private static string DesignerHref(string? uiId)
-        => string.IsNullOrWhiteSpace(uiId) ? "#" : $"/spa/designer/{Uri.EscapeDataString(uiId.Trim())}";
+        => string.IsNullOrWhiteSpace(uiId) ? "#" : $"/Designer/{Uri.EscapeDataString(uiId.Trim())}";
 }

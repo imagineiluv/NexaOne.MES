@@ -1,0 +1,4 @@
+-- Owner: IVT. Reserved migration number from the pre-release TRACE query-index prototype.
+-- V142 replaces the inbox-derived cursor and status-led work index with a durable binding cursor
+-- plus a filtered ready-work index. Keeping this migration intentionally data-neutral prevents an
+-- upgrade from building large transient indexes only to drop them again later in the same release.

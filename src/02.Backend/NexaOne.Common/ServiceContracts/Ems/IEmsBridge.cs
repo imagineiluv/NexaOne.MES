@@ -7,27 +7,36 @@ namespace NexaOne.ServiceContracts.Ems;
 /// Default-ALC DI에 등록한다. Result로 상태전이/팩토리 검증 분기(Conflict/Validation/NotFound/Success)를
 /// 손실 없이 전달한다. 순수 조회는 게이트웨이(EMS.xml)로, MaintenancePlan→WorkOrder 캐스케이드(다중
 /// 애그리거트)는 UnitOfWork 선결로 본 브리지에서 제외한다.</summary>
-public interface IEmsBridge
+public interface IEmsBridge : INexaModuleBridge
 {
     // ── 작업지시(WorkOrder) 생명주기 ──
     Task<Result<WorkOrderDto>> CreateWorkOrderAsync(
-        string woId, string equipmentId, string woType, string description, string assigneeId, CancellationToken ct = default);
-    Task<Result> StartWorkOrderAsync(string woId, CancellationToken ct = default);
-    Task<Result> CompleteWorkOrderAsync(string woId, string remark, CancellationToken ct = default);
-    Task<Result> CancelWorkOrderAsync(string woId, CancellationToken ct = default);
+        string woId, string equipmentId, string woType, string description, string assigneeId,
+        string? maintenancePlanId, EmsCommandContextDto command, CancellationToken ct = default);
+    Task<Result> StartWorkOrderAsync(
+        string woId, EmsCommandContextDto command, CancellationToken ct = default);
+    Task<Result> CompleteWorkOrderAsync(
+        string woId, string remark, EmsCommandContextDto command, CancellationToken ct = default);
+    Task<Result> CancelWorkOrderAsync(
+        string woId, EmsCommandContextDto command, CancellationToken ct = default);
 
     // ── 보전계획(MaintenancePlan) 생명주기 ──
     Task<Result<MaintenancePlanDto>> CreatePlanAsync(
         string planId, string planName, string equipmentId, string planType, string cycleType,
-        DateTime scheduledDate, decimal estimatedHours, string assigneeId, CancellationToken ct = default);
-    Task<Result> StartPlanAsync(string planId, CancellationToken ct = default);
-    Task<Result> CompletePlanAsync(string planId, CancellationToken ct = default);
-    Task<Result> CancelPlanAsync(string planId, CancellationToken ct = default);
+        DateTime scheduledDate, decimal estimatedHours, string assigneeId,
+        EmsCommandContextDto command, CancellationToken ct = default);
+    Task<Result> StartPlanAsync(
+        string planId, EmsCommandContextDto command, CancellationToken ct = default);
+    Task<Result> CompletePlanAsync(
+        string planId, EmsCommandContextDto command, CancellationToken ct = default);
+    Task<Result> CancelPlanAsync(
+        string planId, EmsCommandContextDto command, CancellationToken ct = default);
 
     // ── 예비품(SparePart) 생성/재고조정 ──
     Task<Result<SparePartDto>> CreatePartAsync(
         string partId, string partName, string partNumber, string description, string unitOfMeasure,
         decimal currentStock, decimal minStock, decimal maxStock, string location,
-        string? equipmentClassId, CancellationToken ct = default);
-    Task<Result> AdjustStockAsync(string partId, decimal delta, CancellationToken ct = default);
+        string? equipmentClassId, EmsCommandContextDto command, CancellationToken ct = default);
+    Task<Result> AdjustStockAsync(
+        string partId, SparePartAdjustmentDto adjustment, CancellationToken ct = default);
 }

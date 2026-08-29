@@ -22,8 +22,8 @@ public sealed class FileQueryRegistryTests : IDisposable
         WriteDialectFile("sqlite", "MDM.xml", """
             <?xml version="1.0" encoding="UTF-8"?>
             <queries module="MDM">
-              <query id="MDM.PlantList"><statement><![CDATA[ SELECT PLANT_ID FROM MDM_PLANT ]]></statement></query>
-              <query id="MDM.AreaList"><statement><![CDATA[ SELECT AREA_ID FROM MDM_AREA WHERE PLANT_ID = @plantId ]]></statement></query>
+              <query id="MDM.PlantList" access="public"><statement><![CDATA[ SELECT PLANT_ID FROM MDM_PLANT ]]></statement></query>
+              <query id="MDM.AreaList" requiredPermission="mdm:read"><statement><![CDATA[ SELECT AREA_ID FROM MDM_AREA WHERE PLANT_ID = @plantId ]]></statement></query>
             </queries>
             """);
 
@@ -42,7 +42,7 @@ public sealed class FileQueryRegistryTests : IDisposable
     {
         WriteDialectFile("sqlite", "P.xml", """
             <queries>
-              <query id="Q.Open"><statement>SELECT 1</statement></query>
+              <query id="Q.Open" access="public"><statement>SELECT 1</statement></query>
               <query id="Q.Secured" requiredPermission="sys:manage"><statement>SELECT 2</statement></query>
             </queries>
             """);
@@ -50,8 +50,10 @@ public sealed class FileQueryRegistryTests : IDisposable
 
         reg.TryGet("Q.Open", out var open).Should().BeTrue();
         open!.RequiredPermission.Should().BeNull("권한 미선언 쿼리는 인증만으로 실행");
+        open.IsPublic.Should().BeTrue("access=public이 명시된 읽기 쿼리");
         reg.TryGet("Q.Secured", out var secured).Should().BeTrue();
         secured!.RequiredPermission.Should().Be("sys:manage");
+        secured.IsPublic.Should().BeFalse();
     }
 
     [Fact]
@@ -60,7 +62,7 @@ public sealed class FileQueryRegistryTests : IDisposable
         // 쓰기 쿼리는 권한 선언이 필수(fail-fast 가드)이므로 requiredPermission을 함께 둔다.
         WriteDialectFile("sqlite", "W.xml", """
             <queries>
-              <query id="Q.Read"><statement>SELECT 1</statement></query>
+              <query id="Q.Read" access="public"><statement>SELECT 1</statement></query>
               <query id="Q.Write" kind="write" requiredPermission="t:manage"><statement>INSERT INTO T(A) VALUES(@a)</statement></query>
             </queries>
             """);
@@ -86,19 +88,45 @@ public sealed class FileQueryRegistryTests : IDisposable
     }
 
     [Fact]
-    public void Load_allows_write_query_with_permission_and_read_query_without()
+    public void Load_throws_when_read_query_has_no_access_policy()
+    {
+        WriteDialectFile("sqlite", "R.xml",
+            "<queries><query id=\"Q.Unclassified\"><statement>SELECT 1</statement></query></queries>");
+
+        var act = () => FileQueryRegistry.Load("sqlite", _root);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*Q.Unclassified*requiredPermission*access=\"public\"*");
+    }
+
+    [Theory]
+    [InlineData("access=\"authenticated\"")]
+    [InlineData("access=\"public\" requiredPermission=\"sys:manage\"")]
+    public void Load_throws_when_read_access_policy_is_invalid(string attributes)
+    {
+        WriteDialectFile("sqlite", "R.xml",
+            $"<queries><query id=\"Q.Invalid\" {attributes}><statement>SELECT 1</statement></query></queries>");
+
+        var act = () => FileQueryRegistry.Load("sqlite", _root);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Q.Invalid*");
+    }
+
+    [Fact]
+    public void Load_allows_write_query_with_permission_and_explicit_public_read()
     {
         // 쓰기 쿼리는 권한이 있으면 허용, 읽기 쿼리는 권한 없이도 허용(회귀 가드).
         WriteDialectFile("sqlite", "OK.xml", """
             <queries>
-              <query id="Q.Read"><statement>SELECT 1</statement></query>
+              <query id="Q.Read" access="public"><statement>SELECT 1</statement></query>
               <query id="Q.Write" kind="write" requiredPermission="mdm:manage"><statement>INSERT INTO T(A) VALUES(@a)</statement></query>
             </queries>
             """);
         var reg = FileQueryRegistry.Load("sqlite", _root);
 
         reg.TryGet("Q.Read", out var read).Should().BeTrue();
-        read!.RequiredPermission.Should().BeNull("읽기 쿼리는 권한 없이 실행 가능");
+        read!.RequiredPermission.Should().BeNull("명시적 public 읽기는 별도 업무 권한 없이 실행 가능");
+        read.IsPublic.Should().BeTrue();
         reg.TryGet("Q.Write", out var write).Should().BeTrue();
         write!.IsWrite.Should().BeTrue();
         write.RequiredPermission.Should().Be("mdm:manage");
@@ -108,7 +136,7 @@ public sealed class FileQueryRegistryTests : IDisposable
     public void TryGet_returns_false_for_unknown_id()
     {
         WriteDialectFile("sqlite", "X.xml",
-            "<queries><query id=\"A.B\"><statement>SELECT 1</statement></query></queries>");
+            "<queries><query id=\"A.B\" access=\"public\"><statement>SELECT 1</statement></query></queries>");
         var reg = FileQueryRegistry.Load("sqlite", _root);
 
         reg.TryGet("NOPE", out var def).Should().BeFalse();
@@ -119,9 +147,9 @@ public sealed class FileQueryRegistryTests : IDisposable
     public void Load_throws_on_duplicate_id_across_files()
     {
         WriteDialectFile("sqlite", "A.xml",
-            "<queries><query id=\"DUP\"><statement>SELECT 1</statement></query></queries>");
+            "<queries><query id=\"DUP\" access=\"public\"><statement>SELECT 1</statement></query></queries>");
         WriteDialectFile("sqlite", "B.xml",
-            "<queries><query id=\"DUP\"><statement>SELECT 2</statement></query></queries>");
+            "<queries><query id=\"DUP\" access=\"public\"><statement>SELECT 2</statement></query></queries>");
 
         var act = () => FileQueryRegistry.Load("sqlite", _root);
         act.Should().Throw<InvalidOperationException>("중복 쿼리 ID는 시작 시 즉시 실패해야 한다")
@@ -141,9 +169,9 @@ public sealed class FileQueryRegistryTests : IDisposable
     public void Load_isolates_by_dialect_folder()
     {
         WriteDialectFile("mssql", "M.xml",
-            "<queries><query id=\"ONLY.MSSQL\"><statement>SELECT 1</statement></query></queries>");
+            "<queries><query id=\"ONLY.MSSQL\" access=\"public\"><statement>SELECT 1</statement></query></queries>");
         WriteDialectFile("sqlite", "S.xml",
-            "<queries><query id=\"ONLY.SQLITE\"><statement>SELECT 1</statement></query></queries>");
+            "<queries><query id=\"ONLY.SQLITE\" access=\"public\"><statement>SELECT 1</statement></query></queries>");
 
         FileQueryRegistry.Load("mssql", _root).TryGet("ONLY.MSSQL", out _).Should().BeTrue();
         FileQueryRegistry.Load("mssql", _root).TryGet("ONLY.SQLITE", out _).Should().BeFalse();

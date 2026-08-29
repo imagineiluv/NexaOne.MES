@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Hosting;
-using NexusFramework.Scheduling;
+using NexaOne.ServiceContracts.Fdc;
+using NexaFramework.Scheduling;
 
 namespace NexaOne.FDC.Application.Fdc;
 
@@ -17,23 +18,95 @@ namespace NexaOne.FDC.Application.Fdc;
 public sealed class FdcCollectDataRetentionWorker : BackgroundService
 {
     private readonly IRecurringScheduler _scheduler;
-    private readonly IFdcCollectDataRepository _dataRepo;
+    private readonly IFdcCollectDataRetentionRepository? _retentionRepo;
+    private readonly IFdcTraceRetentionGuard _retentionGuard;
     private readonly bool _enabled;
     private readonly int _intervalSeconds;
     private readonly int _retentionDays;
+    private int _consecutiveBatchLimitRuns;
 
+    /// <summary>
+    /// 이전 binary constructor ABI를 보존한다. guard 없이 삭제를 켜는 구성은 안전하지 않으므로 즉시
+    /// 거부하고, 비활성 legacy 조립만 새 constructor로 위임한다.
+    /// </summary>
     public FdcCollectDataRetentionWorker(
         IRecurringScheduler scheduler,
         IFdcCollectDataRepository dataRepo,
         bool enabled,
         int intervalSeconds = 86400,
         int retentionDays = 30)
+        : this(
+            scheduler,
+            dataRepo,
+            RequireDisabledLegacyGuard(enabled),
+            enabled,
+            intervalSeconds,
+            retentionDays)
     {
-        _scheduler = scheduler;
-        _dataRepo = dataRepo;
+    }
+
+    public FdcCollectDataRetentionWorker(
+        IRecurringScheduler scheduler,
+        IFdcCollectDataRepository dataRepo,
+        IFdcTraceRetentionGuard retentionGuard,
+        bool enabled,
+        int intervalSeconds = 86400,
+        int retentionDays = 30)
+        : this(
+            scheduler,
+            dataRepo,
+            retentionGuard,
+            enabled,
+            bindingChangesQuiesced: false,
+            intervalSeconds,
+            retentionDays)
+    {
+    }
+
+    /// <summary>
+    /// 보존 실행 전체 기간 IVT binding/cursor의 보호 시작점을 낮출 수 있는 변경이 운영 절차로 동결됐음을
+    /// 명시적으로 확인하는 안전 constructor다. 지속 online 변경은 공통 revision/lock protocol 도입 전까지
+    /// 지원하지 않는다.
+    /// </summary>
+    public FdcCollectDataRetentionWorker(
+        IRecurringScheduler scheduler,
+        IFdcCollectDataRepository dataRepo,
+        IFdcTraceRetentionGuard retentionGuard,
+        bool enabled,
+        bool bindingChangesQuiesced,
+        int intervalSeconds = 86400,
+        int retentionDays = 30)
+    {
+        _scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
+        ArgumentNullException.ThrowIfNull(dataRepo);
+        _retentionGuard = retentionGuard ?? throw new ArgumentNullException(nameof(retentionGuard));
+        _retentionRepo = dataRepo as IFdcCollectDataRetentionRepository;
+        if (enabled
+            && (_retentionRepo is null || dataRepo is not IFdcTraceRetentionStateRepository))
+        {
+            throw new InvalidOperationException(
+                "Enabled FDC TRACE retention requires one repository implementing both durable retention purge and state contracts.");
+        }
+        if (enabled && !bindingChangesQuiesced)
+        {
+            throw new InvalidOperationException(
+                "Enabled FDC TRACE retention requires BindingChangesQuiesced=true for the entire process lifetime. "
+                + "Binding insert/activate/reactivate, effective-range changes, and cursor rollback must remain frozen.");
+        }
         _enabled = enabled;
         _intervalSeconds = intervalSeconds;
         _retentionDays = retentionDays;
+    }
+
+    private static IFdcTraceRetentionGuard RequireDisabledLegacyGuard(bool enabled)
+    {
+        if (enabled)
+        {
+            throw new InvalidOperationException(
+                "FDC TRACE retention cannot be enabled through the legacy constructor without an IVT retention guard.");
+        }
+
+        return DisabledFdcTraceRetentionGuard.Instance;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -67,10 +140,28 @@ public sealed class FdcCollectDataRetentionWorker : BackgroundService
     {
         try
         {
-            var cutoff = DateTime.UtcNow.AddDays(-_retentionDays);
-            var deleted = await _dataRepo.DeleteOlderThanAsync(cutoff, ct);
+            var requestedCutoff = DateTime.UtcNow.AddDays(-_retentionDays);
+            var lowWatermark = await _retentionGuard.GetLowWatermarkAsync(ct);
+            var cutoff = lowWatermark is { } protectedAt && protectedAt < requestedCutoff
+                ? protectedAt
+                : requestedCutoff;
+            var result = await _retentionRepo!.PurgeOlderThanAsync(cutoff, ct);
             Console.WriteLine(
-                $"[FdcCollectDataRetentionWorker] purged {deleted} row(s) older than {cutoff:o}.");
+                $"[FdcCollectDataRetentionWorker] purged {result.DeletedRows} row(s) older than {cutoff:o} "
+                + $"(requested={requestedCutoff:o}, IVT-low-watermark={lowWatermark:o}) "
+                + $"in {result.Elapsed.TotalMilliseconds:F0} ms.");
+            if (result.BatchLimitReached)
+            {
+                _consecutiveBatchLimitRuns++;
+                Console.WriteLine(
+                    "[FdcCollectDataRetentionWorker] WARNING: bounded purge cap was reached "
+                    + $"for {_consecutiveBatchLimitRuns} consecutive run(s); oldest retained backlog row="
+                    + $"{result.OldestRemainingCollectedAt:o}, elapsed={result.Elapsed.TotalMilliseconds:F0} ms.");
+            }
+            else
+            {
+                _consecutiveBatchLimitRuns = 0;
+            }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
@@ -78,4 +169,17 @@ public sealed class FdcCollectDataRetentionWorker : BackgroundService
             Console.WriteLine($"[FdcCollectDataRetentionWorker] purge failed: {ex.Message}");
         }
     }
+
+}
+
+internal sealed class DisabledFdcTraceRetentionGuard : IFdcTraceRetentionGuard
+{
+    public static readonly DisabledFdcTraceRetentionGuard Instance = new();
+
+    private DisabledFdcTraceRetentionGuard()
+    {
+    }
+
+    public Task<DateTime?> GetLowWatermarkAsync(CancellationToken ct = default) =>
+        throw new InvalidOperationException("Disabled FDC TRACE retention guard must never be invoked.");
 }

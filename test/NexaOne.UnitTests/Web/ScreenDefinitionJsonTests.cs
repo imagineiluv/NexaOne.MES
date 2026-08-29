@@ -50,4 +50,136 @@ public sealed class ScreenDefinitionJsonTests
         ScreenDefinitionJson.Deserialize("""{"uiId":"OLD","title":"t","fields":[]}""")!
             .CountQueryId.Should().BeNull();
     }
+
+    [Fact]
+    public void Purpose_roundtrips_and_legacy_definition_defaults_to_auto()
+    {
+        var definition = new ScreenDefinition(
+            "REGISTER1",
+            "등록 화면",
+            Array.Empty<FieldDefinition>(),
+            Purpose: ScreenPurpose.Register);
+
+        var json = ScreenDefinitionJson.Serialize(definition);
+        var back = ScreenDefinitionJson.Deserialize(json);
+
+        back.Should().NotBeNull();
+        back!.Purpose.Should().Be(ScreenPurpose.Register);
+        json.Should().Contain("\"purpose\": \"Register\"", "화면 목적 enum은 Designer와 공유하는 문자열 계약이다");
+
+        ScreenDefinitionJson.Deserialize("""{"uiId":"OLD","title":"기존","fields":[]}""")!
+            .Purpose.Should().Be(ScreenPurpose.Auto, "기존 JSON은 현재 렌더링 동작을 그대로 유지해야 한다");
+    }
+
+    [Fact]
+    public void Flat_and_bulk_permissions_roundtrip_without_breaking_legacy_json()
+    {
+        var definition = new ScreenDefinition(
+            "SECURED",
+            "권한 화면",
+            Array.Empty<FieldDefinition>(),
+            BulkCommands:
+            [
+                new BulkCommandDefinition(
+                    "승인",
+                    "QMS.Approve",
+                    RequiredPermission: "qms:manage"),
+            ],
+            ReadRequiredPermission: "qms:read",
+            SaveRequiredPermission: "qms:manage",
+            DeleteRequiredPermission: "qms:manage");
+
+        var json = ScreenDefinitionJson.Serialize(definition);
+        var back = ScreenDefinitionJson.Deserialize(json);
+
+        back.Should().NotBeNull();
+        back!.ReadRequiredPermission.Should().Be("qms:read");
+        back.SaveRequiredPermission.Should().Be("qms:manage");
+        back.DeleteRequiredPermission.Should().Be("qms:manage");
+        back.BulkCommands.Should().ContainSingle()
+            .Which.RequiredPermission.Should().Be("qms:manage");
+
+        var legacy = ScreenDefinitionJson.Deserialize(
+            """{"uiId":"OLD","title":"기존","fields":[],"bulkCommands":[{"label":"승인","commandQueryId":"QMS.Approve"}]}""");
+        legacy.Should().NotBeNull();
+        legacy!.ReadRequiredPermission.Should().BeNull();
+        legacy.SaveRequiredPermission.Should().BeNull();
+        legacy.DeleteRequiredPermission.Should().BeNull();
+        legacy.BulkCommands.Should().ContainSingle().Which.RequiredPermission.Should().BeNull();
+    }
+
+    [Fact]
+    public void Collection_hidden_field_and_value_generator_roundtrip_with_legacy_defaults()
+    {
+        var collection = new CollectionWidget
+        {
+            Id = "inspection-items",
+            CollectionKey = "items",
+            Label = "검사 항목",
+            ItemLabel = "항목",
+            BindingScope = "inspection",
+            MinItems = 1,
+            MaxItems = 20,
+            Fields =
+            [
+                new FieldWidget
+                {
+                    Id = "item-spec",
+                    FieldKey = "specId",
+                    Field = new FieldDefinition("specId", "검사 규격", FieldType.Select, Required: true),
+                },
+            ],
+        };
+        var definition = new ScreenDefinition(
+            "QMS_REGISTER",
+            "검사 등록",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Children =
+                [
+                    new FormWidget
+                    {
+                        Fields =
+                        [
+                            new FieldWidget
+                            {
+                                FieldKey = "idempotencyKey",
+                                Field = new FieldDefinition(
+                                    "idempotencyKey",
+                                    "멱등 키",
+                                    Required: true,
+                                    Hidden: true,
+                                    ValueGenerator: FieldValueGenerator.UuidV4),
+                            },
+                        ],
+                    },
+                    collection,
+                ],
+            });
+
+        var json = ScreenDefinitionJson.Serialize(definition);
+        var back = ScreenDefinitionJson.Deserialize(json);
+
+        var section = back!.Layout.Should().BeOfType<SectionNode>().Subject;
+        section.Children.Should().NotBeNull();
+        var children = section.Children!;
+        var form = children.OfType<FormWidget>().Single();
+        form.Fields.Should().NotBeNull();
+        var restoredHeaderField = form.Fields!.Single().Field!;
+        restoredHeaderField.Hidden.Should().BeTrue();
+        restoredHeaderField.ValueGenerator.Should().Be(FieldValueGenerator.UuidV4);
+        var restoredCollection = children.OfType<CollectionWidget>().Single();
+        restoredCollection.CollectionKey.Should().Be("items");
+        restoredCollection.BindingScope.Should().Be("inspection");
+        restoredCollection.MinItems.Should().Be(1);
+        restoredCollection.MaxItems.Should().Be(20);
+        restoredCollection.Fields.Should().ContainSingle();
+        json.Should().Contain("\"kind\": \"collection\"");
+
+        var legacy = ScreenDefinitionJson.Deserialize(
+            """{"uiId":"OLD","title":"기존","fields":[{"key":"name","label":"이름","type":"Text"}]}""");
+        legacy!.Fields.Single().Hidden.Should().BeFalse();
+        legacy.Fields.Single().ValueGenerator.Should().Be(FieldValueGenerator.None);
+    }
 }

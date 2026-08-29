@@ -1,3 +1,5 @@
+using System.Data.Common;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using NexaOne.EMS.Application.Ems;
 using NexaOne.EMS.Domain;
@@ -20,14 +22,14 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
 
     public async Task<WorkOrder?> GetByIdAsync(string woId, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM EMS_WORK_ORDER WHERE WO_ID = @woId";
+        const string sql = SelectWorkOrderSql + " WHERE WO_ID = @woId";
         var row = await QueryFirstOrDefaultAsync<WoRow>(sql, new { woId }, ct);
         return row?.ToDomain();
     }
 
     public async Task<IReadOnlyList<WorkOrder>> GetByEquipmentAsync(string equipmentId, DateTime? from, DateTime? to, CancellationToken ct = default)
     {
-        const string sql = @"SELECT * FROM EMS_WORK_ORDER
+        const string sql = SelectWorkOrderSql + @"
             WHERE EQUIPMENT_ID = @equipmentId
               AND (@from IS NULL OR ISSUED_AT >= @from)
               AND (@to IS NULL OR ISSUED_AT <= @to)";
@@ -37,7 +39,7 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
 
     public async Task<IReadOnlyList<WorkOrder>> GetByStatusAsync(WorkOrderStatus status, CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM EMS_WORK_ORDER WHERE STATUS = @status";
+        const string sql = SelectWorkOrderSql + " WHERE STATUS = @status";
         var rows = await QueryAsync<WoRow>(sql, new { status = status.ToString() }, ct);
         return rows.Select(r => r.ToDomain()).OfType<WorkOrder>().ToList();
     }
@@ -48,10 +50,44 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
         return await CountAsync(sql, new { status = status.ToString() }, ct);
     }
 
+    public async Task<bool> HasOpenLaborAsync(string woId, CancellationToken ct = default)
+        => await CountAsync(
+            "SELECT COUNT(*) FROM EMS_WORK_ORDER_LABOR WHERE WO_ID=@woId AND ENDED_AT IS NULL",
+            new { woId }, ct) > 0;
+
+    public async Task<MaintenanceAction?> GetActionByIdempotencyKeyAsync(
+        string idempotencyKey,
+        CancellationToken ct = default)
+    {
+        const string sql = @"SELECT ACTION_ID, WO_ID, ACTION_TYPE, FROM_STATUS, TO_STATUS,
+                                    RESULT_STATUS, ACTOR_ID, IDEMPOTENCY_KEY, ACTION_AT,
+                                    SOURCE, CLIENT_CHANNEL, DEVICE_ID, CORRELATION_ID, REMARK
+                             FROM EMS_MAINTENANCE_ACTION_HISTORY
+                             WHERE IDEMPOTENCY_KEY = @idempotencyKey";
+        var row = await QueryFirstOrDefaultAsync<ActionRow>(sql, new { idempotencyKey }, ct);
+        return row?.ToDomain();
+    }
+
+    public async Task<WorkOrderCreateCommandRecord?> GetCreateCommandAsync(
+        string idempotencyKey,
+        CancellationToken ct = default)
+    {
+        var row = await QueryFirstOrDefaultAsync<CreateCommandRow>(
+            CreateCommandSelectSql + " WHERE IDEMPOTENCY_KEY=@idempotencyKey",
+            new { idempotencyKey }, ct);
+        return row?.ToRecord();
+    }
+
+    private const string SelectWorkOrderSql = @"SELECT
+        WO_ID, MAINTENANCE_PLAN_ID AS PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION,
+        ASSIGNEE_ID, ISSUED_AT, STARTED_AT, COMPLETED_AT, STATUS, FAILURE_CODE_ID,
+        REMARK, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT
+        FROM EMS_WORK_ORDER";
+
     public async Task AddAsync(WorkOrder wo, CancellationToken ct = default)
     {
         const string sql = @"INSERT INTO EMS_WORK_ORDER
-            (WO_ID, PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION, ASSIGNEE_ID, ISSUED_AT, STATUS,
+            (WO_ID, MAINTENANCE_PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION, ASSIGNEE_ID, ISSUED_AT, STATUS,
              CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
             VALUES
             (@WoId, @PlanId, @EquipmentId, @WoType, @Description, @AssigneeId, @IssuedAt, @Status,
@@ -59,11 +95,103 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
         await _processor.InsertAsync(sql, WoRow.FromDomain(wo), ct);
     }
 
+    public async Task<bool> AddWithActionAsync(
+        WorkOrder wo,
+        MaintenanceAction action,
+        CancellationToken ct = default)
+    {
+        const string insert = @"INSERT INTO EMS_WORK_ORDER
+            (WO_ID, MAINTENANCE_PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION, ASSIGNEE_ID, ISSUED_AT, STATUS,
+             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            SELECT @WoId, @PlanId, @EquipmentId, @WoType, @Description, @AssigneeId, @IssuedAt, @Status,
+                   @Actor, @Now, @Actor, @Now
+            WHERE NOT EXISTS (
+                SELECT 1 FROM EMS_MAINTENANCE_ACTION_HISTORY
+                 WHERE IDEMPOTENCY_KEY = @IdempotencyKey)
+              AND NOT EXISTS (
+                SELECT 1 FROM EMS_WORK_ORDER WHERE WO_ID = @WoId)
+              AND (@PlanId IS NULL OR EXISTS (
+                SELECT 1
+                FROM EMS_MAINTENANCE_PLAN p
+                WHERE p.PLAN_ID = @PlanId
+                  AND p.EQUIPMENT_ID = @EquipmentId
+                  AND (CASE WHEN p.PLAN_TYPE = 'CM' THEN 'BM' ELSE p.PLAN_TYPE END)
+                      = (CASE WHEN @WoType = 'CM' THEN 'BM' ELSE @WoType END)))";
+        var now = DateTime.UtcNow;
+        var actor = action.ActorId;
+        try
+        {
+            return await _processor.ExecuteGuardedManyAsync(ct,
+                (insert, InsertParam(wo, action.IdempotencyKey, actor, now)),
+                (InsertActionSql, ActionParam(wo, action, actor, now)));
+        }
+        catch (DbException ex) when (IsExpectedUniqueRace(ex, allowWorkOrderIdentity: true))
+        {
+            return false;
+        }
+    }
+
+    public async Task<bool> AddWithActionAsync(
+        WorkOrder wo,
+        MaintenanceAction action,
+        WorkOrderCreateCommandRecord command,
+        CancellationToken ct = default)
+    {
+        const string insert = @"INSERT INTO EMS_WORK_ORDER
+            (WO_ID, MAINTENANCE_PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION, ASSIGNEE_ID, ISSUED_AT, STATUS,
+             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            SELECT @WoId, @PlanId, @EquipmentId, @WoType, @Description, @AssigneeId, @IssuedAt, @Status,
+                   @Actor, @Now, @Actor, @Now
+            WHERE NOT EXISTS (
+                SELECT 1 FROM EMS_MAINTENANCE_ACTION_HISTORY
+                 WHERE IDEMPOTENCY_KEY = @IdempotencyKey)
+              AND NOT EXISTS (
+                SELECT 1 FROM EMS_WORK_ORDER_CREATE_COMMAND
+                 WHERE IDEMPOTENCY_KEY = @IdempotencyKey)
+              AND NOT EXISTS (
+                SELECT 1 FROM EMS_WORK_ORDER WHERE WO_ID = @WoId)
+              AND (@PlanId IS NULL OR EXISTS (
+                SELECT 1 FROM EMS_MAINTENANCE_PLAN p
+                WHERE p.PLAN_ID = @PlanId
+                  AND p.EQUIPMENT_ID = @EquipmentId
+                  AND (CASE WHEN p.PLAN_TYPE = 'CM' THEN 'BM' ELSE p.PLAN_TYPE END)
+                      = (CASE WHEN @WoType = 'CM' THEN 'BM' ELSE @WoType END)))";
+        var actor = command.ActorId;
+        var now = command.CreatedAt;
+        var createParameters = InsertParam(wo, command.IdempotencyKey, actor, now);
+        createParameters.Add("CommandId", command.CommandId);
+        createParameters.Add("RequestHash", command.RequestHash);
+        createParameters.Add("Source", command.Source);
+        createParameters.Add("ClientChannel", command.ClientChannel);
+        createParameters.Add("DeviceId", command.DeviceId);
+        createParameters.Add("CorrelationId", command.CorrelationId);
+        try
+        {
+            return await _processor.ExecuteGuardedManyAsync(ct,
+                (insert, createParameters),
+                (InsertActionSql, ActionParam(wo, action, actor, now)),
+                (InsertCreateCommandSql, createParameters));
+        }
+        catch (DbException ex) when (IsExpectedUniqueRace(ex, allowWorkOrderIdentity: true))
+        {
+            return false;
+        }
+    }
+
     private const string UpdateSql = @"UPDATE EMS_WORK_ORDER SET
             STATUS = @Status, STARTED_AT = @StartedAt, COMPLETED_AT = @CompletedAt,
             FAILURE_CODE_ID = @FailureCodeId, REMARK = @Remark,
             UPDATED_BY = @UpdatedBy, UPDATED_AT = @UpdatedAt
             WHERE WO_ID = @WoId";
+
+    private const string GuardedUpdateSql = @"UPDATE EMS_WORK_ORDER SET
+            STATUS = @Status, STARTED_AT = @StartedAt, COMPLETED_AT = @CompletedAt,
+            FAILURE_CODE_ID = @FailureCodeId, REMARK = @Remark,
+            UPDATED_BY = @UpdatedBy, UPDATED_AT = @UpdatedAt
+            WHERE WO_ID = @WoId AND STATUS = @FromStatus
+              AND (@ActionType NOT IN ('Complete','Cancel') OR NOT EXISTS (
+                  SELECT 1 FROM EMS_WORK_ORDER_LABOR
+                   WHERE WO_ID=@WoId AND ENDED_AT IS NULL))";
 
     public async Task UpdateAsync(WorkOrder wo, CancellationToken ct = default)
     {
@@ -74,6 +202,34 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
         }
         // ADR-002 활성: 작업지시 UPDATE + 도메인 이벤트(EES_OUTBOX)를 같은 트랜잭션으로 — 함께 커밋/롤백돼 발행 원자성 보장.
         await PersistWithOutboxAsync(wo, ct);
+    }
+
+    public async Task<bool> UpdateWithActionAsync(
+        WorkOrder wo,
+        MaintenanceAction action,
+        CancellationToken ct = default)
+    {
+        var actor = action.ActorId;
+        var now = DateTime.UtcNow;
+        var statements = new List<(string Sql, object? Param)>
+        {
+            (GuardedUpdateSql, UpdateParam(wo, actor, now, action.FromStatus, action.ActionType)),
+            (InsertActionSql, ActionParam(wo, action, actor, now)),
+        };
+        if (_outboxEnabled)
+            statements.AddRange(OutboxStatements.For(wo.DomainEvents.OfType<IOutboxEvent>(), actor, now));
+
+        bool updated;
+        try
+        {
+            updated = await _processor.ExecuteGuardedManyAsync(ct, statements.ToArray());
+        }
+        catch (DbException ex) when (IsExpectedUniqueRace(ex, allowWorkOrderIdentity: false))
+        {
+            return false;
+        }
+        if (updated && _outboxEnabled) wo.ClearDomainEvents();
+        return updated;
     }
 
     // 작업지시 행 + 발행 이벤트를 한 트랜잭션으로 기록한다. ExecuteManyAsync는 raw(감사 미주입)라 작업지시 행의 감사 컬럼을
@@ -91,7 +247,12 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
         wo.ClearDomainEvents();
     }
 
-    private static Dapper.DynamicParameters UpdateParam(WorkOrder wo, string user, DateTime now)
+    private static Dapper.DynamicParameters UpdateParam(
+        WorkOrder wo,
+        string user,
+        DateTime now,
+        string? fromStatus = null,
+        string? actionType = null)
     {
         var p = new Dapper.DynamicParameters();
         p.Add("WoId", wo.Id);
@@ -102,7 +263,181 @@ public sealed class WorkOrderRepository : QueryRepository, IWorkOrderRepository
         p.Add("Remark", wo.Remark);
         p.Add("UpdatedBy", user);
         p.Add("UpdatedAt", now);
+        p.Add("FromStatus", fromStatus);
+        p.Add("ActionType", actionType);
         return p;
+    }
+
+    private const string InsertActionSql = @"
+        INSERT INTO EMS_MAINTENANCE_ACTION_HISTORY
+        (ACTION_ID, WO_ID, MAINTENANCE_PLAN_ID, EQUIPMENT_ID, MAINTENANCE_TYPE, ACTION_TYPE,
+         RESULT_STATUS, ACTOR_ID, ASSIGNEE_ID, SOURCE, CLIENT_CHANNEL, DEVICE_ID,
+         FAILURE_CODE_ID, REMARK, ACTION_AT, IDEMPOTENCY_KEY, FROM_STATUS, TO_STATUS,
+         CORRELATION_ID, CREATED_BY, CREATED_AT)
+        VALUES
+        (@ActionId, @WoId, @PlanId, @EquipmentId, @MaintenanceType, @ActionType,
+         @ResultStatus, @ActorId, @AssigneeId, @Source, @ClientChannel, @DeviceId,
+         @FailureCodeId, @ActionRemark, @ActionAt, @IdempotencyKey, @FromStatus, @ToStatus,
+         @CorrelationId, @Actor, @Now)";
+
+    private const string InsertCreateCommandSql = @"
+        INSERT INTO EMS_WORK_ORDER_CREATE_COMMAND
+        (COMMAND_ID, IDEMPOTENCY_KEY, REQUEST_HASH, WO_ID, EQUIPMENT_ID, WO_TYPE,
+         DESCRIPTION, ASSIGNEE_ID, MAINTENANCE_PLAN_ID, ISSUED_AT, ACTOR_ID,
+         SOURCE, CLIENT_CHANNEL, DEVICE_ID, CORRELATION_ID, CREATED_AT)
+        VALUES
+        (@CommandId, @IdempotencyKey, @RequestHash, @WoId, @EquipmentId, @WoType,
+         @Description, @AssigneeId, @PlanId, @IssuedAt, @Actor,
+         @Source, @ClientChannel, @DeviceId, @CorrelationId, @Now)";
+
+    private const string CreateCommandSelectSql = @"SELECT
+        COMMAND_ID AS CommandId, IDEMPOTENCY_KEY AS IdempotencyKey,
+        REQUEST_HASH AS RequestHash, WO_ID AS WorkOrderId, EQUIPMENT_ID AS EquipmentId,
+        WO_TYPE AS WorkOrderType, DESCRIPTION AS Description, ASSIGNEE_ID AS AssigneeId,
+        MAINTENANCE_PLAN_ID AS MaintenancePlanId, ISSUED_AT AS IssuedAt,
+        ACTOR_ID AS ActorId, SOURCE AS Source, CLIENT_CHANNEL AS ClientChannel,
+        DEVICE_ID AS DeviceId, CORRELATION_ID AS CorrelationId, CREATED_AT AS CreatedAt
+        FROM EMS_WORK_ORDER_CREATE_COMMAND";
+
+    private static Dapper.DynamicParameters InsertParam(
+        WorkOrder wo,
+        string idempotencyKey,
+        string actor,
+        DateTime now)
+    {
+        var p = new Dapper.DynamicParameters();
+        p.Add("WoId", wo.Id);
+        p.Add("PlanId", wo.PlanId);
+        p.Add("EquipmentId", wo.EquipmentId);
+        p.Add("WoType", wo.WoType);
+        p.Add("Description", wo.Description);
+        p.Add("AssigneeId", wo.AssigneeId);
+        p.Add("IssuedAt", wo.IssuedAt);
+        p.Add("Status", wo.Status.ToString());
+        p.Add("IdempotencyKey", idempotencyKey);
+        p.Add("Actor", actor);
+        p.Add("Now", now);
+        return p;
+    }
+
+    private static Dapper.DynamicParameters ActionParam(
+        WorkOrder wo,
+        MaintenanceAction action,
+        string actor,
+        DateTime now)
+    {
+        var p = new Dapper.DynamicParameters();
+        p.Add("ActionId", action.ActionId);
+        p.Add("WoId", wo.Id);
+        p.Add("PlanId", wo.PlanId);
+        p.Add("EquipmentId", wo.EquipmentId);
+        p.Add("MaintenanceType", wo.WoType);
+        p.Add("ActionType", action.ActionType);
+        p.Add("ResultStatus", wo.Status.ToString());
+        p.Add("ActorId", action.ActorId);
+        p.Add("AssigneeId", wo.AssigneeId);
+        p.Add("Source", action.Source);
+        p.Add("ClientChannel", action.ClientChannel);
+        p.Add("DeviceId", action.DeviceId);
+        p.Add("IdempotencyKey", action.IdempotencyKey);
+        p.Add("FromStatus", action.FromStatus);
+        p.Add("ToStatus", action.ToStatus);
+        p.Add("CorrelationId", action.CorrelationId);
+        p.Add("FailureCodeId", wo.FailureCodeId);
+        p.Add("ActionRemark", action.Remark);
+        p.Add("ActionAt", action.ActionAt);
+        p.Add("Actor", actor);
+        p.Add("Now", now);
+        return p;
+    }
+
+    /// <summary>
+    /// Only collapse the two races the service can resolve by re-reading its idempotency ledger.
+    /// Other constraint failures (FK/CHECK/trigger/outbox/action-id) must remain visible.
+    /// </summary>
+    private static bool IsExpectedUniqueRace(DbException exception, bool allowWorkOrderIdentity)
+    {
+        var isUniqueViolation = exception switch
+        {
+            SqliteException sqlite =>
+                sqlite.SqliteErrorCode == 19
+                && sqlite.SqliteExtendedErrorCode is 1555 or 2067,
+            _ when string.Equals(
+                    exception.GetType().FullName,
+                    "Microsoft.Data.SqlClient.SqlException",
+                    StringComparison.Ordinal)
+                => exception.GetType().GetProperty("Number")?.GetValue(exception) is int number
+                   && number is 2601 or 2627,
+            _ => false,
+        };
+        if (!isUniqueViolation) return false;
+
+        var message = exception.Message;
+        if (message.Contains(
+                "UX_EMS_MAINTENANCE_ACTION_IDEMPOTENCY",
+                StringComparison.OrdinalIgnoreCase)
+            || message.Contains(
+                "EMS_MAINTENANCE_ACTION_HISTORY.IDEMPOTENCY_KEY",
+                StringComparison.OrdinalIgnoreCase)
+            || message.Contains(
+                "UX_EMS_WORK_ORDER_CREATE_COMMAND_IDEMPOTENCY",
+                StringComparison.OrdinalIgnoreCase)
+            || message.Contains(
+                "EMS_WORK_ORDER_CREATE_COMMAND.IDEMPOTENCY_KEY",
+                StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return allowWorkOrderIdentity
+               && (message.Contains("PK_EMS_WORK_ORDER", StringComparison.OrdinalIgnoreCase)
+                   || message.Contains("EMS_WORK_ORDER.WO_ID", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private sealed class CreateCommandRow
+    {
+        public string CommandId { get; set; } = "";
+        public string IdempotencyKey { get; set; } = "";
+        public string RequestHash { get; set; } = "";
+        public string WorkOrderId { get; set; } = "";
+        public string EquipmentId { get; set; } = "";
+        public string WorkOrderType { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string AssigneeId { get; set; } = "";
+        public string? MaintenancePlanId { get; set; }
+        public DateTime IssuedAt { get; set; }
+        public string ActorId { get; set; } = "";
+        public string Source { get; set; } = "";
+        public string ClientChannel { get; set; } = "";
+        public string? DeviceId { get; set; }
+        public string? CorrelationId { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public WorkOrderCreateCommandRecord ToRecord() => new(
+            CommandId, IdempotencyKey, RequestHash, WorkOrderId, EquipmentId,
+            WorkOrderType, Description, AssigneeId, MaintenancePlanId, IssuedAt,
+            ActorId, Source, ClientChannel, DeviceId, CorrelationId, CreatedAt);
+    }
+
+    private sealed class ActionRow
+    {
+        public string ActionId { get; set; } = string.Empty;
+        public string WoId { get; set; } = string.Empty;
+        public string ActionType { get; set; } = string.Empty;
+        public string? FromStatus { get; set; }
+        public string? ToStatus { get; set; }
+        public string ResultStatus { get; set; } = string.Empty;
+        public string ActorId { get; set; } = string.Empty;
+        public string IdempotencyKey { get; set; } = string.Empty;
+        public DateTime ActionAt { get; set; }
+        public string Source { get; set; } = "Manual";
+        public string ClientChannel { get; set; } = "MES";
+        public string? DeviceId { get; set; }
+        public string? CorrelationId { get; set; }
+        public string? Remark { get; set; }
+
+        public MaintenanceAction ToDomain() => new(
+            ActionId, WoId, ActionType, FromStatus,
+            string.IsNullOrWhiteSpace(ToStatus) ? ResultStatus : ToStatus,
+            ActorId, IdempotencyKey, ActionAt, Source, ClientChannel,
+            DeviceId, CorrelationId, Remark);
     }
 
     private sealed class WoRow

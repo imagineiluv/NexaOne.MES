@@ -1,3 +1,5 @@
+using System.Data;
+using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using NexaOne.Common;
 using NexaOne.Infrastructure.Persistence;
@@ -47,20 +49,28 @@ public sealed class EquipmentRepository : QueryRepository, IEquipmentRepository
             VALUES
             (@EquipmentId, @EquipmentName, @Description, @PlantId, @AreaId, @EquipmentType,
              @ParentEquipmentId, @Vendor, @Model, @EquipmentClassId, @ValidState, @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt)";
-        await _processor.InsertAsync(sql, EquipmentRow.FromDomain(equipment), ct);
+        var actor = AuditActor();
+        var now = DateTime.UtcNow;
+        var row = EquipmentRow.FromDomain(equipment);
+        row.CreatedBy = actor;
+        row.CreatedAt = now;
+        row.UpdatedBy = actor;
+        row.UpdatedAt = now;
+        await _processor.ExecuteManyAsync(
+            ct,
+            (sql, row),
+            (InsertHistorySql, HistoryParam(null, equipment, actor, now)));
     }
 
     public async Task UpdateAsync(Equipment equipment, CancellationToken ct = default)
     {
-        // 기본(outbox off): 단건 UPDATE(감사 자동주입), 적체 없음. 기본·활성 경로가 동일 UpdateSql을 공유한다.
-        if (!_outboxEnabled)
-        {
-            await _processor.UpdateAsync(UpdateSql, EquipmentRow.FromDomain(equipment), ct);
-            return;
-        }
-        // ADR-002 활성: 설비 UPDATE + 도메인 이벤트(EES_OUTBOX)를 같은 트랜잭션으로 — 함께 커밋/롤백돼 발행 원자성 보장.
-        // (비활성/활성/상위변경만 이벤트를 발행하며, UpdateInfo 같은 비이벤트 편집은 DomainEvents가 비어 outbox INSERT가 0건이다.)
-        await PersistWithOutboxAsync(equipment, ct);
+        var before = await GetByIdAsync(equipment.Id, ct);
+        if (before is null)
+            throw new DBConcurrencyException($"Equipment '{equipment.Id}' disappeared before it could be updated.");
+
+        // 설비 변경 + immutable before/after 이력 + 선택적 outbox를 한 트랜잭션으로 묶는다.
+        // 첫 UPDATE는 읽은 원본 값 전체를 guard로 사용하므로 이력의 BEFORE가 실제 승자 상태와 달라질 수 없다.
+        await PersistWithHistoryAsync(before, equipment, ct);
     }
 
     // 설비 UPDATE — ChangeParent가 바꾸는 PARENT_EQUIPMENT_ID까지 영속한다(기본·활성 경로 공유; 이전 off 경로의 누락 교정).
@@ -68,24 +78,52 @@ public sealed class EquipmentRepository : QueryRepository, IEquipmentRepository
             EQUIPMENT_NAME = @EquipmentName, DESCRIPTION = @Description, EQUIPMENT_TYPE = @EquipmentType,
             PARENT_EQUIPMENT_ID = @ParentEquipmentId,
             VENDOR = @Vendor, MODEL = @Model, VALID_STATE = @ValidState, UPDATED_BY = @UpdatedBy, UPDATED_AT = @UpdatedAt
-            WHERE EQUIPMENT_ID = @EquipmentId";
+            WHERE EQUIPMENT_ID = @EquipmentId
+              AND EQUIPMENT_NAME = @BeforeEquipmentName
+              AND DESCRIPTION = @BeforeDescription
+              AND EQUIPMENT_TYPE = @BeforeEquipmentType
+              AND ((PARENT_EQUIPMENT_ID = @BeforeParentEquipmentId)
+                   OR (PARENT_EQUIPMENT_ID IS NULL AND @BeforeParentEquipmentId IS NULL))
+              AND VENDOR = @BeforeVendor
+              AND MODEL = @BeforeModel
+              AND VALID_STATE = @BeforeValidState";
+
+    private const string InsertHistorySql = @"INSERT INTO MDM_EQUIPMENT_CHANGE_HISTORY
+            (CHANGE_ID, EQUIPMENT_ID, CHANGE_TYPE, ACTOR_ID, BEFORE_STATE_JSON,
+             AFTER_STATE_JSON, CHANGED_AT, CREATED_BY, CREATED_AT)
+            VALUES
+            (@ChangeId, @EquipmentId, @ChangeType, @ActorId, @BeforeStateJson,
+             @AfterStateJson, @ChangedAt, @ActorId, @ChangedAt)";
 
     // 설비 행 + 발행 이벤트를 한 트랜잭션으로 기록한다. ExecuteManyAsync는 raw(감사 미주입)라 설비 행의 감사 컬럼을
     // UpdateAsync 경로와 동일한 값(현재 사용자·UTC now)으로 명시 채운다. 발행 후 이벤트를 비워 재발행을 막는다.
-    private async Task PersistWithOutboxAsync(Equipment equipment, CancellationToken ct)
+    private async Task PersistWithHistoryAsync(
+        Equipment before,
+        Equipment equipment,
+        CancellationToken ct)
     {
-        var user = CurrentUserContext.UserId ?? "SYSTEM";
+        var user = AuditActor();
         var now = DateTime.UtcNow;
         var statements = new List<(string Sql, object? Param)>
         {
-            (UpdateSql, UpdateParam(equipment, user, now)),
+            (UpdateSql, UpdateParam(before, equipment, user, now)),
+            (InsertHistorySql, HistoryParam(before, equipment, user, now)),
         };
-        statements.AddRange(OutboxStatements.For(equipment.DomainEvents.OfType<IOutboxEvent>(), user, now));
-        await _processor.ExecuteManyAsync(ct, statements.ToArray());
-        equipment.ClearDomainEvents();
+        if (_outboxEnabled)
+            statements.AddRange(OutboxStatements.For(
+                equipment.DomainEvents.OfType<IOutboxEvent>(), user, now));
+
+        if (!await _processor.ExecuteGuardedManyAsync(ct, statements.ToArray()))
+            throw new DBConcurrencyException(
+                $"Equipment '{equipment.Id}' changed concurrently; reload before retrying.");
+        if (_outboxEnabled) equipment.ClearDomainEvents();
     }
 
-    private static Dapper.DynamicParameters UpdateParam(Equipment equipment, string user, DateTime now)
+    private static Dapper.DynamicParameters UpdateParam(
+        Equipment before,
+        Equipment equipment,
+        string user,
+        DateTime now)
     {
         var p = new Dapper.DynamicParameters();
         p.Add("EquipmentId", equipment.Id);
@@ -98,7 +136,65 @@ public sealed class EquipmentRepository : QueryRepository, IEquipmentRepository
         p.Add("ValidState", equipment.ValidState);
         p.Add("UpdatedBy", user);
         p.Add("UpdatedAt", now);
+        p.Add("BeforeEquipmentName", before.EquipmentName);
+        p.Add("BeforeDescription", before.Description);
+        p.Add("BeforeEquipmentType", before.EquipmentType);
+        p.Add("BeforeParentEquipmentId", before.ParentEquipmentId);
+        p.Add("BeforeVendor", before.Vendor);
+        p.Add("BeforeModel", before.Model);
+        p.Add("BeforeValidState", before.ValidState);
         return p;
+    }
+
+    private static object HistoryParam(
+        Equipment? before,
+        Equipment after,
+        string actor,
+        DateTime now) => new
+    {
+        ChangeId = $"ECH_{Guid.NewGuid():N}",
+        EquipmentId = after.Id,
+        ChangeType = ChangeType(before, after),
+        ActorId = actor,
+        BeforeStateJson = before is null ? null : Snapshot(before),
+        AfterStateJson = Snapshot(after),
+        ChangedAt = now,
+    };
+
+    private static string ChangeType(Equipment? before, Equipment after)
+    {
+        if (before is null) return "Create";
+        if (!string.Equals(before.ValidState, after.ValidState, StringComparison.OrdinalIgnoreCase))
+            return string.Equals(after.ValidState, "Valid", StringComparison.OrdinalIgnoreCase)
+                ? "Activate"
+                : "Deactivate";
+        return !string.Equals(
+                before.ParentEquipmentId,
+                after.ParentEquipmentId,
+                StringComparison.OrdinalIgnoreCase)
+            ? "ParentChange"
+            : "Update";
+    }
+
+    private static string Snapshot(Equipment equipment) => JsonSerializer.Serialize(new
+    {
+        EquipmentId = equipment.Id,
+        equipment.EquipmentName,
+        equipment.Description,
+        equipment.PlantId,
+        equipment.AreaId,
+        equipment.EquipmentType,
+        equipment.ParentEquipmentId,
+        equipment.Vendor,
+        equipment.Model,
+        equipment.EquipmentClassId,
+        equipment.ValidState,
+    });
+
+    private static string AuditActor()
+    {
+        var actor = CurrentUserContext.UserId?.Trim();
+        return string.IsNullOrWhiteSpace(actor) ? "SYSTEM" : actor;
     }
 
     private sealed class EquipmentRow

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- 파일 기반 쿼리 레지스트리(SQLite 방언) — SLS 판매 read 슬라이스. SmartUX FACTORY_SLS 판매오더/판매요청 점등용.
+<!-- 파일 기반 쿼리 레지스트리(SQLite 방언) — SLS 영업 read 슬라이스. SmartUX FACTORY_SLS 수주/판매 요청 점등용.
      MSSQL판과 동일 ID·동일 의미이되 NOLOCK 힌트만 제거. 컬럼은 V053__SLS_SALES와 1:1 정합.
      선택필터 (@p IS NULL OR COL=@p) — 본문 없는 @param은 게이트웨이가 null로 채운다. 모두 read(kind 미표기). -->
 <queries module="SLS">
-    <!-- 판매 오더 관리 — 판매오더 헤더 전체조회(NULL-guard). @plantId/@status/@customerId 선택 필터. -->
-    <query id="SLS.SalesOrderList">
+    <!-- 수주 관리 — 수주 헤더 전체조회(NULL-guard). @plantId/@status/@customerId 선택 필터. -->
+    <query id="SLS.SalesOrderList" requiredPermission="sls:read">
         <statement><![CDATA[
             SELECT SALES_ORDER_ID, PLANT_ID, SALES_ORDER_NAME, CUSTOMER_ID, PRODUCT_ID,
                    PLAN_START_DATE, PLAN_END_DATE, PLAN_QTY, DELIVERED_QTY, OWNER_ID, STATUS, IS_HOLD
@@ -16,7 +16,7 @@
         ]]></statement>
     </query>
     <!-- 판매 요청 — 판매요청 전체조회(NULL-guard). @salesOrderId/@status 선택 필터. -->
-    <query id="SLS.SalesRequestList">
+    <query id="SLS.SalesRequestList" requiredPermission="sls:read">
         <statement><![CDATA[
             SELECT SALES_REQUEST_ID, SALES_REQUEST_NAME, SALES_ORDER_ID, CUSTOMER_ID, PRODUCT_ID,
                    REQUEST_DATE, REQUEST_QTY, STATUS
@@ -26,26 +26,48 @@
             ORDER BY REQUEST_DATE DESC
         ]]></statement>
     </query>
-    <!-- 판매오더 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. -->
+    <!-- 수주 초안 저장 — 새 ID는 Draft로 생성하고 기존 ID는 Draft일 때만 편집한다.
+         상태·담당자·감사값은 서버가 고정하며 수량/납기와 활성 MDM 참조를 SQL 경계에서도 검증한다. -->
     <query id="SLS.CreateSalesOrder" kind="write" requiredPermission="sls:manage">
         <statement><![CDATA[
-            -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
-            INSERT INTO SLS_SALES_ORDER (SALES_ORDER_ID, PLANT_ID, SALES_ORDER_NAME, CUSTOMER_ID, PRODUCT_ID, PLAN_QTY, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT) VALUES (@salesOrderId, @plantId, @salesOrderName, @customerId, @productId, @planQty, @currentUser, @utcNow, @currentUser, @utcNow)
+            INSERT INTO SLS_SALES_ORDER
+                (SALES_ORDER_ID, PLANT_ID, SALES_ORDER_NAME, CUSTOMER_ID, PRODUCT_ID,
+                 PLAN_START_DATE, PLAN_END_DATE, PLAN_QTY, OWNER_ID, STATUS,
+                 CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            SELECT TRIM(@salesOrderId), TRIM(@plantId),
+                   COALESCE(NULLIF(TRIM(@salesOrderName), ''), TRIM(@salesOrderId)),
+                   TRIM(@customerId), TRIM(@productId), @planStartDate, @planEndDate,
+                   @planQty, @currentUser, 'Draft', @currentUser, @utcNow, @currentUser, @utcNow
+            WHERE NULLIF(TRIM(@salesOrderId), '') IS NOT NULL
+              AND NULLIF(TRIM(@plantId), '') IS NOT NULL
+              AND NULLIF(TRIM(@customerId), '') IS NOT NULL
+              AND NULLIF(TRIM(@productId), '') IS NOT NULL
+              AND @planQty > 0
+              AND @planEndDate IS NOT NULL
+              AND (@planStartDate IS NULL OR @planEndDate >= @planStartDate)
+              AND EXISTS (SELECT 1 FROM MDM_PLANT WHERE PLANT_ID = TRIM(@plantId))
+              AND EXISTS (SELECT 1 FROM MDM_CUSTOMER WHERE CUSTOMER_ID = TRIM(@customerId) AND IS_ACTIVE = 1)
+              AND EXISTS (SELECT 1 FROM MDM_PRODUCT WHERE PRODUCT_ID = TRIM(@productId) AND VALID_STATE = 'Valid')
             ON CONFLICT(SALES_ORDER_ID) DO UPDATE SET
                 PLANT_ID = excluded.PLANT_ID,
                 SALES_ORDER_NAME = excluded.SALES_ORDER_NAME,
                 CUSTOMER_ID = excluded.CUSTOMER_ID,
                 PRODUCT_ID = excluded.PRODUCT_ID,
+                PLAN_START_DATE = excluded.PLAN_START_DATE,
+                PLAN_END_DATE = excluded.PLAN_END_DATE,
                 PLAN_QTY = excluded.PLAN_QTY,
+                OWNER_ID = excluded.OWNER_ID,
                 UPDATED_BY = excluded.UPDATED_BY,
                 UPDATED_AT = excluded.UPDATED_AT
+            WHERE SLS_SALES_ORDER.STATUS = 'Draft'
         ]]></statement>
     </query>
     <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).
          파라미터는 행 딕셔너리의 camelCase 사본이 자동 매칭. MSSQL판과 동일 ID·동일 의미. -->
     <query id="SLS.DeleteSalesOrder" kind="write" requiredPermission="sls:manage">
         <statement><![CDATA[
-            DELETE FROM SLS_SALES_ORDER WHERE SALES_ORDER_ID = @salesOrderId
+            DELETE FROM SLS_SALES_ORDER
+            WHERE SALES_ORDER_ID = @salesOrderId AND STATUS = 'Draft'
         ]]></statement>
     </query>
     <!-- 그리드 일괄 명령(kind="write") — BulkCommands가 선택 행마다 호출하는 가드된 상태전이(허용 소스 상태만 UPDATE, 그 외 행은 무영향=affected 0). DDL 주석의 STATUS 도메인이 근거. MSSQL판 동일. -->

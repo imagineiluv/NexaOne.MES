@@ -33,11 +33,13 @@ public sealed class FdcParameterRepository : QueryRepository, IFdcParameterRepos
     {
         const string sql = @"INSERT INTO FDC_PARAMETER
             (PARAMETER_ID, PARAMETER_NAME, EQUIPMENT_ID, GROUP_ID, UNIT,
+             ENDPOINT_ID,
              LOWER_LIMIT, UPPER_LIMIT, LOWER_CONTROL_LIMIT, UPPER_CONTROL_LIMIT,
              SAMPLING_INTERVAL_MS, IS_ACTIVE,
              CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
             VALUES
             (@ParameterId, @ParameterName, @EquipmentId, @GroupId, @Unit,
+             @EndpointId,
              @LowerLimit, @UpperLimit, @LowerControlLimit, @UpperControlLimit,
              @SamplingIntervalMs, @IsActive,
              @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt)";
@@ -47,7 +49,7 @@ public sealed class FdcParameterRepository : QueryRepository, IFdcParameterRepos
     public async Task UpdateAsync(FdcParameter parameter, CancellationToken ct = default)
     {
         const string sql = @"UPDATE FDC_PARAMETER SET
-            GROUP_ID = @GroupId,
+            GROUP_ID = @GroupId, ENDPOINT_ID = @EndpointId,
             LOWER_LIMIT = @LowerLimit, UPPER_LIMIT = @UpperLimit,
             LOWER_CONTROL_LIMIT = @LowerControlLimit, UPPER_CONTROL_LIMIT = @UpperControlLimit,
             IS_ACTIVE = @IsActive,
@@ -61,6 +63,7 @@ public sealed class FdcParameterRepository : QueryRepository, IFdcParameterRepos
         public string  ParameterId        { get; set; } = "";
         public string  ParameterName      { get; set; } = "";
         public string  EquipmentId        { get; set; } = "";
+        public string? EndpointId         { get; set; }
         public string? GroupId            { get; set; }
         public string  Unit               { get; set; } = "";
         public decimal LowerLimit         { get; set; }
@@ -79,13 +82,14 @@ public sealed class FdcParameterRepository : QueryRepository, IFdcParameterRepos
                 ParameterId, ParameterName, EquipmentId, GroupId, Unit,
                 LowerLimit, UpperLimit, LowerControlLimit, UpperControlLimit,
                 SamplingIntervalMs, IsActive,
-                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt, EndpointId);
 
         public static ParamRow FromDomain(FdcParameter p) => new()
         {
             ParameterId        = p.Id,
             ParameterName      = p.ParameterName,
             EquipmentId        = p.EquipmentId,
+            EndpointId         = p.EndpointId,
             GroupId            = p.GroupId,
             Unit               = p.Unit,
             LowerLimit         = p.LowerLimit,

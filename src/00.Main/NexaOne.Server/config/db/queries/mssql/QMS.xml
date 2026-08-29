@@ -3,7 +3,7 @@
      SQLite판과 동일 ID·동일 의미이되 NOLOCK 힌트만 추가. 레거시 다국어 CASE·Velocity 보간·STD_TB_*/COM_TB_*를
      NexaMes 실존 스키마(QMS_*)·@param 선택필터로 재작성. 선택필터 (@p IS NULL OR COL=@p) — 본문 없는 @param은 게이트웨이가 null로 채움. -->
 <queries module="QMS">
-    <query id="QMS.DefectClassCombo">
+    <query id="QMS.DefectClassCombo" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT DEFECT_CLASS_ID AS VALUE, DEFECT_CLASS_NAME AS TEXT
             FROM QMS_DEFECT_CLASS WITH (NOLOCK)
@@ -12,7 +12,7 @@
             ORDER BY DEFECT_CLASS_NAME
         ]]></statement>
     </query>
-    <query id="QMS.DefectClassList">
+    <query id="QMS.DefectClassList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT DEFECT_CLASS_ID, DEFECT_CLASS_NAME, DESCRIPTION, SEVERITY, IS_ACTIVE
             FROM QMS_DEFECT_CLASS WITH (NOLOCK)
@@ -20,15 +20,35 @@
             ORDER BY DEFECT_CLASS_NAME
         ]]></statement>
     </query>
-    <query id="QMS.InspectionSpecCombo">
+    <query id="QMS.InspectionSpecCombo" requiredPermission="qms:read">
         <statement><![CDATA[
-            SELECT SPEC_ID AS VALUE, SPEC_NAME AS TEXT
+            SELECT SPEC_ID AS VALUE, CONCAT(SPEC_NAME, ' · ', MEASURE_TYPE) AS TEXT
             FROM QMS_INSPECTION_SPEC WITH (NOLOCK)
             WHERE IS_ACTIVE = 1 AND (@processId IS NULL OR PROCESS_ID = @processId)
             ORDER BY SPEC_NAME
         ]]></statement>
     </query>
-    <query id="QMS.InspectionSpecList">
+    <!-- 검사 등록 공용 후보 — 생산 LOT과 자재 LOT을 하나의 VALUE/TEXT 계약으로 제공한다. -->
+    <query id="QMS.InspectionLotCombo" requiredPermission="qms:read">
+        <statement><![CDATA[
+            SELECT LOT_ID AS VALUE, LOT_ID AS TEXT
+            FROM POM_LOT WITH (NOLOCK)
+            UNION
+            SELECT LOT_ID AS VALUE, LOT_ID AS TEXT
+            FROM IVT_MATERIAL_LOT WITH (NOLOCK)
+            ORDER BY VALUE
+        ]]></statement>
+    </query>
+    <!-- QMS 사용자가 별도 mdm:read 없이도 검사에 사용할 활성 설비를 선택할 수 있는 전용 후보 쿼리. -->
+    <query id="QMS.InspectionEquipmentCombo" requiredPermission="qms:read">
+        <statement><![CDATA[
+            SELECT EQUIPMENT_ID AS VALUE, EQUIPMENT_NAME AS TEXT
+            FROM MDM_EQUIPMENT WITH (NOLOCK)
+            WHERE VALID_STATE = 'Active'
+            ORDER BY EQUIPMENT_NAME, EQUIPMENT_ID
+        ]]></statement>
+    </query>
+    <query id="QMS.InspectionSpecList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT SPEC_ID, SPEC_NAME, PROCESS_ID, ITEM_NAME, MEASURE_TYPE,
                    NOMINAL_VALUE, TOLERANCE_PLUS, TOLERANCE_MINUS, IS_ACTIVE
@@ -38,7 +58,7 @@
             ORDER BY SPEC_NAME
         ]]></statement>
     </query>
-    <query id="QMS.SpcParamList">
+    <query id="QMS.SpcParamList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT PARAM_ID, PARAM_NAME, EQUIPMENT_ID, PROCESS_ID,
                    MEAN, UCL, LCL, USL, LSL, SAMPLE_SIZE, IS_ACTIVE
@@ -48,7 +68,7 @@
             ORDER BY PARAM_NAME
         ]]></statement>
     </query>
-    <query id="QMS.DefectList">
+    <query id="QMS.DefectList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT DEFECT_ID, LOT_ID, EQUIPMENT_ID, DEFECT_CLASS_ID,
                    DEFECT_COUNT, DEFECT_RATE, INSPECTED_AT, INSPECTOR_ID, IS_CONFIRMED
@@ -59,7 +79,7 @@
         ]]></statement>
     </query>
     <!-- SmartUX 기준정보 화면 점등용 전체조회(NULL-guard) — V037 신설 마스터(검사항목/검사정의/수입검사방법). -->
-    <query id="QMS.InspectionItemList">
+    <query id="QMS.InspectionItemList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT ITEM_ID, ITEM_NAME, INSPECTION_TYPE, MEASURE_TYPE, UNIT, DESCRIPTION, IS_ACTIVE
             FROM QMS_INSPECTION_ITEM WITH (NOLOCK)
@@ -67,7 +87,7 @@
             ORDER BY ITEM_NAME
         ]]></statement>
     </query>
-    <query id="QMS.InspectionDefList">
+    <query id="QMS.InspectionDefList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT INSP_DEF_ID, INSP_DEF_NAME, PROCESS_ID, PRODUCT_ID, INSPECTION_TYPE, DESCRIPTION, IS_ACTIVE
             FROM QMS_INSPECTION_DEF WITH (NOLOCK)
@@ -76,7 +96,7 @@
             ORDER BY INSP_DEF_NAME
         ]]></statement>
     </query>
-    <query id="QMS.IncomingInspMethodList">
+    <query id="QMS.IncomingInspMethodList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT METHOD_ID, METHOD_NAME, PRODUCT_ID, SAMPLING_TYPE, AQL_LEVEL, DESCRIPTION, IS_ACTIVE
             FROM QMS_INCOMING_INSP_METHOD WITH (NOLOCK)
@@ -85,7 +105,7 @@
         ]]></statement>
     </query>
     <!-- SmartUX 계측기(Gauge) 화면 점등용 전체조회(NULL-guard) — V038 신설(계측기/검교정/RNR/수리). -->
-    <query id="QMS.GaugeList">
+    <query id="QMS.GaugeList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT GAUGE_ID, GAUGE_NAME, GAUGE_TYPE, MODEL, SERIAL_NO, LOCATION, EQUIPMENT_ID,
                    CALIBRATION_CYCLE_DAYS, LAST_CALIBRATED_AT, NEXT_CALIBRATION_AT, IS_ACTIVE
@@ -94,7 +114,7 @@
             ORDER BY GAUGE_NAME
         ]]></statement>
     </query>
-    <query id="QMS.GaugeCalibrationPlanList">
+    <query id="QMS.GaugeCalibrationPlanList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT PLAN_ID, GAUGE_ID, PLAN_NAME, SCHEDULED_DATE, CYCLE_TYPE, ASSIGNEE_ID, STATUS
             FROM QMS_GAUGE_CALIBRATION_PLAN WITH (NOLOCK)
@@ -103,7 +123,7 @@
             ORDER BY SCHEDULED_DATE
         ]]></statement>
     </query>
-    <query id="QMS.GaugeCalibrationResultList">
+    <query id="QMS.GaugeCalibrationResultList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT RESULT_ID, GAUGE_ID, PLAN_ID, CALIBRATED_AT, CALIBRATED_BY, RESULT, CERTIFICATE_NO, NEXT_DUE_AT, REMARK
             FROM QMS_GAUGE_CALIBRATION_RESULT WITH (NOLOCK)
@@ -111,7 +131,7 @@
             ORDER BY CALIBRATED_AT DESC
         ]]></statement>
     </query>
-    <query id="QMS.GaugeRnrPlanList">
+    <query id="QMS.GaugeRnrPlanList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT RNR_PLAN_ID, GAUGE_ID, PLAN_NAME, SCHEDULED_DATE, OPERATOR_COUNT, TRIAL_COUNT, PART_COUNT, STATUS
             FROM QMS_GAUGE_RNR_PLAN WITH (NOLOCK)
@@ -120,7 +140,7 @@
             ORDER BY SCHEDULED_DATE
         ]]></statement>
     </query>
-    <query id="QMS.GaugeRnrResultList">
+    <query id="QMS.GaugeRnrResultList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT RNR_RESULT_ID, RNR_PLAN_ID, GAUGE_ID, EVALUATED_AT, EVALUATED_BY, GAGE_RR_PERCENT, NDC, JUDGEMENT, REMARK
             FROM QMS_GAUGE_RNR_RESULT WITH (NOLOCK)
@@ -128,7 +148,7 @@
             ORDER BY EVALUATED_AT DESC
         ]]></statement>
     </query>
-    <query id="QMS.GaugeRepairResultList">
+    <query id="QMS.GaugeRepairResultList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT REPAIR_ID, GAUGE_ID, REPAIRED_AT, REPAIRED_BY, FAILURE_DESC, REPAIR_DESC, COST
             FROM QMS_GAUGE_REPAIR_RESULT WITH (NOLOCK)
@@ -137,7 +157,7 @@
         ]]></statement>
     </query>
     <!-- SmartUX 협력사 관리(SPM) 화면 점등용 전체조회(NULL-guard) — V039 신설(평가 항목/정의/연결/실적/시정조치). -->
-    <query id="QMS.SpmEvalItemList">
+    <query id="QMS.SpmEvalItemList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT ITEM_ID, ITEM_NAME, CATEGORY, MAX_SCORE, DESCRIPTION, IS_ACTIVE
             FROM QMS_SPM_EVAL_ITEM WITH (NOLOCK)
@@ -145,7 +165,7 @@
             ORDER BY ITEM_NAME
         ]]></statement>
     </query>
-    <query id="QMS.SpmEvalDefList">
+    <query id="QMS.SpmEvalDefList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT DEF_ID, DEF_NAME, EVAL_CYCLE, TARGET_TYPE, DESCRIPTION, IS_ACTIVE
             FROM QMS_SPM_EVAL_DEF WITH (NOLOCK)
@@ -153,7 +173,7 @@
             ORDER BY DEF_NAME
         ]]></statement>
     </query>
-    <query id="QMS.SpmEvalParamList">
+    <query id="QMS.SpmEvalParamList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT PARAM_ID, DEF_ID, ITEM_ID, WEIGHT, SORT_ORDER
             FROM QMS_SPM_EVAL_PARAM WITH (NOLOCK)
@@ -161,7 +181,7 @@
             ORDER BY DEF_ID, SORT_ORDER
         ]]></statement>
     </query>
-    <query id="QMS.SpmEvalResultList">
+    <query id="QMS.SpmEvalResultList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT RESULT_ID, SUPPLIER_ID, SUPPLIER_NAME, DEF_ID, EVAL_PERIOD,
                    TOTAL_SCORE, GRADE, EVALUATED_AT, EVALUATOR_ID
@@ -170,7 +190,7 @@
             ORDER BY EVALUATED_AT DESC
         ]]></statement>
     </query>
-    <query id="QMS.SpmActionResultList">
+    <query id="QMS.SpmActionResultList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT ACTION_ID, RESULT_ID, SUPPLIER_ID, ACTION_DESC, ACTION_DATE, STATUS, COMPLETED_AT
             FROM QMS_SPM_ACTION_RESULT WITH (NOLOCK)
@@ -178,8 +198,18 @@
             ORDER BY ACTION_DATE DESC
         ]]></statement>
     </query>
+    <query id="QMS.SamplingPlanRevisionCombo" requiredPermission="qms:read">
+        <statement><![CDATA[
+            SELECT PLAN_REVISION_ID,
+                   CONCAT(PLAN_ID, ' / Rev ', CONVERT(NVARCHAR(20), REVISION_NO),
+                          ' / ', INSPECTION_MODE, ' / AQL ', CONVERT(NVARCHAR(30), AQL)) AS PLAN_LABEL
+            FROM QMS_SAMPLING_PLAN_REVISION WITH (NOLOCK)
+            WHERE EFFECTIVE_FROM <= GETUTCDATE()
+            ORDER BY EFFECTIVE_FROM DESC, REVISION_NO DESC, PLAN_REVISION_ID
+        ]]></statement>
+    </query>
     <!-- SmartUX 검사(수입/공정/출하) 화면 점등용 전체조회(NULL-guard) — V040 신설 QMS_INSPECTION. INSPECTION_TYPE 고정. -->
-    <query id="QMS.InspectionList">
+    <query id="QMS.InspectionList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT INSPECTION_ID, INSPECTION_TYPE, LOT_ID, PRODUCT_ID, EQUIPMENT_ID, SPEC_ID,
                    INSPECTED_AT, INSPECTOR_ID, RESULT, SAMPLE_QTY, DEFECT_QTY, IS_CONFIRMED
@@ -189,35 +219,95 @@
             ORDER BY INSPECTED_AT DESC
         ]]></statement>
     </query>
-    <query id="QMS.IncomingInspectionList">
+    <query id="QMS.IncomingInspectionList" requiredPermission="qms:read">
         <statement><![CDATA[
-            SELECT INSPECTION_ID, INSPECTION_TYPE, LOT_ID, PRODUCT_ID, EQUIPMENT_ID, SPEC_ID,
-                   INSPECTED_AT, INSPECTOR_ID, RESULT, SAMPLE_QTY, DEFECT_QTY, IS_CONFIRMED
-            FROM QMS_INSPECTION WITH (NOLOCK)
-            WHERE INSPECTION_TYPE = 'Incoming' AND (@lotId IS NULL OR LOT_ID = @lotId)
-            ORDER BY INSPECTED_AT DESC
+            SELECT I.INSPECTION_ID, I.INSPECTION_TYPE, I.LOT_ID, I.PRODUCT_ID, I.EQUIPMENT_ID,
+                   COALESCE(R.SPEC_ID, I.SPEC_ID) AS SPEC_ID,
+                   I.INSPECTED_AT, I.INSPECTOR_ID, I.RESULT, I.LOT_QTY,
+                   I.SAMPLE_QTY, I.DEFECT_QTY, I.IS_CONFIRMED,
+                   CASE WHEN EXISTS (SELECT 1 FROM QMS_INSPECTION_EVENT E WITH (NOLOCK)
+                                     WHERE E.INSPECTION_ID = I.INSPECTION_ID AND E.EVENT_TYPE = 'Cancelled')
+                        THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS IS_CANCELLED,
+                   CASE WHEN EXISTS (SELECT 1 FROM QMS_INSPECTION_EVENT E WITH (NOLOCK)
+                                     WHERE E.INSPECTION_ID = I.INSPECTION_ID
+                                       AND E.EVENT_TYPE IN ('Corrected', 'Reinspected'))
+                        THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS IS_SUPERSEDED,
+                   CASE WHEN EXISTS (SELECT 1 FROM QMS_INSPECTION_EVENT E WITH (NOLOCK)
+                                     WHERE E.INSPECTION_ID = I.INSPECTION_ID AND E.EVENT_TYPE = 'Cancelled')
+                        THEN 'Cancelled'
+                        WHEN EXISTS (SELECT 1 FROM QMS_INSPECTION_EVENT E WITH (NOLOCK)
+                                     WHERE E.INSPECTION_ID = I.INSPECTION_ID
+                                       AND E.EVENT_TYPE IN ('Corrected', 'Reinspected'))
+                        THEN 'Superseded' ELSE I.RESULT END AS EFFECTIVE_RESULT,
+                   R.RESULT_ID, R.ITEM_SEQUENCE,
+                   R.SAMPLE_QTY AS ITEM_SAMPLE_QTY, R.DEFECT_QTY AS ITEM_DEFECT_QTY,
+                   R.MEASURED_VALUE, R.ATTRIBUTE_RESULT, COALESCE(R.REMARK, I.REMARK) AS REMARK
+            FROM QMS_INSPECTION I WITH (NOLOCK)
+            LEFT JOIN QMS_INSPECTION_RESULT R WITH (NOLOCK) ON R.INSPECTION_ID = I.INSPECTION_ID
+            WHERE I.INSPECTION_TYPE = 'Incoming' AND (@lotId IS NULL OR I.LOT_ID = @lotId)
+            ORDER BY I.INSPECTED_AT DESC, R.ITEM_SEQUENCE, R.RESULT_ID
         ]]></statement>
     </query>
-    <query id="QMS.ProcessInspectionList">
+    <query id="QMS.ProcessInspectionList" requiredPermission="qms:read">
         <statement><![CDATA[
-            SELECT INSPECTION_ID, INSPECTION_TYPE, LOT_ID, PRODUCT_ID, EQUIPMENT_ID, SPEC_ID,
-                   INSPECTED_AT, INSPECTOR_ID, RESULT, SAMPLE_QTY, DEFECT_QTY, IS_CONFIRMED
-            FROM QMS_INSPECTION WITH (NOLOCK)
-            WHERE INSPECTION_TYPE = 'Process' AND (@lotId IS NULL OR LOT_ID = @lotId)
-            ORDER BY INSPECTED_AT DESC
+            SELECT I.INSPECTION_ID, I.INSPECTION_TYPE, I.LOT_ID, I.PRODUCT_ID, I.EQUIPMENT_ID,
+                   COALESCE(R.SPEC_ID, I.SPEC_ID) AS SPEC_ID,
+                   I.INSPECTED_AT, I.INSPECTOR_ID, I.RESULT, I.LOT_QTY,
+                   I.SAMPLE_QTY, I.DEFECT_QTY, I.IS_CONFIRMED,
+                   CASE WHEN EXISTS (SELECT 1 FROM QMS_INSPECTION_EVENT E WITH (NOLOCK)
+                                     WHERE E.INSPECTION_ID = I.INSPECTION_ID AND E.EVENT_TYPE = 'Cancelled')
+                        THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS IS_CANCELLED,
+                   CASE WHEN EXISTS (SELECT 1 FROM QMS_INSPECTION_EVENT E WITH (NOLOCK)
+                                     WHERE E.INSPECTION_ID = I.INSPECTION_ID
+                                       AND E.EVENT_TYPE IN ('Corrected', 'Reinspected'))
+                        THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS IS_SUPERSEDED,
+                   CASE WHEN EXISTS (SELECT 1 FROM QMS_INSPECTION_EVENT E WITH (NOLOCK)
+                                     WHERE E.INSPECTION_ID = I.INSPECTION_ID AND E.EVENT_TYPE = 'Cancelled')
+                        THEN 'Cancelled'
+                        WHEN EXISTS (SELECT 1 FROM QMS_INSPECTION_EVENT E WITH (NOLOCK)
+                                     WHERE E.INSPECTION_ID = I.INSPECTION_ID
+                                       AND E.EVENT_TYPE IN ('Corrected', 'Reinspected'))
+                        THEN 'Superseded' ELSE I.RESULT END AS EFFECTIVE_RESULT,
+                   R.RESULT_ID, R.ITEM_SEQUENCE,
+                   R.SAMPLE_QTY AS ITEM_SAMPLE_QTY, R.DEFECT_QTY AS ITEM_DEFECT_QTY,
+                   R.MEASURED_VALUE, R.ATTRIBUTE_RESULT, COALESCE(R.REMARK, I.REMARK) AS REMARK
+            FROM QMS_INSPECTION I WITH (NOLOCK)
+            LEFT JOIN QMS_INSPECTION_RESULT R WITH (NOLOCK) ON R.INSPECTION_ID = I.INSPECTION_ID
+            WHERE I.INSPECTION_TYPE = 'Process' AND (@lotId IS NULL OR I.LOT_ID = @lotId)
+            ORDER BY I.INSPECTED_AT DESC, R.ITEM_SEQUENCE, R.RESULT_ID
         ]]></statement>
     </query>
-    <query id="QMS.ShippingInspectionList">
+    <query id="QMS.ShippingInspectionList" requiredPermission="qms:read">
         <statement><![CDATA[
-            SELECT INSPECTION_ID, INSPECTION_TYPE, LOT_ID, PRODUCT_ID, EQUIPMENT_ID, SPEC_ID,
-                   INSPECTED_AT, INSPECTOR_ID, RESULT, SAMPLE_QTY, DEFECT_QTY, IS_CONFIRMED
-            FROM QMS_INSPECTION WITH (NOLOCK)
-            WHERE INSPECTION_TYPE = 'Shipping' AND (@lotId IS NULL OR LOT_ID = @lotId)
-            ORDER BY INSPECTED_AT DESC
+            SELECT I.INSPECTION_ID, I.INSPECTION_TYPE, I.LOT_ID, I.PRODUCT_ID, I.EQUIPMENT_ID,
+                   COALESCE(R.SPEC_ID, I.SPEC_ID) AS SPEC_ID,
+                   I.INSPECTED_AT, I.INSPECTOR_ID, I.RESULT, I.LOT_QTY,
+                   I.SAMPLE_QTY, I.DEFECT_QTY, I.IS_CONFIRMED,
+                   CASE WHEN EXISTS (SELECT 1 FROM QMS_INSPECTION_EVENT E WITH (NOLOCK)
+                                     WHERE E.INSPECTION_ID = I.INSPECTION_ID AND E.EVENT_TYPE = 'Cancelled')
+                        THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS IS_CANCELLED,
+                   CASE WHEN EXISTS (SELECT 1 FROM QMS_INSPECTION_EVENT E WITH (NOLOCK)
+                                     WHERE E.INSPECTION_ID = I.INSPECTION_ID
+                                       AND E.EVENT_TYPE IN ('Corrected', 'Reinspected'))
+                        THEN CAST(1 AS BIT) ELSE CAST(0 AS BIT) END AS IS_SUPERSEDED,
+                   CASE WHEN EXISTS (SELECT 1 FROM QMS_INSPECTION_EVENT E WITH (NOLOCK)
+                                     WHERE E.INSPECTION_ID = I.INSPECTION_ID AND E.EVENT_TYPE = 'Cancelled')
+                        THEN 'Cancelled'
+                        WHEN EXISTS (SELECT 1 FROM QMS_INSPECTION_EVENT E WITH (NOLOCK)
+                                     WHERE E.INSPECTION_ID = I.INSPECTION_ID
+                                       AND E.EVENT_TYPE IN ('Corrected', 'Reinspected'))
+                        THEN 'Superseded' ELSE I.RESULT END AS EFFECTIVE_RESULT,
+                   R.RESULT_ID, R.ITEM_SEQUENCE,
+                   R.SAMPLE_QTY AS ITEM_SAMPLE_QTY, R.DEFECT_QTY AS ITEM_DEFECT_QTY,
+                   R.MEASURED_VALUE, R.ATTRIBUTE_RESULT, COALESCE(R.REMARK, I.REMARK) AS REMARK
+            FROM QMS_INSPECTION I WITH (NOLOCK)
+            LEFT JOIN QMS_INSPECTION_RESULT R WITH (NOLOCK) ON R.INSPECTION_ID = I.INSPECTION_ID
+            WHERE I.INSPECTION_TYPE = 'Shipping' AND (@lotId IS NULL OR I.LOT_ID = @lotId)
+            ORDER BY I.INSPECTED_AT DESC, R.ITEM_SEQUENCE, R.RESULT_ID
         ]]></statement>
     </query>
     <!-- SmartUX 장기재고검사(자재/제품) 화면 점등용 전체조회 — V041 신설 QMS_LONGTERM_INSPECTION. TARGET_TYPE 고정. -->
-    <query id="QMS.MaterialLongtermInspectionList">
+    <query id="QMS.MaterialLongtermInspectionList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT LT_INSP_ID, TARGET_TYPE, PRODUCT_ID, LOT_ID, WAREHOUSE, REQUEST_DATE, REQUESTED_BY,
                    INSPECTED_AT, INSPECTOR_ID, RESULT, STATUS
@@ -226,7 +316,7 @@
             ORDER BY REQUEST_DATE DESC
         ]]></statement>
     </query>
-    <query id="QMS.ProductLongtermInspectionList">
+    <query id="QMS.ProductLongtermInspectionList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT LT_INSP_ID, TARGET_TYPE, PRODUCT_ID, LOT_ID, WAREHOUSE, REQUEST_DATE, REQUESTED_BY,
                    INSPECTED_AT, INSPECTOR_ID, RESULT, STATUS
@@ -236,7 +326,7 @@
         ]]></statement>
     </query>
     <!-- SmartUX 클레임/NCR/Hold/4M 화면 점등용 전체조회(NULL-guard) — V042/V043/V044 신설. -->
-    <query id="QMS.ClaimList">
+    <query id="QMS.ClaimList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT CLAIM_ID, CLAIM_NO, CUSTOMER_NAME, PRODUCT_ID, LOT_ID, CLAIM_TYPE,
                    OCCURRED_DATE, SEVERITY, STATUS, ASSIGNEE_ID
@@ -245,7 +335,7 @@
             ORDER BY OCCURRED_DATE DESC
         ]]></statement>
     </query>
-    <query id="QMS.NcrList">
+    <query id="QMS.NcrList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT NCR_ID, NCR_NO, SOURCE_TYPE, LOT_ID, PRODUCT_ID, DEFECT_CLASS_ID,
                    ISSUED_DATE, ISSUED_BY, DISPOSITION, STATUS
@@ -254,7 +344,7 @@
             ORDER BY ISSUED_DATE DESC
         ]]></statement>
     </query>
-    <query id="QMS.HoldReleaseList">
+    <query id="QMS.HoldReleaseList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT HOLD_ID, LOT_ID, PRODUCT_ID, HOLD_TYPE, RISK_RANGE, REASON,
                    REQUESTED_BY, REQUESTED_AT, STATUS
@@ -263,7 +353,7 @@
             ORDER BY REQUESTED_AT DESC
         ]]></statement>
     </query>
-    <query id="QMS.FourMChangeList">
+    <query id="QMS.FourMChangeList" requiredPermission="qms:read">
         <statement><![CDATA[
             SELECT CHANGE_ID, CHANGE_NO, CHANGE_TYPE, EQUIPMENT_ID, PRODUCT_ID,
                    CHANGE_DATE, APPROVAL_STATUS, REQUESTED_BY

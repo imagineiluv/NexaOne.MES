@@ -42,7 +42,7 @@ public sealed partial class QueryGatewayController : ControllerBase
             return NotFound(new Error("QUERY_NOT_FOUND", $"Query '{queryId}' is not registered.", ErrorType.NotFound));
         if (def.IsWrite)
             return BadRequest(new Error("WRITE_QUERY_VIA_QUERY", $"Query '{queryId}' is a write query. Use POST /api/v1/command/{queryId}.", ErrorType.Validation));
-        if (!string.IsNullOrEmpty(def.RequiredPermission) && !User.HasPermission(def.RequiredPermission))
+        if (!CanExecute(def))
             return Forbid();
 
         // @currentUser/@utcNow는 read에도 서버 주입 — 개인화 read(FDC.UserParameterList 등)가 범용
@@ -68,7 +68,7 @@ public sealed partial class QueryGatewayController : ControllerBase
             return NotFound(new Error("QUERY_NOT_FOUND", $"Query '{queryId}' is not registered.", ErrorType.NotFound));
         if (def.IsWrite)
             return BadRequest(new Error("WRITE_QUERY_VIA_QUERY", $"Query '{queryId}' is a write query. Use POST /api/v1/command/{queryId}.", ErrorType.Validation));
-        if (!string.IsNullOrEmpty(def.RequiredPermission) && !User.HasPermission(def.RequiredPermission))
+        if (!CanExecute(def))
             return Forbid();
 
         var provider = _config["Database:Provider"] ?? "Sqlite";
@@ -103,7 +103,7 @@ public sealed partial class QueryGatewayController : ControllerBase
             return NotFound(new Error("QUERY_NOT_FOUND", $"Query '{queryId}' is not registered.", ErrorType.NotFound));
         if (!def.IsWrite)
             return BadRequest(new Error("READ_QUERY_VIA_COMMAND", $"Query '{queryId}' is a read query. Use POST /api/v1/query/{queryId}.", ErrorType.Validation));
-        if (!string.IsNullOrEmpty(def.RequiredPermission) && !User.HasPermission(def.RequiredPermission))
+        if (!CanExecute(def))
             return Forbid();
 
         var p = BuildParameters(def.Sql, parameters, injectAudit: true);
@@ -132,6 +132,12 @@ public sealed partial class QueryGatewayController : ControllerBase
     }
 
     private string CurrentUserId => User.CurrentUserId() ?? "SYSTEM";
+
+    private bool CanExecute(QueryDefinition definition) =>
+        definition.IsPublic
+            ? !definition.IsWrite
+            : !string.IsNullOrEmpty(definition.RequiredPermission)
+              && User.HasPermission(definition.RequiredPermission);
 
     private static object? JsonToClr(object? value) => value switch
     {

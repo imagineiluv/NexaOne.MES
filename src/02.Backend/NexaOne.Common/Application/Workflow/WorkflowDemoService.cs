@@ -1,10 +1,10 @@
-using NexusFramework.Workflow.Reflection;
+using NexaFramework.Workflow.Reflection;
 
 namespace NexaOne.Application.Workflow;
 
 /// <summary>
 /// 워크플로우 엔진 연계 데모 (§8). <see cref="WorkflowCallableAttribute"/>로 표시된 메서드는
-/// NexusFramework <c>AssemblyInvocationNode</c>가 *.workflow의 노드로 리플렉션 호출한다.
+/// NexaFramework <c>AssemblyInvocationNode</c>가 *.workflow의 노드로 리플렉션 호출한다.
 /// 실제 업무 워크플로우(레시피 승인 등)는 이 패턴으로 도메인 서비스 메서드를 노드화하여 구성한다.
 /// </summary>
 public sealed class WorkflowDemoService

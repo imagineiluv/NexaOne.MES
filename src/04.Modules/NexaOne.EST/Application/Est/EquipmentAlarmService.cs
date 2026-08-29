@@ -43,7 +43,7 @@ public sealed class EquipmentAlarmService
 
     public async Task<Result<IReadOnlyList<EquipmentAlarm>>> GetActiveAlarmsAsync(string plantId, CancellationToken ct = default)
     {
-        // ADR-006: MDM 스키마를 EST SQL에 박지 않고 호스트 IEquipmentDirectory로 plantId→설비 ID를 푼다.
+        // ADR-006: MDM 스키마를 EST SQL에 박지 않고 MDM IEquipmentDirectory로 plantId→설비 ID를 푼다.
         // 빈 목록이면 IN @...에 넘기지 않도록 단락한다(Dapper가 잘못된 SQL/throw 유발).
         var equipmentIds = await _equipmentDirectory.GetEquipmentIdsByPlantAsync(plantId, ct);
         if (equipmentIds.Count == 0)

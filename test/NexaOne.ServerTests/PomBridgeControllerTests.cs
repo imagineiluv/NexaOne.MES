@@ -24,6 +24,10 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
     private const string Secret = "phase-pom-bridge-e2e-jwt-secret-key-at-least-32b";
     private const string Issuer = "nexaone-pom-bridge-test";
     private readonly BridgeFactory _factory;
+    private static string? _lastHoldChannel;
+    private static string? _lastHoldDeviceId;
+    private static string? _lastReviewChannel;
+    private static string? _lastReviewDeviceId;
     public PomBridgeControllerTests(BridgeFactory factory) => _factory = factory;
 
     public sealed class BridgeFactory : WebApplicationFactory<Program>
@@ -89,7 +93,9 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
 
         public Task<Result<LotDto>> TrackInAsync(
             string plantId, string lotId, string equipmentId,
-            string? recipeDefId, int? recipeDefVersion, string user, CancellationToken ct = default)
+            string? recipeDefId, int? recipeDefVersion, string user,
+            int expectedVersion, string idempotencyKey,
+            string clientChannel = "MES", string? deviceId = null, CancellationToken ct = default)
             => Task.FromResult(lotId switch
             {
                 "MISSING" => Result.Failure<LotDto>(Error.NotFound("Lot", lotId)),
@@ -99,18 +105,129 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
 
         public Task<Result<LotDto>> TrackOutAsync(
             string plantId, string lotId, string equipmentId, decimal qty,
-            IReadOnlyList<LotDefectInput>? defects, string? carrierId, string user, CancellationToken ct = default)
+            IReadOnlyList<LotDefectInput>? defects, string? carrierId, string user,
+            int expectedVersion, string idempotencyKey,
+            string clientChannel = "MES", string? deviceId = null, CancellationToken ct = default)
             => Task.FromResult(lotId switch
             {
                 "MISSING" => Result.Failure<LotDto>(Error.NotFound("Lot", lotId)),
                 "CONFLICT" => Result.Failure<LotDto>(Error.Conflict("TrackIn 설비와 TrackOut 설비가 일치해야 합니다.")),
+                "QUALITY_PENDING" => Result.Failure<LotDto>(Error.Conflict(
+                    "Production quality gate is Pending; final TrackOut is blocked.")),
                 _ when (defects?.Any(d => d.DefectQty < 0) ?? false)
                     => Result.Failure<LotDto>(Error.Validation("defects", "불량수량은 음수일 수 없습니다.")),
                 _ => Result.Success(Lot(lotId, plantId, "PROD01", qty, "Completed")),
             });
 
-        public Task<Result> HoldLotAsync(string lotId, string user, CancellationToken ct = default) => Transition(lotId);
-        public Task<Result> ReleaseLotHoldAsync(string lotId, string user, CancellationToken ct = default) => Transition(lotId);
+        public Task<Result> HoldLotAsync(
+            string lotId, string user, int expectedVersion, string idempotencyKey,
+            string? reason = null, string clientChannel = "MES", string? deviceId = null,
+            CancellationToken ct = default)
+        {
+            _lastHoldChannel = clientChannel;
+            _lastHoldDeviceId = deviceId;
+            return Transition(lotId);
+        }
+        public Task<Result> ReleaseLotHoldAsync(
+            string lotId, string user, int expectedVersion, string idempotencyKey,
+            string? reason = null, string clientChannel = "MES", string? deviceId = null,
+            CancellationToken ct = default) => Transition(lotId);
+
+        public Task<Result<LotRoutingContextDto>> GetLotRoutingContextAsync(
+            string lotId, CancellationToken ct = default)
+            => Task.FromResult(lotId == "MISSING"
+                ? Result.Failure<LotRoutingContextDto>(Error.NotFound("Lot", lotId))
+                : Result.Success(new LotRoutingContextDto(
+                    Lot(lotId, "P1", "PROD01", 10m, "Queued"),
+                    "Flexible", 0, "CUT", 1, "ASSY", null, null, false, Array.Empty<RouteExceptionDto>())));
+
+        public Task<Result<RoutingPolicyDecisionDto>> EvaluateLotRoutingAsync(
+            string plantId, string lotId, string deviationType, int targetStepIndex,
+            string? reason, string? exceptionId = null, CancellationToken ct = default)
+        {
+            var decision = lotId switch
+            {
+                "STRICT" => new RoutingPolicyDecisionDto(
+                    "Block", "ROUTE_PREDECESSOR_REQUIRED", "이전 공정이 완료되지 않았습니다.",
+                    "Strict", deviationType, 0, targetStepIndex, true, null, false),
+                "FLEX" => new RoutingPolicyDecisionDto(
+                    "ApprovalRequired", "ROUTE_APPROVAL_REQUIRED", "관리자 승인이 필요합니다.",
+                    "Flexible", deviationType, 0, targetStepIndex, true, null, false),
+                _ => new RoutingPolicyDecisionDto(
+                    "AllowWithWarning", "ROUTE_DEVIATION_ALLOWED", "사유와 함께 즉시 적용됩니다.",
+                    "NoControl", deviationType, 0, targetStepIndex, true, exceptionId, true),
+            };
+            return Task.FromResult(Result.Success(decision));
+        }
+
+        public Task<Result<LotDto>> ChangeLotRoutingControlModeAsync(
+            string plantId, string lotId, string controlMode, string reason, string user,
+            int expectedVersion, string idempotencyKey, string clientChannel,
+            string? deviceId = null, CancellationToken ct = default)
+            => Task.FromResult(Result.Success(Lot(lotId, plantId, "PROD01", 10m, "Queued") with
+            {
+                ControlMode = controlMode,
+                VersionNo = expectedVersion + 1,
+            }));
+
+        public Task<Result<LotDto>> ApplyLotRouteDeviationAsync(
+            string plantId, string lotId, string deviationType, int targetStepIndex,
+            string reason, string user, int expectedVersion, string idempotencyKey,
+            string? exceptionId, string clientChannel, string? deviceId = null,
+            CancellationToken ct = default)
+            => Task.FromResult(Result.Success(Lot(lotId, plantId, "PROD01", 10m, "Queued") with
+            {
+                CurrentStepIndex = targetStepIndex,
+                CurrentProcessId = "ASSY",
+                VersionNo = expectedVersion + 1,
+            }));
+
+        public Task<Result<RouteExceptionDto>> RequestLotRouteExceptionAsync(
+            string exceptionId, string plantId, string lotId, string deviationType,
+            int targetStepIndex, string reason, string user, int expectedVersion,
+            DateTime expiresAt, string clientChannel, string? deviceId = null,
+            CancellationToken ct = default)
+            => Task.FromResult(Result.Success(RouteException(
+                exceptionId, lotId, plantId, deviationType, targetStepIndex,
+                reason, user, expectedVersion, expiresAt, clientChannel, deviceId, "Requested")));
+
+        public Task<Result<RouteExceptionDto>> ApproveLotRouteExceptionAsync(
+            string exceptionId, string reviewer, string? reason = null, CancellationToken ct = default,
+            string clientChannel = "MES", string? deviceId = null)
+        {
+            _lastReviewChannel = clientChannel;
+            _lastReviewDeviceId = deviceId;
+            return Task.FromResult(Result.Success(RouteException(
+                exceptionId, "LOT1", "P1", "Bypass", 1, "설비 고장",
+                "operator", 1, DateTime.UtcNow.AddMinutes(30), "MES", null, "Approved") with
+            {
+                ReviewedBy = reviewer,
+                ReviewedAt = DateTime.UtcNow,
+                ReviewReason = reason,
+            }));
+        }
+
+        public Task<Result<RouteExceptionDto>> RejectLotRouteExceptionAsync(
+            string exceptionId, string reviewer, string? reason = null, CancellationToken ct = default,
+            string clientChannel = "MES", string? deviceId = null)
+        {
+            _lastReviewChannel = clientChannel;
+            _lastReviewDeviceId = deviceId;
+            return Task.FromResult(Result.Success(RouteException(
+                exceptionId, "LOT1", "P1", "Bypass", 1, "설비 고장",
+                "operator", 1, DateTime.UtcNow.AddMinutes(30), "MES", null, "Rejected") with
+            {
+                ReviewedBy = reviewer,
+                ReviewedAt = DateTime.UtcNow,
+                ReviewReason = reason,
+            }));
+        }
+
+        public Task<Result<RouteExceptionDto>> GetLotRouteExceptionAsync(
+            string exceptionId, CancellationToken ct = default)
+            => Task.FromResult(Result.Success(RouteException(
+                exceptionId, "LOT1", "P1", "Bypass", 1, "설비 고장",
+                "operator", 1, DateTime.UtcNow.AddMinutes(30), "MES", null, "Requested")));
 
         public Task<Result<LotDto>> MixingTrackInOutAsync(
             string plantId, string outputLotId, string productId, string equipmentId,
@@ -127,6 +244,16 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
         private static LotDto Lot(string lotId, string plantId, string productId, decimal qty, string state)
             => new(lotId, plantId, null, productId, qty, 0m, state, "Idle", new[] { "CUT", "ASSY" }, 0,
                 "CUT", null, null, null, null, false);
+
+        private static RouteExceptionDto RouteException(
+            string exceptionId, string lotId, string plantId, string deviationType,
+            int targetStepIndex, string reason, string requestedBy, int version,
+            DateTime expiresAt, string channel, string? deviceId, string status)
+            => new(
+                exceptionId, lotId, plantId, deviationType, 0, targetStepIndex,
+                "CUT", "ASSY", version, reason, status, requestedBy,
+                DateTime.UtcNow, expiresAt, null, null, null, null, null, null,
+                channel, deviceId);
 
         private static Task<Result> Transition(string id) => Task.FromResult(id switch
         {
@@ -148,6 +275,21 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
         return client;
     }
 
+    private HttpClient ClientWithoutActor(params string[] permissions)
+    {
+        var client = _factory.CreateClient();
+        var credentials = new SigningCredentials(
+            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Secret)), SecurityAlgorithms.HmacSha256);
+        var claims = permissions.Select(permission =>
+            new Claim(NexaOne.Common.Security.Permissions.ClaimType, permission));
+        var token = new JwtSecurityToken(
+            Issuer, Issuer, claims, expires: DateTime.UtcNow.AddMinutes(10), signingCredentials: credentials);
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer", new JwtSecurityTokenHandler().WriteToken(token));
+        return client;
+    }
+
     // ── 권한 게이트 ──
 
     [Fact]
@@ -160,7 +302,7 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
     }
 
     [Fact]
-    public async Task HoldLot_without_pom_manage_is_forbidden()
+    public async Task HoldLot_without_pom_execute_is_forbidden()
     {
         var res = await Client().PostAsync("/api/v1/pom/lots/LOT1/hold", content: null);
         res.StatusCode.Should().Be(HttpStatusCode.Forbidden, "무권한 쓰기는 403");
@@ -259,6 +401,26 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
     // ── Lot 추적 ──
 
     [Fact]
+    public async Task Lot_mutations_without_explicit_execution_identity_return_400()
+    {
+        var client = Client("pom:execute");
+
+        var trackIn = await client.PostAsJsonAsync(
+            "/api/v1/pom/lots/LOT1/track-in",
+            new { plantId = "P1", equipmentId = "EQ1" });
+        var trackOut = await client.PostAsJsonAsync(
+            "/api/v1/pom/lots/LOT1/track-out",
+            new { plantId = "P1", equipmentId = "EQ1", qty = 10m });
+        var hold = await client.PostAsync("/api/v1/pom/lots/LOT1/hold", content: null);
+        var release = await client.PostAsync("/api/v1/pom/lots/LOT1/release", content: null);
+
+        trackIn.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        trackOut.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        hold.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        release.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task CreateLot_with_pom_manage_returns_200_with_dto()
     {
         var res = await Client("pom:manage").PostAsJsonAsync("/api/v1/pom/lots",
@@ -271,10 +433,27 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
     }
 
     [Fact]
+    public async Task CreateLot_without_actor_claim_fails_closed()
+    {
+        var res = await ClientWithoutActor("pom:manage").PostAsJsonAsync("/api/v1/pom/lots",
+            new
+            {
+                plantId = "P1", lotId = "LOT-NO-ACTOR", workOrderId = (string?)null,
+                productId = "PROD01", qty = 10m, routeSteps = new[] { "CUT" }
+            });
+
+        res.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
     public async Task TrackIn_success_returns_200()
     {
-        var res = await Client("pom:manage").PostAsJsonAsync("/api/v1/pom/lots/LOT1/track-in",
-            new { plantId = "P1", equipmentId = "EQ1", recipeDefId = "RCP01", recipeDefVersion = 1 });
+        var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/LOT1/track-in",
+            new
+            {
+                plantId = "P1", equipmentId = "EQ1", expectedVersion = 1,
+                idempotencyKey = "http:track-in:lot1", recipeDefId = "RCP01", recipeDefVersion = 1
+            });
         res.StatusCode.Should().Be(HttpStatusCode.OK);
         var dto = await res.Content.ReadFromJsonAsync<LotDto>();
         dto!.State.Should().Be("Processing");
@@ -283,40 +462,274 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
     [Fact]
     public async Task TrackIn_missing_lot_maps_to_404()
     {
-        var res = await Client("pom:manage").PostAsJsonAsync("/api/v1/pom/lots/MISSING/track-in",
-            new { plantId = "P1", equipmentId = "EQ1", recipeDefId = (string?)null, recipeDefVersion = (int?)null });
+        var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/MISSING/track-in",
+            new
+            {
+                plantId = "P1", equipmentId = "EQ1", expectedVersion = 1,
+                idempotencyKey = "http:track-in:missing", recipeDefId = (string?)null,
+                recipeDefVersion = (int?)null
+            });
         res.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
     public async Task TrackOut_conflict_maps_to_409()
     {
-        var res = await Client("pom:manage").PostAsJsonAsync("/api/v1/pom/lots/CONFLICT/track-out",
-            new { plantId = "P1", equipmentId = "EQ1", qty = 10m, defects = (object?)null, carrierId = (string?)null });
+        var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/CONFLICT/track-out",
+            new
+            {
+                plantId = "P1", equipmentId = "EQ1", qty = 10m, expectedVersion = 1,
+                idempotencyKey = "http:track-out:conflict", defects = (object?)null,
+                carrierId = (string?)null
+            });
+        res.StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
+    public async Task TrackOut_quality_gate_conflict_maps_to_409()
+    {
+        var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/QUALITY_PENDING/track-out",
+            new
+            {
+                plantId = "P1", equipmentId = "EQ1", qty = 10m, expectedVersion = 1,
+                idempotencyKey = "http:track-out:quality", defects = (object?)null,
+                carrierId = (string?)null
+            });
+
         res.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
     [Fact]
     public async Task TrackOut_negative_defect_maps_to_400()
     {
-        var res = await Client("pom:manage").PostAsJsonAsync("/api/v1/pom/lots/LOT1/track-out",
-            new { plantId = "P1", equipmentId = "EQ1", qty = 10m,
+        var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/LOT1/track-out",
+            new { plantId = "P1", equipmentId = "EQ1", qty = 10m, expectedVersion = 1,
+                  idempotencyKey = "http:track-out:negative-defect",
                   defects = new[] { new { defectCode = "D1", defectQty = -1m } }, carrierId = (string?)null });
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task TrackOut_defect_total_above_quantity_is_rejected_before_mutation()
+    {
+        var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/LOT1/track-out",
+            new
+            {
+                plantId = "P1", equipmentId = "EQ1", qty = 10m, expectedVersion = 1,
+                idempotencyKey = "http:track-out:defect-total",
+                defects = new[] { new { defectCode = "D1", defectQty = 11m } },
+                carrierId = (string?)null, clientChannel = "POP", deviceId = "KIOSK-03"
+            });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task TrackOut_null_defect_row_is_rejected_as_bad_request()
+    {
+        var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/LOT1/track-out",
+            new
+            {
+                plantId = "P1", equipmentId = "EQ1", qty = 10m, expectedVersion = 1,
+                idempotencyKey = "http:track-out:null-defect",
+                defects = new object?[] { null }, carrierId = (string?)null,
+                clientChannel = "MOBILE", deviceId = "PDA-07"
+            });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Lot_tracking_rejects_unknown_client_channel()
+    {
+        var res = await Client("pom:execute").PostAsJsonAsync("/api/v1/pom/lots/LOT1/track-in",
+            new
+            {
+                plantId = "P1", equipmentId = "EQ1", expectedVersion = 1,
+                idempotencyKey = "http:track-in:bad-channel", clientChannel = "UNKNOWN"
+            });
+
         res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
     [Fact]
     public async Task HoldLot_success_returns_204()
     {
-        var res = await Client("pom:manage").PostAsync("/api/v1/pom/lots/LOT1/hold", content: null);
+        var res = await Client("pom:execute").PostAsync(
+            "/api/v1/pom/lots/LOT1/hold?expectedVersion=1&idempotencyKey=http%3Ahold%3Alot1",
+            content: null);
         res.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task HoldLot_preserves_pop_channel_and_device_audit_context()
+    {
+        _lastHoldChannel = null;
+        _lastHoldDeviceId = null;
+
+        var res = await Client("pom:execute").PostAsync(
+            "/api/v1/pom/lots/LOT1/hold?expectedVersion=1&idempotencyKey=http%3Ahold%3Apop&clientChannel=POP&deviceId=KIOSK-03",
+            content: null);
+
+        res.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        _lastHoldChannel.Should().Be("POP");
+        _lastHoldDeviceId.Should().Be("KIOSK-03");
+    }
+
+    [Fact]
+    public async Task Hold_and_release_without_actor_claim_fail_closed()
+    {
+        var client = ClientWithoutActor("pom:execute");
+
+        (await client.PostAsync(
+            "/api/v1/pom/lots/LOT1/hold?expectedVersion=1&idempotencyKey=http%3Ahold%3Ano-actor",
+            content: null)).StatusCode
+            .Should().Be(HttpStatusCode.Unauthorized);
+        (await client.PostAsync(
+            "/api/v1/pom/lots/LOT1/release?expectedVersion=1&idempotencyKey=http%3Arelease%3Ano-actor",
+            content: null)).StatusCode
+            .Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
     public async Task ReleaseLot_not_found_maps_to_404()
     {
-        var res = await Client("pom:manage").PostAsync("/api/v1/pom/lots/MISSING/release", content: null);
+        var res = await Client("pom:execute").PostAsync(
+            "/api/v1/pom/lots/MISSING/release?expectedVersion=1&idempotencyKey=http%3Arelease%3Amissing",
+            content: null);
         res.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Lot_execution_requires_execute_not_manage_permission()
+    {
+        var res = await Client("pom:manage").PostAsJsonAsync("/api/v1/pom/lots/LOT1/track-in",
+            new { plantId = "P1", equipmentId = "EQ1", expectedVersion = 1, idempotencyKey = "track-1" });
+
+        res.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "관리 권한과 현장 실행 권한은 분리되어야 한다");
+    }
+
+    // ── LOT 라우팅 통제/예외 ──
+
+    [Fact]
+    public async Task Routing_context_requires_read_and_returns_current_next_route()
+    {
+        var res = await Client("pom:read").GetAsync("/api/v1/pom/lots/LOT1/routing-context");
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var dto = await res.Content.ReadFromJsonAsync<LotRoutingContextDto>();
+        dto!.ControlMode.Should().Be("Flexible");
+        dto.CurrentProcessId.Should().Be("CUT");
+        dto.NextProcessId.Should().Be("ASSY");
+    }
+
+    [Fact]
+    public async Task Strict_routing_evaluation_returns_structured_block_reason()
+    {
+        var res = await Client("pom:routing.request").PostAsJsonAsync(
+            "/api/v1/pom/lots/STRICT/routing/evaluate",
+            new { plantId = "P1", deviationType = "Bypass", targetStepIndex = 1, reason = "설비 고장" });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var dto = await res.Content.ReadFromJsonAsync<RoutingPolicyDecisionDto>();
+        dto!.Kind.Should().Be("Block");
+        dto.Code.Should().Be("ROUTE_PREDECESSOR_REQUIRED");
+        dto.IsAllowed.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Flexible_exception_request_uses_request_permission_only()
+    {
+        var request = new
+        {
+            plantId = "P1", deviationType = "Bypass", targetStepIndex = 1,
+            reason = "열처리 설비 고장", expectedVersion = 1,
+            expiresAt = DateTime.UtcNow.AddMinutes(30), exceptionId = "REX-1",
+            clientChannel = "MOBILE", deviceId = "PDA-07"
+        };
+
+        (await Client("pom:execute").PostAsJsonAsync(
+            "/api/v1/pom/lots/FLEX/routing/exceptions", request)).StatusCode
+            .Should().Be(HttpStatusCode.Forbidden);
+
+        var allowed = await Client("pom:routing.request").PostAsJsonAsync(
+            "/api/v1/pom/lots/FLEX/routing/exceptions", request);
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK);
+        var dto = await allowed.Content.ReadFromJsonAsync<RouteExceptionDto>();
+        dto!.Status.Should().Be("Requested");
+        dto.ClientChannel.Should().Be("MOBILE");
+    }
+
+    [Fact]
+    public async Task Exception_request_requires_client_stable_exception_id()
+    {
+        var res = await Client("pom:routing.request").PostAsJsonAsync(
+            "/api/v1/pom/lots/FLEX/routing/exceptions",
+            new
+            {
+                plantId = "P1", deviationType = "Bypass", targetStepIndex = 1,
+                reason = "설비 고장", expectedVersion = 1,
+                expiresAt = DateTime.UtcNow.AddMinutes(30), exceptionId = "   ",
+                clientChannel = "MOBILE"
+            });
+
+        res.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Routing_mutation_without_authenticated_actor_fails_closed()
+    {
+        var res = await ClientWithoutActor("pom:routing.request").PostAsJsonAsync(
+            "/api/v1/pom/lots/NOCONTROL/routing/deviations",
+            new
+            {
+                plantId = "P1", deviationType = "Alternative", targetStepIndex = 1,
+                reason = "병목 우회", expectedVersion = 1, idempotencyKey = "route-no-actor",
+                clientChannel = "MES"
+            });
+
+        res.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Exception_approval_is_separate_from_request_permission()
+    {
+        var requestOnly = await Client("pom:routing.request").PostAsJsonAsync(
+            "/api/v1/pom/routing/exceptions/REX-1/approve", new { reason = "검토 완료" });
+        requestOnly.StatusCode.Should().Be(HttpStatusCode.Forbidden,
+            "예외 요청자는 승인 권한 없이 자신의 요청을 승인할 수 없어야 한다");
+
+        _lastReviewChannel = null;
+        _lastReviewDeviceId = null;
+        var approved = await Client("pom:routing.approve").PostAsJsonAsync(
+            "/api/v1/pom/routing/exceptions/REX-1/approve",
+            new { reason = "검토 완료", clientChannel = "POP", deviceId = "KIOSK-03" });
+        approved.StatusCode.Should().Be(HttpStatusCode.OK);
+        var dto = await approved.Content.ReadFromJsonAsync<RouteExceptionDto>();
+        dto!.Status.Should().Be("Approved");
+        dto.ClientChannel.Should().Be("MES",
+            "requester channel remains the request provenance and must not be overwritten by review provenance");
+        _lastReviewChannel.Should().Be("POP");
+        _lastReviewDeviceId.Should().Be("KIOSK-03");
+    }
+
+    [Fact]
+    public async Task NoControl_deviation_apply_preserves_audited_request_fields()
+    {
+        var res = await Client("pom:routing.request").PostAsJsonAsync(
+            "/api/v1/pom/lots/NOCONTROL/routing/deviations",
+            new
+            {
+                plantId = "P1", deviationType = "Alternative", targetStepIndex = 1,
+                reason = "병목 우회", expectedVersion = 1, idempotencyKey = "route-apply-1",
+                clientChannel = "POP", deviceId = "KIOSK-03"
+            });
+
+        res.StatusCode.Should().Be(HttpStatusCode.OK);
+        var dto = await res.Content.ReadFromJsonAsync<LotDto>();
+        dto!.CurrentStepIndex.Should().Be(1);
+        dto.VersionNo.Should().Be(2);
     }
 
     // ── Lot Mixing(다중 애그리거트, DATA-3 원자화로 노출) ──
@@ -341,6 +754,20 @@ public sealed class PomBridgeControllerTests : IClassFixture<PomBridgeController
         var dto = await res.Content.ReadFromJsonAsync<LotDto>();
         dto!.LotId.Should().Be("OUT1");
         dto.Qty.Should().Be(8m, "출력 수량 = 투입 합(가짜 브리지 규약)");
+    }
+
+    [Fact]
+    public async Task Mixing_without_actor_claim_fails_closed()
+    {
+        var res = await ClientWithoutActor("pom:manage").PostAsJsonAsync(
+            "/api/v1/pom/lots/mixing/track-in-out",
+            new
+            {
+                plantId = "P1", outputLotId = "OUT-NO-ACTOR", productId = "PROD01", equipmentId = "EQ1",
+                outputRouteSteps = new[] { "CUT" }, inputs = new[] { new { lotId = "IN1", inQty = 5m } }
+            });
+
+        res.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]

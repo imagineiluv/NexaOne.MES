@@ -45,6 +45,23 @@ public sealed class ClaimsPrincipalExtensionsTests
     }
 
     [Fact]
+    public void HasPermission_module_manage_includes_same_module_read()
+    {
+        var user = UserWith(Perm("mdm:manage"));
+
+        user.HasPermission("mdm:read").Should().BeTrue("관리자는 같은 모듈 조회도 수행할 수 있어야 한다");
+        user.HasPermission("qms:read").Should().BeFalse("다른 모듈 조회 권한까지 확장되면 안 된다");
+    }
+
+    [Fact]
+    public void HasPermission_module_read_does_not_include_manage()
+    {
+        var user = UserWith(Perm("mdm:read"));
+
+        user.HasPermission("mdm:manage").Should().BeFalse("조회 권한은 쓰기 권한을 포함하지 않는다");
+    }
+
+    [Fact]
     public void HasPermission_no_permission_claims_denies()
     {
         var user = UserWith(new Claim(ClaimTypes.NameIdentifier, "u1"));

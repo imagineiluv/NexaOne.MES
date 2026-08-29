@@ -1,0 +1,212 @@
+/* Hallmark · macrostructure: Workbench · tone: industrial precise · anchor hue: teal */
+/* Hallmark pre-emit critique: P5 H5 E5 S5 R5 V5
+ * genre: modern-minimal - macrostructure: Workbench - theme: custom Nexa Industrial - design-system: design.md
+ * contrast: pass (40-41) - nav: inherited shell - footer: none - slop: pass (42-45)
+ * honest: pass (46) - chrome: pass (47) - tokens: pass (48) - responsive/mobile: pass (34, 49-57) - icons: pass (30)
+ */
+.meta-form {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+    gap: var(--nx-sp-4) var(--nx-sp-5);
+    align-items: start;
+}
+
+.meta-field {
+    display: grid;
+    min-width: 0;
+    gap: var(--space-2xs);
+    align-content: start;
+}
+
+.meta-field > label {
+    display: inline-flex;
+    min-height: 1.25rem;
+    min-width: 0;
+    align-items: center;
+    gap: var(--space-2xs);
+    padding: 0 var(--space-3xs);
+    color: var(--nx-text-2);
+    font-size: var(--nx-fs-caption);
+    font-weight: 650;
+    line-height: 1.35;
+}
+
+.meta-field:focus-within > label { color: var(--nx-teal-text); }
+
+.req {
+    color: var(--nx-danger);
+    font-weight: 800;
+}
+
+.meta-field-readonly {
+    display: inline-grid;
+    width: 1rem;
+    height: 1rem;
+    margin-left: auto;
+    place-items: center;
+    color: var(--nx-muted);
+}
+
+.meta-field-readonly ::deep .rzi { font-size: .8rem; }
+
+.meta-field-control {
+    display: flex;
+    min-width: 0;
+    min-height: var(--nx-touch-min);
+    flex-direction: column;
+    justify-content: center;
+}
+
+.meta-field-control ::deep .rz-textbox,
+.meta-field-control ::deep .rz-dropdown,
+.meta-field-control ::deep .rz-numeric,
+.meta-field-control ::deep .rz-datepicker,
+.meta-field-control ::deep .rz-form-field {
+    width: 100% !important;
+    max-width: none;
+    min-height: var(--nx-touch-min);
+    border-radius: var(--nx-radius);
+    color: var(--nx-text);
+    background: var(--nx-card);
+    outline: 2px solid transparent;
+    outline-offset: 1px;
+    transition: border-color var(--dur-micro) var(--ease-out), box-shadow var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
+}
+
+.meta-field-control ::deep input:not([type="checkbox"]) {
+    min-height: var(--nx-touch-min);
+    color: var(--nx-text);
+    outline: 2px solid transparent;
+    outline-offset: 1px;
+}
+
+.meta-field-control ::deep .rz-dropdown-label {
+    min-height: var(--nx-touch-min);
+    line-height: 1.65rem;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .meta-field-control ::deep .rz-textbox:hover:not(:disabled):not([readonly]),
+    .meta-field-control ::deep .rz-dropdown:hover:not(.rz-state-disabled),
+    .meta-field-control ::deep .rz-numeric:hover:not(.rz-state-disabled),
+    .meta-field-control ::deep .rz-datepicker:hover:not(.rz-state-disabled) {
+        border-color: color-mix(in srgb, var(--nx-teal) 52%, var(--nx-border));
+    }
+}
+
+.meta-field-control ::deep .rz-textbox:focus,
+.meta-field-control ::deep .rz-dropdown:focus-within,
+.meta-field-control ::deep .rz-numeric:focus-within,
+.meta-field-control ::deep .rz-datepicker:focus-within {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 1px;
+    border-color: var(--nx-teal) !important;
+    box-shadow: none;
+}
+
+.meta-field.has-error > label { color: var(--nx-danger); }
+
+.meta-field.has-error .meta-field-control ::deep .rz-textbox,
+.meta-field.has-error .meta-field-control ::deep .rz-dropdown,
+.meta-field.has-error .meta-field-control ::deep .rz-numeric,
+.meta-field.has-error .meta-field-control ::deep .rz-datepicker {
+    border-color: var(--nx-danger) !important;
+    background: color-mix(in srgb, var(--nx-danger) 4%, var(--nx-card));
+}
+
+.meta-field-error {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2xs);
+    margin-top: var(--space-2xs);
+    color: var(--nx-danger);
+    font-size: var(--nx-fs-caption-s);
+    font-weight: 550;
+    line-height: 1.45;
+}
+
+.meta-field-message {
+    min-height: 1.25rem;
+}
+
+.meta-field-control ::deep .rz-state-disabled,
+.meta-field-control ::deep input:disabled,
+.meta-field-control ::deep input[readonly] {
+    opacity: .55;
+    cursor: not-allowed;
+    background: var(--nx-head);
+}
+
+.meta-field-error ::deep .rzi {
+    flex: 0 0 auto;
+    margin-top: var(--space-3xs);
+    font-size: .9rem;
+}
+
+.meta-field.is-readonly .meta-field-control ::deep .rz-textbox,
+.meta-field.is-readonly .meta-field-control ::deep .rz-dropdown,
+.meta-field.is-readonly .meta-field-control ::deep .rz-numeric,
+.meta-field.is-readonly .meta-field-control ::deep .rz-datepicker {
+    border-color: var(--nx-border-soft);
+    background: var(--nx-head);
+    color: var(--nx-text-2);
+    box-shadow: none;
+}
+
+.meta-field--boolean .meta-field-control {
+    min-height: var(--nx-touch-min);
+    align-items: flex-start;
+    justify-content: center;
+    padding: var(--space-2xs) var(--space-sm);
+    border: 1px solid var(--nx-border);
+    border-radius: var(--nx-radius);
+    background: var(--nx-card);
+    outline: 2px solid transparent;
+    outline-offset: 1px;
+}
+
+.meta-field--boolean:focus-within .meta-field-control {
+    border-color: var(--nx-teal);
+    outline-color: var(--color-focus);
+}
+
+.meta-field--boolean .meta-field-control ::deep .rz-chkbox {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+@media (max-width: 640px) {
+    .meta-form {
+        grid-template-columns: minmax(0, 1fr);
+        gap: var(--nx-sp-4);
+    }
+
+    .meta-field-control,
+    .meta-field-control ::deep .rz-textbox,
+    .meta-field-control ::deep .rz-dropdown,
+    .meta-field-control ::deep .rz-numeric,
+    .meta-field-control ::deep .rz-datepicker,
+    .meta-field--boolean .meta-field-control {
+        min-height: 2.75rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .meta-field-control ::deep .rz-textbox,
+    .meta-field-control ::deep .rz-dropdown,
+    .meta-field-control ::deep .rz-numeric,
+    .meta-field-control ::deep .rz-datepicker {
+        transition: none;
+    }
+}
+
+@media (prefers-contrast: more) {
+    .meta-field-control ::deep .rz-textbox,
+    .meta-field-control ::deep .rz-dropdown,
+    .meta-field-control ::deep .rz-numeric,
+    .meta-field-control ::deep .rz-datepicker,
+    .meta-field--boolean .meta-field-control {
+        border-width: 2px;
+    }
+}

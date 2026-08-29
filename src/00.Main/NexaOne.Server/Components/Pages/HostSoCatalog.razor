@@ -27,12 +27,12 @@ else
 
         <div class="host-toolbar">
             <h2 class="host-card-title">명명 쿼리 (@Filtered.Count)</h2>
-            <select class="meta-cond-select" @bind="_kindFilter">
+            <select class="meta-cond-select" aria-label="명명 쿼리 종류" @bind="_kindFilter">
                 <option value="">전체</option>
                 <option value="read">read(조회)</option>
                 <option value="write">write(커맨드)</option>
             </select>
-            <input class="host-input inline" @bind="_search" @bind:event="oninput" placeholder="ID 필터…" />
+            <input class="host-input inline" @bind="_search" @bind:event="oninput" placeholder="ID 필터…" aria-label="명명 쿼리 ID 필터" />
         </div>
         <table class="host-table host-gap-b">
             <thead>

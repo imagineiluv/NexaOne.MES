@@ -9,50 +9,152 @@
    forgot-password/register(미흡수 화면) 링크를 끌어와 슬라이스 경계를 넘으므로, 호스트는 RCL 인증 서비스
    (IApiClient/AuthTokenService/JwtAuthStateProvider)만으로 성립하는 자체 페이지를 둔다. 성공 시 토큰을 저장하고
    AuthState 재평가를 트리거한 뒤 ReturnUrl(또는 /meta 기본)로 이동한다. *@
-<div class="host-card">
-    @* NAF 회사 로고(P3-19) + 제품명 — 제품명=NexaOne(MES), 회사명=NAF(사용자 확정 2026-07-04). *@
-    <div class="host-brand">
-        <div class="naf-logo naf-center" role="img" aria-label="NAF — Now and Future">
-            <svg class="naf-mark" viewBox="0 0 120 50" fill="currentColor" aria-hidden="true">
-                <rect x="10" y="2" width="6" height="6"/><rect x="0" y="12" width="9" height="9"/><rect x="19" y="9" width="5" height="5"/>
-                <rect x="32" y="20" width="7" height="28"/><rect x="32" y="20" width="24" height="7"/><rect x="49" y="20" width="7" height="28"/>
-                <rect x="64" y="20" width="24" height="7"/><rect x="81" y="20" width="7" height="28"/><rect x="64" y="41" width="24" height="7"/><rect x="64" y="31" width="7" height="17"/>
-                <rect x="96" y="8" width="7" height="40"/><rect x="96" y="8" width="22" height="7"/><rect x="96" y="26" width="18" height="7"/>
+<PageTitle>NexaOne MES 로그인</PageTitle>
+<HeadContent>
+    <link rel="stylesheet" href="css/mes-login.css?v=20260718-hallmark-v1" />
+</HeadContent>
+
+<section class="mes-login-shell" aria-label="NexaOne MES 로그인">
+    <aside class="mes-login-visual" aria-labelledby="mes-login-hero-title">
+        <div class="mes-login-grid" aria-hidden="true"></div>
+
+        <div class="mes-login-copy">
+            <span class="mes-login-eyebrow"><i aria-hidden="true"></i> CONNECTED FACTORY PLATFORM</span>
+            <h1 id="mes-login-hero-title">현장의 모든 흐름을<br /><strong>하나의 MES</strong>로</h1>
+            <p>생산·설비·품질 데이터를 실시간으로 연결해 더 빠르고 정확한 제조 의사결정을 지원합니다.</p>
+        </div>
+
+        @* 외부 이미지·스크립트 없이 동작하는 MES 공정 일러스트. 저사양 현장 단말을 위해 transform/opacity만 애니메이션한다. *@
+        <div class="mes-login-art" aria-hidden="true">
+            <svg viewBox="0 0 600 390" focusable="false" aria-hidden="true">
+                <defs>
+                    <linearGradient id="mesPanel" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0" stop-color="var(--color-on-brand)" stop-opacity=".15" />
+                        <stop offset="1" stop-color="var(--nx-signal)" stop-opacity=".04" />
+                    </linearGradient>
+                    <linearGradient id="mesMachine" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0" stop-color="var(--login-art-machine-start)" />
+                        <stop offset="1" stop-color="var(--login-art-machine-end)" />
+                    </linearGradient>
+                    <filter id="mesGlow" x="-50%" y="-50%" width="200%" height="200%">
+                        <feGaussianBlur stdDeviation="4" result="blur" />
+                        <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                    </filter>
+                </defs>
+
+                <rect class="mes-art-panel" x="44" y="42" width="512" height="294" rx="28" fill="url(#mesPanel)" />
+                <path class="mes-art-axis" d="M78 285H522M78 236H522M78 187H522M78 138H522M138 92V304M222 92V304M306 92V304M390 92V304M474 92V304" />
+
+                <g class="mes-art-factory">
+                    <path d="M92 256V187l50-25v29l52-27v92z" fill="var(--login-art-factory)" fill-opacity=".9" />
+                    <path d="M104 256v-45h78v45" fill="var(--login-art-structure)" />
+                    <rect x="117" y="222" width="18" height="16" rx="3" fill="var(--login-art-signal)" />
+                    <rect x="148" y="222" width="22" height="34" rx="3" fill="var(--login-art-muted)" />
+                    <path d="M114 180v-42h18v33M158 181v-62h17v53" fill="var(--login-art-factory)" />
+                    <path d="M111 138h24M155 119h23" stroke="var(--login-art-signal)" stroke-width="4" stroke-linecap="round" />
+                </g>
+
+                <g class="mes-art-line">
+                    <rect x="216" y="222" width="142" height="22" rx="11" fill="var(--login-art-surface)" stroke="var(--login-art-stroke)" stroke-opacity=".55" />
+                    <circle cx="241" cy="233" r="9" fill="url(#mesMachine)" />
+                    <circle cx="287" cy="233" r="9" fill="url(#mesMachine)" />
+                    <circle cx="333" cy="233" r="9" fill="url(#mesMachine)" />
+                    <path d="M226 262h122" stroke="var(--login-art-factory)" stroke-opacity=".6" stroke-width="8" stroke-linecap="round" />
+                    <path class="mes-art-conveyor" d="M226 262h122" />
+                </g>
+
+                <g class="mes-art-dashboard">
+                    <rect x="384" y="108" width="136" height="116" rx="16" fill="var(--login-art-surface)" stroke="var(--login-art-dashboard-stroke)" stroke-opacity=".65" />
+                    <path d="M406 189l20-25 22 12 22-39 27 18" fill="none" stroke="var(--login-art-signal)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" />
+                    <circle cx="406" cy="189" r="4" fill="var(--login-art-signal)" /><circle cx="426" cy="164" r="4" fill="var(--login-art-signal)" />
+                    <circle cx="448" cy="176" r="4" fill="var(--login-art-signal)" /><circle cx="470" cy="137" r="4" fill="var(--login-art-signal)" />
+                    <circle cx="497" cy="155" r="4" fill="var(--login-art-signal)" />
+                    <rect x="406" y="202" width="45" height="6" rx="3" fill="var(--login-art-chart-muted)" />
+                    <rect x="459" y="202" width="38" height="6" rx="3" fill="var(--login-art-machine-start)" />
+                </g>
+
+                <g class="mes-art-flow" fill="none" stroke-linecap="round">
+                    <path d="M194 194C236 142 315 132 384 145" />
+                    <path d="M358 233C405 266 468 264 505 224" />
+                    <path d="M176 274C237 318 383 323 454 264" />
+                </g>
+                <g class="mes-art-nodes" filter="url(#mesGlow)">
+                    <circle cx="194" cy="194" r="6" /><circle cx="384" cy="145" r="6" />
+                    <circle cx="358" cy="233" r="6" /><circle cx="505" cy="224" r="6" />
+                    <circle cx="176" cy="274" r="6" /><circle cx="454" cy="264" r="6" />
+                </g>
             </svg>
-            <small class="naf-tag">NOW AND FUTURE</small>
+
+            <div class="mes-login-metric mes-metric-oee">
+                <span>MANUFACTURING DATA</span><strong>생산·품질·설비</strong><small>하나의 흐름</small>
+            </div>
+            <div class="mes-login-metric mes-metric-quality">
+                <span>AUDIT TRAIL</span><strong>권한 기반 이력</strong><small>변경 추적</small>
+            </div>
+            <div class="mes-login-live"><i></i> ROLE-BASED ACCESS</div>
+        </div>
+
+        <ul class="mes-login-features" aria-label="MES 주요 기능">
+            <li><span aria-hidden="true">01</span>실시간 생산</li>
+            <li><span aria-hidden="true">02</span>품질 추적</li>
+            <li><span aria-hidden="true">03</span>설비 연결</li>
+        </ul>
+    </aside>
+
+    <div class="host-card mes-login-card">
+        <div class="mes-login-form-inner">
+            @* NAF 회사 로고(P3-19) + 제품명 — 제품명=NexaOne(MES), 회사명=NAF(사용자 확정 2026-07-04). *@
+            <div class="host-brand">
+                <div class="naf-logo naf-center" role="img" aria-label="NAF — Now and Future">
+                    <svg class="naf-mark" viewBox="0 0 120 50" fill="currentColor" aria-hidden="true">
+                        <rect x="10" y="2" width="6" height="6"/><rect x="0" y="12" width="9" height="9"/><rect x="19" y="9" width="5" height="5"/>
+                        <rect x="32" y="20" width="7" height="28"/><rect x="32" y="20" width="24" height="7"/><rect x="49" y="20" width="7" height="28"/>
+                        <rect x="64" y="20" width="24" height="7"/><rect x="81" y="20" width="7" height="28"/><rect x="64" y="41" width="24" height="7"/><rect x="64" y="31" width="7" height="17"/>
+                        <rect x="96" y="8" width="7" height="40"/><rect x="96" y="8" width="22" height="7"/><rect x="96" y="26" width="18" height="7"/>
+                    </svg>
+                    <small class="naf-tag">NOW AND FUTURE</small>
+                </div>
+            </div>
+            <p class="mes-login-form-kicker">MANUFACTURING EXECUTION SYSTEM</p>
+            <h2 class="host-title">NexaOne MES 로그인</h2>
+            <p class="host-sub">등록된 계정으로 생산 시스템에 접속하세요.</p>
+
+            <EditForm Model="@_model" OnValidSubmit="HandleLogin">
+                <DataAnnotationsValidator />
+
+                <div class="host-field">
+                    <label for="mes-login-user">사용자 ID</label>
+                    <div class="mes-login-input-wrap">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z" /></svg>
+                        <input id="mes-login-user" class="host-input" @bind="_model.UserId" @bind:event="oninput"
+                               name="username" autocomplete="username" placeholder="ID를 입력하세요" autofocus required />
+                    </div>
+                </div>
+
+                <div class="host-field">
+                    <label for="mes-login-password">비밀번호</label>
+                    <div class="mes-login-input-wrap">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3" /></svg>
+                        <input id="mes-login-password" class="host-input" @bind="_model.Password" @bind:event="oninput" type="password"
+                               name="password" autocomplete="current-password" placeholder="비밀번호를 입력하세요" required />
+                    </div>
+                </div>
+
+                <div class="host-error" role="alert" aria-live="polite">@_error</div>
+
+                <button type="submit" class="host-btn mes-login-submit" disabled="@_loading" aria-busy="@_loading">
+                    <span>@(_loading ? "로그인 중…" : "MES 시작하기")</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path d="m9 18 6-6-6-6" /></svg>
+                </button>
+            </EditForm>
+
+            @* §19.3 — 계정이 없는 사용자의 가입 신청 진입점(익명). 승인 후 임시 비밀번호로 로그인한다. *@
+            <p class="host-help">
+                계정이 없으신가요? <a href="/signup" class="host-link">가입 신청</a>
+            </p>
         </div>
     </div>
-    <p class="host-title">NexaOne MES</p>
-    <p class="host-sub">제조실행시스템 · Manufacturing Execution System</p>
-
-    <EditForm Model="@_model" OnValidSubmit="HandleLogin">
-        <DataAnnotationsValidator />
-
-        <div class="host-field">
-            <label>사용자 ID</label>
-            <input class="host-input" @bind="_model.UserId" placeholder="ID를 입력하세요" />
-        </div>
-
-        <div class="host-field">
-            <label>비밀번호</label>
-            <input class="host-input" @bind="_model.Password" type="password" placeholder="비밀번호를 입력하세요" />
-        </div>
-
-        @if (!string.IsNullOrEmpty(_error))
-        {
-            <div class="host-error">@_error</div>
-        }
-
-        <button type="submit" class="host-btn" disabled="@_loading">
-            @(_loading ? "로그인 중…" : "로그인")
-        </button>
-    </EditForm>
-
-    @* §19.3 — 계정이 없는 사용자의 가입 신청 진입점(익명). 승인 후 임시 비밀번호로 로그인한다. *@
-    <p class="host-help">
-        계정이 없으신가요? <a href="/signup" class="host-link">가입 신청</a>
-    </p>
-</div>
+</section>
 
 @code {
     private LoginFormModel _model = new();

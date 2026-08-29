@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Application>
   <Services>
-    <!-- 모듈 독립 구조: 도메인 모듈 9개를 각각 독립 Service로 등록한다. Service당 모듈 DLL 1개(classPaths)와
+    <!-- 모듈 독립 구조: 도메인 모듈 11개를 각각 독립 Service로 등록한다. Service당 모듈 DLL 1개(classPaths)와
          그 모듈의 빈을 담은 모듈 xml 1개(configFiles)를 짝짓는다. ClassLoader가 classPaths의 DLL을 plugin
          ALC(AssemblyLoader)로 로드하고, configFiles의 xml이 해당 모듈 빈을 등록한다. 공통 서버 빈
          (eesDataSource·appConfiguration·eesDialect·opcUaDriver·messageBus·plantController)은 server.xml
@@ -15,7 +15,9 @@
     <Service name="Rms"  classPaths="./Modules/NexaOne.RMS.dll"  configFiles="config/modules/rms.xml" />
     <Service name="Qms"  classPaths="./Modules/NexaOne.QMS.dll"  configFiles="config/modules/qms.xml" />
     <Service name="Ems" classPaths="./Modules/NexaOne.EMS.dll" configFiles="config/modules/ems.xml" />
+    <Service name="Ivt" classPaths="./Modules/NexaOne.IVT.dll" configFiles="config/modules/ivt.xml" />
     <Service name="Pom"  classPaths="./Modules/NexaOne.POM.dll"  configFiles="config/modules/pom.xml" />
+    <Service name="Prc"  classPaths="./Modules/NexaOne.PRC.dll"  configFiles="config/modules/prc.xml" />
     <Service name="Shp"  classPaths="./Modules/NexaOne.SHP.dll"  configFiles="config/modules/shp.xml" />
     <Service name="Sys"  classPaths="./Modules/NexaOne.SYS.dll"  configFiles="config/modules/sys.xml" />
   </Services>

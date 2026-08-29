@@ -1,0 +1,355 @@
+@using NexaOne.Web.Services.Meta
+
+@* 반복 입력을 화면별 전용 컴포넌트로 만들지 않고 FieldDefinition 스키마와 MetaFormRenderer로 조합한다. *@
+<section class="@CollectionCssClass"
+         role="group"
+         aria-labelledby="@_titleId"
+         aria-describedby="@DescribedByElementIds"
+         aria-disabled="@IsEditorDisabled.ToString().ToLowerInvariant()">
+    <div class="meta-collection-header">
+        <div class="meta-collection-heading">
+            <span id="@_titleId" class="meta-collection-title">@EffectiveLabel</span>
+            <span class="meta-collection-count" aria-live="polite" aria-atomic="true">@CollectionCountText</span>
+        </div>
+        <button type="button"
+                class="meta-collection-add"
+                disabled="@(!CanAdd)"
+                title="@AddBlockedReason"
+                aria-label="@ActionAriaLabel(AddLabel, AddBlockedReason)"
+                @onclick="AddAsync">
+            <span class="meta-collection-button-icon" aria-hidden="true">+</span>
+            <span>@AddLabel</span>
+        </button>
+    </div>
+
+    @if (IsEditorDisabled)
+    {
+        <p id="@_reasonId" class="meta-collection-disabled-reason" role="note">
+            @EffectiveDisabledReason
+        </p>
+    }
+
+    <div class="meta-collection-error-slot" aria-live="polite">
+        @if (CollectionError is not null)
+        {
+            <p id="@_errorId" class="meta-collection-error" role="alert">@CollectionError</p>
+        }
+    </div>
+
+    @if (_rows.Count == 0)
+    {
+        <div class="meta-collection-empty" role="status">
+            <span class="meta-collection-empty-icon" aria-hidden="true">＋</span>
+            <p>@EmptyText</p>
+            @if (CanAdd)
+            {
+                <span class="meta-collection-empty-hint">@AddLabel 버튼으로 첫 항목을 만들어 주세요.</span>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="meta-collection-items">
+            @for (var index = 0; index < _rows.Count; index++)
+            {
+                var row = _rows[index];
+                var itemNumber = index + 1;
+                var legendId = $"{_uid}-item-{row.Key:N}";
+                var stableKey = row.Key.ToString("N");
+                var removeReason = RemoveBlockedReason;
+                var removeAriaLabel = ActionAriaLabel($"{ItemLabelFor(itemNumber)} {RemoveLabel}", removeReason);
+                var itemErrors = ErrorsFor(index);
+                <fieldset @key="row.Key"
+                          class="meta-collection-item"
+                          data-item-key="@stableKey"
+                          aria-labelledby="@legendId"
+                          disabled="@IsEditorDisabled">
+                    <legend id="@legendId" class="meta-collection-item-header">
+                        <span class="meta-collection-item-title">
+                            <span class="meta-collection-item-index" aria-hidden="true">@itemNumber.ToString("00")</span>
+                            <span>@ItemLabelFor(itemNumber)</span>
+                        </span>
+                        <button type="button"
+                                class="meta-collection-remove"
+                                disabled="@(removeReason is not null)"
+                                title="@removeReason"
+                                aria-label="@removeAriaLabel"
+                                @onclick="() => RemoveAsync(row.Key)">
+                            <span class="meta-collection-button-icon" aria-hidden="true">×</span>
+                            <span>@RemoveLabel</span>
+                        </button>
+                    </legend>
+                    <CascadingValue Value="itemErrors" Name="MetaFieldErrors">
+                        <MetaFormRenderer Definition="_itemDefinition"
+                                          Model="row.Model"
+                                          ModelChanged="model => ItemChangedAsync(row.Key, model)" />
+                    </CascadingValue>
+                </fieldset>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    /// <summary>각 항목을 렌더링할 공통 필드 스키마입니다.</summary>
+    [Parameter, EditorRequired]
+    public IReadOnlyList<FieldDefinition> Schema { get; set; } = Array.Empty<FieldDefinition>();
+
+    /// <summary>화면 공유 모델에서 항목 목록을 저장하는 키이며, 항목별 인라인 오류 경로에도 사용됩니다.</summary>
+    [Parameter]
+    public string CollectionKey { get; set; } = string.Empty;
+
+    /// <summary>편집할 항목 목록입니다. 내부에서는 항목별 사본을 사용해 참조 공유로 인한 값 오염을 막습니다.</summary>
+    [Parameter]
+    public List<Dictionary<string, object?>> Items { get; set; } = new();
+
+    /// <summary>
+    /// 추가·삭제·필드 변경 후 전체 항목의 새 스냅숏을 전달합니다. 최초 입력이 <see cref="MinItems"/>보다
+    /// 적으면 첫 렌더 뒤 기본 행을 보충한 정규화 스냅숏을 한 번 전달해 부모 모델과 화면을 맞춥니다.
+    /// </summary>
+    [Parameter]
+    public EventCallback<List<Dictionary<string, object?>>> ItemsChanged { get; set; }
+
+    /// <summary>컴포넌트가 유지해야 하는 최소 항목 수입니다.</summary>
+    [Parameter]
+    public int MinItems { get; set; }
+
+    /// <summary>추가할 수 있는 최대 항목 수입니다. null이면 상한이 없습니다.</summary>
+    [Parameter]
+    public int? MaxItems { get; set; }
+
+    /// <summary>전체 편집을 비활성화합니다.</summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>권한 부족 등 편집 차단 사유입니다. 값이 있으면 전체 편집도 비활성화됩니다.</summary>
+    [Parameter]
+    public string? DisabledReason { get; set; }
+
+    /// <summary>빈 항목의 초기값을 만드는 선택적 팩터리입니다.</summary>
+    [Parameter]
+    public Func<Dictionary<string, object?>>? ItemFactory { get; set; }
+
+    /// <summary>컬렉션 접근성 제목입니다.</summary>
+    [Parameter]
+    public string Label { get; set; } = "항목 목록";
+
+    /// <summary>개별 항목 범례의 접두 문구입니다.</summary>
+    [Parameter]
+    public string ItemLabel { get; set; } = "항목";
+
+    [Parameter] public string AddLabel { get; set; } = "항목 추가";
+    [Parameter] public string RemoveLabel { get; set; } = "삭제";
+    [Parameter] public string EmptyText { get; set; } = "등록된 항목이 없습니다.";
+
+    /// <summary>MetaScreen이 컬렉션 경로(items[0].field)로 만든 전체 검증 오류입니다.</summary>
+    [CascadingParameter(Name = "MetaFieldErrors")]
+    public Dictionary<string, string>? FieldErrors { get; set; }
+
+    private readonly string _uid = $"mc-{Guid.NewGuid():N}";
+    private readonly List<CollectionRow> _rows = new();
+    private ScreenDefinition _itemDefinition = new("__COLLECTION_ITEM", string.Empty, Array.Empty<FieldDefinition>());
+    private bool _publishNormalizedItems;
+
+    private string _titleId => $"{_uid}-title";
+    private string _reasonId => $"{_uid}-reason";
+    private string _errorId => $"{_uid}-error";
+    private string? ReasonElementId => IsEditorDisabled ? _reasonId : null;
+    private string? CollectionError
+        => !string.IsNullOrWhiteSpace(CollectionKey)
+            && FieldErrors?.TryGetValue(CollectionKey, out var message) == true
+            && !string.IsNullOrWhiteSpace(message)
+                ? message
+                : null;
+    private string? DescribedByElementIds
+    {
+        get
+        {
+            var ids = new[] { ReasonElementId, CollectionError is null ? null : _errorId }
+                .Where(id => id is not null);
+            var value = string.Join(" ", ids);
+            return value.Length == 0 ? null : value;
+        }
+    }
+    private string EffectiveLabel => string.IsNullOrWhiteSpace(Label) ? "항목 목록" : Label.Trim();
+    private string CollectionCssClass => $"meta-collection-editor{(IsEditorDisabled ? " is-disabled" : string.Empty)}{(CollectionError is null ? string.Empty : " has-error")}";
+    private string CollectionCountText => MaxItems is int max
+        ? $"{_rows.Count} / {max}개"
+        : $"{_rows.Count}개";
+    private string EffectiveDisabledReason => string.IsNullOrWhiteSpace(DisabledReason)
+        ? "이 항목을 편집할 권한이 없습니다."
+        : DisabledReason.Trim();
+    private bool IsEditorDisabled => Disabled || !string.IsNullOrWhiteSpace(DisabledReason);
+    private int EffectiveMaxItems => MaxItems ?? int.MaxValue;
+    private bool CanAdd => !IsEditorDisabled && _rows.Count < EffectiveMaxItems;
+    private string? AddBlockedReason => IsEditorDisabled
+        ? EffectiveDisabledReason
+        : _rows.Count >= EffectiveMaxItems
+            ? $"최대 {EffectiveMaxItems}개까지 추가할 수 있습니다."
+            : null;
+    private string? RemoveBlockedReason => IsEditorDisabled
+        ? EffectiveDisabledReason
+        : _rows.Count <= MinItems
+            ? $"최소 {MinItems}개 항목을 유지해야 합니다."
+            : null;
+
+    protected override void OnParametersSet()
+    {
+        ValidateParameters();
+
+        // 비활성 상태에서는 개별 필드 타입과 관계없이 기존 폼 렌더러의 ReadOnly/Disabled 처리를 재사용한다.
+        var effectiveSchema = IsEditorDisabled
+            ? Schema.Select(field => field with { ReadOnly = true }).ToArray()
+            : Schema.ToArray();
+        _itemDefinition = new ScreenDefinition("__COLLECTION_ITEM", EffectiveLabel, effectiveSchema);
+
+        if (!ItemsEqualRows(Items, _rows) || _rows.Count < MinItems)
+            SynchronizeRows(Items);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_publishNormalizedItems)
+            return;
+
+        // 렌더 중 부모 EventCallback을 부르지 않고, 최초 최소행 보정이 DOM에 반영된 뒤 한 번만 공개한다.
+        _publishNormalizedItems = false;
+        await PublishItemsAsync();
+    }
+
+    private void ValidateParameters()
+    {
+        ArgumentNullException.ThrowIfNull(Schema);
+        ArgumentNullException.ThrowIfNull(Items);
+        if (MinItems < 0)
+            throw new ArgumentOutOfRangeException(nameof(MinItems), "최소 항목 수는 0 이상이어야 합니다.");
+        if (MaxItems is < 0)
+            throw new ArgumentOutOfRangeException(nameof(MaxItems), "최대 항목 수는 0 이상이어야 합니다.");
+        if (MaxItems is not null && MaxItems < MinItems)
+            throw new ArgumentException("최대 항목 수는 최소 항목 수보다 작을 수 없습니다.", nameof(MaxItems));
+        // 서버/외부 모델이 최대 개수를 넘겨도 기존 항목을 숨기거나 화면을 깨지 않는다.
+        // 추가만 차단하고 MetaScreen의 별도 collection 검증 오류를 노출해 사용자가 삭제로 복구하게 한다.
+    }
+
+    private void SynchronizeRows(IReadOnlyList<Dictionary<string, object?>> source)
+    {
+        var previousKeys = _rows.Select(row => row.Key).ToArray();
+        _rows.Clear();
+        for (var index = 0; index < source.Count; index++)
+        {
+            var key = index < previousKeys.Length ? previousKeys[index] : Guid.NewGuid();
+            _rows.Add(new CollectionRow(key, Clone(source[index])));
+        }
+
+        // 최소 개수 미달 입력은 빈 모델로 보충하고 첫 렌더 뒤 정규화된 목록을 부모에게 알린다.
+        while (_rows.Count < MinItems)
+        {
+            _rows.Add(NewRow());
+            _publishNormalizedItems = true;
+        }
+    }
+
+    private async Task AddAsync()
+    {
+        if (!CanAdd)
+            return;
+
+        _rows.Add(NewRow());
+        await PublishItemsAsync();
+    }
+
+    private async Task RemoveAsync(Guid key)
+    {
+        if (RemoveBlockedReason is not null)
+            return;
+
+        var index = _rows.FindIndex(row => row.Key == key);
+        if (index < 0)
+            return;
+
+        _rows.RemoveAt(index);
+        await PublishItemsAsync();
+    }
+
+    private async Task ItemChangedAsync(Guid key, Dictionary<string, object?> model)
+    {
+        var row = _rows.FirstOrDefault(item => item.Key == key);
+        if (row is null)
+            return;
+
+        if (IsEditorDisabled)
+        {
+            // 테스트나 외부 코드가 콜백을 직접 호출해도 마지막 공개 스냅숏으로 되돌린다.
+            SynchronizeRows(Items);
+            return;
+        }
+
+        row.Model = Clone(model);
+        await PublishItemsAsync();
+    }
+
+    private async Task PublishItemsAsync()
+    {
+        var snapshot = _rows.Select(row => Clone(row.Model)).ToList();
+        Items = snapshot;
+        await ItemsChanged.InvokeAsync(snapshot);
+    }
+
+    private CollectionRow NewRow()
+    {
+        var model = ItemFactory?.Invoke() ?? new Dictionary<string, object?>();
+        return new CollectionRow(Guid.NewGuid(), Clone(model));
+    }
+
+    private string ItemLabelFor(int itemNumber)
+        => $"{(string.IsNullOrWhiteSpace(ItemLabel) ? "항목" : ItemLabel.Trim())} {itemNumber}";
+
+    private Dictionary<string, string> ErrorsFor(int index)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (FieldErrors is null || string.IsNullOrWhiteSpace(CollectionKey)) return result;
+
+        var prefix = $"{CollectionKey}[{index}].";
+        foreach (var (path, message) in FieldErrors)
+        {
+            if (path.StartsWith(prefix, StringComparison.Ordinal) && path.Length > prefix.Length)
+                result[path[prefix.Length..]] = message;
+        }
+        return result;
+    }
+
+    private static string ActionAriaLabel(string label, string? blockedReason)
+        => blockedReason is null ? label : $"{label} — {blockedReason}";
+
+    private static Dictionary<string, object?> Clone(Dictionary<string, object?> source)
+        => new(source, source.Comparer);
+
+    private static bool ItemsEqualRows(
+        IReadOnlyList<Dictionary<string, object?>> items,
+        IReadOnlyList<CollectionRow> rows)
+    {
+        if (items.Count != rows.Count)
+            return false;
+
+        for (var index = 0; index < items.Count; index++)
+        {
+            var item = items[index];
+            var model = rows[index].Model;
+            if (item.Count != model.Count)
+                return false;
+            foreach (var pair in item)
+            {
+                if (!model.TryGetValue(pair.Key, out var value) || !Equals(pair.Value, value))
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    private sealed class CollectionRow(Guid key, Dictionary<string, object?> model)
+    {
+        public Guid Key { get; } = key;
+        public Dictionary<string, object?> Model { get; set; } = model;
+    }
+}

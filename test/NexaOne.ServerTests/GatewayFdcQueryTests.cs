@@ -52,6 +52,8 @@ public sealed class GatewayFdcQueryTests : IClassFixture<GatewayFdcQueryTests.Fd
         var creds = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Secret)), SecurityAlgorithms.HmacSha256);
         var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, "fdc-e2e-user") };
+        if (permissions.Length == 0)
+            claims.Add(new Claim(NexaOne.Common.Security.Permissions.ClaimType, "fdc:read"));
         claims.AddRange(permissions.Select(p => new Claim(NexaOne.Common.Security.Permissions.ClaimType, p)));
         var token = new JwtSecurityToken(Issuer, Issuer, claims, expires: DateTime.UtcNow.AddMinutes(10), signingCredentials: creds);
         client.DefaultRequestHeaders.Authorization =
@@ -350,8 +352,9 @@ public sealed class GatewayFdcQueryTests : IClassFixture<GatewayFdcQueryTests.Fd
         EnsureSchemaReady();
         var idA = $"C_{Suffix()}";
         var idB = $"C_{Suffix()}";
-        SeedCollectData(idA, "EQ_" + Suffix(), "P_" + Suffix(), 42.0m, DateTime.UtcNow.AddMinutes(-1)); // 서로 다른 설비
-        SeedCollectData(idB, "EQ_" + Suffix(), "P_" + Suffix(), 7.5m, DateTime.UtcNow.AddMinutes(-2));
+        var traceStart = DateTime.UtcNow.AddMinutes(1);
+        SeedCollectData(idA, "EQ_" + Suffix(), "P_" + Suffix(), 42.0m, traceStart); // 서로 다른 설비
+        SeedCollectData(idB, "EQ_" + Suffix(), "P_" + Suffix(), 7.5m, traceStart.AddSeconds(1));
 
         var rows = await Query("FDC.CollectDataList", new());  // 파라미터 없이 최근 수집 전체(NULL-guard)
         var ids = rows.Select(r => r["COLLECT_ID"].ToString()).ToList();
@@ -384,9 +387,10 @@ public sealed class GatewayFdcQueryTests : IClassFixture<GatewayFdcQueryTests.Fd
         var param = "P_" + Suffix();
         var eqA = "EQ_" + Suffix();
         var eqB = "EQ_" + Suffix();
-        SeedCollectData($"C_{Suffix()}", eqA, param, 10m, DateTime.UtcNow.AddMinutes(-3));
-        SeedCollectData($"C_{Suffix()}", eqA, param, 20m, DateTime.UtcNow.AddMinutes(-2));
-        SeedCollectData($"C_{Suffix()}", eqB, param, 30m, DateTime.UtcNow.AddMinutes(-1));
+        var traceStart = DateTime.UtcNow.AddMinutes(1);
+        SeedCollectData($"C_{Suffix()}", eqA, param, 10m, traceStart);
+        SeedCollectData($"C_{Suffix()}", eqA, param, 20m, traceStart.AddSeconds(1));
+        SeedCollectData($"C_{Suffix()}", eqB, param, 30m, traceStart.AddSeconds(2));
 
         var rows = await Query("FDC.EquipmentParameterStats", new() { ["parameterId"] = param });
 

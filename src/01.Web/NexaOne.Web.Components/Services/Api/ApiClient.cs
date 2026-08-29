@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using NexaOne.Web.Services.Auth;
 
 namespace NexaOne.Web.Services.Api;
@@ -100,7 +101,13 @@ public sealed class ApiClient : IApiClient
 
     // 요청별 Authorization 헤더로 전송한다 — 공유 HttpClient.DefaultRequestHeaders를 변이하지 않아
     // 동시 요청 간 토큰 경합/오염이 없다(#5/#31). 401 시 1회 갱신 후 재전송하며 응답은 항상 Dispose.
-    private async Task<HttpResponseMessage> SendOnceAsync(HttpMethod method, string url, object? body, string? token, CancellationToken ct)
+    private async Task<HttpResponseMessage> SendOnceAsync(
+        HttpMethod method,
+        string url,
+        object? body,
+        string? token,
+        CancellationToken ct,
+        IReadOnlyDictionary<string, string>? headers = null)
     {
         var req = new HttpRequestMessage(method, url);
         if (!string.IsNullOrEmpty(token))
@@ -108,6 +115,9 @@ public sealed class ApiClient : IApiClient
         // 서버 오류 메시지 다국어(P3-14) — 사용자 언어를 Accept-Language로 전파해 서버 응답 경계가
         // Error.Description을 번역하게 한다(모든 query/command/GET/POST의 중앙 경로).
         req.Headers.Add("Accept-Language", _ui.Language == "EnUs" ? "en-US" : "ko-KR");
+        if (headers is not null)
+            foreach (var (name, value) in headers)
+                req.Headers.TryAddWithoutValidation(name, value);
         if (body is not null)
             req.Content = JsonContent.Create(body);
         return await _http.SendAsync(req, ct);
@@ -116,18 +126,20 @@ public sealed class ApiClient : IApiClient
     // surfaceErrors=true면 아무 페이지도 처리하지 않는 403/5xx를 전역 토스트로 노출한다.
     // 자체적으로 오류 사유를 표시하는 메서드(PostWithError/PatchWithError)는 false로 호출해 중복 노출을 막는다.
     private async Task<HttpResponseMessage> SendAsync(
-        HttpMethod method, string url, object? body, CancellationToken ct, bool surfaceErrors = true)
+        HttpMethod method, string url, object? body, CancellationToken ct,
+        bool surfaceErrors = true,
+        IReadOnlyDictionary<string, string>? headers = null)
     {
         HttpResponseMessage resp;
         try
         {
             var token = await GetValidAccessTokenAsync(ct);
-            resp = await SendOnceAsync(method, url, body, token, ct);
+            resp = await SendOnceAsync(method, url, body, token, ct, headers);
             if (resp.StatusCode == HttpStatusCode.Unauthorized)
             {
                 resp.Dispose();                   // 첫 401 응답 소켓/리소스 해제(누수 방지)
                 var refreshed = await RefreshAsync(ct);
-                resp = await SendOnceAsync(method, url, body, refreshed, ct);
+                resp = await SendOnceAsync(method, url, body, refreshed, ct, headers);
             }
         }
         // 전송 계층 실패(연결 거부·타임아웃)를 합성 503으로 변환한다 — 헬퍼들의 IsSuccessStatusCode 분기와
@@ -202,15 +214,21 @@ public sealed class ApiClient : IApiClient
     private async Task<List<T>> GetListAsync<T>(string url, CancellationToken ct)
         => await GetAsync<List<T>>(url, ct) ?? new List<T>();
 
-    private async Task<T?> PostAsync<T>(string url, object body, CancellationToken ct) where T : class
+    private async Task<T?> PostAsync<T>(
+        string url, object body, CancellationToken ct,
+        IReadOnlyDictionary<string, string>? headers = null) where T : class
     {
-        using var resp = await SendAsync(HttpMethod.Post, url, body, ct);
+        using var resp = await SendAsync(HttpMethod.Post, url, body, ct, headers: headers);
         return resp.IsSuccessStatusCode ? await resp.Content.ReadFromJsonAsync<T>(ct) : null;
     }
 
-    private async Task PutAsync(string url, object? body, CancellationToken ct)
+    private async Task PutAsync(
+        string url,
+        object? body,
+        CancellationToken ct,
+        IReadOnlyDictionary<string, string>? headers = null)
     {
-        using var _ = await SendAsync(HttpMethod.Put, url, body ?? new { }, ct);
+        using var _ = await SendAsync(HttpMethod.Put, url, body ?? new { }, ct, headers: headers);
     }
 
     // 상태전이 POST용(응답 본문 불필요) — 통합 호스트 브리지 전이 엔드포인트는 POST 규약이다(구 API의 PUT 아님).
@@ -226,9 +244,11 @@ public sealed class ApiClient : IApiClient
         return resp.IsSuccessStatusCode;
     }
 
-    private async Task<bool> DeleteAsync(string url, CancellationToken ct)
+    private async Task<bool> DeleteAsync(
+        string url, CancellationToken ct,
+        IReadOnlyDictionary<string, string>? headers = null)
     {
-        using var resp = await SendAsync(HttpMethod.Delete, url, null, ct);
+        using var resp = await SendAsync(HttpMethod.Delete, url, null, ct, headers: headers);
         return resp.IsSuccessStatusCode;
     }
 
@@ -297,10 +317,14 @@ public sealed class ApiClient : IApiClient
         catch { return null; }
     }
 
-    // MRP 실오더 전환(v2 1단) — Proposed 전량 전환(단일 트랜잭션). 실패는 null(전역 토스트).
-    public async Task<MrpConvertResultDto?> ConvertMrpAsync(string? runId = null, IReadOnlyList<string>? plannedOrderIds = null, CancellationToken ct = default)
+    // MRP 실오더 전환 — 생산 제안별 설비 배정을 포함해 단일 트랜잭션으로 전환한다.
+    public async Task<MrpConvertResultDto?> ConvertMrpAsync(
+        string? runId = null,
+        IReadOnlyList<string>? plannedOrderIds = null,
+        IReadOnlyList<MrpProductionAssignmentDto>? productionAssignments = null,
+        CancellationToken ct = default)
     {
-        using var resp = await SendAsync(HttpMethod.Post, "api/v1/pom/mrp/convert", new { runId, plannedOrderIds }, ct);
+        using var resp = await SendAsync(HttpMethod.Post, "api/v1/pom/mrp/convert", new { runId, plannedOrderIds, productionAssignments }, ct);
         if (!resp.IsSuccessStatusCode) return null;
         try { return await resp.Content.ReadFromJsonAsync<MrpConvertResultDto>(ct); }
         catch { return null; }
@@ -311,9 +335,13 @@ public sealed class ApiClient : IApiClient
     public async Task<PagedQueryResult?> ExecuteQueryPagedAsync(
         string queryId, object? parameters = null, int limit = 500, int offset = 0, CancellationToken ct = default)
     {
+        // 404/422는 오류가 아니라 호출측이 전량 조회로 전환하기 위한 기능 협상 신호다.
+        // 전역 토스트를 띄우면 자체 LIMIT 쿼리를 쓰는 대시보드가 정상 폴백하면서도 매 새로고침마다
+        // 실패처럼 보이므로, 이 경로는 응답을 조용히 해석하고 실제 전량 조회의 실패만 표면화한다.
         using var resp = await SendAsync(
             HttpMethod.Post, $"api/v1/query/{Uri.EscapeDataString(queryId)}/paged",
-            new { parameters = parameters ?? new { }, limit, offset }, ct);
+            new { parameters = parameters ?? new { }, limit, offset }, ct,
+            surfaceErrors: false);
         if (!resp.IsSuccessStatusCode) return null;
         try { return await resp.Content.ReadFromJsonAsync<PagedQueryResult>(ct); }
         catch { return null; }
@@ -326,8 +354,34 @@ public sealed class ApiClient : IApiClient
     {
         using var resp = await SendAsync(
             HttpMethod.Post, $"api/v1/command/{Uri.EscapeDataString(queryId)}", parameters ?? new { }, ct);
-        return resp.IsSuccessStatusCode;
+        return await IsCommandAppliedAsync(resp, ct);
     }
+
+    /// <summary>
+    /// 명명 command의 HTTP 결과와 영향 행 수를 실제 업무 성공 여부로 변환합니다.
+    /// 별도 command 구현의 구형 빈 응답은 호환을 위해 성공으로 보되, 표준 <c>{ affected: 0 }</c> 응답은
+    /// 상태 가드·입력 검증에 막힌 것으로 판단해 실패로 반환합니다.
+    /// </summary>
+    internal static async Task<bool> IsCommandAppliedAsync(
+        HttpResponseMessage response, CancellationToken ct = default)
+    {
+        if (!response.IsSuccessStatusCode) return false;
+
+        // 명명 쓰기쿼리는 HTTP 200과 함께 영향 행 수를 반환한다. 상태 가드나 입력 검증으로 0행이면
+        // 전송 자체는 성공했어도 업무 저장은 실패이므로 false로 알려 폼이 성공 표시/닫기를 하지 않게 한다.
+        try
+        {
+            var result = await response.Content.ReadFromJsonAsync<AffectedRowsPayload>(ct);
+            return result is null || result.Affected > 0;
+        }
+        catch (Exception ex) when (ex is JsonException or NotSupportedException)
+        {
+            // 구버전 서버나 별도 command 구현의 빈 성공 응답은 기존 호환 동작을 유지한다.
+            return true;
+        }
+    }
+
+    private sealed record AffectedRowsPayload(int Affected);
 
     // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -501,20 +555,47 @@ public sealed class ApiClient : IApiClient
 
     // Low-Code 화면 정의 저장소(SYS_SCREEN_DEFINITION) — 통합 호스트에는 전용 REST가 없고 명명 쿼리/커맨드
     // 게이트웨이가 단일 경로다(SPA 디자이너와 동일 원천). 구 api/v1/sys/screen-definitions REST는 API 폐기와 함께 소멸.
-    public async Task<List<ScreenDefinitionRecordDto>> GetScreenDefinitionsAsync(CancellationToken ct = default)
-        => (await ExecuteQueryAsync("SYS.ListScreenDefinitions", null, ct))
-            .Select(r => new ScreenDefinitionRecordDto(Col(r, "UI_ID"), Col(r, "TITLE"), string.Empty))
+    public Task<List<ScreenDefinitionRecordDto>> GetScreenDefinitionsAsync(CancellationToken ct = default)
+        => GetScreenDefinitionsAsync(null, ct);
+
+    public async Task<List<ScreenDefinitionRecordDto>> GetScreenDefinitionsAsync(
+        string? targetChannel, CancellationToken ct = default)
+        => (await ExecuteQueryAsync("SYS.ListScreenDefinitions", new { targetChannel }, ct))
+            .Select(r => ScreenRecord(r, includeDefinition: false))
             .ToList();
 
     public async Task<ScreenDefinitionRecordDto?> GetScreenDefinitionAsync(string uiId, CancellationToken ct = default)
     {
         var rows = await ExecuteQueryAsync("SYS.GetScreenDefinition", new { uiId }, ct);
         var r = rows.FirstOrDefault();
-        return r is null ? null : new ScreenDefinitionRecordDto(Col(r, "UI_ID"), Col(r, "TITLE"), Col(r, "DEFINITION_JSON"));
+        return r is null ? null : ScreenRecord(r, includeDefinition: true);
     }
 
     public Task SaveScreenDefinitionAsync(string uiId, string title, string definitionJson, CancellationToken ct = default)
-        => ExecuteCommandAsync("SYS.UpsertScreenDefinition", new { uiId, title, definitionJson }, ct);
+        => SaveScreenDefinitionAsync(uiId, title, definitionJson, "MES", null, ct);
+
+    public Task SaveScreenDefinitionAsync(
+        string uiId, string title, string definitionJson,
+        string targetChannel, string? entryPath = null, CancellationToken ct = default)
+        => ExecuteCommandAsync(
+            "SYS.UpsertScreenDefinition",
+            new { uiId, title, definitionJson, targetChannel, entryPath }, ct);
+
+    private static ScreenDefinitionRecordDto ScreenRecord(
+        Dictionary<string, object?> row, bool includeDefinition)
+    {
+        var uiId = Col(row, "UI_ID");
+        var channel = Col(row, "TARGET_CHANNEL");
+        if (string.IsNullOrWhiteSpace(channel)) channel = "MES";
+        var entryPath = Col(row, "ENTRY_PATH");
+        if (string.IsNullOrWhiteSpace(entryPath)) entryPath = $"/meta/{uiId}";
+        return new ScreenDefinitionRecordDto(
+            uiId,
+            Col(row, "TITLE"),
+            includeDefinition ? Col(row, "DEFINITION_JSON") : string.Empty,
+            channel,
+            entryPath);
+    }
 
     private static string Col(Dictionary<string, object?> row, string key)
         => row.TryGetValue(key, out var v) ? v?.ToString() ?? string.Empty : string.Empty;
@@ -549,38 +630,68 @@ public sealed class ApiClient : IApiClient
         return GetListAsync<RecipeDto>(url, ct);
     }
 
-    public Task<RecipeDto?> CreateRecipeAsync(object req, CancellationToken ct = default)
-        => PostAsync<RecipeDto>("api/v1/rms/recipes", req, ct);
+    public Task<RecipeDto?> CreateRecipeAsync(
+        object req, string idempotencyKey, CancellationToken ct = default)
+        => PostAsync<RecipeDto>("api/v1/rms/recipes", req, ct,
+            IdempotencyHeader(idempotencyKey));
 
-    public Task RequestRecipeApprovalAsync(string recipeId, CancellationToken ct = default)
-        => PutAsync($"api/v1/rms/recipes/{recipeId}/request-approval", null, ct);
+    public Task RequestRecipeApprovalAsync(
+        string recipeId, string idempotencyKey, CancellationToken ct = default)
+        => PutAsync($"api/v1/rms/recipes/{recipeId}/request-approval", null, ct,
+            IdempotencyHeader(idempotencyKey));
 
-    public Task ApproveRecipe1Async(string recipeId, string approverId, CancellationToken ct = default)
-        => PutAsync($"api/v1/rms/recipes/{recipeId}/approve1", new { approverId }, ct);
+    public Task ApproveRecipe1Async(
+        string recipeId, string idempotencyKey, CancellationToken ct = default)
+        => PutAsync($"api/v1/rms/recipes/{recipeId}/approve1", null, ct,
+            IdempotencyHeader(idempotencyKey));
 
-    public Task ApproveRecipe2Async(string recipeId, string approverId, CancellationToken ct = default)
-        => PutAsync($"api/v1/rms/recipes/{recipeId}/approve2", new { approverId }, ct);
+    public Task ApproveRecipe2Async(
+        string recipeId, string idempotencyKey, CancellationToken ct = default)
+        => PutAsync($"api/v1/rms/recipes/{recipeId}/approve2", null, ct,
+            IdempotencyHeader(idempotencyKey));
 
-    public Task ReleaseRecipeAsync(string recipeId, string approverId, CancellationToken ct = default)
-        => PutAsync($"api/v1/rms/recipes/{recipeId}/release", new { approverId }, ct);
+    public Task ReleaseRecipeAsync(
+        string recipeId, string idempotencyKey, CancellationToken ct = default)
+        => PutAsync($"api/v1/rms/recipes/{recipeId}/release", null, ct,
+            IdempotencyHeader(idempotencyKey));
 
-    public Task RejectRecipeAsync(string recipeId, string reason, CancellationToken ct = default)
-        => PutAsync($"api/v1/rms/recipes/{recipeId}/reject", new { reason }, ct);
+    public Task RejectRecipeAsync(
+        string recipeId, string reason, string idempotencyKey, CancellationToken ct = default)
+        => PutAsync($"api/v1/rms/recipes/{recipeId}/reject", new { reason }, ct,
+            IdempotencyHeader(idempotencyKey));
 
-    public Task<RecipeDto?> CreateRecipeVersionAsync(string recipeId, string newRecipeId, CancellationToken ct = default)
-        => PostAsync<RecipeDto>($"api/v1/rms/recipes/{recipeId}/new-version", new { newRecipeId }, ct);
+    public Task<RecipeDto?> CreateRecipeVersionAsync(
+        string recipeId, string newRecipeId, string idempotencyKey,
+        CancellationToken ct = default)
+        => PostAsync<RecipeDto>($"api/v1/rms/recipes/{recipeId}/new-version",
+            new { newRecipeId }, ct, IdempotencyHeader(idempotencyKey));
 
     public Task<List<RecipeParamDto>> GetRecipeParamsAsync(string recipeId, CancellationToken ct = default)
         => GetListAsync<RecipeParamDto>($"api/v1/rms/recipes/{recipeId}/params", ct);
 
-    public Task<RecipeParamDto?> AddRecipeParamAsync(string recipeId, object req, CancellationToken ct = default)
-        => PostAsync<RecipeParamDto>($"api/v1/rms/recipes/{recipeId}/params", req, ct);
+    public Task<RecipeParamDto?> AddRecipeParamAsync(
+        string recipeId, object req, string idempotencyKey, CancellationToken ct = default)
+        => PostAsync<RecipeParamDto>($"api/v1/rms/recipes/{recipeId}/params", req, ct,
+            IdempotencyHeader(idempotencyKey));
 
-    public Task UpdateRecipeParamAsync(string paramId, string newValue, CancellationToken ct = default)
-        => PutAsync($"api/v1/rms/recipes/params/{paramId}", new { newValue }, ct);
+    public Task UpdateRecipeParamAsync(
+        string paramId, string newValue, int expectedVersion, string idempotencyKey,
+        CancellationToken ct = default)
+        => PutAsync($"api/v1/rms/recipes/params/{paramId}",
+            new { newValue, expectedVersion }, ct, IdempotencyHeader(idempotencyKey));
 
-    public Task DeleteRecipeParamAsync(string paramId, CancellationToken ct = default)
-        => DeleteAsync($"api/v1/rms/recipes/params/{paramId}", ct);
+    private static IReadOnlyDictionary<string, string> IdempotencyHeader(string key)
+        => new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Idempotency-Key"] = key,
+        };
+
+    public Task DeleteRecipeParamAsync(
+        string paramId, int expectedVersion, string idempotencyKey,
+        CancellationToken ct = default)
+        => DeleteAsync(
+            $"api/v1/rms/recipes/params/{paramId}?expectedVersion={expectedVersion}",
+            ct, IdempotencyHeader(idempotencyKey));
 
     // ── QMS ───────────────────────────────────────────────────────────────────
 
@@ -615,6 +726,43 @@ public sealed class ApiClient : IApiClient
     public Task<InspectionResultDto?> RecordInspectionResultAsync(object req, CancellationToken ct = default)
         => PostAsync<InspectionResultDto>("api/v1/qms/inspection-results", req, ct);
 
+    public async Task<InspectionExecutionApiResult> RecordInspectionExecutionV2Async(
+        RecordInspectionExecutionV2Request req, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Post,
+            "api/v2/qms/inspection-executions",
+            req,
+            ct,
+            surfaceErrors: false,
+            headers: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Idempotency-Key"] = req.IdempotencyKey
+            });
+        if (response.IsSuccessStatusCode)
+        {
+            try
+            {
+                var dto = await response.Content.ReadFromJsonAsync<InspectionExecutionV2Dto>(ct);
+                return dto is not null
+                    ? new(dto, null, (int)response.StatusCode)
+                    : new(null, "검사 실행 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+            catch
+            {
+                return new(null, "검사 실행 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+        }
+
+        var error = response.StatusCode == HttpStatusCode.Unauthorized
+            ? "인증이 만료되었습니다. 다시 로그인해 주세요."
+            : await ReadErrorAsync(response, ct);
+        return new(null, error, (int)response.StatusCode);
+    }
+
+    public Task<LotInspectionStatusDto?> GetLotInspectionStatusAsync(string lotId, CancellationToken ct = default)
+        => GetAsync<LotInspectionStatusDto>($"api/v1/qms/lots/{Uri.EscapeDataString(lotId)}/inspection-status", ct);
+
     public Task<List<SpcParamDto>> GetSpcParamsAsync(string equipmentId, CancellationToken ct = default)
         => GetListAsync<SpcParamDto>($"api/v1/qms/spc-params?equipmentId={equipmentId}", ct);
 
@@ -623,6 +771,51 @@ public sealed class ApiClient : IApiClient
 
     public Task UpdateSpcLimitsAsync(string paramId, decimal mean, decimal ucl, decimal lcl, CancellationToken ct = default)
         => PostAsync($"api/v1/qms/spc-params/{paramId}/control-limits", new { mean, ucl, lcl }, ct);
+
+    public Task<SpcLimitRevisionDto?> AddSpcLimitRevisionAsync(object req, CancellationToken ct = default)
+        => PostAsync<SpcLimitRevisionDto>("api/v1/qms/spc/limit-revisions", req, ct);
+
+    public Task<SpcSubgroupEvaluationDto?> EvaluateSpcSubgroupAsync(object req, CancellationToken ct = default)
+        => PostAsync<SpcSubgroupEvaluationDto>("api/v1/qms/spc/subgroups/evaluate", req, ct);
+
+    public Task<List<SpcRuleViolationDto>> GetSpcViolationsAsync(
+        string? paramId = null, string? subgroupId = null, CancellationToken ct = default)
+    {
+        var query = new List<string>();
+        if (!string.IsNullOrWhiteSpace(paramId)) query.Add($"paramId={Uri.EscapeDataString(paramId)}");
+        if (!string.IsNullOrWhiteSpace(subgroupId)) query.Add($"subgroupId={Uri.EscapeDataString(subgroupId)}");
+        return GetListAsync<SpcRuleViolationDto>("api/v1/qms/spc/violations" +
+            (query.Count == 0 ? "" : "?" + string.Join("&", query)), ct);
+    }
+
+    public Task<SamplingPlanRevisionDto?> AddSamplingPlanRevisionAsync(object req, CancellationToken ct = default)
+        => PostAsync<SamplingPlanRevisionDto>("api/v1/qms/sampling-plans/revisions", req, ct);
+
+    public Task<SamplingPlanRevisionDto?> SelectSamplingPlanAsync(
+        int lotSize, DateTime? effectiveAt = null, CancellationToken ct = default)
+    {
+        var url = $"api/v1/qms/sampling-plans/select?lotSize={lotSize}";
+        if (effectiveAt.HasValue) url += $"&effectiveAt={Uri.EscapeDataString(effectiveAt.Value.ToString("O"))}";
+        return GetAsync<SamplingPlanRevisionDto>(url, ct);
+    }
+
+    public Task<SamplingEvaluationDto?> EvaluateSamplingAsync(object req, CancellationToken ct = default)
+        => PostAsync<SamplingEvaluationDto>("api/v1/qms/sampling-plans/evaluate", req, ct);
+
+    public Task<AiModelVersionDto?> RegisterAiModelVersionAsync(object req, CancellationToken ct = default)
+        => PostAsync<AiModelVersionDto>("api/v1/qms/ai/models/versions", req, ct);
+
+    public Task<AiInferenceDto?> RecordAiInferenceAsync(object req, CancellationToken ct = default)
+        => PostAsync<AiInferenceDto>("api/v1/qms/ai/inferences", req, ct);
+
+    public Task<AiInferenceDto?> GetAiInferenceAsync(string inferenceId, CancellationToken ct = default)
+        => GetAsync<AiInferenceDto>($"api/v1/qms/ai/inferences/{Uri.EscapeDataString(inferenceId)}", ct);
+
+    public Task<List<AiReviewDto>> GetAiReviewsAsync(string inferenceId, CancellationToken ct = default)
+        => GetListAsync<AiReviewDto>($"api/v1/qms/ai/inferences/{Uri.EscapeDataString(inferenceId)}/reviews", ct);
+
+    public Task<AiReviewDto?> ReviewAiInferenceAsync(string inferenceId, object req, CancellationToken ct = default)
+        => PostAsync<AiReviewDto>($"api/v1/qms/ai/inferences/{Uri.EscapeDataString(inferenceId)}/reviews", req, ct);
 
     // ── EMS ───────────────────────────────────────────────────────────────────
 
@@ -646,6 +839,299 @@ public sealed class ApiClient : IApiClient
 
     public Task CancelWorkOrderAsync(string woId, CancellationToken ct = default)
         => PostAsync($"api/v1/ems/work-orders/{woId}/cancel", null, ct);
+
+    /// <summary>
+    /// POM 작업지시 생성 API를 호출하고 도메인 검증 오류를 관리 화면에 그대로 반환합니다.
+    /// </summary>
+    public async Task<PomWorkOrderActionResult> CreatePomWorkOrderAsync(
+        PomWorkOrderCreateRequest request,
+        CancellationToken ct = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Post,
+            "api/v1/pom/work-orders",
+            request,
+            ct,
+            surfaceErrors: false);
+
+        if (response.IsSuccessStatusCode)
+        {
+            try
+            {
+                var dto = await response.Content.ReadFromJsonAsync<PomWorkOrderDto>(ct);
+                return dto is not null
+                    ? new(dto, null, (int)response.StatusCode)
+                    : new(null, "작업지시 생성 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+            catch
+            {
+                return new(null, "작업지시 생성 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+        }
+
+        var error = response.StatusCode == HttpStatusCode.Unauthorized
+            ? "인증이 만료되었습니다. 다시 로그인해 주세요."
+            : await ReadErrorAsync(response, ct);
+        return new(null, error, (int)response.StatusCode);
+    }
+
+    /// <summary>
+    /// POM 작업지시의 상태전이를 typed REST API로 실행합니다. URL과 본문 형태는 허용된 액션으로 고정해
+    /// Designer 값이 임의의 엔드포인트를 호출하지 못하게 하고, 실패 사유와 409 상태 코드를 함께 보존합니다.
+    /// </summary>
+    public async Task<PomWorkOrderActionResult> ExecutePomWorkOrderActionAsync(
+        string action,
+        string workOrderId,
+        PomWorkOrderActionRequest request,
+        CancellationToken ct = default)
+    {
+        var normalizedAction = action?.Trim().ToLowerInvariant();
+        if (normalizedAction is not ("release" or "cancel" or "start" or "report" or "hold" or "release-hold" or "complete"))
+            return new(null, $"지원하지 않는 작업지시 액션입니다: {action}", 400);
+
+        if (string.IsNullOrWhiteSpace(workOrderId))
+            return new(null, "작업지시 ID가 필요합니다.", 400);
+
+        object body = normalizedAction is "report" or "complete"
+            ? new
+            {
+                goodQty = request.GoodQty,
+                defectQty = request.DefectQty,
+                request.IdempotencyKey,
+                request.ExpectedVersion,
+                request.ClientChannel,
+                request.DeviceId,
+                request.Remark
+            }
+            : new
+            {
+                request.IdempotencyKey,
+                request.ExpectedVersion,
+                request.ClientChannel,
+                request.DeviceId,
+                request.Remark
+            };
+
+        var id = Uri.EscapeDataString(workOrderId.Trim());
+        using var response = await SendAsync(
+            HttpMethod.Post,
+            $"api/v1/pom/work-orders/{id}/{normalizedAction}",
+            body,
+            ct,
+            surfaceErrors: false);
+
+        if (response.IsSuccessStatusCode)
+        {
+            try
+            {
+                var dto = await response.Content.ReadFromJsonAsync<PomWorkOrderDto>(ct);
+                return dto is not null
+                    ? new(dto, null, (int)response.StatusCode)
+                    : new(null, "작업지시 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+            catch
+            {
+                return new(null, "작업지시 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+        }
+
+        var error = response.StatusCode == HttpStatusCode.Unauthorized
+            ? "인증이 만료되었습니다. 다시 로그인해 주세요."
+            : await ReadErrorAsync(response, ct);
+        return new(null, error, (int)response.StatusCode);
+    }
+
+    /// <summary>
+    /// 생산 W/O에 종속되지 않는 POM 작업 범위를 등록합니다. Carrier는 LOT 없이 Carrier ID를
+    /// TargetId/CarrierId로 보존하며, 서버가 외부 JWT 작업자를 감사 주체로 채웁니다.
+    /// </summary>
+    public async Task<PomWorkScopeActionResult> CreatePomWorkScopeAsync(
+        PomWorkScopeCreateRequest request,
+        CancellationToken ct = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Post,
+            "api/v1/pom/work-scopes",
+            request,
+            ct,
+            surfaceErrors: false);
+
+        if (response.IsSuccessStatusCode)
+        {
+            try
+            {
+                var dto = await response.Content.ReadFromJsonAsync<PomWorkScopeDto>(ct);
+                return dto is not null
+                    ? new(dto, null, (int)response.StatusCode)
+                    : new(null, "작업 범위 생성 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+            catch
+            {
+                return new(null, "작업 범위 생성 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+        }
+
+        var error = response.StatusCode == HttpStatusCode.Unauthorized
+            ? "인증이 만료되었습니다. 다시 로그인해 주세요."
+            : await ReadErrorAsync(response, ct);
+        return new(null, error, (int)response.StatusCode);
+    }
+
+    /// <summary>
+    /// 작업 범위의 허용된 lifecycle 액션을 실행합니다. 액션 이름은 고정 allow-list로 제한해
+    /// Designer 값이 임의 endpoint를 호출하지 못하게 하며, 409와 서버 사유를 그대로 보존합니다.
+    /// </summary>
+    public async Task<PomWorkScopeActionResult> ExecutePomWorkScopeActionAsync(
+        string action,
+        string workScopeId,
+        PomWorkScopeActionRequest request,
+        CancellationToken ct = default)
+    {
+        var normalizedAction = action?.Trim().ToLowerInvariant();
+        if (normalizedAction is not ("release" or "cancel" or "start" or "report" or "hold" or "release-hold" or "complete"))
+            return new(null, $"지원하지 않는 작업 범위 액션입니다: {action}", 400);
+
+        if (string.IsNullOrWhiteSpace(workScopeId))
+            return new(null, "작업 범위 ID가 필요합니다.", 400);
+
+        object body = normalizedAction is "report" or "complete"
+            ? new
+            {
+                goodQty = request.GoodQty,
+                defectQty = request.DefectQty,
+                request.IdempotencyKey,
+                request.ExpectedVersion,
+                request.ClientChannel,
+                request.DeviceId,
+                request.Remark,
+                request.CarrierId,
+                request.ResultCode,
+                request.ResultMetadataJson
+            }
+            : new
+            {
+                request.IdempotencyKey,
+                request.ExpectedVersion,
+                request.ClientChannel,
+                request.DeviceId,
+                request.Remark,
+                request.CarrierId,
+                request.ResultCode,
+                request.ResultMetadataJson
+            };
+
+        var id = Uri.EscapeDataString(workScopeId.Trim());
+        using var response = await SendAsync(
+            HttpMethod.Post,
+            $"api/v1/pom/work-scopes/{id}/{normalizedAction}",
+            body,
+            ct,
+            surfaceErrors: false);
+
+        if (response.IsSuccessStatusCode)
+        {
+            try
+            {
+                var dto = await response.Content.ReadFromJsonAsync<PomWorkScopeDto>(ct);
+                return dto is not null
+                    ? new(dto, null, (int)response.StatusCode)
+                    : new(null, "작업 범위 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+            catch
+            {
+                return new(null, "작업 범위 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+        }
+
+        var error = response.StatusCode == HttpStatusCode.Unauthorized
+            ? "인증이 만료되었습니다. 다시 로그인해 주세요."
+            : await ReadErrorAsync(response, ct);
+        return new(null, error, (int)response.StatusCode);
+    }
+
+    /// <summary>LOT Track-In은 서버 라우팅 interlock을 통과한 경우에만 상태를 변경합니다.</summary>
+    public Task<PomRoutingApiResult<PomLotDto>> ExecutePomLotTrackInAsync(
+        string lotId, PomLotTrackInRequest request, CancellationToken ct = default)
+        => SendPomRoutingAsync<PomLotDto>(
+            HttpMethod.Post, PomLotUrl(lotId, "track-in"), request, ct);
+
+    /// <summary>LOT Track-Out 결과와 품질/동시성 차단 사유를 HTTP 상태와 함께 보존합니다.</summary>
+    public Task<PomRoutingApiResult<PomLotDto>> ExecutePomLotTrackOutAsync(
+        string lotId, PomLotTrackOutRequest request, CancellationToken ct = default)
+        => SendPomRoutingAsync<PomLotDto>(
+            HttpMethod.Post, PomLotUrl(lotId, "track-out"), request, ct);
+
+    public Task<PomRoutingApiResult<PomLotRoutingContextDto>> GetPomLotRoutingContextAsync(
+        string lotId, CancellationToken ct = default)
+        => SendPomRoutingAsync<PomLotRoutingContextDto>(
+            HttpMethod.Get, PomLotUrl(lotId, "routing-context"), null, ct);
+
+    public Task<PomRoutingApiResult<PomRoutingPolicyDecisionDto>> EvaluatePomLotRoutingAsync(
+        string lotId, PomEvaluateRoutingRequest request, CancellationToken ct = default)
+        => SendPomRoutingAsync<PomRoutingPolicyDecisionDto>(
+            HttpMethod.Post, PomLotUrl(lotId, "routing/evaluate"), request, ct);
+
+    public Task<PomRoutingApiResult<PomLotDto>> ChangePomLotRoutingControlModeAsync(
+        string lotId, PomChangeRoutingControlModeRequest request, CancellationToken ct = default)
+        => SendPomRoutingAsync<PomLotDto>(
+            HttpMethod.Post, PomLotUrl(lotId, "routing/control-mode"), request, ct);
+
+    public Task<PomRoutingApiResult<PomLotDto>> ApplyPomLotRouteDeviationAsync(
+        string lotId, PomApplyRouteDeviationRequest request, CancellationToken ct = default)
+        => SendPomRoutingAsync<PomLotDto>(
+            HttpMethod.Post, PomLotUrl(lotId, "routing/deviations"), request, ct);
+
+    public Task<PomRoutingApiResult<PomRouteExceptionDto>> RequestPomLotRouteExceptionAsync(
+        string lotId, PomRequestRouteExceptionRequest request, CancellationToken ct = default)
+        => SendPomRoutingAsync<PomRouteExceptionDto>(
+            HttpMethod.Post, PomLotUrl(lotId, "routing/exceptions"), request, ct);
+
+    public Task<PomRoutingApiResult<PomRouteExceptionDto>> ReviewPomLotRouteExceptionAsync(
+        string action, string exceptionId, PomReviewRouteExceptionRequest request, CancellationToken ct = default)
+    {
+        var normalizedAction = action?.Trim().ToLowerInvariant();
+        if (normalizedAction is not ("approve" or "reject"))
+            return Task.FromResult(new PomRoutingApiResult<PomRouteExceptionDto>(
+                null, $"지원하지 않는 라우팅 예외 검토 작업입니다: {action}", 400));
+        if (string.IsNullOrWhiteSpace(exceptionId))
+            return Task.FromResult(new PomRoutingApiResult<PomRouteExceptionDto>(
+                null, "라우팅 예외 ID가 필요합니다.", 400));
+
+        var id = Uri.EscapeDataString(exceptionId.Trim());
+        return SendPomRoutingAsync<PomRouteExceptionDto>(
+            HttpMethod.Post, $"api/v1/pom/routing/exceptions/{id}/{normalizedAction}", request, ct);
+    }
+
+    /// <summary>라우팅 API의 성공 DTO 또는 서버 오류와 상태 코드를 동일한 방식으로 읽습니다.</summary>
+    private async Task<PomRoutingApiResult<T>> SendPomRoutingAsync<T>(
+        HttpMethod method, string url, object? body, CancellationToken ct) where T : class
+    {
+        using var response = await SendAsync(method, url, body, ct, surfaceErrors: false);
+        if (response.IsSuccessStatusCode)
+        {
+            try
+            {
+                var value = await response.Content.ReadFromJsonAsync<T>(ct);
+                return value is not null
+                    ? new(value, null, (int)response.StatusCode)
+                    : new(null, "라우팅 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+            catch
+            {
+                return new(null, "라우팅 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+        }
+
+        var error = response.StatusCode == HttpStatusCode.Unauthorized
+            ? "인증이 만료되었습니다. 다시 로그인해 주세요."
+            : await ReadErrorAsync(response, ct);
+        return new(null, error, (int)response.StatusCode);
+    }
+
+    private static string PomLotUrl(string lotId, string suffix)
+        => string.IsNullOrWhiteSpace(lotId)
+            ? "api/v1/pom/lots/_invalid_"
+            : $"api/v1/pom/lots/{Uri.EscapeDataString(lotId.Trim())}/{suffix}";
 
     public Task<List<MaintenancePlanDto>> GetMaintenancePlansAsync(string? equipmentId = null, CancellationToken ct = default)
     {
@@ -725,11 +1211,26 @@ public sealed class ApiClient : IApiClient
     public Task<(LotDto? Lot, string? Error)> MixingTrackInOutAsync(object req, CancellationToken ct = default)
         => PostWithErrorAsync<LotDto>("api/v1/pom/lots/mixing/track-in-out", req, ct);
 
-    public Task<bool> HoldLotAsync(string lotId, CancellationToken ct = default)
-        => PostForStatusAsync($"api/v1/pom/lots/{Uri.EscapeDataString(lotId)}/hold", null, ct);
+    public Task<bool> HoldLotAsync(string lotId, PomLotHoldRequest request, CancellationToken ct = default)
+        => PostForStatusAsync(PomLotHoldUri(lotId, "hold", request), null, ct);
 
-    public Task<bool> ReleaseLotHoldAsync(string lotId, CancellationToken ct = default)
-        => PostForStatusAsync($"api/v1/pom/lots/{Uri.EscapeDataString(lotId)}/release", null, ct);
+    public Task<bool> ReleaseLotHoldAsync(string lotId, PomLotHoldRequest request, CancellationToken ct = default)
+        => PostForStatusAsync(PomLotHoldUri(lotId, "release", request), null, ct);
+
+    private static string PomLotHoldUri(string lotId, string action, PomLotHoldRequest request)
+    {
+        var query = new List<string>
+        {
+            $"clientChannel={Uri.EscapeDataString(request.ClientChannel)}",
+            $"expectedVersion={request.ExpectedVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
+            $"idempotencyKey={Uri.EscapeDataString(request.IdempotencyKey)}",
+        };
+        if (!string.IsNullOrWhiteSpace(request.Reason))
+            query.Add($"reason={Uri.EscapeDataString(request.Reason)}");
+        if (!string.IsNullOrWhiteSpace(request.DeviceId))
+            query.Add($"deviceId={Uri.EscapeDataString(request.DeviceId)}");
+        return $"api/v1/pom/lots/{Uri.EscapeDataString(lotId)}/{action}?{string.Join('&', query)}";
+    }
 
     // ── DLV ───────────────────────────────────────────────────────────────────
     // 출하 조회(오더 목록/품목/이력)는 명명 쿼리 게이트웨이(/api/v1/query/SHP.*)가 단일 경로 — 브리지는 전이 쓰기만.

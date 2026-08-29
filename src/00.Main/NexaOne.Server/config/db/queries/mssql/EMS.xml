@@ -5,9 +5,9 @@
      컬럼은 V008__EMS_WORK_ORDER / V027__EMS_PLAN_SPAREPART 와 1:1 정합. STATUS는 enum.ToString() 문자열로 저장된다.
      선택필터 (@p IS NULL OR COL=@p) — 본문 없는 @param은 게이트웨이가 null로 채운다. 모두 read(kind 미표기). -->
 <queries module="EMS">
-    <query id="EMS.WorkOrdersByEquipment">
+    <query id="EMS.WorkOrdersByEquipment" requiredPermission="ems:read">
         <statement><![CDATA[
-            SELECT WO_ID, PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION, ASSIGNEE_ID,
+            SELECT WO_ID, MAINTENANCE_PLAN_ID AS PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION, ASSIGNEE_ID,
                    ISSUED_AT, STARTED_AT, COMPLETED_AT, STATUS, FAILURE_CODE_ID, REMARK
             FROM EMS_WORK_ORDER WITH (NOLOCK)
             WHERE EQUIPMENT_ID = @equipmentId
@@ -15,7 +15,7 @@
             ORDER BY ISSUED_AT DESC
         ]]></statement>
     </query>
-    <query id="EMS.WorkOrderCountByStatus">
+    <query id="EMS.WorkOrderCountByStatus" requiredPermission="ems:read">
         <statement><![CDATA[
             SELECT STATUS, COUNT(*) AS CNT
             FROM EMS_WORK_ORDER WITH (NOLOCK)
@@ -25,7 +25,23 @@
             ORDER BY STATUS
         ]]></statement>
     </query>
-    <query id="EMS.MaintenancePlansByEquipment">
+    <query id="EMS.LegacyWorkOrderPlanMigrationReview" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT W.WO_ID, W.PLAN_ID AS LEGACY_PLAN_ID, W.MAINTENANCE_PLAN_ID,
+                   CASE
+                     WHEN E.PLAN_ID IS NOT NULL AND P.PLAN_ID IS NOT NULL THEN 'Ambiguous'
+                     WHEN E.PLAN_ID IS NOT NULL THEN 'EmsOnly'
+                     WHEN P.PLAN_ID IS NOT NULL THEN 'PomOnly'
+                     ELSE 'Orphan'
+                   END AS MIGRATION_CLASS
+            FROM EMS_WORK_ORDER W WITH (NOLOCK)
+            LEFT JOIN EMS_MAINTENANCE_PLAN E WITH (NOLOCK) ON E.PLAN_ID = W.PLAN_ID
+            LEFT JOIN POM_PRODUCTION_PLAN P WITH (NOLOCK) ON P.PLAN_ID = W.PLAN_ID
+            WHERE W.PLAN_ID IS NOT NULL AND W.MAINTENANCE_PLAN_ID IS NULL
+            ORDER BY W.WO_ID
+        ]]></statement>
+    </query>
+    <query id="EMS.MaintenancePlansByEquipment" requiredPermission="ems:read">
         <statement><![CDATA[
             SELECT PLAN_ID, PLAN_NAME, EQUIPMENT_ID, PLAN_TYPE, CYCLE_TYPE,
                    SCHEDULED_DATE, ESTIMATED_DURATION_HOURS, ASSIGNEE_ID, STATUS
@@ -35,7 +51,7 @@
             ORDER BY SCHEDULED_DATE
         ]]></statement>
     </query>
-    <query id="EMS.MaintenancePlansDue">
+    <query id="EMS.MaintenancePlansDue" requiredPermission="ems:read">
         <statement><![CDATA[
             SELECT PLAN_ID, PLAN_NAME, EQUIPMENT_ID, PLAN_TYPE, CYCLE_TYPE,
                    SCHEDULED_DATE, ESTIMATED_DURATION_HOURS, ASSIGNEE_ID, STATUS
@@ -46,17 +62,17 @@
         ]]></statement>
     </query>
     <!-- SmartUX 화면 점등용 전체조회(NULL-guard) — 설비 필터 없이 마스터 그리드를 채운다(미지정 @param은 게이트웨이가 null로 채움). -->
-    <query id="EMS.WorkOrderList">
+    <query id="EMS.WorkOrderList" requiredPermission="ems:read">
         <statement><![CDATA[
-            SELECT WO_ID, PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION, ASSIGNEE_ID,
+            SELECT TOP 500 WO_ID, MAINTENANCE_PLAN_ID AS PLAN_ID, EQUIPMENT_ID, WO_TYPE, DESCRIPTION, ASSIGNEE_ID,
                    ISSUED_AT, STARTED_AT, COMPLETED_AT, STATUS, FAILURE_CODE_ID, REMARK
             FROM EMS_WORK_ORDER WITH (NOLOCK)
             WHERE (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
               AND (@status IS NULL OR STATUS = @status)
-            ORDER BY ISSUED_AT DESC
+            ORDER BY ISSUED_AT DESC, WO_ID DESC
         ]]></statement>
     </query>
-    <query id="EMS.MaintenancePlanList">
+    <query id="EMS.MaintenancePlanList" requiredPermission="ems:read">
         <statement><![CDATA[
             SELECT PLAN_ID, PLAN_NAME, EQUIPMENT_ID, PLAN_TYPE, CYCLE_TYPE,
                    SCHEDULED_DATE, ESTIMATED_DURATION_HOURS, ASSIGNEE_ID, STATUS
@@ -66,7 +82,7 @@
             ORDER BY SCHEDULED_DATE
         ]]></statement>
     </query>
-    <query id="EMS.SparePartsAll">
+    <query id="EMS.SparePartsAll" requiredPermission="ems:read">
         <statement><![CDATA[
             SELECT PART_ID, PART_NAME, PART_NUMBER, DESCRIPTION, UNIT_OF_MEASURE,
                    CURRENT_STOCK, MIN_STOCK, MAX_STOCK, LOCATION, EQUIPMENT_CLASS_ID
@@ -74,7 +90,7 @@
             ORDER BY PART_NAME
         ]]></statement>
     </query>
-    <query id="EMS.SparePartsLowStock">
+    <query id="EMS.SparePartsLowStock" requiredPermission="ems:read">
         <statement><![CDATA[
             SELECT PART_ID, PART_NAME, PART_NUMBER, DESCRIPTION, UNIT_OF_MEASURE,
                    CURRENT_STOCK, MIN_STOCK, MAX_STOCK, LOCATION, EQUIPMENT_CLASS_ID
@@ -84,7 +100,7 @@
         ]]></statement>
     </query>
     <!-- SmartUX 점검항목 화면 점등용 전체조회(NULL-guard) — V036 신설 마스터(점검항목 그룹/항목/설비별 항목). -->
-    <query id="EMS.MaintItemClassList">
+    <query id="EMS.MaintItemClassList" requiredPermission="ems:read">
         <statement><![CDATA[
             SELECT ITEM_CLASS_ID, ITEM_CLASS_NAME, DESCRIPTION
             FROM EMS_MAINT_ITEM_CLASS WITH (NOLOCK)
@@ -92,7 +108,7 @@
             ORDER BY ITEM_CLASS_NAME
         ]]></statement>
     </query>
-    <query id="EMS.MaintItemList">
+    <query id="EMS.MaintItemList" requiredPermission="ems:read">
         <statement><![CDATA[
             SELECT ITEM_ID, ITEM_NAME, ITEM_CLASS_ID, INSPECTION_METHOD, UNIT, DESCRIPTION, IS_ACTIVE
             FROM EMS_MAINT_ITEM WITH (NOLOCK)
@@ -100,7 +116,7 @@
             ORDER BY ITEM_NAME
         ]]></statement>
     </query>
-    <query id="EMS.EqpMaintItemList">
+    <query id="EMS.EqpMaintItemList" requiredPermission="ems:read">
         <statement><![CDATA[
             SELECT EQP_ITEM_ID, EQUIPMENT_ID, ITEM_ID, CYCLE_TYPE, CYCLE_VALUE, IS_ACTIVE
             FROM EMS_EQP_MAINT_ITEM WITH (NOLOCK)
@@ -109,7 +125,7 @@
         ]]></statement>
     </query>
     <!-- SmartUX 예비품 그룹/입출고 화면 점등용 전체조회(NULL-guard) — V045 신설. TRANSACTION_TYPE 고정(입고/이동/폐기). -->
-    <query id="EMS.SparePartClassList">
+    <query id="EMS.SparePartClassList" requiredPermission="ems:read">
         <statement><![CDATA[
             SELECT PART_CLASS_ID, PART_CLASS_NAME, DESCRIPTION, IS_ACTIVE
             FROM EMS_SPARE_PART_CLASS WITH (NOLOCK)
@@ -117,37 +133,269 @@
             ORDER BY PART_CLASS_NAME
         ]]></statement>
     </query>
-    <query id="EMS.SparePartInoutList">
+    <query id="EMS.SparePartInoutList" requiredPermission="ems:read">
         <statement><![CDATA[
-            SELECT INOUT_ID, PART_ID, TRANSACTION_TYPE, QUANTITY, FROM_LOCATION, TO_LOCATION, TRANSACTION_AT, PROCESSED_BY
+            SELECT INOUT_ID, PART_ID, TRANSACTION_TYPE, QUANTITY, FROM_LOCATION, TO_LOCATION, TRANSACTION_AT, PROCESSED_BY,
+                   WO_ID, EQUIPMENT_ID, BALANCE_BEFORE, BALANCE_AFTER, IDEMPOTENCY_KEY, CORRELATION_ID, CLIENT_CHANNEL, DEVICE_ID, REMARK
             FROM EMS_SPARE_PART_INOUT WITH (NOLOCK)
             WHERE (@transactionType IS NULL OR TRANSACTION_TYPE = @transactionType)
               AND (@partId IS NULL OR PART_ID = @partId)
-            ORDER BY TRANSACTION_AT DESC
+            ORDER BY TRANSACTION_AT DESC, INOUT_ID DESC
         ]]></statement>
     </query>
-    <query id="EMS.SparePartIncomingList">
+    <query id="EMS.SparePartIncomingList" requiredPermission="ems:read">
         <statement><![CDATA[
-            SELECT INOUT_ID, PART_ID, TRANSACTION_TYPE, QUANTITY, FROM_LOCATION, TO_LOCATION, TRANSACTION_AT, PROCESSED_BY
+            SELECT INOUT_ID, PART_ID, TRANSACTION_TYPE, QUANTITY, FROM_LOCATION, TO_LOCATION, TRANSACTION_AT, PROCESSED_BY,
+                   WO_ID, EQUIPMENT_ID, BALANCE_BEFORE, BALANCE_AFTER, IDEMPOTENCY_KEY, CORRELATION_ID, CLIENT_CHANNEL, DEVICE_ID, REMARK
             FROM EMS_SPARE_PART_INOUT WITH (NOLOCK)
             WHERE TRANSACTION_TYPE = 'Incoming' AND (@partId IS NULL OR PART_ID = @partId)
-            ORDER BY TRANSACTION_AT DESC
+            ORDER BY TRANSACTION_AT DESC, INOUT_ID DESC
         ]]></statement>
     </query>
-    <query id="EMS.SparePartMoveList">
+    <query id="EMS.SparePartMoveList" requiredPermission="ems:read">
         <statement><![CDATA[
-            SELECT INOUT_ID, PART_ID, TRANSACTION_TYPE, QUANTITY, FROM_LOCATION, TO_LOCATION, TRANSACTION_AT, PROCESSED_BY
+            SELECT INOUT_ID, PART_ID, TRANSACTION_TYPE, QUANTITY, FROM_LOCATION, TO_LOCATION, TRANSACTION_AT, PROCESSED_BY,
+                   WO_ID, EQUIPMENT_ID, BALANCE_BEFORE, BALANCE_AFTER, IDEMPOTENCY_KEY, CORRELATION_ID, CLIENT_CHANNEL, DEVICE_ID, REMARK
             FROM EMS_SPARE_PART_INOUT WITH (NOLOCK)
             WHERE TRANSACTION_TYPE = 'Move' AND (@partId IS NULL OR PART_ID = @partId)
-            ORDER BY TRANSACTION_AT DESC
+            ORDER BY TRANSACTION_AT DESC, INOUT_ID DESC
         ]]></statement>
     </query>
-    <query id="EMS.SparePartScrapList">
+    <query id="EMS.SparePartScrapList" requiredPermission="ems:read">
         <statement><![CDATA[
-            SELECT INOUT_ID, PART_ID, TRANSACTION_TYPE, QUANTITY, FROM_LOCATION, TO_LOCATION, TRANSACTION_AT, PROCESSED_BY
+            SELECT INOUT_ID, PART_ID, TRANSACTION_TYPE, QUANTITY, FROM_LOCATION, TO_LOCATION, TRANSACTION_AT, PROCESSED_BY,
+                   WO_ID, EQUIPMENT_ID, BALANCE_BEFORE, BALANCE_AFTER, IDEMPOTENCY_KEY, CORRELATION_ID, CLIENT_CHANNEL, DEVICE_ID, REMARK
             FROM EMS_SPARE_PART_INOUT WITH (NOLOCK)
             WHERE TRANSACTION_TYPE = 'Scrap' AND (@partId IS NULL OR PART_ID = @partId)
-            ORDER BY TRANSACTION_AT DESC
+            ORDER BY TRANSACTION_AT DESC, INOUT_ID DESC
+        ]]></statement>
+    </query>
+    <query id="EMS.MaintenanceActionHistoryList" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT TOP 500 ACTION_ID, WO_ID, MAINTENANCE_PLAN_ID AS PLAN_ID, EQUIPMENT_ID, MAINTENANCE_TYPE,
+                   ACTION_TYPE, RESULT_STATUS, ACTOR_ID, ASSIGNEE_ID, SOURCE,
+                   CLIENT_CHANNEL, DEVICE_ID, FAILURE_CODE_ID, REMARK, ACTION_AT,
+                   IDEMPOTENCY_KEY, FROM_STATUS, TO_STATUS, CORRELATION_ID
+            FROM EMS_MAINTENANCE_ACTION_HISTORY WITH (NOLOCK)
+            WHERE (@workOrderId IS NULL OR WO_ID = @workOrderId)
+              AND (@maintenancePlanId IS NULL OR MAINTENANCE_PLAN_ID = @maintenancePlanId)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@actorId IS NULL OR ACTOR_ID = @actorId)
+              AND (@from IS NULL OR ACTION_AT >= @from)
+              AND (@to IS NULL OR ACTION_AT < @to)
+            ORDER BY ACTION_AT DESC
+        ]]></statement>
+    </query>
+    <query id="EMS.SparePartStockPolicyList" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT p.PART_ID, p.PART_NAME, p.CURRENT_STOCK, s.SAFETY_STOCK, s.REORDER_POINT,
+                   s.TARGET_STOCK, s.RESERVED_QTY, s.AVG_DAILY_USAGE, s.SERVICE_LEVEL,
+                   s.REVIEW_CYCLE_DAYS, s.IS_ACTIVE, s.VERSION_NO, s.UPDATED_BY, s.UPDATED_AT
+            FROM EMS_SPARE_PART_STOCK_POLICY s WITH (NOLOCK)
+            JOIN EMS_SPARE_PART p WITH (NOLOCK) ON p.PART_ID=s.PART_ID
+            WHERE (@partId IS NULL OR s.PART_ID=@partId)
+              AND (@isActive IS NULL OR s.IS_ACTIVE=@isActive)
+            ORDER BY p.PART_NAME
+        ]]></statement>
+    </query>
+    <query id="EMS.SparePartSupplierList" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT PART_SUPPLIER_ID, PART_ID, VENDOR_ID, VENDOR_PART_NO, LEAD_TIME_DAYS,
+                   MOQ, UNIT_PRICE, CURRENCY, IS_PRIMARY, IS_ACTIVE,
+                   VERSION_NO, UPDATED_BY, UPDATED_AT
+            FROM EMS_SPARE_PART_SUPPLIER WITH (NOLOCK)
+            WHERE (@partId IS NULL OR PART_ID=@partId)
+              AND (@vendorId IS NULL OR VENDOR_ID=@vendorId)
+              AND (@isActive IS NULL OR IS_ACTIVE=@isActive)
+            ORDER BY PART_ID, IS_PRIMARY DESC, LEAD_TIME_DAYS
+        ]]></statement>
+    </query>
+    <query id="EMS.EquipmentPartBomList" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT BOM_ITEM_ID, EQUIPMENT_ID, EQUIPMENT_CLASS_ID, PART_ID, QUANTITY_PER,
+                   CRITICALITY, REPLACEMENT_CYCLE_DAYS, REPLACEMENT_CYCLE_COUNT,
+                   POSITION_CODE, IS_ACTIVE, VERSION_NO, UPDATED_BY, UPDATED_AT
+            FROM EMS_EQUIPMENT_PART_BOM WITH (NOLOCK)
+            WHERE (@equipmentId IS NULL OR EQUIPMENT_ID=@equipmentId)
+              AND (@equipmentClassId IS NULL OR EQUIPMENT_CLASS_ID=@equipmentClassId)
+              AND (@partId IS NULL OR PART_ID=@partId)
+              AND (@isActive IS NULL OR IS_ACTIVE=@isActive)
+            ORDER BY EQUIPMENT_ID, EQUIPMENT_CLASS_ID, POSITION_CODE, PART_ID
+        ]]></statement>
+    </query>
+    <query id="EMS.SparePartReplenishmentInput" requiredPermission="ems:read">
+        <statement><![CDATA[
+            WITH ranked_supplier AS (
+                SELECT PART_SUPPLIER_ID, PART_ID, VENDOR_ID, LEAD_TIME_DAYS, MOQ,
+                       UNIT_PRICE, CURRENCY, IS_PRIMARY,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY PART_ID
+                           ORDER BY IS_PRIMARY DESC, LEAD_TIME_DAYS,
+                                    COALESCE(UNIT_PRICE, 999999999), PART_SUPPLIER_ID
+                       ) AS SUPPLIER_RANK
+                FROM EMS_SPARE_PART_SUPPLIER WITH (NOLOCK)
+                WHERE IS_ACTIVE=1
+            )
+            SELECT p.PART_ID, p.PART_NAME, p.CURRENT_STOCK,
+                   s.SAFETY_STOCK, s.REORDER_POINT, s.TARGET_STOCK,
+                   s.RESERVED_QTY, s.AVG_DAILY_USAGE, s.SERVICE_LEVEL,
+                   s.REVIEW_CYCLE_DAYS, s.VERSION_NO,
+                   r.PART_SUPPLIER_ID, r.VENDOR_ID, r.LEAD_TIME_DAYS,
+                   r.MOQ, r.UNIT_PRICE, r.CURRENCY, r.IS_PRIMARY
+            FROM EMS_SPARE_PART_STOCK_POLICY s WITH (NOLOCK)
+            JOIN EMS_SPARE_PART p WITH (NOLOCK) ON p.PART_ID=s.PART_ID
+            LEFT JOIN ranked_supplier r ON r.PART_ID=s.PART_ID AND r.SUPPLIER_RANK=1
+            WHERE s.PART_ID=@partId AND s.IS_ACTIVE=1
+        ]]></statement>
+    </query>
+    <query id="EMS.SparePartUsageList" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT TOP 500 USAGE_ID, INOUT_ID, PART_ID, BOM_ITEM_ID, EQUIPMENT_ID, WO_ID,
+                   QUANTITY, USED_BY, USED_AT, REMOVAL_REASON, SERIAL_NO, LOT_NO
+            FROM EMS_SPARE_PART_USAGE WITH (NOLOCK)
+            WHERE (@partId IS NULL OR PART_ID=@partId)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID=@equipmentId)
+              AND (@workOrderId IS NULL OR WO_ID=@workOrderId)
+              AND (@from IS NULL OR USED_AT>=@from)
+              AND (@to IS NULL OR USED_AT<@to)
+            ORDER BY USED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="EMS.SparePartUsageByWorkOrder" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT TOP 500 USAGE_ID, INOUT_ID, PART_ID, BOM_ITEM_ID, EQUIPMENT_ID, WO_ID,
+                   QUANTITY, USED_BY, USED_AT, REMOVAL_REASON, SERIAL_NO, LOT_NO
+            FROM EMS_SPARE_PART_USAGE WITH (NOLOCK)
+            WHERE WO_ID=@workOrderId
+              AND (@from IS NULL OR USED_AT>=@from)
+              AND (@to IS NULL OR USED_AT<@to)
+            ORDER BY USED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="EMS.ToolList" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT TOOL_ID, TOOL_NAME, TOOL_TYPE, TOOL_NUMBER, SERIAL_NO, EQUIPMENT_CLASS_ID,
+                   MAX_USE_COUNT, MAX_USE_MINUTES, CURRENT_USE_COUNT, CURRENT_USE_MINUTES,
+                   INSPECTION_CYCLE_DAYS, CALIBRATION_CYCLE_DAYS, LAST_INSPECTED_AT,
+                   LAST_CALIBRATED_AT, NEXT_INSPECTION_DUE_AT, NEXT_CALIBRATION_DUE_AT,
+                   STATUS, LOCATION, IS_ACTIVE
+            FROM EMS_TOOL WITH (NOLOCK)
+            WHERE (@toolType IS NULL OR TOOL_TYPE=@toolType)
+              AND (@status IS NULL OR STATUS=@status)
+              AND (@isActive IS NULL OR IS_ACTIVE=@isActive)
+            ORDER BY TOOL_TYPE, TOOL_NAME
+        ]]></statement>
+    </query>
+    <query id="EMS.ToolMountHistoryList" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT TOP 500 MOUNT_ID, TOOL_ID, EQUIPMENT_ID, POSITION_CODE, MOUNTED_AT,
+                   MOUNTED_BY, UNMOUNTED_AT, UNMOUNTED_BY, UNMOUNT_REASON
+            FROM EMS_TOOL_MOUNT_HISTORY WITH (NOLOCK)
+            WHERE (@toolId IS NULL OR TOOL_ID=@toolId)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID=@equipmentId)
+              AND (@activeOnly IS NULL OR @activeOnly=0 OR UNMOUNTED_AT IS NULL)
+            ORDER BY MOUNTED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="EMS.ToolUsageHistoryList" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT TOP 500 USAGE_ID, TOOL_ID, MOUNT_ID, EQUIPMENT_ID, PROCESS_LOT_ID,
+                   WORK_ORDER_ID, PROCESS_ID, RECIPE_ID, RECIPE_VERSION, USE_COUNT,
+                   USE_MINUTES, USED_AT, USED_BY, TRACE_ID, CONDITION_SNAPSHOT_JSON,
+                   WORK_SCOPE_ID, CARRIER_ID, ACTIVITY_TYPE, CLEANING_PROGRAM_ID, CLEANING_RESULT
+            FROM EMS_TOOL_USAGE_HISTORY WITH (NOLOCK)
+            WHERE (@toolId IS NULL OR TOOL_ID=@toolId)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID=@equipmentId)
+              AND (@workScopeId IS NULL OR WORK_SCOPE_ID=@workScopeId)
+              AND (@carrierId IS NULL OR CARRIER_ID=@carrierId)
+              AND (@activityType IS NULL OR ACTIVITY_TYPE=@activityType)
+              AND (@from IS NULL OR USED_AT>=@from)
+              AND (@to IS NULL OR USED_AT<@to)
+            ORDER BY USED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="EMS.ToolInspectionHistoryList" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT TOP 500 INSPECTION_ID, TOOL_ID, INSPECTION_TYPE, RESULT, MEASURED_VALUE,
+                   STANDARD_VALUE, CERTIFICATE_NO, INSPECTED_AT, INSPECTED_BY, NEXT_DUE_AT, REMARK
+            FROM EMS_TOOL_INSPECTION_HISTORY WITH (NOLOCK)
+            WHERE (@toolId IS NULL OR TOOL_ID=@toolId)
+              AND (@inspectionType IS NULL OR INSPECTION_TYPE=@inspectionType)
+              AND (@from IS NULL OR INSPECTED_AT>=@from)
+              AND (@to IS NULL OR INSPECTED_AT<@to)
+            ORDER BY INSPECTED_AT DESC
+        ]]></statement>
+    </query>
+    <!-- PM 반복 정의. BM은 고장 사건에서 수동 W/O를 만들므로 반복 주기와 혼합하지 않는다. -->
+    <query id="EMS.MaintenanceScheduleList" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT SCHEDULE_ID, MAINTENANCE_PLAN_ID, TRIGGER_TYPE, INTERVAL_VALUE,
+                   INTERVAL_UNIT, TIME_ZONE_ID, LAST_DUE_AT, NEXT_DUE_AT,
+                   METER_PARAMETER_ID, METER_THRESHOLD, METER_BASELINE_VALUE,
+                   NEXT_METER_DUE_VALUE, CONDITION_RULE_ID, AUTO_CREATE_WO,
+                   IS_ACTIVE, VERSION_NO
+            FROM EMS_MAINTENANCE_SCHEDULE WITH (NOLOCK)
+            WHERE (@maintenancePlanId IS NULL OR MAINTENANCE_PLAN_ID=@maintenancePlanId)
+              AND (@triggerType IS NULL OR TRIGGER_TYPE=@triggerType)
+              AND (@isActive IS NULL OR IS_ACTIVE=@isActive)
+            ORDER BY NEXT_DUE_AT, SCHEDULE_ID
+        ]]></statement>
+    </query>
+    <query id="EMS.MaintenanceScheduleAcknowledgementList" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT TOP 500 ACK_ID, SCHEDULE_ID, MAINTENANCE_PLAN_ID, TRIGGER_TYPE,
+                   DUE_AT, NEXT_DUE_AT, METER_DUE_VALUE, OBSERVED_METER_VALUE,
+                   NEXT_METER_DUE_VALUE, CONDITION_RULE_ID, CONDITION_MET,
+                   ACKNOWLEDGED_AT, ACKNOWLEDGED_BY, REMARK, IDEMPOTENCY_KEY,
+                   CLIENT_CHANNEL, DEVICE_ID, CORRELATION_ID, FROM_VERSION, TO_VERSION
+            FROM EMS_MAINTENANCE_SCHEDULE_ACK_HISTORY WITH (NOLOCK)
+            WHERE (@scheduleId IS NULL OR SCHEDULE_ID=@scheduleId)
+              AND (@actorId IS NULL OR ACKNOWLEDGED_BY=@actorId)
+              AND (@from IS NULL OR ACKNOWLEDGED_AT>=@from)
+              AND (@to IS NULL OR ACKNOWLEDGED_AT<@to)
+            ORDER BY ACKNOWLEDGED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="EMS.MaintenanceCheckHistoryList" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT TOP 500 CHECK_RESULT_ID, WO_ID, ITEM_ID, ITEM_SEQUENCE, CHECK_NAME,
+                   MEASURED_VALUE, ATTRIBUTE_VALUE, UNIT, IS_PASS, FINDING,
+                   RECORDED_BY, RECORDED_AT, CLIENT_CHANNEL, DEVICE_ID,
+                   CORRELATION_ID, IDEMPOTENCY_KEY
+            FROM EMS_WORK_ORDER_CHECK_RESULT WITH (NOLOCK)
+            WHERE (@workOrderId IS NULL OR WO_ID=@workOrderId)
+              AND (@itemId IS NULL OR ITEM_ID=@itemId)
+              AND (@actorId IS NULL OR RECORDED_BY=@actorId)
+              AND (@from IS NULL OR RECORDED_AT>=@from)
+              AND (@to IS NULL OR RECORDED_AT<@to)
+            ORDER BY RECORDED_AT DESC, ITEM_SEQUENCE
+        ]]></statement>
+    </query>
+    <query id="EMS.MaintenanceLaborHistoryList" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT TOP 500 LABOR_ID, WO_ID, USER_ID, WORKER_ID, LABOR_TYPE,
+                   STARTED_AT, ENDED_AT, ENDED_BY, LABOR_HOURS, REMARK,
+                   CORRELATION_ID, START_CLIENT_CHANNEL, START_DEVICE_ID,
+                   END_CLIENT_CHANNEL, END_DEVICE_ID, VERSION_NO
+            FROM EMS_WORK_ORDER_LABOR WITH (NOLOCK)
+            WHERE (@workOrderId IS NULL OR WO_ID=@workOrderId)
+              AND (@userId IS NULL OR USER_ID=@userId)
+              AND (@workerId IS NULL OR WORKER_ID=@workerId)
+              AND (@openOnly IS NULL OR @openOnly=0 OR ENDED_AT IS NULL)
+              AND (@from IS NULL OR STARTED_AT>=@from)
+              AND (@to IS NULL OR STARTED_AT<@to)
+            ORDER BY STARTED_AT DESC
+        ]]></statement>
+    </query>
+    <query id="EMS.MaintenanceWorkerUserMapList" requiredPermission="ems:read">
+        <statement><![CDATA[
+            SELECT WORKER_USER_MAP_ID, WORKER_ID, USER_ID, IS_ACTIVE,
+                   EFFECTIVE_FROM, EFFECTIVE_TO, UPDATED_BY, UPDATED_AT
+            FROM MDM_WORKER_USER_MAP WITH (NOLOCK)
+            WHERE (@workerId IS NULL OR WORKER_ID=@workerId)
+              AND (@userId IS NULL OR USER_ID=@userId)
+              AND (@isActive IS NULL OR IS_ACTIVE=@isActive)
+            ORDER BY USER_ID, EFFECTIVE_FROM DESC
         ]]></statement>
     </query>
 </queries>

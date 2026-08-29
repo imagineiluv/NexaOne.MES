@@ -3,62 +3,25 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
 
-  <!-- ===== POM (Production Order Management) ===== -->
-
-  <object id="pomProductionPlanRepository" type="NexaOne.POM.Infrastructure.ProductionPlanRepository, NexaOne.POM">
+  <object id="pomModule" type="NexaOne.POM.Module, NexaOne.POM">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
-  </object>
-  <object id="pomProductionOrderRepository" type="NexaOne.POM.Infrastructure.ProductionOrderRepository, NexaOne.POM">
-    <constructor-arg ref="eesDataSource" />
-    <constructor-arg ref="appConfiguration" />
-  </object>
-  <object id="pomService" type="NexaOne.POM.Application.Pom.PomService, NexaOne.POM">
-    <constructor-arg ref="pomProductionPlanRepository" />
-  </object>
-  <object id="productionOrderService" type="NexaOne.POM.Application.Pom.ProductionOrderService, NexaOne.POM">
-    <constructor-arg ref="pomProductionOrderRepository" />
-  </object>
-
-  <!-- Lot 추적(TrackIn/TrackOut/Hold) 빈 — 기존에 미등록이라 브리지 노출과 함께 추가한다.
-       LotHistoryRepository는 부모(server.xml) eesDialect(INexaOneEESDbCapability)를 cross-context ref로 주입한다(SearchAsync 페이징 방언). -->
-  <object id="pomLotRepository" type="NexaOne.POM.Infrastructure.LotRepository, NexaOne.POM">
-    <constructor-arg ref="eesDataSource" />
-    <constructor-arg ref="appConfiguration" />
-  </object>
-  <object id="pomLotHistoryRepository" type="NexaOne.POM.Infrastructure.LotHistoryRepository, NexaOne.POM">
-    <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="eesDialect" />
-  </object>
-  <object id="pomLotMixingRelationRepository" type="NexaOne.POM.Infrastructure.LotMixingRelationRepository, NexaOne.POM">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <!-- 교차 모듈 마스터 검증 포트(설계 19.4.2) — 이제 어댑터 구현은 호스트 server.xml의 trackingMasterGateway
-       서버 빈이 소유한다(ADR-006: POM 플러그인은 MDM/RMS/QMS 스키마 미보유). lotTrackingService는 그 호스트
-       빈을 cross-context ref로 주입받으며, 포트(ITrackingMasterGateway)는 ServiceContracts에 공유되어 타입 동일성이 유지된다. -->
-  <object id="lotTrackingService" type="NexaOne.POM.Application.Lots.LotTrackingService, NexaOne.POM">
-    <constructor-arg ref="pomLotRepository" />
-    <constructor-arg ref="pomLotHistoryRepository" />
-    <constructor-arg ref="pomLotMixingRelationRepository" />
-    <constructor-arg ref="pomProductionOrderRepository" />
     <constructor-arg ref="trackingMasterGateway" />
+    <constructor-arg ref="productionQualityGateway" />
+    <constructor-arg ref="mrpMasterDirectory" />
+    <constructor-arg ref="mrpInventoryDirectory" />
+    <constructor-arg ref="purchaseOrderPlanningBridge" />
+    <constructor-arg ref="equipmentDirectory" />
+    <constructor-arg ref="equipmentOutputMasterDirectory" />
   </object>
 
-  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Pom","pomBridge")로 IPomBridge 캐스트.
-       생산계획(PomService)·생산오더(ProductionOrderService)·Lot 추적(LotTrackingService) 단일 애그리거트 쓰기를 위임한다.
-       Lot Mixing(다중 애그리거트)은 어댑터에서 노출하지 않는다(UnitOfWork 선결). -->
-  <object id="pomBridge" type="NexaOne.POM.Application.Pom.PomBridge, NexaOne.POM">
-    <constructor-arg ref="pomService" />
-    <constructor-arg ref="productionOrderService" />
-    <constructor-arg ref="lotTrackingService" />
-  </object>
-
-  <!-- MRP v1(2026-07-09) — 소요량 전개 실행. 리포(계산+영속) + ADR-008 브리지(호스트 GetBean("Pom","mrpBridge")). -->
-  <object id="mrpPlanningRepository" type="NexaOne.POM.Infrastructure.MrpPlanningRepository, NexaOne.POM">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="mrpBridge" type="NexaOne.POM.Application.Mrp.MrpBridge, NexaOne.POM">
-    <constructor-arg ref="mrpPlanningRepository" />
-  </object>
+  <object id="pomBridge" factory-object="pomModule" factory-method="GetPomBridge" />
+  <object id="pomWorkOrderBridge" factory-object="pomModule" factory-method="GetWorkOrderBridge" />
+  <object id="workScopeBridge" factory-object="pomModule" factory-method="GetWorkScopeBridge" />
+  <object id="lotDispositionBridge" factory-object="pomModule" factory-method="GetLotDispositionBridge" />
+  <object id="mrpBridge" factory-object="pomModule" factory-method="GetMrpBridge" />
+  <object id="productionLotDirectory" factory-object="pomModule" factory-method="GetProductionLotDirectory" />
+  <object id="oeeProductionDirectory" factory-object="pomModule" factory-method="GetOeeProductionDirectory" />
 
 </objects>

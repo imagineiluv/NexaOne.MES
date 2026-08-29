@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -15,10 +15,15 @@
     <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
     <!-- 도메인 이벤트 발행 백본(IMessageBus) — 실시간 통지를 SignalR 직접호출 대신 버스로 발행(ADR-006 Phase 2). -->
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure.Messaging\NexaOne.Infrastructure.Messaging.csproj" />
-    <!-- 설비 통신: NexusFramework IDeviceInterface + NexusLogic OPC-UA 드라이버 (v2.0) -->
-    <ProjectReference Include="..\..\..\submodules\NexusFramework\src\NexusFramework\NexusFramework.csproj" />
-    <ProjectReference Include="..\..\..\submodules\NexusLogic\src\NexusLogic.Plc.Abstractions\NexusLogic.Plc.Abstractions.csproj" />
-    <ProjectReference Include="..\..\..\submodules\NexusLogic\src\NexusLogic.Plc.OpcUa\NexusLogic.Plc.OpcUa.csproj" />
+    <!-- 설비 통신: FDC는 프로토콜 구현이 아니라 NexaLogic 계약/DriverFactory만 참조한다.
+         실제 드라이버 조합은 Server(Spring 루트)가 소유한다. -->
+    <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework\NexaFramework.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.Abstractions\NexaLogic.Plc.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.Hosting\NexaLogic.Plc.Hosting.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="NexaOne.UnitTests" />
   </ItemGroup>
 
 </Project>

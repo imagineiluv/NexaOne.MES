@@ -9,15 +9,17 @@ public sealed record MrpRunResult(
     int PlannedOrderCount,
     string? Message);
 
-/// <summary>계획오더→실오더 전환 결과(MRP v2 1단) — Purchase→PRC 구매오더(Ordered 직행),
-/// Production→POM 작업지시(Released 직행). 직행인 이유: Draft/Created는 예정입고 집계 밖이라
-/// 전환 직후 MRP 재실행 시 같은 수요가 이중 제안된다(집계=Ordered|Incoming / Released|Started).</summary>
+/// <summary>생산 제안별 설비 배정. 공장·품목·수량·일자는 서버의 MRP 제안에서만 읽는다.</summary>
+public sealed record MrpProductionAssignment(string PlannedOrderId, string EquipmentId);
+
+/// <summary>계획오더 전환 결과. Purchase는 구매오더, Production은 생산계획과
+/// 생산관리지시를 생성하며 공정 작업지시는 생성하지 않는다.</summary>
 public sealed record MrpConvertResult(
     string RunId,
-    int Converted,              // 전환 총건(=PO+WO)
+    int Converted,
     int PurchaseOrders,
-    int WorkOrders,
-    string? Message);           // 실패/전환 대상 없음 사유(성공은 null)
+    int ProductionOrders,
+    string? Message);
 
 /// <summary>얇은 브리지(ADR-008) — MRP 소요량 전개 실행/실오더 전환 트리거. plugin(POM)의 IMrpPlanner를
 /// 호스트가 GetBean→캐스트로 Default-ALC DI에 등록해 얇은 컨트롤러(POST /api/v1/pom/mrp/{run,convert})가
@@ -28,11 +30,13 @@ public sealed record MrpConvertResult(
 /// 되고 DUE_DATE=버킷 시작일이 버킷을 식별한다(스키마 무변경).</summary>
 public sealed record MrpRunOptions(int BucketDays = 7, int HorizonBuckets = 8);
 
-public interface IMrpBridge
+public interface IMrpBridge : INexaModuleBridge
 {
     Task<MrpRunResult> RunAsync(string executedBy, MrpRunOptions? options = null, CancellationToken ct = default);
 
     /// <summary>runId의 Proposed 제안을 실오더로 전환(runId null=최신 실행). plannedOrderIds 지정 시
     /// 해당 제안만(행 선택 전환 UX), null=전량. 멱등 — 재호출 시 대상 0건.</summary>
-    Task<MrpConvertResult> ConvertAsync(string? runId, IReadOnlyList<string>? plannedOrderIds, string executedBy, CancellationToken ct = default);
+    Task<MrpConvertResult> ConvertAsync(
+        string? runId, IReadOnlyList<string>? plannedOrderIds,
+        IReadOnlyList<MrpProductionAssignment>? productionAssignments, string executedBy, CancellationToken ct = default);
 }

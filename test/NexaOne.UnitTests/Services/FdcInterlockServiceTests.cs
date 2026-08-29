@@ -57,13 +57,16 @@ public sealed class FdcInterlockServiceTests
     }
 
     [Fact]
-    public async Task CreateRule_invalid_action_fails()
+    public async Task CreateRule_project_specific_action_key_is_persisted_opaquely()
     {
         var repo = new Mock<IFdcInterlockRuleRepository>();
         var result = await BuildService(repo).CreateRuleAsync(
             "RULE001", "Test Rule", "EQ001", "PARAM01", "GT", 100m, "EXPLODE", 1);
 
-        result.IsFailure.Should().BeTrue();
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Action.Should().Be("EXPLODE");
+        repo.Verify(r => r.AddAsync(
+            It.Is<FdcInterlockRule>(rule => rule.Action == "EXPLODE"), default), Times.Once);
     }
 
     [Fact]

@@ -5,6 +5,7 @@ using System.Text;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Data.Sqlite;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using Xunit;
@@ -60,7 +61,7 @@ public sealed class GatewayPagedQueryTests : IClassFixture<GatewayPagedQueryTest
     [Fact]
     public async Task Paged_returns_total_and_window_and_offset_moves()
     {
-        var client = AuthedClient("paged-reader");
+        var client = AuthedClient("paged-reader", "mdm:read");
 
         // dev 시드 공장 2행 — limit=1: total=2 + 1행.
         var r1 = await client.PostAsJsonAsync("/api/v1/query/MDM.PlantList/paged",
@@ -80,6 +81,49 @@ public sealed class GatewayPagedQueryTests : IClassFixture<GatewayPagedQueryTest
     }
 
     [Fact]
+    public async Task Material_history_keeps_the_501st_row_reachable_through_the_next_page()
+    {
+        var client = AuthedClient("paged-ivt-reader", "ivt:read");
+        await using (var connection = new SqliteConnection(_factory.ConnString))
+        {
+            await connection.OpenAsync();
+            await using var transaction = await connection.BeginTransactionAsync();
+            for (var i = 0; i < 501; i++)
+            {
+                await using var command = connection.CreateCommand();
+                command.Transaction = (SqliteTransaction)transaction;
+                command.CommandText = """
+                    INSERT INTO IVT_MATERIAL_TX
+                        (TX_ID, TX_TYPE, TX_AT, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                    VALUES
+                        (@id, 'PagedProof', '2030-01-01T00:00:00Z',
+                         'paged-test', '2030-01-01T00:00:00Z',
+                         'paged-test', '2030-01-01T00:00:00Z');
+                    """;
+                command.Parameters.AddWithValue("@id", $"PAGED_TX_{i:D4}");
+                await command.ExecuteNonQueryAsync();
+            }
+            await transaction.CommitAsync();
+        }
+
+        var firstResponse = await client.PostAsJsonAsync("/api/v1/query/IVT.MaterialTxList/paged",
+            new { parameters = new { txType = "PagedProof" }, limit = 500, offset = 0 });
+        firstResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var first = await firstResponse.Content.ReadFromJsonAsync<PagedResponse>();
+        first!.Total.Should().Be(501);
+        first.Rows.Should().HaveCount(500);
+
+        var tailResponse = await client.PostAsJsonAsync("/api/v1/query/IVT.MaterialTxList/paged",
+            new { parameters = new { txType = "PagedProof" }, limit = 500, offset = 500 });
+        tailResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var tail = await tailResponse.Content.ReadFromJsonAsync<PagedResponse>();
+        tail!.Total.Should().Be(501);
+        tail.Rows.Should().ContainSingle();
+        tail.Rows[0]["TX_ID"]!.ToString().Should().Be("PAGED_TX_0000",
+            "timestamp ties must be resolved by the stable TX_ID descending order");
+    }
+
+    [Fact]
     public async Task Paged_rejects_write_query_and_own_limit_query()
     {
         var client = AuthedClient("paged-any", "mdm:manage");
@@ -90,7 +134,8 @@ public sealed class GatewayPagedQueryTests : IClassFixture<GatewayPagedQueryTest
             .StatusCode.Should().Be(HttpStatusCode.BadRequest);
 
         // 자체 상한 쿼리(@limit/@offset 수동 페이징 — SYS.AppLogList) → 422(클라 전량 폴백 신호).
-        (await client.PostAsJsonAsync("/api/v1/query/SYS.AppLogList/paged",
+        var sysClient = AuthedClient("paged-sys-admin", "sys:manage");
+        (await sysClient.PostAsJsonAsync("/api/v1/query/SYS.AppLogList/paged",
             new { parameters = new { }, limit = 10, offset = 0 }))
             .StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
     }

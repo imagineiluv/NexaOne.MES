@@ -22,56 +22,112 @@ public sealed class EmsBridge : IEmsBridge
     // ── 작업지시 ──
 
     public async Task<Result<WorkOrderDto>> CreateWorkOrderAsync(
-        string woId, string equipmentId, string woType, string description, string assigneeId, CancellationToken ct = default)
+        string woId, string equipmentId, string woType, string description, string assigneeId,
+        string? maintenancePlanId, EmsCommandContextDto command, CancellationToken ct = default)
     {
-        var r = await _woService.CreateWorkOrderAsync(woId, equipmentId, woType, description, assigneeId, ct);
+        var context = ToDomain(command);
+        if (context.IsFailure) return Result.Failure<WorkOrderDto>(context.Error);
+        var r = await _woService.CreateWorkOrderAsync(
+            woId, equipmentId, woType, description, assigneeId,
+            maintenancePlanId, context.Value, ct);
         return r.IsSuccess ? Result.Success(ToDto(r.Value)) : Result.Failure<WorkOrderDto>(r.Error);
     }
 
-    public Task<Result> StartWorkOrderAsync(string woId, CancellationToken ct = default)
-        => _woService.StartWorkOrderAsync(woId, ct);
+    public Task<Result> StartWorkOrderAsync(
+        string woId, EmsCommandContextDto command, CancellationToken ct = default)
+    {
+        var context = ToDomain(command);
+        return context.IsFailure
+            ? Task.FromResult(Result.Failure(context.Error))
+            : _woService.StartWorkOrderAsync(woId, context.Value, ct);
+    }
 
-    public Task<Result> CompleteWorkOrderAsync(string woId, string remark, CancellationToken ct = default)
-        => _woService.CompleteWorkOrderAsync(woId, remark, ct);
+    public Task<Result> CompleteWorkOrderAsync(
+        string woId, string remark, EmsCommandContextDto command, CancellationToken ct = default)
+    {
+        var context = ToDomain(command);
+        return context.IsFailure
+            ? Task.FromResult(Result.Failure(context.Error))
+            : _woService.CompleteWorkOrderAsync(woId, remark, context.Value, ct);
+    }
 
-    public Task<Result> CancelWorkOrderAsync(string woId, CancellationToken ct = default)
-        => _woService.CancelWorkOrderAsync(woId, ct);
+    public Task<Result> CancelWorkOrderAsync(
+        string woId, EmsCommandContextDto command, CancellationToken ct = default)
+    {
+        var context = ToDomain(command);
+        return context.IsFailure
+            ? Task.FromResult(Result.Failure(context.Error))
+            : _woService.CancelWorkOrderAsync(woId, context.Value, ct);
+    }
 
     // ── 보전계획 ──
 
     public async Task<Result<MaintenancePlanDto>> CreatePlanAsync(
         string planId, string planName, string equipmentId, string planType, string cycleType,
-        DateTime scheduledDate, decimal estimatedHours, string assigneeId, CancellationToken ct = default)
+        DateTime scheduledDate, decimal estimatedHours, string assigneeId,
+        EmsCommandContextDto command, CancellationToken ct = default)
     {
+        var context = ToDomain(command);
+        if (context.IsFailure) return Result.Failure<MaintenancePlanDto>(context.Error);
         var r = await _planService.CreatePlanAsync(
-            planId, planName, equipmentId, planType, cycleType, scheduledDate, estimatedHours, assigneeId, ct);
+            planId, planName, equipmentId, planType, cycleType, scheduledDate, estimatedHours,
+            assigneeId, context.Value, ct);
         return r.IsSuccess ? Result.Success(ToDto(r.Value)) : Result.Failure<MaintenancePlanDto>(r.Error);
     }
 
-    public Task<Result> StartPlanAsync(string planId, CancellationToken ct = default)
-        => _planService.StartPlanAsync(planId, ct);
+    public Task<Result> StartPlanAsync(
+        string planId, EmsCommandContextDto command, CancellationToken ct = default)
+    {
+        var context = ToDomain(command);
+        return context.IsFailure
+            ? Task.FromResult(Result.Failure(context.Error))
+            : _planService.StartPlanAsync(planId, context.Value, ct);
+    }
 
-    public Task<Result> CompletePlanAsync(string planId, CancellationToken ct = default)
-        => _planService.CompletePlanAsync(planId, ct);
+    public Task<Result> CompletePlanAsync(
+        string planId, EmsCommandContextDto command, CancellationToken ct = default)
+    {
+        var context = ToDomain(command);
+        return context.IsFailure
+            ? Task.FromResult(Result.Failure(context.Error))
+            : _planService.CompletePlanAsync(planId, context.Value, ct);
+    }
 
-    public Task<Result> CancelPlanAsync(string planId, CancellationToken ct = default)
-        => _planService.CancelPlanAsync(planId, ct);
+    public Task<Result> CancelPlanAsync(
+        string planId, EmsCommandContextDto command, CancellationToken ct = default)
+    {
+        var context = ToDomain(command);
+        return context.IsFailure
+            ? Task.FromResult(Result.Failure(context.Error))
+            : _planService.CancelPlanAsync(planId, context.Value, ct);
+    }
 
     // ── 예비품 ──
 
     public async Task<Result<SparePartDto>> CreatePartAsync(
         string partId, string partName, string partNumber, string description, string unitOfMeasure,
         decimal currentStock, decimal minStock, decimal maxStock, string location,
-        string? equipmentClassId, CancellationToken ct = default)
+        string? equipmentClassId, EmsCommandContextDto command, CancellationToken ct = default)
     {
+        var context = ToDomain(command);
+        if (context.IsFailure) return Result.Failure<SparePartDto>(context.Error);
         var r = await _planService.CreatePartAsync(
             partId, partName, partNumber, description, unitOfMeasure,
-            currentStock, minStock, maxStock, location, equipmentClassId, ct);
+            currentStock, minStock, maxStock, location, equipmentClassId, context.Value, ct);
         return r.IsSuccess ? Result.Success(ToDto(r.Value)) : Result.Failure<SparePartDto>(r.Error);
     }
 
-    public Task<Result> AdjustStockAsync(string partId, decimal delta, CancellationToken ct = default)
-        => _planService.AdjustStockAsync(partId, delta, ct);
+    public Task<Result> AdjustStockAsync(
+        string partId, SparePartAdjustmentDto adjustment, CancellationToken ct = default)
+    {
+        var command = ToDomain(adjustment.Command);
+        if (command.IsFailure) return Task.FromResult(Result.Failure(command.Error));
+        var context = new SparePartAdjustmentContext(
+            command.Value, adjustment.TransactionType, adjustment.WorkOrderId,
+            adjustment.EquipmentId, adjustment.FromLocation, adjustment.ToLocation,
+            adjustment.Remark, adjustment.BomItemId);
+        return _planService.AdjustStockAsync(partId, adjustment.Delta, context, ct);
+    }
 
     // ── 매핑 ──
 
@@ -86,4 +142,9 @@ public sealed class EmsBridge : IEmsBridge
     private static SparePartDto ToDto(SparePart s)
         => new(s.Id, s.PartName, s.PartNumber, s.Description, s.UnitOfMeasure,
             s.CurrentStock, s.MinStock, s.MaxStock, s.Location, s.EquipmentClassId, s.IsLowStock);
+
+    private static Result<MaintenanceCommandContext> ToDomain(EmsCommandContextDto command) =>
+        MaintenanceCommandContext.Create(
+            command.ActorId, command.IdempotencyKey, command.ClientChannel,
+            command.DeviceId, command.CorrelationId);
 }

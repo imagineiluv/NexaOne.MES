@@ -24,9 +24,28 @@ public sealed class FdcDomainTests
     }
 
     [Fact]
-    public void Create_rule_invalid_action_fails()
+    public void Create_rule_accepts_project_specific_opaque_action_key()
     {
         var result = FdcInterlockRule.Create("RULE001", "규칙", "EQ001", "PARAM001", "GT", 100m, "PAUSE", 1);
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Action.Should().Be("PAUSE");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Create_rule_missing_action_key_fails(string action)
+    {
+        var result = FdcInterlockRule.Create(
+            "RULE001", "규칙", "EQ001", "PARAM001", "GT", 100m, action, 1);
+        result.IsFailure.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Create_rule_action_key_over_storage_limit_fails()
+    {
+        var result = FdcInterlockRule.Create(
+            "RULE001", "규칙", "EQ001", "PARAM001", "GT", 100m, new string('A', 201), 1);
         result.IsFailure.Should().BeTrue();
     }
 
@@ -59,7 +78,7 @@ public sealed class FdcDomainTests
         // 읽기경로 상태손실 회귀: Create는 IsActive를 true로 고정하므로 비활성 룰은 Restore로만 보존된다.
         var rule = FdcInterlockRule.Restore("RULE001", "온도 상한", "EQ001", "PARAM001", "GT", 100m, "STOP", 1, isActive: false);
 
-        rule.IsActive.Should().BeFalse("비활성화된 인터록 룰이 읽기경로에서 활성으로 되살아나면 안 된다(SAFETY)");
+        rule.IsActive.Should().BeFalse("비활성화된 인터록 룰이 읽기경로에서 활성으로 되살아나면 안 된다");
         rule.Id.Should().Be("RULE001");
         rule.RuleName.Should().Be("온도 상한");
         rule.Operator.Should().Be("GT");

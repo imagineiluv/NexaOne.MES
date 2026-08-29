@@ -8,39 +8,33 @@ namespace NexaOne.Server.Realtime;
 public sealed class InMemoryBusSubscriberService : IHostedService
 {
     private readonly InMemoryMessageBus _bus;
-    private readonly IServiceScopeFactory _scopeFactory;
-    private readonly ScreenRefreshNotifier? _screenRefresh;
-    private readonly RealtimeAlertFeed? _alertFeed;
+    private readonly RealtimeBusMessageDispatcher _dispatcher;
+    private readonly object _lifecycleGate = new();
+    private IDisposable? _subscription;
 
     public InMemoryBusSubscriberService(
         InMemoryMessageBus bus, IServiceScopeFactory scopeFactory,
         ScreenRefreshNotifier? screenRefresh = null, RealtimeAlertFeed? alertFeed = null)
     {
         _bus = bus;
-        _scopeFactory = scopeFactory;
-        _screenRefresh = screenRefresh;
-        _alertFeed = alertFeed;
+        _dispatcher = new RealtimeBusMessageDispatcher(scopeFactory, screenRefresh, alertFeed);
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        _bus.Subscribe(async (msg, ct) =>
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var notifier = scope.ServiceProvider.GetRequiredService<IEesHubNotifier>();
-            // 이벤트 유형별 세분 알림(상태/알람/작업지시/대시보드) — 컨트롤러 직접호출과 동일 충실도(ADR-002 §2.5).
-            await RealtimeNotificationDispatch.DispatchAsync(notifier, msg.EventType, msg.AggregateId, msg.Payload, ct);
-
-            // 실시간 v3 — 라이브 메타 화면(Blazor 회로) 즉시 재조회 팬아웃(SignalR 외 인프로세스 경로).
-            if (_screenRefresh is not null)
-                await _screenRefresh.NotifyAsync();
-
-            // P3-20 — 알림성 이벤트(알람/인터락/작업지시)는 셸 알림 센터(벨)로도 팬아웃.
-            if (_alertFeed is not null && RealtimeAlertFeed.ToAlert(msg.EventType, msg.AggregateId) is { } alert)
-                await _alertFeed.PublishAsync(alert);
-        });
+        lock (_lifecycleGate)
+            _subscription ??= _bus.Subscribe(_dispatcher.DispatchAsync);
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        lock (_lifecycleGate)
+        {
+            _subscription?.Dispose();
+            _subscription = null;
+        }
+
+        return Task.CompletedTask;
+    }
 }

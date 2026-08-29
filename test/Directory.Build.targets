@@ -1,0 +1,13 @@
+<Project>
+  <PropertyGroup>
+    <NexaOneRepositorySourceRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</NexaOneRepositorySourceRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="NexaOne.RepositorySourceRoot"
+                      Value="$(NexaOneRepositorySourceRoot)" />
+    <Compile Include="$(MSBuildThisFileDirectory)TestInfrastructure\RepositorySource.cs"
+             Link="TestInfrastructure\RepositorySource.cs" />
+    <Using Include="NexaOne.Testing" />
+  </ItemGroup>
+</Project>

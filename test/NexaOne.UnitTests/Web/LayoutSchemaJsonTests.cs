@@ -20,7 +20,11 @@ public sealed class LayoutSchemaJsonTests
                     new ColumnNode { Span = 7, Children = new LayoutNode[]
                     {
                         new GridWidget { Id = "grid-plants", QueryId = "MDM.PlantList",
-                            Columns = new GridColumnDefinition[] { new("PLANT_ID", "공장 ID") } },
+                            Columns = new GridColumnDefinition[] { new("PLANT_ID", "공장 ID") },
+                            BulkCommands = new BulkCommandDefinition[]
+                            {
+                                new("상태 변경", "bridge:mdm.plant.activate", RequiredPermission: "mdm:manage"),
+                            } },
                     } },
                     new ColumnNode { Span = 5, Children = new LayoutNode[]
                     {
@@ -49,6 +53,8 @@ public sealed class LayoutSchemaJsonTests
         var grid = (GridWidget)col0.Children![0];
         grid.QueryId.Should().Be("MDM.PlantList");
         grid.Id.Should().Be("grid-plants", "노드 Id가 라운드트립돼야 한다");
+        grid.BulkCommands.Should().ContainSingle().Which.CommandQueryId
+            .Should().Be("bridge:mdm.plant.activate");
         var col1 = (ColumnNode)row.Children![1];
         var btn = (ButtonWidget)col1.Children![1];
         btn.Command.Should().Be("MDM.CreatePlant");

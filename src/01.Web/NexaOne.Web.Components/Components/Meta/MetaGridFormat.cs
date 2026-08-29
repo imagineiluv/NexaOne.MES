@@ -34,18 +34,38 @@ public static class MetaGridFormat
         return ColumnKind.Text;
     }
 
-    /// <summary>종류별 기본 폭(px). 빈/불리언/숫자/시각/상태는 좁게 고정(빈 컬럼 폭 독식·코드 잘림 방지).
-    /// 텍스트는 유연(남는 폭 분배)하되, 식별자(_ID/_CODE 등)는 잘리기 쉬워 적당 폭을 준다.</summary>
-    public static string? WidthFor(ColumnKind kind, string key) => kind switch
+    /// <summary>종류별 최소 폭(px)을 정하고 현재 언어의 헤더 길이에 맞춰 제한적으로 확장한다.
+    /// 여러 열의 합이 화면보다 넓을 때는 표가 data viewport 안에서 가로 스크롤되므로 문서 폭은 늘어나지 않는다.</summary>
+    public static string WidthFor(ColumnKind kind, string key, string? caption = null)
     {
-        ColumnKind.Numeric => "108px",
-        ColumnKind.DateTime => "168px",
-        ColumnKind.Status => "116px",
-        ColumnKind.Boolean => "76px",
-        ColumnKind.Empty => "72px",
-        ColumnKind.Text when IsIdentifierKey(key) => "160px",
-        _ => null,
-    };
+        var baseWidth = kind switch
+        {
+            ColumnKind.Numeric => 108,
+            ColumnKind.DateTime => 168,
+            ColumnKind.Status => 116,
+            ColumnKind.Boolean => 76,
+            ColumnKind.Empty => 72,
+            ColumnKind.Text when IsIdentifierKey(key) => 160,
+            _ => 140,
+        };
+
+        // 헤더 버튼의 정렬 상태와 좌우 여백까지 확보한다. 언어에 따라 긴 캡션은 최대 240px까지만
+        // 표 내부 폭을 늘려, 라벨 잘림과 Radzen 루트의 페이지 바깥 확장을 함께 막는다.
+        var captionWidth = EstimateCaptionWidth(caption);
+        return $"{Math.Max(baseWidth, captionWidth)}px";
+    }
+
+    private static int EstimateCaptionWidth(string? caption)
+    {
+        if (string.IsNullOrWhiteSpace(caption)) return 0;
+
+        var textWidth = 0;
+        foreach (var ch in caption)
+            textWidth += ch > 0x7f ? 14 : ch == ' ' ? 4 : 7;
+
+        var withControls = textWidth + 48;
+        return Math.Clamp(((withControls + 7) / 8) * 8, 0, 240);
+    }
 
     // 식별자성 컬럼 키 — 대개 짧은 코드라 유연 분배 시 잘리기 쉽다. _ID/ID/_CODE/CODE 접미.
     private static bool IsIdentifierKey(string key)

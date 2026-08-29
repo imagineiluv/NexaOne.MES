@@ -1,5 +1,7 @@
+using NexaOne.Common;
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
+using NexaOne.ServiceContracts.Fdc;
 
 namespace NexaOne.UnitTests.Fdc;
 
@@ -40,6 +42,9 @@ public sealed class FdcInterlockHistoryTests
         var h = FdcInterlockHistory.Create("H1", "R1", "EQ-001", "TEMP01", 90m, "STOP", "msg", At).Value;
         var resolvedAt = At.AddMinutes(5);
 
+        h.MarkApplied("apply-1", At.AddMinutes(1));
+        h.MarkConditionNormalized(At.AddMinutes(4), 50m);
+        h.MarkReleaseConfirmed("release-1", resolvedAt);
         h.Resolve(resolvedAt);
         h.IsResolved.Should().BeTrue();
         h.ResolvedAt.Should().Be(resolvedAt);
@@ -71,6 +76,58 @@ public sealed class FdcInterlockHistoryTests
     }
 
     [Fact]
+    public async Task RecordTriggerAsync_retry_converges_after_ambiguous_commit()
+    {
+        FdcInterlockHistory? durable = null;
+        var historyRepository = new Mock<IFdcInterlockHistoryRepository>();
+        historyRepository.Setup(repository => repository.GetByIdAsync(
+                "FX-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => durable);
+        historyRepository.Setup(repository => repository.AddAsync(
+                It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()))
+            .Callback<FdcInterlockHistory, CancellationToken>((history, _) => durable = history)
+            .ThrowsAsync(new InvalidOperationException("response lost after commit"));
+        var service = new FdcInterlockService(
+            Mock.Of<IFdcInterlockRuleRepository>(), historyRepository.Object);
+        var result = InterlockResult.Triggered("STOP", "over temp", "R1");
+
+        var first = () => service.RecordTriggerAsync(
+            "FX-1", "EQ-001", "TEMP01", 90m, result, At);
+        await first.Should().ThrowAsync<InvalidOperationException>();
+
+        var replay = await service.RecordTriggerAsync(
+            "FX-1", "EQ-001", "TEMP01", 90m, result, At);
+
+        replay.IsSuccess.Should().BeTrue();
+        replay.Value.Should().BeSameAs(durable);
+        historyRepository.Verify(repository => repository.AddAsync(
+            It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()), Times.Once,
+            "ambiguous commit 재시도는 durable EffectId를 읽어 PK 충돌 없이 수렴해야 한다");
+    }
+
+    [Fact]
+    public async Task RecordTriggerAsync_does_not_treat_a_different_existing_effect_as_success()
+    {
+        var existing = FdcInterlockHistory.Create(
+            "FX-1", "OTHER-RULE", "EQ-001", "TEMP01", 90m, "STOP", "other", At).Value;
+        var historyRepository = new Mock<IFdcInterlockHistoryRepository>();
+        historyRepository.Setup(repository => repository.GetByIdAsync(
+                "FX-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(existing);
+        var service = new FdcInterlockService(
+            Mock.Of<IFdcInterlockRuleRepository>(), historyRepository.Object);
+
+        var result = await service.RecordTriggerAsync(
+            "FX-1", "EQ-001", "TEMP01", 90m,
+            InterlockResult.Triggered("STOP", "over temp", "R1"), At);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Type.Should().Be(ErrorType.Conflict);
+        historyRepository.Verify(repository => repository.AddAsync(
+            It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task RecordTriggerAsync_is_noop_without_history_repository()
     {
         var svc = new FdcInterlockService(Mock.Of<IFdcInterlockRuleRepository>());   // 이력 리포 미주입
@@ -94,30 +151,92 @@ public sealed class FdcInterlockHistoryTests
     }
 
     [Fact]
-    public async Task ResolveActiveAsync_resolves_only_matching_parameter_unresolved_history()
+    public async Task ResolveEffectAsync_retry_converges_after_ambiguous_commit()
     {
-        var h1 = FdcInterlockHistory.Create("H1", "R1", "EQ-001", "TEMP01", 90m, "STOP", "m", At).Value;
-        var h2 = FdcInterlockHistory.Create("H2", "R2", "EQ-001", "PRESS01", 9m, "ALARM", "m", At).Value;
-        var histRepo = new Mock<IFdcInterlockHistoryRepository>();
-        histRepo.Setup(r => r.GetUnresolvedAsync("EQ-001", It.IsAny<CancellationToken>()))
-                .ReturnsAsync(new[] { h1, h2 });
-        var updated = new List<FdcInterlockHistory>();
-        histRepo.Setup(r => r.UpdateAsync(It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()))
-                .Callback<FdcInterlockHistory, CancellationToken>((h, _) => updated.Add(h))
-                .Returns(Task.CompletedTask);
-        var svc = new FdcInterlockService(Mock.Of<IFdcInterlockRuleRepository>(), histRepo.Object);
+        var durable = FdcInterlockHistory.Create(
+            "FX-1", "R1", "EQ-001", "TEMP01", 90m, "STOP", "m", At).Value;
+        durable.MarkApplied("apply-1", At.AddSeconds(10));
+        durable.MarkConditionNormalized(At.AddSeconds(20), 50m);
+        var historyRepository = new Mock<IFdcInterlockHistoryRepository>();
+        historyRepository.Setup(repository => repository.GetByIdAsync(
+                "FX-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => durable);
+        historyRepository.Setup(repository => repository.UpdateAsync(
+                durable, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("response lost after commit"));
+        var service = new FdcInterlockService(
+            Mock.Of<IFdcInterlockRuleRepository>(), historyRepository.Object);
+        var resolvedAt = At.AddMinutes(1);
 
-        var count = await svc.ResolveActiveAsync("EQ-001", "TEMP01");
+        var first = () => service.ResolveEffectAsync(
+            "FX-1", "EQ-001", "TEMP01", 50m, resolvedAt, FdcInterlockReleaseResult.Confirmed("release-1"));
+        await first.Should().ThrowAsync<InvalidOperationException>();
 
-        count.Should().Be(1, "TEMP01 미해제 이력 1건만 해제된다");
-        updated.Should().ContainSingle().Which.Id.Should().Be("H1");
-        h1.IsResolved.Should().BeTrue();
-        h2.IsResolved.Should().BeFalse("다른 파라미터(PRESS01) 이력은 그대로 둔다");
+        var replay = await service.ResolveEffectAsync(
+            "FX-1", "EQ-001", "TEMP01", 50m, resolvedAt, FdcInterlockReleaseResult.Confirmed("release-1"));
+
+        replay.Should().Be(1, "durable row is already resolved despite the lost response");
+        durable.IsResolved.Should().BeTrue();
+        historyRepository.Verify(repository => repository.UpdateAsync(
+            durable, It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task ResolveActiveAsync_is_noop_without_history_repository()
-        => (await new FdcInterlockService(Mock.Of<IFdcInterlockRuleRepository>())
-                .ResolveActiveAsync("EQ-001", "TEMP01"))
-            .Should().Be(0);
+    public async Task ResolveEffectAsync_returns_zero_when_effect_is_not_visible()
+    {
+        var historyRepository = new Mock<IFdcInterlockHistoryRepository>();
+        historyRepository.Setup(repository => repository.GetByIdAsync(
+                "MISSING", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((FdcInterlockHistory?)null);
+        var service = new FdcInterlockService(
+            Mock.Of<IFdcInterlockRuleRepository>(), historyRepository.Object);
+
+        var result = await service.ResolveEffectAsync(
+            "MISSING", "EQ-001", "TEMP01", 50m, At, FdcInterlockReleaseResult.Confirmed("release-missing"));
+
+        result.Should().Be(0, "collector must keep the pending trigger→resolve evidence");
+        historyRepository.Verify(repository => repository.UpdateAsync(
+            It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Cas_observation_does_not_accept_same_state_with_different_acknowledgement_evidence()
+    {
+        var candidate = FdcInterlockHistory.Create(
+            "FX-CAS", "R1", "EQ-001", "TEMP01", 90m, "STOP", "m", At).Value;
+        var competing = FdcInterlockHistory.Create(
+            "FX-CAS", "R1", "EQ-001", "TEMP01", 90m, "STOP", "m", At).Value;
+        competing.MarkApplied("other-writer-ack", At.AddSeconds(1));
+        var reads = 0;
+        var repository = new Mock<IFdcInterlockHistoryRepository>();
+        repository.Setup(value => value.GetByIdAsync(
+                "FX-CAS", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => ++reads == 1 ? candidate : competing);
+        repository.Setup(value => value.UpdateAsync(
+                It.IsAny<FdcInterlockHistory>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+        var service = new FdcInterlockService(Mock.Of<IFdcInterlockRuleRepository>(), repository.Object);
+
+        var persisted = await service.MarkAppliedAsync(
+            "FX-CAS", FdcInterlockActionResult.Confirmed("expected-ack"), At.AddSeconds(2));
+
+        persisted.Should().BeFalse(
+            "state/version equality cannot substitute for the requested acknowledgement and timestamp evidence");
+    }
+
+    [Fact]
+    public async Task HasUnresolvedAsync_reads_the_parameter_scoped_durable_state()
+    {
+        var history = FdcInterlockHistory.Create(
+            "H1", "R1", "EQ-001", "TEMP01", 90m, "STOP", "m", At).Value;
+        var repository = new Mock<IFdcInterlockHistoryRepository>();
+        repository.Setup(r => r.GetUnresolvedAsync(
+                "EQ-001", "TEMP01", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { history });
+        var service = new FdcInterlockService(
+            Mock.Of<IFdcInterlockRuleRepository>(), repository.Object);
+
+        (await service.HasUnresolvedAsync("EQ-001", "TEMP01")).Should().BeTrue();
+    }
+
 }

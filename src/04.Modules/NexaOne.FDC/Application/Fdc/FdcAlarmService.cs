@@ -87,19 +87,82 @@ public sealed class FdcAlarmService
         return history;
     }
 
-    /// <summary>해당 설비·파라미터의 미해제(open) 알람을 모두 해제한다 — 값이 정상으로 복귀했을 때.
-    /// 해제한 건수를 반환(이력 리포지토리 미구성 시 0).</summary>
+    /// <summary>해당 설비·파라미터의 미해제(open) 알람을 모두 해제한다.
+    /// 수동 전체 해제 호환 경계이며 실시간 수집기는 config별 overload를 사용한다.</summary>
     public async Task<int> ClearActiveAsync(string equipmentId, string parameterId, CancellationToken ct = default)
+        => await ClearActiveCoreAsync(equipmentId, parameterId, alarmConfigId: null, ct);
+
+    /// <summary>현재 값에서 더 이상 성립하지 않는 한 알람 설정의 미해제 episode만 해제한다.</summary>
+    public async Task<int> ClearActiveAsync(
+        string equipmentId,
+        string parameterId,
+        string alarmConfigId,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(alarmConfigId);
+        return await ClearActiveCoreAsync(equipmentId, parameterId, alarmConfigId, ct);
+    }
+
+    private async Task<int> ClearActiveCoreAsync(
+        string equipmentId,
+        string parameterId,
+        string? alarmConfigId,
+        CancellationToken ct)
     {
         if (_historyRepository is null) return 0;
 
-        var open = await _historyRepository.GetOpenAsync(equipmentId, ct);
-        var targets = open.Where(h => h.ParameterId == parameterId).ToList();
+        var open = await _historyRepository.GetOpenAsync(equipmentId, parameterId, ct);
+        var targets = alarmConfigId is null
+            ? open
+            : open.Where(history => string.Equals(
+                    history.AlarmConfigId, alarmConfigId, StringComparison.Ordinal))
+                .ToArray();
+        var clearedAt = DateTime.UtcNow;
         foreach (var history in targets)
         {
-            history.Clear(DateTime.UtcNow);
+            history.Clear(clearedAt);
             await _historyRepository.UpdateAsync(history, ct);
         }
         return targets.Count;
     }
+
+    /// <summary>
+    /// 프로세스 재시작 뒤 수집기의 메모리 상태를 복원할 수 있도록 해당 태그의 durable open 알람 중
+    /// 가장 높은 심각도를 반환한다. 이력 저장소가 없거나 open 알람이 없으면 null이다.
+    /// </summary>
+    public async Task<string?> GetHighestOpenLevelAsync(
+        string equipmentId,
+        string parameterId,
+        CancellationToken ct = default)
+    {
+        if (_historyRepository is null) return null;
+
+        var open = await _historyRepository.GetOpenAsync(equipmentId, parameterId, ct);
+        return open
+            .Select(static history => history.AlarmLevel)
+            .OrderByDescending(static level => level switch
+            {
+                "Critical" => 2,
+                "Warning" => 1,
+                _ => 0,
+            })
+            .FirstOrDefault();
+    }
+
+    /// <summary>수집기 lazy 복구용 parameter 단위 durable open episode 조회.</summary>
+    internal async Task<IReadOnlyList<FdcAlarmHistory>> GetOpenByParameterAsync(
+        string equipmentId,
+        string parameterId,
+        CancellationToken ct = default) =>
+        _historyRepository is null
+            ? Array.Empty<FdcAlarmHistory>()
+            : await _historyRepository.GetOpenAsync(equipmentId, parameterId, ct);
+
+    /// <summary>수집기 기동 복구용 equipment 단위 open 알람 조회. 샘플별 point-read를 대신한다.</summary>
+    internal async Task<IReadOnlyList<FdcAlarmHistory>> GetOpenByEquipmentAsync(
+        string equipmentId,
+        CancellationToken ct = default) =>
+        _historyRepository is null
+            ? Array.Empty<FdcAlarmHistory>()
+            : await _historyRepository.GetOpenAsync(equipmentId, ct);
 }

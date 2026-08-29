@@ -1,5 +1,6 @@
 using Bunit;
 using Microsoft.AspNetCore.Components;
+using Microsoft.Extensions.DependencyInjection;
 using NexaOne.Web.Components.Meta;
 using NexaOne.Web.Services.Meta;
 using Radzen;
@@ -66,12 +67,75 @@ public sealed class MetaGridRendererTests
         => MetaGridFormat.InferKind(values).ToString().Should().Be(expected);
 
     [Fact]
-    public void WidthFor_gives_narrow_types_fixed_width_and_flexes_text()
+    public void WidthFor_reserves_a_stable_minimum_and_expands_for_localized_headers()
     {
         MetaGridFormat.WidthFor(MetaGridFormat.InferKind(new[] { "100", "250" }), "QTY").Should().Be("108px", "숫자=고정 좁은 폭");
         MetaGridFormat.WidthFor(MetaGridFormat.InferKind(new[] { "", "" }), "NOTE").Should().Be("72px", "빈 컬럼=폭 축소");
-        MetaGridFormat.WidthFor(MetaGridFormat.InferKind(new[] { "가공장", "나공장" }), "NAME").Should().BeNull("일반 텍스트=유연(남는 폭 분배)");
+        MetaGridFormat.WidthFor(MetaGridFormat.InferKind(new[] { "가공장", "나공장" }), "NAME").Should().Be("140px", "일반 텍스트도 헤더가 찌그러지지 않는 최소 폭을 가진다");
         MetaGridFormat.WidthFor(MetaGridFormat.InferKind(new[] { "MENU_A", "MENU_B" }), "MENU_ID").Should().Be("160px", "식별자 텍스트(_ID)=적당 폭(잘림 방지)");
+        MetaGridFormat.WidthFor(MetaGridFormat.InferKind(new[] { "100", "250" }), "CURRENT_QTY", "Current Quantity")
+            .Should().Be("160px", "현재 언어의 긴 헤더는 표 내부 폭을 늘려 전체 문서가 아닌 data viewport에서 스크롤된다");
+    }
+
+    [Fact]
+    public void Rendered_columns_apply_text_minimum_and_localized_caption_widths()
+    {
+        using var ctx = RadzenContext();
+        var cut = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+            .Add(component => component.Columns, new GridColumnDefinition[]
+            {
+                new("WAREHOUSE", "Warehouse"),
+                new("CURRENT_QTY", "Current Quantity"),
+            })
+            .Add(component => component.Rows, new List<Dictionary<string, object?>>
+            {
+                new() { ["WAREHOUSE"] = "WH-A", ["CURRENT_QTY"] = 120 },
+            }));
+
+        cut.FindAll("col").Select(column => column.GetAttribute("style")).Should()
+            .Contain(style => style != null && style.Contains("width:140px", StringComparison.OrdinalIgnoreCase))
+            .And.Contain(style => style != null && style.Contains("width:160px", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Card_summary_policy_keeps_status_and_business_context_ahead_of_low_value_columns()
+    {
+        var columns = new GridColumnDefinition[]
+        {
+            new("ORDER_ID", "오더 ID"),
+            new("DESCRIPTION", "설명"),
+            new("REMARK", "비고"),
+            new("CREATED_BY", "등록자"),
+            new("UPDATED_BY", "수정자"),
+            new("CUSTOMER_ID", "고객"),
+            new("PRODUCT_ID", "품목"),
+            new("DUE_DATE", "납기"),
+            new("PLAN_QTY", "계획수량"),
+            new("STATUS", "상태"),
+        };
+
+        var primary = MetaGridColumnPolicy.CardPrimary(columns);
+        var summary = MetaGridColumnPolicy.CardSummary(columns, primary);
+
+        primary!.Key.Should().Be("ORDER_ID");
+        summary.Select(column => column.Key).Should().Equal(
+            "STATUS", "CUSTOMER_ID", "PRODUCT_ID", "DUE_DATE", "PLAN_QTY", "DESCRIPTION");
+    }
+
+    [Fact]
+    public void Card_summary_policy_is_stable_and_honours_the_shared_field_limit()
+    {
+        var columns = Enumerable.Range(1, 10)
+            .Select(index => new GridColumnDefinition($"FIELD_{index}", $"필드 {index}"))
+            .ToArray();
+
+        var primary = MetaGridColumnPolicy.CardPrimary(columns);
+        var summary = MetaGridColumnPolicy.CardSummary(columns, primary);
+
+        primary!.Key.Should().Be("FIELD_1");
+        summary.Should().HaveCount(MetaGridColumnPolicy.DefaultCardFieldCount);
+        summary.Select(column => column.Key).Should().Equal(
+            "FIELD_2", "FIELD_3", "FIELD_4", "FIELD_5", "FIELD_6", "FIELD_7");
     }
 
     // ── Radzen 렌더 스모크(딕셔너리→ExpandoObject 바인딩 회귀 가드) ──────────────
@@ -103,6 +167,31 @@ public sealed class MetaGridRendererTests
         cut.Markup.Should().NotContain("숨김", "Visible=false 컬럼은 렌더되지 않아야 한다");
         cut.Markup.Should().Contain("Warning").And.Contain("Error");
         cut.Markup.Should().Contain("2 행");
+    }
+
+    [Fact]
+    public void English_mode_uses_field_keys_when_a_domain_caption_resource_is_not_yet_seeded()
+    {
+        using var ctx = RadzenContext();
+        var ui = new NexaOne.Web.Services.UiTextService();
+        ui.Load("EnUs", new Dictionary<string, string>
+        {
+            ["common.rowsUnit"] = "rows",
+            ["field.LEVEL"] = "Severity",
+        });
+        ctx.Services.AddSingleton(ui);
+
+        var cut = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+            .Add(component => component.Columns, Columns)
+            .Add(component => component.Rows, new List<Dictionary<string, object?>>
+            {
+                new() { ["LOGGED_AT"] = "2026-07-04T12:30:44Z", ["LEVEL"] = "Warning" },
+            }));
+
+        cut.Markup.Should().Contain("Logged At", "unseeded field keys still need a readable English label")
+            .And.Contain("Severity", "an explicit domain translation must override automatic humanizing")
+            .And.NotContain("발생시각")
+            .And.NotContain("레벨");
     }
 
     [Fact]
@@ -242,7 +331,7 @@ public sealed class MetaGridRendererTests
         {
             new() { ["WORK_ORDER_ID"] = "WO-1" }, new() { ["WORK_ORDER_ID"] = "WO-2" },
         };
-        var cmds = new BulkCommandDefinition[] { new("확정", "POM.ReleaseWorkOrder") };
+        var cmds = new BulkCommandDefinition[] { new("확정", "TEST.Release") };
         (BulkCommandDefinition Command, List<Dictionary<string, object?>> Rows)? emitted = null;
 
         var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
@@ -263,7 +352,7 @@ public sealed class MetaGridRendererTests
         cut.FindAll(".meta-grid-toolbar button").First(b => b.TextContent.Contains("확정")).Click();
 
         emitted.Should().NotBeNull();
-        emitted!.Value.Command.CommandQueryId.Should().Be("POM.ReleaseWorkOrder");
+        emitted!.Value.Command.CommandQueryId.Should().Be("TEST.Release");
         emitted.Value.Rows.Select(r => r["WORK_ORDER_ID"]).Should().BeEquivalentTo(new[] { "WO-1", "WO-2" });
     }
 
@@ -293,6 +382,58 @@ public sealed class MetaGridRendererTests
         // 칩 × → 해제 → 전체 복원.
         cut.Find(".nx-filterchip .x").Click();
         cut.FindAll(".rz-data-row").Count.Should().Be(3);
+    }
+
+    [Fact]
+    public void Sort_header_announces_current_direction_and_next_action()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("NAME", "이름") };
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["NAME"] = "나" },
+            new() { ["NAME"] = "가" },
+        };
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, cols)
+            .Add(c => c.Rows, rows));
+
+        cut.Find(".nx-sort").GetAttribute("aria-label")
+            .Should().Contain("정렬 안 됨").And.Contain("오름차순 정렬");
+
+        cut.Find(".nx-sort").Click();
+        cut.Find(".nx-sort").GetAttribute("aria-label")
+            .Should().Contain("현재 오름차순").And.Contain("내림차순으로 변경");
+
+        cut.Find(".nx-sort").Click();
+        cut.Find(".nx-sort").GetAttribute("aria-label")
+            .Should().Contain("현재 내림차순").And.Contain("오름차순으로 변경");
+    }
+
+    [Fact]
+    public void Filter_popover_is_named_focusable_and_escape_closes_it()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("NAME", "이름"), new("QTY", "수량") };
+        var rows = new List<Dictionary<string, object?>> { new() { ["NAME"] = "가", ["QTY"] = 1 } };
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, cols)
+            .Add(c => c.Rows, rows));
+
+        cut.FindAll(".meta-grid-toolbar button")
+            .First(button => button.TextContent.Contains("filter_alt")).Click();
+
+        var panel = cut.Find(".nx-filtermenu");
+        panel.GetAttribute("role").Should().Be("dialog");
+        panel.GetAttribute("aria-modal").Should().Be("false", "컬럼 필터는 배경을 잠그지 않는 비모달 팝오버다");
+        panel.GetAttribute("tabindex").Should().Be("-1", "열린 뒤 패널로 프로그래밍 방식 포커스를 이동한다");
+        cut.FindAll(".nx-filtermenu-op").Select(select => select.GetAttribute("aria-label"))
+            .Should().Equal("이름 필터 방식", "수량 필터 방식");
+
+        panel.KeyDown("Escape");
+        cut.FindAll(".nx-filtermenu").Should().BeEmpty("Escape는 현재 팝오버만 닫아야 한다");
+        ctx.JSInterop.Invocations.Count(invocation => invocation.Identifier.Contains("focus", StringComparison.OrdinalIgnoreCase))
+            .Should().BeGreaterThanOrEqualTo(2, "열 때 패널로, 닫을 때 원래 트리거로 포커스를 이동해야 한다");
     }
 
     // ── P1 안전장치(무제한 클라 로드 상한) 회귀 가드 ────────────────────────────
@@ -374,6 +515,78 @@ public sealed class MetaGridRendererTests
             .First(b => b.QuerySelector(".rzi")?.TextContent.Trim() == "more_vert").Click();
         cut.Markup.Should().Contain("density_small", "더보기 메뉴 안에 밀도 토글");
         cut.FindAll(".nx-moremenu-item").Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void Icon_only_grid_tools_have_localized_accessible_names()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("NAME", "이름"), new("QTY", "수량") };
+        var rows = new List<Dictionary<string, object?>> { new() { ["NAME"] = "가", ["QTY"] = "1" } };
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, cols)
+            .Add(c => c.Rows, rows));
+
+        var toolButtons = cut.FindAll(".meta-grid-toolbar button");
+        toolButtons.First(button => button.TextContent.Contains("filter_alt"))
+            .GetAttribute("aria-label").Should().Be("컬럼 필터");
+        toolButtons.First(button => button.TextContent.Contains("checklist"))
+            .GetAttribute("aria-label").Should().Be("선택 모드");
+        toolButtons.First(button => button.TextContent.Contains("view_column"))
+            .GetAttribute("aria-label").Should().Be("컬럼 선택");
+        toolButtons.First(button => button.TextContent.Contains("more_vert"))
+            .GetAttribute("aria-label").Should().Be("더보기");
+    }
+
+    [Fact]
+    public void Uppercase_business_status_uses_localized_semantic_badge_and_preserves_raw_value()
+    {
+        using var ctx = RadzenContext();
+        var cols = new GridColumnDefinition[] { new("ORDER_STATUS", "상태") };
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["ORDER_STATUS"] = "DRAFT" },
+            new() { ["ORDER_STATUS"] = "CONFIRMED" },
+            new() { ["ORDER_STATUS"] = "PRODUCING" },
+            new() { ["ORDER_STATUS"] = "DELIVERED" },
+            new() { ["ORDER_STATUS"] = "CLOSED" },
+            new() { ["ORDER_STATUS"] = "CUSTOM_STATE" },
+        };
+        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+            .Add(c => c.Columns, cols)
+            .Add(c => c.Rows, rows));
+
+        var badges = cut.FindAll(".nx-status-badge");
+        badges.Select(badge => badge.TextContent.Trim()).Should()
+            .Equal("초안", "확정", "생산 중", "납품 완료", "마감", "CUSTOM_STATE");
+        badges.Select(badge => badge.GetAttribute("title")).Should()
+            .Equal(
+                new[] { "DRAFT", "CONFIRMED", "PRODUCING", "DELIVERED", "CLOSED", "CUSTOM_STATE" },
+                "표시 라벨만 현지화하고 원본 계약 값은 title로 보존해야 한다");
+        badges[0].ClassList.Should().Contain("rz-badge-info", "초안은 정보 tone");
+        badges[1].ClassList.Should().Contain("rz-badge-info", "확정은 정보 tone");
+        badges[2].ClassList.Should().Contain("rz-badge-success", "생산 중은 정상 진행 tone");
+        badges[3].ClassList.Should().Contain("rz-badge-success", "납품 완료는 성공 tone");
+        badges[4].ClassList.Should().Contain("rz-badge-light", "마감은 중성 tone");
+        badges.Last().ClassList.Should().Contain("rz-badge-light", "미정 상태는 중성 tone으로 폴백해야 한다");
+    }
+
+    [Fact]
+    public void English_business_status_labels_remain_natural_without_seeded_status_resources()
+    {
+        using var ctx = RadzenContext();
+        var ui = new NexaOne.Web.Services.UiTextService();
+        ui.Load("EnUs", new Dictionary<string, string>());
+        ctx.Services.AddSingleton(ui);
+        var statuses = new[] { "Draft", "Confirmed", "Producing", "Delivered", "Closed" };
+        var cut = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+            .Add(component => component.Columns, new GridColumnDefinition[] { new("STATUS", "상태") })
+            .Add(component => component.Rows, statuses
+                .Select(status => new Dictionary<string, object?> { ["STATUS"] = status })
+                .ToList()));
+
+        cut.FindAll(".nx-status-badge").Select(badge => badge.TextContent.Trim()).Should()
+            .Equal(statuses);
     }
 
     [Fact]
@@ -475,4 +688,269 @@ public sealed class MetaGridRendererTests
 
         cut.FindAll(".nx-grid-trunc").Should().BeEmpty("서버 페이징 화면은 절단 배너를 띄우지 않는다");
     }
+
+    [Fact]
+    public void View_segments_expose_four_accessible_modes_only_when_enabled()
+    {
+        using var ctx = RadzenContext();
+        var rows = new List<Dictionary<string, object?>> { new() { ["ORDER_ID"] = "WO-1" } };
+        var columns = new GridColumnDefinition[] { new("ORDER_ID", "작업지시") };
+
+        var cut = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+            .Add(component => component.Columns, columns)
+            .Add(component => component.Rows, rows)
+            .Add(component => component.ScreenKey, "MANAGE_VIEW")
+            .Add(component => component.EnableViewModes, true));
+
+        var buttons = cut.FindAll(".nx-view-segments button");
+        buttons.Should().HaveCount(4);
+        buttons.Count(button => button.GetAttribute("aria-pressed") == "true").Should().Be(1);
+        buttons.Should().OnlyContain(button => button.GetAttribute("aria-controls") == cut.Find(".meta-grid-content").Id);
+        buttons.Should().OnlyContain(button => button.TagName == "BUTTON" && button.GetAttribute("type") == "button",
+            "네이티브 버튼은 Enter/Space 키보드 선택을 기본 제공한다");
+
+        var expected = new[] { "standard-table", "dense-table", "card", "split-detail" };
+        foreach (var mode in expected)
+        {
+            var button = cut.FindAll(".nx-view-segments button")[Array.IndexOf(expected, mode)];
+            button.Click();
+            cut.Find(".meta-grid").GetAttribute("data-view").Should().Be(mode);
+            cut.FindAll(".nx-view-segments button").Count(item => item.GetAttribute("aria-pressed") == "true").Should().Be(1);
+        }
+
+        var disabled = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+            .Add(component => component.Columns, columns)
+            .Add(component => component.Rows, rows));
+        disabled.FindAll(".meta-grid-viewbar").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void View_preference_restores_with_new_key_priority_saves_and_reloads_on_screen_change()
+    {
+        using var ctx = RadzenContext();
+        ctx.JSInterop.Setup<string?>("localStorage.getItem", "nxgrid:MANAGE_A:density").SetResult("compact");
+        ctx.JSInterop.Setup<string?>("localStorage.getItem", "nxgrid:MANAGE_A:view").SetResult("card");
+        ctx.JSInterop.Setup<string?>("localStorage.getItem", "nxgrid:MANAGE_B:view").SetResult("not-a-view");
+        var rows = new List<Dictionary<string, object?>> { new() { ["ORDER_ID"] = "WO-1" } };
+        var columns = new GridColumnDefinition[] { new("ORDER_ID", "작업지시") };
+
+        var cut = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+            .Add(component => component.Columns, columns)
+            .Add(component => component.Rows, rows)
+            .Add(component => component.ScreenKey, "MANAGE_A")
+            .Add(component => component.EnableViewModes, true));
+
+        cut.WaitForAssertion(() => cut.Find(".meta-grid").GetAttribute("data-view").Should().Be("card",
+            "신규 view 키가 기존 compact density 마이그레이션보다 우선한다"));
+        cut.FindAll(".nx-view-segments button").Single(button => button.TextContent.Contains("분할 상세")).Click();
+        ctx.JSInterop.Invocations.Should().Contain(invocation =>
+            invocation.Identifier == "localStorage.setItem"
+            && invocation.Arguments.Count == 2
+            && Convert.ToString(invocation.Arguments[0]) == "nxgrid:MANAGE_A:view"
+            && Convert.ToString(invocation.Arguments[1]) == "split-detail");
+
+        cut.SetParametersAndRender(parameters => parameters
+            .Add(component => component.Columns, columns)
+            .Add(component => component.Rows, rows)
+            .Add(component => component.ScreenKey, "MANAGE_B")
+            .Add(component => component.EnableViewModes, true));
+        cut.WaitForAssertion(() => cut.Find(".meta-grid").GetAttribute("data-view").Should().Be("standard-table",
+            "화면 키 전환 시 이전 모드를 누출하지 않고 잘못된 저장값은 표준 표로 안전하게 폴백한다"));
+    }
+
+    [Fact]
+    public void View_switch_preserves_filter_sort_selection_and_crud_contracts()
+    {
+        using var ctx = RadzenContext();
+        var columns = new GridColumnDefinition[]
+        {
+            new("ORDER_ID", "작업지시"),
+            new("NAME", "품목명"),
+            new("STATUS", "상태"),
+            new("SECRET", "숨김", Visible: false),
+        };
+        var rows = new List<Dictionary<string, object?>>
+        {
+            new() { ["ORDER_ID"] = "WO-1", ["NAME"] = "Busan B", ["STATUS"] = "DRAFT", ["SECRET"] = "S1" },
+            new() { ["ORDER_ID"] = "WO-2", ["NAME"] = "Busan A", ["STATUS"] = "CONFIRMED", ["SECRET"] = "S2" },
+            new() { ["ORDER_ID"] = "WO-3", ["NAME"] = "Seoul A", ["STATUS"] = "STARTED", ["SECRET"] = "S3" },
+        };
+        Dictionary<string, object?>? selected = null;
+        List<Dictionary<string, object?>>? deleted = null;
+        var cut = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+            .Add(component => component.Columns, columns)
+            .Add(component => component.Rows, rows)
+            .Add(component => component.ScreenKey, "MANAGE_STATE")
+            .Add(component => component.EnableViewModes, true)
+            .Add(component => component.CanDelete, true)
+            .Add(component => component.OnRowSelect,
+                EventCallback.Factory.Create<Dictionary<string, object?>>(this, row => selected = row))
+            .Add(component => component.OnDeleteRows,
+                EventCallback.Factory.Create<List<Dictionary<string, object?>>>(this, result => deleted = result)));
+
+        cut.FindAll(".nx-view-segments button").Single(button => button.TextContent.Contains("카드")).Click();
+        cut.Find(".nx-view-sort select").Change("NAME");
+        cut.FindAll(".meta-grid-toolbar button").First(button => button.TextContent.Contains("filter_alt")).Click();
+        cut.FindAll(".nx-filtermenu-val")[1].Input("Busan");
+        cut.FindAll(".nx-filtermenu-foot button").First().Click();
+
+        cut.FindAll(".nx-data-card").Should().HaveCount(2);
+        cut.Find(".nx-data-card-title strong").TextContent.Trim().Should().Be("WO-2", "카드 정렬은 보기 전환용 상태로 유지된다");
+        cut.Find(".nx-data-card-open").Click();
+        selected.Should().BeSameAs(rows[1]);
+        cut.FindAll("button").First(button => button.TextContent.Contains("삭제")).HasAttribute("disabled").Should().BeFalse();
+
+        cut.FindAll(".nx-view-segments button").Single(button => button.TextContent.Contains("분할 상세")).Click();
+        cut.FindAll(".rz-data-row").Should().HaveCount(2, "활성 필터가 보기 전환 뒤에도 유지된다");
+        cut.Find(".nx-split-detail").GetAttribute("aria-label").Should().Be("빠른 참조 상세");
+        cut.Find(".nx-split-detail").TextContent.Should().Contain("WO-2").And.Contain("Busan A").And.NotContain("S2");
+
+        cut.FindAll(".nx-view-segments button").Single(button => button.TextContent.Contains("카드")).Click();
+        cut.FindAll(".nx-data-card.is-selected").Should().ContainSingle("단일 선택도 보기 전환 뒤 유지된다");
+        cut.FindAll("button").First(button => button.TextContent.Contains("삭제")).Click();
+        deleted.Should().ContainSingle().Which.Should().BeSameAs(rows[1]);
+
+        deleted = null;
+        cut.FindAll(".meta-grid-toolbar button").First(button => button.TextContent.Contains("checklist")).Click();
+        var selectButton = cut.Find(".nx-data-card-open");
+        selectButton.GetAttribute("aria-label").Should().EndWith("선택");
+        selectButton.Click();
+        cut.Find(".nx-data-card-open").GetAttribute("aria-label").Should().EndWith("선택 해제");
+        cut.FindAll(".nx-view-segments button").Single(button => button.TextContent.Contains("밀집 표")).Click();
+        cut.Find(".nx-bulkbar-count").TextContent.Trim().Should().StartWith("1", "다중 선택도 보기 전환 뒤 유지된다");
+        cut.FindAll("button").First(button => button.TextContent.Contains("삭제")).Click();
+        deleted.Should().ContainSingle().Which.Should().BeSameAs(rows[1]);
+    }
+
+    [Fact]
+    public void Card_view_pages_client_rows_but_never_slices_a_server_page_twice()
+    {
+        using var ctx = RadzenContext();
+        var columns = new GridColumnDefinition[] { new("ORDER_ID", "작업지시") };
+        var clientRows = Enumerable.Range(1, 25)
+            .Select(index => new Dictionary<string, object?> { ["ORDER_ID"] = $"WO-{index:D2}" })
+            .ToList();
+        var client = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+            .Add(component => component.Columns, columns)
+            .Add(component => component.Rows, clientRows)
+            .Add(component => component.EnableViewModes, true));
+
+        client.FindAll(".nx-view-segments button").Single(button => button.TextContent.Contains("카드")).Click();
+        client.FindAll(".nx-data-card").Should().HaveCount(MetaGridRenderer.PageSize);
+        client.FindAll(".nx-card-pager button").Last().Click();
+        client.FindAll(".nx-data-card").Should().HaveCount(5);
+        client.Find(".nx-card-pager").TextContent.Should().Contain("2 / 2");
+
+        var serverRows = new List<Dictionary<string, object?>>
+        {
+            new() { ["ORDER_ID"] = "WO-21" },
+            new() { ["ORDER_ID"] = "WO-22" },
+        };
+        var server = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+            .Add(component => component.Columns, columns)
+            .Add(component => component.Rows, serverRows)
+            .Add(component => component.ServerTotal, 45)
+            .Add(component => component.ServerPage, 1)
+            .Add(component => component.EnableViewModes, true));
+        server.FindAll(".nx-view-segments button").Single(button => button.TextContent.Contains("카드")).Click();
+
+        server.FindAll(".nx-data-card").Should().HaveCount(2, "서버가 내려준 현재 페이지 행을 다시 20개 단위로 자르면 안 된다");
+        server.Find(".meta-grid-pager").TextContent.Should().Contain("2 / 3").And.Contain("45 행");
+    }
+
+    [Fact]
+    public void Card_view_marks_a_single_visible_page_item_for_the_wide_summary_layout()
+    {
+        using var ctx = RadzenContext();
+        var columns = new GridColumnDefinition[]
+        {
+            new("ORDER_ID", "수주 번호"),
+            new("CUSTOMER", "고객"),
+            new("PRODUCT", "품목"),
+            new("DUE_DATE", "납기일"),
+            new("STATUS", "상태"),
+            new("PLAN_QTY", "계획 수량"),
+        };
+        var cut = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+            .Add(component => component.Columns, columns)
+            .Add(component => component.Rows, new List<Dictionary<string, object?>>
+            {
+                new()
+                {
+                    ["ORDER_ID"] = "SO-001", ["CUSTOMER"] = "고객 A", ["PRODUCT"] = "품목 A",
+                    ["DUE_DATE"] = "2026-07-31", ["STATUS"] = "CONFIRMED", ["PLAN_QTY"] = 100,
+                },
+            })
+            .Add(component => component.EnableViewModes, true));
+
+        cut.FindAll(".nx-view-segments button").Single(button => button.TextContent.Contains("카드")).Click();
+
+        cut.Find(".nx-card-view").ClassList.Should().Contain("is-single",
+            "현재 카드 페이지가 한 건이면 최대 46rem 요약 레이아웃을 사용해야 한다");
+        cut.FindAll(".nx-data-card-fields > div").Should().HaveCount(5);
+    }
+
+    [Fact]
+    public void Single_card_layout_responds_to_component_width_as_well_as_viewport_width()
+    {
+        var css = ReadRepoFile("src/01.Web/NexaOne.Web.Components/Components/Meta/MetaGridRenderer.razor.css");
+
+        css.Should().Contain("width: min(100%, 46rem)", "넓은 영역에서도 단일 카드가 과도하게 늘어나면 안 된다");
+        System.Text.RegularExpressions.Regex.IsMatch(
+                css,
+                @"(?s)@container\s*\(max-width:\s*56\.25rem\).*?\.nx-card-view\.is-single\s+\.nx-data-card-fields\s*\{\s*grid-template-columns:\s*repeat\(2")
+            .Should().BeTrue("좁은 레이아웃 위젯은 브라우저 폭과 무관하게 2열로 줄어야 한다");
+        System.Text.RegularExpressions.Regex.IsMatch(
+                css,
+                @"(?s)@media\s*\(max-width:\s*480px\).*?\.nx-card-view\.is-single\s+\.nx-data-card-fields\s*\{\s*grid-template-columns:\s*minmax\(0,\s*1fr\)")
+            .Should().BeTrue("모바일 단일 카드는 1열로 읽혀야 한다");
+    }
+
+    [Fact]
+    public void Column_filter_menu_keeps_a_usable_desktop_width_and_becomes_a_drawer_safe_overlay()
+    {
+        var css = ReadRepoFile("src/01.Web/NexaOne.Web.Components/Components/Meta/MetaGridRenderer.razor.css");
+
+        System.Text.RegularExpressions.Regex.IsMatch(
+                css,
+                @"(?s)\.nx-filtermenu\s*\{[^}]*box-sizing:\s*border-box;[^}]*width:\s*30rem;[^}]*min-width:\s*22rem;")
+            .Should().BeTrue("데스크톱 필터는 28px 트리거 래퍼가 아니라 자체 읽기 폭을 가져야 한다");
+        System.Text.RegularExpressions.Regex.IsMatch(
+                css,
+                @"(?s)@media\s*\(max-width:\s*1100px\).*?\.nx-filtermenu\s*\{[^}]*position:\s*fixed;[^}]*right:\s*1rem;[^}]*left:\s*1rem;[^}]*width:\s*auto;[^}]*min-width:\s*0;")
+            .Should().BeTrue("사이드바가 드로어로 전환되는 폭에서는 필터가 뷰포트 안의 고정 오버레이여야 한다");
+        css.Should().NotContain("width: min(30rem, calc(100% -",
+            "팝업의 100%는 28px 트리거 래퍼 기준이라 필터가 읽을 수 없게 축소된다");
+    }
+
+    [Fact]
+    public void Grid_css_keeps_intrinsic_table_width_inside_the_data_scroll_viewport()
+    {
+        var css = ReadRepoFile("src/01.Web/NexaOne.Web.Components/Components/Meta/MetaGridRenderer.razor.css");
+
+        // Radzen의 루트 div에도 rz-datatable 클래스가 있다. 해당 루트에 max-content를 적용하면
+        // 그리드가 콘텐츠 폭으로 커져 문서 전체가 가로 스크롤되는 회귀가 생긴다.
+        System.Text.RegularExpressions.Regex.IsMatch(
+                css,
+                @"(?s)\.meta-grid\s+::deep\s+\.rz-datatable\s*(?:,|\{)")
+            .Should().BeFalse("intrinsic 폭은 Radzen 루트가 아니라 실제 table에만 적용해야 한다");
+
+        System.Text.RegularExpressions.Regex.IsMatch(
+                css,
+                @"(?s)\.meta-grid\s+::deep\s+table\.rz-grid-table\s*\{[^}]*min-width:\s*max-content")
+            .Should().BeTrue("넓은 열은 실제 table의 intrinsic 폭을 유지해야 한다");
+
+        System.Text.RegularExpressions.Regex.IsMatch(
+                css,
+                @"(?s)\.meta-grid\s+::deep\s+\.rz-data-grid\s*\{[^}]*min-width:\s*0;[^}]*overflow:\s*hidden")
+            .Should().BeTrue("Radzen 루트는 부모 폭 안에서 줄어들고 표의 넘침을 외부로 누출하지 않아야 한다");
+
+        System.Text.RegularExpressions.Regex.IsMatch(
+                css,
+                @"(?s)\.meta-grid\s+::deep\s+\.rz-data-grid-data\s*\{[^}]*min-width:\s*0;[^}]*overflow:\s*auto")
+            .Should().BeTrue("가로·세로 스크롤의 단일 경계는 data viewport여야 한다");
+    }
+
+    private static string ReadRepoFile(string relativePath)
+        => File.ReadAllText(RepositorySource.GetFile(relativePath));
 }

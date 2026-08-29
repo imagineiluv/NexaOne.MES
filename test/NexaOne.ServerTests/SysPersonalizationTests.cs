@@ -213,7 +213,7 @@ public sealed class SysPersonalizationTests : IClassFixture<SysPersonalizationTe
         // dev 시드 SmartUX 트리에서 Screen 잎 12개를 뽑아 순차 기록 → 상한 10개 유지(§20.12 RecentMenuCount).
         var user = Client("persona-cap");
         var menuRows = await Client("persona-cap").PostAsJsonAsync(
-            "/api/v1/query/SYS.MenuTree", new Dictionary<string, object>());
+            "/api/v1/query/SYS.MenuTreeForUser", new Dictionary<string, object>());
         menuRows.EnsureSuccessStatusCode();
         var all = await menuRows.Content.ReadFromJsonAsync<List<Dictionary<string, object?>>>();
         var screens = all!

@@ -3,11 +3,35 @@ using NexaOne.Common;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.RMS.Application.Rms;
 using NexaOne.RMS.Domain;
+using System.Data.Common;
 
 namespace NexaOne.RMS.Infrastructure;
 
 public sealed class RecipeRepository : QueryRepository, IRecipeRepository
 {
+    private const string InsertSql = @"INSERT INTO RMS_RECIPE
+            (RECIPE_ID, RECIPE_NAME, DESCRIPTION, EQUIPMENT_CLASS_ID, VERSION, APPROVAL_STATE,
+             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            SELECT
+             @RecipeId, @RecipeName, @Description, @EquipmentClassId, @Version, @ApprovalState,
+             @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt
+            WHERE NOT EXISTS (
+                SELECT 1 FROM RMS_RECIPE_COMMAND WHERE IDEMPOTENCY_KEY = @IdempotencyKey)
+              AND NOT EXISTS (
+                SELECT 1 FROM RMS_RECIPE WHERE RECIPE_ID = @RecipeId)";
+
+    private const string InsertParamSql = @"INSERT INTO RMS_RECIPE_PARAM
+            (PARAM_ID, RECIPE_ID, PARAM_NAME, PARAM_VALUE, UNIT, SORT_ORDER, VERSION_NO,
+             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@ParamId, @RecipeId, @ParamName, @ParamValue, @Unit, @SortOrder, @VersionNo,
+                    @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt)";
+
+    private const string InsertWriteSql = @"INSERT INTO RMS_RECIPE_COMMAND
+            (COMMAND_ID, COMMAND_TYPE, IDEMPOTENCY_KEY, REQUEST_HASH, RECIPE_ID,
+             SOURCE_RECIPE_ID, ACTOR_ID, CREATED_AT)
+            VALUES (@CommandId, @CommandType, @IdempotencyKey, @RequestHash, @RecipeId,
+                    @SourceRecipeId, @ActorId, @CreatedAt)";
+
     private readonly ServiceObjectProcessor _processor;
     private readonly bool _outboxEnabled;
 
@@ -26,16 +50,28 @@ public sealed class RecipeRepository : QueryRepository, IRecipeRepository
     }
 
     public async Task<IReadOnlyList<Recipe>> GetByEquipmentClassAsync(string equipmentClassId, CancellationToken ct = default)
-    {
-        const string sql = "SELECT * FROM RMS_RECIPE WHERE EQUIPMENT_CLASS_ID = @equipmentClassId";
-        var rows = await QueryAsync<RecipeRow>(sql, new { equipmentClassId }, ct);
-        return rows.Select(r => r.ToDomain()).OfType<Recipe>().ToList();
-    }
+        => await GetAsync(equipmentClassId, null, ct);
 
     public async Task<IReadOnlyList<Recipe>> GetByStateAsync(RecipeApprovalState state, CancellationToken ct = default)
+        => await GetAsync(null, state, ct);
+
+    public async Task<IReadOnlyList<Recipe>> GetAsync(
+        string? equipmentClassId,
+        RecipeApprovalState? state,
+        CancellationToken ct = default)
     {
-        const string sql = "SELECT * FROM RMS_RECIPE WHERE APPROVAL_STATE = @state";
-        var rows = await QueryAsync<RecipeRow>(sql, new { state = state.ToString() }, ct);
+        const string sql = @"SELECT * FROM RMS_RECIPE
+            WHERE (@equipmentClassId IS NULL OR EQUIPMENT_CLASS_ID = @equipmentClassId)
+              AND (@state IS NULL OR APPROVAL_STATE = @state)
+            ORDER BY RECIPE_ID, VERSION";
+        var normalizedClassId = string.IsNullOrWhiteSpace(equipmentClassId)
+            ? null
+            : equipmentClassId.Trim();
+        var rows = await QueryAsync<RecipeRow>(sql, new
+        {
+            equipmentClassId = normalizedClassId,
+            state = state?.ToString(),
+        }, ct);
         return rows.Select(r => r.ToDomain()).OfType<Recipe>().ToList();
     }
 
@@ -45,51 +81,174 @@ public sealed class RecipeRepository : QueryRepository, IRecipeRepository
         return await CountAsync(sql, new { state = state.ToString() }, ct);
     }
 
-    public async Task AddAsync(Recipe recipe, CancellationToken ct = default)
+    public async Task<RecipeWriteRecord?> GetWriteByIdempotencyKeyAsync(
+        string idempotencyKey, CancellationToken ct = default)
     {
-        const string sql = @"INSERT INTO RMS_RECIPE
-            (RECIPE_ID, RECIPE_NAME, DESCRIPTION, EQUIPMENT_CLASS_ID, VERSION, APPROVAL_STATE,
-             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES
-            (@RecipeId, @RecipeName, @Description, @EquipmentClassId, @Version, @ApprovalState,
-             @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt)";
-        await _processor.InsertAsync(sql, RecipeRow.FromDomain(recipe), ct);
+        const string sql = @"SELECT COMMAND_ID AS CommandId, COMMAND_TYPE AS CommandType,
+            IDEMPOTENCY_KEY AS IdempotencyKey, REQUEST_HASH AS RequestHash,
+            RECIPE_ID AS RecipeId, SOURCE_RECIPE_ID AS SourceRecipeId,
+            ACTOR_ID AS ActorId, CREATED_AT AS CreatedAt
+            FROM RMS_RECIPE_COMMAND WHERE IDEMPOTENCY_KEY = @idempotencyKey";
+        var row = await QueryFirstOrDefaultAsync<RecipeWriteRow>(sql, new { idempotencyKey }, ct);
+        return row?.ToRecord();
     }
 
-    private const string UpdateSql = @"UPDATE RMS_RECIPE SET
+    public async Task<bool> TryAddAsync(
+        Recipe recipe, RecipeWriteRecord write, CancellationToken ct = default)
+    {
+        var row = RecipeRow.FromDomain(recipe, write.ActorId, write.CreatedAt);
+        var parameters = MergeWrite(row, write);
+        try
+        {
+            return await _processor.ExecuteGuardedManyAsync(
+                ct, (InsertSql, parameters), (InsertWriteSql, parameters));
+        }
+        catch (DbException)
+        {
+            if (await GetWriteByIdempotencyKeyAsync(write.IdempotencyKey, ct) is not null)
+                return false;
+            if (await GetByIdAsync(recipe.Id, ct) is not null)
+                return false;
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 새 버전 header와 복제된 parameter를 한 트랜잭션으로 기록한다. parameter INSERT 하나라도 실패하면
+    /// header까지 롤백되어 빈 Recipe 버전이 남지 않는다.
+    /// </summary>
+    public async Task<bool> TryAddVersionAsync(
+        Recipe recipe,
+        IReadOnlyList<RecipeParam> parameters,
+        RecipeWriteRecord write,
+        CancellationToken ct = default)
+    {
+        var recipeRow = RecipeRow.FromDomain(recipe, write.ActorId, write.CreatedAt);
+        var recipeParameters = MergeWrite(recipeRow, write);
+
+        var statements = new List<(string Sql, object? Param)>
+        {
+            (InsertSql, recipeParameters),
+        };
+        statements.AddRange(parameters.Select(parameter =>
+            (InsertParamSql, (object?)new
+            {
+                ParamId = parameter.Id,
+                RecipeId = parameter.RecipeId,
+                parameter.ParamName,
+                parameter.ParamValue,
+                parameter.Unit,
+                parameter.SortOrder,
+                VersionNo = parameter.Version,
+                CreatedBy = write.ActorId,
+                CreatedAt = write.CreatedAt,
+                UpdatedBy = write.ActorId,
+                UpdatedAt = write.CreatedAt,
+            })));
+        statements.Add((InsertWriteSql, write));
+
+        try
+        {
+            return await _processor.ExecuteGuardedManyAsync(ct, statements.ToArray());
+        }
+        catch (DbException)
+        {
+            if (await GetWriteByIdempotencyKeyAsync(write.IdempotencyKey, ct) is not null)
+                return false;
+            if (await GetByIdAsync(recipe.Id, ct) is not null)
+                return false;
+            throw;
+        }
+    }
+
+    private const string TransitionSql = @"UPDATE RMS_RECIPE SET
             RECIPE_NAME = @RecipeName, DESCRIPTION = @Description, VERSION = @Version,
             APPROVAL_STATE = @ApprovalState, FIRST_APPROVER_ID = @FirstApproverId,
             SECOND_APPROVER_ID = @SecondApproverId, RELEASED_AT = @ReleasedAt,
             UPDATED_BY = @UpdatedBy, UPDATED_AT = @UpdatedAt
-            WHERE RECIPE_ID = @RecipeId";
+            WHERE RECIPE_ID = @RecipeId AND APPROVAL_STATE = @ExpectedState
+              AND NOT EXISTS (
+                  SELECT 1 FROM RMS_RECIPE_APPROVAL_HISTORY H
+                  WHERE H.IDEMPOTENCY_KEY = @IdempotencyKey)";
 
-    public async Task UpdateAsync(Recipe recipe, CancellationToken ct = default)
-    {
-        // 기본(outbox off): 기존 동작 그대로 — 단건 UPDATE(감사 자동주입), 적체 없음.
-        if (!_outboxEnabled)
-        {
-            await _processor.UpdateAsync(UpdateSql, RecipeRow.FromDomain(recipe), ct);
-            return;
-        }
-        // ADR-002 활성: 레시피 UPDATE + 도메인 이벤트(EES_OUTBOX)를 같은 트랜잭션으로 — 함께 커밋/롤백돼 발행 원자성 보장.
-        await PersistWithOutboxAsync(recipe, ct);
-    }
+    private const string InsertApprovalHistorySql = @"INSERT INTO RMS_RECIPE_APPROVAL_HISTORY
+            (HISTORY_ID, IDEMPOTENCY_KEY, REQUEST_HASH, RECIPE_ID,
+             FROM_STATE, TO_STATE, CHANGED_BY, REASON, CHANGED_AT)
+            VALUES
+            (@HistoryId, @IdempotencyKey, @RequestHash, @RecipeId,
+             @FromState, @ToState, @ChangedBy, @Reason, @ChangedAt)";
 
-    // 레시피 행 + 발행 이벤트를 한 트랜잭션으로 기록한다. ExecuteManyAsync는 raw(감사 미주입)라 레시피 행의 감사 컬럼을
-    // UpdateAsync 경로와 동일한 값(현재 사용자·UTC now)으로 명시 채운다. 발행 후 이벤트를 비워 재발행을 막는다.
-    // (DomainEvents가 비면 — 예: 이벤트 없는 필드 변경 — 데이터 행만 쓰고 outbox INSERT는 없다.)
-    private async Task PersistWithOutboxAsync(Recipe recipe, CancellationToken ct)
+    public async Task<bool> TryTransitionAsync(
+        Recipe recipe,
+        RecipeApprovalState expectedState,
+        RecipeTransitionWrite transition,
+        CancellationToken ct = default)
     {
-        var user = CurrentUserContext.UserId ?? "SYSTEM";
         var now = DateTime.UtcNow;
+        var update = UpdateParam(recipe, transition.ActorId, now);
+        update.Add("ExpectedState", expectedState.ToString());
+        update.Add("IdempotencyKey", transition.IdempotencyKey);
         var statements = new List<(string Sql, object? Param)>
         {
-            (UpdateSql, UpdateParam(recipe, user, now)),
+            (TransitionSql, update),
+            (InsertApprovalHistorySql, new
+            {
+                HistoryId = $"RAH_{Guid.NewGuid():N}",
+                transition.IdempotencyKey,
+                transition.RequestHash,
+                RecipeId = recipe.Id,
+                FromState = expectedState.ToString(),
+                ToState = recipe.ApprovalState.ToString(),
+                ChangedBy = transition.ActorId,
+                Reason = string.IsNullOrWhiteSpace(transition.Reason) ? null : transition.Reason.Trim(),
+                ChangedAt = now,
+            }),
         };
-        statements.AddRange(OutboxStatements.For(recipe.DomainEvents.OfType<IOutboxEvent>(), user, now));
-        await _processor.ExecuteManyAsync(ct, statements.ToArray());
-        recipe.ClearDomainEvents();
+        if (_outboxEnabled)
+            statements.AddRange(OutboxStatements.For(
+                recipe.DomainEvents.OfType<IOutboxEvent>(), transition.ActorId, now));
+
+        bool changed;
+        try
+        {
+            changed = await _processor.ExecuteGuardedManyAsync(ct, statements.ToArray());
+        }
+        catch (DbException)
+        {
+            if (await GetApprovalHistoryByIdempotencyKeyAsync(
+                    transition.IdempotencyKey, ct) is not null)
+                return false;
+            throw;
+        }
+        if (changed) recipe.ClearDomainEvents();
+        return changed;
     }
+
+    public async Task<RecipeApprovalHistoryRecord?> GetApprovalHistoryByIdempotencyKeyAsync(
+        string idempotencyKey, CancellationToken ct = default)
+    {
+        var row = await QueryFirstOrDefaultAsync<ApprovalHistoryRow>(
+            ApprovalHistorySelectSql + " WHERE IDEMPOTENCY_KEY = @idempotencyKey",
+            new { idempotencyKey }, ct);
+        return row?.ToRecord();
+    }
+
+    public async Task<IReadOnlyList<RecipeApprovalHistoryRecord>> GetApprovalHistoryAsync(
+        string recipeId, CancellationToken ct = default)
+    {
+        var sql = ApprovalHistorySelectSql + @"
+            WHERE RECIPE_ID = @recipeId
+            ORDER BY CHANGED_AT, HISTORY_ID";
+        var rows = await QueryAsync<ApprovalHistoryRow>(sql, new { recipeId }, ct);
+        return rows.Select(row => row.ToRecord()).ToList();
+    }
+
+    private const string ApprovalHistorySelectSql = @"SELECT
+            HISTORY_ID AS HistoryId, IDEMPOTENCY_KEY AS IdempotencyKey,
+            REQUEST_HASH AS RequestHash, RECIPE_ID AS RecipeId, FROM_STATE AS FromState,
+            TO_STATE AS ToState, CHANGED_BY AS ChangedBy, REASON AS Reason,
+            CHANGED_AT AS ChangedAt
+            FROM RMS_RECIPE_APPROVAL_HISTORY";
 
     private static Dapper.DynamicParameters UpdateParam(Recipe recipe, string user, DateTime now)
     {
@@ -105,6 +264,18 @@ public sealed class RecipeRepository : QueryRepository, IRecipeRepository
         p.Add("UpdatedBy", user);
         p.Add("UpdatedAt", now);
         return p;
+    }
+
+    private static Dapper.DynamicParameters MergeWrite(RecipeRow row, RecipeWriteRecord write)
+    {
+        var parameters = new Dapper.DynamicParameters(row);
+        parameters.Add("CommandId", write.CommandId);
+        parameters.Add("CommandType", write.CommandType);
+        parameters.Add("IdempotencyKey", write.IdempotencyKey);
+        parameters.Add("RequestHash", write.RequestHash);
+        parameters.Add("SourceRecipeId", write.SourceRecipeId);
+        parameters.Add("ActorId", write.ActorId);
+        return parameters;
     }
 
     private sealed class RecipeRow
@@ -136,7 +307,7 @@ public sealed class RecipeRepository : QueryRepository, IRecipeRepository
                 CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
         }
 
-        public static RecipeRow FromDomain(Recipe r) => new()
+        public static RecipeRow FromDomain(Recipe r, string? actor = null, DateTime? at = null) => new()
         {
             RecipeId = r.Id,
             RecipeName = r.RecipeName,
@@ -146,7 +317,52 @@ public sealed class RecipeRepository : QueryRepository, IRecipeRepository
             ApprovalState = r.ApprovalState.ToString(),
             FirstApproverId = r.FirstApproverId,
             SecondApproverId = r.SecondApproverId,
-            ReleasedAt = r.ReleasedAt
+            ReleasedAt = r.ReleasedAt,
+            CreatedBy = actor ?? r.CreatedBy,
+            CreatedAt = at ?? r.CreatedAt,
+            UpdatedBy = actor ?? r.UpdatedBy,
+            UpdatedAt = at ?? r.UpdatedAt,
         };
+    }
+
+    private sealed class ApprovalHistoryRow
+    {
+        public string HistoryId { get; set; } = "";
+        public string IdempotencyKey { get; set; } = "";
+        public string RequestHash { get; set; } = "";
+        public string RecipeId { get; set; } = "";
+        public string FromState { get; set; } = "Draft";
+        public string ToState { get; set; } = "Draft";
+        public string ChangedBy { get; set; } = "";
+        public string? Reason { get; set; }
+        public DateTime ChangedAt { get; set; }
+
+        public RecipeApprovalHistoryRecord ToRecord()
+            => new(
+                HistoryId,
+                IdempotencyKey,
+                RequestHash,
+                RecipeId,
+                Enum.Parse<RecipeApprovalState>(FromState, true),
+                Enum.Parse<RecipeApprovalState>(ToState, true),
+                ChangedBy,
+                Reason,
+                ChangedAt);
+    }
+
+    private sealed class RecipeWriteRow
+    {
+        public string CommandId { get; set; } = "";
+        public string CommandType { get; set; } = "";
+        public string IdempotencyKey { get; set; } = "";
+        public string RequestHash { get; set; } = "";
+        public string RecipeId { get; set; } = "";
+        public string? SourceRecipeId { get; set; }
+        public string ActorId { get; set; } = "";
+        public DateTime CreatedAt { get; set; }
+
+        public RecipeWriteRecord ToRecord() => new(
+            CommandId, CommandType, IdempotencyKey, RequestHash, RecipeId,
+            SourceRecipeId, ActorId, CreatedAt);
     }
 }

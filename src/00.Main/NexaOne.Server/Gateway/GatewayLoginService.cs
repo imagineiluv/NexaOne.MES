@@ -84,7 +84,7 @@ public sealed class GatewayLoginService
         var roleId = ToStr(Get(row, "ROLE_ID"));
         var requireChange = !string.Equals(ToStr(Get(row, "PASSWORD_STATE"), "Normal"), "Normal", StringComparison.Ordinal);
         var roles = new[] { roleId };
-        var perms = EffectivePermissions(roleId, ToNullableStr(Get(row, "PERMISSIONS")));
+        var perms = EffectivePermissions(ToNullableStr(Get(row, "PERMISSIONS")));
         var accessToken = _jwt.GenerateAccessToken(userId, userName, plantId, roles, requireChange, perms);
         var refreshToken = await _tokenStore.IssueAsync(userId);
 
@@ -109,7 +109,7 @@ public sealed class GatewayLoginService
         var userName = ToStr(Get(row, "USER_NAME"));
         var roleId = ToStr(Get(row, "ROLE_ID"));
         var requireChange = !string.Equals(ToStr(Get(row, "PASSWORD_STATE"), "Normal"), "Normal", StringComparison.Ordinal);
-        var perms = EffectivePermissions(roleId, ToNullableStr(Get(row, "PERMISSIONS")));
+        var perms = EffectivePermissions(ToNullableStr(Get(row, "PERMISSIONS")));
         var plantId = string.IsNullOrEmpty(bearerPlantId) ? "DEFAULT" : bearerPlantId;
         var accessToken = _jwt.GenerateAccessToken(userId, userName, plantId, new[] { roleId }, requireChange, perms);
 
@@ -144,7 +144,7 @@ public sealed class GatewayLoginService
 
         var userName = ToStr(Get(row, "USER_NAME"));
         var roleId = ToStr(Get(row, "ROLE_ID"));
-        var perms = EffectivePermissions(roleId, ToNullableStr(Get(row, "PERMISSIONS")));
+        var perms = EffectivePermissions(ToNullableStr(Get(row, "PERMISSIONS")));
         // requireChange=false(변경 완료) 새 토큰 — pwdChange 클레임 제거.
         var accessToken = _jwt.GenerateAccessToken(userId, userName, plantId, new[] { roleId }, false, perms);
         var refreshToken = await _tokenStore.IssueAsync(userId);
@@ -161,8 +161,8 @@ public sealed class GatewayLoginService
         if (existing is not null)
             return AuthOutcome.Conflict(new Error("USER_ALREADY_EXISTS", $"User '{req.UserId}' already exists.", ErrorType.Conflict));
 
-        // SEC-1: SYS_USER.ROLE_ID에는 DB FK가 없어 register가 orphan/비활성 역할을 허용하면 권한 NULL(무력 계정)
-        // 또는 RolePermissionDefaults 하드코딩과 역할 레지스트리의 디커플링이 발생한다. INSERT 전에 활성 SYS_ROLE 존재를 검증한다.
+        // SEC-1: SYS_USER.ROLE_ID에는 DB FK가 없어 register가 orphan/비활성 역할을 허용하면
+        // fail-closed 무권한 계정이 된다. INSERT 전에 활성 SYS_ROLE 존재를 검증한다.
         var rolePermissions = await GetActiveRolePermissionsAsync(req.RoleId, ct);
         if (rolePermissions is null)
             return AuthOutcome.BadRequest(new Error("INVALID_ROLE", $"Role '{req.RoleId}' does not exist or is inactive.", ErrorType.Validation));
@@ -286,10 +286,10 @@ public sealed class GatewayLoginService
             System.Globalization.DateTimeStyles.None, out var p) ? p : null;
     }
 
-    // ── 권한 합성 (운영 UserService.GetEffectivePermissionsAsync와 동일: 기본 매핑 ∪ split('|'), OrdinalIgnoreCase distinct) ──
-    private static IReadOnlyList<string> EffectivePermissions(string roleId, string? permissionsCsv)
+    // SYS_ROLE.PERMISSIONS가 런타임 권한의 단일 원천이다. 역할 누락/소프트삭제/NULL은 fail-closed 빈 권한이다.
+    private static IReadOnlyList<string> EffectivePermissions(string? permissionsCsv)
     {
-        var set = new HashSet<string>(RolePermissionDefaults.For(roleId), StringComparer.OrdinalIgnoreCase);
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (!string.IsNullOrEmpty(permissionsCsv))
             foreach (var p in permissionsCsv.Split('|', StringSplitOptions.RemoveEmptyEntries))
                 set.Add(p);

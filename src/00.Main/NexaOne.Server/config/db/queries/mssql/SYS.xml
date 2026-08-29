@@ -1,24 +1,105 @@
 <?xml version="1.0" encoding="utf-8"?>
 <queries module="SYS">
-  <!-- 화면정의 영속(Phase 5a) — SYS_SCREEN_DEFINITION. UI 메타(불투명 JSON), read 무해 / write는 sys:manage. -->
-  <query id="SYS.GetScreenDefinition">
+  <!-- 화면정의 영속 + 진입 대상 — JSON은 SYS_SCREEN_DEFINITION, 채널/완전 경로는 SYS_SCREEN_TARGET이 소유한다.
+       대상행이 없는 레거시 정의는 MES + /meta/{UI_ID}로 해석한다. read 무해 / write는 sys:manage. -->
+  <query id="SYS.GetScreenDefinition" access="public">
     <statement><![CDATA[
-SELECT UI_ID, TITLE, DEFINITION_JSON FROM SYS_SCREEN_DEFINITION WITH (NOLOCK) WHERE UI_ID = @uiId
+SELECT D.UI_ID, D.TITLE, D.DEFINITION_JSON,
+       COALESCE(T.TARGET_CHANNEL, 'MES') AS TARGET_CHANNEL,
+       COALESCE(T.ENTRY_PATH, '/meta/' + D.UI_ID) AS ENTRY_PATH
+FROM SYS_SCREEN_DEFINITION D WITH (NOLOCK)
+LEFT JOIN SYS_SCREEN_TARGET T WITH (NOLOCK) ON T.UI_ID = D.UI_ID
+WHERE D.UI_ID = @uiId
 ]]></statement>
   </query>
-  <query id="SYS.ListScreenDefinitions">
+  <query id="SYS.ListScreenDefinitions" requiredPermission="sys:read">
     <statement><![CDATA[
-SELECT UI_ID, TITLE FROM SYS_SCREEN_DEFINITION WITH (NOLOCK) ORDER BY UI_ID
+SELECT D.UI_ID, D.TITLE,
+       COALESCE(T.TARGET_CHANNEL, 'MES') AS TARGET_CHANNEL,
+       COALESCE(T.ENTRY_PATH, '/meta/' + D.UI_ID) AS ENTRY_PATH
+FROM SYS_SCREEN_DEFINITION D WITH (NOLOCK)
+LEFT JOIN SYS_SCREEN_TARGET T WITH (NOLOCK) ON T.UI_ID = D.UI_ID
+WHERE NULLIF(LTRIM(RTRIM(@targetChannel)), '') IS NULL
+   OR COALESCE(T.TARGET_CHANNEL, 'MES') = UPPER(LTRIM(RTRIM(@targetChannel)))
+ORDER BY D.UI_ID
 ]]></statement>
   </query>
   <query id="SYS.UpsertScreenDefinition" kind="write" requiredPermission="sys:manage">
     <statement><![CDATA[
-MERGE SYS_SCREEN_DEFINITION WITH (HOLDLOCK) AS t
-USING (SELECT @uiId AS UI_ID) AS s ON t.UI_ID = s.UI_ID
-WHEN MATCHED THEN UPDATE SET
-    TITLE = @title, DEFINITION_JSON = @definitionJson, UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
-WHEN NOT MATCHED THEN INSERT (UI_ID, TITLE, DEFINITION_JSON, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-    VALUES (@uiId, @title, @definitionJson, @currentUser, @utcNow, @currentUser, @utcNow);
+    MERGE SYS_SCREEN_DEFINITION WITH (HOLDLOCK) AS D
+    USING (SELECT @uiId AS UI_ID) AS S ON D.UI_ID = S.UI_ID
+    WHEN MATCHED THEN UPDATE SET
+        TITLE = @title, DEFINITION_JSON = @definitionJson, UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+    WHEN NOT MATCHED THEN INSERT (UI_ID, TITLE, DEFINITION_JSON, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+        VALUES (@uiId, @title, @definitionJson, @currentUser, @utcNow, @currentUser, @utcNow);
+
+    MERGE SYS_SCREEN_TARGET WITH (HOLDLOCK) AS T
+    USING (
+        SELECT N.UI_ID, N.TARGET_CHANNEL,
+               CASE
+                   WHEN N.REQUESTED_ENTRY_PATH IS NULL THEN E.EXPECTED_ENTRY_PATH
+                   WHEN N.REQUESTED_ENTRY_PATH = E.EXPECTED_ENTRY_PATH THEN N.REQUESTED_ENTRY_PATH
+                   ELSE CAST(NULL AS NVARCHAR(220))
+               END AS ENTRY_PATH
+        FROM (
+            SELECT @uiId AS UI_ID,
+                   UPPER(COALESCE(NULLIF(LTRIM(RTRIM(@targetChannel)), ''), 'MES')) AS TARGET_CHANNEL,
+                   NULLIF(LTRIM(RTRIM(@entryPath)), '') AS REQUESTED_ENTRY_PATH
+        ) AS N
+        CROSS APPLY (
+            SELECT CASE N.TARGET_CHANNEL
+                       WHEN 'MOBILE' THEN '/Mobile/' + N.UI_ID
+                       WHEN 'POP' THEN '/POP/' + N.UI_ID
+                       ELSE '/meta/' + N.UI_ID
+                   END AS EXPECTED_ENTRY_PATH
+        ) AS E
+    ) AS S ON T.UI_ID = S.UI_ID
+    WHEN MATCHED THEN UPDATE SET
+        TARGET_CHANNEL = S.TARGET_CHANNEL, ENTRY_PATH = S.ENTRY_PATH,
+        UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+    WHEN NOT MATCHED THEN INSERT
+        (UI_ID, TARGET_CHANNEL, ENTRY_PATH, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+        VALUES (S.UI_ID, S.TARGET_CHANNEL, S.ENTRY_PATH, @currentUser, @utcNow, @currentUser, @utcNow);
+]]></statement>
+  </query>
+
+  <!-- Designer 코드 시드 가져오기 전용. PK key-range를 잠근 뒤 새 행일 때만 정의와 대상을 함께 넣는다.
+       일반 Upsert와 달리 기존 정의/대상은 어떤 경우에도 갱신하지 않는 insert-only 경계다. -->
+  <query id="SYS.ImportSeedScreenDefinition" kind="write" requiredPermission="sys:manage">
+    <statement><![CDATA[
+IF NOT EXISTS (
+    SELECT 1
+    FROM SYS_SCREEN_DEFINITION WITH (UPDLOCK, HOLDLOCK)
+    WHERE UI_ID = @uiId
+)
+BEGIN
+    INSERT INTO SYS_SCREEN_DEFINITION
+        (UI_ID, TITLE, DEFINITION_JSON, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+    VALUES
+        (@uiId, @title, @definitionJson, @currentUser, @utcNow, @currentUser, @utcNow);
+
+    INSERT INTO SYS_SCREEN_TARGET
+        (UI_ID, TARGET_CHANNEL, ENTRY_PATH, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+    SELECT @uiId, N.TARGET_CHANNEL,
+           CASE
+               WHEN N.REQUESTED_ENTRY_PATH IS NULL THEN E.EXPECTED_ENTRY_PATH
+               WHEN N.REQUESTED_ENTRY_PATH = E.EXPECTED_ENTRY_PATH THEN N.REQUESTED_ENTRY_PATH
+               ELSE CAST(NULL AS NVARCHAR(220))
+           END,
+           @currentUser, @utcNow, @currentUser, @utcNow
+    FROM (
+        SELECT UPPER(COALESCE(NULLIF(LTRIM(RTRIM(@targetChannel)), ''), 'MES')) AS TARGET_CHANNEL,
+               NULLIF(LTRIM(RTRIM(@entryPath)), '') AS REQUESTED_ENTRY_PATH
+    ) AS N
+    CROSS APPLY (
+        SELECT CASE N.TARGET_CHANNEL
+                   WHEN 'MOBILE' THEN '/Mobile/' + @uiId
+                   WHEN 'POP' THEN '/POP/' + @uiId
+                   WHEN 'MES' THEN '/meta/' + @uiId
+                   ELSE CAST(NULL AS NVARCHAR(220))
+               END AS EXPECTED_ENTRY_PATH
+    ) AS E;
+END
 ]]></statement>
   </query>
 
@@ -27,7 +108,7 @@ WHEN NOT MATCHED THEN INSERT (UI_ID, TITLE, DEFINITION_JSON, CREATED_BY, CREATED
        절대 SELECT하지 않는다(자격증명/잠금은 격리 인증 경로 db/queries-auth가 소유). 역할/메뉴는 자격증명 무관. -->
 
   <!-- 역할 목록 — 비-자격증명. PERMISSIONS는 '|' 조인 권한 문자열. -->
-  <query id="SYS.ListRoles">
+  <query id="SYS.ListRoles" requiredPermission="sys:manage">
     <statement><![CDATA[
 SELECT ROLE_ID, ROLE_NAME, DESCRIPTION, PERMISSIONS
 FROM SYS_ROLE WITH (NOLOCK)
@@ -37,7 +118,7 @@ ORDER BY ROLE_ID
   </query>
 
   <!-- 단일 역할 조회 — 비-자격증명. -->
-  <query id="SYS.GetRole">
+  <query id="SYS.GetRole" requiredPermission="sys:manage">
     <statement><![CDATA[
 SELECT ROLE_ID, ROLE_NAME, DESCRIPTION, PERMISSIONS
 FROM SYS_ROLE WITH (NOLOCK)
@@ -46,7 +127,7 @@ WHERE ROLE_ID = @roleId AND IS_DELETED = 0
   </query>
 
   <!-- 메뉴 목록(유효 마스터) — 비-자격증명. -->
-  <query id="SYS.ListMenus">
+  <query id="SYS.ListMenus" requiredPermission="sys:read">
     <statement><![CDATA[
 SELECT MENU_ID, MENU_NAME, PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, PROGRAM_ID, IMAGE_ID, OPTIONS, UI_ID
 FROM SYS_MENU WITH (NOLOCK)
@@ -56,7 +137,7 @@ ORDER BY PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, MENU_ID
   </query>
 
   <!-- 사용자 목록(활성·비삭제) — 비민감 컬럼만(PASSWORD_HASH/PASSWORD_STATE/FAIL_COUNT/LOCKED_UNTIL 제외). -->
-  <query id="SYS.ListUsers">
+  <query id="SYS.ListUsers" requiredPermission="sys:user.manage">
     <statement><![CDATA[
 SELECT USER_ID, USER_NAME, EMAIL, ROLE_ID, LANGUAGE, IS_ACTIVE, LAST_LOGIN_AT
 FROM SYS_USER WITH (NOLOCK)
@@ -68,7 +149,7 @@ ORDER BY USER_ID
 
   <!-- ===== 계층 메뉴(SmartUX 셸 사이드바·메뉴 관리 CRUD) — 비-자격증명 마스터. read 무해 / write는 sys:manage. ===== -->
   <!-- 셸 사이드바·메뉴 관리 화면이 쓰는 트리 조회. PARENT_MENU_ID null=대분류(Folder), 그 외=하위(Screen). -->
-  <query id="SYS.MenuTree">
+  <query id="SYS.MenuTree" requiredPermission="sys:read">
     <statement><![CDATA[
 SELECT MENU_ID, MENU_NAME, PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_TYPE, UI_ID
 FROM SYS_MENU WITH (NOLOCK)
@@ -82,7 +163,7 @@ ORDER BY PARENT_MENU_ID, DISPLAY_SEQUENCE, MENU_ID
        폴더는 항상 통과(빈 폴더 정리는 셸 클라이언트). 전권('*') 역할은 매핑과 무관하게 전체를 본다.
        MenuTreeForUser는 @currentUser가 필요해 호스트 GET /api/v1/sys/menu-tree(토큰 바인딩)가 정상
        경로다 — /query 직접 호출은 @currentUser 미주입(DBNull)이라 매핑된 메뉴가 모두 숨는다(안전 방향). -->
-  <query id="SYS.MenuTreeForUser">
+  <query id="SYS.MenuTreeForUser" access="public">
     <statement><![CDATA[
 SELECT m.MENU_ID, m.MENU_NAME, m.PARENT_MENU_ID, m.DISPLAY_SEQUENCE, m.MENU_TYPE, m.UI_ID
 FROM SYS_MENU m WITH (NOLOCK)
@@ -106,7 +187,7 @@ ORDER BY m.PARENT_MENU_ID, m.DISPLAY_SEQUENCE, m.MENU_ID
 ]]></statement>
   </query>
 
-  <query id="SYS.MenuRoleList">
+  <query id="SYS.MenuRoleList" requiredPermission="sys:manage">
     <statement><![CDATA[
 SELECT r.MENU_ID, m.MENU_NAME, r.ROLE_ID, ro.ROLE_NAME, r.VALID_STATE
 FROM SYS_MENU_ROLE r WITH (NOLOCK)
@@ -138,7 +219,7 @@ DELETE FROM SYS_MENU_ROLE WHERE MENU_ID = @menuId AND ROLE_ID = @roleId
 
   <!-- ===== 다국어(P3-14 v1) — 공통 문구 리소스(V031 테이블·V070 EnUs 시드)와 사용자 언어 설정. =====
        UserLanguage/UpdateUserLanguage는 @currentUser 스코프 — 호스트 GET/PUT /api/v1/sys/language가 정상 경로. -->
-  <query id="SYS.LanguageResources">
+  <query id="SYS.LanguageResources" access="public">
     <statement><![CDATA[
 SELECT RESOURCE_KEY, VALUE
 FROM SYS_MULTI_LANGUAGE_RESOURCE WITH (NOLOCK)
@@ -146,7 +227,7 @@ WHERE LANGUAGE = @language
 ]]></statement>
   </query>
 
-  <query id="SYS.UserLanguage">
+  <query id="SYS.UserLanguage" access="public">
     <statement><![CDATA[
 SELECT LANGUAGE FROM SYS_USER WITH (NOLOCK) WHERE USER_ID = @currentUser AND IS_DELETED = 0
 ]]></statement>
@@ -164,7 +245,7 @@ WHERE USER_ID = @currentUser AND IS_DELETED = 0
        읽기는 /query 직접 호출 시 @currentUser 미주입(DBNull)이라 0행 — 본 쿼리들은 호스트
        SysPersonalizationController가 토큰 사용자로 바인딩해 실행하는 것이 정상 경로다. -->
 
-  <query id="SYS.ListFavoriteMenus">
+  <query id="SYS.ListFavoriteMenus" access="public">
     <statement><![CDATA[
 SELECT F.MENU_ID, M.MENU_NAME, M.PROGRAM_ID, M.IMAGE_ID, M.UI_ID, F.DISPLAY_SEQUENCE
 FROM SYS_FAVORITE_MENU F WITH (NOLOCK)
@@ -195,7 +276,7 @@ DELETE FROM SYS_FAVORITE_MENU WHERE USER_ID = @currentUser AND MENU_ID = @menuId
 UPDATE SYS_FAVORITE_MENU SET DISPLAY_SEQUENCE = @sequence WHERE USER_ID = @currentUser AND MENU_ID = @menuId
 ]]></statement>
   </query>
-  <query id="SYS.ListRecentMenus">
+  <query id="SYS.ListRecentMenus" access="public">
     <statement><![CDATA[
 SELECT TOP 10 R.MENU_ID, M.MENU_NAME, M.PROGRAM_ID, M.IMAGE_ID, M.UI_ID, R.LAST_USED_AT
 FROM SYS_RECENT_MENU R WITH (NOLOCK)
@@ -228,7 +309,7 @@ WHEN NOT MATCHED THEN INSERT (MENU_ID, USE_COUNT, LAST_USED_AT) VALUES (S.MENU_I
 ]]></statement>
   </query>
   <!-- 사용 통계 조회(관리) — 재배열 판단 근거: 잎별 전역 사용 횟수·최근 사용. -->
-  <query id="SYS.MenuUsageStats">
+  <query id="SYS.MenuUsageStats" requiredPermission="sys:manage">
     <statement><![CDATA[
 SELECT TOP 500 U.MENU_ID, M.MENU_NAME, M.UI_ID, U.USE_COUNT, U.LAST_USED_AT
 FROM SYS_MENU_USAGE U WITH (NOLOCK)
@@ -247,7 +328,7 @@ WHERE USER_ID = @currentUser
 
   <!-- 대시보드 요약(홈 KPI) — 모듈 횡단 카운트 1행. 상태 리터럴은 각 도메인 enum ToString() 저장값과 일치
        (WorkOrderStatus/ProductionPlanStatus/RecipeApprovalState/DeliveryOrderStatus). read 무해. -->
-  <query id="SYS.DashboardSummary">
+  <query id="SYS.DashboardSummary" access="public">
     <statement><![CDATA[
 SELECT
   (SELECT COUNT(*) FROM EST_EQUIPMENT_ALARM WITH (NOLOCK) WHERE CLEARED_AT IS NULL)                    AS ACTIVE_ALARMS,
@@ -259,7 +340,7 @@ SELECT
   </query>
 
   <!-- ===== 배치 작업 정의(V066, SYSTEM_2_BATCH_PROC_MANAGEMENT) — 1차=정의 CRUD, 실행 엔진 후속. ===== -->
-  <query id="SYS.BatchProcessList">
+  <query id="SYS.BatchProcessList" requiredPermission="sys:manage">
     <statement><![CDATA[
 SELECT BATCH_ID, BATCH_NAME, BATCH_TYPE, BATCH_RULE, BATCH_OPTIONS, BATCH_INPUTDATA,
        AUTO_TRANSACTION, SAVE_HISTORY, DESCRIPTION, VALID_STATE, UPDATED_BY, UPDATED_AT
@@ -299,7 +380,7 @@ INSERT INTO SYS_BATCH_PROCESS_HISTORY
 VALUES (@historyId, @batchId, @startedAt, @finishedAt, @success, @affected, @errorMessage, @currentUser)
 ]]></statement>
   </query>
-  <query id="SYS.BatchProcessHistoryList">
+  <query id="SYS.BatchProcessHistoryList" requiredPermission="sys:manage">
     <statement><![CDATA[
 SELECT TOP 200 HISTORY_ID, BATCH_ID, STARTED_AT, FINISHED_AT, SUCCESS, AFFECTED, ERROR_MESSAGE, EXECUTED_BY
 FROM SYS_BATCH_PROCESS_HISTORY WITH (NOLOCK)
@@ -321,7 +402,7 @@ DELETE FROM SYS_REQUEST_LOG WHERE REQUESTED_AT < DATEADD(DAY, -@retentionDays, @
   </query>
 
   <!-- ===== 조건 저장/불러오기(§20.8) — @currentUser 스코프(§20.12와 동일 규약). '$latest'=마지막 조회 조건. -->
-  <query id="SYS.ListConditionSettings">
+  <query id="SYS.ListConditionSettings" access="public">
     <statement><![CDATA[
 SELECT NAME, SAVED_AT, VALUES_JSON
 FROM SYS_CONDITION_SETTING WITH (NOLOCK)
@@ -377,40 +458,40 @@ UPDATE SYS_MENU SET VALID_STATE = 'Invalid' WHERE MENU_ID = @menuId
   </query>
 
   <!-- ===== SmartUX 시스템관리 신규 마스터(V047) 조회 — 공지/메시지/다국어/Rule. read 무해(kind 미표기). ===== -->
-  <query id="SYS.NoticeList">
+  <query id="SYS.NoticeList" access="public">
     <statement><![CDATA[
 SELECT NOTICE_ID, TITLE, NOTICE_TYPE, POSTED_BY, POSTED_AT, IS_ACTIVE FROM SYS_NOTICE WITH (NOLOCK) ORDER BY POSTED_AT DESC
 ]]></statement>
   </query>
-  <query id="SYS.MessageClassList">
+  <query id="SYS.MessageClassList" requiredPermission="sys:read">
     <statement><![CDATA[
 SELECT MSG_CLASS_ID, MSG_CLASS_NAME, DESCRIPTION FROM SYS_MESSAGE_CLASS WITH (NOLOCK) ORDER BY MSG_CLASS_NAME
 ]]></statement>
   </query>
-  <query id="SYS.MessageList">
+  <query id="SYS.MessageList" requiredPermission="sys:read">
     <statement><![CDATA[
 SELECT MSG_ID, MSG_CLASS_ID, MSG_CODE, MSG_TEXT, LANGUAGE FROM SYS_MESSAGE WITH (NOLOCK)
 WHERE (@msgClassId IS NULL OR MSG_CLASS_ID = @msgClassId)
 ORDER BY MSG_CODE
 ]]></statement>
   </query>
-  <query id="SYS.LanguageClassList">
+  <query id="SYS.LanguageClassList" requiredPermission="sys:read">
     <statement><![CDATA[
 SELECT LANG_CLASS_ID, LANG_CLASS_NAME, DESCRIPTION FROM SYS_LANGUAGE_CLASS WITH (NOLOCK) ORDER BY LANG_CLASS_NAME
 ]]></statement>
   </query>
-  <query id="SYS.I18nList">
+  <query id="SYS.I18nList" requiredPermission="sys:read">
     <statement><![CDATA[
 SELECT I18N_ID, LANG_CLASS_ID, MESSAGE_KEY, LANGUAGE, TRANSLATION FROM SYS_I18N WITH (NOLOCK) ORDER BY MESSAGE_KEY
 ]]></statement>
   </query>
-  <query id="SYS.RuleList">
+  <query id="SYS.RuleList" requiredPermission="sys:manage">
     <statement><![CDATA[
 SELECT RULE_ID, RULE_NAME, RULE_TYPE, IS_ACTIVE, DESCRIPTION FROM SYS_RULE WITH (NOLOCK) ORDER BY RULE_NAME
 ]]></statement>
   </query>
   <!-- SYSTEM_2 파일 관리 — 배포 파일 메타(V012 SYS_DEPLOY_FILE) 재사용. -->
-  <query id="SYS.DeployFileList">
+  <query id="SYS.DeployFileList" requiredPermission="sys:manage">
     <statement><![CDATA[
 SELECT FILE_ID, VERSION, FILE_NAME, FILE_SIZE, DESCRIPTION, FORCE_UPDATE, IS_ACTIVE, UPLOADED_BY, UPLOADED_AT FROM SYS_DEPLOY_FILE WITH (NOLOCK) ORDER BY UPLOADED_AT DESC
 ]]></statement>
@@ -419,7 +500,7 @@ SELECT FILE_ID, VERSION, FILE_NAME, FILE_SIZE, DESCRIPTION, FORCE_UPDATE, IS_ACT
        서버측 페이징(P3-9 v2): @limit/@offset 미전달이면 기존 최근 500 동작.
        OFFSET/FETCH 식은 변수·파라미터·스칼라 서브쿼리만 허용 — ISNULL 기본값은 서브쿼리로 감싼다.
        (DECLARE 로컬 변수는 금지 — 게이트웨이 @토큰 스캔이 로컬명을 파라미터로 주입해 중복 선언 오류) -->
-  <query id="SYS.RequestLogList">
+  <query id="SYS.RequestLogList" requiredPermission="sys:manage">
     <statement><![CDATA[
 SELECT LOG_ID, METHOD, PATH, STATUS_CODE, ELAPSED_MS, USER_ID, CLIENT_IP, REQUESTED_AT
 FROM SYS_REQUEST_LOG WITH (NOLOCK)
@@ -430,7 +511,7 @@ OFFSET (SELECT ISNULL(@offset, 0)) ROWS FETCH NEXT (SELECT ISNULL(@limit, 500)) 
 ]]></statement>
   </query>
   <!-- 요청 로그 총건수 — RequestLogList와 WHERE 일치(서버 페이저의 짝 count 쿼리, P3-9 v2). -->
-  <query id="SYS.RequestLogListCount">
+  <query id="SYS.RequestLogListCount" requiredPermission="sys:manage">
     <statement><![CDATA[
 SELECT COUNT(*) AS TOTAL
 FROM SYS_REQUEST_LOG WITH (NOLOCK)
@@ -439,7 +520,7 @@ WHERE (@method IS NULL OR METHOD = @method)
 ]]></statement>
   </query>
   <!-- LOG_VIEWER — 앱 로그(V064). @logLevel NULL-guard. @limit/@offset 미전달이면 기존 최근 500. -->
-  <query id="SYS.AppLogList">
+  <query id="SYS.AppLogList" requiredPermission="sys:manage">
     <statement><![CDATA[
 SELECT LOG_ID, LOG_LEVEL, CATEGORY, MESSAGE, EXCEPTION, LOGGED_AT
 FROM SYS_APP_LOG WITH (NOLOCK)
@@ -449,7 +530,7 @@ OFFSET (SELECT ISNULL(@offset, 0)) ROWS FETCH NEXT (SELECT ISNULL(@limit, 500)) 
 ]]></statement>
   </query>
   <!-- 앱 로그 총건수 — AppLogList와 WHERE 일치(서버 페이저의 짝 count 쿼리, P3-9 v2). -->
-  <query id="SYS.AppLogListCount">
+  <query id="SYS.AppLogListCount" requiredPermission="sys:manage">
     <statement><![CDATA[
 SELECT COUNT(*) AS TOTAL
 FROM SYS_APP_LOG WITH (NOLOCK)
@@ -458,7 +539,7 @@ WHERE (@logLevel IS NULL OR LOG_LEVEL = @logLevel)
   </query>
 
   <!-- 대시보드 시간대별 로그 추이(TrendChartWidget) — 시간 버킷별 로그 건수. 라벨=HH:00, 값=건수. -->
-  <query id="SYS.AppLogHourlyTrend">
+  <query id="SYS.AppLogHourlyTrend" requiredPermission="sys:manage">
     <statement><![CDATA[
 SELECT FORMAT(LOGGED_AT, 'HH:00') AS HOUR_LABEL, COUNT(*) AS LOG_COUNT
 FROM SYS_APP_LOG WITH (NOLOCK)

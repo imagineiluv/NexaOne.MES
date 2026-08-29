@@ -137,6 +137,28 @@ public sealed class LotTests
     public void TrackIn_empty_equipment_fails()
         => QueuedLot().TrackIn(" ", null, null, "worker", ServerTime).IsFailure.Should().BeTrue();
 
+    [Fact]
+    public void Create_rejects_route_step_longer_than_downstream_process_columns()
+    {
+        var result = Lot.Create(
+            "LOT-LONG-STEP", "P1", null, "PROD01", 10m,
+            [new string('P', Lot.MaxProcessIdLength + 1)], "planner");
+
+        result.IsFailure.Should().BeTrue(
+            "route steps are copied into multiple NVARCHAR(50) execution and history columns");
+    }
+
+    [Theory]
+    [InlineData("0.00001")]
+    [InlineData("100000000000000")]
+    public void Create_rejects_quantity_outside_decimal_18_4(string raw)
+    {
+        var result = Lot.Create(
+            "LOT-SQL-QTY", "P1", null, "PROD01", decimal.Parse(raw), ["CUT"], "planner");
+
+        result.IsFailure.Should().BeTrue();
+    }
+
     // ── TrackOut ──────────────────────────────────────────────────────────────
 
     [Fact]
@@ -201,6 +223,41 @@ public sealed class LotTests
             .IsFailure.Should().BeTrue();
 
     [Fact]
+    public void TrackOut_zero_qty_fails_before_database_persistence()
+    {
+        var lot = ProcessingLot();
+
+        var result = lot.TrackOut("EQ001", 0m, 0m, null, "worker", ServerTime);
+
+        result.IsFailure.Should().BeTrue();
+        lot.State.Should().Be(LotState.Processing);
+        lot.Qty.Should().Be(10m);
+    }
+
+    [Fact]
+    public void TrackOut_rejects_fraction_beyond_decimal_18_4()
+    {
+        var lot = ProcessingLot();
+
+        var result = lot.TrackOut("EQ001", 9.99999m, 0m, null, "worker", ServerTime);
+
+        result.IsFailure.Should().BeTrue();
+        lot.State.Should().Be(LotState.Processing);
+    }
+
+    [Fact]
+    public void TrackOut_rejects_carrier_id_longer_than_database_column()
+    {
+        var lot = ProcessingLot();
+
+        var result = lot.TrackOut(
+            "EQ001", 10m, 0m, new string('C', 51), "worker", ServerTime);
+
+        result.IsFailure.Should().BeTrue();
+        lot.State.Should().Be(LotState.Processing);
+    }
+
+    [Fact]
     public void TrackOut_hold_lot_fails()
     {
         var lot = ProcessingLot();
@@ -219,6 +276,22 @@ public sealed class LotTests
 
         lot.DefectQty.Should().Be(2m, because: "불량 수량은 공정마다 누적된다");
         lot.State.Should().Be(LotState.Completed);
+    }
+
+    [Fact]
+    public void TrackOut_rejects_when_existing_and_new_defects_exceed_current_qty()
+    {
+        var lot = ProcessingLot(qty: 10m, "CUT", "ASSY");
+        lot.TrackOut("EQ001", 6m, 4m, null, "worker", ServerTime).IsSuccess.Should().BeTrue();
+        lot.TrackIn("EQ002", null, null, "worker", ServerTime.AddHours(1)).IsSuccess.Should().BeTrue();
+
+        var result = lot.TrackOut("EQ002", 5m, 2m, null, "worker", ServerTime.AddHours(2));
+
+        result.IsFailure.Should().BeTrue("cumulative defects would be 6 while current quantity is 5");
+        lot.State.Should().Be(LotState.Processing, "a validation failure must not partially mutate the lot");
+        lot.Qty.Should().Be(6m);
+        lot.DefectQty.Should().Be(4m);
+        lot.CurrentStepIndex.Should().Be(1);
     }
 
     // ── Consume / IncreaseMixingQty (Mixing, 설계 19.4.7) ────────────────────

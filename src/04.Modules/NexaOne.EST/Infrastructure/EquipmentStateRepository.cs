@@ -3,7 +3,7 @@ using NexaOne.Common;
 using NexaOne.EST.Application.Est;
 using NexaOne.EST.Domain;
 using NexaOne.Infrastructure.Persistence;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 
 namespace NexaOne.EST.Infrastructure;
 
@@ -45,6 +45,21 @@ public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateR
         return rows.Select(r => r.ToDomain()).ToList();
     }
 
+    private const string InitializeSql = @"
+        INSERT INTO EST_EQUIPMENT_STATE
+            (EQUIPMENT_ID, PLANT_ID, CURRENT_STATE_ID, STATE_CHANGED_AT, STATE_VERSION)
+        SELECT @EquipmentId, @PlantId, @CurrentStateId, @StateChangedAt, @StateVersion
+        WHERE NOT EXISTS (
+            SELECT 1 FROM EST_EQUIPMENT_STATE WHERE EQUIPMENT_ID = @EquipmentId
+        )";
+
+    public async Task<bool> TryInitializeAsync(
+        EquipmentCurrentState state, CancellationToken ct = default)
+    {
+        var row = StateRow.FromDomain(state);
+        return await _processor.ExecuteGuardedManyAsync(ct, (InitializeSql, row));
+    }
+
     private const string HistInsertSql = @"
             INSERT INTO EST_EQUIPMENT_STATE_HISTORY
                 (HIST_ID, EQUIPMENT_ID, FROM_STATE, TO_STATE, SET_STATE,
@@ -53,53 +68,36 @@ public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateR
                 (@HistId, @EquipmentId, @FromState, @ToState, @SetState,
                  @ChangedAt, @ChangedBy, @Reason, @SourceType, @TxnHistKey)";
 
-    // 상태 업서트 SQL + 컬럼명 키 파라미터를 만든다. KEY = PK(EQUIPMENT_ID), DATA = INSERT 후보 + UPDATE SET.
-    // PLANT_ID는 동일 설비의 불변 속성이라 충돌 시 같은 값으로 재대입되어도 무해 — INSERT 컬럼 보존 위해 포함.
-    // BuildUpsertSql은 @<COLUMN_NAME>(대문자 SNAKE_CASE) 플레이스홀더를 쓰므로 DynamicParameters로 컬럼명 키를 맞춘다.
-    private (string Sql, Dapper.DynamicParameters Param) BuildStateUpsert(EquipmentCurrentState state)
-    {
-        var sql = _dialect.BuildUpsertSql(
-            "EST_EQUIPMENT_STATE",
-            new[] { "EQUIPMENT_ID" },
-            new[] { "PLANT_ID", "CURRENT_STATE_ID", "STATE_CHANGED_AT", "STATE_VERSION" });
-        var r = StateRow.FromDomain(state);
-        var p = new Dapper.DynamicParameters();
-        p.Add("EQUIPMENT_ID", r.EquipmentId);
-        p.Add("PLANT_ID", r.PlantId);
-        p.Add("CURRENT_STATE_ID", r.CurrentStateId);
-        p.Add("STATE_CHANGED_AT", r.StateChangedAt);
-        p.Add("STATE_VERSION", r.StateVersion);
-        return (sql, p);
-    }
+    private const string ChangeStateCasSql = @"
+        UPDATE EST_EQUIPMENT_STATE SET
+            CURRENT_STATE_ID = @CurrentStateId,
+            STATE_CHANGED_AT = @StateChangedAt,
+            STATE_VERSION = @StateVersion
+        WHERE EQUIPMENT_ID = @EquipmentId
+          AND PLANT_ID = @PlantId
+          AND STATE_VERSION = @ExpectedVersion";
 
-    public async Task UpsertAsync(EquipmentCurrentState state, CancellationToken ct = default)
+    public async Task<bool> TryChangeStateWithHistoryAsync(
+        EquipmentCurrentState state,
+        EquipmentStateHistory history,
+        int expectedVersion,
+        CancellationToken ct = default)
     {
-        var (sql, p) = BuildStateUpsert(state);
-        // ExecuteAsync(raw): InjectAudit는 DynamicParameters의 public 프로퍼티를 반영해 컬럼 파라미터를
-        // 유실시키므로 InsertAsync 대신 감사 미주입 raw 실행 경로를 쓴다(EST_EQUIPMENT_STATE는 감사 컬럼 없음).
-        await _processor.ExecuteAsync(sql, p, ct);
-    }
-
-    public async Task AddHistoryAsync(EquipmentStateHistory history, CancellationToken ct = default)
-    {
-        await _processor.InsertAsync(HistInsertSql, HistRow.FromDomain(history), ct);
-    }
-
-    public async Task ChangeStateWithHistoryAsync(
-        EquipmentCurrentState state, EquipmentStateHistory history, CancellationToken ct = default)
-    {
-        // 상태 업서트 + 이력 INSERT를 단일 트랜잭션으로 — 둘 다 커밋되거나 둘 다 롤백된다(부분 커밋 방지).
-        // 두 문장 모두 컬럼명/PascalCase 파라미터를 그대로 쓰는 raw 실행이라 ExecuteManyAsync로 묶는다
-        // (EST 두 테이블 모두 CREATED_BY 류 감사 컬럼이 없어 감사 주입이 불필요하다).
-        var (upsertSql, stateParam) = BuildStateUpsert(state);
+        var stateRow = StateRow.FromDomain(state);
+        var stateParam = new
+        {
+            stateRow.EquipmentId,
+            stateRow.PlantId,
+            stateRow.CurrentStateId,
+            stateRow.StateChangedAt,
+            stateRow.StateVersion,
+            ExpectedVersion = expectedVersion,
+        };
         var statements = new List<(string Sql, object? Param)>
         {
-            (upsertSql, stateParam),
+            (ChangeStateCasSql, stateParam),
             (HistInsertSql, HistRow.FromDomain(history)),
         };
-
-        // ADR-002 대표 슬라이스: outbox 활성 시 도메인 이벤트를 같은 트랜잭션에 기록한다 — 상태·이력·이벤트가
-        // 함께 커밋되거나 함께 롤백돼 발행 원자성을 보장한다. 기본 비활성이면 기존 동작과 동일(미기록·적체 없음).
         if (_outboxEnabled)
         {
             var user = CurrentUserContext.UserId ?? "SYSTEM";
@@ -107,8 +105,9 @@ public sealed class EquipmentStateRepository : QueryRepository, IEquipmentStateR
                 state.DomainEvents.OfType<IOutboxEvent>(), user, DateTime.UtcNow));
         }
 
-        await _processor.ExecuteManyAsync(ct, statements.ToArray());
-        state.ClearDomainEvents();
+        var changed = await _processor.ExecuteGuardedManyAsync(ct, statements.ToArray());
+        if (changed) state.ClearDomainEvents();
+        return changed;
     }
 
     public async Task<IReadOnlyList<EquipmentStateHistory>> GetHistoryAsync(

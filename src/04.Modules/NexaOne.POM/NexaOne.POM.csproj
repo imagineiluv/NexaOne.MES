@@ -10,4 +10,9 @@
     <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="NexaOne.UnitTests" />
+    <InternalsVisibleTo Include="NexaOne.ServerTests" />
+  </ItemGroup>
+
 </Project>

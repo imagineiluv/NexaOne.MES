@@ -40,10 +40,12 @@ public sealed class MrpController : ControllerBase
         return Ok(result);
     }
 
-    public sealed record ConvertRequest(string? RunId, IReadOnlyList<string>? PlannedOrderIds);
+    public sealed record ConvertRequest(
+        string? RunId,
+        IReadOnlyList<string>? PlannedOrderIds,
+        IReadOnlyList<MrpProductionAssignment>? ProductionAssignments);
 
-    /// <summary>계획오더→실오더 전환(v2 1단) — runId의 Proposed 전량을 PRC PO(Ordered)/POM WO(Released)로
-    /// 생성하고 Converted 마킹(단일 트랜잭션). runId 생략=최신 실행. 멱등 — 재호출 시 대상 0건.</summary>
+    /// <summary>구매 제안은 구매오더, 생산 제안은 생산계획과 생산관리지시로 전환한다.</summary>
     [HttpPost("convert")]
     [ProducesResponseType<MrpConvertResult>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -51,7 +53,9 @@ public sealed class MrpController : ControllerBase
     [RequirePermission(Permissions.PomManage)]
     public async Task<IActionResult> Convert([FromBody] ConvertRequest? request, CancellationToken ct)
     {
-        var result = await _bridge.ConvertAsync(request?.RunId, request?.PlannedOrderIds, User.CurrentUserId() ?? "SYSTEM", ct);
+        var result = await _bridge.ConvertAsync(
+            request?.RunId, request?.PlannedOrderIds, request?.ProductionAssignments,
+            User.CurrentUserId() ?? "SYSTEM", ct);
         return Ok(result);
     }
 }

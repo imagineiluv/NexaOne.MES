@@ -7,6 +7,25 @@ public static class LotExecutionId
     public const string TrackOut = "TrackOut";
     public const string Finish = "Finish";
     public const string Consume = "Consume";
+    public const string Hold = "Hold";
+    public const string ReleaseHold = "ReleaseHold";
+    public const string RoutingModeChange = "RoutingModeChange";
+    public const string Bypass = "Bypass";
+    public const string Alternative = "Alternative";
+    public const string SequenceChange = "SequenceChange";
+    public const string Rework = "Rework";
+    public const string Return = "Return";
+
+    /// <summary>라우팅 이탈 유형을 append-only LOT 이력의 실행 ID로 변환한다.</summary>
+    public static string For(RouteDeviationType deviationType) => deviationType switch
+    {
+        RouteDeviationType.Bypass => Bypass,
+        RouteDeviationType.Alternative => Alternative,
+        RouteDeviationType.SequenceChange => SequenceChange,
+        RouteDeviationType.Rework => Rework,
+        RouteDeviationType.Return => Return,
+        _ => throw new ArgumentOutOfRangeException(nameof(deviationType), deviationType, null)
+    };
 }
 
 /// <summary>
@@ -29,7 +48,9 @@ public sealed record LotHistory(
     decimal DefectQty,
     string LotState,
     string ProcessState,
-    DateTime CreatedAt)
+    DateTime CreatedAt,
+    string? Reason = null,
+    string? IdempotencyKey = null)
 {
     /// <summary>신규 기록용 — IDENTITY/CreatedAt은 DB가 채운다.</summary>
     public static LotHistory Of(

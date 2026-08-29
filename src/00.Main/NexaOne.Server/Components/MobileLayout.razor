@@ -1,0 +1,42 @@
+@inherits LayoutComponentBase
+@inject AuthTokenService TokenService
+@inject JwtAuthStateProvider AuthState
+@inject NavigationManager Nav
+
+<div class="operator-shell operator-mobile">
+    <a class="operator-skip-link" href="#operator-main">본문 바로가기</a>
+    <header class="operator-topbar">
+        <a class="operator-brand" href="/Mobile" aria-label="모바일 작업 홈">
+            <span class="operator-brand-mark">NX</span>
+            <span><strong>NexaOne</strong><small>Mobile MES</small></span>
+        </a>
+        <button type="button" class="operator-logout" @onclick="LogoutAsync" aria-label="모바일 MES 로그아웃">
+            <span class="operator-logout-icon" aria-hidden="true">↪</span>
+            <span>로그아웃</span>
+        </button>
+    </header>
+    <main id="operator-main" class="operator-content" tabindex="-1">
+        @Body
+    </main>
+    <nav class="operator-bottom-nav" aria-label="모바일 주요 메뉴">
+        <a href="/Mobile#operator-work-catalog" aria-label="모바일 작업 목록">
+            <span class="operator-nav-icon" aria-hidden="true">⌂</span><span>작업</span>
+        </a>
+        <a href="/Mobile#operator-quality-snapshot" aria-label="생산 품질 지표">
+            <span class="operator-nav-icon" aria-hidden="true">◇</span><span>품질</span>
+        </a>
+        <a href="/" aria-label="데스크톱 MES">
+            <span class="operator-nav-icon" aria-hidden="true">▦</span><span>MES</span>
+        </a>
+    </nav>
+</div>
+
+@code {
+    /// <summary>저장된 인증 토큰과 인증 상태를 함께 비운 뒤 모바일 로그인으로 돌아간다.</summary>
+    private async Task LogoutAsync()
+    {
+        await TokenService.ClearAsync();
+        AuthState.NotifyAuthChanged(null);
+        Nav.NavigateTo("/login?returnUrl=%2FMobile", forceLoad: true);
+    }
+}

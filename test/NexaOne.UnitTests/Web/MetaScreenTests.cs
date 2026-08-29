@@ -58,11 +58,96 @@ public sealed class MetaScreenTests
         {
             cut.Markup.Should().Contain("공장 목록").And.Contain("공장 ID").And.Contain("Plant One");
             cut.FindAll("tbody tr").Count.Should().Be(1, "쿼리 결과 1행이 그리드로 렌더돼야 한다");
+            cut.Find(".meta-screen").ClassList.Should().Contain("meta-screen--grid-fill",
+                "검색·입력·layout이 없는 flat grid는 남은 viewport 높이를 사용해야 한다");
         }, TimeSpan.FromSeconds(2));
 
         // 그리드+쿼리 바인딩 화면은 명명 쿼리로 게이트웨이를 호출한다(저코드 조회 경로 end-to-end UI측).
         api.Verify(a => a.ExecuteQueryAsync("Q.Plants", It.IsAny<object?>(), It.IsAny<CancellationToken>()),
             Times.AtLeastOnce);
+    }
+
+    [Theory]
+    [InlineData(ScreenPurpose.Manage, false, true)]
+    [InlineData(ScreenPurpose.Manage, true, true)]
+    [InlineData(ScreenPurpose.Register, false, false)]
+    [InlineData(ScreenPurpose.Inquiry, true, false)]
+    public void View_modes_are_enabled_only_for_manage_purpose_in_flat_and_layout_screens(
+        ScreenPurpose purpose,
+        bool useLayout,
+        bool expectedEnabled)
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
+
+        var uiId = $"VIEW-{purpose}-{(useLayout ? "LAYOUT" : "FLAT")}";
+        const string queryId = "Q.ViewRows";
+        var columns = new GridColumnDefinition[] { new("ITEM_ID", "항목 ID") };
+        var definition = useLayout
+            ? new ScreenDefinition(
+                uiId,
+                "보기 모드 레이아웃",
+                Array.Empty<FieldDefinition>(),
+                Layout: new SectionNode
+                {
+                    Children =
+                    [
+                        new RowNode
+                        {
+                            Children =
+                            [
+                                new ColumnNode
+                                {
+                                    Span = 12,
+                                    Children =
+                                    [
+                                        new GridWidget
+                                        {
+                                            Id = "view-grid",
+                                            QueryId = queryId,
+                                            Columns = columns,
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                Purpose: purpose)
+            : new ScreenDefinition(
+                uiId,
+                "보기 모드 평면",
+                Array.Empty<FieldDefinition>(),
+                columns,
+                QueryId: queryId,
+                Purpose: purpose);
+
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryPagedAsync(
+                queryId,
+                It.IsAny<object?>(),
+                It.IsAny<int>(),
+                It.IsAny<int>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PagedQueryResult?)null);
+        api.Setup(a => a.ExecuteQueryAsync(queryId, It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Dictionary<string, object?>> { new() { ["ITEM_ID"] = "I-1" } });
+        ctx.Services.AddSingleton(Provider(uiId, definition).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters.Add(component => component.UiId, uiId));
+
+        cut.WaitForAssertion(() =>
+        {
+            var grids = cut.FindComponents<MetaGridRenderer>();
+            grids.Should().ContainSingle();
+            grids.Single().Instance.EnableViewModes.Should().Be(expectedEnabled,
+                "보기 모드는 화면 구조와 무관하게 명시적인 Manage 목적에서만 활성화돼야 한다");
+            cut.FindAll(".nx-view-segments").Should().HaveCount(expectedEnabled ? 1 : 0);
+            cut.Find(".meta-screen").ClassList.Contains("meta-screen--grid-fill").Should().Be(!useLayout,
+                "viewport fill은 flat grid에만 적용하고 LayoutRenderer grid에는 전파하지 않아야 한다");
+        });
     }
 
     [Fact]
@@ -255,6 +340,8 @@ public sealed class MetaScreenTests
         cut.WaitForAssertion(() =>
         {
             cut.Markup.Should().Contain("조회", "검색 조건 영역은 조회 버튼을 렌더해야 한다");
+            cut.Find(".meta-screen").ClassList.Should().NotContain("meta-screen--grid-fill",
+                "검색 조건이 있는 화면은 기존 bounded grid 정책을 유지해야 한다");
             captured.Should().BeOfType<Dictionary<string, object?>>()
                 .Which.Should().Contain(kv => kv.Key == "logLevel" && kv.Value!.ToString() == "Error",
                     "$latest 조건이 초기 조회 파라미터로 복원돼야 한다");
@@ -349,6 +436,237 @@ public sealed class MetaScreenTests
             savedModel!["batchId"].Should().Be("B-1", "BATCH_ID → batchId 정규화 매칭");
             savedModel!["batchName"].Should().Be("야간 집계", "미표시 컬럼(BATCH_NAME)도 행 값이 폼 모델에 로드돼야 한다");
         }, TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
+    public void Scoped_grid_selections_keep_lot_work_order_and_exception_command_payloads_separate()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
+
+        static FormWidget Form(string id, string scope, params string[] keys)
+            => new()
+            {
+                Id = id,
+                BindingScope = scope,
+                Fields = keys.Select(key => new FieldWidget
+                {
+                    FieldKey = key,
+                    Field = new FieldDefinition(key, key),
+                }).ToArray(),
+            };
+
+        var definition = new ScreenDefinition(
+            "SCOPED-AGGREGATES",
+            "업무 스코프",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Children = new LayoutNode[]
+                {
+                    new GridWidget { Id = "lot-grid", QueryId = "Q.Lot", SelectionScope = "lot", Columns = [] },
+                    Form("lot-form", "lot", "LOT_ID", "PLANT_ID", "VERSION_NO"),
+                    new ButtonWidget { Label = "LOT 명령", Command = "C.Lot", BindingScope = "lot" },
+                    new GridWidget { Id = "wo-grid", QueryId = "Q.WorkOrder", SelectionScope = "work-order", Columns = [] },
+                    Form("wo-form", "work-order", "WORK_ORDER_ID", "VERSION_NO"),
+                    new ButtonWidget { Label = "작업지시 명령", Command = "C.WorkOrder", BindingScope = "work-order" },
+                    new GridWidget { Id = "exception-grid", QueryId = "Q.Exception", SelectionScope = "route-exception", Columns = [] },
+                    Form("exception-form", "route-exception", "EXCEPTION_ID", "LOT_ID", "VERSION_NO"),
+                    new ButtonWidget { Label = "예외 명령", Command = "C.Exception", BindingScope = "route-exception" },
+                },
+            },
+            Purpose: ScreenPurpose.Execute);
+
+        var captured = new Dictionary<string, Dictionary<string, object?>>(StringComparer.Ordinal);
+        var api = new Mock<IApiClient>();
+        foreach (var query in new[] { "Q.Lot", "Q.WorkOrder", "Q.Exception" })
+            api.Setup(client => client.ExecuteQueryAsync(query, It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new List<Dictionary<string, object?>>());
+        api.Setup(client => client.ExecuteCommandAsync(
+                It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, object?, CancellationToken>((command, payload, _) =>
+                captured[command] = new Dictionary<string, object?>((Dictionary<string, object?>)payload!, StringComparer.Ordinal))
+            .ReturnsAsync(true);
+        ctx.Services.AddSingleton(Provider(definition.UiId, definition).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters.Add(component => component.UiId, definition.UiId));
+        var grids = cut.FindComponents<MetaGridRenderer>();
+        grids.Should().HaveCount(3);
+
+        cut.InvokeAsync(() => grids[0].Instance.OnRowSelect.InvokeAsync(new Dictionary<string, object?>
+        {
+            ["LOT_ID"] = "LOT-01", ["PLANT_ID"] = "P1", ["VERSION_NO"] = 3,
+        }));
+        cut.InvokeAsync(() => grids[1].Instance.OnRowSelect.InvokeAsync(new Dictionary<string, object?>
+        {
+            ["WORK_ORDER_ID"] = "WO-77", ["VERSION_NO"] = 8,
+        }));
+        cut.InvokeAsync(() => grids[2].Instance.OnRowSelect.InvokeAsync(new Dictionary<string, object?>
+        {
+            ["EXCEPTION_ID"] = "REX-9", ["LOT_ID"] = "LOT-99", ["VERSION_NO"] = 12,
+        }));
+
+        foreach (var label in new[] { "LOT 명령", "작업지시 명령", "예외 명령" })
+            cut.FindAll("button").Single(button => button.TextContent.Contains(label, StringComparison.Ordinal)).Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            captured.Should().ContainKeys("C.Lot", "C.WorkOrder", "C.Exception");
+            captured["C.Lot"].Should().Contain(new Dictionary<string, object?>
+            {
+                ["LOT_ID"] = "LOT-01", ["PLANT_ID"] = "P1", ["VERSION_NO"] = "3",
+            }).And.NotContainKey("WORK_ORDER_ID").And.NotContainKey("EXCEPTION_ID");
+            captured["C.WorkOrder"].Should().Contain(new Dictionary<string, object?>
+            {
+                ["WORK_ORDER_ID"] = "WO-77", ["VERSION_NO"] = "8",
+            }).And.NotContainKey("LOT_ID").And.NotContainKey("EXCEPTION_ID");
+            captured["C.Exception"].Should().Contain(new Dictionary<string, object?>
+            {
+                ["EXCEPTION_ID"] = "REX-9", ["LOT_ID"] = "LOT-99", ["VERSION_NO"] = "12",
+            }).And.NotContainKey("WORK_ORDER_ID");
+        });
+    }
+
+    [Fact]
+    public void Successful_typed_command_renders_no_control_warning_as_visible_feedback()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
+
+        const string commandId = "bridge:pom.lot.track-in";
+        var definition = new ScreenDefinition(
+            "ROUTING-WARNING",
+            "라우팅 실행",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Children =
+                [
+                    new ButtonWidget { Label = "투입", Command = commandId },
+                ],
+            },
+            Purpose: ScreenPurpose.Execute);
+
+        var api = new Mock<IApiClient>();
+        var drivers = new Mock<IMetaCommandDriverCatalog>();
+        drivers.Setup(catalog => catalog.Contains(commandId)).Returns(true);
+        drivers.Setup(catalog => catalog.CanExecute(
+                commandId,
+                It.IsAny<IReadOnlyDictionary<string, object?>>(),
+                It.IsAny<MetaCommandExecutionContext>()))
+            .Returns(MetaCommandAvailability.Enabled);
+        drivers.Setup(catalog => catalog.ExecuteAsync(
+                commandId,
+                It.IsAny<IReadOnlyDictionary<string, object?>>(),
+                It.IsAny<MetaCommandExecutionContext>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(MetaCommandResult.Succeeded(
+                message: "NoControl 모드: 선후행 검증 없이 실적이 등록되었습니다.",
+                isWarning: true));
+
+        ctx.Services.AddSingleton(Provider(definition.UiId, definition).Object);
+        ctx.Services.AddSingleton(api.Object);
+        ctx.Services.AddSingleton(drivers.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(parameters =>
+            parameters.Add(component => component.UiId, definition.UiId));
+        cut.FindAll("button")
+            .Single(button => button.TextContent.Contains("투입", StringComparison.Ordinal))
+            .Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            var feedback = cut.Find(".meta-command-feedback.is-warning");
+            feedback.TextContent.Should().Contain("NoControl 모드");
+            feedback.GetAttribute("role").Should().Be("status");
+        });
+    }
+
+    [Fact]
+    public void Manage_flat_form_uses_inline_editor_as_the_single_add_path()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
+
+        var def = new ScreenDefinition(
+            "MANAGE-INLINE",
+            "수주 관리",
+            new FieldDefinition[] { new("orderId", "수주 번호", Required: true), new("orderName", "수주명") },
+            new GridColumnDefinition[] { new("ORDER_ID", "수주 번호") },
+            QueryId: "Q.Orders",
+            SaveQueryId: "S.UpsertOrder",
+            Purpose: ScreenPurpose.Manage);
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryAsync("Q.Orders", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Dictionary<string, object?>>());
+        ctx.Services.AddSingleton(Provider(def.UiId, def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, def.UiId));
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Find(".meta-form-card").GetAttribute("data-editor-mode").Should().Be("new");
+            cut.Markup.Should().Contain("신규 항목 입력").And.Contain("신규 저장").And.Contain("입력 초기화");
+            cut.FindComponent<MetaGridRenderer>().Instance.CanAdd.Should().BeFalse(
+                "평면 관리 화면은 상단 인라인 편집기가 신규 입력까지 담당하므로 그리드 추가 모달을 중복 노출하지 않는다");
+            cut.FindAll(".meta-grid-toolbar button").Should().NotContain(button => button.TextContent.Contains("추가"));
+            cut.FindAll(".nx-modal").Should().BeEmpty();
+        });
+    }
+
+    [Fact]
+    public void Manage_flat_editor_switches_to_edit_on_row_selection_and_reset_returns_to_new()
+    {
+        using var ctx = new TestContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        ctx.Services.AddRadzenComponents();
+
+        var def = new ScreenDefinition(
+            "MANAGE-STATE",
+            "수주 관리",
+            new FieldDefinition[] { new("orderId", "수주 번호", Required: true), new("orderName", "수주명") },
+            new GridColumnDefinition[] { new("ORDER_ID", "수주 번호") },
+            QueryId: "Q.Orders",
+            SaveQueryId: "S.UpsertOrder",
+            Purpose: ScreenPurpose.Manage);
+        var api = new Mock<IApiClient>();
+        api.Setup(a => a.ExecuteQueryAsync("Q.Orders", It.IsAny<object?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Dictionary<string, object?>>
+            {
+                new() { ["ORDER_ID"] = "SO-100", ["ORDER_NAME"] = "7월 수주" },
+            });
+        ctx.Services.AddSingleton(Provider(def.UiId, def).Object);
+        ctx.Services.AddSingleton(api.Object);
+
+        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, def.UiId));
+        var grid = cut.FindComponent<MetaGridRenderer>();
+        cut.InvokeAsync(() => grid.Instance.OnRowSelect.InvokeAsync(
+            new Dictionary<string, object?> { ["ORDER_ID"] = "SO-100", ["ORDER_NAME"] = "7월 수주" }));
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Find(".meta-form-card").GetAttribute("data-editor-mode").Should().Be("edit");
+            cut.Markup.Should().Contain("선택 항목 수정").And.Contain("변경 저장").And.Contain("수정 취소");
+        });
+
+        cut.Find("button.meta-editor-reset").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            cut.Find(".meta-form-card").GetAttribute("data-editor-mode").Should().Be("new");
+            cut.Markup.Should().Contain("신규 항목 입력").And.Contain("신규 저장").And.Contain("입력 초기화");
+        });
+
+        // 취소 뒤 모델이 실제로 비워졌는지는 필수값 검증으로 확인한다. 이전 행 값이 남아 있으면 명령이 호출된다.
+        SaveButton(cut).Click();
+        cut.WaitForAssertion(() => cut.FindAll(".meta-field-error").Should().NotBeEmpty());
+        api.Verify(a => a.ExecuteCommandAsync(
+            It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // 파괴적 확인은 RadzenDialog(DialogService.Confirm) — 브라우저 confirm 대신 비블로킹 모달. 테스트는
@@ -984,7 +1302,11 @@ public sealed class MetaScreenTests
 
         // 초기엔 모달 없음 → 추가 클릭 → 모달 열림(팝업 등록 폼).
         cut.FindAll(".nx-modal").Should().BeEmpty();
-        cut.FindAll(".meta-grid-toolbar button").First(b => b.TextContent.Contains("추가")).Click();
+        var addButton = cut.FindAll(".meta-grid-toolbar button").First(b => b.TextContent.Contains("추가"));
+        addButton.HasAttribute("disabled").Should().BeFalse(
+            "허용된 추가 동작에는 비활성 사유 속성 이름이 문자열로 전달되면 안 된다");
+        addButton.GetAttribute("aria-label").Should().Be("추가");
+        addButton.Click();
         cut.WaitForAssertion(() => cut.FindAll(".nx-modal").Should().NotBeEmpty("추가는 팝업으로 진행"));
 
         // 필수(plantId) 미입력 저장 → 인라인 오류, 커맨드 미호출.

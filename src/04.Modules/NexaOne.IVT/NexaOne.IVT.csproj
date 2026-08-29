@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Persisted FDC material projection worker hosting. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="NexaOne.UnitTests" />
+    <InternalsVisibleTo Include="NexaOne.ServerTests" />
+  </ItemGroup>
+
+</Project>

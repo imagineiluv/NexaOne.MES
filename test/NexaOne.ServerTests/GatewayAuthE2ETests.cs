@@ -242,6 +242,27 @@ public sealed class GatewayAuthE2ETests : IClassFixture<GatewayAuthE2ETests.Auth
     }
 
     [Fact]
+    public async Task Login_does_not_readd_a_permission_removed_from_database_role()
+    {
+        EnsureSchemaReady();
+        const string roleId = "maintenance";
+        SeedRole(roleId, "ems:read");
+        var uid = Uid("revoke");
+        SeedUser(uid, NexaOne.Common.PasswordHasher.Hash("pw3"), roleId: roleId);
+        var client = _factory.CreateClient();
+
+        var body = await (await client.PostAsJsonAsync("/api/v1/auth/login",
+            new { userId = uid, password = "pw3", plantId = "x" })).Content.ReadFromJsonAsync<LoginBody>();
+
+        var permissions = new JwtSecurityTokenHandler().ReadJwtToken(body!.accessToken).Claims
+            .Where(c => c.Type == NexaOne.Common.Security.Permissions.ClaimType)
+            .Select(c => c.Value);
+        permissions.Should().Equal("ems:read");
+        permissions.Should().NotContain("ems:manage",
+            "DB에서 제거한 MAINTENANCE 권한을 코드 기본값이 다시 합성하면 안 된다");
+    }
+
+    [Fact]
     public async Task Legacy_sha256_login_rehashes_to_pbkdf2()
     {
         EnsureSchemaReady();

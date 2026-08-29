@@ -131,7 +131,9 @@ public sealed class GatewayMdmE2ETests : IClassFixture<GatewayMdmE2ETests.Gatewa
     [InlineData("COM.IdRuleList")]
     public async Task Enhanced_read_queries_execute_on_sqlite(string queryId)
     {
-        var client = AuthedClient("mdm:manage");
+        // 이 이론은 MDM뿐 아니라 IVT/COM read 쿼리의 SQLite 실행 가능성도 함께 검증한다.
+        // 모듈 경계를 넘는 조회 권한을 테스트 토큰에 명시해 기본-open에 기대지 않는다.
+        var client = AuthedClient("mdm:manage", "ivt:read", "com:read");
         var res = await client.PostAsJsonAsync($"/api/v1/query/{queryId}", new Dictionary<string, object>());
         res.StatusCode.Should().Be(System.Net.HttpStatusCode.OK,
             $"{queryId}는 NexaMes SQLite 스키마에서 유효 SQL이어야 한다(고도화 이식 검증)");

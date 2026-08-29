@@ -3,61 +3,21 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
 
-  <!-- ===== EST (Equipment State Tracking) ===== -->
-
-  <object id="equipmentAlarmRepository" type="NexaOne.EST.Infrastructure.EquipmentAlarmRepository, NexaOne.EST">
-    <constructor-arg ref="eesDataSource" />
-    <constructor-arg ref="appConfiguration" />
-  </object>
-  <object id="equipmentStateMatrixRepository" type="NexaOne.EST.Infrastructure.EquipmentStateMatrixRepository, NexaOne.EST">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="equipmentStateRepository" type="NexaOne.EST.Infrastructure.EquipmentStateRepository, NexaOne.EST">
+  <object id="estModule" type="NexaOne.EST.Module, NexaOne.EST">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="eesDialect" />
     <constructor-arg ref="appConfiguration" />
-  </object>
-  <!-- equipmentDirectory는 호스트 server.xml의 서버 빈(IEquipmentDirectory 구현)을 cross-context ref로 주입한다
-       (ADR-006: EST는 MDM 스키마 미보유 — plantId→설비 ID 조회를 호스트에 위임). pom.xml의 lotTrackingService가
-       trackingMasterGateway를 참조하는 것과 동일한 패턴. -->
-  <object id="equipmentAlarmService" type="NexaOne.EST.Application.Est.EquipmentAlarmService, NexaOne.EST">
-    <constructor-arg ref="equipmentAlarmRepository" />
     <constructor-arg ref="equipmentDirectory" />
-  </object>
-  <object id="equipmentStateService" type="NexaOne.EST.Application.Est.EquipmentStateService, NexaOne.EST">
-    <constructor-arg ref="equipmentStateMatrixRepository" />
-    <constructor-arg ref="equipmentStateRepository" />
-  </object>
-
-  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Est","equipmentStateBridge")로 IEquipmentStateBridge 캐스트. -->
-  <object id="equipmentStateBridge" type="NexaOne.EST.Application.Est.EquipmentStateBridge, NexaOne.EST">
-    <constructor-arg ref="equipmentStateService" />
-  </object>
-
-  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Est","equipmentAlarmBridge")로 IEquipmentAlarmBridge 캐스트. -->
-  <object id="equipmentAlarmBridge" type="NexaOne.EST.Application.Est.EquipmentAlarmBridge, NexaOne.EST">
-    <constructor-arg ref="equipmentAlarmService" />
-  </object>
-
-  <!-- ===== OEE(설비종합효율) 집계 — 원자료(상태이력·POM_LOT)를 설정(상태분류·목표)과 결합해 OEE 마트를 계산·적재. ===== -->
-  <object id="oeeAggregationRepository" type="NexaOne.EST.Infrastructure.OeeAggregationRepository, NexaOne.EST">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-
-  <!-- OEE 집계 워커(BackgroundService) — 모듈 소유 주기 작업. quartzScheduler는 부모(server.xml) 빈을 cross-context
-       ref로 주입한다. Program.cs가 IHostedService로 자동발견해 호스팅한다. ctor: (IRecurringScheduler, IOeeAggregator,
-       bool enabled, int intervalSeconds, int lookbackDays). enabled 기본 false(테스트/CI 무영향) — 'Oee:Aggregation:Enabled'로 켠다. -->
-  <object id="oeeAggregationWorker" type="NexaOne.EST.Application.Oee.OeeAggregationWorker, NexaOne.EST">
+    <constructor-arg ref="equipmentOutputMasterDirectory" />
+    <constructor-arg ref="oeeEvidenceSource" />
     <constructor-arg ref="quartzScheduler" />
-    <constructor-arg ref="oeeAggregationRepository" />
-    <constructor-arg value="false" />
-    <constructor-arg value="3600" />
-    <constructor-arg value="1" />
   </object>
 
-  <!-- ADR-008 얇은 브리지 — OEE 수동 집계 트리거. 호스트가 GetBean("Est","oeeAggregationBridge")로 IOeeAggregationBridge 캐스트. -->
-  <object id="oeeAggregationBridge" type="NexaOne.EST.Application.Oee.OeeAggregationBridge, NexaOne.EST">
-    <constructor-arg ref="oeeAggregationRepository" />
-  </object>
+  <object id="equipmentAlarmBridge" factory-object="estModule" factory-method="GetAlarmBridge" />
+  <object id="equipmentStateBridge" factory-object="estModule" factory-method="GetStateBridge" />
+  <object id="equipmentOutputBridge" factory-object="estModule" factory-method="GetOutputBridge" />
+  <object id="utilityBridge" factory-object="estModule" factory-method="GetUtilityBridge" />
+  <object id="oeeAggregationBridge" factory-object="estModule" factory-method="GetOeeBridge" />
+  <object id="oeeAggregationWorker" factory-object="estModule" factory-method="GetOeeWorker" />
 
 </objects>

@@ -63,17 +63,30 @@ public sealed class FileQueryRegistry : IQueryRegistry
             var statement = q.Element("statement");
             var sql = (statement?.Value ?? q.Value).Trim();
             if (sql.Length == 0) continue;
-            // requiredPermission 속성(선택) — 비면 인증만으로 실행 가능.
+            // 읽기 접근 정책은 requiredPermission 또는 access="public" 중 하나를 반드시 명시한다.
+            // 누락을 암묵적 공개로 해석하면 새 쿼리가 권한 검토 없이 노출되므로 시작 시 차단한다.
             var perm = ((string?)q.Attribute("requiredPermission"))?.Trim();
+            var access = ((string?)q.Attribute("access"))?.Trim();
+            var isPublic = string.Equals(access, "public", StringComparison.OrdinalIgnoreCase);
             // kind 속성(선택, 기본 read) — "write"면 쓰기 쿼리(INSERT/UPDATE/DELETE), command 게이트웨이 전용.
             var isWrite = string.Equals(((string?)q.Attribute("kind"))?.Trim(), "write", StringComparison.OrdinalIgnoreCase);
+
+            if (!string.IsNullOrEmpty(access) && !isPublic)
+                throw new InvalidOperationException(
+                    $"Query '{id!.Trim()}' (file={source}) declares unsupported access='{access}'. Only access=\"public\" is allowed.");
+            if (!string.IsNullOrEmpty(perm) && isPublic)
+                throw new InvalidOperationException(
+                    $"Query '{id!.Trim()}' (file={source}) cannot declare both requiredPermission and access=\"public\".");
             // 쓰기 쿼리는 requiredPermission 선언이 필수다(시작 시 fail-fast). 권한 없는 쓰기 쿼리가 등록되면
             // command 게이트웨이가 인증만으로 임의 INSERT/UPDATE/DELETE를 허용하게 되므로(권한 누락=무방비 쓰기) 차단한다.
             if (isWrite && string.IsNullOrEmpty(perm))
                 throw new InvalidOperationException(
                     $"Write query '{id!.Trim()}' (file={source}) must declare requiredPermission. 쓰기 쿼리는 권한 선언이 필수다.");
+            if (!isWrite && string.IsNullOrEmpty(perm) && !isPublic)
+                throw new InvalidOperationException(
+                    $"Read query '{id!.Trim()}' (file={source}) must declare requiredPermission or explicit access=\"public\".");
             yield return new QueryDefinition(
-                id!.Trim(), sql, source, string.IsNullOrEmpty(perm) ? null : perm, isWrite);
+                id!.Trim(), sql, source, string.IsNullOrEmpty(perm) ? null : perm, isWrite, isPublic);
         }
     }
 

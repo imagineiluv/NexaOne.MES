@@ -5,7 +5,7 @@
      품목/이력 테이블의 주문 FK 컬럼명은 DELIVERY_ORDER_ID(부모 SHP_DELIVERY_ORDER.ORDER_ID 참조).
      선택필터 (@p IS NULL OR COL=@p) — 본문 없는 @param은 게이트웨이가 null로 채움. 모두 read(kind 미표기). -->
 <queries module="SHP">
-    <query id="SHP.DeliveryItemsByOrder">
+    <query id="SHP.DeliveryItemsByOrder" requiredPermission="shp:read">
         <statement><![CDATA[
             SELECT ITEM_ID, DELIVERY_ORDER_ID, PRODUCT_ID, PLANNED_QTY, ACTUAL_QTY, LOT_ID
             FROM SHP_DELIVERY_ITEM
@@ -13,7 +13,7 @@
             ORDER BY CREATED_AT
         ]]></statement>
     </query>
-    <query id="SHP.ShipmentHistoryByOrder">
+    <query id="SHP.ShipmentHistoryByOrder" requiredPermission="shp:read">
         <statement><![CDATA[
             SELECT HISTORY_ID, DELIVERY_ORDER_ID, SHIPPED_AT, SHIPPED_QTY, SHIPPED_BY, CARRIER, TRACKING_NO
             FROM SHP_SHIPMENT_HISTORY
@@ -21,7 +21,7 @@
             ORDER BY SHIPPED_AT DESC
         ]]></statement>
     </query>
-    <query id="SHP.DeliveryOrderCountByStatus">
+    <query id="SHP.DeliveryOrderCountByStatus" requiredPermission="shp:read">
         <statement><![CDATA[
             SELECT STATUS, COUNT(*) AS CNT
             FROM SHP_DELIVERY_ORDER
@@ -32,7 +32,7 @@
         ]]></statement>
     </query>
     <!-- SmartUX 화면 점등용 전체조회(NULL-guard) — 공장/주문 필터 없이 출하지시·출하이력 그리드를 채운다. -->
-    <query id="SHP.DeliveryOrderList">
+    <query id="SHP.DeliveryOrderList" requiredPermission="shp:read">
         <statement><![CDATA[
             SELECT ORDER_ID, CUSTOMER_NAME, PLANT_ID, REQUESTED_DATE, SHIPPED_DATE, STATUS, REMARK
             FROM SHP_DELIVERY_ORDER
@@ -41,7 +41,7 @@
             ORDER BY REQUESTED_DATE DESC
         ]]></statement>
     </query>
-    <query id="SHP.ShipmentHistoryList">
+    <query id="SHP.ShipmentHistoryList" requiredPermission="shp:read">
         <statement><![CDATA[
             SELECT HISTORY_ID, DELIVERY_ORDER_ID, SHIPPED_AT, SHIPPED_QTY, SHIPPED_BY, CARRIER, TRACKING_NO
             FROM SHP_SHIPMENT_HISTORY

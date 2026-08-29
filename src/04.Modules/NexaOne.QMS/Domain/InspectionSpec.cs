@@ -4,7 +4,8 @@ namespace NexaOne.QMS.Domain;
 
 public sealed class InspectionSpec : AuditableEntity<string>
 {
-    private static readonly HashSet<string> ValidMeasureTypes = ["Numeric", "Attribute"];
+    public const string VariableMeasureType = "Variable";
+    public const string AttributeMeasureType = "Attribute";
 
     private InspectionSpec(string specId) : base(specId) { }
 
@@ -35,15 +36,23 @@ public sealed class InspectionSpec : AuditableEntity<string>
             return Result.Failure<InspectionSpec>(Error.Validation(nameof(processId), "Process ID is required."));
         if (string.IsNullOrWhiteSpace(itemName))
             return Result.Failure<InspectionSpec>(Error.Validation(nameof(itemName), "Item name is required."));
-        if (!ValidMeasureTypes.Contains(measureType))
-            return Result.Failure<InspectionSpec>(Error.Validation(nameof(measureType), "Measure type must be 'Numeric' or 'Attribute'."));
+        var normalizedMeasureType = NormalizeMeasureType(measureType);
+        if (normalizedMeasureType is null)
+            return Result.Failure<InspectionSpec>(Error.Validation(nameof(measureType), "Measure type must be 'Variable' or 'Attribute'."));
+        if (tolerancePlus < 0 || toleranceMinus < 0)
+            return Result.Failure<InspectionSpec>(Error.Validation(nameof(tolerancePlus), "Tolerances must be non-negative."));
+        if (normalizedMeasureType == VariableMeasureType && nominalValue is null)
+            return Result.Failure<InspectionSpec>(Error.Validation(nameof(nominalValue), "A variable inspection requires a nominal value."));
+        if (normalizedMeasureType == AttributeMeasureType &&
+            (nominalValue is not null || tolerancePlus is not null || toleranceMinus is not null))
+            return Result.Failure<InspectionSpec>(Error.Validation(nameof(nominalValue), "An attribute inspection cannot define numeric tolerances."));
 
         var spec = new InspectionSpec(specId)
         {
             SpecName = specName,
             ProcessId = processId,
             ItemName = itemName,
-            MeasureType = measureType,
+            MeasureType = normalizedMeasureType,
             NominalValue = nominalValue,
             TolerancePlus = tolerancePlus,
             ToleranceMinus = toleranceMinus,
@@ -65,7 +74,7 @@ public sealed class InspectionSpec : AuditableEntity<string>
             SpecName = specName,
             ProcessId = processId,
             ItemName = itemName,
-            MeasureType = measureType,
+            MeasureType = NormalizeMeasureType(measureType) ?? measureType,
             NominalValue = nominalValue,
             TolerancePlus = tolerancePlus,
             ToleranceMinus = toleranceMinus,
@@ -73,5 +82,16 @@ public sealed class InspectionSpec : AuditableEntity<string>
         };
         spec.RestoreAudit(createdBy ?? spec.CreatedBy, createdAt ?? spec.CreatedAt, updatedBy, updatedAt);
         return spec;
+    }
+
+    /// <summary>Legacy "Numeric" is accepted at the boundary and persisted/exposed as the canonical "Variable" value.</summary>
+    public static string? NormalizeMeasureType(string? value)
+    {
+        if (string.Equals(value, VariableMeasureType, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "Numeric", StringComparison.OrdinalIgnoreCase))
+            return VariableMeasureType;
+        if (string.Equals(value, AttributeMeasureType, StringComparison.OrdinalIgnoreCase))
+            return AttributeMeasureType;
+        return null;
     }
 }

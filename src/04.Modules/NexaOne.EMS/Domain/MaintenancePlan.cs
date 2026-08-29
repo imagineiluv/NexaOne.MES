@@ -12,7 +12,7 @@ public enum MaintenancePlanStatus
 
 public sealed class MaintenancePlan : AuditableEntity<string>
 {
-    private static readonly HashSet<string> ValidPlanTypes = ["PM", "CM"];
+    private static readonly HashSet<string> ValidPlanTypes = ["PM", "BM", "CM"];
     private static readonly HashSet<string> ValidCycleTypes = ["Daily", "Weekly", "Monthly", "Yearly"];
 
     private MaintenancePlan(string planId) : base(planId) { }
@@ -42,8 +42,11 @@ public sealed class MaintenancePlan : AuditableEntity<string>
             return Result.Failure<MaintenancePlan>(Error.Validation(nameof(planName), "Plan name is required."));
         if (string.IsNullOrWhiteSpace(equipmentId))
             return Result.Failure<MaintenancePlan>(Error.Validation(nameof(equipmentId), "Equipment ID is required."));
-        if (!ValidPlanTypes.Contains(planType))
-            return Result.Failure<MaintenancePlan>(Error.Validation(nameof(planType), "Plan type must be 'PM' or 'CM'."));
+        var normalizedPlanType = planType?.Trim().ToUpperInvariant() ?? string.Empty;
+        if (!ValidPlanTypes.Contains(normalizedPlanType))
+            return Result.Failure<MaintenancePlan>(Error.Validation(nameof(planType), "Plan type must be 'PM' or 'BM'."));
+        // CM은 과거 corrective-maintenance 명칭이다. 신규 데이터는 사용자 용어인 BM으로 통일한다.
+        if (normalizedPlanType == "CM") normalizedPlanType = "BM";
         if (!ValidCycleTypes.Contains(cycleType))
             return Result.Failure<MaintenancePlan>(Error.Validation(nameof(cycleType), "Cycle type must be 'Daily', 'Weekly', 'Monthly', or 'Yearly'."));
         if (estimatedDurationHours <= 0)
@@ -55,7 +58,7 @@ public sealed class MaintenancePlan : AuditableEntity<string>
         {
             PlanName = planName,
             EquipmentId = equipmentId,
-            PlanType = planType,
+            PlanType = normalizedPlanType,
             CycleType = cycleType,
             ScheduledDate = scheduledDate,
             EstimatedDurationHours = estimatedDurationHours,
@@ -78,7 +81,7 @@ public sealed class MaintenancePlan : AuditableEntity<string>
         {
             PlanName = planName,
             EquipmentId = equipmentId,
-            PlanType = planType,
+            PlanType = string.Equals(planType, "CM", StringComparison.OrdinalIgnoreCase) ? "BM" : planType,
             CycleType = cycleType,
             ScheduledDate = scheduledDate,
             EstimatedDurationHours = estimatedDurationHours,

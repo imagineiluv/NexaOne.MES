@@ -1,0 +1,15 @@
+@page "/POP"
+@attribute [Authorize]
+@layout PopLayout
+
+<PageTitle>POP 작업 · NexaOne</PageTitle>
+<OperatorChannelCatalog TargetChannel="POP" BasePath="/POP"
+                        DeviceId="@DeviceId"
+                        Eyebrow="KIOSK · SHOP FLOOR"
+                        Title="현장 작업 선택"
+                        Description="설비 또는 공정의 작업 단위를 선택해 실적 처리를 시작하세요." />
+<OperatorQualitySnapshot />
+
+@code {
+    [Parameter, SupplyParameterFromQuery(Name = "deviceId")] public string? DeviceId { get; set; }
+}

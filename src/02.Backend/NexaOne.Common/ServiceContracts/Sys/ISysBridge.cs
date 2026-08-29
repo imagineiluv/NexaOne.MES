@@ -12,7 +12,7 @@ namespace NexaOne.ServiceContracts.Sys;
 /// 호스트가 생성·해싱한 임시 비밀번호의 "해시"만 전달받는다(평문은 호스트 응답/메일에만 존재).
 /// 사용자 잠금 해제(Unlock)는 잠금 보안 상태 소유권(인증 경로) 문제로 계속 제외한다. 순수 조회는
 /// 게이트웨이(SYS.xml — PASSWORD_HASH 제외)로 가되, 신청 목록(§19.3.4)은 검증 포함 서비스 조회를 노출한다.</summary>
-public interface ISysBridge
+public interface ISysBridge : INexaModuleBridge
 {
     // ── 역할(Role) 관리 — 단일 애그리거트, 비-자격증명 ──
     Task<Result<RoleDto>> CreateRoleAsync(string roleId, string roleName, string description, CancellationToken ct = default);

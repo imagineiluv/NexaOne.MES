@@ -9,5 +9,7 @@ public interface IMrpPlanner
     Task<MrpRunResult> RunAsync(string executedBy, MrpRunOptions? options = null, CancellationToken ct = default);
 
     /// <summary>Proposed 제안→실오더 전환(v2 1단) — 전 문장 단일 트랜잭션(MixingPersistAsync 패턴).</summary>
-    Task<MrpConvertResult> ConvertAsync(string? runId, IReadOnlyList<string>? plannedOrderIds, string executedBy, CancellationToken ct = default);
+    Task<MrpConvertResult> ConvertAsync(
+        string? runId, IReadOnlyList<string>? plannedOrderIds,
+        IReadOnlyList<MrpProductionAssignment>? productionAssignments, string executedBy, CancellationToken ct = default);
 }

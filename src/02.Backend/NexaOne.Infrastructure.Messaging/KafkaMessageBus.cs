@@ -2,24 +2,27 @@ using System.Text.Json;
 using Confluent.Kafka;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using NexusCom.Messaging.Kafka;
+using NexaDB.Messaging.Kafka;
 
 namespace NexaOne.Infrastructure.Messaging;
 
-/// <summary>도메인 이벤트 발행 글루 — Kafka 프로토콜 본체는 NexusCom.Messaging.Kafka의
+/// <summary>도메인 이벤트 발행 글루 — Kafka 프로토콜 본체는 NexaDB.Messaging.Kafka의
 /// KafkaDriver가 소유하고(§3.6.1), 본 클래스는 직렬화·토픽 정책만 담당한다. <see cref="IMessageBus"/>
 /// 구현체로서 OutboxDispatcher의 발행 백본이 된다(ADR-002).</summary>
 public sealed class KafkaMessageBus : IMessageBus, IDisposable
 {
     private readonly KafkaDriver _driver;
     private readonly ILogger<KafkaMessageBus> _logger;
+    private readonly string _bootstrapServers;
 
     public KafkaMessageBus(
         string bootstrapServers,
         ILogger<KafkaMessageBus> logger,
         ILogger<KafkaDriver> driverLogger)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(bootstrapServers);
         _logger = logger;
+        _bootstrapServers = bootstrapServers;
         _driver = new KafkaDriver(driverLogger);
         _driver.Configure(bootstrapServers, messageTimeoutMs: 10_000);
     }
@@ -62,6 +65,59 @@ public sealed class KafkaMessageBus : IMessageBus, IDisposable
     {
         foreach (var message in messages)
             await PublishAsync(topic, message, ct);
+    }
+
+    internal IConsumer<string, string> CreateConsumer(
+        KafkaConsumerOptions options,
+        Action<string>? onError)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return _driver.CreateConsumer(
+            options.GroupId,
+            _bootstrapServers,
+            sessionTimeoutMs: 10_000,
+            maxPollIntervalMs: 300_000,
+            onError: onError);
+    }
+
+    /// <summary>
+    /// Probes real broker metadata without publishing a synthetic message. Bootstrap addresses and
+    /// broker errors stay inside this implementation and must not be copied into public diagnostics.
+    /// </summary>
+    internal async ValueTask ProbeBrokerAsync(
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        if (timeout <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(timeout), "Probe timeout must be positive.");
+        cancellationToken.ThrowIfCancellationRequested();
+
+        await RunBlockingProbeAsync(() =>
+        {
+            using var admin = new AdminClientBuilder(new AdminClientConfig
+            {
+                BootstrapServers = _bootstrapServers,
+            }).Build();
+            var metadata = admin.GetMetadata(timeout);
+            if (metadata.Brokers.Count == 0)
+                throw new KafkaException(new Error(ErrorCode.Local_AllBrokersDown));
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Keeps the synchronous librdkafka metadata call off the caller thread and lets the caller
+    /// observe cancellation immediately. The native probe itself remains bounded by its explicit
+    /// metadata timeout and owns its resources until that bounded operation finishes.
+    /// </summary>
+    internal static Task RunBlockingProbeAsync(
+        Action probe,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(probe);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var probeTask = Task.Run(probe, CancellationToken.None);
+        return probeTask.WaitAsync(cancellationToken);
     }
 
     public void Dispose() => _driver.Dispose();

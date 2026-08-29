@@ -37,6 +37,20 @@ public sealed class FdcAlarmHistoryRepository : QueryRepository, IFdcAlarmHistor
         return rows.Select(r => r.ToDomain()).OfType<FdcAlarmHistory>().ToList();
     }
 
+    public async Task<IReadOnlyList<FdcAlarmHistory>> GetOpenAsync(
+        string equipmentId,
+        string parameterId,
+        CancellationToken ct = default)
+    {
+        const string sql = @"SELECT * FROM FDC_ALARM_HISTORY
+            WHERE EQUIPMENT_ID = @equipmentId
+              AND PARAMETER_ID = @parameterId
+              AND IS_CLEARED = 0
+            ORDER BY OCCURRED_AT DESC";
+        var rows = await QueryAsync<AlarmRow>(sql, new { equipmentId, parameterId }, ct);
+        return rows.Select(r => r.ToDomain()).OfType<FdcAlarmHistory>().ToList();
+    }
+
     private const string InsertSql = @"INSERT INTO FDC_ALARM_HISTORY
             (ALARM_ID, ALARM_CONFIG_ID, EQUIPMENT_ID, PARAMETER_ID, ALARM_LEVEL, TRIGGER_VALUE, MESSAGE,
              OCCURRED_AT, CLEARED_AT, IS_CLEARED,

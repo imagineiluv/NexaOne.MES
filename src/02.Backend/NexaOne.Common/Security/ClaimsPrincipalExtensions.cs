@@ -16,10 +16,22 @@ public static class ClaimsPrincipalExtensions
     /// 클레임을 모두 훑어 와일드카드(<see cref="Permissions.All"/> = <c>"*"</c>, 전체 권한)이거나 대소문자 무시로
     /// 일치하면 통과한다. 게이트웨이 컨트롤러 12곳에 동일하게 복제돼 있던 로직을 그대로 끌어올린 것이다.
     /// </summary>
-    public static bool HasPermission(this ClaimsPrincipal user, string requiredPermission) =>
-        user.FindAll(Permissions.ClaimType)
-            .Any(c => c.Value == Permissions.All
-                   || string.Equals(c.Value, requiredPermission, StringComparison.OrdinalIgnoreCase));
+    public static bool HasPermission(this ClaimsPrincipal user, string requiredPermission)
+    {
+        var granted = user.FindAll(Permissions.ClaimType).Select(c => c.Value).ToArray();
+        if (granted.Any(value => value == Permissions.All
+                              || string.Equals(value, requiredPermission, StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        // 기존 module:manage 보유자가 read 정책 도입 후 조회에서 갑자기 403이 되지 않도록
+        // 동일 모듈의 manage 권한은 read 권한을 포함한다. 그 반대 방향은 허용하지 않는다.
+        const string readSuffix = ":read";
+        if (!requiredPermission.EndsWith(readSuffix, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var module = requiredPermission[..^readSuffix.Length];
+        return granted.Any(value => string.Equals(value, $"{module}:manage", StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>
     /// 현재 사용자의 식별자를 신원 클레임에서 순회 조회한다: <see cref="ClaimTypes.NameIdentifier"/>(JwtBearer가

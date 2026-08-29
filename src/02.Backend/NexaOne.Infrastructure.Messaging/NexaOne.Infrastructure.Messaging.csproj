@@ -3,7 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\NexaOne.Common\NexaOne.Common.csproj" />
     <!-- Kafka 프로토콜 본체는 서브모듈 소유 — Confluent.Kafka는 전이 참조로 흐름 -->
-    <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Messaging.Kafka\NexusCom.Messaging.Kafka.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaDB\src\NexaDB.Messaging.Kafka\NexaDB.Messaging.Kafka.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -15,5 +15,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="NexaOne.ServerTests" />
+  </ItemGroup>
 
 </Project>

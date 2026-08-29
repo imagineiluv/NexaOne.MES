@@ -1,0 +1,4 @@
+{
+  "credentialSource": "Auto",
+  "tokenEnvironmentVariable": "NEXA_SUBMODULE_TOKEN"
+}

@@ -3,43 +3,21 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
 
-  <!-- ===== MDM (Master Data Management) ===== -->
-
-  <object id="equipmentRepository" type="NexaOne.MDM.Infrastructure.EquipmentRepository, NexaOne.MDM">
+  <!-- XML은 모듈의 외부 의존성과 공개 인터페이스만 선언합니다. 저장소·업무 구현 그래프는 Module.cs가 소유합니다. -->
+  <object id="mdmModule" type="NexaOne.MDM.Module, NexaOne.MDM">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
-  </object>
-  <object id="equipmentService" type="NexaOne.MDM.Application.Equipments.EquipmentService, NexaOne.MDM">
-    <constructor-arg ref="equipmentRepository" />
-  </object>
-
-  <object id="plantRepository" type="NexaOne.MDM.Infrastructure.PlantRepository, NexaOne.MDM">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="areaRepository" type="NexaOne.MDM.Infrastructure.AreaRepository, NexaOne.MDM">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="productRepository" type="NexaOne.MDM.Infrastructure.ProductRepository, NexaOne.MDM">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="codeRepository" type="NexaOne.MDM.Infrastructure.CodeRepository, NexaOne.MDM">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="mdmMasterService" type="NexaOne.MDM.Application.Equipments.MdmMasterService, NexaOne.MDM">
-    <constructor-arg ref="plantRepository" />
-    <constructor-arg ref="areaRepository" />
-    <constructor-arg ref="productRepository" />
-    <constructor-arg ref="codeRepository" />
     <constructor-arg ref="cacheService" />
   </object>
 
-  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Mdm","mdmEquipmentBridge")로 IMdmEquipmentBridge 캐스트. -->
-  <object id="mdmEquipmentBridge" type="NexaOne.MDM.Application.Equipments.MdmEquipmentBridge, NexaOne.MDM">
-    <constructor-arg ref="equipmentService" />
-  </object>
-  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Mdm","mdmMasterBridge")로 IMdmMasterBridge 캐스트. -->
-  <object id="mdmMasterBridge" type="NexaOne.MDM.Application.Equipments.MdmMasterBridge, NexaOne.MDM">
-    <constructor-arg ref="mdmMasterService" />
-  </object>
+  <object id="mdmEquipmentBridge" factory-object="mdmModule" factory-method="GetEquipmentBridge" />
+  <object id="mdmMasterBridge" factory-object="mdmModule" factory-method="GetMasterBridge" />
+  <object id="equipmentDirectory" factory-object="mdmModule" factory-method="GetEquipmentDirectory" />
+  <object id="trackingRoutingDirectory" factory-object="mdmModule" factory-method="GetTrackingRoutingDirectory" />
+  <object id="oeePlanDirectory" factory-object="mdmModule" factory-method="GetOeePlanDirectory" />
+  <object id="equipmentOutputMasterDirectory" factory-object="mdmModule" factory-method="GetEquipmentOutputMasterDirectory" />
+  <object id="vendorDirectory" factory-object="mdmModule" factory-method="GetVendorDirectory" />
+  <object id="processDirectory" factory-object="mdmModule" factory-method="GetProcessDirectory" />
+  <object id="mrpMasterDirectory" factory-object="mdmModule" factory-method="GetMrpMasterDirectory" />
 
 </objects>

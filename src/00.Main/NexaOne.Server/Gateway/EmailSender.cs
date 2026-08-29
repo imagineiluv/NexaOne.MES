@@ -4,7 +4,8 @@ using System.Net.Mail;
 namespace NexaOne.Server.Gateway;
 
 /// <summary>메일 발송 추상화(호스트 인프라) — 비밀번호 재설정 등 인증 흐름의 발신 채널. 기본은 무발송
-/// (<see cref="NullEmailSender"/>)이며 Email:Smtp:Enabled=true + 호스트/포트 설정 시 SMTP 실발송으로 전환한다.
+/// (<see cref="NullEmailSender"/>)이며 Email:Smtp:Enabled=true이면 Host/Port/Sender를 모두 검증한 뒤
+/// SMTP 실발송으로 전환한다. 활성화된 불완전 설정은 호스트 조립 시 실패한다.
 /// 테스트는 이 인터페이스를 레코더로 대체해 토큰 전달을 검증한다.</summary>
 public interface IEmailSender
 {

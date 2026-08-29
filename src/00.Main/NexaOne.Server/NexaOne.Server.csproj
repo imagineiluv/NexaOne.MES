@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
@@ -6,24 +6,43 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- Hallmark app design system: keep the repository-root token file as the single source,
+       while exposing it to the Web SDK at /css/tokens.css in development and publish output. -->
+  <ItemGroup>
+    <Content Include="$(MSBuildProjectDirectory)\..\..\..\tokens.css"
+             Link="wwwroot\css\tokens.css"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- 순수 헬퍼(예: BatchProcessWorker.BuildDesired) 격리 단위 테스트를 위해 내부 가시성 부여. -->
     <InternalsVisibleTo Include="NexaOne.ServerTests" />
   </ItemGroup>
 
-  <!-- SPA(React/GrapesJS) 빌드 통합 — vite.config.ts가 outDir=wwwroot/spa, emptyOutDir, base='/spa/'로 설정되어
-       있으므로 SPA 디렉터리에서 `npm run build`를 돌리면 번들이 이 호스트의 wwwroot/spa로 출력된다(설계 Phase 4).
+  <!-- Portal client(React/GrapesJS) 빌드 통합 — 소스는 Server/ClientApps/Portal이 소유하고,
+       vite.config.ts가 번들을 이 호스트의 wwwroot/spa로 출력한다. 공개 URL /spa는 호환을 위해 유지한다.
        publish 시에는 항상 빌드해 정적 자산 파이프라인이 자산을 수집하기 전에 wwwroot/spa가 채워지게 한다.
        일반 dev `dotnet build`에서는 느린 npm 빌드를 기본 비활성화한다(개발자는 -p:BuildSpa=true로 강제 가능). -->
   <PropertyGroup>
-    <SpaRoot>$(MSBuildProjectDirectory)\..\..\01.Web\NexaOne.Spa\</SpaRoot>
+    <PortalClientRoot>$(MSBuildProjectDirectory)\ClientApps\Portal\</PortalClientRoot>
+    <DefaultItemExcludes>$(DefaultItemExcludes);ClientApps\**\node_modules\**;ClientApps\**\dist\**;ClientApps\**\*.tsbuildinfo</DefaultItemExcludes>
     <!-- dev 빌드 게이트: 기본 off. publish는 _IsPublishing(=true) 조건으로 게이트와 무관하게 빌드한다. -->
     <BuildSpa Condition="'$(BuildSpa)'==''">false</BuildSpa>
   </PropertyGroup>
 
+  <!-- Web SDK가 ClientApps 아래 JSON/소스를 Content로 게시하지 않도록 명시적으로 격리한다.
+       IDE 탐색을 위해 소스는 None으로 유지하고, 생성물과 로컬 환경파일은 프로젝트 항목에서 제외한다. -->
   <ItemGroup>
-    <!-- 배치 cron 파서(Gateway/CronSchedule) — 시스템 스케줄러(NexusFramework QuartzScheduler)와 동일 엔진.
-         NexusFramework를 통해 전이 참조되지만, CronExpression을 직접 사용하므로 명시 참조로 고정한다. -->
+    <Content Remove="ClientApps\**" />
+    <None Remove="ClientApps\**" />
+    <None Include="ClientApps\**"
+          Exclude="ClientApps\**\node_modules\**;ClientApps\**\dist\**;ClientApps\**\*.tsbuildinfo;ClientApps\**\.env;ClientApps\**\*.local" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 배치 cron 파서(Gateway/CronSchedule) — 시스템 스케줄러(NexaFramework QuartzScheduler)와 동일 엔진.
+         NexaFramework를 통해 전이 참조되지만, CronExpression을 직접 사용하므로 명시 참조로 고정한다. -->
     <PackageReference Include="Quartz" Version="3.*" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="8.*" />
     <!-- 통합 호스트(접근 A) — WebApplication. Spring.NET 빈 컨테이너(ApplicationServer)와 공존:
@@ -34,22 +53,30 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\submodules\NexusFramework\src\NexusFramework\NexusFramework.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework\NexaFramework.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure.Messaging\NexaOne.Infrastructure.Messaging.csproj" />
     <!-- Phase 4 Task 3 — 공유 Blazor 컴포넌트 RCL(MetaScreen·렌더러·인증/ApiClient 서비스). Default ALC 일반 참조로
          호스트와 NexaOne.Web(exe)이 동일 컴포넌트 단일 출처를 공유한다. plugin(./Modules) 복사 대상 아님
          (CopyDomainModulePlugins는 모듈 DLL만 나열 — 무변경) → ADR-006 ALC 동일성 불변. -->
     <ProjectReference Include="..\..\01.Web\NexaOne.Web.Components\NexaOne.Web.Components.csproj" />
-    <!-- OPC-UA 설비 드라이버를 공통 서버 빈(server.xml의 opcUaDriver)으로 노출하기 위해 참조한다.
-         부모 컨텍스트(Default ALC)에 OpcUaDriver/IPlcDriver 타입이 있어야 FDC 플러그인 모듈이 타입 동일성으로 주입받는다. -->
-    <ProjectReference Include="..\..\..\submodules\NexusLogic\src\NexusLogic.Plc.OpcUa\NexusLogic.Plc.OpcUa.csproj" />
-    <!-- DB 공급자는 NexusCom.Data 메타 패키지 '하나'로 참조한다 — 이 단일 참조가 MsSql·Sqlite 두 공급자
+    <!-- PLC DriverFactory와 실제 프로토콜 드라이버는 공통 서버(Spring 부모) 빈으로 조합한다.
+         부모 컨텍스트(Default ALC)에 Hosting/IPlcDriver 타입이 있어야 FDC 플러그인 모듈과 타입 동일성이 유지된다. -->
+    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.Hosting\NexaLogic.Plc.Hosting.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.OpcUa\NexaLogic.Plc.OpcUa.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.ModbusTcp\NexaLogic.Plc.ModbusTcp.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.SiemensS7\NexaLogic.Plc.SiemensS7.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.MitsubishiMc\NexaLogic.Plc.MitsubishiMc.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.AllenBradley\NexaLogic.Plc.AllenBradley.csproj" />
+    <!-- DB 공급자는 NexaDB.Data 메타 패키지 '하나'로 참조한다 — 이 단일 참조가 MsSql·Sqlite 두 공급자
          어셈블리를 함께 출력에 끌어온다(어셈블리는 분리 유지). 따라서 코드 재빌드 없이 server.xml만 바꿔
          MSSQL↔SQLite를 전환할 수 있다(두 공급자 DLL이 호스트 Default ALC에 상존). -->
-    <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data\NexusCom.Data.csproj" />
-    <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.PostgreSql\NexusCom.Data.PostgreSql.csproj" Condition="'$(DbmsType)'=='PostgreSQL'" />
-    <ProjectReference Include="..\..\..\submodules\NexusCom\src\NexusCom.Data.MySql\NexusCom.Data.MySql.csproj" Condition="'$(DbmsType)'=='MySQL'" />
+    <ProjectReference Include="..\..\..\submodules\NexaDB\src\NexaDB.Data\NexaDB.Data.csproj" />
+    <!-- 공통 Dapper 조회 seam의 성공/지연/timeout/error를 System.Diagnostics.Metrics로 노출한다.
+         Hosting 프로젝트의 서비스 호스트는 사용하지 않고 DataDiagnosticsMeterSink만 조합한다. -->
+    <ProjectReference Include="..\..\..\submodules\NexaDB\src\NexaDB.Data.Hosting\NexaDB.Data.Hosting.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaDB\src\NexaDB.Data.PostgreSql\NexaDB.Data.PostgreSql.csproj" Condition="'$(DbmsType)'=='PostgreSQL'" />
+    <ProjectReference Include="..\..\..\submodules\NexaDB\src\NexaDB.Data.MySql\NexaDB.Data.MySql.csproj" Condition="'$(DbmsType)'=='MySQL'" />
   </ItemGroup>
 
   <!-- SQLite 모드에서 SqliteSchemaInitializer가 출력 디렉터리 옆(db/migrations)에서 DDL을 찾도록 복사한다.
@@ -84,21 +111,23 @@
     <ProjectReference Include="..\..\04.Modules\NexaOne.RMS\NexaOne.RMS.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.QMS\NexaOne.QMS.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.EMS\NexaOne.EMS.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.IVT\NexaOne.IVT.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.POM\NexaOne.POM.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\04.Modules\NexaOne.PRC\NexaOne.PRC.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.SHP\NexaOne.SHP.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
-  <!-- SPA 빌드 타깃 — wwwroot/spa로 vite 번들을 출력한다. ResolveProjectStaticWebAssets(정적 웹 자산이
+  <!-- Portal client 빌드 타깃 — wwwroot/spa로 vite 번들을 출력한다. ResolveProjectStaticWebAssets(정적 웹 자산이
        wwwroot를 스캔하는 시점) '이전'에 실행해야 갓 빌드된 wwwroot/spa/**가 자산 매니페스트에 포함되고,
        그 결과 publish 출력에 함께 게시된다. publish는 build를 선행하므로 이 내부 build에서 타깃이 돈다.
        Condition: BuildSpa=true(개발자 강제) 또는 _IsPublishing=true(dotnet publish)일 때만 실행 →
        일반 dev `dotnet build`에서는 느린 npm 빌드를 건너뛴다.
        node_modules 부재 시에만 `npm ci`로 재현 가능한 설치(package-lock.json 기반) 후 `npm run build`. -->
-  <Target Name="BuildSpaBundle" BeforeTargets="ResolveStaticWebAssetsConfiguration;AssignTargetPaths;Build" Condition="'$(BuildSpa)'=='true' Or '$(_IsPublishing)'=='true'">
-    <Message Importance="high" Text="Building SPA (React/GrapesJS) into wwwroot/spa from $(SpaRoot) ..." />
-    <Exec Command="npm ci" WorkingDirectory="$(SpaRoot)" Condition="!Exists('$(SpaRoot)node_modules')" />
-    <Exec Command="npm run build" WorkingDirectory="$(SpaRoot)" />
+  <Target Name="BuildPortalClientBundle" BeforeTargets="ResolveStaticWebAssetsConfiguration;AssignTargetPaths;Build" Condition="'$(BuildSpa)'=='true' Or '$(_IsPublishing)'=='true'">
+    <Message Importance="high" Text="Building Portal client into wwwroot/spa from $(PortalClientRoot) ..." />
+    <Exec Command="npm ci" WorkingDirectory="$(PortalClientRoot)" Condition="!Exists('$(PortalClientRoot)node_modules')" />
+    <Exec Command="npm run build" WorkingDirectory="$(PortalClientRoot)" />
 
     <!-- vite는 emptyOutDir로 이전 출력을 지우고 콘텐츠 해시 파일명(index-XXXX.js)으로 새로 쓴다. 정적 웹 자산
          파이프라인은 obj에 빌드/게시 매니페스트(staticwebassets.*.json)를 캐시하는데, 이 캐시가 직전 빌드의
@@ -129,16 +158,20 @@
        타입 동일성이 server.xml 컨텍스트와 유지된다. (런타임 로드는 MSSQL 환경에서 실행 검증 필요.) -->
   <Target Name="CopyDomainModulePlugins" AfterTargets="Build">
     <ItemGroup>
-      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.MDM\bin\$(Configuration)\net8.0\NexaOne.MDM.dll" />
-      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.EST\bin\$(Configuration)\net8.0\NexaOne.EST.dll" />
-      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.FDC\bin\$(Configuration)\net8.0\NexaOne.FDC.dll" />
-      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.RMS\bin\$(Configuration)\net8.0\NexaOne.RMS.dll" />
-      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.QMS\bin\$(Configuration)\net8.0\NexaOne.QMS.dll" />
-      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.EMS\bin\$(Configuration)\net8.0\NexaOne.EMS.dll" />
-      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.POM\bin\$(Configuration)\net8.0\NexaOne.POM.dll" />
-      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.SHP\bin\$(Configuration)\net8.0\NexaOne.SHP.dll" />
-      <_ModulePluginDll Include="..\..\04.Modules\NexaOne.SYS\bin\$(Configuration)\net8.0\NexaOne.SYS.dll" />
+      <!-- Resolve the actual target paths produced by this build. Hard-coded project bin paths
+           bypass an external artifacts path and can silently package stale default-bin plugin DLLs. -->
+      <_ModulePluginProject Include="@(_MSBuildProjectReferenceExistent)"
+                            Condition="'%(ReferenceOutputAssembly)' == 'false'" />
     </ItemGroup>
+    <MSBuild Projects="@(_ModulePluginProject)"
+             Targets="GetTargetPath"
+             BuildInParallel="$(BuildInParallel)">
+      <Output TaskParameter="TargetOutputs" ItemName="_ModulePluginDll" />
+    </MSBuild>
+    <Error Condition="'@(_ModulePluginDll)' == ''"
+           Text="No current domain module outputs were resolved for the host plugin bundle." />
+    <Error Condition="!Exists('%(_ModulePluginDll.FullPath)')"
+           Text="Current domain module output is missing: %(_ModulePluginDll.FullPath)" />
     <Copy SourceFiles="@(_ModulePluginDll)" DestinationFolder="$(OutDir)Modules" SkipUnchangedFiles="true" />
   </Target>
 

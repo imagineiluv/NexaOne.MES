@@ -33,14 +33,16 @@
                         중복확인
                     </button>
                 </div>
-                @if (_available is true)
-                {
-                    <span class="host-help">사용 가능한 ID입니다.</span>
-                }
-                else if (_available is false)
-                {
-                    <span class="host-error">이미 사용 중이거나 처리 대기 중인 ID입니다.</span>
-                }
+                <span class="host-field-status" aria-live="polite">
+                    @if (_available is true)
+                    {
+                        <span class="host-success-inline">사용 가능한 ID입니다.</span>
+                    }
+                    else if (_available is false)
+                    {
+                        <span class="host-error-inline">이미 사용 중이거나 처리 대기 중인 ID입니다.</span>
+                    }
+                </span>
             </div>
 
             <div class="host-field">
@@ -73,10 +75,7 @@
                 </label>
             </div>
 
-            @if (!string.IsNullOrEmpty(_error))
-            {
-                <div class="host-error">@_error</div>
-            }
+            <div class="host-error" role="alert" aria-live="polite">@_error</div>
 
             <button type="submit" class="host-btn" disabled="@(_loading || !CanSubmit)">
                 @(_loading ? "신청 중…" : "가입 신청")
@@ -87,9 +86,6 @@
 </div>
 
 @code {
-    private const string LabelStyle = "display:block; font-size:0.813rem; font-weight:500; color:#44506a; margin-bottom:0.25rem;";
-    private const string InputStyle = "width:100%; padding:0.5rem; border:1px solid var(--nx-border); border-radius:4px; box-sizing:border-box;";
-
     private readonly SignupModel _model = new();
     private string? _error;
     private bool _loading;

@@ -50,7 +50,8 @@ public sealed class GatewayStdBorQueryTests : IClassFixture<GatewayStdBorQueryTe
         var creds = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Secret)), SecurityAlgorithms.HmacSha256);
         var token = new JwtSecurityToken(Issuer, Issuer,
-            new[] { new Claim(ClaimTypes.NameIdentifier, "bor-e2e-user") },
+            new[] { new Claim(ClaimTypes.NameIdentifier, "bor-e2e-user"),
+                new Claim(NexaOne.Common.Security.Permissions.ClaimType, "mdm:read") },
             expires: DateTime.UtcNow.AddMinutes(10), signingCredentials: creds);
         client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", new JwtSecurityTokenHandler().WriteToken(token));

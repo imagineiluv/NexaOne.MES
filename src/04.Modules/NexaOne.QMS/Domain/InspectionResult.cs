@@ -2,11 +2,21 @@
 
 namespace NexaOne.QMS.Domain;
 
+/// <summary>검사가 발생한 업무 경계를 나타냅니다. 저장소와 화면이 같은 값을 사용해 수입·공정·출하 결과가 섞이지 않게 합니다.</summary>
+public enum InspectionExecutionType
+{
+    Incoming,
+    Process,
+    Shipping
+}
+
 public sealed class InspectionResult : AuditableEntity<string>
 {
     private InspectionResult(string resultId) : base(resultId) { }
 
     public string SpecId { get; private set; } = string.Empty;
+    public string InspectionId { get; private set; } = string.Empty;
+    public InspectionExecutionType InspectionType { get; private set; } = InspectionExecutionType.Process;
     public string LotId { get; private set; } = string.Empty;
     public string EquipmentId { get; private set; } = string.Empty;
     public decimal? MeasuredValue { get; private set; }
@@ -15,6 +25,8 @@ public sealed class InspectionResult : AuditableEntity<string>
     public string InspectorId { get; private set; } = string.Empty;
     public bool IsPass { get; private set; }
     public string? Remark { get; private set; }
+    public int SampleQuantity { get; private set; } = 1;
+    public int DefectQuantity { get; private set; }
 
     public static Result<InspectionResult> Create(
         string resultId,
@@ -30,7 +42,11 @@ public sealed class InspectionResult : AuditableEntity<string>
         decimal? tolerancePlus = null,
         decimal? toleranceMinus = null,
         string? measureType = null,
-        string? remark = null)
+        string? remark = null,
+        InspectionExecutionType inspectionType = InspectionExecutionType.Process,
+        string? inspectionId = null,
+        int sampleQuantity = 1,
+        int? defectQuantity = null)
     {
         if (string.IsNullOrWhiteSpace(resultId))
             return Result.Failure<InspectionResult>(Error.Validation(nameof(resultId), "Result ID is required."));
@@ -42,22 +58,54 @@ public sealed class InspectionResult : AuditableEntity<string>
             return Result.Failure<InspectionResult>(Error.Validation(nameof(equipmentId), "Equipment ID is required."));
         if (string.IsNullOrWhiteSpace(inspectorId))
             return Result.Failure<InspectionResult>(Error.Validation(nameof(inspectorId), "Inspector ID is required."));
+        if (!Enum.IsDefined(inspectionType))
+            return Result.Failure<InspectionResult>(Error.Validation(nameof(inspectionType), "Inspection type must be Incoming, Process, or Shipping."));
+        if (sampleQuantity <= 0)
+            return Result.Failure<InspectionResult>(Error.Validation(nameof(sampleQuantity), "Item sample quantity must be positive."));
+
+        var normalizedMeasureType = InspectionSpec.NormalizeMeasureType(measureType);
+        if (normalizedMeasureType is null)
+            return Result.Failure<InspectionResult>(Error.Validation(nameof(measureType), "A valid measure type is required."));
 
         bool computedIsPass;
-        if (measureType == "Numeric" && measuredValue.HasValue && nominalValue.HasValue)
+        if (normalizedMeasureType == InspectionSpec.VariableMeasureType)
         {
-            var upper = nominalValue.Value + (tolerancePlus ?? decimal.MaxValue);
-            var lower = nominalValue.Value - (toleranceMinus ?? decimal.MaxValue);
-            computedIsPass = measuredValue.Value >= lower && measuredValue.Value <= upper;
+            if (measuredValue is null || nominalValue is null)
+                return Result.Failure<InspectionResult>(Error.Validation(nameof(measuredValue), "A variable inspection requires a measured and nominal value."));
+            if (tolerancePlus < 0 || toleranceMinus < 0)
+                return Result.Failure<InspectionResult>(Error.Validation(nameof(tolerancePlus), "Tolerances must be non-negative."));
+
+            // Compare differences instead of adding decimal.MaxValue. This is overflow-free and
+            // naturally supports a missing one-sided tolerance as an unbounded side.
+            var upperPass = measuredValue.Value <= nominalValue.Value ||
+                tolerancePlus is null || measuredValue.Value - nominalValue.Value <= tolerancePlus.Value;
+            var lowerPass = measuredValue.Value >= nominalValue.Value ||
+                toleranceMinus is null || nominalValue.Value - measuredValue.Value <= toleranceMinus.Value;
+            computedIsPass = upperPass && lowerPass;
         }
         else
         {
-            computedIsPass = isPass ?? false;
+            if (measuredValue is not null)
+                return Result.Failure<InspectionResult>(Error.Validation(nameof(measuredValue), "An attribute inspection cannot contain a measured value."));
+            var normalizedAttribute = NormalizeAttributeResult(attributeResult);
+            if (normalizedAttribute is null)
+                return Result.Failure<InspectionResult>(Error.Validation(nameof(attributeResult), "Attribute result must be 'Pass' or 'Fail'."));
+            computedIsPass = normalizedAttribute == "Pass";
+            if (isPass.HasValue && isPass.Value != computedIsPass)
+                return Result.Failure<InspectionResult>(Error.Validation(nameof(isPass), "Client verdict conflicts with the server attribute verdict."));
+            attributeResult = normalizedAttribute;
         }
+
+        var normalizedDefectQuantity = defectQuantity ?? (computedIsPass ? 0 : 1);
+        if (normalizedDefectQuantity < 0 || normalizedDefectQuantity > sampleQuantity)
+            return Result.Failure<InspectionResult>(Error.Validation(
+                nameof(defectQuantity), "Item defect quantity must be between zero and its sample quantity."));
 
         var result = new InspectionResult(resultId)
         {
             SpecId = specId,
+            InspectionId = string.IsNullOrWhiteSpace(inspectionId) ? resultId : inspectionId.Trim(),
+            InspectionType = inspectionType,
             LotId = lotId,
             EquipmentId = equipmentId,
             MeasuredValue = measuredValue,
@@ -65,7 +113,9 @@ public sealed class InspectionResult : AuditableEntity<string>
             InspectedAt = inspectedAt,
             InspectorId = inspectorId,
             IsPass = computedIsPass,
-            Remark = remark
+            Remark = remark,
+            SampleQuantity = sampleQuantity,
+            DefectQuantity = normalizedDefectQuantity
         };
         return result;
     }
@@ -79,11 +129,17 @@ public sealed class InspectionResult : AuditableEntity<string>
         decimal? measuredValue, string? attributeResult, DateTime inspectedAt,
         string inspectorId, bool isPass, string? remark,
         string? createdBy = null, DateTime? createdAt = null,
-        string? updatedBy = null, DateTime? updatedAt = null)
+        string? updatedBy = null, DateTime? updatedAt = null,
+        InspectionExecutionType inspectionType = InspectionExecutionType.Process,
+        string? inspectionId = null,
+        int sampleQuantity = 1,
+        int defectQuantity = 0)
     {
         var result = new InspectionResult(resultId)
         {
             SpecId = specId,
+            InspectionId = string.IsNullOrWhiteSpace(inspectionId) ? resultId : inspectionId,
+            InspectionType = inspectionType,
             LotId = lotId,
             EquipmentId = equipmentId,
             MeasuredValue = measuredValue,
@@ -91,9 +147,24 @@ public sealed class InspectionResult : AuditableEntity<string>
             InspectedAt = inspectedAt,
             InspectorId = inspectorId,
             IsPass = isPass,
-            Remark = remark
+            Remark = remark,
+            SampleQuantity = sampleQuantity,
+            DefectQuantity = defectQuantity
         };
         result.RestoreAudit(createdBy ?? result.CreatedBy, createdAt ?? result.CreatedAt, updatedBy, updatedAt);
         return result;
+    }
+
+    private static string? NormalizeAttributeResult(string? value)
+    {
+        if (string.Equals(value, "Pass", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "OK", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "Good", StringComparison.OrdinalIgnoreCase))
+            return "Pass";
+        if (string.Equals(value, "Fail", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "NG", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "Bad", StringComparison.OrdinalIgnoreCase))
+            return "Fail";
+        return null;
     }
 }

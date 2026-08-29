@@ -1,3 +1,5 @@
+using System.Data.Common;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Configuration;
 using NexaOne.Common;
 using NexaOne.EMS.Application.Ems;
@@ -56,6 +58,22 @@ public sealed class MaintenancePlanRepository : QueryRepository, IMaintenancePla
         return rows.Select(r => r.ToDomain()).OfType<MaintenancePlan>().ToList();
     }
 
+    public async Task<MaintenancePlanAction?> GetActionByIdempotencyKeyAsync(
+        string idempotencyKey,
+        CancellationToken ct = default)
+    {
+        const string sql = @"SELECT ACTION_ID, WO_ID AS WORK_ORDER_ID,
+                                    MAINTENANCE_PLAN_ID AS PLAN_ID, ACTION_TYPE,
+                                    FROM_STATUS, TO_STATUS, RESULT_STATUS, ACTOR_ID,
+                                    IDEMPOTENCY_KEY, ACTION_AT, SOURCE, CLIENT_CHANNEL,
+                                    DEVICE_ID, CORRELATION_ID
+                             FROM EMS_MAINTENANCE_ACTION_HISTORY
+                             WHERE IDEMPOTENCY_KEY=@idempotencyKey";
+        var row = await QueryFirstOrDefaultAsync<PlanActionRow>(
+            sql, new { idempotencyKey }, ct);
+        return row?.ToDomain();
+    }
+
     private const string InsertSql = @"INSERT INTO EMS_MAINTENANCE_PLAN
             (PLAN_ID, PLAN_NAME, EQUIPMENT_ID, PLAN_TYPE, CYCLE_TYPE,
              SCHEDULED_DATE, ESTIMATED_DURATION_HOURS, ASSIGNEE_ID, STATUS,
@@ -69,9 +87,56 @@ public sealed class MaintenancePlanRepository : QueryRepository, IMaintenancePla
             STATUS = @Status, UPDATED_BY = @UpdatedBy, UPDATED_AT = @UpdatedAt
             WHERE PLAN_ID = @PlanId";
 
+    private const string GuardedUpdateSql = @"UPDATE EMS_MAINTENANCE_PLAN SET
+            STATUS = @Status, UPDATED_BY = @UpdatedBy, UPDATED_AT = @UpdatedAt
+            WHERE PLAN_ID = @PlanId AND STATUS = @FromStatus";
+
+    private const string InsertActionSql = @"
+        INSERT INTO EMS_MAINTENANCE_ACTION_HISTORY
+        (ACTION_ID, WO_ID, MAINTENANCE_PLAN_ID, EQUIPMENT_ID, MAINTENANCE_TYPE, ACTION_TYPE,
+         RESULT_STATUS, ACTOR_ID, ASSIGNEE_ID, SOURCE, CLIENT_CHANNEL, DEVICE_ID,
+         FAILURE_CODE_ID, REMARK, ACTION_AT, IDEMPOTENCY_KEY, FROM_STATUS, TO_STATUS,
+         CORRELATION_ID, CREATED_BY, CREATED_AT)
+        VALUES
+        (@ActionId, NULL, @PlanId, @EquipmentId, @MaintenanceType, @ActionType,
+         @ResultStatus, @ActorId, @AssigneeId, @Source, @ClientChannel, @DeviceId,
+         NULL, NULL, @ActionAt, @IdempotencyKey, @FromStatus, @ToStatus,
+         @CorrelationId, @Actor, @Now)";
+
     public async Task AddAsync(MaintenancePlan plan, CancellationToken ct = default)
     {
         await _processor.InsertAsync(InsertSql, PlanRow.FromDomain(plan), ct);
+    }
+
+    public async Task<bool> AddWithActionAsync(
+        MaintenancePlan plan,
+        MaintenancePlanAction action,
+        CancellationToken ct = default)
+    {
+        const string insert = @"INSERT INTO EMS_MAINTENANCE_PLAN
+            (PLAN_ID, PLAN_NAME, EQUIPMENT_ID, PLAN_TYPE, CYCLE_TYPE,
+             SCHEDULED_DATE, ESTIMATED_DURATION_HOURS, ASSIGNEE_ID, STATUS,
+             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            SELECT @PlanId, @PlanName, @EquipmentId, @PlanType, @CycleType,
+                   @ScheduledDate, @EstimatedDurationHours, @AssigneeId, @Status,
+                   @Actor, @Now, @Actor, @Now
+            WHERE NOT EXISTS (
+                SELECT 1 FROM EMS_MAINTENANCE_ACTION_HISTORY
+                 WHERE IDEMPOTENCY_KEY=@IdempotencyKey)
+              AND NOT EXISTS (
+                SELECT 1 FROM EMS_MAINTENANCE_PLAN WHERE PLAN_ID=@PlanId)";
+        var actor = action.ActorId;
+        var now = DateTime.UtcNow;
+        try
+        {
+            return await _processor.ExecuteGuardedManyAsync(ct,
+                (insert, InsertParam(plan, action.IdempotencyKey, actor, now)),
+                (InsertActionSql, ActionParam(plan, action, actor, now)));
+        }
+        catch (DbException ex) when (IsExpectedUniqueRace(ex, allowPlanIdentity: true))
+        {
+            return false;
+        }
     }
 
     public async Task UpdateAsync(MaintenancePlan plan, CancellationToken ct = default)
@@ -84,6 +149,35 @@ public sealed class MaintenancePlanRepository : QueryRepository, IMaintenancePla
         }
         // ADR-002 활성: 계획 UPDATE + 도메인 이벤트(EES_OUTBOX)를 같은 트랜잭션으로 — 함께 커밋/롤백돼 발행 원자성 보장.
         await PersistWithOutboxAsync(plan, ct);
+    }
+
+    public async Task<bool> UpdateWithActionAsync(
+        MaintenancePlan plan,
+        MaintenancePlanAction action,
+        CancellationToken ct = default)
+    {
+        var actor = action.ActorId;
+        var now = DateTime.UtcNow;
+        var statements = new List<(string Sql, object? Param)>
+        {
+            (GuardedUpdateSql, UpdateParam(plan, actor, now, action.FromStatus)),
+            (InsertActionSql, ActionParam(plan, action, actor, now)),
+        };
+        if (_outboxEnabled)
+            statements.AddRange(OutboxStatements.For(
+                plan.DomainEvents.OfType<IOutboxEvent>(), actor, now));
+
+        bool updated;
+        try
+        {
+            updated = await _processor.ExecuteGuardedManyAsync(ct, statements.ToArray());
+        }
+        catch (DbException ex) when (IsExpectedUniqueRace(ex, allowPlanIdentity: false))
+        {
+            return false;
+        }
+        if (updated && _outboxEnabled) plan.ClearDomainEvents();
+        return updated;
     }
 
     // 계획 행 + 발행 이벤트를 한 트랜잭션으로 기록한다. ExecuteManyAsync는 raw(감사 미주입)라 계획 행의 감사 컬럼을
@@ -102,14 +196,116 @@ public sealed class MaintenancePlanRepository : QueryRepository, IMaintenancePla
         plan.ClearDomainEvents();
     }
 
-    private static Dapper.DynamicParameters UpdateParam(MaintenancePlan plan, string user, DateTime now)
+    private static Dapper.DynamicParameters UpdateParam(
+        MaintenancePlan plan,
+        string user,
+        DateTime now,
+        string? fromStatus = null)
     {
         var p = new Dapper.DynamicParameters();
         p.Add("PlanId", plan.Id);
         p.Add("Status", plan.Status.ToString());
         p.Add("UpdatedBy", user);
         p.Add("UpdatedAt", now);
+        p.Add("FromStatus", fromStatus);
         return p;
+    }
+
+    private static Dapper.DynamicParameters InsertParam(
+        MaintenancePlan plan,
+        string idempotencyKey,
+        string actor,
+        DateTime now)
+    {
+        var p = new Dapper.DynamicParameters();
+        p.Add("PlanId", plan.Id);
+        p.Add("PlanName", plan.PlanName);
+        p.Add("EquipmentId", plan.EquipmentId);
+        p.Add("PlanType", plan.PlanType);
+        p.Add("CycleType", plan.CycleType);
+        p.Add("ScheduledDate", plan.ScheduledDate);
+        p.Add("EstimatedDurationHours", plan.EstimatedDurationHours);
+        p.Add("AssigneeId", plan.AssigneeId);
+        p.Add("Status", plan.Status.ToString());
+        p.Add("IdempotencyKey", idempotencyKey);
+        p.Add("Actor", actor);
+        p.Add("Now", now);
+        return p;
+    }
+
+    private static Dapper.DynamicParameters ActionParam(
+        MaintenancePlan plan,
+        MaintenancePlanAction action,
+        string actor,
+        DateTime now)
+    {
+        var p = new Dapper.DynamicParameters();
+        p.Add("ActionId", action.ActionId);
+        p.Add("PlanId", plan.Id);
+        p.Add("EquipmentId", plan.EquipmentId);
+        p.Add("MaintenanceType", plan.PlanType);
+        p.Add("ActionType", action.ActionType);
+        p.Add("ResultStatus", plan.Status.ToString());
+        p.Add("ActorId", action.ActorId);
+        p.Add("AssigneeId", plan.AssigneeId);
+        p.Add("Source", action.Source);
+        p.Add("ClientChannel", action.ClientChannel);
+        p.Add("DeviceId", action.DeviceId);
+        p.Add("IdempotencyKey", action.IdempotencyKey);
+        p.Add("FromStatus", action.FromStatus);
+        p.Add("ToStatus", action.ToStatus);
+        p.Add("CorrelationId", action.CorrelationId);
+        p.Add("ActionAt", action.ActionAt);
+        p.Add("Actor", actor);
+        p.Add("Now", now);
+        return p;
+    }
+
+    private static bool IsExpectedUniqueRace(DbException exception, bool allowPlanIdentity)
+    {
+        var unique = exception switch
+        {
+            SqliteException sqlite => sqlite.SqliteErrorCode == 19
+                                      && sqlite.SqliteExtendedErrorCode is 1555 or 2067,
+            _ when string.Equals(exception.GetType().FullName,
+                    "Microsoft.Data.SqlClient.SqlException", StringComparison.Ordinal)
+                => exception.GetType().GetProperty("Number")?.GetValue(exception) is int number
+                   && number is 2601 or 2627,
+            _ => false,
+        };
+        if (!unique) return false;
+
+        var message = exception.Message;
+        if (message.Contains("UX_EMS_MAINTENANCE_ACTION_IDEMPOTENCY", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("EMS_MAINTENANCE_ACTION_HISTORY.IDEMPOTENCY_KEY", StringComparison.OrdinalIgnoreCase))
+            return true;
+        return allowPlanIdentity
+               && (message.Contains("PK_EMS_MAINTENANCE_PLAN", StringComparison.OrdinalIgnoreCase)
+                   || message.Contains("EMS_MAINTENANCE_PLAN.PLAN_ID", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private sealed class PlanActionRow
+    {
+        public string ActionId { get; set; } = string.Empty;
+        public string? WorkOrderId { get; set; }
+        public string? PlanId { get; set; }
+        public string ActionType { get; set; } = string.Empty;
+        public string? FromStatus { get; set; }
+        public string? ToStatus { get; set; }
+        public string ResultStatus { get; set; } = string.Empty;
+        public string ActorId { get; set; } = string.Empty;
+        public string IdempotencyKey { get; set; } = string.Empty;
+        public DateTime ActionAt { get; set; }
+        public string Source { get; set; } = "Manual";
+        public string ClientChannel { get; set; } = "MES";
+        public string? DeviceId { get; set; }
+        public string? CorrelationId { get; set; }
+
+        public MaintenancePlanAction ToDomain() => new(
+            ActionId, PlanId, ActionType, FromStatus,
+            string.IsNullOrWhiteSpace(ToStatus) ? ResultStatus : ToStatus,
+            ActorId, IdempotencyKey, ActionAt, Source, ClientChannel,
+            DeviceId, CorrelationId, WorkOrderId);
     }
 
     private sealed class PlanRow
@@ -120,7 +316,7 @@ public sealed class MaintenancePlanRepository : QueryRepository, IMaintenancePla
         public string  PlanType                { get; set; } = "";
         public string  CycleType               { get; set; } = "";
         public DateTime ScheduledDate          { get; set; }
-        public decimal EstimatedDurationHours  { get; set; }
+        public object EstimatedDurationHours  { get; set; } = 0m;
         public string  AssigneeId              { get; set; } = "";
         public string  Status                  { get; set; } = "Planned";
 
@@ -135,7 +331,9 @@ public sealed class MaintenancePlanRepository : QueryRepository, IMaintenancePla
         // 감사필드도 함께 복원해 읽기마다 CreatedAt=UtcNow 재생성·CreatedBy="" 리셋되는 상태손실을 막는다.
         public MaintenancePlan ToDomain() =>
             MaintenancePlan.Restore(PlanId, PlanName, EquipmentId, PlanType, CycleType,
-                ScheduledDate, EstimatedDurationHours, AssigneeId,
+                ScheduledDate,
+                Convert.ToDecimal(EstimatedDurationHours, System.Globalization.CultureInfo.InvariantCulture),
+                AssigneeId,
                 Enum.Parse<MaintenancePlanStatus>(Status, ignoreCase: true),
                 CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
 

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Data.SqlClient;
 using NexaOne.Application.Query;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace NexaOne.ServerTests;
@@ -12,10 +13,9 @@ namespace NexaOne.ServerTests;
 /// env-gate: NEXAONE_MSSQL_TEST_CONN(연결 문자열) 미설정이면 소프트 스킵(단언 없이 통과) — CI/로컬 SQLite
 /// 환경에서 무해하고, MSSQL 접근 가능한 환경(자사 dev 등)에서 변수만 세팅하면 전 쿼리를 실검증한다.
 /// 접속 정보는 저장소에 절대 넣지 않는다(환경변수 전용).</summary>
+[Trait("Category", "MssqlContract")]
 public sealed class MssqlDialectSyntaxTests
 {
-    private const string ConnEnvVar = "NEXAONE_MSSQL_TEST_CONN";
-
     public static IEnumerable<object[]> QueryTrees() => new[]
     {
         new object[] { "src/00.Main/NexaOne.Server/config/db/queries" },        // 공개 게이트웨이 트리
@@ -26,44 +26,85 @@ public sealed class MssqlDialectSyntaxTests
     [MemberData(nameof(QueryTrees))]
     public void Every_mssql_query_parses_on_real_sql_server(string treeRelativePath)
     {
-        var connString = Environment.GetEnvironmentVariable(ConnEnvVar);
+        var connString = MssqlContractDatabase.GetConnectionStringOrThrowIfRequired();
         if (string.IsNullOrWhiteSpace(connString))
             return;   // 소프트 스킵 — MSSQL 미가용 환경(로컬 SQLite/CI). 게이트 변수 설정 시에만 실검증.
 
-        var registry = FileQueryRegistry.Load("mssql", ResolveRepoRelative(treeRelativePath));
+        var registry = FileQueryRegistry.Load(
+            "mssql",
+            RepositorySource.GetDirectory(treeRelativePath));
         registry.Ids.Should().NotBeEmpty($"'{treeRelativePath}/mssql' 로드 실패 시 공허 통과 금지");
 
         using var conn = new SqlConnection(connString);
         conn.Open();
 
         var failures = new List<string>();
-        foreach (var id in registry.Ids.OrderBy(x => x, StringComparer.Ordinal))
+        using var parseOnlyOn = conn.CreateCommand();
+        parseOnlyOn.CommandText = "SET PARSEONLY ON;";
+        parseOnlyOn.ExecuteNonQuery();
+        try
         {
-            registry.TryGet(id, out var def);
-            try
+            foreach (var id in registry.Ids.OrderBy(x => x, StringComparer.Ordinal))
             {
-                using var cmd = conn.CreateCommand();
-                // PARSEONLY는 배치 단위 토글 — 쿼리 SQL을 같은 배치에 넣어 파서만 태운다(실행/바인딩 없음).
-                cmd.CommandText = "SET PARSEONLY ON;\n" + def!.Sql + "\nSET PARSEONLY OFF;";
-                cmd.ExecuteNonQuery();
+                registry.TryGet(id, out var def);
+                try
+                {
+                    using var cmd = conn.CreateCommand();
+                    // PARSEONLY는 연결 세션에서 별도 설정한 뒤 쿼리만 같은 배치로 파싱한다(실행 없음).
+                    // SQL Server still resolves variable names while parsing, so declare each Dapper
+                    // placeholder solely for this syntax contract.
+                    cmd.CommandText = DeclareParseOnlyParameters(def!.Sql);
+                    cmd.ExecuteNonQuery();
+                }
+                catch (SqlException ex)
+                {
+                    failures.Add($"{id}: {ex.Message.ReplaceLineEndings(" ")}");
+                }
             }
-            catch (SqlException ex)
-            {
-                failures.Add($"{id}: {ex.Message.ReplaceLineEndings(" ")}");
-            }
+        }
+        finally
+        {
+            using var parseOnlyOff = conn.CreateCommand();
+            parseOnlyOff.CommandText = "SET PARSEONLY OFF;";
+            parseOnlyOff.ExecuteNonQuery();
         }
 
         failures.Should().BeEmpty(
             $"[{treeRelativePath}] MSSQL 파서가 거부한 쿼리(방언 문법 오류): {string.Join(" | ", failures)}");
     }
 
-    // DialectParityTests.ResolveRepoRelative와 동일 규약(리포 루트 = NexaOne.sln 보유 디렉터리).
-    private static string ResolveRepoRelative(string relative)
+    private static string DeclareParseOnlyParameters(string sql)
     {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "NexaOne.sln"))) dir = dir.Parent;
-        if (dir is null)
-            throw new InvalidOperationException("리포 루트(NexaOne.sln) 미발견 — 방언 트리 경로 해석 실패.");
-        return Path.Combine(dir.FullName, relative.Replace('/', Path.DirectorySeparatorChar));
+        var names = Regex.Matches(sql, @"(?<!@)@[A-Za-z_][A-Za-z0-9_]*")
+            .Select(match => match.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (names.Length == 0)
+            return sql;
+
+        var declarations = string.Join(
+            Environment.NewLine,
+            names.Select(name => $"DECLARE {name} {ParseOnlyParameterType(sql, name)};"));
+        return declarations + Environment.NewLine + sql;
     }
+
+    private static string ParseOnlyParameterType(string sql, string name)
+    {
+        if (name.Equals("@offset", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("@limit", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("@retentionDays", StringComparison.OrdinalIgnoreCase)
+            || Regex.IsMatch(
+                sql,
+                $@"(?i)\b(?:TOP|OFFSET)\s*\(?\s*{Regex.Escape(name)}\b"
+                    + $@"|\bFETCH\s+NEXT\s+{Regex.Escape(name)}\b"
+                    + $@"|\b(?:DATEADD|DATEDIFF)\s*\(\s*[^,]+,\s*-?\s*{Regex.Escape(name)}\b"
+                    + $@"|(?<![A-Za-z0-9_])-\s*{Regex.Escape(name)}\b"))
+        {
+            return "int";
+        }
+
+        return "nvarchar(4000)";
+    }
+
 }

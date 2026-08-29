@@ -76,7 +76,7 @@ public sealed class EstServiceTests
     }
 
     // ── GetActiveAlarmsAsync ──────────────────────────────────────────────────
-    // ADR-006: 서비스가 plantId를 호스트 IEquipmentDirectory로 풀어 설비 ID를 얻고, 그 ID들로 by-ids 리포지토리를
+    // ADR-006: 서비스가 plantId를 MDM IEquipmentDirectory로 풀어 설비 ID를 얻고, 그 ID들로 by-ids 리포지토리를
     // 호출한다. plantId 기반 리포지토리 read는 더 이상 존재하지 않는다(MDM 조인 제거 — 교차 모듈 결합 회귀 차단).
 
     [Fact]

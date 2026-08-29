@@ -3,35 +3,18 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
 
-  <!-- ===== QMS (Quality Management System) ===== -->
-
-  <object id="qmsDefectRepository" type="NexaOne.QMS.Infrastructure.DefectRepository, NexaOne.QMS">
+  <object id="qmsModule" type="NexaOne.QMS.Module, NexaOne.QMS">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
-  </object>
-  <object id="qmsDefectClassRepository" type="NexaOne.QMS.Infrastructure.DefectClassRepository, NexaOne.QMS">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="qmsInspectionSpecRepository" type="NexaOne.QMS.Infrastructure.InspectionSpecRepository, NexaOne.QMS">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="qmsInspectionResultRepository" type="NexaOne.QMS.Infrastructure.InspectionResultRepository, NexaOne.QMS">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="qmsSpcParamRepository" type="NexaOne.QMS.Infrastructure.SpcParamRepository, NexaOne.QMS">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="qmsService" type="NexaOne.QMS.Application.Qms.QmsService, NexaOne.QMS">
-    <constructor-arg ref="qmsDefectRepository" />
-    <constructor-arg ref="qmsDefectClassRepository" />
-    <constructor-arg ref="qmsInspectionSpecRepository" />
-    <constructor-arg ref="qmsInspectionResultRepository" />
-    <constructor-arg ref="qmsSpcParamRepository" />
+    <constructor-arg ref="productionLotDirectory" />
+    <constructor-arg ref="materialLotDirectory" />
+    <constructor-arg ref="equipmentDirectory" />
+    <constructor-arg ref="processDirectory" />
+    <constructor-arg ref="userDirectory" />
   </object>
 
-  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Qms","qmsBridge")로 IQmsBridge 캐스트. -->
-  <object id="qmsBridge" type="NexaOne.QMS.Application.Qms.QmsBridge, NexaOne.QMS">
-    <constructor-arg ref="qmsService" />
-  </object>
+  <object id="qmsBridge" factory-object="qmsModule" factory-method="GetQmsBridge" />
+  <object id="qmsProductionQualityGateway" factory-object="qmsModule" factory-method="GetProductionQualityGateway" />
+  <object id="trackingDefectDirectory" factory-object="qmsModule" factory-method="GetTrackingDefectDirectory" />
 
 </objects>

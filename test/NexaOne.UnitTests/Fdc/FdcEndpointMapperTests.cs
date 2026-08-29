@@ -1,14 +1,18 @@
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Domain;
-using NexusLogic.Plc.Abstractions.Models;
+using NexaOne.FDC.Infrastructure.Equipment;
+using NexaLogic.Plc.Abstractions.Models;
 
 namespace NexaOne.UnitTests.Fdc;
 
-/// <summary>FDC 설비-엔드포인트 매핑을 NexusLogic PlcEndpoint/PlcSubscription으로 변환하는 로직을 검증한다.</summary>
+/// <summary>FDC 설비-엔드포인트 매핑을 NexaLogic PlcEndpoint/PlcSubscription으로 변환하는 로직을 검증한다.</summary>
 public sealed class FdcEndpointMapperTests
 {
-    private static FdcEquipmentEndpoint Endpoint(string protocol = "OpcUa", int samplingMs = 500) =>
-        FdcEquipmentEndpoint.Create("EP1", "EQ-001", protocol, "opc.tcp://host:4840", samplingMs).Value;
+    private static string ExistingTagMapPath => typeof(FdcEndpointMapperTests).Assembly.Location;
+
+    private static FdcEquipmentEndpoint Endpoint(string protocol = "ModbusTcp", int samplingMs = 500) =>
+        FdcEquipmentEndpoint.Create(
+            "EP1", "EQ-001", protocol, "tcp://host:502", samplingMs, ExistingTagMapPath).Value;
 
     private static FdcParameter Param(string id, bool active = true)
     {
@@ -20,20 +24,79 @@ public sealed class FdcEndpointMapperTests
     [Fact]
     public void ToPlcEndpoint_maps_protocol_and_url()
     {
-        var plc = FdcEndpointMapper.ToPlcEndpoint(Endpoint("OpcUa"));
+        var plc = FdcEndpointMapper.ToPlcEndpoint(Endpoint("ModbusTcp"));
 
         plc.EndpointId.Should().Be("EP1");
-        plc.DriverKind.Should().Be(PlcDriverKind.OpcUa);
-        plc.Host.Should().Be("opc.tcp://host:4840");
+        plc.DriverKind.Should().Be(PlcDriverKind.ModbusTcp);
+        plc.Host.Should().Be("host");
+        plc.Port.Should().Be(502);
+        plc.Options["tagMapPath"].Should().Be(Path.GetFullPath(ExistingTagMapPath));
     }
 
     [Fact]
     public void ToPlcEndpoint_parses_protocol_case_insensitively()
     {
-        // 도메인은 "OpcUa"를 저장하지만 매퍼는 대소문자 무관하게 PlcDriverKind로 파싱한다
+        // 매퍼는 저장된 프로토콜을 대소문자 무관하게 PlcDriverKind로 파싱한다.
         var plc = FdcEndpointMapper.ToPlcEndpoint(
-            FdcEquipmentEndpoint.Create("EP2", "EQ-001", "MitsubishiMc", "tcp://h:5007").Value);
+            FdcEquipmentEndpoint.Create(
+                "EP2", "EQ-001", "MitsubishiMc", "tcp://h:5007", tagMapPath: ExistingTagMapPath).Value);
         plc.DriverKind.Should().Be(PlcDriverKind.MitsubishiMc);
+        plc.Host.Should().Be("h");
+        plc.Port.Should().Be(5007);
+    }
+
+    [Theory]
+    [InlineData("ModbusTcp", PlcDriverKind.ModbusTcp)]
+    [InlineData("SiemensS7", PlcDriverKind.SiemensS7)]
+    [InlineData("MitsubishiMc", PlcDriverKind.MitsubishiMc)]
+    [InlineData("EtherNetIp", PlcDriverKind.EtherNetIp)]
+    public void ToPlcEndpoint_maps_every_declared_protocol(string protocol, PlcDriverKind expected)
+    {
+        var endpoint = FdcEquipmentEndpoint.Restore(
+            "EP-KIND", "EQ-001", protocol, "tcp://plc:1234", 500, true,
+            tagMapPath: ExistingTagMapPath);
+
+        FdcEndpointMapper.ToPlcEndpoint(endpoint).DriverKind.Should().Be(expected);
+    }
+
+    [Fact]
+    public void ToPlcEndpoint_rejects_drifted_unknown_protocol_with_endpoint_context()
+    {
+        var endpoint = FdcEquipmentEndpoint.Restore(
+            "EP-BAD", "EQ-001", "UnknownPlc", "tcp://plc:1234", 500, true,
+            tagMapPath: ExistingTagMapPath);
+
+        var act = () => FdcEndpointMapper.ToPlcEndpoint(endpoint);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*EP-BAD*UnknownPlc*Supported protocols*");
+    }
+
+    [Fact]
+    public void ToPlcEndpoint_requires_an_existing_tag_map_before_connection()
+    {
+        var missing = FdcEquipmentEndpoint.Restore(
+            "EP-MISSING", "EQ-001", "ModbusTcp", "tcp://plc:502", 500, true,
+            tagMapPath: Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.json"));
+
+        var act = () => FdcEndpointMapper.ToPlcEndpoint(missing);
+
+        act.Should().Throw<FileNotFoundException>()
+            .WithMessage("*EP-MISSING*tag map*");
+    }
+
+    [Fact]
+    public void ToPlcEndpoint_resolves_relative_tag_map_from_application_base_directory()
+    {
+        var relative = Path.GetFileName(ExistingTagMapPath);
+        var endpoint = FdcEquipmentEndpoint.Restore(
+            "EP-REL", "EQ-001", "ModbusTcp", "tcp://plc:502", 500, true,
+            tagMapPath: relative);
+
+        var mapped = FdcEndpointMapper.ToPlcEndpoint(endpoint);
+
+        mapped.Options["tagMapPath"].Should().Be(
+            Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, relative)));
     }
 
     [Fact]

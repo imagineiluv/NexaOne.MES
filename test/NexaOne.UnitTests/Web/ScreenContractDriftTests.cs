@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using NexaOne.Web.Services.Meta;
 
 namespace NexaOne.UnitTests.Web;
@@ -11,13 +12,8 @@ public sealed class ScreenContractDriftTests
 {
     private static JsonDocument LoadFixture()
     {
-        // 리포 루트 탐색 — 테스트 실행 위치(bin) 무관하게 NexaOne.sln 기준으로 픽스처를 찾는다.
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "NexaOne.sln")))
-            dir = dir.Parent;
-        dir.Should().NotBeNull("리포 루트(NexaOne.sln)를 찾아야 픽스처를 읽을 수 있다");
-        var path = Path.Combine(dir!.FullName, "test", "contract", "screen-definition-contract.json");
-        File.Exists(path).Should().BeTrue($"공유 계약 픽스처가 있어야 한다: {path}");
+        var path = RepositorySource.GetFile(
+            "test", "contract", "screen-definition-contract.json");
         return JsonDocument.Parse(File.ReadAllText(path));
     }
 
@@ -31,6 +27,13 @@ public sealed class ScreenContractDriftTests
         => t.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
             .Select(p => p.Name)
             .Where(n => n != "EqualityContract")
+            .ToArray();
+
+    private static string[] DeclaredPropertyNames(Type type)
+        => type.GetProperties(System.Reflection.BindingFlags.Public
+                              | System.Reflection.BindingFlags.Instance
+                              | System.Reflection.BindingFlags.DeclaredOnly)
+            .Select(property => property.Name)
             .ToArray();
 
     [Fact]
@@ -49,5 +52,51 @@ public sealed class ScreenContractDriftTests
         var expected = FixtureNames("bulkCommandDefinition");
         actual.Should().BeEquivalentTo(expected,
             "BulkCommandDefinition 변경 시 SPA layout.ts BulkCommandDefinition 인터페이스와 픽스처를 함께 갱신해야 한다");
+    }
+
+    [Fact]
+    public void FieldDefinition_properties_match_shared_contract_fixture()
+    {
+        var actual = RecordPropertyNames(typeof(FieldDefinition));
+        var expected = FixtureNames("fieldDefinition");
+        actual.Should().BeEquivalentTo(expected,
+            "숨김·자동 생성 등 FieldDefinition 변경은 런타임과 Designer trait/mapping에 동시에 반영해야 한다");
+    }
+
+    [Fact]
+    public void FieldValueGenerator_values_match_shared_contract_fixture()
+        => Enum.GetNames<FieldValueGenerator>().Should().Equal(FixtureNames("fieldValueGenerator"));
+
+    [Fact]
+    public void Scoped_widget_properties_match_shared_contract_fixture()
+    {
+        DeclaredPropertyNames(typeof(GridWidget)).Should().BeEquivalentTo(FixtureNames("gridWidget"));
+        DeclaredPropertyNames(typeof(FormWidget)).Should().BeEquivalentTo(FixtureNames("formWidget"));
+        DeclaredPropertyNames(typeof(CollectionWidget)).Should().BeEquivalentTo(FixtureNames("collectionWidget"));
+        DeclaredPropertyNames(typeof(ButtonWidget)).Should().BeEquivalentTo(FixtureNames("buttonWidget"));
+    }
+
+    [Fact]
+    public void Layout_discriminators_match_shared_contract_fixture()
+    {
+        var actual = typeof(LayoutNode)
+            .GetCustomAttributes(typeof(JsonDerivedTypeAttribute), inherit: false)
+            .Cast<JsonDerivedTypeAttribute>()
+            .Select(attribute => attribute.TypeDiscriminator?.ToString())
+            .Where(value => value is not null)
+            .Cast<string>()
+            .ToArray();
+
+        actual.Should().Equal(FixtureNames("layoutKinds"),
+            "새 위젯 discriminator는 C# 다형 JSON, Portal 타입·매핑·블록에서 같은 순서로 관리해야 한다");
+    }
+
+    [Fact]
+    public void ScreenPurpose_values_match_shared_contract_fixture()
+    {
+        var actual = Enum.GetNames<ScreenPurpose>();
+        var expected = FixtureNames("screenPurpose");
+        actual.Should().Equal(expected,
+            "화면 목적 값과 순서는 C# enum, 공유 픽스처, SPA SCREEN_PURPOSE_VALUES에서 같아야 한다");
     }
 }

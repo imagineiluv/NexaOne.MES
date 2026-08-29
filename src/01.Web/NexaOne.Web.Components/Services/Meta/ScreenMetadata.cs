@@ -5,6 +5,16 @@ namespace NexaOne.Web.Services.Meta;
 /// <summary>메타데이터 화면 필드의 입력 유형(Phase 3 — 단일 화면 런타임).</summary>
 public enum FieldType { Text, Number, Date, Boolean, Select }
 
+/// <summary>신규 등록 모델을 준비할 때 서버 요청 식별값처럼 자동으로 채울 필드 값 생성 방식.</summary>
+public enum FieldValueGenerator { None, UuidV4 }
+
+/// <summary>
+/// 화면이 사용자에게 제공하는 주 업무 목적. <see cref="ScreenPurpose.Auto"/>는 기존 필드/쿼리 기반 동작을 그대로
+/// 유지하는 하위 호환 모드이며, 나머지 값은 등록·관리·조회·현황·실행 화면을 명시적으로 구분한다.
+/// 화면 목적은 UX 구성 힌트이고 서버 권한 검사를 대체하지 않는다.
+/// </summary>
+public enum ScreenPurpose { Auto, Register, Manage, Inquiry, Report, Execute }
+
 /// <summary>메타데이터 화면의 단일 입력 필드 정의. 런타임 렌더러가 Type에 따라 컨트롤을 그린다.
 /// <c>OptionsQueryId</c>는 Select 옵션의 동적 소스(명명 읽기쿼리) — 화면 로드 시 1회 조회해
 /// 첫 컬럼=값, 둘째 컬럼=라벨 보조로 옵션을 구성한다(정적 <c>Options</c>가 있으면 그것이 우선).</summary>
@@ -15,7 +25,9 @@ public sealed record FieldDefinition(
     bool Required = false,
     bool ReadOnly = false,
     IReadOnlyList<string>? Options = null,
-    string? OptionsQueryId = null);
+    string? OptionsQueryId = null,
+    bool Hidden = false,
+    FieldValueGenerator ValueGenerator = FieldValueGenerator.None);
 
 /// <summary>Select 옵션의 런타임 표현(값+표시 라벨) — 직렬화 계약이 아닌 렌더러 내부 타입.</summary>
 public sealed record MetaFieldOption(string Value, string Label);
@@ -24,7 +36,11 @@ public sealed record MetaFieldOption(string Value, string Label);
 /// <c>CommandQueryId</c>는 가드된 전이 UPDATE(예: STATUS='Created'인 행만 Released로) 관례 —
 /// 파라미터는 행 딕셔너리 듀얼키(원본 UPPER_SNAKE + camelCase)로 바인딩된다(DeleteQueryId와 동일).
 /// <c>ConfirmMessage</c> 미지정 시 런타임 기본 확인 문구("선택한 N건을 '{Label}' 처리…")를 쓴다.</summary>
-public sealed record BulkCommandDefinition(string Label, string CommandQueryId, string? ConfirmMessage = null);
+public sealed record BulkCommandDefinition(
+    string Label,
+    string CommandQueryId,
+    string? ConfirmMessage = null,
+    string? RequiredPermission = null);
 
 /// <summary>메타데이터 그리드 컬럼 정의. Width=고정 폭(px, null=자동) — 표시 순서는 목록 순서가 담당한다(Phase-2).</summary>
 public sealed record GridColumnDefinition(string Key, string Caption, bool Visible = true, int? Width = null);
@@ -53,7 +69,11 @@ public sealed record ScreenDefinition(
     IReadOnlyList<FieldDefinition>? SearchFields = null,
     string? CountQueryId = null,
     string? DeleteQueryId = null,
-    IReadOnlyList<BulkCommandDefinition>? BulkCommands = null);
+    IReadOnlyList<BulkCommandDefinition>? BulkCommands = null,
+    ScreenPurpose Purpose = ScreenPurpose.Auto,
+    string? ReadRequiredPermission = null,
+    string? SaveRequiredPermission = null,
+    string? DeleteRequiredPermission = null);
     // DeleteQueryId — 그리드 행 삭제(표준 CRUD)의 명명 쓰기쿼리. 지정 시 그리드 툴바에 삭제 버튼이 켜지고,
     // 선택 행(단일/선택모드 다중)을 확인 다이얼로그 후 /api/v1/command/{DeleteQueryId}로 보낸다.
     // @param 바인딩은 행 딕셔너리(원본 UPPER_SNAKE + camelCase 사본 병행)로 — PK 파라미터(@plantId 등)가
@@ -77,6 +97,7 @@ public sealed record ScreenDefinition(
 [JsonDerivedType(typeof(GridWidget), "grid")]
 [JsonDerivedType(typeof(FormWidget), "form")]
 [JsonDerivedType(typeof(FieldWidget), "field")]
+[JsonDerivedType(typeof(CollectionWidget), "collection")]
 [JsonDerivedType(typeof(ButtonWidget), "commandButton")]
 [JsonDerivedType(typeof(TextWidget), "text")]
 [JsonDerivedType(typeof(KpiWidget), "kpi")]
@@ -86,7 +107,7 @@ public abstract record LayoutNode
 {
     /// <summary>GrapesJS 컴포넌트 id == 노드 id(편집 라운드트립 정체성).</summary>
     public string? Id { get; init; }
-    /// <summary>UX 힌트 전용 권한(ADR-003 module:action). 서버가 실제 게이트 — 런타임은 표시/비활성만.</summary>
+    /// <summary>화면 표시와 실행 전 검사를 위한 권한(ADR-003 module:action). 서버 API의 권한 검사가 최종 경계다.</summary>
     public string? RequiredPermission { get; init; }
 }
 
@@ -96,7 +117,27 @@ public sealed record RowNode : LayoutNode { public IReadOnlyList<LayoutNode>? Ch
 public sealed record ColumnNode : LayoutNode { public int Span { get; init; } = 12; public IReadOnlyList<LayoutNode>? Children { get; init; } }
 
 // 위젯 — 바인딩을 위젯별로 분리(잘못된 조합을 표현 불가능하게)
-public sealed record GridWidget : LayoutNode { public string? QueryId { get; init; } public IReadOnlyList<GridColumnDefinition>? Columns { get; init; } }
+public sealed record GridWidget : LayoutNode
+{
+    public string? QueryId { get; init; }
+    public IReadOnlyList<GridColumnDefinition>? Columns { get; init; }
+    /// <summary>
+    /// 이 그리드에서만 사용할 선택 행 일괄 명령입니다. null이면 화면의
+    /// <see cref="ScreenDefinition.BulkCommands"/>를 그대로 사용해 기존 화면과 호환합니다.
+    /// 빈 목록을 지정하면 조회 전용 보조 그리드에 화면 전역 명령을 노출하지 않습니다.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<BulkCommandDefinition>? BulkCommands { get; init; }
+    /// <summary>
+    /// 선택 행을 저장할 업무 모델 스코프입니다. 지정하면 같은 <see cref="FormWidget.BindingScope"/>와
+    /// <see cref="ButtonWidget.BindingScope"/>만 값을 공유하며, 미지정은 기존 화면 공유 모델을 사용합니다.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? SelectionScope { get; init; }
+    /// <summary>타임라인처럼 행 선택이 어떤 실행 모델도 바꾸면 안 되는 조회 그리드입니다.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool SelectionDisabled { get; init; }
+}
 /// <summary>폼 위젯. Isolated=true(Phase-2 멀티폼)면 화면 공유 Model 대신 폼 전용 모델에 바인딩된다 —
 /// 한 화면에 독립 폼 여러 개(각자 저장/검증)가 가능해진다. 기본 false = 기존 공유 모델(하위호환).
 /// 격리 키는 Id(우선) 또는 SaveQueryId — 둘 다 없으면 격리 불가(공유로 저하).</summary>
@@ -105,10 +146,41 @@ public sealed record FormWidget : LayoutNode
     public string? SaveQueryId { get; init; }
     public IReadOnlyList<FieldWidget>? Fields { get; init; }
     public bool Isolated { get; init; }
+    /// <summary>동일 업무 aggregate의 그리드 선택과 명령 입력을 공유하는 선택적 모델 스코프입니다.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BindingScope { get; init; }
 }
 public sealed record FieldWidget : LayoutNode { public string? FieldKey { get; init; } public FieldDefinition? Field { get; init; } }
+/// <summary>
+/// 동일한 필드 스키마를 여러 항목에 반복 적용하는 입력 위젯입니다. 항목 목록은 화면 공유 모델의
+/// <see cref="CollectionKey"/>에 저장되며, 각 항목은 독립된 딕셔너리로 유지됩니다.
+/// </summary>
+public sealed record CollectionWidget : LayoutNode
+{
+    public string CollectionKey { get; init; } = "";
+    public string Label { get; init; } = "항목 목록";
+    public string ItemLabel { get; init; } = "항목";
+    public IReadOnlyList<FieldWidget>? Fields { get; init; }
+    /// <summary>같은 업무 aggregate의 폼 및 명령과 반복 항목을 공유할 선택 모델 스코프입니다.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BindingScope { get; init; }
+    /// <summary>
+    /// 신규/성공 후 초기화 모델에 즉시 만들어 둘 기본 행의 최소 개수입니다. UI 표시 제약뿐 아니라
+    /// <see cref="MetaModelDefaults"/>가 빈 항목 모델을 생성하는 규칙이므로, 등록 명령에는 이 기본 행도 포함됩니다.
+    /// </summary>
+    public int MinItems { get; init; }
+    public int? MaxItems { get; init; }
+}
 /// <summary>명령 버튼. <c>ConfirmMessage</c>가 있으면 실행 전 브라우저 확인을 통과해야 한다(파괴적 명령 보호, P1-2).</summary>
-public sealed record ButtonWidget : LayoutNode { public string Label { get; init; } = ""; public string? Command { get; init; } public string? ConfirmMessage { get; init; } }
+public sealed record ButtonWidget : LayoutNode
+{
+    public string Label { get; init; } = "";
+    public string? Command { get; init; }
+    public string? ConfirmMessage { get; init; }
+    /// <summary>명령 payload로 사용할 업무 모델 스코프입니다. 미지정은 기존 화면 공유 모델입니다.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? BindingScope { get; init; }
+}
 public sealed record TextWidget : LayoutNode { public string Text { get; init; } = ""; public bool IsLabel { get; init; } }
 /// <summary>KPI 카드(디자이너 Phase-2) — QueryId 결과 첫 행의 ValueColumn 값을 큰 숫자로 표시. 대시보드 요약용.</summary>
 public sealed record KpiWidget : LayoutNode

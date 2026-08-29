@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<objects xmlns="http://www.springframework.net"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
+
+  <!-- IVT owns material-lot inventory and the immutable material-consumption ledger. The XML
+       surface is deliberately limited to one module composition root plus its public bridges/worker. -->
+  <object id="ivtModule" type="NexaOne.IVT.Module, NexaOne.IVT">
+    <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="eesDialect" />
+    <constructor-arg ref="fdcTraceSource" />
+    <constructor-arg ref="appConfiguration" />
+  </object>
+
+  <object id="materialBridge" factory-object="ivtModule" factory-method="GetMaterialBridge" />
+  <object id="materialLotBridge" factory-object="ivtModule" factory-method="GetMaterialLotBridge" />
+  <object id="traceMaterialBridge" factory-object="ivtModule" factory-method="GetTraceMaterialBridge" />
+  <object id="materialLotDirectory" factory-object="ivtModule" factory-method="GetMaterialLotDirectory" />
+  <object id="mrpInventoryDirectory" factory-object="ivtModule" factory-method="GetMrpInventoryDirectory" />
+  <object id="fdcTraceRetentionGuard" factory-object="ivtModule" factory-method="GetFdcTraceRetentionGuard" />
+
+  <!-- Durable FDC source -> IVT consumption projection through the Common IFdcTraceSource contract.
+       It intentionally does not use messageBus: the persisted inbox is the restart-safe accounting seam.
+       Keep Worker:Ivt:TraceMaterialConsumption:Enabled=false,
+       Ivt:TraceConfiguration:BindingsEnabled=false, and
+       Ivt:TraceConfiguration:FeedSessionsEnabled=false until the documented fence/gap/drain/HIL release blockers close. -->
+  <object id="traceMaterialConsumptionWorker"
+          factory-object="ivtModule"
+          factory-method="GetTraceMaterialConsumptionWorker" />
+
+</objects>

@@ -3,27 +3,10 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
 
-  <!-- ===== SHP (Shipment) ===== -->
-
-  <object id="deliveryOrderRepository" type="NexaOne.SHP.Infrastructure.DeliveryOrderRepository, NexaOne.SHP">
+  <object id="shpModule" type="NexaOne.SHP.Module, NexaOne.SHP">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
   </object>
-  <object id="deliveryItemRepository" type="NexaOne.SHP.Infrastructure.DeliveryItemRepository, NexaOne.SHP">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="shipmentHistoryRepository" type="NexaOne.SHP.Infrastructure.ShipmentHistoryRepository, NexaOne.SHP">
-    <constructor-arg ref="eesDataSource" />
-  </object>
-  <object id="shpService" type="NexaOne.SHP.Application.Shp.ShpService, NexaOne.SHP">
-    <constructor-arg ref="deliveryOrderRepository" />
-    <constructor-arg ref="deliveryItemRepository" />
-    <constructor-arg ref="shipmentHistoryRepository" />
-  </object>
-
-  <!-- ADR-008 얇은 브리지 어댑터 — 호스트가 GetBean("Shp","shipmentBridge")로 IShipmentBridge 캐스트. -->
-  <object id="shipmentBridge" type="NexaOne.SHP.Application.Shp.ShipmentBridge, NexaOne.SHP">
-    <constructor-arg ref="shpService" />
-  </object>
+  <object id="shipmentBridge" factory-object="shpModule" factory-method="GetShipmentBridge" />
 
 </objects>

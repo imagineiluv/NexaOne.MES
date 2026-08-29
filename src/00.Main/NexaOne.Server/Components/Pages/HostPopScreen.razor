@@ -1,0 +1,11 @@
+@page "/POP/{UiId}"
+@attribute [Authorize]
+@layout PopLayout
+
+<PageTitle>@UiId · POP 작업</PageTitle>
+<OperatorChannelScreen UiId="@UiId" TargetChannel="POP" BasePath="/POP" DeviceId="@DeviceId" />
+
+@code {
+    [Parameter] public string UiId { get; set; } = string.Empty;
+    [Parameter, SupplyParameterFromQuery(Name = "deviceId")] public string? DeviceId { get; set; }
+}

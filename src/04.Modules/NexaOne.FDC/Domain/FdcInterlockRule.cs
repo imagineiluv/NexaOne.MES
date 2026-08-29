@@ -29,10 +29,17 @@ public sealed class FdcInterlockRule : AuditableEntity<string>
             return Result.Failure<FdcInterlockRule>(Error.Validation(nameof(ruleId), "Rule ID is required."));
         if (string.IsNullOrWhiteSpace(ruleName))
             return Result.Failure<FdcInterlockRule>(Error.Validation(nameof(ruleName), "Rule name is required."));
+        if (string.IsNullOrWhiteSpace(equipmentId))
+            return Result.Failure<FdcInterlockRule>(Error.Validation(nameof(equipmentId), "Equipment ID is required."));
+        if (string.IsNullOrWhiteSpace(parameterId))
+            return Result.Failure<FdcInterlockRule>(Error.Validation(nameof(parameterId), "Parameter ID is required."));
         if (@operator is not ("GT" or "LT" or "GTE" or "LTE" or "EQ"))
             return Result.Failure<FdcInterlockRule>(Error.Validation(nameof(@operator), "Operator must be GT, LT, GTE, LTE, or EQ."));
-        if (action is not ("STOP" or "ALARM" or "NOTIFY"))
-            return Result.Failure<FdcInterlockRule>(Error.Validation(nameof(action), "Action must be STOP, ALARM, or NOTIFY."));
+        if (string.IsNullOrWhiteSpace(action) || action.Length > 200)
+            return Result.Failure<FdcInterlockRule>(Error.Validation(
+                nameof(action), "Action key is required and must be 200 characters or fewer."));
+        if (priority < 0)
+            return Result.Failure<FdcInterlockRule>(Error.Validation(nameof(priority), "Priority cannot be negative."));
 
         var rule = new FdcInterlockRule(ruleId)
         {

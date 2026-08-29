@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>NexaOne (통합 호스트)</title>
     <base href="/" />
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     @* P3-17 다크 모드 — 첫 페인트 전에 저장된 테마를 적용해 깜빡임을 막는다. 토글은 셸 사용자 메뉴. *@
     <script>
         document.documentElement.dataset.theme = localStorage.getItem('nx-theme') || 'light';
@@ -13,6 +14,11 @@
             document.documentElement.dataset.theme = t;
         };
         window.nxGetTheme = function () { return document.documentElement.dataset.theme || 'light'; };
+        /* 현재 사용자 언어를 문서 언어에도 반영해 화면 낭독기·브라우저 번역·입력기가
+           보이는 문자열과 같은 언어 규칙을 사용하도록 한다. */
+        window.nxSetLanguage = function (language) {
+            document.documentElement.lang = language === 'EnUs' ? 'en' : 'ko';
+        };
         /* P3-9 셀 복사 — 성공 여부를 boolean으로 반환해 호출부가 토스트로 알릴 수 있게 한다.
            false 경로: clipboard 미지원(HTTP 등 비보안 컨텍스트) 또는 권한 거부. */
         window.nxCopy = function (t) {
@@ -61,22 +67,41 @@
             handle.__nxResize = true;
             var shell = handle.closest('.mes-shell');
             var dragging = false;
+            var minWidth = 180;
+            var maxWidth = 420;
+            function applyWidth(width, commit) {
+                if (!shell) return;
+                var next = Math.min(maxWidth, Math.max(minWidth, Math.round(width)));
+                shell.style.setProperty('--mes-nav-width', next + 'px');
+                handle.__nxW = next;
+                handle.setAttribute('aria-valuenow', String(next));
+                if (commit) {
+                    localStorage.setItem('nx-nav-width', String(next));
+                    if (dotnet) dotnet.invokeMethodAsync('OnNavResized', next);
+                }
+            }
             handle.addEventListener('pointerdown', function (e) {
                 dragging = true; handle.setPointerCapture(e.pointerId); e.preventDefault();
             });
             handle.addEventListener('pointermove', function (e) {
                 if (!dragging || !shell) return;
-                var w = Math.min(420, Math.max(180, e.clientX - shell.getBoundingClientRect().left));
-                shell.style.setProperty('--mes-nav-width', w + 'px');
-                handle.__nxW = w;
+                applyWidth(e.clientX - shell.getBoundingClientRect().left, false);
             });
             handle.addEventListener('pointerup', function () {
                 if (!dragging) return;
                 dragging = false;
-                if (handle.__nxW) {
-                    localStorage.setItem('nx-nav-width', String(handle.__nxW));
-                    if (dotnet) dotnet.invokeMethodAsync('OnNavResized', handle.__nxW);
-                }
+                if (handle.__nxW) applyWidth(handle.__nxW, true);
+            });
+            handle.addEventListener('keydown', function (e) {
+                var current = parseInt(handle.getAttribute('aria-valuenow') || '230', 10) || 230;
+                var next = current;
+                if (e.key === 'ArrowLeft') next = current - 12;
+                else if (e.key === 'ArrowRight') next = current + 12;
+                else if (e.key === 'Home') next = minWidth;
+                else if (e.key === 'End') next = maxWidth;
+                else return;
+                e.preventDefault();
+                applyWidth(next, true);
             });
         };
         /* 반응형 — 좁은 화면(≤1100px) 진입/이탈을 .NET에 보고해 사이드바를 자동 접기/복원.
@@ -95,8 +120,16 @@
     </script>
     @* Radzen Blazor 테마(구조+CSS 변수) — nexaone.css '앞'에 두어, nexaone.css의 --rz-* → --nx-* 브리지
        매핑이 뒤에서 이겨 NAF 브랜드/다크 토큰을 따르게 한다. *@
+    <link rel="stylesheet" href="css/tokens.css?v=20260718-hallmark-v2" />
     <link rel="stylesheet" href="_content/Radzen.Blazor/css/material-base.css" />
-    <link rel="stylesheet" href="css/nexaone.css" />
+    @* 배포 후 기존 PDA/POP 세션이 이전 CSS를 메모리 캐시에서 재사용하지 않도록 UI 릴리스 버전을 붙인다. *@
+    <link rel="stylesheet" href="css/nexaone.css?v=20260718-hallmark-v2" />
+    @* Razor CSS isolation 진입점. Server 번들이 참조한 Web.Components의 scoped CSS도 이 파일에서
+       import되므로 메타 화면·그리드·폼·컬렉션의 컴포넌트 전용 디자인이 실제 런타임에 적용된다. *@
+    <link rel="stylesheet" href="NexaOne.Server.styles.css?v=20260723-grid-height-v1" />
+    @* The generated server stylesheet imports the RCL bundle without forwarding its cache key.
+       Load the same bundle explicitly so scoped component updates cannot remain stale in a long-lived browser session. *@
+    <link rel="stylesheet" href="_content/NexaOne.Web.Components/NexaOne.Web.Components.bundle.scp.css?v=20260723-grid-height-v1" />
     <HeadOutlet @rendermode="@(new InteractiveServerRenderMode(prerender: false))" />
 </head>
 <body>
@@ -106,5 +139,6 @@
     <HostRoutes @rendermode="@(new InteractiveServerRenderMode(prerender: false))" />
     <script src="_framework/blazor.web.js"></script>
     <script src="_content/Radzen.Blazor/Radzen.Blazor.js"></script>
+    <script src="js/nexaone-operator.js?v=20260715-ux-v3"></script>
 </body>
 </html>

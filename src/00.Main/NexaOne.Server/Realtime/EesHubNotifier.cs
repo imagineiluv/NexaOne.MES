@@ -10,7 +10,12 @@ public interface IEesHubNotifier
     Task NotifyDashboardRefreshAsync(CancellationToken ct = default);
     Task NotifyEquipmentStateChangedAsync(string equipmentId, string newState, CancellationToken ct = default);
     Task NotifyFdcDataReceivedAsync(string equipmentId, string parameterId, decimal value, bool isOutOfSpec, CancellationToken ct = default);
-    Task NotifyInterlockTriggeredAsync(string equipmentId, string parameterId, string action, string message, CancellationToken ct = default);
+    Task NotifyInterlockTriggeredAsync(
+        string equipmentId, string effectId, string? ruleId, string parameterId,
+        string action, string message, decimal value, CancellationToken ct = default);
+    Task NotifyInterlockResolvedAsync(
+        string equipmentId, string effectId, string? ruleId, string parameterId,
+        decimal value, DateTime? resolvedAt, CancellationToken ct = default);
 }
 
 /// <summary>IHubContext&lt;NexaOneEESHub&gt;를 통해 연결된 모든 클라이언트에 이벤트를 브로드캐스트한다.</summary>
@@ -35,6 +40,30 @@ public sealed class EesHubNotifier : IEesHubNotifier
     public Task NotifyFdcDataReceivedAsync(string equipmentId, string parameterId, decimal value, bool isOutOfSpec, CancellationToken ct = default)
         => _hub.Clients.All.SendAsync("FdcDataReceived", new { equipmentId, parameterId, value, isOutOfSpec }, ct);
 
-    public Task NotifyInterlockTriggeredAsync(string equipmentId, string parameterId, string action, string message, CancellationToken ct = default)
-        => _hub.Clients.All.SendAsync("InterlockTriggered", new { equipmentId, parameterId, action, message }, ct);
+    public Task NotifyInterlockTriggeredAsync(
+        string equipmentId, string effectId, string? ruleId, string parameterId,
+        string action, string message, decimal value, CancellationToken ct = default)
+        => _hub.Clients.All.SendAsync("InterlockTriggered", new
+        {
+            equipmentId,
+            effectId,
+            ruleId,
+            parameterId,
+            action,
+            message,
+            value,
+        }, ct);
+
+    public Task NotifyInterlockResolvedAsync(
+        string equipmentId, string effectId, string? ruleId, string parameterId,
+        decimal value, DateTime? resolvedAt, CancellationToken ct = default)
+        => _hub.Clients.All.SendAsync("InterlockResolved", new
+        {
+            equipmentId,
+            effectId,
+            ruleId,
+            parameterId,
+            value,
+            resolvedAt,
+        }, ct);
 }

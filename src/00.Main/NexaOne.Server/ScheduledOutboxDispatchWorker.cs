@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NexaOne.Common.Telemetry;
 using NexaOne.Infrastructure.Messaging;
 using NexaOne.Infrastructure.Persistence;
-using NexusFramework.Scheduling;
+using NexaFramework.Scheduling;
 
 namespace NexaOne.Server;
 

@@ -1,0 +1,12 @@
+-- Owner: RMS. Equipment-specific and equipment-class fallback assignments are resolved
+-- independently across their effective windows.  The active-only unique
+-- indexes cannot serve historical/as-of lookups.
+CREATE INDEX IX_RMS_RECIPE_ASSIGNMENT_EQUIPMENT_EFFECTIVE
+    ON RMS_RECIPE_EQUIPMENT_ASSIGNMENT
+       (EQUIPMENT_ID, EFFECTIVE_FROM DESC, ASSIGNMENT_ID, EFFECTIVE_TO)
+    WHERE EQUIPMENT_ID IS NOT NULL;
+
+CREATE INDEX IX_RMS_RECIPE_ASSIGNMENT_CLASS_EFFECTIVE
+    ON RMS_RECIPE_EQUIPMENT_ASSIGNMENT
+       (EQUIPMENT_CLASS_ID, EFFECTIVE_FROM DESC, ASSIGNMENT_ID, EFFECTIVE_TO)
+    WHERE EQUIPMENT_CLASS_ID IS NOT NULL;

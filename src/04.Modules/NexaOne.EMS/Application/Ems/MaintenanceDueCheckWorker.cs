@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Hosting;
 using NexaOne.Infrastructure.Messaging;
-using NexusFramework.Scheduling;
+using NexaFramework.Scheduling;
 
 namespace NexaOne.EMS.Application.Ems;
 

@@ -107,7 +107,7 @@ public sealed class QmsDomainTests
     {
         var result = InspectionSpec.Create("SPEC001", "두께 검사", "PROC001", "두께", "Numeric", 10m, 0.5m, 0.5m);
         result.IsSuccess.Should().BeTrue();
-        result.Value.MeasureType.Should().Be("Numeric");
+        result.Value.MeasureType.Should().Be("Variable");
     }
 
     [Fact]
@@ -123,6 +123,46 @@ public sealed class QmsDomainTests
         var result = InspectionSpec.Create("SPEC001", "검사", "PROC001", "항목", "Count");
         result.IsFailure.Should().BeTrue();
     }
+
+    [Fact]
+    public void Numeric_legacy_alias_is_normalized_to_variable()
+    {
+        var result = InspectionSpec.Create("SPEC-N", "Thickness", "PROC001", "Thickness", "Numeric", 10m, .2m, .2m);
+        result.IsSuccess.Should().BeTrue();
+        result.Value.MeasureType.Should().Be(InspectionSpec.VariableMeasureType);
+    }
+
+    [Fact]
+    public void Variable_spec_rejects_negative_tolerance()
+        => InspectionSpec.Create("SPEC-N", "Thickness", "PROC001", "Thickness", "Variable", 10m, -.1m, .1m)
+            .IsFailure.Should().BeTrue();
+
+    [Fact]
+    public void Variable_verdict_is_overflow_free_with_unbounded_tolerance()
+    {
+        var result = InspectionResult.Create("IR-MAX", "SPEC-N", "LOT1", "EQ1", Inspected, "qa",
+            decimal.MaxValue, null, null, decimal.MaxValue, null, null, "Variable");
+        result.IsSuccess.Should().BeTrue();
+        result.Value.IsPass.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("OK", true)]
+    [InlineData("NG", false)]
+    public void Attribute_verdict_is_computed_by_server(string value, bool expected)
+    {
+        var result = InspectionResult.Create("IR-A", "SPEC-A", "LOT1", "EQ1", Inspected, "qa",
+            null, value, expected, null, null, null, "Attribute");
+        result.IsSuccess.Should().BeTrue();
+        result.Value.IsPass.Should().Be(expected);
+        result.Value.AttributeResult.Should().Be(expected ? "Pass" : "Fail");
+    }
+
+    [Fact]
+    public void Attribute_verdict_rejects_client_conflict()
+        => InspectionResult.Create("IR-A", "SPEC-A", "LOT1", "EQ1", Inspected, "qa",
+                null, "NG", true, null, null, null, "Attribute")
+            .IsFailure.Should().BeTrue();
 
     // ── SpcParam ──────────────────────────────────────────────────────────────
 

@@ -50,7 +50,11 @@ public sealed class GatewayQmsQueryTests : IClassFixture<GatewayQmsQueryTests.Qm
         var client = _factory.CreateClient();
         var creds = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Secret)), SecurityAlgorithms.HmacSha256);
-        var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, "qms-e2e-user") };
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, "qms-e2e-user"),
+            new(NexaOne.Common.Security.Permissions.ClaimType, "qms:read"),
+        };
         var token = new JwtSecurityToken(Issuer, Issuer, claims, expires: DateTime.UtcNow.AddMinutes(10), signingCredentials: creds);
         client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", new JwtSecurityTokenHandler().WriteToken(token));
@@ -125,6 +129,64 @@ public sealed class GatewayQmsQueryTests : IClassFixture<GatewayQmsQueryTests.Qm
 
         var rows = await Query("QMS.IncomingInspMethodList");
         rows.Select(r => r["METHOD_ID"].ToString()).Should().Contain(id, "V037 수입검사 방법이 전체조회돼야 한다");
+    }
+
+    [Fact]
+    public async Task Inspection_registration_combos_return_both_lot_sources_and_only_active_equipment()
+    {
+        EnsureSchemaReady();
+        var suffix = Suffix();
+        var productionLotId = $"PLOT_{suffix}";
+        var materialLotId = $"ILOT_{suffix}";
+        var activeEquipmentId = $"EQ_ACTIVE_{suffix}";
+        var inactiveEquipmentId = $"EQ_INACTIVE_{suffix}";
+
+        Exec(@"INSERT INTO POM_LOT
+                   (LOT_ID, PLANT_ID, PRODUCT_ID, QTY, ROUTE_STEPS, CREATED_BY, CREATED_AT)
+               VALUES (@id, 'PLANT_QMS', 'PRODUCT_QMS', 1, 'PROC_QMS', 'TEST', @now)", cmd =>
+        {
+            cmd.Parameters.AddWithValue("@id", productionLotId);
+            cmd.Parameters.AddWithValue("@now", Now());
+        });
+        Exec(@"INSERT INTO IVT_MATERIAL_LOT
+                   (LOT_ID, MATERIAL_ID, CURRENT_QTY, STATUS, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, 'MATERIAL_QMS', 1, 'InStock', 'TEST', @now, 'TEST', @now)", cmd =>
+        {
+            cmd.Parameters.AddWithValue("@id", materialLotId);
+            cmd.Parameters.AddWithValue("@now", Now());
+        });
+        Exec(@"INSERT INTO MDM_EQUIPMENT
+                   (EQUIPMENT_ID, EQUIPMENT_NAME, PLANT_ID, AREA_ID, EQUIPMENT_TYPE,
+                    EQUIPMENT_CLASS_ID, VALID_STATE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, @name, 'PLANT_QMS', 'AREA_QMS', 'Inspection',
+                       'CLASS_QMS', @state, 'TEST', @now, 'TEST', @now)", cmd =>
+        {
+            cmd.Parameters.AddWithValue("@id", activeEquipmentId);
+            cmd.Parameters.AddWithValue("@name", $"활성 검사설비 {suffix}");
+            cmd.Parameters.AddWithValue("@state", "Active");
+            cmd.Parameters.AddWithValue("@now", Now());
+        });
+        Exec(@"INSERT INTO MDM_EQUIPMENT
+                   (EQUIPMENT_ID, EQUIPMENT_NAME, PLANT_ID, AREA_ID, EQUIPMENT_TYPE,
+                    EQUIPMENT_CLASS_ID, VALID_STATE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+               VALUES (@id, @name, 'PLANT_QMS', 'AREA_QMS', 'Inspection',
+                       'CLASS_QMS', @state, 'TEST', @now, 'TEST', @now)", cmd =>
+        {
+            cmd.Parameters.AddWithValue("@id", inactiveEquipmentId);
+            cmd.Parameters.AddWithValue("@name", $"비활성 검사설비 {suffix}");
+            cmd.Parameters.AddWithValue("@state", "Inactive");
+            cmd.Parameters.AddWithValue("@now", Now());
+        });
+
+        var lots = await Query("QMS.InspectionLotCombo");
+        var lotValues = lots.Select(r => r["VALUE"].ToString()).ToList();
+        lotValues.Should().Contain(productionLotId, "생산 LOT도 검사 후보여야 한다");
+        lotValues.Should().Contain(materialLotId, "자재 LOT도 검사 후보여야 한다");
+
+        var equipment = await Query("QMS.InspectionEquipmentCombo");
+        var equipmentValues = equipment.Select(r => r["VALUE"].ToString()).ToList();
+        equipmentValues.Should().Contain(activeEquipmentId, "활성 설비는 검사 후보여야 한다");
+        equipmentValues.Should().NotContain(inactiveEquipmentId, "비활성 설비는 검사 후보에서 제외돼야 한다");
     }
 
     [Fact]
@@ -276,6 +338,43 @@ public sealed class GatewayQmsQueryTests : IClassFixture<GatewayQmsQueryTests.Qm
         var ids = rows.Select(r => r["INSPECTION_ID"].ToString()).ToList();
         ids.Should().Contain(inc, "수입 검사가 조회돼야 한다");
         ids.Should().NotContain(proc, "공정 검사는 수입 쿼리에서 제외돼야 한다(INSPECTION_TYPE 고정 필터)");
+        rows.Single(r => r["INSPECTION_ID"].ToString() == inc).Keys.Should().Contain(
+            new[] { "MEASURED_VALUE", "ATTRIBUTE_RESULT", "REMARK",
+                "IS_CANCELLED", "IS_SUPERSEDED", "EFFECTIVE_RESULT" },
+            "등록 화면의 최근 내역은 현황 값뿐 아니라 사용자가 입력한 검사 내용도 보여줘야 한다");
+    }
+
+    [Fact]
+    public async Task SamplingPlanRevisionCombo_excludes_future_revisions()
+    {
+        EnsureSchemaReady();
+        var past = $"PLAN_PAST_{Suffix()}";
+        var future = $"PLAN_FUTURE_{Suffix()}";
+        Exec(@"INSERT INTO QMS_SAMPLING_PLAN_REVISION
+              (PLAN_REVISION_ID, PLAN_ID, REVISION_NO, INSPECTION_MODE, LOT_SIZE_MIN,
+               LOT_SIZE_MAX, SAMPLE_SIZE, ACCEPTANCE_NO, REJECTION_NO, AQL,
+               STANDARD_NAME, STANDARD_VERSION, EFFECTIVE_FROM, CREATED_BY, CREATED_AT)
+              VALUES (@past, @pastPlan, 1, 'Sampling', 1, 1000, 10, 0, 1, 1,
+                      'ISO', '2026', @pastAt, 'TEST', @now);
+              INSERT INTO QMS_SAMPLING_PLAN_REVISION
+              (PLAN_REVISION_ID, PLAN_ID, REVISION_NO, INSPECTION_MODE, LOT_SIZE_MIN,
+               LOT_SIZE_MAX, SAMPLE_SIZE, ACCEPTANCE_NO, REJECTION_NO, AQL,
+               STANDARD_NAME, STANDARD_VERSION, EFFECTIVE_FROM, CREATED_BY, CREATED_AT)
+              VALUES (@future, @futurePlan, 1, 'Sampling', 1, 1000, 10, 0, 1, 1,
+                      'ISO', '2027', @futureAt, 'TEST', @now)", cmd =>
+        {
+            cmd.Parameters.AddWithValue("@past", past);
+            cmd.Parameters.AddWithValue("@pastPlan", $"P-{past}");
+            cmd.Parameters.AddWithValue("@future", future);
+            cmd.Parameters.AddWithValue("@futurePlan", $"P-{future}");
+            cmd.Parameters.AddWithValue("@pastAt", DateTime.UtcNow.AddHours(-1).ToString("yyyy-MM-dd HH:mm:ss"));
+            cmd.Parameters.AddWithValue("@futureAt", DateTime.UtcNow.AddHours(1).ToString("yyyy-MM-dd HH:mm:ss"));
+            cmd.Parameters.AddWithValue("@now", Now());
+        });
+
+        var rows = await Query("QMS.SamplingPlanRevisionCombo");
+        rows.Select(x => x["PLAN_REVISION_ID"].ToString()).Should().Contain(past);
+        rows.Select(x => x["PLAN_REVISION_ID"].ToString()).Should().NotContain(future);
     }
 
     [Fact]

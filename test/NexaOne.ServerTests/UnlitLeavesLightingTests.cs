@@ -10,7 +10,7 @@ using Microsoft.IdentityModel.Tokens;
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 using System.IdentityModel.Tokens.Jwt;
 using Xunit;
 
@@ -139,7 +139,7 @@ public sealed class UnlitLeavesLightingTests : IClassFixture<UnlitLeavesLighting
     [Fact]
     public async Task Batch_manual_run_executes_named_command_and_records_history()
     {
-        var admin = Client("sys:manage");
+        var admin = Client("sys:manage", "mdm:read");
 
         // 정의: MDM.CreatePlant를 입력 파라미터(JSON)로 실행하는 배치.
         var plantId = $"BP{Guid.NewGuid():N}"[..10];
@@ -238,8 +238,9 @@ public sealed class UnlitLeavesLightingTests : IClassFixture<UnlitLeavesLighting
         var service = BuildEngine(out var repo);
         SeedParameter("TEMP");
         SeedParameter("PRESSURE");
-        SeedCollect("EQ-ENG", "TEMP", 85m, DateTime.UtcNow.AddSeconds(-10));
-        SeedCollect("EQ-ENG", "PRESSURE", 3.5m, DateTime.UtcNow.AddSeconds(-9));
+        var traceStart = DateTime.UtcNow.AddMinutes(1);
+        SeedCollect("EQ-ENG", "TEMP", 85m, traceStart);
+        SeedCollect("EQ-ENG", "PRESSURE", 3.5m, traceStart.AddSeconds(1));
 
         // 1차 평가 → On + 전이 기록(첫 평가).
         var first = await service.EvaluateAsync("EQ-ENG", "VE-HOT");
@@ -253,7 +254,7 @@ public sealed class UnlitLeavesLightingTests : IClassFixture<UnlitLeavesLighting
         second.Value.Changed.Should().BeFalse("동일 상태 반복 평가는 미기록");
 
         // 최신값 하락 → Off 전이 1회 기록.
-        SeedCollect("EQ-ENG", "TEMP", 60m, DateTime.UtcNow);
+        SeedCollect("EQ-ENG", "TEMP", 60m, traceStart.AddSeconds(2));
         var third = await service.EvaluateAsync("EQ-ENG", "VE-HOT");
         third.Value.IsOn.Should().BeFalse();
         third.Value.Changed.Should().BeTrue();

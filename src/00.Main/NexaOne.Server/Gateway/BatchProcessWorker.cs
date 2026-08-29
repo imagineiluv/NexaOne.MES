@@ -1,4 +1,4 @@
-using NexusFramework.Scheduling;
+using NexaFramework.Scheduling;
 
 namespace NexaOne.Server.Gateway;
 
@@ -17,6 +17,7 @@ public sealed class BatchProcessWorker : BackgroundService
     private readonly IRecurringScheduler? _scheduler;
     private readonly IConfiguration _config;
     private readonly ILogger<BatchProcessWorker> _logger;
+    private int _schedulerStarted;
     // 등록된 배치 → 스케줄 시그니처("I:{초}" 또는 "C:{식}"). 시그니처가 같으면 재등록하지 않는다
     // (Interval 재등록은 StartNow로 즉시 재발화하므로, 변경 없는 정의의 불필요한 재발화를 막는다).
     private readonly Dictionary<string, string> _registered = new(StringComparer.OrdinalIgnoreCase);
@@ -49,6 +50,7 @@ public sealed class BatchProcessWorker : BackgroundService
             "BatchProcessWorker 시작(Quartz 잡 등록) — 재조정 {Reconcile}s, 규약: Interval(초) / Cron(Quartz 식).", reconcileSeconds);
 
         await _scheduler.StartAsync(stoppingToken);
+        Volatile.Write(ref _schedulerStarted, 1);
 
         // 시작 즉시 1회 재조정 후 주기 반복(신규/변경 등록·삭제 언스케줄).
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(reconcileSeconds));
@@ -62,8 +64,9 @@ public sealed class BatchProcessWorker : BackgroundService
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        if (_scheduler is not null) await _scheduler.StopAsync(cancellationToken);
         await base.StopAsync(cancellationToken);
+        if (_scheduler is not null && Interlocked.Exchange(ref _schedulerStarted, 0) == 1)
+            await _scheduler.StopAsync(cancellationToken);
     }
 
     // 현재 유효 정의(ListDefinitionsAsync=Valid만)에서 원하는 스케줄 집합을 만들고, 등록 상태와 비교해

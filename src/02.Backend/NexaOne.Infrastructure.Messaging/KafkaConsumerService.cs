@@ -2,39 +2,51 @@ using System.Text.Json;
 using Confluent.Kafka;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using NexusCom.Messaging.Kafka;
 
 namespace NexaOne.Infrastructure.Messaging;
 
-/// <summary>도메인 이벤트 구독 글루 — Consumer 생성(프로토콜 설정)은 NexusCom KafkaDriver에
+/// <summary>도메인 이벤트 구독 글루 — Consumer 생성(프로토콜 설정)은 NexaDB KafkaDriver에
 /// 위임하고(§3.6.1), 본 클래스는 역직렬화·핸들러 호출·커밋 정책만 담당한다.</summary>
 public sealed class KafkaConsumerService : BackgroundService
 {
-    private readonly KafkaDriver _driver;
+    private readonly Func<Action<string>?, IConsumer<string, string>> _consumerFactory;
     private readonly KafkaConsumerOptions _options;
     private readonly Func<DomainEventMessage, CancellationToken, Task> _handler;
     private readonly ILogger<KafkaConsumerService> _logger;
 
     public KafkaConsumerService(
-        KafkaDriver driver,
+        KafkaMessageBus messageBus,
+        KafkaConsumerOptions options,
+        Func<DomainEventMessage, CancellationToken, Task> handler,
+        ILogger<KafkaConsumerService> logger)
+        : this(onError => messageBus.CreateConsumer(options, onError), options, handler, logger)
+    {
+        ArgumentNullException.ThrowIfNull(messageBus);
+    }
+
+    internal KafkaConsumerService(
+        Func<Action<string>?, IConsumer<string, string>> consumerFactory,
         KafkaConsumerOptions options,
         Func<DomainEventMessage, CancellationToken, Task> handler,
         ILogger<KafkaConsumerService> logger)
     {
-        _driver  = driver;
-        _options = options;
-        _handler = handler;
-        _logger  = logger;
+        _consumerFactory = consumerFactory ?? throw new ArgumentNullException(nameof(consumerFactory));
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _handler = handler ?? throw new ArgumentNullException(nameof(handler));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        ArgumentException.ThrowIfNullOrWhiteSpace(_options.GroupId);
+        if (_options.Topics.Count == 0 || _options.Topics.Any(string.IsNullOrWhiteSpace))
+            throw new ArgumentException("At least one non-empty Kafka topic is required.", nameof(options));
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var consumer = _driver.CreateConsumer(
-            _options.GroupId,
-            _options.BootstrapServers,
-            sessionTimeoutMs: 10_000,
-            maxPollIntervalMs: 300_000,
-            onError: reason => _logger.LogError("Kafka consumer error: {Reason}", reason));
+        // Confluent.Kafka consumes synchronously. Yield before entering that loop so
+        // BackgroundService.StartAsync never blocks host startup waiting for a broker poll.
+        await Task.Yield();
+
+        using var consumer = _consumerFactory(
+            reason => _logger.LogError("Kafka consumer error: {Reason}", reason));
 
         consumer.Subscribe(_options.Topics);
         _logger.LogInformation("Kafka consumer started for topics: {Topics}", string.Join(", ", _options.Topics));
@@ -115,7 +127,6 @@ public sealed class KafkaConsumerService : BackgroundService
 
 public sealed class KafkaConsumerOptions
 {
-    public string BootstrapServers { get; set; } = "localhost:9092";
     public string GroupId { get; set; } = "nexaone-mes";
     public IReadOnlyList<string> Topics { get; set; } = new[] { "nexaone.events" };
 }

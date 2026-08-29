@@ -257,10 +257,10 @@ public sealed class UserServiceTests
     // ── GetEffectivePermissionsAsync (ADR-003) ────────────────────────────────
 
     [Fact]
-    public async Task GetEffectivePermissions_unions_role_defaults_and_explicit()
+    public async Task GetEffectivePermissions_uses_database_role_permissions_without_readding_defaults()
     {
         var role = Role.Create("OPERATOR", "Operator");
-        role.AddPermission("mdm:manage");   // 명시 권한
+        role.AddPermission("mdm:manage");
         var repo = new Mock<IUserRepository>();
         var roleRepo = new Mock<IRoleRepository>();
         roleRepo.Setup(r => r.GetByIdAsync("OPERATOR", default)).ReturnsAsync(role);
@@ -270,8 +270,10 @@ public sealed class UserServiceTests
 
         var perms = await svc.GetEffectivePermissionsAsync("OPERATOR");
 
-        perms.Should().Contain("fdc:control", "OPERATOR 기본 매핑(하위호환 시드) 포함");
-        perms.Should().Contain("mdm:manage", "역할의 명시 권한과 합집합");
+        perms.Should().Equal(new[] { "mdm:manage" },
+            "SYS_ROLE.PERMISSIONS가 런타임 권한의 단일 원천이어야 한다");
+        perms.Should().NotContain("fdc:control",
+            "DB에서 제거한 표준 역할 권한을 코드 기본값이 다시 부여하면 안 된다");
     }
 
     [Fact]

@@ -21,7 +21,7 @@ public sealed class OeeAggregationController : ControllerBase
 
     public OeeAggregationController(IOeeAggregationBridge bridge) => _bridge = bridge;
 
-    /// <summary>특정 일자(UTC)를 작업조 인식으로 재집계한다. body: { "date": "2026-07-01" }.</summary>
+    /// <summary>특정 plant 로컬 달력 일자를 작업조 인식으로 재집계한다. body: { "date": "2026-07-01" }.</summary>
     [HttpPost("aggregate-day")]
     [ProducesResponseType<OeeAggregateResult>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -31,7 +31,9 @@ public sealed class OeeAggregationController : ControllerBase
     {
         if (request is null || request.Date == default)
             return BadRequest(Error.Validation("OEE_DATE_REQUIRED", "date 는 필수입니다."));
-        var affected = await _bridge.AggregateDayAsync(request.Date, ct);
+        var actor = User.CurrentUserId();
+        if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
+        var affected = await _bridge.AggregateDayManuallyAsync(request.Date, actor, ct);
         return Ok(new OeeAggregateResult(affected));
     }
 
@@ -45,8 +47,10 @@ public sealed class OeeAggregationController : ControllerBase
     {
         if (request is null || request.From == default || request.To == default || request.To <= request.From)
             return BadRequest(Error.Validation("OEE_WINDOW_INVALID", "from < to 인 유효한 윈도가 필요합니다."));
-        var affected = await _bridge.AggregateWindowAsync(
-            request.From, request.To, request.ShiftId, request.PlannedMinutes ?? 0m, ct);
+        var actor = User.CurrentUserId();
+        if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
+        var affected = await _bridge.AggregateWindowManuallyAsync(
+            request.From, request.To, request.ShiftId, request.PlannedMinutes ?? 0m, actor, ct);
         return Ok(new OeeAggregateResult(affected));
     }
 }

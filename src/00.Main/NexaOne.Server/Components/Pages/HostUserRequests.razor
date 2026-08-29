@@ -21,7 +21,7 @@ else
     <div class="host-page">
         <div class="host-toolbar">
             <h1 class="page-title">사용자 신청 승인</h1>
-            <select @bind="_statusFilter" @bind:after="ReloadAsync"
+            <select @bind="_statusFilter" @bind:after="ReloadAsync" aria-label="사용자 신청 상태 필터"
                     class="host-input inline">
                 <option value="Request">대기(Request)</option>
                 <option value="Approved">승인됨</option>
@@ -90,7 +90,7 @@ else
                             <td colspan="8">
                                 <div class="host-toolbar tight">
                                     <label>부여 역할</label>
-                                    <select class="meta-cond-select" @bind="_selectedRoleId">
+                                    <select class="meta-cond-select" aria-label="승인 시 부여 역할" @bind="_selectedRoleId">
                                         @foreach (var role in _roles)
                                         {
                                             <option value="@role">@role</option>
@@ -100,7 +100,7 @@ else
                                         승인
                                     </button>
                                     <span class="host-sep">|</span>
-                                    <input class="host-input inline" @bind="_rejectReason" placeholder="반려 사유(필수)" />
+                                    <input class="host-input inline" @bind="_rejectReason" placeholder="반려 사유(필수)" aria-label="사용자 신청 반려 사유" />
                                     <button class="host-btn inline danger" @onclick="() => RejectAsync(r.RequestId)"
                                             disabled="@(_busy || string.IsNullOrWhiteSpace(_rejectReason))">
                                         반려
@@ -116,9 +116,6 @@ else
 }
 
 @code {
-    private const string Th = "padding:0.5rem 0.75rem; border-bottom:1px solid #e5e7eb; font-weight:600; color:#374151;";
-    private const string Td = "padding:0.5rem 0.75rem; color:#1f2937;";
-
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private bool _canManage;

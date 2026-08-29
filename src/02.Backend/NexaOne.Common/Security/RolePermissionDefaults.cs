@@ -1,18 +1,24 @@
 namespace NexaOne.Common.Security;
 
 /// <summary>
-/// 역할명 → 기본 권한 매핑(하위호환 시드, ADR-003). <c>SYS_ROLE.PERMISSIONS</c>의 명시 권한이 비어 있어도
-/// 기존 역할 사용자가 적절한 권한을 자동 보유하도록 한다(명시 권한과 합집합으로 적용).
+/// 레거시 SQLite/설치 스크립트가 표준 역할 행을 DB에 보정할 때 참고하는 최소 호환 카탈로그(ADR-003).
+/// 런타임 토큰 발급에서는 이 값을 <c>SYS_ROLE.PERMISSIONS</c>와 합성하지 않는다.
 /// <para>SEC-2: ADMIN→'*' 하드코딩은 제거됐다 — 전체 권한은 DB(SYS_ROLE.PERMISSIONS='*', V031 시드)가 단독
-/// 원천이다. roleId 문자열만으로 DB 밖에서 전권이 부여되는 숨은 경로를 없앤다. OPERATOR/VIEWER 잔여 매핑은
-/// V063 표준 역할 시드가 없는 레거시 DB 하위호환용이며, 제한적(fdc 조회/제어) 권한이라 유지한다.</para>
+/// 원천이다. OPERATOR/VIEWER 값만 V063 이전 bootstrap 호환을 위해 남긴다. V118에서 새로 도입한
+/// MAINTENANCE는 반드시 DB 시드를 사용하므로 코드 기본값을 두지 않는다.</para>
 /// </summary>
 public static class RolePermissionDefaults
 {
     private static readonly Dictionary<string, string[]> Map = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["OPERATOR"] = new[] { Permissions.FdcControl, Permissions.FdcRead },
-        ["VIEWER"]   = new[] { Permissions.FdcRead },
+        ["OPERATOR"] = new[]
+        {
+            Permissions.FdcControl, Permissions.FdcRead,
+            Permissions.MdmRead, Permissions.EstRead, Permissions.PomRead, Permissions.PomExecute,
+            Permissions.PomRoutingRequest,
+            Permissions.RmsRead,
+        },
+        ["VIEWER"] = new[] { Permissions.FdcRead },
     };
 
     public static IReadOnlyList<string> For(string? roleId)

@@ -8,7 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NexaOne.EST.Domain;
 using NexaOne.EST.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
-using NexusCom.Data.Abstractions.Interfaces;
+using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
 namespace NexaOne.ServerTests;
@@ -83,8 +83,10 @@ public sealed class EstOutboxIntegrationTests : IClassFixture<EstOutboxIntegrati
     {
         var eq = $"EQOB_{Guid.NewGuid():N}"[..20];
         var (state, history) = Transition(eq);
+        var repo = BuildRepo(outboxEnabled: true);
 
-        await BuildRepo(outboxEnabled: true).ChangeStateWithHistoryAsync(state, history);
+        (await repo.TryInitializeAsync(EquipmentCurrentState.Create(eq, "PLANT01"))).Should().BeTrue();
+        (await repo.TryChangeStateWithHistoryAsync(state, history, expectedVersion: 1)).Should().BeTrue();
 
         Scalar<long>("SELECT COUNT(*) FROM EST_EQUIPMENT_STATE WHERE EQUIPMENT_ID=@eq", ("@eq", eq)).Should().Be(1);
         Scalar<long>("SELECT COUNT(*) FROM EST_EQUIPMENT_STATE_HISTORY WHERE EQUIPMENT_ID=@eq", ("@eq", eq)).Should().Be(1);
@@ -98,11 +100,39 @@ public sealed class EstOutboxIntegrationTests : IClassFixture<EstOutboxIntegrati
     {
         var eq = $"EQOB_{Guid.NewGuid():N}"[..20];
         var (state, history) = Transition(eq);
+        var repo = BuildRepo(outboxEnabled: false);
 
-        await BuildRepo(outboxEnabled: false).ChangeStateWithHistoryAsync(state, history);
+        (await repo.TryInitializeAsync(EquipmentCurrentState.Create(eq, "PLANT01"))).Should().BeTrue();
+        (await repo.TryChangeStateWithHistoryAsync(state, history, expectedVersion: 1)).Should().BeTrue();
 
         Scalar<long>("SELECT COUNT(*) FROM EST_EQUIPMENT_STATE WHERE EQUIPMENT_ID=@eq", ("@eq", eq)).Should().Be(1);
         Scalar<long>("SELECT COUNT(*) FROM EES_OUTBOX WHERE AGGREGATE_ID=@eq", ("@eq", eq)).Should().Be(0,
             "기본(off)에서는 outbox 행이 생기지 않아야 한다(게이트 검증)");
+    }
+
+    [Fact]
+    public async Task State_version_compare_and_swap_allows_only_one_transition_history()
+    {
+        var eq = $"EQCAS_{Guid.NewGuid():N}"[..20];
+        var repo = BuildRepo(outboxEnabled: false);
+        (await repo.TryInitializeAsync(EquipmentCurrentState.Create(eq, "PLANT01"))).Should().BeTrue();
+
+        var first = EquipmentCurrentState.Restore(eq, "PLANT01", "IDLE", DateTime.UtcNow, 1);
+        var second = EquipmentCurrentState.Restore(eq, "PLANT01", "IDLE", DateTime.UtcNow, 1);
+        first.ApplyTransition("RUN");
+        second.ApplyTransition("DOWN");
+        var firstHistory = EquipmentStateHistory.Create(
+            $"H1_{Guid.NewGuid():N}", eq, "IDLE", "RUN", "RUN", DateTime.UtcNow, "user-1").Value;
+        var secondHistory = EquipmentStateHistory.Create(
+            $"H2_{Guid.NewGuid():N}", eq, "IDLE", "DOWN", "DOWN", DateTime.UtcNow, "user-2").Value;
+
+        (await repo.TryChangeStateWithHistoryAsync(first, firstHistory, 1)).Should().BeTrue();
+        (await repo.TryChangeStateWithHistoryAsync(second, secondHistory, 1)).Should().BeFalse();
+
+        var persisted = await repo.GetAsync(eq);
+        persisted!.CurrentStateId.Should().Be("RUN");
+        persisted.StateVersion.Should().Be(2);
+        Scalar<long>("SELECT COUNT(*) FROM EST_EQUIPMENT_STATE_HISTORY WHERE EQUIPMENT_ID=@eq", ("@eq", eq))
+            .Should().Be(1, "the losing CAS must not append a history row");
     }
 }

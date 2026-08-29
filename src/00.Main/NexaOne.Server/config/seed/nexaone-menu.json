@@ -187,7 +187,7 @@
     },
     {
         "menuId":  "FACTORY_EMS_PM_ORDER_PLAN",
-        "menuName":  "PM 계획 생성",
+        "menuName":  "PM 계획 관리",
         "parentMenuId":  "FACTORY_EMS_PM",
         "displaySequence":  1,
         "menuType":  "Screen",
@@ -299,7 +299,7 @@
     },
     {
         "menuId":  "FACTORY_PRC_PURCHASE_ORDER",
-        "menuName":  "구매 지시 관리",
+        "menuName":  "구매오더 관리",
         "parentMenuId":  "FACTORY_PRC",
         "displaySequence":  1,
         "menuType":  "Screen",
@@ -307,7 +307,7 @@
     },
     {
         "menuId":  "FACTORY_PRC_REPORT_MOVEORDER",
-        "menuName":  "이동지시 현황",
+        "menuName":  "이동오더 현황",
         "parentMenuId":  "FACTORY_IVT",
         "displaySequence":  2,
         "menuType":  "Screen",
@@ -315,7 +315,7 @@
     },
     {
         "menuId":  "FACTORY_PRC_REPORT_PURCHASEORDER",
-        "menuName":  "구매 지시 현황",
+        "menuName":  "구매오더 현황",
         "parentMenuId":  "FACTORY_PRC",
         "displaySequence":  2,
         "menuType":  "Screen",
@@ -323,7 +323,7 @@
     },
     {
         "menuId":  "FACTORY_QCA_IMPORT_INSPECTION",
-        "menuName":  "수입 검사 관리",
+        "menuName":  "수입검사 관리",
         "parentMenuId":  "FACTORY_QCA_INSPECTION",
         "displaySequence":  1,
         "menuType":  "Screen",
@@ -371,7 +371,7 @@
     },
     {
         "menuId":  "FACTORY_SLS_SALES_ORDER",
-        "menuName":  "수주관리",
+        "menuName":  "수주 관리",
         "parentMenuId":  "FACTORY_SLS_SALES",
         "displaySequence":  1,
         "menuType":  "Screen",
@@ -451,7 +451,7 @@
     },
     {
         "menuId":  "FACTORY_WPM_LOT_MANAGEMENT",
-        "menuName":  "작업 진행 관리",
+        "menuName":  "LOT 관리",
         "parentMenuId":  "FACTORY_WPM_SEGMENT",
         "displaySequence":  1,
         "menuType":  "Screen",
@@ -855,7 +855,7 @@
     },
     {
         "menuId":  "FACTORY_PPM_WORK_ORDER",
-        "menuName":  "W/O 관리",
+        "menuName":  "작업 관리",
         "parentMenuId":  "FACTORY_PPM_PRODUCTION",
         "displaySequence":  2,
         "menuType":  "Screen",
@@ -863,7 +863,7 @@
     },
     {
         "menuId":  "FACTORY_QCA_DELIVERY_INSPECTION",
-        "menuName":  "출하 검사 관리",
+        "menuName":  "출하검사 관리",
         "parentMenuId":  "FACTORY_QCA_INSPECTION",
         "displaySequence":  2,
         "menuType":  "Screen",
@@ -903,7 +903,7 @@
     },
     {
         "menuId":  "FACTORY_SLS_SALES_REQUEST",
-        "menuName":  "판매 주문 접수",
+        "menuName":  "판매 요청",
         "parentMenuId":  "FACTORY_SLS_SALES",
         "displaySequence":  2,
         "menuType":  "Screen",
@@ -1321,7 +1321,7 @@
     },
     {
         "menuId":  "FACTORY_PPM",
-        "menuName":  "생산 계획(PPM)",
+        "menuName":  "생산계획",
         "parentMenuId":  null,
         "displaySequence":  3,
         "menuType":  "Folder",
@@ -1353,7 +1353,7 @@
     },
     {
         "menuId":  "FACTORY_QCA_SEGMENT_INSPECTION",
-        "menuName":  "공정 검사 관리",
+        "menuName":  "공정검사 관리",
         "parentMenuId":  "FACTORY_QCA_INSPECTION",
         "displaySequence":  3,
         "menuType":  "Screen",
@@ -1610,7 +1610,7 @@
     },
     {
         "menuId":  "FACTORY_EMS_PM_ORDER_PLAN_GRIDTYPE",
-        "menuName":  "PM 계획 생성_그리드",
+        "menuName":  "PM 계획 그리드",
         "parentMenuId":  "FACTORY_EMS_PM",
         "displaySequence":  4,
         "menuType":  "Screen",
@@ -1706,7 +1706,7 @@
     },
     {
         "menuId":  "FACTORY_WPM",
-        "menuName":  "생산 실행(WPM)",
+        "menuName":  "생산실행",
         "parentMenuId":  null,
         "displaySequence":  4,
         "menuType":  "Folder",
@@ -1946,6 +1946,14 @@
         "uiId":  "FACTORY_STD_SINGLE_PROCESSPATH"
     },
     {
+        "menuId":  "FACTORY_STD_ROUTING_STEP",
+        "menuName":  "라우팅 스텝 관리",
+        "parentMenuId":  "FACTORY_STD_SINGLE_SEGMENT",
+        "displaySequence":  6,
+        "menuType":  "Screen",
+        "uiId":  "FACTORY_STD_ROUTING_STEP"
+    },
+    {
         "menuId":  "FACTORY_STD_SINGLE_WORKER",
         "menuName":  "작업자",
         "parentMenuId":  "FACTORY_STD_SINGLE",
@@ -2077,7 +2085,7 @@
     },
     {
         "menuId":  "FACTORY_DLV",
-        "menuName":  "출하 관리",
+        "menuName":  "출하관리",
         "parentMenuId":  null,
         "displaySequence":  6,
         "menuType":  "Folder",
@@ -2119,7 +2127,7 @@
         "menuId":  "FACTORY_STD_WO_PROCESS_PATH",
         "menuName":  "W/O 라우팅 관리",
         "parentMenuId":  "FACTORY_STD_SINGLE_SEGMENT",
-        "displaySequence":  6,
+        "displaySequence":  7,
         "menuType":  "Screen",
         "uiId":  "FACTORY_STD_WO_PROCESS_PATH"
     },
@@ -2247,7 +2255,7 @@
     },
     {
         "menuId":  "FACTORY_PRC",
-        "menuName":  "구매 관리",
+        "menuName":  "구매관리",
         "parentMenuId":  null,
         "displaySequence":  7,
         "menuType":  "Folder",
@@ -2257,7 +2265,7 @@
         "menuId":  "FACTORY_STD_SINGLE_BILL_OF_MATERIAL",
         "menuName":  "BOM 관리",
         "parentMenuId":  "FACTORY_STD_SINGLE_SEGMENT",
-        "displaySequence":  7,
+        "displaySequence":  8,
         "menuType":  "Screen",
         "uiId":  "FACTORY_STD_SINGLE_BILL_OF_MATERIAL"
     },
@@ -2359,7 +2367,7 @@
     },
     {
         "menuId":  "FACTORY_QCA",
-        "menuName":  "품질 검사(QCA)",
+        "menuName":  "품질검사",
         "parentMenuId":  null,
         "displaySequence":  8,
         "menuType":  "Folder",
@@ -2367,9 +2375,9 @@
     },
     {
         "menuId":  "FACTORY_STD_BOR_CONDITION",
-        "menuName":  "BOR 관리_조건기준등록",
+        "menuName":  "BOR 관리(조건 기준)",
         "parentMenuId":  "FACTORY_STD_SINGLE_SEGMENT",
-        "displaySequence":  8,
+        "displaySequence":  9,
         "menuType":  "Screen",
         "uiId":  "FACTORY_STD_BOR_CONDITION"
     },
@@ -2439,9 +2447,9 @@
     },
     {
         "menuId":  "FACTORY_STD_BOR_RESOURCE",
-        "menuName":  "BOR 관리_자원기준등록",
+        "menuName":  "BOR 관리(자원 기준)",
         "parentMenuId":  "FACTORY_STD_SINGLE_SEGMENT",
-        "displaySequence":  9,
+        "displaySequence":  10,
         "menuType":  "Screen",
         "uiId":  "FACTORY_STD_BOR_RESOURCE"
     },
@@ -2471,7 +2479,7 @@
     },
     {
         "menuId":  "FACTORY_EMS",
-        "menuName":  "설비 보전(EMS)",
+        "menuName":  "설비보전",
         "parentMenuId":  null,
         "displaySequence":  10,
         "menuType":  "Folder",
@@ -2495,7 +2503,7 @@
     },
     {
         "menuId":  "EES_EPT",
-        "menuName":  "설비 지표(EPT)",
+        "menuName":  "설비지표",
         "parentMenuId":  null,
         "displaySequence":  11,
         "menuType":  "Folder",
@@ -2511,7 +2519,7 @@
     },
     {
         "menuId":  "EES_FDC",
-        "menuName":  "설비 데이터 수집(FDC)",
+        "menuName":  "설비데이터 수집",
         "parentMenuId":  null,
         "displaySequence":  13,
         "menuType":  "Folder",
@@ -2527,7 +2535,7 @@
     },
     {
         "menuId":  "QMS",
-        "menuName":  "품질 관리(QMS)",
+        "menuName":  "품질관리",
         "parentMenuId":  null,
         "displaySequence":  14,
         "menuType":  "Folder",
@@ -2543,7 +2551,7 @@
     },
     {
         "menuId":  "FACTORY_STD_SINGLE",
-        "menuName":  "레시피 기준 정보",
+        "menuName":  "레시피 기준정보",
         "parentMenuId":  null,
         "displaySequence":  15,
         "menuType":  "Folder",
@@ -2551,7 +2559,7 @@
     },
     {
         "menuId":  "FACTORY_MDM",
-        "menuName":  "기준 정보(MDM)",
+        "menuName":  "기준정보",
         "parentMenuId":  null,
         "displaySequence":  16,
         "menuType":  "Folder",
@@ -2559,7 +2567,7 @@
     },
     {
         "menuId":  "FACTORY_COM",
-        "menuName":  "공통 관리(COM)",
+        "menuName":  "공통관리",
         "parentMenuId":  null,
         "displaySequence":  17,
         "menuType":  "Folder",
@@ -2567,7 +2575,7 @@
     },
     {
         "menuId":  "MI_SYSTEM_2_0",
-        "menuName":  "시스템 관리",
+        "menuName":  "시스템관리",
         "parentMenuId":  null,
         "displaySequence":  18,
         "menuType":  "Folder",

@@ -3,7 +3,7 @@
      선택 필터는 (@p IS NULL OR COL = @p) 패턴 — 본문에 없는 @param은 게이트웨이가 null로 채운다.
      ※ 원시 문자열 보간/조건 템플릿이 아니라 안전한 파라미터 바인딩을 쓴다. -->
 <queries module="MDM">
-    <query id="MDM.PlantList">
+    <query id="MDM.PlantList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT PLANT_ID, PLANT_NAME, DESCRIPTION, COUNTRY, TIME_ZONE
             FROM MDM_PLANT WITH(NOLOCK)
@@ -47,7 +47,7 @@
         ]]></statement>
     </query>
     <!-- §10 고도화 이식(MSSQL 방언): MDM.PlantCombo. SQLite판과 동일 ID·동일 의미(NOLOCK 힌트만 추가). -->
-    <query id="MDM.PlantCombo">
+    <query id="MDM.PlantCombo" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT PLANT_ID AS VALUE, PLANT_NAME AS TEXT
             FROM MDM_PLANT WITH (NOLOCK)
@@ -57,7 +57,7 @@
     </query>
     <!-- ===== §10 고도화 이식(MSSQL 방언): MDM 마스터 읽기(콤보/리스트). SQLite판과 동일 ID·동일 의미(NOLOCK 힌트만 추가).
          레거시 Velocity 보간·다국어 CASE 제거, @param 선택필터로 고도화. ===== -->
-    <query id="MDM.AreaCombo">
+    <query id="MDM.AreaCombo" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT AREA_ID AS VALUE, AREA_NAME AS TEXT
             FROM MDM_AREA WITH (NOLOCK)
@@ -65,7 +65,7 @@
             ORDER BY AREA_NAME
         ]]></statement>
     </query>
-    <query id="MDM.AreaList">
+    <query id="MDM.AreaList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT AREA_ID, AREA_NAME, DESCRIPTION, PLANT_ID
             FROM MDM_AREA WITH (NOLOCK)
@@ -73,7 +73,7 @@
             ORDER BY AREA_NAME
         ]]></statement>
     </query>
-    <query id="MDM.ProductCombo">
+    <query id="MDM.ProductCombo" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT PRODUCT_ID AS VALUE, PRODUCT_NAME AS TEXT
             FROM MDM_PRODUCT WITH (NOLOCK)
@@ -82,7 +82,16 @@
             ORDER BY PRODUCT_NAME
         ]]></statement>
     </query>
-    <query id="MDM.ProductList">
+    <!-- 활성 거래처 선택용 공통 콤보. SQLite와 동일한 VALUE/TEXT 계약을 유지한다. -->
+    <query id="MDM.CustomerCombo" requiredPermission="mdm:read">
+        <statement><![CDATA[
+            SELECT CUSTOMER_ID AS VALUE, CUSTOMER_NAME AS TEXT
+            FROM MDM_CUSTOMER WITH (NOLOCK)
+            WHERE IS_ACTIVE = 1
+            ORDER BY CUSTOMER_NAME
+        ]]></statement>
+    </query>
+    <query id="MDM.ProductList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT PRODUCT_ID, PRODUCT_NAME, DESCRIPTION, PRODUCT_TYPE, UNIT, VALID_STATE
             FROM MDM_PRODUCT WITH (NOLOCK)
@@ -90,14 +99,14 @@
             ORDER BY PRODUCT_NAME
         ]]></statement>
     </query>
-    <query id="MDM.CodeClassList">
+    <query id="MDM.CodeClassList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT CODE_CLASS_ID, CODE_CLASS_NAME, DESCRIPTION
             FROM MDM_CODE_CLASS WITH (NOLOCK)
             ORDER BY CODE_CLASS_NAME
         ]]></statement>
     </query>
-    <query id="MDM.CodeCombo">
+    <query id="MDM.CodeCombo" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT CODE_ID AS VALUE, CODE_NAME AS TEXT
             FROM MDM_CODE WITH (NOLOCK)
@@ -106,7 +115,7 @@
             ORDER BY SORT_ORDER, CODE_NAME
         ]]></statement>
     </query>
-    <query id="MDM.EquipmentCombo">
+    <query id="MDM.EquipmentCombo" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT EQUIPMENT_ID AS VALUE, EQUIPMENT_NAME AS TEXT
             FROM MDM_EQUIPMENT WITH (NOLOCK)
@@ -116,7 +125,7 @@
     </query>
     <!-- 설비 마스터 전체조회(설비 관리 화면) — SQLite판과 동일 ID·동일 의미(NOLOCK 힌트만 추가).
          기존 EquipmentByPlant(@plantId 필수)와 달리 NULL-guard 선택필터로 전체조회 가능(read=인증만). -->
-    <query id="MDM.EquipmentList">
+    <query id="MDM.EquipmentList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT EQUIPMENT_ID, EQUIPMENT_NAME, PLANT_ID, AREA_ID, EQUIPMENT_TYPE, EQUIPMENT_CLASS_ID, VALID_STATE
             FROM MDM_EQUIPMENT WITH (NOLOCK)
@@ -126,7 +135,7 @@
         ]]></statement>
     </query>
     <!-- 코드 마스터 전체조회(사유 코드 관리 화면) — SQLite판과 동일 ID·동일 의미(NOLOCK 힌트만 추가). -->
-    <query id="MDM.CodeList">
+    <query id="MDM.CodeList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT CODE_ID, CODE_NAME, CODE_CLASS_ID, SORT_ORDER, VALID_STATE
             FROM MDM_CODE WITH (NOLOCK)
@@ -136,71 +145,71 @@
     </query>
 
     <!-- ===== V035 MDM 마스터 보강 테이블 조회 — SQLite판과 동일 ID·동일 컬럼(NOLOCK 힌트만 추가). ===== -->
-    <query id="MDM.EquipmentClassList">
+    <query id="MDM.EquipmentClassList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT EQUIPMENT_CLASS_ID, EQUIPMENT_CLASS_NAME, DESCRIPTION FROM MDM_EQUIPMENT_CLASS WITH (NOLOCK) ORDER BY EQUIPMENT_CLASS_NAME
         ]]></statement>
     </query>
-    <query id="MDM.ItemClassList">
+    <query id="MDM.ItemClassList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT ITEM_CLASS_ID, ITEM_CLASS_NAME, DESCRIPTION FROM MDM_ITEM_CLASS WITH (NOLOCK) ORDER BY ITEM_CLASS_NAME
         ]]></statement>
     </query>
-    <query id="MDM.CarrierClassList">
+    <query id="MDM.CarrierClassList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT CARRIER_CLASS_ID, CARRIER_CLASS_NAME, DESCRIPTION FROM MDM_CARRIER_CLASS WITH (NOLOCK) ORDER BY CARRIER_CLASS_NAME
         ]]></statement>
     </query>
-    <query id="MDM.CarrierList">
+    <query id="MDM.CarrierList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT CARRIER_ID, CARRIER_NAME, CARRIER_CLASS_ID, DESCRIPTION FROM MDM_CARRIER WITH (NOLOCK) ORDER BY CARRIER_NAME
         ]]></statement>
     </query>
-    <query id="MDM.SegmentClassList">
+    <query id="MDM.SegmentClassList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT SEGMENT_CLASS_ID, SEGMENT_CLASS_NAME, DESCRIPTION FROM MDM_SEGMENT_CLASS WITH (NOLOCK) ORDER BY SEGMENT_CLASS_NAME
         ]]></statement>
     </query>
-    <query id="MDM.SegmentList">
+    <query id="MDM.SegmentList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT SEGMENT_ID, SEGMENT_NAME, SEGMENT_CLASS_ID, DESCRIPTION FROM MDM_SEGMENT WITH (NOLOCK) ORDER BY SEGMENT_NAME
         ]]></statement>
     </query>
-    <query id="MDM.ProcessClassList">
+    <query id="MDM.ProcessClassList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT PROCESS_CLASS_ID, PROCESS_CLASS_NAME, DESCRIPTION FROM MDM_PROCESS_CLASS WITH (NOLOCK) ORDER BY PROCESS_CLASS_NAME
         ]]></statement>
     </query>
-    <query id="MDM.ProcessList">
+    <query id="MDM.ProcessList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT PROCESS_ID, PROCESS_NAME, PROCESS_CLASS_ID, DESCRIPTION FROM MDM_PROCESS WITH (NOLOCK) ORDER BY PROCESS_NAME
         ]]></statement>
     </query>
-    <query id="MDM.RoutingList">
+    <query id="MDM.RoutingList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT ROUTING_ID, ROUTING_NAME, PRODUCT_ID, DESCRIPTION FROM MDM_ROUTING WITH (NOLOCK) ORDER BY ROUTING_NAME
         ]]></statement>
     </query>
-    <query id="MDM.BomList">
+    <query id="MDM.BomList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT BOM_ID, PRODUCT_ID, COMPONENT_ID, QUANTITY FROM MDM_BOM WITH (NOLOCK) ORDER BY BOM_ID
         ]]></statement>
     </query>
-    <query id="MDM.QtimeList">
+    <query id="MDM.QtimeList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT QTIME_ID, SEGMENT_ID, STANDARD_TIME, UNIT FROM MDM_QTIME WITH (NOLOCK) ORDER BY QTIME_ID
         ]]></statement>
     </query>
-    <query id="MDM.QtimeActionList">
+    <query id="MDM.QtimeActionList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT ACTION_ID, QTIME_ID, ACTION_CODE, DESCRIPTION FROM MDM_QTIME_ACTION WITH (NOLOCK) ORDER BY ACTION_ID
         ]]></statement>
     </query>
     <!-- SmartUX 기준정보 점등용 — V046 신설(작업자/작업조/달력/거래처/납품처). -->
-    <query id="MDM.WorkerClassList">
+    <query id="MDM.WorkerClassList" requiredPermission="mdm:read">
         <statement><![CDATA[ SELECT WORKER_CLASS_ID, WORKER_CLASS_NAME, DESCRIPTION, IS_ACTIVE FROM MDM_WORKER_CLASS WITH (NOLOCK) ORDER BY WORKER_CLASS_NAME ]]></statement>
     </query>
-    <query id="MDM.WorkerList">
+    <query id="MDM.WorkerList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT WORKER_ID, WORKER_NAME, WORKER_CLASS_ID, EMPLOYEE_NO, DEPARTMENT, PLANT_ID, IS_ACTIVE
             FROM MDM_WORKER WITH (NOLOCK)
@@ -208,16 +217,16 @@
             ORDER BY WORKER_NAME
         ]]></statement>
     </query>
-    <query id="MDM.ShiftList">
+    <query id="MDM.ShiftList" requiredPermission="mdm:read">
         <statement><![CDATA[ SELECT SHIFT_ID, SHIFT_NAME, START_TIME, END_TIME, DESCRIPTION, IS_ACTIVE FROM MDM_SHIFT WITH (NOLOCK) ORDER BY SHIFT_ID ]]></statement>
     </query>
-    <query id="MDM.WorkCalendarList">
+    <query id="MDM.WorkCalendarList" requiredPermission="mdm:read">
         <statement><![CDATA[ SELECT CALENDAR_ID, CALENDAR_DATE, DAY_TYPE, SHIFT_ID, PLANT_ID, DESCRIPTION FROM MDM_WORK_CALENDAR WITH (NOLOCK) ORDER BY CALENDAR_DATE DESC ]]></statement>
     </query>
-    <query id="MDM.CustomerList">
+    <query id="MDM.CustomerList" requiredPermission="mdm:read">
         <statement><![CDATA[ SELECT CUSTOMER_ID, CUSTOMER_NAME, CUSTOMER_TYPE, CONTACT_NAME, PHONE, ADDRESS, IS_ACTIVE FROM MDM_CUSTOMER WITH (NOLOCK) ORDER BY CUSTOMER_NAME ]]></statement>
     </query>
-    <query id="MDM.DeliveryItemList">
+    <query id="MDM.DeliveryItemList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT DELIVERY_ITEM_ID, CUSTOMER_ID, PRODUCT_ID, DELIVERY_CODE, UNIT_PRICE, IS_ACTIVE
             FROM MDM_DELIVERY_ITEM WITH (NOLOCK)
@@ -226,7 +235,7 @@
         ]]></statement>
     </query>
     <!-- FACTORY_STD 라벨(V054) — 라벨 마스터/발행이력/매핑. NULL-guard 전체조회. -->
-    <query id="MDM.LabelList">
+    <query id="MDM.LabelList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT LABEL_ID, PLANT_ID, LABEL_NAME, DESCRIPTION, IS_ACTIVE
             FROM MDM_LABEL WITH (NOLOCK)
@@ -234,7 +243,7 @@
             ORDER BY LABEL_NAME
         ]]></statement>
     </query>
-    <query id="MDM.LabelIssueList">
+    <query id="MDM.LabelIssueList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT TOP 500 ISSUE_ID, PLANT_ID, LABEL_ID, ITEM_ID, LOT_ID, SERIAL_NUM, PRINT_CNT, ISSUED_AT
             FROM MDM_LABEL_ISSUE WITH (NOLOCK)
@@ -243,7 +252,7 @@
             ORDER BY ISSUED_AT DESC
         ]]></statement>
     </query>
-    <query id="MDM.LabelMappingList">
+    <query id="MDM.LabelMappingList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT MAPPING_ID, PLANT_ID, PROCESS_ID, ITEM_ID, LABEL_ID, PRINT_LIMIT_CNT, PRINT_LIMIT_YN
             FROM MDM_LABEL_MAPPING WITH (NOLOCK)
@@ -253,7 +262,7 @@
         ]]></statement>
     </query>
     <!-- FACTORY_STD BOR(자원명세, V058) — BOR 헤더/자원 상세. NULL-guard 전체조회. -->
-    <query id="MDM.BorList">
+    <query id="MDM.BorList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT BOR_ID, PLANT_ID, BOR_NAME, PROCESS_ID, PRODUCT_ID, BOR_TYPE, DESCRIPTION, IS_ACTIVE
             FROM MDM_BOR WITH (NOLOCK)
@@ -262,7 +271,7 @@
             ORDER BY BOR_NAME
         ]]></statement>
     </query>
-    <query id="MDM.BorResourceList">
+    <query id="MDM.BorResourceList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT RESOURCE_ID, BOR_ID, RESOURCE_TYPE, RESOURCE_REF_ID, RESOURCE_NAME, REQUIRED_QTY, CONDITION_VALUE, IS_ACTIVE
             FROM MDM_BOR_RESOURCE WITH (NOLOCK)
@@ -272,7 +281,7 @@
         ]]></statement>
     </query>
     <!-- MES_MDM_COM 벤더(공급사, V059) — 벤더 마스터/벤더 품목. NULL-guard 전체조회. -->
-    <query id="MDM.VendorList">
+    <query id="MDM.VendorList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT VENDOR_ID, VENDOR_NAME, VENDOR_TYPE, CORPORATION_NO, OWNER_NAME, PHONE, EMAIL, ADDRESS, IS_ACTIVE
             FROM MDM_VENDOR WITH (NOLOCK)
@@ -280,7 +289,7 @@
             ORDER BY VENDOR_NAME
         ]]></statement>
     </query>
-    <query id="MDM.VendorItemList">
+    <query id="MDM.VendorItemList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT VENDOR_ITEM_ID, VENDOR_ID, PRODUCT_ID, LEAD_TIME_DAYS, MOQ, BASE_PRICE, IS_ACTIVE
             FROM MDM_VENDOR_ITEM WITH (NOLOCK)
@@ -425,7 +434,7 @@
     </query>
     <!-- ===== MRP v1 표준화(2026-07-09) — UOM 마스터·품목 계획 파라미터 CRUD(그리드 표준 CRUD 관례:
          Create*=upsert(CREATED_* 보존)·Delete*=PK 삭제·듀얼키 파라미터). ===== -->
-    <query id="MDM.UomList">
+    <query id="MDM.UomList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT UOM_ID, UOM_NAME, UOM_TYPE, IS_ACTIVE, DESCRIPTION
             FROM MDM_UOM
@@ -450,7 +459,7 @@
             DELETE FROM MDM_UOM WHERE UOM_ID = @uomId
         ]]></statement>
     </query>
-    <query id="MDM.ItemPlanningList">
+    <query id="MDM.ItemPlanningList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT ITEM_ID, SAFETY_STOCK, LEAD_TIME_DAYS, LOT_SIZE, MAKE_OR_BUY, IS_ACTIVE, DESCRIPTION
             FROM MDM_ITEM_PLANNING
@@ -479,7 +488,7 @@
         ]]></statement>
     </query>
     <!-- CRP v1(V087) — 워크센터·라우팅 스텝 CRUD. UOM 관례 미러(upsert=ON CONFLICT, CREATED_* 보존). -->
-    <query id="MDM.WorkCenterList">
+    <query id="MDM.WorkCenterList" requiredPermission="mdm:read">
         <statement><![CDATA[
             SELECT WORK_CENTER_ID, WORK_CENTER_NAME, PLANT_ID, DAILY_CAPACITY_MIN, IS_ACTIVE, DESCRIPTION
             FROM MDM_WORK_CENTER WITH (NOLOCK) ORDER BY WORK_CENTER_ID
@@ -504,9 +513,10 @@
             DELETE FROM MDM_WORK_CENTER WHERE WORK_CENTER_ID = @workCenterId
         ]]></statement>
     </query>
-    <query id="MDM.RoutingStepList">
+    <query id="MDM.RoutingStepList" requiredPermission="mdm:read">
         <statement><![CDATA[
-            SELECT S.ROUTING_ID, R.PRODUCT_ID, S.STEP_NO, S.STEP_NAME, S.WORK_CENTER_ID, S.STD_TIME_MIN
+            SELECT S.ROUTING_ID, R.PRODUCT_ID, S.STEP_NO, S.STEP_NAME, S.PROCESS_ID,
+                   S.WORK_CENTER_ID, S.STD_TIME_MIN
             FROM MDM_ROUTING_STEP S WITH (NOLOCK)
             JOIN MDM_ROUTING R WITH (NOLOCK) ON R.ROUTING_ID = S.ROUTING_ID
             ORDER BY S.ROUTING_ID, S.STEP_NO
@@ -518,11 +528,11 @@
             USING (SELECT @routingId AS ROUTING_ID, @stepNo AS STEP_NO) AS S
                ON T.ROUTING_ID = S.ROUTING_ID AND T.STEP_NO = S.STEP_NO
             WHEN MATCHED THEN UPDATE SET
-                STEP_NAME = @stepName, WORK_CENTER_ID = @workCenterId,
+                STEP_NAME = @stepName, PROCESS_ID = @processId, WORK_CENTER_ID = @workCenterId,
                 STD_TIME_MIN = COALESCE(@stdTimeMin, 0), UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
             WHEN NOT MATCHED THEN
-                INSERT (ROUTING_ID, STEP_NO, STEP_NAME, WORK_CENTER_ID, STD_TIME_MIN, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-                VALUES (@routingId, @stepNo, @stepName, @workCenterId, COALESCE(@stdTimeMin, 0), @currentUser, @utcNow, @currentUser, @utcNow);
+                INSERT (ROUTING_ID, STEP_NO, STEP_NAME, PROCESS_ID, WORK_CENTER_ID, STD_TIME_MIN, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@routingId, @stepNo, @stepName, @processId, @workCenterId, COALESCE(@stdTimeMin, 0), @currentUser, @utcNow, @currentUser, @utcNow);
         ]]></statement>
     </query>
     <query id="MDM.DeleteRoutingStep" kind="write" requiredPermission="mdm:manage">

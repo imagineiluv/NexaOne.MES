@@ -52,6 +52,8 @@ public sealed class GatewayPomQueryTests : IClassFixture<GatewayPomQueryTests.Po
         var creds = new SigningCredentials(
             new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Secret)), SecurityAlgorithms.HmacSha256);
         var claims = new List<Claim> { new(ClaimTypes.NameIdentifier, "pom-e2e-user") };
+        if (permissions.Length == 0)
+            claims.Add(new Claim(NexaOne.Common.Security.Permissions.ClaimType, "pom:read"));
         claims.AddRange(permissions.Select(p => new Claim(NexaOne.Common.Security.Permissions.ClaimType, p)));
         var token = new JwtSecurityToken(Issuer, Issuer, claims, expires: DateTime.UtcNow.AddMinutes(10), signingCredentials: creds);
         client.DefaultRequestHeaders.Authorization =
@@ -95,6 +97,25 @@ public sealed class GatewayPomQueryTests : IClassFixture<GatewayPomQueryTests.Po
         cmd.Parameters.AddWithValue("@plan", planId);
         cmd.Parameters.AddWithValue("@eq", equipmentId);
         cmd.Parameters.AddWithValue("@st", status);
+        cmd.Parameters.AddWithValue("@now", Now());
+        cmd.ExecuteNonQuery();
+    }
+
+    private void SeedWorkOrder(string workOrderId, string productionOrderId, string plantId, string status)
+    {
+        using var conn = new SqliteConnection(_factory.ConnString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO POM_WORK_ORDER
+            (WORK_ORDER_ID, PRODUCTION_ORDER_ID, PLANT_ID, WORK_ORDER_NAME, PRODUCT_ID,
+             PLAN_QTY, START_QTY, COMPLETE_QTY, SCRAP_QTY, STATUS, IS_HOLD,
+             CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@id, @parent, @plant, '테스트 작업지시', 'PROD01',
+                    50, 0, 0, 0, @status, 'N', 'TEST', @now, 'TEST', @now)";
+        cmd.Parameters.AddWithValue("@id", workOrderId);
+        cmd.Parameters.AddWithValue("@parent", productionOrderId);
+        cmd.Parameters.AddWithValue("@plant", plantId);
+        cmd.Parameters.AddWithValue("@status", status);
         cmd.Parameters.AddWithValue("@now", Now());
         cmd.ExecuteNonQuery();
     }
@@ -152,6 +173,87 @@ public sealed class GatewayPomQueryTests : IClassFixture<GatewayPomQueryTests.Po
         cmd.Parameters.AddWithValue("@exec", executionId);
         cmd.Parameters.AddWithValue("@now", Now());
         cmd.ExecuteNonQuery();
+    }
+
+    private void SeedRouteExceptionAndExecution(
+        string plantId,
+        string lotId,
+        string exceptionId,
+        DateTime? expiresAt = null)
+    {
+        using var conn = new SqliteConnection(_factory.ConnString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"INSERT INTO POM_ROUTE_EXCEPTION
+            (EXCEPTION_ID, LOT_ID, PLANT_ID, DEVIATION_TYPE, FROM_STEP, TO_STEP,
+             FROM_PROCESS_ID, TO_PROCESS_ID, BOUND_LOT_VERSION, REASON, STATUS,
+             REQUESTED_BY, REQUESTED_AT, EXPIRES_AT, CLIENT_CHANNEL, DEVICE_ID, CREATED_AT, UPDATED_AT)
+            VALUES (@exception, @lot, @plant, 'Bypass', 0, 1, 'CUT', 'ASSY', 1,
+                    '설비 고장', 'Requested', 'operator', @now, @expires, 'MOBILE', 'PDA-07', @now, @now);
+            INSERT INTO POM_LOT_EXECUTION
+            (EXECUTION_ID, LOT_ID, ACTION, IDEMPOTENCY_KEY, REQUEST_HASH,
+             EXPECTED_VERSION, RESULT_VERSION, FROM_STEP, TO_STEP,
+             FROM_PROCESS_ID, TO_PROCESS_ID, CONTROL_MODE, CLIENT_CHANNEL, DEVICE_ID, REASON,
+             CREATED_BY, CREATED_AT)
+            VALUES (@execution, @lot, 'SequenceChange', @key, @hash,
+                    1, 2, 0, 1, 'CUT', 'ASSY', 'NoControl', 'POP', 'KIOSK-03',
+                    '병목 우회', 'operator', @now)";
+        cmd.Parameters.AddWithValue("@exception", exceptionId);
+        cmd.Parameters.AddWithValue("@execution", $"EXEC-{exceptionId}");
+        cmd.Parameters.AddWithValue("@key", $"KEY-{exceptionId}");
+        cmd.Parameters.AddWithValue("@hash", new string('a', 64));
+        cmd.Parameters.AddWithValue("@lot", lotId);
+        cmd.Parameters.AddWithValue("@plant", plantId);
+        var expiration = expiresAt ?? DateTime.UtcNow.AddMinutes(30);
+        cmd.Parameters.AddWithValue("@now", expiration.AddMinutes(-30).ToString("yyyy-MM-dd HH:mm:ss"));
+        cmd.Parameters.AddWithValue("@expires", expiration.ToString("yyyy-MM-dd HH:mm:ss"));
+        cmd.ExecuteNonQuery();
+    }
+
+    private void SeedLotDefectExecution(string plantId, string lotId, string exceptionId)
+    {
+        using var connection = new SqliteConnection(_factory.ConnString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = @"INSERT INTO POM_LOT_DEFECT_EXECUTION
+            (EXECUTION_ID, LOT_ID, PLANT_ID, PROCESS_ID, DEFECT_CODE, DEFECT_QTY,
+             EXECUTION_USER, CLIENT_CHANNEL, DEVICE_ID, OCCURRED_AT, CREATED_AT)
+            VALUES (@execution, @lot, @plant, 'ASSY', 'SCRATCH', 1.5,
+                    'operator', 'POP', 'KIOSK-03', @now, @now)";
+        command.Parameters.AddWithValue("@execution", $"EXEC-{exceptionId}");
+        command.Parameters.AddWithValue("@lot", lotId);
+        command.Parameters.AddWithValue("@plant", plantId);
+        command.Parameters.AddWithValue("@now", Now());
+        command.ExecuteNonQuery();
+    }
+
+    private void SeedAutomaticReturnExecution(string plantId, string lotId, string correlationId)
+    {
+        using var connection = new SqliteConnection(_factory.ConnString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = @"INSERT INTO POM_LOT_EXECUTION
+            (EXECUTION_ID, LOT_ID, ACTION, IDEMPOTENCY_KEY, REQUEST_HASH,
+             EXPECTED_VERSION, RESULT_VERSION, FROM_STEP, TO_STEP,
+             FROM_PROCESS_ID, TO_PROCESS_ID, CONTROL_MODE, CLIENT_CHANNEL, DEVICE_ID, REASON,
+             CREATED_BY, CREATED_AT)
+            VALUES (@execution, @lot, 'TrackOut', @key, @hash,
+                    2, 3, 1, 2, 'REWORK', 'ASSY', 'Flexible', 'MOBILE', 'PDA-07',
+                    'TrackOut and automatic rework Return', 'rework-operator', @now);
+            INSERT INTO POM_LOT_HISTORY
+            (PLANT_ID, LOT_ID, EQUIPMENT_ID, PROCESS_ID, TRACK_IN_TIME, TRACK_OUT_TIME,
+             EXECUTION_ID, EXECUTION_USER, QTY, DEFECT_QTY, LOT_STATE, PROCESS_STATE,
+             REASON, IDEMPOTENCY_KEY)
+            VALUES (@plant, @lot, 'EQ-REWORK', 'ASSY', @now, @now,
+                    'Return', 'rework-operator', 10, 0, 'Processing', 'Idle',
+                    'Automatic return after rework TrackOut: REWORK -> ASSY', @execution)";
+        command.Parameters.AddWithValue("@execution", $"RETURN-{correlationId}");
+        command.Parameters.AddWithValue("@key", $"TRACKOUT-{correlationId}");
+        command.Parameters.AddWithValue("@hash", new string('b', 64));
+        command.Parameters.AddWithValue("@plant", plantId);
+        command.Parameters.AddWithValue("@lot", lotId);
+        command.Parameters.AddWithValue("@now", Now());
+        command.ExecuteNonQuery();
     }
 
     [Fact]
@@ -252,8 +354,14 @@ public sealed class GatewayPomQueryTests : IClassFixture<GatewayPomQueryTests.Po
     public async Task LotsByWorkOrder_returns_lots_of_workorder()
     {
         EnsureSchemaReady();
-        var plant = "P_" + Suffix();
+        var plant = "PLANT01";
+        var plan = $"PL_{Suffix()}";
+        var productionOrder = $"PO_{Suffix()}";
         var wo = $"WO_{Suffix()}";
+        var start = DateTime.UtcNow;
+        SeedPlan(plan, plant, "Released", start, start.AddDays(1));
+        SeedOrder(productionOrder, plan, "EQ01", "Issued");
+        SeedWorkOrder(wo, productionOrder, plant, "Released");
         SeedLot($"LOT_{Suffix()}", plant, wo, "Queued");
         SeedLot($"LOT_{Suffix()}", plant, wo, "Processing");
         SeedLot($"LOT_{Suffix()}", plant, null, "Queued"); // 다른(미연결) Lot — 제외돼야 한다
@@ -267,10 +375,15 @@ public sealed class GatewayPomQueryTests : IClassFixture<GatewayPomQueryTests.Po
     public async Task ProductionOrderList_returns_all_without_plan_filter()
     {
         EnsureSchemaReady();
-        var idA = $"WO_{Suffix()}";
-        var idB = $"WO_{Suffix()}";
-        SeedOrder(idA, $"PL_{Suffix()}", "EQ_" + Suffix(), "Issued");      // 서로 다른 계획/설비
-        SeedOrder(idB, $"PL_{Suffix()}", "EQ_" + Suffix(), "Completed");
+        var idA = $"PO_{Suffix()}";
+        var idB = $"PO_{Suffix()}";
+        var planA = $"PL_{Suffix()}";
+        var planB = $"PL_{Suffix()}";
+        var start = DateTime.UtcNow;
+        SeedPlan(planA, "PLANT01", "Released", start, start.AddDays(1));
+        SeedPlan(planB, "PLANT01", "Completed", start, start.AddDays(1));
+        SeedOrder(idA, planA, "EQ01", "Issued");
+        SeedOrder(idB, planB, "EQ02", "Completed");
 
         var rows = await Query("POM.ProductionOrderList", new());  // 필터 없음 → NULL-guard 전체조회
         var ids = rows.Select(r => r["ORDER_ID"].ToString()).ToList();
@@ -347,11 +460,170 @@ public sealed class GatewayPomQueryTests : IClassFixture<GatewayPomQueryTests.Po
         EnsureSchemaReady();
         var plant = "P_" + Suffix();
         var lot = $"LOT_{Suffix()}";
+        SeedLotFull(lot, plant, "PROD_" + Suffix(), 10m, 0m, "Processing", "N");
         SeedLotHistory(plant, lot, "EQ_" + Suffix(), "TrackIn");
 
         var rows = await Query("POM.LotTraceList", new() { ["plantId"] = plant });
         rows.Select(r => r["LOT_ID"].ToString()).Should().Contain(lot, "Lot 이력이 조회돼야 한다(LOT 추적 점등)");
         rows.Should().OnlyContain(r => r.ContainsKey("EXECUTION_ID") && r.ContainsKey("QTY"));
+    }
+
+    [Fact]
+    public async Task LotRoutingContextList_uses_rework_return_step_as_next_operation()
+    {
+        EnsureSchemaReady();
+        var plant = "P_" + Suffix();
+        var lot = $"LOT_{Suffix()}";
+        SeedLot(lot, plant, null, "Queued");
+
+        using (var connection = new SqliteConnection(_factory.ConnString))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = @"UPDATE POM_LOT
+                                    SET ROUTE_STEPS='CUT>HEAT>ASSY', CURRENT_STEP=0,
+                                        RETURN_STEP=2, CONTROL_MODE='Flexible', UPDATED_AT=@now
+                                    WHERE LOT_ID=@lot";
+            command.Parameters.AddWithValue("@lot", lot);
+            command.Parameters.AddWithValue("@now", Now());
+            command.ExecuteNonQuery();
+        }
+
+        var rows = await Query("POM.LotRoutingContextList", new()
+        {
+            ["plantId"] = plant,
+            ["lotId"] = lot,
+        });
+
+        var row = rows.Should().ContainSingle().Subject;
+        row["CURRENT_PROCESS_ID"].ToString().Should().Be("CUT");
+        row["NEXT_STEP"].ToString().Should().Be("2");
+        row["NEXT_PROCESS_ID"].ToString().Should().Be("ASSY",
+            "재작업 완료 후에는 선형 다음 공정 HEAT가 아니라 저장된 복귀점 ASSY를 안내해야 한다");
+        row["RETURN_PROCESS_ID"].ToString().Should().Be("ASSY");
+        row["IS_IN_REWORK"].ToString().Should().Be("Y");
+    }
+
+    [Fact]
+    public async Task RouteExceptionList_projects_selection_aliases_for_review_and_apply()
+    {
+        EnsureSchemaReady();
+        var plant = "P_" + Suffix();
+        var lot = $"LOT_{Suffix()}";
+        var exception = $"REX-{Suffix()}";
+        SeedLot(lot, plant, null, "Queued");
+        SeedRouteExceptionAndExecution(plant, lot, exception);
+        using (var connection = new SqliteConnection(_factory.ConnString))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = @"UPDATE POM_ROUTE_EXCEPTION
+                                    SET STATUS='Approved', REVIEWED_BY='supervisor', REVIEWED_AT=@reviewedAt,
+                                        REVIEW_REASON='Emergency route approved',
+                                        REVIEW_CLIENT_CHANNEL='POP', REVIEW_DEVICE_ID='KIOSK-03'
+                                    WHERE EXCEPTION_ID=@exception";
+            command.Parameters.AddWithValue("@exception", exception);
+            command.Parameters.AddWithValue("@reviewedAt", Now());
+            command.ExecuteNonQuery();
+        }
+
+        var rows = await Query("POM.RouteExceptionList", new()
+        {
+            ["plantId"] = plant,
+            ["lotId"] = lot,
+            ["exceptionStatus"] = "Approved",
+        });
+
+        var row = rows.Should().ContainSingle().Subject;
+        row["EXCEPTION_ID"].ToString().Should().Be(exception);
+        row["TARGET_STEP_INDEX"].ToString().Should().Be("1");
+        row["VERSION_NO"].ToString().Should().Be("1");
+        row["FROM_PROCESS_ID"].ToString().Should().Be("CUT");
+        row["TO_PROCESS_ID"].ToString().Should().Be("ASSY");
+        row["CLIENT_CHANNEL"].ToString().Should().Be("MOBILE");
+        row["DEVICE_ID"].ToString().Should().Be("PDA-07");
+        row["REVIEW_CLIENT_CHANNEL"].ToString().Should().Be("POP");
+        row["REVIEW_DEVICE_ID"].ToString().Should().Be("KIOSK-03");
+    }
+
+    [Fact]
+    public async Task RouteExceptionList_projects_elapsed_requests_as_expired()
+    {
+        EnsureSchemaReady();
+        var plant = "P_" + Suffix();
+        var lot = $"LOT_{Suffix()}";
+        var exception = $"REX-{Suffix()}";
+        SeedLot(lot, plant, null, "Queued");
+        SeedRouteExceptionAndExecution(plant, lot, exception, DateTime.UtcNow.AddMinutes(-1));
+
+        var rows = await Query("POM.RouteExceptionList", new()
+        {
+            ["plantId"] = plant,
+            ["lotId"] = lot,
+            ["exceptionStatus"] = "Expired",
+        });
+
+        rows.Should().ContainSingle();
+        rows[0]["STATUS"].ToString().Should().Be("Expired");
+    }
+
+    [Fact]
+    public async Task RouteDeviationTimeline_combines_deviation_execution_and_automatic_return_history()
+    {
+        EnsureSchemaReady();
+        var plant = "P_" + Suffix();
+        var lot = $"LOT_{Suffix()}";
+        var exception = $"REX-{Suffix()}";
+        SeedLot(lot, plant, null, "Queued");
+        SeedRouteExceptionAndExecution(plant, lot, exception);
+        SeedAutomaticReturnExecution(plant, lot, exception);
+
+        var rows = await Query("POM.RouteDeviationTimeline", new()
+        {
+            ["plantId"] = plant,
+            ["lotId"] = lot,
+        });
+
+        rows.Select(row => row["ACTION"].ToString())
+            .Should().Contain(new[] { "SequenceChange", "Return" });
+        var returned = rows.Single(row => row["ACTION"].ToString() == "Return");
+        returned["EXECUTION_ID"].ToString().Should().StartWith("HIST-");
+        returned["FROM_STEP"].ToString().Should().Be("1");
+        returned["TO_STEP"].ToString().Should().Be("2");
+        returned["FROM_PROCESS_ID"].ToString().Should().Be("REWORK");
+        returned["TO_PROCESS_ID"].ToString().Should().Be("ASSY");
+        returned["CONTROL_MODE"].ToString().Should().Be("Flexible");
+        returned["CLIENT_CHANNEL"].ToString().Should().Be("MOBILE");
+        returned["DEVICE_ID"].ToString().Should().Be("PDA-07");
+        returned["EXPECTED_VERSION"].ToString().Should().Be("2");
+        returned["RESULT_VERSION"].ToString().Should().Be("3");
+        returned["CREATED_BY"].ToString().Should().Be("rework-operator");
+    }
+
+    [Fact]
+    public async Task LotDefectExecutionList_returns_code_level_track_out_evidence()
+    {
+        EnsureSchemaReady();
+        var plant = "P_" + Suffix();
+        var lot = $"LOT_{Suffix()}";
+        var exception = $"REX-{Suffix()}";
+        SeedLot(lot, plant, null, "Queued");
+        SeedRouteExceptionAndExecution(plant, lot, exception);
+        SeedLotDefectExecution(plant, lot, exception);
+
+        var rows = await Query("POM.LotDefectExecutionList", new()
+        {
+            ["plantId"] = plant,
+            ["lotId"] = lot,
+            ["processId"] = "ASSY",
+            ["defectCode"] = "SCRATCH",
+        });
+
+        var row = rows.Should().ContainSingle().Subject;
+        row["DEFECT_QTY"].ToString().Should().Be("1.5");
+        row["EXECUTION_USER"].ToString().Should().Be("operator");
+        row["CLIENT_CHANNEL"].ToString().Should().Be("POP");
+        row["DEVICE_ID"].ToString().Should().Be("KIOSK-03");
     }
 
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)

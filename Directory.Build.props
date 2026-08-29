@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup Condition="'$(BuildingSolutionFile)' == 'true' Or '$(BuildingInsideVisualStudio)' == 'true'">
+    <!--
+      Several product projects reference submodule projects that are intentionally not listed in
+      NexaOne.sln. MSBuild otherwise removes the parent Configuration/Platform for those unassigned
+      references and silently falls back to Debug during a Release solution build.
+    -->
+    <ShouldUnsetParentConfigurationAndPlatform>false</ShouldUnsetParentConfigurationAndPlatform>
+  </PropertyGroup>
+</Project>

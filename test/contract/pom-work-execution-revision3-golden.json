@@ -1,0 +1,4 @@
+{
+  "description": "POM work execution managed revision 3 canonical JSON fingerprint. uiId/title are replaced with __UI_ID__/__TITLE__, object keys are sorted recursively, arrays retain order, then UTF-8 SHA-256 is calculated.",
+  "sha256": "2f81beb8376bb1b98800a11f279b277cc886eb5b98014a8ef49d3b1deab3e5b1"
+}
