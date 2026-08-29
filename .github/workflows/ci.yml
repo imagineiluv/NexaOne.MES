@@ -10,6 +10,7 @@ on:
     branches: [main, develop, staging, release]
   pull_request:
     branches: [main, develop, release]
+  workflow_dispatch:
 
 jobs:
   # 개발 단계에서는 GitHub Secret을 아직 구성하지 않은 PR도 저장소 자체의
