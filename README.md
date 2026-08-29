@@ -92,3 +92,7 @@ SQLite는 개발·회귀 테스트용이며, 배포 전에는 GitHub의 `mssql-c
 5. 실제 Controller/HIL이나 라이선스 증거가 없는 driver DLL은 공개 릴리즈로 표시하지 않습니다.
 
 상세 용어와 bounded context 정의는 [CONTEXT.md](CONTEXT.md), 구조 결정은 [docs/architecture](docs/architecture)를 참고하십시오.
+
+릴리즈 브랜치와 DLL/manifest 운영은 [영구 release 브랜치 정책](docs/RELEASE_BRANCH_POLICY.md)을
+따릅니다. 버전별 브랜치를 만들지 않고 하나의 `release` 브랜치에 승인된 버전 디렉터리만
+추가하며, 실 MSSQL·CI·게시 smoke 증거 전에는 산출물을 공개 릴리즈로 표시하지 않습니다.
