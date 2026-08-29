@@ -51,27 +51,28 @@ function Get-MigrationHash([System.IO.FileInfo]$File) {
 function Get-MigrationSqlBatches([string]$Sql) {
     # SQL Server compiles a multi-statement batch before executing it. A later CHECK/FK that
     # references a column added earlier in the same migration can therefore fail compilation
-    # even though the column DDL appears first in the file (V090 is the canonical example).
-    # Keep migration files immutable and execute top-level ALTER TABLE ... ADD CONSTRAINT statements
-    # as separate commands in the same transaction. CREATE TABLE inline constraints are left in the
-    # main batch because all of their columns are declared by the table definition itself.
+    # even though the column DDL appears first in the file (V090 is the canonical example). The
+    # same applies to a filtered index predicate over a newly added column (V092/V119).
+    # Keep migration files immutable and execute top-level ALTER TABLE ... ADD CONSTRAINT and
+    # filtered CREATE INDEX statements as separate commands in the same transaction. CREATE TABLE
+    # inline constraints and ordinary indexes remain in the main batch.
     $constraintPattern = [System.Text.RegularExpressions.Regex]::new(
-        '(?ims)^[ \t]*ALTER\s+TABLE\s+[\[\]\w.]+\s+ADD\s+CONSTRAINT\b.*?;[ \t]*(?:\r?\n|$)',
+        '(?ims)^[ \t]*(?:ALTER\s+TABLE\s+[\[\]\w.]+\s+ADD\s+CONSTRAINT\b|CREATE\s+(?:UNIQUE\s+)?(?:(?:CLUSTERED|NONCLUSTERED)\s+)?INDEX\b(?=[^;]*\bWHERE\b)).*?;[ \t]*(?:\r?\n|$)',
         [System.Text.RegularExpressions.RegexOptions]::CultureInvariant)
     $matches = $constraintPattern.Matches($Sql)
-    $constraints = [System.Collections.Generic.List[string]]::new()
+    $deferredSqls = [System.Collections.Generic.List[string]]::new()
     $mainBuilder = [System.Text.StringBuilder]::new($Sql)
 
     # Remove from the end so Match.Index remains valid, while Insert(0, ...) preserves source order.
     for ($i = $matches.Count - 1; $i -ge 0; $i--) {
         $match = $matches[$i]
-        [void]$constraints.Insert(0, $match.Value.Trim())
+        [void]$deferredSqls.Insert(0, $match.Value.Trim())
         [void]$mainBuilder.Remove($match.Index, $match.Length)
     }
 
     [pscustomobject]@{
-        MainSql        = $mainBuilder.ToString()
-        ConstraintSqls = $constraints
+        MainSql      = $mainBuilder.ToString()
+        DeferredSqls = $deferredSqls
     }
 }
 
@@ -337,10 +338,10 @@ WHERE VERSION_ID = @version AND CONTENT_SHA256 IS NULL;
                 $cmd.CommandText = $batches.MainSql
                 [void]$cmd.ExecuteNonQuery()
             }
-            foreach ($constraintSql in $batches.ConstraintSqls) {
-                $constraint = $conn.CreateCommand(); $constraint.Transaction = $tx; $constraint.CommandTimeout = 300
-                $constraint.CommandText = $constraintSql
-                [void]$constraint.ExecuteNonQuery()
+            foreach ($deferredSql in $batches.DeferredSqls) {
+                $deferred = $conn.CreateCommand(); $deferred.Transaction = $tx; $deferred.CommandTimeout = 300
+                $deferred.CommandText = $deferredSql
+                [void]$deferred.ExecuteNonQuery()
             }
             $ver = $conn.CreateCommand(); $ver.Transaction = $tx
             $ver.CommandText = 'INSERT INTO SYS_SCHEMA_MIGRATION (VERSION_ID, CONTENT_SHA256) VALUES (@v, @hash)'

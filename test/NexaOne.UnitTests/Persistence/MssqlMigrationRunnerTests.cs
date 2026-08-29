@@ -77,7 +77,8 @@ public sealed class MssqlMigrationRunnerTests
         source.Should().Contain("Get-MigrationHash");
         source.Should().Contain("Get-MigrationSqlBatches");
         source.Should().Contain("ADD\\s+CONSTRAINT");
-        source.Should().Contain("ConstraintSqls");
+        source.Should().Contain("DeferredSqls");
+        source.Should().Contain("filtered index predicate");
         source.Should().Contain("same transaction");
         source.Should().Contain("CONTENT_SHA256");
         source.Should().Contain("migration content drift");
