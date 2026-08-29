@@ -98,6 +98,29 @@ public sealed class IvtModuleCompositionTests
     }
 
     [Fact]
+    public void Trace_material_worker_cannot_be_enabled_before_its_durable_and_hil_gates_exist()
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                ["Worker:Ivt:TraceMaterialConsumption:Enabled"] = "true",
+            }).Build();
+
+        Action create = () => _ = new IvtModule(
+            DataSource(),
+            new SqliteEesDbCapability(),
+            Mock.Of<IFdcTraceSource>(),
+            configuration);
+
+        create.Should().Throw<InvalidOperationException>()
+            .WithMessage(
+                "*Worker:Ivt:TraceMaterialConsumption:Enabled=true*"
+                + "*FDC retention boundary*"
+                + "*FeedSession PendingDrain Finalize*"
+                + "*commissioned HIL evidence*");
+    }
+
+    [Fact]
     public void Module_builds_one_shared_instance_for_each_public_export()
     {
         var module = new IvtModule(

@@ -365,7 +365,9 @@ V150 이전 이력 때문에 활성 binding의 `max(EFFECTIVE_FROM, cursor)`가 
 scope가 하나라도 있으면 `Worker:Ivt:TraceMaterialConsumption:Enabled=false`를 유지한다. 현재 ingestion은 모든
 활성 scope를 한 batch로 읽으므로 이 gap 하나가 정상 scope까지 중단시키며, boundary 후퇴·pre-boundary raw INSERT·
 지원되지 않는 직접 SQL range 변경으로 복구할 수 없다. 이것은 전체 TRACE material worker 활성화의 명시적
-release blocker다. 데이터 손실 정책을 임의 구현하지 않고 후속 ADR에서 다음 중 하나를 선택·검증해야 한다.
+release blocker다. IVT 모듈 조립부도 `Worker:Ivt:TraceMaterialConsumption:Enabled=true`를 발견하면
+즉시 fail-closed하며, 아래 경계와 commissioned HIL 증거가 충족되기 전에는 BackgroundService가
+시작되지 않는다. 데이터 손실 정책을 임의 구현하지 않고 후속 ADR에서 다음 중 하나를 선택·검증해야 한다.
 
 - strict/manual data repair: 원본·소비 원장 대조와 승인된 수동 정정 뒤 기존 Create/Retire 계약을 유지한다.
 - audited Abandon/Rebase: reason, source evidence, 전용 권한, ledger/CAS를 요구하는 maintenance-only 명령을 추가한다.

@@ -15,6 +15,9 @@ namespace NexaOne.IVT;
 /// </summary>
 public sealed class Module
 {
+    private const string TraceMaterialConsumptionEnabledKey =
+        "Worker:Ivt:TraceMaterialConsumption:Enabled";
+
     private readonly IMaterialBridge _materialBridge;
     private readonly IMaterialLotBridge _materialLotBridge;
     private readonly ITraceMaterialBridge _traceMaterialBridge;
@@ -33,6 +36,8 @@ public sealed class Module
         ArgumentNullException.ThrowIfNull(dialect);
         ArgumentNullException.ThrowIfNull(traceSource);
         ArgumentNullException.ThrowIfNull(configuration);
+
+        EnsureTraceMaterialConsumptionWorkerIsDisabled(configuration);
 
         var consumptionService = new ConsumptionService(new ConsumptionRepository(dataSource));
         var materialLotRepository = new MaterialLotRepository(dataSource);
@@ -89,4 +94,16 @@ public sealed class Module
 
     /// <summary>영속 TRACE를 자재 소비 원장에 투영하는 모듈 worker를 반환합니다.</summary>
     public IHostedService GetTraceMaterialConsumptionWorker() => _traceMaterialConsumptionWorker;
+
+    private static void EnsureTraceMaterialConsumptionWorkerIsDisabled(
+        IConfiguration configuration)
+    {
+        if (!configuration.GetValue(TraceMaterialConsumptionEnabledKey, false))
+            return;
+
+        throw new InvalidOperationException(
+            $"{TraceMaterialConsumptionEnabledKey}=true is not supported until the durable "
+            + "FDC retention boundary, V150 gap closure, FeedSession PendingDrain Finalize, "
+            + "and commissioned HIL evidence are in place.");
+    }
 }
