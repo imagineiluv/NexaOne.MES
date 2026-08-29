@@ -136,14 +136,41 @@ public sealed class FdcCollectorService
         }
     }
 
-    internal void ClearRuntimeAuthority()
+    /// <summary>
+    /// Clears the worker-owned runtime lease authority. When a fatal lease failure is supplied, the
+    /// authority revocation and terminal fault publication happen under the same gate so the monitoring
+    /// supervisor cannot replace the lease failure with a secondary "authority missing" diagnostic.
+    /// </summary>
+    internal void ClearRuntimeAuthority(Exception? cause = null)
     {
+        if (cause is null || _interlockService is null)
+        {
+            lock (_runtimeStateGate)
+            {
+                SetRunPermitUnderLock(0);
+                _runtimeAuthority = null;
+                _runtimeAuthorityDeadlineTimestamp = 0;
+            }
+
+            return;
+        }
+
+        bool notify;
+        Exception fault;
         lock (_runtimeStateGate)
         {
             SetRunPermitUnderLock(0);
             _runtimeAuthority = null;
             _runtimeAuthorityDeadlineTimestamp = 0;
+            notify = _runtimeOperational == 1;
+            _runtimeFault ??= cause;
+            fault = _runtimeFault;
+            _runtimeOperational = 0;
+            _preparedRuntimeRevision = null;
         }
+
+        if (notify)
+            RuntimeFaulted?.Invoke(fault);
     }
 
     /// <summary>
@@ -1473,6 +1500,12 @@ public sealed class FdcCollectorService
         long monotonicDeadlineTimestamp;
         lock (_runtimeStateGate)
         {
+            // A terminal FDC fault is the causal diagnostic. In particular, a lease-renewal failure may
+            // clear authority before the supervisor observes it; do not manufacture a secondary
+            // "authority missing" message after the root failure has already been recorded.
+            if (_runtimeFault is FdcInterlockRuntimeUnavailableException runtimeFault)
+                return runtimeFault;
+
             authority = _runtimeAuthority;
             monotonicDeadlineTimestamp = _runtimeAuthorityDeadlineTimestamp;
         }

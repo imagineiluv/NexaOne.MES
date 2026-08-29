@@ -302,8 +302,10 @@ public sealed class FdcCollectionWorker : BackgroundService
             var failure = ex as FdcInterlockRuntimeUnavailableException
                           ?? new FdcInterlockRuntimeUnavailableException(
                               "FDC runtime writer lease heartbeat failed; collection is fenced immediately.", ex);
-            _collector.ClearRuntimeAuthority();
-            _collector.DenyRunPermit(failure);
+            // Revoke the authority and record the lease failure atomically. Otherwise the freshness
+            // supervisor can race between these calls and publish a secondary "authority missing"
+            // exception as the worker's primary failure.
+            _collector.ClearRuntimeAuthority(failure);
             leaseFaulted.TrySetResult(failure);
         }
     }
