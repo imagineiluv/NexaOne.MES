@@ -1106,7 +1106,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
 
         // ===== SmartUX POM(PPM)·SHP(DLV) 업무화면 점등(Phase 2) — 생산오더/출하지시·출하이력 조회.
         // 메뉴 접두사 PPM=POM, DLV=SHP. 기존 쿼리는 필수 @param이라 점등용 NULL-guard 전체조회 쿼리 신설.
-        // POM W/O(작업지시) 화면은 전용 테이블 부재로 보류(POM_PRODUCTION_ORDER=생산오더만). 그리드 read는 형제와 동일하게 인증만. =====
+        // 호환 메뉴 ID FACTORY_PPM_WORK_ORDER는 아래 WorkScope 기반 작업 관리 화면에서 제공한다.
+        // 생산오더(POM_PRODUCTION_ORDER)와 달리 Carrier/Batch/Campaign 및 LOT 없는 설비 작업을 지원한다. =====
 
         // P/O 관리(FACTORY_PPM_PRODUCTION_ORDER) — 생산오더 조회(POM.ProductionOrderList).
         Register(new ScreenDefinition("FACTORY_PPM_PRODUCTION_ORDER", "P/O 관리",
