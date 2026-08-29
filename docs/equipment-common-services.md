@@ -134,9 +134,24 @@ Carrier 범위의 기본 계획 수량은 1이고 `TargetId=CarrierId`를 강제
 
 Cleaner는 로컬 Carrier/Pair Recovery를 정본으로 유지하면서 선택적으로 MES WorkScope ID를
 Recovery state에 저장한다. 로컬 Recovery 커밋 뒤에만 `IWorkScopeExecutionSink`로
-Running/Completed/Abandoned projection을 전송하며, sink 미구성·전송 오류는 설비 안전과
-Recovery를 차단하지 않는다. 동일 `EventId` 재전송은 sink가 멱등 처리해야 한다. 이
-경계로 MES 업무 이력과 설비의 실제 Motion/I/O Recovery 커서를 서로 대체하지 않는다.
+Running/RecoveryRequired/Completed/Abandoned projection을 전송하며, sink 미구성·전송 오류는
+설비 안전과 Recovery를 차단하지 않는다. 동일 `EventId` 재전송은 sink가 멱등 처리해야 한다.
+이 경계로 MES 업무 이력과 설비의 실제 Motion/I/O Recovery 커서를 서로 대체하지 않는다.
+
+Cleaner의 `RecoveryRequired`는 현재 POM의 생산 상태 열거형을 확장하지 않는 공통 투영 상태다.
+제품별 MES sink/Plugin은 다음 정책으로 이를 보존해야 한다.
+
+- 대상 WorkScope가 `Created`/`Released`/`Started`이면 멱등 `Hold` 전이로 자동 진행을 막고,
+  `ResultCode=RECOVERY_REQUIRED`와 `ResultMetadataJson`에 Cleaner `EventId`, `PairRunId`,
+  `SequenceRunId`, `Revision`, 원래 결과 코드와 로컬 `RecoveryDecisionKind`를 남긴다.
+- `Completed`/`Cancelled`로 이미 종결된 WorkScope는 상태를 되돌리거나 새 생산 수량을
+  기록하지 않는다. 불일치 투영은 별도 감사/알람 이벤트로 남기고 운영자 대기 상태로 둔다.
+- 로컬 Recheck/Retry/Approve가 권위 있는 안정 체크포인트를 커밋한 뒤에만 `ReleaseHold` 및
+  `Running`을 재전송한다. terminal cleanup과 소모 증거가 커밋된 뒤에만 `Completed`를
+  허용하며, 복구 미확인 상태를 `Completed` 또는 `Cancelled`로 매핑하지 않는다.
+- Hold를 지원하지 않는 원격 구현은 성공으로 위장하지 말고 동일 이벤트를 재시도 가능한
+  outbox/오류 큐에 보존한다. 모든 전이는 `IdempotencyKey/EventId`를 재사용해 재시작과
+  중복 전달이 같은 결과로 수렴해야 한다.
 
 ## 현재 수동 보전 운전
 
