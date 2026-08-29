@@ -143,6 +143,45 @@ LOT TrackIn/TrackOut/Hold/Release도 호출자가 관측한 `ExpectedVersion`과
 태그 이름·스케일·리셋 판정·설비 신호 의미는 프로젝트 플러그인이 공통 명령으로 변환한다. 이렇게 하면
 재고 원자성·반전·멱등성은 공통 서비스에서 한 번만 구현하고 설비별 차이만 교체할 수 있다.
 
+### TRACE binding과 자재 장착 세션
+
+Common `ITraceMaterialBridge`는 IVT의 두 명령만 노출한다. `TraceBindingCommand`는 TRACE
+`(Equipment, Parameter)` 원천과 downstream Plant/FeedPoint·계산 정책을 `Create`/`Retire`하고,
+`FeedSessionCommand`는 실제 투입점의 자재 LOT를 `Mount`/`Unmount`한다. 두 명령 모두
+JWT 로그인 작업자, 호출자가 재사용하는 idempotency key, source system/event, correlation과 사유를
+V151 command ledger에 결과 snapshot과 함께 보존한다. 변경은 `ExpectedVersion` CAS이며 같은 키의 같은
+payload만 replay하고, payload 변경·source event 재사용·동시 version 변경은 충돌로 거부한다. 이미 commit된
+정확한 replay는 읽기 동작이므로 maintenance가 닫힌 뒤에도 같은 결과를 돌려주지만 새 변경은 허용하지 않는다.
+두 command ledger는 DB trigger로 update/delete를 금지하고 operation별 결과 snapshot `CHECK`를 적용한다.
+idempotency/source identity는 SQL Server `BIN2`와 SQLite `BINARY`의 ordinal·대소문자 구분 의미를 맞춘다.
+
+Binding 변경 계약은 구현돼 있지만 현재 mutation은 전면 비활성이다.
+`Ivt:TraceConfiguration:BindingsEnabled=false`에서 API와 Spring bridge 직접 호출은
+`IVT.TraceBinding.FeatureDisabled`로 저장소 접근 전에 fail-closed하고, true는 모듈 기동을 거부한다.
+`MaintenanceMode=true`만으로는 이 gate를 열 수 없다. binding mutation과 FDC collection/retention/IVT projection이
+같은 durable DB revision/advisory lock을 공유해 변경 중 purge·ingestion을 배제하고 crash 후 복구하는
+cross-process fence를 구현한 뒤에만 활성화한다. 그 뒤에도 신규 시작점의 V150 completeness boundary,
+retire cursor/drain, 과거 effective interval 중첩 검증과 `ExpectedVersion`·감사는 그대로 적용한다.
+API 경로는 `POST /api/v1/ivt/trace-material/bindings/events`이며 직접 SQL 변경은 지원하지 않는다.
+
+Feed session은 실제 운전 중 자재 교체 경로이므로 maintenance gate를 요구하지 않지만, 정본 자재 LOT가
+`InStock`이고 잔량이 양수이며 material이 일치해야 한다. DB의 filtered unique index와 조건부 insert가 같은
+`(Plant, Equipment, FeedPoint)`에 활성 `Mounted` 세션을 하나만 허용한다. 닫힌 과거 세션과도 장착 interval이
+겹치는 backdated mount를 거부한다. LOT-side reservation은 `Move/Hold/Scrap/Adjustment`와 동일 LOT 재장착을
+원자적으로 차단한다. `Mount`/`Unmount`의 물리 시각은 미래일 수 없고, `Unmount`에는 사유가 필수다.
+
+`Unmount`는 물리 interval과 command ledger만 종결하고 LOT reservation은 의도적으로 유지한다. 이 조합이 현재의
+fail-closed `PendingDrain` 표현이다. FDC 원천에는 commit/ingest sequence 또는 upper watermark가 없어서, 현재 inbox가
+비었다는 사실만으로는 cutoff 이전 raw TRACE의 지연 유입 부재를 증명할 수 없다. 따라서 reservation을 해제하는
+`Finalize`와 온라인 `Cancel`은 아직 제공하지 않는다. 늦게 투영된 cutoff 이전 TRACE는 계속 원래 LOT에 차감되지만,
+해당 LOT는 재고 lifecycle에 재사용할 수 없다. durable FDC watermark + binding별 ingestion cursor + cutoff 이하 inbox
+terminal을 한 증거로 묶는 Finalize 계약과 HIL 검증 전에는 이 기능을 기본 OFF로 유지하는 Production release
+blocker다. host/module 경계의 `Ivt:TraceConfiguration:FeedSessionsEnabled` 기본값은 false이고, 이 blocker가
+닫히기 전에는 true로 바꾸지 않는다. 잘못된 장착의 interval은 사유를 남긴 `Unmount`로 종결하고 이미 발생한 소비 오귀속은 별도의 명시적
+reversal/correction으로 정정한다. API는
+`POST /api/v1/ivt/trace-material/feed-sessions/events`다. 이 계약과 V151 테이블은 실제 MES/설비 공동 검증이
+끝날 때까지 IVT에 남기며 NexaFramework로 이관하지 않는다.
+
 ## 일정 트리거 의미
 
 - `Calendar`: 시간/일/주/월/년 주기와 `NEXT_DUE_AT`으로 도래한다.
@@ -165,14 +204,17 @@ MES의 W/O·LOT `CURRENT_STEP`은 보고용 업무 상태이며 실제 Motion/I/
   command-result를 조회하는 기능
 - MES: W/O, Released recipe 실행 snapshot, 공정/자재 이력과 감사·보고
 
-현재 Cleaner의 복구 커널과 Simulator gate만으로는 실제 설비 자동 재개를 허용하지 않는다. 앱 시작 경로와
-실제 오케스트레이터, driver 효과 멱등성, controller reboot·recipe 변경·축 오차를 포함한 HIL 검증이 모두
-연결될 때까지 실제 하드웨어는 fail-closed로 유지한다. 특히 Cleaner의 Auto Start/Resume 경로에는 아직 FDC permit을
-소비하는 cross-process admission lease가 없다. 최초 거부, 세대번호 fencing, heartbeat/TTL, 연결 단절·재시작 즉시
-철회와 Stop 직렬화를 갖춘 계약을 실제 시작 전후에 연결해야 하며 단순 bool 또는 1회 HTTP 조회로 대체하지 않는다.
-다중 MES/FDC 인스턴스의 effect 소유권도 외부 durable lease/fencing과 장애전환 시험 전에는 단일 writer 운영으로
-제한한다. 두 번째 설비에서도 재사용성이 입증된 커널만
-NexaFramework 이관 후보로 삼는다.
+Cleaner Auto Start/Resume의 acquire/keep-alive/Stop 연결 코드는 준비돼 있지만 현재 RunAdmission은 운영에서
+전면 비활성이다. `RunAdmission:Enabled` 누락/false이면 HTTP는 503, Spring bridge 직접 호출은
+`RUN_ADMISSION_FEATURE_DISABLED`를 반환하며 capability를 발급·연장·release하지 않는다. true는 FDC 모듈 기동을
+거부한다. 현재 process-local request/tombstone 원장은 서버 재시작·failover의 동일 요청 재발급을 막지 못하고
+전역 용량도 한 client가 소진할 수 있기 때문이다.
+
+DB 등 durable shared request ledger, client/equipment별 quota, 다중 인스턴스 owner/sticky routing과 장애전환 계약을
+구현한 뒤에만 이 gate를 재검토한다. 이후에도 credential/설비 allowlist, FDC authority·fence·safety epoch,
+인터락, hard/soft TTL과 Cleaner Stop 직렬화가 하나의 계약이어야 하며 driver 효과 멱등성, controller reboot·recipe
+변경·축 오차, 실제 PLC/STO wiring/readback, 네트워크 단절·MES 재시작을 포함한 HIL을 통과해야 한다. 두 번째
+설비에서도 재사용성이 입증된 커널만 NexaFramework 이관 후보로 삼는다.
 
 ## Spring.NET과 직접 참조 기준
 
@@ -222,7 +264,10 @@ view·columnstore·partition은 Query Store의 logical read와 쓰기 증폭을 
 `Get-MssqlPerformanceBaseline.ps1`은 Query Store 상위 logical-read 쿼리, DB의 자동 통계 생성·갱신 옵션,
 index read/write 사용량·실제 key/include/partition column·크기,
 통계 갱신 시각·sampling·변경 건수, missing-index DMV 힌트와 View/indexed-view의 실제 index 정의·사용량을 UTC
-run-id별 읽기 전용 CSV와 manifest로 수집한다. 물리 fragmentation은 기본 수집에서 제외하며, 점검 창에
+run-id별 읽기 전용 CSV와 manifest로 수집한다. 대표 산출물은 `query-store-plan-logical-reads.csv`,
+`query-store-window.csv`, `view-dependencies.csv`이며 원문 query/View SQL과 plan XML은 기본 수집하지 않는다.
+민감 SQL/계획 원문이 필요한 별도 진단은 보안 승인과 최소 권한·보존기간을 먼저 정한다. 물리 fragmentation은
+기본 수집에서 제외하며, 점검 창에
 `-IncludePhysicalStats`를 지정한 경우에만 `-Top` 및 `-PhysicalStatsMinPageCount`로 제한한 큰 index 후보를
 `LIMITED` 모드로 읽는다. Query Store가
 `READ_WRITE`가 아니거나 `VIEW DEFINITION`/필수 DMV 보고가 빠지면 기본적으로 전체 실행을 실패시키며 명시적 partial
@@ -279,6 +324,27 @@ INSERT/활성화·재활성화, `EFFECTIVE_FROM/TO` 변경과 cursor 수동 후�
 `BindingChangesQuiesced=true`를 함께 설정해야 한다. 기본값은 false이며 서약이 없으면 조립 즉시 실패한다.
 지속 online 변경은 binding mutation과 purge가 공유하는 durable revision/advisory-lock protocol을 도입한 뒤에만 승인한다.
 
+V150 이전 이력 때문에 활성 binding의 `max(EFFECTIVE_FROM, cursor)`가 현재 completeness boundary보다 과거인
+scope가 하나라도 있으면 `Worker:Ivt:TraceMaterialConsumption:Enabled=false`를 유지한다. 현재 ingestion은 모든
+활성 scope를 한 batch로 읽으므로 이 gap 하나가 정상 scope까지 중단시키며, boundary 후퇴·pre-boundary raw INSERT·
+지원되지 않는 직접 SQL range 변경으로 복구할 수 없다. 이것은 전체 TRACE material worker 활성화의 명시적
+release blocker다. 데이터 손실 정책을 임의 구현하지 않고 후속 ADR에서 다음 중 하나를 선택·검증해야 한다.
+
+- strict/manual data repair: 원본·소비 원장 대조와 승인된 수동 정정 뒤 기존 Create/Retire 계약을 유지한다.
+- audited Abandon/Rebase: reason, source evidence, 전용 권한, ledger/CAS를 요구하는 maintenance-only 명령을 추가한다.
+- durable scope gap health: gap scope를 영속 격리하고 healthy scope만 계속 처리하되 복구·재합류 조건을 감사한다.
+
+V151은 binding/feed session/consumption 대형 기존 테이블에 컬럼을 추가하고 active source/LOT 고유 index를 교체한다.
+새 TRACE 소비는 typed `FEED_SESSION_ID`를 기록하고 session/LOT 복합 FK로 귀속을 검증한다. V137 append-only 이력을
+깨지 않도록 기존 소비 행은 갱신하지 않으며 legacy provenance는 immutable `CORRELATION_ID`에 남고 typed 컬럼은
+null을 유지한다. SQLite는 신규 source key 중복을 구형 V114 index 삭제 전에 검사하고 index 교체를 한 transaction으로
+수행하며, `Foreign Keys=False`에서도 command ledger와 consumption provenance가 고아가 되지 않도록 동등 trigger를
+강제한다. 기존 Unmounted session은 안전한 LOT reservation winner를 추측할 수 없으므로 감사된 reconciliation 없이
+증분 적용하지 않는다. SQL Server 적용은 복원본 리허설·중복/legacy 대상·inbox 규모·log/lock/rollback 근거와
+`-ApproveHighImpactMigrations`가 모두 있을 때만 허용한다.
+Feed session Unmount 뒤 LOT reservation은 자동 해제되지 않으며, 위의 durable drain Finalize가 도입되기 전까지
+수동 SQL로 비우거나 다른 LOT에 재귀속해서는 안 된다.
+
 V149는 `FDC_RUNTIME_OWNERSHIP`의 단일 `GLOBAL` 행으로 FDC 실시간 writer를 선출한다. 획득은 DB가 관찰한
 기존 owner+fence를 CAS하고 DB UTC 시각으로 만료를 판정하며, 새 소유권마다 `FENCE_TOKEN`을 정확히 증가시킨다.
 각 action readiness/apply/reconcile/release 호출은 일반 action timeout과 캡처한 wall-clock/monotonic lease
@@ -308,7 +374,7 @@ SQL Server 마이그레이션 이력은 파일명뿐 아니라 LF 정규화 SHA-
 수행하며 누락된 history table/column을 생성하지 않는다. V142처럼 대량 기존 행을 갱신하는 버전은 보조 index가 있어도 transaction log·lock 비용이 남으므로
 운영 규모 데이터의 upgrade rehearsal을 별도 릴리즈 gate로 둔다. V144와 V130~V141의 hot-table index build도
 크기·blocking·쓰기 증폭을 같은 기준으로 측정하며, 전환 중 TRACE/POM writer 정지와 edition별 ONLINE/RESUMABLE
-가능 여부를 DBA가 승인한다. V142/V144/V146/V147/V148/V150 pending 적용은 이 준비를 완료한 승인 실행에서
+가능 여부를 DBA가 승인한다. V142/V144/V146/V147/V148/V150/V151 pending 적용은 이 준비를 완료한 승인 실행에서
 `-ApproveHighImpactMigrations`를 주지 않으면 러너가 거부한다.
 
 완료된 TRACE inbox 행은 filtered work set에서 즉시 빠지지만 감사·재처리 근거로 남는다. 장기 보존량이 확인되면
@@ -342,8 +408,8 @@ Server SQL에서 MDM 소유 `IEquipmentOutputMasterDirectory`로 이동했다. P
 - Server/SQLite integration: 916/916 통과
 - Portal: 116/116, production build 성공, `npm audit` 취약점 0
 - NexaLogic PLC: Unit 12/12, Core 57/57, Integration 14/14, Hardware Simulation 43/43 — 합계 126/126 통과
-- modules-ON child-process smoke: 11개 모듈과 호스트 소유 선언형 bridge 45개를 최신 Release 호스트에서 실제 부팅
-- migration: V001~V150 strict 이름·숫자 순서·중복·LF 정규화 SHA-256 검증 통과, 신규/증분 SQLite와 MSSQL 정적 계약 통과
+- modules-ON child-process smoke: 11개 모듈과 호스트 소유 선언형 bridge 47개를 최신 Release 호스트에서 실제 부팅
+- migration: V001~V151 strict 이름·숫자 순서·중복·LF 정규화 SHA-256 검증 통과, 신규/증분 SQLite와 MSSQL 정적 계약 통과
 - publish: Release publish 성공, 산출물 510개·모듈 11개, 독립 `/health`·JWT 로그인 통과,
   `NexusCom`·`NexusFramework`·`NexusLogic` 파일명/설정 참조 0건
 - 정적 경계: QMS/POM 저장소 foreign physical-table SQL 0건(ADR-0002/0003만 허용), Common SQLite bootstrap은

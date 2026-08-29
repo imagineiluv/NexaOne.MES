@@ -36,12 +36,27 @@ public sealed class TraceMaterialConsumptionWorker : BackgroundService
             ingestionService,
             repository,
             consumptionService,
-            IsTrue(configuration?["Worker:Ivt:TraceMaterialConsumption:Enabled"])
-                || IsTrue(configuration?["Ivt:TraceProjection:Enabled"]),
-            PositiveInt(configuration?["Ivt:TraceProjection:PollIntervalSeconds"], pollIntervalSeconds),
-            PositiveInt(configuration?["Ivt:TraceProjection:BatchSize"], batchSize))
+            ReadConfiguration(configuration, pollIntervalSeconds, batchSize))
     {
     }
+
+    private TraceMaterialConsumptionWorker(
+        TraceIngestionService ingestionService,
+        ITraceProjectionRepository repository,
+        ConsumptionService consumptionService,
+        WorkerConfiguration configuration)
+        : this(
+            ingestionService,
+            repository,
+            consumptionService,
+            configuration.Enabled,
+            configuration.PollIntervalSeconds,
+            configuration.BatchSize)
+    {
+    }
+
+    internal TimeSpan PollInterval => _pollInterval;
+    internal int BatchSize => _batchSize;
 
     public TraceMaterialConsumptionWorker(
         TraceIngestionService ingestionService,
@@ -62,8 +77,46 @@ public sealed class TraceMaterialConsumptionWorker : BackgroundService
     private static bool IsTrue(string? value)
         => string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
 
+    private static WorkerConfiguration ReadConfiguration(
+        IConfiguration configuration,
+        int pollIntervalSeconds,
+        int batchSize)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        var legacyKeys = new[]
+        {
+            "Ivt:TraceProjection:Enabled",
+            "Ivt:TraceProjection:PollIntervalSeconds",
+            "Ivt:TraceProjection:BatchSize",
+        };
+        var configuredLegacyKeys = legacyKeys
+            .Where(key => configuration[key] is not null)
+            .ToArray();
+        if (configuredLegacyKeys.Length > 0)
+        {
+            throw new InvalidOperationException(
+                "Legacy TRACE projection settings are not supported. Remove "
+                + string.Join(", ", configuredLegacyKeys)
+                + " and use Worker:Ivt:TraceMaterialConsumption:* settings explicitly.");
+        }
+
+        return new WorkerConfiguration(
+            IsTrue(configuration["Worker:Ivt:TraceMaterialConsumption:Enabled"]),
+            PositiveInt(
+                configuration["Worker:Ivt:TraceMaterialConsumption:PollIntervalSeconds"],
+                pollIntervalSeconds),
+            PositiveInt(
+                configuration["Worker:Ivt:TraceMaterialConsumption:BatchSize"],
+                batchSize));
+    }
+
     private static int PositiveInt(string? value, int fallback)
         => int.TryParse(value, out var parsed) && parsed > 0 ? parsed : Math.Max(1, fallback);
+
+    private sealed record WorkerConfiguration(
+        bool Enabled,
+        int PollIntervalSeconds,
+        int BatchSize);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -180,6 +233,7 @@ public sealed class TraceMaterialConsumptionWorker : BackgroundService
                         TraceId: item.CollectId,
                         TagId: item.ParameterId,
                         OperatorId: feed.MountedBy,
+                        FeedSessionId: feed.FeedSessionId,
                         CorrelationId: feed.FeedSessionId,
                         MetadataJson: JsonSerializer.Serialize(new
                         {

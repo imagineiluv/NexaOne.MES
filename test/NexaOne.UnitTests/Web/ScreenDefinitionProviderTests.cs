@@ -237,7 +237,6 @@ public sealed class ScreenDefinitionProviderTests
 
     [Theory]
     [InlineData("POC_PPM_WORK_ORDER")]
-    [InlineData("FACTORY_PPM_WORK_ORDER")]
     public void Work_order_management_registers_through_typed_bridge_with_routing_scope(string uiId)
     {
         var definition = new InMemoryScreenDefinitionProvider().Get(uiId);
@@ -252,20 +251,74 @@ public sealed class ScreenDefinitionProviderTests
     }
 
     [Fact]
-    public void Factory_work_order_management_exposes_release_and_cancel_as_guarded_bulk_commands()
+    public void Factory_work_management_uses_work_scope_api_and_keeps_legacy_wo_reference_read_only()
     {
         var definition = new InMemoryScreenDefinitionProvider().Get("FACTORY_PPM_WORK_ORDER");
 
         definition.Should().NotBeNull();
-        definition!.BulkCommands.Should().HaveCount(2);
-        definition.BulkCommands.Should().ContainSingle(command =>
-            command.CommandQueryId == PomWorkOrderMetaCommands.Release
-            && command.RequiredPermission == "pom:manage"
-            && command.ConfirmMessage != null);
-        definition.BulkCommands.Should().ContainSingle(command =>
-            command.CommandQueryId == PomWorkOrderMetaCommands.Cancel
-            && command.RequiredPermission == "pom:manage"
-            && command.ConfirmMessage != null);
+        definition!.Title.Should().Be("작업 관리");
+        definition.Purpose.Should().Be(ScreenPurpose.Manage);
+        definition.Fields.Should().BeEmpty();
+        definition.SaveQueryId.Should().BeNull();
+        definition.DeleteQueryId.Should().BeNull();
+        definition.BulkCommands.Should().HaveCount(7);
+        definition.BulkCommands!.Select(command => command.CommandQueryId).Should().ContainInOrder(
+            PomWorkScopeMetaCommands.Release,
+            PomWorkScopeMetaCommands.Start,
+            PomWorkScopeMetaCommands.Report,
+            PomWorkScopeMetaCommands.Hold,
+            PomWorkScopeMetaCommands.ReleaseHold,
+            PomWorkScopeMetaCommands.Complete,
+            PomWorkScopeMetaCommands.Cancel);
+        definition.SearchFields!.Select(field => field.Key).Should().Equal(
+            "plantId", "scopeType", "targetId", "parentScopeId", "status", "equipmentId", "carrierId",
+            "workScopeId", "outputType", "toolId", "activityType", "inspectionType", "from", "to");
+
+        var nodes = AllLayoutNodes(definition.Layout!).ToArray();
+        nodes.OfType<TextWidget>().Select(widget => widget.Text).Should().Contain(text =>
+            text.Contains("Batch", StringComparison.Ordinal)
+            && text.Contains("Campaign", StringComparison.Ordinal)
+            && text.Contains("Carrier", StringComparison.Ordinal));
+        nodes.OfType<TextWidget>().Select(widget => widget.Text).Should().Contain(text =>
+            text.Contains("POM API", StringComparison.Ordinal));
+
+        var createForm = nodes.OfType<FormWidget>().Single(form =>
+            form.SaveQueryId == PomWorkScopeMetaCommands.Create);
+        createForm.RequiredPermission.Should().Be("pom:manage");
+        createForm.BindingScope.Should().Be("work-scope-create");
+        createForm.Fields!.Select(field => field.FieldKey).Should().ContainInOrder(
+            "workScopeId", "plantId", "scopeType", "targetId", "name", "parentScopeId", "carrierId",
+            "equipmentId", "processId", "recipeId", "recipeVersion", "planQty", "ownerId", "description");
+        nodes.OfType<ButtonWidget>().Should().ContainSingle(button =>
+            button.Command == PomWorkScopeMetaCommands.Create
+            && button.BindingScope == "work-scope-create");
+
+        var grids = nodes.OfType<GridWidget>().ToArray();
+        grids.Select(grid => grid.QueryId).Should().BeEquivalentTo(
+            "POM.WorkScopeList",
+            "EST.EquipmentOutputEventList",
+            "EMS.ToolUsageHistoryList",
+            "EMS.ToolInspectionHistoryList",
+            "POM.WorkOrderList");
+        var workScopeGrid = grids.Single(grid => grid.QueryId == "POM.WorkScopeList");
+        workScopeGrid.BulkCommands.Should().HaveCount(7);
+        workScopeGrid.Columns!.Should().Contain(column => column.Key == "TARGET_ID");
+        workScopeGrid.Columns.Should().Contain(column => column.Key == "STATUS");
+        workScopeGrid.Columns.Should().Contain(column => column.Key == "COMPLETE_QTY");
+        workScopeGrid.Columns.Should().Contain(column => column.Key == "SCRAP_QTY");
+        grids.Single(grid => grid.QueryId == "EST.EquipmentOutputEventList")
+            .Columns!.Should().Contain(column => column.Key == "CARRIER_ID");
+        grids.Single(grid => grid.QueryId == "EMS.ToolUsageHistoryList")
+            .Columns!.Should().Contain(column => column.Key == "CONDITION_SNAPSHOT_JSON")
+            .And.Contain(column => column.Key == "CLEANING_RESULT")
+            .And.Contain(column => column.Key == "WORK_SCOPE_ID");
+        grids.Single(grid => grid.QueryId == "POM.WorkOrderList")
+            .Columns!.Should().Contain(column => column.Caption == "외부 작업 참조 ID");
+        grids.Where(grid => grid.QueryId != "POM.WorkScopeList")
+            .Should().OnlyContain(grid => grid.SelectionDisabled
+                && grid.BulkCommands != null
+                && grid.BulkCommands.Count == 0);
+        ScreenDefinitionCapabilityValidator.Validate(definition).Should().BeEmpty();
     }
 
     [Theory]

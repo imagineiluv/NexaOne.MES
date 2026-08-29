@@ -73,6 +73,16 @@ public sealed class MaterialLotService
         sourceReplay = await _repository.GetBySourceEventAsync(input.SourceSystem, input.SourceEventId, ct);
         if (sourceReplay is not null) return SourceConflict(input, sourceReplay);
 
+        if (input.Operation != MaterialLotOperations.Receive
+            && await _repository.HasFeedSessionReservationAsync(input.MaterialLotId, ct))
+        {
+            return Result.Failure<MaterialLotEventDto>(Error.Conflict(
+                "IVT.MaterialLot.MountedConflict",
+                $"Material lot '{input.MaterialLotId}' is reserved by a feed session. "
+                + "Move/Hold/Release/Scrap/Adjustment remains blocked through Unmount PendingDrain; "
+                + "consumption uses its separate ledger path."));
+        }
+
         return Result.Failure<MaterialLotEventDto>(Error.Conflict(
             $"Material lot '{input.MaterialLotId}' changed concurrently; reload it before retrying."));
     }

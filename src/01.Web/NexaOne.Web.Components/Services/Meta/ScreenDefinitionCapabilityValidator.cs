@@ -152,10 +152,12 @@ public static class ScreenDefinitionCapabilityValidator
             // LayoutRenderer도 QueryId가 있는 GridWidget에서만 선택 행을 만들 수 있다.
             HasDeletePath: layout.HasDataGrid
                 && IsMutatingCommand(definition.DeleteQueryId, descriptorResolver),
-            HasBulkMutationPath: layout.HasDataGrid && hasBulkMutation,
+            HasBulkMutationPath: layout.HasBulkMutationPath
+                || (layout.HasDataGrid && hasBulkMutation),
             HasLayoutCommandPath: layout.HasCommandPath,
             HasNonMutatingCommandPath: layout.HasNonMutatingCommandPath
                 || (layout.HasDataGrid && IsNonMutatingCommand(definition.DeleteQueryId, descriptorResolver))
+                || layout.HasNonMutatingBulkPath
                 || (layout.HasDataGrid && hasBulkNonMutation));
     }
 
@@ -385,7 +387,11 @@ public static class ScreenDefinitionCapabilityValidator
                 HasNonMutatingCommandPath: HasQuery(button.Command)
                     && ResolveEffect(button.Command!, descriptorResolver) == MetaCommandEffect.NonMutating,
                 HasDataGrid: false),
-            GridWidget grid => ReadBinding(grid.QueryId, hasDataGrid: HasQuery(grid.QueryId)),
+            GridWidget grid => ReadBinding(
+                grid.QueryId,
+                hasDataGrid: HasQuery(grid.QueryId),
+                bulkCommands: grid.BulkCommands,
+                descriptorResolver: descriptorResolver),
             KpiWidget kpi => ReadBinding(kpi.QueryId),
             BadgeWidget badge => ReadBinding(badge.QueryId),
             TrendChartWidget trend => ReadBinding(trend.QueryId),
@@ -409,10 +415,16 @@ public static class ScreenDefinitionCapabilityValidator
             current.HasSavePath || child.HasSavePath,
             current.HasCommandPath || child.HasCommandPath,
             current.HasNonMutatingCommandPath || child.HasNonMutatingCommandPath,
-            current.HasDataGrid || child.HasDataGrid));
+            current.HasDataGrid || child.HasDataGrid,
+            current.HasBulkMutationPath || child.HasBulkMutationPath,
+            current.HasNonMutatingBulkPath || child.HasNonMutatingBulkPath));
     }
 
-    private static LayoutCapabilities ReadBinding(string? queryId, bool hasDataGrid = false)
+    private static LayoutCapabilities ReadBinding(
+        string? queryId,
+        bool hasDataGrid = false,
+        IReadOnlyList<BulkCommandDefinition>? bulkCommands = null,
+        Func<string, MetaCommandDescriptor?>? descriptorResolver = null)
         => new(
             HasEditableInput: false,
             HasReadPath: HasQuery(queryId),
@@ -420,7 +432,13 @@ public static class ScreenDefinitionCapabilityValidator
             HasSavePath: false,
             HasCommandPath: false,
             HasNonMutatingCommandPath: false,
-            HasDataGrid: hasDataGrid);
+            HasDataGrid: hasDataGrid,
+            HasBulkMutationPath: bulkCommands?.Any(command =>
+                HasQuery(command.CommandQueryId)
+                && ResolveEffect(command.CommandQueryId, descriptorResolver ?? (_ => null)) == MetaCommandEffect.Mutating) == true,
+            HasNonMutatingBulkPath: bulkCommands?.Any(command =>
+                HasQuery(command.CommandQueryId)
+                && ResolveEffect(command.CommandQueryId, descriptorResolver ?? (_ => null)) == MetaCommandEffect.NonMutating) == true);
 
     private readonly record struct LayoutCapabilities(
         bool HasEditableInput,
@@ -429,5 +447,7 @@ public static class ScreenDefinitionCapabilityValidator
         bool HasSavePath,
         bool HasCommandPath,
         bool HasNonMutatingCommandPath,
-        bool HasDataGrid);
+        bool HasDataGrid,
+        bool HasBulkMutationPath = false,
+        bool HasNonMutatingBulkPath = false);
 }

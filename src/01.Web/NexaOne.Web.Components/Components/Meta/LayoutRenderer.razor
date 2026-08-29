@@ -55,7 +55,7 @@ else
                           EnableViewModes="EnableGridViewModes"
                           CanAdd="CanAdd" OnAddNew="OnAddNew" AddDisabledReason="@AddDisabledReason"
                           CanDelete="CanDelete" OnDeleteRows="OnDeleteRows" DeleteDisabledReason="@DeleteDisabledReason"
-                          BulkCommands="BulkCommands" OnBulkCommand="OnBulkCommand"
+                          BulkCommands="g.BulkCommands ?? BulkCommands" OnBulkCommand="OnBulkCommand"
                           BulkCommandDisabledReason="BulkCommandDisabledReason"
                           ServerTotal="paging?.Total" ServerPage="paging?.Page ?? 0"
                           OnServerPageChange="EventCallback.Factory.Create<int>(this, p => OnGridPageChange.InvokeAsync((qid!, p)))" />

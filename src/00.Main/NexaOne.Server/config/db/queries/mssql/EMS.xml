@@ -140,7 +140,7 @@
             FROM EMS_SPARE_PART_INOUT WITH (NOLOCK)
             WHERE (@transactionType IS NULL OR TRANSACTION_TYPE = @transactionType)
               AND (@partId IS NULL OR PART_ID = @partId)
-            ORDER BY TRANSACTION_AT DESC
+            ORDER BY TRANSACTION_AT DESC, INOUT_ID DESC
         ]]></statement>
     </query>
     <query id="EMS.SparePartIncomingList" requiredPermission="ems:read">
@@ -149,7 +149,7 @@
                    WO_ID, EQUIPMENT_ID, BALANCE_BEFORE, BALANCE_AFTER, IDEMPOTENCY_KEY, CORRELATION_ID, CLIENT_CHANNEL, DEVICE_ID, REMARK
             FROM EMS_SPARE_PART_INOUT WITH (NOLOCK)
             WHERE TRANSACTION_TYPE = 'Incoming' AND (@partId IS NULL OR PART_ID = @partId)
-            ORDER BY TRANSACTION_AT DESC
+            ORDER BY TRANSACTION_AT DESC, INOUT_ID DESC
         ]]></statement>
     </query>
     <query id="EMS.SparePartMoveList" requiredPermission="ems:read">
@@ -158,7 +158,7 @@
                    WO_ID, EQUIPMENT_ID, BALANCE_BEFORE, BALANCE_AFTER, IDEMPOTENCY_KEY, CORRELATION_ID, CLIENT_CHANNEL, DEVICE_ID, REMARK
             FROM EMS_SPARE_PART_INOUT WITH (NOLOCK)
             WHERE TRANSACTION_TYPE = 'Move' AND (@partId IS NULL OR PART_ID = @partId)
-            ORDER BY TRANSACTION_AT DESC
+            ORDER BY TRANSACTION_AT DESC, INOUT_ID DESC
         ]]></statement>
     </query>
     <query id="EMS.SparePartScrapList" requiredPermission="ems:read">
@@ -167,7 +167,7 @@
                    WO_ID, EQUIPMENT_ID, BALANCE_BEFORE, BALANCE_AFTER, IDEMPOTENCY_KEY, CORRELATION_ID, CLIENT_CHANNEL, DEVICE_ID, REMARK
             FROM EMS_SPARE_PART_INOUT WITH (NOLOCK)
             WHERE TRANSACTION_TYPE = 'Scrap' AND (@partId IS NULL OR PART_ID = @partId)
-            ORDER BY TRANSACTION_AT DESC
+            ORDER BY TRANSACTION_AT DESC, INOUT_ID DESC
         ]]></statement>
     </query>
     <query id="EMS.MaintenanceActionHistoryList" requiredPermission="ems:read">
@@ -301,10 +301,14 @@
         <statement><![CDATA[
             SELECT TOP 500 USAGE_ID, TOOL_ID, MOUNT_ID, EQUIPMENT_ID, PROCESS_LOT_ID,
                    WORK_ORDER_ID, PROCESS_ID, RECIPE_ID, RECIPE_VERSION, USE_COUNT,
-                   USE_MINUTES, USED_AT, USED_BY, TRACE_ID, CONDITION_SNAPSHOT_JSON
+                   USE_MINUTES, USED_AT, USED_BY, TRACE_ID, CONDITION_SNAPSHOT_JSON,
+                   WORK_SCOPE_ID, CARRIER_ID, ACTIVITY_TYPE, CLEANING_PROGRAM_ID, CLEANING_RESULT
             FROM EMS_TOOL_USAGE_HISTORY WITH (NOLOCK)
             WHERE (@toolId IS NULL OR TOOL_ID=@toolId)
               AND (@equipmentId IS NULL OR EQUIPMENT_ID=@equipmentId)
+              AND (@workScopeId IS NULL OR WORK_SCOPE_ID=@workScopeId)
+              AND (@carrierId IS NULL OR CARRIER_ID=@carrierId)
+              AND (@activityType IS NULL OR ACTIVITY_TYPE=@activityType)
               AND (@from IS NULL OR USED_AT>=@from)
               AND (@to IS NULL OR USED_AT<@to)
             ORDER BY USED_AT DESC

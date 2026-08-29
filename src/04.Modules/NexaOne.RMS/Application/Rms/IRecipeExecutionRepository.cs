@@ -71,4 +71,6 @@ public sealed record RecipeExecutionSnapshot(
     string Source,
     string? TraceId,
     DateTime CreatedAt,
-    bool IsReplay = false);
+    bool IsReplay = false,
+    string? WorkScopeId = null,
+    string? CarrierId = null);

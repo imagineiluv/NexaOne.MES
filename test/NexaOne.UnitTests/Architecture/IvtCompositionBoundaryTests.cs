@@ -1,10 +1,21 @@
 using System.Xml.Linq;
+using NexaOne.IVT.Application.Materials;
+using NexaOne.IVT.Infrastructure;
 
 namespace NexaOne.UnitTests.Architecture;
 
 /// <summary>IVT Spring interface를 단일 공개 조립 진입점과 bridge/worker로 제한합니다.</summary>
 public sealed class IvtCompositionBoundaryTests
 {
+    [Fact]
+    public void Trace_material_write_repositories_are_internal_behind_the_application_service()
+    {
+        typeof(TraceBindingRepository).IsNotPublic.Should().BeTrue();
+        typeof(FeedSessionRepository).IsNotPublic.Should().BeTrue();
+        typeof(TraceBindingService).IsNotPublic.Should().BeTrue();
+        typeof(FeedSessionService).IsNotPublic.Should().BeTrue();
+    }
+
     [Fact]
     public void Ivt_xml_does_not_expose_repository_or_service_implementation_types()
     {
@@ -32,6 +43,7 @@ public sealed class IvtCompositionBoundaryTests
         {
             ["materialBridge"] = "GetMaterialBridge",
             ["materialLotBridge"] = "GetMaterialLotBridge",
+            ["traceMaterialBridge"] = "GetTraceMaterialBridge",
             ["materialLotDirectory"] = "GetMaterialLotDirectory",
             ["mrpInventoryDirectory"] = "GetMrpInventoryDirectory",
             ["fdcTraceRetentionGuard"] = "GetFdcTraceRetentionGuard",

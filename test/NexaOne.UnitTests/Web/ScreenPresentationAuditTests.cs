@@ -147,27 +147,30 @@ public sealed class ScreenPresentationAuditTests
         wideManageScreens.Select(definition => definition.UiId).Should().BeEquivalentTo(
             "EPT_STD_TAKT_TARGET",
             "FACTORY_COM_ACTION_DEF",
-            "FACTORY_PPM_WORK_ORDER",
             "FACTORY_PRC_PURCHASE_ORDER",
             "FACTORY_SLS_SALES_ORDER",
             "FACTORY_STD_BOR_CONDITION",
             "MES_MDM_COM_VENDOR",
-            "POC_PPM_WORK_ORDER");
+            "POC_PPM_WORK_ORDER",
+            "FACTORY_PPM_WORK_ORDER");
 
         foreach (var definition in wideManageScreens)
         {
-            var columns = definition.Columns!.Where(column => column.Visible).ToArray();
-            var primary = MetaGridColumnPolicy.CardPrimary(columns);
-            var summary = MetaGridColumnPolicy.CardSummary(columns, primary);
-            summary.Should().HaveCountLessThanOrEqualTo(MetaGridColumnPolicy.DefaultCardFieldCount);
+            foreach (var gridColumns in GridColumnSets(definition))
+            {
+                var columns = gridColumns.Where(column => column.Visible).ToArray();
+                var primary = MetaGridColumnPolicy.CardPrimary(columns);
+                var summary = MetaGridColumnPolicy.CardSummary(columns, primary);
+                summary.Should().HaveCountLessThanOrEqualTo(MetaGridColumnPolicy.DefaultCardFieldCount);
 
-            var status = columns.FirstOrDefault(column =>
-                column.Key.Contains("STATUS", StringComparison.OrdinalIgnoreCase)
-                || column.Key.Contains("STATE", StringComparison.OrdinalIgnoreCase)
-                || column.Key.Contains("RESULT", StringComparison.OrdinalIgnoreCase));
-            if (status is not null && !string.Equals(primary?.Key, status.Key, StringComparison.OrdinalIgnoreCase))
-                summary.Should().Contain(column => column.Key == status.Key,
-                    $"{definition.UiId} 카드에서 상태/판정이 접힌 필드로 밀리면 안 된다");
+                var status = columns.FirstOrDefault(column =>
+                    column.Key.Contains("STATUS", StringComparison.OrdinalIgnoreCase)
+                    || column.Key.Contains("STATE", StringComparison.OrdinalIgnoreCase)
+                    || column.Key.Contains("RESULT", StringComparison.OrdinalIgnoreCase));
+                if (status is not null && !string.Equals(primary?.Key, status.Key, StringComparison.OrdinalIgnoreCase))
+                    summary.Should().Contain(column => column.Key == status.Key,
+                        $"{definition.UiId} 카드에서 상태/판정이 접힌 필드로 밀리면 안 된다");
+            }
         }
     }
 

@@ -122,6 +122,47 @@ public sealed class FdcInterlockRuntimeTests
     }
 
     [Fact]
+    public async Task Transient_interlock_advances_admission_safety_epoch_before_permit_reopens()
+    {
+        var rules = new Mock<IFdcInterlockRuleRepository>();
+        rules.Setup(x => x.GetByEquipmentAsync("EQ-001", It.IsAny<CancellationToken>()))
+            .ReturnsAsync([Rule("R1", "TEMP01", "STOP")]);
+        var history = EmptyHistory();
+        FdcInterlockHistory? persisted = null;
+        history.Setup(x => x.AddAsync(
+                It.IsAny<FdcInterlockHistory>(), It.IsAny<CancellationToken>()))
+            .Callback<FdcInterlockHistory, CancellationToken>((row, _) => persisted = row)
+            .Returns(Task.CompletedTask);
+        history.Setup(x => x.GetByIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => persisted);
+        history.Setup(x => x.UpdateAsync(
+                It.IsAny<FdcInterlockHistory>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        var action = ReadyAction();
+        action.Setup(x => x.ApplyAsync(
+                It.IsAny<FdcInterlockActionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(FdcInterlockActionResult.Confirmed("ack"));
+        var collector = Collector(
+            rules.Object, history.Object, action.Object, requireRuntimeAuthority: true);
+        collector.BindRuntimeAuthority(new FdcRuntimeAuthority(
+            "fdc-node-a", 42, new string('a', 64), DateTime.UtcNow.AddMinutes(1)));
+        await InitializeAndPrimeAsync(collector);
+        var before = collector.CaptureRunAdmissionSafety("EQ-001");
+
+        await collector.OnTagChangeAsync("EQ-001", Sample("TEMP01", 90m));
+        collector.CaptureRunAdmissionSafety("EQ-001").IsPermitted.Should().BeFalse();
+        await EvaluateFreshPollAsync(collector, tempValue: 20m, pressureValue: 20m);
+        var reopened = collector.CaptureRunAdmissionSafety("EQ-001");
+
+        reopened.IsPermitted.Should().BeTrue();
+        reopened.Authority!.SafetyEpoch.Should().BeGreaterThan(before.Authority!.SafetyEpoch);
+        reopened.Authority.EquipmentId.Should().Be("EQ-001");
+        collector.CaptureRunAdmissionSafety("EQ-NOT-CONFIGURED").Should().Match<FdcRunAdmissionSafetySnapshot>(
+            snapshot => !snapshot.IsPermitted
+                        && snapshot.Code == "FDC_EQUIPMENT_NOT_IN_RUNTIME_TOPOLOGY");
+    }
+
+    [Fact]
     public async Task Apply_result_is_rejected_when_runtime_authority_is_lost_during_the_adapter_call()
     {
         var rules = new Mock<IFdcInterlockRuleRepository>();

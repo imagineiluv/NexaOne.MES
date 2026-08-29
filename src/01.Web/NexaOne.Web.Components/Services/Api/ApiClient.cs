@@ -941,6 +941,114 @@ public sealed class ApiClient : IApiClient
         return new(null, error, (int)response.StatusCode);
     }
 
+    /// <summary>
+    /// 생산 W/O에 종속되지 않는 POM 작업 범위를 등록합니다. Carrier는 LOT 없이 Carrier ID를
+    /// TargetId/CarrierId로 보존하며, 서버가 외부 JWT 작업자를 감사 주체로 채웁니다.
+    /// </summary>
+    public async Task<PomWorkScopeActionResult> CreatePomWorkScopeAsync(
+        PomWorkScopeCreateRequest request,
+        CancellationToken ct = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Post,
+            "api/v1/pom/work-scopes",
+            request,
+            ct,
+            surfaceErrors: false);
+
+        if (response.IsSuccessStatusCode)
+        {
+            try
+            {
+                var dto = await response.Content.ReadFromJsonAsync<PomWorkScopeDto>(ct);
+                return dto is not null
+                    ? new(dto, null, (int)response.StatusCode)
+                    : new(null, "작업 범위 생성 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+            catch
+            {
+                return new(null, "작업 범위 생성 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+        }
+
+        var error = response.StatusCode == HttpStatusCode.Unauthorized
+            ? "인증이 만료되었습니다. 다시 로그인해 주세요."
+            : await ReadErrorAsync(response, ct);
+        return new(null, error, (int)response.StatusCode);
+    }
+
+    /// <summary>
+    /// 작업 범위의 허용된 lifecycle 액션을 실행합니다. 액션 이름은 고정 allow-list로 제한해
+    /// Designer 값이 임의 endpoint를 호출하지 못하게 하며, 409와 서버 사유를 그대로 보존합니다.
+    /// </summary>
+    public async Task<PomWorkScopeActionResult> ExecutePomWorkScopeActionAsync(
+        string action,
+        string workScopeId,
+        PomWorkScopeActionRequest request,
+        CancellationToken ct = default)
+    {
+        var normalizedAction = action?.Trim().ToLowerInvariant();
+        if (normalizedAction is not ("release" or "cancel" or "start" or "report" or "hold" or "release-hold" or "complete"))
+            return new(null, $"지원하지 않는 작업 범위 액션입니다: {action}", 400);
+
+        if (string.IsNullOrWhiteSpace(workScopeId))
+            return new(null, "작업 범위 ID가 필요합니다.", 400);
+
+        object body = normalizedAction is "report" or "complete"
+            ? new
+            {
+                goodQty = request.GoodQty,
+                defectQty = request.DefectQty,
+                request.IdempotencyKey,
+                request.ExpectedVersion,
+                request.ClientChannel,
+                request.DeviceId,
+                request.Remark,
+                request.CarrierId,
+                request.ResultCode,
+                request.ResultMetadataJson
+            }
+            : new
+            {
+                request.IdempotencyKey,
+                request.ExpectedVersion,
+                request.ClientChannel,
+                request.DeviceId,
+                request.Remark,
+                request.CarrierId,
+                request.ResultCode,
+                request.ResultMetadataJson
+            };
+
+        var id = Uri.EscapeDataString(workScopeId.Trim());
+        using var response = await SendAsync(
+            HttpMethod.Post,
+            $"api/v1/pom/work-scopes/{id}/{normalizedAction}",
+            body,
+            ct,
+            surfaceErrors: false);
+
+        if (response.IsSuccessStatusCode)
+        {
+            try
+            {
+                var dto = await response.Content.ReadFromJsonAsync<PomWorkScopeDto>(ct);
+                return dto is not null
+                    ? new(dto, null, (int)response.StatusCode)
+                    : new(null, "작업 범위 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+            catch
+            {
+                return new(null, "작업 범위 응답을 읽을 수 없습니다.", (int)response.StatusCode);
+            }
+        }
+
+        var error = response.StatusCode == HttpStatusCode.Unauthorized
+            ? "인증이 만료되었습니다. 다시 로그인해 주세요."
+            : await ReadErrorAsync(response, ct);
+        return new(null, error, (int)response.StatusCode);
+    }
+
     /// <summary>LOT Track-In은 서버 라우팅 interlock을 통과한 경우에만 상태를 변경합니다.</summary>
     public Task<PomRoutingApiResult<PomLotDto>> ExecutePomLotTrackInAsync(
         string lotId, PomLotTrackInRequest request, CancellationToken ct = default)

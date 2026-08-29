@@ -44,7 +44,10 @@ public sealed record MaterialConsumptionCommand(
     string? TagId = null,
     string? OperatorId = null,
     string? CorrelationId = null,
-    string? MetadataJson = null);
+    string? MetadataJson = null,
+    string? FeedSessionId = null,
+    string? WorkScopeId = null,
+    string? CarrierId = null);
 
 public sealed record MaterialConsumptionReversalCommand(
     string ReversalId,
@@ -80,4 +83,7 @@ public sealed record MaterialConsumptionDto(
     string? TagId,
     string? CorrelationId,
     string? ReversalOfId,
-    string? MetadataJson);
+    string? MetadataJson,
+    string? FeedSessionId,
+    string? WorkScopeId,
+    string? CarrierId);

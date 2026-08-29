@@ -85,10 +85,14 @@ internal static class NexaOneDevelopmentDatabaseInitializer
         using (var incoming = connection.CreateCommand())
         {
             incoming.Transaction = transaction;
+            // INSERT OR IGNORE still fires BEFORE INSERT triggers in SQLite.  The
+            // IVT material-lot replacement guard must therefore be bypassed by
+            // selecting no row when the stable demo key already exists.
             incoming.CommandText =
-                "INSERT OR IGNORE INTO IVT_MATERIAL_LOT " +
+                "INSERT INTO IVT_MATERIAL_LOT " +
                 "(LOT_ID,MATERIAL_ID,LOT_NO,WAREHOUSE,CURRENT_QTY,UNIT,STATUS,RECEIVED_AT,CREATED_BY,CREATED_AT,UPDATED_BY,UPDATED_AT) " +
-                "VALUES ('LOT_IN_001','ITEM03','LOT_IN_001','RAW',100,'KG','InStock',@at,'SYSTEM',@at,'SYSTEM',@at)";
+                "SELECT 'LOT_IN_001','ITEM03','LOT_IN_001','RAW',100,'KG','InStock',@at,'SYSTEM',@at,'SYSTEM',@at " +
+                "WHERE NOT EXISTS (SELECT 1 FROM IVT_MATERIAL_LOT WHERE LOT_ID = 'LOT_IN_001')";
             incoming.Parameters.AddWithValue("@at", now);
             incoming.ExecuteNonQuery();
         }

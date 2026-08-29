@@ -210,6 +210,7 @@ public sealed class ToolRepository : QueryRepository, IToolRepository
             u.UsageId, u.IdempotencyKey, u.RequestHash, u.ToolId, u.MountId, u.EquipmentId,
             u.ProcessLotId, u.WorkOrderId, u.ProcessId, u.RecipeId, u.RecipeVersion,
             u.UseCount, u.UseMinutes, u.UsedAt, u.UsedBy, u.TraceId, u.ConditionSnapshotJson, u.CreatedAt,
+            u.WorkScopeId, u.CarrierId, u.ActivityType, u.CleaningProgramId, u.CleaningResult,
             ExpectedEquipmentClassId = expectedEquipmentClassId,
         };
         try
@@ -245,12 +246,14 @@ public sealed class ToolRepository : QueryRepository, IToolRepository
                (USAGE_ID, IDEMPOTENCY_KEY, REQUEST_HASH, TOOL_ID, MOUNT_ID, EQUIPMENT_ID,
                 PROCESS_LOT_ID, WORK_ORDER_ID, PROCESS_ID, RECIPE_ID, RECIPE_VERSION,
                 USE_COUNT, USE_MINUTES, USED_AT, USED_BY, TRACE_ID, CONDITION_SNAPSHOT_JSON,
+                WORK_SCOPE_ID, CARRIER_ID, ACTIVITY_TYPE, CLEANING_PROGRAM_ID, CLEANING_RESULT,
                 CREATED_BY, CREATED_AT)
                VALUES
                (@UsageId, @IdempotencyKey, @RequestHash, @ToolId, @MountId, @EquipmentId,
                 @ProcessLotId, @WorkOrderId, @ProcessId, @RecipeId, @RecipeVersion,
                 @UseCount, @UseMinutes, @UsedAt, @UsedBy, @TraceId, @ConditionSnapshotJson,
-                 @UsedBy, @CreatedAt)", p));
+                @WorkScopeId, @CarrierId, @ActivityType, @CleaningProgramId, @CleaningResult,
+                @UsedBy, @CreatedAt)", p));
         }
         catch (DbException)
         {
@@ -353,7 +356,10 @@ public sealed class ToolRepository : QueryRepository, IToolRepository
                PROCESS_LOT_ID AS ProcessLotId, WORK_ORDER_ID AS WorkOrderId, PROCESS_ID AS ProcessId,
                RECIPE_ID AS RecipeId, RECIPE_VERSION AS RecipeVersion, USE_COUNT AS UseCount,
                USE_MINUTES AS UseMinutes, USED_AT AS UsedAt, USED_BY AS UsedBy, TRACE_ID AS TraceId,
-               CONDITION_SNAPSHOT_JSON AS ConditionSnapshotJson, CREATED_AT AS CreatedAt
+               CONDITION_SNAPSHOT_JSON AS ConditionSnapshotJson, CREATED_AT AS CreatedAt,
+               WORK_SCOPE_ID AS WorkScopeId, CARRIER_ID AS CarrierId,
+               ACTIVITY_TYPE AS ActivityType, CLEANING_PROGRAM_ID AS CleaningProgramId,
+               CLEANING_RESULT AS CleaningResult
         FROM EMS_TOOL_USAGE_HISTORY";
 
     private const string InspectionSelect = @"
@@ -507,10 +513,16 @@ public sealed class ToolRepository : QueryRepository, IToolRepository
         public string? TraceId { get; set; }
         public string? ConditionSnapshotJson { get; set; }
         public DateTime CreatedAt { get; set; }
+        public string? WorkScopeId { get; set; }
+        public string? CarrierId { get; set; }
+        public string ActivityType { get; set; } = "Use";
+        public string? CleaningProgramId { get; set; }
+        public string? CleaningResult { get; set; }
         public ToolUsageRecord ToRecord() => new(
             UsageId, IdempotencyKey, RequestHash, ToolId, MountId, EquipmentId,
             ProcessLotId, WorkOrderId, ProcessId, RecipeId, RecipeVersion, UseCount,
-            UseMinutes, UsedAt, UsedBy, TraceId, ConditionSnapshotJson, CreatedAt);
+            UseMinutes, UsedAt, UsedBy, TraceId, ConditionSnapshotJson, CreatedAt,
+            WorkScopeId, CarrierId, ActivityType, CleaningProgramId, CleaningResult);
     }
 
     private sealed class LatestUsageRow

@@ -110,6 +110,22 @@ public sealed class ConsumptionServiceTests
     }
 
     [Fact]
+    public async Task Non_trace_consumption_cannot_attach_a_feed_session_outside_the_trace_hash_contract()
+    {
+        var result = await new ConsumptionService(_repository).ConsumeAsync(
+            Command("direct-key", "DIRECT-1") with
+            {
+                Mode = "Direct",
+                FeedSessionId = "FS-1",
+            });
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Type.Should().Be(NexaOne.Common.ErrorType.Validation);
+        result.Error.Description.Should().Contain("only valid for Trace");
+        _repository.Records.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Reversal_correlation_id_uses_the_same_storage_boundary()
     {
         var service = new ConsumptionService(_repository);
@@ -122,6 +138,19 @@ public sealed class ConsumptionServiceTests
         result.IsFailure.Should().BeTrue();
         result.Error.Type.Should().Be(NexaOne.Common.ErrorType.Validation);
         _repository.Records.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Provider_unspecified_timestamp_is_interpreted_as_the_stored_utc_wall_clock()
+    {
+        var unspecified = new DateTime(2026, 8, 26, 1, 2, 3, DateTimeKind.Unspecified);
+
+        var result = await new ConsumptionService(_repository).ConsumeAsync(
+            Command() with { OccurredAt = unspecified });
+
+        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Description : string.Empty);
+        _repository.Records.Single().OccurredAt.Should().Be(DateTime.SpecifyKind(unspecified, DateTimeKind.Utc));
+        _repository.Records.Single().OccurredAt.Kind.Should().Be(DateTimeKind.Utc);
     }
 
     private static MaterialConsumptionCommand Command(

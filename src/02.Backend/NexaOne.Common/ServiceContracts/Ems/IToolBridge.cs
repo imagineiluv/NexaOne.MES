@@ -63,7 +63,12 @@ public sealed record ToolUsageCommand(
     int? RecipeVersion = null,
     string? TraceId = null,
     string? ConditionSnapshotJson = null,
-    string? ActorId = null);
+    string? ActorId = null,
+    string? WorkScopeId = null,
+    string? CarrierId = null,
+    string ActivityType = "Use",
+    string? CleaningProgramId = null,
+    string? CleaningResult = null);
 
 public sealed record ToolInspectionCommand(
     string IdempotencyKey,
@@ -113,7 +118,12 @@ public sealed record ToolUsageDto(
     string UsedBy,
     string? ProcessLotId,
     string? WorkOrderId,
-    string? TraceId);
+    string? TraceId,
+    string? WorkScopeId = null,
+    string? CarrierId = null,
+    string ActivityType = "Use",
+    string? CleaningProgramId = null,
+    string? CleaningResult = null);
 
 public sealed record ToolInspectionDto(
     string InspectionId,

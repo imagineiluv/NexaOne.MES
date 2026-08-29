@@ -3,6 +3,7 @@ using NexaOne.Infrastructure.Persistence;
 using NexaOne.POM.Application.Lots;
 using NexaOne.POM.Application.Mrp;
 using NexaOne.POM.Application.Pom;
+using NexaOne.POM.Application.WorkScopes;
 using NexaOne.POM.Application.WorkOrders;
 using NexaOne.POM.Domain;
 using NexaOne.POM.Infrastructure;
@@ -20,6 +21,7 @@ public sealed class Module
 {
     private readonly IPomBridge _pomBridge;
     private readonly IPomWorkOrderBridge _workOrderBridge;
+    private readonly IWorkScopeBridge _workScopeBridge;
     private readonly ILotDispositionBridge _lotDispositionBridge;
     private readonly IMrpBridge _mrpBridge;
     private readonly IProductionLotDirectory _productionLotDirectory;
@@ -34,7 +36,8 @@ public sealed class Module
         IMrpMasterDirectory mrpMasterDirectory,
         IMrpInventoryDirectory mrpInventoryDirectory,
         IPurchaseOrderPlanningBridge purchaseOrderPlanningBridge,
-        IEquipmentDirectory equipmentDirectory)
+        IEquipmentDirectory equipmentDirectory,
+        IEquipmentOutputMasterDirectory? equipmentOutputMasterDirectory = null)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(configuration);
@@ -49,6 +52,7 @@ public sealed class Module
         var plans = new ProductionPlanRepository(dataSource, configuration);
         var orders = new ProductionOrderRepository(dataSource, configuration);
         var workOrders = new PomWorkOrderRepository(dataSource);
+        var workScopes = new WorkScopeRepository(dataSource);
         var lots = new LotRepository(dataSource, configuration);
         var lotService = new LotTrackingService(
             lots,
@@ -66,6 +70,8 @@ public sealed class Module
             lotService);
         _workOrderBridge = new PomWorkOrderBridge(
             new PomWorkOrderService(workOrders, orders, lots, productionQualityGateway));
+        _workScopeBridge = new WorkScopeBridge(
+            new WorkScopeService(workScopes, equipmentOutputMasterDirectory));
         _lotDispositionBridge = new LotDispositionBridge(
             new LotDispositionService(new LotDispositionRepository(dataSource)));
         _mrpBridge = new MrpBridge(new MrpPlanningRepository(
@@ -81,6 +87,7 @@ public sealed class Module
 
     public IPomBridge GetPomBridge() => _pomBridge;
     public IPomWorkOrderBridge GetWorkOrderBridge() => _workOrderBridge;
+    public IWorkScopeBridge GetWorkScopeBridge() => _workScopeBridge;
     public ILotDispositionBridge GetLotDispositionBridge() => _lotDispositionBridge;
     public IMrpBridge GetMrpBridge() => _mrpBridge;
     public IProductionLotDirectory GetProductionLotDirectory() => _productionLotDirectory;

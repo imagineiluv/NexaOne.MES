@@ -13,10 +13,12 @@
     <constructor-arg ref="mrpInventoryDirectory" />
     <constructor-arg ref="purchaseOrderPlanningBridge" />
     <constructor-arg ref="equipmentDirectory" />
+    <constructor-arg ref="equipmentOutputMasterDirectory" />
   </object>
 
   <object id="pomBridge" factory-object="pomModule" factory-method="GetPomBridge" />
   <object id="pomWorkOrderBridge" factory-object="pomModule" factory-method="GetWorkOrderBridge" />
+  <object id="workScopeBridge" factory-object="pomModule" factory-method="GetWorkScopeBridge" />
   <object id="lotDispositionBridge" factory-object="pomModule" factory-method="GetLotDispositionBridge" />
   <object id="mrpBridge" factory-object="pomModule" factory-method="GetMrpBridge" />
   <object id="productionLotDirectory" factory-object="pomModule" factory-method="GetProductionLotDirectory" />

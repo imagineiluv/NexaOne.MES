@@ -79,7 +79,7 @@ public sealed class MssqlMigrationRunnerTests
         source.Should().Contain("migration content drift");
         source.Should().Contain("AdoptMissingChecksums");
         source.Should().Contain("ApproveHighImpactMigrations");
-        source.Should().Contain("$highImpactVersions = @(142, 144, 146, 147, 148, 150)");
+        source.Should().Contain("$highImpactVersions = @(142, 144, 146, 147, 148, 150, 151, 152, 153)");
         source.Should().Contain("high-impact migration approval is required");
         var historyMutation = source.IndexOf(
             "ALTER TABLE SYS_SCHEMA_MIGRATION ADD CONTENT_SHA256",
@@ -90,7 +90,7 @@ public sealed class MssqlMigrationRunnerTests
         source.IndexOf("migration history is not a contiguous source prefix", StringComparison.Ordinal)
             .Should().BeLessThan(historyMutation,
                 "an out-of-order history must be rejected before changing migration history");
-        source.IndexOf("$highImpactVersions = @(142, 144, 146, 147, 148, 150)", StringComparison.Ordinal)
+        source.IndexOf("$highImpactVersions = @(142, 144, 146, 147, 148, 150, 151, 152, 153)", StringComparison.Ordinal)
             .Should().BeLessThan(historyMutation,
                 "the explicit production approval gate must run before migration-history DDL");
         source.IndexOf("$migrationNamePattern.Match($file.Name)", StringComparison.Ordinal)
@@ -108,11 +108,56 @@ public sealed class MssqlMigrationRunnerTests
         source.Should().Contain("$serverDataSource = $connection.DataSource");
         source.Should().Contain("statistics-freshness");
         source.Should().Contain("sys.dm_db_stats_properties");
+        source.Should().Contain("sys.stats_columns");
+        source.Should().Contain("stats_column_id");
+        source.Should().Contain("STATISTICS_COLUMNS");
         source.Should().Contain("AUTO_CREATE_STATISTICS_ON");
         source.Should().Contain("AUTO_UPDATE_STATISTICS_ON");
         source.Should().Contain("AUTO_UPDATE_STATISTICS_ASYNC_ON");
         source.Should().Contain("statistics-options-prerequisite");
+        source.Should().Contain("query-store-window");
+        source.Should().Contain("FIRST_INTERVAL_START");
+        source.Should().Contain("LAG(rsi.end_time)");
+        source.Should().Contain("GAP_COUNT");
+        source.Should().Contain("COVERAGE_COMPLETE");
+        source.Should().Contain("query-store-window-coverage-prerequisite");
+        source.Should().Contain("does not cover the complete requested");
+        source.Should().Contain("QUERY_STORE_DESIRED_STATE");
+        source.Should().Contain("QUERY_STORE_CAPTURE_MODE");
+        source.Should().Contain("database-compatibility-prerequisite");
+        source.Should().Contain("compatibility level 130 or later");
+        source.Should().Contain("query-store-capture-prerequisite");
+        source.Should().Contain("capture mode NONE");
+        source.Should().Contain("query-store-retention-prerequisite");
+        source.Should().Contain("stale-query retention");
+        source.Should().Contain("$staleQueryDays -ne 0 -and $staleQueryDays -lt $LookbackDays");
+        source.Should().Contain("CapturedQueriesAndPlansWithinContinuousRuntimeIntervals");
+        source.Should().Contain("ProvesExhaustiveWorkloadCapture = $false");
+        source.Should().Contain("QUERY_STORE_INTERVAL_MINUTES");
+        source.Should().Contain("QUERY_STORE_MAX_PLANS_PER_QUERY");
+        source.Should().Contain("query-store-plan-logical-reads");
+        source.Should().Contain("p.plan_id AS PLAN_ID");
+        source.Should().Contain("p.query_plan_hash");
+        source.Should().Contain("p.is_forced_plan AS IS_FORCED_PLAN");
+        source.Should().Contain("p.force_failure_count AS FORCE_FAILURE_COUNT");
+        source.Should().Contain("p.last_force_failure_reason AS LAST_FORCE_FAILURE_REASON");
+        source.Should().Contain("AVG_LOGICAL_READS");
+        source.Should().Contain("MAX(rs.max_logical_io_reads) AS MAX_LOGICAL_READS");
+        source.Should().Contain("MAX_DURATION_MS");
+        source.Should().Contain("QUERY_TEXT_LENGTH");
+        source.Should().MatchRegex(
+            @"(?s)query-store-plan-logical-reads.*?GROUP BY\s+q\.query_id,\s+p\.plan_id",
+            "plan statistics must not silently collapse back to one row per query");
+        source.Should().NotContain("AS QUERY_SQL_TEXT");
+        source.Should().NotMatchRegex(@"(?im)\bp\.query_plan\s+AS\s+QUERY_PLAN\b");
+        source.Should().NotContain(".sqlplan");
         source.Should().Contain("view-inventory");
+        source.Should().Contain("view-dependencies");
+        source.Should().Contain("d.referencing_id = v.object_id");
+        source.Should().Contain("DEFINITION_SHA256");
+        source.Should().Contain("USES_ANSI_NULLS");
+        source.Should().Contain("USES_QUOTED_IDENTIFIER");
+        source.Should().NotContain("AS VIEW_DEFINITION");
         source.Should().Contain("indexed-view-index-definition");
         source.Should().Contain("IS_SCHEMA_BOUND");
         source.Should().Contain("FOR XML PATH(''), TYPE");

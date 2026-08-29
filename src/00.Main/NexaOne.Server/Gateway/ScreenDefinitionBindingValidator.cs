@@ -167,6 +167,7 @@ public sealed class ScreenDefinitionBindingValidator : IScreenDefinitionBindingV
         {
             case GridWidget grid:
                 ValidateRead(definition, grid.QueryId, $"{path}.queryId", grid.RequiredPermission, diagnostics);
+                ValidateGridBulkCommands(definition, grid, path, diagnostics);
                 break;
             case KpiWidget kpi:
                 ValidateRead(definition, kpi.QueryId, $"{path}.queryId", kpi.RequiredPermission, diagnostics);
@@ -225,6 +226,30 @@ public sealed class ScreenDefinitionBindingValidator : IScreenDefinitionBindingV
             case ColumnNode column:
                 ValidateChildren(definition, column.Children, path, diagnostics);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// 레이아웃 화면의 보조 그리드에 전역 상태 전이 버튼이 섞이지 않도록 그리드별
+    /// 일괄 명령을 별도 검증한다. null은 기존 화면의 top-level BulkCommands 상속이고,
+    /// 빈 목록은 조회 전용 그리드의 명시적 차단이다.
+    /// </summary>
+    private void ValidateGridBulkCommands(
+        ScreenDefinition definition,
+        GridWidget grid,
+        string path,
+        List<ScreenBindingDiagnostic> diagnostics)
+    {
+        if (grid.BulkCommands is null) return;
+        for (var index = 0; index < grid.BulkCommands.Count; index++)
+        {
+            ValidateWrite(
+                definition,
+                grid.BulkCommands[index].CommandQueryId,
+                $"{path}.bulkCommands[{index}].commandQueryId",
+                grid.BulkCommands[index].RequiredPermission,
+                CommandBindingSurface.Bulk,
+                diagnostics);
         }
     }
 

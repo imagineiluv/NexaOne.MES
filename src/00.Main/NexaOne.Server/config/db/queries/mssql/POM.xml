@@ -161,18 +161,54 @@
             ORDER BY OCCURRED_AT DESC, EXECUTION_ID DESC
         ]]></statement>
     </query>
-    <!-- 작업실행 공통 화면 — OPENJSON ordinal로 '>' 경로의 현재/다음/재작업 복귀점을 계산한다. -->
+    <!-- 작업 관리 — 생산 W/O·LOT가 없는 Carrier 세척과 Batch/Campaign/Equipment 범위를 위한 조회. -->
+    <query id="POM.WorkScopeList" requiredPermission="pom:read">
+        <statement><![CDATA[
+            SELECT TOP 500 WORK_SCOPE_ID, PLANT_ID, SCOPE_TYPE, TARGET_ID, NAME,
+                   PARENT_SCOPE_ID, WORK_ORDER_ID, CARRIER_ID, EQUIPMENT_ID,
+                   PRODUCT_ID, PROCESS_ID, RECIPE_ID, RECIPE_VERSION, PLAN_QTY,
+                   START_QTY, COMPLETE_QTY, SCRAP_QTY, OWNER_ID, STATUS, IS_HOLD,
+                   STARTED_AT, COMPLETED_AT, DESCRIPTION, VERSION_NO
+            FROM POM_WORK_SCOPE WITH (NOLOCK)
+            WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
+              AND (@scopeType IS NULL OR SCOPE_TYPE = @scopeType)
+              AND (@targetId IS NULL OR TARGET_ID = @targetId)
+              AND (@workScopeId IS NULL OR WORK_SCOPE_ID = @workScopeId)
+              AND (@parentScopeId IS NULL OR PARENT_SCOPE_ID = @parentScopeId)
+              AND (@workOrderId IS NULL OR WORK_ORDER_ID = @workOrderId)
+              AND (@carrierId IS NULL OR CARRIER_ID = @carrierId)
+              AND (@equipmentId IS NULL OR EQUIPMENT_ID = @equipmentId)
+              AND (@status IS NULL OR STATUS = @status)
+            ORDER BY CREATED_AT DESC, WORK_SCOPE_ID
+        ]]></statement>
+    </query>
+    <query id="POM.WorkScopeMemberList" requiredPermission="pom:read">
+        <statement><![CDATA[
+            SELECT TOP 500 M.MEMBER_ID, M.WORK_SCOPE_ID, M.MEMBER_SCOPE_ID,
+                   M.MEMBER_TYPE, M.MEMBER_TARGET_ID, M.SEQUENCE_NO, M.CREATED_AT
+            FROM POM_WORK_SCOPE_MEMBER M WITH (NOLOCK)
+            WHERE (@workScopeId IS NULL OR M.WORK_SCOPE_ID = @workScopeId)
+              AND (@memberScopeId IS NULL OR M.MEMBER_SCOPE_ID = @memberScopeId)
+            ORDER BY M.WORK_SCOPE_ID, M.SEQUENCE_NO, M.MEMBER_ID
+        ]]></statement>
+    </query>
+    <query id="POM.WorkScopeExecutionList" requiredPermission="pom:read">
+        <statement><![CDATA[
+            SELECT TOP 500 EXECUTION_ID, WORK_SCOPE_ID, IDEMPOTENCY_KEY, ACTION,
+                   FROM_STATUS, TO_STATUS, GOOD_QTY, DEFECT_QTY, USER_ID,
+                   EQUIPMENT_ID, CLIENT_CHANNEL, DEVICE_ID, OCCURRED_AT, REMARK,
+                   EXPECTED_VERSION, RESULT_VERSION, CARRIER_ID, RESULT_CODE,
+                   RESULT_METADATA_JSON
+            FROM POM_WORK_SCOPE_EXECUTION WITH (NOLOCK)
+            WHERE (@workScopeId IS NULL OR WORK_SCOPE_ID = @workScopeId)
+              AND (@action IS NULL OR ACTION = @action)
+              AND (@carrierId IS NULL OR CARRIER_ID = @carrierId)
+            ORDER BY OCCURRED_AT DESC, EXECUTION_ID DESC
+        ]]></statement>
+    </query>
+    <!-- 작업실행 공통 화면 — 행별 route JSON을 한 번 만들고 OPENJSON ordinal로 현재/다음/재작업 복귀점을 계산한다. -->
     <query id="POM.LotRoutingContextList" requiredPermission="pom:read">
         <statement><![CDATA[
-            WITH ROUTE_PARTS AS (
-                SELECT L.LOT_ID,
-                       TRY_CONVERT(INT, ROUTE_JSON.[key]) AS STEP_INDEX,
-                       ROUTE_JSON.[value] AS PROCESS_ID
-                FROM POM_LOT L
-                CROSS APPLY OPENJSON(
-                    CONCAT('["', REPLACE(STRING_ESCAPE(L.ROUTE_STEPS, 'json'), '>', '","'), '"]')
-                ) ROUTE_JSON
-            )
             SELECT L.LOT_ID, L.PLANT_ID, L.WORK_ORDER_ID, L.PRODUCT_ID,
                    L.QTY, L.DEFECT_QTY, L.LOT_STATE, L.PROCESS_STATE, L.ROUTE_STEPS,
                    L.CURRENT_STEP, CURRENT_ROUTE.PROCESS_ID AS CURRENT_PROCESS_ID,
@@ -184,13 +220,25 @@
                    L.EQUIPMENT_ID, L.RECIPE_DEF_ID, L.RECIPE_DEF_VERSION, L.CARRIER_ID,
                    L.IS_HOLD, L.VERSION_NO, L.CONTROL_MODE
             FROM POM_LOT L
-            LEFT JOIN ROUTE_PARTS CURRENT_ROUTE
-              ON CURRENT_ROUTE.LOT_ID = L.LOT_ID AND CURRENT_ROUTE.STEP_INDEX = L.CURRENT_STEP
-            LEFT JOIN ROUTE_PARTS NEXT_ROUTE
-              ON NEXT_ROUTE.LOT_ID = L.LOT_ID
-             AND NEXT_ROUTE.STEP_INDEX = COALESCE(L.RETURN_STEP, L.CURRENT_STEP + 1)
-            LEFT JOIN ROUTE_PARTS RETURN_ROUTE
-              ON RETURN_ROUTE.LOT_ID = L.LOT_ID AND RETURN_ROUTE.STEP_INDEX = L.RETURN_STEP
+            CROSS APPLY (VALUES (
+                CONCAT('["', REPLACE(STRING_ESCAPE(L.ROUTE_STEPS, 'json'), '>', '","'), '"]')
+            )) ROUTE_DOCUMENT(ROUTE_JSON)
+            OUTER APPLY (
+                SELECT TOP (1) ROUTE_VALUE.[value] AS PROCESS_ID
+                FROM OPENJSON(ROUTE_DOCUMENT.ROUTE_JSON) ROUTE_VALUE
+                WHERE TRY_CONVERT(INT, ROUTE_VALUE.[key]) = L.CURRENT_STEP
+            ) CURRENT_ROUTE
+            OUTER APPLY (
+                SELECT TOP (1) ROUTE_VALUE.[value] AS PROCESS_ID
+                FROM OPENJSON(ROUTE_DOCUMENT.ROUTE_JSON) ROUTE_VALUE
+                WHERE TRY_CONVERT(INT, ROUTE_VALUE.[key]) = COALESCE(L.RETURN_STEP, L.CURRENT_STEP + 1)
+            ) NEXT_ROUTE
+            OUTER APPLY (
+                SELECT TOP (1) ROUTE_VALUE.[value] AS PROCESS_ID
+                FROM OPENJSON(ROUTE_DOCUMENT.ROUTE_JSON) ROUTE_VALUE
+                WHERE L.RETURN_STEP IS NOT NULL
+                  AND TRY_CONVERT(INT, ROUTE_VALUE.[key]) = L.RETURN_STEP
+            ) RETURN_ROUTE
             WHERE (@plantId IS NULL OR L.PLANT_ID = @plantId)
               AND (@lotId IS NULL OR L.LOT_ID = @lotId)
               AND (@controlMode IS NULL OR L.CONTROL_MODE = @controlMode)

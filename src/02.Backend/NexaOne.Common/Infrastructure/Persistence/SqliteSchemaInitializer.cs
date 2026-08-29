@@ -413,8 +413,10 @@ public static class SqliteSchemaInitializer
         }
 
         EnsureReadQueryRoleDefaults(conn);
+        EnsureWorkManagementTerminology(conn);
         EnsureEstEquipmentOutputScope(conn);
         EnsurePomBoundaryTriggers(conn);
+        EnsurePomWorkScopeIntegrity(conn);
         EnsureQmsInspectionExecutionV2(conn);
         EnsureQmsAiEvidenceIntegrity(conn);
         EnsureQmsInspectionIntegrity(conn);
@@ -423,6 +425,7 @@ public static class SqliteSchemaInitializer
         EnsureEmsSparePartManagementIntegrity(conn);
         EnsureEmsMdmMasterIntegrity(conn);
         EnsureUtilityMeterConfigurationHistory(conn);
+        EnsureTraceMaterialConfigurationSchema(conn, migrationDmlAlreadyApplied: true);
         EnsureAppendOnlyEvidenceGuards(conn);
         EnsureEmsToolMountPositionGuard(conn);
         EnsureTraceProjectionPerformanceSchema(conn, migrationDmlAlreadyApplied: true);
@@ -486,6 +489,13 @@ public static class SqliteSchemaInitializer
                         @"\bCREATE\s+INDEX\s+IX_IVT_TRACE_INBOX_READY\b",
                         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
                     continue;
+                // V151 filtered unique indexes must be created only after its reconciliation
+                // preflight. V114 legitimately allowed identities that V151 intentionally merges.
+                if (Regex.IsMatch(
+                        code,
+                        @"\bCREATE\s+UNIQUE\s+INDEX\s+(?:UX_IVT_TRACE_BINDING_ACTIVE_SOURCE|UX_IVT_FEED_SESSION_ACTIVE_LOT|UX_IVT_MATERIAL_LOT_ACTIVE_FEED_SESSION)\b",
+                        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+                    continue;
                 try
                 {
                     Exec(conn, code);
@@ -501,8 +511,10 @@ public static class SqliteSchemaInitializer
         // 증분 경로는 일반 INSERT/UPDATE를 실행하지 않는다. 표준 역할의 정확한 레거시 값만
         // 바꾸는 멱등 데이터 보정은 명시적으로 재조정한다. 사용자 커스텀 역할은 보존한다.
         EnsureReadQueryRoleDefaults(conn);
+        EnsureWorkManagementTerminology(conn);
         EnsureEstEquipmentOutputScope(conn);
         EnsurePomBoundaryTriggers(conn);
+        EnsurePomWorkScopeIntegrity(conn);
         EnsureQmsInspectionExecutionV2(conn);
         EnsureQmsAiEvidenceIntegrity(conn);
         EnsureQmsInspectionIntegrity(conn);
@@ -511,6 +523,9 @@ public static class SqliteSchemaInitializer
         EnsureEmsSparePartManagementIntegrity(conn);
         EnsureEmsMdmMasterIntegrity(conn);
         EnsureUtilityMeterConfigurationHistory(conn);
+        // V151 may need to promote legacy CorrelationId values before the consumption
+        // history append-only trigger is restored below.
+        EnsureTraceMaterialConfigurationSchema(conn, migrationDmlAlreadyApplied: false);
         EnsureAppendOnlyEvidenceGuards(conn);
         EnsureEmsToolMountPositionGuard(conn);
         EnsureTraceProjectionPerformanceSchema(conn, migrationDmlAlreadyApplied: false);
@@ -777,6 +792,554 @@ public static class SqliteSchemaInitializer
             """;
         command.Parameters.AddWithValue("@id", reconciliationId);
         return command.ExecuteScalar() is not null;
+    }
+
+    /// <summary>
+    /// V151 promotes feed-session evidence to typed columns and changes the active binding key to
+    /// the actual FDC source identity. Incremental SQLite startup skips migration UPDATE statements,
+    /// so backfill them once and reconcile every safety/performance index to its canonical shape.
+    /// </summary>
+    private static void EnsureTraceMaterialConfigurationSchema(
+        SqliteConnection conn,
+        bool migrationDmlAlreadyApplied)
+    {
+        if (!HasTable(conn, "IVT_TRACE_CONSUMPTION_BINDING")
+            || !HasTable(conn, "IVT_MATERIAL_FEED_SESSION")
+            || !HasTable(conn, "IVT_MATERIAL_LOT")
+            || !HasTable(conn, "IVT_MATERIAL_CONSUMPTION_HISTORY")
+            || !HasTable(conn, "IVT_TRACE_PROJECTION_INBOX")
+            || !HasColumn(conn, "IVT_MATERIAL_LOT", "ACTIVE_FEED_SESSION_ID")
+            || !HasColumn(conn, "IVT_MATERIAL_CONSUMPTION_HISTORY", "FEED_SESSION_ID"))
+            return;
+
+        EnsureSqliteReconciliationLedger(conn);
+        using (var transaction = conn.BeginTransaction(deferred: false))
+        {
+            try
+            {
+                const string reconciliationId = "V151__IVT_TRACE_MATERIAL_CONFIGURATION_COMMANDS";
+                var hasMarker = HasSqliteReconciliation(conn, transaction, reconciliationId);
+                using (var duplicateSource = conn.CreateCommand())
+                {
+                    duplicateSource.Transaction = transaction;
+                    duplicateSource.CommandText = """
+                        SELECT EQUIPMENT_ID, PARAMETER_ID, COUNT(*)
+                          FROM IVT_TRACE_CONSUMPTION_BINDING
+                         WHERE IS_ACTIVE = 1
+                         GROUP BY EQUIPMENT_ID, PARAMETER_ID
+                        HAVING COUNT(*) > 1
+                         LIMIT 1;
+                        """;
+                    using var reader = duplicateSource.ExecuteReader();
+                    if (reader.Read())
+                    {
+                        throw new InvalidOperationException(
+                            "V151 SQLite reconciliation found duplicate active TRACE source "
+                            + $"equipment='{reader.GetString(0)}', parameter='{reader.GetString(1)}', "
+                            + $"count={reader.GetInt64(2)}. Resolve physical source attribution before upgrade.");
+                    }
+                }
+                using (var duplicateLot = conn.CreateCommand())
+                {
+                    duplicateLot.Transaction = transaction;
+                    duplicateLot.CommandText = """
+                        SELECT MATERIAL_LOT_ID, COUNT(*)
+                          FROM IVT_MATERIAL_FEED_SESSION
+                         WHERE STATUS = 'Mounted' AND UNMOUNTED_AT IS NULL
+                         GROUP BY MATERIAL_LOT_ID
+                        HAVING COUNT(*) > 1
+                         LIMIT 1;
+                        """;
+                    using var reader = duplicateLot.ExecuteReader();
+                    if (reader.Read())
+                    {
+                        throw new InvalidOperationException(
+                            "V151 SQLite reconciliation found duplicate active material-LOT feed sessions "
+                            + $"lot='{reader.GetString(0)}', count={reader.GetInt64(1)}. "
+                            + "Resolve the physical mount before upgrade.");
+                    }
+                }
+                using (var legacyPendingDrain = conn.CreateCommand())
+                {
+                    legacyPendingDrain.Transaction = transaction;
+                    legacyPendingDrain.CommandText = """
+                        SELECT COUNT(*)
+                          FROM IVT_MATERIAL_FEED_SESSION S
+                          LEFT JOIN IVT_MATERIAL_LOT L
+                            ON L.LOT_ID = S.MATERIAL_LOT_ID
+                           AND L.ACTIVE_FEED_SESSION_ID = S.FEED_SESSION_ID
+                         WHERE (S.STATUS = 'Unmounted' OR S.UNMOUNTED_AT IS NOT NULL)
+                           AND L.LOT_ID IS NULL;
+                        """;
+                    var invalidCount = Convert.ToInt64(legacyPendingDrain.ExecuteScalar() ?? 0L);
+                    if (invalidCount != 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"V151 SQLite reconciliation found {invalidCount} legacy Unmounted "
+                            + "feed session(s) without an audited PendingDrain material-LOT reservation. "
+                            + "Do not guess a winner; reconcile provenance before upgrade.");
+                    }
+                }
+                if (!hasMarker && !migrationDmlAlreadyApplied)
+                {
+                    Exec(conn, """
+                        UPDATE IVT_MATERIAL_LOT
+                           SET ACTIVE_FEED_SESSION_ID = (
+                               SELECT S.FEED_SESSION_ID
+                                 FROM IVT_MATERIAL_FEED_SESSION S
+                                WHERE S.MATERIAL_LOT_ID = IVT_MATERIAL_LOT.LOT_ID
+                                  AND S.STATUS = 'Mounted' AND S.UNMOUNTED_AT IS NULL)
+                         WHERE EXISTS (
+                               SELECT 1 FROM IVT_MATERIAL_FEED_SESSION S
+                                WHERE S.MATERIAL_LOT_ID = IVT_MATERIAL_LOT.LOT_ID
+                                  AND S.STATUS = 'Mounted' AND S.UNMOUNTED_AT IS NULL);
+
+                        """, transaction);
+                }
+
+                using (var invalid = conn.CreateCommand())
+                {
+                    invalid.Transaction = transaction;
+                    invalid.CommandText = """
+                        SELECT COUNT(*)
+                          FROM IVT_MATERIAL_FEED_SESSION S
+                          LEFT JOIN IVT_MATERIAL_LOT L
+                            ON L.LOT_ID = S.MATERIAL_LOT_ID
+                           AND L.ACTIVE_FEED_SESSION_ID = S.FEED_SESSION_ID
+                         WHERE S.STATUS = 'Mounted' AND S.UNMOUNTED_AT IS NULL
+                           AND L.LOT_ID IS NULL;
+                        """;
+                    var invalidCount = Convert.ToInt64(invalid.ExecuteScalar() ?? 0L);
+                    if (invalidCount != 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"V151 SQLite reconciliation found {invalidCount} active feed session(s) "
+                            + "without the matching material-LOT reservation. Repair the physical mount state first.");
+                    }
+                }
+
+                using (var invalidReservation = conn.CreateCommand())
+                {
+                    invalidReservation.Transaction = transaction;
+                    invalidReservation.CommandText = """
+                        SELECT COUNT(*)
+                          FROM IVT_MATERIAL_LOT L
+                          LEFT JOIN IVT_MATERIAL_FEED_SESSION S
+                            ON S.FEED_SESSION_ID = L.ACTIVE_FEED_SESSION_ID
+                           AND S.MATERIAL_LOT_ID = L.LOT_ID
+                         WHERE L.ACTIVE_FEED_SESSION_ID IS NOT NULL
+                           AND S.FEED_SESSION_ID IS NULL;
+                        """;
+                    var invalidCount = Convert.ToInt64(invalidReservation.ExecuteScalar() ?? 0L);
+                    if (invalidCount != 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"V151 SQLite reconciliation found {invalidCount} material-LOT reservation(s) "
+                            + "whose feed session is missing or belongs to a different LOT. Repair reservation provenance first.");
+                    }
+                }
+
+                using (var invalidReference = conn.CreateCommand())
+                {
+                    invalidReference.Transaction = transaction;
+                    invalidReference.CommandText = """
+                        SELECT COUNT(*)
+                          FROM IVT_MATERIAL_CONSUMPTION_HISTORY H
+                          LEFT JOIN IVT_MATERIAL_FEED_SESSION S
+                            ON S.FEED_SESSION_ID = H.FEED_SESSION_ID
+                           AND S.MATERIAL_LOT_ID = H.MATERIAL_LOT_ID
+                         WHERE H.FEED_SESSION_ID IS NOT NULL
+                           AND S.FEED_SESSION_ID IS NULL;
+                        """;
+                    var invalidCount = Convert.ToInt64(invalidReference.ExecuteScalar() ?? 0L);
+                    if (invalidCount != 0)
+                    {
+                        throw new InvalidOperationException(
+                            $"V151 SQLite reconciliation found {invalidCount} consumption row(s) "
+                            + "whose FEED_SESSION_ID has no parent feed session. Repair provenance first.");
+                    }
+                }
+
+                if (!hasMarker)
+                {
+                    using var marker = conn.CreateCommand();
+                    marker.Transaction = transaction;
+                    marker.CommandText = """
+                        INSERT INTO SYS_SQLITE_RECONCILIATION
+                            (RECONCILIATION_ID, APPLIED_AT)
+                        VALUES (@id, CURRENT_TIMESTAMP);
+                        """;
+                    marker.Parameters.AddWithValue("@id", reconciliationId);
+                    marker.ExecuteNonQuery();
+                }
+
+                transaction.Commit();
+            }
+            catch
+            {
+                transaction.Rollback();
+                throw;
+            }
+        }
+
+        EnsureV151ActiveBindingIndex(conn);
+        EnsureSqliteIndex(
+            conn, "IVT_TRACE_CONSUMPTION_BINDING", "IX_IVT_TRACE_BINDING_INTERVAL",
+            unique: false, partial: false,
+            """
+            CREATE INDEX IX_IVT_TRACE_BINDING_INTERVAL
+                ON IVT_TRACE_CONSUMPTION_BINDING (EQUIPMENT_ID, PARAMETER_ID, EFFECTIVE_TO);
+            """,
+            new IndexKey("EQUIPMENT_ID", false), new IndexKey("PARAMETER_ID", false),
+            new IndexKey("EFFECTIVE_TO", false));
+        EnsureSqliteIndex(
+            conn, "IVT_MATERIAL_FEED_SESSION", "UX_IVT_FEED_SESSION_ACTIVE_LOT",
+            unique: true, partial: true,
+            """
+            CREATE UNIQUE INDEX UX_IVT_FEED_SESSION_ACTIVE_LOT
+                ON IVT_MATERIAL_FEED_SESSION (MATERIAL_LOT_ID)
+                WHERE STATUS = 'Mounted' AND UNMOUNTED_AT IS NULL;
+            """,
+            new IndexKey("MATERIAL_LOT_ID", false));
+        EnsureSqliteIndex(
+            conn, "IVT_MATERIAL_FEED_SESSION", "UX_IVT_FEED_SESSION_ID_MATERIAL_LOT",
+            unique: true, partial: false,
+            """
+            CREATE UNIQUE INDEX UX_IVT_FEED_SESSION_ID_MATERIAL_LOT
+                ON IVT_MATERIAL_FEED_SESSION (FEED_SESSION_ID, MATERIAL_LOT_ID);
+            """,
+            new IndexKey("FEED_SESSION_ID", false), new IndexKey("MATERIAL_LOT_ID", false));
+        EnsureSqliteIndex(
+            conn, "IVT_MATERIAL_LOT", "UX_IVT_MATERIAL_LOT_ACTIVE_FEED_SESSION",
+            unique: true, partial: true,
+            """
+            CREATE UNIQUE INDEX UX_IVT_MATERIAL_LOT_ACTIVE_FEED_SESSION
+                ON IVT_MATERIAL_LOT (ACTIVE_FEED_SESSION_ID)
+                WHERE ACTIVE_FEED_SESSION_ID IS NOT NULL;
+            """,
+            new IndexKey("ACTIVE_FEED_SESSION_ID", false));
+        EnsureSqliteIndex(
+            conn, "IVT_MATERIAL_CONSUMPTION_HISTORY", "IX_IVT_MATERIAL_CONSUMPTION_FEED_SESSION",
+            unique: false, partial: true,
+            """
+            CREATE INDEX IX_IVT_MATERIAL_CONSUMPTION_FEED_SESSION
+                ON IVT_MATERIAL_CONSUMPTION_HISTORY (FEED_SESSION_ID)
+                WHERE FEED_SESSION_ID IS NOT NULL;
+            """,
+            new IndexKey("FEED_SESSION_ID", false));
+
+        // SQLite bootstraps with foreign_keys=OFF and cannot add V151's FKs to existing tables.
+        // These canonical triggers provide the same parent-exists/no-orphan and same-LOT
+        // reservation contracts for every writer, including non-TRACE and direct SQL paths.
+        Exec(conn, """
+            DROP TRIGGER IF EXISTS TR_IVT_MATERIAL_CONSUMPTION_FEED_SESSION_BI;
+            DROP TRIGGER IF EXISTS TR_IVT_MATERIAL_CONSUMPTION_FEED_SESSION_BU;
+            DROP TRIGGER IF EXISTS TR_IVT_MATERIAL_FEED_SESSION_CONSUMPTION_BU;
+            DROP TRIGGER IF EXISTS TR_IVT_MATERIAL_FEED_SESSION_CONSUMPTION_BD;
+            DROP TRIGGER IF EXISTS TR_IVT_MATERIAL_LOT_FEED_RESERVATION_BI;
+            DROP TRIGGER IF EXISTS TR_IVT_MATERIAL_LOT_FEED_RESERVATION_BU;
+            DROP TRIGGER IF EXISTS TR_IVT_MATERIAL_LOT_REFERENCE_REPLACE_BI;
+            DROP TRIGGER IF EXISTS TR_IVT_MATERIAL_LOT_REFERENCE_BD;
+            DROP TRIGGER IF EXISTS TR_IVT_FEED_SESSION_RESERVE_LOT_AI;
+            DROP TRIGGER IF EXISTS TR_IVT_MATERIAL_FEED_SESSION_RESERVATION_BU;
+            DROP TRIGGER IF EXISTS TR_IVT_MATERIAL_FEED_SESSION_RESERVATION_BD;
+            DROP TRIGGER IF EXISTS TR_IVT_MATERIAL_FEED_SESSION_REPLACE_BI;
+            DROP TRIGGER IF EXISTS TR_IVT_TRACE_BINDING_REPLACE_BI;
+            CREATE TRIGGER TR_IVT_MATERIAL_CONSUMPTION_FEED_SESSION_BI
+            BEFORE INSERT ON IVT_MATERIAL_CONSUMPTION_HISTORY
+            WHEN NEW.FEED_SESSION_ID IS NOT NULL
+             AND NOT EXISTS (
+                 SELECT 1 FROM IVT_MATERIAL_FEED_SESSION S
+                  WHERE S.FEED_SESSION_ID = NEW.FEED_SESSION_ID
+                    AND S.MATERIAL_LOT_ID = NEW.MATERIAL_LOT_ID)
+            BEGIN
+                SELECT RAISE(ABORT, 'IVT material consumption feed session does not exist');
+            END;
+            CREATE TRIGGER TR_IVT_MATERIAL_CONSUMPTION_FEED_SESSION_BU
+            BEFORE UPDATE OF FEED_SESSION_ID, MATERIAL_LOT_ID ON IVT_MATERIAL_CONSUMPTION_HISTORY
+            WHEN NEW.FEED_SESSION_ID IS NOT NULL
+             AND NOT EXISTS (
+                 SELECT 1 FROM IVT_MATERIAL_FEED_SESSION S
+                  WHERE S.FEED_SESSION_ID = NEW.FEED_SESSION_ID
+                    AND S.MATERIAL_LOT_ID = NEW.MATERIAL_LOT_ID)
+            BEGIN
+                SELECT RAISE(ABORT, 'IVT material consumption feed session does not exist');
+            END;
+            CREATE TRIGGER TR_IVT_MATERIAL_FEED_SESSION_CONSUMPTION_BU
+            BEFORE UPDATE OF FEED_SESSION_ID ON IVT_MATERIAL_FEED_SESSION
+            WHEN EXISTS (
+                SELECT 1 FROM IVT_MATERIAL_CONSUMPTION_HISTORY H
+                 WHERE H.FEED_SESSION_ID = OLD.FEED_SESSION_ID)
+            BEGIN
+                SELECT RAISE(ABORT, 'IVT material feed session has consumption history');
+            END;
+            CREATE TRIGGER TR_IVT_MATERIAL_FEED_SESSION_CONSUMPTION_BD
+            BEFORE DELETE ON IVT_MATERIAL_FEED_SESSION
+            WHEN EXISTS (
+                SELECT 1 FROM IVT_MATERIAL_CONSUMPTION_HISTORY H
+                 WHERE H.FEED_SESSION_ID = OLD.FEED_SESSION_ID)
+            BEGIN
+                SELECT RAISE(ABORT, 'IVT material feed session has consumption history');
+            END;
+            CREATE TRIGGER TR_IVT_MATERIAL_LOT_FEED_RESERVATION_BI
+            BEFORE INSERT ON IVT_MATERIAL_LOT
+            WHEN NEW.ACTIVE_FEED_SESSION_ID IS NOT NULL
+             AND NOT EXISTS (
+                 SELECT 1 FROM IVT_MATERIAL_FEED_SESSION S
+                  WHERE S.FEED_SESSION_ID = NEW.ACTIVE_FEED_SESSION_ID
+                    AND S.MATERIAL_LOT_ID = NEW.LOT_ID)
+            BEGIN
+                SELECT RAISE(ABORT, 'IVT material LOT reservation feed session does not match the LOT');
+            END;
+            CREATE TRIGGER TR_IVT_MATERIAL_LOT_FEED_RESERVATION_BU
+            BEFORE UPDATE OF ACTIVE_FEED_SESSION_ID, LOT_ID ON IVT_MATERIAL_LOT
+            WHEN (OLD.ACTIVE_FEED_SESSION_ID IS NOT NULL
+                  AND (NEW.ACTIVE_FEED_SESSION_ID IS NULL
+                       OR NEW.ACTIVE_FEED_SESSION_ID <> OLD.ACTIVE_FEED_SESSION_ID))
+              OR (NEW.ACTIVE_FEED_SESSION_ID IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM IVT_MATERIAL_FEED_SESSION S
+                       WHERE S.FEED_SESSION_ID = NEW.ACTIVE_FEED_SESSION_ID
+                         AND S.MATERIAL_LOT_ID = NEW.LOT_ID))
+            BEGIN
+                SELECT RAISE(ABORT, 'IVT material LOT reservation feed session does not match the LOT');
+            END;
+            CREATE TRIGGER TR_IVT_MATERIAL_LOT_REFERENCE_REPLACE_BI
+            BEFORE INSERT ON IVT_MATERIAL_LOT
+            WHEN EXISTS (
+                SELECT 1 FROM IVT_MATERIAL_LOT L
+                 WHERE L.LOT_ID = NEW.LOT_ID)
+            BEGIN
+                SELECT RAISE(ABORT, 'IVT material LOT replacement is not allowed');
+            END;
+            CREATE TRIGGER TR_IVT_MATERIAL_LOT_REFERENCE_BD
+            BEFORE DELETE ON IVT_MATERIAL_LOT
+            WHEN OLD.ACTIVE_FEED_SESSION_ID IS NOT NULL
+              OR EXISTS (
+                  SELECT 1 FROM IVT_MATERIAL_FEED_SESSION S
+                   WHERE S.MATERIAL_LOT_ID = OLD.LOT_ID)
+              OR EXISTS (
+                  SELECT 1 FROM IVT_MATERIAL_CONSUMPTION_HISTORY H
+                   WHERE H.MATERIAL_LOT_ID = OLD.LOT_ID)
+            BEGIN
+                SELECT RAISE(ABORT, 'IVT material LOT has feed-session or consumption references');
+            END;
+            CREATE TRIGGER TR_IVT_FEED_SESSION_RESERVE_LOT_AI
+            AFTER INSERT ON IVT_MATERIAL_FEED_SESSION
+            BEGIN
+                SELECT CASE
+                    WHEN NEW.STATUS <> 'Mounted'
+                      OR NEW.UNMOUNTED_AT IS NOT NULL
+                      OR NEW.UNMOUNTED_BY IS NOT NULL
+                    THEN RAISE(ABORT, 'A feed session must begin Mounted and reserve its material LOT')
+                END;
+                UPDATE IVT_MATERIAL_LOT
+                   SET ACTIVE_FEED_SESSION_ID = NEW.FEED_SESSION_ID,
+                       UPDATED_BY = NEW.MOUNTED_BY,
+                       UPDATED_AT = NEW.CREATED_AT
+                 WHERE LOT_ID = NEW.MATERIAL_LOT_ID
+                   AND MATERIAL_ID = NEW.MATERIAL_ID
+                   AND STATUS = 'InStock'
+                   AND CURRENT_QTY > 0
+                   AND ACTIVE_FEED_SESSION_ID IS NULL;
+                SELECT CASE
+                    WHEN changes() <> 1
+                    THEN RAISE(ABORT, 'Feed-session material LOT reservation failed')
+                END;
+            END;
+            CREATE TRIGGER TR_IVT_MATERIAL_FEED_SESSION_RESERVATION_BU
+            BEFORE UPDATE OF FEED_SESSION_ID, MATERIAL_LOT_ID ON IVT_MATERIAL_FEED_SESSION
+            WHEN EXISTS (
+                SELECT 1 FROM IVT_MATERIAL_LOT L
+                 WHERE L.ACTIVE_FEED_SESSION_ID = OLD.FEED_SESSION_ID
+                   AND (NEW.FEED_SESSION_ID <> OLD.FEED_SESSION_ID
+                        OR NEW.MATERIAL_LOT_ID <> L.LOT_ID))
+            BEGIN
+                SELECT RAISE(ABORT, 'IVT material feed session has an active LOT reservation');
+            END;
+            CREATE TRIGGER TR_IVT_MATERIAL_FEED_SESSION_RESERVATION_BD
+            BEFORE DELETE ON IVT_MATERIAL_FEED_SESSION
+            WHEN EXISTS (
+                SELECT 1 FROM IVT_MATERIAL_LOT L
+                 WHERE L.ACTIVE_FEED_SESSION_ID = OLD.FEED_SESSION_ID)
+            BEGIN
+                SELECT RAISE(ABORT, 'IVT material feed session has an active LOT reservation');
+            END;
+            CREATE TRIGGER TR_IVT_MATERIAL_FEED_SESSION_REPLACE_BI
+            BEFORE INSERT ON IVT_MATERIAL_FEED_SESSION
+            WHEN EXISTS (
+                SELECT 1 FROM IVT_MATERIAL_FEED_SESSION S
+                 WHERE S.FEED_SESSION_ID = NEW.FEED_SESSION_ID
+                    OR (NEW.STATUS = 'Mounted'
+                        AND NEW.UNMOUNTED_AT IS NULL
+                        AND S.STATUS = 'Mounted'
+                        AND S.UNMOUNTED_AT IS NULL
+                        AND ((S.PLANT_ID = NEW.PLANT_ID
+                              AND S.EQUIPMENT_ID = NEW.EQUIPMENT_ID
+                              AND S.FEED_POINT_ID = NEW.FEED_POINT_ID)
+                             OR S.MATERIAL_LOT_ID = NEW.MATERIAL_LOT_ID)))
+            BEGIN
+                SELECT RAISE(ABORT, 'IVT material feed session replacement is not allowed');
+            END;
+            CREATE TRIGGER TR_IVT_TRACE_BINDING_REPLACE_BI
+            BEFORE INSERT ON IVT_TRACE_CONSUMPTION_BINDING
+            WHEN EXISTS (
+                SELECT 1 FROM IVT_TRACE_CONSUMPTION_BINDING B
+                 WHERE B.BINDING_ID = NEW.BINDING_ID
+                    OR (NEW.IS_ACTIVE = 1
+                        AND B.IS_ACTIVE = 1
+                        AND B.EQUIPMENT_ID = NEW.EQUIPMENT_ID
+                        AND B.PARAMETER_ID = NEW.PARAMETER_ID))
+            BEGIN
+                SELECT RAISE(ABORT, 'IVT TRACE binding replacement is not allowed');
+            END;
+            """);
+
+        if (HasTable(conn, "IVT_TRACE_BINDING_COMMAND"))
+        {
+            Exec(conn, """
+                DROP TRIGGER IF EXISTS TR_IVT_TRACE_BINDING_COMMAND_PARENT_BI;
+                DROP TRIGGER IF EXISTS TR_IVT_TRACE_BINDING_COMMAND_PARENT_BU;
+                DROP TRIGGER IF EXISTS TR_IVT_TRACE_BINDING_COMMAND_PARENT_KEY_BU;
+                DROP TRIGGER IF EXISTS TR_IVT_TRACE_BINDING_COMMAND_PARENT_BD;
+                CREATE TRIGGER TR_IVT_TRACE_BINDING_COMMAND_PARENT_BI
+                BEFORE INSERT ON IVT_TRACE_BINDING_COMMAND
+                WHEN NOT EXISTS (
+                    SELECT 1 FROM IVT_TRACE_CONSUMPTION_BINDING B
+                     WHERE B.BINDING_ID = NEW.BINDING_ID)
+                BEGIN
+                    SELECT RAISE(ABORT, 'IVT TRACE binding command parent does not exist');
+                END;
+                CREATE TRIGGER TR_IVT_TRACE_BINDING_COMMAND_PARENT_BU
+                BEFORE UPDATE OF BINDING_ID ON IVT_TRACE_BINDING_COMMAND
+                WHEN NOT EXISTS (
+                    SELECT 1 FROM IVT_TRACE_CONSUMPTION_BINDING B
+                     WHERE B.BINDING_ID = NEW.BINDING_ID)
+                BEGIN
+                    SELECT RAISE(ABORT, 'IVT TRACE binding command parent does not exist');
+                END;
+                CREATE TRIGGER TR_IVT_TRACE_BINDING_COMMAND_PARENT_KEY_BU
+                BEFORE UPDATE OF BINDING_ID ON IVT_TRACE_CONSUMPTION_BINDING
+                WHEN EXISTS (
+                    SELECT 1 FROM IVT_TRACE_BINDING_COMMAND C
+                     WHERE C.BINDING_ID = OLD.BINDING_ID)
+                BEGIN
+                    SELECT RAISE(ABORT, 'IVT TRACE binding has command history');
+                END;
+                CREATE TRIGGER TR_IVT_TRACE_BINDING_COMMAND_PARENT_BD
+                BEFORE DELETE ON IVT_TRACE_CONSUMPTION_BINDING
+                WHEN EXISTS (
+                    SELECT 1 FROM IVT_TRACE_BINDING_COMMAND C
+                     WHERE C.BINDING_ID = OLD.BINDING_ID)
+                BEGIN
+                    SELECT RAISE(ABORT, 'IVT TRACE binding has command history');
+                END;
+                """);
+        }
+
+        if (HasTable(conn, "IVT_FEED_SESSION_COMMAND"))
+        {
+            Exec(conn, """
+                DROP TRIGGER IF EXISTS TR_IVT_FEED_SESSION_COMMAND_PARENT_BI;
+                DROP TRIGGER IF EXISTS TR_IVT_FEED_SESSION_COMMAND_PARENT_BU;
+                DROP TRIGGER IF EXISTS TR_IVT_FEED_SESSION_COMMAND_PARENT_KEY_BU;
+                DROP TRIGGER IF EXISTS TR_IVT_FEED_SESSION_COMMAND_PARENT_BD;
+                CREATE TRIGGER TR_IVT_FEED_SESSION_COMMAND_PARENT_BI
+                BEFORE INSERT ON IVT_FEED_SESSION_COMMAND
+                WHEN NOT EXISTS (
+                    SELECT 1 FROM IVT_MATERIAL_FEED_SESSION S
+                     WHERE S.FEED_SESSION_ID = NEW.FEED_SESSION_ID)
+                BEGIN
+                    SELECT RAISE(ABORT, 'IVT feed-session command parent does not exist');
+                END;
+                CREATE TRIGGER TR_IVT_FEED_SESSION_COMMAND_PARENT_BU
+                BEFORE UPDATE OF FEED_SESSION_ID ON IVT_FEED_SESSION_COMMAND
+                WHEN NOT EXISTS (
+                    SELECT 1 FROM IVT_MATERIAL_FEED_SESSION S
+                     WHERE S.FEED_SESSION_ID = NEW.FEED_SESSION_ID)
+                BEGIN
+                    SELECT RAISE(ABORT, 'IVT feed-session command parent does not exist');
+                END;
+                CREATE TRIGGER TR_IVT_FEED_SESSION_COMMAND_PARENT_KEY_BU
+                BEFORE UPDATE OF FEED_SESSION_ID ON IVT_MATERIAL_FEED_SESSION
+                WHEN EXISTS (
+                    SELECT 1 FROM IVT_FEED_SESSION_COMMAND C
+                     WHERE C.FEED_SESSION_ID = OLD.FEED_SESSION_ID)
+                BEGIN
+                    SELECT RAISE(ABORT, 'IVT feed session has command history');
+                END;
+                CREATE TRIGGER TR_IVT_FEED_SESSION_COMMAND_PARENT_BD
+                BEFORE DELETE ON IVT_MATERIAL_FEED_SESSION
+                WHEN EXISTS (
+                    SELECT 1 FROM IVT_FEED_SESSION_COMMAND C
+                     WHERE C.FEED_SESSION_ID = OLD.FEED_SESSION_ID)
+                BEGIN
+                    SELECT RAISE(ABORT, 'IVT feed session has command history');
+                END;
+                """);
+        }
+
+        if (HasIndex(conn, "IX_IVT_FEED_SESSION_INTERVAL"))
+            Exec(conn, "DROP INDEX IX_IVT_FEED_SESSION_INTERVAL;");
+        if (HasIndex(conn, "IX_IVT_TRACE_BINDING_SOURCE"))
+            Exec(conn, "DROP INDEX IX_IVT_TRACE_BINDING_SOURCE;");
+        if (HasIndex(conn, "IX_IVT_TRACE_INBOX_FEED_EVIDENCE"))
+            Exec(conn, "DROP INDEX IX_IVT_TRACE_INBOX_FEED_EVIDENCE;");
+    }
+
+    private static void EnsureV151ActiveBindingIndex(SqliteConnection conn)
+    {
+        const string index = "UX_IVT_TRACE_BINDING_ACTIVE_SOURCE";
+        const string createSql = """
+            CREATE UNIQUE INDEX UX_IVT_TRACE_BINDING_ACTIVE_SOURCE
+                ON IVT_TRACE_CONSUMPTION_BINDING (EQUIPMENT_ID, PARAMETER_ID)
+                WHERE IS_ACTIVE = 1;
+            """;
+        var keys = new[] { new IndexKey("EQUIPMENT_ID", false), new IndexKey("PARAMETER_ID", false) };
+        if (IndexMatches(
+                conn, "IVT_TRACE_CONSUMPTION_BINDING", index,
+                unique: true, partial: true, createSql, keys))
+            return;
+
+        using var transaction = conn.BeginTransaction(deferred: false);
+        try
+        {
+            using (var duplicate = conn.CreateCommand())
+            {
+                duplicate.Transaction = transaction;
+                duplicate.CommandText = """
+                    SELECT EQUIPMENT_ID, PARAMETER_ID, COUNT(*)
+                      FROM IVT_TRACE_CONSUMPTION_BINDING
+                     WHERE IS_ACTIVE = 1
+                     GROUP BY EQUIPMENT_ID, PARAMETER_ID
+                    HAVING COUNT(*) > 1
+                     LIMIT 1;
+                    """;
+                using var reader = duplicate.ExecuteReader();
+                if (reader.Read())
+                {
+                    throw new InvalidOperationException(
+                        "V151 SQLite index replacement found duplicate active TRACE source "
+                        + $"equipment='{reader.GetString(0)}', parameter='{reader.GetString(1)}', "
+                        + $"count={reader.GetInt64(2)}. The existing V114 index was preserved.");
+                }
+            }
+
+            using var exists = conn.CreateCommand();
+            exists.Transaction = transaction;
+            exists.CommandText =
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=@name COLLATE NOCASE;";
+            exists.Parameters.AddWithValue("@name", index);
+            if (Convert.ToInt32(exists.ExecuteScalar()) != 0)
+                Exec(conn, "DROP INDEX UX_IVT_TRACE_BINDING_ACTIVE_SOURCE;", transaction);
+            Exec(conn, createSql, transaction);
+            transaction.Commit();
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
     }
 
     private static bool SqliteObjectDefinitionMatches(
@@ -2110,6 +2673,54 @@ public static class SqliteSchemaInitializer
                 """);
         }
 
+        if (HasTable(conn, "IVT_TRACE_BINDING_COMMAND"))
+        {
+            Exec(conn, """
+                DROP TRIGGER IF EXISTS TR_IVT_TRACE_BINDING_COMMAND_BU;
+                DROP TRIGGER IF EXISTS TR_IVT_TRACE_BINDING_COMMAND_BD;
+                DROP TRIGGER IF EXISTS TR_IVT_TRACE_BINDING_COMMAND_BR;
+                CREATE TRIGGER TR_IVT_TRACE_BINDING_COMMAND_BU
+                BEFORE UPDATE ON IVT_TRACE_BINDING_COMMAND
+                BEGIN SELECT RAISE(ABORT, 'IVT_TRACE_BINDING_COMMAND is append-only'); END;
+                CREATE TRIGGER TR_IVT_TRACE_BINDING_COMMAND_BD
+                BEFORE DELETE ON IVT_TRACE_BINDING_COMMAND
+                BEGIN SELECT RAISE(ABORT, 'IVT_TRACE_BINDING_COMMAND is append-only'); END;
+                CREATE TRIGGER TR_IVT_TRACE_BINDING_COMMAND_BR
+                BEFORE INSERT ON IVT_TRACE_BINDING_COMMAND
+                WHEN EXISTS (
+                    SELECT 1 FROM IVT_TRACE_BINDING_COMMAND C
+                    WHERE C.COMMAND_ID = NEW.COMMAND_ID
+                       OR C.IDEMPOTENCY_KEY = NEW.IDEMPOTENCY_KEY
+                       OR (C.SOURCE_SYSTEM = NEW.SOURCE_SYSTEM
+                           AND C.SOURCE_EVENT_ID = NEW.SOURCE_EVENT_ID))
+                BEGIN SELECT RAISE(ABORT, 'IVT_TRACE_BINDING_COMMAND replacement is forbidden'); END;
+                """);
+        }
+
+        if (HasTable(conn, "IVT_FEED_SESSION_COMMAND"))
+        {
+            Exec(conn, """
+                DROP TRIGGER IF EXISTS TR_IVT_FEED_SESSION_COMMAND_BU;
+                DROP TRIGGER IF EXISTS TR_IVT_FEED_SESSION_COMMAND_BD;
+                DROP TRIGGER IF EXISTS TR_IVT_FEED_SESSION_COMMAND_BR;
+                CREATE TRIGGER TR_IVT_FEED_SESSION_COMMAND_BU
+                BEFORE UPDATE ON IVT_FEED_SESSION_COMMAND
+                BEGIN SELECT RAISE(ABORT, 'IVT_FEED_SESSION_COMMAND is append-only'); END;
+                CREATE TRIGGER TR_IVT_FEED_SESSION_COMMAND_BD
+                BEFORE DELETE ON IVT_FEED_SESSION_COMMAND
+                BEGIN SELECT RAISE(ABORT, 'IVT_FEED_SESSION_COMMAND is append-only'); END;
+                CREATE TRIGGER TR_IVT_FEED_SESSION_COMMAND_BR
+                BEFORE INSERT ON IVT_FEED_SESSION_COMMAND
+                WHEN EXISTS (
+                    SELECT 1 FROM IVT_FEED_SESSION_COMMAND C
+                    WHERE C.COMMAND_ID = NEW.COMMAND_ID
+                       OR C.IDEMPOTENCY_KEY = NEW.IDEMPOTENCY_KEY
+                       OR (C.SOURCE_SYSTEM = NEW.SOURCE_SYSTEM
+                           AND C.SOURCE_EVENT_ID = NEW.SOURCE_EVENT_ID))
+                BEGIN SELECT RAISE(ABORT, 'IVT_FEED_SESSION_COMMAND replacement is forbidden'); END;
+                """);
+        }
+
         if (HasTable(conn, "RMS_RECIPE_APPROVAL_HISTORY"))
         {
             Exec(conn, """
@@ -2581,6 +3192,34 @@ public static class SqliteSchemaInitializer
                 'SYSTEM', CURRENT_TIMESTAMP, 'SYSTEM', CURRENT_TIMESTAMP
             WHERE NOT EXISTS (SELECT 1 FROM SYS_ROLE WHERE ROLE_ID = 'MAINTENANCE');
             """);
+    }
+
+    /// <summary>
+    /// 기존 SQLite 데이터베이스에 남아 있을 수 있는 W/O 전용 표시명을 범위 중립적인
+    /// 작업 관리 용어로 한 번만 보정한다. 키와 이전 표준값을 함께 제한해 Designer가
+    /// 수정한 사용자 번역이나 다른 화면의 Work Order 명칭은 보존한다.
+    /// </summary>
+    private static void EnsureWorkManagementTerminology(SqliteConnection conn)
+    {
+        if (!HasTable(conn, "SYS_MULTI_LANGUAGE_RESOURCE")) return;
+
+        using var command = conn.CreateCommand();
+        command.CommandText = """
+            UPDATE SYS_MULTI_LANGUAGE_RESOURCE
+               SET VALUE = CASE
+                   WHEN LANGUAGE = 'EnUs' THEN 'Work Management'
+                   WHEN LANGUAGE = 'KoKr' THEN '작업 관리'
+                   ELSE VALUE
+               END
+             WHERE RESOURCE_KEY IN (
+                       'menu.FACTORY_PPM_WORK_ORDER',
+                       'screen.FACTORY_PPM_WORK_ORDER.title')
+               AND (
+                   (LANGUAGE = 'EnUs' AND VALUE IN ('W/O Management', 'Work Order Management'))
+                   OR (LANGUAGE = 'KoKr' AND VALUE IN ('W/O 관리', 'W/O관리', '작업지시 관리'))
+               );
+            """;
+        command.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -3624,6 +4263,171 @@ public static class SqliteSchemaInitializer
                   SELECT RAISE(ABORT, 'POM_WORK_ORDER has child lot or execution rows');
                 END;
                 """);
+        }
+    }
+
+    /// <summary>
+    /// SQLite does not retain SQL Server's V152 self-referencing/check constraints when an
+    /// existing database is upgraded. Reinstall equivalent guards here so direct writers cannot
+    /// bypass parent membership, carrier/equipment target identity, quantities, or append-only
+    /// execution evidence. The application service remains the user-facing validation boundary;
+    /// these triggers are the last line for scripts and recovery tooling.
+    /// </summary>
+    private static void EnsurePomWorkScopeIntegrity(SqliteConnection conn)
+    {
+        if (HasTable(conn, "POM_WORK_SCOPE"))
+        {
+            const string checks = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_WORK_SCOPE has invalid identity or state')
+                    WHERE COALESCE(TRIM(NEW.WORK_SCOPE_ID), '') = ''
+                       OR COALESCE(TRIM(NEW.PLANT_ID), '') = ''
+                       OR COALESCE(TRIM(NEW.TARGET_ID), '') = ''
+                       OR COALESCE(TRIM(NEW.NAME), '') = ''
+                       OR COALESCE(TRIM(NEW.CREATE_IDEMPOTENCY_KEY), '') = ''
+                       OR LENGTH(NEW.CREATE_IDEMPOTENCY_KEY) > 100
+                       OR COALESCE(TRIM(NEW.CREATE_REQUEST_HASH), '') = ''
+                       OR LENGTH(NEW.CREATE_REQUEST_HASH) > 64
+                       OR NEW.SCOPE_TYPE NOT IN ('Batch', 'Campaign', 'Carrier', 'Lot', 'Equipment', 'Other')
+                       OR NEW.STATUS NOT IN ('Created', 'Released', 'Started', 'Completed', 'Cancelled')
+                       OR NEW.IS_HOLD NOT IN ('Y', 'N')
+                       OR NEW.VERSION_NO IS NULL OR NEW.VERSION_NO < 1;
+                  SELECT RAISE(ABORT, 'POM_WORK_SCOPE has invalid quantities')
+                    WHERE NEW.PLAN_QTY IS NOT NULL AND NEW.PLAN_QTY <= 0
+                       OR NEW.START_QTY IS NULL OR NEW.START_QTY < 0
+                       OR NEW.COMPLETE_QTY IS NULL OR NEW.COMPLETE_QTY < 0
+                       OR NEW.SCRAP_QTY IS NULL OR NEW.SCRAP_QTY < 0
+                       OR (NEW.PLAN_QTY IS NOT NULL AND NEW.START_QTY > NEW.PLAN_QTY)
+                       OR (NEW.START_QTY > 0 AND NEW.COMPLETE_QTY + NEW.SCRAP_QTY > NEW.START_QTY);
+                  SELECT RAISE(ABORT, 'POM_WORK_SCOPE target identity is invalid')
+                    WHERE (NEW.SCOPE_TYPE = 'Carrier'
+                           AND (COALESCE(TRIM(NEW.CARRIER_ID), '') = ''
+                                OR NEW.TARGET_ID <> NEW.CARRIER_ID))
+                       OR (NEW.SCOPE_TYPE = 'Equipment'
+                           AND (COALESCE(TRIM(NEW.EQUIPMENT_ID), '') = ''
+                                OR NEW.TARGET_ID <> NEW.EQUIPMENT_ID));
+                  SELECT RAISE(ABORT, 'POM_WORK_SCOPE parent membership is invalid')
+                    WHERE NEW.PARENT_SCOPE_ID IS NOT NULL
+                      AND (NEW.PARENT_SCOPE_ID = NEW.WORK_SCOPE_ID
+                           OR NOT EXISTS (
+                               SELECT 1 FROM POM_WORK_SCOPE P
+                                WHERE P.WORK_SCOPE_ID = NEW.PARENT_SCOPE_ID
+                                  AND P.PLANT_ID = NEW.PLANT_ID
+                                  AND ((P.SCOPE_TYPE = 'Campaign'
+                                        AND NEW.SCOPE_TYPE IN ('Batch', 'Carrier', 'Lot', 'Other'))
+                                    OR (P.SCOPE_TYPE = 'Batch'
+                                        AND NEW.SCOPE_TYPE IN ('Carrier', 'Lot', 'Other')))));
+                  SELECT RAISE(ABORT, 'POM_WORK_SCOPE root scope cannot have a parent')
+                    WHERE NEW.PARENT_SCOPE_ID IS NOT NULL
+                      AND NEW.SCOPE_TYPE IN ('Campaign', 'Equipment');
+                END;
+                """;
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_WORK_SCOPE_BOUNDARY_BI;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_WORK_SCOPE_BOUNDARY_BU;");
+            Exec(conn, $"CREATE TRIGGER TR_POM_WORK_SCOPE_BOUNDARY_BI BEFORE INSERT ON POM_WORK_SCOPE {checks}");
+            Exec(conn, $"CREATE TRIGGER TR_POM_WORK_SCOPE_BOUNDARY_BU BEFORE UPDATE ON POM_WORK_SCOPE {checks}");
+
+            if (HasTable(conn, "POM_WORK_SCOPE_MEMBER"))
+            {
+                const string memberChecks = """
+                    BEGIN
+                      SELECT RAISE(ABORT, 'POM_WORK_SCOPE_MEMBER has invalid identity or sequence')
+                        WHERE COALESCE(TRIM(NEW.MEMBER_ID), '') = ''
+                           OR COALESCE(TRIM(NEW.WORK_SCOPE_ID), '') = ''
+                           OR COALESCE(TRIM(NEW.MEMBER_SCOPE_ID), '') = ''
+                           OR COALESCE(TRIM(NEW.MEMBER_TARGET_ID), '') = ''
+                           OR NEW.MEMBER_TYPE NOT IN ('Batch', 'Campaign', 'Carrier', 'Lot', 'Equipment', 'Other')
+                           OR NEW.SEQUENCE_NO IS NULL OR NEW.SEQUENCE_NO < 1
+                           OR NEW.WORK_SCOPE_ID = NEW.MEMBER_SCOPE_ID;
+                      SELECT RAISE(ABORT, 'POM_WORK_SCOPE_MEMBER parent/child relationship is invalid')
+                        WHERE NOT EXISTS (
+                          SELECT 1
+                            FROM POM_WORK_SCOPE P
+                            JOIN POM_WORK_SCOPE C ON C.WORK_SCOPE_ID = NEW.MEMBER_SCOPE_ID
+                           WHERE P.WORK_SCOPE_ID = NEW.WORK_SCOPE_ID
+                             AND C.PARENT_SCOPE_ID = P.WORK_SCOPE_ID
+                             AND P.PLANT_ID = C.PLANT_ID
+                             AND NEW.MEMBER_TYPE = C.SCOPE_TYPE
+                             AND NEW.MEMBER_TARGET_ID = C.TARGET_ID
+                             AND ((P.SCOPE_TYPE = 'Campaign'
+                                   AND C.SCOPE_TYPE IN ('Batch', 'Carrier', 'Lot', 'Other'))
+                               OR (P.SCOPE_TYPE = 'Batch'
+                                   AND C.SCOPE_TYPE IN ('Carrier', 'Lot', 'Other'))));
+                    END;
+                    """;
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_WORK_SCOPE_MEMBER_GUARD_BI;");
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_WORK_SCOPE_MEMBER_GUARD_BU;");
+                Exec(conn, $"CREATE TRIGGER TR_POM_WORK_SCOPE_MEMBER_GUARD_BI BEFORE INSERT ON POM_WORK_SCOPE_MEMBER {memberChecks}");
+                Exec(conn, $"CREATE TRIGGER TR_POM_WORK_SCOPE_MEMBER_GUARD_BU BEFORE UPDATE ON POM_WORK_SCOPE_MEMBER {memberChecks}");
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_WORK_SCOPE_MEMBER_APPEND_ONLY;");
+                Exec(conn, "DROP TRIGGER IF EXISTS TR_POM_WORK_SCOPE_MEMBER_APPEND_ONLY_BU;");
+                Exec(conn, """
+                    CREATE TRIGGER TR_POM_WORK_SCOPE_MEMBER_APPEND_ONLY
+                    BEFORE DELETE ON POM_WORK_SCOPE_MEMBER
+                    BEGIN
+                      SELECT RAISE(ABORT, 'POM_WORK_SCOPE_MEMBER is append-only');
+                    END;
+                    """);
+                Exec(conn, """
+                    CREATE TRIGGER TR_POM_WORK_SCOPE_MEMBER_APPEND_ONLY_BU
+                    BEFORE UPDATE ON POM_WORK_SCOPE_MEMBER
+                    BEGIN
+                      SELECT RAISE(ABORT, 'POM_WORK_SCOPE_MEMBER is append-only');
+                    END;
+                    """);
+            }
+
+            if (HasTable(conn, "POM_WORK_SCOPE_EXECUTION"))
+            {
+                Exec(conn, """
+                    DROP TRIGGER IF EXISTS TR_POM_WORK_SCOPE_EXECUTION_APPEND_ONLY;
+                    """);
+                Exec(conn, """
+                    CREATE TRIGGER TR_POM_WORK_SCOPE_EXECUTION_APPEND_ONLY
+                    BEFORE UPDATE ON POM_WORK_SCOPE_EXECUTION
+                    BEGIN
+                      SELECT RAISE(ABORT, 'POM_WORK_SCOPE_EXECUTION is append-only');
+                    END;
+                    """);
+                Exec(conn, """
+                    DROP TRIGGER IF EXISTS TR_POM_WORK_SCOPE_EXECUTION_DELETE_GUARD;
+                    """);
+                Exec(conn, """
+                    CREATE TRIGGER TR_POM_WORK_SCOPE_EXECUTION_DELETE_GUARD
+                    BEFORE DELETE ON POM_WORK_SCOPE_EXECUTION
+                    BEGIN
+                      SELECT RAISE(ABORT, 'POM_WORK_SCOPE_EXECUTION is append-only');
+                    END;
+                    """);
+            }
+        }
+
+        if (HasTable(conn, "EMS_TOOL_USAGE_HISTORY")
+            && HasColumn(conn, "EMS_TOOL_USAGE_HISTORY", "WORK_SCOPE_ID")
+            && HasColumn(conn, "EMS_TOOL_USAGE_HISTORY", "CARRIER_ID")
+            && HasColumn(conn, "EMS_TOOL_USAGE_HISTORY", "ACTIVITY_TYPE")
+            && HasColumn(conn, "EMS_TOOL_USAGE_HISTORY", "CLEANING_PROGRAM_ID")
+            && HasColumn(conn, "EMS_TOOL_USAGE_HISTORY", "CLEANING_RESULT"))
+        {
+            const string checks = """
+                BEGIN
+                  SELECT RAISE(ABORT, 'EMS_TOOL_USAGE_HISTORY has invalid activity type')
+                    WHERE NEW.ACTIVITY_TYPE NOT IN ('Use', 'Cleaning');
+                  SELECT RAISE(ABORT, 'EMS_TOOL_USAGE_HISTORY cleaning attribution is incomplete')
+                    WHERE (NEW.ACTIVITY_TYPE = 'Cleaning'
+                           AND (COALESCE(TRIM(NEW.WORK_SCOPE_ID), '') = ''
+                                OR COALESCE(TRIM(NEW.CARRIER_ID), '') = ''
+                                OR COALESCE(TRIM(NEW.CLEANING_PROGRAM_ID), '') = ''
+                                OR NEW.CLEANING_RESULT NOT IN ('Pass', 'Fail')))
+                       OR (NEW.ACTIVITY_TYPE = 'Use'
+                           AND (NEW.CLEANING_PROGRAM_ID IS NOT NULL
+                                OR NEW.CLEANING_RESULT IS NOT NULL));
+                END;
+                """;
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_TOOL_USAGE_ACTIVITY_BI;");
+            Exec(conn, "DROP TRIGGER IF EXISTS TR_EMS_TOOL_USAGE_ACTIVITY_BU;");
+            Exec(conn, $"CREATE TRIGGER TR_EMS_TOOL_USAGE_ACTIVITY_BI BEFORE INSERT ON EMS_TOOL_USAGE_HISTORY {checks}");
+            Exec(conn, $"CREATE TRIGGER TR_EMS_TOOL_USAGE_ACTIVITY_BU BEFORE UPDATE ON EMS_TOOL_USAGE_HISTORY {checks}");
         }
     }
 

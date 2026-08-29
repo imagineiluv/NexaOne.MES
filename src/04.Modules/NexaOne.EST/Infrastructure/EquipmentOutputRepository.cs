@@ -60,6 +60,7 @@ public sealed class EquipmentOutputRepository : QueryRepository, IEquipmentOutpu
             r.OccurredAt,
             r.CreatedAt,
             r.IsLotOutput,
+            r.WorkScopeId,
         };
         try
         {
@@ -100,7 +101,8 @@ public sealed class EquipmentOutputRepository : QueryRepository, IEquipmentOutpu
                METADATA_JSON AS MetadataJson,
                OCCURRED_AT AS OccurredAt,
                CREATED_AT AS CreatedAt,
-               IS_LOT_OUTPUT AS IsLotOutput
+               IS_LOT_OUTPUT AS IsLotOutput,
+               WORK_SCOPE_ID AS WorkScopeId
         FROM EST_EQUIPMENT_OUTPUT_EVENT";
 
     // INSERT ... SELECT ... WHERE NOT EXISTS is supported by both MSSQL and SQLite and makes the
@@ -110,11 +112,13 @@ public sealed class EquipmentOutputRepository : QueryRepository, IEquipmentOutpu
         (OUTPUT_EVENT_ID, IDEMPOTENCY_KEY, REQUEST_HASH, PLANT_ID, EQUIPMENT_ID, OUTPUT_TYPE,
          CARRIER_ID, PROCESS_LOT_ID, WORK_ORDER_ID, PROCESS_ID, RECIPE_ID, RECIPE_VERSION,
          TOTAL_QTY, GOOD_QTY, DEFECT_QTY, UNIT, SOURCE, SOURCE_EVENT_ID, ACTOR_ID,
-         CORRELATION_ID, METADATA_JSON, OCCURRED_AT, CREATED_BY, CREATED_AT, IS_LOT_OUTPUT)
+         CORRELATION_ID, METADATA_JSON, OCCURRED_AT, CREATED_BY, CREATED_AT, IS_LOT_OUTPUT,
+         WORK_SCOPE_ID)
         SELECT @OutputEventId, @IdempotencyKey, @RequestHash, @PlantId, @EquipmentId, @OutputType,
                @CarrierId, @ProcessLotId, @WorkOrderId, @ProcessId, @RecipeId, @RecipeVersion,
                @TotalQuantity, @GoodQuantity, @DefectQuantity, @Unit, @Source, @SourceEventId, @ActorId,
-               @CorrelationId, @MetadataJson, @OccurredAt, @ActorId, @CreatedAt, @IsLotOutput
+               @CorrelationId, @MetadataJson, @OccurredAt, @ActorId, @CreatedAt, @IsLotOutput,
+               @WorkScopeId
         WHERE NOT EXISTS (
             SELECT 1 FROM EST_EQUIPMENT_OUTPUT_EVENT WHERE IDEMPOTENCY_KEY = @IdempotencyKey
         )
@@ -149,11 +153,13 @@ public sealed class EquipmentOutputRepository : QueryRepository, IEquipmentOutpu
         public DateTime OccurredAt { get; set; }
         public DateTime CreatedAt { get; set; }
         public bool IsLotOutput { get; set; }
+        public string? WorkScopeId { get; set; }
 
         public EquipmentOutputRecord ToRecord() => new(
             OutputEventId, IdempotencyKey, RequestHash, PlantId, EquipmentId, OutputType,
             CarrierId, ProcessLotId, WorkOrderId, ProcessId, RecipeId, RecipeVersion,
             TotalQuantity, GoodQuantity, DefectQuantity, Unit, Source, SourceEventId,
-            ActorId, CorrelationId, MetadataJson, OccurredAt, CreatedAt, IsLotOutput);
+            ActorId, CorrelationId, MetadataJson, OccurredAt, CreatedAt, IsLotOutput,
+            WorkScopeId);
     }
 }

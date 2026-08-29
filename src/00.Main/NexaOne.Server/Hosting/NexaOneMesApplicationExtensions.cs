@@ -27,6 +27,25 @@ public static class NexaOneMesApplicationExtensions
         // 개발용 시드는 화면 요청을 받기 전에 준비되어야 첫 요청부터 일관된 데이터를 제공한다.
         NexaOneDevelopmentDatabaseInitializer.Initialize(app);
 
+        // 신뢰 proxy에서 온 X-Forwarded-Proto를 먼저 반영해야 admission TLS 정책과 IP rate-limit가
+        // 실제 client 연결을 기준으로 판단한다. 신뢰 proxy 목록은 등록 단계에서 제한된다.
+        app.UseForwardedHeaders();
+        app.Use(async (context, next) =>
+        {
+            if (context.Request.Path.StartsWithSegments("/api/v1/run-admission")
+                && app.Configuration.GetValue("RunAdmission:RequireHttps", true)
+                && !context.Request.IsHttps)
+            {
+                await Results.Problem(
+                        statusCode: StatusCodes.Status426UpgradeRequired,
+                        title: "HTTPS is required for run admission.")
+                    .ExecuteAsync(context);
+                return;
+            }
+
+            await next(context);
+        });
+
         app.UseSwagger();
         if (app.Environment.IsDevelopment()) app.UseSwaggerUI();
 

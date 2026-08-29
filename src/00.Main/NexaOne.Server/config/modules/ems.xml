@@ -10,6 +10,7 @@
     <constructor-arg ref="appConfiguration" />
     <constructor-arg ref="vendorDirectory" />
     <constructor-arg ref="equipmentDirectory" />
+    <constructor-arg ref="equipmentOutputMasterDirectory" />
     <constructor-arg ref="maintenanceIdentityDirectory" />
     <constructor-arg ref="quartzScheduler" />
     <constructor-arg ref="messageBus" />

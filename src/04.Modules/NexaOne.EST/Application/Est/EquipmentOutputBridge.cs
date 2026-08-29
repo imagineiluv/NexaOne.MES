@@ -36,5 +36,6 @@ public sealed class EquipmentOutputBridge : IEquipmentOutputBridge
         r.ProcessLotId,
         r.WorkOrderId,
         r.CorrelationId,
-        r.IsLotOutput);
+        r.IsLotOutput,
+        r.WorkScopeId);
 }

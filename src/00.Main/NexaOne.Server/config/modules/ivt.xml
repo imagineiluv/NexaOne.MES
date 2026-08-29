@@ -14,13 +14,16 @@
 
   <object id="materialBridge" factory-object="ivtModule" factory-method="GetMaterialBridge" />
   <object id="materialLotBridge" factory-object="ivtModule" factory-method="GetMaterialLotBridge" />
+  <object id="traceMaterialBridge" factory-object="ivtModule" factory-method="GetTraceMaterialBridge" />
   <object id="materialLotDirectory" factory-object="ivtModule" factory-method="GetMaterialLotDirectory" />
   <object id="mrpInventoryDirectory" factory-object="ivtModule" factory-method="GetMrpInventoryDirectory" />
   <object id="fdcTraceRetentionGuard" factory-object="ivtModule" factory-method="GetFdcTraceRetentionGuard" />
 
   <!-- Durable FDC source -> IVT consumption projection through the Common IFdcTraceSource contract.
-       It intentionally does not use messageBus: the persisted inbox is the restart-safe accounting seam. Enable with
-       Worker:Ivt:TraceMaterialConsumption:Enabled=true after bindings/feed sessions are configured. -->
+       It intentionally does not use messageBus: the persisted inbox is the restart-safe accounting seam.
+       Keep Worker:Ivt:TraceMaterialConsumption:Enabled=false,
+       Ivt:TraceConfiguration:BindingsEnabled=false, and
+       Ivt:TraceConfiguration:FeedSessionsEnabled=false until the documented fence/gap/drain/HIL release blockers close. -->
   <object id="traceMaterialConsumptionWorker"
           factory-object="ivtModule"
           factory-method="GetTraceMaterialConsumptionWorker" />

@@ -67,7 +67,9 @@ public sealed record ToolUsageRecord(
     string UsageId, string IdempotencyKey, string RequestHash, string ToolId, string? MountId,
     string EquipmentId, string? ProcessLotId, string? WorkOrderId, string? ProcessId,
     string? RecipeId, int? RecipeVersion, decimal UseCount, decimal UseMinutes,
-    DateTime UsedAt, string UsedBy, string? TraceId, string? ConditionSnapshotJson, DateTime CreatedAt);
+    DateTime UsedAt, string UsedBy, string? TraceId, string? ConditionSnapshotJson, DateTime CreatedAt,
+    string? WorkScopeId = null, string? CarrierId = null, string ActivityType = "Use",
+    string? CleaningProgramId = null, string? CleaningResult = null);
 
 public sealed record ToolInspectionRecord(
     string InspectionId, string IdempotencyKey, string RequestHash, string ToolId,

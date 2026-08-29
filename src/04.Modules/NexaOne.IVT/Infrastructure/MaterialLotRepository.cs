@@ -34,6 +34,17 @@ public sealed class MaterialLotRepository : QueryRepository, IMaterialLotReposit
             "SOURCE_SYSTEM = @sourceSystem AND SOURCE_EVENT_ID = @sourceEventId",
             new { sourceSystem, sourceEventId }, ct);
 
+    public async Task<bool> HasFeedSessionReservationAsync(
+        string lotId,
+        CancellationToken ct = default) =>
+        await QueryFirstOrDefaultAsync<string>(
+            """
+            SELECT ACTIVE_FEED_SESSION_ID
+              FROM IVT_MATERIAL_LOT
+             WHERE LOT_ID = @lotId AND ACTIVE_FEED_SESSION_ID IS NOT NULL
+            """,
+            new { lotId }, ct) is not null;
+
     public async Task<bool> TryReceiveAsync(
         MaterialLotTransaction record, CancellationToken ct = default)
     {
@@ -87,6 +98,7 @@ public sealed class MaterialLotRepository : QueryRepository, IMaterialLotReposit
                        CAST(@BalanceBefore AS DECIMAL(38,9))
                    AND STATUS = @PreviousStatus
                    AND COALESCE(WAREHOUSE, '') = COALESCE(@FromLocation, '')
+                   AND ACTIVE_FEED_SESSION_ID IS NULL
                    AND NOT EXISTS (SELECT 1 FROM IVT_MATERIAL_TX WHERE IDEMPOTENCY_KEY = @IdempotencyKey)
                    AND NOT EXISTS (SELECT 1 FROM IVT_MATERIAL_TX
                                    WHERE SOURCE_SYSTEM = @SourceSystem AND SOURCE_EVENT_ID = @SourceEventId)

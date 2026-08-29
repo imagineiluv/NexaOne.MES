@@ -136,6 +136,8 @@ public sealed class RecipeExecutionService
             ProcessId = Text(command.ProcessId),
             TraceId = Text(command.TraceId),
             ConditionSnapshotJson = Text(command.ConditionSnapshotJson),
+            WorkScopeId = Text(command.WorkScopeId),
+            CarrierId = Text(command.CarrierId),
             AppliedAt = Utc(command.AppliedAt),
             ActorId = actor,
         };
@@ -146,6 +148,8 @@ public sealed class RecipeExecutionService
             normalized.ProcessLotId ?? string.Empty,
             normalized.WorkOrderId ?? string.Empty,
             normalized.ProcessId ?? string.Empty,
+            normalized.WorkScopeId ?? string.Empty,
+            normalized.CarrierId ?? string.Empty,
             normalized.RecipeId,
             normalized.RecipeVersion.ToString(CultureInfo.InvariantCulture),
             normalized.ConditionSnapshotJson ?? string.Empty,
@@ -249,7 +253,10 @@ public sealed class RecipeExecutionService
             normalized.AppliedAt,
             normalized.Source,
             normalized.TraceId,
-            DateTime.UtcNow);
+            DateTime.UtcNow,
+            false,
+            normalized.WorkScopeId,
+            normalized.CarrierId);
 
         if (await _executions.TryAddAssignedExecutionAsync(
                 snapshot, assignment.AssignmentId, equipment.EquipmentClassId, ct))
@@ -323,8 +330,15 @@ public sealed class RecipeExecutionService
         if (!OptionalLength(command.ProcessLotId, IdLength)
             || !OptionalLength(command.WorkOrderId, IdLength)
             || !OptionalLength(command.ProcessId, IdLength)
-            || !OptionalLength(command.TraceId, 100))
+            || !OptionalLength(command.TraceId, 100)
+            || !OptionalLength(command.WorkScopeId, IdLength)
+            || !OptionalLength(command.CarrierId, 100))
             return Error.Validation("ExecutionContext", "An execution context identifier exceeds its supported length.");
+        if (!string.IsNullOrWhiteSpace(command.CarrierId)
+            && string.IsNullOrWhiteSpace(command.WorkScopeId))
+            return Error.Validation(
+                "ExecutionContext",
+                "CarrierId requires WorkScopeId so carrier history remains attributable to a work scope.");
         return null;
     }
 

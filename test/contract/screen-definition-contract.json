@@ -38,6 +38,7 @@
   "gridWidget": [
     "QueryId",
     "Columns",
+    "BulkCommands",
     "SelectionScope",
     "SelectionDisabled"
   ],

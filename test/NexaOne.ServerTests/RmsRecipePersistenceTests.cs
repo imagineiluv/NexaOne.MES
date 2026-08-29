@@ -788,7 +788,8 @@ public sealed class RmsRecipePersistenceTests : IClassFixture<RmsRecipePersisten
             recipe.Id, recipe.Version,
             appliedAt, "Equipment",
             ProcessLotId: $"LOT_{suffix}", WorkOrderId: $"WO_{suffix}",
-            TraceId: $"TRACE_{suffix}", ConditionSnapshotJson: "{\"pressure\":2.1}");
+            TraceId: $"TRACE_{suffix}", ConditionSnapshotJson: "{\"pressure\":2.1}",
+            WorkScopeId: $"SCOPE_{suffix}", CarrierId: $"CARRIER_{suffix}");
 
         var created = await service.RecordExecutionAsync(command, "operator-1");
         var replay = await service.RecordExecutionAsync(command, "operator-1");
@@ -806,6 +807,8 @@ public sealed class RmsRecipePersistenceTests : IClassFixture<RmsRecipePersisten
         stored.RecipeSnapshotJson.Should().Contain($"\"assignmentId\":\"{assigned.Value.AssignmentId}\"");
         stored.ParameterSnapshotJson.Should().Contain("Temperature");
         stored.ConditionSnapshotJson.Should().Be("{\"pressure\":2.1}");
+        stored.WorkScopeId.Should().Be(command.WorkScopeId);
+        stored.CarrierId.Should().Be(command.CarrierId);
         (await executions.GetExecutionByIdempotencyKeyAsync(command.IdempotencyKey))!
             .ExecutionId.Should().Be(command.ExecutionId);
     }

@@ -38,4 +38,5 @@ public sealed record EquipmentOutputRecord(
     string? MetadataJson,
     DateTime OccurredAt,
     DateTime CreatedAt,
-    bool IsLotOutput = false);
+    bool IsLotOutput = false,
+    string? WorkScopeId = null);

@@ -232,6 +232,45 @@ public sealed class MesMenuTerminologyTests
         finally { TryDelete(cs); }
     }
 
+    [Fact]
+    public void Incremental_schema_normalizes_legacy_work_order_labels_without_touching_custom_text()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.Apply(cs);
+            using (var connection = new SqliteConnection(cs))
+            {
+                connection.Open();
+                Exec(connection,
+                    "UPDATE SYS_MULTI_LANGUAGE_RESOURCE SET VALUE='W/O Management' " +
+                    "WHERE RESOURCE_KEY='menu.FACTORY_PPM_WORK_ORDER' AND LANGUAGE='EnUs'");
+                Exec(connection,
+                    "INSERT INTO SYS_MULTI_LANGUAGE_RESOURCE (RESOURCE_KEY,MENU_ID,LANGUAGE,VALUE) " +
+                    "VALUES ('screen.FACTORY_PPM_WORK_ORDER.title','COMMON','KoKr','W/O 관리')");
+                Exec(connection,
+                    "UPDATE SYS_MULTI_LANGUAGE_RESOURCE SET VALUE='W/O 관리' " +
+                    "WHERE RESOURCE_KEY='screen.FACTORY_PPM_WORK_ORDER.title' AND LANGUAGE='KoKr'");
+                Exec(connection,
+                    "INSERT INTO SYS_MULTI_LANGUAGE_RESOURCE (RESOURCE_KEY,MENU_ID,LANGUAGE,VALUE) " +
+                    "VALUES ('custom.work-order-label','COMMON','EnUs','My custom label')");
+            }
+
+            SqliteSchemaInitializer.EnsureSchema(cs);
+
+            Scalar(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE " +
+                "WHERE RESOURCE_KEY='menu.FACTORY_PPM_WORK_ORDER' AND LANGUAGE='EnUs'")
+                .Should().Be("Work Management");
+            Scalar(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE " +
+                "WHERE RESOURCE_KEY='screen.FACTORY_PPM_WORK_ORDER.title' AND LANGUAGE='KoKr'")
+                .Should().Be("작업 관리");
+            Scalar(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE " +
+                "WHERE RESOURCE_KEY='custom.work-order-label' AND LANGUAGE='EnUs'")
+                .Should().Be("My custom label");
+        }
+        finally { TryDelete(cs); }
+    }
+
     private static void Exec(SqliteConnection connection, string sql)
     {
         using var command = connection.CreateCommand();

@@ -23,9 +23,13 @@ public sealed class FdcCollectorService
     private readonly bool _requireRuntimeAuthority;
     private readonly object _runtimeStateGate = new();
     private readonly HashSet<FdcRuntimeKey> _pendingInitialSnapshots = new();
+    private readonly HashSet<string> _preparedEquipmentIds = new(StringComparer.Ordinal);
     private int? _preparedRuntimeRevision;
     private int _runtimeOperational;
     private int _runPermit;
+    // permit이 허용→거부로 바뀔 때마다 증가한다. 인터락이 keep-alive 사이에 발생했다가
+    // 해제되어도 이전 admission lease가 다시 current가 되지 않게 하는 단조 fencing 세대다.
+    private long _runAdmissionSafetyEpoch;
     private int _activeEffectCount;
     private int _pendingResolutionCount;
     private Exception? _runtimeFault;
@@ -136,6 +140,7 @@ public sealed class FdcCollectorService
     {
         lock (_runtimeStateGate)
         {
+            SetRunPermitUnderLock(0);
             _runtimeAuthority = null;
             _runtimeAuthorityDeadlineTimestamp = 0;
         }
@@ -152,12 +157,13 @@ public sealed class FdcCollectorService
         lock (_runtimeStateGate)
         {
             _runtimeOperational = 0;
-            _runPermit = 0;
+            SetRunPermitUnderLock(0);
             _activeEffectCount = 0;
             _pendingResolutionCount = 0;
             _runtimeFault = null;
             _preparedRuntimeRevision = null;
             _pendingInitialSnapshots.Clear();
+            _preparedEquipmentIds.Clear();
         }
         _activeInterlocks.Clear();
         _pendingInterlockResolutions.Clear();
@@ -245,6 +251,7 @@ public sealed class FdcCollectorService
             _preparedRuntimeRevision = bootstrap?.Revision;
             foreach (var equipment in topology)
             {
+                _preparedEquipmentIds.Add(equipment.EquipmentId);
                 foreach (var parameterId in equipment.ParameterIds)
                     _pendingInitialSnapshots.Add(RuntimeKey(equipment.EquipmentId, parameterId));
             }
@@ -280,7 +287,7 @@ public sealed class FdcCollectorService
             if (_interlockService is null)
             {
                 _runtimeOperational = 1;
-                _runPermit = 1;
+                SetRunPermitUnderLock(1);
                 return;
             }
 
@@ -298,7 +305,8 @@ public sealed class FdcCollectorService
             }
 
             _runtimeOperational = 1;
-            _runPermit = _activeEffectCount == 0 && _pendingResolutionCount == 0 ? 1 : 0;
+            SetRunPermitUnderLock(
+                _activeEffectCount == 0 && _pendingResolutionCount == 0 ? 1 : 0);
         }
     }
 
@@ -314,6 +322,58 @@ public sealed class FdcCollectorService
 
             FailRuntime(failure);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// 원격 자동운전 admission이 한 번에 관측할 수 있는 fail-closed snapshot입니다.
+    /// FDC writer authority와 permit을 같은 runtime lock에서 읽어 TOCTOU로 서로 다른 세대를 섞지 않습니다.
+    /// </summary>
+    internal FdcRunAdmissionSafetySnapshot CaptureRunAdmissionSafety(string equipmentId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(equipmentId);
+        equipmentId = equipmentId.Trim();
+        if (_interlockService is null)
+        {
+            return FdcRunAdmissionSafetySnapshot.Denied(
+                "FDC_INTERLOCK_RUNTIME_UNCONFIGURED",
+                "FDC interlock runtime is not configured; automatic operation remains denied.");
+        }
+
+        lock (_runtimeStateGate)
+        {
+            if (!_preparedEquipmentIds.Contains(equipmentId))
+            {
+                return FdcRunAdmissionSafetySnapshot.Denied(
+                    "FDC_EQUIPMENT_NOT_IN_RUNTIME_TOPOLOGY",
+                    $"Equipment '{equipmentId}' is not covered by the current FDC interlock topology.");
+            }
+
+            var authority = _runtimeAuthority;
+            var runtimeRevisionIsCurrent = _preparedRuntimeRevision is { } revision
+                                           && _interlockService.IsRuntimeCurrent(revision);
+            if (_runtimeOperational != 1
+                || _runPermit != 1
+                || !runtimeRevisionIsCurrent
+                || authority is null
+                || authority.LeaseExpiresAt <= DateTime.UtcNow
+                || _runtimeAuthorityDeadlineTimestamp == 0
+                || FdcMonotonicDeadline.IsExpired(_runtimeAuthorityDeadlineTimestamp))
+            {
+                // InvalidateRuntime()는 revision을 먼저 바꾸고 callback을 나중에 호출한다. callback 전의
+                // 짧은 창에서도 이 snapshot이 과거 permit을 승인하지 않도록 즉시 fencing한다.
+                SetRunPermitUnderLock(0);
+                return FdcRunAdmissionSafetySnapshot.Denied(
+                    "FDC_RUN_NOT_PERMITTED",
+                    "FDC runtime is unavailable, stale, or has an active/pending interlock effect.");
+            }
+
+            return FdcRunAdmissionSafetySnapshot.Permitted(new FdcRunAdmissionAuthority(
+                equipmentId,
+                authority.OwnerId,
+                authority.FenceToken,
+                authority.ConfigRevision,
+                _runAdmissionSafetyEpoch));
         }
     }
 
@@ -1218,7 +1278,7 @@ public sealed class FdcCollectorService
             if (episodes.Any(candidate => candidate.EffectId == episode.EffectId))
                 return;
 
-            _runPermit = 0;
+            SetRunPermitUnderLock(0);
             episodes.Add(episode);
             _activeEffectCount++;
         }
@@ -1252,7 +1312,7 @@ public sealed class FdcCollectorService
         {
             if (queue.Any(candidate => candidate.Episode.EffectId == pending.Episode.EffectId))
                 return;
-            _runPermit = 0;
+            SetRunPermitUnderLock(0);
             queue.Enqueue(pending);
             _pendingResolutionCount++;
         }
@@ -1317,7 +1377,7 @@ public sealed class FdcCollectorService
             return;
 
         lock (_runtimeStateGate)
-            _runPermit = 0;
+            SetRunPermitUnderLock(0);
     }
 
     private FdcRuntimeAuthority? GetRuntimeAuthority()
@@ -1350,7 +1410,7 @@ public sealed class FdcCollectorService
                 && _activeEffectCount == 0
                 && _pendingResolutionCount == 0)
             {
-                _runPermit = 1;
+                SetRunPermitUnderLock(1);
             }
         }
     }
@@ -1441,12 +1501,26 @@ public sealed class FdcCollectorService
                 "FDC interlock monitoring runtime entered a fail-closed terminal state.");
             fault = _runtimeFault;
             _runtimeOperational = 0;
-            _runPermit = 0;
+            SetRunPermitUnderLock(0);
             _preparedRuntimeRevision = null;
         }
 
         if (notify)
             RuntimeFaulted?.Invoke(fault);
+    }
+
+    /// <summary>
+    /// 반드시 <see cref="_runtimeStateGate"/> 안에서 호출한다. 허용에서 거부로의 전이는 현재 admission을
+    /// 영구 fencing하며, 같은 FDC writer/fence로 다시 안전해져도 과거 lease를 되살리지 않는다.
+    /// </summary>
+    private void SetRunPermitUnderLock(int permit)
+    {
+        if (permit is not (0 or 1))
+            throw new ArgumentOutOfRangeException(nameof(permit));
+
+        if (_runPermit == 1 && permit == 0)
+            _runAdmissionSafetyEpoch = checked(_runAdmissionSafetyEpoch + 1);
+        _runPermit = permit;
     }
 
     private static FdcRuntimeKey RuntimeKey(string equipmentId, string parameterId) =>

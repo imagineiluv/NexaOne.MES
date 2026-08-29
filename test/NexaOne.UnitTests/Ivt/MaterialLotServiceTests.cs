@@ -121,6 +121,30 @@ public sealed class MaterialLotServiceTests
         _repository.Transactions.Should().HaveCount(2);
     }
 
+    [Fact]
+    public async Task Exact_lifecycle_replay_returns_before_the_active_mount_guard()
+    {
+        var service = new MaterialLotService(_repository);
+        await service.ExecuteAsync(Command(MaterialLotOperations.Receive, 0) with
+        {
+            MaterialId = "MAT-01", Quantity = 5m, Unit = "kg", Location = "STORE",
+        });
+        var move = Command(MaterialLotOperations.Move, 1) with
+        {
+            TransactionId = "TX-M", IdempotencyKey = "KEY-M", SourceEventId = "EV-M",
+            Location = "LINE",
+        };
+        var first = await service.ExecuteAsync(move);
+        _repository.IsMounted = true;
+
+        var replay = await service.ExecuteAsync(move);
+
+        first.IsSuccess.Should().BeTrue();
+        replay.IsSuccess.Should().BeTrue(replay.IsFailure ? replay.Error.Description : string.Empty);
+        replay.Value.IsReplay.Should().BeTrue();
+        _repository.Transactions.Should().HaveCount(2);
+    }
+
     private static MaterialLotCommand Command(string operation, int expectedVersion) => new(
         "TX-1", "KEY-1", operation, "LOT-01", expectedVersion,
         new DateTime(2026, 8, 26, 1, 2, 3, DateTimeKind.Utc), "MES", "EV-1",
@@ -130,6 +154,7 @@ public sealed class MaterialLotServiceTests
     {
         public MaterialLotState? Lot { get; private set; }
         public List<MaterialLotTransaction> Transactions { get; } = new();
+        public bool IsMounted { get; set; }
 
         public Task<MaterialLotState?> GetLotAsync(string lotId, CancellationToken ct = default)
             => Task.FromResult(Lot?.LotId == lotId ? Lot : null);
@@ -142,6 +167,9 @@ public sealed class MaterialLotServiceTests
             string sourceSystem, string sourceEventId, CancellationToken ct = default)
             => Task.FromResult(Transactions.SingleOrDefault(x =>
                 x.SourceSystem == sourceSystem && x.SourceEventId == sourceEventId));
+
+        public Task<bool> HasFeedSessionReservationAsync(
+            string lotId, CancellationToken ct = default) => Task.FromResult(IsMounted);
 
         public Task<bool> TryReceiveAsync(MaterialLotTransaction record, CancellationToken ct = default)
         {

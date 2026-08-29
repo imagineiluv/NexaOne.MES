@@ -304,6 +304,49 @@ public sealed class ScreenDefinitionCapabilityValidatorTests(ITestOutputHelper o
     }
 
     [Fact]
+    public void Layout_grid_can_override_inherited_bulk_commands_per_surface()
+    {
+        var command = "bridge:pom.work-scope.start";
+        var managed = new ScreenDefinition(
+            "WORK_SCOPE_GRID",
+            "작업 범위",
+            Array.Empty<FieldDefinition>(),
+            Layout: new SectionNode
+            {
+                Children =
+                [
+                    new GridWidget
+                    {
+                        QueryId = "POM.WorkScopeList",
+                        BulkCommands = [new BulkCommandDefinition("시작", command, RequiredPermission: "pom:execute")],
+                    },
+                ],
+            },
+            Purpose: ScreenPurpose.Execute);
+
+        var readOnlyAuxiliary = managed with
+        {
+            UiId = "WORK_SCOPE_AUXILIARY",
+            Purpose = ScreenPurpose.Inquiry,
+            Layout = new GridWidget
+            {
+                QueryId = "EMS.ToolUsageHistoryList",
+                BulkCommands = Array.Empty<BulkCommandDefinition>(),
+            },
+        };
+
+        var managedSnapshot = ScreenDefinitionCapabilityValidator.Inspect(managed);
+        var auxiliarySnapshot = ScreenDefinitionCapabilityValidator.Inspect(readOnlyAuxiliary);
+
+        managedSnapshot.HasBulkMutationPath.Should().BeTrue();
+        ScreenDefinitionCapabilityValidator.Validate(managed).Should().BeEmpty();
+        auxiliarySnapshot.HasReadPath.Should().BeTrue();
+        auxiliarySnapshot.HasBulkMutationPath.Should().BeFalse(
+            "빈 그리드 명령 목록은 화면 전역 상태전이의 상속을 차단해야 한다");
+        ScreenDefinitionCapabilityValidator.Validate(readOnlyAuxiliary).Should().BeEmpty();
+    }
+
+    [Fact]
     public void Every_layout_data_widget_query_is_a_primary_read_binding()
     {
         LayoutNode[] widgets =

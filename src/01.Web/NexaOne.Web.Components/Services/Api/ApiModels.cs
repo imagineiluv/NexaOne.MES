@@ -469,6 +469,82 @@ public sealed record PomWorkOrderActionResult(
     public bool Success => WorkOrder is not null && StatusCode is >= 200 and < 300;
 }
 
+// ── POM 작업 범위(Campaign/Batch/Carrier) 실행 ─────────────────────────────────────
+// 서버 ServiceContracts의 경량 JSON 미러. Carrier 범위는 LOT 없이 TargetId/CarrierId로 추적한다.
+public sealed record PomWorkScopeDto(
+    string WorkScopeId,
+    string PlantId,
+    string ScopeType,
+    string TargetId,
+    string Name,
+    string? ParentScopeId,
+    string? EquipmentId,
+    string? ProductId,
+    string? ProcessId,
+    string? RecipeId,
+    int? RecipeVersion,
+    decimal? PlanQty,
+    decimal StartQty,
+    decimal CompleteQty,
+    decimal ScrapQty,
+    string? OwnerId,
+    string Status,
+    bool IsHold,
+    DateTime? StartedAt,
+    DateTime? CompletedAt,
+    string? Description,
+    int VersionNo,
+    DateTime CreatedAt,
+    string CreatedBy,
+    DateTime? UpdatedAt,
+    string? UpdatedBy,
+    string? WorkOrderId = null,
+    string? CarrierId = null);
+
+/// <summary>생산 W/O나 LOT 없이 작업 대상을 등록하는 typed 요청입니다.</summary>
+public sealed record PomWorkScopeCreateRequest(
+    string WorkScopeId,
+    string PlantId,
+    string ScopeType,
+    string TargetId,
+    string Name,
+    string? ParentScopeId = null,
+    string? EquipmentId = null,
+    string? ProductId = null,
+    string? ProcessId = null,
+    string? RecipeId = null,
+    int? RecipeVersion = null,
+    decimal? PlanQty = null,
+    string? OwnerId = null,
+    string? Description = null,
+    string? CarrierId = null,
+    string? WorkOrderId = null,
+    string? IdempotencyKey = null);
+
+/// <summary>
+/// 작업 범위 상태전이 입력. GoodQty/DefectQty는 report/complete에서 현재 절대 누계다.
+/// </summary>
+public sealed record PomWorkScopeActionRequest(
+    int ExpectedVersion,
+    string IdempotencyKey,
+    string ClientChannel,
+    string? DeviceId = null,
+    string? Remark = null,
+    decimal? GoodQty = null,
+    decimal? DefectQty = null,
+    string? CarrierId = null,
+    string? ResultCode = null,
+    string? ResultMetadataJson = null);
+
+/// <summary>작업 범위 REST 결과. StatusCode=409이면 버전 충돌로 식별할 수 있다.</summary>
+public sealed record PomWorkScopeActionResult(
+    PomWorkScopeDto? WorkScope,
+    string? Error,
+    int StatusCode)
+{
+    public bool Success => WorkScope is not null && StatusCode is >= 200 and < 300;
+}
+
 // ── POM LOT 라우팅 실행 ────────────────────────────────────────────────────
 // RCL이 POM 모듈을 직접 참조하지 않도록 ServiceContracts JSON과 동일한 경량 미러를 유지합니다.
 public sealed record PomLotDto(

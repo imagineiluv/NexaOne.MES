@@ -122,6 +122,13 @@ public sealed record GridWidget : LayoutNode
     public string? QueryId { get; init; }
     public IReadOnlyList<GridColumnDefinition>? Columns { get; init; }
     /// <summary>
+    /// 이 그리드에서만 사용할 선택 행 일괄 명령입니다. null이면 화면의
+    /// <see cref="ScreenDefinition.BulkCommands"/>를 그대로 사용해 기존 화면과 호환합니다.
+    /// 빈 목록을 지정하면 조회 전용 보조 그리드에 화면 전역 명령을 노출하지 않습니다.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<BulkCommandDefinition>? BulkCommands { get; init; }
+    /// <summary>
     /// 선택 행을 저장할 업무 모델 스코프입니다. 지정하면 같은 <see cref="FormWidget.BindingScope"/>와
     /// <see cref="ButtonWidget.BindingScope"/>만 값을 공유하며, 미지정은 기존 화면 공유 모델을 사용합니다.
     /// </summary>

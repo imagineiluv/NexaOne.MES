@@ -9,6 +9,7 @@ using NexaOne.EMS.Infrastructure;
 using NexaOne.EST.Infrastructure;
 using NexaOne.FDC.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
+using NexaOne.IVT.Application.Materials;
 using NexaOne.IVT.Domain;
 using NexaOne.IVT.Infrastructure;
 using NexaOne.MDM.Infrastructure;
@@ -20,6 +21,7 @@ using NexaOne.QMS.Infrastructure;
 using NexaOne.RMS.Infrastructure;
 using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Est;
+using NexaOne.ServiceContracts.Fdc;
 using NexaOne.ServiceContracts.Ivt;
 using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Pom;
@@ -41,6 +43,100 @@ public sealed class MssqlRuntimeContractTests
     private readonly ITestOutputHelper _output;
 
     public MssqlRuntimeContractTests(ITestOutputHelper output) => _output = output;
+
+    [Fact]
+    public async Task Ivt_trace_binding_and_feed_session_commands_round_trip_on_mssql()
+    {
+        var database = await MssqlContractDatabase.TryCreateAsync(_output);
+        if (database is null)
+            return;
+
+        var suffix = Suffix();
+        var occurredAt = DateTime.UtcNow.AddMinutes(-10);
+        var lotId = $"ML_{suffix}";
+        var materialId = $"MAT_{suffix}";
+        var materialLots = new MaterialLotRepository(database.DataSource);
+        var received = await new MaterialLotService(materialLots).ExecuteAsync(new MaterialLotCommand(
+            $"RX_{suffix}", $"RX:{suffix}", MaterialLotOperations.Receive, lotId, 0,
+            occurredAt, "MSSQL-CONTRACT", $"RX:{suffix}", MaterialId: materialId,
+            Quantity: 100m, Unit: "kg", Location: "LINE", ActorId: "operator"));
+
+        var bindingCommand = new TraceBindingCommand(
+            TraceBindingOperations.Create, $"B_{suffix}", 0, $"B:{suffix}",
+            "MSSQL-CONTRACT", $"B:{suffix}", occurredAt, occurredAt,
+            PlantId: $"P_{suffix}", EquipmentId: $"E_{suffix}",
+            ParameterId: $"PARAM_{suffix}", FeedPointId: "FEED-01",
+            CalculationMode: "CounterDelta", ScaleFactor: 1m, OutputUnit: "kg",
+            ActorId: "maintainer");
+        var bindingService = new TraceBindingService(
+            new TraceBindingRepository(database.DataSource),
+            new EmptyTraceSource(),
+            TraceMaintenanceGate.Open());
+        var binding = await bindingService.ExecuteAsync(bindingCommand);
+        var bindingReplay = await bindingService.ExecuteAsync(bindingCommand);
+        var keyCaseVariant = await bindingService.ExecuteAsync(bindingCommand with
+        {
+            BindingId = $"BK_{suffix}",
+            EquipmentId = $"EK_{suffix}",
+            IdempotencyKey = bindingCommand.IdempotencyKey.ToLowerInvariant(),
+            SourceEventId = $"B-KEY:{suffix}",
+        });
+        var sourceCaseVariant = await bindingService.ExecuteAsync(bindingCommand with
+        {
+            BindingId = $"BS_{suffix}",
+            EquipmentId = $"ES_{suffix}",
+            IdempotencyKey = $"B-SOURCE:{suffix}",
+            SourceSystem = bindingCommand.SourceSystem.ToLowerInvariant(),
+            SourceEventId = bindingCommand.SourceEventId.ToLowerInvariant(),
+        });
+
+        var feedCommand = new FeedSessionCommand(
+            FeedSessionOperations.Mount, $"FS_{suffix}", 0, $"FS:{suffix}",
+            "MSSQL-CONTRACT", $"FS:{suffix}", occurredAt.AddMinutes(1),
+            PlantId: $"P_{suffix}", EquipmentId: $"E_{suffix}", FeedPointId: "FEED-01",
+            MaterialLotId: lotId, MaterialId: materialId, ActorId: "operator");
+        var feedService = new FeedSessionService(
+            new FeedSessionRepository(database.DataSource), materialLots);
+        var mounted = await feedService.ExecuteAsync(feedCommand);
+        var mountReplay = await feedService.ExecuteAsync(feedCommand);
+        var unmounted = await feedService.ExecuteAsync(new FeedSessionCommand(
+            FeedSessionOperations.Unmount, feedCommand.FeedSessionId, 1, $"FU:{suffix}",
+            "MSSQL-CONTRACT", $"FU:{suffix}", occurredAt.AddMinutes(2),
+            ActorId: "operator"));
+
+        received.IsSuccess.Should().BeTrue(received.IsFailure ? received.Error.Description : string.Empty);
+        binding.IsSuccess.Should().BeTrue(binding.IsFailure ? binding.Error.Description : string.Empty);
+        bindingReplay.IsSuccess.Should().BeTrue();
+        bindingReplay.Value.IsReplay.Should().BeTrue();
+        bindingReplay.Value.EffectiveFrom.Kind.Should().Be(DateTimeKind.Utc);
+        keyCaseVariant.IsSuccess.Should().BeTrue(
+            keyCaseVariant.IsFailure ? keyCaseVariant.Error.Description : string.Empty);
+        sourceCaseVariant.IsSuccess.Should().BeTrue(
+            sourceCaseVariant.IsFailure ? sourceCaseVariant.Error.Description : string.Empty);
+        mounted.IsSuccess.Should().BeTrue(mounted.IsFailure ? mounted.Error.Description : string.Empty);
+        mountReplay.IsSuccess.Should().BeTrue();
+        mountReplay.Value.IsReplay.Should().BeTrue();
+        mountReplay.Value.MountedAt.Kind.Should().Be(DateTimeKind.Utc);
+        unmounted.IsSuccess.Should().BeTrue(unmounted.IsFailure ? unmounted.Error.Description : string.Empty);
+        unmounted.Value.Should().BeEquivalentTo(new { Status = "Unmounted", Version = 2 });
+        (await database.ScalarAsync<int>(
+            "SELECT COUNT(*) FROM IVT_TRACE_BINDING_COMMAND WHERE BINDING_ID=@id;",
+            new { id = bindingCommand.BindingId })).Should().Be(1);
+        (await database.ScalarAsync<int>(
+            "SELECT COUNT(*) FROM IVT_FEED_SESSION_COMMAND WHERE FEED_SESSION_ID=@id;",
+            new { id = feedCommand.FeedSessionId })).Should().Be(2);
+
+        Func<Task> mutateBindingLedger = () => database.ExecuteAsync(
+            "UPDATE IVT_TRACE_BINDING_COMMAND SET ACTOR_ID='tampered' WHERE BINDING_ID=@id;",
+            new { id = bindingCommand.BindingId });
+        Func<Task> deleteFeedLedger = () => database.ExecuteAsync(
+            "DELETE FROM IVT_FEED_SESSION_COMMAND WHERE FEED_SESSION_ID=@id;",
+            new { id = feedCommand.FeedSessionId });
+        await mutateBindingLedger.Should().ThrowAsync<Microsoft.Data.SqlClient.SqlException>()
+            .WithMessage("*append-only*");
+        await deleteFeedLedger.Should().ThrowAsync<Microsoft.Data.SqlClient.SqlException>()
+            .WithMessage("*append-only*");
+    }
 
     [Fact]
     public async Task Ivt_trace_inbox_round_trip_is_idempotent_cursor_backed_and_queryable()
@@ -702,5 +798,14 @@ public sealed class MssqlRuntimeContractTests
             string equipmentClassId,
             CancellationToken ct = default)
             => Task.FromResult(false);
+    }
+
+    private sealed class EmptyTraceSource : IFdcTraceSource
+    {
+        public Task<IReadOnlyList<FdcTraceSample>> ReadAsync(
+            IReadOnlyCollection<FdcTraceReadScope> scopes,
+            int maxCount,
+            CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<FdcTraceSample>>([]);
     }
 }

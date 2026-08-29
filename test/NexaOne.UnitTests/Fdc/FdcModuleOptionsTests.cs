@@ -2,12 +2,25 @@ using Microsoft.Extensions.Configuration;
 using NexaOne.FDC;
 using NexaOne.FDC.Application.Fdc;
 using NexaOne.FDC.Infrastructure.Equipment;
+using NexaOne.UnitTests.TestInfrastructure;
 using NexaFramework.Scheduling;
+using System.Text.Json;
 
 namespace NexaOne.UnitTests.Fdc;
 
 public sealed class FdcModuleOptionsTests
 {
+    [Fact]
+    public void Production_sample_keeps_run_admission_fail_closed()
+    {
+        var path = RepositorySource.GetFile(
+            "src", "00.Main", "NexaOne.Server", "config", "appsettings.Production.sample.json");
+        using var document = JsonDocument.Parse(File.ReadAllText(path));
+
+        document.RootElement.GetProperty("RunAdmission")
+            .GetProperty("Enabled").GetBoolean().Should().BeFalse();
+    }
+
     [Fact]
     public void Retention_guard_addition_preserves_legacy_public_constructor_ABI()
     {
@@ -54,7 +67,25 @@ public sealed class FdcModuleOptionsTests
             DriverCleanupTimeoutSeconds: 10,
             RuntimeLease: new FdcLeaseOptions(
                 "disabled", new string('0', 64),
-                TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(10))));
+                TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(10)),
+            RunAdmission: new RunAdmissionOptions(
+                TimeSpan.FromSeconds(6),
+                TimeSpan.FromHours(12),
+                TimeSpan.FromDays(1))));
+    }
+
+    [Fact]
+    public void Run_admission_cannot_be_enabled_before_the_durable_shared_ledger_exists()
+    {
+        var configuration = BuildConfiguration(new Dictionary<string, string?>
+        {
+            ["RunAdmission:Enabled"] = "true",
+        });
+
+        var act = () => FdcModuleOptions.FromConfiguration(configuration);
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*durable shared request ledger*per-client/equipment quotas*HA routing contract*");
     }
 
     [Fact]
@@ -97,6 +128,9 @@ public sealed class FdcModuleOptionsTests
         options.RuntimeLease.ConfigRevisionSha256.Should().Be(new string('a', 64));
         options.RuntimeLease.Duration.Should().Be(TimeSpan.FromSeconds(60));
         options.RuntimeLease.RenewInterval.Should().Be(TimeSpan.FromSeconds(20));
+        options.RunAdmission.KeepAliveLeaseDuration.Should().Be(TimeSpan.FromSeconds(6));
+        options.RunAdmission.HardLeaseDuration.Should().Be(TimeSpan.FromHours(12));
+        options.RunAdmission.TombstoneRetention.Should().Be(TimeSpan.FromDays(1));
 
         FdcModuleOptions.FromConfiguration(configuration).RuntimeLease.OwnerId
             .Should().Be(options.RuntimeLease.OwnerId,

@@ -165,6 +165,17 @@ public interface IApiClient
         PomWorkOrderActionRequest request,
         CancellationToken ct = default);
 
+    // POM 작업 범위는 생산 W/O·LOT 없이도 Campaign→Batch→Carrier 또는 설비 단위로 실행한다.
+    // REST 경계는 서버의 JWT 권한, 상태 전이, 낙관적 버전, 멱등 키와 실행 이력을 보존한다.
+    Task<PomWorkScopeActionResult> CreatePomWorkScopeAsync(
+        PomWorkScopeCreateRequest request,
+        CancellationToken ct = default);
+    Task<PomWorkScopeActionResult> ExecutePomWorkScopeActionAsync(
+        string action,
+        string workScopeId,
+        PomWorkScopeActionRequest request,
+        CancellationToken ct = default);
+
     // POM LOT 라우팅 실행 — 오류 상태/차단 사유를 작업자 화면까지 보존합니다.
     Task<PomRoutingApiResult<PomLotDto>> ExecutePomLotTrackInAsync(
         string lotId, PomLotTrackInRequest request, CancellationToken ct = default);

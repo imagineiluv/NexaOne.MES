@@ -1,5 +1,7 @@
 # SQL Server 조회 성능 기준선 수집기(읽기 전용).
-# Query Store, 실제 index 사용량, 통계 freshness, missing-index 힌트, View/indexed-view 현황을 CSV로 남긴다.
+# Query Store query/plan별 성능과 관측 구간, 실제 index 사용량, 통계 freshness/컬럼,
+# missing-index 힌트, View 정의 hash·의존성/indexed-view 현황을 CSV로 남긴다.
+# SQL 원문과 plan XML/histogram 값은 생산 식별자·literal 노출 위험 때문에 기본 수집하지 않는다.
 # 물리 fragmentation은 비용이 있으므로 명시적인 -IncludePhysicalStats에서만 큰 index 상위 집합을 LIMITED로 읽는다.
 # DMV 결과는 관찰 자료일 뿐이다. 이 출력만으로 index를 자동 생성·삭제하지 않는다.
 param(
@@ -136,15 +138,35 @@ SELECT
     d.is_auto_update_stats_on AS AUTO_UPDATE_STATISTICS_ON,
     d.is_auto_update_stats_async_on AS AUTO_UPDATE_STATISTICS_ASYNC_ON,
     qso.actual_state_desc AS QUERY_STORE_STATE,
+    qso.desired_state_desc AS QUERY_STORE_DESIRED_STATE,
     qso.readonly_reason AS QUERY_STORE_READONLY_REASON,
     qso.current_storage_size_mb AS QUERY_STORE_SIZE_MB,
-    qso.max_storage_size_mb AS QUERY_STORE_MAX_SIZE_MB
+    qso.max_storage_size_mb AS QUERY_STORE_MAX_SIZE_MB,
+    qso.query_capture_mode_desc AS QUERY_STORE_CAPTURE_MODE,
+    qso.size_based_cleanup_mode_desc AS QUERY_STORE_SIZE_CLEANUP_MODE,
+    qso.stale_query_threshold_days AS QUERY_STORE_STALE_QUERY_DAYS,
+    qso.interval_length_minutes AS QUERY_STORE_INTERVAL_MINUTES,
+    qso.max_plans_per_query AS QUERY_STORE_MAX_PLANS_PER_QUERY
 FROM sys.databases AS d
 LEFT JOIN sys.database_query_store_options AS qso ON 1 = 1
 WHERE d.database_id = DB_ID();
 "@
 
     if ($null -ne $databaseOptions -and $databaseOptions.Rows.Count -gt 0) {
+        $compatibilityLevel = [int]$databaseOptions.Rows[0]['COMPATIBILITY_LEVEL']
+        if ($compatibilityLevel -lt 130) {
+            $compatibilityError = "Database compatibility level 130 or later is required by the registered OPENJSON queries; actual level is $compatibilityLevel."
+            Write-Warning $compatibilityError
+            $reportResults.Add([pscustomobject]@{
+                Name = 'database-compatibility-prerequisite'
+                Success = $false
+                RowCount = $null
+                File = $null
+                SqlErrorNumber = $null
+                Error = $compatibilityError
+            })
+        }
+
         $queryStoreState = [string]$databaseOptions.Rows[0]['QUERY_STORE_STATE']
         if (-not [string]::Equals($queryStoreState, 'READ_WRITE', [StringComparison]::OrdinalIgnoreCase)) {
             $queryStoreError = "Query Store must be READ_WRITE for a complete observation window; actual state is '$queryStoreState'."
@@ -156,6 +178,35 @@ WHERE d.database_id = DB_ID();
                 File = $null
                 SqlErrorNumber = $null
                 Error = $queryStoreError
+            })
+        }
+
+        $queryCaptureMode = [string]$databaseOptions.Rows[0]['QUERY_STORE_CAPTURE_MODE']
+        if ([string]::Equals($queryCaptureMode, 'NONE', [StringComparison]::OrdinalIgnoreCase)) {
+            $queryCaptureError = 'Query Store capture mode NONE cannot provide a representative query/plan baseline.'
+            Write-Warning $queryCaptureError
+            $reportResults.Add([pscustomobject]@{
+                Name = 'query-store-capture-prerequisite'
+                Success = $false
+                RowCount = $null
+                File = $null
+                SqlErrorNumber = $null
+                Error = $queryCaptureError
+            })
+        }
+
+        $staleQueryDays = [int]$databaseOptions.Rows[0]['QUERY_STORE_STALE_QUERY_DAYS']
+        # SQL Server uses 0 to disable stale-query cleanup (unbounded retention).
+        if ($staleQueryDays -ne 0 -and $staleQueryDays -lt $LookbackDays) {
+            $queryRetentionError = "Query Store stale-query retention ($staleQueryDays day(s)) is shorter than the requested $LookbackDays-day window."
+            Write-Warning $queryRetentionError
+            $reportResults.Add([pscustomobject]@{
+                Name = 'query-store-retention-prerequisite'
+                Success = $false
+                RowCount = $null
+                File = $null
+                SqlErrorNumber = $null
+                Error = $queryRetentionError
             })
         }
 
@@ -176,27 +227,139 @@ WHERE d.database_id = DB_ID();
         }
     }
 
+    $queryStoreWindow = Export-Report -Connection $connection -Name 'query-store-window' -Parameters @{
+        LookbackDays = $LookbackDays
+    } -Sql @"
+DECLARE @requestedToUtc DATETIME2 = SYSUTCDATETIME();
+DECLARE @requestedFromUtc DATETIME2 = DATEADD(DAY, -@LookbackDays, @requestedToUtc);
+WITH OrderedIntervals AS (
+    SELECT
+        rsi.start_time,
+        rsi.end_time,
+        LAG(rsi.end_time) OVER (ORDER BY rsi.start_time, rsi.end_time) AS previous_end_time
+    FROM sys.query_store_runtime_stats_interval AS rsi
+    WHERE rsi.end_time >= @requestedFromUtc
+      AND rsi.start_time <= @requestedToUtc
+), WindowSummary AS (
+    SELECT
+        MIN(start_time) AS FIRST_INTERVAL_START,
+        MAX(end_time) AS LAST_INTERVAL_END,
+        COUNT_BIG(*) AS INTERVAL_COUNT,
+        COALESCE(SUM(CASE
+            WHEN previous_end_time IS NOT NULL AND start_time > previous_end_time THEN 1
+            ELSE 0
+        END), 0) AS GAP_COUNT
+    FROM OrderedIntervals
+)
+SELECT
+    @requestedFromUtc AS REQUESTED_FROM_UTC,
+    @requestedToUtc AS REQUESTED_TO_UTC,
+    FIRST_INTERVAL_START,
+    LAST_INTERVAL_END,
+    INTERVAL_COUNT,
+    GAP_COUNT,
+    CASE WHEN INTERVAL_COUNT > 0
+           AND FIRST_INTERVAL_START <= @requestedFromUtc
+           AND LAST_INTERVAL_END >= @requestedToUtc
+           AND GAP_COUNT = 0
+         THEN 1 ELSE 0 END AS COVERAGE_COMPLETE
+FROM WindowSummary;
+"@
+
+    if ($null -ne $queryStoreWindow -and $queryStoreWindow.Rows.Count -gt 0) {
+        $windowRow = $queryStoreWindow.Rows[0]
+        $coverageComplete = -not [Convert]::IsDBNull($windowRow['COVERAGE_COMPLETE']) `
+            -and [int]$windowRow['COVERAGE_COMPLETE'] -eq 1
+        if (-not $coverageComplete) {
+            $coverageError = "Query Store does not cover the complete requested $LookbackDays-day window without interval gaps."
+            Write-Warning $coverageError
+            $reportResults.Add([pscustomobject]@{
+                Name = 'query-store-window-coverage-prerequisite'
+                Success = $false
+                RowCount = $null
+                File = $null
+                SqlErrorNumber = $null
+                Error = $coverageError
+            })
+        }
+    }
+
     $null = Export-Report -Connection $connection -Name 'query-store-top-logical-reads' -Parameters @{
         LookbackDays = $LookbackDays
         Top = $Top
     } -Sql @"
 SELECT TOP (@Top)
     q.query_id AS QUERY_ID,
+    CONVERT(VARCHAR(34), q.query_hash, 1) AS QUERY_HASH_HEX,
     OBJECT_SCHEMA_NAME(q.object_id) AS OBJECT_SCHEMA,
     OBJECT_NAME(q.object_id) AS OBJECT_NAME,
     SUM(rs.count_executions) AS EXECUTION_COUNT,
     CAST(SUM(rs.avg_logical_io_reads * rs.count_executions) AS DECIMAL(38, 2)) AS TOTAL_LOGICAL_READS,
     CAST(SUM(rs.avg_duration * rs.count_executions) / NULLIF(SUM(rs.count_executions), 0) / 1000.0 AS DECIMAL(18, 2)) AS AVG_DURATION_MS,
     MAX(rs.last_execution_time) AS LAST_EXECUTION_TIME,
-    LEFT(REPLACE(REPLACE(qt.query_sql_text, CHAR(13), ' '), CHAR(10), ' '), 4000) AS QUERY_SQL_TEXT
+    MAX(LEN(qt.query_sql_text)) AS QUERY_TEXT_LENGTH
 FROM sys.query_store_query_text AS qt
 JOIN sys.query_store_query AS q ON q.query_text_id = qt.query_text_id
 JOIN sys.query_store_plan AS p ON p.query_id = q.query_id
 JOIN sys.query_store_runtime_stats AS rs ON rs.plan_id = p.plan_id
 JOIN sys.query_store_runtime_stats_interval AS rsi ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
 WHERE rsi.end_time >= DATEADD(DAY, -@LookbackDays, SYSUTCDATETIME())
-GROUP BY q.query_id, q.object_id, qt.query_sql_text
+GROUP BY q.query_id, q.query_hash, q.object_id
 ORDER BY TOTAL_LOGICAL_READS DESC;
+"@
+
+    # Query-level aggregation can hide a regressed or failed forced plan behind a healthier plan.
+    # Keep this metadata/text-free report plan-granular; raw plan XML is intentionally excluded
+    # because compiled literals and ParameterList values can contain production identifiers.
+    $null = Export-Report -Connection $connection -Name 'query-store-plan-logical-reads' -Parameters @{
+        LookbackDays = $LookbackDays
+        Top = $Top
+    } -Sql @"
+SELECT TOP (@Top)
+    q.query_id AS QUERY_ID,
+    p.plan_id AS PLAN_ID,
+    CONVERT(VARCHAR(34), q.query_hash, 1) AS QUERY_HASH_HEX,
+    CONVERT(VARCHAR(34), p.query_plan_hash, 1) AS QUERY_PLAN_HASH_HEX,
+    OBJECT_SCHEMA_NAME(q.object_id) AS OBJECT_SCHEMA,
+    OBJECT_NAME(q.object_id) AS OBJECT_NAME,
+    p.engine_version AS ENGINE_VERSION,
+    p.compatibility_level AS COMPATIBILITY_LEVEL,
+    p.is_forced_plan AS IS_FORCED_PLAN,
+    p.force_failure_count AS FORCE_FAILURE_COUNT,
+    p.last_force_failure_reason AS LAST_FORCE_FAILURE_REASON,
+    p.count_compiles AS COUNT_COMPILES,
+    p.last_compile_start_time AS LAST_COMPILE_START_TIME,
+    SUM(rs.count_executions) AS EXECUTION_COUNT,
+    CAST(SUM(rs.avg_logical_io_reads * rs.count_executions) AS DECIMAL(38, 2)) AS TOTAL_LOGICAL_READS,
+    CAST(SUM(rs.avg_logical_io_reads * rs.count_executions)
+        / NULLIF(SUM(rs.count_executions), 0) AS DECIMAL(18, 2)) AS AVG_LOGICAL_READS,
+    MAX(rs.max_logical_io_reads) AS MAX_LOGICAL_READS,
+    CAST(SUM(rs.avg_duration * rs.count_executions)
+        / NULLIF(SUM(rs.count_executions), 0) / 1000.0 AS DECIMAL(18, 2)) AS AVG_DURATION_MS,
+    CAST(MAX(rs.max_duration) / 1000.0 AS DECIMAL(18, 2)) AS MAX_DURATION_MS,
+    MAX(rs.last_execution_time) AS LAST_EXECUTION_TIME,
+    MAX(LEN(qt.query_sql_text)) AS QUERY_TEXT_LENGTH
+FROM sys.query_store_query_text AS qt
+JOIN sys.query_store_query AS q ON q.query_text_id = qt.query_text_id
+JOIN sys.query_store_plan AS p ON p.query_id = q.query_id
+JOIN sys.query_store_runtime_stats AS rs ON rs.plan_id = p.plan_id
+JOIN sys.query_store_runtime_stats_interval AS rsi
+  ON rsi.runtime_stats_interval_id = rs.runtime_stats_interval_id
+WHERE rsi.end_time >= DATEADD(DAY, -@LookbackDays, SYSUTCDATETIME())
+GROUP BY
+    q.query_id,
+    p.plan_id,
+    q.query_hash,
+    p.query_plan_hash,
+    q.object_id,
+    p.engine_version,
+    p.compatibility_level,
+    p.is_forced_plan,
+    p.force_failure_count,
+    p.last_force_failure_reason,
+    p.count_compiles,
+    p.last_compile_start_time
+ORDER BY TOTAL_LOGICAL_READS DESC, q.query_id, p.plan_id;
 "@
 
     $null = Export-Report -Connection $connection -Name 'index-usage' -Sql @"
@@ -330,6 +493,17 @@ SELECT
     st.no_recompute AS NO_RECOMPUTE,
     st.has_filter AS HAS_FILTER,
     st.filter_definition AS FILTER_DEFINITION,
+    STUFF((
+        SELECT N', ' + CONVERT(NVARCHAR(MAX), QUOTENAME(c.name))
+        FROM sys.stats_columns AS sc
+        JOIN sys.columns AS c
+          ON c.object_id = sc.object_id
+         AND c.column_id = sc.column_id
+        WHERE sc.object_id = st.object_id
+          AND sc.stats_id = st.stats_id
+        ORDER BY sc.stats_column_id
+        FOR XML PATH(''), TYPE
+    ).value('.', 'NVARCHAR(MAX)'), 1, 2, N'') AS STATISTICS_COLUMNS,
     props.last_updated AS LAST_UPDATED,
     props.rows AS ROW_COUNT_AT_UPDATE,
     props.rows_sampled AS ROWS_SAMPLED,
@@ -432,13 +606,41 @@ SELECT
     CASE WHEN EXISTS (
         SELECT 1 FROM sys.indexes AS i WHERE i.object_id = v.object_id AND i.index_id > 0
     ) THEN 1 ELSE 0 END AS IS_INDEXED_VIEW,
-    COUNT(DISTINCT d.referencing_id) AS REFERENCING_OBJECT_COUNT,
-    MAX(v.modify_date) AS LAST_DEFINITION_CHANGE
+    (SELECT COUNT(DISTINCT incoming.referencing_id)
+       FROM sys.sql_expression_dependencies AS incoming
+      WHERE incoming.referenced_id = v.object_id) AS REFERENCING_OBJECT_COUNT,
+    v.modify_date AS LAST_DEFINITION_CHANGE,
+    DATALENGTH(m.definition) AS DEFINITION_BYTES,
+    CONVERT(VARCHAR(66), HASHBYTES(
+        'SHA2_256', CONVERT(VARBINARY(MAX), m.definition)), 1) AS DEFINITION_SHA256,
+    m.uses_ansi_nulls AS USES_ANSI_NULLS,
+    m.uses_quoted_identifier AS USES_QUOTED_IDENTIFIER
 FROM sys.views AS v
 JOIN sys.schemas AS s ON s.schema_id = v.schema_id
-LEFT JOIN sys.sql_expression_dependencies AS d ON d.referenced_id = v.object_id
-GROUP BY s.name, v.name, v.object_id, v.modify_date
+LEFT JOIN sys.sql_modules AS m ON m.object_id = v.object_id
 ORDER BY s.name, v.name;
+"@
+
+    # This is the opposite dependency direction from REFERENCING_OBJECT_COUNT above: it records
+    # what each View reads without exporting the View's SQL definition.
+    $null = Export-Report -Connection $connection -Name 'view-dependencies' -Sql @"
+SELECT DISTINCT
+    s.name AS VIEW_SCHEMA,
+    v.name AS VIEW_NAME,
+    d.referenced_database_name AS REFERENCED_DATABASE,
+    d.referenced_schema_name AS REFERENCED_SCHEMA,
+    d.referenced_entity_name AS REFERENCED_ENTITY,
+    d.referenced_class_desc AS REFERENCED_CLASS,
+    d.is_ambiguous AS IS_AMBIGUOUS
+FROM sys.views AS v
+JOIN sys.schemas AS s ON s.schema_id = v.schema_id
+JOIN sys.sql_expression_dependencies AS d ON d.referencing_id = v.object_id
+ORDER BY
+    s.name,
+    v.name,
+    d.referenced_database_name,
+    d.referenced_schema_name,
+    d.referenced_entity_name;
 "@
 
     $null = Export-Report -Connection $connection -Name 'indexed-view-index-definition' -Sql @"
@@ -561,6 +763,14 @@ $manifest = [ordered]@{
     EngineEdition = if ($null -ne $metadataRow) { $metadataRow['ENGINE_EDITION'] } else { $null }
     Database = $databaseName
     LookbackDays = $LookbackDays
+    QueryStoreCoverageScope = 'CapturedQueriesAndPlansWithinContinuousRuntimeIntervals'
+    ProvesExhaustiveWorkloadCapture = $false
+    QueryStoreCaptureMode = if ($null -ne $databaseOptions -and $databaseOptions.Rows.Count -gt 0) {
+        [string]$databaseOptions.Rows[0]['QUERY_STORE_CAPTURE_MODE']
+    } else { $null }
+    QueryStoreSizeCleanupMode = if ($null -ne $databaseOptions -and $databaseOptions.Rows.Count -gt 0) {
+        [string]$databaseOptions.Rows[0]['QUERY_STORE_SIZE_CLEANUP_MODE']
+    } else { $null }
     Top = $Top
     IncludePhysicalStats = [bool]$IncludePhysicalStats
     PhysicalStatsMinPageCount = $PhysicalStatsMinPageCount

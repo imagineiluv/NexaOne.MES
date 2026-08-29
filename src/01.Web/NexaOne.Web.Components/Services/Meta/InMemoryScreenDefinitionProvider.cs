@@ -1679,20 +1679,15 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             QueryId: "MDM.VendorItemList",
             SaveQueryId: "MDM.CreateVendorItem", DeleteQueryId: "MDM.DeleteVendorItem", Purpose: ScreenPurpose.Manage));
 
-        // 작업지시 쓰기는 raw SQL이 아니라 aggregate/API bridge만 사용한다.
-        Register(new ScreenDefinition("FACTORY_PPM_WORK_ORDER", "W/O 관리",
-            pomWoFields, pomWoCols, QueryId: "POM.WorkOrderList",
-            SaveQueryId: PomWorkOrderMetaCommands.Create, Purpose: ScreenPurpose.Manage,
-            SaveRequiredPermission: "pom:manage",
-            BulkCommands:
-            [
-                new BulkCommandDefinition(
-                    "W/O 릴리즈", PomWorkOrderMetaCommands.Release,
-                    "선택한 W/O를 릴리즈하시겠습니까?", "pom:manage"),
-                new BulkCommandDefinition(
-                    "W/O 취소", PomWorkOrderMetaCommands.Cancel,
-                    "선택한 W/O를 취소하시겠습니까?", "pom:manage"),
-            ]));
+        // 작업 관리 — 이 설비는 생산 작업지시를 실행 단위로 사용하지 않는다.
+        // Campaign→Batch→Carrier 계층을 POM 작업 범위로 관리하고, Carrier는 LOT 없이 Carrier ID로
+        // 추적한다. 기존 POC_PPM_WORK_ORDER와 생산지시 참조 그리드는 하위 호환/외부 연계용으로 유지한다.
+        Register(new ScreenDefinition("FACTORY_PPM_WORK_ORDER", "작업 관리",
+            Array.Empty<FieldDefinition>(),
+            Layout: BuildEquipmentWorkManagementLayout(),
+            SearchFields: BuildEquipmentWorkManagementSearchFields(),
+            BulkCommands: BuildEquipmentWorkScopeBulkCommands(),
+            Purpose: ScreenPurpose.Manage));
         Register(new ScreenDefinition("FACTORY_PPM_REPORT_WORKORDER", "작업지시 현황",
             Array.Empty<FieldDefinition>(), pomWoCols, QueryId: "POM.WorkOrderList", Purpose: ScreenPurpose.Report));
 
@@ -2682,6 +2677,304 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             new("INSPECTED_AT", "검사시각", Width: 155),
             new("INSPECTOR_ID", "검사자", Width: 100),
             new("REMARK", "비고", Width: 180),
+        ];
+
+    /// <summary>
+    /// 설비 작업 관리 화면입니다. 작업 범위 생성은 typed POM bridge로, 조회는 명명 쿼리로
+    /// 연결한다. WorkScope 그리드만 lifecycle 일괄 명령을 받고 Carrier/툴/레거시 이력은
+    /// 명시적인 빈 명령 목록으로 보호해 상태전이 버튼이 섞이지 않게 한다.
+    /// </summary>
+    private static LayoutNode BuildEquipmentWorkManagementLayout()
+        => new SectionNode
+        {
+            Id = "equipment-work-management",
+            Title = "작업 범위와 이력",
+            Children =
+            [
+                new TextWidget
+                {
+                    Id = "equipment-work-scope-note",
+                    Text = "이 설비는 생산 W/O를 작업 단위로 사용하지 않습니다. Campaign → Batch → Carrier 계층 또는 Carrier 단독 범위로 등록하며, LOT 없이 Carrier ID로 세척 이력을 추적합니다.",
+                },
+                new TextWidget
+                {
+                    Id = "equipment-work-api-note",
+                    Text = "작업 범위 등록·상태 전이는 POM API가 담당하고, 하단에는 Carrier 산출 결과와 툴 사용·점검 스냅샷을 함께 표시합니다. 실적은 양품/이상 누계로 보고하며 서버가 버전과 작업자 이력을 검증합니다.",
+                },
+                new SectionNode
+                {
+                    Id = "equipment-work-scope-registration",
+                    Title = "작업 범위 등록",
+                    Children =
+                    [
+                        new FormWidget
+                        {
+                            Id = "equipment-work-scope-create-form",
+                            SaveQueryId = PomWorkScopeMetaCommands.Create,
+                            RequiredPermission = "pom:manage",
+                            BindingScope = "work-scope-create",
+                            Fields =
+                            [
+                                new() { FieldKey = "workScopeId", Field = new FieldDefinition("workScopeId", "작업 범위 ID", Required: true) },
+                                new() { FieldKey = "plantId", Field = new FieldDefinition("plantId", "공장 ID", Required: true) },
+                                new() { FieldKey = "scopeType", Field = new FieldDefinition(
+                                    "scopeType", "범위 유형", FieldType.Select, Required: true,
+                                    Options: ["Campaign", "Batch", "Carrier", "Lot", "Equipment", "Other"]) },
+                                new() { FieldKey = "targetId", Field = new FieldDefinition("targetId", "대상 ID", Required: true) },
+                                new() { FieldKey = "name", Field = new FieldDefinition("name", "작업명", Required: true) },
+                                new() { FieldKey = "parentScopeId", Field = new FieldDefinition("parentScopeId", "상위 작업 범위 ID") },
+                                new() { FieldKey = "carrierId", Field = new FieldDefinition("carrierId", "Carrier ID (상위 연결, 선택)") },
+                                new() { FieldKey = "equipmentId", Field = new FieldDefinition("equipmentId", "설비 ID") },
+                                new() { FieldKey = "processId", Field = new FieldDefinition("processId", "공정 ID") },
+                                new() { FieldKey = "recipeId", Field = new FieldDefinition("recipeId", "레시피 ID") },
+                                new() { FieldKey = "recipeVersion", Field = new FieldDefinition("recipeVersion", "레시피 버전", FieldType.Number) },
+                                new() { FieldKey = "planQty", Field = new FieldDefinition("planQty", "계획 수량", FieldType.Number) },
+                                new() { FieldKey = "ownerId", Field = new FieldDefinition("ownerId", "담당자 ID") },
+                                new() { FieldKey = "description", Field = new FieldDefinition("description", "설명") },
+                            ],
+                        },
+                        new ButtonWidget
+                        {
+                            Id = "equipment-work-scope-create-button",
+                            Label = "작업 범위 등록",
+                            Command = PomWorkScopeMetaCommands.Create,
+                            RequiredPermission = "pom:manage",
+                            BindingScope = "work-scope-create",
+                        },
+                    ],
+                },
+                new SectionNode
+                {
+                    Id = "equipment-work-scope-execution",
+                    Title = "작업 범위 실행",
+                    Children =
+                    [
+                        new TextWidget
+                        {
+                            Id = "equipment-work-scope-execution-note",
+                            Text = "행을 선택한 뒤 릴리즈·시작·실적 보고·보류·보류 해제·완료·취소를 실행합니다. 양품/이상 수량은 현재 누계이며, 실행 후 최신 버전을 다시 조회합니다.",
+                        },
+                        new GridWidget
+                        {
+                            Id = "equipment-work-scope-grid",
+                            QueryId = "POM.WorkScopeList",
+                            RequiredPermission = "pom:read",
+                            BulkCommands = BuildEquipmentWorkScopeBulkCommands(),
+                            Columns =
+                            [
+                                new("WORK_SCOPE_ID", "작업 범위 ID", Width: 150),
+                                new("PLANT_ID", "공장", Width: 95),
+                                new("SCOPE_TYPE", "범위 유형", Width: 105),
+                                new("TARGET_ID", "대상 ID", Width: 140),
+                                new("NAME", "작업명", Width: 160),
+                                new("PARENT_SCOPE_ID", "상위 범위", Width: 140),
+                                new("CARRIER_ID", "Carrier ID", Width: 125),
+                                new("EQUIPMENT_ID", "설비", Width: 110),
+                                new("PROCESS_ID", "공정", Width: 110),
+                                new("RECIPE_ID", "레시피", Width: 125),
+                                new("RECIPE_VERSION", "레시피 버전", Width: 95),
+                                new("PLAN_QTY", "계획 수량", Width: 95),
+                                new("START_QTY", "착수 수량", Width: 95),
+                                new("COMPLETE_QTY", "양품 누계", Width: 95),
+                                new("SCRAP_QTY", "이상 누계", Width: 95),
+                                new("STATUS", "상태", Width: 105),
+                                new("IS_HOLD", "보류", Width: 70),
+                                new("STARTED_AT", "시작시각", Width: 155),
+                                new("COMPLETED_AT", "완료시각", Width: 155),
+                                new("VERSION_NO", "버전", Width: 70),
+                                new("OWNER_ID", "담당자", Width: 110),
+                                new("DESCRIPTION", "설명", Width: 180),
+                                new("WORK_ORDER_ID", "기존 생산지시 참조 (선택)", Width: 170),
+                            ],
+                        },
+                    ],
+                },
+                new RowNode
+                {
+                    Id = "equipment-work-history-row",
+                    Children =
+                    [
+                        new ColumnNode
+                        {
+                            Id = "equipment-carrier-history-column",
+                            Span = 8,
+                            Children =
+                            [
+                                new SectionNode
+                                {
+                                    Id = "equipment-carrier-history-section",
+                                    Title = "Carrier 작업 이력",
+                                    Children =
+                                    [
+                                        new GridWidget
+                                        {
+                                            Id = "equipment-carrier-output-grid",
+                                            QueryId = "EST.EquipmentOutputEventList",
+                                            RequiredPermission = "est:read",
+                                            SelectionDisabled = true,
+                                            BulkCommands = Array.Empty<BulkCommandDefinition>(),
+                                            Columns =
+                                            [
+                                                new("OUTPUT_EVENT_ID", "작업 이력 ID", Width: 145),
+                                                new("OCCURRED_AT", "발생시각", Width: 155),
+                                                new("OUTPUT_TYPE", "작업 결과/판정", Width: 125),
+                                                new("CARRIER_ID", "Carrier ID", Width: 125),
+                                                new("WORK_SCOPE_ID", "작업 범위", Width: 145),
+                                                new("EQUIPMENT_ID", "설비", Width: 110),
+                                                new("PROCESS_LOT_ID", "LOT (선택)", Width: 125),
+                                                new("WORK_ORDER_ID", "외부 작업 참조 (선택)", Width: 155),
+                                                new("PROCESS_ID", "공정", Width: 110),
+                                                new("RECIPE_ID", "레시피", Width: 125),
+                                                new("RECIPE_VERSION", "레시피 버전", Width: 95),
+                                                new("TOTAL_QTY", "처리 수량", Width: 95),
+                                                new("GOOD_QTY", "정상 수량", Width: 95),
+                                                new("DEFECT_QTY", "이상 수량", Width: 95),
+                                                new("UNIT", "단위", Width: 75),
+                                                new("ACTOR_ID", "작업자", Width: 110),
+                                                new("SOURCE", "발생원", Width: 100),
+                                                new("SOURCE_EVENT_ID", "원천 이벤트", Width: 145),
+                                                new("CORRELATION_ID", "연계 ID", Width: 145),
+                                            ],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                        new ColumnNode
+                        {
+                            Id = "equipment-tool-history-column",
+                            Span = 4,
+                            Children =
+                            [
+                                new SectionNode
+                                {
+                                    Id = "equipment-tool-usage-section",
+                                    Title = "툴 사용·공정 조건",
+                                    Children =
+                                    [
+                                        new GridWidget
+                                        {
+                                            Id = "equipment-tool-usage-grid",
+                                            QueryId = "EMS.ToolUsageHistoryList",
+                                            RequiredPermission = "ems:read",
+                                            SelectionDisabled = true,
+                                            BulkCommands = Array.Empty<BulkCommandDefinition>(),
+                                            Columns =
+                                            [
+                                                new("USAGE_ID", "사용 이력 ID", Width: 145),
+                                                new("USED_AT", "사용시각", Width: 155),
+                                                new("TOOL_ID", "툴", Width: 115),
+                                                new("EQUIPMENT_ID", "설비", Width: 110),
+                                                new("WORK_SCOPE_ID", "작업 범위", Width: 145),
+                                                new("CARRIER_ID", "Carrier ID", Width: 125),
+                                                new("ACTIVITY_TYPE", "활동 유형", Width: 110),
+                                                new("CLEANING_PROGRAM_ID", "세척 프로그램", Width: 135),
+                                                new("CLEANING_RESULT", "세척 판정", Width: 105),
+                                                new("RECIPE_ID", "레시피", Width: 125),
+                                                new("USE_COUNT", "사용 횟수", Width: 95),
+                                                new("USE_MINUTES", "사용 시간(분)", Width: 105),
+                                                new("USED_BY", "사용자", Width: 110),
+                                                new("TRACE_ID", "TRACE ID", Width: 145),
+                                                new("CONDITION_SNAPSHOT_JSON", "공정 조건 스냅샷", Width: 240),
+                                            ],
+                                        },
+                                    ],
+                                },
+                                new SectionNode
+                                {
+                                    Id = "equipment-tool-inspection-section",
+                                    Title = "툴 점검·교정 이력",
+                                    Children =
+                                    [
+                                        new GridWidget
+                                        {
+                                            Id = "equipment-tool-inspection-grid",
+                                            QueryId = "EMS.ToolInspectionHistoryList",
+                                            RequiredPermission = "ems:read",
+                                            SelectionDisabled = true,
+                                            BulkCommands = Array.Empty<BulkCommandDefinition>(),
+                                            Columns =
+                                            [
+                                                new("INSPECTION_ID", "점검 이력 ID", Width: 145),
+                                                new("INSPECTION_TYPE", "점검 유형", Width: 110),
+                                                new("RESULT", "판정", Width: 90),
+                                                new("MEASURED_VALUE", "측정값", Width: 100),
+                                                new("CERTIFICATE_NO", "성적서 번호", Width: 135),
+                                                new("INSPECTED_AT", "점검시각", Width: 155),
+                                                new("INSPECTED_BY", "점검자", Width: 110),
+                                            ],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                new SectionNode
+                {
+                    Id = "equipment-legacy-work-reference-section",
+                    Title = "기존 생산지시 참조 (읽기 전용)",
+                    Children =
+                    [
+                        new TextWidget
+                        {
+                            Id = "equipment-legacy-work-reference-note",
+                            Text = "기존 생산지시 데이터는 외부 연계 또는 과거 이력 확인용으로만 표시합니다. 이 화면에서는 생산지시를 생성하거나 상태를 변경하지 않습니다.",
+                        },
+                        new GridWidget
+                        {
+                            Id = "equipment-legacy-work-reference-grid",
+                            QueryId = "POM.WorkOrderList",
+                            RequiredPermission = "pom:read",
+                            SelectionDisabled = true,
+                            BulkCommands = Array.Empty<BulkCommandDefinition>(),
+                            Columns =
+                            [
+                                new("WORK_ORDER_ID", "외부 작업 참조 ID", Width: 155),
+                                new("PRODUCTION_ORDER_ID", "생산계획 참조", Width: 145),
+                                new("EQUIPMENT_ID", "설비", Width: 110),
+                                new("PLAN_QTY", "계획 수량", Width: 95),
+                                new("COMPLETE_QTY", "완료 수량", Width: 95),
+                                new("STATUS", "상태", Width: 95),
+                                new("STARTED_AT", "시작시각", Width: 155),
+                            ],
+                        },
+                    ],
+                },
+            ],
+        };
+
+    private static IReadOnlyList<BulkCommandDefinition> BuildEquipmentWorkScopeBulkCommands()
+        =>
+        [
+            new("릴리즈", PomWorkScopeMetaCommands.Release, "선택한 작업 범위를 릴리즈하시겠습니까?", "pom:manage"),
+            new("시작", PomWorkScopeMetaCommands.Start, "선택한 작업 범위를 시작하시겠습니까?", "pom:execute"),
+            new("실적 보고", PomWorkScopeMetaCommands.Report, "선택한 작업 범위의 현재 양품/이상 누계를 보고하시겠습니까?", "pom:execute"),
+            new("보류", PomWorkScopeMetaCommands.Hold, "선택한 작업 범위를 보류하시겠습니까?", "pom:execute"),
+            new("보류 해제", PomWorkScopeMetaCommands.ReleaseHold, "선택한 작업 범위의 보류를 해제하시겠습니까?", "pom:execute"),
+            new("완료", PomWorkScopeMetaCommands.Complete, "선택한 작업 범위를 완료하시겠습니까?", "pom:execute"),
+            new("취소", PomWorkScopeMetaCommands.Cancel, "선택한 작업 범위를 취소하시겠습니까?", "pom:manage"),
+        ];
+
+    private static IReadOnlyList<FieldDefinition> BuildEquipmentWorkManagementSearchFields()
+        =>
+        [
+            new("plantId", "공장 ID"),
+            new("scopeType", "범위 유형", FieldType.Select,
+                Options: ["Campaign", "Batch", "Carrier", "Lot", "Equipment", "Other"]),
+            new("targetId", "대상 ID"),
+            new("parentScopeId", "상위 작업 범위 ID"),
+            new("status", "상태", FieldType.Select,
+                Options: ["Created", "Released", "Started", "Completed", "Cancelled"]),
+            new("equipmentId", "설비 ID"),
+            new("carrierId", "Carrier ID"),
+            new("workScopeId", "작업 범위 ID"),
+            new("outputType", "작업 결과 유형"),
+            new("toolId", "툴 ID"),
+            new("activityType", "툴 활동 유형"),
+            new("inspectionType", "툴 점검 유형"),
+            new("from", "시작일", FieldType.Date),
+            new("to", "종료일", FieldType.Date),
         ];
 
     // FACTORY_QCA 공정/출하 정보연결 — 검사 규격 카탈로그(QMS_INSPECTION_SPEC).

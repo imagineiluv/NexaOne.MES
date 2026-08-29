@@ -28,8 +28,11 @@ public sealed record ConsumptionRecord(
     string SourceEventId,
     string SourceSystem,
     string OperatorId,
+    string? FeedSessionId,
     string? CorrelationId,
     string? ReversalOfId,
     string Status,
     string? MetadataJson,
-    DateTime OccurredAt);
+    DateTime OccurredAt,
+    string? WorkScopeId = null,
+    string? CarrierId = null);

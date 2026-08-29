@@ -281,6 +281,29 @@ public sealed class RecipeExecutionServiceTests
     }
 
     [Fact]
+    public async Task RecordExecution_requires_work_scope_when_carrier_correlation_is_supplied()
+    {
+        var recipe = RecipeOf(RecipeApprovalState.Released);
+        var recipes = new Mock<IRecipeRepository>();
+        var parameters = new Mock<IRecipeParamRepository>();
+        var executions = new Mock<IRecipeExecutionRepository>();
+        var service = new RecipeExecutionService(
+            recipes.Object, parameters.Object, executions.Object, EquipmentDirectory().Object);
+
+        var result = await service.RecordExecutionAsync(
+            Command(recipe) with { CarrierId = "CARRIER-01", WorkScopeId = null },
+            "operator-1");
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("ExecutionContext");
+        result.Error.Description.Should().Contain("WorkScopeId");
+        recipes.Verify(r => r.GetByIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        executions.Verify(r => r.TryAddAssignedExecutionAsync(
+            It.IsAny<RecipeExecutionSnapshot>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task RecordExecution_freezes_header_parameters_actor_and_idempotency_key()
     {
         var recipe = RecipeOf(RecipeApprovalState.Released);

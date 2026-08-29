@@ -10,6 +10,7 @@ using NexaOne.Infrastructure.Persistence;
 using NexaOne.IVT.Application.Materials;
 using NexaOne.IVT.Infrastructure;
 using NexaOne.Server.Gateway;
+using NexaOne.ServiceContracts.Ivt;
 using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
@@ -49,7 +50,7 @@ public sealed class IvtTraceProjectionPersistenceTests
     [Fact]
     public async Task Persisted_counter_samples_project_once_and_survive_repoll()
     {
-        var ids = SeedCounterTrace();
+        var ids = await SeedCounterTrace();
         var worker = BuildWorker();
 
         var first = await worker.ProjectBatchAsync();
@@ -108,7 +109,7 @@ public sealed class IvtTraceProjectionPersistenceTests
     [Fact]
     public async Task Missing_feed_session_records_error_and_blocks_later_sample_for_binding()
     {
-        var ids = SeedCounterTrace(includeFeedSession: false);
+        var ids = await SeedCounterTrace(includeFeedSession: false);
         var worker = BuildWorker();
 
         var completed = await worker.ProjectBatchAsync();
@@ -135,13 +136,9 @@ public sealed class IvtTraceProjectionPersistenceTests
     [Fact]
     public async Task Binding_lease_allows_only_one_repository_to_claim_ordered_rows()
     {
-        var ids = SeedCounterTrace();
+        var ids = await SeedCounterTrace();
         _ = _factory.CreateClient();
-        var dataSource = new EesDataSource
-        {
-            Provider = _factory.Services.GetRequiredService<IDatabaseProvider>(),
-            ConnectionString = _factory.ConnectionString,
-        };
+        var dataSource = DataSource();
         var firstRepository = new TraceProjectionRepository(dataSource, new SqliteEesDbCapability());
         var secondRepository = new TraceProjectionRepository(dataSource, new SqliteEesDbCapability());
         var traceSource = new FdcTraceSource(
@@ -171,11 +168,7 @@ public sealed class IvtTraceProjectionPersistenceTests
     private TraceMaterialConsumptionWorker BuildWorker()
     {
         _ = _factory.CreateClient();
-        var dataSource = new EesDataSource
-        {
-            Provider = _factory.Services.GetRequiredService<IDatabaseProvider>(),
-            ConnectionString = _factory.ConnectionString,
-        };
+        var dataSource = DataSource();
         var repository = new TraceProjectionRepository(dataSource, new SqliteEesDbCapability());
         var traceSource = new FdcTraceSource(
             new FdcCollectDataRepository(dataSource, new SqliteEesDbCapability()));
@@ -188,7 +181,7 @@ public sealed class IvtTraceProjectionPersistenceTests
             batchSize: 100);
     }
 
-    private SeedIds SeedCounterTrace(bool includeFeedSession = true)
+    private async Task<SeedIds> SeedCounterTrace(bool includeFeedSession = true)
     {
         _ = _factory.CreateClient();
         var suffix = Guid.NewGuid().ToString("N")[..10];
@@ -213,26 +206,52 @@ public sealed class IvtTraceProjectionPersistenceTests
         var secondAt = firstAt.AddSeconds(1);
 
         Exec("""
-            INSERT INTO IVT_MATERIAL_LOT
-              (LOT_ID, MATERIAL_ID, LOT_NO, WAREHOUSE, CURRENT_QTY, UNIT, STATUS,
-               CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@lot, @material, @lot, 'LINE', 100, 'kg', 'InStock',
-                    'TEST', @now, 'TEST', @now);
-
             INSERT INTO FDC_PARAMETER
               (PARAMETER_ID, PARAMETER_NAME, EQUIPMENT_ID, UNIT, LOWER_LIMIT, UPPER_LIMIT,
                IS_ACTIVE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
             VALUES (@parameter, @parameter, @equipment, 'kg', 0, 999999, 1,
                     'TEST', @now, 'TEST', @now);
+            """,
+            ("@parameter", parameterId), ("@equipment", equipmentId),
+            ("@now", DbDate(DateTime.UtcNow)));
 
-            INSERT INTO IVT_TRACE_CONSUMPTION_BINDING
-              (BINDING_ID, PLANT_ID, EQUIPMENT_ID, PARAMETER_ID, FEED_POINT_ID,
-               CALCULATION_MODE, SCALE_FACTOR, PULSE_QUANTITY, OUTPUT_UNIT, EFFECTIVE_FROM,
-               IS_ACTIVE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-            VALUES (@binding, 'PLANT01', @equipment, @parameter, 'FEED01',
-                    'CounterDelta', 1, NULL, 'kg', @effectiveFrom, 1,
-                    'TEST', @now, 'TEST', @now);
+        var dataSource = DataSource();
+        var material = $"M_{suffix}";
+        var receive = await new MaterialLotService(new MaterialLotRepository(dataSource))
+            .ExecuteAsync(new MaterialLotCommand(
+                $"RECV_{suffix}", $"RECV:{suffix}", MaterialLotOperations.Receive, lotId, 0,
+                effectiveFrom, "TEST", $"RECV:{suffix}", MaterialId: material,
+                LotNumber: lotId, Quantity: 100m, Unit: "kg", Location: "LINE",
+                ActorId: "operator"));
+        receive.IsSuccess.Should().BeTrue(receive.IsFailure ? receive.Error.Description : string.Empty);
 
+        var traceSource = new FdcTraceSource(
+            new FdcCollectDataRepository(dataSource, new SqliteEesDbCapability()));
+        var binding = await new TraceBindingService(
+                new TraceBindingRepository(dataSource), traceSource, TraceMaintenanceGate.Open())
+            .ExecuteAsync(new TraceBindingCommand(
+                TraceBindingOperations.Create, bindingId, 0, $"BIND:{suffix}", "TEST",
+                $"BIND:{suffix}", effectiveFrom, effectiveFrom,
+                PlantId: "PLANT01", EquipmentId: equipmentId, ParameterId: parameterId,
+                FeedPointId: "FEED01", CalculationMode: "CounterDelta", ScaleFactor: 1m,
+                OutputUnit: "kg", ActorId: "maintainer"));
+        binding.IsSuccess.Should().BeTrue(binding.IsFailure ? binding.Error.Description : string.Empty);
+
+        if (includeFeedSession)
+        {
+            var feed = await new FeedSessionService(
+                    new FeedSessionRepository(dataSource), new MaterialLotRepository(dataSource))
+                .ExecuteAsync(new FeedSessionCommand(
+                    FeedSessionOperations.Mount, feedId, 0, $"FEED:{suffix}", "TEST",
+                    $"FEED:{suffix}", effectiveFrom,
+                    PlantId: "PLANT01", EquipmentId: equipmentId, FeedPointId: "FEED01",
+                    MaterialLotId: lotId, MaterialId: material, ActorId: "operator"));
+            feed.IsSuccess.Should().BeTrue(feed.IsFailure ? feed.Error.Description : string.Empty);
+        }
+
+        // FDC_PARAMETER/FDC_COLLECT_DATA는 FDC 소유 저장소의 수집 fixture다. IVT가 소유하는 LOT,
+        // binding, feed-session은 위의 공식 application service 경로로만 구성한다.
+        Exec("""
             INSERT INTO FDC_COLLECT_DATA
               (COLLECT_ID, EQUIPMENT_ID, PARAMETER_ID, VALUE, COLLECTED_AT, QUALITY,
                LOWER_LIMIT, UPPER_LIMIT)
@@ -243,29 +262,21 @@ public sealed class IvtTraceProjectionPersistenceTests
                LOWER_LIMIT, UPPER_LIMIT)
             VALUES (@secondCollect, @equipment, @parameter, 13.5, @secondAt, 'Good', 0, 999999);
             """,
-            ("@lot", lotId), ("@material", $"M_{suffix}"), ("@parameter", parameterId),
-            ("@equipment", equipmentId), ("@binding", bindingId),
-            ("@effectiveFrom", DbDate(effectiveFrom)),
+            ("@parameter", parameterId), ("@equipment", equipmentId),
             ("@firstCollect", firstCollectId), ("@secondCollect", secondCollectId),
-            ("@firstAt", DbDate(firstAt)), ("@secondAt", DbDate(secondAt)),
-            ("@now", DbDate(DateTime.UtcNow)));
-
-        if (includeFeedSession)
-        {
-            Exec("""
-                INSERT INTO IVT_MATERIAL_FEED_SESSION
-                  (FEED_SESSION_ID, PLANT_ID, EQUIPMENT_ID, FEED_POINT_ID, MATERIAL_LOT_ID,
-                   MATERIAL_ID, MOUNTED_AT, MOUNTED_BY, STATUS,
-                   CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-                VALUES (@feed, 'PLANT01', @equipment, 'FEED01', @lot, @material,
-                        @mountedAt, 'operator', 'Mounted', 'TEST', @now, 'TEST', @now);
-                """,
-                ("@feed", feedId), ("@equipment", equipmentId), ("@lot", lotId),
-                ("@material", $"M_{suffix}"), ("@mountedAt", DbDate(effectiveFrom)),
-                ("@now", DbDate(DateTime.UtcNow)));
-        }
+            ("@firstAt", DbDate(firstAt)), ("@secondAt", DbDate(secondAt)));
 
         return new SeedIds(bindingId, lotId, firstCollectId, secondCollectId);
+    }
+
+    private EesDataSource DataSource()
+    {
+        _ = _factory.CreateClient();
+        return new EesDataSource
+        {
+            Provider = _factory.Services.GetRequiredService<IDatabaseProvider>(),
+            ConnectionString = _factory.ConnectionString,
+        };
     }
 
     private void Exec(string sql, params (string Name, object? Value)[] parameters)

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.JSInterop;
@@ -234,12 +235,146 @@ public sealed class ApiClientCommandResultTests
         calls.Should().Be(0);
     }
 
+    [Fact]
+    public async Task Pom_work_scope_create_sends_carrier_scope_and_create_idempotency_contract()
+    {
+        HttpRequestMessage? captured = null;
+        var client = CreateClient(new CaptureHandler(request =>
+        {
+            captured = request;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(WorkScopeDto(version: 1)),
+            };
+        }));
+        var request = new PomWorkScopeCreateRequest(
+            WorkScopeId: "CARRIER A/01",
+            PlantId: "P1",
+            ScopeType: "Carrier",
+            TargetId: "CARRIER A/01",
+            Name: "Carrier 세척",
+            ParentScopeId: "BATCH-01",
+            EquipmentId: "WASH-01",
+            ProcessId: "CLEAN",
+            RecipeId: "WASH-RECIPE-01",
+            RecipeVersion: 3,
+            PlanQty: 1m,
+            CarrierId: "CARRIER A/01",
+            IdempotencyKey: "meta:create:carrier-01");
+
+        var result = await client.CreatePomWorkScopeAsync(request);
+
+        result.Success.Should().BeTrue();
+        result.WorkScope!.WorkScopeId.Should().Be("CARRIER-01");
+        captured.Should().NotBeNull();
+        captured!.Method.Should().Be(HttpMethod.Post);
+        captured.RequestUri!.AbsolutePath.Should().Be("/api/v1/pom/work-scopes");
+        var body = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+            await captured.Content!.ReadAsStringAsync(),
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        body.Should().NotBeNull();
+        JsonElement BodyValue(string name)
+            => body!.First(pair => pair.Key.Equals(name, StringComparison.OrdinalIgnoreCase)).Value;
+        BodyValue("scopeType").GetString().Should().Be("Carrier");
+        BodyValue("targetId").GetString().Should().Be("CARRIER A/01");
+        BodyValue("carrierId").GetString().Should().Be("CARRIER A/01");
+        BodyValue("idempotencyKey").GetString().Should().Be("meta:create:carrier-01");
+    }
+
+    [Theory]
+    [InlineData("start")]
+    [InlineData("report")]
+    [InlineData("release-hold")]
+    public async Task Pom_work_scope_action_uses_guarded_route_and_preserves_result_fields(string action)
+    {
+        HttpRequestMessage? captured = null;
+        var client = CreateClient(new CaptureHandler(request =>
+        {
+            captured = request;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(WorkScopeDto(version: 8)),
+            };
+        }));
+        var request = new PomWorkScopeActionRequest(
+            ExpectedVersion: 7,
+            IdempotencyKey: "meta:pop:work-scope:1",
+            ClientChannel: "POP",
+            DeviceId: "WASH-KIOSK-01",
+            Remark: "검증 완료",
+            GoodQty: action == "report" ? 1m : null,
+            DefectQty: action == "report" ? 0m : null,
+            CarrierId: "CARRIER-01",
+            ResultCode: "PASS",
+            ResultMetadataJson: "{\"cleaningProgram\":\"RINSE-02\"}");
+
+        var result = await client.ExecutePomWorkScopeActionAsync(action, "CARRIER A/01", request);
+
+        result.Success.Should().BeTrue();
+        captured.Should().NotBeNull();
+        captured!.Method.Should().Be(HttpMethod.Post);
+        captured.RequestUri!.AbsolutePath.Should().Be($"/api/v1/pom/work-scopes/CARRIER%20A%2F01/{action}");
+        var json = await captured.Content!.ReadAsStringAsync();
+        json.Should().Contain("carrierId").And.Contain("resultCode").And.Contain("resultMetadataJson");
+        if (action == "report")
+            json.Should().Contain("goodQty").And.Contain("defectQty");
+    }
+
+    [Fact]
+    public async Task Pom_work_scope_client_rejects_unknown_action_without_http_call()
+    {
+        var calls = 0;
+        var client = CreateClient(new CaptureHandler(_ =>
+        {
+            calls++;
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }));
+
+        var result = await client.ExecutePomWorkScopeActionAsync(
+            "archive", "CARRIER-01", new PomWorkScopeActionRequest(1, "key-1", "MES"));
+
+        result.StatusCode.Should().Be(400);
+        result.Error.Should().Contain("지원하지 않는");
+        calls.Should().Be(0);
+    }
+
     private static PomWorkOrderDto WorkOrderDto(int version)
         => new(
             "WO-100", "PO-100", "P1", "작업 100", "ITEM-1",
             10m, 0m, 0m, 0m, "Released", false,
             null, null, "worker", null, null, null, null,
             null, null, null, null, null, null, null, version);
+
+    private static PomWorkScopeDto WorkScopeDto(int version)
+        => new(
+            WorkScopeId: "CARRIER-01",
+            PlantId: "P1",
+            ScopeType: "Carrier",
+            TargetId: "CARRIER-01",
+            Name: "Carrier 세척",
+            ParentScopeId: "BATCH-01",
+            EquipmentId: "WASH-01",
+            ProductId: null,
+            ProcessId: "CLEAN",
+            RecipeId: "WASH-RECIPE-01",
+            RecipeVersion: 3,
+            PlanQty: 1m,
+            StartQty: 1m,
+            CompleteQty: 1m,
+            ScrapQty: 0m,
+            OwnerId: "operator-01",
+            Status: "Started",
+            IsHold: false,
+            StartedAt: DateTime.UtcNow,
+            CompletedAt: null,
+            Description: null,
+            VersionNo: version,
+            CreatedAt: DateTime.UtcNow,
+            CreatedBy: "operator-01",
+            UpdatedAt: DateTime.UtcNow,
+            UpdatedBy: "operator-01",
+            WorkOrderId: null,
+            CarrierId: "CARRIER-01");
 
     private static ApiClient CreateClient(HttpMessageHandler handler)
     {

@@ -76,7 +76,7 @@ public sealed class FdcTraceSource : IFdcTraceSource
                     row.ParameterId,
                     row.Value,
                     row.Quality,
-                    row.CollectedAt));
+                    NormalizeUtc(row.CollectedAt)));
             }
         }
 

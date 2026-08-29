@@ -54,5 +54,5 @@ public sealed class RecipeExecutionBridge : IRecipeExecutionBridge
         value.ProcessLotId, value.WorkOrderId, value.ProcessId, value.RecipeId,
         value.RecipeVersion, value.RecipeSnapshotJson, value.ParameterSnapshotJson,
         value.ConditionSnapshotJson, value.AppliedBy, value.AppliedAt, value.Source,
-        value.TraceId, value.IsReplay);
+        value.TraceId, value.IsReplay, value.WorkScopeId, value.CarrierId);
 }

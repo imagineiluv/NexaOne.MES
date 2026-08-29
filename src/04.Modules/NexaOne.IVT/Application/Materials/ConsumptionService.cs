@@ -193,6 +193,8 @@ public sealed class ConsumptionService
             return Result.Failure<ConsumptionRecord>(Error.Validation(
                 nameof(command.Quantity), "Quantity exceeds the DECIMAL(22,6) accounting range."));
 
+        // Consumption mode is part of the pre-V151 canonical request hash. Preserve the caller's
+        // trimmed casing so a legacy lowercase "trace" retry remains an exact replay.
         var mode = command.Mode.Trim();
         var sourceEventId = Clean(command.SourceEventId);
         if (string.Equals(mode, "Trace", StringComparison.OrdinalIgnoreCase) && sourceEventId is null)
@@ -208,7 +210,35 @@ public sealed class ConsumptionService
         var recipeId = Clean(command.RecipeId);
         var traceId = Clean(command.TraceId);
         var tagId = Clean(command.TagId);
+        var feedSessionId = Clean(command.FeedSessionId);
         var correlationId = Clean(command.CorrelationId);
+        var workScopeId = Clean(command.WorkScopeId);
+        var carrierId = Clean(command.CarrierId);
+        if (!string.Equals(mode, "Trace", StringComparison.OrdinalIgnoreCase)
+            && feedSessionId is not null)
+        {
+            return Result.Failure<ConsumptionRecord>(Error.Validation(
+                nameof(command.FeedSessionId), "FeedSessionId is only valid for Trace consumption."));
+        }
+        if (string.Equals(mode, "Trace", StringComparison.OrdinalIgnoreCase))
+        {
+            // V151 promotes the former TRACE CorrelationId convention to a typed field. Preserve
+            // the old canonical hash so a crash-window retry can replay a pre-V151 consumption.
+            feedSessionId ??= correlationId;
+            correlationId ??= feedSessionId;
+            if (feedSessionId is null)
+            {
+                return Result.Failure<ConsumptionRecord>(Error.Validation(
+                    nameof(command.FeedSessionId),
+                    "Trace consumption requires FeedSessionId (legacy CorrelationId is accepted)."));
+            }
+            if (!string.Equals(feedSessionId, correlationId, StringComparison.Ordinal))
+            {
+                return Result.Failure<ConsumptionRecord>(Error.Validation(
+                    nameof(command.FeedSessionId),
+                    "Trace FeedSessionId and legacy CorrelationId must identify the same session."));
+            }
+        }
         var optional = new (string Name, string? Value, int Max)[]
         {
             (nameof(command.ProcessLotId), processLotId, IdentifierLength),
@@ -217,7 +247,10 @@ public sealed class ConsumptionService
             (nameof(command.RecipeId), recipeId, IdentifierLength),
             (nameof(command.TraceId), traceId, 100),
             (nameof(command.TagId), tagId, 100),
+            (nameof(command.FeedSessionId), feedSessionId, IdentifierLength),
             (nameof(command.CorrelationId), correlationId, 100),
+            (nameof(command.WorkScopeId), workScopeId, IdentifierLength),
+            (nameof(command.CarrierId), carrierId, 100),
         };
         foreach (var item in optional)
         {
@@ -227,7 +260,6 @@ public sealed class ConsumptionService
                     item.Name, $"{item.Name} cannot exceed {item.Max} characters."));
             }
         }
-
         var actorResult = CommandActor.Resolve(command.OperatorId, nameof(command.OperatorId));
         if (actorResult.IsFailure)
             return Result.Failure<ConsumptionRecord>(actorResult.Error);
@@ -246,15 +278,20 @@ public sealed class ConsumptionService
             command.SourceSystem.Trim(), actor, correlationId ?? string.Empty,
             Clean(command.MetadataJson) ?? string.Empty,
         };
+        // Keep the pre-WorkScope request hash byte-for-byte compatible for legacy retries.
+        // New correlation fields participate in the hash as soon as either is supplied.
+        var requestHashValues = workScopeId is null && carrierId is null
+            ? values
+            : [.. values, workScopeId ?? string.Empty, carrierId ?? string.Empty];
 
         return Result.Success(new ConsumptionRecord(
-            command.ConsumptionId.Trim(), command.IdempotencyKey.Trim(), Hash(values),
+            command.ConsumptionId.Trim(), command.IdempotencyKey.Trim(), Hash(requestHashValues),
             command.PlantId.Trim(), command.EquipmentId.Trim(), command.MaterialLotId.Trim(),
             command.MaterialId.Trim(), processLotId, workOrderId,
             processId, recipeId, command.RecipeVersion, mode,
             quantity, command.Unit.Trim(), traceId, tagId,
-            sourceEventId, command.SourceSystem.Trim(), actor, correlationId, null,
-            "Committed", Clean(command.MetadataJson), occurredAt));
+            sourceEventId, command.SourceSystem.Trim(), actor, feedSessionId, correlationId, null,
+            "Committed", Clean(command.MetadataJson), occurredAt, workScopeId, carrierId));
     }
 
     private static Error? ValidateReversal(MaterialConsumptionReversalCommand command)
@@ -277,7 +314,14 @@ public sealed class ConsumptionService
 
     private static DateTime Utc(DateTime value) => value == default
         ? DateTime.UtcNow
-        : value.Kind == DateTimeKind.Utc ? value : value.ToUniversalTime();
+        : value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            // Both providers materialize timezone-less DATETIME2/TEXT as Unspecified. The
+            // persistence contract stores UTC wall-clock values, so do not apply host-local KST.
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+        };
 
     private static string? Clean(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
@@ -288,5 +332,6 @@ public sealed class ConsumptionService
         r.ConsumptionId, r.IdempotencyKey, r.PlantId, r.EquipmentId, r.MaterialLotId,
         r.MaterialId, r.Quantity, r.Unit, r.Mode, r.OccurredAt, r.OperatorId, r.SourceSystem,
         r.SourceEventId, r.Status, r.ProcessLotId, r.WorkOrderId, r.ProcessId, r.RecipeId,
-        r.RecipeVersion, r.TraceId, r.TagId, r.CorrelationId, r.ReversalOfId, r.MetadataJson);
+        r.RecipeVersion, r.TraceId, r.TagId, r.CorrelationId,
+        r.ReversalOfId, r.MetadataJson, r.FeedSessionId, r.WorkScopeId, r.CarrierId);
 }

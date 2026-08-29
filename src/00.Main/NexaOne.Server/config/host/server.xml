@@ -129,6 +129,11 @@
     <constructor-arg ref="moduleBeanResolver" />
   </object>
 
+  <!-- API/host-to-IVT TRACE binding and material feed-session command proxy. -->
+  <object id="traceMaterialBridge" type="NexaOne.Server.Gateway.TraceMaterialBridgeProxy, NexaOne.Server">
+    <constructor-arg ref="moduleBeanResolver" />
+  </object>
+
   <!-- MDM/SYS와 소비 모듈은 형제 plugin context이므로 부모에는 공용 계약만 위임하는 proxy를 둔다.
        물리 SQL은 각 소유 모듈의 equipmentDirectory/vendorDirectory/maintenanceIdentityDirectory bean에 남는다. -->
   <object id="equipmentDirectory" type="NexaOne.Server.Gateway.EquipmentDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>

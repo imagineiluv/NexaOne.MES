@@ -29,6 +29,7 @@ public sealed class Module
         IConfiguration configuration,
         IVendorDirectory vendorDirectory,
         IEquipmentDirectory equipmentDirectory,
+        IEquipmentOutputMasterDirectory equipmentOutputMasterDirectory,
         IMaintenanceIdentityDirectory maintenanceIdentityDirectory,
         IRecurringScheduler scheduler,
         IMessageBus messageBus)
@@ -37,6 +38,7 @@ public sealed class Module
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(vendorDirectory);
         ArgumentNullException.ThrowIfNull(equipmentDirectory);
+        ArgumentNullException.ThrowIfNull(equipmentOutputMasterDirectory);
         ArgumentNullException.ThrowIfNull(maintenanceIdentityDirectory);
         ArgumentNullException.ThrowIfNull(scheduler);
         ArgumentNullException.ThrowIfNull(messageBus);
@@ -63,7 +65,8 @@ public sealed class Module
             equipmentDirectory));
         _toolBridge = new ToolBridge(new ToolService(
             new ToolRepository(dataSource),
-            equipmentDirectory));
+            equipmentDirectory,
+            equipmentOutputMasterDirectory));
         _dueCheckWorker = new MaintenanceDueCheckWorker(
             scheduler,
             maintenancePlans,

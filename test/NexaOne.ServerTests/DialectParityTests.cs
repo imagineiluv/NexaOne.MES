@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using FluentAssertions;
 using NexaOne.Application.Query;
+using NexaOne.Server.Gateway;
 using Xunit;
 
 namespace NexaOne.ServerTests;
@@ -141,6 +142,89 @@ public sealed class DialectParityTests
             sqliteDefinition!.Sql.Should().MatchRegex(@"(?is)\bLIMIT\s+500\s*$",
                 $"{id} must keep the same SQLite operator-screen safety cap");
         }
+    }
+
+    [Fact]
+    public void Operational_history_queries_remain_server_pageable_with_deterministic_tie_breaks()
+    {
+        var root = RepositorySource.GetDirectory($"{DbRoot}/queries");
+        var mssql = FileQueryRegistry.Load("mssql", root);
+        var sqlite = FileQueryRegistry.Load("sqlite", root);
+        var contracts = new (string QueryId, string Timestamp, string Identity)[]
+        {
+            ("IVT.MaterialTxList", "TX_AT", "TX_ID"),
+            ("IVT.IncomingList", "TX_AT", "TX_ID"),
+            ("IVT.MoveList", "TX_AT", "TX_ID"),
+            ("IVT.DispensingList", "TX_AT", "TX_ID"),
+            ("IVT.MaterialConsumptionHistoryList", "OCCURRED_AT", "CONSUMPTION_ID"),
+            ("POM.WorkOrderExecutionList", "OCCURRED_AT", "EXECUTION_ID"),
+            ("EMS.SparePartInoutList", "TRANSACTION_AT", "INOUT_ID"),
+            ("EMS.SparePartIncomingList", "TRANSACTION_AT", "INOUT_ID"),
+            ("EMS.SparePartMoveList", "TRANSACTION_AT", "INOUT_ID"),
+            ("EMS.SparePartScrapList", "TRANSACTION_AT", "INOUT_ID"),
+        };
+
+        foreach (var contract in contracts)
+        {
+            mssql.TryGet(contract.QueryId, out var mssqlDefinition).Should().BeTrue();
+            sqlite.TryGet(contract.QueryId, out var sqliteDefinition).Should().BeTrue();
+
+            PagedSqlBuilder.TryBuild(
+                    mssqlDefinition!.Sql, "MsSql", out _, out _)
+                .Should().BeTrue($"{contract.QueryId} must use the gateway's bounded page contract");
+            PagedSqlBuilder.TryBuild(
+                    sqliteDefinition!.Sql, "Sqlite", out _, out _)
+                .Should().BeTrue($"{contract.QueryId} must not silently fall back to an incomplete fixed result set");
+
+            var deterministicOrder =
+                $@"(?is)\bORDER\s+BY\s+{Regex.Escape(contract.Timestamp)}\s+DESC\s*,\s*" +
+                $@"{Regex.Escape(contract.Identity)}\s+DESC\b";
+            mssqlDefinition.Sql.Should().MatchRegex(deterministicOrder,
+                $"{contract.QueryId} must have a unique MSSQL tie-break after its timestamp");
+            sqliteDefinition.Sql.Should().MatchRegex(deterministicOrder,
+                $"{contract.QueryId} must have the same SQLite tie-break");
+        }
+    }
+
+    [Fact]
+    public void Pom_lot_routing_is_server_pageable_without_hiding_older_lots()
+    {
+        var root = RepositorySource.GetDirectory($"{DbRoot}/queries");
+        var mssql = FileQueryRegistry.Load("mssql", root);
+        var sqlite = FileQueryRegistry.Load("sqlite", root);
+        mssql.TryGet("POM.LotRoutingContextList", out var mssqlDefinition).Should().BeTrue();
+        sqlite.TryGet("POM.LotRoutingContextList", out var sqliteDefinition).Should().BeTrue();
+
+        var contracts = new[]
+        {
+            (Dialect: "MSSQL", Provider: "MsSql", Sql: mssqlDefinition!.Sql),
+            (Dialect: "SQLite", Provider: "Sqlite", Sql: sqliteDefinition!.Sql),
+        };
+
+        foreach (var contract in contracts)
+        {
+            contract.Sql.Should().Contain("(@plantId IS NULL OR L.PLANT_ID = @plantId)");
+            contract.Sql.Should().Contain("(@lotId IS NULL OR L.LOT_ID = @lotId)");
+            contract.Sql.Should().Contain("(@controlMode IS NULL OR L.CONTROL_MODE = @controlMode)");
+            contract.Sql.Should().MatchRegex(
+                @"(?is)ORDER\s+BY\s+L\.UPDATED_AT\s+DESC\s*,\s*L\.CREATED_AT\s+DESC\s*,\s*L\.LOT_ID\b",
+                $"{contract.Dialect} must expose a deterministic final page order");
+            Regex.Matches(contract.Sql, @"(?is)\bFROM\s+POM_LOT\s+L\b").Should().HaveCount(1,
+                $"{contract.Dialect} must keep one base LOT scan");
+            contract.Sql.Should().NotMatchRegex(@"(?is)\b(?:TOP|LIMIT)\s+500\b",
+                $"{contract.Dialect} LOT routing must not silently hide older active lots");
+
+            PagedSqlBuilder.TryBuild(contract.Sql, contract.Provider, out var pageSql, out var countSql)
+                .Should().BeTrue($"{contract.Dialect} LOT routing must use the gateway page contract");
+            pageSql.Should().NotContain("WITH TARGET_LOTS", "the MSSQL page must not depend on a leading CTE");
+            countSql.Should().NotContain("(\nWITH", "a leading CTE is illegal inside the MSSQL count wrapper");
+        }
+
+        mssqlDefinition.Sql.Should().Contain("STRING_ESCAPE");
+        Regex.Matches(mssqlDefinition.Sql, @"(?is)\bFROM\s+OPENJSON\s*\(").Should().HaveCount(3);
+        Regex.Matches(mssqlDefinition.Sql, @"(?is)\bOUTER\s+APPLY\s*\(").Should().HaveCount(3);
+        sqliteDefinition.Sql.Should().Contain("json_quote");
+        Regex.Matches(sqliteDefinition.Sql, @"(?is)\bLEFT\s+JOIN\s+json_each\s*\(").Should().HaveCount(3);
     }
 
     [Fact]

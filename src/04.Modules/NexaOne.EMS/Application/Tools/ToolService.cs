@@ -11,14 +11,23 @@ public sealed class ToolService
 {
     private static readonly HashSet<string> Statuses = new(StringComparer.OrdinalIgnoreCase)
         { "Available", "Mounted", "Due", "Blocked", "Retired" };
+    private static readonly HashSet<string> ActivityTypes = new(StringComparer.OrdinalIgnoreCase)
+        { "Use", "Cleaning" };
+    private static readonly HashSet<string> CleaningResults = new(StringComparer.OrdinalIgnoreCase)
+        { "Pass", "Fail" };
     private readonly IToolRepository _repository;
     private readonly IEquipmentDirectory _equipmentDirectory;
+    private readonly IEquipmentOutputMasterDirectory? _equipmentOutputMasterDirectory;
 
-    public ToolService(IToolRepository repository, IEquipmentDirectory equipmentDirectory)
+    public ToolService(
+        IToolRepository repository,
+        IEquipmentDirectory equipmentDirectory,
+        IEquipmentOutputMasterDirectory? equipmentOutputMasterDirectory = null)
     {
         _repository = repository;
         _equipmentDirectory = equipmentDirectory
                               ?? throw new ArgumentNullException(nameof(equipmentDirectory));
+        _equipmentOutputMasterDirectory = equipmentOutputMasterDirectory;
     }
 
     public async Task<Result<ToolRecord>> SaveAsync(ToolCommand command, CancellationToken ct = default)
@@ -207,13 +216,51 @@ public sealed class ToolService
         if (string.IsNullOrWhiteSpace(command.EquipmentId)) return InvalidUsage(nameof(command.EquipmentId), "EquipmentId is required.");
         if (command.UseCount < 0m || command.UseMinutes < 0m || command.UseCount + command.UseMinutes <= 0m)
             return InvalidUsage("Usage", "UseCount/UseMinutes must be non-negative and at least one must be greater than zero.");
+        if (!ActivityTypes.Contains(command.ActivityType))
+            return InvalidUsage(nameof(command.ActivityType), "ActivityType must be Use or Cleaning.");
+        var activityType = Canonical(ActivityTypes, command.ActivityType);
+        var workScopeId = Text(command.WorkScopeId);
+        var carrierId = Text(command.CarrierId);
+        var cleaningProgramId = Text(command.CleaningProgramId);
+        var cleaningResult = Text(command.CleaningResult);
+        if (workScopeId?.Length > 50)
+            return InvalidUsage(nameof(command.WorkScopeId), "WorkScopeId cannot exceed 50 characters.");
+        if (carrierId?.Length > 100)
+            return InvalidUsage(nameof(command.CarrierId), "CarrierId cannot exceed 100 characters.");
+        if (cleaningProgramId?.Length > 100)
+            return InvalidUsage(nameof(command.CleaningProgramId), "CleaningProgramId cannot exceed 100 characters.");
+        if (cleaningResult?.Length > 20)
+            return InvalidUsage(nameof(command.CleaningResult), "CleaningResult cannot exceed 20 characters.");
+        if (activityType.Equals("Cleaning", StringComparison.OrdinalIgnoreCase))
+        {
+            if (workScopeId is null)
+                return InvalidUsage(nameof(command.WorkScopeId), "Cleaning activity requires WorkScopeId.");
+            if (carrierId is null)
+                return InvalidUsage(nameof(command.CarrierId), "Cleaning activity requires CarrierId.");
+            if (cleaningProgramId is null)
+                return InvalidUsage(nameof(command.CleaningProgramId), "Cleaning activity requires CleaningProgramId.");
+            if (cleaningResult is null || !CleaningResults.Contains(cleaningResult))
+                return InvalidUsage(nameof(command.CleaningResult), "CleaningResult must be Pass or Fail.");
+            if (Text(command.ProcessLotId) is not null)
+                return InvalidUsage(nameof(command.ProcessLotId), "Cleaning activity cannot reference a process LOT.");
+        }
+        else if (cleaningProgramId is not null || cleaningResult is not null)
+        {
+            return InvalidUsage(nameof(command.ActivityType),
+                "CleaningProgramId and CleaningResult are only valid for Cleaning activity.");
+        }
+        else
+        {
+            cleaningResult = null;
+        }
         var actorResult = CommandActor.Resolve(command.ActorId, nameof(command.ActorId));
         if (actorResult.IsFailure) return Result.Failure<ToolUsageRecord>(actorResult.Error);
         var actor = actorResult.Value;
         var at = Utc(command.UsedAt);
-        var hash = Hash(command.ToolId, command.EquipmentId, command.UseCount, command.UseMinutes, at,
+        var hash = Hash(command.ToolId.Trim(), command.EquipmentId.Trim(), command.UseCount, command.UseMinutes, at,
             Text(command.MountId), Text(command.ProcessLotId), Text(command.WorkOrderId), Text(command.ProcessId),
-            Text(command.RecipeId), command.RecipeVersion, Text(command.TraceId), Text(command.ConditionSnapshotJson), actor);
+            Text(command.RecipeId), command.RecipeVersion, Text(command.TraceId), Text(command.ConditionSnapshotJson),
+            workScopeId, carrierId, activityType, cleaningProgramId, cleaningResult, actor);
         var existing = await _repository.GetUsageByIdempotencyKeyAsync(command.IdempotencyKey.Trim(), ct);
         if (existing is not null) return Replay(existing, existing.RequestHash, hash);
         var tool = await _repository.GetToolAsync(command.ToolId.Trim(), ct);
@@ -226,6 +273,20 @@ public sealed class ToolService
             return Result.Failure<ToolUsageRecord>(Error.Conflict(
                 "EMS.Tool.EquipmentInactive",
                 $"Equipment '{equipmentId}' is not active."));
+        if (activityType.Equals("Cleaning", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_equipmentOutputMasterDirectory is null)
+                return Result.Failure<ToolUsageRecord>(Error.Failure(
+                    "EMS.Tool.CarrierMasterUnavailable",
+                    "Carrier cleaning usage requires the MDM carrier master directory."));
+            var masterScope = await _equipmentOutputMasterDirectory.GetScopeAsync(
+                equipmentId, carrierId, ct);
+            if (masterScope is null || !masterScope.IsEquipmentValid)
+                return Result.Failure<ToolUsageRecord>(Error.Validation(
+                    nameof(command.EquipmentId), "EquipmentId does not reference an equipment master."));
+            if (!masterScope.CarrierExists)
+                return Result.Failure<ToolUsageRecord>(Error.NotFoundOf("Carrier", carrierId!));
+        }
         if (tool.EquipmentClassId is not null
             && !string.Equals(
                 tool.EquipmentClassId,
@@ -256,7 +317,9 @@ public sealed class ToolService
             $"TUS_{Guid.NewGuid():N}", command.IdempotencyKey.Trim(), hash, tool.ToolId, Text(command.MountId),
             equipmentId, Text(command.ProcessLotId), Text(command.WorkOrderId), Text(command.ProcessId),
             Text(command.RecipeId), command.RecipeVersion, command.UseCount, command.UseMinutes, at, actor,
-            Text(command.TraceId), Text(command.ConditionSnapshotJson), DateTime.UtcNow);
+            Text(command.TraceId), Text(command.ConditionSnapshotJson), DateTime.UtcNow,
+            workScopeId, carrierId, activityType, cleaningProgramId,
+            cleaningResult is null ? null : Canonical(CleaningResults, cleaningResult));
         if (await _repository.TryRecordUsageAsync(usage, tool.EquipmentClassId, ct))
             return Result.Success(usage);
         var usageWinner = await _repository.GetUsageByIdempotencyKeyAsync(usage.IdempotencyKey, ct);

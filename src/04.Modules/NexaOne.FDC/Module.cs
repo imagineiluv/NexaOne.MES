@@ -22,6 +22,7 @@ public sealed class Module
     private readonly IFdcBridge _fdcBridge;
     private readonly IFdcTraceSource _traceSource;
     private readonly IFdcRuntimeLease _runtimeLease;
+    private readonly IRunAdmissionService _runAdmissionService;
     private readonly IHostedService _collectionWorker;
     private readonly IHostedService _retentionWorker;
     private readonly IHostedService _virtualEventWorker;
@@ -98,6 +99,8 @@ public sealed class Module
             actionTimeout: TimeSpan.FromSeconds(options.InterlockActionTimeoutSeconds),
             requireRuntimeAuthority: true);
 
+        _runAdmissionService = CreateRunAdmissionService(configuration);
+
         _fdcBridge = new FdcBridge(
             new FdcParameterGroupService(groups),
             alarmService,
@@ -146,9 +149,16 @@ public sealed class Module
     public IFdcBridge GetFdcBridge() => _fdcBridge;
     public IFdcTraceSource GetTraceSource() => _traceSource;
     public IFdcRuntimeLease GetRuntimeLease() => _runtimeLease;
+    public IRunAdmissionService GetRunAdmissionService() => _runAdmissionService;
     public IHostedService GetCollectionWorker() => _collectionWorker;
     public IHostedService GetRetentionWorker() => _retentionWorker;
     public IHostedService GetVirtualEventWorker() => _virtualEventWorker;
+
+    internal static IRunAdmissionService CreateRunAdmissionService(IConfiguration configuration)
+    {
+        FdcModuleOptions.EnsureRunAdmissionUnavailable(configuration);
+        return DisabledRunAdmissionService.Instance;
+    }
 }
 
 /// <summary>
@@ -168,7 +178,8 @@ internal sealed record FdcModuleOptions(
     int InterlockActionTimeoutSeconds,
     int RuntimeHealthFreshnessTimeoutSeconds,
     int DriverCleanupTimeoutSeconds,
-    FdcLeaseOptions RuntimeLease)
+    FdcLeaseOptions RuntimeLease,
+    RunAdmissionOptions RunAdmission)
 {
     private const int MaximumOwnerIdLength = 100;
     private static readonly string ProcessOwnerSuffix =
@@ -179,6 +190,8 @@ internal sealed record FdcModuleOptions(
     public static FdcModuleOptions FromConfiguration(IConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
+        EnsureRunAdmissionUnavailable(configuration);
+
         var collectionEnabled = configuration.GetValue("Worker:Fdc:Enabled", false);
 
         return new FdcModuleOptions(
@@ -206,7 +219,34 @@ internal sealed record FdcModuleOptions(
                 configuration, "Worker:Fdc:RuntimeHealth:FreshnessTimeoutSeconds", 30),
             DriverCleanupTimeoutSeconds: RequiredPositive(
                 configuration, "Worker:Fdc:DriverCleanupTimeoutSeconds", 10),
-            RuntimeLease: ReadRuntimeLease(configuration, collectionEnabled));
+            RuntimeLease: ReadRuntimeLease(configuration, collectionEnabled),
+            RunAdmission: ReadRunAdmission(configuration));
+    }
+
+    internal static void EnsureRunAdmissionUnavailable(IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        if (configuration.GetValue("RunAdmission:Enabled", false))
+        {
+            throw new InvalidOperationException(
+                "RunAdmission:Enabled=true is not supported until a durable shared request ledger, "
+                + "per-client/equipment quotas, and an HA routing contract are implemented.");
+        }
+    }
+
+    private static RunAdmissionOptions ReadRunAdmission(IConfiguration configuration)
+    {
+        var options = new RunAdmissionOptions(
+            TimeSpan.FromSeconds(RequiredPositive(
+                configuration, "Worker:Fdc:RunAdmission:KeepAliveLeaseSeconds", 6)),
+            TimeSpan.FromSeconds(RequiredPositive(
+                configuration, "Worker:Fdc:RunAdmission:HardLeaseSeconds", 43_200)),
+            TimeSpan.FromSeconds(RequiredPositive(
+                configuration, "Worker:Fdc:RunAdmission:TombstoneRetentionSeconds", 86_400)),
+            RequiredPositive(
+                configuration, "Worker:Fdc:RunAdmission:MaxTombstones", 100_000));
+        RunAdmissionOptions.Validate(options);
+        return options;
     }
 
     private static FdcLeaseOptions ReadRuntimeLease(

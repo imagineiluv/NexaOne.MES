@@ -1,6 +1,7 @@
 using FluentAssertions;
 using NexaOne.Server;
 using NexaOne.ServiceContracts;
+using NexaOne.ServiceContracts.Ivt;
 using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Pom;
 using Xunit;
@@ -15,7 +16,7 @@ public sealed class NexaOneMesBridgeCatalogTests
         var first = NexaOneMesBridgeCatalog.Create();
         var second = NexaOneMesBridgeCatalog.Create();
 
-        first.Descriptors.Should().HaveCount(45);
+        first.Descriptors.Should().HaveCount(48);
         first.Descriptors.Should().Equal(second.Descriptors);
         first.Descriptors.Should().OnlyContain(descriptor =>
             descriptor.ContractType.IsInterface
@@ -47,6 +48,12 @@ public sealed class NexaOneMesBridgeCatalogTests
         catalog.TryGet(typeof(IOeeProductionDirectory), out var production).Should().BeTrue();
         production.Should().Be(new NexaModuleBridgeDescriptor(
             typeof(IOeeProductionDirectory), "Pom", "oeeProductionDirectory"));
+        catalog.TryGet(typeof(ITraceMaterialBridge), out var traceMaterial).Should().BeTrue();
+        traceMaterial.Should().Be(new NexaModuleBridgeDescriptor(
+            typeof(ITraceMaterialBridge), "Ivt", "traceMaterialBridge"));
+        catalog.TryGet(typeof(IWorkScopeBridge), out var workScope).Should().BeTrue();
+        workScope.Should().Be(new NexaModuleBridgeDescriptor(
+            typeof(IWorkScopeBridge), "Pom", "workScopeBridge"));
         catalog.TryGet(typeof(IDisposable), out _).Should().BeFalse();
     }
 

@@ -644,6 +644,61 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V152_work_scope_member_schema_supports_carrierless_batch_execution_and_guards_membership()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.Apply(cs);
+
+            TableExists(cs, "POM_WORK_SCOPE").Should().BeTrue();
+            TableExists(cs, "POM_WORK_SCOPE_MEMBER").Should().BeTrue();
+            Columns(cs, "POM_WORK_SCOPE").Should().Contain("CREATE_IDEMPOTENCY_KEY");
+            Columns(cs, "POM_WORK_SCOPE_EXECUTION").Should().Contain("RESULT_CODE");
+            Columns(cs, "POM_WORK_SCOPE_EXECUTION").Should().Contain("RESULT_METADATA_JSON");
+            Columns(cs, "EST_EQUIPMENT_OUTPUT_EVENT").Should().Contain("WORK_SCOPE_ID");
+            Columns(cs, "IVT_MATERIAL_CONSUMPTION_HISTORY").Should().Contain("CARRIER_ID");
+
+            ExecSql(cs, """
+                INSERT INTO POM_WORK_SCOPE
+                  (WORK_SCOPE_ID, PLANT_ID, SCOPE_TYPE, TARGET_ID, NAME, PLAN_QTY,
+                   STATUS, IS_HOLD, VERSION_NO, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT,
+                   CREATE_IDEMPOTENCY_KEY, CREATE_REQUEST_HASH)
+                VALUES ('V152-CAMP', 'P1', 'Campaign', 'CAMP-01', 'Campaign', 10,
+                        'Created', 'N', 1, 'tester', CURRENT_TIMESTAMP, 'tester', CURRENT_TIMESTAMP,
+                        'v152-create-camp', lower(hex(randomblob(32))));
+                INSERT INTO POM_WORK_SCOPE
+                  (WORK_SCOPE_ID, PLANT_ID, SCOPE_TYPE, TARGET_ID, NAME, PARENT_SCOPE_ID,
+                   PLAN_QTY, STATUS, IS_HOLD, VERSION_NO, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT,
+                   CREATE_IDEMPOTENCY_KEY, CREATE_REQUEST_HASH)
+                VALUES ('V152-BATCH', 'P1', 'Batch', 'BATCH-01', 'Batch', 'V152-CAMP', 10,
+                        'Created', 'N', 1, 'tester', CURRENT_TIMESTAMP, 'tester', CURRENT_TIMESTAMP,
+                        'v152-create-batch', lower(hex(randomblob(32))));
+                INSERT INTO POM_WORK_SCOPE_MEMBER
+                  (MEMBER_ID, WORK_SCOPE_ID, MEMBER_SCOPE_ID, MEMBER_TYPE, MEMBER_TARGET_ID,
+                   SEQUENCE_NO, IDEMPOTENCY_KEY, CREATED_BY, CREATED_AT)
+                VALUES ('V152-MEMBER', 'V152-CAMP', 'V152-BATCH', 'Batch', 'BATCH-01',
+                        1, 'v152-member-batch', 'tester', CURRENT_TIMESTAMP);
+                """);
+            Count(cs, "POM_WORK_SCOPE_MEMBER").Should().Be(1);
+
+            Action invalidMember = () => ExecSql(cs, """
+                INSERT INTO POM_WORK_SCOPE_MEMBER
+                  (MEMBER_ID, WORK_SCOPE_ID, MEMBER_SCOPE_ID, MEMBER_TYPE, MEMBER_TARGET_ID,
+                   SEQUENCE_NO, IDEMPOTENCY_KEY, CREATED_BY, CREATED_AT)
+                VALUES ('V152-BAD', 'V152-CAMP', 'V152-BATCH', 'Batch', 'WRONG-TARGET',
+                        2, 'v152-member-bad', 'tester', CURRENT_TIMESTAMP);
+                """);
+            invalidMember.Should().Throw<SqliteException>();
+
+            Action deleteMember = () => ExecSql(cs,
+                "DELETE FROM POM_WORK_SCOPE_MEMBER WHERE MEMBER_ID='V152-MEMBER';");
+            deleteMember.Should().Throw<SqliteException>();
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* 임시 파일 정리 실패 무시 */ } }
+    }
+
+    [Fact]
     public void EnsureSchema_ExistingDb_DoesNotReRunSeedInserts()
     {
         var cs = NewDb();
@@ -2527,6 +2582,8 @@ public sealed class SqliteSchemaIncrementalTests
     [InlineData("V138__EMS_TOOL_MASTER_CONCURRENCY.sql", "TR_EMS_TOOL_SAVE_COMMAND_APPEND_ONLY", "UX_EMS_TOOL_SAVE_COMMAND_IDEMPOTENCY")]
     [InlineData("V139__EMS_SPARE_MASTER_COMMAND_LEDGER.sql", "TR_EMS_SPARE_MASTER_COMMAND_APPEND_ONLY", "UX_EMS_SPARE_MASTER_COMMAND_IDEMPOTENCY")]
     [InlineData("V140__EMS_WORK_ORDER_CREATE_COMMAND.sql", "TR_EMS_WORK_ORDER_CREATE_COMMAND_APPEND_ONLY", "UX_EMS_WORK_ORDER_CREATE_COMMAND_IDEMPOTENCY")]
+    [InlineData("V151__IVT_TRACE_MATERIAL_CONFIGURATION_COMMANDS.sql", "TR_IVT_TRACE_BINDING_COMMAND_APPEND_ONLY", "UX_IVT_TRACE_BINDING_COMMAND_IDEMPOTENCY")]
+    [InlineData("V151__IVT_TRACE_MATERIAL_CONFIGURATION_COMMANDS.sql", "TR_IVT_FEED_SESSION_COMMAND_APPEND_ONLY", "UX_IVT_FEED_SESSION_COMMAND_IDEMPOTENCY")]
     public void Mssql_evidence_migrations_define_append_only_update_delete_guards(
         string migrationFile, string triggerName, string collisionConstraint)
     {
@@ -2648,7 +2705,7 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
-    public void V121_through_v150_migrations_keep_unique_numeric_versions_and_module_owned_names()
+    public void V121_through_v153_migrations_keep_unique_numeric_versions_and_module_owned_names()
     {
         var migrationDirectory = Path.GetDirectoryName(RepositorySource.GetFile(
             "src", "00.Main", "NexaOne.Server", "config", "db", "migrations",
@@ -2684,7 +2741,10 @@ public sealed class SqliteSchemaIncrementalTests
             [147] = ("V147__IVT_TRACE_WORK_STATE_INTEGRITY.sql", "IVT"),
             [148] = ("V148__FDC_LIFECYCLE_TRANSITION_AND_RETENTION.sql", "FDC"),
             [149] = ("V149__FDC_RUNTIME_OWNERSHIP_FENCE.sql", "FDC"),
-            [150] = ("V150__FDC_TRACE_RETENTION_STATE.sql", "FDC"),
+             [150] = ("V150__FDC_TRACE_RETENTION_STATE.sql", "FDC"),
+            [151] = ("V151__IVT_TRACE_MATERIAL_CONFIGURATION_COMMANDS.sql", "IVT"),
+            [152] = ("V152__POM_WORK_SCOPE_AND_TOOL_CLEANING.sql", "POM"),
+            [153] = ("V153__RMS_RECIPE_EXECUTION_WORK_SCOPE.sql", "RMS"),
         };
         var recentFiles = Directory.EnumerateFiles(migrationDirectory, "V*.sql")
             .Select(Path.GetFileName)
@@ -2692,7 +2752,7 @@ public sealed class SqliteSchemaIncrementalTests
             .Select(name => (Name: name!, Match: Regex.Match(name!, @"^V(?<version>[0-9]{3})__")))
             .Where(item => item.Match.Success)
             .Select(item => (item.Name, Version: int.Parse(item.Match.Groups["version"].Value)))
-            .Where(item => item.Version is >= 121 and <= 150)
+            .Where(item => item.Version is >= 121 and <= 153)
             .ToArray();
 
         recentFiles.GroupBy(item => item.Version).Should().OnlyContain(group => group.Count() == 1);

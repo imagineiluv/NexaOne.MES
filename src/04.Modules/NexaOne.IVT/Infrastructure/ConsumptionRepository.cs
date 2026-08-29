@@ -81,6 +81,15 @@ public sealed class ConsumptionRepository : QueryRepository, IConsumptionReposit
                  AND STATUS = 'InStock'
                  AND CAST(COALESCE(CURRENT_QTY, 0) AS DECIMAL(38,9))
                      >= CAST(@Quantity AS DECIMAL(38,9))
+                 AND (@IsTrace = 0 OR EXISTS (
+                     SELECT 1 FROM IVT_MATERIAL_FEED_SESSION S
+                      WHERE S.FEED_SESSION_ID = @FeedSessionId
+                        AND S.MATERIAL_LOT_ID = @MaterialLotId
+                        AND S.PLANT_ID = @PlantId
+                        AND S.EQUIPMENT_ID = @EquipmentId
+                        AND S.STATUS <> 'Cancelled'
+                        AND S.MOUNTED_AT <= @OccurredAt
+                        AND (S.UNMOUNTED_AT IS NULL OR S.UNMOUNTED_AT > @OccurredAt)))
                  AND NOT EXISTS (SELECT 1 FROM IVT_MATERIAL_TX T
                                  WHERE T.IDEMPOTENCY_KEY = @IdempotencyKey)
                  AND NOT EXISTS (SELECT 1 FROM IVT_MATERIAL_TX T
@@ -167,13 +176,15 @@ public sealed class ConsumptionRepository : QueryRepository, IConsumptionReposit
         (CONSUMPTION_ID, IDEMPOTENCY_KEY, REQUEST_HASH, PLANT_ID, EQUIPMENT_ID,
          MATERIAL_LOT_ID, MATERIAL_ID, PROCESS_LOT_ID, WORK_ORDER_ID, PROCESS_ID,
          RECIPE_ID, RECIPE_VERSION, CONSUMPTION_MODE, QUANTITY, UNIT, TRACE_ID, TAG_ID,
-         SOURCE_EVENT_ID, SOURCE_SYSTEM, OPERATOR_ID, CORRELATION_ID, REVERSAL_OF_ID,
+         SOURCE_EVENT_ID, SOURCE_SYSTEM, OPERATOR_ID, FEED_SESSION_ID, CORRELATION_ID,
+         WORK_SCOPE_ID, CARRIER_ID, REVERSAL_OF_ID,
          STATUS, METADATA_JSON, OCCURRED_AT, CREATED_BY, CREATED_AT)
         VALUES
         (@ConsumptionId, @IdempotencyKey, @RequestHash, @PlantId, @EquipmentId,
          @MaterialLotId, @MaterialId, @ProcessLotId, @WorkOrderId, @ProcessId,
          @RecipeId, @RecipeVersion, @Mode, @Quantity, @Unit, @TraceId, @TagId,
-         @SourceEventId, @SourceSystem, @OperatorId, @CorrelationId, @ReversalOfId,
+         @SourceEventId, @SourceSystem, @OperatorId, @FeedSessionId, @CorrelationId,
+         @WorkScopeId, @CarrierId, @ReversalOfId,
          @Status, @MetadataJson, @OccurredAt, @Actor, @Now)";
 
     private const string ConsumptionSelect = @"SELECT H.*,
@@ -227,6 +238,7 @@ public sealed class ConsumptionRepository : QueryRepository, IConsumptionReposit
         p.Add("RecipeId", record.RecipeId);
         p.Add("RecipeVersion", record.RecipeVersion);
         p.Add("Mode", record.Mode);
+        p.Add("IsTrace", string.Equals(record.Mode, "Trace", StringComparison.OrdinalIgnoreCase) ? 1 : 0);
         p.Add("Quantity", record.Quantity);
         p.Add("Unit", record.Unit);
         p.Add("TraceId", record.TraceId);
@@ -234,7 +246,10 @@ public sealed class ConsumptionRepository : QueryRepository, IConsumptionReposit
         p.Add("SourceEventId", record.SourceEventId);
         p.Add("SourceSystem", record.SourceSystem);
         p.Add("OperatorId", record.OperatorId);
+        p.Add("FeedSessionId", record.FeedSessionId);
         p.Add("CorrelationId", record.CorrelationId);
+        p.Add("WorkScopeId", record.WorkScopeId);
+        p.Add("CarrierId", record.CarrierId);
         p.Add("ReversalOfId", record.ReversalOfId);
         p.Add("Status", record.Status);
         p.Add("MetadataJson", record.MetadataJson);
@@ -284,7 +299,10 @@ public sealed class ConsumptionRepository : QueryRepository, IConsumptionReposit
         public string SourceEventId { get; set; } = string.Empty;
         public string SourceSystem { get; set; } = string.Empty;
         public string OperatorId { get; set; } = string.Empty;
+        public string? FeedSessionId { get; set; }
         public string? CorrelationId { get; set; }
+        public string? WorkScopeId { get; set; }
+        public string? CarrierId { get; set; }
         public string? ReversalOfId { get; set; }
         public string Status { get; set; } = string.Empty;
         public string EffectiveStatus { get; set; } = string.Empty;
@@ -295,8 +313,8 @@ public sealed class ConsumptionRepository : QueryRepository, IConsumptionReposit
             ConsumptionId, IdempotencyKey, RequestHash, PlantId, EquipmentId,
             MaterialLotId, MaterialId, ProcessLotId, WorkOrderId, ProcessId, RecipeId,
             RecipeVersion, ConsumptionMode, ToDecimal(Quantity), Unit, TraceId, TagId, SourceEventId,
-            SourceSystem, OperatorId, CorrelationId, ReversalOfId,
+            SourceSystem, OperatorId, FeedSessionId, CorrelationId, ReversalOfId,
             string.IsNullOrEmpty(EffectiveStatus) ? Status : EffectiveStatus,
-            MetadataJson, OccurredAt);
+            MetadataJson, OccurredAt, WorkScopeId, CarrierId);
     }
 }

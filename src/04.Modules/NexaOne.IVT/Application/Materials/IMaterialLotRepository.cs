@@ -9,6 +9,7 @@ public interface IMaterialLotRepository
         string idempotencyKey, CancellationToken ct = default);
     Task<MaterialLotTransaction?> GetBySourceEventAsync(
         string sourceSystem, string sourceEventId, CancellationToken ct = default);
+    Task<bool> HasFeedSessionReservationAsync(string lotId, CancellationToken ct = default);
     Task<bool> TryReceiveAsync(MaterialLotTransaction record, CancellationToken ct = default);
     Task<bool> TryApplyAsync(MaterialLotTransaction record, CancellationToken ct = default);
 }

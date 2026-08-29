@@ -855,7 +855,7 @@
     },
     {
         "menuId":  "FACTORY_PPM_WORK_ORDER",
-        "menuName":  "W/O 관리",
+        "menuName":  "작업 관리",
         "parentMenuId":  "FACTORY_PPM_PRODUCTION",
         "displaySequence":  2,
         "menuType":  "Screen",

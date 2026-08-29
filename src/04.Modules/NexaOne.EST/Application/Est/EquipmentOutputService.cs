@@ -91,7 +91,8 @@ public sealed class EquipmentOutputService
             Text(command.MetadataJson),
             occurredAt,
             DateTime.UtcNow,
-            command.IsLotOutput);
+            command.IsLotOutput,
+            Text(command.WorkScopeId));
 
         if (await _repository.TryAddAsync(record, ct))
             return Result.Success(record);
@@ -152,6 +153,8 @@ public sealed class EquipmentOutputService
                 "GoodQuantity + DefectQuantity must equal TotalQuantity after DECIMAL(18,4) normalization.");
         if (command.RecipeVersion is < 0)
             return Error.Validation(nameof(command.RecipeVersion), "RecipeVersion cannot be negative.");
+        if (Text(command.WorkScopeId)?.Length > 50)
+            return Error.Validation(nameof(command.WorkScopeId), "WorkScopeId cannot exceed 50 characters.");
         if (command.IsLotOutput && string.IsNullOrWhiteSpace(command.ProcessLotId))
             return Error.Validation(nameof(command.ProcessLotId), "LOT output requires ProcessLotId.");
         if (string.Equals(command.OutputType.Trim(), "CarrierCleaned", StringComparison.OrdinalIgnoreCase))
@@ -171,12 +174,21 @@ public sealed class EquipmentOutputService
         CanonicalQuantities quantities,
         DateTime occurredAt,
         string actor)
-        => CanonicalRequestHash.Compute(
+    {
+        var values = new List<object?>
+        {
             c.PlantId.Trim(), c.EquipmentId.Trim(), c.OutputType.Trim(),
             quantities.Total, quantities.Good, quantities.Defect, c.Unit.Trim(),
             occurredAt, c.Source.Trim(), Text(c.SourceEventId), Text(c.CarrierId),
             Text(c.ProcessLotId), Text(c.WorkOrderId), Text(c.ProcessId), Text(c.RecipeId),
-            c.RecipeVersion, Text(c.CorrelationId), Text(c.MetadataJson), actor, c.IsLotOutput);
+            c.RecipeVersion, Text(c.CorrelationId), Text(c.MetadataJson), actor, c.IsLotOutput
+        };
+        // Keep legacy output idempotency hashes stable. The optional WorkScope correlation
+        // participates only for records explicitly attributed to a work scope.
+        if (Text(c.WorkScopeId) is { } workScopeId)
+            values.Add(workScopeId);
+        return CanonicalRequestHash.Compute(values.ToArray());
+    }
 
     private static string? Text(string? value)
         => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

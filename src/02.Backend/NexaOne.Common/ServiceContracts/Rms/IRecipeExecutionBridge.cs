@@ -58,7 +58,11 @@ public sealed record RecipeExecutionCommand(
     string? ProcessId = null,
     string? TraceId = null,
     string? ConditionSnapshotJson = null,
-    string? ActorId = null);
+    string? ActorId = null,
+    // Optional cross-module correlation. WorkScopeId is the scope-neutral work identity;
+    // CarrierId is used by LOT-less carrier cleaning and must not be treated as a process LOT.
+    string? WorkScopeId = null,
+    string? CarrierId = null);
 
 public sealed record RecipeExecutionSnapshotDto(
     string ExecutionId,
@@ -77,4 +81,6 @@ public sealed record RecipeExecutionSnapshotDto(
     DateTime AppliedAt,
     string Source,
     string? TraceId,
-    bool IsReplay);
+    bool IsReplay,
+    string? WorkScopeId = null,
+    string? CarrierId = null);

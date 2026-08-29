@@ -140,6 +140,8 @@ public sealed class RecipeExecutionRepository : QueryRepository, IRecipeExecutio
             snapshot.ProcessLotId,
             snapshot.WorkOrderId,
             snapshot.ProcessId,
+            snapshot.WorkScopeId,
+            snapshot.CarrierId,
             snapshot.RecipeId,
             snapshot.RecipeVersion,
             snapshot.RecipeSnapshotJson,
@@ -210,6 +212,8 @@ public sealed class RecipeExecutionRepository : QueryRepository, IRecipeExecutio
         PROCESS_LOT_ID AS ProcessLotId,
         WORK_ORDER_ID AS WorkOrderId,
         PROCESS_ID AS ProcessId,
+        WORK_SCOPE_ID AS WorkScopeId,
+        CARRIER_ID AS CarrierId,
         RECIPE_ID AS RecipeId,
         RECIPE_VERSION AS RecipeVersion,
         RECIPE_SNAPSHOT_JSON AS RecipeSnapshotJson,
@@ -224,11 +228,13 @@ public sealed class RecipeExecutionRepository : QueryRepository, IRecipeExecutio
 
     private const string InsertAssignedExecutionSql = @"INSERT INTO RMS_RECIPE_EXECUTION_SNAPSHOT
         (EXECUTION_ID, IDEMPOTENCY_KEY, REQUEST_HASH, PLANT_ID, EQUIPMENT_ID,
-         PROCESS_LOT_ID, WORK_ORDER_ID, PROCESS_ID, RECIPE_ID, RECIPE_VERSION,
+         PROCESS_LOT_ID, WORK_ORDER_ID, PROCESS_ID, WORK_SCOPE_ID, CARRIER_ID,
+         RECIPE_ID, RECIPE_VERSION,
          RECIPE_SNAPSHOT_JSON, PARAMETER_SNAPSHOT_JSON, CONDITION_SNAPSHOT_JSON,
          APPLIED_BY, APPLIED_AT, SOURCE, TRACE_ID, CREATED_AT)
         SELECT @ExecutionId, @IdempotencyKey, @RequestHash, @PlantId, @EquipmentId,
-               @ProcessLotId, @WorkOrderId, @ProcessId, @RecipeId, @RecipeVersion,
+               @ProcessLotId, @WorkOrderId, @ProcessId, @WorkScopeId, @CarrierId,
+               @RecipeId, @RecipeVersion,
                @RecipeSnapshotJson, @ParameterSnapshotJson, @ConditionSnapshotJson,
                @AppliedBy, @AppliedAt, @Source, @TraceId, @CreatedAt
         FROM RMS_RECIPE R
@@ -287,6 +293,8 @@ public sealed class RecipeExecutionRepository : QueryRepository, IRecipeExecutio
         public string? ProcessLotId { get; set; }
         public string? WorkOrderId { get; set; }
         public string? ProcessId { get; set; }
+        public string? WorkScopeId { get; set; }
+        public string? CarrierId { get; set; }
         public string RecipeId { get; set; } = "";
         public int RecipeVersion { get; set; }
         public string RecipeSnapshotJson { get; set; } = "";
@@ -302,6 +310,7 @@ public sealed class RecipeExecutionRepository : QueryRepository, IRecipeExecutio
             ExecutionId, IdempotencyKey, RequestHash, PlantId, EquipmentId,
             ProcessLotId, WorkOrderId, ProcessId, RecipeId, RecipeVersion,
             RecipeSnapshotJson, ParameterSnapshotJson, ConditionSnapshotJson,
-            AppliedBy, AppliedAt, Source, TraceId, CreatedAt);
+            AppliedBy, AppliedAt, Source, TraceId, CreatedAt,
+            false, WorkScopeId, CarrierId);
     }
 }

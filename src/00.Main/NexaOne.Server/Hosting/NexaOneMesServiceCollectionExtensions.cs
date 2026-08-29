@@ -2,6 +2,7 @@ using System.Text;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -97,6 +98,20 @@ public static class NexaOneMesServiceCollectionExtensions
                 new System.Text.Json.Serialization.JsonStringEnumConverter()));
         services.AddRadzenComponents();
         services.AddHttpContextAccessor();
+        services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+            options.ForwardLimit = 1;
+            foreach (var value in configuration.GetSection("ReverseProxy:KnownProxies")
+                         .GetChildren()
+                         .Select(static child => child.Value)
+                         .Where(static value => !string.IsNullOrWhiteSpace(value)))
+            {
+                if (System.Net.IPAddress.TryParse(value, out var address)
+                    && !options.KnownProxies.Contains(address))
+                    options.KnownProxies.Add(address);
+            }
+        });
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen();
         services.AddHealthChecks()
@@ -123,6 +138,7 @@ public static class NexaOneMesServiceCollectionExtensions
         // 메타 bridge:* 액션은 프로그램별 raw SQL이 아니라 등록된 typed 드라이버를 통해 실행한다.
         // POM 드라이버는 기존 JWT 보호 REST API를 호출하므로 권한/버전/멱등/감사 계약이 한 경계에 유지된다.
         services.AddScoped<IMetaCommandDriver, PomWorkOrderMetaCommandDriver>();
+        services.AddScoped<IMetaCommandDriver, PomWorkScopeMetaCommandDriver>();
         services.AddScoped<IMetaCommandDriver, PomLotRoutingMetaCommandDriver>();
         services.AddScoped<IMetaCommandDriver, QmsInspectionMetaCommandDriver>();
         services.AddScoped<IMetaCommandDriver, MrpConversionMetaCommandDriver>();
@@ -156,7 +172,7 @@ public static class NexaOneMesServiceCollectionExtensions
             client.Timeout = TimeSpan.FromMinutes(10);
         }).AddHttpMessageHandler<DefaultRequestTimeoutHandler>();
 
-        AddRateLimiting(services);
+        AddRateLimiting(services, configuration);
         return services;
     }
 
@@ -262,19 +278,29 @@ public static class NexaOneMesServiceCollectionExtensions
     }
 
     /// <summary>일반 API와 인증 API에 각각 사용자/IP 기준 고정 구간 요청 제한을 적용한다.</summary>
-    private static void AddRateLimiting(IServiceCollection services)
+    private static void AddRateLimiting(IServiceCollection services, IConfiguration configuration)
     {
+        var runAdmissionPermitLimit = configuration.GetValue(
+            "RunAdmission:RateLimit:PermitLimitPerMinute", 3_000);
+        if (runAdmissionPermitLimit is < 100 or > 100_000)
+            throw new InvalidOperationException(
+                "RunAdmission:RateLimit:PermitLimitPerMinute must be between 100 and 100000.");
+
         services.AddRateLimiter(options =>
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
             {
-                var key = context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                var runAdmission = context.Request.Path.StartsWithSegments("/api/v1/run-admission");
+                var owner = context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
                     ?? context.Connection.RemoteIpAddress?.ToString()
                     ?? "anonymous";
+                var key = runAdmission ? $"run-admission:{owner}" : owner;
                 return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
                 {
-                    PermitLimit = 100,
+                    // 6초 soft TTL을 사용하는 여러 설비가 같은 NAT/proxy 뒤에 있어도 일반 사용자 API의
+                    // 100/min partition과 충돌하지 않게 별도 용량을 둔다. 실제 규모에 맞춰 명시 조정한다.
+                    PermitLimit = runAdmission ? runAdmissionPermitLimit : 100,
                     Window = TimeSpan.FromMinutes(1),
                     QueueLimit = 0,
                     AutoReplenishment = true,

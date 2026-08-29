@@ -18,6 +18,9 @@
   <object id="fdcBridge" factory-object="fdcModule" factory-method="GetFdcBridge" />
   <object id="fdcTraceSource" factory-object="fdcModule" factory-method="GetTraceSource" />
   <object id="fdcRuntimeLease" factory-object="fdcModule" factory-method="GetRuntimeLease" />
+  <!-- This bridge is deliberately a disabled implementation until the durable shared request ledger,
+       client/equipment quotas, and HA routing contract are implemented. RunAdmission:Enabled=true fails startup. -->
+  <object id="runAdmissionService" factory-object="fdcModule" factory-method="GetRunAdmissionService" />
   <object id="fdcCollectionWorker" factory-object="fdcModule" factory-method="GetCollectionWorker" />
   <object id="fdcCollectDataRetentionWorker" factory-object="fdcModule" factory-method="GetRetentionWorker" />
   <object id="virtualEventEvaluationWorker" factory-object="fdcModule" factory-method="GetVirtualEventWorker" />

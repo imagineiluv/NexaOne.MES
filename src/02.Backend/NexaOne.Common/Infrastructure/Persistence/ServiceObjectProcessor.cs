@@ -1,4 +1,5 @@
 ﻿using System.Data;
+using System.Data.Common;
 using Dapper;
 using NexaDB.Data.Abstractions.Interfaces;
 using NexaDB.Data.Abstractions.Models;
@@ -105,6 +106,20 @@ public sealed class ServiceObjectProcessor
             }
             return results;
         }, IsolationLevel.ReadCommitted, ct);
+
+    /// <summary>
+    /// Runs one repository-owned compound invariant with an explicit isolation level while keeping
+    /// endpoint construction inside Common. Use this when fixed statement helpers cannot express a
+    /// typed rollback outcome.
+    /// </summary>
+    public Task<TResult> ExecuteInTransactionAsync<TResult>(
+        Func<DbConnection, DbTransaction, Task<TResult>> action,
+        IsolationLevel isolationLevel,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        return _txnManager.ExecuteInTransactionAsync(_endpoint, action, isolationLevel, ct);
+    }
 
     /// <summary>
     /// 첫 문장을 낙관적 잠금 guard로 실행하고 정확히 한 행이 바뀐 경우에만 후속 문장을 실행한다.

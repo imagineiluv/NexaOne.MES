@@ -34,7 +34,8 @@ public sealed record EquipmentOutputCommand(
     string? ActorId = null,
     string? CorrelationId = null,
     string? MetadataJson = null,
-    bool IsLotOutput = false);
+    bool IsLotOutput = false,
+    string? WorkScopeId = null);
 
 public sealed record EquipmentOutputDto(
     string OutputEventId,
@@ -53,4 +54,5 @@ public sealed record EquipmentOutputDto(
     string? ProcessLotId,
     string? WorkOrderId,
     string? CorrelationId,
-    bool IsLotOutput = false);
+    bool IsLotOutput = false,
+    string? WorkScopeId = null);

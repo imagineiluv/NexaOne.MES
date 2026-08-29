@@ -83,6 +83,8 @@ public sealed class FdcTraceSourceTests
 
             result.Select(sample => sample.CollectId).Should().Equal("C-2", "C-3");
             result[0].Value.Should().Be(12.345678m);
+            result.Should().OnlyContain(sample => sample.CollectedAt.Kind == DateTimeKind.Utc,
+                "the Common TRACE source contract exposes provider timestamps as UTC");
         }
         finally
         {
