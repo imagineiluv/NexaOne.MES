@@ -2669,8 +2669,8 @@ public sealed class SqliteSchemaIncrementalTests
         sql.Should().Contain("CREATE TRIGGER TR_FDC_TRACE_RETENTION_STATE_GUARD");
         sql.Should().Contain("CREATE TRIGGER TR_FDC_COLLECT_RETENTION_DELETE_GUARD");
         sql.Should().Contain("CREATE TRIGGER TR_FDC_COLLECT_COMPLETENESS_INSERT_GUARD");
-        sql.Should().Contain("FROM FDC_TRACE_RETENTION_STATE S WITH (READCOMMITTEDLOCK, HOLDLOCK)",
-            "the insert guard must see the current boundary under READ_COMMITTED_SNAPSHOT without serializing peer inserts");
+        sql.Should().Contain("FROM FDC_TRACE_RETENTION_STATE S WITH (HOLDLOCK)",
+            "the insert guard must see the current boundary under serializable locking");
         sql.Should().Contain("I.COLLECTED_AT >= S.COMPLETENESS_BOUNDARY");
         sql.Should().Contain("CREATE TRIGGER TR_FDC_COLLECT_APPEND_ONLY_UPDATE");
         sql.Should().Contain("FDC raw TRACE is append-only");

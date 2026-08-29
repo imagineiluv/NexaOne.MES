@@ -89,7 +89,9 @@ BEGIN
           FROM inserted I
          WHERE NOT EXISTS (
               SELECT 1
-                FROM FDC_TRACE_RETENTION_STATE S WITH (READCOMMITTEDLOCK, HOLDLOCK)
+              -- HOLDLOCK already forces serializable locking, including when RCSI is enabled;
+              -- pairing it with READCOMMITTEDLOCK is rejected as conflicting by SQL Server.
+              FROM FDC_TRACE_RETENTION_STATE S WITH (HOLDLOCK)
                WHERE S.STATE_ID = ''GLOBAL''
                  AND I.COLLECTED_AT >= S.COMPLETENESS_BOUNDARY))
         THROW 51503, ''FDC raw TRACE cannot be inserted before its completeness boundary.'', 1;
