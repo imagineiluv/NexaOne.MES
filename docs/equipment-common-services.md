@@ -116,6 +116,28 @@ reconcile한다. 비활성 target, 삭제된 shift와 휴일·빈 계획은 stal
 정리하지만 수동 window 집계는 요청한 shift만 정리해 같은 날짜의 다른 shift 결과를 보존한다. 현재 범위의 계산이
 모두 성공한 뒤에만 stale primary key를 한 트랜잭션으로 삭제하므로 실패한 재집계가 이전 결과를 먼저 지우지 않는다.
 
+## 작업 관리(WorkScope)와 캐리어 실행
+
+생산 W/O가 없는 세척 설비도 같은 실행 원장을 사용할 수 있도록 POM의 `WorkScope`를
+작업 관리의 정본으로 둔다. `Batch`와 `Campaign`은 부모 범위이고 `Carrier`, `Lot`,
+`Equipment`, `Other`는 실제 실행 대상 범위다. 따라서 세척 설비는 `Carrier`만 생성해도
+되며, `WorkOrderId`와 LOT는 선택적 외부 참조로 남는다. 부모-자식 관계는
+`POM_WORK_SCOPE_MEMBER`에 순서와 함께 보존하고, 모든 상태 전이는
+`POM_WORK_SCOPE_EXECUTION` append-only 원장에 기록한다.
+
+`작업 관리` 화면은 범위 유형·대상 ID·Carrier ID·설비·레시피·수량·상태·버전을
+조회하고 Release/Start/Report/Hold/Resume/Complete/Cancel을 수행한다. API는
+`POST /api/v1/pom/work-scopes`와 `POST /api/v1/pom/work-scopes/{id}/{action}`이며,
+actor는 요청 본문이 아닌 로그인 JWT에서 캡처한다. `ExpectedVersion`과
+`IdempotencyKey`를 모든 변경에 요구해 재시작·중복 요청이 같은 결과로 수렴하도록 한다.
+Carrier 범위의 기본 계획 수량은 1이고 `TargetId=CarrierId`를 강제한다.
+
+Cleaner는 로컬 Carrier/Pair Recovery를 정본으로 유지하면서 선택적으로 MES WorkScope ID를
+Recovery state에 저장한다. 로컬 Recovery 커밋 뒤에만 `IWorkScopeExecutionSink`로
+Running/Completed/Abandoned projection을 전송하며, sink 미구성·전송 오류는 설비 안전과
+Recovery를 차단하지 않는다. 동일 `EventId` 재전송은 sink가 멱등 처리해야 한다. 이
+경계로 MES 업무 이력과 설비의 실제 Motion/I/O Recovery 커서를 서로 대체하지 않는다.
+
 ## 현재 수동 보전 운전
 
 현재는 로그인 사용자가 보전 W/O를 생성하고 Start/Complete/Cancel 명령을 수행한다. 명령의 actor는 요청
@@ -345,6 +367,13 @@ null을 유지한다. SQLite는 신규 source key 중복을 구형 V114 index �
 Feed session Unmount 뒤 LOT reservation은 자동 해제되지 않으며, 위의 durable drain Finalize가 도입되기 전까지
 수동 SQL로 비우거나 다른 LOT에 재귀속해서는 안 된다.
 
+V152는 WorkScope·member·execution 원장과 LOT 없는 Carrier 세척 상관관계를 추가한다.
+EMS Tool 사용 이력에는 WorkScope/Carrier·활동·세척/점검 결과를 선택적으로 기록하고,
+EST 출력 및 IVT 소비에는 동일 WorkScope/Carrier 키를 보존한다. V153은 RMS 레시피 실행
+스냅샷에도 WorkScope/Carrier를 결박한다. 세 migration은 SQLite initializer의 동등
+trigger/check와 MSSQL append-only/member guard를 함께 제공하며, 실제 MSSQL 적용은
+복원본 리허설과 `-ApproveHighImpactMigrations` 승인 뒤에만 수행한다.
+
 V149는 `FDC_RUNTIME_OWNERSHIP`의 단일 `GLOBAL` 행으로 FDC 실시간 writer를 선출한다. 획득은 DB가 관찰한
 기존 owner+fence를 CAS하고 DB UTC 시각으로 만료를 판정하며, 새 소유권마다 `FENCE_TOKEN`을 정확히 증가시킨다.
 각 action readiness/apply/reconcile/release 호출은 일반 action timeout과 캡처한 wall-clock/monotonic lease
@@ -399,22 +428,23 @@ Server SQL에서 MDM 소유 `IEquipmentOutputMasterDirectory`로 이동했다. P
 4. SQL Server와 SQLite에서 동일한 업무 결과를 낸다.
 5. 실제 로그인 작업자, correlation/source event와 원본 TRACE를 역추적할 수 있다.
 
-## 2026-08-28 검증 기록
+## 2026-08-29 검증 기록
 
 - Release solution build(`-warnaserror`): 경고 0, 오류 0
-- Unit: 1,890/1,890 통과(FDC monotonic lease·in-flight action clamp/post-check·전체 endpoint freshness·completed-poll 품질/fence·runtime key·TRACE cursor/retention 회귀 포함)
+- Unit: 1,964/1,964 통과(WorkScope Batch/Campaign/Carrier lifecycle·idempotency·UI command driver와 FDC/TRACE/Recovery 회귀 포함)
 - FDC Unit namespace focused: 256/256 통과
 - FDC/Spring focused boot: 18/18 통과(worker 기본 OFF + fail-closed adapter 조립 포함)
-- Server/SQLite integration: 916/916 통과
+- Server/SQLite integration: 964/964 통과
 - Portal: 116/116, production build 성공, `npm audit` 취약점 0
 - NexaLogic PLC: Unit 12/12, Core 57/57, Integration 14/14, Hardware Simulation 43/43 — 합계 126/126 통과
 - modules-ON child-process smoke: 11개 모듈과 호스트 소유 선언형 bridge 47개를 최신 Release 호스트에서 실제 부팅
-- migration: V001~V151 strict 이름·숫자 순서·중복·LF 정규화 SHA-256 검증 통과, 신규/증분 SQLite와 MSSQL 정적 계약 통과
+- migration: V001~V153 strict 이름·숫자 순서·중복·LF 정규화 SHA-256 검증 통과, 신규/증분 SQLite와 MSSQL 정적 계약 통과
 - publish: Release publish 성공, 산출물 510개·모듈 11개, 독립 `/health`·JWT 로그인 통과,
   `NexusCom`·`NexusFramework`·`NexusLogic` 파일명/설정 참조 0건
 - 정적 경계: QMS/POM 저장소 foreign physical-table SQL 0건(ADR-0002/0003만 허용), Common SQLite bootstrap은
   ADR-0004의 FDC·IVT target whitelist architecture test로 제한, 충돌 marker·diff whitespace 오류 0건
 
 이 실행 환경에는 `NEXAONE_MSSQL_TEST_CONN`, `sqlcmd`, SQL Server 서비스가 없고 Docker daemon도 실행되지
-않아 실제 SQL Server 왕복 테스트는 수행하지 못했다. SQL Server 검증과 Cleaner 실제 하드웨어 Recovery HIL은
-프레임워크 이관 및 자동 재개 활성화 전 필수 잔여 gate다.
+않아 실제 SQL Server 왕복 테스트는 수행하지 못했다. 원격 CI도 비공개 서브모듈용
+`NEXA_SUBMODULE_TOKEN` 사전검사에서 중단됐다. SQL Server 검증, 비공개 서브모듈 credential,
+Cleaner 실제 하드웨어 Recovery HIL은 프레임워크 이관 및 자동 재개 활성화 전 필수 잔여 gate다.
