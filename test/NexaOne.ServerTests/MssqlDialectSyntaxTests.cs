@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Data.SqlClient;
 using NexaOne.Application.Query;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace NexaOne.ServerTests;
@@ -44,8 +45,11 @@ public sealed class MssqlDialectSyntaxTests
             try
             {
                 using var cmd = conn.CreateCommand();
-                // PARSEONLY는 배치 단위 토글 — 쿼리 SQL을 같은 배치에 넣어 파서만 태운다(실행/바인딩 없음).
-                cmd.CommandText = "SET PARSEONLY ON;\n" + def!.Sql + "\nSET PARSEONLY OFF;";
+                // PARSEONLY는 배치 단위 토글 — 쿼리 SQL을 같은 배치에 넣어 파서만 태운다(실행 없음).
+                // SQL Server still resolves variable names while parsing, so declare each Dapper
+                // placeholder with a permissive type solely for this syntax contract.
+                var sql = DeclareParseOnlyParameters(def!.Sql);
+                cmd.CommandText = "SET PARSEONLY ON;\n" + sql + "\nSET PARSEONLY OFF;";
                 cmd.ExecuteNonQuery();
             }
             catch (SqlException ex)
@@ -56,6 +60,22 @@ public sealed class MssqlDialectSyntaxTests
 
         failures.Should().BeEmpty(
             $"[{treeRelativePath}] MSSQL 파서가 거부한 쿼리(방언 문법 오류): {string.Join(" | ", failures)}");
+    }
+
+    private static string DeclareParseOnlyParameters(string sql)
+    {
+        var names = Regex.Matches(sql, @"(?<!@)@[A-Za-z_][A-Za-z0-9_]*")
+            .Select(match => match.Value)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (names.Length == 0)
+            return sql;
+
+        var declarations = string.Join(
+            Environment.NewLine,
+            names.Select(name => $"DECLARE {name} nvarchar(4000);"));
+        return declarations + Environment.NewLine + sql;
     }
 
 }

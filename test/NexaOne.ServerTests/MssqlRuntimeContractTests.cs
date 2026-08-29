@@ -102,7 +102,7 @@ public sealed class MssqlRuntimeContractTests
         var unmounted = await feedService.ExecuteAsync(new FeedSessionCommand(
             FeedSessionOperations.Unmount, feedCommand.FeedSessionId, 1, $"FU:{suffix}",
             "MSSQL-CONTRACT", $"FU:{suffix}", occurredAt.AddMinutes(2),
-            ActorId: "operator"));
+            ActorId: "operator", Reason: "contract test changeover"));
 
         received.IsSuccess.Should().BeTrue(received.IsFailure ? received.Error.Description : string.Empty);
         binding.IsSuccess.Should().BeTrue(binding.IsFailure ? binding.Error.Description : string.Empty);
