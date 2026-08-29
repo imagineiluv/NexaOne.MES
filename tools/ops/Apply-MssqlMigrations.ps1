@@ -5,7 +5,7 @@
 #   .\Apply-MssqlMigrations.ps1 -ConnectionString "Server=...;Database=...;..." [-DryRun]
 #   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -IncludeOpsSeed
 #   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -AdoptMissingChecksums # 기존 이력 1회 명시 승인
-#   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -ApproveHighImpactMigrations # V142/V144/V146/V147/V148/V150/V151/V152/V153 운영 승인
+#   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -ApproveHighImpactMigrations # V142/V144/V146/V147/V148/V150/V151/V152/V153/V154 운영 승인
 #   .\Apply-MssqlMigrations.ps1 -MigrationsPath <path> -ValidateOnly
 # ⚠ 접속 문자열은 env/보안 저장소에서만 — 스크립트·저장소에 하드코딩 금지.
 param(
