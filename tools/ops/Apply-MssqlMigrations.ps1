@@ -21,6 +21,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Keep CLI failures machine-readable across Windows/Linux runners. PowerShell 7 may decorate
+# terminating errors with ANSI sequences when stderr is redirected, which makes contract tests and
+# operational log parsers depend on the host's output mode.
+if (Get-Variable -Name PSStyle -ErrorAction SilentlyContinue) {
+    $PSStyle.OutputRendering = 'PlainText'
+}
+
 if ($DryRun -and $AdoptMissingChecksums) {
     throw 'DryRun and AdoptMissingChecksums cannot be used together.'
 }
@@ -38,6 +45,33 @@ function Get-MigrationHash([System.IO.FileInfo]$File) {
     }
     finally {
         $sha256.Dispose()
+    }
+}
+
+function Get-MigrationSqlBatches([string]$Sql) {
+    # SQL Server compiles a multi-statement batch before executing it. A later CHECK/FK that
+    # references a column added earlier in the same migration can therefore fail compilation
+    # even though the column DDL appears first in the file (V090 is the canonical example).
+    # Keep migration files immutable and execute top-level ALTER TABLE ... ADD CONSTRAINT statements
+    # as separate commands in the same transaction. CREATE TABLE inline constraints are left in the
+    # main batch because all of their columns are declared by the table definition itself.
+    $constraintPattern = [System.Text.RegularExpressions.Regex]::new(
+        '(?ims)^[ \t]*ALTER\s+TABLE\s+[\[\]\w.]+\s+ADD\s+CONSTRAINT\b.*?;[ \t]*(?:\r?\n|$)',
+        [System.Text.RegularExpressions.RegexOptions]::CultureInvariant)
+    $matches = $constraintPattern.Matches($Sql)
+    $constraints = [System.Collections.Generic.List[string]]::new()
+    $mainBuilder = [System.Text.StringBuilder]::new($Sql)
+
+    # Remove from the end so Match.Index remains valid, while Insert(0, ...) preserves source order.
+    for ($i = $matches.Count - 1; $i -ge 0; $i--) {
+        $match = $matches[$i]
+        [void]$constraints.Insert(0, $match.Value.Trim())
+        [void]$mainBuilder.Remove($match.Index, $match.Length)
+    }
+
+    [pscustomobject]@{
+        MainSql        = $mainBuilder.ToString()
+        ConstraintSqls = $constraints
     }
 }
 
@@ -295,11 +329,19 @@ WHERE VERSION_ID = @version AND CONTENT_SHA256 IS NULL;
 
     foreach ($migration in $pending) {
         $sql = Get-Content -Raw -Encoding UTF8 $migration.File.FullName
+        $batches = Get-MigrationSqlBatches $sql
         $tx = $conn.BeginTransaction()
         try {
-            $cmd = $conn.CreateCommand(); $cmd.Transaction = $tx; $cmd.CommandTimeout = 300
-            $cmd.CommandText = $sql
-            [void]$cmd.ExecuteNonQuery()
+            if (-not [string]::IsNullOrWhiteSpace($batches.MainSql)) {
+                $cmd = $conn.CreateCommand(); $cmd.Transaction = $tx; $cmd.CommandTimeout = 300
+                $cmd.CommandText = $batches.MainSql
+                [void]$cmd.ExecuteNonQuery()
+            }
+            foreach ($constraintSql in $batches.ConstraintSqls) {
+                $constraint = $conn.CreateCommand(); $constraint.Transaction = $tx; $constraint.CommandTimeout = 300
+                $constraint.CommandText = $constraintSql
+                [void]$constraint.ExecuteNonQuery()
+            }
             $ver = $conn.CreateCommand(); $ver.Transaction = $tx
             $ver.CommandText = 'INSERT INTO SYS_SCHEMA_MIGRATION (VERSION_ID, CONTENT_SHA256) VALUES (@v, @hash)'
             [void]$ver.Parameters.AddWithValue('@v', $migration.Name)

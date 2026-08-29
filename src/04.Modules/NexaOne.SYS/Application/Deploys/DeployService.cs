@@ -54,7 +54,10 @@ public sealed class DeployService
             return Result.Failure<DeployFile>(Error.Validation("파일명을 확인해 주세요."));
         fileName = fileName.Trim();
         // 업로드 파일명은 다운로드 응답(Content-Disposition)에 그대로 쓰인다 — 경로 성분을 차단한다
-        if (!string.Equals(fileName, Path.GetFileName(fileName), StringComparison.Ordinal))
+        // Path.GetFileName follows the host OS separator rules. The API is also exercised on
+        // Linux while Windows clients can submit '\\', so reject both separators explicitly.
+        if (fileName.Contains('/') || fileName.Contains('\\')
+            || !string.Equals(fileName, Path.GetFileName(fileName), StringComparison.Ordinal))
             return Result.Failure<DeployFile>(Error.Validation("파일명에 경로를 포함할 수 없습니다."));
         // CR/LF 등 제어 문자가 응답 헤더에 실리면 해당 버전 다운로드가 영구 실패한다 — 입력 단계에서 차단
         if (fileName.Any(char.IsControl))
