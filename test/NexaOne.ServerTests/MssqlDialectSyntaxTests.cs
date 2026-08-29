@@ -39,23 +39,34 @@ public sealed class MssqlDialectSyntaxTests
         conn.Open();
 
         var failures = new List<string>();
-        foreach (var id in registry.Ids.OrderBy(x => x, StringComparer.Ordinal))
+        using var parseOnlyOn = conn.CreateCommand();
+        parseOnlyOn.CommandText = "SET PARSEONLY ON;";
+        parseOnlyOn.ExecuteNonQuery();
+        try
         {
-            registry.TryGet(id, out var def);
-            try
+            foreach (var id in registry.Ids.OrderBy(x => x, StringComparer.Ordinal))
             {
-                using var cmd = conn.CreateCommand();
-                // PARSEONLY는 배치 단위 토글 — 쿼리 SQL을 같은 배치에 넣어 파서만 태운다(실행 없음).
-                // SQL Server still resolves variable names while parsing, so declare each Dapper
-                // placeholder with a permissive type solely for this syntax contract.
-                var sql = DeclareParseOnlyParameters(def!.Sql);
-                cmd.CommandText = "SET PARSEONLY ON;\n" + sql + "\nSET PARSEONLY OFF;";
-                cmd.ExecuteNonQuery();
+                registry.TryGet(id, out var def);
+                try
+                {
+                    using var cmd = conn.CreateCommand();
+                    // PARSEONLY는 연결 세션에서 별도 설정한 뒤 쿼리만 같은 배치로 파싱한다(실행 없음).
+                    // SQL Server still resolves variable names while parsing, so declare each Dapper
+                    // placeholder solely for this syntax contract.
+                    cmd.CommandText = DeclareParseOnlyParameters(def!.Sql);
+                    cmd.ExecuteNonQuery();
+                }
+                catch (SqlException ex)
+                {
+                    failures.Add($"{id}: {ex.Message.ReplaceLineEndings(" ")}");
+                }
             }
-            catch (SqlException ex)
-            {
-                failures.Add($"{id}: {ex.Message.ReplaceLineEndings(" ")}");
-            }
+        }
+        finally
+        {
+            using var parseOnlyOff = conn.CreateCommand();
+            parseOnlyOff.CommandText = "SET PARSEONLY OFF;";
+            parseOnlyOff.ExecuteNonQuery();
         }
 
         failures.Should().BeEmpty(
@@ -74,8 +85,26 @@ public sealed class MssqlDialectSyntaxTests
 
         var declarations = string.Join(
             Environment.NewLine,
-            names.Select(name => $"DECLARE {name} nvarchar(4000);"));
+            names.Select(name => $"DECLARE {name} {ParseOnlyParameterType(sql, name)};"));
         return declarations + Environment.NewLine + sql;
+    }
+
+    private static string ParseOnlyParameterType(string sql, string name)
+    {
+        if (name.Equals("@offset", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("@limit", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("@retentionDays", StringComparison.OrdinalIgnoreCase)
+            || Regex.IsMatch(
+                sql,
+                $@"(?i)\b(?:TOP|OFFSET)\s*\(?\s*{Regex.Escape(name)}\b"
+                    + $@"|\bFETCH\s+NEXT\s+{Regex.Escape(name)}\b"
+                    + $@"|\b(?:DATEADD|DATEDIFF)\s*\(\s*[^,]+,\s*-?\s*{Regex.Escape(name)}\b"
+                    + $@"|(?<![A-Za-z0-9_])-\s*{Regex.Escape(name)}\b"))
+        {
+            return "int";
+        }
+
+        return "nvarchar(4000)";
     }
 
 }
