@@ -463,13 +463,26 @@ Server SQL에서 MDM 소유 `IEquipmentOutputMasterDirectory`로 이동했다. P
 - 정적 경계: QMS/POM 저장소 foreign physical-table SQL 0건(ADR-0002/0003만 허용), Common SQLite bootstrap은
   ADR-0004의 FDC·IVT target whitelist architecture test로 제한, 충돌 marker·diff whitespace 오류 0건
 
-이 실행 환경에는 `NEXAONE_MSSQL_TEST_CONN`, `sqlcmd`, SQL Server 서비스가 없고 Docker daemon도 실행되지
-않아 실제 SQL Server 왕복 테스트는 수행하지 못했다. 원격 CI도 비공개 서브모듈용
-`NEXA_SUBMODULE_TOKEN` 사전검사에서 중단됐다. SQL Server 검증, 비공개 서브모듈 credential,
-Cleaner 실제 하드웨어 Recovery HIL은 프레임워크 이관 및 자동 재개 활성화 전 필수 잔여 gate다.
+이 기록 시점의 로컬 환경에는 `NEXAONE_MSSQL_TEST_CONN`, `sqlcmd`, SQL Server 서비스가 없고 Docker daemon도
+실행되지 않아 실제 SQL Server 왕복 테스트를 수행하지 못했다. 같은 시점의 원격 CI도 비공개 서브모듈용
+`NEXA_SUBMODULE_TOKEN` 사전검사에서 중단됐다. 아래 2026-08-30 재검증에서 Secret과 원격 MSSQL 계약 게이트는
+해소됐지만, 운영 DB upgrade rehearsal과 Cleaner 실제 하드웨어 Recovery HIL은 프레임워크 이관 및 자동 재개
+활성화 전 필수 잔여 gate로 남아 있다.
 
 개발 중 Secret 미설정 상태에서도 검증이 멈추지 않도록 `.github/workflows/ci.yml`에
 `credential-probe`와 `development-check` 경로를 추가했다. Secret이 없으면 private
 submodule을 Checkout하지 않고 action pin·로컬 인증 설정·V001~V155 migration catalog·Portal
 검증만 실행하며, 전체 .NET/PLC/MSSQL job은 성공으로 위장하지 않고 skip된다. Secret을 제공한
 실행에서만 기존 full CI와 MSSQL contract job이 활성화된다.
+
+## 2026-08-30 원격 CI 재검증
+
+- 저장소 Secret `NEXA_SUBMODULE_TOKEN`이 등록된 상태에서 private `NexaFramework`·`NexaDB`·`NexaLogic`
+  checkout이 성공했다. 토큰 값은 추적 파일이나 설정 예제에 기록하지 않는다.
+- [MES CI run 33258831227](https://github.com/imagineiluv/NexaOne.MES/actions/runs/33258831227)은 전체 성공했다.
+  Release build는 경고 0·오류 0이며 Unit 1,965/1,965, Server/SQLite 967/967, Portal 116/116,
+  NexaLogic Integration 14/14, Hardware Simulation 43/43이 통과했다.
+- 동일 실행의 `mssql-contract`는 SQL Server 2022 컨테이너에서 V001~V155 migration 적용과 MSSQL
+  dialect/runtime 계약을 통과했다. 이는 CI SQL Server 증거이며 운영 복원본 upgrade rehearsal을 대체하지 않는다.
+- Cleaner PR #39와 NexaFramework PR #30은 코드 변경이 아니라 GitHub Actions billing/spending-limit로
+  runner가 시작되지 않는 외부 차단 상태다. 결제 제한이 해소되기 전에는 두 PR을 remote-green으로 표시하지 않는다.

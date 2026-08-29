@@ -41,6 +41,9 @@ jobs:
     needs: credential-probe
     if: needs.credential-probe.outputs.available == 'true'
     runs-on: ubuntu-latest
+    # Server/SQLite contract tests can take ~27 minutes on a cold hosted runner;
+    # keep a finite upper bound so a hung child process cannot consume a runner forever.
+    timeout-minutes: 45
     steps:
       - name: Require private submodule credential
         shell: bash
