@@ -653,6 +653,8 @@ public sealed class SqliteSchemaIncrementalTests
 
             TableExists(cs, "POM_WORK_SCOPE").Should().BeTrue();
             TableExists(cs, "POM_WORK_SCOPE_MEMBER").Should().BeTrue();
+            IndexExists(cs, "UX_POM_WORK_SCOPE_MEMBER_SEQUENCE").Should().BeTrue(
+                "member sequence allocation must be unique under concurrent parent inserts");
             Columns(cs, "POM_WORK_SCOPE").Should().Contain("CREATE_IDEMPOTENCY_KEY");
             Columns(cs, "POM_WORK_SCOPE_EXECUTION").Should().Contain("RESULT_CODE");
             Columns(cs, "POM_WORK_SCOPE_EXECUTION").Should().Contain("RESULT_METADATA_JSON");
@@ -2664,6 +2666,30 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V154_mssql_migration_rejects_existing_sequence_collisions_before_unique_index()
+    {
+        var sql = MigrationSql("V154__POM_WORK_SCOPE_MEMBER_SEQUENCE_UNIQUENESS.sql");
+
+        sql.Should().Contain("GROUP BY WORK_SCOPE_ID, SEQUENCE_NO");
+        sql.Should().Contain("HAVING COUNT_BIG(*) > 1");
+        sql.Should().Contain("THROW 51523");
+        sql.Should().Contain("CREATE UNIQUE INDEX UX_POM_WORK_SCOPE_MEMBER_SEQUENCE");
+        sql.Should().Contain("ON POM_WORK_SCOPE_MEMBER (WORK_SCOPE_ID, SEQUENCE_NO)");
+    }
+
+    [Fact]
+    public void Work_scope_repository_serializes_sql_server_member_sequence_allocation()
+    {
+        var source = File.ReadAllText(RepositorySource.GetFile(
+            "src", "04.Modules", "NexaOne.POM", "Infrastructure", "WorkScopeRepository.cs"));
+
+        source.Should().Contain("DatabaseProviderKind.SqlServer");
+        source.Should().Contain("WITH (UPDLOCK, HOLDLOCK)");
+        source.Should().Contain("InsertMemberSqlSqlServer");
+        source.Should().Contain("MAX(SEQUENCE_NO) + 1");
+    }
+
+    [Fact]
     public void Spare_part_usage_by_work_order_named_query_has_matching_dialect_contracts()
     {
         var sqlite = NamedQuerySql("sqlite", "EMS", "EMS.SparePartUsageByWorkOrder");
@@ -2705,7 +2731,7 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
-    public void V121_through_v153_migrations_keep_unique_numeric_versions_and_module_owned_names()
+    public void V121_through_v154_migrations_keep_unique_numeric_versions_and_module_owned_names()
     {
         var migrationDirectory = Path.GetDirectoryName(RepositorySource.GetFile(
             "src", "00.Main", "NexaOne.Server", "config", "db", "migrations",
@@ -2745,6 +2771,7 @@ public sealed class SqliteSchemaIncrementalTests
             [151] = ("V151__IVT_TRACE_MATERIAL_CONFIGURATION_COMMANDS.sql", "IVT"),
             [152] = ("V152__POM_WORK_SCOPE_AND_TOOL_CLEANING.sql", "POM"),
             [153] = ("V153__RMS_RECIPE_EXECUTION_WORK_SCOPE.sql", "RMS"),
+            [154] = ("V154__POM_WORK_SCOPE_MEMBER_SEQUENCE_UNIQUENESS.sql", "POM"),
         };
         var recentFiles = Directory.EnumerateFiles(migrationDirectory, "V*.sql")
             .Select(Path.GetFileName)
@@ -2752,7 +2779,7 @@ public sealed class SqliteSchemaIncrementalTests
             .Select(name => (Name: name!, Match: Regex.Match(name!, @"^V(?<version>[0-9]{3})__")))
             .Where(item => item.Match.Success)
             .Select(item => (item.Name, Version: int.Parse(item.Match.Groups["version"].Value)))
-            .Where(item => item.Version is >= 121 and <= 153)
+            .Where(item => item.Version is >= 121 and <= 154)
             .ToArray();
 
         recentFiles.GroupBy(item => item.Version).Should().OnlyContain(group => group.Count() == 1);

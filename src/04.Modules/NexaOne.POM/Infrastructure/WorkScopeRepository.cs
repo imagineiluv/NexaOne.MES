@@ -2,6 +2,7 @@ using NexaOne.Common;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.POM.Application.WorkScopes;
 using NexaOne.POM.Domain;
+using NexaDB.Data.Abstractions.Models;
 
 namespace NexaOne.POM.Infrastructure;
 
@@ -9,9 +10,16 @@ namespace NexaOne.POM.Infrastructure;
 public sealed class WorkScopeRepository : QueryRepository, IWorkScopeRepository
 {
     private readonly ServiceObjectProcessor _processor;
+    private readonly string _insertMemberSql;
 
     public WorkScopeRepository(EesDataSource dataSource) : base(dataSource)
-        => _processor = new ServiceObjectProcessor(dataSource);
+    {
+        ArgumentNullException.ThrowIfNull(dataSource);
+        _processor = new ServiceObjectProcessor(dataSource);
+        _insertMemberSql = dataSource.Provider.Kind == DatabaseProviderKind.SqlServer
+            ? InsertMemberSqlSqlServer
+            : InsertMemberSql;
+    }
 
     public async Task<PomWorkScope?> GetByIdAsync(string workScopeId, CancellationToken ct = default)
     {
@@ -98,7 +106,7 @@ public sealed class WorkScopeRepository : QueryRepository, IWorkScopeRepository
         await _processor.ExecuteManyAsync(
             ct,
             (InsertScopeSql, row),
-            (InsertMemberSql, MemberRow.FromDomain(scope)));
+            (_insertMemberSql, MemberRow.FromDomain(scope)));
     }
 
     public async Task<bool> UpdateWithExecutionAsync(
@@ -159,6 +167,23 @@ public sealed class WorkScopeRepository : QueryRepository, IWorkScopeRepository
                COALESCE((SELECT MAX(SEQUENCE_NO) + 1 FROM POM_WORK_SCOPE_MEMBER
                          WHERE WORK_SCOPE_ID = @ParentScopeId), 1),
                @IdempotencyKey, @CreatedBy, @CreatedAt
+        """;
+
+    // SQL Server's ReadCommitted isolation does not serialize two MAX()+1 reads for the
+    // same parent. Lock the parent scope row for the duration of this transaction so the
+    // sequence allocation is serialized without changing the public repository contract.
+    // SQLite keeps the provider-neutral statement: its write transaction already serializes
+    // concurrent writers at the database level.
+    private const string InsertMemberSqlSqlServer = """
+        INSERT INTO POM_WORK_SCOPE_MEMBER
+        (MEMBER_ID, WORK_SCOPE_ID, MEMBER_SCOPE_ID, MEMBER_TYPE, MEMBER_TARGET_ID,
+         SEQUENCE_NO, IDEMPOTENCY_KEY, CREATED_BY, CREATED_AT)
+        SELECT @MemberId, @ParentScopeId, @MemberScopeId, @MemberType, @MemberTargetId,
+               COALESCE((SELECT MAX(SEQUENCE_NO) + 1 FROM POM_WORK_SCOPE_MEMBER
+                         WHERE WORK_SCOPE_ID = @ParentScopeId), 1),
+               @IdempotencyKey, @CreatedBy, @CreatedAt
+          FROM POM_WORK_SCOPE WITH (UPDLOCK, HOLDLOCK)
+         WHERE WORK_SCOPE_ID = @ParentScopeId
         """;
 
     private const string UpdateScopeSql = """
