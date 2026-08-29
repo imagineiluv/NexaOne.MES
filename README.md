@@ -93,6 +93,14 @@ powershell -ExecutionPolicy Bypass -File tools/run-dev.ps1
 
 SQLite는 개발·회귀 테스트용이며, 배포 전에는 GitHub의 `mssql-contract`과 같은 SQL Server migration/trigger 계약 테스트도 통과해야 합니다.
 
+### 개발 단계 CI
+
+private 서브모듈 Secret을 아직 등록하지 않은 동안에도 PR은 `development-check`로
+action pin·migration catalog·Portal 테스트/빌드/audit·whitespace 검증을 수행합니다.
+이 모드는 전체 .NET/PLC/MSSQL 검증을 대체하지 않으며, `NEXA_SUBMODULE_TOKEN`이 제공된
+경우에만 기존 `build-test`와 `mssql-contract` 게이트가 실행됩니다. Secret을 추가하면
+같은 PR에서 CI를 재실행해 전체 게이트를 확인해야 합니다.
+
 ## 변경 시 필수 확인
 
 1. migration version은 중복시키지 않고 fresh DB와 기존 DB 증분 경로를 함께 테스트합니다.

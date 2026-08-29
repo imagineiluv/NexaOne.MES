@@ -56,6 +56,8 @@ export interface GridWidget  extends NodeBase {
   kind: 'grid'
   queryId?: string | null
   columns?: GridColumnDefinition[]
+  // 선택 행 일괄 명령(C# BulkCommandDefinition 미러) — 저장 왕복 보존 필수.
+  bulkCommands?: BulkCommandDefinition[] | null
   selectionScope?: string | null
   selectionDisabled?: boolean
 }
@@ -138,7 +140,7 @@ type _ExtraFieldKeys = Exclude<typeof FIELD_DEFINITION_KEYS[number], keyof Field
 const _fieldKeysExhaustive: _MissingFieldKeys | _ExtraFieldKeys extends never ? true : never = true
 void _fieldKeysExhaustive
 
-export const GRID_WIDGET_KEYS = ['queryId', 'columns', 'selectionScope', 'selectionDisabled'] as const
+export const GRID_WIDGET_KEYS = ['queryId', 'columns', 'bulkCommands', 'selectionScope', 'selectionDisabled'] as const
 type _MissingGridKeys = Exclude<keyof Omit<GridWidget, keyof NodeBase | 'kind'>, typeof GRID_WIDGET_KEYS[number]>
 type _ExtraGridKeys = Exclude<typeof GRID_WIDGET_KEYS[number], keyof GridWidget>
 const _gridKeysExhaustive: _MissingGridKeys | _ExtraGridKeys extends never ? true : never = true

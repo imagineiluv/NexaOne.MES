@@ -11,7 +11,7 @@ $requiredPins = @{
     'actions/checkout' = [pscustomobject]@{
         Ref = '3d3c42e5aac5ba805825da76410c181273ba90b1'
         Comment = 'v7.0.1, Node 24'
-        Count = 2
+        Count = 3
     }
     'actions/setup-dotnet' = [pscustomobject]@{
         Ref = 'a98b56852c35b8e3190ac28c8c2271da59106c68'
@@ -21,7 +21,7 @@ $requiredPins = @{
     'actions/setup-node' = [pscustomobject]@{
         Ref = '820762786026740c76f36085b0efc47a31fe5020'
         Comment = 'v7.0.0, Node 24'
-        Count = 1
+        Count = 2
     }
     'actions/upload-artifact' = [pscustomobject]@{
         Ref = '043fb46d1a93c77aae656e7c1c64a875d1fc6a0a'

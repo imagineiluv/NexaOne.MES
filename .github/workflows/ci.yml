@@ -12,7 +12,33 @@ on:
     branches: [main, develop, release]
 
 jobs:
+  # 개발 단계에서는 GitHub Secret을 아직 구성하지 않은 PR도 저장소 자체의
+  # 정적/Portal 검증을 실행한다. private submodule이 필요한 전체 .NET/PLC/MSSQL
+  # 게이트는 credential-probe가 true일 때만 실행하며, 이를 성공으로 가장하지 않는다.
+  credential-probe:
+    name: detect private submodule credential
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.detect.outputs.available }}
+    steps:
+      - name: Detect repository secret without exposing its value
+        id: detect
+        shell: bash
+        env:
+          NEXA_SUBMODULE_TOKEN: ${{ secrets.NEXA_SUBMODULE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$NEXA_SUBMODULE_TOKEN" ]]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+            echo 'Private submodule credential is available; full CI gates will run.'
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::NEXA_SUBMODULE_TOKEN is not configured; development-only checks will run without private submodules.'
+          fi
+
   build-test:
+    needs: credential-probe
+    if: needs.credential-probe.outputs.available == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Require private submodule credential
@@ -108,6 +134,8 @@ jobs:
 
   mssql-contract:
     name: mssql-contract
+    needs: credential-probe
+    if: needs.credential-probe.outputs.available == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -245,3 +273,74 @@ jobs:
         if: always()
         shell: bash
         run: docker rm --force "$MSSQL_CONTAINER_NAME" >/dev/null 2>&1 || true
+
+  development-check:
+    name: development checks (without private submodules)
+    needs: credential-probe
+    if: needs.credential-probe.outputs.available != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout source without private submodules
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, Node 24
+        with:
+          submodules: false
+          token: ${{ github.token }}
+          persist-credentials: false
+
+      - name: Verify immutable CI action pins
+        shell: pwsh
+        run: ./tools/ci/Verify-CiActionPins.ps1
+
+      - name: Validate local development submodule config
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $example = Get-Content config/submodules.local.example.json -Raw | ConvertFrom-Json
+          if ($example.credentialSource -notin @('Auto', 'Environment', 'GitHubCli', 'GitCredentialManager')) {
+            throw 'config/submodules.local.example.json contains an unsupported credentialSource.'
+          }
+          if ([string]::IsNullOrWhiteSpace($example.tokenEnvironmentVariable)) {
+            throw 'config/submodules.local.example.json must define tokenEnvironmentVariable.'
+          }
+
+      - name: Validate migration catalog (no database connection)
+        shell: pwsh
+        run: ./tools/ops/Apply-MssqlMigrations.ps1 -ValidateOnly
+
+      - name: Validate repository whitespace
+        shell: bash
+        run: git diff --check
+
+      - name: Setup Node (Portal development checks)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0, Node 24
+        with:
+          node-version: "20"
+
+      - name: Install Portal client dependencies (without lifecycle scripts)
+        working-directory: src/00.Main/NexaOne.Server/ClientApps/Portal
+        run: npm ci --ignore-scripts
+
+      - name: Test Portal client
+        working-directory: src/00.Main/NexaOne.Server/ClientApps/Portal
+        run: npm test
+
+      - name: Audit Portal production dependencies
+        working-directory: src/00.Main/NexaOne.Server/ClientApps/Portal
+        run: npm audit --audit-level=moderate
+
+      - name: Build Portal client
+        working-directory: src/00.Main/NexaOne.Server/ClientApps/Portal
+        run: npm run build
+
+      - name: Publish development-mode summary
+        shell: bash
+        run: |
+          {
+            echo '## Development CI mode'
+            echo ''
+            echo 'Private submodule credential was not configured.'
+            echo 'Ran immutable action-pin, local config, migration-catalog, whitespace, and Portal checks.'
+            echo 'Full .NET/PLC/MSSQL gates remain pending until NEXA_SUBMODULE_TOKEN is supplied.'
+          } >> "$GITHUB_STEP_SUMMARY"
