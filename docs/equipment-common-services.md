@@ -386,7 +386,8 @@ V152는 WorkScope·member·execution 원장과 LOT 없는 Carrier 세척 상관�
 EMS Tool 사용 이력에는 WorkScope/Carrier·활동·세척/점검 결과를 선택적으로 기록하고,
 EST 출력 및 IVT 소비에는 동일 WorkScope/Carrier 키를 보존한다. V153은 RMS 레시피 실행
 스냅샷에도 WorkScope/Carrier를 결박하고, V154는 WorkScope member의 부모별 순번 충돌을
-사전 검사하는 unique index를 추가한다. 세 migration은 SQLite initializer의 동등
+사전 검사하는 unique index를 추가한다. V155는 Batch/Campaign/Carrier 작업 관리 목록의
+`plantId + scopeType + 최신순` 조회 경로를 위한 인덱스를 추가한다. 네 migration은 SQLite initializer의 동등
 trigger/check와 MSSQL append-only/member guard를 함께 제공하며, 실제 MSSQL 적용은
 복원본 리허설과 `-ApproveHighImpactMigrations` 승인 뒤에만 수행한다.
 
@@ -450,11 +451,11 @@ Server SQL에서 MDM 소유 `IEquipmentOutputMasterDirectory`로 이동했다. P
 - Unit: 1,964/1,964 통과(WorkScope Batch/Campaign/Carrier lifecycle·idempotency·UI command driver와 FDC/TRACE/Recovery 회귀 포함)
 - FDC Unit namespace focused: 256/256 통과
 - FDC/Spring focused boot: 18/18 통과(worker 기본 OFF + fail-closed adapter 조립 포함)
-- Server/SQLite integration: 기존 전체 964/964 통과, V154 관련 focused 4/4 통과
+- Server/SQLite integration: 기존 전체 964/964 통과, V154/V155 관련 focused 5/5 통과
 - Portal: 116/116, production build 성공, `npm audit` 취약점 0
 - NexaLogic PLC: Unit 12/12, Core 57/57, Integration 14/14, Hardware Simulation 43/43 — 합계 126/126 통과
 - modules-ON child-process smoke: 11개 모듈과 호스트 소유 선언형 bridge 47개를 최신 Release 호스트에서 실제 부팅
-- migration: V001~V154 strict 이름·숫자 순서·중복·LF 정규화 SHA-256 검증 통과, 신규/증분 SQLite와 MSSQL 정적 계약 통과
+- migration: V001~V155 strict 이름·숫자 순서·중복·LF 정규화 SHA-256 검증 통과, 신규/증분 SQLite와 MSSQL 정적 계약 통과
 - publish: Release publish 성공, 산출물 510개·모듈 11개, 독립 `/health`·JWT 로그인 통과,
   `NexusCom`·`NexusFramework`·`NexusLogic` 파일명/설정 참조 0건
 - 정적 경계: QMS/POM 저장소 foreign physical-table SQL 0건(ADR-0002/0003만 허용), Common SQLite bootstrap은

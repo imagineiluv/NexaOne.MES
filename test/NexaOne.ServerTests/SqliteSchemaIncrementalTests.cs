@@ -1789,6 +1789,7 @@ public sealed class SqliteSchemaIncrementalTests
                         ON POM_LOT_HISTORY (TRACK_IN_TIME, TRACK_OUT_TIME);
                     DROP INDEX IX_POM_WORK_ORDER_PLAN_START;
                     DROP INDEX IX_POM_LOT_DISPOSITION_PLANT_DATE;
+                    DROP INDEX IX_POM_WORK_SCOPE_SCOPE_TYPE;
                     CREATE INDEX IX_POM_LOT_MIXING_OUTPUT
                         ON POM_LOT_MIXING_RELATION (PLANT_ID, OUTPUT_LOT_ID, INPUT_LOT_ID);
                     """);
@@ -1833,6 +1834,22 @@ public sealed class SqliteSchemaIncrementalTests
                 .Should().Contain("WHERE EXECUTION_ID = 'TrackOut' AND TRACK_OUT_TIME IS NOT NULL");
             IndexKeys(cs, "IX_POM_WORK_ORDER_PLAN_START").Should().Equal(
                 "PLAN_START_DATE:DESC", "WORK_ORDER_ID:ASC");
+            IndexKeys(cs, "IX_POM_WORK_SCOPE_SCOPE_TYPE").Should().Equal(
+                "PLANT_ID:ASC", "SCOPE_TYPE:ASC", "CREATED_AT:DESC", "WORK_SCOPE_ID:ASC");
+            var workScopeListSql = NamedQuerySql("sqlite", "POM", "POM.WorkScopeList")
+                .Replace("@plantId", "'P1'", StringComparison.Ordinal)
+                .Replace("@scopeType", "'Carrier'", StringComparison.Ordinal)
+                .Replace("@targetId", "NULL", StringComparison.Ordinal)
+                .Replace("@workScopeId", "NULL", StringComparison.Ordinal)
+                .Replace("@parentScopeId", "NULL", StringComparison.Ordinal)
+                .Replace("@workOrderId", "NULL", StringComparison.Ordinal)
+                .Replace("@carrierId", "NULL", StringComparison.Ordinal)
+                .Replace("@equipmentId", "NULL", StringComparison.Ordinal)
+                .Replace("@status", "NULL", StringComparison.Ordinal);
+            workScopeListSql.Should().Contain("SCOPE_TYPE = 'Carrier'");
+            // SQLite is allowed to prefer a table scan for an empty fixture even when the
+            // matching index exists. Validate the stable query contract and exact index shape;
+            // production-sized tables will make the cost-based planner choose this path.
             IndexKeys(cs, "IX_POM_LOT_DISPOSITION_PLANT_DATE").Should().Equal(
                 "PLANT_ID:ASC", "DECIDED_AT:DESC", "DISPOSITION_ID:DESC");
             IndexExists(cs, "IX_POM_LOT_MIXING_OUTPUT").Should().BeFalse(
@@ -2731,7 +2748,7 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
-    public void V121_through_v154_migrations_keep_unique_numeric_versions_and_module_owned_names()
+    public void V121_through_v155_migrations_keep_unique_numeric_versions_and_module_owned_names()
     {
         var migrationDirectory = Path.GetDirectoryName(RepositorySource.GetFile(
             "src", "00.Main", "NexaOne.Server", "config", "db", "migrations",
@@ -2772,6 +2789,7 @@ public sealed class SqliteSchemaIncrementalTests
             [152] = ("V152__POM_WORK_SCOPE_AND_TOOL_CLEANING.sql", "POM"),
             [153] = ("V153__RMS_RECIPE_EXECUTION_WORK_SCOPE.sql", "RMS"),
             [154] = ("V154__POM_WORK_SCOPE_MEMBER_SEQUENCE_UNIQUENESS.sql", "POM"),
+            [155] = ("V155__POM_WORK_SCOPE_SCOPE_TYPE_INDEX.sql", "POM"),
         };
         var recentFiles = Directory.EnumerateFiles(migrationDirectory, "V*.sql")
             .Select(Path.GetFileName)
@@ -2779,7 +2797,7 @@ public sealed class SqliteSchemaIncrementalTests
             .Select(name => (Name: name!, Match: Regex.Match(name!, @"^V(?<version>[0-9]{3})__")))
             .Where(item => item.Match.Success)
             .Select(item => (item.Name, Version: int.Parse(item.Match.Groups["version"].Value)))
-            .Where(item => item.Version is >= 121 and <= 154)
+            .Where(item => item.Version is >= 121 and <= 155)
             .ToArray();
 
         recentFiles.GroupBy(item => item.Version).Should().OnlyContain(group => group.Count() == 1);

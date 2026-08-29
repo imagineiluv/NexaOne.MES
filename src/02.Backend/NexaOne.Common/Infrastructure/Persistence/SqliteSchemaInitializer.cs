@@ -2338,6 +2338,27 @@ public static class SqliteSchemaInitializer
                 new IndexKey("WORK_ORDER_ID", Descending: false));
         }
 
+        if (HasTable(conn, "POM_WORK_SCOPE"))
+        {
+            // WorkScopeList commonly binds plantId + scopeType for the Batch/Campaign/Carrier
+            // screens. Keep this path separate from the status-leading list index so the
+            // newest-first result can seek without sorting all scopes of the selected type.
+            EnsureSqliteIndex(
+                conn,
+                "POM_WORK_SCOPE",
+                "IX_POM_WORK_SCOPE_SCOPE_TYPE",
+                unique: false,
+                partial: false,
+                """
+                CREATE INDEX IX_POM_WORK_SCOPE_SCOPE_TYPE
+                    ON POM_WORK_SCOPE (PLANT_ID, SCOPE_TYPE, CREATED_AT DESC, WORK_SCOPE_ID);
+                """,
+                new IndexKey("PLANT_ID", Descending: false),
+                new IndexKey("SCOPE_TYPE", Descending: false),
+                new IndexKey("CREATED_AT", Descending: true),
+                new IndexKey("WORK_SCOPE_ID", Descending: false));
+        }
+
         if (HasTable(conn, "POM_LOT_DISPOSITION"))
         {
             EnsureSqliteIndex(
