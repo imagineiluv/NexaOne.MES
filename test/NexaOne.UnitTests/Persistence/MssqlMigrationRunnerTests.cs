@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace NexaOne.UnitTests.Persistence;
 
@@ -39,7 +40,11 @@ public sealed class MssqlMigrationRunnerTests
 
         result.ExitCode.Should().NotBe(0);
         result.Output.Should().Contain("invalid migration file 'V1__SYS_INVALID_WIDTH.sql'");
-        result.Output.Should().Contain("expected V###__UPPER_SNAKE_DESCRIPTION.sql");
+        // PowerShell's redirected error formatter can wrap the message at the host's terminal
+        // width (Linux CI currently splits "expected V###..."). Treat that whitespace as display
+        // formatting while keeping the exact contract text and the pre-connection ordering check.
+        var normalizedOutput = Regex.Replace(result.Output, @"\s+", " ");
+        normalizedOutput.Should().Contain("expected V###__UPPER_SNAKE_DESCRIPTION.sql");
         result.Output.Should().NotContain("SqlException");
     }
 
