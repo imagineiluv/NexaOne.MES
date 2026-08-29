@@ -49,31 +49,175 @@ function Get-MigrationHash([System.IO.FileInfo]$File) {
 }
 
 function Get-MigrationSqlBatches([string]$Sql) {
-    # SQL Server compiles a multi-statement batch before executing it. A later CHECK/FK that
-    # references a column added earlier in the same migration can therefore fail compilation
-    # even though the column DDL appears first in the file (V090 is the canonical example). The
-    # same applies to a filtered index predicate over a newly added column (V092/V119).
-    # Keep migration files immutable and execute top-level ALTER TABLE ... ADD CONSTRAINT and
-    # filtered CREATE INDEX statements as separate commands in the same transaction. CREATE TABLE
-    # inline constraints and ordinary indexes remain in the main batch.
-    $constraintPattern = [System.Text.RegularExpressions.Regex]::new(
-        '(?ims)^[ \t]*(?:ALTER\s+TABLE\s+[\[\]\w.]+\s+ADD\s+CONSTRAINT\b|CREATE\s+(?:UNIQUE\s+)?(?:(?:CLUSTERED|NONCLUSTERED)\s+)?INDEX\b(?=[^;]*\bWHERE\b)).*?;[ \t]*(?:\r?\n|$)',
-        [System.Text.RegularExpressions.RegexOptions]::CultureInvariant)
-    $matches = $constraintPattern.Matches($Sql)
-    $deferredSqls = [System.Collections.Generic.List[string]]::new()
-    $mainBuilder = [System.Text.StringBuilder]::new($Sql)
+    # SQL Server compiles a multi-statement batch before executing it. A later statement that
+    # references a column added earlier in the same migration can therefore fail compilation even
+    # though the column DDL appears first in the file (V090/V092/V093 are representative cases).
+    # Split ordinary semicolon-terminated statements while retaining T-SQL blocks (IF/WHILE
+    # BEGIN...END) and dynamic EXEC('...') bodies as one command. This keeps every command in the
+    # migration transaction and preserves source order without changing immutable migration files.
+    # DECLARE variables are batch-scoped. V121/V128 declare variables at column zero and use them
+    # in subsequent statements/blocks, so keep declaration-bearing files as one command rather
+    # than splitting the declaration away from its consumers.
+    if ($Sql -match '(?im)^DECLARE\b') {
+        return @($Sql.Trim())
+    }
+    $batches = [System.Collections.Generic.List[string]]::new()
+    $statement = [System.Text.StringBuilder]::new()
+    $inString = $false
+    $inDoubleQuote = $false
+    $inBracketIdentifier = $false
+    $inLineComment = $false
+    $inBlockComment = $false
+    $parenthesisDepth = 0
+    $blockDepth = 0
+    $caseDepth = 0
+    $index = 0
 
-    # Remove from the end so Match.Index remains valid, while Insert(0, ...) preserves source order.
-    for ($i = $matches.Count - 1; $i -ge 0; $i--) {
-        $match = $matches[$i]
-        [void]$deferredSqls.Insert(0, $match.Value.Trim())
-        [void]$mainBuilder.Remove($match.Index, $match.Length)
+    while ($index -lt $Sql.Length) {
+        $current = $Sql[$index]
+        $next = if ($index + 1 -lt $Sql.Length) { $Sql[$index + 1] } else { [char]0 }
+
+        if ($inLineComment) {
+            [void]$statement.Append($current)
+            if ($current -eq "`r" -or $current -eq "`n") { $inLineComment = $false }
+            $index++
+            continue
+        }
+        if ($inBlockComment) {
+            [void]$statement.Append($current)
+            if ($current -eq '*' -and $next -eq '/') {
+                [void]$statement.Append($next)
+                $inBlockComment = $false
+                $index += 2
+            } else {
+                $index++
+            }
+            continue
+        }
+        if ($inString) {
+            [void]$statement.Append($current)
+            if ($current -eq "'") {
+                if ($next -eq "'") {
+                    [void]$statement.Append($next)
+                    $index += 2
+                } else {
+                    $inString = $false
+                    $index++
+                }
+            } else {
+                $index++
+            }
+            continue
+        }
+        if ($inDoubleQuote) {
+            [void]$statement.Append($current)
+            if ($current -eq '"') {
+                if ($next -eq '"') {
+                    [void]$statement.Append($next)
+                    $index += 2
+                } else {
+                    $inDoubleQuote = $false
+                    $index++
+                }
+            } else {
+                $index++
+            }
+            continue
+        }
+        if ($inBracketIdentifier) {
+            [void]$statement.Append($current)
+            if ($current -eq ']') {
+                if ($next -eq ']') {
+                    [void]$statement.Append($next)
+                    $index += 2
+                } else {
+                    $inBracketIdentifier = $false
+                    $index++
+                }
+            } else {
+                $index++
+            }
+            continue
+        }
+
+        if ($current -eq '-' -and $next -eq '-') {
+            [void]$statement.Append($current)
+            [void]$statement.Append($next)
+            $inLineComment = $true
+            $index += 2
+            continue
+        }
+        if ($current -eq '/' -and $next -eq '*') {
+            [void]$statement.Append($current)
+            [void]$statement.Append($next)
+            $inBlockComment = $true
+            $index += 2
+            continue
+        }
+        if ($current -eq "'") {
+            [void]$statement.Append($current)
+            $inString = $true
+            $index++
+            continue
+        }
+        if ($current -eq '"') {
+            [void]$statement.Append($current)
+            $inDoubleQuote = $true
+            $index++
+            continue
+        }
+        if ($current -eq '[') {
+            [void]$statement.Append($current)
+            $inBracketIdentifier = $true
+            $index++
+            continue
+        }
+        if ($current -eq '(') {
+            [void]$statement.Append($current)
+            $parenthesisDepth++
+            $index++
+            continue
+        }
+        if ($current -eq ')') {
+            [void]$statement.Append($current)
+            if ($parenthesisDepth -gt 0) { $parenthesisDepth-- }
+            $index++
+            continue
+        }
+        if ([char]::IsLetter($current) -or $current -eq '_') {
+            $start = $index
+            while ($index -lt $Sql.Length) {
+                $tokenChar = $Sql[$index]
+                if (-not ([char]::IsLetterOrDigit($tokenChar) -or $tokenChar -eq '_')) { break }
+                $index++
+            }
+            $token = $Sql.Substring($start, $index - $start)
+            [void]$statement.Append($token)
+            switch ($token.ToUpperInvariant()) {
+                'CASE'  { $caseDepth++ }
+                'BEGIN' { $blockDepth++ }
+                'END'   {
+                    if ($caseDepth -gt 0) { $caseDepth-- }
+                    elseif ($blockDepth -gt 0) { $blockDepth-- }
+                }
+            }
+            continue
+        }
+        if ($current -eq ';' -and $parenthesisDepth -eq 0 -and $blockDepth -eq 0) {
+            $completed = $statement.ToString().Trim()
+            if ($completed.Length -gt 0) { [void]$batches.Add($completed) }
+            [void]$statement.Clear()
+            $index++
+            continue
+        }
+
+        [void]$statement.Append($current)
+        $index++
     }
 
-    [pscustomobject]@{
-        MainSql      = $mainBuilder.ToString()
-        DeferredSqls = $deferredSqls
-    }
+    $remainder = $statement.ToString().Trim()
+    if ($remainder.Length -gt 0) { [void]$batches.Add($remainder) }
+    return $batches.ToArray()
 }
 
 # SQL Server 접속 전에 모든 로컬 자산을 검증한다. PowerShell의 -match는 기본적으로
@@ -330,18 +474,13 @@ WHERE VERSION_ID = @version AND CONTENT_SHA256 IS NULL;
 
     foreach ($migration in $pending) {
         $sql = Get-Content -Raw -Encoding UTF8 $migration.File.FullName
-        $batches = Get-MigrationSqlBatches $sql
+        $batches = @(Get-MigrationSqlBatches $sql)
         $tx = $conn.BeginTransaction()
         try {
-            if (-not [string]::IsNullOrWhiteSpace($batches.MainSql)) {
+            foreach ($batch in $batches) {
                 $cmd = $conn.CreateCommand(); $cmd.Transaction = $tx; $cmd.CommandTimeout = 300
-                $cmd.CommandText = $batches.MainSql
+                $cmd.CommandText = $batch
                 [void]$cmd.ExecuteNonQuery()
-            }
-            foreach ($deferredSql in $batches.DeferredSqls) {
-                $deferred = $conn.CreateCommand(); $deferred.Transaction = $tx; $deferred.CommandTimeout = 300
-                $deferred.CommandText = $deferredSql
-                [void]$deferred.ExecuteNonQuery()
             }
             $ver = $conn.CreateCommand(); $ver.Transaction = $tx
             $ver.CommandText = 'INSERT INTO SYS_SCHEMA_MIGRATION (VERSION_ID, CONTENT_SHA256) VALUES (@v, @hash)'
