@@ -55,15 +55,25 @@ DB 성능은 테이블 수가 아니라 실제 조회 계약으로 관리합니�
 
 ## 개발 시작
 
-필수 환경은 .NET SDK `8.0.419`, Node.js 20, Git submodule 접근 권한입니다.
+필수 환경은 .NET SDK `8.0.419`, Node.js 20, Git submodule 접근 권한입니다. private
+서브모듈 인증값은 저장소 파일에 넣지 않고 Git Credential Manager/SSH 또는 `gh auth login`으로
+로컬 자격 증명을 구성합니다.
 
 ```powershell
 git clone --recurse-submodules https://github.com/imagineiluv/NexaOne.MES.git NexaMes
 cd NexaMes
+pwsh -File tools/Initialize-Submodules.ps1
 dotnet restore NexaOne.sln
 dotnet build NexaOne.sln --configuration Release --no-restore
 dotnet test NexaOne.sln --configuration Release --no-build
 ```
+
+개발 환경에서 인증 방식만 바꾸려면 추적하지 않는 `config/submodules.local.json`을
+`config/submodules.local.example.json`에서 복사해 사용합니다. 이 파일에는 토큰을 기록하지
+않습니다. `credentialSource`는 `Auto`(환경변수 → GitHub CLI → Git credential helper),
+`GitHubCli`, `Environment`, `GitCredentialManager` 중 하나이며, 일회성 환경변수는 현재
+PowerShell 프로세스에만 설정합니다. CI는 Checkout 전에 인증해야 하므로
+`.github/workflows/ci.yml`의 `secrets.NEXA_SUBMODULE_TOKEN` 경계를 그대로 사용합니다.
 
 Portal 검증:
 

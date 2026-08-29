@@ -32,6 +32,7 @@ Log/
 appsettings.*.json
 !appsettings.json
 secrets.json
+config/submodules.local.json
 
 # IDE
 .idea/
