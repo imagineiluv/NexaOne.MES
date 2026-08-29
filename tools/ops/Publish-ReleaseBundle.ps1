@@ -167,6 +167,11 @@ try {
     $manifestPath = Join-Path $releaseRoot 'release-manifest.json'
     Set-Content -LiteralPath $manifestPath -Value $manifest -Encoding utf8 -NoNewline
 
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Verify-ReleaseBundle.ps1') -Version $Version
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Verify-ReleaseBundle.ps1 failed; release bundle is not valid.'
+    }
+
     Write-Host "[PASS] Release bundle saved: $bundlePath"
     Write-Host "[PASS] Manifest saved: $manifestPath"
     Write-Host ("Managed DLLs: {0}" -f $managedDlls.Count)

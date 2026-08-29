@@ -126,3 +126,9 @@ pwsh -NoProfile -File tools/ops/Publish-ReleaseBundle.ps1 -Version 1.0.0
 
 생성된 manifest의 source commit·submodule pin·각 DLL/ZIP SHA-256을 검토한 뒤에만
 release 브랜치에 커밋하고 annotated tag와 GitHub Release를 발행합니다.
+
+반영 전후의 산출물 무결성은 다음 명령으로 독립 검증할 수 있습니다.
+
+```powershell
+pwsh -NoProfile -File tools/ops/Verify-ReleaseBundle.ps1 -Version 1.0.0
+```
