@@ -282,8 +282,12 @@ public sealed class TraceMaterialConsumptionWorker : BackgroundService
                 if (cleanup.IsCancellationRequested) break;
                 try
                 {
+                    // Bound the await as well as the provider call. A database adapter is expected to
+                    // honor the cancellation token, but a stuck provider must not hold host shutdown (or
+                    // the next projection cycle) past the shared cleanup deadline.
                     await _repository.ReleaseLeaseAsync(
-                        lease.BindingId, lease.LeaseOwnerId, cleanup.Token);
+                            lease.BindingId, lease.LeaseOwnerId, cleanup.Token)
+                        .WaitAsync(cleanup.Token);
                 }
                 catch (OperationCanceledException) when (cleanup.IsCancellationRequested)
                 {
