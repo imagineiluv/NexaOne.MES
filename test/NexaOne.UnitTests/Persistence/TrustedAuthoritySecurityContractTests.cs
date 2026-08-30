@@ -186,6 +186,21 @@ public sealed class TrustedAuthoritySecurityContractTests
     }
 
     [Fact]
+    public void Commissioning_only_exempts_the_exact_sql_server_policy_certificate_grant()
+    {
+        var source = File.ReadAllText(CommissioningPath);
+
+        source.Should().MatchRegex(
+            @"(?s)AND NOT \(\s*D\.permission_name=N'CONTROL SERVER'\s*" +
+            @"AND D\.grantor_principal_id=1\s*AND G\.type=N'C'\s*" +
+            @"AND G\.name COLLATE Latin1_General_100_BIN2\s*" +
+            @"=N'##MS_PolicySigningCertificate##' COLLATE Latin1_General_100_BIN2\s*" +
+            @"AND DATALENGTH\(CONVERT\(NVARCHAR\(MAX\), G\.name\)\)\s*" +
+            @"=DATALENGTH\(N'##MS_PolicySigningCertificate##'\)\s*\)");
+        source.Should().NotMatchRegex(@"(?i)LIKE\s+N?'##MS_[^']*'");
+    }
+
+    [Fact]
     public async Task Commissioning_is_parser_valid_explicit_atomic_and_credential_free()
     {
         var source = File.ReadAllText(CommissioningPath);

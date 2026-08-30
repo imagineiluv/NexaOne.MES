@@ -946,6 +946,18 @@ IF ISNULL(IS_SRVROLEMEMBER(N'sysadmin'), 0)<>1
      AND D.permission_name IN (
        N'CONTROL SERVER', N'IMPERSONATE ANY LOGIN', N'ALTER ANY LOGIN', N'ALTER ANY SERVER ROLE')
      AND G.principal_id<>1 AND G.name<>N'sysadmin'
+     -- SQL Server creates this exact certificate-mapped login so signed Policy-Based Management
+     -- modules can cross their server boundary. It cannot authenticate as an ordinary login. Keep
+     -- the exception pinned to the built-in name, certificate type, CONTROL SERVER, and system
+     -- grantor; every user-defined certificate/login/role with broad permission remains unsafe.
+     AND NOT (
+       D.permission_name=N'CONTROL SERVER'
+       AND D.grantor_principal_id=1
+       AND G.type=N'C'
+       AND G.name COLLATE Latin1_General_100_BIN2
+         =N'##MS_PolicySigningCertificate##' COLLATE Latin1_General_100_BIN2
+       AND DATALENGTH(CONVERT(NVARCHAR(MAX), G.name))
+         =DATALENGTH(N'##MS_PolicySigningCertificate##'))
   UNION ALL
   SELECT CONCAT(N'impersonate-login:', T.name, N':', G.name)
     FROM sys.server_permissions D

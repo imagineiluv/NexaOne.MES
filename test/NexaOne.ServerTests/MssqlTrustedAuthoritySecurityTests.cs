@@ -39,6 +39,7 @@ public sealed class MssqlTrustedAuthoritySecurityTests
         var rogueHelperProcedure = $"SEC_TRUSTED_HELPER_{suffix}";
         var rogueSynonym = $"SEC_TRUSTED_SYNONYM_{suffix}";
         var rogueSchema = $"SEC_TRUSTED_SCHEMA_{suffix}";
+        var rogueServerRole = $"sec_server_role_{suffix}";
         var impersonator = $"sec_impersonator_{suffix}";
         var recipeSchema = "security-recipe-v1";
         var programSchema = "security-program-v1";
@@ -567,6 +568,19 @@ public sealed class MssqlTrustedAuthoritySecurityTests
             sameOwnerSchemaValidation.Output.Should().Contain("EXECUTE/IMPERSONATE GRANT");
             await database.ExecuteAsync($"DROP SCHEMA [{rogueSchema}];");
 
+            await database.ExecuteAsync($"""
+                CREATE SERVER ROLE [{rogueServerRole}];
+                GRANT CONTROL SERVER TO [{rogueServerRole}];
+                """);
+            var broadServerGrantValidation = await RunCommissioningAsync(
+                database.ConnectionString, validateArguments);
+            broadServerGrantValidation.ExitCode.Should().NotBe(0);
+            broadServerGrantValidation.Output.Should().Contain($"server:{rogueServerRole}");
+            await database.ExecuteAsync($"""
+                REVOKE CONTROL SERVER FROM [{rogueServerRole}];
+                DROP SERVER ROLE [{rogueServerRole}];
+                """);
+
             await database.ExecuteAsync(
                 $"CREATE SYNONYM dbo.[{rogueSynonym}] FOR dbo.POM_WORK_SCOPE_PROJECTION_AUTHORITY;");
             var synonymValidation = await RunCommissioningAsync(
@@ -612,6 +626,11 @@ public sealed class MssqlTrustedAuthoritySecurityTests
                   DROP SYNONYM dbo.[{rogueSynonym}];
                 IF SCHEMA_ID(N'{rogueSchema}') IS NOT NULL
                   DROP SCHEMA [{rogueSchema}];
+                IF EXISTS (SELECT 1 FROM sys.server_principals WHERE name=N'{rogueServerRole}' AND type='R')
+                BEGIN
+                  REVOKE CONTROL SERVER FROM [{rogueServerRole}];
+                  DROP SERVER ROLE [{rogueServerRole}];
+                END;
                 IF DATABASE_PRINCIPAL_ID(N'{impersonator}') IS NOT NULL DROP USER [{impersonator}];
                 DELETE FROM dbo.POM_PROJECTION_RUNTIME_PRODUCT_BINDING
                  WHERE DATABASE_PRINCIPAL_NAME IN (N'{runtime1}', N'{runtime2}', N'{unboundRuntime}');
