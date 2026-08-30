@@ -347,12 +347,15 @@ public sealed class ProductPackagingProfileTests
         var standardError = process.StandardError.ReadToEndAsync();
         process.WaitForExit();
         Task.WaitAll(standardOutput, standardError);
-        var output = standardOutput.Result + standardError.Result;
-        return (process.ExitCode, StripAnsiControlSequences(output));
+        var output = standardOutput.Result + Environment.NewLine + standardError.Result;
+        return (process.ExitCode, NormalizeProcessOutput(output));
     }
 
-    private static string StripAnsiControlSequences(string value) =>
-        Regex.Replace(value, "\\x1B\\[[0-?]*[ -/]*[@-~]", string.Empty);
+    private static string NormalizeProcessOutput(string value)
+    {
+        var withoutAnsi = Regex.Replace(value, "\\x1B\\[[0-?]*[ -/]*[@-~]", string.Empty);
+        return Regex.Replace(withoutAnsi, "\\s+", " ").Trim();
+    }
 
     private static EvaluatedProfile EvaluateProfile(string profile)
     {
