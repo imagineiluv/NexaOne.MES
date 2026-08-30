@@ -970,7 +970,12 @@ SELECT DRIFT FROM UnsafeGrant;
         sys = $SysWriterDatabaseUser
     } $Transaction
     if ($drift.Rows.Count -ne 0) {
-        throw 'Broad or unexpected EXECUTE/IMPERSONATE GRANT can bypass the V160 trusted-writer role boundary.'
+        $driftIdentifiers = @(
+            $drift.Rows |
+                ForEach-Object { [string]$_.DRIFT } |
+                Sort-Object -Unique)
+        throw ("Broad or unexpected EXECUTE/IMPERSONATE GRANT can bypass the V160 " +
+            "trusted-writer role boundary. Drift: {0}" -f ($driftIdentifiers -join ', '))
     }
 }
 

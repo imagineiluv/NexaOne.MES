@@ -236,6 +236,7 @@ public sealed class TrustedAuthoritySecurityContractTests
         source.Should().Contain("Assert-DistinctPrincipalSids");
         source.Should().Contain("DISTINCT_SID_COUNT -ne 3");
         source.Should().Contain("Broad or unexpected EXECUTE/IMPERSONATE GRANT");
+        source.Should().Contain("$driftIdentifiers -join ', '");
         source.Should().Contain("Nested roles are forbidden");
         source.Should().Contain("POM_PROJECTION_AUTHORITY_SCOPE_FENCE");
         source.Should().Contain("POM_GET_ACTIVE_PROJECTION_AUTHORITY_FOR_UPDATE");
