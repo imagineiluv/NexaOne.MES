@@ -297,7 +297,7 @@ public sealed class PomWorkOrderMetaCommandDriverTests
     [Fact]
     public void MetaScreen_routes_button_through_catalog_with_pop_device_context()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -333,7 +333,7 @@ public sealed class PomWorkOrderMetaCommandDriverTests
         ctx.Services.AddSingleton(catalog.Object);
         var navigation = ctx.Services.GetRequiredService<NavigationManager>();
         navigation.NavigateTo(navigation.GetUriWithQueryParameter("deviceId", "KIOSK-03"));
-        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters
+        var cut = ctx.Render<MetaScreen>(parameters => parameters
             .Add(component => component.UiId, "POP_EXEC")
             .Add(component => component.ClientChannel, "POP"));
 
@@ -351,7 +351,7 @@ public sealed class PomWorkOrderMetaCommandDriverTests
     [Fact]
     public void MetaScreen_keeps_409_reason_and_does_not_reload_after_failed_bridge_command()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
         var definition = new ScreenDefinition(
@@ -391,7 +391,7 @@ public sealed class PomWorkOrderMetaCommandDriverTests
         ctx.Services.AddSingleton(provider.Object);
         ctx.Services.AddSingleton(api.Object);
         ctx.Services.AddSingleton(catalog.Object);
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "MES_EXEC"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "MES_EXEC"));
         cut.WaitForAssertion(() => api.Verify(a => a.ExecuteQueryAsync(
             "POM.WorkOrderList", It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once));
 

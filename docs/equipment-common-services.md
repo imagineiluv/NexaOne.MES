@@ -486,3 +486,12 @@ submodule을 Checkout하지 않고 action pin·로컬 인증 설정·V001~V155 m
   dialect/runtime 계약을 통과했다. 이는 CI SQL Server 증거이며 운영 복원본 upgrade rehearsal을 대체하지 않는다.
 - Cleaner PR #39와 NexaFramework PR #30은 코드 변경이 아니라 GitHub Actions billing/spending-limit로
   runner가 시작되지 않는 외부 차단 상태다. 결제 제한이 해소되기 전에는 두 PR을 remote-green으로 표시하지 않는다.
+
+## 2026-08-30 NuGet 의존성 보안 재검증
+
+- 사용하지 않던 ASP.NET Core SignalR 1.x 패키지를 Messaging 프로젝트에서 제거하고, xUnit 2.9.3과
+  bUnit 2.9.0으로 테스트 의존성을 갱신했다.
+- AngleSharp는 `GHSA-pgww-w46g-26qg` 수정 버전인 1.7.2를 직접 고정했다. bUnit 2 API로 이전한
+  컴포넌트 테스트를 포함해 Unit 1,965/1,965와 변경된 Server 렌더링 테스트가 통과했다.
+- `tools/ci/Verify-NuGetVulnerabilities.ps1`은 solution의 direct·transitive 의존성에서 advisory가
+  하나라도 발견되거나 스캔 JSON을 읽지 못하면 실패한다. 로컬 전체 20개 프로젝트 검사 결과는 0건이다.

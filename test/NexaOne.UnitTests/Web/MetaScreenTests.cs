@@ -26,13 +26,13 @@ public sealed class MetaScreenTests
 
     // 저장 버튼은 클래스로 특정한다(RadzenButton이 아이콘 리게이처 텍스트 'save'를 TextContent에 더해
     // 라벨 매칭이 깨지므로 — 폼/암시적 저장 버튼 모두 .layout-save 마커를 갖는다).
-    private static AngleSharp.Dom.IElement SaveButton(IRenderedFragment cut)
+    private static AngleSharp.Dom.IElement SaveButton(IRenderedComponent<MetaScreen> cut)
         => cut.FindAll("button.layout-save").First();
 
     [Fact]
     public void Grid_definition_loads_rows_from_query_gateway_and_renders()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -52,7 +52,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("GRID1", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "GRID1"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "GRID1"));
 
         cut.WaitForAssertion(() =>
         {
@@ -77,7 +77,7 @@ public sealed class MetaScreenTests
         bool useLayout,
         bool expectedEnabled)
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -136,7 +136,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider(uiId, definition).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters.Add(component => component.UiId, uiId));
+        var cut = ctx.Render<MetaScreen>(parameters => parameters.Add(component => component.UiId, uiId));
 
         cut.WaitForAssertion(() =>
         {
@@ -153,7 +153,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Form_only_definition_renders_form_and_does_not_call_query_gateway()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -165,7 +165,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("FORM1", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "FORM1"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "FORM1"));
 
         cut.Markup.Should().Contain("파라미터 입력").And.Contain("이름");
         cut.FindAll("button").Should().NotBeEmpty("폼 화면은 저장 버튼을 렌더해야 한다");
@@ -178,7 +178,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Save_with_SaveQueryId_posts_form_values_to_command_gateway()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -193,7 +193,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("SAVE1", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "SAVE1"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "SAVE1"));
 
         // 필수 필드를 채운 뒤 저장 → command 게이트웨이로 전송.
         cut.Find("input").Change("플랜트1");
@@ -210,7 +210,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Save_success_reloads_grid_so_new_row_shows_without_page_reload()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -231,7 +231,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("SAVE3", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "SAVE3"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "SAVE3"));
         cut.Markup.Should().NotContain("VE-NEW", "저장 전에는 새 행이 없어야 한다");
 
         cut.Find("input").Change("VE-NEW");
@@ -247,7 +247,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Manual_refresh_button_reloads_grid_rows()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -262,7 +262,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("GRID-R", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "GRID-R"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "GRID-R"));
         api.Verify(a => a.ExecuteQueryAsync("Q.Plants", It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Once);
 
         // 헤더 새로고침 버튼 → 데이터 재조회(폼 상태는 건드리지 않는 ReloadDataAsync 경로).
@@ -277,7 +277,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Select_field_loads_dynamic_options_from_options_query()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -297,7 +297,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("SEL1", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "SEL1"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "SEL1"));
 
         cut.WaitForAssertion(() =>
         {
@@ -310,7 +310,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Search_fields_restore_latest_condition_and_bind_query_parameters()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -335,7 +335,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("GRID-S", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "GRID-S"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "GRID-S"));
 
         cut.WaitForAssertion(() =>
         {
@@ -351,7 +351,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Search_button_saves_latest_condition_and_requeries_with_values()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -375,7 +375,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("GRID-S2", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "GRID-S2"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "GRID-S2"));
 
         // 검색 필드(RadzenDropDown)의 Change를 직접 발화해 조건값 설정(Radzen 입력은 DOM Change 불가) → 조회.
         var search = cut.FindComponent<Radzen.Blazor.RadzenDropDown<string>>();
@@ -395,7 +395,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Row_click_loads_row_values_into_form_fields()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();   // 그리드는 Radzen DataGrid — 렌더에 Radzen 서비스 필요
 
@@ -419,7 +419,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("ROWSEL", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "ROWSEL"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "ROWSEL"));
         cut.WaitForAssertion(() => cut.FindAll(".rz-data-row").Should().NotBeEmpty());
 
         // Radzen 행 클릭은 라이브러리 내부라 bUnit이 직접 트리거하기 어렵고(브라우저 스모크로 검증), Radzen 입력
@@ -441,7 +441,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Scoped_grid_selections_keep_lot_work_order_and_exception_command_payloads_separate()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -491,7 +491,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider(definition.UiId, definition).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters.Add(component => component.UiId, definition.UiId));
+        var cut = ctx.Render<MetaScreen>(parameters => parameters.Add(component => component.UiId, definition.UiId));
         var grids = cut.FindComponents<MetaGridRenderer>();
         grids.Should().HaveCount(3);
 
@@ -532,7 +532,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Successful_typed_command_renders_no_control_warning_as_visible_feedback()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -571,7 +571,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(api.Object);
         ctx.Services.AddSingleton(drivers.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(parameters =>
+        var cut = ctx.Render<MetaScreen>(parameters =>
             parameters.Add(component => component.UiId, definition.UiId));
         cut.FindAll("button")
             .Single(button => button.TextContent.Contains("투입", StringComparison.Ordinal))
@@ -588,7 +588,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Manage_flat_form_uses_inline_editor_as_the_single_add_path()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -606,7 +606,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider(def.UiId, def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, def.UiId));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, def.UiId));
 
         cut.WaitForAssertion(() =>
         {
@@ -622,7 +622,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Manage_flat_editor_switches_to_edit_on_row_selection_and_reset_returns_to_new()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -643,7 +643,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider(def.UiId, def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, def.UiId));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, def.UiId));
         var grid = cut.FindComponent<MetaGridRenderer>();
         cut.InvokeAsync(() => grid.Instance.OnRowSelect.InvokeAsync(
             new Dictionary<string, object?> { ["ORDER_ID"] = "SO-100", ["ORDER_NAME"] = "7월 수주" }));
@@ -693,7 +693,7 @@ public sealed class MetaScreenTests
                 },
             });
 
-        using (var ctx = new TestContext())
+        using (var ctx = new BunitContext())
         {
             ctx.JSInterop.Mode = JSRuntimeMode.Loose;
             ctx.Services.AddRadzenComponents();
@@ -702,14 +702,14 @@ public sealed class MetaScreenTests
             ctx.Services.AddSingleton(Provider("CONF", Def()).Object);
             ctx.Services.AddSingleton(api.Object);
 
-            var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "CONF"));
+            var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "CONF"));
             cut.FindAll("button").First(b => b.TextContent.Trim() == "삭제").Click();
 
             api.Verify(a => a.ExecuteCommandAsync(It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()),
                 Times.Never, "확인 취소 시 커맨드를 실행하지 않아야 한다");
         }
 
-        using (var ctx = new TestContext())
+        using (var ctx = new BunitContext())
         {
             ctx.JSInterop.Mode = JSRuntimeMode.Loose;
             ctx.Services.AddRadzenComponents();
@@ -720,7 +720,7 @@ public sealed class MetaScreenTests
             ctx.Services.AddSingleton(Provider("CONF", Def()).Object);
             ctx.Services.AddSingleton(api.Object);
 
-            var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "CONF"));
+            var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "CONF"));
             cut.FindAll("button").First(b => b.TextContent.Trim() == "삭제").Click();
 
             cut.WaitForAssertion(() =>
@@ -733,7 +733,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Save_blocks_and_does_not_call_gateway_when_required_field_empty()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -745,7 +745,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("SAVE2", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "SAVE2"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "SAVE2"));
 
         // 필수 필드를 비운 채 저장 → 검증 실패 메시지 + 게이트웨이 미호출.
         SaveButton(cut).Click();
@@ -758,7 +758,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Layout_executes_each_distinct_read_query_once_and_renders_grids()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -782,7 +782,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("LAY1", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "LAY1"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "LAY1"));
 
         cut.WaitForAssertion(() =>
         {
@@ -797,7 +797,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Layout_command_button_posts_shared_model_to_command_gateway()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -818,7 +818,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("LAY2", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "LAY2"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "LAY2"));
 
         cut.Find("input").Change("플랜트1");
         cut.Find("button.layout-command").Click();
@@ -831,7 +831,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Layout_validation_blocks_command_when_required_field_empty()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -850,7 +850,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("LAY3", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "LAY3"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "LAY3"));
 
         cut.Find("button.layout-command").Click();   // 필수 필드 비움
 
@@ -862,7 +862,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Layout_form_with_save_query_but_no_button_renders_implicit_save_and_posts()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -902,7 +902,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("LAY4", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "LAY4"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "LAY4"));
 
         cut.FindAll("button.layout-save").Count.Should().Be(1, "버튼 없는 폼 저장쿼리는 암시적 저장 버튼 1개를 렌더해야 한다");
 
@@ -917,7 +917,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Layout_form_save_query_covered_by_button_renders_no_implicit_save()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -946,7 +946,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("LAY5", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "LAY5"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "LAY5"));
 
         cut.FindAll("button.layout-save").Should().BeEmpty("명령 버튼이 커버하는 저장쿼리는 암시적 저장 버튼을 만들지 않아야 한다");
 
@@ -960,7 +960,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Layout_implicit_save_blocks_and_does_not_call_gateway_when_required_field_empty()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -986,7 +986,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("LAY6", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "LAY6"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "LAY6"));
 
         cut.Find("button.layout-save").Click();   // 필수 필드 비움
 
@@ -999,7 +999,7 @@ public sealed class MetaScreenTests
     public void RefreshIntervalSeconds_re_executes_queries_periodically()
     {
         // Phase-2 실시간 v2 — 자동 새로고침 정의는 데이터 쿼리를 주기 재실행해야 한다(폼 상태는 본 검증 범위 외).
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -1023,7 +1023,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("LIVE1", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "LIVE1"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "LIVE1"));
 
         cut.WaitForAssertion(() => calls.Should().BeGreaterThanOrEqualTo(2,
             "초기 조회 후 주기 새로고침이 최소 1회는 더 실행돼야 한다"), TimeSpan.FromSeconds(6));
@@ -1039,7 +1039,7 @@ public sealed class MetaScreenTests
     public async Task Push_notification_triggers_immediate_reload_with_throttle_and_unsubscribes_on_dispose()
     {
         // 실시간 v3 — 라이브 화면은 이벤트 푸시로 즉시 재조회(1초 스로틀), 폐기 시 구독 해지.
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -1063,7 +1063,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(api.Object);
         ctx.Services.AddSingleton<IScreenRefreshNotifier>(notifier);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "PUSH1"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "PUSH1"));
         cut.WaitForAssertion(() => notifier.Callback.Should().NotBeNull("라이브 화면은 푸시를 구독해야 한다"));
         var initial = calls;
 
@@ -1102,7 +1102,7 @@ public sealed class MetaScreenTests
     public void Isolated_forms_keep_separate_models_and_post_only_their_own_values()
     {
         // Phase-2 멀티폼 — Isolated 폼 2개: 입력·검증·저장이 폼별로 격리돼야 한다(공유 모델이면 값이 섞인다).
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -1133,7 +1133,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("MULTI1", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "MULTI1"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "MULTI1"));
 
         // 폼별 암시적 저장 버튼 2개(각자 SaveQueryId) — 라벨로 구분 렌더.
         cut.WaitForAssertion(() => cut.FindAll("button.layout-save").Count.Should().Be(2));
@@ -1159,7 +1159,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Hybrid_small_total_stays_client_mode_with_full_rows()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
         var def = new ScreenDefinition("HY1", "소형 목록", Array.Empty<FieldDefinition>(),
@@ -1174,7 +1174,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("HY1", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "HY1"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "HY1"));
         cut.WaitForAssertion(() =>
         {
             cut.FindAll(".rz-data-row").Count.Should().Be(2, "total≤상한이면 전량(클라 모드)");
@@ -1187,7 +1187,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Hybrid_large_total_switches_to_server_paging_and_pages_by_offset()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
         var def = new ScreenDefinition("HY2", "대형 목록", Array.Empty<FieldDefinition>(),
@@ -1203,7 +1203,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("HY2", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "HY2"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "HY2"));
         cut.WaitForAssertion(() =>
         {
             // total>상한 → 서버 모드: 총건수 페이저 + 현재 페이지(20행)만.
@@ -1224,7 +1224,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Hybrid_layout_grid_pages_independently_and_kpi_query_stays_full()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -1252,7 +1252,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("HYL", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "HYL"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "HYL"));
         cut.WaitForAssertion(() =>
         {
             // 그리드는 서버 모드(총 900 → 페이저), KPI는 전량 경로 값 렌더.
@@ -1277,7 +1277,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Add_button_opens_modal_and_save_posts_command()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -1297,7 +1297,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("ADD1", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "ADD1"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "ADD1"));
         cut.WaitForAssertion(() => cut.FindAll(".rz-data-row").Count.Should().Be(1));
 
         // 초기엔 모달 없음 → 추가 클릭 → 모달 열림(팝업 등록 폼).
@@ -1328,7 +1328,7 @@ public sealed class MetaScreenTests
     [Fact]
     public void Add_modal_cancel_closes_without_command()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
         var def = new ScreenDefinition("ADD2", "작업조",
@@ -1341,7 +1341,7 @@ public sealed class MetaScreenTests
         ctx.Services.AddSingleton(Provider("ADD2", def).Object);
         ctx.Services.AddSingleton(api.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(p => p.Add(c => c.UiId, "ADD2"));
+        var cut = ctx.Render<MetaScreen>(p => p.Add(c => c.UiId, "ADD2"));
         cut.WaitForAssertion(() => cut.FindAll(".meta-grid-toolbar").Should().NotBeEmpty("빈 결과에서도 툴바(추가) 유지"));
 
         cut.FindAll(".meta-grid-toolbar button").First(b => b.TextContent.Contains("추가")).Click();

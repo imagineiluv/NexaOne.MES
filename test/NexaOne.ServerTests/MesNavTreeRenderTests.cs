@@ -17,10 +17,10 @@ public sealed class MesNavTreeRenderTests
         => new(id, name, null, 1, "Folder", "", children);
 
     private IRenderedComponent<MesNavTree> Render(
-        TestContext ctx,
+        BunitContext ctx,
         IReadOnlySet<string> knownScreenUiIds,
         params MesMenuNode[] nodes)
-        => ctx.RenderComponent<MesNavTree>(p => p
+        => ctx.Render<MesNavTree>(p => p
             .Add(c => c.Nodes, nodes)
             .Add(c => c.Open, new HashSet<string>(StringComparer.OrdinalIgnoreCase))
             .Add(c => c.KnownScreenUiIds, knownScreenUiIds));
@@ -31,7 +31,7 @@ public sealed class MesNavTreeRenderTests
     [Fact]
     public void Registered_screen_renders_lit_and_unknown_renders_pending()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var cut = Render(ctx, Known("LIT_SCREEN"),
             Leaf("M1", "점등 화면", "LIT_SCREEN"),
             Leaf("M2", "미점등 화면", "NO_SUCH_SCREEN"));
@@ -48,7 +48,7 @@ public sealed class MesNavTreeRenderTests
     {
         // SYS_USER_REQUESTS는 HostUserRequests.razor의 @page "/meta/SYS_USER_REQUESTS" — 메타 정의가
         // 없어도 동작하는 화면이다. 이 케이스가 pending으로 표시되면 실사고 재발(회귀 가드).
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var cut = Render(ctx, Known(), Leaf("M1", "사용자 신청 승인", "SYS_USER_REQUESTS"));
 
         cut.Find("a.mes-nav-subitem").ClassList.Should().NotContain("pending",
@@ -58,7 +58,7 @@ public sealed class MesNavTreeRenderTests
     [Fact]
     public void Folder_toggle_is_keyboard_activatable_and_renders_children()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var cut = Render(ctx, Known("CHILD_SCREEN"),
             Folder("F1", "폴더", Leaf("M1", "자식", "CHILD_SCREEN")));
 
@@ -71,8 +71,8 @@ public sealed class MesNavTreeRenderTests
     [Fact]
     public void Display_name_delegate_applies_current_language_to_folder_and_screen_labels()
     {
-        using var ctx = new TestContext();
-        var cut = ctx.RenderComponent<MesNavTree>(parameters => parameters
+        using var ctx = new BunitContext();
+        var cut = ctx.Render<MesNavTree>(parameters => parameters
             .Add(component => component.Nodes, new[]
             {
                 Folder("FACTORY_QCA", "품질검사", Leaf("INCOMING", "수입검사", "INCOMING"))

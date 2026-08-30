@@ -31,7 +31,7 @@ public sealed class MetaScreenDeleteCommandTests
         ctx.Services.AddSingleton(provider.Object);
         ctx.Services.AddSingleton(api.Object);
         ctx.Services.AddSingleton(catalog.Object);
-        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters
+        var cut = ctx.Render<MetaScreen>(parameters => parameters
             .Add(component => component.UiId, definition.UiId));
 
         SelectRowsAndDelete(cut, 0);
@@ -86,7 +86,7 @@ public sealed class MetaScreenDeleteCommandTests
         ctx.Services.AddSingleton(provider.Object);
         ctx.Services.AddSingleton(api.Object);
         ctx.Services.AddSingleton(catalog.Object);
-        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters
+        var cut = ctx.Render<MetaScreen>(parameters => parameters
             .Add(component => component.UiId, definition.UiId)
             .Add(component => component.ClientChannel, "POP"));
 
@@ -101,9 +101,9 @@ public sealed class MetaScreenDeleteCommandTests
             command, It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    private static TestContext CreateContext()
+    private static BunitContext CreateContext()
     {
-        var ctx = new TestContext();
+        var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
         ctx.Services.AddSingleton<DialogService>(new AcceptDialogService());

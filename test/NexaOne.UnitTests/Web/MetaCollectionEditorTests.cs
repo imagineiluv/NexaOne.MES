@@ -22,7 +22,7 @@ public sealed class MetaCollectionEditorTests
     {
         using var ctx = RadzenContext();
         var published = new List<List<Dictionary<string, object?>>>();
-        var cut = ctx.RenderComponent<MetaCollectionEditor>(parameters => parameters
+        var cut = ctx.Render<MetaCollectionEditor>(parameters => parameters
             .Add(component => component.Schema, Schema)
             .Add(component => component.Items, new List<Dictionary<string, object?>>())
             .Add(component => component.MinItems, 1)
@@ -114,7 +114,7 @@ public sealed class MetaCollectionEditorTests
     {
         using var ctx = RadzenContext();
         const string reason = "품질 편집 권한이 없습니다.";
-        var cut = ctx.RenderComponent<MetaCollectionEditor>(parameters => parameters
+        var cut = ctx.Render<MetaCollectionEditor>(parameters => parameters
             .Add(component => component.Schema, Schema)
             .Add(component => component.Items,
             [
@@ -139,7 +139,7 @@ public sealed class MetaCollectionEditorTests
     public void Collection_and_item_labels_have_unique_accessible_relationships()
     {
         using var ctx = RadzenContext();
-        var cut = ctx.RenderComponent<MetaCollectionEditor>(parameters => parameters
+        var cut = ctx.Render<MetaCollectionEditor>(parameters => parameters
             .Add(component => component.Schema, Schema)
             .Add(component => component.Items,
             [
@@ -171,7 +171,7 @@ public sealed class MetaCollectionEditorTests
     public void Indexed_collection_error_is_cascaded_to_the_matching_item_field()
     {
         using var ctx = RadzenContext();
-        var cut = ctx.RenderComponent<MetaCollectionEditor>(parameters =>
+        var cut = ctx.Render<MetaCollectionEditor>(parameters =>
         {
             parameters.Add(component => component.CollectionKey, "items");
             parameters.Add(component => component.Schema, Schema);
@@ -196,7 +196,7 @@ public sealed class MetaCollectionEditorTests
     public void Collection_level_limit_error_is_accessible_and_over_limit_items_remain_removable()
     {
         using var ctx = RadzenContext();
-        var cut = ctx.RenderComponent<MetaCollectionEditor>(parameters =>
+        var cut = ctx.Render<MetaCollectionEditor>(parameters =>
         {
             parameters.Add(component => component.CollectionKey, "items");
             parameters.Add(component => component.Schema, Schema);
@@ -221,19 +221,19 @@ public sealed class MetaCollectionEditorTests
         cut.FindAll("button.meta-collection-remove").Should().OnlyContain(button => !button.HasAttribute("disabled"));
     }
 
-    private static TestContext RadzenContext()
+    private static BunitContext RadzenContext()
     {
-        var context = new TestContext();
+        var context = new BunitContext();
         context.Services.AddRadzenComponents();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         return context;
     }
 
     private static IRenderedComponent<MetaCollectionEditor> Render(
-        TestContext context,
+        BunitContext context,
         List<Dictionary<string, object?>> items,
         Action<List<Dictionary<string, object?>>>? changed = null)
-        => context.RenderComponent<MetaCollectionEditor>(parameters =>
+        => context.Render<MetaCollectionEditor>(parameters =>
         {
             parameters.Add(component => component.Schema, Schema);
             parameters.Add(component => component.Items, items);

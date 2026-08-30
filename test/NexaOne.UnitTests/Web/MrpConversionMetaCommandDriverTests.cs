@@ -50,7 +50,7 @@ public sealed class MrpConversionMetaCommandDriverTests
     [Fact]
     public void Explicit_host_bulk_handler_precedes_catalog_row_fallback()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
         ctx.Services.AddSingleton<DialogService>(new AcceptDialogService());
@@ -94,7 +94,7 @@ public sealed class MrpConversionMetaCommandDriverTests
         ctx.Services.AddSingleton(provider.Object);
         ctx.Services.AddSingleton(api.Object);
         ctx.Services.AddSingleton(catalog.Object);
-        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters
+        var cut = ctx.Render<MetaScreen>(parameters => parameters
             .Add(component => component.UiId, "NX_MRP_PLANNING")
             .Add(component => component.BridgeBulkHandler, handler));
         cut.WaitForAssertion(() => cut.FindAll(".rz-data-row").Should().ContainSingle());

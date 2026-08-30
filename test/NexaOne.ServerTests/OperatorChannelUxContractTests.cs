@@ -9,7 +9,7 @@ using Xunit;
 namespace NexaOne.ServerTests;
 
 /// <summary>작업 채널의 화면 우선순위·안전한 진입 링크·PDA 터치 규격을 고정하는 UI 회귀 가드.</summary>
-public sealed class OperatorChannelUxContractTests : TestContext
+public sealed class OperatorChannelUxContractTests : BunitContext
 {
     [Fact]
     public void Catalog_renders_channel_context_and_only_safe_entry_paths_as_actions()
@@ -23,7 +23,7 @@ public sealed class OperatorChannelUxContractTests : TestContext
             });
         Services.AddSingleton(api.Object);
 
-        var cut = RenderComponent<OperatorChannelCatalog>(parameters => parameters
+        var cut = Render<OperatorChannelCatalog>(parameters => parameters
             .Add(x => x.TargetChannel, "MOBILE")
             .Add(x => x.BasePath, "/Mobile")
             .Add(x => x.Title, "모바일 작업")
@@ -52,7 +52,7 @@ public sealed class OperatorChannelUxContractTests : TestContext
             });
         Services.AddSingleton(api.Object);
 
-        var cut = RenderComponent<OperatorChannelCatalog>(parameters => parameters
+        var cut = Render<OperatorChannelCatalog>(parameters => parameters
             .Add(x => x.TargetChannel, "MOBILE")
             .Add(x => x.BasePath, "/Mobile")
             .Add(x => x.Title, "모바일 작업")

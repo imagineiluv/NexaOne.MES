@@ -15,7 +15,7 @@ public sealed class LayoutRendererTests
         = new Dictionary<string, IReadOnlyList<Dictionary<string, object?>>>();
 
     private static IRenderedComponent<LayoutRenderer> Render(
-        TestContext ctx, LayoutNode layout, Dictionary<string, object?>? model = null,
+        BunitContext ctx, LayoutNode layout, Dictionary<string, object?>? model = null,
         IReadOnlyDictionary<string, IReadOnlyList<Dictionary<string, object?>>>? results = null,
         Action<ButtonWidget>? onCommand = null,
         Func<string?, bool>? permissionGranted = null,
@@ -24,7 +24,7 @@ public sealed class LayoutRendererTests
     {
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();   // 트렌드 차트는 RadzenChart — 렌더에 Radzen 서비스 필요
-        return ctx.RenderComponent<LayoutRenderer>(p => p
+        return ctx.Render<LayoutRenderer>(p => p
             .Add(c => c.Node, layout)
             .Add(c => c.Model, model ?? new Dictionary<string, object?>())
             .Add(c => c.QueryResults, results ?? NoResults)
@@ -40,7 +40,7 @@ public sealed class LayoutRendererTests
     [Fact]
     public void Renders_section_row_column_structure_with_text()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var layout = new SectionNode
         {
             Title = "마스터",
@@ -63,7 +63,7 @@ public sealed class LayoutRendererTests
     [Fact]
     public void Kpi_widget_renders_value_from_query_result_and_dash_when_missing()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var layout = new RowNode
         {
             Children = new LayoutNode[]
@@ -91,7 +91,7 @@ public sealed class LayoutRendererTests
     [Fact]
     public void Linked_kpi_exposes_link_semantics_keyboard_contract_and_visual_marker_class()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var layout = new RowNode
         {
             Children = new LayoutNode[]
@@ -122,7 +122,7 @@ public sealed class LayoutRendererTests
     [Fact]
     public void Badge_widget_matches_style_rules_and_falls_back_to_neutral()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var styles = new BadgeStyleRule[]
         {
             new("RUN", "success", "가동"),
@@ -177,7 +177,7 @@ public sealed class LayoutRendererTests
     [Fact]
     public void Trend_chart_with_insufficient_data_shows_notice_not_chart()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var layout = new TrendChartWidget { Id = "tc2", Label = "빈 트렌드", QueryId = "NO.Data", ValueColumn = "VALUE" };
         var cut = Render(ctx, layout);
         cut.Markup.Should().Contain("데이터가 부족").And.NotContain("rz-chart");
@@ -200,7 +200,7 @@ public sealed class LayoutRendererTests
     [Fact]
     public void Grid_widget_renders_rows_from_query_result_map()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var layout = new GridWidget
         {
             QueryId = "MDM.PlantList",
@@ -223,7 +223,7 @@ public sealed class LayoutRendererTests
     [Fact]
     public void Grid_view_mode_flag_propagates_through_nested_section_row_and_column()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var layout = new SectionNode
         {
             Children =
@@ -267,7 +267,7 @@ public sealed class LayoutRendererTests
     [Fact]
     public void Command_button_invokes_OnCommand_with_command_id()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         string? invoked = null;
         var layout = new ButtonWidget { Label = "승인", Command = "SYS.Approve" };
 
@@ -280,7 +280,7 @@ public sealed class LayoutRendererTests
     [Fact]
     public void Denied_parent_suppresses_its_entire_subtree()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var layout = new SectionNode
         {
             RequiredPermission = "qms:read",
@@ -301,7 +301,7 @@ public sealed class LayoutRendererTests
     [Fact]
     public void Denied_command_is_disabled_with_accessible_reason_and_never_invokes_callback()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var invoked = false;
         var layout = new ButtonWidget
         {
@@ -323,7 +323,7 @@ public sealed class LayoutRendererTests
     [Fact]
     public void Allowed_command_passes_full_widget_metadata_to_callback()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ButtonWidget? invoked = null;
         var layout = new ButtonWidget
         {
@@ -342,7 +342,7 @@ public sealed class LayoutRendererTests
     [Fact]
     public void Field_widget_two_way_binds_shared_model()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var model = new Dictionary<string, object?>();
         var layout = new FormWidget
         {
@@ -363,7 +363,7 @@ public sealed class LayoutRendererTests
     [Fact]
     public void Collection_widget_binds_shared_model_and_prepares_minimum_items()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var model = new Dictionary<string, object?>();
         var layout = new CollectionWidget
         {
@@ -396,7 +396,7 @@ public sealed class LayoutRendererTests
     [Fact]
     public void Scoped_collection_binds_only_its_aggregate_model()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var shared = new Dictionary<string, object?>();
         var lot = new Dictionary<string, object?>();
         var layout = new CollectionWidget
@@ -427,7 +427,7 @@ public sealed class LayoutRendererTests
     [Fact]
     public void Denied_collection_shows_disabled_shell_without_exposing_child_fields()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         var layout = new CollectionWidget
         {
             CollectionKey = "items",

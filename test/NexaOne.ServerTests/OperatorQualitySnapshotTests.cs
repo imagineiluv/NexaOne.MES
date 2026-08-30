@@ -8,7 +8,7 @@ using Xunit;
 
 namespace NexaOne.ServerTests;
 
-public sealed class OperatorQualitySnapshotTests : TestContext
+public sealed class OperatorQualitySnapshotTests : BunitContext
 {
     [Fact]
     public void Renders_latest_metrics_and_lot_quality_gate()
@@ -42,7 +42,7 @@ public sealed class OperatorQualitySnapshotTests : TestContext
             .ReturnsAsync(new LotInspectionStatusDto("LOT-100", true, false, 4, 1, DateTime.UtcNow));
         Services.AddSingleton(api.Object);
 
-        var cut = RenderComponent<OperatorQualitySnapshot>();
+        var cut = Render<OperatorQualitySnapshot>();
 
         cut.WaitForAssertion(() =>
         {
@@ -84,7 +84,7 @@ public sealed class OperatorQualitySnapshotTests : TestContext
             .ThrowsAsync(new HttpRequestException("QMS unavailable"));
         Services.AddSingleton(api.Object);
 
-        var cut = RenderComponent<OperatorQualitySnapshot>();
+        var cut = Render<OperatorQualitySnapshot>();
 
         cut.WaitForAssertion(() =>
         {

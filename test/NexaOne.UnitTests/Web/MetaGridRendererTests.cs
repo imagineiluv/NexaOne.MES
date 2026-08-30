@@ -81,7 +81,7 @@ public sealed class MetaGridRendererTests
     public void Rendered_columns_apply_text_minimum_and_localized_caption_widths()
     {
         using var ctx = RadzenContext();
-        var cut = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+        var cut = ctx.Render<MetaGridRenderer>(parameters => parameters
             .Add(component => component.Columns, new GridColumnDefinition[]
             {
                 new("WAREHOUSE", "Warehouse"),
@@ -140,9 +140,9 @@ public sealed class MetaGridRendererTests
 
     // ── Radzen 렌더 스모크(딕셔너리→ExpandoObject 바인딩 회귀 가드) ──────────────
 
-    private static TestContext RadzenContext()
+    private static BunitContext RadzenContext()
     {
-        var ctx = new TestContext();
+        var ctx = new BunitContext();
         ctx.Services.AddRadzenComponents();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;   // Radzen JS 인터롭은 목킹(렌더 검증만)
         return ctx;
@@ -158,7 +158,7 @@ public sealed class MetaGridRendererTests
             new() { ["LOGGED_AT"] = "2026-07-04T12:31:00Z", ["LEVEL"] = "Error", ["SECRET"] = "hide2" },
         };
 
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, Columns)
             .Add(c => c.Rows, rows));
 
@@ -181,7 +181,7 @@ public sealed class MetaGridRendererTests
         });
         ctx.Services.AddSingleton(ui);
 
-        var cut = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+        var cut = ctx.Render<MetaGridRenderer>(parameters => parameters
             .Add(component => component.Columns, Columns)
             .Add(component => component.Rows, new List<Dictionary<string, object?>>
             {
@@ -198,7 +198,7 @@ public sealed class MetaGridRendererTests
     public void Loading_with_no_rows_renders_skeleton_not_text_spinner()
     {
         using var ctx = RadzenContext();
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, Columns)   // 2 보이는 컬럼
             .Add(c => c.Rows, (IReadOnlyList<Dictionary<string, object?>>?)null)
             .Add(c => c.Loading, true));
@@ -213,7 +213,7 @@ public sealed class MetaGridRendererTests
     public void Empty_result_renders_styled_empty_state()
     {
         using var ctx = RadzenContext();
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, Columns)
             .Add(c => c.Rows, new List<Dictionary<string, object?>>()));   // 빈 결과(로딩 아님)
 
@@ -231,7 +231,7 @@ public sealed class MetaGridRendererTests
             new() { ["QTY"] = "250", ["NAME"] = "나공장" },
         };
 
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, cols)
             .Add(c => c.Rows, rows));
 
@@ -243,7 +243,7 @@ public sealed class MetaGridRendererTests
     public void Null_rows_shows_run_hint()
     {
         using var ctx = RadzenContext();
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, Columns)
             .Add(c => c.Rows, (IReadOnlyList<Dictionary<string, object?>>?)null));
         cut.Markup.Should().Contain("실행하면");
@@ -257,7 +257,7 @@ public sealed class MetaGridRendererTests
             .Select(i => new Dictionary<string, object?> { ["LOGGED_AT"] = $"t{i}", ["LEVEL"] = "Info" })
             .ToList();
 
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, Columns)
             .Add(c => c.Rows, rows)
             .Add(c => c.ServerTotal, 45)
@@ -277,12 +277,12 @@ public sealed class MetaGridRendererTests
         var rows = new List<Dictionary<string, object?>> { new() { ["NAME"] = "가" } };
 
         // 미지정(조회 전용) — 추가/삭제 버튼 없음.
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p.Add(c => c.Columns, cols).Add(c => c.Rows, rows));
+        var cut = ctx.Render<MetaGridRenderer>(p => p.Add(c => c.Columns, cols).Add(c => c.Rows, rows));
         cut.Markup.Should().NotContain(">추가<").And.NotContain(">삭제<");
 
         // CRUD 켜짐 — 추가 렌더, 삭제는 선택 전 비활성.
         var added = false;
-        var cut2 = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut2 = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, cols).Add(c => c.Rows, rows)
             .Add(c => c.CanAdd, true).Add(c => c.OnAddNew, EventCallback.Factory.Create(this, () => added = true))
             .Add(c => c.CanDelete, true)
@@ -306,7 +306,7 @@ public sealed class MetaGridRendererTests
             new() { ["NAME"] = "가" }, new() { ["NAME"] = "나" }, new() { ["NAME"] = "다" },
         };
         List<Dictionary<string, object?>>? deleted = null;
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, cols).Add(c => c.Rows, rows)
             .Add(c => c.CanDelete, true)
             .Add(c => c.OnDeleteRows, EventCallback.Factory.Create<List<Dictionary<string, object?>>>(this, r => deleted = r)));
@@ -334,7 +334,7 @@ public sealed class MetaGridRendererTests
         var cmds = new BulkCommandDefinition[] { new("확정", "TEST.Release") };
         (BulkCommandDefinition Command, List<Dictionary<string, object?>> Rows)? emitted = null;
 
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, cols).Add(c => c.Rows, rows)
             .Add(c => c.BulkCommands, cmds)
             .Add(c => c.OnBulkCommand,
@@ -367,7 +367,7 @@ public sealed class MetaGridRendererTests
             new() { ["NAME"] = "서울공장", ["QTY"] = "20" },
             new() { ["NAME"] = "부산창고", ["QTY"] = "30" },
         };
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p.Add(c => c.Columns, cols).Add(c => c.Rows, rows));
+        var cut = ctx.Render<MetaGridRenderer>(p => p.Add(c => c.Columns, cols).Add(c => c.Rows, rows));
 
         // 필터 팝업 열기 → NAME에 '부산' 입력 → 적용 → 2행만 남고 칩 노출.
         cut.FindAll(".meta-grid-toolbar button").First(b => b.QuerySelector(".rzi")?.TextContent.Trim() == "filter_alt").Click();
@@ -394,7 +394,7 @@ public sealed class MetaGridRendererTests
             new() { ["NAME"] = "나" },
             new() { ["NAME"] = "가" },
         };
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, cols)
             .Add(c => c.Rows, rows));
 
@@ -416,7 +416,7 @@ public sealed class MetaGridRendererTests
         using var ctx = RadzenContext();
         var cols = new GridColumnDefinition[] { new("NAME", "이름"), new("QTY", "수량") };
         var rows = new List<Dictionary<string, object?>> { new() { ["NAME"] = "가", ["QTY"] = 1 } };
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, cols)
             .Add(c => c.Rows, rows));
 
@@ -448,7 +448,7 @@ public sealed class MetaGridRendererTests
             .Select(i => new Dictionary<string, object?> { ["LOT_ID"] = $"L{i:D5}" })
             .ToList();
 
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, cols)
             .Add(c => c.Rows, rows));   // ServerTotal 없음 = 클라 페이징
 
@@ -466,7 +466,7 @@ public sealed class MetaGridRendererTests
             .Select(i => new Dictionary<string, object?> { ["LOT_ID"] = $"L{i:D3}" })
             .ToList();
 
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, cols)
             .Add(c => c.Rows, rows));
 
@@ -484,7 +484,7 @@ public sealed class MetaGridRendererTests
         {
             new() { ["NAME"] = "아주 긴 설비 이름 값", ["QTY"] = "1234" },
         };
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, cols)
             .Add(c => c.Rows, rows));
 
@@ -499,7 +499,7 @@ public sealed class MetaGridRendererTests
         using var ctx = RadzenContext();
         var cols = new GridColumnDefinition[] { new("NAME", "이름"), new("QTY", "수량") };
         var rows = new List<Dictionary<string, object?>> { new() { ["NAME"] = "가", ["QTY"] = "1" } };
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, cols)
             .Add(c => c.Rows, rows));
 
@@ -523,7 +523,7 @@ public sealed class MetaGridRendererTests
         using var ctx = RadzenContext();
         var cols = new GridColumnDefinition[] { new("NAME", "이름"), new("QTY", "수량") };
         var rows = new List<Dictionary<string, object?>> { new() { ["NAME"] = "가", ["QTY"] = "1" } };
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, cols)
             .Add(c => c.Rows, rows));
 
@@ -552,7 +552,7 @@ public sealed class MetaGridRendererTests
             new() { ["ORDER_STATUS"] = "CLOSED" },
             new() { ["ORDER_STATUS"] = "CUSTOM_STATE" },
         };
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, cols)
             .Add(c => c.Rows, rows));
 
@@ -579,7 +579,7 @@ public sealed class MetaGridRendererTests
         ui.Load("EnUs", new Dictionary<string, string>());
         ctx.Services.AddSingleton(ui);
         var statuses = new[] { "Draft", "Confirmed", "Producing", "Delivered", "Closed" };
-        var cut = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+        var cut = ctx.Render<MetaGridRenderer>(parameters => parameters
             .Add(component => component.Columns, new GridColumnDefinition[] { new("STATUS", "상태") })
             .Add(component => component.Rows, statuses
                 .Select(status => new Dictionary<string, object?> { ["STATUS"] = status })
@@ -595,7 +595,7 @@ public sealed class MetaGridRendererTests
         using var ctx = RadzenContext();
         var cols = new GridColumnDefinition[] { new("NAME", "이름"), new("QTY", "수량") };
         var rows = new List<Dictionary<string, object?>> { new() { ["NAME"] = "가공장", ["QTY"] = "1" } };
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, cols)
             .Add(c => c.Rows, rows));
 
@@ -620,7 +620,7 @@ public sealed class MetaGridRendererTests
             { new("A","A"), new("B","B"), new("C","C"), new("D","D"), new("E","E") };
         var narrowRows = new List<Dictionary<string, object?>> { new() { ["A"]="1",["B"]="2",["C"]="3",["D"]="4",["E"]="5" } };
         // 고정 항목은 '더보기' 메뉴 안에 있다 — 좁은 표에선 메뉴를 열어도 미노출.
-        var cutN = ctx.RenderComponent<MetaGridRenderer>(p => p.Add(c => c.Columns, narrow).Add(c => c.Rows, narrowRows));
+        var cutN = ctx.Render<MetaGridRenderer>(p => p.Add(c => c.Columns, narrow).Add(c => c.Rows, narrowRows));
         cutN.FindAll(".meta-grid-toolbar button")
             .First(b => b.QuerySelector(".rzi")?.TextContent.Trim() == "more_vert").Click();
         cutN.Markup.Should().NotContain("push_pin", "5열(좁은 표)에선 첫 컬럼 고정 항목을 숨긴다");
@@ -629,7 +629,7 @@ public sealed class MetaGridRendererTests
         var wide = new GridColumnDefinition[]
             { new("A","A"), new("B","B"), new("C","C"), new("D","D"), new("E","E"), new("F","F") };
         var wideRows = new List<Dictionary<string, object?>> { new() { ["A"]="1",["B"]="2",["C"]="3",["D"]="4",["E"]="5",["F"]="6" } };
-        var cutW = ctx.RenderComponent<MetaGridRenderer>(p => p.Add(c => c.Columns, wide).Add(c => c.Rows, wideRows));
+        var cutW = ctx.Render<MetaGridRenderer>(p => p.Add(c => c.Columns, wide).Add(c => c.Rows, wideRows));
         cutW.Find(".meta-grid").ClassList.Should().NotContain("nx-freeze-first");
         cutW.FindAll(".meta-grid-toolbar button")
             .First(b => b.QuerySelector(".rzi")?.TextContent.Trim() == "more_vert").Click();
@@ -649,7 +649,7 @@ public sealed class MetaGridRendererTests
         using var ctx = RadzenContext();
         var cols = new GridColumnDefinition[] { new("NAME", "이름") };
         var rows = new List<Dictionary<string, object?>> { new() { ["NAME"] = "가" }, new() { ["NAME"] = "나" } };
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p.Add(c => c.Columns, cols).Add(c => c.Rows, rows));
+        var cut = ctx.Render<MetaGridRenderer>(p => p.Add(c => c.Columns, cols).Add(c => c.Rows, rows));
 
         // 초기(일반 모드): 일괄바·체크박스 없음, 선택 모드 토글 버튼은 있음.
         cut.Markup.Should().Contain("checklist");
@@ -680,7 +680,7 @@ public sealed class MetaGridRendererTests
             .Select(i => new Dictionary<string, object?> { ["LOT_ID"] = $"L{i:D5}" })
             .ToList();
 
-        var cut = ctx.RenderComponent<MetaGridRenderer>(p => p
+        var cut = ctx.Render<MetaGridRenderer>(p => p
             .Add(c => c.Columns, cols)
             .Add(c => c.Rows, rows)
             .Add(c => c.ServerTotal, 99999)
@@ -696,7 +696,7 @@ public sealed class MetaGridRendererTests
         var rows = new List<Dictionary<string, object?>> { new() { ["ORDER_ID"] = "WO-1" } };
         var columns = new GridColumnDefinition[] { new("ORDER_ID", "작업지시") };
 
-        var cut = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+        var cut = ctx.Render<MetaGridRenderer>(parameters => parameters
             .Add(component => component.Columns, columns)
             .Add(component => component.Rows, rows)
             .Add(component => component.ScreenKey, "MANAGE_VIEW")
@@ -718,7 +718,7 @@ public sealed class MetaGridRendererTests
             cut.FindAll(".nx-view-segments button").Count(item => item.GetAttribute("aria-pressed") == "true").Should().Be(1);
         }
 
-        var disabled = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+        var disabled = ctx.Render<MetaGridRenderer>(parameters => parameters
             .Add(component => component.Columns, columns)
             .Add(component => component.Rows, rows));
         disabled.FindAll(".meta-grid-viewbar").Should().BeEmpty();
@@ -734,7 +734,7 @@ public sealed class MetaGridRendererTests
         var rows = new List<Dictionary<string, object?>> { new() { ["ORDER_ID"] = "WO-1" } };
         var columns = new GridColumnDefinition[] { new("ORDER_ID", "작업지시") };
 
-        var cut = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+        var cut = ctx.Render<MetaGridRenderer>(parameters => parameters
             .Add(component => component.Columns, columns)
             .Add(component => component.Rows, rows)
             .Add(component => component.ScreenKey, "MANAGE_A")
@@ -749,7 +749,7 @@ public sealed class MetaGridRendererTests
             && Convert.ToString(invocation.Arguments[0]) == "nxgrid:MANAGE_A:view"
             && Convert.ToString(invocation.Arguments[1]) == "split-detail");
 
-        cut.SetParametersAndRender(parameters => parameters
+        cut.Render(parameters => parameters
             .Add(component => component.Columns, columns)
             .Add(component => component.Rows, rows)
             .Add(component => component.ScreenKey, "MANAGE_B")
@@ -777,7 +777,7 @@ public sealed class MetaGridRendererTests
         };
         Dictionary<string, object?>? selected = null;
         List<Dictionary<string, object?>>? deleted = null;
-        var cut = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+        var cut = ctx.Render<MetaGridRenderer>(parameters => parameters
             .Add(component => component.Columns, columns)
             .Add(component => component.Rows, rows)
             .Add(component => component.ScreenKey, "MANAGE_STATE")
@@ -830,7 +830,7 @@ public sealed class MetaGridRendererTests
         var clientRows = Enumerable.Range(1, 25)
             .Select(index => new Dictionary<string, object?> { ["ORDER_ID"] = $"WO-{index:D2}" })
             .ToList();
-        var client = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+        var client = ctx.Render<MetaGridRenderer>(parameters => parameters
             .Add(component => component.Columns, columns)
             .Add(component => component.Rows, clientRows)
             .Add(component => component.EnableViewModes, true));
@@ -846,7 +846,7 @@ public sealed class MetaGridRendererTests
             new() { ["ORDER_ID"] = "WO-21" },
             new() { ["ORDER_ID"] = "WO-22" },
         };
-        var server = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+        var server = ctx.Render<MetaGridRenderer>(parameters => parameters
             .Add(component => component.Columns, columns)
             .Add(component => component.Rows, serverRows)
             .Add(component => component.ServerTotal, 45)
@@ -871,7 +871,7 @@ public sealed class MetaGridRendererTests
             new("STATUS", "상태"),
             new("PLAN_QTY", "계획 수량"),
         };
-        var cut = ctx.RenderComponent<MetaGridRenderer>(parameters => parameters
+        var cut = ctx.Render<MetaGridRenderer>(parameters => parameters
             .Add(component => component.Columns, columns)
             .Add(component => component.Rows, new List<Dictionary<string, object?>>
             {

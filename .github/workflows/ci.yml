@@ -99,6 +99,10 @@ jobs:
       - name: Restore
         run: dotnet restore NexaOne.sln
 
+      - name: Reject vulnerable NuGet dependency closure
+        shell: pwsh
+        run: ./tools/ci/Verify-NuGetVulnerabilities.ps1 -NoRestore
+
       - name: Build (Release)
         run: dotnet build NexaOne.sln --configuration Release --no-restore --warnaserror
 

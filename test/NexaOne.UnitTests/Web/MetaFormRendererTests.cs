@@ -17,17 +17,17 @@ public sealed class MetaFormRendererTests
     private static ScreenDefinition FormWith(params FieldDefinition[] fields)
         => new("FORM", "테스트 폼", fields);
 
-    private static TestContext RadzenContext()
+    private static BunitContext RadzenContext()
     {
-        var ctx = new TestContext();
+        var ctx = new BunitContext();
         ctx.Services.AddRadzenComponents();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         return ctx;
     }
 
     private static IRenderedComponent<MetaFormRenderer> Render(
-        TestContext ctx, ScreenDefinition def, Dictionary<string, object?>? model = null)
-        => ctx.RenderComponent<MetaFormRenderer>(p =>
+        BunitContext ctx, ScreenDefinition def, Dictionary<string, object?>? model = null)
+        => ctx.Render<MetaFormRenderer>(p =>
         {
             p.Add(c => c.Definition, def);
             if (model is not null) p.Add(c => c.Model, model);
@@ -200,7 +200,7 @@ public sealed class MetaFormRendererTests
     {
         using var ctx = RadzenContext();
         var def = FormWith(new FieldDefinition("name", "이름", FieldType.Text));
-        var cut = ctx.RenderComponent<MetaFormRenderer>(p =>
+        var cut = ctx.Render<MetaFormRenderer>(p =>
         {
             p.Add(c => c.Definition, def);
             // 캐스케이딩 검증 오류 맵 — 필드 아래 인라인 메시지(.meta-field-error)로 표시(P2-7).
