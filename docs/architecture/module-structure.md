@@ -117,6 +117,16 @@ DB, Kafka, PLC/OPC-UA, 파일 시스템과 원격 시스템은 다음 규칙을 
 
 보안, 트랜잭션 원자성 또는 운영 복구를 위해 임시 orchestration이 필요하면 호스트 Adapter가 맡고 업무 계산은 Module Interface에 유지한다. 긴급 변경도 사후 문서화가 아니라 같은 변경 묶음에서 예외 근거를 남긴다.
 
+현재 물리 schema 예외 목록은 다음과 같다.
+
+- ADR-0002: POM의 legacy SLS sales-order demand projection
+- ADR-0003: SYS의 maintenance identity용 MDM worker-user mapping 조회
+- ADR-0004: Common SQLite bootstrap의 한시적 FDC·IVT reconciliation
+- ADR-0005: POM authority 생성 트랜잭션의 RMS canonical evidence 및 SYS release/revocation exact-read fence
+
+ADR-0005는 운영 활성화 승인이 아니다. 전용 증거 writer 권한, 실제 SQL Server 경합 검증, 지원되는 조립 경계가
+확정될 때까지 default reject와 worker OFF를 유지한다.
+
 ## 자동 검증
 
 `ModuleDependencyBoundaryTests`는 다음 회귀를 막는다.

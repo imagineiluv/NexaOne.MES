@@ -32,14 +32,71 @@ public sealed record WorkScopeProjectionAuthorityProvisionCommand(
     string ActorId);
 
 /// <summary>
-/// Trusted coordinator seam. Implementations must resolve immutable source records and return the
-/// exact authority evidence; they must not echo hashes supplied by an API caller.
+/// Legacy trusted coordinator seam. This exact method contract is retained for source and binary
+/// compatibility with validators compiled before the contract-owned V2 decision was introduced.
 /// </summary>
 public interface IWorkScopeProjectionAuthorityValidator
 {
     Task<Result<WorkScopeProjectionAuthorityEvidence>> ValidateAsync(
         WorkScopeProjectionAuthorityProvisionCommand command,
         CancellationToken ct = default);
+}
+
+/// <summary>
+/// Trusted coordinator seam for project validators. Implementations resolve immutable source
+/// records and return a contract-owned decision without exposing Result/Error as their outcome.
+/// </summary>
+public interface IWorkScopeProjectionAuthorityValidatorV2
+{
+    Task<WorkScopeProjectionAuthorityValidationDecision> ValidateAsync(
+        WorkScopeProjectionAuthorityProvisionCommand command,
+        CancellationToken ct = default);
+}
+
+/// <summary>
+/// Contract-owned validator outcome. It deliberately does not expose the application's
+/// <c>Result</c>/<c>Error</c> implementation across the project-plugin boundary.
+/// </summary>
+public sealed record WorkScopeProjectionAuthorityValidationDecision
+{
+    private WorkScopeProjectionAuthorityValidationDecision(
+        bool isAccepted,
+        WorkScopeProjectionAuthorityEvidence? evidence,
+        string? rejectionCode,
+        string? rejectionMessage)
+    {
+        IsAccepted = isAccepted;
+        Evidence = evidence;
+        RejectionCode = rejectionCode;
+        RejectionMessage = rejectionMessage;
+    }
+
+    public bool IsAccepted { get; }
+    public WorkScopeProjectionAuthorityEvidence? Evidence { get; }
+    public string? RejectionCode { get; }
+    public string? RejectionMessage { get; }
+
+    public static WorkScopeProjectionAuthorityValidationDecision Accepted(
+        WorkScopeProjectionAuthorityEvidence evidence)
+    {
+        ArgumentNullException.ThrowIfNull(evidence);
+        return new(true, evidence, null, null);
+    }
+
+    public static WorkScopeProjectionAuthorityValidationDecision Rejected(
+        string code,
+        string message)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(code);
+        ArgumentException.ThrowIfNullOrWhiteSpace(message);
+        return new(false, null, code, message);
+    }
+}
+
+/// <summary>Exact-key, read-only WorkScope evidence used by trusted authority validators.</summary>
+public interface IWorkScopeAuthorityEvidenceDirectory
+{
+    Task<WorkScopeDto?> FindAsync(string workScopeId, CancellationToken ct = default);
 }
 
 public sealed record WorkScopeProjectionAuthorityEvidence(

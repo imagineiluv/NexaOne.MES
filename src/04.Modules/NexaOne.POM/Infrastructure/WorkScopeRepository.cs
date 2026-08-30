@@ -214,7 +214,7 @@ public sealed class WorkScopeRepository : QueryRepository, IWorkScopeRepository
 
     private const string SelectAuthorityFenceSqlSqlServer = """
         SELECT TOP (1) 1
-          FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY WITH (UPDLOCK, HOLDLOCK)
+          FROM POM_PROJECTION_AUTHORITY_SCOPE_FENCE WITH (UPDLOCK, HOLDLOCK)
          WHERE WORK_SCOPE_ID = @WorkScopeId
         """;
 

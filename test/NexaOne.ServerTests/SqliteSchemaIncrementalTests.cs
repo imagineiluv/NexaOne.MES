@@ -2833,7 +2833,7 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
-    public void V121_through_v158_migrations_keep_unique_numeric_versions_and_module_owned_names()
+    public void V121_through_v160_migrations_keep_unique_numeric_versions_and_module_owned_names()
     {
         var migrationDirectory = Path.GetDirectoryName(RepositorySource.GetFile(
             "src", "00.Main", "NexaOne.Server", "config", "db", "migrations",
@@ -2878,6 +2878,8 @@ public sealed class SqliteSchemaIncrementalTests
             [156] = ("V156__POM_WORK_SCOPE_PROJECTION_INBOX.sql", "POM"),
             [157] = ("V157__POM_WORK_SCOPE_PROJECTION_APPLICATION.sql", "POM"),
             [158] = ("V158__POM_WORK_SCOPE_PROJECTION_AUTHORITY.sql", "POM"),
+            [159] = ("V159__TRUSTED_AUTHORITY_EVIDENCE.sql", "POM/RMS/SYS integration boundary (ADR-0005)"),
+            [160] = ("V160__TRUSTED_AUTHORITY_WRITER_SECURITY.sql", "POM/RMS/SYS integration boundary (ADR-0005)"),
         };
         var recentFiles = Directory.EnumerateFiles(migrationDirectory, "V*.sql")
             .Select(Path.GetFileName)
@@ -2885,7 +2887,7 @@ public sealed class SqliteSchemaIncrementalTests
             .Select(name => (Name: name!, Match: Regex.Match(name!, @"^V(?<version>[0-9]{3})__")))
             .Where(item => item.Match.Success)
             .Select(item => (item.Name, Version: int.Parse(item.Match.Groups["version"].Value)))
-            .Where(item => item.Version is >= 121 and <= 158)
+            .Where(item => item.Version is >= 121 and <= 160)
             .ToArray();
 
         recentFiles.GroupBy(item => item.Version).Should().OnlyContain(group => group.Count() == 1);
@@ -2895,6 +2897,32 @@ public sealed class SqliteSchemaIncrementalTests
             file.Should().Be(contract.FileName);
             File.ReadLines(Path.Combine(migrationDirectory, contract.FileName)).First()
                 .Should().StartWith($"-- Owner: {contract.Owner}.");
+        }
+    }
+
+    [Fact]
+    public void V160_database_principal_security_is_a_fresh_and_incremental_sqlite_no_op()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            TableExists(cs, "POM_PROJECTION_RUNTIME_PRODUCT_BINDING").Should().BeFalse();
+            Columns(cs, "POM_WORK_SCOPE_PROJECTION_AUTHORITY").Should().NotContain(
+                "PROVISIONED_DATABASE_PRINCIPAL_SID");
+
+            // A second startup takes the incremental path. SQL Server roles, stored procedures,
+            // grants and principal provenance still have no SQLite equivalent and remain absent.
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            TableExists(cs, "POM_PROJECTION_RUNTIME_PRODUCT_BINDING").Should().BeFalse();
+            Columns(cs, "RMS_CANONICAL_RECIPE_EXECUTION_EVIDENCE").Should().NotContain(
+                "CAPTURED_DATABASE_PRINCIPAL_SID");
+            Columns(cs, "SYS_RELEASED_PROGRAM_ARTIFACT").Should().NotContain(
+                "RELEASED_DATABASE_PRINCIPAL_SID");
+        }
+        finally
+        {
+            try { File.Delete(FileOf(cs)); } catch { }
         }
     }
 

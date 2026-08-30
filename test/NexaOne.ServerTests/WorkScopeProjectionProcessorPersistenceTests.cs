@@ -7,7 +7,9 @@ using NexaOne.Infrastructure.Persistence;
 using NexaOne.POM.Application.WorkScopes;
 using NexaOne.POM.Domain;
 using NexaOne.POM.Infrastructure;
+using NexaOne.RMS.Infrastructure;
 using NexaOne.ServiceContracts.Pom;
+using NexaOne.SYS.Infrastructure;
 using Xunit;
 
 namespace NexaOne.ServerTests;
@@ -579,7 +581,11 @@ public sealed class WorkScopeProjectionProcessorPersistenceTests
             var connectionString = $"Data Source={path};Cache=Shared;Default Timeout=30";
             SqliteSchemaInitializer.Apply(
                 connectionString,
-                [new PomWorkScopeProjectionSqliteSchemaContribution()]);
+                [
+                    new PomWorkScopeProjectionSqliteSchemaContribution(),
+                    new RmsTrustedAuthoritySqliteSchemaContribution(),
+                    new SysTrustedAuthoritySqliteSchemaContribution(),
+                ]);
             var dataSource = new EesDataSource
             {
                 Provider = new SqliteProvider(),
@@ -587,7 +593,7 @@ public sealed class WorkScopeProjectionProcessorPersistenceTests
             };
             var scope = PomWorkScope.Create(
                 "WS-1", "PLANT-1", PomWorkScopeType.Other, "pair-1", "Cleaner",
-                null, "EQ-1", null, "CLEANING", "RECIPE-1", 1, 1m, null, null, "tester");
+                null, "EQ-1", null, "operation-1", "RECIPE-1", 1, 1m, null, null, "tester");
             scope.IsSuccess.Should().BeTrue();
             scope.Value.SetCreateIdentity("test:create:WS-1", new string('C', 64));
             await new WorkScopeRepository(dataSource).AddAsync(scope.Value);
@@ -606,6 +612,7 @@ public sealed class WorkScopeProjectionProcessorPersistenceTests
                 command.RecipeExecutionId, "RECIPE-1", 1, "test-recipe-v1",
                 new string('A', 64), command.ProgramArtifactId, "test-program-v1",
                 new string('B', 64));
+            await TrustedAuthorityTestData.SeedSqliteAsync(dataSource.ConnectionString, evidence);
             var bridge = new WorkScopeProjectionAuthorityBridge(
                 new WorkScopeProjectionAuthorityService(
                     new WorkScopeProjectionAuthorityRepository(dataSource),
@@ -619,12 +626,12 @@ public sealed class WorkScopeProjectionProcessorPersistenceTests
             new(Store, policy, TimeSpan.FromMinutes(2));
 
         private sealed class FixedAuthorityValidator(WorkScopeProjectionAuthorityEvidence evidence)
-            : IWorkScopeProjectionAuthorityValidator
+            : IWorkScopeProjectionAuthorityValidatorV2
         {
-            public Task<NexaOne.Common.Result<WorkScopeProjectionAuthorityEvidence>> ValidateAsync(
+            public Task<WorkScopeProjectionAuthorityValidationDecision> ValidateAsync(
                 WorkScopeProjectionAuthorityProvisionCommand command,
                 CancellationToken ct = default) => Task.FromResult(
-                NexaOne.Common.Result.Success(evidence));
+                    WorkScopeProjectionAuthorityValidationDecision.Accepted(evidence));
         }
 
         public async Task<long> ScalarAsync(string sql)

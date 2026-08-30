@@ -25,6 +25,9 @@ internal enum WorkScopeProjectionAuthorityProvisionKind
     ScopeIdentityMismatch,
     IdempotencyConflict,
     EvidenceConflict,
+    TrustedEvidenceMissing,
+    TrustedEvidenceRevoked,
+    RuntimeProductBindingMissing,
 }
 
 internal sealed record WorkScopeProjectionAuthorityProvisionResult(

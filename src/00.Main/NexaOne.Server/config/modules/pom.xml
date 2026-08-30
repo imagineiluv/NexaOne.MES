@@ -3,7 +3,9 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
 
-  <object id="pomModule" type="NexaOne.POM.Module, NexaOne.POM">
+  <object id="pomModule"
+      type="NexaOne.POM.Module, NexaOne.POM"
+      factory-method="CreateWithProjectionAuthorityValidatorV2">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="appConfiguration" />
     <constructor-arg ref="eesDialect" />
@@ -14,11 +16,12 @@
     <constructor-arg ref="purchaseOrderPlanningBridge" />
     <constructor-arg ref="equipmentDirectory" />
     <constructor-arg ref="equipmentOutputMasterDirectory" />
+    <constructor-arg ref="workScopeProjectionAuthorityValidatorProxy" />
   </object>
 
-  <!-- The Module composition root owns the fail-closed authority validator. Spring must not name
-       module-internal implementations; a future trusted product coordinator uses Module's public
-       validator constructor without exposing its implementation from this core manifest. -->
+  <!-- Spring uses the explicit V2 factory with a fail-closed parent proxy. The existing 10/11
+       argument direct constructors retain their legacy ABI. PomOnly deliberately has no child
+       target, so proxy invocation rejects before persistence. -->
 
   <object id="pomBridge" factory-object="pomModule" factory-method="GetPomBridge" />
   <object id="pomWorkOrderBridge" factory-object="pomModule" factory-method="GetWorkOrderBridge" />
@@ -27,6 +30,9 @@
   <object id="workScopeProjectionAuthorityBridge"
       factory-object="pomModule"
       factory-method="GetWorkScopeProjectionAuthorityBridge" />
+  <object id="workScopeAuthorityEvidenceDirectory"
+      factory-object="pomModule"
+      factory-method="GetWorkScopeAuthorityEvidenceDirectory" />
   <object id="pomWorkScopeProjectionSqliteSchemaContribution"
       factory-object="pomModule"
       factory-method="GetWorkScopeProjectionSqliteSchemaContribution" />

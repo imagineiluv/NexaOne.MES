@@ -5,7 +5,7 @@
 #   .\Apply-MssqlMigrations.ps1 -ConnectionString "Server=...;Database=...;..." [-DryRun]
 #   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -IncludeOpsSeed
 #   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -AdoptMissingChecksums # 기존 이력 1회 명시 승인
-#   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -ApproveHighImpactMigrations # V142/V144/V146/V147/V148/V150/V151/V152/V153/V157 운영 승인
+#   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -ApproveHighImpactMigrations # V142/V144/V146/V147/V148/V150/V151/V152/V153/V157/V159/V160 운영 승인
 #   .\Apply-MssqlMigrations.ps1 -MigrationsPath <path> -ValidateOnly
 # ⚠ 접속 문자열은 env/보안 저장소에서만 — 스크립트·저장소에 하드코딩 금지.
 param(
@@ -195,7 +195,15 @@ function Get-MigrationSqlBatches([string]$Sql) {
             [void]$statement.Append($token)
             switch ($token.ToUpperInvariant()) {
                 'CASE'  { $caseDepth++ }
-                'BEGIN' { $blockDepth++ }
+                'BEGIN' {
+                    # BEGIN TRAN[SACTION] opens a transaction, not a BEGIN...END block. Keeping it
+                    # in blockDepth would swallow every statement after a CREATE PROCEDURE body
+                    # into the same command and violate SQL Server's first-statement batch rule.
+                    $remaining = $Sql.Substring($index)
+                    if ($remaining -notmatch '^\s+(?:DISTRIBUTED\s+)?TRAN(?:SACTION)?\b') {
+                        $blockDepth++
+                    }
+                }
                 'END'   {
                     if ($caseDepth -gt 0) { $caseDepth-- }
                     elseif ($blockDepth -gt 0) { $blockDepth-- }
@@ -417,7 +425,7 @@ SELECT
     # explicit assertion that a current backup, production-sized restore rehearsal, writer
     # quiescence, maintenance window, transaction-log capacity and rollback criteria were approved.
     # It is deliberately evaluated from the pending set so already-applied databases are unaffected.
-    $highImpactVersions = @(142, 144, 146, 147, 148, 150, 151, 152, 153, 157)
+    $highImpactVersions = @(142, 144, 146, 147, 148, 150, 151, 152, 153, 157, 159, 160)
     $highImpactPending = @($pending | Where-Object { $highImpactVersions -contains $_.Version })
     if ($highImpactPending.Count -gt 0 -and -not $ApproveHighImpactMigrations) {
         $highImpactNames = ($highImpactPending | ForEach-Object Name) -join ', '

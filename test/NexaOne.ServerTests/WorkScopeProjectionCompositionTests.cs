@@ -28,11 +28,19 @@ public sealed class WorkScopeProjectionCompositionTests
             ["workScopeProjectionApplicationModule", "workScopeProjectionRuntime", "workScopeProjectionWorker",
              "workScopeProjectionAuthorityValidator"]);
         var pomModule = objects.Single(item => ObjectId(item) == "pomModule");
-        pomModule
+        var pomModuleReferences = pomModule
             .Elements(Spring + "constructor-arg")
             .Select(item => (string?)item.Attribute("ref"))
-            .Should().NotContain(["workScopeProjectionPolicy", "workScopeProjectionAuthorityValidator"],
-                "the core manifest must let Module own its fail-closed default without exposing an internal type");
+            .ToList();
+        pomModuleReferences.Should().NotContain(
+            ["workScopeProjectionPolicy", "workScopeProjectionAuthorityValidator"],
+            "the core manifest must not bind a product policy or child validator target directly");
+        pomModuleReferences.Should().HaveCount(11);
+        pomModuleReferences[^1].Should().Be("workScopeProjectionAuthorityValidatorProxy",
+            "Spring uses the lazy fail-closed parent seam while direct construction keeps its default");
+        pomModule.Attribute("factory-method")!.Value.Should().Be(
+            "CreateWithProjectionAuthorityValidatorV2",
+            "Spring must select V2 without adding an ambiguous same-arity constructor");
         var constructors = typeof(NexaOne.POM.Module).GetConstructors();
         constructors.SelectMany(static constructor => constructor.GetParameters())
             .Select(parameter => parameter.ParameterType)
@@ -45,7 +53,24 @@ public sealed class WorkScopeProjectionCompositionTests
             static constructor => constructor.GetParameters().Length == 11
                 && constructor.GetParameters().Last().ParameterType
                     == typeof(IWorkScopeProjectionAuthorityValidator),
-            "a trusted product composition may explicitly provide its public validator seam");
+            "the committed legacy 11-argument constructor ABI must remain exact");
+        constructors.Should().NotContain(
+            static constructor => constructor.GetParameters().Length == 11
+                && constructor.GetParameters().Last().ParameterType
+                    == typeof(IWorkScopeProjectionAuthorityValidatorV2),
+            "same-arity legacy and V2 constructors make null, dual-interface, and Spring selection ambiguous");
+        typeof(NexaOne.POM.Module).GetMethod("CreateWithProjectionAuthorityValidatorV2")!
+            .GetParameters()[^1].ParameterType.Should().Be(
+                typeof(IWorkScopeProjectionAuthorityValidatorV2));
+
+        var legacyValidate = typeof(IWorkScopeProjectionAuthorityValidator)
+            .GetMethod(nameof(IWorkScopeProjectionAuthorityValidator.ValidateAsync))!;
+        legacyValidate.ReturnType.Should().Be(
+            typeof(Task<NexaOne.Common.Result<WorkScopeProjectionAuthorityEvidence>>),
+            "validators compiled against the committed interface must retain their method slot");
+        typeof(IWorkScopeProjectionAuthorityValidatorV2)
+            .GetMethod(nameof(IWorkScopeProjectionAuthorityValidatorV2.ValidateAsync))!
+            .ReturnType.Should().Be(typeof(Task<WorkScopeProjectionAuthorityValidationDecision>));
 
         var validate = () => NexaOneMesRuntimeState.ValidateWorkScopeProjectionRuntime(
             enabled: false,
@@ -54,6 +79,56 @@ public sealed class WorkScopeProjectionCompositionTests
 
         validate.Should().NotThrow(
             "a POM-only deployment with the optional application feature disabled is supported");
+    }
+
+    [Fact]
+    public void Authority_composition_uses_distinct_parent_proxies_and_exact_child_targets()
+    {
+        foreach (var hostName in new[] { "server.xml", "server.sqlite.xml" })
+        {
+            var host = XDocument.Load(RepositorySource.GetFile(
+                "src", "00.Main", "NexaOne.Server", "config", "host", hostName));
+            var hostObjects = host.Root!.Elements(Spring + "object").ToList();
+            hostObjects.Select(ObjectId).Should().Contain(
+            [
+                "workScopeProjectionAuthorityValidatorProxy",
+                "canonicalRecipeExecutionEvidenceDirectoryProxy",
+                "releasedProgramArtifactDirectoryProxy",
+            ]);
+            hostObjects.Select(ObjectId).Should().NotContain("workScopeProjectionAuthorityValidator",
+                "a PomOnly child must not fall back to a same-named parent proxy and recurse");
+
+            hostObjects.Single(item => ObjectId(item) == "workScopeProjectionAuthorityValidatorProxy")
+                .Attribute("type")!.Value.Should().Be(
+                    "NexaOne.Server.Gateway.WorkScopeProjectionAuthorityValidatorProxy, NexaOne.Server");
+        }
+
+        var cleaner = XDocument.Load(RepositorySource.GetFile(
+            "src", "00.Main", "NexaOne.Server", "config", "projects", "cleaner.xml"));
+        var cleanerObjects = cleaner.Root!.Elements(Spring + "object").ToList();
+        cleanerObjects.Select(ObjectId).Should().Contain(
+            ["cleanerProjectionAuthorityProfile", "workScopeProjectionAuthorityValidator"]);
+        cleanerObjects.Single(item => ObjectId(item) == "cleanerProjectionAuthorityProfile")
+            .Elements(Spring + "constructor-arg")
+            .Select(item => (string?)item.Attribute("ref"))
+            .Should().Equal("appConfiguration");
+        cleanerObjects.Single(item => ObjectId(item) == "workScopeProjectionAuthorityValidator")
+            .Elements(Spring + "constructor-arg")
+            .Select(item => (string?)item.Attribute("ref"))
+            .Should().Equal(
+                "workScopeAuthorityEvidenceDirectory",
+                "canonicalRecipeExecutionEvidenceDirectoryProxy",
+                "releasedProgramArtifactDirectoryProxy",
+                "cleanerProjectionAuthorityProfile");
+
+        var rms = XDocument.Load(RepositorySource.GetFile(
+            "src", "00.Main", "NexaOne.Server", "config", "modules", "rms.xml"));
+        rms.Root!.Elements(Spring + "object").Select(ObjectId)
+            .Should().Contain("canonicalRecipeExecutionEvidenceDirectory");
+        var sys = XDocument.Load(RepositorySource.GetFile(
+            "src", "00.Main", "NexaOne.Server", "config", "modules", "sys.xml"));
+        sys.Root!.Elements(Spring + "object").Select(ObjectId)
+            .Should().Contain("releasedProgramArtifactDirectory");
     }
 
     [Fact]

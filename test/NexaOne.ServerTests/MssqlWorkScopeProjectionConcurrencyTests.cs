@@ -2,7 +2,9 @@ using System.Collections.Concurrent;
 using FluentAssertions;
 using NexaOne.POM.Application.WorkScopes;
 using NexaOne.POM.Infrastructure;
+using NexaOne.RMS.Infrastructure;
 using NexaOne.ServiceContracts.Pom;
+using NexaOne.SYS.Infrastructure;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -49,6 +51,119 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
         (await harness.Database.ScalarAsync<int>(
             "SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY WHERE WORK_SCOPE_ID=@workScopeId;",
             new { workScopeId = ids.WorkScopeId })).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Authority_directory_rejects_a_trailing_space_key_under_sql_server_padding_rules()
+    {
+        var harness = await ProjectionHarness.TryCreateAsync(_output);
+        if (harness is null)
+            return;
+
+        var ids = await harness.CreateScopeAsync(provisionAuthority: false);
+        await harness.SeedAuthorityEvidenceAsync(ids);
+        var directory = new WorkScopeAuthorityEvidenceDirectory(harness.Database.DataSource);
+        var recipes = new CanonicalRecipeExecutionEvidenceDirectory(harness.Database.DataSource);
+        var programs = new ReleasedProgramArtifactDirectory(harness.Database.DataSource);
+        var executionId = $"rms-execution-{ids.Suffix}-{ids.SequenceRunId}";
+        var artifactId = $"program-{ids.Suffix}";
+
+        (await directory.FindAsync(ids.WorkScopeId)).Should().NotBeNull();
+        (await directory.FindAsync(ids.WorkScopeId + " ")).Should().BeNull();
+        (await recipes.FindAsync(executionId)).Should().NotBeNull();
+        (await recipes.FindAsync(executionId + " ")).Should().BeNull();
+        (await programs.FindAsync(artifactId)).Should().NotBeNull();
+        (await programs.FindAsync(artifactId + " ")).Should().BeNull();
+
+        var provisioned = await harness.ProvisionAuthorityAsync(ids, seedTrustedEvidence: false);
+        provisioned.IsSuccess.Should().BeTrue(
+            provisioned.IsFailure ? provisioned.Error.Description : string.Empty);
+        var authorities = new WorkScopeProjectionAuthorityRepository(harness.Database.DataSource);
+        (await authorities.GetByWorkScopeIdAsync(ids.WorkScopeId)).Should().NotBeNull();
+        (await authorities.GetByWorkScopeIdAsync(ids.WorkScopeId + " ")).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Authority_and_parent_first_revocation_race_converges_without_untrusted_authority()
+    {
+        var harness = await ProjectionHarness.TryCreateAsync(_output);
+        if (harness is null)
+            return;
+
+        var ids = await harness.CreateScopeAsync(provisionAuthority: false);
+        await harness.SeedAuthorityEvidenceAsync(ids);
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var provision = AfterAsync(
+            start.Task,
+            () => harness.ProvisionAuthorityAsync(ids, seedTrustedEvidence: false));
+        var revoke = AfterAsync(start.Task, async () =>
+        {
+            await harness.RevokeProgramAsync(ids);
+            return true;
+        });
+
+        start.SetResult();
+        await Task.WhenAll((Task)provision, revoke).WaitAsync(ConcurrentOperationTimeout);
+        var result = await provision;
+        var authorityCount = await harness.Database.ScalarAsync<int>(
+            "SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY WHERE WORK_SCOPE_ID=@workScopeId;",
+            new { workScopeId = ids.WorkScopeId });
+        if (result.IsSuccess)
+        {
+            authorityCount.Should().Be(1,
+                "a successful provision must have serialized before the revocation");
+            var replay = await harness.ProvisionAuthorityAsync(ids, seedTrustedEvidence: false);
+            replay.IsSuccess.Should().BeTrue();
+            replay.Value.Replay.Should().BeTrue();
+        }
+        else
+        {
+            result.Error.Code.Should().Be("Projection.Authority.TrustedEvidenceRevoked");
+            authorityCount.Should().Be(0,
+                "revocation-first serialization must not leave a new authority row");
+        }
+        (await harness.Database.ScalarAsync<int>(
+            "SELECT COUNT(*) FROM SYS_RELEASED_PROGRAM_ARTIFACT_REVOCATION WHERE ARTIFACT_ID=@artifactId;",
+            new { artifactId = $"program-{ids.Suffix}" })).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Revocation_first_deterministically_rejects_new_authority()
+    {
+        var harness = await ProjectionHarness.TryCreateAsync(_output);
+        if (harness is null)
+            return;
+
+        var ids = await harness.CreateScopeAsync(provisionAuthority: false);
+        await harness.SeedAuthorityEvidenceAsync(ids);
+        await harness.RevokeProgramAsync(ids);
+
+        var result = await harness.ProvisionAuthorityAsync(ids, seedTrustedEvidence: false);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Code.Should().Be("Projection.Authority.TrustedEvidenceRevoked");
+        (await harness.Database.ScalarAsync<int>(
+            "SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY WHERE WORK_SCOPE_ID=@workScopeId;",
+            new { workScopeId = ids.WorkScopeId })).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Committed_authority_exactly_replays_after_program_revocation()
+    {
+        var harness = await ProjectionHarness.TryCreateAsync(_output);
+        if (harness is null)
+            return;
+
+        var ids = await harness.CreateScopeAsync();
+        await harness.RevokeProgramAsync(ids);
+
+        var replay = await harness.ProvisionAuthorityAsync(ids, seedTrustedEvidence: false);
+
+        replay.IsSuccess.Should().BeTrue();
+        replay.Value.Replay.Should().BeTrue();
+        (await harness.Database.ScalarAsync<int>(
+            "SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY WHERE WORK_SCOPE_ID=@workScopeId;",
+            new { workScopeId = ids.WorkScopeId })).Should().Be(1);
     }
 
     [Fact]
@@ -465,6 +580,7 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
                 ids.PairRunId,
                 "MSSQL projection concurrency contract",
                 EquipmentId: ids.EquipmentId,
+                ProcessId: $"operation-{suffix}",
                 RecipeId: "RECIPE-CONTRACT",
                 RecipeVersion: 1,
                 PlanQty: 2m,
@@ -489,8 +605,9 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
             return ids;
         }
 
-        public Task<NexaOne.Common.Result<WorkScopeProjectionAuthorityDto>> ProvisionAuthorityAsync(
-            ProjectionIds ids)
+        public async Task<NexaOne.Common.Result<WorkScopeProjectionAuthorityDto>> ProvisionAuthorityAsync(
+            ProjectionIds ids,
+            bool seedTrustedEvidence = true)
         {
             var command = new WorkScopeProjectionAuthorityProvisionCommand(
                 ids.WorkScopeId,
@@ -518,20 +635,148 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
                 command.ProgramArtifactId,
                 "mssql-contract-program-v1",
                 new string('B', 64));
+            if (seedTrustedEvidence)
+                await SeedTrustedEvidenceAsync(evidence);
             IWorkScopeProjectionAuthorityBridge bridge = new WorkScopeProjectionAuthorityBridge(
                 new WorkScopeProjectionAuthorityService(
                     new WorkScopeProjectionAuthorityRepository(Database.DataSource),
                     new FixedAuthorityValidator(evidence)));
-            return bridge.ProvisionAsync(command);
+            return await bridge.ProvisionAsync(command);
         }
 
-        private sealed class FixedAuthorityValidator(WorkScopeProjectionAuthorityEvidence evidence)
-            : IWorkScopeProjectionAuthorityValidator
+        public Task SeedAuthorityEvidenceAsync(ProjectionIds ids)
         {
-            public Task<NexaOne.Common.Result<WorkScopeProjectionAuthorityEvidence>> ValidateAsync(
+            var command = new WorkScopeProjectionAuthorityProvisionCommand(
+                ids.WorkScopeId, ids.SourceClientId, ids.EquipmentId, $"operation-{ids.Suffix}",
+                ids.PairRunId, ids.SequenceRunId,
+                $"rms-execution-{ids.Suffix}-{ids.SequenceRunId}", $"program-{ids.Suffix}",
+                $"authority-{ids.Suffix}-{ids.SequenceRunId}", "mssql-contract");
+            return SeedTrustedEvidenceAsync(new WorkScopeProjectionAuthorityEvidence(
+                command.WorkScopeId, command.SourceClientId, command.EquipmentId,
+                command.OperationKey, command.PairRunId, command.SequenceRunId,
+                command.RecipeExecutionId, "RECIPE-CONTRACT", 1, "mssql-contract-recipe-v1",
+                new string('A', 64), command.ProgramArtifactId, "mssql-contract-program-v1",
+                new string('B', 64)));
+        }
+
+        public Task RevokeProgramAsync(ProjectionIds ids) => Database.ExecuteAsync(
+            """
+            EXEC dbo.SYS_REVOKE_PROGRAM_ARTIFACT
+                 @RevocationId=@RevocationId,
+                 @ArtifactId=@ArtifactId,
+                 @RevokedBy=N'mssql-contract',
+                 @Reason=N'race contract';
+            """,
+            new
+            {
+                ArtifactId = $"program-{ids.Suffix}",
+                RevocationId = $"revoke-{ids.Suffix}",
+            });
+
+        private Task SeedTrustedEvidenceAsync(WorkScopeProjectionAuthorityEvidence evidence) =>
+            Database.ExecuteAsync(
+                """
+                SET XACT_ABORT ON;
+                SET ANSI_NULLS ON;
+                SET ANSI_PADDING ON;
+                SET ANSI_WARNINGS ON;
+                SET ARITHABORT ON;
+                SET CONCAT_NULL_YIELDS_NULL ON;
+                SET QUOTED_IDENTIFIER ON;
+                SET NUMERIC_ROUNDABORT OFF;
+                BEGIN TRANSACTION;
+                IF NOT EXISTS (
+                    SELECT 1 FROM RMS_RECIPE_EXECUTION_SNAPSHOT WITH (UPDLOCK, HOLDLOCK)
+                     WHERE EXECUTION_ID COLLATE Latin1_General_100_BIN2
+                           = @RecipeExecutionId COLLATE Latin1_General_100_BIN2)
+                  INSERT INTO RMS_RECIPE_EXECUTION_SNAPSHOT
+                      (EXECUTION_ID, IDEMPOTENCY_KEY, REQUEST_HASH, PLANT_ID, EQUIPMENT_ID,
+                       PROCESS_LOT_ID, WORK_ORDER_ID, PROCESS_ID, RECIPE_ID, RECIPE_VERSION,
+                       RECIPE_SNAPSHOT_JSON, PARAMETER_SNAPSHOT_JSON, CONDITION_SNAPSHOT_JSON,
+                       APPLIED_BY, APPLIED_AT, SOURCE, TRACE_ID, CREATED_AT,
+                       WORK_SCOPE_ID, CARRIER_ID)
+                  VALUES (@RecipeExecutionId, @ExecutionKey, @RequestHash, 'PLANT-CONTRACT',
+                          @EquipmentId, NULL, NULL, @OperationKey, @RecipeId, @RecipeVersion,
+                          '{}', '{}', NULL, 'mssql-contract', SYSUTCDATETIME(), 'TEST', NULL,
+                          SYSUTCDATETIME(), @WorkScopeId, NULL);
+                COMMIT TRANSACTION;
+
+                EXEC dbo.RMS_CAPTURE_CANONICAL_RECIPE_EXECUTION_EVIDENCE
+                     @ExecutionId=@RecipeExecutionId,
+                     @WorkScopeId=@WorkScopeId,
+                     @PairRunId=@PairRunId,
+                     @SequenceRunId=@SequenceRunId,
+                     @EquipmentId=@EquipmentId,
+                     @OperationKey=@OperationKey,
+                     @RecipeId=@RecipeId,
+                     @RecipeVersion=@RecipeVersion,
+                     @SnapshotSchema=@RecipeSnapshotSchema,
+                     @SnapshotHash=@RecipeSnapshotHash;
+
+                EXEC dbo.SYS_RELEASE_PROGRAM_ARTIFACT
+                     @ArtifactId=@ProgramArtifactId,
+                     @EquipmentId=@EquipmentId,
+                     @OperationKey=@OperationKey,
+                     @ProductProfileId=N'contract-profile',
+                     @PluginId=N'plugin.contract',
+                     @ProductDefinitionVersion=N'product-v1',
+                     @ProgramVersion=@ProgramArtifactId,
+                     @ProgramSchema=@ProgramSchema,
+                     @ProgramHash=@ProgramHash,
+                     @BoundRecipeSnapshotSchema=@RecipeSnapshotSchema,
+                     @BoundRecipeSnapshotHash=@RecipeSnapshotHash,
+                     @ReleasedBy=N'mssql-contract';
+
+                DECLARE @RuntimePrincipalName NVARCHAR(128)=USER_NAME(),
+                        @RuntimePrincipalSid VARBINARY(85)=(
+                          SELECT sid FROM sys.database_principals
+                           WHERE principal_id=DATABASE_PRINCIPAL_ID(USER_NAME()));
+                BEGIN TRANSACTION;
+                IF NOT EXISTS (
+                    SELECT 1 FROM dbo.POM_PROJECTION_RUNTIME_PRODUCT_BINDING WITH (UPDLOCK, HOLDLOCK)
+                     WHERE DATABASE_PRINCIPAL_NAME COLLATE Latin1_General_100_BIN2=@RuntimePrincipalName
+                       AND DATABASE_PRINCIPAL_SID=@RuntimePrincipalSid
+                       AND ARTIFACT_ID COLLATE Latin1_General_100_BIN2=@ProgramArtifactId)
+                  INSERT INTO dbo.POM_PROJECTION_RUNTIME_PRODUCT_BINDING
+                      (DATABASE_PRINCIPAL_NAME, DATABASE_PRINCIPAL_SID, EQUIPMENT_ID, OPERATION_KEY,
+                       ARTIFACT_ID, PRODUCT_PROFILE_ID, PLUGIN_ID, PRODUCT_DEFINITION_VERSION,
+                       PROGRAM_VERSION, PROGRAM_SCHEMA, PROGRAM_HASH,
+                       BOUND_RECIPE_SNAPSHOT_SCHEMA, BOUND_RECIPE_SNAPSHOT_HASH,
+                       COMMISSIONED_AT, COMMISSIONED_BY)
+                  VALUES
+                      (@RuntimePrincipalName, @RuntimePrincipalSid, @EquipmentId, @OperationKey,
+                       @ProgramArtifactId, N'contract-profile', N'plugin.contract', N'product-v1',
+                       @ProgramArtifactId, @ProgramSchema, @ProgramHash,
+                       @RecipeSnapshotSchema, @RecipeSnapshotHash,
+                       SYSUTCDATETIME(), ORIGINAL_LOGIN());
+                COMMIT TRANSACTION;
+                """,
+                new
+                {
+                    evidence.RecipeExecutionId,
+                    ExecutionKey = $"trusted:{evidence.RecipeExecutionId}",
+                    RequestHash = new string('D', 64),
+                    evidence.EquipmentId,
+                    evidence.OperationKey,
+                    evidence.RecipeId,
+                    evidence.RecipeVersion,
+                    evidence.WorkScopeId,
+                    evidence.PairRunId,
+                    evidence.SequenceRunId,
+                    evidence.RecipeSnapshotSchema,
+                    evidence.RecipeSnapshotHash,
+                    evidence.ProgramArtifactId,
+                    evidence.ProgramSchema,
+                    evidence.ProgramHash,
+                });
+
+        private sealed class FixedAuthorityValidator(WorkScopeProjectionAuthorityEvidence evidence)
+            : IWorkScopeProjectionAuthorityValidatorV2
+        {
+            public Task<WorkScopeProjectionAuthorityValidationDecision> ValidateAsync(
                 WorkScopeProjectionAuthorityProvisionCommand command,
                 CancellationToken ct = default) => Task.FromResult(
-                    NexaOne.Common.Result.Success(evidence));
+                    WorkScopeProjectionAuthorityValidationDecision.Accepted(evidence));
         }
     }
 

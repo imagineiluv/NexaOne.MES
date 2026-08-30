@@ -42,14 +42,20 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
                     // affect zero rows, but still requires the same UPDATE/INSERT permissions as
                     // the live worker path.
                     await ExecuteProbeAsync(
-                        connection, transaction, ReadinessSelectSql, ct).ConfigureAwait(false);
+                        connection,
+                        transaction,
+                        _isSqlServer ? ReadinessSelectSqlSqlServer : ReadinessSelectSql,
+                        ct).ConfigureAwait(false);
                     await ExecuteProbeAsync(
                         connection, transaction, ReadinessApplicationUpdateSql, ct)
                         .ConfigureAwait(false);
                     await ExecuteProbeAsync(
                         connection, transaction, ReadinessScopeUpdateSql, ct).ConfigureAwait(false);
                     await ExecuteProbeAsync(
-                        connection, transaction, ReadinessAuthorityUpdateSql, ct)
+                        connection,
+                        transaction,
+                        _isSqlServer ? ReadinessAuthorityUpdateSqlSqlServer : ReadinessAuthorityUpdateSql,
+                        ct)
                         .ConfigureAwait(false);
                     await ExecuteProbeAsync(
                         connection, transaction, ReadinessApplicationEventInsertSql, ct)
@@ -478,18 +484,26 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
                 throw new DBConcurrencyException("Projection execution ledger insert did not affect exactly one row.");
         }
 
-        var advancedAuthority = await ExecuteAsync(
-            connection,
-            transaction,
-            AdvanceProjectionAuthoritySql,
-            new
-            {
-                claim.Event.WorkScopeId,
-                ExpectedVersion = scopeRow.VersionNo,
-                ResultVersion = scopeRow.VersionNo + executionRows.Count,
-                Now = now,
-            },
-            ct).ConfigureAwait(false);
+        var lineage = new
+        {
+            claim.Event.WorkScopeId,
+            ExpectedVersion = scopeRow.VersionNo,
+            ResultVersion = scopeRow.VersionNo + executionRows.Count,
+            Now = now,
+        };
+        var advancedAuthority = _isSqlServer
+            ? await QueryFirstOrDefaultAsync<int>(
+                connection,
+                transaction,
+                AdvanceProjectionAuthoritySqlSqlServer,
+                lineage,
+                ct).ConfigureAwait(false)
+            : await ExecuteAsync(
+                connection,
+                transaction,
+                AdvanceProjectionAuthoritySql,
+                lineage,
+                ct).ConfigureAwait(false);
         if (advancedAuthority != 1)
             throw new DBConcurrencyException(
                 "Projection authority lineage fence was lost during WorkScope application.");
@@ -970,6 +984,11 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
          WHERE 1 = 0
         """;
 
+    private static readonly string ReadinessSelectSqlSqlServer = ReadinessSelectSql.Replace(
+        "POM_WORK_SCOPE_PROJECTION_AUTHORITY U",
+        "POM_ACTIVE_PROJECTION_RUNTIME_AUTHORITY U",
+        StringComparison.Ordinal);
+
     private const string ReadinessUnauthorizedApplicationSqlSqlServer = """
         SELECT COUNT(*)
           FROM POM_WORK_SCOPE_PROJECTION_APPLICATION A
@@ -993,7 +1012,7 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
          WHERE A.APPLICATION_STATUS IN ('Pending', 'Retry', 'Processing')
            AND NOT EXISTS (
                SELECT 1
-                 FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY U
+                 FROM POM_ACTIVE_PROJECTION_RUNTIME_AUTHORITY U
                  WHERE U.WORK_SCOPE_ID COLLATE Latin1_General_100_BIN2
                            = A.WORK_SCOPE_ID COLLATE Latin1_General_100_BIN2
                    AND U.SOURCE_CLIENT_ID = E.SOURCE_CLIENT_ID
@@ -1017,6 +1036,10 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
 
     private static readonly string ReadinessUnauthorizedApplicationSqlSqlite =
         ReadinessUnauthorizedApplicationSqlSqlServer
+            .Replace(
+                "POM_ACTIVE_PROJECTION_RUNTIME_AUTHORITY",
+                "POM_WORK_SCOPE_PROJECTION_AUTHORITY",
+                StringComparison.Ordinal)
             .Replace(
                 "COLLATE Latin1_General_100_BIN2",
                 "COLLATE BINARY",
@@ -1062,6 +1085,13 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
            SET LAST_APPLIED_VERSION_NO = LAST_APPLIED_VERSION_NO,
                LAST_APPLIED_AT = LAST_APPLIED_AT
          WHERE 1 = 0
+        """;
+
+    private const string ReadinessAuthorityUpdateSqlSqlServer = """
+        EXEC dbo.POM_ADVANCE_WORK_SCOPE_PROJECTION_AUTHORITY_LINEAGE
+             @WorkScopeId=N'__nexa_v160_readiness_missing__',
+             @ExpectedVersion=1,
+             @ResultVersion=2
         """;
 
     private const string ReadinessApplicationEventInsertSql = """
@@ -1149,6 +1179,12 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
                 OR (A.APPLICATION_STATUS = 'Processing' AND A.LEASE_EXPIRES_AT <= @Now))
            AND A.ATTEMPT_COUNT < 2147483647
            AND A.LEASE_FENCE < 9223372036854775807
+           AND EXISTS (
+               SELECT 1 FROM POM_ACTIVE_PROJECTION_RUNTIME_AUTHORITY U
+                WHERE U.WORK_SCOPE_ID COLLATE Latin1_General_100_BIN2
+                        = A.WORK_SCOPE_ID COLLATE Latin1_General_100_BIN2
+                  AND DATALENGTH(CONVERT(NVARCHAR(MAX), U.WORK_SCOPE_ID))
+                        = DATALENGTH(CONVERT(NVARCHAR(MAX), A.WORK_SCOPE_ID)))
          ORDER BY A.ACCEPTED_AT, A.SOURCE_CLIENT_ID, A.EQUIPMENT_ID,
                   A.SEQUENCE_RUN_ID, A.SOURCE_REVISION, A.EVENT_ID
         """;
@@ -1284,15 +1320,8 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
         """;
 
     private const string ProjectionAuthorityForUpdateSqlSqlServer = """
-        SELECT WORK_SCOPE_ID AS WorkScopeId, SOURCE_CLIENT_ID AS SourceClientId,
-               EQUIPMENT_ID AS EquipmentId, OPERATION_KEY AS OperationKey,
-               PAIR_RUN_ID AS PairRunId, SEQUENCE_RUN_ID AS SequenceRunId,
-               RECIPE_ID AS RecipeId, RECIPE_VERSION AS RecipeVersion,
-               RECIPE_SNAPSHOT_HASH AS RecipeSnapshotHash, PROGRAM_HASH AS ProgramHash,
-               BASELINE_VERSION_NO AS BaselineVersionNo,
-               LAST_APPLIED_VERSION_NO AS LastAppliedVersionNo
-          FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY WITH (UPDLOCK, HOLDLOCK)
-         WHERE WORK_SCOPE_ID = @WorkScopeId
+        EXEC dbo.POM_GET_ACTIVE_PROJECTION_AUTHORITY_FOR_UPDATE
+             @WorkScopeId=@WorkScopeId
         """;
 
     private const string SelectScopeSql = """
@@ -1338,6 +1367,13 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
                LAST_APPLIED_AT = @Now
          WHERE WORK_SCOPE_ID = @WorkScopeId
            AND LAST_APPLIED_VERSION_NO = @ExpectedVersion
+        """;
+
+    private const string AdvanceProjectionAuthoritySqlSqlServer = """
+        EXEC dbo.POM_ADVANCE_WORK_SCOPE_PROJECTION_AUTHORITY_LINEAGE
+             @WorkScopeId=@WorkScopeId,
+             @ExpectedVersion=@ExpectedVersion,
+             @ResultVersion=@ResultVersion
         """;
 
     private const string InsertExecutionSql = """

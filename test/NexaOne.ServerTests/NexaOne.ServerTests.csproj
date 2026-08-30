@@ -34,6 +34,12 @@
     <ProjectReference Include="@(NexaOneProductPlugin)" />
   </ItemGroup>
 
+  <!-- Product-specific tests follow the same selected profile boundary as their project reference.
+       PomOnly must compile without importing any Cleaner source or assembly. -->
+  <ItemGroup Condition="'$(NexaOneProductProfileName)' != 'Cleaner'">
+    <Compile Remove="CleanerProjectionAuthorityValidatorTests.cs" />
+  </ItemGroup>
+
   <!-- Child-process smoke runs the host copied into this exact test output. Populate its plugin
        folder from the current ProjectReference outputs so an external artifacts path cannot fall back to
        an older src/**/bin tree. -->

@@ -7,11 +7,11 @@ namespace NexaOne.POM.Application.WorkScopes;
 internal sealed class WorkScopeProjectionAuthorityService
 {
     private readonly IWorkScopeProjectionAuthorityRepository _repository;
-    private readonly IWorkScopeProjectionAuthorityValidator _validator;
+    private readonly IWorkScopeProjectionAuthorityValidatorV2 _validator;
 
     public WorkScopeProjectionAuthorityService(
         IWorkScopeProjectionAuthorityRepository repository,
-        IWorkScopeProjectionAuthorityValidator validator)
+        IWorkScopeProjectionAuthorityValidatorV2 validator)
     {
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         _validator = validator ?? throw new ArgumentNullException(nameof(validator));
@@ -51,8 +51,9 @@ internal sealed class WorkScopeProjectionAuthorityService
             normalized.RecipeExecutionId,
             normalized.ProgramArtifactId);
 
-        // Exact retries do not depend on the external validator remaining reachable. They read only
-        // previously trusted evidence and therefore preserve idempotency during coordinator outages.
+        // Exact retries do not depend on the external validator remaining reachable. They still go
+        // through repository authorization so SQL Server can verify the caller SID and the current
+        // active-product binding; SQLite retains its local exact-replay semantics.
         var existing = await _repository.GetByWorkScopeIdAsync(normalized.WorkScopeId, ct)
             .ConfigureAwait(false);
         if (existing is not null)
@@ -64,7 +65,13 @@ internal sealed class WorkScopeProjectionAuthorityService
             if (sameIdempotencyKey
                 && string.Equals(existing.ProvisionRequestHash, requestHash, StringComparison.Ordinal))
             {
-                return Result.Success(ToDto(existing, replay: true));
+                var replayed = await _repository.ProvisionAsync(
+                    ToEvidence(existing),
+                    normalized.IdempotencyKey,
+                    requestHash,
+                    normalized.ActorId,
+                    ct).ConfigureAwait(false);
+                return MapProvisionResult(replayed, normalized.WorkScopeId);
             }
 
             return sameIdempotencyKey
@@ -77,8 +84,21 @@ internal sealed class WorkScopeProjectionAuthorityService
         }
 
         var validated = await _validator.ValidateAsync(normalized, ct).ConfigureAwait(false);
-        if (validated.IsFailure) return Failure(validated.Error);
-        var evidence = Normalize(validated.Value, out validationError);
+        if (!validated.IsAccepted)
+        {
+            return Failure(Error.Conflict(
+                validated.RejectionCode ?? "Projection.Authority.InvalidValidatorDecision",
+                validated.RejectionMessage
+                ?? "The authority validator returned an invalid rejection decision."));
+        }
+        if (validated.Evidence is null)
+        {
+            return Failure(Error.Conflict(
+                "Projection.Authority.InvalidValidatorDecision",
+                "The authority validator accepted the command without authority evidence."));
+        }
+
+        var evidence = Normalize(validated.Evidence, out validationError);
         if (validationError is not null) return Failure(validationError);
         if (!EvidenceMatchesCommand(evidence, normalized))
         {
@@ -94,22 +114,27 @@ internal sealed class WorkScopeProjectionAuthorityService
             normalized.ActorId,
             ct).ConfigureAwait(false);
 
-        return persisted.Kind switch
+        return MapProvisionResult(persisted, normalized.WorkScopeId);
+    }
+
+    private static Result<WorkScopeProjectionAuthorityDto> MapProvisionResult(
+        WorkScopeProjectionAuthorityProvisionResult persisted,
+        string workScopeId) => persisted.Kind switch
         {
             WorkScopeProjectionAuthorityProvisionKind.Provisioned =>
                 Result.Success(ToDto(persisted.Authority!, replay: false)),
             WorkScopeProjectionAuthorityProvisionKind.Replayed =>
                 Result.Success(ToDto(persisted.Authority!, replay: true)),
             WorkScopeProjectionAuthorityProvisionKind.ScopeNotFound =>
-                Failure(Error.NotFoundOf("WorkScope", normalized.WorkScopeId)),
+                Failure(Error.NotFoundOf("WorkScope", workScopeId)),
             WorkScopeProjectionAuthorityProvisionKind.ScopeNotPristine =>
                 Failure(Error.Conflict(
                     "Projection.Authority.ScopeNotPristine",
-                    $"Work scope '{normalized.WorkScopeId}' is no longer pristine and cannot become projection-owned.")),
+                    $"Work scope '{workScopeId}' is no longer pristine and cannot become projection-owned.")),
             WorkScopeProjectionAuthorityProvisionKind.ScopeIdentityMismatch =>
                 Failure(Error.Conflict(
                     "Projection.Authority.ScopeIdentityMismatch",
-                    $"Work scope '{normalized.WorkScopeId}' does not match the validated equipment, pair, or recipe identity.")),
+                    $"Work scope '{workScopeId}' does not match the validated equipment, pair, or recipe identity.")),
             WorkScopeProjectionAuthorityProvisionKind.IdempotencyConflict =>
                 Failure(Error.Conflict(
                     "Projection.Authority.IdempotencyConflict",
@@ -118,11 +143,39 @@ internal sealed class WorkScopeProjectionAuthorityService
                 Failure(Error.Conflict(
                     "Projection.Authority.EvidenceAlreadyBound",
                     "The recipe execution or projection stream is already bound to another work scope.")),
+            WorkScopeProjectionAuthorityProvisionKind.TrustedEvidenceMissing =>
+                Failure(Error.Conflict(
+                    "Projection.Authority.TrustedEvidenceMissing",
+                    "Canonical recipe execution or released program evidence no longer exactly matches the requested authority.")),
+            WorkScopeProjectionAuthorityProvisionKind.TrustedEvidenceRevoked =>
+                Failure(Error.Conflict(
+                    "Projection.Authority.TrustedEvidenceRevoked",
+                    "The released program artifact was revoked before new projection authority could be committed.")),
+            WorkScopeProjectionAuthorityProvisionKind.RuntimeProductBindingMissing =>
+                Failure(Error.Conflict(
+                    "Projection.Authority.RuntimeProductBindingMissing",
+                    "The current database principal is not commissioned for the exact released program artifact.")),
             _ => Failure(Error.Failure(
                 "Projection.Authority.Persistence",
                 "Projection authority persistence returned an unknown outcome.")),
         };
-    }
+
+    private static WorkScopeProjectionAuthorityEvidence ToEvidence(
+        WorkScopeProjectionAuthorityRecord authority) => new(
+        authority.WorkScopeId,
+        authority.SourceClientId,
+        authority.EquipmentId,
+        authority.OperationKey,
+        authority.PairRunId,
+        authority.SequenceRunId,
+        authority.RecipeExecutionId,
+        authority.RecipeId,
+        authority.RecipeVersion,
+        authority.RecipeSnapshotSchema,
+        authority.RecipeSnapshotHash,
+        authority.ProgramArtifactId,
+        authority.ProgramSchema,
+        authority.ProgramHash);
 
     private static WorkScopeProjectionAuthorityProvisionCommand Normalize(
         WorkScopeProjectionAuthorityProvisionCommand command,

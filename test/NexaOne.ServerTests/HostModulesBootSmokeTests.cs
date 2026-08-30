@@ -40,7 +40,7 @@ public sealed class HostModulesBootSmokeTests
     {
         // Database:Provider alone must select the matching Spring parent context.
         // This guards against gateway=SQLite / module=SQL Server split-brain startup.
-        // The default Cleaner composition intentionally has a rejecting authority validator.
+        // The default Cleaner composition has a product validator whose immutable profile is OFF.
         // Enabling the worker here proves discovery + empty-queue schema readiness only; it is not
         // evidence that trusted authority can be provisioned or that equipment HIL is approved.
         using var host = await HostProcess.StartAsync(
@@ -72,9 +72,9 @@ public sealed class HostModulesBootSmokeTests
                  WHERE type = 'trigger'
                    AND name LIKE 'TR_POM_WORK_SCOPE_PROJECTION_%';
                 """;
-            Convert.ToInt64(await schemaCommand.ExecuteScalarAsync()).Should().Be(32,
+            Convert.ToInt64(await schemaCommand.ExecuteScalarAsync()).Should().Be(37,
                 "the POM Spring module must contribute all inbox/current, carrier-evidence, "
-                + "durable-application, and five V158 authority guards before listening");
+                + "durable-application, V158 authority, and V159 trusted-evidence guards before listening");
         }
 
         http.DefaultRequestHeaders.Authorization =
@@ -415,6 +415,14 @@ public sealed class HostModulesBootSmokeTests
         host.Log.Should().Contain("Service 'Pom' registered (1 module(s)).");
         host.Log.Should().NotContain("[WorkScopeProjectionWorker]",
             "the optional application runtime is absent from the POM-only manifest");
+
+        await using var connection = new SqliteConnection(
+            $"Data Source={host.DatabasePath};Foreign Keys=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY;";
+        Convert.ToInt64(await command.ExecuteScalarAsync()).Should().Be(0,
+            "PomOnly startup and its unavailable child validator must never mint authority");
     }
 
     [Fact]

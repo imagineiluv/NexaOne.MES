@@ -204,20 +204,27 @@ project policy와 대상 pair WorkScope를 검증한 배포만 `Worker:Pom:WorkS
 execution schema, 필요한 read/write 권한과 정확한 WorkScope unique binding index를 zero-row DML/metadata로
 검사한다. V157 누락·권한 부족·index drift는 polling 로그로 숨기지 않고 호스트 기동을 fail-fast한다.
 
-현재 WorkScope 계약에는 authoritative RMS recipe snapshot/program hash가 없다. 따라서 Cleaner policy는
-`RecipeId`와 양수 `RecipeVersion`까지만 scope와 대조하고, event의 `RecipeSnapshotHash`/`ProgramHash`는 최초
-stream identity로 불변 결박할 뿐 올바른 expected hash임을 자체 증명하지 못한다. commissioning에서 생성할
-pair WorkScope와 실행 recipe/program을 먼저 대조해야 하며, 이 증거가 없으면 worker를 켜지 않는다. 이후 RMS가
-pre-provisioned expected hash 계약을 제공할 때 pure policy context에 추가하되 POM이 RMS 물리 테이블을 직접
-조회하지 않는다.
+V159는 `RMS_CANONICAL_RECIPE_EXECUTION_EVIDENCE`, `SYS_RELEASED_PROGRAM_ARTIFACT`와 append-only revocation을
+추가했다. Cleaner의 V2 validator는 command에서 hash를 신뢰하지 않고 owner module의 exact-key directory를 통해
+WorkScope→pair/sequence→canonical recipe execution→released program artifact를 순서대로 조회한다. WorkScope type,
+equipment/operation, recipe id/version, snapshot schema/hash와 Cleaner product profile·plugin·product-definition/program
+version·program schema를 대/소문자와 길이까지 정확히 대조하고, program artifact가 같은 recipe snapshot에 결박됐는지도
+검증한다. POM persistence는 ADR-0005의 제한된 교차-module physical-table 예외로 동일 evidence와 revocation을 하나의
+원자 authority 경계에서 다시 잠그고 검사한다.
 
-또한 WorkScope execution 원장에는 아직 projection-owned command lineage가 없다. 단일 stream unique fence는
-다른 projection의 결박만 막으므로, projection 결박 전후에 수동 Release/Start/Report가 수행된 scope를 다음
-Cleaner event가 다시 `PlanQty=2`, good 2, defect 0으로 수렴시키면 기존 수량 provenance를 덮을 수 있다.
-활성화 전에 최초 결박 baseline(status/version/zero quantity)을 영속 검증하고 이후 projection commit version을
-연속 추적하거나, 결박된 scope의 비-projection command를 명시 override workflow 외에는 차단해야 한다. 이
-execution lineage와 authoritative recipe/program hash를 교차 process HIL로 검증하기 전에는 worker를 OFF로
-유지한다.
+V158 authority에는 최초 WorkScope baseline과 last-applied version lineage가 영속되며, 결박된 WorkScope의 일반
+비-projection 명령은 durable fence로 차단된다. claim/commit도 authority, artifact binding과 scope version을 다시
+검증하고 lineage를 연속 전진시킨다. V160 SQL Server 절차는 runtime caller가 전달한 제품 좌표를 신뢰하지 않고 실제
+database principal name+SID를 commissioning된 exact active-product/artifact binding과 서버 측에서 비교한다. trusted
+base table direct DML은 거부되고, revocation 뒤 새 authority는 차단된다. 기존 authority의 exact replay/recovery는
+binding이 유지되는 동안 허용되며, 해당 binding을 제거하면 중단된다.
+
+그러나 이 기반은 아직 운영 활성화 완료 상태가 아니다. `Projects:Cleaner:WorkScopeProjectionAuthority:Enabled`가
+기본 false이거나 profile 값이 빠지면 V2 validator는 fail-closed하고, projection worker도 기본 OFF이다. 실제 recipe를
+결정적으로 canonicalize하고 실제 배포 program artifact를 검증해 hash를 발행하는 trusted RMS/SYS producer adapter가
+아직 구현되지 않았으며, 로컬 SQL Server 부재로 실제 MSSQL 권한·동시성·복구 contract와 교차-process 실설비 HIL도
+통과하지 않았다. producer를 구현하고 commissioning/ValidateOnly, 실제 MSSQL contract, 복구·HIL gate를 모두 통과하기
+전에는 Cleaner profile과 worker를 활성화하지 않는다.
 
 ## 현재 수동 보전 운전
 

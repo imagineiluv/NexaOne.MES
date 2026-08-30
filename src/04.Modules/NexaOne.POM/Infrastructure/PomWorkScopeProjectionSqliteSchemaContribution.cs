@@ -215,6 +215,113 @@ public sealed class PomWorkScopeProjectionSqliteSchemaContribution : ISqliteSche
         if (!HasTable(connection, transaction, "POM_WORK_SCOPE_PROJECTION_AUTHORITY")) return;
 
         Execute(connection, transaction, """
+            CREATE TABLE IF NOT EXISTS POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUST_STATE (
+              STATE_ID TEXT PRIMARY KEY COLLATE BINARY,
+              TRUST_VERSION INTEGER NOT NULL,
+              APPLIED_AT TEXT NOT NULL,
+              APPLIED_BY TEXT NOT NULL COLLATE BINARY,
+              CHECK (STATE_ID = 'V159_TRUSTED_AUTHORITY' AND TRUST_VERSION = 159));
+            """);
+        var trustedAuthorityInstalled = FindViolation(connection, transaction, """
+            SELECT STATE_ID
+              FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUST_STATE
+             WHERE STATE_ID COLLATE BINARY = 'V159_TRUSTED_AUTHORITY' COLLATE BINARY
+             LIMIT 1;
+            """) is not null;
+        if (!trustedAuthorityInstalled)
+        {
+            var legacyAuthority = FindViolation(connection, transaction, """
+                SELECT WORK_SCOPE_ID
+                  FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY
+                 LIMIT 1;
+                """);
+            if (legacyAuthority is not null)
+            {
+                throw new InvalidOperationException(
+                    "V159 refuses legacy SQLite projection authority without explicit reprovisioning: "
+                    + legacyAuthority);
+            }
+        }
+
+        var invalidAuthority = FindViolation(connection, transaction, """
+            SELECT A.WORK_SCOPE_ID
+              FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY A
+              LEFT JOIN POM_WORK_SCOPE S
+                ON S.WORK_SCOPE_ID COLLATE BINARY = A.WORK_SCOPE_ID COLLATE BINARY
+               AND S.SCOPE_TYPE COLLATE BINARY = 'Other' COLLATE BINARY
+               AND S.PROCESS_ID COLLATE BINARY = A.OPERATION_KEY COLLATE BINARY
+               AND S.EQUIPMENT_ID COLLATE BINARY = A.EQUIPMENT_ID COLLATE BINARY
+               AND S.TARGET_ID COLLATE BINARY = A.PAIR_RUN_ID COLLATE BINARY
+               AND S.RECIPE_ID COLLATE BINARY = A.RECIPE_ID COLLATE BINARY
+               AND S.RECIPE_VERSION = A.RECIPE_VERSION
+              LEFT JOIN RMS_CANONICAL_RECIPE_EXECUTION_EVIDENCE R
+                ON R.EXECUTION_ID COLLATE BINARY = A.RECIPE_EXECUTION_ID COLLATE BINARY
+               AND R.WORK_SCOPE_ID COLLATE BINARY = A.WORK_SCOPE_ID COLLATE BINARY
+               AND R.PAIR_RUN_ID COLLATE BINARY = A.PAIR_RUN_ID COLLATE BINARY
+               AND R.SEQUENCE_RUN_ID COLLATE BINARY = A.SEQUENCE_RUN_ID COLLATE BINARY
+               AND R.EQUIPMENT_ID COLLATE BINARY = A.EQUIPMENT_ID COLLATE BINARY
+               AND R.OPERATION_KEY COLLATE BINARY = A.OPERATION_KEY COLLATE BINARY
+               AND R.RECIPE_ID COLLATE BINARY = A.RECIPE_ID COLLATE BINARY
+               AND R.RECIPE_VERSION = A.RECIPE_VERSION
+               AND R.SNAPSHOT_SCHEMA COLLATE BINARY = A.RECIPE_SNAPSHOT_SCHEMA COLLATE BINARY
+               AND R.SNAPSHOT_HASH COLLATE BINARY = A.RECIPE_SNAPSHOT_HASH COLLATE BINARY
+              LEFT JOIN SYS_RELEASED_PROGRAM_ARTIFACT P
+                ON P.ARTIFACT_ID COLLATE BINARY = A.PROGRAM_ARTIFACT_ID COLLATE BINARY
+               AND P.EQUIPMENT_ID COLLATE BINARY = A.EQUIPMENT_ID COLLATE BINARY
+               AND P.OPERATION_KEY COLLATE BINARY = A.OPERATION_KEY COLLATE BINARY
+               AND P.PROGRAM_SCHEMA COLLATE BINARY = A.PROGRAM_SCHEMA COLLATE BINARY
+               AND P.PROGRAM_HASH COLLATE BINARY = A.PROGRAM_HASH COLLATE BINARY
+               AND P.BOUND_RECIPE_SNAPSHOT_SCHEMA COLLATE BINARY
+                     = A.RECIPE_SNAPSHOT_SCHEMA COLLATE BINARY
+               AND P.BOUND_RECIPE_SNAPSHOT_HASH COLLATE BINARY
+                     = A.RECIPE_SNAPSHOT_HASH COLLATE BINARY
+             WHERE S.WORK_SCOPE_ID IS NULL
+                OR R.EXECUTION_ID IS NULL
+                OR P.ARTIFACT_ID IS NULL
+             LIMIT 1;
+            """);
+        if (invalidAuthority is not null)
+        {
+            throw new InvalidOperationException(
+                "V159 projection authority lacks exact trusted evidence or scope identity: "
+                + invalidAuthority);
+        }
+
+        foreach (var trustStateTrigger in new[]
+        {
+            "TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUST_STATE_BU",
+            "TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUST_STATE_BD",
+            "TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUST_STATE_REPLACE_BI",
+        })
+        {
+            Execute(connection, transaction, $"DROP TRIGGER IF EXISTS {trustStateTrigger};");
+        }
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUST_STATE_BU
+            BEFORE UPDATE ON POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUST_STATE
+            BEGIN
+              SELECT RAISE(ABORT, 'Projection authority trust state is immutable');
+            END;
+            """);
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUST_STATE_BD
+            BEFORE DELETE ON POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUST_STATE
+            BEGIN
+              SELECT RAISE(ABORT, 'Projection authority trust state is immutable');
+            END;
+            """);
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUST_STATE_REPLACE_BI
+            BEFORE INSERT ON POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUST_STATE
+            WHEN EXISTS (
+              SELECT 1 FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUST_STATE S
+               WHERE S.STATE_ID COLLATE BINARY = NEW.STATE_ID COLLATE BINARY)
+            BEGIN
+              SELECT RAISE(ABORT, 'Projection authority trust state replacement is forbidden');
+            END;
+            """);
+
+        Execute(connection, transaction, """
             CREATE UNIQUE INDEX IF NOT EXISTS UX_POM_WORK_SCOPE_PROJECTION_AUTHORITY_STREAM
               ON POM_WORK_SCOPE_PROJECTION_AUTHORITY
                  (SOURCE_CLIENT_ID COLLATE BINARY,
@@ -229,6 +336,8 @@ public sealed class PomWorkScopeProjectionSqliteSchemaContribution : ISqliteSche
 
         var triggerNames = new[]
         {
+            "TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUSTED_EVIDENCE_GUARD",
+            "TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_REVOCATION_GUARD",
             "TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_REPLACE_GUARD",
             "TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_SCOPE_GUARD",
             "TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_IDENTITY_GUARD",
@@ -238,6 +347,66 @@ public sealed class PomWorkScopeProjectionSqliteSchemaContribution : ISqliteSche
         foreach (var triggerName in triggerNames)
             Execute(connection, transaction, $"DROP TRIGGER IF EXISTS {triggerName};");
 
+        // SQLite runs same-timing triggers in reverse creation order. Install trusted-evidence
+        // guards before replacement and scope guards so the established scope/replay error
+        // precedence remains stable while direct inserts still fail closed.
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUSTED_EVIDENCE_GUARD
+            BEFORE INSERT ON POM_WORK_SCOPE_PROJECTION_AUTHORITY
+            WHEN NOT EXISTS (
+              SELECT 1
+                FROM RMS_CANONICAL_RECIPE_EXECUTION_EVIDENCE R
+               WHERE R.EXECUTION_ID COLLATE BINARY = NEW.RECIPE_EXECUTION_ID COLLATE BINARY
+                 AND R.WORK_SCOPE_ID COLLATE BINARY = NEW.WORK_SCOPE_ID COLLATE BINARY
+                 AND R.PAIR_RUN_ID COLLATE BINARY = NEW.PAIR_RUN_ID COLLATE BINARY
+                 AND R.SEQUENCE_RUN_ID COLLATE BINARY = NEW.SEQUENCE_RUN_ID COLLATE BINARY
+                 AND R.EQUIPMENT_ID COLLATE BINARY = NEW.EQUIPMENT_ID COLLATE BINARY
+                 AND R.OPERATION_KEY COLLATE BINARY = NEW.OPERATION_KEY COLLATE BINARY
+                 AND R.RECIPE_ID COLLATE BINARY = NEW.RECIPE_ID COLLATE BINARY
+                 AND R.RECIPE_VERSION = NEW.RECIPE_VERSION
+                 AND R.SNAPSHOT_SCHEMA COLLATE BINARY
+                       = NEW.RECIPE_SNAPSHOT_SCHEMA COLLATE BINARY
+                 AND R.SNAPSHOT_HASH COLLATE BINARY
+                       = NEW.RECIPE_SNAPSHOT_HASH COLLATE BINARY)
+              OR NOT EXISTS (
+              SELECT 1
+                FROM SYS_RELEASED_PROGRAM_ARTIFACT A
+               WHERE A.ARTIFACT_ID COLLATE BINARY = NEW.PROGRAM_ARTIFACT_ID COLLATE BINARY
+                 AND A.EQUIPMENT_ID COLLATE BINARY = NEW.EQUIPMENT_ID COLLATE BINARY
+                 AND A.OPERATION_KEY COLLATE BINARY = NEW.OPERATION_KEY COLLATE BINARY
+                 AND A.PROGRAM_SCHEMA COLLATE BINARY = NEW.PROGRAM_SCHEMA COLLATE BINARY
+                 AND A.PROGRAM_HASH COLLATE BINARY = NEW.PROGRAM_HASH COLLATE BINARY
+                 AND A.BOUND_RECIPE_SNAPSHOT_SCHEMA COLLATE BINARY
+                       = NEW.RECIPE_SNAPSHOT_SCHEMA COLLATE BINARY
+                 AND A.BOUND_RECIPE_SNAPSHOT_HASH COLLATE BINARY
+                       = NEW.RECIPE_SNAPSHOT_HASH COLLATE BINARY)
+            BEGIN
+              SELECT RAISE(ABORT, 'POM projection authority requires exact trusted evidence');
+            END;
+            """);
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_REVOCATION_GUARD
+            BEFORE INSERT ON POM_WORK_SCOPE_PROJECTION_AUTHORITY
+            WHEN EXISTS (
+              SELECT 1
+                FROM SYS_RELEASED_PROGRAM_ARTIFACT A
+               WHERE A.ARTIFACT_ID COLLATE BINARY = NEW.PROGRAM_ARTIFACT_ID COLLATE BINARY
+                 AND A.EQUIPMENT_ID COLLATE BINARY = NEW.EQUIPMENT_ID COLLATE BINARY
+                 AND A.OPERATION_KEY COLLATE BINARY = NEW.OPERATION_KEY COLLATE BINARY
+                 AND A.PROGRAM_SCHEMA COLLATE BINARY = NEW.PROGRAM_SCHEMA COLLATE BINARY
+                 AND A.PROGRAM_HASH COLLATE BINARY = NEW.PROGRAM_HASH COLLATE BINARY
+                 AND A.BOUND_RECIPE_SNAPSHOT_SCHEMA COLLATE BINARY
+                       = NEW.RECIPE_SNAPSHOT_SCHEMA COLLATE BINARY
+                 AND A.BOUND_RECIPE_SNAPSHOT_HASH COLLATE BINARY
+                       = NEW.RECIPE_SNAPSHOT_HASH COLLATE BINARY)
+              AND EXISTS (
+              SELECT 1
+                FROM SYS_RELEASED_PROGRAM_ARTIFACT_REVOCATION V
+               WHERE V.ARTIFACT_ID COLLATE BINARY = NEW.PROGRAM_ARTIFACT_ID COLLATE BINARY)
+            BEGIN
+              SELECT RAISE(ABORT, 'Revoked program artifacts cannot acquire new projection authority');
+            END;
+            """);
         Execute(connection, transaction, """
             CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_REPLACE_GUARD
             BEFORE INSERT ON POM_WORK_SCOPE_PROJECTION_AUTHORITY
@@ -261,6 +430,22 @@ public sealed class PomWorkScopeProjectionSqliteSchemaContribution : ISqliteSche
             WHEN NEW.RECIPE_SNAPSHOT_HASH GLOB '*[^0-9A-F]*'
               OR NEW.PROGRAM_HASH GLOB '*[^0-9A-F]*'
               OR NEW.PROVISION_REQUEST_HASH GLOB '*[^0-9A-F]*'
+              OR LENGTH(TRIM(NEW.WORK_SCOPE_ID)) = 0 OR NEW.WORK_SCOPE_ID <> TRIM(NEW.WORK_SCOPE_ID)
+              OR LENGTH(TRIM(NEW.SOURCE_CLIENT_ID)) = 0 OR NEW.SOURCE_CLIENT_ID <> TRIM(NEW.SOURCE_CLIENT_ID)
+              OR LENGTH(TRIM(NEW.EQUIPMENT_ID)) = 0 OR NEW.EQUIPMENT_ID <> TRIM(NEW.EQUIPMENT_ID)
+              OR LENGTH(TRIM(NEW.OPERATION_KEY)) = 0 OR NEW.OPERATION_KEY <> TRIM(NEW.OPERATION_KEY)
+              OR LENGTH(TRIM(NEW.PAIR_RUN_ID)) = 0 OR NEW.PAIR_RUN_ID <> TRIM(NEW.PAIR_RUN_ID)
+              OR LENGTH(TRIM(NEW.SEQUENCE_RUN_ID)) = 0 OR NEW.SEQUENCE_RUN_ID <> TRIM(NEW.SEQUENCE_RUN_ID)
+              OR LENGTH(TRIM(NEW.RECIPE_EXECUTION_ID)) = 0 OR NEW.RECIPE_EXECUTION_ID <> TRIM(NEW.RECIPE_EXECUTION_ID)
+              OR LENGTH(TRIM(NEW.RECIPE_ID)) = 0 OR NEW.RECIPE_ID <> TRIM(NEW.RECIPE_ID)
+              OR LENGTH(TRIM(NEW.RECIPE_SNAPSHOT_SCHEMA)) = 0
+              OR NEW.RECIPE_SNAPSHOT_SCHEMA <> TRIM(NEW.RECIPE_SNAPSHOT_SCHEMA)
+              OR LENGTH(TRIM(NEW.PROGRAM_ARTIFACT_ID)) = 0
+              OR NEW.PROGRAM_ARTIFACT_ID <> TRIM(NEW.PROGRAM_ARTIFACT_ID)
+              OR LENGTH(TRIM(NEW.PROGRAM_SCHEMA)) = 0 OR NEW.PROGRAM_SCHEMA <> TRIM(NEW.PROGRAM_SCHEMA)
+              OR LENGTH(TRIM(NEW.PROVISION_IDEMPOTENCY_KEY)) = 0
+              OR NEW.PROVISION_IDEMPOTENCY_KEY <> TRIM(NEW.PROVISION_IDEMPOTENCY_KEY)
+              OR LENGTH(TRIM(NEW.PROVISIONED_BY)) = 0 OR NEW.PROVISIONED_BY <> TRIM(NEW.PROVISIONED_BY)
               OR NOT EXISTS (
               SELECT 1 FROM POM_WORK_SCOPE S
                WHERE S.WORK_SCOPE_ID COLLATE BINARY = NEW.WORK_SCOPE_ID COLLATE BINARY
@@ -270,7 +455,9 @@ public sealed class PomWorkScopeProjectionSqliteSchemaContribution : ISqliteSche
                  AND S.START_QTY = 0
                  AND S.COMPLETE_QTY = 0
                  AND S.SCRAP_QTY = 0
+                 AND S.SCOPE_TYPE COLLATE BINARY = 'Other' COLLATE BINARY
                  AND S.EQUIPMENT_ID COLLATE BINARY = NEW.EQUIPMENT_ID COLLATE BINARY
+                 AND S.PROCESS_ID COLLATE BINARY = NEW.OPERATION_KEY COLLATE BINARY
                  AND S.TARGET_ID COLLATE BINARY = NEW.PAIR_RUN_ID COLLATE BINARY
                  AND S.RECIPE_ID COLLATE BINARY = NEW.RECIPE_ID COLLATE BINARY
                  AND S.RECIPE_VERSION = NEW.RECIPE_VERSION
@@ -338,6 +525,16 @@ public sealed class PomWorkScopeProjectionSqliteSchemaContribution : ISqliteSche
             BEGIN
               SELECT RAISE(ABORT, 'POM projection authority is not deletable');
             END;
+            """);
+        Execute(connection, transaction, """
+            INSERT INTO POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUST_STATE
+                (STATE_ID, TRUST_VERSION, APPLIED_AT, APPLIED_BY)
+            SELECT 'V159_TRUSTED_AUTHORITY', 159,
+                   STRFTIME('%Y-%m-%d %H:%M:%f', 'now'), 'POM.SQLite'
+             WHERE NOT EXISTS (
+                SELECT 1
+                  FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY_TRUST_STATE
+                 WHERE STATE_ID COLLATE BINARY = 'V159_TRUSTED_AUTHORITY' COLLATE BINARY);
             """);
     }
 

@@ -40,6 +40,30 @@ public sealed class ModuleDependencyBoundaryTests
             Path.Combine("src", "04.Modules", "NexaOne.SYS", "Infrastructure", "MaintenanceIdentityDirectory.cs"),
             "MDM_WORKER_USER_MAP",
             Path.Combine("docs", "adr", "0003-maintenance-identity-projection-ownership.md")),
+        new(
+            Path.Combine("src", "04.Modules", "NexaOne.POM", "Infrastructure", "WorkScopeProjectionAuthorityRepository.cs"),
+            "RMS_CANONICAL_RECIPE_EXECUTION_EVIDENCE",
+            Path.Combine("docs", "adr", "0005-projection-authority-atomic-evidence-fence.md")),
+        new(
+            Path.Combine("src", "04.Modules", "NexaOne.POM", "Infrastructure", "WorkScopeProjectionAuthorityRepository.cs"),
+            "SYS_RELEASED_PROGRAM_ARTIFACT",
+            Path.Combine("docs", "adr", "0005-projection-authority-atomic-evidence-fence.md")),
+        new(
+            Path.Combine("src", "04.Modules", "NexaOne.POM", "Infrastructure", "WorkScopeProjectionAuthorityRepository.cs"),
+            "SYS_RELEASED_PROGRAM_ARTIFACT_REVOCATION",
+            Path.Combine("docs", "adr", "0005-projection-authority-atomic-evidence-fence.md")),
+        new(
+            Path.Combine("src", "04.Modules", "NexaOne.POM", "Infrastructure", "PomWorkScopeProjectionSqliteSchemaContribution.cs"),
+            "RMS_CANONICAL_RECIPE_EXECUTION_EVIDENCE",
+            Path.Combine("docs", "adr", "0005-projection-authority-atomic-evidence-fence.md")),
+        new(
+            Path.Combine("src", "04.Modules", "NexaOne.POM", "Infrastructure", "PomWorkScopeProjectionSqliteSchemaContribution.cs"),
+            "SYS_RELEASED_PROGRAM_ARTIFACT",
+            Path.Combine("docs", "adr", "0005-projection-authority-atomic-evidence-fence.md")),
+        new(
+            Path.Combine("src", "04.Modules", "NexaOne.POM", "Infrastructure", "PomWorkScopeProjectionSqliteSchemaContribution.cs"),
+            "SYS_RELEASED_PROGRAM_ARTIFACT_REVOCATION",
+            Path.Combine("docs", "adr", "0005-projection-authority-atomic-evidence-fence.md")),
     ];
 
     private static readonly IReadOnlyDictionary<string, string> PhysicalSchemaOwners =

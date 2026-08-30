@@ -63,12 +63,19 @@ V157 복원본 리허설과 프로젝트 정책·대상 WorkScope 검증을 마�
 열리기 전에 worker가 사용하는 V157 필수 schema, DB read/write 권한과 WorkScope 단일-stream unique fence를 무변경
 preflight하고 실패하면 호스트 기동을 중단합니다.
 V158 authority와 applied-version lineage가 projection-owned WorkScope의 일반 명령을 차단하고,
-수신·claim·commit에서 recipe/program evidence와 scope version을 다시 대조합니다. 다만 기본 Cleaner profile은
-아직 RMS recipe execution과 released program artifact를 해석하는 제품 coordinator 대신
-`RejectingWorkScopeProjectionAuthorityValidator`를 사용합니다. 따라서 기본 조립의 worker-ON 스모크는 빈 queue에서
-plugin/hosted-service/schema readiness가 연결됐다는 증거일 뿐, authority 발급 가능·실설비 HIL 승인·운영 활성화를
-뜻하지 않습니다. 제품 profile에 신뢰된 validator를 조립하고 실제 recipe/program 불변 evidence와 교차-process
-복구를 검증하기 전에는 worker를 켜지 않습니다.
+수신·claim·commit에서 scope version을 연속 검증합니다. V159는 append-only RMS canonical recipe execution evidence,
+SYS released program artifact와 revocation을 추가하고, V160은 SQL Server에서 trusted writer와 projection runtime 역할을
+분리하여 runtime database principal name+SID를 정확한 active-product/artifact 좌표에 결박합니다. Cleaner는
+`IWorkScopeProjectionAuthorityValidatorV2` 구현으로 WorkScope→pair/sequence→recipe execution→released program을
+ordinal exact-key로 대조하며, 제품 profile·plugin·definition/program version·schema와 recipe/program hash를 command가
+아닌 불변 evidence에서 판정합니다.
+
+`Projects:Cleaner:WorkScopeProjectionAuthority:Enabled`는 기본 false이고 값이 없거나 profile이 불완전하면 authority를
+거부하며, projection worker도 기본 OFF입니다. 아직 실제 recipe를 결정적으로 canonicalize하고 실제 배포 program
+artifact를 검증해 hash를 발행하는 trusted RMS/SYS producer adapter가 구현되지 않았고, 실제 SQL Server 권한·경합·복구
+contract와 교차-process 실설비 HIL도 통과하지 않았습니다. 따라서 worker-ON 조립 스모크는 plugin/hosted-service/schema
+readiness만 증명할 뿐 운영 권한이나 설비 승인을 뜻하지 않습니다. producer 구현과 실제 MSSQL/HIL 활성화 gate가 모두
+통과할 때까지 Cleaner profile을 비활성화하고 worker를 OFF로 유지합니다.
 활성 제품의 POM service manifest는 policy를 application runtime보다 먼저 선언해야 합니다.
 
 ```xml

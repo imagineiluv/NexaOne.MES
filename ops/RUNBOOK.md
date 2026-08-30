@@ -318,10 +318,148 @@ dotnet NexaOne.Server.dll --urls http://localhost:8080
   영속하고 stale token을 거부하기 전에는 이 lease를 설비 자동 운전 승인으로 연결하지 않는다.
 - **백업**: SQLite=DB 파일 복사(정지 후), MSSQL=표준 백업 절차.
 
+### V158→V159→V160 trusted-authority 전환
+
+이 전환은 일반 migration 적용과 runtime credential commissioning을 분리한다. V160 migration은 DB role,
+same-owner static procedure, provenance column, runtime-product binding table, caller-filtered view, WorkScope ID 전용
+lifetime fence와 최소 `GRANT`/`DENY`만 만든다. **login, user, password, role member, 환경별 artifact binding은 만들지
+않는다.** 반대로 `tools/ops/Set-TrustedAuthoritySecurity.ps1`은 migration DDL을 바꾸거나 credential을 생성하지 않고,
+이미 존재하는 세 전용 DB user의 role membership과 정확한 artifact binding만 다룬다. 단, 사고 대응
+`-Decommission`은 writer user가 이미 제거되거나 ACL/procedure가 훼손돼도 runtime 이름과 artifact 범위만으로 core
+binding table을 fail-safe 정리한다. 연결문자열·password는 배포 secret store에서 주입하고 JSON 증거에는 기록하지 않는다.
+
+1. Worker와 authority provisioning을 OFF로 두고 DB backup/복원 rehearsal을 완료한다.
+2. V158/V159 trusted table 네 곳에 행이 없는지 확인한다. V160은 provenance가 없는 기존
+   `RMS_CANONICAL_RECIPE_EXECUTION_EVIDENCE`, `SYS_RELEASED_PROGRAM_ARTIFACT`, revocation 또는 POM authority가
+   한 행이라도 있으면 51600으로 전체 transaction을 거부한다. 기존 행을 자동 신뢰하거나 provenance를 합성하지
+   않는다. 개발 DB는 새 DB로 재생성한다. 운영 legacy DB는 별도 보존본에서 증거를 검증한 뒤 새 DB로 cutover하고,
+   V160 이후 전용 writer procedure로 다시 발행한다. append-only trigger를 끄고 행을 삭제하는 자동화는 제공하지 않는다.
+3. `Apply-MssqlMigrations.ps1 -ApproveHighImpactMigrations`로 V159와 V160을 포함한 migration을 적용한다.
+4. 세 DB user를 미리 만들되 서로 다른 SID를 가진 전용 individual principal로 준비한다. group, owner, sysadmin,
+   db_owner/ddladmin/securityadmin, impersonation/control/alter 권한을 주지 않는다. commissioning 운영자는 전체
+   inbound USER/LOGIN impersonation과 server ACL metadata를 볼 수 있는 `VIEW ANY DEFINITION`, `CONTROL SERVER` 또는
+   sysadmin audit 권한이 있어야 하며 이 권한은 runtime/writer에 주지 않는다. DBA·dbo·sysadmin은 SQL Server에서
+   기술적으로 이 경계를 우회할 수 있는 신뢰 운영자 범위이므로 별도 PAM·감사 대상으로 제한한다.
+5. 좌표 없이 writer만 먼저 commissioning한다.
+
+   ```powershell
+   ./tools/ops/Set-TrustedAuthoritySecurity.ps1 `
+     -ConnectionString $env:NEXAONE_MSSQL_ADMIN_CONN `
+     -RuntimeDatabaseUser nexa_projection_runtime `
+     -RmsWriterDatabaseUser nexa_rms_evidence_writer `
+     -SysWriterDatabaseUser nexa_sys_release_writer `
+     -Apply -WriterBootstrapOnly
+   ```
+
+   이 단계는 두 writer role만 정규화하며 runtime role/binding은 만들지 않는다. broad database/schema `EXECUTE`,
+   예상 밖 object `EXECUTE/CONTROL/ALTER`, 세 principal을 향한 inbound USER/LOGIN impersonation, nested/stale role
+   member가 있으면 fail-closed한다. trusted table을 참조하는 module은 V159/V160 trigger·procedure·view exact
+   allowlist로 닫혀 있으며 새 module, `EXECUTE AS`, module signature 또는 dynamic SQL 표면이 발견되면 검토 없이
+   commissioning하지 않는다. DB `TRUSTWORTHY`와 `DB_CHAINING`, 서버 `cross db ownership chaining`은 모두 OFF여야
+   하며, trusted table로 직접 또는 같은 DB synonym chain을 통해 도달하는 synonym도 허용하지 않는다.
+6. RMS/SYS 전용 credential로 각각
+   `RMS_CAPTURE_CANONICAL_RECIPE_EXECUTION_EVIDENCE`와 `SYS_RELEASE_PROGRAM_ARTIFACT`를 호출한다. business actor와
+   별도로 실제 `USER_NAME()`+database SID가 immutable provenance로 기록되는지 확인한다.
+7. 정확한 release coordinate를 지정해 full Apply한다. 이 단계는 release row의 모든 coordinate/hash, 발행 당시의
+   immutable SYS writer provenance와 non-revoked 상태를 DB에서 확인한 뒤 runtime role+binding을 같은 serializable
+   transaction에서 commit한다. 현재 `SysWriterDatabaseUser`는 앞으로 release/revoke할 유일 writer이고 historical
+   release principal과 동일할 필요가 없다. 아래 hash는 uppercase SHA-256 64자리여야 한다.
+
+   ```powershell
+   ./tools/ops/Set-TrustedAuthoritySecurity.ps1 `
+     -ConnectionString $env:NEXAONE_MSSQL_ADMIN_CONN `
+     -RuntimeDatabaseUser nexa_projection_runtime `
+     -RmsWriterDatabaseUser nexa_rms_evidence_writer `
+     -SysWriterDatabaseUser nexa_sys_release_writer `
+     -EquipmentId <equipment> -OperationKey <operation> -ArtifactId <artifact> `
+     -ProductProfileId <profile> -PluginId <plugin> `
+     -ProductDefinitionVersion <product-version> -ProgramVersion <program-version> `
+     -ProgramSchema <schema> -ProgramHash <sha256> `
+     -BoundRecipeSnapshotSchema <recipe-schema> -BoundRecipeSnapshotHash <sha256> `
+     -Apply
+   ```
+
+   SYS writer credential을 회전할 때는 새 user로 `-WriterBootstrapOnly`를 먼저 실행해 old role member를 제거한다.
+   기존 artifact의 release principal name+SID는 절대 덮어쓰지 않는다. 새 runtime binding을 만드는 full Apply에서
+   historical principal이 현재 SYS writer와 다르면, 승인된 release 증거에 기록된 database SID의 SHA-256 digest를
+   `-ApprovedReleasePrincipalSidSha256 <UPPERCASE-64HEX>`로 추가한다. 스크립트가 artifact row에서 읽어 계산한 digest와
+   exact 일치해야 하며, caller가 raw SID나 historical principal을 정책 값으로 주입하지 않는다. 이미 존재하는 exact
+   binding의 idempotent full Apply와 read-only ValidateOnly에는 이 승인이 필요 없다. 이 승인은 revocation을 우회하지
+   않으며 revoked artifact는 digest가 일치해도 항상 거부된다. 특히 binding 생성 뒤 revoke된 artifact도 worker-ON
+   ValidateOnly가 같은 serializable artifact→revocation→binding 검사를 수행해 fail-closed한다. 이는 이미 발행된 exact
+   authority의 recovery/replay 허용과 별개이며, revoked binding을 새 작업 활성화 증거로 승인한다는 뜻이 아니다.
+
+   ```powershell
+   ./tools/ops/Set-TrustedAuthoritySecurity.ps1 `
+     -ConnectionString $env:NEXAONE_MSSQL_ADMIN_CONN `
+     -RuntimeDatabaseUser nexa_projection_runtime_v2 `
+     -RmsWriterDatabaseUser nexa_rms_evidence_writer `
+     -SysWriterDatabaseUser nexa_sys_release_writer_v2 `
+     -EquipmentId <equipment> -OperationKey <operation> -ArtifactId <historical-artifact> `
+     -ProductProfileId <profile> -PluginId <plugin> `
+     -ProductDefinitionVersion <product-version> -ProgramVersion <program-version> `
+     -ProgramSchema <schema> -ProgramHash <sha256> `
+     -BoundRecipeSnapshotSchema <recipe-schema> -BoundRecipeSnapshotHash <sha256> `
+     -ApprovedReleasePrincipalSidSha256 <HISTORICAL-RELEASE-PRINCIPAL-SID-SHA256-UPPERCASE> `
+     -Apply
+   ```
+
+   switch 없이 같은 인수를 실행하면 read-only ValidateOnly다. `-EvidencePath`는 기존 파일을 허용하지 않으며
+   CreateNew로 예약한 단일 JSON 증거를 성공/실패 모두 남긴다. JSON의 `ReleaseProvenance`에는 raw SID 대신 historical
+   principal name, uppercase SID digest, 현재 writer 일치 여부와 approval required/provided/matched 상태만 기록한다.
+
+   DB commit 직후 프로세스 crash가 나면 예약된 evidence가 0 byte 또는 불완전 JSON으로 남을 수 있다. 이를 성공
+   증거로 간주하거나 덮어쓰기·삭제하지 않는다. 원 marker를 immutable 보존/격리하고 path·file hash·발생 시각을 운영
+   incident/change ticket에 기록한다. 새 `-EvidencePath`로 먼저 read-only ValidateOnly를 실행해 DB binding, role matrix,
+   release provenance와 ACL/module closure를 다시 검증한다. 성공한 새 JSON과 원 marker를 같은 감사 건으로 연결한 뒤에만
+   worker를 승인한다. ValidateOnly가 실패하면 상태를 미확정으로 두고 decommission 또는 승인된 full Apply를 새
+   EvidencePath로 재실행하며, 기존 marker는 어떤 경우에도 재사용하지 않는다.
+8. 한 runtime principal은 rolling upgrade/recovery를 위해 여러 artifact binding을 동시에 가질 수 있다. 새 full
+   Apply는 기존 artifact를 자동 제거하지 않는다. 새 authority는 revocation 이후 거부하지만, 이미 발행된 정확한
+   authority는 해당 artifact binding이 남아 있는 동안 재시작/replay할 수 있다. 중단 경계는 binding decommission이다.
+   특정 artifact만 내릴 때는 writer 이름/좌표 없이 아래처럼 runtime 이름과 artifact만 지정한다. 모든 binding과
+   존재하는 세 role member를 철회할 때만 강한 `-DecommissionAllBindings`를 쓴다.
+
+   ```powershell
+   ./tools/ops/Set-TrustedAuthoritySecurity.ps1 `
+     -ConnectionString $env:NEXAONE_MSSQL_ADMIN_CONN `
+     -RuntimeDatabaseUser nexa_projection_runtime `
+     -ArtifactId <artifact> -Decommission
+
+   ./tools/ops/Set-TrustedAuthoritySecurity.ps1 `
+     -ConnectionString $env:NEXAONE_MSSQL_ADMIN_CONN `
+     -RuntimeDatabaseUser nexa_projection_runtime `
+     -Decommission -DecommissionAllBindings
+   ```
+
+   이 비상 경로는 V160 migration ledger와 binding table 핵심 column만 요구하며 손상된 writer user·role·procedure/view
+   검증 때문에 중단되지 않는다. 삭제 전에 잠근 각 binding의 principal SID digest, artifact ID digest, program/recipe
+   hash를 CreateNew JSON에 기록한다. 특정 artifact 해제는 role을 바꾸지 않고, all 해제는 존재하는 role member만
+   제거하며 이미 사라진 role/user는 성공적인 idempotent 상태로 취급한다.
+9. 실제 SQL Server에서 `NEXAONE_MSSQL_CONTRACT_REQUIRED=true`와 Category=MssqlContract를 실행한다. runtime
+   no-login user의 direct DML 거부, proc 재생/충돌, principal rotation provenance, multi-artifact recovery,
+   provision/revoke 및 rotate/decommission-vs-claim/commit 경합이 모두 green이 아니면 worker를 켜지 않는다.
+   이 검증은 point-in-time 증명이다. worker ON 직전에 switch 없는 ValidateOnly를 다시 실행하고, 이후 DB DDL,
+   role membership, GRANT/DENY, module signature/`EXECUTE AS` 변경마다 재실행한다. DBA/DDL-admin 변경 감사와 alert가
+   없는 상태에서 한 번 통과한 JSON만으로 지속적인 경계를 주장하지 않는다. 외부 실행 entry에서 도달 가능한 user
+   module도 exact allowlist 밖이면 모두 거부하지만, 신뢰 DBA가 allowlisted module 본문 자체를 `ALTER`하는 위협까지
+   definition hash로 봉인하지는 않는다. 해당 권한은 PAM·변경승인·worker ON 직전 ValidateOnly의 운영 신뢰 경계다.
+
+SQL Server runtime은 base authority를 직접 읽지 않는다. 일반 조회는 현재 principal+SID+artifact binding으로 필터된
+view, lock-sensitive ingest/commit은 authority→artifact→binding 순서를 고정한 procedure, WorkScope mutation fence는
+WorkScope ID만 노출하는 별도 view를 사용한다. lineage 갱신도 base-table column grant 없이 같은 lock order와 현재
+binding을 재검증하는 static procedure만 사용한다. standalone 호출은 procedure가 자체 transaction을 열고, 기존
+transaction 호출은 caller commit까지 binding lock을 유지하며 V159 monotonic trigger가 최종 불변식을 지킨다.
+SQLite에는 DB principal/role/ownership-chain 등가물이 없다. V160은 `SQLITE-OMIT` no-op이며 단일 프로세스 개발
+편의일 뿐 Production trusted-writer 보안 근거가 아니다.
+
 ## 5. 롤백·업그레이드
 
 - 산출물 폴더 단위 교체(블루/그린식 폴더 스왑) — 설정은 env라 산출물 교체와 독립.
 - DB 마이그레이션은 additive 관례(V*.sql) — 롤백 시 앱만 이전 산출물로 되돌리면 신 테이블은 무해하게 잔존.
+- V160 활성화 롤백은 worker OFF → 특정/all binding decommission → 이전 앱 산출물 복귀 순서다. V160 schema/role/proc를
+  역 DDL로 즉시 삭제하지 않는다. migration 적용 자체가 실패하면 파일 transaction 전체 rollback을 확인하고,
+  성공 후에는 DB backup restore rehearsal 또는 후속 additive migration만 사용한다.
 - SPA는 해시 청크 — 재배포 후 열린 세션의 구 청크 404는 1회 자동 새로고침으로 복구된다(vite:preloadError).
 
 ## 6. 미결(환경 확정 후)

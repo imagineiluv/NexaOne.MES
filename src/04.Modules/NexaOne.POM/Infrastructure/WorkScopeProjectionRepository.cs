@@ -554,13 +554,8 @@ internal sealed class WorkScopeProjectionRepository : IWorkScopeProjectionInbox
         """;
 
     private const string ProjectionAuthoritySqlSqlServer = """
-        SELECT SOURCE_CLIENT_ID AS SourceClientId, EQUIPMENT_ID AS EquipmentId,
-               OPERATION_KEY AS OperationKey, PAIR_RUN_ID AS PairRunId,
-               SEQUENCE_RUN_ID AS SequenceRunId, RECIPE_ID AS RecipeId,
-               RECIPE_VERSION AS RecipeVersion,
-               RECIPE_SNAPSHOT_HASH AS RecipeSnapshotHash, PROGRAM_HASH AS ProgramHash
-          FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY WITH (UPDLOCK, HOLDLOCK)
-         WHERE WORK_SCOPE_ID = @WorkScopeId
+        EXEC dbo.POM_GET_ACTIVE_PROJECTION_AUTHORITY_FOR_UPDATE
+             @WorkScopeId=@WorkScopeId
         """;
 
     private const string EventIdentitySql = """
