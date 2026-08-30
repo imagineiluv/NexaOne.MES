@@ -228,13 +228,21 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
         staleResult!.Kind.Should().Be(WorkScopeProjectionCommitKind.RetryScheduled);
         (await harness.Database.ScalarAsync<string>(
             """
-            SELECT APPLICATION_STATUS + ':' + COALESCE(LAST_ERROR_CODE, '')
+            SELECT APPLICATION_STATUS
               FROM POM_WORK_SCOPE_PROJECTION_APPLICATION
              WHERE SOURCE_CLIENT_ID=@sourceClientId AND EVENT_ID=@eventId;
             """,
             new { sourceClientId = ids.SourceClientId, eventId = command.EventId }))
-            .Should().Be("Retry:Projection.WorkScopeVersionChanged",
+            .Should().Be("Retry",
                 "a decision made from version 1 must not become terminal after version 2 is durable");
+        (await harness.Database.ScalarAsync<string>(
+            """
+            SELECT LAST_ERROR_CODE
+              FROM POM_WORK_SCOPE_PROJECTION_APPLICATION
+             WHERE SOURCE_CLIENT_ID=@sourceClientId AND EVENT_ID=@eventId;
+            """,
+            new { sourceClientId = ids.SourceClientId, eventId = command.EventId }))
+            .Should().Be("Projection.WorkScopeVersionChanged");
 
         await harness.Database.ExecuteAsync(
             """
@@ -395,7 +403,29 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
         public static async Task<ProjectionHarness?> TryCreateAsync(ITestOutputHelper output)
         {
             var database = await MssqlContractDatabase.TryCreateAsync(output);
-            return database is null ? null : new ProjectionHarness(database);
+            if (database is null)
+                return null;
+
+            // The contract database is shared by all methods in this class. A test that only
+            // verifies first-stream binding deliberately leaves a Pending application, so fence
+            // prior test-owned queue rows before constructing the next global worker claim.
+            await database.ExecuteAsync(
+                """
+                UPDATE POM_WORK_SCOPE_PROJECTION_APPLICATION
+                   SET APPLICATION_STATUS='Quarantined',
+                       NEXT_ATTEMPT_AT=NULL,
+                       LEASE_OWNER=NULL,
+                       LEASE_FENCE=LEASE_FENCE+1,
+                       LEASE_EXPIRES_AT=NULL,
+                       LAST_ERROR_CODE='Test.IsolationCleanup',
+                       LAST_ERROR_MESSAGE='Fenced by the next MSSQL projection contract test.',
+                       COMPLETED_AT=SYSUTCDATETIME(),
+                       UPDATED_BY='MSSQL-CONTRACT',
+                       UPDATED_AT=SYSUTCDATETIME()
+                 WHERE SOURCE_CLIENT_ID LIKE 'mssql-projection-%'
+                   AND APPLICATION_STATUS IN ('Pending', 'Retry', 'Processing');
+                """);
+            return new ProjectionHarness(database);
         }
 
         public async Task<ProjectionIds> CreateScopeAsync()
@@ -403,7 +433,7 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
             var suffix = Guid.NewGuid().ToString("N")[..12];
             var ids = new ProjectionIds(
                 suffix,
-                $"cleaner-{suffix}",
+                $"mssql-projection-{suffix}",
                 $"WS-PX-{suffix}",
                 $"EQ-PX-{suffix}",
                 $"PAIR-PX-{suffix}",
