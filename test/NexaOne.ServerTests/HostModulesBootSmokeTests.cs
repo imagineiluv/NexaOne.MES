@@ -39,6 +39,9 @@ public sealed class HostModulesBootSmokeTests
     {
         // Database:Provider alone must select the matching Spring parent context.
         // This guards against gateway=SQLite / module=SQL Server split-brain startup.
+        // The default Cleaner composition intentionally has a rejecting authority validator.
+        // Enabling the worker here proves discovery + empty-queue schema readiness only; it is not
+        // evidence that trusted authority can be provisioned or that equipment HIL is approved.
         using var host = await HostProcess.StartAsync(
             _o,
             springConfig: null,
@@ -52,7 +55,8 @@ public sealed class HostModulesBootSmokeTests
         host.Log.Should().Contain("Service 'Pom' registered (2 module(s)).",
             "POM and the Cleaner project policy must be loaded into one Spring service context");
         host.Log.Should().Contain("[WorkScopeProjectionWorker] started",
-            "the explicitly enabled durable projection worker must be discovered as an IHostedService");
+            "the explicitly enabled durable projection worker must be discovered as an IHostedService; "
+            + "trusted authority provisioning is covered by a product coordinator/HIL gate, not this boot smoke");
 
         using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{host.Port}") };
         (await http.GetAsync("/health")).StatusCode.Should().Be(HttpStatusCode.OK, "기동된 호스트의 /health는 200");
@@ -380,6 +384,21 @@ public sealed class HostModulesBootSmokeTests
     }
 
     [Fact]
+    public async Task Host_boots_the_selected_product_profile_bundle()
+    {
+        using var host = await HostProcess.StartAsync(
+            _o,
+            springConfig: null,
+            expectListening: true,
+            enableProjectionWorker: false);
+
+        host.Listening.Should().BeTrue(
+            $"the selected profile's generated manifest and exact plugin bundle must boot — logs:\n{host.Log}");
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{host.Port}") };
+        (await http.GetAsync("/health")).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
     public async Task Host_boots_pom_only_when_projection_application_is_off()
     {
         using var host = await HostProcess.StartAsync(
@@ -621,13 +640,9 @@ internal sealed class HostProcess : IDisposable
                 + $"expected={loadedHostDll}, selected={hostDll}");
         }
 
-        ValidateRequiredHostFiles(hostDir);
-        foreach (var moduleName in ExpectedPluginModuleNames)
-        {
-            var currentReference = Path.Combine(hostDir, moduleName + ".dll");
-            var plugin = Path.Combine(hostDir, "Modules", moduleName + ".dll");
-            ValidatePluginPair(currentReference, plugin);
-        }
+        var profile = ReadProductProfile(hostDir);
+        ValidateRequiredHostFiles(hostDir, profile);
+        ValidateExactPluginBundle(hostDir, hostDir, profile);
     }
 
     internal static void ValidateExternalHostOutput(
@@ -645,16 +660,122 @@ internal sealed class HostProcess : IDisposable
                 + $"expected={currentHostDll}, selected={externalHostDll}");
         }
 
-        ValidateRequiredHostFiles(hostDir);
-        var modulesDirectory = Path.Combine(hostDir, "Modules");
-        foreach (var moduleName in ExpectedPluginModuleNames)
+        var profile = ReadProductProfile(hostDir);
+        var expectedProfile = Environment.GetEnvironmentVariable("NEXAONE_TEST_PRODUCT_PROFILE")?.Trim();
+        if (!string.IsNullOrWhiteSpace(expectedProfile))
         {
-            var currentReference = Path.Combine(currentTestOutputDirectory, moduleName + ".dll");
+            if (!string.Equals(expectedProfile, profile.Name, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Explicit host product profile mismatch: expected={expectedProfile}, actual={profile.Name}.");
+            }
+        }
+        var currentProfile = ReadProductProfile(currentTestOutputDirectory);
+        if (!string.Equals(currentProfile.Name, profile.Name, StringComparison.Ordinal)
+            || !currentProfile.PluginAssemblyNames.ToHashSet(PathComparer)
+                .SetEquals(profile.PluginAssemblyNames))
+        {
+            throw new InvalidOperationException(
+                "Explicit host product profile differs from the current test build. " +
+                "Build ServerTests with the same NexaOneProductProfile before bundle validation.");
+        }
+
+        ValidateRequiredHostFiles(hostDir, profile);
+        ValidateExactPluginBundle(hostDir, currentTestOutputDirectory, profile);
+    }
+
+    private static ProductProfileCatalog ReadProductProfile(string hostDir)
+    {
+        var path = Path.Combine(hostDir, "config", "product-profile.manifest");
+        if (!File.Exists(path))
+            throw new FileNotFoundException($"Product profile catalog is missing: {path}", path);
+
+        var values = File.ReadAllLines(path)
+            .Where(static line => !string.IsNullOrWhiteSpace(line))
+            .Select(static line => line.Trim())
+            .ToList();
+        if (values.Count < 4 || values[0] != "FormatVersion=1")
+            throw new InvalidOperationException($"Unsupported or incomplete product profile catalog: {path}");
+
+        static string SingleValue(IReadOnlyList<string> lines, string key)
+        {
+            var prefix = key + "=";
+            var matches = lines.Where(line => line.StartsWith(prefix, StringComparison.Ordinal)).ToList();
+            if (matches.Count != 1 || matches[0].Length == prefix.Length)
+                throw new InvalidOperationException($"Product profile catalog requires exactly one non-empty {key} value.");
+            return matches[0][prefix.Length..];
+        }
+
+        var name = SingleValue(values, "Profile");
+        var applicationManifest = SingleValue(values, "ApplicationManifest");
+        if (!string.Equals(applicationManifest.Replace('\\', '/'), "config/app.xml", StringComparison.Ordinal))
+            throw new InvalidOperationException("Packaged product application manifest must be config/app.xml.");
+
+        var plugins = values
+            .Where(static line => line.StartsWith("Plugin=", StringComparison.Ordinal))
+            .Select(static line => line["Plugin=".Length..])
+            .ToList();
+        if (plugins.Count == 0
+            || plugins.Any(static plugin => string.IsNullOrWhiteSpace(plugin)
+                || plugin.Contains('/')
+                || plugin.Contains('\\')
+                || plugin.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            || plugins.Distinct(PathComparer).Count() != plugins.Count)
+        {
+            throw new InvalidOperationException("Product profile plugin identities must be unique assembly names without paths or extensions.");
+        }
+
+        return new ProductProfileCatalog(name, applicationManifest, plugins.AsReadOnly());
+    }
+
+    private static void ValidateRequiredHostFiles(string hostDir, ProductProfileCatalog profile)
+    {
+        var requiredHostFiles = new[]
+        {
+            "NexaOne.Server.deps.json",
+            "NexaOne.Server.runtimeconfig.json",
+            profile.ApplicationManifest,
+            Path.Combine("config", "product-profile.manifest"),
+            Path.Combine("config", "host", "server.sqlite.xml"),
+        };
+        foreach (var relativePath in requiredHostFiles)
+        {
+            var path = Path.Combine(hostDir, relativePath);
+            if (!File.Exists(path))
+                throw new FileNotFoundException($"Current host-smoke output is incomplete: {path}", path);
+        }
+
+        var application = XDocument.Load(Path.Combine(hostDir, profile.ApplicationManifest));
+        var declaredPlugins = application.Root!
+            .Element("Services")!
+            .Elements("Service")
+            .SelectMany(service => ((string?)service.Attribute("classPaths") ?? string.Empty)
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Select(Path.GetFileNameWithoutExtension)
+            .ToHashSet(PathComparer);
+        if (!declaredPlugins.SetEquals(profile.PluginAssemblyNames))
+        {
+            throw new InvalidOperationException(
+                $"Packaged application manifest and product profile plugin catalog differ for '{profile.Name}'. " +
+                $"manifest=[{string.Join(",", declaredPlugins.Order())}], " +
+                $"profile=[{string.Join(",", profile.PluginAssemblyNames.Order())}]");
+        }
+    }
+
+    private static void ValidateExactPluginBundle(
+        string hostDir,
+        string currentReferenceDirectory,
+        ProductProfileCatalog profile)
+    {
+        var modulesDirectory = Path.Combine(hostDir, "Modules");
+        foreach (var moduleName in profile.PluginAssemblyNames)
+        {
+            var currentReference = Path.Combine(currentReferenceDirectory, moduleName + ".dll");
             var packagedPlugin = Path.Combine(modulesDirectory, moduleName + ".dll");
             ValidatePluginPair(currentReference, packagedPlugin);
         }
 
-        var expectedFiles = ExpectedPluginModuleNames
+        var expectedFiles = profile.PluginAssemblyNames
             .Select(static name => name + ".dll")
             .ToHashSet(PathComparer);
         var packagedFiles = Directory.EnumerateFiles(modulesDirectory, "NexaOne.*.dll")
@@ -665,31 +786,14 @@ internal sealed class HostProcess : IDisposable
         if (!packagedFiles.SetEquals(expectedFiles))
         {
             throw new InvalidOperationException(
-                "Explicit host plugin file set differs from the current 12-assembly catalog: "
-                + $"expected=[{string.Join(",", expectedFiles.Order())}], "
-                + $"actual=[{string.Join(",", packagedFiles.Order())}]");
+                $"Explicit host plugin file set differs from product profile '{profile.Name}': " +
+                $"expected=[{string.Join(",", expectedFiles.Order())}], " +
+                $"actual=[{string.Join(",", packagedFiles.Order())}]");
         }
         if (Directory.EnumerateFiles(modulesDirectory, "*.deps.json").Any())
         {
             throw new InvalidOperationException(
                 "Explicit host Modules directory must contain plugin DLLs only, not deps manifests.");
-        }
-    }
-
-    private static void ValidateRequiredHostFiles(string hostDir)
-    {
-        var requiredHostFiles = new[]
-        {
-            "NexaOne.Server.deps.json",
-            "NexaOne.Server.runtimeconfig.json",
-            Path.Combine("config", "app.xml"),
-            Path.Combine("config", "host", "server.sqlite.xml"),
-        };
-        foreach (var relativePath in requiredHostFiles)
-        {
-            var path = Path.Combine(hostDir, relativePath);
-            if (!File.Exists(path))
-                throw new FileNotFoundException($"Current host-smoke output is incomplete: {path}", path);
         }
     }
 
@@ -708,13 +812,6 @@ internal sealed class HostProcess : IDisposable
         }
     }
 
-    private static readonly string[] ExpectedPluginModuleNames =
-    [
-        "NexaOne.MDM", "NexaOne.EST", "NexaOne.FDC", "NexaOne.IVT", "NexaOne.RMS",
-        "NexaOne.QMS", "NexaOne.EMS", "NexaOne.POM", "NexaOne.PRC", "NexaOne.SHP",
-        "NexaOne.SYS", "NexaOne.Project.Cleaner",
-    ];
-
     private static StringComparison PathComparison =>
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
 
@@ -728,4 +825,9 @@ internal sealed class HostProcess : IDisposable
         try { if (File.Exists(_gwDb)) File.Delete(_gwDb); } catch { }
         try { if (Directory.Exists(_runtimeTemp)) Directory.Delete(_runtimeTemp, recursive: true); } catch { }
     }
+
+    private sealed record ProductProfileCatalog(
+        string Name,
+        string ApplicationManifest,
+        IReadOnlyList<string> PluginAssemblyNames);
 }

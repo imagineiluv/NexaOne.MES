@@ -49,11 +49,29 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
                     await ExecuteProbeAsync(
                         connection, transaction, ReadinessScopeUpdateSql, ct).ConfigureAwait(false);
                     await ExecuteProbeAsync(
+                        connection, transaction, ReadinessAuthorityUpdateSql, ct)
+                        .ConfigureAwait(false);
+                    await ExecuteProbeAsync(
                         connection, transaction, ReadinessApplicationEventInsertSql, ct)
                         .ConfigureAwait(false);
                     await ExecuteProbeAsync(
                         connection, transaction, ReadinessExecutionInsertSql, ct)
                         .ConfigureAwait(false);
+
+                    var unauthorizedReadyRows = await connection.ExecuteScalarAsync<long>(
+                        new CommandDefinition(
+                            _isSqlServer
+                                ? ReadinessUnauthorizedApplicationSqlSqlServer
+                                : ReadinessUnauthorizedApplicationSqlSqlite,
+                            transaction: transaction,
+                            cancellationToken: ct)).ConfigureAwait(false);
+                    if (unauthorizedReadyRows != 0)
+                    {
+                        throw new InvalidOperationException(
+                            "WorkScope projection readiness failed: a current runnable application "
+                            + "does not have exact V158 projection authority. Keep the worker disabled "
+                            + "until legacy V157 rows are explicitly commissioned or quarantined.");
+                    }
 
                     var uniqueBindingIndex = await connection.ExecuteScalarAsync<long>(
                         new CommandDefinition(
@@ -278,11 +296,19 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
     {
         var now = await ReadDatabaseUtcAsync(connection, transaction, ct).ConfigureAwait(false);
 
-        // Keep the lock order compatible with ingestion: scope -> current -> application.
+        // Global lock order: scope -> authority -> current -> application. Provisioning, ordinary
+        // commands, ingestion, and projection application all use this order so first ownership,
+        // evidence admission, and aggregate mutation cannot cross in flight.
         var scopeRow = await QueryFirstOrDefaultAsync<ScopeRow>(
             connection,
             transaction,
             _isSqlServer ? ScopeForUpdateSqlSqlServer : ScopeForUpdateSql,
+            new { WorkScopeId = claim.Event.WorkScopeId },
+            ct).ConfigureAwait(false);
+        var projectionAuthority = await QueryFirstOrDefaultAsync<ProjectionAuthorityRow>(
+            connection,
+            transaction,
+            _isSqlServer ? ProjectionAuthorityForUpdateSqlSqlServer : ProjectionAuthorityForUpdateSql,
             new { WorkScopeId = claim.Event.WorkScopeId },
             ct).ConfigureAwait(false);
         var current = await ReadCurrentAsync(connection, transaction, claim, ct).ConfigureAwait(false);
@@ -300,6 +326,37 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
                 prepared.Policy, prepared.DecisionHash, prepared.DecisionJson,
                 "Projection.ScopeIdentityChanged",
                 "The WorkScope no longer matches the immutable projection evidence.",
+                TimeSpan.Zero, now, ct).ConfigureAwait(false);
+        }
+
+        if (projectionAuthority is null)
+        {
+            return await TransitionAsync(
+                connection, transaction, claim, application!, "Quarantined",
+                prepared.Policy, prepared.DecisionHash, prepared.DecisionJson,
+                "Projection.AuthorityRequired",
+                "The WorkScope no longer has explicit projection authority.",
+                TimeSpan.Zero, now, ct).ConfigureAwait(false);
+        }
+
+        if (!projectionAuthority.Matches(claim.Event, scopeRow))
+        {
+            return await TransitionAsync(
+                connection, transaction, claim, application!, "Quarantined",
+                prepared.Policy, prepared.DecisionHash, prepared.DecisionJson,
+                "Projection.Authority.IdentityMismatch",
+                "Projection evidence no longer matches the immutable WorkScope authority.",
+                TimeSpan.Zero, now, ct).ConfigureAwait(false);
+        }
+
+        if (projectionAuthority.LastAppliedVersionNo != scopeRow.VersionNo)
+        {
+            return await TransitionAsync(
+                connection, transaction, claim, application!, "Quarantined",
+                prepared.Policy, prepared.DecisionHash, prepared.DecisionJson,
+                "Projection.LineageGap",
+                $"Projection authority lineage is at version {projectionAuthority.LastAppliedVersionNo} "
+                + $"while WorkScope is at version {scopeRow.VersionNo}.",
                 TimeSpan.Zero, now, ct).ConfigureAwait(false);
         }
 
@@ -421,6 +478,22 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
                 throw new DBConcurrencyException("Projection execution ledger insert did not affect exactly one row.");
         }
 
+        var advancedAuthority = await ExecuteAsync(
+            connection,
+            transaction,
+            AdvanceProjectionAuthoritySql,
+            new
+            {
+                claim.Event.WorkScopeId,
+                ExpectedVersion = scopeRow.VersionNo,
+                ResultVersion = scopeRow.VersionNo + executionRows.Count,
+                Now = now,
+            },
+            ct).ConfigureAwait(false);
+        if (advancedAuthority != 1)
+            throw new DBConcurrencyException(
+                "Projection authority lineage fence was lost during WorkScope application.");
+
         return await TransitionAsync(
             connection, transaction, claim, application!, "Applied",
             prepared.Policy, prepared.DecisionHash, prepared.DecisionJson,
@@ -447,6 +520,12 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
             _isSqlServer ? ScopeForUpdateSqlSqlServer : ScopeForUpdateSql,
             new { WorkScopeId = claim.Event.WorkScopeId },
             ct).ConfigureAwait(false);
+        var projectionAuthority = await QueryFirstOrDefaultAsync<ProjectionAuthorityRow>(
+            connection,
+            transaction,
+            _isSqlServer ? ProjectionAuthorityForUpdateSqlSqlServer : ProjectionAuthorityForUpdateSql,
+            new { WorkScopeId = claim.Event.WorkScopeId },
+            ct).ConfigureAwait(false);
         var current = await ReadCurrentAsync(connection, transaction, claim, ct).ConfigureAwait(false);
         var application = await ReadApplicationAsync(connection, transaction, claim, ct).ConfigureAwait(false);
         var authority = await ValidateAuthorityAsync(
@@ -462,6 +541,37 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
                 policy, decisionHash, decisionJson,
                 "Projection.ScopeIdentityChanged",
                 "The WorkScope no longer matches the immutable projection evidence.",
+                TimeSpan.Zero, now, ct).ConfigureAwait(false);
+        }
+
+        if (projectionAuthority is null)
+        {
+            return await TransitionAsync(
+                connection, transaction, claim, application!, "Quarantined",
+                policy, decisionHash, decisionJson,
+                "Projection.AuthorityRequired",
+                "The WorkScope no longer has explicit projection authority.",
+                TimeSpan.Zero, now, ct).ConfigureAwait(false);
+        }
+
+        if (!projectionAuthority.Matches(claim.Event, scope))
+        {
+            return await TransitionAsync(
+                connection, transaction, claim, application!, "Quarantined",
+                policy, decisionHash, decisionJson,
+                "Projection.Authority.IdentityMismatch",
+                "Projection evidence no longer matches the immutable WorkScope authority.",
+                TimeSpan.Zero, now, ct).ConfigureAwait(false);
+        }
+
+        if (projectionAuthority.LastAppliedVersionNo != scope.VersionNo)
+        {
+            return await TransitionAsync(
+                connection, transaction, claim, application!, "Quarantined",
+                policy, decisionHash, decisionJson,
+                "Projection.LineageGap",
+                $"Projection authority lineage is at version {projectionAuthority.LastAppliedVersionNo} "
+                + $"while WorkScope is at version {scope.VersionNo}.",
                 TimeSpan.Zero, now, ct).ConfigureAwait(false);
         }
 
@@ -843,13 +953,74 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
                S.STATUS, S.IS_HOLD, S.STARTED_AT, S.COMPLETED_AT, S.DESCRIPTION,
                S.VERSION_NO, S.CREATED_BY, S.CREATED_AT, S.UPDATED_BY, S.UPDATED_AT,
                S.CREATE_IDEMPOTENCY_KEY, S.CREATE_REQUEST_HASH
+               ,U.WORK_SCOPE_ID, U.SOURCE_CLIENT_ID, U.EQUIPMENT_ID,
+               U.OPERATION_KEY, U.PAIR_RUN_ID, U.SEQUENCE_RUN_ID,
+               U.RECIPE_EXECUTION_ID, U.RECIPE_ID, U.RECIPE_VERSION,
+               U.RECIPE_SNAPSHOT_SCHEMA, U.RECIPE_SNAPSHOT_HASH,
+               U.PROGRAM_ARTIFACT_ID, U.PROGRAM_SCHEMA, U.PROGRAM_HASH,
+               U.BASELINE_VERSION_NO, U.LAST_APPLIED_VERSION_NO,
+               U.PROVISION_IDEMPOTENCY_KEY, U.PROVISION_REQUEST_HASH,
+               U.PROVISIONED_AT, U.PROVISIONED_BY, U.LAST_APPLIED_AT
           FROM POM_WORK_SCOPE_PROJECTION_APPLICATION A
          CROSS JOIN POM_WORK_SCOPE_PROJECTION_CURRENT C
          CROSS JOIN POM_WORK_SCOPE_PROJECTION_INBOX E
          CROSS JOIN POM_WORK_SCOPE_PROJECTION_CARRIER R
          CROSS JOIN POM_WORK_SCOPE S
+         CROSS JOIN POM_WORK_SCOPE_PROJECTION_AUTHORITY U
          WHERE 1 = 0
         """;
+
+    private const string ReadinessUnauthorizedApplicationSqlSqlServer = """
+        SELECT COUNT(*)
+          FROM POM_WORK_SCOPE_PROJECTION_APPLICATION A
+          JOIN POM_WORK_SCOPE_PROJECTION_CURRENT C
+            ON C.SOURCE_CLIENT_ID = A.SOURCE_CLIENT_ID
+           AND C.EQUIPMENT_ID = A.EQUIPMENT_ID
+           AND C.SEQUENCE_RUN_ID = A.SEQUENCE_RUN_ID
+           AND C.EVENT_ID = A.EVENT_ID
+           AND C.WORK_SCOPE_ID COLLATE Latin1_General_100_BIN2
+                 = A.WORK_SCOPE_ID COLLATE Latin1_General_100_BIN2
+           AND C.SOURCE_REVISION = A.SOURCE_REVISION
+           AND C.ACCEPTED_AT = A.ACCEPTED_AT
+          JOIN POM_WORK_SCOPE_PROJECTION_INBOX E
+            ON E.SOURCE_CLIENT_ID = A.SOURCE_CLIENT_ID
+           AND E.EVENT_ID = A.EVENT_ID
+           AND E.WORK_SCOPE_ID = A.WORK_SCOPE_ID
+           AND E.EQUIPMENT_ID = A.EQUIPMENT_ID
+           AND E.SEQUENCE_RUN_ID = A.SEQUENCE_RUN_ID
+          JOIN POM_WORK_SCOPE S
+            ON S.WORK_SCOPE_ID = A.WORK_SCOPE_ID
+         WHERE A.APPLICATION_STATUS IN ('Pending', 'Retry', 'Processing')
+           AND NOT EXISTS (
+               SELECT 1
+                 FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY U
+                 WHERE U.WORK_SCOPE_ID COLLATE Latin1_General_100_BIN2
+                           = A.WORK_SCOPE_ID COLLATE Latin1_General_100_BIN2
+                   AND U.SOURCE_CLIENT_ID = E.SOURCE_CLIENT_ID
+                   AND U.EQUIPMENT_ID = E.EQUIPMENT_ID
+                   AND U.OPERATION_KEY = E.OPERATION_KEY
+                   AND U.PAIR_RUN_ID = E.PAIR_RUN_ID
+                   AND U.SEQUENCE_RUN_ID = E.SEQUENCE_RUN_ID
+                   AND U.RECIPE_ID COLLATE Latin1_General_100_BIN2
+                         = E.RECIPE_ID COLLATE Latin1_General_100_BIN2
+                   AND U.EQUIPMENT_ID
+                         = S.EQUIPMENT_ID COLLATE Latin1_General_100_BIN2
+                   AND U.PAIR_RUN_ID
+                         = S.TARGET_ID COLLATE Latin1_General_100_BIN2
+                   AND U.RECIPE_ID COLLATE Latin1_General_100_BIN2
+                         = S.RECIPE_ID COLLATE Latin1_General_100_BIN2
+                   AND U.RECIPE_VERSION = S.RECIPE_VERSION
+                   AND U.RECIPE_SNAPSHOT_HASH = E.RECIPE_SNAPSHOT_HASH
+                   AND U.PROGRAM_HASH = E.PROGRAM_HASH
+                  AND U.LAST_APPLIED_VERSION_NO = S.VERSION_NO)
+        """;
+
+    private static readonly string ReadinessUnauthorizedApplicationSqlSqlite =
+        ReadinessUnauthorizedApplicationSqlSqlServer
+            .Replace(
+                "COLLATE Latin1_General_100_BIN2",
+                "COLLATE BINARY",
+                StringComparison.Ordinal);
 
     private const string ReadinessApplicationUpdateSql = """
         UPDATE POM_WORK_SCOPE_PROJECTION_APPLICATION
@@ -883,6 +1054,13 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
                UPDATED_BY = UPDATED_BY,
                UPDATED_AT = UPDATED_AT,
                VERSION_NO = VERSION_NO
+         WHERE 1 = 0
+        """;
+
+    private const string ReadinessAuthorityUpdateSql = """
+        UPDATE POM_WORK_SCOPE_PROJECTION_AUTHORITY
+           SET LAST_APPLIED_VERSION_NO = LAST_APPLIED_VERSION_NO,
+               LAST_APPLIED_AT = LAST_APPLIED_AT
          WHERE 1 = 0
         """;
 
@@ -966,13 +1144,6 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
                A.EVENT_ID AS EventId,
                A.APPLICATION_STATUS AS ApplicationStatus
           FROM POM_WORK_SCOPE_PROJECTION_APPLICATION A WITH (UPDLOCK, READPAST, ROWLOCK)
-          JOIN POM_WORK_SCOPE_PROJECTION_CURRENT C
-            ON C.SOURCE_CLIENT_ID = A.SOURCE_CLIENT_ID
-           AND C.EQUIPMENT_ID = A.EQUIPMENT_ID
-           AND C.SEQUENCE_RUN_ID = A.SEQUENCE_RUN_ID
-           AND C.EVENT_ID = A.EVENT_ID
-           AND C.SOURCE_REVISION = A.SOURCE_REVISION
-           AND C.ACCEPTED_AT = A.ACCEPTED_AT
          WHERE ((A.APPLICATION_STATUS IN ('Pending', 'Retry')
                   AND (A.NEXT_ATTEMPT_AT IS NULL OR A.NEXT_ATTEMPT_AT <= @Now))
                 OR (A.APPLICATION_STATUS = 'Processing' AND A.LEASE_EXPIRES_AT <= @Now))
@@ -987,13 +1158,6 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
                A.EVENT_ID AS EventId,
                A.APPLICATION_STATUS AS ApplicationStatus
           FROM POM_WORK_SCOPE_PROJECTION_APPLICATION A
-          JOIN POM_WORK_SCOPE_PROJECTION_CURRENT C
-            ON C.SOURCE_CLIENT_ID = A.SOURCE_CLIENT_ID
-           AND C.EQUIPMENT_ID = A.EQUIPMENT_ID
-           AND C.SEQUENCE_RUN_ID = A.SEQUENCE_RUN_ID
-           AND C.EVENT_ID = A.EVENT_ID
-           AND C.SOURCE_REVISION = A.SOURCE_REVISION
-           AND C.ACCEPTED_AT = A.ACCEPTED_AT
          WHERE ((A.APPLICATION_STATUS IN ('Pending', 'Retry')
                   AND (A.NEXT_ATTEMPT_AT IS NULL OR A.NEXT_ATTEMPT_AT <= @Now))
                 OR (A.APPLICATION_STATUS = 'Processing' AND A.LEASE_EXPIRES_AT <= @Now))
@@ -1107,6 +1271,30 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
     private const string ScopeForUpdateSqlSqlServer = SelectScopeSql
         + " WITH (UPDLOCK, HOLDLOCK) WHERE WORK_SCOPE_ID = @WorkScopeId";
 
+    private const string ProjectionAuthorityForUpdateSql = """
+        SELECT WORK_SCOPE_ID AS WorkScopeId, SOURCE_CLIENT_ID AS SourceClientId,
+               EQUIPMENT_ID AS EquipmentId, OPERATION_KEY AS OperationKey,
+               PAIR_RUN_ID AS PairRunId, SEQUENCE_RUN_ID AS SequenceRunId,
+               RECIPE_ID AS RecipeId, RECIPE_VERSION AS RecipeVersion,
+               RECIPE_SNAPSHOT_HASH AS RecipeSnapshotHash, PROGRAM_HASH AS ProgramHash,
+               BASELINE_VERSION_NO AS BaselineVersionNo,
+               LAST_APPLIED_VERSION_NO AS LastAppliedVersionNo
+          FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY
+         WHERE WORK_SCOPE_ID = @WorkScopeId
+        """;
+
+    private const string ProjectionAuthorityForUpdateSqlSqlServer = """
+        SELECT WORK_SCOPE_ID AS WorkScopeId, SOURCE_CLIENT_ID AS SourceClientId,
+               EQUIPMENT_ID AS EquipmentId, OPERATION_KEY AS OperationKey,
+               PAIR_RUN_ID AS PairRunId, SEQUENCE_RUN_ID AS SequenceRunId,
+               RECIPE_ID AS RecipeId, RECIPE_VERSION AS RecipeVersion,
+               RECIPE_SNAPSHOT_HASH AS RecipeSnapshotHash, PROGRAM_HASH AS ProgramHash,
+               BASELINE_VERSION_NO AS BaselineVersionNo,
+               LAST_APPLIED_VERSION_NO AS LastAppliedVersionNo
+          FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY WITH (UPDLOCK, HOLDLOCK)
+         WHERE WORK_SCOPE_ID = @WorkScopeId
+        """;
+
     private const string SelectScopeSql = """
         SELECT WORK_SCOPE_ID AS WorkScopeId, PLANT_ID AS PlantId, SCOPE_TYPE AS ScopeType,
                TARGET_ID AS TargetId, NAME AS Name, PARENT_SCOPE_ID AS ParentScopeId,
@@ -1142,6 +1330,14 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
                UPDATED_BY = @UpdatedBy, UPDATED_AT = @UpdatedAt,
                VERSION_NO = VERSION_NO + @EffectCount
          WHERE WORK_SCOPE_ID = @WorkScopeId AND VERSION_NO = @ExpectedVersion
+        """;
+
+    private const string AdvanceProjectionAuthoritySql = """
+        UPDATE POM_WORK_SCOPE_PROJECTION_AUTHORITY
+           SET LAST_APPLIED_VERSION_NO = @ResultVersion,
+               LAST_APPLIED_AT = @Now
+         WHERE WORK_SCOPE_ID = @WorkScopeId
+           AND LAST_APPLIED_VERSION_NO = @ExpectedVersion
         """;
 
     private const string InsertExecutionSql = """
@@ -1221,6 +1417,36 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
     {
         public string Status { get; set; } = string.Empty;
         public string IsHold { get; set; } = "N";
+    }
+
+    private sealed class ProjectionAuthorityRow
+    {
+        public string WorkScopeId { get; set; } = string.Empty;
+        public string SourceClientId { get; set; } = string.Empty;
+        public string EquipmentId { get; set; } = string.Empty;
+        public string OperationKey { get; set; } = string.Empty;
+        public string PairRunId { get; set; } = string.Empty;
+        public string SequenceRunId { get; set; } = string.Empty;
+        public string RecipeId { get; set; } = string.Empty;
+        public int RecipeVersion { get; set; }
+        public string RecipeSnapshotHash { get; set; } = string.Empty;
+        public string ProgramHash { get; set; } = string.Empty;
+        public int BaselineVersionNo { get; set; }
+        public int LastAppliedVersionNo { get; set; }
+
+        public bool Matches(WorkScopeProjectionEventDto evidence, ScopeRow scope) =>
+            string.Equals(WorkScopeId, evidence.WorkScopeId, StringComparison.Ordinal)
+            && string.Equals(SourceClientId, evidence.SourceClientId, StringComparison.Ordinal)
+            && string.Equals(EquipmentId, evidence.EquipmentId, StringComparison.Ordinal)
+            && string.Equals(OperationKey, evidence.OperationKey, StringComparison.Ordinal)
+            && string.Equals(PairRunId, evidence.PairRunId, StringComparison.Ordinal)
+            && string.Equals(SequenceRunId, evidence.SequenceRunId, StringComparison.Ordinal)
+            && string.Equals(RecipeId, evidence.RecipeId, StringComparison.Ordinal)
+            && string.Equals(RecipeId, scope.RecipeId, StringComparison.Ordinal)
+            && RecipeVersion == scope.RecipeVersion
+            && string.Equals(RecipeSnapshotHash, evidence.RecipeSnapshotHash, StringComparison.Ordinal)
+            && string.Equals(ProgramHash, evidence.ProgramHash, StringComparison.Ordinal)
+            && BaselineVersionNo > 0;
     }
 
     private sealed class ClaimLeaseRow

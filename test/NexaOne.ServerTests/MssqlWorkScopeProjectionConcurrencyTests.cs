@@ -23,13 +23,32 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
     public MssqlWorkScopeProjectionConcurrencyTests(ITestOutputHelper output) => _output = output;
 
     [Fact]
-    public async Task Enabled_worker_readiness_preflight_accepts_the_mssql_v157_contract()
+    public async Task Enabled_worker_readiness_preflight_accepts_the_mssql_v158_contract()
     {
         var harness = await ProjectionHarness.TryCreateAsync(_output);
         if (harness is null)
             return;
 
         await harness.Store.EnsureReadyAsync();
+    }
+
+    [Fact]
+    public async Task Authority_provision_rejects_a_case_variant_of_the_persisted_work_scope_id()
+    {
+        var harness = await ProjectionHarness.TryCreateAsync(_output);
+        if (harness is null)
+            return;
+
+        var ids = await harness.CreateScopeAsync(provisionAuthority: false);
+        var caseVariant = ids with { WorkScopeId = ids.WorkScopeId.ToLowerInvariant() };
+
+        var provisioned = await harness.ProvisionAuthorityAsync(caseVariant);
+
+        provisioned.IsFailure.Should().BeTrue();
+        provisioned.Error.Code.Should().Be("Projection.Authority.ScopeIdentityMismatch");
+        (await harness.Database.ScalarAsync<int>(
+            "SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY WHERE WORK_SCOPE_ID=@workScopeId;",
+            new { workScopeId = ids.WorkScopeId })).Should().Be(0);
     }
 
     [Fact]
@@ -133,13 +152,13 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
     }
 
     [Fact]
-    public async Task Concurrent_first_streams_bind_one_work_scope_exactly_once()
+    public async Task Concurrent_authority_provisions_bind_one_work_scope_exactly_once()
     {
         var harness = await ProjectionHarness.TryCreateAsync(_output);
         if (harness is null)
             return;
 
-        var ids = await harness.CreateScopeAsync();
+        var ids = await harness.CreateScopeAsync(provisionAuthority: false);
         var firstIds = ids with { SequenceRunId = $"{ids.SequenceRunId}-A" };
         var secondIds = ids with { SequenceRunId = $"{ids.SequenceRunId}-B" };
         var firstCommand = Command(firstIds, $"bind-a-{ids.Suffix}", revision: 1);
@@ -147,18 +166,35 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
         var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var first = AfterAsync(
             start.Task,
-            () => harness.Projections.IngestAsync(ids.SourceClientId, firstCommand));
+            () => harness.ProvisionAuthorityAsync(firstIds));
         var second = AfterAsync(
             start.Task,
-            () => harness.Projections.IngestAsync(ids.SourceClientId, secondCommand));
+            () => harness.ProvisionAuthorityAsync(secondIds));
 
         start.SetResult();
         var results = await Task.WhenAll(first, second).WaitAsync(ConcurrentOperationTimeout);
 
         results.Count(static result => result.IsSuccess).Should().Be(1);
         results.Count(static result =>
-                result.IsFailure && result.Error.Code == "Projection.WorkScopeBindingConflict")
+                result.IsFailure && result.Error.Code == "Projection.Authority.EvidenceAlreadyBound")
             .Should().Be(1);
+        var winner = results[0].IsSuccess ? firstIds : secondIds;
+        var loser = results[0].IsSuccess ? secondIds : firstIds;
+        var winnerCommand = results[0].IsSuccess ? firstCommand : secondCommand;
+        var loserCommand = results[0].IsSuccess ? secondCommand : firstCommand;
+        var winnerReceipt = await harness.Projections.IngestAsync(
+            winner.SourceClientId,
+            winnerCommand);
+        var loserReceipt = await harness.Projections.IngestAsync(
+            loser.SourceClientId,
+            loserCommand);
+        winnerReceipt.IsSuccess.Should().BeTrue(
+            winnerReceipt.IsFailure ? winnerReceipt.Error.Description : string.Empty);
+        loserReceipt.IsFailure.Should().BeTrue();
+        loserReceipt.Error.Code.Should().Be("Projection.Authority.IdentityMismatch");
+        (await harness.Database.ScalarAsync<int>(
+            "SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY WHERE WORK_SCOPE_ID=@workScopeId;",
+            new { workScopeId = ids.WorkScopeId })).Should().Be(1);
         (await harness.Database.ScalarAsync<int>(
             """
             SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_CURRENT
@@ -189,7 +225,7 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
     }
 
     [Fact]
-    public async Task WorkScope_change_after_policy_decision_retries_stale_observe_and_re_evaluates()
+    public async Task Projection_authority_fences_an_ordinary_command_during_policy_evaluation()
     {
         var harness = await ProjectionHarness.TryCreateAsync(_output);
         if (harness is null)
@@ -216,9 +252,8 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
                     $"hold:{ids.Suffix}",
                     ExpectedVersion: 1,
                     ActorId: "mssql-contract"));
-            held.IsSuccess.Should().BeTrue(
-                held.IsFailure ? held.Error.Description : string.Empty);
-            held.Value.Should().BeEquivalentTo(new { IsHold = true, VersionNo = 2 });
+            held.IsFailure.Should().BeTrue();
+            held.Error.Code.Should().Be("POM.WorkScope.ProjectionOwned");
         }
         finally
         {
@@ -227,7 +262,7 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
 
         var staleResult = await processing.WaitAsync(ConcurrentOperationTimeout);
         staleResult.Should().NotBeNull();
-        staleResult!.Kind.Should().Be(WorkScopeProjectionCommitKind.RetryScheduled);
+        staleResult!.Kind.Should().Be(WorkScopeProjectionCommitKind.Observed);
         (await harness.Database.ScalarAsync<string>(
             """
             SELECT APPLICATION_STATUS
@@ -235,34 +270,9 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
              WHERE SOURCE_CLIENT_ID=@sourceClientId AND EVENT_ID=@eventId;
             """,
             new { sourceClientId = ids.SourceClientId, eventId = command.EventId }))
-            .Should().Be("Retry",
-                "a decision made from version 1 must not become terminal after version 2 is durable");
-        (await harness.Database.ScalarAsync<string>(
-            """
-            SELECT LAST_ERROR_CODE
-              FROM POM_WORK_SCOPE_PROJECTION_APPLICATION
-             WHERE SOURCE_CLIENT_ID=@sourceClientId AND EVENT_ID=@eventId;
-            """,
-            new { sourceClientId = ids.SourceClientId, eventId = command.EventId }))
-            .Should().Be("Projection.WorkScopeVersionChanged");
-
-        await harness.Database.ExecuteAsync(
-            """
-            UPDATE POM_WORK_SCOPE_PROJECTION_APPLICATION
-               SET NEXT_ATTEMPT_AT=DATEADD(second, -1, SYSUTCDATETIME())
-             WHERE SOURCE_CLIENT_ID=@sourceClientId AND EVENT_ID=@eventId
-               AND APPLICATION_STATUS='Retry';
-            """,
-            new { sourceClientId = ids.SourceClientId, eventId = command.EventId });
-
-        var reEvaluated = await processor.ProcessNextAsync("mssql-re-evaluator")
-            .WaitAsync(ConcurrentOperationTimeout);
-
-        reEvaluated.Should().NotBeNull();
-        reEvaluated!.Kind.Should().Be(WorkScopeProjectionCommitKind.Observed);
-        policy.Snapshots.Should().Equal(
-            new PolicySnapshot(1, false),
-            new PolicySnapshot(2, true));
+            .Should().Be("Observed",
+                "the rejected ordinary command must not invalidate the projection decision");
+        policy.Snapshots.Should().Equal(new PolicySnapshot(1, false));
         (await harness.Database.ScalarAsync<string>(
             """
             SELECT APPLICATION_STATUS + ':'
@@ -272,7 +282,13 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
              WHERE SOURCE_CLIENT_ID=@sourceClientId AND EVENT_ID=@eventId;
             """,
             new { sourceClientId = ids.SourceClientId, eventId = command.EventId }))
-            .Should().Be("Observed:2:2");
+            .Should().Be("Observed:1:1");
+        (await harness.Database.ScalarAsync<string>(
+            """
+            SELECT STATUS + ':' + IS_HOLD + ':' + CONVERT(varchar(20), VERSION_NO)
+              FROM POM_WORK_SCOPE WHERE WORK_SCOPE_ID=@workScopeId;
+            """,
+            new { workScopeId = ids.WorkScopeId })).Should().Be("Created:N:1");
     }
 
     [Fact]
@@ -410,9 +426,9 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
             if (database is null)
                 return null;
 
-            // The contract database is shared by all methods in this class. A test that only
-            // verifies first-stream binding deliberately leaves a Pending application, so fence
-            // prior test-owned queue rows before constructing the next global worker claim.
+            // The contract database is shared by all methods in this class. Some concurrency
+            // cases deliberately leave a Pending application, so fence prior test-owned queue
+            // rows before constructing the next global worker claim.
             await database.ExecuteAsync(
                 """
                 UPDATE POM_WORK_SCOPE_PROJECTION_APPLICATION
@@ -432,7 +448,7 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
             return new ProjectionHarness(database);
         }
 
-        public async Task<ProjectionIds> CreateScopeAsync()
+        public async Task<ProjectionIds> CreateScopeAsync(bool provisionAuthority = true)
         {
             var suffix = Guid.NewGuid().ToString("N")[..12];
             var ids = new ProjectionIds(
@@ -450,6 +466,7 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
                 "MSSQL projection concurrency contract",
                 EquipmentId: ids.EquipmentId,
                 RecipeId: "RECIPE-CONTRACT",
+                RecipeVersion: 1,
                 PlanQty: 2m,
                 ActorId: "mssql-contract",
                 IdempotencyKey: $"create:{ids.WorkScopeId}"));
@@ -463,7 +480,58 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
                 PlanQty = (decimal?)2m,
                 VersionNo = 1,
             });
+            if (provisionAuthority)
+            {
+                var provisioned = await ProvisionAuthorityAsync(ids);
+                provisioned.IsSuccess.Should().BeTrue(
+                    provisioned.IsFailure ? provisioned.Error.Description : string.Empty);
+            }
             return ids;
+        }
+
+        public Task<NexaOne.Common.Result<WorkScopeProjectionAuthorityDto>> ProvisionAuthorityAsync(
+            ProjectionIds ids)
+        {
+            var command = new WorkScopeProjectionAuthorityProvisionCommand(
+                ids.WorkScopeId,
+                ids.SourceClientId,
+                ids.EquipmentId,
+                $"operation-{ids.Suffix}",
+                ids.PairRunId,
+                ids.SequenceRunId,
+                $"rms-execution-{ids.Suffix}-{ids.SequenceRunId}",
+                $"program-{ids.Suffix}",
+                $"authority-{ids.Suffix}-{ids.SequenceRunId}",
+                "mssql-contract");
+            var evidence = new WorkScopeProjectionAuthorityEvidence(
+                command.WorkScopeId,
+                command.SourceClientId,
+                command.EquipmentId,
+                command.OperationKey,
+                command.PairRunId,
+                command.SequenceRunId,
+                command.RecipeExecutionId,
+                "RECIPE-CONTRACT",
+                1,
+                "mssql-contract-recipe-v1",
+                new string('A', 64),
+                command.ProgramArtifactId,
+                "mssql-contract-program-v1",
+                new string('B', 64));
+            IWorkScopeProjectionAuthorityBridge bridge = new WorkScopeProjectionAuthorityBridge(
+                new WorkScopeProjectionAuthorityService(
+                    new WorkScopeProjectionAuthorityRepository(Database.DataSource),
+                    new FixedAuthorityValidator(evidence)));
+            return bridge.ProvisionAsync(command);
+        }
+
+        private sealed class FixedAuthorityValidator(WorkScopeProjectionAuthorityEvidence evidence)
+            : IWorkScopeProjectionAuthorityValidator
+        {
+            public Task<NexaOne.Common.Result<WorkScopeProjectionAuthorityEvidence>> ValidateAsync(
+                WorkScopeProjectionAuthorityProvisionCommand command,
+                CancellationToken ct = default) => Task.FromResult(
+                    NexaOne.Common.Result.Success(evidence));
         }
     }
 

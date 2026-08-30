@@ -108,20 +108,38 @@ jobs:
 
       # ServerTests의 일반 prepare target은 test bin/Modules를 보정하므로 Server csproj의 실제
       # CopyDomainModulePlugins 회귀를 숨길 수 있다. 실제 Server Release 출력 경로를 명시해
-      # 12개 plugin file-set/hash와 modules-ON 부팅을 별도 필수 게이트로 검증한다.
+      # generated Cleaner profile의 exact plugin file-set/hash와 modules-ON 부팅을 별도 필수 게이트로 검증한다.
+      # 이는 기본 Rejecting authority validator를 trusted coordinator로 대체하거나 HIL 운영 승인을 뜻하지 않는다.
       - name: Test actual Server Release plugin bundle
         env:
           NEXAONE_TEST_HOST_BIN: ${{ github.workspace }}/src/00.Main/NexaOne.Server/bin/Release/net8.0
         run: >
           dotnet test test/NexaOne.ServerTests/NexaOne.ServerTests.csproj
           --configuration Release --no-build
-          --filter "FullyQualifiedName=NexaOne.ServerTests.HostModulesBootSmokeTests.Host_boots_all_eleven_modules_workers_and_bridges_in_one_process"
+          --filter "FullyQualifiedName=NexaOne.ServerTests.HostModulesBootSmokeTests.Host_boots_the_selected_product_profile_bundle"
 
       - name: Test (unit + server on SQLite) (+ coverage)
         run: >
           dotnet test NexaOne.sln --configuration Release --no-build
           --logger "trx;LogFileName=test-results.trx"
           --collect:"XPlat Code Coverage"
+
+      # 같은 Server.csproj을 profile property만 바꿔 다시 빌드한다. Cleaner DLL이 stale하게 남지 않고
+      # POM-only manifest/catalog의 11개 exact set으로 교체되며 실제 호스트가 부팅되는지 검증한다.
+      - name: Build POM-only product packaging profile
+        run: >
+          dotnet build test/NexaOne.ServerTests/NexaOne.ServerTests.csproj
+          --configuration Release --no-restore --warnaserror
+          -p:NexaOneProductProfile=PomOnly
+
+      - name: Test actual POM-only Server Release plugin bundle
+        env:
+          NEXAONE_TEST_HOST_BIN: ${{ github.workspace }}/src/00.Main/NexaOne.Server/bin/Release/net8.0
+          NEXAONE_TEST_PRODUCT_PROFILE: PomOnly
+        run: >
+          dotnet test test/NexaOne.ServerTests/NexaOne.ServerTests.csproj
+          --configuration Release --no-build
+          --filter "FullyQualifiedName=NexaOne.ServerTests.HostModulesBootSmokeTests.Host_boots_the_selected_product_profile_bundle"
 
       # NexaLogic는 git submodule이라 NexaOne.sln 밖에 있다. 가짜 TCP 서버/메모리 simulator를 사용하는
       # 두 suite를 별도 필수 게이트로 실행해 connect/read/write/구독/취소/실패 계약을 실제 드라이버 경로에서 고정한다.

@@ -24,6 +24,8 @@ public sealed class WorkScopeProjectionProcessorPersistenceTests
                         StringComparer.OrdinalIgnoreCase));
         UpdatedColumns(StoreSql("ReadinessScopeUpdateSql"))
             .Should().BeEquivalentTo(UpdatedColumns(StoreSql("UpdateScopeSql")));
+        UpdatedColumns(StoreSql("ReadinessAuthorityUpdateSql"))
+            .Should().BeEquivalentTo(UpdatedColumns(StoreSql("AdvanceProjectionAuthoritySql")));
     }
 
     [Fact]
@@ -180,6 +182,11 @@ public sealed class WorkScopeProjectionProcessorPersistenceTests
             SELECT STATUS || ':' || VERSION_NO || ':' || COMPLETE_QTY
               FROM POM_WORK_SCOPE WHERE WORK_SCOPE_ID='WS-1'
             """)).Should().Be("Completed:4:1");
+        (await database.TextAsync("""
+            SELECT LAST_APPLIED_VERSION_NO || ':' ||
+                   CASE WHEN LAST_APPLIED_AT IS NULL THEN 'NULL' ELSE 'SET' END
+              FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY WHERE WORK_SCOPE_ID='WS-1'
+            """)).Should().Be("4:SET");
         (await database.ScalarAsync(
             "SELECT COUNT(*) FROM POM_WORK_SCOPE_EXECUTION WHERE WORK_SCOPE_ID='WS-1'"))
             .Should().Be(3);
@@ -320,12 +327,15 @@ public sealed class WorkScopeProjectionProcessorPersistenceTests
     }
 
     [Fact]
-    public async Task Running_observation_is_retried_when_manual_hold_changes_the_claimed_scope()
+    public async Task Ordinary_hold_is_fenced_after_claim_and_observation_commits_without_scope_change()
     {
         await using var database = await ProjectionDatabase.CreateAsync();
-        await ExecuteScopeAsync(database, WorkScopeAction.Release, 1, "manual-release");
-        await ExecuteScopeAsync(database, WorkScopeAction.Start, 2, "manual-start");
-        (await database.Bridge.IngestAsync("cleaner-a", Command("running-observe", 7)))
+        await ApplyProjectionAsync(
+            database,
+            Command("setup-running", 1),
+            new WorkScopeProjectionEffect(WorkScopeAction.Release),
+            new WorkScopeProjectionEffect(WorkScopeAction.Start));
+        (await database.Bridge.IngestAsync("cleaner-a", Command("running-observe", 2)))
             .IsSuccess.Should().BeTrue();
         var claim = await database.Store.TryClaimNextAsync("worker-a", TimeSpan.FromMinutes(2));
         var decision = ProjectionDecisionCodec.Prepare(
@@ -333,35 +343,46 @@ public sealed class WorkScopeProjectionProcessorPersistenceTests
             claim!.Event,
             WorkScopeProjectionDecision.Observe("AlreadyRunning"));
 
-        await ExecuteScopeAsync(database, WorkScopeAction.Hold, 3, "manual-hold");
+        var manualHold = await database.WorkScopes.ExecuteAsync(
+            "WS-1",
+            new WorkScopeOperationCommand(
+                WorkScopeAction.Hold,
+                "manual-hold",
+                3,
+                ActorId: "operator"));
         var committed = await database.Store.CommitDecisionAsync(claim, decision);
 
-        committed.Kind.Should().Be(WorkScopeProjectionCommitKind.RetryScheduled);
+        manualHold.IsFailure.Should().BeTrue();
+        manualHold.Error.Code.Should().Be("POM.WorkScope.ProjectionOwned");
+        committed.Kind.Should().Be(WorkScopeProjectionCommitKind.Observed);
         (await database.TextAsync("""
-            SELECT APPLICATION_STATUS || ':' || LAST_ERROR_CODE
+            SELECT APPLICATION_STATUS
               FROM POM_WORK_SCOPE_PROJECTION_APPLICATION
              WHERE EVENT_ID='running-observe'
-            """)).Should().Be("Retry:Projection.WorkScopeVersionChanged");
+            """)).Should().Be("Observed");
         (await database.TextAsync("""
             SELECT STATUS || ':' || IS_HOLD || ':' || VERSION_NO
               FROM POM_WORK_SCOPE WHERE WORK_SCOPE_ID='WS-1'
-            """)).Should().Be("Started:Y:4");
+            """)).Should().Be("Started:N:3");
         (await database.ScalarAsync("""
             SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT
              WHERE EVENT_ID='running-observe' AND EVENT_TYPE='Observed'
-            """)).Should().Be(0);
+            """)).Should().Be(1);
     }
 
     [Fact]
-    public async Task Recovery_observation_is_retried_when_manual_release_hold_changes_the_claimed_scope()
+    public async Task Recovery_observation_quarantines_an_out_of_band_lineage_gap()
     {
         await using var database = await ProjectionDatabase.CreateAsync();
-        await ExecuteScopeAsync(database, WorkScopeAction.Release, 1, "manual-release");
-        await ExecuteScopeAsync(database, WorkScopeAction.Start, 2, "manual-start");
-        await ExecuteScopeAsync(database, WorkScopeAction.Hold, 3, "manual-hold");
+        await ApplyProjectionAsync(
+            database,
+            Command("setup-recovery", 1),
+            new WorkScopeProjectionEffect(WorkScopeAction.Release),
+            new WorkScopeProjectionEffect(WorkScopeAction.Start),
+            new WorkScopeProjectionEffect(WorkScopeAction.Hold));
         (await database.Bridge.IngestAsync(
             "cleaner-a",
-            Command("recovery-observe", 7, WorkScopeProjectionStatus.RecoveryRequired)))
+            Command("recovery-observe", 2, WorkScopeProjectionStatus.RecoveryRequired)))
             .IsSuccess.Should().BeTrue();
         var claim = await database.Store.TryClaimNextAsync("worker-a", TimeSpan.FromMinutes(2));
         var decision = ProjectionDecisionCodec.Prepare(
@@ -369,15 +390,19 @@ public sealed class WorkScopeProjectionProcessorPersistenceTests
             claim!.Event,
             WorkScopeProjectionDecision.Observe("RecoveryHeld"));
 
-        await ExecuteScopeAsync(database, WorkScopeAction.ReleaseHold, 4, "manual-release-hold");
+        await database.ExecuteAsync("""
+            UPDATE POM_WORK_SCOPE
+               SET IS_HOLD='N', VERSION_NO=VERSION_NO+1
+             WHERE WORK_SCOPE_ID='WS-1';
+            """);
         var committed = await database.Store.CommitDecisionAsync(claim, decision);
 
-        committed.Kind.Should().Be(WorkScopeProjectionCommitKind.RetryScheduled);
+        committed.Kind.Should().Be(WorkScopeProjectionCommitKind.Quarantined);
         (await database.TextAsync("""
             SELECT APPLICATION_STATUS || ':' || LAST_ERROR_CODE
               FROM POM_WORK_SCOPE_PROJECTION_APPLICATION
              WHERE EVENT_ID='recovery-observe'
-            """)).Should().Be("Retry:Projection.WorkScopeVersionChanged");
+            """)).Should().Be("Quarantined:Projection.LineageGap");
         (await database.TextAsync("""
             SELECT STATUS || ':' || IS_HOLD || ':' || VERSION_NO
               FROM POM_WORK_SCOPE WHERE WORK_SCOPE_ID='WS-1'
@@ -420,17 +445,18 @@ public sealed class WorkScopeProjectionProcessorPersistenceTests
     public async Task Complete_before_existing_start_time_is_quarantined_without_projection_effects()
     {
         await using var database = await ProjectionDatabase.CreateAsync();
-        await ExecuteScopeAsync(database, WorkScopeAction.Release, 1, "manual-release");
-        var started = await ExecuteScopeAsync(database, WorkScopeAction.Start, 2, "manual-start");
-        var occurredBeforeStart = new DateTimeOffset(DateTime.SpecifyKind(
-            started.StartedAt!.Value.AddTicks(-1), DateTimeKind.Utc));
-        occurredBeforeStart.UtcDateTime.Should().BeOnOrAfter(
-            DateTime.SpecifyKind(started.CreatedAt, DateTimeKind.Utc));
+        var startedAt = DateTimeOffset.UtcNow.AddSeconds(5);
+        await ApplyProjectionAsync(
+            database,
+            Command("setup-started", 1, occurredAt: startedAt),
+            new WorkScopeProjectionEffect(WorkScopeAction.Release),
+            new WorkScopeProjectionEffect(WorkScopeAction.Start));
+        var occurredBeforeStart = startedAt.AddTicks(-1);
         (await database.Bridge.IngestAsync(
             "cleaner-a",
             Command(
                 "complete-before-start",
-                7,
+                2,
                 WorkScopeProjectionStatus.Completed,
                 terminalCleanupCompleted: true,
                 occurredAt: occurredBeforeStart)))
@@ -452,7 +478,7 @@ public sealed class WorkScopeProjectionProcessorPersistenceTests
             SELECT STATUS || ':' || VERSION_NO FROM POM_WORK_SCOPE WHERE WORK_SCOPE_ID='WS-1'
             """)).Should().Be("Started:3");
         (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_EXECUTION"))
-            .Should().Be(2, "only the two manual lifecycle actions should remain");
+            .Should().Be(2, "only the two projection-owned setup actions should remain");
     }
 
     private static WorkScopeProjectionCommand Command(
@@ -481,21 +507,19 @@ public sealed class WorkScopeProjectionProcessorPersistenceTests
         revision,
         status.ToString().ToUpperInvariant());
 
-    private static async Task<WorkScopeDto> ExecuteScopeAsync(
+    private static async Task ApplyProjectionAsync(
         ProjectionDatabase database,
-        WorkScopeAction action,
-        int expectedVersion,
-        string idempotencyKey)
+        WorkScopeProjectionCommand command,
+        params WorkScopeProjectionEffect[] effects)
     {
-        var result = await database.WorkScopes.ExecuteAsync(
-            "WS-1",
-            new WorkScopeOperationCommand(
-                action,
-                idempotencyKey,
-                expectedVersion,
-                ActorId: "operator"));
-        result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Description : null);
-        return result.Value;
+        var accepted = await database.Bridge.IngestAsync(command.ClientId, command);
+        accepted.IsSuccess.Should().BeTrue(
+            accepted.IsFailure ? accepted.Error.Description : null);
+        var committed = await database.Processor(new FixedPolicy(
+                WorkScopeProjectionDecision.Apply($"setup:{command.EventId}", effects)))
+            .ProcessNextAsync($"worker:{command.EventId}");
+        committed.Should().NotBeNull();
+        committed!.Kind.Should().Be(WorkScopeProjectionCommitKind.Applied);
     }
 
     private static string StoreSql(string fieldName)
@@ -562,16 +586,46 @@ public sealed class WorkScopeProjectionProcessorPersistenceTests
                 ConnectionString = connectionString,
             };
             var scope = PomWorkScope.Create(
-                "WS-1", "PLANT-1", PomWorkScopeType.Equipment, "EQ-1", "Cleaner",
-                null, "EQ-1", null, null, "RECIPE-1", null, 1m, null, null, "tester");
+                "WS-1", "PLANT-1", PomWorkScopeType.Other, "pair-1", "Cleaner",
+                null, "EQ-1", null, "CLEANING", "RECIPE-1", 1, 1m, null, null, "tester");
             scope.IsSuccess.Should().BeTrue();
             scope.Value.SetCreateIdentity("test:create:WS-1", new string('C', 64));
             await new WorkScopeRepository(dataSource).AddAsync(scope.Value);
+            await ProvisionAuthorityAsync(dataSource);
             return new ProjectionDatabase(path, connectionString, dataSource);
+        }
+
+        private static async Task ProvisionAuthorityAsync(EesDataSource dataSource)
+        {
+            var command = new WorkScopeProjectionAuthorityProvisionCommand(
+                "WS-1", "cleaner-a", "EQ-1", "operation-1", "pair-1", "sequence-1",
+                "rms-execution-WS-1", "cleaner-program-WS-1", "authority-WS-1", "tester");
+            var evidence = new WorkScopeProjectionAuthorityEvidence(
+                command.WorkScopeId, command.SourceClientId, command.EquipmentId,
+                command.OperationKey, command.PairRunId, command.SequenceRunId,
+                command.RecipeExecutionId, "RECIPE-1", 1, "test-recipe-v1",
+                new string('A', 64), command.ProgramArtifactId, "test-program-v1",
+                new string('B', 64));
+            var bridge = new WorkScopeProjectionAuthorityBridge(
+                new WorkScopeProjectionAuthorityService(
+                    new WorkScopeProjectionAuthorityRepository(dataSource),
+                    new FixedAuthorityValidator(evidence)));
+            var result = await bridge.ProvisionAsync(command);
+            result.IsSuccess.Should().BeTrue(
+                result.IsFailure ? result.Error.Description : null);
         }
 
         public WorkScopeProjectionProcessor Processor(IWorkScopeProjectionPolicy policy) =>
             new(Store, policy, TimeSpan.FromMinutes(2));
+
+        private sealed class FixedAuthorityValidator(WorkScopeProjectionAuthorityEvidence evidence)
+            : IWorkScopeProjectionAuthorityValidator
+        {
+            public Task<NexaOne.Common.Result<WorkScopeProjectionAuthorityEvidence>> ValidateAsync(
+                WorkScopeProjectionAuthorityProvisionCommand command,
+                CancellationToken ct = default) => Task.FromResult(
+                NexaOne.Common.Result.Success(evidence));
+        }
 
         public async Task<long> ScalarAsync(string sql)
         {

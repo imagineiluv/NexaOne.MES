@@ -7,6 +7,10 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <!-- Use the same evaluated plugin set as the host. This keeps build output, publish output, and
+       child-process bundle smoke aligned when a future product profile replaces Cleaner. -->
+  <Import Project="..\..\eng\product-profiles\NexaOne.ProductProfiles.props" />
+
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
     <PackageReference Include="xunit" Version="2.9.3" />
@@ -24,48 +28,27 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\00.Main\NexaOne.Server\NexaOne.Server.csproj" />
-    <!-- OEE 집계 리포지토리(모듈 소유) 통합검증용 — 호스트가 SQLite로 부트한 DB에 리포를 직접 물려 집계를 검증한다. -->
-    <ProjectReference Include="..\..\src\04.Modules\NexaOne.EST\NexaOne.EST.csproj" />
-    <!-- EMS work-order execution audit and spare-part ledger atomicity integration tests. -->
-    <ProjectReference Include="..\..\src\04.Modules\NexaOne.EMS\NexaOne.EMS.csproj" />
-    <!-- QMS inspection header/result transaction and integrity integration tests. -->
-    <ProjectReference Include="..\..\src\04.Modules\NexaOne.QMS\NexaOne.QMS.csproj" />
-    <!-- POM Lot Mixing 원자화(DATA-3) SQLite 원자성 통합검증용 — 동일 패턴으로 POM 리포/서비스를 직접 구성한다. -->
-    <ProjectReference Include="..\..\src\04.Modules\NexaOne.POM\NexaOne.POM.csproj" />
-    <ProjectReference Include="..\..\src\04.Modules\NexaOne.PRC\NexaOne.PRC.csproj" />
-    <!-- RMS Recipe 새 버전 header/parameter 원자 저장 및 복합 필터 통합검증용. -->
-    <ProjectReference Include="..\..\src\04.Modules\NexaOne.RMS\NexaOne.RMS.csproj" />
-    <!-- SYS Approve 원자화(DATA-6) SQLite 원자성 통합검증용. -->
-    <ProjectReference Include="..\..\src\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" />
-    <!-- 가상 이벤트 평가 엔진(V067→V069) 통합검증용 — 실 모듈 서비스/리포를 게이트웨이 SQLite에 물린다. -->
-    <ProjectReference Include="..\..\src\04.Modules\NexaOne.FDC\NexaOne.FDC.csproj" />
-    <ProjectReference Include="..\..\src\04.Modules\NexaOne.IVT\NexaOne.IVT.csproj" />
-    <!-- Child-process host bundle requires the complete declared module catalog. -->
-    <ProjectReference Include="..\..\src\04.Modules\NexaOne.MDM\NexaOne.MDM.csproj" />
-    <ProjectReference Include="..\..\src\04.Modules\NexaOne.SHP\NexaOne.SHP.csproj" />
-    <ProjectReference Include="..\..\src\05.Projects\NexaOne.Project.Cleaner\NexaOne.Project.Cleaner.csproj" />
+    <!-- Integration tests use the shared domain implementations directly; project-owned policy
+         references follow the selected packaging profile. -->
+    <ProjectReference Include="@(NexaOneProductPlugin)" />
   </ItemGroup>
 
   <!-- Child-process smoke runs the host copied into this exact test output. Populate its plugin
        folder from the current ProjectReference outputs so an external artifacts path cannot fall back to
        an older src/**/bin tree. -->
   <Target Name="PrepareCurrentHostSmokeOutput" AfterTargets="Build">
-    <ItemGroup>
-      <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.MDM.dll" />
-      <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.EST.dll" />
-      <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.FDC.dll" />
-      <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.IVT.dll" />
-      <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.RMS.dll" />
-      <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.QMS.dll" />
-      <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.EMS.dll" />
-      <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.POM.dll" />
-      <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.PRC.dll" />
-      <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.SHP.dll" />
-      <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.SYS.dll" />
-      <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.Project.Cleaner.dll" />
-    </ItemGroup>
+    <MSBuild Projects="@(NexaOneProductPlugin)"
+             Targets="GetTargetPath"
+             BuildInParallel="$(BuildInParallel)">
+      <Output TaskParameter="TargetOutputs" ItemName="_CurrentHostSmokeModule" />
+    </MSBuild>
     <Error Condition="!Exists('%(_CurrentHostSmokeModule.FullPath)')"
            Text="Current host-smoke module output is missing: %(_CurrentHostSmokeModule.FullPath)" />
+    <ItemGroup>
+      <_StaleCurrentHostSmokeModule Include="$(OutDir)Modules\NexaOne.*.dll" />
+      <_StaleCurrentHostSmokeModule Include="$(OutDir)Modules\*.deps.json" />
+    </ItemGroup>
+    <Delete Files="@(_StaleCurrentHostSmokeModule)" />
     <Copy SourceFiles="@(_CurrentHostSmokeModule)"
           DestinationFolder="$(OutDir)Modules"
           SkipUnchangedFiles="true" />

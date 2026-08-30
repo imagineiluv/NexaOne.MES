@@ -8,10 +8,12 @@ namespace NexaOne.POM.Infrastructure;
 /// project-policy application queue. The portable tables and indexes remain defined by V156/V157;
 /// this contribution supplies the SQLite equivalents of the SQL Server guards omitted by the
 /// migration translator and performs V157's deterministic current-event-only upgrade backfill.
+/// V158 also installs the explicit authority guards used to separate transport cursors from
+/// projection-owned WorkScopes.
 /// </summary>
 public sealed class PomWorkScopeProjectionSqliteSchemaContribution : ISqliteSchemaContribution
 {
-    public string Id => "POM.WorkScopeProjection.V157";
+    public string Id => "POM.WorkScopeProjection.V158";
 
     public void Apply(DbConnection connection, DbTransaction transaction)
     {
@@ -201,8 +203,142 @@ public sealed class PomWorkScopeProjectionSqliteSchemaContribution : ISqliteSche
             END;
             """);
 
+        ApplyAuthoritySchema(connection, transaction);
         ApplyApplicationSchema(connection, transaction);
         ApplyCarrierEvidenceSchema(connection, transaction);
+    }
+
+    private static void ApplyAuthoritySchema(
+        DbConnection connection,
+        DbTransaction transaction)
+    {
+        if (!HasTable(connection, transaction, "POM_WORK_SCOPE_PROJECTION_AUTHORITY")) return;
+
+        Execute(connection, transaction, """
+            CREATE UNIQUE INDEX IF NOT EXISTS UX_POM_WORK_SCOPE_PROJECTION_AUTHORITY_STREAM
+              ON POM_WORK_SCOPE_PROJECTION_AUTHORITY
+                 (SOURCE_CLIENT_ID COLLATE BINARY,
+                  EQUIPMENT_ID COLLATE BINARY,
+                  SEQUENCE_RUN_ID COLLATE BINARY);
+            """);
+        Execute(connection, transaction, """
+            CREATE UNIQUE INDEX IF NOT EXISTS UX_POM_WORK_SCOPE_PROJECTION_AUTHORITY_RECIPE_EXECUTION
+              ON POM_WORK_SCOPE_PROJECTION_AUTHORITY
+                 (RECIPE_EXECUTION_ID COLLATE BINARY);
+            """);
+
+        var triggerNames = new[]
+        {
+            "TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_REPLACE_GUARD",
+            "TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_SCOPE_GUARD",
+            "TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_IDENTITY_GUARD",
+            "TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_LINEAGE_GUARD",
+            "TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_DELETE_GUARD",
+        };
+        foreach (var triggerName in triggerNames)
+            Execute(connection, transaction, $"DROP TRIGGER IF EXISTS {triggerName};");
+
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_REPLACE_GUARD
+            BEFORE INSERT ON POM_WORK_SCOPE_PROJECTION_AUTHORITY
+            WHEN EXISTS (
+              SELECT 1 FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY A
+               WHERE A.WORK_SCOPE_ID COLLATE BINARY = NEW.WORK_SCOPE_ID COLLATE BINARY
+                  OR A.PROVISION_IDEMPOTENCY_KEY COLLATE BINARY
+                       = NEW.PROVISION_IDEMPOTENCY_KEY COLLATE BINARY
+                  OR A.RECIPE_EXECUTION_ID COLLATE BINARY
+                       = NEW.RECIPE_EXECUTION_ID COLLATE BINARY
+                  OR (A.SOURCE_CLIENT_ID COLLATE BINARY = NEW.SOURCE_CLIENT_ID COLLATE BINARY
+                      AND A.EQUIPMENT_ID COLLATE BINARY = NEW.EQUIPMENT_ID COLLATE BINARY
+                      AND A.SEQUENCE_RUN_ID COLLATE BINARY = NEW.SEQUENCE_RUN_ID COLLATE BINARY))
+            BEGIN
+              SELECT RAISE(ABORT, 'POM projection authority replacement is forbidden');
+            END;
+            """);
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_SCOPE_GUARD
+            BEFORE INSERT ON POM_WORK_SCOPE_PROJECTION_AUTHORITY
+            WHEN NEW.RECIPE_SNAPSHOT_HASH GLOB '*[^0-9A-F]*'
+              OR NEW.PROGRAM_HASH GLOB '*[^0-9A-F]*'
+              OR NEW.PROVISION_REQUEST_HASH GLOB '*[^0-9A-F]*'
+              OR NOT EXISTS (
+              SELECT 1 FROM POM_WORK_SCOPE S
+               WHERE S.WORK_SCOPE_ID COLLATE BINARY = NEW.WORK_SCOPE_ID COLLATE BINARY
+                 AND S.STATUS = 'Created'
+                 AND S.IS_HOLD = 'N'
+                 AND S.VERSION_NO = 1
+                 AND S.START_QTY = 0
+                 AND S.COMPLETE_QTY = 0
+                 AND S.SCRAP_QTY = 0
+                 AND S.EQUIPMENT_ID COLLATE BINARY = NEW.EQUIPMENT_ID COLLATE BINARY
+                 AND S.TARGET_ID COLLATE BINARY = NEW.PAIR_RUN_ID COLLATE BINARY
+                 AND S.RECIPE_ID COLLATE BINARY = NEW.RECIPE_ID COLLATE BINARY
+                 AND S.RECIPE_VERSION = NEW.RECIPE_VERSION
+                 AND NEW.BASELINE_VERSION_NO = S.VERSION_NO
+                 AND NEW.LAST_APPLIED_VERSION_NO = S.VERSION_NO
+                 AND NOT EXISTS (
+                   SELECT 1 FROM POM_WORK_SCOPE_EXECUTION E
+                    WHERE E.WORK_SCOPE_ID COLLATE BINARY = S.WORK_SCOPE_ID COLLATE BINARY))
+            BEGIN
+              SELECT RAISE(ABORT, 'POM projection authority requires an exact pristine WorkScope');
+            END;
+            """);
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_IDENTITY_GUARD
+            BEFORE UPDATE ON POM_WORK_SCOPE_PROJECTION_AUTHORITY
+            WHEN OLD.WORK_SCOPE_ID COLLATE BINARY <> NEW.WORK_SCOPE_ID COLLATE BINARY
+              OR OLD.SOURCE_CLIENT_ID COLLATE BINARY <> NEW.SOURCE_CLIENT_ID COLLATE BINARY
+              OR OLD.EQUIPMENT_ID COLLATE BINARY <> NEW.EQUIPMENT_ID COLLATE BINARY
+              OR OLD.OPERATION_KEY COLLATE BINARY <> NEW.OPERATION_KEY COLLATE BINARY
+              OR OLD.PAIR_RUN_ID COLLATE BINARY <> NEW.PAIR_RUN_ID COLLATE BINARY
+              OR OLD.SEQUENCE_RUN_ID COLLATE BINARY <> NEW.SEQUENCE_RUN_ID COLLATE BINARY
+              OR OLD.RECIPE_EXECUTION_ID COLLATE BINARY <> NEW.RECIPE_EXECUTION_ID COLLATE BINARY
+              OR OLD.RECIPE_ID COLLATE BINARY <> NEW.RECIPE_ID COLLATE BINARY
+              OR OLD.RECIPE_VERSION <> NEW.RECIPE_VERSION
+              OR OLD.RECIPE_SNAPSHOT_SCHEMA COLLATE BINARY <> NEW.RECIPE_SNAPSHOT_SCHEMA COLLATE BINARY
+              OR OLD.RECIPE_SNAPSHOT_HASH COLLATE BINARY <> NEW.RECIPE_SNAPSHOT_HASH COLLATE BINARY
+              OR OLD.PROGRAM_ARTIFACT_ID COLLATE BINARY <> NEW.PROGRAM_ARTIFACT_ID COLLATE BINARY
+              OR OLD.PROGRAM_SCHEMA COLLATE BINARY <> NEW.PROGRAM_SCHEMA COLLATE BINARY
+              OR OLD.PROGRAM_HASH COLLATE BINARY <> NEW.PROGRAM_HASH COLLATE BINARY
+              OR OLD.BASELINE_VERSION_NO <> NEW.BASELINE_VERSION_NO
+              OR OLD.PROVISION_IDEMPOTENCY_KEY COLLATE BINARY
+                   <> NEW.PROVISION_IDEMPOTENCY_KEY COLLATE BINARY
+              OR OLD.PROVISION_REQUEST_HASH COLLATE BINARY
+                   <> NEW.PROVISION_REQUEST_HASH COLLATE BINARY
+              OR OLD.PROVISIONED_AT <> NEW.PROVISIONED_AT
+              OR OLD.PROVISIONED_BY COLLATE BINARY <> NEW.PROVISIONED_BY COLLATE BINARY
+            BEGIN
+              SELECT RAISE(ABORT, 'POM projection authority identity is immutable');
+            END;
+            """);
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_LINEAGE_GUARD
+            BEFORE UPDATE ON POM_WORK_SCOPE_PROJECTION_AUTHORITY
+            WHEN NEW.LAST_APPLIED_VERSION_NO < OLD.LAST_APPLIED_VERSION_NO
+              OR (NEW.LAST_APPLIED_VERSION_NO = OLD.LAST_APPLIED_VERSION_NO
+                  AND NEW.LAST_APPLIED_AT IS NOT OLD.LAST_APPLIED_AT)
+              OR (NEW.LAST_APPLIED_VERSION_NO > OLD.LAST_APPLIED_VERSION_NO
+                  AND (NOT EXISTS (
+                         SELECT 1 FROM POM_WORK_SCOPE S
+                          WHERE S.WORK_SCOPE_ID COLLATE BINARY
+                                  = NEW.WORK_SCOPE_ID COLLATE BINARY
+                            AND S.VERSION_NO = NEW.LAST_APPLIED_VERSION_NO)
+                       OR (NEW.LAST_APPLIED_VERSION_NO > NEW.BASELINE_VERSION_NO
+                           AND NEW.LAST_APPLIED_AT IS NULL)
+                       OR (OLD.LAST_APPLIED_AT IS NOT NULL
+                           AND (NEW.LAST_APPLIED_AT IS NULL
+                                OR NEW.LAST_APPLIED_AT < OLD.LAST_APPLIED_AT))))
+            BEGIN
+              SELECT RAISE(ABORT, 'POM projection authority applied lineage is monotonic and scope-aligned');
+            END;
+            """);
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_DELETE_GUARD
+            BEFORE DELETE ON POM_WORK_SCOPE_PROJECTION_AUTHORITY
+            BEGIN
+              SELECT RAISE(ABORT, 'POM projection authority is not deletable');
+            END;
+            """);
     }
 
     private static void ApplyCurrentWorkScopeBindingSchema(

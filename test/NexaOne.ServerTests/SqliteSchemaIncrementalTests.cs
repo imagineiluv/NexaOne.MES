@@ -2833,7 +2833,7 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
-    public void V121_through_v157_migrations_keep_unique_numeric_versions_and_module_owned_names()
+    public void V121_through_v158_migrations_keep_unique_numeric_versions_and_module_owned_names()
     {
         var migrationDirectory = Path.GetDirectoryName(RepositorySource.GetFile(
             "src", "00.Main", "NexaOne.Server", "config", "db", "migrations",
@@ -2877,6 +2877,7 @@ public sealed class SqliteSchemaIncrementalTests
             [155] = ("V155__POM_WORK_SCOPE_SCOPE_TYPE_INDEX.sql", "POM"),
             [156] = ("V156__POM_WORK_SCOPE_PROJECTION_INBOX.sql", "POM"),
             [157] = ("V157__POM_WORK_SCOPE_PROJECTION_APPLICATION.sql", "POM"),
+            [158] = ("V158__POM_WORK_SCOPE_PROJECTION_AUTHORITY.sql", "POM"),
         };
         var recentFiles = Directory.EnumerateFiles(migrationDirectory, "V*.sql")
             .Select(Path.GetFileName)
@@ -2884,7 +2885,7 @@ public sealed class SqliteSchemaIncrementalTests
             .Select(name => (Name: name!, Match: Regex.Match(name!, @"^V(?<version>[0-9]{3})__")))
             .Where(item => item.Match.Success)
             .Select(item => (item.Name, Version: int.Parse(item.Match.Groups["version"].Value)))
-            .Where(item => item.Version is >= 121 and <= 157)
+            .Where(item => item.Version is >= 121 and <= 158)
             .ToArray();
 
         recentFiles.GroupBy(item => item.Version).Should().OnlyContain(group => group.Count() == 1);

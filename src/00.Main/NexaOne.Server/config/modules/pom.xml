@@ -14,12 +14,21 @@
     <constructor-arg ref="purchaseOrderPlanningBridge" />
     <constructor-arg ref="equipmentDirectory" />
     <constructor-arg ref="equipmentOutputMasterDirectory" />
+    <constructor-arg ref="workScopeProjectionAuthorityValidator" />
   </object>
+
+  <!-- Fail closed until a product composes a validator backed by immutable RMS execution and
+       released program artifacts. Caller-provided hashes are never accepted by this default. -->
+  <object id="workScopeProjectionAuthorityValidator"
+      type="NexaOne.POM.Application.WorkScopes.RejectingWorkScopeProjectionAuthorityValidator, NexaOne.POM" />
 
   <object id="pomBridge" factory-object="pomModule" factory-method="GetPomBridge" />
   <object id="pomWorkOrderBridge" factory-object="pomModule" factory-method="GetWorkOrderBridge" />
   <object id="workScopeBridge" factory-object="pomModule" factory-method="GetWorkScopeBridge" />
   <object id="workScopeProjectionBridge" factory-object="pomModule" factory-method="GetWorkScopeProjectionBridge" />
+  <object id="workScopeProjectionAuthorityBridge"
+      factory-object="pomModule"
+      factory-method="GetWorkScopeProjectionAuthorityBridge" />
   <object id="pomWorkScopeProjectionSqliteSchemaContribution"
       factory-object="pomModule"
       factory-method="GetWorkScopeProjectionSqliteSchemaContribution" />

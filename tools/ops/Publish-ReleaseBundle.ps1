@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$Version,
     [string]$Configuration = 'Release',
-    [string]$Runtime = ''
+    [string]$Runtime = '',
+    [string]$ProductProfile = 'Cleaner'
 )
 
 Set-StrictMode -Version Latest
@@ -16,6 +17,9 @@ if ($Version -notmatch '^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)
 }
 if ($Configuration -cne 'Release') {
     throw "Release bundles require Configuration=Release; received '$Configuration'."
+}
+if ($ProductProfile -cnotmatch '^[A-Za-z][A-Za-z0-9._-]*$') {
+    throw "ProductProfile must be a safe profile identifier; received '$ProductProfile'."
 }
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -65,13 +69,19 @@ if (-not (Test-Path -LiteralPath $project -PathType Leaf)) {
 
 try {
     Write-Host "Run publish smoke gate for version $Version."
-    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-Publish.ps1')
+    & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'Test-Publish.ps1') -ProductProfile $ProductProfile
     if ($LASTEXITCODE -ne 0) {
         throw 'Test-Publish.ps1 failed; release bundle was not created.'
     }
 
     New-Item -ItemType Directory -Force -Path $dllRoot, $artifactRoot | Out-Null
-    $publishArguments = @($project, '-c', $Configuration, '-o', $publishRoot, '--nologo', '-v', 'q')
+    $publishArguments = @(
+        $project,
+        '-c', $Configuration,
+        '-o', $publishRoot,
+        '--nologo',
+        '-v', 'q',
+        "-p:NexaOneProductProfile=$ProductProfile")
     if (-not [string]::IsNullOrWhiteSpace($Runtime)) {
         $publishArguments += @('-r', $Runtime)
     }
@@ -143,6 +153,7 @@ try {
         version = $Version
         builtAtUtc = (Get-Date).ToUniversalTime().ToString('o')
         configuration = $Configuration
+        packagingProfile = $ProductProfile
         runtime = if ([string]::IsNullOrWhiteSpace($Runtime)) { 'framework-dependent' } else { $Runtime }
         commit = $sourceCommit
         runtimeProfile = 'Simulation'

@@ -47,6 +47,10 @@ internal enum WorkScopeProjectionPersistKind
     WorkScopeBindingConflict,
     ScopeNotFound,
     ScopeEquipmentConflict,
+    AuthorityMissing,
+    AuthorityIdentityMismatch,
+    RecipeSnapshotHashMismatch,
+    ProgramHashMismatch,
 }
 
 internal sealed record WorkScopeProjectionPersistResult(

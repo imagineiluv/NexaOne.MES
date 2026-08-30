@@ -79,9 +79,12 @@ internal sealed class WorkScopeProjectionRepository : IWorkScopeProjectionInbox
             if (!string.Equals(existingEvent.RequestHash, envelope.RequestHash, StringComparison.Ordinal))
                 return Failure(WorkScopeProjectionPersistKind.EventHashConflict, envelope);
 
+            var replayAuthorized = await HasExactAuthorityAsync(
+                connection, transaction, envelope, ct).ConfigureAwait(false);
             var replayCurrent = await ReadCurrentAsync(connection, transaction, envelope, ct)
                 .ConfigureAwait(false);
-            if (string.Equals(replayCurrent?.EventId, envelope.EventId, StringComparison.Ordinal))
+            if (replayAuthorized
+                && string.Equals(replayCurrent?.EventId, envelope.EventId, StringComparison.Ordinal))
             {
                 await EnsureCurrentApplicationAsync(
                     connection, transaction, envelope, AsUtc(existingEvent.AcceptedAt), ct)
@@ -106,9 +109,34 @@ internal sealed class WorkScopeProjectionRepository : IWorkScopeProjectionInbox
         if (scope is null)
             return Failure(WorkScopeProjectionPersistKind.ScopeNotFound, envelope);
 
-        // One WorkScope is owned by exactly one live projection stream. Locking the aggregate
-        // before this reverse cursor lookup serializes concurrent first bindings even when both
-        // streams have no current row yet; the database unique index is the final invariant fence.
+        if (!string.Equals(scope.EquipmentId, envelope.EquipmentId, StringComparison.Ordinal))
+        {
+            return Failure(WorkScopeProjectionPersistKind.ScopeEquipmentConflict, envelope);
+        }
+
+        // A V157 current cursor is transport evidence, not ownership. New events require an
+        // explicitly provisioned authority and acquire it after the aggregate lock, matching the
+        // scope->authority lock order used by provisioning and ordinary WorkScope commands.
+        var authority = await QueryFirstOrDefaultAsync<ProjectionAuthorityRow>(
+            connection,
+            transaction,
+            _isSqlServer ? ProjectionAuthoritySqlSqlServer : ProjectionAuthoritySql,
+            new { envelope.WorkScopeId },
+            ct).ConfigureAwait(false);
+        if (authority is null)
+            return Failure(WorkScopeProjectionPersistKind.AuthorityMissing, envelope);
+        if (!authority.MatchesIdentity(envelope, scope))
+            return Failure(WorkScopeProjectionPersistKind.AuthorityIdentityMismatch, envelope);
+        if (!string.Equals(
+                authority.RecipeSnapshotHash,
+                envelope.RecipeSnapshotHash,
+                StringComparison.Ordinal))
+            return Failure(WorkScopeProjectionPersistKind.RecipeSnapshotHashMismatch, envelope);
+        if (!string.Equals(authority.ProgramHash, envelope.ProgramHash, StringComparison.Ordinal))
+            return Failure(WorkScopeProjectionPersistKind.ProgramHashMismatch, envelope);
+
+        // The authority is the first-binding fence; the reverse current lookup preserves the
+        // V157 transport invariant and remains a final defense against legacy/manual rows.
         var scopeBinding = await QueryFirstOrDefaultAsync<WorkScopeBindingRow>(
             connection,
             transaction,
@@ -121,11 +149,6 @@ internal sealed class WorkScopeProjectionRepository : IWorkScopeProjectionInbox
                 || !string.Equals(scopeBinding.SequenceRunId, envelope.SequenceRunId, StringComparison.Ordinal)))
         {
             return Failure(WorkScopeProjectionPersistKind.WorkScopeBindingConflict, envelope);
-        }
-
-        if (!string.Equals(scope.EquipmentId, envelope.EquipmentId, StringComparison.Ordinal))
-        {
-            return Failure(WorkScopeProjectionPersistKind.ScopeEquipmentConflict, envelope);
         }
 
         var current = await ReadCurrentAsync(connection, transaction, envelope, ct)
@@ -275,6 +298,34 @@ internal sealed class WorkScopeProjectionRepository : IWorkScopeProjectionInbox
             _isSqlServer ? CurrentSqlSqlServer : CurrentSql,
             envelope,
             ct);
+
+    private async Task<bool> HasExactAuthorityAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        WorkScopeProjectionEnvelope envelope,
+        CancellationToken ct)
+    {
+        var scope = await QueryFirstOrDefaultAsync<ScopeIdentityRow>(
+            connection,
+            transaction,
+            _isSqlServer ? ScopeIdentitySqlSqlServer : ScopeIdentitySql,
+            new { envelope.WorkScopeId },
+            ct).ConfigureAwait(false);
+        if (scope is null) return false;
+        var authority = await QueryFirstOrDefaultAsync<ProjectionAuthorityRow>(
+            connection,
+            transaction,
+            _isSqlServer ? ProjectionAuthoritySqlSqlServer : ProjectionAuthoritySql,
+            new { envelope.WorkScopeId },
+            ct).ConfigureAwait(false);
+        return authority is not null
+            && authority.MatchesIdentity(envelope, scope)
+            && string.Equals(
+                authority.RecipeSnapshotHash,
+                envelope.RecipeSnapshotHash,
+                StringComparison.Ordinal)
+            && string.Equals(authority.ProgramHash, envelope.ProgramHash, StringComparison.Ordinal);
+    }
 
     private async Task EnsureCurrentApplicationAsync(
         DbConnection connection,
@@ -479,15 +530,37 @@ internal sealed class WorkScopeProjectionRepository : IWorkScopeProjectionInbox
         sql, parameters, transaction, cancellationToken: ct));
 
     private const string ScopeIdentitySql = """
-        SELECT EQUIPMENT_ID AS EquipmentId
+        SELECT EQUIPMENT_ID AS EquipmentId, RECIPE_ID AS RecipeId,
+               RECIPE_VERSION AS RecipeVersion
           FROM POM_WORK_SCOPE
          WHERE WORK_SCOPE_ID = @WorkScopeId
         """;
 
     private const string ScopeIdentitySqlSqlServer = """
-        SELECT EQUIPMENT_ID AS EquipmentId
+        SELECT EQUIPMENT_ID AS EquipmentId, RECIPE_ID AS RecipeId,
+               RECIPE_VERSION AS RecipeVersion
           FROM POM_WORK_SCOPE WITH (UPDLOCK, HOLDLOCK)
          WHERE WORK_SCOPE_ID COLLATE Latin1_General_100_BIN2 = @WorkScopeId
+        """;
+
+    private const string ProjectionAuthoritySql = """
+        SELECT SOURCE_CLIENT_ID AS SourceClientId, EQUIPMENT_ID AS EquipmentId,
+               OPERATION_KEY AS OperationKey, PAIR_RUN_ID AS PairRunId,
+               SEQUENCE_RUN_ID AS SequenceRunId, RECIPE_ID AS RecipeId,
+               RECIPE_VERSION AS RecipeVersion,
+               RECIPE_SNAPSHOT_HASH AS RecipeSnapshotHash, PROGRAM_HASH AS ProgramHash
+          FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY
+         WHERE WORK_SCOPE_ID = @WorkScopeId
+        """;
+
+    private const string ProjectionAuthoritySqlSqlServer = """
+        SELECT SOURCE_CLIENT_ID AS SourceClientId, EQUIPMENT_ID AS EquipmentId,
+               OPERATION_KEY AS OperationKey, PAIR_RUN_ID AS PairRunId,
+               SEQUENCE_RUN_ID AS SequenceRunId, RECIPE_ID AS RecipeId,
+               RECIPE_VERSION AS RecipeVersion,
+               RECIPE_SNAPSHOT_HASH AS RecipeSnapshotHash, PROGRAM_HASH AS ProgramHash
+          FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY WITH (UPDLOCK, HOLDLOCK)
+         WHERE WORK_SCOPE_ID = @WorkScopeId
         """;
 
     private const string EventIdentitySql = """
@@ -717,6 +790,33 @@ internal sealed class WorkScopeProjectionRepository : IWorkScopeProjectionInbox
     private sealed class ScopeIdentityRow
     {
         public string? EquipmentId { get; set; }
+        public string? RecipeId { get; set; }
+        public int? RecipeVersion { get; set; }
+    }
+
+    private sealed class ProjectionAuthorityRow
+    {
+        public string SourceClientId { get; set; } = string.Empty;
+        public string EquipmentId { get; set; } = string.Empty;
+        public string OperationKey { get; set; } = string.Empty;
+        public string PairRunId { get; set; } = string.Empty;
+        public string SequenceRunId { get; set; } = string.Empty;
+        public string RecipeId { get; set; } = string.Empty;
+        public int RecipeVersion { get; set; }
+        public string RecipeSnapshotHash { get; set; } = string.Empty;
+        public string ProgramHash { get; set; } = string.Empty;
+
+        public bool MatchesIdentity(
+            WorkScopeProjectionEnvelope envelope,
+            ScopeIdentityRow scope) =>
+            string.Equals(SourceClientId, envelope.SourceClientId, StringComparison.Ordinal)
+            && string.Equals(EquipmentId, envelope.EquipmentId, StringComparison.Ordinal)
+            && string.Equals(OperationKey, envelope.OperationKey, StringComparison.Ordinal)
+            && string.Equals(PairRunId, envelope.PairRunId, StringComparison.Ordinal)
+            && string.Equals(SequenceRunId, envelope.SequenceRunId, StringComparison.Ordinal)
+            && string.Equals(RecipeId, envelope.RecipeId, StringComparison.Ordinal)
+            && string.Equals(RecipeId, scope.RecipeId, StringComparison.Ordinal)
+            && RecipeVersion == scope.RecipeVersion;
     }
 
     private sealed class InboxIdentityRow

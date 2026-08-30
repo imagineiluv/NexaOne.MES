@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application>
+  <Services>
+    <!-- Product-neutral POM: durable projection acceptance/schema remain, while no project policy
+         or application worker is loaded. The optional worker setting must remain false. -->
+    <Service name="Mdm" classPaths="./Modules/NexaOne.MDM.dll" configFiles="config/modules/mdm.xml" />
+    <Service name="Est" classPaths="./Modules/NexaOne.EST.dll" configFiles="config/modules/est.xml" />
+    <Service name="Fdc" classPaths="./Modules/NexaOne.FDC.dll" configFiles="config/modules/fdc.xml" />
+    <Service name="Rms" classPaths="./Modules/NexaOne.RMS.dll" configFiles="config/modules/rms.xml" />
+    <Service name="Qms" classPaths="./Modules/NexaOne.QMS.dll" configFiles="config/modules/qms.xml" />
+    <Service name="Ems" classPaths="./Modules/NexaOne.EMS.dll" configFiles="config/modules/ems.xml" />
+    <Service name="Ivt" classPaths="./Modules/NexaOne.IVT.dll" configFiles="config/modules/ivt.xml" />
+    <Service name="Pom" classPaths="./Modules/NexaOne.POM.dll" configFiles="config/modules/pom.xml" />
+    <Service name="Prc" classPaths="./Modules/NexaOne.PRC.dll" configFiles="config/modules/prc.xml" />
+    <Service name="Shp" classPaths="./Modules/NexaOne.SHP.dll" configFiles="config/modules/shp.xml" />
+    <Service name="Sys" classPaths="./Modules/NexaOne.SYS.dll" configFiles="config/modules/sys.xml" />
+  </Services>
+</Application>

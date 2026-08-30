@@ -181,17 +181,17 @@ public sealed class WorkScopeServiceTests
             return Task.CompletedTask;
         }
 
-        public Task<bool> UpdateWithExecutionAsync(
+        public Task<WorkScopeWriteResult> UpdateWithExecutionAsync(
             PomWorkScope scope, PomWorkScopeExecution execution,
             CancellationToken ct = default)
         {
             if (!_scopes.TryGetValue(scope.Id, out var persisted)
                 || persisted.VersionNo != execution.ExpectedVersion)
-                return Task.FromResult(false);
+                return Task.FromResult(WorkScopeWriteResult.VersionConflict);
             scope.AcceptPersistedVersion();
             _scopes[scope.Id] = scope;
             _executions.Add(execution);
-            return Task.FromResult(true);
+            return Task.FromResult(WorkScopeWriteResult.Applied);
         }
     }
 }

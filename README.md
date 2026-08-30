@@ -53,20 +53,22 @@ SQLite schema contribution만 남으므로 projection 적용 기능을 쓰지 �
 다른 stream이 같은 WorkScope를 사용하면 `409 Projection.WorkScopeBindingConflict`로 거부하며 inbox·carrier·
 application에 부분 증거를 남기지 않습니다. V157 unique index가 동시 최초 결박까지 최종 차단합니다.
 호스트의 기본 service manifest는 기존 Cleaner 구성을 담은 `config/app.xml`입니다. 다른 project 제품은
-core host source를 수정하지 않고 별도 manifest와 그 manifest가 참조하는 plugin DLL을 함께 배포한 뒤
-`Server:ApplicationManifest`(환경변수 `Server__ApplicationManifest`)로 해당 로컬 manifest를 선택할 수
-있습니다. 설정이 없거나 공백이면 `config/app.xml`을 사용합니다. 현재 기본 build/publish plugin catalog는
-Cleaner 제품으로 고정되어 있으므로, 다른 제품의 자동 build/copy/file-set smoke까지 제공하려면 별도의
-product packaging profile을 추가해야 합니다.
+core host source를 수정하지 않고 별도 manifest와 그 manifest가 참조하는 plugin DLL을 함께 배포합니다.
+빌드 시 `NexaOneProductProfile`이 선택한 manifest는 산출물의 `config/app.xml`로 연결되고,
+`Server:ApplicationManifest`(환경변수 `Server__ApplicationManifest`)는 배포 뒤에도 다른 로컬 manifest를
+선택할 수 있는 runtime override seam으로 유지됩니다.
 업그레이드 직후 과거 current 증거가 자동으로 업무 상태를 바꾸지 않도록 worker 기본값은 OFF입니다.
 V157 복원본 리허설과 프로젝트 정책·대상 WorkScope 검증을 마친 배포에서만
 `Worker:Pom:WorkScopeProjection:Enabled=true`로 명시 활성화합니다. 활성화된 worker는 HTTP readiness가
 열리기 전에 worker가 사용하는 V157 필수 schema, DB read/write 권한과 WorkScope 단일-stream unique fence를 무변경
 preflight하고 실패하면 호스트 기동을 중단합니다.
-현재 WorkScope execution 원장에는 projection 전용 command provenance가 없으므로, 수동 Release/Start/Report가
-있었던 scope의 수량을 Cleaner projection이 다시 수렴시키지 않는다는 보장이 아직 없습니다. authoritative
-recipe/program hash 대조와 함께 projection-owned execution lineage 또는 비-projection command 차단 계약을
-구현하고 교차 process HIL로 검증하기 전에는 worker를 켜지 않습니다.
+V158 authority와 applied-version lineage가 projection-owned WorkScope의 일반 명령을 차단하고,
+수신·claim·commit에서 recipe/program evidence와 scope version을 다시 대조합니다. 다만 기본 Cleaner profile은
+아직 RMS recipe execution과 released program artifact를 해석하는 제품 coordinator 대신
+`RejectingWorkScopeProjectionAuthorityValidator`를 사용합니다. 따라서 기본 조립의 worker-ON 스모크는 빈 queue에서
+plugin/hosted-service/schema readiness가 연결됐다는 증거일 뿐, authority 발급 가능·실설비 HIL 승인·운영 활성화를
+뜻하지 않습니다. 제품 profile에 신뢰된 validator를 조립하고 실제 recipe/program 불변 evidence와 교차-process
+복구를 검증하기 전에는 worker를 켜지 않습니다.
 활성 제품의 POM service manifest는 policy를 application runtime보다 먼저 선언해야 합니다.
 
 ```xml
@@ -78,6 +80,29 @@ recipe/program hash 대조와 함께 projection-owned execution lineage 또는 �
 `Enabled=true`인데 `pom-projection.xml`이 빠졌거나 runtime marker가 중복되거나 marker와 hosted worker가
 같은 객체가 아니면 호스트가 HTTP를 열기 전에 실패합니다. 반대로 기능이 OFF인 POM-only 제품은
 `config/modules/pom.xml`만 사용하며 application runtime marker가 없어도 됩니다.
+
+### 제품 패키징 profile
+
+`eng/product-profiles/Core.props`가 공통 도메인 plugin을 한 번만 선언하고,
+`eng/product-profiles/profiles/<Profile>.props`가 제품 전용 project DLL과 application manifest만 추가합니다.
+Server와 ServerTests는 같은 `@(NexaOneProductPlugin)` item을 사용하므로 build 순서, `Modules/` copy/publish,
+hash 비교와 exact file-set smoke에 별도 DLL 배열이 없습니다. 빌드는 선택 결과를
+`config/product-profile.manifest`에 기록하며 profile을 바꿀 때 이전 제품 DLL과 plugin `.deps.json`을 제거합니다.
+
+기본값은 기존 산출물과 동일한 `Cleaner`입니다. 프로젝트 정책이 없는 POM-only 산출물은 property 하나로
+빌드·게시·부팅 검증할 수 있습니다.
+
+```powershell
+dotnet build src/00.Main/NexaOne.Server/NexaOne.Server.csproj -c Release `
+  -p:NexaOneProductProfile=PomOnly
+
+pwsh -NoProfile -File tools/ops/Test-Publish.ps1 -ProductProfile PomOnly
+```
+
+새 제품은 별도 `<Product>.props`와 Spring application manifest를 추가하고, profile에 제품 project의
+경로와 assembly 이름을 한 번 선언합니다. `Server.csproj`, 테스트 코드, publish 스크립트의 DLL 목록은
+수정하지 않습니다. profile의 manifest `classPaths`와 선언 plugin 집합이 다르면 정적 계약 및 실제 bundle
+smoke가 실패합니다.
 
 ## 설비 운영 원칙
 
@@ -169,6 +194,14 @@ action pin·migration catalog·Portal 테스트/빌드/audit·whitespace 검증�
 ```powershell
 pwsh -NoProfile -File tools/ops/Publish-ReleaseBundle.ps1 -Version 1.0.0
 ```
+
+제품별 릴리즈는 같은 영구 release 브랜치 정책을 유지하면서 `-ProductProfile <Profile>`을 추가합니다.
+생성되는 `release-manifest.json`에는 `packagingProfile`이 기록됩니다. 제품 프로필 도입 전에
+생성되어 이 필드가 없는 기존 매니페스트는 검증 시 `Cleaner`로 해석하므로 과거 릴리즈의
+해시·서브모듈 핀 검증도 계속 재현할 수 있습니다. 새 매니페스트의 누락 또는 잘못된 프로필을
+허용한다는 뜻은 아니며, 현재 게시 스크립트는 항상 선택한 프로필을 기록합니다. 이 필드가 있는
+현재 형식은 ZIP 내부 `config/product-profile.manifest`의 프로필, `Modules/` 전체 파일 집합,
+`config/app.xml`의 플러그인 `classPaths`가 모두 정확히 일치해야 독립 검증을 통과합니다.
 
 생성된 manifest의 source commit·submodule pin·각 DLL/ZIP SHA-256을 검토한 뒤에만
 release 브랜치에 커밋하고 annotated tag와 GitHub Release를 발행합니다.

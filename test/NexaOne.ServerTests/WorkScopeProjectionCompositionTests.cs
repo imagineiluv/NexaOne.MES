@@ -30,9 +30,19 @@ public sealed class WorkScopeProjectionCompositionTests
             .Elements(Spring + "constructor-arg")
             .Select(item => (string?)item.Attribute("ref"))
             .Should().NotContain("workScopeProjectionPolicy");
-        typeof(NexaOne.POM.Module).GetConstructors().Single().GetParameters()
+        var constructors = typeof(NexaOne.POM.Module).GetConstructors();
+        constructors.SelectMany(static constructor => constructor.GetParameters())
             .Select(parameter => parameter.ParameterType)
             .Should().NotContain(typeof(IWorkScopeProjectionPolicy));
+        var compatibilityConstructor = constructors.Single(
+            static constructor => constructor.GetParameters().Length == 10);
+        compatibilityConstructor.GetParameters()[^1].HasDefaultValue.Should().BeTrue(
+            "existing direct consumers may omit IEquipmentOutputMasterDirectory");
+        constructors.Should().ContainSingle(
+            static constructor => constructor.GetParameters().Length == 11
+                && constructor.GetParameters().Last().ParameterType
+                    == typeof(IWorkScopeProjectionAuthorityValidator),
+            "Spring composition uses the explicit fail-closed authority validator constructor");
 
         var validate = () => NexaOneMesRuntimeState.ValidateWorkScopeProjectionRuntime(
             enabled: false,

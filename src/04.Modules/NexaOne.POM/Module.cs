@@ -23,6 +23,7 @@ public sealed class Module
     private readonly IPomWorkOrderBridge _workOrderBridge;
     private readonly IWorkScopeBridge _workScopeBridge;
     private readonly IWorkScopeProjectionBridge _workScopeProjectionBridge;
+    private readonly IWorkScopeProjectionAuthorityBridge _workScopeProjectionAuthorityBridge;
     private readonly ISqliteSchemaContribution _workScopeProjectionSqliteSchemaContribution;
     private readonly ILotDispositionBridge _lotDispositionBridge;
     private readonly IMrpBridge _mrpBridge;
@@ -40,6 +41,33 @@ public sealed class Module
         IPurchaseOrderPlanningBridge purchaseOrderPlanningBridge,
         IEquipmentDirectory equipmentDirectory,
         IEquipmentOutputMasterDirectory? equipmentOutputMasterDirectory = null)
+        : this(
+            dataSource,
+            configuration,
+            dialect,
+            trackingMasterGateway,
+            productionQualityGateway,
+            mrpMasterDirectory,
+            mrpInventoryDirectory,
+            purchaseOrderPlanningBridge,
+            equipmentDirectory,
+            equipmentOutputMasterDirectory,
+            new RejectingWorkScopeProjectionAuthorityValidator())
+    {
+    }
+
+    public Module(
+        EesDataSource dataSource,
+        IConfiguration configuration,
+        INexaOneEESDbCapability dialect,
+        ITrackingMasterGateway trackingMasterGateway,
+        IProductionQualityGateway productionQualityGateway,
+        IMrpMasterDirectory mrpMasterDirectory,
+        IMrpInventoryDirectory mrpInventoryDirectory,
+        IPurchaseOrderPlanningBridge purchaseOrderPlanningBridge,
+        IEquipmentDirectory equipmentDirectory,
+        IEquipmentOutputMasterDirectory? equipmentOutputMasterDirectory,
+        IWorkScopeProjectionAuthorityValidator workScopeProjectionAuthorityValidator)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(configuration);
@@ -50,6 +78,7 @@ public sealed class Module
         ArgumentNullException.ThrowIfNull(mrpInventoryDirectory);
         ArgumentNullException.ThrowIfNull(purchaseOrderPlanningBridge);
         ArgumentNullException.ThrowIfNull(equipmentDirectory);
+        ArgumentNullException.ThrowIfNull(workScopeProjectionAuthorityValidator);
 
         var plans = new ProductionPlanRepository(dataSource, configuration);
         var orders = new ProductionOrderRepository(dataSource, configuration);
@@ -77,6 +106,10 @@ public sealed class Module
         var projectionInbox = new WorkScopeProjectionRepository(dataSource);
         _workScopeProjectionBridge = new WorkScopeProjectionBridge(
             new WorkScopeProjectionService(projectionInbox));
+        _workScopeProjectionAuthorityBridge = new WorkScopeProjectionAuthorityBridge(
+            new WorkScopeProjectionAuthorityService(
+                new WorkScopeProjectionAuthorityRepository(dataSource),
+                workScopeProjectionAuthorityValidator));
         _workScopeProjectionSqliteSchemaContribution =
             new PomWorkScopeProjectionSqliteSchemaContribution();
         _lotDispositionBridge = new LotDispositionBridge(
@@ -96,6 +129,8 @@ public sealed class Module
     public IPomWorkOrderBridge GetWorkOrderBridge() => _workOrderBridge;
     public IWorkScopeBridge GetWorkScopeBridge() => _workScopeBridge;
     public IWorkScopeProjectionBridge GetWorkScopeProjectionBridge() => _workScopeProjectionBridge;
+    public IWorkScopeProjectionAuthorityBridge GetWorkScopeProjectionAuthorityBridge() =>
+        _workScopeProjectionAuthorityBridge;
     public ISqliteSchemaContribution GetWorkScopeProjectionSqliteSchemaContribution() =>
         _workScopeProjectionSqliteSchemaContribution;
     public ILotDispositionBridge GetLotDispositionBridge() => _lotDispositionBridge;

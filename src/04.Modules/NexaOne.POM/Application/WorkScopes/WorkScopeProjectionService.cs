@@ -83,6 +83,18 @@ internal sealed class WorkScopeProjectionService
             WorkScopeProjectionPersistKind.ScopeEquipmentConflict => Conflict(
                 "Projection.ScopeEquipmentConflict",
                 $"Work scope '{snapshot.WorkScopeId}' does not belong to equipment '{snapshot.EquipmentId}'."),
+            WorkScopeProjectionPersistKind.AuthorityMissing => Conflict(
+                "Projection.AuthorityRequired",
+                $"Work scope '{snapshot.WorkScopeId}' has no trusted projection authority."),
+            WorkScopeProjectionPersistKind.AuthorityIdentityMismatch => Conflict(
+                "Projection.Authority.IdentityMismatch",
+                "Projection stream identity does not match the provisioned authority."),
+            WorkScopeProjectionPersistKind.RecipeSnapshotHashMismatch => Conflict(
+                "Projection.RecipeSnapshotHashMismatch",
+                "Projection recipe snapshot hash does not match the provisioned authority."),
+            WorkScopeProjectionPersistKind.ProgramHashMismatch => Conflict(
+                "Projection.ProgramHashMismatch",
+                "Projection program hash does not match the provisioned authority."),
             _ => Result.Failure<WorkScopeProjectionReceiptDto>(
                 Error.Failure("Projection.Persistence", "Projection persistence returned an unknown outcome.")),
         };
