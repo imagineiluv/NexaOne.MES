@@ -164,7 +164,8 @@ public sealed class ProductPackagingProfileTests
             WriteReleaseManifest(release, version, bundle, assembly, packagingProfile: "PomOnly");
             var profileMismatch = RunReleaseVerifier(repository, version);
             profileMismatch.ExitCode.Should().NotBe(0);
-            profileMismatch.Output.Should().Contain("packagingProfile does not match the bundle product profile");
+            profileMismatch.Output.Should().Contain("packagingProfile does not match");
+            profileMismatch.Output.Should().Contain("manifest=PomOnly, bundle=Cleaner");
 
             WriteProductBundle(
                 bundle,
