@@ -74,8 +74,9 @@ public sealed class Module
             new PomWorkOrderService(workOrders, orders, lots, productionQualityGateway));
         _workScopeBridge = new WorkScopeBridge(
             new WorkScopeService(workScopes, equipmentOutputMasterDirectory));
+        var projectionInbox = new WorkScopeProjectionRepository(dataSource);
         _workScopeProjectionBridge = new WorkScopeProjectionBridge(
-            new WorkScopeProjectionService(new WorkScopeProjectionRepository(dataSource)));
+            new WorkScopeProjectionService(projectionInbox));
         _workScopeProjectionSqliteSchemaContribution =
             new PomWorkScopeProjectionSqliteSchemaContribution();
         _lotDispositionBridge = new LotDispositionBridge(

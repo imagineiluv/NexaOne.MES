@@ -91,7 +91,7 @@ public sealed class MssqlMigrationRunnerTests
         source.Should().Contain("migration content drift");
         source.Should().Contain("AdoptMissingChecksums");
         source.Should().Contain("ApproveHighImpactMigrations");
-        source.Should().Contain("$highImpactVersions = @(142, 144, 146, 147, 148, 150, 151, 152, 153)");
+        source.Should().Contain("$highImpactVersions = @(142, 144, 146, 147, 148, 150, 151, 152, 153, 157)");
         source.Should().Contain("high-impact migration approval is required");
         var historyMutation = source.IndexOf(
             "ALTER TABLE SYS_SCHEMA_MIGRATION ADD CONTENT_SHA256",
@@ -102,7 +102,7 @@ public sealed class MssqlMigrationRunnerTests
         source.IndexOf("migration history is not a contiguous source prefix", StringComparison.Ordinal)
             .Should().BeLessThan(historyMutation,
                 "an out-of-order history must be rejected before changing migration history");
-        source.IndexOf("$highImpactVersions = @(142, 144, 146, 147, 148, 150, 151, 152, 153)", StringComparison.Ordinal)
+        source.IndexOf("$highImpactVersions = @(142, 144, 146, 147, 148, 150, 151, 152, 153, 157)", StringComparison.Ordinal)
             .Should().BeLessThan(historyMutation,
                 "the explicit production approval gate must run before migration-history DDL");
         source.IndexOf("$migrationNamePattern.Match($file.Name)", StringComparison.Ordinal)

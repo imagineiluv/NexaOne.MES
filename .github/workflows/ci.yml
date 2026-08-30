@@ -106,6 +106,17 @@ jobs:
       - name: Build (Release)
         run: dotnet build NexaOne.sln --configuration Release --no-restore --warnaserror
 
+      # ServerTests의 일반 prepare target은 test bin/Modules를 보정하므로 Server csproj의 실제
+      # CopyDomainModulePlugins 회귀를 숨길 수 있다. 실제 Server Release 출력 경로를 명시해
+      # 12개 plugin file-set/hash와 modules-ON 부팅을 별도 필수 게이트로 검증한다.
+      - name: Test actual Server Release plugin bundle
+        env:
+          NEXAONE_TEST_HOST_BIN: ${{ github.workspace }}/src/00.Main/NexaOne.Server/bin/Release/net8.0
+        run: >
+          dotnet test test/NexaOne.ServerTests/NexaOne.ServerTests.csproj
+          --configuration Release --no-build
+          --filter "FullyQualifiedName=NexaOne.ServerTests.HostModulesBootSmokeTests.Host_boots_all_eleven_modules_workers_and_bridges_in_one_process"
+
       - name: Test (unit + server on SQLite) (+ coverage)
         run: >
           dotnet test NexaOne.sln --configuration Release --no-build

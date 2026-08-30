@@ -5,6 +5,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.IdentityModel.Tokens;
@@ -43,10 +44,15 @@ public sealed class HostModulesBootSmokeTests
             springConfig: null,
             expectListening: true,
             concurrentServices: true,
-            enableBatchWorker: true);
+            enableBatchWorker: true,
+            enableProjectionWorker: true);
 
         host.Listening.Should().BeTrue(
             $"modules-ON 호스트가 SQLite로 기동해 Kestrel이 리슨해야 한다 — 로그:\n{host.Log}");
+        host.Log.Should().Contain("Service 'Pom' registered (2 module(s)).",
+            "POM and the Cleaner project policy must be loaded into one Spring service context");
+        host.Log.Should().Contain("[WorkScopeProjectionWorker] started",
+            "the explicitly enabled durable projection worker must be discovered as an IHostedService");
 
         using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{host.Port}") };
         (await http.GetAsync("/health")).StatusCode.Should().Be(HttpStatusCode.OK, "기동된 호스트의 /health는 200");
@@ -61,8 +67,8 @@ public sealed class HostModulesBootSmokeTests
                  WHERE type = 'trigger'
                    AND name LIKE 'TR_POM_WORK_SCOPE_PROJECTION_%';
                 """;
-            Convert.ToInt64(await schemaCommand.ExecuteScalarAsync()).Should().Be(13,
-                "the POM Spring module must contribute all projection integrity guards before listening");
+            Convert.ToInt64(await schemaCommand.ExecuteScalarAsync()).Should().Be(27,
+                "the POM Spring module must contribute all inbox/current, carrier-evidence, and durable-application guards before listening");
         }
 
         http.DefaultRequestHeaders.Authorization =
@@ -374,6 +380,40 @@ public sealed class HostModulesBootSmokeTests
     }
 
     [Fact]
+    public async Task Host_boots_pom_only_when_projection_application_is_off()
+    {
+        using var host = await HostProcess.StartAsync(
+            _o,
+            springConfig: null,
+            expectListening: true,
+            enableProjectionWorker: false,
+            pomOnlyProjectionApplication: true);
+
+        host.Listening.Should().BeTrue(
+            $"core POM acceptance/schema must compose without a project policy or application worker — logs:\n{host.Log}");
+        host.Log.Should().Contain("Service 'Pom' registered (1 module(s)).");
+        host.Log.Should().NotContain("[WorkScopeProjectionWorker]",
+            "the optional application runtime is absent from the POM-only manifest");
+    }
+
+    [Fact]
+    public async Task Host_rejects_pom_only_when_projection_application_is_enabled()
+    {
+        using var host = await HostProcess.StartAsync(
+            _o,
+            springConfig: null,
+            expectListening: false,
+            enableProjectionWorker: true,
+            pomOnlyProjectionApplication: true);
+
+        host.Listening.Should().BeFalse("an enabled projection cannot run without its application module");
+        host.Exited.Should().BeTrue("composition failure must stop host startup");
+        host.ExitCode.Should().NotBe(0);
+        host.Log.Should().Contain("Enabled=true requires exactly one IWorkScopeProjectionRuntime")
+            .And.Contain("pom-projection.xml");
+    }
+
+    [Fact]
     public void Host_smoke_defaults_to_the_current_test_build_output()
     {
         var currentOutput = Path.GetFullPath(AppContext.BaseDirectory);
@@ -431,18 +471,36 @@ internal sealed class HostProcess : IDisposable
         bool expectListening,
         bool concurrentServices = false,
         bool enableBatchWorker = false,
-        bool enableEmsSysWorkers = false)
+        bool enableEmsSysWorkers = false,
+        bool enableProjectionWorker = false,
+        bool pomOnlyProjectionApplication = false)
     {
         var explicitHostDirectory = Environment.GetEnvironmentVariable("NEXAONE_TEST_HOST_BIN");
         var hostDir = ResolveHostBinDir(explicitHostDirectory, AppContext.BaseDirectory);
         if (string.IsNullOrWhiteSpace(explicitHostDirectory))
             ValidateCurrentTestHostOutput(hostDir);
+        else
+            ValidateExternalHostOutput(hostDir, AppContext.BaseDirectory);
         var dll = Path.Combine(hostDir, "NexaOne.Server.dll");
         File.Exists(dll).Should().BeTrue($"호스트가 빌드돼 있어야 한다: {dll} (없으면 `dotnet build` 후 재시도)");
 
         var runtimeTemp = Path.Combine(Path.GetTempPath(), $"nexaone-host-smoke-{Guid.NewGuid():N}");
         Directory.CreateDirectory(runtimeTemp);
         var gwDb = Path.Combine(runtimeTemp, "gateway.db");
+        string? applicationManifest = null;
+        if (pomOnlyProjectionApplication)
+        {
+            var manifest = XDocument.Load(Path.Combine(hostDir, "config", "app.xml"));
+            var pomService = manifest.Root!
+                .Element("Services")!
+                .Elements("Service")
+                .Single(service => (string?)service.Attribute("name") == "Pom");
+            pomService.SetAttributeValue("classPaths", "./Modules/NexaOne.POM.dll");
+            pomService.SetAttributeValue("configFiles", "config/modules/pom.xml");
+            applicationManifest = Path.Combine(runtimeTemp, "pom-only.app.xml");
+            manifest.Save(applicationManifest);
+        }
+
         var psi = new ProcessStartInfo("dotnet")
         {
             WorkingDirectory = hostDir,
@@ -457,6 +515,8 @@ internal sealed class HostProcess : IDisposable
         psi.Environment["Server__Modules__Enabled"] = "true";
         if (!string.IsNullOrWhiteSpace(springConfig))
             psi.Environment["Server__SpringConfig"] = springConfig;
+        if (applicationManifest is not null)
+            psi.Environment["Server__ApplicationManifest"] = applicationManifest;
         psi.Environment["Database__Provider"] = "Sqlite";
         psi.Environment["ConnectionStrings__NexaOne"] = $"Data Source={gwDb};Foreign Keys=False";
         psi.Environment["Jwt__SecretKey"] = Secret;
@@ -466,6 +526,7 @@ internal sealed class HostProcess : IDisposable
         psi.Environment["Host__ServicesStartConcurrently"] = concurrentServices ? "true" : "false";
         psi.Environment["Host__ServicesStopConcurrently"] = concurrentServices ? "true" : "false";
         psi.Environment["Worker__Sys__BatchProcess__Enabled"] = enableBatchWorker ? "true" : "false";
+        psi.Environment["Worker__Pom__WorkScopeProjection__Enabled"] = enableProjectionWorker ? "true" : "false";
         psi.Environment["Worker__Ems__MaintenanceDue__Enabled"] = enableEmsSysWorkers ? "true" : "false";
         psi.Environment["Worker__Ems__MaintenanceDue__IntervalSeconds"] = "120";
         psi.Environment["Worker__Ems__MaintenanceDue__Topic"] = "boot-smoke.events";
@@ -560,6 +621,63 @@ internal sealed class HostProcess : IDisposable
                 + $"expected={loadedHostDll}, selected={hostDll}");
         }
 
+        ValidateRequiredHostFiles(hostDir);
+        foreach (var moduleName in ExpectedPluginModuleNames)
+        {
+            var currentReference = Path.Combine(hostDir, moduleName + ".dll");
+            var plugin = Path.Combine(hostDir, "Modules", moduleName + ".dll");
+            ValidatePluginPair(currentReference, plugin);
+        }
+    }
+
+    internal static void ValidateExternalHostOutput(
+        string hostDir,
+        string currentTestOutputDirectory)
+    {
+        var externalHostDll = Path.GetFullPath(Path.Combine(hostDir, "NexaOne.Server.dll"));
+        var currentHostDll = Path.GetFullPath(typeof(Program).Assembly.Location);
+        if (!File.Exists(externalHostDll)
+            || !File.ReadAllBytes(externalHostDll).AsSpan()
+                .SequenceEqual(File.ReadAllBytes(currentHostDll)))
+        {
+            throw new InvalidOperationException(
+                $"Explicit host-smoke output is stale relative to the current test build: "
+                + $"expected={currentHostDll}, selected={externalHostDll}");
+        }
+
+        ValidateRequiredHostFiles(hostDir);
+        var modulesDirectory = Path.Combine(hostDir, "Modules");
+        foreach (var moduleName in ExpectedPluginModuleNames)
+        {
+            var currentReference = Path.Combine(currentTestOutputDirectory, moduleName + ".dll");
+            var packagedPlugin = Path.Combine(modulesDirectory, moduleName + ".dll");
+            ValidatePluginPair(currentReference, packagedPlugin);
+        }
+
+        var expectedFiles = ExpectedPluginModuleNames
+            .Select(static name => name + ".dll")
+            .ToHashSet(PathComparer);
+        var packagedFiles = Directory.EnumerateFiles(modulesDirectory, "NexaOne.*.dll")
+            .Select(Path.GetFileName)
+            .Where(static name => name is not null)
+            .Cast<string>()
+            .ToHashSet(PathComparer);
+        if (!packagedFiles.SetEquals(expectedFiles))
+        {
+            throw new InvalidOperationException(
+                "Explicit host plugin file set differs from the current 12-assembly catalog: "
+                + $"expected=[{string.Join(",", expectedFiles.Order())}], "
+                + $"actual=[{string.Join(",", packagedFiles.Order())}]");
+        }
+        if (Directory.EnumerateFiles(modulesDirectory, "*.deps.json").Any())
+        {
+            throw new InvalidOperationException(
+                "Explicit host Modules directory must contain plugin DLLs only, not deps manifests.");
+        }
+    }
+
+    private static void ValidateRequiredHostFiles(string hostDir)
+    {
         var requiredHostFiles = new[]
         {
             "NexaOne.Server.deps.json",
@@ -573,32 +691,35 @@ internal sealed class HostProcess : IDisposable
             if (!File.Exists(path))
                 throw new FileNotFoundException($"Current host-smoke output is incomplete: {path}", path);
         }
+    }
 
-        var moduleNames = new[]
+    private static void ValidatePluginPair(string currentReference, string plugin)
+    {
+        if (!File.Exists(currentReference) || !File.Exists(plugin))
         {
-            "NexaOne.MDM", "NexaOne.EST", "NexaOne.FDC", "NexaOne.IVT", "NexaOne.RMS",
-            "NexaOne.QMS", "NexaOne.EMS", "NexaOne.POM", "NexaOne.SHP", "NexaOne.SYS",
-        };
-        foreach (var moduleName in moduleNames)
-        {
-            var currentReference = Path.Combine(hostDir, moduleName + ".dll");
-            var plugin = Path.Combine(hostDir, "Modules", moduleName + ".dll");
-            if (!File.Exists(currentReference) || !File.Exists(plugin))
-            {
-                throw new FileNotFoundException(
-                    $"Current host-smoke plugin pair is incomplete: reference={currentReference}, plugin={plugin}");
-            }
+            throw new FileNotFoundException(
+                $"Host-smoke plugin pair is incomplete: reference={currentReference}, plugin={plugin}");
+        }
 
-            if (!File.ReadAllBytes(currentReference).AsSpan().SequenceEqual(File.ReadAllBytes(plugin)))
-            {
-                throw new InvalidOperationException(
-                    $"Host-smoke plugin is stale relative to this test build: {moduleName}");
-            }
+        if (!File.ReadAllBytes(currentReference).AsSpan().SequenceEqual(File.ReadAllBytes(plugin)))
+        {
+            throw new InvalidOperationException(
+                $"Host-smoke plugin is stale relative to this test build: {Path.GetFileName(plugin)}");
         }
     }
 
+    private static readonly string[] ExpectedPluginModuleNames =
+    [
+        "NexaOne.MDM", "NexaOne.EST", "NexaOne.FDC", "NexaOne.IVT", "NexaOne.RMS",
+        "NexaOne.QMS", "NexaOne.EMS", "NexaOne.POM", "NexaOne.PRC", "NexaOne.SHP",
+        "NexaOne.SYS", "NexaOne.Project.Cleaner",
+    ];
+
     private static StringComparison PathComparison =>
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    private static StringComparer PathComparer =>
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     public void Dispose()
     {

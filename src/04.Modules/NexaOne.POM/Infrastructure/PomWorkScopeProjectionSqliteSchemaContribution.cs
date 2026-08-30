@@ -4,13 +4,14 @@ using NexaOne.Infrastructure.Persistence;
 namespace NexaOne.POM.Infrastructure;
 
 /// <summary>
-/// Owns SQLite-only trigger reconciliation for the POM work-scope projection inbox and cursor.
-/// The portable tables and indexes remain defined by V156; this contribution supplies the
-/// SQLite equivalents of the SQL Server guards omitted by the migration translator.
+/// Owns SQLite-only trigger reconciliation for the POM work-scope projection inbox, cursor, and
+/// project-policy application queue. The portable tables and indexes remain defined by V156/V157;
+/// this contribution supplies the SQLite equivalents of the SQL Server guards omitted by the
+/// migration translator and performs V157's deterministic current-event-only upgrade backfill.
 /// </summary>
 public sealed class PomWorkScopeProjectionSqliteSchemaContribution : ISqliteSchemaContribution
 {
-    public string Id => "POM.WorkScopeProjection.V156";
+    public string Id => "POM.WorkScopeProjection.V157";
 
     public void Apply(DbConnection connection, DbTransaction transaction)
     {
@@ -112,6 +113,8 @@ public sealed class PomWorkScopeProjectionSqliteSchemaContribution : ISqliteSche
 
         if (!HasTable(connection, transaction, "POM_WORK_SCOPE_PROJECTION_CURRENT")) return;
 
+        ApplyCurrentWorkScopeBindingSchema(connection, transaction);
+
         const string eventConsistencyPredicate = """
             EXISTS (
               SELECT 1
@@ -197,6 +200,474 @@ public sealed class PomWorkScopeProjectionSqliteSchemaContribution : ISqliteSche
               SELECT RAISE(ABORT, 'POM work-scope projection current cursor is not deletable');
             END;
             """);
+
+        ApplyApplicationSchema(connection, transaction);
+        ApplyCarrierEvidenceSchema(connection, transaction);
+    }
+
+    private static void ApplyCurrentWorkScopeBindingSchema(
+        DbConnection connection,
+        DbTransaction transaction)
+    {
+        var duplicate = FindViolation(connection, transaction, """
+            SELECT WORK_SCOPE_ID
+              FROM POM_WORK_SCOPE_PROJECTION_CURRENT
+             GROUP BY WORK_SCOPE_ID COLLATE BINARY
+            HAVING COUNT(*) > 1
+             LIMIT 1;
+            """);
+        if (duplicate is not null)
+        {
+            throw new InvalidOperationException(
+                $"V157 projection current contains duplicate WorkScope bindings: {duplicate}");
+        }
+
+        Execute(connection, transaction, """
+            CREATE UNIQUE INDEX IF NOT EXISTS UX_POM_WORK_SCOPE_PROJECTION_CURRENT_WORK_SCOPE
+              ON POM_WORK_SCOPE_PROJECTION_CURRENT (WORK_SCOPE_ID COLLATE BINARY);
+            """);
+    }
+
+    private static void ApplyCarrierEvidenceSchema(
+        DbConnection connection,
+        DbTransaction transaction)
+    {
+        if (!HasTable(connection, transaction, "POM_WORK_SCOPE_PROJECTION_CARRIER")) return;
+
+        var invalidSource = FindViolation(connection, transaction, """
+            SELECT E.SOURCE_CLIENT_ID || ':' || E.EVENT_ID
+              FROM POM_WORK_SCOPE_PROJECTION_INBOX E
+             WHERE CASE
+                 WHEN json_valid(E.CARRIERS_JSON) = 0 THEN 1
+                 WHEN json_type(E.CARRIERS_JSON) <> 'array' THEN 1
+                 WHEN json_array_length(E.CARRIERS_JSON) <> 2 THEN 1
+                 WHEN EXISTS (
+                    SELECT 1
+                      FROM json_each(E.CARRIERS_JSON) J
+                     WHERE J.type <> 'object'
+                        OR json_type(J.value, '$.lane') IS NOT 'text'
+                        OR length(trim(json_extract(J.value, '$.lane'))) NOT BETWEEN 1 AND 30
+                        OR length(json_extract(J.value, '$.lane')) > 30
+                        OR json_type(J.value, '$.carrierId') IS NOT 'text'
+                        OR length(trim(json_extract(J.value, '$.carrierId'))) NOT BETWEEN 1 AND 100
+                        OR length(json_extract(J.value, '$.carrierId')) > 100
+                        OR json_type(J.value, '$.cleaningRunId') IS NOT 'text'
+                        OR length(trim(json_extract(J.value, '$.cleaningRunId'))) NOT BETWEEN 1 AND 100
+                        OR length(json_extract(J.value, '$.cleaningRunId')) > 100)
+                     THEN 1
+                 WHEN (SELECT COUNT(DISTINCT json_extract(J.value, '$.lane') COLLATE BINARY)
+                         FROM json_each(E.CARRIERS_JSON) J) <> 2 THEN 1
+                 WHEN (SELECT COUNT(DISTINCT json_extract(J.value, '$.carrierId') COLLATE BINARY)
+                         FROM json_each(E.CARRIERS_JSON) J) <> 2 THEN 1
+                 ELSE 0
+             END = 1
+             LIMIT 1;
+            """);
+        if (invalidSource is not null)
+        {
+            throw new InvalidOperationException(
+                $"V157 projection carrier source is not an exact two-carrier array: {invalidSource}");
+        }
+
+        Execute(connection, transaction, """
+            CREATE INDEX IF NOT EXISTS IX_POM_WORK_SCOPE_PROJECTION_CARRIER_ID
+              ON POM_WORK_SCOPE_PROJECTION_CARRIER
+                 (CARRIER_ID, ACCEPTED_AT DESC, SOURCE_CLIENT_ID, EVENT_ID);
+            """);
+        Execute(connection, transaction, """
+            CREATE INDEX IF NOT EXISTS IX_POM_WORK_SCOPE_PROJECTION_CLEANING_RUN
+              ON POM_WORK_SCOPE_PROJECTION_CARRIER
+                 (CLEANING_RUN_ID, ACCEPTED_AT DESC, SOURCE_CLIENT_ID, EVENT_ID);
+            """);
+
+        var triggerNames = new[]
+        {
+            "TR_POM_WORK_SCOPE_PROJECTION_CARRIER_REPLACE_GUARD",
+            "TR_POM_WORK_SCOPE_PROJECTION_CARRIER_INBOX_GUARD",
+            "TR_POM_WORK_SCOPE_PROJECTION_CARRIER_UPDATE_GUARD",
+            "TR_POM_WORK_SCOPE_PROJECTION_CARRIER_DELETE_GUARD",
+        };
+        foreach (var triggerName in triggerNames)
+            Execute(connection, transaction, $"DROP TRIGGER IF EXISTS {triggerName};");
+
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_CARRIER_REPLACE_GUARD
+            BEFORE INSERT ON POM_WORK_SCOPE_PROJECTION_CARRIER
+            WHEN EXISTS (
+              SELECT 1 FROM POM_WORK_SCOPE_PROJECTION_CARRIER C
+               WHERE C.SOURCE_CLIENT_ID COLLATE BINARY = NEW.SOURCE_CLIENT_ID COLLATE BINARY
+                 AND C.EVENT_ID COLLATE BINARY = NEW.EVENT_ID COLLATE BINARY
+                 AND (C.CARRIER_ID COLLATE BINARY = NEW.CARRIER_ID COLLATE BINARY
+                      OR C.LANE COLLATE BINARY = NEW.LANE COLLATE BINARY))
+            BEGIN
+              SELECT RAISE(ABORT, 'POM projection carrier replacement is forbidden');
+            END;
+            """);
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_CARRIER_INBOX_GUARD
+            BEFORE INSERT ON POM_WORK_SCOPE_PROJECTION_CARRIER
+            WHEN length(trim(NEW.LANE)) NOT BETWEEN 1 AND 30
+              OR length(NEW.LANE) > 30
+              OR length(trim(NEW.CARRIER_ID)) NOT BETWEEN 1 AND 100
+              OR length(NEW.CARRIER_ID) > 100
+              OR length(trim(NEW.CLEANING_RUN_ID)) NOT BETWEEN 1 AND 100
+              OR length(NEW.CLEANING_RUN_ID) > 100
+              OR NOT EXISTS (
+                SELECT 1
+                  FROM POM_WORK_SCOPE_PROJECTION_INBOX E,
+                       json_each(E.CARRIERS_JSON) J
+                 WHERE E.SOURCE_CLIENT_ID COLLATE BINARY = NEW.SOURCE_CLIENT_ID COLLATE BINARY
+                   AND E.EVENT_ID COLLATE BINARY = NEW.EVENT_ID COLLATE BINARY
+                   AND E.ACCEPTED_AT = NEW.ACCEPTED_AT
+                   AND json_extract(J.value, '$.carrierId') COLLATE BINARY
+                         = NEW.CARRIER_ID COLLATE BINARY
+                   AND json_extract(J.value, '$.lane') COLLATE BINARY
+                         = NEW.LANE COLLATE BINARY
+                   AND json_extract(J.value, '$.cleaningRunId') COLLATE BINARY
+                         = NEW.CLEANING_RUN_ID COLLATE BINARY)
+            BEGIN
+              SELECT RAISE(ABORT, 'POM projection carrier must reference its exact inbox evidence');
+            END;
+            """);
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_CARRIER_UPDATE_GUARD
+            BEFORE UPDATE ON POM_WORK_SCOPE_PROJECTION_CARRIER
+            BEGIN
+              SELECT RAISE(ABORT, 'POM_WORK_SCOPE_PROJECTION_CARRIER is append-only');
+            END;
+            """);
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_CARRIER_DELETE_GUARD
+            BEFORE DELETE ON POM_WORK_SCOPE_PROJECTION_CARRIER
+            BEGIN
+              SELECT RAISE(ABORT, 'POM_WORK_SCOPE_PROJECTION_CARRIER is append-only');
+            END;
+            """);
+
+        var invalidEvidence = FindViolation(connection, transaction, """
+            SELECT C.SOURCE_CLIENT_ID || ':' || C.EVENT_ID || ':' || C.CARRIER_ID
+              FROM POM_WORK_SCOPE_PROJECTION_CARRIER C
+             WHERE NOT EXISTS (
+                SELECT 1
+                  FROM POM_WORK_SCOPE_PROJECTION_INBOX E,
+                       json_each(E.CARRIERS_JSON) J
+                 WHERE E.SOURCE_CLIENT_ID COLLATE BINARY = C.SOURCE_CLIENT_ID COLLATE BINARY
+                   AND E.EVENT_ID COLLATE BINARY = C.EVENT_ID COLLATE BINARY
+                   AND E.ACCEPTED_AT = C.ACCEPTED_AT
+                   AND json_extract(J.value, '$.carrierId') COLLATE BINARY
+                         = C.CARRIER_ID COLLATE BINARY
+                   AND json_extract(J.value, '$.lane') COLLATE BINARY = C.LANE COLLATE BINARY
+                   AND json_extract(J.value, '$.cleaningRunId') COLLATE BINARY
+                         = C.CLEANING_RUN_ID COLLATE BINARY)
+             LIMIT 1;
+            """);
+        if (invalidEvidence is not null)
+        {
+            throw new InvalidOperationException(
+                $"V157 projection carrier row does not match immutable inbox evidence: {invalidEvidence}");
+        }
+
+        Execute(connection, transaction, """
+            INSERT INTO POM_WORK_SCOPE_PROJECTION_CARRIER
+                (SOURCE_CLIENT_ID, EVENT_ID, CARRIER_ID, LANE, CLEANING_RUN_ID, ACCEPTED_AT)
+            SELECT E.SOURCE_CLIENT_ID, E.EVENT_ID,
+                   json_extract(J.value, '$.carrierId'),
+                   json_extract(J.value, '$.lane'),
+                   json_extract(J.value, '$.cleaningRunId'),
+                   E.ACCEPTED_AT
+              FROM POM_WORK_SCOPE_PROJECTION_INBOX E,
+                   json_each(E.CARRIERS_JSON) J
+             WHERE NOT EXISTS (
+                SELECT 1
+                  FROM POM_WORK_SCOPE_PROJECTION_CARRIER C
+                 WHERE C.SOURCE_CLIENT_ID COLLATE BINARY = E.SOURCE_CLIENT_ID COLLATE BINARY
+                   AND C.EVENT_ID COLLATE BINARY = E.EVENT_ID COLLATE BINARY
+                   AND C.CARRIER_ID COLLATE BINARY
+                         = json_extract(J.value, '$.carrierId') COLLATE BINARY);
+            """);
+
+        var incompleteEvidence = FindViolation(connection, transaction, """
+            SELECT E.SOURCE_CLIENT_ID || ':' || E.EVENT_ID
+              FROM POM_WORK_SCOPE_PROJECTION_INBOX E
+             WHERE (SELECT COUNT(*)
+                      FROM POM_WORK_SCOPE_PROJECTION_CARRIER C
+                     WHERE C.SOURCE_CLIENT_ID COLLATE BINARY = E.SOURCE_CLIENT_ID COLLATE BINARY
+                       AND C.EVENT_ID COLLATE BINARY = E.EVENT_ID COLLATE BINARY) <> 2
+             LIMIT 1;
+            """);
+        if (incompleteEvidence is not null)
+        {
+            throw new InvalidOperationException(
+                $"V157 projection carrier evidence is incomplete after reconciliation: {incompleteEvidence}");
+        }
+    }
+
+    private static void ApplyApplicationSchema(
+        DbConnection connection,
+        DbTransaction transaction)
+    {
+        if (!HasTable(connection, transaction, "POM_WORK_SCOPE_PROJECTION_APPLICATION")) return;
+
+        Execute(connection, transaction, """
+            CREATE INDEX IF NOT EXISTS IX_POM_WORK_SCOPE_PROJECTION_APPLICATION_READY
+              ON POM_WORK_SCOPE_PROJECTION_APPLICATION
+                 (APPLICATION_STATUS, NEXT_ATTEMPT_AT, ACCEPTED_AT,
+                  SOURCE_CLIENT_ID, EQUIPMENT_ID, SEQUENCE_RUN_ID, SOURCE_REVISION, EVENT_ID);
+            """);
+        Execute(connection, transaction, """
+            CREATE INDEX IF NOT EXISTS IX_POM_WORK_SCOPE_PROJECTION_APPLICATION_STREAM
+              ON POM_WORK_SCOPE_PROJECTION_APPLICATION
+                 (SOURCE_CLIENT_ID, EQUIPMENT_ID, SEQUENCE_RUN_ID,
+                  SOURCE_REVISION, ACCEPTED_AT, EVENT_ID);
+            """);
+        Execute(connection, transaction, """
+            CREATE INDEX IF NOT EXISTS IX_POM_WORK_SCOPE_PROJECTION_STREAM_ORDER
+              ON POM_WORK_SCOPE_PROJECTION_INBOX
+                 (SOURCE_CLIENT_ID, EQUIPMENT_ID, SEQUENCE_RUN_ID,
+                  SOURCE_REVISION, ACCEPTED_AT, EVENT_ID);
+            """);
+
+        var applicationTriggerNames = new[]
+        {
+            "TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_REPLACE_GUARD",
+            "TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_INBOX_GUARD",
+            "TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_IDENTITY_GUARD",
+            "TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_MONOTONIC_GUARD",
+            "TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_TERMINAL_GUARD",
+            "TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_DELETE_GUARD",
+        };
+        foreach (var triggerName in applicationTriggerNames)
+            Execute(connection, transaction, $"DROP TRIGGER IF EXISTS {triggerName};");
+
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_REPLACE_GUARD
+            BEFORE INSERT ON POM_WORK_SCOPE_PROJECTION_APPLICATION
+            WHEN EXISTS (
+              SELECT 1 FROM POM_WORK_SCOPE_PROJECTION_APPLICATION A
+               WHERE A.SOURCE_CLIENT_ID COLLATE BINARY = NEW.SOURCE_CLIENT_ID COLLATE BINARY
+                 AND A.EVENT_ID COLLATE BINARY = NEW.EVENT_ID COLLATE BINARY)
+            BEGIN
+              SELECT RAISE(ABORT, 'POM projection application replacement is forbidden');
+            END;
+            """);
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_INBOX_GUARD
+            BEFORE INSERT ON POM_WORK_SCOPE_PROJECTION_APPLICATION
+            WHEN NOT EXISTS (
+              SELECT 1 FROM POM_WORK_SCOPE_PROJECTION_INBOX E
+               WHERE E.SOURCE_CLIENT_ID COLLATE BINARY = NEW.SOURCE_CLIENT_ID COLLATE BINARY
+                 AND E.EVENT_ID COLLATE BINARY = NEW.EVENT_ID COLLATE BINARY
+                 AND E.WORK_SCOPE_ID COLLATE BINARY = NEW.WORK_SCOPE_ID COLLATE BINARY
+                 AND E.EQUIPMENT_ID COLLATE BINARY = NEW.EQUIPMENT_ID COLLATE BINARY
+                 AND E.SEQUENCE_RUN_ID COLLATE BINARY = NEW.SEQUENCE_RUN_ID COLLATE BINARY
+                 AND E.SOURCE_REVISION = NEW.SOURCE_REVISION
+                 AND E.ACCEPTED_AT = NEW.ACCEPTED_AT)
+            BEGIN
+              SELECT RAISE(ABORT, 'POM projection application must reference its exact inbox event');
+            END;
+            """);
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_IDENTITY_GUARD
+            BEFORE UPDATE ON POM_WORK_SCOPE_PROJECTION_APPLICATION
+            WHEN OLD.SOURCE_CLIENT_ID COLLATE BINARY <> NEW.SOURCE_CLIENT_ID COLLATE BINARY
+              OR OLD.EVENT_ID COLLATE BINARY <> NEW.EVENT_ID COLLATE BINARY
+              OR OLD.WORK_SCOPE_ID COLLATE BINARY <> NEW.WORK_SCOPE_ID COLLATE BINARY
+              OR OLD.EQUIPMENT_ID COLLATE BINARY <> NEW.EQUIPMENT_ID COLLATE BINARY
+              OR OLD.SEQUENCE_RUN_ID COLLATE BINARY <> NEW.SEQUENCE_RUN_ID COLLATE BINARY
+              OR OLD.SOURCE_REVISION <> NEW.SOURCE_REVISION
+              OR OLD.ACCEPTED_AT <> NEW.ACCEPTED_AT
+              OR OLD.CREATED_BY COLLATE BINARY <> NEW.CREATED_BY COLLATE BINARY
+              OR OLD.CREATED_AT <> NEW.CREATED_AT
+            BEGIN
+              SELECT RAISE(ABORT, 'POM projection application identity is immutable');
+            END;
+            """);
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_MONOTONIC_GUARD
+            BEFORE UPDATE ON POM_WORK_SCOPE_PROJECTION_APPLICATION
+            WHEN NEW.ATTEMPT_COUNT < OLD.ATTEMPT_COUNT
+              OR NEW.LEASE_FENCE < OLD.LEASE_FENCE
+            BEGIN
+              SELECT RAISE(ABORT, 'POM projection application attempts and lease fence are monotonic');
+            END;
+            """);
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_TERMINAL_GUARD
+            BEFORE UPDATE ON POM_WORK_SCOPE_PROJECTION_APPLICATION
+            WHEN OLD.APPLICATION_STATUS IN ('Applied', 'Observed', 'Superseded', 'Quarantined')
+             AND (NEW.APPLICATION_STATUS <> OLD.APPLICATION_STATUS
+               OR NEW.ATTEMPT_COUNT <> OLD.ATTEMPT_COUNT
+               OR NEW.NEXT_ATTEMPT_AT IS NOT OLD.NEXT_ATTEMPT_AT
+               OR NEW.LEASE_OWNER IS NOT OLD.LEASE_OWNER
+               OR NEW.LEASE_FENCE <> OLD.LEASE_FENCE
+               OR NEW.LEASE_EXPIRES_AT IS NOT OLD.LEASE_EXPIRES_AT
+               OR NEW.POLICY_ID IS NOT OLD.POLICY_ID
+               OR NEW.POLICY_REVISION IS NOT OLD.POLICY_REVISION
+               OR NEW.DECISION_HASH IS NOT OLD.DECISION_HASH
+               OR NEW.DECISION_JSON IS NOT OLD.DECISION_JSON
+               OR NEW.LAST_ERROR_CODE IS NOT OLD.LAST_ERROR_CODE
+               OR NEW.LAST_ERROR_MESSAGE IS NOT OLD.LAST_ERROR_MESSAGE
+               OR NEW.COMPLETED_AT IS NOT OLD.COMPLETED_AT)
+            BEGIN
+              SELECT RAISE(ABORT, 'POM projection application terminal state cannot regress or mutate');
+            END;
+            """);
+        Execute(connection, transaction, """
+            CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_DELETE_GUARD
+            BEFORE DELETE ON POM_WORK_SCOPE_PROJECTION_APPLICATION
+            BEGIN
+              SELECT RAISE(ABORT, 'POM work-scope projection application is not deletable or replaceable');
+            END;
+            """);
+
+        if (HasTable(connection, transaction, "POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT"))
+        {
+            Execute(connection, transaction, """
+                CREATE INDEX IF NOT EXISTS IX_POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT_PARENT
+                  ON POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT
+                     (SOURCE_CLIENT_ID, EVENT_ID, OCCURRED_AT, APPLICATION_EVENT_ID);
+                """);
+
+            var eventTriggerNames = new[]
+            {
+                "TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT_PARENT_GUARD",
+                "TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT_REPLACE_GUARD",
+                "TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT_UPDATE_GUARD",
+                "TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT_DELETE_GUARD",
+            };
+            foreach (var triggerName in eventTriggerNames)
+                Execute(connection, transaction, $"DROP TRIGGER IF EXISTS {triggerName};");
+
+            Execute(connection, transaction, """
+                CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT_PARENT_GUARD
+                BEFORE INSERT ON POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT
+                WHEN NOT EXISTS (
+                  SELECT 1 FROM POM_WORK_SCOPE_PROJECTION_APPLICATION A
+                   WHERE A.SOURCE_CLIENT_ID COLLATE BINARY = NEW.SOURCE_CLIENT_ID COLLATE BINARY
+                     AND A.EVENT_ID COLLATE BINARY = NEW.EVENT_ID COLLATE BINARY)
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM projection application event requires its application parent');
+                END;
+                """);
+            Execute(connection, transaction, """
+                CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT_REPLACE_GUARD
+                BEFORE INSERT ON POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT
+                WHEN EXISTS (
+                  SELECT 1 FROM POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT E
+                   WHERE E.APPLICATION_EVENT_ID COLLATE BINARY
+                         = NEW.APPLICATION_EVENT_ID COLLATE BINARY)
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM projection application event replacement is forbidden');
+                END;
+                """);
+            Execute(connection, transaction, """
+                CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT_UPDATE_GUARD
+                BEFORE UPDATE ON POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT is append-only');
+                END;
+                """);
+            Execute(connection, transaction, """
+                CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT_DELETE_GUARD
+                BEFORE DELETE ON POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT
+                BEGIN
+                  SELECT RAISE(ABORT, 'POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT is append-only');
+                END;
+                """);
+        }
+
+        // SQLite's generic incremental migration pass intentionally skips DML. Reconcile only the
+        // exact inbox events selected by V156 CURRENT; historical non-current evidence is never
+        // replayed merely because V157 was installed. NOT EXISTS keeps every restart idempotent while
+        // allowing constraint/identity corruption to surface instead of being hidden by OR IGNORE.
+        Execute(connection, transaction, """
+            INSERT INTO POM_WORK_SCOPE_PROJECTION_APPLICATION
+                (SOURCE_CLIENT_ID, EVENT_ID, WORK_SCOPE_ID, EQUIPMENT_ID, SEQUENCE_RUN_ID,
+                 SOURCE_REVISION, ACCEPTED_AT, APPLICATION_STATUS, ATTEMPT_COUNT,
+                 NEXT_ATTEMPT_AT, LEASE_OWNER, LEASE_FENCE, LEASE_EXPIRES_AT,
+                 CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            SELECT E.SOURCE_CLIENT_ID, E.EVENT_ID, E.WORK_SCOPE_ID, E.EQUIPMENT_ID,
+                   E.SEQUENCE_RUN_ID, E.SOURCE_REVISION, E.ACCEPTED_AT, 'Pending', 0,
+                   NULL, NULL, 0, NULL,
+                   'SYSTEM', CURRENT_TIMESTAMP, 'SYSTEM', CURRENT_TIMESTAMP
+              FROM POM_WORK_SCOPE_PROJECTION_CURRENT C
+              JOIN POM_WORK_SCOPE_PROJECTION_INBOX E
+                ON E.SOURCE_CLIENT_ID COLLATE BINARY = C.SOURCE_CLIENT_ID COLLATE BINARY
+               AND E.EVENT_ID COLLATE BINARY = C.EVENT_ID COLLATE BINARY
+               AND E.WORK_SCOPE_ID COLLATE BINARY = C.WORK_SCOPE_ID COLLATE BINARY
+               AND E.EQUIPMENT_ID COLLATE BINARY = C.EQUIPMENT_ID COLLATE BINARY
+               AND E.SEQUENCE_RUN_ID COLLATE BINARY = C.SEQUENCE_RUN_ID COLLATE BINARY
+               AND E.SOURCE_REVISION = C.SOURCE_REVISION
+               AND E.ACCEPTED_AT = C.ACCEPTED_AT
+             WHERE NOT EXISTS (
+                SELECT 1
+                  FROM POM_WORK_SCOPE_PROJECTION_APPLICATION A
+                 WHERE A.SOURCE_CLIENT_ID COLLATE BINARY = E.SOURCE_CLIENT_ID COLLATE BINARY
+                   AND A.EVENT_ID COLLATE BINARY = E.EVENT_ID COLLATE BINARY);
+            """);
+
+        EnsureInitialApplicationAudits(connection, transaction);
+    }
+
+    private static void EnsureInitialApplicationAudits(
+        DbConnection connection,
+        DbTransaction transaction)
+    {
+        if (!HasTable(connection, transaction, "POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT")) return;
+
+        var seeds = new List<(string SourceClientId, string EventId, object CreatedAt)>();
+        using (var query = connection.CreateCommand())
+        {
+            query.Transaction = transaction;
+            query.CommandText = """
+                SELECT A.SOURCE_CLIENT_ID, A.EVENT_ID, A.CREATED_AT
+                  FROM POM_WORK_SCOPE_PROJECTION_APPLICATION A
+                 WHERE NOT EXISTS (
+                    SELECT 1
+                      FROM POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT E
+                     WHERE E.SOURCE_CLIENT_ID COLLATE BINARY = A.SOURCE_CLIENT_ID COLLATE BINARY
+                       AND E.EVENT_ID COLLATE BINARY = A.EVENT_ID COLLATE BINARY
+                       AND E.EVENT_TYPE = 'Pending'
+                       AND E.TO_STATUS = 'Pending'
+                       AND E.ATTEMPT_COUNT = 0
+                       AND E.LEASE_FENCE = 0);
+                """;
+            using var reader = query.ExecuteReader();
+            while (reader.Read())
+                seeds.Add((reader.GetString(0), reader.GetString(1), reader.GetValue(2)));
+        }
+
+        foreach (var seed in seeds)
+        {
+            using var insert = connection.CreateCommand();
+            insert.Transaction = transaction;
+            insert.CommandText = """
+                INSERT INTO POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT
+                    (APPLICATION_EVENT_ID, SOURCE_CLIENT_ID, EVENT_ID, EVENT_TYPE,
+                     FROM_STATUS, TO_STATUS, ATTEMPT_COUNT, LEASE_FENCE,
+                     POLICY_ID, POLICY_REVISION, DECISION_HASH, DECISION_JSON,
+                     ERROR_CODE, ERROR_MESSAGE, OCCURRED_AT, CREATED_BY, CREATED_AT)
+                SELECT @applicationEventId, @sourceClientId, @eventId, 'Pending',
+                       NULL, 'Pending', 0, 0,
+                       NULL, NULL, NULL, NULL,
+                       NULL, NULL, @createdAt, 'SYSTEM', @createdAt
+                 WHERE NOT EXISTS (
+                    SELECT 1
+                      FROM POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT E
+                     WHERE E.SOURCE_CLIENT_ID COLLATE BINARY = @sourceClientId COLLATE BINARY
+                       AND E.EVENT_ID COLLATE BINARY = @eventId COLLATE BINARY
+                       AND E.EVENT_TYPE = 'Pending'
+                       AND E.TO_STATUS = 'Pending'
+                       AND E.ATTEMPT_COUNT = 0
+                       AND E.LEASE_FENCE = 0);
+                """;
+            AddParameter(insert, "@applicationEventId", ProjectionIdentity.Audit(
+                seed.SourceClientId, seed.EventId, "Pending", 0, 0));
+            AddParameter(insert, "@sourceClientId", seed.SourceClientId);
+            AddParameter(insert, "@eventId", seed.EventId);
+            AddParameter(insert, "@createdAt", seed.CreatedAt);
+            insert.ExecuteNonQuery();
+        }
     }
 
     private static bool HasTable(
@@ -228,5 +699,25 @@ public sealed class PomWorkScopeProjectionSqliteSchemaContribution : ISqliteSche
         command.Transaction = transaction;
         command.CommandText = commandText;
         command.ExecuteNonQuery();
+    }
+
+    private static void AddParameter(DbCommand command, string name, object value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = name;
+        parameter.Value = value;
+        command.Parameters.Add(parameter);
+    }
+
+    private static string? FindViolation(
+        DbConnection connection,
+        DbTransaction transaction,
+        string commandText)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = commandText;
+        var result = command.ExecuteScalar();
+        return result is null or DBNull ? null : Convert.ToString(result);
     }
 }

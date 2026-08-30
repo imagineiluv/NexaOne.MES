@@ -11,13 +11,14 @@ NexaMES는 제조 실행과 설비 운영을 하나의 서버에서 조립하는
 | `NexaOne.Server` | HTTP API, 인증, Spring.NET 조립 루트, 모듈 로딩, SQLite/MSSQL 부팅 |
 | `NexaOne.Common` | 모듈 간 서비스 계약, 감사·멱등성·영속성 공통 기반 |
 | `MDM` | Plant, 설비, 품목, 작업조, 캐리어 등 기준정보 |
-| `POM` | 생산 W/O, 공정 LOT, 공정 이력과 처분 |
+| `POM` | 생산 W/O, WorkScope, 공정 LOT, 공정 이력과 처분 |
 | `IVT` | 자재 LOT, 투입·소모 원장과 TRACE projection |
 | `QMS` | 검사, 불량, 폐기와 품질 이력 |
 | `EMS` | PM/BM, 보전 W/O, 예비부품, BOM·공급처, Tool 점검·교정 |
 | `EST` | 설비 상태, 출력, Utility, OEE와 설비 실행 증거 |
 | `RMS` | Recipe 승인, 버전, Parameter, 설비 할당과 실행 snapshot |
 | `FDC` | 설비 통신 endpoint와 driver adapter, 수집 계약 |
+| `NexaOne.Project.Cleaner` | Cleaner의 Carrier Pair 증거를 WorkScope 전이로 해석하는 순수 프로젝트 정책 |
 
 세 개의 재사용 저장소는 `submodules/` 아래에서 고정 commit으로 참조합니다.
 
@@ -34,6 +35,49 @@ Driver 구현은 업무 서비스나 Component에서 다시 만들지 않습니�
 플러그인이 소유하는 것은 프로젝트별 정책입니다. 예를 들면 캐리어 세척 시퀀스, 고객사별 알람 해제 조건, MES payload mapping, 자재 소모 방식, LOT/Carrier 변환, 설비별 parameter 해석입니다. 플러그인은 공통 계약을 사용하지만 공통 모듈의 DB 내부 구현을 직접 참조하지 않습니다.
 
 Spring XML은 런타임 조립에 사용합니다. 모듈 구현을 상속해 제품 로직을 끼워 넣지 않고, 안정된 interface를 구현한 adapter 또는 plugin을 `config/host/*.xml`과 `config/modules/*.xml`에서 연결합니다. 단순하고 고정된 코드 경로는 생성자 주입으로 직접 참조하고, 교체 가능성이 있는 프로젝트 정책만 XML seam을 사용합니다.
+
+Cleaner WorkScope 연결은 이 경계를 실제로 사용합니다. HTTP 수신은 V156 불변 inbox/current와 V157
+application 행까지만 한 트랜잭션으로 기록하고 즉시 수락 결과를 반환합니다. POM worker가 DB lease를
+획득한 뒤 `NexaOne.Project.Cleaner`의 순수 policy를 트랜잭션 밖에서 호출하고, 반환된 effect 전체와
+`POM_WORK_SCOPE_EXECUTION`, application 상태·감사 이력을 하나의 serializable transaction으로 반영합니다.
+따라서 `202 Accepted`는 업무 반영 완료를 뜻하지 않으며, 프로세스 재시작이나 정책 예외가 있어도
+`Pending`/`Retry` 상태에서 이어집니다. LOT는 만들지 않고 terminal cleanup이 영속 완료된
+`Completed`/`Abandoned`만 WorkScope 종결 후보가 됩니다. Cleaner 작업은 캐리어별 상태가 아니라
+pair 단위 상태를 가지므로 `ScopeType=Other`, `TargetId=PairRunId`, `PlanQty=2`인 WorkScope 하나를 사용합니다.
+두 Carrier ID·lane·cleaning run은 V157의 불변 정규화 증거로 보존해 캐리어별 이력을 조회하되 서로 다른
+완료 상태를 만들지 않습니다. 프로젝트 정책 교체 지점은 `config/projects/cleaner.xml`, 선택형 application
+runtime 조립 지점은 `config/modules/pom-projection.xml`입니다. 코어 `pom.xml`에는 inbox/current 수신 bridge와
+SQLite schema contribution만 남으므로 projection 적용 기능을 쓰지 않는 POM 제품은 프로젝트 policy 없이도
+조립됩니다. POM의 저장소·lease 구현은 프로젝트 assembly에 노출하지 않습니다.
+하나의 WorkScope는 최초 수락된 `(SourceClientId, EquipmentId, SequenceRunId)` stream 하나에만 결박됩니다.
+다른 stream이 같은 WorkScope를 사용하면 `409 Projection.WorkScopeBindingConflict`로 거부하며 inbox·carrier·
+application에 부분 증거를 남기지 않습니다. V157 unique index가 동시 최초 결박까지 최종 차단합니다.
+호스트의 기본 service manifest는 기존 Cleaner 구성을 담은 `config/app.xml`입니다. 다른 project 제품은
+core host source를 수정하지 않고 별도 manifest와 그 manifest가 참조하는 plugin DLL을 함께 배포한 뒤
+`Server:ApplicationManifest`(환경변수 `Server__ApplicationManifest`)로 해당 로컬 manifest를 선택할 수
+있습니다. 설정이 없거나 공백이면 `config/app.xml`을 사용합니다. 현재 기본 build/publish plugin catalog는
+Cleaner 제품으로 고정되어 있으므로, 다른 제품의 자동 build/copy/file-set smoke까지 제공하려면 별도의
+product packaging profile을 추가해야 합니다.
+업그레이드 직후 과거 current 증거가 자동으로 업무 상태를 바꾸지 않도록 worker 기본값은 OFF입니다.
+V157 복원본 리허설과 프로젝트 정책·대상 WorkScope 검증을 마친 배포에서만
+`Worker:Pom:WorkScopeProjection:Enabled=true`로 명시 활성화합니다. 활성화된 worker는 HTTP readiness가
+열리기 전에 worker가 사용하는 V157 필수 schema, DB read/write 권한과 WorkScope 단일-stream unique fence를 무변경
+preflight하고 실패하면 호스트 기동을 중단합니다.
+현재 WorkScope execution 원장에는 projection 전용 command provenance가 없으므로, 수동 Release/Start/Report가
+있었던 scope의 수량을 Cleaner projection이 다시 수렴시키지 않는다는 보장이 아직 없습니다. authoritative
+recipe/program hash 대조와 함께 projection-owned execution lineage 또는 비-projection command 차단 계약을
+구현하고 교차 process HIL로 검증하기 전에는 worker를 켜지 않습니다.
+활성 제품의 POM service manifest는 policy를 application runtime보다 먼저 선언해야 합니다.
+
+```xml
+<Service name="Pom"
+  classPaths="./Modules/NexaOne.POM.dll;./Modules/NexaOne.Project.Cleaner.dll"
+  configFiles="config/modules/pom.xml;config/projects/cleaner.xml;config/modules/pom-projection.xml" />
+```
+
+`Enabled=true`인데 `pom-projection.xml`이 빠졌거나 runtime marker가 중복되거나 marker와 hosted worker가
+같은 객체가 아니면 호스트가 HTTP를 열기 전에 실패합니다. 반대로 기능이 OFF인 POM-only 제품은
+`config/modules/pom.xml`만 사용하며 application runtime marker가 없어도 됩니다.
 
 ## 설비 운영 원칙
 

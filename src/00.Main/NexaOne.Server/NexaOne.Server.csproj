@@ -116,6 +116,10 @@
     <ProjectReference Include="..\..\04.Modules\NexaOne.PRC\NexaOne.PRC.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.SHP\NexaOne.SHP.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" ReferenceOutputAssembly="false" />
+    <!-- Project-owned WorkScope policy is loaded in the same Spring service context as POM but in
+         its own plugin ALC. Both share NexaOne.Common contracts from the Default ALC; POM owns
+         persistence, leases, transactions, and retries. -->
+    <ProjectReference Include="..\..\05.Projects\NexaOne.Project.Cleaner\NexaOne.Project.Cleaner.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <!-- Portal client 빌드 타깃 — wwwroot/spa로 vite 번들을 출력한다. ResolveProjectStaticWebAssets(정적 웹 자산이

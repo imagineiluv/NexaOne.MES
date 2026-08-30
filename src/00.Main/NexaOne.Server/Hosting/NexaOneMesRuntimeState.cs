@@ -8,6 +8,7 @@ using NexaOne.Infrastructure.Messaging;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.Server.Realtime;
 using NexaOne.ServiceContracts;
+using NexaOne.ServiceContracts.Pom;
 using NexaFramework;
 using NexaFramework.Scheduling;
 using NexaFramework.Utils;
@@ -402,7 +403,7 @@ internal sealed class NexaOneMesRuntimeState : IDisposable
     }
 
     /// <summary>
-    /// 서버 Spring 컨텍스트와 app.xml의 서비스 컨텍스트를 순서대로 생성하고 HostedService를 수집한다.
+    /// 서버 Spring 컨텍스트와 배포별 애플리케이션 매니페스트의 서비스 컨텍스트를 순서대로 생성하고 HostedService를 수집한다.
     /// </summary>
     private void InitializeModules(IServiceProvider services)
     {
@@ -419,6 +420,11 @@ internal sealed class NexaOneMesRuntimeState : IDisposable
 
         var workers = new List<IHostedService>();
         workers.AddRange(serverContext.GetObjectsOfType(typeof(IHostedService)).Values.Cast<IHostedService>());
+        var projectionRuntimes = serverContext
+            .GetObjectsOfType(typeof(IWorkScopeProjectionRuntime))
+            .Values
+            .Cast<IWorkScopeProjectionRuntime>()
+            .ToList();
         var sqliteSchemaContributions = serverContext
             .GetObjectsOfType(typeof(ISqliteSchemaContribution))
             .Values
@@ -426,7 +432,8 @@ internal sealed class NexaOneMesRuntimeState : IDisposable
             .ToList();
 
         var loadedServices = new List<string>();
-        var document = XDomUtility.Load("config/app.xml");
+        var applicationManifest = ServerApplicationManifestResolver.Resolve(_configuration);
+        var document = XDomUtility.Load(applicationManifest);
         var root = XDomUtility.GetRoot(document);
         var serviceElements = XDomUtility.GetElement(root, "Services");
         var splitOptions = StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries;
@@ -444,12 +451,21 @@ internal sealed class NexaOneMesRuntimeState : IDisposable
             var context = _server.AddService(name, configFiles, classPaths);
             loadedServices.Add(name);
             workers.AddRange(context.GetObjectsOfType(typeof(IHostedService)).Values.Cast<IHostedService>());
+            projectionRuntimes.AddRange(context
+                .GetObjectsOfType(typeof(IWorkScopeProjectionRuntime))
+                .Values
+                .Cast<IWorkScopeProjectionRuntime>());
             sqliteSchemaContributions.AddRange(context
                 .GetObjectsOfType(typeof(ISqliteSchemaContribution))
                 .Values
                 .Cast<ISqliteSchemaContribution>());
             Console.WriteLine($"[NexaOne.Server] Service '{name}' registered ({classPaths.Length} module(s)).");
         }
+
+        ValidateWorkScopeProjectionRuntime(
+            _configuration.GetValue("Worker:Pom:WorkScopeProjection:Enabled", false),
+            projectionRuntimes,
+            workers);
 
         if (sqliteConnectionString is not null)
             SqliteSchemaInitializer.ApplyContributions(sqliteConnectionString, sqliteSchemaContributions);
@@ -470,6 +486,55 @@ internal sealed class NexaOneMesRuntimeState : IDisposable
 
         _moduleWorkers = distinctWorkers.AsReadOnly();
         Console.WriteLine($"[NexaOne.Server] {_workerCount} background worker(s) discovered.");
+    }
+
+    /// <summary>
+    /// Validates the optional WorkScope projection feature across Spring plugin ALC boundaries.
+    /// An enabled deployment must expose exactly one Default-ALC marker and that exact object must
+    /// participate in the hosted-service lifecycle. Disabled POM-only deployments may expose none.
+    /// </summary>
+    internal static void ValidateWorkScopeProjectionRuntime(
+        bool enabled,
+        IEnumerable<IWorkScopeProjectionRuntime> runtimes,
+        IEnumerable<IHostedService> workers)
+    {
+        ArgumentNullException.ThrowIfNull(runtimes);
+        ArgumentNullException.ThrowIfNull(workers);
+
+        var distinctRuntimes = runtimes
+            .Distinct(ReferenceEqualityComparer.Instance)
+            .ToList();
+        if (distinctRuntimes.Count > 1)
+        {
+            throw new InvalidOperationException(
+                "WorkScope projection composition exposed more than one " +
+                $"{nameof(IWorkScopeProjectionRuntime)} marker. Configure exactly one application runtime.");
+        }
+
+        if (distinctRuntimes.Count == 0)
+        {
+            if (enabled)
+            {
+                throw new InvalidOperationException(
+                    "Worker:Pom:WorkScopeProjection:Enabled=true requires exactly one " +
+                    $"{nameof(IWorkScopeProjectionRuntime)} marker. Add the project policy and " +
+                    "config/modules/pom-projection.xml to the POM service manifest.");
+            }
+
+            return;
+        }
+
+        var runtime = distinctRuntimes[0];
+        var matchingWorkers = workers
+            .Distinct(ReferenceEqualityComparer.Instance)
+            .Where(worker => ReferenceEquals(worker, runtime))
+            .ToList();
+        if (matchingWorkers.Count != 1)
+        {
+            throw new InvalidOperationException(
+                $"The single {nameof(IWorkScopeProjectionRuntime)} marker must be the same object " +
+                "as exactly one discovered IHostedService. Check pom-projection.xml factory exports.");
+        }
     }
 
     /// <summary>

@@ -56,6 +56,8 @@ internal sealed class WorkScopeProjectionService
             snapshot.RecipeId,
             snapshot.RecipeSnapshotHash,
             snapshot.ProgramHash,
+            snapshot.Carriers.Select(static carrier => new WorkScopeProjectionCarrierEnvelope(
+                carrier.Lane, carrier.CarrierId, carrier.CleaningRunId)).ToArray(),
             JsonSerializer.Serialize(snapshot.Carriers, JsonOptions),
             snapshot.ResultCode,
             snapshot.ResultMetadataJson,
@@ -72,6 +74,9 @@ internal sealed class WorkScopeProjectionService
             WorkScopeProjectionPersistKind.SequenceIdentityConflict => Conflict(
                 "Projection.SequenceIdentityConflict",
                 $"Sequence '{snapshot.SequenceRunId}' is already bound to another work scope, operation, or pair run."),
+            WorkScopeProjectionPersistKind.WorkScopeBindingConflict => Conflict(
+                "Projection.WorkScopeBindingConflict",
+                $"Work scope '{snapshot.WorkScopeId}' is already bound to another equipment projection stream."),
             WorkScopeProjectionPersistKind.ScopeNotFound =>
                 Result.Failure<WorkScopeProjectionReceiptDto>(
                     Error.NotFoundOf("WorkScope", snapshot.WorkScopeId)),
@@ -158,9 +163,12 @@ internal sealed class WorkScopeProjectionService
                 || !IsIdentifier(carrier.CarrierId, 100)
                 || !IsIdentifier(carrier.CleaningRunId, 100))
             || carriers.Select(static carrier => carrier.Lane).Distinct(StringComparer.Ordinal).Count() != carriers.Length
-            || carriers.Select(static carrier => carrier.CarrierId).Distinct(StringComparer.Ordinal).Count() != carriers.Length)
+            || carriers.Select(static carrier => carrier.CarrierId).Distinct(StringComparer.Ordinal).Count() != carriers.Length
+            || carriers.Select(static carrier => carrier.CleaningRunId).Distinct(StringComparer.Ordinal).Count() != carriers.Length)
         {
-            return Error.Validation(nameof(command.Carriers), "Carrier lanes and identities must be valid and distinct.");
+            return Error.Validation(
+                nameof(command.Carriers),
+                "Carrier lanes, carrier identities, and cleaning-run identities must be valid and distinct.");
         }
 
         string? metadata = null;

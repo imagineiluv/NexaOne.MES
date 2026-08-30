@@ -11,7 +11,10 @@ public sealed class ModuleDependencyBoundaryTests
 {
     private static readonly string RepoRoot = RepositorySource.Root;
     private static readonly string ModulesRoot = Path.Combine(RepoRoot, "src", "04.Modules");
+    private static readonly string ProjectsRoot = Path.Combine(RepoRoot, "src", "05.Projects");
     private static readonly string ServerRoot = Path.Combine(RepoRoot, "src", "00.Main", "NexaOne.Server");
+    private static readonly string CommonProject = Path.Combine(
+        RepoRoot, "src", "02.Backend", "NexaOne.Common", "NexaOne.Common.csproj");
 
     private static readonly string[] ReusableFrameworkProjects =
     [
@@ -107,6 +110,74 @@ public sealed class ModuleDependencyBoundaryTests
 
         violations.Should().BeEmpty(
             "업무 Module은 호스트나 다른 업무 Module implementation을 직접 참조하지 않고 공유 계약/이벤트 Seam을 사용해야 합니다");
+    }
+
+    [Fact]
+    public void Project_plugins_reference_only_the_shared_common_contract_project()
+    {
+        Directory.Exists(ProjectsRoot).Should().BeTrue(
+            "project-specific policies must have an explicit architecture boundary");
+        var projects = Directory.GetFiles(ProjectsRoot, "*.csproj", SearchOption.AllDirectories);
+        projects.Should().NotBeEmpty(
+            "the project-plugin boundary test must not pass without inspecting a project plugin");
+
+        var violations = new List<string>();
+        foreach (var project in projects)
+        {
+            var references = ReadDeclaredReferences(project);
+            var commonReferences = references
+                .Where(reference => reference.Kind == "ProjectReference"
+                                    && PathsEqual(
+                                        ResolveProjectReference(project, reference.Include),
+                                        CommonProject))
+                .ToArray();
+            if (commonReferences.Length != 1)
+            {
+                violations.Add(
+                    $"{Path.GetFileNameWithoutExtension(project)} -> expected exactly one shared contract reference");
+            }
+
+            violations.AddRange(references
+                .Where(reference => reference.Kind != "ProjectReference"
+                                    || !PathsEqual(
+                                        ResolveProjectReference(project, reference.Include),
+                                        CommonProject))
+                .Select(reference =>
+                    $"{Path.GetFileNameWithoutExtension(project)} -> {reference.Include} ({reference.Kind})"));
+
+            var projectDirectory = Path.GetDirectoryName(project)!;
+            foreach (var sourceFile in Directory.GetFiles(
+                         projectDirectory, "*.cs", SearchOption.AllDirectories))
+            {
+                var source = File.ReadAllText(sourceFile);
+                var imports = Regex.Matches(
+                    source,
+                    @"^\s*(?:global\s+)?using\s+(?:static\s+)?(?:[A-Za-z_]\w*\s*=\s*)?(?<namespace>NexaOne(?:\.[A-Za-z_]\w*)+)",
+                    RegexOptions.Multiline | RegexOptions.CultureInvariant);
+                violations.AddRange(imports
+                    .Select(static match => match.Groups["namespace"].Value)
+                    .Where(static importedNamespace => !importedNamespace.StartsWith(
+                        "NexaOne.ServiceContracts.", StringComparison.Ordinal))
+                    .Select(importedNamespace =>
+                        $"{Path.GetRelativePath(RepoRoot, sourceFile)} -> {importedNamespace} (source import)"));
+
+                var qualifiedNames = Regex.Matches(
+                    source,
+                    @"\bNexaOne(?:\.[A-Za-z_]\w*)+",
+                    RegexOptions.CultureInvariant);
+                violations.AddRange(qualifiedNames
+                    .Select(static match => match.Value)
+                    .Where(static qualifiedName =>
+                        !qualifiedName.StartsWith("NexaOne.ServiceContracts.", StringComparison.Ordinal)
+                        && !qualifiedName.StartsWith("NexaOne.Project.", StringComparison.Ordinal))
+                    .Distinct(StringComparer.Ordinal)
+                    .Select(qualifiedName =>
+                        $"{Path.GetRelativePath(RepoRoot, sourceFile)} -> {qualifiedName} (qualified source reference)"));
+            }
+        }
+
+        violations.Should().BeEmpty(
+            "project plugins may use only the shared ServiceContracts seam and must remain free of Server, module, database, I/O, or package dependencies");
     }
 
     [Fact]

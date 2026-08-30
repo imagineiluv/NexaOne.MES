@@ -43,6 +43,7 @@
     <!-- Child-process host bundle requires the complete declared module catalog. -->
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.MDM\NexaOne.MDM.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.SHP\NexaOne.SHP.csproj" />
+    <ProjectReference Include="..\..\src\05.Projects\NexaOne.Project.Cleaner\NexaOne.Project.Cleaner.csproj" />
   </ItemGroup>
 
   <!-- Child-process smoke runs the host copied into this exact test output. Populate its plugin
@@ -61,6 +62,7 @@
       <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.PRC.dll" />
       <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.SHP.dll" />
       <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.SYS.dll" />
+      <_CurrentHostSmokeModule Include="$(OutDir)NexaOne.Project.Cleaner.dll" />
     </ItemGroup>
     <Error Condition="!Exists('%(_CurrentHostSmokeModule.FullPath)')"
            Text="Current host-smoke module output is missing: %(_CurrentHostSmokeModule.FullPath)" />
