@@ -29,6 +29,7 @@ public sealed class ChildProcessSmokeCollection
 /// 정적 ApplicationServer 싱글톤 제약으로 in-proc WebApplicationFactory 불가 → 자식 프로세스 black-box 스모크.
 /// 기존 ServerTests(전부 modules-OFF)가 못 타는 실제 plugin/ALC/브리지 부팅 경로의 단일 안전망.</summary>
 [Collection(ChildProcessSmokeCollection.Name)]
+[Trait("Category", "HostSmoke")]
 public sealed class HostModulesBootSmokeTests
 {
     private readonly ITestOutputHelper _o;

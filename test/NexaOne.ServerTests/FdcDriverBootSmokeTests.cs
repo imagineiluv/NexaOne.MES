@@ -7,6 +7,7 @@ namespace NexaOne.ServerTests;
 
 /// <summary>NexaLogic PLC DriverFactory의 Spring 부모 조립과 FDC plugin ALC 주입만 빠르게 검증한다.</summary>
 [Collection(ChildProcessSmokeCollection.Name)]
+[Trait("Category", "HostSmoke")]
 public sealed class FdcDriverBootSmokeTests
 {
     private readonly ITestOutputHelper _output;
