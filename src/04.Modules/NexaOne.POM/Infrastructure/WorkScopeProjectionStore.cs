@@ -93,7 +93,10 @@ internal sealed class WorkScopeProjectionStore : IWorkScopeProjectionStore
             () => _processor.ExecuteInTransactionAsync(
                 (connection, transaction) => ClaimCoreAsync(
                     connection, transaction, owner, duration, ct),
-                IsolationLevel.Serializable,
+                // SQL Server permits READPAST only at ReadCommitted/RepeatableRead. The
+                // UPDLOCK+READPAST candidate row and fenced conditional UPDATE provide the
+                // queue-claim serialization; SQLite keeps its single-writer transaction.
+                _isSqlServer ? IsolationLevel.ReadCommitted : IsolationLevel.Serializable,
                 ct),
             ct).ConfigureAwait(false);
         if (lease is null) return null;
