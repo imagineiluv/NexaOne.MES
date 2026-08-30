@@ -9,14 +9,16 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
-    <PackageReference Include="xunit" Version="2.*" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.*" />
     <PackageReference Include="FluentAssertions" Version="6.*" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.*" />
     <!-- MSSQL 방언 실검증(MssqlDialectSyntaxTests, env-gate NEXAONE_MSSQL_TEST_CONN)용 — 미설정 시 소프트 스킵. -->
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.*" />
-    <PackageReference Include="bunit" Version="1.*" />
+    <PackageReference Include="bunit" Version="2.9.0" />
+    <!-- GHSA-pgww-w46g-26qg가 수정된 AngleSharp patch를 명시적으로 고정한다. -->
+    <PackageReference Include="AngleSharp" Version="1.7.2" />
     <PackageReference Include="Moq" Version="4.*" />
   </ItemGroup>
 

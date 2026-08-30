@@ -36,7 +36,7 @@ public sealed class MetaScreenCollectionRegistrationTests
             .ReturnsAsync(() => ++attempt >= 2);
         Register(ctx, definition, api);
 
-        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters
+        var cut = ctx.Render<MetaScreen>(parameters => parameters
             .Add(component => component.UiId, definition.UiId));
 
         cut.WaitForAssertion(() => cut.FindComponents<MetaCollectionEditor>().Should().ContainSingle());
@@ -70,7 +70,7 @@ public sealed class MetaScreenCollectionRegistrationTests
         var api = new Mock<IApiClient>();
         Register(ctx, definition, api);
 
-        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters
+        var cut = ctx.Render<MetaScreen>(parameters => parameters
             .Add(component => component.UiId, definition.UiId));
 
         cut.WaitForAssertion(() => cut.FindAll("fieldset.meta-collection-item").Should().ContainSingle());
@@ -128,16 +128,16 @@ public sealed class MetaScreenCollectionRegistrationTests
             },
             Purpose: ScreenPurpose.Register);
 
-    private static TestContext CreateContext()
+    private static BunitContext CreateContext()
     {
-        var context = new TestContext();
+        var context = new BunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddRadzenComponents();
         return context;
     }
 
     private static void Register(
-        TestContext context,
+        BunitContext context,
         ScreenDefinition definition,
         Mock<IApiClient> api)
     {

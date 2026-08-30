@@ -12,7 +12,7 @@
 ## 릴리즈 순서
 
 1. 최신 `main`을 fast-forward로 검증하고 `dotnet build --warnaserror`, Unit/Server/boot,
-   Portal 테스트·빌드·audit, SQLite 증분 검증을 통과시킵니다.
+   `tools/ci/Verify-NuGetVulnerabilities.ps1`, Portal 테스트·빌드·audit, SQLite 증분 검증을 통과시킵니다.
 2. 복원한 SQL Server에서 V001부터 마지막 migration까지 `mssql-contract`와 rollback/lock
    근거를 확인합니다. 실 MSSQL 증거가 없으면 릴리즈 산출물을 만들지 않습니다.
 3. `tools/ops/Test-Publish.ps1`로 게시 결과를 격리 폴더에서 단독 부팅하고 `/health`, 로그인,

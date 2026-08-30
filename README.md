@@ -64,6 +64,7 @@ git clone --recurse-submodules https://github.com/imagineiluv/NexaOne.MES.git Ne
 cd NexaMes
 pwsh -File tools/Initialize-Submodules.ps1
 dotnet restore NexaOne.sln
+./tools/ci/Verify-NuGetVulnerabilities.ps1 -NoRestore
 dotnet build NexaOne.sln --configuration Release --no-restore
 dotnet test NexaOne.sln --configuration Release --no-build
 ```
@@ -106,7 +107,8 @@ action pin·migration catalog·Portal 테스트/빌드/audit·whitespace 검증�
 1. migration version은 중복시키지 않고 fresh DB와 기존 DB 증분 경로를 함께 테스트합니다.
 2. 서비스 검증만 믿지 않고 저장소의 조건부 write와 DB constraint/trigger로 최종 무결성을 지킵니다.
 3. 업무 명령에는 로그인 작업자, 멱등키, 필요 시 expected version을 포함합니다.
-4. `dotnet build --warnaserror`, 전체 Unit/Server/boot 테스트, Portal 테스트·빌드·audit를 실행합니다.
+4. direct·transitive NuGet 취약점 게이트, `dotnet build --warnaserror`, 전체 Unit/Server/boot 테스트,
+   Portal 테스트·빌드·audit를 실행합니다.
 5. 실제 Controller/HIL이나 라이선스 증거가 없는 driver DLL은 공개 릴리즈로 표시하지 않습니다.
 
 상세 용어와 bounded context 정의는 [CONTEXT.md](CONTEXT.md), 구조 결정은 [docs/architecture](docs/architecture)를 참고하십시오.

@@ -14,7 +14,7 @@ public sealed class MetaScreenRegisterTests
     [Fact]
     public void Register_screen_uses_header_modal_and_bridge_without_row_overwriting_add_model()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -64,7 +64,7 @@ public sealed class MetaScreenRegisterTests
         ctx.Services.AddSingleton(api.Object);
         ctx.Services.AddSingleton(catalog.Object);
 
-        var cut = ctx.RenderComponent<MetaScreen>(parameters =>
+        var cut = ctx.Render<MetaScreen>(parameters =>
             parameters.Add(component => component.UiId, "QMS_REGISTER"));
 
         cut.WaitForAssertion(() => cut.FindAll(".rz-data-row").Should().HaveCount(1));

@@ -22,7 +22,7 @@ public sealed class MetaScreenPermissionTests
         var catalog = Catalog(reads: new() { ["QMS.SecretList"] = Permissions.MdmRead });
         Register(ctx, definition, api, catalog);
 
-        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters
+        var cut = ctx.Render<MetaScreen>(parameters => parameters
             .Add(component => component.UiId, definition.UiId));
 
         cut.WaitForAssertion(() => cut.Markup.Should().Contain(Permissions.MdmRead));
@@ -42,7 +42,7 @@ public sealed class MetaScreenPermissionTests
         var catalog = Catalog();
         Register(ctx, definition, api, catalog);
 
-        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters
+        var cut = ctx.Render<MetaScreen>(parameters => parameters
             .Add(component => component.UiId, definition.UiId));
 
         cut.WaitForAssertion(() => cut.Markup.Should().Contain("권한 카탈로그에 등록되지 않은 바인딩"));
@@ -67,7 +67,7 @@ public sealed class MetaScreenPermissionTests
         var catalog = Catalog(reads: new() { ["MDM.PlantList"] = Permissions.MdmRead });
         Register(ctx, definition, api, catalog);
 
-        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters
+        var cut = ctx.Render<MetaScreen>(parameters => parameters
             .Add(component => component.UiId, definition.UiId));
 
         cut.WaitForAssertion(() => cut.Markup.Should().Contain("P1"));
@@ -101,7 +101,7 @@ public sealed class MetaScreenPermissionTests
         var catalog = Catalog(reads: new() { ["QMS.SecretList"] = Permissions.QmsRead });
         Register(ctx, definition, api, catalog);
 
-        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters
+        var cut = ctx.Render<MetaScreen>(parameters => parameters
             .Add(component => component.UiId, definition.UiId));
 
         cut.WaitForAssertion(() => cut.Markup.Should().Contain(Permissions.QmsManage));
@@ -149,7 +149,7 @@ public sealed class MetaScreenPermissionTests
         var catalog = Catalog(reads: new() { ["QMS.SecretSpecCombo"] = Permissions.QmsRead });
         Register(ctx, definition, api, catalog);
 
-        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters
+        var cut = ctx.Render<MetaScreen>(parameters => parameters
             .Add(component => component.UiId, definition.UiId));
 
         cut.WaitForAssertion(() => cut.Markup.Should().Contain(Permissions.QmsManage));
@@ -188,7 +188,7 @@ public sealed class MetaScreenPermissionTests
             });
         Register(ctx, definition, api, catalog);
 
-        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters
+        var cut = ctx.Render<MetaScreen>(parameters => parameters
             .Add(component => component.UiId, definition.UiId));
 
         cut.WaitForAssertion(() => cut.Markup.Should().Contain("I1"));
@@ -206,12 +206,12 @@ public sealed class MetaScreenPermissionTests
             It.IsAny<string>(), It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    private static TestContext CreateContext(string permission)
+    private static BunitContext CreateContext(string permission)
     {
-        var ctx = new TestContext();
+        var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
-        var authorization = ctx.AddTestAuthorization();
+        var authorization = ctx.AddAuthorization();
         authorization.SetAuthorized("operator");
         authorization.SetClaims(new Claim(Permissions.ClaimType, permission));
         return ctx;
@@ -242,7 +242,7 @@ public sealed class MetaScreenPermissionTests
     }
 
     private static void Register(
-        TestContext ctx,
+        BunitContext ctx,
         ScreenDefinition definition,
         Mock<IApiClient> api,
         Mock<IMetaPermissionCatalog> catalog)

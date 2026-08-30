@@ -12,7 +12,7 @@ public sealed class MetaScreenActiveSurfaceTests
     [Fact]
     public void Layout_mode_does_not_execute_hidden_flat_query_count_or_field_options()
     {
-        using var ctx = new TestContext();
+        using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
         ctx.Services.AddRadzenComponents();
 
@@ -32,7 +32,7 @@ public sealed class MetaScreenActiveSurfaceTests
 
         ctx.Services.AddSingleton(provider.Object);
         ctx.Services.AddSingleton(api.Object);
-        var cut = ctx.RenderComponent<MetaScreen>(parameters => parameters
+        var cut = ctx.Render<MetaScreen>(parameters => parameters
             .Add(component => component.UiId, definition.UiId));
 
         cut.WaitForAssertion(() => cut.Markup.Should().Contain("Visible layout body"));
