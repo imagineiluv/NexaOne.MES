@@ -1,3 +1,4 @@
+using System.Reflection;
 using NexaDB.Data.Sqlite;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.POM.Application.WorkScopes;
@@ -12,6 +13,21 @@ namespace NexaOne.ServerTests;
 
 public sealed class WorkScopeProjectionPersistenceTests
 {
+    [Fact]
+    public void Application_insert_uses_current_identity_without_timestamp_precision_equality()
+    {
+        var field = typeof(WorkScopeProjectionRepository).GetField(
+            "InsertApplicationSql",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        field.Should().NotBeNull();
+        var sql = field!.GetRawConstantValue().Should().BeOfType<string>().Subject;
+        sql.Should().Contain("C.EVENT_ID = @EventId")
+            .And.Contain("C.SOURCE_REVISION = @SourceRevision")
+            .And.NotContain("C.ACCEPTED_AT = @AcceptedAt",
+                "SQL Server stores ACCEPTED_AT at the column precision and must not compare it to an unrounded parameter");
+    }
+
     [Fact]
     public async Task Exact_event_replay_returns_the_original_receipt_and_keeps_one_durable_inbox_row()
     {

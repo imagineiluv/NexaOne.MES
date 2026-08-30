@@ -610,8 +610,7 @@ internal sealed class WorkScopeProjectionRepository : IWorkScopeProjectionInbox
                 AND C.EQUIPMENT_ID = @EquipmentId
                 AND C.SEQUENCE_RUN_ID = @SequenceRunId
                 AND C.EVENT_ID = @EventId
-                AND C.SOURCE_REVISION = @SourceRevision
-                AND C.ACCEPTED_AT = @AcceptedAt)
+                AND C.SOURCE_REVISION = @SourceRevision)
            AND NOT EXISTS (
              SELECT 1 FROM POM_WORK_SCOPE_PROJECTION_APPLICATION A
               WHERE A.SOURCE_CLIENT_ID = @SourceClientId AND A.EVENT_ID = @EventId)
