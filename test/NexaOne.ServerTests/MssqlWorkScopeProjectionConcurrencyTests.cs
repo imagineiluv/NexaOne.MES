@@ -100,7 +100,9 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
                     "mssql.current.release",
                     [new WorkScopeProjectionEffect(WorkScopeAction.Release)])));
 
-        applied.Kind.Should().Be(WorkScopeProjectionCommitKind.Applied);
+        applied.Kind.Should().Be(
+            WorkScopeProjectionCommitKind.Applied,
+            $"the current event should apply after the WorkScope creation time; detail={applied.Detail}");
         (await harness.Database.ScalarAsync<string>(
             """
             SELECT APPLICATION_STATUS
@@ -370,7 +372,9 @@ public sealed class MssqlWorkScopeProjectionConcurrencyTests
             new WorkScopeProjectionCarrierDto("front", $"CF-{ids.Suffix}", $"RF-{ids.Suffix}"),
             new WorkScopeProjectionCarrierDto("rear", $"CR-{ids.Suffix}", $"RR-{ids.Suffix}"),
         ],
-        DateTimeOffset.UtcNow.AddMinutes(-1).AddMilliseconds(revision),
+        // This suite expects the Apply path to succeed. Keep event time safely after the
+        // just-created WorkScope while remaining well inside the five-minute future-skew fence.
+        DateTimeOffset.UtcNow.AddSeconds(1).AddMilliseconds(revision),
         revision,
         "RUNNING");
 
