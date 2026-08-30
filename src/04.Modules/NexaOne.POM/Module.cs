@@ -22,6 +22,8 @@ public sealed class Module
     private readonly IPomBridge _pomBridge;
     private readonly IPomWorkOrderBridge _workOrderBridge;
     private readonly IWorkScopeBridge _workScopeBridge;
+    private readonly IWorkScopeProjectionBridge _workScopeProjectionBridge;
+    private readonly ISqliteSchemaContribution _workScopeProjectionSqliteSchemaContribution;
     private readonly ILotDispositionBridge _lotDispositionBridge;
     private readonly IMrpBridge _mrpBridge;
     private readonly IProductionLotDirectory _productionLotDirectory;
@@ -72,6 +74,10 @@ public sealed class Module
             new PomWorkOrderService(workOrders, orders, lots, productionQualityGateway));
         _workScopeBridge = new WorkScopeBridge(
             new WorkScopeService(workScopes, equipmentOutputMasterDirectory));
+        _workScopeProjectionBridge = new WorkScopeProjectionBridge(
+            new WorkScopeProjectionService(new WorkScopeProjectionRepository(dataSource)));
+        _workScopeProjectionSqliteSchemaContribution =
+            new PomWorkScopeProjectionSqliteSchemaContribution();
         _lotDispositionBridge = new LotDispositionBridge(
             new LotDispositionService(new LotDispositionRepository(dataSource)));
         _mrpBridge = new MrpBridge(new MrpPlanningRepository(
@@ -88,6 +94,9 @@ public sealed class Module
     public IPomBridge GetPomBridge() => _pomBridge;
     public IPomWorkOrderBridge GetWorkOrderBridge() => _workOrderBridge;
     public IWorkScopeBridge GetWorkScopeBridge() => _workScopeBridge;
+    public IWorkScopeProjectionBridge GetWorkScopeProjectionBridge() => _workScopeProjectionBridge;
+    public ISqliteSchemaContribution GetWorkScopeProjectionSqliteSchemaContribution() =>
+        _workScopeProjectionSqliteSchemaContribution;
     public ILotDispositionBridge GetLotDispositionBridge() => _lotDispositionBridge;
     public IMrpBridge GetMrpBridge() => _mrpBridge;
     public IProductionLotDirectory GetProductionLotDirectory() => _productionLotDirectory;

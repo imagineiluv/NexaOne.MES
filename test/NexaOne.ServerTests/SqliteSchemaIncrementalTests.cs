@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using NexaOne.Infrastructure.Persistence;
+using NexaOne.POM.Infrastructure;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Xunit;
@@ -2695,6 +2696,89 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V156_projection_inbox_keeps_event_hash_identity_and_monotonic_sequence_cursor_contracts()
+    {
+        var sql = MigrationSql("V156__POM_WORK_SCOPE_PROJECTION_INBOX.sql");
+
+        sql.Should().Contain("PRIMARY KEY (SOURCE_CLIENT_ID, EVENT_ID)");
+        sql.Should().Contain("REQUEST_HASH               CHAR(64) COLLATE Latin1_General_100_BIN2");
+        sql.Should().Contain(
+            "SOURCE_CLIENT_ID           NVARCHAR(100) COLLATE Latin1_General_100_BIN2");
+        sql.Should().Contain("EVENT_ID                   NVARCHAR(200) COLLATE Latin1_General_100_BIN2");
+        sql.Should().Contain("SEQUENCE_RUN_ID            NVARCHAR(100) COLLATE Latin1_General_100_BIN2");
+        sql.Should().Contain("PROJECTION_STATUS          NVARCHAR(30) COLLATE Latin1_General_100_BIN2");
+        sql.Should().Contain("CREATE INDEX IX_POM_WORK_SCOPE_PROJECTION_REVISION");
+        sql.Should().NotContain("CREATE UNIQUE INDEX UX_POM_WORK_SCOPE_PROJECTION_REVISION",
+            "one recovery revision may legitimately emit multiple status events");
+        sql.Should().Contain("PRIMARY KEY (SOURCE_CLIENT_ID, EQUIPMENT_ID, SEQUENCE_RUN_ID)");
+        sql.Should().Contain("OPERATION_KEY        NVARCHAR(200)");
+        sql.Should().Contain("PAIR_RUN_ID          NVARCHAR(100)");
+        sql.Should().Contain("RECIPE_SNAPSHOT_HASH CHAR(64) COLLATE Latin1_General_100_BIN2");
+        sql.Should().Contain("CARRIERS_JSON        NVARCHAR(MAX)");
+        sql.Should().Contain("TERMINAL_CLEANUP_COMPLETED = 0");
+        sql.Should().Contain("PROJECTION_STATUS IN ('Completed', 'Abandoned')");
+        sql.Should().Contain("TR_POM_WORK_SCOPE_PROJECTION_INBOX_APPEND_ONLY");
+        sql.Should().Contain("TR_POM_WORK_SCOPE_PROJECTION_INBOX_SCOPE");
+        sql.Should().Contain("requires exact equipment ownership");
+        sql.Should().Contain("TR_POM_WORK_SCOPE_PROJECTION_CURRENT_IDENTITY");
+        sql.Should().Contain("AFTER INSERT, UPDATE, DELETE");
+        sql.Should().Contain("THROW 51529");
+        sql.Should().Contain("I.SOURCE_REVISION < D.SOURCE_REVISION");
+        sql.Should().Contain("I.ACCEPTED_AT <= D.ACCEPTED_AT");
+        sql.Should().Contain("THROW 51530");
+        sql.Should().Contain("must reference its exact inbox event");
+        sql.Should().Contain("-- SQLITE-OMIT-BEGIN");
+        sql.Should().Contain("-- SQLITE-OMIT-END");
+    }
+
+    [Fact]
+    public void V156_projection_tables_indexes_and_guards_are_restored_by_incremental_sqlite_startup()
+    {
+        var cs = NewDb();
+        var contributions = new[] { new PomWorkScopeProjectionSqliteSchemaContribution() };
+        try
+        {
+            SqliteSchemaInitializer.Apply(cs, contributions);
+            ExecSql(cs, """
+                DROP TABLE POM_WORK_SCOPE_PROJECTION_CURRENT;
+                DROP TABLE POM_WORK_SCOPE_PROJECTION_INBOX;
+                """);
+
+            SqliteSchemaInitializer.EnsureSchema(cs, contributions);
+
+            TableExists(cs, "POM_WORK_SCOPE_PROJECTION_INBOX").Should().BeTrue();
+            TableExists(cs, "POM_WORK_SCOPE_PROJECTION_CURRENT").Should().BeTrue();
+            IndexExists(cs, "IX_POM_WORK_SCOPE_PROJECTION_REVISION").Should().BeTrue();
+            IndexExists(cs, "IX_POM_WORK_SCOPE_PROJECTION_SCOPE_TIME").Should().BeTrue();
+            Columns(cs, "POM_WORK_SCOPE_PROJECTION_CURRENT")
+                .Should().Contain(new[]
+                {
+                    "WORK_SCOPE_ID", "OPERATION_KEY", "PAIR_RUN_ID", "RECIPE_ID",
+                    "RECIPE_SNAPSHOT_HASH", "PROGRAM_HASH", "CARRIERS_JSON",
+                });
+            ScalarString(cs, """
+                SELECT COUNT(*) FROM sqlite_master
+                 WHERE type='trigger'
+                   AND name IN (
+                       'TR_POM_WORK_SCOPE_PROJECTION_INBOX_UPDATE_GUARD',
+                       'TR_POM_WORK_SCOPE_PROJECTION_INBOX_DELETE_GUARD',
+                        'TR_POM_WORK_SCOPE_PROJECTION_INBOX_REPLACE_GUARD',
+                        'TR_POM_WORK_SCOPE_PROJECTION_INBOX_SCOPE_GUARD',
+                        'TR_POM_WORK_SCOPE_PROJECTION_SCOPE_DELETE_GUARD',
+                        'TR_POM_WORK_SCOPE_PROJECTION_SCOPE_ID_UPDATE_GUARD',
+                        'TR_POM_WORK_SCOPE_PROJECTION_SCOPE_REPLACE_GUARD',
+                       'TR_POM_WORK_SCOPE_PROJECTION_CURRENT_IDENTITY_GUARD',
+                       'TR_POM_WORK_SCOPE_PROJECTION_CURRENT_MONOTONIC_GUARD',
+                       'TR_POM_WORK_SCOPE_PROJECTION_CURRENT_EVENT_BI',
+                       'TR_POM_WORK_SCOPE_PROJECTION_CURRENT_EVENT_BU',
+                       'TR_POM_WORK_SCOPE_PROJECTION_CURRENT_DELETE_GUARD',
+                       'TR_POM_WORK_SCOPE_PROJECTION_CURRENT_REPLACE_GUARD')
+                """).Should().Be("13");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { /* best-effort cleanup */ } }
+    }
+
+    [Fact]
     public void Work_scope_repository_serializes_sql_server_member_sequence_allocation()
     {
         var source = File.ReadAllText(RepositorySource.GetFile(
@@ -2748,7 +2832,7 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
-    public void V121_through_v155_migrations_keep_unique_numeric_versions_and_module_owned_names()
+    public void V121_through_v156_migrations_keep_unique_numeric_versions_and_module_owned_names()
     {
         var migrationDirectory = Path.GetDirectoryName(RepositorySource.GetFile(
             "src", "00.Main", "NexaOne.Server", "config", "db", "migrations",
@@ -2790,6 +2874,7 @@ public sealed class SqliteSchemaIncrementalTests
             [153] = ("V153__RMS_RECIPE_EXECUTION_WORK_SCOPE.sql", "RMS"),
             [154] = ("V154__POM_WORK_SCOPE_MEMBER_SEQUENCE_UNIQUENESS.sql", "POM"),
             [155] = ("V155__POM_WORK_SCOPE_SCOPE_TYPE_INDEX.sql", "POM"),
+            [156] = ("V156__POM_WORK_SCOPE_PROJECTION_INBOX.sql", "POM"),
         };
         var recentFiles = Directory.EnumerateFiles(migrationDirectory, "V*.sql")
             .Select(Path.GetFileName)
@@ -2797,7 +2882,7 @@ public sealed class SqliteSchemaIncrementalTests
             .Select(name => (Name: name!, Match: Regex.Match(name!, @"^V(?<version>[0-9]{3})__")))
             .Where(item => item.Match.Success)
             .Select(item => (item.Name, Version: int.Parse(item.Match.Groups["version"].Value)))
-            .Where(item => item.Version is >= 121 and <= 155)
+            .Where(item => item.Version is >= 121 and <= 156)
             .ToArray();
 
         recentFiles.GroupBy(item => item.Version).Should().OnlyContain(group => group.Count() == 1);

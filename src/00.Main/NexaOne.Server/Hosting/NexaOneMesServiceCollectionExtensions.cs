@@ -13,6 +13,7 @@ using NexaOne.Application.Query;
 using NexaOne.Infrastructure.Diagnostics;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.Server.Gateway;
+using NexaOne.Server.Security;
 using NexaOne.ServiceContracts;
 using NexaOne.Web.Services;
 using NexaOne.Web.Services.Api;
@@ -90,6 +91,7 @@ public static class NexaOneMesServiceCollectionExtensions
             sp => sp.GetRequiredService<NexaOne.Server.Realtime.RealtimeAlertFeed>());
 
         services.AddNexaOneAuth(configuration);
+        services.TryAddSingleton<IEquipmentClientAuthenticator, ConfigurationEquipmentClientAuthenticator>();
         AddOptionalDatabaseLogging(services, configuration);
 
         services.AddSingleton<IErrorLocalizer, ErrorLocalizer>();
@@ -291,16 +293,14 @@ public static class NexaOneMesServiceCollectionExtensions
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
             {
-                var runAdmission = context.Request.Path.StartsWithSegments("/api/v1/run-admission");
-                var owner = context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
-                    ?? context.Connection.RemoteIpAddress?.ToString()
-                    ?? "anonymous";
-                var key = runAdmission ? $"run-admission:{owner}" : owner;
+                var equipmentClient = EquipmentClientEndpointPolicy.IsEquipmentClientPath(
+                    context.Request.Path);
+                var key = ResolveGlobalRateLimitPartitionKey(context, equipmentClient);
                 return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
                 {
                     // 6초 soft TTL을 사용하는 여러 설비가 같은 NAT/proxy 뒤에 있어도 일반 사용자 API의
                     // 100/min partition과 충돌하지 않게 별도 용량을 둔다. 실제 규모에 맞춰 명시 조정한다.
-                    PermitLimit = runAdmission ? runAdmissionPermitLimit : 100,
+                    PermitLimit = equipmentClient ? runAdmissionPermitLimit : 100,
                     Window = TimeSpan.FromMinutes(1),
                     QueueLimit = 0,
                     AutoReplenishment = true,
@@ -316,6 +316,18 @@ public static class NexaOneMesServiceCollectionExtensions
                     AutoReplenishment = true,
                 }));
         });
+    }
+
+    internal static string ResolveGlobalRateLimitPartitionKey(
+        HttpContext context,
+        bool equipmentClient)
+    {
+        var remoteAddress = context.Connection.RemoteIpAddress?.ToString() ?? "anonymous";
+        if (equipmentClient)
+            return $"equipment-client:{remoteAddress}";
+
+        return context.User?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+            ?? remoteAddress;
     }
 
     /// <summary>잘못된 상대 경로가 런타임 라우팅 오류로 이어지기 전에 호스트 경로 설정을 검증한다.</summary>

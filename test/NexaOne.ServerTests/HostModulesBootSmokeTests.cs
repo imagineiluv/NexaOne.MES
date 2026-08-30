@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using FluentAssertions;
+using Microsoft.Data.Sqlite;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using NexaOne.Common.Security;
@@ -49,6 +50,20 @@ public sealed class HostModulesBootSmokeTests
 
         using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{host.Port}") };
         (await http.GetAsync("/health")).StatusCode.Should().Be(HttpStatusCode.OK, "기동된 호스트의 /health는 200");
+
+        await using (var schemaConnection = new SqliteConnection(
+                         $"Data Source={host.DatabasePath};Foreign Keys=False"))
+        {
+            await schemaConnection.OpenAsync();
+            await using var schemaCommand = schemaConnection.CreateCommand();
+            schemaCommand.CommandText = """
+                SELECT COUNT(*) FROM sqlite_master
+                 WHERE type = 'trigger'
+                   AND name LIKE 'TR_POM_WORK_SCOPE_PROJECTION_%';
+                """;
+            Convert.ToInt64(await schemaCommand.ExecuteScalarAsync()).Should().Be(13,
+                "the POM Spring module must contribute all projection integrity guards before listening");
+        }
 
         http.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", HostProcess.MintToken());
