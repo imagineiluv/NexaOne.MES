@@ -25,11 +25,14 @@ public sealed class WorkScopeProjectionCompositionTests
         objects.Select(ObjectId).Should().Contain(
             ["workScopeProjectionBridge", "pomWorkScopeProjectionSqliteSchemaContribution"]);
         objects.Select(ObjectId).Should().NotContain(
-            ["workScopeProjectionApplicationModule", "workScopeProjectionRuntime", "workScopeProjectionWorker"]);
-        objects.Single(item => ObjectId(item) == "pomModule")
+            ["workScopeProjectionApplicationModule", "workScopeProjectionRuntime", "workScopeProjectionWorker",
+             "workScopeProjectionAuthorityValidator"]);
+        var pomModule = objects.Single(item => ObjectId(item) == "pomModule");
+        pomModule
             .Elements(Spring + "constructor-arg")
             .Select(item => (string?)item.Attribute("ref"))
-            .Should().NotContain("workScopeProjectionPolicy");
+            .Should().NotContain(["workScopeProjectionPolicy", "workScopeProjectionAuthorityValidator"],
+                "the core manifest must let Module own its fail-closed default without exposing an internal type");
         var constructors = typeof(NexaOne.POM.Module).GetConstructors();
         constructors.SelectMany(static constructor => constructor.GetParameters())
             .Select(parameter => parameter.ParameterType)
@@ -42,7 +45,7 @@ public sealed class WorkScopeProjectionCompositionTests
             static constructor => constructor.GetParameters().Length == 11
                 && constructor.GetParameters().Last().ParameterType
                     == typeof(IWorkScopeProjectionAuthorityValidator),
-            "Spring composition uses the explicit fail-closed authority validator constructor");
+            "a trusted product composition may explicitly provide its public validator seam");
 
         var validate = () => NexaOneMesRuntimeState.ValidateWorkScopeProjectionRuntime(
             enabled: false,

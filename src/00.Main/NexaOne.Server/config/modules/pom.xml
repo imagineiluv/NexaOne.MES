@@ -14,13 +14,11 @@
     <constructor-arg ref="purchaseOrderPlanningBridge" />
     <constructor-arg ref="equipmentDirectory" />
     <constructor-arg ref="equipmentOutputMasterDirectory" />
-    <constructor-arg ref="workScopeProjectionAuthorityValidator" />
   </object>
 
-  <!-- Fail closed until a product composes a validator backed by immutable RMS execution and
-       released program artifacts. Caller-provided hashes are never accepted by this default. -->
-  <object id="workScopeProjectionAuthorityValidator"
-      type="NexaOne.POM.Application.WorkScopes.RejectingWorkScopeProjectionAuthorityValidator, NexaOne.POM" />
+  <!-- The Module composition root owns the fail-closed authority validator. Spring must not name
+       module-internal implementations; a future trusted product coordinator uses Module's public
+       validator constructor without exposing its implementation from this core manifest. -->
 
   <object id="pomBridge" factory-object="pomModule" factory-method="GetPomBridge" />
   <object id="pomWorkOrderBridge" factory-object="pomModule" factory-method="GetWorkOrderBridge" />

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using FluentAssertions;
 using Xunit;
@@ -346,8 +347,12 @@ public sealed class ProductPackagingProfileTests
         var standardError = process.StandardError.ReadToEndAsync();
         process.WaitForExit();
         Task.WaitAll(standardOutput, standardError);
-        return (process.ExitCode, standardOutput.Result + standardError.Result);
+        var output = standardOutput.Result + standardError.Result;
+        return (process.ExitCode, StripAnsiControlSequences(output));
     }
+
+    private static string StripAnsiControlSequences(string value) =>
+        Regex.Replace(value, "\\x1B\\[[0-?]*[ -/]*[@-~]", string.Empty);
 
     private static EvaluatedProfile EvaluateProfile(string profile)
     {

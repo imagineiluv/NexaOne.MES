@@ -71,8 +71,9 @@ public sealed class HostModulesBootSmokeTests
                  WHERE type = 'trigger'
                    AND name LIKE 'TR_POM_WORK_SCOPE_PROJECTION_%';
                 """;
-            Convert.ToInt64(await schemaCommand.ExecuteScalarAsync()).Should().Be(27,
-                "the POM Spring module must contribute all inbox/current, carrier-evidence, and durable-application guards before listening");
+            Convert.ToInt64(await schemaCommand.ExecuteScalarAsync()).Should().Be(32,
+                "the POM Spring module must contribute all inbox/current, carrier-evidence, "
+                + "durable-application, and five V158 authority guards before listening");
         }
 
         http.DefaultRequestHeaders.Authorization =
