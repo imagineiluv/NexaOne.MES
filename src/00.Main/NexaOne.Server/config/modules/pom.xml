@@ -19,6 +19,10 @@
   <object id="pomBridge" factory-object="pomModule" factory-method="GetPomBridge" />
   <object id="pomWorkOrderBridge" factory-object="pomModule" factory-method="GetWorkOrderBridge" />
   <object id="workScopeBridge" factory-object="pomModule" factory-method="GetWorkScopeBridge" />
+  <object id="workScopeProjectionBridge" factory-object="pomModule" factory-method="GetWorkScopeProjectionBridge" />
+  <object id="pomWorkScopeProjectionSqliteSchemaContribution"
+      factory-object="pomModule"
+      factory-method="GetWorkScopeProjectionSqliteSchemaContribution" />
   <object id="lotDispositionBridge" factory-object="pomModule" factory-method="GetLotDispositionBridge" />
   <object id="mrpBridge" factory-object="pomModule" factory-method="GetMrpBridge" />
   <object id="productionLotDirectory" factory-object="pomModule" factory-method="GetProductionLotDirectory" />

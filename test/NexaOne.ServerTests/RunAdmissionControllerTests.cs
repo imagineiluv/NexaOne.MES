@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using NexaOne.Server.Gateway;
+using NexaOne.Server.Security;
 using NexaOne.ServiceContracts.Fdc;
 using FluentAssertions;
 using Xunit;
@@ -158,7 +159,10 @@ public sealed class RunAdmissionControllerTests
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(values)
             .Build();
-        var controller = new RunAdmissionController(service ?? new StubService(), configuration)
+        var controller = new RunAdmissionController(
+            service ?? new StubService(),
+            configuration,
+            new ConfigurationEquipmentClientAuthenticator(configuration))
         {
             ControllerContext = new ControllerContext
             {

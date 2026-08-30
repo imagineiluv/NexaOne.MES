@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Routing;
 using NexaOne.Infrastructure.Diagnostics;
 using NexaOne.Server.Components;
+using NexaOne.Server.Security;
 
 namespace NexaOne.Server;
 
@@ -32,13 +33,13 @@ public static class NexaOneMesApplicationExtensions
         app.UseForwardedHeaders();
         app.Use(async (context, next) =>
         {
-            if (context.Request.Path.StartsWithSegments("/api/v1/run-admission")
+            if (EquipmentClientEndpointPolicy.IsEquipmentClientPath(context.Request.Path)
                 && app.Configuration.GetValue("RunAdmission:RequireHttps", true)
                 && !context.Request.IsHttps)
             {
                 await Results.Problem(
                         statusCode: StatusCodes.Status426UpgradeRequired,
-                        title: "HTTPS is required for run admission.")
+                        title: "HTTPS is required for equipment clients.")
                     .ExecuteAsync(context);
                 return;
             }

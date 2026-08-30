@@ -411,7 +411,7 @@ internal sealed class NexaOneMesRuntimeState : IDisposable
             springConfig, _configuration, out _temporaryConfigPath);
         NexaOne.Common.Configuration.SpringHostConfiguration.Root = _configuration;
 
-        EnsureSqliteSchemaIfConfigured(springConfig);
+        var sqliteConnectionString = EnsureSqliteSchemaIfConfigured(springConfig);
 
         var serverContext = _server.CreateServer(new[] { springConfig });
         _moduleContextsCreated = true;
@@ -419,6 +419,11 @@ internal sealed class NexaOneMesRuntimeState : IDisposable
 
         var workers = new List<IHostedService>();
         workers.AddRange(serverContext.GetObjectsOfType(typeof(IHostedService)).Values.Cast<IHostedService>());
+        var sqliteSchemaContributions = serverContext
+            .GetObjectsOfType(typeof(ISqliteSchemaContribution))
+            .Values
+            .Cast<ISqliteSchemaContribution>()
+            .ToList();
 
         var loadedServices = new List<string>();
         var document = XDomUtility.Load("config/app.xml");
@@ -439,8 +444,15 @@ internal sealed class NexaOneMesRuntimeState : IDisposable
             var context = _server.AddService(name, configFiles, classPaths);
             loadedServices.Add(name);
             workers.AddRange(context.GetObjectsOfType(typeof(IHostedService)).Values.Cast<IHostedService>());
+            sqliteSchemaContributions.AddRange(context
+                .GetObjectsOfType(typeof(ISqliteSchemaContribution))
+                .Values
+                .Cast<ISqliteSchemaContribution>());
             Console.WriteLine($"[NexaOne.Server] Service '{name}' registered ({classPaths.Length} module(s)).");
         }
+
+        if (sqliteConnectionString is not null)
+            SqliteSchemaInitializer.ApplyContributions(sqliteConnectionString, sqliteSchemaContributions);
 
         var distinctWorkers = workers.Distinct().ToList();
         _workerCount = distinctWorkers.Count;
@@ -686,13 +698,13 @@ internal sealed class NexaOneMesRuntimeState : IDisposable
     }
 
     /// <summary>Spring 서버 설정이 SQLite를 사용할 때 모듈용 스키마를 멱등 생성한다.</summary>
-    private static void EnsureSqliteSchemaIfConfigured(string serverXmlPath)
+    private static string? EnsureSqliteSchemaIfConfigured(string serverXmlPath)
     {
         XNamespace spring = "http://www.springframework.net";
         var document = XDocument.Load(serverXmlPath);
         var objects = document.Root?.Elements(spring + "object").ToList() ?? new List<XElement>();
         var dataSource = objects.FirstOrDefault(element => (string?)element.Attribute("id") == "eesDataSource");
-        if (dataSource is null) return;
+        if (dataSource is null) return null;
 
         var properties = dataSource.Elements(spring + "property").ToList();
         var connectionString = properties
@@ -704,10 +716,11 @@ internal sealed class NexaOneMesRuntimeState : IDisposable
         var providerType = objects.FirstOrDefault(element => (string?)element.Attribute("id") == providerReference)
             ?.Attribute("type")?.Value ?? string.Empty;
 
-        if (!providerType.Contains("Sqlite", StringComparison.OrdinalIgnoreCase)) return;
+        if (!providerType.Contains("Sqlite", StringComparison.OrdinalIgnoreCase)) return null;
         if (string.IsNullOrWhiteSpace(connectionString))
             throw new InvalidOperationException("SQLite eesDataSource ConnectionString is empty.");
         SqliteSchemaInitializer.EnsureSchema(connectionString);
+        return connectionString;
     }
 
     /// <summary>Gateway 설정이 SQLite인 경우 Spring 모듈 사용 여부와 무관하게 기본 스키마를 준비한다.</summary>

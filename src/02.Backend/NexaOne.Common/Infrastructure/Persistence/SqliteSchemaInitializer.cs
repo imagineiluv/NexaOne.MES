@@ -373,23 +373,33 @@ public static class SqliteSchemaInitializer
     /// 후자 덕분에 기존 DB에 신규 마이그레이션(예: 새 모듈 테이블)을 추가해도 재기동 시 자동 생성된다
     /// (과거에는 테이블이 하나라도 있으면 전부 건너뛰어 신규 테이블이 영영 생성되지 않았다).
     /// </summary>
-    public static void EnsureSchema(string connectionString)
+    public static void EnsureSchema(string connectionString) =>
+        EnsureSchema(connectionString, contributions: null);
+
+    public static void EnsureSchema(
+        string connectionString,
+        IEnumerable<ISqliteSchemaContribution>? contributions)
     {
         // Validate the release bundle before HasUserTables opens (and may create) the SQLite file.
         _ = GetOrderedMigrationFiles(FindMigrationsDir());
         if (HasUserTables(connectionString))
         {
-            CreateMissingTables(connectionString);
+            CreateMissingTables(connectionString, contributions);
             return;
         }
-        Apply(connectionString);
+        Apply(connectionString, contributions);
     }
 
     /// <summary>
     /// 모든 마이그레이션을 적용한다(빈 DB 가정 — CREATE TABLE에 IF NOT EXISTS 없음).
     /// 통합 테스트는 매번 새 임시 DB를 만들므로 이 경로를 직접 쓴다.
     /// </summary>
-    public static void Apply(string connectionString)
+    public static void Apply(string connectionString) =>
+        Apply(connectionString, contributions: null);
+
+    public static void Apply(
+        string connectionString,
+        IEnumerable<ISqliteSchemaContribution>? contributions)
     {
         var dir = FindMigrationsDir();
         var migrationFiles = GetOrderedMigrationFiles(dir);
@@ -435,6 +445,7 @@ public static class SqliteSchemaInitializer
         EnsureFdcOpenStateIndexes(conn);
         EnsureFdcEndpointConfigurationIntegrity(conn);
         EnsureQueryPerformanceIndexes(conn);
+        ApplySchemaContributions(conn, contributions);
     }
 
     /// <summary>
@@ -443,7 +454,12 @@ public static class SqliteSchemaInitializer
     /// 컬럼 변경·삭제와 일반 INSERT/UPDATE 같은 데이터 migration은 이 공통 루프에서 건너뛰며,
     /// 보정이 필요한 버전은 아래의 명시적 Ensure* reconciliation 단계가 검증·적용한다.
     /// </summary>
-    public static void CreateMissingTables(string connectionString)
+    public static void CreateMissingTables(string connectionString) =>
+        CreateMissingTables(connectionString, contributions: null);
+
+    public static void CreateMissingTables(
+        string connectionString,
+        IEnumerable<ISqliteSchemaContribution>? contributions)
     {
         var dir = FindMigrationsDir();
         var migrationFiles = GetOrderedMigrationFiles(dir);
@@ -535,6 +551,59 @@ public static class SqliteSchemaInitializer
         EnsureFdcOpenStateIndexes(conn);
         EnsureFdcEndpointConfigurationIntegrity(conn);
         EnsureQueryPerformanceIndexes(conn);
+        ApplySchemaContributions(conn, contributions);
+    }
+
+    /// <summary>
+    /// Applies module-owned reconciliation steps after Spring module discovery. This keeps the
+    /// common bootstrapper free of business-module table and trigger knowledge.
+    /// </summary>
+    public static void ApplyContributions(
+        string connectionString,
+        IEnumerable<ISqliteSchemaContribution> contributions)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
+        ArgumentNullException.ThrowIfNull(contributions);
+
+        using var conn = new SqliteConnection(connectionString);
+        conn.Open();
+        ApplySchemaContributions(conn, contributions);
+    }
+
+    private static void ApplySchemaContributions(
+        SqliteConnection connection,
+        IEnumerable<ISqliteSchemaContribution>? contributions)
+    {
+        if (contributions is null) return;
+
+        var ordered = contributions
+            .Select(contribution => contribution
+                ?? throw new InvalidOperationException("SQLite schema contribution cannot be null."))
+            .OrderBy(contribution => contribution.Id, StringComparer.Ordinal)
+            .ToList();
+        if (ordered.Count == 0) return;
+
+        var duplicate = ordered
+            .GroupBy(contribution => contribution.Id, StringComparer.Ordinal)
+            .FirstOrDefault(group => string.IsNullOrWhiteSpace(group.Key) || group.Count() > 1);
+        if (duplicate is not null)
+        {
+            var id = string.IsNullOrWhiteSpace(duplicate.Key) ? "<empty>" : duplicate.Key;
+            throw new InvalidOperationException($"SQLite schema contribution id must be unique and non-empty: {id}");
+        }
+
+        using var transaction = connection.BeginTransaction();
+        try
+        {
+            foreach (var contribution in ordered)
+                contribution.Apply(connection, transaction);
+            transaction.Commit();
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
     }
 
     /// <summary>
@@ -4287,13 +4356,6 @@ public static class SqliteSchemaInitializer
         }
     }
 
-    /// <summary>
-    /// SQLite does not retain SQL Server's V152 self-referencing/check constraints when an
-    /// existing database is upgraded. Reinstall equivalent guards here so direct writers cannot
-    /// bypass parent membership, carrier/equipment target identity, quantities, or append-only
-    /// execution evidence. The application service remains the user-facing validation boundary;
-    /// these triggers are the last line for scripts and recovery tooling.
-    /// </summary>
     private static void EnsurePomWorkScopeIntegrity(SqliteConnection conn)
     {
         if (HasTable(conn, "POM_WORK_SCOPE"))
@@ -4629,6 +4691,8 @@ public static class SqliteSchemaInitializer
     private static string ReplaceTypeTokens(string s)
     {
         const RegexOptions O = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+        // SQL Server binary identity collation has the same opaque-key semantics as SQLite BINARY.
+        s = Regex.Replace(s, @"\bCOLLATE\s+Latin1_General_100_BIN2\b", "COLLATE BINARY", O);
         // 문자열 타입
         s = Regex.Replace(s, @"\bN?VARCHAR\s*\(\s*\w+\s*\)", "TEXT", O);
         s = Regex.Replace(s, @"\bN?CHAR\s*\(\s*\w+\s*\)", "TEXT", O);
