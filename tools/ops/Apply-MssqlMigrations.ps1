@@ -57,10 +57,9 @@ function Get-MigrationSqlBatches([string]$Sql) {
     # migration transaction and preserves source order without changing immutable migration files.
     # DECLARE variables are batch-scoped. V121/V128 declare variables at column zero and use them
     # in subsequent statements/blocks, so keep declaration-bearing files as one command rather
-    # than splitting the declaration away from its consumers.
-    if ($Sql -match '(?im)^DECLARE\b') {
-        return @($Sql.Trim())
-    }
+    # than splitting the declaration away from its consumers. The full scanner still runs so a
+    # declaration-bearing migration cannot bypass lexical-balance validation.
+    $preserveSingleBatch = $Sql -match '(?im)^DECLARE\b'
     $batches = [System.Collections.Generic.List[string]]::new()
     $statement = [System.Text.StringBuilder]::new()
     $inString = $false
@@ -180,7 +179,10 @@ function Get-MigrationSqlBatches([string]$Sql) {
         }
         if ($current -eq ')') {
             [void]$statement.Append($current)
-            if ($parenthesisDepth -gt 0) { $parenthesisDepth-- }
+            if ($parenthesisDepth -eq 0) {
+                throw ("migration SQL has unmatched closing parenthesis at offset {0}" -f $index)
+            }
+            $parenthesisDepth--
             $index++
             continue
         }
@@ -207,11 +209,15 @@ function Get-MigrationSqlBatches([string]$Sql) {
                 'END'   {
                     if ($caseDepth -gt 0) { $caseDepth-- }
                     elseif ($blockDepth -gt 0) { $blockDepth-- }
+                    else {
+                        throw ("migration SQL has unmatched END token at offset {0}" -f $start)
+                    }
                 }
             }
             continue
         }
-        if ($current -eq ';' -and $parenthesisDepth -eq 0 -and $blockDepth -eq 0) {
+        if (-not $preserveSingleBatch -and $current -eq ';' -and
+            $parenthesisDepth -eq 0 -and $blockDepth -eq 0) {
             $completed = $statement.ToString().Trim()
             if ($completed.Length -gt 0) { [void]$batches.Add($completed) }
             [void]$statement.Clear()
@@ -221,6 +227,14 @@ function Get-MigrationSqlBatches([string]$Sql) {
 
         [void]$statement.Append($current)
         $index++
+    }
+
+    if ($inString -or $inDoubleQuote -or $inBracketIdentifier -or $inBlockComment -or
+        $parenthesisDepth -ne 0 -or $blockDepth -ne 0 -or $caseDepth -ne 0) {
+        throw ("migration SQL has unbalanced lexical structure " +
+            "(string={0}, quoted={1}, bracket={2}, blockComment={3}, parentheses={4}, blocks={5}, cases={6})" -f
+            $inString, $inDoubleQuote, $inBracketIdentifier, $inBlockComment,
+            $parenthesisDepth, $blockDepth, $caseDepth)
     }
 
     $remainder = $statement.ToString().Trim()
@@ -251,11 +265,23 @@ $migrations = @(
             throw ("invalid migration version in '{0}': version must be greater than zero" -f $file.Name)
         }
 
+        $sql = Get-Content -Raw -Encoding UTF8 $file.FullName
+        try {
+            $sqlBatches = @(Get-MigrationSqlBatches $sql)
+        }
+        catch {
+            throw ("invalid migration SQL structure in '{0}': {1}" -f $file.Name, $_.Exception.Message)
+        }
+        if ($sqlBatches.Count -eq 0) {
+            throw ("invalid migration SQL structure in '{0}': no executable batch" -f $file.Name)
+        }
+
         [pscustomobject]@{
             Version = $version
             Name = $file.Name
             File = $file
             Hash = Get-MigrationHash $file
+            SqlBatches = $sqlBatches
         }
     }
 )
@@ -481,11 +507,9 @@ WHERE VERSION_ID = @version AND CONTENT_SHA256 IS NULL;
     }
 
     foreach ($migration in $pending) {
-        $sql = Get-Content -Raw -Encoding UTF8 $migration.File.FullName
-        $batches = @(Get-MigrationSqlBatches $sql)
         $tx = $conn.BeginTransaction()
         try {
-            foreach ($batch in $batches) {
+            foreach ($batch in $migration.SqlBatches) {
                 $cmd = $conn.CreateCommand(); $cmd.Transaction = $tx; $cmd.CommandTimeout = 300
                 $cmd.CommandText = $batch
                 [void]$cmd.ExecuteNonQuery()

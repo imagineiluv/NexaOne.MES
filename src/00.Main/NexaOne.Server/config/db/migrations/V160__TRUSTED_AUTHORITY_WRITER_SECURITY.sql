@@ -896,7 +896,8 @@ BEGIN
             SELECT 1 FROM dbo.SYS_RELEASED_PROGRAM_ARTIFACT_REVOCATION V WITH (UPDLOCK, HOLDLOCK)
              WHERE V.ARTIFACT_ID COLLATE Latin1_General_100_BIN2 = @ProgramArtifactId
                 AND DATALENGTH(CONVERT(NVARCHAR(MAX), V.ARTIFACT_ID)) = DATALENGTH(CONVERT(NVARCHAR(MAX), @ProgramArtifactId))
-          THROW 51612, 'Projection authority cannot be created for a revoked program artifact', 1;
+            )
+           THROW 51612, 'Projection authority cannot be created for a revoked program artifact', 1;
 
         DECLARE @RuntimePrincipalName NVARCHAR(128) = USER_NAME(),
                 @RuntimePrincipalSid VARBINARY(85);
