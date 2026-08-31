@@ -942,18 +942,25 @@ IF ISNULL(IS_SRVROLEMEMBER(N'sysadmin'), 0)<>1
   SELECT CONCAT(N'server:', G.name)
     FROM sys.server_permissions D
     JOIN sys.server_principals G ON G.principal_id=D.grantee_principal_id
-   WHERE D.class=100 AND D.state IN ('G','W')
-     AND D.permission_name IN (
+   WHERE D.class=100
+     AND D.state COLLATE Latin1_General_100_BIN2 IN (N'G',N'W')
+     AND D.permission_name COLLATE Latin1_General_100_BIN2 IN (
        N'CONTROL SERVER', N'IMPERSONATE ANY LOGIN', N'ALTER ANY LOGIN', N'ALTER ANY SERVER ROLE')
-     AND G.principal_id<>1 AND G.name<>N'sysadmin'
+     AND G.principal_id<>1
+     AND (
+       G.name COLLATE Latin1_General_100_BIN2
+         <>N'sysadmin' COLLATE Latin1_General_100_BIN2
+       OR DATALENGTH(CONVERT(NVARCHAR(MAX), G.name))<>DATALENGTH(N'sysadmin'))
      -- SQL Server creates this exact certificate-mapped login so signed Policy-Based Management
      -- modules can cross their server boundary. It cannot authenticate as an ordinary login. Keep
      -- the exception pinned to the built-in name, certificate type, CONTROL SERVER, and system
      -- grantor; every user-defined certificate/login/role with broad permission remains unsafe.
      AND NOT (
-       D.permission_name=N'CONTROL SERVER'
+       D.permission_name COLLATE Latin1_General_100_BIN2
+         =N'CONTROL SERVER' COLLATE Latin1_General_100_BIN2
        AND D.grantor_principal_id=1
-       AND G.type=N'C'
+       AND G.type COLLATE Latin1_General_100_BIN2
+         =N'C' COLLATE Latin1_General_100_BIN2
        AND G.name COLLATE Latin1_General_100_BIN2
          =N'##MS_PolicySigningCertificate##' COLLATE Latin1_General_100_BIN2
        AND DATALENGTH(CONVERT(NVARCHAR(MAX), G.name))
@@ -964,9 +971,15 @@ IF ISNULL(IS_SRVROLEMEMBER(N'sysadmin'), 0)<>1
     JOIN sys.server_principals G ON G.principal_id=D.grantee_principal_id
     JOIN sys.server_principals T ON T.principal_id=D.major_id
     JOIN sys.database_principals U ON U.sid=T.sid
-   WHERE D.class=101 AND D.state IN ('G','W')
-     AND D.permission_name IN (N'IMPERSONATE', N'CONTROL', N'ALTER')
-     AND G.principal_id<>1 AND G.name<>N'sysadmin'
+   WHERE D.class=101
+     AND D.state COLLATE Latin1_General_100_BIN2 IN (N'G',N'W')
+     AND D.permission_name COLLATE Latin1_General_100_BIN2
+       IN (N'IMPERSONATE', N'CONTROL', N'ALTER')
+     AND G.principal_id<>1
+     AND (
+       G.name COLLATE Latin1_General_100_BIN2
+         <>N'sysadmin' COLLATE Latin1_General_100_BIN2
+       OR DATALENGTH(CONVERT(NVARCHAR(MAX), G.name))<>DATALENGTH(N'sysadmin'))
      AND (
        (U.name COLLATE Latin1_General_100_BIN2=@runtime COLLATE Latin1_General_100_BIN2
         AND DATALENGTH(CONVERT(NVARCHAR(MAX), U.name))=DATALENGTH(CONVERT(NVARCHAR(MAX), @runtime)))

@@ -191,13 +191,27 @@ public sealed class TrustedAuthoritySecurityContractTests
         var source = File.ReadAllText(CommissioningPath);
 
         source.Should().MatchRegex(
-            @"(?s)AND NOT \(\s*D\.permission_name=N'CONTROL SERVER'\s*" +
-            @"AND D\.grantor_principal_id=1\s*AND G\.type=N'C'\s*" +
+            @"(?s)AND NOT \(\s*D\.permission_name COLLATE Latin1_General_100_BIN2\s*" +
+            @"=N'CONTROL SERVER' COLLATE Latin1_General_100_BIN2\s*" +
+            @"AND D\.grantor_principal_id=1\s*" +
+            @"AND G\.type COLLATE Latin1_General_100_BIN2\s*" +
+            @"=N'C' COLLATE Latin1_General_100_BIN2\s*" +
             @"AND G\.name COLLATE Latin1_General_100_BIN2\s*" +
             @"=N'##MS_PolicySigningCertificate##' COLLATE Latin1_General_100_BIN2\s*" +
             @"AND DATALENGTH\(CONVERT\(NVARCHAR\(MAX\), G\.name\)\)\s*" +
             @"=DATALENGTH\(N'##MS_PolicySigningCertificate##'\)\s*\)");
         source.Should().NotMatchRegex(@"(?i)LIKE\s+N?'##MS_[^']*'");
+        Regex.Matches(
+                source,
+                @"D\.state COLLATE Latin1_General_100_BIN2 IN \(N'G',N'W'\)")
+            .Should().HaveCount(2);
+        Regex.Matches(
+                source,
+                @"(?s)G\.name COLLATE Latin1_General_100_BIN2\s*" +
+                @"<>N'sysadmin' COLLATE Latin1_General_100_BIN2\s*" +
+                @"OR DATALENGTH\(CONVERT\(NVARCHAR\(MAX\), G\.name\)\)" +
+                @"<>DATALENGTH\(N'sysadmin'\)")
+            .Should().HaveCount(2);
     }
 
     [Fact]
