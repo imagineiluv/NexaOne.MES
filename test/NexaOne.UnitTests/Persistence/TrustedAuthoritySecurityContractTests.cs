@@ -212,6 +212,9 @@ public sealed class TrustedAuthoritySecurityContractTests
                 @"OR DATALENGTH\(CONVERT\(NVARCHAR\(MAX\), G\.name\)\)" +
                 @"<>DATALENGTH\(N'sysadmin'\)")
             .Should().HaveCount(2);
+        source.Should().MatchRegex(
+            @"D\.permission_name COLLATE Latin1_General_100_BIN2\s*" +
+            @"<>A\.ALLOWED_PERMISSION COLLATE Latin1_General_100_BIN2");
     }
 
     [Fact]

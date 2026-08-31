@@ -1184,7 +1184,8 @@ INSERT INTO @AllowedModules
     JOIN sys.database_principals P ON P.principal_id=D.grantee_principal_id
    WHERE A.ALLOWED_PERMISSION IS NULL
       OR D.minor_id<>0
-      OR D.permission_name<>A.ALLOWED_PERMISSION
+      OR D.permission_name COLLATE Latin1_General_100_BIN2
+           <>A.ALLOWED_PERMISSION COLLATE Latin1_General_100_BIN2
       OR P.name COLLATE Latin1_General_100_BIN2<>A.ALLOWED_PRINCIPAL COLLATE Latin1_General_100_BIN2
       OR DATALENGTH(CONVERT(NVARCHAR(MAX), P.name))
            <>DATALENGTH(CONVERT(NVARCHAR(MAX), A.ALLOWED_PRINCIPAL))
