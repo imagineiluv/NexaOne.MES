@@ -246,6 +246,12 @@ public sealed class TrustedAuthoritySecurityContractTests
         source.Should().Contain("Set-RuntimeProductBinding");
         source.Should().Contain("EXECUTE AS USER");
         source.Should().Contain("EXECUTE AS LOGIN");
+        Regex.Matches(source, @"EXECUTE AS (?:USER|LOGIN)").Should().HaveCount(3);
+        Regex.Matches(
+                source,
+                @"BEGIN CATCH\s+REVERT;\s+THROW;\s+END CATCH;\s+REVERT;'")
+            .Should().HaveCount(3,
+                "every commissioning impersonation must restore the session before rethrowing");
         source.Should().Contain("IMPERSONATE ANY USER");
         source.Should().Contain("IMPERSONATE ANY LOGIN");
         source.Should().Contain("FROM sys.server_permissions D");

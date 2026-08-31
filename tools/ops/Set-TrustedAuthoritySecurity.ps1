@@ -266,7 +266,8 @@ SELECT P.principal_id AS PRINCIPAL_ID, P.type_desc AS TYPE_DESC, P.sid AS SID,
     $effective = Invoke-Table $Connection @'
 DECLARE @Sql NVARCHAR(MAX) =
     N'EXECUTE AS USER = ' + QUOTENAME(@name, '''') + N';
-      SELECT
+      BEGIN TRY
+        SELECT
         CAST(HAS_PERMS_BY_NAME(DB_NAME(), N''DATABASE'', N''CONTROL'') AS INT) AS CONTROL_DATABASE,
         CAST(HAS_PERMS_BY_NAME(DB_NAME(), N''DATABASE'', N''ALTER ANY ROLE'') AS INT) AS ALTER_ANY_ROLE,
         CAST(HAS_PERMS_BY_NAME(DB_NAME(), N''DATABASE'', N''ALTER ANY USER'') AS INT) AS ALTER_ANY_USER,
@@ -305,6 +306,11 @@ DECLARE @Sql NVARCHAR(MAX) =
              WHERE HAS_PERMS_BY_NAME(R.NAME, N''ROLE'', N''CONTROL'')=1
                 OR HAS_PERMS_BY_NAME(R.NAME, N''ROLE'', N''ALTER'')=1)
           THEN 1 ELSE 0 END AS INT) AS UNSAFE_SECURITY_SCOPE;
+      END TRY
+      BEGIN CATCH
+        REVERT;
+        THROW;
+      END CATCH;
       REVERT;';
 EXEC sys.sp_executesql @Sql;
 '@ @{ name = $Name; runtime = $Runtime; rmsWriter = $RmsWriter; sysWriter = $SysWriter }
@@ -320,12 +326,18 @@ EXEC sys.sp_executesql @Sql;
         $serverEffective = Invoke-Table $Connection @'
 DECLARE @Sql NVARCHAR(MAX) =
     N'EXECUTE AS LOGIN = ' + QUOTENAME(@login, '''') + N';
-      SELECT
+      BEGIN TRY
+        SELECT
         CAST(ISNULL(HAS_PERMS_BY_NAME(NULL, N''SERVER'', N''CONTROL SERVER''), 0) AS INT) AS CONTROL_SERVER,
         CAST(ISNULL(HAS_PERMS_BY_NAME(NULL, N''SERVER'', N''IMPERSONATE ANY LOGIN''), 0) AS INT) AS IMPERSONATE_ANY_LOGIN,
         CAST(CASE WHEN ISNULL(HAS_PERMS_BY_NAME(NULL, N''SERVER'', N''ALTER ANY LOGIN''), 0)=1
                     OR ISNULL(HAS_PERMS_BY_NAME(NULL, N''SERVER'', N''ALTER ANY SERVER ROLE''), 0)=1
                   THEN 1 ELSE 0 END AS INT) AS UNSAFE_SERVER_ALTER;
+      END TRY
+      BEGIN CATCH
+        REVERT;
+        THROW;
+      END CATCH;
       REVERT;';
 EXEC sys.sp_executesql @Sql;
 '@ @{ login = $loginName }
@@ -828,7 +840,8 @@ function Get-PermissionMatrix(
     $table = Invoke-Table $Connection @'
 DECLARE @Sql NVARCHAR(MAX) =
     N'EXECUTE AS USER = ' + QUOTENAME(@name, '''') + N';
-      SELECT
+      BEGIN TRY
+        SELECT
         CAST(IS_ROLEMEMBER(N''NexaOneProjectionRuntime'') AS INT) AS RUNTIME_ROLE,
         CAST(IS_ROLEMEMBER(N''NexaOneRmsEvidenceWriter'') AS INT) AS RMS_ROLE,
         CAST(IS_ROLEMEMBER(N''NexaOneSysReleaseWriter'') AS INT) AS SYS_ROLE,
@@ -849,6 +862,11 @@ DECLARE @Sql NVARCHAR(MAX) =
         CAST(HAS_PERMS_BY_NAME(N''dbo.POM_INSERT_WORK_SCOPE_PROJECTION_AUTHORITY'', N''OBJECT'', N''EXECUTE'') AS INT) AS AUTHORITY_EXECUTE,
         CAST(HAS_PERMS_BY_NAME(N''dbo.POM_GET_ACTIVE_PROJECTION_AUTHORITY_FOR_UPDATE'', N''OBJECT'', N''EXECUTE'') AS INT) AS AUTHORITY_LOCK_EXECUTE,
         CAST(HAS_PERMS_BY_NAME(N''dbo.POM_ADVANCE_WORK_SCOPE_PROJECTION_AUTHORITY_LINEAGE'', N''OBJECT'', N''EXECUTE'') AS INT) AS LINEAGE_EXECUTE;
+      END TRY
+      BEGIN CATCH
+        REVERT;
+        THROW;
+      END CATCH;
       REVERT;';
 EXEC sys.sp_executesql @Sql;
 '@ @{ name = $Name } $Transaction

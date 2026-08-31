@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Dapper;
 using FluentAssertions;
 using Microsoft.Data.SqlClient;
 using Xunit;
@@ -144,19 +145,26 @@ public sealed class MssqlTrustedAuthoritySecurityTests
             await database.ExecuteAsync(captureSql, recipeParameters);
             await database.ExecuteAsync(captureSql, recipeParameters);
 
-            var invalidCapture = await Assert.ThrowsAsync<SqlException>(() => ExecuteAsAsync(
-                database,
-                rmsWriter,
-                """
-                EXEC dbo.RMS_CAPTURE_CANONICAL_RECIPE_EXECUTION_EVIDENCE
-                     @ExecutionId=@ExecutionId, @WorkScopeId=@WorkScopeId,
-                     @PairRunId=@PairRunId, @SequenceRunId=@SequenceRunId,
-                     @EquipmentId=@EquipmentId, @OperationKey=@OperationKey,
-                     @RecipeId=N'SEC_RECIPE', @RecipeVersion=1,
-                     @SnapshotSchema=N'padded ', @SnapshotHash=@RecipeHash;
-                """,
-                recipeParameters));
-            invalidCapture.Number.Should().Be(51624);
+            await using (var impersonationConnection = new SqlConnection(database.ConnectionString))
+            {
+                await impersonationConnection.OpenAsync();
+                var invalidCapture = await Assert.ThrowsAsync<SqlException>(() => ExecuteAsAsync(
+                    impersonationConnection,
+                    rmsWriter,
+                    """
+                    EXEC dbo.RMS_CAPTURE_CANONICAL_RECIPE_EXECUTION_EVIDENCE
+                         @ExecutionId=@ExecutionId, @WorkScopeId=@WorkScopeId,
+                         @PairRunId=@PairRunId, @SequenceRunId=@SequenceRunId,
+                         @EquipmentId=@EquipmentId, @OperationKey=@OperationKey,
+                         @RecipeId=N'SEC_RECIPE', @RecipeVersion=1,
+                         @SnapshotSchema=N'padded ', @SnapshotHash=@RecipeHash;
+                    """,
+                    recipeParameters));
+                invalidCapture.Number.Should().Be(51624);
+                (await impersonationConnection.ExecuteScalarAsync<string>("SELECT USER_NAME();"))
+                    .Should().Be("dbo",
+                        "a rejected impersonated call must restore the same SQL Server session");
+            }
 
             var releaseSql = $"""
                 EXECUTE AS USER=N'{sysWriter}';
@@ -811,7 +819,8 @@ public sealed class MssqlTrustedAuthoritySecurityTests
                 database.ConnectionString,
                 FullArguments(runtime, "-Apply", wrongApproval));
             mismatchedApproval.ExitCode.Should().NotBe(0);
-            mismatchedApproval.Output.Should().Contain("does not match the server-read historical release principal SID");
+            mismatchedApproval.Output.Should().Contain("does not match the server-read");
+            mismatchedApproval.Output.Should().Contain("historical release principal SID");
             using (var evidence = JsonDocument.Parse(mismatchedApproval.EvidenceJson))
             {
                 var release = evidence.RootElement.GetProperty("ReleaseProvenance");
@@ -925,8 +934,30 @@ public sealed class MssqlTrustedAuthoritySecurityTests
         string databaseUser,
         string sql,
         object? parameters = null) => database.ExecuteAsync(
-        $"EXECUTE AS USER=N'{databaseUser}'; {sql} REVERT;",
+        BuildExecuteAsSql(databaseUser, sql),
         parameters);
+
+    private static Task ExecuteAsAsync(
+        SqlConnection connection,
+        string databaseUser,
+        string sql,
+        object? parameters = null) => connection.ExecuteAsync(new CommandDefinition(
+        BuildExecuteAsSql(databaseUser, sql),
+        parameters,
+        commandTimeout: 60));
+
+    private static string BuildExecuteAsSql(string databaseUser, string sql) =>
+        $"""
+        EXECUTE AS USER=N'{databaseUser}';
+        BEGIN TRY
+            {sql}
+        END TRY
+        BEGIN CATCH
+            REVERT;
+            THROW;
+        END CATCH;
+        REVERT;
+        """;
 
     private static async Task AssertDeniedAsync(
         MssqlContractDatabase database,
