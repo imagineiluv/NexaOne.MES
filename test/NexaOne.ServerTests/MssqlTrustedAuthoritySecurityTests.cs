@@ -954,7 +954,7 @@ public sealed class MssqlTrustedAuthoritySecurityTests
         END TRY
         BEGIN CATCH
             REVERT;
-            THROW;
+            ;THROW;
         END CATCH;
         REVERT;
         """;

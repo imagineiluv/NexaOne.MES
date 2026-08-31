@@ -249,7 +249,7 @@ public sealed class TrustedAuthoritySecurityContractTests
         Regex.Matches(source, @"EXECUTE AS (?:USER|LOGIN)").Should().HaveCount(3);
         Regex.Matches(
                 source,
-                @"BEGIN CATCH\s+REVERT;\s+THROW;\s+END CATCH;\s+REVERT;'")
+                @"BEGIN CATCH\s+REVERT;\s+;THROW;\s+END CATCH;\s+REVERT;'")
             .Should().HaveCount(3,
                 "every commissioning impersonation must restore the session before rethrowing");
         source.Should().Contain("IMPERSONATE ANY USER");

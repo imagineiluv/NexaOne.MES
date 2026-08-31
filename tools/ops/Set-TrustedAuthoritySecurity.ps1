@@ -309,7 +309,7 @@ DECLARE @Sql NVARCHAR(MAX) =
       END TRY
       BEGIN CATCH
         REVERT;
-        THROW;
+        ;THROW;
       END CATCH;
       REVERT;';
 EXEC sys.sp_executesql @Sql;
@@ -336,7 +336,7 @@ DECLARE @Sql NVARCHAR(MAX) =
       END TRY
       BEGIN CATCH
         REVERT;
-        THROW;
+        ;THROW;
       END CATCH;
       REVERT;';
 EXEC sys.sp_executesql @Sql;
@@ -865,7 +865,7 @@ DECLARE @Sql NVARCHAR(MAX) =
       END TRY
       BEGIN CATCH
         REVERT;
-        THROW;
+        ;THROW;
       END CATCH;
       REVERT;';
 EXEC sys.sp_executesql @Sql;
