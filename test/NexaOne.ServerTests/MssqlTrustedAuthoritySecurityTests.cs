@@ -63,6 +63,7 @@ public sealed class MssqlTrustedAuthoritySecurityTests
             """,
             new { Runtime = runtime1, RmsWriter = rmsWriter, SysWriter = sysWriter })).Should().Be(3,
             "runtime and both trusted writers must have distinct database SIDs");
+        Exception? primaryFailure = null;
         try
         {
             var bootstrap = await RunCommissioningAsync(
@@ -576,15 +577,17 @@ public sealed class MssqlTrustedAuthoritySecurityTests
             sameOwnerSchemaValidation.Output.Should().Contain("EXECUTE/IMPERSONATE GRANT");
             await database.ExecuteAsync($"DROP SCHEMA [{rogueSchema}];");
 
-            await database.ExecuteAsync($"""
-                CREATE SERVER ROLE [{rogueServerRole}];
-                GRANT CONTROL SERVER TO [{rogueServerRole}];
-                """);
+            await ExecuteInMasterAsync(
+                database.ConnectionString,
+                $"CREATE SERVER ROLE [{rogueServerRole}];");
+            await ExecuteInMasterAsync(
+                database.ConnectionString,
+                $"GRANT CONTROL SERVER TO [{rogueServerRole}];");
             var broadServerGrantValidation = await RunCommissioningAsync(
                 database.ConnectionString, validateArguments);
             broadServerGrantValidation.ExitCode.Should().NotBe(0);
             broadServerGrantValidation.Output.Should().Contain($"server:{rogueServerRole}");
-            await database.ExecuteAsync($"""
+            await ExecuteInMasterAsync(database.ConnectionString, $"""
                 REVOKE CONTROL SERVER FROM [{rogueServerRole}];
                 DROP SERVER ROLE [{rogueServerRole}];
                 """);
@@ -623,41 +626,73 @@ public sealed class MssqlTrustedAuthoritySecurityTests
                     .Should().Contain("Fail-safe decommission");
             }
         }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
+            throw;
+        }
         finally
         {
-            await database.ExecuteAsync($"""
-                IF OBJECT_ID(N'dbo.{rogueProcedure}', N'P') IS NOT NULL
-                  DROP PROCEDURE dbo.[{rogueProcedure}];
-                IF OBJECT_ID(N'dbo.{rogueHelperProcedure}', N'P') IS NOT NULL
-                  DROP PROCEDURE dbo.[{rogueHelperProcedure}];
-                IF OBJECT_ID(N'dbo.{rogueSynonym}', N'SN') IS NOT NULL
-                  DROP SYNONYM dbo.[{rogueSynonym}];
-                IF SCHEMA_ID(N'{rogueSchema}') IS NOT NULL
-                  DROP SCHEMA [{rogueSchema}];
-                IF EXISTS (SELECT 1 FROM sys.server_principals WHERE name=N'{rogueServerRole}' AND type='R')
-                BEGIN
-                  REVOKE CONTROL SERVER FROM [{rogueServerRole}];
-                  DROP SERVER ROLE [{rogueServerRole}];
-                END;
-                IF DATABASE_PRINCIPAL_ID(N'{impersonator}') IS NOT NULL DROP USER [{impersonator}];
-                DELETE FROM dbo.POM_PROJECTION_RUNTIME_PRODUCT_BINDING
-                 WHERE DATABASE_PRINCIPAL_NAME IN (N'{runtime1}', N'{runtime2}', N'{unboundRuntime}');
-                IF IS_ROLEMEMBER(N'NexaOneProjectionRuntime', N'{runtime1}')=1
-                  ALTER ROLE NexaOneProjectionRuntime DROP MEMBER [{runtime1}];
-                IF IS_ROLEMEMBER(N'NexaOneProjectionRuntime', N'{runtime2}')=1
-                  ALTER ROLE NexaOneProjectionRuntime DROP MEMBER [{runtime2}];
-                IF IS_ROLEMEMBER(N'NexaOneProjectionRuntime', N'{unboundRuntime}')=1
-                  ALTER ROLE NexaOneProjectionRuntime DROP MEMBER [{unboundRuntime}];
-                IF IS_ROLEMEMBER(N'NexaOneRmsEvidenceWriter', N'{rmsWriter}')=1
-                  ALTER ROLE NexaOneRmsEvidenceWriter DROP MEMBER [{rmsWriter}];
-                IF IS_ROLEMEMBER(N'NexaOneSysReleaseWriter', N'{sysWriter}')=1
-                  ALTER ROLE NexaOneSysReleaseWriter DROP MEMBER [{sysWriter}];
-                IF DATABASE_PRINCIPAL_ID(N'{runtime1}') IS NOT NULL DROP USER [{runtime1}];
-                IF DATABASE_PRINCIPAL_ID(N'{runtime2}') IS NOT NULL DROP USER [{runtime2}];
-                IF DATABASE_PRINCIPAL_ID(N'{unboundRuntime}') IS NOT NULL DROP USER [{unboundRuntime}];
-                IF DATABASE_PRINCIPAL_ID(N'{rmsWriter}') IS NOT NULL DROP USER [{rmsWriter}];
-                IF DATABASE_PRINCIPAL_ID(N'{sysWriter}') IS NOT NULL DROP USER [{sysWriter}];
-                """);
+            var cleanupFailures = new List<Exception>();
+            try
+            {
+                await ExecuteInMasterAsync(database.ConnectionString, $"""
+                    IF EXISTS (SELECT 1 FROM sys.server_principals WHERE name=N'{rogueServerRole}' AND type='R')
+                    BEGIN
+                      REVOKE CONTROL SERVER FROM [{rogueServerRole}];
+                      DROP SERVER ROLE [{rogueServerRole}];
+                    END;
+                    """);
+            }
+            catch (Exception exception)
+            {
+                cleanupFailures.Add(exception);
+            }
+
+            try
+            {
+                await database.ExecuteAsync($"""
+                    IF OBJECT_ID(N'dbo.{rogueProcedure}', N'P') IS NOT NULL
+                      DROP PROCEDURE dbo.[{rogueProcedure}];
+                    IF OBJECT_ID(N'dbo.{rogueHelperProcedure}', N'P') IS NOT NULL
+                      DROP PROCEDURE dbo.[{rogueHelperProcedure}];
+                    IF OBJECT_ID(N'dbo.{rogueSynonym}', N'SN') IS NOT NULL
+                      DROP SYNONYM dbo.[{rogueSynonym}];
+                    IF SCHEMA_ID(N'{rogueSchema}') IS NOT NULL
+                      DROP SCHEMA [{rogueSchema}];
+                    IF DATABASE_PRINCIPAL_ID(N'{impersonator}') IS NOT NULL DROP USER [{impersonator}];
+                    DELETE FROM dbo.POM_PROJECTION_RUNTIME_PRODUCT_BINDING
+                     WHERE DATABASE_PRINCIPAL_NAME IN (N'{runtime1}', N'{runtime2}', N'{unboundRuntime}');
+                    IF IS_ROLEMEMBER(N'NexaOneProjectionRuntime', N'{runtime1}')=1
+                      ALTER ROLE NexaOneProjectionRuntime DROP MEMBER [{runtime1}];
+                    IF IS_ROLEMEMBER(N'NexaOneProjectionRuntime', N'{runtime2}')=1
+                      ALTER ROLE NexaOneProjectionRuntime DROP MEMBER [{runtime2}];
+                    IF IS_ROLEMEMBER(N'NexaOneProjectionRuntime', N'{unboundRuntime}')=1
+                      ALTER ROLE NexaOneProjectionRuntime DROP MEMBER [{unboundRuntime}];
+                    IF IS_ROLEMEMBER(N'NexaOneRmsEvidenceWriter', N'{rmsWriter}')=1
+                      ALTER ROLE NexaOneRmsEvidenceWriter DROP MEMBER [{rmsWriter}];
+                    IF IS_ROLEMEMBER(N'NexaOneSysReleaseWriter', N'{sysWriter}')=1
+                      ALTER ROLE NexaOneSysReleaseWriter DROP MEMBER [{sysWriter}];
+                    IF DATABASE_PRINCIPAL_ID(N'{runtime1}') IS NOT NULL DROP USER [{runtime1}];
+                    IF DATABASE_PRINCIPAL_ID(N'{runtime2}') IS NOT NULL DROP USER [{runtime2}];
+                    IF DATABASE_PRINCIPAL_ID(N'{unboundRuntime}') IS NOT NULL DROP USER [{unboundRuntime}];
+                    IF DATABASE_PRINCIPAL_ID(N'{rmsWriter}') IS NOT NULL DROP USER [{rmsWriter}];
+                    IF DATABASE_PRINCIPAL_ID(N'{sysWriter}') IS NOT NULL DROP USER [{sysWriter}];
+                    """);
+            }
+            catch (Exception exception)
+            {
+                cleanupFailures.Add(exception);
+            }
+
+            if (cleanupFailures.Count > 0)
+            {
+                if (primaryFailure is null)
+                    throw new AggregateException("Trusted-authority test cleanup failed.", cleanupFailures);
+
+                foreach (var cleanupFailure in cleanupFailures)
+                    _output.WriteLine($"Cleanup failure after primary test failure: {cleanupFailure}");
+            }
         }
     }
 
@@ -1121,6 +1156,17 @@ public sealed class MssqlTrustedAuthoritySecurityTests
     }
 
     private sealed record CommissioningResult(int ExitCode, string Output, string EvidenceJson);
+
+    private static async Task ExecuteInMasterAsync(string connectionString, string sql)
+    {
+        var builder = new SqlConnectionStringBuilder(connectionString)
+        {
+            InitialCatalog = "master",
+        };
+        await using var connection = new SqlConnection(builder.ConnectionString);
+        await connection.OpenAsync();
+        await connection.ExecuteAsync(new CommandDefinition(sql, commandTimeout: 60));
+    }
 
     private static Task<int> ExecuteScalarAsAsync(
         MssqlContractDatabase database,
