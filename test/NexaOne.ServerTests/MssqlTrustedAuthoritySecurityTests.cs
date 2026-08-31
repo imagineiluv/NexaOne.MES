@@ -566,10 +566,10 @@ public sealed class MssqlTrustedAuthoritySecurityTests
             impersonationValidation.Output.Should().Contain("EXECUTE/IMPERSONATE GRANT");
             await database.ExecuteAsync($"DROP USER [{impersonator}];");
 
-            await database.ExecuteAsync($"""
-                CREATE SCHEMA [{rogueSchema}] AUTHORIZATION dbo;
-                GRANT EXECUTE ON SCHEMA::[{rogueSchema}] TO [{runtime1}];
-                """);
+            await database.ExecuteAsync(
+                $"CREATE SCHEMA [{rogueSchema}] AUTHORIZATION dbo;");
+            await database.ExecuteAsync(
+                $"GRANT EXECUTE ON SCHEMA::[{rogueSchema}] TO [{runtime1}];");
             var sameOwnerSchemaValidation = await RunCommissioningAsync(
                 database.ConnectionString, validateArguments);
             sameOwnerSchemaValidation.ExitCode.Should().NotBe(0);
@@ -888,17 +888,23 @@ public sealed class MssqlTrustedAuthoritySecurityTests
                 FullArguments(runtime, "-ValidateOnly"));
             revokedValidate.ExitCode.Should().NotBe(0,
                 "worker activation validation must fail closed after a bound artifact is revoked");
-            revokedValidate.Output.Should().Contain("revoked program artifact cannot be commissioned");
             using (var evidence = JsonDocument.Parse(revokedValidate.EvidenceJson))
             {
                 evidence.RootElement.GetProperty("Success").GetBoolean().Should().BeFalse();
+                evidence.RootElement.GetProperty("Error").GetString().Should()
+                    .Contain("revoked program artifact cannot be commissioned");
             }
 
             var revokedApply = await RunCommissioningAsync(
                 database.ConnectionString,
                 FullArguments(nextRuntime, "-Apply", historicalReleaseSid));
             revokedApply.ExitCode.Should().NotBe(0);
-            revokedApply.Output.Should().Contain("revoked program artifact cannot be commissioned");
+            using (var evidence = JsonDocument.Parse(revokedApply.EvidenceJson))
+            {
+                evidence.RootElement.GetProperty("Success").GetBoolean().Should().BeFalse();
+                evidence.RootElement.GetProperty("Error").GetString().Should()
+                    .Contain("revoked program artifact cannot be commissioned");
+            }
             (await database.ScalarAsync<int>(
                 "SELECT COUNT(*) FROM dbo.POM_PROJECTION_RUNTIME_PRODUCT_BINDING WHERE DATABASE_PRINCIPAL_NAME=@Runtime;",
                 new { Runtime = nextRuntime })).Should().Be(0,
