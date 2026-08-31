@@ -258,6 +258,30 @@ public sealed class TrustedAuthoritySecurityContractTests
                 source,
                 @"RAISERROR\(N''%s'', @ErrorSeverity, @ErrorState, @ErrorMessage\);")
             .Should().HaveCount(3);
+        Regex.Matches(
+                source,
+                @"(?m)^[ \t]*BEGIN\r?\n[ \t]+;THROW\s+516\d{2},[^\r\n]+;\r?\n[ \t]*END;")
+            .Should().HaveCount(9,
+                "every conditional commissioning THROW must remain inside an explicit block");
+        var conditionalThrowPatterns = new[]
+        {
+            @"(?s)IF @runtimeSid IS NULL\s+BEGIN\s+;THROW 51620, 'Runtime database principal disappeared during commissioning', 1;\s+END;",
+            @"(?s)IF @sysWriterSid IS NULL\s+BEGIN\s+;THROW 51620, 'SYS writer database principal disappeared during commissioning', 1;\s+END;",
+            @"(?s)IF @@ROWCOUNT<>1\s+BEGIN\s+;THROW 51622, 'Commissioned product coordinate is not an exact released artifact', 1;\s+END;",
+            @"(?s)IF EXISTS \(\s+SELECT 1 FROM dbo\.SYS_RELEASED_PROGRAM_ARTIFACT_REVOCATION.*?\)\s+BEGIN\s+;THROW 51623, 'A revoked program artifact cannot be commissioned', 1;\s+END;",
+            @"(?s)IF @sid IS NULL\s+BEGIN\s+;THROW 51620, 'Runtime database principal disappeared during commissioning', 1;\s+END;",
+            @"(?s)IF @remove=0 AND NOT EXISTS \(\s+SELECT 1\s+FROM dbo\.SYS_RELEASED_PROGRAM_ARTIFACT.*?\)\s+BEGIN\s+;THROW 51622, 'Commissioned product coordinate is not an exact released artifact', 1;\s+END;",
+            @"(?s)IF @remove=0 AND EXISTS \(\s+SELECT 1 FROM dbo\.SYS_RELEASED_PROGRAM_ARTIFACT_REVOCATION.*?\)\s+BEGIN\s+;THROW 51623, 'A revoked program artifact cannot be commissioned', 1;\s+END;",
+            @"(?s)IF NOT EXISTS \(\s+SELECT 1 FROM dbo\.POM_PROJECTION_RUNTIME_PRODUCT_BINDING.*?\)\s+BEGIN\s+;THROW 51624, 'Existing runtime artifact binding conflicts with the requested exact coordinate', 1;\s+END;",
+            @"(?s)IF ISNULL\(IS_SRVROLEMEMBER\(N'sysadmin'\), 0\)<>1.*?BEGIN\s+;THROW 51629, 'Commissioning principal cannot audit server impersonation permissions completely', 1;\s+END;",
+        };
+        foreach (var pattern in conditionalThrowPatterns)
+        {
+            source.Should().MatchRegex(pattern,
+                "each security failure must remain guarded by its commissioning condition");
+        }
+
+        source.Should().NotMatchRegex(@"(?m)^\s*THROW\s+516\d{2},");
         source.Should().Contain("IMPERSONATE ANY USER");
         source.Should().Contain("IMPERSONATE ANY LOGIN");
         source.Should().Contain("FROM sys.server_permissions D");

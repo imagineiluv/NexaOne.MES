@@ -489,13 +489,19 @@ DECLARE @runtimeSid VARBINARY(85) = (
   SELECT P.sid FROM sys.database_principals P
    WHERE P.name COLLATE Latin1_General_100_BIN2=@runtime COLLATE Latin1_General_100_BIN2
      AND DATALENGTH(CONVERT(NVARCHAR(MAX), P.name))=DATALENGTH(CONVERT(NVARCHAR(MAX), @runtime)));
-IF @runtimeSid IS NULL THROW 51620, 'Runtime database principal disappeared during commissioning', 1;
+IF @runtimeSid IS NULL
+BEGIN
+  ;THROW 51620, 'Runtime database principal disappeared during commissioning', 1;
+END;
 
 DECLARE @sysWriterSid VARBINARY(85) = (
   SELECT P.sid FROM sys.database_principals P
    WHERE P.name COLLATE Latin1_General_100_BIN2=@sysWriter COLLATE Latin1_General_100_BIN2
      AND DATALENGTH(CONVERT(NVARCHAR(MAX), P.name))=DATALENGTH(CONVERT(NVARCHAR(MAX), @sysWriter)));
-IF @sysWriterSid IS NULL THROW 51620, 'SYS writer database principal disappeared during commissioning', 1;
+IF @sysWriterSid IS NULL
+BEGIN
+  ;THROW 51620, 'SYS writer database principal disappeared during commissioning', 1;
+END;
 
 DECLARE @Release TABLE (
   RELEASED_DATABASE_PRINCIPAL_NAME NVARCHAR(128) NOT NULL,
@@ -533,13 +539,17 @@ SELECT A.RELEASED_DATABASE_PRINCIPAL_NAME, A.RELEASED_DATABASE_PRINCIPAL_SID, A.
    AND DATALENGTH(A.RELEASED_DATABASE_PRINCIPAL_NAME)>0
    AND DATALENGTH(A.RELEASED_DATABASE_PRINCIPAL_SID)>0;
 IF @@ROWCOUNT<>1
-  THROW 51622, 'Commissioned product coordinate is not an exact released artifact', 1;
+BEGIN
+  ;THROW 51622, 'Commissioned product coordinate is not an exact released artifact', 1;
+END;
 
 IF EXISTS (
   SELECT 1 FROM dbo.SYS_RELEASED_PROGRAM_ARTIFACT_REVOCATION V WITH (UPDLOCK, HOLDLOCK)
    WHERE V.ARTIFACT_ID COLLATE Latin1_General_100_BIN2=@artifact COLLATE Latin1_General_100_BIN2
      AND DATALENGTH(CONVERT(NVARCHAR(MAX), V.ARTIFACT_ID))=DATALENGTH(CONVERT(NVARCHAR(MAX), @artifact)))
-  THROW 51623, 'A revoked program artifact cannot be commissioned', 1;
+BEGIN
+  ;THROW 51623, 'A revoked program artifact cannot be commissioned', 1;
+END;
 
 SELECT R.RELEASED_DATABASE_PRINCIPAL_NAME,
        R.RELEASED_DATABASE_PRINCIPAL_SID,
@@ -614,7 +624,10 @@ BEGIN
   RETURN;
 END;
 
-IF @sid IS NULL THROW 51620, 'Runtime database principal disappeared during commissioning', 1;
+IF @sid IS NULL
+BEGIN
+  ;THROW 51620, 'Runtime database principal disappeared during commissioning', 1;
+END;
 IF @remove=0 AND NOT EXISTS (
   SELECT 1
     FROM dbo.SYS_RELEASED_PROGRAM_ARTIFACT A WITH (UPDLOCK, HOLDLOCK)
@@ -643,13 +656,17 @@ IF @remove=0 AND NOT EXISTS (
            =DATALENGTH(CONVERT(NVARCHAR(MAX), @recipeSchema))
      AND A.BOUND_RECIPE_SNAPSHOT_HASH COLLATE Latin1_General_100_BIN2
            =@recipeHash COLLATE Latin1_General_100_BIN2)
-  THROW 51622, 'Commissioned product coordinate is not an exact released artifact', 1;
+BEGIN
+  ;THROW 51622, 'Commissioned product coordinate is not an exact released artifact', 1;
+END;
 
 IF @remove=0 AND EXISTS (
   SELECT 1 FROM dbo.SYS_RELEASED_PROGRAM_ARTIFACT_REVOCATION V WITH (UPDLOCK, HOLDLOCK)
    WHERE V.ARTIFACT_ID COLLATE Latin1_General_100_BIN2=@artifact COLLATE Latin1_General_100_BIN2
      AND DATALENGTH(CONVERT(NVARCHAR(MAX), V.ARTIFACT_ID))=DATALENGTH(CONVERT(NVARCHAR(MAX), @artifact))
-  THROW 51623, 'A revoked program artifact cannot be commissioned', 1;
+BEGIN
+  ;THROW 51623, 'A revoked program artifact cannot be commissioned', 1;
+END;
 
 IF @remove=0 AND EXISTS (
   SELECT 1 FROM dbo.POM_PROJECTION_RUNTIME_PRODUCT_BINDING B WITH (UPDLOCK, HOLDLOCK)
@@ -674,7 +691,9 @@ BEGIN
        AND B.PROGRAM_HASH COLLATE Latin1_General_100_BIN2=@programHash COLLATE Latin1_General_100_BIN2
        AND B.BOUND_RECIPE_SNAPSHOT_SCHEMA COLLATE Latin1_General_100_BIN2=@recipeSchema COLLATE Latin1_General_100_BIN2
        AND B.BOUND_RECIPE_SNAPSHOT_HASH COLLATE Latin1_General_100_BIN2=@recipeHash COLLATE Latin1_General_100_BIN2)
-    THROW 51624, 'Existing runtime artifact binding conflicts with the requested exact coordinate', 1;
+  BEGIN
+    ;THROW 51624, 'Existing runtime artifact binding conflicts with the requested exact coordinate', 1;
+  END;
 END
 ELSE IF @remove=0
   INSERT INTO dbo.POM_PROJECTION_RUNTIME_PRODUCT_BINDING
@@ -923,7 +942,9 @@ function Assert-AuthorityExecuteAcl(
 IF ISNULL(IS_SRVROLEMEMBER(N'sysadmin'), 0)<>1
    AND ISNULL(HAS_PERMS_BY_NAME(NULL, N'SERVER', N'CONTROL SERVER'), 0)<>1
    AND ISNULL(HAS_PERMS_BY_NAME(NULL, N'SERVER', N'VIEW ANY DEFINITION'), 0)<>1
-  THROW 51629, 'Commissioning principal cannot audit server impersonation permissions completely', 1;
+BEGIN
+  ;THROW 51629, 'Commissioning principal cannot audit server impersonation permissions completely', 1;
+END;
 
 ;WITH ProcedureAllowlist AS (
   SELECT OBJECT_ID(N'dbo.RMS_CAPTURE_CANONICAL_RECIPE_EXECUTION_EVIDENCE') AS OBJECT_ID,
