@@ -553,7 +553,7 @@ public sealed class MssqlTrustedAuthoritySecurityTests
             var rogueValidation = await RunCommissioningAsync(
                 database.ConnectionString, validateArguments);
             rogueValidation.ExitCode.Should().NotBe(0);
-            rogueValidation.Output.Should().Contain("Unexpected trusted-table module");
+            GetCommissioningError(rogueValidation).Should().Contain("Unexpected trusted-table module");
             await database.ExecuteAsync($"DROP PROCEDURE dbo.[{rogueProcedure}];");
             await database.ExecuteAsync($"DROP PROCEDURE dbo.[{rogueHelperProcedure}];");
 
@@ -564,7 +564,7 @@ public sealed class MssqlTrustedAuthoritySecurityTests
             var impersonationValidation = await RunCommissioningAsync(
                 database.ConnectionString, validateArguments);
             impersonationValidation.ExitCode.Should().NotBe(0);
-            impersonationValidation.Output.Should().Contain("EXECUTE/IMPERSONATE GRANT");
+            GetCommissioningError(impersonationValidation).Should().Contain("EXECUTE/IMPERSONATE GRANT");
             await database.ExecuteAsync($"DROP USER [{impersonator}];");
 
             await database.ExecuteAsync(
@@ -574,7 +574,7 @@ public sealed class MssqlTrustedAuthoritySecurityTests
             var sameOwnerSchemaValidation = await RunCommissioningAsync(
                 database.ConnectionString, validateArguments);
             sameOwnerSchemaValidation.ExitCode.Should().NotBe(0);
-            sameOwnerSchemaValidation.Output.Should().Contain("EXECUTE/IMPERSONATE GRANT");
+            GetCommissioningError(sameOwnerSchemaValidation).Should().Contain("EXECUTE/IMPERSONATE GRANT");
             await database.ExecuteAsync($"DROP SCHEMA [{rogueSchema}];");
 
             await ExecuteInMasterAsync(
@@ -586,7 +586,7 @@ public sealed class MssqlTrustedAuthoritySecurityTests
             var broadServerGrantValidation = await RunCommissioningAsync(
                 database.ConnectionString, validateArguments);
             broadServerGrantValidation.ExitCode.Should().NotBe(0);
-            broadServerGrantValidation.Output.Should().Contain($"server:{rogueServerRole}");
+            GetCommissioningError(broadServerGrantValidation).Should().Contain($"server:{rogueServerRole}");
             await ExecuteInMasterAsync(database.ConnectionString, $"""
                 REVOKE CONTROL SERVER FROM [{rogueServerRole}];
                 DROP SERVER ROLE [{rogueServerRole}];
@@ -597,7 +597,7 @@ public sealed class MssqlTrustedAuthoritySecurityTests
             var synonymValidation = await RunCommissioningAsync(
                 database.ConnectionString, validateArguments);
             synonymValidation.ExitCode.Should().NotBe(0);
-            synonymValidation.Output.Should().Contain("trusted-table synonym");
+            GetCommissioningError(synonymValidation).Should().Contain("trusted-table synonym");
             await database.ExecuteAsync($"DROP SYNONYM dbo.[{rogueSynonym}];");
 
             await database.ExecuteAsync($"""
@@ -819,13 +819,15 @@ public sealed class MssqlTrustedAuthoritySecurityTests
                 database.ConnectionString,
                 FullArguments(runtime, "-Apply", historicalReleaseSid.ToLowerInvariant()));
             lowercaseApproval.ExitCode.Should().NotBe(0);
-            lowercaseApproval.Output.Should().Contain("exact uppercase SHA-256 hex");
+            CompactPowerShellOutput(lowercaseApproval.Output).Should()
+                .Contain("exactuppercaseSHA-256hex");
 
             var missingApproval = await RunCommissioningAsync(
                 database.ConnectionString,
                 FullArguments(runtime, "-Apply"));
             missingApproval.ExitCode.Should().NotBe(0);
-            missingApproval.Output.Should().Contain("historical release provenance requires");
+            GetCommissioningError(missingApproval).Should()
+                .Contain("historical release provenance requires");
             using (var evidence = JsonDocument.Parse(missingApproval.EvidenceJson))
             {
                 var release = evidence.RootElement.GetProperty("ReleaseProvenance");
@@ -854,8 +856,8 @@ public sealed class MssqlTrustedAuthoritySecurityTests
                 database.ConnectionString,
                 FullArguments(runtime, "-Apply", wrongApproval));
             mismatchedApproval.ExitCode.Should().NotBe(0);
-            mismatchedApproval.Output.Should().Contain("does not match the server-read");
-            mismatchedApproval.Output.Should().Contain("historical release principal SID");
+            GetCommissioningError(mismatchedApproval).Should()
+                .Contain("does not match the server-read historical release principal SID");
             using (var evidence = JsonDocument.Parse(mismatchedApproval.EvidenceJson))
             {
                 var release = evidence.RootElement.GetProperty("ReleaseProvenance");
@@ -1156,6 +1158,17 @@ public sealed class MssqlTrustedAuthoritySecurityTests
     }
 
     private sealed record CommissioningResult(int ExitCode, string Output, string EvidenceJson);
+
+    private static string GetCommissioningError(CommissioningResult result)
+    {
+        using var evidence = JsonDocument.Parse(result.EvidenceJson);
+        evidence.RootElement.GetProperty("Success").GetBoolean().Should().BeFalse();
+        return evidence.RootElement.GetProperty("Error").GetString()
+            ?? throw new InvalidOperationException("Failed commissioning evidence has no Error value.");
+    }
+
+    private static string CompactPowerShellOutput(string output) =>
+        string.Concat(output.Where(character => !char.IsWhiteSpace(character) && character != '|'));
 
     private static async Task ExecuteInMasterAsync(string connectionString, string sql)
     {
