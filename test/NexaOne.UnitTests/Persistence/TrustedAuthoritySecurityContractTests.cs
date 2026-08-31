@@ -249,9 +249,15 @@ public sealed class TrustedAuthoritySecurityContractTests
         Regex.Matches(source, @"EXECUTE AS (?:USER|LOGIN)").Should().HaveCount(3);
         Regex.Matches(
                 source,
-                @"BEGIN CATCH\s+REVERT;\s+;THROW;\s+END CATCH;\s+REVERT;'")
+                @"BEGIN CATCH\s+SELECT @ErrorMessage=ERROR_MESSAGE\(\)," +
+                @" @ErrorSeverity=ERROR_SEVERITY\(\),\s+@ErrorState=ERROR_STATE\(\);" +
+                @"\s+END CATCH;\s+REVERT;")
             .Should().HaveCount(3,
-                "every commissioning impersonation must restore the session before rethrowing");
+                "every commissioning impersonation must restore the session before reporting an error");
+        Regex.Matches(
+                source,
+                @"RAISERROR\(N''%s'', @ErrorSeverity, @ErrorState, @ErrorMessage\);")
+            .Should().HaveCount(3);
         source.Should().Contain("IMPERSONATE ANY USER");
         source.Should().Contain("IMPERSONATE ANY LOGIN");
         source.Should().Contain("FROM sys.server_permissions D");

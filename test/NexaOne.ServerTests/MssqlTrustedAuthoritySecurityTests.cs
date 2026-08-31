@@ -929,35 +929,40 @@ public sealed class MssqlTrustedAuthoritySecurityTests
         }
     }
 
-    private static Task ExecuteAsAsync(
+    private static async Task ExecuteAsAsync(
         MssqlContractDatabase database,
         string databaseUser,
         string sql,
-        object? parameters = null) => database.ExecuteAsync(
-        BuildExecuteAsSql(databaseUser, sql),
-        parameters);
+        object? parameters = null)
+    {
+        await using var connection = new SqlConnection(database.ConnectionString);
+        await connection.OpenAsync();
+        await ExecuteAsAsync(connection, databaseUser, sql, parameters);
+    }
 
-    private static Task ExecuteAsAsync(
+    private static async Task ExecuteAsAsync(
         SqlConnection connection,
         string databaseUser,
         string sql,
-        object? parameters = null) => connection.ExecuteAsync(new CommandDefinition(
-        BuildExecuteAsSql(databaseUser, sql),
-        parameters,
-        commandTimeout: 60));
-
-    private static string BuildExecuteAsSql(string databaseUser, string sql) =>
-        $"""
-        EXECUTE AS USER=N'{databaseUser}';
-        BEGIN TRY
-            {sql}
-        END TRY
-        BEGIN CATCH
-            REVERT;
-            ;THROW;
-        END CATCH;
-        REVERT;
-        """;
+        object? parameters = null)
+    {
+        await connection.ExecuteAsync(new CommandDefinition(
+            $"EXECUTE AS USER=N'{databaseUser}';",
+            commandTimeout: 60));
+        try
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                sql,
+                parameters,
+                commandTimeout: 60));
+        }
+        finally
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "REVERT;",
+                commandTimeout: 60));
+        }
+    }
 
     private static async Task AssertDeniedAsync(
         MssqlContractDatabase database,

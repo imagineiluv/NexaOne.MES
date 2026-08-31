@@ -266,6 +266,7 @@ SELECT P.principal_id AS PRINCIPAL_ID, P.type_desc AS TYPE_DESC, P.sid AS SID,
     $effective = Invoke-Table $Connection @'
 DECLARE @Sql NVARCHAR(MAX) =
     N'EXECUTE AS USER = ' + QUOTENAME(@name, '''') + N';
+      DECLARE @ErrorMessage NVARCHAR(4000), @ErrorSeverity INT, @ErrorState INT;
       BEGIN TRY
         SELECT
         CAST(HAS_PERMS_BY_NAME(DB_NAME(), N''DATABASE'', N''CONTROL'') AS INT) AS CONTROL_DATABASE,
@@ -308,10 +309,16 @@ DECLARE @Sql NVARCHAR(MAX) =
           THEN 1 ELSE 0 END AS INT) AS UNSAFE_SECURITY_SCOPE;
       END TRY
       BEGIN CATCH
-        REVERT;
-        ;THROW;
+        SELECT @ErrorMessage=ERROR_MESSAGE(), @ErrorSeverity=ERROR_SEVERITY(),
+               @ErrorState=ERROR_STATE();
       END CATCH;
-      REVERT;';
+      REVERT;
+      IF @ErrorMessage IS NOT NULL
+      BEGIN
+        IF @ErrorSeverity NOT BETWEEN 11 AND 18 SET @ErrorSeverity=16;
+        IF @ErrorState NOT BETWEEN 1 AND 127 SET @ErrorState=1;
+        RAISERROR(N''%s'', @ErrorSeverity, @ErrorState, @ErrorMessage);
+      END;';
 EXEC sys.sp_executesql @Sql;
 '@ @{ name = $Name; runtime = $Runtime; rmsWriter = $RmsWriter; sysWriter = $SysWriter }
     $permissions = $effective.Rows[0]
@@ -326,6 +333,7 @@ EXEC sys.sp_executesql @Sql;
         $serverEffective = Invoke-Table $Connection @'
 DECLARE @Sql NVARCHAR(MAX) =
     N'EXECUTE AS LOGIN = ' + QUOTENAME(@login, '''') + N';
+      DECLARE @ErrorMessage NVARCHAR(4000), @ErrorSeverity INT, @ErrorState INT;
       BEGIN TRY
         SELECT
         CAST(ISNULL(HAS_PERMS_BY_NAME(NULL, N''SERVER'', N''CONTROL SERVER''), 0) AS INT) AS CONTROL_SERVER,
@@ -335,10 +343,16 @@ DECLARE @Sql NVARCHAR(MAX) =
                   THEN 1 ELSE 0 END AS INT) AS UNSAFE_SERVER_ALTER;
       END TRY
       BEGIN CATCH
-        REVERT;
-        ;THROW;
+        SELECT @ErrorMessage=ERROR_MESSAGE(), @ErrorSeverity=ERROR_SEVERITY(),
+               @ErrorState=ERROR_STATE();
       END CATCH;
-      REVERT;';
+      REVERT;
+      IF @ErrorMessage IS NOT NULL
+      BEGIN
+        IF @ErrorSeverity NOT BETWEEN 11 AND 18 SET @ErrorSeverity=16;
+        IF @ErrorState NOT BETWEEN 1 AND 127 SET @ErrorState=1;
+        RAISERROR(N''%s'', @ErrorSeverity, @ErrorState, @ErrorMessage);
+      END;';
 EXEC sys.sp_executesql @Sql;
 '@ @{ login = $loginName }
         $serverControl = [int]$serverEffective.Rows[0].CONTROL_SERVER
@@ -840,6 +854,7 @@ function Get-PermissionMatrix(
     $table = Invoke-Table $Connection @'
 DECLARE @Sql NVARCHAR(MAX) =
     N'EXECUTE AS USER = ' + QUOTENAME(@name, '''') + N';
+      DECLARE @ErrorMessage NVARCHAR(4000), @ErrorSeverity INT, @ErrorState INT;
       BEGIN TRY
         SELECT
         CAST(IS_ROLEMEMBER(N''NexaOneProjectionRuntime'') AS INT) AS RUNTIME_ROLE,
@@ -864,10 +879,16 @@ DECLARE @Sql NVARCHAR(MAX) =
         CAST(HAS_PERMS_BY_NAME(N''dbo.POM_ADVANCE_WORK_SCOPE_PROJECTION_AUTHORITY_LINEAGE'', N''OBJECT'', N''EXECUTE'') AS INT) AS LINEAGE_EXECUTE;
       END TRY
       BEGIN CATCH
-        REVERT;
-        ;THROW;
+        SELECT @ErrorMessage=ERROR_MESSAGE(), @ErrorSeverity=ERROR_SEVERITY(),
+               @ErrorState=ERROR_STATE();
       END CATCH;
-      REVERT;';
+      REVERT;
+      IF @ErrorMessage IS NOT NULL
+      BEGIN
+        IF @ErrorSeverity NOT BETWEEN 11 AND 18 SET @ErrorSeverity=16;
+        IF @ErrorState NOT BETWEEN 1 AND 127 SET @ErrorState=1;
+        RAISERROR(N''%s'', @ErrorSeverity, @ErrorState, @ErrorMessage);
+      END;';
 EXEC sys.sp_executesql @Sql;
 '@ @{ name = $Name } $Transaction
     $row = $table.Rows[0]
