@@ -280,6 +280,11 @@ public sealed class TrustedAuthoritySecurityContractTests
             source.Should().MatchRegex(pattern,
                 "each security failure must remain guarded by its commissioning condition");
         }
+        Regex.Matches(
+                source,
+                @"DATALENGTH\(CONVERT\(NVARCHAR\(MAX\), @artifact\)\)\)\s+BEGIN\s+;THROW 51623,")
+            .Should().HaveCount(2,
+                "both revocation EXISTS predicates must close before entering their THROW block");
 
         source.Should().NotMatchRegex(@"(?m)^\s*THROW\s+516\d{2},");
         source.Should().Contain("IMPERSONATE ANY USER");
