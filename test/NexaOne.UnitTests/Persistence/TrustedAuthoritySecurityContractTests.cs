@@ -186,6 +186,17 @@ public sealed class TrustedAuthoritySecurityContractTests
     }
 
     [Fact]
+    public void Commissioning_writer_membership_keys_are_independent_array_items()
+    {
+        var source = File.ReadAllText(CommissioningPath);
+
+        source.Should().MatchRegex(
+            @"(?s)foreach \(\$key in @\(\s*" +
+            @"\('NexaOneRmsEvidenceWriter\|' \+ \$RmsWriterDatabaseUser\)\s*" +
+            @"\('NexaOneSysReleaseWriter\|' \+ \$SysWriterDatabaseUser\)\s*\)\)");
+    }
+
+    [Fact]
     public void Commissioning_only_exempts_the_exact_sql_server_policy_certificate_grant()
     {
         var source = File.ReadAllText(CommissioningPath);

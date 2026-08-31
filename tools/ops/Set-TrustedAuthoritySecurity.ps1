@@ -1246,8 +1246,8 @@ SELECT R.name AS ROLE_NAME, M.name AS MEMBER_NAME, M.type_desc AS MEMBER_TYPE
     }
     elseif ($WritersOnly -and -not $Removed) {
         foreach ($key in @(
-            'NexaOneRmsEvidenceWriter|' + $RmsWriterDatabaseUser,
-            'NexaOneSysReleaseWriter|' + $SysWriterDatabaseUser)) {
+            ('NexaOneRmsEvidenceWriter|' + $RmsWriterDatabaseUser)
+            ('NexaOneSysReleaseWriter|' + $SysWriterDatabaseUser))) {
             if (-not $actual.ContainsKey($key)) {
                 throw "Required V160 writer-bootstrap role member '$key' is missing."
             }
