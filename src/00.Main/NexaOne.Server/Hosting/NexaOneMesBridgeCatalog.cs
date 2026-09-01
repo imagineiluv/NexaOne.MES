@@ -83,6 +83,7 @@ internal sealed class NexaOneMesBridgeCatalog : INexaModuleBridgeCatalog
             Bind<IPomBridge>("Pom", "pomBridge"),
             Bind<IPomWorkOrderBridge>("Pom", "pomWorkOrderBridge"),
             Bind<IWorkScopeBridge>("Pom", "workScopeBridge"),
+            Bind<IWorkScopeProjectionAuthorityBridge>("Pom", "workScopeProjectionAuthorityBridge"),
             Bind<IWorkScopeProjectionBridge>("Pom", "workScopeProjectionBridge"),
             Bind<IProductionLotDirectory>("Pom", "productionLotDirectory"),
             Bind<IPurchaseOrderPlanningBridge>("Prc", "purchaseOrderPlanningBridge"),

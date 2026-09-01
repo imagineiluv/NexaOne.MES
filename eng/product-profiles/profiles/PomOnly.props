@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <NexaOneProductProfileDefined>true</NexaOneProductProfileDefined>
+    <NexaOneProductProfileName>PomOnly</NexaOneProductProfileName>
+    <NexaOneProductApplicationManifestSource>$(MSBuildThisFileDirectory)..\..\..\src\00.Main\NexaOne.Server\config\products\pom-only.app.xml</NexaOneProductApplicationManifestSource>
+  </PropertyGroup>
+</Project>

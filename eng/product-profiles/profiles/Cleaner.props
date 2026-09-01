@@ -1,0 +1,11 @@
+<Project>
+  <PropertyGroup>
+    <NexaOneProductProfileDefined>true</NexaOneProductProfileDefined>
+    <NexaOneProductProfileName>Cleaner</NexaOneProductProfileName>
+    <NexaOneProductApplicationManifestSource>$(MSBuildThisFileDirectory)..\..\..\src\00.Main\NexaOne.Server\config\app.xml</NexaOneProductApplicationManifestSource>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\..\src\05.Projects\NexaOne.Project.Cleaner\NexaOne.Project.Cleaner.csproj" AssemblyName="NexaOne.Project.Cleaner" />
+  </ItemGroup>
+</Project>

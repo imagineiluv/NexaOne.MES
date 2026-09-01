@@ -66,6 +66,57 @@ public sealed class MssqlMigrationRunnerTests
     }
 
     [Fact]
+    public void ValidateOnly_rejects_unbalanced_sql_before_database_access()
+    {
+        using var fixture = new MigrationFixture();
+        fixture.Write(
+            "V001__SYS_UNBALANCED.sql",
+            "CREATE PROCEDURE dbo.Broken AS BEGIN IF EXISTS (SELECT 1; END;");
+
+        var result = Run(fixture.Path, validateOnly: true);
+
+        result.ExitCode.Should().NotBe(0);
+        result.Output.Should().Contain("invalid migration SQL structure in 'V001__SYS_UNBALANCED.sql'");
+        result.Output.Should().Contain("parentheses=1");
+        result.Output.Should().NotContain("SqlException");
+    }
+
+    [Fact]
+    public void ValidateOnly_does_not_let_declare_migrations_bypass_balance_validation()
+    {
+        using var fixture = new MigrationFixture();
+        fixture.Write(
+            "V001__SYS_DECLARE_UNBALANCED.sql",
+            "DECLARE @Value INT; IF EXISTS (SELECT 1 SET @Value = 1;");
+
+        var result = Run(fixture.Path, validateOnly: true);
+
+        result.ExitCode.Should().NotBe(0);
+        result.Output.Should().Contain(
+            "invalid migration SQL structure in 'V001__SYS_DECLARE_UNBALANCED.sql'");
+        result.Output.Should().Contain("parentheses=1");
+        result.Output.Should().NotContain("SqlException");
+    }
+
+    [Theory]
+    [InlineData("SELECT 1);", "unmatched closing parenthesis")]
+    [InlineData("END;", "unmatched END token")]
+    public void ValidateOnly_rejects_lexical_balance_underflow(
+        string sql,
+        string expectedFailure)
+    {
+        using var fixture = new MigrationFixture();
+        fixture.Write("V001__SYS_UNDERFLOW.sql", sql);
+
+        var result = Run(fixture.Path, validateOnly: true);
+
+        result.ExitCode.Should().NotBe(0);
+        result.Output.Should().Contain("invalid migration SQL structure in 'V001__SYS_UNDERFLOW.sql'");
+        result.Output.Should().Contain(expectedFailure);
+        result.Output.Should().NotContain("SqlException");
+    }
+
+    [Fact]
     public void Runner_serializes_schema_changes_and_rejects_applied_filename_or_content_drift()
     {
         var source = File.ReadAllText(RunnerPath);
@@ -85,13 +136,19 @@ public sealed class MssqlMigrationRunnerTests
         source.Should().Contain("Split ordinary semicolon-terminated statements");
         source.Should().Contain("$blockDepth");
         source.Should().Contain("$inString");
-        source.Should().Contain("foreach ($batch in $batches)");
+        source.Should().Contain("foreach ($batch in $migration.SqlBatches)");
         source.Should().Contain("migration transaction");
+        source.Should().Contain("migration SQL has unbalanced lexical structure");
+        source.Should().Contain("migration SQL has unmatched closing parenthesis");
+        source.Should().Contain("migration SQL has unmatched END token");
+        source.Should().Contain("invalid migration SQL structure in");
         source.Should().Contain("CONTENT_SHA256");
         source.Should().Contain("migration content drift");
         source.Should().Contain("AdoptMissingChecksums");
         source.Should().Contain("ApproveHighImpactMigrations");
-        source.Should().Contain("$highImpactVersions = @(142, 144, 146, 147, 148, 150, 151, 152, 153)");
+        source.Should().Contain("$highImpactVersions = @(142, 144, 146, 147, 148, 150, 151, 152, 153, 157, 159, 160)");
+        source.Should().Contain("BEGIN TRAN[SACTION] opens a transaction");
+        source.Should().Contain("(?:DISTRIBUTED\\s+)?TRAN(?:SACTION)?\\b");
         source.Should().Contain("high-impact migration approval is required");
         var historyMutation = source.IndexOf(
             "ALTER TABLE SYS_SCHEMA_MIGRATION ADD CONTENT_SHA256",
@@ -102,12 +159,81 @@ public sealed class MssqlMigrationRunnerTests
         source.IndexOf("migration history is not a contiguous source prefix", StringComparison.Ordinal)
             .Should().BeLessThan(historyMutation,
                 "an out-of-order history must be rejected before changing migration history");
-        source.IndexOf("$highImpactVersions = @(142, 144, 146, 147, 148, 150, 151, 152, 153)", StringComparison.Ordinal)
+        source.IndexOf("$highImpactVersions = @(142, 144, 146, 147, 148, 150, 151, 152, 153, 157, 159, 160)", StringComparison.Ordinal)
             .Should().BeLessThan(historyMutation,
                 "the explicit production approval gate must run before migration-history DDL");
         source.IndexOf("$migrationNamePattern.Match($file.Name)", StringComparison.Ordinal)
             .Should().BeLessThan(source.IndexOf("$conn.Open()", StringComparison.Ordinal),
                 "local migration validation must finish before SQL Server access");
+    }
+
+    [Fact]
+    public async Task V160_module_definitions_are_emitted_as_independent_sql_batches()
+    {
+        var migrationPath = RepositorySource.GetFile(
+            "src", "00.Main", "NexaOne.Server", "config", "db", "migrations",
+            "V160__TRUSTED_AUTHORITY_WRITER_SECURITY.sql");
+        var startInfo = new ProcessStartInfo("pwsh")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        startInfo.Environment["NEXA_TEST_MIGRATION_RUNNER"] = RunnerPath;
+        startInfo.Environment["NEXA_TEST_MIGRATION_SQL"] = migrationPath;
+        startInfo.ArgumentList.Add("-NoLogo");
+        startInfo.ArgumentList.Add("-NoProfile");
+        startInfo.ArgumentList.Add("-NonInteractive");
+        startInfo.ArgumentList.Add("-Command");
+        startInfo.ArgumentList.Add("""
+            $source = Get-Content -Raw -LiteralPath $env:NEXA_TEST_MIGRATION_RUNNER
+            $tokens = $null
+            $errors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseInput(
+                $source, [ref]$tokens, [ref]$errors)
+            if ($errors.Count) { throw ($errors | ForEach-Object Message) }
+            $function = $ast.Find({
+                param($node)
+                $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                    $node.Name -eq 'Get-MigrationSqlBatches'
+            }, $true)
+            if ($null -eq $function) { throw 'Get-MigrationSqlBatches was not found.' }
+            Invoke-Expression $function.Extent.Text
+            $sql = Get-Content -Raw -LiteralPath $env:NEXA_TEST_MIGRATION_SQL
+            $batches = @(Get-MigrationSqlBatches $sql)
+            $modulePattern = '(?im)^\s*CREATE\s+(?:PROCEDURE|VIEW|TRIGGER)\b'
+            $expected = [regex]::Matches($sql, $modulePattern).Count
+            $actual = @($batches | Where-Object {
+                [regex]::Matches($_, $modulePattern).Count -eq 1
+            }).Count
+            $violations = @($batches | Where-Object {
+                [regex]::Matches($_, $modulePattern).Count -gt 1
+            })
+            "expected=$expected actual-independent=$actual violations=$($violations.Count)"
+            if ($expected -eq 0 -or $actual -ne $expected -or $violations.Count -ne 0) { exit 23 }
+            """);
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("Unable to inspect migration SQL batches.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            process.Kill(entireProcessTree: true);
+            throw new TimeoutException("Migration SQL batch inspection did not finish within 30 seconds.");
+        }
+
+        var standardOutput = await output;
+        var standardError = await error;
+
+        process.ExitCode.Should().Be(0, standardOutput + Environment.NewLine + standardError);
+        standardOutput.Should().Contain("expected=9 actual-independent=9 violations=0");
     }
 
     [Fact]
@@ -274,8 +400,8 @@ public sealed class MssqlMigrationRunnerTests
 
         public string Path { get; }
 
-        public void Write(string fileName)
-            => File.WriteAllText(System.IO.Path.Combine(Path, fileName), "-- test migration");
+        public void Write(string fileName, string sql = "-- test migration")
+            => File.WriteAllText(System.IO.Path.Combine(Path, fileName), sql);
 
         public void Dispose()
         {

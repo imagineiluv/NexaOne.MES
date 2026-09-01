@@ -5,6 +5,7 @@ using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.IdentityModel.Tokens;
@@ -28,6 +29,7 @@ public sealed class ChildProcessSmokeCollection
 /// 정적 ApplicationServer 싱글톤 제약으로 in-proc WebApplicationFactory 불가 → 자식 프로세스 black-box 스모크.
 /// 기존 ServerTests(전부 modules-OFF)가 못 타는 실제 plugin/ALC/브리지 부팅 경로의 단일 안전망.</summary>
 [Collection(ChildProcessSmokeCollection.Name)]
+[Trait("Category", "HostSmoke")]
 public sealed class HostModulesBootSmokeTests
 {
     private readonly ITestOutputHelper _o;
@@ -38,15 +40,24 @@ public sealed class HostModulesBootSmokeTests
     {
         // Database:Provider alone must select the matching Spring parent context.
         // This guards against gateway=SQLite / module=SQL Server split-brain startup.
+        // The default Cleaner composition has a product validator whose immutable profile is OFF.
+        // Enabling the worker here proves discovery + empty-queue schema readiness only; it is not
+        // evidence that trusted authority can be provisioned or that equipment HIL is approved.
         using var host = await HostProcess.StartAsync(
             _o,
             springConfig: null,
             expectListening: true,
             concurrentServices: true,
-            enableBatchWorker: true);
+            enableBatchWorker: true,
+            enableProjectionWorker: true);
 
         host.Listening.Should().BeTrue(
             $"modules-ON 호스트가 SQLite로 기동해 Kestrel이 리슨해야 한다 — 로그:\n{host.Log}");
+        host.Log.Should().Contain("Service 'Pom' registered (2 module(s)).",
+            "POM and the Cleaner project policy must be loaded into one Spring service context");
+        host.Log.Should().Contain("[WorkScopeProjectionWorker] started",
+            "the explicitly enabled durable projection worker must be discovered as an IHostedService; "
+            + "trusted authority provisioning is covered by a product coordinator/HIL gate, not this boot smoke");
 
         using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{host.Port}") };
         (await http.GetAsync("/health")).StatusCode.Should().Be(HttpStatusCode.OK, "기동된 호스트의 /health는 200");
@@ -61,8 +72,9 @@ public sealed class HostModulesBootSmokeTests
                  WHERE type = 'trigger'
                    AND name LIKE 'TR_POM_WORK_SCOPE_PROJECTION_%';
                 """;
-            Convert.ToInt64(await schemaCommand.ExecuteScalarAsync()).Should().Be(13,
-                "the POM Spring module must contribute all projection integrity guards before listening");
+            Convert.ToInt64(await schemaCommand.ExecuteScalarAsync()).Should().Be(37,
+                "the POM Spring module must contribute all inbox/current, carrier-evidence, "
+                + "durable-application, V158 authority, and V159 trusted-evidence guards before listening");
         }
 
         http.DefaultRequestHeaders.Authorization =
@@ -374,6 +386,63 @@ public sealed class HostModulesBootSmokeTests
     }
 
     [Fact]
+    public async Task Host_boots_the_selected_product_profile_bundle()
+    {
+        using var host = await HostProcess.StartAsync(
+            _o,
+            springConfig: null,
+            expectListening: true,
+            enableProjectionWorker: false);
+
+        host.Listening.Should().BeTrue(
+            $"the selected profile's generated manifest and exact plugin bundle must boot — logs:\n{host.Log}");
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{host.Port}") };
+        (await http.GetAsync("/health")).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Host_boots_pom_only_when_projection_application_is_off()
+    {
+        using var host = await HostProcess.StartAsync(
+            _o,
+            springConfig: null,
+            expectListening: true,
+            enableProjectionWorker: false,
+            pomOnlyProjectionApplication: true);
+
+        host.Listening.Should().BeTrue(
+            $"core POM acceptance/schema must compose without a project policy or application worker — logs:\n{host.Log}");
+        host.Log.Should().Contain("Service 'Pom' registered (1 module(s)).");
+        host.Log.Should().NotContain("[WorkScopeProjectionWorker]",
+            "the optional application runtime is absent from the POM-only manifest");
+
+        await using var connection = new SqliteConnection(
+            $"Data Source={host.DatabasePath};Foreign Keys=False");
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY;";
+        Convert.ToInt64(await command.ExecuteScalarAsync()).Should().Be(0,
+            "PomOnly startup and its unavailable child validator must never mint authority");
+    }
+
+    [Fact]
+    public async Task Host_rejects_pom_only_when_projection_application_is_enabled()
+    {
+        using var host = await HostProcess.StartAsync(
+            _o,
+            springConfig: null,
+            expectListening: false,
+            enableProjectionWorker: true,
+            pomOnlyProjectionApplication: true);
+
+        host.Listening.Should().BeFalse("an enabled projection cannot run without its application module");
+        host.Exited.Should().BeTrue("composition failure must stop host startup");
+        host.ExitCode.Should().NotBe(0);
+        host.Log.Should().Contain("Enabled=true requires exactly one IWorkScopeProjectionRuntime")
+            .And.Contain("pom-projection.xml");
+    }
+
+    [Fact]
     public void Host_smoke_defaults_to_the_current_test_build_output()
     {
         var currentOutput = Path.GetFullPath(AppContext.BaseDirectory);
@@ -431,18 +500,36 @@ internal sealed class HostProcess : IDisposable
         bool expectListening,
         bool concurrentServices = false,
         bool enableBatchWorker = false,
-        bool enableEmsSysWorkers = false)
+        bool enableEmsSysWorkers = false,
+        bool enableProjectionWorker = false,
+        bool pomOnlyProjectionApplication = false)
     {
         var explicitHostDirectory = Environment.GetEnvironmentVariable("NEXAONE_TEST_HOST_BIN");
         var hostDir = ResolveHostBinDir(explicitHostDirectory, AppContext.BaseDirectory);
         if (string.IsNullOrWhiteSpace(explicitHostDirectory))
             ValidateCurrentTestHostOutput(hostDir);
+        else
+            ValidateExternalHostOutput(hostDir, AppContext.BaseDirectory);
         var dll = Path.Combine(hostDir, "NexaOne.Server.dll");
         File.Exists(dll).Should().BeTrue($"호스트가 빌드돼 있어야 한다: {dll} (없으면 `dotnet build` 후 재시도)");
 
         var runtimeTemp = Path.Combine(Path.GetTempPath(), $"nexaone-host-smoke-{Guid.NewGuid():N}");
         Directory.CreateDirectory(runtimeTemp);
         var gwDb = Path.Combine(runtimeTemp, "gateway.db");
+        string? applicationManifest = null;
+        if (pomOnlyProjectionApplication)
+        {
+            var manifest = XDocument.Load(Path.Combine(hostDir, "config", "app.xml"));
+            var pomService = manifest.Root!
+                .Element("Services")!
+                .Elements("Service")
+                .Single(service => (string?)service.Attribute("name") == "Pom");
+            pomService.SetAttributeValue("classPaths", "./Modules/NexaOne.POM.dll");
+            pomService.SetAttributeValue("configFiles", "config/modules/pom.xml");
+            applicationManifest = Path.Combine(runtimeTemp, "pom-only.app.xml");
+            manifest.Save(applicationManifest);
+        }
+
         var psi = new ProcessStartInfo("dotnet")
         {
             WorkingDirectory = hostDir,
@@ -457,6 +544,8 @@ internal sealed class HostProcess : IDisposable
         psi.Environment["Server__Modules__Enabled"] = "true";
         if (!string.IsNullOrWhiteSpace(springConfig))
             psi.Environment["Server__SpringConfig"] = springConfig;
+        if (applicationManifest is not null)
+            psi.Environment["Server__ApplicationManifest"] = applicationManifest;
         psi.Environment["Database__Provider"] = "Sqlite";
         psi.Environment["ConnectionStrings__NexaOne"] = $"Data Source={gwDb};Foreign Keys=False";
         psi.Environment["Jwt__SecretKey"] = Secret;
@@ -466,6 +555,7 @@ internal sealed class HostProcess : IDisposable
         psi.Environment["Host__ServicesStartConcurrently"] = concurrentServices ? "true" : "false";
         psi.Environment["Host__ServicesStopConcurrently"] = concurrentServices ? "true" : "false";
         psi.Environment["Worker__Sys__BatchProcess__Enabled"] = enableBatchWorker ? "true" : "false";
+        psi.Environment["Worker__Pom__WorkScopeProjection__Enabled"] = enableProjectionWorker ? "true" : "false";
         psi.Environment["Worker__Ems__MaintenanceDue__Enabled"] = enableEmsSysWorkers ? "true" : "false";
         psi.Environment["Worker__Ems__MaintenanceDue__IntervalSeconds"] = "120";
         psi.Environment["Worker__Ems__MaintenanceDue__Topic"] = "boot-smoke.events";
@@ -560,11 +650,102 @@ internal sealed class HostProcess : IDisposable
                 + $"expected={loadedHostDll}, selected={hostDll}");
         }
 
+        var profile = ReadProductProfile(hostDir);
+        ValidateRequiredHostFiles(hostDir, profile);
+        ValidateExactPluginBundle(hostDir, hostDir, profile);
+    }
+
+    internal static void ValidateExternalHostOutput(
+        string hostDir,
+        string currentTestOutputDirectory)
+    {
+        var externalHostDll = Path.GetFullPath(Path.Combine(hostDir, "NexaOne.Server.dll"));
+        var currentHostDll = Path.GetFullPath(typeof(Program).Assembly.Location);
+        if (!File.Exists(externalHostDll)
+            || !File.ReadAllBytes(externalHostDll).AsSpan()
+                .SequenceEqual(File.ReadAllBytes(currentHostDll)))
+        {
+            throw new InvalidOperationException(
+                $"Explicit host-smoke output is stale relative to the current test build: "
+                + $"expected={currentHostDll}, selected={externalHostDll}");
+        }
+
+        var profile = ReadProductProfile(hostDir);
+        var expectedProfile = Environment.GetEnvironmentVariable("NEXAONE_TEST_PRODUCT_PROFILE")?.Trim();
+        if (!string.IsNullOrWhiteSpace(expectedProfile))
+        {
+            if (!string.Equals(expectedProfile, profile.Name, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Explicit host product profile mismatch: expected={expectedProfile}, actual={profile.Name}.");
+            }
+        }
+        var currentProfile = ReadProductProfile(currentTestOutputDirectory);
+        if (!string.Equals(currentProfile.Name, profile.Name, StringComparison.Ordinal)
+            || !currentProfile.PluginAssemblyNames.ToHashSet(PathComparer)
+                .SetEquals(profile.PluginAssemblyNames))
+        {
+            throw new InvalidOperationException(
+                "Explicit host product profile differs from the current test build. " +
+                "Build ServerTests with the same NexaOneProductProfile before bundle validation.");
+        }
+
+        ValidateRequiredHostFiles(hostDir, profile);
+        ValidateExactPluginBundle(hostDir, currentTestOutputDirectory, profile);
+    }
+
+    private static ProductProfileCatalog ReadProductProfile(string hostDir)
+    {
+        var path = Path.Combine(hostDir, "config", "product-profile.manifest");
+        if (!File.Exists(path))
+            throw new FileNotFoundException($"Product profile catalog is missing: {path}", path);
+
+        var values = File.ReadAllLines(path)
+            .Where(static line => !string.IsNullOrWhiteSpace(line))
+            .Select(static line => line.Trim())
+            .ToList();
+        if (values.Count < 4 || values[0] != "FormatVersion=1")
+            throw new InvalidOperationException($"Unsupported or incomplete product profile catalog: {path}");
+
+        static string SingleValue(IReadOnlyList<string> lines, string key)
+        {
+            var prefix = key + "=";
+            var matches = lines.Where(line => line.StartsWith(prefix, StringComparison.Ordinal)).ToList();
+            if (matches.Count != 1 || matches[0].Length == prefix.Length)
+                throw new InvalidOperationException($"Product profile catalog requires exactly one non-empty {key} value.");
+            return matches[0][prefix.Length..];
+        }
+
+        var name = SingleValue(values, "Profile");
+        var applicationManifest = SingleValue(values, "ApplicationManifest");
+        if (!string.Equals(applicationManifest.Replace('\\', '/'), "config/app.xml", StringComparison.Ordinal))
+            throw new InvalidOperationException("Packaged product application manifest must be config/app.xml.");
+
+        var plugins = values
+            .Where(static line => line.StartsWith("Plugin=", StringComparison.Ordinal))
+            .Select(static line => line["Plugin=".Length..])
+            .ToList();
+        if (plugins.Count == 0
+            || plugins.Any(static plugin => string.IsNullOrWhiteSpace(plugin)
+                || plugin.Contains('/')
+                || plugin.Contains('\\')
+                || plugin.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            || plugins.Distinct(PathComparer).Count() != plugins.Count)
+        {
+            throw new InvalidOperationException("Product profile plugin identities must be unique assembly names without paths or extensions.");
+        }
+
+        return new ProductProfileCatalog(name, applicationManifest, plugins.AsReadOnly());
+    }
+
+    private static void ValidateRequiredHostFiles(string hostDir, ProductProfileCatalog profile)
+    {
         var requiredHostFiles = new[]
         {
             "NexaOne.Server.deps.json",
             "NexaOne.Server.runtimeconfig.json",
-            Path.Combine("config", "app.xml"),
+            profile.ApplicationManifest,
+            Path.Combine("config", "product-profile.manifest"),
             Path.Combine("config", "host", "server.sqlite.xml"),
         };
         foreach (var relativePath in requiredHostFiles)
@@ -574,31 +755,78 @@ internal sealed class HostProcess : IDisposable
                 throw new FileNotFoundException($"Current host-smoke output is incomplete: {path}", path);
         }
 
-        var moduleNames = new[]
+        var application = XDocument.Load(Path.Combine(hostDir, profile.ApplicationManifest));
+        var declaredPlugins = application.Root!
+            .Element("Services")!
+            .Elements("Service")
+            .SelectMany(service => ((string?)service.Attribute("classPaths") ?? string.Empty)
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Select(Path.GetFileNameWithoutExtension)
+            .ToHashSet(PathComparer);
+        if (!declaredPlugins.SetEquals(profile.PluginAssemblyNames))
         {
-            "NexaOne.MDM", "NexaOne.EST", "NexaOne.FDC", "NexaOne.IVT", "NexaOne.RMS",
-            "NexaOne.QMS", "NexaOne.EMS", "NexaOne.POM", "NexaOne.SHP", "NexaOne.SYS",
-        };
-        foreach (var moduleName in moduleNames)
-        {
-            var currentReference = Path.Combine(hostDir, moduleName + ".dll");
-            var plugin = Path.Combine(hostDir, "Modules", moduleName + ".dll");
-            if (!File.Exists(currentReference) || !File.Exists(plugin))
-            {
-                throw new FileNotFoundException(
-                    $"Current host-smoke plugin pair is incomplete: reference={currentReference}, plugin={plugin}");
-            }
+            throw new InvalidOperationException(
+                $"Packaged application manifest and product profile plugin catalog differ for '{profile.Name}'. " +
+                $"manifest=[{string.Join(",", declaredPlugins.Order())}], " +
+                $"profile=[{string.Join(",", profile.PluginAssemblyNames.Order())}]");
+        }
+    }
 
-            if (!File.ReadAllBytes(currentReference).AsSpan().SequenceEqual(File.ReadAllBytes(plugin)))
-            {
-                throw new InvalidOperationException(
-                    $"Host-smoke plugin is stale relative to this test build: {moduleName}");
-            }
+    private static void ValidateExactPluginBundle(
+        string hostDir,
+        string currentReferenceDirectory,
+        ProductProfileCatalog profile)
+    {
+        var modulesDirectory = Path.Combine(hostDir, "Modules");
+        foreach (var moduleName in profile.PluginAssemblyNames)
+        {
+            var currentReference = Path.Combine(currentReferenceDirectory, moduleName + ".dll");
+            var packagedPlugin = Path.Combine(modulesDirectory, moduleName + ".dll");
+            ValidatePluginPair(currentReference, packagedPlugin);
+        }
+
+        var expectedFiles = profile.PluginAssemblyNames
+            .Select(static name => name + ".dll")
+            .ToHashSet(PathComparer);
+        var packagedFiles = Directory.EnumerateFiles(modulesDirectory, "NexaOne.*.dll")
+            .Select(Path.GetFileName)
+            .Where(static name => name is not null)
+            .Cast<string>()
+            .ToHashSet(PathComparer);
+        if (!packagedFiles.SetEquals(expectedFiles))
+        {
+            throw new InvalidOperationException(
+                $"Explicit host plugin file set differs from product profile '{profile.Name}': " +
+                $"expected=[{string.Join(",", expectedFiles.Order())}], " +
+                $"actual=[{string.Join(",", packagedFiles.Order())}]");
+        }
+        if (Directory.EnumerateFiles(modulesDirectory, "*.deps.json").Any())
+        {
+            throw new InvalidOperationException(
+                "Explicit host Modules directory must contain plugin DLLs only, not deps manifests.");
+        }
+    }
+
+    private static void ValidatePluginPair(string currentReference, string plugin)
+    {
+        if (!File.Exists(currentReference) || !File.Exists(plugin))
+        {
+            throw new FileNotFoundException(
+                $"Host-smoke plugin pair is incomplete: reference={currentReference}, plugin={plugin}");
+        }
+
+        if (!File.ReadAllBytes(currentReference).AsSpan().SequenceEqual(File.ReadAllBytes(plugin)))
+        {
+            throw new InvalidOperationException(
+                $"Host-smoke plugin is stale relative to this test build: {Path.GetFileName(plugin)}");
         }
     }
 
     private static StringComparison PathComparison =>
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    private static StringComparer PathComparer =>
+        OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
     public void Dispose()
     {
@@ -607,4 +835,9 @@ internal sealed class HostProcess : IDisposable
         try { if (File.Exists(_gwDb)) File.Delete(_gwDb); } catch { }
         try { if (Directory.Exists(_runtimeTemp)) Directory.Delete(_runtimeTemp, recursive: true); } catch { }
     }
+
+    private sealed record ProductProfileCatalog(
+        string Name,
+        string ApplicationManifest,
+        IReadOnlyList<string> PluginAssemblyNames);
 }

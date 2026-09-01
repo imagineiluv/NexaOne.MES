@@ -5,7 +5,7 @@
 #   .\Apply-MssqlMigrations.ps1 -ConnectionString "Server=...;Database=...;..." [-DryRun]
 #   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -IncludeOpsSeed
 #   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -AdoptMissingChecksums # 기존 이력 1회 명시 승인
-#   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -ApproveHighImpactMigrations # V142/V144/V146/V147/V148/V150/V151/V152/V153/V154 운영 승인
+#   .\Apply-MssqlMigrations.ps1 -ConnectionString $env:NEXAONE_MSSQL_CONN -ApproveHighImpactMigrations # V142/V144/V146/V147/V148/V150/V151/V152/V153/V157/V159/V160 운영 승인
 #   .\Apply-MssqlMigrations.ps1 -MigrationsPath <path> -ValidateOnly
 # ⚠ 접속 문자열은 env/보안 저장소에서만 — 스크립트·저장소에 하드코딩 금지.
 param(
@@ -57,10 +57,9 @@ function Get-MigrationSqlBatches([string]$Sql) {
     # migration transaction and preserves source order without changing immutable migration files.
     # DECLARE variables are batch-scoped. V121/V128 declare variables at column zero and use them
     # in subsequent statements/blocks, so keep declaration-bearing files as one command rather
-    # than splitting the declaration away from its consumers.
-    if ($Sql -match '(?im)^DECLARE\b') {
-        return @($Sql.Trim())
-    }
+    # than splitting the declaration away from its consumers. The full scanner still runs so a
+    # declaration-bearing migration cannot bypass lexical-balance validation.
+    $preserveSingleBatch = $Sql -match '(?im)^DECLARE\b'
     $batches = [System.Collections.Generic.List[string]]::new()
     $statement = [System.Text.StringBuilder]::new()
     $inString = $false
@@ -180,7 +179,10 @@ function Get-MigrationSqlBatches([string]$Sql) {
         }
         if ($current -eq ')') {
             [void]$statement.Append($current)
-            if ($parenthesisDepth -gt 0) { $parenthesisDepth-- }
+            if ($parenthesisDepth -eq 0) {
+                throw ("migration SQL has unmatched closing parenthesis at offset {0}" -f $index)
+            }
+            $parenthesisDepth--
             $index++
             continue
         }
@@ -195,15 +197,27 @@ function Get-MigrationSqlBatches([string]$Sql) {
             [void]$statement.Append($token)
             switch ($token.ToUpperInvariant()) {
                 'CASE'  { $caseDepth++ }
-                'BEGIN' { $blockDepth++ }
+                'BEGIN' {
+                    # BEGIN TRAN[SACTION] opens a transaction, not a BEGIN...END block. Keeping it
+                    # in blockDepth would swallow every statement after a CREATE PROCEDURE body
+                    # into the same command and violate SQL Server's first-statement batch rule.
+                    $remaining = $Sql.Substring($index)
+                    if ($remaining -notmatch '^\s+(?:DISTRIBUTED\s+)?TRAN(?:SACTION)?\b') {
+                        $blockDepth++
+                    }
+                }
                 'END'   {
                     if ($caseDepth -gt 0) { $caseDepth-- }
                     elseif ($blockDepth -gt 0) { $blockDepth-- }
+                    else {
+                        throw ("migration SQL has unmatched END token at offset {0}" -f $start)
+                    }
                 }
             }
             continue
         }
-        if ($current -eq ';' -and $parenthesisDepth -eq 0 -and $blockDepth -eq 0) {
+        if (-not $preserveSingleBatch -and $current -eq ';' -and
+            $parenthesisDepth -eq 0 -and $blockDepth -eq 0) {
             $completed = $statement.ToString().Trim()
             if ($completed.Length -gt 0) { [void]$batches.Add($completed) }
             [void]$statement.Clear()
@@ -213,6 +227,14 @@ function Get-MigrationSqlBatches([string]$Sql) {
 
         [void]$statement.Append($current)
         $index++
+    }
+
+    if ($inString -or $inDoubleQuote -or $inBracketIdentifier -or $inBlockComment -or
+        $parenthesisDepth -ne 0 -or $blockDepth -ne 0 -or $caseDepth -ne 0) {
+        throw ("migration SQL has unbalanced lexical structure " +
+            "(string={0}, quoted={1}, bracket={2}, blockComment={3}, parentheses={4}, blocks={5}, cases={6})" -f
+            $inString, $inDoubleQuote, $inBracketIdentifier, $inBlockComment,
+            $parenthesisDepth, $blockDepth, $caseDepth)
     }
 
     $remainder = $statement.ToString().Trim()
@@ -243,11 +265,23 @@ $migrations = @(
             throw ("invalid migration version in '{0}': version must be greater than zero" -f $file.Name)
         }
 
+        $sql = Get-Content -Raw -Encoding UTF8 $file.FullName
+        try {
+            $sqlBatches = @(Get-MigrationSqlBatches $sql)
+        }
+        catch {
+            throw ("invalid migration SQL structure in '{0}': {1}" -f $file.Name, $_.Exception.Message)
+        }
+        if ($sqlBatches.Count -eq 0) {
+            throw ("invalid migration SQL structure in '{0}': no executable batch" -f $file.Name)
+        }
+
         [pscustomobject]@{
             Version = $version
             Name = $file.Name
             File = $file
             Hash = Get-MigrationHash $file
+            SqlBatches = $sqlBatches
         }
     }
 )
@@ -417,7 +451,7 @@ SELECT
     # explicit assertion that a current backup, production-sized restore rehearsal, writer
     # quiescence, maintenance window, transaction-log capacity and rollback criteria were approved.
     # It is deliberately evaluated from the pending set so already-applied databases are unaffected.
-    $highImpactVersions = @(142, 144, 146, 147, 148, 150, 151, 152, 153)
+    $highImpactVersions = @(142, 144, 146, 147, 148, 150, 151, 152, 153, 157, 159, 160)
     $highImpactPending = @($pending | Where-Object { $highImpactVersions -contains $_.Version })
     if ($highImpactPending.Count -gt 0 -and -not $ApproveHighImpactMigrations) {
         $highImpactNames = ($highImpactPending | ForEach-Object Name) -join ', '
@@ -473,11 +507,9 @@ WHERE VERSION_ID = @version AND CONTENT_SHA256 IS NULL;
     }
 
     foreach ($migration in $pending) {
-        $sql = Get-Content -Raw -Encoding UTF8 $migration.File.FullName
-        $batches = @(Get-MigrationSqlBatches $sql)
         $tx = $conn.BeginTransaction()
         try {
-            foreach ($batch in $batches) {
+            foreach ($batch in $migration.SqlBatches) {
                 $cmd = $conn.CreateCommand(); $cmd.Transaction = $tx; $cmd.CommandTimeout = 300
                 $cmd.CommandText = $batch
                 [void]$cmd.ExecuteNonQuery()

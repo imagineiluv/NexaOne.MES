@@ -1,0 +1,56 @@
+<Project>
+  <PropertyGroup>
+    <NexaOneProductProfile Condition="'$(NexaOneProductProfile)' == ''">Cleaner</NexaOneProductProfile>
+    <NexaOneProductProfileIsSafe>$([System.Text.RegularExpressions.Regex]::IsMatch('$(NexaOneProductProfile)', '^[A-Za-z][A-Za-z0-9._-]*$'))</NexaOneProductProfileIsSafe>
+    <NexaOneProductProfileFile>$(MSBuildThisFileDirectory)profiles\$(NexaOneProductProfile).props</NexaOneProductProfileFile>
+  </PropertyGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)Core.props" />
+  <Import Project="$(NexaOneProductProfileFile)"
+          Condition="'$(NexaOneProductProfileIsSafe)' == 'True' And Exists('$(NexaOneProductProfileFile)')" />
+
+  <Target Name="ValidateNexaOneProductProfile" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(NexaOneProductProfileIsSafe)' != 'True'"
+           Text="NexaOneProductProfile must be a safe profile identifier; received '$(NexaOneProductProfile)'." />
+    <Error Condition="'$(NexaOneProductProfileDefined)' != 'true'"
+           Text="Unknown NexaOneProductProfile '$(NexaOneProductProfile)'. Expected a profile file at $(NexaOneProductProfileFile)." />
+    <Error Condition="'$(NexaOneProductProfileName)' != '$(NexaOneProductProfile)'"
+           Text="Product profile identity mismatch: selected '$(NexaOneProductProfile)', declared '$(NexaOneProductProfileName)'." />
+    <Error Condition="'$(NexaOneProductApplicationManifestSource)' == '' Or !Exists('$(NexaOneProductApplicationManifestSource)')"
+           Text="Product profile '$(NexaOneProductProfile)' application manifest is missing: $(NexaOneProductApplicationManifestSource)" />
+    <Error Condition="'@(NexaOneProductPlugin)' == ''"
+           Text="Product profile '$(NexaOneProductProfile)' has no plugin projects." />
+    <Error Condition="'%(NexaOneProductPlugin.AssemblyName)' == ''"
+           Text="Product plugin project '%(NexaOneProductPlugin.Identity)' is missing AssemblyName metadata." />
+    <Error Condition="!Exists('%(NexaOneProductPlugin.Identity)')"
+           Text="Product plugin project does not exist: %(NexaOneProductPlugin.Identity)" />
+  </Target>
+
+  <!-- The generated artifact catalog is consumed by build/publish smoke tests. It is deliberately
+       line-based so PowerShell and .NET can validate the same exact plugin set without another list. -->
+  <Target Name="WriteNexaOneProductProfileCatalog"
+          AfterTargets="Build"
+          DependsOnTargets="ValidateNexaOneProductProfile">
+    <MakeDir Directories="$(OutDir)config" />
+    <ItemGroup>
+      <_NexaOneProductProfileCatalogLine Remove="@(_NexaOneProductProfileCatalogLine)" />
+      <_NexaOneProductProfileCatalogLine Include="FormatVersion=1" />
+      <_NexaOneProductProfileCatalogLine Include="Profile=$(NexaOneProductProfileName)" />
+      <_NexaOneProductProfileCatalogLine Include="ApplicationManifest=config/app.xml" />
+      <_NexaOneProductProfileCatalogLine Include="@(NexaOneProductPlugin->'Plugin=%(AssemblyName)')" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(OutDir)config\product-profile.manifest"
+                      Lines="@(_NexaOneProductProfileCatalogLine)"
+                      Overwrite="true"
+                      Encoding="UTF-8" />
+  </Target>
+
+  <Target Name="CopyNexaOneProductProfileCatalogOnPublish"
+          AfterTargets="Publish"
+          DependsOnTargets="WriteNexaOneProductProfileCatalog"
+          Condition="'$(PublishDir)' != ''">
+    <MakeDir Directories="$(PublishDir)config" />
+    <Copy SourceFiles="$(OutDir)config\product-profile.manifest"
+          DestinationFiles="$(PublishDir)config\product-profile.manifest" />
+  </Target>
+</Project>

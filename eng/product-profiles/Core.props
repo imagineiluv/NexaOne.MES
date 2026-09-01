@@ -1,0 +1,16 @@
+<Project>
+  <!-- Shared domain plugins. Product profiles add only their project-owned assemblies and manifest. -->
+  <ItemGroup>
+    <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.MDM\NexaOne.MDM.csproj" AssemblyName="NexaOne.MDM" />
+    <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.EST\NexaOne.EST.csproj" AssemblyName="NexaOne.EST" />
+    <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.FDC\NexaOne.FDC.csproj" AssemblyName="NexaOne.FDC" />
+    <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.RMS\NexaOne.RMS.csproj" AssemblyName="NexaOne.RMS" />
+    <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.QMS\NexaOne.QMS.csproj" AssemblyName="NexaOne.QMS" />
+    <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.EMS\NexaOne.EMS.csproj" AssemblyName="NexaOne.EMS" />
+    <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.IVT\NexaOne.IVT.csproj" AssemblyName="NexaOne.IVT" />
+    <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.POM\NexaOne.POM.csproj" AssemblyName="NexaOne.POM" />
+    <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.PRC\NexaOne.PRC.csproj" AssemblyName="NexaOne.PRC" />
+    <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.SHP\NexaOne.SHP.csproj" AssemblyName="NexaOne.SHP" />
+    <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" AssemblyName="NexaOne.SYS" />
+  </ItemGroup>
+</Project>

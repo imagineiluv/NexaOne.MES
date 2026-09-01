@@ -26,6 +26,7 @@
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.QMS\NexaOne.QMS.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.EMS\NexaOne.EMS.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.IVT\NexaOne.IVT.csproj" />
+    <ProjectReference Include="..\..\src\05.Projects\NexaOne.Project.Cleaner\NexaOne.Project.Cleaner.csproj" />
   </ItemGroup>
 
   <ItemGroup>

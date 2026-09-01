@@ -1,3 +1,6 @@
+using System.Data;
+using System.Data.Common;
+using Dapper;
 using NexaOne.Common;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.POM.Application.WorkScopes;
@@ -11,11 +14,13 @@ public sealed class WorkScopeRepository : QueryRepository, IWorkScopeRepository
 {
     private readonly ServiceObjectProcessor _processor;
     private readonly string _insertMemberSql;
+    private readonly bool _isSqlServer;
 
     public WorkScopeRepository(EesDataSource dataSource) : base(dataSource)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         _processor = new ServiceObjectProcessor(dataSource);
+        _isSqlServer = dataSource.Provider.Kind == DatabaseProviderKind.SqlServer;
         _insertMemberSql = dataSource.Provider.Kind == DatabaseProviderKind.SqlServer
             ? InsertMemberSqlSqlServer
             : InsertMemberSql;
@@ -109,18 +114,109 @@ public sealed class WorkScopeRepository : QueryRepository, IWorkScopeRepository
             (_insertMemberSql, MemberRow.FromDomain(scope)));
     }
 
-    public async Task<bool> UpdateWithExecutionAsync(
+    public async Task<WorkScopeWriteResult> UpdateWithExecutionAsync(
         PomWorkScope scope,
         PomWorkScopeExecution execution,
         CancellationToken ct = default)
     {
         var row = ScopeRow.FromDomain(scope);
         var executionRow = ExecutionRow.FromDomain(execution);
-        var updated = await _processor.ExecuteGuardedManyAsync(
-            ct, (UpdateScopeSql, row), (InsertExecutionSql, executionRow));
-        if (updated) scope.AcceptPersistedVersion();
-        return updated;
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                var result = await _processor.ExecuteInTransactionAsync(
+                    async (connection, transaction) =>
+                    {
+                        // SQLite begins transactions deferred. Force writer ownership before the
+                        // authority read so provisioning and ordinary mutation cannot both observe
+                        // an unbound pristine scope. SQL Server uses the same scope->authority lock
+                        // order with UPDLOCK/HOLDLOCK.
+                        if (!_isSqlServer)
+                        {
+                            await ExecuteAsync(
+                                connection,
+                                transaction,
+                                "UPDATE POM_WORK_SCOPE SET UPDATED_AT = UPDATED_AT WHERE WORK_SCOPE_ID = @WorkScopeId",
+                                row,
+                                ct).ConfigureAwait(false);
+                        }
+
+                        var locked = await QueryFirstOrDefaultInTransactionAsync<ScopeWriteLockRow>(
+                            connection,
+                            transaction,
+                            _isSqlServer ? SelectScopeWriteLockSqlSqlServer : SelectScopeWriteLockSql,
+                            row,
+                            ct).ConfigureAwait(false);
+                        if (locked is null)
+                            return WorkScopeWriteResult.VersionConflict;
+
+                        var projectionOwned = await QueryFirstOrDefaultInTransactionAsync<int?>(
+                            connection,
+                            transaction,
+                            _isSqlServer ? SelectAuthorityFenceSqlSqlServer : SelectAuthorityFenceSql,
+                            row,
+                            ct).ConfigureAwait(false);
+                        if (projectionOwned is not null)
+                            return WorkScopeWriteResult.ProjectionOwned;
+                        if (locked.VersionNo != row.VersionNo)
+                            return WorkScopeWriteResult.VersionConflict;
+
+                        var updated = await ExecuteAsync(
+                            connection, transaction, UpdateScopeSql, row, ct).ConfigureAwait(false);
+                        if (updated == 0) return WorkScopeWriteResult.VersionConflict;
+                        if (updated != 1)
+                            throw new DBConcurrencyException(
+                                $"WorkScope update affected {updated} rows; expected exactly one.");
+
+                        var inserted = await ExecuteAsync(
+                            connection, transaction, InsertExecutionSql, executionRow, ct)
+                            .ConfigureAwait(false);
+                        if (inserted != 1)
+                            throw new DBConcurrencyException(
+                                $"WorkScope execution insert affected {inserted} rows; expected exactly one.");
+                        return WorkScopeWriteResult.Applied;
+                    },
+                    IsolationLevel.Serializable,
+                    ct).ConfigureAwait(false);
+                if (result.Kind == WorkScopeWriteKind.Applied) scope.AcceptPersistedVersion();
+                return result;
+            }
+            catch (DbException ex) when (
+                !_isSqlServer
+                && attempt < 6
+                && IsSqliteBusy(ex))
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(20 * (attempt + 1)), ct)
+                    .ConfigureAwait(false);
+            }
+        }
     }
+
+    private const string SelectScopeWriteLockSql = """
+        SELECT VERSION_NO AS VersionNo
+          FROM POM_WORK_SCOPE
+         WHERE WORK_SCOPE_ID = @WorkScopeId
+        """;
+
+    private const string SelectScopeWriteLockSqlSqlServer = """
+        SELECT VERSION_NO AS VersionNo
+          FROM POM_WORK_SCOPE WITH (UPDLOCK, HOLDLOCK)
+         WHERE WORK_SCOPE_ID = @WorkScopeId
+        """;
+
+    private const string SelectAuthorityFenceSql = """
+        SELECT 1
+          FROM POM_WORK_SCOPE_PROJECTION_AUTHORITY
+         WHERE WORK_SCOPE_ID = @WorkScopeId
+         LIMIT 1
+        """;
+
+    private const string SelectAuthorityFenceSqlSqlServer = """
+        SELECT TOP (1) 1
+          FROM POM_PROJECTION_AUTHORITY_SCOPE_FENCE WITH (UPDLOCK, HOLDLOCK)
+         WHERE WORK_SCOPE_ID = @WorkScopeId
+        """;
 
     private const string SelectScopeSql = """
         SELECT WORK_SCOPE_ID AS WorkScopeId, PLANT_ID AS PlantId, SCOPE_TYPE AS ScopeType,
@@ -223,6 +319,37 @@ public sealed class WorkScopeRepository : QueryRepository, IWorkScopeRepository
          @Remark, @ExpectedVersion, @ResultVersion, @CarrierId, @ResultCode,
          @ResultMetadataJson, @UserId, @OccurredAt)
         """;
+
+    private static Task<T?> QueryFirstOrDefaultInTransactionAsync<T>(
+        DbConnection connection,
+        DbTransaction transaction,
+        string sql,
+        object parameters,
+        CancellationToken ct) => connection.QueryFirstOrDefaultAsync<T>(new CommandDefinition(
+        sql,
+        parameters,
+        transaction,
+        cancellationToken: ct));
+
+    private static Task<int> ExecuteAsync(
+        DbConnection connection,
+        DbTransaction transaction,
+        string sql,
+        object parameters,
+        CancellationToken ct) => connection.ExecuteAsync(new CommandDefinition(
+        sql,
+        parameters,
+        transaction,
+        cancellationToken: ct));
+
+    private static bool IsSqliteBusy(DbException exception) =>
+        exception.Message.Contains("locked", StringComparison.OrdinalIgnoreCase)
+        || exception.Message.Contains("busy", StringComparison.OrdinalIgnoreCase);
+
+    private sealed class ScopeWriteLockRow
+    {
+        public int VersionNo { get; set; }
+    }
 
     private sealed class ScopeRow
     {

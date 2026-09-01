@@ -1,0 +1,163 @@
+-- Owner: POM. Explicit execution authority for equipment-owned WorkScopes.
+-- V157 current rows are transport cursors (including deterministic upgrade backfill) and MUST NOT
+-- imply ownership. Only a trusted RMS/program coordinator can provision this row while the scope is
+-- pristine; ordinary command paths and projection ingestion use it as the atomic authority fence.
+
+CREATE TABLE POM_WORK_SCOPE_PROJECTION_AUTHORITY (
+    -- Match V152 POM_WORK_SCOPE.WORK_SCOPE_ID database collation exactly: SQL Server requires
+    -- compatible collations for character foreign keys. Exact external identities remain BIN2.
+    WORK_SCOPE_ID               NVARCHAR(50)  NOT NULL,
+    SOURCE_CLIENT_ID            NVARCHAR(100) COLLATE Latin1_General_100_BIN2 NOT NULL,
+    EQUIPMENT_ID                NVARCHAR(100) COLLATE Latin1_General_100_BIN2 NOT NULL,
+    OPERATION_KEY               NVARCHAR(200) COLLATE Latin1_General_100_BIN2 NOT NULL,
+    PAIR_RUN_ID                 NVARCHAR(100) COLLATE Latin1_General_100_BIN2 NOT NULL,
+    SEQUENCE_RUN_ID             NVARCHAR(100) COLLATE Latin1_General_100_BIN2 NOT NULL,
+    RECIPE_EXECUTION_ID         NVARCHAR(100) COLLATE Latin1_General_100_BIN2 NOT NULL,
+    -- Shared POM/RMS identity: keep database collation compatible with V152/V156 recipe columns;
+    -- exact equality is enforced explicitly at command/trigger boundaries.
+    RECIPE_ID                   NVARCHAR(100) NOT NULL,
+    RECIPE_VERSION              INT           NOT NULL,
+    RECIPE_SNAPSHOT_SCHEMA      NVARCHAR(100) COLLATE Latin1_General_100_BIN2 NOT NULL,
+    RECIPE_SNAPSHOT_HASH        CHAR(64)      COLLATE Latin1_General_100_BIN2 NOT NULL,
+    PROGRAM_ARTIFACT_ID         NVARCHAR(200) COLLATE Latin1_General_100_BIN2 NOT NULL,
+    PROGRAM_SCHEMA              NVARCHAR(100) COLLATE Latin1_General_100_BIN2 NOT NULL,
+    PROGRAM_HASH                CHAR(64)      COLLATE Latin1_General_100_BIN2 NOT NULL,
+    BASELINE_VERSION_NO         INT           NOT NULL,
+    LAST_APPLIED_VERSION_NO     INT           NOT NULL,
+    PROVISION_IDEMPOTENCY_KEY   NVARCHAR(100) COLLATE Latin1_General_100_BIN2 NOT NULL,
+    PROVISION_REQUEST_HASH      CHAR(64)      COLLATE Latin1_General_100_BIN2 NOT NULL,
+    PROVISIONED_AT              DATETIME2(7)  NOT NULL,
+    PROVISIONED_BY              NVARCHAR(50)  COLLATE Latin1_General_100_BIN2 NOT NULL,
+    LAST_APPLIED_AT             DATETIME2(7)  NULL,
+    CONSTRAINT PK_POM_WORK_SCOPE_PROJECTION_AUTHORITY
+        PRIMARY KEY (WORK_SCOPE_ID),
+    CONSTRAINT FK_POM_WORK_SCOPE_PROJECTION_AUTHORITY_SCOPE
+        FOREIGN KEY (WORK_SCOPE_ID) REFERENCES POM_WORK_SCOPE (WORK_SCOPE_ID),
+    CONSTRAINT UQ_POM_WORK_SCOPE_PROJECTION_AUTHORITY_IDEMPOTENCY
+        UNIQUE (PROVISION_IDEMPOTENCY_KEY),
+    CONSTRAINT CK_POM_WORK_SCOPE_PROJECTION_AUTHORITY_RECIPE_VERSION
+        CHECK (RECIPE_VERSION > 0),
+    CONSTRAINT CK_POM_WORK_SCOPE_PROJECTION_AUTHORITY_LINEAGE
+        CHECK (BASELINE_VERSION_NO > 0
+               AND LAST_APPLIED_VERSION_NO >= BASELINE_VERSION_NO),
+    CONSTRAINT CK_POM_WORK_SCOPE_PROJECTION_AUTHORITY_HASHES
+        CHECK (LEN(RECIPE_SNAPSHOT_HASH) = 64
+               AND LEN(PROGRAM_HASH) = 64
+               AND LEN(PROVISION_REQUEST_HASH) = 64
+               AND RECIPE_SNAPSHOT_HASH NOT LIKE '%[^0-9A-F]%'
+               AND PROGRAM_HASH NOT LIKE '%[^0-9A-F]%'
+               AND PROVISION_REQUEST_HASH NOT LIKE '%[^0-9A-F]%'),
+    CONSTRAINT CK_POM_WORK_SCOPE_PROJECTION_AUTHORITY_IDENTITIES
+        CHECK (LEN(SOURCE_CLIENT_ID) BETWEEN 1 AND 100
+               AND LEN(EQUIPMENT_ID) BETWEEN 1 AND 100
+               AND LEN(OPERATION_KEY) BETWEEN 1 AND 200
+               AND LEN(PAIR_RUN_ID) BETWEEN 1 AND 100
+               AND LEN(SEQUENCE_RUN_ID) BETWEEN 1 AND 100
+               AND LEN(RECIPE_EXECUTION_ID) BETWEEN 1 AND 100
+               AND LEN(RECIPE_ID) BETWEEN 1 AND 100
+               AND LEN(RECIPE_SNAPSHOT_SCHEMA) BETWEEN 1 AND 100
+               AND LEN(PROGRAM_ARTIFACT_ID) BETWEEN 1 AND 200
+               AND LEN(PROGRAM_SCHEMA) BETWEEN 1 AND 100
+               AND LEN(PROVISIONED_BY) BETWEEN 1 AND 50)
+);
+
+CREATE UNIQUE INDEX UX_POM_WORK_SCOPE_PROJECTION_AUTHORITY_STREAM
+    ON POM_WORK_SCOPE_PROJECTION_AUTHORITY
+       (SOURCE_CLIENT_ID, EQUIPMENT_ID, SEQUENCE_RUN_ID);
+
+CREATE UNIQUE INDEX UX_POM_WORK_SCOPE_PROJECTION_AUTHORITY_RECIPE_EXECUTION
+    ON POM_WORK_SCOPE_PROJECTION_AUTHORITY
+       (RECIPE_EXECUTION_ID);
+
+-- SQL Server enforces immutable identity and validates direct/manual inserts too. SQLite installs
+-- equivalent guards from PomWorkScopeProjectionSqliteSchemaContribution.
+-- SQLITE-OMIT-BEGIN
+EXEC(N'CREATE TRIGGER TR_POM_WORK_SCOPE_PROJECTION_AUTHORITY_GUARD
+ON POM_WORK_SCOPE_PROJECTION_AUTHORITY
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF EXISTS (
+        SELECT 1 FROM deleted D
+        LEFT JOIN inserted I
+          ON I.WORK_SCOPE_ID = D.WORK_SCOPE_ID
+       WHERE I.WORK_SCOPE_ID IS NULL)
+        THROW 51550, ''POM projection authority is not deletable'', 1;
+
+    IF EXISTS (
+        SELECT 1 FROM inserted I
+        JOIN deleted D ON D.WORK_SCOPE_ID = I.WORK_SCOPE_ID
+       WHERE D.WORK_SCOPE_ID COLLATE Latin1_General_100_BIN2
+                 <> I.WORK_SCOPE_ID COLLATE Latin1_General_100_BIN2
+          OR D.SOURCE_CLIENT_ID <> I.SOURCE_CLIENT_ID
+          OR D.EQUIPMENT_ID <> I.EQUIPMENT_ID
+          OR D.OPERATION_KEY <> I.OPERATION_KEY
+          OR D.PAIR_RUN_ID <> I.PAIR_RUN_ID
+          OR D.SEQUENCE_RUN_ID <> I.SEQUENCE_RUN_ID
+          OR D.RECIPE_EXECUTION_ID <> I.RECIPE_EXECUTION_ID
+          OR D.RECIPE_ID COLLATE Latin1_General_100_BIN2
+                 <> I.RECIPE_ID COLLATE Latin1_General_100_BIN2
+          OR D.RECIPE_VERSION <> I.RECIPE_VERSION
+          OR D.RECIPE_SNAPSHOT_SCHEMA <> I.RECIPE_SNAPSHOT_SCHEMA
+          OR D.RECIPE_SNAPSHOT_HASH <> I.RECIPE_SNAPSHOT_HASH
+          OR D.PROGRAM_ARTIFACT_ID <> I.PROGRAM_ARTIFACT_ID
+          OR D.PROGRAM_SCHEMA <> I.PROGRAM_SCHEMA
+          OR D.PROGRAM_HASH <> I.PROGRAM_HASH
+          OR D.BASELINE_VERSION_NO <> I.BASELINE_VERSION_NO
+          OR D.PROVISION_IDEMPOTENCY_KEY <> I.PROVISION_IDEMPOTENCY_KEY
+          OR D.PROVISION_REQUEST_HASH <> I.PROVISION_REQUEST_HASH
+          OR D.PROVISIONED_AT <> I.PROVISIONED_AT
+          OR D.PROVISIONED_BY <> I.PROVISIONED_BY)
+        THROW 51551, ''POM projection authority identity is immutable'', 1;
+
+    IF EXISTS (
+        SELECT 1 FROM inserted I
+        JOIN deleted D ON D.WORK_SCOPE_ID = I.WORK_SCOPE_ID
+        LEFT JOIN POM_WORK_SCOPE S WITH (UPDLOCK, HOLDLOCK)
+          ON S.WORK_SCOPE_ID COLLATE Latin1_General_100_BIN2
+               = I.WORK_SCOPE_ID COLLATE Latin1_General_100_BIN2
+       WHERE I.LAST_APPLIED_VERSION_NO < D.LAST_APPLIED_VERSION_NO
+          OR (I.LAST_APPLIED_VERSION_NO = D.LAST_APPLIED_VERSION_NO
+              AND ISNULL(I.LAST_APPLIED_AT, ''0001-01-01'')
+                    <> ISNULL(D.LAST_APPLIED_AT, ''0001-01-01''))
+          OR (I.LAST_APPLIED_VERSION_NO > D.LAST_APPLIED_VERSION_NO
+              AND (S.WORK_SCOPE_ID IS NULL
+                   OR I.LAST_APPLIED_VERSION_NO <> S.VERSION_NO
+                   OR (I.LAST_APPLIED_VERSION_NO > I.BASELINE_VERSION_NO
+                       AND I.LAST_APPLIED_AT IS NULL)
+                   OR (D.LAST_APPLIED_AT IS NOT NULL
+                       AND (I.LAST_APPLIED_AT IS NULL
+                            OR I.LAST_APPLIED_AT < D.LAST_APPLIED_AT)))))
+        THROW 51552, ''POM projection authority applied lineage is monotonic and scope-aligned'', 1;
+
+    IF EXISTS (
+        SELECT 1 FROM inserted I
+        LEFT JOIN deleted D ON D.WORK_SCOPE_ID = I.WORK_SCOPE_ID
+        LEFT JOIN POM_WORK_SCOPE S WITH (UPDLOCK, HOLDLOCK)
+          ON S.WORK_SCOPE_ID COLLATE Latin1_General_100_BIN2
+               = I.WORK_SCOPE_ID COLLATE Latin1_General_100_BIN2
+       WHERE D.WORK_SCOPE_ID IS NULL
+         AND (S.WORK_SCOPE_ID IS NULL
+              OR S.STATUS <> ''Created''
+              OR S.IS_HOLD <> ''N''
+              OR S.VERSION_NO <> 1
+              OR S.START_QTY <> 0
+              OR S.COMPLETE_QTY <> 0
+              OR S.SCRAP_QTY <> 0
+              OR S.EQUIPMENT_ID IS NULL
+              OR S.EQUIPMENT_ID COLLATE Latin1_General_100_BIN2 <> I.EQUIPMENT_ID
+              OR S.TARGET_ID IS NULL
+              OR S.TARGET_ID COLLATE Latin1_General_100_BIN2 <> I.PAIR_RUN_ID
+              OR S.RECIPE_ID IS NULL
+              OR S.RECIPE_ID COLLATE Latin1_General_100_BIN2 <> I.RECIPE_ID
+              OR S.RECIPE_VERSION IS NULL
+              OR S.RECIPE_VERSION <> I.RECIPE_VERSION
+              OR I.BASELINE_VERSION_NO <> S.VERSION_NO
+              OR I.LAST_APPLIED_VERSION_NO <> S.VERSION_NO
+              OR EXISTS (SELECT 1 FROM POM_WORK_SCOPE_EXECUTION E WITH (HOLDLOCK)
+                          WHERE E.WORK_SCOPE_ID = I.WORK_SCOPE_ID)))
+        THROW 51553, ''POM projection authority requires an exact pristine WorkScope'', 1;
+END');
+-- SQLITE-OMIT-END

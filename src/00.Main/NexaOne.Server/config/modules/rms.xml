@@ -12,5 +12,9 @@
   <object id="rmsRecipeBridge" factory-object="rmsModule" factory-method="GetRecipeBridge" />
   <object id="rmsRecipeExecutionBridge" factory-object="rmsModule" factory-method="GetExecutionBridge" />
   <object id="trackingRecipeDirectory" factory-object="rmsModule" factory-method="GetTrackingRecipeDirectory" />
+  <object id="canonicalRecipeExecutionEvidenceDirectory" factory-object="rmsModule" factory-method="GetCanonicalExecutionEvidenceDirectory" />
+  <object id="rmsTrustedAuthoritySqliteSchemaContribution"
+      factory-object="rmsModule"
+      factory-method="GetTrustedAuthoritySqliteSchemaContribution" />
 
 </objects>

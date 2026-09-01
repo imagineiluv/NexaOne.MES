@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<objects xmlns="http://www.springframework.net"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
+
+  <!-- Pure project policy only. POM owns acceptance, leases, retries and atomic WorkScope writes. -->
+  <object id="workScopeProjectionPolicy"
+      type="NexaOne.Project.Cleaner.CleanerWorkScopeProjectionPolicy, NexaOne.Project.Cleaner" />
+
+  <!-- Immutable context-generation snapshot. Operational identity values are supplied only by
+       IConfiguration; XML deliberately contains no enable switch or release coordinate. -->
+  <object id="cleanerProjectionAuthorityProfile"
+      type="NexaOne.Project.Cleaner.CleanerProjectionAuthorityProfile, NexaOne.Project.Cleaner">
+    <constructor-arg ref="appConfiguration" />
+  </object>
+
+  <!-- Product-owned trusted validator target. WorkScope evidence is local to this Pom context;
+       RMS/SYS evidence crosses sibling contexts through the distinct parent lazy proxies. -->
+  <object id="workScopeProjectionAuthorityValidator"
+      type="NexaOne.Project.Cleaner.CleanerWorkScopeProjectionAuthorityValidator, NexaOne.Project.Cleaner">
+    <constructor-arg ref="workScopeAuthorityEvidenceDirectory" />
+    <constructor-arg ref="canonicalRecipeExecutionEvidenceDirectoryProxy" />
+    <constructor-arg ref="releasedProgramArtifactDirectoryProxy" />
+    <constructor-arg ref="cleanerProjectionAuthorityProfile" />
+  </object>
+
+</objects>

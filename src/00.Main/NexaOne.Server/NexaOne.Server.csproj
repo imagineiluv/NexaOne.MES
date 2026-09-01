@@ -6,6 +6,11 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- One evaluated product profile owns the plugin project set and selected application manifest.
+       Cleaner is the default; pass -p:NexaOneProductProfile=PomOnly (or a future profile name)
+       without editing this project, publish targets, or bundle smoke catalogs. -->
+  <Import Project="..\..\..\eng\product-profiles\NexaOne.ProductProfiles.props" />
+
   <!-- Hallmark app design system: keep the repository-root token file as the single source,
        while exposing it to the Web SDK at /css/tokens.css in development and publish output. -->
   <ItemGroup>
@@ -105,17 +110,7 @@
        하고, 빌드 순서만 보장한다(모듈이 Server보다 먼저 빌드됨). 공유 의존성(Infrastructure/Common/Application/
        Configuration 등)은 위 ProjectReference로 Default ALC에 이미 있으므로 모듈이 그것을 공유한다. -->
   <ItemGroup>
-    <ProjectReference Include="..\..\04.Modules\NexaOne.MDM\NexaOne.MDM.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\04.Modules\NexaOne.EST\NexaOne.EST.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\04.Modules\NexaOne.FDC\NexaOne.FDC.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\04.Modules\NexaOne.RMS\NexaOne.RMS.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\04.Modules\NexaOne.QMS\NexaOne.QMS.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\04.Modules\NexaOne.EMS\NexaOne.EMS.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\04.Modules\NexaOne.IVT\NexaOne.IVT.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\04.Modules\NexaOne.POM\NexaOne.POM.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\04.Modules\NexaOne.PRC\NexaOne.PRC.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\04.Modules\NexaOne.SHP\NexaOne.SHP.csproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="..\..\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="@(NexaOneProductPlugin)" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <!-- Portal client 빌드 타깃 — wwwroot/spa로 vite 번들을 출력한다. ResolveProjectStaticWebAssets(정적 웹 자산이
@@ -157,13 +152,8 @@
        모듈의 공유 의존성을 plugin ALC에 자체 복사하지 않고 Default ALC로 흘려보내, EesDataSource/IConfiguration 등의
        타입 동일성이 server.xml 컨텍스트와 유지된다. (런타임 로드는 MSSQL 환경에서 실행 검증 필요.) -->
   <Target Name="CopyDomainModulePlugins" AfterTargets="Build">
-    <ItemGroup>
-      <!-- Resolve the actual target paths produced by this build. Hard-coded project bin paths
-           bypass an external artifacts path and can silently package stale default-bin plugin DLLs. -->
-      <_ModulePluginProject Include="@(_MSBuildProjectReferenceExistent)"
-                            Condition="'%(ReferenceOutputAssembly)' == 'false'" />
-    </ItemGroup>
-    <MSBuild Projects="@(_ModulePluginProject)"
+    <!-- Resolve the selected profile projects rather than inferring every false project reference. -->
+    <MSBuild Projects="@(NexaOneProductPlugin)"
              Targets="GetTargetPath"
              BuildInParallel="$(BuildInParallel)">
       <Output TaskParameter="TargetOutputs" ItemName="_ModulePluginDll" />
@@ -172,12 +162,22 @@
            Text="No current domain module outputs were resolved for the host plugin bundle." />
     <Error Condition="!Exists('%(_ModulePluginDll.FullPath)')"
            Text="Current domain module output is missing: %(_ModulePluginDll.FullPath)" />
+    <ItemGroup>
+      <_StaleModulePlugin Include="$(OutDir)Modules\NexaOne.*.dll" />
+      <_StaleModulePlugin Include="$(OutDir)Modules\*.deps.json" />
+    </ItemGroup>
+    <Delete Files="@(_StaleModulePlugin)" />
     <Copy SourceFiles="@(_ModulePluginDll)" DestinationFolder="$(OutDir)Modules" SkipUnchangedFiles="true" />
   </Target>
 
   <!-- publish 산출물에도 모듈 플러그인 복사 — publish는 계산된 파일 목록만 실어 OutDir의 Modules/를
        가져가지 않는다(운영 배포 검증에서 발견: 게시본 부팅 시 모듈 0개 로드). -->
   <Target Name="CopyDomainModulePluginsOnPublish" AfterTargets="Publish" DependsOnTargets="CopyDomainModulePlugins">
+    <ItemGroup>
+      <_StalePublishedModulePlugin Include="$(PublishDir)Modules\NexaOne.*.dll" />
+      <_StalePublishedModulePlugin Include="$(PublishDir)Modules\*.deps.json" />
+    </ItemGroup>
+    <Delete Files="@(_StalePublishedModulePlugin)" />
     <Copy SourceFiles="@(_ModulePluginDll)" DestinationFolder="$(PublishDir)Modules" SkipUnchangedFiles="true" />
   </Target>
 
@@ -185,8 +185,17 @@
        config/host/(공통 서버 빈 server.xml + SQLite 변형 server.sqlite.xml), config/modules/(모듈별 빈 9개).
        글롭으로 출력에 상대경로 보존 복사한다(db/queries 패턴과 동일). app.xml의 configFiles는 config/modules/*.xml를 가리킨다. -->
   <ItemGroup>
-    <!-- config/db/** 는 위에서 db\ 링크로 별도 복사하므로 제외(중복 포함 방지). -->
-    <Content Include="config\**\*.xml" Exclude="config\db\**\*.xml">
+    <!-- The selected profile manifest is always packaged at config/app.xml, preserving the runtime
+         Server:ApplicationManifest override seam while preventing an absent project DLL reference. -->
+    <Content Include="$(NexaOneProductApplicationManifestSource)" Link="config\app.xml">
+      <!-- The source path itself changes with the profile. PreserveNewest compares only timestamps,
+           so a newer manifest from the previous profile could otherwise survive an incremental switch. -->
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
+    </Content>
+    <!-- config/db/** 는 위에서 db\ 링크로 별도 복사하며 product source manifests are linked above. -->
+    <Content Include="config\**\*.xml"
+             Exclude="config\db\**\*.xml;config\app.xml;config\products\*.app.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

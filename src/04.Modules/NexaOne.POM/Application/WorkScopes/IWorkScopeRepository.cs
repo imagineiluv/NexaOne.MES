@@ -36,8 +36,22 @@ public interface IWorkScopeRepository
 
     Task AddAsync(PomWorkScope scope, CancellationToken ct = default);
 
-    Task<bool> UpdateWithExecutionAsync(
+    Task<WorkScopeWriteResult> UpdateWithExecutionAsync(
         PomWorkScope scope,
         PomWorkScopeExecution execution,
         CancellationToken ct = default);
+}
+
+public enum WorkScopeWriteKind
+{
+    Applied,
+    ProjectionOwned,
+    VersionConflict,
+}
+
+public sealed record WorkScopeWriteResult(WorkScopeWriteKind Kind)
+{
+    public static readonly WorkScopeWriteResult Applied = new(WorkScopeWriteKind.Applied);
+    public static readonly WorkScopeWriteResult ProjectionOwned = new(WorkScopeWriteKind.ProjectionOwned);
+    public static readonly WorkScopeWriteResult VersionConflict = new(WorkScopeWriteKind.VersionConflict);
 }

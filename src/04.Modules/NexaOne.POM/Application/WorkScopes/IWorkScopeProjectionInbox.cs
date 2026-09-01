@@ -26,11 +26,17 @@ internal sealed record WorkScopeProjectionEnvelope(
     string RecipeId,
     string RecipeSnapshotHash,
     string ProgramHash,
+    IReadOnlyList<WorkScopeProjectionCarrierEnvelope> Carriers,
     string CarriersJson,
     string ResultCode,
     string? ResultMetadataJson,
     DateTime OccurredAt,
     string PayloadJson);
+
+internal sealed record WorkScopeProjectionCarrierEnvelope(
+    string Lane,
+    string CarrierId,
+    string CleaningRunId);
 
 internal enum WorkScopeProjectionPersistKind
 {
@@ -38,8 +44,13 @@ internal enum WorkScopeProjectionPersistKind
     Replayed,
     EventHashConflict,
     SequenceIdentityConflict,
+    WorkScopeBindingConflict,
     ScopeNotFound,
     ScopeEquipmentConflict,
+    AuthorityMissing,
+    AuthorityIdentityMismatch,
+    RecipeSnapshotHashMismatch,
+    ProgramHashMismatch,
 }
 
 internal sealed record WorkScopeProjectionPersistResult(

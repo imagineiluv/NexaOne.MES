@@ -300,8 +300,16 @@ public sealed class WorkScopeService
             transition.From, scope.Status, context.GoodQty, context.DefectQty,
             actor, scope.EquipmentId, channel, deviceId, DateTime.UtcNow, remark,
             context.ExpectedVersion, context.ExpectedVersion + 1, carrierId, resultCode, resultMetadata);
-        if (await _repository.UpdateWithExecutionAsync(scope, execution, ct))
+        var write = await _repository.UpdateWithExecutionAsync(scope, execution, ct);
+        if (write.Kind == WorkScopeWriteKind.Applied)
             return Result.Success(scope);
+
+        if (write.Kind == WorkScopeWriteKind.ProjectionOwned)
+        {
+            return Result.Failure<PomWorkScope>(Error.Conflict(
+                "POM.WorkScope.ProjectionOwned",
+                $"Work scope '{scope.Id}' is owned by an equipment projection and cannot be changed through ordinary commands."));
+        }
 
         var winner = await _repository.GetExecutionByIdempotencyKeyAsync(key, ct);
         if (winner is not null && SameRequest(winner, scope.Id, context, actor, channel, deviceId, remark, carrierId, resultCode, resultMetadata))

@@ -11,13 +11,14 @@ NexaMES는 제조 실행과 설비 운영을 하나의 서버에서 조립하는
 | `NexaOne.Server` | HTTP API, 인증, Spring.NET 조립 루트, 모듈 로딩, SQLite/MSSQL 부팅 |
 | `NexaOne.Common` | 모듈 간 서비스 계약, 감사·멱등성·영속성 공통 기반 |
 | `MDM` | Plant, 설비, 품목, 작업조, 캐리어 등 기준정보 |
-| `POM` | 생산 W/O, 공정 LOT, 공정 이력과 처분 |
+| `POM` | 생산 W/O, WorkScope, 공정 LOT, 공정 이력과 처분 |
 | `IVT` | 자재 LOT, 투입·소모 원장과 TRACE projection |
 | `QMS` | 검사, 불량, 폐기와 품질 이력 |
 | `EMS` | PM/BM, 보전 W/O, 예비부품, BOM·공급처, Tool 점검·교정 |
 | `EST` | 설비 상태, 출력, Utility, OEE와 설비 실행 증거 |
 | `RMS` | Recipe 승인, 버전, Parameter, 설비 할당과 실행 snapshot |
 | `FDC` | 설비 통신 endpoint와 driver adapter, 수집 계약 |
+| `NexaOne.Project.Cleaner` | Cleaner의 Carrier Pair 증거를 WorkScope 전이로 해석하는 순수 프로젝트 정책 |
 
 세 개의 재사용 저장소는 `submodules/` 아래에서 고정 commit으로 참조합니다.
 
@@ -34,6 +35,81 @@ Driver 구현은 업무 서비스나 Component에서 다시 만들지 않습니�
 플러그인이 소유하는 것은 프로젝트별 정책입니다. 예를 들면 캐리어 세척 시퀀스, 고객사별 알람 해제 조건, MES payload mapping, 자재 소모 방식, LOT/Carrier 변환, 설비별 parameter 해석입니다. 플러그인은 공통 계약을 사용하지만 공통 모듈의 DB 내부 구현을 직접 참조하지 않습니다.
 
 Spring XML은 런타임 조립에 사용합니다. 모듈 구현을 상속해 제품 로직을 끼워 넣지 않고, 안정된 interface를 구현한 adapter 또는 plugin을 `config/host/*.xml`과 `config/modules/*.xml`에서 연결합니다. 단순하고 고정된 코드 경로는 생성자 주입으로 직접 참조하고, 교체 가능성이 있는 프로젝트 정책만 XML seam을 사용합니다.
+
+Cleaner WorkScope 연결은 이 경계를 실제로 사용합니다. HTTP 수신은 V156 불변 inbox/current와 V157
+application 행까지만 한 트랜잭션으로 기록하고 즉시 수락 결과를 반환합니다. POM worker가 DB lease를
+획득한 뒤 `NexaOne.Project.Cleaner`의 순수 policy를 트랜잭션 밖에서 호출하고, 반환된 effect 전체와
+`POM_WORK_SCOPE_EXECUTION`, application 상태·감사 이력을 하나의 serializable transaction으로 반영합니다.
+따라서 `202 Accepted`는 업무 반영 완료를 뜻하지 않으며, 프로세스 재시작이나 정책 예외가 있어도
+`Pending`/`Retry` 상태에서 이어집니다. LOT는 만들지 않고 terminal cleanup이 영속 완료된
+`Completed`/`Abandoned`만 WorkScope 종결 후보가 됩니다. Cleaner 작업은 캐리어별 상태가 아니라
+pair 단위 상태를 가지므로 `ScopeType=Other`, `TargetId=PairRunId`, `PlanQty=2`인 WorkScope 하나를 사용합니다.
+두 Carrier ID·lane·cleaning run은 V157의 불변 정규화 증거로 보존해 캐리어별 이력을 조회하되 서로 다른
+완료 상태를 만들지 않습니다. 프로젝트 정책 교체 지점은 `config/projects/cleaner.xml`, 선택형 application
+runtime 조립 지점은 `config/modules/pom-projection.xml`입니다. 코어 `pom.xml`에는 inbox/current 수신 bridge와
+SQLite schema contribution만 남으므로 projection 적용 기능을 쓰지 않는 POM 제품은 프로젝트 policy 없이도
+조립됩니다. POM의 저장소·lease 구현은 프로젝트 assembly에 노출하지 않습니다.
+하나의 WorkScope는 최초 수락된 `(SourceClientId, EquipmentId, SequenceRunId)` stream 하나에만 결박됩니다.
+다른 stream이 같은 WorkScope를 사용하면 `409 Projection.WorkScopeBindingConflict`로 거부하며 inbox·carrier·
+application에 부분 증거를 남기지 않습니다. V157 unique index가 동시 최초 결박까지 최종 차단합니다.
+호스트의 기본 service manifest는 기존 Cleaner 구성을 담은 `config/app.xml`입니다. 다른 project 제품은
+core host source를 수정하지 않고 별도 manifest와 그 manifest가 참조하는 plugin DLL을 함께 배포합니다.
+빌드 시 `NexaOneProductProfile`이 선택한 manifest는 산출물의 `config/app.xml`로 연결되고,
+`Server:ApplicationManifest`(환경변수 `Server__ApplicationManifest`)는 배포 뒤에도 다른 로컬 manifest를
+선택할 수 있는 runtime override seam으로 유지됩니다.
+업그레이드 직후 과거 current 증거가 자동으로 업무 상태를 바꾸지 않도록 worker 기본값은 OFF입니다.
+V157 복원본 리허설과 프로젝트 정책·대상 WorkScope 검증을 마친 배포에서만
+`Worker:Pom:WorkScopeProjection:Enabled=true`로 명시 활성화합니다. 활성화된 worker는 HTTP readiness가
+열리기 전에 worker가 사용하는 V157 필수 schema, DB read/write 권한과 WorkScope 단일-stream unique fence를 무변경
+preflight하고 실패하면 호스트 기동을 중단합니다.
+V158 authority와 applied-version lineage가 projection-owned WorkScope의 일반 명령을 차단하고,
+수신·claim·commit에서 scope version을 연속 검증합니다. V159는 append-only RMS canonical recipe execution evidence,
+SYS released program artifact와 revocation을 추가하고, V160은 SQL Server에서 trusted writer와 projection runtime 역할을
+분리하여 runtime database principal name+SID를 정확한 active-product/artifact 좌표에 결박합니다. Cleaner는
+`IWorkScopeProjectionAuthorityValidatorV2` 구현으로 WorkScope→pair/sequence→recipe execution→released program을
+ordinal exact-key로 대조하며, 제품 profile·plugin·definition/program version·schema와 recipe/program hash를 command가
+아닌 불변 evidence에서 판정합니다.
+
+`Projects:Cleaner:WorkScopeProjectionAuthority:Enabled`는 기본 false이고 값이 없거나 profile이 불완전하면 authority를
+거부하며, projection worker도 기본 OFF입니다. 아직 실제 recipe를 결정적으로 canonicalize하고 실제 배포 program
+artifact를 검증해 hash를 발행하는 trusted RMS/SYS producer adapter가 구현되지 않았고, 실제 SQL Server 권한·경합·복구
+contract와 교차-process 실설비 HIL도 통과하지 않았습니다. 따라서 worker-ON 조립 스모크는 plugin/hosted-service/schema
+readiness만 증명할 뿐 운영 권한이나 설비 승인을 뜻하지 않습니다. producer 구현과 실제 MSSQL/HIL 활성화 gate가 모두
+통과할 때까지 Cleaner profile을 비활성화하고 worker를 OFF로 유지합니다.
+활성 제품의 POM service manifest는 policy를 application runtime보다 먼저 선언해야 합니다.
+
+```xml
+<Service name="Pom"
+  classPaths="./Modules/NexaOne.POM.dll;./Modules/NexaOne.Project.Cleaner.dll"
+  configFiles="config/modules/pom.xml;config/projects/cleaner.xml;config/modules/pom-projection.xml" />
+```
+
+`Enabled=true`인데 `pom-projection.xml`이 빠졌거나 runtime marker가 중복되거나 marker와 hosted worker가
+같은 객체가 아니면 호스트가 HTTP를 열기 전에 실패합니다. 반대로 기능이 OFF인 POM-only 제품은
+`config/modules/pom.xml`만 사용하며 application runtime marker가 없어도 됩니다.
+
+### 제품 패키징 profile
+
+`eng/product-profiles/Core.props`가 공통 도메인 plugin을 한 번만 선언하고,
+`eng/product-profiles/profiles/<Profile>.props`가 제품 전용 project DLL과 application manifest만 추가합니다.
+Server와 ServerTests는 같은 `@(NexaOneProductPlugin)` item을 사용하므로 build 순서, `Modules/` copy/publish,
+hash 비교와 exact file-set smoke에 별도 DLL 배열이 없습니다. 빌드는 선택 결과를
+`config/product-profile.manifest`에 기록하며 profile을 바꿀 때 이전 제품 DLL과 plugin `.deps.json`을 제거합니다.
+
+기본값은 기존 산출물과 동일한 `Cleaner`입니다. 프로젝트 정책이 없는 POM-only 산출물은 property 하나로
+빌드·게시·부팅 검증할 수 있습니다.
+
+```powershell
+dotnet build src/00.Main/NexaOne.Server/NexaOne.Server.csproj -c Release `
+  -p:NexaOneProductProfile=PomOnly
+
+pwsh -NoProfile -File tools/ops/Test-Publish.ps1 -ProductProfile PomOnly
+```
+
+새 제품은 별도 `<Product>.props`와 Spring application manifest를 추가하고, profile에 제품 project의
+경로와 assembly 이름을 한 번 선언합니다. `Server.csproj`, 테스트 코드, publish 스크립트의 DLL 목록은
+수정하지 않습니다. profile의 manifest `classPaths`와 선언 plugin 집합이 다르면 정적 계약 및 실제 bundle
+smoke가 실패합니다.
 
 ## 설비 운영 원칙
 
@@ -125,6 +201,14 @@ action pin·migration catalog·Portal 테스트/빌드/audit·whitespace 검증�
 ```powershell
 pwsh -NoProfile -File tools/ops/Publish-ReleaseBundle.ps1 -Version 1.0.0
 ```
+
+제품별 릴리즈는 같은 영구 release 브랜치 정책을 유지하면서 `-ProductProfile <Profile>`을 추가합니다.
+생성되는 `release-manifest.json`에는 `packagingProfile`이 기록됩니다. 제품 프로필 도입 전에
+생성되어 이 필드가 없는 기존 매니페스트는 검증 시 `Cleaner`로 해석하므로 과거 릴리즈의
+해시·서브모듈 핀 검증도 계속 재현할 수 있습니다. 새 매니페스트의 누락 또는 잘못된 프로필을
+허용한다는 뜻은 아니며, 현재 게시 스크립트는 항상 선택한 프로필을 기록합니다. 이 필드가 있는
+현재 형식은 ZIP 내부 `config/product-profile.manifest`의 프로필, `Modules/` 전체 파일 집합,
+`config/app.xml`의 플러그인 `classPaths`가 모두 정확히 일치해야 독립 검증을 통과합니다.
 
 생성된 manifest의 source commit·submodule pin·각 DLL/ZIP SHA-256을 검토한 뒤에만
 release 브랜치에 커밋하고 annotated tag와 GitHub Release를 발행합니다.

@@ -1,9 +1,12 @@
+using System.Reflection;
 using NexaDB.Data.Sqlite;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.POM.Application.WorkScopes;
 using NexaOne.POM.Domain;
 using NexaOne.POM.Infrastructure;
+using NexaOne.RMS.Infrastructure;
 using NexaOne.ServiceContracts.Pom;
+using NexaOne.SYS.Infrastructure;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Xunit;
@@ -12,6 +15,21 @@ namespace NexaOne.ServerTests;
 
 public sealed class WorkScopeProjectionPersistenceTests
 {
+    [Fact]
+    public void Application_insert_uses_current_identity_without_timestamp_precision_equality()
+    {
+        var field = typeof(WorkScopeProjectionRepository).GetField(
+            "InsertApplicationSql",
+            BindingFlags.NonPublic | BindingFlags.Static);
+
+        field.Should().NotBeNull();
+        var sql = field!.GetRawConstantValue().Should().BeOfType<string>().Subject;
+        sql.Should().Contain("C.EVENT_ID = @EventId")
+            .And.Contain("C.SOURCE_REVISION = @SourceRevision")
+            .And.NotContain("C.ACCEPTED_AT = @AcceptedAt",
+                "SQL Server stores ACCEPTED_AT at the column precision and must not compare it to an unrounded parameter");
+    }
+
     [Fact]
     public async Task Exact_event_replay_returns_the_original_receipt_and_keeps_one_durable_inbox_row()
     {
@@ -39,6 +57,53 @@ public sealed class WorkScopeProjectionPersistenceTests
         (await database.ScalarAsync(
             "SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_INBOX"))
             .Should().Be(1L);
+        (await database.ScalarAsync(
+            "SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_CARRIER"))
+            .Should().Be(2L);
+        (await database.TextAsync("""
+            SELECT GROUP_CONCAT(LANE || ':' || CARRIER_ID || ':' || CLEANING_RUN_ID, ',')
+              FROM (SELECT LANE, CARRIER_ID, CLEANING_RUN_ID
+                      FROM POM_WORK_SCOPE_PROJECTION_CARRIER
+                     ORDER BY LANE)
+            """)).Should().Be("front:CARRIER-F:RUN-F,rear:CARRIER-R:RUN-R");
+        (await database.TextAsync(
+            "SELECT STATUS || ':' || VERSION_NO FROM POM_WORK_SCOPE WHERE WORK_SCOPE_ID = 'WS-1'"))
+            .Should().Be("Created:1");
+    }
+
+    [Fact]
+    public async Task Carrier_constraint_failure_rolls_back_the_entire_new_event_acceptance()
+    {
+        await using var database = await ProjectionDatabase.CreateAsync();
+        await database.ExecuteAsync("""
+            CREATE TRIGGER TEST_REJECT_REAR_PROJECTION_CARRIER
+            BEFORE INSERT ON POM_WORK_SCOPE_PROJECTION_CARRIER
+            WHEN NEW.CARRIER_ID = 'CARRIER-R'
+            BEGIN
+              SELECT RAISE(ABORT, 'test projection carrier constraint');
+            END;
+            """);
+
+        var ingest = async () => await database.CreateBridge()
+            .IngestAsync("cleaner-a", Command("carrier-rollback"));
+
+        await ingest.Should().ThrowAsync<SqliteException>()
+            .WithMessage("*carrier constraint*");
+        (await database.ScalarAsync(
+            "SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_INBOX"))
+            .Should().Be(0L);
+        (await database.ScalarAsync(
+            "SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_CARRIER"))
+            .Should().Be(0L);
+        (await database.ScalarAsync(
+            "SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_CURRENT"))
+            .Should().Be(0L);
+        (await database.ScalarAsync(
+            "SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_APPLICATION"))
+            .Should().Be(0L);
+        (await database.ScalarAsync(
+            "SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT"))
+            .Should().Be(0L);
         (await database.TextAsync(
             "SELECT STATUS || ':' || VERSION_NO FROM POM_WORK_SCOPE WHERE WORK_SCOPE_ID = 'WS-1'"))
             .Should().Be("Created:1");
@@ -125,6 +190,30 @@ public sealed class WorkScopeProjectionPersistenceTests
     }
 
     [Fact]
+    public async Task Cleaner_pair_requires_two_distinct_cleaning_run_identities()
+    {
+        await using var database = await ProjectionDatabase.CreateAsync();
+        var command = Command() with
+        {
+            Carriers =
+            [
+                new WorkScopeProjectionCarrierDto("front", "CARRIER-F", "RUN-SHARED"),
+                new WorkScopeProjectionCarrierDto("rear", "CARRIER-R", "RUN-SHARED"),
+            ],
+        };
+
+        var result = await database.CreateBridge().IngestAsync("cleaner-a", command);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Type.Should().Be(NexaOne.Common.ErrorType.Validation);
+        result.Error.Description.Should().Contain("cleaning-run identities");
+        (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_INBOX"))
+            .Should().Be(0L);
+        (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_CARRIER"))
+            .Should().Be(0L);
+    }
+
+    [Fact]
     public async Task Older_revision_is_durable_but_cannot_move_the_current_projection_backwards()
     {
         await using var database = await ProjectionDatabase.CreateAsync();
@@ -188,7 +277,7 @@ public sealed class WorkScopeProjectionPersistenceTests
     }
 
     [Fact]
-    public async Task Sequence_identity_cannot_cross_work_scope_operation_or_pair_run()
+    public async Task Projection_authority_rejects_cross_scope_operation_or_pair_run_before_evidence_write()
     {
         await using var database = await ProjectionDatabase.CreateAsync();
         var bridge = database.CreateBridge();
@@ -201,11 +290,89 @@ public sealed class WorkScopeProjectionPersistenceTests
         var crossPair = await bridge.IngestAsync(
             "cleaner-a", Command("cross-pair", 8) with { PairRunId = "other-pair" });
 
-        new[] { crossScope, crossOperation, crossPair }
-            .Should().OnlyContain(static result =>
-                result.IsFailure && result.Error.Code == "Projection.SequenceIdentityConflict");
+        crossScope.IsFailure.Should().BeTrue();
+        crossScope.Error.Code.Should().Be("Projection.AuthorityRequired");
+        new[] { crossOperation, crossPair }.Should().OnlyContain(static result =>
+            result.IsFailure && result.Error.Code == "Projection.Authority.IdentityMismatch");
         (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_INBOX"))
             .Should().Be(1L);
+    }
+
+    [Fact]
+    public async Task Projection_authority_rejects_another_source_equipment_or_sequence_without_partial_evidence()
+    {
+        await using var database = await ProjectionDatabase.CreateAsync();
+        var bridge = database.CreateBridge();
+        (await bridge.IngestAsync("cleaner-a", Command("binding-owner", 7)))
+            .IsSuccess.Should().BeTrue();
+
+        var anotherSequence = await bridge.IngestAsync(
+            "cleaner-a",
+            Command("binding-sequence", 8) with { SequenceRunId = "sequence-2" });
+        var anotherSource = await bridge.IngestAsync(
+            "cleaner-b",
+            Command("binding-source", 8) with
+            {
+                ClientId = "cleaner-b",
+                SequenceRunId = "source-sequence",
+            });
+        var anotherEquipment = await bridge.IngestAsync(
+            "cleaner-a",
+            Command("binding-equipment", 8) with
+            {
+                EquipmentId = "EQ-OTHER",
+                SequenceRunId = "equipment-sequence",
+            });
+
+        new[] { anotherSequence, anotherSource }.Should().OnlyContain(static result =>
+            result.IsFailure && result.Error.Code == "Projection.Authority.IdentityMismatch");
+        anotherEquipment.IsFailure.Should().BeTrue();
+        anotherEquipment.Error.Code.Should().Be("Projection.ScopeEquipmentConflict");
+        (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_INBOX"))
+            .Should().Be(1L);
+        (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_CARRIER"))
+            .Should().Be(2L);
+        (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_CURRENT"))
+            .Should().Be(1L);
+        (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_APPLICATION"))
+            .Should().Be(1L);
+        (await database.TextAsync("""
+            SELECT SOURCE_CLIENT_ID || ':' || EQUIPMENT_ID || ':' || SEQUENCE_RUN_ID || ':' || EVENT_ID
+              FROM POM_WORK_SCOPE_PROJECTION_CURRENT WHERE WORK_SCOPE_ID='WS-1'
+            """)).Should().Be("cleaner-a:EQ-1:sequence-1:binding-owner");
+    }
+
+    [Fact]
+    public async Task Concurrent_authorized_and_unprovisioned_streams_persist_only_authorized_evidence()
+    {
+        await using var database = await ProjectionDatabase.CreateAsync();
+        var first = database.CreateBridge();
+        var second = database.CreateBridge();
+
+        var results = await Task.WhenAll(
+            first.IngestAsync(
+                "cleaner-a",
+                Command("binding-race-a", 7)),
+            second.IngestAsync(
+                "cleaner-a",
+                Command("binding-race-b", 7) with { SequenceRunId = "sequence-b" }));
+
+        results.Count(static result => result.IsSuccess).Should().Be(1);
+        results.Count(static result =>
+                result.IsFailure && result.Error.Code == "Projection.Authority.IdentityMismatch")
+            .Should().Be(1);
+        (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_INBOX"))
+            .Should().Be(1L);
+        (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_CARRIER"))
+            .Should().Be(2L);
+        (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_CURRENT"))
+            .Should().Be(1L);
+        (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_APPLICATION"))
+            .Should().Be(1L);
+        (await database.ScalarAsync("""
+            SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_APPLICATION_EVENT
+             WHERE EVENT_TYPE='Pending'
+            """)).Should().Be(1L);
     }
 
     [Fact]
@@ -231,8 +398,10 @@ public sealed class WorkScopeProjectionPersistenceTests
         var carrierConflict = await bridge.IngestAsync("cleaner-a", changedCarriers);
         var recipeConflict = await bridge.IngestAsync("cleaner-a", changedRecipe);
 
-        new[] { carrierConflict, recipeConflict }.Should().OnlyContain(static result =>
-            result.IsFailure && result.Error.Code == "Projection.SequenceIdentityConflict");
+        carrierConflict.IsFailure.Should().BeTrue();
+        carrierConflict.Error.Code.Should().Be("Projection.SequenceIdentityConflict");
+        recipeConflict.IsFailure.Should().BeTrue();
+        recipeConflict.Error.Code.Should().Be("Projection.Authority.IdentityMismatch");
         (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_INBOX"))
             .Should().Be(1L);
     }
@@ -397,10 +566,14 @@ public sealed class WorkScopeProjectionPersistenceTests
         var bridge = database.CreateBridge();
         (await bridge.IngestAsync("cleaner-a", Command("sequence-1-event", 7)))
             .IsSuccess.Should().BeTrue();
-        (await bridge.IngestAsync(
-            "cleaner-a",
-            Command("sequence-2-event", 8) with { SequenceRunId = "sequence-2" }))
-            .IsSuccess.Should().BeTrue();
+        var sequence2 = Command("sequence-2-event", 8) with
+        {
+            WorkScopeId = "WS-2",
+            PairRunId = "OTHER-2",
+            SequenceRunId = "sequence-2",
+        };
+        await database.ProvisionAsync(sequence2, "RMS-WS-2");
+        (await bridge.IngestAsync("cleaner-a", sequence2)).IsSuccess.Should().BeTrue();
 
         var crossSequence = async () => await database.ExecuteAsync("""
             UPDATE POM_WORK_SCOPE_PROJECTION_CURRENT
@@ -412,8 +585,8 @@ public sealed class WorkScopeProjectionPersistenceTests
                                                  WHERE SOURCE_CLIENT_ID = 'cleaner-a' AND EVENT_ID = 'sequence-2-event'),
                    OCCURRED_AT = (SELECT OCCURRED_AT FROM POM_WORK_SCOPE_PROJECTION_INBOX
                                    WHERE SOURCE_CLIENT_ID = 'cleaner-a' AND EVENT_ID = 'sequence-2-event'),
-                   ACCEPTED_AT = (SELECT ACCEPTED_AT FROM POM_WORK_SCOPE_PROJECTION_INBOX
-                                   WHERE SOURCE_CLIENT_ID = 'cleaner-a' AND EVENT_ID = 'sequence-2-event')
+                    ACCEPTED_AT = '2099-01-01T00:00:00.0000000Z',
+                    UPDATED_AT = '2099-01-01T00:00:00.0000000Z'
              WHERE SOURCE_CLIENT_ID = 'cleaner-a'
                AND EQUIPMENT_ID = 'EQ-1'
                AND SEQUENCE_RUN_ID = 'sequence-1';
@@ -476,7 +649,11 @@ public sealed class WorkScopeProjectionPersistenceTests
             var connectionString = $"Data Source={path};Cache=Shared;Default Timeout=30";
             SqliteSchemaInitializer.Apply(
                 connectionString,
-                [new PomWorkScopeProjectionSqliteSchemaContribution()]);
+                [
+                    new PomWorkScopeProjectionSqliteSchemaContribution(),
+                    new RmsTrustedAuthoritySqliteSchemaContribution(),
+                    new SysTrustedAuthoritySqliteSchemaContribution(),
+                ]);
             var dataSource = new EesDataSource
             {
                 Provider = new SqliteProvider(),
@@ -485,24 +662,25 @@ public sealed class WorkScopeProjectionPersistenceTests
             await AddScopeAsync(dataSource, "WS-1");
             await AddScopeAsync(dataSource, "WS-2");
             await AddScopeAsync(dataSource, "WS-UNASSIGNED");
-            return new ProjectionDatabase(path, connectionString, dataSource);
+            var database = new ProjectionDatabase(path, connectionString, dataSource);
+            await database.ProvisionAsync(Command(), "RMS-WS-1");
+            return database;
         }
 
         private static async Task AddScopeAsync(EesDataSource dataSource, string workScopeId)
         {
-            var isPrimary = workScopeId == "WS-1";
             var equipmentId = workScopeId == "WS-UNASSIGNED" ? null : "EQ-1";
             var targetId = workScopeId switch
             {
-                "WS-1" => "EQ-1",
+                "WS-1" => "pair-1",
                 "WS-2" => "OTHER-2",
                 _ => workScopeId,
             };
             var scope = PomWorkScope.Create(
                 workScopeId, "PLANT-1",
-                isPrimary ? PomWorkScopeType.Equipment : PomWorkScopeType.Other,
+                PomWorkScopeType.Other,
                 targetId, "Cleaner scope",
-                null, equipmentId, null, null, null, null, 1m, null, null, "tester");
+                null, equipmentId, null, "clean-pair-1", "RECIPE-1", 1, 1m, null, null, "tester");
             scope.IsSuccess.Should().BeTrue();
             scope.Value.SetCreateIdentity($"test:create:{workScopeId}", new string('C', 64));
             await new WorkScopeRepository(dataSource).AddAsync(scope.Value);
@@ -510,6 +688,55 @@ public sealed class WorkScopeProjectionPersistenceTests
 
         public IWorkScopeProjectionBridge CreateBridge() => new WorkScopeProjectionBridge(
             new WorkScopeProjectionService(new WorkScopeProjectionRepository(DataSource)));
+
+        public async Task ProvisionAsync(
+            WorkScopeProjectionCommand command,
+            string recipeExecutionId)
+        {
+            var provision = new WorkScopeProjectionAuthorityProvisionCommand(
+                command.WorkScopeId,
+                command.ClientId,
+                command.EquipmentId,
+                command.OperationKey,
+                command.PairRunId,
+                command.SequenceRunId,
+                recipeExecutionId,
+                $"program:{command.WorkScopeId}:{command.SequenceRunId}",
+                $"authority:{command.WorkScopeId}:{command.SequenceRunId}",
+                "tester");
+            var evidence = new WorkScopeProjectionAuthorityEvidence(
+                provision.WorkScopeId,
+                provision.SourceClientId,
+                provision.EquipmentId,
+                provision.OperationKey,
+                provision.PairRunId,
+                provision.SequenceRunId,
+                provision.RecipeExecutionId,
+                command.RecipeId,
+                1,
+                "test-recipe-v1",
+                command.RecipeSnapshotHash,
+                provision.ProgramArtifactId,
+                "test-program-v1",
+                command.ProgramHash);
+            await TrustedAuthorityTestData.SeedSqliteAsync(ConnectionString, evidence);
+            var bridge = new WorkScopeProjectionAuthorityBridge(
+                new WorkScopeProjectionAuthorityService(
+                    new WorkScopeProjectionAuthorityRepository(DataSource),
+                    new FixedAuthorityValidator(evidence)));
+            var result = await bridge.ProvisionAsync(provision);
+            result.IsSuccess.Should().BeTrue(
+                result.IsFailure ? result.Error.Description : null);
+        }
+
+        private sealed class FixedAuthorityValidator(WorkScopeProjectionAuthorityEvidence evidence)
+            : IWorkScopeProjectionAuthorityValidatorV2
+        {
+            public Task<WorkScopeProjectionAuthorityValidationDecision> ValidateAsync(
+                WorkScopeProjectionAuthorityProvisionCommand command,
+                CancellationToken ct = default) => Task.FromResult(
+                    WorkScopeProjectionAuthorityValidationDecision.Accepted(evidence));
+        }
 
         public async Task<long> ScalarAsync(string sql)
         {

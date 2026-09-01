@@ -171,6 +171,38 @@ public sealed class SqliteSchemaOwnershipExceptionTests
     }
 
     [Fact]
+    public void Trusted_authority_sqlite_reconciliation_is_owned_by_rms_and_sys_modules()
+    {
+        var initializer = File.ReadAllText(RepositorySource.GetFile(
+            "src", "02.Backend", "NexaOne.Common", "Infrastructure", "Persistence",
+            "SqliteSchemaInitializer.cs"));
+        initializer.Should().NotContain("RMS_CANONICAL_RECIPE_EXECUTION_EVIDENCE");
+        initializer.Should().NotContain("SYS_RELEASED_PROGRAM_ARTIFACT");
+        initializer.Should().NotContain("EnsureTrustedAuthorityEvidenceIntegrity");
+
+        AssertContributionExport(
+            moduleName: "RMS",
+            contributionFile: "RmsTrustedAuthoritySqliteSchemaContribution.cs",
+            contributionType: "RmsTrustedAuthoritySqliteSchemaContribution",
+            springBean: "rmsTrustedAuthoritySqliteSchemaContribution",
+            ownedTable: "RMS_CANONICAL_RECIPE_EXECUTION_EVIDENCE");
+        AssertContributionExport(
+            moduleName: "SYS",
+            contributionFile: "SysTrustedAuthoritySqliteSchemaContribution.cs",
+            contributionType: "SysTrustedAuthoritySqliteSchemaContribution",
+            springBean: "sysTrustedAuthoritySqliteSchemaContribution",
+            ownedTable: "SYS_RELEASED_PROGRAM_ARTIFACT");
+
+        var sysContribution = File.ReadAllText(RepositorySource.GetFile(
+            "src", "04.Modules", "NexaOne.SYS", "Infrastructure",
+            "SysTrustedAuthoritySqliteSchemaContribution.cs"));
+        sysContribution.Should().Contain("UX_SYS_RELEASED_PROGRAM_ARTIFACT_COORDINATE");
+        sysContribution.Should().Contain("TR_SYS_RELEASED_PROGRAM_ARTIFACT_COORDINATE_BI");
+        sysContribution.Should().Contain("PROGRAM_SCHEMA COLLATE BINARY");
+        sysContribution.Should().NotContain("PROGRAM_HASH COLLATE BINARY,");
+    }
+
+    [Fact]
     public void Entire_common_initializer_cannot_acquire_new_module_schema_identifiers()
     {
         var initializer = File.ReadAllText(RepositorySource.GetFile(
@@ -195,5 +227,31 @@ public sealed class SqliteSchemaOwnershipExceptionTests
     {
         typeof(SqliteSchemaInitializer).GetMethod(methodName, [typeof(string)])
             .Should().NotBeNull("already-compiled hosts and plugins bind the exact one-argument signature");
+    }
+
+    private static void AssertContributionExport(
+        string moduleName,
+        string contributionFile,
+        string contributionType,
+        string springBean,
+        string ownedTable)
+    {
+        var contribution = File.ReadAllText(RepositorySource.GetFile(
+            "src", "04.Modules", $"NexaOne.{moduleName}", "Infrastructure", contributionFile));
+        contribution.Should().Contain("ISqliteSchemaContribution");
+        contribution.Should().Contain(ownedTable);
+
+        var module = File.ReadAllText(RepositorySource.GetFile(
+            "src", "04.Modules", $"NexaOne.{moduleName}", "Module.cs"));
+        module.Should().Contain("GetTrustedAuthoritySqliteSchemaContribution");
+        module.Should().Contain($"new {contributionType}()");
+
+        var spring = File.ReadAllText(RepositorySource.GetFile(
+            "src", "00.Main", "NexaOne.Server", "config", "modules",
+            $"{moduleName.ToLowerInvariant()}.xml"));
+        spring.Should().Contain(springBean);
+        spring.Should().Contain($"factory-object=\"{moduleName.ToLowerInvariant()}Module\"");
+        spring.Should().Contain("factory-method=\"GetTrustedAuthoritySqliteSchemaContribution\"");
+        spring.Should().NotContain($"{contributionType}, NexaOne.{moduleName}");
     }
 }

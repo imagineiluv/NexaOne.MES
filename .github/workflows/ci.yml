@@ -1,8 +1,8 @@
 name: CI
 
 # 설계 §16.2 빌드 파이프라인 — SPA(vitest) → Restore → Build(Release) → Test(unit + server, SQLite).
-# 'dotnet test NexaOne.sln'은 NexaOne.UnitTests + NexaOne.ServerTests를 실행한다(SQLite로 동작, 실 MSSQL 불필요).
-# ServerTests의 HostModulesBootSmokeTests가 실 plugin-ALC 부팅을 검증한다. 실 하드웨어 의존 테스트(예: OPC-UA)만 [Fact(Skip)] 제외.
+# ServerTests의 Category=HostSmoke는 실 plugin-ALC 부팅과 plugin byte 동일성을 검증하므로 비계측으로 실행한다.
+# 나머지 Unit/Server 테스트는 XPlat Code Coverage를 수집한다. 실 하드웨어 의존 테스트(예: OPC-UA)만 [Fact(Skip)] 제외.
 # (구 IntegrationTests 프로젝트는 폐기됨 — 호스트 경로는 ServerTests, 모듈 도메인은 UnitTests가 커버.)
 
 on:
@@ -106,11 +106,61 @@ jobs:
       - name: Build (Release)
         run: dotnet build NexaOne.sln --configuration Release --no-restore --warnaserror
 
-      - name: Test (unit + server on SQLite) (+ coverage)
+      # ServerTests의 일반 prepare target은 test bin/Modules를 보정하므로 Server csproj의 실제
+      # CopyDomainModulePlugins 회귀를 숨길 수 있다. 실제 Server Release 출력 경로를 명시해
+      # generated Cleaner profile의 exact plugin file-set/hash와 modules-ON 부팅을 별도 필수 게이트로 검증한다.
+      # 이는 기본 Rejecting authority validator를 trusted coordinator로 대체하거나 HIL 운영 승인을 뜻하지 않는다.
+      - name: Test actual Server Release plugin bundle
+        env:
+          NEXAONE_TEST_HOST_BIN: ${{ github.workspace }}/src/00.Main/NexaOne.Server/bin/Release/net8.0
         run: >
-          dotnet test NexaOne.sln --configuration Release --no-build
-          --logger "trx;LogFileName=test-results.trx"
+          dotnet test test/NexaOne.ServerTests/NexaOne.ServerTests.csproj
+          --configuration Release --no-build
+          --filter "FullyQualifiedName=NexaOne.ServerTests.HostModulesBootSmokeTests.Host_boots_the_selected_product_profile_bundle"
+
+      # Coverlet은 test output 루트의 plugin DLL을 계측한다. Modules/ 복제본과의 byte 동일성은
+      # release freshness 계약이므로 검사를 완화하지 않고, child-process host smoke 전체를 먼저
+      # 비계측으로 실행한 뒤 나머지 테스트에서만 coverage를 수집한다.
+      # 위 actual Release smoke와 같은 method 1건이 포함되지만 여기서는 test output을 대상으로 하므로
+      # 서로 다른 두 artifact 경로의 freshness를 의도적으로 각각 검증한다.
+      - name: Test child-process host smoke without coverage
+        run: >
+          dotnet test test/NexaOne.ServerTests/NexaOne.ServerTests.csproj
+          --configuration Release --no-build
+          --filter "Category=HostSmoke"
+          --logger "trx;LogFileName=server-host-smoke-results.trx"
+
+      - name: Test unit on SQLite with coverage
+        run: >
+          dotnet test test/NexaOne.UnitTests/NexaOne.UnitTests.csproj
+          --configuration Release --no-build
+          --logger "trx;LogFileName=unit-test-results.trx"
           --collect:"XPlat Code Coverage"
+
+      - name: Test server on SQLite with coverage
+        run: >
+          dotnet test test/NexaOne.ServerTests/NexaOne.ServerTests.csproj
+          --configuration Release --no-build
+          --filter "Category!=HostSmoke"
+          --logger "trx;LogFileName=server-test-results.trx"
+          --collect:"XPlat Code Coverage"
+
+      # 같은 Server.csproj을 profile property만 바꿔 다시 빌드한다. Cleaner DLL이 stale하게 남지 않고
+      # POM-only manifest/catalog의 11개 exact set으로 교체되며 실제 호스트가 부팅되는지 검증한다.
+      - name: Build POM-only product packaging profile
+        run: >
+          dotnet build test/NexaOne.ServerTests/NexaOne.ServerTests.csproj
+          --configuration Release --no-restore --warnaserror
+          -p:NexaOneProductProfile=PomOnly
+
+      - name: Test actual POM-only Server Release plugin bundle
+        env:
+          NEXAONE_TEST_HOST_BIN: ${{ github.workspace }}/src/00.Main/NexaOne.Server/bin/Release/net8.0
+          NEXAONE_TEST_PRODUCT_PROFILE: PomOnly
+        run: >
+          dotnet test test/NexaOne.ServerTests/NexaOne.ServerTests.csproj
+          --configuration Release --no-build
+          --filter "FullyQualifiedName=NexaOne.ServerTests.HostModulesBootSmokeTests.Host_boots_the_selected_product_profile_bundle"
 
       # NexaLogic는 git submodule이라 NexaOne.sln 밖에 있다. 가짜 TCP 서버/메모리 simulator를 사용하는
       # 두 suite를 별도 필수 게이트로 실행해 connect/read/write/구독/취소/실패 계약을 실제 드라이버 경로에서 고정한다.

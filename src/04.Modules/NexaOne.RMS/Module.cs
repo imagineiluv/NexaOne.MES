@@ -13,6 +13,8 @@ public sealed class Module
     private readonly IRecipeApprovalBridge _recipeBridge;
     private readonly IRecipeExecutionBridge _executionBridge;
     private readonly ITrackingRecipeDirectory _trackingRecipeDirectory;
+    private readonly ICanonicalRecipeExecutionEvidenceDirectory _canonicalExecutionEvidenceDirectory;
+    private readonly ISqliteSchemaContribution _trustedAuthoritySqliteSchemaContribution;
 
     public Module(
         EesDataSource dataSource,
@@ -30,9 +32,15 @@ public sealed class Module
         _executionBridge = new RecipeExecutionBridge(
             new RecipeExecutionService(recipes, parameters, executions, equipmentDirectory));
         _trackingRecipeDirectory = new TrackingRecipeDirectory(dataSource);
+        _canonicalExecutionEvidenceDirectory = new CanonicalRecipeExecutionEvidenceDirectory(dataSource);
+        _trustedAuthoritySqliteSchemaContribution =
+            new RmsTrustedAuthoritySqliteSchemaContribution();
     }
 
     public IRecipeApprovalBridge GetRecipeBridge() => _recipeBridge;
     public IRecipeExecutionBridge GetExecutionBridge() => _executionBridge;
     public ITrackingRecipeDirectory GetTrackingRecipeDirectory() => _trackingRecipeDirectory;
+    public ICanonicalRecipeExecutionEvidenceDirectory GetCanonicalExecutionEvidenceDirectory() => _canonicalExecutionEvidenceDirectory;
+    public ISqliteSchemaContribution GetTrustedAuthoritySqliteSchemaContribution() =>
+        _trustedAuthoritySqliteSchemaContribution;
 }

@@ -120,8 +120,8 @@ reconcile한다. 비활성 target, 삭제된 shift와 휴일·빈 계획은 stal
 
 생산 W/O가 없는 세척 설비도 같은 실행 원장을 사용할 수 있도록 POM의 `WorkScope`를
 작업 관리의 정본으로 둔다. `Batch`와 `Campaign`은 부모 범위이고 `Carrier`, `Lot`,
-`Equipment`, `Other`는 실제 실행 대상 범위다. 따라서 세척 설비는 `Carrier`만 생성해도
-되며, `WorkOrderId`와 LOT는 선택적 외부 참조로 남는다. 부모-자식 관계는
+`Equipment`, `Other`는 실제 실행 대상 범위다. 단일 캐리어가 실행 단위인 설비는 `Carrier` 범위를
+사용할 수 있고, `WorkOrderId`와 LOT는 선택적 외부 참조로 남는다. 부모-자식 관계는
 `POM_WORK_SCOPE_MEMBER`에 순서와 함께 보존하고, 모든 상태 전이는
 `POM_WORK_SCOPE_EXECUTION` append-only 원장에 기록한다.
 
@@ -131,6 +131,11 @@ reconcile한다. 비활성 target, 삭제된 shift와 휴일·빈 계획은 stal
 actor는 요청 본문이 아닌 로그인 JWT에서 캡처한다. `ExpectedVersion`과
 `IdempotencyKey`를 모든 변경에 요구해 재시작·중복 요청이 같은 결과로 수렴하도록 한다.
 Carrier 범위의 기본 계획 수량은 1이고 `TargetId=CarrierId`를 강제한다.
+
+Cleaner는 캐리어 두 개가 하나의 pair 상태로 함께 완료·실패·복구되므로 캐리어별 WorkScope 두 개를
+만들지 않는다. `ScopeType=Other`, `TargetId=PairRunId`, `PlanQty=2`, 동일 `RecipeId`인 WorkScope 하나를
+사용하고, 두 Carrier ID와 lane·cleaning run은 immutable projection evidence로 정규화한다. 이후 lane별로
+독립 완료·실패·복구하는 제품이 생길 때만 두 Carrier child WorkScope 모델로 확장한다.
 
 Cleaner는 로컬 Carrier/Pair Recovery를 정본으로 유지하면서 선택적으로 MES WorkScope ID를
 Recovery state에 저장한다. 로컬 Recovery 커밋 뒤에만 `IWorkScopeExecutionSink`로
@@ -152,6 +157,74 @@ Cleaner의 `RecoveryRequired`는 현재 POM의 생산 상태 열거형을 확장
 - Hold를 지원하지 않는 원격 구현은 성공으로 위장하지 말고 동일 이벤트를 재시도 가능한
   outbox/오류 큐에 보존한다. 모든 전이는 `IdempotencyKey/EventId`를 재사용해 재시작과
   중복 전달이 같은 결과로 수렴해야 한다.
+
+### Cleaner project policy와 durable application(V157)
+
+V156 수신 bridge의 성공은 불변 증거 접수만 의미한다. 같은 transaction에서 current event용
+`POM_WORK_SCOPE_PROJECTION_APPLICATION`을 `Pending`으로 만들고, 새 current가 들어오면 이전
+Pending/Retry/Processing application을 `Superseded`로 바꾸면서 lease fence를 증가시킨다.
+정확한 event replay는 application을 중복 생성하거나 terminal application을 다시 열지 않는다.
+V156 evidence의 두 carrier는 같은 수신 transaction에서 `POM_WORK_SCOPE_PROJECTION_CARRIER`에
+정규화한다. 이 행은 source event와 함께 append-only이며 Carrier ID와 cleaning run 양쪽 조회가 가능하다.
+하나의 mutable WorkScope는 최초 수락된 `(SourceClientId, EquipmentId, SequenceRunId)` stream 하나에만
+결박한다. 첫 current가 OperationKey, PairRunId, Recipe와 snapshot/program hash, 두 Carrier를 불변 identity로
+고정하며, 다른 stream의 동일 WorkScope 요청은 `409 Projection.WorkScopeBindingConflict`로 거부하고 어떤
+inbox·carrier·application 행도 남기지 않는다. V157은 기존 중복 current를 명시 실패시키고 WorkScope current
+unique index를 생성해 동시 최초 결박도 DB에서 차단한다.
+
+POM worker는 DB UTC 기반 lease를 짧은 transaction으로 획득한 뒤 project policy를 DB transaction
+밖에서 호출한다. Cleaner policy는 현재 시각·난수·I/O를 읽지 않는 `Decide(context)` 하나만 구현하며
+다음 상태로 수렴한다.
+
+| Cleaner evidence | WorkScope policy |
+|---|---|
+| `Running` | 필요 시 Release, ReleaseHold, Start |
+| `RecoveryRequired` | 비종결 scope를 Hold, 이미 Hold면 Observe |
+| `Completed`, cleanup 미완료 | Hold/Observe하고 종결하지 않음 |
+| `Completed`, cleanup 완료 | Release/ReleaseHold/Start 후 Complete |
+| `Abandoned`, cleanup 완료 | Cancel |
+| 이미 종결된 scope(같은 상태 포함) | 실행 provenance를 추측하지 않고 Quarantine |
+| LOT, pair scope/process/recipe/two-carrier 불일치 | Quarantine |
+
+POM은 policy effect 순서, WorkScope version, current event, lease owner/fence를 다시 검증한다. 모든
+effect, deterministic execution/idempotency ID, application terminal 상태와 append-only audit은 하나의
+serializable transaction으로 commit되므로 중간 effect 실패는 WorkScope 일부 변경을 남기지 않는다.
+Retry는 bounded backoff로 재청구하며 프로세스 재시작 후 만료 lease도 같은 DB 상태에서 복구한다.
+Spring 조립은 코어 `pom.xml`과 분리된 `pom-projection.xml`의
+`WorkScopeProjectionApplicationModule` 생성자에 `config/projects/cleaner.xml`의 project policy를
+주입한다. POM `Module`은 policy/worker 없이 inbox bridge와 schema contribution을 계속 제공하므로 선택 기능을
+쓰지 않는 제품도 독립 조립된다. 이 계약은 두 실제 소비자와 운영 DB/HIL 증거가 생기기 전에는
+NexaFramework로 이관하지 않는다.
+현재 Server build/publish의 plugin catalog와 실제 산출물 file-set smoke는 Cleaner 제품을 기준으로 고정돼 있다.
+다른 project policy는 manifest와 DLL을 수동 배포하면 교체할 수 있지만 자동 build/copy/smoke까지 제품별로
+재현하려면 별도 MSBuild product packaging profile을 추가한다.
+V157이 upgrade 시 기존 current를 Pending으로 편입하므로 worker는 누락 시 OFF다. 운영 복원본 migration,
+project policy와 대상 pair WorkScope를 검증한 배포만 `Worker:Pom:WorkScopeProjection:Enabled=true`로 켠다.
+명시 활성화 시 hosted service `StartAsync`가 HTTP readiness 전에 application/inbox/current/carrier/audit/
+execution schema, 필요한 read/write 권한과 정확한 WorkScope unique binding index를 zero-row DML/metadata로
+검사한다. V157 누락·권한 부족·index drift는 polling 로그로 숨기지 않고 호스트 기동을 fail-fast한다.
+
+V159는 `RMS_CANONICAL_RECIPE_EXECUTION_EVIDENCE`, `SYS_RELEASED_PROGRAM_ARTIFACT`와 append-only revocation을
+추가했다. Cleaner의 V2 validator는 command에서 hash를 신뢰하지 않고 owner module의 exact-key directory를 통해
+WorkScope→pair/sequence→canonical recipe execution→released program artifact를 순서대로 조회한다. WorkScope type,
+equipment/operation, recipe id/version, snapshot schema/hash와 Cleaner product profile·plugin·product-definition/program
+version·program schema를 대/소문자와 길이까지 정확히 대조하고, program artifact가 같은 recipe snapshot에 결박됐는지도
+검증한다. POM persistence는 ADR-0005의 제한된 교차-module physical-table 예외로 동일 evidence와 revocation을 하나의
+원자 authority 경계에서 다시 잠그고 검사한다.
+
+V158 authority에는 최초 WorkScope baseline과 last-applied version lineage가 영속되며, 결박된 WorkScope의 일반
+비-projection 명령은 durable fence로 차단된다. claim/commit도 authority, artifact binding과 scope version을 다시
+검증하고 lineage를 연속 전진시킨다. V160 SQL Server 절차는 runtime caller가 전달한 제품 좌표를 신뢰하지 않고 실제
+database principal name+SID를 commissioning된 exact active-product/artifact binding과 서버 측에서 비교한다. trusted
+base table direct DML은 거부되고, revocation 뒤 새 authority는 차단된다. 기존 authority의 exact replay/recovery는
+binding이 유지되는 동안 허용되며, 해당 binding을 제거하면 중단된다.
+
+그러나 이 기반은 아직 운영 활성화 완료 상태가 아니다. `Projects:Cleaner:WorkScopeProjectionAuthority:Enabled`가
+기본 false이거나 profile 값이 빠지면 V2 validator는 fail-closed하고, projection worker도 기본 OFF이다. 실제 recipe를
+결정적으로 canonicalize하고 실제 배포 program artifact를 검증해 hash를 발행하는 trusted RMS/SYS producer adapter가
+아직 구현되지 않았으며, 로컬 SQL Server 부재로 실제 MSSQL 권한·동시성·복구 contract와 교차-process 실설비 HIL도
+통과하지 않았다. producer를 구현하고 commissioning/ValidateOnly, 실제 MSSQL contract, 복구·HIL gate를 모두 통과하기
+전에는 Cleaner profile과 worker를 활성화하지 않는다.
 
 ## 현재 수동 보전 운전
 
@@ -393,6 +466,16 @@ EST 출력 및 IVT 소비에는 동일 WorkScope/Carrier 키를 보존한다. V1
 trigger/check와 MSSQL append-only/member guard를 함께 제공하며, 실제 MSSQL 적용은
 복원본 리허설과 `-ApproveHighImpactMigrations` 승인 뒤에만 수행한다.
 
+V156은 Cleaner의 인증된 immutable WorkScope projection inbox와 monotonic current cursor를 추가한다.
+V157은 current-only application queue, lease/attempt/fence, policy decision hash와 append-only transition
+audit를 분리해 수신 성공과 업무 반영 완료를 구분한다. 또한 과거 inbox 전체의 두 Carrier를
+`POM_WORK_SCOPE_PROJECTION_CARRIER`에 정규화해 Carrier ID·cleaning run 기준으로 조회할 수 있게 한다.
+current에는 WorkScope별 unique stream fence를 추가하며 기존 중복 결박은 자동 선택하지 않고 migration을
+중단해 운영자가 원인을 정리하도록 한다.
+기존 current만 upgrade 시 Pending으로 편입하고 과거 inbox 전체를 새 정책으로 재생하지는 않는다.
+V157의 backfill과 hot-path index는 high-impact migration으로
+분류하며 운영 복원본 크기·log·lock 시간을 측정하고 `-ApproveHighImpactMigrations`로 명시 승인해야 한다.
+
 V149는 `FDC_RUNTIME_OWNERSHIP`의 단일 `GLOBAL` 행으로 FDC 실시간 writer를 선출한다. 획득은 DB가 관찰한
 기존 owner+fence를 CAS하고 DB UTC 시각으로 만료를 판정하며, 새 소유권마다 `FENCE_TOKEN`을 정확히 증가시킨다.
 각 action readiness/apply/reconcile/release 호출은 일반 action timeout과 캡처한 wall-clock/monotonic lease
@@ -423,7 +506,8 @@ SQL Server 마이그레이션 이력은 파일명뿐 아니라 LF 정규화 SHA-
 운영 규모 데이터의 upgrade rehearsal을 별도 릴리즈 gate로 둔다. V144와 V130~V141의 hot-table index build도
 크기·blocking·쓰기 증폭을 같은 기준으로 측정하며, 전환 중 TRACE/POM writer 정지와 edition별 ONLINE/RESUMABLE
 가능 여부를 DBA가 승인한다. V142/V144/V146/V147/V148/V150/V151 pending 적용은 이 준비를 완료한 승인 실행에서
-`-ApproveHighImpactMigrations`를 주지 않으면 러너가 거부한다.
+`-ApproveHighImpactMigrations`를 주지 않으면 러너가 거부한다. V157의 current backfill과 application/inbox
+ordering index도 같은 승인 목록에 포함한다.
 
 완료된 TRACE inbox 행은 filtered work set에서 즉시 빠지지만 감사·재처리 근거로 남는다. 장기 보존량이 확인되면
 source FDC 원장, 소비 원장과의 재처리 경계를 먼저 고정한 뒤 archive/purge를 적용한다. 목록의 500건 상한은
