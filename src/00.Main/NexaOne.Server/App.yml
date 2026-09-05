@@ -6,7 +6,10 @@ Server:
   Port: 8080
   Host: 0.0.0.0
 Database:
-  ConnectionString: "Server=localhost;Database=NexaOneEES;Integrated Security=true;TrustServerCertificate=true"
+  # 운영 값은 env ConnectionStrings__NexaOne으로 주입한다. 개발 기본값도 인증서 검증을 끄지 않는다 —
+  # 이 줄이 운영으로 복사되면 MITM에 그대로 노출된다. 로컬 인증서가 신뢰되지 않으면 개발 장비의
+  # 신뢰 저장소에 등록하고, TrustServerCertificate=true는 그 장비 한정으로만 임시 사용한다.
+  ConnectionString: "Server=localhost;Database=NexaOneEES;Integrated Security=true;Encrypt=true"
 Log:
   Level: Info
   Path: ./Log/

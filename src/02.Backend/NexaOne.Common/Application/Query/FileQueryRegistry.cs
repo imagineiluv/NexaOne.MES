@@ -58,18 +58,31 @@ public sealed class FileQueryRegistry : IQueryRegistry
         foreach (var q in doc.Descendants("query"))
         {
             var id = (string?)q.Attribute("id");
-            if (string.IsNullOrWhiteSpace(id)) continue;
+            // 정의를 조용히 버리면 게이트웨이는 404로만 드러나고 화면 seed는 원인 없이 실패한다.
+            // 로더가 통째로 거부해야 배포 직후가 아니라 기동 시점에 드러난다.
+            if (string.IsNullOrWhiteSpace(id))
+                throw new InvalidOperationException(
+                    $"Query element without an id attribute (file={source}). 모든 <query>는 id를 선언해야 한다.");
             // <statement> 자식이 있으면 그 값을, 없으면 query 요소 값을 SQL로 본다(CDATA/텍스트 모두 .Value로 취득).
             var statement = q.Element("statement");
             var sql = (statement?.Value ?? q.Value).Trim();
-            if (sql.Length == 0) continue;
+            if (sql.Length == 0)
+                throw new InvalidOperationException(
+                    $"Query '{id!.Trim()}' (file={source}) has an empty statement. 빈 SQL은 등록하지 않는다.");
             // 읽기 접근 정책은 requiredPermission 또는 access="public" 중 하나를 반드시 명시한다.
             // 누락을 암묵적 공개로 해석하면 새 쿼리가 권한 검토 없이 노출되므로 시작 시 차단한다.
             var perm = ((string?)q.Attribute("requiredPermission"))?.Trim();
             var access = ((string?)q.Attribute("access"))?.Trim();
             var isPublic = string.Equals(access, "public", StringComparison.OrdinalIgnoreCase);
             // kind 속성(선택, 기본 read) — "write"면 쓰기 쿼리(INSERT/UPDATE/DELETE), command 게이트웨이 전용.
-            var isWrite = string.Equals(((string?)q.Attribute("kind"))?.Trim(), "write", StringComparison.OrdinalIgnoreCase);
+            // 허용값을 검사하지 않으면 kind="wrte" 같은 오타가 read로 조용히 분류되어 INSERT/UPDATE/DELETE 문이
+            // /query 경로에 등록된다. read/write 분리 계약이 오타 하나로 깨지므로 기동 시 거부한다.
+            var kind = ((string?)q.Attribute("kind"))?.Trim();
+            var isWrite = string.Equals(kind, "write", StringComparison.OrdinalIgnoreCase);
+            var isRead = string.IsNullOrEmpty(kind) || string.Equals(kind, "read", StringComparison.OrdinalIgnoreCase);
+            if (!isWrite && !isRead)
+                throw new InvalidOperationException(
+                    $"Query '{id!.Trim()}' (file={source}) declares unsupported kind='{kind}'. Only \"read\" and \"write\" are allowed.");
 
             if (!string.IsNullOrEmpty(access) && !isPublic)
                 throw new InvalidOperationException(

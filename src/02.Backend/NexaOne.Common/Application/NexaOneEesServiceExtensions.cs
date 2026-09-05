@@ -22,10 +22,12 @@ public static class NexaOneEesServiceExtensions
 
         // 파일 기반 쿼리 레지스트리 — 구성된 DB 공급자에 맞는 방언 폴더(db/queries/{mssql|sqlite})를 로드한다.
         // Query:Directory로 폴더를 재지정할 수 있고, 폴더가 없으면 빈 레지스트리로 무해하게 기동한다.
+        // 팩토리로 등록하면 첫 요청에서야 로드되어 깨진 XML·중복 ID·빈 SQL이 기동 성공 뒤 500으로 나타난다.
+        // 여기서 즉시 만들어 배포 직후가 아니라 기동 시점에 드러나게 한다(폴더 부재는 여전히 빈 레지스트리다).
         var dialect = string.Equals(configuration["Database:Provider"], "Sqlite",
             StringComparison.OrdinalIgnoreCase) ? "sqlite" : "mssql";
         var queryDir = configuration["Query:Directory"];
-        services.AddSingleton<IQueryRegistry>(_ => FileQueryRegistry.Load(dialect, queryDir));
+        services.AddSingleton<IQueryRegistry>(FileQueryRegistry.Load(dialect, queryDir));
         return services;
     }
 }

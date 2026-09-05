@@ -215,7 +215,9 @@
   <object id="eesDialect" type="NexaDB.Data.MsSql.MsSqlProvider, NexaDB.Data.MsSql" />
   <object id="eesDataSource" type="NexaOne.Infrastructure.Persistence.EesDataSource, NexaOne.Common">
     <property name="Provider" ref="dbProvider" />
-    <property name="ConnectionString" value="Server=localhost;Database=NexaOneEES;Integrated Security=true;TrustServerCertificate=true" />
+    <!-- 운영 값은 env ConnectionStrings__NexaOne으로 주입한다. 개발 기본값도 인증서 검증을 끄지 않는다 —
+         이 줄이 운영으로 복사되면 MITM에 그대로 노출된다. -->
+    <property name="ConnectionString" value="Server=localhost;Database=NexaOneEES;Integrated Security=true;Encrypt=true" />
     <property name="QueryDiagnosticSink" ref="queryDiagnosticSink" />
   </object>
 

@@ -178,6 +178,69 @@ public sealed class FileQueryRegistryTests : IDisposable
         FileQueryRegistry.Load("sqlite", _root).TryGet("ONLY.SQLITE", out _).Should().BeTrue();
     }
 
+    // 정의를 조용히 버리면 게이트웨이는 404로만, 화면 seed는 원인 없는 실패로만 드러난다.
+    // 로더가 거부해야 기동 시점에 드러난다.
+    [Fact]
+    public void Load_rejects_a_query_without_an_id()
+    {
+        WriteDialectFile("sqlite", "NoId.xml", """
+            <queries>
+              <query access="public"><statement>SELECT 1</statement></query>
+            </queries>
+            """);
+
+        var act = () => FileQueryRegistry.Load("sqlite", _root);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*without an id*");
+    }
+
+    [Fact]
+    public void Load_rejects_a_query_with_an_empty_statement()
+    {
+        WriteDialectFile("sqlite", "Empty.xml", """
+            <queries>
+              <query id="Q.Empty" access="public"><statement>   </statement></query>
+            </queries>
+            """);
+
+        var act = () => FileQueryRegistry.Load("sqlite", _root);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*Q.Empty*empty statement*");
+    }
+
+    // kind 오타는 read로 조용히 분류되어 INSERT/UPDATE/DELETE 문을 /query 경로에 올린다.
+    [Fact]
+    public void Load_rejects_an_unsupported_kind_instead_of_treating_it_as_read()
+    {
+        WriteDialectFile("sqlite", "Typo.xml", """
+            <queries>
+              <query id="Q.Typo" kind="wrte" requiredPermission="sys:manage"><statement>DELETE FROM T</statement></query>
+            </queries>
+            """);
+
+        var act = () => FileQueryRegistry.Load("sqlite", _root);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*unsupported kind*");
+    }
+
+    [Theory]
+    [InlineData("read")]
+    [InlineData("write")]
+    [InlineData("WRITE")]
+    public void Load_accepts_the_declared_kinds(string kind)
+    {
+        WriteDialectFile("sqlite", "Kinds.xml", $"""
+            <queries>
+              <query id="Q.Kind" kind="{kind}" requiredPermission="sys:manage"><statement>SELECT 1</statement></query>
+            </queries>
+            """);
+
+        var reg = FileQueryRegistry.Load("sqlite", _root);
+
+        reg.TryGet("Q.Kind", out var def).Should().BeTrue();
+        def!.IsWrite.Should().Be(!string.Equals(kind, "read", StringComparison.OrdinalIgnoreCase));
+    }
+
     public void Dispose()
     {
         try { if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true); }
