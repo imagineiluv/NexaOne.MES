@@ -26,8 +26,12 @@ public sealed class WorkScopeProjectionProcessorTests
 
         result!.Kind.Should().Be(WorkScopeProjectionCommitKind.Applied);
         store.Committed.Should().NotBeNull();
-        store.Committed!.DecisionHash.Should().MatchRegex("^[0-9A-F]{64}$");
-        store.Committed.DecisionJson.Should().Contain("\"resultMetadata\":{\"a\":1,\"z\":2}");
+        // This is a persisted wire-format fixture. A shared canonicalizer may sort metadata,
+        // but must not reorder the envelope, omit nulls, or change existing decision hashes.
+        store.Committed!.DecisionJson.Should().Be(
+            """{"policyId":"test-policy","policyRevision":"1","disposition":"Apply","reasonCode":"Completed","effects":[{"action":"Complete","goodQty":1,"defectQty":0,"carrierId":"CARRIER-F","resultCode":"CLEANED","resultMetadata":{"a":1,"z":2},"remark":null}],"retryAfterMilliseconds":null,"auditMetadata":null}""");
+        store.Committed.DecisionHash.Should().Be(
+            "E5F3C8D85B3F101D595862A54D859F8D142374879B7AEFB51AC6C0383C7B9391");
         policy.LastContext!.Event.EventId.Should().Be("event-1");
         policy.LastContext.WorkScope.VersionNo.Should().Be(1);
     }

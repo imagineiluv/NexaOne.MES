@@ -1,4 +1,5 @@
 using System.Text.Json;
+using NexaFramework.Service.Projection;
 using NexaOne.Application.Idempotency;
 using NexaOne.Common;
 using NexaOne.ServiceContracts.Pom;
@@ -119,11 +120,11 @@ internal sealed class WorkScopeProjectionService
         out NormalizedWorkScopeProjection snapshot)
     {
         snapshot = default!;
-        if (!Enum.IsDefined(command.Status))
+        if (!ProjectionScalar.InspectDeclared(command.Status).IsValid)
             return Error.Validation(nameof(command.Status), "Projection status is invalid.");
-        if (command.Revision <= 0)
+        if (!ProjectionScalar.InspectRevision(command.Revision).IsValid)
             return Error.Validation(nameof(command.Revision), "Projection revision must be greater than zero.");
-        if (command.OccurredAt == default)
+        if (!ProjectionScalar.InspectTimestamp(command.OccurredAt).IsValid)
             return Error.Validation(nameof(command.OccurredAt), "Projection occurrence time is required.");
         if (command.TerminalCleanupCompleted
             && command.Status is not WorkScopeProjectionStatus.Completed
@@ -212,7 +213,7 @@ internal sealed class WorkScopeProjectionService
             recipeHash,
             programHash,
             carriers,
-            command.OccurredAt.ToUniversalTime(),
+            ProjectionScalar.ToUtc(command.OccurredAt, nameof(command.OccurredAt)),
             command.Revision,
             resultCode,
             metadata);
@@ -221,15 +222,13 @@ internal sealed class WorkScopeProjectionService
 
     private static string Normalize(string? value) => value?.Trim() ?? string.Empty;
 
+    // MES has always stored trimmed identifiers. Keep that normalization in this adapter before
+    // calling the shared validator, whose direct contract deliberately rejects outer whitespace.
     private static bool IsIdentifier(string value, int maxLength) =>
-        value.Length is > 0 && value.Length <= maxLength
-        && value.All(static character => !char.IsControl(character));
+        ProjectionField.Inspect(value, maxLength).IsValid;
 
-    private static string? NormalizeHash(string? value)
-    {
-        var normalized = Normalize(value).ToUpperInvariant();
-        return normalized.Length == 64 && normalized.All(Uri.IsHexDigit) ? normalized : null;
-    }
+    private static string? NormalizeHash(string? value) =>
+        ProjectionDigest.TryCanonicalize(Normalize(value), ProjectionDigestCase.Upper);
 
     private sealed record NormalizedWorkScopeProjection(
         string EventId,

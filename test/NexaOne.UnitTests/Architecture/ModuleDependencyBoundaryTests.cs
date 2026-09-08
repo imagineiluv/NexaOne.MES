@@ -20,6 +20,7 @@ public sealed class ModuleDependencyBoundaryTests
     [
         Path.Combine(RepoRoot, "submodules", "NexaFramework", "src", "NexaFramework", "NexaFramework.csproj"),
         Path.Combine(RepoRoot, "submodules", "NexaFramework", "src", "NexaFramework.Hosting", "NexaFramework.Hosting.csproj"),
+        Path.Combine(RepoRoot, "submodules", "NexaFramework", "src", "NexaFramework.Service", "NexaFramework.Service.csproj"),
     ];
 
     private static readonly string[] ProductAssemblyRoots =
@@ -455,23 +456,41 @@ public sealed class ModuleDependencyBoundaryTests
     [Fact]
     public void Reusable_framework_projects_do_not_reference_product_or_mes_projects()
     {
+        ReusableFrameworkProjects.Should().NotBeEmpty(
+            "the reusable-framework boundary must inspect actual projects");
         var violations = new List<string>();
 
         foreach (var project in ReusableFrameworkProjects)
         {
             File.Exists(project).Should().BeTrue($"재사용 Framework 검사 대상이 존재해야 합니다: {project}");
-            foreach (var reference in ReadDeclaredReferences(project))
-            {
-                if (IsForbiddenFrameworkProductReference(reference.Include))
-                {
-                    violations.Add(
-                        $"{Path.GetFileNameWithoutExtension(project)} -> {reference.Include} ({reference.Kind})");
-                }
-            }
+            violations.AddRange(FindFrameworkProductReferences(project, XDocument.Load(project)));
         }
 
         violations.Should().BeEmpty(
             "재사용 Framework는 NexaOne/NexusOne/NexaMes/MES 제품 의존을 흡수하지 않아야 합니다");
+    }
+
+    [Theory]
+    [InlineData("ProjectReference", "../../../../../src/02.Backend/NexaOne.Common/NexaOne.Common.csproj")]
+    [InlineData("PackageReference", "NexaOne.Common")]
+    [InlineData("Reference", "NexaOne.Server, Version=1.0.0.0, Culture=neutral")]
+    public void Service_boundary_detects_product_references_even_in_conditional_item_groups(
+        string referenceKind,
+        string include)
+    {
+        var serviceProject = ReusableFrameworkProjects.Single(project =>
+            Path.GetFileName(project) == "NexaFramework.Service.csproj");
+        var document = XDocument.Load(serviceProject);
+        FindFrameworkProductReferences(serviceProject, document).Should().BeEmpty();
+
+        // Mutate only the in-memory document: optional/other-target dependencies still belong to
+        // the package contract and must be caught without changing or building the submodule.
+        document.Root!.Add(new XElement("ItemGroup",
+            new XAttribute("Condition", "'$(TargetFramework)' == 'netstandard2.0'"),
+            new XElement(referenceKind, new XAttribute("Include", include))));
+
+        FindFrameworkProductReferences(serviceProject, document).Should().Equal(
+            $"NexaFramework.Service -> {include} ({referenceKind})");
     }
 
     [Theory]
@@ -540,8 +559,19 @@ public sealed class ModuleDependencyBoundaryTests
     }
 
     private static IReadOnlyList<DeclaredReference> ReadDeclaredReferences(string projectPath)
+        => ReadDeclaredReferences(XDocument.Load(projectPath));
+
+    private static IReadOnlyList<string> FindFrameworkProductReferences(
+        string projectPath,
+        XDocument document)
+        => ReadDeclaredReferences(document)
+            .Where(static reference => IsForbiddenFrameworkProductReference(reference.Include))
+            .Select(reference =>
+                $"{Path.GetFileNameWithoutExtension(projectPath)} -> {reference.Include} ({reference.Kind})")
+            .ToArray();
+
+    private static IReadOnlyList<DeclaredReference> ReadDeclaredReferences(XDocument document)
     {
-        var document = XDocument.Load(projectPath);
         return document.Descendants()
             .Where(static element => element.Name.LocalName is
                 "ProjectReference" or "PackageReference" or "FrameworkReference" or "Reference")
