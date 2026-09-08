@@ -13,6 +13,7 @@ using System.IdentityModel.Tokens.Jwt;
 using NexaOne.Common.Security;
 using NexaOne.Server;
 using NexaOne.ServiceContracts;
+using NexaOne.ServiceContracts.Pom;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -401,6 +402,42 @@ public sealed class HostModulesBootSmokeTests
     }
 
     [Fact]
+    public async Task Pom_plugin_executes_shared_projection_validation_from_the_host_bundle()
+    {
+        const string clientSecret = "service-projection-smoke-secret";
+        using var host = await HostProcess.StartAsync(
+            _o, springConfig: null, expectListening: true, pomOnlyProjectionApplication: true,
+            additionalConfiguration: new Dictionary<string, string>
+            {
+                ["RunAdmission__RequireHttps"] = "false",
+                ["RunAdmission__Clients__service-smoke__ClientId"] = "service-smoke",
+                ["RunAdmission__Clients__service-smoke__EquipmentIds__0"] = "EQ-SMOKE",
+                ["RunAdmission__Clients__service-smoke__SecretSha256"] = Convert.ToHexString(
+                    System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(clientSecret))),
+            });
+        host.Listening.Should().BeTrue($"POM must boot from the current bundle: {host.Log}");
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{host.Port}") };
+        http.DefaultRequestHeaders.Add("X-Nexa-Run-Client-Secret", clientSecret);
+        var command = new WorkScopeProjectionCommand(
+            "service-smoke", "event-smoke", "scope-that-does-not-exist", "EQ-SMOKE", "operation-smoke",
+            "pair-smoke", "sequence-smoke", WorkScopeProjectionStatus.Running, false, "recipe-smoke",
+            new string('a', 64), new string('b', 64),
+            [new("front", "carrier-front", "run-front"), new("rear", "carrier-rear", "run-rear")],
+            new DateTimeOffset(2026, 8, 30, 0, 0, 0, TimeSpan.Zero), 1, "RUNNING");
+
+        // The real plugin must JIT and execute Field/Scalar/Digest before its isolated SQLite
+        // repository reports a missing scope. A copied POM DLL without shared Service cannot do so.
+        using var missingScope = await http.PostAsJsonAsync("/api/v1/pom/work-scope-projections", command);
+        missingScope.StatusCode.Should().Be(HttpStatusCode.NotFound,
+            $"shared validation should reach the repository: {await missingScope.Content.ReadAsStringAsync()}");
+        using var invalidHash = await http.PostAsJsonAsync("/api/v1/pom/work-scope-projections",
+            command with { ProgramHash = "invalid" });
+        invalidHash.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var error = JsonDocument.Parse(await invalidHash.Content.ReadAsStringAsync());
+        error.RootElement.GetProperty("code").GetString().Should().Be("Projection.Hash");
+    }
+
+    [Fact]
     public async Task Host_boots_pom_only_when_projection_application_is_off()
     {
         using var host = await HostProcess.StartAsync(
@@ -502,7 +539,8 @@ internal sealed class HostProcess : IDisposable
         bool enableBatchWorker = false,
         bool enableEmsSysWorkers = false,
         bool enableProjectionWorker = false,
-        bool pomOnlyProjectionApplication = false)
+        bool pomOnlyProjectionApplication = false,
+        IReadOnlyDictionary<string, string>? additionalConfiguration = null)
     {
         var explicitHostDirectory = Environment.GetEnvironmentVariable("NEXAONE_TEST_HOST_BIN");
         var hostDir = ResolveHostBinDir(explicitHostDirectory, AppContext.BaseDirectory);
@@ -564,6 +602,9 @@ internal sealed class HostProcess : IDisposable
         psi.Environment["Worker__Sys__LoginFailureRetention__RetentionDays"] = "14";
         psi.Environment["TMP"] = runtimeTemp;
         psi.Environment["TEMP"] = runtimeTemp;
+        if (additionalConfiguration is not null)
+            foreach (var setting in additionalConfiguration)
+                psi.Environment[setting.Key] = setting.Value;
 
         var proc = new Process { StartInfo = psi, EnableRaisingEvents = true };
         var hp = new HostProcess(proc, gwDb, runtimeTemp);
