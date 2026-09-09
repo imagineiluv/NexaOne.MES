@@ -1,0 +1,11 @@
+<Project>
+  <!-- The host SDK supplies Source Link, including for the pinned legacy NexaDB projects.
+       Their explicit 8.0.0 reference otherwise overrides the patched SDK task with
+       Microsoft.Build.Tasks.Git 8.0.0 (GHSA-23fw-v26w-5fgq). Keep source-control queries
+       enabled; remove the redundant package instead of suppressing the audit or symbols.
+       Latest NexaDB removes this reference upstream, but its Kafka extraction requires
+       a separate MES Component migration before that submodule can be advanced. -->
+  <ItemGroup>
+    <PackageReference Remove="Microsoft.SourceLink.GitHub" />
+  </ItemGroup>
+</Project>
