@@ -348,24 +348,20 @@ internal static class ProjectionDecisionCodec
         }
 
         using var document = JsonDocument.Parse(json);
-        byte[] canonical;
         try
         {
             // Only embedded metadata is sorted. The surrounding persisted envelope and the
             // separate ingress request fingerprint retain their existing order and encoding.
-            canonical = CanonicalJson.RewriteToUtf8(document.RootElement);
+            CanonicalJson.WriteTo(writer, document.RootElement);
         }
-        catch (CanonicalJsonException)
+        catch (CanonicalJsonException error)
         {
-            throw new ProjectionDecisionValidationException(errorCode, "JSON metadata has no unambiguous canonical form.");
+            // Only input decoding failures are quarantined. Writer/destination failures propagate.
+            var message = error.Code == CanonicalJsonIssue.InvalidUnicode
+                ? "JSON metadata contains an invalid Unicode string or member name."
+                : "JSON metadata has no unambiguous canonical form.";
+            throw new ProjectionDecisionValidationException(errorCode, message);
         }
-        catch (InvalidOperationException)
-        {
-            // JsonDocument can parse an escaped lone surrogate; decoding it rejects the
-            // value. This is invalid policy output, not a transient failure to retry forever.
-            throw new ProjectionDecisionValidationException(errorCode, "JSON metadata contains an invalid Unicode string or member name.");
-        }
-        writer.WriteRawValue(canonical, skipInputValidation: false);
     }
 
     private static void WriteDecimal(Utf8JsonWriter writer, string name, decimal? value)
