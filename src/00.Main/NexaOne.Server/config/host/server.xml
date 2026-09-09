@@ -106,7 +106,7 @@
 
   <!-- 캐시(ICacheService) — 읽기 빈도 높은 마스터/조회 캐시(인메모리, IMemoryCache 기반). FDC 수집 핫패스 등
        자식 컨텍스트 서비스가 cross-context ref="cacheService"로 공통 호출한다. 무인자 ctor가 기본 옵션
-       MemoryCache를 자체 생성한다(API 티어는 MS DI로 동일 ICacheService 주입, ServiceCollectionExtensions). -->
+       MemoryCache를 자체 생성하며 컨텍스트 종료 시 IDisposable을 통해 해제한다. -->
   <object id="cacheService" type="NexaOne.Common.Caching.MemoryCacheService, NexaOne.Common" />
 
   <!-- ===== Outbox 디스패치 워커(스케줄러 구동, ADR-002·ADR-006) =====

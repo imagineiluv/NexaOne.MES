@@ -164,6 +164,50 @@ public sealed class MdmMasterServiceTests
     // ── 캐시(코드 조회) ─────────────────────────────────────────────────────────
 
     [Fact]
+    public async Task Cancellation_after_code_write_does_not_skip_cache_invalidation()
+    {
+        using var cache = new MemoryCacheService();
+        using var cancellation = new CancellationTokenSource();
+        var added = Code.Create("NEW", "LEVEL", "New level").Value;
+        var repo = new Mock<ICodeRepository>();
+        repo.SetupSequence(r => r.GetByClassAsync("LEVEL", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<Code>()).ReturnsAsync(new[] { added });
+        repo.Setup(r => r.GetClassByIdAsync("LEVEL", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CodeClass.Create("LEVEL", "Levels").Value);
+        repo.Setup(r => r.AddCodeAsync(It.IsAny<Code>(), It.IsAny<CancellationToken>()))
+            .Callback(cancellation.Cancel).Returns(Task.CompletedTask);
+        var service = Build(code: repo, cache: cache);
+        (await service.GetCodesByClassAsync("LEVEL")).Should().BeEmpty();
+        (await service.CreateCodeAsync("NEW", "LEVEL", "New level", ct: cancellation.Token)).IsSuccess.Should().BeTrue();
+        cancellation.IsCancellationRequested.Should().BeTrue();
+        (await service.GetCodesByClassAsync("LEVEL")).Should().ContainSingle().Which.Id.Should().Be("NEW");
+    }
+
+    [Fact]
+    public async Task CreateCode_does_not_allow_an_older_list_read_to_restore_the_stale_cache()
+    {
+        using var cache = new MemoryCache(new MemoryCacheOptions());
+        var oldList = new TaskCompletionSource<IReadOnlyList<Code>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var added = Code.Create("NEW", "LEVEL", "New level").Value;
+        var repo = new Mock<ICodeRepository>();
+        repo.SetupSequence(r => r.GetByClassAsync("LEVEL", It.IsAny<CancellationToken>()))
+            .Returns(oldList.Task)
+            .ReturnsAsync(new[] { added });
+        repo.Setup(r => r.GetClassByIdAsync("LEVEL", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CodeClass.Create("LEVEL", "Levels").Value);
+        repo.Setup(r => r.AddCodeAsync(It.IsAny<Code>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+        var service = Build(code: repo, cache: new MemoryCacheService(cache));
+
+        var pending = service.GetCodesByClassAsync("LEVEL");
+        (await service.CreateCodeAsync("NEW", "LEVEL", "New level")).IsSuccess.Should().BeTrue();
+        oldList.SetResult(Array.Empty<Code>());
+        (await pending).Should().BeEmpty();
+        (await service.GetCodesByClassAsync("LEVEL")).Should().ContainSingle().Which.Id.Should().Be("NEW");
+        repo.Verify(r => r.GetByClassAsync("LEVEL", It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
     public async Task GetCodesByClass_caches_and_CreateCode_invalidates()
     {
         var codeClass = CodeClass.Create("ALARM_LEVEL", "알람 등급").Value;
