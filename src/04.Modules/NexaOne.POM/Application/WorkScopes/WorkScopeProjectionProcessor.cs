@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Hosting;
+using NexaFramework.Service.Canonical;
 using NexaOne.POM.Domain;
 using NexaOne.ServiceContracts.Pom;
 
@@ -320,7 +321,7 @@ internal static class ProjectionDecisionCodec
                 WriteDecimal(writer, "defectQty", effect.DefectQty);
                 WriteString(writer, "carrierId", effect.CarrierId);
                 WriteString(writer, "resultCode", effect.ResultCode);
-                WriteCanonicalJson(writer, "resultMetadata", effect.ResultMetadataJson);
+                WriteCanonicalJson(writer, "resultMetadata", effect.ResultMetadataJson, "Projection.InvalidResultMetadata");
                 WriteString(writer, "remark", effect.Remark);
                 writer.WriteEndObject();
             }
@@ -331,13 +332,13 @@ internal static class ProjectionDecisionCodec
                     (long)Math.Ceiling(WorkScopeProjectionProcessor.BoundedRetry(retry).TotalMilliseconds));
             else
                 writer.WriteNull("retryAfterMilliseconds");
-            WriteCanonicalJson(writer, "auditMetadata", decision.AuditMetadataJson);
+            WriteCanonicalJson(writer, "auditMetadata", decision.AuditMetadataJson, "Projection.InvalidAuditMetadata");
             writer.WriteEndObject();
         }
         return stream.ToArray();
     }
 
-    private static void WriteCanonicalJson(Utf8JsonWriter writer, string name, string? json)
+    private static void WriteCanonicalJson(Utf8JsonWriter writer, string name, string? json, string errorCode)
     {
         writer.WritePropertyName(name);
         if (json is null)
@@ -347,46 +348,24 @@ internal static class ProjectionDecisionCodec
         }
 
         using var document = JsonDocument.Parse(json);
-        WriteElement(writer, document.RootElement);
-    }
-
-    private static void WriteElement(Utf8JsonWriter writer, JsonElement value)
-    {
-        switch (value.ValueKind)
+        byte[] canonical;
+        try
         {
-            case JsonValueKind.Object:
-                writer.WriteStartObject();
-                foreach (var property in value.EnumerateObject().OrderBy(static item => item.Name, StringComparer.Ordinal))
-                {
-                    writer.WritePropertyName(property.Name);
-                    WriteElement(writer, property.Value);
-                }
-                writer.WriteEndObject();
-                break;
-            case JsonValueKind.Array:
-                writer.WriteStartArray();
-                foreach (var item in value.EnumerateArray()) WriteElement(writer, item);
-                writer.WriteEndArray();
-                break;
-            case JsonValueKind.String:
-                writer.WriteStringValue(value.GetString());
-                break;
-            case JsonValueKind.Number:
-                writer.WriteRawValue(value.GetRawText(), skipInputValidation: false);
-                break;
-            case JsonValueKind.True:
-                writer.WriteBooleanValue(true);
-                break;
-            case JsonValueKind.False:
-                writer.WriteBooleanValue(false);
-                break;
-            case JsonValueKind.Null:
-                writer.WriteNullValue();
-                break;
-            default:
-                Invalid("Projection.InvalidJson", "Unsupported JSON value kind.");
-                break;
+            // Only embedded metadata is sorted. The surrounding persisted envelope and the
+            // separate ingress request fingerprint retain their existing order and encoding.
+            canonical = CanonicalJson.RewriteToUtf8(document.RootElement);
         }
+        catch (CanonicalJsonException)
+        {
+            throw new ProjectionDecisionValidationException(errorCode, "JSON metadata has no unambiguous canonical form.");
+        }
+        catch (InvalidOperationException)
+        {
+            // JsonDocument can parse an escaped lone surrogate; decoding it rejects the
+            // value. This is invalid policy output, not a transient failure to retry forever.
+            throw new ProjectionDecisionValidationException(errorCode, "JSON metadata contains an invalid Unicode string or member name.");
+        }
+        writer.WriteRawValue(canonical, skipInputValidation: false);
     }
 
     private static void WriteDecimal(Utf8JsonWriter writer, string name, decimal? value)
