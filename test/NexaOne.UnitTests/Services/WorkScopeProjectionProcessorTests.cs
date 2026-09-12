@@ -7,6 +7,54 @@ namespace NexaOne.UnitTests.Services;
 
 public sealed class WorkScopeProjectionProcessorTests
 {
+    [Theory]
+    [InlineData("null", "null")]
+    [InlineData("{}", "{}")]
+    [InlineData("[]", "[]")]
+    [InlineData("[3,2,1]", "[3,2,1]")]
+    [InlineData("[true,false,null,-0,1.00,1e+2,9007199254740993]", "[true,false,null,-0,1.00,1e+2,9007199254740993]")]
+    [InlineData(" { \"z\" : [ { \"b\":2,\"a\":1 } ], \"a\":{} } ", "{\"a\":{},\"z\":[{\"a\":1,\"b\":2}]}")]
+    [InlineData("{\"text\":\"한글<&😀\"}", """{"text":"\uD55C\uAE00\u003C\u0026\uD83D\uDE00"}""")]
+    [InlineData("""{"text":"\uD55C\uAE00\u003C\u0026\uD83D\uDE00"}""", """{"text":"\uD55C\uAE00\u003C\u0026\uD83D\uDE00"}""")]
+    [InlineData("{\"a\":1,\"A\":2}", "{\"A\":2,\"a\":1}")]
+    public void Metadata_corpus_preserves_envelope_bytes_and_hash_for_both_fields(string input, string canonical)
+    {
+        var prepared = ProjectionDecisionCodec.Prepare(
+            new WorkScopeProjectionPolicyIdentity("policy", "1"), Claim(true).Event,
+            WorkScopeProjectionDecision.Apply("Corpus",
+                [new WorkScopeProjectionEffect(WorkScopeAction.Report, resultMetadataJson: input)],
+                auditMetadataJson: input));
+        var expected = """{"policyId":"policy","policyRevision":"1","disposition":"Apply","reasonCode":"Corpus","effects":[{"action":"Report","goodQty":null,"defectQty":null,"carrierId":null,"resultCode":null,"resultMetadata":REPLACE,"remark":null}],"retryAfterMilliseconds":null,"auditMetadata":REPLACE}"""
+            .Replace("REPLACE", canonical, StringComparison.Ordinal);
+        prepared.DecisionJson.Should().Be(expected);
+        prepared.DecisionHash.Should().Be(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(expected))));
+    }
+
+    [Theory]
+    [InlineData("{\"a\":1,\"a\":2}", false)]
+    [InlineData("{\"a\":1,\"a\":2}", true)]
+    [InlineData("""{"nested":[{"a":1,"\u0061":2}]}""", false)]
+    [InlineData("""{"nested":[{"a":1,"\u0061":2}]}""", true)]
+    [InlineData("""{"text":"\uD800"}""", false)]
+    [InlineData("""{"text":"\uD800"}""", true)]
+    [InlineData("""{"\uD800":1}""", false)]
+    [InlineData("""{"\uD800":1}""", true)]
+    [InlineData("{", false)]
+    [InlineData("{", true)]
+    public async Task Ambiguous_or_invalid_policy_metadata_is_quarantined_without_commit(string json, bool resultMetadata)
+    {
+        var store = new StubStore(Claim(true));
+        var decision = resultMetadata
+            ? WorkScopeProjectionDecision.Apply("Invalid", [new WorkScopeProjectionEffect(WorkScopeAction.Report, resultMetadataJson: json)])
+            : WorkScopeProjectionDecision.Observe("Invalid", json);
+        var result = await new WorkScopeProjectionProcessor(store, new StubPolicy(decision)).ProcessNextAsync("worker");
+        result!.Kind.Should().Be(WorkScopeProjectionCommitKind.Quarantined);
+        store.Committed.Should().BeNull();
+        store.Failure!.Value.ErrorCode.Should().Be(resultMetadata
+            ? "Projection.InvalidResultMetadata" : "Projection.InvalidAuditMetadata");
+    }
+
     [Fact]
     public async Task Valid_decision_is_canonicalized_and_committed_under_the_claim()
     {

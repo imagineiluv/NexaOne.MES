@@ -17,6 +17,67 @@ namespace NexaOne.ServerTests;
 public sealed class WorkScopeProjectionProcessorPersistenceTests
 {
     [Fact]
+    public async Task Replaying_a_legacy_duplicate_metadata_decision_preserves_stored_bytes_and_does_not_reapply()
+    {
+        await using var database = await ProjectionDatabase.CreateAsync();
+        var command = Command("legacy-duplicate", 7);
+        (await database.Bridge.IngestAsync("cleaner-a", command)).IsSuccess.Should().BeTrue();
+        var claim = await database.Store.TryClaimNextAsync("legacy-worker", TimeSpan.FromMinutes(2));
+        const string legacyJson = """{"policyId":"test-policy","policyRevision":"1","disposition":"Observe","reasonCode":"Legacy","effects":[],"retryAfterMilliseconds":null,"auditMetadata":{"a":1,"a":2}}""";
+        var legacyHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(legacyJson)));
+        // Seed the exact envelope accepted by the old codec. Do not regenerate it through
+        // the new codec, which deliberately rejects this ambiguous policy output.
+        var legacy = new PreparedWorkScopeProjectionDecision(new("test-policy", "1"),
+            WorkScopeProjectionDecision.Observe("Legacy", "{\"a\":1,\"a\":2}"), legacyHash, legacyJson);
+        (await database.Store.CommitDecisionAsync(claim!, legacy)).Kind.Should().Be(WorkScopeProjectionCommitKind.Observed);
+
+        var replay = await database.Bridge.IngestAsync("cleaner-a", command);
+        replay.IsSuccess.Should().BeTrue();
+        replay.Value.Replay.Should().BeTrue();
+        (await database.Processor(new FixedPolicy(WorkScopeProjectionDecision.Observe("MustNotRun")))
+            .ProcessNextAsync("new-worker")).Should().BeNull();
+        (await database.TextAsync("SELECT DECISION_JSON FROM POM_WORK_SCOPE_PROJECTION_APPLICATION")).Should().Be(legacyJson);
+        (await database.TextAsync("SELECT DECISION_HASH FROM POM_WORK_SCOPE_PROJECTION_APPLICATION")).Should().Be(legacyHash);
+        (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_EXECUTION")).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Ingress_metadata_order_still_distinguishes_conflicting_requests_with_the_same_event_id()
+    {
+        await using var database = await ProjectionDatabase.CreateAsync();
+        var command = Command("metadata-order", 7) with { ResultMetadataJson = "{\"z\":2,\"a\":1}" };
+        var accepted = await database.Bridge.IngestAsync("cleaner-a", command);
+        accepted.IsSuccess.Should().BeTrue();
+        var replay = await database.Bridge.IngestAsync("cleaner-a", command with { ResultMetadataJson = " { \"z\":2, \"a\":1 } " });
+        replay.IsSuccess.Should().BeTrue();
+        replay.Value.Replay.Should().BeTrue();
+        var conflict = await database.Bridge.IngestAsync("cleaner-a", command with { ResultMetadataJson = "{\"a\":1,\"z\":2}" });
+        conflict.IsFailure.Should().BeTrue();
+        (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_PROJECTION_APPLICATION")).Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Duplicate_policy_metadata_is_durably_quarantined_without_effects_or_retries(bool resultMetadata)
+    {
+        await using var database = await ProjectionDatabase.CreateAsync();
+        (await database.Bridge.IngestAsync("cleaner-a", Command("invalid-policy", 7))).IsSuccess.Should().BeTrue();
+        const string json = "{\"a\":1,\"a\":2}";
+        var decision = resultMetadata
+            ? WorkScopeProjectionDecision.Apply("Invalid", [new WorkScopeProjectionEffect(WorkScopeAction.Report, resultMetadataJson: json)])
+            : WorkScopeProjectionDecision.Observe("Invalid", json);
+        var processor = database.Processor(new FixedPolicy(decision));
+        (await processor.ProcessNextAsync("worker")).Should().NotBeNull();
+        (await database.TextAsync("SELECT APPLICATION_STATUS || ':' || LAST_ERROR_CODE FROM POM_WORK_SCOPE_PROJECTION_APPLICATION"))
+            .Should().Be("Quarantined:" + (resultMetadata ? "Projection.InvalidResultMetadata" : "Projection.InvalidAuditMetadata"));
+        (await processor.ProcessNextAsync("worker")).Should().BeNull();
+        (await database.TextAsync("SELECT STATUS || ':' || VERSION_NO FROM POM_WORK_SCOPE WHERE WORK_SCOPE_ID='WS-1'"))
+            .Should().Be("Created:1");
+        (await database.ScalarAsync("SELECT COUNT(*) FROM POM_WORK_SCOPE_EXECUTION")).Should().Be(0);
+    }
+
+    [Fact]
     public void Readiness_update_probes_cover_exactly_every_worker_mutation_column()
     {
         UpdatedColumns(StoreSql("ReadinessApplicationUpdateSql"))
