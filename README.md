@@ -111,6 +111,22 @@ pwsh -NoProfile -File tools/ops/Test-Publish.ps1 -ProductProfile PomOnly
 수정하지 않습니다. profile의 manifest `classPaths`와 선언 plugin 집합이 다르면 정적 계약 및 실제 bundle
 smoke가 실패합니다.
 
+## 공유 JSON 정규화
+
+POM의 `WorkScopeProjectionProcessor`는 결정의 결과·감사 metadata를
+`NexaFramework.Service.Canonical.CanonicalJson.WriteTo`로 현재 JSON writer에 직접 기록합니다.
+별도 JSON byte 배열을 만들지 않으며 객체 멤버 정렬·숫자 원문·배열 순서·기본 escaping은 공통 Service가 담당합니다.
+이 기능은 Framework master `81781ed`를 고정 참조해 소비합니다.
+
+정규화 대상은 metadata 내부입니다. 바깥 결정 envelope의 필드 순서, 수신 요청의 별도 fingerprint,
+기존 영속 해시와 저장 결과의 재사용 규칙은 제품 계약을 유지합니다. 중복 멤버나 잘못된 Unicode는
+기존 `Projection.InvalidResultMetadata`·`Projection.InvalidAuditMetadata`로 변환합니다.
+writer·출력·DB 수명 오류는 입력 오류로 감추지 않으며, 정규화가 실패한 부분 출력은 저장하지 않습니다.
+writer와 입력 문서의 생성·완료·해제는 POM이 소유합니다.
+
+[Framework Service 사용 계약](submodules/NexaFramework/src/NexaFramework.Service/README.md#writing-canonical-metadata-into-an-envelope)을
+참조하세요. 다른 공통 서비스의 이관 완료 여부와 작업 기록은 WIKI에서 관리합니다.
+
 ## 설비 운영 원칙
 
 - PM/BM은 현재 수동 실행입니다. 보전 W/O의 시작·완료·부품 사용은 로그인 작업자와 시각을 남깁니다.
