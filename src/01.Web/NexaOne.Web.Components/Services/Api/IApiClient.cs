@@ -11,6 +11,19 @@ public interface IApiClient
     Task<(T? Value, int StatusCode, string? Code, string? Error)> ReadInventoryAsync<T>(
         string relativePath, CancellationToken ct = default) where T : class;
 
+    /// <summary>
+    /// Writes an authenticated relative api/v1/ivt/ resource using POST or PUT and a nonnull body.
+    /// Invalid requests return a local 400 before token access. Only the existing single 401
+    /// authentication retry is allowed; the caller owns the immutable body, operation ID and
+    /// outcome recovery. The selected token must identify expectedUserId before each send.
+    /// A nonnull Value and null Error confirm a readable success response;
+    /// transport/unreadable-response failures do not establish whether a write was applied.
+    /// Requested cancellation propagates and does not imply that the server rolled back.
+    /// </summary>
+    Task<(T? Value, int StatusCode, string? Code, string? Error)> WriteInventoryAsync<T>(
+        HttpMethod method, string relativePath, object body, string expectedUserId,
+        CancellationToken ct = default) where T : class;
+
     // 파일 기반 쿼리 레지스트리(저코드 경로) — query id로 등록된 쿼리를 실행해 동적 행 목록을 받는다.
     // 컴파일된 타입드 리포지토리(고코드, 속도·타입안전)와 공존하며, 기능별로 개발자가 선택해 쓴다.
     Task<IReadOnlyList<Dictionary<string, object?>>> ExecuteQueryAsync(

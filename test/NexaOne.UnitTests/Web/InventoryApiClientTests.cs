@@ -1,7 +1,9 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.JSInterop;
@@ -15,6 +17,14 @@ namespace NexaOne.UnitTests.Web;
 
 public sealed class InventoryApiClientTests
 {
+    private const string WritePath = "api/v1/ivt/shared-equipment/tenant/org/assets";
+    private const string WriteOutcome = "The write outcome could not be confirmed. Check the current state before retrying.";
+    private const string EquipmentResponse = """
+        {"id":"11111111-1111-1111-1111-111111111111",
+         "scope":{"productId":"NexaOne.MES","tenantId":"tenant-1","organizationId":"org-1"},
+         "version":"22222222-2222-2222-2222-222222222222",
+         "code":"EQ-1","name":"공유 장비","capacity":2,"requiresApproval":true,"active":true}
+        """;
     private const string ProductPage = """
         {
           "ItEmS": [{
@@ -218,11 +228,16 @@ public sealed class InventoryApiClientTests
         var storageCalls = fixture.Storage.InvocationCount;
 
         var result = await fixture.Client.ReadInventoryAsync<BusinessPage<Product>>(path!);
+        var write = await fixture.Client.WriteInventoryAsync<SharedEquipment>(HttpMethod.Post, path!, new { }, "operator-a");
 
         result.Value.Should().BeNull();
         result.StatusCode.Should().Be(400);
         result.Code.Should().Be("INVALID_INVENTORY_PATH");
         result.Error.Should().NotBeNullOrWhiteSpace();
+        write.Value.Should().BeNull();
+        write.StatusCode.Should().Be(400);
+        write.Code.Should().Be("INVALID_INVENTORY_PATH");
+        write.Error.Should().NotBeNullOrWhiteSpace();
         fixture.Storage.InvocationCount.Should().Be(storageCalls);
         fixture.RequestCount.Should().Be(0);
         fixture.Notifications.Should().BeEmpty();
@@ -326,9 +341,381 @@ public sealed class InventoryApiClientTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             fixture.Client.ReadInventoryAsync<BusinessPage<Product>>("api/v1/ivt/scopes/me", cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            fixture.Client.WriteInventoryAsync<SharedEquipment>(HttpMethod.Post, WritePath, new { }, "operator-a", cancellation.Token));
 
         fixture.Storage.InvocationCount.Should().Be(0);
         fixture.RequestCount.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData("POST")]
+    [InlineData("PUT")]
+    public async Task Write_sends_exact_method_body_path_token_and_language(string method)
+    {
+        var token = Token(DateTime.UtcNow.AddHours(1), "operator-a");
+        var operationId = Guid.NewGuid();
+        const string path = WritePath + "?text=%20%25_%5B%23%5D";
+        using var fixture = new ClientFixture(async (request, ct) =>
+        {
+            request.Method.Method.Should().Be(method);
+            request.RequestUri!.AbsoluteUri.Should().Be("https://nexaone.local/mes/" + path);
+            request.Headers.Authorization!.Scheme.Should().Be("Bearer");
+            request.Headers.Authorization.Parameter.Should().Be(token);
+            request.Headers.GetValues("Accept-Language").Should().Equal("en-US");
+            request.Content!.Headers.ContentType!.MediaType.Should().Be("application/json");
+            using var json = JsonDocument.Parse(await request.Content.ReadAsStringAsync(ct));
+            json.RootElement.GetProperty("operationId").GetGuid().Should().Be(operationId);
+            json.RootElement.GetProperty("name").GetString().Should().Be("공유 장비 %_[x]");
+            json.RootElement.GetProperty("capacity").GetInt32().Should().Be(2);
+            json.RootElement.GetProperty("requiresApproval").GetBoolean().Should().BeTrue();
+            return Response(201, EquipmentResponse);
+        });
+        await fixture.Tokens.SaveAsync(token, "refresh-test", "operator-a");
+        fixture.Ui.Load("EnUs", new Dictionary<string, string>());
+
+        var result = await fixture.Client.WriteInventoryAsync<SharedEquipment>(new HttpMethod(method), path,
+            new { OperationId = operationId, Code = "EQ-1", Name = "공유 장비 %_[x]", Capacity = 2, RequiresApproval = true }, "operator-a");
+
+        result.StatusCode.Should().Be(201);
+        result.Value!.Name.Should().Be("공유 장비");
+        result.Value.Scope.Should().Be(new BusinessScope("NexaOne.MES", "tenant-1", "org-1"));
+        result.Code.Should().BeNull();
+        result.Error.Should().BeNull();
+        fixture.RequestCount.Should().Be(1);
+        fixture.Notifications.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Write_reads_booking_string_enum_with_existing_domain_options()
+    {
+        const string booking = """
+            {"id":"11111111-1111-1111-1111-111111111111",
+             "scope":{"productId":"NexaOne.MES","tenantId":"tenant-1","organizationId":"org-1"},
+             "version":"22222222-2222-2222-2222-222222222222",
+             "equipmentId":"33333333-3333-3333-3333-333333333333",
+             "employeeId":"44444444-4444-4444-4444-444444444444",
+             "start":"2026-09-20T01:00:00+00:00","end":"2026-09-20T02:00:00+00:00",
+             "quantity":1,"requestedBy":"operator-a","STATE":"CheckedOut"}
+            """;
+        using var fixture = new ClientFixture(_ => Response(200, booking));
+        await SignIn(fixture);
+
+        var result = await fixture.Client.WriteInventoryAsync<EquipmentBooking>(HttpMethod.Post,
+            "api/v1/ivt/shared-equipment/tenant/org/bookings/11111111-1111-1111-1111-111111111111/check-out",
+            new { Version = Guid.NewGuid() }, "operator-a");
+
+        result.Value!.State.Should().Be(EquipmentBookingState.CheckedOut);
+        result.Error.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("GET")]
+    [InlineData("DELETE")]
+    [InlineData("PATCH")]
+    [InlineData("HEAD")]
+    [InlineData("OPTIONS")]
+    public async Task Write_rejects_unsupported_methods_before_token_access(string? method)
+    {
+        using var fixture = new ClientFixture(_ => throw new InvalidOperationException("Must not send"));
+
+        var result = await fixture.Client.WriteInventoryAsync<SharedEquipment>(
+            method is null ? null! : new HttpMethod(method), WritePath, new { }, "operator-a");
+
+        result.StatusCode.Should().Be(400);
+        result.Code.Should().Be("INVALID_INVENTORY_REQUEST");
+        fixture.Storage.InvocationCount.Should().Be(0);
+        fixture.RequestCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Write_rejects_null_body_before_token_access()
+    {
+        using var fixture = new ClientFixture(_ => throw new InvalidOperationException("Must not send"));
+
+        var result = await fixture.Client.WriteInventoryAsync<SharedEquipment>(HttpMethod.Put, WritePath, null!, "operator-a");
+
+        result.StatusCode.Should().Be(400);
+        result.Code.Should().Be("INVALID_INVENTORY_REQUEST");
+        fixture.Storage.InvocationCount.Should().Be(0);
+        fixture.RequestCount.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData(" operator-a")]
+    [InlineData("operator-a ")]
+    [InlineData("operator\na")]
+    [InlineData("012345678901234567890123456789012345678901234567890")]
+    public async Task Write_rejects_invalid_expected_identity_before_token_access(string? userId)
+    {
+        using var fixture = new ClientFixture(_ => throw new InvalidOperationException("Must not send"));
+
+        var result = await fixture.Client.WriteInventoryAsync<SharedEquipment>(HttpMethod.Post, WritePath, new { }, userId!);
+
+        result.StatusCode.Should().Be(400);
+        result.Code.Should().Be("INVALID_INVENTORY_REQUEST");
+        fixture.Storage.InvocationCount.Should().Be(0);
+        fixture.RequestCount.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(null, null)]
+    [InlineData("", null)]
+    [InlineData("operator-b", null)]
+    [InlineData("OPERATOR-A", null)]
+    [InlineData("operator-a", "operator-b")]
+    [InlineData("operator-a", "")]
+    public async Task Write_rejects_missing_or_changed_selected_token_identity_without_sending(string? subject, string? nameIdentifier)
+    {
+        using var fixture = new ClientFixture(_ => throw new InvalidOperationException("Must not send"));
+        if (subject is not null || nameIdentifier is not null)
+            await fixture.Tokens.SaveAsync(Token(DateTime.UtcNow.AddHours(1), subject, nameIdentifier), "refresh-test", "operator-a");
+
+        var result = await fixture.Client.WriteInventoryAsync<SharedEquipment>(HttpMethod.Post, WritePath, new { }, "operator-a");
+
+        result.Value.Should().BeNull();
+        result.StatusCode.Should().Be(401);
+        result.Code.Should().Be("INVENTORY_IDENTITY_CHANGED");
+        result.Error.Should().NotBeNullOrWhiteSpace();
+        fixture.RequestCount.Should().Be(0);
+        fixture.Notifications.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("operator-a", null)]
+    [InlineData("ignored-sub", "operator-a")]
+    public async Task Write_uses_NameIdentifier_before_raw_subject(string subject, string? nameIdentifier)
+    {
+        using var fixture = new ClientFixture(_ => Response(200, EquipmentResponse));
+        await fixture.Tokens.SaveAsync(Token(DateTime.UtcNow.AddHours(1), subject, nameIdentifier), "refresh-test", "operator-a");
+
+        var result = await fixture.Client.WriteInventoryAsync<SharedEquipment>(HttpMethod.Put, WritePath, new { }, "operator-a");
+
+        result.Value.Should().NotBeNull();
+        result.Error.Should().BeNull();
+        fixture.RequestCount.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData("POST", "operator-a", true)]
+    [InlineData("PUT", "operator-a", true)]
+    [InlineData("POST", "operator-b", false)]
+    [InlineData("PUT", "operator-b", false)]
+    [InlineData("POST", null, false)]
+    [InlineData("PUT", null, false)]
+    public async Task Write_401_refresh_replays_same_payload_only_for_original_identity(string method, string? refreshedUser, bool replay)
+    {
+        var originalToken = Token(DateTime.UtcNow.AddHours(1), "operator-a");
+        var refreshedToken = Token(DateTime.UtcNow.AddHours(2), refreshedUser);
+        var bodies = new List<string>();
+        var tokens = new List<string?>();
+        var refreshCount = 0;
+        AuthTokenService? storageTokens = null;
+        using var fixture = new ClientFixture(async (request, ct) =>
+        {
+            if (request.RequestUri!.AbsolutePath == "/mes/api/v1/auth/refresh")
+            {
+                refreshCount++;
+                request.Method.Should().Be(HttpMethod.Post);
+                if (refreshedUser is null) return Response(401, "{\"code\":\"REFRESH_REVOKED\"}");
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new { accessToken = refreshedToken, refreshToken = "refreshed-test" })
+                };
+            }
+            request.Method.Method.Should().Be(method);
+            request.RequestUri.AbsolutePath.Should().Be("/mes/" + WritePath);
+            bodies.Add(await request.Content!.ReadAsStringAsync(ct));
+            tokens.Add(request.Headers.Authorization!.Parameter);
+            if (bodies.Count == 1)
+            {
+                // Force refresh without clock-dependent waits; the first request already owns token A.
+                await storageTokens!.SaveAsync(Token(DateTime.UtcNow.AddHours(-1), "operator-a"), "refresh-test", "operator-a");
+                return Response(401, "{\"code\":\"TOKEN_EXPIRED\"}");
+            }
+            return Response(200, EquipmentResponse);
+        });
+        storageTokens = fixture.Tokens;
+        await fixture.Tokens.SaveAsync(originalToken, "refresh-test", "operator-a");
+        var operationId = Guid.NewGuid();
+        var body = new { OperationId = operationId, Code = "EQ-1", Name = "Original name", Capacity = 2, RequiresApproval = true };
+
+        var result = await fixture.Client.WriteInventoryAsync<SharedEquipment>(new HttpMethod(method), WritePath, body, "operator-a");
+
+        refreshCount.Should().Be(1);
+        bodies.Should().HaveCount(replay ? 2 : 1);
+        using var sent = JsonDocument.Parse(bodies[0]);
+        sent.RootElement.GetProperty("operationId").GetGuid().Should().Be(operationId);
+        tokens[0].Should().Be(originalToken);
+        if (replay)
+        {
+            bodies[1].Should().Be(bodies[0]);
+            tokens[1].Should().Be(refreshedToken);
+            result.Value.Should().NotBeNull();
+            result.Error.Should().BeNull();
+        }
+        else
+        {
+            result.Value.Should().BeNull();
+            result.StatusCode.Should().Be(401);
+            result.Code.Should().Be("INVENTORY_IDENTITY_CHANGED");
+        }
+        fixture.RequestCount.Should().Be(replay ? 3 : 2);
+    }
+
+    [Fact]
+    public async Task Write_persistent_unauthorized_response_stops_after_one_retry()
+    {
+        using var fixture = new ClientFixture(_ => Response(401, "{\"code\":\"UNAUTHORIZED\"}"));
+        await SignIn(fixture);
+
+        var result = await fixture.Client.WriteInventoryAsync<SharedEquipment>(HttpMethod.Post, WritePath, new { }, "operator-a");
+
+        fixture.RequestCount.Should().Be(2);
+        result.Value.Should().BeNull();
+        result.StatusCode.Should().Be(401);
+        result.Code.Should().Be("UNAUTHORIZED");
+        result.Error.Should().Be("UNAUTHORIZED");
+        fixture.Notifications.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Write_already_sent_as_A_can_finish_after_storage_changes_to_B()
+    {
+        var tokenA = Token(DateTime.UtcNow.AddHours(1), "operator-a");
+        var tokenB = Token(DateTime.UtcNow.AddHours(1), "operator-b");
+        AuthTokenService? storageTokens = null;
+        using var fixture = new ClientFixture(async (request, _) =>
+        {
+            request.Headers.Authorization!.Parameter.Should().Be(tokenA);
+            await storageTokens!.SaveAsync(tokenB, "refresh-b", "operator-b");
+            return Response(200, EquipmentResponse);
+        });
+        storageTokens = fixture.Tokens;
+        await fixture.Tokens.SaveAsync(tokenA, "refresh-a", "operator-a");
+
+        var result = await fixture.Client.WriteInventoryAsync<SharedEquipment>(HttpMethod.Post, WritePath, new { }, "operator-a");
+
+        result.Value.Should().NotBeNull();
+        result.Error.Should().BeNull();
+        (await fixture.Tokens.GetAccessTokenAsync()).Should().Be(tokenB);
+        fixture.RequestCount.Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(400, "{\"code\":\"INVALID_EQUIPMENT\"}", "INVALID_EQUIPMENT", "INVALID_EQUIPMENT")]
+    [InlineData(403, "{\"code\":\"BUSINESS_ACCESS_DENIED\",\"description\":\"Grant revoked\"}", "BUSINESS_ACCESS_DENIED", "Grant revoked")]
+    [InlineData(409, "{\"code\":\"BUSINESS_VERSION_CONFLICT\"}", "BUSINESS_VERSION_CONFLICT", "BUSINESS_VERSION_CONFLICT")]
+    [InlineData(503, "{\"status\":500,\"title\":\"Unavailable\",\"detail\":\"Read the asset before retrying\"}", null, "Read the asset before retrying")]
+    [InlineData(503, "<html>internal detail</html>", null, WriteOutcome)]
+    public async Task Write_preserves_rejections_and_problem_details_without_replay(int status, string response, string? code, string error)
+    {
+        using var fixture = new ClientFixture(_ => Response(status, response));
+        await SignIn(fixture);
+
+        var result = await fixture.Client.WriteInventoryAsync<SharedEquipment>(HttpMethod.Post, WritePath, new { }, "operator-a");
+
+        result.Value.Should().BeNull();
+        result.StatusCode.Should().Be(status);
+        result.Code.Should().Be(code);
+        result.Error.Should().Be(error);
+        fixture.RequestCount.Should().Be(1);
+        fixture.Notifications.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(200, "")]
+    [InlineData(200, "null")]
+    [InlineData(200, "{\"private\":\"internal secret\"")]
+    [InlineData(200, "[]")]
+    [InlineData(204, "")]
+    public async Task Write_unreadable_success_is_uncertain_without_replay_or_raw_body(int status, string response)
+    {
+        using var fixture = new ClientFixture(_ => Response(status, response));
+        await SignIn(fixture);
+
+        var result = await fixture.Client.WriteInventoryAsync<SharedEquipment>(HttpMethod.Put, WritePath, new { }, "operator-a");
+
+        result.Value.Should().BeNull();
+        result.StatusCode.Should().Be(status);
+        result.Code.Should().Be("INVALID_INVENTORY_RESPONSE");
+        result.Error.Should().Be(WriteOutcome);
+        fixture.RequestCount.Should().Be(1);
+        fixture.Notifications.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("connection", "SERVER_UNREACHABLE")]
+    [InlineData("timeout", "SERVER_UNREACHABLE")]
+    [InlineData("io", "INVENTORY_RESPONSE_UNAVAILABLE")]
+    [InlineData("body", "SERVER_UNREACHABLE")]
+    public async Task Write_transport_or_body_connection_failure_is_uncertain_and_never_replayed(string failure, string code)
+    {
+        using var fixture = new ClientFixture(_ =>
+        {
+            if (failure == "connection") throw new HttpRequestException("internal secret");
+            if (failure == "timeout") throw new TaskCanceledException("internal secret");
+            if (failure == "io") throw new IOException("internal secret");
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new CallbackContent(async (stream, ct) =>
+                {
+                    await stream.WriteAsync(Encoding.UTF8.GetBytes("{\"private\":\"internal secret\""), ct);
+                    throw new IOException("internal connection detail");
+                })
+            };
+        });
+        await SignIn(fixture);
+
+        var result = await fixture.Client.WriteInventoryAsync<SharedEquipment>(HttpMethod.Post, WritePath, new { }, "operator-a");
+
+        result.Value.Should().BeNull();
+        result.StatusCode.Should().Be(503);
+        result.Code.Should().Be(code);
+        result.Error.Should().Be(WriteOutcome);
+        fixture.RequestCount.Should().Be(1);
+        fixture.Notifications.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Write_caller_cancellation_during_send_or_content_read_propagates(bool readingContent)
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = new CancellationTokenSource();
+        async Task WaitForCancellation(CancellationToken ct)
+        {
+            entered.SetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+        }
+        using var fixture = new ClientFixture(async (_, ct) =>
+        {
+            if (!readingContent) await WaitForCancellation(ct);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new CallbackContent((_, contentToken) => WaitForCancellation(contentToken))
+            };
+        });
+        await SignIn(fixture);
+
+        var pending = fixture.Client.WriteInventoryAsync<SharedEquipment>(HttpMethod.Put, WritePath, new { }, "operator-a", cancellation.Token);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(5)));
+        fixture.RequestCount.Should().Be(1);
+        fixture.Notifications.Should().BeEmpty();
+    }
+
+    private static Task SignIn(ClientFixture fixture)
+    {
+        fixture.Ui.Load("EnUs", new Dictionary<string, string> { ["error.inventoryWriteOutcome"] = WriteOutcome });
+        return fixture.Tokens.SaveAsync(Token(DateTime.UtcNow.AddHours(1), "operator-a"), "refresh-test", "operator-a");
     }
 
     private static HttpResponseMessage Response(int status, string body) => new((HttpStatusCode)status)
@@ -336,8 +723,29 @@ public sealed class InventoryApiClientTests
         Content = new StringContent(body, Encoding.UTF8, "application/json")
     };
 
-    private static string Token(DateTime expires) => new JwtSecurityTokenHandler().WriteToken(
-        new JwtSecurityToken(notBefore: expires.AddHours(-2), expires: expires));
+    private static string Token(DateTime expires, string? subject = null, string? nameIdentifier = null)
+    {
+        var claims = new List<Claim>();
+        if (subject is not null) claims.Add(new Claim("sub", subject));
+        if (nameIdentifier is not null) claims.Add(new Claim(ClaimTypes.NameIdentifier, nameIdentifier));
+        return new JwtSecurityTokenHandler().WriteToken(
+            new JwtSecurityToken(claims: claims, notBefore: expires.AddHours(-2), expires: expires));
+    }
+
+    private sealed class CallbackContent(Func<Stream, CancellationToken, Task> serialize) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+            => serialize(stream, CancellationToken.None);
+
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken cancellationToken)
+            => serialize(stream, cancellationToken);
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
 
     private sealed class ClientFixture : IDisposable
     {
