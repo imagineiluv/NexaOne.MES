@@ -2,8 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NexaOne.Common\NexaOne.Common.csproj" />
-    <!-- Kafka 프로토콜 본체는 서브모듈 소유 — Confluent.Kafka는 전이 참조로 흐름 -->
-    <ProjectReference Include="..\..\..\submodules\NexaDB\src\NexaDB.Messaging.Kafka\NexaDB.Messaging.Kafka.csproj" />
+    <!-- Kafka transport is owned by the independent Component; NexaDB owns data access only. -->
+    <ProjectReference Include="..\..\..\submodules\NexaFramework\components\src\KafkaMessagingComponent\KafkaMessagingComponent.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

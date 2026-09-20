@@ -2,35 +2,42 @@ using System.Text.Json;
 using Confluent.Kafka;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using NexaDB.Messaging.Kafka;
+using Nexa.Components.Messaging.Kafka;
 
 namespace NexaOne.Infrastructure.Messaging;
 
-/// <summary>도메인 이벤트 발행 글루 — Kafka 프로토콜 본체는 NexaDB.Messaging.Kafka의
-/// KafkaDriver가 소유하고(§3.6.1), 본 클래스는 직렬화·토픽 정책만 담당한다. <see cref="IMessageBus"/>
+/// <summary>도메인 이벤트 발행 글루 — Kafka 프로토콜 본체는 KafkaMessagingComponent가
+/// 소유하고, 본 클래스는 직렬화·토픽 정책만 담당한다. <see cref="IMessageBus"/>
 /// 구현체로서 OutboxDispatcher의 발행 백본이 된다(ADR-002).</summary>
 public sealed class KafkaMessageBus : IMessageBus, IDisposable
 {
-    private readonly KafkaDriver _driver;
+    private readonly IKafkaMessaging _messaging;
     private readonly ILogger<KafkaMessageBus> _logger;
     private readonly string _bootstrapServers;
 
     public KafkaMessageBus(
         string bootstrapServers,
-        ILogger<KafkaMessageBus> logger,
-        ILogger<KafkaDriver> driverLogger)
+        ILogger<KafkaMessageBus> logger)
+        : this(bootstrapServers, KafkaMessagingComponent.Create(new KafkaMessagingComponentOptions
+        {
+            BootstrapServers = bootstrapServers,
+            MessageTimeout = TimeSpan.FromSeconds(10),
+        }), logger)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(bootstrapServers);
-        _logger = logger;
-        _bootstrapServers = bootstrapServers;
-        _driver = new KafkaDriver(driverLogger);
-        _driver.Configure(bootstrapServers, messageTimeoutMs: 10_000);
     }
 
-    /// <summary>server.xml 등 DI 컨테이너용 — bootstrapServers만 받고 로거는 NullLogger로 떨군다(드라이버는
-    /// 메시징 빈으로 server.xml에 두고 GetBean으로 당겨 쓰는 패턴, ADR-006). 진단 로그가 필요하면 전체 ctor를 쓴다.</summary>
+    internal KafkaMessageBus(string bootstrapServers, IKafkaMessaging messaging, ILogger<KafkaMessageBus> logger)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(bootstrapServers);
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _bootstrapServers = bootstrapServers;
+        _messaging = messaging ?? throw new ArgumentNullException(nameof(messaging));
+    }
+
+    /// <summary>Spring composition entry point with the existing bootstrap-server argument.
+    /// Use the logger overload when message delivery diagnostics are required.</summary>
     public KafkaMessageBus(string bootstrapServers)
-        : this(bootstrapServers, NullLogger<KafkaMessageBus>.Instance, NullLogger<KafkaDriver>.Instance)
+        : this(bootstrapServers, NullLogger<KafkaMessageBus>.Instance)
     {
     }
 
@@ -42,10 +49,10 @@ public sealed class KafkaMessageBus : IMessageBus, IDisposable
         var json = JsonSerializer.Serialize(message);
         try
         {
-            await _driver.ProduceAsync(topic, message.AggregateId, json, ct);
+            await _messaging.PublishAsync(topic, message.AggregateId, json, ct);
             _logger.LogDebug("Published {EventType} to {Topic}", message.EventType, topic);
         }
-        catch (ProduceException<string, string> ex)
+        catch (KafkaMessagingComponentException ex)
         {
             _logger.LogError(ex, "Kafka publish failed for {EventType} on {Topic}",
                 message.EventType, topic);
@@ -56,7 +63,7 @@ public sealed class KafkaMessageBus : IMessageBus, IDisposable
     /// <summary>
     /// 다건 발행 — <b>원자적이지 않다.</b> 메시지를 순차로 발행하므로 중간(k번째)에서 실패하면
     /// 0..k-1은 이미 브로커에 커밋된 채 예외가 전파된다(부분 발행). 전체 원자성이 필요하면
-    /// Kafka 트랜잭션이 필요하며 현재 드라이버는 이를 노출하지 않는다. 소비 측 멱등 처리를 전제로 사용한다.
+    /// Kafka 트랜잭션이 필요하며 현재 컴포넌트는 이를 노출하지 않는다. 소비 측 멱등 처리를 전제로 사용한다.
     /// </summary>
     public async Task PublishAsync(
         string topic,
@@ -67,17 +74,17 @@ public sealed class KafkaMessageBus : IMessageBus, IDisposable
             await PublishAsync(topic, message, ct);
     }
 
-    internal IConsumer<string, string> CreateConsumer(
+    internal IKafkaConsumerSession CreateConsumer(
         KafkaConsumerOptions options,
         Action<string>? onError)
     {
         ArgumentNullException.ThrowIfNull(options);
-        return _driver.CreateConsumer(
-            options.GroupId,
-            _bootstrapServers,
-            sessionTimeoutMs: 10_000,
-            maxPollIntervalMs: 300_000,
-            onError: onError);
+        return _messaging.CreateConsumerSession(new Nexa.Components.Messaging.Kafka.KafkaConsumerOptions
+        {
+            GroupId = options.GroupId,
+            SessionTimeout = TimeSpan.FromSeconds(10),
+            MaxPollInterval = TimeSpan.FromMinutes(5),
+        }, onError);
     }
 
     /// <summary>
@@ -120,5 +127,5 @@ public sealed class KafkaMessageBus : IMessageBus, IDisposable
         return probeTask.WaitAsync(cancellationToken);
     }
 
-    public void Dispose() => _driver.Dispose();
+    public void Dispose() => _messaging.Dispose();
 }

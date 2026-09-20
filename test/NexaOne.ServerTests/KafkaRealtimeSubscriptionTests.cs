@@ -1,5 +1,6 @@
 using System.Text.Json;
-using Confluent.Kafka;
+using Nexa.Components.Messaging.Kafka;
+using KafkaConsumerOptions = NexaOne.Infrastructure.Messaging.KafkaConsumerOptions;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -74,19 +75,10 @@ public sealed class KafkaRealtimeSubscriptionTests
             Payload = "RUN",
             OccurredAt = new DateTime(2026, 7, 18, 3, 4, 5, DateTimeKind.Utc),
         };
-        var consumeResult = new ConsumeResult<string, string>
-        {
-            Topic = "nexaone.events.test",
-            Message = new Message<string, string>
-            {
-                Key = expected.AggregateId,
-                Value = JsonSerializer.Serialize(expected),
-            },
-        };
+        var consumeResult = new KafkaRecord("nexaone.events.test", expected.AggregateId,
+            JsonSerializer.Serialize(expected), 0, 17);
         var consumeCount = 0;
-        var consumer = new Mock<IConsumer<string, string>>(MockBehavior.Loose);
-        consumer.SetupGet(candidate => candidate.Assignment)
-            .Returns(new List<TopicPartition>());
+        var consumer = new Mock<IKafkaConsumerSession>(MockBehavior.Loose);
         consumer.Setup(candidate => candidate.Consume(It.IsAny<TimeSpan>()))
             .Returns(() =>
             {
@@ -96,8 +88,10 @@ public sealed class KafkaRealtimeSubscriptionTests
             });
         var delivered = new TaskCompletionSource<DomainEventMessage>(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        var committed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        consumer.Setup(candidate => candidate.Commit(consumeResult)).Callback(() => committed.TrySetResult());
         using var service = new KafkaConsumerService(
-            _ => consumer.Object,
+            (_, _) => consumer.Object,
             new KafkaConsumerOptions
             {
                 GroupId = "nexaone-realtime-test",
@@ -112,8 +106,11 @@ public sealed class KafkaRealtimeSubscriptionTests
 
         await service.StartAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(1));
         var actual = await delivered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await committed.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await service.StopAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(1));
 
         actual.Should().BeEquivalentTo(expected);
+        consumer.Verify(candidate => candidate.Commit(consumeResult), Times.Once);
+        consumer.Verify(candidate => candidate.Dispose(), Times.Once);
     }
 }

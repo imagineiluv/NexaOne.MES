@@ -1,4 +1,4 @@
-using NexaDB.Messaging.Kafka;
+using Nexa.Components.Messaging.Kafka;
 using NexaOne.Infrastructure.Diagnostics;
 
 namespace NexaOne.Infrastructure.Messaging;
@@ -33,7 +33,7 @@ public sealed class KafkaBrokerProbe : IExternalDependencyProbe
             DependencyId,
             "NexaOne Kafka message bus",
             "messaging",
-            typeof(KafkaDriver).Assembly.GetName().Version?.ToString() ?? "0.0.0.0",
+            typeof(KafkaMessagingComponent).Assembly.GetName().Version?.ToString() ?? "0.0.0.0",
             ["event-publish", "kafka-produce", "producer-acks-all", "producer-idempotence"]);
     }
 
