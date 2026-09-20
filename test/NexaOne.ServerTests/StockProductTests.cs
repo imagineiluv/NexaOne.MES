@@ -249,6 +249,55 @@ public sealed class StockMssqlTests(ITestOutputHelper output)
     }
 
     [StockMssqlFact]
+    public async Task Actual_SQL_Server_available_precision_loss_rejects_reservation_atomically_and_corrupt_persisted_balance()
+    {
+        var h = await Harness.CreateAsync(output);
+        var warehouse = await h.Warehouse("AVAILABLE-PRECISION");
+        await h.Post(new(Guid.NewGuid(), h.Variant.Id, StockMovementKind.Receipt, 1m, null, warehouse.Id, "Precision baseline"));
+        await h.Database.ExecuteAsync("""
+            UPDATE IVT_STOCK_BALANCE SET ON_HAND='10000000000000000000000000000', RESERVED='0'
+            WHERE TENANT_ID=@tenant AND ORGANIZATION_ID=@organization
+            """, h.Scope);
+        var before = await h.Balance(warehouse);
+        before.OnHand.Should().Be(10000000000000000000000000000m);
+        before.Reserved.Should().Be(0m);
+        before.Available.Should().Be(10000000000000000000000000000m);
+        var auditBefore = await h.Count("IVT_STOCK_AUDIT");
+        var movementsBefore = await h.Count("IVT_STOCK_MOVEMENT");
+
+        await Error(() => h.Reserve(warehouse, Guid.NewGuid(), 0.000001m), "STOCK_BALANCE_OVERFLOW");
+
+        var afterRejected = await h.Balance(warehouse);
+        afterRejected.Should().Be(before);
+        afterRejected.Version.Should().Be(before.Version);
+        (await h.Count("IVT_STOCK_RESERVATION")).Should().Be(0);
+        (await h.Count("IVT_STOCK_AUDIT")).Should().Be(auditBefore);
+        (await h.Count("IVT_STOCK_MOVEMENT")).Should().Be(movementsBefore);
+
+        var reservation = await h.Reserve(warehouse, Guid.NewGuid(), 1m);
+        var reserved = await h.Balance(warehouse);
+        reserved.OnHand.Should().Be(before.OnHand);
+        reserved.Reserved.Should().Be(1m);
+        reserved.Available.Should().Be(9999999999999999999999999999m);
+        var released = await h.Bridge.ReleaseReservationAsync(
+            h.Seed.User, h.Tenant, h.Organization, reservation.Id, reservation.Version);
+        released.State.Should().Be(StockReservationState.Released);
+        var restored = await h.Balance(warehouse);
+        restored.OnHand.Should().Be(before.OnHand);
+        restored.Reserved.Should().Be(0m);
+        restored.Available.Should().Be(before.OnHand);
+        (await h.Count("IVT_STOCK_RESERVATION")).Should().Be(1);
+        (await h.Count("IVT_STOCK_AUDIT")).Should().Be(auditBefore + 2);
+        (await h.Count("IVT_STOCK_MOVEMENT")).Should().Be(movementsBefore);
+
+        await h.Database.ExecuteAsync("""
+            UPDATE IVT_STOCK_BALANCE SET RESERVED='0.000001'
+            WHERE TENANT_ID=@tenant AND ORGANIZATION_ID=@organization
+            """, h.Scope);
+        await Error(() => h.Balance(warehouse), "STORAGE_CONTRACT_VIOLATION");
+    }
+
+    [StockMssqlFact]
     public async Task Actual_SQL_Server_master_unit_change_blocks_new_operations_but_preserves_history_and_release()
     {
         var h = await Harness.CreateAsync(output);

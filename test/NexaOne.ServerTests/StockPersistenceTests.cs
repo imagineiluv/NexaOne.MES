@@ -249,6 +249,49 @@ public sealed class StockPersistenceTests : IClassFixture<BusinessMembershipData
     }
 
     [Fact]
+    public async Task Available_precision_loss_rejects_reservation_atomically_and_corrupt_persisted_balance()
+    {
+        var product = await Product();
+        var warehouse = await Warehouse();
+        await Post(product, warehouse, 1m);
+        Execute("UPDATE IVT_STOCK_BALANCE SET ON_HAND='10000000000000000000000000000', RESERVED='0'");
+        var before = (await Balance(product, warehouse))!;
+        before.OnHand.Should().Be(10000000000000000000000000000m);
+        before.Reserved.Should().Be(0m);
+        before.Available.Should().Be(10000000000000000000000000000m);
+        var auditBefore = Count("IVT_STOCK_AUDIT");
+        var movementsBefore = Count("IVT_STOCK_MOVEMENT");
+
+        await Error(() => Reserve(product, warehouse, 0.000001m), "STOCK_BALANCE_OVERFLOW");
+
+        var afterRejected = (await Balance(product, warehouse))!;
+        afterRejected.Should().Be(before);
+        afterRejected.Version.Should().Be(before.Version);
+        Count("IVT_STOCK_RESERVATION").Should().Be(0);
+        Count("IVT_STOCK_AUDIT").Should().Be(auditBefore);
+        Count("IVT_STOCK_MOVEMENT").Should().Be(movementsBefore);
+
+        var reservation = await Reserve(product, warehouse, 1m);
+        var reserved = (await Balance(product, warehouse))!;
+        reserved.OnHand.Should().Be(before.OnHand);
+        reserved.Reserved.Should().Be(1m);
+        reserved.Available.Should().Be(9999999999999999999999999999m);
+        var released = await NewBridge().ReleaseReservationAsync(
+            "stock-user", _tenant, _organization, reservation.Id, reservation.Version);
+        released.State.Should().Be(StockReservationState.Released);
+        var restored = (await Balance(product, warehouse))!;
+        restored.OnHand.Should().Be(before.OnHand);
+        restored.Reserved.Should().Be(0m);
+        restored.Available.Should().Be(before.OnHand);
+        Count("IVT_STOCK_RESERVATION").Should().Be(1);
+        Count("IVT_STOCK_AUDIT").Should().Be(auditBefore + 2);
+        Count("IVT_STOCK_MOVEMENT").Should().Be(movementsBefore);
+
+        Execute("UPDATE IVT_STOCK_BALANCE SET RESERVED='0.000001'");
+        await Error(() => Balance(product, warehouse), "STORAGE_CONTRACT_VIOLATION");
+    }
+
+    [Fact]
     public async Task Stale_warehouse_versions_conflict_without_changing_name()
     {
         var warehouse = await Warehouse();
