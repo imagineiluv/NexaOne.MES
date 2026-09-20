@@ -63,7 +63,8 @@ public sealed class InventoryWorkspaceMenuTests
             calls.Count.Should().BeGreaterThan(0);
             foreach (Match call in calls)
             {
-                var key = "inventory." + call.Groups["key"].Value;
+                var key = call.Groups["key"].Value;
+                key.Should().StartWith("inventory.", "the page must expose its actual resource keys to the shared audit");
                 var english = JsonSerializer.Deserialize<string>("\"" + call.Groups["en"].Value + "\"");
                 Scalar(connection, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE " +
                     "WHERE RESOURCE_KEY=@id AND LANGUAGE='EnUs'", key).Should().Be(english, key);
