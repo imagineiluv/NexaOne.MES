@@ -279,6 +279,7 @@ public sealed class EquipmentMssqlFactAttribute : FactAttribute
 }
 
 [Trait("Category", "MssqlContract")]
+[Collection(MssqlContractDatabase.CollectionName)]
 public sealed class EquipmentSharingMssqlTests(ITestOutputHelper output)
 {
     [EquipmentMssqlFact]

@@ -11,6 +11,7 @@ namespace NexaOne.ServerTests;
 /// requires the variable before invoking this class, which prevents an accidental soft skip there.
 /// </summary>
 [Trait("Category", "MssqlContract")]
+[Collection(MssqlContractDatabase.CollectionName)]
 public sealed class MssqlQmsInspectionContractTests
 {
     private static readonly string ValidRequestHash = new('a', 64);

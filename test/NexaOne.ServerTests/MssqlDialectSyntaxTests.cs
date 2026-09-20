@@ -14,6 +14,7 @@ namespace NexaOne.ServerTests;
 /// 환경에서 무해하고, MSSQL 접근 가능한 환경(자사 dev 등)에서 변수만 세팅하면 전 쿼리를 실검증한다.
 /// 접속 정보는 저장소에 절대 넣지 않는다(환경변수 전용).</summary>
 [Trait("Category", "MssqlContract")]
+[Collection(MssqlContractDatabase.CollectionName)]
 public sealed class MssqlDialectSyntaxTests
 {
     public static IEnumerable<object[]> QueryTrees() => new[]

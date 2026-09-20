@@ -9,6 +9,7 @@ using Xunit.Abstractions;
 namespace NexaOne.ServerTests;
 
 [Trait("Category", "MssqlContract")]
+[Collection(MssqlContractDatabase.CollectionName)]
 public sealed class MssqlTrustedAuthoritySecurityTests
 {
     private readonly ITestOutputHelper _output;

@@ -38,6 +38,7 @@ namespace NexaOne.ServerTests;
 /// they are not substitutes for the parser-only dialect suite.
 /// </summary>
 [Trait("Category", "MssqlContract")]
+[Collection(MssqlContractDatabase.CollectionName)]
 public sealed class MssqlRuntimeContractTests
 {
     private readonly ITestOutputHelper _output;

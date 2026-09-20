@@ -16,6 +16,7 @@ namespace NexaOne.ServerTests;
 /// <see cref="MssqlContractDatabase.RequiredEnvironmentVariable"/>.
 /// </summary>
 [Trait("Category", "MssqlContract")]
+[Collection(MssqlContractDatabase.CollectionName)]
 public sealed class MssqlWorkScopeProjectionConcurrencyTests
 {
     private static readonly TimeSpan ConcurrentOperationTimeout = TimeSpan.FromSeconds(30);

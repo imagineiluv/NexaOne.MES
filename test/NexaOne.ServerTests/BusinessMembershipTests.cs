@@ -354,6 +354,7 @@ public sealed class BusinessMembershipHostTests(ITestOutputHelper output)
 }
 
 [Trait("Category", "MssqlContract")]
+[Collection(MssqlContractDatabase.CollectionName)]
 public sealed class BusinessMembershipMssqlTests(ITestOutputHelper output)
 {
     [Fact]
