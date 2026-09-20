@@ -20,7 +20,6 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
         "equipment.booking.decide", "equipment.booking.cancel", "equipment.booking.checkout",
         "equipment.booking.return",
     };
-
     private const string MembershipSql = """
         SELECT m.TENANT_ID AS TenantId, m.ORGANIZATION_ID AS OrganizationId,
                m.USER_ID AS UserId, i.BUSINESS_USER_ID AS BusinessUserId,
@@ -50,6 +49,26 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
             MembershipSql + " AND m.IS_ACTIVE=1 AND u.IS_ACTIVE=1 AND u.IS_DELETED=0",
             Key(authenticatedUserId, tenantId, organizationId), ct);
         return row is null ? null : ToMembership(row);
+    }
+
+    public async Task<BusinessMembership?> GetAccessInTransactionAsync(
+        DbTransaction transaction, string authenticatedUserId, Guid tenantId, Guid organizationId,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var connection = RequireSerializableConnection(transaction);
+        if (!ValidKey(authenticatedUserId, tenantId, organizationId)) return null;
+        var row = await connection.QuerySingleOrDefaultAsync<MembershipRow>(Command(
+            MembershipSql + " AND m.IS_ACTIVE=1 AND u.IS_ACTIVE=1 AND u.IS_DELETED=0",
+            Key(authenticatedUserId, tenantId, organizationId), transaction, ct));
+        return row is null ? null : ToMembership(row);
+    }
+
+    public Task<string> RequireAdministratorInTransactionAsync(
+        DbTransaction transaction, string administratorId, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        return RequireAdministrator(RequireSerializableConnection(transaction), transaction, administratorId, ct);
     }
 
     public Task<Result<BusinessMembership>> GetMembershipAsync(
@@ -153,6 +172,16 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
         return admin!.UserId;
     }
 
+    private static DbConnection RequireSerializableConnection(DbTransaction transaction)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        var connection = transaction.Connection;
+        if (connection is null || connection.State != ConnectionState.Open
+            || transaction.IsolationLevel != IsolationLevel.Serializable)
+            throw new InvalidOperationException("A live Serializable transaction is required.");
+        return connection;
+    }
+
     private CommandDefinition Command(string sql, object parameters, DbTransaction transaction, CancellationToken ct)
         => new(sql, parameters, transaction, commandTimeout: _timeout, cancellationToken: ct);
 
@@ -184,7 +213,6 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
         permissions = values.OrderBy(value => value, StringComparer.Ordinal).ToArray();
         return true;
     }
-
     private static Guid ParseId(string value)
         => Guid.TryParseExact(value, "D", out var id) && id != Guid.Empty
             && value == id.ToString("D") ? id

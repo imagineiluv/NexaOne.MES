@@ -42,6 +42,7 @@ public sealed class IvtCompositionBoundaryTests
         exports.Should().BeEquivalentTo(new Dictionary<string, string>
         {
             ["materialBridge"] = "GetMaterialBridge",
+            ["equipmentSharingBridge"] = "GetEquipmentSharingBridge",
             ["materialLotBridge"] = "GetMaterialLotBridge",
             ["traceMaterialBridge"] = "GetTraceMaterialBridge",
             ["materialLotDirectory"] = "GetMaterialLotDirectory",

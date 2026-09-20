@@ -70,6 +70,7 @@ public sealed class EquipmentDirectoryBoundaryTests
 
     [Theory]
     [InlineData("EquipmentDirectoryProxy.cs", "Mdm", "equipmentDirectory")]
+    [InlineData("BusinessMasterDirectoryProxy.cs", "Mdm", "businessMasterDirectory")]
     [InlineData("EquipmentOutputMasterDirectoryProxy.cs", "Mdm", "equipmentOutputMasterDirectory")]
     [InlineData("VendorDirectoryProxy.cs", "Mdm", "vendorDirectory")]
     [InlineData("MaintenanceIdentityDirectoryProxy.cs", "Sys", "maintenanceIdentityDirectory")]
@@ -116,6 +117,7 @@ public sealed class EquipmentDirectoryBoundaryTests
 
     [Theory]
     [InlineData("mdm.xml", "mdmModule", "equipmentDirectory", "GetEquipmentDirectory")]
+    [InlineData("mdm.xml", "mdmModule", "businessMasterDirectory", "GetBusinessMasterDirectory")]
     [InlineData("mdm.xml", "mdmModule", "equipmentOutputMasterDirectory", "GetEquipmentOutputMasterDirectory")]
     [InlineData("mdm.xml", "mdmModule", "vendorDirectory", "GetVendorDirectory")]
     [InlineData("sys.xml", "sysModule", "maintenanceIdentityDirectory", "GetMaintenanceIdentityDirectory")]
@@ -140,6 +142,7 @@ public sealed class EquipmentDirectoryBoundaryTests
 
     [Theory]
     [InlineData("equipmentDirectory", "NexaOne.Server.Gateway.EquipmentDirectoryProxy, NexaOne.Server")]
+    [InlineData("businessMasterDirectory", "NexaOne.Server.Gateway.BusinessMasterDirectoryProxy, NexaOne.Server")]
     [InlineData("equipmentOutputMasterDirectory", "NexaOne.Server.Gateway.EquipmentOutputMasterDirectoryProxy, NexaOne.Server")]
     [InlineData("vendorDirectory", "NexaOne.Server.Gateway.VendorDirectoryProxy, NexaOne.Server")]
     [InlineData("maintenanceIdentityDirectory", "NexaOne.Server.Gateway.MaintenanceIdentityDirectoryProxy, NexaOne.Server")]

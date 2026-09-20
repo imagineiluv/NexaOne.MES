@@ -5,6 +5,8 @@ using NexaOne.IVT.Application.Materials;
 using NexaOne.IVT.Infrastructure;
 using NexaOne.ServiceContracts.Fdc;
 using NexaOne.ServiceContracts.Ivt;
+using NexaOne.ServiceContracts.Mdm;
+using NexaOne.ServiceContracts.Sys;
 using NexaDB.Data.Abstractions.Interfaces;
 
 namespace NexaOne.IVT;
@@ -19,6 +21,7 @@ public sealed class Module
         "Worker:Ivt:TraceMaterialConsumption:Enabled";
 
     private readonly IMaterialBridge _materialBridge;
+    private readonly IEquipmentSharingBridge _equipmentSharingBridge;
     private readonly IMaterialLotBridge _materialLotBridge;
     private readonly ITraceMaterialBridge _traceMaterialBridge;
     private readonly IMaterialLotDirectory _materialLotDirectory;
@@ -30,12 +33,16 @@ public sealed class Module
         EesDataSource dataSource,
         INexaOneEESDbCapability dialect,
         IFdcTraceSource traceSource,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IBusinessMembershipBridge businessMemberships,
+        IBusinessMasterDirectory businessMasters)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(dialect);
         ArgumentNullException.ThrowIfNull(traceSource);
         ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(businessMemberships);
+        ArgumentNullException.ThrowIfNull(businessMasters);
 
         EnsureTraceMaterialConsumptionWorkerIsDisabled(configuration);
 
@@ -52,6 +59,7 @@ public sealed class Module
         }
 
         _materialBridge = new MaterialBridge(consumptionService);
+        _equipmentSharingBridge = new EquipmentSharingBridge(dataSource, businessMemberships, businessMasters);
         _materialLotBridge = new MaterialLotBridge(
             new MaterialLotService(materialLotRepository));
         _traceMaterialBridge = new TraceMaterialBridge(
@@ -76,6 +84,9 @@ public sealed class Module
 
     /// <summary>자재 소비/취소 bridge의 모듈 singleton을 반환합니다.</summary>
     public IMaterialBridge GetMaterialBridge() => _materialBridge;
+
+    /// <summary>공유 자산의 실제 저장·권한·예약 수명주기 bridge를 반환합니다.</summary>
+    public IEquipmentSharingBridge GetEquipmentSharingBridge() => _equipmentSharingBridge;
 
     /// <summary>자재 LOT 수명주기 bridge의 모듈 singleton을 반환합니다.</summary>
     public IMaterialLotBridge GetMaterialLotBridge() => _materialLotBridge;

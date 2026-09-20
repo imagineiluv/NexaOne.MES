@@ -13,7 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
-    <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework.Service\NexaFramework.Service.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework.Service\NexaFramework.Service.csproj" AdditionalProperties="NexaFrameworkIncludeBusinessServices=true;TargetFrameworks=net8.0" />
   </ItemGroup>
 
 </Project>

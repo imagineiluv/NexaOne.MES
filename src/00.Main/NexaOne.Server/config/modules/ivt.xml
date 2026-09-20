@@ -10,9 +10,12 @@
     <constructor-arg ref="eesDialect" />
     <constructor-arg ref="fdcTraceSource" />
     <constructor-arg ref="appConfiguration" />
+    <constructor-arg ref="businessMembershipBridge" />
+    <constructor-arg ref="businessMasterDirectory" />
   </object>
 
   <object id="materialBridge" factory-object="ivtModule" factory-method="GetMaterialBridge" />
+  <object id="equipmentSharingBridge" factory-object="ivtModule" factory-method="GetEquipmentSharingBridge" />
   <object id="materialLotBridge" factory-object="ivtModule" factory-method="GetMaterialLotBridge" />
   <object id="traceMaterialBridge" factory-object="ivtModule" factory-method="GetTraceMaterialBridge" />
   <object id="materialLotDirectory" factory-object="ivtModule" factory-method="GetMaterialLotDirectory" />
