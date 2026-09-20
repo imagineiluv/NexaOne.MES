@@ -26,6 +26,7 @@ internal static class NexaOneDevelopmentDatabaseInitializer
         NexaOne.Infrastructure.Persistence.SqliteSchemaInitializer.EnsureSchema(connectionString);
         SeedDevOperatorScreensIfMissing(connectionString);
         SeedDevMenuIfEmpty(connectionString);
+        EnsureDevInventoryWorkspaceMenu(connectionString);
         NormalizeDevMenuTerminology(connectionString);
         SeedDevCommonUiResourcesIfMissing(connectionString);
         EnsureDevQmsSampleLotReferences(connectionString);
@@ -256,6 +257,31 @@ internal static class NexaOneDevelopmentDatabaseInitializer
         }
         tx.Commit();
         Console.WriteLine($"[NexaOne.Server] SYS_MENU seeded ({rows.Count} rows: SmartUX tree + dev-demo).");
+    }
+
+    /// <summary>
+    /// 기존 SQLite의 스키마 증분 경로는 DML을 건너뛴다. 전체 메뉴 시드 후 V164만 재적용해
+    /// 메뉴와 번역의 누락을 보정하며, 사용자 값 보존 조건은 SQL 마이그레이션을 그대로 사용한다.
+    /// </summary>
+    static void EnsureDevInventoryWorkspaceMenu(string connectionString)
+    {
+        var migrationPath = Path.Combine(AppContext.BaseDirectory, "db", "migrations",
+            "V164__IVT_INVENTORY_WORKSPACE_MENU.sql");
+        // The remaining SQL is portable DML; only the SQL Server Unicode pre-inserts are omitted,
+        // using the same marker convention as SqliteSchemaInitializer.
+        var sql = System.Text.RegularExpressions.Regex.Replace(File.ReadAllText(migrationPath),
+            @"--\s*SQLITE-OMIT-BEGIN.*?--\s*SQLITE-OMIT-END", "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant |
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection(connectionString);
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+        transaction.Commit();
     }
 
     /// <summary>

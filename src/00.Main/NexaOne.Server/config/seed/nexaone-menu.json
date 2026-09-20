@@ -314,6 +314,14 @@
         "uiId":  "FACTORY_PRC_REPORT_MOVEORDER"
     },
     {
+        "menuId":  "NX_INVENTORY_WORKSPACE",
+        "menuName":  "재고·장비 공유",
+        "parentMenuId":  "FACTORY_IVT",
+        "displaySequence":  3,
+        "menuType":  "Screen",
+        "uiId":  "NX_INVENTORY_WORKSPACE"
+    },
+    {
         "menuId":  "FACTORY_PRC_REPORT_PURCHASEORDER",
         "menuName":  "구매오더 현황",
         "parentMenuId":  "FACTORY_PRC",

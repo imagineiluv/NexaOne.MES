@@ -1,5 +1,5 @@
 ﻿-- ============================================================================
--- 운영 MSSQL SYS_MENU 시드(SmartUX 트리 321행) — tools/ops/Generate-MenuSeedSql.ps1 생성물.
+-- 운영 MSSQL SYS_MENU 시드(SmartUX 트리 322행) — tools/ops/Generate-MenuSeedSql.ps1 생성물.
 -- 수동 편집 금지: 원본은 config/Seed/nexaone-menu.json — 변경 시 생성기를 재실행해 갱신한다.
 -- 적용 시점: 마이그레이션(V001..V081+) 적용 이후. V071(i18n)·V081(ID 리매핑)은 본 시드와 정합.
 -- 멱등: SYS_MENU가 비었을 때만 삽입(dev SeedDevMenuIfEmpty와 동일 의미론) — 운영 수정 보존.
@@ -51,6 +51,7 @@ BEGIN
     (N'FACTORY_PPM_REPORT_PRODUCTIONORDER', N'생산지시 현황', N'FACTORY_PPM_REPORT', 1, N'Screen', N'FACTORY_PPM_REPORT_PRODUCTIONORDER', N'', N'Valid'),
     (N'FACTORY_PRC_PURCHASE_ORDER', N'구매오더 관리', N'FACTORY_PRC', 1, N'Screen', N'FACTORY_PRC_PURCHASE_ORDER', N'', N'Valid'),
     (N'FACTORY_PRC_REPORT_MOVEORDER', N'이동오더 현황', N'FACTORY_IVT', 2, N'Screen', N'FACTORY_PRC_REPORT_MOVEORDER', N'', N'Valid'),
+    (N'NX_INVENTORY_WORKSPACE', N'재고·장비 공유', N'FACTORY_IVT', 3, N'Screen', N'NX_INVENTORY_WORKSPACE', N'', N'Valid'),
     (N'FACTORY_PRC_REPORT_PURCHASEORDER', N'구매오더 현황', N'FACTORY_PRC', 2, N'Screen', N'FACTORY_PRC_REPORT_PURCHASEORDER', N'', N'Valid'),
     (N'FACTORY_QCA_IMPORT_INSPECTION', N'수입검사 관리', N'FACTORY_QCA_INSPECTION', 1, N'Screen', N'FACTORY_QCA_IMPORT_INSPECTION', N'', N'Valid'),
     (N'FACTORY_QCA_INSPECTION_ITEM', N'검사 항목', N'FACTORY_QCA_STD', 1, N'Screen', N'FACTORY_QCA_INSPECTION_ITEM', N'', N'Valid'),
@@ -333,5 +334,5 @@ BEGIN
     (N'FACTORY_MDM', N'기준정보', NULL, 16, N'Folder', N'', N'', N'Valid'),
     (N'FACTORY_COM', N'공통관리', NULL, 17, N'Folder', N'', N'', N'Valid'),
     (N'MI_SYSTEM_2_0', N'시스템관리', NULL, 18, N'Folder', N'', N'', N'Valid');
-    PRINT 'SYS_MENU seeded (321 rows).';
+    PRINT 'SYS_MENU seeded (322 rows).';
 END
