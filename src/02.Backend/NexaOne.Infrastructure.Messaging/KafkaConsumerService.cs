@@ -45,12 +45,13 @@ public sealed class KafkaConsumerService : BackgroundService
     {
         // Native Consume is synchronous. Do not block host startup waiting for its first poll.
         await Task.Yield();
-        using var consumer = _consumerFactory(_options,
+        var consumer = _consumerFactory(_options,
             reason => _logger.LogError("Kafka consumer error: {Reason}", reason));
-        consumer.SubscribeTopics(_options.Topics);
-        _logger.LogInformation("Kafka consumer started for topics: {Topics}", string.Join(", ", _options.Topics));
+        Exception? executionFailure = null;
         try
         {
+            consumer.SubscribeTopics(_options.Topics);
+            _logger.LogInformation("Kafka consumer started for topics: {Topics}", string.Join(", ", _options.Topics));
             while (!stoppingToken.IsCancellationRequested)
             {
                 KafkaRecord? record;
@@ -113,8 +114,18 @@ public sealed class KafkaConsumerService : BackgroundService
         {
             // The interrupted record stays uncommitted for replay by the next session.
         }
+        catch (Exception error)
+        {
+            executionFailure = error;
+            throw;
+        }
         finally
         {
+            try { consumer.Dispose(); }
+            catch (Exception cleanupError) when (executionFailure is not null)
+            {
+                throw new AggregateException(executionFailure, cleanupError);
+            }
             _logger.LogInformation("Kafka consumer stopped");
         }
     }

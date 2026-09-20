@@ -41,6 +41,30 @@ public sealed class KafkaProcessingContractTests
         consumer.Verify(session => session.Dispose(), Times.Once);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cleanup_failure_preserves_the_original_handler_or_subscription_failure(bool failSubscription)
+    {
+        var consumer = Consumer();
+        var original = new InvalidOperationException("original failure");
+        var cleanup = new InvalidOperationException("cleanup failure");
+        consumer.Setup(session => session.Dispose()).Throws(cleanup);
+        if (failSubscription)
+            consumer.Setup(session => session.SubscribeTopics(It.IsAny<IReadOnlyList<string>>())).Throws(original);
+        else
+            DeliverOnce(consumer, Record());
+        using var service = Service(consumer, (_, _) => Task.FromException(original));
+
+        await service.StartAsync(CancellationToken.None);
+        var observed = await Assert.ThrowsAsync<AggregateException>(async () =>
+            await service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(3)));
+
+        observed.InnerExceptions.Should().Equal(original, cleanup);
+        consumer.Verify(session => session.Commit(It.IsAny<KafkaRecord>()), Times.Never);
+        consumer.Verify(session => session.Dispose(), Times.Once);
+    }
+
     [Fact]
     public async Task Long_handler_is_polled_while_paused_and_committed_only_after_completion()
     {
