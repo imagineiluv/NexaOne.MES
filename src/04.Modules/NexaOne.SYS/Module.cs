@@ -18,6 +18,7 @@ public sealed class Module
     private readonly IDeployBridge _deployBridge;
     private readonly IMaintenanceIdentityDirectory _maintenanceIdentityDirectory;
     private readonly IUserDirectory _userDirectory;
+    private readonly IBusinessMembershipBridge _businessMembershipBridge;
     private readonly IReleasedProgramArtifactDirectory _releasedProgramArtifactDirectory;
     private readonly ISqliteSchemaContribution _trustedAuthoritySqliteSchemaContribution;
     private readonly IHostedService _loginFailureRetentionWorker;
@@ -51,6 +52,7 @@ public sealed class Module
             new FileSystemDeployFileStorage("data/deploy-files")));
         _maintenanceIdentityDirectory = new MaintenanceIdentityDirectory(dataSource);
         _userDirectory = new UserDirectory(dataSource);
+        _businessMembershipBridge = new BusinessMembershipBridge(dataSource);
         _releasedProgramArtifactDirectory = new ReleasedProgramArtifactDirectory(dataSource);
         _trustedAuthoritySqliteSchemaContribution =
             new SysTrustedAuthoritySqliteSchemaContribution();
@@ -66,6 +68,7 @@ public sealed class Module
     public IDeployBridge GetDeployBridge() => _deployBridge;
     public IMaintenanceIdentityDirectory GetMaintenanceIdentityDirectory() => _maintenanceIdentityDirectory;
     public IUserDirectory GetUserDirectory() => _userDirectory;
+    public IBusinessMembershipBridge GetBusinessMembershipBridge() => _businessMembershipBridge;
     public IReleasedProgramArtifactDirectory GetReleasedProgramArtifactDirectory() => _releasedProgramArtifactDirectory;
     public ISqliteSchemaContribution GetTrustedAuthoritySqliteSchemaContribution() =>
         _trustedAuthoritySqliteSchemaContribution;
