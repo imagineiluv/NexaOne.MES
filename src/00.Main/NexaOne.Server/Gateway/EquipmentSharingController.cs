@@ -1,8 +1,11 @@
 using System.Data;
 using System.Data.Common;
+using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using NexaFramework.Service;
+using NexaFramework.Service.Inventory;
 using NexaOne.Common.Security;
 using NexaOne.ServiceContracts.Ivt;
 
@@ -22,6 +25,11 @@ public sealed class EquipmentSharingController(IEquipmentSharingBridge bridge, I
     [RequirePermission(Permissions.SysManage)]
     public Task<IActionResult> Bind(Guid tenantId, Guid organizationId, [FromBody] ScopeChange change, CancellationToken ct)
         => Execute(user => bridge.BindScopeAsync(user, tenantId, organizationId, change.PlantId, change.ExpectedVersion, change.Active, ct));
+
+    [HttpGet("assets")]
+    public Task<IActionResult> ListEquipment(Guid tenantId, Guid organizationId,
+        [FromQuery] InventoryQuery query, CancellationToken ct)
+        => Execute(user => bridge.ListEquipmentAsync(user, tenantId, organizationId, PreserveQueryText(query), ct));
 
     [HttpPost("assets")]
     public Task<IActionResult> Create(Guid tenantId, Guid organizationId, [FromBody] EquipmentCreate change, CancellationToken ct)
@@ -44,6 +52,12 @@ public sealed class EquipmentSharingController(IEquipmentSharingBridge bridge, I
     [HttpPut("assets/{id:guid}/active")]
     public Task<IActionResult> Active(Guid tenantId, Guid organizationId, Guid id, [FromBody] ActiveChange change, CancellationToken ct)
         => Execute(user => bridge.SetEquipmentActiveAsync(user, tenantId, organizationId, id, change.Version, change.Active, ct));
+
+    [HttpGet("bookings")]
+    public Task<IActionResult> ListBookings(Guid tenantId, Guid organizationId, CancellationToken ct,
+        [FromQuery] Guid? equipmentId = null, [FromQuery] EquipmentBookingState? state = null,
+        [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListBookingsAsync(user, tenantId, organizationId, equipmentId, state, offset, limit, ct));
 
     [HttpPut("bookings/{id:guid}")]
     public Task<IActionResult> RequestBooking(Guid tenantId, Guid organizationId, Guid id, [FromBody] BookingRequest request, CancellationToken ct)
@@ -69,6 +83,14 @@ public sealed class EquipmentSharingController(IEquipmentSharingBridge bridge, I
     [HttpPost("bookings/{id:guid}/return")]
     public Task<IActionResult> Return(Guid tenantId, Guid organizationId, Guid id, [FromBody] VersionedCommand command, CancellationToken ct)
         => Execute(user => bridge.ReturnAsync(user, tenantId, organizationId, id, command.Version, ct));
+
+    private InventoryQuery PreserveQueryText(InventoryQuery query)
+    {
+        // Preserve literal whitespace without changing MVC's prefix or first-value rules.
+        var values = new QueryStringValueProvider(BindingSource.Query, Request.Query, CultureInfo.InvariantCulture);
+        var text = values.GetValue(values.ContainsPrefix(nameof(query)) ? "query.Text" : "Text");
+        return text == ValueProviderResult.None ? query : query with { Text = text.FirstValue };
+    }
 
     private async Task<IActionResult> Execute<T>(Func<string, Task<T>> action)
     {

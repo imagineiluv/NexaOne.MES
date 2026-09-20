@@ -1,7 +1,9 @@
 using System.Data;
 using System.Data.Common;
+using System.Globalization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using NexaFramework.Service;
 using NexaFramework.Service.Inventory;
 using NexaOne.Common.Security;
@@ -14,6 +16,11 @@ namespace NexaOne.Server.Gateway;
 [Route("api/v1/ivt/stock/{tenantId:guid}/{organizationId:guid}")]
 public sealed class StockController(IStockBridge bridge, ILogger<StockController> logger) : ControllerBase
 {
+    [HttpGet("products")]
+    public Task<IActionResult> ListProducts(Guid tenantId, Guid organizationId,
+        [FromQuery] InventoryQuery query, CancellationToken ct)
+        => Execute(user => bridge.ListProductsAsync(user, tenantId, organizationId, PreserveQueryText(query), ct));
+
     [HttpPut("products/{productId}")]
     public Task<IActionResult> EnrollProduct(Guid tenantId, Guid organizationId, string productId,
         [FromBody] ProductEnrollment command, CancellationToken ct)
@@ -22,6 +29,11 @@ public sealed class StockController(IStockBridge bridge, ILogger<StockController
     [HttpGet("products/{productId}")]
     public Task<IActionResult> GetProduct(Guid tenantId, Guid organizationId, string productId, CancellationToken ct)
         => Execute(user => bridge.GetProductAsync(user, tenantId, organizationId, productId, ct));
+
+    [HttpGet("warehouses")]
+    public Task<IActionResult> ListWarehouses(Guid tenantId, Guid organizationId,
+        [FromQuery] InventoryQuery query, CancellationToken ct)
+        => Execute(user => bridge.ListWarehousesAsync(user, tenantId, organizationId, PreserveQueryText(query), ct));
 
     [HttpPost("warehouses")]
     public Task<IActionResult> CreateWarehouse(Guid tenantId, Guid organizationId, [FromBody] WarehouseCreate command, CancellationToken ct)
@@ -76,6 +88,15 @@ public sealed class StockController(IStockBridge bridge, ILogger<StockController
     [HttpPost("reservations/{id:guid}/consume")]
     public Task<IActionResult> ConsumeReservation(Guid tenantId, Guid organizationId, Guid id, [FromBody] VersionedCommand command, CancellationToken ct)
         => Execute(user => bridge.ConsumeReservationAsync(user, tenantId, organizationId, id, command.Version, ct));
+
+    private InventoryQuery PreserveQueryText(InventoryQuery query)
+    {
+        // MVC converts whitespace-only strings to null. Retain literal search text and
+        // its length while keeping the same prefix and first-value rules as MVC binding.
+        var values = new QueryStringValueProvider(BindingSource.Query, Request.Query, CultureInfo.InvariantCulture);
+        var text = values.GetValue(values.ContainsPrefix(nameof(query)) ? "query.Text" : "Text");
+        return text == ValueProviderResult.None ? query : query with { Text = text.FirstValue };
+    }
 
     private async Task<IActionResult> Execute<T>(Func<string, Task<T>> action)
     {

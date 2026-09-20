@@ -70,6 +70,147 @@ public sealed class StockPersistenceTests : IClassFixture<BusinessMembershipData
         => (await Assert.ThrowsAsync<BusinessException>(action)).Code.Should().Be(code);
 
     [Fact]
+    public async Task Product_lists_use_live_master_names_and_activity_before_paging_without_changing_variant_identity()
+    {
+        foreach (var code in new[] { "LIST-00", "LIST-10", "LIST-20", "LIST-30", "LIST-40", "LIST-50" })
+            Execute("""
+                INSERT INTO MDM_PRODUCT (PRODUCT_ID, PRODUCT_NAME, PRODUCT_TYPE, UNIT, VALID_STATE,
+                                         CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@code, 'Before rename', 'Material', 'EA', 'Valid', 'admin', CURRENT_TIMESTAMP, 'admin', CURRENT_TIMESTAMP)
+                """, new { code });
+        var enrolled = new List<ProductVariant>();
+        foreach (var code in new[] { "LIST-00", "LIST-10", "LIST-20", "LIST-30" })
+            enrolled.Add(await _bridge.EnrollProductAsync("stock-user", _tenant, _organization, code, "EA"));
+        var other = Guid.NewGuid();
+        await _equipment.BindScopeAsync("admin", _tenant, other, "STOCK-P2", null, true);
+        (await _memberships.SaveMembershipAsync("admin", _tenant, other, "stock-user", new(0, true, Grants))).IsSuccess.Should().BeTrue();
+        await _bridge.EnrollProductAsync("stock-user", _tenant, other, "LIST-50", "EA");
+        // LIST-40 is a matching master that was never enrolled. LIST-50 belongs to another scope.
+        Execute("UPDATE MDM_PRODUCT SET PRODUCT_NAME='목록 %_[x]' WHERE PRODUCT_ID <> 'LIST-00' AND PRODUCT_ID LIKE 'LIST-%'");
+        Execute("UPDATE MDM_PRODUCT SET VALID_STATE='Invalid' WHERE PRODUCT_ID='LIST-10'");
+        Execute("UPDATE MDM_PRODUCT SET UNIT='KG' WHERE PRODUCT_ID='LIST-20'");
+        var audits = Count("IVT_STOCK_AUDIT");
+        var query = new InventoryQuery("목록 %_[X]");
+
+        var all = await NewBridge().ListProductsAsync("stock-user", _tenant, _organization, query);
+        all.Total.Should().Be(2);
+        all.Items.Select(p => p.Id).Should().BeEquivalentTo(enrolled.Skip(2).Select(p => p.ProductId));
+        all.Items.Should().OnlyContain(p => p.Active && p.Input.Name == "목록 %_[x]");
+        var second = await _bridge.ListProductsAsync("stock-user", _tenant, _organization, query with { Offset = 1, Limit = 1 });
+        second.Total.Should().Be(2);
+        second.Items.Should().BeEquivalentTo(all.Items.Skip(1));
+        var past = await _bridge.ListProductsAsync("stock-user", _tenant, _organization, query with { Offset = 2, Limit = 1 });
+        past.Total.Should().Be(2); past.Items.Should().BeEmpty();
+        var inactive = await _bridge.ListProductsAsync("stock-user", _tenant, _organization, query with { IncludeInactive = true });
+        inactive.Total.Should().Be(3);
+        inactive.Items.Single(p => p.Input.Code == "LIST-10").Active.Should().BeFalse();
+        (await _bridge.ListProductsAsync("stock-user", _tenant, _organization, new("list-20"))).Items.Should().ContainSingle();
+        (await _bridge.GetProductAsync("stock-user", _tenant, _organization, "LIST-20"))!.Active.Should().BeFalse();
+        (await _bridge.ListProductsAsync("stock-user", _tenant, _organization, new("Before rename"))).Total.Should().Be(1);
+        Count("IVT_STOCK_AUDIT").Should().Be(audits);
+    }
+
+    [Fact]
+    public async Task Product_filtering_and_totals_cross_owner_scan_batches_before_applying_the_page()
+    {
+        var rows = Enumerable.Range(0, 300).Select(index => new
+        {
+            code = $"BATCH-{index:D3}", product = Guid.NewGuid().ToString("D"), variant = Guid.NewGuid().ToString("D"),
+            version = Guid.NewGuid().ToString("D"), tenant = _tenant.ToString("D"), organization = _organization.ToString("D")
+        }).ToArray();
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+            connection.Execute("""
+                INSERT INTO MDM_PRODUCT (PRODUCT_ID, PRODUCT_NAME, PRODUCT_TYPE, UNIT, VALID_STATE,
+                                         CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@code, 'Before rename', 'Material', 'EA', 'Valid', 'admin', CURRENT_TIMESTAMP, 'admin', CURRENT_TIMESTAMP);
+                INSERT INTO IVT_STOCK_PRODUCT (TENANT_ID, ORGANIZATION_ID, PRODUCT_ID, VARIANT_ID, VERSION, MASTER_PRODUCT_ID, UNIT)
+                VALUES (@tenant, @organization, @product, @variant, @version, @code, 'EA');
+                """, rows, transaction);
+            transaction.Commit();
+        }
+        Execute("""
+            UPDATE MDM_PRODUCT SET PRODUCT_NAME='Batch match'
+             WHERE PRODUCT_ID IN ('BATCH-000','BATCH-127','BATCH-128','BATCH-255','BATCH-256','BATCH-299');
+            UPDATE MDM_PRODUCT SET VALID_STATE='Invalid' WHERE PRODUCT_ID='BATCH-128';
+            """);
+        var audits = Count("IVT_STOCK_AUDIT");
+        var query = new InventoryQuery("Batch match", Offset: 1, Limit: 3);
+
+        var page = await NewBridge().ListProductsAsync("stock-user", _tenant, _organization, query);
+        page.Total.Should().Be(5);
+        page.Items.Select(p => p.Input.Code).Should().Equal("BATCH-127", "BATCH-255", "BATCH-256");
+        var inactive = await _bridge.ListProductsAsync("stock-user", _tenant, _organization, query with { IncludeInactive = true });
+        inactive.Total.Should().Be(6);
+        inactive.Items.Select(p => p.Input.Code).Should().Equal("BATCH-127", "BATCH-128", "BATCH-255");
+        inactive.Items.Single(p => p.Input.Code == "BATCH-128").Active.Should().BeFalse();
+        var past = await _bridge.ListProductsAsync("stock-user", _tenant, _organization, query with { Offset = 5 });
+        past.Total.Should().Be(5); past.Items.Should().BeEmpty();
+        var unfiltered = await _bridge.ListProductsAsync("stock-user", _tenant, _organization, new(IncludeInactive: true, Offset: 250, Limit: 100));
+        unfiltered.Total.Should().Be(300);
+        unfiltered.Items.Select(p => p.Id).Should().Equal(rows.Skip(250).Select(r => Guid.Parse(r.product)));
+        Count("IVT_STOCK_AUDIT").Should().Be(audits);
+    }
+
+    [Fact]
+    public async Task Warehouse_lists_filter_literal_text_and_activity_then_page_inside_the_complete_scope()
+    {
+        var first = await Warehouse("A-%_[x]");
+        var second = await Warehouse("B-%_[x]");
+        var inactive = await Warehouse("C-%_[x]");
+        await Warehouse("D-any-x");
+        await _bridge.SetWarehouseActiveAsync("stock-user", _tenant, _organization, inactive.Id, inactive.Version, false);
+        var otherTenant = Guid.NewGuid();
+        await _equipment.BindScopeAsync("admin", otherTenant, _organization, "STOCK-P2", null, true);
+        (await _memberships.SaveMembershipAsync("admin", otherTenant, _organization, "stock-user", new(0, true, Grants))).IsSuccess.Should().BeTrue();
+        await _bridge.CreateWarehouseAsync("stock-user", otherTenant, _organization, Guid.NewGuid(), "FOREIGN-%_[x]", "Foreign");
+        var audits = Count("IVT_STOCK_AUDIT");
+        var query = new InventoryQuery("%_[X]");
+
+        var all = await NewBridge().ListWarehousesAsync("stock-user", _tenant, _organization, query);
+        all.Total.Should().Be(2);
+        all.Items.Select(w => w.Id).Should().BeEquivalentTo([first.Id, second.Id]);
+        var page = await _bridge.ListWarehousesAsync("stock-user", _tenant, _organization, query with { Offset = 1, Limit = 1 });
+        page.Total.Should().Be(2); page.Items.Should().Equal(all.Items.Skip(1));
+        var past = await _bridge.ListWarehousesAsync("stock-user", _tenant, _organization, query with { Offset = 20, Limit = 1 });
+        past.Total.Should().Be(2); past.Items.Should().BeEmpty();
+        (await _bridge.ListWarehousesAsync("stock-user", _tenant, _organization, query with { IncludeInactive = true }))
+            .Items.Should().Contain(w => w.Id == inactive.Id && !w.Active).And.HaveCount(3);
+        Count("IVT_STOCK_AUDIT").Should().Be(audits);
+    }
+
+    [Fact]
+    public async Task Stock_lists_require_current_read_grants_even_for_empty_pages_and_do_not_audit_reads()
+    {
+        await Product(); await Warehouse();
+        var audits = Count("IVT_STOCK_AUDIT");
+        (await _bridge.ListProductsAsync("stock-user", _tenant, _organization, new())).Total.Should().Be(1);
+        (await _bridge.ListWarehousesAsync("stock-user", _tenant, _organization, new())).Total.Should().Be(1);
+        (await _memberships.SaveMembershipAsync("admin", _tenant, _organization, "stock-user",
+            new(1, true, Grants.Where(g => g != "stock.read").ToArray()))).IsSuccess.Should().BeTrue();
+        await Error(() => _bridge.ListProductsAsync("stock-user", _tenant, _organization, new("absent", Offset: 20)), "BUSINESS_ACCESS_DENIED");
+        (await _bridge.ListWarehousesAsync("stock-user", _tenant, _organization, new())).Total.Should().Be(1);
+        (await _memberships.SaveMembershipAsync("admin", _tenant, _organization, "stock-user",
+            new(2, true, Grants.Where(g => g != "stock.warehouse.read").ToArray()))).IsSuccess.Should().BeTrue();
+        (await _bridge.ListProductsAsync("stock-user", _tenant, _organization, new())).Total.Should().Be(1);
+        await Error(() => _bridge.ListWarehousesAsync("stock-user", _tenant, _organization, new("absent", Offset: 20)), "BUSINESS_ACCESS_DENIED");
+        Count("IVT_STOCK_AUDIT").Should().Be(audits);
+    }
+
+    [Theory]
+    [InlineData(-1, 1)]
+    [InlineData(0, 0)]
+    [InlineData(0, 101)]
+    public async Task Stock_lists_reject_invalid_page_bounds(int offset, int limit)
+    {
+        var query = new InventoryQuery(Offset: offset, Limit: limit);
+        await Error(() => _bridge.ListProductsAsync("stock-user", _tenant, _organization, query), "INVALID_BUSINESS_INPUT");
+        await Error(() => _bridge.ListWarehousesAsync("stock-user", _tenant, _organization, query), "INVALID_BUSINESS_INPUT");
+    }
+
+    [Fact]
     public async Task Receipt_transfer_reservation_consume_reverse_and_release_survive_reconstruction()
     {
         var product = await Product(); var from = await Warehouse(); var to = await Warehouse("SECOND");

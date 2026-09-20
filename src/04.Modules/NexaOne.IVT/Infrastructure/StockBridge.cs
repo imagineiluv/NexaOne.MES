@@ -3,6 +3,7 @@ using System.Data.Common;
 using System.Globalization;
 using System.Text.Json;
 using Dapper;
+using NexaDB.Data.Abstractions.Models;
 using NexaFramework.Service;
 using NexaFramework.Service.Inventory;
 using NexaOne.Infrastructure.Persistence;
@@ -22,6 +23,7 @@ public sealed class StockBridge : IStockBridge
     private readonly TimeProvider _clock;
     private readonly IBusinessMembershipBridge _memberships;
     private readonly IBusinessMasterDirectory _masters;
+    private readonly string _batchLimitSql;
 
     public StockBridge(EesDataSource dataSource, IBusinessMembershipBridge memberships,
         IBusinessMasterDirectory masters, TimeProvider? clock = null)
@@ -31,6 +33,8 @@ public sealed class StockBridge : IStockBridge
         _clock = clock ?? TimeProvider.System;
         _memberships = memberships ?? throw new ArgumentNullException(nameof(memberships));
         _masters = masters ?? throw new ArgumentNullException(nameof(masters));
+        _batchLimitSql = dataSource.Provider?.Kind == DatabaseProviderKind.SqlServer
+            ? " OFFSET 0 ROWS FETCH NEXT @BatchSize ROWS ONLY" : " LIMIT @BatchSize";
     }
 
     public Task<ProductVariant> EnrollProductAsync(string userId, Guid tenantId, Guid organizationId,
@@ -68,6 +72,12 @@ public sealed class StockBridge : IStockBridge
             (service, session) => service.SaveWarehouseAsync(session.Actor, code, name, id, version, ct), ct);
     public Task<Warehouse> GetWarehouseAsync(string userId, Guid tenantId, Guid organizationId, Guid id, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "stock.warehouse.read", (service, session) => service.GetWarehouseAsync(session.Actor, id, ct), ct);
+    public Task<BusinessPage<Warehouse>> ListWarehousesAsync(string userId, Guid tenantId, Guid organizationId,
+        InventoryQuery query, CancellationToken ct = default)
+        => Run(userId, tenantId, organizationId, "stock.warehouse.read", (service, session) => service.ListWarehousesAsync(session.Actor, query, ct), ct);
+    public Task<BusinessPage<Product>> ListProductsAsync(string userId, Guid tenantId, Guid organizationId,
+        InventoryQuery query, CancellationToken ct = default)
+        => Run(userId, tenantId, organizationId, "stock.read", (service, session) => service.ListProductsAsync(session.Actor, query, ct), ct);
     public Task<Warehouse> SetWarehouseActiveAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, bool active, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "stock.warehouse.write", (service, session) => service.SetWarehouseActiveAsync(session.Actor, id, version, active, ct), ct);
@@ -103,7 +113,7 @@ public sealed class StockBridge : IStockBridge
         return _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
         {
             var session = new Session(connection, transaction, _timeout, new("NexaOne.MES", Text(tenantId), Text(organizationId)),
-                _memberships, _masters, _clock);
+                _memberships, _masters, _clock, _batchLimitSql);
             try
             {
                 await session.Authorize(userId, permission, ct);
@@ -143,12 +153,15 @@ public sealed class StockBridge : IStockBridge
 
     // Confined to one processor-owned transaction. This adapter never commits, retries or caches authority.
     private sealed class Session(DbConnection connection, DbTransaction transaction, int? timeout, BusinessScope scope,
-        IBusinessMembershipBridge memberships, IBusinessMasterDirectory masters, TimeProvider clock)
+        IBusinessMembershipBridge memberships, IBusinessMasterDirectory masters, TimeProvider clock, string batchLimitSql)
         : IAtomicBusinessStore<IStockTransaction>, IStockTransaction, IBusinessAuthorizer
     {
         private bool _open = true;
         private int _invoked;
         private string[] _grants = [];
+        private const int ListBatchSize = 128;
+        private const string ProductColumns = "PRODUCT_ID AS Id, VARIANT_ID AS VariantId, VERSION AS Version, MASTER_PRODUCT_ID AS MasterId, UNIT AS Unit";
+        private const string WarehouseColumns = "WAREHOUSE_ID AS Id, VERSION AS Version, CODE AS Code, NAME AS Name, IS_ACTIVE AS Active";
         internal BusinessActor Actor { get; private set; } = null!;
         public BusinessScope Scope { get; } = scope;
         internal void Close() => _open = false;
@@ -193,8 +206,8 @@ public sealed class StockBridge : IStockBridge
         }
         internal Task<ProductDto?> Master(string id, CancellationToken ct) => masters.FindProductAsync(transaction, id, ct);
         internal Task<EnrolledProduct?> ProductRow(string predicate, string key, CancellationToken ct)
-            => Row<EnrolledProduct>("SELECT PRODUCT_ID AS Id, VARIANT_ID AS VariantId, VERSION AS Version, MASTER_PRODUCT_ID AS MasterId, UNIT AS Unit "
-                + "FROM IVT_STOCK_PRODUCT WHERE " + ScopeWhere + " AND " + predicate, new { key }, ct);
+            => Row<EnrolledProduct>("SELECT " + ProductColumns + " FROM IVT_STOCK_PRODUCT WHERE "
+                + ScopeWhere + " AND " + predicate, new { key }, ct);
         internal async Task<ProductVariant> Enroll(string productId, string unit, CancellationToken ct)
         {
             RequireText(productId, 50); RequireText(unit, 40);
@@ -220,8 +233,56 @@ public sealed class StockBridge : IStockBridge
             var row = await ProductRow("PRODUCT_ID=@key", Text(id), ct);
             if (row is null) return null;
             var master = await Master(row.MasterId, ct) ?? throw Failure("PRODUCT_NOT_FOUND");
-            return new(Id(row.Id), Scope, Id(row.Version), new(master.ProductId, master.ProductName, master.Description), master.ValidState == "Valid");
+            return Product(row, master);
         }
+        private Product Product(EnrolledProduct row, ProductDto master)
+            => new(Id(row.Id), Scope, Id(row.Version), new(master.ProductId, master.ProductName, master.Description), master.ValidState == "Valid");
+
+        public async Task<BusinessPage<Product>> QueryProductsAsync(InventoryQuery query, CancellationToken ct)
+        {
+            // O(enrolled products): live MDM name/active filters must precede both offset and total.
+            // Keyset batches bound materialization and owner calls; only the requested page is retained.
+            var items = new List<Product>(query.Limit);
+            long total = 0;
+            var end = (long)query.Offset + query.Limit;
+            string? afterMaster = null, afterId = null;
+            while (true)
+            {
+                var rows = (await connection.QueryAsync<EnrolledProduct>(Command("SELECT " + ProductColumns
+                    + " FROM IVT_STOCK_PRODUCT WHERE " + ScopeWhere
+                    + " AND (@AfterMaster IS NULL OR MASTER_PRODUCT_ID>@AfterMaster OR (MASTER_PRODUCT_ID=@AfterMaster AND PRODUCT_ID>@AfterId))"
+                    + " ORDER BY MASTER_PRODUCT_ID, PRODUCT_ID" + batchLimitSql,
+                    new { AfterMaster = afterMaster, AfterId = afterId, BatchSize = ListBatchSize }, ct))).ToArray();
+                if (rows.Length == 0) break;
+                var keys = rows.Select(row => row.MasterId).ToArray();
+                if (keys.Any(key => !ValidText(key, 50)) || keys.Distinct(StringComparer.Ordinal).Count() != keys.Length)
+                    throw Failure("STORAGE_CONTRACT_VIOLATION");
+                var found = await masters.FindProductsAsync(transaction, keys, ct);
+                if (found is null || found.Count != rows.Length) throw Failure("STORAGE_CONTRACT_VIOLATION");
+                var byId = new Dictionary<string, ProductDto>(StringComparer.Ordinal);
+                var expected = new HashSet<string>(keys, StringComparer.Ordinal);
+                foreach (var master in found)
+                    if (master is null || master.ProductId is null || !expected.Contains(master.ProductId)
+                        || master.ProductName is null || !byId.TryAdd(master.ProductId, master))
+                        throw Failure("STORAGE_CONTRACT_VIOLATION");
+                foreach (var row in rows)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (!byId.TryGetValue(row.MasterId, out var master)) throw Failure("STORAGE_CONTRACT_VIOLATION");
+                    var product = Product(row, master);
+                    if ((!query.IncludeInactive && !product.Active) || !Matches(query.Text, product.Input.Code, product.Input.Name)) continue;
+                    if (total >= query.Offset && total < end) items.Add(product);
+                    total++;
+                }
+                afterMaster = rows[^1].MasterId; afterId = rows[^1].Id;
+                if (rows.Length < ListBatchSize) break;
+            }
+            return new(Array.AsReadOnly(items.ToArray()), total);
+        }
+
+        private static bool Matches(string? text, string code, string name)
+            => string.IsNullOrEmpty(text) || code.Contains(text, StringComparison.OrdinalIgnoreCase)
+                || name.Contains(text, StringComparison.OrdinalIgnoreCase);
         internal async Task<ProductVariant> Variant(EnrolledProduct row, CancellationToken ct)
         {
             var master = await Master(row.MasterId, ct) ?? throw Failure("PRODUCT_NOT_FOUND");
@@ -243,9 +304,40 @@ public sealed class StockBridge : IStockBridge
                 """, new { Operation = Text(operationId), Id = Text(value.Id), Actor = Actor.UserId, value.Code, value.Name }, ct);
         public async Task<Warehouse?> FindWarehouseAsync(Guid id, CancellationToken ct)
         {
-            var row = await Row<WarehouseRow>("SELECT WAREHOUSE_ID AS Id, VERSION AS Version, CODE AS Code, NAME AS Name, IS_ACTIVE AS Active "
-                + "FROM IVT_STOCK_WAREHOUSE WHERE " + ScopeWhere + " AND WAREHOUSE_ID=@id", new { id = Text(id) }, ct);
-            return row is null ? null : new(Id(row.Id), Scope, Id(row.Version), row.Code, row.Name, row.Active);
+            var row = await Row<WarehouseRow>("SELECT " + WarehouseColumns + " FROM IVT_STOCK_WAREHOUSE WHERE "
+                + ScopeWhere + " AND WAREHOUSE_ID=@id", new { id = Text(id) }, ct);
+            return row is null ? null : Warehouse(row);
+        }
+        private Warehouse Warehouse(WarehouseRow row)
+            => new(Id(row.Id), Scope, Id(row.Version), row.Code, row.Name, row.Active);
+
+        public async Task<BusinessPage<Warehouse>> QueryWarehousesAsync(InventoryQuery query, CancellationToken ct)
+        {
+            // O(scope rows): scan active candidates in bounded batches for identical ordinal text semantics
+            // on SQLite and SQL Server. Count after filtering, retaining only the requested page.
+            var items = new List<Warehouse>(query.Limit);
+            long total = 0;
+            var end = (long)query.Offset + query.Limit;
+            string? afterCode = null, afterId = null;
+            while (true)
+            {
+                var rows = (await connection.QueryAsync<WarehouseRow>(Command("SELECT " + WarehouseColumns
+                    + " FROM IVT_STOCK_WAREHOUSE WHERE " + ScopeWhere
+                    + " AND (@IncludeInactive=1 OR IS_ACTIVE=1)"
+                    + " AND (@AfterCode IS NULL OR CODE>@AfterCode OR (CODE=@AfterCode AND WAREHOUSE_ID>@AfterId))"
+                    + " ORDER BY CODE, WAREHOUSE_ID" + batchLimitSql,
+                    new { query.IncludeInactive, AfterCode = afterCode, AfterId = afterId, BatchSize = ListBatchSize }, ct))).ToArray();
+                foreach (var row in rows)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (!Matches(query.Text, row.Code, row.Name)) continue;
+                    if (total >= query.Offset && total < end) items.Add(Warehouse(row));
+                    total++;
+                }
+                if (rows.Length < ListBatchSize) break;
+                afterCode = rows[^1].Code; afterId = rows[^1].Id;
+            }
+            return new(Array.AsReadOnly(items.ToArray()), total);
         }
         public async Task<bool> HasWarehouseStockOrReservationsAsync(Guid id, CancellationToken ct)
             => await Scalar<long>("SELECT COUNT(*) FROM IVT_STOCK_BALANCE WHERE " + ScopeWhere + " AND WAREHOUSE_ID=@id AND (ON_HAND<>'0' OR RESERVED<>'0')", new { id = Text(id) }, ct) != 0

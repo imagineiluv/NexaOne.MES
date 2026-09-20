@@ -66,6 +66,112 @@ public sealed class EquipmentSharingPersistenceTests : IClassFixture<BusinessMem
         => (await Assert.ThrowsAsync<BusinessException>(action)).Code.Should().Be(code);
 
     [Fact]
+    public async Task Equipment_lists_filter_literal_names_activity_and_scope_before_paging_without_audits()
+    {
+        var assets = new List<SharedEquipment>();
+        foreach (var code in new[] { "LIST-A", "LIST-B", "LIST-C" })
+            assets.Add(await _bridge.CreateEquipmentAsync("shared-user", _tenant, _organization, Guid.NewGuid(), code, "장비 %_[x]", 1, false));
+        await _bridge.CreateEquipmentAsync("shared-user", _tenant, _organization, Guid.NewGuid(), "LIST-D", "장비 anything-x", 1, false);
+        await _bridge.SetEquipmentActiveAsync("shared-user", _tenant, _organization, assets[0].Id, assets[0].Version, false);
+        var other = Guid.NewGuid();
+        await _bridge.BindScopeAsync("admin", _tenant, other, "SHARED-P2", null, true);
+        (await _memberships.SaveMembershipAsync("admin", _tenant, other, "shared-user", new(0, true, Grants))).IsSuccess.Should().BeTrue();
+        await _bridge.CreateEquipmentAsync("shared-user", _tenant, other, Guid.NewGuid(), "LIST-E", "장비 %_[x]", 1, false);
+        var audits = Count("IVT_SHARED_EQUIPMENT_AUDIT");
+        var query = new InventoryQuery("장비 %_[X]");
+
+        var all = await NewBridge().ListEquipmentAsync("shared-user", _tenant, _organization, query);
+        all.Total.Should().Be(2);
+        all.Items.Select(a => a.Id).Should().BeEquivalentTo(assets.Skip(1).Select(a => a.Id));
+        var page = await _bridge.ListEquipmentAsync("shared-user", _tenant, _organization, query with { Offset = 1, Limit = 1 });
+        page.Total.Should().Be(2); page.Items.Should().Equal(all.Items.Skip(1));
+        var past = await _bridge.ListEquipmentAsync("shared-user", _tenant, _organization, query with { Offset = 20, Limit = 1 });
+        past.Total.Should().Be(2); past.Items.Should().BeEmpty();
+        (await _bridge.ListEquipmentAsync("shared-user", _tenant, _organization, query with { IncludeInactive = true }))
+            .Items.Should().Contain(a => a.Id == assets[0].Id && !a.Active).And.HaveCount(3);
+        (await _bridge.ListEquipmentAsync("shared-user", _tenant, _organization, new("list-b"))).Items.Should().ContainSingle();
+        Count("IVT_SHARED_EQUIPMENT_AUDIT").Should().Be(audits);
+    }
+
+    [Fact]
+    public async Task Booking_lists_filter_equipment_and_state_but_keep_scope_wide_history_after_worker_deactivation()
+    {
+        var first = await Asset(capacity: 4, approval: false);
+        var second = await Asset(capacity: 4, approval: false);
+        var returned = await Request(first);
+        var cancelled = await Request(first);
+        cancelled = await _bridge.CancelBookingAsync("shared-user", _tenant, _organization, cancelled.Id, cancelled.Version);
+        var reviewerBooking = await _bridge.RequestBookingAsync("shared-reviewer", _tenant, _organization, Guid.NewGuid(), first.Id,
+            "SHARED-W1", returned.Start, returned.End, 1);
+        var otherEquipment = await Request(second);
+        var otherTenant = Guid.NewGuid();
+        await _bridge.BindScopeAsync("admin", otherTenant, _organization, "SHARED-P2", null, true);
+        (await _memberships.SaveMembershipAsync("admin", otherTenant, _organization, "shared-user", new(0, true, Grants))).IsSuccess.Should().BeTrue();
+        var foreign = await _bridge.CreateEquipmentAsync("shared-user", otherTenant, _organization, Guid.NewGuid(), "FOREIGN", "Foreign", 1, false);
+        await _bridge.RequestBookingAsync("shared-user", otherTenant, _organization, Guid.NewGuid(), foreign.Id,
+            "SHARED-W2", returned.Start, returned.End, 1);
+        _clock.Now = returned.Start;
+        returned = await _bridge.CheckOutAsync("shared-user", _tenant, _organization, returned.Id, returned.Version);
+        _clock.Now = returned.End;
+        returned = await _bridge.ReturnAsync("shared-user", _tenant, _organization, returned.Id, returned.Version);
+        Execute("UPDATE MDM_WORKER SET IS_ACTIVE=0 WHERE WORKER_ID='SHARED-W1'");
+        var audits = Count("IVT_SHARED_EQUIPMENT_AUDIT");
+
+        var all = await NewBridge().ListBookingsAsync("shared-user", _tenant, _organization);
+        all.Total.Should().Be(4);
+        all.Items.Select(b => b.Id).Should().BeEquivalentTo([returned.Id, cancelled.Id, reviewerBooking.Id, otherEquipment.Id]);
+        var assetPage = await _bridge.ListBookingsAsync("shared-user", _tenant, _organization, first.Id);
+        assetPage.Total.Should().Be(3);
+        var page = await _bridge.ListBookingsAsync("shared-user", _tenant, _organization, first.Id, offset: 1, limit: 1);
+        page.Total.Should().Be(3); page.Items.Should().Equal(assetPage.Items.Skip(1).Take(1));
+        var history = await _bridge.ListBookingsAsync("shared-user", _tenant, _organization, first.Id, EquipmentBookingState.Returned);
+        history.Total.Should().Be(1); history.Items.Should().Equal(returned);
+        var approved = await _bridge.ListBookingsAsync("shared-user", _tenant, _organization, state: EquipmentBookingState.Approved);
+        approved.Total.Should().Be(2);
+        approved.Items.Select(b => b.Id).Should().BeEquivalentTo([reviewerBooking.Id, otherEquipment.Id]);
+        var past = await _bridge.ListBookingsAsync("shared-user", _tenant, _organization, first.Id, EquipmentBookingState.Cancelled, 1, 1);
+        past.Total.Should().Be(1); past.Items.Should().BeEmpty();
+        var empty = await _bridge.ListBookingsAsync("shared-user", _tenant, _organization, second.Id, EquipmentBookingState.Returned);
+        empty.Total.Should().Be(0); empty.Items.Should().BeEmpty();
+        Count("IVT_SHARED_EQUIPMENT_AUDIT").Should().Be(audits);
+    }
+
+    [Fact]
+    public async Task Equipment_lists_recheck_each_current_read_grant_without_auditing_reads()
+    {
+        await Request(await Asset());
+        var audits = Count("IVT_SHARED_EQUIPMENT_AUDIT");
+        (await _bridge.ListEquipmentAsync("shared-user", _tenant, _organization, new())).Total.Should().Be(1);
+        (await _bridge.ListBookingsAsync("shared-user", _tenant, _organization)).Total.Should().Be(1);
+        (await _memberships.SaveMembershipAsync("admin", _tenant, _organization, "shared-user",
+            new(1, true, Grants.Where(g => g != "equipment.read").ToArray()))).IsSuccess.Should().BeTrue();
+        await Error(() => _bridge.ListEquipmentAsync("shared-user", _tenant, _organization, new("absent", Offset: 20)), "BUSINESS_ACCESS_DENIED");
+        (await _bridge.ListBookingsAsync("shared-user", _tenant, _organization)).Total.Should().Be(1);
+        (await _memberships.SaveMembershipAsync("admin", _tenant, _organization, "shared-user",
+            new(2, true, Grants.Where(g => g != "equipment.booking.read").ToArray()))).IsSuccess.Should().BeTrue();
+        (await _bridge.ListEquipmentAsync("shared-user", _tenant, _organization, new())).Total.Should().Be(1);
+        await Error(() => _bridge.ListBookingsAsync("shared-user", _tenant, _organization, offset: 20), "BUSINESS_ACCESS_DENIED");
+        Count("IVT_SHARED_EQUIPMENT_AUDIT").Should().Be(audits);
+    }
+
+    [Theory]
+    [InlineData(-1, 1)]
+    [InlineData(0, 0)]
+    [InlineData(0, 101)]
+    public async Task Equipment_lists_reject_invalid_page_bounds(int offset, int limit)
+    {
+        await Error(() => _bridge.ListEquipmentAsync("shared-user", _tenant, _organization, new(Offset: offset, Limit: limit)), "INVALID_BUSINESS_INPUT");
+        await Error(() => _bridge.ListBookingsAsync("shared-user", _tenant, _organization, offset: offset, limit: limit), "INVALID_BUSINESS_INPUT");
+    }
+
+    [Fact]
+    public async Task Booking_list_rejects_empty_equipment_id_and_undefined_state()
+    {
+        await Error(() => _bridge.ListBookingsAsync("shared-user", _tenant, _organization, Guid.Empty), "INVALID_BUSINESS_INPUT");
+        await Error(() => _bridge.ListBookingsAsync("shared-user", _tenant, _organization, state: (EquipmentBookingState)999), "INVALID_BUSINESS_INPUT");
+    }
+
+    [Fact]
     public async Task Real_database_lifecycle_retains_identity_audit_and_replay_after_restart()
     {
         var asset = await Asset(); var bookingId = Guid.NewGuid();

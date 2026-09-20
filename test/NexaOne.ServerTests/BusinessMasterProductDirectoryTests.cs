@@ -98,6 +98,8 @@ public sealed class BusinessMasterProductDirectoryTests : IClassFixture<Business
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             _directory.FindProductAsync(transactionObject, "OWNER-P1"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _directory.FindProductsAsync(transactionObject, ["OWNER-P1"]));
 
         connection.Protected().Verify("Dispose", Times.Never(), ItExpr.IsAny<bool>());
         transaction.Protected().Verify("Dispose", Times.Never(), ItExpr.IsAny<bool>());
@@ -107,12 +109,14 @@ public sealed class BusinessMasterProductDirectoryTests : IClassFixture<Business
     public async Task Product_lookup_rejects_completed_and_missing_transactions()
     {
         await Assert.ThrowsAsync<ArgumentNullException>(() => _directory.FindProductAsync(null!, "OWNER-P1"));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => _directory.FindProductsAsync(null!, ["OWNER-P1"]));
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync();
         using var transaction = connection.BeginTransaction(IsolationLevel.Serializable);
         transaction.Rollback();
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => _directory.FindProductAsync(transaction, "OWNER-P1"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _directory.FindProductsAsync(transaction, ["OWNER-P1"]));
     }
 
     [Fact]
@@ -128,6 +132,84 @@ public sealed class BusinessMasterProductDirectoryTests : IClassFixture<Business
             _directory.FindProductAsync(transactionObject, "OWNER-P1", cancellation.Token));
 
         error.CancellationToken.Should().Be(cancellation.Token);
+        var batchError = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _directory.FindProductsAsync(transactionObject, ["OWNER-P1"], cancellation.Token));
+        batchError.CancellationToken.Should().Be(cancellation.Token);
         transaction.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Product_batch_reads_only_requested_live_masters_and_preserves_caller_rollback()
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync();
+        using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+        {
+            await connection.ExecuteAsync("""
+                INSERT INTO MDM_PRODUCT (PRODUCT_ID, PRODUCT_NAME, DESCRIPTION, PRODUCT_TYPE, UNIT, VALID_STATE)
+                VALUES ('OWNER-BATCH-A', 'First product', 'Description', 'Material', 'kg', 'Valid'),
+                       ('OWNER-BATCH-B', 'Second product', NULL, 'Material', 'EA', 'Invalid'),
+                       ('OWNER-BATCH-HIDDEN', 'Unrequested product', NULL, 'Material', 'EA', 'Valid')
+                """, transaction: transaction);
+            var first = await _directory.FindProductsAsync(transaction,
+                ["OWNER-BATCH-B", "OWNER-BATCH-MISSING", "OWNER-BATCH-A"]);
+            first.Should().Equal(
+                new ProductDto("OWNER-BATCH-A", "First product", "Description", "Material", "kg", "Valid"),
+                new ProductDto("OWNER-BATCH-B", "Second product", "", "Material", "EA", "Invalid"));
+            Action mutation = () => ((IList<ProductDto>)first)[0] = first[1];
+            mutation.Should().Throw<NotSupportedException>();
+
+            await connection.ExecuteAsync("""
+                UPDATE MDM_PRODUCT SET PRODUCT_NAME='Changed product', UNIT='g', VALID_STATE='Invalid'
+                WHERE PRODUCT_ID='OWNER-BATCH-A'
+                """, transaction: transaction);
+            (await _directory.FindProductsAsync(transaction, ["OWNER-BATCH-A"])).Should().Equal(
+                new ProductDto("OWNER-BATCH-A", "Changed product", "Description", "Material", "g", "Invalid"));
+            first[0].ProductName.Should().Be("First product");
+            transaction.Connection.Should().BeSameAs(connection);
+            transaction.Rollback();
+        }
+        connection.State.Should().Be(ConnectionState.Open);
+        (await connection.ExecuteScalarAsync<long>(
+            "SELECT COUNT(*) FROM MDM_PRODUCT WHERE PRODUCT_ID IN ('OWNER-BATCH-A','OWNER-BATCH-B','OWNER-BATCH-HIDDEN')")).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Product_batch_accepts_128_keys_and_treats_wildcards_and_quotes_as_literal_keys()
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync();
+        using var transaction = connection.BeginTransaction(IsolationLevel.Serializable);
+        var keys = Enumerable.Range(0, 127).Select(index => $"OWNER-BATCH-{index:D3}")
+            .Append("OWNER-%_[~'").ToArray();
+        await connection.ExecuteAsync("""
+            INSERT INTO MDM_PRODUCT (PRODUCT_ID, PRODUCT_NAME, PRODUCT_TYPE, UNIT, VALID_STATE)
+            VALUES (@Id, 'Batch product', 'Material', 'EA', 'Valid')
+            """, keys.Select(key => new { Id = key }), transaction);
+
+        var result = await _directory.FindProductsAsync(transaction, keys);
+
+        result.Should().HaveCount(128);
+        result.Select(product => product.ProductId).Should().BeEquivalentTo(keys);
+        (await _directory.FindProductsAsync(transaction, ["OWNER-%_[~'"])).Should().ContainSingle()
+            .Which.ProductId.Should().Be("OWNER-%_[~'");
+        transaction.Rollback();
+    }
+
+    [Fact]
+    public async Task Product_batch_rejects_noncanonical_duplicate_and_oversized_key_sets()
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync();
+        using var transaction = connection.BeginTransaction(IsolationLevel.Serializable);
+        (await _directory.FindProductsAsync(transaction, [])).Should().BeEmpty();
+        await Assert.ThrowsAsync<ArgumentNullException>(() => _directory.FindProductsAsync(transaction, null!));
+        foreach (var keys in new string[][] { [""], [" "], [" OWNER-P1"], ["OWNER-P1 "],
+            [new string('P', 51)], [null!], ["OWNER-P1", "OWNER-P1"] })
+            await Assert.ThrowsAsync<ArgumentException>(() => _directory.FindProductsAsync(transaction, keys));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _directory.FindProductsAsync(transaction,
+            Enumerable.Range(0, 129).Select(index => $"OWNER-{index}").ToArray()));
+        transaction.Connection.Should().BeSameAs(connection);
+        transaction.Rollback();
     }
 }

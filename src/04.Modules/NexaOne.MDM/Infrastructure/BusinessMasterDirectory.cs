@@ -10,6 +10,8 @@ namespace NexaOne.MDM.Infrastructure;
 public sealed class BusinessMasterDirectory : IBusinessMasterDirectory
 {
     private readonly int? _timeout;
+    private const string ProductColumns = "PRODUCT_ID AS ProductId, PRODUCT_NAME AS ProductName, "
+        + "COALESCE(DESCRIPTION, '') AS Description, PRODUCT_TYPE AS ProductType, UNIT AS Unit, VALID_STATE AS ValidState";
 
     public BusinessMasterDirectory(EesDataSource dataSource)
     {
@@ -48,12 +50,25 @@ public sealed class BusinessMasterDirectory : IBusinessMasterDirectory
         var connection = RequireSerializableConnection(transaction);
         if (!ValidKey(productId)) return null;
         return await connection.QuerySingleOrDefaultAsync<ProductDto>(new CommandDefinition(
-            """
-            SELECT PRODUCT_ID AS ProductId, PRODUCT_NAME AS ProductName,
-                   COALESCE(DESCRIPTION, '') AS Description, PRODUCT_TYPE AS ProductType,
-                   UNIT AS Unit, VALID_STATE AS ValidState
-              FROM MDM_PRODUCT WHERE PRODUCT_ID=@productId
-            """, new { productId }, transaction, commandTimeout: _timeout, cancellationToken: ct));
+            "SELECT " + ProductColumns + " FROM MDM_PRODUCT WHERE PRODUCT_ID=@productId",
+            new { productId }, transaction, commandTimeout: _timeout, cancellationToken: ct));
+    }
+
+    public async Task<IReadOnlyList<ProductDto>> FindProductsAsync(
+        DbTransaction transaction, IReadOnlyList<string> productIds, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var connection = RequireSerializableConnection(transaction);
+        ArgumentNullException.ThrowIfNull(productIds);
+        if (productIds.Count > 128) throw new ArgumentOutOfRangeException(nameof(productIds), "At most 128 product IDs are allowed.");
+        var ids = productIds.ToArray();
+        if (ids.Any(id => !ValidKey(id)) || ids.Distinct(StringComparer.Ordinal).Count() != ids.Length)
+            throw new ArgumentException("Product IDs must be distinct canonical keys.", nameof(productIds));
+        if (ids.Length == 0) return Array.Empty<ProductDto>();
+        var rows = await connection.QueryAsync<ProductDto>(new CommandDefinition(
+            "SELECT " + ProductColumns + " FROM MDM_PRODUCT WHERE PRODUCT_ID IN @ids ORDER BY PRODUCT_ID",
+            new { ids }, transaction, commandTimeout: _timeout, cancellationToken: ct));
+        return Array.AsReadOnly(rows.ToArray());
     }
 
     private static DbConnection RequireSerializableConnection(DbTransaction transaction)
