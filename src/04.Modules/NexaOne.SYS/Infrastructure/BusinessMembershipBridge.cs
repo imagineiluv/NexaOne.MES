@@ -14,7 +14,7 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
     // Explicit operation grants; '*' and MES role permissions never imply a business scope grant.
     private static readonly HashSet<string> SupportedPermissions = new(StringComparer.Ordinal)
     {
-        "stock.warehouse.read", "stock.warehouse.write", "stock.read", "stock.post",
+        "stock.warehouse.read", "stock.warehouse.write", "stock.product.write", "stock.read", "stock.post",
         "stock.reverse", "stock.reserve", "stock.consume", "stock.release",
         "equipment.read", "equipment.write", "equipment.booking.read", "equipment.booking.request",
         "equipment.booking.decide", "equipment.booking.cancel", "equipment.booking.checkout",

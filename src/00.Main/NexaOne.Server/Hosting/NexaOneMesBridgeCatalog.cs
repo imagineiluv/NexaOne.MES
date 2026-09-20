@@ -65,6 +65,7 @@ internal sealed class NexaOneMesBridgeCatalog : INexaModuleBridgeCatalog
             Bind<IFdcTraceRetentionGuard>("Ivt", "fdcTraceRetentionGuard"),
             Bind<IMaterialBridge>("Ivt", "materialBridge"),
             Bind<IEquipmentSharingBridge>("Ivt", "equipmentSharingBridge"),
+            Bind<IStockBridge>("Ivt", "stockBridge"),
             Bind<IMaterialLotBridge>("Ivt", "materialLotBridge"),
             Bind<ITraceMaterialBridge>("Ivt", "traceMaterialBridge"),
             Bind<IMaterialLotDirectory>("Ivt", "materialLotDirectory"),

@@ -43,6 +43,7 @@ public sealed class IvtCompositionBoundaryTests
         {
             ["materialBridge"] = "GetMaterialBridge",
             ["equipmentSharingBridge"] = "GetEquipmentSharingBridge",
+            ["stockBridge"] = "GetStockBridge",
             ["materialLotBridge"] = "GetMaterialLotBridge",
             ["traceMaterialBridge"] = "GetTraceMaterialBridge",
             ["materialLotDirectory"] = "GetMaterialLotDirectory",

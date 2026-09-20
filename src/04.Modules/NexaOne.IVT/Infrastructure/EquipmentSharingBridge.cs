@@ -53,6 +53,10 @@ public sealed class EquipmentSharingBridge
             if (current is not null && current.PlantId != canonicalPlant) throw Failure("SCOPE_PLANT_IMMUTABLE");
             if (!active && await session.Scalar<long>("SELECT COUNT(*) FROM IVT_SHARED_BOOKING WHERE " + ScopeWhere
                 + " AND STATE IN (0,1,2)", null, ct) != 0) throw Failure("SCOPE_HAS_OPEN_BOOKINGS");
+            if (!active && (await session.Scalar<long>("SELECT COUNT(*) FROM IVT_STOCK_BALANCE WHERE " + ScopeWhere
+                + " AND (ON_HAND<>'0' OR RESERVED<>'0')", null, ct) != 0
+                || await session.Scalar<long>("SELECT COUNT(*) FROM IVT_STOCK_RESERVATION WHERE " + ScopeWhere
+                + " AND STATE=0", null, ct) != 0)) throw Failure("SCOPE_HAS_STOCK_OR_RESERVATIONS");
             var next = new InventoryScopeBinding(tenantId, organizationId, canonicalPlant, Guid.NewGuid(), active);
             var values = new { PlantId = canonicalPlant, Version = Text(next.Version), Active = active,
                 Previous = expectedVersion.HasValue ? Text(expectedVersion.Value) : null,
