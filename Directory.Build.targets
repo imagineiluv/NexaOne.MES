@@ -1,0 +1,14 @@
+<Project>
+  <!-- NuGet's outer restore graph does not preserve this ProjectReference build profile.
+       Restore its separate assets before any direct consumer builds project references.
+       Framework has its own Directory.Build.targets, so this does not recurse into the child. -->
+  <Target Name="RestoreMesBusinessServiceProfile" BeforeTargets="ResolveProjectReferences">
+    <ItemGroup>
+      <_MesBusinessServiceReference Include="@(ProjectReference)"
+                                    Condition="'%(ProjectReference.Filename)' == 'NexaFramework.Service'" />
+    </ItemGroup>
+    <MSBuild Projects="@(_MesBusinessServiceReference)" Targets="Restore"
+             Properties="Configuration=$(Configuration);NexaFrameworkIncludeBusinessServices=true;TargetFrameworks=net8.0"
+             BuildInParallel="false" Condition="'@(_MesBusinessServiceReference)' != ''" />
+  </Target>
+</Project>

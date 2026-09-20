@@ -61,7 +61,7 @@
     <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework\NexaFramework.csproj" />
     <!-- POM is copied as a plugin DLL only. Its shared Service dependency must be present in
          the host runtime/deps graph so the plugin resolves it through the Default ALC. -->
-    <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework.Service\NexaFramework.Service.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework.Service\NexaFramework.Service.csproj" AdditionalProperties="NexaFrameworkIncludeBusinessServices=true;TargetFrameworks=net8.0" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
     <ProjectReference Include="..\..\02.Backend\NexaOne.Infrastructure.Messaging\NexaOne.Infrastructure.Messaging.csproj" />
     <!-- Phase 4 Task 3 — 공유 Blazor 컴포넌트 RCL(MetaScreen·렌더러·인증/ApiClient 서비스). Default ALC 일반 참조로

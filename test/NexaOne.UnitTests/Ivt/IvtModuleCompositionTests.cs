@@ -3,6 +3,8 @@ using Microsoft.Extensions.Hosting;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Fdc;
 using NexaOne.ServiceContracts.Ivt;
+using NexaOne.ServiceContracts.Mdm;
+using NexaOne.ServiceContracts.Sys;
 using NexaOne.UnitTests.TestInfrastructure;
 using Spring.Core.IO;
 using Spring.Objects.Factory.Support;
@@ -37,7 +39,7 @@ public sealed class IvtModuleCompositionTests
             DataSource(),
             new SqliteEesDbCapability(),
             Mock.Of<IFdcTraceSource>(),
-            new ConfigurationBuilder().Build());
+            new ConfigurationBuilder().Build(), Mock.Of<IBusinessMembershipBridge>(), Mock.Of<IBusinessMasterDirectory>());
 
         var result = await module.GetTraceMaterialBridge().ExecuteFeedSessionAsync(
             new FeedSessionCommand(
@@ -65,7 +67,7 @@ public sealed class IvtModuleCompositionTests
             DataSource(),
             new SqliteEesDbCapability(),
             Mock.Of<IFdcTraceSource>(),
-            new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
+            new ConfigurationBuilder().AddInMemoryCollection(settings).Build(), Mock.Of<IBusinessMembershipBridge>(), Mock.Of<IBusinessMasterDirectory>());
 
         var result = await module.GetTraceMaterialBridge().ExecuteBindingAsync(
             new TraceBindingCommand(
@@ -91,7 +93,7 @@ public sealed class IvtModuleCompositionTests
             DataSource(),
             new SqliteEesDbCapability(),
             Mock.Of<IFdcTraceSource>(),
-            configuration);
+            configuration, Mock.Of<IBusinessMembershipBridge>(), Mock.Of<IBusinessMasterDirectory>());
 
         create.Should().Throw<InvalidOperationException>()
             .WithMessage("*durable cross-process maintenance fence*");
@@ -110,7 +112,7 @@ public sealed class IvtModuleCompositionTests
             DataSource(),
             new SqliteEesDbCapability(),
             Mock.Of<IFdcTraceSource>(),
-            configuration);
+            configuration, Mock.Of<IBusinessMembershipBridge>(), Mock.Of<IBusinessMasterDirectory>());
 
         create.Should().Throw<InvalidOperationException>()
             .WithMessage(
@@ -131,10 +133,12 @@ public sealed class IvtModuleCompositionTests
             },
             new SqliteEesDbCapability(),
             Mock.Of<IFdcTraceSource>(),
-            new ConfigurationBuilder().Build());
+            new ConfigurationBuilder().Build(), Mock.Of<IBusinessMembershipBridge>(), Mock.Of<IBusinessMasterDirectory>());
 
         module.GetMaterialBridge().Should().BeAssignableTo<IMaterialBridge>();
         module.GetMaterialBridge().Should().BeSameAs(module.GetMaterialBridge());
+        module.GetEquipmentSharingBridge().Should().BeAssignableTo<IEquipmentSharingBridge>();
+        module.GetEquipmentSharingBridge().Should().BeSameAs(module.GetEquipmentSharingBridge());
         module.GetMaterialLotBridge().Should().BeAssignableTo<IMaterialLotBridge>();
         module.GetMaterialLotBridge().Should().BeSameAs(module.GetMaterialLotBridge());
         module.GetTraceMaterialBridge().Should().BeAssignableTo<ITraceMaterialBridge>();
@@ -158,6 +162,8 @@ public sealed class IvtModuleCompositionTests
         factory.RegisterSingleton("eesDialect", new SqliteEesDbCapability());
         factory.RegisterSingleton("fdcTraceSource", Mock.Of<IFdcTraceSource>());
         factory.RegisterSingleton("appConfiguration", new ConfigurationBuilder().Build());
+        factory.RegisterSingleton("businessMembershipBridge", Mock.Of<IBusinessMembershipBridge>());
+        factory.RegisterSingleton("businessMasterDirectory", Mock.Of<IBusinessMasterDirectory>());
 
         var path = RepositorySource.GetFile(
             "src", "00.Main", "NexaOne.Server", "config", "modules", "ivt.xml");
@@ -165,7 +171,8 @@ public sealed class IvtModuleCompositionTests
             .LoadObjectDefinitions(new FileSystemResource(path));
         factory.PreInstantiateSingletons();
 
-        loaded.Should().Be(8);
+        loaded.Should().Be(9);
+        factory.GetObject<IEquipmentSharingBridge>("equipmentSharingBridge").Should().NotBeNull();
         factory.GetObject<IMaterialBridge>("materialBridge").Should().NotBeNull();
         factory.GetObject<IMaterialLotBridge>("materialLotBridge").Should().NotBeNull();
         factory.GetObject<ITraceMaterialBridge>("traceMaterialBridge").Should().NotBeNull();

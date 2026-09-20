@@ -14,6 +14,7 @@ public sealed class Module
 {
     private readonly IMdmEquipmentBridge _equipmentBridge;
     private readonly IMdmMasterBridge _masterBridge;
+    private readonly IBusinessMasterDirectory _businessMasterDirectory;
     private readonly IEquipmentDirectory _equipmentDirectory;
     private readonly ITrackingRoutingDirectory _trackingRoutingDirectory;
     private readonly IOeePlanDirectory _oeePlanDirectory;
@@ -39,6 +40,7 @@ public sealed class Module
 
         _equipmentBridge = new MdmEquipmentBridge(equipmentService);
         _masterBridge = new MdmMasterBridge(masterService);
+        _businessMasterDirectory = new BusinessMasterDirectory(dataSource);
         _equipmentDirectory = new EquipmentDirectory(dataSource);
         _trackingRoutingDirectory = new TrackingRoutingDirectory(dataSource);
         _oeePlanDirectory = new OeePlanDirectory(dataSource);
@@ -50,6 +52,7 @@ public sealed class Module
 
     public IMdmEquipmentBridge GetEquipmentBridge() => _equipmentBridge;
     public IMdmMasterBridge GetMasterBridge() => _masterBridge;
+    public IBusinessMasterDirectory GetBusinessMasterDirectory() => _businessMasterDirectory;
     public IEquipmentDirectory GetEquipmentDirectory() => _equipmentDirectory;
     public ITrackingRoutingDirectory GetTrackingRoutingDirectory() => _trackingRoutingDirectory;
     public IOeePlanDirectory GetOeePlanDirectory() => _oeePlanDirectory;

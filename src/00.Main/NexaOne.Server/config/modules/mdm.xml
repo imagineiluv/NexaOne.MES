@@ -12,6 +12,7 @@
 
   <object id="mdmEquipmentBridge" factory-object="mdmModule" factory-method="GetEquipmentBridge" />
   <object id="mdmMasterBridge" factory-object="mdmModule" factory-method="GetMasterBridge" />
+  <object id="businessMasterDirectory" factory-object="mdmModule" factory-method="GetBusinessMasterDirectory" />
   <object id="equipmentDirectory" factory-object="mdmModule" factory-method="GetEquipmentDirectory" />
   <object id="trackingRoutingDirectory" factory-object="mdmModule" factory-method="GetTrackingRoutingDirectory" />
   <object id="oeePlanDirectory" factory-object="mdmModule" factory-method="GetOeePlanDirectory" />

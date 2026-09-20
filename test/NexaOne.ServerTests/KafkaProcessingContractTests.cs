@@ -18,8 +18,13 @@ public sealed class KafkaProcessingContractTests
         var consumer = Consumer();
         consumer.Setup(session => session.Consume(It.IsAny<TimeSpan>())).Returns(Record());
         using var service = Service(consumer, (_, _) => Task.FromException(failure));
-        await service.StartAsync(CancellationToken.None);
-        var observed = await Assert.ThrowsAsync<InvalidOperationException>(async () => await service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(3)));
+        // BackgroundService.StartAsync can return the already-faulted ExecuteTask even after
+        // Task.Yield; the failure contract must cover both startup and background completion.
+        var observed = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await service.StartAsync(CancellationToken.None);
+            await service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(3));
+        });
         observed.Should().BeSameAs(failure);
         consumer.Verify(session => session.Consume(It.IsAny<TimeSpan>()), Times.Once);
         consumer.Verify(session => session.Commit(It.IsAny<KafkaRecord>()), Times.Never);
@@ -30,14 +35,20 @@ public sealed class KafkaProcessingContractTests
     [Fact]
     public async Task Ambiguous_commit_failure_stops_before_a_later_record()
     {
+        var failure = new InvalidOperationException("commit outcome unknown");
         var consumer = Consumer();
         consumer.Setup(session => session.Consume(It.IsAny<TimeSpan>())).Returns(Record());
-        consumer.Setup(session => session.Commit(It.IsAny<KafkaRecord>())).Throws(new InvalidOperationException("commit outcome unknown"));
+        consumer.Setup(session => session.Commit(It.IsAny<KafkaRecord>())).Throws(failure);
         using var service = Service(consumer, (_, _) => Task.CompletedTask);
-        await service.StartAsync(CancellationToken.None);
-        await Assert.ThrowsAsync<InvalidOperationException>(async () => await service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(3)));
+        var observed = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await service.StartAsync(CancellationToken.None);
+            await service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(3));
+        });
+        observed.Should().BeSameAs(failure);
         consumer.Verify(session => session.Consume(It.IsAny<TimeSpan>()), Times.Once);
         consumer.Verify(session => session.Commit(It.IsAny<KafkaRecord>()), Times.Once);
+        consumer.Verify(session => session.Resume(), Times.Never);
         consumer.Verify(session => session.Dispose(), Times.Once);
     }
 
@@ -56,9 +67,11 @@ public sealed class KafkaProcessingContractTests
             DeliverOnce(consumer, Record());
         using var service = Service(consumer, (_, _) => Task.FromException(original));
 
-        await service.StartAsync(CancellationToken.None);
         var observed = await Assert.ThrowsAsync<AggregateException>(async () =>
-            await service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(3)));
+        {
+            await service.StartAsync(CancellationToken.None);
+            await service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(3));
+        });
 
         observed.InnerExceptions.Should().Equal(original, cleanup);
         consumer.Verify(session => session.Commit(It.IsAny<KafkaRecord>()), Times.Never);
@@ -108,8 +121,11 @@ public sealed class KafkaProcessingContractTests
             try { await Task.Delay(Timeout.Infinite, token); }
             finally { drained = true; }
         });
-        await service.StartAsync(CancellationToken.None);
-        var failure = await Assert.ThrowsAsync<InvalidOperationException>(async () => await service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(3)));
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await service.StartAsync(CancellationToken.None);
+            await service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(3));
+        });
         failure.Message.Should().Be("assignment changed");
         cancellationObserved.Should().BeTrue();
         drained.Should().BeTrue();
@@ -157,8 +173,11 @@ public sealed class KafkaProcessingContractTests
             try { await Task.Delay(Timeout.Infinite, token); }
             finally { drained = true; }
         });
-        await service.StartAsync(CancellationToken.None);
-        var error = await Assert.ThrowsAsync<AggregateException>(async () => await service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(3)));
+        var error = await Assert.ThrowsAsync<AggregateException>(async () =>
+        {
+            await service.StartAsync(CancellationToken.None);
+            await service.ExecuteTask!.WaitAsync(TimeSpan.FromSeconds(3));
+        });
         error.InnerExceptions[0].Should().BeSameAs(pollFailure);
         error.Flatten().InnerExceptions.Should().Contain(failure => failure.Message == "cancel callback failed");
         drained.Should().BeTrue();

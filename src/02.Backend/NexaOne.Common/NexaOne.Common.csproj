@@ -13,7 +13,7 @@
        아래 의존성은 병합된 세 프로젝트 외부 의존성의 합집합(내부 ProjectReference는 단일화로 소멸). -->
   <ItemGroup>
     <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework\NexaFramework.csproj" />
-    <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework.Service\NexaFramework.Service.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework.Service\NexaFramework.Service.csproj" AdditionalProperties="NexaFrameworkIncludeBusinessServices=true;TargetFrameworks=net8.0" />
     <ProjectReference Include="..\..\..\submodules\NexaDB\src\NexaDB\NexaDB.csproj" />
     <ProjectReference Include="..\..\..\submodules\NexaDB\src\NexaDB.Data.Abstractions\NexaDB.Data.Abstractions.csproj" />
   </ItemGroup>

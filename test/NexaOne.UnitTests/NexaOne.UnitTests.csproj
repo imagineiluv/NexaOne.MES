@@ -14,6 +14,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\02.Backend\NexaOne.Common\NexaOne.Common.csproj" />
+    <ProjectReference Include="..\..\submodules\NexaFramework\src\NexaFramework.Service\NexaFramework.Service.csproj"
+                      AdditionalProperties="NexaFrameworkIncludeBusinessServices=true;TargetFrameworks=net8.0" />
     <ProjectReference Include="..\..\src\01.Web\NexaOne.Web.Components\NexaOne.Web.Components.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" />
     <ProjectReference Include="..\..\src\04.Modules\NexaOne.MDM\NexaOne.MDM.csproj" />

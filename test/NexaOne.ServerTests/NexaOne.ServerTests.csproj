@@ -29,6 +29,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\00.Main\NexaOne.Server\NexaOne.Server.csproj" />
+    <!-- Match the host's explicit business profile; transitive restore selects the core profile. -->
+    <ProjectReference Include="..\..\submodules\NexaFramework\src\NexaFramework.Service\NexaFramework.Service.csproj"
+                      AdditionalProperties="NexaFrameworkIncludeBusinessServices=true;TargetFrameworks=net8.0" />
     <!-- Integration tests use the shared domain implementations directly; project-owned policy
          references follow the selected packaging profile. -->
     <ProjectReference Include="@(NexaOneProductPlugin)" />

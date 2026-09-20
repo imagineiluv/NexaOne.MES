@@ -1,3 +1,4 @@
+using System.Data.Common;
 using NexaOne.Common;
 
 namespace NexaOne.ServiceContracts.Sys;
@@ -13,6 +14,23 @@ public interface IBusinessMembershipBridge : INexaModuleBridge
     /// <summary>Returns null for a missing/revoked membership or inactive/deleted user.</summary>
     Task<BusinessMembership?> GetAccessAsync(
         string authenticatedUserId, Guid tenantId, Guid organizationId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Reads current access using the caller's live Serializable transaction. Returns null for
+    /// invalid keys, missing/revoked membership or an inactive/deleted user. The caller retains
+    /// ownership of the transaction and its connection.
+    /// </summary>
+    Task<BusinessMembership?> GetAccessInTransactionAsync(
+        DbTransaction transaction, string authenticatedUserId, Guid tenantId, Guid organizationId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Rechecks live SYS sys:manage authority using the caller's Serializable transaction and
+    /// returns the stored canonical administrator ID. Does not commit or dispose the transaction.
+    /// </summary>
+    /// <exception cref="UnauthorizedAccessException">The administrator is no longer authorized.</exception>
+    Task<string> RequireAdministratorInTransactionAsync(
+        DbTransaction transaction, string administratorId, CancellationToken ct = default);
 
     /// <summary>Reads even revoked memberships. Rechecks live SYS sys:manage authority.</summary>
     /// <exception cref="UnauthorizedAccessException">The administrator is no longer authorized.</exception>
