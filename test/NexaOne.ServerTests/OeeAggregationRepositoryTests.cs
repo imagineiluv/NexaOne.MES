@@ -897,6 +897,77 @@ public sealed class OeeAggregationRepositoryTests : IClassFixture<OeeAggregation
         CountTaktSummaries(targetId).Should().Be(1, "reaggregation must replace the generated summary atomically");
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Decimal_metrics_keep_persisted_values_and_nulls_after_reaggregation(bool measured)
+    {
+        _ = _factory.CreateClient();
+        var start = new DateTime(2032, 1, measured ? 1 : 2, 0, 0, 0, DateTimeKind.Utc);
+        var targetId = $"TAKT_DECIMAL_{start:yyyyMMdd}";
+        var firstLot = $"LOT_DECIMAL_FIRST_{start:yyyyMMdd}";
+        var secondLot = $"LOT_DECIMAL_SECOND_{start:yyyyMMdd}";
+        Exec(@"INSERT INTO EST_TAKT_TARGET
+            (TAKT_TARGET_ID, PLANT_ID, PRODUCT_ID, PROCESS_ID, EQUIPMENT_ID, SHIFT_ID,
+             EFFECTIVE_FROM, EFFECTIVE_TO, REQUIRED_QTY, NET_AVAILABLE_SECONDS,
+             IDEAL_CYCLE_SECONDS_PER_UNIT, QUANTITY_UOM, TIME_UOM, DESCRIPTION,
+             IS_ACTIVE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@id, 'PLANT01', 'ITEM01', 'PROC_MACH', 'EQ01', NULL,
+                    @from, @to, 3, 1, 1.23445, 'EA', 's/unit', 'decimal compatibility',
+                    1, 'TEST', @from, 'TEST', @from)", cmd =>
+        {
+            cmd.Parameters.AddWithValue("@id", targetId);
+            cmd.Parameters.AddWithValue("@from", Ts(start));
+            cmd.Parameters.AddWithValue("@to", Ts(start.AddDays(1).AddSeconds(-1)));
+        });
+        SeedHistory("EQ01", "IDLE", "RUN", start);
+        SeedHistory("EQ01", "RUN", "IDLE", start.AddHours(8));
+        SeedTrackOut(firstLot, "EQ01", 0.75m, 0.075m, start.AddHours(1));
+        SeedTrackOut(secondLot, "EQ01", 0.5m, 0.05m, start.AddHours(2));
+        if (measured)
+        {
+            Exec("UPDATE POM_LOT_HISTORY SET TRACK_IN_TIME = @at WHERE LOT_ID = @lot", cmd =>
+            {
+                cmd.Parameters.AddWithValue("@at", Ts(start.AddHours(1).AddSeconds(-1)));
+                cmd.Parameters.AddWithValue("@lot", firstLot);
+            });
+        }
+
+        // A fresh repository and a fresh SQL read must observe the same product values on both runs.
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            await Repo().AggregateWindowAsync(start, start.AddHours(8));
+            var oee = ReadSummary($"AGG_EQ01_{start:yyyyMMdd}_ALLDAY")!;
+            D(oee["TOTAL_COUNT"]).Should().Be(1.25m);
+            D(oee["GOOD_COUNT"]).Should().Be(1.125m);
+            D(oee["DEFECT_COUNT"]).Should().Be(0.125m);
+            D(oee["AVAILABILITY"]).Should().Be(1m);
+            D(oee["PERFORMANCE"]).Should().Be(0.0013m);
+            D(oee["QUALITY"]).Should().Be(0.9m);
+            D(oee["OEE"]).Should().Be(0.0012m);
+            var takt = ReadTaktSummary(targetId)!;
+            D(takt["ACTUAL_QTY"]).Should().Be(1.25m);
+            D(takt["MEASURED_QTY"]).Should().Be(measured ? 0.75m : 0m);
+            D(takt["ACTUAL_RUN_SECONDS"]).Should().Be(measured ? 1m : 0m);
+            D(takt["TARGET_TAKT_SECONDS_PER_UNIT"]).Should().Be(0.3333m);
+            D(takt["IDEAL_CYCLE_SECONDS_PER_UNIT"]).Should().Be(1.2345m);
+            D(takt["AVAILABILITY_RATIO"]).Should().Be(1m);
+            if (measured)
+            {
+                D(takt["ACTUAL_CYCLE_SECONDS_PER_UNIT"]).Should().Be(1.3333m);
+                D(takt["DEVIATION_SECONDS_PER_UNIT"]).Should().Be(1m);
+                D(takt["DEVIATION_RATIO"]).Should().Be(3m);
+            }
+            else
+            {
+                takt["ACTUAL_CYCLE_SECONDS_PER_UNIT"].Should().Be(DBNull.Value);
+                takt["DEVIATION_SECONDS_PER_UNIT"].Should().Be(DBNull.Value);
+                takt["DEVIATION_RATIO"].Should().Be(DBNull.Value);
+            }
+            CountTaktSummaries(targetId).Should().Be(1);
+        }
+    }
+
     [Fact]
     public async Task AggregateDay_honors_plant_holiday_without_shift_fallback()
     {

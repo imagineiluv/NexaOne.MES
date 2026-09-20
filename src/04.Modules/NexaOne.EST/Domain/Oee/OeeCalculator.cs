@@ -1,3 +1,5 @@
+using SharedOeeCalculator = NexaFramework.Service.Oee.OeeCalculator;
+
 namespace NexaOne.EST.Domain.Oee;
 
 /// <summary>상태 코드 분류(EST_STATE_CATEGORY). IsProductive=가동(가용성 분자), IsDowntime=비가동 손실,
@@ -103,20 +105,16 @@ public static class OeeCalculator
         var good = total - defect;
         if (good < 0m) good = 0m;
 
-        var availability = planned > 0m ? Clamp01(operating / planned) : 0m;
-        var quality = total > 0m ? Clamp01(good / total) : 0m;
-        var performance = (operating > 0m && target.IdealCycleTimeSec > 0m)
-            ? Clamp01((target.IdealCycleTimeSec * total) / (operating * 60m))
-            : 0m;
-        var oee = availability * performance * quality;
+        // MES explicitly selects bounded ratios; state/calendar policy and storage rounding stay here.
+        var metrics = SharedOeeCalculator.CalculateBoundedDecimal(
+            planned, operating, target.IdealCycleTimeSec, total, good);
 
         return new OeeResult(
             Round(planned), Round(operating), Round(downtime),
             total, good, defect,
-            Round(availability), Round(performance), Round(quality), Round(oee),
+            Round(metrics.Availability), Round(metrics.Performance), Round(metrics.Quality), Round(metrics.Oee),
             losses.OrderBy(static loss => loss.OccurredAt).ToArray());
     }
 
-    private static decimal Clamp01(decimal v) => v < 0m ? 0m : v > 1m ? 1m : v;
     private static decimal Round(decimal v) => Math.Round(v, 4, MidpointRounding.AwayFromZero);
 }

@@ -1,3 +1,5 @@
+using SharedTaktCalculator = NexaFramework.Service.Takt.TaktCalculator;
+
 namespace NexaOne.EST.Domain.Takt;
 
 /// <summary>특정 집계 기간의 생산 요구량과 가용 시간을 초 단위로 표현한다.</summary>
@@ -68,17 +70,14 @@ public static class TaktTimeCalculator
         if (oeeAvailabilityRatio is < 0m or > 1m)
             throw new ArgumentOutOfRangeException(nameof(oeeAvailabilityRatio));
 
-        var targetTakt = target.NetAvailableSeconds / target.RequiredQty;
         // 실제 생산수량 전체가 아닌 측정 가능한 수량만 분모로 써서 누락된 시간 데이터가 0초 생산처럼 보이지 않게 한다.
-        decimal? actualCycle = actual.MeasuredQty > 0m
-            ? actual.ActualRunSeconds / actual.MeasuredQty
-            : null;
-        decimal? deviation = actualCycle - targetTakt;
-        decimal? deviationRatio = deviation / targetTakt;
+        var metrics = SharedTaktCalculator.Calculate(
+            target.NetAvailableSeconds, target.RequiredQty, actual.MeasuredQty, actual.ActualRunSeconds);
 
         return new TaktTimeResult(
-            Round4(targetTakt), Round4(target.IdealCycleSecondsPerUnit),
-            Round4(actualCycle), Round4(deviation), Round6(deviationRatio), Round6(oeeAvailabilityRatio),
+            Round4(metrics.TargetSecondsPerUnit), Round4(target.IdealCycleSecondsPerUnit),
+            Round4(metrics.ActualSecondsPerUnit), Round4(metrics.DeviationSecondsPerUnit),
+            Round6(metrics.DeviationRatio), Round6(oeeAvailabilityRatio),
             Round4(actual.ActualQty), Round4(actual.MeasuredQty), Round4(actual.ActualRunSeconds),
             target.QuantityUom.Trim(), "s/unit");
     }
