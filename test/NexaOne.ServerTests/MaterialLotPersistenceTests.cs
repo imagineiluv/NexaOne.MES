@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.IVT.Application.Materials;
+using NexaOne.IVT.Domain;
 using NexaOne.IVT.Infrastructure;
 using NexaOne.ServiceContracts.Ivt;
 using NexaDB.Data.Abstractions.Interfaces;
@@ -18,6 +19,45 @@ public sealed class MaterialLotPersistenceTests :
 
     public MaterialLotPersistenceTests(IvtTraceProjectionPersistenceTests.TraceFactory factory)
         => _factory = factory;
+
+    [Fact]
+    public async Task Pre_migration_request_hash_replays_without_changing_the_persisted_ledger()
+    {
+        // Captured from the original MES helper at 81946eda, before Framework extraction.
+        // Seed the old receipt without calling either hash implementation under test.
+        const string storedHash = "B8561AB39693D174C17BA3B7D08E04A3D5A2E457ABA48BAD84C825A5FFCCD1A8";
+        var occurredAt = new DateTime(2026, 9, 20, 1, 2, 3, DateTimeKind.Utc);
+        var receipt = new MaterialLotTransaction(
+            "HASH-TX", "HASH-KEY", storedHash, "Receive", "HASH-LOT", "HASH-MATERIAL",
+            12.5m, 0m, 12.5m, 12.5m, null, "STORE", string.Empty, "InStock", 0, 1,
+            occurredAt, "operator-01", "MES", "HASH-EVENT", "HASH-CORR", null, null,
+            Unit: "kg");
+        (await new MaterialLotRepository(DataSource()).TryReceiveAsync(receipt)).Should().BeTrue();
+        var command = new MaterialLotCommand(
+            "HASH-TX", "HASH-KEY", "Receive", "HASH-LOT", 0, occurredAt, "MES", "HASH-EVENT",
+            MaterialId: "HASH-MATERIAL", Quantity: 12.500m, Unit: "kg", Location: "STORE",
+            ActorId: "operator-01", CorrelationId: "HASH-CORR");
+
+        // New repository instances must recover from the durable receipt, not in-memory state.
+        var replay = await Service().ExecuteAsync(command);
+        var changedActor = await Service().ExecuteAsync(command with { ActorId = "other-operator" });
+        var changedPayload = await Service().ExecuteAsync(command with { Quantity = 13m });
+
+        replay.IsSuccess.Should().BeTrue(replay.IsFailure ? replay.Error.Description : string.Empty);
+        replay.Value.IsReplay.Should().BeTrue();
+        replay.Value.TransactionId.Should().Be("HASH-TX");
+        replay.Value.BalanceAfter.Should().Be(12.5m);
+        changedActor.Error.Type.Should().Be(NexaOne.Common.ErrorType.Conflict);
+        changedPayload.Error.Type.Should().Be(NexaOne.Common.ErrorType.Conflict);
+        Scalar<string>("SELECT REQUEST_HASH FROM IVT_MATERIAL_TX WHERE TX_ID=@tx", ("@tx", "HASH-TX"))
+            .Should().Be(storedHash);
+        Scalar<long>("SELECT COUNT(*) FROM IVT_MATERIAL_TX WHERE LOT_ID=@lot", ("@lot", "HASH-LOT"))
+            .Should().Be(1);
+        Scalar<decimal>("SELECT CURRENT_QTY FROM IVT_MATERIAL_LOT WHERE LOT_ID=@lot", ("@lot", "HASH-LOT"))
+            .Should().Be(12.5m);
+        Scalar<long>("SELECT VERSION_NO FROM IVT_MATERIAL_LOT WHERE LOT_ID=@lot", ("@lot", "HASH-LOT"))
+            .Should().Be(1);
+    }
 
     [Fact]
     public async Task Lifecycle_and_consumption_share_balance_status_version_and_one_tx_ledger()
