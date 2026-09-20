@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
 using NexaFramework.Service;
+using NexaFramework.Service.Inventory;
 using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Ivt;
 using Xunit;
@@ -16,6 +17,37 @@ namespace NexaOne.ServerTests;
 
 public sealed class EquipmentSharingControllerTests
 {
+    [Fact]
+    public async Task Lists_forward_queries_filters_current_principal_scope_and_cancellation_without_repacking_pages()
+    {
+        var tenant = Guid.NewGuid(); var organization = Guid.NewGuid(); var equipment = Guid.NewGuid();
+        var query = new InventoryQuery("장비 %_[X]", true, 7, 3);
+        var assets = new BusinessPage<SharedEquipment>([], 7);
+        var bookings = new BusinessPage<EquipmentBooking>([], 7);
+        using var cancellation = new CancellationTokenSource();
+        var bridge = new Mock<IEquipmentSharingBridge>(MockBehavior.Strict);
+        bridge.Setup(b => b.ListEquipmentAsync("equipment-user", tenant, organization, query, cancellation.Token)).ReturnsAsync(assets);
+        bridge.Setup(b => b.ListBookingsAsync("equipment-user", tenant, organization, equipment,
+            EquipmentBookingState.Returned, 7, 3, cancellation.Token)).ReturnsAsync(bookings);
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "equipment-user")], "test"))
+        };
+        var controller = new EquipmentSharingController(bridge.Object, Mock.Of<ILogger<EquipmentSharingController>>())
+        {
+            ControllerContext = new() { HttpContext = context }
+        };
+
+        (await controller.ListEquipment(tenant, organization, query, cancellation.Token))
+            .Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(assets);
+        (await controller.ListBookings(tenant, organization, cancellation.Token, equipment, EquipmentBookingState.Returned, 7, 3))
+            .Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(bookings);
+        context.User = new ClaimsPrincipal(new ClaimsIdentity([], "test"));
+        (await controller.ListEquipment(tenant, organization, query, cancellation.Token)).Should().BeOfType<UnauthorizedResult>();
+        (await controller.ListBookings(tenant, organization, cancellation.Token)).Should().BeOfType<UnauthorizedResult>();
+        bridge.VerifyAll(); bridge.VerifyNoOtherCalls();
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

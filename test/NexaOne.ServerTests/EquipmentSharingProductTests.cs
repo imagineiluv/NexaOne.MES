@@ -138,6 +138,102 @@ public sealed class EquipmentSharingHostTests(ITestOutputHelper output)
         await Status(await member.GetAsync(route + lookup), HttpStatusCode.Forbidden);
     }
 
+    [Fact]
+    public async Task Real_host_binds_equipment_list_defaults_and_booking_filters_with_live_permissions()
+    {
+        using var host = await HostProcess.StartAsync(output, springConfig: null, expectListening: true);
+        host.Listening.Should().BeTrue(host.Log);
+        var seed = new EquipmentSharingProductSeed();
+        await using var database = new SqliteConnection($"Data Source={host.DatabasePath};Foreign Keys=True;Pooling=False;Default Timeout=10");
+        await database.OpenAsync();
+        await database.ExecuteAsync(EquipmentSharingProductSeed.Sql, seed);
+        using var admin = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{host.Port}") };
+        var tenant = Guid.NewGuid(); var organization = Guid.NewGuid(); var other = Guid.NewGuid();
+        var route = $"/api/v1/ivt/shared-equipment/{tenant}/{organization}";
+        var otherRoute = $"/api/v1/ivt/shared-equipment/{tenant}/{other}";
+        foreach (var resource in new[] { "assets", "bookings" })
+            await Status(await admin.GetAsync(route + "/" + resource), HttpStatusCode.Unauthorized);
+        await Login(admin, "admin", "admin", seed.OtherPlant);
+        await Body<InventoryScopeBinding>(await admin.PutAsJsonAsync(route + "/binding", new { plantId = seed.Plant, active = true }));
+        await Body<InventoryScopeBinding>(await admin.PutAsJsonAsync(otherRoute + "/binding", new { plantId = seed.OtherPlant, active = true }));
+        var membershipRoute = $"/api/v1/sys/business-memberships/{tenant}/{organization}/users/{seed.Requester}";
+        var memberGrant = await Body<BusinessMembership>(await admin.PutAsJsonAsync(membershipRoute,
+            new BusinessMembershipChange(0, true, EquipmentSharingProductSeed.Grants)));
+        await Body<BusinessMembership>(await admin.PutAsJsonAsync($"/api/v1/sys/business-memberships/{tenant}/{other}/users/{seed.Requester}",
+            new BusinessMembershipChange(0, true, EquipmentSharingProductSeed.Grants)));
+        using var member = new HttpClient { BaseAddress = admin.BaseAddress };
+        await Login(member, seed.Requester, EquipmentSharingProductSeed.Password, seed.OtherPlant);
+        var assets = new List<SharedEquipment>();
+        foreach (var code in new[] { "LIST-A", "LIST-B", "LIST-C" })
+            assets.Add(await Body<SharedEquipment>(await member.PostAsJsonAsync(route + "/assets",
+                new { operationId = Guid.NewGuid(), code, name = "장비 %_[x]", capacity = 3, requiresApproval = true })));
+        await Body<SharedEquipment>(await member.PutAsJsonAsync(route + $"/assets/{assets[0].Id}/active", new { version = assets[0].Version, active = false }));
+        var foreign = await Body<SharedEquipment>(await member.PostAsJsonAsync(otherRoute + "/assets",
+            new { operationId = Guid.NewGuid(), code = "FOREIGN", name = "장비 %_[x]", capacity = 1, requiresApproval = true }));
+        var start = DateTimeOffset.UtcNow.AddDays(1);
+        var bookings = new List<EquipmentBooking>();
+        foreach (var asset in new[] { assets[1], assets[1], assets[2] })
+            bookings.Add(await Body<EquipmentBooking>(await member.PutAsJsonAsync(route + "/bookings/" + Guid.NewGuid(),
+                new { equipmentId = asset.Id, workerId = seed.Worker, start, end = start.AddHours(1), quantity = 1 })));
+        bookings[0] = await Body<EquipmentBooking>(await member.PostAsJsonAsync(route + $"/bookings/{bookings[0].Id}/cancel", new { version = bookings[0].Version }));
+        await Body<EquipmentBooking>(await member.PutAsJsonAsync(otherRoute + "/bookings/" + Guid.NewGuid(),
+            new { equipmentId = foreign.Id, workerId = seed.OtherWorker, start, end = start.AddHours(1), quantity = 1 }));
+        await database.ExecuteAsync("UPDATE MDM_WORKER SET IS_ACTIVE=0 WHERE WORKER_ID=@Worker", seed);
+        var audits = await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM IVT_SHARED_EQUIPMENT_AUDIT");
+
+        var defaults = await Body<BusinessPage<SharedEquipment>>(await member.GetAsync(route + "/assets"));
+        defaults.Total.Should().Be(2);
+        defaults.Items.Select(a => a.Id).Should().BeEquivalentTo(assets.Skip(1).Select(a => a.Id));
+        var text = Uri.EscapeDataString("장비 %_[X]");
+        var page = await Body<BusinessPage<SharedEquipment>>(await member.GetAsync(route + $"/assets?text={text}&offset=1&limit=1"));
+        page.Total.Should().Be(2); page.Items.Should().BeEquivalentTo(defaults.Items.Skip(1));
+        var inactive = await Body<BusinessPage<SharedEquipment>>(await member.GetAsync(route + $"/assets?text={text}&includeInactive=true&limit=100"));
+        inactive.Total.Should().Be(3); inactive.Items.Should().HaveCount(3).And.Contain(a => !a.Active);
+        var pastAssets = await Body<BusinessPage<SharedEquipment>>(await member.GetAsync(route + $"/assets?text={text}&offset=2&limit=1"));
+        pastAssets.Total.Should().Be(2); pastAssets.Items.Should().BeEmpty();
+        var all = await Body<BusinessPage<EquipmentBooking>>(await member.GetAsync(route + "/bookings"));
+        all.Total.Should().Be(3); all.Items.Should().BeEquivalentTo(bookings);
+        var byEquipment = await Body<BusinessPage<EquipmentBooking>>(await member.GetAsync(route + $"/bookings?equipmentId={assets[1].Id}"));
+        byEquipment.Total.Should().Be(2);
+        var bookingPage = await Body<BusinessPage<EquipmentBooking>>(await member.GetAsync(route + $"/bookings?equipmentId={assets[1].Id}&offset=1&limit=1"));
+        bookingPage.Total.Should().Be(2); bookingPage.Items.Should().BeEquivalentTo(byEquipment.Items.Skip(1));
+        var requested = await Body<BusinessPage<EquipmentBooking>>(await member.GetAsync(route + $"/bookings?equipmentId={assets[1].Id}&state=Requested&limit=100"));
+        requested.Total.Should().Be(1); requested.Items.Should().BeEquivalentTo([bookings[1]]);
+        var cancelled = await Body<BusinessPage<EquipmentBooking>>(await member.GetAsync(route + "/bookings?state=Cancelled"));
+        cancelled.Total.Should().Be(1); cancelled.Items.Should().BeEquivalentTo([bookings[0]]);
+        var past = await Body<BusinessPage<EquipmentBooking>>(await member.GetAsync(route + "/bookings?state=Cancelled&offset=1&limit=1"));
+        past.Total.Should().Be(1); past.Items.Should().BeEmpty();
+        // Keep one active asset with a space and one without, so a null-converted filter cannot pass.
+        await database.ExecuteAsync("""
+            UPDATE IVT_SHARED_EQUIPMENT SET NAME='NoSpaces'
+             WHERE TENANT_ID=@tenant AND ORGANIZATION_ID=@organization AND EQUIPMENT_ID=@id
+            """, new { tenant = tenant.ToString("D"), organization = organization.ToString("D"), id = assets[2].Id.ToString("D") });
+        foreach (var spaceQuery in new[] { "text=%20&limit=1", "query.Text=%20&query.Limit=1&text=unmatched" })
+        {
+            var spacedAssets = await Body<BusinessPage<SharedEquipment>>(await member.GetAsync(route + "/assets?" + spaceQuery));
+            spacedAssets.Total.Should().Be(1);
+            spacedAssets.Items.Should().ContainSingle().Which.Id.Should().Be(assets[1].Id);
+        }
+        var prefixedAssets = await Body<BusinessPage<SharedEquipment>>(await member.GetAsync(route + "/assets?query.Limit=1&text=%20"));
+        prefixedAssets.Total.Should().Be(2); prefixedAssets.Items.Should().ContainSingle();
+        var tooLongText = Uri.EscapeDataString(new string(' ', 256));
+        foreach (var invalid in new[] { $"text={tooLongText}", $"query.Text={tooLongText}&query.Limit=1" })
+            await Status(await member.GetAsync(route + "/assets?" + invalid), HttpStatusCode.BadRequest);
+        foreach (var invalid in new[] { "equipmentId=invalid", $"equipmentId={Guid.Empty}", "state=invalid", "state=999" })
+            await Status(await member.GetAsync(route + "/bookings?" + invalid), HttpStatusCode.BadRequest);
+        foreach (var resource in new[] { "assets", "bookings" })
+        {
+            await Status(await admin.GetAsync(route + "/" + resource), HttpStatusCode.Forbidden);
+            foreach (var invalid in new[] { "offset=-1", "limit=0", "limit=101", "offset=invalid" })
+                await Status(await member.GetAsync(route + "/" + resource + "?" + invalid), HttpStatusCode.BadRequest);
+        }
+        await Body<BusinessMembership>(await admin.PutAsJsonAsync(membershipRoute,
+            new BusinessMembershipChange(memberGrant.Version, true, EquipmentSharingProductSeed.Grants.Where(g => g != "equipment.read" && g != "equipment.booking.read").ToArray())));
+        foreach (var resource in new[] { "assets", "bookings" })
+            await Status(await member.GetAsync(route + "/" + resource), HttpStatusCode.Forbidden);
+        (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM IVT_SHARED_EQUIPMENT_AUDIT")).Should().Be(audits);
+    }
+
     private static async Task Login(HttpClient client, string userId, string password, string plantId)
     {
         var login = await Body<JsonElement>(await client.PostAsJsonAsync("/api/v1/auth/login", new { userId, password, plantId }));
@@ -185,6 +281,66 @@ public sealed class EquipmentMssqlFactAttribute : FactAttribute
 [Trait("Category", "MssqlContract")]
 public sealed class EquipmentSharingMssqlTests(ITestOutputHelper output)
 {
+    [EquipmentMssqlFact]
+    public async Task Actual_SQL_Server_lists_preserve_literal_filters_scoped_totals_and_inactive_worker_history()
+    {
+        var h = await Harness.CreateAsync(output);
+        var assets = new List<SharedEquipment>();
+        foreach (var code in new[] { "LIST-A", "LIST-B", "LIST-C" })
+            assets.Add(await h.Bridge.CreateEquipmentAsync(h.Seed.Requester, h.Tenant, h.Organization, Guid.NewGuid(), code, "장비 %_[x]", 4, false));
+        await h.Bridge.CreateEquipmentAsync(h.Seed.Requester, h.Tenant, h.Organization, Guid.NewGuid(), "LIST-D", "장비 anything-x", 1, false);
+        await h.Bridge.SetEquipmentActiveAsync(h.Seed.Requester, h.Tenant, h.Organization, assets[0].Id, assets[0].Version, false);
+        var returned = await h.Request(assets[1]);
+        var cancelled = await h.Request(assets[1]);
+        cancelled = await h.Bridge.CancelBookingAsync(h.Seed.Requester, h.Tenant, h.Organization, cancelled.Id, cancelled.Version);
+        var reviewerBooking = await h.Bridge.RequestBookingAsync(h.Seed.Reviewer, h.Tenant, h.Organization, Guid.NewGuid(), assets[1].Id,
+            h.Seed.Worker, returned.Start, returned.End, 1);
+        var secondEquipment = await h.Request(assets[2]);
+        var other = Guid.NewGuid();
+        var memberships = new BusinessMembershipBridge(h.Database.DataSource);
+        await h.Bridge.BindScopeAsync("admin", h.Tenant, other, h.Seed.OtherPlant, null, true);
+        (await memberships.SaveMembershipAsync("admin", h.Tenant, other, h.Seed.Requester, new(0, true, EquipmentSharingProductSeed.Grants))).IsSuccess.Should().BeTrue();
+        var foreign = await h.Bridge.CreateEquipmentAsync(h.Seed.Requester, h.Tenant, other, Guid.NewGuid(), "FOREIGN", "장비 %_[x]", 1, false);
+        await h.Bridge.RequestBookingAsync(h.Seed.Requester, h.Tenant, other, Guid.NewGuid(), foreign.Id,
+            h.Seed.OtherWorker, returned.Start, returned.End, 1);
+        h.Clock.Now = returned.Start;
+        returned = await h.Bridge.CheckOutAsync(h.Seed.Requester, h.Tenant, h.Organization, returned.Id, returned.Version);
+        h.Clock.Now = returned.End;
+        returned = await h.Bridge.ReturnAsync(h.Seed.Requester, h.Tenant, h.Organization, returned.Id, returned.Version);
+        await h.Database.ExecuteAsync("UPDATE MDM_WORKER SET IS_ACTIVE=0 WHERE WORKER_ID=@Worker", h.Seed);
+        var audits = await h.Count("IVT_SHARED_EQUIPMENT_AUDIT");
+
+        var equipment = await h.Bridge.ListEquipmentAsync(h.Seed.Requester, h.Tenant, h.Organization, new("장비 %_[X]"));
+        equipment.Total.Should().Be(2);
+        equipment.Items.Select(a => a.Id).Should().BeEquivalentTo(assets.Skip(1).Select(a => a.Id));
+        var equipmentPage = await h.Bridge.ListEquipmentAsync(h.Seed.Requester, h.Tenant, h.Organization, new("장비 %_[X]", Offset: 1, Limit: 1));
+        equipmentPage.Total.Should().Be(2); equipmentPage.Items.Should().Equal(equipment.Items.Skip(1));
+        var equipmentPast = await h.Bridge.ListEquipmentAsync(h.Seed.Requester, h.Tenant, h.Organization, new("장비 %_[X]", Offset: 20, Limit: 1));
+        equipmentPast.Total.Should().Be(2); equipmentPast.Items.Should().BeEmpty();
+        (await h.Bridge.ListEquipmentAsync(h.Seed.Requester, h.Tenant, h.Organization, new("장비 %_[X]", true)))
+            .Items.Should().Contain(a => a.Id == assets[0].Id && !a.Active).And.HaveCount(3);
+        var all = await h.Bridge.ListBookingsAsync(h.Seed.Requester, h.Tenant, h.Organization);
+        all.Total.Should().Be(4);
+        all.Items.Select(b => b.Id).Should().BeEquivalentTo([returned.Id, cancelled.Id, reviewerBooking.Id, secondEquipment.Id]);
+        var equipmentBookings = await h.Bridge.ListBookingsAsync(h.Seed.Requester, h.Tenant, h.Organization, assets[1].Id);
+        equipmentBookings.Total.Should().Be(3);
+        var page = await h.Bridge.ListBookingsAsync(h.Seed.Requester, h.Tenant, h.Organization, assets[1].Id, offset: 1, limit: 1);
+        page.Total.Should().Be(3); page.Items.Should().Equal(equipmentBookings.Items.Skip(1).Take(1));
+        var history = await h.Bridge.ListBookingsAsync(h.Seed.Requester, h.Tenant, h.Organization, assets[1].Id, EquipmentBookingState.Returned);
+        history.Total.Should().Be(1); history.Items.Should().Equal(returned);
+        var approved = await h.Bridge.ListBookingsAsync(h.Seed.Requester, h.Tenant, h.Organization, state: EquipmentBookingState.Approved);
+        approved.Total.Should().Be(2);
+        approved.Items.Select(b => b.Id).Should().BeEquivalentTo([reviewerBooking.Id, secondEquipment.Id]);
+        var past = await h.Bridge.ListBookingsAsync(h.Seed.Requester, h.Tenant, h.Organization, assets[1].Id, EquipmentBookingState.Returned, 1, 1);
+        past.Total.Should().Be(1); past.Items.Should().BeEmpty();
+        (await memberships.SaveMembershipAsync("admin", h.Tenant, h.Organization, h.Seed.Requester,
+            new(h.Requester.Version, true, EquipmentSharingProductSeed.Grants.Where(g => g != "equipment.read" && g != "equipment.booking.read").ToArray())))
+            .IsSuccess.Should().BeTrue();
+        await Error(() => h.Bridge.ListEquipmentAsync(h.Seed.Requester, h.Tenant, h.Organization, new()), "BUSINESS_ACCESS_DENIED");
+        await Error(() => h.Bridge.ListBookingsAsync(h.Seed.Requester, h.Tenant, h.Organization), "BUSINESS_ACCESS_DENIED");
+        (await h.Count("IVT_SHARED_EQUIPMENT_AUDIT")).Should().Be(audits);
+    }
+
     [EquipmentMssqlFact]
     public async Task Actual_SQL_Server_creation_receipt_survives_rename_and_rejects_changed_retry()
     {

@@ -25,4 +25,13 @@ public interface IBusinessMasterDirectory : INexaModuleBridge
     /// </summary>
     Task<ProductDto?> FindProductAsync(
         DbTransaction transaction, string productId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns existing masters for at most 128 distinct, nonblank, trimmed product IDs of at most
+    /// 50 characters. Empty input returns an empty list; missing keys are omitted and inactive
+    /// products are included. IDs retain their stored canonical spelling. Invalid input throws
+    /// ArgumentException. Results are detached; the caller retains its live Serializable transaction.
+    /// </summary>
+    Task<IReadOnlyList<ProductDto>> FindProductsAsync(
+        DbTransaction transaction, IReadOnlyList<string> productIds, CancellationToken ct = default);
 }

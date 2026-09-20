@@ -19,6 +19,29 @@ namespace NexaOne.ServerTests;
 public sealed class StockControllerTests
 {
     [Fact]
+    public async Task Lists_forward_the_domain_query_current_principal_scope_and_cancellation_without_repacking_pages()
+    {
+        var tenant = Guid.NewGuid(); var organization = Guid.NewGuid();
+        var query = new InventoryQuery("목록 %_[X]", true, 7, 3);
+        var products = new BusinessPage<Product>([], 7);
+        var warehouses = new BusinessPage<Warehouse>([], 7);
+        using var cancellation = new CancellationTokenSource();
+        var bridge = new Mock<IStockBridge>(MockBehavior.Strict);
+        bridge.Setup(b => b.ListProductsAsync("stock-user", tenant, organization, query, cancellation.Token)).ReturnsAsync(products);
+        bridge.Setup(b => b.ListWarehousesAsync("stock-user", tenant, organization, query, cancellation.Token)).ReturnsAsync(warehouses);
+        var controller = Controller(bridge.Object);
+
+        (await controller.ListProducts(tenant, organization, query, cancellation.Token))
+            .Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(products);
+        (await controller.ListWarehouses(tenant, organization, query, cancellation.Token))
+            .Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(warehouses);
+        var anonymous = Controller(bridge.Object, userId: null);
+        (await anonymous.ListProducts(tenant, organization, query, cancellation.Token)).Should().BeOfType<UnauthorizedResult>();
+        (await anonymous.ListWarehouses(tenant, organization, query, cancellation.Token)).Should().BeOfType<UnauthorizedResult>();
+        bridge.VerifyAll(); bridge.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task Posting_preserves_domain_payload_decimal_scope_principal_and_cancellation_token()
     {
         var tenant = Guid.NewGuid();

@@ -13,6 +13,10 @@ public interface IStockBridge : INexaModuleBridge
         string productId, string unit, CancellationToken ct = default);
     Task<ProductVariant> GetProductAsync(string userId, Guid tenantId, Guid organizationId,
         string productId, CancellationToken ct = default);
+    /// <summary>Lists enrolled products using current MDM names and active state before filtering and paging.
+    /// Product activity does not imply the frozen variant unit is still eligible; GetProductAsync reads that variant.</summary>
+    Task<BusinessPage<Product>> ListProductsAsync(string userId, Guid tenantId, Guid organizationId,
+        InventoryQuery query, CancellationToken ct = default);
     /// <summary>Creates once per actor/operation/payload; replay survives later warehouse renaming.</summary>
     Task<Warehouse> CreateWarehouseAsync(string userId, Guid tenantId, Guid organizationId,
         Guid operationId, string code, string name, CancellationToken ct = default);
@@ -20,6 +24,9 @@ public interface IStockBridge : INexaModuleBridge
         Guid id, Guid version, string code, string name, CancellationToken ct = default);
     Task<Warehouse> GetWarehouseAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, CancellationToken ct = default);
+    /// <summary>Lists warehouses and the matching total under the caller's current scoped read grant.</summary>
+    Task<BusinessPage<Warehouse>> ListWarehousesAsync(string userId, Guid tenantId, Guid organizationId,
+        InventoryQuery query, CancellationToken ct = default);
     Task<Warehouse> SetWarehouseActiveAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, bool active, CancellationToken ct = default);
     Task<StockBalance?> GetBalanceAsync(string userId, Guid tenantId, Guid organizationId,

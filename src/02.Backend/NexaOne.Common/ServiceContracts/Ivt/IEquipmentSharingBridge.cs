@@ -1,3 +1,4 @@
+using NexaFramework.Service;
 using NexaFramework.Service.Inventory;
 
 namespace NexaOne.ServiceContracts.Ivt;
@@ -18,6 +19,9 @@ public interface IEquipmentSharingBridge : INexaModuleBridge
         Guid expectedVersion, CancellationToken ct = default);
     Task<SharedEquipment> GetEquipmentAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, CancellationToken ct = default);
+    /// <summary>Lists scoped assets and the matching total under the caller's current read grant.</summary>
+    Task<BusinessPage<SharedEquipment>> ListEquipmentAsync(string userId, Guid tenantId, Guid organizationId,
+        InventoryQuery query, CancellationToken ct = default);
     /// <summary>Finds equipment by its current scope-unique code. Creation recovery uses the original operation ID.</summary>
     Task<SharedEquipment> GetEquipmentByCodeAsync(string userId, Guid tenantId, Guid organizationId,
         string code, CancellationToken ct = default);
@@ -28,6 +32,11 @@ public interface IEquipmentSharingBridge : INexaModuleBridge
         int quantity, CancellationToken ct = default);
     Task<EquipmentBooking> GetBookingAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, CancellationToken ct = default);
+    /// <summary>Lists scoped booking history with optional equipment/state filters and the matching total.
+    /// Historical bookings remain readable when the linked worker is inactive.</summary>
+    Task<BusinessPage<EquipmentBooking>> ListBookingsAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid? equipmentId = null, EquipmentBookingState? state = null, int offset = 0, int limit = 50,
+        CancellationToken ct = default);
     Task<EquipmentBooking> DecideBookingAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, bool approve, CancellationToken ct = default);
     Task<EquipmentBooking> CancelBookingAsync(string userId, Guid tenantId, Guid organizationId,

@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using Dapper;
+using NexaDB.Data.Abstractions.Models;
 using NexaFramework.Service;
 using NexaFramework.Service.Inventory;
 using NexaOne.Infrastructure.Persistence;
@@ -21,6 +22,7 @@ public sealed class EquipmentSharingBridge
     private readonly TimeProvider _clock;
     private readonly IBusinessMembershipBridge _memberships;
     private readonly IBusinessMasterDirectory _masters;
+    private readonly string _batchLimitSql;
 
     public EquipmentSharingBridge(EesDataSource dataSource, IBusinessMembershipBridge memberships,
         IBusinessMasterDirectory masters, TimeProvider? clock = null)
@@ -30,6 +32,8 @@ public sealed class EquipmentSharingBridge
         _clock = clock ?? TimeProvider.System;
         _memberships = memberships ?? throw new ArgumentNullException(nameof(memberships));
         _masters = masters ?? throw new ArgumentNullException(nameof(masters));
+        _batchLimitSql = dataSource.Provider?.Kind == DatabaseProviderKind.SqlServer
+            ? " OFFSET 0 ROWS FETCH NEXT @BatchSize ROWS ONLY" : " LIMIT @BatchSize";
     }
 
     public Task<InventoryScopeBinding> GetScopeBindingAsync(string administratorId, Guid tenantId,
@@ -98,6 +102,9 @@ public sealed class EquipmentSharingBridge
             (service, session) => service.SaveEquipmentAsync(session.Actor, code, name, capacity, requiresApproval, id, expectedVersion, ct), ct);
     public Task<SharedEquipment> GetEquipmentAsync(string userId, Guid tenantId, Guid organizationId, Guid id, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "equipment.read", (service, session) => service.GetEquipmentAsync(session.Actor, id, ct), ct);
+    public Task<BusinessPage<SharedEquipment>> ListEquipmentAsync(string userId, Guid tenantId, Guid organizationId,
+        InventoryQuery query, CancellationToken ct = default)
+        => Run(userId, tenantId, organizationId, "equipment.read", (service, session) => service.ListEquipmentAsync(session.Actor, query, ct), ct);
     public Task<SharedEquipment> GetEquipmentByCodeAsync(string userId, Guid tenantId, Guid organizationId, string code, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "equipment.read", async (service, session) =>
         {
@@ -116,6 +123,10 @@ public sealed class EquipmentSharingBridge
                 await session.ResolveWorker(workerId, ct), start, end, quantity, ct), ct);
     public Task<EquipmentBooking> GetBookingAsync(string userId, Guid tenantId, Guid organizationId, Guid id, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "equipment.booking.read", (service, session) => service.GetBookingAsync(session.Actor, id, ct), ct);
+    public Task<BusinessPage<EquipmentBooking>> ListBookingsAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid? equipmentId = null, EquipmentBookingState? state = null, int offset = 0, int limit = 50, CancellationToken ct = default)
+        => Run(userId, tenantId, organizationId, "equipment.booking.read",
+            (service, session) => service.ListBookingsAsync(session.Actor, equipmentId, state, offset, limit, ct), ct);
     public Task<EquipmentBooking> DecideBookingAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, bool approve, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "equipment.booking.decide", (service, session) => service.DecideBookingAsync(session.Actor, id, version, approve, ct), ct);
@@ -140,7 +151,7 @@ public sealed class EquipmentSharingBridge
         return _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
         {
             var session = new Session(connection, transaction, _timeout, new("NexaOne.MES", Text(tenantId), Text(organizationId)),
-                _memberships, _masters);
+                _memberships, _masters, _batchLimitSql);
             try { return await action(session); }
             finally { session.Close(); }
         }, IsolationLevel.Serializable, ct);
@@ -158,13 +169,18 @@ public sealed class EquipmentSharingBridge
 
     // This object is confined to one processor-owned database transaction. It neither commits nor retries.
     private sealed class Session(DbConnection connection, DbTransaction transaction, int? timeout, BusinessScope scope,
-        IBusinessMembershipBridge memberships, IBusinessMasterDirectory masters)
+        IBusinessMembershipBridge memberships, IBusinessMasterDirectory masters, string batchLimitSql)
         : IAtomicBusinessStore<IEquipmentTransaction>, IEquipmentTransaction, IBusinessAuthorizer
     {
         private bool _open = true;
         private int _invoked;
         private string[] _grants = [];
         private string _plantId = "";
+        private const int ListBatchSize = 128;
+        private const string EquipmentColumns = "EQUIPMENT_ID AS Id, VERSION AS Version, CODE AS Code, NAME AS Name, "
+            + "CAPACITY AS Capacity, REQUIRES_APPROVAL AS RequiresApproval, IS_ACTIVE AS Active";
+        private const string BookingColumns = "BOOKING_ID AS Id, VERSION AS Version, EQUIPMENT_ID AS EquipmentId, EMPLOYEE_ID AS EmployeeId, "
+            + "START_TICKS AS StartTicks, END_TICKS AS EndTicks, QUANTITY AS Quantity, REQUESTED_BY AS RequestedBy, STATE AS State, RETURNED_TICKS AS ReturnedTicks";
         internal BusinessActor Actor { get; private set; } = null!;
         public BusinessScope Scope { get; } = scope;
         internal void Close() => _open = false;
@@ -255,11 +271,41 @@ public sealed class EquipmentSharingBridge
 
         public async Task<SharedEquipment?> FindEquipmentAsync(Guid id, CancellationToken ct)
         {
-            var row = await connection.QuerySingleOrDefaultAsync<EquipmentRow>(Command("""
-                SELECT EQUIPMENT_ID AS Id, VERSION AS Version, CODE AS Code, NAME AS Name, CAPACITY AS Capacity,
-                       REQUIRES_APPROVAL AS RequiresApproval, IS_ACTIVE AS Active FROM IVT_SHARED_EQUIPMENT WHERE
-                """ + " " + ScopeWhere + " AND EQUIPMENT_ID=@id", new { id = Text(id) }, ct));
-            return row is null ? null : new(Id(row.Id), Scope, Id(row.Version), row.Code, row.Name, row.Capacity, row.RequiresApproval, row.Active);
+            var row = await connection.QuerySingleOrDefaultAsync<EquipmentRow>(Command("SELECT " + EquipmentColumns
+                + " FROM IVT_SHARED_EQUIPMENT WHERE " + ScopeWhere + " AND EQUIPMENT_ID=@id", new { id = Text(id) }, ct));
+            return row is null ? null : Equipment(row);
+        }
+        private SharedEquipment Equipment(EquipmentRow row)
+            => new(Id(row.Id), Scope, Id(row.Version), row.Code, row.Name, row.Capacity, row.RequiresApproval, row.Active);
+
+        public async Task<BusinessPage<SharedEquipment>> QueryEquipmentAsync(InventoryQuery query, CancellationToken ct)
+        {
+            // O(scope rows), bounded materialization: managed matching preserves literal ordinal-ignore-case
+            // semantics across providers. Apply every filter before counting or retaining page items.
+            var items = new List<SharedEquipment>(query.Limit);
+            long total = 0;
+            var end = (long)query.Offset + query.Limit;
+            string? afterCode = null, afterId = null;
+            while (true)
+            {
+                var rows = (await connection.QueryAsync<EquipmentRow>(Command("SELECT " + EquipmentColumns
+                    + " FROM IVT_SHARED_EQUIPMENT WHERE " + ScopeWhere
+                    + " AND (@IncludeInactive=1 OR IS_ACTIVE=1)"
+                    + " AND (@AfterCode IS NULL OR CODE>@AfterCode OR (CODE=@AfterCode AND EQUIPMENT_ID>@AfterId))"
+                    + " ORDER BY CODE, EQUIPMENT_ID" + batchLimitSql,
+                    new { query.IncludeInactive, AfterCode = afterCode, AfterId = afterId, BatchSize = ListBatchSize }, ct))).ToArray();
+                foreach (var row in rows)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (!string.IsNullOrEmpty(query.Text) && !row.Code.Contains(query.Text, StringComparison.OrdinalIgnoreCase)
+                        && !row.Name.Contains(query.Text, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (total >= query.Offset && total < end) items.Add(Equipment(row));
+                    total++;
+                }
+                if (rows.Length < ListBatchSize) break;
+                afterCode = rows[^1].Code; afterId = rows[^1].Id;
+            }
+            return new(Array.AsReadOnly(items.ToArray()), total);
         }
         public async Task<bool> HasOpenEquipmentBookingsAsync(Guid id, CancellationToken ct)
             => await Scalar<long>("SELECT COUNT(*) FROM IVT_SHARED_BOOKING WHERE " + ScopeWhere
@@ -308,15 +354,28 @@ public sealed class EquipmentSharingBridge
         }
         public async Task<EquipmentBooking?> FindBookingAsync(Guid id, CancellationToken ct)
         {
-            var row = await connection.QuerySingleOrDefaultAsync<BookingRow>(Command("""
-                SELECT BOOKING_ID AS Id, VERSION AS Version, EQUIPMENT_ID AS EquipmentId, EMPLOYEE_ID AS EmployeeId,
-                       START_TICKS AS StartTicks, END_TICKS AS EndTicks, QUANTITY AS Quantity,
-                       REQUESTED_BY AS RequestedBy, STATE AS State, RETURNED_TICKS AS ReturnedTicks
-                  FROM IVT_SHARED_BOOKING WHERE
-                """ + " " + ScopeWhere + " AND BOOKING_ID=@id", new { id = Text(id) }, ct));
-            return row is null ? null : new(Id(row.Id), Scope, Id(row.Version), Id(row.EquipmentId), Id(row.EmployeeId),
+            var row = await connection.QuerySingleOrDefaultAsync<BookingRow>(Command("SELECT " + BookingColumns
+                + " FROM IVT_SHARED_BOOKING WHERE " + ScopeWhere + " AND BOOKING_ID=@id", new { id = Text(id) }, ct));
+            return row is null ? null : Booking(row);
+        }
+        private EquipmentBooking Booking(BookingRow row)
+            => new(Id(row.Id), Scope, Id(row.Version), Id(row.EquipmentId), Id(row.EmployeeId),
                 new(row.StartTicks, TimeSpan.Zero), new(row.EndTicks, TimeSpan.Zero), row.Quantity, Text(Id(row.RequestedBy)),
                 (EquipmentBookingState)row.State, row.ReturnedTicks.HasValue ? new(row.ReturnedTicks.Value, TimeSpan.Zero) : null);
+
+        public async Task<BusinessPage<EquipmentBooking>> QueryBookingsAsync(Guid? equipmentId, EquipmentBookingState? state,
+            int offset, int limit, CancellationToken ct)
+        {
+            // Historical bookings remain readable without consulting current worker or equipment eligibility.
+            var where = ScopeWhere + " AND (@EquipmentId IS NULL OR EQUIPMENT_ID=@EquipmentId) AND (@State IS NULL OR STATE=@State)";
+            var values = new { EquipmentId = equipmentId.HasValue ? Text(equipmentId.Value) : null,
+                State = state.HasValue ? (int?)state.Value : null, Offset = (long)offset, End = (long)offset + limit };
+            // SUM(BIGINT) supplies a 64-bit total on both SQL Server and SQLite.
+            var total = await Scalar<long>("SELECT COALESCE(SUM(CAST(1 AS BIGINT)),0) FROM IVT_SHARED_BOOKING WHERE " + where, values, ct);
+            var rows = await connection.QueryAsync<BookingRow>(Command("SELECT * FROM (SELECT " + BookingColumns
+                + ", ROW_NUMBER() OVER (ORDER BY START_TICKS, BOOKING_ID) AS RowNumber FROM IVT_SHARED_BOOKING WHERE " + where
+                + ") AS page WHERE RowNumber>@Offset AND RowNumber<=@End ORDER BY RowNumber", values, ct));
+            return new(Array.AsReadOnly(rows.Select(Booking).ToArray()), total);
         }
         public Task SaveBookingAsync(EquipmentBooking value, Guid? expectedVersion, CancellationToken ct)
         {
