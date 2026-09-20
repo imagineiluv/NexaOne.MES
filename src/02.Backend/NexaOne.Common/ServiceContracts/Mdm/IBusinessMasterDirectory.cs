@@ -3,7 +3,7 @@ using System.Data.Common;
 namespace NexaOne.ServiceContracts.Mdm;
 
 /// <summary>
-/// MDM-owned plant and worker checks in the caller's live Serializable transaction.
+/// MDM-owned plant, worker and product checks in the caller's live Serializable transaction.
 /// The caller owns the connection, commit, rollback and disposal; these reads do not cache results.
 /// </summary>
 public interface IBusinessMasterDirectory : INexaModuleBridge
@@ -18,4 +18,11 @@ public interface IBusinessMasterDirectory : INexaModuleBridge
     /// </summary>
     Task<string?> FindActiveWorkerAsync(
         DbTransaction transaction, string workerId, string plantId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the stored canonical product ID and master data, including its raw ValidState
+    /// ("Valid" denotes active), or null for an invalid or missing key. Inactive products are returned.
+    /// </summary>
+    Task<ProductDto?> FindProductAsync(
+        DbTransaction transaction, string productId, CancellationToken ct = default);
 }

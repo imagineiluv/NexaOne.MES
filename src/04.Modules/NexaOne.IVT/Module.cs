@@ -22,6 +22,7 @@ public sealed class Module
 
     private readonly IMaterialBridge _materialBridge;
     private readonly IEquipmentSharingBridge _equipmentSharingBridge;
+    private readonly IStockBridge _stockBridge;
     private readonly IMaterialLotBridge _materialLotBridge;
     private readonly ITraceMaterialBridge _traceMaterialBridge;
     private readonly IMaterialLotDirectory _materialLotDirectory;
@@ -60,6 +61,7 @@ public sealed class Module
 
         _materialBridge = new MaterialBridge(consumptionService);
         _equipmentSharingBridge = new EquipmentSharingBridge(dataSource, businessMemberships, businessMasters);
+        _stockBridge = new StockBridge(dataSource, businessMemberships, businessMasters);
         _materialLotBridge = new MaterialLotBridge(
             new MaterialLotService(materialLotRepository));
         _traceMaterialBridge = new TraceMaterialBridge(
@@ -87,6 +89,9 @@ public sealed class Module
 
     /// <summary>공유 자산의 실제 저장·권한·예약 수명주기 bridge를 반환합니다.</summary>
     public IEquipmentSharingBridge GetEquipmentSharingBridge() => _equipmentSharingBridge;
+
+    /// <summary>명시적으로 등록된 품목의 업무 재고·예약 bridge를 반환합니다.</summary>
+    public IStockBridge GetStockBridge() => _stockBridge;
 
     /// <summary>자재 LOT 수명주기 bridge의 모듈 singleton을 반환합니다.</summary>
     public IMaterialLotBridge GetMaterialLotBridge() => _materialLotBridge;

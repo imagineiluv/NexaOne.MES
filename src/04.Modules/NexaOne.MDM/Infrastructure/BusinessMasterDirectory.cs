@@ -41,6 +41,21 @@ public sealed class BusinessMasterDirectory : IBusinessMasterDirectory
             new { workerId, plantId }, transaction, commandTimeout: _timeout, cancellationToken: ct));
     }
 
+    public async Task<ProductDto?> FindProductAsync(
+        DbTransaction transaction, string productId, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var connection = RequireSerializableConnection(transaction);
+        if (!ValidKey(productId)) return null;
+        return await connection.QuerySingleOrDefaultAsync<ProductDto>(new CommandDefinition(
+            """
+            SELECT PRODUCT_ID AS ProductId, PRODUCT_NAME AS ProductName,
+                   COALESCE(DESCRIPTION, '') AS Description, PRODUCT_TYPE AS ProductType,
+                   UNIT AS Unit, VALID_STATE AS ValidState
+              FROM MDM_PRODUCT WHERE PRODUCT_ID=@productId
+            """, new { productId }, transaction, commandTimeout: _timeout, cancellationToken: ct));
+    }
+
     private static DbConnection RequireSerializableConnection(DbTransaction transaction)
     {
         ArgumentNullException.ThrowIfNull(transaction);

@@ -148,6 +148,9 @@ public sealed class BusinessMembershipTests : IClassFixture<BusinessMembershipDa
     [InlineData("sys:manage")]
     [InlineData("equipment.booking.*")]
     [InlineData("Stock.Read")]
+    [InlineData("Stock.Product.Write")]
+    [InlineData("stock.product.*")]
+    [InlineData("stock.product.write|stock.read")]
     [InlineData("stock.read|stock.post")]
     [InlineData("")]
     public async Task Unsupported_permissions_are_rejected_before_persistence(string permission)
@@ -155,6 +158,29 @@ public sealed class BusinessMembershipTests : IClassFixture<BusinessMembershipDa
         (await Save(permissions: [permission])).Error.Type.Should().Be(ErrorType.Validation);
         Count("SYS_BUSINESS_IDENTITY").Should().Be(0);
         Count("SYS_BUSINESS_MEMBERSHIP_AUDIT").Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Product_enrollment_grant_is_explicit_persisted_and_revocable_independently_of_stock_read()
+    {
+        (await Save(permissions: ["stock.read"])).IsSuccess.Should().BeTrue();
+        (await _bridge.GetAccessAsync("member", _tenant, _organization))!.Permissions.Should().Equal("stock.read");
+
+        (await Save(1, permissions: ["stock.product.write"])).IsSuccess.Should().BeTrue();
+        var restarted = NewBridge();
+        (await restarted.GetAccessAsync("member", _tenant, _organization))!.Permissions.Should().Equal("stock.product.write");
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            await connection.OpenAsync();
+            using var transaction = connection.BeginTransaction(System.Data.IsolationLevel.Serializable);
+            (await restarted.GetAccessInTransactionAsync(transaction, "member", _tenant, _organization))!
+                .Permissions.Should().Equal("stock.product.write");
+            transaction.Rollback();
+        }
+
+        (await Save(2, permissions: ["stock.read"])).IsSuccess.Should().BeTrue();
+        (await restarted.GetAccessAsync("member", _tenant, _organization))!.Permissions.Should().Equal("stock.read");
+        Count("SYS_BUSINESS_MEMBERSHIP_AUDIT").Should().Be(3);
     }
 
     [Fact]

@@ -139,6 +139,8 @@ public sealed class IvtModuleCompositionTests
         module.GetMaterialBridge().Should().BeSameAs(module.GetMaterialBridge());
         module.GetEquipmentSharingBridge().Should().BeAssignableTo<IEquipmentSharingBridge>();
         module.GetEquipmentSharingBridge().Should().BeSameAs(module.GetEquipmentSharingBridge());
+        module.GetStockBridge().Should().BeAssignableTo<IStockBridge>();
+        module.GetStockBridge().Should().BeSameAs(module.GetStockBridge());
         module.GetMaterialLotBridge().Should().BeAssignableTo<IMaterialLotBridge>();
         module.GetMaterialLotBridge().Should().BeSameAs(module.GetMaterialLotBridge());
         module.GetTraceMaterialBridge().Should().BeAssignableTo<ITraceMaterialBridge>();
@@ -171,8 +173,9 @@ public sealed class IvtModuleCompositionTests
             .LoadObjectDefinitions(new FileSystemResource(path));
         factory.PreInstantiateSingletons();
 
-        loaded.Should().Be(9);
+        loaded.Should().Be(10);
         factory.GetObject<IEquipmentSharingBridge>("equipmentSharingBridge").Should().NotBeNull();
+        factory.GetObject<IStockBridge>("stockBridge").Should().NotBeNull();
         factory.GetObject<IMaterialBridge>("materialBridge").Should().NotBeNull();
         factory.GetObject<IMaterialLotBridge>("materialLotBridge").Should().NotBeNull();
         factory.GetObject<ITraceMaterialBridge>("traceMaterialBridge").Should().NotBeNull();

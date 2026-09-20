@@ -1,0 +1,110 @@
+using System.Data;
+using System.Data.Common;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using NexaFramework.Service;
+using NexaFramework.Service.Inventory;
+using NexaOne.Common.Security;
+using NexaOne.ServiceContracts.Ivt;
+
+namespace NexaOne.Server.Gateway;
+
+[ApiController]
+[Authorize]
+[Route("api/v1/ivt/stock/{tenantId:guid}/{organizationId:guid}")]
+public sealed class StockController(IStockBridge bridge, ILogger<StockController> logger) : ControllerBase
+{
+    [HttpPut("products/{productId}")]
+    public Task<IActionResult> EnrollProduct(Guid tenantId, Guid organizationId, string productId,
+        [FromBody] ProductEnrollment command, CancellationToken ct)
+        => Execute(user => bridge.EnrollProductAsync(user, tenantId, organizationId, productId, command.Unit, ct));
+
+    [HttpGet("products/{productId}")]
+    public Task<IActionResult> GetProduct(Guid tenantId, Guid organizationId, string productId, CancellationToken ct)
+        => Execute(user => bridge.GetProductAsync(user, tenantId, organizationId, productId, ct));
+
+    [HttpPost("warehouses")]
+    public Task<IActionResult> CreateWarehouse(Guid tenantId, Guid organizationId, [FromBody] WarehouseCreate command, CancellationToken ct)
+        => Execute(user => bridge.CreateWarehouseAsync(user, tenantId, organizationId, command.OperationId, command.Code, command.Name, ct));
+
+    [HttpPut("warehouses/{id:guid}")]
+    public Task<IActionResult> UpdateWarehouse(Guid tenantId, Guid organizationId, Guid id, [FromBody] WarehouseChange command, CancellationToken ct)
+        => Execute(user => bridge.UpdateWarehouseAsync(user, tenantId, organizationId, id, command.Version, command.Code, command.Name, ct));
+
+    [HttpGet("warehouses/{id:guid}")]
+    public Task<IActionResult> GetWarehouse(Guid tenantId, Guid organizationId, Guid id, CancellationToken ct)
+        => Execute(user => bridge.GetWarehouseAsync(user, tenantId, organizationId, id, ct));
+
+    [HttpPut("warehouses/{id:guid}/active")]
+    public Task<IActionResult> SetWarehouseActive(Guid tenantId, Guid organizationId, Guid id, [FromBody] ActiveChange command, CancellationToken ct)
+        => Execute(user => bridge.SetWarehouseActiveAsync(user, tenantId, organizationId, id, command.Version, command.Active, ct));
+
+    [HttpGet("balances")]
+    public Task<IActionResult> GetBalance(Guid tenantId, Guid organizationId, [FromQuery] Guid variantId, [FromQuery] Guid warehouseId, CancellationToken ct)
+        => Execute(user => bridge.GetBalanceAsync(user, tenantId, organizationId, variantId, warehouseId, ct));
+
+    [HttpPost("movements")]
+    public Task<IActionResult> Post(Guid tenantId, Guid organizationId, [FromBody] StockPosting posting, CancellationToken ct)
+        => Execute(user => bridge.PostAsync(user, tenantId, organizationId, posting, ct));
+
+    [HttpGet("movements/{id:guid}")]
+    public Task<IActionResult> GetMovement(Guid tenantId, Guid organizationId, Guid id, CancellationToken ct)
+        => Execute(user => bridge.GetMovementAsync(user, tenantId, organizationId, id, ct));
+
+    [HttpGet("movements")]
+    public Task<IActionResult> ListMovements(Guid tenantId, Guid organizationId, [FromQuery] Guid variantId,
+        CancellationToken ct, [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListMovementsAsync(user, tenantId, organizationId, variantId, offset, limit, ct));
+
+    [HttpPost("movements/{id:guid}/reverse")]
+    public Task<IActionResult> Reverse(Guid tenantId, Guid organizationId, Guid id, [FromBody] ReversalCommand command, CancellationToken ct)
+        => Execute(user => bridge.ReverseAsync(user, tenantId, organizationId, id, command.Version, command.OperationId, command.Reference, ct));
+
+    [HttpPost("reservations")]
+    public Task<IActionResult> Reserve(Guid tenantId, Guid organizationId, [FromBody] ReservationCommand command, CancellationToken ct)
+        => Execute(user => bridge.ReserveAsync(user, tenantId, organizationId, command.OperationId, command.VariantId,
+            command.WarehouseId, command.Quantity, command.Reference, ct));
+
+    [HttpGet("reservations/{id:guid}")]
+    public Task<IActionResult> GetReservation(Guid tenantId, Guid organizationId, Guid id, CancellationToken ct)
+        => Execute(user => bridge.GetReservationAsync(user, tenantId, organizationId, id, ct));
+
+    [HttpPost("reservations/{id:guid}/release")]
+    public Task<IActionResult> ReleaseReservation(Guid tenantId, Guid organizationId, Guid id, [FromBody] VersionedCommand command, CancellationToken ct)
+        => Execute(user => bridge.ReleaseReservationAsync(user, tenantId, organizationId, id, command.Version, ct));
+
+    [HttpPost("reservations/{id:guid}/consume")]
+    public Task<IActionResult> ConsumeReservation(Guid tenantId, Guid organizationId, Guid id, [FromBody] VersionedCommand command, CancellationToken ct)
+        => Execute(user => bridge.ConsumeReservationAsync(user, tenantId, organizationId, id, command.Version, ct));
+
+    private async Task<IActionResult> Execute<T>(Func<string, Task<T>> action)
+    {
+        var userId = User.CurrentUserId();
+        if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
+        try { return Ok(await action(userId)); }
+        catch (BusinessException error)
+        {
+            if (error.Code == "BUSINESS_ACCESS_DENIED") return Forbid();
+            var status = error.Code.EndsWith("_NOT_FOUND", StringComparison.Ordinal) ? 404
+                : error.Code.StartsWith("INVALID_", StringComparison.Ordinal) || error.Code == "EXPLICIT_CREATE_OR_VERSIONED_UPDATE_REQUIRED" ? 400 : 409;
+            return StatusCode(status, new { code = error.Code });
+        }
+        catch (DBConcurrencyException) { return Conflict(new { code = "BUSINESS_VERSION_CONFLICT" }); }
+        catch (Exception error) when (error is DbException
+            || error is AggregateException aggregate && aggregate.Flatten().InnerExceptions.Any(inner => inner is DbException))
+        {
+            logger.LogError(error, "Stock persistence failed; write outcome may be unknown.");
+            return Problem(statusCode: 503, title: "Stock storage is unavailable.",
+                detail: "A write outcome may be unknown. Read the warehouse, movement or reservation by ID before retrying; "
+                    + "for warehouse creation, stock posting or reservation, retry with the same operation ID and original payload.");
+        }
+    }
+
+    public sealed record ProductEnrollment(string Unit);
+    public sealed record WarehouseCreate(Guid OperationId, string Code, string Name);
+    public sealed record WarehouseChange(Guid Version, string Code, string Name);
+    public sealed record ActiveChange(Guid Version, bool Active);
+    public sealed record ReversalCommand(Guid Version, Guid OperationId, string Reference);
+    public sealed record ReservationCommand(Guid OperationId, Guid VariantId, Guid WarehouseId, decimal Quantity, string Reference);
+    public sealed record VersionedCommand(Guid Version);
+}

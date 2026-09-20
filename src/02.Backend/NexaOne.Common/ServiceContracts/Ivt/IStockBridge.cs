@@ -1,0 +1,44 @@
+using NexaFramework.Service;
+using NexaFramework.Service.Inventory;
+
+namespace NexaOne.ServiceContracts.Ivt;
+
+/// <summary>Scoped business stock, separate from manufacturing LOT balances. Every operation checks
+/// current SYS authority and the explicit IVT plant binding in its owning database transaction.</summary>
+public interface IStockBridge : INexaModuleBridge
+{
+    /// <summary>Enrolls an existing MDM product with one stable base variant and a frozen unit.
+    /// Requires stock.product.write. Repeating the same product/unit does not create another mapping.</summary>
+    Task<ProductVariant> EnrollProductAsync(string userId, Guid tenantId, Guid organizationId,
+        string productId, string unit, CancellationToken ct = default);
+    Task<ProductVariant> GetProductAsync(string userId, Guid tenantId, Guid organizationId,
+        string productId, CancellationToken ct = default);
+    /// <summary>Creates once per actor/operation/payload; replay survives later warehouse renaming.</summary>
+    Task<Warehouse> CreateWarehouseAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid operationId, string code, string name, CancellationToken ct = default);
+    Task<Warehouse> UpdateWarehouseAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, string code, string name, CancellationToken ct = default);
+    Task<Warehouse> GetWarehouseAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, CancellationToken ct = default);
+    Task<Warehouse> SetWarehouseActiveAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, bool active, CancellationToken ct = default);
+    Task<StockBalance?> GetBalanceAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid variantId, Guid warehouseId, CancellationToken ct = default);
+    /// <summary>Uses the Framework's scope-wide operation replay contract; current permission is required on every retry.</summary>
+    Task<StockMovement> PostAsync(string userId, Guid tenantId, Guid organizationId,
+        StockPosting posting, CancellationToken ct = default);
+    Task<StockMovement> GetMovementAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, CancellationToken ct = default);
+    Task<BusinessPage<StockMovement>> ListMovementsAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid variantId, int offset = 0, int limit = 50, CancellationToken ct = default);
+    Task<StockMovement> ReverseAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, Guid operationId, string reference, CancellationToken ct = default);
+    Task<StockReservation> ReserveAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid operationId, Guid variantId, Guid warehouseId, decimal quantity, string reference, CancellationToken ct = default);
+    Task<StockReservation> GetReservationAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, CancellationToken ct = default);
+    Task<StockReservation> ReleaseReservationAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, CancellationToken ct = default);
+    Task<StockMovement> ConsumeReservationAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, CancellationToken ct = default);
+}

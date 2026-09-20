@@ -19,6 +19,10 @@ public sealed class BusinessMasterDirectoryProxy : IBusinessMasterDirectory
         DbTransaction transaction, string workerId, string plantId, CancellationToken ct = default)
         => Resolve().FindActiveWorkerAsync(transaction, workerId, plantId, ct);
 
+    public Task<ProductDto?> FindProductAsync(
+        DbTransaction transaction, string productId, CancellationToken ct = default)
+        => Resolve().FindProductAsync(transaction, productId, ct);
+
     private IBusinessMasterDirectory Resolve() =>
         _resolver.Resolve<IBusinessMasterDirectory>("Mdm", "businessMasterDirectory");
 }

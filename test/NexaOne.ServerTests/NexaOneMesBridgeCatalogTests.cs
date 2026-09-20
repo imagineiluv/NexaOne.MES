@@ -16,7 +16,7 @@ public sealed class NexaOneMesBridgeCatalogTests
         var first = NexaOneMesBridgeCatalog.Create();
         var second = NexaOneMesBridgeCatalog.Create();
 
-        first.Descriptors.Should().HaveCount(53);
+        first.Descriptors.Should().HaveCount(54);
         first.Descriptors.Should().Equal(second.Descriptors);
         first.Descriptors.Should().OnlyContain(descriptor =>
             descriptor.ContractType.IsInterface
@@ -54,6 +54,8 @@ public sealed class NexaOneMesBridgeCatalogTests
         catalog.TryGet(typeof(ITraceMaterialBridge), out var traceMaterial).Should().BeTrue();
         traceMaterial.Should().Be(new NexaModuleBridgeDescriptor(
             typeof(ITraceMaterialBridge), "Ivt", "traceMaterialBridge"));
+        catalog.TryGet(typeof(IStockBridge), out var stock).Should().BeTrue();
+        stock.Should().Be(new NexaModuleBridgeDescriptor(typeof(IStockBridge), "Ivt", "stockBridge"));
         catalog.TryGet(typeof(IWorkScopeBridge), out var workScope).Should().BeTrue();
         workScope.Should().Be(new NexaModuleBridgeDescriptor(
             typeof(IWorkScopeBridge), "Pom", "workScopeBridge"));
