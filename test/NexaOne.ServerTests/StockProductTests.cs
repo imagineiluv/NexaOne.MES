@@ -269,6 +269,7 @@ public sealed class StockMssqlFactAttribute : FactAttribute
 }
 
 [Trait("Category", "MssqlContract")]
+[Collection(MssqlContractDatabase.CollectionName)]
 public sealed class StockMssqlTests(ITestOutputHelper output)
 {
     [StockMssqlFact]

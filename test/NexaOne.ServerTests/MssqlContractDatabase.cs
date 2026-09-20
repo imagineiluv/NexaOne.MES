@@ -16,6 +16,9 @@ namespace NexaOne.ServerTests;
 /// </summary>
 internal sealed class MssqlContractDatabase
 {
+    // These classes share one migrated database, including schema changes and serializable
+    // setup transactions. Serialize independent fixtures; explicit races inside a test still run.
+    internal const string CollectionName = "MssqlContractDatabase";
     internal const string ConnectionEnvironmentVariable = "NEXAONE_MSSQL_TEST_CONN";
     internal const string RequiredEnvironmentVariable = "NEXAONE_MSSQL_CONTRACT_REQUIRED";
 
