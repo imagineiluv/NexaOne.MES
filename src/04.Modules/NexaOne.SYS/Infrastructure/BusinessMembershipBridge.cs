@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using Dapper;
+using NexaDB.Data.Abstractions.Models;
 using NexaOne.Common;
 using NexaOne.Common.Security;
 using NexaOne.Infrastructure.Persistence;
@@ -20,25 +21,29 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
         "equipment.booking.decide", "equipment.booking.cancel", "equipment.booking.checkout",
         "equipment.booking.return",
     };
-    private const string MembershipSql = """
+    private const string MembershipRowsSql = """
         SELECT m.TENANT_ID AS TenantId, m.ORGANIZATION_ID AS OrganizationId,
                m.USER_ID AS UserId, i.BUSINESS_USER_ID AS BusinessUserId,
                m.IS_ACTIVE AS IsActive, m.MEMBERSHIP_VERSION AS Version, m.PERMISSIONS AS Permissions
           FROM SYS_BUSINESS_MEMBERSHIP m
           JOIN SYS_BUSINESS_IDENTITY i ON i.USER_ID=m.USER_ID
           JOIN SYS_USER u ON u.USER_ID=m.USER_ID
-         WHERE m.TENANT_ID=@TenantId AND m.ORGANIZATION_ID=@OrganizationId AND m.USER_ID=@UserId
         """;
+    private const string MembershipSql = MembershipRowsSql
+        + " WHERE m.TENANT_ID=@TenantId AND m.ORGANIZATION_ID=@OrganizationId AND m.USER_ID=@UserId";
 
     private readonly ServiceObjectProcessor _processor;
     private readonly int? _timeout;
     private readonly TimeProvider _time;
+    private readonly string _listLimitSql;
 
     public BusinessMembershipBridge(EesDataSource dataSource, TimeProvider? time = null) : base(dataSource)
     {
         _processor = new ServiceObjectProcessor(dataSource);
         _timeout = dataSource.QueryGatewayOptions.CommandTimeoutSeconds;
         _time = time ?? TimeProvider.System;
+        _listLimitSql = dataSource.Provider.Kind == DatabaseProviderKind.SqlServer
+            ? " OFFSET 0 ROWS FETCH NEXT @Limit ROWS ONLY" : " LIMIT @Limit";
     }
 
     public async Task<BusinessMembership?> GetAccessAsync(
@@ -69,6 +74,26 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
     {
         ct.ThrowIfCancellationRequested();
         return RequireAdministrator(RequireSerializableConnection(transaction), transaction, administratorId, ct);
+    }
+
+    public async Task<IReadOnlyList<BusinessMembership>> ListAccessInTransactionAsync(
+        DbTransaction transaction, string authenticatedUserId, Guid? afterTenantId = null,
+        Guid? afterOrganizationId = null, int limit = 128, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var connection = RequireSerializableConnection(transaction);
+        if (!ValidUser(authenticatedUserId)) throw new ArgumentException("A canonical authenticated user ID is required.", nameof(authenticatedUserId));
+        if (afterTenantId.HasValue != afterOrganizationId.HasValue || afterTenantId == Guid.Empty || afterOrganizationId == Guid.Empty)
+            throw new ArgumentException("The tenant and organization cursors must both be null or nonempty.", nameof(afterTenantId));
+        if (limit is < 1 or > 128) throw new ArgumentOutOfRangeException(nameof(limit), "Limit must be between 1 and 128.");
+        var rows = await connection.QueryAsync<MembershipRow>(Command(MembershipRowsSql
+            + " WHERE m.USER_ID=@UserId AND m.IS_ACTIVE=1 AND u.IS_ACTIVE=1 AND u.IS_DELETED=0"
+            + " AND (@AfterTenant IS NULL OR m.TENANT_ID>@AfterTenant OR (m.TENANT_ID=@AfterTenant AND m.ORGANIZATION_ID>@AfterOrganization))"
+            + " ORDER BY m.TENANT_ID, m.ORGANIZATION_ID" + _listLimitSql,
+            new { UserId = authenticatedUserId, AfterTenant = afterTenantId?.ToString("D"),
+                AfterOrganization = afterOrganizationId?.ToString("D"), Limit = limit }, transaction, ct));
+        ct.ThrowIfCancellationRequested();
+        return Array.AsReadOnly(rows.Select(ToMembership).ToArray());
     }
 
     public Task<Result<BusinessMembership>> GetMembershipAsync(

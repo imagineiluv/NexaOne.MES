@@ -10,6 +10,8 @@ public record EquipmentDto(
 public record PlantDto(
     string PlantId, string PlantName, string Description, string Country, string TimeZone);
 
+public record WorkerDto(string WorkerId, string WorkerName, string PlantId, bool IsActive);
+
 public record AreaDto(
     string AreaId, string AreaName, string Description, string PlantId);
 

@@ -14,6 +14,7 @@ using NexaFramework.Service.Inventory;
 using NexaOne.IVT.Infrastructure;
 using NexaOne.MDM.Infrastructure;
 using NexaOne.ServiceContracts.Ivt;
+using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Sys;
 using NexaOne.SYS.Infrastructure;
 using Xunit;
@@ -234,6 +235,93 @@ public sealed class EquipmentSharingHostTests(ITestOutputHelper output)
         (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM IVT_SHARED_EQUIPMENT_AUDIT")).Should().Be(audits);
     }
 
+    [Fact]
+    public async Task Real_host_selectors_use_authenticated_membership_and_binding_with_raw_worker_queries_and_live_revocation()
+    {
+        using var host = await HostProcess.StartAsync(output, springConfig: null, expectListening: true);
+        host.Listening.Should().BeTrue(host.Log);
+        var seed = new EquipmentSharingProductSeed();
+        await using var database = new SqliteConnection($"Data Source={host.DatabasePath};Foreign Keys=True;Pooling=False;Default Timeout=10");
+        await database.OpenAsync();
+        await database.ExecuteAsync(EquipmentSharingProductSeed.Sql, seed);
+        await database.ExecuteAsync(EquipmentSharingProductSeed.SelectorWorkersSql, seed);
+        using var admin = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{host.Port}") };
+        const string scopesRoute = "/api/v1/ivt/scopes/me";
+        var tenant = Guid.NewGuid(); var organization = Guid.NewGuid(); var other = Guid.NewGuid(); var foreign = Guid.NewGuid();
+        var route = $"/api/v1/ivt/shared-equipment/{tenant}/{organization}";
+        await Status(await admin.GetAsync(scopesRoute), HttpStatusCode.Unauthorized);
+        await Status(await admin.GetAsync(route + "/workers"), HttpStatusCode.Unauthorized);
+        await Login(admin, "admin", "admin", seed.OtherPlant);
+        foreach (var scope in new[] { (organization, seed.Plant), (other, seed.OtherPlant), (foreign, seed.SelectorForeignPlant) })
+            await Body<InventoryScopeBinding>(await admin.PutAsJsonAsync($"/api/v1/ivt/shared-equipment/{tenant}/{scope.Item1}/binding",
+                new { plantId = scope.Item2, active = true }));
+        var membershipRoute = $"/api/v1/sys/business-memberships/{tenant}/{organization}/users/{seed.Requester}";
+        var membership = await Body<BusinessMembership>(await admin.PutAsJsonAsync(membershipRoute,
+            new BusinessMembershipChange(0, true, ["equipment.booking.request"])));
+        foreach (var scope in new[] { other, Guid.NewGuid() }) // One eligible stock scope and one unbound membership.
+            await Body<BusinessMembership>(await admin.PutAsJsonAsync($"/api/v1/sys/business-memberships/{tenant}/{scope}/users/{seed.Requester}",
+                new BusinessMembershipChange(0, true, ["stock.read"])));
+        await Body<BusinessMembership>(await admin.PutAsJsonAsync($"/api/v1/sys/business-memberships/{tenant}/{foreign}/users/{seed.Reviewer}",
+            new BusinessMembershipChange(0, true, ["equipment.read"])));
+        using var member = new HttpClient { BaseAddress = admin.BaseAddress };
+        await Login(member, seed.Requester, EquipmentSharingProductSeed.Password, seed.OtherPlant);
+        var writes = await database.ExecuteScalarAsync<long>(EquipmentSharingProductSeed.SelectorWritesSql, seed);
+
+        // The absolute route needs no scope key or sys:manage, and ignores another user's supplied identity.
+        var scopes = await Body<BusinessPage<InventoryAccessScope>>(await member.GetAsync(scopesRoute + $"?userId={seed.Reviewer}&plantId={seed.SelectorForeignPlant}"));
+        scopes.Total.Should().Be(2);
+        scopes.Items.Select(s => s.Membership.OrganizationId.ToString("D")).Should().Equal(
+            new[] { organization.ToString("D"), other.ToString("D") }.OrderBy(id => id, StringComparer.Ordinal));
+        scopes.Items.Should().OnlyContain(s => s.Membership.UserId == seed.Requester && s.Membership.TenantId == tenant
+            && s.Binding.OrganizationId == s.Membership.OrganizationId && s.Plant.PlantId == s.Binding.PlantId);
+        var page = await Body<BusinessPage<InventoryAccessScope>>(await member.GetAsync(scopesRoute + "?offset=1&limit=1"));
+        page.Total.Should().Be(2); page.Items.Should().BeEquivalentTo(scopes.Items.Skip(1));
+        var past = await Body<BusinessPage<InventoryAccessScope>>(await member.GetAsync(scopesRoute + "?offset=2&limit=1"));
+        past.Total.Should().Be(2); past.Items.Should().BeEmpty();
+        var noMembership = await Body<BusinessPage<InventoryAccessScope>>(await admin.GetAsync(scopesRoute));
+        noMembership.Total.Should().Be(0); noMembership.Items.Should().BeEmpty();
+        var workers = await Body<BusinessPage<WorkerDto>>(await member.GetAsync(route + $"/workers?plantId={seed.OtherPlant}&userId={seed.Reviewer}"));
+        workers.Total.Should().Be(3);
+        workers.Items.Should().HaveCount(3).And.OnlyContain(w => w.PlantId == seed.Plant && w.IsActive);
+        var text = Uri.EscapeDataString("작업 %_[X]");
+        var filtered = await Body<BusinessPage<WorkerDto>>(await member.GetAsync(route + $"/workers?text={text}&offset=1&limit=1"));
+        filtered.Total.Should().Be(2); filtered.Items.Should().ContainSingle().Which.WorkerId.Should().Be(seed.SelectorWorkerB);
+        var workerPast = await Body<BusinessPage<WorkerDto>>(await member.GetAsync(route + $"/workers?text={text}&offset=2&limit=1"));
+        workerPast.Total.Should().Be(2); workerPast.Items.Should().BeEmpty();
+        foreach (var query in new[] { "text=%20", "text=%20&text=NoSpaces" })
+        {
+            var spaces = await Body<BusinessPage<WorkerDto>>(await member.GetAsync(route + "/workers?" + query));
+            spaces.Total.Should().Be(2);
+            spaces.Items.Select(w => w.WorkerId).Should().Equal(seed.SelectorWorkerA, seed.SelectorWorkerB);
+        }
+        var maximumText = Uri.EscapeDataString(new string(' ', 256));
+        var maximum = await Body<BusinessPage<WorkerDto>>(await member.GetAsync(route + "/workers?text=" + maximumText));
+        maximum.Total.Should().Be(0); maximum.Items.Should().BeEmpty();
+        await Status(await member.GetAsync(route + "/workers?text=" + maximumText + "%20"), HttpStatusCode.BadRequest);
+        foreach (var endpoint in new[] { scopesRoute, route + "/workers" })
+            foreach (var invalid in new[] { "offset=-1", "limit=0", "limit=101", "offset=invalid" })
+                await Status(await member.GetAsync(endpoint + "?" + invalid), HttpStatusCode.BadRequest);
+        await Status(await member.GetAsync($"/api/v1/ivt/shared-equipment/{tenant}/{other}/workers"), HttpStatusCode.Forbidden);
+        await Status(await member.GetAsync($"/api/v1/ivt/shared-equipment/{tenant}/{foreign}/workers"), HttpStatusCode.Forbidden);
+        await database.ExecuteAsync("""
+            UPDATE MDM_WORKER SET PLANT_ID=@OtherPlant WHERE WORKER_ID=@SelectorWorkerA;
+            UPDATE MDM_WORKER SET IS_ACTIVE=0 WHERE WORKER_ID=@SelectorWorkerB;
+            """, seed);
+        var changed = await Body<BusinessPage<WorkerDto>>(await member.GetAsync(route + "/workers?text=" + text));
+        changed.Total.Should().Be(0); changed.Items.Should().BeEmpty();
+        (await database.ExecuteScalarAsync<long>(EquipmentSharingProductSeed.SelectorWritesSql, seed)).Should().Be(writes);
+        membership = await Body<BusinessMembership>(await admin.PutAsJsonAsync(membershipRoute,
+            new BusinessMembershipChange(membership.Version, true, ["equipment.read"])));
+        await Status(await member.GetAsync(route + "/workers"), HttpStatusCode.Forbidden);
+        (await Body<BusinessPage<InventoryAccessScope>>(await member.GetAsync(scopesRoute))).Total.Should().Be(2);
+        await Body<BusinessMembership>(await admin.PutAsJsonAsync(membershipRoute, new BusinessMembershipChange(membership.Version, false, [])));
+        var revokedWrites = await database.ExecuteScalarAsync<long>(EquipmentSharingProductSeed.SelectorWritesSql, seed);
+        var revoked = await Body<BusinessPage<InventoryAccessScope>>(await member.GetAsync(scopesRoute));
+        revoked.Total.Should().Be(1); revoked.Items.Should().ContainSingle().Which.Binding.OrganizationId.Should().Be(other);
+        await Status(await member.GetAsync(route + "/workers"), HttpStatusCode.Forbidden);
+        (await database.ExecuteScalarAsync<long>(EquipmentSharingProductSeed.SelectorWritesSql, seed)).Should().Be(revokedWrites);
+    }
+
     private static async Task Login(HttpClient client, string userId, string password, string plantId)
     {
         var login = await Body<JsonElement>(await client.PostAsJsonAsync("/api/v1/auth/login", new { userId, password, plantId }));
@@ -282,6 +370,119 @@ public sealed class EquipmentMssqlFactAttribute : FactAttribute
 [Collection(MssqlContractDatabase.CollectionName)]
 public sealed class EquipmentSharingMssqlTests(ITestOutputHelper output)
 {
+    [EquipmentMssqlFact]
+    public async Task Actual_SQL_Server_selector_scans_continue_after_nonnull_membership_and_worker_cursors()
+    {
+        var h = await Harness.CreateAsync(output);
+        var tenants = new[] { Guid.NewGuid().ToString("D"), Guid.NewGuid().ToString("D") }
+            .OrderBy(id => id, StringComparer.Ordinal).ToArray();
+        // More than one batch in the first tenant forces both branches of the paired cursor:
+        // remaining organizations in that tenant, then smaller organization IDs in the next tenant.
+        var memberships = Enumerable.Range(0, 150).Select(index => new
+        {
+            Tenant = tenants[index < 130 ? 0 : 1], Organization = $"00000000-0000-0000-0000-{index % 130 + 1:D12}",
+            h.Seed.Requester, h.Seed.Now, Plant = h.Seed.Plant + $"-S{index:D3}", Version = Guid.NewGuid().ToString("D"),
+            Bound = new[] { 0, 127, 128, 129, 149 }.Contains(index), ActiveBinding = index != 128
+        }).ToArray();
+        await h.Database.ExecuteAsync("""
+            INSERT INTO SYS_BUSINESS_MEMBERSHIP
+                (TENANT_ID, ORGANIZATION_ID, USER_ID, IS_ACTIVE, PERMISSIONS, MEMBERSHIP_VERSION, UPDATED_BY, UPDATED_AT)
+            VALUES (@Tenant, @Organization, @Requester, 1, 'stock.read', 1, 'admin', @Now)
+            """, memberships);
+        await h.Database.ExecuteAsync("""
+            INSERT INTO MDM_PLANT (PLANT_ID, PLANT_NAME, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@Plant, 'Native continuation fixture', 'admin', @Now, 'admin', @Now);
+            INSERT INTO IVT_BUSINESS_SCOPE
+                (TENANT_ID, ORGANIZATION_ID, PLANT_ID, VERSION, IS_ACTIVE, UPDATED_BY, UPDATED_AT)
+            VALUES (@Tenant, @Organization, @Plant, @Version, @ActiveBinding, 'admin', @Now)
+            """, memberships.Where(row => row.Bound));
+        var workers = Enumerable.Range(0, 150).Select(index => new
+        {
+            Id = h.Seed.Worker + $"-{index:D3}", h.Seed.Plant, h.Seed.Now, Active = index != 128,
+            Name = new[] { 0, 127, 128, 149 }.Contains(index) ? "Native %_[x]" : "Unmatched"
+        }).ToArray();
+        await h.Database.ExecuteAsync("""
+            INSERT INTO MDM_WORKER (WORKER_ID, WORKER_NAME, PLANT_ID, IS_ACTIVE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES (@Id, @Name, @Plant, @Active, 'admin', @Now, 'admin', @Now)
+            """, workers);
+        var expectedKeys = memberships.Where(row => row.Bound && row.ActiveBinding)
+            .Select(row => row.Tenant + "/" + row.Organization)
+            .Append(h.Tenant.ToString("D") + "/" + h.Organization.ToString("D"))
+            .OrderBy(key => key, StringComparer.Ordinal).ToArray();
+
+        var scopes = await h.Bridge.ListAccessibleScopesAsync(h.Seed.Requester);
+        scopes.Total.Should().Be(5);
+        scopes.Items.Select(s => s.Membership.TenantId.ToString("D") + "/" + s.Membership.OrganizationId.ToString("D"))
+            .Should().Equal(expectedKeys);
+        var page = await h.Bridge.ListAccessibleScopesAsync(h.Seed.Requester, 3, 2);
+        page.Total.Should().Be(5);
+        page.Items.Should().BeEquivalentTo(scopes.Items.Skip(3), options => options.WithStrictOrdering());
+        var past = await h.Bridge.ListAccessibleScopesAsync(h.Seed.Requester, 5, 1);
+        past.Total.Should().Be(5); past.Items.Should().BeEmpty();
+
+        var matchingWorkers = await h.Bridge.ListWorkersAsync(h.Seed.Requester, h.Tenant, h.Organization, "native %_[X]");
+        matchingWorkers.Total.Should().Be(3);
+        matchingWorkers.Items.Select(w => w.WorkerId).Should().Equal(workers[0].Id, workers[127].Id, workers[149].Id);
+        var workerPage = await h.Bridge.ListWorkersAsync(h.Seed.Requester, h.Tenant, h.Organization, "native %_[X]", 1, 1);
+        workerPage.Total.Should().Be(3);
+        workerPage.Items.Should().ContainSingle().Which.WorkerId.Should().Be(workers[127].Id);
+        var workerPast = await h.Bridge.ListWorkersAsync(h.Seed.Requester, h.Tenant, h.Organization, "native %_[X]", 3, 1);
+        workerPast.Total.Should().Be(3); workerPast.Items.Should().BeEmpty();
+    }
+
+    [EquipmentMssqlFact]
+    public async Task Actual_SQL_Server_selectors_compose_eligible_owned_scopes_and_current_workers_without_read_side_effects()
+    {
+        var h = await Harness.CreateAsync(output);
+        await h.Database.ExecuteAsync(EquipmentSharingProductSeed.SelectorWorkersSql, h.Seed);
+        var other = Guid.NewGuid(); var foreign = Guid.NewGuid(); var unbound = Guid.NewGuid();
+        var memberships = new BusinessMembershipBridge(h.Database.DataSource);
+        await h.Bridge.BindScopeAsync("admin", h.Tenant, other, h.Seed.OtherPlant, null, true);
+        await h.Bridge.BindScopeAsync("admin", h.Tenant, foreign, h.Seed.SelectorForeignPlant, null, true);
+        foreach (var organization in new[] { other, unbound })
+            (await memberships.SaveMembershipAsync("admin", h.Tenant, organization, h.Seed.Requester, new(0, true, ["stock.read"]))).IsSuccess.Should().BeTrue();
+        (await memberships.SaveMembershipAsync("admin", h.Tenant, foreign, h.Seed.Reviewer, new(0, true, ["equipment.read"]))).IsSuccess.Should().BeTrue();
+        var writes = await h.Database.ScalarAsync<long>(EquipmentSharingProductSeed.SelectorWritesSql, h.Seed);
+
+        var scopes = await h.Bridge.ListAccessibleScopesAsync(h.Seed.Requester);
+        scopes.Total.Should().Be(2);
+        scopes.Items.Select(s => s.Membership.OrganizationId.ToString("D")).Should().Equal(
+            new[] { h.Organization.ToString("D"), other.ToString("D") }.OrderBy(id => id, StringComparer.Ordinal));
+        scopes.Items.Should().OnlyContain(s => s.Membership.UserId == h.Seed.Requester && s.Binding.Active
+            && s.Membership.TenantId == h.Tenant && s.Binding.OrganizationId == s.Membership.OrganizationId && s.Plant.PlantId == s.Binding.PlantId);
+        var page = await h.Bridge.ListAccessibleScopesAsync(h.Seed.Requester, 1, 1);
+        page.Total.Should().Be(2); page.Items.Should().BeEquivalentTo(scopes.Items.Skip(1));
+        var past = await h.Bridge.ListAccessibleScopesAsync(h.Seed.Requester, 2, 1);
+        past.Total.Should().Be(2); past.Items.Should().BeEmpty();
+        var workers = await h.Bridge.ListWorkersAsync(h.Seed.Requester, h.Tenant, h.Organization, "%_[X]");
+        workers.Total.Should().Be(2);
+        workers.Items.Select(w => w.WorkerId).Should().Equal(h.Seed.SelectorWorkerA, h.Seed.SelectorWorkerB);
+        workers.Items.Should().OnlyContain(w => w.IsActive && w.PlantId == h.Seed.Plant);
+        var workerPage = await h.Bridge.ListWorkersAsync(h.Seed.Requester, h.Tenant, h.Organization, "%_[X]", 1, 1);
+        workerPage.Total.Should().Be(2); workerPage.Items.Should().Equal(workers.Items.Skip(1));
+        var workerPast = await h.Bridge.ListWorkersAsync(h.Seed.Requester, h.Tenant, h.Organization, "%_[X]", 2, 1);
+        workerPast.Total.Should().Be(2); workerPast.Items.Should().BeEmpty();
+        (await h.Bridge.ListWorkersAsync(h.Seed.Requester, h.Tenant, h.Organization, " ")).Total.Should().Be(2);
+        await Error(() => h.Bridge.ListWorkersAsync(h.Seed.Requester, h.Tenant, other), "BUSINESS_ACCESS_DENIED");
+        await h.Database.ExecuteAsync("""
+            UPDATE MDM_WORKER SET PLANT_ID=@OtherPlant WHERE WORKER_ID=@SelectorWorkerA;
+            UPDATE MDM_WORKER SET IS_ACTIVE=0 WHERE WORKER_ID=@SelectorWorkerB;
+            """, h.Seed);
+        var changed = await h.Bridge.ListWorkersAsync(h.Seed.Requester, h.Tenant, h.Organization, "%_[X]");
+        changed.Total.Should().Be(0); changed.Items.Should().BeEmpty();
+        (await h.Database.ScalarAsync<long>(EquipmentSharingProductSeed.SelectorWritesSql, h.Seed)).Should().Be(writes);
+        (await memberships.SaveMembershipAsync("admin", h.Tenant, h.Organization, h.Seed.Requester,
+            new(h.Requester.Version, false, []))).IsSuccess.Should().BeTrue();
+        var revokedWrites = await h.Database.ScalarAsync<long>(EquipmentSharingProductSeed.SelectorWritesSql, h.Seed);
+        var revoked = await h.Bridge.ListAccessibleScopesAsync(h.Seed.Requester);
+        revoked.Total.Should().Be(1); revoked.Items.Should().ContainSingle().Which.Binding.OrganizationId.Should().Be(other);
+        await Error(() => h.Bridge.ListWorkersAsync(h.Seed.Requester, h.Tenant, h.Organization), "BUSINESS_ACCESS_DENIED");
+        await h.Database.ExecuteAsync("UPDATE SYS_USER SET IS_DELETED=1 WHERE USER_ID=@Requester", h.Seed);
+        var deleted = await h.Bridge.ListAccessibleScopesAsync(h.Seed.Requester);
+        deleted.Total.Should().Be(0); deleted.Items.Should().BeEmpty();
+        (await h.Database.ScalarAsync<long>(EquipmentSharingProductSeed.SelectorWritesSql, h.Seed)).Should().Be(revokedWrites);
+    }
+
     [EquipmentMssqlFact]
     public async Task Actual_SQL_Server_lists_preserve_literal_filters_scoped_totals_and_inactive_worker_history()
     {
@@ -560,11 +761,36 @@ internal sealed class EquipmentSharingProductSeed
     public string OtherPlant { get; } = "EQP-" + Guid.NewGuid().ToString("N");
     public string Worker { get; } = "EQW-" + Guid.NewGuid().ToString("N");
     public string OtherWorker { get; } = "EQW-" + Guid.NewGuid().ToString("N");
+    public string SelectorWorkerA => Worker + "-A";
+    public string SelectorWorkerB => Worker + "-B";
+    public string SelectorInactiveWorker => Worker + "-C";
+    public string SelectorForeignPlant => Plant + "-F";
     public string Role { get; } = "EQR-" + Guid.NewGuid().ToString("N");
     public string Requester { get; } = "EQU-" + Guid.NewGuid().ToString("N");
     public string Reviewer { get; } = "EQU-" + Guid.NewGuid().ToString("N");
     public DateTime Now { get; } = DateTime.UtcNow;
     public string PasswordHash => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Password))).ToLowerInvariant();
+
+    public const string SelectorWorkersSql = """
+        INSERT INTO MDM_PLANT (PLANT_ID, PLANT_NAME, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+        VALUES (@SelectorForeignPlant, 'Foreign selector plant', 'admin', @Now, 'admin', @Now);
+        UPDATE MDM_WORKER SET WORKER_NAME='NoSpaces' WHERE WORKER_ID=@Worker;
+        UPDATE MDM_WORKER SET WORKER_NAME=@SelectorWorkerName WHERE WORKER_ID=@OtherWorker;
+        INSERT INTO MDM_WORKER (WORKER_ID, WORKER_NAME, PLANT_ID, IS_ACTIVE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+        VALUES (@SelectorWorkerA, @SelectorWorkerName, @Plant, 1, 'admin', @Now, 'admin', @Now),
+               (@SelectorWorkerB, @SelectorWorkerName, @Plant, 1, 'admin', @Now, 'admin', @Now),
+               (@SelectorInactiveWorker, @SelectorWorkerName, @Plant, 0, 'admin', @Now, 'admin', @Now);
+        """;
+    public string SelectorWorkerName => "작업 %_[x]";
+    // Seed keys isolate these counts even when unrelated SQL fixtures share the database.
+    public const string SelectorWritesSql = """
+        SELECT (SELECT COUNT(*) FROM SYS_BUSINESS_IDENTITY WHERE USER_ID IN (@Requester,@Reviewer))
+             + (SELECT COUNT(*) FROM IVT_WORKER_IDENTITY WHERE WORKER_ID IN (@Worker,@OtherWorker,@SelectorWorkerA,@SelectorWorkerB,@SelectorInactiveWorker))
+             + (SELECT COUNT(*) FROM SYS_BUSINESS_MEMBERSHIP_AUDIT WHERE USER_ID IN (@Requester,@Reviewer))
+             + (SELECT COUNT(*) FROM IVT_BUSINESS_SCOPE_AUDIT WHERE PLANT_ID IN (@Plant,@OtherPlant,@SelectorForeignPlant))
+             + (SELECT COUNT(*) FROM IVT_SHARED_EQUIPMENT_AUDIT WHERE USER_ID IN
+                 (SELECT BUSINESS_USER_ID FROM SYS_BUSINESS_IDENTITY WHERE USER_ID IN (@Requester,@Reviewer)))
+        """;
 
     public const string Sql = """
         INSERT INTO MDM_PLANT (PLANT_ID, PLANT_NAME, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)

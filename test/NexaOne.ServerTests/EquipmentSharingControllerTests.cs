@@ -11,12 +11,43 @@ using NexaFramework.Service;
 using NexaFramework.Service.Inventory;
 using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Ivt;
+using NexaOne.ServiceContracts.Mdm;
 using Xunit;
 
 namespace NexaOne.ServerTests;
 
 public sealed class EquipmentSharingControllerTests
 {
+    [Fact]
+    public async Task Selectors_forward_only_the_current_principal_scope_raw_text_and_cancellation()
+    {
+        var tenant = Guid.NewGuid(); var organization = Guid.NewGuid();
+        var scopes = new BusinessPage<InventoryAccessScope>([], 7);
+        var workers = new BusinessPage<WorkerDto>([], 7);
+        using var cancellation = new CancellationTokenSource();
+        var bridge = new Mock<IEquipmentSharingBridge>(MockBehavior.Strict);
+        bridge.Setup(b => b.ListAccessibleScopesAsync("equipment-user", 7, 3, cancellation.Token)).ReturnsAsync(scopes);
+        bridge.Setup(b => b.ListWorkersAsync("equipment-user", tenant, organization, " ", 7, 3, cancellation.Token)).ReturnsAsync(workers);
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "equipment-user"),
+                new Claim("plantId", "foreign-plant")], "test"))
+        };
+        context.Request.QueryString = new QueryString("?text=%20&text=ignored&userId=forged&plantId=foreign-plant");
+        var controller = new EquipmentSharingController(bridge.Object, Mock.Of<ILogger<EquipmentSharingController>>())
+        {
+            ControllerContext = new() { HttpContext = context }
+        };
+
+        (await controller.ListScopes(cancellation.Token, 7, 3)).Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(scopes);
+        (await controller.ListWorkers(tenant, organization, cancellation.Token, null, 7, 3))
+            .Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(workers);
+        context.User = new ClaimsPrincipal(new ClaimsIdentity([], "test"));
+        (await controller.ListScopes(cancellation.Token)).Should().BeOfType<UnauthorizedResult>();
+        (await controller.ListWorkers(tenant, organization, cancellation.Token)).Should().BeOfType<UnauthorizedResult>();
+        bridge.VerifyAll(); bridge.VerifyNoOtherCalls();
+    }
+
     [Fact]
     public async Task Lists_forward_queries_filters_current_principal_scope_and_cancellation_without_repacking_pages()
     {

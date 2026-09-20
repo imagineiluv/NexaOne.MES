@@ -54,7 +54,7 @@ public sealed class EquipmentSharingPersistenceTests : IClassFixture<BusinessMem
     public Task DisposeAsync() { File.Delete(_path); return Task.CompletedTask; }
     private EesDataSource DataSource() => new() { Provider = new SqliteProvider(), ConnectionString = _connectionString };
     private EquipmentSharingBridge NewBridge() => new(DataSource(), new BusinessMembershipBridge(DataSource()), new BusinessMasterDirectory(DataSource()), _clock);
-    private void Execute(string sql) { using var connection = new SqliteConnection(_connectionString); connection.Open(); connection.Execute(sql); }
+    private void Execute(string sql, object? values = null) { using var connection = new SqliteConnection(_connectionString); connection.Open(); connection.Execute(sql, values); }
     private long Count(string table) { using var connection = new SqliteConnection(_connectionString); connection.Open(); return connection.ExecuteScalar<long>("SELECT COUNT(*) FROM " + table); }
     private Task<SharedEquipment> Asset(int capacity = 1, bool approval = true)
         => _bridge.CreateEquipmentAsync("shared-user", _tenant, _organization, Guid.NewGuid(), Guid.NewGuid().ToString("N"), "공유 자산", capacity, approval);
@@ -64,6 +64,161 @@ public sealed class EquipmentSharingPersistenceTests : IClassFixture<BusinessMem
             start ?? _clock.Now.AddHours(1), end ?? _clock.Now.AddHours(2), quantity, ct);
     private static async Task Error(Func<Task> action, string code)
         => (await Assert.ThrowsAsync<BusinessException>(action)).Code.Should().Be(code);
+
+    private (long BusinessIdentities, long WorkerIdentities, long MembershipAudits, long ScopeAudits, long EquipmentAudits) SelectorWrites()
+        => (Count("SYS_BUSINESS_IDENTITY"), Count("IVT_WORKER_IDENTITY"), Count("SYS_BUSINESS_MEMBERSHIP_AUDIT"),
+            Count("IVT_BUSINESS_SCOPE_AUDIT"), Count("IVT_SHARED_EQUIPMENT_AUDIT"));
+
+    [Fact]
+    public async Task Scope_selector_filters_across_300_memberships_before_paging_and_composes_only_current_owned_scopes()
+    {
+        (await _memberships.SaveMembershipAsync("admin", _tenant, _organization, "shared-user", new(1, true, []))).IsSuccess.Should().BeTrue();
+        // Exercise every supported inventory operation as a sole qualifying grant.
+        string[] inventoryGrants = ["stock.warehouse.read", "stock.warehouse.write", "stock.product.write", "stock.read", "stock.post",
+            "stock.reverse", "stock.reserve", "stock.consume", "stock.release", "equipment.read", "equipment.write",
+            "equipment.booking.read", "equipment.booking.request", "equipment.booking.decide", "equipment.booking.cancel",
+            "equipment.booking.checkout", "equipment.booking.return"];
+        var rows = Enumerable.Range(0, 301).Select(index =>
+        {
+            var eligible = index < inventoryGrants.Length || new[] { 127, 128, 255, 256, 299, 300 }.Contains(index);
+            return new
+            {
+                tenant = index < 150 ? "10000000-0000-0000-0000-000000000001"
+                    : index < 300 ? "20000000-0000-0000-0000-000000000001" : "30000000-0000-0000-0000-000000000001",
+                organization = $"00000000-0000-0000-0000-{index % 150 + 1:D12}",
+                plant = $"SELECT-{index:D3}", name = $"Selector plant {index:D3}", version = Guid.NewGuid().ToString("D"),
+                user = index == 300 ? "shared-reviewer" : "shared-user",
+                permissions = index < inventoryGrants.Length ? inventoryGrants[index] : eligible || index % 4 != 0 ? "stock.read" : "",
+                activeMember = eligible || index % 4 != 3,
+                bound = eligible || index % 4 != 1,
+                activeBinding = eligible || index % 4 != 2,
+                eligible
+            };
+        }).ToArray();
+        using (var connection = new SqliteConnection(_connectionString))
+        {
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+            connection.Execute("""
+                INSERT INTO MDM_PLANT (PLANT_ID, PLANT_NAME, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@plant, @name, 'admin', CURRENT_TIMESTAMP, 'admin', CURRENT_TIMESTAMP);
+                INSERT INTO SYS_BUSINESS_MEMBERSHIP (TENANT_ID, ORGANIZATION_ID, USER_ID, IS_ACTIVE, PERMISSIONS,
+                                                     MEMBERSHIP_VERSION, UPDATED_BY, UPDATED_AT)
+                VALUES (@tenant, @organization, @user, @activeMember, @permissions, 1, 'admin', CURRENT_TIMESTAMP);
+                """, rows, transaction);
+            connection.Execute("""
+                INSERT INTO IVT_BUSINESS_SCOPE (TENANT_ID, ORGANIZATION_ID, PLANT_ID, VERSION, IS_ACTIVE, UPDATED_BY, UPDATED_AT)
+                VALUES (@tenant, @organization, @plant, @version, @activeBinding, 'admin', CURRENT_TIMESTAMP)
+                """, rows.Where(row => row.bound), transaction);
+            transaction.Commit();
+        }
+        var expected = rows.Where(row => row.eligible && row.user == "shared-user").ToArray();
+        var writes = SelectorWrites();
+
+        var all = await NewBridge().ListAccessibleScopesAsync("shared-user", limit: 100);
+        all.Total.Should().Be(22);
+        all.Items.Select(s => s.Binding.PlantId).Should().Equal(expected.Select(r => r.plant));
+        foreach (var scope in all.Items)
+        {
+            scope.Membership.UserId.Should().Be("shared-user");
+            scope.Membership.IsActive.Should().BeTrue();
+            scope.Binding.Active.Should().BeTrue();
+            scope.Binding.TenantId.Should().Be(scope.Membership.TenantId);
+            scope.Binding.OrganizationId.Should().Be(scope.Membership.OrganizationId);
+            scope.Plant.PlantId.Should().Be(scope.Binding.PlantId);
+            scope.Plant.PlantName.Should().Be(rows.Single(r => r.plant == scope.Binding.PlantId).name);
+        }
+        var page = await _bridge.ListAccessibleScopesAsync("shared-user", 17, 4);
+        page.Total.Should().Be(22);
+        page.Items.Should().BeEquivalentTo(all.Items.Skip(17).Take(4), options => options.WithStrictOrdering());
+        var past = await _bridge.ListAccessibleScopesAsync("shared-user", 22, 1);
+        past.Total.Should().Be(22); past.Items.Should().BeEmpty();
+        SelectorWrites().Should().Be(writes);
+    }
+
+    [Theory]
+    [InlineData("UPDATE SYS_USER SET IS_ACTIVE=0 WHERE USER_ID='shared-user'")]
+    [InlineData("UPDATE SYS_USER SET IS_DELETED=1 WHERE USER_ID='shared-user'")]
+    [InlineData("UPDATE SYS_BUSINESS_MEMBERSHIP SET IS_ACTIVE=0 WHERE USER_ID='shared-user'")]
+    [InlineData("DELETE FROM SYS_BUSINESS_MEMBERSHIP_AUDIT WHERE USER_ID='shared-user'; DELETE FROM SYS_BUSINESS_MEMBERSHIP WHERE USER_ID='shared-user'")]
+    [InlineData("UPDATE SYS_BUSINESS_MEMBERSHIP SET PERMISSIONS='' WHERE USER_ID='shared-user'")]
+    [InlineData("UPDATE IVT_BUSINESS_SCOPE SET IS_ACTIVE=0")]
+    [InlineData("PRAGMA foreign_keys=OFF; UPDATE IVT_BUSINESS_SCOPE SET PLANT_ID='missing-plant'; PRAGMA foreign_keys=ON;")]
+    public async Task Selectors_recheck_current_user_membership_binding_and_plant_eligibility(string mutation)
+    {
+        (await _bridge.ListAccessibleScopesAsync("shared-user")).Total.Should().Be(1);
+        (await _bridge.ListWorkersAsync("shared-user", _tenant, _organization)).Total.Should().Be(1);
+        Execute(mutation);
+        var writes = SelectorWrites();
+
+        var scopes = await _bridge.ListAccessibleScopesAsync("shared-user");
+        scopes.Total.Should().Be(0); scopes.Items.Should().BeEmpty();
+        await Error(() => _bridge.ListWorkersAsync("shared-user", _tenant, _organization), "BUSINESS_ACCESS_DENIED");
+        SelectorWrites().Should().Be(writes);
+    }
+
+    [Fact]
+    public async Task Scope_selector_without_memberships_does_not_infer_admin_authority_or_create_identity()
+    {
+        var writes = SelectorWrites();
+        var scopes = await _bridge.ListAccessibleScopesAsync("admin");
+        scopes.Total.Should().Be(0); scopes.Items.Should().BeEmpty();
+        SelectorWrites().Should().Be(writes);
+    }
+
+    [Fact]
+    public async Task Worker_selector_filters_literal_live_plant_workers_and_never_reserves_identity_or_bypasses_booking_rechecks()
+    {
+        Execute("""
+            INSERT INTO MDM_WORKER (WORKER_ID, WORKER_NAME, PLANT_ID, IS_ACTIVE, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES ('SELECT-A','작업 %_[x]','SHARED-P1',1,'admin',CURRENT_TIMESTAMP,'admin',CURRENT_TIMESTAMP),
+                   ('SELECT-B','작업 %_[x]','SHARED-P1',1,'admin',CURRENT_TIMESTAMP,'admin',CURRENT_TIMESTAMP),
+                   ('SELECT-C','작업 %_[x]','SHARED-P1',0,'admin',CURRENT_TIMESTAMP,'admin',CURRENT_TIMESTAMP),
+                   ('SELECT-D','NoSpaces','SHARED-P1',1,'admin',CURRENT_TIMESTAMP,'admin',CURRENT_TIMESTAMP);
+            UPDATE MDM_WORKER SET WORKER_NAME='작업 %_[x]' WHERE WORKER_ID='SHARED-W2';
+            """);
+        var asset = await Asset();
+        var writes = SelectorWrites();
+        var all = await NewBridge().ListWorkersAsync("shared-user", _tenant, _organization, "%_[X]");
+        all.Total.Should().Be(2);
+        all.Items.Select(w => w.WorkerId).Should().Equal("SELECT-A", "SELECT-B");
+        all.Items.Should().OnlyContain(w => w.IsActive && w.PlantId == "SHARED-P1");
+        var page = await _bridge.ListWorkersAsync("shared-user", _tenant, _organization, "%_[X]", 1, 1);
+        page.Total.Should().Be(2); page.Items.Should().Equal(all.Items.Skip(1));
+        var past = await _bridge.ListWorkersAsync("shared-user", _tenant, _organization, "%_[X]", 2, 1);
+        past.Total.Should().Be(2); past.Items.Should().BeEmpty();
+        (await _bridge.ListWorkersAsync("shared-user", _tenant, _organization, " ")).Total.Should().Be(2);
+        (await _bridge.ListWorkersAsync("shared-user", _tenant, _organization, "select-a")).Items.Should().ContainSingle();
+        Execute("UPDATE MDM_WORKER SET PLANT_ID='SHARED-P2' WHERE WORKER_ID='SELECT-A'; UPDATE MDM_WORKER SET IS_ACTIVE=0 WHERE WORKER_ID='SELECT-B'");
+        var changed = await _bridge.ListWorkersAsync("shared-user", _tenant, _organization, "%_[X]");
+        changed.Total.Should().Be(0); changed.Items.Should().BeEmpty();
+        await Error(() => Request(asset, worker: "SELECT-A"), "EMPLOYEE_NOT_FOUND");
+        await Error(() => Request(asset, worker: "SELECT-B"), "EMPLOYEE_NOT_FOUND");
+        SelectorWrites().Should().Be(writes);
+        (await _memberships.SaveMembershipAsync("admin", _tenant, _organization, "shared-user",
+            new(1, true, ["equipment.read", "equipment.booking.read"]))).IsSuccess.Should().BeTrue();
+        var revokedWrites = SelectorWrites();
+        await Error(() => _bridge.ListWorkersAsync("shared-user", _tenant, _organization), "BUSINESS_ACCESS_DENIED");
+        SelectorWrites().Should().Be(revokedWrites);
+    }
+
+    [Theory]
+    [InlineData(-1, 1)]
+    [InlineData(0, 0)]
+    [InlineData(0, 101)]
+    public async Task Selectors_reject_invalid_page_bounds(int offset, int limit)
+    {
+        await Error(() => _bridge.ListAccessibleScopesAsync("shared-user", offset, limit), "INVALID_BUSINESS_INPUT");
+        await Error(() => _bridge.ListWorkersAsync("shared-user", _tenant, _organization, offset: offset, limit: limit), "INVALID_BUSINESS_INPUT");
+    }
+
+    [Fact]
+    public async Task Worker_selector_accepts_256_literal_spaces_but_rejects_257()
+    {
+        var page = await _bridge.ListWorkersAsync("shared-user", _tenant, _organization, new string(' ', 256));
+        page.Total.Should().Be(0); page.Items.Should().BeEmpty();
+        await Error(() => _bridge.ListWorkersAsync("shared-user", _tenant, _organization, new string(' ', 257)), "INVALID_BUSINESS_INPUT");
+    }
 
     [Fact]
     public async Task Equipment_lists_filter_literal_names_activity_and_scope_before_paging_without_audits()

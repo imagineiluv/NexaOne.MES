@@ -12,12 +12,28 @@ public interface IBusinessMasterDirectory : INexaModuleBridge
     Task<string?> FindPlantAsync(
         DbTransaction transaction, string plantId, CancellationToken ct = default);
 
+    /// <summary>Returns live stored canonical plant details in the caller's Serializable transaction,
+    /// or null for an invalid or missing key. Nullable description/country/time-zone values become empty strings.</summary>
+    Task<PlantDto?> FindPlantDetailsAsync(
+        DbTransaction transaction, string plantId, CancellationToken ct = default);
+
     /// <summary>
     /// Returns the stored canonical worker ID only while the worker is active in the specified plant.
     /// Invalid or missing keys and inactive or transferred workers return null.
     /// </summary>
     Task<string?> FindActiveWorkerAsync(
         DbTransaction transaction, string workerId, string plantId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Lists active workers of the specified existing plant, in stored worker-ID order, in the caller's
+    /// live Serializable transaction. Text is a literal ordinal-ignore-case ID/name substring of at most
+    /// 256 characters; whitespace is significant. Offset is nonnegative and limit is 1–100.
+    /// Invalid keys/query arguments throw ArgumentException. Missing plants return an empty page.
+    /// Filtering and long totals precede paging; O(plant workers) reads use bounded batches with no writes.
+    /// </summary>
+    Task<(IReadOnlyList<WorkerDto> Items, long Total)> QueryActiveWorkersAsync(
+        DbTransaction transaction, string plantId, string? text = null, int offset = 0, int limit = 50,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Returns the stored canonical product ID and master data, including its raw ValidState

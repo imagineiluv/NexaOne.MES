@@ -16,6 +16,16 @@ namespace NexaOne.Server.Gateway;
 [Route("api/v1/ivt/shared-equipment/{tenantId:guid}/{organizationId:guid}")]
 public sealed class EquipmentSharingController(IEquipmentSharingBridge bridge, ILogger<EquipmentSharingController> logger) : ControllerBase
 {
+    [HttpGet("/api/v1/ivt/scopes/me")]
+    public Task<IActionResult> ListScopes(CancellationToken ct, [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListAccessibleScopesAsync(user, offset, limit, ct));
+
+    [HttpGet("workers")]
+    public Task<IActionResult> ListWorkers(Guid tenantId, Guid organizationId, CancellationToken ct,
+        [FromQuery] string? text = null, [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListWorkersAsync(user, tenantId, organizationId,
+            Request.Query.TryGetValue(nameof(text), out var values) ? values.FirstOrDefault() : text, offset, limit, ct));
+
     [HttpGet("binding")]
     [RequirePermission(Permissions.SysManage)]
     public Task<IActionResult> GetBinding(Guid tenantId, Guid organizationId, CancellationToken ct)

@@ -25,6 +25,17 @@ public interface IBusinessMembershipBridge : INexaModuleBridge
         CancellationToken ct = default);
 
     /// <summary>
+    /// Lists only the authenticated user's active memberships while the SYS user is active and not deleted.
+    /// Uses the caller's live Serializable transaction, with no writes, commit or disposal. Results are
+    /// detached and ordered by stored canonical tenant ID then organization ID. Both exclusive cursors
+    /// must be null or nonempty together; limit is 1–128. Invalid arguments throw ArgumentException.
+    /// Missing/inactive/deleted users return an empty list; grants are read afresh on every call.
+    /// </summary>
+    Task<IReadOnlyList<BusinessMembership>> ListAccessInTransactionAsync(
+        DbTransaction transaction, string authenticatedUserId, Guid? afterTenantId = null,
+        Guid? afterOrganizationId = null, int limit = 128, CancellationToken ct = default);
+
+    /// <summary>
     /// Rechecks live SYS sys:manage authority using the caller's Serializable transaction and
     /// returns the stored canonical administrator ID. Does not commit or dispose the transaction.
     /// </summary>
