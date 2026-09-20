@@ -51,6 +51,7 @@ public sealed class ScreenPresentationAuditTests
     private static readonly string[] HostRoutedMenuUiIds =
     [
         "FACTORY_DASHBOARD_LAYOUT_EDIT",
+        "NX_INVENTORY_WORKSPACE",
         "SYSTEM_2_AUTH_MANAGEMENT",
         "SYSTEM_2_SO_MANAGEMENT",
     ];

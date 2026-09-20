@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
+using Dapper;
 using FluentAssertions;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using NexaDB.Data.Abstractions.Interfaces;
 using NexaOne.EMS.Application.Ems;
@@ -44,6 +46,114 @@ public sealed class MssqlRuntimeContractTests
     private readonly ITestOutputHelper _output;
 
     public MssqlRuntimeContractTests(ITestOutputHelper output) => _output = output;
+
+    [Fact]
+    public async Task Inventory_workspace_migration_appends_once_preserves_customizations_and_Unicode_on_mssql()
+    {
+        var database = await MssqlContractDatabase.TryCreateAsync(_output);
+        if (database is null)
+            return;
+
+        var migration = File.ReadAllText(RepositorySource.GetFile(
+            "src/00.Main/NexaOne.Server/config/db/migrations/V164__IVT_INVENTORY_WORKSPACE_MENU.sql"));
+        await using var connection = new SqlConnection(database.ConnectionString);
+        await connection.OpenAsync();
+        using var transaction = connection.BeginTransaction();
+        try
+        {
+            // All canonical-key fixture changes roll back, including when an assertion fails.
+            await connection.ExecuteAsync("""
+                DELETE FROM SYS_MENU_ROLE WHERE MENU_ID='NX_INVENTORY_WORKSPACE';
+                DELETE FROM SYS_MENU WHERE MENU_ID='NX_INVENTORY_WORKSPACE';
+                DELETE FROM SYS_MULTI_LANGUAGE_RESOURCE
+                 WHERE RESOURCE_KEY LIKE 'inventory.%' OR RESOURCE_KEY='menu.NX_INVENTORY_WORKSPACE';
+                INSERT INTO SYS_MENU (MENU_ID,MENU_NAME,MENU_TYPE)
+                SELECT 'FACTORY_IVT',N'창고','Folder'
+                 WHERE NOT EXISTS (SELECT 1 FROM SYS_MENU WHERE MENU_ID='FACTORY_IVT');
+                INSERT INTO SYS_MULTI_LANGUAGE_RESOURCE (RESOURCE_KEY,MENU_ID,LANGUAGE,VALUE)
+                VALUES ('inventory.title','CUSTOM','EnUs','Our inventory'),
+                       ('inventory.title','CUSTOM','KoKr',N'사용자 재고');
+                """, transaction: transaction);
+            var nextSequence = await connection.ExecuteScalarAsync<int>(
+                "SELECT COALESCE(MAX(DISPLAY_SEQUENCE),0)+1 FROM SYS_MENU WHERE PARENT_MENU_ID='FACTORY_IVT'",
+                transaction: transaction);
+            var rolesBefore = (await connection.QueryAsync<string>(
+                "SELECT ROLE_ID + ':' + PERMISSIONS FROM SYS_ROLE ORDER BY ROLE_ID", transaction: transaction)).ToArray();
+
+            await connection.ExecuteAsync(migration, transaction: transaction);
+            await connection.ExecuteAsync(migration, transaction: transaction);
+
+            (await connection.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM SYS_MENU WHERE UI_ID='NX_INVENTORY_WORKSPACE'", transaction: transaction))
+                .Should().Be(1);
+            (await connection.ExecuteScalarAsync<string>(
+                "SELECT MENU_NAME FROM SYS_MENU WHERE MENU_ID='NX_INVENTORY_WORKSPACE'", transaction: transaction))
+                .Should().Be("재고·장비 공유");
+            (await connection.ExecuteScalarAsync<int>(
+                "SELECT DISPLAY_SEQUENCE FROM SYS_MENU WHERE MENU_ID='NX_INVENTORY_WORKSPACE'", transaction: transaction))
+                .Should().Be(nextSequence);
+            (await connection.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM SYS_MENU_ROLE WHERE MENU_ID='NX_INVENTORY_WORKSPACE'", transaction: transaction))
+                .Should().Be(0);
+            (await connection.QueryAsync<string>(
+                "SELECT ROLE_ID + ':' + PERMISSIONS FROM SYS_ROLE ORDER BY ROLE_ID", transaction: transaction))
+                .Should().Equal(rolesBefore);
+            (await connection.ExecuteScalarAsync<string>("SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE " +
+                "WHERE RESOURCE_KEY='inventory.loading' AND LANGUAGE='EnUs'", transaction: transaction))
+                .Should().Be("Loading…");
+            (await connection.ExecuteScalarAsync<string>("SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE " +
+                "WHERE RESOURCE_KEY='inventory.title' AND LANGUAGE='EnUs'", transaction: transaction))
+                .Should().Be("Our inventory");
+            (await connection.ExecuteScalarAsync<string>("SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE " +
+                "WHERE RESOURCE_KEY='inventory.title' AND LANGUAGE='KoKr'", transaction: transaction))
+                .Should().Be("사용자 재고");
+
+            await connection.ExecuteAsync("""
+                UPDATE SYS_MENU SET MENU_NAME=N'우리 공유', PARENT_MENU_ID=NULL,
+                    DISPLAY_SEQUENCE=83, VALID_STATE='Invalid' WHERE MENU_ID='NX_INVENTORY_WORKSPACE';
+                INSERT INTO SYS_MENU_ROLE (MENU_ID,ROLE_ID) VALUES ('NX_INVENTORY_WORKSPACE','ADMIN');
+                UPDATE SYS_MULTI_LANGUAGE_RESOURCE SET VALUE='Our workspace', MENU_ID='CUSTOM'
+                 WHERE RESOURCE_KEY='menu.NX_INVENTORY_WORKSPACE' AND LANGUAGE='EnUs';
+                """, transaction: transaction);
+            await connection.ExecuteAsync(migration, transaction: transaction);
+            (await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM SYS_MENU " +
+                "WHERE MENU_ID='NX_INVENTORY_WORKSPACE' AND MENU_NAME=N'우리 공유' AND PARENT_MENU_ID IS NULL " +
+                "AND DISPLAY_SEQUENCE=83 AND VALID_STATE='Invalid'", transaction: transaction)).Should().Be(1);
+            (await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM SYS_MENU_ROLE " +
+                "WHERE MENU_ID='NX_INVENTORY_WORKSPACE' AND ROLE_ID='ADMIN'", transaction: transaction)).Should().Be(1);
+            (await connection.ExecuteScalarAsync<string>("SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE " +
+                "WHERE RESOURCE_KEY='menu.NX_INVENTORY_WORKSPACE' AND LANGUAGE='EnUs' AND MENU_ID='CUSTOM'",
+                transaction: transaction)).Should().Be("Our workspace");
+
+            var customId = $"CUSTOM_INV_{Suffix()}";
+            await connection.ExecuteAsync("""
+                DELETE FROM SYS_MENU_ROLE WHERE MENU_ID='NX_INVENTORY_WORKSPACE';
+                UPDATE SYS_MENU SET MENU_ID=@customId, UI_ID='nx_inventory_workspace'
+                 WHERE MENU_ID='NX_INVENTORY_WORKSPACE';
+                INSERT INTO SYS_MENU_ROLE (MENU_ID,ROLE_ID) VALUES (@customId,'ADMIN');
+                """, new { customId }, transaction: transaction);
+            await connection.ExecuteAsync(migration, transaction: transaction);
+            (await connection.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM SYS_MENU WHERE MENU_ID='NX_INVENTORY_WORKSPACE'", transaction: transaction))
+                .Should().Be(0, "an existing case-insensitive route must not acquire a second public menu");
+            (await connection.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM SYS_MENU_ROLE WHERE MENU_ID=@customId AND ROLE_ID='ADMIN'",
+                new { customId }, transaction: transaction)).Should().Be(1);
+
+            await connection.ExecuteAsync("""
+                UPDATE SYS_MENU SET UI_ID='CUSTOM_LAST', PARENT_MENU_ID='FACTORY_IVT', DISPLAY_SEQUENCE=2147483647
+                 WHERE MENU_ID=@customId;
+                """, new { customId }, transaction: transaction);
+            await connection.ExecuteAsync(migration, transaction: transaction);
+            (await connection.ExecuteScalarAsync<int>(
+                "SELECT DISPLAY_SEQUENCE FROM SYS_MENU WHERE MENU_ID='NX_INVENTORY_WORKSPACE'", transaction: transaction))
+                .Should().Be(int.MaxValue);
+            (await connection.ExecuteScalarAsync<int>(
+                "SELECT DISPLAY_SEQUENCE FROM SYS_MENU WHERE MENU_ID=@customId", new { customId }, transaction: transaction))
+                .Should().Be(int.MaxValue);
+        }
+        finally { await transaction.RollbackAsync(); }
+    }
 
     [Fact]
     public async Task Ivt_trace_binding_and_feed_session_commands_round_trip_on_mssql()

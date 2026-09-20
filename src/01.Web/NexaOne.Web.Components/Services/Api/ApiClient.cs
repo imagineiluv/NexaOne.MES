@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using NexaOne.Web.Services.Auth;
 
 namespace NexaOne.Web.Services.Api;
@@ -16,6 +17,10 @@ public sealed class ApiClient : IApiClient
     private readonly UiTextService _ui;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private static readonly JwtSecurityTokenHandler _jwtHandler = new();
+    private static readonly JsonSerializerOptions InventoryJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        Converters = { new JsonStringEnumConverter() }
+    };
 
     public ApiClient(HttpClient http, AuthTokenService tokenService, JwtAuthStateProvider authState,
         ApiNotificationService notifier, UiTextService ui)
@@ -203,6 +208,85 @@ public sealed class ApiClient : IApiClient
     }
 
     // ── HTTP helpers ──────────────────────────────────────────────────────────
+
+    public async Task<(T? Value, int StatusCode, string? Code, string? Error)> ReadInventoryAsync<T>(
+        string relativePath, CancellationToken ct = default) where T : class
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!IsInventoryReadPath(relativePath))
+            return (null, 400, "INVALID_INVENTORY_PATH",
+                _ui.T("error.inventoryPath", "재고 조회 경로가 올바르지 않습니다."));
+
+        using var response = await SendAsync(HttpMethod.Get, relativePath, null, ct, surfaceErrors: false);
+        ct.ThrowIfCancellationRequested();
+        var status = (int)response.StatusCode;
+        if (response.IsSuccessStatusCode)
+        {
+            try
+            {
+                var value = await response.Content.ReadFromJsonAsync<T>(InventoryJsonOptions, ct);
+                ct.ThrowIfCancellationRequested();
+                if (value is not null)
+                    return (value, status, null, null);
+            }
+            catch (Exception ex) when (ex is JsonException or NotSupportedException or ArgumentException)
+            {
+                // Domain constructors may reject invalid JSON values with ArgumentException.
+                // Keep that failure distinct from a valid empty page, without exposing the body.
+            }
+            ct.ThrowIfCancellationRequested();
+            return (null, status, "INVALID_INVENTORY_RESPONSE",
+                _ui.T("error.inventoryResponse", "재고 조회 응답을 읽을 수 없습니다. 다시 시도해 주세요."));
+        }
+
+        string? code = null;
+        string? error = null;
+        try
+        {
+            var payload = await response.Content.ReadFromJsonAsync<JsonElement>(InventoryJsonOptions, ct);
+            code = InventoryErrorText(payload, "code");
+            error = InventoryErrorText(payload, "description")
+                ?? InventoryErrorText(payload, "detail")
+                ?? InventoryErrorText(payload, "message")
+                ?? InventoryErrorText(payload, "title");
+        }
+        catch (JsonException)
+        {
+            // Empty/non-JSON error bodies still carry a meaningful HTTP failure status.
+        }
+        ct.ThrowIfCancellationRequested();
+        if (code == "SERVER_UNREACHABLE")
+            error = _ui.T("error.unreachable", "서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+        error ??= code ?? string.Format(_ui.T("error.requestFailed", "요청에 실패했습니다 (HTTP {0})."), status);
+        return (null, status, code, error);
+    }
+
+    private static bool IsInventoryReadPath(string? relativePath)
+    {
+        const string prefix = "api/v1/ivt/";
+        if (relativePath is null || !relativePath.StartsWith(prefix, StringComparison.Ordinal)
+            || relativePath.Contains('#') || relativePath.Any(char.IsControl)
+            || !Uri.TryCreate(relativePath, UriKind.Relative, out _))
+            return false;
+
+        // Validate the decoded path only: query text is literal user data and must pass unchanged.
+        var queryIndex = relativePath.IndexOf('?');
+        var path = Uri.UnescapeDataString(queryIndex < 0 ? relativePath : relativePath[..queryIndex]);
+        // Refuse backslashes and ambiguous double encodings rather than depending on proxy decoding.
+        return !path.Contains('\\') && !path.Contains('%') && !path.Any(char.IsControl)
+            && !path.Split('/').Any(segment => segment is "." or "..");
+    }
+
+    private static string? InventoryErrorText(JsonElement payload, string name)
+    {
+        if (payload.ValueKind != JsonValueKind.Object) return null;
+        foreach (var property in payload.EnumerateObject())
+            if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)
+                && property.Value.ValueKind == JsonValueKind.String
+                && !string.IsNullOrWhiteSpace(property.Value.GetString()))
+                return property.Value.GetString();
+        return null;
+    }
 
     private async Task<T?> GetAsync<T>(string url, CancellationToken ct) where T : class
     {
