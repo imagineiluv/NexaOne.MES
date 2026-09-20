@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using Dapper;
+using NexaDB.Data.Abstractions.Models;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Mdm;
 
@@ -10,6 +11,7 @@ namespace NexaOne.MDM.Infrastructure;
 public sealed class BusinessMasterDirectory : IBusinessMasterDirectory
 {
     private readonly int? _timeout;
+    private readonly string _batchLimitSql;
     private const string ProductColumns = "PRODUCT_ID AS ProductId, PRODUCT_NAME AS ProductName, "
         + "COALESCE(DESCRIPTION, '') AS Description, PRODUCT_TYPE AS ProductType, UNIT AS Unit, VALID_STATE AS ValidState";
 
@@ -19,6 +21,8 @@ public sealed class BusinessMasterDirectory : IBusinessMasterDirectory
         _timeout = dataSource.QueryGatewayOptions.CommandTimeoutSeconds;
         if (_timeout is <= 0)
             throw new ArgumentOutOfRangeException(nameof(dataSource), "Command timeout must be greater than zero seconds.");
+        _batchLimitSql = dataSource.Provider?.Kind == DatabaseProviderKind.SqlServer
+            ? " OFFSET 0 ROWS FETCH NEXT @BatchSize ROWS ONLY" : " LIMIT @BatchSize";
     }
 
     public async Task<string?> FindPlantAsync(
@@ -41,6 +45,62 @@ public sealed class BusinessMasterDirectory : IBusinessMasterDirectory
         return await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
             "SELECT WORKER_ID FROM MDM_WORKER WHERE WORKER_ID=@workerId AND PLANT_ID=@plantId AND IS_ACTIVE=1",
             new { workerId, plantId }, transaction, commandTimeout: _timeout, cancellationToken: ct));
+    }
+
+    public async Task<PlantDto?> FindPlantDetailsAsync(
+        DbTransaction transaction, string plantId, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var connection = RequireSerializableConnection(transaction);
+        if (!ValidKey(plantId)) return null;
+        return await connection.QuerySingleOrDefaultAsync<PlantDto>(new CommandDefinition(
+            """
+            SELECT PLANT_ID AS PlantId, PLANT_NAME AS PlantName, COALESCE(DESCRIPTION, '') AS Description,
+                   COALESCE(COUNTRY, '') AS Country, COALESCE(TIME_ZONE, '') AS TimeZone
+              FROM MDM_PLANT WHERE PLANT_ID=@plantId
+            """, new { plantId }, transaction, commandTimeout: _timeout, cancellationToken: ct));
+    }
+
+    public async Task<(IReadOnlyList<WorkerDto> Items, long Total)> QueryActiveWorkersAsync(
+        DbTransaction transaction, string plantId, string? text = null, int offset = 0, int limit = 50,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var connection = RequireSerializableConnection(transaction);
+        if (!ValidKey(plantId)) throw new ArgumentException("A canonical plant ID is required.", nameof(plantId));
+        if (text?.Length > 256) throw new ArgumentException("Text must not exceed 256 characters.", nameof(text));
+        if (offset < 0) throw new ArgumentOutOfRangeException(nameof(offset));
+        if (limit is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(limit), "Limit must be between 1 and 100.");
+        // O(plant workers): bounded keyset batches and managed matching avoid provider collation
+        // and LIKE wildcard differences. Only matching page rows survive this transaction.
+        const int batchSize = 128;
+        var items = new List<WorkerDto>(limit);
+        long total = 0;
+        var end = (long)offset + limit;
+        string? afterWorkerId = null;
+        while (true)
+        {
+            var rows = (await connection.QueryAsync<(string WorkerId, string WorkerName, string PlantId)>(new CommandDefinition("""
+                SELECT w.WORKER_ID, w.WORKER_NAME, p.PLANT_ID
+                  FROM MDM_WORKER w JOIN MDM_PLANT p ON p.PLANT_ID=w.PLANT_ID
+                 WHERE p.PLANT_ID=@plantId AND w.IS_ACTIVE=1 AND (@afterWorkerId IS NULL OR w.WORKER_ID>@afterWorkerId)
+                 ORDER BY w.WORKER_ID
+                """ + _batchLimitSql, new { plantId, afterWorkerId, BatchSize = batchSize }, transaction,
+                commandTimeout: _timeout, cancellationToken: ct))).ToArray();
+            foreach (var worker in rows)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!string.IsNullOrEmpty(text) && !worker.WorkerId.Contains(text, StringComparison.OrdinalIgnoreCase)
+                    && !worker.WorkerName.Contains(text, StringComparison.OrdinalIgnoreCase)) continue;
+                // The SQL predicate guarantees activity; avoid provider-specific BIT/INTEGER constructor binding.
+                if (total >= offset && total < end) items.Add(new(worker.WorkerId, worker.WorkerName, worker.PlantId, true));
+                total++;
+            }
+            if (rows.Length < batchSize) break;
+            afterWorkerId = rows[^1].WorkerId;
+        }
+        ct.ThrowIfCancellationRequested();
+        return (Array.AsReadOnly(items.ToArray()), total);
     }
 
     public async Task<ProductDto?> FindProductAsync(

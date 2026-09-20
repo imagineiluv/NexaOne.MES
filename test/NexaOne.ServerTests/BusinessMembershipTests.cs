@@ -1,3 +1,5 @@
+using System.Data;
+using System.Data.Common;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -11,6 +13,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using Moq;
+using Moq.Protected;
 using NexaDB.Data.Sqlite;
 using NexaOne.Common;
 using NexaOne.Common.Security;
@@ -104,6 +108,138 @@ public sealed class BusinessMembershipTests : IClassFixture<BusinessMembershipDa
         restarted.Version.Should().Be(3);
         Count("SYS_BUSINESS_IDENTITY").Should().Be(1);
         Count("SYS_BUSINESS_MEMBERSHIP_AUDIT").Should().Be(4);
+    }
+
+    [Fact]
+    public async Task Access_batches_use_paired_canonical_keysets_across_the_128_row_boundary_without_writes()
+    {
+        await Save(active: false);
+        (await _bridge.SaveMembershipAsync("admin", _tenant, _organization, "admin", new(0, true, ["stock.read"]))).IsSuccess.Should().BeTrue();
+        var firstTenant = Guid.Parse("10000000-0000-0000-0000-000000000001");
+        var secondTenant = Guid.Parse("20000000-0000-0000-0000-000000000001");
+        var scopes = Enumerable.Range(1, 130).Select(index => new
+        {
+            Tenant = (index <= 129 ? firstTenant : secondTenant).ToString("D"),
+            Organization = Guid.Parse($"00000000-0000-0000-0000-{(index <= 129 ? index : 1):D12}").ToString("D")
+        }).ToArray();
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync();
+        using var transaction = connection.BeginTransaction(IsolationLevel.Serializable);
+        await connection.ExecuteAsync("""
+            INSERT INTO SYS_BUSINESS_MEMBERSHIP (TENANT_ID, ORGANIZATION_ID, USER_ID, IS_ACTIVE, PERMISSIONS,
+                MEMBERSHIP_VERSION, UPDATED_BY, UPDATED_AT)
+            VALUES (@Tenant, @Organization, 'member', 1, 'stock.read', 1, 'admin', CURRENT_TIMESTAMP)
+            """, scopes, transaction);
+        var writes = await connection.ExecuteScalarAsync<long>("SELECT total_changes()", transaction: transaction);
+
+        var first = await _bridge.ListAccessInTransactionAsync(transaction, "member");
+        first.Should().HaveCount(128).And.OnlyContain(m => m.IsActive && m.UserId == "member");
+        var second = await _bridge.ListAccessInTransactionAsync(transaction, "member", first[^1].TenantId, first[^1].OrganizationId);
+        second.Should().HaveCount(2);
+        first.Concat(second).Select(m => (m.TenantId.ToString("D"), m.OrganizationId.ToString("D")))
+            .Should().Equal(scopes.Select(s => (s.Tenant, s.Organization)));
+        (await _bridge.ListAccessInTransactionAsync(transaction, "member", second[^1].TenantId, second[^1].OrganizationId)).Should().BeEmpty();
+        (await _bridge.ListAccessInTransactionAsync(transaction, "member", limit: 1)).Should().ContainSingle()
+            .Which.Should().BeEquivalentTo(first[0]);
+        ((IList<BusinessMembership>)first).IsReadOnly.Should().BeTrue();
+        (await connection.ExecuteScalarAsync<long>("SELECT total_changes()", transaction: transaction)).Should().Be(writes);
+        transaction.Connection.Should().BeSameAs(connection);
+        transaction.Rollback();
+        Count("SYS_BUSINESS_MEMBERSHIP").Should().Be(2);
+        Count("SYS_BUSINESS_IDENTITY").Should().Be(2);
+        Count("SYS_BUSINESS_MEMBERSHIP_AUDIT").Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Access_batches_observe_uncommitted_grant_and_user_revocation_and_preserve_rollback()
+    {
+        var saved = (await Save()).Value;
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync();
+        using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+        {
+            var before = (await _bridge.ListAccessInTransactionAsync(transaction, "member")).Single();
+            before.Should().BeEquivalentTo(saved);
+            await connection.ExecuteAsync("UPDATE SYS_BUSINESS_MEMBERSHIP SET PERMISSIONS='equipment.read', MEMBERSHIP_VERSION=2 WHERE USER_ID='member'", transaction: transaction);
+            var current = (await _bridge.ListAccessInTransactionAsync(transaction, "member")).Single();
+            current.Permissions.Should().Equal("equipment.read"); current.Version.Should().Be(2);
+            before.Permissions.Should().Equal("stock.read"); before.Version.Should().Be(1);
+            foreach (var mutation in new[] { "UPDATE SYS_BUSINESS_MEMBERSHIP SET IS_ACTIVE=0 WHERE USER_ID='member'",
+                "UPDATE SYS_USER SET IS_ACTIVE=0 WHERE USER_ID='member'", "UPDATE SYS_USER SET IS_DELETED=1 WHERE USER_ID='member'" })
+            {
+                await connection.ExecuteAsync(mutation, transaction: transaction);
+                var writes = await connection.ExecuteScalarAsync<long>("SELECT total_changes()", transaction: transaction);
+                (await _bridge.ListAccessInTransactionAsync(transaction, "member")).Should().BeEmpty();
+                (await _bridge.ListAccessInTransactionAsync(transaction, "missing-user")).Should().BeEmpty();
+                (await _bridge.ListAccessInTransactionAsync(transaction, "admin")).Should().BeEmpty();
+                (await connection.ExecuteScalarAsync<long>("SELECT total_changes()", transaction: transaction)).Should().Be(writes);
+                await connection.ExecuteAsync("""
+                    UPDATE SYS_BUSINESS_MEMBERSHIP SET IS_ACTIVE=1 WHERE USER_ID='member';
+                    UPDATE SYS_USER SET IS_ACTIVE=1, IS_DELETED=0 WHERE USER_ID='member';
+                    """, transaction: transaction);
+            }
+            await connection.ExecuteAsync("UPDATE SYS_BUSINESS_MEMBERSHIP SET PERMISSIONS='*' WHERE USER_ID='member'", transaction: transaction);
+            await Assert.ThrowsAsync<InvalidDataException>(() => _bridge.ListAccessInTransactionAsync(transaction, "member"));
+            transaction.Rollback();
+        }
+        connection.State.Should().Be(ConnectionState.Open);
+        (await _bridge.GetAccessAsync("member", _tenant, _organization)).Should().BeEquivalentTo(saved);
+        Count("SYS_BUSINESS_IDENTITY").Should().Be(1);
+        Count("SYS_BUSINESS_MEMBERSHIP_AUDIT").Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Access_batches_validate_keys_paired_cursors_limits_and_live_transaction()
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync();
+        using var transaction = connection.BeginTransaction(IsolationLevel.Serializable);
+        foreach (var user in new[] { null!, "", " ", " member", "member ", new string('x', 51) })
+            await Assert.ThrowsAsync<ArgumentException>(() => _bridge.ListAccessInTransactionAsync(transaction, user));
+        foreach (var (tenant, organization) in new (Guid?, Guid?)[]
+            { (_tenant, null), (null, _organization), (Guid.Empty, _organization), (_tenant, Guid.Empty), (Guid.Empty, Guid.Empty) })
+            await Assert.ThrowsAsync<ArgumentException>(() => _bridge.ListAccessInTransactionAsync(transaction, "member", tenant, organization));
+        foreach (var limit in new[] { 0, -1, 129 })
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _bridge.ListAccessInTransactionAsync(transaction, "member", limit: limit));
+        (await connection.ExecuteScalarAsync<long>("SELECT total_changes()", transaction: transaction)).Should().Be(0);
+        transaction.Rollback();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _bridge.ListAccessInTransactionAsync(transaction, "member"));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => _bridge.ListAccessInTransactionAsync(null!, "member"));
+    }
+
+    [Theory]
+    [InlineData(ConnectionState.Open, IsolationLevel.ReadCommitted)]
+    [InlineData(ConnectionState.Open, IsolationLevel.RepeatableRead)]
+    [InlineData(ConnectionState.Open, IsolationLevel.Snapshot)]
+    [InlineData(ConnectionState.Closed, IsolationLevel.Serializable)]
+    [InlineData(ConnectionState.Broken, IsolationLevel.Serializable)]
+    public async Task Access_batches_reject_nonserializable_or_nonopen_transactions(ConnectionState state, IsolationLevel isolation)
+    {
+        var connection = new Mock<DbConnection>(MockBehavior.Strict);
+        connection.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        using var connectionObject = connection.Object;
+        connection.SetupGet(value => value.State).Returns(state);
+        var transaction = new Mock<DbTransaction>(MockBehavior.Strict);
+        transaction.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        using var transactionObject = transaction.Object;
+        transaction.Protected().SetupGet<DbConnection>("DbConnection").Returns(connectionObject);
+        transaction.SetupGet(value => value.IsolationLevel).Returns(isolation);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _bridge.ListAccessInTransactionAsync(transactionObject, "member"));
+        connection.Protected().Verify("Dispose", Times.Never(), ItExpr.IsAny<bool>());
+        transaction.Protected().Verify("Dispose", Times.Never(), ItExpr.IsAny<bool>());
+    }
+
+    [Fact]
+    public async Task Access_batches_honor_cancellation_before_touching_the_transaction()
+    {
+        using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
+        var transaction = new Mock<DbTransaction>(MockBehavior.Strict);
+        transaction.Protected().Setup("Dispose", ItExpr.IsAny<bool>());
+        using var transactionObject = transaction.Object;
+        var error = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _bridge.ListAccessInTransactionAsync(transactionObject, "member", ct: cancellation.Token));
+        error.CancellationToken.Should().Be(cancellation.Token);
+        transaction.VerifyNoOtherCalls();
     }
 
     [Fact]

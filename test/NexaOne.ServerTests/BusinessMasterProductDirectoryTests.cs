@@ -100,6 +100,10 @@ public sealed class BusinessMasterProductDirectoryTests : IClassFixture<Business
             _directory.FindProductAsync(transactionObject, "OWNER-P1"));
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             _directory.FindProductsAsync(transactionObject, ["OWNER-P1"]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _directory.FindPlantDetailsAsync(transactionObject, "OWNER-PLANT"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            _directory.QueryActiveWorkersAsync(transactionObject, "OWNER-PLANT"));
 
         connection.Protected().Verify("Dispose", Times.Never(), ItExpr.IsAny<bool>());
         transaction.Protected().Verify("Dispose", Times.Never(), ItExpr.IsAny<bool>());
@@ -110,6 +114,8 @@ public sealed class BusinessMasterProductDirectoryTests : IClassFixture<Business
     {
         await Assert.ThrowsAsync<ArgumentNullException>(() => _directory.FindProductAsync(null!, "OWNER-P1"));
         await Assert.ThrowsAsync<ArgumentNullException>(() => _directory.FindProductsAsync(null!, ["OWNER-P1"]));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => _directory.FindPlantDetailsAsync(null!, "OWNER-PLANT"));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => _directory.QueryActiveWorkersAsync(null!, "OWNER-PLANT"));
         using var connection = new SqliteConnection(_connectionString);
         await connection.OpenAsync();
         using var transaction = connection.BeginTransaction(IsolationLevel.Serializable);
@@ -117,6 +123,8 @@ public sealed class BusinessMasterProductDirectoryTests : IClassFixture<Business
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => _directory.FindProductAsync(transaction, "OWNER-P1"));
         await Assert.ThrowsAsync<InvalidOperationException>(() => _directory.FindProductsAsync(transaction, ["OWNER-P1"]));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _directory.FindPlantDetailsAsync(transaction, "OWNER-PLANT"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _directory.QueryActiveWorkersAsync(transaction, "OWNER-PLANT"));
     }
 
     [Fact]
@@ -135,6 +143,12 @@ public sealed class BusinessMasterProductDirectoryTests : IClassFixture<Business
         var batchError = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             _directory.FindProductsAsync(transactionObject, ["OWNER-P1"], cancellation.Token));
         batchError.CancellationToken.Should().Be(cancellation.Token);
+        var plantError = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _directory.FindPlantDetailsAsync(transactionObject, "OWNER-PLANT", cancellation.Token));
+        plantError.CancellationToken.Should().Be(cancellation.Token);
+        var workerError = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _directory.QueryActiveWorkersAsync(transactionObject, "OWNER-PLANT", ct: cancellation.Token));
+        workerError.CancellationToken.Should().Be(cancellation.Token);
         transaction.VerifyNoOtherCalls();
     }
 
@@ -210,6 +224,111 @@ public sealed class BusinessMasterProductDirectoryTests : IClassFixture<Business
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _directory.FindProductsAsync(transaction,
             Enumerable.Range(0, 129).Select(index => $"OWNER-{index}").ToArray()));
         transaction.Connection.Should().BeSameAs(connection);
+        transaction.Rollback();
+    }
+
+    [Fact]
+    public async Task Plant_details_preserve_live_canonical_metadata_and_caller_rollback()
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync();
+        using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+        {
+            await connection.ExecuteAsync("""
+                INSERT INTO MDM_PLANT (PLANT_ID, PLANT_NAME, DESCRIPTION, COUNTRY, TIME_ZONE)
+                VALUES ('OWNER-PLANT', 'Original plant', 'Plant description', 'KR', 'Asia/Seoul')
+                """, transaction: transaction);
+            var writes = await connection.ExecuteScalarAsync<long>("SELECT total_changes()", transaction: transaction);
+            var original = await _directory.FindPlantDetailsAsync(transaction, "OWNER-PLANT");
+            original.Should().Be(new PlantDto("OWNER-PLANT", "Original plant", "Plant description", "KR", "Asia/Seoul"));
+            foreach (var key in new[] { null!, "", " ", " OWNER-PLANT", "OWNER-PLANT ", new string('P', 51), "missing" })
+                (await _directory.FindPlantDetailsAsync(transaction, key)).Should().BeNull();
+            (await connection.ExecuteScalarAsync<long>("SELECT total_changes()", transaction: transaction)).Should().Be(writes);
+            await connection.ExecuteAsync("""
+                UPDATE MDM_PLANT SET PLANT_NAME='Changed plant', DESCRIPTION=NULL, COUNTRY=NULL, TIME_ZONE=NULL
+                WHERE PLANT_ID='OWNER-PLANT'
+                """, transaction: transaction);
+            (await _directory.FindPlantDetailsAsync(transaction, "OWNER-PLANT")).Should().Be(
+                new PlantDto("OWNER-PLANT", "Changed plant", "", "", ""));
+            original!.PlantName.Should().Be("Original plant");
+            transaction.Connection.Should().BeSameAs(connection);
+            transaction.Rollback();
+        }
+        connection.State.Should().Be(ConnectionState.Open);
+        (await connection.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM MDM_PLANT WHERE PLANT_ID='OWNER-PLANT'")).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Worker_query_filters_live_transfers_and_activity_across_scan_batches_before_paging_without_writes()
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync();
+        using (var transaction = connection.BeginTransaction(IsolationLevel.Serializable))
+        {
+            await connection.ExecuteAsync("""
+                INSERT INTO MDM_PLANT (PLANT_ID, PLANT_NAME) VALUES ('OWNER-PLANT', 'First'), ('OWNER-OTHER', 'Second');
+                """, transaction: transaction);
+            await connection.ExecuteAsync("""
+                INSERT INTO MDM_WORKER (WORKER_ID, WORKER_NAME, PLANT_ID, IS_ACTIVE)
+                VALUES (@Id, 'Other worker', 'OWNER-PLANT', 1)
+                """, Enumerable.Range(0, 300).Select(index => new { Id = $"OWNER-W{index:D3}" }), transaction);
+            await connection.ExecuteAsync("""
+                UPDATE MDM_WORKER SET WORKER_NAME='ÄLPHA %_[x]'
+                WHERE WORKER_ID IN ('OWNER-W000','OWNER-W127','OWNER-W128','OWNER-W255','OWNER-W256','OWNER-W299');
+                """, transaction: transaction);
+            var before = await _directory.QueryActiveWorkersAsync(transaction, "OWNER-PLANT", "älpha %_[X]");
+            before.Total.Should().Be(6);
+            before.Items.Should().HaveCount(6).And.OnlyContain(worker => worker.IsActive && worker.PlantId == "OWNER-PLANT");
+            await connection.ExecuteAsync("""
+                UPDATE MDM_WORKER SET IS_ACTIVE=0 WHERE WORKER_ID='OWNER-W128';
+                UPDATE MDM_WORKER SET PLANT_ID='OWNER-OTHER' WHERE WORKER_ID='OWNER-W255';
+                UPDATE MDM_WORKER SET WORKER_NAME='ÄLPHA something-x' WHERE WORKER_ID='OWNER-W001';
+                INSERT INTO MDM_WORKER (WORKER_ID, WORKER_NAME, PLANT_ID, IS_ACTIVE)
+                VALUES ('OWNER-ORPHAN', 'ÄLPHA %_[x]', 'OWNER-MISSING', 1);
+                """, transaction: transaction);
+            var writes = await connection.ExecuteScalarAsync<long>("SELECT total_changes()", transaction: transaction);
+
+            var page = await _directory.QueryActiveWorkersAsync(transaction, "OWNER-PLANT", "älpha %_[X]", 1, 2);
+            page.Total.Should().Be(4);
+            page.Items.Should().Equal(new WorkerDto("OWNER-W127", "ÄLPHA %_[x]", "OWNER-PLANT", true),
+                new WorkerDto("OWNER-W256", "ÄLPHA %_[x]", "OWNER-PLANT", true));
+            ((IList<WorkerDto>)page.Items).IsReadOnly.Should().BeTrue();
+            var past = await _directory.QueryActiveWorkersAsync(transaction, "OWNER-PLANT", "älpha %_[X]", int.MaxValue, 100);
+            past.Total.Should().Be(4); past.Items.Should().BeEmpty();
+            var unfiltered = await _directory.QueryActiveWorkersAsync(transaction, "OWNER-PLANT", limit: 100);
+            unfiltered.Total.Should().Be(298); unfiltered.Items.Should().HaveCount(100);
+            (await _directory.QueryActiveWorkersAsync(transaction, "OWNER-PLANT", "owner-w299")).Items.Should().ContainSingle();
+            (await _directory.QueryActiveWorkersAsync(transaction, "OWNER-PLANT", "  ")).Total.Should().Be(0);
+            (await _directory.QueryActiveWorkersAsync(transaction, "OWNER-MISSING")).Total.Should().Be(0);
+            (await _directory.QueryActiveWorkersAsync(transaction, "OWNER-OTHER")).Items.Should().ContainSingle()
+                .Which.WorkerId.Should().Be("OWNER-W255");
+            before.Items.Single(worker => worker.WorkerId == "OWNER-W128").IsActive.Should().BeTrue();
+            (await connection.ExecuteScalarAsync<long>("SELECT total_changes()", transaction: transaction)).Should().Be(writes);
+            transaction.Connection.Should().BeSameAs(connection);
+            transaction.Rollback();
+        }
+        connection.State.Should().Be(ConnectionState.Open);
+        (await connection.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM MDM_WORKER WHERE WORKER_ID LIKE 'OWNER-%'")).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Worker_query_validates_keys_text_and_page_bounds_without_trimming_literal_text()
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync();
+        using var transaction = connection.BeginTransaction(IsolationLevel.Serializable);
+        foreach (var key in new[] { null!, "", " ", " OWNER-PLANT", "OWNER-PLANT ", new string('P', 51) })
+            await Assert.ThrowsAsync<ArgumentException>(() => _directory.QueryActiveWorkersAsync(transaction, key));
+        await Assert.ThrowsAsync<ArgumentException>(() => _directory.QueryActiveWorkersAsync(transaction, "OWNER-PLANT", new string('x', 257)));
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _directory.QueryActiveWorkersAsync(transaction, "OWNER-PLANT", offset: -1));
+        foreach (var limit in new[] { -1, 0, 101 })
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => _directory.QueryActiveWorkersAsync(transaction, "OWNER-PLANT", limit: limit));
+        foreach (var text in new[] { null, "", " ", new string('x', 256) })
+        {
+            var page = await _directory.QueryActiveWorkersAsync(transaction, new string('P', 50), text, limit: 1);
+            page.Total.Should().Be(0); page.Items.Should().BeEmpty();
+        }
+        (await connection.ExecuteScalarAsync<long>("SELECT total_changes()", transaction: transaction)).Should().Be(0);
         transaction.Rollback();
     }
 }

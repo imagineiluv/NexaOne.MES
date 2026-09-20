@@ -44,6 +44,86 @@ public sealed class EquipmentSharingBridge
             return await session.ReadBinding(ct) ?? throw Failure("SCOPE_NOT_FOUND");
         }, ct);
 
+    public Task<BusinessPage<InventoryAccessScope>> ListAccessibleScopesAsync(string userId,
+        int offset = 0, int limit = 50, CancellationToken ct = default)
+    {
+        if (!ValidKey(userId)) throw Failure("BUSINESS_ACCESS_DENIED");
+        RequirePage(offset, limit);
+        return _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
+        {
+            const int batchSize = 128;
+            var items = new List<InventoryAccessScope>(limit);
+            long total = 0;
+            Guid? afterTenant = null, afterOrganization = null;
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                IReadOnlyList<BusinessMembership> batch;
+                try
+                {
+                    batch = await _memberships.ListAccessInTransactionAsync(transaction, userId,
+                        afterTenant, afterOrganization, batchSize, ct);
+                }
+                catch (InvalidDataException) { throw Failure("BUSINESS_ACCESS_DENIED"); }
+                if (batch is null || batch.Count > batchSize) throw Failure("STORAGE_CONTRACT_VIOLATION");
+                foreach (var membership in batch)
+                {
+                    if (membership is null || membership.TenantId == Guid.Empty || membership.OrganizationId == Guid.Empty
+                        || membership.BusinessUserId == Guid.Empty || !membership.IsActive || membership.Version <= 0
+                        || membership.Permissions is null)
+                        throw Failure("STORAGE_CONTRACT_VIOLATION");
+                    // The owner uses canonical GUID text for its keyset order on both SQL providers.
+                    if (afterTenant.HasValue)
+                    {
+                        var tenantOrder = string.CompareOrdinal(Text(membership.TenantId), Text(afterTenant.Value));
+                        if (tenantOrder < 0 || tenantOrder == 0
+                            && string.CompareOrdinal(Text(membership.OrganizationId), Text(afterOrganization!.Value)) <= 0)
+                            throw Failure("STORAGE_CONTRACT_VIOLATION");
+                    }
+                    afterTenant = membership.TenantId;
+                    afterOrganization = membership.OrganizationId;
+                    if (!membership.Permissions.Any(IsInventoryPermission)) continue;
+                    var session = new Session(connection, transaction, _timeout,
+                        new("NexaOne.MES", Text(membership.TenantId), Text(membership.OrganizationId)),
+                        _memberships, _masters, _batchLimitSql);
+                    try
+                    {
+                        var binding = await session.ReadBinding(ct);
+                        if (binding is null || !binding.Active) continue;
+                        var plant = await _masters.FindPlantDetailsAsync(transaction, binding.PlantId, ct);
+                        if (plant is null) continue;
+                        if (total++ >= offset && items.Count < limit)
+                            items.Add(new(membership, binding, plant));
+                    }
+                    finally { session.Close(); }
+                }
+                if (batch.Count < batchSize) break;
+            }
+            ct.ThrowIfCancellationRequested();
+            return new BusinessPage<InventoryAccessScope>(Array.AsReadOnly(items.ToArray()), total);
+        }, IsolationLevel.Serializable, ct);
+    }
+
+    public Task<BusinessPage<WorkerDto>> ListWorkersAsync(string userId, Guid tenantId, Guid organizationId,
+        string? text = null, int offset = 0, int limit = 50, CancellationToken ct = default)
+        => Run(userId, tenantId, organizationId, "equipment.booking.request", (_, session) =>
+        {
+            RequirePage(offset, limit);
+            if (text?.Length > 256) throw Failure("INVALID_BUSINESS_INPUT");
+            return session.ListWorkers(text, offset, limit, ct);
+        }, ct);
+
+    private static void RequirePage(int offset, int limit)
+    {
+        if (offset < 0 || limit is < 1 or > 100) throw Failure("INVALID_BUSINESS_INPUT");
+    }
+
+    private static bool IsInventoryPermission(string permission) => permission is
+        "stock.warehouse.read" or "stock.warehouse.write" or "stock.product.write" or "stock.read" or "stock.post"
+        or "stock.reverse" or "stock.reserve" or "stock.consume" or "stock.release"
+        or "equipment.read" or "equipment.write" or "equipment.booking.read" or "equipment.booking.request"
+        or "equipment.booking.decide" or "equipment.booking.cancel" or "equipment.booking.checkout" or "equipment.booking.return";
+
     public Task<InventoryScopeBinding> BindScopeAsync(string administratorId, Guid tenantId, Guid organizationId,
         string plantId, Guid? expectedVersion, bool active, CancellationToken ct = default)
         => InTransaction(administratorId, tenantId, organizationId, async session =>
@@ -262,6 +342,11 @@ public sealed class EquipmentSharingBridge
             var id = Guid.NewGuid();
             await Write("INSERT INTO IVT_WORKER_IDENTITY (WORKER_ID, EMPLOYEE_ID) VALUES (@workerId, @id)", new { workerId = canonicalWorker, id = Text(id) }, ct);
             return id;
+        }
+        internal async Task<BusinessPage<WorkerDto>> ListWorkers(string? text, int offset, int limit, CancellationToken ct)
+        {
+            var page = await masters.QueryActiveWorkersAsync(transaction, _plantId, text, offset, limit, ct);
+            return new(page.Items, page.Total);
         }
         public async Task<bool> EmployeeExistsAsync(Guid employeeId, CancellationToken ct)
         {
