@@ -1,0 +1,195 @@
+@using NexaFramework.Service.Inventory
+@using NexaOne.Server.Gateway
+@implements IDisposable
+
+<section id="inventory-equipment-workflows" class="equipment-workflows" aria-labelledby="equipment-workflow-heading" aria-busy="@((_busy || _loading).ToString().ToLowerInvariant())">
+    <div class="ew-heading">
+        <h2 id="equipment-workflow-heading" tabindex="-1" @ref="_heading">@T("inventory.write.heading", "장비 작업", "Equipment actions")</h2>
+        @if (Has("equipment.write"))
+        {
+            <button id="equipment-new" type="button" disabled="@(!CanStart)" @onclick="NewAsset">@ActionName("create")</button>
+        }
+    </div>
+    @if (!OwnerValid)
+    {
+        <p role="status">@T("inventory.write.ownerRequired", "작업을 진행하려면 현재 사용자와 업무 소속을 다시 확인해 주세요.", "Refresh your current user and business scope before taking action.")</p>
+    }
+    else if (_loading || !_loaded && !_storageError)
+    {
+        <p role="status">@T("inventory.write.loadingRecovery", "이 탭의 이전 요청을 확인하는 중…", "Checking this tab's earlier request…")</p>
+    }
+    @if (_message is not null) { <p id="equipment-write-message" role="status">@_message</p> }
+    @if (_error is not null) { <p id="equipment-write-error" role="alert">@_error</p> }
+    @if (_busy) { <p role="status">@T("inventory.write.sending", "요청을 처리하고 있습니다. 결과 확인 전에는 다시 보내지 마세요.", "Processing the request. Wait for its outcome before sending again.")</p> }
+
+    @if (_pending is not null || _storageError)
+    {
+        <div id="equipment-recovery" class="ew-recovery">
+            <h3>@(_pending?.Confirmed == true ? T("inventory.write.confirmedRecovery", "저장 확인됨 · 복구 기록 정리", "Write confirmed · clear recovery record") : T("inventory.write.pendingRecovery", "처리 결과 확인 필요", "Request outcome needs checking"))</h3>
+            @if (_pending is { } pending)
+            {
+                <p><strong>@ActionName(pending.Kind)</strong> · @Utc(pending.CreatedAt) UTC</p>
+                <p class="ew-id">@T("inventory.write.requestId", "요청/대상 ID", "Request/record ID"): @pending.Id</p>
+                <details>
+                    <summary>@T("inventory.write.originalRequest", "보낸 요청 보기", "View original request")</summary>
+                    <dl>
+                    @switch (RequestBody(pending))
+                    {
+                        case EquipmentSharingController.EquipmentCreate create:
+                            <dt>@T("inventory.code", "코드", "Code")</dt><dd>@create.Code</dd>
+                            <dt>@T("inventory.name", "이름", "Name")</dt><dd>@create.Name</dd>
+                            <dt>@T("inventory.capacity", "정원", "Capacity")</dt><dd>@create.Capacity</dd>
+                            <dt>@T("inventory.approval", "승인 필요", "Approval required")</dt><dd>@(create.RequiresApproval ? T("inventory.yes", "예", "Yes") : T("inventory.no", "아니요", "No"))</dd>
+                            break;
+                        case EquipmentSharingController.EquipmentChange change:
+                            <dt>@T("inventory.code", "코드", "Code")</dt><dd>@change.Code</dd>
+                            <dt>@T("inventory.name", "이름", "Name")</dt><dd>@change.Name</dd>
+                            <dt>@T("inventory.capacity", "정원", "Capacity")</dt><dd>@change.Capacity</dd>
+                            <dt>@T("inventory.approval", "승인 필요", "Approval required")</dt><dd>@(change.RequiresApproval ? T("inventory.yes", "예", "Yes") : T("inventory.no", "아니요", "No"))</dd>
+                            break;
+                        case EquipmentSharingController.BookingRequest request:
+                            <dt>@T("inventory.equipmentId", "장비 ID", "Equipment ID")</dt><dd class="ew-id">@request.EquipmentId</dd>
+                            <dt>@T("inventory.workerId", "작업자 코드", "Worker code")</dt><dd>@request.WorkerId</dd>
+                            <dt>@T("inventory.start", "시작 (UTC)", "Start (UTC)")</dt><dd>@Utc(request.Start)</dd>
+                            <dt>@T("inventory.end", "종료 (UTC)", "End (UTC)")</dt><dd>@Utc(request.End)</dd>
+                            <dt>@T("inventory.quantity", "수량", "Quantity")</dt><dd>@request.Quantity</dd>
+                            break;
+                        case EquipmentSharingController.ActiveChange active:
+                            <dt>@T("inventory.activity", "활성 상태", "Activity")</dt><dd>@(active.Active ? T("inventory.active", "활성", "Active") : T("inventory.inactive", "비활성", "Inactive"))</dd>
+                            break;
+                    }
+                    </dl>
+                </details>
+                @if (!pending.Confirmed) { <p>@UnknownMessage()</p> }
+            }
+            <div class="ew-actions">
+                @if (_pending is { Confirmed: false } retry)
+                {
+                    <button id="equipment-retry-write" type="button" @onclick="RetryAsync" disabled="@(_busy || _loading || _storageError || !Has(Permission(retry.Kind)!))">@T("inventory.write.retrySame", "같은 요청 재확인", "Recheck same request")</button>
+                }
+                @if (CanReadCurrent)
+                {
+                    <button id="equipment-read-current" type="button" @onclick="ReadCurrentAsync" disabled="@(_busy || _loading)">@T("inventory.write.readCurrent", "현재 상태 조회", "Read current state")</button>
+                }
+                @if (_storageError)
+                {
+                    <button id="equipment-reload-recovery" type="button" @onclick="LoadRecoveryAsync" disabled="@(_busy || _loading)">@T("inventory.write.reloadRecovery", "복구 기록 다시 읽기", "Reload recovery record")</button>
+                }
+            </div>
+            @if (_pending?.Confirmed != true)
+            {
+                <label class="ew-check"><input id="equipment-acknowledge" type="checkbox" @bind="_acknowledged" disabled="@(_busy || _loading)" />@T("inventory.write.acknowledge", "현재 상태를 별도로 확인했으며 이 요청을 다시 실행하지 않겠습니다.", "I checked the current state separately and will not execute this request again.")</label>
+            }
+            <button id="equipment-clear-recovery" type="button" @onclick="ClearRecoveryAsync" disabled="@(_busy || _loading || _pending?.Confirmed != true && !_acknowledged)">@T("inventory.write.closeRecovery", "확인한 복구 기록 닫기", "Close checked recovery record")</button>
+            <p class="ew-note">@T("inventory.write.tabRecovery", "복구 기록은 이 브라우저 탭에만 보관됩니다. 기록을 닫아도 이미 저장된 업무 데이터는 취소되지 않습니다.", "Recovery is kept in this browser tab only. Closing the record does not undo saved business data.")</p>
+        </div>
+    }
+
+    @if (_editor == Editor.None)
+    {
+        <p class="ew-note">@T("inventory.write.selectHint", "아래 장비 또는 예약 행을 선택해 작업합니다. 새 예약은 장비와 작업자를 선택한 뒤 요청합니다.", "Select an equipment or booking row below to act. For a new booking, select equipment and a worker first.")</p>
+    }
+    @if (Has("equipment.booking.request") && !Has("equipment.read"))
+    {
+        <p class="ew-note" id="equipment-missing-read">@T("inventory.write.assetReadRequired", "예약할 장비를 목록에서 선택하려면 장비 조회 권한이 필요합니다. 예약 요청 권한만으로는 장비 목록을 조회하지 않습니다.", "Selecting equipment for a booking requires equipment read permission. Request permission does not grant access to the equipment list.")</p>
+    }
+    @if (new[] { "approve", "deny", "cancel", "checkout", "return" }.Any(action => Has(Permission(action)!)) && !Has("equipment.booking.read") && _booking is null)
+    {
+        <p class="ew-note" id="equipment-missing-booking-read">@T("inventory.write.bookingReadRequired", "기존 예약을 목록에서 선택하려면 예약 조회 권한이 필요합니다. 작업 권한과 조회 권한은 별개입니다.", "Selecting an existing booking requires booking read permission. Action and read permissions are independent.")</p>
+    }
+    @if (_pending is null && CanReadCurrent)
+    {
+        <button id="equipment-read-selected" type="button" @onclick="ReadCurrentAsync" disabled="@(_busy || _loading)">@T("inventory.write.readCurrent", "현재 상태 조회", "Read current state")</button>
+    }
+    @if (_observedAsset is not null || _observedBooking is not null)
+    {
+        <div id="equipment-current-comparison" class="ew-recovery">
+            <h3>@T("inventory.write.compareCurrent", "조회한 현재 상태", "Current state for comparison")</h3>
+            @if (_observedAsset is { } currentAsset)
+            {
+                <dl>
+                    <dt>@T("inventory.code", "코드", "Code")</dt><dd>@currentAsset.Code</dd>
+                    <dt>@T("inventory.name", "이름", "Name")</dt><dd>@currentAsset.Name</dd>
+                    <dt>@T("inventory.capacity", "정원", "Capacity")</dt><dd>@currentAsset.Capacity</dd>
+                    <dt>@T("inventory.approval", "승인 필요", "Approval required")</dt><dd>@(currentAsset.RequiresApproval ? T("inventory.yes", "예", "Yes") : T("inventory.no", "아니요", "No"))</dd>
+                    <dt>@T("inventory.activity", "활성 상태", "Activity")</dt><dd>@(currentAsset.Active ? T("inventory.active", "활성", "Active") : T("inventory.inactive", "비활성", "Inactive"))</dd>
+                </dl>
+            }
+            @if (_observedBooking is { } currentBooking)
+            {
+                <p class="ew-id">@currentBooking.Id</p>
+                <p>@BookingState(currentBooking.State) · @Utc(currentBooking.Start) — @Utc(currentBooking.End) UTC</p>
+            }
+            <p class="ew-note">@T("inventory.write.compareNote", "작성 중인 입력과 요청 버전은 유지됩니다. 아래 버튼은 조회한 내용으로 편집을 다시 시작하며 아직 저장하지 않습니다.", "Your draft and request version are preserved. The button below starts editing from the loaded state without saving.")</p>
+            <button id="equipment-adopt-current" type="button" @onclick="AdoptObserved" disabled="@(!CanStart)">@T("inventory.write.adoptCurrent", "조회한 내용으로 다시 시작", "Start from loaded state")</button>
+        </div>
+    }
+    @if ((_editor is Editor.Asset or Editor.Request) && _asset is { } selected)
+    {
+        <p id="equipment-selected-asset"><strong>@selected.Name</strong> · @selected.Code · @(selected.Active ? T("inventory.active", "활성", "Active") : T("inventory.inactive", "비활성", "Inactive"))</p>
+        <p class="ew-note" id="equipment-selected-worker">@T("inventory.write.bookingWorker", "예약 작업자", "Booking worker"): @(Worker is null ? T("inventory.write.chooseWorker", "아래 작업자 목록에서 선택해 주세요.", "Select from the worker list below.") : Worker.WorkerName + " · " + Worker.WorkerId)</p>
+        @if (Has("equipment.booking.request"))
+        {
+            <button id="equipment-start-booking" type="button" @onclick="StartBooking" disabled="@(!CanStart || !CanRequest)">@T("inventory.write.prepareBooking", "선택한 장비 예약", "Book selected equipment")</button>
+        }
+    }
+    @if (_editor == Editor.Asset)
+    {
+        <form id="equipment-asset-form" @onsubmit="SaveAssetAsync" @onsubmit:preventDefault>
+            <fieldset disabled="@(!CanStart || !Has("equipment.write"))">
+                <legend>@(_asset is null ? ActionName("create") : ActionName("update"))</legend>
+                <div class="ew-fields">
+                    <label for="equipment-code">@T("inventory.code", "코드", "Code")<input id="equipment-code" @bind="_code" required maxlength="80" /></label>
+                    <label for="equipment-name">@T("inventory.name", "이름", "Name")<input id="equipment-name" @bind="_name" required maxlength="255" /></label>
+                    <label for="equipment-capacity">@T("inventory.capacity", "정원", "Capacity")<input id="equipment-capacity" type="number" @bind="_capacity" required min="1" max="2147483647" step="1" /></label>
+                    <label class="ew-check"><input id="equipment-requires-approval" type="checkbox" @bind="_requiresApproval" />@T("inventory.approval", "승인 필요", "Approval required")</label>
+                </div>
+                @if (Has("equipment.write"))
+                {
+                    <div class="ew-actions"><button id="equipment-save-asset" class="ew-primary" type="submit">@(_asset is null ? ActionName("create") : ActionName("update"))</button>
+                    @if (_asset is not null) { <button id="equipment-toggle-active" type="button" @onclick="ChangeActiveAsync">@(_asset.Active ? T("inventory.write.deactivate", "장비 비활성화", "Deactivate equipment") : T("inventory.write.activate", "장비 활성화", "Activate equipment"))</button> }</div>
+                }
+            </fieldset>
+        </form>
+    }
+    @if (_editor == Editor.Request)
+    {
+        <form id="equipment-booking-form" @onsubmit="RequestBookingAsync" @onsubmit:preventDefault>
+            <fieldset disabled="@(!CanStart || !CanRequest)">
+                <legend>@ActionName("request")</legend>
+                <p class="ew-note">@T("inventory.write.utcNote", "아래 시각은 모두 UTC입니다. 공장 현지 시각과 구분해 입력해 주세요.", "All times below are UTC. Enter them separately from the plant's local time.")</p>
+                <div class="ew-fields">
+                    <label for="equipment-booking-start">@T("inventory.start", "시작 (UTC)", "Start (UTC)")<input id="equipment-booking-start" type="datetime-local" value="@_start" @onchange="e => _start = e.Value?.ToString() ?? string.Empty" required /></label>
+                    <label for="equipment-booking-end">@T("inventory.end", "종료 (UTC)", "End (UTC)")<input id="equipment-booking-end" type="datetime-local" value="@_end" @onchange="e => _end = e.Value?.ToString() ?? string.Empty" required /></label>
+                    <label for="equipment-booking-quantity">@T("inventory.quantity", "수량", "Quantity")<input id="equipment-booking-quantity" type="number" @bind="_quantity" required min="1" max="2147483647" step="1" /></label>
+                </div>
+                <button id="equipment-request-booking" class="ew-primary" type="submit">@ActionName("request")</button>
+            </fieldset>
+        </form>
+    }
+    @if (_editor == Editor.Booking && _booking is { } booking)
+    {
+        <div id="equipment-booking-detail">
+            <h3>@T("inventory.write.bookingAction", "선택한 예약", "Selected booking") · @BookingState(booking.State)</h3>
+            <dl>
+                <dt>@T("inventory.bookingId", "예약 ID", "Booking ID")</dt><dd class="ew-id">@booking.Id</dd>
+                <dt>@T("inventory.equipmentId", "장비 ID", "Equipment ID")</dt><dd class="ew-id">@booking.EquipmentId</dd>
+                <dt>@T("inventory.employeeId", "작업자 ID", "Employee ID")</dt><dd class="ew-id">@booking.EmployeeId</dd>
+                <dt>@T("inventory.requesterId", "요청자 ID", "Requester ID")</dt><dd class="ew-id">@booking.RequestedBy</dd>
+                <dt>@T("inventory.start", "시작 (UTC)", "Start (UTC)")</dt><dd>@Utc(booking.Start)</dd>
+                <dt>@T("inventory.end", "종료 (UTC)", "End (UTC)")</dt><dd>@Utc(booking.End)</dd>
+                <dt>@T("inventory.quantity", "수량", "Quantity")</dt><dd>@booking.Quantity</dd>
+            </dl>
+            @if (OwnRequest && booking.State == EquipmentBookingState.Requested) { <p class="ew-note">@ErrorMessage("SELF_APPROVAL_NOT_ALLOWED", 409)</p> }
+            <div class="ew-actions">
+                @foreach (var action in new[] { "approve", "deny", "cancel", "checkout", "return" })
+                {
+                    if (Has(Permission(action)!))
+                    {
+                        <button id="@("equipment-" + action)" type="button" @onclick="() => TransitionAsync(action)" disabled="@(!CanTransition(action))">@ActionName(action)</button>
+                    }
+                }
+            </div>
+        </div>
+    }
+</section>

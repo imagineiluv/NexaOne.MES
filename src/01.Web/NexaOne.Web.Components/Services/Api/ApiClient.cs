@@ -2,6 +2,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using NexaOne.Web.Services.Auth;
@@ -133,17 +134,28 @@ public sealed class ApiClient : IApiClient
     private async Task<HttpResponseMessage> SendAsync(
         HttpMethod method, string url, object? body, CancellationToken ct,
         bool surfaceErrors = true,
-        IReadOnlyDictionary<string, string>? headers = null)
+        IReadOnlyDictionary<string, string>? headers = null,
+        string? expectedUserId = null)
     {
         HttpResponseMessage resp;
         try
         {
             var token = await GetValidAccessTokenAsync(ct);
+            if (expectedUserId is not null)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!HasInventoryIdentity(token, expectedUserId)) return InventoryIdentityChangedResponse();
+            }
             resp = await SendOnceAsync(method, url, body, token, ct, headers);
             if (resp.StatusCode == HttpStatusCode.Unauthorized)
             {
                 resp.Dispose();                   // 첫 401 응답 소켓/리소스 해제(누수 방지)
                 var refreshed = await RefreshAsync(ct);
+                if (expectedUserId is not null)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (!HasInventoryIdentity(refreshed, expectedUserId)) return InventoryIdentityChangedResponse();
+                }
                 resp = await SendOnceAsync(method, url, body, refreshed, ct, headers);
             }
         }
@@ -161,6 +173,26 @@ public sealed class ApiClient : IApiClient
         if (surfaceErrors) await SurfaceUnhandledErrorAsync(resp, ct);
         return resp;
     }
+
+    private static bool HasInventoryIdentity(string? token, string expectedUserId)
+    {
+        var principal = token is null ? null : JwtAuthStateProvider.ParseToken(token);
+        // Match the host's CurrentUserId precedence without a Common assembly dependency.
+        var userId = principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? principal?.FindFirst("sub")?.Value;
+        return principal?.Identity?.IsAuthenticated == true
+            && string.Equals(userId, expectedUserId, StringComparison.Ordinal);
+    }
+
+    private HttpResponseMessage InventoryIdentityChangedResponse()
+        => new(HttpStatusCode.Unauthorized)
+        {
+            Content = JsonContent.Create(new
+            {
+                code = "INVENTORY_IDENTITY_CHANGED",
+                description = _ui.T("error.inventoryIdentityChanged",
+                    "인증 사용자가 변경되었거나 확인되지 않습니다. 원래 사용자로 로그인한 후 계속해 주세요.")
+            })
+        };
 
     private static HttpResponseMessage ConnectionFailureResponse()
         => new(HttpStatusCode.ServiceUnavailable)
@@ -209,16 +241,55 @@ public sealed class ApiClient : IApiClient
 
     // ── HTTP helpers ──────────────────────────────────────────────────────────
 
-    public async Task<(T? Value, int StatusCode, string? Code, string? Error)> ReadInventoryAsync<T>(
+    public Task<(T? Value, int StatusCode, string? Code, string? Error)> ReadInventoryAsync<T>(
         string relativePath, CancellationToken ct = default) where T : class
+        => SendInventoryAsync<T>(HttpMethod.Get, relativePath, null, ct);
+
+    public async Task<(T? Value, int StatusCode, string? Code, string? Error)> WriteInventoryAsync<T>(
+        HttpMethod method, string relativePath, object body, string expectedUserId,
+        CancellationToken ct = default) where T : class
     {
         ct.ThrowIfCancellationRequested();
-        if (!IsInventoryReadPath(relativePath))
-            return (null, 400, "INVALID_INVENTORY_PATH",
-                _ui.T("error.inventoryPath", "재고 조회 경로가 올바르지 않습니다."));
+        if ((method != HttpMethod.Put && method != HttpMethod.Post) || body is null
+            || string.IsNullOrWhiteSpace(expectedUserId) || expectedUserId.Length > 50
+            || expectedUserId != expectedUserId.Trim() || expectedUserId.Any(char.IsControl))
+            return (null, 400, "INVALID_INVENTORY_REQUEST", InventoryWriteRequestError());
+        return await SendInventoryAsync<T>(method, relativePath, body, ct, expectedUserId);
+    }
 
-        using var response = await SendAsync(HttpMethod.Get, relativePath, null, ct, surfaceErrors: false);
+    private async Task<(T? Value, int StatusCode, string? Code, string? Error)> SendInventoryAsync<T>(
+        HttpMethod method, string relativePath, object? body, CancellationToken ct,
+        string? expectedUserId = null) where T : class
+    {
         ct.ThrowIfCancellationRequested();
+        var isWrite = method != HttpMethod.Get;
+        if (!IsInventoryPath(relativePath))
+            return (null, 400, "INVALID_INVENTORY_PATH",
+                isWrite ? InventoryWriteRequestError() : _ui.T("error.inventoryPath", "재고 조회 경로가 올바르지 않습니다."));
+
+        var status = 503;
+        try
+        {
+            using var response = await SendAsync(method, relativePath, body, ct, surfaceErrors: false,
+                expectedUserId: expectedUserId);
+            ct.ThrowIfCancellationRequested();
+            status = (int)response.StatusCode;
+            return await ReadInventoryResponseAsync<T>(response, isWrite, ct);
+        }
+        catch (Exception ex) when (ex is IOException or HttpRequestException
+            || ex is OperationCanceledException && !ct.IsCancellationRequested)
+        {
+            ct.ThrowIfCancellationRequested();
+            // The response may fail while being read after the server has committed a write.
+            // Keep any known HTTP status, return no value, and never replay the operation here.
+            return (null, status, "INVENTORY_RESPONSE_UNAVAILABLE", isWrite ? InventoryWriteOutcomeError()
+                : _ui.T("error.inventoryResponse", "재고 조회 응답을 읽을 수 없습니다. 다시 시도해 주세요."));
+        }
+    }
+
+    private async Task<(T? Value, int StatusCode, string? Code, string? Error)> ReadInventoryResponseAsync<T>(
+        HttpResponseMessage response, bool isWrite, CancellationToken ct) where T : class
+    {
         var status = (int)response.StatusCode;
         if (response.IsSuccessStatusCode)
         {
@@ -236,7 +307,8 @@ public sealed class ApiClient : IApiClient
             }
             ct.ThrowIfCancellationRequested();
             return (null, status, "INVALID_INVENTORY_RESPONSE",
-                _ui.T("error.inventoryResponse", "재고 조회 응답을 읽을 수 없습니다. 다시 시도해 주세요."));
+                isWrite ? InventoryWriteOutcomeError()
+                    : _ui.T("error.inventoryResponse", "재고 조회 응답을 읽을 수 없습니다. 다시 시도해 주세요."));
         }
 
         string? code = null;
@@ -256,12 +328,21 @@ public sealed class ApiClient : IApiClient
         }
         ct.ThrowIfCancellationRequested();
         if (code == "SERVER_UNREACHABLE")
-            error = _ui.T("error.unreachable", "서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+            error = isWrite ? InventoryWriteOutcomeError()
+                : _ui.T("error.unreachable", "서버에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+        if (isWrite && status >= 500 && error is null && code is null)
+            error = InventoryWriteOutcomeError();
         error ??= code ?? string.Format(_ui.T("error.requestFailed", "요청에 실패했습니다 (HTTP {0})."), status);
         return (null, status, code, error);
     }
 
-    private static bool IsInventoryReadPath(string? relativePath)
+    private string InventoryWriteRequestError()
+        => _ui.T("error.inventoryWriteRequest", "재고 변경 요청이 올바르지 않습니다.");
+
+    private string InventoryWriteOutcomeError()
+        => _ui.T("error.inventoryWriteOutcome", "변경 결과를 확인할 수 없습니다. 다시 시도하기 전에 현재 상태를 확인해 주세요.");
+
+    private static bool IsInventoryPath(string? relativePath)
     {
         const string prefix = "api/v1/ivt/";
         if (relativePath is null || !relativePath.StartsWith(prefix, StringComparison.Ordinal)

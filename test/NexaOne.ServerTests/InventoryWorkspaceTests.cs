@@ -1,12 +1,17 @@
+using System.Security.Claims;
 using Bunit;
 using Bunit.TestDoubles;
 using FluentAssertions;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Web;
+using Microsoft.AspNetCore.Components.Server.ProtectedBrowserStorage;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using NexaFramework.Service;
 using NexaFramework.Service.Inventory;
 using NexaOne.Server.Components.Pages;
+using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Ivt;
 using NexaOne.ServiceContracts.Sys;
 using NexaOne.Web.Services;
@@ -30,11 +35,14 @@ public sealed class InventoryWorkspaceTests : BunitContext
         JSInterop.Mode = JSRuntimeMode.Loose;
         Services.AddRadzenComponents();
         var authorization = this.AddAuthorization();
+        authorization.SetClaims(new Claim(ClaimTypes.NameIdentifier, "operator"));
         authorization.SetAuthorized("operator");
-        _signIn = name => authorization.SetAuthorized(name);
+        // bUnit SetClaims already publishes an authenticated principal, including after sign-out.
+        _signIn = name => authorization.SetClaims(new Claim(ClaimTypes.NameIdentifier, name));
         _signOut = () => authorization.SetNotAuthorized();
         Services.AddSingleton(_api.Object);
         Services.AddSingleton(_ui);
+        Services.AddSingleton(new ProtectedSessionStorage(new InventorySessionStorageJs(), new EphemeralDataProtectionProvider()));
         Reads<InventoryAccessScope>(_ => new([], 0));
         Reads<Product>(_ => new([], 0));
         Reads<Warehouse>(_ => new([], 0));
@@ -343,6 +351,85 @@ public sealed class InventoryWorkspaceTests : BunitContext
         cut.Find("#inventory-scopes [data-empty]").TextContent.Should().Contain("No inventory scopes");
         await cut.InvokeAsync(() => _ui.Load("EnUs", new() { ["inventory.title"] = "Custom title" }));
         cut.WaitForAssertion(() => cut.Find("h1").TextContent.Should().Be("Custom title"));
+    }
+
+    [Fact]
+    public async Task Equipment_and_booking_rows_feed_the_panel_and_confirmed_save_refreshes_current_lists()
+    {
+        const string actualUser = "equipment-operator";
+        _signIn(actualUser);
+        var scope = Scope(1, "equipment.read", "equipment.write", "equipment.booking.read", "equipment.booking.request");
+        scope = scope with { Membership = scope.Membership with { UserId = actualUser } };
+        var authentication = await Services.GetRequiredService<AuthenticationStateProvider>().GetAuthenticationStateAsync();
+        authentication.User.FindFirst(ClaimTypes.NameIdentifier)!.Value.Should().Be(scope.Membership.UserId);
+        authentication.User.Identity!.Name.Should().NotBe(actualUser, "the parent must use the identity claim, not the display name");
+        var asset = new SharedEquipment(Guid.NewGuid(), Business(scope), Guid.NewGuid(), "EQ-1", "Original asset", 2, true);
+        var updated = asset with { Name = "Saved asset", Version = Guid.NewGuid() };
+        var current = asset;
+        var start = new DateTimeOffset(2030, 1, 2, 3, 0, 0, TimeSpan.Zero);
+        var booking = new EquipmentBooking(Guid.NewGuid(), Business(scope), Guid.NewGuid(), asset.Id, Guid.NewGuid(),
+            start, start.AddHours(1), 1, Guid.NewGuid().ToString("D"), EquipmentBookingState.Requested);
+        ShowScopes(scope);
+        Reads<SharedEquipment>(_ => new([current], 1));
+        Reads<EquipmentBooking>(_ => new([booking], 1));
+        Reads<WorkerDto>(_ => new([new("W1", "Selected worker", "P1", true)], 1));
+        var path = $"api/v1/ivt/shared-equipment/{Tenant:D}/{scope.Membership.OrganizationId:D}/assets/{asset.Id:D}";
+        _api.Setup(api => api.WriteInventoryAsync<SharedEquipment>(HttpMethod.Put, path, It.IsAny<object>(), actualUser, It.IsAny<CancellationToken>()))
+            .Returns((HttpMethod _, string _, object body, string _, CancellationToken _) =>
+            {
+                body.Should().Be(new EquipmentSharingController.EquipmentChange("EQ-1", "Saved asset", 2, true, asset.Version));
+                current = updated;
+                return Task.FromResult<(SharedEquipment?, int, string?, string?)>((updated, 200, null, null));
+            });
+        var cut = Render<HostInventoryWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        await cut.Find("[data-scope]").ClickAsync(new MouseEventArgs());
+        cut.WaitForAssertion(() =>
+        {
+            cut.FindComponent<EquipmentWorkflowPanel>().Instance.UserId.Should().Be(actualUser);
+            cut.Find("#equipment-new").HasAttribute("disabled").Should().BeFalse();
+        });
+        cut.Find("[data-worker=W1]").Click();
+
+        await cut.Find($"[data-manage-equipment='{asset.Id:D}']").ClickAsync(new MouseEventArgs());
+
+        cut.Find("#equipment-selected-worker").TextContent.Should().Contain("W1");
+        cut.Find("#equipment-name").Change("Saved asset");
+        await cut.Find("#equipment-asset-form").SubmitAsync(EventArgs.Empty);
+        cut.WaitForAssertion(() => cut.Find("#inventory-assets tbody").TextContent.Should().Contain("Saved asset"));
+        Paths<SharedEquipment>().Should().HaveCount(2);
+        Paths<EquipmentBooking>().Should().HaveCount(2);
+        Paths<WorkerDto>().Should().ContainSingle();
+        await cut.Find($"[data-manage-booking='{booking.Id:D}']").ClickAsync(new MouseEventArgs());
+        cut.Find("#equipment-booking-detail").TextContent.Should().Contain(booking.Id.ToString("D"));
+        _api.Invocations.Count(call => call.Method.Name == nameof(IApiClient.WriteInventoryAsync)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Reselecting_current_scope_keeps_equipment_and_booking_row_actions_connected()
+    {
+        var scope = Scope(1, "equipment.read", "equipment.booking.read");
+        var first = new SharedEquipment(Guid.NewGuid(), Business(scope), Guid.NewGuid(), "EQ-1", "First asset", 1, true);
+        var second = first with { Id = Guid.NewGuid(), Code = "EQ-2", Name = "Second asset" };
+        var start = new DateTimeOffset(2030, 1, 2, 3, 0, 0, TimeSpan.Zero);
+        var booking = new EquipmentBooking(Guid.NewGuid(), Business(scope), Guid.NewGuid(), second.Id, Guid.NewGuid(),
+            start, start.AddHours(1), 1, Guid.NewGuid().ToString("D"), EquipmentBookingState.Requested);
+        ShowScopes(scope);
+        Reads<SharedEquipment>(_ => new([first, second], 2));
+        Reads<EquipmentBooking>(_ => new([booking], 1));
+        var cut = Render<HostInventoryWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        await cut.Find("[data-scope]").ClickAsync(new MouseEventArgs());
+        await cut.Find($"[data-manage-equipment='{first.Id:D}']").ClickAsync(new MouseEventArgs());
+        cut.Find("#equipment-selected-asset").TextContent.Should().Contain("First asset");
+
+        await cut.Find("[data-scope]").ClickAsync(new MouseEventArgs());
+        await cut.Find($"[data-manage-equipment='{second.Id:D}']").ClickAsync(new MouseEventArgs());
+
+        cut.Find("#equipment-selected-asset").TextContent.Should().Contain("Second asset").And.NotContain("First asset");
+        await cut.Find($"[data-manage-booking='{booking.Id:D}']").ClickAsync(new MouseEventArgs());
+        cut.Find("#equipment-booking-detail").TextContent.Should().Contain(booking.Id.ToString("D"));
+        _api.Invocations.Should().OnlyContain(call => call.Method.Name == nameof(IApiClient.ReadInventoryAsync));
     }
 
     private void Reads<T>(Func<string, BusinessPage<T>> response)

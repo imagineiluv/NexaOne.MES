@@ -27,6 +27,7 @@ internal static class NexaOneDevelopmentDatabaseInitializer
         SeedDevOperatorScreensIfMissing(connectionString);
         SeedDevMenuIfEmpty(connectionString);
         EnsureDevInventoryWorkspaceMenu(connectionString);
+        EnsureDevEquipmentWorkflowResources(connectionString);
         NormalizeDevMenuTerminology(connectionString);
         SeedDevCommonUiResourcesIfMissing(connectionString);
         EnsureDevQmsSampleLotReferences(connectionString);
@@ -269,6 +270,29 @@ internal static class NexaOneDevelopmentDatabaseInitializer
             "V164__IVT_INVENTORY_WORKSPACE_MENU.sql");
         // The remaining SQL is portable DML; only the SQL Server Unicode pre-inserts are omitted,
         // using the same marker convention as SqliteSchemaInitializer.
+        var sql = System.Text.RegularExpressions.Regex.Replace(File.ReadAllText(migrationPath),
+            @"--\s*SQLITE-OMIT-BEGIN.*?--\s*SQLITE-OMIT-END", "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase |
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant |
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection(connectionString);
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
+        transaction.Commit();
+    }
+
+    /// <summary>
+    /// 기존 개발 SQLite의 증분 경로가 건너뛰는 V165 번역을 보완한다.
+    /// 마이그레이션의 누락 키 조건으로 사용자 번역과 메뉴별 리소스를 보존한다.
+    /// </summary>
+    static void EnsureDevEquipmentWorkflowResources(string connectionString)
+    {
+        var migrationPath = Path.Combine(AppContext.BaseDirectory, "db", "migrations",
+            "V165__IVT_EQUIPMENT_WORKFLOW_RESOURCES.sql");
         var sql = System.Text.RegularExpressions.Regex.Replace(File.ReadAllText(migrationPath),
             @"--\s*SQLITE-OMIT-BEGIN.*?--\s*SQLITE-OMIT-END", "",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase |
