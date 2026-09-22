@@ -32,6 +32,9 @@ internal static class NexaOneDevelopmentDatabaseInitializer
         EnsureDevWorkflowResources(connectionString, "V167__IVT_STOCK_RESERVATION_LIST_RESOURCES.sql");
         EnsureDevWorkflowResources(connectionString, "V168__IVT_STOCK_BALANCE_LIST_RESOURCES.sql");
         EnsureDevWorkflowResources(connectionString, "V169__IVT_STOCK_VARIANT_SELECT_RESOURCES.sql");
+        // V171 carries the billing workspace menu row with the same portable-DML shape as the resource migrations.
+        EnsureDevWorkflowResources(connectionString, "V171__ERP_BILLING_WORKSPACE_MENU.sql");
+        EnsureDevWorkflowResources(connectionString, "V172__ERP_BILLING_WORKSPACE_RESOURCES.sql");
         NormalizeDevMenuTerminology(connectionString);
         SeedDevCommonUiResourcesIfMissing(connectionString);
         EnsureDevQmsSampleLotReferences(connectionString);
@@ -290,7 +293,7 @@ internal static class NexaOneDevelopmentDatabaseInitializer
     }
 
     /// <summary>
-    /// 기존 개발 SQLite의 증분 경로가 건너뛰는 업무 화면 번역 마이그레이션(V165 장비, V166 재고, V167 예약 목록/잔고, V168 창고 잔고 목록, V169 품목 선택)을 보완한다.
+    /// 기존 개발 SQLite의 증분 경로가 건너뛰는 업무 화면 번역 마이그레이션(V165 장비, V166 재고, V167 예약 목록/잔고, V168 창고 잔고 목록, V169 품목 선택, V171 청구 메뉴, V172 청구 화면)을 보완한다.
     /// 마이그레이션의 누락 키 조건으로 사용자 번역과 메뉴별 리소스를 보존한다.
     /// </summary>
     static void EnsureDevWorkflowResources(string connectionString, string migrationFileName)

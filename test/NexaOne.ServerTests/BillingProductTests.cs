@@ -58,6 +58,11 @@ public sealed class BillingHostTests(ITestOutputHelper output)
         var membership = await Body<BusinessMembership>(await admin.PutAsJsonAsync(membershipRoute, new BusinessMembershipChange(0, true, BillingProductSeed.Grants)));
         using var member = new HttpClient { BaseAddress = admin.BaseAddress };
         await Login(member, seed.User, BillingProductSeed.Password, seed.Plant);
+        // Scope discovery lists memberships with any billing grant; no IVT plant binding is consulted.
+        var scopes = await Body<BusinessPage<BusinessMembership>>(await member.GetAsync("/api/v1/erp/billing/scopes/me"));
+        scopes.Total.Should().Be(1); scopes.Items.Single().Should().Match<BusinessMembership>(m => m.TenantId == tenant && m.OrganizationId == organization);
+        (await Body<BusinessPage<BusinessMembership>>(await admin.GetAsync("/api/v1/erp/billing/scopes/me"))).Total.Should().Be(0);
+        await Error(await member.GetAsync("/api/v1/erp/billing/scopes/me?limit=0"), HttpStatusCode.BadRequest, "INVALID_BUSINESS_INPUT");
 
         var contact = await Body<BillingContact>(await member.PutAsync(route + "/contacts/" + seed.Customer, null));
         contact.Name.Should().Be("청구 고객"); contact.Active.Should().BeTrue();
@@ -117,9 +122,11 @@ public sealed class BillingHostTests(ITestOutputHelper output)
         await Error(await member.GetAsync(route + $"/documents/{Guid.NewGuid()}"), HttpStatusCode.NotFound, "BILLING_DOCUMENT_NOT_FOUND");
         await Status(await member.GetAsync($"/api/v1/erp/billing/{tenant}/{Guid.NewGuid()}/documents"), HttpStatusCode.Forbidden);
         // Removing the grant takes effect on the next request without a new login.
-        await Body<BusinessMembership>(await admin.PutAsJsonAsync(membershipRoute, new BusinessMembershipChange(membership.Version, true, ["billing.read"])));
+        var narrowed = await Body<BusinessMembership>(await admin.PutAsJsonAsync(membershipRoute, new BusinessMembershipChange(membership.Version, true, ["billing.read"])));
         await Status(await member.PostAsJsonAsync(route + "/documents", create with { OperationId = Guid.NewGuid() }, HttpJson), HttpStatusCode.Forbidden);
         (await Body<BusinessPage<BillingDocument>>(await member.GetAsync(route + "/documents"))).Total.Should().Be(2);
+        await Body<BusinessMembership>(await admin.PutAsJsonAsync(membershipRoute, new BusinessMembershipChange(narrowed.Version, true, [])));
+        (await Body<BusinessPage<BusinessMembership>>(await member.GetAsync("/api/v1/erp/billing/scopes/me"))).Total.Should().Be(0, "a membership without billing grants is not a billing scope");
         (await database.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM ERP_BILLING_LINE")).Should().Be(4);
         (await database.ExecuteScalarAsync<string>("SELECT UNIT_PRICE FROM ERP_BILLING_LINE WHERE LINE_NO=1 AND DOCUMENT_ID=@id", new { id = invoice.Id.ToString("D") }))
             .Should().Be("899999999999.123456", "durable amounts are canonical decimal text");

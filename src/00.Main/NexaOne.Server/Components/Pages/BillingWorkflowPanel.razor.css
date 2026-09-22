@@ -1,0 +1,55 @@
+.billing-workflows { min-width: 0; padding: var(--space-lg) 0; border-top: 1px solid var(--nx-border); color: var(--nx-text); }
+.billing-workflows h2 { margin: 0; font-size: var(--text-lg); }
+.billing-workflows h3 { margin: var(--space-md) 0 var(--space-xs); font-size: var(--text-md); }
+.billing-workflows p { margin: var(--space-sm) 0; overflow-wrap: anywhere; }
+.bw-heading, .bw-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-sm); }
+.bw-heading { justify-content: space-between; }
+.bw-actions { margin: var(--space-sm) 0; }
+.bw-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); margin-bottom: var(--space-md); }
+.bw-fields > label { display: flex; flex-direction: column; gap: var(--space-xs); min-width: 0; }
+.billing-workflows fieldset { border: 0; margin: var(--space-md) 0 0; padding: 0; min-width: 0; }
+.billing-workflows legend { padding: 0; margin-bottom: var(--space-sm); font-weight: 650; }
+.billing-workflows button, .billing-workflows input { font: inherit; color: var(--nx-text); background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); min-height: var(--nx-touch-min, 44px); padding: var(--space-xs) var(--space-sm); box-sizing: border-box; max-width: 100%; }
+.billing-workflows button { cursor: pointer; }
+.billing-workflows input { min-width: 0; width: 100%; }
+.billing-workflows .bw-check { display: flex; flex-direction: row; align-items: center; gap: var(--space-xs); min-height: var(--nx-touch-min, 44px); margin: var(--space-sm) 0; }
+.billing-workflows input[type="checkbox"] { width: auto; min-height: auto; flex-shrink: 0; }
+.billing-workflows .bw-primary { background: var(--color-accent); color: var(--color-accent-ink); border-color: var(--color-accent); }
+.billing-workflows :disabled { cursor: default; opacity: .6; }
+.billing-workflows fieldset:disabled { opacity: 1; }
+.billing-workflows :focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.bw-note { color: var(--nx-text-2); }
+.bw-id { font-family: var(--font-outlier); overflow-wrap: anywhere; }
+.bw-recovery { margin: var(--space-md) 0; padding: var(--space-md); border: 1px solid var(--nx-border); }
+.billing-workflows [role="alert"] { border: 1px solid var(--color-danger); padding: var(--space-sm); }
+.billing-workflows dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); gap: var(--space-xs) var(--space-sm); }
+.billing-workflows dt { color: var(--nx-text-2); }
+.billing-workflows dd { margin: 0; overflow-wrap: anywhere; }
+.billing-workflows summary { min-height: var(--nx-touch-min, 44px); display: list-item; align-content: center; cursor: pointer; }
+@media (hover: hover) and (pointer: fine) { .billing-workflows button:hover:not(:disabled) { border-color: var(--color-accent); } }
+@media (max-width: 40rem) {
+    .bw-fields { grid-template-columns: minmax(0, 1fr); }
+    .billing-workflows dl { grid-template-columns: minmax(0, 1fr); }
+    .billing-workflows dd { margin-bottom: var(--space-xs); }
+    .bw-actions { align-items: stretch; }
+}
+.bw-lookup { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--space-sm); margin: var(--space-sm) 0; }
+.bw-lookup > label { display: flex; flex-direction: column; gap: var(--space-xs); flex: 1 1 16rem; min-width: 0; }
+.billing-workflows select { font: inherit; color: var(--nx-text); background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); min-height: var(--nx-touch-min, 44px); padding: var(--space-xs) var(--space-sm); box-sizing: border-box; width: 100%; min-width: 0; }
+.bw-form { margin: var(--space-md) 0; padding: var(--space-md); border: 1px solid var(--nx-border); }
+.bw-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--space-sm) var(--space-md); align-items: center; margin: var(--space-sm) 0; }
+.bw-grid > label { min-width: 0; }
+.bw-pair { display: flex; gap: var(--space-sm); min-width: 0; }
+.bw-pair > select { flex: 0 1 12rem; }
+.bw-pair > input { flex: 1 1 8rem; }
+.billing-workflows textarea { font: inherit; color: var(--nx-text); background: var(--nx-card); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); min-height: var(--nx-touch-min, 44px); padding: var(--space-xs) var(--space-sm); box-sizing: border-box; width: 100%; min-width: 0; }
+.bw-lines { width: 100%; border-collapse: collapse; margin: var(--space-sm) 0; }
+.bw-lines th, .bw-lines td { padding: var(--space-2xs); border-bottom: 1px solid var(--nx-border); vertical-align: top; text-align: left; }
+.bw-lines input[type="text"] { min-width: 6rem; }
+.bw-selected { display: flex; flex-direction: column; gap: var(--space-2xs); padding: var(--space-sm) 0; }
+.bw-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 40rem) {
+    .bw-grid { grid-template-columns: minmax(0, 1fr); }
+    .bw-pair { flex-wrap: wrap; }
+    .bw-lines { display: block; overflow-x: auto; }
+}

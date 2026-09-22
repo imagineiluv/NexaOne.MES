@@ -1,0 +1,249 @@
+@using System.Globalization
+@using NexaFramework.Service.Erp
+@using NexaOne.Server.Gateway
+@implements IDisposable
+
+<section id="billing-workflows" class="billing-workflows" aria-labelledby="billing-workflow-heading" aria-busy="@((_busy || _loading).ToString().ToLowerInvariant())">
+    <div class="bw-heading">
+        <h2 id="billing-workflow-heading" tabindex="-1" @ref="_heading">@T("billing.heading", "견적·청구 작업", "Billing actions")</h2>
+    </div>
+    @if (!OwnerValid)
+    {
+        <p role="status">@T("inventory.write.ownerRequired", "작업을 진행하려면 현재 사용자와 업무 소속을 다시 확인해 주세요.", "Refresh your current user and business scope before taking action.")</p>
+    }
+    else if (_loading || !_loaded && !_storageError)
+    {
+        <p role="status">@T("inventory.write.loadingRecovery", "이 탭의 이전 요청을 확인하는 중…", "Checking this tab's earlier request…")</p>
+    }
+    @if (_message is not null) { <p id="billing-write-message" role="status">@_message</p> }
+    @if (_error is not null) { <p id="billing-write-error" role="alert">@_error</p> }
+    @if (_busy) { <p role="status">@T("inventory.write.sending", "요청을 처리하고 있습니다. 결과 확인 전에는 다시 보내지 마세요.", "Processing the request. Wait for its outcome before sending again.")</p> }
+
+    @if (_pending is not null || _storageError)
+    {
+        <div id="billing-pending" class="bw-recovery">
+            <h3>@(_pending?.Confirmed == true ? T("inventory.write.confirmedRecovery", "저장 확인됨 · 복구 기록 정리", "Write confirmed · clear recovery record") : T("inventory.write.pendingRecovery", "처리 결과 확인 필요", "Request outcome needs checking"))</h3>
+            @if (_pending is { } pending)
+            {
+                <p><strong>@ActionName(pending.Kind)</strong> · @Utc(pending.CreatedAt) UTC</p>
+                <p class="bw-id">@T("inventory.write.requestId", "요청/대상 ID", "Request/record ID"): @pending.Id</p>
+                <details>
+                    <summary>@T("inventory.write.originalRequest", "보낸 요청 보기", "View original request")</summary>
+                    <dl>
+                    @switch (RequestBody(pending))
+                    {
+                        case ContactCommand enrollment:
+                            <dt>@T("billing.customerCode", "고객 코드", "Customer code")</dt><dd>@enrollment.CustomerId</dd>
+                            break;
+                        case BillingController.DocumentCreate create:
+                            <dt>@T("billing.kind", "종류", "Kind")</dt><dd>@KindName(create.Kind)</dd>
+                            <dt>@T("billing.lines", "항목", "Lines")</dt><dd>@create.Input.Lines.Count · @create.Input.Currency</dd>
+                            break;
+                        case BillingController.DocumentChange change:
+                            <dt>@T("billing.lines", "항목", "Lines")</dt><dd>@change.Input.Lines.Count · @change.Input.Currency</dd>
+                            break;
+                        case BillingController.DecisionCommand decision:
+                            <dt>@T("billing.decision", "결정", "Decision")</dt><dd>@(decision.Accepted ? T("billing.accept", "승인", "Accept") : T("billing.reject", "거절", "Reject"))</dd>
+                            break;
+                        case BillingController.PaymentCommand pay:
+                            <dt>@T("billing.amount", "금액", "Amount")</dt><dd>@Amount(pay.Input.Amount) @pay.Input.Currency</dd>
+                            <dt>@T("billing.method", "결제 방법", "Method")</dt><dd>@MethodName(pay.Input.Method)</dd>
+                            break;
+                        case BillingController.CancelCommand cancel:
+                            <dt>@T("billing.cancelReason", "취소 사유", "Cancel reason")</dt><dd>@cancel.Reason</dd>
+                            break;
+                    }
+                    </dl>
+                </details>
+                @if (!pending.Confirmed) { <p>@UnknownMessage()</p> }
+            }
+            <div class="bw-actions">
+                @if (_pending is { Confirmed: false } retry)
+                {
+                    <button id="billing-retry" type="button" @onclick="RetryAsync" disabled="@(_busy || _loading || _storageError || !Has(Permission(retry.Kind)!))">@T("inventory.write.retrySame", "같은 요청 재확인", "Recheck same request")</button>
+                }
+                @if (CanReadCurrent)
+                {
+                    <button id="billing-read-current" type="button" @onclick="ReadCurrentAsync" disabled="@(_busy || _loading)">@T("inventory.write.readCurrent", "현재 상태 조회", "Read current state")</button>
+                }
+                @if (_storageError)
+                {
+                    <button id="billing-reload-recovery" type="button" @onclick="LoadRecoveryAsync" disabled="@(_busy || _loading)">@T("inventory.write.reloadRecovery", "복구 기록 다시 읽기", "Reload recovery record")</button>
+                }
+            </div>
+            @if (_pending?.Confirmed != true)
+            {
+                <label class="bw-check"><input id="billing-acknowledge" type="checkbox" @bind="_acknowledged" disabled="@(_busy || _loading)" />@T("inventory.write.acknowledge", "현재 상태를 별도로 확인했으며 이 요청을 다시 실행하지 않겠습니다.", "I checked the current state separately and will not execute this request again.")</label>
+            }
+            <button id="billing-clear-recovery" type="button" @onclick="ClearRecoveryAsync" disabled="@(_busy || _loading || _pending?.Confirmed != true && !_acknowledged)">@T("inventory.write.closeRecovery", "확인한 복구 기록 닫기", "Close checked recovery record")</button>
+            <p class="bw-note">@T("inventory.write.tabRecovery", "복구 기록은 이 브라우저 탭에만 보관됩니다. 기록을 닫아도 이미 저장된 업무 데이터는 취소되지 않습니다.", "Recovery is kept in this browser tab only. Closing the record does not undo saved business data.")</p>
+        </div>
+    }
+    @if (_pending is null && CanReadCurrent)
+    {
+        <button id="billing-read-selected" type="button" @onclick="ReadCurrentAsync" disabled="@(_busy || _loading)">@T("inventory.write.readCurrent", "현재 상태 조회", "Read current state")</button>
+    }
+    @if (_observedDocument is not null || _observedPayment is not null)
+    {
+        <div id="billing-observed" class="bw-recovery">
+            <h3>@T("inventory.write.compareCurrent", "조회한 현재 상태", "Current state for comparison")</h3>
+            @if (_observedDocument is { } currentDocument)
+            {
+                <p class="bw-id">@currentDocument.Id</p>
+                <p>@KindName(currentDocument.Kind) #@currentDocument.Number · @StatusName(currentDocument.Status) · @Amount(currentDocument.Totals.Total) @currentDocument.Input.Currency · @T("billing.paid", "입금", "Paid") @Amount(currentDocument.Paid)</p>
+            }
+            @if (_observedPayment is { } currentPayment)
+            {
+                <p class="bw-id">@currentPayment.Id</p>
+                <p>@PaymentStateName(currentPayment.State) · @Amount(currentPayment.Input.Amount) @currentPayment.Input.Currency · @MethodName(currentPayment.Input.Method)</p>
+            }
+            <p class="bw-note">@T("inventory.write.compareNote", "작성 중인 입력과 요청 버전은 유지됩니다. 아래 버튼은 조회한 내용으로 편집을 다시 시작하며 아직 저장하지 않습니다.", "Your draft and request version are preserved. The button below starts editing from the loaded state without saving.")</p>
+            <button id="billing-adopt" type="button" @onclick="AdoptObservedAsync" disabled="@(!CanStart)">@T("inventory.write.adoptCurrent", "조회한 내용으로 다시 시작", "Start from loaded state")</button>
+        </div>
+    }
+
+    @if (CanWrite)
+    {
+        <form id="billing-contact-form" class="bw-form" @onsubmit="EnrollContactAsync" @onsubmit:preventDefault>
+            <label for="billing-contact-customer">@T("billing.enrollCustomer", "MDM 고객 코드로 계약처 등록", "Enroll a contact by MDM customer code")</label>
+            <input id="billing-contact-customer" type="text" maxlength="50" @bind="_customerId" disabled="@(!CanStart)" />
+            <button id="billing-enroll-contact" type="submit" disabled="@(!CanStart)">@ActionName("contact")</button>
+        </form>
+    }
+    @if (_contact is { } contact)
+    {
+        <p id="billing-selected-contact" role="status">@T("billing.selectedContact", "선택한 계약처", "Selected contact"): @contact.Name · @contact.CustomerId@(contact.Active ? "" : " · " + T("inventory.inactive", "비활성", "Inactive"))</p>
+    }
+    @if (CanWrite)
+    {
+        <div class="bw-actions">
+            <button id="billing-start-estimate" type="button" disabled="@(!CanStart || !CanDraft)" @onclick="() => StartDocument(BillingKind.Estimate)">@T("billing.newEstimate", "새 견적", "New estimate")</button>
+            <button id="billing-start-invoice" type="button" disabled="@(!CanStart || !CanDraft)" @onclick="() => StartDocument(BillingKind.Invoice)">@T("billing.newInvoice", "새 청구", "New invoice")</button>
+        </div>
+    }
+
+    @if (_document is { } document)
+    {
+        <div id="billing-selected-document" class="bw-selected" role="status">
+            <strong>@KindName(document.Kind) #@document.Number · @StatusName(document.Status)</strong>
+            <span class="bw-id">@document.Id</span>
+            <span>@T("billing.subtotal", "소계", "Subtotal") @Amount(document.Totals.Subtotal) · @T("billing.discount", "할인", "Discount") @Amount(document.Totals.DiscountAmount) · @T("billing.tax", "세금", "Tax") @Amount(document.Totals.TaxAmount) · @T("billing.total", "합계", "Total") @Amount(document.Totals.Total) @document.Input.Currency · @T("billing.paid", "입금", "Paid") @Amount(document.Paid) · @T("billing.due", "잔액", "Due") @Amount(document.Due)</span>
+            @if (document.ConvertedToId is { } convertedTo) { <span class="bw-id">@T("billing.convertedTo", "전환된 청구", "Converted to invoice"): @convertedTo</span> }
+            @if (document.ConvertedFromId is { } convertedFrom) { <span class="bw-id">@T("billing.convertedFrom", "원본 견적", "Converted from estimate"): @convertedFrom</span> }
+        </div>
+        <div class="bw-actions">
+            @if (CanWrite)
+            {
+                <button id="billing-edit-document" type="button" disabled="@(!CanStart || !CanEdit)" @onclick="EditDocument">@T("billing.edit", "문서 수정", "Edit document")</button>
+                <button id="billing-send" type="button" disabled="@(!CanStart || !CanSend)" @onclick="SendAsync">@ActionName("sent")</button>
+                <button id="billing-convert" type="button" disabled="@(!CanStart || !CanConvert)" @onclick="ConvertAsync">@ActionName("convert")</button>
+                <button id="billing-void" type="button" disabled="@(!CanStart || !CanVoid)" @onclick="VoidAsync">@ActionName("void")</button>
+            }
+            @if (CanDecide)
+            {
+                <button id="billing-accept" type="button" disabled="@(!CanStart || !CanDecideSelected)" @onclick="() => DecideAsync(true)">@T("billing.accept", "승인", "Accept")</button>
+                <button id="billing-reject" type="button" disabled="@(!CanStart || !CanDecideSelected)" @onclick="() => DecideAsync(false)">@T("billing.reject", "거절", "Reject")</button>
+            }
+            @if (CanPay)
+            {
+                <button id="billing-start-payment" type="button" disabled="@(!CanStart || !CanRecordPayment)" @onclick="StartPayment">@ActionName("pay")</button>
+            }
+        </div>
+    }
+
+    @if (_editor == Editor.Document)
+    {
+        <form id="billing-document-form" class="bw-form" @onsubmit="SaveDocumentAsync" @onsubmit:preventDefault>
+            <h3>@(_editing ? ActionName("update") : KindName(_editorKind) + " · " + ActionName("create"))</h3>
+            <div class="bw-grid">
+                <label for="billing-document-date">@T("billing.documentDate", "문서 일자", "Document date")</label>
+                <input id="billing-document-date" type="date" @bind="_documentDate" disabled="@(!CanStart)" />
+                <label for="billing-due-date">@T("billing.dueDate", "만기일", "Due date")</label>
+                <input id="billing-due-date" type="date" @bind="_dueDate" disabled="@(!CanStart)" />
+                <label for="billing-currency">@T("billing.currency", "통화 (ISO 3자)", "Currency (ISO 3 letters)")</label>
+                <input id="billing-currency" type="text" maxlength="3" @bind="_currency" disabled="@(!CanStart)" />
+            </div>
+            <table id="billing-lines" class="bw-lines">
+                <caption class="bw-sr-only">@T("billing.lines", "항목", "Lines")</caption>
+                <thead><tr><th>@T("billing.description", "설명", "Description")</th><th>@T("billing.unitPrice", "단가", "Unit price")</th><th>@T("inventory.quantity", "수량", "Quantity")</th><th>@T("billing.applyTax", "과세", "Tax")</th><th>@T("billing.applyDiscount", "할인 적용", "Discount")</th><th>@T("inventory.write.actions", "작업", "Actions")</th></tr></thead>
+                <tbody>
+                @foreach (var line in _lines)
+                {
+                    <tr @key="line">
+                        <td><input class="billing-line-description" type="text" maxlength="255" @bind="line.Description" disabled="@(!CanStart)" /></td>
+                        <td><input class="billing-line-unit-price" type="text" inputmode="decimal" @bind="line.UnitPrice" disabled="@(!CanStart)" /></td>
+                        <td><input class="billing-line-quantity" type="text" inputmode="decimal" @bind="line.Quantity" disabled="@(!CanStart)" /></td>
+                        <td><input class="billing-line-apply-tax" type="checkbox" @bind="line.ApplyTax" disabled="@(!CanStart)" /></td>
+                        <td><input class="billing-line-apply-discount" type="checkbox" @bind="line.ApplyDiscount" disabled="@(!CanStart)" /></td>
+                        <td><button class="billing-remove-line" type="button" disabled="@(!CanStart || _lines.Count == 1)" @onclick="() => RemoveLine(line)">@T("billing.removeLine", "항목 삭제", "Remove line")</button></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+            <button id="billing-add-line" type="button" disabled="@(!CanStart || _lines.Count >= MaxLines)" @onclick="AddLine">@T("billing.addLine", "항목 추가", "Add line")</button>
+            <div class="bw-grid">
+                <label for="billing-discount-type">@T("billing.discount", "할인", "Discount")</label>
+                <span class="bw-pair">
+                    <select id="billing-discount-type" @bind="_discountType" disabled="@(!CanStart)"><option value="">@T("billing.none", "없음", "None")</option><option value="Percent">@T("billing.percent", "비율(%)", "Percent (%)")</option><option value="Flat">@T("billing.flat", "정액", "Flat")</option></select>
+                    <input id="billing-discount-value" type="text" inputmode="decimal" @bind="_discountValue" disabled="@(!CanStart)" />
+                </span>
+                <label for="billing-tax-type">@T("billing.tax", "세금", "Tax")</label>
+                <span class="bw-pair">
+                    <select id="billing-tax-type" @bind="_taxType" disabled="@(!CanStart)"><option value="">@T("billing.none", "없음", "None")</option><option value="Percent">@T("billing.percent", "비율(%)", "Percent (%)")</option><option value="Flat">@T("billing.flat", "정액", "Flat")</option></select>
+                    <input id="billing-tax-value" type="text" inputmode="decimal" @bind="_taxValue" disabled="@(!CanStart)" />
+                </span>
+                <label for="billing-tax2-type">@T("billing.tax2", "세금 2", "Second tax")</label>
+                <span class="bw-pair">
+                    <select id="billing-tax2-type" @bind="_tax2Type" disabled="@(!CanStart)"><option value="">@T("billing.none", "없음", "None")</option><option value="Percent">@T("billing.percent", "비율(%)", "Percent (%)")</option><option value="Flat">@T("billing.flat", "정액", "Flat")</option></select>
+                    <input id="billing-tax2-value" type="text" inputmode="decimal" @bind="_tax2Value" disabled="@(!CanStart)" />
+                </span>
+                <label for="billing-terms">@T("billing.terms", "조건", "Terms")</label>
+                <textarea id="billing-terms" maxlength="4000" @bind="_terms" disabled="@(!CanStart)"></textarea>
+                <label for="billing-note">@T("billing.note", "메모", "Note")</label>
+                <textarea id="billing-note" maxlength="4000" @bind="_note" disabled="@(!CanStart)"></textarea>
+            </div>
+            <p class="bw-note">@T("billing.totalsNote", "소계·할인·세금·합계는 서버가 계산합니다. 정액 할인/세금은 문서당 한 번 적용되며 두 번째 세금은 첫 세금에 복리로 붙지 않습니다.", "Subtotal, discount, tax and total are computed by the server. A flat discount or tax applies once per document; the second tax is not compounded on the first.")</p>
+            <button id="billing-save-document" type="submit" disabled="@(!CanStart)">@(_editing ? ActionName("update") : ActionName("create"))</button>
+        </form>
+    }
+
+    @if (_editor == Editor.Payment && _document is { } paying)
+    {
+        <form id="billing-payment-form" class="bw-form" @onsubmit="RecordPaymentAsync" @onsubmit:preventDefault>
+            <h3>@ActionName("pay") · @KindName(paying.Kind) #@paying.Number</h3>
+            <div class="bw-grid">
+                <label for="billing-payment-amount">@T("billing.amount", "금액", "Amount") (@paying.Input.Currency)</label>
+                <input id="billing-payment-amount" type="text" inputmode="decimal" @bind="_paymentAmount" disabled="@(!CanStart)" />
+                <label for="billing-payment-method">@T("billing.method", "결제 방법", "Method")</label>
+                <select id="billing-payment-method" @bind="_paymentMethod" disabled="@(!CanStart)">
+                    @foreach (var method in Enum.GetValues<PaymentMethod>()) { <option value="@method">@MethodName(method)</option> }
+                </select>
+                <label for="billing-payment-paid-at">@T("billing.paidAt", "입금 시각 (UTC)", "Paid at (UTC)")</label>
+                <input id="billing-payment-paid-at" type="text" inputmode="numeric" placeholder="yyyy-MM-ddTHH:mm" maxlength="19" @bind="_paymentPaidAt" disabled="@(!CanStart)" />
+                <label for="billing-payment-reference">@T("billing.reference", "참조", "Reference")</label>
+                <input id="billing-payment-reference" type="text" maxlength="255" @bind="_paymentReference" disabled="@(!CanStart)" />
+                <label for="billing-payment-note">@T("billing.note", "메모", "Note")</label>
+                <textarea id="billing-payment-note" maxlength="4000" @bind="_paymentNote" disabled="@(!CanStart)"></textarea>
+            </div>
+            <button id="billing-save-payment" type="submit" disabled="@(!CanStart)">@ActionName("pay")</button>
+        </form>
+    }
+
+    @if (_payment is { } payment)
+    {
+        <div id="billing-selected-payment" class="bw-selected" role="status">
+            <strong>@T("billing.payment", "입금", "Payment") · @PaymentStateName(payment.State)</strong>
+            <span class="bw-id">@payment.Id</span>
+            <span>@Amount(payment.Input.Amount) @payment.Input.Currency · @MethodName(payment.Input.Method) · @Utc(payment.Input.PaidAt) UTC@(payment.Input.Reference is null ? "" : " · " + payment.Input.Reference)</span>
+            @if (payment.State == PaymentState.Cancelled) { <span>@T("billing.cancelledBy", "취소", "Cancelled"): @payment.CancelledBy @(payment.CancelledAt is { } at ? Utc(at) + " UTC" : "") @payment.CancelReason</span> }
+        </div>
+        @if (CanCancelPayment)
+        {
+            <form id="billing-cancel-payment-form" class="bw-form" @onsubmit="CancelPaymentAsync" @onsubmit:preventDefault>
+                <label for="billing-cancel-reason">@T("billing.cancelReason", "취소 사유", "Cancel reason")</label>
+                <input id="billing-cancel-reason" type="text" maxlength="4000" @bind="_cancelReason" disabled="@(!CanStart)" />
+                <button id="billing-cancel-payment" type="submit" disabled="@(!CanStart)">@ActionName("cancel-payment")</button>
+            </form>
+        }
+    }
+</section>
