@@ -91,6 +91,8 @@ public sealed class StockBridge : IStockBridge
     public Task<BusinessPage<StockMovement>> ListMovementsAsync(string userId, Guid tenantId, Guid organizationId,
         Guid variantId, int offset = 0, int limit = 50, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "stock.read", (service, session) => service.ListMovementsAsync(session.Actor, variantId, offset, limit, ct), ct);
+    public Task<ProductVariant> GetVariantAsync(string userId, Guid tenantId, Guid organizationId, Guid id, CancellationToken ct = default)
+        => Run(userId, tenantId, organizationId, "stock.read", (service, session) => service.GetVariantAsync(session.Actor, id, ct), ct);
     public Task<BusinessPage<StockBalance>> ListBalancesAsync(string userId, Guid tenantId, Guid organizationId,
         Guid? warehouseId = null, Guid? variantId = null, int offset = 0, int limit = 50, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "stock.read", (service, session) => service.ListBalancesAsync(session.Actor, warehouseId, variantId, offset, limit, ct), ct);

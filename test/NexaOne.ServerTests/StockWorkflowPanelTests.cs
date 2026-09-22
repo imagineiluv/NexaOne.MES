@@ -677,6 +677,45 @@ public sealed class StockWorkflowPanelTests : BunitContext
         noRead.FindAll("#stock-balance-form").Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Variant_selection_by_ID_reads_the_stored_variant_and_disables_new_operations_when_inactive()
+    {
+        var scope = Scope("stock.read", "stock.warehouse.read", "stock.post", "stock.reserve");
+        var warehouse = Warehouse(scope, "WH-1");
+        var product = Product(scope, "P-001");
+        var active = Variant(scope, product);
+        var inactive = Variant(scope, Product(scope, "P-OLD")) with { Active = false };
+        var foreign = Variant(ScopeAt(2, "stock.read"), product);
+        var changes = new List<ProductVariant?>();
+        Reads<ProductVariant>(path => path == Root(scope) + $"/variants/{active.Id:D}" ? Ok(active)
+            : path == Root(scope) + $"/variants/{inactive.Id:D}" ? Ok(inactive)
+            : path == Root(scope) + $"/variants/{foreign.Id:D}" ? Ok(foreign) : Failure<ProductVariant>(404, "VARIANT_NOT_FOUND"));
+        var cut = Render<StockWorkflowPanel>(p => p.Add(c => c.Scope, scope).Add(c => c.UserId, "operator")
+            .Add(c => c.Warehouses, (IReadOnlyList<Warehouse>)[warehouse]).Add(c => c.VariantChanged, v => { changes.Add(v); return Task.CompletedTask; }));
+        cut.WaitForAssertion(() => cut.Find("#inventory-stock-workflows").GetAttribute("aria-busy").Should().Be("false"));
+
+        await cut.InvokeAsync(() => cut.Instance.SelectVariantAsync(active.Id));
+
+        cut.Find("#stock-selected-variant").TextContent.Should().Contain("P-001").And.Contain("EA");
+        cut.Find("#stock-start-posting").HasAttribute("disabled").Should().BeFalse();
+        changes.Should().ContainSingle().Which.Should().Be(active);
+
+        await cut.InvokeAsync(() => cut.Instance.SelectVariantAsync(inactive.Id));
+        cut.Find("#stock-selected-variant").TextContent.Should().Contain("P-OLD").And.Contain("Inactive");
+        cut.Find("#stock-start-posting").HasAttribute("disabled").Should().BeTrue("inactive variants cannot start new operations");
+        cut.Find("#stock-start-reservation").HasAttribute("disabled").Should().BeTrue();
+        changes.Should().HaveCount(2);
+
+        await cut.InvokeAsync(() => cut.Instance.SelectVariantAsync(foreign.Id));
+        cut.Find("#stock-write-error").TextContent.Should().Contain("does not match");
+        cut.Find("#stock-selected-variant").TextContent.Should().Contain("P-OLD", "a rejected read keeps the earlier selection");
+        await cut.InvokeAsync(() => cut.Instance.SelectVariantAsync(Guid.NewGuid()));
+        cut.Find("#stock-write-error").TextContent.Should().Contain("not found");
+        changes.Should().HaveCount(2);
+        _reads.Should().HaveCount(4);
+        _writes.Should().BeEmpty();
+    }
+
     private IRenderedComponent<StockWorkflowPanel> Panel(InventoryAccessScope scope, IReadOnlyList<Warehouse>? warehouses = null, Func<Task>? saved = null)
     {
         var cut = Render<StockWorkflowPanel>(p => p.Add(c => c.Scope, scope).Add(c => c.UserId, "operator")

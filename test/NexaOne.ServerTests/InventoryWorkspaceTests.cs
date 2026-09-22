@@ -564,6 +564,38 @@ public sealed class InventoryWorkspaceTests : BunitContext
         Paths<StockBalance>().Last().Should().Be(root + $"/warehouses/{other.Id:D}/balances?offset=0&limit=50");
     }
 
+    [Fact]
+    public async Task Balance_and_reservation_rows_select_their_variant_into_the_stock_panel()
+    {
+        var scope = Scope(1, "stock.read", "stock.warehouse.read");
+        var warehouse = new Warehouse(Guid.NewGuid(), Business(scope), Guid.NewGuid(), "WH-1", "Main warehouse");
+        var product = Product(scope, "P-300");
+        var variant = new ProductVariant(Guid.NewGuid(), Business(scope), product.Version, product.Id, "P-300", "EA", Array.Empty<OptionSelection>());
+        var balance = new StockBalance(Guid.NewGuid(), Business(scope), Guid.NewGuid(), variant.Id, warehouse.Id, 5m, 0m);
+        var reservation = new StockReservation(Guid.NewGuid(), Business(scope), Guid.NewGuid(), Guid.NewGuid(), variant.Id, warehouse.Id, 1m, "WO-1", Guid.NewGuid().ToString("D"), StockReservationState.Active);
+        ShowScopes(scope);
+        Reads<Warehouse>(_ => new([warehouse], 1));
+        Reads<StockBalance>(_ => new([balance], 1));
+        Reads<StockMovement>(_ => new([], 0));
+        Reads<StockReservation>(_ => new([reservation], 1));
+        var root = $"api/v1/ivt/stock/{Tenant:D}/{scope.Membership.OrganizationId:D}";
+        _api.Setup(api => api.ReadInventoryAsync<ProductVariant>(root + $"/variants/{variant.Id:D}", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((variant, 200, null, null));
+        var cut = Render<HostInventoryWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        await cut.Find("[data-scope]").ClickAsync(new MouseEventArgs());
+        await cut.Find($"[data-manage-warehouse='{warehouse.Id:D}']").ClickAsync(new MouseEventArgs());
+        cut.WaitForAssertion(() => cut.Find("#inventory-balances tbody").TextContent.Should().Contain("5"));
+
+        await cut.Find($"#inventory-balances [data-select-variant='{variant.Id:D}']").ClickAsync(new MouseEventArgs());
+
+        cut.WaitForAssertion(() => cut.Find("#stock-selected-variant").TextContent.Should().Contain("P-300"));
+        cut.WaitForAssertion(() => cut.Find("#inventory-reservations tbody").TextContent.Should().Contain("WO-1"));
+        Paths<StockMovement>().Should().ContainSingle();
+        cut.Find($"#inventory-reservations [data-select-variant='{variant.Id:D}']").Should().NotBeNull();
+        _api.Invocations.Should().OnlyContain(call => call.Method.Name == nameof(IApiClient.ReadInventoryAsync));
+    }
+
     private void Reads<T>(Func<string, BusinessPage<T>> response)
         => _api.Setup(api => api.ReadInventoryAsync<BusinessPage<T>>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns((string path, CancellationToken _) => Task.FromResult(Ok(response(path))));

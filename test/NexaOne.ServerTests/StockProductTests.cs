@@ -133,6 +133,8 @@ public sealed class StockHostTests(ITestOutputHelper output)
         (await Body<BusinessPage<StockBalance>>(await member.GetAsync(route + $"/warehouses/{warehouse.Id}/balances?variantId={Guid.NewGuid()}"))).Total.Should().Be(0);
         (await Body<BusinessPage<StockBalance>>(await member.GetAsync(route + $"/warehouses/{Guid.NewGuid()}/balances"))).Total.Should().Be(0);
         await Error(await member.GetAsync(route + $"/warehouses/{warehouse.Id}/balances?limit=0"), HttpStatusCode.BadRequest, "INVALID_BUSINESS_INPUT");
+        (await Body<ProductVariant>(await member.GetAsync(route + $"/variants/{variant.Id}"))).Should().BeEquivalentTo(variant);
+        await Error(await member.GetAsync(route + $"/variants/{Guid.NewGuid()}"), HttpStatusCode.NotFound, "VARIANT_NOT_FOUND");
         (await Body<StockMovement>(await member.GetAsync(route + "/movements/" + receipt.Id))).Should().BeEquivalentTo(receipt);
         (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM IVT_STOCK_MOVEMENT")).Should().Be(2);
         (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM IVT_STOCK_PRODUCT")).Should().Be(1);
