@@ -61,9 +61,13 @@
                 <strong>@_scope.Plant.PlantName · @_scope.Plant.PlantId</strong>
                 <span class="iw-scope-keys">@SelectedKey</span>
             </div>
+            @if (_scope.Membership.Permissions.Any(grant => grant.StartsWith("stock.", StringComparison.Ordinal)))
+            {
+                <StockWorkflowPanel @key="@("stock/" + SelectedKey)" @ref="_stock" Scope="_scope" UserId="@_currentUserId" Warehouses="_warehouses?.Items" Saved="RefreshStockAsync" VariantChanged="VariantChangedAsync" />
+            }
             @if (_scope.Membership.Permissions.Any(grant => grant.StartsWith("equipment.", StringComparison.Ordinal)))
             {
-                <EquipmentWorkflowPanel @key="SelectedKey" @ref="_workflow" Scope="_scope" UserId="@_currentUserId" Worker="_worker" Saved="RefreshEquipmentAsync" />
+                <EquipmentWorkflowPanel @key="@("equipment/" + SelectedKey)" @ref="_workflow" Scope="_scope" UserId="@_currentUserId" Worker="_worker" Saved="RefreshEquipmentAsync" />
             }
             @if (!DataPanes.Any(CanRead))
             {
@@ -77,6 +81,10 @@
                     {
                         <p class="iw-note">@T("inventory.productNote", "등록된 품목의 마스터 활성 상태입니다. 현재고나 단위 적합성을 나타내지 않습니다.", "Enrolled products show master activity, not stock quantity or unit eligibility.")</p>
                     }
+                    @if (pane == Pane.Movements && _variant is { } listedVariant)
+                    {
+                        <p class="iw-note" id="inventory-movements-variant">@T("inventory.stock.movementNote", "선택한 품목 변형의 전표 이력입니다. 창고와 반제 상태는 저장된 식별자로 표시합니다.", "Ledger entries of the selected product variant. Warehouses and reversal state are shown by stored identifiers."): @listedVariant.Sku</p>
+                    }
                     @if (pane == Pane.Bookings)
                     {
                         <p class="iw-note">@T("inventory.bookingNote", "예약의 장비·작업자·요청자는 저장된 식별자로 표시합니다.", "Booking equipment, employees and requesters are shown by their stored identifiers.")</p>
@@ -89,6 +97,8 @@
                             <p id="inventory-worker-selection" role="status">@T("inventory.write.workerSelected", "예약 작업자 선택", "Selected booking worker"): @_worker.WorkerName · @_worker.WorkerId</p>
                         }
                     }
+                    @if (pane != Pane.Movements)
+                    {
                     <form class="iw-filters" @onsubmit="() => SearchAsync(pane)" @onsubmit:preventDefault>
                         @if (pane == Pane.Bookings)
                         {
@@ -112,6 +122,7 @@
                         }
                         <RadzenButton id="@(PaneId(pane) + "-search")" ButtonType="ButtonType.Submit" Text="@T("inventory.search", "조회", "Search")" Disabled="@Busy(pane)" />
                     </form>
+                    }
                     @Status(pane)
                     @if (_totals.ContainsKey(pane))
                     {
@@ -121,12 +132,16 @@
                                 @switch (pane)
                                 {
                                     case Pane.Products:
-                                        <thead><tr><th>@T("inventory.code", "코드", "Code")</th><th>@T("inventory.name", "이름", "Name")</th><th>@T("inventory.activity", "활성 상태", "Activity")</th></tr></thead>
-                                        <tbody>@foreach (var item in _products!.Items) { <tr @key="item.Id"><td class="iw-id">@item.Input.Code</td><td>@item.Input.Name</td><td>@Activity(item.Active)</td></tr> }</tbody>
+                                        <thead><tr><th>@T("inventory.code", "코드", "Code")</th><th>@T("inventory.name", "이름", "Name")</th><th>@T("inventory.activity", "활성 상태", "Activity")</th>@if (HasStockPanel) { <th>@T("inventory.write.actions", "작업", "Actions")</th> }</tr></thead>
+                                        <tbody>@foreach (var item in _products!.Items) { <tr @key="item.Id"><td class="iw-id">@item.Input.Code</td><td>@item.Input.Name</td><td>@Activity(item.Active)</td>@if (HasStockPanel) { <td><button class="iw-choice" type="button" data-manage-product="@item.Id" @onclick="() => SelectProductAsync(item)">@T("inventory.stock.chooseProduct", "품목 선택", "Select product")</button></td> }</tr> }</tbody>
                                         break;
                                     case Pane.Warehouses:
-                                        <thead><tr><th>@T("inventory.code", "코드", "Code")</th><th>@T("inventory.name", "이름", "Name")</th><th>@T("inventory.activity", "활성 상태", "Activity")</th></tr></thead>
-                                        <tbody>@foreach (var item in _warehouses!.Items) { <tr @key="item.Id"><td class="iw-id">@item.Code</td><td>@item.Name</td><td>@Activity(item.Active)</td></tr> }</tbody>
+                                        <thead><tr><th>@T("inventory.code", "코드", "Code")</th><th>@T("inventory.name", "이름", "Name")</th><th>@T("inventory.activity", "활성 상태", "Activity")</th>@if (HasStockPanel) { <th>@T("inventory.write.actions", "작업", "Actions")</th> }</tr></thead>
+                                        <tbody>@foreach (var item in _warehouses!.Items) { <tr @key="item.Id"><td class="iw-id">@item.Code</td><td>@item.Name</td><td>@Activity(item.Active)</td>@if (HasStockPanel) { <td><button class="iw-choice" type="button" data-manage-warehouse="@item.Id" @onclick="() => SelectWarehouseAsync(item)">@T("inventory.stock.chooseWarehouse", "창고 선택", "Select warehouse")</button></td> }</tr> }</tbody>
+                                        break;
+                                    case Pane.Movements:
+                                        <thead><tr><th>@T("inventory.stock.movementId", "전표 ID", "Movement ID")</th><th>@T("inventory.stock.kind", "전표 종류", "Movement kind")</th><th>@T("inventory.stock.fromWarehouse", "출고 창고", "From warehouse")</th><th>@T("inventory.stock.toWarehouse", "입고 창고", "To warehouse")</th><th>@T("inventory.quantity", "수량", "Quantity")</th><th>@T("inventory.stock.reference", "참조", "Reference")</th><th>@T("inventory.stock.reversalState", "반제 상태", "Reversal state")</th><th>@T("inventory.write.actions", "작업", "Actions")</th></tr></thead>
+                                        <tbody>@foreach (var item in _movements!.Items) { <tr @key="item.Id"><td class="iw-id">@item.Id</td><td>@KindName(item.Posting.Kind)</td><td class="iw-id">@item.Posting.FromWarehouseId</td><td class="iw-id">@item.Posting.ToWarehouseId</td><td>@item.Posting.Quantity.ToString(CultureInfo.InvariantCulture)</td><td>@item.Posting.Reference</td><td>@ReversalState(item)</td><td><button class="iw-choice" type="button" data-manage-movement="@item.Id" @onclick="() => SelectMovementAsync(item)">@T("inventory.stock.chooseMovement", "전표 선택", "Select movement")</button></td></tr> }</tbody>
                                         break;
                                     case Pane.Assets:
                                         <thead><tr><th>@T("inventory.code", "코드", "Code")</th><th>@T("inventory.name", "이름", "Name")</th><th>@T("inventory.capacity", "정원", "Capacity")</th><th>@T("inventory.approval", "승인 필요", "Approval required")</th><th>@T("inventory.activity", "활성 상태", "Activity")</th><th>@T("inventory.write.actions", "작업", "Actions")</th></tr></thead>
@@ -152,8 +167,8 @@
 </div>
 
 @code {
-    private enum Pane { Scopes, Products, Warehouses, Assets, Bookings, Workers }
-    private static readonly Pane[] DataPanes = [Pane.Products, Pane.Warehouses, Pane.Assets, Pane.Bookings, Pane.Workers];
+    private enum Pane { Scopes, Products, Warehouses, Movements, Assets, Bookings, Workers }
+    private static readonly Pane[] DataPanes = [Pane.Products, Pane.Warehouses, Pane.Movements, Pane.Assets, Pane.Bookings, Pane.Workers];
     private const int PageSize = 50;
     private readonly Dictionary<Pane, int> _offsets = Enum.GetValues<Pane>().ToDictionary(p => p, _ => 0);
     private readonly Dictionary<Pane, long> _totals = new();
@@ -166,12 +181,15 @@
     private BusinessPage<InventoryAccessScope>? _scopes;
     private BusinessPage<Product>? _products;
     private BusinessPage<Warehouse>? _warehouses;
+    private BusinessPage<StockMovement>? _movements;
+    private ProductVariant? _variant;
     private BusinessPage<SharedEquipment>? _assets;
     private BusinessPage<EquipmentBooking>? _bookings;
     private BusinessPage<WorkerDto>? _workers;
     private InventoryAccessScope? _scope;
     private WorkerDto? _worker;
     private EquipmentWorkflowPanel? _workflow;
+    private StockWorkflowPanel? _stock;
     private string? _currentUserId;
     private string _draftBookingState = "", _bookingState = "";
     private bool _authenticated, _disposed, _interactive;
@@ -248,11 +266,23 @@
             Cancel(pane); _offsets[pane] = 0; _totals.Remove(pane); _errors.Remove(pane);
             _draftText[pane] = _text[pane] = ""; _draftInactive[pane] = _inactive[pane] = false;
         }
-        _scope = null; _worker = null; _workflow = null;
-        _products = null; _warehouses = null; _assets = null; _bookings = null; _workers = null;
+        _scope = null; _worker = null; _workflow = null; _stock = null; _variant = null;
+        _products = null; _warehouses = null; _movements = null; _assets = null; _bookings = null; _workers = null;
         _draftBookingState = _bookingState = "";
     }
 
+    private bool HasStockPanel => _scope?.Membership.Permissions.Any(grant => grant.StartsWith("stock.", StringComparison.Ordinal)) == true;
+    private Task SelectProductAsync(Product value) => _stock?.SelectProductAsync(value) ?? Task.CompletedTask;
+    private Task SelectWarehouseAsync(Warehouse value) => _stock?.SelectWarehouseAsync(value) ?? Task.CompletedTask;
+    private Task SelectMovementAsync(StockMovement value) => _stock?.SelectMovementAsync(value) ?? Task.CompletedTask;
+    private Task VariantChangedAsync(ProductVariant? variant)
+    {
+        // The movement ledger is keyed by the variant the panel resolved; a new selection restarts its paging.
+        Cancel(Pane.Movements); _movements = null; _totals.Remove(Pane.Movements); _errors.Remove(Pane.Movements); _offsets[Pane.Movements] = 0;
+        _variant = variant;
+        return _variant is null ? Task.CompletedTask : LoadPaneAsync(Pane.Movements);
+    }
+    private Task RefreshStockAsync() => Task.WhenAll(new[] { Pane.Products, Pane.Warehouses, Pane.Movements }.Where(CanRead).Select(LoadPaneAsync));
     private Task SelectEquipmentAsync(SharedEquipment value) => _workflow?.SelectEquipmentAsync(value) ?? Task.CompletedTask;
     private Task SelectBookingAsync(EquipmentBooking value) => _workflow?.SelectBookingAsync(value) ?? Task.CompletedTask;
     private Task RefreshEquipmentAsync() => Task.WhenAll(new[] { Pane.Assets, Pane.Bookings }.Where(CanRead).Select(LoadPaneAsync));
@@ -260,7 +290,8 @@
     private bool CanRead(Pane pane) => _scope?.Membership.Permissions.Contains(pane switch
     {
         Pane.Products => "stock.read", Pane.Warehouses => "stock.warehouse.read", Pane.Assets => "equipment.read",
-        Pane.Bookings => "equipment.booking.read", Pane.Workers => "equipment.booking.request", _ => ""
+        Pane.Bookings => "equipment.booking.read", Pane.Workers => "equipment.booking.request",
+        Pane.Movements when _variant is not null => "stock.read", _ => ""
     }, StringComparer.Ordinal) == true;
 
     private async Task SearchAsync(Pane pane)
@@ -281,6 +312,7 @@
         {
             Pane.Products => ReadAsync<Product>(pane, $"api/v1/ivt/stock/{pair}/products?{filter}", value => _products = value),
             Pane.Warehouses => ReadAsync<Warehouse>(pane, $"api/v1/ivt/stock/{pair}/warehouses?{filter}", value => _warehouses = value),
+            Pane.Movements => ReadAsync<StockMovement>(pane, $"api/v1/ivt/stock/{pair}/movements?variantId={_variant!.Id:D}&{page}", value => _movements = value),
             Pane.Assets => ReadAsync<SharedEquipment>(pane, $"api/v1/ivt/shared-equipment/{pair}/assets?{filter}", value => _assets = value),
             Pane.Bookings => ReadAsync<EquipmentBooking>(pane, $"api/v1/ivt/shared-equipment/{pair}/bookings?{page}" + (_bookingState.Length == 0 ? "" : $"&state={_bookingState}"), value => _bookings = value),
             Pane.Workers => ReadAsync<WorkerDto>(pane, $"api/v1/ivt/shared-equipment/{pair}/workers?text={Uri.EscapeDataString(_text[pane])}&{page}", value => _workers = value),
@@ -332,6 +364,7 @@
     private string Title(Pane pane) => pane switch
     {
         Pane.Products => T("inventory.products", "등록 품목", "Enrolled products"), Pane.Warehouses => T("inventory.warehouses", "창고", "Warehouses"),
+        Pane.Movements => T("inventory.stock.movements", "전표 이력", "Movement history"),
         Pane.Assets => T("inventory.assets", "공유 장비", "Shared equipment"), Pane.Bookings => T("inventory.bookings", "예약 이력", "Booking history"),
         Pane.Workers => T("inventory.workers", "작업자 조회·선택", "Worker lookup and selection"), _ => T("inventory.scopes", "내 재고 범위", "My inventory scopes")
     };
@@ -342,6 +375,14 @@
         EquipmentBookingState.Denied => T("inventory.denied", "거절됨", "Denied"), EquipmentBookingState.Cancelled => T("inventory.cancelled", "취소됨", "Cancelled"), _ => state.ToString()
     };
 
+    private string KindName(StockMovementKind kind) => kind switch
+    {
+        StockMovementKind.Receipt => T("inventory.stock.receipt", "입고", "Receipt"), StockMovementKind.Issue => T("inventory.stock.issue", "출고", "Issue"),
+        StockMovementKind.Transfer => T("inventory.stock.transfer", "이동", "Transfer"), StockMovementKind.Adjustment => T("inventory.stock.adjustment", "조정", "Adjustment"),
+        StockMovementKind.Reversal => T("inventory.stock.reversal", "반제", "Reversal"), _ => kind.ToString()
+    };
+    private string ReversalState(StockMovement movement) => movement.ReversalOfId is not null ? T("inventory.stock.reversalEntry", "반제 전표", "Reversal entry")
+        : movement.ReversedById is not null ? T("inventory.stock.reversed", "반제됨", "Reversed") : T("inventory.stock.open", "유효", "Open");
     private RenderFragment Status(Pane pane) => @<div class="iw-status" aria-live="polite">
         @if (Busy(pane)) { <p role="status">@T("inventory.loading", "불러오는 중…", "Loading…")</p> }
         else if (_errors.TryGetValue(pane, out var error))

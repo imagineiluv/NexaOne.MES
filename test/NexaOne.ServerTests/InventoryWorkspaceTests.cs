@@ -432,6 +432,63 @@ public sealed class InventoryWorkspaceTests : BunitContext
         _api.Invocations.Should().OnlyContain(call => call.Method.Name == nameof(IApiClient.ReadInventoryAsync));
     }
 
+    [Fact]
+    public async Task Product_and_warehouse_rows_feed_the_stock_panel_and_a_selected_variant_lists_its_movements()
+    {
+        var scope = Scope(1, "stock.read", "stock.warehouse.read", "stock.post", "stock.reverse");
+        var product = Product(scope, "P-100");
+        var warehouse = new Warehouse(Guid.NewGuid(), Business(scope), Guid.NewGuid(), "WH-1", "Main warehouse");
+        var variant = new ProductVariant(Guid.NewGuid(), Business(scope), product.Version, product.Id, "P-100", "EA", Array.Empty<OptionSelection>());
+        var movement = new StockMovement(Guid.NewGuid(), Business(scope), Guid.NewGuid(),
+            new StockPosting(Guid.NewGuid(), variant.Id, StockMovementKind.Receipt, 3m, null, warehouse.Id, "GRN-3"), "creator", [new StockDelta(warehouse.Id, 3m)]);
+        var movements = new List<StockMovement>();
+        ShowScopes(scope);
+        Reads<Product>(_ => new([product], 1));
+        Reads<Warehouse>(_ => new([warehouse], 1));
+        Reads<StockMovement>(_ => new(movements.ToArray(), movements.Count));
+        var root = $"api/v1/ivt/stock/{Tenant:D}/{scope.Membership.OrganizationId:D}";
+        _api.Setup(api => api.ReadInventoryAsync<ProductVariant>(root + "/products/P-100", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((variant, 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<StockMovement>(HttpMethod.Post, root + "/movements", It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .Returns((HttpMethod _, string _, object body, string _, CancellationToken _) =>
+            {
+                var posting = (StockPosting)body;
+                posting.Should().Be(new StockPosting(posting.OperationId, variant.Id, StockMovementKind.Receipt, 3m, null, warehouse.Id, "GRN-3"));
+                movements.Add(movement with { Posting = posting });
+                return Task.FromResult<(StockMovement?, int, string?, string?)>((movement with { Posting = posting }, 200, null, null));
+            });
+        var cut = Render<HostInventoryWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        await cut.Find("[data-scope]").ClickAsync(new MouseEventArgs());
+        cut.WaitForAssertion(() => cut.Find("#inventory-stock-workflows").Should().NotBeNull());
+        cut.FindAll("#inventory-movements").Should().BeEmpty("movements need a selected variant");
+        cut.FindAll("#inventory-equipment-workflows").Should().BeEmpty("no equipment grant is present");
+
+        await cut.Find($"[data-manage-product='{product.Id:D}']").ClickAsync(new MouseEventArgs());
+
+        cut.WaitForAssertion(() => cut.Find("#stock-selected-variant").TextContent.Should().Contain("P-100"));
+        cut.WaitForAssertion(() => cut.Find("#inventory-movements").Should().NotBeNull());
+        Paths<StockMovement>().Should().ContainSingle().Which.Should().Be(root + $"/movements?variantId={variant.Id:D}&offset=0&limit=50");
+        await cut.Find($"[data-manage-warehouse='{warehouse.Id:D}']").ClickAsync(new MouseEventArgs());
+        cut.Find("#stock-selected-warehouse").TextContent.Should().Contain("Main warehouse");
+        cut.FindAll("#stock-warehouse-form").Should().BeEmpty("no warehouse write grant is present");
+
+        cut.Find("#stock-start-posting").Click();
+        cut.Find("#stock-posting-kind").Change("Receipt");
+        cut.Find("#stock-posting-to").Change(warehouse.Id.ToString("D"));
+        cut.Find("#stock-posting-quantity").Change("3");
+        cut.Find("#stock-posting-reference").Change("GRN-3");
+        await cut.Find("#stock-posting-form").SubmitAsync(EventArgs.Empty);
+
+        cut.WaitForAssertion(() => cut.Find("#inventory-movements tbody").TextContent.Should().Contain("GRN-3"));
+        Paths<StockMovement>().Should().HaveCount(2);
+        Paths<Warehouse>().Should().HaveCount(2, "a confirmed save refreshes the warehouse list");
+        await cut.Find($"[data-manage-movement='{movement.Id:D}']").ClickAsync(new MouseEventArgs());
+        cut.Find("#stock-movement-detail").TextContent.Should().Contain("GRN-3");
+        cut.Find("#stock-reverse-movement").Should().NotBeNull();
+        _api.Invocations.Count(call => call.Method.Name == nameof(IApiClient.WriteInventoryAsync)).Should().Be(1);
+    }
+
     private void Reads<T>(Func<string, BusinessPage<T>> response)
         => _api.Setup(api => api.ReadInventoryAsync<BusinessPage<T>>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns((string path, CancellationToken _) => Task.FromResult(Ok(response(path))));
