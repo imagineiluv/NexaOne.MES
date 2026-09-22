@@ -127,6 +127,12 @@ public sealed class StockHostTests(ITestOutputHelper output)
         (await Body<BusinessPage<StockReservation>>(await member.GetAsync(route + "/reservations"))).Items.Should().ContainSingle();
         await Error(await member.GetAsync(route + "/reservations?limit=101"), HttpStatusCode.BadRequest, "INVALID_BUSINESS_INPUT");
         await Error(await member.GetAsync(route + $"/balances?variantId={variant.Id}&warehouseId={Guid.NewGuid()}"), HttpStatusCode.NotFound, "STOCK_BALANCE_NOT_FOUND");
+        var balances = await Body<BusinessPage<StockBalance>>(await member.GetAsync(route + $"/warehouses/{warehouse.Id}/balances?offset=0&limit=50"));
+        balances.Total.Should().Be(1);
+        balances.Items.Single().Should().BeEquivalentTo(balance);
+        (await Body<BusinessPage<StockBalance>>(await member.GetAsync(route + $"/warehouses/{warehouse.Id}/balances?variantId={Guid.NewGuid()}"))).Total.Should().Be(0);
+        (await Body<BusinessPage<StockBalance>>(await member.GetAsync(route + $"/warehouses/{Guid.NewGuid()}/balances"))).Total.Should().Be(0);
+        await Error(await member.GetAsync(route + $"/warehouses/{warehouse.Id}/balances?limit=0"), HttpStatusCode.BadRequest, "INVALID_BUSINESS_INPUT");
         (await Body<StockMovement>(await member.GetAsync(route + "/movements/" + receipt.Id))).Should().BeEquivalentTo(receipt);
         (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM IVT_STOCK_MOVEMENT")).Should().Be(2);
         (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM IVT_STOCK_PRODUCT")).Should().Be(1);

@@ -50,6 +50,7 @@ public sealed class InventoryWorkspaceTests : BunitContext
         Reads<EquipmentBooking>(_ => new([], 0));
         Reads<WorkerDto>(_ => new([], 0));
         Reads<StockReservation>(_ => new([], 0));
+        Reads<StockBalance>(_ => new([], 0));
     }
 
     [Fact]
@@ -526,6 +527,41 @@ public sealed class InventoryWorkspaceTests : BunitContext
         cut.Find("#stock-reservation-detail").TextContent.Should().Contain("WO-9");
         cut.Find("#stock-release-reservation").Should().NotBeNull();
         _api.Invocations.Should().OnlyContain(call => call.Method.Name == nameof(IApiClient.ReadInventoryAsync));
+    }
+
+    [Fact]
+    public async Task Selected_warehouse_lists_its_recorded_balances_including_zero_and_a_confirmed_save_refreshes_them()
+    {
+        var scope = Scope(1, "stock.read", "stock.warehouse.read", "stock.warehouse.write");
+        var warehouse = new Warehouse(Guid.NewGuid(), Business(scope), Guid.NewGuid(), "WH-1", "Main warehouse");
+        var other = warehouse with { Id = Guid.NewGuid(), Code = "WH-2", Name = "Other warehouse" };
+        var stocked = new StockBalance(Guid.NewGuid(), Business(scope), Guid.NewGuid(), Guid.NewGuid(), warehouse.Id, 12.5m, 2.5m);
+        var empty = new StockBalance(Guid.NewGuid(), Business(scope), Guid.NewGuid(), Guid.NewGuid(), warehouse.Id, 0m, 0m);
+        ShowScopes(scope);
+        Reads<Warehouse>(_ => new([warehouse, other], 2));
+        Reads<StockBalance>(path => path.Contains(warehouse.Id.ToString("D")) ? new([stocked, empty], 2) : new([], 0));
+        var root = $"api/v1/ivt/stock/{Tenant:D}/{scope.Membership.OrganizationId:D}";
+        _api.Setup(api => api.WriteInventoryAsync<Warehouse>(HttpMethod.Put, root + $"/warehouses/{warehouse.Id:D}", It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((warehouse with { Name = "Renamed", Version = Guid.NewGuid() }, 200, null, null));
+        var cut = Render<HostInventoryWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        await cut.Find("[data-scope]").ClickAsync(new MouseEventArgs());
+        cut.WaitForAssertion(() => cut.Find("#inventory-stock-workflows").Should().NotBeNull());
+        cut.FindAll("#inventory-balances").Should().BeEmpty("balances need a selected warehouse");
+
+        await cut.Find($"[data-manage-warehouse='{warehouse.Id:D}']").ClickAsync(new MouseEventArgs());
+
+        cut.WaitForAssertion(() => cut.Find("#inventory-balances tbody").TextContent.Should().Contain("12.5").And.Contain("2.5").And.Contain("10"));
+        cut.Find("#inventory-balances tbody").TextContent.Should().Contain(empty.VariantId.ToString("D"), "zero balances stay listed");
+        Paths<StockBalance>().Should().ContainSingle().Which.Should().Be(root + $"/warehouses/{warehouse.Id:D}/balances?offset=0&limit=50");
+
+        cut.Find("#stock-warehouse-name").Change("Renamed");
+        await cut.Find("#stock-warehouse-form").SubmitAsync(EventArgs.Empty);
+        cut.WaitForAssertion(() => Paths<StockBalance>().Should().HaveCount(2, "a confirmed save refreshes the balance list"));
+
+        await cut.Find($"[data-manage-warehouse='{other.Id:D}']").ClickAsync(new MouseEventArgs());
+        cut.WaitForAssertion(() => cut.Find("#inventory-balances [data-empty]").Should().NotBeNull());
+        Paths<StockBalance>().Last().Should().Be(root + $"/warehouses/{other.Id:D}/balances?offset=0&limit=50");
     }
 
     private void Reads<T>(Func<string, BusinessPage<T>> response)

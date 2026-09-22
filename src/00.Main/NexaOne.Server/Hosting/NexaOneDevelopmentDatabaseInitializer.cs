@@ -30,6 +30,7 @@ internal static class NexaOneDevelopmentDatabaseInitializer
         EnsureDevWorkflowResources(connectionString, "V165__IVT_EQUIPMENT_WORKFLOW_RESOURCES.sql");
         EnsureDevWorkflowResources(connectionString, "V166__IVT_STOCK_WORKFLOW_RESOURCES.sql");
         EnsureDevWorkflowResources(connectionString, "V167__IVT_STOCK_RESERVATION_LIST_RESOURCES.sql");
+        EnsureDevWorkflowResources(connectionString, "V168__IVT_STOCK_BALANCE_LIST_RESOURCES.sql");
         NormalizeDevMenuTerminology(connectionString);
         SeedDevCommonUiResourcesIfMissing(connectionString);
         EnsureDevQmsSampleLotReferences(connectionString);
@@ -288,7 +289,7 @@ internal static class NexaOneDevelopmentDatabaseInitializer
     }
 
     /// <summary>
-    /// 기존 개발 SQLite의 증분 경로가 건너뛰는 업무 화면 번역 마이그레이션(V165 장비, V166 재고, V167 예약 목록/잔고)을 보완한다.
+    /// 기존 개발 SQLite의 증분 경로가 건너뛰는 업무 화면 번역 마이그레이션(V165 장비, V166 재고, V167 예약 목록/잔고, V168 창고 잔고 목록)을 보완한다.
     /// 마이그레이션의 누락 키 조건으로 사용자 번역과 메뉴별 리소스를 보존한다.
     /// </summary>
     static void EnsureDevWorkflowResources(string connectionString, string migrationFileName)

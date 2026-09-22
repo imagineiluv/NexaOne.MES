@@ -25,6 +25,7 @@ public partial class StockWorkflowPanel : IDisposable
     [Parameter] public IReadOnlyList<Warehouse>? Warehouses { get; set; }
     [Parameter] public EventCallback Saved { get; set; }
     [Parameter] public EventCallback<ProductVariant?> VariantChanged { get; set; }
+    [Parameter] public EventCallback<Warehouse?> WarehouseChanged { get; set; }
 
     // A browser recovery envelope for stock writes, not a second stock business model.
     // It is stored under its own key prefix so an equipment intent in the same tab is never mixed with it.
@@ -275,11 +276,22 @@ public partial class StockWorkflowPanel : IDisposable
     {
         if (!CanStart || !Has("stock.warehouse.read")) return;
         _error = null; _message = null;
-        if (!ValidWarehouse(warehouse)) _error = InvalidResponse();
-        else { _warehouse = warehouse; _editor = Editor.Warehouse; _focus = Focus.Warehouse; LoadWarehouseFields(); }
         ClearObserved();
+        var valid = ValidWarehouse(warehouse);
+        if (!valid) _error = InvalidResponse();
+        else { _warehouse = warehouse; _editor = Editor.Warehouse; _focus = Focus.Warehouse; LoadWarehouseFields(); }
         StateHasChanged();
+        if (valid) await NotifyWarehouseAsync(warehouse);
         await FocusEditorAsync();
+    }
+
+    private async Task NotifyWarehouseAsync(Warehouse? warehouse)
+    {
+        try { await WarehouseChanged.InvokeAsync(warehouse); }
+        catch (Exception) when (!_disposed)
+        {
+            _error = T("inventory.stock.balanceListError", "창고는 선택됐지만 창고 잔고 목록을 불러오지 못했습니다. 다시 조회해 주세요.", "The warehouse was selected, but its balance list could not be loaded. Search again.");
+        }
     }
 
     private void NewWarehouse()
@@ -448,7 +460,7 @@ public partial class StockWorkflowPanel : IDisposable
                 status = result.StatusCode; code = result.Code; resultId = result.Value?.Id ?? Guid.Empty;
                 valid = status is >= 200 and < 300 && result.Error is null && result.Value is { } value
                     && ValidWarehouse(value) && MatchesWarehouseOutcome(value, intent, body);
-                if (valid) { _warehouse = result.Value; _editor = Editor.Warehouse; _focus = Focus.Warehouse; LoadWarehouseFields(); }
+                if (valid) { _warehouse = result.Value; _editor = Editor.Warehouse; _focus = Focus.Warehouse; LoadWarehouseFields(); await NotifyWarehouseAsync(result.Value); if (!Current(generation, key)) return; }
             }
             else if (intent.Kind is "reserve" or "release")
             {
