@@ -27,7 +27,8 @@ internal static class NexaOneDevelopmentDatabaseInitializer
         SeedDevOperatorScreensIfMissing(connectionString);
         SeedDevMenuIfEmpty(connectionString);
         EnsureDevInventoryWorkspaceMenu(connectionString);
-        EnsureDevEquipmentWorkflowResources(connectionString);
+        EnsureDevWorkflowResources(connectionString, "V165__IVT_EQUIPMENT_WORKFLOW_RESOURCES.sql");
+        EnsureDevWorkflowResources(connectionString, "V166__IVT_STOCK_WORKFLOW_RESOURCES.sql");
         NormalizeDevMenuTerminology(connectionString);
         SeedDevCommonUiResourcesIfMissing(connectionString);
         EnsureDevQmsSampleLotReferences(connectionString);
@@ -286,13 +287,12 @@ internal static class NexaOneDevelopmentDatabaseInitializer
     }
 
     /// <summary>
-    /// 기존 개발 SQLite의 증분 경로가 건너뛰는 V165 번역을 보완한다.
+    /// 기존 개발 SQLite의 증분 경로가 건너뛰는 업무 화면 번역 마이그레이션(V165 장비, V166 재고)을 보완한다.
     /// 마이그레이션의 누락 키 조건으로 사용자 번역과 메뉴별 리소스를 보존한다.
     /// </summary>
-    static void EnsureDevEquipmentWorkflowResources(string connectionString)
+    static void EnsureDevWorkflowResources(string connectionString, string migrationFileName)
     {
-        var migrationPath = Path.Combine(AppContext.BaseDirectory, "db", "migrations",
-            "V165__IVT_EQUIPMENT_WORKFLOW_RESOURCES.sql");
+        var migrationPath = Path.Combine(AppContext.BaseDirectory, "db", "migrations", migrationFileName);
         var sql = System.Text.RegularExpressions.Regex.Replace(File.ReadAllText(migrationPath),
             @"--\s*SQLITE-OMIT-BEGIN.*?--\s*SQLITE-OMIT-END", "",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase |

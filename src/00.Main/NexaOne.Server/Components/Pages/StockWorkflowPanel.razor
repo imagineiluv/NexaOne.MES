@@ -1,0 +1,274 @@
+@using NexaFramework.Service.Inventory
+@using NexaOne.Server.Gateway
+@implements IDisposable
+
+<section id="inventory-stock-workflows" class="stock-workflows" aria-labelledby="stock-workflow-heading" aria-busy="@((_busy || _loading).ToString().ToLowerInvariant())">
+    <div class="sw-heading">
+        <h2 id="stock-workflow-heading" tabindex="-1" @ref="_heading">@T("inventory.stock.heading", "재고 작업", "Stock actions")</h2>
+        @if (CanWriteWarehouse)
+        {
+            <button id="stock-new-warehouse" type="button" disabled="@(!CanStart)" @onclick="NewWarehouse">@ActionName("warehouse-create")</button>
+        }
+    </div>
+    @if (!OwnerValid)
+    {
+        <p role="status">@T("inventory.write.ownerRequired", "작업을 진행하려면 현재 사용자와 업무 소속을 다시 확인해 주세요.", "Refresh your current user and business scope before taking action.")</p>
+    }
+    else if (_loading || !_loaded && !_storageError)
+    {
+        <p role="status">@T("inventory.write.loadingRecovery", "이 탭의 이전 요청을 확인하는 중…", "Checking this tab's earlier request…")</p>
+    }
+    @if (_message is not null) { <p id="stock-write-message" role="status">@_message</p> }
+    @if (_error is not null) { <p id="stock-write-error" role="alert">@_error</p> }
+    @if (_busy) { <p role="status">@T("inventory.write.sending", "요청을 처리하고 있습니다. 결과 확인 전에는 다시 보내지 마세요.", "Processing the request. Wait for its outcome before sending again.")</p> }
+
+    @if (_pending is not null || _storageError)
+    {
+        <div id="stock-recovery" class="sw-recovery">
+            <h3>@(_pending?.Confirmed == true ? T("inventory.write.confirmedRecovery", "저장 확인됨 · 복구 기록 정리", "Write confirmed · clear recovery record") : T("inventory.write.pendingRecovery", "처리 결과 확인 필요", "Request outcome needs checking"))</h3>
+            @if (_pending is { } pending)
+            {
+                <p><strong>@ActionName(pending.Kind)</strong> · @Utc(pending.CreatedAt) UTC</p>
+                <p class="sw-id">@T("inventory.write.requestId", "요청/대상 ID", "Request/record ID"): @pending.Id</p>
+                <details>
+                    <summary>@T("inventory.write.originalRequest", "보낸 요청 보기", "View original request")</summary>
+                    <dl>
+                    @switch (RequestBody(pending))
+                    {
+                        case StockController.WarehouseCreate create:
+                            <dt>@T("inventory.code", "코드", "Code")</dt><dd>@create.Code</dd>
+                            <dt>@T("inventory.name", "이름", "Name")</dt><dd>@create.Name</dd>
+                            break;
+                        case StockController.WarehouseChange change:
+                            <dt>@T("inventory.code", "코드", "Code")</dt><dd>@change.Code</dd>
+                            <dt>@T("inventory.name", "이름", "Name")</dt><dd>@change.Name</dd>
+                            break;
+                        case StockController.ActiveChange active:
+                            <dt>@T("inventory.activity", "활성 상태", "Activity")</dt><dd>@(active.Active ? T("inventory.active", "활성", "Active") : T("inventory.inactive", "비활성", "Inactive"))</dd>
+                            break;
+                        case StockPosting posting:
+                            <dt>@T("inventory.stock.kind", "전표 종류", "Movement kind")</dt><dd>@KindName(posting.Kind)</dd>
+                            <dt>@T("inventory.stock.fromWarehouse", "출고 창고", "From warehouse")</dt><dd>@WarehouseName(posting.FromWarehouseId)</dd>
+                            <dt>@T("inventory.stock.toWarehouse", "입고 창고", "To warehouse")</dt><dd>@WarehouseName(posting.ToWarehouseId)</dd>
+                            <dt>@T("inventory.quantity", "수량", "Quantity")</dt><dd>@Quantity(posting.Quantity)</dd>
+                            <dt>@T("inventory.stock.reference", "참조", "Reference")</dt><dd>@posting.Reference</dd>
+                            break;
+                        case StockController.ReversalCommand reversal:
+                            <dt>@T("inventory.stock.reversalReference", "반제 참조", "Reversal reference")</dt><dd>@reversal.Reference</dd>
+                            break;
+                        case StockController.ReservationCommand reserve:
+                            <dt>@T("inventory.stock.warehouse", "창고", "Warehouse")</dt><dd>@WarehouseName(reserve.WarehouseId)</dd>
+                            <dt>@T("inventory.quantity", "수량", "Quantity")</dt><dd>@Quantity(reserve.Quantity)</dd>
+                            <dt>@T("inventory.stock.reference", "참조", "Reference")</dt><dd>@reserve.Reference</dd>
+                            break;
+                    }
+                    </dl>
+                </details>
+                @if (!pending.Confirmed) { <p>@UnknownMessage()</p> }
+            }
+            <div class="sw-actions">
+                @if (_pending is { Confirmed: false } retry)
+                {
+                    <button id="stock-retry-write" type="button" @onclick="RetryAsync" disabled="@(_busy || _loading || _storageError || !Has(Permission(retry.Kind)!))">@T("inventory.write.retrySame", "같은 요청 재확인", "Recheck same request")</button>
+                }
+                @if (CanReadCurrent)
+                {
+                    <button id="stock-read-current" type="button" @onclick="ReadCurrentAsync" disabled="@(_busy || _loading)">@T("inventory.write.readCurrent", "현재 상태 조회", "Read current state")</button>
+                }
+                @if (_storageError)
+                {
+                    <button id="stock-reload-recovery" type="button" @onclick="LoadRecoveryAsync" disabled="@(_busy || _loading)">@T("inventory.write.reloadRecovery", "복구 기록 다시 읽기", "Reload recovery record")</button>
+                }
+            </div>
+            @if (_pending?.Confirmed != true)
+            {
+                <label class="sw-check"><input id="stock-acknowledge" type="checkbox" @bind="_acknowledged" disabled="@(_busy || _loading)" />@T("inventory.write.acknowledge", "현재 상태를 별도로 확인했으며 이 요청을 다시 실행하지 않겠습니다.", "I checked the current state separately and will not execute this request again.")</label>
+            }
+            <button id="stock-clear-recovery" type="button" @onclick="ClearRecoveryAsync" disabled="@(_busy || _loading || _pending?.Confirmed != true && !_acknowledged)">@T("inventory.write.closeRecovery", "확인한 복구 기록 닫기", "Close checked recovery record")</button>
+            <p class="sw-note">@T("inventory.write.tabRecovery", "복구 기록은 이 브라우저 탭에만 보관됩니다. 기록을 닫아도 이미 저장된 업무 데이터는 취소되지 않습니다.", "Recovery is kept in this browser tab only. Closing the record does not undo saved business data.")</p>
+        </div>
+    }
+    @if (_pending is null && CanReadCurrent)
+    {
+        <button id="stock-read-selected" type="button" @onclick="ReadCurrentAsync" disabled="@(_busy || _loading)">@T("inventory.write.readCurrent", "현재 상태 조회", "Read current state")</button>
+    }
+    @if (_observedWarehouse is not null || _observedMovement is not null || _observedReservation is not null)
+    {
+        <div id="stock-current-comparison" class="sw-recovery">
+            <h3>@T("inventory.write.compareCurrent", "조회한 현재 상태", "Current state for comparison")</h3>
+            @if (_observedWarehouse is { } currentWarehouse)
+            {
+                <dl>
+                    <dt>@T("inventory.code", "코드", "Code")</dt><dd>@currentWarehouse.Code</dd>
+                    <dt>@T("inventory.name", "이름", "Name")</dt><dd>@currentWarehouse.Name</dd>
+                    <dt>@T("inventory.activity", "활성 상태", "Activity")</dt><dd>@(currentWarehouse.Active ? T("inventory.active", "활성", "Active") : T("inventory.inactive", "비활성", "Inactive"))</dd>
+                </dl>
+            }
+            @if (_observedMovement is { } currentMovement)
+            {
+                <p class="sw-id">@currentMovement.Id</p>
+                <p>@KindName(currentMovement.Posting.Kind) · @Quantity(currentMovement.Posting.Quantity) · @currentMovement.Posting.Reference@(currentMovement.ReversedById is null ? "" : " · " + T("inventory.stock.reversed", "반제됨", "Reversed"))</p>
+            }
+            @if (_observedReservation is { } currentReservation)
+            {
+                <p class="sw-id">@currentReservation.Id</p>
+                <p>@ReservationState(currentReservation.State) · @Quantity(currentReservation.Quantity) · @currentReservation.Reference</p>
+            }
+            <p class="sw-note">@T("inventory.write.compareNote", "작성 중인 입력과 요청 버전은 유지됩니다. 아래 버튼은 조회한 내용으로 편집을 다시 시작하며 아직 저장하지 않습니다.", "Your draft and request version are preserved. The button below starts editing from the loaded state without saving.")</p>
+            <button id="stock-adopt-current" type="button" @onclick="AdoptObserved" disabled="@(!CanStart)">@T("inventory.write.adoptCurrent", "조회한 내용으로 다시 시작", "Start from loaded state")</button>
+        </div>
+    }
+
+    @if (_editor == Editor.None && _variant is null)
+    {
+        <p class="sw-note">@T("inventory.stock.selectHint", "아래 등록 품목 행을 선택하면 전표와 예약을 등록할 수 있습니다.", "Select an enrolled product row below to post movements and reservations.")</p>
+    }
+    @if ((Has("stock.post") || Has("stock.reserve")) && !Has("stock.read"))
+    {
+        <p class="sw-note" id="stock-missing-read">@T("inventory.stock.readRequired", "전표나 예약을 등록할 품목을 선택하려면 재고 조회 권한이 필요합니다. 등록 권한만으로는 품목을 조회하지 않습니다.", "Selecting a product for a movement or reservation requires stock read permission. Write permission does not grant access to the product list.")</p>
+    }
+    @if ((Has("stock.post") || Has("stock.reserve")) && !Has("stock.warehouse.read"))
+    {
+        <p class="sw-note" id="stock-missing-warehouse-read">@T("inventory.stock.warehouseReadRequired", "전표나 예약의 창고를 선택하려면 창고 조회 권한이 필요합니다. 등록 권한과 조회 권한은 별개입니다.", "Choosing a warehouse for a movement or reservation requires warehouse read permission. Write and read permissions are independent.")</p>
+    }
+    @if (_variant is { } variant)
+    {
+        <p id="stock-selected-variant"><strong>@(_product?.Input.Name ?? variant.Sku)</strong> · @variant.Sku · @variant.Unit · @(variant.Active ? T("inventory.active", "활성", "Active") : T("inventory.inactive", "비활성", "Inactive"))</p>
+        <div class="sw-actions">
+        @if (Has("stock.post"))
+        {
+            <button id="stock-start-posting" type="button" @onclick="StartPosting" disabled="@(!CanStart || !CanPost)">@ActionName("post")</button>
+        }
+        @if (Has("stock.reserve"))
+        {
+            <button id="stock-start-reservation" type="button" @onclick="StartReservation" disabled="@(!CanStart || !CanReserve)">@ActionName("reserve")</button>
+        }
+        </div>
+    }
+    @if (Has("stock.read"))
+    {
+        <form id="stock-reservation-lookup" class="sw-lookup" @onsubmit="ReadReservationAsync" @onsubmit:preventDefault>
+            <label for="stock-reservation-id">@T("inventory.stock.reservationId", "예약 ID", "Reservation ID")<input id="stock-reservation-id" @bind="_reservationId" maxlength="36" disabled="@(!CanStart)" /></label>
+            <button id="stock-read-reservation" type="submit" disabled="@(!CanStart)">@T("inventory.stock.readReservation", "예약 조회", "Read reservation")</button>
+        </form>
+        <p class="sw-note">@T("inventory.stock.reservationNote", "예약 목록은 제공되지 않습니다. 이 탭에서 등록한 예약 또는 알고 있는 예약 ID로 조회합니다.", "No reservation list is provided. Use a reservation registered in this tab or a known reservation ID.")</p>
+    }
+    @if (_editor == Editor.Warehouse && _warehouse is { } selectedWarehouse)
+    {
+        <p id="stock-selected-warehouse"><strong>@selectedWarehouse.Name</strong> · @selectedWarehouse.Code · @(selectedWarehouse.Active ? T("inventory.active", "활성", "Active") : T("inventory.inactive", "비활성", "Inactive"))</p>
+    }
+    @if (_editor == Editor.Warehouse && CanWriteWarehouse)
+    {
+        <form id="stock-warehouse-form" @onsubmit="SaveWarehouseAsync" @onsubmit:preventDefault>
+            <fieldset disabled="@(!CanStart)">
+                <legend>@(_warehouse is null ? ActionName("warehouse-create") : ActionName("warehouse-update"))</legend>
+                <div class="sw-fields">
+                    <label for="stock-warehouse-code">@T("inventory.code", "코드", "Code")<input id="stock-warehouse-code" @bind="_warehouseCode" required maxlength="80" /></label>
+                    <label for="stock-warehouse-name">@T("inventory.name", "이름", "Name")<input id="stock-warehouse-name" @bind="_warehouseName" required maxlength="255" /></label>
+                </div>
+                <div class="sw-actions"><button id="stock-save-warehouse" class="sw-primary" type="submit">@(_warehouse is null ? ActionName("warehouse-create") : ActionName("warehouse-update"))</button>
+                @if (_warehouse is not null) { <button id="stock-toggle-warehouse-active" type="button" @onclick="ChangeWarehouseActiveAsync">@(_warehouse.Active ? T("inventory.stock.deactivateWarehouse", "창고 비활성화", "Deactivate warehouse") : T("inventory.stock.activateWarehouse", "창고 활성화", "Activate warehouse"))</button> }</div>
+            </fieldset>
+        </form>
+    }
+    @if (_editor == Editor.Posting)
+    {
+        <form id="stock-posting-form" @onsubmit="PostAsync" @onsubmit:preventDefault>
+            <fieldset disabled="@(!CanStart || !CanPost)">
+                <legend>@ActionName("post")</legend>
+                <div class="sw-fields">
+                    <label for="stock-posting-kind">@T("inventory.stock.kind", "전표 종류", "Movement kind")
+                        <select id="stock-posting-kind" @bind="_kind">
+                            @foreach (var kind in new[] { StockMovementKind.Receipt, StockMovementKind.Issue, StockMovementKind.Transfer, StockMovementKind.Adjustment })
+                            {
+                                <option value="@kind">@KindName(kind)</option>
+                            }
+                        </select>
+                    </label>
+                    <label for="stock-posting-from">@T("inventory.stock.fromWarehouse", "출고 창고", "From warehouse")
+                        <select id="stock-posting-from" @bind="_from">
+                            <option value="">@T("inventory.stock.noWarehouse", "선택 안 함", "None")</option>
+                            @foreach (var warehouse in Warehouses ?? Array.Empty<Warehouse>())
+                            {
+                                <option value="@warehouse.Id.ToString("D")">@warehouse.Code · @warehouse.Name</option>
+                            }
+                        </select>
+                    </label>
+                    <label for="stock-posting-to">@T("inventory.stock.toWarehouse", "입고 창고", "To warehouse")
+                        <select id="stock-posting-to" @bind="_to">
+                            <option value="">@T("inventory.stock.noWarehouse", "선택 안 함", "None")</option>
+                            @foreach (var warehouse in Warehouses ?? Array.Empty<Warehouse>())
+                            {
+                                <option value="@warehouse.Id.ToString("D")">@warehouse.Code · @warehouse.Name</option>
+                            }
+                        </select>
+                    </label>
+                    <label for="stock-posting-quantity">@T("inventory.quantity", "수량", "Quantity")<input id="stock-posting-quantity" @bind="_quantity" required inputmode="decimal" maxlength="32" /></label>
+                    <label for="stock-posting-reference">@T("inventory.stock.reference", "참조", "Reference")<input id="stock-posting-reference" @bind="_reference" required maxlength="255" /></label>
+                </div>
+                <button id="stock-post-movement" class="sw-primary" type="submit">@ActionName("post")</button>
+            </fieldset>
+        </form>
+    }
+    @if (_editor == Editor.Reserve)
+    {
+        <form id="stock-reservation-form" @onsubmit="ReserveAsync" @onsubmit:preventDefault>
+            <fieldset disabled="@(!CanStart || !CanReserve)">
+                <legend>@ActionName("reserve")</legend>
+                <div class="sw-fields">
+                    <label for="stock-reservation-warehouse">@T("inventory.stock.warehouse", "창고", "Warehouse")
+                        <select id="stock-reservation-warehouse" @bind="_reservationWarehouse">
+                            <option value="">@T("inventory.stock.noWarehouse", "선택 안 함", "None")</option>
+                            @foreach (var warehouse in Warehouses ?? Array.Empty<Warehouse>())
+                            {
+                                <option value="@warehouse.Id.ToString("D")">@warehouse.Code · @warehouse.Name</option>
+                            }
+                        </select>
+                    </label>
+                    <label for="stock-reservation-quantity">@T("inventory.quantity", "수량", "Quantity")<input id="stock-reservation-quantity" @bind="_reservationQuantity" required inputmode="decimal" maxlength="32" /></label>
+                    <label for="stock-reservation-reference">@T("inventory.stock.reference", "참조", "Reference")<input id="stock-reservation-reference" @bind="_reservationReference" required maxlength="255" /></label>
+                </div>
+                <button id="stock-reserve" class="sw-primary" type="submit">@ActionName("reserve")</button>
+            </fieldset>
+        </form>
+    }
+    @if (_reservation is { } reservation)
+    {
+        <div id="stock-reservation-detail">
+            <h3>@T("inventory.stock.reservation", "예약", "Reservation") · @ReservationState(reservation.State)</h3>
+            <dl>
+                <dt>@T("inventory.stock.reservationId", "예약 ID", "Reservation ID")</dt><dd class="sw-id">@reservation.Id</dd>
+                <dt>@T("inventory.stock.variantId", "변형 ID", "Variant ID")</dt><dd class="sw-id">@reservation.VariantId</dd>
+                <dt>@T("inventory.stock.warehouse", "창고", "Warehouse")</dt><dd>@WarehouseName(reservation.WarehouseId)</dd>
+                <dt>@T("inventory.quantity", "수량", "Quantity")</dt><dd>@Quantity(reservation.Quantity)</dd>
+                <dt>@T("inventory.stock.reference", "참조", "Reference")</dt><dd>@reservation.Reference</dd>
+            </dl>
+            <div class="sw-actions">
+                @if (CanRelease) { <button id="stock-release-reservation" type="button" @onclick="ReleaseAsync" disabled="@(!CanStart)">@ActionName("release")</button> }
+                @if (CanConsume) { <button id="stock-consume-reservation" type="button" @onclick="ConsumeAsync" disabled="@(!CanStart)">@ActionName("consume")</button> }
+            </div>
+        </div>
+    }
+    @if (_movement is { } movement)
+    {
+        <div id="stock-movement-detail">
+            <h3>@T("inventory.stock.movement", "전표", "Movement") · @KindName(movement.Posting.Kind)</h3>
+            <dl>
+                <dt>@T("inventory.stock.movementId", "전표 ID", "Movement ID")</dt><dd class="sw-id">@movement.Id</dd>
+                <dt>@T("inventory.stock.fromWarehouse", "출고 창고", "From warehouse")</dt><dd>@WarehouseName(movement.Posting.FromWarehouseId)</dd>
+                <dt>@T("inventory.stock.toWarehouse", "입고 창고", "To warehouse")</dt><dd>@WarehouseName(movement.Posting.ToWarehouseId)</dd>
+                <dt>@T("inventory.quantity", "수량", "Quantity")</dt><dd>@Quantity(movement.Posting.Quantity)</dd>
+                <dt>@T("inventory.stock.reference", "참조", "Reference")</dt><dd>@movement.Posting.Reference</dd>
+                @if (movement.ReversalOfId is { } reversalOf) { <dt>@T("inventory.stock.reversalOf", "원 전표 ID", "Reversed movement ID")</dt><dd class="sw-id">@reversalOf</dd> }
+                @if (movement.ReversedById is { } reversedBy) { <dt>@T("inventory.stock.reversedBy", "반제 전표 ID", "Reversal movement ID")</dt><dd class="sw-id">@reversedBy</dd> }
+            </dl>
+            @if (CanReverse)
+            {
+                <div class="sw-fields">
+                    <label for="stock-reversal-reference">@T("inventory.stock.reversalReference", "반제 참조", "Reversal reference")<input id="stock-reversal-reference" @bind="_reversalReference" required maxlength="255" disabled="@(!CanStart)" /></label>
+                </div>
+                <div class="sw-actions"><button id="stock-reverse-movement" type="button" @onclick="ReverseAsync" disabled="@(!CanStart)">@ActionName("reverse")</button></div>
+            }
+        </div>
+    }
+</section>
