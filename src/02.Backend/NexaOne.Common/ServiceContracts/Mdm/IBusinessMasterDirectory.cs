@@ -50,4 +50,18 @@ public interface IBusinessMasterDirectory : INexaModuleBridge
     /// </summary>
     Task<IReadOnlyList<ProductDto>> FindProductsAsync(
         DbTransaction transaction, IReadOnlyList<string> productIds, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns the stored canonical customer ID, name and active flag, or null for an invalid or missing key.
+    /// Inactive customers are returned.
+    /// </summary>
+    Task<CustomerDto?> FindCustomerAsync(
+        DbTransaction transaction, string customerId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns existing customers for at most 128 distinct, nonblank, trimmed customer IDs of at most
+    /// 50 characters, with the same rules as FindProductsAsync.
+    /// </summary>
+    Task<IReadOnlyList<CustomerDto>> FindCustomersAsync(
+        DbTransaction transaction, IReadOnlyList<string> customerIds, CancellationToken ct = default);
 }

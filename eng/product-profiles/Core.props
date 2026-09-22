@@ -11,6 +11,7 @@
     <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.POM\NexaOne.POM.csproj" AssemblyName="NexaOne.POM" />
     <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.PRC\NexaOne.PRC.csproj" AssemblyName="NexaOne.PRC" />
     <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.SHP\NexaOne.SHP.csproj" AssemblyName="NexaOne.SHP" />
+    <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.ERP\NexaOne.ERP.csproj" AssemblyName="NexaOne.ERP" />
     <NexaOneProductPlugin Include="$(MSBuildThisFileDirectory)..\..\src\04.Modules\NexaOne.SYS\NexaOne.SYS.csproj" AssemblyName="NexaOne.SYS" />
   </ItemGroup>
 </Project>

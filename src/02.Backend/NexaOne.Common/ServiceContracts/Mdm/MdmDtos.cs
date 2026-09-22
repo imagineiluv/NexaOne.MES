@@ -18,6 +18,8 @@ public record AreaDto(
 public record ProductDto(
     string ProductId, string ProductName, string Description, string ProductType, string Unit, string ValidState);
 
+public record CustomerDto(string CustomerId, string CustomerName, bool IsActive);
+
 public record CodeClassDto(
     string CodeClassId, string CodeClassName, string Description);
 

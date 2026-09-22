@@ -540,7 +540,7 @@ Server SQL에서 MDM 소유 `IEquipmentOutputMasterDirectory`로 이동했다. P
 - Server/SQLite integration: 기존 전체 964/964 통과, V154/V155 관련 focused 5/5 통과
 - Portal: 116/116, production build 성공, `npm audit` 취약점 0
 - NexaLogic PLC: Unit 12/12, Core 57/57, Integration 14/14, Hardware Simulation 43/43 — 합계 126/126 통과
-- modules-ON child-process smoke: 11개 모듈과 호스트 소유 선언형 bridge 47개를 최신 Release 호스트에서 실제 부팅
+- modules-ON child-process smoke: 12개 모듈(2026-09-22 ERP 추가)과 호스트 소유 선언형 bridge를 최신 Release 호스트에서 실제 부팅
 - migration: V001~V155 strict 이름·숫자 순서·중복·LF 정규화 SHA-256 검증 통과, 신규/증분 SQLite와 MSSQL 정적 계약 통과
 - publish: Release publish 성공, 산출물 510개·모듈 11개, 독립 `/health`·JWT 로그인 통과,
   `NexusCom`·`NexusFramework`·`NexusLogic` 파일명/설정 참조 0건
