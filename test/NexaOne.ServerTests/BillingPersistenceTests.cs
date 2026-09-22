@@ -226,6 +226,20 @@ public sealed class BillingPersistenceTests : IClassFixture<BusinessMembershipDa
     }
 
     [Fact]
+    public async Task Accessible_scopes_list_only_memberships_with_billing_grants_in_stable_order()
+    {
+        var other = Guid.NewGuid();
+        (await _memberships.SaveMembershipAsync("admin", _tenant, other, "bill-user", new(0, true, ["stock.read"]))).IsSuccess.Should().BeTrue();
+        var page = await _bridge.ListAccessibleScopesAsync("bill-user");
+        page.Total.Should().Be(1); page.Items.Single().OrganizationId.Should().Be(_organization);
+        (await _bridge.ListAccessibleScopesAsync("bill-reader")).Items.Single().Permissions.Should().Equal("billing.read");
+        (await _bridge.ListAccessibleScopesAsync("bill-outsider")).Total.Should().Be(0);
+        (await _bridge.ListAccessibleScopesAsync("bill-user", offset: 1)).Items.Should().BeEmpty();
+        await Error(() => _bridge.ListAccessibleScopesAsync("bill-user", limit: 0), "INVALID_BUSINESS_INPUT");
+        await Error(() => _bridge.ListAccessibleScopesAsync(" ", limit: 1), "BUSINESS_ACCESS_DENIED");
+    }
+
+    [Fact]
     public async Task Payments_require_the_invoice_currency_and_a_payable_status()
     {
         var contact = await Contact();

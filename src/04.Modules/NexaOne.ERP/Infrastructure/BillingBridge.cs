@@ -32,6 +32,45 @@ public sealed class BillingBridge : IBillingBridge
         _masters = masters ?? throw new ArgumentNullException(nameof(masters));
     }
 
+    public Task<BusinessPage<BusinessMembership>> ListAccessibleScopesAsync(string userId, int offset = 0, int limit = 50, CancellationToken ct = default)
+    {
+        if (!ValidText(userId, 50)) throw Failure("BUSINESS_ACCESS_DENIED");
+        if (offset < 0 || limit is < 1 or > 100) throw Failure("INVALID_BUSINESS_INPUT");
+        return _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
+        {
+            const int batchSize = 128;
+            var items = new List<BusinessMembership>(limit);
+            long total = 0;
+            Guid? afterTenant = null, afterOrganization = null;
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                IReadOnlyList<BusinessMembership> batch;
+                try { batch = await _memberships.ListAccessInTransactionAsync(transaction, userId, afterTenant, afterOrganization, batchSize, ct); }
+                catch (InvalidDataException) { throw Failure("BUSINESS_ACCESS_DENIED"); }
+                if (batch is null || batch.Count > batchSize) throw Failure("STORAGE_CONTRACT_VIOLATION");
+                foreach (var membership in batch)
+                {
+                    if (membership is null || membership.TenantId == Guid.Empty || membership.OrganizationId == Guid.Empty
+                        || membership.BusinessUserId == Guid.Empty || !membership.IsActive || membership.Version <= 0 || membership.Permissions is null)
+                        throw Failure("STORAGE_CONTRACT_VIOLATION");
+                    // The owner uses canonical GUID text for its keyset order on both SQL providers.
+                    if (afterTenant.HasValue)
+                    {
+                        var tenantOrder = string.CompareOrdinal(Text(membership.TenantId), Text(afterTenant.Value));
+                        if (tenantOrder < 0 || tenantOrder == 0 && string.CompareOrdinal(Text(membership.OrganizationId), Text(afterOrganization!.Value)) <= 0)
+                            throw Failure("STORAGE_CONTRACT_VIOLATION");
+                    }
+                    afterTenant = membership.TenantId; afterOrganization = membership.OrganizationId;
+                    if (!membership.Permissions.Any(grant => grant.StartsWith("billing.", StringComparison.Ordinal))) continue;
+                    if (total++ >= offset && items.Count < limit) items.Add(membership);
+                }
+                if (batch.Count < batchSize) break;
+            }
+            ct.ThrowIfCancellationRequested();
+            return new BusinessPage<BusinessMembership>(Array.AsReadOnly(items.ToArray()), total);
+        }, IsolationLevel.Serializable, ct);
+    }
     public Task<BillingContact> EnrollContactAsync(string userId, Guid tenantId, Guid organizationId, string customerId, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "billing.write", (_, session) => session.Enroll(customerId, ct), ct);
     public Task<BusinessPage<BillingContact>> ListContactsAsync(string userId, Guid tenantId, Guid organizationId,

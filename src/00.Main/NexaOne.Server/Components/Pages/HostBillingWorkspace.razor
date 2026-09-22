@@ -1,0 +1,375 @@
+@page "/meta/NX_BILLING_WORKSPACE"
+@attribute [Authorize]
+@implements IDisposable
+@using System.Globalization
+@using NexaFramework.Service
+@using NexaFramework.Service.Erp
+@using NexaOne.ServiceContracts.Erp
+@using NexaOne.ServiceContracts.Sys
+@using NexaOne.Common.Security
+@inject IApiClient Api
+@inject UiTextService Ui
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>@T("billing.title", "견적·청구 작업 공간", "Billing workspace")</PageTitle>
+<div class="billing-workspace">
+    <header>
+        <h1>@T("billing.title", "견적·청구 작업 공간", "Billing workspace")</h1>
+        <p>@T("billing.intro", "접근 가능한 조직을 선택해 계약처, 견적·청구 문서와 입금을 조회하고 작성합니다.", "Choose an accessible organization to browse and write contacts, estimates, invoices and payments.")</p>
+    </header>
+    @if (_identityLoading)
+    {
+        <p role="status">@T("inventory.loading", "불러오는 중…", "Loading…")</p>
+    }
+    else if (!_authenticated)
+    {
+        <p role="status">@T("inventory.signIn", "인증 상태를 확인하고 다시 로그인해 주세요.", "Check your session and sign in again.")</p>
+    }
+    else
+    {
+        <section id="billing-scopes" aria-labelledby="billing-scope-heading" aria-busy="@Busy(Pane.Scopes).ToString().ToLowerInvariant()">
+            <div class="bwk-heading">
+                <h2 id="billing-scope-heading">@T("billing.scopes", "내 청구 범위", "My billing scopes")</h2>
+                <RadzenButton id="billing-scope-refresh" Text="@T("inventory.refreshScopes", "범위 새로고침", "Refresh scopes")" Click="ReloadScopesAsync" Disabled="@Busy(Pane.Scopes)" ButtonStyle="ButtonStyle.Light" />
+            </div>
+            @Status(Pane.Scopes)
+            @if (_scopes is not null)
+            {
+                <ul class="bwk-scopes">
+                    @foreach (var scope in _scopes.Items)
+                    {
+                        <li @key="ScopeKey(scope)">
+                            <button type="button" class="bwk-choice" data-scope="@ScopeKey(scope)" aria-pressed="@((ScopeKey(scope) == SelectedKey).ToString().ToLowerInvariant())"
+                                    disabled="@Busy(Pane.Scopes)" @onclick="() => SelectScopeAsync(scope)">
+                                <strong>@T("inventory.organization", "조직", "Organization") @scope.OrganizationId.ToString("D")</strong>
+                                <span class="bwk-scope-keys">@T("inventory.tenant", "테넌트", "Tenant"): @scope.TenantId.ToString("D") · @string.Join(", ", scope.Permissions)</span>
+                            </button>
+                        </li>
+                    }
+                </ul>
+            }
+            @Pager(Pane.Scopes)
+        </section>
+
+        @if (_scope is null)
+        {
+            <p class="bwk-note">@T("billing.chooseScope", "범위를 선택하면 현재 조회 권한이 있는 목록과 작업이 표시됩니다.", "Select a scope to see the lists and actions you currently have permission for.")</p>
+        }
+        else
+        {
+            <div id="selected-billing-scope" class="bwk-selected" role="status">
+                <strong>@T("inventory.organization", "조직", "Organization") @_scope.OrganizationId.ToString("D")</strong>
+                <span class="bwk-scope-keys">@SelectedKey</span>
+            </div>
+            <BillingWorkflowPanel @key="@("billing/" + SelectedKey)" @ref="_panel" Membership="_scope" UserId="@_currentUserId" Saved="RefreshAsync" DocumentChanged="DocumentChangedAsync" />
+            @if (!DataPanes.Any(CanRead))
+            {
+                <p id="billing-no-read-access" role="status">@T("billing.noReadAccess", "이 범위는 접근 가능하지만 현재 목록 조회 권한(billing.read)이 없습니다.", "This scope is accessible, but you currently have no list-reading permission (billing.read).")</p>
+            }
+            @foreach (var pane in DataPanes.Where(CanRead))
+            {
+                <section id="@PaneId(pane)" @key="pane" aria-labelledby="@(PaneId(pane) + "-heading")" aria-busy="@Busy(pane).ToString().ToLowerInvariant()">
+                    <h2 id="@(PaneId(pane) + "-heading")">@Title(pane)</h2>
+                    @if (pane == Pane.Contacts)
+                    {
+                        <p class="bwk-note">@T("billing.contactNote", "등록된 MDM 고객입니다. 이름과 활성 상태는 현재 마스터 값이며, 행을 선택해 새 문서의 계약처로 씁니다.", "Enrolled MDM customers. Name and activity are the current master values; select a row to use it as the contact of a new document.")</p>
+                    }
+                    @if (pane == Pane.Payments && _document is { } listed)
+                    {
+                        <p class="bwk-note" id="billing-payments-document">@T("billing.paymentListNote", "선택한 문서의 입금입니다. 취소된 입금도 남습니다. 행을 선택해 취소합니다.", "Payments of the selected document, including cancelled ones. Select a row to cancel it."): @KindName(listed.Kind) #@listed.Number</p>
+                    }
+                    @if (pane == Pane.Documents)
+                    {
+                        <form class="bwk-filters" @onsubmit="() => SearchAsync(pane)" @onsubmit:preventDefault>
+                            <label for="document-kind">@T("billing.kind", "종류", "Kind")</label>
+                            <select id="document-kind" @bind="_draftKind" disabled="@Busy(pane)">
+                                <option value="">@T("billing.allKinds", "모든 종류", "All kinds")</option>
+                                @foreach (var kind in Enum.GetValues<BillingKind>()) { <option value="@kind">@KindName(kind)</option> }
+                            </select>
+                            <label for="document-status">@T("inventory.state", "상태", "State")</label>
+                            <select id="document-status" @bind="_draftStatus" disabled="@Busy(pane)">
+                                <option value="">@T("inventory.allStates", "모든 상태", "All states")</option>
+                                @foreach (var status in Enum.GetValues<BillingStatus>()) { <option value="@status">@StatusName(status)</option> }
+                            </select>
+                            <RadzenButton id="@(PaneId(pane) + "-search")" ButtonType="ButtonType.Submit" Text="@T("inventory.search", "조회", "Search")" Disabled="@Busy(pane)" />
+                        </form>
+                    }
+                    @if (pane == Pane.Payments)
+                    {
+                        <form class="bwk-filters" @onsubmit="() => SearchAsync(pane)" @onsubmit:preventDefault>
+                            <label for="payment-state">@T("inventory.state", "상태", "State")</label>
+                            <select id="payment-state" @bind="_draftPaymentState" disabled="@Busy(pane)">
+                                <option value="">@T("inventory.allStates", "모든 상태", "All states")</option>
+                                @foreach (var state in Enum.GetValues<PaymentState>()) { <option value="@state">@PaymentStateName(state)</option> }
+                            </select>
+                            <RadzenButton id="@(PaneId(pane) + "-search")" ButtonType="ButtonType.Submit" Text="@T("inventory.search", "조회", "Search")" Disabled="@Busy(pane)" />
+                        </form>
+                    }
+                    @Status(pane)
+                    @if (_totals.ContainsKey(pane))
+                    {
+                        <div class="bwk-table-scroll" tabindex="0" role="region" aria-label="@Title(pane)">
+                            <table>
+                                <caption class="bwk-sr-only">@Title(pane)</caption>
+                                @switch (pane)
+                                {
+                                    case Pane.Contacts:
+                                        <thead><tr><th>@T("billing.customerCode", "고객 코드", "Customer code")</th><th>@T("inventory.name", "이름", "Name")</th><th>@T("inventory.activity", "활성 상태", "Activity")</th><th>@T("inventory.write.actions", "작업", "Actions")</th></tr></thead>
+                                        <tbody>@foreach (var item in _contacts!.Items) { <tr @key="item.Id"><td class="bwk-id">@item.CustomerId</td><td>@item.Name</td><td>@Activity(item.Active)</td><td><button class="bwk-choice" type="button" data-select-contact="@item.Id" @onclick="() => SelectContactAsync(item)">@T("billing.chooseContact", "계약처 선택", "Select contact")</button></td></tr> }</tbody>
+                                        break;
+                                    case Pane.Documents:
+                                        <thead><tr><th>@T("billing.number", "번호", "Number")</th><th>@T("billing.kind", "종류", "Kind")</th><th>@T("inventory.state", "상태", "State")</th><th>@T("billing.contact", "계약처", "Contact")</th><th>@T("billing.documentDate", "문서 일자", "Document date")</th><th>@T("billing.total", "합계", "Total")</th><th>@T("billing.paid", "입금", "Paid")</th><th>@T("billing.due", "잔액", "Due")</th><th>@T("inventory.write.actions", "작업", "Actions")</th></tr></thead>
+                                        <tbody>@foreach (var item in _documents!.Items) { <tr @key="item.Id"><td>@item.Number</td><td>@KindName(item.Kind)</td><td>@StatusName(item.Status)</td><td class="bwk-id">@item.Input.ContactId</td><td>@item.Input.DocumentDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)</td><td>@Amount(item.Totals.Total) @item.Input.Currency</td><td>@Amount(item.Paid)</td><td>@Amount(item.Due)</td><td><button class="bwk-choice" type="button" data-select-document="@item.Id" @onclick="() => SelectDocumentAsync(item)">@T("billing.chooseDocument", "문서 선택", "Select document")</button></td></tr> }</tbody>
+                                        break;
+                                    case Pane.Payments:
+                                        <thead><tr><th>@T("billing.paidAt", "입금 시각 (UTC)", "Paid at (UTC)")</th><th>@T("billing.amount", "금액", "Amount")</th><th>@T("billing.method", "결제 방법", "Method")</th><th>@T("billing.reference", "참조", "Reference")</th><th>@T("inventory.state", "상태", "State")</th><th>@T("inventory.write.actions", "작업", "Actions")</th></tr></thead>
+                                        <tbody>@foreach (var item in _payments!.Items) { <tr @key="item.Id"><td>@Utc(item.Input.PaidAt)</td><td>@Amount(item.Input.Amount) @item.Input.Currency</td><td>@MethodName(item.Input.Method)</td><td>@item.Input.Reference</td><td>@PaymentStateName(item.State)</td><td><button class="bwk-choice" type="button" data-select-payment="@item.Id" @onclick="() => SelectPaymentAsync(item)">@T("billing.choosePayment", "입금 선택", "Select payment")</button></td></tr> }</tbody>
+                                        break;
+                                }
+                            </table>
+                        </div>
+                    }
+                    @Pager(pane)
+                </section>
+            }
+        }
+    }
+</div>
+
+@code {
+    private enum Pane { Scopes, Contacts, Documents, Payments }
+    private static readonly Pane[] DataPanes = [Pane.Contacts, Pane.Documents, Pane.Payments];
+    private const int PageSize = 50;
+    private readonly Dictionary<Pane, int> _offsets = Enum.GetValues<Pane>().ToDictionary(p => p, _ => 0);
+    private readonly Dictionary<Pane, long> _totals = new();
+    private readonly Dictionary<Pane, CancellationTokenSource> _requests = new();
+    private readonly Dictionary<Pane, (int Status, string? Code, string? Error)> _errors = new();
+    private BusinessPage<BusinessMembership>? _scopes;
+    private BusinessPage<BillingContact>? _contacts;
+    private BusinessPage<BillingDocument>? _documents;
+    private BusinessPage<PaymentRecord>? _payments;
+    private BusinessMembership? _scope;
+    private BillingDocument? _document;
+    private BillingWorkflowPanel? _panel;
+    private string? _currentUserId;
+    private string _draftKind = "", _kind = "", _draftStatus = "", _status = "", _draftPaymentState = "", _paymentState = "";
+    private bool _authenticated, _disposed, _interactive;
+    private bool _identityLoading = true;
+    private Task<AuthenticationState>? _pendingAuthentication;
+    private int _identityVersion;
+
+    protected override void OnInitialized()
+    {
+        Authentication.AuthenticationStateChanged += AuthenticationChanged;
+        Ui.Changed += LanguageChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _disposed) return;
+        // ProtectedSessionStorage requires an interactive render; keeping the first token read here preserves that boundary.
+        _interactive = true;
+        await ChangeIdentityAsync(_pendingAuthentication ?? Authentication.GetAuthenticationStateAsync());
+        _pendingAuthentication = null;
+    }
+
+    private void AuthenticationChanged(Task<AuthenticationState> state)
+    {
+        if (!_interactive) { _pendingAuthentication = state; return; }
+        if (!_disposed) _ = InvokeAsync(() => ChangeIdentityAsync(state));
+    }
+    private void LanguageChanged() { if (!_disposed) _ = InvokeAsync(StateHasChanged); }
+
+    private async Task ChangeIdentityAsync(Task<AuthenticationState> state)
+    {
+        if (_disposed) return;
+        var version = ++_identityVersion;
+        ClearScoped();
+        Cancel(Pane.Scopes);
+        _scopes = null; _totals.Clear(); _errors.Clear(); _offsets[Pane.Scopes] = 0;
+        _authenticated = false; _identityLoading = true; _currentUserId = null;
+        StateHasChanged();
+        var auth = await state;
+        if (_disposed || version != _identityVersion) return;
+        _authenticated = auth.User.Identity?.IsAuthenticated == true; _identityLoading = false;
+        _currentUserId = _authenticated ? auth.User.CurrentUserId() : null;
+        if (_authenticated)
+        {
+            var loading = LoadScopesAsync();
+            StateHasChanged();
+            await loading;
+        }
+        if (!_disposed && version == _identityVersion) StateHasChanged();
+    }
+
+    private Task LoadScopesAsync() => ReadAsync<BusinessMembership>(Pane.Scopes,
+        $"api/v1/erp/billing/scopes/me?offset={_offsets[Pane.Scopes]}&limit={PageSize}", value => _scopes = value);
+
+    private async Task ReloadScopesAsync()
+    {
+        ClearScoped(); _offsets[Pane.Scopes] = 0;
+        await LoadScopesAsync();
+    }
+
+    private async Task SelectScopeAsync(BusinessMembership scope)
+    {
+        // Retain the keyed panel and its pending request when the selected row is clicked again.
+        if (SelectedKey == ScopeKey(scope)) return;
+        ClearScoped(); _scope = scope;
+        await Task.WhenAll(DataPanes.Where(CanRead).Select(LoadPaneAsync));
+    }
+
+    private void ClearScoped()
+    {
+        foreach (var pane in DataPanes)
+        { Cancel(pane); _offsets[pane] = 0; _totals.Remove(pane); _errors.Remove(pane); }
+        _scope = null; _panel = null; _document = null; _contacts = null; _documents = null; _payments = null;
+        _draftKind = _kind = ""; _draftStatus = _status = ""; _draftPaymentState = _paymentState = "";
+    }
+
+    private Task SelectContactAsync(BillingContact value) => _panel?.SelectContactAsync(value) ?? Task.CompletedTask;
+    private Task SelectDocumentAsync(BillingDocument value) => _panel?.SelectDocumentAsync(value) ?? Task.CompletedTask;
+    private Task SelectPaymentAsync(PaymentRecord value) => _panel?.SelectPaymentAsync(value) ?? Task.CompletedTask;
+    private Task DocumentChangedAsync(BillingDocument? document)
+    {
+        // The payment list is keyed by the document the panel selected or saved. The same document (a status change or
+        // payment) only refreshes the caption; the Saved callback reloads the rows once.
+        if (document is not null && _document?.Id == document.Id) { _document = document; return Task.CompletedTask; }
+        Cancel(Pane.Payments); _payments = null; _totals.Remove(Pane.Payments); _errors.Remove(Pane.Payments); _offsets[Pane.Payments] = 0;
+        _draftPaymentState = _paymentState = "";
+        _document = document;
+        return _document is null ? Task.CompletedTask : LoadPaneAsync(Pane.Payments);
+    }
+    private Task RefreshAsync() => Task.WhenAll(DataPanes.Where(CanRead).Select(LoadPaneAsync));
+
+    private bool CanRead(Pane pane) => _scope?.Permissions.Contains("billing.read", StringComparer.Ordinal) == true
+        && (pane != Pane.Payments || _document is not null);
+
+    private async Task SearchAsync(Pane pane)
+    {
+        if (Busy(pane) || !CanRead(pane)) return;
+        _offsets[pane] = 0;
+        if (pane == Pane.Documents) { _kind = _draftKind; _status = _draftStatus; }
+        if (pane == Pane.Payments) _paymentState = _draftPaymentState;
+        await LoadPaneAsync(pane);
+    }
+
+    private Task LoadPaneAsync(Pane pane)
+    {
+        if (_scope is null || !CanRead(pane) || _disposed) return Task.CompletedTask;
+        var root = $"api/v1/erp/billing/{ScopeKey(_scope)}";
+        var page = $"offset={_offsets[pane]}&limit={PageSize}";
+        return pane switch
+        {
+            Pane.Contacts => ReadAsync<BillingContact>(pane, $"{root}/contacts?{page}", value => _contacts = value),
+            Pane.Documents => ReadAsync<BillingDocument>(pane, $"{root}/documents?{page}" + (_kind.Length == 0 ? "" : $"&kind={_kind}") + (_status.Length == 0 ? "" : $"&status={_status}"), value => _documents = value),
+            Pane.Payments => ReadAsync<PaymentRecord>(pane, $"{root}/documents/{_document!.Id:D}/payments?{page}" + (_paymentState.Length == 0 ? "" : $"&state={_paymentState}"), value => _payments = value),
+            _ => Task.CompletedTask
+        };
+    }
+
+    // The request object owns both its result and busy state. Cancellation alone cannot
+    // prevent a transport that has already completed from publishing an old scope's data.
+    private async Task ReadAsync<T>(Pane pane, string path, Action<BusinessPage<T>?> apply)
+    {
+        Cancel(pane);
+        var request = new CancellationTokenSource();
+        _requests[pane] = request;
+        apply(null); _totals.Remove(pane); _errors.Remove(pane);
+        try
+        {
+            var result = await Api.ReadInventoryAsync<BusinessPage<T>>(path, request.Token);
+            if (!OwnsRequest(pane, request)) return;
+            if (result.StatusCode is >= 200 and < 300 && result.Error is null && result.Value is { Items: not null, Total: >= 0 })
+            { apply(result.Value); _totals[pane] = result.Value.Total; }
+            else _errors[pane] = (result.StatusCode, result.Code, result.Error);
+        }
+        catch (OperationCanceledException) when (request.IsCancellationRequested) { }
+        finally
+        {
+            if (OwnsRequest(pane, request)) { _requests.Remove(pane); StateHasChanged(); }
+            request.Dispose();
+        }
+    }
+
+    private bool OwnsRequest(Pane pane, CancellationTokenSource request)
+        => !_disposed && _requests.TryGetValue(pane, out var current) && ReferenceEquals(current, request);
+    private void Cancel(Pane pane) { if (_requests.Remove(pane, out var request)) request.Cancel(); }
+    private bool Busy(Pane pane) => _requests.ContainsKey(pane);
+    private static string ScopeKey(BusinessMembership scope) => $"{scope.TenantId:D}/{scope.OrganizationId:D}";
+    private string? SelectedKey => _scope is null ? null : ScopeKey(_scope);
+    private static string PaneId(Pane pane) => "billing-" + pane.ToString().ToLowerInvariant();
+    private static string Utc(DateTimeOffset value) => value.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+    private static string Amount(decimal value) => value.ToString("0.######", CultureInfo.InvariantCulture);
+    private string T(string key, string ko, string en) => Ui.T(key, Ui.Language == "EnUs" ? en : ko);
+    private string Activity(bool active) => active ? T("inventory.active", "활성", "Active") : T("inventory.inactive", "비활성", "Inactive");
+    private string Title(Pane pane) => pane switch
+    {
+        Pane.Contacts => T("billing.contacts", "계약처", "Contacts"), Pane.Documents => T("billing.documents", "견적·청구 문서", "Estimates and invoices"),
+        Pane.Payments => T("billing.payments", "입금 이력", "Payments"), _ => T("billing.scopes", "내 청구 범위", "My billing scopes")
+    };
+    private string KindName(BillingKind kind) => kind == BillingKind.Estimate ? T("billing.estimate", "견적", "Estimate") : T("billing.invoice", "청구", "Invoice");
+    private string StatusName(BillingStatus status) => status switch
+    {
+        BillingStatus.Draft => T("billing.draft", "작성 중", "Draft"), BillingStatus.Sent => T("billing.sent", "전송됨", "Sent"),
+        BillingStatus.Accepted => T("billing.accepted", "승인됨", "Accepted"), BillingStatus.Rejected => T("billing.rejected", "거절됨", "Rejected"),
+        BillingStatus.PartiallyPaid => T("billing.partiallyPaid", "일부 입금", "Partially paid"), BillingStatus.FullyPaid => T("billing.fullyPaid", "완납", "Fully paid"),
+        BillingStatus.Overpaid => T("billing.overpaid", "초과 입금", "Overpaid"), BillingStatus.Void => T("billing.void", "무효", "Void"), _ => status.ToString()
+    };
+    private string PaymentStateName(PaymentState state) => state == PaymentState.Recorded ? T("billing.recorded", "기록됨", "Recorded") : T("billing.cancelledPayment", "취소됨", "Cancelled");
+    private string MethodName(PaymentMethod method) => method switch
+    {
+        PaymentMethod.BankTransfer => T("billing.bankTransfer", "계좌 이체", "Bank transfer"), PaymentMethod.Cash => T("billing.cash", "현금", "Cash"),
+        PaymentMethod.Cheque => T("billing.cheque", "수표", "Cheque"), PaymentMethod.CreditCard => T("billing.creditCard", "신용카드", "Credit card"),
+        PaymentMethod.Debit => T("billing.debit", "직불", "Debit"), PaymentMethod.Online => T("billing.online", "온라인", "Online"), _ => method.ToString()
+    };
+    private RenderFragment Status(Pane pane) => @<div class="bwk-status" aria-live="polite">
+        @if (Busy(pane)) { <p role="status">@T("inventory.loading", "불러오는 중…", "Loading…")</p> }
+        else if (_errors.TryGetValue(pane, out var error))
+        {
+            <div role="alert" data-status="@error.Status">
+                <p>@ErrorMessage(error.Status)</p>
+                @if (!string.IsNullOrEmpty(error.Code)) { <span class="bwk-id">@error.Code</span> }
+                @if (!string.IsNullOrEmpty(error.Error)) { <p>@error.Error</p> }
+                <RadzenButton id="@(PaneId(pane) + "-retry")" Text="@T("inventory.retry", "다시 조회", "Retry read")" Click="() => RetryAsync(pane)" ButtonStyle="ButtonStyle.Light" />
+            </div>
+        }
+        else if (_totals.TryGetValue(pane, out var total) && (total == 0 || _offsets[pane] >= total))
+        {
+            <p data-empty="true">@(pane == Pane.Scopes && total == 0
+                ? T("billing.noScopes", "현재 접근 가능한 청구 범위가 없습니다.", "No billing scopes are currently accessible.")
+                : T("inventory.empty", "이 페이지에 표시할 결과가 없습니다.", "No results on this page."))</p>
+        }
+    </div>;
+
+    private string ErrorMessage(int status) => status switch
+    {
+        401 => T("inventory.unauthorized", "인증이 만료되었습니다. 다시 로그인해 주세요.", "Your session expired. Sign in again."),
+        403 => T("inventory.forbidden", "현재 조회 권한이 없습니다. 범위를 새로고침해 접근 상태를 확인하세요.", "You no longer have access to this read. Refresh scopes to check access."),
+        503 => T("inventory.unavailable", "서비스를 사용할 수 없습니다. 잠시 후 다시 조회해 주세요.", "The service is unavailable. Retry the read shortly."),
+        400 => T("inventory.invalidQuery", "조회 조건을 확인하고 다시 조회해 주세요.", "Check the search criteria and retry."),
+        _ => T("inventory.readFailed", "목록을 불러오지 못했습니다. 다시 조회해 주세요.", "The list could not be loaded. Retry the read.")
+    };
+    private Task RetryAsync(Pane pane) => pane == Pane.Scopes ? LoadScopesAsync() : LoadPaneAsync(pane);
+    private bool CanNext(Pane pane) => !Busy(pane) && _totals.TryGetValue(pane, out var total)
+        && (long)_offsets[pane] + PageSize < total && _offsets[pane] <= int.MaxValue - PageSize;
+    private async Task MovePageAsync(Pane pane, int direction)
+    {
+        if (Busy(pane) || direction > 0 && !CanNext(pane) || direction < 0 && _offsets[pane] == 0) return;
+        _offsets[pane] = Math.Max(0, _offsets[pane] + direction * PageSize);
+        if (pane == Pane.Scopes) await LoadScopesAsync(); else await LoadPaneAsync(pane);
+    }
+    private RenderFragment Pager(Pane pane) => @<nav class="bwk-pager" aria-label="@Title(pane)">
+        <RadzenButton id="@(PaneId(pane) + "-previous")" Text="@T("inventory.previous", "이전 페이지", "Previous page")" Disabled="@(Busy(pane) || _offsets[pane] == 0)" Click="() => MovePageAsync(pane, -1)" ButtonStyle="ButtonStyle.Light" />
+        @if (_totals.TryGetValue(pane, out var total)) { <span data-total="@total">@T("inventory.total", "전체", "Total") @total.ToString(CultureInfo.InvariantCulture) · @T("inventory.page", "페이지", "Page") @(_offsets[pane] / PageSize + 1)</span> }
+        <RadzenButton id="@(PaneId(pane) + "-next")" Text="@T("inventory.next", "다음 페이지", "Next page")" Disabled="@(!CanNext(pane))" Click="() => MovePageAsync(pane, 1)" ButtonStyle="ButtonStyle.Light" />
+    </nav>;
+
+    public void Dispose()
+    {
+        _disposed = true; ++_identityVersion;
+        Authentication.AuthenticationStateChanged -= AuthenticationChanged;
+        Ui.Changed -= LanguageChanged;
+        foreach (var pane in _requests.Keys.ToArray()) Cancel(pane);
+    }
+}

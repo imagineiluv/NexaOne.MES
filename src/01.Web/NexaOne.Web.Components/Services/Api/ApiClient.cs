@@ -344,8 +344,8 @@ public sealed class ApiClient : IApiClient
 
     private static bool IsInventoryPath(string? relativePath)
     {
-        const string prefix = "api/v1/ivt/";
-        if (relativePath is null || !relativePath.StartsWith(prefix, StringComparison.Ordinal)
+        // Business workspaces share one guarded read/write channel: inventory (ivt) and billing (erp).
+        if (relativePath is null || !(relativePath.StartsWith("api/v1/ivt/", StringComparison.Ordinal) || relativePath.StartsWith("api/v1/erp/", StringComparison.Ordinal))
             || relativePath.Contains('#') || relativePath.Any(char.IsControl)
             || !Uri.TryCreate(relativePath, UriKind.Relative, out _))
             return false;

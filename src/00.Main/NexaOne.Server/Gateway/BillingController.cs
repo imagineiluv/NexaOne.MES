@@ -14,6 +14,10 @@ namespace NexaOne.Server.Gateway;
 [Route("api/v1/erp/billing/{tenantId:guid}/{organizationId:guid}")]
 public sealed class BillingController(IBillingBridge bridge, ILogger<BillingController> logger) : ControllerBase
 {
+    [HttpGet("/api/v1/erp/billing/scopes/me")]
+    public Task<IActionResult> ListScopes(CancellationToken ct, [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListAccessibleScopesAsync(user, offset, limit, ct));
+
     [HttpGet("contacts")]
     public Task<IActionResult> ListContacts(Guid tenantId, Guid organizationId, CancellationToken ct,
         [FromQuery] int offset = 0, [FromQuery] int limit = 50)

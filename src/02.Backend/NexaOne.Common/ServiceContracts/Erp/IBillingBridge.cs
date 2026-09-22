@@ -1,5 +1,6 @@
 using NexaFramework.Service;
 using NexaFramework.Service.Erp;
+using NexaOne.ServiceContracts.Sys;
 
 namespace NexaOne.ServiceContracts.Erp;
 
@@ -11,6 +12,10 @@ public sealed record BillingContact(Guid Id, Guid Version, string CustomerId, st
 /// current SYS membership and grants in its owning Serializable transaction; no plant binding is involved.</summary>
 public interface IBillingBridge : INexaModuleBridge
 {
+    /// <summary>Lists the caller's active memberships that carry at least one billing grant, in tenant then
+    /// organization order, with the matching total. No plant binding is consulted and no identity is created.</summary>
+    Task<BusinessPage<BusinessMembership>> ListAccessibleScopesAsync(string userId,
+        int offset = 0, int limit = 50, CancellationToken ct = default);
     /// <summary>Enrolls an active MDM customer as a billing contact. Requires billing.write.
     /// Repeating the same customer returns the existing contact.</summary>
     Task<BillingContact> EnrollContactAsync(string userId, Guid tenantId, Guid organizationId,

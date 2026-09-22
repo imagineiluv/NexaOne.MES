@@ -48,6 +48,64 @@ public sealed class MssqlRuntimeContractTests
     public MssqlRuntimeContractTests(ITestOutputHelper output) => _output = output;
 
     [Fact]
+    public async Task Billing_workflow_resources_preserve_custom_values_and_seed_exact_English_on_mssql()
+    {
+        var database = await MssqlContractDatabase.TryCreateAsync(_output);
+        if (database is null)
+            return;
+
+        var expected = BillingWorkflowResourcesTests.ExpectedResources()
+            .Where(resource => resource.Key.StartsWith("billing.", StringComparison.Ordinal))
+            .ToDictionary(resource => resource.Key, resource => resource.Value, StringComparer.Ordinal);
+        expected.Should().NotBeEmpty();
+        var migration = File.ReadAllText(RepositorySource.GetFile("src/00.Main/NexaOne.Server/config/db/migrations/V172__ERP_BILLING_WORKSPACE_RESOURCES.sql"));
+        await using var connection = new SqlConnection(database.ConnectionString);
+        await connection.OpenAsync();
+        using var transaction = connection.BeginTransaction();
+        try
+        {
+            // Canonical resource changes remain inside this rolled-back, shared-collection fixture.
+            await connection.ExecuteAsync("DELETE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY IN @keys",
+                new { keys = expected.Keys.ToArray() }, transaction);
+            var menus = (await connection.QueryAsync<string>(
+                "SELECT * FROM SYS_MENU ORDER BY MENU_ID FOR JSON PATH", transaction: transaction)).ToArray();
+            var roles = (await connection.QueryAsync<string>(
+                "SELECT * FROM SYS_ROLE ORDER BY ROLE_ID FOR JSON PATH", transaction: transaction)).ToArray();
+
+            await connection.ExecuteAsync(migration, transaction: transaction);
+            await connection.ExecuteAsync(migration, transaction: transaction);
+            (await connection.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM SYS_MULTI_LANGUAGE_RESOURCE " +
+                "WHERE RESOURCE_KEY IN @keys AND LANGUAGE='EnUs' AND MENU_ID='COMMON'",
+                new { keys = expected.Keys.ToArray() }, transaction)).Should().Be(expected.Count);
+            foreach (var resource in expected)
+                (await connection.QuerySingleAsync<string>("SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE " +
+                    "WHERE RESOURCE_KEY=@key AND LANGUAGE='EnUs'", new { key = resource.Key }, transaction))
+                    .Should().Be(resource.Value, resource.Key);
+
+            await connection.ExecuteAsync("""
+                UPDATE SYS_MULTI_LANGUAGE_RESOURCE SET VALUE=N'우리 청구 actions', MENU_ID='CUSTOM'
+                 WHERE RESOURCE_KEY='billing.heading' AND LANGUAGE='EnUs';
+                UPDATE SYS_MULTI_LANGUAGE_RESOURCE SET VALUE='', MENU_ID='CUSTOM'
+                 WHERE RESOURCE_KEY='billing.newEstimate' AND LANGUAGE='EnUs';
+                INSERT INTO SYS_MULTI_LANGUAGE_RESOURCE (RESOURCE_KEY,MENU_ID,LANGUAGE,VALUE)
+                VALUES ('billing.heading','CUSTOM','KoKr',N'우리 청구 작업');
+                """, transaction: transaction);
+            var customized = (await connection.QueryAsync<string>("SELECT RESOURCE_KEY + ':' + MENU_ID + ':' + LANGUAGE + ':' + VALUE " +
+                "FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY IN @keys ORDER BY RESOURCE_KEY,LANGUAGE",
+                new { keys = expected.Keys.ToArray() }, transaction)).ToArray();
+            await connection.ExecuteAsync(migration, transaction: transaction);
+            (await connection.QueryAsync<string>("SELECT RESOURCE_KEY + ':' + MENU_ID + ':' + LANGUAGE + ':' + VALUE " +
+                "FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY IN @keys ORDER BY RESOURCE_KEY,LANGUAGE",
+                new { keys = expected.Keys.ToArray() }, transaction)).Should().Equal(customized);
+            (await connection.QueryAsync<string>("SELECT * FROM SYS_MENU ORDER BY MENU_ID FOR JSON PATH", transaction: transaction))
+                .Should().Equal(menus);
+            (await connection.QueryAsync<string>("SELECT * FROM SYS_ROLE ORDER BY ROLE_ID FOR JSON PATH", transaction: transaction))
+                .Should().Equal(roles);
+        }
+        finally { transaction.Rollback(); }
+    }
+
+    [Fact]
     public async Task Stock_workflow_resources_preserve_custom_values_and_seed_exact_English_on_mssql()
     {
         var database = await MssqlContractDatabase.TryCreateAsync(_output);
