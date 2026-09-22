@@ -241,14 +241,14 @@ public sealed class BillingBridge : IBillingBridge
         }
         private async Task<Dictionary<string, List<BillingLine>>> Lines(string[] documentIds, CancellationToken ct)
         {
-            var rows = await Rows<LineRow>("SELECT DOCUMENT_ID AS DocumentId, LINE_NO AS LineNo, DESCRIPTION AS Description, UNIT_PRICE AS UnitPrice, "
+            var rows = await Rows<LineRow>("SELECT DOCUMENT_ID AS DocumentId, LINE_NO AS LineNumber, DESCRIPTION AS Description, UNIT_PRICE AS UnitPrice, "
                 + "QUANTITY AS Quantity, APPLY_TAX AS ApplyTax, APPLY_DISCOUNT AS ApplyDiscount FROM ERP_BILLING_LINE WHERE " + ScopeWhere
                 + " AND DOCUMENT_ID IN @Ids ORDER BY DOCUMENT_ID, LINE_NO", new { Ids = documentIds }, ct);
             var result = new Dictionary<string, List<BillingLine>>(StringComparer.Ordinal);
             foreach (var row in rows)
             {
                 if (!result.TryGetValue(row.DocumentId, out var list)) result[row.DocumentId] = list = [];
-                if (row.LineNo != list.Count + 1) throw new InvalidDataException("Billing storage contains a gap in document lines.");
+                if (row.LineNumber != list.Count + 1) throw new InvalidDataException("Billing storage contains a gap in document lines.");
                 list.Add(new(row.Description, Amount(row.UnitPrice), Amount(row.Quantity), row.ApplyTax, row.ApplyDiscount));
             }
             return result;
@@ -309,8 +309,8 @@ public sealed class BillingBridge : IBillingBridge
         {
             for (var index = 0; index < lines.Count; index++)
                 await Write("INSERT INTO ERP_BILLING_LINE (TENANT_ID, ORGANIZATION_ID, DOCUMENT_ID, LINE_NO, DESCRIPTION, UNIT_PRICE, QUANTITY, APPLY_TAX, APPLY_DISCOUNT) "
-                    + "VALUES (@TenantId, @OrganizationId, @Id, @LineNo, @Description, @UnitPrice, @Quantity, @ApplyTax, @ApplyDiscount)",
-                    new { Id = Text(documentId), LineNo = index + 1, lines[index].Description, UnitPrice = Amount(lines[index].UnitPrice),
+                    + "VALUES (@TenantId, @OrganizationId, @Id, @LineNumber, @Description, @UnitPrice, @Quantity, @ApplyTax, @ApplyDiscount)",
+                    new { Id = Text(documentId), LineNumber = index + 1, lines[index].Description, UnitPrice = Amount(lines[index].UnitPrice),
                         Quantity = Amount(lines[index].Quantity), lines[index].ApplyTax, lines[index].ApplyDiscount }, ct);
         }
         public async Task<BusinessPage<BillingDocument>> QueryDocumentsAsync(BillingKind? kind, BillingStatus? status, Guid? contactId, int offset, int limit, CancellationToken ct)
@@ -432,7 +432,7 @@ public sealed class BillingBridge : IBillingBridge
     private sealed class LineRow
     {
         public string DocumentId { get; set; } = "";
-        public int LineNo { get; set; }
+        public int LineNumber { get; set; }
         public string Description { get; set; } = "";
         public string UnitPrice { get; set; } = "";
         public string Quantity { get; set; } = "";
