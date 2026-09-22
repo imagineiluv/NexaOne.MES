@@ -51,6 +51,11 @@ public sealed class StockController(IStockBridge bridge, ILogger<StockController
     public Task<IActionResult> SetWarehouseActive(Guid tenantId, Guid organizationId, Guid id, [FromBody] ActiveChange command, CancellationToken ct)
         => Execute(user => bridge.SetWarehouseActiveAsync(user, tenantId, organizationId, id, command.Version, command.Active, ct));
 
+    [HttpGet("warehouses/{id:guid}/balances")]
+    public Task<IActionResult> ListWarehouseBalances(Guid tenantId, Guid organizationId, Guid id, [FromQuery] Guid? variantId,
+        CancellationToken ct, [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListBalancesAsync(user, tenantId, organizationId, id, variantId, offset, limit, ct));
+
     [HttpGet("balances")]
     public Task<IActionResult> GetBalance(Guid tenantId, Guid organizationId, [FromQuery] Guid variantId, [FromQuery] Guid warehouseId, CancellationToken ct)
         => Execute(async user => await bridge.GetBalanceAsync(user, tenantId, organizationId, variantId, warehouseId, ct)

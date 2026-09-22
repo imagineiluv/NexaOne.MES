@@ -63,7 +63,7 @@
             </div>
             @if (_scope.Membership.Permissions.Any(grant => grant.StartsWith("stock.", StringComparison.Ordinal)))
             {
-                <StockWorkflowPanel @key="@("stock/" + SelectedKey)" @ref="_stock" Scope="_scope" UserId="@_currentUserId" Warehouses="_warehouses?.Items" Saved="RefreshStockAsync" VariantChanged="VariantChangedAsync" />
+                <StockWorkflowPanel @key="@("stock/" + SelectedKey)" @ref="_stock" Scope="_scope" UserId="@_currentUserId" Warehouses="_warehouses?.Items" Saved="RefreshStockAsync" VariantChanged="VariantChangedAsync" WarehouseChanged="WarehouseChangedAsync" />
             }
             @if (_scope.Membership.Permissions.Any(grant => grant.StartsWith("equipment.", StringComparison.Ordinal)))
             {
@@ -85,6 +85,10 @@
                     {
                         <p class="iw-note" id="inventory-movements-variant">@T("inventory.stock.movementNote", "선택한 품목 변형의 전표 이력입니다. 창고와 반제 상태는 저장된 식별자로 표시합니다.", "Ledger entries of the selected product variant. Warehouses and reversal state are shown by stored identifiers."): @listedVariant.Sku</p>
                     }
+                    @if (pane == Pane.Balances && _balanceWarehouse is { } balanceWarehouse)
+                    {
+                        <p class="iw-note" id="inventory-balances-warehouse">@T("inventory.stock.balanceListNote", "선택한 창고에 기록된 잔고입니다. 전표가 닿은 뒤 0이 된 잔고도 남고, 전표가 없는 품목은 나타나지 않습니다. 변형은 저장된 식별자로 표시합니다.", "Balances recorded for the selected warehouse. A balance that reached zero stays listed; a product with no ledger entry here is not shown. Variants are shown by their stored identifiers."): @balanceWarehouse.Code · @balanceWarehouse.Name</p>
+                    }
                     @if (pane == Pane.Reservations && _variant is { } reservedVariant)
                     {
                         <p class="iw-note" id="inventory-reservations-variant">@T("inventory.stock.reservationListNote", "선택한 품목 변형의 예약입니다. 정렬은 예약 ID 기준이며 생성 순서가 아닙니다. 행을 선택해 재고 작업에서 해제·소비합니다.", "Reservations of the selected product variant, ordered by reservation ID rather than creation time. Select a row to release or consume it in Stock actions."): @reservedVariant.Sku</p>
@@ -101,7 +105,7 @@
                             <p id="inventory-worker-selection" role="status">@T("inventory.write.workerSelected", "예약 작업자 선택", "Selected booking worker"): @_worker.WorkerName · @_worker.WorkerId</p>
                         }
                     }
-                    @if (pane != Pane.Movements)
+                    @if (pane is not Pane.Movements and not Pane.Balances)
                     {
                     <form class="iw-filters" @onsubmit="() => SearchAsync(pane)" @onsubmit:preventDefault>
                         @if (pane == Pane.Reservations)
@@ -154,6 +158,10 @@
                                         <thead><tr><th>@T("inventory.code", "코드", "Code")</th><th>@T("inventory.name", "이름", "Name")</th><th>@T("inventory.activity", "활성 상태", "Activity")</th>@if (HasStockPanel) { <th>@T("inventory.write.actions", "작업", "Actions")</th> }</tr></thead>
                                         <tbody>@foreach (var item in _warehouses!.Items) { <tr @key="item.Id"><td class="iw-id">@item.Code</td><td>@item.Name</td><td>@Activity(item.Active)</td>@if (HasStockPanel) { <td><button class="iw-choice" type="button" data-manage-warehouse="@item.Id" @onclick="() => SelectWarehouseAsync(item)">@T("inventory.stock.chooseWarehouse", "창고 선택", "Select warehouse")</button></td> }</tr> }</tbody>
                                         break;
+                                    case Pane.Balances:
+                                        <thead><tr><th>@T("inventory.stock.variantId", "변형 ID", "Variant ID")</th><th>@T("inventory.stock.onHand", "현재고", "On hand")</th><th>@T("inventory.stock.reserved", "예약", "Reserved")</th><th>@T("inventory.stock.available", "가용", "Available")</th></tr></thead>
+                                        <tbody>@foreach (var item in _balances!.Items) { <tr @key="item.Id"><td class="iw-id">@item.VariantId</td><td>@item.OnHand.ToString(CultureInfo.InvariantCulture)</td><td>@item.Reserved.ToString(CultureInfo.InvariantCulture)</td><td>@item.Available.ToString(CultureInfo.InvariantCulture)</td></tr> }</tbody>
+                                        break;
                                     case Pane.Reservations:
                                         <thead><tr><th>@T("inventory.stock.reservationId", "예약 ID", "Reservation ID")</th><th>@T("inventory.stock.warehouse", "창고", "Warehouse")</th><th>@T("inventory.quantity", "수량", "Quantity")</th><th>@T("inventory.stock.reference", "참조", "Reference")</th><th>@T("inventory.state", "상태", "State")</th><th>@T("inventory.write.actions", "작업", "Actions")</th></tr></thead>
                                         <tbody>@foreach (var item in _reservations!.Items) { <tr @key="item.Id"><td class="iw-id">@item.Id</td><td class="iw-id">@item.WarehouseId</td><td>@item.Quantity.ToString(CultureInfo.InvariantCulture)</td><td>@item.Reference</td><td>@ReservationState(item.State)</td><td><button class="iw-choice" type="button" data-manage-reservation="@item.Id" @onclick="() => SelectReservationAsync(item)">@T("inventory.stock.chooseReservation", "예약 선택", "Select reservation")</button></td></tr> }</tbody>
@@ -186,8 +194,8 @@
 </div>
 
 @code {
-    private enum Pane { Scopes, Products, Warehouses, Movements, Reservations, Assets, Bookings, Workers }
-    private static readonly Pane[] DataPanes = [Pane.Products, Pane.Warehouses, Pane.Movements, Pane.Reservations, Pane.Assets, Pane.Bookings, Pane.Workers];
+    private enum Pane { Scopes, Products, Warehouses, Balances, Movements, Reservations, Assets, Bookings, Workers }
+    private static readonly Pane[] DataPanes = [Pane.Products, Pane.Warehouses, Pane.Balances, Pane.Movements, Pane.Reservations, Pane.Assets, Pane.Bookings, Pane.Workers];
     private const int PageSize = 50;
     private readonly Dictionary<Pane, int> _offsets = Enum.GetValues<Pane>().ToDictionary(p => p, _ => 0);
     private readonly Dictionary<Pane, long> _totals = new();
@@ -202,6 +210,8 @@
     private BusinessPage<Warehouse>? _warehouses;
     private BusinessPage<StockMovement>? _movements;
     private BusinessPage<StockReservation>? _reservations;
+    private BusinessPage<StockBalance>? _balances;
+    private Warehouse? _balanceWarehouse;
     private ProductVariant? _variant;
     private BusinessPage<SharedEquipment>? _assets;
     private BusinessPage<EquipmentBooking>? _bookings;
@@ -287,8 +297,8 @@
             Cancel(pane); _offsets[pane] = 0; _totals.Remove(pane); _errors.Remove(pane);
             _draftText[pane] = _text[pane] = ""; _draftInactive[pane] = _inactive[pane] = false;
         }
-        _scope = null; _worker = null; _workflow = null; _stock = null; _variant = null;
-        _products = null; _warehouses = null; _movements = null; _reservations = null; _assets = null; _bookings = null; _workers = null;
+        _scope = null; _worker = null; _workflow = null; _stock = null; _variant = null; _balanceWarehouse = null;
+        _products = null; _warehouses = null; _balances = null; _movements = null; _reservations = null; _assets = null; _bookings = null; _workers = null;
         _draftBookingState = _bookingState = ""; _draftReservationState = _reservationState = "";
     }
 
@@ -306,7 +316,16 @@
         _variant = variant;
         return _variant is null ? Task.CompletedTask : Task.WhenAll(LoadPaneAsync(Pane.Movements), LoadPaneAsync(Pane.Reservations));
     }
-    private Task RefreshStockAsync() => Task.WhenAll(new[] { Pane.Products, Pane.Warehouses, Pane.Movements, Pane.Reservations }.Where(CanRead).Select(LoadPaneAsync));
+    private Task WarehouseChangedAsync(Warehouse? warehouse)
+    {
+        // The balance list is keyed by the warehouse the panel selected or saved. The same warehouse (a rename or
+        // activity change) only refreshes the caption; the Saved callback reloads the rows once.
+        if (warehouse is not null && _balanceWarehouse?.Id == warehouse.Id) { _balanceWarehouse = warehouse; return Task.CompletedTask; }
+        Cancel(Pane.Balances); _balances = null; _totals.Remove(Pane.Balances); _errors.Remove(Pane.Balances); _offsets[Pane.Balances] = 0;
+        _balanceWarehouse = warehouse;
+        return _balanceWarehouse is null ? Task.CompletedTask : LoadPaneAsync(Pane.Balances);
+    }
+    private Task RefreshStockAsync() => Task.WhenAll(new[] { Pane.Products, Pane.Warehouses, Pane.Balances, Pane.Movements, Pane.Reservations }.Where(CanRead).Select(LoadPaneAsync));
     private Task SelectEquipmentAsync(SharedEquipment value) => _workflow?.SelectEquipmentAsync(value) ?? Task.CompletedTask;
     private Task SelectBookingAsync(EquipmentBooking value) => _workflow?.SelectBookingAsync(value) ?? Task.CompletedTask;
     private Task RefreshEquipmentAsync() => Task.WhenAll(new[] { Pane.Assets, Pane.Bookings }.Where(CanRead).Select(LoadPaneAsync));
@@ -315,7 +334,8 @@
     {
         Pane.Products => "stock.read", Pane.Warehouses => "stock.warehouse.read", Pane.Assets => "equipment.read",
         Pane.Bookings => "equipment.booking.read", Pane.Workers => "equipment.booking.request",
-        Pane.Movements or Pane.Reservations when _variant is not null => "stock.read", _ => ""
+        Pane.Movements or Pane.Reservations when _variant is not null => "stock.read",
+        Pane.Balances when _balanceWarehouse is not null => "stock.read", _ => ""
     }, StringComparer.Ordinal) == true;
 
     private async Task SearchAsync(Pane pane)
@@ -337,6 +357,7 @@
         {
             Pane.Products => ReadAsync<Product>(pane, $"api/v1/ivt/stock/{pair}/products?{filter}", value => _products = value),
             Pane.Warehouses => ReadAsync<Warehouse>(pane, $"api/v1/ivt/stock/{pair}/warehouses?{filter}", value => _warehouses = value),
+            Pane.Balances => ReadAsync<StockBalance>(pane, $"api/v1/ivt/stock/{pair}/warehouses/{_balanceWarehouse!.Id:D}/balances?{page}", value => _balances = value),
             Pane.Movements => ReadAsync<StockMovement>(pane, $"api/v1/ivt/stock/{pair}/movements?variantId={_variant!.Id:D}&{page}", value => _movements = value),
             Pane.Reservations => ReadAsync<StockReservation>(pane, $"api/v1/ivt/stock/{pair}/reservations?variantId={_variant!.Id:D}&{page}" + (_reservationState.Length == 0 ? "" : $"&state={_reservationState}"), value => _reservations = value),
             Pane.Assets => ReadAsync<SharedEquipment>(pane, $"api/v1/ivt/shared-equipment/{pair}/assets?{filter}", value => _assets = value),
@@ -391,6 +412,7 @@
     {
         Pane.Products => T("inventory.products", "등록 품목", "Enrolled products"), Pane.Warehouses => T("inventory.warehouses", "창고", "Warehouses"),
         Pane.Movements => T("inventory.stock.movements", "전표 이력", "Movement history"), Pane.Reservations => T("inventory.stock.reservations", "예약 목록", "Reservations"),
+        Pane.Balances => T("inventory.stock.balances", "창고 잔고", "Warehouse balances"),
         Pane.Assets => T("inventory.assets", "공유 장비", "Shared equipment"), Pane.Bookings => T("inventory.bookings", "예약 이력", "Booking history"),
         Pane.Workers => T("inventory.workers", "작업자 조회·선택", "Worker lookup and selection"), _ => T("inventory.scopes", "내 재고 범위", "My inventory scopes")
     };

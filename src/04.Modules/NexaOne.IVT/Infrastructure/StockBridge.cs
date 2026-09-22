@@ -91,6 +91,9 @@ public sealed class StockBridge : IStockBridge
     public Task<BusinessPage<StockMovement>> ListMovementsAsync(string userId, Guid tenantId, Guid organizationId,
         Guid variantId, int offset = 0, int limit = 50, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "stock.read", (service, session) => service.ListMovementsAsync(session.Actor, variantId, offset, limit, ct), ct);
+    public Task<BusinessPage<StockBalance>> ListBalancesAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid? warehouseId = null, Guid? variantId = null, int offset = 0, int limit = 50, CancellationToken ct = default)
+        => Run(userId, tenantId, organizationId, "stock.read", (service, session) => service.ListBalancesAsync(session.Actor, warehouseId, variantId, offset, limit, ct), ct);
     public Task<BusinessPage<StockReservation>> ListReservationsAsync(string userId, Guid tenantId, Guid organizationId,
         Guid? variantId = null, Guid? warehouseId = null, StockReservationState? state = null, int offset = 0, int limit = 50, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "stock.read", (service, session) => service.ListReservationsAsync(session.Actor, variantId, warehouseId, state, offset, limit, ct), ct);
@@ -435,6 +438,22 @@ public sealed class StockBridge : IStockBridge
         }
         public Task<StockReservation?> FindReservationAsync(Guid id, CancellationToken ct) => ReadReservation("RESERVATION_ID=@id", id, ct);
         public Task<StockReservation?> FindReservationByOperationAsync(Guid id, CancellationToken ct) => ReadReservation("OPERATION_ID=@id", id, ct);
+        public async Task<BusinessPage<StockBalance>> QueryBalancesAsync(Guid? warehouseId, Guid? variantId, int offset, int limit, CancellationToken ct)
+        {
+            // Recorded balances only: a pair never touched by a posting has no row, a pair that reached zero keeps its row.
+            const string filter = " AND (@Warehouse IS NULL OR WAREHOUSE_ID=@Warehouse) AND (@Variant IS NULL OR VARIANT_ID=@Variant)";
+            var values = new
+            {
+                Warehouse = warehouseId.HasValue ? Text(warehouseId.Value) : null, Variant = variantId.HasValue ? Text(variantId.Value) : null,
+                Offset = offset, End = (long)offset + limit
+            };
+            var total = await Scalar<long>("SELECT COUNT(*) FROM IVT_STOCK_BALANCE WHERE " + ScopeWhere + filter, values, ct);
+            var rows = await connection.QueryAsync<BalanceRow>(Command("SELECT * FROM (SELECT BALANCE_ID AS Id, VERSION AS Version, VARIANT_ID AS VariantId, "
+                + "WAREHOUSE_ID AS WarehouseId, ON_HAND AS OnHand, RESERVED AS Reserved, ROW_NUMBER() OVER (ORDER BY WAREHOUSE_ID, VARIANT_ID) AS RowNumber "
+                + "FROM IVT_STOCK_BALANCE WHERE " + ScopeWhere + filter + ") AS page WHERE RowNumber>@Offset AND RowNumber<=@End ORDER BY RowNumber", values, ct));
+            return new(Array.AsReadOnly(rows.Select(row => new StockBalance(Id(row.Id), Scope, Id(row.Version), Id(row.VariantId), Id(row.WarehouseId),
+                Quantity(row.OnHand), Quantity(row.Reserved))).ToArray()), total);
+        }
         public async Task<BusinessPage<StockReservation>> QueryReservationsAsync(Guid? variantId, Guid? warehouseId, StockReservationState? state,
             int offset, int limit, CancellationToken ct)
         {
@@ -507,6 +526,8 @@ public sealed class StockBridge : IStockBridge
     {
         public string Id { get; set; } = "";
         public string Version { get; set; } = "";
+        public string VariantId { get; set; } = "";
+        public string WarehouseId { get; set; } = "";
         public string OnHand { get; set; } = "";
         public string Reserved { get; set; } = "";
     }
