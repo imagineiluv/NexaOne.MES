@@ -46,6 +46,9 @@ public partial class StockWorkflowPanel : IDisposable
     private StockMovement? _movement;
     private StockReservation? _reservation;
     private Warehouse? _warehouse;
+    private StockBalance? _balance;
+    private bool _balanceEmpty;
+    private string _balanceWarehouse = "";
     private Warehouse? _observedWarehouse;
     private StockMovement? _observedMovement;
     private StockReservation? _observedReservation;
@@ -64,6 +67,7 @@ public partial class StockWorkflowPanel : IDisposable
         && Scope.Membership.TenantId != Guid.Empty && Scope.Membership.OrganizationId != Guid.Empty;
     private bool CanStart => OwnerValid && _loaded && !_busy && !_loading && !_storageError && _pending is null;
     private bool CanWriteWarehouse => Has("stock.warehouse.write");
+    private bool CanReadBalance => Has("stock.read") && Has("stock.warehouse.read") && _variant is not null;
     private bool CanPost => Has("stock.post") && Has("stock.read") && Has("stock.warehouse.read") && _variant is { Active: true };
     private bool CanReverse => Has("stock.reverse") && _movement is { ReversedById: null, ReversalOfId: null };
     private bool CanReserve => Has("stock.reserve") && Has("stock.read") && Has("stock.warehouse.read") && _variant is { Active: true };
@@ -83,6 +87,7 @@ public partial class StockWorkflowPanel : IDisposable
         _storageKey = key;
         _pending = null; _product = null; _variant = null; _movement = null; _reservation = null; _warehouse = null; _editor = Editor.None;
         _observedWarehouse = null; _observedMovement = null; _observedReservation = null; _focus = Focus.None;
+        _balance = null; _balanceEmpty = false; _balanceWarehouse = "";
         _loaded = false; _loading = false; _busy = false; _storageError = false;
         _error = null; _message = null; _acknowledged = false;
     }
@@ -207,6 +212,7 @@ public partial class StockWorkflowPanel : IDisposable
                 && ValidVariant(value) && value.ProductId == product.Id)
             {
                 _product = product; _variant = value; _movement = null; _reservation = null; _editor = Editor.None; _focus = Focus.None;
+                _balance = null; _balanceEmpty = false;
                 ClearObserved();
                 try { await VariantChanged.InvokeAsync(value); }
                 catch (Exception) when (!_disposed)
@@ -225,6 +231,33 @@ public partial class StockWorkflowPanel : IDisposable
             if (Current(generation, key)) { _busy = false; StateHasChanged(); }
         }
         await FocusEditorAsync();
+    }
+
+    private async Task ReadBalanceAsync()
+    {
+        if (!CanStart || !CanReadBalance || _storageKey is not { } key) return;
+        if (WarehouseId(_balanceWarehouse) is not { } warehouse) { _error = BalanceInputMessage(); return; }
+        var generation = _generation; var variant = _variant!.Id;
+        using var request = new CancellationTokenSource();
+        _request = request; _busy = true; _error = null; _message = null;
+        try
+        {
+            var result = await Api.ReadInventoryAsync<StockBalance>(Root + $"/balances?variantId={variant:D}&warehouseId={warehouse:D}", request.Token);
+            if (!Current(generation, key)) return;
+            if (result.StatusCode is >= 200 and < 300 && result.Error is null && result.Value is { } value && ValidBalance(value, variant, warehouse))
+            { _balance = value; _balanceEmpty = false; }
+            else if (result.StatusCode == 404 && result.Code == "STOCK_BALANCE_NOT_FOUND")
+            { _balance = null; _balanceEmpty = true; }
+            else _error = result.StatusCode is >= 200 and < 300 ? InvalidResponse() : ErrorMessage(result.Code, result.StatusCode);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or IOException)
+        { if (Current(generation, key)) _error = UnknownMessage(); }
+        finally
+        {
+            if (ReferenceEquals(_request, request)) _request = null;
+            if (Current(generation, key)) { _busy = false; StateHasChanged(); }
+        }
     }
 
     public async Task SelectMovementAsync(StockMovement movement)
@@ -620,6 +653,8 @@ public partial class StockWorkflowPanel : IDisposable
         && value.ProductId != Guid.Empty && ValidScope(value.Scope) && !string.IsNullOrWhiteSpace(value.Sku) && !string.IsNullOrWhiteSpace(value.Unit);
     private bool ValidWarehouse(Warehouse value) => value.Id != Guid.Empty && value.Version != Guid.Empty
         && ValidScope(value.Scope) && ValidWarehouseInput(value.Code, value.Name);
+    private bool ValidBalance(StockBalance value, Guid variant, Guid warehouse) => value.Id != Guid.Empty && value.Version != Guid.Empty
+        && ValidScope(value.Scope) && value.VariantId == variant && value.WarehouseId == warehouse && value.OnHand >= 0m && value.Reserved >= 0m && value.Reserved <= value.OnHand;
     private bool ValidReservation(StockReservation value) => value.Id != Guid.Empty && value.Version != Guid.Empty
         && ValidScope(value.Scope) && value.OperationId != Guid.Empty && value.VariantId != Guid.Empty && value.WarehouseId != Guid.Empty
         && ValidQuantity(value.Quantity, false) && ValidReference(value.Reference) && Enum.IsDefined(value.State);
@@ -668,6 +703,7 @@ public partial class StockWorkflowPanel : IDisposable
     private string UnknownMessage() => T("inventory.write.unknown", "처리 결과를 확인하지 못했습니다. 같은 요청을 재확인하거나 현재 상태를 조회해 주세요.", "The outcome is unknown. Recheck the same request or read the current state.");
     private string InvalidResponse() => T("inventory.write.invalidResponse", "응답이 선택한 범위 또는 요청과 맞지 않습니다. 저장 결과를 다시 확인해 주세요.", "The response does not match the selected scope or request. Recheck the write outcome.");
     private string WarehouseInputMessage() => T("inventory.stock.invalidWarehouse", "창고 코드(80자 이하)와 이름(255자 이하)을 확인해 주세요.", "Check the warehouse code (up to 80 characters) and name (up to 255 characters).");
+    private string BalanceInputMessage() => T("inventory.stock.invalidBalanceWarehouse", "잔고를 조회할 활성 창고를 선택해 주세요.", "Select an active warehouse to read its balance.");
     private string ReservationInputMessage() => T("inventory.stock.invalidReservation", "활성 창고, 양수이며 소수 6자리 이하인 수량, 참조를 확인해 주세요.", "Check the active warehouse, a positive quantity with at most 6 decimals, and a reference.");
     private string ReservationIdMessage() => T("inventory.stock.invalidReservationId", "예약 ID는 GUID 형식이어야 합니다.", "The reservation ID must be a GUID.");
     private string ReferenceMessage() => T("inventory.stock.invalidReference", "참조는 앞뒤 공백 없이 255자 이하로 입력해 주세요.", "Enter a reference of up to 255 characters without surrounding whitespace.");

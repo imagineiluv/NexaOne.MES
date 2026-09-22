@@ -44,6 +44,9 @@ public interface IStockBridge : INexaModuleBridge
         Guid operationId, Guid variantId, Guid warehouseId, decimal quantity, string reference, CancellationToken ct = default);
     Task<StockReservation> GetReservationAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, CancellationToken ct = default);
+    Task<BusinessPage<StockReservation>> ListReservationsAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid? variantId = null, Guid? warehouseId = null, StockReservationState? state = null,
+        int offset = 0, int limit = 50, CancellationToken ct = default);
     Task<StockReservation> ReleaseReservationAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, CancellationToken ct = default);
     Task<StockMovement> ConsumeReservationAsync(string userId, Guid tenantId, Guid organizationId,

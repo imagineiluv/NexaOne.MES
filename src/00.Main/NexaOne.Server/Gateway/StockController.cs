@@ -53,7 +53,9 @@ public sealed class StockController(IStockBridge bridge, ILogger<StockController
 
     [HttpGet("balances")]
     public Task<IActionResult> GetBalance(Guid tenantId, Guid organizationId, [FromQuery] Guid variantId, [FromQuery] Guid warehouseId, CancellationToken ct)
-        => Execute(user => bridge.GetBalanceAsync(user, tenantId, organizationId, variantId, warehouseId, ct));
+        => Execute(async user => await bridge.GetBalanceAsync(user, tenantId, organizationId, variantId, warehouseId, ct)
+            // A missing balance row is a definite answer (nothing recorded), reported as 404 rather than an empty 200 body.
+            ?? throw new BusinessException("STOCK_BALANCE_NOT_FOUND"));
 
     [HttpPost("movements")]
     public Task<IActionResult> Post(Guid tenantId, Guid organizationId, [FromBody] StockPosting posting, CancellationToken ct)
@@ -80,6 +82,11 @@ public sealed class StockController(IStockBridge bridge, ILogger<StockController
     [HttpGet("reservations/{id:guid}")]
     public Task<IActionResult> GetReservation(Guid tenantId, Guid organizationId, Guid id, CancellationToken ct)
         => Execute(user => bridge.GetReservationAsync(user, tenantId, organizationId, id, ct));
+
+    [HttpGet("reservations")]
+    public Task<IActionResult> ListReservations(Guid tenantId, Guid organizationId, [FromQuery] Guid? variantId, [FromQuery] Guid? warehouseId,
+        [FromQuery] StockReservationState? state, CancellationToken ct, [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListReservationsAsync(user, tenantId, organizationId, variantId, warehouseId, state, offset, limit, ct));
 
     [HttpPost("reservations/{id:guid}/release")]
     public Task<IActionResult> ReleaseReservation(Guid tenantId, Guid organizationId, Guid id, [FromBody] VersionedCommand command, CancellationToken ct)
