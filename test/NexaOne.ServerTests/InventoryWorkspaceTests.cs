@@ -49,6 +49,7 @@ public sealed class InventoryWorkspaceTests : BunitContext
         Reads<SharedEquipment>(_ => new([], 0));
         Reads<EquipmentBooking>(_ => new([], 0));
         Reads<WorkerDto>(_ => new([], 0));
+        Reads<StockReservation>(_ => new([], 0));
     }
 
     [Fact]
@@ -487,6 +488,44 @@ public sealed class InventoryWorkspaceTests : BunitContext
         cut.Find("#stock-movement-detail").TextContent.Should().Contain("GRN-3");
         cut.Find("#stock-reverse-movement").Should().NotBeNull();
         _api.Invocations.Count(call => call.Method.Name == nameof(IApiClient.WriteInventoryAsync)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Selected_variant_lists_reservations_with_a_state_filter_and_rows_feed_the_stock_panel()
+    {
+        var scope = Scope(1, "stock.read", "stock.warehouse.read", "stock.release");
+        var product = Product(scope, "P-200");
+        var warehouse = new Warehouse(Guid.NewGuid(), Business(scope), Guid.NewGuid(), "WH-1", "Main warehouse");
+        var variant = new ProductVariant(Guid.NewGuid(), Business(scope), product.Version, product.Id, "P-200", "EA", Array.Empty<OptionSelection>());
+        var active = new StockReservation(Guid.NewGuid(), Business(scope), Guid.NewGuid(), Guid.NewGuid(), variant.Id, warehouse.Id, 2m, "WO-9", Guid.NewGuid().ToString("D"), StockReservationState.Active);
+        var released = active with { Id = Guid.NewGuid(), OperationId = Guid.NewGuid(), Reference = "WO-8", State = StockReservationState.Released };
+        ShowScopes(scope);
+        Reads<Product>(_ => new([product], 1));
+        Reads<Warehouse>(_ => new([warehouse], 1));
+        Reads<StockMovement>(_ => new([], 0));
+        Reads<StockReservation>(path => path.Contains("state=Active") ? new([active], 1) : new([active, released], 2));
+        var root = $"api/v1/ivt/stock/{Tenant:D}/{scope.Membership.OrganizationId:D}";
+        _api.Setup(api => api.ReadInventoryAsync<ProductVariant>(root + "/products/P-200", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((variant, 200, null, null));
+        var cut = Render<HostInventoryWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        await cut.Find("[data-scope]").ClickAsync(new MouseEventArgs());
+        cut.WaitForAssertion(() => cut.Find("#inventory-stock-workflows").Should().NotBeNull());
+        cut.FindAll("#inventory-reservations").Should().BeEmpty("reservations need a selected variant");
+
+        await cut.Find($"[data-manage-product='{product.Id:D}']").ClickAsync(new MouseEventArgs());
+
+        cut.WaitForAssertion(() => cut.Find("#inventory-reservations tbody").TextContent.Should().Contain("WO-9").And.Contain("WO-8"));
+        Paths<StockReservation>().Should().ContainSingle().Which.Should().Be(root + $"/reservations?variantId={variant.Id:D}&offset=0&limit=50");
+        cut.Find("#reservation-state").Change("Active");
+        await cut.Find("#inventory-reservations form").SubmitAsync(EventArgs.Empty);
+        cut.WaitForAssertion(() => cut.Find("#inventory-reservations tbody").TextContent.Should().Contain("WO-9").And.NotContain("WO-8"));
+        Paths<StockReservation>().Last().Should().Be(root + $"/reservations?variantId={variant.Id:D}&offset=0&limit=50&state=Active");
+
+        await cut.Find($"[data-manage-reservation='{active.Id:D}']").ClickAsync(new MouseEventArgs());
+        cut.Find("#stock-reservation-detail").TextContent.Should().Contain("WO-9");
+        cut.Find("#stock-release-reservation").Should().NotBeNull();
+        _api.Invocations.Should().OnlyContain(call => call.Method.Name == nameof(IApiClient.ReadInventoryAsync));
     }
 
     private void Reads<T>(Func<string, BusinessPage<T>> response)

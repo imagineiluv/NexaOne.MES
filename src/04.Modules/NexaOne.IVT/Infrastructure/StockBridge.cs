@@ -91,6 +91,9 @@ public sealed class StockBridge : IStockBridge
     public Task<BusinessPage<StockMovement>> ListMovementsAsync(string userId, Guid tenantId, Guid organizationId,
         Guid variantId, int offset = 0, int limit = 50, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "stock.read", (service, session) => service.ListMovementsAsync(session.Actor, variantId, offset, limit, ct), ct);
+    public Task<BusinessPage<StockReservation>> ListReservationsAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid? variantId = null, Guid? warehouseId = null, StockReservationState? state = null, int offset = 0, int limit = 50, CancellationToken ct = default)
+        => Run(userId, tenantId, organizationId, "stock.read", (service, session) => service.ListReservationsAsync(session.Actor, variantId, warehouseId, state, offset, limit, ct), ct);
     public Task<StockMovement> ReverseAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, Guid operationId, string reference, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "stock.reverse", (service, session) => service.ReverseAsync(session.Actor, id, version, operationId, reference, ct), ct);
@@ -432,6 +435,25 @@ public sealed class StockBridge : IStockBridge
         }
         public Task<StockReservation?> FindReservationAsync(Guid id, CancellationToken ct) => ReadReservation("RESERVATION_ID=@id", id, ct);
         public Task<StockReservation?> FindReservationByOperationAsync(Guid id, CancellationToken ct) => ReadReservation("OPERATION_ID=@id", id, ct);
+        public async Task<BusinessPage<StockReservation>> QueryReservationsAsync(Guid? variantId, Guid? warehouseId, StockReservationState? state,
+            int offset, int limit, CancellationToken ct)
+        {
+            // Optional filters are parameterized and null-skipped. The table has no creation clock, so the stable
+            // order is the reservation ID itself; callers must not read it as chronological order.
+            const string filter = " AND (@Variant IS NULL OR VARIANT_ID=@Variant) AND (@Warehouse IS NULL OR WAREHOUSE_ID=@Warehouse) AND (@State IS NULL OR STATE=@State)";
+            var values = new
+            {
+                Variant = variantId.HasValue ? Text(variantId.Value) : null, Warehouse = warehouseId.HasValue ? Text(warehouseId.Value) : null,
+                State = state.HasValue ? (int?)state.Value : null, Offset = offset, End = (long)offset + limit
+            };
+            var total = await Scalar<long>("SELECT COUNT(*) FROM IVT_STOCK_RESERVATION WHERE " + ScopeWhere + filter, values, ct);
+            var rows = await connection.QueryAsync<ReservationRow>(Command("SELECT * FROM (SELECT RESERVATION_ID AS Id, VERSION AS Version, OPERATION_ID AS OperationId, "
+                + "VARIANT_ID AS VariantId, WAREHOUSE_ID AS WarehouseId, QUANTITY AS Quantity, REFERENCE AS Reference, CREATED_BY AS CreatedBy, STATE AS State, "
+                + "ROW_NUMBER() OVER (ORDER BY RESERVATION_ID) AS RowNumber FROM IVT_STOCK_RESERVATION WHERE " + ScopeWhere + filter
+                + ") AS page WHERE RowNumber>@Offset AND RowNumber<=@End ORDER BY RowNumber", values, ct));
+            return new(Array.AsReadOnly(rows.Select(row => new StockReservation(Id(row.Id), Scope, Id(row.Version), Id(row.OperationId), Id(row.VariantId),
+                Id(row.WarehouseId), Quantity(row.Quantity), row.Reference, Text(Id(row.CreatedBy)), (StockReservationState)row.State)).ToArray()), total);
+        }
         public Task SaveReservationAsync(StockReservation value, Guid? expectedVersion, CancellationToken ct)
         {
             RequireScope(value.Scope);

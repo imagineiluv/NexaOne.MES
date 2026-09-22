@@ -145,6 +145,33 @@
         }
         </div>
     }
+    @if (CanReadBalance)
+    {
+        <form id="stock-balance-form" class="sw-lookup" @onsubmit="ReadBalanceAsync" @onsubmit:preventDefault>
+            <label for="stock-balance-warehouse">@T("inventory.stock.balanceWarehouse", "잔고 조회 창고", "Balance warehouse")
+                <select id="stock-balance-warehouse" @bind="_balanceWarehouse" disabled="@(!CanStart)">
+                    <option value="">@T("inventory.stock.noWarehouse", "선택 안 함", "None")</option>
+                    @foreach (var warehouse in Warehouses ?? Array.Empty<Warehouse>())
+                    {
+                        <option value="@warehouse.Id.ToString("D")">@warehouse.Code · @warehouse.Name</option>
+                    }
+                </select>
+            </label>
+            <button id="stock-read-balance" type="submit" disabled="@(!CanStart)">@T("inventory.stock.readBalance", "잔고 조회", "Read balance")</button>
+        </form>
+        @if (_balance is { } balance)
+        {
+            <dl id="stock-balance">
+                <dt>@T("inventory.stock.onHand", "현재고", "On hand")</dt><dd>@Quantity(balance.OnHand)</dd>
+                <dt>@T("inventory.stock.reserved", "예약", "Reserved")</dt><dd>@Quantity(balance.Reserved)</dd>
+                <dt>@T("inventory.stock.available", "가용", "Available")</dt><dd>@Quantity(balance.Available)</dd>
+            </dl>
+        }
+        else if (_balanceEmpty)
+        {
+            <p id="stock-balance" class="sw-note">@T("inventory.stock.noBalance", "기록된 잔고가 없습니다(0). 아직 이 창고에 전표가 없습니다.", "No recorded balance (0). This warehouse has no ledger entries for the product yet.")</p>
+        }
+    }
     @if (Has("stock.read"))
     {
         <form id="stock-reservation-lookup" class="sw-lookup" @onsubmit="ReadReservationAsync" @onsubmit:preventDefault>

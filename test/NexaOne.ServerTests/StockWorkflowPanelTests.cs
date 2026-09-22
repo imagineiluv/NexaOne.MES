@@ -647,6 +647,36 @@ public sealed class StockWorkflowPanelTests : BunitContext
         _reads.Should().ContainSingle();
     }
 
+    [Fact]
+    public async Task Balance_lookup_reads_the_selected_variant_and_warehouse_and_distinguishes_no_recorded_balance()
+    {
+        var scope = Scope("stock.read", "stock.warehouse.read");
+        var warehouses = new[] { Warehouse(scope, "WH-A"), Warehouse(scope, "WH-B") };
+        var product = Product(scope, "P-001");
+        var variant = Variant(scope, product);
+        Reads<ProductVariant>(_ => Ok(variant));
+        var balance = new StockBalance(Guid.NewGuid(), Business(scope), Guid.NewGuid(), variant.Id, warehouses[0].Id, 12.5m, 2.5m);
+        Reads<StockBalance>(path => path == Root(scope) + $"/balances?variantId={variant.Id:D}&warehouseId={warehouses[0].Id:D}" ? Ok(balance)
+            : Failure<StockBalance>(404, "STOCK_BALANCE_NOT_FOUND"));
+        var cut = Panel(scope, warehouses);
+        cut.FindAll("#stock-balance-form").Should().BeEmpty("a balance needs a selected variant");
+        await cut.InvokeAsync(() => cut.Instance.SelectProductAsync(product));
+
+        cut.Find("#stock-balance-warehouse").Change(warehouses[0].Id.ToString("D"));
+        await cut.Find("#stock-balance-form").SubmitAsync(EventArgs.Empty);
+
+        cut.Find("#stock-balance").TextContent.Should().Contain("12.5").And.Contain("2.5").And.Contain("10");
+        cut.Find("#stock-balance-warehouse").Change(warehouses[1].Id.ToString("D"));
+        await cut.Find("#stock-balance-form").SubmitAsync(EventArgs.Empty);
+        cut.Find("#stock-balance").TextContent.Should().Contain("No recorded balance");
+        cut.FindAll("#stock-write-error").Should().BeEmpty("an absent balance is a valid answer, not an error");
+        _reads.Should().HaveCount(3);
+        _writes.Should().BeEmpty();
+
+        var noRead = Panel(Scope("stock.post", "stock.warehouse.read"), warehouses);
+        noRead.FindAll("#stock-balance-form").Should().BeEmpty();
+    }
+
     private IRenderedComponent<StockWorkflowPanel> Panel(InventoryAccessScope scope, IReadOnlyList<Warehouse>? warehouses = null, Func<Task>? saved = null)
     {
         var cut = Render<StockWorkflowPanel>(p => p.Add(c => c.Scope, scope).Add(c => c.UserId, "operator")
