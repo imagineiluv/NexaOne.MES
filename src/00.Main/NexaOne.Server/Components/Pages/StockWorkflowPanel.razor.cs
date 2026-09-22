@@ -261,6 +261,41 @@ public partial class StockWorkflowPanel : IDisposable
         }
     }
 
+    /// <summary>Selects a variant referenced by a list row. The stored row may be inactive; new operations stay disabled then.</summary>
+    public async Task SelectVariantAsync(Guid id)
+    {
+        if (!CanStart || !Has("stock.read") || id == Guid.Empty || _storageKey is not { } key) return;
+        var generation = _generation;
+        using var request = new CancellationTokenSource();
+        _request = request; _busy = true; _error = null; _message = null;
+        try
+        {
+            var result = await Api.ReadInventoryAsync<ProductVariant>(Root + $"/variants/{id:D}", request.Token);
+            if (!Current(generation, key)) return;
+            if (result.StatusCode is >= 200 and < 300 && result.Error is null && result.Value is { } value && value.Id == id && ValidVariant(value))
+            {
+                _product = null; _variant = value; _movement = null; _reservation = null; _editor = Editor.None; _focus = Focus.None;
+                _balance = null; _balanceEmpty = false;
+                ClearObserved();
+                try { await VariantChanged.InvokeAsync(value); }
+                catch (Exception) when (!_disposed)
+                {
+                    if (Current(generation, key)) _error = T("inventory.stock.movementListError", "품목은 선택됐지만 전표 목록을 불러오지 못했습니다. 다시 조회해 주세요.", "The product was selected, but its movement list could not be loaded. Search again.");
+                }
+            }
+            else _error = result.StatusCode is >= 200 and < 300 ? InvalidResponse() : ErrorMessage(result.Code, result.StatusCode);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or IOException)
+        { if (Current(generation, key)) _error = UnknownMessage(); }
+        finally
+        {
+            if (ReferenceEquals(_request, request)) _request = null;
+            if (Current(generation, key)) { _busy = false; StateHasChanged(); }
+        }
+        await FocusEditorAsync();
+    }
+
     public async Task SelectMovementAsync(StockMovement movement)
     {
         if (!CanStart || !Has("stock.read")) return;

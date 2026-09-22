@@ -30,6 +30,10 @@ public sealed class StockController(IStockBridge bridge, ILogger<StockController
     public Task<IActionResult> GetProduct(Guid tenantId, Guid organizationId, string productId, CancellationToken ct)
         => Execute(user => bridge.GetProductAsync(user, tenantId, organizationId, productId, ct));
 
+    [HttpGet("variants/{id:guid}")]
+    public Task<IActionResult> GetVariant(Guid tenantId, Guid organizationId, Guid id, CancellationToken ct)
+        => Execute(user => bridge.GetVariantAsync(user, tenantId, organizationId, id, ct));
+
     [HttpGet("warehouses")]
     public Task<IActionResult> ListWarehouses(Guid tenantId, Guid organizationId,
         [FromQuery] InventoryQuery query, CancellationToken ct)
