@@ -36,6 +36,14 @@ public sealed class BusinessMasterDirectoryProxy : IBusinessMasterDirectory
         DbTransaction transaction, IReadOnlyList<string> productIds, CancellationToken ct = default)
         => Resolve().FindProductsAsync(transaction, productIds, ct);
 
+    public Task<CustomerDto?> FindCustomerAsync(
+        DbTransaction transaction, string customerId, CancellationToken ct = default)
+        => Resolve().FindCustomerAsync(transaction, customerId, ct);
+
+    public Task<IReadOnlyList<CustomerDto>> FindCustomersAsync(
+        DbTransaction transaction, IReadOnlyList<string> customerIds, CancellationToken ct = default)
+        => Resolve().FindCustomersAsync(transaction, customerIds, ct);
+
     private IBusinessMasterDirectory Resolve() =>
         _resolver.Resolve<IBusinessMasterDirectory>("Mdm", "businessMasterDirectory");
 }

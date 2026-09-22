@@ -1,5 +1,6 @@
 using NexaOne.ServiceContracts;
 using NexaOne.ServiceContracts.Ems;
+using NexaOne.ServiceContracts.Erp;
 using NexaOne.ServiceContracts.Est;
 using NexaOne.ServiceContracts.Fdc;
 using NexaOne.ServiceContracts.Ivt;
@@ -58,6 +59,7 @@ internal sealed class NexaOneMesBridgeCatalog : INexaModuleBridgeCatalog
             Bind<IEquipmentStateBridge>("Est", "equipmentStateBridge"),
             Bind<IOeeAggregationBridge>("Est", "oeeAggregationBridge"),
             Bind<IUtilityBridge>("Est", "utilityBridge"),
+            Bind<IBillingBridge>("Erp", "billingBridge"),
             Bind<IFdcBridge>("Fdc", "fdcBridge"),
             Bind<IFdcRuntimeLease>("Fdc", "fdcRuntimeLease"),
             Bind<IRunAdmissionService>("Fdc", "runAdmissionService"),

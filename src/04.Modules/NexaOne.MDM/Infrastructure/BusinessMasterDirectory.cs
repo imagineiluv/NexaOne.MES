@@ -131,6 +131,40 @@ public sealed class BusinessMasterDirectory : IBusinessMasterDirectory
         return Array.AsReadOnly(rows.ToArray());
     }
 
+    // Activity is read as an integer expression: SQLite returns BIT as INTEGER, so a bool record parameter cannot bind.
+    private const string CustomerColumns = "CUSTOMER_ID, CUSTOMER_NAME, CASE WHEN IS_ACTIVE=1 THEN 1 ELSE 0 END";
+    private static CustomerDto Customer((string Id, string Name, long Active) row) => new(row.Id, row.Name, row.Active == 1);
+
+    public async Task<CustomerDto?> FindCustomerAsync(
+        DbTransaction transaction, string customerId, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var connection = RequireSerializableConnection(transaction);
+        if (!ValidKey(customerId)) return null;
+        var rows = await connection.QueryAsync<(string Id, string Name, long Active)>(new CommandDefinition(
+            "SELECT " + CustomerColumns + " FROM MDM_CUSTOMER WHERE CUSTOMER_ID=@customerId",
+            new { customerId }, transaction, commandTimeout: _timeout, cancellationToken: ct));
+        var row = rows.SingleOrDefault();
+        return row.Id is null ? null : Customer(row);
+    }
+
+    public async Task<IReadOnlyList<CustomerDto>> FindCustomersAsync(
+        DbTransaction transaction, IReadOnlyList<string> customerIds, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var connection = RequireSerializableConnection(transaction);
+        ArgumentNullException.ThrowIfNull(customerIds);
+        if (customerIds.Count > 128) throw new ArgumentOutOfRangeException(nameof(customerIds), "At most 128 customer IDs are allowed.");
+        var ids = customerIds.ToArray();
+        if (ids.Any(id => !ValidKey(id)) || ids.Distinct(StringComparer.Ordinal).Count() != ids.Length)
+            throw new ArgumentException("Customer IDs must be distinct canonical keys.", nameof(customerIds));
+        if (ids.Length == 0) return Array.Empty<CustomerDto>();
+        var rows = await connection.QueryAsync<(string Id, string Name, long Active)>(new CommandDefinition(
+            "SELECT " + CustomerColumns + " FROM MDM_CUSTOMER WHERE CUSTOMER_ID IN @ids ORDER BY CUSTOMER_ID",
+            new { ids }, transaction, commandTimeout: _timeout, cancellationToken: ct));
+        return Array.AsReadOnly(rows.Select(Customer).ToArray());
+    }
+
     private static DbConnection RequireSerializableConnection(DbTransaction transaction)
     {
         ArgumentNullException.ThrowIfNull(transaction);

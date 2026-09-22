@@ -83,6 +83,7 @@ public sealed class ModuleDependencyBoundaryTests
             ["SYS"] = "SYS",
             ["SLS"] = "SLS",
             ["PRC"] = "PRC",
+            ["ERP"] = "ERP",
         };
 
     [Fact]
