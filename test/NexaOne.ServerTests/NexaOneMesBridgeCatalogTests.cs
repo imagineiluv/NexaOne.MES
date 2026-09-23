@@ -17,7 +17,7 @@ public sealed class NexaOneMesBridgeCatalogTests
         var first = NexaOneMesBridgeCatalog.Create();
         var second = NexaOneMesBridgeCatalog.Create();
 
-        first.Descriptors.Should().HaveCount(57);
+        first.Descriptors.Should().HaveCount(58);
         first.Descriptors.Should().Equal(second.Descriptors);
         first.Descriptors.Should().OnlyContain(descriptor =>
             descriptor.ContractType.IsInterface
@@ -63,6 +63,9 @@ public sealed class NexaOneMesBridgeCatalogTests
         expense.Should().Be(new NexaModuleBridgeDescriptor(typeof(IExpenseBridge), "Erp", "expenseBridge"));
         catalog.TryGet(typeof(IRecurringBridge), out var recurring).Should().BeTrue();
         recurring.Should().Be(new NexaModuleBridgeDescriptor(typeof(IRecurringBridge), "Erp", "recurringBridge"));
+        catalog.TryGet(typeof(IRecurringAutomationBridge), out var recurringAutomation).Should().BeTrue();
+        recurringAutomation.Should().Be(new NexaModuleBridgeDescriptor(
+            typeof(IRecurringAutomationBridge), "Erp", "recurringAutomationBridge"));
         catalog.TryGet(typeof(IWorkScopeBridge), out var workScope).Should().BeTrue();
         workScope.Should().Be(new NexaModuleBridgeDescriptor(
             typeof(IWorkScopeBridge), "Pom", "workScopeBridge"));

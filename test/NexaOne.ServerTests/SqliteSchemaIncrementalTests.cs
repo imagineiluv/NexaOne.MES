@@ -2901,6 +2901,37 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V176_recurring_service_authority_is_empty_and_recreated_on_incremental_startup()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            TableExists(cs, "ERP_RECURRING_SERVICE_PRINCIPAL").Should().BeTrue();
+            TableExists(cs, "ERP_RECURRING_SERVICE_SCOPE").Should().BeTrue();
+            Count(cs, "ERP_RECURRING_SERVICE_PRINCIPAL").Should().Be(0,
+                "a deployment must explicitly provision every service principal");
+            ScalarString(cs, "SELECT COUNT(*) FROM SYS_ROLE WHERE ROLE_ID='ERP_RECURRING_SERVICE'")
+                .Should().Be("0", "SYS provisions compatibility identities on explicit principal creation");
+
+            ExecSql(cs, """
+                DROP TABLE ERP_RECURRING_SERVICE_SCOPE_AUDIT;
+                DROP TABLE ERP_RECURRING_SERVICE_SCOPE;
+                DROP TABLE ERP_RECURRING_SERVICE_PRINCIPAL_AUDIT;
+                DROP TABLE ERP_RECURRING_SERVICE_PRINCIPAL;
+                """);
+            SqliteSchemaInitializer.EnsureSchema(cs);
+
+            TableExists(cs, "ERP_RECURRING_SERVICE_PRINCIPAL_AUDIT").Should().BeTrue();
+            TableExists(cs, "ERP_RECURRING_SERVICE_SCOPE_AUDIT").Should().BeTrue();
+            Count(cs, "ERP_RECURRING_SERVICE_PRINCIPAL").Should().Be(0);
+            ScalarString(cs, "SELECT COUNT(*) FROM SYS_ROLE WHERE ROLE_ID='ERP_RECURRING_SERVICE'")
+                .Should().Be("0", "schema startup never provisions service authority");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { } }
+    }
+
+    [Fact]
     public void V160_database_principal_security_is_a_fresh_and_incremental_sqlite_no_op()
     {
         var cs = NewDb();

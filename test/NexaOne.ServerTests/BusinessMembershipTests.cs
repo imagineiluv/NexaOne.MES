@@ -86,6 +86,25 @@ public sealed class BusinessMembershipTests : IClassFixture<BusinessMembershipDa
         return connection.ExecuteScalar<long>("SELECT COUNT(*) FROM " + table);
     }
 
+    private T Scalar<T>(string sql)
+    {
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        return connection.ExecuteScalar<T>(sql)!;
+    }
+
+    private async Task<BusinessServiceActor> EnsureServiceActor(
+        string administrator = "admin", string userId = "svc.erp.monthly")
+    {
+        await using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var transaction = connection.BeginTransaction(IsolationLevel.Serializable);
+        var actor = await _bridge.EnsureServiceActorInTransactionAsync(
+            transaction, administrator, userId, "Monthly ERP");
+        transaction.Commit();
+        return actor;
+    }
+
     [Fact]
     public async Task Persisted_identity_is_shared_across_scopes_and_survives_restart_and_reactivation()
     {
@@ -305,6 +324,47 @@ public sealed class BusinessMembershipTests : IClassFixture<BusinessMembershipDa
         await FluentActions.Awaiting(() => _bridge.GetMembershipAsync("admin", _tenant, _organization, "member"))
             .Should().ThrowAsync<UnauthorizedAccessException>();
         Count("SYS_BUSINESS_IDENTITY").Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Service_actor_is_inactive_permissionless_membershipless_and_stable_on_replay()
+    {
+        var first = await EnsureServiceActor();
+        var replay = await EnsureServiceActor();
+
+        replay.Should().Be(first);
+        first.BusinessActorId.Should().NotBe(Guid.Empty);
+        Scalar<long>("SELECT COUNT(*) FROM SYS_USER WHERE USER_ID='svc.erp.monthly' AND IS_ACTIVE=0 AND IS_DELETED=0")
+            .Should().Be(1);
+        Scalar<string>("SELECT r.PERMISSIONS FROM SYS_USER u JOIN SYS_ROLE r ON r.ROLE_ID=u.ROLE_ID WHERE u.USER_ID='svc.erp.monthly'")
+            .Should().BeEmpty();
+        Scalar<long>("SELECT COUNT(*) FROM SYS_BUSINESS_MEMBERSHIP WHERE USER_ID='svc.erp.monthly'")
+            .Should().Be(0);
+        Scalar<string>("SELECT BUSINESS_USER_ID FROM SYS_BUSINESS_IDENTITY WHERE USER_ID='svc.erp.monthly'")
+            .Should().Be(first.BusinessActorId.ToString("D"));
+    }
+
+    [Theory]
+    [InlineData("UPDATE SYS_USER SET IS_ACTIVE=1 WHERE USER_ID='svc.erp.monthly'")]
+    [InlineData("UPDATE SYS_ROLE SET PERMISSIONS='*' WHERE ROLE_ID='ERP_RECURRING_SERVICE'")]
+    public async Task Service_actor_validation_fails_closed_for_login_or_role_authority(string mutation)
+    {
+        await EnsureServiceActor();
+        Execute(mutation);
+
+        await FluentActions.Awaiting(() => EnsureServiceActor()).Should().ThrowAsync<InvalidDataException>();
+    }
+
+    [Fact]
+    public async Task Service_actor_validation_rejects_business_membership_and_revoked_administrator()
+    {
+        await EnsureServiceActor();
+        (await _bridge.SaveMembershipAsync("admin", _tenant, _organization, "svc.erp.monthly",
+            new(0, false, []))).IsSuccess.Should().BeTrue();
+        await FluentActions.Awaiting(() => EnsureServiceActor()).Should().ThrowAsync<InvalidDataException>();
+
+        Execute("UPDATE SYS_ROLE SET PERMISSIONS='' WHERE ROLE_ID='ADMIN'");
+        await FluentActions.Awaiting(() => EnsureServiceActor()).Should().ThrowAsync<UnauthorizedAccessException>();
     }
 
     [Theory]

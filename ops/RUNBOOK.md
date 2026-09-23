@@ -72,6 +72,10 @@ CI는 secret이 없으면 checkout 전에 명시적으로 실패하며, 토큰�
 | `Worker__Sys__LoginFailureRetention__Enabled` | `false` | 로그인 실패 이력 삭제; 보존·감사 정책과 백업 검증 후 활성화 |
 | `Worker__Sys__LoginFailureRetention__IntervalSeconds` | `86400` | 최소 60초로 제한 |
 | `Worker__Sys__LoginFailureRetention__RetentionDays` | `90` | 최소 1일로 제한 |
+| `Worker__Erp__Recurring__Enabled` | `false` | 반복 ERP 자동 회차 실행. 아래 서비스 주체·조직 grant를 먼저 만든 뒤 활성화 |
+| `Worker__Erp__Recurring__PrincipalId` | 예: `erp-monthly` | 소문자/숫자/점/밑줄/하이픈 3~40자. `Enabled=true`이면 필수 |
+| `Worker__Erp__Recurring__IntervalSeconds` | `3600` | 도래 규칙 재확인 주기, 최소 60초 |
+| `Worker__Erp__Recurring__TimeZoneId` | `UTC` | 회차 도래일 계산 시간대. 생략 시 UTC, OS가 인식하지 못하면 기동 실패 |
 | `ApiBaseUrl` | 예: `http://localhost:8080/` | **8080 외 포트/프록시 뒤 기동 시 필수** — 호스트 자기호출 기준 |
 
 FDC 수집 활성화 전에는 다음을 모두 확인한다.
@@ -123,6 +127,16 @@ RefreshTokenCleanup·BatchProcess·Outbox(Dispatch+Events)·OEE Aggregation. EMS
 
 **기본 관리자 하드닝(자동)**: Production 기동 시 admin이 V001 기본 해시 그대로면 `PASSWORD_STATE='Create'`로
 강제 전이 — 첫 로그인 시 비밀번호 변경이 강제된다(`DefaultAdminHardening`).
+
+ERP 반복 worker는 사람 계정이나 기존 business membership을 사용하지 않는다. `sys:manage` 관리자가 먼저
+`PUT /api/v1/erp/recurring-automation/principals/{principalId}`에
+`{"expectedVersion":0,"name":"Monthly ERP","isActive":true}`를 보내 주체를 만들고, 이어서
+`PUT /api/v1/erp/recurring-automation/principals/{principalId}/scopes/{tenantId}/{organizationId}`에
+`{"expectedVersion":0,"isActive":true}`를 보내 정확한 실행 범위를 부여한다. 응답의 version을 다음 변경의
+`expectedVersion`으로 사용한다. 주체 전체 중지는 principal을, 한 조직만 중지는 해당 scope를 `isActive:false`로
+갱신한다. 회수는 다음 규칙 transaction에서 다시 검사되며 설정의 organization 목록으로 우회할 수 없다.
+주체가 소유한 `auditActorId`가 생성 문서·회차·감사 행의 actor이고, 호환용 SYS_USER는 비활성·무권한으로 유지한다.
+프로비저닝과 회수 확인 후에만 `Worker__Erp__Recurring__Enabled=true`로 재기동한다.
 
 ## 3. 기동·확인
 

@@ -7,12 +7,16 @@
        one module composition root plus its public bridge; scope is SYS membership, not an IVT plant binding. -->
   <object id="erpModule" type="NexaOne.ERP.Module, NexaOne.ERP">
     <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="appConfiguration" />
     <constructor-arg ref="businessMembershipBridge" />
     <constructor-arg ref="businessMasterDirectory" />
+    <constructor-arg ref="quartzScheduler" />
   </object>
 
   <object id="billingBridge" factory-object="erpModule" factory-method="GetBillingBridge" />
   <object id="expenseBridge" factory-object="erpModule" factory-method="GetExpenseBridge" />
   <object id="recurringBridge" factory-object="erpModule" factory-method="GetRecurringBridge" />
+  <object id="recurringAutomationBridge" factory-object="erpModule" factory-method="GetRecurringAutomationBridge" />
+  <object id="recurringAutomationWorker" factory-object="erpModule" factory-method="GetRecurringAutomationWorker" />
 
 </objects>
