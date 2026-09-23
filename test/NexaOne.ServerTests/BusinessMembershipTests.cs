@@ -207,6 +207,34 @@ public sealed class BusinessMembershipTests : IClassFixture<BusinessMembershipDa
         await Assert.ThrowsAsync<ArgumentNullException>(() => _bridge.ListAccessInTransactionAsync(null!, "member"));
     }
 
+    [Fact]
+    public async Task Active_scope_members_are_exposed_through_the_SYS_owner_contract_with_identity_paging()
+    {
+        var first = (await Save()).Value;
+        Execute("""
+            INSERT INTO SYS_USER (USER_ID, USER_NAME, PASSWORD_HASH, EMAIL, ROLE_ID,
+                CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            VALUES ('member-2', 'Member 2', '', '', 'BUSINESS_MEMBER',
+                'admin', CURRENT_TIMESTAMP, 'admin', CURRENT_TIMESTAMP);
+            """);
+        var second = (await _bridge.SaveMembershipAsync("admin", _tenant, _organization, "member-2",
+            new(0, true, ["expense.read"]))).Value;
+        using var connection = new SqliteConnection(_connectionString);
+        await connection.OpenAsync();
+        using var transaction = connection.BeginTransaction(IsolationLevel.Serializable);
+
+        var expected = new[] { first, second }.OrderBy(value => value.BusinessUserId.ToString("D")).ToArray();
+        var members = await _bridge.ListActiveMembersInTransactionAsync(transaction, _tenant, _organization);
+        members.Should().BeEquivalentTo(expected, options => options.WithStrictOrdering());
+        (await _bridge.ListActiveMembersInTransactionAsync(transaction, _tenant, _organization,
+            members[0].BusinessUserId, 1)).Should().ContainSingle().Which.Should().BeEquivalentTo(members[1]);
+        (await _bridge.GetActiveMemberInTransactionAsync(transaction, _tenant, _organization,
+            second.BusinessUserId)).Should().BeEquivalentTo(second);
+        (await _bridge.GetActiveMemberInTransactionAsync(transaction, _tenant, Guid.NewGuid(),
+            second.BusinessUserId)).Should().BeNull();
+        transaction.Rollback();
+    }
+
     [Theory]
     [InlineData(ConnectionState.Open, IsolationLevel.ReadCommitted)]
     [InlineData(ConnectionState.Open, IsolationLevel.RepeatableRead)]

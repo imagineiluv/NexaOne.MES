@@ -39,6 +39,7 @@ public partial class BillingWorkflowPanel : IDisposable
         public string Quantity { get; set; } = "";
         public bool ApplyTax { get; set; } = true;
         public bool ApplyDiscount { get; set; } = true;
+        public Guid? ExpenseId { get; set; }
     }
 
     private enum Editor { None, Document, Payment }
@@ -275,7 +276,9 @@ public partial class BillingWorkflowPanel : IDisposable
         var input = document.Input;
         _documentDate = input.DocumentDate.ToDateTime(TimeOnly.MinValue); _dueDate = input.DueDate.ToDateTime(TimeOnly.MinValue); _currency = input.Currency; _terms = input.Terms ?? ""; _note = input.Note ?? "";
         (_discountType, _discountValue) = Adjustment(input.Discount); (_taxType, _taxValue) = Adjustment(input.Tax); (_tax2Type, _tax2Value) = Adjustment(input.Tax2);
-        _lines = input.Lines.Select(line => new LineDraft { Description = line.Description, UnitPrice = Amount(line.UnitPrice), Quantity = Amount(line.Quantity), ApplyTax = line.ApplyTax, ApplyDiscount = line.ApplyDiscount }).ToList();
+        _lines = input.Lines.Select(line => new LineDraft { Description = line.Description, UnitPrice = Amount(line.UnitPrice),
+            Quantity = Amount(line.Quantity), ApplyTax = line.ApplyTax, ApplyDiscount = line.ApplyDiscount,
+            ExpenseId = line.ExpenseId }).ToList();
     }
 
     private void AddLine() { if (_lines.Count < MaxLines) _lines.Add(new()); }
@@ -303,7 +306,7 @@ public partial class BillingWorkflowPanel : IDisposable
         foreach (var line in _lines)
         {
             if (!TryAmount(line.UnitPrice, out var price) || !TryAmount(line.Quantity, out var quantity)) return null;
-            lines.Add(new(line.Description.Trim(), price, quantity, line.ApplyTax, line.ApplyDiscount));
+            lines.Add(new(line.Description.Trim(), price, quantity, line.ApplyTax, line.ApplyDiscount, line.ExpenseId));
         }
         if (!TryAdjustment(_discountType, _discountValue, out var discount) || !TryAdjustment(_taxType, _taxValue, out var tax) || !TryAdjustment(_tax2Type, _tax2Value, out var tax2)) return null;
         _currency = _currency.Trim().ToUpperInvariant(); _terms = _terms.Trim(); _note = _note.Trim();

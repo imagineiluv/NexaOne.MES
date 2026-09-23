@@ -35,6 +35,18 @@ public interface IBusinessMembershipBridge : INexaModuleBridge
         DbTransaction transaction, string authenticatedUserId, Guid? afterTenantId = null,
         Guid? afterOrganizationId = null, int limit = 128, CancellationToken ct = default);
 
+    /// <summary>Returns one active member of the requested scope by its stable business identity.
+    /// Uses the caller's live Serializable transaction and returns null for an inactive/deleted user.</summary>
+    Task<BusinessMembership?> GetActiveMemberInTransactionAsync(
+        DbTransaction transaction, Guid tenantId, Guid organizationId, Guid businessUserId,
+        CancellationToken ct = default);
+
+    /// <summary>Lists active members of one scope by stable business identity, after an optional exclusive
+    /// identity cursor. The caller owns the live Serializable transaction; limit is 1–128.</summary>
+    Task<IReadOnlyList<BusinessMembership>> ListActiveMembersInTransactionAsync(
+        DbTransaction transaction, Guid tenantId, Guid organizationId, Guid? afterBusinessUserId = null,
+        int limit = 128, CancellationToken ct = default);
+
     /// <summary>
     /// Rechecks live SYS sys:manage authority using the caller's Serializable transaction and
     /// returns the stored canonical administrator ID. Does not commit or dispose the transaction.

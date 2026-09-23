@@ -21,6 +21,8 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
         "equipment.booking.decide", "equipment.booking.cancel", "equipment.booking.checkout",
         "equipment.booking.return",
         "billing.read", "billing.write", "billing.decide", "billing.pay",
+        "expense.directory.read", "expense.directory.write", "expense.read", "expense.write",
+        "expense.reimburse", "expense.invoice",
     };
     private const string MembershipRowsSql = """
         SELECT m.TENANT_ID AS TenantId, m.ORGANIZATION_ID AS OrganizationId,
@@ -93,6 +95,44 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
             + " ORDER BY m.TENANT_ID, m.ORGANIZATION_ID" + _listLimitSql,
             new { UserId = authenticatedUserId, AfterTenant = afterTenantId?.ToString("D"),
                 AfterOrganization = afterOrganizationId?.ToString("D"), Limit = limit }, transaction, ct));
+        ct.ThrowIfCancellationRequested();
+        return Array.AsReadOnly(rows.Select(ToMembership).ToArray());
+    }
+
+    public async Task<BusinessMembership?> GetActiveMemberInTransactionAsync(
+        DbTransaction transaction, Guid tenantId, Guid organizationId, Guid businessUserId,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var connection = RequireSerializableConnection(transaction);
+        if (tenantId == Guid.Empty || organizationId == Guid.Empty || businessUserId == Guid.Empty) return null;
+        var row = await connection.QuerySingleOrDefaultAsync<MembershipRow>(Command(MembershipRowsSql
+            + " WHERE m.TENANT_ID=@TenantId AND m.ORGANIZATION_ID=@OrganizationId AND i.BUSINESS_USER_ID=@BusinessUserId"
+            + " AND m.IS_ACTIVE=1 AND u.IS_ACTIVE=1 AND u.IS_DELETED=0",
+            new { TenantId = tenantId.ToString("D"), OrganizationId = organizationId.ToString("D"),
+                BusinessUserId = businessUserId.ToString("D") }, transaction, ct));
+        return row is null ? null : ToMembership(row);
+    }
+
+    public async Task<IReadOnlyList<BusinessMembership>> ListActiveMembersInTransactionAsync(
+        DbTransaction transaction, Guid tenantId, Guid organizationId, Guid? afterBusinessUserId = null,
+        int limit = 128, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var connection = RequireSerializableConnection(transaction);
+        if (tenantId == Guid.Empty || organizationId == Guid.Empty)
+            throw new ArgumentException("A nonempty tenant and organization are required.", nameof(tenantId));
+        if (afterBusinessUserId == Guid.Empty)
+            throw new ArgumentException("The business identity cursor must be nonempty.", nameof(afterBusinessUserId));
+        if (limit is < 1 or > 128)
+            throw new ArgumentOutOfRangeException(nameof(limit), "Limit must be between 1 and 128.");
+        var rows = await connection.QueryAsync<MembershipRow>(Command(MembershipRowsSql
+            + " WHERE m.TENANT_ID=@TenantId AND m.ORGANIZATION_ID=@OrganizationId"
+            + " AND m.IS_ACTIVE=1 AND u.IS_ACTIVE=1 AND u.IS_DELETED=0"
+            + " AND (@AfterBusinessUserId IS NULL OR i.BUSINESS_USER_ID>@AfterBusinessUserId)"
+            + " ORDER BY i.BUSINESS_USER_ID" + _listLimitSql,
+            new { TenantId = tenantId.ToString("D"), OrganizationId = organizationId.ToString("D"),
+                AfterBusinessUserId = afterBusinessUserId?.ToString("D"), Limit = limit }, transaction, ct));
         ct.ThrowIfCancellationRequested();
         return Array.AsReadOnly(rows.Select(ToMembership).ToArray());
     }

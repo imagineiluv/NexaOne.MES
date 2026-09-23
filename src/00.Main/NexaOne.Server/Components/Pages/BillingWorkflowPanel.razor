@@ -170,12 +170,12 @@
                 @foreach (var line in _lines)
                 {
                     <tr @key="line">
-                        <td><input class="billing-line-description" type="text" maxlength="255" @bind="line.Description" disabled="@(!CanStart)" /></td>
-                        <td><input class="billing-line-unit-price" type="text" inputmode="decimal" @bind="line.UnitPrice" disabled="@(!CanStart)" /></td>
-                        <td><input class="billing-line-quantity" type="text" inputmode="decimal" @bind="line.Quantity" disabled="@(!CanStart)" /></td>
-                        <td><input class="billing-line-apply-tax" type="checkbox" @bind="line.ApplyTax" disabled="@(!CanStart)" /></td>
-                        <td><input class="billing-line-apply-discount" type="checkbox" @bind="line.ApplyDiscount" disabled="@(!CanStart)" /></td>
-                        <td><button class="billing-remove-line" type="button" disabled="@(!CanStart || _lines.Count == 1)" @onclick="() => RemoveLine(line)">@T("billing.removeLine", "항목 삭제", "Remove line")</button></td>
+                        <td><input class="billing-line-description" type="text" maxlength="255" @bind="line.Description" disabled="@(!CanStart || line.ExpenseId.HasValue)" /></td>
+                        <td><input class="billing-line-unit-price" type="text" inputmode="decimal" @bind="line.UnitPrice" disabled="@(!CanStart || line.ExpenseId.HasValue)" /></td>
+                        <td><input class="billing-line-quantity" type="text" inputmode="decimal" @bind="line.Quantity" disabled="@(!CanStart || line.ExpenseId.HasValue)" /></td>
+                        <td><input class="billing-line-apply-tax" type="checkbox" @bind="line.ApplyTax" disabled="@(!CanStart || line.ExpenseId.HasValue)" /></td>
+                        <td><input class="billing-line-apply-discount" type="checkbox" @bind="line.ApplyDiscount" disabled="@(!CanStart || line.ExpenseId.HasValue)" /></td>
+                        <td><button class="billing-remove-line" type="button" disabled="@(!CanStart || _lines.Count == 1 || line.ExpenseId.HasValue)" @onclick="() => RemoveLine(line)">@T("billing.removeLine", "항목 삭제", "Remove line")</button></td>
                     </tr>
                 }
                 </tbody>

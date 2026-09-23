@@ -30,6 +30,17 @@ public sealed class BusinessMembershipProxy : IBusinessMembershipBridge
         Guid? afterOrganizationId = null, int limit = 128, CancellationToken ct = default)
         => Resolve().ListAccessInTransactionAsync(transaction, authenticatedUserId, afterTenantId, afterOrganizationId, limit, ct);
 
+    public Task<BusinessMembership?> GetActiveMemberInTransactionAsync(
+        DbTransaction transaction, Guid tenantId, Guid organizationId, Guid businessUserId,
+        CancellationToken ct = default)
+        => Resolve().GetActiveMemberInTransactionAsync(transaction, tenantId, organizationId, businessUserId, ct);
+
+    public Task<IReadOnlyList<BusinessMembership>> ListActiveMembersInTransactionAsync(
+        DbTransaction transaction, Guid tenantId, Guid organizationId, Guid? afterBusinessUserId = null,
+        int limit = 128, CancellationToken ct = default)
+        => Resolve().ListActiveMembersInTransactionAsync(transaction, tenantId, organizationId,
+            afterBusinessUserId, limit, ct);
+
     public Task<Result<BusinessMembership>> GetMembershipAsync(
         string administratorId, Guid tenantId, Guid organizationId, string userId,
         CancellationToken ct = default)
