@@ -1,0 +1,102 @@
+@page "/meta/NX_RECURRING_WORKSPACE"
+@attribute [Authorize]
+@implements IDisposable
+@using System.Globalization
+@using NexaFramework.Service
+@using NexaFramework.Service.Erp
+@using NexaOne.Common.Security
+@using NexaOne.ServiceContracts.Erp
+@using NexaOne.ServiceContracts.Sys
+@inject IApiClient Api
+@inject UiTextService Ui
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>@T("recurring.title", "반복 ERP 규칙", "Recurring ERP rules")</PageTitle>
+<main class="recurring-workspace">
+    <header>
+        <h1>@T("recurring.title", "반복 ERP 규칙", "Recurring ERP rules")</h1>
+        <p>@T("recurring.intro", "조직별 반복 청구·수입·지출 규칙을 만들고 월별 발생 건을 직접 실행합니다.", "Create recurring billing, income and expense rules by organization, then run monthly occurrences on demand.")</p>
+    </header>
+    @if (_identityLoading) { <p role="status">@T("inventory.loading", "불러오는 중…", "Loading…")</p> }
+    else if (!_authenticated) { <p role="status">@T("inventory.signIn", "인증 상태를 확인하고 다시 로그인해 주세요.", "Check your session and sign in again.")</p> }
+    else
+    {
+        <section id="recurring-scopes" aria-labelledby="recurring-scopes-heading" aria-busy="@(_scopeBusy.ToString().ToLowerInvariant())">
+            <div class="rw-heading"><h2 id="recurring-scopes-heading">@T("recurring.scopes", "내 반복 규칙 범위", "My recurring-rule scopes")</h2><button type="button" @onclick="ReloadScopesAsync" disabled="@_scopeBusy">@T("inventory.refreshScopes", "범위 새로고침", "Refresh scopes")</button></div>
+            @ScopeStatus()
+            @if (_scopes is not null)
+            {
+                <ul class="rw-scopes">
+                    @foreach (var scope in _scopes.Items)
+                    {
+                        <li @key="Key(scope)"><button type="button" data-scope="@Key(scope)" aria-pressed="@(Key(scope) == SelectedKey)" @onclick="() => SelectScopeAsync(scope)"><strong>@T("inventory.organization", "조직", "Organization") @scope.OrganizationId</strong><span>@T("inventory.tenant", "테넌트", "Tenant"): @scope.TenantId · @string.Join(", ", scope.Permissions)</span></button></li>
+                    }
+                </ul>
+            }
+            @Pager(true)
+        </section>
+        @if (_scope is null) { <p class="rw-note">@T("recurring.chooseScope", "범위를 선택하면 규칙과 허용된 작업이 표시됩니다.", "Select a scope to see its rules and permitted actions.")</p> }
+        else
+        {
+            <div id="selected-recurring-scope" class="rw-selected" role="status"><strong>@T("inventory.organization", "조직", "Organization") @_scope.OrganizationId</strong><span>@SelectedKey</span></div>
+            <RecurringWorkflowPanel @key="SelectedKey" @ref="_panel" Membership="_scope" UserId="_currentUserId" Saved="ReloadRulesAsync" />
+            @if (!CanRead) { <p id="recurring-no-read-access" role="status">@T("recurring.noReadAccess", "이 범위에서는 규칙 목록 조회 권한(recurring.read)이 없습니다. 허용된 작성·실행 작업은 사용할 수 있습니다.", "This scope has no rule-list permission (recurring.read). Permitted write and execute actions remain available.")</p> }
+            else
+            {
+                <section id="recurring-rules" aria-labelledby="recurring-rules-heading" aria-busy="@(_ruleBusy.ToString().ToLowerInvariant())">
+                    <h2 id="recurring-rules-heading">@T("recurring.rules", "반복 규칙", "Recurring rules")</h2>
+                    <form class="rw-filters" @onsubmit="SearchRulesAsync" @onsubmit:preventDefault>
+                        <label for="recurring-target">@T("recurring.target", "대상", "Target")</label><select id="recurring-target" @bind="_draftTarget" disabled="@_ruleBusy"><option value="">@T("recurring.allTargets", "모든 대상", "All targets")</option>@foreach (var target in Enum.GetValues<RecurringTarget>()) { <option value="@target">@TargetName(target)</option> }</select>
+                        <label for="recurring-active">@T("inventory.activity", "활성 상태", "Activity")</label><select id="recurring-active" @bind="_draftActive" disabled="@_ruleBusy"><option value="">@T("inventory.allStates", "모든 상태", "All states")</option><option value="true">@T("inventory.active", "활성", "Active")</option><option value="false">@T("inventory.inactive", "비활성", "Inactive")</option></select>
+                        <button id="recurring-rules-search" type="submit" disabled="@_ruleBusy">@T("inventory.search", "조회", "Search")</button>
+                    </form>
+                    @RuleStatus()
+                    @if (_rules is not null && _rules.Total > 0)
+                    {
+                        <div class="rw-table-scroll" tabindex="0" role="region" aria-label="@T("recurring.rules", "반복 규칙", "Recurring rules")"><table><thead><tr><th>@T("inventory.name", "이름", "Name")</th><th>@T("recurring.target", "대상", "Target")</th><th>@T("recurring.period", "기간", "Period")</th><th>@T("recurring.day", "실행일", "Day")</th><th>@T("inventory.activity", "활성 상태", "Activity")</th><th>@T("inventory.write.actions", "작업", "Actions")</th></tr></thead><tbody>
+                            @foreach (var rule in _rules.Items) { <tr @key="rule.Id"><td>@rule.Input.Name</td><td>@TargetName(rule.Target)</td><td>@Period(rule.Input.Schedule)</td><td>@rule.Input.Schedule.DayOfMonth</td><td>@(rule.Active ? T("inventory.active", "활성", "Active") : T("inventory.inactive", "비활성", "Inactive"))</td><td><button type="button" data-select-rule="@rule.Id" @onclick="() => SelectRuleAsync(rule)">@T("recurring.chooseRule", "규칙 선택", "Select rule")</button></td></tr> }
+                        </tbody></table></div>
+                    }
+                    @Pager(false)
+                </section>
+            }
+        }
+    }
+</main>
+
+@code {
+    private const int PageSize = 50;
+    private BusinessPage<BusinessMembership>? _scopes; private BusinessPage<RecurringRule>? _rules; private BusinessMembership? _scope; private RecurringWorkflowPanel? _panel;
+    private CancellationTokenSource? _scopeRequest, _ruleRequest; private int _scopeOffset, _ruleOffset; private long? _scopeTotal, _ruleTotal; private (int Status, string? Code, string? Error)? _scopeError, _ruleError;
+    private bool _identityLoading = true, _authenticated, _interactive, _disposed; private string? _currentUserId; private Task<AuthenticationState>? _pendingAuthentication; private int _identityVersion;
+    private string _draftTarget = "", _target = "", _draftActive = "", _active = "";
+    private bool _scopeBusy => _scopeRequest is not null; private bool _ruleBusy => _ruleRequest is not null; private bool CanRead => _scope?.Permissions.Contains("recurring.read", StringComparer.Ordinal) == true;
+    protected override void OnInitialized() { Authentication.AuthenticationStateChanged += AuthenticationChanged; Ui.Changed += LanguageChanged; }
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (!firstRender || _disposed) return; _interactive = true; await ChangeIdentityAsync(_pendingAuthentication ?? Authentication.GetAuthenticationStateAsync()); _pendingAuthentication = null; }
+    private void AuthenticationChanged(Task<AuthenticationState> state) { if (!_interactive) { _pendingAuthentication = state; return; } if (!_disposed) _ = InvokeAsync(() => ChangeIdentityAsync(state)); }
+    private void LanguageChanged() { if (!_disposed) _ = InvokeAsync(StateHasChanged); }
+    private async Task ChangeIdentityAsync(Task<AuthenticationState> state) { var version = ++_identityVersion; ClearScope(); Cancel(ref _scopeRequest); _scopes = null; _scopeOffset = 0; _scopeTotal = null; _scopeError = null; _identityLoading = true; _authenticated = false; _currentUserId = null; StateHasChanged(); var auth = await state; if (_disposed || version != _identityVersion) return; _authenticated = auth.User.Identity?.IsAuthenticated == true; _currentUserId = _authenticated ? auth.User.CurrentUserId() : null; _identityLoading = false; if (_authenticated) await LoadScopesAsync(); }
+    private Task LoadScopesAsync() => ReadAsync<BusinessMembership>(true, $"api/v1/erp/recurring/scopes/me?offset={_scopeOffset}&limit={PageSize}", value => { _scopes = value; _scopeTotal = value.Total; _scopeError = null; }, error => _scopeError = error);
+    private async Task ReloadScopesAsync() { ClearScope(); _scopeOffset = 0; await LoadScopesAsync(); }
+    private async Task SelectScopeAsync(BusinessMembership value) { if (SelectedKey == Key(value)) return; ClearScope(); _scope = value; if (CanRead) await LoadRulesAsync(); }
+    private void ClearScope() { Cancel(ref _ruleRequest); _scope = null; _panel = null; _rules = null; _ruleOffset = 0; _ruleTotal = null; _ruleError = null; _draftTarget = _target = _draftActive = _active = ""; }
+    private async Task SearchRulesAsync() { if (_ruleBusy || !CanRead) return; _ruleOffset = 0; _target = _draftTarget; _active = _draftActive; await LoadRulesAsync(); }
+    private Task ReloadRulesAsync() => CanRead ? LoadRulesAsync() : Task.CompletedTask;
+    private Task LoadRulesAsync() { if (_scope is null || !CanRead) return Task.CompletedTask; var query = $"offset={_ruleOffset}&limit={PageSize}" + (_target.Length == 0 ? "" : $"&target={_target}") + (_active.Length == 0 ? "" : $"&active={_active}"); return ReadAsync<RecurringRule>(false, $"api/v1/erp/recurring/{SelectedKey}/rules?{query}", value => { _rules = value; _ruleTotal = value.Total; _ruleError = null; }, error => _ruleError = error); }
+    private Task SelectRuleAsync(RecurringRule rule) => _panel?.SelectRuleAsync(rule) ?? Task.CompletedTask;
+    private async Task ReadAsync<T>(bool scopes, string path, Action<BusinessPage<T>> success, Action<(int, string?, string?)> failure) { if (scopes) Cancel(ref _scopeRequest); else Cancel(ref _ruleRequest); var request = new CancellationTokenSource(); if (scopes) _scopeRequest = request; else _ruleRequest = request; try { var result = await Api.ReadInventoryAsync<BusinessPage<T>>(path, request.Token); if (_disposed || !Owns(scopes, request)) return; if (result.StatusCode is >= 200 and < 300 && result.Error is null && result.Value is { Items: not null, Total: >= 0 } value) success(value); else failure((result.StatusCode, result.Code, result.Error)); } catch (OperationCanceledException) when (request.IsCancellationRequested) { } finally { if (Owns(scopes, request)) { if (scopes) _scopeRequest = null; else _ruleRequest = null; StateHasChanged(); } request.Dispose(); } }
+    private bool Owns(bool scopes, CancellationTokenSource request) => ReferenceEquals(scopes ? _scopeRequest : _ruleRequest, request);
+    private static void Cancel(ref CancellationTokenSource? request) { request?.Cancel(); request = null; }
+    private async Task MoveAsync(bool scopes, int direction) { if (scopes) { _scopeOffset = Math.Max(0, _scopeOffset + direction * PageSize); await LoadScopesAsync(); } else { _ruleOffset = Math.Max(0, _ruleOffset + direction * PageSize); await LoadRulesAsync(); } }
+    private RenderFragment Pager(bool scopes) => @<nav class="rw-pager" aria-label="@(scopes ? T("recurring.scopes", "내 반복 규칙 범위", "My recurring-rule scopes") : T("recurring.rules", "반복 규칙", "Recurring rules"))"><button type="button" disabled="@((scopes ? _scopeBusy : _ruleBusy) || (scopes ? _scopeOffset : _ruleOffset) == 0)" @onclick="() => MoveAsync(scopes, -1)">@T("inventory.previous", "이전 페이지", "Previous page")</button>@if ((scopes ? _scopeTotal : _ruleTotal) is { } total) { <span>@T("inventory.total", "전체", "Total") @total · @T("inventory.page", "페이지", "Page") @((scopes ? _scopeOffset : _ruleOffset) / PageSize + 1)</span> }<button type="button" disabled="@(!CanNext(scopes))" @onclick="() => MoveAsync(scopes, 1)">@T("inventory.next", "다음 페이지", "Next page")</button></nav>;
+    private bool CanNext(bool scopes) { var offset = scopes ? _scopeOffset : _ruleOffset; var total = scopes ? _scopeTotal : _ruleTotal; return !(scopes ? _scopeBusy : _ruleBusy) && total.HasValue && (long)offset + PageSize < total && offset <= int.MaxValue - PageSize; }
+    private RenderFragment ScopeStatus() => Status(_scopeBusy, _scopeError, _scopeTotal, "recurring-scopes", LoadScopesAsync, T("recurring.noScopes", "현재 접근 가능한 반복 규칙 범위가 없습니다.", "No recurring-rule scopes are currently accessible."));
+    private RenderFragment RuleStatus() => Status(_ruleBusy, _ruleError, _ruleTotal, "recurring-rules", LoadRulesAsync, T("inventory.empty", "이 페이지에 표시할 결과가 없습니다.", "No results on this page."));
+    private RenderFragment Status(bool busy, (int Status, string? Code, string? Error)? error, long? total, string id, Func<Task> retry, string empty) => @<div class="rw-status" aria-live="polite">@if (busy) { <p role="status">@T("inventory.loading", "불러오는 중…", "Loading…")</p> } else if (error is { } e) { <div role="alert" data-status="@e.Status"><p>@ReadError(e.Status)</p>@if (!string.IsNullOrWhiteSpace(e.Code)) { <span class="rw-id">@e.Code</span> }<button id="@(id + "-retry")" type="button" @onclick="retry">@T("inventory.retry", "다시 조회", "Retry read")</button></div> } else if (total == 0) { <p data-empty="true">@empty</p> }</div>;
+    private string ReadError(int status) => status switch { 401 => T("inventory.unauthorized", "인증이 만료되었습니다. 다시 로그인해 주세요.", "Your session expired. Sign in again."), 403 => T("inventory.forbidden", "현재 조회 권한이 없습니다. 범위를 새로고침해 접근 상태를 확인하세요.", "You no longer have access to this read. Refresh scopes to check access."), 503 => T("inventory.unavailable", "서비스를 사용할 수 없습니다. 잠시 후 다시 조회해 주세요.", "The service is unavailable. Retry the read shortly."), _ => T("inventory.readFailed", "목록을 불러오지 못했습니다. 다시 조회해 주세요.", "The list could not be loaded. Retry the read.") };
+    private static string Key(BusinessMembership value) => $"{value.TenantId:D}/{value.OrganizationId:D}"; private string? SelectedKey => _scope is null ? null : Key(_scope);
+    private string TargetName(RecurringTarget value) => value switch { RecurringTarget.Billing => T("recurring.billing", "청구", "Billing"), RecurringTarget.Income => T("recurring.income", "수입", "Income"), _ => T("recurring.expense", "지출", "Expense") };
+    private static string Period(RecurringSchedule value) => $"{value.StartMonth:yyyy-MM} – {(value.EndMonth.HasValue ? value.EndMonth.Value.ToString("yyyy-MM", CultureInfo.InvariantCulture) : "∞")}";
+    private string T(string key, string ko, string en) => Ui.T(key, Ui.Language == "EnUs" ? en : ko);
+    public void Dispose() { _disposed = true; Authentication.AuthenticationStateChanged -= AuthenticationChanged; Ui.Changed -= LanguageChanged; Cancel(ref _scopeRequest); Cancel(ref _ruleRequest); }
+}
