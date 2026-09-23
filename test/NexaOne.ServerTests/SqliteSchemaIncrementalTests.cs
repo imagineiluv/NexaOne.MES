@@ -2948,6 +2948,21 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V179_recurring_scope_calendar_columns_are_recreated_on_incremental_startup()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            Columns(cs, "ERP_RECURRING_SERVICE_SCOPE").Should().Contain(
+                "TIME_ZONE_ID", "CATCH_UP_MONTHS");
+            Columns(cs, "ERP_RECURRING_SERVICE_SCOPE_AUDIT").Should().Contain(
+                "TIME_ZONE_ID", "CATCH_UP_MONTHS");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { } }
+    }
+
+    [Fact]
     public void V160_database_principal_security_is_a_fresh_and_incremental_sqlite_no_op()
     {
         var cs = NewDb();

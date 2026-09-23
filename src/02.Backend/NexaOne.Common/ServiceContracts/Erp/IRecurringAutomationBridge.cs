@@ -25,10 +25,11 @@ public interface IRecurringAutomationBridge : INexaModuleBridge
     Task<BusinessPage<RecurringServicePrincipalScope>> ListActiveScopesAsync(
         string principalId, int offset = 0, int limit = 50, CancellationToken ct = default);
     Task<BusinessPage<RecurringRule>> ListDueRulesAsync(
-        string principalId, Guid tenantId, Guid organizationId, DateOnly localDate,
+        string principalId, Guid tenantId, Guid organizationId, long scopeVersion, DateOnly localDate,
         int offset = 0, int limit = 50, CancellationToken ct = default);
     Task<RecurringExecution> ExecuteOccurrenceAsync(
-        string principalId, Guid tenantId, Guid organizationId, Guid ruleId, DateOnly month,
+        string principalId, Guid tenantId, Guid organizationId, long scopeVersion,
+        Guid ruleId, DateOnly month,
         CancellationToken ct = default);
 }
 
@@ -40,6 +41,8 @@ public sealed record RecurringServicePrincipalChange(long ExpectedVersion, strin
 
 /// <summary>An explicit recurring.execute grant for one tenant and organization.</summary>
 public sealed record RecurringServicePrincipalScope(
-    string PrincipalId, Guid TenantId, Guid OrganizationId, bool IsActive, long Version);
+    string PrincipalId, Guid TenantId, Guid OrganizationId, bool IsActive, long Version,
+    string? TimeZoneId = null, int CatchUpMonths = 0);
 
-public sealed record RecurringServicePrincipalScopeChange(long ExpectedVersion, bool IsActive);
+public sealed record RecurringServicePrincipalScopeChange(
+    long ExpectedVersion, bool IsActive, string? TimeZoneId = null, int CatchUpMonths = 0);

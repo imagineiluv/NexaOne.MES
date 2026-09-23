@@ -48,15 +48,15 @@ public sealed class RecurringAutomationWorkerTests
         automation.Setup(x => x.ListActiveScopesAsync("erp-monthly", 0, 100, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BusinessPage<RecurringServicePrincipalScope>([scope], 1));
         automation.Setup(x => x.ListDueRulesAsync(
-                "erp-monthly", tenant, organization, new DateOnly(2026, 9, 30), 0, 100,
+                "erp-monthly", tenant, organization, 1, new DateOnly(2026, 9, 30), 0, 100,
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new BusinessPage<RecurringRule>([first, second], 2));
         automation.Setup(x => x.ExecuteOccurrenceAsync(
-                "erp-monthly", tenant, organization, first.Id, new DateOnly(2026, 9, 1),
+                "erp-monthly", tenant, organization, 1, first.Id, new DateOnly(2026, 9, 1),
                 It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("first failed"));
         automation.Setup(x => x.ExecuteOccurrenceAsync(
-                "erp-monthly", tenant, organization, second.Id, new DateOnly(2026, 9, 1),
+                "erp-monthly", tenant, organization, 1, second.Id, new DateOnly(2026, 9, 1),
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync((RecurringExecution)null!);
         var scheduler = new Mock<IRecurringScheduler>();
@@ -80,10 +80,10 @@ public sealed class RecurringAutomationWorkerTests
         await job!(CancellationToken.None);
 
         automation.Verify(x => x.ExecuteOccurrenceAsync(
-            "erp-monthly", tenant, organization, first.Id, new DateOnly(2026, 9, 1),
+            "erp-monthly", tenant, organization, 1, first.Id, new DateOnly(2026, 9, 1),
             It.IsAny<CancellationToken>()), Times.Once);
         automation.Verify(x => x.ExecuteOccurrenceAsync(
-            "erp-monthly", tenant, organization, second.Id, new DateOnly(2026, 9, 1),
+            "erp-monthly", tenant, organization, 1, second.Id, new DateOnly(2026, 9, 1),
             It.IsAny<CancellationToken>()), Times.Once,
             "one rule failure must not prevent another due rule from running");
 
@@ -92,6 +92,47 @@ public sealed class RecurringAutomationWorkerTests
             RecurringAutomationWorker.JobName, It.IsAny<CancellationToken>()), Times.Once);
         scheduler.Verify(x => x.StopAsync(It.IsAny<CancellationToken>()), Times.Never,
             "the scheduler is shared by module workers");
+    }
+
+    [Fact]
+    public async Task Scope_calendar_uses_its_timezone_and_runs_bounded_catch_up_oldest_first()
+    {
+        var tenant = Guid.NewGuid();
+        var organization = Guid.NewGuid();
+        var scope = new RecurringServicePrincipalScope(
+            "erp-monthly", tenant, organization, true, 7, "Asia/Seoul", 2);
+        var rule = Rule("Monthly", 1);
+        var automation = new Mock<IRecurringAutomationBridge>();
+        automation.Setup(x => x.ListActiveScopesAsync("erp-monthly", 0, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BusinessPage<RecurringServicePrincipalScope>([scope], 1));
+        automation.Setup(x => x.ListDueRulesAsync(
+                "erp-monthly", tenant, organization, 7, It.IsAny<DateOnly>(), 0, 100,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BusinessPage<RecurringRule>([rule], 1));
+        var months = new List<DateOnly>();
+        automation.Setup(x => x.ExecuteOccurrenceAsync(
+                "erp-monthly", tenant, organization, 7, rule.Id, It.IsAny<DateOnly>(),
+                It.IsAny<CancellationToken>()))
+            .Callback<string, Guid, Guid, long, Guid, DateOnly, CancellationToken>(
+                (_, _, _, _, _, month, _) => months.Add(month))
+            .ReturnsAsync((RecurringExecution)null!);
+        var worker = new RecurringAutomationWorker(
+            Mock.Of<IRecurringScheduler>(), automation.Object, true, "erp-monthly", TimeSpan.FromHours(1),
+            TimeZoneInfo.Utc, new FixedTimeProvider(new DateTimeOffset(2026, 9, 30, 15, 30, 0, TimeSpan.Zero)));
+
+        await worker.RunAsync(CancellationToken.None);
+
+        months.Should().Equal(
+            new DateOnly(2026, 8, 1), new DateOnly(2026, 9, 1), new DateOnly(2026, 10, 1));
+        automation.Verify(x => x.ListDueRulesAsync(
+            "erp-monthly", tenant, organization, 7, new DateOnly(2026, 8, 31), 0, 100,
+            It.IsAny<CancellationToken>()), Times.Once);
+        automation.Verify(x => x.ListDueRulesAsync(
+            "erp-monthly", tenant, organization, 7, new DateOnly(2026, 9, 30), 0, 100,
+            It.IsAny<CancellationToken>()), Times.Once);
+        automation.Verify(x => x.ListDueRulesAsync(
+            "erp-monthly", tenant, organization, 7, new DateOnly(2026, 10, 1), 0, 100,
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

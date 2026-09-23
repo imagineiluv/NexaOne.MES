@@ -75,7 +75,7 @@ CI는 secret이 없으면 checkout 전에 명시적으로 실패하며, 토큰�
 | `Worker__Erp__Recurring__Enabled` | `false` | 반복 ERP 자동 회차 실행. 아래 서비스 주체·조직 grant를 먼저 만든 뒤 활성화 |
 | `Worker__Erp__Recurring__PrincipalId` | 예: `erp-monthly` | 소문자/숫자/점/밑줄/하이픈 3~40자. `Enabled=true`이면 필수 |
 | `Worker__Erp__Recurring__IntervalSeconds` | `3600` | 도래 규칙 재확인 주기, 최소 60초 |
-| `Worker__Erp__Recurring__TimeZoneId` | `UTC` | 회차 도래일 계산 시간대. 생략 시 UTC, OS가 인식하지 못하면 기동 실패 |
+| `Worker__Erp__Recurring__TimeZoneId` | `UTC` | scope에 `timeZoneId`가 없는 기존 데이터의 fallback. 생략 시 UTC, OS가 인식하지 못하면 기동 실패 |
 | `ApiBaseUrl` | 예: `http://localhost:8080/` | **8080 외 포트/프록시 뒤 기동 시 필수** — 호스트 자기호출 기준 |
 
 FDC 수집 활성화 전에는 다음을 모두 확인한다.
@@ -132,9 +132,14 @@ ERP 반복 worker는 사람 계정이나 기존 business membership을 사용하
 `PUT /api/v1/erp/recurring-automation/principals/{principalId}`에
 `{"expectedVersion":0,"name":"Monthly ERP","isActive":true}`를 보내 주체를 만들고, 이어서
 `PUT /api/v1/erp/recurring-automation/principals/{principalId}/scopes/{tenantId}/{organizationId}`에
-`{"expectedVersion":0,"isActive":true}`를 보내 정확한 실행 범위를 부여한다. 응답의 version을 다음 변경의
+`{"expectedVersion":0,"isActive":true,"timeZoneId":"Asia/Seoul","catchUpMonths":2}`를 보내 정확한 실행 범위와
+조직 달력을 부여한다. `timeZoneId`는 실행 호스트가 인식하는 IANA/Windows 시간대이며, null이면 위 호스트 fallback을
+사용한다. `catchUpMonths`는 현재 월에 더해 재확인할 이전 달 수(0~24)다. 이전 달은 월말까지 도래한 것으로 보고
+오래된 월부터 처리하며, 이미 생성된 `(rule, month)` 회차는 기존 결과를 재사용한다. 무제한 과거 보충은 지원하지 않는다.
+응답의 version을 다음 변경의
 `expectedVersion`으로 사용한다. 주체 전체 중지는 principal을, 한 조직만 중지는 해당 scope를 `isActive:false`로
-갱신한다. 회수는 다음 규칙 transaction에서 다시 검사되며 설정의 organization 목록으로 우회할 수 없다.
+갱신한다. scope PUT은 전체 정책 교체이므로 변경 전에 GET하고 `timeZoneId`와 `catchUpMonths`를 함께 보낸다.
+회수나 달력 변경은 다음 규칙 transaction에서 scope version과 함께 다시 검사되며 설정의 organization 목록으로 우회할 수 없다.
 주체가 소유한 `auditActorId`가 생성 문서·회차·감사 행의 actor이고, 호환용 SYS_USER는 비활성·무권한으로 유지한다.
 프로비저닝과 회수 확인 후에만 `Worker__Erp__Recurring__Enabled=true`로 재기동한다.
 
