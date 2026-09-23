@@ -146,6 +146,54 @@ public sealed class RecurringPersistenceTests : IClassFixture<BusinessMembership
     }
 
     [Fact]
+    public async Task Occurrence_history_is_scoped_filterable_paged_and_rejects_corrupt_storage()
+    {
+        var incomeRule = await Rule("History income", new RecurringIncomeTemplate(
+            25m, _contact.Id, _employee, "KRW"));
+        var expenseRule = await Rule("History expense", new RecurringExpenseTemplate(
+            11m, ExpenseType.TaxDeductible, _category.Id, _vendor.Id, _employee,
+            null, null, "KRW"));
+        await _bridge.ExecuteOccurrenceAsync("recurring-user", _tenant, _organization,
+            incomeRule.Id, new(2026, 9, 1));
+        await _bridge.ExecuteOccurrenceAsync("recurring-user", _tenant, _organization,
+            expenseRule.Id, new(2026, 10, 1));
+        await _bridge.ExecuteOccurrenceAsync("recurring-user", _tenant, _organization,
+            incomeRule.Id, new(2026, 11, 1));
+
+        var all = await NewBridge().ListOccurrencesAsync(
+            "recurring-reader", _tenant, _organization);
+        all.Total.Should().Be(3);
+        all.Items.Select(item => item.Occurrence.Month).Should().Equal(
+            new DateOnly(2026, 11, 1), new DateOnly(2026, 10, 1), new DateOnly(2026, 9, 1));
+        all.Items.Select(item => item.RuleName).Should().Equal(
+            "History income", "History expense", "History income");
+
+        var filtered = await NewBridge().ListOccurrencesAsync("recurring-reader", _tenant, _organization,
+            new(incomeRule.Id, RecurringTarget.Income, new(2026, 10, 1), new(2026, 11, 1)));
+        filtered.Total.Should().Be(1);
+        filtered.Items.Single().Occurrence.Month.Should().Be(new DateOnly(2026, 11, 1));
+
+        var page = await NewBridge().ListOccurrencesAsync("recurring-reader", _tenant, _organization,
+            new(Offset: 1, Limit: 1));
+        page.Total.Should().Be(3);
+        page.Items.Single().Occurrence.Month.Should().Be(new DateOnly(2026, 10, 1));
+
+        await Error(() => NewBridge().ListOccurrencesAsync("recurring-reader", _tenant, _organization,
+            new(StartMonth: new(2026, 11, 1), EndMonth: new(2026, 10, 1))), "INVALID_BUSINESS_INPUT");
+        await Error(() => NewBridge().ListOccurrencesAsync("recurring-reader", _tenant, _organization,
+            new(StartMonth: new(2026, 10, 2))), "INVALID_BUSINESS_INPUT");
+        await Error(() => NewBridge().ListOccurrencesAsync("recurring-reader", _tenant, _organization,
+            new(RuleId: Guid.Empty)), "INVALID_BUSINESS_INPUT");
+        await Error(() => NewBridge().ListOccurrencesAsync("recurring-reader", _tenant, _organization,
+            new(Limit: 101)), "INVALID_BUSINESS_INPUT");
+
+        Execute("UPDATE ERP_RECURRING_OCCURRENCE SET TARGET=0 WHERE RULE_ID=@rule",
+            new { rule = incomeRule.Id.ToString("D") });
+        await Assert.ThrowsAsync<InvalidDataException>(() => NewBridge().ListOccurrencesAsync(
+            "recurring-reader", _tenant, _organization, new(RuleId: incomeRule.Id)));
+    }
+
+    [Fact]
     public async Task Service_principal_scope_is_audited_due_date_limited_and_live_revocation_stops_execution()
     {
         IRecurringAutomationBridge automation = _bridge;

@@ -28,6 +28,20 @@ public sealed partial class BillingBridge
         => RunRecurring(userId, tenantId, organizationId, "recurring.read",
             (service, session) => service.ListRulesAsync(session.Actor, query, ct), ct);
 
+    public Task<BusinessPage<RecurringOccurrenceHistoryItem>> ListOccurrencesAsync(
+        string userId, Guid tenantId, Guid organizationId,
+        RecurringOccurrenceQuery? query = null, CancellationToken ct = default)
+    {
+        query ??= new();
+        if (query.RuleId == Guid.Empty || query.Target is { } target && !Enum.IsDefined(target)
+            || query.StartMonth is { Day: not 1 } || query.EndMonth is { Day: not 1 }
+            || query.StartMonth.HasValue && query.EndMonth.HasValue && query.StartMonth.Value > query.EndMonth.Value
+            || query.Offset < 0 || query.Limit is < 1 or > 100)
+            throw Failure("INVALID_BUSINESS_INPUT");
+        return RunRecurring(userId, tenantId, organizationId, "recurring.read",
+            (_, session) => session.QueryRecurringOccurrencesAsync(query, ct), ct);
+    }
+
     public Task<RecurringRule> DeactivateRuleAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, CancellationToken ct = default)
         => RunRecurring(userId, tenantId, organizationId, "recurring.write",
@@ -210,6 +224,56 @@ public sealed partial class BillingBridge
             return new(Array.AsReadOnly(rows.Select(row => Deserialize<RecurringRulePayload>(row.Payload).ToRule()).ToArray()), total);
         }
 
+        internal async Task<BusinessPage<RecurringOccurrenceHistoryItem>> QueryRecurringOccurrencesAsync(
+            RecurringOccurrenceQuery query, CancellationToken ct)
+        {
+            const string scope = "o.TENANT_ID=@TenantId AND o.ORGANIZATION_ID=@OrganizationId";
+            const string filter = " AND (@Rule IS NULL OR o.RULE_ID=@Rule)"
+                + " AND (@Target IS NULL OR o.TARGET=@Target)"
+                + " AND (@StartMonth IS NULL OR o.OCCURRENCE_MONTH>=@StartMonth)"
+                + " AND (@EndMonth IS NULL OR o.OCCURRENCE_MONTH<=@EndMonth)";
+            var values = new
+            {
+                Rule = Text(query.RuleId),
+                Target = query.Target.HasValue ? (int?)query.Target.Value : null,
+                StartMonth = query.StartMonth.HasValue ? Day(query.StartMonth.Value) : null,
+                EndMonth = query.EndMonth.HasValue ? Day(query.EndMonth.Value) : null,
+                query.Offset,
+                EndRow = (long)query.Offset + query.Limit,
+            };
+            var total = await Scalar<long>("SELECT COUNT(*) FROM ERP_RECURRING_OCCURRENCE o WHERE "
+                + scope + filter, values, ct);
+            var rows = await Rows<OccurrenceHistoryRow>("""
+                SELECT * FROM (
+                    SELECT o.OCCURRENCE_ID AS OccurrenceId, o.VERSION AS Version,
+                           o.RULE_ID AS RuleId, o.OCCURRENCE_MONTH AS Month, o.TARGET AS Target,
+                           o.RESOURCE_ID AS ResourceId, o.RESOURCE_OPERATION_ID AS ResourceOperationId,
+                           o.PAYLOAD AS Payload, r.NAME AS RuleName,
+                           ROW_NUMBER() OVER (ORDER BY o.OCCURRENCE_MONTH DESC, o.OCCURRENCE_ID) AS RowNumber
+                      FROM ERP_RECURRING_OCCURRENCE o
+                      JOIN ERP_RECURRING_RULE r
+                        ON r.TENANT_ID=o.TENANT_ID AND r.ORGANIZATION_ID=o.ORGANIZATION_ID
+                       AND r.RULE_ID=o.RULE_ID
+                     WHERE
+                """ + " " + scope + filter
+                + ") AS page WHERE RowNumber>@Offset AND RowNumber<=@EndRow ORDER BY RowNumber", values, ct);
+            return new(Array.AsReadOnly(rows.Select(ToHistory).ToArray()), total);
+        }
+
+        private RecurringOccurrenceHistoryItem ToHistory(OccurrenceHistoryRow row)
+        {
+            var occurrence = Deserialize<RecurringOccurrence>(row.Payload);
+            if (occurrence.Scope != Scope || occurrence.Id != Id(row.OccurrenceId)
+                || occurrence.Version != Id(row.Version) || occurrence.RuleId != Id(row.RuleId)
+                || occurrence.Month != Day(row.Month) || occurrence.Month.Day != 1
+                || !Enum.IsDefined(typeof(RecurringTarget), row.Target) || occurrence.Target != (RecurringTarget)row.Target
+                || occurrence.ResourceId != Id(row.ResourceId)
+                || occurrence.ResourceOperationId != Id(row.ResourceOperationId)
+                || !ValidText(occurrence.CreatedBy, 50) || !ValidText(row.RuleName, 200))
+                throw new InvalidDataException("ERP recurring occurrence history is invalid.");
+            return new(occurrence, row.RuleName);
+        }
+
         private static bool SameRecurringInput(RecurringRuleInput left, RecurringRuleInput right)
         {
             if (left.Name != right.Name || left.Schedule != right.Schedule) return false;
@@ -279,5 +343,18 @@ public sealed partial class BillingBridge
             };
             return new(Id, Scope, Version, OperationId, new(Name, Schedule, template), Target, CreatedBy, Active);
         }
+    }
+
+    private sealed class OccurrenceHistoryRow
+    {
+        public string OccurrenceId { get; set; } = "";
+        public string Version { get; set; } = "";
+        public string RuleId { get; set; } = "";
+        public string Month { get; set; } = "";
+        public int Target { get; set; }
+        public string ResourceId { get; set; } = "";
+        public string ResourceOperationId { get; set; } = "";
+        public string Payload { get; set; } = "";
+        public string RuleName { get; set; } = "";
     }
 }

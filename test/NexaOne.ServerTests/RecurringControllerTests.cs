@@ -66,6 +66,24 @@ public sealed class RecurringControllerTests
         bridge.VerifyNoOtherCalls();
     }
 
+    [Fact]
+    public async Task Occurrence_history_forwards_route_scope_query_and_user()
+    {
+        var tenant = Guid.NewGuid(); var organization = Guid.NewGuid();
+        var query = new RecurringOccurrenceQuery(Guid.NewGuid(), RecurringTarget.Expense,
+            new(2026, 9, 1), new(2026, 11, 1), 50, 25);
+        var expected = new BusinessPage<RecurringOccurrenceHistoryItem>([], 0);
+        var bridge = new Mock<IRecurringBridge>(MockBehavior.Strict);
+        using var cancellation = new CancellationTokenSource();
+        bridge.Setup(x => x.ListOccurrencesAsync("recurring-user", tenant, organization,
+            query, cancellation.Token)).ReturnsAsync(expected);
+
+        (await Controller(bridge.Object).ListOccurrences(
+            tenant, organization, query, cancellation.Token))
+            .Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(expected);
+        bridge.VerifyAll(); bridge.VerifyNoOtherCalls();
+    }
+
     private static RecurringController Controller(IRecurringBridge bridge, string? userId = "recurring-user")
     {
         var context = new DefaultHttpContext

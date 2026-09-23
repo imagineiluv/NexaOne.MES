@@ -1,0 +1,3 @@
+-- Recurring occurrence history read model. No authority or business rows are seeded.
+CREATE INDEX IX_ERP_RECURRING_OCCURRENCE_HISTORY
+    ON ERP_RECURRING_OCCURRENCE (TENANT_ID, ORGANIZATION_ID, OCCURRENCE_MONTH, OCCURRENCE_ID);

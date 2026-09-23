@@ -2932,6 +2932,22 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V177_recurring_occurrence_history_index_supports_scoped_newest_first_reads()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            IndexExists(cs, "IX_ERP_RECURRING_OCCURRENCE_HISTORY").Should().BeTrue();
+            IndexKeys(cs, "IX_ERP_RECURRING_OCCURRENCE_HISTORY").Should().Equal(
+                "TENANT_ID:ASC", "ORGANIZATION_ID:ASC", "OCCURRENCE_MONTH:ASC", "OCCURRENCE_ID:ASC");
+            ScalarString(cs, "SELECT COUNT(*) FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='recurring.history' AND LANGUAGE='EnUs'")
+                .Should().Be("1");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { } }
+    }
+
+    [Fact]
     public void V160_database_principal_security_is_a_fresh_and_incremental_sqlite_no_op()
     {
         var cs = NewDb();

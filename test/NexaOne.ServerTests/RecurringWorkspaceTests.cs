@@ -30,6 +30,7 @@ public sealed class RecurringWorkspaceTests : BunitContext
         Services.AddSingleton(_api.Object); Services.AddSingleton(new UiTextService());
         Services.AddSingleton(new ProtectedSessionStorage(new InventorySessionStorageJs(), new EphemeralDataProtectionProvider()));
         Reads<BusinessMembership>(_ => new([], 0)); Reads<RecurringRule>(_ => new([], 0));
+        Reads<RecurringOccurrenceHistoryItem>(_ => new([], 0));
     }
 
     [Fact]
@@ -64,6 +65,41 @@ public sealed class RecurringWorkspaceTests : BunitContext
         var cut = Render<HostRecurringWorkspace>(); cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull()); cut.Find("[data-scope]").Click();
         cut.WaitForAssertion(() => cut.Find("#recurring-new-rule").Should().NotBeNull());
         cut.Find("#recurring-no-read-access").Should().NotBeNull(); Paths<RecurringRule>().Should().BeEmpty();
+        Paths<RecurringOccurrenceHistoryItem>().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Occurrence_history_supports_filters_and_rule_drill_down()
+    {
+        var scope = Membership("recurring.read");
+        var rule = Rule(RecurringTarget.Income);
+        var occurrence = new RecurringOccurrence(Guid.NewGuid(), rule.Scope, Guid.NewGuid(), rule.Id,
+            new(2026, 11, 1), RecurringTarget.Income, Guid.NewGuid(), Guid.NewGuid(), "operator");
+        Reads<BusinessMembership>(_ => new([scope], 1));
+        Reads<RecurringRule>(_ => new([rule], 1));
+        Reads<RecurringOccurrenceHistoryItem>(path => path.Contains("target=Income")
+            && path.Contains("startMonth=2026-10-01") && path.Contains("endMonth=2026-11-01")
+                ? new([new(occurrence, rule.Input.Name)], 1) : new([], 0));
+
+        var cut = Render<HostRecurringWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("#recurring-history").Should().NotBeNull());
+        cut.Find("#recurring-history-target").Change("Income");
+        cut.Find("#recurring-history-start").Change("2026-10");
+        cut.Find("#recurring-history-end").Change("2026-11");
+        cut.Find("#recurring-history-search").Click();
+        cut.WaitForAssertion(() => cut.Find("#recurring-history tbody").TextContent
+            .Should().Contain("Monthly income").And.Contain("2026-11"));
+        Paths<RecurringOccurrenceHistoryItem>().Last().Should().Contain("target=Income")
+            .And.Contain("startMonth=2026-10-01").And.Contain("endMonth=2026-11-01");
+
+        cut.Find("[data-rule-history]").Click();
+        cut.WaitForAssertion(() => Paths<RecurringOccurrenceHistoryItem>().Last()
+            .Should().Contain($"ruleId={rule.Id:D}"));
+        cut.Find("#recurring-history-all-rules").Click();
+        cut.WaitForAssertion(() => Paths<RecurringOccurrenceHistoryItem>().Last()
+            .Should().NotContain("ruleId="));
     }
 
     private void Reads<T>(Func<string, BusinessPage<T>> response) => _api.Setup(api => api.ReadInventoryAsync<BusinessPage<T>>(It.IsAny<string>(), It.IsAny<CancellationToken>())).Returns((string path, CancellationToken _) => Task.FromResult<(BusinessPage<T>?, int, string?, string?)>((response(path), 200, null, null)));

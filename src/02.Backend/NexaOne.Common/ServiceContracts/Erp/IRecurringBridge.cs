@@ -17,8 +17,18 @@ public interface IRecurringBridge : INexaModuleBridge
         Guid id, CancellationToken ct = default);
     Task<BusinessPage<RecurringRule>> ListRulesAsync(string userId, Guid tenantId, Guid organizationId,
         RecurringRuleQuery? query = null, CancellationToken ct = default);
+    Task<BusinessPage<RecurringOccurrenceHistoryItem>> ListOccurrencesAsync(
+        string userId, Guid tenantId, Guid organizationId,
+        RecurringOccurrenceQuery? query = null, CancellationToken ct = default);
     Task<RecurringRule> DeactivateRuleAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, CancellationToken ct = default);
     Task<RecurringExecution> ExecuteOccurrenceAsync(string userId, Guid tenantId, Guid organizationId,
         Guid ruleId, DateOnly month, CancellationToken ct = default);
 }
+
+/// <summary>Scoped filters for durable recurring occurrence history, newest month first.</summary>
+public sealed record RecurringOccurrenceQuery(Guid? RuleId = null, RecurringTarget? Target = null,
+    DateOnly? StartMonth = null, DateOnly? EndMonth = null, int Offset = 0, int Limit = 50);
+
+/// <summary>A durable occurrence paired with the current immutable rule name.</summary>
+public sealed record RecurringOccurrenceHistoryItem(RecurringOccurrence Occurrence, string RuleName);

@@ -45,6 +45,11 @@ public sealed class RecurringController(IRecurringBridge bridge, ILogger<Recurri
         => Execute(user => bridge.ExecuteOccurrenceAsync(user, tenantId, organizationId,
             id, command.Month, ct));
 
+    [HttpGet("occurrences")]
+    public Task<IActionResult> ListOccurrences(Guid tenantId, Guid organizationId,
+        [FromQuery] RecurringOccurrenceQuery query, CancellationToken ct)
+        => Execute(user => bridge.ListOccurrencesAsync(user, tenantId, organizationId, query, ct));
+
     private async Task<IActionResult> Execute<T>(Func<string, Task<T>> action)
     {
         var userId = User.CurrentUserId();
