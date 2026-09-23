@@ -9,8 +9,8 @@ using Xunit;
 
 namespace NexaOne.ServerTests;
 
-/// <summary>The billing workspace and panel seed exact English resources (V171 menu, V172 texts) on fresh and existing
-/// development databases, sharing the inventory keys that earlier migrations already own.</summary>
+/// <summary>The ERP workspaces seed exact English resources on fresh and existing development databases,
+/// sharing the inventory keys that earlier migrations already own.</summary>
 public sealed class BillingWorkflowResourcesTests
 {
     [Fact]
@@ -25,6 +25,10 @@ public sealed class BillingWorkflowResourcesTests
             Scalar(connection, "SELECT PARENT_MENU_ID FROM SYS_MENU WHERE UI_ID='NX_BILLING_WORKSPACE'").Should().Be("FACTORY_SLS");
             Scalar(connection, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='menu.NX_BILLING_WORKSPACE' AND LANGUAGE='EnUs'")
                 .Should().Be("Estimates, invoices & payments");
+            Scalar(connection, "SELECT COUNT(*) FROM SYS_MENU WHERE UI_ID='NX_RECURRING_WORKSPACE'").Should().Be("1");
+            Scalar(connection, "SELECT PARENT_MENU_ID FROM SYS_MENU WHERE UI_ID='NX_RECURRING_WORKSPACE'").Should().Be("FACTORY_SLS");
+            Scalar(connection, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='menu.NX_RECURRING_WORKSPACE' AND LANGUAGE='EnUs'")
+                .Should().Be("Recurring ERP rules");
         });
 
     [Fact]
@@ -54,22 +58,22 @@ public sealed class BillingWorkflowResourcesTests
             Snapshot(connection, "SELECT * FROM SYS_MENU ORDER BY MENU_ID").Should().Equal(menus);
         });
 
-    /// <summary>Every literal fallback of the billing pages; billing.* keys are seeded by V172 and inventory.* keys by earlier migrations.</summary>
+    /// <summary>Every literal fallback of the billing and recurring ERP pages.</summary>
     internal static Dictionary<string, string> ExpectedResources()
     {
         var expected = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var file in new[] { "BillingWorkflowPanel.razor", "BillingWorkflowPanel.razor.cs", "HostBillingWorkspace.razor" })
+        foreach (var file in new[] { "BillingWorkflowPanel.razor", "BillingWorkflowPanel.razor.cs", "HostBillingWorkspace.razor", "RecurringWorkflowPanel.razor", "RecurringWorkflowPanel.razor.cs", "HostRecurringWorkspace.razor" })
         {
             var source = File.ReadAllText(RepositorySource.GetFile("src/00.Main/NexaOne.Server/Components/Pages/" + file));
             var calls = Regex.Matches(source,
                 """\bT\(\s*"(?<key>[^"\\]+)"\s*,\s*"(?:\\.|[^"\\])*"\s*,\s*"(?<en>(?:\\.|[^"\\])*)"\s*\)""");
             calls.Count.Should().BeGreaterThan(0, file);
-            Regex.Matches(source, """\bT\(\s*"(?:billing|inventory)\.[^"\\]+["]""").Count.Should().Be(calls.Count,
-                "all billing calls must have literal fallbacks covered by this contract in {0}", file);
+            Regex.Matches(source, """\bT\(\s*"(?:billing|inventory|recurring)\.[^"\\]+["]""").Count.Should().Be(calls.Count,
+                "all ERP workspace calls must have literal fallbacks covered by this contract in {0}", file);
             foreach (Match call in calls)
             {
                 var key = call.Groups["key"].Value;
-                (key.StartsWith("billing.", StringComparison.Ordinal) || key.StartsWith("inventory.", StringComparison.Ordinal)).Should().BeTrue(key);
+                (key.StartsWith("billing.", StringComparison.Ordinal) || key.StartsWith("inventory.", StringComparison.Ordinal) || key.StartsWith("recurring.", StringComparison.Ordinal)).Should().BeTrue(key);
                 var english = JsonSerializer.Deserialize<string>("\"" + call.Groups["en"].Value + "\"")!;
                 if (expected.TryGetValue(key, out var previous))
                     english.Should().Be(previous, "a shared key must have one English fallback: {0} in {1}", key, file);
@@ -77,6 +81,7 @@ public sealed class BillingWorkflowResourcesTests
             }
         }
         expected.Keys.Count(key => key.StartsWith("billing.", StringComparison.Ordinal)).Should().BeGreaterThan(50);
+        expected.Keys.Count(key => key.StartsWith("recurring.", StringComparison.Ordinal)).Should().BeGreaterThan(50);
         return expected;
     }
 

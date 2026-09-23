@@ -1,0 +1,57 @@
+@using NexaFramework.Service
+@using NexaFramework.Service.Erp
+@using NexaOne.ServiceContracts.Erp
+@using System.Globalization
+
+<section id="recurring-workflows" class="recurring-workflows" aria-labelledby="recurring-workflows-heading" aria-busy="@((!_loaded || _busy).ToString().ToLowerInvariant())">
+    <div class="rc-heading"><div><h2 id="recurring-workflows-heading" @ref="_heading">@T("recurring.actions", "규칙 작업", "Rule actions")</h2><p class="rc-note">@T("recurring.actionNote", "규칙은 만든 뒤 수정할 수 없습니다. 바꾸려면 기존 규칙을 비활성화하고 새 규칙을 만드세요.", "Rules are immutable after creation. Deactivate an old rule and create a replacement to change it.")</p></div>@if (CanWrite) { <button id="recurring-new-rule" type="button" disabled="@(!CanStart)" @onclick="StartCreate">@T("recurring.newRule", "새 규칙", "New rule")</button> }</div>
+    @if (_error is not null) { <div role="alert"><p>@_error</p></div> }
+    @if (_message is not null) { <p role="status">@_message</p> }
+    @if (_storageError) { <button id="recurring-retry-storage" type="button" @onclick="LoadRecoveryAsync">@T("recurring.retryRecovery", "복구 저장소 다시 읽기", "Retry recovery storage")</button> }
+    @if (_pending is { } pending)
+    {
+        <div id="recurring-pending" class="rc-recovery">
+            <strong>@(pending.Confirmed ? T("recurring.confirmed", "완료된 요청", "Confirmed request") : T("recurring.unknown", "결과 확인이 필요한 요청", "Request with unknown outcome"))</strong>
+            <p>@ActionName(pending.Kind) · <span class="rc-id">@pending.Id</span></p>
+            @if (!pending.Confirmed) { <p class="rc-note">@T("recurring.retryNote", "재시도는 저장된 요청을 같은 식별자로 다시 보냅니다. 서버의 재실행 보호가 중복 생성을 막습니다.", "Retry sends the stored request with the same identity. Server replay protection prevents duplicate creation.")</p><button id="recurring-retry" type="button" disabled="@(_busy || !Has(Permission(pending.Kind)))" @onclick="RetryAsync">@T("recurring.retryWrite", "같은 요청 재시도", "Retry same request")</button> }
+            else { <p class="rc-id">@T("recurring.resultId", "결과 ID", "Result ID"): @pending.ResultId</p> }
+            <label class="rc-check"><input id="recurring-acknowledge" type="checkbox" @bind="_acknowledged" disabled="@_busy" /> @T("recurring.acknowledge", "결과를 직접 확인했으며 이 복구 기록을 닫습니다.", "I verified the outcome and want to close this recovery record.")</label>
+            <button id="recurring-clear-recovery" type="button" disabled="@(_busy || !pending.Confirmed && !_acknowledged)" @onclick="ClearRecoveryAsync">@T("recurring.clearRecovery", "복구 기록 닫기", "Close recovery record")</button>
+        </div>
+    }
+    @if (_rule is { } rule)
+    {
+        <div id="recurring-selected-rule" class="rc-selected" role="status"><strong>@rule.Input.Name · @TargetName(rule.Target)</strong><span class="rc-id">@rule.Id</span><span>@Period(rule.Input.Schedule) · @T("recurring.day", "실행일", "Day") @rule.Input.Schedule.DayOfMonth · @(rule.Active ? T("inventory.active", "활성", "Active") : T("inventory.inactive", "비활성", "Inactive"))</span></div>
+        <div class="rc-actions">@if (CanWrite) { <button id="recurring-deactivate" type="button" disabled="@(!CanStart || !rule.Active)" @onclick="DeactivateAsync">@T("recurring.deactivate", "규칙 비활성화", "Deactivate rule")</button> } @if (CanExecute) { <label for="recurring-month">@T("recurring.month", "발생 월", "Occurrence month")</label><input id="recurring-month" type="text" inputmode="numeric" placeholder="yyyy-MM" maxlength="7" @bind="_month" disabled="@(!CanStart)" /><button id="recurring-execute" type="button" disabled="@(!CanStart)" @onclick="ExecuteAsync">@T("recurring.execute", "월 발생 실행", "Run monthly occurrence")</button> }</div>
+    }
+    @if (_execution is { } execution)
+    {
+        <div id="recurring-last-execution" class="rc-result" role="status"><strong>@T("recurring.latestResult", "이 탭의 최근 실행 결과", "Latest execution result in this tab")</strong><span>@execution.Occurrence.Month.ToString("yyyy-MM", CultureInfo.InvariantCulture) · @TargetName(execution.Occurrence.Target)</span><span class="rc-id">@T("recurring.resourceId", "생성 리소스 ID", "Created resource ID"): @execution.Occurrence.ResourceId</span><p class="rc-note">@T("recurring.noHistory", "서버에 발생 이력 목록 API가 없어 이 결과는 현재 탭에서만 표시됩니다.", "The server has no occurrence-history list API, so this result is shown only in the current tab.")</p></div>
+    }
+    @if (_creating)
+    {
+        <form id="recurring-rule-form" class="rc-form" @onsubmit="CreateAsync" @onsubmit:preventDefault>
+            <h3>@T("recurring.newRule", "새 규칙", "New rule")</h3>
+            <div class="rc-grid"><label for="recurring-name">@T("inventory.name", "이름", "Name")</label><input id="recurring-name" maxlength="200" @bind="_name" disabled="@(!CanStart)" /><label for="recurring-create-target">@T("recurring.target", "대상", "Target")</label><select id="recurring-create-target" @bind="_target" disabled="@(!CanStart)">@foreach (var value in Enum.GetValues<RecurringTarget>()) { <option value="@value">@TargetName(value)</option> }</select><label for="recurring-start">@T("recurring.startMonth", "시작 월", "Start month")</label><input id="recurring-start" type="text" inputmode="numeric" placeholder="yyyy-MM" maxlength="7" @bind="_startMonth" disabled="@(!CanStart)" /><label for="recurring-end">@T("recurring.endMonth", "종료 월 (선택)", "End month (optional)")</label><input id="recurring-end" type="text" inputmode="numeric" placeholder="yyyy-MM" maxlength="7" @bind="_endMonth" disabled="@(!CanStart)" /><label for="recurring-day">@T("recurring.day", "실행일", "Day")</label><input id="recurring-day" type="number" min="1" max="31" @bind="_day" disabled="@(!CanStart)" /></div>
+            @if (_target == RecurringTarget.Billing)
+            {
+                <fieldset><legend>@T("recurring.billing", "청구", "Billing")</legend><div class="rc-grid"><label for="rc-billing-kind">@T("billing.kind", "종류", "Kind")</label><select id="rc-billing-kind" @bind="_billingKind"><option value="Estimate">@T("billing.estimate", "견적", "Estimate")</option><option value="Invoice">@T("billing.invoice", "청구", "Invoice")</option></select><label for="rc-contact">@T("recurring.contactId", "계약처 ID", "Contact ID")</label><input id="rc-contact" @bind="_contactId" /><label for="rc-due-days">@T("recurring.dueDays", "만기까지 일수", "Days until due")</label><input id="rc-due-days" type="number" min="0" max="365" @bind="_dueDays" /><label for="rc-currency">@T("billing.currency", "통화 (ISO 3자)", "Currency (ISO 3 letters)")</label><input id="rc-currency" maxlength="3" @bind="_currency" /></div><div class="rc-table-scroll"><table><thead><tr><th>@T("billing.description", "설명", "Description")</th><th>@T("billing.unitPrice", "단가", "Unit price")</th><th>@T("inventory.quantity", "수량", "Quantity")</th><th>@T("billing.applyTax", "과세", "Tax")</th><th>@T("billing.applyDiscount", "할인", "Discount")</th><th>@T("inventory.write.actions", "작업", "Actions")</th></tr></thead><tbody>@foreach (var line in _lines) { <tr @key="line"><td><input class="rc-line-description" maxlength="255" @bind="line.Description" /></td><td><input class="rc-line-price" inputmode="decimal" @bind="line.Price" /></td><td><input class="rc-line-quantity" inputmode="decimal" @bind="line.Quantity" /></td><td><input type="checkbox" @bind="line.Tax" /></td><td><input type="checkbox" @bind="line.Discount" /></td><td><button type="button" class="rc-remove-line" disabled="@(_lines.Count == 1)" @onclick="() => _lines.Remove(line)">@T("billing.removeLine", "항목 삭제", "Remove line")</button></td></tr> }</tbody></table></div><button id="rc-add-line" type="button" disabled="@(_lines.Count >= 200)" @onclick="() => _lines.Add(new())">@T("billing.addLine", "항목 추가", "Add line")</button><div class="rc-grid"><label for="rc-terms">@T("billing.terms", "조건", "Terms")</label><textarea id="rc-terms" maxlength="4000" @bind="_terms"></textarea><label for="rc-note">@T("billing.note", "메모", "Note")</label><textarea id="rc-note" maxlength="4000" @bind="_notes"></textarea></div></fieldset>
+            }
+            else if (_target == RecurringTarget.Income)
+            {
+                <fieldset><legend>@T("recurring.income", "수입", "Income")</legend>@MoneyFields()<div class="rc-grid"><label for="rc-contact">@T("recurring.contactId", "계약처 ID", "Contact ID")</label><input id="rc-contact" @bind="_contactId" /><label for="rc-employee">@T("recurring.employeeId", "직원 ID (선택)", "Employee ID (optional)")</label><input id="rc-employee" @bind="_employeeId" /><label class="rc-check"><input id="rc-bonus" type="checkbox" @bind="_isBonus" /> @T("recurring.bonus", "보너스", "Bonus")</label><span></span></div>@TextFields()</fieldset>
+            }
+            else
+            {
+                <fieldset><legend>@T("recurring.expense", "지출", "Expense")</legend>@MoneyFields()<div class="rc-grid"><label for="rc-expense-type">@T("recurring.expenseType", "지출 종류", "Expense type")</label><select id="rc-expense-type" @bind="_expenseType">@foreach (var value in Enum.GetValues<ExpenseType>()) { <option value="@value">@value</option> }</select><label for="rc-category">@T("recurring.categoryId", "분류 ID", "Category ID")</label><input id="rc-category" @bind="_categoryId" /><label for="rc-vendor">@T("recurring.vendorId", "공급자 ID", "Vendor ID")</label><input id="rc-vendor" @bind="_vendorId" /><label for="rc-employee">@T("recurring.employeeId", "직원 ID (선택)", "Employee ID (optional)")</label><input id="rc-employee" @bind="_employeeId" />@if (_expenseType == ExpenseType.BillableToContact) { <label for="rc-contact">@T("recurring.contactId", "계약처 ID", "Contact ID")</label><input id="rc-contact" @bind="_contactId" /> }<label class="rc-check"><input id="rc-split" type="checkbox" @bind="_split" /> @T("recurring.split", "활성 직원에게 균등 분할", "Split across active employees")</label><span></span><label for="rc-purpose">@T("recurring.purpose", "목적", "Purpose")</label><input id="rc-purpose" maxlength="4000" @bind="_purpose" /><label for="rc-receipt">@T("recurring.receipt", "영수증 위치", "Receipt locator")</label><input id="rc-receipt" maxlength="4000" @bind="_receipt" /></div>@TextFields()</fieldset>
+            }
+            <p class="rc-note">@T("recurring.referenceNote", "ID는 이 조직의 활성 기준정보를 사용해야 합니다. 프로젝트와 태그는 현재 제품에 기준정보 화면이 없어 이 작업 공간에서는 받지 않습니다.", "IDs must refer to active records in this organization. Project and tag fields are omitted because this product does not yet provide their master-data workflow.")</p>
+            <div class="rc-actions"><button id="recurring-create" class="rc-primary" type="submit" disabled="@(!CanStart)">@T("recurring.create", "규칙 만들기", "Create rule")</button><button type="button" disabled="@(!CanStart)" @onclick="() => _creating = false">@T("recurring.cancel", "취소", "Cancel")</button></div>
+        </form>
+    }
+</section>
+
+@code {
+    private RenderFragment MoneyFields() => @<div class="rc-grid"><label for="rc-amount">@T("billing.amount", "금액", "Amount")</label><input id="rc-amount" inputmode="decimal" @bind="_amount" /><label for="rc-currency">@T("billing.currency", "통화 (ISO 3자)", "Currency (ISO 3 letters)")</label><input id="rc-currency" maxlength="3" @bind="_currency" /></div>;
+    private RenderFragment TextFields() => @<div class="rc-grid"><label for="rc-reference">@T("billing.reference", "참조", "Reference")</label><input id="rc-reference" maxlength="255" @bind="_reference" /><label for="rc-note">@T("billing.note", "메모", "Note")</label><textarea id="rc-note" maxlength="4000" @bind="_notes"></textarea></div>;
+}
