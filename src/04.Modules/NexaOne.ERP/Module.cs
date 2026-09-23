@@ -18,6 +18,7 @@ public sealed class Module
 {
     private readonly IBillingBridge _billingBridge;
     private readonly IExpenseBridge _expenseBridge;
+    private readonly IFinancialReportBridge _financialReportBridge;
     private readonly IRecurringBridge _recurringBridge;
     private readonly IRecurringAutomationBridge _recurringAutomationBridge;
     private readonly IHostedService _recurringAutomationWorker;
@@ -38,6 +39,7 @@ public sealed class Module
         var bridge = new BillingBridge(dataSource, businessMemberships, businessMasters);
         _billingBridge = bridge;
         _expenseBridge = bridge;
+        _financialReportBridge = bridge;
         _recurringBridge = bridge;
         _recurringAutomationBridge = bridge;
         var options = ErpModuleOptions.FromConfiguration(configuration);
@@ -51,6 +53,9 @@ public sealed class Module
 
     /// <summary>Expense directories, entries, reimbursements and invoice linkage.</summary>
     public IExpenseBridge GetExpenseBridge() => _expenseBridge;
+
+    /// <summary>Currency-separated financial snapshots and deterministic CSV exports.</summary>
+    public IFinancialReportBridge GetFinancialReportBridge() => _financialReportBridge;
 
     /// <summary>Monthly billing, income and expense rules with durable occurrence identity.</summary>
     public IRecurringBridge GetRecurringBridge() => _recurringBridge;

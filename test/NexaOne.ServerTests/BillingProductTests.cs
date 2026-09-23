@@ -57,6 +57,11 @@ public sealed class BillingHostTests(ITestOutputHelper output)
         expenseDescriptor.GetProperty("module").GetString().Should().Be("Erp");
         expenseDescriptor.GetProperty("beanName").GetString().Should().Be("expenseBridge");
         expenseDescriptor.GetProperty("implementation").GetString().Should().Be(typeof(BillingBridge).FullName);
+        var reportDescriptor = diagnostics.GetProperty("bridges").EnumerateArray().Single(item =>
+            item.GetProperty("contract").GetString() == typeof(IFinancialReportBridge).FullName);
+        reportDescriptor.GetProperty("module").GetString().Should().Be("Erp");
+        reportDescriptor.GetProperty("beanName").GetString().Should().Be("financialReportBridge");
+        reportDescriptor.GetProperty("implementation").GetString().Should().Be(typeof(BillingBridge).FullName);
         // Membership and grants only: no IVT plant binding is created for this organization.
         await Status(await admin.PutAsync(route + "/contacts/" + seed.Customer, null), HttpStatusCode.Forbidden);
         var membershipRoute = $"/api/v1/sys/business-memberships/{tenant}/{organization}/users/{seed.User}";
@@ -66,6 +71,7 @@ public sealed class BillingHostTests(ITestOutputHelper output)
         // Scope discovery lists memberships with any billing grant; no IVT plant binding is consulted.
         var scopes = await Body<BusinessPage<BusinessMembership>>(await member.GetAsync("/api/v1/erp/billing/scopes/me"));
         scopes.Total.Should().Be(1); scopes.Items.Single().Should().Match<BusinessMembership>(m => m.TenantId == tenant && m.OrganizationId == organization);
+        (await Body<BusinessPage<BusinessMembership>>(await member.GetAsync("/api/v1/erp/financial-reports/scopes/me"))).Total.Should().Be(1);
         (await Body<BusinessPage<BusinessMembership>>(await member.GetAsync("/api/v1/erp/expenses/scopes/me"))).Total
             .Should().Be(0, "billing-only grants must not disclose an expense scope");
         (await Body<BusinessPage<BusinessMembership>>(await admin.GetAsync("/api/v1/erp/billing/scopes/me"))).Total.Should().Be(0);
@@ -110,6 +116,18 @@ public sealed class BillingHostTests(ITestOutputHelper output)
         await Error(await member.PostAsJsonAsync(route + $"/documents/{estimate.Id}/payments", pay with { OperationId = Guid.NewGuid() }, HttpJson), HttpStatusCode.BadRequest, "INVALID_BUSINESS_INPUT");
         var partiallyPaid = await Body<BillingDocument>(await member.GetAsync(route + $"/documents/{invoice.Id}"));
         partiallyPaid.Status.Should().Be(BillingStatus.PartiallyPaid); partiallyPaid.Paid.Should().Be(100m);
+        var reportRoute = $"/api/v1/erp/financial-reports/{tenant}/{organization}?start=2026-09-01&end=2026-09-30";
+        var report = await Body<FinancialReport>(await member.GetAsync(reportRoute));
+        report.Currencies.Should().ContainSingle().Which.Should().Match<FinancialCurrencyTotals>(value =>
+            value.Currency == "KRW" && value.InvoiceCount == 1 && value.Paid == 100m
+            && value.Invoiced == invoice.Totals.Total && value.Outstanding == invoice.Totals.Total - 100m);
+        using (var csv = await member.GetAsync(reportRoute.Replace("?", "/export.csv?", StringComparison.Ordinal)))
+        {
+            csv.StatusCode.Should().Be(HttpStatusCode.OK, await csv.Content.ReadAsStringAsync());
+            csv.Content.Headers.ContentType!.ToString().Should().Be("text/csv; charset=utf-8");
+            (await csv.Content.ReadAsStringAsync()).Should().Contain("currency,invoice_count,invoiced,paid,outstanding")
+                .And.Contain(",1,").And.Contain(",100,");
+        }
         await Error(await member.PostAsJsonAsync(route + $"/documents/{invoice.Id}/void", new BillingController.VersionedCommand(partiallyPaid.Version), HttpJson),
             HttpStatusCode.Conflict, "BILLING_DOCUMENT_HAS_PAYMENTS");
         var cancelled = await Body<PaymentRecord>(await member.PostAsJsonAsync(route + $"/payments/{payment.Id}/cancel", new BillingController.CancelCommand(payment.Version, "정정"), HttpJson));
@@ -243,7 +261,8 @@ internal sealed class BillingProductSeed
     public const string Password = "billing-product-test";
     // Legal six-place decimal near the Framework limit, with digits a binary double cannot preserve.
     public const decimal PreciseAmount = 899999999999.123456m;
-    public static readonly string[] Grants = ["billing.read", "billing.write", "billing.decide", "billing.pay"];
+    public static readonly string[] Grants =
+        ["billing.read", "billing.write", "billing.decide", "billing.pay", "financial-report.read"];
     public string Plant { get; } = "BLP-" + Guid.NewGuid().ToString("N");
     public string Customer { get; } = "BLC-" + Guid.NewGuid().ToString("N");
     public string Role { get; } = "BLR-" + Guid.NewGuid().ToString("N");
