@@ -66,6 +66,7 @@ public sealed class RecurringPersistenceTests : IClassFixture<BusinessMembership
     private BillingBridge NewBridge() => new(DataSource(), new BusinessMembershipBridge(DataSource()), new BusinessMasterDirectory(DataSource()));
     private void Execute(string sql, object? values = null) { using var c = new SqliteConnection(_connectionString); c.Open(); c.Execute(sql, values); }
     private long Count(string table) { using var c = new SqliteConnection(_connectionString); c.Open(); return c.ExecuteScalar<long>("SELECT COUNT(*) FROM " + table); }
+    private T Scalar<T>(string sql, object? values = null) { using var c = new SqliteConnection(_connectionString); c.Open(); return c.ExecuteScalar<T>(sql, values)!; }
     private static async Task Error(Func<Task> action, string code)
         => (await Assert.ThrowsAsync<BusinessException>(action)).Code.Should().Be(code);
     private Task<RecurringRule> Rule(string name, RecurringTemplate template, Guid? operation = null)
@@ -142,5 +143,60 @@ public sealed class RecurringPersistenceTests : IClassFixture<BusinessMembership
         scopes.Total.Should().Be(1);
         (await _bridge.ListRulesAsync("recurring-reader", _tenant, _organization,
             new(RecurringTarget.Income, false))).Items.Single().Should().BeEquivalentTo(inactive);
+    }
+
+    [Fact]
+    public async Task Service_principal_scope_is_audited_due_date_limited_and_live_revocation_stops_execution()
+    {
+        IRecurringAutomationBridge automation = _bridge;
+        var principal = await automation.SavePrincipalAsync(
+            "admin", "erp-monthly", new(0, "Monthly ERP", true));
+        principal.IsSuccess.Should().BeTrue();
+        var grant = await automation.SaveScopeAsync(
+            "admin", "erp-monthly", _tenant, _organization, new(0, true));
+        grant.IsSuccess.Should().BeTrue();
+        (await automation.SaveScopeAsync(
+            "admin", "erp-monthly", _tenant, _organization, new(0, true)))
+            .Error.Type.Should().Be(NexaOne.Common.ErrorType.Conflict);
+
+        var rule = await Rule("Automated invoice", new RecurringBillingTemplate(BillingKind.Invoice,
+            _contact.Id, 0, "KRW", [new("Service", 9m, 1m)]));
+        (await automation.ListDueRulesAsync(
+            "erp-monthly", _tenant, _organization, new DateOnly(2026, 9, 29))).Total.Should().Be(0);
+        (await automation.ListDueRulesAsync(
+            "erp-monthly", _tenant, _organization, new DateOnly(2026, 9, 30))).Items.Single().Id
+            .Should().Be(rule.Id, "day 31 clips to the last day of September");
+
+        var execution = await automation.ExecuteOccurrenceAsync(
+            "erp-monthly", _tenant, _organization, rule.Id, new DateOnly(2026, 9, 1));
+        var actor = principal.Value.AuditActorId.ToString("D");
+        execution.Occurrence.CreatedBy.Should().Be(actor);
+        execution.Billing!.CreatedBy.Should().Be(actor);
+        Scalar<string>("SELECT USER_ID FROM ERP_BILLING_AUDIT WHERE RESOURCE_TYPE='recurring-occurrence'")
+            .Should().Be(actor);
+        Scalar<long>("SELECT COUNT(*) FROM SYS_USER WHERE USER_ID='svc.erp.erp-monthly' AND IS_ACTIVE=0")
+            .Should().Be(1, "the compatibility identity must never be login-enabled");
+        Scalar<long>("SELECT COUNT(*) FROM SYS_BUSINESS_MEMBERSHIP WHERE USER_ID='svc.erp.erp-monthly'")
+            .Should().Be(0, "service authority comes only from its recurring scope grant");
+        Scalar<string>("SELECT r.PERMISSIONS FROM SYS_USER u JOIN SYS_ROLE r ON r.ROLE_ID=u.ROLE_ID WHERE u.USER_ID='svc.erp.erp-monthly'")
+            .Should().BeEmpty("the compatibility identity must have no role authority even if misactivated");
+
+        var revoked = await automation.SaveScopeAsync(
+            "admin", "erp-monthly", _tenant, _organization, new(1, false));
+        revoked.Value.IsActive.Should().BeFalse();
+        (await automation.ListActiveScopesAsync("erp-monthly")).Total.Should().Be(0);
+        await Error(() => automation.ExecuteOccurrenceAsync(
+            "erp-monthly", _tenant, _organization, rule.Id, new DateOnly(2026, 9, 1)),
+            "BUSINESS_ACCESS_DENIED");
+        (await automation.SaveScopeAsync(
+            "admin", "erp-monthly", _tenant, _organization, new(2, true))).IsSuccess.Should().BeTrue();
+        (await automation.SavePrincipalAsync(
+            "admin", "erp-monthly", new(1, "Monthly ERP", false))).Value.IsActive.Should().BeFalse();
+        await Error(() => automation.ListActiveScopesAsync("erp-monthly"), "BUSINESS_ACCESS_DENIED");
+        await Error(() => automation.ExecuteOccurrenceAsync(
+            "erp-monthly", _tenant, _organization, rule.Id, new DateOnly(2026, 9, 1)),
+            "BUSINESS_ACCESS_DENIED");
+        Count("ERP_RECURRING_SERVICE_PRINCIPAL_AUDIT").Should().Be(2);
+        Count("ERP_RECURRING_SERVICE_SCOPE_AUDIT").Should().Be(3);
     }
 }
