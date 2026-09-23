@@ -13,7 +13,7 @@ namespace NexaOne.ERP.Infrastructure;
 
 /// <summary>Owns billing persistence and explicit customer enrollment. Document, line, number, payment and
 /// audit rows of one operation share one Serializable commit; scope is SYS membership only.</summary>
-public sealed class BillingBridge : IBillingBridge
+public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge
 {
     private const string ScopeWhere = "TENANT_ID=@TenantId AND ORGANIZATION_ID=@OrganizationId";
     private readonly ServiceObjectProcessor _processor;
@@ -163,9 +163,11 @@ public sealed class BillingBridge : IBillingBridge
             : type.HasValue ? new((BillingAdjustmentType)type.Value, Amount(value!)) : null;
 
     // Confined to one processor-owned transaction. This adapter never commits, retries or caches authority.
-    private sealed class Session(DbConnection connection, DbTransaction transaction, int? timeout, BusinessScope scope,
+    private sealed partial class Session(DbConnection connection, DbTransaction transaction, int? timeout, BusinessScope scope,
         IBusinessMembershipBridge memberships, IBusinessMasterDirectory masters, TimeProvider clock)
-        : IAtomicBusinessStore<IBillingTransaction>, IBillingTransaction, IBusinessAuthorizer
+        : IAtomicBusinessStore<IBillingTransaction>, IBillingTransaction, IAtomicBusinessStore<IExpenseTransaction>,
+          IExpenseTransaction, IAtomicBusinessStore<IExpenseAccountingTransaction>, IExpenseAccountingTransaction,
+          IBusinessAuthorizer
     {
         private bool _open = true;
         private int _invoked;
@@ -281,14 +283,15 @@ public sealed class BillingBridge : IBillingBridge
         private async Task<Dictionary<string, List<BillingLine>>> Lines(string[] documentIds, CancellationToken ct)
         {
             var rows = await Rows<LineRow>("SELECT DOCUMENT_ID AS DocumentId, LINE_NO AS LineNumber, DESCRIPTION AS Description, UNIT_PRICE AS UnitPrice, "
-                + "QUANTITY AS Quantity, APPLY_TAX AS ApplyTax, APPLY_DISCOUNT AS ApplyDiscount FROM ERP_BILLING_LINE WHERE " + ScopeWhere
+                + "QUANTITY AS Quantity, APPLY_TAX AS ApplyTax, APPLY_DISCOUNT AS ApplyDiscount, EXPENSE_ID AS ExpenseId FROM ERP_BILLING_LINE WHERE " + ScopeWhere
                 + " AND DOCUMENT_ID IN @Ids ORDER BY DOCUMENT_ID, LINE_NO", new { Ids = documentIds }, ct);
             var result = new Dictionary<string, List<BillingLine>>(StringComparer.Ordinal);
             foreach (var row in rows)
             {
                 if (!result.TryGetValue(row.DocumentId, out var list)) result[row.DocumentId] = list = [];
                 if (row.LineNumber != list.Count + 1) throw new InvalidDataException("Billing storage contains a gap in document lines.");
-                list.Add(new(row.Description, Amount(row.UnitPrice), Amount(row.Quantity), row.ApplyTax, row.ApplyDiscount));
+                list.Add(new(row.Description, Amount(row.UnitPrice), Amount(row.Quantity), row.ApplyTax, row.ApplyDiscount,
+                    OptionalId(row.ExpenseId)));
             }
             return result;
         }
@@ -347,10 +350,11 @@ public sealed class BillingBridge : IBillingBridge
         private async Task WriteLines(Guid documentId, IReadOnlyList<BillingLine> lines, CancellationToken ct)
         {
             for (var index = 0; index < lines.Count; index++)
-                await Write("INSERT INTO ERP_BILLING_LINE (TENANT_ID, ORGANIZATION_ID, DOCUMENT_ID, LINE_NO, DESCRIPTION, UNIT_PRICE, QUANTITY, APPLY_TAX, APPLY_DISCOUNT) "
-                    + "VALUES (@TenantId, @OrganizationId, @Id, @LineNumber, @Description, @UnitPrice, @Quantity, @ApplyTax, @ApplyDiscount)",
+                await Write("INSERT INTO ERP_BILLING_LINE (TENANT_ID, ORGANIZATION_ID, DOCUMENT_ID, LINE_NO, DESCRIPTION, UNIT_PRICE, QUANTITY, APPLY_TAX, APPLY_DISCOUNT, EXPENSE_ID) "
+                    + "VALUES (@TenantId, @OrganizationId, @Id, @LineNumber, @Description, @UnitPrice, @Quantity, @ApplyTax, @ApplyDiscount, @ExpenseId)",
                     new { Id = Text(documentId), LineNumber = index + 1, lines[index].Description, UnitPrice = Amount(lines[index].UnitPrice),
-                        Quantity = Amount(lines[index].Quantity), lines[index].ApplyTax, lines[index].ApplyDiscount }, ct);
+                        Quantity = Amount(lines[index].Quantity), lines[index].ApplyTax, lines[index].ApplyDiscount,
+                        ExpenseId = Text(lines[index].ExpenseId) }, ct);
         }
         public async Task<BusinessPage<BillingDocument>> QueryDocumentsAsync(BillingKind? kind, BillingStatus? status, Guid? contactId, int offset, int limit, CancellationToken ct)
         {
@@ -477,6 +481,7 @@ public sealed class BillingBridge : IBillingBridge
         public string Quantity { get; set; } = "";
         public bool ApplyTax { get; set; }
         public bool ApplyDiscount { get; set; }
+        public string? ExpenseId { get; set; }
     }
     private sealed class PaymentRow
     {

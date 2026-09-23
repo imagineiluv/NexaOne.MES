@@ -12,5 +12,6 @@
   </object>
 
   <object id="billingBridge" factory-object="erpModule" factory-method="GetBillingBridge" />
+  <object id="expenseBridge" factory-object="erpModule" factory-method="GetExpenseBridge" />
 
 </objects>

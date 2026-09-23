@@ -52,6 +52,11 @@ public sealed class BillingHostTests(ITestOutputHelper output)
         descriptor.GetProperty("module").GetString().Should().Be("Erp");
         descriptor.GetProperty("beanName").GetString().Should().Be("billingBridge");
         descriptor.GetProperty("implementation").GetString().Should().Be(typeof(BillingBridge).FullName);
+        var expenseDescriptor = diagnostics.GetProperty("bridges").EnumerateArray().Single(item =>
+            item.GetProperty("contract").GetString() == typeof(IExpenseBridge).FullName);
+        expenseDescriptor.GetProperty("module").GetString().Should().Be("Erp");
+        expenseDescriptor.GetProperty("beanName").GetString().Should().Be("expenseBridge");
+        expenseDescriptor.GetProperty("implementation").GetString().Should().Be(typeof(BillingBridge).FullName);
         // Membership and grants only: no IVT plant binding is created for this organization.
         await Status(await admin.PutAsync(route + "/contacts/" + seed.Customer, null), HttpStatusCode.Forbidden);
         var membershipRoute = $"/api/v1/sys/business-memberships/{tenant}/{organization}/users/{seed.User}";
@@ -61,6 +66,8 @@ public sealed class BillingHostTests(ITestOutputHelper output)
         // Scope discovery lists memberships with any billing grant; no IVT plant binding is consulted.
         var scopes = await Body<BusinessPage<BusinessMembership>>(await member.GetAsync("/api/v1/erp/billing/scopes/me"));
         scopes.Total.Should().Be(1); scopes.Items.Single().Should().Match<BusinessMembership>(m => m.TenantId == tenant && m.OrganizationId == organization);
+        (await Body<BusinessPage<BusinessMembership>>(await member.GetAsync("/api/v1/erp/expenses/scopes/me"))).Total
+            .Should().Be(0, "billing-only grants must not disclose an expense scope");
         (await Body<BusinessPage<BusinessMembership>>(await admin.GetAsync("/api/v1/erp/billing/scopes/me"))).Total.Should().Be(0);
         await Error(await member.GetAsync("/api/v1/erp/billing/scopes/me?limit=0"), HttpStatusCode.BadRequest, "INVALID_BUSINESS_INPUT");
 

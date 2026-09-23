@@ -13,6 +13,7 @@ namespace NexaOne.ERP;
 public sealed class Module
 {
     private readonly IBillingBridge _billingBridge;
+    private readonly IExpenseBridge _expenseBridge;
 
     public Module(
         EesDataSource dataSource,
@@ -23,9 +24,14 @@ public sealed class Module
         ArgumentNullException.ThrowIfNull(businessMemberships);
         ArgumentNullException.ThrowIfNull(businessMasters);
 
-        _billingBridge = new BillingBridge(dataSource, businessMemberships, businessMasters);
+        var bridge = new BillingBridge(dataSource, businessMemberships, businessMasters);
+        _billingBridge = bridge;
+        _expenseBridge = bridge;
     }
 
     /// <summary>Estimates, invoices and payments over the Framework billing service.</summary>
     public IBillingBridge GetBillingBridge() => _billingBridge;
+
+    /// <summary>Expense directories, entries, reimbursements and invoice linkage.</summary>
+    public IExpenseBridge GetExpenseBridge() => _expenseBridge;
 }

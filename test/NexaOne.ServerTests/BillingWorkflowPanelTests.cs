@@ -158,6 +158,36 @@ public sealed class BillingWorkflowPanelTests : BunitContext
     }
 
     [Fact]
+    public async Task Expense_backed_lines_are_read_only_and_preserved_when_other_draft_values_change()
+    {
+        var expenseId = Guid.NewGuid();
+        var input = Input(Guid.NewGuid()) with
+        {
+            Lines = [new BillingLine("Expense", 25.5m, 1m, false, false, expenseId), new("Editable", 1m, 1m)]
+        };
+        var draft = Document(Guid.NewGuid(), BillingKind.Invoice, input, 1);
+        BillingController.DocumentChange? sent = null;
+        Writes<BillingDocument>((_, path, body, _) =>
+        {
+            sent = (BillingController.DocumentChange)body;
+            path.Should().Be(Root + $"/documents/{draft.Id:D}");
+            return Task.FromResult(Ok(draft with { Version = Guid.NewGuid(), Input = sent.Input }));
+        });
+        var cut = Panel(Membership("billing.read", "billing.write"));
+        await cut.InvokeAsync(() => cut.Instance.SelectDocumentAsync(draft));
+        cut.Find("#billing-edit-document").Click();
+
+        cut.FindAll(".billing-line-description")[0].HasAttribute("disabled").Should().BeTrue();
+        cut.FindAll(".billing-remove-line")[0].HasAttribute("disabled").Should().BeTrue();
+        cut.FindAll(".billing-line-description")[1].Change("Changed");
+        await cut.Find("#billing-document-form").SubmitAsync(EventArgs.Empty);
+
+        sent.Should().NotBeNull();
+        sent!.Input.Lines[0].Should().Be(new BillingLine("Expense", 25.5m, 1m, false, false, expenseId));
+        sent.Input.Lines[1].Description.Should().Be("Changed");
+    }
+
+    [Fact]
     public async Task Selected_estimate_offers_send_decision_conversion_and_void_by_status_and_grant()
     {
         var membership = Membership("billing.read", "billing.write", "billing.decide");
