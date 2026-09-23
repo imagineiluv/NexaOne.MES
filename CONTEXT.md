@@ -148,3 +148,7 @@ _Avoid_: 시스템 사용자, 공용 관리자, 스케줄러 사용자
 **반복 실행 범위 (Recurring Execution Scope)**:
 반복 서비스 주체에게 한 tenant와 organization의 `recurring.execute`를 부여하는 회수 가능한 권한입니다.
 _Avoid_: 전역 실행 권한, 설정 파일의 조직 목록, 사용자 멤버십
+
+**반복 회차 이력 (Recurring Occurrence History)**:
+반복 규칙이 한 조직의 특정 월에 생성한 청구·수입·지출 업무 레코드의 영속 연결 기록입니다.
+_Avoid_: 스케줄러 로그, 작업자 실행 로그, 현재 탭 결과
