@@ -13,7 +13,7 @@ namespace NexaOne.ERP.Infrastructure;
 
 /// <summary>Owns billing persistence and explicit customer enrollment. Document, line, number, payment and
 /// audit rows of one operation share one Serializable commit; scope is SYS membership only.</summary>
-public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge
+public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IRecurringBridge
 {
     private const string ScopeWhere = "TENANT_ID=@TenantId AND ORGANIZATION_ID=@OrganizationId";
     private readonly ServiceObjectProcessor _processor;
@@ -167,7 +167,7 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge
         IBusinessMembershipBridge memberships, IBusinessMasterDirectory masters, TimeProvider clock)
         : IAtomicBusinessStore<IBillingTransaction>, IBillingTransaction, IAtomicBusinessStore<IExpenseTransaction>,
           IExpenseTransaction, IAtomicBusinessStore<IExpenseAccountingTransaction>, IExpenseAccountingTransaction,
-          IBusinessAuthorizer
+          IAtomicBusinessStore<IRecurringTransaction>, IRecurringTransaction, IBusinessAuthorizer
     {
         private bool _open = true;
         private int _invoked;

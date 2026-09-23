@@ -14,6 +14,7 @@ public sealed class Module
 {
     private readonly IBillingBridge _billingBridge;
     private readonly IExpenseBridge _expenseBridge;
+    private readonly IRecurringBridge _recurringBridge;
 
     public Module(
         EesDataSource dataSource,
@@ -27,6 +28,7 @@ public sealed class Module
         var bridge = new BillingBridge(dataSource, businessMemberships, businessMasters);
         _billingBridge = bridge;
         _expenseBridge = bridge;
+        _recurringBridge = bridge;
     }
 
     /// <summary>Estimates, invoices and payments over the Framework billing service.</summary>
@@ -34,4 +36,7 @@ public sealed class Module
 
     /// <summary>Expense directories, entries, reimbursements and invoice linkage.</summary>
     public IExpenseBridge GetExpenseBridge() => _expenseBridge;
+
+    /// <summary>Monthly billing, income and expense rules with durable occurrence identity.</summary>
+    public IRecurringBridge GetRecurringBridge() => _recurringBridge;
 }
