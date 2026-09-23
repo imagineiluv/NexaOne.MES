@@ -12,6 +12,7 @@ namespace NexaOne.SYS.Infrastructure;
 /// <summary>Owns business membership, stable MES-user mapping, and its atomic revision history.</summary>
 public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembershipBridge
 {
+    private const string ServiceRoleId = "ERP_RECURRING_SERVICE";
     // Explicit operation grants; '*' and MES role permissions never imply a business scope grant.
     private static readonly HashSet<string> SupportedPermissions = new(StringComparer.Ordinal)
     {
@@ -78,6 +79,71 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
     {
         ct.ThrowIfCancellationRequested();
         return RequireAdministrator(RequireSerializableConnection(transaction), transaction, administratorId, ct);
+    }
+
+    public async Task<BusinessServiceActor> EnsureServiceActorInTransactionAsync(
+        DbTransaction transaction, string administratorId, string serviceUserId, string displayName,
+        CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var connection = RequireSerializableConnection(transaction);
+        var administrator = await RequireAdministrator(connection, transaction, administratorId, ct);
+        if (!ValidServiceUser(serviceUserId) || string.IsNullOrWhiteSpace(displayName)
+            || displayName.Length > 200 || displayName != displayName.Trim())
+            throw new ArgumentException("Canonical service user ID and display name are required.");
+
+        var now = _time.GetUtcNow().UtcDateTime;
+        await connection.ExecuteAsync(Command("""
+            INSERT INTO SYS_ROLE
+                (ROLE_ID, ROLE_NAME, DESCRIPTION, PERMISSIONS, IS_DELETED,
+                 CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            SELECT @RoleId, 'ERP recurring service',
+                   'Inactive compatibility identity for business audit foreign keys', '', 0,
+                   @Administrator, @Now, @Administrator, @Now
+             WHERE NOT EXISTS (SELECT 1 FROM SYS_ROLE WHERE ROLE_ID=@RoleId)
+            """, new { RoleId = ServiceRoleId, Administrator = administrator, Now = now }, transaction, ct));
+        var role = await connection.QuerySingleOrDefaultAsync<ServiceRoleRow>(Command("""
+            SELECT ROLE_ID AS RoleId, PERMISSIONS AS Permissions, IS_DELETED AS IsDeleted
+              FROM SYS_ROLE WHERE ROLE_ID=@RoleId
+            """, new { RoleId = ServiceRoleId }, transaction, ct));
+        if (role is null || role.IsDeleted || role.Permissions.Length != 0
+            || !string.Equals(role.RoleId, ServiceRoleId, StringComparison.Ordinal))
+            throw new InvalidDataException("Service compatibility role must exist with no permissions.");
+
+        var user = await connection.QuerySingleOrDefaultAsync<ServiceActorRow>(Command("""
+            SELECT u.USER_ID AS UserId, u.ROLE_ID AS RoleId, u.IS_ACTIVE AS IsActive,
+                   u.IS_DELETED AS IsDeleted, i.BUSINESS_USER_ID AS BusinessUserId,
+                   (SELECT COUNT(*) FROM SYS_BUSINESS_MEMBERSHIP m WHERE m.USER_ID=u.USER_ID) AS MembershipCount
+              FROM SYS_USER u
+              LEFT JOIN SYS_BUSINESS_IDENTITY i ON i.USER_ID=u.USER_ID
+             WHERE u.USER_ID=@ServiceUserId
+            """, new { ServiceUserId = serviceUserId }, transaction, ct));
+        if (user is null)
+        {
+            var businessActorId = Guid.NewGuid();
+            await ExecuteOne(connection, transaction, """
+                INSERT INTO SYS_USER
+                    (USER_ID, USER_NAME, PASSWORD_HASH, EMAIL, ROLE_ID, LANGUAGE, IS_ACTIVE, IS_DELETED,
+                     CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (@ServiceUserId, @DisplayName, @PasswordHash, '', @RoleId, 'KoKr', 0, 0,
+                        @Administrator, @Now, @Administrator, @Now)
+                """, new { ServiceUserId = serviceUserId, DisplayName = displayName,
+                    PasswordHash = new string('0', 64), RoleId = ServiceRoleId,
+                    Administrator = administrator, Now = now }, ct);
+            await ExecuteOne(connection, transaction, """
+                INSERT INTO SYS_BUSINESS_IDENTITY (USER_ID, BUSINESS_USER_ID, CREATED_BY, CREATED_AT)
+                VALUES (@ServiceUserId, @BusinessUserId, @Administrator, @Now)
+                """, new { ServiceUserId = serviceUserId, BusinessUserId = businessActorId.ToString("D"),
+                    Administrator = administrator, Now = now }, ct);
+            return new(serviceUserId, businessActorId);
+        }
+
+        if (!string.Equals(user.UserId, serviceUserId, StringComparison.Ordinal)
+            || !string.Equals(user.RoleId, ServiceRoleId, StringComparison.Ordinal)
+            || user.IsActive || user.IsDeleted || user.MembershipCount != 0
+            || string.IsNullOrEmpty(user.BusinessUserId))
+            throw new InvalidDataException("Service compatibility identity is unsafe or corrupt.");
+        return new(user.UserId, ParseId(user.BusinessUserId));
     }
 
     public async Task<IReadOnlyList<BusinessMembership>> ListAccessInTransactionAsync(
@@ -262,6 +328,11 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
     private static bool ValidUser(string value)
         => !string.IsNullOrWhiteSpace(value) && value.Length <= 50 && value == value.Trim();
 
+    private static bool ValidServiceUser(string value)
+        => ValidUser(value) && value.StartsWith("svc.", StringComparison.Ordinal)
+            && value.All(character => character is >= 'a' and <= 'z' or >= '0' and <= '9'
+                or '.' or '-' or '_');
+
     private static bool ValidKey(string userId, Guid tenantId, Guid organizationId)
         => ValidUser(userId) && tenantId != Guid.Empty && organizationId != Guid.Empty;
 
@@ -306,6 +377,21 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
     {
         public string UserId { get; set; } = "";
         public string Permissions { get; set; } = "";
+    }
+    private sealed class ServiceRoleRow
+    {
+        public string RoleId { get; set; } = "";
+        public string Permissions { get; set; } = "";
+        public bool IsDeleted { get; set; }
+    }
+    private sealed class ServiceActorRow
+    {
+        public string UserId { get; set; } = "";
+        public string RoleId { get; set; } = "";
+        public bool IsActive { get; set; }
+        public bool IsDeleted { get; set; }
+        public string? BusinessUserId { get; set; }
+        public long MembershipCount { get; set; }
     }
     private sealed class MembershipRow
     {

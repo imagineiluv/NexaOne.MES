@@ -2911,8 +2911,8 @@ public sealed class SqliteSchemaIncrementalTests
             TableExists(cs, "ERP_RECURRING_SERVICE_SCOPE").Should().BeTrue();
             Count(cs, "ERP_RECURRING_SERVICE_PRINCIPAL").Should().Be(0,
                 "a deployment must explicitly provision every service principal");
-            ScalarString(cs, "SELECT PERMISSIONS FROM SYS_ROLE WHERE ROLE_ID='ERP_RECURRING_SERVICE'")
-                .Should().BeEmpty();
+            ScalarString(cs, "SELECT COUNT(*) FROM SYS_ROLE WHERE ROLE_ID='ERP_RECURRING_SERVICE'")
+                .Should().Be("0", "SYS provisions compatibility identities on explicit principal creation");
 
             ExecSql(cs, """
                 DROP TABLE ERP_RECURRING_SERVICE_SCOPE_AUDIT;
@@ -2926,7 +2926,7 @@ public sealed class SqliteSchemaIncrementalTests
             TableExists(cs, "ERP_RECURRING_SERVICE_SCOPE_AUDIT").Should().BeTrue();
             Count(cs, "ERP_RECURRING_SERVICE_PRINCIPAL").Should().Be(0);
             ScalarString(cs, "SELECT COUNT(*) FROM SYS_ROLE WHERE ROLE_ID='ERP_RECURRING_SERVICE'")
-                .Should().Be("1", "the compatibility role seed is restart-safe");
+                .Should().Be("0", "schema startup never provisions service authority");
         }
         finally { try { File.Delete(FileOf(cs)); } catch { } }
     }

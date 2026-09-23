@@ -41,38 +41,13 @@ public sealed partial class BillingBridge : IRecurringAutomationBridge
                     Error.Conflict("Service principal version changed; read before retrying."));
             if (current is not null) _ = ToPrincipal(current);
 
+            var serviceActor = await _memberships.EnsureServiceActorInTransactionAsync(
+                transaction, administrator, ServiceUserPrefix + principalId, change.Name.Trim(), ct);
             var revision = change.ExpectedVersion + 1;
             var now = _clock.GetUtcNow().UtcDateTime;
-            var auditActorId = current is null ? Guid.NewGuid() : Id(current.AuditActorId);
-            if (current is null)
-            {
-                var serviceUserId = ServiceUserPrefix + principalId;
-                await connection.ExecuteAsync(new CommandDefinition("""
-                    INSERT INTO SYS_ROLE
-                        (ROLE_ID, ROLE_NAME, DESCRIPTION, PERMISSIONS, IS_DELETED,
-                         CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-                    SELECT 'ERP_RECURRING_SERVICE', 'ERP recurring service',
-                           'Inactive compatibility identity for recurring ERP audit foreign keys', '', 0,
-                           @Administrator, @Now, @Administrator, @Now
-                     WHERE NOT EXISTS (SELECT 1 FROM SYS_ROLE WHERE ROLE_ID='ERP_RECURRING_SERVICE')
-                    """, new { Administrator = administrator, Now = now }, transaction, _timeout,
-                    cancellationToken: ct));
-                await connection.ExecuteAsync(new CommandDefinition("""
-                    INSERT INTO SYS_USER
-                        (USER_ID, USER_NAME, PASSWORD_HASH, EMAIL, ROLE_ID, LANGUAGE, IS_ACTIVE, IS_DELETED,
-                         CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-                    VALUES (@ServiceUserId, @Name, @PasswordHash, '', 'ERP_RECURRING_SERVICE', 'KoKr', 0, 0,
-                            @Administrator, @Now, @Administrator, @Now)
-                    """, new { ServiceUserId = serviceUserId, Name = change.Name.Trim(),
-                        PasswordHash = new string('0', 64), Administrator = administrator, Now = now },
-                    transaction, _timeout, cancellationToken: ct));
-                await connection.ExecuteAsync(new CommandDefinition("""
-                    INSERT INTO SYS_BUSINESS_IDENTITY (USER_ID, BUSINESS_USER_ID, CREATED_BY, CREATED_AT)
-                    VALUES (@ServiceUserId, @AuditActorId, @Administrator, @Now)
-                    """, new { ServiceUserId = serviceUserId, AuditActorId = Text(auditActorId),
-                        Administrator = administrator, Now = now },
-                    transaction, _timeout, cancellationToken: ct));
-            }
+            var auditActorId = serviceActor.BusinessActorId;
+            if (current is not null && auditActorId != Id(current.AuditActorId))
+                throw new InvalidDataException("Recurring service principal audit identity changed.");
             var values = new
             {
                 PrincipalId = principalId,

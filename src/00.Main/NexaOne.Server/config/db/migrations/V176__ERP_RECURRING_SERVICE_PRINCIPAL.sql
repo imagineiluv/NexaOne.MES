@@ -1,11 +1,4 @@
 -- Non-interactive recurring ERP authority. No principal or scope grant is seeded.
-INSERT INTO SYS_ROLE
-    (ROLE_ID, ROLE_NAME, DESCRIPTION, PERMISSIONS, IS_DELETED,
-     CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-SELECT 'ERP_RECURRING_SERVICE', 'ERP recurring service',
-       'Inactive compatibility identity for recurring ERP audit foreign keys', '', 0,
-       'SYSTEM', GETUTCDATE(), 'SYSTEM', GETUTCDATE()
-WHERE NOT EXISTS (SELECT 1 FROM SYS_ROLE WHERE ROLE_ID='ERP_RECURRING_SERVICE');
 
 CREATE TABLE ERP_RECURRING_SERVICE_PRINCIPAL (
     PRINCIPAL_ID NVARCHAR(64) NOT NULL,

@@ -25,6 +25,12 @@ public sealed class BusinessMembershipProxy : IBusinessMembershipBridge
         DbTransaction transaction, string administratorId, CancellationToken ct = default)
         => Resolve().RequireAdministratorInTransactionAsync(transaction, administratorId, ct);
 
+    public Task<BusinessServiceActor> EnsureServiceActorInTransactionAsync(
+        DbTransaction transaction, string administratorId, string serviceUserId, string displayName,
+        CancellationToken ct = default)
+        => Resolve().EnsureServiceActorInTransactionAsync(
+            transaction, administratorId, serviceUserId, displayName, ct);
+
     public Task<IReadOnlyList<BusinessMembership>> ListAccessInTransactionAsync(
         DbTransaction transaction, string authenticatedUserId, Guid? afterTenantId = null,
         Guid? afterOrganizationId = null, int limit = 128, CancellationToken ct = default)

@@ -55,6 +55,18 @@ public interface IBusinessMembershipBridge : INexaModuleBridge
     Task<string> RequireAdministratorInTransactionAsync(
         DbTransaction transaction, string administratorId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Ensures a dedicated, inactive SYS compatibility identity for service-owned business audit rows.
+    /// The identity has an empty-permission role, no business memberships, and is not login authority.
+    /// Existing state is validated fail-closed. Rechecks live sys:manage authority using the caller's
+    /// Serializable transaction and never commits or disposes it.
+    /// </summary>
+    /// <exception cref="UnauthorizedAccessException">The administrator is no longer authorized.</exception>
+    /// <exception cref="InvalidDataException">Existing service identity state is unsafe or corrupt.</exception>
+    Task<BusinessServiceActor> EnsureServiceActorInTransactionAsync(
+        DbTransaction transaction, string administratorId, string serviceUserId, string displayName,
+        CancellationToken ct = default);
+
     /// <summary>Reads even revoked memberships. Rechecks live SYS sys:manage authority.</summary>
     /// <exception cref="UnauthorizedAccessException">The administrator is no longer authorized.</exception>
     Task<Result<BusinessMembership>> GetMembershipAsync(
@@ -78,3 +90,5 @@ public sealed record BusinessMembership(
 
 public sealed record BusinessMembershipChange(
     long ExpectedVersion, bool IsActive, IReadOnlyList<string> Permissions);
+
+public sealed record BusinessServiceActor(string ServiceUserId, Guid BusinessActorId);
