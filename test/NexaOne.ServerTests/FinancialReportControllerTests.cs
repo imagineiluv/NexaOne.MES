@@ -1,0 +1,90 @@
+using System.Security.Claims;
+using System.Text;
+using System.Text.Json;
+using FluentAssertions;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using Moq;
+using NexaFramework.Service;
+using NexaFramework.Service.Erp;
+using NexaOne.Server.Gateway;
+using NexaOne.ServiceContracts.Erp;
+using Xunit;
+
+namespace NexaOne.ServerTests;
+
+public sealed class FinancialReportControllerTests
+{
+    [Fact]
+    public async Task Build_and_csv_forward_the_inclusive_period_and_scope()
+    {
+        var tenant = Guid.NewGuid(); var organization = Guid.NewGuid();
+        var period = new FinancialReportPeriod(new(2026, 9, 1), new(2026, 9, 30));
+        var report = new FinancialReport(new("NexaOne.MES", tenant.ToString("D"), organization.ToString("D")),
+            period, new(2026, 9, 30, 1, 2, 3, TimeSpan.Zero),
+            [new("KRW", 1, 10m, 4m, 6m, 0, 0m, 0, 0m, 0m, 0m)]);
+        const string csv = "currency,invoice_count\r\nKRW,1\r\n";
+        var bridge = new Mock<IFinancialReportBridge>(MockBehavior.Strict);
+        using var cancellation = new CancellationTokenSource();
+        bridge.Setup(x => x.BuildAsync("report-user", tenant, organization, period, cancellation.Token))
+            .ReturnsAsync(report);
+        bridge.Setup(x => x.ExportCsvAsync("report-user", tenant, organization, period, cancellation.Token))
+            .ReturnsAsync(csv);
+        var controller = Controller(bridge.Object);
+
+        (await controller.Build(tenant, organization, period.Start, period.End, cancellation.Token))
+            .Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(report);
+        var file = (await controller.ExportCsv(tenant, organization, period.Start, period.End,
+            cancellation.Token)).Should().BeOfType<FileContentResult>().Which;
+        Encoding.UTF8.GetString(file.FileContents).Should().Be(csv);
+        file.ContentType.Should().Be("text/csv; charset=utf-8");
+        file.FileDownloadName.Should().Be("financial-report-20260901-20260930.csv");
+        bridge.VerifyAll(); bridge.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Missing_principal_and_report_failures_follow_read_endpoint_conventions()
+    {
+        var anonymous = Controller(Mock.Of<IFinancialReportBridge>(), null);
+        (await anonymous.Build(Guid.NewGuid(), Guid.NewGuid(), new(2026, 9, 1), new(2026, 9, 30),
+            CancellationToken.None)).Should().BeOfType<UnauthorizedResult>();
+
+        foreach (var (code, status) in new[]
+        {
+            ("INVALID_BUSINESS_INPUT", 400), ("FINANCIAL_REPORT_TOO_LARGE", 413),
+            ("STORAGE_CONTRACT_VIOLATION", 409)
+        })
+        {
+            var result = (await Failing(new BusinessException(code)).Build(Guid.NewGuid(), Guid.NewGuid(),
+                new(2026, 9, 1), new(2026, 9, 30), CancellationToken.None))
+                .Should().BeOfType<ObjectResult>().Which;
+            result.StatusCode.Should().Be(status);
+            JsonSerializer.SerializeToElement(result.Value).GetProperty("code").GetString().Should().Be(code);
+        }
+        (await Failing(new BusinessException("BUSINESS_ACCESS_DENIED")).Build(Guid.NewGuid(), Guid.NewGuid(),
+            new(2026, 9, 1), new(2026, 9, 30), CancellationToken.None)).Should().BeOfType<ForbidResult>();
+    }
+
+    private static FinancialReportController Failing(Exception failure)
+    {
+        var bridge = new Mock<IFinancialReportBridge>(MockBehavior.Strict);
+        bridge.Setup(x => x.BuildAsync("report-user", It.IsAny<Guid>(), It.IsAny<Guid>(),
+            It.IsAny<FinancialReportPeriod>(), CancellationToken.None)).ThrowsAsync(failure);
+        return Controller(bridge.Object);
+    }
+
+    private static FinancialReportController Controller(IFinancialReportBridge bridge,
+        string? userId = "report-user")
+    {
+        var context = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity(userId is null ? [] :
+                [new Claim(ClaimTypes.NameIdentifier, userId)], "test"))
+        };
+        return new(bridge, Mock.Of<ILogger<FinancialReportController>>())
+        {
+            ControllerContext = new ControllerContext { HttpContext = context }
+        };
+    }
+}
