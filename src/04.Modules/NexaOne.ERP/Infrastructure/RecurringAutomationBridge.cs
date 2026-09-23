@@ -97,7 +97,9 @@ public sealed partial class BillingBridge : IRecurringAutomationBridge
             var administrator = await _memberships.RequireAdministratorInTransactionAsync(
                 transaction, administratorId, ct);
             if (!ValidPrincipalId(principalId) || tenantId == Guid.Empty || organizationId == Guid.Empty
-                || change is null || change.ExpectedVersion < 0 || change.ExpectedVersion == long.MaxValue)
+                || change is null || change.ExpectedVersion < 0 || change.ExpectedVersion == long.MaxValue
+                || change.CatchUpMonths is < 0 or > 24
+                || !TryNormalizeTimeZone(change.TimeZoneId, out var timeZoneId))
                 return InvalidScope();
             if (await ReadPrincipal(connection, transaction, principalId, ct) is not { } principal)
                 return Result.Failure<RecurringServicePrincipalScope>(Error.NotFound("Recurring service principal was not found."));
@@ -118,6 +120,8 @@ public sealed partial class BillingBridge : IRecurringAutomationBridge
                 TenantId = Text(tenantId),
                 OrganizationId = Text(organizationId),
                 change.IsActive,
+                TimeZoneId = timeZoneId,
+                change.CatchUpMonths,
                 Version = revision,
                 change.ExpectedVersion,
                 Administrator = administrator,
@@ -125,18 +129,22 @@ public sealed partial class BillingBridge : IRecurringAutomationBridge
             };
             var affected = await connection.ExecuteAsync(new CommandDefinition(current is null ? """
                 INSERT INTO ERP_RECURRING_SERVICE_SCOPE
-                    (PRINCIPAL_ID, TENANT_ID, ORGANIZATION_ID, IS_ACTIVE, SCOPE_VERSION, UPDATED_BY, UPDATED_AT)
-                VALUES (@PrincipalId, @TenantId, @OrganizationId, @IsActive, @Version, @Administrator, @Now)
+                    (PRINCIPAL_ID, TENANT_ID, ORGANIZATION_ID, IS_ACTIVE, SCOPE_VERSION,
+                     TIME_ZONE_ID, CATCH_UP_MONTHS, UPDATED_BY, UPDATED_AT)
+                VALUES (@PrincipalId, @TenantId, @OrganizationId, @IsActive, @Version,
+                        @TimeZoneId, @CatchUpMonths, @Administrator, @Now)
                 """ : """
                 UPDATE ERP_RECURRING_SERVICE_SCOPE
-                   SET IS_ACTIVE=@IsActive, SCOPE_VERSION=@Version, UPDATED_BY=@Administrator, UPDATED_AT=@Now
+                   SET IS_ACTIVE=@IsActive, SCOPE_VERSION=@Version, TIME_ZONE_ID=@TimeZoneId,
+                       CATCH_UP_MONTHS=@CatchUpMonths, UPDATED_BY=@Administrator, UPDATED_AT=@Now
                  WHERE PRINCIPAL_ID=@PrincipalId AND TENANT_ID=@TenantId AND ORGANIZATION_ID=@OrganizationId
                    AND SCOPE_VERSION=@ExpectedVersion
                 """, values, transaction, _timeout, cancellationToken: ct));
             if (affected != 1) throw new DBConcurrencyException("Service principal scope write did not affect exactly one row.");
             await InsertScopeAudit(connection, transaction, values, ct);
             return Result.Success(new RecurringServicePrincipalScope(
-                principalId, tenantId, organizationId, change.IsActive, revision));
+                principalId, tenantId, organizationId, change.IsActive, revision,
+                timeZoneId, change.CatchUpMonths));
         }, IsolationLevel.Serializable, ct);
 
     public Task<BusinessPage<RecurringServicePrincipalScope>> ListActiveScopesAsync(
@@ -154,8 +162,10 @@ public sealed partial class BillingBridge : IRecurringAutomationBridge
                 """, new { PrincipalId = principalId }, transaction, _timeout, cancellationToken: ct));
             var rows = (await connection.QueryAsync<PrincipalScopeRow>(new CommandDefinition("""
                 SELECT PRINCIPAL_ID AS PrincipalId, TENANT_ID AS TenantId, ORGANIZATION_ID AS OrganizationId,
-                       IS_ACTIVE AS IsActive, SCOPE_VERSION AS Version
+                       IS_ACTIVE AS IsActive, SCOPE_VERSION AS Version,
+                       TIME_ZONE_ID AS TimeZoneId, CATCH_UP_MONTHS AS CatchUpMonths
                   FROM (SELECT PRINCIPAL_ID, TENANT_ID, ORGANIZATION_ID, IS_ACTIVE, SCOPE_VERSION,
+                               TIME_ZONE_ID, CATCH_UP_MONTHS,
                                ROW_NUMBER() OVER (ORDER BY TENANT_ID, ORGANIZATION_ID) AS RowNumber
                           FROM ERP_RECURRING_SERVICE_SCOPE
                          WHERE PRINCIPAL_ID=@PrincipalId AND IS_ACTIVE=1) AS page
@@ -167,12 +177,12 @@ public sealed partial class BillingBridge : IRecurringAutomationBridge
     }
 
     public Task<BusinessPage<RecurringRule>> ListDueRulesAsync(
-        string principalId, Guid tenantId, Guid organizationId, DateOnly localDate,
+        string principalId, Guid tenantId, Guid organizationId, long scopeVersion, DateOnly localDate,
         int offset = 0, int limit = 50, CancellationToken ct = default)
     {
         if (!ValidPrincipalId(principalId) || tenantId == Guid.Empty || organizationId == Guid.Empty)
             throw Failure("BUSINESS_ACCESS_DENIED");
-        if (localDate == default || offset < 0 || limit is < 1 or > 100)
+        if (scopeVersion <= 0 || localDate == default || offset < 0 || limit is < 1 or > 100)
             throw Failure("INVALID_BUSINESS_INPUT");
         return _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
         {
@@ -180,7 +190,7 @@ public sealed partial class BillingBridge : IRecurringAutomationBridge
                 new("NexaOne.MES", Text(tenantId), Text(organizationId)), _memberships, _masters, _clock);
             try
             {
-                await session.AuthorizePrincipal(principalId, ct);
+                await session.AuthorizePrincipal(principalId, scopeVersion, ct);
                 var month = new DateOnly(localDate.Year, localDate.Month, 1);
                 var items = new List<RecurringRule>(limit);
                 long total = 0;
@@ -206,10 +216,12 @@ public sealed partial class BillingBridge : IRecurringAutomationBridge
     }
 
     Task<RecurringExecution> IRecurringAutomationBridge.ExecuteOccurrenceAsync(
-        string principalId, Guid tenantId, Guid organizationId, Guid ruleId, DateOnly month,
+        string principalId, Guid tenantId, Guid organizationId, long scopeVersion,
+        Guid ruleId, DateOnly month,
         CancellationToken ct)
     {
-        if (!ValidPrincipalId(principalId) || tenantId == Guid.Empty || organizationId == Guid.Empty)
+        if (!ValidPrincipalId(principalId) || tenantId == Guid.Empty || organizationId == Guid.Empty
+            || scopeVersion <= 0)
             throw Failure("BUSINESS_ACCESS_DENIED");
         return _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
         {
@@ -217,7 +229,7 @@ public sealed partial class BillingBridge : IRecurringAutomationBridge
                 new("NexaOne.MES", Text(tenantId), Text(organizationId)), _memberships, _masters, _clock);
             try
             {
-                await session.AuthorizePrincipal(principalId, ct);
+                await session.AuthorizePrincipal(principalId, scopeVersion, ct);
                 var result = await new RecurringService(session, session, _clock)
                     .ExecuteOccurrenceAsync(session.Actor, ruleId, month, ct);
                 ct.ThrowIfCancellationRequested();
@@ -240,6 +252,22 @@ public sealed partial class BillingBridge : IRecurringAutomationBridge
         return true;
     }
 
+    private static bool TryNormalizeTimeZone(string? value, out string? normalized)
+    {
+        normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        if (normalized is null) return true;
+        if (normalized.Length > 100) return false;
+        try
+        {
+            _ = TimeZoneInfo.FindSystemTimeZoneById(normalized);
+            return true;
+        }
+        catch (Exception error) when (error is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return false;
+        }
+    }
+
     private static Result<RecurringServicePrincipal> InvalidPrincipal()
         => Result.Failure<RecurringServicePrincipal>(Error.Validation("Invalid recurring service principal."));
     private static Result<RecurringServicePrincipalScope> InvalidScope()
@@ -258,7 +286,8 @@ public sealed partial class BillingBridge : IRecurringAutomationBridge
         string principalId, Guid tenantId, Guid organizationId, CancellationToken ct)
         => connection.QuerySingleOrDefaultAsync<PrincipalScopeRow>(new CommandDefinition("""
             SELECT PRINCIPAL_ID AS PrincipalId, TENANT_ID AS TenantId, ORGANIZATION_ID AS OrganizationId,
-                   IS_ACTIVE AS IsActive, SCOPE_VERSION AS Version
+                   IS_ACTIVE AS IsActive, SCOPE_VERSION AS Version,
+                   TIME_ZONE_ID AS TimeZoneId, CATCH_UP_MONTHS AS CatchUpMonths
               FROM ERP_RECURRING_SERVICE_SCOPE
              WHERE PRINCIPAL_ID=@PrincipalId AND TENANT_ID=@TenantId AND ORGANIZATION_ID=@OrganizationId
             """, new { PrincipalId = principalId, TenantId = Text(tenantId), OrganizationId = Text(organizationId) },
@@ -274,8 +303,10 @@ public sealed partial class BillingBridge : IRecurringAutomationBridge
     private Task InsertScopeAudit(DbConnection connection, DbTransaction transaction, object values,
         CancellationToken ct) => connection.ExecuteAsync(new CommandDefinition("""
             INSERT INTO ERP_RECURRING_SERVICE_SCOPE_AUDIT
-                (PRINCIPAL_ID, TENANT_ID, ORGANIZATION_ID, SCOPE_VERSION, IS_ACTIVE, CHANGED_BY, CHANGED_AT)
-            VALUES (@PrincipalId, @TenantId, @OrganizationId, @Version, @IsActive, @Administrator, @Now)
+                (PRINCIPAL_ID, TENANT_ID, ORGANIZATION_ID, SCOPE_VERSION, IS_ACTIVE,
+                 TIME_ZONE_ID, CATCH_UP_MONTHS, CHANGED_BY, CHANGED_AT)
+            VALUES (@PrincipalId, @TenantId, @OrganizationId, @Version, @IsActive,
+                    @TimeZoneId, @CatchUpMonths, @Administrator, @Now)
             """, values, transaction, _timeout, cancellationToken: ct));
 
     private static RecurringServicePrincipal ToPrincipal(PrincipalRow row)
@@ -287,9 +318,12 @@ public sealed partial class BillingBridge : IRecurringAutomationBridge
 
     private static RecurringServicePrincipalScope ToScope(PrincipalScopeRow row)
     {
-        if (!ValidPrincipalId(row.PrincipalId) || row.Version <= 0)
+        if (!ValidPrincipalId(row.PrincipalId) || row.Version <= 0 || row.CatchUpMonths is < 0 or > 24
+            || !TryNormalizeTimeZone(row.TimeZoneId, out var timeZoneId)
+            || !string.Equals(timeZoneId, row.TimeZoneId, StringComparison.Ordinal))
             throw new InvalidDataException("Recurring service principal scope storage is invalid.");
-        return new(row.PrincipalId, Id(row.TenantId), Id(row.OrganizationId), row.IsActive, row.Version);
+        return new(row.PrincipalId, Id(row.TenantId), Id(row.OrganizationId), row.IsActive, row.Version,
+            timeZoneId, row.CatchUpMonths);
     }
 
     private sealed class PrincipalRow
@@ -308,20 +342,24 @@ public sealed partial class BillingBridge : IRecurringAutomationBridge
         public string OrganizationId { get; set; } = "";
         public bool IsActive { get; set; }
         public long Version { get; set; }
+        public string? TimeZoneId { get; set; }
+        public int CatchUpMonths { get; set; }
     }
 
     private sealed partial class Session
     {
-        internal async Task AuthorizePrincipal(string principalId, CancellationToken ct)
+        internal async Task AuthorizePrincipal(string principalId, long scopeVersion, CancellationToken ct)
         {
             var stored = await Row<PrincipalAuthorityRow>("""
-                SELECT p.PRINCIPAL_ID AS PrincipalId, p.AUDIT_ACTOR_ID AS AuditActorId
+                SELECT p.PRINCIPAL_ID AS PrincipalId, p.AUDIT_ACTOR_ID AS AuditActorId,
+                       s.SCOPE_VERSION AS ScopeVersion
                   FROM ERP_RECURRING_SERVICE_PRINCIPAL p
                   JOIN ERP_RECURRING_SERVICE_SCOPE s ON s.PRINCIPAL_ID=p.PRINCIPAL_ID
                  WHERE p.PRINCIPAL_ID=@PrincipalId AND p.IS_ACTIVE=1 AND s.IS_ACTIVE=1
                    AND s.TENANT_ID=@TenantId AND s.ORGANIZATION_ID=@OrganizationId
                 """, new { PrincipalId = principalId }, ct);
-            if (stored is null || !string.Equals(stored.PrincipalId, principalId, StringComparison.Ordinal))
+            if (stored is null || !string.Equals(stored.PrincipalId, principalId, StringComparison.Ordinal)
+                || stored.ScopeVersion != scopeVersion)
                 throw Failure("BUSINESS_ACCESS_DENIED");
             Actor = new(Text(Id(stored.AuditActorId)), Scope);
             _grants = ["recurring.execute"];
@@ -332,5 +370,6 @@ public sealed partial class BillingBridge : IRecurringAutomationBridge
     {
         public string PrincipalId { get; set; } = "";
         public string AuditActorId { get; set; } = "";
+        public long ScopeVersion { get; set; }
     }
 }

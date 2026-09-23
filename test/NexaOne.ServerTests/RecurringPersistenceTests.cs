@@ -201,8 +201,14 @@ public sealed class RecurringPersistenceTests : IClassFixture<BusinessMembership
             "admin", "erp-monthly", new(0, "Monthly ERP", true));
         principal.IsSuccess.Should().BeTrue();
         var grant = await automation.SaveScopeAsync(
-            "admin", "erp-monthly", _tenant, _organization, new(0, true));
+            "admin", "erp-monthly", _tenant, _organization, new(0, true, "Asia/Seoul", 2));
         grant.IsSuccess.Should().BeTrue();
+        grant.Value.TimeZoneId.Should().Be("Asia/Seoul");
+        grant.Value.CatchUpMonths.Should().Be(2);
+        (await automation.GetScopeAsync("admin", "erp-monthly", _tenant, _organization)).Value
+            .Should().BeEquivalentTo(grant.Value);
+        (await automation.ListActiveScopesAsync("erp-monthly")).Items.Single()
+            .Should().BeEquivalentTo(grant.Value);
         (await automation.SaveScopeAsync(
             "admin", "erp-monthly", _tenant, _organization, new(0, true)))
             .Error.Type.Should().Be(NexaOne.Common.ErrorType.Conflict);
@@ -210,13 +216,13 @@ public sealed class RecurringPersistenceTests : IClassFixture<BusinessMembership
         var rule = await Rule("Automated invoice", new RecurringBillingTemplate(BillingKind.Invoice,
             _contact.Id, 0, "KRW", [new("Service", 9m, 1m)]));
         (await automation.ListDueRulesAsync(
-            "erp-monthly", _tenant, _organization, new DateOnly(2026, 9, 29))).Total.Should().Be(0);
+            "erp-monthly", _tenant, _organization, 1, new DateOnly(2026, 9, 29))).Total.Should().Be(0);
         (await automation.ListDueRulesAsync(
-            "erp-monthly", _tenant, _organization, new DateOnly(2026, 9, 30))).Items.Single().Id
+            "erp-monthly", _tenant, _organization, 1, new DateOnly(2026, 9, 30))).Items.Single().Id
             .Should().Be(rule.Id, "day 31 clips to the last day of September");
 
         var execution = await automation.ExecuteOccurrenceAsync(
-            "erp-monthly", _tenant, _organization, rule.Id, new DateOnly(2026, 9, 1));
+            "erp-monthly", _tenant, _organization, 1, rule.Id, new DateOnly(2026, 9, 1));
         var actor = principal.Value.AuditActorId.ToString("D");
         execution.Occurrence.CreatedBy.Should().Be(actor);
         execution.Billing!.CreatedBy.Should().Be(actor);
@@ -234,17 +240,38 @@ public sealed class RecurringPersistenceTests : IClassFixture<BusinessMembership
         revoked.Value.IsActive.Should().BeFalse();
         (await automation.ListActiveScopesAsync("erp-monthly")).Total.Should().Be(0);
         await Error(() => automation.ExecuteOccurrenceAsync(
-            "erp-monthly", _tenant, _organization, rule.Id, new DateOnly(2026, 9, 1)),
+            "erp-monthly", _tenant, _organization, 1, rule.Id, new DateOnly(2026, 9, 1)),
             "BUSINESS_ACCESS_DENIED");
         (await automation.SaveScopeAsync(
-            "admin", "erp-monthly", _tenant, _organization, new(2, true))).IsSuccess.Should().BeTrue();
+            "admin", "erp-monthly", _tenant, _organization, new(2, true, null, 0))).IsSuccess.Should().BeTrue();
+        await Error(() => automation.ExecuteOccurrenceAsync(
+            "erp-monthly", _tenant, _organization, 1, rule.Id, new DateOnly(2026, 9, 1)),
+            "BUSINESS_ACCESS_DENIED");
         (await automation.SavePrincipalAsync(
             "admin", "erp-monthly", new(1, "Monthly ERP", false))).Value.IsActive.Should().BeFalse();
         await Error(() => automation.ListActiveScopesAsync("erp-monthly"), "BUSINESS_ACCESS_DENIED");
         await Error(() => automation.ExecuteOccurrenceAsync(
-            "erp-monthly", _tenant, _organization, rule.Id, new DateOnly(2026, 9, 1)),
+            "erp-monthly", _tenant, _organization, 3, rule.Id, new DateOnly(2026, 9, 1)),
             "BUSINESS_ACCESS_DENIED");
         Count("ERP_RECURRING_SERVICE_PRINCIPAL_AUDIT").Should().Be(2);
         Count("ERP_RECURRING_SERVICE_SCOPE_AUDIT").Should().Be(3);
+        Scalar<string>("SELECT TIME_ZONE_ID FROM ERP_RECURRING_SERVICE_SCOPE_AUDIT WHERE SCOPE_VERSION=1")
+            .Should().Be("Asia/Seoul");
+        Scalar<long>("SELECT CATCH_UP_MONTHS FROM ERP_RECURRING_SERVICE_SCOPE_AUDIT WHERE SCOPE_VERSION=1")
+            .Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Service_principal_scope_rejects_invalid_calendar_policy()
+    {
+        IRecurringAutomationBridge automation = _bridge;
+        (await automation.SavePrincipalAsync("admin", "erp-monthly", new(0, "Monthly ERP", true)))
+            .IsSuccess.Should().BeTrue();
+
+        (await automation.SaveScopeAsync("admin", "erp-monthly", _tenant, _organization,
+            new(0, true, "Not/A-Time-Zone", 0))).Error.Type.Should().Be(NexaOne.Common.ErrorType.Validation);
+        (await automation.SaveScopeAsync("admin", "erp-monthly", _tenant, _organization,
+            new(0, true, "UTC", 25))).Error.Type.Should().Be(NexaOne.Common.ErrorType.Validation);
+        Count("ERP_RECURRING_SERVICE_SCOPE").Should().Be(0);
     }
 }
