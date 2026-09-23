@@ -13,5 +13,6 @@
 
   <object id="billingBridge" factory-object="erpModule" factory-method="GetBillingBridge" />
   <object id="expenseBridge" factory-object="erpModule" factory-method="GetExpenseBridge" />
+  <object id="recurringBridge" factory-object="erpModule" factory-method="GetRecurringBridge" />
 
 </objects>
