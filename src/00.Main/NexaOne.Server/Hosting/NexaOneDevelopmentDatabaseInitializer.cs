@@ -38,6 +38,7 @@ internal static class NexaOneDevelopmentDatabaseInitializer
         EnsureDevWorkflowResources(connectionString, "V175__ERP_RECURRING_WORKSPACE.sql");
         EnsureDevWorkflowResources(connectionString, "V178__ERP_RECURRING_OCCURRENCE_HISTORY_RESOURCES.sql");
         EnsureDevWorkflowResources(connectionString, "V186__COL_DELIVERY_OPERATIONS_MENU.sql");
+        EnsureDevWorkflowResources(connectionString, "V187__COL_DELIVERY_CATALOG_RESOURCES.sql");
         NormalizeDevMenuTerminology(connectionString);
         SeedDevCommonUiResourcesIfMissing(connectionString);
         EnsureDevQmsSampleLotReferences(connectionString);

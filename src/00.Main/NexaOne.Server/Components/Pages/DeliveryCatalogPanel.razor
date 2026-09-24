@@ -1,0 +1,208 @@
+@implements IDisposable
+@using System.Globalization
+@using NexaFramework.Service
+@using NexaFramework.Service.Collaboration
+@using NexaOne.ServiceContracts.Sys
+@inject IApiClient Api
+@inject UiTextService Ui
+
+<section id="delivery-catalog" aria-labelledby="delivery-catalog-heading" aria-busy="@_busy">
+    <div class="bwk-heading">
+        <h2 id="delivery-catalog-heading">@T("deliveryAdmin.title", "송달 구성과 요청", "Delivery setup and requests")</h2>
+        <RadzenButton id="delivery-catalog-refresh" Text="@T("deliveryAdmin.refresh", "전체 새로고침", "Refresh all")"
+            Click="LoadAllAsync" Disabled="@_busy" ButtonStyle="ButtonStyle.Light" />
+    </div>
+    <p class="bwk-note">@T("deliveryAdmin.secretNote", "목록에는 템플릿 본문과 credential reference를 표시하지 않습니다.",
+        "Template bodies and credential references are never shown in lists.")</p>
+    @if (_error is { } error) { @Failure(error) }
+
+    <section aria-labelledby="delivery-template-heading">
+        <h3 id="delivery-template-heading">@T("deliveryAdmin.templates", "템플릿", "Templates")</h3>
+        @if (Can("delivery.manage-template"))
+        {
+            <div class="bwk-form" id="delivery-template-form">
+                <label>@T("deliveryAdmin.name", "이름", "Name") <input @bind="_templateName" maxlength="120" /></label>
+                <label>@T("deliveryAdmin.subject", "제목", "Subject") <input @bind="_templateSubject" maxlength="500" /></label>
+                <label>@T("deliveryAdmin.body", "본문", "Body") <textarea @bind="_templateBody" maxlength="20000"></textarea></label>
+                <label>@T("deliveryAdmin.variables", "변수 (쉼표 구분)", "Variables (comma-separated)") <input @bind="_templateVariables" maxlength="1000" /></label>
+                <RadzenButton id="delivery-template-create" Text="@T("deliveryAdmin.createTemplate", "템플릿 생성", "Create template")"
+                    Click="CreateTemplateAsync" Disabled="@_busy" />
+            </div>
+        }
+        @TemplateTable()
+        @Pager("templates", _templateOffset, _templates?.Total, MoveTemplatesAsync)
+    </section>
+
+    <section aria-labelledby="delivery-profile-heading">
+        <h3 id="delivery-profile-heading">@T("deliveryAdmin.profiles", "Provider 프로필", "Provider profiles")</h3>
+        @if (Can("delivery.manage-profile"))
+        {
+            <div class="bwk-form" id="delivery-profile-form">
+                <label>@T("deliveryAdmin.name", "이름", "Name") <input @bind="_profileName" maxlength="120" /></label>
+                <label>@T("deliveryAdmin.provider", "Provider key", "Provider key") <input @bind="_providerKey" maxlength="80" /></label>
+                <label>@T("deliveryAdmin.credentialReference", "Credential reference", "Credential reference") <input @bind="_credentialReference" maxlength="500" /></label>
+                <label>@T("deliveryAdmin.maxAttempts", "최대 시도", "Maximum attempts") <input type="number" min="1" max="20" @bind="_maxAttempts" /></label>
+                <label>@T("deliveryAdmin.initialDelay", "최초 지연 (초)", "Initial delay (seconds)") <input type="number" min="1" @bind="_initialDelay" /></label>
+                <label>@T("deliveryAdmin.maximumDelay", "최대 지연 (초)", "Maximum delay (seconds)") <input type="number" min="1" @bind="_maximumDelay" /></label>
+                <RadzenButton id="delivery-profile-create" Text="@T("deliveryAdmin.createProfile", "프로필 생성", "Create profile")"
+                    Click="CreateProfileAsync" Disabled="@_busy" />
+            </div>
+        }
+        @ProfileTable()
+        @Pager("profiles", _profileOffset, _profiles?.Total, MoveProfilesAsync)
+    </section>
+
+    <section aria-labelledby="delivery-request-heading">
+        <h3 id="delivery-request-heading">@T("deliveryAdmin.requests", "송달 요청", "Delivery requests")</h3>
+        @if (Can("delivery.queue"))
+        {
+            <div class="bwk-form" id="delivery-request-form">
+                <label>@T("deliveryAdmin.template", "템플릿", "Template")
+                    <select @bind="_queueTemplate" @bind:after="ResetQueueOperation"><option value="">@T("deliveryAdmin.choose", "선택", "Choose")</option>@foreach (var item in ActiveTemplates) { <option value="@item.Id">@item.Name</option> }</select>
+                </label>
+                <label>@T("deliveryAdmin.profile", "프로필", "Profile")
+                    <select @bind="_queueProfile" @bind:after="ResetQueueOperation"><option value="">@T("deliveryAdmin.choose", "선택", "Choose")</option>@foreach (var item in ActiveProfiles) { <option value="@item.Id">@item.Name (@item.ProviderKey)</option> }</select>
+                </label>
+                <label>@T("deliveryAdmin.recipient", "수신자", "Recipient") <input @bind="_recipient" @bind:after="ResetQueueOperation" maxlength="500" /></label>
+                <label>@T("deliveryAdmin.variableValues", "변수 값 (한 줄에 key=value)", "Variable values (one key=value per line)") <textarea @bind="_variableValues" @bind:after="ResetQueueOperation" maxlength="10000"></textarea></label>
+                <RadzenButton id="delivery-request-queue" Text="@T("deliveryAdmin.queue", "송달 예약", "Queue delivery")"
+                    Click="QueueAsync" Disabled="@_busy" />
+            </div>
+        }
+        @RequestTable()
+        @Pager("requests", _requestOffset, _requests?.Total, MoveRequestsAsync)
+    </section>
+</section>
+
+@code {
+    private const int PageSize = 50;
+    [Parameter, EditorRequired] public BusinessMembership Scope { get; set; } = default!;
+    [Parameter, EditorRequired] public string UserId { get; set; } = "";
+    private BusinessPage<DeliveryTemplate>? _templates;
+    private BusinessPage<DeliveryProfile>? _profiles;
+    private BusinessPage<DeliveryRequest>? _requests;
+    private CancellationTokenSource? _request;
+    private (int Status, string? Code, string? Error)? _error;
+    private string _loadedScope = "", _templateName = "", _templateSubject = "", _templateBody = "", _templateVariables = "";
+    private string _profileName = "", _providerKey = "smtp", _credentialReference = "";
+    private string _queueTemplate = "", _queueProfile = "", _recipient = "", _variableValues = "";
+    private int _maxAttempts = 3, _initialDelay = 60, _maximumDelay = 3600;
+    private int _templateOffset, _profileOffset, _requestOffset;
+    private Guid? _queueOperation;
+    private bool _busy, _disposed;
+
+    private string ScopeKey => $"{Scope.TenantId:D}/{Scope.OrganizationId:D}";
+    private IEnumerable<DeliveryTemplate> ActiveTemplates => _templates?.Items.Where(value => value.Active) ?? [];
+    private IEnumerable<DeliveryProfile> ActiveProfiles => _profiles?.Items.Where(value => value.Active) ?? [];
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_loadedScope == ScopeKey) return;
+        _loadedScope = ScopeKey; _templateOffset = _profileOffset = _requestOffset = 0; _queueOperation = null;
+        await LoadAllAsync();
+    }
+
+    private async Task LoadAllAsync()
+    {
+        if (_busy) return;
+        await LoadAsync(async token =>
+        {
+            _templates = await Read<DeliveryTemplate>($"templates?offset={_templateOffset}&limit={PageSize}", token);
+            _profiles = await Read<DeliveryProfile>($"profiles?offset={_profileOffset}&limit={PageSize}", token);
+            _requests = await Read<DeliveryRequest>($"?offset={_requestOffset}&limit={PageSize}", token);
+        });
+    }
+
+    private async Task<BusinessPage<T>?> Read<T>(string suffix, CancellationToken token)
+    {
+        var separator = suffix.StartsWith("?", StringComparison.Ordinal) ? "" : "/";
+        var result = await Api.ReadInventoryAsync<BusinessPage<T>>(
+            $"api/v1/collaboration/deliveries/{ScopeKey}{separator}{suffix}", token);
+        if (result.StatusCode is >= 200 and < 300 && result.Error is null && result.Value is { Items: not null })
+            return result.Value;
+        _error = (result.StatusCode, result.Code, result.Error); return null;
+    }
+
+    private Task CreateTemplateAsync() => WriteAsync<DeliveryTemplate>(HttpMethod.Post, "templates", new
+    {
+        name = _templateName, subject = _templateSubject, body = _templateBody,
+        variables = _templateVariables.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+    }, async () => { _templateName = _templateSubject = _templateBody = _templateVariables = ""; await LoadAllAsync(); });
+
+    private Task CreateProfileAsync() => WriteAsync<DeliveryProfile>(HttpMethod.Post, "profiles", new
+    {
+        name = _profileName, providerKey = _providerKey, credentialReference = _credentialReference,
+        maxAttempts = _maxAttempts, initialDelaySeconds = _initialDelay, maximumDelaySeconds = _maximumDelay
+    }, async () => { _profileName = _credentialReference = ""; await LoadAllAsync(); });
+
+    private async Task QueueAsync()
+    {
+        if (!Guid.TryParse(_queueTemplate, out var template) || !Guid.TryParse(_queueProfile, out var profile)
+            || !TryVariables(_variableValues, out var variables))
+        { _error = (400, "INVALID_BUSINESS_INPUT", null); return; }
+        _queueOperation ??= Guid.NewGuid();
+        await WriteAsync<DeliveryRequest>(HttpMethod.Post, "", new
+        {
+            operationId = _queueOperation.Value, templateId = template, profileId = profile,
+            recipient = _recipient, variables
+        }, async () => { _queueOperation = null; _recipient = _variableValues = ""; await LoadAllAsync(); });
+    }
+
+    private Task DeactivateTemplateAsync(DeliveryTemplate item) => WriteAsync<DeliveryTemplate>(HttpMethod.Post,
+        $"templates/{item.Id:D}/deactivate", new { version = item.Version }, LoadAllAsync);
+    private Task DeactivateProfileAsync(DeliveryProfile item) => WriteAsync<DeliveryProfile>(HttpMethod.Post,
+        $"profiles/{item.Id:D}/deactivate", new { version = item.Version }, LoadAllAsync);
+    private Task CancelAsync(DeliveryRequest item) => WriteAsync<DeliveryRequest>(HttpMethod.Post,
+        $"{item.Id:D}/cancel", new { version = item.Version }, LoadAllAsync);
+
+    private async Task WriteAsync<T>(HttpMethod method, string suffix, object body, Func<Task> success)
+        where T : class
+    {
+        if (_busy) return; _busy = true; _error = null;
+        try
+        {
+            var path = $"api/v1/collaboration/deliveries/{ScopeKey}" + (suffix.Length == 0 ? "" : "/" + suffix);
+            var result = await Api.WriteInventoryAsync<T>(method, path, body, UserId);
+            if (result.StatusCode is >= 200 and < 300 && result.Error is null && result.Value is not null)
+            { _busy = false; await success(); }
+            else _error = (result.StatusCode, result.Code, result.Error);
+        }
+        finally { _busy = false; if (!_disposed) StateHasChanged(); }
+    }
+
+    private async Task LoadAsync(Func<CancellationToken, Task> load)
+    {
+        _request?.Cancel(); _request?.Dispose(); var request = _request = new(); _busy = true; _error = null;
+        try { await load(request.Token); }
+        catch (OperationCanceledException) when (request.IsCancellationRequested) { }
+        finally { if (ReferenceEquals(_request, request)) _request = null; request.Dispose(); _busy = false; }
+    }
+
+    private async Task MoveTemplatesAsync(int direction) { _templateOffset = Move(_templateOffset, direction); await LoadAllAsync(); }
+    private async Task MoveProfilesAsync(int direction) { _profileOffset = Move(_profileOffset, direction); await LoadAllAsync(); }
+    private async Task MoveRequestsAsync(int direction) { _requestOffset = Move(_requestOffset, direction); await LoadAllAsync(); }
+    private void ResetQueueOperation() => _queueOperation = null;
+    private static int Move(int offset, int direction) => Math.Max(0, offset + direction * PageSize);
+    private bool Can(string permission) => Scope.Permissions.Contains(permission, StringComparer.Ordinal);
+    private static bool TryVariables(string input, out IReadOnlyList<DeliveryVariable> variables)
+    {
+        var items = new List<DeliveryVariable>(); var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var raw in input.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separator = raw.IndexOf('=');
+            if (separator <= 0 || separator == raw.Length - 1) { variables = []; return false; }
+            var name = raw[..separator].Trim(); var value = raw[(separator + 1)..].Trim();
+            if (name.Length == 0 || value.Length == 0 || !names.Add(name)) { variables = []; return false; }
+            items.Add(new(name, value));
+        }
+        variables = items; return true;
+    }
+
+    private RenderFragment TemplateTable() => @<div class="bwk-table-scroll"><table><thead><tr><th>@T("deliveryAdmin.name", "이름", "Name")</th><th>@T("deliveryAdmin.subject", "제목", "Subject")</th><th>@T("deliveryAdmin.variables", "변수", "Variables")</th><th>@T("deliveryAdmin.state", "상태", "State")</th><th>@T("deliveryOps.actions", "작업", "Actions")</th></tr></thead><tbody>@foreach (var item in _templates?.Items ?? []) { <tr data-template="@item.Id"><td>@item.Name</td><td>@item.Subject</td><td>@string.Join(", ", item.Variables)</td><td>@Active(item.Active)</td><td>@if (item.Active && Can("delivery.manage-template")) { <button type="button" data-deactivate-template="@item.Id" @onclick="() => DeactivateTemplateAsync(item)">@T("deliveryAdmin.deactivate", "비활성화", "Deactivate")</button> }</td></tr> }</tbody></table></div>;
+    private RenderFragment ProfileTable() => @<div class="bwk-table-scroll"><table><thead><tr><th>@T("deliveryAdmin.name", "이름", "Name")</th><th>@T("deliveryAdmin.provider", "Provider", "Provider")</th><th>@T("deliveryAdmin.retryPolicy", "재시도 정책", "Retry policy")</th><th>@T("deliveryAdmin.state", "상태", "State")</th><th>@T("deliveryOps.actions", "작업", "Actions")</th></tr></thead><tbody>@foreach (var item in _profiles?.Items ?? []) { <tr data-profile="@item.Id"><td>@item.Name</td><td>@item.ProviderKey</td><td>@item.RetryPolicy.MaxAttempts / @item.RetryPolicy.InitialDelay.TotalSeconds.ToString(CultureInfo.InvariantCulture)s</td><td>@Active(item.Active)</td><td>@if (item.Active && Can("delivery.manage-profile")) { <button type="button" data-deactivate-profile="@item.Id" @onclick="() => DeactivateProfileAsync(item)">@T("deliveryAdmin.deactivate", "비활성화", "Deactivate")</button> }</td></tr> }</tbody></table></div>;
+    private RenderFragment RequestTable() => @<div class="bwk-table-scroll"><table><thead><tr><th>@T("deliveryAdmin.recipient", "수신자", "Recipient")</th><th>@T("deliveryAdmin.provider", "Provider", "Provider")</th><th>@T("deliveryAdmin.state", "상태", "State")</th><th>@T("deliveryOps.attempts", "시도", "Attempts")</th><th>@T("deliveryAdmin.createdAt", "생성 시각 (UTC)", "Created at (UTC)")</th><th>@T("deliveryOps.actions", "작업", "Actions")</th></tr></thead><tbody>@foreach (var item in _requests?.Items ?? []) { <tr data-request="@item.Id"><td>@item.Payload.Recipient</td><td>@item.Payload.ProviderKey</td><td>@item.State</td><td>@item.AttemptCount</td><td>@item.CreatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)</td><td>@if ((item.State is DeliveryState.Pending or DeliveryState.RetryScheduled) && Can("delivery.cancel")) { <button type="button" data-cancel-request="@item.Id" @onclick="() => CancelAsync(item)">@T("deliveryAdmin.cancel", "취소", "Cancel")</button> }</td></tr> }</tbody></table></div>;
+    private RenderFragment Pager(string name, int offset, long? total, Func<int, Task> move) => @<nav class="bwk-pager" aria-label="@name"><button type="button" disabled="@(_busy || offset == 0)" @onclick="() => move(-1)">@T("inventory.previous", "이전 페이지", "Previous page")</button><span>@T("inventory.total", "전체", "Total") @(total ?? 0)</span><button type="button" disabled="@(_busy || !total.HasValue || (long)offset + PageSize >= total || offset > int.MaxValue - PageSize)" @onclick="() => move(1)">@T("inventory.next", "다음 페이지", "Next page")</button></nav>;
+    private RenderFragment Failure((int Status, string? Code, string? Error) error) => @<div role="alert" data-status="@error.Status"><p>@T("deliveryAdmin.requestFailed", "요청을 완료하지 못했습니다.", "The request could not be completed.")</p>@if (!string.IsNullOrWhiteSpace(error.Code)) { <span class="bwk-id">@error.Code</span> }</div>;
+    private string Active(bool active) => active ? T("deliveryAdmin.active", "활성", "Active") : T("deliveryAdmin.inactive", "비활성", "Inactive");
+    private string T(string key, string ko, string en) => Ui.T(key, Ui.Language == "EnUs" ? en : ko);
+    public void Dispose() { _disposed = true; _request?.Cancel(); _request?.Dispose(); _request = null; }
+}

@@ -272,6 +272,17 @@ public sealed class DeliveryPersistenceTests
         }
 
         var ordered = requests.OrderBy(value => value.Id).ToArray();
+        var templates = await bridge.ListTemplatesAsync("delivery-reader", _tenant, _organization);
+        templates.Total.Should().Be(1);
+        templates.Items.Single().Id.Should().Be(template.Id);
+        var profiles = await bridge.ListProfilesAsync("delivery-reader", _tenant, _organization);
+        profiles.Total.Should().Be(1);
+        profiles.Items.Single().Id.Should().Be(profile.Id);
+        var requestPage = await bridge.ListRequestsAsync("delivery-reader", _tenant, _organization, 0, 1);
+        requestPage.Total.Should().Be(2);
+        requestPage.Items.Single().Id.Should().Be(ordered[0].Id);
+        (await bridge.ListRequestsAsync("delivery-reader", _tenant, _organization, 1, 1))
+            .Items.Single().Id.Should().Be(ordered[1].Id);
         var firstPage = await bridge.ListDeadLettersAsync(
             "delivery-reader", _tenant, _organization, 0, 1);
         firstPage.Total.Should().Be(2);
