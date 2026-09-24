@@ -54,7 +54,7 @@ public sealed class Module
     /// <summary>Expense directories, entries, reimbursements and invoice linkage.</summary>
     public IExpenseBridge GetExpenseBridge() => _expenseBridge;
 
-    /// <summary>Currency-separated financial snapshots and deterministic CSV exports.</summary>
+    /// <summary>Currency-separated document-date financial and payment-date cash-inflow reports.</summary>
     public IFinancialReportBridge GetFinancialReportBridge() => _financialReportBridge;
 
     /// <summary>Monthly billing, income and expense rules with durable occurrence identity.</summary>

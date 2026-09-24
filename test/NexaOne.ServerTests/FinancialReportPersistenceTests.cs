@@ -83,16 +83,18 @@ public sealed class FinancialReportPersistenceTests
             new(contact.Id, new(2026, 9, 10), new(2026, 10, 10), "KRW", [new("Service", 100m, 1m)]));
         invoice = await _bridge.MarkSentAsync("report-user", _tenant, _organization,
             invoice.Id, invoice.Version);
-        await _bridge.RecordPaymentAsync("report-user", _tenant, _organization, Guid.NewGuid(),
+        var payment = await _bridge.RecordPaymentAsync("report-user", _tenant, _organization, Guid.NewGuid(),
             new(invoice.Id, 40m, "KRW", new(2026, 9, 11, 0, 0, 0, TimeSpan.Zero), PaymentMethod.BankTransfer));
         await _bridge.CreateDocumentAsync("report-user", _tenant, _organization, Guid.NewGuid(),
             BillingKind.Invoice,
             new(contact.Id, new(2026, 9, 14), new(2026, 10, 14), "KRW", [new("Draft", 500m, 1m)]));
         var outsideInvoice = await _bridge.CreateDocumentAsync("report-user", _tenant, _organization,
             Guid.NewGuid(), BillingKind.Invoice,
-            new(contact.Id, new(2026, 10, 1), new(2026, 10, 31), "KRW", [new("Outside", 700m, 1m)]));
-        await _bridge.MarkSentAsync("report-user", _tenant, _organization,
+            new(contact.Id, new(2026, 10, 1), new(2026, 10, 31), "USD", [new("Outside", 700m, 1m)]));
+        outsideInvoice = await _bridge.MarkSentAsync("report-user", _tenant, _organization,
             outsideInvoice.Id, outsideInvoice.Version);
+        await _bridge.RecordPaymentAsync("report-user", _tenant, _organization, Guid.NewGuid(),
+            new(outsideInvoice.Id, 5m, "USD", new(2026, 9, 30, 23, 59, 59, TimeSpan.Zero), PaymentMethod.Cash));
 
         var incomeRule = await _bridge.CreateRuleAsync("report-user", _tenant, _organization,
             Guid.NewGuid(), new("Monthly income", new(new(2026, 9, 1), null, 30),
@@ -133,11 +135,25 @@ public sealed class FinancialReportPersistenceTests
             .And.Contain("USD,0,0,0,0,1,25.5,0,0,0,0\r\n");
         csv.IndexOf("KRW,", StringComparison.Ordinal).Should()
             .BeLessThan(csv.IndexOf("USD,", StringComparison.Ordinal));
+
+        var cashPeriod = new CashFlowReportPeriod(new(2026, 9, 1), new(2026, 9, 30));
+        var cash = await reporting.BuildCashFlowAsync("report-user", _tenant, _organization, cashPeriod);
+        cash.Currencies.Should().Equal(
+            new CashFlowCurrencyTotals("KRW", 1, 40m),
+            new CashFlowCurrencyTotals("USD", 1, 5m));
+        (await reporting.ExportCashFlowCsvAsync("report-user", _tenant, _organization, cashPeriod))
+            .Should().Contain("currency,payment_count,received\r\nKRW,1,40\r\nUSD,1,5\r\n");
+        await _bridge.CancelPaymentAsync("report-user", _tenant, _organization,
+            payment.Id, payment.Version, "exclude correction");
+        (await reporting.BuildCashFlowAsync("report-user", _tenant, _organization, cashPeriod))
+            .Currencies.Should().Equal(new CashFlowCurrencyTotals("USD", 1, 5m));
         using var connection = new SqliteConnection(_connectionString);
         connection.Open();
         connection.ExecuteScalar<long>("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name IN "
             + "('IX_ERP_BILLING_DOCUMENT_REPORT','IX_ERP_INCOME_REPORT','IX_ERP_EXPENSE_REPORT')")
             .Should().Be(3);
+        connection.ExecuteScalar<long>("SELECT COUNT(*) FROM sqlite_master WHERE type='index' "
+            + "AND name='IX_ERP_BILLING_PAYMENT_CASH_FLOW'").Should().Be(1);
     }
 
     [Fact]

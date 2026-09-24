@@ -8,7 +8,7 @@ namespace NexaOne.ERP.Infrastructure;
 
 public sealed partial class BillingBridge : IFinancialReportBridge
 {
-    private const int MaxFinancialReportSourceRows = 100_000;
+    private const int MaxReportSourceRows = 100_000;
 
     Task<BusinessPage<BusinessMembership>> IFinancialReportBridge.ListAccessibleScopesAsync(
         string userId, int offset, int limit, CancellationToken ct)
@@ -67,6 +67,16 @@ public sealed partial class BillingBridge : IFinancialReportBridge
         => RunFinancialReport(userId, tenantId, organizationId, async (service, session) =>
             FinancialReportService.ExportCsv(await service.BuildAsync(session.Actor, period, ct)), ct);
 
+    public Task<CashFlowReport> BuildCashFlowAsync(string userId, Guid tenantId, Guid organizationId,
+        CashFlowReportPeriod period, CancellationToken ct = default)
+        => RunCashFlowReport(userId, tenantId, organizationId,
+            (service, session) => service.BuildAsync(session.Actor, period, ct), ct);
+
+    public Task<string> ExportCashFlowCsvAsync(string userId, Guid tenantId, Guid organizationId,
+        CashFlowReportPeriod period, CancellationToken ct = default)
+        => RunCashFlowReport(userId, tenantId, organizationId, async (service, session) =>
+            CashFlowReportService.ExportCsv(await service.BuildAsync(session.Actor, period, ct)), ct);
+
     private Task<T> RunFinancialReport<T>(string userId, Guid tenantId, Guid organizationId,
         Func<FinancialReportService, Session, Task<T>> action, CancellationToken ct)
     {
@@ -87,7 +97,28 @@ public sealed partial class BillingBridge : IFinancialReportBridge
         }, IsolationLevel.Serializable, ct);
     }
 
-    private sealed partial class Session : IAtomicBusinessStore<IFinancialReportTransaction>, IFinancialReportTransaction
+    private Task<T> RunCashFlowReport<T>(string userId, Guid tenantId, Guid organizationId,
+        Func<CashFlowReportService, Session, Task<T>> action, CancellationToken ct)
+    {
+        if (!ValidText(userId, 50) || tenantId == Guid.Empty || organizationId == Guid.Empty)
+            throw Failure("BUSINESS_ACCESS_DENIED");
+        return _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
+        {
+            var session = new Session(connection, transaction, _timeout,
+                new("NexaOne.MES", Text(tenantId), Text(organizationId)), _memberships, _masters, _clock);
+            try
+            {
+                await session.Authorize(userId, "financial-report.read", ct);
+                var result = await action(new CashFlowReportService(session, session, _clock), session);
+                ct.ThrowIfCancellationRequested();
+                return result;
+            }
+            finally { session.Close(); }
+        }, IsolationLevel.Serializable, ct);
+    }
+
+    private sealed partial class Session : IAtomicBusinessStore<IFinancialReportTransaction>, IFinancialReportTransaction,
+        IAtomicBusinessStore<ICashFlowReportTransaction>, ICashFlowReportTransaction
     {
         async Task<T> IAtomicBusinessStore<IFinancialReportTransaction>.ExecuteAsync<T>(BusinessScope requestedScope,
             Func<IFinancialReportTransaction, CancellationToken, Task<T>> work, CancellationToken ct)
@@ -96,6 +127,34 @@ public sealed partial class BillingBridge : IFinancialReportBridge
             var result = await work(this, ct);
             ct.ThrowIfCancellationRequested();
             return result;
+        }
+
+        async Task<T> IAtomicBusinessStore<ICashFlowReportTransaction>.ExecuteAsync<T>(BusinessScope requestedScope,
+            Func<ICashFlowReportTransaction, CancellationToken, Task<T>> work, CancellationToken ct)
+        {
+            EnsureExecution(requestedScope, ct);
+            var result = await work(this, ct);
+            ct.ThrowIfCancellationRequested();
+            return result;
+        }
+
+        public async Task<CashFlowReportSource> ReadCashFlowReportSourceAsync(
+            DateOnly start, DateOnly end, CancellationToken ct)
+        {
+            var values = new
+            {
+                Start = new DateTimeOffset(start.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero).Ticks,
+                End = new DateTimeOffset(end.ToDateTime(TimeOnly.MaxValue), TimeSpan.Zero).Ticks
+            };
+            var count = await Scalar<long>("SELECT COUNT(*) FROM ERP_BILLING_PAYMENT WHERE "
+                + ScopeWhere + " AND STATE=0 AND PAID_AT_TICKS>=@Start AND PAID_AT_TICKS<=@End", values, ct);
+            if (count < 0 || count > MaxReportSourceRows) throw Failure("CASH_FLOW_REPORT_TOO_LARGE");
+            var rows = await Rows<PaymentRow>("SELECT " + PaymentColumns
+                + " FROM ERP_BILLING_PAYMENT WHERE " + ScopeWhere
+                + " AND STATE=0 AND PAID_AT_TICKS>=@Start AND PAID_AT_TICKS<=@End"
+                + " ORDER BY PAID_AT_TICKS,PAYMENT_ID", values, ct);
+            if (rows.LongLength != count) throw Failure("STORAGE_CONTRACT_VIOLATION");
+            return new(Array.AsReadOnly(rows.Select(Payment).ToArray()));
         }
 
         public async Task<FinancialReportSource> ReadFinancialReportSourceAsync(
@@ -109,9 +168,9 @@ public sealed partial class BillingBridge : IFinancialReportBridge
             var expenseCount = await Scalar<long>("SELECT COUNT(*) FROM ERP_EXPENSE WHERE "
                 + ScopeWhere + " AND STATE=0 AND VALUE_DATE>=@Start AND VALUE_DATE<=@End", values, ct);
             if (invoiceCount < 0 || incomeCount < 0 || expenseCount < 0
-                || invoiceCount > MaxFinancialReportSourceRows
-                || incomeCount > MaxFinancialReportSourceRows - invoiceCount
-                || expenseCount > MaxFinancialReportSourceRows - invoiceCount - incomeCount)
+                || invoiceCount > MaxReportSourceRows
+                || incomeCount > MaxReportSourceRows - invoiceCount
+                || expenseCount > MaxReportSourceRows - invoiceCount - incomeCount)
                 throw Failure("FINANCIAL_REPORT_TOO_LARGE");
 
             var documentRows = await Rows<DocumentRow>("SELECT " + DocumentColumns

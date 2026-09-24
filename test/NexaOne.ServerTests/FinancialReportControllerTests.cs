@@ -31,6 +31,14 @@ public sealed class FinancialReportControllerTests
             .ReturnsAsync(report);
         bridge.Setup(x => x.ExportCsvAsync("report-user", tenant, organization, period, cancellation.Token))
             .ReturnsAsync(csv);
+        var cashPeriod = new CashFlowReportPeriod(period.Start, period.End);
+        var cash = new CashFlowReport(report.Scope, cashPeriod, report.GeneratedAt,
+            [new("KRW", 1, 4m)]);
+        const string cashCsv = "currency,payment_count,received\r\nKRW,1,4\r\n";
+        bridge.Setup(x => x.BuildCashFlowAsync("report-user", tenant, organization, cashPeriod, cancellation.Token))
+            .ReturnsAsync(cash);
+        bridge.Setup(x => x.ExportCashFlowCsvAsync("report-user", tenant, organization, cashPeriod, cancellation.Token))
+            .ReturnsAsync(cashCsv);
         var controller = Controller(bridge.Object);
 
         (await controller.Build(tenant, organization, period.Start, period.End, cancellation.Token))
@@ -40,6 +48,12 @@ public sealed class FinancialReportControllerTests
         Encoding.UTF8.GetString(file.FileContents).Should().Be(csv);
         file.ContentType.Should().Be("text/csv; charset=utf-8");
         file.FileDownloadName.Should().Be("financial-report-20260901-20260930.csv");
+        (await controller.BuildCashFlow(tenant, organization, period.Start, period.End, cancellation.Token))
+            .Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(cash);
+        var cashFile = (await controller.ExportCashFlowCsv(tenant, organization, period.Start, period.End,
+            cancellation.Token)).Should().BeOfType<FileContentResult>().Which;
+        Encoding.UTF8.GetString(cashFile.FileContents).Should().Be(cashCsv);
+        cashFile.FileDownloadName.Should().Be("cash-flow-report-20260901-20260930.csv");
         bridge.VerifyAll(); bridge.VerifyNoOtherCalls();
     }
 
