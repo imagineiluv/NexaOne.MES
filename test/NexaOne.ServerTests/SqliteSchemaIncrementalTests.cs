@@ -3101,6 +3101,9 @@ public sealed class SqliteSchemaIncrementalTests
             SqliteSchemaInitializer.EnsureSchema(cs, [new ErpBillingSqliteSchemaContribution()]);
 
             Columns(cs, "ERP_BILLING_DOCUMENT").Should().Contain("CREDITED", "ADJUSTED_INVOICE_ID");
+            TableExists(cs, "ERP_BILLING_SHARE_LINK").Should().BeTrue();
+            TableExists(cs, "ERP_BILLING_SHARE_ACCESS").Should().BeTrue();
+            TableExists(cs, "ERP_BILLING_SHARE_DELIVERY").Should().BeTrue();
             ScalarString(cs, "SELECT CREDITED FROM ERP_BILLING_DOCUMENT WHERE DOCUMENT_ID='invoice'")
                 .Should().Be("0");
             IndexExists(cs, "IX_ERP_BILLING_DOCUMENT_ADJUSTED").Should().BeTrue();

@@ -22,7 +22,8 @@ public sealed class BillingPersistenceTests : IClassFixture<BusinessMembershipDa
     private readonly Guid _organization = Guid.NewGuid();
     private readonly BillingBridge _bridge;
     private readonly BusinessMembershipBridge _memberships;
-    private static readonly string[] Grants = ["billing.read", "billing.write", "billing.decide", "billing.pay", "billing.credit"];
+    private static readonly string[] Grants = ["billing.read", "billing.write", "billing.decide", "billing.pay", "billing.credit", "billing.deliver",
+        "delivery.manage-template", "delivery.manage-profile", "delivery.queue"];
     private static readonly DateOnly Issued = new(2026, 9, 22), Due = new(2026, 10, 22);
     private static readonly DateTimeOffset PaidAt = new(2026, 9, 22, 9, 0, 0, TimeSpan.Zero);
 
@@ -49,7 +50,7 @@ public sealed class BillingPersistenceTests : IClassFixture<BusinessMembershipDa
     }
     public Task DisposeAsync() { File.Delete(_path); return Task.CompletedTask; }
     private EesDataSource DataSource() => new() { Provider = new SqliteProvider(), ConnectionString = _connectionString };
-    private BillingBridge NewBridge() => new(DataSource(), new BusinessMembershipBridge(DataSource()), new BusinessMasterDirectory(DataSource()));
+    private BillingBridge NewBridge(TimeProvider? clock = null) => new(DataSource(), new BusinessMembershipBridge(DataSource()), new BusinessMasterDirectory(DataSource()), clock);
     private void Execute(string sql, object? values = null) { using var c = new SqliteConnection(_connectionString); c.Open(); c.Execute(sql, values); }
     private T Scalar<T>(string sql, object? values = null) { using var c = new SqliteConnection(_connectionString); c.Open(); return c.ExecuteScalar<T>(sql, values)!; }
     private long Count(string table) => Scalar<long>("SELECT COUNT(*) FROM " + table);
@@ -74,6 +75,98 @@ public sealed class BillingPersistenceTests : IClassFixture<BusinessMembershipDa
         (actual with { Input = expected.Input }).Should().Be(expected);
         actual.Input.Lines.Should().Equal(expected.Input.Lines);
         (actual.Input with { Lines = expected.Input.Lines }).Should().Be(expected.Input);
+    }
+
+    [Fact]
+    public async Task Public_share_freezes_the_document_audits_access_and_honors_revoke_and_expiry()
+    {
+        var now = new DateTimeOffset(2026, 9, 24, 1, 0, 0, TimeSpan.Zero);
+        var clock = new MutableTimeProvider(now);
+        var bridge = NewBridge(clock);
+        var contact = await bridge.EnrollContactAsync("bill-user", _tenant, _organization, "CUST-1");
+        var draft = await bridge.CreateDocumentAsync("bill-user", _tenant, _organization,
+            Guid.NewGuid(), BillingKind.Invoice, Input(contact.Id, new BillingLine("한글 서비스", 120m, 1m)));
+        await Error(() => bridge.CreateShareAsync("bill-user", _tenant, _organization,
+            Guid.NewGuid(), draft.Id, now.AddHours(1)), "BILLING_DOCUMENT_NOT_DELIVERABLE");
+        var sent = await bridge.MarkSentAsync("bill-user", _tenant, _organization, draft.Id, draft.Version);
+
+        var operation = Guid.NewGuid();
+        var created = await bridge.CreateShareAsync("bill-user", _tenant, _organization,
+            operation, sent.Id, now.AddHours(1));
+        created.Token.Should().NotBeNull().And.HaveLength(43);
+        var replay = await NewBridge(clock).CreateShareAsync("bill-user", _tenant, _organization,
+            operation, sent.Id, now.AddHours(1));
+        replay.Link.Id.Should().Be(created.Link.Id);
+        replay.Token.Should().BeNull("share secrets are returned only once");
+        await Error(() => bridge.CreateShareAsync("bill-user", _tenant, _organization,
+            operation, sent.Id, now.AddHours(2)), "BILLING_OPERATION_REUSED");
+
+        await bridge.RecordPaymentAsync("bill-user", _tenant, _organization, Guid.NewGuid(),
+            new(sent.Id, 20m, "KRW", now, PaymentMethod.BankTransfer));
+        var opened = await NewBridge(clock).OpenPublicShareAsync(created.Token!, "192.0.2.10", "test-agent");
+        opened.View.Document.Paid.Should().Be(0m, "the public link owns an immutable snapshot");
+        opened.View.Contact.Name.Should().Be("고객 하나");
+        opened.Link.AccessCount.Should().Be(1);
+        var access = await bridge.ListShareAccessAsync("bill-user", _tenant, _organization, created.Link.Id);
+        access.Total.Should().Be(1);
+        access.Items.Single().Should().Match<BillingShareAccess>(entry => entry.ClientAddressHash != "192.0.2.10"
+            && entry.ClientAddressHash!.Length == 64 && entry.UserAgent == "test-agent");
+        Scalar<long>("SELECT ACCESS_COUNT FROM ERP_BILLING_SHARE_LINK WHERE SHARE_ID=@id",
+            new { id = created.Link.Id.ToString("D") }).Should().Be(1);
+        Scalar<string>("SELECT TOKEN_HASH FROM ERP_BILLING_SHARE_LINK WHERE SHARE_ID=@id",
+            new { id = created.Link.Id.ToString("D") }).Should().NotBe(created.Token);
+
+        var revoked = await bridge.RevokeShareAsync("bill-user", _tenant, _organization,
+            created.Link.Id, created.Link.Version);
+        revoked.RevokedAt.Should().Be(now);
+        await Error(() => NewBridge(clock).OpenPublicShareAsync(created.Token!, null, null),
+            "BILLING_SHARE_NOT_FOUND");
+
+        var expiring = await bridge.CreateShareAsync("bill-user", _tenant, _organization,
+            Guid.NewGuid(), sent.Id, now.AddMinutes(10));
+        clock.Advance(TimeSpan.FromMinutes(11));
+        await Error(() => NewBridge(clock).OpenPublicShareAsync(expiring.Token!, null, null),
+            "BILLING_SHARE_NOT_FOUND");
+        (await bridge.ListSharesAsync("bill-user", _tenant, _organization, sent.Id)).Total.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Public_share_queues_an_idempotent_email_through_the_delivery_outbox()
+    {
+        var now = new DateTimeOffset(2026, 9, 24, 1, 0, 0, TimeSpan.Zero);
+        var bridge = NewBridge(new MutableTimeProvider(now));
+        var contact = await bridge.EnrollContactAsync("bill-user", _tenant, _organization, "CUST-1");
+        var draft = await bridge.CreateDocumentAsync("bill-user", _tenant, _organization,
+            Guid.NewGuid(), BillingKind.Invoice, Input(contact.Id));
+        var sent = await bridge.MarkSentAsync("bill-user", _tenant, _organization, draft.Id, draft.Version);
+        var share = await bridge.CreateShareAsync("bill-user", _tenant, _organization,
+            Guid.NewGuid(), sent.Id, now.AddHours(1));
+        var template = await bridge.CreateTemplateAsync("bill-user", _tenant, _organization,
+            "Invoice link", "Invoice {{documentNumber}}", "{{customerName}}: {{publicUrl}} ({{expiresAt}})",
+            ["documentNumber", "customerName", "publicUrl", "expiresAt"]);
+        var profile = await bridge.CreateProfileAsync("bill-user", _tenant, _organization,
+            "SMTP", "smtp", "secret://smtp", new(3, TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(1)));
+        var operation = Guid.NewGuid();
+        var publicUrl = $"https://billing.example.test/api/v1/erp/billing/public/{share.Token}/pdf";
+
+        var queued = await bridge.QueueShareDeliveryAsync("bill-user", _tenant, _organization,
+            operation, share.Link.Id, share.Token!, template.Id, profile.Id, "customer@example.test", publicUrl);
+        var replay = await NewBridge(new MutableTimeProvider(now)).QueueShareDeliveryAsync("bill-user",
+            _tenant, _organization, operation, share.Link.Id, share.Token!, template.Id, profile.Id,
+            "customer@example.test", publicUrl);
+
+        replay.Delivery.Id.Should().Be(queued.Delivery.Id);
+        queued.Delivery.Payload.Subject.Should().Be("Invoice 1");
+        queued.Delivery.Payload.Body.Should().Contain("고객 하나").And.Contain(publicUrl);
+        Count("COL_DELIVERY_REQUEST").Should().Be(1);
+        Count("ERP_BILLING_SHARE_DELIVERY").Should().Be(1);
+        var history = await bridge.ListShareDeliveriesAsync("bill-user", _tenant, _organization,
+            share.Link.Id);
+        history.Total.Should().Be(1);
+        history.Items.Single().Delivery.Id.Should().Be(queued.Delivery.Id);
+        await Error(() => bridge.QueueShareDeliveryAsync("bill-user", _tenant, _organization,
+            Guid.NewGuid(), share.Link.Id, new string('x', 43), template.Id, profile.Id,
+            "customer@example.test", publicUrl), "BILLING_SHARE_NOT_FOUND");
     }
 
     [Fact]
@@ -293,5 +386,12 @@ public sealed class BillingPersistenceTests : IClassFixture<BusinessMembershipDa
         await Error(() => _bridge.CancelPaymentAsync("bill-user", _tenant, _organization, Guid.NewGuid(), Guid.NewGuid(), null), "PAYMENT_NOT_FOUND");
         Count("ERP_BILLING_PAYMENT").Should().Be(0);
         (await Read(draft.Id)).Paid.Should().Be(0m);
+    }
+
+    private sealed class MutableTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        private DateTimeOffset _now = now;
+        public override DateTimeOffset GetUtcNow() => _now;
+        public void Advance(TimeSpan duration) => _now = _now.Add(duration);
     }
 }

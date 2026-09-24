@@ -114,6 +114,30 @@ public sealed class BillingHostTests(ITestOutputHelper output)
         (await Body<BillingDocument>(await member.GetAsync(route + $"/documents/{estimate.Id}"))).ConvertedToId.Should().Be(invoice.Id);
         var invoiceSent = await Body<BillingDocument>(await member.PostAsJsonAsync(route + $"/documents/{invoice.Id}/sent", new BillingController.VersionedCommand(invoice.Version), HttpJson));
 
+        using (var pdf = await member.GetAsync(route + $"/documents/{invoice.Id}/pdf"))
+        {
+            pdf.StatusCode.Should().Be(HttpStatusCode.OK, await pdf.Content.ReadAsStringAsync());
+            pdf.Content.Headers.ContentType!.MediaType.Should().Be("application/pdf");
+            (await pdf.Content.ReadAsByteArrayAsync()).Should().StartWith([0x25, 0x50, 0x44, 0x46]);
+        }
+        var share = await Body<BillingController.ShareCreated>(await member.PostAsJsonAsync(
+            route + $"/documents/{invoice.Id}/shares",
+            new BillingController.ShareCreate(Guid.NewGuid(), DateTimeOffset.UtcNow.AddHours(1)), HttpJson));
+        share.SecretReturned.Should().BeTrue();
+        share.PublicUrl.Should().NotBeNull();
+        using (var publicPdf = await admin.GetAsync(share.PublicUrl))
+        {
+            publicPdf.StatusCode.Should().Be(HttpStatusCode.OK, await publicPdf.Content.ReadAsStringAsync());
+            publicPdf.Content.Headers.ContentType!.MediaType.Should().Be("application/pdf");
+            publicPdf.Headers.CacheControl!.NoStore.Should().BeTrue();
+            publicPdf.Headers.GetValues("Referrer-Policy").Should().Equal("no-referrer");
+        }
+        (await Body<BusinessPage<BillingShareAccess>>(await member.GetAsync(
+            route + $"/shares/{share.Link.Id}/access"))).Total.Should().Be(1);
+        await Body<BillingShareLink>(await member.PostAsJsonAsync(route + $"/shares/{share.Link.Id}/revoke",
+            new BillingController.VersionedCommand(share.Link.Version), HttpJson));
+        await Error(await admin.GetAsync(share.PublicUrl), HttpStatusCode.NotFound, "BILLING_SHARE_NOT_FOUND");
+
         var paymentRoute = route + $"/documents/{invoice.Id}/payments";
         var pay = new BillingController.PaymentCommand(Guid.NewGuid(), new(invoice.Id, 100m, "KRW", new(2026, 9, 22, 9, 0, 0, TimeSpan.Zero), PaymentMethod.BankTransfer, "TX"));
         var payment = await Body<PaymentRecord>(await member.PostAsJsonAsync(paymentRoute, pay, HttpJson));
@@ -256,8 +280,9 @@ public sealed class BillingMssqlTests(ITestOutputHelper output)
     {
         var h = await Harness.CreateAsync(output);
         string[] tables = ["ERP_BILLING_CONTACT", "ERP_BILLING_NUMBER", "ERP_BILLING_DOCUMENT", "ERP_BILLING_LINE", "ERP_BILLING_PAYMENT", "ERP_BILLING_AUDIT",
-            "ERP_AUTOMATIC_BILLING_GENERATION", "ERP_AUTOMATIC_BILLING_SOURCE"];
-        (await h.Database.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id=SCHEMA_ID('dbo') AND name IN @tables", new { tables })).Should().Be(8);
+            "ERP_AUTOMATIC_BILLING_GENERATION", "ERP_AUTOMATIC_BILLING_SOURCE", "ERP_BILLING_SHARE_LINK",
+            "ERP_BILLING_SHARE_ACCESS", "ERP_BILLING_SHARE_DELIVERY"];
+        (await h.Database.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id=SCHEMA_ID('dbo') AND name IN @tables", new { tables })).Should().Be(11);
         (await h.Database.ScalarAsync<int>("""
             SELECT COUNT(*) FROM sys.columns c JOIN sys.tables t ON c.object_id=t.object_id
              WHERE t.schema_id=SCHEMA_ID('dbo') AND TYPE_NAME(c.user_type_id)='varchar'
@@ -278,6 +303,12 @@ public sealed class BillingMssqlTests(ITestOutputHelper output)
         var second = await h.Bridge.CreateDocumentAsync(h.Seed.User, h.Tenant, h.Organization, Guid.NewGuid(), BillingKind.Invoice, input);
         (estimate.Number, invoice.Number, second.Number).Should().Be((1L, 1L, 2L));
         var invoiceSent = await h.Bridge.MarkSentAsync(h.Seed.User, h.Tenant, h.Organization, invoice.Id, invoice.Version);
+        var share = await h.Bridge.CreateShareAsync(h.Seed.User, h.Tenant, h.Organization,
+            Guid.NewGuid(), invoice.Id, DateTimeOffset.UtcNow.AddHours(1));
+        (await h.Bridge.OpenPublicShareAsync(share.Token!, "192.0.2.1", "mssql-contract"))
+            .View.Document.Id.Should().Be(invoice.Id);
+        (await h.Bridge.ListShareAccessAsync(h.Seed.User, h.Tenant, h.Organization, share.Link.Id))
+            .Total.Should().Be(1);
         var payment = await h.Bridge.RecordPaymentAsync(h.Seed.User, h.Tenant, h.Organization, Guid.NewGuid(),
             new(invoice.Id, 0.000001m, "KRW", new(2026, 9, 22, 9, 0, 0, TimeSpan.Zero), PaymentMethod.Cash, "TX", "메모"));
         var paid = await h.Bridge.GetDocumentAsync(h.Seed.User, h.Tenant, h.Organization, invoice.Id);
@@ -372,7 +403,7 @@ internal sealed class BillingProductSeed
     // Legal six-place decimal near the Framework limit, with digits a binary double cannot preserve.
     public const decimal PreciseAmount = 899999999999.123456m;
     public static readonly string[] Grants =
-        ["billing.read", "billing.write", "billing.decide", "billing.pay", "billing.credit", "financial-report.read"];
+        ["billing.read", "billing.write", "billing.decide", "billing.pay", "billing.credit", "billing.deliver", "financial-report.read"];
     public string Plant { get; } = "BLP-" + Guid.NewGuid().ToString("N");
     public string Customer { get; } = "BLC-" + Guid.NewGuid().ToString("N");
     public string Role { get; } = "BLR-" + Guid.NewGuid().ToString("N");
