@@ -3041,6 +3041,27 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V185_delivery_dead_letter_operations_are_available_on_fresh_and_incremental_startup()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            TableExists(cs, "COL_DELIVERY_DEAD_LETTER_OPERATION").Should().BeTrue();
+            Columns(cs, "COL_DELIVERY_DEAD_LETTER_OPERATION").Should().Contain(
+                "OPERATION_ID", "DELIVERY_ID", "ACTION", "RESULT_VERSION", "ACTOR_ID",
+                "OCCURRED_AT_TICKS", "PAYLOAD");
+            IndexExists(cs, "IX_COL_DELIVERY_REQUEST_DEAD_LETTER").Should().BeTrue();
+            IndexKeys(cs, "IX_COL_DELIVERY_REQUEST_DEAD_LETTER").Should().Equal(
+                "TENANT_ID:ASC", "ORGANIZATION_ID:ASC", "STATE:ASC", "DELIVERY_ID:ASC");
+
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            TableExists(cs, "COL_DELIVERY_DEAD_LETTER_OPERATION").Should().BeTrue();
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { } }
+    }
+
+    [Fact]
     public void V160_database_principal_security_is_a_fresh_and_incremental_sqlite_no_op()
     {
         var cs = NewDb();

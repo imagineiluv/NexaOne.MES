@@ -20,7 +20,7 @@ public sealed class DeliveryPersistenceTests
     private static readonly string[] Grants =
     [
         "delivery.manage-template", "delivery.manage-profile", "delivery.queue",
-        "delivery.read", "delivery.cancel"
+        "delivery.read", "delivery.cancel", "delivery.manage-dead-letter"
     ];
     private readonly string _path;
     private readonly string _connectionString;
@@ -242,6 +242,72 @@ public sealed class DeliveryPersistenceTests
         dead.State.Should().Be(DeliveryState.DeadLetter);
         dead.LastErrorCode.Should().Be("DELIVERY_LEASE_EXPIRED");
         dead.LastLeaseId.Should().Be(abandonedLease.LeaseId);
+    }
+
+    [Fact]
+    public async Task Dead_letter_list_retry_and_discard_are_scoped_paged_and_operation_idempotent()
+    {
+        var clock = new MutableTimeProvider(new DateTimeOffset(2026, 9, 24, 5, 0, 0, TimeSpan.Zero));
+        var bridge = NewBridge(clock);
+        IDeliveryAutomationBridge automation = bridge;
+        (await automation.SavePrincipalAsync("admin", "mail-operator", new(0, "Mail operator", true)))
+            .IsSuccess.Should().BeTrue();
+        var scope = (await automation.SaveScopeAsync(
+            "admin", "mail-operator", _tenant, _organization, new(0, true))).Value;
+        var template = await bridge.CreateTemplateAsync("delivery-user", _tenant, _organization,
+            "Operations", "Subject", "Body");
+        var profile = await bridge.CreateProfileAsync("delivery-user", _tenant, _organization,
+            "One attempt", "smtp", "mail-primary", new(1, TimeSpan.FromSeconds(10), TimeSpan.FromMinutes(1)));
+        var requests = new List<DeliveryRequest>();
+        foreach (var recipient in new[] { "first@example.com", "second@example.com" })
+        {
+            var queued = await bridge.QueueAsync("delivery-user", _tenant, _organization, Guid.NewGuid(),
+                new(template.Id, profile.Id, recipient));
+            var lease = (await automation.ClaimDueAsync(
+                "mail-operator", _tenant, _organization, scope.Version, 1, TimeSpan.FromMinutes(1))).Single();
+            lease.Id.Should().Be(queued.Id);
+            requests.Add(await automation.FailAsync(
+                "mail-operator", _tenant, _organization, scope.Version,
+                lease.Id, lease.Version, lease.LeaseId!.Value, "DELIVERY_PROVIDER_SEND_FAILED"));
+        }
+
+        var ordered = requests.OrderBy(value => value.Id).ToArray();
+        var firstPage = await bridge.ListDeadLettersAsync(
+            "delivery-reader", _tenant, _organization, 0, 1);
+        firstPage.Total.Should().Be(2);
+        firstPage.Items.Single().Id.Should().Be(ordered[0].Id);
+        (await bridge.ListDeadLettersAsync("delivery-reader", _tenant, _organization, 1, 1))
+            .Items.Single().Id.Should().Be(ordered[1].Id);
+        await Error(() => bridge.RetryDeadLetterAsync("delivery-reader", _tenant, _organization,
+            Guid.NewGuid(), ordered[0].Id, ordered[0].Version), "BUSINESS_ACCESS_DENIED");
+
+        var retryOperation = Guid.NewGuid();
+        var retried = await bridge.RetryDeadLetterAsync("delivery-user", _tenant, _organization,
+            retryOperation, ordered[0].Id, ordered[0].Version);
+        retried.State.Should().Be(DeliveryState.Pending);
+        retried.AttemptCount.Should().Be(0);
+        retried.LastErrorCode.Should().BeNull();
+        var claimed = (await automation.ClaimDueAsync(
+            "mail-operator", _tenant, _organization, scope.Version, 1, TimeSpan.FromMinutes(1))).Single();
+        claimed.Id.Should().Be(retried.Id);
+        var replay = await NewBridge(clock).RetryDeadLetterAsync("delivery-user", _tenant, _organization,
+            retryOperation, ordered[0].Id, ordered[0].Version);
+        replay.Version.Should().Be(claimed.Version, "the operation must not reset a request already reclaimed by the worker");
+        replay.State.Should().Be(DeliveryState.Leased);
+        await Error(() => bridge.DiscardDeadLetterAsync("delivery-user", _tenant, _organization,
+            retryOperation, ordered[0].Id, ordered[0].Version), "DELIVERY_OPERATION_CONFLICT");
+
+        var discardOperation = Guid.NewGuid();
+        var discarded = await bridge.DiscardDeadLetterAsync("delivery-user", _tenant, _organization,
+            discardOperation, ordered[1].Id, ordered[1].Version);
+        discarded.State.Should().Be(DeliveryState.Cancelled);
+        discarded.LastErrorCode.Should().Be("DELIVERY_PROVIDER_SEND_FAILED");
+        (await NewBridge(clock).DiscardDeadLetterAsync("delivery-user", _tenant, _organization,
+            discardOperation, ordered[1].Id, ordered[1].Version)).Version.Should().Be(discarded.Version);
+        (await bridge.ListDeadLettersAsync("delivery-reader", _tenant, _organization)).Total.Should().Be(0);
+        Count("COL_DELIVERY_DEAD_LETTER_OPERATION").Should().Be(2);
+        Scalar<long>("SELECT COUNT(*) FROM ERP_BILLING_AUDIT WHERE RESOURCE_TYPE='delivery' "
+            + "AND OPERATION IN ('dead-letter-retried','dead-letter-discarded')").Should().Be(2);
     }
 
     private sealed class MutableTimeProvider(DateTimeOffset now) : TimeProvider

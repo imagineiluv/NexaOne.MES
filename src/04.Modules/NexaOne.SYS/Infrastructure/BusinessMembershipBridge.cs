@@ -27,7 +27,7 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
         "recurring.read", "recurring.write", "recurring.execute",
         "financial-report.read",
         "delivery.manage-template", "delivery.manage-profile", "delivery.queue", "delivery.read",
-        "delivery.cancel",
+        "delivery.cancel", "delivery.manage-dead-letter",
     };
     private const string MembershipRowsSql = """
         SELECT m.TENANT_ID AS TenantId, m.ORGANIZATION_ID AS OrganizationId,
