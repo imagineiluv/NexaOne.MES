@@ -130,6 +130,20 @@ public sealed class StockHostTests(ITestOutputHelper output)
         var balances = await Body<BusinessPage<StockBalance>>(await member.GetAsync(route + $"/warehouses/{warehouse.Id}/balances?offset=0&limit=50"));
         balances.Total.Should().Be(1);
         balances.Items.Single().Should().BeEquivalentTo(balance);
+        var report = await Body<StockBalanceReport>(await member.GetAsync(route + $"/reports/balances?warehouseId={warehouse.Id}&variantId={variant.Id}"));
+        report.Rows.Should().ContainSingle().Which.Should().BeEquivalentTo(new
+        {
+            WarehouseId = warehouse.Id, WarehouseCode = warehouse.Code, WarehouseName = warehouse.Name,
+            VariantId = variant.Id, ProductId = seed.Product, ProductName = "Stock material", Unit = "kg",
+            OnHand = 999999999999m, Reserved = 0m, Available = 999999999999m
+        });
+        using var csvResponse = await member.GetAsync(route + "/reports/balances/export.csv");
+        csvResponse.StatusCode.Should().Be(HttpStatusCode.OK, await csvResponse.Content.ReadAsStringAsync());
+        csvResponse.Content.Headers.ContentType!.ToString().Should().Be("text/csv; charset=utf-8");
+        csvResponse.Content.Headers.ContentDisposition!.FileNameStar.Should()
+            .Be($"inventory-stock-balances-{tenant:N}-{organization:N}.csv");
+        Encoding.UTF8.GetString(await csvResponse.Content.ReadAsByteArrayAsync()).Should()
+            .Contain("\"RENAMED\"").And.Contain("\"999999999999\",\"0\",\"999999999999\"");
         (await Body<BusinessPage<StockBalance>>(await member.GetAsync(route + $"/warehouses/{warehouse.Id}/balances?variantId={Guid.NewGuid()}"))).Total.Should().Be(0);
         (await Body<BusinessPage<StockBalance>>(await member.GetAsync(route + $"/warehouses/{Guid.NewGuid()}/balances"))).Total.Should().Be(0);
         await Error(await member.GetAsync(route + $"/warehouses/{warehouse.Id}/balances?limit=0"), HttpStatusCode.BadRequest, "INVALID_BUSINESS_INPUT");
@@ -142,6 +156,7 @@ public sealed class StockHostTests(ITestOutputHelper output)
         (await database.ExecuteScalarAsync<string>("SELECT ON_HAND FROM IVT_STOCK_BALANCE")).Should().Be("999999999999");
         await Body<BusinessMembership>(await admin.PutAsJsonAsync(membershipRoute, new BusinessMembershipChange(membership.Version, false, [])));
         await Status(await member.PostAsJsonAsync(route + "/movements", posting), HttpStatusCode.Forbidden);
+        await Status(await member.GetAsync(route + "/reports/balances"), HttpStatusCode.Forbidden);
         (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM IVT_STOCK_MOVEMENT")).Should().Be(2);
     }
 
@@ -567,6 +582,26 @@ public sealed class StockMssqlTests(ITestOutputHelper output)
         (await h.Balance(warehouse)).OnHand.Should().Be(0.123456m);
         (await h.Count("IVT_STOCK_MOVEMENT")).Should().Be(1);
         (await h.Count("IVT_STOCK_AUDIT")).Should().Be(auditBefore + 1);
+    }
+
+    [StockMssqlFact]
+    public async Task Actual_SQL_Server_builds_and_exports_the_current_balance_report()
+    {
+        var h = await Harness.CreateAsync(output);
+        var warehouse = await h.Warehouse("REPORT");
+        await h.Post(new(Guid.NewGuid(), h.Variant.Id, StockMovementKind.Receipt, 7.123456m, null, warehouse.Id, "Report"));
+        await h.Reserve(warehouse, Guid.NewGuid(), 2.000001m);
+
+        var report = await h.Bridge.BuildBalanceReportAsync(h.Seed.User, h.Tenant, h.Organization, warehouse.Id, h.Variant.Id);
+
+        report.Rows.Should().ContainSingle().Which.Should().BeEquivalentTo(new
+        {
+            WarehouseId = warehouse.Id, WarehouseCode = "REPORT", VariantId = h.Variant.Id,
+            ProductId = h.Seed.Product, ProductName = "Stock material", Unit = "kg",
+            OnHand = 7.123456m, Reserved = 2.000001m, Available = 5.123455m
+        });
+        var export = await h.Bridge.ExportBalanceReportCsvAsync(h.Seed.User, h.Tenant, h.Organization, warehouse.Id, h.Variant.Id);
+        Encoding.UTF8.GetString(export.Content).Should().Contain("\"7.123456\",\"2.000001\",\"5.123455\"");
     }
 
     private static async Task Error(Func<Task> action, string code)

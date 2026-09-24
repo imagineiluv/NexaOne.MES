@@ -66,6 +66,17 @@ public sealed class StockController(IStockBridge bridge, ILogger<StockController
             // A missing balance row is a definite answer (nothing recorded), reported as 404 rather than an empty 200 body.
             ?? throw new BusinessException("STOCK_BALANCE_NOT_FOUND"));
 
+    [HttpGet("reports/balances")]
+    public Task<IActionResult> BalanceReport(Guid tenantId, Guid organizationId, [FromQuery] Guid? warehouseId,
+        [FromQuery] Guid? variantId, CancellationToken ct)
+        => Execute(user => bridge.BuildBalanceReportAsync(user, tenantId, organizationId, warehouseId, variantId, ct));
+
+    [HttpGet("reports/balances/export.csv")]
+    public Task<IActionResult> ExportBalanceReport(Guid tenantId, Guid organizationId, [FromQuery] Guid? warehouseId,
+        [FromQuery] Guid? variantId, CancellationToken ct)
+        => Execute(user => bridge.ExportBalanceReportCsvAsync(user, tenantId, organizationId, warehouseId, variantId, ct),
+            export => File(export.Content, export.ContentType, export.FileName));
+
     [HttpPost("movements")]
     public Task<IActionResult> Post(Guid tenantId, Guid organizationId, [FromBody] StockPosting posting, CancellationToken ct)
         => Execute(user => bridge.PostAsync(user, tenantId, organizationId, posting, ct));
@@ -114,15 +125,20 @@ public sealed class StockController(IStockBridge bridge, ILogger<StockController
         return text == ValueProviderResult.None ? query : query with { Text = text.FirstValue };
     }
 
-    private async Task<IActionResult> Execute<T>(Func<string, Task<T>> action)
+    private async Task<IActionResult> Execute<T>(Func<string, Task<T>> action, Func<T, IActionResult>? success = null)
     {
         var userId = User.CurrentUserId();
         if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
-        try { return Ok(await action(userId)); }
+        try
+        {
+            var value = await action(userId);
+            return success is null ? Ok(value) : success(value);
+        }
         catch (BusinessException error)
         {
             if (error.Code == "BUSINESS_ACCESS_DENIED") return Forbid();
             var status = error.Code.EndsWith("_NOT_FOUND", StringComparison.Ordinal) ? 404
+                : error.Code == "STOCK_REPORT_TOO_LARGE" ? StatusCodes.Status413PayloadTooLarge
                 : error.Code.StartsWith("INVALID_", StringComparison.Ordinal) || error.Code == "EXPLICIT_CREATE_OR_VERSIONED_UPDATE_REQUIRED" ? 400 : 409;
             return StatusCode(status, new { code = error.Code });
         }

@@ -47,6 +47,12 @@ public interface IStockBridge : INexaModuleBridge
     Task<ProductVariant> GetVariantAsync(string userId, Guid tenantId, Guid organizationId, Guid id, CancellationToken ct = default);
     Task<BusinessPage<StockBalance>> ListBalancesAsync(string userId, Guid tenantId, Guid organizationId,
         Guid? warehouseId = null, Guid? variantId = null, int offset = 0, int limit = 50, CancellationToken ct = default);
+    /// <summary>Builds a stable, current snapshot of recorded balances. The report fails rather than truncates
+    /// when its bounded export size is exceeded. Requires stock.read.</summary>
+    Task<StockBalanceReport> BuildBalanceReportAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid? warehouseId = null, Guid? variantId = null, CancellationToken ct = default);
+    Task<StockBalanceCsvExport> ExportBalanceReportCsvAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid? warehouseId = null, Guid? variantId = null, CancellationToken ct = default);
     Task<BusinessPage<StockReservation>> ListReservationsAsync(string userId, Guid tenantId, Guid organizationId,
         Guid? variantId = null, Guid? warehouseId = null, StockReservationState? state = null,
         int offset = 0, int limit = 50, CancellationToken ct = default);
