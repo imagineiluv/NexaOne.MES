@@ -156,6 +156,56 @@ public sealed class ExpensePersistenceTests : IClassFixture<BusinessMembershipDa
     }
 
     [Fact]
+    public async Task Automatic_billing_claims_uninvoiced_expenses_once_and_replays_after_restart()
+    {
+        var category = await Category(); var vendor = await Vendor();
+        var contact = await _bridge.EnrollContactAsync("expense-user", _tenant, _organization, "EXP-CUSTOMER");
+        async Task<ExpenseRecord> Expense(decimal amount, DateOnly date, string purpose)
+            => await _bridge.CreateExpenseAsync("expense-user", _tenant, _organization, Guid.NewGuid(),
+                Input(category.Id, vendor.Id, amount: amount) with
+                {
+                    Type = ExpenseType.BillableToContact,
+                    ContactId = contact.Id,
+                    ValueDate = date,
+                    Purpose = purpose,
+                    Tax = null
+                });
+        var first = await Expense(25.5m, new(2026, 9, 20), "Rail");
+        var second = await Expense(10m, new(2026, 9, 21), "Meal");
+        await Expense(99m, new(2026, 8, 31), "Outside period");
+        var operation = Guid.NewGuid();
+        var request = new AutomaticBillingRequest(contact.Id, BillingInvoiceType.DetailedItems,
+            new(2026, 9, 1), new(2026, 9, 30), new(2026, 9, 30), new(2026, 10, 30), "KRW");
+        var generated = await _bridge.GenerateAutomaticInvoiceAsync("expense-user", _tenant, _organization,
+            operation, request);
+        generated.Document.Totals.Total.Should().Be(35.5m);
+        generated.Document.Input.Lines.Select(line => (line.Description, line.ExpenseId)).Should()
+            .Equal(("Rail", (Guid?)first.Id), ("Meal", (Guid?)second.Id));
+        generated.Generation.Sources.Select(source => source.SourceId).Should().Equal(first.Id, second.Id);
+        var replay = await NewBridge().GenerateAutomaticInvoiceAsync("expense-user", _tenant, _organization,
+            operation, request);
+        replay.Document.Id.Should().Be(generated.Document.Id);
+        replay.Generation.Id.Should().Be(generated.Generation.Id);
+        var linkedFirst = await NewBridge().GetExpenseAsync("expense-user", _tenant, _organization, first.Id);
+        linkedFirst.Should().Match<ExpenseRecord>(value => value.Status == ExpenseStatus.Invoiced
+            && value.InvoiceId == generated.Document.Id && value.InvoiceOperationId == operation);
+        Scalar<long>("SELECT COUNT(*) FROM ERP_AUTOMATIC_BILLING_SOURCE").Should().Be(2);
+        Scalar<long>("SELECT COUNT(*) FROM ERP_AUTOMATIC_BILLING_GENERATION").Should().Be(1);
+        await Error(() => NewBridge().GenerateAutomaticInvoiceAsync("expense-user", _tenant, _organization,
+            Guid.NewGuid(), request), "AUTOMATIC_BILLING_SOURCE_NOT_FOUND");
+        await Error(() => NewBridge().GenerateAutomaticInvoiceAsync("expense-user", _tenant, _organization,
+            Guid.NewGuid(), request with { InvoiceType = BillingInvoiceType.ByProducts }),
+            "AUTOMATIC_BILLING_SOURCE_NOT_FOUND");
+        await Error(() => NewBridge().GenerateAutomaticInvoiceAsync("expense-reader", _tenant, _organization,
+            Guid.NewGuid(), request), "BUSINESS_ACCESS_DENIED");
+        var unlinked = await NewBridge().UnlinkInvoiceAsync("expense-user", _tenant, _organization,
+            Guid.NewGuid(), first.Id, linkedFirst.Version, generated.Document.Id, generated.Document.Version);
+        unlinked.Expense.Status.Should().Be(ExpenseStatus.Uninvoiced);
+        await Error(() => NewBridge().GenerateAutomaticInvoiceAsync("expense-user", _tenant, _organization,
+            Guid.NewGuid(), request), "AUTOMATIC_BILLING_SOURCE_NOT_FOUND");
+    }
+
+    [Fact]
     public async Task Scope_permissions_directory_lifecycle_cas_and_cancellation_are_enforced()
     {
         var category = await Category("Meals"); var vendor = await Vendor("Cafe");

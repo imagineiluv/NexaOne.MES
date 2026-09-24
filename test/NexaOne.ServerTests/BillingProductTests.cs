@@ -84,6 +84,11 @@ public sealed class BillingHostTests(ITestOutputHelper output)
         await Error(await member.PutAsync(route + "/contacts/MISSING-" + Guid.NewGuid().ToString("N"), null), HttpStatusCode.NotFound, "CUSTOMER_NOT_FOUND");
         var contacts = await Body<BusinessPage<BillingContact>>(await member.GetAsync(route + "/contacts"));
         contacts.Total.Should().Be(1); contacts.Items.Single().Should().Be(contact);
+        var automatic = new BillingController.AutomaticDocumentCreate(Guid.NewGuid(),
+            new(contact.Id, BillingInvoiceType.ByProducts, new(2026, 9, 1), new(2026, 9, 30),
+                new(2026, 9, 30), new(2026, 10, 30), "KRW"));
+        await Error(await member.PostAsJsonAsync(route + "/documents/automatic", automatic, HttpJson),
+            HttpStatusCode.NotFound, "AUTOMATIC_BILLING_SOURCE_NOT_FOUND");
 
         var input = new BillingDocumentInput(contact.Id, new(2026, 9, 22), new(2026, 10, 22), "KRW",
             [new("설계 ' % _", BillingProductSeed.PreciseAmount, 1m), new("Hosting", 50m, 2m, ApplyTax: false, ApplyDiscount: false)],
@@ -232,8 +237,9 @@ public sealed class BillingMssqlTests(ITestOutputHelper output)
     public async Task Actual_SQL_Server_migrations_documents_lines_numbers_and_payments_survive_fresh_bridges()
     {
         var h = await Harness.CreateAsync(output);
-        string[] tables = ["ERP_BILLING_CONTACT", "ERP_BILLING_NUMBER", "ERP_BILLING_DOCUMENT", "ERP_BILLING_LINE", "ERP_BILLING_PAYMENT", "ERP_BILLING_AUDIT"];
-        (await h.Database.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id=SCHEMA_ID('dbo') AND name IN @tables", new { tables })).Should().Be(6);
+        string[] tables = ["ERP_BILLING_CONTACT", "ERP_BILLING_NUMBER", "ERP_BILLING_DOCUMENT", "ERP_BILLING_LINE", "ERP_BILLING_PAYMENT", "ERP_BILLING_AUDIT",
+            "ERP_AUTOMATIC_BILLING_GENERATION", "ERP_AUTOMATIC_BILLING_SOURCE"];
+        (await h.Database.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id=SCHEMA_ID('dbo') AND name IN @tables", new { tables })).Should().Be(8);
         (await h.Database.ScalarAsync<int>("""
             SELECT COUNT(*) FROM sys.columns c JOIN sys.tables t ON c.object_id=t.object_id
              WHERE t.schema_id=SCHEMA_ID('dbo') AND TYPE_NAME(c.user_type_id)='varchar'
