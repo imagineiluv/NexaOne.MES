@@ -26,6 +26,10 @@ public interface IBillingBridge : INexaModuleBridge
     /// <summary>Uses the Framework's scope-wide operation replay contract; current permission is required on every retry.</summary>
     Task<BillingDocument> CreateDocumentAsync(string userId, Guid tenantId, Guid organizationId,
         Guid operationId, BillingKind kind, BillingDocumentInput input, CancellationToken ct = default);
+    /// <summary>Generates one draft invoice from currently unclaimed provider sources. MES currently supplies
+    /// real uninvoiced expenses; time and product occurrence providers remain fail-closed until their owners expose them.</summary>
+    Task<AutomaticBillingResult> GenerateAutomaticInvoiceAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid operationId, AutomaticBillingRequest request, CancellationToken ct = default);
     Task<BillingDocument> UpdateDocumentAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, BillingDocumentInput input, CancellationToken ct = default);
     Task<BillingDocument> GetDocumentAsync(string userId, Guid tenantId, Guid organizationId,

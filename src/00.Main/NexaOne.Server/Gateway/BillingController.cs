@@ -31,6 +31,12 @@ public sealed class BillingController(IBillingBridge bridge, ILogger<BillingCont
     public Task<IActionResult> CreateDocument(Guid tenantId, Guid organizationId, [FromBody] DocumentCreate command, CancellationToken ct)
         => Execute(user => bridge.CreateDocumentAsync(user, tenantId, organizationId, command.OperationId, command.Kind, command.Input, ct));
 
+    [HttpPost("documents/automatic")]
+    public Task<IActionResult> GenerateAutomaticInvoice(Guid tenantId, Guid organizationId,
+        [FromBody] AutomaticDocumentCreate command, CancellationToken ct)
+        => Execute(user => bridge.GenerateAutomaticInvoiceAsync(user, tenantId, organizationId,
+            command.OperationId, command.Request, ct));
+
     [HttpGet("documents")]
     public Task<IActionResult> ListDocuments(Guid tenantId, Guid organizationId, [FromQuery] BillingKind? kind, [FromQuery] BillingStatus? status,
         [FromQuery] Guid? contactId, CancellationToken ct, [FromQuery] int offset = 0, [FromQuery] int limit = 50)
@@ -104,6 +110,7 @@ public sealed class BillingController(IBillingBridge bridge, ILogger<BillingCont
     }
 
     public sealed record DocumentCreate(Guid OperationId, BillingKind Kind, BillingDocumentInput Input);
+    public sealed record AutomaticDocumentCreate(Guid OperationId, AutomaticBillingRequest Request);
     public sealed record DocumentChange(Guid Version, BillingDocumentInput Input);
     public sealed record VersionedCommand(Guid Version);
     public sealed record DecisionCommand(Guid Version, bool Accepted);
