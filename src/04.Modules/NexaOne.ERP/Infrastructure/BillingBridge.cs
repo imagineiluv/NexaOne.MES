@@ -4,7 +4,9 @@ using System.Globalization;
 using Dapper;
 using NexaFramework.Service;
 using NexaFramework.Service.Erp;
+using NexaFramework.Service.Collaboration;
 using NexaOne.Infrastructure.Persistence;
+using NexaOne.ServiceContracts.Collaboration;
 using NexaOne.ServiceContracts.Erp;
 using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Sys;
@@ -13,7 +15,7 @@ namespace NexaOne.ERP.Infrastructure;
 
 /// <summary>Owns billing persistence and explicit customer enrollment. Document, line, number, payment and
 /// audit rows of one operation share one Serializable commit; scope is SYS membership only.</summary>
-public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IRecurringBridge
+public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IRecurringBridge, IDeliveryBridge
 {
     private const string ScopeWhere = "TENANT_ID=@TenantId AND ORGANIZATION_ID=@OrganizationId";
     private readonly ServiceObjectProcessor _processor;
@@ -167,7 +169,8 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IRec
         IBusinessMembershipBridge memberships, IBusinessMasterDirectory masters, TimeProvider clock)
         : IAtomicBusinessStore<IBillingTransaction>, IBillingTransaction, IAtomicBusinessStore<IExpenseTransaction>,
           IExpenseTransaction, IAtomicBusinessStore<IExpenseAccountingTransaction>, IExpenseAccountingTransaction,
-          IAtomicBusinessStore<IRecurringTransaction>, IRecurringTransaction, IBusinessAuthorizer
+          IAtomicBusinessStore<IRecurringTransaction>, IRecurringTransaction,
+          IAtomicBusinessStore<IDeliveryTransaction>, IDeliveryTransaction, IBusinessAuthorizer
     {
         private bool _open = true;
         private int _invoked;

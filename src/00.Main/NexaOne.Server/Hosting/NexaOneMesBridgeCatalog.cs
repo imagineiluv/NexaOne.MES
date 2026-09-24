@@ -1,5 +1,6 @@
 using NexaOne.ServiceContracts;
 using NexaOne.ServiceContracts.Ems;
+using NexaOne.ServiceContracts.Collaboration;
 using NexaOne.ServiceContracts.Erp;
 using NexaOne.ServiceContracts.Est;
 using NexaOne.ServiceContracts.Fdc;
@@ -64,6 +65,7 @@ internal sealed class NexaOneMesBridgeCatalog : INexaModuleBridgeCatalog
             Bind<IFinancialReportBridge>("Erp", "financialReportBridge"),
             Bind<IRecurringBridge>("Erp", "recurringBridge"),
             Bind<IRecurringAutomationBridge>("Erp", "recurringAutomationBridge"),
+            Bind<IDeliveryBridge>("Erp", "deliveryBridge"),
             Bind<IFdcBridge>("Fdc", "fdcBridge"),
             Bind<IFdcRuntimeLease>("Fdc", "fdcRuntimeLease"),
             Bind<IRunAdmissionService>("Fdc", "runAdmissionService"),

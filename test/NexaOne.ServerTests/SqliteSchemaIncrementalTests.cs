@@ -2994,6 +2994,30 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V183_delivery_storage_is_available_on_fresh_and_incremental_startup()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            TableExists(cs, "COL_DELIVERY_TEMPLATE").Should().BeTrue();
+            TableExists(cs, "COL_DELIVERY_PROFILE").Should().BeTrue();
+            TableExists(cs, "COL_DELIVERY_REQUEST").Should().BeTrue();
+            Columns(cs, "COL_DELIVERY_REQUEST").Should().Contain(
+                "DELIVERY_ID", "VERSION", "OPERATION_ID", "STATE", "NEXT_ATTEMPT_AT_TICKS",
+                "LEASE_EXPIRES_AT_TICKS", "PAYLOAD");
+            IndexExists(cs, "IX_COL_DELIVERY_REQUEST_DUE").Should().BeTrue();
+            IndexKeys(cs, "IX_COL_DELIVERY_REQUEST_DUE").Should().Equal(
+                "TENANT_ID:ASC", "ORGANIZATION_ID:ASC", "STATE:ASC",
+                "NEXT_ATTEMPT_AT_TICKS:ASC", "LEASE_EXPIRES_AT_TICKS:ASC", "DELIVERY_ID:ASC");
+
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            TableExists(cs, "COL_DELIVERY_REQUEST").Should().BeTrue();
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { } }
+    }
+
+    [Fact]
     public void V160_database_principal_security_is_a_fresh_and_incremental_sqlite_no_op()
     {
         var cs = NewDb();
