@@ -72,6 +72,52 @@ public sealed class FinancialReportController(
         catch (Exception error) when (IsDatabaseFailure(error)) { return StorageFailure(error); }
     }
 
+    [HttpPost("/api/v1/erp/report-snapshots/{tenantId:guid}/{organizationId:guid}")]
+    public Task<IActionResult> CreateSnapshot(Guid tenantId, Guid organizationId,
+        [FromBody] CreateFinancialReportSnapshotRequest request, CancellationToken ct)
+        => Execute(user => bridge.CreateSnapshotAsync(user, tenantId, organizationId,
+            request.OperationId, request.Kind, request.Start, request.End, ct));
+
+    [HttpGet("/api/v1/erp/report-snapshots/{tenantId:guid}/{organizationId:guid}")]
+    public Task<IActionResult> ListSnapshots(Guid tenantId, Guid organizationId, CancellationToken ct,
+        [FromQuery] FinancialReportSnapshotKind? kind = null,
+        [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListSnapshotsAsync(user, tenantId, organizationId,
+            kind, offset, limit, ct));
+
+    [HttpGet("/api/v1/erp/report-snapshots/{tenantId:guid}/{organizationId:guid}/{snapshotId:guid}")]
+    public Task<IActionResult> GetSnapshot(Guid tenantId, Guid organizationId, Guid snapshotId,
+        CancellationToken ct)
+        => Execute(user => bridge.GetSnapshotAsync(user, tenantId, organizationId, snapshotId, ct));
+
+    [HttpPost("/api/v1/erp/report-snapshots/{tenantId:guid}/{organizationId:guid}/{snapshotId:guid}/regenerate")]
+    public Task<IActionResult> RegenerateSnapshot(Guid tenantId, Guid organizationId, Guid snapshotId,
+        CancellationToken ct)
+        => Execute(user => bridge.RegenerateSnapshotAsync(user, tenantId, organizationId, snapshotId, ct));
+
+    [HttpGet("/api/v1/erp/report-snapshots/{tenantId:guid}/{organizationId:guid}/{snapshotId:guid}/export.csv")]
+    public async Task<IActionResult> DownloadSnapshot(Guid tenantId, Guid organizationId, Guid snapshotId,
+        CancellationToken ct)
+    {
+        var userId = User.CurrentUserId();
+        if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
+        try
+        {
+            var download = await bridge.DownloadSnapshotAsync(userId, tenantId, organizationId,
+                snapshotId, ct);
+            return File(Encoding.UTF8.GetBytes(download.Content), "text/csv; charset=utf-8",
+                download.FileName);
+        }
+        catch (BusinessException error) { return BusinessFailure(error); }
+        catch (Exception error) when (IsDatabaseFailure(error)) { return StorageFailure(error); }
+    }
+
+    [HttpGet("/api/v1/erp/report-snapshots/{tenantId:guid}/{organizationId:guid}/{snapshotId:guid}/audit")]
+    public Task<IActionResult> ListSnapshotAudit(Guid tenantId, Guid organizationId, Guid snapshotId,
+        CancellationToken ct, [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListSnapshotAuditAsync(user, tenantId, organizationId,
+            snapshotId, offset, limit, ct));
+
     private async Task<IActionResult> Execute<T>(Func<string, Task<T>> action)
     {
         var userId = User.CurrentUserId();
@@ -84,7 +130,9 @@ public sealed class FinancialReportController(
     private IActionResult BusinessFailure(BusinessException error)
     {
         if (error.Code == "BUSINESS_ACCESS_DENIED") return Forbid();
-        var status = error.Code is "FINANCIAL_REPORT_TOO_LARGE" or "CASH_FLOW_REPORT_TOO_LARGE"
+        var status = error.Code == "REPORT_SNAPSHOT_NOT_FOUND"
+            ? StatusCodes.Status404NotFound
+            : error.Code is "FINANCIAL_REPORT_TOO_LARGE" or "CASH_FLOW_REPORT_TOO_LARGE"
             ? StatusCodes.Status413PayloadTooLarge
             : error.Code.StartsWith("INVALID_", StringComparison.Ordinal) ? StatusCodes.Status400BadRequest
             : StatusCodes.Status409Conflict;
@@ -100,7 +148,10 @@ public sealed class FinancialReportController(
     }
 
     private static bool IsDatabaseFailure(Exception error)
-        => error is DbException
+        => error is DbException or InvalidDataException
             || error is AggregateException aggregate
-            && aggregate.Flatten().InnerExceptions.Any(inner => inner is DbException);
+            && aggregate.Flatten().InnerExceptions.Any(inner => inner is DbException or InvalidDataException);
 }
+
+public sealed record CreateFinancialReportSnapshotRequest(Guid OperationId,
+    FinancialReportSnapshotKind Kind, DateOnly Start, DateOnly End);

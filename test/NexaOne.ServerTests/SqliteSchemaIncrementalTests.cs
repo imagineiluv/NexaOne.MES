@@ -2963,6 +2963,37 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V182_financial_report_snapshots_and_audit_are_available_on_fresh_and_incremental_startup()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            TableExists(cs, "ERP_FINANCIAL_REPORT_SNAPSHOT").Should().BeTrue();
+            TableExists(cs, "ERP_FINANCIAL_REPORT_SNAPSHOT_AUDIT").Should().BeTrue();
+            Columns(cs, "ERP_FINANCIAL_REPORT_SNAPSHOT").Should().Contain(
+                "SNAPSHOT_ID", "REPORT_KIND", "PERIOD_START", "PERIOD_END", "REPORT_JSON",
+                "CSV_CONTENT", "CONTENT_HASH", "CREATED_BY", "CREATED_AT_TICKS");
+            Columns(cs, "ERP_FINANCIAL_REPORT_SNAPSHOT_AUDIT").Should().Contain(
+                "AUDIT_ID", "SNAPSHOT_ID", "ACTION", "USER_ID", "AT_TICKS",
+                "OBSERVED_CONTENT_HASH", "MATCHED");
+            IndexExists(cs, "IX_ERP_FINANCIAL_REPORT_SNAPSHOT_PAGE").Should().BeTrue();
+            IndexExists(cs, "IX_ERP_FINANCIAL_REPORT_SNAPSHOT_AUDIT_PAGE").Should().BeTrue();
+            IndexKeys(cs, "IX_ERP_FINANCIAL_REPORT_SNAPSHOT_PAGE").Should().Equal(
+                "TENANT_ID:ASC", "ORGANIZATION_ID:ASC", "CREATED_AT_TICKS:DESC",
+                "SNAPSHOT_ID:DESC", "REPORT_KIND:ASC");
+            IndexKeys(cs, "IX_ERP_FINANCIAL_REPORT_SNAPSHOT_AUDIT_PAGE").Should().Equal(
+                "TENANT_ID:ASC", "ORGANIZATION_ID:ASC", "SNAPSHOT_ID:ASC",
+                "AT_TICKS:ASC", "AUDIT_ID:ASC");
+
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            TableExists(cs, "ERP_FINANCIAL_REPORT_SNAPSHOT").Should().BeTrue();
+            TableExists(cs, "ERP_FINANCIAL_REPORT_SNAPSHOT_AUDIT").Should().BeTrue();
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { } }
+    }
+
+    [Fact]
     public void V160_database_principal_security_is_a_fresh_and_incremental_sqlite_no_op()
     {
         var cs = NewDb();
