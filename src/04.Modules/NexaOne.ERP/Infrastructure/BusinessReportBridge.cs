@@ -86,6 +86,8 @@ public sealed partial class BillingBridge : IBusinessReportBridge
                     "invoice.invoiced", invoice.Totals.Total)) break;
                 if (!Add(rows, limit, invoice.Input.DocumentDate, invoice.Input.Currency,
                     "invoice.paid", invoice.Paid)) break;
+                if (invoice.Credited != 0m && !Add(rows, limit, invoice.Input.DocumentDate,
+                    invoice.Input.Currency, "invoice.credited", invoice.Credited)) break;
             }
             if (rows.Count < limit)
                 foreach (var income in source.Incomes)
@@ -121,9 +123,10 @@ public sealed partial class BillingBridge : IBusinessReportBridge
             if (value is null || value.Scope != Scope || value.Input is null || value.Totals is null
                 || value.Kind != BillingKind.Invoice
                 || value.Status is not (BillingStatus.Sent or BillingStatus.PartiallyPaid
-                    or BillingStatus.FullyPaid or BillingStatus.Overpaid)
+                    or BillingStatus.FullyPaid or BillingStatus.Overpaid
+                    or BillingStatus.PartiallyCredited or BillingStatus.Credited)
                 || !InPeriod(value.Input.DocumentDate, start, end) || !Currency(value.Input.Currency)
-                || value.Totals.Total < 0m || value.Paid < 0m)
+                || value.Totals.Total < 0m || value.Paid < 0m || value.Credited < 0m)
                 throw Failure("STORAGE_CONTRACT_VIOLATION");
         }
 

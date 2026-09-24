@@ -127,13 +127,13 @@ public sealed class FinancialReportPersistenceTests
         report.Period.Should().Be(period);
         report.GeneratedAt.Offset.Should().Be(TimeSpan.Zero);
         report.Currencies.Should().Equal(
-            new FinancialCurrencyTotals("KRW", 1, 100m, 40m, 60m, 0, 0m, 1, 110m, 10m, 100m),
-            new FinancialCurrencyTotals("USD", 0, 0m, 0m, 0m, 1, 25.5m, 0, 0m, 0m, 0m));
+            new FinancialCurrencyTotals("KRW", 1, 100m, 40m, 0m, 60m, 0, 0m, 1, 110m, 10m, 100m),
+            new FinancialCurrencyTotals("USD", 0, 0m, 0m, 0m, 0m, 1, 25.5m, 0, 0m, 0m, 0m));
         expense.State.Should().Be(ExpenseState.Active);
 
         var csv = await reporting.ExportCsvAsync("report-user", _tenant, _organization, period);
-        csv.Should().Contain("KRW,1,100,40,60,0,0,1,110,10,100\r\n")
-            .And.Contain("USD,0,0,0,0,1,25.5,0,0,0,0\r\n");
+        csv.Should().Contain("KRW,1,100,40,0,60,0,0,1,110,10,100\r\n")
+            .And.Contain("USD,0,0,0,0,0,1,25.5,0,0,0,0\r\n");
         csv.IndexOf("KRW,", StringComparison.Ordinal).Should()
             .BeLessThan(csv.IndexOf("USD,", StringComparison.Ordinal));
 
@@ -238,7 +238,7 @@ public sealed class FinancialReportPersistenceTests
         var download = await reporting.DownloadSnapshotAsync("report-user", _tenant, _organization,
             financialId);
         download.FileName.Should().Be($"financial-report-20260901-20260930-{financialId:D}.csv");
-        download.Content.Should().Contain("KRW,1,100,40,60");
+        download.Content.Should().Contain("KRW,1,100,40,0,60");
 
         await _bridge.CancelPaymentAsync("report-user", _tenant, _organization,
             payment.Id, payment.Version, "correction");

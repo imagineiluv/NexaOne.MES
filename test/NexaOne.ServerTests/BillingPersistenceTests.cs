@@ -22,7 +22,7 @@ public sealed class BillingPersistenceTests : IClassFixture<BusinessMembershipDa
     private readonly Guid _organization = Guid.NewGuid();
     private readonly BillingBridge _bridge;
     private readonly BusinessMembershipBridge _memberships;
-    private static readonly string[] Grants = ["billing.read", "billing.write", "billing.decide", "billing.pay"];
+    private static readonly string[] Grants = ["billing.read", "billing.write", "billing.decide", "billing.pay", "billing.credit"];
     private static readonly DateOnly Issued = new(2026, 9, 22), Due = new(2026, 10, 22);
     private static readonly DateTimeOffset PaidAt = new(2026, 9, 22, 9, 0, 0, TimeSpan.Zero);
 
@@ -140,6 +140,48 @@ public sealed class BillingPersistenceTests : IClassFixture<BusinessMembershipDa
         // enrolled, created, sent, accepted, converted x2, sent, recorded+paid x2, cancelled+payment-cancelled
         Count("ERP_BILLING_AUDIT").Should().Be(13);
         Scalar<long>("SELECT COUNT(*) FROM ERP_BILLING_NUMBER").Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Credit_note_issue_and_void_are_restart_safe_and_atomic()
+    {
+        var contact = await Contact();
+        var invoice = await Sent(contact.Id, input: Input(contact.Id, new BillingLine("Service", 100m, 1m)));
+        var creditInput = new BillingDocumentInput(contact.Id, Issued.AddDays(1), Issued.AddDays(1), "KRW",
+            [new("Correction", 30m, 1m)]);
+        var operation = Guid.NewGuid();
+        var note = await _bridge.CreateCreditNoteAsync("bill-user", _tenant, _organization,
+            operation, invoice.Id, creditInput);
+        SameDocument(note, await NewBridge().CreateCreditNoteAsync("bill-user", _tenant, _organization,
+            operation, invoice.Id, creditInput));
+        await Error(() => NewBridge().CreateCreditNoteAsync("bill-reader", _tenant, _organization,
+            Guid.NewGuid(), invoice.Id, creditInput), "BUSINESS_ACCESS_DENIED");
+
+        Execute("""
+            CREATE TRIGGER FAIL_CREDIT_ISSUE BEFORE UPDATE ON ERP_BILLING_DOCUMENT
+            WHEN OLD.KIND=2 AND NEW.STATUS=1 BEGIN SELECT RAISE(ABORT,'issue'); END;
+            """);
+        await Assert.ThrowsAnyAsync<Exception>(() => NewBridge().IssueCreditNoteAsync(
+            "bill-user", _tenant, _organization, note.Id, note.Version));
+        (await Read(invoice.Id)).Credited.Should().Be(0m);
+        (await Read(note.Id)).Status.Should().Be(BillingStatus.Draft);
+        Execute("DROP TRIGGER FAIL_CREDIT_ISSUE");
+
+        var issued = await NewBridge().IssueCreditNoteAsync("bill-user", _tenant, _organization,
+            note.Id, note.Version);
+        var adjusted = await Read(invoice.Id);
+        adjusted.Should().Match<BillingDocument>(value => value.Credited == 30m && value.Due == 70m
+            && value.Status == BillingStatus.PartiallyCredited);
+        Scalar<string>("SELECT ADJUSTED_INVOICE_ID FROM ERP_BILLING_DOCUMENT WHERE DOCUMENT_ID=@id",
+            new { id = note.Id.ToString("D") }).Should().Be(invoice.Id.ToString("D"));
+        Scalar<string>("SELECT CREDITED FROM ERP_BILLING_DOCUMENT WHERE DOCUMENT_ID=@id",
+            new { id = invoice.Id.ToString("D") }).Should().Be("30");
+
+        var voided = await NewBridge().VoidCreditNoteAsync("bill-user", _tenant, _organization,
+            issued.Id, issued.Version);
+        voided.Status.Should().Be(BillingStatus.Void);
+        (await Read(invoice.Id)).Should().Match<BillingDocument>(value => value.Credited == 0m
+            && value.Due == 100m && value.Status == BillingStatus.Sent);
     }
 
     [Fact]

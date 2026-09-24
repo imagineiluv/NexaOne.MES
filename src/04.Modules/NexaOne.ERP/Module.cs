@@ -26,6 +26,7 @@ public sealed class Module
     private readonly IRecurringAutomationBridge _recurringAutomationBridge;
     private readonly IDeliveryBridge _deliveryBridge;
     private readonly IDeliveryAutomationBridge _deliveryAutomationBridge;
+    private readonly ISqliteSchemaContribution _billingSqliteSchemaContribution;
     private readonly IHostedService _recurringAutomationWorker;
     private readonly IHostedService _deliveryDispatchWorker;
 
@@ -53,6 +54,7 @@ public sealed class Module
         _recurringAutomationBridge = bridge;
         _deliveryBridge = bridge;
         _deliveryAutomationBridge = bridge;
+        _billingSqliteSchemaContribution = new ErpBillingSqliteSchemaContribution();
         var options = ErpModuleOptions.FromConfiguration(configuration);
         _recurringAutomationWorker = new RecurringAutomationWorker(
             scheduler, bridge, options.RecurringEnabled, options.RecurringPrincipalId,
@@ -63,7 +65,7 @@ public sealed class Module
             TimeSpan.FromSeconds(options.DeliveryLeaseSeconds), options.DeliveryBatchSize);
     }
 
-    /// <summary>Estimates, invoices and payments over the Framework billing service.</summary>
+    /// <summary>Estimates, invoices, credit notes and payments over the Framework billing service.</summary>
     public IBillingBridge GetBillingBridge() => _billingBridge;
 
     /// <summary>Expense directories, entries, reimbursements and invoice linkage.</summary>
@@ -86,6 +88,9 @@ public sealed class Module
 
     /// <summary>Non-interactive delivery authority and lease settlement.</summary>
     public IDeliveryAutomationBridge GetDeliveryAutomationBridge() => _deliveryAutomationBridge;
+
+    public ISqliteSchemaContribution GetBillingSqliteSchemaContribution() =>
+        _billingSqliteSchemaContribution;
 
     public IHostedService GetRecurringAutomationWorker() => _recurringAutomationWorker;
 

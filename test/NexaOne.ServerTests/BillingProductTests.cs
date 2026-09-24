@@ -122,16 +122,28 @@ public sealed class BillingHostTests(ITestOutputHelper output)
         await Error(await member.PostAsJsonAsync(route + $"/documents/{estimate.Id}/payments", pay with { OperationId = Guid.NewGuid() }, HttpJson), HttpStatusCode.BadRequest, "INVALID_BUSINESS_INPUT");
         var partiallyPaid = await Body<BillingDocument>(await member.GetAsync(route + $"/documents/{invoice.Id}"));
         partiallyPaid.Status.Should().Be(BillingStatus.PartiallyPaid); partiallyPaid.Paid.Should().Be(100m);
+        var creditInput = new BillingDocumentInput(contact.Id, new(2026, 9, 23), new(2026, 9, 23), "KRW",
+            [new("Correction", 10m, 1m)]);
+        var creditCreate = new BillingController.CreditNoteCreate(Guid.NewGuid(), creditInput);
+        var credit = await Body<BillingDocument>(await member.PostAsJsonAsync(
+            route + $"/documents/{invoice.Id}/credits", creditCreate, HttpJson));
+        (await Body<BillingDocument>(await member.PostAsJsonAsync(
+            route + $"/documents/{invoice.Id}/credits", creditCreate, HttpJson))).Id.Should().Be(credit.Id);
+        var issuedCredit = await Body<BillingDocument>(await member.PostAsJsonAsync(
+            route + $"/credit-notes/{credit.Id}/issue", new BillingController.VersionedCommand(credit.Version), HttpJson));
+        var partiallyCredited = await Body<BillingDocument>(await member.GetAsync(route + $"/documents/{invoice.Id}"));
+        partiallyCredited.Status.Should().Be(BillingStatus.PartiallyCredited);
+        partiallyCredited.Credited.Should().Be(10m);
         var reportRoute = $"/api/v1/erp/financial-reports/{tenant}/{organization}?start=2026-09-01&end=2026-09-30";
         var report = await Body<FinancialReport>(await member.GetAsync(reportRoute));
         report.Currencies.Should().ContainSingle().Which.Should().Match<FinancialCurrencyTotals>(value =>
-            value.Currency == "KRW" && value.InvoiceCount == 1 && value.Paid == 100m
-            && value.Invoiced == invoice.Totals.Total && value.Outstanding == invoice.Totals.Total - 100m);
+            value.Currency == "KRW" && value.InvoiceCount == 1 && value.Paid == 100m && value.Credited == 10m
+            && value.Invoiced == invoice.Totals.Total && value.Outstanding == invoice.Totals.Total - 110m);
         using (var csv = await member.GetAsync(reportRoute.Replace("?", "/export.csv?", StringComparison.Ordinal)))
         {
             csv.StatusCode.Should().Be(HttpStatusCode.OK, await csv.Content.ReadAsStringAsync());
             csv.Content.Headers.ContentType!.ToString().Should().Be("text/csv; charset=utf-8");
-            (await csv.Content.ReadAsStringAsync()).Should().Contain("currency,invoice_count,invoiced,paid,outstanding")
+            (await csv.Content.ReadAsStringAsync()).Should().Contain("currency,invoice_count,invoiced,paid,credited,outstanding")
                 .And.Contain(",1,").And.Contain(",100,");
         }
         var cashRoute = $"/api/v1/erp/cash-flow-reports/{tenant}/{organization}?start=2026-09-22&end=2026-09-22";
@@ -166,7 +178,7 @@ public sealed class BillingHostTests(ITestOutputHelper output)
         }
         (await Body<FinancialReportSnapshotComparison>(await member.PostAsync(
             snapshotRoute + $"/{snapshotId}/regenerate", null))).Matches.Should().BeTrue();
-        await Error(await member.PostAsJsonAsync(route + $"/documents/{invoice.Id}/void", new BillingController.VersionedCommand(partiallyPaid.Version), HttpJson),
+        await Error(await member.PostAsJsonAsync(route + $"/documents/{invoice.Id}/void", new BillingController.VersionedCommand(partiallyCredited.Version), HttpJson),
             HttpStatusCode.Conflict, "BILLING_DOCUMENT_HAS_PAYMENTS");
         var cancelled = await Body<PaymentRecord>(await member.PostAsJsonAsync(route + $"/payments/{payment.Id}/cancel", new BillingController.CancelCommand(payment.Version, "정정"), HttpJson));
         cancelled.State.Should().Be(PaymentState.Cancelled); cancelled.CancelReason.Should().Be("정정");
@@ -180,7 +192,13 @@ public sealed class BillingHostTests(ITestOutputHelper output)
         var payments = await Body<BusinessPage<PaymentRecord>>(await member.GetAsync(paymentRoute + "?state=Cancelled"));
         payments.Total.Should().Be(1); payments.Items.Single().Should().Be(cancelled);
         var back = await Body<BillingDocument>(await member.GetAsync(route + $"/documents/{invoice.Id}"));
-        back.Status.Should().Be(BillingStatus.Sent); back.Paid.Should().Be(0m);
+        back.Status.Should().Be(BillingStatus.PartiallyCredited); back.Paid.Should().Be(0m); back.Credited.Should().Be(10m);
+        await Error(await member.PostAsJsonAsync(route + $"/documents/{invoice.Id}/void", new BillingController.VersionedCommand(back.Version), HttpJson),
+            HttpStatusCode.Conflict, "BILLING_DOCUMENT_HAS_CREDITS");
+        await Body<BillingDocument>(await member.PostAsJsonAsync(route + $"/credit-notes/{credit.Id}/void",
+            new BillingController.VersionedCommand(issuedCredit.Version), HttpJson));
+        back = await Body<BillingDocument>(await member.GetAsync(route + $"/documents/{invoice.Id}"));
+        back.Status.Should().Be(BillingStatus.Sent); back.Credited.Should().Be(0m);
         var voided = await Body<BillingDocument>(await member.PostAsJsonAsync(route + $"/documents/{invoice.Id}/void", new BillingController.VersionedCommand(back.Version), HttpJson));
         voided.Status.Should().Be(BillingStatus.Void);
 
@@ -193,10 +211,10 @@ public sealed class BillingHostTests(ITestOutputHelper output)
         // Removing the grant takes effect on the next request without a new login.
         var narrowed = await Body<BusinessMembership>(await admin.PutAsJsonAsync(membershipRoute, new BusinessMembershipChange(membership.Version, true, ["billing.read"])));
         await Status(await member.PostAsJsonAsync(route + "/documents", create with { OperationId = Guid.NewGuid() }, HttpJson), HttpStatusCode.Forbidden);
-        (await Body<BusinessPage<BillingDocument>>(await member.GetAsync(route + "/documents"))).Total.Should().Be(2);
+        (await Body<BusinessPage<BillingDocument>>(await member.GetAsync(route + "/documents"))).Total.Should().Be(3);
         await Body<BusinessMembership>(await admin.PutAsJsonAsync(membershipRoute, new BusinessMembershipChange(narrowed.Version, true, [])));
         (await Body<BusinessPage<BusinessMembership>>(await member.GetAsync("/api/v1/erp/billing/scopes/me"))).Total.Should().Be(0, "a membership without billing grants is not a billing scope");
-        (await database.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM ERP_BILLING_LINE")).Should().Be(4);
+        (await database.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM ERP_BILLING_LINE")).Should().Be(5);
         (await database.ExecuteScalarAsync<string>("SELECT UNIT_PRICE FROM ERP_BILLING_LINE WHERE LINE_NO=1 AND DOCUMENT_ID=@id", new { id = invoice.Id.ToString("D") }))
             .Should().Be("899999999999.123456", "durable amounts are canonical decimal text");
     }
@@ -243,9 +261,9 @@ public sealed class BillingMssqlTests(ITestOutputHelper output)
         (await h.Database.ScalarAsync<int>("""
             SELECT COUNT(*) FROM sys.columns c JOIN sys.tables t ON c.object_id=t.object_id
              WHERE t.schema_id=SCHEMA_ID('dbo') AND TYPE_NAME(c.user_type_id)='varchar'
-               AND ((t.name='ERP_BILLING_DOCUMENT' AND c.name IN ('SUBTOTAL','DISCOUNT_AMOUNT','TAX_AMOUNT','TOTAL','PAID'))
+               AND ((t.name='ERP_BILLING_DOCUMENT' AND c.name IN ('SUBTOTAL','DISCOUNT_AMOUNT','TAX_AMOUNT','TOTAL','PAID','CREDITED'))
                  OR (t.name='ERP_BILLING_LINE' AND c.name IN ('UNIT_PRICE','QUANTITY')) OR (t.name='ERP_BILLING_PAYMENT' AND c.name='AMOUNT'))
-            """)).Should().Be(8, "durable amounts must use decimal text, including on SQL Server");
+            """)).Should().Be(9, "durable amounts must use decimal text, including on SQL Server");
         var contact = await h.Bridge.EnrollContactAsync(h.Seed.User, h.Tenant, h.Organization, h.Seed.Customer);
         var input = new BillingDocumentInput(contact.Id, new(2026, 9, 22), new(2026, 10, 22), "KRW",
             [new("설계 ' % _", BillingProductSeed.PreciseAmount, 1m), new("B", 1m, 3m)], Tax: new(BillingAdjustmentType.Percent, 10m), Note: "메모");
@@ -273,14 +291,26 @@ public sealed class BillingMssqlTests(ITestOutputHelper output)
         (await h.Bridge.GetDocumentAsync(h.Seed.User, h.Tenant, h.Organization, invoice.Id)).Status.Should().Be(BillingStatus.Sent);
         (await reporting.BuildCashFlowAsync(h.Seed.User, h.Tenant, h.Organization,
             new(new(2026, 9, 22), new(2026, 9, 22)))).Currencies.Should().BeEmpty();
+        var creditInput = new BillingDocumentInput(contact.Id, new(2026, 9, 23), new(2026, 9, 23), "KRW",
+            [new("Correction", 2m, 1m)]);
+        var credit = await h.Bridge.CreateCreditNoteAsync(h.Seed.User, h.Tenant, h.Organization,
+            Guid.NewGuid(), invoice.Id, creditInput);
+        await h.Bridge.IssueCreditNoteAsync(h.Seed.User, h.Tenant, h.Organization, credit.Id, credit.Version);
+        var credited = await h.Bridge.GetDocumentAsync(h.Seed.User, h.Tenant, h.Organization, invoice.Id);
+        credited.Status.Should().Be(BillingStatus.PartiallyCredited); credited.Credited.Should().Be(2m);
+        (await reporting.BuildAsync(h.Seed.User, h.Tenant, h.Organization,
+            new(new(2026, 9, 1), new(2026, 9, 30)))).Currencies.Single().Credited.Should().Be(2m);
         var page = await h.Bridge.ListDocumentsAsync(h.Seed.User, h.Tenant, h.Organization, BillingKind.Invoice, offset: 1, limit: 1);
         page.Total.Should().Be(2); page.Items.Single().Id.Should().Be(second.Id);
         (await h.Bridge.ListPaymentsAsync(h.Seed.User, h.Tenant, h.Organization, invoice.Id, PaymentState.Cancelled)).Items.Single().Id.Should().Be(payment.Id);
-        (await h.Count("ERP_BILLING_DOCUMENT")).Should().Be(3);
-        (await h.Count("ERP_BILLING_LINE")).Should().Be(6);
+        (await h.Count("ERP_BILLING_DOCUMENT")).Should().Be(4);
+        (await h.Count("ERP_BILLING_LINE")).Should().Be(7);
         (await h.Count("ERP_BILLING_PAYMENT")).Should().Be(1);
         (await h.Database.ScalarAsync<int>("SELECT COUNT(*) FROM sys.indexes WHERE name='IX_ERP_BILLING_PAYMENT_CASH_FLOW'"))
             .Should().Be(1);
+        (await h.Database.ScalarAsync<string>("SELECT ADJUSTED_INVOICE_ID FROM ERP_BILLING_DOCUMENT WHERE TENANT_ID=@tenant AND ORGANIZATION_ID=@organization AND DOCUMENT_ID=@id",
+            new { tenant = h.Tenant.ToString("D"), organization = h.Organization.ToString("D"), id = credit.Id.ToString("D") }))
+            .Should().Be(invoice.Id.ToString("D"));
         (await h.Database.ScalarAsync<string>("SELECT UNIT_PRICE FROM ERP_BILLING_LINE WHERE TENANT_ID=@tenant AND ORGANIZATION_ID=@organization AND DOCUMENT_ID=@id AND LINE_NO=1",
             new { tenant = h.Tenant.ToString("D"), organization = h.Organization.ToString("D"), id = invoice.Id.ToString("D") })).Should().Be("899999999999.123456");
     }
@@ -342,7 +372,7 @@ internal sealed class BillingProductSeed
     // Legal six-place decimal near the Framework limit, with digits a binary double cannot preserve.
     public const decimal PreciseAmount = 899999999999.123456m;
     public static readonly string[] Grants =
-        ["billing.read", "billing.write", "billing.decide", "billing.pay", "financial-report.read"];
+        ["billing.read", "billing.write", "billing.decide", "billing.pay", "billing.credit", "financial-report.read"];
     public string Plant { get; } = "BLP-" + Guid.NewGuid().ToString("N");
     public string Customer { get; } = "BLC-" + Guid.NewGuid().ToString("N");
     public string Role { get; } = "BLR-" + Guid.NewGuid().ToString("N");

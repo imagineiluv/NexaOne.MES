@@ -84,9 +84,25 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IRec
     public Task<BillingDocument> CreateDocumentAsync(string userId, Guid tenantId, Guid organizationId,
         Guid operationId, BillingKind kind, BillingDocumentInput input, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "billing.write", (service, session) => service.CreateDocumentAsync(session.Actor, operationId, kind, input, ct), ct);
+    public Task<BillingDocument> CreateCreditNoteAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid operationId, Guid invoiceId, BillingDocumentInput input, CancellationToken ct = default)
+        => Run(userId, tenantId, organizationId, "billing.credit",
+            (service, session) => service.CreateCreditNoteAsync(session.Actor, operationId, invoiceId, input, ct), ct);
     public Task<BillingDocument> UpdateDocumentAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, BillingDocumentInput input, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "billing.write", (service, session) => service.UpdateDocumentAsync(session.Actor, id, version, input, ct), ct);
+    public Task<BillingDocument> UpdateCreditNoteAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, BillingDocumentInput input, CancellationToken ct = default)
+        => Run(userId, tenantId, organizationId, "billing.credit",
+            (service, session) => service.UpdateCreditNoteAsync(session.Actor, id, version, input, ct), ct);
+    public Task<BillingDocument> IssueCreditNoteAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, CancellationToken ct = default)
+        => Run(userId, tenantId, organizationId, "billing.credit",
+            (service, session) => service.IssueCreditNoteAsync(session.Actor, id, version, ct), ct);
+    public Task<BillingDocument> VoidCreditNoteAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, CancellationToken ct = default)
+        => Run(userId, tenantId, organizationId, "billing.credit",
+            (service, session) => service.VoidCreditNoteAsync(session.Actor, id, version, ct), ct);
     public Task<BillingDocument> GetDocumentAsync(string userId, Guid tenantId, Guid organizationId, Guid id, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "billing.read", (service, session) => service.GetDocumentAsync(session.Actor, id, ct), ct);
     public Task<BusinessPage<BillingDocument>> ListDocumentsAsync(string userId, Guid tenantId, Guid organizationId,
@@ -179,7 +195,8 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IRec
             + "STATUS AS Status, CONTACT_ID AS ContactId, DOCUMENT_DATE AS DocumentDate, DUE_DATE AS DueDate, CURRENCY AS Currency, "
             + "DISCOUNT_TYPE AS DiscountType, DISCOUNT_VALUE AS DiscountValue, TAX_TYPE AS TaxType, TAX_VALUE AS TaxValue, TAX2_TYPE AS Tax2Type, TAX2_VALUE AS Tax2Value, "
             + "TERMS AS Terms, NOTE AS Note, SUBTOTAL AS Subtotal, DISCOUNT_AMOUNT AS DiscountAmount, TAX_AMOUNT AS TaxAmount, TOTAL AS Total, PAID AS Paid, "
-            + "CREATED_BY AS CreatedBy, CONVERTED_FROM_ID AS ConvertedFrom, CONVERTED_TO_ID AS ConvertedTo";
+            + "CREDITED AS Credited, CREATED_BY AS CreatedBy, CONVERTED_FROM_ID AS ConvertedFrom, CONVERTED_TO_ID AS ConvertedTo, "
+            + "ADJUSTED_INVOICE_ID AS AdjustedInvoice";
         private const string PaymentColumns = "PAYMENT_ID AS Id, VERSION AS Version, OPERATION_ID AS OperationId, DOCUMENT_ID AS DocumentId, AMOUNT AS Amount, "
             + "CURRENCY AS Currency, PAID_AT_TICKS AS PaidAt, METHOD AS Method, REFERENCE AS Reference, NOTE AS Note, CREATED_BY AS CreatedBy, STATE AS State, "
             + "CANCELLED_BY AS CancelledBy, CANCELLED_AT_TICKS AS CancelledAt, CANCEL_REASON AS CancelReason";
@@ -303,7 +320,8 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IRec
                 new(Id(row.ContactId), Day(row.DocumentDate), Day(row.DueDate), row.Currency, Array.AsReadOnly(lines.ToArray()),
                     Adjustment(row.DiscountType, row.DiscountValue), Adjustment(row.TaxType, row.TaxValue), Adjustment(row.Tax2Type, row.Tax2Value), row.Terms, row.Note),
                 new(Amount(row.Subtotal), Amount(row.DiscountAmount), Amount(row.TaxAmount), Amount(row.Total)), (BillingStatus)row.Status,
-                Text(Id(row.CreatedBy)), Amount(row.Paid), OptionalId(row.ConvertedFrom), OptionalId(row.ConvertedTo));
+                Text(Id(row.CreatedBy)), Amount(row.Paid), OptionalId(row.ConvertedFrom), OptionalId(row.ConvertedTo),
+                Amount(row.Credited), OptionalId(row.AdjustedInvoice));
         public Task<BillingDocument?> FindDocumentAsync(Guid id, CancellationToken ct) => ReadDocument("DOCUMENT_ID=@key", id, ct);
         public Task<BillingDocument?> FindDocumentByOperationAsync(Guid operationId, CancellationToken ct) => ReadDocument("OPERATION_ID=@key", operationId, ct);
         public async Task SaveDocumentAsync(BillingDocument value, Guid? expectedVersion, CancellationToken ct)
@@ -317,7 +335,8 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IRec
                 DiscountType = (int?)input.Discount?.Type, DiscountValue = Amount(input.Discount?.Value), TaxType = (int?)input.Tax?.Type, TaxValue = Amount(input.Tax?.Value),
                 Tax2Type = (int?)input.Tax2?.Type, Tax2Value = Amount(input.Tax2?.Value), input.Terms, input.Note,
                 Subtotal = Amount(value.Totals.Subtotal), DiscountAmount = Amount(value.Totals.DiscountAmount), TaxAmount = Amount(value.Totals.TaxAmount),
-                Total = Amount(value.Totals.Total), Paid = Amount(value.Paid), value.CreatedBy, ConvertedFrom = Text(value.ConvertedFromId), ConvertedTo = Text(value.ConvertedToId),
+                Total = Amount(value.Totals.Total), Paid = Amount(value.Paid), Credited = Amount(value.Credited), value.CreatedBy,
+                ConvertedFrom = Text(value.ConvertedFromId), ConvertedTo = Text(value.ConvertedToId), AdjustedInvoice = Text(value.AdjustedInvoiceId),
                 Previous = Text(expectedVersion), At = clock.GetUtcNow().UtcTicks
             };
             if (expectedVersion is null)
@@ -325,25 +344,26 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IRec
                 await Write("""
                     INSERT INTO ERP_BILLING_DOCUMENT (TENANT_ID, ORGANIZATION_ID, DOCUMENT_ID, VERSION, OPERATION_ID, KIND, NUMBER, STATUS, CONTACT_ID,
                         DOCUMENT_DATE, DUE_DATE, CURRENCY, DISCOUNT_TYPE, DISCOUNT_VALUE, TAX_TYPE, TAX_VALUE, TAX2_TYPE, TAX2_VALUE, TERMS, NOTE,
-                        SUBTOTAL, DISCOUNT_AMOUNT, TAX_AMOUNT, TOTAL, PAID, CREATED_BY, CONVERTED_FROM_ID, CONVERTED_TO_ID, AT_TICKS)
+                        SUBTOTAL, DISCOUNT_AMOUNT, TAX_AMOUNT, TOTAL, PAID, CREDITED, CREATED_BY, CONVERTED_FROM_ID, CONVERTED_TO_ID, ADJUSTED_INVOICE_ID, AT_TICKS)
                     VALUES (@TenantId, @OrganizationId, @Id, @Version, @Operation, @Kind, @Number, @Status, @Contact,
                         @DocumentDate, @DueDate, @Currency, @DiscountType, @DiscountValue, @TaxType, @TaxValue, @Tax2Type, @Tax2Value, @Terms, @Note,
-                        @Subtotal, @DiscountAmount, @TaxAmount, @Total, @Paid, @CreatedBy, @ConvertedFrom, @ConvertedTo, @At)
+                        @Subtotal, @DiscountAmount, @TaxAmount, @Total, @Paid, @Credited, @CreatedBy, @ConvertedFrom, @ConvertedTo, @AdjustedInvoice, @At)
                     """, values, ct);
                 await WriteLines(value.Id, input.Lines, ct);
                 return;
             }
-            // Kind, number, operation, creator and conversion source never change once written.
+            // Kind, number, operation, creator, conversion source and adjusted invoice never change once written.
             var current = await FindDocumentAsync(value.Id, ct) ?? throw Failure("BILLING_DOCUMENT_NOT_FOUND");
             if (current.Version != expectedVersion) throw Failure("BUSINESS_VERSION_CONFLICT");
             if (current.Kind != value.Kind || current.Number != value.Number || current.OperationId != value.OperationId
                 || current.CreatedBy != value.CreatedBy || current.ConvertedFromId != value.ConvertedFromId
+                || current.AdjustedInvoiceId != value.AdjustedInvoiceId
                 || (current.ConvertedToId is not null && current.ConvertedToId != value.ConvertedToId))
                 throw Failure("STORAGE_CONTRACT_VIOLATION");
             await Write("UPDATE ERP_BILLING_DOCUMENT SET VERSION=@Version, STATUS=@Status, CONTACT_ID=@Contact, DOCUMENT_DATE=@DocumentDate, DUE_DATE=@DueDate, "
                 + "CURRENCY=@Currency, DISCOUNT_TYPE=@DiscountType, DISCOUNT_VALUE=@DiscountValue, TAX_TYPE=@TaxType, TAX_VALUE=@TaxValue, TAX2_TYPE=@Tax2Type, "
                 + "TAX2_VALUE=@Tax2Value, TERMS=@Terms, NOTE=@Note, SUBTOTAL=@Subtotal, DISCOUNT_AMOUNT=@DiscountAmount, TAX_AMOUNT=@TaxAmount, TOTAL=@Total, "
-                + "PAID=@Paid, CONVERTED_TO_ID=@ConvertedTo WHERE " + ScopeWhere + " AND DOCUMENT_ID=@Id AND VERSION=@Previous", values, ct);
+                + "PAID=@Paid, CREDITED=@Credited, CONVERTED_TO_ID=@ConvertedTo WHERE " + ScopeWhere + " AND DOCUMENT_ID=@Id AND VERSION=@Previous", values, ct);
             if (!current.Input.Lines.SequenceEqual(input.Lines))
             {
                 await Execute("DELETE FROM ERP_BILLING_LINE WHERE " + ScopeWhere + " AND DOCUMENT_ID=@Id", new { Id = Text(value.Id) }, ct);
@@ -471,9 +491,11 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IRec
         public string TaxAmount { get; set; } = "";
         public string Total { get; set; } = "";
         public string Paid { get; set; } = "";
+        public string Credited { get; set; } = "";
         public string CreatedBy { get; set; } = "";
         public string? ConvertedFrom { get; set; }
         public string? ConvertedTo { get; set; }
+        public string? AdjustedInvoice { get; set; }
     }
     private sealed class LineRow
     {

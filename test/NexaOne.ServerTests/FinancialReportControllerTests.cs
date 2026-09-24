@@ -23,7 +23,7 @@ public sealed class FinancialReportControllerTests
         var period = new FinancialReportPeriod(new(2026, 9, 1), new(2026, 9, 30));
         var report = new FinancialReport(new("NexaOne.MES", tenant.ToString("D"), organization.ToString("D")),
             period, new(2026, 9, 30, 1, 2, 3, TimeSpan.Zero),
-            [new("KRW", 1, 10m, 4m, 6m, 0, 0m, 0, 0m, 0m, 0m)]);
+            [new("KRW", 1, 10m, 4m, 0m, 6m, 0, 0m, 0, 0m, 0m, 0m)]);
         const string csv = "currency,invoice_count\r\nKRW,1\r\n";
         var bridge = new Mock<IFinancialReportBridge>(MockBehavior.Strict);
         using var cancellation = new CancellationTokenSource();

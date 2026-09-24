@@ -31,6 +31,28 @@ public sealed class BillingController(IBillingBridge bridge, ILogger<BillingCont
     public Task<IActionResult> CreateDocument(Guid tenantId, Guid organizationId, [FromBody] DocumentCreate command, CancellationToken ct)
         => Execute(user => bridge.CreateDocumentAsync(user, tenantId, organizationId, command.OperationId, command.Kind, command.Input, ct));
 
+    [HttpPost("documents/{invoiceId:guid}/credits")]
+    public Task<IActionResult> CreateCreditNote(Guid tenantId, Guid organizationId, Guid invoiceId,
+        [FromBody] CreditNoteCreate command, CancellationToken ct)
+        => Execute(user => bridge.CreateCreditNoteAsync(user, tenantId, organizationId,
+            command.OperationId, invoiceId, command.Input, ct));
+
+    [HttpPut("credit-notes/{id:guid}")]
+    public Task<IActionResult> UpdateCreditNote(Guid tenantId, Guid organizationId, Guid id,
+        [FromBody] DocumentChange command, CancellationToken ct)
+        => Execute(user => bridge.UpdateCreditNoteAsync(user, tenantId, organizationId,
+            id, command.Version, command.Input, ct));
+
+    [HttpPost("credit-notes/{id:guid}/issue")]
+    public Task<IActionResult> IssueCreditNote(Guid tenantId, Guid organizationId, Guid id,
+        [FromBody] VersionedCommand command, CancellationToken ct)
+        => Execute(user => bridge.IssueCreditNoteAsync(user, tenantId, organizationId, id, command.Version, ct));
+
+    [HttpPost("credit-notes/{id:guid}/void")]
+    public Task<IActionResult> VoidCreditNote(Guid tenantId, Guid organizationId, Guid id,
+        [FromBody] VersionedCommand command, CancellationToken ct)
+        => Execute(user => bridge.VoidCreditNoteAsync(user, tenantId, organizationId, id, command.Version, ct));
+
     [HttpPost("documents/automatic")]
     public Task<IActionResult> GenerateAutomaticInvoice(Guid tenantId, Guid organizationId,
         [FromBody] AutomaticDocumentCreate command, CancellationToken ct)
@@ -105,11 +127,12 @@ public sealed class BillingController(IBillingBridge bridge, ILogger<BillingCont
             logger.LogError(error, "Billing persistence failed; write outcome may be unknown.");
             return Problem(statusCode: 503, title: "Billing storage is unavailable.",
                 detail: "A write outcome may be unknown. Read the document or payment by ID before retrying; "
-                    + "for document creation, conversion or payment recording, retry with the same operation ID and original payload.");
+                    + "for document or credit-note creation, conversion or payment recording, retry with the same operation ID and original payload.");
         }
     }
 
     public sealed record DocumentCreate(Guid OperationId, BillingKind Kind, BillingDocumentInput Input);
+    public sealed record CreditNoteCreate(Guid OperationId, BillingDocumentInput Input);
     public sealed record AutomaticDocumentCreate(Guid OperationId, AutomaticBillingRequest Request);
     public sealed record DocumentChange(Guid Version, BillingDocumentInput Input);
     public sealed record VersionedCommand(Guid Version);
