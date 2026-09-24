@@ -1,0 +1,310 @@
+@page "/meta/NX_ERP_REPORT_HISTORY"
+@attribute [Authorize]
+@implements IDisposable
+@using System.Globalization
+@using NexaFramework.Service
+@using NexaOne.Common.Security
+@using NexaOne.Server.Gateway
+@using NexaOne.ServiceContracts.Erp
+@using NexaOne.ServiceContracts.Sys
+@inject IApiClient Api
+@inject UiTextService Ui
+@inject AuthenticationStateProvider Authentication
+@inject IJSRuntime JS
+
+<PageTitle>@T("reportHistory.title", "재무 보고 이력", "Financial report history")</PageTitle>
+<div class="report-history-workspace">
+    <header>
+        <h1>@T("reportHistory.title", "재무 보고 이력", "Financial report history")</h1>
+        <p>@T("reportHistory.intro", "불변 재무 보고를 생성하고 현재 데이터와 비교하며 감사 이력과 저장 CSV를 확인합니다.", "Create immutable financial snapshots, compare them with current data, review their audit trail, and download the stored CSV.")</p>
+    </header>
+    @if (_identityLoading) { <p role="status">@T("inventory.loading", "불러오는 중…", "Loading…")</p> }
+    else if (!_authenticated) { <p role="status">@T("inventory.signIn", "인증 상태를 확인하고 다시 로그인해 주세요.", "Check your session and sign in again.")</p> }
+    else
+    {
+        <section aria-labelledby="report-scope-heading">
+            <div class="bwk-heading"><h2 id="report-scope-heading">@T("reportHistory.scopes", "내 보고 범위", "My report scopes")</h2><button id="report-scopes-refresh" type="button" disabled="@_busy" @onclick="ReloadScopesAsync">@T("inventory.refreshScopes", "범위 새로고침", "Refresh scopes")</button></div>
+            @Message()
+            @if (_scopes is not null)
+            {
+                @if (_scopes.Items.Count == 0) { <p class="bwk-note" data-empty="true">@T("reportHistory.noScopes", "현재 접근 가능한 재무 보고 범위가 없습니다.", "No financial report scopes are currently accessible.")</p> }
+                else { <ul class="bwk-scopes">@foreach (var scope in _scopes.Items) { <li><button type="button" class="bwk-choice" data-scope="@ScopeKey(scope)" aria-pressed="@((ScopeKey(scope) == SelectedKey).ToString().ToLowerInvariant())" disabled="@_busy" @onclick="() => SelectScopeAsync(scope)"><strong>@scope.OrganizationId.ToString("D")</strong><span class="bwk-scope-keys">@scope.TenantId.ToString("D")</span></button></li> }</ul> }
+            }
+        </section>
+        @if (_scope is not null)
+        {
+            <section aria-labelledby="report-create-heading">
+                <h2 id="report-create-heading">@T("reportHistory.create", "보고서 보관", "Capture report")</h2>
+                <EditForm Model="_draft" OnValidSubmit="CreateAsync" FormName="report-history-create">
+                    <div class="bwk-filters">
+                        <label class="report-field" for="report-kind"><span>@T("reportHistory.kind", "보고 종류", "Report kind")</span><select id="report-kind" aria-label="@T("reportHistory.kind", "보고 종류", "Report kind")" @bind="_draft.Kind" disabled="@(_busy || _pendingCreate is not null)"><option value="@FinancialReportSnapshotKind.Financial">@KindName(FinancialReportSnapshotKind.Financial)</option><option value="@FinancialReportSnapshotKind.CashFlow">@KindName(FinancialReportSnapshotKind.CashFlow)</option></select></label>
+                        <label class="report-field" for="report-start"><span>@T("reportHistory.start", "시작일", "Start date")</span><InputDate id="report-start" @bind-Value="_draft.Start" disabled="@(_busy || _pendingCreate is not null)" /></label>
+                        <label class="report-field" for="report-end"><span>@T("reportHistory.end", "종료일", "End date")</span><InputDate id="report-end" @bind-Value="_draft.End" disabled="@(_busy || _pendingCreate is not null)" /></label>
+                        <button id="report-create" type="submit" disabled="@_busy">@T("reportHistory.capture", "불변 보고서 생성", "Capture immutable report")</button>
+                    </div>
+                </EditForm>
+            </section>
+            <section aria-labelledby="report-list-heading">
+                <div class="bwk-heading"><h2 id="report-list-heading">@T("reportHistory.history", "보관 이력", "Snapshot history")</h2><button id="report-list-refresh" type="button" disabled="@_busy" @onclick="LoadSnapshotsAsync">@T("reportHistory.refresh", "새로고침", "Refresh")</button></div>
+                @if (_snapshots is { } page)
+                {
+                    @if (page.Items.Count == 0) { <p class="bwk-note" data-empty="true">@T("reportHistory.noSnapshots", "이 범위에 보관된 재무 보고서가 없습니다.", "No financial reports have been captured for this scope.")</p> }
+                    else { <div class="bwk-table-scroll" tabindex="0" role="region" aria-label="@T("reportHistory.history", "보관 이력", "Snapshot history")"><table><thead><tr><th>@T("reportHistory.kind", "보고 종류", "Report kind")</th><th>@T("reportHistory.period", "기간", "Period")</th><th>@T("reportHistory.createdAt", "생성 시각 (UTC)", "Created at (UTC)")</th><th>@T("reportHistory.createdBy", "생성자", "Created by")</th><th>@T("reportHistory.hash", "내용 해시", "Content hash")</th><th>@T("inventory.write.actions", "작업", "Actions")</th></tr></thead><tbody>@foreach (var item in page.Items) { <tr @key="item.Id"><td>@KindName(item.Kind)</td><td>@item.Start.ToString("yyyy-MM-dd") – @item.End.ToString("yyyy-MM-dd")</td><td>@Utc(item.CreatedAt)</td><td>@item.CreatedBy</td><td class="bwk-id">@item.ContentHash</td><td><button type="button" data-select-report="@item.Id" @onclick="() => SelectSnapshotAsync(item)">@T("crm.select", "선택", "Select")</button></td></tr> }</tbody></table></div> }
+                }
+            </section>
+            @if (_selected is not null)
+            {
+                <section id="report-selected" aria-labelledby="report-selected-heading"><h2 id="report-selected-heading">@T("reportHistory.selected", "선택한 보고서", "Selected report")</h2><p class="bwk-id">@_selected.Id.ToString("D")</p><div class="bwk-actions"><button id="report-regenerate" type="button" disabled="@_busy" @onclick="RegenerateAsync">@T("reportHistory.regenerate", "현재 데이터와 비교", "Compare with current data")</button><button id="report-download" type="button" disabled="@_busy" @onclick="DownloadAsync">@T("reportHistory.download", "저장 CSV 다운로드", "Download stored CSV")</button></div>
+                    @if (_comparison is not null) { <p id="report-comparison" role="status" data-matches="@_comparison.Matches.ToString().ToLowerInvariant()">@(_comparison.Matches ? T("reportHistory.matches", "현재 데이터와 일치합니다.", "The current data matches.") : T("reportHistory.changed", "현재 데이터가 저장본과 다릅니다.", "The current data differs from the stored snapshot.")) · @Utc(_comparison.ComparedAt)</p> }
+                    <h3>@T("reportHistory.audit", "감사 이력", "Audit trail")</h3>@if (_audit is not null) { <ul class="report-audit">@foreach (var entry in _audit.Items) { <li><strong>@AuditName(entry.Action)</strong><span>@Utc(entry.At) · @entry.UserId</span>@if (entry.Matches is not null) { <span>@(entry.Matches.Value ? T("reportHistory.match", "일치", "Match") : T("reportHistory.mismatch", "불일치", "Mismatch"))</span> }</li> }</ul> }
+                </section>
+            }
+        }
+    }
+</div>
+
+@code {
+    private const int PageSize = 50;
+    private BusinessPage<BusinessMembership>? _scopes;
+    private BusinessMembership? _scope;
+    private BusinessPage<FinancialReportSnapshotSummary>? _snapshots;
+    private BusinessPage<FinancialReportSnapshotAuditEntry>? _audit;
+    private FinancialReportSnapshotSummary? _selected;
+    private FinancialReportSnapshotComparison? _comparison;
+    private CreateFinancialReportSnapshotRequest? _pendingCreate;
+    private readonly Draft _draft = new();
+    private string? _userId, _error, _notice;
+    private bool _authenticated, _identityLoading = true, _busy, _interactive, _disposed;
+    private Task<AuthenticationState>? _pendingAuthentication;
+    private CancellationTokenSource? _request;
+    private int _identityVersion;
+
+    protected override void OnInitialized()
+    {
+        Authentication.AuthenticationStateChanged += AuthenticationChanged;
+        Ui.Changed += LanguageChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _disposed) return;
+        _interactive = true;
+        await ChangeIdentityAsync(_pendingAuthentication ?? Authentication.GetAuthenticationStateAsync());
+        _pendingAuthentication = null;
+    }
+
+    private void AuthenticationChanged(Task<AuthenticationState> state)
+    {
+        if (!_interactive) { _pendingAuthentication = state; return; }
+        if (!_disposed) _ = InvokeAsync(() => ChangeIdentityAsync(state));
+    }
+
+    private void LanguageChanged()
+    {
+        if (!_disposed) _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ChangeIdentityAsync(Task<AuthenticationState> state)
+    {
+        var version = ++_identityVersion;
+        Clear();
+        _identityLoading = true;
+        StateHasChanged();
+        var auth = await state;
+        if (_disposed || version != _identityVersion) return;
+        _authenticated = auth.User.Identity?.IsAuthenticated == true;
+        _userId = _authenticated ? auth.User.CurrentUserId() : null;
+        _identityLoading = false;
+        if (_authenticated) await LoadScopesAsync();
+        if (!_disposed && version == _identityVersion) StateHasChanged();
+    }
+
+    private void Clear()
+    {
+        CancelRequest();
+        _scope = null; _scopes = null; _snapshots = null; _audit = null;
+        _selected = null; _comparison = null; _pendingCreate = null;
+        _error = null; _notice = null;
+    }
+
+    private Task LoadScopesAsync() => RunAsync(async ct =>
+    {
+        var result = await Api.ReadInventoryAsync<BusinessPage<BusinessMembership>>(
+            $"api/v1/erp/financial-reports/scopes/me?offset=0&limit={PageSize}", ct);
+        if (OwnsRequest(ct)) Accept(result, value => _scopes = value);
+    });
+
+    private async Task ReloadScopesAsync() { Clear(); await LoadScopesAsync(); }
+
+    private async Task SelectScopeAsync(BusinessMembership scope)
+    {
+        _scope = scope; _selected = null; _audit = null; _comparison = null; _pendingCreate = null;
+        await LoadSnapshotsAsync();
+    }
+
+    private Task LoadSnapshotsAsync() => _scope is null ? Task.CompletedTask : RunAsync(LoadSnapshotsCoreAsync);
+
+    private async Task CreateAsync()
+    {
+        if (_scope is null || _userId is null) return;
+        if (_draft.End < _draft.Start)
+        {
+            _error = T("reportHistory.invalidPeriod", "종료일은 시작일보다 빠를 수 없습니다.",
+                "End date cannot be before start date.");
+            return;
+        }
+
+        _pendingCreate ??= new(Guid.NewGuid(), _draft.Kind, _draft.Start, _draft.End);
+        var body = _pendingCreate;
+        await RunAsync(async ct =>
+        {
+            var result = await Api.WriteInventoryAsync<FinancialReportSnapshot>(HttpMethod.Post,
+                $"api/v1/erp/report-snapshots/{SelectedKey}", body, _userId, ct);
+            if (!OwnsRequest(ct)) return;
+
+            if (Matches(body, result.Value) && result.Error is null)
+            {
+                _notice = T("reportHistory.created", "보고서를 보관했습니다.", "The report was captured.");
+                _pendingCreate = null;
+            }
+            else if (result.Value is not null)
+            {
+                _error = T("reportHistory.invalidResponse", "서버 응답의 보고서 식별자가 다릅니다. 이력을 다시 조회하세요.",
+                    "The response identifies another report. Refresh the history.");
+            }
+            else
+            {
+                Accept(result, _ => { });
+                if (result.StatusCode is >= 400 and < 500) _pendingCreate = null;
+            }
+
+            await LoadSnapshotsCoreAsync(ct);
+            if (OwnsRequest(ct) && _pendingCreate is not null
+                && _snapshots?.Items.Any(item => Matches(body, item)) == true)
+            {
+                _pendingCreate = null;
+                _error = null;
+                _notice = T("reportHistory.createdRecovered", "현재 이력에서 저장 결과를 확인했습니다.",
+                    "The stored result was recovered from the current history.");
+            }
+        });
+    }
+
+    private async Task SelectSnapshotAsync(FinancialReportSnapshotSummary summary)
+    {
+        _selected = summary;
+        _comparison = null;
+        await LoadAuditAsync();
+    }
+
+    private async Task RegenerateAsync()
+    {
+        if (_selected is null || _userId is null) return;
+        var expectedId = _selected.Id;
+        await RunAsync(async ct =>
+        {
+            var result = await Api.WriteInventoryAsync<FinancialReportSnapshotComparison>(HttpMethod.Post,
+                $"api/v1/erp/report-snapshots/{SelectedKey}/{expectedId:D}/regenerate", new { }, _userId, ct);
+            if (!OwnsRequest(ct)) return;
+            if (result.Value is not null && result.Value.SnapshotId != expectedId)
+                _error = T("reportHistory.invalidResponse", "서버 응답의 보고서 식별자가 다릅니다. 이력을 다시 조회하세요.",
+                    "The response identifies another report. Refresh the history.");
+            else
+                Accept(result, value => _comparison = value);
+            if (result.Value?.SnapshotId == expectedId) await LoadAuditCoreAsync(ct);
+        });
+    }
+
+    private async Task DownloadAsync()
+    {
+        if (_selected is null) return;
+        await RunAsync(async ct =>
+        {
+            var result = await Api.ReadInventoryAsync<FinancialReportSnapshotDownload>(
+                $"api/v1/erp/report-snapshots/{SelectedKey}/{_selected.Id:D}/download", ct);
+            if (!OwnsRequest(ct)) return;
+            if (result.Value is not null && result.Error is null)
+            {
+                await JS.InvokeVoidAsync("nxDownloadCsv", result.Value.FileName, result.Value.Content);
+                if (OwnsRequest(ct)) await LoadAuditCoreAsync(ct);
+            }
+            else
+                Accept(result, _ => { });
+        });
+    }
+
+    private Task LoadAuditAsync() => RunAsync(LoadAuditCoreAsync);
+
+    private async Task LoadAuditCoreAsync(CancellationToken ct)
+    {
+        if (_selected is null) return;
+        var result = await Api.ReadInventoryAsync<BusinessPage<FinancialReportSnapshotAuditEntry>>(
+            $"api/v1/erp/report-snapshots/{SelectedKey}/{_selected.Id:D}/audit?offset=0&limit={PageSize}", ct);
+        if (OwnsRequest(ct)) Accept(result, value => _audit = value);
+    }
+
+    private async Task LoadSnapshotsCoreAsync(CancellationToken ct)
+    {
+        if (_scope is null) return;
+        var result = await Api.ReadInventoryAsync<BusinessPage<FinancialReportSnapshotSummary>>(
+            $"api/v1/erp/report-snapshots/{SelectedKey}?offset=0&limit={PageSize}", ct);
+        if (OwnsRequest(ct)) Accept(result, value => _snapshots = value);
+    }
+
+    private async Task RunAsync(Func<CancellationToken, Task> action)
+    {
+        if (_busy || _disposed) return;
+        CancelRequest();
+        var request = new CancellationTokenSource();
+        _request = request;
+        _busy = true;
+        _error = null;
+        _notice = null;
+        try { await action(request.Token); }
+        catch (OperationCanceledException) when (request.IsCancellationRequested) { }
+        finally
+        {
+            if (ReferenceEquals(_request, request)) { _request = null; _busy = false; }
+            request.Dispose();
+        }
+    }
+    private bool OwnsRequest(CancellationToken token) => !_disposed && _request?.Token == token;
+    private void CancelRequest()
+    {
+        if (_request is null) return;
+        var request = _request;
+        _request = null;
+        _busy = false;
+        request.Cancel();
+    }
+    private static bool Matches(CreateFinancialReportSnapshotRequest request, FinancialReportSnapshot? response) => response?.Summary is { } summary && summary.Id == request.OperationId && summary.Kind == request.Kind && summary.Start == request.Start && summary.End == request.End;
+    private static bool Matches(CreateFinancialReportSnapshotRequest request, FinancialReportSnapshotSummary summary) => summary.Id == request.OperationId && summary.Kind == request.Kind && summary.Start == request.Start && summary.End == request.End;
+    private void Accept<T>((T? Value, int StatusCode, string? Code, string? Error) result, Action<T> apply) where T : class
+    {
+        if (result.Value is not null && result.Error is null) apply(result.Value);
+        else _error = result.Error ?? result.Code
+            ?? string.Format(CultureInfo.InvariantCulture, "HTTP {0}", result.StatusCode);
+    }
+    private RenderFragment Message() => @<div class="bwk-status" aria-live="polite">@if (_busy) { <p role="status">@T("inventory.loading", "불러오는 중…", "Loading…")</p> } @if (_error is not null) { <p role="alert">@_error</p> } @if (_notice is not null) { <p role="status">@_notice</p> }</div>;
+    private string? SelectedKey => _scope is null ? null : ScopeKey(_scope);
+    private static string ScopeKey(BusinessMembership scope) => $"{scope.TenantId:D}/{scope.OrganizationId:D}";
+    private string T(string key, string ko, string en) => Ui.T(key, Ui.Language == "EnUs" ? en : ko);
+    private string KindName(FinancialReportSnapshotKind kind) => kind == FinancialReportSnapshotKind.Financial ? T("reportHistory.financial", "손익 보고", "Financial report") : T("reportHistory.cashFlow", "현금흐름 보고", "Cash-flow report");
+    private string AuditName(FinancialReportSnapshotAuditAction action) => action switch { FinancialReportSnapshotAuditAction.Created => T("reportHistory.auditCreated", "생성", "Created"), FinancialReportSnapshotAuditAction.Regenerated => T("reportHistory.auditCompared", "재생성 비교", "Regenerated comparison"), _ => T("reportHistory.auditDownloaded", "다운로드", "Downloaded") };
+    private static string Utc(DateTimeOffset value) => value.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+    public void Dispose()
+    {
+        _disposed = true;
+        ++_identityVersion;
+        CancelRequest();
+        Authentication.AuthenticationStateChanged -= AuthenticationChanged;
+        Ui.Changed -= LanguageChanged;
+    }
+
+    private sealed class Draft
+    {
+        public FinancialReportSnapshotKind Kind { get; set; }
+        public DateOnly Start { get; set; } = new(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+        public DateOnly End { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+    }
+}
