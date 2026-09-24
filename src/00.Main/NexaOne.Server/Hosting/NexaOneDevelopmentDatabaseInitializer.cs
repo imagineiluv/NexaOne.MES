@@ -40,6 +40,7 @@ internal static class NexaOneDevelopmentDatabaseInitializer
         EnsureDevWorkflowResources(connectionString, "V186__COL_DELIVERY_OPERATIONS_MENU.sql");
         EnsureDevWorkflowResources(connectionString, "V187__COL_DELIVERY_CATALOG_RESOURCES.sql");
         EnsureDevWorkflowResources(connectionString, "V194__CRM_WORKSPACE_MENU.sql");
+        EnsureDevWorkflowResources(connectionString, "V195__CRM_DEAL_EDITOR_RESOURCES.sql");
         NormalizeDevMenuTerminology(connectionString);
         SeedDevCommonUiResourcesIfMissing(connectionString);
         EnsureDevQmsSampleLotReferences(connectionString);

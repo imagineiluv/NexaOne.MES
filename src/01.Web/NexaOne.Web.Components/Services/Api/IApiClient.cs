@@ -12,7 +12,7 @@ public interface IApiClient
         string relativePath, CancellationToken ct = default) where T : class;
 
     /// <summary>
-    /// Writes an authenticated relative api/v1/ivt/ resource using POST or PUT and a nonnull body.
+    /// Writes an authenticated relative business resource using POST, PUT or DELETE and a nonnull body.
     /// Invalid requests return a local 400 before token access. Only the existing single 401
     /// authentication retry is allowed; the caller owns the immutable body, operation ID and
     /// outcome recovery. The selected token must identify expectedUserId before each send.
