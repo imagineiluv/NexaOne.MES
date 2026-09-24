@@ -235,13 +235,153 @@ public sealed class CrmWorkspaceTests : BunitContext
         _api.Verify(api => api.WriteInventoryAsync<Dictionary<string, object>>(HttpMethod.Delete, It.IsAny<string>(), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public void Project_manager_creates_updates_relationships_and_deletes_a_visible_project()
+    {
+        var scope = Scope("crm.project.read", "crm.project.manage", "crm.project.delete",
+            "crm.project.link-customer", "crm.project.all", "crm.team.read");
+        Read(_ => new BusinessPage<BusinessMembership>([scope], 1));
+        var project = new ProjectRecord(Guid.NewGuid(), Business(), Guid.NewGuid(), "operator",
+            new ProjectInput("Visible project", Code: "CRM"), new ProjectLinks(null, [new ProjectMember(scope.BusinessUserId)], []));
+        Read(_ => new WorkPage<ProjectRecord>([project], 1));
+        _api.Setup(api => api.ReadInventoryAsync<ProjectRecord>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((project, 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<ProjectRecord>(HttpMethod.Post,
+                $"api/v1/crm/{Tenant:D}/{Organization:D}/projects", It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((project, 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<ProjectRecord>(HttpMethod.Put,
+                It.Is<string>(path => path.EndsWith($"projects/{project.Id:D}", StringComparison.Ordinal)), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((project with { Values = project.Values with { Name = "Updated" }, Version = Guid.NewGuid() }, 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<ProjectRecord>(HttpMethod.Put,
+                It.Is<string>(path => path.EndsWith($"projects/{project.Id:D}/links", StringComparison.Ordinal)), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((project with { Version = Guid.NewGuid() }, 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<Dictionary<string, object>>(HttpMethod.Delete,
+                It.Is<string>(path => path.Contains($"projects/{project.Id:D}?version=", StringComparison.Ordinal)), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new Dictionary<string, object> { ["id"] = project.Id }, 200, null, null));
+
+        var cut = Render<HostCrmWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.Find("#crm-project-name").Change("Created");
+        cut.Find("#crm-new-project-members").Change(scope.BusinessUserId.ToString("D"));
+        cut.Find("#crm-save-project").Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("프로젝트를 저장했습니다"));
+
+        cut.Find("#crm-projects [data-select]").Click();
+        cut.Find("#crm-project-name").Change("Updated");
+        cut.Find("#crm-save-project").Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("프로젝트를 저장했습니다"));
+
+        cut.Find("#crm-projects [data-select]").Click();
+        cut.Find("#crm-project-managers").Change(scope.BusinessUserId.ToString("D"));
+        cut.Find("#crm-save-project-links").Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("프로젝트 관계를 저장했습니다"));
+
+        cut.Find("#crm-projects [data-select]").Click();
+        cut.Find("#crm-delete-project").Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("프로젝트를 삭제했습니다"));
+        _api.Verify(api => api.WriteInventoryAsync<ProjectRecord>(HttpMethod.Post, It.IsAny<string>(), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
+        _api.Verify(api => api.WriteInventoryAsync<ProjectRecord>(HttpMethod.Put, It.Is<string>(path => path.EndsWith("/links", StringComparison.Ordinal)), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
+        _api.Verify(api => api.WriteInventoryAsync<Dictionary<string, object>>(HttpMethod.Delete, It.IsAny<string>(), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public void Narrow_project_manager_can_edit_profile_but_not_relationships()
+    {
+        var scope = Scope("crm.project.read", "crm.project.manage", "crm.project.created");
+        Read(_ => new BusinessPage<BusinessMembership>([scope], 1));
+        var project = new ProjectRecord(Guid.NewGuid(), Business(), Guid.NewGuid(), "operator",
+            new ProjectInput("Created project"), new ProjectLinks(null, [], []));
+        Read(_ => new WorkPage<ProjectRecord>([project], 1));
+        _api.Setup(api => api.ReadInventoryAsync<ProjectRecord>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((project, 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<ProjectRecord>(HttpMethod.Put,
+                It.Is<string>(path => path.EndsWith($"projects/{project.Id:D}", StringComparison.Ordinal)), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((project with { Values = project.Values with { Name = "Updated" }, Version = Guid.NewGuid() }, 200, null, null));
+
+        var cut = Render<HostCrmWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("#crm-projects [data-select]").Should().NotBeNull());
+        cut.Find("#crm-projects [data-select]").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#crm-project-name").GetAttribute("value").Should().Be("Created project"));
+        cut.FindAll("#crm-save-project-links").Should().BeEmpty();
+        cut.Find("#crm-project-name").Change("Updated");
+        cut.Find("#crm-save-project").Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("프로젝트를 저장했습니다"));
+        _api.Verify(api => api.WriteInventoryAsync<ProjectRecord>(HttpMethod.Put, It.IsAny<string>(), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public void Project_manager_without_customer_link_permission_cannot_replace_links_for_a_customer_project()
+    {
+        var scope = Scope("crm.project.read", "crm.project.manage", "crm.project.all");
+        Read(_ => new BusinessPage<BusinessMembership>([scope], 1));
+        var project = new ProjectRecord(Guid.NewGuid(), Business(), Guid.NewGuid(), "operator",
+            new ProjectInput("Customer project"), new ProjectLinks(Guid.NewGuid(), [], []));
+        Read(_ => new WorkPage<ProjectRecord>([project], 1));
+        _api.Setup(api => api.ReadInventoryAsync<ProjectRecord>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((project, 200, null, null));
+
+        var cut = Render<HostCrmWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("#crm-projects [data-select]").Should().NotBeNull());
+        cut.Find("#crm-projects [data-select]").Click();
+
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("고객이 연결된 프로젝트의 관계를 바꾸려면 고객 연결 권한이 필요합니다"));
+        cut.FindAll("#crm-save-project-links").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Team_manager_creates_updates_and_deletes_a_team()
+    {
+        var scope = Scope("crm.team.read", "crm.team.manage", "crm.team.delete");
+        Read(_ => new BusinessPage<BusinessMembership>([scope], 1));
+        var team = new Team(Guid.NewGuid(), Business(), Guid.NewGuid(), "operator",
+            new TeamInput("Delivery", "DLV"), [new ProjectMember(scope.BusinessUserId, true)]);
+        Read(_ => new WorkPage<Team>([team], 1));
+        _api.Setup(api => api.ReadInventoryAsync<Team>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((team, 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<Team>(HttpMethod.Post,
+                $"api/v1/crm/{Tenant:D}/{Organization:D}/teams", It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((team, 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<Team>(HttpMethod.Put,
+                It.Is<string>(path => path.EndsWith($"teams/{team.Id:D}", StringComparison.Ordinal)), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((team with { Values = team.Values with { Name = "Updated" }, Version = Guid.NewGuid() }, 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<Dictionary<string, object>>(HttpMethod.Delete,
+                It.Is<string>(path => path.Contains($"teams/{team.Id:D}?version=", StringComparison.Ordinal)), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new Dictionary<string, object> { ["id"] = team.Id }, 200, null, null));
+
+        var cut = Render<HostCrmWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.Find("#crm-team-name").Change("Created");
+        cut.Find("#crm-team-managers").Change(scope.BusinessUserId.ToString("D"));
+        cut.Find("#crm-save-team").Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("팀을 저장했습니다"));
+
+        cut.Find("#crm-teams [data-select]").Click();
+        cut.Find("#crm-team-name").Change("Updated");
+        cut.Find("#crm-save-team").Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("팀을 저장했습니다"));
+
+        cut.Find("#crm-teams [data-select]").Click();
+        cut.Find("#crm-delete-team").Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("팀을 삭제했습니다"));
+        _api.Verify(api => api.WriteInventoryAsync<Team>(HttpMethod.Post, It.IsAny<string>(), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
+        _api.Verify(api => api.WriteInventoryAsync<Team>(HttpMethod.Put, It.IsAny<string>(), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
+        _api.Verify(api => api.WriteInventoryAsync<Dictionary<string, object>>(HttpMethod.Delete, It.IsAny<string>(), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     private void Read<T>(Func<string, T> response) where T : class
         => _api.Setup(api => api.ReadInventoryAsync<T>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns((string path, CancellationToken _) => Task.FromResult<(T?, int, string?, string?)>((response(path), 200, null, null)));
 
     private string[] Paths<T>() where T : class => _api.Invocations
         .Where(call => call.Method.Name == nameof(IApiClient.ReadInventoryAsync) && call.Method.GetGenericArguments()[0] == typeof(T))
-        .Select(call => (string)call.Arguments[0]).ToArray();
+        .Select(call => call.Arguments[0]).OfType<string>().ToArray();
 
     private static BusinessMembership Scope(params string[] grants)
         => new(Tenant, Organization, "operator", Guid.Parse("30000000-0000-0000-0000-000000000001"), true, 1, grants);
