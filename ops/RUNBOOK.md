@@ -164,6 +164,14 @@ ERP 반복 worker는 사람 계정이나 기존 business membership을 사용하
 at-least-once이며 중복 수신 가능성을 운영 수신자·업무 문서 ID로 식별해야 한다. 주체·scope·credential을
 모두 검증한 뒤에만 `Worker__Collaboration__Delivery__Enabled=true`로 재기동한다.
 
+송달 실패 운영 화면은 `/meta/NX_DELIVERY_OPERATIONS`이며 사용자가 조회할 수 있는 organization scope의
+dead-letter만 표시한다. 조회에는 기존 `delivery.read`, 재처리·폐기에는 별도
+`delivery.manage-dead-letter` business grant가 필요하며 기본 role/grant는 시드하지 않는다. 운영자는 원인을
+확인한 뒤 **재처리**로 같은 요청을 attempt 0의 새 주기로 되돌리거나 **폐기**로 취소 상태를 확정한다. 두 작업은
+요청 version과 operation ID를 함께 보내며, 503·연결 단절처럼 결과가 불확실할 때는 새 ID를 만들지 말고 같은
+operation ID로 재시도한다. 작업 영수증은 `COL_DELIVERY_DEAD_LETTER_OPERATION`에 보존되므로 worker가 이후 상태를
+변경해도 동일 작업이 다시 적용되지 않는다. 본문·credential secret은 화면과 로그에 노출하지 않는다.
+
 ## 3. 기동·확인
 
 저장소에서 통합 Server(SQLite, `http://localhost:5173`)와 Portal Vite HMR(`http://localhost:5174`)을 함께 실행:

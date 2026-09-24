@@ -14,6 +14,11 @@ namespace NexaOne.Server.Gateway;
 [Route("api/v1/collaboration/deliveries/{tenantId:guid}/{organizationId:guid}")]
 public sealed class DeliveryController(IDeliveryBridge bridge, ILogger<DeliveryController> logger) : ControllerBase
 {
+    [HttpGet("/api/v1/collaboration/deliveries/scopes/me")]
+    public Task<IActionResult> ListScopes(CancellationToken ct,
+        [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListAccessibleScopesAsync(user, offset, limit, ct));
+
     [HttpPost("templates")]
     public Task<IActionResult> CreateTemplate(Guid tenantId, Guid organizationId,
         [FromBody] TemplateCreate command, CancellationToken ct)
@@ -52,6 +57,23 @@ public sealed class DeliveryController(IDeliveryBridge bridge, ILogger<DeliveryC
         [FromBody] VersionedCommand command, CancellationToken ct)
         => Execute(user => bridge.CancelAsync(user, tenantId, organizationId, id, command.Version, ct));
 
+    [HttpGet("dead-letters")]
+    public Task<IActionResult> ListDeadLetters(Guid tenantId, Guid organizationId, CancellationToken ct,
+        [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListDeadLettersAsync(user, tenantId, organizationId, offset, limit, ct));
+
+    [HttpPost("{id:guid}/dead-letter/retry")]
+    public Task<IActionResult> RetryDeadLetter(Guid tenantId, Guid organizationId, Guid id,
+        [FromBody] DeadLetterCommand command, CancellationToken ct)
+        => Execute(user => bridge.RetryDeadLetterAsync(user, tenantId, organizationId,
+            command.OperationId, id, command.Version, ct));
+
+    [HttpPost("{id:guid}/dead-letter/discard")]
+    public Task<IActionResult> DiscardDeadLetter(Guid tenantId, Guid organizationId, Guid id,
+        [FromBody] DeadLetterCommand command, CancellationToken ct)
+        => Execute(user => bridge.DiscardDeadLetterAsync(user, tenantId, organizationId,
+            command.OperationId, id, command.Version, ct));
+
     private async Task<IActionResult> Execute<T>(Func<string, Task<T>> action)
     {
         var userId = User.CurrentUserId();
@@ -70,7 +92,7 @@ public sealed class DeliveryController(IDeliveryBridge bridge, ILogger<DeliveryC
         {
             logger.LogError(error, "Delivery persistence failed; write outcome may be unknown.");
             return Problem(statusCode: 503, title: "Delivery storage is unavailable.",
-                detail: "A write outcome may be unknown. Retry queue creation with the same operation ID; "
+                detail: "A write outcome may be unknown. Retry operation-based writes with the same operation ID; "
                     + "read current state before retrying versioned actions.");
         }
     }
@@ -92,4 +114,5 @@ public sealed class DeliveryController(IDeliveryBridge bridge, ILogger<DeliveryC
     public sealed record DeliveryCreate(Guid OperationId, Guid TemplateId, Guid ProfileId, string Recipient,
         IReadOnlyList<DeliveryVariable>? Variables = null, DateTimeOffset? ScheduledAt = null);
     public sealed record VersionedCommand(Guid Version);
+    public sealed record DeadLetterCommand(Guid OperationId, Guid Version);
 }

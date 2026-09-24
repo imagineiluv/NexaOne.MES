@@ -29,6 +29,10 @@ public sealed class BillingWorkflowResourcesTests
             Scalar(connection, "SELECT PARENT_MENU_ID FROM SYS_MENU WHERE UI_ID='NX_RECURRING_WORKSPACE'").Should().Be("FACTORY_SLS");
             Scalar(connection, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='menu.NX_RECURRING_WORKSPACE' AND LANGUAGE='EnUs'")
                 .Should().Be("Recurring ERP rules");
+            Scalar(connection, "SELECT COUNT(*) FROM SYS_MENU WHERE UI_ID='NX_DELIVERY_OPERATIONS'").Should().Be("1");
+            Scalar(connection, "SELECT PARENT_MENU_ID FROM SYS_MENU WHERE UI_ID='NX_DELIVERY_OPERATIONS'").Should().Be("FACTORY_SLS");
+            Scalar(connection, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='menu.NX_DELIVERY_OPERATIONS' AND LANGUAGE='EnUs'")
+                .Should().Be("Delivery failures");
         });
 
     [Fact]

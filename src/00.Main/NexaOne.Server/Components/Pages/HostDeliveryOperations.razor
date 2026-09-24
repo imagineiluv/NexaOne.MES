@@ -1,0 +1,252 @@
+@page "/meta/NX_DELIVERY_OPERATIONS"
+@attribute [Authorize]
+@implements IDisposable
+@using System.Globalization
+@using NexaFramework.Service
+@using NexaFramework.Service.Collaboration
+@using NexaOne.ServiceContracts.Sys
+@using NexaOne.Common.Security
+@inject IApiClient Api
+@inject UiTextService Ui
+@inject AuthenticationStateProvider Authentication
+
+<PageTitle>@T("deliveryOps.title", "송달 실패 작업", "Delivery failure operations")</PageTitle>
+<div class="billing-workspace">
+    <header>
+        <h1>@T("deliveryOps.title", "송달 실패 작업", "Delivery failure operations")</h1>
+        <p>@T("deliveryOps.intro", "접근 가능한 조직의 dead-letter를 조회하고, 불변 payload를 다시 보내거나 폐기합니다.",
+            "Review dead letters in accessible organizations, retry their frozen payloads, or discard them.")</p>
+    </header>
+
+    @if (_identityLoading)
+    {
+        <p role="status">@T("inventory.loading", "불러오는 중…", "Loading…")</p>
+    }
+    else if (!_authenticated)
+    {
+        <p role="status">@T("deliveryOps.signIn", "인증 상태를 확인하고 다시 로그인해 주세요.", "Check your session and sign in again.")</p>
+    }
+    else
+    {
+        <section id="delivery-scopes" aria-labelledby="delivery-scopes-heading" aria-busy="@(_scopeRequest is not null)">
+            <div class="bwk-heading">
+                <h2 id="delivery-scopes-heading">@T("deliveryOps.scopes", "내 송달 범위", "My delivery scopes")</h2>
+                <RadzenButton id="delivery-scope-refresh" Text="@T("deliveryOps.refreshScopes", "범위 새로고침", "Refresh scopes")"
+                    Click="ReloadScopesAsync" Disabled="@(_scopeRequest is not null)" ButtonStyle="ButtonStyle.Light" />
+            </div>
+            @if (_scopeError is { } scopeError) { @Failure(scopeError, true) }
+            else if (_scopes is { Total: 0 }) { <p data-empty="true">@T("deliveryOps.noScopes", "현재 접근 가능한 송달 범위가 없습니다.", "No delivery scopes are currently accessible.")</p> }
+            else if (_scopes is not null)
+            {
+                <ul class="bwk-scopes">
+                    @foreach (var scope in _scopes.Items)
+                    {
+                        <li @key="ScopeKey(scope)">
+                            <button type="button" class="bwk-choice" data-scope="@ScopeKey(scope)"
+                                aria-pressed="@((ScopeKey(scope) == SelectedKey).ToString().ToLowerInvariant())"
+                                @onclick="() => SelectScopeAsync(scope)">
+                                <strong>@T("deliveryOps.organization", "조직", "Organization") @scope.OrganizationId.ToString("D")</strong>
+                                <span class="bwk-scope-keys">@T("deliveryOps.tenant", "테넌트", "Tenant"): @scope.TenantId.ToString("D") · @string.Join(", ", scope.Permissions)</span>
+                            </button>
+                        </li>
+                    }
+                </ul>
+            }
+        </section>
+
+        @if (_scope is not null)
+        {
+            <section id="delivery-dead-letters" aria-labelledby="delivery-dead-heading" aria-busy="@(_listRequest is not null)">
+                <div class="bwk-heading">
+                    <h2 id="delivery-dead-heading">@T("deliveryOps.deadLetters", "Dead-letter", "Dead letters")</h2>
+                    <RadzenButton id="delivery-list-refresh" Text="@T("deliveryOps.refreshList", "목록 새로고침", "Refresh list")"
+                        Click="LoadDeadLettersAsync" Disabled="@(_listRequest is not null)" ButtonStyle="ButtonStyle.Light" />
+                </div>
+                <p class="bwk-note">@T("deliveryOps.retryNote", "재처리는 attempt 횟수를 새 주기로 초기화합니다. 결과가 불확실하면 같은 버튼을 다시 눌러 동일 operation ID로 복구합니다.",
+                    "Retry starts a fresh attempt cycle. If the outcome is uncertain, press the same action again to recover with the same operation ID.")</p>
+                @if (_listError is { } listError) { @Failure(listError, false) }
+                else if (_deadLetters is { Total: 0 }) { <p data-empty="true">@T("deliveryOps.empty", "처리할 dead-letter가 없습니다.", "There are no dead letters to process.")</p> }
+                else if (_deadLetters is not null)
+                {
+                    <div class="bwk-table-scroll" tabindex="0" role="region" aria-label="Dead letters">
+                        <table>
+                            <thead><tr><th>@T("deliveryOps.recipient", "수신자", "Recipient")</th><th>@T("deliveryOps.provider", "제공자", "Provider")</th><th>@T("deliveryOps.attempts", "시도", "Attempts")</th><th>@T("deliveryOps.errorCode", "오류 코드", "Error code")</th><th>@T("deliveryOps.createdAt", "생성 시각 (UTC)", "Created at (UTC)")</th><th>@T("deliveryOps.actions", "작업", "Actions")</th></tr></thead>
+                            <tbody>
+                                @foreach (var item in _deadLetters.Items)
+                                {
+                                    <tr @key="item.Id" data-delivery="@item.Id">
+                                        <td>@item.Payload.Recipient</td><td>@item.Payload.ProviderKey</td>
+                                        <td>@item.AttemptCount / @item.RetryPolicy.MaxAttempts</td>
+                                        <td class="bwk-id">@item.LastErrorCode</td>
+                                        <td>@Utc(item.CreatedAt)</td>
+                                        <td>
+                                            @if (CanManage)
+                                            {
+                                                <RadzenButton data-retry="@item.Id" Text="@T("deliveryOps.retry", "재처리", "Retry")"
+                                                    Click="() => ActAsync(item, DeliveryDeadLetterAction.Retry)" Disabled="@Busy(item.Id)" />
+                                                <RadzenButton data-discard="@item.Id" Text="@T("deliveryOps.discard", "폐기", "Discard")"
+                                                    Click="() => ActAsync(item, DeliveryDeadLetterAction.Discard)" Disabled="@Busy(item.Id)" ButtonStyle="ButtonStyle.Danger" />
+                                            }
+                                            else { <span>@T("deliveryOps.readOnly", "조회 전용", "Read only")</span> }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                @if (_actionError is { } actionError) { <div id="delivery-action-error">@Failure(actionError, false)</div> }
+                <nav class="bwk-pager" aria-label="Dead letters">
+                    <RadzenButton id="delivery-previous" Text="@T("inventory.previous", "이전 페이지", "Previous page")" Disabled="@(_offset == 0 || _listRequest is not null)" Click="() => MoveAsync(-1)" ButtonStyle="ButtonStyle.Light" />
+                    @if (_deadLetters is not null) { <span data-total="@_deadLetters.Total">@T("inventory.total", "전체", "Total") @_deadLetters.Total.ToString(CultureInfo.InvariantCulture)</span> }
+                    <RadzenButton id="delivery-next" Text="@T("inventory.next", "다음 페이지", "Next page")" Disabled="@(!CanNext)" Click="() => MoveAsync(1)" ButtonStyle="ButtonStyle.Light" />
+                </nav>
+            </section>
+        }
+    }
+</div>
+
+@code {
+    private const int PageSize = 50;
+    private BusinessPage<BusinessMembership>? _scopes;
+    private BusinessPage<DeliveryRequest>? _deadLetters;
+    private BusinessMembership? _scope;
+    private CancellationTokenSource? _scopeRequest, _listRequest;
+    private readonly Dictionary<(Guid, DeliveryDeadLetterAction), Guid> _operations = new();
+    private readonly HashSet<Guid> _busy = [];
+    private (int Status, string? Code, string? Error)? _scopeError, _listError, _actionError;
+    private string? _currentUserId;
+    private bool _authenticated, _identityLoading = true, _disposed, _interactive;
+    private Task<AuthenticationState>? _pendingAuthentication;
+    private int _offset, _identityVersion;
+
+    protected override void OnInitialized()
+    {
+        Authentication.AuthenticationStateChanged += AuthenticationChanged;
+        Ui.Changed += LanguageChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _disposed) return;
+        _interactive = true;
+        await ChangeIdentityAsync(_pendingAuthentication ?? Authentication.GetAuthenticationStateAsync());
+        _pendingAuthentication = null;
+    }
+
+    private void AuthenticationChanged(Task<AuthenticationState> state)
+    {
+        if (!_interactive) { _pendingAuthentication = state; return; }
+        if (!_disposed) _ = InvokeAsync(() => ChangeIdentityAsync(state));
+    }
+    private void LanguageChanged() { if (!_disposed) _ = InvokeAsync(StateHasChanged); }
+
+    private async Task ChangeIdentityAsync(Task<AuthenticationState> stateTask)
+    {
+        if (_disposed) return;
+        var version = ++_identityVersion;
+        Cancel(ref _scopeRequest); Cancel(ref _listRequest); _scope = null; _scopes = null; _deadLetters = null;
+        _scopeError = _listError = _actionError = null; _operations.Clear(); _busy.Clear(); _offset = 0;
+        _authenticated = false; _currentUserId = null; _identityLoading = true;
+        StateHasChanged();
+        var state = await stateTask;
+        if (_disposed || version != _identityVersion) return;
+        _authenticated = state.User.Identity?.IsAuthenticated == true;
+        _currentUserId = _authenticated ? state.User.CurrentUserId() : null;
+        _identityLoading = false;
+        if (_authenticated) await LoadScopesAsync();
+        if (!_disposed && version == _identityVersion) StateHasChanged();
+    }
+
+    private async Task LoadScopesAsync()
+    {
+        Cancel(ref _scopeRequest); var request = _scopeRequest = new(); _scopeError = null;
+        try
+        {
+            var result = await Api.ReadInventoryAsync<BusinessPage<BusinessMembership>>(
+                "api/v1/collaboration/deliveries/scopes/me?offset=0&limit=100", request.Token);
+            if (!Owns(_scopeRequest, request)) return;
+            if (result.StatusCode is >= 200 and < 300 && result.Error is null && result.Value is { Items: not null })
+                _scopes = result.Value;
+            else _scopeError = (result.StatusCode, result.Code, result.Error);
+        }
+        catch (OperationCanceledException) when (request.IsCancellationRequested) { }
+        finally { Finish(ref _scopeRequest, request); }
+    }
+
+    private Task ReloadScopesAsync() { _scope = null; _deadLetters = null; _offset = 0; return LoadScopesAsync(); }
+    private async Task SelectScopeAsync(BusinessMembership scope)
+    {
+        if (SelectedKey == ScopeKey(scope)) return;
+        Cancel(ref _listRequest); _scope = scope; _deadLetters = null; _listError = _actionError = null;
+        _operations.Clear(); _busy.Clear(); _offset = 0;
+        await LoadDeadLettersAsync();
+    }
+
+    private async Task LoadDeadLettersAsync()
+    {
+        if (_scope is null) return;
+        Cancel(ref _listRequest); var request = _listRequest = new(); _listError = null;
+        try
+        {
+            var result = await Api.ReadInventoryAsync<BusinessPage<DeliveryRequest>>(
+                $"api/v1/collaboration/deliveries/{ScopeKey(_scope)}/dead-letters?offset={_offset}&limit={PageSize}", request.Token);
+            if (!Owns(_listRequest, request)) return;
+            if (result.StatusCode is >= 200 and < 300 && result.Error is null && result.Value is { Items: not null })
+                _deadLetters = result.Value;
+            else _listError = (result.StatusCode, result.Code, result.Error);
+        }
+        catch (OperationCanceledException) when (request.IsCancellationRequested) { }
+        finally { Finish(ref _listRequest, request); }
+    }
+
+    private async Task ActAsync(DeliveryRequest item, DeliveryDeadLetterAction action)
+    {
+        if (_scope is null || _currentUserId is null || !CanManage || !_busy.Add(item.Id)) return;
+        _actionError = null;
+        var key = (item.Id, action);
+        if (!_operations.TryGetValue(key, out var operation)) _operations[key] = operation = Guid.NewGuid();
+        var verb = action == DeliveryDeadLetterAction.Retry ? "retry" : "discard";
+        try
+        {
+            var result = await Api.WriteInventoryAsync<DeliveryRequest>(HttpMethod.Post,
+                $"api/v1/collaboration/deliveries/{ScopeKey(_scope)}/{item.Id:D}/dead-letter/{verb}",
+                new { operationId = operation, version = item.Version }, _currentUserId);
+            if (result.StatusCode is >= 200 and < 300 && result.Error is null && result.Value is not null)
+            { _operations.Remove(key); await LoadDeadLettersAsync(); }
+            else _actionError = (result.StatusCode, result.Code, result.Error);
+        }
+        finally { _busy.Remove(item.Id); if (!_disposed) StateHasChanged(); }
+    }
+
+    private async Task MoveAsync(int direction)
+    { _offset = Math.Max(0, _offset + direction * PageSize); await LoadDeadLettersAsync(); }
+    private bool CanNext => _listRequest is null && _deadLetters is not null
+        && (long)_offset + PageSize < _deadLetters.Total && _offset <= int.MaxValue - PageSize;
+    private bool CanManage => _scope?.Permissions.Contains("delivery.manage-dead-letter", StringComparer.Ordinal) == true;
+    private bool Busy(Guid id) => _busy.Contains(id);
+    private static string ScopeKey(BusinessMembership scope) => $"{scope.TenantId:D}/{scope.OrganizationId:D}";
+    private string? SelectedKey => _scope is null ? null : ScopeKey(_scope);
+    private static string Utc(DateTimeOffset value) => value.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+    private string T(string key, string ko, string en) => Ui.T(key, Ui.Language == "EnUs" ? en : ko);
+    private RenderFragment Failure((int Status, string? Code, string? Error) error, bool scopes) => @<div role="alert" data-status="@error.Status">
+        <p>@(error.Status == 503 ? T("deliveryOps.unavailable", "서비스를 사용할 수 없습니다. 같은 작업을 다시 시도해 주세요.", "The service is unavailable. Retry the same action.")
+            : error.Status == 403 ? T("deliveryOps.forbidden", "현재 권한이 없습니다.", "You do not currently have permission.")
+            : T("deliveryOps.requestFailed", "요청을 완료하지 못했습니다.", "The request could not be completed."))</p>
+        @if (!string.IsNullOrEmpty(error.Code)) { <span class="bwk-id">@error.Code</span> }
+        @if (!string.IsNullOrEmpty(error.Error)) { <p>@error.Error</p> }
+        <RadzenButton Text="@T("inventory.retry", "다시 시도", "Retry")" Click="@(scopes ? LoadScopesAsync : LoadDeadLettersAsync)" ButtonStyle="ButtonStyle.Light" />
+    </div>;
+
+    private bool Owns(CancellationTokenSource? current, CancellationTokenSource request)
+        => !_disposed && ReferenceEquals(current, request);
+    private void Finish(ref CancellationTokenSource? current, CancellationTokenSource request)
+    { if (ReferenceEquals(current, request)) current = null; request.Dispose(); if (!_disposed) StateHasChanged(); }
+    private static void Cancel(ref CancellationTokenSource? request)
+    { request?.Cancel(); request = null; }
+    public void Dispose()
+    {
+        _disposed = true; Authentication.AuthenticationStateChanged -= AuthenticationChanged; Ui.Changed -= LanguageChanged;
+        Cancel(ref _scopeRequest); Cancel(ref _listRequest);
+    }
+}

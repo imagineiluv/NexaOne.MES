@@ -1,11 +1,60 @@
 using System.Data;
 using NexaFramework.Service;
 using NexaFramework.Service.Collaboration;
+using NexaOne.ServiceContracts.Collaboration;
+using NexaOne.ServiceContracts.Sys;
 
 namespace NexaOne.ERP.Infrastructure;
 
 public sealed partial class BillingBridge
 {
+    Task<BusinessPage<BusinessMembership>> IDeliveryBridge.ListAccessibleScopesAsync(
+        string userId, int offset, int limit, CancellationToken ct)
+    {
+        if (!ValidText(userId, 50)) throw Failure("BUSINESS_ACCESS_DENIED");
+        if (offset < 0 || limit is < 1 or > 100) throw Failure("INVALID_BUSINESS_INPUT");
+        return _processor.ExecuteInTransactionAsync(async (_, transaction) =>
+        {
+            const int batchSize = 128;
+            var items = new List<BusinessMembership>(limit);
+            long total = 0;
+            Guid? afterTenant = null, afterOrganization = null;
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                IReadOnlyList<BusinessMembership> batch;
+                try
+                {
+                    batch = await _memberships.ListAccessInTransactionAsync(transaction, userId,
+                        afterTenant, afterOrganization, batchSize, ct);
+                }
+                catch (InvalidDataException) { throw Failure("BUSINESS_ACCESS_DENIED"); }
+                if (batch is null || batch.Count > batchSize) throw Failure("STORAGE_CONTRACT_VIOLATION");
+                foreach (var membership in batch)
+                {
+                    if (membership is null || membership.TenantId == Guid.Empty
+                        || membership.OrganizationId == Guid.Empty || membership.BusinessUserId == Guid.Empty
+                        || !membership.IsActive || membership.Version <= 0 || membership.Permissions is null)
+                        throw Failure("STORAGE_CONTRACT_VIOLATION");
+                    if (afterTenant.HasValue)
+                    {
+                        var tenantOrder = string.CompareOrdinal(Text(membership.TenantId), Text(afterTenant.Value));
+                        if (tenantOrder < 0 || tenantOrder == 0
+                            && string.CompareOrdinal(Text(membership.OrganizationId), Text(afterOrganization!.Value)) <= 0)
+                            throw Failure("STORAGE_CONTRACT_VIOLATION");
+                    }
+                    afterTenant = membership.TenantId;
+                    afterOrganization = membership.OrganizationId;
+                    if (!membership.Permissions.Contains("delivery.read", StringComparer.Ordinal)) continue;
+                    if (total++ >= offset && items.Count < limit) items.Add(membership);
+                }
+                if (batch.Count < batchSize) break;
+            }
+            ct.ThrowIfCancellationRequested();
+            return new BusinessPage<BusinessMembership>(Array.AsReadOnly(items.ToArray()), total);
+        }, IsolationLevel.Serializable, ct);
+    }
+
     public Task<DeliveryTemplate> CreateTemplateAsync(string userId, Guid tenantId, Guid organizationId,
         string name, string subject, string body, IReadOnlyList<string>? variables = null,
         CancellationToken ct = default)
@@ -43,6 +92,21 @@ public sealed partial class BillingBridge
         Guid id, Guid version, CancellationToken ct = default)
         => RunDelivery(userId, tenantId, organizationId, "delivery.cancel",
             (service, actor) => service.CancelAsync(actor, id, version, ct), ct);
+
+    public Task<BusinessPage<DeliveryRequest>> ListDeadLettersAsync(string userId, Guid tenantId,
+        Guid organizationId, int offset = 0, int limit = 50, CancellationToken ct = default)
+        => RunDelivery(userId, tenantId, organizationId, "delivery.read",
+            (service, actor) => service.ListDeadLettersAsync(actor, offset, limit, ct), ct);
+
+    public Task<DeliveryRequest> RetryDeadLetterAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid operationId, Guid id, Guid version, CancellationToken ct = default)
+        => RunDelivery(userId, tenantId, organizationId, "delivery.manage-dead-letter",
+            (service, actor) => service.RetryDeadLetterAsync(actor, operationId, id, version, ct), ct);
+
+    public Task<DeliveryRequest> DiscardDeadLetterAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid operationId, Guid id, Guid version, CancellationToken ct = default)
+        => RunDelivery(userId, tenantId, organizationId, "delivery.manage-dead-letter",
+            (service, actor) => service.DiscardDeadLetterAsync(actor, operationId, id, version, ct), ct);
 
     private Task<T> RunDelivery<T>(string userId, Guid tenantId, Guid organizationId, string permission,
         Func<DeliveryService, BusinessActor, Task<T>> action, CancellationToken ct)
@@ -92,6 +156,45 @@ public sealed partial class BillingBridge
 
         public Task<DeliveryRequest?> FindDeliveryByOperationAsync(Guid operationId, CancellationToken ct)
             => ReadDelivery<DeliveryRequest>("COL_DELIVERY_REQUEST", "OPERATION_ID", operationId, ct);
+
+        public Task<DeliveryDeadLetterOperation?> FindDeliveryDeadLetterOperationAsync(
+            Guid operationId, CancellationToken ct)
+            => ReadDelivery<DeliveryDeadLetterOperation>("COL_DELIVERY_DEAD_LETTER_OPERATION", "OPERATION_ID",
+                operationId, ct);
+
+        public async Task SaveDeliveryDeadLetterOperationAsync(
+            DeliveryDeadLetterOperation value, CancellationToken ct)
+        {
+            RequireScope(value.Scope);
+            await Write("""
+                INSERT INTO COL_DELIVERY_DEAD_LETTER_OPERATION
+                    (TENANT_ID,ORGANIZATION_ID,OPERATION_ID,DELIVERY_ID,ACTION,RESULT_VERSION,
+                     ACTOR_ID,OCCURRED_AT_TICKS,PAYLOAD)
+                VALUES (@TenantId,@OrganizationId,@Operation,@Delivery,@Action,@ResultVersion,
+                        @Actor,@OccurredAt,@Payload)
+                """, new
+                {
+                    Operation = Text(value.OperationId), Delivery = Text(value.DeliveryId),
+                    Action = (int)value.Action, ResultVersion = Text(value.ResultVersion),
+                    Actor = value.ActorId, OccurredAt = value.OccurredAt.UtcTicks, Payload = Serialize(value)
+                }, ct);
+        }
+
+        public async Task<BusinessPage<DeliveryRequest>> QueryDeadLetterDeliveriesAsync(
+            int offset, int limit, CancellationToken ct)
+        {
+            var total = await Scalar<long>("SELECT COUNT(*) FROM COL_DELIVERY_REQUEST WHERE "
+                + ScopeWhere + " AND STATE=4", null, ct);
+            var rows = await Rows<PayloadRow>("""
+                SELECT PAYLOAD AS Payload FROM (
+                    SELECT PAYLOAD, ROW_NUMBER() OVER (ORDER BY DELIVERY_ID) AS RowNumber
+                    FROM COL_DELIVERY_REQUEST
+                    WHERE TENANT_ID=@TenantId AND ORGANIZATION_ID=@OrganizationId AND STATE=4
+                ) AS page WHERE RowNumber>@Offset AND RowNumber<=@End ORDER BY RowNumber
+                """, new { Offset = offset, End = (long)offset + limit }, ct);
+            return new BusinessPage<DeliveryRequest>(Array.AsReadOnly(rows
+                .Select(row => Deserialize<DeliveryRequest>(row.Payload)).ToArray()), total);
+        }
 
         public async Task SaveDeliveryAsync(DeliveryRequest value, Guid? expectedVersion, CancellationToken ct)
         {
