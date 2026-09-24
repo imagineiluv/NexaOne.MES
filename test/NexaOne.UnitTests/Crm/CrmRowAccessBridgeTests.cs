@@ -4,6 +4,7 @@ using NexaFramework.Service.Crm;
 using NexaFramework.Service.Projects;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Sys;
+using NexaOne.ServiceContracts.Mdm;
 using NexaOne.UnitTests.TestInfrastructure;
 using CrmModule = NexaOne.CRM.Module;
 
@@ -173,11 +174,65 @@ public sealed class CrmRowAccessBridgeTests : IDisposable
         await customerLink.Should().ThrowAsync<BusinessException>().WithMessage("CLIENT_NOT_FOUND");
     }
 
+    [Fact]
+    public async Task Customer_enrollment_is_retry_safe_and_unlocks_deal_and_project_links()
+    {
+        var memberships = Memberships();
+        var module = Module(memberships.Object);
+        Initialize(module);
+        var bridge = module.GetCrmBridge();
+
+        var denied = () => bridge.EnrollCustomerAsync("creator", _tenantId, _organizationId, "CUSTOMER-1");
+        await denied.Should().ThrowAsync<BusinessException>().WithMessage("CRM_ACCESS_DENIED");
+
+        var enrolled = await bridge.EnrollCustomerAsync("admin", _tenantId, _organizationId, "CUSTOMER-1");
+        var replay = await bridge.EnrollCustomerAsync("admin", _tenantId, _organizationId, "CUSTOMER-1");
+        replay.Should().Be(enrolled);
+
+        var page = await bridge.ListCustomerEnrollmentsAsync("admin", _tenantId, _organizationId);
+        page.Total.Should().Be(1);
+        page.Items.Should().ContainSingle().Which.Should().Be(enrolled);
+
+        var pipeline = await bridge.CreatePipelineAsync("admin", _tenantId, _organizationId,
+            new PipelineInput("Sales", Stages: [new StageInput(null, "Lead")]));
+        var deal = await bridge.CreateDealAsync("admin", _tenantId, _organizationId,
+            new DealInput("Customer deal", 2, pipeline.Stages[0].Id, enrolled.ContactId));
+        deal.ClientId.Should().Be(enrolled.ContactId);
+
+        var project = await bridge.CreateProjectAsync("admin", _tenantId, _organizationId,
+            new ProjectInput("Customer project"), new ProjectLinks(enrolled.ContactId, [], []));
+        project.Links.CustomerId.Should().Be(enrolled.ContactId);
+
+        var remove = () => bridge.DeleteCustomerEnrollmentAsync("admin", _tenantId, _organizationId,
+            enrolled.ContactId, enrolled.Version);
+        await remove.Should().ThrowAsync<BusinessException>().WithMessage("CRM_ENROLLMENT_IS_REFERENCED");
+    }
+
+    [Fact]
+    public async Task Customer_enrollment_rejects_missing_or_inactive_masters_and_unreferenced_rows_can_be_removed()
+    {
+        var memberships = Memberships();
+        var module = Module(memberships.Object);
+        Initialize(module);
+        var bridge = module.GetCrmBridge();
+
+        var missing = () => bridge.EnrollCustomerAsync("admin", _tenantId, _organizationId, "MISSING");
+        await missing.Should().ThrowAsync<BusinessException>().WithMessage("MDM_CUSTOMER_NOT_FOUND");
+        var inactive = () => bridge.EnrollCustomerAsync("admin", _tenantId, _organizationId, "CUSTOMER-INACTIVE");
+        await inactive.Should().ThrowAsync<BusinessException>().WithMessage("MDM_CUSTOMER_INACTIVE");
+
+        var enrolled = await bridge.EnrollCustomerAsync("admin", _tenantId, _organizationId, "CUSTOMER-2");
+        await bridge.DeleteCustomerEnrollmentAsync("admin", _tenantId, _organizationId,
+            enrolled.ContactId, enrolled.Version);
+        var page = await bridge.ListCustomerEnrollmentsAsync("admin", _tenantId, _organizationId);
+        page.Total.Should().Be(0);
+    }
+
     private CrmModule Module(IBusinessMembershipBridge memberships) => new(new EesDataSource
     {
         Provider = new SqliteTestDatabaseProvider(),
         ConnectionString = $"Data Source={_path};Foreign Keys=True",
-    }, memberships);
+    }, memberships, Directory().Object);
 
     private void Initialize(CrmModule module)
     {
@@ -201,7 +256,7 @@ public sealed class CrmRowAccessBridgeTests : IDisposable
         {
             ["admin"] = ["crm.read", "crm.pipeline.manage", "crm.deal.manage", "crm.deal.delete", "crm.deal.all",
                 "crm.project.read", "crm.project.manage", "crm.project.delete", "crm.project.link-customer", "crm.project.all",
-                "crm.team.read", "crm.team.manage", "crm.team.delete"],
+                "crm.team.read", "crm.team.manage", "crm.team.delete", "crm.customer.enroll"],
             ["creator"] = ["crm.read", "crm.deal.manage", "crm.deal.created",
                 "crm.project.read", "crm.project.manage", "crm.project.created"],
             ["assignee"] = ["crm.read", "crm.deal.assigned", "crm.project.read", "crm.project.assigned"],
@@ -213,6 +268,12 @@ public sealed class CrmRowAccessBridgeTests : IDisposable
                 employees.TryGetValue(user, out var employee)
                     ? new BusinessMembership(_tenantId, _organizationId, user, employee, true, 1, permissions[user])
                     : null);
+        mock.Setup(value => value.GetAccessInTransactionAsync(It.IsAny<System.Data.Common.DbTransaction>(),
+                It.IsAny<string>(), _tenantId, _organizationId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((System.Data.Common.DbTransaction _, string user, Guid _, Guid _, CancellationToken _) =>
+                employees.TryGetValue(user, out var employee)
+                    ? new BusinessMembership(_tenantId, _organizationId, user, employee, true, 1, permissions[user])
+                    : null);
         mock.Setup(value => value.GetActiveMemberInTransactionAsync(It.IsAny<System.Data.Common.DbTransaction>(),
                 _tenantId, _organizationId, It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((System.Data.Common.DbTransaction _, Guid _, Guid _, Guid employee, CancellationToken _) =>
@@ -221,6 +282,22 @@ public sealed class CrmRowAccessBridgeTests : IDisposable
                 return pair.Key is null ? null
                     : new BusinessMembership(_tenantId, _organizationId, pair.Key, employee, true, 1, permissions[pair.Key]);
             });
+        return mock;
+    }
+
+    private static Mock<IBusinessMasterDirectory> Directory()
+    {
+        var customers = new Dictionary<string, CustomerDto>(StringComparer.Ordinal)
+        {
+            ["CUSTOMER-1"] = new("CUSTOMER-1", "Customer One", true),
+            ["CUSTOMER-2"] = new("CUSTOMER-2", "Customer Two", true),
+            ["CUSTOMER-INACTIVE"] = new("CUSTOMER-INACTIVE", "Inactive Customer", false),
+        };
+        var mock = new Mock<IBusinessMasterDirectory>();
+        mock.Setup(value => value.FindCustomerAsync(It.IsAny<System.Data.Common.DbTransaction>(),
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((System.Data.Common.DbTransaction _, string customerId, CancellationToken _) =>
+                customers.GetValueOrDefault(customerId));
         return mock;
     }
 

@@ -21,4 +21,5 @@ internal static class CrmPermissions
     public const string ManageTeams = "crm.team.manage";
     public const string DeleteTeams = "crm.team.delete";
     public const string LinkCustomer = "crm.project.link-customer";
+    public const string EnrollCustomer = "crm.customer.enroll";
 }

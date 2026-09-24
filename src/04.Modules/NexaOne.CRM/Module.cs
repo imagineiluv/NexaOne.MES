@@ -1,6 +1,7 @@
 using NexaOne.CRM.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Crm;
+using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Sys;
 
 namespace NexaOne.CRM;
@@ -11,11 +12,13 @@ public sealed class Module
     private readonly ICrmBridge _bridge;
     private readonly ISqliteSchemaContribution _schema;
 
-    public Module(EesDataSource dataSource, IBusinessMembershipBridge memberships)
+    public Module(EesDataSource dataSource, IBusinessMembershipBridge memberships,
+        IBusinessMasterDirectory masterDirectory)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(memberships);
-        _bridge = new CrmBridge(dataSource, memberships);
+        ArgumentNullException.ThrowIfNull(masterDirectory);
+        _bridge = new CrmBridge(dataSource, memberships, masterDirectory);
         _schema = new CrmSqliteSchemaContribution();
     }
 

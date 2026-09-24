@@ -54,4 +54,16 @@ public interface ICrmBridge : INexaModuleBridge
         CancellationToken ct = default);
     Task DeleteTeamAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, CancellationToken ct = default);
+
+    Task<CrmCustomerEnrollment> EnrollCustomerAsync(string userId, Guid tenantId, Guid organizationId,
+        string customerId, CancellationToken ct = default);
+    Task<CrmCustomerEnrollmentPage> ListCustomerEnrollmentsAsync(string userId, Guid tenantId,
+        Guid organizationId, int offset = 0, int limit = 50, string? text = null,
+        CancellationToken ct = default);
+    Task DeleteCustomerEnrollmentAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid contactId, Guid version, CancellationToken ct = default);
 }
+
+public sealed record CrmCustomerEnrollment(Guid ContactId, Guid Version, string CustomerId,
+    string CustomerName, string EnrolledByUserId, DateTimeOffset EnrolledAt);
+public sealed record CrmCustomerEnrollmentPage(IReadOnlyList<CrmCustomerEnrollment> Items, long Total);
