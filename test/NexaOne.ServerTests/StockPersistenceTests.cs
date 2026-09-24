@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Globalization;
+using System.Text;
 using Dapper;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
@@ -53,7 +54,8 @@ public sealed class StockPersistenceTests : IClassFixture<BusinessMembershipData
     }
     public Task DisposeAsync() { File.Delete(_path); return Task.CompletedTask; }
     private EesDataSource DataSource() => new() { Provider = new SqliteProvider(), ConnectionString = _connectionString };
-    private StockBridge NewBridge() => new(DataSource(), new BusinessMembershipBridge(DataSource()), new BusinessMasterDirectory(DataSource()));
+    private StockBridge NewBridge(TimeProvider? clock = null) => new(DataSource(), new BusinessMembershipBridge(DataSource()),
+        new BusinessMasterDirectory(DataSource()), clock);
     private void Execute(string sql, object? values = null) { using var c = new SqliteConnection(_connectionString); c.Open(); c.Execute(sql, values); }
     private T Scalar<T>(string sql) { using var c = new SqliteConnection(_connectionString); c.Open(); return c.ExecuteScalar<T>(sql)!; }
     private long Count(string table) => Scalar<long>("SELECT COUNT(*) FROM " + table);
@@ -68,6 +70,46 @@ public sealed class StockPersistenceTests : IClassFixture<BusinessMembershipData
         => NewBridge().GetBalanceAsync("stock-user", _tenant, _organization, product.Id, warehouse.Id);
     private static async Task Error(Func<Task> action, string code)
         => (await Assert.ThrowsAsync<BusinessException>(action)).Code.Should().Be(code);
+
+    [Fact]
+    public async Task Balance_report_is_a_stable_current_snapshot_and_csv_is_safe_and_restartable()
+    {
+        var at = new DateTimeOffset(2026, 9, 24, 12, 34, 56, TimeSpan.Zero);
+        var bridge = NewBridge(new FixedClock(at));
+        var firstProduct = await bridge.EnrollProductAsync("stock-user", _tenant, _organization, "STOCK-PRODUCT", "EA");
+        var secondProduct = await bridge.EnrollProductAsync("stock-user", _tenant, _organization, "STOCK-OTHER", "KG");
+        var lastWarehouse = await bridge.CreateWarehouseAsync("stock-user", _tenant, _organization, Guid.NewGuid(), "Z-LAST", "Last");
+        var firstWarehouse = await bridge.CreateWarehouseAsync("stock-user", _tenant, _organization, Guid.NewGuid(), "A-FIRST", "=2+3, \"dock\"");
+        await bridge.PostAsync("stock-user", _tenant, _organization,
+            new(Guid.NewGuid(), firstProduct.Id, StockMovementKind.Receipt, 12.123456m, null, lastWarehouse.Id, "opening"));
+        await bridge.PostAsync("stock-user", _tenant, _organization,
+            new(Guid.NewGuid(), secondProduct.Id, StockMovementKind.Receipt, 5m, null, firstWarehouse.Id, "opening"));
+        await bridge.ReserveAsync("stock-user", _tenant, _organization, Guid.NewGuid(), secondProduct.Id,
+            firstWarehouse.Id, 1.000001m, "reserved");
+        Execute("UPDATE MDM_PRODUCT SET PRODUCT_NAME='+formula' WHERE PRODUCT_ID='STOCK-OTHER'");
+
+        var report = await NewBridge(new FixedClock(at)).BuildBalanceReportAsync("stock-user", _tenant, _organization);
+
+        report.Scope.Should().Be(new BusinessScope("NexaOne.MES", _tenant.ToString("D"), _organization.ToString("D")));
+        report.GeneratedAt.Should().Be(at);
+        report.Rows.Select(row => row.WarehouseCode).Should().Equal("A-FIRST", "Z-LAST");
+        report.Rows[0].Should().BeEquivalentTo(new StockBalanceReportRow(firstWarehouse.Id, "A-FIRST", "=2+3, \"dock\"", true,
+            secondProduct.Id, "STOCK-OTHER", "+formula", true, "KG", 5m, 1.000001m, 3.999999m));
+        var filtered = await bridge.BuildBalanceReportAsync("stock-user", _tenant, _organization, lastWarehouse.Id, firstProduct.Id);
+        filtered.Rows.Should().ContainSingle().Which.OnHand.Should().Be(12.123456m);
+
+        var export = await NewBridge().ExportBalanceReportCsvAsync("stock-user", _tenant, _organization);
+        export.FileName.Should().Be($"inventory-stock-balances-{_tenant:N}-{_organization:N}.csv");
+        export.ContentType.Should().Be("text/csv; charset=utf-8");
+        export.Content.Should().StartWith(Encoding.UTF8.GetPreamble());
+        var csv = Encoding.UTF8.GetString(export.Content);
+        csv.Should().Contain("\"'=2+3, \"\"dock\"\"\"").And.Contain("\"'+formula\"")
+            .And.Contain("\"5\",\"1.000001\",\"3.999999\"\r\n");
+
+        Execute("UPDATE SYS_BUSINESS_MEMBERSHIP SET PERMISSIONS='stock.warehouse.read' WHERE USER_ID='stock-user'");
+        await Error(() => NewBridge().BuildBalanceReportAsync("stock-user", _tenant, _organization), "BUSINESS_ACCESS_DENIED");
+        await Error(() => NewBridge().ExportBalanceReportCsvAsync("stock-user", _tenant, _organization), "BUSINESS_ACCESS_DENIED");
+    }
 
     [Fact]
     public async Task Product_lists_use_live_master_names_and_activity_before_paging_without_changing_variant_identity()
@@ -503,4 +545,9 @@ public sealed class StockPersistenceTests : IClassFixture<BusinessMembershipData
         await Error(() => Post(product, warehouse, decimal.Parse(text, CultureInfo.InvariantCulture)), "INVALID_STOCK_QUANTITY");
         Count("IVT_STOCK_BALANCE").Should().Be(0); Count("IVT_STOCK_MOVEMENT").Should().Be(0);
     }
+}
+
+file sealed class FixedClock(DateTimeOffset value) : TimeProvider
+{
+    public override DateTimeOffset GetUtcNow() => value;
 }

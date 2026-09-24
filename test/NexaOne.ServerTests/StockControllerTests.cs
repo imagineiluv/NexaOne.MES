@@ -65,6 +65,32 @@ public sealed class StockControllerTests
     }
 
     [Fact]
+    public async Task Balance_report_and_csv_export_preserve_filters_and_file_metadata()
+    {
+        var tenant = Guid.NewGuid(); var organization = Guid.NewGuid();
+        var warehouse = Guid.NewGuid(); var variant = Guid.NewGuid();
+        using var cancellation = new CancellationTokenSource();
+        var report = new StockBalanceReport(new("NexaOne.MES", tenant.ToString("D"), organization.ToString("D")),
+            DateTimeOffset.UtcNow, []);
+        var export = new StockBalanceCsvExport("balances.csv", "text/csv; charset=utf-8", [0xef, 0xbb, 0xbf, 0x41]);
+        var bridge = new Mock<IStockBridge>(MockBehavior.Strict);
+        bridge.Setup(value => value.BuildBalanceReportAsync("stock-user", tenant, organization, warehouse, variant, cancellation.Token))
+            .ReturnsAsync(report);
+        bridge.Setup(value => value.ExportBalanceReportCsvAsync("stock-user", tenant, organization, warehouse, variant, cancellation.Token))
+            .ReturnsAsync(export);
+        var controller = Controller(bridge.Object);
+
+        (await controller.BalanceReport(tenant, organization, warehouse, variant, cancellation.Token))
+            .Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(report);
+        var file = (await controller.ExportBalanceReport(tenant, organization, warehouse, variant, cancellation.Token))
+            .Should().BeOfType<FileContentResult>().Which;
+        file.FileContents.Should().BeSameAs(export.Content);
+        file.ContentType.Should().Be(export.ContentType);
+        file.FileDownloadName.Should().Be(export.FileName);
+        bridge.VerifyAll(); bridge.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task Missing_current_user_does_not_invoke_the_bridge()
     {
         var bridge = new Mock<IStockBridge>(MockBehavior.Strict);
@@ -79,6 +105,7 @@ public sealed class StockControllerTests
     [InlineData("STOCK_MOVEMENT_NOT_FOUND", 404)]
     [InlineData("INVALID_STOCK_POSTING", 400)]
     [InlineData("EXPLICIT_CREATE_OR_VERSIONED_UPDATE_REQUIRED", 400)]
+    [InlineData("STOCK_REPORT_TOO_LARGE", 413)]
     [InlineData("STOCK_OPERATION_CONFLICT", 409)]
     public async Task Business_errors_keep_equipment_gateway_status_and_code_conventions(string code, int status)
     {

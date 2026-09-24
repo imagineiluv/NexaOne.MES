@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Dapper;
 using NexaDB.Data.Abstractions.Models;
@@ -17,6 +18,7 @@ namespace NexaOne.IVT.Infrastructure;
 /// balance changes, immutable ledger entries, reservations and audit share one Serializable commit.</summary>
 public sealed class StockBridge : IStockBridge
 {
+    private const int BalanceReportRowLimit = 10_000;
     private const string ScopeWhere = "TENANT_ID=@TenantId AND ORGANIZATION_ID=@OrganizationId";
     private readonly ServiceObjectProcessor _processor;
     private readonly int? _timeout;
@@ -96,6 +98,17 @@ public sealed class StockBridge : IStockBridge
     public Task<BusinessPage<StockBalance>> ListBalancesAsync(string userId, Guid tenantId, Guid organizationId,
         Guid? warehouseId = null, Guid? variantId = null, int offset = 0, int limit = 50, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "stock.read", (service, session) => service.ListBalancesAsync(session.Actor, warehouseId, variantId, offset, limit, ct), ct);
+    public Task<StockBalanceReport> BuildBalanceReportAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid? warehouseId = null, Guid? variantId = null, CancellationToken ct = default)
+        => Run(userId, tenantId, organizationId, "stock.read", (_, session) => session.BalanceReport(warehouseId, variantId, ct), ct);
+    public async Task<StockBalanceCsvExport> ExportBalanceReportCsvAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid? warehouseId = null, Guid? variantId = null, CancellationToken ct = default)
+    {
+        var report = await BuildBalanceReportAsync(userId, tenantId, organizationId, warehouseId, variantId, ct);
+        ct.ThrowIfCancellationRequested();
+        return new($"inventory-stock-balances-{tenantId:N}-{organizationId:N}.csv",
+            "text/csv; charset=utf-8", Csv(report));
+    }
     public Task<BusinessPage<StockReservation>> ListReservationsAsync(string userId, Guid tenantId, Guid organizationId,
         Guid? variantId = null, Guid? warehouseId = null, StockReservationState? state = null, int offset = 0, int limit = 50, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "stock.read", (service, session) => service.ListReservationsAsync(session.Actor, variantId, warehouseId, state, offset, limit, ct), ct);
@@ -158,6 +171,30 @@ public sealed class StockBridge : IStockBridge
         => decimal.TryParse(value, NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint,
             CultureInfo.InvariantCulture, out var result) && Quantity(result) == value
             ? result : throw new InvalidDataException("Stock storage contains a noncanonical quantity.");
+
+    private static byte[] Csv(StockBalanceReport report)
+    {
+        var text = new StringBuilder("Warehouse Code,Warehouse Name,Warehouse Active,Warehouse ID,Product ID,Product Name,Product Active,Variant ID,Unit,On Hand,Reserved,Available\r\n");
+        foreach (var row in report.Rows)
+        {
+            Append(row.WarehouseCode); Append(row.WarehouseName); Append(row.WarehouseActive ? "true" : "false");
+            Append(Text(row.WarehouseId)); Append(row.ProductId); Append(row.ProductName); Append(row.ProductActive ? "true" : "false");
+            Append(Text(row.VariantId)); Append(row.Unit); Append(Quantity(row.OnHand), protectFormula: false);
+            Append(Quantity(row.Reserved), protectFormula: false); Append(Quantity(row.Available), last: true, protectFormula: false);
+
+            void Append(string value, bool last = false, bool protectFormula = true)
+            {
+                var candidate = value.AsSpan().TrimStart();
+                if (protectFormula && value.Length > 0 && (value[0] is '\t' or '\r'
+                    || candidate.Length > 0 && candidate[0] is '=' or '+' or '-' or '@')) value = "'" + value;
+                text.Append('"').Append(value.Replace("\"", "\"\"", StringComparison.Ordinal)).Append('"');
+                text.Append(last ? "\r\n" : ",");
+            }
+        }
+        var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true, throwOnInvalidBytes: true);
+        var body = encoding.GetBytes(text.ToString());
+        return [.. encoding.GetPreamble(), .. body];
+    }
 
     // Confined to one processor-owned transaction. This adapter never commits, retries or caches authority.
     private sealed class Session(DbConnection connection, DbTransaction transaction, int? timeout, BusinessScope scope,
@@ -456,6 +493,58 @@ public sealed class StockBridge : IStockBridge
             return new(Array.AsReadOnly(rows.Select(row => new StockBalance(Id(row.Id), Scope, Id(row.Version), Id(row.VariantId), Id(row.WarehouseId),
                 Quantity(row.OnHand), Quantity(row.Reserved))).ToArray()), total);
         }
+        internal async Task<StockBalanceReport> BalanceReport(Guid? warehouseId, Guid? variantId, CancellationToken ct)
+        {
+            const string filter = " AND (@Warehouse IS NULL OR b.WAREHOUSE_ID=@Warehouse) AND (@Variant IS NULL OR b.VARIANT_ID=@Variant)";
+            var values = new { Warehouse = Text(warehouseId), Variant = Text(variantId) };
+            var total = await Scalar<long>("SELECT COUNT(*) FROM IVT_STOCK_BALANCE b WHERE b.TENANT_ID=@TenantId AND b.ORGANIZATION_ID=@OrganizationId" + filter, values, ct);
+            if (total > BalanceReportRowLimit) throw Failure("STOCK_REPORT_TOO_LARGE");
+            var rows = (await connection.QueryAsync<BalanceReportStorageRow>(Command("""
+                SELECT b.VARIANT_ID AS VariantId, b.WAREHOUSE_ID AS WarehouseId, b.ON_HAND AS OnHand, b.RESERVED AS Reserved,
+                       p.MASTER_PRODUCT_ID AS MasterId, p.UNIT AS Unit, w.CODE AS WarehouseCode, w.NAME AS WarehouseName,
+                       w.IS_ACTIVE AS WarehouseActive
+                  FROM IVT_STOCK_BALANCE b
+                  JOIN IVT_STOCK_PRODUCT p ON p.TENANT_ID=b.TENANT_ID AND p.ORGANIZATION_ID=b.ORGANIZATION_ID AND p.VARIANT_ID=b.VARIANT_ID
+                  JOIN IVT_STOCK_WAREHOUSE w ON w.TENANT_ID=b.TENANT_ID AND w.ORGANIZATION_ID=b.ORGANIZATION_ID AND w.WAREHOUSE_ID=b.WAREHOUSE_ID
+                 WHERE b.TENANT_ID=@TenantId AND b.ORGANIZATION_ID=@OrganizationId
+                   AND (@Warehouse IS NULL OR b.WAREHOUSE_ID=@Warehouse) AND (@Variant IS NULL OR b.VARIANT_ID=@Variant)
+                 ORDER BY w.CODE, w.WAREHOUSE_ID, p.MASTER_PRODUCT_ID, p.VARIANT_ID
+                """, values, ct))).ToArray();
+            if (rows.LongLength != total) throw Failure("STORAGE_CONTRACT_VIOLATION");
+
+            var masterById = new Dictionary<string, ProductDto>(StringComparer.Ordinal);
+            foreach (var batch in rows.Select(row => row.MasterId).Distinct(StringComparer.Ordinal).Chunk(ListBatchSize))
+            {
+                if (batch.Any(key => !ValidText(key, 50))) throw Failure("STORAGE_CONTRACT_VIOLATION");
+                var found = await masters.FindProductsAsync(transaction, batch, ct);
+                if (found is null || found.Count != batch.Length) throw Failure("STORAGE_CONTRACT_VIOLATION");
+                var expected = new HashSet<string>(batch, StringComparer.Ordinal);
+                foreach (var master in found)
+                    if (master is null || !ValidText(master.ProductId, 50) || master.ProductName is null
+                        || master.Unit is null || master.ValidState is null
+                        || !expected.Contains(master.ProductId) || !masterById.TryAdd(master.ProductId, master))
+                        throw Failure("STORAGE_CONTRACT_VIOLATION");
+            }
+
+            var result = rows.Select(row =>
+            {
+                if (!masterById.TryGetValue(row.MasterId, out var master) || row.WarehouseCode is null
+                    || row.WarehouseName is null || row.Unit is null) throw Failure("STORAGE_CONTRACT_VIOLATION");
+                try
+                {
+                    var onHand = Quantity(row.OnHand); var reserved = Quantity(row.Reserved);
+                    var available = checked(onHand - reserved);
+                    return new StockBalanceReportRow(Id(row.WarehouseId), row.WarehouseCode, row.WarehouseName, row.WarehouseActive,
+                        Id(row.VariantId), master.ProductId, master.ProductName, master.ValidState == "Valid" && master.Unit == row.Unit,
+                        row.Unit, onHand, reserved, available);
+                }
+                catch (Exception error) when (error is InvalidDataException or OverflowException)
+                {
+                    throw Failure("STORAGE_CONTRACT_VIOLATION");
+                }
+            }).ToArray();
+            return new(Scope, clock.GetUtcNow(), Array.AsReadOnly(result));
+        }
         public async Task<BusinessPage<StockReservation>> QueryReservationsAsync(Guid? variantId, Guid? warehouseId, StockReservationState? state,
             int offset, int limit, CancellationToken ct)
         {
@@ -532,6 +621,18 @@ public sealed class StockBridge : IStockBridge
         public string WarehouseId { get; set; } = "";
         public string OnHand { get; set; } = "";
         public string Reserved { get; set; } = "";
+    }
+    private sealed class BalanceReportStorageRow
+    {
+        public string VariantId { get; set; } = "";
+        public string WarehouseId { get; set; } = "";
+        public string OnHand { get; set; } = "";
+        public string Reserved { get; set; } = "";
+        public string MasterId { get; set; } = "";
+        public string Unit { get; set; } = "";
+        public string WarehouseCode { get; set; } = "";
+        public string WarehouseName { get; set; } = "";
+        public bool WarehouseActive { get; set; }
     }
     private sealed class MovementRow
     {
