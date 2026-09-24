@@ -1,4 +1,5 @@
 using NexaOne.ServiceContracts;
+using NexaOne.ServiceContracts.Crm;
 using NexaOne.ServiceContracts.Ems;
 using NexaOne.ServiceContracts.Collaboration;
 using NexaOne.ServiceContracts.Erp;
@@ -50,6 +51,7 @@ internal sealed class NexaOneMesBridgeCatalog : INexaModuleBridgeCatalog
     /// <summary>컴파일 타임 계약 형식과 명시적인 Spring 연결만으로 검증된 catalog를 만듭니다.</summary>
     public static NexaOneMesBridgeCatalog Create()
         => Create(
+            Bind<ICrmBridge>("Crm", "crmBridge"),
             Bind<IEmsBridge>("Ems", "emsBridge"),
             Bind<IMaintenanceExecutionBridge>("Ems", "maintenanceExecutionBridge"),
             Bind<IMaintenanceScheduleBridge>("Ems", "maintenanceScheduleBridge"),

@@ -26,7 +26,7 @@ public sealed class ChildProcessSmokeCollection
 }
 
 /// <summary>통합 호스트 modules-ON 부팅 자동검증(Phase 6) — 빌드된 호스트를 자식 프로세스로 SQLite·modules-ON
-/// 기동해 12개 모듈 + 워커 + 선언형 catalog의 전체 Bridge가 한 프로세스에서 실제로 올라오는지 검증한다.
+/// 기동해 13개 모듈 + 워커 + 선언형 catalog의 전체 Bridge가 한 프로세스에서 실제로 올라오는지 검증한다.
 /// 정적 ApplicationServer 싱글톤 제약으로 in-proc WebApplicationFactory 불가 → 자식 프로세스 black-box 스모크.
 /// 기존 ServerTests(전부 modules-OFF)가 못 타는 실제 plugin/ALC/브리지 부팅 경로의 단일 안전망.</summary>
 [Collection(ChildProcessSmokeCollection.Name)]
@@ -37,7 +37,7 @@ public sealed class HostModulesBootSmokeTests
     public HostModulesBootSmokeTests(ITestOutputHelper o) => _o = o;
 
     [Fact]
-    public async Task Host_boots_all_twelve_modules_workers_and_bridges_in_one_process()
+    public async Task Host_boots_all_thirteen_modules_workers_and_bridges_in_one_process()
     {
         // Database:Provider alone must select the matching Spring parent context.
         // This guards against gateway=SQLite / module=SQL Server split-brain startup.
@@ -86,8 +86,8 @@ public sealed class HostModulesBootSmokeTests
         using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
         var root = doc.RootElement;
         root.GetProperty("modulesEnabled").GetBoolean().Should().BeTrue();
-        root.GetProperty("services").GetArrayLength().Should().Be(12,
-            "12개 도메인 모듈(Mdm·Est·Fdc·Ivt·Rms·Qms·Ems·Pom·Prc·Shp·Erp·Sys)이 모두 로드돼야 한다 — "
+        root.GetProperty("services").GetArrayLength().Should().Be(13,
+            "13개 도메인 모듈(Mdm·Est·Fdc·Ivt·Rms·Qms·Ems·Pom·Prc·Shp·Erp·Crm·Sys)이 모두 로드돼야 한다 — "
             + "성공적 /diag = 전체 선언형 Bridge의 Bean/계약 fail-fast 통과(부팅이 리슨에 도달)");
         root.GetProperty("workerCount").GetInt32().Should().BeGreaterThanOrEqualTo(1,
             "백그라운드 워커가 1개 이상 발견돼야 한다(실측 5)");

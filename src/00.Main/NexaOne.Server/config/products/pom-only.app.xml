@@ -14,6 +14,7 @@
     <Service name="Prc" classPaths="./Modules/NexaOne.PRC.dll" configFiles="config/modules/prc.xml" />
     <Service name="Shp" classPaths="./Modules/NexaOne.SHP.dll" configFiles="config/modules/shp.xml" />
     <Service name="Erp" classPaths="./Modules/NexaOne.ERP.dll" configFiles="config/modules/erp.xml" />
+    <Service name="Crm" classPaths="./Modules/NexaOne.CRM.dll" configFiles="config/modules/crm.xml" />
     <Service name="Sys" classPaths="./Modules/NexaOne.SYS.dll" configFiles="config/modules/sys.xml" />
   </Services>
 </Application>
