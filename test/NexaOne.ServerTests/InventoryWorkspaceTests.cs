@@ -601,7 +601,7 @@ public sealed class InventoryWorkspaceTests : BunitContext
             .Returns((string path, CancellationToken _) => Task.FromResult(Ok(response(path))));
     private static (BusinessPage<T>?, int, string?, string?) Ok<T>(BusinessPage<T> page) => (page, 200, null, null);
     private string[] Paths<T>() => _api.Invocations.Where(call => call.Method.Name == nameof(IApiClient.ReadInventoryAsync)
-        && call.Method.GetGenericArguments()[0] == typeof(BusinessPage<T>)).Select(call => (string)call.Arguments[0]).ToArray();
+        && call.Method.GetGenericArguments()[0] == typeof(BusinessPage<T>)).Select(call => call.Arguments[0]).OfType<string>().ToArray();
     private void ShowScopes(params InventoryAccessScope[] scopes) => Reads<InventoryAccessScope>(_ => new(scopes, scopes.Length));
     private static InventoryAccessScope Scope(int index, params string[] grants)
     {

@@ -118,7 +118,7 @@ public sealed class BillingWorkspaceTests : BunitContext
         => _api.Setup(api => api.ReadInventoryAsync<BusinessPage<T>>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns((string path, CancellationToken _) => Task.FromResult<(BusinessPage<T>?, int, string?, string?)>((response(path), 200, null, null)));
     private string[] Paths<T>() => _api.Invocations.Where(call => call.Method.Name == nameof(IApiClient.ReadInventoryAsync)
-        && call.Method.GetGenericArguments()[0] == typeof(BusinessPage<T>)).Select(call => (string)call.Arguments[0]).ToArray();
+        && call.Method.GetGenericArguments()[0] == typeof(BusinessPage<T>)).Select(call => call.Arguments[0]).OfType<string>().ToArray();
     private void ShowScopes(params BusinessMembership[] scopes) => Reads<BusinessMembership>(_ => new(scopes, scopes.Length));
     private static BusinessMembership Scope(int index, params string[] grants)
         => new(Tenant, Guid.Parse($"20000000-0000-0000-0000-{index:000000000000}"), "operator", Guid.Parse("30000000-0000-0000-0000-000000000001"), true, 1, grants);

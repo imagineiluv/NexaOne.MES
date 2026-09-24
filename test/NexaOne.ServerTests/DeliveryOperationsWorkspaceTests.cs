@@ -158,7 +158,7 @@ public sealed class DeliveryOperationsWorkspaceTests : BunitContext
     private string[] Paths<T>() => _api.Invocations.Where(call =>
             call.Method.Name == nameof(IApiClient.ReadInventoryAsync)
             && call.Method.GetGenericArguments()[0] == typeof(BusinessPage<T>))
-        .Select(call => (string)call.Arguments[0]).ToArray();
+        .Select(call => call.Arguments[0]).OfType<string>().ToArray();
 
     private static Guid OperationId(object body)
         => (Guid)body.GetType().GetProperty("operationId")!.GetValue(body)!;

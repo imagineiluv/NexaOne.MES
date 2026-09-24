@@ -381,7 +381,7 @@ public sealed class CrmWorkspaceTests : BunitContext
 
     private string[] Paths<T>() where T : class => _api.Invocations
         .Where(call => call.Method.Name == nameof(IApiClient.ReadInventoryAsync) && call.Method.GetGenericArguments()[0] == typeof(T))
-        .Select(call => (string)call.Arguments[0]).ToArray();
+        .Select(call => call.Arguments[0]).OfType<string>().ToArray();
 
     private static BusinessMembership Scope(params string[] grants)
         => new(Tenant, Organization, "operator", Guid.Parse("30000000-0000-0000-0000-000000000001"), true, 1, grants);

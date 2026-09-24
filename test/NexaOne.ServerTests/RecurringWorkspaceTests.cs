@@ -103,7 +103,7 @@ public sealed class RecurringWorkspaceTests : BunitContext
     }
 
     private void Reads<T>(Func<string, BusinessPage<T>> response) => _api.Setup(api => api.ReadInventoryAsync<BusinessPage<T>>(It.IsAny<string>(), It.IsAny<CancellationToken>())).Returns((string path, CancellationToken _) => Task.FromResult<(BusinessPage<T>?, int, string?, string?)>((response(path), 200, null, null)));
-    private string[] Paths<T>() => _api.Invocations.Where(x => x.Method.Name == nameof(IApiClient.ReadInventoryAsync) && x.Method.GetGenericArguments()[0] == typeof(BusinessPage<T>)).Select(x => (string)x.Arguments[0]).ToArray();
+    private string[] Paths<T>() => _api.Invocations.Where(x => x.Method.Name == nameof(IApiClient.ReadInventoryAsync) && x.Method.GetGenericArguments()[0] == typeof(BusinessPage<T>)).Select(x => x.Arguments[0]).OfType<string>().ToArray();
     private static BusinessMembership Membership(params string[] grants) => new(Tenant, Organization, "operator", Guid.NewGuid(), true, 1, grants);
     private static RecurringRule Rule(RecurringTarget target) => new(Guid.NewGuid(), new("NexaOne.MES", Tenant.ToString("D"), Organization.ToString("D")), Guid.NewGuid(), Guid.NewGuid(), new("Monthly income", new(new(2026, 9, 1), null, 10), new RecurringIncomeTemplate(10m, Guid.NewGuid(), null, "KRW")), target, "operator");
 }
