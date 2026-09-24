@@ -58,6 +58,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\..\submodules\NexaFramework\components\src\EmailComponent\EmailComponent.csproj" />
     <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework\NexaFramework.csproj" />
     <!-- POM is copied as a plugin DLL only. Its shared Service dependency must be present in
          the host runtime/deps graph so the plugin resolves it through the Default ALC. -->

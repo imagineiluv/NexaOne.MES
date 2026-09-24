@@ -11,6 +11,7 @@
     <constructor-arg ref="businessMembershipBridge" />
     <constructor-arg ref="businessMasterDirectory" />
     <constructor-arg ref="quartzScheduler" />
+    <constructor-arg ref="deliveryProviderRegistry" />
   </object>
 
   <object id="billingBridge" factory-object="erpModule" factory-method="GetBillingBridge" />
@@ -19,6 +20,8 @@
   <object id="recurringBridge" factory-object="erpModule" factory-method="GetRecurringBridge" />
   <object id="recurringAutomationBridge" factory-object="erpModule" factory-method="GetRecurringAutomationBridge" />
   <object id="deliveryBridge" factory-object="erpModule" factory-method="GetDeliveryBridge" />
+  <object id="deliveryAutomationBridge" factory-object="erpModule" factory-method="GetDeliveryAutomationBridge" />
   <object id="recurringAutomationWorker" factory-object="erpModule" factory-method="GetRecurringAutomationWorker" />
+  <object id="deliveryDispatchWorker" factory-object="erpModule" factory-method="GetDeliveryDispatchWorker" />
 
 </objects>

@@ -3018,6 +3018,29 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V184_delivery_service_authority_is_empty_and_available_on_incremental_startup()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            TableExists(cs, "COL_DELIVERY_SERVICE_PRINCIPAL").Should().BeTrue();
+            TableExists(cs, "COL_DELIVERY_SERVICE_PRINCIPAL_AUDIT").Should().BeTrue();
+            TableExists(cs, "COL_DELIVERY_SERVICE_SCOPE").Should().BeTrue();
+            TableExists(cs, "COL_DELIVERY_SERVICE_SCOPE_AUDIT").Should().BeTrue();
+            IndexExists(cs, "IX_COL_DELIVERY_SERVICE_SCOPE_ACTIVE").Should().BeTrue();
+            ScalarString(cs, "SELECT COUNT(*) FROM COL_DELIVERY_SERVICE_PRINCIPAL").Should().Be("0",
+                "a deployment must explicitly provision every delivery principal");
+            ScalarString(cs, "SELECT COUNT(*) FROM COL_DELIVERY_SERVICE_SCOPE").Should().Be("0",
+                "no organization may receive unattended delivery authority by default");
+
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            TableExists(cs, "COL_DELIVERY_SERVICE_SCOPE").Should().BeTrue();
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { } }
+    }
+
+    [Fact]
     public void V160_database_principal_security_is_a_fresh_and_incremental_sqlite_no_op()
     {
         var cs = NewDb();

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using NexaFramework.Scheduling;
+using NexaOne.ERP.Application.Delivery;
 using NexaOne.ERP.Application.Recurring;
 using NexaOne.ERP.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
@@ -23,20 +24,24 @@ public sealed class Module
     private readonly IRecurringBridge _recurringBridge;
     private readonly IRecurringAutomationBridge _recurringAutomationBridge;
     private readonly IDeliveryBridge _deliveryBridge;
+    private readonly IDeliveryAutomationBridge _deliveryAutomationBridge;
     private readonly IHostedService _recurringAutomationWorker;
+    private readonly IHostedService _deliveryDispatchWorker;
 
     public Module(
         EesDataSource dataSource,
         IConfiguration configuration,
         IBusinessMembershipBridge businessMemberships,
         IBusinessMasterDirectory businessMasters,
-        IRecurringScheduler scheduler)
+        IRecurringScheduler scheduler,
+        IDeliveryProviderRegistry deliveryProviders)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(businessMemberships);
         ArgumentNullException.ThrowIfNull(businessMasters);
         ArgumentNullException.ThrowIfNull(scheduler);
+        ArgumentNullException.ThrowIfNull(deliveryProviders);
 
         var bridge = new BillingBridge(dataSource, businessMemberships, businessMasters);
         _billingBridge = bridge;
@@ -45,10 +50,15 @@ public sealed class Module
         _recurringBridge = bridge;
         _recurringAutomationBridge = bridge;
         _deliveryBridge = bridge;
+        _deliveryAutomationBridge = bridge;
         var options = ErpModuleOptions.FromConfiguration(configuration);
         _recurringAutomationWorker = new RecurringAutomationWorker(
             scheduler, bridge, options.RecurringEnabled, options.RecurringPrincipalId,
             TimeSpan.FromSeconds(options.RecurringIntervalSeconds), options.RecurringTimeZone);
+        _deliveryDispatchWorker = new DeliveryDispatchWorker(
+            scheduler, bridge, deliveryProviders, options.DeliveryEnabled, options.DeliveryPrincipalId,
+            TimeSpan.FromSeconds(options.DeliveryIntervalSeconds),
+            TimeSpan.FromSeconds(options.DeliveryLeaseSeconds), options.DeliveryBatchSize);
     }
 
     /// <summary>Estimates, invoices and payments over the Framework billing service.</summary>
@@ -69,14 +79,24 @@ public sealed class Module
     /// <summary>Durable plain-text templates, provider references and outbound delivery requests.</summary>
     public IDeliveryBridge GetDeliveryBridge() => _deliveryBridge;
 
+    /// <summary>Non-interactive delivery authority and lease settlement.</summary>
+    public IDeliveryAutomationBridge GetDeliveryAutomationBridge() => _deliveryAutomationBridge;
+
     public IHostedService GetRecurringAutomationWorker() => _recurringAutomationWorker;
+
+    public IHostedService GetDeliveryDispatchWorker() => _deliveryDispatchWorker;
 }
 
 internal sealed record ErpModuleOptions(
     bool RecurringEnabled,
     string RecurringPrincipalId,
     int RecurringIntervalSeconds,
-    TimeZoneInfo RecurringTimeZone)
+    TimeZoneInfo RecurringTimeZone,
+    bool DeliveryEnabled,
+    string DeliveryPrincipalId,
+    int DeliveryIntervalSeconds,
+    int DeliveryLeaseSeconds,
+    int DeliveryBatchSize)
 {
     public static ErpModuleOptions FromConfiguration(IConfiguration configuration)
     {
@@ -104,8 +124,24 @@ internal sealed record ErpModuleOptions(
             throw new InvalidOperationException(
                 $"Worker:Erp:Recurring:TimeZoneId '{timeZoneId}' is invalid.", error);
         }
+        var deliveryEnabled = configuration.GetValue("Worker:Collaboration:Delivery:Enabled", false);
+        var deliveryPrincipalId = configuration["Worker:Collaboration:Delivery:PrincipalId"]?.Trim()
+            ?? string.Empty;
+        if (deliveryEnabled && string.IsNullOrWhiteSpace(deliveryPrincipalId))
+            throw new InvalidOperationException(
+                "Worker:Collaboration:Delivery:PrincipalId is required when delivery dispatch is enabled.");
+        var deliveryLeaseSeconds = configuration.GetValue("Worker:Collaboration:Delivery:LeaseSeconds", 60);
+        if (deliveryLeaseSeconds is < 10 or > 900)
+            throw new InvalidOperationException(
+                "Worker:Collaboration:Delivery:LeaseSeconds must be between 10 and 900.");
+        var deliveryBatchSize = configuration.GetValue("Worker:Collaboration:Delivery:BatchSize", 25);
+        if (deliveryBatchSize is < 1 or > 100)
+            throw new InvalidOperationException(
+                "Worker:Collaboration:Delivery:BatchSize must be between 1 and 100.");
         return new(enabled, principalId,
             Math.Max(configuration.GetValue("Worker:Erp:Recurring:IntervalSeconds", 3_600), 60),
-            timeZone);
+            timeZone, deliveryEnabled, deliveryPrincipalId,
+            Math.Max(configuration.GetValue("Worker:Collaboration:Delivery:IntervalSeconds", 30), 10),
+            deliveryLeaseSeconds, deliveryBatchSize);
     }
 }
