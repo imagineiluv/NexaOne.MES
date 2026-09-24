@@ -338,6 +338,38 @@ public sealed class ApiClientCommandResultTests
         calls.Should().Be(0);
     }
 
+    [Fact]
+    public async Task Business_membership_client_escapes_user_and_preserves_revision_body()
+    {
+        HttpRequestMessage? captured = null;
+        var tenant = Guid.Parse("10000000-0000-0000-0000-000000000001");
+        var organization = Guid.Parse("20000000-0000-0000-0000-000000000001");
+        var actor = Guid.Parse("30000000-0000-0000-0000-000000000001");
+        var client = CreateClient(new CaptureHandler(request =>
+        {
+            captured = request;
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new BusinessMembershipAdminDto(
+                    tenant, organization, "operator/shift-a", actor, true, 8, ["crm.read"]))
+            };
+        }));
+
+        var result = await client.SaveBusinessMembershipAsync(
+            tenant, organization, "operator/shift-a",
+            new BusinessMembershipAdminChange(7, true, ["crm.read"]));
+
+        result.Value!.Version.Should().Be(8);
+        captured.Should().NotBeNull();
+        captured!.Method.Should().Be(HttpMethod.Put);
+        captured.RequestUri!.AbsolutePath.Should().Be(
+            $"/api/v1/sys/business-memberships/{tenant:D}/{organization:D}/users/operator%2Fshift-a");
+        var json = await captured.Content!.ReadFromJsonAsync<JsonElement>();
+        json.GetProperty("expectedVersion").GetInt64().Should().Be(7);
+        json.GetProperty("permissions").EnumerateArray().Select(value => value.GetString())
+            .Should().Equal("crm.read");
+    }
+
     private static PomWorkOrderDto WorkOrderDto(int version)
         => new(
             "WO-100", "PO-100", "P1", "작업 100", "ITEM-1",

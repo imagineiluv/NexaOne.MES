@@ -1434,6 +1434,35 @@ public sealed class ApiClient : IApiClient
     public Task RemovePermissionAsync(string roleId, string permission, CancellationToken ct = default)
         => DeleteWithBodyAsync($"api/v1/sys/admin/roles/{roleId}/permissions", new { permission }, ct);
 
+    public async Task<IReadOnlyList<string>> GetBusinessOperationPermissionsAsync(CancellationToken ct = default)
+        => await GetListAsync<string>("api/v1/sys/business-membership-permissions", ct);
+
+    public Task<(BusinessMembershipAdminDto? Value, int StatusCode, string? Error)> ReadBusinessMembershipAsync(
+        Guid tenantId, Guid organizationId, string userId, CancellationToken ct = default)
+        => SendBusinessMembershipAsync(HttpMethod.Get, tenantId, organizationId, userId, null, ct);
+
+    public Task<(BusinessMembershipAdminDto? Value, int StatusCode, string? Error)> SaveBusinessMembershipAsync(
+        Guid tenantId, Guid organizationId, string userId, BusinessMembershipAdminChange change,
+        CancellationToken ct = default)
+        => SendBusinessMembershipAsync(HttpMethod.Put, tenantId, organizationId, userId, change, ct);
+
+    private async Task<(BusinessMembershipAdminDto? Value, int StatusCode, string? Error)> SendBusinessMembershipAsync(
+        HttpMethod method, Guid tenantId, Guid organizationId, string userId,
+        BusinessMembershipAdminChange? change, CancellationToken ct)
+    {
+        var path = $"api/v1/sys/business-memberships/{tenantId:D}/{organizationId:D}/users/{Uri.EscapeDataString(userId)}";
+        using var response = await SendAsync(method, path, change, ct, surfaceErrors: false);
+        if (response.IsSuccessStatusCode)
+        {
+            var membership = await response.Content.ReadFromJsonAsync<BusinessMembershipAdminDto>(ct);
+            return membership is null
+                ? (null, (int)response.StatusCode, "서버가 빈 membership 응답을 반환했습니다.")
+                : (membership, (int)response.StatusCode, null);
+        }
+
+        return (null, (int)response.StatusCode, await ReadErrorAsync(response, ct));
+    }
+
     // FDC 가상 이벤트 수동 평가(브리지, fdc:manage) — 워커 주기를 기다리지 않고 즉시 판정.
     public Task<VirtualEventEvaluationDto?> EvaluateVirtualEventAsync(string equipmentId, string eventId, CancellationToken ct = default)
         => PostAsync<VirtualEventEvaluationDto>(

@@ -100,6 +100,63 @@ else
                 </div>
             </div>
         </div>
+
+        <div id="business-membership-editor" class="mes-card host-card-pad">
+            <div class="page-header">
+                <div>
+                    <h2 class="host-card-title">조직별 업무 권한</h2>
+                    <p class="host-desc">사용자 역할과 별개로 tenant·organization 범위에서 허용할 업무만 선택합니다. 새 membership은 조회 후 저장해야 합니다.</p>
+                </div>
+                <button id="membership-reload" class="host-btn-secondary" @onclick="LoadMembershipAsync" disabled="@_membershipBusy">조회</button>
+            </div>
+
+            <div class="host-membership-key">
+                <label>Tenant ID<input id="membership-tenant" class="host-input" aria-label="업무 권한 Tenant ID" @bind="_membershipTenant" /></label>
+                <label>Organization ID<input id="membership-organization" class="host-input" aria-label="업무 권한 Organization ID" @bind="_membershipOrganization" /></label>
+                <label>사용자 ID<input id="membership-user" class="host-input" aria-label="업무 권한 사용자 ID" maxlength="50" @bind="_membershipUser" /></label>
+            </div>
+
+            @if (_loadedMembershipKey is not null)
+            {
+                <div class="host-membership-summary" role="status">
+                    <strong>@(_membershipVersion == 0 ? "새 membership" : $"Revision {_membershipVersion}")</strong>
+                    @if (_businessUserId != Guid.Empty) { <span>Business user @_businessUserId</span> }
+                    <label class="host-check"><input id="membership-active" type="checkbox" aria-label="업무 membership 활성" @bind="_membershipActive" />활성</label>
+                </div>
+
+                <div class="host-membership-tools">
+                    <input id="membership-permission-filter" class="host-input" placeholder="권한 검색" aria-label="업무 권한 검색" @bind="_permissionFilter" @bind:event="oninput" />
+                    <button type="button" class="host-btn-secondary" @onclick="SelectCrmPermissions" disabled="@_membershipBusy">CRM 전체 선택</button>
+                    <button type="button" class="host-btn-secondary" @onclick="ClearPermissions" disabled="@_membershipBusy">선택 해제</button>
+                </div>
+
+                <div id="membership-permissions" class="host-permission-groups">
+                    @foreach (var group in FilteredPermissionGroups)
+                    {
+                        <fieldset @key="group.Key">
+                            <legend>@group.Key</legend>
+                            @foreach (var permission in group)
+                            {
+                                var permissionValue = permission;
+                                <label class="host-check permission-option" @key="permissionValue">
+                                    <input type="checkbox" aria-label="@($"{permissionValue} 업무 권한")"
+                                           checked="@_selectedPermissions.Contains(permissionValue)"
+                                           @onchange="args => SetPermission(permissionValue, args.Value as bool? == true)" />
+                                    <code>@permissionValue</code>
+                                </label>
+                            }
+                        </fieldset>
+                    }
+                </div>
+
+                <div class="host-actions">
+                    <button id="membership-save" class="host-btn" @onclick="SaveMembershipAsync" disabled="@_membershipBusy">
+                        @(_membershipBusy ? "저장 중…" : "업무 권한 저장")
+                    </button>
+                    <span>@($"{_selectedPermissions.Count}개 선택")</span>
+                </div>
+            }
+        </div>
     </div>
 }
 
@@ -114,10 +171,28 @@ else
     private string _newRoleName = string.Empty;
     private string _newRoleDesc = string.Empty;
     private string _unlockUserId = string.Empty;
+    private string _membershipTenant = string.Empty;
+    private string _membershipOrganization = string.Empty;
+    private string _membershipUser = string.Empty;
+    private string _permissionFilter = string.Empty;
+    private bool _membershipBusy;
+    private bool _membershipActive = true;
+    private long _membershipVersion;
+    private Guid _businessUserId;
+    private MembershipKey? _loadedMembershipKey;
+    private IReadOnlyList<string> _businessPermissions = [];
+    private readonly HashSet<string> _selectedPermissions = new(StringComparer.Ordinal);
     private List<RoleRow> _roles = new();
     private readonly Dictionary<string, string> _permInputs = new(StringComparer.Ordinal);
 
     private sealed record RoleRow(string RoleId, string RoleName, string Description, IReadOnlyList<string> Permissions);
+    private sealed record MembershipKey(Guid TenantId, Guid OrganizationId, string UserId);
+
+    private IEnumerable<IGrouping<string, string>> FilteredPermissionGroups => _businessPermissions
+        .Where(permission => string.IsNullOrWhiteSpace(_permissionFilter)
+            || permission.Contains(_permissionFilter.Trim(), StringComparison.OrdinalIgnoreCase))
+        .GroupBy(permission => permission.Split('.')[0], StringComparer.Ordinal)
+        .OrderBy(group => group.Key, StringComparer.Ordinal);
 
     protected override async Task OnInitializedAsync()
     {
@@ -126,7 +201,11 @@ else
             var user = (await AuthState).User;
             _canManage = user.HasPermission(Permissions.SysManage);
         }
-        if (_canManage) await ReloadAsync();
+        if (_canManage)
+        {
+            await ReloadAsync();
+            _businessPermissions = await Api.GetBusinessOperationPermissionsAsync();
+        }
     }
 
     // 목록은 명명 쿼리 — PERMISSIONS는 '|' 조인 문자열(SYS_ROLE 저장 형식, RoleRepository 규약).
@@ -212,6 +291,127 @@ else
         }
         finally { _busy = false; }
     }
+
+    private async Task LoadMembershipAsync()
+    {
+        _notice = null; _error = null;
+        if (!TryMembershipKey(out var key)) return;
+        _membershipBusy = true;
+        try
+        {
+            var result = await Api.ReadBusinessMembershipAsync(key.TenantId, key.OrganizationId, key.UserId);
+            if (result.Value is not null)
+            {
+                if (TryApplyMembership(result.Value, key))
+                    _notice = $"'{key.UserId}'의 조직별 업무 권한을 불러왔습니다.";
+            }
+            else if (result.StatusCode == 404)
+            {
+                _loadedMembershipKey = key;
+                _membershipVersion = 0;
+                _businessUserId = Guid.Empty;
+                _membershipActive = true;
+                _selectedPermissions.Clear();
+                _notice = "저장된 membership이 없습니다. 권한을 선택해 새로 생성할 수 있습니다.";
+            }
+            else
+            {
+                _loadedMembershipKey = null;
+                _error = result.Error ?? $"membership 조회에 실패했습니다 (HTTP {result.StatusCode}).";
+            }
+        }
+        finally { _membershipBusy = false; }
+    }
+
+    private async Task SaveMembershipAsync()
+    {
+        _notice = null; _error = null;
+        if (!TryMembershipKey(out var key)) return;
+        if (_loadedMembershipKey != key)
+        {
+            _error = "대상 값이 바뀌었습니다. 현재 membership을 다시 조회해 주세요.";
+            return;
+        }
+
+        _membershipBusy = true;
+        try
+        {
+            var change = new BusinessMembershipAdminChange(_membershipVersion, _membershipActive,
+                _selectedPermissions.OrderBy(value => value, StringComparer.Ordinal).ToArray());
+            var result = await Api.SaveBusinessMembershipAsync(key.TenantId, key.OrganizationId, key.UserId, change);
+            if (result.Value is not null)
+            {
+                if (TryApplyMembership(result.Value, key,
+                        expectedVersion: change.ExpectedVersion + 1,
+                        expectedActive: change.IsActive,
+                        expectedPermissions: change.Permissions))
+                    _notice = $"'{key.UserId}'의 조직별 업무 권한을 revision {_membershipVersion}으로 저장했습니다.";
+            }
+            else
+            {
+                _error = result.StatusCode == 409
+                    ? "다른 관리자가 membership을 변경했습니다. 다시 조회한 후 적용해 주세요."
+                    : result.Error ?? $"membership 저장에 실패했습니다 (HTTP {result.StatusCode}).";
+            }
+        }
+        finally { _membershipBusy = false; }
+    }
+
+    private bool TryMembershipKey(out MembershipKey key)
+    {
+        key = null!;
+        var userId = _membershipUser.Trim();
+        if (!Guid.TryParse(_membershipTenant, out var tenantId) || tenantId == Guid.Empty
+            || !Guid.TryParse(_membershipOrganization, out var organizationId) || organizationId == Guid.Empty
+            || userId.Length is < 1 or > 50 || userId.Any(char.IsControl))
+        {
+            _error = "Tenant ID, Organization ID와 사용자 ID를 확인해 주세요.";
+            return false;
+        }
+        key = new(tenantId, organizationId, userId);
+        return true;
+    }
+
+    private bool TryApplyMembership(
+        BusinessMembershipAdminDto membership, MembershipKey key,
+        long? expectedVersion = null, bool? expectedActive = null,
+        IReadOnlyList<string>? expectedPermissions = null)
+    {
+        if (membership.TenantId != key.TenantId || membership.OrganizationId != key.OrganizationId
+            || !string.Equals(membership.UserId, key.UserId, StringComparison.Ordinal)
+            || membership.BusinessUserId == Guid.Empty || membership.Version < 1
+            || expectedVersion.HasValue && membership.Version != expectedVersion.Value
+            || expectedActive.HasValue && membership.IsActive != expectedActive.Value
+            || membership.Permissions is null
+            || membership.Permissions.Distinct(StringComparer.Ordinal).Count() != membership.Permissions.Count
+            || membership.Permissions.Any(permission => !_businessPermissions.Contains(permission, StringComparer.Ordinal))
+            || expectedPermissions is not null
+                && !membership.Permissions.ToHashSet(StringComparer.Ordinal).SetEquals(expectedPermissions))
+        {
+            _loadedMembershipKey = null;
+            _error = "서버의 membership 응답이 요청한 대상 또는 허용 권한 목록과 일치하지 않습니다. 다시 조회해 주세요.";
+            return false;
+        }
+
+        _loadedMembershipKey = key;
+        _membershipVersion = membership.Version;
+        _businessUserId = membership.BusinessUserId;
+        _membershipActive = membership.IsActive;
+        _selectedPermissions.Clear();
+        _selectedPermissions.UnionWith(membership.Permissions);
+        return true;
+    }
+
+    private void SetPermission(string permission, bool selected)
+    {
+        if (selected) _selectedPermissions.Add(permission);
+        else _selectedPermissions.Remove(permission);
+    }
+
+    private void SelectCrmPermissions()
+        => _selectedPermissions.UnionWith(_businessPermissions.Where(value => value.StartsWith("crm.", StringComparison.Ordinal)));
+
+    private void ClearPermissions() => _selectedPermissions.Clear();
 
     private static string Col(IReadOnlyDictionary<string, object?> row, string key)
         => row.TryGetValue(key, out var v) && v is not null ? v.ToString() ?? "" : "";

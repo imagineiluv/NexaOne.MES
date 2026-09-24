@@ -14,27 +14,6 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
 {
     private const string ServiceRoleId = "ERP_RECURRING_SERVICE";
     // Explicit operation grants; '*' and MES role permissions never imply a business scope grant.
-    private static readonly HashSet<string> SupportedPermissions = new(StringComparer.Ordinal)
-    {
-        "stock.warehouse.read", "stock.warehouse.write", "stock.product.write", "stock.read", "stock.post",
-        "stock.reverse", "stock.reserve", "stock.consume", "stock.release",
-        "equipment.read", "equipment.write", "equipment.booking.read", "equipment.booking.request",
-        "equipment.booking.decide", "equipment.booking.cancel", "equipment.booking.checkout",
-        "equipment.booking.return",
-        "billing.read", "billing.write", "billing.decide", "billing.pay", "billing.credit", "billing.deliver",
-        "expense.directory.read", "expense.directory.write", "expense.read", "expense.write",
-        "expense.reimburse", "expense.invoice",
-        "recurring.read", "recurring.write", "recurring.execute",
-        "financial-report.read",
-        "delivery.manage-template", "delivery.manage-profile", "delivery.queue", "delivery.read",
-        "delivery.cancel", "delivery.manage-dead-letter",
-        "crm.read", "crm.pipeline.manage", "crm.deal.manage", "crm.deal.delete",
-        "crm.deal.all", "crm.deal.assigned", "crm.deal.created", "crm.deal.assigned-or-created",
-        "crm.project.read", "crm.project.manage", "crm.project.delete", "crm.project.link-customer",
-        "crm.project.all", "crm.project.assigned", "crm.project.created", "crm.project.assigned-or-created",
-        "crm.team.read", "crm.team.manage", "crm.team.delete",
-        "crm.customer.enroll",
-    };
     private const string MembershipRowsSql = """
         SELECT m.TENANT_ID AS TenantId, m.ORGANIZATION_ID AS OrganizationId,
                m.USER_ID AS UserId, i.BUSINESS_USER_ID AS BusinessUserId,
@@ -354,8 +333,8 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
     private static bool TryPermissions(IReadOnlyList<string>? values, out string[] permissions)
     {
         permissions = [];
-        if (values is null || values.Count > SupportedPermissions.Count
-            || values.Any(value => value is null || !SupportedPermissions.Contains(value))
+        if (values is null || values.Count > BusinessOperationPermissionCatalog.All.Count
+            || values.Any(value => !BusinessOperationPermissionCatalog.Contains(value))
             || values.Distinct(StringComparer.Ordinal).Count() != values.Count) return false;
         permissions = values.OrderBy(value => value, StringComparer.Ordinal).ToArray();
         return true;
