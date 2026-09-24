@@ -21,6 +21,7 @@ public sealed class Module
     private readonly IBillingBridge _billingBridge;
     private readonly IExpenseBridge _expenseBridge;
     private readonly IFinancialReportBridge _financialReportBridge;
+    private readonly IBusinessReportBridge _businessReportBridge;
     private readonly IRecurringBridge _recurringBridge;
     private readonly IRecurringAutomationBridge _recurringAutomationBridge;
     private readonly IDeliveryBridge _deliveryBridge;
@@ -47,6 +48,7 @@ public sealed class Module
         _billingBridge = bridge;
         _expenseBridge = bridge;
         _financialReportBridge = bridge;
+        _businessReportBridge = bridge;
         _recurringBridge = bridge;
         _recurringAutomationBridge = bridge;
         _deliveryBridge = bridge;
@@ -69,6 +71,9 @@ public sealed class Module
 
     /// <summary>Currency-separated reports plus persisted snapshots, comparisons and usage history.</summary>
     public IFinancialReportBridge GetFinancialReportBridge() => _financialReportBridge;
+
+    /// <summary>Registered organization-scoped ERP reports with calendar aggregation and CSV export.</summary>
+    public IBusinessReportBridge GetBusinessReportBridge() => _businessReportBridge;
 
     /// <summary>Monthly billing, income and expense rules with durable occurrence identity.</summary>
     public IRecurringBridge GetRecurringBridge() => _recurringBridge;

@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 using NexaDB.Data.Sqlite;
 using NexaFramework.Service;
 using NexaFramework.Service.Erp;
+using NexaFramework.Service.Collaboration;
 using NexaOne.ERP.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.MDM.Infrastructure;
@@ -143,6 +144,22 @@ public sealed class FinancialReportPersistenceTests
             new CashFlowCurrencyTotals("USD", 1, 5m));
         (await reporting.ExportCashFlowCsvAsync("report-user", _tenant, _organization, cashPeriod))
             .Should().Contain("currency,payment_count,received\r\nKRW,1,40\r\nUSD,1,5\r\n");
+
+        IBusinessReportBridge businessReporting = NewBridge();
+        (await businessReporting.ListAsync("report-user", _tenant, _organization)).Should().ContainSingle()
+            .Which.Key.Should().Be("erp.financial-activity");
+        var activity = await businessReporting.BuildAsync("report-user", _tenant, _organization,
+            "erp.financial-activity", new(new(2026, 9, 1), new(2026, 9, 30)), BusinessReportUnit.Day);
+        activity.Buckets.Should().Equal(
+            new BusinessReportBucket(new(2026, 9, 10), new(2026, 9, 10), "KRW", "invoice.invoiced", 1, 100m),
+            new BusinessReportBucket(new(2026, 9, 10), new(2026, 9, 10), "KRW", "invoice.paid", 1, 40m),
+            new BusinessReportBucket(new(2026, 9, 12), new(2026, 9, 12), "KRW", "expense.gross", 1, 110m),
+            new BusinessReportBucket(new(2026, 9, 12), new(2026, 9, 12), "KRW", "expense.net", 1, 100m),
+            new BusinessReportBucket(new(2026, 9, 12), new(2026, 9, 12), "KRW", "expense.tax", 1, 10m),
+            new BusinessReportBucket(new(2026, 9, 30), new(2026, 9, 30), "USD", "income.received", 1, 25.5m));
+        (await businessReporting.ExportCsvAsync("report-user", _tenant, _organization,
+            "erp.financial-activity", new(new(2026, 9, 1), new(2026, 9, 30)), BusinessReportUnit.Month))
+            .Should().Contain("\"KRW\",\"invoice.invoiced\",1,100\r\n");
         await _bridge.CancelPaymentAsync("report-user", _tenant, _organization,
             payment.Id, payment.Version, "exclude correction");
         (await reporting.BuildCashFlowAsync("report-user", _tenant, _organization, cashPeriod))
@@ -168,6 +185,10 @@ public sealed class FinancialReportPersistenceTests
             new(new(2026, 9, 1), new(2026, 9, 30))), "BUSINESS_ACCESS_DENIED");
         await Error(() => reporting.BuildAsync("report-user", _tenant, Guid.NewGuid(),
             new(new(2026, 9, 1), new(2026, 9, 30))), "BUSINESS_ACCESS_DENIED");
+        IBusinessReportBridge businessReporting = NewBridge();
+        await Error(() => businessReporting.BuildAsync("report-reader", _tenant, _organization,
+            "erp.financial-activity", new(new(2026, 9, 1), new(2026, 9, 30)), BusinessReportUnit.Total),
+            "BUSINESS_ACCESS_DENIED");
     }
 
     [Fact]
