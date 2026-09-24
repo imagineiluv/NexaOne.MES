@@ -18,6 +18,7 @@
   <object id="financialReportBridge" factory-object="erpModule" factory-method="GetFinancialReportBridge" />
   <object id="recurringBridge" factory-object="erpModule" factory-method="GetRecurringBridge" />
   <object id="recurringAutomationBridge" factory-object="erpModule" factory-method="GetRecurringAutomationBridge" />
+  <object id="deliveryBridge" factory-object="erpModule" factory-method="GetDeliveryBridge" />
   <object id="recurringAutomationWorker" factory-object="erpModule" factory-method="GetRecurringAutomationWorker" />
 
 </objects>

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using NexaOne.Server;
 using NexaOne.ServiceContracts;
+using NexaOne.ServiceContracts.Collaboration;
 using NexaOne.ServiceContracts.Erp;
 using NexaOne.ServiceContracts.Ivt;
 using NexaOne.ServiceContracts.Mdm;
@@ -17,7 +18,7 @@ public sealed class NexaOneMesBridgeCatalogTests
         var first = NexaOneMesBridgeCatalog.Create();
         var second = NexaOneMesBridgeCatalog.Create();
 
-        first.Descriptors.Should().HaveCount(59);
+        first.Descriptors.Should().HaveCount(60);
         first.Descriptors.Should().Equal(second.Descriptors);
         first.Descriptors.Should().OnlyContain(descriptor =>
             descriptor.ContractType.IsInterface
@@ -59,6 +60,8 @@ public sealed class NexaOneMesBridgeCatalogTests
         stock.Should().Be(new NexaModuleBridgeDescriptor(typeof(IStockBridge), "Ivt", "stockBridge"));
         catalog.TryGet(typeof(IBillingBridge), out var billing).Should().BeTrue();
         billing.Should().Be(new NexaModuleBridgeDescriptor(typeof(IBillingBridge), "Erp", "billingBridge"));
+        catalog.TryGet(typeof(IDeliveryBridge), out var delivery).Should().BeTrue();
+        delivery.Should().Be(new NexaModuleBridgeDescriptor(typeof(IDeliveryBridge), "Erp", "deliveryBridge"));
         catalog.TryGet(typeof(IExpenseBridge), out var expense).Should().BeTrue();
         expense.Should().Be(new NexaModuleBridgeDescriptor(typeof(IExpenseBridge), "Erp", "expenseBridge"));
         catalog.TryGet(typeof(IFinancialReportBridge), out var financialReport).Should().BeTrue();

@@ -5,6 +5,7 @@ using NexaOne.ERP.Application.Recurring;
 using NexaOne.ERP.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Erp;
+using NexaOne.ServiceContracts.Collaboration;
 using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Sys;
 
@@ -21,6 +22,7 @@ public sealed class Module
     private readonly IFinancialReportBridge _financialReportBridge;
     private readonly IRecurringBridge _recurringBridge;
     private readonly IRecurringAutomationBridge _recurringAutomationBridge;
+    private readonly IDeliveryBridge _deliveryBridge;
     private readonly IHostedService _recurringAutomationWorker;
 
     public Module(
@@ -42,6 +44,7 @@ public sealed class Module
         _financialReportBridge = bridge;
         _recurringBridge = bridge;
         _recurringAutomationBridge = bridge;
+        _deliveryBridge = bridge;
         var options = ErpModuleOptions.FromConfiguration(configuration);
         _recurringAutomationWorker = new RecurringAutomationWorker(
             scheduler, bridge, options.RecurringEnabled, options.RecurringPrincipalId,
@@ -62,6 +65,9 @@ public sealed class Module
 
     /// <summary>Non-interactive recurring authority administration and execution.</summary>
     public IRecurringAutomationBridge GetRecurringAutomationBridge() => _recurringAutomationBridge;
+
+    /// <summary>Durable plain-text templates, provider references and outbound delivery requests.</summary>
+    public IDeliveryBridge GetDeliveryBridge() => _deliveryBridge;
 
     public IHostedService GetRecurringAutomationWorker() => _recurringAutomationWorker;
 }
