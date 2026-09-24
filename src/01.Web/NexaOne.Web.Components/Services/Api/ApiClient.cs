@@ -250,7 +250,7 @@ public sealed class ApiClient : IApiClient
         CancellationToken ct = default) where T : class
     {
         ct.ThrowIfCancellationRequested();
-        if ((method != HttpMethod.Put && method != HttpMethod.Post) || body is null
+        if ((method != HttpMethod.Put && method != HttpMethod.Post && method != HttpMethod.Delete) || body is null
             || string.IsNullOrWhiteSpace(expectedUserId) || expectedUserId.Length > 50
             || expectedUserId != expectedUserId.Trim() || expectedUserId.Any(char.IsControl))
             return (null, 400, "INVALID_INVENTORY_REQUEST", InventoryWriteRequestError());

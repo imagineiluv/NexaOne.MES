@@ -17,7 +17,7 @@
     <!--
     THESIS: CRM 가시성은 서버가 결정하며, 화면은 선택한 조직에서 반환된 행만 운영자가 확인하게 한다.
     OWN-WORLD: Nexa Industrial의 cool-blue paper, compact tables, teal selection signal을 그대로 잇는다.
-    STORY: 조직을 고르고 pipeline·거래·프로젝트·팀·고객 연결을 조회한 뒤 상세를 확인하거나 고객을 등록한다.
+    STORY: 조직을 고르고 CRM 데이터를 조회한 뒤 pipeline과 거래를 편집하거나 고객을 등록한다.
     FIRST VIEWPORT: 제목 아래 조직 인덱스가 먼저 오고, 선택 뒤 작업 도구와 데이터 표가 문서 순서대로 열린다.
     FORM: established Workbench / Index-First extension; seed key crm-workspace-v1.
     FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
@@ -67,6 +67,14 @@
             }
             else
             {
+                @if (_writeMessage is not null || _writeError is not null)
+                {
+                    <div id="crm-write-status" class="cw-write-status">
+                        @if (_writeMessage is not null) { <p role="status">@_writeMessage</p> }
+                        @if (_writeError is not null) { <p role="alert">@_writeError</p> }
+                    </div>
+                }
+
                 @if (CanReadPane(Pane.Customers))
                 {
                 <section id="crm-customers" aria-labelledby="crm-customers-heading" aria-busy="@Busy(Pane.Customers).ToString().ToLowerInvariant()">
@@ -79,8 +87,6 @@
                             <button id="crm-enroll" type="submit" disabled="@(_enrolling || string.IsNullOrWhiteSpace(_customerId))">@T("crm.enroll", "고객 등록", "Enroll customer")</button>
                         </form>
                     }
-                    @if (_writeMessage is not null) { <p role="status">@_writeMessage</p> }
-                    @if (_writeError is not null) { <p role="alert">@_writeError</p> }
                     @PaneStatus(Pane.Customers)
                     @if (_customers is not null && _customers.Items.Count > 0)
                     {
@@ -90,6 +96,53 @@
                     }
                     @Pager(Pane.Customers)
                 </section>
+                }
+
+                @if (CanManagePipelines)
+                {
+                    <section id="crm-pipeline-editor" aria-labelledby="crm-pipeline-editor-heading">
+                        <div class="cw-heading">
+                            <h2 id="crm-pipeline-editor-heading">@T("crm.pipelineEditor", "Pipeline 편집", "Pipeline editor")</h2>
+                            @if (_editingPipeline is not null) { <button type="button" @onclick="ResetPipelineEditor">@T("crm.newPipeline", "새 Pipeline", "New pipeline")</button> }
+                        </div>
+                        <form class="cw-editor" @onsubmit="SavePipelineAsync" @onsubmit:preventDefault>
+                            <label>@T("inventory.name", "이름", "Name")<input id="crm-pipeline-name" maxlength="255" @bind="_pipelineName" disabled="@_writing" /></label>
+                            <label>@T("crm.description", "설명", "Description")<input id="crm-pipeline-description" maxlength="4000" @bind="_pipelineDescription" disabled="@_writing" /></label>
+                            <label class="cw-editor-wide">@T("crm.stageNames", "단계 이름 (쉼표로 구분)", "Stage names (comma separated)")<input id="crm-pipeline-stages" maxlength="4000" @bind="_pipelineStages" disabled="@_writing" /></label>
+                            <div class="cw-actions">
+                                <button id="crm-save-pipeline" type="submit" disabled="@(_writing || string.IsNullOrWhiteSpace(_pipelineName) || string.IsNullOrWhiteSpace(_pipelineStages))">@(_editingPipeline is null ? T("crm.create", "생성", "Create") : T("crm.save", "저장", "Save"))</button>
+                                @if (_editingPipeline is not null) { <button id="crm-delete-pipeline" type="button" disabled="@_writing" @onclick="DeletePipelineAsync">@T("crm.delete", "삭제", "Delete")</button> }
+                            </div>
+                        </form>
+                    </section>
+                }
+
+                @if (CanManageDeals)
+                {
+                    <section id="crm-deal-editor" aria-labelledby="crm-deal-editor-heading">
+                        <div class="cw-heading">
+                            <h2 id="crm-deal-editor-heading">@T("crm.dealEditor", "거래 편집", "Deal editor")</h2>
+                            @if (_editingDeal is not null) { <button type="button" @onclick="ResetDealEditor">@T("crm.newDeal", "새 거래", "New deal")</button> }
+                        </div>
+                        @if (_editingPipeline is null || _editingPipeline.Stages.Count == 0)
+                        {
+                            <p role="status">@T("crm.selectPipelineFirst", "거래 단계를 선택하려면 먼저 Pipeline을 선택하세요.", "Select a pipeline before choosing a deal stage.")</p>
+                        }
+                        else
+                        {
+                            <form class="cw-editor" @onsubmit="SaveDealAsync" @onsubmit:preventDefault>
+                                <label>@T("crm.dealTitle", "거래명", "Deal title")<input id="crm-deal-title" maxlength="255" @bind="_dealTitle" disabled="@_writing" /></label>
+                                <label>@T("crm.probability", "확률", "Probability")<input id="crm-deal-probability" type="number" min="0" max="5" @bind="_dealProbability" disabled="@_writing" /></label>
+                                <label>@T("crm.stage", "단계", "Stage")<select id="crm-deal-stage" @bind="_dealStageId" disabled="@_writing">@foreach (var stage in _editingPipeline.Stages.OrderBy(value => value.Index)) { <option value="@stage.Id">@stage.Name</option> }</select></label>
+                                <label>@T("crm.client", "고객", "Client")<input id="crm-deal-client" placeholder="GUID" @bind="_dealClientId" disabled="@_writing" /></label>
+                                <div class="cw-actions">
+                                    <button id="crm-save-deal" type="submit" disabled="@(_writing || string.IsNullOrWhiteSpace(_dealTitle) || _dealStageId == Guid.Empty)">@(_editingDeal is null ? T("crm.create", "생성", "Create") : T("crm.save", "저장", "Save"))</button>
+                                    @if (_editingDeal is not null) { <button id="crm-move-deal" type="button" disabled="@_writing" @onclick="MoveDealAsync">@T("crm.move", "단계 이동", "Move stage")</button> }
+                                    @if (_editingDeal is not null && CanDeleteDeals) { <button id="crm-delete-deal" type="button" disabled="@_writing" @onclick="DeleteDealAsync">@T("crm.delete", "삭제", "Delete")</button> }
+                                </div>
+                            </form>
+                        }
+                    </section>
                 }
 
                 @DataSection(Pane.Pipelines, _pipelines?.Items, pipeline => pipeline.Name, pipeline => pipeline.Description,
@@ -134,10 +187,15 @@
     private WorkPage<Team>? _teams;
     private BusinessMembership? _scope;
     private SelectedRecord? _selected;
+    private PipelineDetails? _editingPipeline;
+    private Deal? _editingDeal;
     private CancellationTokenSource? _detailRequest;
     private string? _currentUserId, _writeMessage, _writeError;
-    private string _customerId = "";
-    private bool _authenticated, _disposed, _interactive, _enrolling;
+    private string _customerId = "", _pipelineName = "", _pipelineDescription = "", _pipelineStages = "";
+    private string _dealTitle = "", _dealClientId = "";
+    private Guid _dealStageId;
+    private int _dealProbability;
+    private bool _authenticated, _disposed, _interactive, _enrolling, _writing;
     private bool _identityLoading = true;
     private Task<AuthenticationState>? _pendingAuthentication;
     private int _identityVersion;
@@ -146,7 +204,10 @@
     private string Expired => T("inventory.unauthorized", "인증이 만료되었습니다. 다시 로그인해 주세요.", "Your session expired. Sign in again.");
     private bool CanRead => DataPanes.Any(CanReadPane);
     private bool CanEnroll => Has("crm.customer.enroll");
-    private bool BusyData => DataPanes.Any(Busy) || _detailRequest is not null || _enrolling;
+    private bool CanManagePipelines => Has("crm.pipeline.manage");
+    private bool CanManageDeals => Has("crm.deal.manage");
+    private bool CanDeleteDeals => Has("crm.deal.delete");
+    private bool BusyData => DataPanes.Any(Busy) || _detailRequest is not null || _enrolling || _writing;
     private string? SelectedKey => _scope is null ? null : ScopeKey(_scope);
 
     protected override void OnInitialized()
@@ -213,6 +274,7 @@
         _detailRequest?.Cancel(); _detailRequest?.Dispose(); _detailRequest = null;
         _scope = null; _customers = null; _pipelines = null; _deals = null; _projects = null; _teams = null;
         _selected = null; _customerId = ""; _writeMessage = _writeError = null;
+        ResetPipelineEditor(); ResetDealEditor();
     }
 
     private Task RefreshAsync()
@@ -298,17 +360,158 @@
         finally { _enrolling = false; }
     }
 
+    private string Root => _scope is null ? "" : $"api/v1/crm/{_scope.TenantId:D}/{_scope.OrganizationId:D}";
+
+    private async Task SavePipelineAsync()
+    {
+        if (_scope is null || _currentUserId is null || !CanManagePipelines || _writing) return;
+        var names = _pipelineStages.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (string.IsNullOrWhiteSpace(_pipelineName) || names.Length == 0)
+        { _writeError = T("crm.pipelineInputRequired", "Pipeline 이름과 단계가 필요합니다.", "A pipeline name and at least one stage are required."); return; }
+        var existing = _editingPipeline?.Stages.OrderBy(stage => stage.Index).ToArray() ?? [];
+        var stages = names.Select((name, index) => new StageInput(index < existing.Length ? existing[index].Id : null, name)).ToArray();
+        var input = new PipelineInput(_pipelineName.Trim(), Empty(_pipelineDescription), stages);
+        _writing = true; _writeMessage = _writeError = null;
+        try
+        {
+            var result = _editingPipeline is null
+                ? await Api.WriteInventoryAsync<PipelineDetails>(HttpMethod.Post, $"{Root}/pipelines", input, _currentUserId)
+                : await Api.WriteInventoryAsync<PipelineDetails>(HttpMethod.Put, $"{Root}/pipelines/{_editingPipeline.Pipeline.Id:D}",
+                    new { version = _editingPipeline.Pipeline.Version, input, removal = DealRemoval.RejectIfReferenced }, _currentUserId);
+            if (Successful(result))
+            {
+                _writeMessage = T("crm.pipelineSaved", "Pipeline을 저장했습니다.", "Pipeline saved.");
+                ResetPipelineEditor(); ResetDealEditor(); _selected = null; _offsets[Pane.Pipelines] = 0;
+                await Task.WhenAll(LoadPaneAsync(Pane.Pipelines), LoadPaneAsync(Pane.Deals));
+            }
+            else _writeError = ErrorMessage(result.StatusCode, result.Code, result.Error);
+        }
+        finally { _writing = false; }
+    }
+
+    private async Task DeletePipelineAsync()
+    {
+        if (_editingPipeline is null || _currentUserId is null || !CanManagePipelines || _writing) return;
+        _writing = true; _writeMessage = _writeError = null;
+        try
+        {
+            var result = await Api.WriteInventoryAsync<Dictionary<string, object>>(HttpMethod.Delete,
+                $"{Root}/pipelines/{_editingPipeline.Pipeline.Id:D}?version={_editingPipeline.Pipeline.Version:D}&removal={DealRemoval.RejectIfReferenced}",
+                new { }, _currentUserId);
+            if (Successful(result))
+            {
+                _writeMessage = T("crm.pipelineDeleted", "Pipeline을 삭제했습니다.", "Pipeline deleted.");
+                ResetPipelineEditor(); ResetDealEditor(); _selected = null; await LoadPaneAsync(Pane.Pipelines);
+            }
+            else _writeError = ErrorMessage(result.StatusCode, result.Code, result.Error);
+        }
+        finally { _writing = false; }
+    }
+
+    private async Task SaveDealAsync()
+    {
+        if (_editingPipeline is null || _currentUserId is null || !CanManageDeals || _writing) return;
+        if (!TryDealInput(out var input)) return;
+        _writing = true; _writeMessage = _writeError = null;
+        try
+        {
+            var result = _editingDeal is null
+                ? await Api.WriteInventoryAsync<Deal>(HttpMethod.Post, $"{Root}/deals", input!, _currentUserId)
+                : await Api.WriteInventoryAsync<Deal>(HttpMethod.Put, $"{Root}/deals/{_editingDeal.Id:D}",
+                    new { version = _editingDeal.Version, input }, _currentUserId);
+            if (Successful(result))
+            {
+                _writeMessage = T("crm.dealSaved", "거래를 저장했습니다.", "Deal saved.");
+                ResetDealEditor(); _selected = null; _offsets[Pane.Deals] = 0; await LoadPaneAsync(Pane.Deals);
+            }
+            else _writeError = ErrorMessage(result.StatusCode, result.Code, result.Error);
+        }
+        finally { _writing = false; }
+    }
+
+    private async Task MoveDealAsync()
+    {
+        if (_editingDeal is null || _currentUserId is null || !CanManageDeals || _writing || _dealStageId == Guid.Empty) return;
+        _writing = true; _writeMessage = _writeError = null;
+        try
+        {
+            var result = await Api.WriteInventoryAsync<Deal>(HttpMethod.Post, $"{Root}/deals/{_editingDeal.Id:D}/move",
+                new { version = _editingDeal.Version, stageId = _dealStageId }, _currentUserId);
+            if (Successful(result))
+            {
+                _writeMessage = T("crm.dealMoved", "거래 단계를 이동했습니다.", "Deal stage moved.");
+                ResetDealEditor(); _selected = null; await LoadPaneAsync(Pane.Deals);
+            }
+            else _writeError = ErrorMessage(result.StatusCode, result.Code, result.Error);
+        }
+        finally { _writing = false; }
+    }
+
+    private async Task DeleteDealAsync()
+    {
+        if (_editingDeal is null || _currentUserId is null || !CanDeleteDeals || _writing) return;
+        _writing = true; _writeMessage = _writeError = null;
+        try
+        {
+            var result = await Api.WriteInventoryAsync<Dictionary<string, object>>(HttpMethod.Delete,
+                $"{Root}/deals/{_editingDeal.Id:D}?version={_editingDeal.Version:D}", new { }, _currentUserId);
+            if (Successful(result))
+            {
+                _writeMessage = T("crm.dealDeleted", "거래를 삭제했습니다.", "Deal deleted.");
+                ResetDealEditor(); _selected = null; await LoadPaneAsync(Pane.Deals);
+            }
+            else _writeError = ErrorMessage(result.StatusCode, result.Code, result.Error);
+        }
+        finally { _writing = false; }
+    }
+
+    private bool TryDealInput(out DealInput? input)
+    {
+        input = null;
+        if (string.IsNullOrWhiteSpace(_dealTitle) || _dealStageId == Guid.Empty || _dealProbability is < 0 or > 5)
+        { _writeError = T("crm.dealInputRequired", "거래명, 0~5 확률과 단계를 확인하세요.", "Check the deal title, 0–5 probability and stage."); return false; }
+        Guid? client = null;
+        if (!string.IsNullOrWhiteSpace(_dealClientId))
+        {
+            if (!Guid.TryParse(_dealClientId, out var parsed) || parsed == Guid.Empty)
+            { _writeError = T("crm.clientInvalid", "고객 ID는 올바른 GUID여야 합니다.", "Client ID must be a valid GUID."); return false; }
+            client = parsed;
+        }
+        input = new(_dealTitle.Trim(), _dealProbability, _dealStageId, client);
+        return true;
+    }
+
+    private void ResetPipelineEditor()
+    { _editingPipeline = null; _pipelineName = _pipelineDescription = _pipelineStages = ""; }
+    private void ResetDealEditor()
+    { _editingDeal = null; _dealTitle = _dealClientId = ""; _dealProbability = 0; _dealStageId = _editingPipeline?.Stages.OrderBy(stage => stage.Index).FirstOrDefault()?.Id ?? Guid.Empty; }
+    private static string? Empty(string value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static bool Successful<TValue>((TValue? Value, int StatusCode, string? Code, string? Error) result) where TValue : class
+        => result.StatusCode is >= 200 and < 300 && result.Value is not null && result.Error is null;
+
     private Task SelectPipelineAsync(Pipeline value) => LoadDetailAsync<PipelineDetails>(Pane.Pipelines,
-        $"pipelines/{value.Id:D}", details => new(T("crm.pipeline", "Pipeline", "Pipeline"),
-        [Field(T("inventory.name", "이름", "Name"), details.Pipeline.Name),
-         Field(T("crm.stages", "단계", "Stages"), string.Join(" → ", details.Stages.OrderBy(stage => stage.Index).Select(stage => stage.Name))),
-         Field("ID", details.Pipeline.Id.ToString("D"), true)]));
+        $"pipelines/{value.Id:D}", details =>
+        {
+            _editingPipeline = details;
+            _pipelineName = details.Pipeline.Name;
+            _pipelineDescription = details.Pipeline.Description ?? "";
+            _pipelineStages = string.Join(", ", details.Stages.OrderBy(stage => stage.Index).Select(stage => stage.Name));
+            ResetDealEditor();
+            return new(T("crm.pipeline", "Pipeline", "Pipeline"),
+            [Field(T("inventory.name", "이름", "Name"), details.Pipeline.Name),
+             Field(T("crm.stages", "단계", "Stages"), string.Join(" → ", details.Stages.OrderBy(stage => stage.Index).Select(stage => stage.Name))),
+             Field("ID", details.Pipeline.Id.ToString("D"), true)]);
+        });
 
     private Task SelectDealAsync(Deal value) => LoadDetailAsync<Deal>(Pane.Deals, $"deals/{value.Id:D}", deal =>
-        new(T("crm.deal", "거래", "Deal"),
+    {
+        _editingDeal = deal; _dealTitle = deal.Title; _dealProbability = deal.Probability;
+        _dealStageId = deal.StageId; _dealClientId = deal.ClientId?.ToString("D") ?? "";
+        return new(T("crm.deal", "거래", "Deal"),
         [Field(T("inventory.name", "이름", "Name"), deal.Title), Field(T("crm.probability", "확률", "Probability"), $"{deal.Probability}/5"),
          Field(T("crm.stage", "단계", "Stage"), deal.StageId.ToString("D"), true), Field(T("crm.client", "고객", "Client"), deal.ClientId?.ToString("D") ?? "—", true),
-         Field(T("crm.createdBy", "생성 사용자", "Created by"), deal.CreatedByUserId ?? "—"), Field(T("crm.assignees", "담당자", "Assignees"), string.Join(", ", deal.AssignedEmployeeIds), true)]));
+         Field(T("crm.createdBy", "생성 사용자", "Created by"), deal.CreatedByUserId ?? "—"), Field(T("crm.assignees", "담당자", "Assignees"), string.Join(", ", deal.AssignedEmployeeIds), true)]);
+    });
 
     private Task SelectProjectAsync(Project value) => LoadDetailAsync<Project>(Pane.Projects, $"projects/{value.Id:D}", project =>
         new(T("crm.project", "프로젝트", "Project"),

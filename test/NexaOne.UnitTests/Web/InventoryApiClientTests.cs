@@ -151,6 +151,25 @@ public sealed class InventoryApiClientTests
         result.Error.Should().BeNull();
     }
 
+    [Fact]
+    public async Task Crm_delete_uses_the_same_guarded_authenticated_write_channel()
+    {
+        using var fixture = new ClientFixture(request =>
+        {
+            request.Method.Should().Be(HttpMethod.Delete);
+            request.RequestUri!.AbsoluteUri.Should().Be("https://nexaone.local/mes/api/v1/crm/scope/deals/item?version=v1");
+            return Response(200, "{\"id\":\"10000000-0000-0000-0000-000000000001\"}");
+        });
+        await SignIn(fixture);
+
+        var result = await fixture.Client.WriteInventoryAsync<Product>(HttpMethod.Delete,
+            "api/v1/crm/scope/deals/item?version=v1", new { }, "operator-a");
+
+        result.StatusCode.Should().Be(200);
+        result.Value.Should().NotBeNull();
+        result.Error.Should().BeNull();
+    }
+
     [Theory]
     [InlineData(403, "{\"code\":\"FORBIDDEN\",\"description\":\"Read grant revoked\"}", "FORBIDDEN", "Read grant revoked")]
     [InlineData(404, "{\"CODE\":\"SCOPE_NOT_FOUND\"}", "SCOPE_NOT_FOUND", "SCOPE_NOT_FOUND")]
@@ -446,7 +465,6 @@ public sealed class InventoryApiClientTests
     [Theory]
     [InlineData(null)]
     [InlineData("GET")]
-    [InlineData("DELETE")]
     [InlineData("PATCH")]
     [InlineData("HEAD")]
     [InlineData("OPTIONS")]

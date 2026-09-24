@@ -108,10 +108,131 @@ public sealed class CrmWorkspaceTests : BunitContext
         cut.Find("#crm-customer-id").Change("CUST-1");
         cut.Find("#crm-enroll").Click();
 
-        cut.WaitForAssertion(() => cut.Find("#crm-customers").TextContent.Should().Contain("CUST-1"));
+        cut.WaitForAssertion(() => cut.Find("#crm-write-status").TextContent.Should().Contain("CUST-1"));
         _api.Verify(api => api.WriteInventoryAsync<CrmCustomerEnrollment>(HttpMethod.Post,
             $"api/v1/crm/{Tenant:D}/{Organization:D}/customer-enrollments",
             It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
+        Paths<CrmCustomerEnrollmentPage>().Count(path => path.Contains("customer-enrollments?", StringComparison.Ordinal))
+            .Should().BeGreaterThan(1);
+    }
+
+    [Fact]
+    public void Pipeline_manager_creates_a_pipeline_and_refreshes_the_indexes()
+    {
+        var scope = Scope("crm.read", "crm.pipeline.manage");
+        Read(_ => new BusinessPage<BusinessMembership>([scope], 1));
+        var pipeline = new Pipeline(Guid.NewGuid(), Business(), Guid.NewGuid(), "Sales", "Primary");
+        var created = new PipelineDetails(pipeline,
+            [new PipelineStage(Guid.NewGuid(), Business(), pipeline.Id, "Lead", null, 1)]);
+        _api.Setup(api => api.WriteInventoryAsync<PipelineDetails>(HttpMethod.Post,
+                $"api/v1/crm/{Tenant:D}/{Organization:D}/pipelines", It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((created, 200, null, null));
+
+        var cut = Render<HostCrmWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.Find("#crm-pipeline-name").Change("Sales");
+        cut.Find("#crm-pipeline-description").Change("Primary");
+        cut.Find("#crm-pipeline-stages").Change("Lead, Won");
+        cut.Find("#crm-save-pipeline").Click();
+
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("Pipeline을 저장했습니다"));
+        _api.Verify(api => api.WriteInventoryAsync<PipelineDetails>(HttpMethod.Post,
+            $"api/v1/crm/{Tenant:D}/{Organization:D}/pipelines", It.IsAny<object>(), "operator",
+            It.IsAny<CancellationToken>()), Times.Once);
+        Paths<CrmPage<Pipeline>>().Count(path => path.Contains("pipelines?", StringComparison.Ordinal)).Should().BeGreaterThan(1);
+    }
+
+    [Fact]
+    public void Pipeline_manager_updates_and_deletes_a_selected_pipeline()
+    {
+        var scope = Scope("crm.read", "crm.pipeline.manage");
+        Read(_ => new BusinessPage<BusinessMembership>([scope], 1));
+        var pipeline = new Pipeline(Guid.NewGuid(), Business(), Guid.NewGuid(), "Sales", null);
+        var details = new PipelineDetails(pipeline,
+            [new PipelineStage(Guid.NewGuid(), Business(), pipeline.Id, "Lead", null, 1)]);
+        Read(_ => new CrmPage<Pipeline>([pipeline], 1));
+        _api.Setup(api => api.ReadInventoryAsync<PipelineDetails>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((details, 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<PipelineDetails>(HttpMethod.Put,
+                It.Is<string>(path => path.EndsWith($"pipelines/{pipeline.Id:D}", StringComparison.Ordinal)), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((details with { Pipeline = pipeline with { Name = "Updated", Version = Guid.NewGuid() } }, 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<Dictionary<string, object>>(HttpMethod.Delete,
+                It.Is<string>(path => path.Contains($"pipelines/{pipeline.Id:D}?version=", StringComparison.Ordinal)), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new Dictionary<string, object> { ["id"] = pipeline.Id }, 200, null, null));
+
+        var cut = Render<HostCrmWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("#crm-pipelines [data-select]").Should().NotBeNull());
+        cut.Find("#crm-pipelines [data-select]").Click();
+        cut.Find("#crm-pipeline-name").Change("Updated");
+        cut.Find("#crm-save-pipeline").Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("Pipeline을 저장했습니다"));
+
+        cut.Find("#crm-pipelines [data-select]").Click();
+        cut.Find("#crm-delete-pipeline").Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("Pipeline을 삭제했습니다"));
+        _api.Verify(api => api.WriteInventoryAsync<PipelineDetails>(HttpMethod.Put, It.IsAny<string>(), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
+        _api.Verify(api => api.WriteInventoryAsync<Dictionary<string, object>>(HttpMethod.Delete, It.IsAny<string>(), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public void Deal_manager_updates_moves_and_deletes_a_selected_visible_deal()
+    {
+        var scope = Scope("crm.read", "crm.pipeline.manage", "crm.deal.manage", "crm.deal.delete", "crm.deal.all");
+        Read(_ => new BusinessPage<BusinessMembership>([scope], 1));
+        var pipeline = new Pipeline(Guid.NewGuid(), Business(), Guid.NewGuid(), "Sales", null);
+        var lead = new PipelineStage(Guid.NewGuid(), Business(), pipeline.Id, "Lead", null, 1);
+        var won = new PipelineStage(Guid.NewGuid(), Business(), pipeline.Id, "Won", null, 2);
+        var details = new PipelineDetails(pipeline, [lead, won]);
+        var deal = new Deal(Guid.NewGuid(), Business(), Guid.NewGuid(), lead.Id, "Visible", 2, null);
+        Read(_ => new CrmPage<Pipeline>([pipeline], 1));
+        Read(_ => new CrmPage<Deal>([deal], 1));
+        _api.Setup(api => api.ReadInventoryAsync<PipelineDetails>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((details, 200, null, null));
+        _api.Setup(api => api.ReadInventoryAsync<Deal>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((deal, 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<Deal>(HttpMethod.Put,
+                It.Is<string>(path => path.EndsWith($"deals/{deal.Id:D}", StringComparison.Ordinal)), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((deal with { Title = "Updated", Version = Guid.NewGuid() }, 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<Deal>(HttpMethod.Post,
+                $"api/v1/crm/{Tenant:D}/{Organization:D}/deals", It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((deal, 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<Deal>(HttpMethod.Post,
+                It.Is<string>(path => path.EndsWith($"deals/{deal.Id:D}/move", StringComparison.Ordinal)), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((deal with { StageId = won.Id, Version = Guid.NewGuid() }, 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<Dictionary<string, object>>(HttpMethod.Delete,
+                It.Is<string>(path => path.Contains($"deals/{deal.Id:D}?version=", StringComparison.Ordinal)), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new Dictionary<string, object> { ["id"] = deal.Id }, 200, null, null));
+
+        var cut = Render<HostCrmWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("#crm-pipelines [data-select]").Should().NotBeNull());
+        cut.Find("#crm-pipelines [data-select]").Click();
+        cut.WaitForAssertion(() => cut.Find("#crm-deals [data-select]").Should().NotBeNull());
+        cut.Find("#crm-deal-title").Change("Created");
+        cut.Find("#crm-save-deal").Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("거래를 저장했습니다"));
+
+        cut.Find("#crm-deals [data-select]").Click();
+        cut.Find("#crm-deal-title").Change("Updated");
+        cut.Find("#crm-save-deal").Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("거래를 저장했습니다"));
+
+        cut.Find("#crm-deals [data-select]").Click();
+        cut.Find("#crm-deal-stage").Change(won.Id.ToString("D"));
+        cut.Find("#crm-move-deal").Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("거래 단계를 이동했습니다"));
+
+        cut.Find("#crm-deals [data-select]").Click();
+        cut.Find("#crm-delete-deal").Click();
+        cut.WaitForAssertion(() => cut.Markup.Should().Contain("거래를 삭제했습니다"));
+        _api.Verify(api => api.WriteInventoryAsync<Deal>(HttpMethod.Put, It.IsAny<string>(), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
+        _api.Verify(api => api.WriteInventoryAsync<Deal>(HttpMethod.Post, $"api/v1/crm/{Tenant:D}/{Organization:D}/deals", It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
+        _api.Verify(api => api.WriteInventoryAsync<Deal>(HttpMethod.Post, It.Is<string>(path => path.EndsWith("/move", StringComparison.Ordinal)), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
+        _api.Verify(api => api.WriteInventoryAsync<Dictionary<string, object>>(HttpMethod.Delete, It.IsAny<string>(), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     private void Read<T>(Func<string, T> response) where T : class
