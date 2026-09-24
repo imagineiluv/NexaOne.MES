@@ -224,7 +224,7 @@ public sealed partial class BillingBridge
         }
 
         private const string SnapshotSummaryColumns = "SNAPSHOT_ID AS Id, REPORT_KIND AS Kind, "
-            + "PERIOD_START AS Start, PERIOD_END AS End, CONTENT_HASH AS ContentHash, "
+            + "PERIOD_START AS PeriodStart, PERIOD_END AS PeriodEnd, CONTENT_HASH AS ContentHash, "
             + "CREATED_BY AS CreatedBy, CREATED_AT_TICKS AS CreatedAt";
         private const string SnapshotColumns = SnapshotSummaryColumns
             + ", REPORT_JSON AS Json, CSV_CONTENT AS Csv";
@@ -262,8 +262,8 @@ public sealed partial class BillingBridge
             if (!Enum.IsDefined(typeof(FinancialReportSnapshotKind), row.Kind))
                 throw new InvalidDataException("Report snapshot kind is invalid.");
             var hash = StoredHash(row.ContentHash);
-            var start = Day(row.Start);
-            var end = Day(row.End);
+            var start = Day(row.PeriodStart);
+            var end = Day(row.PeriodEnd);
             var createdAt = new DateTimeOffset(row.CreatedAt, TimeSpan.Zero);
             if (start == default || end < start || end.DayNumber - start.DayNumber > 365
                 || createdAt == default)
@@ -345,8 +345,8 @@ public sealed partial class BillingBridge
     {
         public string Id { get; set; } = "";
         public int Kind { get; set; }
-        public string Start { get; set; } = "";
-        public string End { get; set; } = "";
+        public string PeriodStart { get; set; } = "";
+        public string PeriodEnd { get; set; } = "";
         public string Json { get; set; } = "";
         public string Csv { get; set; } = "";
         public string ContentHash { get; set; } = "";
