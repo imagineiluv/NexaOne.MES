@@ -76,6 +76,15 @@ CI는 secret이 없으면 checkout 전에 명시적으로 실패하며, 토큰�
 | `Worker__Erp__Recurring__PrincipalId` | 예: `erp-monthly` | 소문자/숫자/점/밑줄/하이픈 3~40자. `Enabled=true`이면 필수 |
 | `Worker__Erp__Recurring__IntervalSeconds` | `3600` | 도래 규칙 재확인 주기, 최소 60초 |
 | `Worker__Erp__Recurring__TimeZoneId` | `UTC` | scope에 `timeZoneId`가 없는 기존 데이터의 fallback. 생략 시 UTC, OS가 인식하지 못하면 기동 실패 |
+| `Worker__Collaboration__Delivery__Enabled` | `false` | 송달 queue 자동 dispatch. 아래 전용 주체·scope와 SMTP credential reference를 먼저 검증한 뒤 활성화 |
+| `Worker__Collaboration__Delivery__PrincipalId` | 예: `mail-dispatch` | 소문자/숫자/점/밑줄/하이픈 3~40자. `Enabled=true`이면 필수 |
+| `Worker__Collaboration__Delivery__IntervalSeconds` | `30` | 도래 queue 확인 주기, 최소 10초 |
+| `Worker__Collaboration__Delivery__LeaseSeconds` | `60` | 외부 호출·결과 저장 lease, 10~900초 |
+| `Worker__Collaboration__Delivery__BatchSize` | `25` | scope별 claim 크기, 1~100 |
+| `Delivery__Email__Credentials__<key>__Reference` | 예: `mail-primary` | DB profile의 opaque `credentialReference`와 대소문자까지 정확히 일치하는 비밀 선택자 |
+| `Delivery__Email__Credentials__<key>__Host/Port/UserName/Password` | SMTP 접속 정보 | **env 전용**. Password는 DB·감사·로그에 저장하지 않음 |
+| `Delivery__Email__Credentials__<key>__FromAddress/FromDisplayName` | 고정 발신자 | FromAddress 필수, FromDisplayName 선택 |
+| `Delivery__Email__Credentials__<key>__UseStartTls/TimeoutSeconds` | `true` / `30` | timeout 1~300초. 현재 등록 provider key는 정확히 `smtp` |
 | `ApiBaseUrl` | 예: `http://localhost:8080/` | **8080 외 포트/프록시 뒤 기동 시 필수** — 호스트 자기호출 기준 |
 
 FDC 수집 활성화 전에는 다음을 모두 확인한다.
@@ -142,6 +151,18 @@ ERP 반복 worker는 사람 계정이나 기존 business membership을 사용하
 회수나 달력 변경은 다음 규칙 transaction에서 scope version과 함께 다시 검사되며 설정의 organization 목록으로 우회할 수 없다.
 주체가 소유한 `auditActorId`가 생성 문서·회차·감사 행의 actor이고, 호환용 SYS_USER는 비활성·무권한으로 유지한다.
 프로비저닝과 회수 확인 후에만 `Worker__Erp__Recurring__Enabled=true`로 재기동한다.
+
+송달 worker도 사람 계정이나 ERP 반복 주체를 재사용하지 않는다. `sys:manage` 관리자가
+`PUT /api/v1/collaboration/delivery-automation/principals/{principalId}`에
+`{"expectedVersion":0,"name":"Mail dispatcher","isActive":true}`를 보내 전용 주체를 만들고,
+`PUT /api/v1/collaboration/delivery-automation/principals/{principalId}/scopes/{tenantId}/{organizationId}`에
+`{"expectedVersion":0,"isActive":true}`를 보내 정확한 조직 범위만 부여한다. 응답 version은 다음 변경의
+`expectedVersion`이다. principal 또는 scope 회수와 version 변경은 claim·complete·fail transaction마다 재검사된다.
+주체의 `auditActorId`가 claimed/delivered/retry/dead-letter 감사 actor이며 호환 SYS_USER는 비활성·무권한이다.
+프로필에는 provider key `smtp`와 위 `Reference`만 저장하고 SMTP 비밀번호를 넣지 않는다. Provider가 메일을
+수락한 뒤 DB complete가 불확실하면 해당 건을 실패로 덮지 않고 lease expiry 복구에 맡기므로 전송은
+at-least-once이며 중복 수신 가능성을 운영 수신자·업무 문서 ID로 식별해야 한다. 주체·scope·credential을
+모두 검증한 뒤에만 `Worker__Collaboration__Delivery__Enabled=true`로 재기동한다.
 
 ## 3. 기동·확인
 

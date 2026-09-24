@@ -18,7 +18,7 @@ public sealed class NexaOneMesBridgeCatalogTests
         var first = NexaOneMesBridgeCatalog.Create();
         var second = NexaOneMesBridgeCatalog.Create();
 
-        first.Descriptors.Should().HaveCount(60);
+        first.Descriptors.Should().HaveCount(61);
         first.Descriptors.Should().Equal(second.Descriptors);
         first.Descriptors.Should().OnlyContain(descriptor =>
             descriptor.ContractType.IsInterface
@@ -62,6 +62,9 @@ public sealed class NexaOneMesBridgeCatalogTests
         billing.Should().Be(new NexaModuleBridgeDescriptor(typeof(IBillingBridge), "Erp", "billingBridge"));
         catalog.TryGet(typeof(IDeliveryBridge), out var delivery).Should().BeTrue();
         delivery.Should().Be(new NexaModuleBridgeDescriptor(typeof(IDeliveryBridge), "Erp", "deliveryBridge"));
+        catalog.TryGet(typeof(IDeliveryAutomationBridge), out var deliveryAutomation).Should().BeTrue();
+        deliveryAutomation.Should().Be(new NexaModuleBridgeDescriptor(
+            typeof(IDeliveryAutomationBridge), "Erp", "deliveryAutomationBridge"));
         catalog.TryGet(typeof(IExpenseBridge), out var expense).Should().BeTrue();
         expense.Should().Be(new NexaModuleBridgeDescriptor(typeof(IExpenseBridge), "Erp", "expenseBridge"));
         catalog.TryGet(typeof(IFinancialReportBridge), out var financialReport).Should().BeTrue();

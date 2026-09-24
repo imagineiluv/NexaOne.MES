@@ -36,6 +36,21 @@
        (Events:Outbox:Enabled 등)를 무력화하는 실버그였다. Program.cs가 CreateServer 전에 Root를 설정한다. -->
   <object id="appConfiguration" type="NexaOne.Common.Configuration.SpringHostConfiguration, NexaOne.Common" />
 
+  <!-- Delivery secrets stay in host configuration. The ERP module receives only a provider registry and persisted
+       credential references; EmailComponent resolves one SMTP credential immediately before each attempt. -->
+  <object id="deliveryEmailCredentialResolver"
+          type="NexaOne.Server.Gateway.ConfigurationEmailCredentialResolver, NexaOne.Server">
+    <constructor-arg ref="appConfiguration" />
+  </object>
+  <object id="smtpDeliveryProvider"
+          type="NexaOne.Server.Gateway.EmailComponentDeliveryProvider, NexaOne.Server">
+    <constructor-arg ref="deliveryEmailCredentialResolver" />
+  </object>
+  <object id="deliveryProviderRegistry"
+          type="NexaOne.Server.Gateway.DeliveryProviderRegistry, NexaOne.Server">
+    <constructor-arg ref="smtpDeliveryProvider" />
+  </object>
+
   <!-- Spring 형제 컨텍스트 proxy는 전역 service locator를 직접 호출하지 않는다. 조립 루트에서
        현재 ApplicationServer singleton을 한 번 취득해 typed resolver로 명시 주입한다. -->
   <object id="applicationServer"
