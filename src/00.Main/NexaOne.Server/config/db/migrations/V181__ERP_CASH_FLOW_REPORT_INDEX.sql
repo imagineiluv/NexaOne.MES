@@ -1,0 +1,3 @@
+-- Cover recorded payments filtered by their immutable UTC received instant.
+CREATE INDEX IX_ERP_BILLING_PAYMENT_CASH_FLOW ON ERP_BILLING_PAYMENT
+    (TENANT_ID, ORGANIZATION_ID, STATE, PAID_AT_TICKS, PAYMENT_ID);

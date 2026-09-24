@@ -72,6 +72,7 @@ public sealed class BillingHostTests(ITestOutputHelper output)
         var scopes = await Body<BusinessPage<BusinessMembership>>(await member.GetAsync("/api/v1/erp/billing/scopes/me"));
         scopes.Total.Should().Be(1); scopes.Items.Single().Should().Match<BusinessMembership>(m => m.TenantId == tenant && m.OrganizationId == organization);
         (await Body<BusinessPage<BusinessMembership>>(await member.GetAsync("/api/v1/erp/financial-reports/scopes/me"))).Total.Should().Be(1);
+        (await Body<BusinessPage<BusinessMembership>>(await member.GetAsync("/api/v1/erp/cash-flow-reports/scopes/me"))).Total.Should().Be(1);
         (await Body<BusinessPage<BusinessMembership>>(await member.GetAsync("/api/v1/erp/expenses/scopes/me"))).Total
             .Should().Be(0, "billing-only grants must not disclose an expense scope");
         (await Body<BusinessPage<BusinessMembership>>(await admin.GetAsync("/api/v1/erp/billing/scopes/me"))).Total.Should().Be(0);
@@ -128,10 +129,23 @@ public sealed class BillingHostTests(ITestOutputHelper output)
             (await csv.Content.ReadAsStringAsync()).Should().Contain("currency,invoice_count,invoiced,paid,outstanding")
                 .And.Contain(",1,").And.Contain(",100,");
         }
+        var cashRoute = $"/api/v1/erp/cash-flow-reports/{tenant}/{organization}?start=2026-09-22&end=2026-09-22";
+        var cash = await Body<CashFlowReport>(await member.GetAsync(cashRoute));
+        cash.Currencies.Should().Equal(new CashFlowCurrencyTotals("KRW", 1, 100m));
+        using (var csv = await member.GetAsync(cashRoute.Replace("?", "/export.csv?", StringComparison.Ordinal)))
+        {
+            csv.StatusCode.Should().Be(HttpStatusCode.OK, await csv.Content.ReadAsStringAsync());
+            csv.Content.Headers.ContentType!.ToString().Should().Be("text/csv; charset=utf-8");
+            csv.Content.Headers.ContentDisposition!.FileNameStar.Should()
+                .Be("cash-flow-report-20260922-20260922.csv");
+            (await csv.Content.ReadAsStringAsync()).Should()
+                .Contain("currency,payment_count,received").And.Contain("KRW,1,100");
+        }
         await Error(await member.PostAsJsonAsync(route + $"/documents/{invoice.Id}/void", new BillingController.VersionedCommand(partiallyPaid.Version), HttpJson),
             HttpStatusCode.Conflict, "BILLING_DOCUMENT_HAS_PAYMENTS");
         var cancelled = await Body<PaymentRecord>(await member.PostAsJsonAsync(route + $"/payments/{payment.Id}/cancel", new BillingController.CancelCommand(payment.Version, "정정"), HttpJson));
         cancelled.State.Should().Be(PaymentState.Cancelled); cancelled.CancelReason.Should().Be("정정");
+        (await Body<CashFlowReport>(await member.GetAsync(cashRoute))).Currencies.Should().BeEmpty();
         (await Body<PaymentRecord>(await member.GetAsync(route + $"/payments/{payment.Id}"))).Should().Be(cancelled);
         var payments = await Body<BusinessPage<PaymentRecord>>(await member.GetAsync(paymentRoute + "?state=Cancelled"));
         payments.Total.Should().Be(1); payments.Items.Single().Should().Be(cancelled);
@@ -219,15 +233,23 @@ public sealed class BillingMssqlTests(ITestOutputHelper output)
             new(invoice.Id, 0.000001m, "KRW", new(2026, 9, 22, 9, 0, 0, TimeSpan.Zero), PaymentMethod.Cash, "TX", "메모"));
         var paid = await h.Bridge.GetDocumentAsync(h.Seed.User, h.Tenant, h.Organization, invoice.Id);
         paid.Status.Should().Be(BillingStatus.PartiallyPaid); paid.Paid.Should().Be(0.000001m);
+        IFinancialReportBridge reporting = h.Bridge;
+        (await reporting.BuildCashFlowAsync(h.Seed.User, h.Tenant, h.Organization,
+            new(new(2026, 9, 22), new(2026, 9, 22)))).Currencies.Should()
+            .Equal(new CashFlowCurrencyTotals("KRW", 1, 0.000001m));
         var cancelled = await h.Bridge.CancelPaymentAsync(h.Seed.User, h.Tenant, h.Organization, payment.Id, payment.Version, "정정");
         (await h.Bridge.GetPaymentAsync(h.Seed.User, h.Tenant, h.Organization, payment.Id)).Should().Be(cancelled);
         (await h.Bridge.GetDocumentAsync(h.Seed.User, h.Tenant, h.Organization, invoice.Id)).Status.Should().Be(BillingStatus.Sent);
+        (await reporting.BuildCashFlowAsync(h.Seed.User, h.Tenant, h.Organization,
+            new(new(2026, 9, 22), new(2026, 9, 22)))).Currencies.Should().BeEmpty();
         var page = await h.Bridge.ListDocumentsAsync(h.Seed.User, h.Tenant, h.Organization, BillingKind.Invoice, offset: 1, limit: 1);
         page.Total.Should().Be(2); page.Items.Single().Id.Should().Be(second.Id);
         (await h.Bridge.ListPaymentsAsync(h.Seed.User, h.Tenant, h.Organization, invoice.Id, PaymentState.Cancelled)).Items.Single().Id.Should().Be(payment.Id);
         (await h.Count("ERP_BILLING_DOCUMENT")).Should().Be(3);
         (await h.Count("ERP_BILLING_LINE")).Should().Be(6);
         (await h.Count("ERP_BILLING_PAYMENT")).Should().Be(1);
+        (await h.Database.ScalarAsync<int>("SELECT COUNT(*) FROM sys.indexes WHERE name='IX_ERP_BILLING_PAYMENT_CASH_FLOW'"))
+            .Should().Be(1);
         (await h.Database.ScalarAsync<string>("SELECT UNIT_PRICE FROM ERP_BILLING_LINE WHERE TENANT_ID=@tenant AND ORGANIZATION_ID=@organization AND DOCUMENT_ID=@id AND LINE_NO=1",
             new { tenant = h.Tenant.ToString("D"), organization = h.Organization.ToString("D"), id = invoice.Id.ToString("D") })).Should().Be("899999999999.123456");
     }

@@ -18,4 +18,12 @@ public interface IFinancialReportBridge : INexaModuleBridge
     /// <summary>Builds the same atomic snapshot and exports it as deterministic CSV.</summary>
     Task<string> ExportCsvAsync(string userId, Guid tenantId, Guid organizationId,
         FinancialReportPeriod period, CancellationToken ct = default);
+
+    /// <summary>Builds a currency-separated cash-inflow report by UTC payment received date.</summary>
+    Task<CashFlowReport> BuildCashFlowAsync(string userId, Guid tenantId, Guid organizationId,
+        CashFlowReportPeriod period, CancellationToken ct = default);
+
+    /// <summary>Builds the same payment-date snapshot and exports it as deterministic CSV.</summary>
+    Task<string> ExportCashFlowCsvAsync(string userId, Guid tenantId, Guid organizationId,
+        CashFlowReportPeriod period, CancellationToken ct = default);
 }
