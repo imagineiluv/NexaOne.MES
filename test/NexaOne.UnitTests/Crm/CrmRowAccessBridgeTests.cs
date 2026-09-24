@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using NexaFramework.Service;
 using NexaFramework.Service.Crm;
+using NexaFramework.Service.Projects;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Sys;
 using NexaOne.UnitTests.TestInfrastructure;
@@ -104,6 +105,74 @@ public sealed class CrmRowAccessBridgeTests : IDisposable
         updated.Stages.Select(stage => stage.Index).Should().Equal(1, 2);
     }
 
+    [Fact]
+    public async Task Project_reads_apply_created_and_assigned_visibility_before_paging_and_get()
+    {
+        var memberships = Memberships();
+        var module = Module(memberships.Object);
+        Initialize(module);
+        var bridge = module.GetCrmBridge();
+
+        var creatorProject = await bridge.CreateProjectAsync("creator", _tenantId, _organizationId,
+            new ProjectInput("Creator project"),
+            new ProjectLinks(null, [new ProjectMember(_creatorEmployee)], []));
+        var assignedProject = await bridge.CreateProjectAsync("admin", _tenantId, _organizationId,
+            new ProjectInput("Assigned project"),
+            new ProjectLinks(null, [new ProjectMember(_assigneeEmployee)], []));
+
+        var created = await bridge.ListProjectsAsync("creator", _tenantId, _organizationId,
+            new ProjectQuery(Limit: 1));
+        created.Total.Should().Be(1);
+        created.Items.Should().ContainSingle().Which.Id.Should().Be(creatorProject.Id);
+
+        var assigned = await bridge.ListProjectsAsync("assignee", _tenantId, _organizationId,
+            new ProjectQuery(Limit: 1));
+        assigned.Total.Should().Be(1);
+        assigned.Items.Should().ContainSingle().Which.Id.Should().Be(assignedProject.Id);
+
+        var outsider = await bridge.ListProjectsAsync("outsider", _tenantId, _organizationId,
+            new ProjectQuery(Limit: 1));
+        outsider.Total.Should().Be(0);
+        outsider.Items.Should().BeEmpty();
+
+        var hidden = () => bridge.GetProjectAsync("creator", _tenantId, _organizationId, assignedProject.Id);
+        await hidden.Should().ThrowAsync<BusinessException>().WithMessage("PROJECT_NOT_FOUND");
+    }
+
+    [Fact]
+    public async Task Project_team_links_are_atomic_and_narrow_roles_cannot_replace_them()
+    {
+        var memberships = Memberships();
+        var module = Module(memberships.Object);
+        Initialize(module);
+        var bridge = module.GetCrmBridge();
+
+        var team = await bridge.CreateTeamAsync("admin", _tenantId, _organizationId,
+            new TeamInput("Delivery", "DLV"), [new ProjectMember(_assigneeEmployee, true)]);
+        var project = await bridge.CreateProjectAsync("creator", _tenantId, _organizationId,
+            new ProjectInput("Restricted"),
+            new ProjectLinks(null, [new ProjectMember(_creatorEmployee)], []));
+
+        var denied = () => bridge.SetProjectLinksAsync("creator", _tenantId, _organizationId,
+            project.Id, project.Version,
+            new ProjectLinks(null, [new ProjectMember(_creatorEmployee)], [team.Id]));
+        await denied.Should().ThrowAsync<BusinessException>().WithMessage("WORK_ACCESS_DENIED");
+
+        var linked = await bridge.SetProjectLinksAsync("admin", _tenantId, _organizationId,
+            project.Id, project.Version,
+            new ProjectLinks(null, [new ProjectMember(_assigneeEmployee)], [team.Id]));
+        linked.Links.TeamIds.Should().Equal(team.Id);
+        linked.Links.Members.Should().ContainSingle().Which.EmployeeId.Should().Be(_assigneeEmployee);
+
+        var deleteReferencedTeam = () => bridge.DeleteTeamAsync("admin", _tenantId, _organizationId,
+            team.Id, team.Version);
+        await deleteReferencedTeam.Should().ThrowAsync<BusinessException>().WithMessage("TEAM_IS_REFERENCED");
+
+        var customerLink = () => bridge.SetProjectLinksAsync("admin", _tenantId, _organizationId,
+            linked.Id, linked.Version, new ProjectLinks(Guid.NewGuid(), linked.Links.Members, linked.Links.TeamIds));
+        await customerLink.Should().ThrowAsync<BusinessException>().WithMessage("CLIENT_NOT_FOUND");
+    }
+
     private CrmModule Module(IBusinessMembershipBridge memberships) => new(new EesDataSource
     {
         Provider = new SqliteTestDatabaseProvider(),
@@ -130,10 +199,13 @@ public sealed class CrmRowAccessBridgeTests : IDisposable
         };
         var permissions = new Dictionary<string, string[]>(StringComparer.Ordinal)
         {
-            ["admin"] = ["crm.read", "crm.pipeline.manage", "crm.deal.manage", "crm.deal.delete", "crm.deal.all"],
-            ["creator"] = ["crm.read", "crm.deal.manage", "crm.deal.created"],
-            ["assignee"] = ["crm.read", "crm.deal.assigned"],
-            ["outsider"] = ["crm.read", "crm.deal.assigned"],
+            ["admin"] = ["crm.read", "crm.pipeline.manage", "crm.deal.manage", "crm.deal.delete", "crm.deal.all",
+                "crm.project.read", "crm.project.manage", "crm.project.delete", "crm.project.link-customer", "crm.project.all",
+                "crm.team.read", "crm.team.manage", "crm.team.delete"],
+            ["creator"] = ["crm.read", "crm.deal.manage", "crm.deal.created",
+                "crm.project.read", "crm.project.manage", "crm.project.created"],
+            ["assignee"] = ["crm.read", "crm.deal.assigned", "crm.project.read", "crm.project.assigned"],
+            ["outsider"] = ["crm.read", "crm.deal.assigned", "crm.project.read", "crm.project.assigned"],
         };
         var mock = new Mock<IBusinessMembershipBridge>();
         mock.Setup(value => value.GetAccessAsync(It.IsAny<string>(), _tenantId, _organizationId, It.IsAny<CancellationToken>()))

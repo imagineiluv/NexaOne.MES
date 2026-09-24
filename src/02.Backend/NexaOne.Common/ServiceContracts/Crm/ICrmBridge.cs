@@ -1,4 +1,5 @@
 using NexaFramework.Service.Crm;
+using NexaFramework.Service.Projects;
 
 namespace NexaOne.ServiceContracts.Crm;
 
@@ -27,5 +28,30 @@ public interface ICrmBridge : INexaModuleBridge
     Task<Deal> MoveDealAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, Guid stageId, CancellationToken ct = default);
     Task DeleteDealAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, CancellationToken ct = default);
+
+    Task<WorkPage<Project>> ListProjectsAsync(string userId, Guid tenantId, Guid organizationId,
+        ProjectQuery query, CancellationToken ct = default);
+    Task<Project> GetProjectAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, CancellationToken ct = default);
+    Task<Project> CreateProjectAsync(string userId, Guid tenantId, Guid organizationId,
+        ProjectInput input, ProjectLinks links, CancellationToken ct = default);
+    Task<Project> UpdateProjectAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, ProjectInput input, CancellationToken ct = default);
+    Task<Project> SetProjectLinksAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, ProjectLinks links, CancellationToken ct = default);
+    Task DeleteProjectAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, CancellationToken ct = default);
+
+    Task<WorkPage<Team>> ListTeamsAsync(string userId, Guid tenantId, Guid organizationId,
+        TeamQuery query, CancellationToken ct = default);
+    Task<Team> GetTeamAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, CancellationToken ct = default);
+    Task<Team> CreateTeamAsync(string userId, Guid tenantId, Guid organizationId,
+        TeamInput input, IReadOnlyList<ProjectMember> members, CancellationToken ct = default);
+    Task<Team> UpdateTeamAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, TeamInput input, IReadOnlyList<ProjectMember>? members,
+        CancellationToken ct = default);
+    Task DeleteTeamAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, CancellationToken ct = default);
 }
