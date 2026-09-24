@@ -444,7 +444,6 @@ public static class SqliteSchemaInitializer
         EnsureFdcTraceRetentionStateSchema(conn);
         EnsureFdcOpenStateIndexes(conn);
         EnsureFdcEndpointConfigurationIntegrity(conn);
-        EnsureBillingCreditNoteSchema(conn);
         EnsureQueryPerformanceIndexes(conn);
         ApplySchemaContributions(conn, contributions);
     }
@@ -551,7 +550,6 @@ public static class SqliteSchemaInitializer
         EnsureFdcTraceRetentionStateSchema(conn);
         EnsureFdcOpenStateIndexes(conn);
         EnsureFdcEndpointConfigurationIntegrity(conn);
-        EnsureBillingCreditNoteSchema(conn);
         EnsureQueryPerformanceIndexes(conn);
         ApplySchemaContributions(conn, contributions);
     }
@@ -3419,141 +3417,6 @@ public static class SqliteSchemaInitializer
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = @name COLLATE NOCASE;";
         cmd.Parameters.AddWithValue("@name", table);
         return Convert.ToInt64(cmd.ExecuteScalar() ?? 0L) > 0;
-    }
-
-    /// <summary>Rebuilds the V170 billing header on legacy SQLite databases because SQLite cannot
-    /// drop its inline kind/status checks. V189's additive columns are preserved and the wider
-    /// credit-note checks and self-reference are installed atomically.</summary>
-    private static void EnsureBillingCreditNoteSchema(SqliteConnection conn)
-    {
-        if (HasTable(conn, "ERP_BILLING_NUMBER"))
-        {
-            using var numberCommand = conn.CreateCommand();
-            numberCommand.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name='ERP_BILLING_NUMBER';";
-            var numberDefinition = Convert.ToString(numberCommand.ExecuteScalar()) ?? "";
-            if (!Regex.IsMatch(numberDefinition, @"KIND\s+IN\s*\(\s*0\s*,\s*1\s*,\s*2\s*\)", RegexOptions.IgnoreCase))
-            {
-                Exec(conn, "BEGIN IMMEDIATE;");
-                try
-                {
-                    Exec(conn, """
-                        CREATE TABLE ERP_BILLING_NUMBER_V189 (
-                            TENANT_ID TEXT NOT NULL, ORGANIZATION_ID TEXT NOT NULL,
-                            KIND INTEGER NOT NULL, NEXT_NUMBER INTEGER NOT NULL,
-                            CONSTRAINT PK_ERP_BILLING_NUMBER PRIMARY KEY (TENANT_ID, ORGANIZATION_ID, KIND),
-                            CONSTRAINT CK_ERP_BILLING_NUMBER_KIND CHECK (KIND IN (0,1,2)),
-                            CONSTRAINT CK_ERP_BILLING_NUMBER_NEXT CHECK (NEXT_NUMBER > 0));
-                        INSERT INTO ERP_BILLING_NUMBER_V189 (TENANT_ID,ORGANIZATION_ID,KIND,NEXT_NUMBER)
-                            SELECT TENANT_ID,ORGANIZATION_ID,KIND,NEXT_NUMBER FROM ERP_BILLING_NUMBER;
-                        DROP TABLE ERP_BILLING_NUMBER;
-                        ALTER TABLE ERP_BILLING_NUMBER_V189 RENAME TO ERP_BILLING_NUMBER;
-                        """);
-                    Exec(conn, "COMMIT;");
-                }
-                catch
-                {
-                    try { Exec(conn, "ROLLBACK;"); } catch { }
-                    throw;
-                }
-            }
-        }
-
-        const string table = "ERP_BILLING_DOCUMENT";
-        if (!HasTable(conn, table)) return;
-        if (!HasColumn(conn, table, "CREDITED"))
-            Exec(conn, "ALTER TABLE ERP_BILLING_DOCUMENT ADD COLUMN CREDITED TEXT NOT NULL DEFAULT '0';");
-        if (!HasColumn(conn, table, "ADJUSTED_INVOICE_ID"))
-            Exec(conn, "ALTER TABLE ERP_BILLING_DOCUMENT ADD COLUMN ADJUSTED_INVOICE_ID TEXT NULL;");
-
-        using var command = conn.CreateCommand();
-        command.CommandText = "SELECT sql FROM sqlite_master WHERE type='table' AND name='ERP_BILLING_DOCUMENT';";
-        var definition = Convert.ToString(command.ExecuteScalar()) ?? "";
-        var hasCreditKind = Regex.IsMatch(definition, @"KIND\s+IN\s*\(\s*0\s*,\s*1\s*,\s*2\s*\)", RegexOptions.IgnoreCase);
-        var hasCreditStatus = Regex.IsMatch(definition, @"STATUS\s+BETWEEN\s+0\s+AND\s+9", RegexOptions.IgnoreCase);
-        var hasCreditLink = definition.Contains("ADJUSTED_INVOICE_ID IS NOT NULL", StringComparison.OrdinalIgnoreCase);
-        if (!hasCreditKind || !hasCreditStatus || !hasCreditLink)
-        {
-            using var invalidCommand = conn.CreateCommand();
-            invalidCommand.CommandText = """
-                SELECT COUNT(*) FROM ERP_BILLING_DOCUMENT
-                 WHERE KIND NOT IN (0,1,2) OR STATUS NOT BETWEEN 0 AND 9
-                    OR CREDITED IS NULL OR CREDITED LIKE '-%'
-                    OR (KIND=2 AND (ADJUSTED_INVOICE_ID IS NULL OR ADJUSTED_INVOICE_ID=DOCUMENT_ID))
-                    OR (KIND<>2 AND ADJUSTED_INVOICE_ID IS NOT NULL);
-                """;
-            var invalid = Convert.ToInt64(invalidCommand.ExecuteScalar() ?? 0L);
-            if (invalid != 0) throw new InvalidOperationException(
-                "Legacy SQLite billing rows cannot be upgraded to the credit-note contract.");
-
-            Exec(conn, "BEGIN IMMEDIATE;");
-            try
-            {
-                Exec(conn, """
-                    CREATE TABLE ERP_BILLING_DOCUMENT_V189 (
-                        TENANT_ID TEXT NOT NULL, ORGANIZATION_ID TEXT NOT NULL, DOCUMENT_ID TEXT NOT NULL,
-                        VERSION TEXT NOT NULL, OPERATION_ID TEXT NOT NULL, KIND INTEGER NOT NULL,
-                        NUMBER INTEGER NOT NULL, STATUS INTEGER NOT NULL, CONTACT_ID TEXT NOT NULL,
-                        DOCUMENT_DATE TEXT NOT NULL, DUE_DATE TEXT NOT NULL, CURRENCY TEXT NOT NULL,
-                        DISCOUNT_TYPE INTEGER NULL, DISCOUNT_VALUE TEXT NULL, TAX_TYPE INTEGER NULL,
-                        TAX_VALUE TEXT NULL, TAX2_TYPE INTEGER NULL, TAX2_VALUE TEXT NULL,
-                        TERMS TEXT NULL, NOTE TEXT NULL, SUBTOTAL TEXT NOT NULL,
-                        DISCOUNT_AMOUNT TEXT NOT NULL, TAX_AMOUNT TEXT NOT NULL, TOTAL TEXT NOT NULL,
-                        PAID TEXT NOT NULL, CREDITED TEXT NOT NULL DEFAULT '0', CREATED_BY TEXT NOT NULL,
-                        CONVERTED_FROM_ID TEXT NULL, CONVERTED_TO_ID TEXT NULL,
-                        ADJUSTED_INVOICE_ID TEXT NULL, AT_TICKS INTEGER NOT NULL,
-                        CONSTRAINT PK_ERP_BILLING_DOCUMENT PRIMARY KEY (TENANT_ID, ORGANIZATION_ID, DOCUMENT_ID),
-                        CONSTRAINT UQ_ERP_BILLING_DOCUMENT_OPERATION UNIQUE (TENANT_ID, ORGANIZATION_ID, OPERATION_ID),
-                        CONSTRAINT UQ_ERP_BILLING_DOCUMENT_NUMBER UNIQUE (TENANT_ID, ORGANIZATION_ID, KIND, NUMBER),
-                        CONSTRAINT FK_ERP_BILLING_DOCUMENT_CONTACT FOREIGN KEY (TENANT_ID, ORGANIZATION_ID, CONTACT_ID)
-                            REFERENCES ERP_BILLING_CONTACT (TENANT_ID, ORGANIZATION_ID, CONTACT_ID),
-                        CONSTRAINT FK_ERP_BILLING_DOCUMENT_FROM FOREIGN KEY (TENANT_ID, ORGANIZATION_ID, CONVERTED_FROM_ID)
-                            REFERENCES ERP_BILLING_DOCUMENT_V189 (TENANT_ID, ORGANIZATION_ID, DOCUMENT_ID),
-                        CONSTRAINT FK_ERP_BILLING_DOCUMENT_TO FOREIGN KEY (TENANT_ID, ORGANIZATION_ID, CONVERTED_TO_ID)
-                            REFERENCES ERP_BILLING_DOCUMENT_V189 (TENANT_ID, ORGANIZATION_ID, DOCUMENT_ID),
-                        CONSTRAINT FK_ERP_BILLING_DOCUMENT_ADJUSTED FOREIGN KEY (TENANT_ID, ORGANIZATION_ID, ADJUSTED_INVOICE_ID)
-                            REFERENCES ERP_BILLING_DOCUMENT_V189 (TENANT_ID, ORGANIZATION_ID, DOCUMENT_ID),
-                        CONSTRAINT FK_ERP_BILLING_DOCUMENT_USER FOREIGN KEY (CREATED_BY) REFERENCES SYS_BUSINESS_IDENTITY (BUSINESS_USER_ID),
-                        CONSTRAINT CK_ERP_BILLING_DOCUMENT_KIND CHECK (KIND IN (0,1,2)),
-                        CONSTRAINT CK_ERP_BILLING_DOCUMENT_STATUS CHECK (STATUS BETWEEN 0 AND 9),
-                        CONSTRAINT CK_ERP_BILLING_DOCUMENT_NUMBER CHECK (NUMBER > 0),
-                        CONSTRAINT CK_ERP_BILLING_DOCUMENT_LINKS CHECK (
-                            (CONVERTED_FROM_ID IS NULL OR (KIND=1 AND CONVERTED_FROM_ID<>DOCUMENT_ID))
-                            AND (CONVERTED_TO_ID IS NULL OR (KIND=0 AND STATUS=2 AND CONVERTED_TO_ID<>DOCUMENT_ID))
-                            AND ((KIND=2 AND ADJUSTED_INVOICE_ID IS NOT NULL AND ADJUSTED_INVOICE_ID<>DOCUMENT_ID)
-                                 OR (KIND<>2 AND ADJUSTED_INVOICE_ID IS NULL))),
-                        CONSTRAINT CK_ERP_BILLING_DOCUMENT_AMOUNTS CHECK (
-                            SUBTOTAL NOT LIKE '-%' AND DISCOUNT_AMOUNT NOT LIKE '-%' AND TAX_AMOUNT NOT LIKE '-%'
-                            AND TOTAL NOT LIKE '-%' AND PAID NOT LIKE '-%' AND CREDITED NOT LIKE '-%'
-                            AND LENGTH(SUBTOTAL)>0 AND LENGTH(DISCOUNT_AMOUNT)>0 AND LENGTH(TAX_AMOUNT)>0
-                            AND LENGTH(TOTAL)>0 AND LENGTH(PAID)>0 AND LENGTH(CREDITED)>0)
-                    );
-                    INSERT INTO ERP_BILLING_DOCUMENT_V189
-                        (TENANT_ID,ORGANIZATION_ID,DOCUMENT_ID,VERSION,OPERATION_ID,KIND,NUMBER,STATUS,CONTACT_ID,
-                         DOCUMENT_DATE,DUE_DATE,CURRENCY,DISCOUNT_TYPE,DISCOUNT_VALUE,TAX_TYPE,TAX_VALUE,TAX2_TYPE,TAX2_VALUE,
-                         TERMS,NOTE,SUBTOTAL,DISCOUNT_AMOUNT,TAX_AMOUNT,TOTAL,PAID,CREDITED,CREATED_BY,
-                         CONVERTED_FROM_ID,CONVERTED_TO_ID,ADJUSTED_INVOICE_ID,AT_TICKS)
-                    SELECT TENANT_ID,ORGANIZATION_ID,DOCUMENT_ID,VERSION,OPERATION_ID,KIND,NUMBER,STATUS,CONTACT_ID,
-                           DOCUMENT_DATE,DUE_DATE,CURRENCY,DISCOUNT_TYPE,DISCOUNT_VALUE,TAX_TYPE,TAX_VALUE,TAX2_TYPE,TAX2_VALUE,
-                           TERMS,NOTE,SUBTOTAL,DISCOUNT_AMOUNT,TAX_AMOUNT,TOTAL,PAID,CREDITED,CREATED_BY,
-                           CONVERTED_FROM_ID,CONVERTED_TO_ID,ADJUSTED_INVOICE_ID,AT_TICKS
-                      FROM ERP_BILLING_DOCUMENT;
-                    DROP TABLE ERP_BILLING_DOCUMENT;
-                    ALTER TABLE ERP_BILLING_DOCUMENT_V189 RENAME TO ERP_BILLING_DOCUMENT;
-                    """);
-                Exec(conn, "COMMIT;");
-            }
-            catch
-            {
-                try { Exec(conn, "ROLLBACK;"); } catch { }
-                throw;
-            }
-        }
-
-        Exec(conn, "CREATE UNIQUE INDEX IF NOT EXISTS UQ_ERP_BILLING_DOCUMENT_FROM ON ERP_BILLING_DOCUMENT (TENANT_ID,ORGANIZATION_ID,CONVERTED_FROM_ID) WHERE CONVERTED_FROM_ID IS NOT NULL;");
-        Exec(conn, "CREATE UNIQUE INDEX IF NOT EXISTS UQ_ERP_BILLING_DOCUMENT_TO ON ERP_BILLING_DOCUMENT (TENANT_ID,ORGANIZATION_ID,CONVERTED_TO_ID) WHERE CONVERTED_TO_ID IS NOT NULL;");
-        Exec(conn, "CREATE INDEX IF NOT EXISTS IX_ERP_BILLING_DOCUMENT_PAGE ON ERP_BILLING_DOCUMENT (TENANT_ID,ORGANIZATION_ID,KIND,NUMBER);");
-        Exec(conn, "CREATE INDEX IF NOT EXISTS IX_ERP_BILLING_DOCUMENT_REPORT ON ERP_BILLING_DOCUMENT (TENANT_ID,ORGANIZATION_ID,KIND,STATUS,DOCUMENT_DATE,DOCUMENT_ID);");
-        Exec(conn, "CREATE INDEX IF NOT EXISTS IX_ERP_BILLING_DOCUMENT_ADJUSTED ON ERP_BILLING_DOCUMENT (TENANT_ID,ORGANIZATION_ID,ADJUSTED_INVOICE_ID,NUMBER) WHERE ADJUSTED_INVOICE_ID IS NOT NULL;");
     }
 
     private static void EnsureQmsInspectionIntegrity(SqliteConnection conn)

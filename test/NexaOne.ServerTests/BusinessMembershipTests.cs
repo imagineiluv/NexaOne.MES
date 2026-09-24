@@ -18,6 +18,7 @@ using Moq.Protected;
 using NexaDB.Data.Sqlite;
 using NexaOne.Common;
 using NexaOne.Common.Security;
+using NexaOne.ERP.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Sys;
 using NexaOne.SYS.Infrastructure;
@@ -29,7 +30,8 @@ namespace NexaOne.ServerTests;
 public sealed class BusinessMembershipDatabaseTemplate : IDisposable
 {
     private readonly string _path = Path.Combine(Path.GetTempPath(), $"nexa-business-template-{Guid.NewGuid():N}.db");
-    public BusinessMembershipDatabaseTemplate() => SqliteSchemaInitializer.EnsureSchema($"Data Source={_path};Pooling=False");
+    public BusinessMembershipDatabaseTemplate() => SqliteSchemaInitializer.EnsureSchema(
+        $"Data Source={_path};Pooling=False", [new ErpBillingSqliteSchemaContribution()]);
     public string Copy()
     {
         var path = Path.Combine(Path.GetTempPath(), $"nexa-business-{Guid.NewGuid():N}.db");

@@ -3,7 +3,7 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://www.springframework.net http://www.springframework.net/xsd/spring-objects.xsd">
 
-  <!-- ERP owns estimates, invoices and payments over the Framework billing service. The XML surface is
+  <!-- ERP owns estimates, invoices, credit notes and payments over the Framework billing service. The XML surface is
        one module composition root plus its public bridge; scope is SYS membership, not an IVT plant binding. -->
   <object id="erpModule" type="NexaOne.ERP.Module, NexaOne.ERP">
     <constructor-arg ref="eesDataSource" />
@@ -22,6 +22,9 @@
   <object id="recurringAutomationBridge" factory-object="erpModule" factory-method="GetRecurringAutomationBridge" />
   <object id="deliveryBridge" factory-object="erpModule" factory-method="GetDeliveryBridge" />
   <object id="deliveryAutomationBridge" factory-object="erpModule" factory-method="GetDeliveryAutomationBridge" />
+  <object id="erpBillingSqliteSchemaContribution"
+      factory-object="erpModule"
+      factory-method="GetBillingSqliteSchemaContribution" />
   <object id="recurringAutomationWorker" factory-object="erpModule" factory-method="GetRecurringAutomationWorker" />
   <object id="deliveryDispatchWorker" factory-object="erpModule" factory-method="GetDeliveryDispatchWorker" />
 

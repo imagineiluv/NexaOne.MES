@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
+using NexaOne.ERP.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.POM.Infrastructure;
 using System.Text.RegularExpressions;
@@ -3097,7 +3098,7 @@ public sealed class SqliteSchemaIncrementalTests
                         '2026-10-22','KRW','10','0','0','10','0','user',1);
                 """);
 
-            SqliteSchemaInitializer.EnsureSchema(cs);
+            SqliteSchemaInitializer.EnsureSchema(cs, [new ErpBillingSqliteSchemaContribution()]);
 
             Columns(cs, "ERP_BILLING_DOCUMENT").Should().Contain("CREDITED", "ADJUSTED_INVOICE_ID");
             ScalarString(cs, "SELECT CREDITED FROM ERP_BILLING_DOCUMENT WHERE DOCUMENT_ID='invoice'")
@@ -3114,7 +3115,7 @@ public sealed class SqliteSchemaIncrementalTests
                         '2026-09-23','KRW','2','0','0','2','0','0','user','invoice',2);
                 """);
             Count(cs, "ERP_BILLING_DOCUMENT").Should().Be(2);
-            SqliteSchemaInitializer.EnsureSchema(cs);
+            SqliteSchemaInitializer.EnsureSchema(cs, [new ErpBillingSqliteSchemaContribution()]);
             Count(cs, "ERP_BILLING_DOCUMENT").Should().Be(2);
         }
         finally { try { File.Delete(FileOf(cs)); } catch { } }
