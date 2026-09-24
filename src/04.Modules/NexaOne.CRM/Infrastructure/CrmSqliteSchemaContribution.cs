@@ -5,7 +5,7 @@ namespace NexaOne.CRM.Infrastructure;
 
 internal sealed class CrmSqliteSchemaContribution : ISqliteSchemaContribution
 {
-    public string Id => "CRM.ProjectAccess.V192";
+    public string Id => "CRM.CustomerEnrollment.V193";
 
     public void Apply(DbConnection connection, DbTransaction transaction)
     {
@@ -109,6 +109,15 @@ internal sealed class CrmSqliteSchemaContribution : ISqliteSchemaContribution
                     REFERENCES CRM_TEAM (TENANT_ID,ORGANIZATION_ID,TEAM_ID));
             CREATE INDEX IF NOT EXISTS IX_CRM_PROJECT_TEAM_TEAM ON CRM_PROJECT_TEAM
                 (TENANT_ID,ORGANIZATION_ID,TEAM_ID,PROJECT_ID);
+
+            CREATE TABLE IF NOT EXISTS CRM_CUSTOMER_ENROLLMENT (
+                TENANT_ID TEXT NOT NULL, ORGANIZATION_ID TEXT NOT NULL, CONTACT_ID TEXT NOT NULL,
+                VERSION TEXT NOT NULL, MDM_CUSTOMER_ID TEXT NOT NULL, CUSTOMER_NAME TEXT NOT NULL,
+                ENROLLED_BY TEXT NOT NULL, ENROLLED_AT_TICKS INTEGER NOT NULL,
+                CONSTRAINT PK_CRM_CUSTOMER_ENROLLMENT PRIMARY KEY (TENANT_ID,ORGANIZATION_ID,CONTACT_ID),
+                CONSTRAINT UQ_CRM_CUSTOMER_ENROLLMENT_MDM UNIQUE (TENANT_ID,ORGANIZATION_ID,MDM_CUSTOMER_ID));
+            CREATE INDEX IF NOT EXISTS IX_CRM_CUSTOMER_ENROLLMENT_PAGE ON CRM_CUSTOMER_ENROLLMENT
+                (TENANT_ID,ORGANIZATION_ID,MDM_CUSTOMER_ID,CONTACT_ID);
             """;
         command.ExecuteNonQuery();
     }

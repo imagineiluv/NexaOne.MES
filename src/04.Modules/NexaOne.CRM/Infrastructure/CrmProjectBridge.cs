@@ -171,8 +171,11 @@ internal sealed class CrmProjectBridge
             return Array.AsReadOnly(found.ToArray());
         }
 
-        // MDM owns string customer IDs. A GUID enrollment mapping is deliberately required before linking.
-        public Task<bool> CustomerExistsAsync(Guid id, CancellationToken ct) => Task.FromResult(false);
+        public async Task<bool> CustomerExistsAsync(Guid id, CancellationToken ct)
+            => await _connection.ExecuteScalarAsync<int>(Command("""
+                SELECT COUNT(*) FROM CRM_CUSTOMER_ENROLLMENT
+                 WHERE TENANT_ID=@TenantId AND ORGANIZATION_ID=@OrganizationId AND CONTACT_ID=@Id
+                """, Key(id), ct)) == 1;
 
         public async Task<Project?> FindProjectAsync(Guid id, CancellationToken ct)
         {

@@ -5,6 +5,7 @@
   <object id="crmModule" type="NexaOne.CRM.Module, NexaOne.CRM">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="businessMembershipBridge" />
+    <constructor-arg ref="businessMasterDirectory" />
   </object>
   <object id="crmBridge" factory-object="crmModule" factory-method="GetCrmBridge" />
   <object id="crmSqliteSchemaContribution" factory-object="crmModule" factory-method="GetSqliteSchemaContribution" />

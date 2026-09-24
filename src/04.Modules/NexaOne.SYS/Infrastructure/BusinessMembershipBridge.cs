@@ -33,6 +33,7 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
         "crm.project.read", "crm.project.manage", "crm.project.delete", "crm.project.link-customer",
         "crm.project.all", "crm.project.assigned", "crm.project.created", "crm.project.assigned-or-created",
         "crm.team.read", "crm.team.manage", "crm.team.delete",
+        "crm.customer.enroll",
     };
     private const string MembershipRowsSql = """
         SELECT m.TENANT_ID AS TenantId, m.ORGANIZATION_ID AS OrganizationId,

@@ -7,6 +7,7 @@ using NexaFramework.Service.Crm;
 using NexaFramework.Service.Projects;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Crm;
+using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Sys;
 
 namespace NexaOne.CRM.Infrastructure;
@@ -17,13 +18,16 @@ internal sealed class CrmBridge : ICrmBridge
     private readonly PipelineService _pipelines;
     private readonly DealService _deals;
     private readonly CrmProjectBridge _projects;
+    private readonly CrmCustomerEnrollmentService _customers;
 
-    public CrmBridge(EesDataSource dataSource, IBusinessMembershipBridge memberships)
+    public CrmBridge(EesDataSource dataSource, IBusinessMembershipBridge memberships,
+        IBusinessMasterDirectory masterDirectory)
     {
         var adapter = new Adapter(dataSource, memberships);
         _pipelines = new PipelineService(adapter, adapter);
         _deals = new DealService(adapter, adapter);
         _projects = new CrmProjectBridge(dataSource, memberships);
+        _customers = new CrmCustomerEnrollmentService(dataSource, memberships, masterDirectory);
     }
 
     public Task<CrmPage<Pipeline>> ListPipelinesAsync(string userId, Guid tenantId, Guid organizationId,
@@ -87,6 +91,16 @@ internal sealed class CrmBridge : ICrmBridge
     public Task DeleteTeamAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, CancellationToken ct = default)
         => _projects.DeleteTeamAsync(Actor(userId, tenantId, organizationId), id, version, ct);
+    public Task<CrmCustomerEnrollment> EnrollCustomerAsync(string userId, Guid tenantId, Guid organizationId,
+        string customerId, CancellationToken ct = default)
+        => _customers.EnrollAsync(Actor(userId, tenantId, organizationId), customerId, ct);
+    public Task<CrmCustomerEnrollmentPage> ListCustomerEnrollmentsAsync(string userId, Guid tenantId,
+        Guid organizationId, int offset = 0, int limit = 50, string? text = null,
+        CancellationToken ct = default)
+        => _customers.ListAsync(Actor(userId, tenantId, organizationId), offset, limit, text, ct);
+    public Task DeleteCustomerEnrollmentAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid contactId, Guid version, CancellationToken ct = default)
+        => _customers.DeleteAsync(Actor(userId, tenantId, organizationId), contactId, version, ct);
 
     private static BusinessActor Actor(string userId, Guid tenantId, Guid organizationId)
     {
@@ -410,7 +424,11 @@ internal sealed class CrmBridge : ICrmBridge
             return found.AsReadOnly();
         }
 
-        public Task<bool> ClientExistsAsync(Guid clientId, CancellationToken ct) => Task.FromResult(false);
+        public async Task<bool> ClientExistsAsync(Guid clientId, CancellationToken ct)
+            => await _connection.ExecuteScalarAsync<int>(Command("""
+                SELECT COUNT(*) FROM CRM_CUSTOMER_ENROLLMENT
+                 WHERE TENANT_ID=@TenantId AND ORGANIZATION_ID=@OrganizationId AND CONTACT_ID=@Id
+                """, Key(clientId), ct)) == 1;
 
         public async Task<bool> ClientIsLinkedAsync(Guid clientId, Guid? exceptDealId, CancellationToken ct)
             => await _connection.ExecuteScalarAsync<int>(Command("""

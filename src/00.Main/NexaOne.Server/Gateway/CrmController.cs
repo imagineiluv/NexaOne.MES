@@ -143,6 +143,28 @@ public sealed class CrmController(ICrmBridge bridge, ILogger<CrmController> logg
             return new Deleted(id);
         });
 
+    [HttpGet("customer-enrollments")]
+    public Task<IActionResult> ListCustomerEnrollments(Guid tenantId, Guid organizationId,
+        [FromQuery] int offset = 0, [FromQuery] int limit = 50, [FromQuery] string? text = null,
+        CancellationToken ct = default)
+        => Execute(user => bridge.ListCustomerEnrollmentsAsync(user, tenantId, organizationId,
+            offset, limit, text, ct));
+
+    [HttpPost("customer-enrollments")]
+    public Task<IActionResult> EnrollCustomer(Guid tenantId, Guid organizationId,
+        [FromBody] CustomerEnrollmentCreate command, CancellationToken ct)
+        => Execute(user => bridge.EnrollCustomerAsync(user, tenantId, organizationId, command.CustomerId, ct));
+
+    [HttpDelete("customer-enrollments/{contactId:guid}")]
+    public Task<IActionResult> DeleteCustomerEnrollment(Guid tenantId, Guid organizationId,
+        Guid contactId, [FromQuery] Guid version, CancellationToken ct)
+        => Execute(async user =>
+        {
+            await bridge.DeleteCustomerEnrollmentAsync(user, tenantId, organizationId,
+                contactId, version, ct);
+            return new Deleted(contactId);
+        });
+
     private async Task<IActionResult> Execute<T>(Func<string, Task<T>> action)
     {
         var userId = User.CurrentUserId();
@@ -174,5 +196,6 @@ public sealed class CrmController(ICrmBridge bridge, ILogger<CrmController> logg
     public sealed record ProjectLinksChange(Guid Version, ProjectLinks Links);
     public sealed record TeamCreate(TeamInput Input, IReadOnlyList<ProjectMember> Members);
     public sealed record TeamChange(Guid Version, TeamInput Input, IReadOnlyList<ProjectMember>? Members);
+    public sealed record CustomerEnrollmentCreate(string CustomerId);
     public sealed record Deleted(Guid Id);
 }
