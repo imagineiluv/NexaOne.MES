@@ -112,6 +112,14 @@ public sealed class FinancialReportController(
         catch (Exception error) when (IsDatabaseFailure(error)) { return StorageFailure(error); }
     }
 
+    // Authenticated Blazor clients cannot attach their bearer token to a browser-created download link.
+    // Return the same stored payload as JSON so the client can create the file locally; the bridge still
+    // owns the download audit event and the server-owned safe file name.
+    [HttpGet("/api/v1/erp/report-snapshots/{tenantId:guid}/{organizationId:guid}/{snapshotId:guid}/download")]
+    public Task<IActionResult> DownloadSnapshotPayload(Guid tenantId, Guid organizationId, Guid snapshotId,
+        CancellationToken ct)
+        => Execute(user => bridge.DownloadSnapshotAsync(user, tenantId, organizationId, snapshotId, ct));
+
     [HttpGet("/api/v1/erp/report-snapshots/{tenantId:guid}/{organizationId:guid}/{snapshotId:guid}/audit")]
     public Task<IActionResult> ListSnapshotAudit(Guid tenantId, Guid organizationId, Guid snapshotId,
         CancellationToken ct, [FromQuery] int offset = 0, [FromQuery] int limit = 50)

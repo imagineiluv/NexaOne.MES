@@ -1,0 +1,40 @@
+-- Financial report history UI resources. No menu, role, or business grants are seeded here.
+INSERT INTO SYS_MULTI_LANGUAGE_RESOURCE (RESOURCE_KEY, MENU_ID, LANGUAGE, VALUE)
+SELECT seed.RESOURCE_KEY, 'COMMON', 'EnUs', seed.VALUE FROM (
+    SELECT 'billing.reportHistory' AS RESOURCE_KEY, 'Financial report history' AS VALUE
+    UNION ALL SELECT 'reportHistory.title', 'Financial report history'
+    UNION ALL SELECT 'reportHistory.intro', 'Create immutable financial snapshots, compare them with current data, review their audit trail, and download the stored CSV.'
+    UNION ALL SELECT 'reportHistory.scopes', 'My report scopes'
+    UNION ALL SELECT 'reportHistory.noScopes', 'No financial report scopes are currently accessible.'
+    UNION ALL SELECT 'reportHistory.create', 'Capture report'
+    UNION ALL SELECT 'reportHistory.kind', 'Report kind'
+    UNION ALL SELECT 'reportHistory.start', 'Start date'
+    UNION ALL SELECT 'reportHistory.end', 'End date'
+    UNION ALL SELECT 'reportHistory.capture', 'Capture immutable report'
+    UNION ALL SELECT 'reportHistory.history', 'Snapshot history'
+    UNION ALL SELECT 'reportHistory.noSnapshots', 'No financial reports have been captured for this scope.'
+    UNION ALL SELECT 'reportHistory.refresh', 'Refresh'
+    UNION ALL SELECT 'reportHistory.period', 'Period'
+    UNION ALL SELECT 'reportHistory.createdAt', 'Created at (UTC)'
+    UNION ALL SELECT 'reportHistory.createdBy', 'Created by'
+    UNION ALL SELECT 'reportHistory.hash', 'Content hash'
+    UNION ALL SELECT 'reportHistory.selected', 'Selected report'
+    UNION ALL SELECT 'reportHistory.regenerate', 'Compare with current data'
+    UNION ALL SELECT 'reportHistory.download', 'Download stored CSV'
+    UNION ALL SELECT 'reportHistory.matches', 'The current data matches.'
+    UNION ALL SELECT 'reportHistory.changed', 'The current data differs from the stored snapshot.'
+    UNION ALL SELECT 'reportHistory.audit', 'Audit trail'
+    UNION ALL SELECT 'reportHistory.match', 'Match'
+    UNION ALL SELECT 'reportHistory.mismatch', 'Mismatch'
+    UNION ALL SELECT 'reportHistory.invalidPeriod', 'End date cannot be before start date.'
+    UNION ALL SELECT 'reportHistory.created', 'The report was captured.'
+    UNION ALL SELECT 'reportHistory.createdRecovered', 'The stored result was recovered from the current history.'
+    UNION ALL SELECT 'reportHistory.invalidResponse', 'The response identifies another report. Refresh the history.'
+    UNION ALL SELECT 'reportHistory.financial', 'Financial report'
+    UNION ALL SELECT 'reportHistory.cashFlow', 'Cash-flow report'
+    UNION ALL SELECT 'reportHistory.auditCreated', 'Created'
+    UNION ALL SELECT 'reportHistory.auditCompared', 'Regenerated comparison'
+    UNION ALL SELECT 'reportHistory.auditDownloaded', 'Downloaded'
+) seed
+WHERE NOT EXISTS (SELECT 1 FROM SYS_MULTI_LANGUAGE_RESOURCE existing
+                   WHERE existing.RESOURCE_KEY = seed.RESOURCE_KEY AND existing.LANGUAGE = 'EnUs');

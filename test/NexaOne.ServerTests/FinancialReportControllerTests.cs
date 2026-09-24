@@ -133,6 +133,8 @@ public sealed class FinancialReportControllerTests
             cancellation.Token)).Should().BeOfType<FileContentResult>().Which;
         Encoding.UTF8.GetString(file.FileContents).Should().Be("csv");
         file.FileDownloadName.Should().Be(download.FileName);
+        (await controller.DownloadSnapshotPayload(tenant, organization, snapshotId,
+            cancellation.Token)).Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(download);
         (await controller.ListSnapshotAudit(tenant, organization, snapshotId,
             cancellation.Token, 1, 20)).Should().BeOfType<OkObjectResult>();
         bridge.VerifyAll(); bridge.VerifyNoOtherCalls();

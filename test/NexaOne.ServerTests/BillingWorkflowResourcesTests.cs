@@ -68,18 +68,18 @@ public sealed class BillingWorkflowResourcesTests
     internal static Dictionary<string, string> ExpectedResources()
     {
         var expected = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var file in new[] { "BillingWorkflowPanel.razor", "BillingWorkflowPanel.razor.cs", "HostBillingWorkspace.razor", "RecurringWorkflowPanel.razor", "RecurringWorkflowPanel.razor.cs", "HostRecurringWorkspace.razor" })
+        foreach (var file in new[] { "BillingWorkflowPanel.razor", "BillingWorkflowPanel.razor.cs", "HostBillingWorkspace.razor", "RecurringWorkflowPanel.razor", "RecurringWorkflowPanel.razor.cs", "HostRecurringWorkspace.razor", "HostFinancialReportHistory.razor" })
         {
             var source = File.ReadAllText(RepositorySource.GetFile("src/00.Main/NexaOne.Server/Components/Pages/" + file));
             var calls = Regex.Matches(source,
                 """\bT\(\s*"(?<key>[^"\\]+)"\s*,\s*"(?:\\.|[^"\\])*"\s*,\s*"(?<en>(?:\\.|[^"\\])*)"\s*\)""");
             calls.Count.Should().BeGreaterThan(0, file);
-            Regex.Matches(source, """\bT\(\s*"(?:billing|inventory|recurring)\.[^"\\]+["]""").Count.Should().Be(calls.Count,
+            Regex.Matches(source, """\bT\(\s*"(?:billing|inventory|recurring|reportHistory|crm)\.[^"\\]+["]""").Count.Should().Be(calls.Count,
                 "all ERP workspace calls must have literal fallbacks covered by this contract in {0}", file);
             foreach (Match call in calls)
             {
                 var key = call.Groups["key"].Value;
-                (key.StartsWith("billing.", StringComparison.Ordinal) || key.StartsWith("inventory.", StringComparison.Ordinal) || key.StartsWith("recurring.", StringComparison.Ordinal)).Should().BeTrue(key);
+                (key.StartsWith("billing.", StringComparison.Ordinal) || key.StartsWith("inventory.", StringComparison.Ordinal) || key.StartsWith("recurring.", StringComparison.Ordinal) || key.StartsWith("reportHistory.", StringComparison.Ordinal) || key.StartsWith("crm.", StringComparison.Ordinal)).Should().BeTrue(key);
                 var english = JsonSerializer.Deserialize<string>("\"" + call.Groups["en"].Value + "\"")!;
                 if (expected.TryGetValue(key, out var previous))
                     english.Should().Be(previous, "a shared key must have one English fallback: {0} in {1}", key, file);
@@ -88,6 +88,7 @@ public sealed class BillingWorkflowResourcesTests
         }
         expected.Keys.Count(key => key.StartsWith("billing.", StringComparison.Ordinal)).Should().BeGreaterThan(50);
         expected.Keys.Count(key => key.StartsWith("recurring.", StringComparison.Ordinal)).Should().BeGreaterThan(50);
+        expected.Keys.Count(key => key.StartsWith("reportHistory.", StringComparison.Ordinal)).Should().BeGreaterThan(20);
         return expected;
     }
 
