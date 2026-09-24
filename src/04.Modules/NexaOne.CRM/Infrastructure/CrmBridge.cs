@@ -4,6 +4,7 @@ using Dapper;
 using NexaDB.Data.Abstractions.Models;
 using NexaFramework.Service;
 using NexaFramework.Service.Crm;
+using NexaFramework.Service.Projects;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Crm;
 using NexaOne.ServiceContracts.Sys;
@@ -15,12 +16,14 @@ internal sealed class CrmBridge : ICrmBridge
     private const string ProductId = "NexaOne.MES";
     private readonly PipelineService _pipelines;
     private readonly DealService _deals;
+    private readonly CrmProjectBridge _projects;
 
     public CrmBridge(EesDataSource dataSource, IBusinessMembershipBridge memberships)
     {
         var adapter = new Adapter(dataSource, memberships);
         _pipelines = new PipelineService(adapter, adapter);
         _deals = new DealService(adapter, adapter);
+        _projects = new CrmProjectBridge(dataSource, memberships);
     }
 
     public Task<CrmPage<Pipeline>> ListPipelinesAsync(string userId, Guid tenantId, Guid organizationId,
@@ -50,6 +53,40 @@ internal sealed class CrmBridge : ICrmBridge
     public Task DeleteDealAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, CancellationToken ct = default)
         => _deals.DeleteAsync(Actor(userId, tenantId, organizationId), id, version, ct);
+    public Task<WorkPage<Project>> ListProjectsAsync(string userId, Guid tenantId, Guid organizationId,
+        ProjectQuery query, CancellationToken ct = default)
+        => _projects.ListProjectsAsync(Actor(userId, tenantId, organizationId), query, ct);
+    public Task<Project> GetProjectAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, CancellationToken ct = default)
+        => _projects.GetProjectAsync(Actor(userId, tenantId, organizationId), id, ct);
+    public Task<Project> CreateProjectAsync(string userId, Guid tenantId, Guid organizationId,
+        ProjectInput input, ProjectLinks links, CancellationToken ct = default)
+        => _projects.CreateProjectAsync(Actor(userId, tenantId, organizationId), input, links, ct);
+    public Task<Project> UpdateProjectAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, ProjectInput input, CancellationToken ct = default)
+        => _projects.UpdateProjectAsync(Actor(userId, tenantId, organizationId), id, version, input, ct);
+    public Task<Project> SetProjectLinksAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, ProjectLinks links, CancellationToken ct = default)
+        => _projects.SetProjectLinksAsync(Actor(userId, tenantId, organizationId), id, version, links, ct);
+    public Task DeleteProjectAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, CancellationToken ct = default)
+        => _projects.DeleteProjectAsync(Actor(userId, tenantId, organizationId), id, version, ct);
+    public Task<WorkPage<Team>> ListTeamsAsync(string userId, Guid tenantId, Guid organizationId,
+        TeamQuery query, CancellationToken ct = default)
+        => _projects.ListTeamsAsync(Actor(userId, tenantId, organizationId), query, ct);
+    public Task<Team> GetTeamAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, CancellationToken ct = default)
+        => _projects.GetTeamAsync(Actor(userId, tenantId, organizationId), id, ct);
+    public Task<Team> CreateTeamAsync(string userId, Guid tenantId, Guid organizationId,
+        TeamInput input, IReadOnlyList<ProjectMember> members, CancellationToken ct = default)
+        => _projects.CreateTeamAsync(Actor(userId, tenantId, organizationId), input, members, ct);
+    public Task<Team> UpdateTeamAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, TeamInput input, IReadOnlyList<ProjectMember>? members,
+        CancellationToken ct = default)
+        => _projects.UpdateTeamAsync(Actor(userId, tenantId, organizationId), id, version, input, members, ct);
+    public Task DeleteTeamAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, CancellationToken ct = default)
+        => _projects.DeleteTeamAsync(Actor(userId, tenantId, organizationId), id, version, ct);
 
     private static BusinessActor Actor(string userId, Guid tenantId, Guid organizationId)
     {

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NexaFramework.Service;
 using NexaFramework.Service.Crm;
+using NexaFramework.Service.Projects;
 using NexaOne.Common.Security;
 using NexaOne.ServiceContracts.Crm;
 
@@ -76,6 +77,72 @@ public sealed class CrmController(ICrmBridge bridge, ILogger<CrmController> logg
             return new Deleted(id);
         });
 
+    [HttpGet("projects")]
+    public Task<IActionResult> ListProjects(Guid tenantId, Guid organizationId,
+        [FromQuery] ProjectQuery query, CancellationToken ct)
+        => Execute(user => bridge.ListProjectsAsync(user, tenantId, organizationId, query, ct));
+
+    [HttpGet("projects/{id:guid}")]
+    public Task<IActionResult> GetProject(Guid tenantId, Guid organizationId, Guid id, CancellationToken ct)
+        => Execute(user => bridge.GetProjectAsync(user, tenantId, organizationId, id, ct));
+
+    [HttpPost("projects")]
+    public Task<IActionResult> CreateProject(Guid tenantId, Guid organizationId,
+        [FromBody] ProjectCreate command, CancellationToken ct)
+        => Execute(user => bridge.CreateProjectAsync(user, tenantId, organizationId,
+            command.Input, command.Links, ct));
+
+    [HttpPut("projects/{id:guid}")]
+    public Task<IActionResult> UpdateProject(Guid tenantId, Guid organizationId, Guid id,
+        [FromBody] ProjectChange command, CancellationToken ct)
+        => Execute(user => bridge.UpdateProjectAsync(user, tenantId, organizationId,
+            id, command.Version, command.Input, ct));
+
+    [HttpPut("projects/{id:guid}/links")]
+    public Task<IActionResult> SetProjectLinks(Guid tenantId, Guid organizationId, Guid id,
+        [FromBody] ProjectLinksChange command, CancellationToken ct)
+        => Execute(user => bridge.SetProjectLinksAsync(user, tenantId, organizationId,
+            id, command.Version, command.Links, ct));
+
+    [HttpDelete("projects/{id:guid}")]
+    public Task<IActionResult> DeleteProject(Guid tenantId, Guid organizationId, Guid id,
+        [FromQuery] Guid version, CancellationToken ct)
+        => Execute(async user =>
+        {
+            await bridge.DeleteProjectAsync(user, tenantId, organizationId, id, version, ct);
+            return new Deleted(id);
+        });
+
+    [HttpGet("teams")]
+    public Task<IActionResult> ListTeams(Guid tenantId, Guid organizationId,
+        [FromQuery] TeamQuery query, CancellationToken ct)
+        => Execute(user => bridge.ListTeamsAsync(user, tenantId, organizationId, query, ct));
+
+    [HttpGet("teams/{id:guid}")]
+    public Task<IActionResult> GetTeam(Guid tenantId, Guid organizationId, Guid id, CancellationToken ct)
+        => Execute(user => bridge.GetTeamAsync(user, tenantId, organizationId, id, ct));
+
+    [HttpPost("teams")]
+    public Task<IActionResult> CreateTeam(Guid tenantId, Guid organizationId,
+        [FromBody] TeamCreate command, CancellationToken ct)
+        => Execute(user => bridge.CreateTeamAsync(user, tenantId, organizationId,
+            command.Input, command.Members, ct));
+
+    [HttpPut("teams/{id:guid}")]
+    public Task<IActionResult> UpdateTeam(Guid tenantId, Guid organizationId, Guid id,
+        [FromBody] TeamChange command, CancellationToken ct)
+        => Execute(user => bridge.UpdateTeamAsync(user, tenantId, organizationId,
+            id, command.Version, command.Input, command.Members, ct));
+
+    [HttpDelete("teams/{id:guid}")]
+    public Task<IActionResult> DeleteTeam(Guid tenantId, Guid organizationId, Guid id,
+        [FromQuery] Guid version, CancellationToken ct)
+        => Execute(async user =>
+        {
+            await bridge.DeleteTeamAsync(user, tenantId, organizationId, id, version, ct);
+            return new Deleted(id);
+        });
+
     private async Task<IActionResult> Execute<T>(Func<string, Task<T>> action)
     {
         var userId = User.CurrentUserId();
@@ -86,7 +153,7 @@ public sealed class CrmController(ICrmBridge bridge, ILogger<CrmController> logg
         }
         catch (BusinessException error)
         {
-            if (error.Code == "CRM_ACCESS_DENIED") return Forbid();
+            if (error.Code is "CRM_ACCESS_DENIED" or "WORK_ACCESS_DENIED") return Forbid();
             var status = error.Code.EndsWith("_NOT_FOUND", StringComparison.Ordinal) ? 404
                 : error.Code.StartsWith("INVALID_", StringComparison.Ordinal) ? 400 : 409;
             return StatusCode(status, new { code = error.Code });
@@ -102,5 +169,10 @@ public sealed class CrmController(ICrmBridge bridge, ILogger<CrmController> logg
         DealRemoval Removal = DealRemoval.RejectIfReferenced);
     public sealed record DealChange(Guid Version, DealInput Input);
     public sealed record DealMove(Guid Version, Guid StageId);
+    public sealed record ProjectCreate(ProjectInput Input, ProjectLinks Links);
+    public sealed record ProjectChange(Guid Version, ProjectInput Input);
+    public sealed record ProjectLinksChange(Guid Version, ProjectLinks Links);
+    public sealed record TeamCreate(TeamInput Input, IReadOnlyList<ProjectMember> Members);
+    public sealed record TeamChange(Guid Version, TeamInput Input, IReadOnlyList<ProjectMember>? Members);
     public sealed record Deleted(Guid Id);
 }
