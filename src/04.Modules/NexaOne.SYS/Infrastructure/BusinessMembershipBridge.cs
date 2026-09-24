@@ -21,7 +21,7 @@ public sealed class BusinessMembershipBridge : QueryRepository, IBusinessMembers
         "equipment.read", "equipment.write", "equipment.booking.read", "equipment.booking.request",
         "equipment.booking.decide", "equipment.booking.cancel", "equipment.booking.checkout",
         "equipment.booking.return",
-        "billing.read", "billing.write", "billing.decide", "billing.pay", "billing.credit",
+        "billing.read", "billing.write", "billing.decide", "billing.pay", "billing.credit", "billing.deliver",
         "expense.directory.read", "expense.directory.write", "expense.read", "expense.write",
         "expense.reimburse", "expense.invoice",
         "recurring.read", "recurring.write", "recurring.execute",

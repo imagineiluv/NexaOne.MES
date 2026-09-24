@@ -12,7 +12,8 @@ namespace NexaOne.Server.Gateway;
 [ApiController]
 [Authorize]
 [Route("api/v1/erp/billing/{tenantId:guid}/{organizationId:guid}")]
-public sealed class BillingController(IBillingBridge bridge, ILogger<BillingController> logger) : ControllerBase
+public sealed class BillingController(IBillingBridge bridge, IWebHostEnvironment environment,
+    ILogger<BillingController> logger) : ControllerBase
 {
     [HttpGet("/api/v1/erp/billing/scopes/me")]
     public Task<IActionResult> ListScopes(CancellationToken ct, [FromQuery] int offset = 0, [FromQuery] int limit = 50)
@@ -68,6 +69,74 @@ public sealed class BillingController(IBillingBridge bridge, ILogger<BillingCont
     public Task<IActionResult> GetDocument(Guid tenantId, Guid organizationId, Guid id, CancellationToken ct)
         => Execute(user => bridge.GetDocumentAsync(user, tenantId, organizationId, id, ct));
 
+    [HttpGet("documents/{id:guid}/pdf")]
+    public Task<IActionResult> DownloadPdf(Guid tenantId, Guid organizationId, Guid id, CancellationToken ct)
+        => ExecutePdf(user => bridge.GetDocumentViewAsync(user, tenantId, organizationId, id, ct));
+
+    [HttpPost("documents/{id:guid}/shares")]
+    public Task<IActionResult> CreateShare(Guid tenantId, Guid organizationId, Guid id,
+        [FromBody] ShareCreate command, CancellationToken ct)
+        => Execute(async user =>
+        {
+            var secret = await bridge.CreateShareAsync(user, tenantId, organizationId,
+                command.OperationId, id, command.ExpiresAt, ct);
+            return new ShareCreated(secret.Link,
+                secret.Token is null ? null : PublicUrl(secret.Token), secret.Token is not null);
+        });
+
+    [HttpGet("documents/{id:guid}/shares")]
+    public Task<IActionResult> ListShares(Guid tenantId, Guid organizationId, Guid id, CancellationToken ct,
+        [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListSharesAsync(user, tenantId, organizationId, id, offset, limit, ct));
+
+    [HttpPost("shares/{shareId:guid}/revoke")]
+    public Task<IActionResult> RevokeShare(Guid tenantId, Guid organizationId, Guid shareId,
+        [FromBody] VersionedCommand command, CancellationToken ct)
+        => Execute(user => bridge.RevokeShareAsync(user, tenantId, organizationId, shareId, command.Version, ct));
+
+    [HttpGet("shares/{shareId:guid}/access")]
+    public Task<IActionResult> ListShareAccess(Guid tenantId, Guid organizationId, Guid shareId,
+        CancellationToken ct, [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListShareAccessAsync(user, tenantId, organizationId,
+            shareId, offset, limit, ct));
+
+    [HttpGet("shares/{shareId:guid}/deliveries")]
+    public Task<IActionResult> ListShareDeliveries(Guid tenantId, Guid organizationId, Guid shareId,
+        CancellationToken ct, [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListShareDeliveriesAsync(user, tenantId, organizationId,
+            shareId, offset, limit, ct));
+
+    [HttpPost("shares/{shareId:guid}/deliveries")]
+    public Task<IActionResult> QueueShareDelivery(Guid tenantId, Guid organizationId, Guid shareId,
+        [FromBody] ShareDeliveryCommand command, CancellationToken ct)
+        => Execute(user => bridge.QueueShareDeliveryAsync(user, tenantId, organizationId,
+            command.OperationId, shareId, command.Token, command.TemplateId, command.ProfileId,
+            command.Recipient, PublicUrl(command.Token), command.ScheduledAt, ct));
+
+    [AllowAnonymous]
+    [HttpGet("/api/v1/erp/billing/public/{token}/pdf")]
+    public async Task<IActionResult> OpenPublicPdf(string token, CancellationToken ct)
+    {
+        try
+        {
+            var opened = await bridge.OpenPublicShareAsync(token,
+                HttpContext.Connection.RemoteIpAddress?.ToString(), Request.Headers.UserAgent.ToString(), ct);
+            ApplyPrivateDownloadHeaders();
+            return Pdf(opened.View);
+        }
+        catch (BusinessException error)
+        {
+            return error.Code == "BILLING_SHARE_NOT_FOUND"
+                ? NotFound(new { code = error.Code })
+                : Map(error);
+        }
+        catch (Exception error) when (IsDatabase(error))
+        {
+            logger.LogError(error, "Public billing-share access failed.");
+            return Problem(statusCode: 503, title: "Billing storage is unavailable.");
+        }
+    }
+
     [HttpPut("documents/{id:guid}")]
     public Task<IActionResult> UpdateDocument(Guid tenantId, Guid organizationId, Guid id, [FromBody] DocumentChange command, CancellationToken ct)
         => Execute(user => bridge.UpdateDocumentAsync(user, tenantId, organizationId, id, command.Version, command.Input, ct));
@@ -113,16 +182,9 @@ public sealed class BillingController(IBillingBridge bridge, ILogger<BillingCont
         var userId = User.CurrentUserId();
         if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
         try { return Ok(await action(userId)); }
-        catch (BusinessException error)
-        {
-            if (error.Code == "BUSINESS_ACCESS_DENIED") return Forbid();
-            var status = error.Code.EndsWith("_NOT_FOUND", StringComparison.Ordinal) ? 404
-                : error.Code.StartsWith("INVALID_", StringComparison.Ordinal) ? 400 : 409;
-            return StatusCode(status, new { code = error.Code });
-        }
+        catch (BusinessException error) { return Map(error); }
         catch (DBConcurrencyException) { return Conflict(new { code = "BUSINESS_VERSION_CONFLICT" }); }
-        catch (Exception error) when (error is DbException
-            || error is AggregateException aggregate && aggregate.Flatten().InnerExceptions.Any(inner => inner is DbException))
+        catch (Exception error) when (IsDatabase(error))
         {
             logger.LogError(error, "Billing persistence failed; write outcome may be unknown.");
             return Problem(statusCode: 503, title: "Billing storage is unavailable.",
@@ -130,6 +192,51 @@ public sealed class BillingController(IBillingBridge bridge, ILogger<BillingCont
                     + "for document or credit-note creation, conversion or payment recording, retry with the same operation ID and original payload.");
         }
     }
+
+    private async Task<IActionResult> ExecutePdf(Func<string, Task<BillingDocumentView>> action)
+    {
+        var userId = User.CurrentUserId();
+        if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
+        try { ApplyPrivateDownloadHeaders(); return Pdf(await action(userId)); }
+        catch (BusinessException error) { return Map(error); }
+        catch (Exception error) when (IsDatabase(error))
+        {
+            logger.LogError(error, "Billing PDF read failed.");
+            return Problem(statusCode: 503, title: "Billing storage is unavailable.");
+        }
+    }
+
+    private IActionResult Pdf(BillingDocumentView view)
+    {
+        var font = environment.WebRootFileProvider.GetFileInfo("fonts/Pretendard-Regular.ttf").PhysicalPath;
+        var bytes = BillingPdfRenderer.Render(view,
+            font ?? throw new InvalidOperationException("The billing PDF font is unavailable."));
+        return File(bytes, "application/pdf", $"billing-{view.Document.Kind.ToString().ToLowerInvariant()}-{view.Document.Number}.pdf");
+    }
+
+    private string PublicUrl(string token)
+        => Url.ActionLink(nameof(OpenPublicPdf), values: new { token }, protocol: Request.Scheme,
+               host: Request.Host.ToUriComponent())
+           ?? throw new InvalidOperationException("The public billing URL could not be created.");
+
+    private void ApplyPrivateDownloadHeaders()
+    {
+        Response.Headers.CacheControl = "no-store, private";
+        Response.Headers["Referrer-Policy"] = "no-referrer";
+        Response.Headers["X-Content-Type-Options"] = "nosniff";
+    }
+
+    private IActionResult Map(BusinessException error)
+    {
+        if (error.Code == "BUSINESS_ACCESS_DENIED") return Forbid();
+        var status = error.Code.EndsWith("_NOT_FOUND", StringComparison.Ordinal) ? 404
+            : error.Code.StartsWith("INVALID_", StringComparison.Ordinal) ? 400 : 409;
+        return StatusCode(status, new { code = error.Code });
+    }
+
+    private static bool IsDatabase(Exception error)
+        => error is DbException || error is AggregateException aggregate
+            && aggregate.Flatten().InnerExceptions.Any(inner => inner is DbException);
 
     public sealed record DocumentCreate(Guid OperationId, BillingKind Kind, BillingDocumentInput Input);
     public sealed record CreditNoteCreate(Guid OperationId, BillingDocumentInput Input);
@@ -140,4 +247,8 @@ public sealed class BillingController(IBillingBridge bridge, ILogger<BillingCont
     public sealed record ConversionCommand(Guid OperationId, Guid Version);
     public sealed record PaymentCommand(Guid OperationId, PaymentInput Input);
     public sealed record CancelCommand(Guid Version, string? Reason);
+    public sealed record ShareCreate(Guid OperationId, DateTimeOffset ExpiresAt);
+    public sealed record ShareCreated(BillingShareLink Link, string? PublicUrl, bool SecretReturned);
+    public sealed record ShareDeliveryCommand(Guid OperationId, string Token, Guid TemplateId,
+        Guid ProfileId, string Recipient, DateTimeOffset? ScheduledAt = null);
 }
