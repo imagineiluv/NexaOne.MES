@@ -1,11 +1,15 @@
+using NexaFramework.Service;
 using NexaFramework.Service.Crm;
 using NexaFramework.Service.Projects;
+using NexaOne.ServiceContracts.Sys;
 
 namespace NexaOne.ServiceContracts.Crm;
 
 /// <summary>Authenticated MES boundary for scoped CRM pipelines and row-filtered deals.</summary>
 public interface ICrmBridge : INexaModuleBridge
 {
+    Task<BusinessPage<BusinessMembership>> ListAccessibleScopesAsync(string userId,
+        int offset = 0, int limit = 50, CancellationToken ct = default);
     Task<CrmPage<Pipeline>> ListPipelinesAsync(string userId, Guid tenantId, Guid organizationId,
         PipelineQuery query, CancellationToken ct = default);
     Task<PipelineDetails> GetPipelineAsync(string userId, Guid tenantId, Guid organizationId,

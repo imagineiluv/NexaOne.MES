@@ -21,6 +21,33 @@ public sealed class CrmRowAccessBridgeTests : IDisposable
     private readonly Guid _outsiderEmployee = Guid.NewGuid();
 
     [Fact]
+    public async Task Accessible_scopes_return_only_memberships_with_crm_grants()
+    {
+        var memberships = Memberships();
+        var unrelatedOrganization = Guid.Parse("40000000-0000-0000-0000-000000000001");
+        var rows = new[]
+        {
+            new BusinessMembership(_tenantId, _organizationId, "admin", _adminEmployee, true, 1,
+                ["crm.read"]),
+            new BusinessMembership(_tenantId, unrelatedOrganization, "admin", _adminEmployee, true, 1,
+                ["billing.read"]),
+        }.OrderBy(row => row.OrganizationId.ToString("D"), StringComparer.Ordinal).ToArray();
+        memberships.Setup(value => value.ListAccessInTransactionAsync(It.IsAny<System.Data.Common.DbTransaction>(),
+                "admin", It.IsAny<Guid?>(), It.IsAny<Guid?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((System.Data.Common.DbTransaction _, string _, Guid? afterTenant, Guid? _, int _, CancellationToken _) =>
+                afterTenant.HasValue
+                    ? Array.Empty<BusinessMembership>()
+                    : rows);
+        var module = Module(memberships.Object);
+        Initialize(module);
+
+        var page = await module.GetCrmBridge().ListAccessibleScopesAsync("admin");
+
+        page.Total.Should().Be(1);
+        page.Items.Should().ContainSingle().Which.OrganizationId.Should().Be(_organizationId);
+    }
+
+    [Fact]
     public async Task Deal_reads_apply_created_and_assigned_visibility_before_paging_and_get()
     {
         var memberships = Memberships();
@@ -282,6 +309,12 @@ public sealed class CrmRowAccessBridgeTests : IDisposable
                 return pair.Key is null ? null
                     : new BusinessMembership(_tenantId, _organizationId, pair.Key, employee, true, 1, permissions[pair.Key]);
             });
+        mock.Setup(value => value.ListAccessInTransactionAsync(It.IsAny<System.Data.Common.DbTransaction>(),
+                "admin", It.IsAny<Guid?>(), It.IsAny<Guid?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((System.Data.Common.DbTransaction _, string _, Guid? afterTenant, Guid? _, int _, CancellationToken _) =>
+                afterTenant.HasValue
+                    ? Array.Empty<BusinessMembership>()
+                    : [new BusinessMembership(_tenantId, _organizationId, "admin", _adminEmployee, true, 1, permissions["admin"])]);
         return mock;
     }
 
