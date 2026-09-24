@@ -141,11 +141,36 @@ public sealed class BillingHostTests(ITestOutputHelper output)
             (await csv.Content.ReadAsStringAsync()).Should()
                 .Contain("currency,payment_count,received").And.Contain("KRW,1,100");
         }
+        var snapshotId = Guid.NewGuid();
+        var snapshotRoute = $"/api/v1/erp/report-snapshots/{tenant}/{organization}";
+        var snapshotRequest = new CreateFinancialReportSnapshotRequest(snapshotId,
+            FinancialReportSnapshotKind.CashFlow, new(2026, 9, 22), new(2026, 9, 22));
+        var snapshot = await Body<FinancialReportSnapshot>(await member.PostAsJsonAsync(
+            snapshotRoute, snapshotRequest, HttpJson));
+        snapshot.Summary.Id.Should().Be(snapshotId);
+        snapshot.CashFlowReport!.Currencies.Should().Equal(new CashFlowCurrencyTotals("KRW", 1, 100m));
+        (await Body<FinancialReportSnapshot>(await member.PostAsJsonAsync(
+            snapshotRoute, snapshotRequest, HttpJson))).Should().BeEquivalentTo(snapshot);
+        (await Body<BusinessPage<FinancialReportSnapshotSummary>>(await member.GetAsync(
+            snapshotRoute + "?kind=CashFlow"))).Total.Should().Be(1);
+        using (var csv = await member.GetAsync(snapshotRoute + $"/{snapshotId}/export.csv"))
+        {
+            csv.StatusCode.Should().Be(HttpStatusCode.OK, await csv.Content.ReadAsStringAsync());
+            csv.Content.Headers.ContentDisposition!.FileNameStar.Should().Contain(snapshotId.ToString("D"));
+            (await csv.Content.ReadAsStringAsync()).Should().Contain("KRW,1,100");
+        }
+        (await Body<FinancialReportSnapshotComparison>(await member.PostAsync(
+            snapshotRoute + $"/{snapshotId}/regenerate", null))).Matches.Should().BeTrue();
         await Error(await member.PostAsJsonAsync(route + $"/documents/{invoice.Id}/void", new BillingController.VersionedCommand(partiallyPaid.Version), HttpJson),
             HttpStatusCode.Conflict, "BILLING_DOCUMENT_HAS_PAYMENTS");
         var cancelled = await Body<PaymentRecord>(await member.PostAsJsonAsync(route + $"/payments/{payment.Id}/cancel", new BillingController.CancelCommand(payment.Version, "정정"), HttpJson));
         cancelled.State.Should().Be(PaymentState.Cancelled); cancelled.CancelReason.Should().Be("정정");
         (await Body<CashFlowReport>(await member.GetAsync(cashRoute))).Currencies.Should().BeEmpty();
+        (await Body<FinancialReportSnapshotComparison>(await member.PostAsync(
+            snapshotRoute + $"/{snapshotId}/regenerate", null))).Matches.Should().BeFalse();
+        var snapshotAudit = await Body<BusinessPage<FinancialReportSnapshotAuditEntry>>(await member.GetAsync(
+            snapshotRoute + $"/{snapshotId}/audit"));
+        snapshotAudit.Total.Should().Be(4);
         (await Body<PaymentRecord>(await member.GetAsync(route + $"/payments/{payment.Id}"))).Should().Be(cancelled);
         var payments = await Body<BusinessPage<PaymentRecord>>(await member.GetAsync(paymentRoute + "?state=Cancelled"));
         payments.Total.Should().Be(1); payments.Items.Single().Should().Be(cancelled);
@@ -252,6 +277,33 @@ public sealed class BillingMssqlTests(ITestOutputHelper output)
             .Should().Be(1);
         (await h.Database.ScalarAsync<string>("SELECT UNIT_PRICE FROM ERP_BILLING_LINE WHERE TENANT_ID=@tenant AND ORGANIZATION_ID=@organization AND DOCUMENT_ID=@id AND LINE_NO=1",
             new { tenant = h.Tenant.ToString("D"), organization = h.Organization.ToString("D"), id = invoice.Id.ToString("D") })).Should().Be("899999999999.123456");
+    }
+
+    [StockMssqlFact]
+    public async Task Actual_SQL_Server_persists_replays_compares_downloads_and_audits_report_snapshots()
+    {
+        var h = await Harness.CreateAsync(output);
+        string[] tables = ["ERP_FINANCIAL_REPORT_SNAPSHOT", "ERP_FINANCIAL_REPORT_SNAPSHOT_AUDIT"];
+        (await h.Database.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id=SCHEMA_ID('dbo') AND name IN @tables",
+            new { tables })).Should().Be(2);
+        IFinancialReportBridge reporting = h.Bridge;
+        var id = Guid.NewGuid();
+        var snapshot = await reporting.CreateSnapshotAsync(h.Seed.User, h.Tenant, h.Organization,
+            id, FinancialReportSnapshotKind.CashFlow, new(2026, 9, 1), new(2026, 9, 30));
+        snapshot.Summary.Id.Should().Be(id);
+        snapshot.CashFlowReport!.Currencies.Should().BeEmpty();
+        (await reporting.CreateSnapshotAsync(h.Seed.User, h.Tenant, h.Organization,
+            id, FinancialReportSnapshotKind.CashFlow, new(2026, 9, 1), new(2026, 9, 30)))
+            .Should().BeEquivalentTo(snapshot);
+        (await reporting.RegenerateSnapshotAsync(h.Seed.User, h.Tenant, h.Organization, id))
+            .Matches.Should().BeTrue();
+        (await reporting.DownloadSnapshotAsync(h.Seed.User, h.Tenant, h.Organization, id))
+            .Content.Should().Contain("currency,payment_count,received");
+        (await reporting.ListSnapshotsAsync(h.Seed.User, h.Tenant, h.Organization)).Total.Should().Be(1);
+        (await reporting.ListSnapshotAuditAsync(h.Seed.User, h.Tenant, h.Organization, id)).Total
+            .Should().Be(3, "the idempotent replay does not duplicate the Created event");
+        (await h.Count("ERP_FINANCIAL_REPORT_SNAPSHOT")).Should().Be(1);
+        (await h.Count("ERP_FINANCIAL_REPORT_SNAPSHOT_AUDIT")).Should().Be(3);
     }
 
     private sealed class Harness(MssqlContractDatabase database)

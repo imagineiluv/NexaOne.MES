@@ -169,4 +169,113 @@ public sealed class FinancialReportPersistenceTests
         await Error(() => reporting.BuildAsync("report-user", _tenant, Guid.NewGuid(),
             new(new(2026, 9, 1), new(2026, 9, 30))), "BUSINESS_ACCESS_DENIED");
     }
+
+    [Fact]
+    public async Task Persisted_snapshots_are_idempotent_immutable_comparable_and_audited()
+    {
+        var contact = await _bridge.EnrollContactAsync("report-user", _tenant, _organization,
+            "REPORT-CUSTOMER");
+        var invoice = await _bridge.CreateDocumentAsync("report-user", _tenant, _organization,
+            Guid.NewGuid(), BillingKind.Invoice,
+            new(contact.Id, new(2026, 9, 10), new(2026, 10, 10), "KRW",
+                [new("Service", 100m, 1m)]));
+        invoice = await _bridge.MarkSentAsync("report-user", _tenant, _organization,
+            invoice.Id, invoice.Version);
+        var payment = await _bridge.RecordPaymentAsync("report-user", _tenant, _organization,
+            Guid.NewGuid(), new(invoice.Id, 40m, "KRW",
+                new(2026, 9, 11, 0, 0, 0, TimeSpan.Zero), PaymentMethod.BankTransfer));
+
+        IFinancialReportBridge reporting = NewBridge();
+        var financialId = Guid.NewGuid();
+        var cashFlowId = Guid.NewGuid();
+        var financial = await reporting.CreateSnapshotAsync("report-user", _tenant, _organization,
+            financialId, FinancialReportSnapshotKind.Financial, new(2026, 9, 1), new(2026, 9, 30));
+        var cashFlow = await reporting.CreateSnapshotAsync("report-user", _tenant, _organization,
+            cashFlowId, FinancialReportSnapshotKind.CashFlow, new(2026, 9, 1), new(2026, 9, 30));
+
+        financial.Summary.Id.Should().Be(financialId);
+        financial.Summary.CreatedBy.Should().Be(_employee.ToString("D"));
+        financial.Summary.ContentHash.Should().MatchRegex("^[0-9A-F]{64}$");
+        financial.FinancialReport!.Currencies.Single().Paid.Should().Be(40m);
+        financial.CashFlowReport.Should().BeNull();
+        cashFlow.CashFlowReport!.Currencies.Single().Received.Should().Be(40m);
+        cashFlow.FinancialReport.Should().BeNull();
+
+        // A retry returns the original row and does not append another Created event.
+        (await reporting.CreateSnapshotAsync("report-user", _tenant, _organization, financialId,
+            FinancialReportSnapshotKind.Financial, new(2026, 9, 1), new(2026, 9, 30)))
+            .Should().BeEquivalentTo(financial);
+        await Error(() => reporting.CreateSnapshotAsync("report-user", _tenant, _organization,
+            financialId, FinancialReportSnapshotKind.CashFlow, new(2026, 9, 1), new(2026, 9, 30)),
+            "REPORT_SNAPSHOT_OPERATION_CONFLICT");
+
+        var page = await reporting.ListSnapshotsAsync("report-user", _tenant, _organization);
+        page.Total.Should().Be(2);
+        page.Items.Select(item => item.Id).Should().BeEquivalentTo([financialId, cashFlowId]);
+        (await reporting.RegenerateSnapshotAsync("report-user", _tenant, _organization, financialId))
+            .Matches.Should().BeTrue();
+        var download = await reporting.DownloadSnapshotAsync("report-user", _tenant, _organization,
+            financialId);
+        download.FileName.Should().Be($"financial-report-20260901-20260930-{financialId:D}.csv");
+        download.Content.Should().Contain("KRW,1,100,40,60");
+
+        await _bridge.CancelPaymentAsync("report-user", _tenant, _organization,
+            payment.Id, payment.Version, "correction");
+        var changedFinancial = await reporting.RegenerateSnapshotAsync("report-user", _tenant,
+            _organization, financialId);
+        var changedCashFlow = await reporting.RegenerateSnapshotAsync("report-user", _tenant,
+            _organization, cashFlowId);
+        changedFinancial.Matches.Should().BeFalse();
+        changedCashFlow.Matches.Should().BeFalse();
+        changedFinancial.CurrentContentHash.Should().NotBe(financial.Summary.ContentHash);
+        changedCashFlow.CurrentContentHash.Should().NotBe(cashFlow.Summary.ContentHash);
+
+        // Historical payloads remain the originally captured values after live rows change.
+        (await reporting.GetSnapshotAsync("report-user", _tenant, _organization, financialId))
+            .FinancialReport!.Currencies.Single().Paid.Should().Be(40m);
+        (await reporting.GetSnapshotAsync("report-user", _tenant, _organization, cashFlowId))
+            .CashFlowReport!.Currencies.Single().Received.Should().Be(40m);
+
+        var financialAudit = await reporting.ListSnapshotAuditAsync("report-user", _tenant,
+            _organization, financialId);
+        financialAudit.Total.Should().Be(4);
+        financialAudit.Items.Select(item => item.Action).Should().BeEquivalentTo([
+            FinancialReportSnapshotAuditAction.Created,
+            FinancialReportSnapshotAuditAction.Regenerated,
+            FinancialReportSnapshotAuditAction.Downloaded,
+            FinancialReportSnapshotAuditAction.Regenerated]);
+        financialAudit.Items.Where(item => item.Action == FinancialReportSnapshotAuditAction.Regenerated)
+            .Select(item => item.Matches).Should().BeEquivalentTo([true, false]);
+        (await reporting.ListSnapshotAuditAsync("report-user", _tenant, _organization, cashFlowId))
+            .Total.Should().Be(2);
+
+        await Error(() => reporting.ListSnapshotsAsync("report-reader", _tenant, _organization),
+            "BUSINESS_ACCESS_DENIED");
+        await Error(() => reporting.GetSnapshotAsync("report-user", _tenant, _organization,
+            Guid.NewGuid()), "REPORT_SNAPSHOT_NOT_FOUND");
+
+        Execute("UPDATE ERP_FINANCIAL_REPORT_SNAPSHOT SET REPORT_JSON='{}' WHERE SNAPSHOT_ID=@id",
+            new { id = financialId.ToString("D") });
+        await Assert.ThrowsAsync<InvalidDataException>(() => reporting.GetSnapshotAsync("report-user",
+            _tenant, _organization, financialId));
+    }
+
+    [Fact]
+    public async Task Snapshot_and_created_audit_commit_atomically()
+    {
+        Execute("""
+            CREATE TRIGGER reject_report_snapshot_audit
+            BEFORE INSERT ON ERP_FINANCIAL_REPORT_SNAPSHOT_AUDIT
+            BEGIN SELECT RAISE(ABORT, 'audit unavailable'); END;
+            """);
+        IFinancialReportBridge reporting = NewBridge();
+        await Assert.ThrowsAsync<SqliteException>(() => reporting.CreateSnapshotAsync("report-user",
+            _tenant, _organization, Guid.NewGuid(), FinancialReportSnapshotKind.Financial,
+            new(2026, 9, 1), new(2026, 9, 30)));
+
+        using var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        connection.ExecuteScalar<long>("SELECT COUNT(*) FROM ERP_FINANCIAL_REPORT_SNAPSHOT")
+            .Should().Be(0);
+    }
 }
