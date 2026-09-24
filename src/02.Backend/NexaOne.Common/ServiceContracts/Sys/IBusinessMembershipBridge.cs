@@ -92,3 +92,40 @@ public sealed record BusinessMembershipChange(
     long ExpectedVersion, bool IsActive, IReadOnlyList<string> Permissions);
 
 public sealed record BusinessServiceActor(string ServiceUserId, Guid BusinessActorId);
+
+/// <summary>
+/// Canonical operation grants accepted by business memberships. UI and persistence must consume this
+/// catalog instead of maintaining independent allowlists. Role permissions and '*' are intentionally
+/// excluded because they never imply organization-scoped business authority.
+/// </summary>
+public static class BusinessOperationPermissionCatalog
+{
+    private static readonly string[] Values =
+    [
+        "stock.warehouse.read", "stock.warehouse.write", "stock.product.write", "stock.read", "stock.post",
+        "stock.reverse", "stock.reserve", "stock.consume", "stock.release",
+        "equipment.read", "equipment.write", "equipment.booking.read", "equipment.booking.request",
+        "equipment.booking.decide", "equipment.booking.cancel", "equipment.booking.checkout",
+        "equipment.booking.return",
+        "billing.read", "billing.write", "billing.decide", "billing.pay", "billing.credit", "billing.deliver",
+        "expense.directory.read", "expense.directory.write", "expense.read", "expense.write",
+        "expense.reimburse", "expense.invoice",
+        "recurring.read", "recurring.write", "recurring.execute",
+        "financial-report.read",
+        "delivery.manage-template", "delivery.manage-profile", "delivery.queue", "delivery.read",
+        "delivery.cancel", "delivery.manage-dead-letter",
+        "crm.read", "crm.pipeline.manage", "crm.deal.manage", "crm.deal.delete",
+        "crm.deal.all", "crm.deal.assigned", "crm.deal.created", "crm.deal.assigned-or-created",
+        "crm.project.read", "crm.project.manage", "crm.project.delete", "crm.project.link-customer",
+        "crm.project.all", "crm.project.assigned", "crm.project.created", "crm.project.assigned-or-created",
+        "crm.team.read", "crm.team.manage", "crm.team.delete",
+        "crm.customer.enroll",
+    ];
+
+    private static readonly HashSet<string> Allowed = new(Values, StringComparer.Ordinal);
+
+    public static IReadOnlyList<string> All { get; } = Array.AsReadOnly(Values);
+
+    public static bool Contains(string? permission)
+        => permission is not null && Allowed.Contains(permission);
+}

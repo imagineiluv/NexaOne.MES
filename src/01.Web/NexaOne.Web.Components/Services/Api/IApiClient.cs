@@ -261,6 +261,12 @@ public interface IApiClient
     Task<RoleDto?> CreateRoleAsync(object req, CancellationToken ct = default);
     Task AddPermissionAsync(string roleId, string permission, CancellationToken ct = default);
     Task RemovePermissionAsync(string roleId, string permission, CancellationToken ct = default);
+    Task<IReadOnlyList<string>> GetBusinessOperationPermissionsAsync(CancellationToken ct = default);
+    Task<(BusinessMembershipAdminDto? Value, int StatusCode, string? Error)> ReadBusinessMembershipAsync(
+        Guid tenantId, Guid organizationId, string userId, CancellationToken ct = default);
+    Task<(BusinessMembershipAdminDto? Value, int StatusCode, string? Error)> SaveBusinessMembershipAsync(
+        Guid tenantId, Guid organizationId, string userId, BusinessMembershipAdminChange change,
+        CancellationToken ct = default);
 
     // SYS - 사용자 메뉴 개인화 (설계서 20.12 즐겨찾기/최근 메뉴) — 토큰 사용자 스코프(자기 데이터만)
     // 쓰기는 성공 여부를 반환한다 — 실패 시 캐시를 갱신하지 않기 위함 (§20.8과 동일 원칙)
@@ -308,3 +314,10 @@ public interface IApiClient
     Task<(UserRequestDto? Request, string? Error)> RejectUserRequestAsync(
         string requestId, string reason, CancellationToken ct = default);
 }
+
+public sealed record BusinessMembershipAdminDto(
+    Guid TenantId, Guid OrganizationId, string UserId, Guid BusinessUserId,
+    bool IsActive, long Version, IReadOnlyList<string> Permissions);
+
+public sealed record BusinessMembershipAdminChange(
+    long ExpectedVersion, bool IsActive, IReadOnlyList<string> Permissions);

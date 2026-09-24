@@ -12,6 +12,11 @@ namespace NexaOne.Server.Gateway;
 [ProducesErrorResponseType(typeof(Error))]
 public sealed class BusinessMembershipController(IBusinessMembershipBridge memberships) : ControllerBase
 {
+    [HttpGet("~/api/v1/sys/business-membership-permissions")]
+    [RequirePermission(Permissions.SysManage)]
+    public ActionResult<IReadOnlyList<string>> GetSupportedPermissions()
+        => Ok(BusinessOperationPermissionCatalog.All);
+
     [HttpGet("me")]
     public async Task<IActionResult> GetAccess(Guid tenantId, Guid organizationId, CancellationToken ct)
     {

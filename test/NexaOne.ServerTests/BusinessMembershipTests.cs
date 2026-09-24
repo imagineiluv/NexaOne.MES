@@ -524,6 +524,28 @@ public sealed class BusinessMembershipTests : IClassFixture<BusinessMembershipDa
         (await client.GetAsync(route + "/users/member")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    [Fact]
+    public async Task Permission_catalog_exposes_the_exact_persisted_allowlist_to_administrators()
+    {
+        using var factory = new MembershipHttpFactory(_connectionString);
+        using var client = factory.CreateClient();
+        (await client.GetAsync("/api/v1/sys/business-membership-permissions"))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        client.DefaultRequestHeaders.Authorization = new(
+            "Bearer", MembershipHttpFactory.Token("member", "stock.read"));
+        (await client.GetAsync("/api/v1/sys/business-membership-permissions"))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", MembershipHttpFactory.Token("admin", "*"));
+
+        var response = await client.GetAsync("/api/v1/sys/business-membership-permissions");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var permissions = await response.Content.ReadFromJsonAsync<string[]>();
+
+        permissions.Should().Equal(BusinessOperationPermissionCatalog.All);
+        permissions.Should().OnlyHaveUniqueItems().And.NotContain("*");
+        permissions.Should().Contain("crm.project.link-customer");
+    }
+
     public void Dispose() => File.Delete(_path);
 
     private sealed class MembershipHttpFactory(string connectionString) : WebApplicationFactory<Program>
