@@ -162,7 +162,7 @@ public sealed partial class BillingBridge : IFinancialReportBridge
         {
             var values = new { Start = Day(start), End = Day(end) };
             var invoiceCount = await Scalar<long>("SELECT COUNT(*) FROM ERP_BILLING_DOCUMENT WHERE "
-                + ScopeWhere + " AND KIND=1 AND STATUS IN (1,4,5,6) AND DOCUMENT_DATE>=@Start AND DOCUMENT_DATE<=@End", values, ct);
+                + ScopeWhere + " AND KIND=1 AND STATUS IN (1,4,5,6,8,9) AND DOCUMENT_DATE>=@Start AND DOCUMENT_DATE<=@End", values, ct);
             var incomeCount = await Scalar<long>("SELECT COUNT(*) FROM ERP_INCOME WHERE "
                 + ScopeWhere + " AND STATE=0 AND VALUE_DATE>=@Start AND VALUE_DATE<=@End", values, ct);
             var expenseCount = await Scalar<long>("SELECT COUNT(*) FROM ERP_EXPENSE WHERE "
@@ -175,7 +175,7 @@ public sealed partial class BillingBridge : IFinancialReportBridge
 
             var documentRows = await Rows<DocumentRow>("SELECT " + DocumentColumns
                 + " FROM ERP_BILLING_DOCUMENT WHERE " + ScopeWhere
-                + " AND KIND=1 AND STATUS IN (1,4,5,6) AND DOCUMENT_DATE>=@Start AND DOCUMENT_DATE<=@End"
+                + " AND KIND=1 AND STATUS IN (1,4,5,6,8,9) AND DOCUMENT_DATE>=@Start AND DOCUMENT_DATE<=@End"
                 + " ORDER BY DOCUMENT_DATE,DOCUMENT_ID", values, ct);
             var lines = documentRows.Length == 0
                 ? new Dictionary<string, List<BillingLine>>(StringComparer.Ordinal)
@@ -211,7 +211,7 @@ public sealed partial class BillingBridge : IFinancialReportBridge
                     ON d.TENANT_ID=l.TENANT_ID AND d.ORGANIZATION_ID=l.ORGANIZATION_ID
                    AND d.DOCUMENT_ID=l.DOCUMENT_ID
                  WHERE d.TENANT_ID=@TenantId AND d.ORGANIZATION_ID=@OrganizationId
-                   AND d.KIND=1 AND d.STATUS IN (1,4,5,6)
+                   AND d.KIND=1 AND d.STATUS IN (1,4,5,6,8,9)
                    AND d.DOCUMENT_DATE>=@Start AND d.DOCUMENT_DATE<=@End
                  ORDER BY l.DOCUMENT_ID,l.LINE_NO
                 """, values, ct);

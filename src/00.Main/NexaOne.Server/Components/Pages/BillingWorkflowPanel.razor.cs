@@ -81,14 +81,16 @@ public partial class BillingWorkflowPanel : IDisposable
     private bool CanDecide => Has("billing.decide");
     private bool CanPay => Has("billing.pay");
     private bool CanDraft => CanWrite && _contact is not null;
-    private bool CanEdit => CanWrite && _document is { Status: BillingStatus.Draft };
-    private bool CanSend => CanWrite && _document is { Status: BillingStatus.Draft };
+    private bool CanEdit => CanWrite && _document is { Status: BillingStatus.Draft, Kind: not BillingKind.CreditNote };
+    private bool CanSend => CanWrite && _document is { Status: BillingStatus.Draft, Kind: not BillingKind.CreditNote };
     private bool CanDecideSelected => CanDecide && _document is { Kind: BillingKind.Estimate, Status: BillingStatus.Sent };
     private bool CanConvert => CanWrite && _document is { Kind: BillingKind.Estimate, Status: BillingStatus.Accepted, ConvertedToId: null };
-    private bool CanVoid => CanWrite && _document is { ConvertedToId: null } document && document.Paid == 0m
+    private bool CanVoid => CanWrite && _document is { Kind: not BillingKind.CreditNote, ConvertedToId: null } document
+        && document.Paid == 0m && document.Credited == 0m
         && document.Status is BillingStatus.Draft or BillingStatus.Sent or BillingStatus.Accepted or BillingStatus.Rejected;
     private bool CanRecordPayment => CanPay && _document is { Kind: BillingKind.Invoice } document
-        && document.Status is BillingStatus.Sent or BillingStatus.PartiallyPaid or BillingStatus.FullyPaid or BillingStatus.Overpaid;
+        && document.Status is BillingStatus.Sent or BillingStatus.PartiallyPaid or BillingStatus.FullyPaid
+            or BillingStatus.Overpaid or BillingStatus.PartiallyCredited or BillingStatus.Credited;
     private bool CanCancelPayment => CanPay && _payment is { State: PaymentState.Recorded };
     private string Root => $"api/v1/erp/billing/{Membership.TenantId:D}/{Membership.OrganizationId:D}";
     private string T(string key, string ko, string en) => Ui.T(key, Ui.Language == "EnUs" ? en : ko);
@@ -680,13 +682,21 @@ public partial class BillingWorkflowPanel : IDisposable
         _ => UnknownMessage()
     };
 
-    private string KindName(BillingKind kind) => kind == BillingKind.Estimate ? T("billing.estimate", "견적", "Estimate") : T("billing.invoice", "청구", "Invoice");
+    private string KindName(BillingKind kind) => kind switch
+    {
+        BillingKind.Estimate => T("billing.estimate", "견적", "Estimate"),
+        BillingKind.Invoice => T("billing.invoice", "청구", "Invoice"),
+        BillingKind.CreditNote => T("billing.creditNote", "대변 전표", "Credit note"),
+        _ => kind.ToString(),
+    };
     private string StatusName(BillingStatus status) => status switch
     {
         BillingStatus.Draft => T("billing.draft", "작성 중", "Draft"), BillingStatus.Sent => T("billing.sent", "전송됨", "Sent"),
         BillingStatus.Accepted => T("billing.accepted", "승인됨", "Accepted"), BillingStatus.Rejected => T("billing.rejected", "거절됨", "Rejected"),
         BillingStatus.PartiallyPaid => T("billing.partiallyPaid", "일부 입금", "Partially paid"), BillingStatus.FullyPaid => T("billing.fullyPaid", "완납", "Fully paid"),
-        BillingStatus.Overpaid => T("billing.overpaid", "초과 입금", "Overpaid"), BillingStatus.Void => T("billing.void", "무효", "Void"), _ => status.ToString()
+        BillingStatus.Overpaid => T("billing.overpaid", "초과 입금", "Overpaid"), BillingStatus.Void => T("billing.void", "무효", "Void"),
+        BillingStatus.PartiallyCredited => T("billing.partiallyCredited", "일부 대변 처리", "Partially credited"),
+        BillingStatus.Credited => T("billing.creditedStatus", "대변 처리 완료", "Credited"), _ => status.ToString()
     };
     private string PaymentStateName(PaymentState state) => state == PaymentState.Recorded ? T("billing.recorded", "기록됨", "Recorded") : T("billing.cancelledPayment", "취소됨", "Cancelled");
     private string MethodName(PaymentMethod method) => method switch

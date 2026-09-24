@@ -127,9 +127,10 @@
         <div id="billing-selected-document" class="bw-selected" role="status">
             <strong>@KindName(document.Kind) #@document.Number · @StatusName(document.Status)</strong>
             <span class="bw-id">@document.Id</span>
-            <span>@T("billing.subtotal", "소계", "Subtotal") @Amount(document.Totals.Subtotal) · @T("billing.discount", "할인", "Discount") @Amount(document.Totals.DiscountAmount) · @T("billing.tax", "세금", "Tax") @Amount(document.Totals.TaxAmount) · @T("billing.total", "합계", "Total") @Amount(document.Totals.Total) @document.Input.Currency · @T("billing.paid", "입금", "Paid") @Amount(document.Paid) · @T("billing.due", "잔액", "Due") @Amount(document.Due)</span>
+            <span>@T("billing.subtotal", "소계", "Subtotal") @Amount(document.Totals.Subtotal) · @T("billing.discount", "할인", "Discount") @Amount(document.Totals.DiscountAmount) · @T("billing.tax", "세금", "Tax") @Amount(document.Totals.TaxAmount) · @T("billing.total", "합계", "Total") @Amount(document.Totals.Total) @document.Input.Currency · @T("billing.paid", "입금", "Paid") @Amount(document.Paid) · @T("billing.credited", "대변", "Credited") @Amount(document.Credited) · @T("billing.due", "잔액", "Due") @Amount(document.Due)</span>
             @if (document.ConvertedToId is { } convertedTo) { <span class="bw-id">@T("billing.convertedTo", "전환된 청구", "Converted to invoice"): @convertedTo</span> }
             @if (document.ConvertedFromId is { } convertedFrom) { <span class="bw-id">@T("billing.convertedFrom", "원본 견적", "Converted from estimate"): @convertedFrom</span> }
+            @if (document.AdjustedInvoiceId is { } adjustedInvoice) { <span class="bw-id">@T("billing.adjustedInvoice", "조정 대상 청구", "Adjusted invoice"): @adjustedInvoice</span> }
         </div>
         <div class="bw-actions">
             @if (CanWrite)

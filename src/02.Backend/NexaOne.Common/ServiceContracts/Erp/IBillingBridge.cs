@@ -8,7 +8,7 @@ namespace NexaOne.ServiceContracts.Erp;
 /// Name and Active reflect the current master row at read time; Id and Version are the stable enrollment.</summary>
 public sealed record BillingContact(Guid Id, Guid Version, string CustomerId, string Name, bool Active);
 
-/// <summary>Scoped estimates, invoices and payments over the Framework billing service. Every operation checks
+/// <summary>Scoped estimates, invoices, credit notes and payments over the Framework billing service. Every operation checks
 /// current SYS membership and grants in its owning Serializable transaction; no plant binding is involved.</summary>
 public interface IBillingBridge : INexaModuleBridge
 {
@@ -26,12 +26,21 @@ public interface IBillingBridge : INexaModuleBridge
     /// <summary>Uses the Framework's scope-wide operation replay contract; current permission is required on every retry.</summary>
     Task<BillingDocument> CreateDocumentAsync(string userId, Guid tenantId, Guid organizationId,
         Guid operationId, BillingKind kind, BillingDocumentInput input, CancellationToken ct = default);
+    /// <summary>Creates a draft credit note linked to one issued invoice. Requires billing.credit.</summary>
+    Task<BillingDocument> CreateCreditNoteAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid operationId, Guid invoiceId, BillingDocumentInput input, CancellationToken ct = default);
     /// <summary>Generates one draft invoice from currently unclaimed provider sources. MES currently supplies
     /// real uninvoiced expenses; time and product occurrence providers remain fail-closed until their owners expose them.</summary>
     Task<AutomaticBillingResult> GenerateAutomaticInvoiceAsync(string userId, Guid tenantId, Guid organizationId,
         Guid operationId, AutomaticBillingRequest request, CancellationToken ct = default);
     Task<BillingDocument> UpdateDocumentAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, BillingDocumentInput input, CancellationToken ct = default);
+    Task<BillingDocument> UpdateCreditNoteAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, BillingDocumentInput input, CancellationToken ct = default);
+    Task<BillingDocument> IssueCreditNoteAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, CancellationToken ct = default);
+    Task<BillingDocument> VoidCreditNoteAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, CancellationToken ct = default);
     Task<BillingDocument> GetDocumentAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, CancellationToken ct = default);
     Task<BusinessPage<BillingDocument>> ListDocumentsAsync(string userId, Guid tenantId, Guid organizationId,

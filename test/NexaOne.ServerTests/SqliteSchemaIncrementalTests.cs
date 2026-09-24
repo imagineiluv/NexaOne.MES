@@ -3062,6 +3062,65 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V189_billing_credit_note_checks_upgrade_legacy_sqlite_tables()
+    {
+        var cs = NewDb();
+        try
+        {
+            ExecSql(cs, """
+                CREATE TABLE ERP_BILLING_NUMBER (
+                    TENANT_ID TEXT NOT NULL, ORGANIZATION_ID TEXT NOT NULL, KIND INTEGER NOT NULL,
+                    NEXT_NUMBER INTEGER NOT NULL,
+                    PRIMARY KEY (TENANT_ID,ORGANIZATION_ID,KIND),
+                    CHECK (KIND IN (0,1)), CHECK (NEXT_NUMBER>0));
+                CREATE TABLE ERP_BILLING_DOCUMENT (
+                    TENANT_ID TEXT NOT NULL, ORGANIZATION_ID TEXT NOT NULL, DOCUMENT_ID TEXT NOT NULL,
+                    VERSION TEXT NOT NULL, OPERATION_ID TEXT NOT NULL, KIND INTEGER NOT NULL,
+                    NUMBER INTEGER NOT NULL, STATUS INTEGER NOT NULL, CONTACT_ID TEXT NOT NULL,
+                    DOCUMENT_DATE TEXT NOT NULL, DUE_DATE TEXT NOT NULL, CURRENCY TEXT NOT NULL,
+                    DISCOUNT_TYPE INTEGER NULL, DISCOUNT_VALUE TEXT NULL, TAX_TYPE INTEGER NULL,
+                    TAX_VALUE TEXT NULL, TAX2_TYPE INTEGER NULL, TAX2_VALUE TEXT NULL,
+                    TERMS TEXT NULL, NOTE TEXT NULL, SUBTOTAL TEXT NOT NULL,
+                    DISCOUNT_AMOUNT TEXT NOT NULL, TAX_AMOUNT TEXT NOT NULL, TOTAL TEXT NOT NULL,
+                    PAID TEXT NOT NULL, CREATED_BY TEXT NOT NULL, CONVERTED_FROM_ID TEXT NULL,
+                    CONVERTED_TO_ID TEXT NULL, AT_TICKS INTEGER NOT NULL,
+                    PRIMARY KEY (TENANT_ID,ORGANIZATION_ID,DOCUMENT_ID),
+                    UNIQUE (TENANT_ID,ORGANIZATION_ID,OPERATION_ID),
+                    UNIQUE (TENANT_ID,ORGANIZATION_ID,KIND,NUMBER),
+                    CHECK (KIND IN (0,1)), CHECK (STATUS BETWEEN 0 AND 7));
+                INSERT INTO ERP_BILLING_NUMBER VALUES ('t','o',1,1);
+                INSERT INTO ERP_BILLING_DOCUMENT
+                    (TENANT_ID,ORGANIZATION_ID,DOCUMENT_ID,VERSION,OPERATION_ID,KIND,NUMBER,STATUS,
+                     CONTACT_ID,DOCUMENT_DATE,DUE_DATE,CURRENCY,SUBTOTAL,DISCOUNT_AMOUNT,TAX_AMOUNT,
+                     TOTAL,PAID,CREATED_BY,AT_TICKS)
+                VALUES ('t','o','invoice','version','operation',1,1,1,'contact','2026-09-22',
+                        '2026-10-22','KRW','10','0','0','10','0','user',1);
+                """);
+
+            SqliteSchemaInitializer.EnsureSchema(cs);
+
+            Columns(cs, "ERP_BILLING_DOCUMENT").Should().Contain("CREDITED", "ADJUSTED_INVOICE_ID");
+            ScalarString(cs, "SELECT CREDITED FROM ERP_BILLING_DOCUMENT WHERE DOCUMENT_ID='invoice'")
+                .Should().Be("0");
+            IndexExists(cs, "IX_ERP_BILLING_DOCUMENT_ADJUSTED").Should().BeTrue();
+            ExecSql(cs, """
+                UPDATE ERP_BILLING_DOCUMENT SET STATUS=9 WHERE DOCUMENT_ID='invoice';
+                INSERT INTO ERP_BILLING_NUMBER VALUES ('t','o',2,1);
+                INSERT INTO ERP_BILLING_DOCUMENT
+                    (TENANT_ID,ORGANIZATION_ID,DOCUMENT_ID,VERSION,OPERATION_ID,KIND,NUMBER,STATUS,
+                     CONTACT_ID,DOCUMENT_DATE,DUE_DATE,CURRENCY,SUBTOTAL,DISCOUNT_AMOUNT,TAX_AMOUNT,
+                     TOTAL,PAID,CREDITED,CREATED_BY,ADJUSTED_INVOICE_ID,AT_TICKS)
+                VALUES ('t','o','credit','version-2','operation-2',2,1,1,'contact','2026-09-23',
+                        '2026-09-23','KRW','2','0','0','2','0','0','user','invoice',2);
+                """);
+            Count(cs, "ERP_BILLING_DOCUMENT").Should().Be(2);
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            Count(cs, "ERP_BILLING_DOCUMENT").Should().Be(2);
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { } }
+    }
+
+    [Fact]
     public void V160_database_principal_security_is_a_fresh_and_incremental_sqlite_no_op()
     {
         var cs = NewDb();
