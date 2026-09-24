@@ -145,6 +145,87 @@
                     </section>
                 }
 
+                @if (CanManageProjects)
+                {
+                    <section id="crm-project-editor" aria-labelledby="crm-project-editor-heading">
+                        <div class="cw-heading">
+                            <h2 id="crm-project-editor-heading">@T("crm.projectEditor", "프로젝트 편집", "Project editor")</h2>
+                            @if (_editingProject is not null) { <button type="button" @onclick="ResetProjectEditor">@T("crm.newProject", "새 프로젝트", "New project")</button> }
+                        </div>
+                        <form class="cw-editor" @onsubmit="SaveProjectAsync" @onsubmit:preventDefault>
+                            <label>@T("inventory.name", "이름", "Name")<input id="crm-project-name" maxlength="255" @bind="_projectName" disabled="@_writing" /></label>
+                            <label>@T("crm.code", "코드", "Code")<input id="crm-project-code" maxlength="100" @bind="_projectCode" disabled="@_writing" /></label>
+                            <label class="cw-editor-wide">@T("crm.description", "설명", "Description")<textarea id="crm-project-description" maxlength="4000" @bind="_projectDescription" disabled="@_writing"></textarea></label>
+                            <label>@T("crm.status", "상태", "Status")<select id="crm-project-status" @bind="_projectStatus" disabled="@_writing">@foreach (var status in Enum.GetValues<ProjectStatus>()) { <option value="@status">@StatusName(status)</option> }</select></label>
+                            <label>@T("crm.budgetType", "예산 유형", "Budget type")<select id="crm-project-budget-type" @bind="_projectBudgetType" disabled="@_writing">@foreach (var type in Enum.GetValues<ProjectBudgetType>()) { <option value="@type">@BudgetTypeName(type)</option> }</select></label>
+                            <label>@T("crm.startDate", "시작일", "Start date")<input id="crm-project-start" placeholder="YYYY-MM-DD" pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}" @bind="_projectStartDate" disabled="@_writing" /></label>
+                            <label>@T("crm.endDate", "종료일", "End date")<input id="crm-project-end" placeholder="YYYY-MM-DD" pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}" @bind="_projectEndDate" disabled="@_writing" /></label>
+                            <label>@T("crm.budget", "예산", "Budget")<input id="crm-project-budget" inputmode="decimal" @bind="_projectBudget" disabled="@_writing" /></label>
+                            <div class="cw-checks">
+                                <label class="cw-check"><input id="crm-project-billable" type="checkbox" @bind="_projectBillable" disabled="@_writing" />@T("crm.billable", "청구 가능", "Billable")</label>
+                                <label class="cw-check"><input id="crm-project-public" type="checkbox" @bind="_projectPublic" disabled="@_writing" />@T("crm.public", "공개", "Public")</label>
+                            </div>
+                            @if (_editingProject is null)
+                            {
+                                @if (CanEditProjectCustomer)
+                                {
+                                    <label>@T("crm.client", "고객", "Client")<input id="crm-new-project-client" placeholder="GUID" @bind="_projectClientId" disabled="@_writing" /></label>
+                                }
+                                <label>@T("crm.memberIds", "멤버 ID", "Member IDs")<input id="crm-new-project-members" placeholder="GUID, GUID" @bind="_projectMemberIds" disabled="@_writing" /></label>
+                                <label>@T("crm.managerIds", "관리자 ID", "Manager IDs")<input id="crm-new-project-managers" placeholder="GUID, GUID" @bind="_projectManagerIds" disabled="@_writing" /></label>
+                                <label>@T("crm.teamIds", "팀 ID", "Team IDs")<input id="crm-new-project-teams" placeholder="GUID, GUID" @bind="_projectTeamIds" disabled="@_writing" /></label>
+                            }
+                            <div class="cw-actions">
+                                <button id="crm-save-project" type="submit" disabled="@(_writing || string.IsNullOrWhiteSpace(_projectName))">@(_editingProject is null ? T("crm.create", "생성", "Create") : T("crm.save", "저장", "Save"))</button>
+                                @if (_editingProject is not null && CanDeleteProjects && CanDeleteEditingProject) { <button id="crm-delete-project" type="button" disabled="@_writing" @onclick="DeleteProjectAsync">@T("crm.delete", "삭제", "Delete")</button> }
+                            </div>
+                        </form>
+                        @if (_editingProject is not null && CanEditProjectLinks)
+                        {
+                            <form class="cw-editor cw-related-editor" @onsubmit="SaveProjectLinksAsync" @onsubmit:preventDefault>
+                                <h3 class="cw-editor-wide">@T("crm.projectRelations", "프로젝트 관계", "Project relationships")</h3>
+                                @if (CanEditProjectCustomer)
+                                {
+                                    <label>@T("crm.client", "고객", "Client")<input id="crm-project-client" placeholder="GUID" @bind="_projectClientId" disabled="@_writing" /></label>
+                                }
+                                <label>@T("crm.memberIds", "멤버 ID", "Member IDs")<input id="crm-project-members" placeholder="GUID, GUID" @bind="_projectMemberIds" disabled="@_writing" /></label>
+                                <label>@T("crm.managerIds", "관리자 ID", "Manager IDs")<input id="crm-project-managers" placeholder="GUID, GUID" @bind="_projectManagerIds" disabled="@_writing" /></label>
+                                <label>@T("crm.teamIds", "팀 ID", "Team IDs")<input id="crm-project-teams" placeholder="GUID, GUID" @bind="_projectTeamIds" disabled="@_writing" /></label>
+                                <div class="cw-actions"><button id="crm-save-project-links" type="submit" disabled="@_writing">@T("crm.saveRelations", "관계 저장", "Save relationships")</button></div>
+                            </form>
+                        }
+                        else if (_editingProject is not null && CanReplaceProjectLinks)
+                        {
+                            <p role="status">@T("crm.customerLinkPermissionRequired", "고객이 연결된 프로젝트의 관계를 바꾸려면 고객 연결 권한이 필요합니다.", "Customer-link permission is required to change relationships for a project with a customer.")</p>
+                        }
+                    </section>
+                }
+
+                @if (CanManageTeams)
+                {
+                    <section id="crm-team-editor" aria-labelledby="crm-team-editor-heading">
+                        <div class="cw-heading">
+                            <h2 id="crm-team-editor-heading">@T("crm.teamEditor", "팀 편집", "Team editor")</h2>
+                            @if (_editingTeam is not null) { <button type="button" @onclick="ResetTeamEditor">@T("crm.newTeam", "새 팀", "New team")</button> }
+                        </div>
+                        <form class="cw-editor" @onsubmit="SaveTeamAsync" @onsubmit:preventDefault>
+                            <label>@T("inventory.name", "이름", "Name")<input id="crm-team-name" maxlength="255" @bind="_teamName" disabled="@_writing" /></label>
+                            <label>@T("crm.prefix", "접두사", "Prefix")<input id="crm-team-prefix" maxlength="100" @bind="_teamPrefix" disabled="@_writing" /></label>
+                            <label>@T("crm.memberIds", "멤버 ID", "Member IDs")<input id="crm-team-members" placeholder="GUID, GUID" @bind="_teamMemberIds" disabled="@_writing" /></label>
+                            <label>@T("crm.managerIds", "관리자 ID", "Manager IDs")<input id="crm-team-managers" placeholder="GUID, GUID" @bind="_teamManagerIds" disabled="@_writing" /></label>
+                            <div class="cw-checks cw-editor-wide">
+                                <label class="cw-check"><input id="crm-team-public" type="checkbox" @bind="_teamPublic" disabled="@_writing" />@T("crm.public", "공개", "Public")</label>
+                                <label class="cw-check"><input id="crm-team-share-profile" type="checkbox" @bind="_teamShareProfile" disabled="@_writing" />@T("crm.shareProfile", "프로필 공유", "Share profile")</label>
+                                <label class="cw-check"><input id="crm-team-require-plan" type="checkbox" @bind="_teamRequirePlan" disabled="@_writing" />@T("crm.requirePlan", "시간 기록 계획 필수", "Require plan to track")</label>
+                            </div>
+                            <div class="cw-actions">
+                                <button id="crm-save-team" type="submit" disabled="@(_writing || string.IsNullOrWhiteSpace(_teamName))">@(_editingTeam is null ? T("crm.create", "생성", "Create") : T("crm.save", "저장", "Save"))</button>
+                                @if (_editingTeam is not null && CanDeleteTeams) { <button id="crm-delete-team" type="button" disabled="@_writing" @onclick="DeleteTeamAsync">@T("crm.delete", "삭제", "Delete")</button> }
+                            </div>
+                        </form>
+                    </section>
+                }
+
                 @DataSection(Pane.Pipelines, _pipelines?.Items, pipeline => pipeline.Name, pipeline => pipeline.Description,
                     pipeline => pipeline.Id, pipeline => SelectPipelineAsync(pipeline))
                 @DataSection(Pane.Deals, _deals?.Items, deal => deal.Title,
@@ -189,12 +270,21 @@
     private SelectedRecord? _selected;
     private PipelineDetails? _editingPipeline;
     private Deal? _editingDeal;
+    private Project? _editingProject;
+    private Team? _editingTeam;
     private CancellationTokenSource? _detailRequest;
     private string? _currentUserId, _writeMessage, _writeError;
     private string _customerId = "", _pipelineName = "", _pipelineDescription = "", _pipelineStages = "";
     private string _dealTitle = "", _dealClientId = "";
+    private string _projectName = "", _projectDescription = "", _projectCode = "", _projectStartDate = "", _projectEndDate = "", _projectBudget = "";
+    private string _projectClientId = "", _projectMemberIds = "", _projectManagerIds = "", _projectTeamIds = "";
+    private string _teamName = "", _teamPrefix = "", _teamMemberIds = "", _teamManagerIds = "";
     private Guid _dealStageId;
     private int _dealProbability;
+    private ProjectStatus _projectStatus = ProjectStatus.Open;
+    private ProjectBudgetType _projectBudgetType = ProjectBudgetType.Cost;
+    private bool _projectBillable, _projectPublic, _teamPublic, _teamRequirePlan;
+    private bool _teamShareProfile = true;
     private bool _authenticated, _disposed, _interactive, _enrolling, _writing;
     private bool _identityLoading = true;
     private Task<AuthenticationState>? _pendingAuthentication;
@@ -207,6 +297,14 @@
     private bool CanManagePipelines => Has("crm.pipeline.manage");
     private bool CanManageDeals => Has("crm.deal.manage");
     private bool CanDeleteDeals => Has("crm.deal.delete");
+    private bool CanManageProjects => Has("crm.project.manage");
+    private bool CanDeleteProjects => Has("crm.project.delete");
+    private bool CanReplaceProjectLinks => CanManageProjects && Has("crm.project.all");
+    private bool CanEditProjectCustomer => Has("crm.project.link-customer");
+    private bool CanEditProjectLinks => CanReplaceProjectLinks && (_editingProject?.Links.CustomerId is null || CanEditProjectCustomer);
+    private bool CanDeleteEditingProject => _editingProject?.Links.CustomerId is null || CanEditProjectCustomer;
+    private bool CanManageTeams => Has("crm.team.manage");
+    private bool CanDeleteTeams => Has("crm.team.delete");
     private bool BusyData => DataPanes.Any(Busy) || _detailRequest is not null || _enrolling || _writing;
     private string? SelectedKey => _scope is null ? null : ScopeKey(_scope);
 
@@ -274,12 +372,13 @@
         _detailRequest?.Cancel(); _detailRequest?.Dispose(); _detailRequest = null;
         _scope = null; _customers = null; _pipelines = null; _deals = null; _projects = null; _teams = null;
         _selected = null; _customerId = ""; _writeMessage = _writeError = null;
-        ResetPipelineEditor(); ResetDealEditor();
+        ResetPipelineEditor(); ResetDealEditor(); ResetProjectEditor(); ResetTeamEditor();
     }
 
     private Task RefreshAsync()
     {
         _selected = null;
+        ResetPipelineEditor(); ResetDealEditor(); ResetProjectEditor(); ResetTeamEditor();
         return Task.WhenAll(DataPanes.Where(CanReadPane).Select(LoadPaneAsync));
     }
 
@@ -465,6 +564,198 @@
         finally { _writing = false; }
     }
 
+    private async Task SaveProjectAsync()
+    {
+        if (_currentUserId is null || !CanManageProjects || _writing || !TryProjectInput(out var input)) return;
+        ProjectLinks? links = null;
+        if (_editingProject is null && !TryProjectLinks(out links)) return;
+        _writing = true; _writeMessage = _writeError = null;
+        try
+        {
+            var result = _editingProject is null
+                ? await Api.WriteInventoryAsync<Project>(HttpMethod.Post, $"{Root}/projects", new { input, links }, _currentUserId)
+                : await Api.WriteInventoryAsync<Project>(HttpMethod.Put, $"{Root}/projects/{_editingProject.Id:D}",
+                    new { version = _editingProject.Version, input }, _currentUserId);
+            if (Successful(result))
+            {
+                _writeMessage = T("crm.projectSaved", "프로젝트를 저장했습니다.", "Project saved.");
+                ResetProjectEditor(); _selected = null; _offsets[Pane.Projects] = 0; await LoadPaneAsync(Pane.Projects);
+            }
+            else _writeError = ErrorMessage(result.StatusCode, result.Code, result.Error);
+        }
+        finally { _writing = false; }
+    }
+
+    private async Task SaveProjectLinksAsync()
+    {
+        if (_editingProject is null || _currentUserId is null || !CanEditProjectLinks || _writing
+            || !TryProjectLinks(out var links)) return;
+        _writing = true; _writeMessage = _writeError = null;
+        try
+        {
+            var result = await Api.WriteInventoryAsync<Project>(HttpMethod.Put, $"{Root}/projects/{_editingProject.Id:D}/links",
+                new { version = _editingProject.Version, links }, _currentUserId);
+            if (Successful(result))
+            {
+                _writeMessage = T("crm.projectLinksSaved", "프로젝트 관계를 저장했습니다.", "Project relationships saved.");
+                ResetProjectEditor(); _selected = null; await LoadPaneAsync(Pane.Projects);
+            }
+            else _writeError = ErrorMessage(result.StatusCode, result.Code, result.Error);
+        }
+        finally { _writing = false; }
+    }
+
+    private async Task DeleteProjectAsync()
+    {
+        if (_editingProject is null || _currentUserId is null || !CanDeleteProjects || !CanDeleteEditingProject || _writing) return;
+        _writing = true; _writeMessage = _writeError = null;
+        try
+        {
+            var result = await Api.WriteInventoryAsync<Dictionary<string, object>>(HttpMethod.Delete,
+                $"{Root}/projects/{_editingProject.Id:D}?version={_editingProject.Version:D}", new { }, _currentUserId);
+            if (Successful(result))
+            {
+                _writeMessage = T("crm.projectDeleted", "프로젝트를 삭제했습니다.", "Project deleted.");
+                ResetProjectEditor(); _selected = null; await LoadPaneAsync(Pane.Projects);
+            }
+            else _writeError = ErrorMessage(result.StatusCode, result.Code, result.Error);
+        }
+        finally { _writing = false; }
+    }
+
+    private async Task SaveTeamAsync()
+    {
+        if (_currentUserId is null || !CanManageTeams || _writing || string.IsNullOrWhiteSpace(_teamName)
+            || !TryMembers(_teamMemberIds, _teamManagerIds, out var members)) return;
+        var input = new TeamInput(_teamName.Trim(), Empty(_teamPrefix), _teamPublic, _teamShareProfile, _teamRequirePlan);
+        _writing = true; _writeMessage = _writeError = null;
+        try
+        {
+            var result = _editingTeam is null
+                ? await Api.WriteInventoryAsync<Team>(HttpMethod.Post, $"{Root}/teams", new { input, members }, _currentUserId)
+                : await Api.WriteInventoryAsync<Team>(HttpMethod.Put, $"{Root}/teams/{_editingTeam.Id:D}",
+                    new { version = _editingTeam.Version, input, members }, _currentUserId);
+            if (Successful(result))
+            {
+                _writeMessage = T("crm.teamSaved", "팀을 저장했습니다.", "Team saved.");
+                ResetTeamEditor(); _selected = null; _offsets[Pane.Teams] = 0;
+                await Task.WhenAll(LoadPaneAsync(Pane.Teams), LoadPaneAsync(Pane.Projects));
+            }
+            else _writeError = ErrorMessage(result.StatusCode, result.Code, result.Error);
+        }
+        finally { _writing = false; }
+    }
+
+    private async Task DeleteTeamAsync()
+    {
+        if (_editingTeam is null || _currentUserId is null || !CanDeleteTeams || _writing) return;
+        _writing = true; _writeMessage = _writeError = null;
+        try
+        {
+            var result = await Api.WriteInventoryAsync<Dictionary<string, object>>(HttpMethod.Delete,
+                $"{Root}/teams/{_editingTeam.Id:D}?version={_editingTeam.Version:D}", new { }, _currentUserId);
+            if (Successful(result))
+            {
+                _writeMessage = T("crm.teamDeleted", "팀을 삭제했습니다.", "Team deleted.");
+                ResetTeamEditor(); _selected = null; await LoadPaneAsync(Pane.Teams);
+            }
+            else _writeError = ErrorMessage(result.StatusCode, result.Code, result.Error);
+        }
+        finally { _writing = false; }
+    }
+
+    private bool TryProjectInput(out ProjectInput? input)
+    {
+        input = null;
+        if (string.IsNullOrWhiteSpace(_projectName)
+            || !TryDate(_projectStartDate, out var start) || !TryDate(_projectEndDate, out var end)
+            || start.HasValue && end.HasValue && end < start
+            || !TryBudget(_projectBudget, out var budget))
+        {
+            _writeError = T("crm.projectInputRequired", "프로젝트 이름, 날짜와 예산을 확인하세요.", "Check the project name, dates and budget.");
+            return false;
+        }
+        input = new(_projectName.Trim(), Empty(_projectDescription), Empty(_projectCode), _projectStatus,
+            start, end, _projectBillable, _projectPublic, budget, _projectBudgetType);
+        return true;
+    }
+
+    private bool TryProjectLinks(out ProjectLinks? links)
+    {
+        links = null;
+        Guid? customer = _editingProject?.Links.CustomerId;
+        if (CanEditProjectCustomer)
+        {
+            if (!TryOptionalGuid(_projectClientId, out customer)) return InvalidRelations(out links);
+        }
+        if (!TryMembers(_projectMemberIds, _projectManagerIds, out var members)
+            || !TryGuidList(_projectTeamIds, out var teams)) return InvalidRelations(out links);
+        links = new(customer, members, teams);
+        return true;
+    }
+
+    private bool InvalidRelations(out ProjectLinks? links)
+    {
+        links = null;
+        _writeError = T("crm.relationIdsInvalid", "관계 ID는 쉼표로 구분한 올바른 GUID여야 합니다.", "Relationship IDs must be valid comma-separated GUIDs.");
+        return false;
+    }
+
+    private bool TryMembers(string memberText, string managerText, out IReadOnlyList<ProjectMember> members)
+    {
+        members = [];
+        if (!TryGuidList(memberText, out var memberIds) || !TryGuidList(managerText, out var managerIds))
+        {
+            _writeError = T("crm.relationIdsInvalid", "관계 ID는 쉼표로 구분한 올바른 GUID여야 합니다.", "Relationship IDs must be valid comma-separated GUIDs.");
+            return false;
+        }
+        var managers = managerIds.ToHashSet();
+        members = memberIds.Concat(managerIds).Distinct().Select(id => new ProjectMember(id, managers.Contains(id))).ToArray();
+        return true;
+    }
+
+    private static bool TryGuidList(string text, out IReadOnlyList<Guid> values)
+    {
+        values = [];
+        if (string.IsNullOrWhiteSpace(text)) return true;
+        var parsed = new List<Guid>();
+        foreach (var item in text.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!Guid.TryParseExact(item, "D", out var value) || value == Guid.Empty) return false;
+            if (!parsed.Contains(value)) parsed.Add(value);
+        }
+        values = parsed;
+        return true;
+    }
+
+    private static bool TryOptionalGuid(string text, out Guid? value)
+    {
+        value = null;
+        if (string.IsNullOrWhiteSpace(text)) return true;
+        if (!Guid.TryParseExact(text.Trim(), "D", out var parsed) || parsed == Guid.Empty) return false;
+        value = parsed;
+        return true;
+    }
+
+    private static bool TryDate(string text, out DateTimeOffset? value)
+    {
+        value = null;
+        if (string.IsNullOrWhiteSpace(text)) return true;
+        if (!DateTimeOffset.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed)) return false;
+        value = parsed;
+        return true;
+    }
+
+    private static bool TryBudget(string text, out decimal? value)
+    {
+        value = null;
+        if (string.IsNullOrWhiteSpace(text)) return true;
+        if (!decimal.TryParse(text, NumberStyles.Number, CultureInfo.InvariantCulture, out var parsed) || parsed < 0) return false;
+        value = parsed;
+        return true;
+    }
+
     private bool TryDealInput(out DealInput? input)
     {
         input = null;
@@ -485,6 +776,19 @@
     { _editingPipeline = null; _pipelineName = _pipelineDescription = _pipelineStages = ""; }
     private void ResetDealEditor()
     { _editingDeal = null; _dealTitle = _dealClientId = ""; _dealProbability = 0; _dealStageId = _editingPipeline?.Stages.OrderBy(stage => stage.Index).FirstOrDefault()?.Id ?? Guid.Empty; }
+    private void ResetProjectEditor()
+    {
+        _editingProject = null;
+        _projectName = _projectDescription = _projectCode = _projectStartDate = _projectEndDate = _projectBudget = "";
+        _projectClientId = _projectMemberIds = _projectManagerIds = _projectTeamIds = "";
+        _projectStatus = ProjectStatus.Open; _projectBudgetType = ProjectBudgetType.Cost;
+        _projectBillable = _projectPublic = false;
+    }
+    private void ResetTeamEditor()
+    {
+        _editingTeam = null; _teamName = _teamPrefix = _teamMemberIds = _teamManagerIds = "";
+        _teamPublic = _teamRequirePlan = false; _teamShareProfile = true;
+    }
     private static string? Empty(string value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     private static bool Successful<TValue>((TValue? Value, int StatusCode, string? Code, string? Error) result) where TValue : class
         => result.StatusCode is >= 200 and < 300 && result.Value is not null && result.Error is null;
@@ -514,14 +818,31 @@
     });
 
     private Task SelectProjectAsync(Project value) => LoadDetailAsync<Project>(Pane.Projects, $"projects/{value.Id:D}", project =>
-        new(T("crm.project", "프로젝트", "Project"),
+    {
+        _editingProject = project;
+        _projectName = project.Values.Name; _projectDescription = project.Values.Description ?? ""; _projectCode = project.Values.Code ?? "";
+        _projectStatus = project.Values.Status; _projectStartDate = Date(project.Values.StartDate); _projectEndDate = Date(project.Values.EndDate);
+        _projectBillable = project.Values.Billable; _projectPublic = project.Values.Public;
+        _projectBudget = project.Values.Budget?.ToString(CultureInfo.InvariantCulture) ?? ""; _projectBudgetType = project.Values.BudgetType;
+        _projectClientId = project.Links.CustomerId?.ToString("D") ?? "";
+        _projectMemberIds = Guids(project.Links.Members.Where(member => !member.IsManager).Select(member => member.EmployeeId));
+        _projectManagerIds = Guids(project.Links.Members.Where(member => member.IsManager).Select(member => member.EmployeeId));
+        _projectTeamIds = Guids(project.Links.TeamIds);
+        return new(T("crm.project", "프로젝트", "Project"),
         [Field(T("inventory.name", "이름", "Name"), project.Values.Name), Field(T("crm.status", "상태", "Status"), StatusName(project.Values.Status)),
          Field(T("crm.client", "고객", "Client"), project.Links.CustomerId?.ToString("D") ?? "—", true), Field(T("crm.members", "멤버", "Members"), string.Join(", ", project.Links.Members.Select(member => member.EmployeeId)), true),
-         Field(T("crm.teams", "팀", "Teams"), string.Join(", ", project.Links.TeamIds), true), Field("ID", project.Id.ToString("D"), true)]));
+         Field(T("crm.teams", "팀", "Teams"), string.Join(", ", project.Links.TeamIds), true), Field("ID", project.Id.ToString("D"), true)]);
+    });
 
     private Task SelectTeamAsync(Team value) => LoadDetailAsync<Team>(Pane.Teams, $"teams/{value.Id:D}", team =>
-        new(T("crm.team", "팀", "Team"),
-        [Field(T("inventory.name", "이름", "Name"), team.Values.Name), Field(T("crm.members", "멤버", "Members"), string.Join(", ", team.Members.Select(member => member.EmployeeId)), true), Field("ID", team.Id.ToString("D"), true)]));
+    {
+        _editingTeam = team; _teamName = team.Values.Name; _teamPrefix = team.Values.Prefix ?? "";
+        _teamPublic = team.Values.Public; _teamShareProfile = team.Values.ShareProfileView; _teamRequirePlan = team.Values.RequirePlanToTrack;
+        _teamMemberIds = Guids(team.Members.Where(member => !member.IsManager).Select(member => member.EmployeeId));
+        _teamManagerIds = Guids(team.Members.Where(member => member.IsManager).Select(member => member.EmployeeId));
+        return new(T("crm.team", "팀", "Team"),
+        [Field(T("inventory.name", "이름", "Name"), team.Values.Name), Field(T("crm.members", "멤버", "Members"), string.Join(", ", team.Members.Select(member => member.EmployeeId)), true), Field("ID", team.Id.ToString("D"), true)]);
+    });
 
     private async Task LoadDetailAsync<TValue>(Pane pane, string relative, Func<TValue, SelectedRecord> map) where TValue : class
     {
@@ -552,6 +873,8 @@
     private bool Busy(Pane pane) => _requests.ContainsKey(pane);
     private static string ScopeKey(BusinessMembership scope) => $"{scope.TenantId:D}/{scope.OrganizationId:D}";
     private static string Utc(DateTimeOffset value) => value.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+    private static string Date(DateTimeOffset? value) => value?.UtcDateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "";
+    private static string Guids(IEnumerable<Guid> values) => string.Join(", ", values.Select(value => value.ToString("D")));
     private string T(string key, string ko, string en) => Ui.T(key, Ui.Language == "EnUs" ? en : ko);
     private string PaneTitle(Pane pane) => pane switch
     {
@@ -563,6 +886,12 @@
     {
         ProjectStatus.Open => T("crm.projectOpen", "열림", "Open"), ProjectStatus.InProgress => T("crm.projectInProgress", "진행 중", "In progress"),
         ProjectStatus.Completed => T("crm.projectCompleted", "완료", "Completed"), ProjectStatus.Cancelled => T("crm.projectCancelled", "취소", "Cancelled"), _ => status.ToString()
+    };
+    private string BudgetTypeName(ProjectBudgetType type) => type switch
+    {
+        ProjectBudgetType.Hours => T("crm.budgetHours", "시간", "Hours"),
+        ProjectBudgetType.Cost => T("crm.budgetCost", "비용", "Cost"),
+        _ => type.ToString()
     };
 
     private string ErrorMessage(int status, string? code = null, string? error = null)
