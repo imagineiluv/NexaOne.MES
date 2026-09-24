@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Application>
   <Services>
-    <!-- 모듈 독립 구조: 도메인 모듈 11개를 각각 독립 Service로 등록한다. Service마다 도메인 모듈 DLL과 선택적인
+    <!-- 모듈 독립 구조: 도메인 모듈을 각각 독립 Service로 등록한다. Service마다 도메인 모듈 DLL과 선택적인
          project-policy DLL(classPaths), 그리고 모듈 빈 xml(configFiles)을 짝짓는다. ClassLoader는 각 DLL을 별도
          plugin ALC(AssemblyLoader)로 로드하고, configFiles의 xml은 같은 Spring service context에 빈을 등록한다. 공통 서버 빈
          (eesDataSource·appConfiguration·eesDialect·opcUaDriver·messageBus·plantController)은 server.xml
@@ -20,6 +20,7 @@
     <Service name="Prc"  classPaths="./Modules/NexaOne.PRC.dll"  configFiles="config/modules/prc.xml" />
     <Service name="Shp"  classPaths="./Modules/NexaOne.SHP.dll"  configFiles="config/modules/shp.xml" />
     <Service name="Erp"  classPaths="./Modules/NexaOne.ERP.dll"  configFiles="config/modules/erp.xml" />
+    <Service name="Crm"  classPaths="./Modules/NexaOne.CRM.dll"  configFiles="config/modules/crm.xml" />
     <Service name="Sys"  classPaths="./Modules/NexaOne.SYS.dll"  configFiles="config/modules/sys.xml" />
   </Services>
 </Application>

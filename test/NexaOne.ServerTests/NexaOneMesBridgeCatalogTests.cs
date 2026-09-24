@@ -2,6 +2,7 @@ using FluentAssertions;
 using NexaOne.Server;
 using NexaOne.ServiceContracts;
 using NexaOne.ServiceContracts.Collaboration;
+using NexaOne.ServiceContracts.Crm;
 using NexaOne.ServiceContracts.Erp;
 using NexaOne.ServiceContracts.Ivt;
 using NexaOne.ServiceContracts.Mdm;
@@ -18,7 +19,7 @@ public sealed class NexaOneMesBridgeCatalogTests
         var first = NexaOneMesBridgeCatalog.Create();
         var second = NexaOneMesBridgeCatalog.Create();
 
-        first.Descriptors.Should().HaveCount(62);
+        first.Descriptors.Should().HaveCount(63);
         first.Descriptors.Should().Equal(second.Descriptors);
         first.Descriptors.Should().OnlyContain(descriptor =>
             descriptor.ContractType.IsInterface
@@ -60,6 +61,8 @@ public sealed class NexaOneMesBridgeCatalogTests
         stock.Should().Be(new NexaModuleBridgeDescriptor(typeof(IStockBridge), "Ivt", "stockBridge"));
         catalog.TryGet(typeof(IBillingBridge), out var billing).Should().BeTrue();
         billing.Should().Be(new NexaModuleBridgeDescriptor(typeof(IBillingBridge), "Erp", "billingBridge"));
+        catalog.TryGet(typeof(ICrmBridge), out var crm).Should().BeTrue();
+        crm.Should().Be(new NexaModuleBridgeDescriptor(typeof(ICrmBridge), "Crm", "crmBridge"));
         catalog.TryGet(typeof(IDeliveryBridge), out var delivery).Should().BeTrue();
         delivery.Should().Be(new NexaModuleBridgeDescriptor(typeof(IDeliveryBridge), "Erp", "deliveryBridge"));
         catalog.TryGet(typeof(IDeliveryAutomationBridge), out var deliveryAutomation).Should().BeTrue();
