@@ -66,6 +66,11 @@ public sealed partial class BillingBridge
         => RunDelivery(userId, tenantId, organizationId, "delivery.manage-template",
             (service, actor) => service.DeactivateTemplateAsync(actor, id, version, ct), ct);
 
+    public Task<BusinessPage<DeliveryTemplate>> ListTemplatesAsync(string userId, Guid tenantId,
+        Guid organizationId, int offset = 0, int limit = 50, CancellationToken ct = default)
+        => RunDelivery(userId, tenantId, organizationId, "delivery.read",
+            (service, actor) => service.ListTemplatesAsync(actor, offset, limit, ct), ct);
+
     public Task<DeliveryProfile> CreateProfileAsync(string userId, Guid tenantId, Guid organizationId,
         string name, string providerKey, string credentialReference, DeliveryRetryPolicy retryPolicy,
         CancellationToken ct = default)
@@ -78,6 +83,11 @@ public sealed partial class BillingBridge
         => RunDelivery(userId, tenantId, organizationId, "delivery.manage-profile",
             (service, actor) => service.DeactivateProfileAsync(actor, id, version, ct), ct);
 
+    public Task<BusinessPage<DeliveryProfile>> ListProfilesAsync(string userId, Guid tenantId,
+        Guid organizationId, int offset = 0, int limit = 50, CancellationToken ct = default)
+        => RunDelivery(userId, tenantId, organizationId, "delivery.read",
+            (service, actor) => service.ListProfilesAsync(actor, offset, limit, ct), ct);
+
     public Task<DeliveryRequest> QueueAsync(string userId, Guid tenantId, Guid organizationId,
         Guid operationId, DeliveryQueueInput input, CancellationToken ct = default)
         => RunDelivery(userId, tenantId, organizationId, "delivery.queue",
@@ -87,6 +97,11 @@ public sealed partial class BillingBridge
         Guid id, CancellationToken ct = default)
         => RunDelivery(userId, tenantId, organizationId, "delivery.read",
             (service, actor) => service.GetAsync(actor, id, ct), ct);
+
+    public Task<BusinessPage<DeliveryRequest>> ListRequestsAsync(string userId, Guid tenantId,
+        Guid organizationId, int offset = 0, int limit = 50, CancellationToken ct = default)
+        => RunDelivery(userId, tenantId, organizationId, "delivery.read",
+            (service, actor) => service.ListRequestsAsync(actor, offset, limit, ct), ct);
 
     public Task<DeliveryRequest> CancelAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, CancellationToken ct = default)
@@ -144,6 +159,10 @@ public sealed partial class BillingBridge
             => SaveDeliveryValue(value.Scope, "COL_DELIVERY_TEMPLATE", "TEMPLATE_ID", value.Id, value.Version,
                 expectedVersion, Serialize(value), ct);
 
+        public Task<BusinessPage<DeliveryTemplate>> QueryDeliveryTemplatesAsync(
+            int offset, int limit, CancellationToken ct)
+            => QueryDeliveryPage<DeliveryTemplate>("COL_DELIVERY_TEMPLATE", "TEMPLATE_ID", offset, limit, ct);
+
         public Task<DeliveryProfile?> FindDeliveryProfileAsync(Guid id, CancellationToken ct)
             => ReadDelivery<DeliveryProfile>("COL_DELIVERY_PROFILE", "PROFILE_ID", id, ct);
 
@@ -151,11 +170,19 @@ public sealed partial class BillingBridge
             => SaveDeliveryValue(value.Scope, "COL_DELIVERY_PROFILE", "PROFILE_ID", value.Id, value.Version,
                 expectedVersion, Serialize(value), ct);
 
+        public Task<BusinessPage<DeliveryProfile>> QueryDeliveryProfilesAsync(
+            int offset, int limit, CancellationToken ct)
+            => QueryDeliveryPage<DeliveryProfile>("COL_DELIVERY_PROFILE", "PROFILE_ID", offset, limit, ct);
+
         public Task<DeliveryRequest?> FindDeliveryAsync(Guid id, CancellationToken ct)
             => ReadDelivery<DeliveryRequest>("COL_DELIVERY_REQUEST", "DELIVERY_ID", id, ct);
 
         public Task<DeliveryRequest?> FindDeliveryByOperationAsync(Guid operationId, CancellationToken ct)
             => ReadDelivery<DeliveryRequest>("COL_DELIVERY_REQUEST", "OPERATION_ID", operationId, ct);
+
+        public Task<BusinessPage<DeliveryRequest>> QueryDeliveriesAsync(
+            int offset, int limit, CancellationToken ct)
+            => QueryDeliveryPage<DeliveryRequest>("COL_DELIVERY_REQUEST", "DELIVERY_ID", offset, limit, ct);
 
         public Task<DeliveryDeadLetterOperation?> FindDeliveryDeadLetterOperationAsync(
             Guid operationId, CancellationToken ct)
@@ -238,6 +265,21 @@ public sealed partial class BillingBridge
             var payload = await Scalar<string?>($"SELECT PAYLOAD FROM {table} WHERE {ScopeWhere} AND {keyColumn}=@Key",
                 new { Key = Text(key) }, ct);
             return payload is null ? null : Deserialize<T>(payload);
+        }
+
+        private async Task<BusinessPage<T>> QueryDeliveryPage<T>(string table, string keyColumn,
+            int offset, int limit, CancellationToken ct)
+        {
+            var total = await Scalar<long>($"SELECT COUNT(*) FROM {table} WHERE {ScopeWhere}", null, ct);
+            var rows = await Rows<PayloadRow>($"""
+                SELECT PAYLOAD AS Payload FROM (
+                    SELECT PAYLOAD, ROW_NUMBER() OVER (ORDER BY {keyColumn}) AS RowNumber
+                    FROM {table}
+                    WHERE TENANT_ID=@TenantId AND ORGANIZATION_ID=@OrganizationId
+                ) AS page WHERE RowNumber>@Offset AND RowNumber<=@End ORDER BY RowNumber
+                """, new { Offset = offset, End = (long)offset + limit }, ct);
+            return new BusinessPage<T>(Array.AsReadOnly(rows
+                .Select(row => Deserialize<T>(row.Payload)).ToArray()), total);
         }
 
         private async Task SaveDeliveryValue(BusinessScope scope, string table, string keyColumn, Guid id,

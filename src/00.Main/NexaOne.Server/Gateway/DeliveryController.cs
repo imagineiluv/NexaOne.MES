@@ -25,6 +25,11 @@ public sealed class DeliveryController(IDeliveryBridge bridge, ILogger<DeliveryC
         => Execute(user => bridge.CreateTemplateAsync(user, tenantId, organizationId,
             command.Name, command.Subject, command.Body, command.Variables, ct));
 
+    [HttpGet("templates")]
+    public Task<IActionResult> ListTemplates(Guid tenantId, Guid organizationId, CancellationToken ct,
+        [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListTemplatesAsync(user, tenantId, organizationId, offset, limit, ct));
+
     [HttpPost("templates/{id:guid}/deactivate")]
     public Task<IActionResult> DeactivateTemplate(Guid tenantId, Guid organizationId, Guid id,
         [FromBody] VersionedCommand command, CancellationToken ct)
@@ -35,6 +40,11 @@ public sealed class DeliveryController(IDeliveryBridge bridge, ILogger<DeliveryC
         [FromBody] ProfileCreate command, CancellationToken ct)
         => Execute(user => bridge.CreateProfileAsync(user, tenantId, organizationId, command.Name,
             command.ProviderKey, command.CredentialReference, command.ToPolicy(), ct));
+
+    [HttpGet("profiles")]
+    public Task<IActionResult> ListProfiles(Guid tenantId, Guid organizationId, CancellationToken ct,
+        [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListProfilesAsync(user, tenantId, organizationId, offset, limit, ct));
 
     [HttpPost("profiles/{id:guid}/deactivate")]
     public Task<IActionResult> DeactivateProfile(Guid tenantId, Guid organizationId, Guid id,
@@ -47,6 +57,11 @@ public sealed class DeliveryController(IDeliveryBridge bridge, ILogger<DeliveryC
         => Execute(user => bridge.QueueAsync(user, tenantId, organizationId, command.OperationId,
             new(command.TemplateId, command.ProfileId, command.Recipient, command.Variables,
                 command.ScheduledAt), ct));
+
+    [HttpGet]
+    public Task<IActionResult> ListRequests(Guid tenantId, Guid organizationId, CancellationToken ct,
+        [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListRequestsAsync(user, tenantId, organizationId, offset, limit, ct));
 
     [HttpGet("{id:guid}")]
     public Task<IActionResult> Get(Guid tenantId, Guid organizationId, Guid id, CancellationToken ct)

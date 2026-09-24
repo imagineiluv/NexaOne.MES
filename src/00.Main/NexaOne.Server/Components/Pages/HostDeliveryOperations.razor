@@ -56,6 +56,7 @@
 
         @if (_scope is not null)
         {
+            <DeliveryCatalogPanel @key="SelectedKey" Scope="_scope" UserId="_currentUserId!" />
             <section id="delivery-dead-letters" aria-labelledby="delivery-dead-heading" aria-busy="@(_listRequest is not null)">
                 <div class="bwk-heading">
                     <h2 id="delivery-dead-heading">@T("deliveryOps.deadLetters", "Dead-letter", "Dead letters")</h2>

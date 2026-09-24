@@ -30,6 +30,8 @@ public sealed class DeliveryOperationsWorkspaceTests : BunitContext
         authorization.SetAuthorized("operator");
         Services.AddSingleton(_api.Object);
         Services.AddSingleton(new UiTextService());
+        Reads<DeliveryTemplate>(_ => new([], 0));
+        Reads<DeliveryProfile>(_ => new([], 0));
     }
 
     [Fact]
@@ -95,6 +97,58 @@ public sealed class DeliveryOperationsWorkspaceTests : BunitContext
         ((string)writes[0].Arguments[1]!).Should().EndWith($"/{item.Id:D}/dead-letter/retry");
     }
 
+    [Fact]
+    public void Read_only_catalog_never_renders_template_body_or_credential_reference()
+    {
+        Reads<DeliveryTemplate>(_ => new([Template()], 1));
+        Reads<DeliveryProfile>(_ => new([Profile()], 1));
+        Reads<DeliveryRequest>(_ => new([], 0));
+
+        var cut = Render<DeliveryCatalogPanel>(parameters => parameters
+            .Add(value => value.Scope, Scope("delivery.read"))
+            .Add(value => value.UserId, "operator"));
+
+        cut.WaitForAssertion(() => cut.FindAll("[data-template]").Should().ContainSingle());
+        cut.FindAll("[data-profile]").Should().ContainSingle();
+        cut.Markup.Should().NotContain("TOP-SECRET-BODY");
+        cut.Markup.Should().NotContain("vault/top-secret");
+        cut.FindAll("#delivery-template-form").Should().BeEmpty();
+        cut.FindAll("#delivery-profile-form").Should().BeEmpty();
+        cut.FindAll("#delivery-request-form").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Unknown_queue_outcome_reuses_the_same_operation_identifier()
+    {
+        var template = Template(); var profile = Profile();
+        Reads<DeliveryTemplate>(_ => new([template], 1));
+        Reads<DeliveryProfile>(_ => new([profile], 1));
+        Reads<DeliveryRequest>(_ => new([], 0));
+        var queued = DeadLetter() with { State = DeliveryState.Pending, AttemptCount = 0, LastErrorCode = null };
+        _api.SetupSequence(api => api.WriteInventoryAsync<DeliveryRequest>(HttpMethod.Post,
+                It.IsAny<string>(), It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((null, 503, null, "unavailable"))
+            .ReturnsAsync((queued, 200, null, null));
+
+        var cut = Render<DeliveryCatalogPanel>(parameters => parameters
+            .Add(value => value.Scope, Scope("delivery.read", "delivery.queue"))
+            .Add(value => value.UserId, "operator"));
+        cut.WaitForAssertion(() => cut.FindAll("#delivery-request-form select").Should().HaveCount(2));
+        cut.FindAll("#delivery-request-form select")[0].Change(template.Id.ToString("D"));
+        cut.FindAll("#delivery-request-form select")[1].Change(profile.Id.ToString("D"));
+        cut.Find("#delivery-request-form input").Change("buyer@example.com");
+        cut.Find("#delivery-request-form textarea").Change("name=Buyer");
+        cut.Find("#delivery-request-queue").Click();
+        cut.WaitForAssertion(() => cut.Find("[role=alert]").Should().NotBeNull());
+        cut.Find("#delivery-request-queue").Click();
+        cut.WaitForAssertion(() => _api.Invocations.Count(call =>
+            call.Method.Name == nameof(IApiClient.WriteInventoryAsync)).Should().Be(2));
+
+        var writes = _api.Invocations.Where(call => call.Method.Name == nameof(IApiClient.WriteInventoryAsync))
+            .ToArray();
+        OperationId(writes[0].Arguments[2]!).Should().Be(OperationId(writes[1].Arguments[2]!));
+    }
+
     private void Reads<T>(Func<string, BusinessPage<T>> response)
         => _api.Setup(api => api.ReadInventoryAsync<BusinessPage<T>>(
                 It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -124,5 +178,19 @@ public sealed class DeliveryOperationsWorkspaceTests : BunitContext
             new DateTimeOffset(2026, 9, 24, 5, 0, 0, TimeSpan.Zero), "operator",
             new DateTimeOffset(2026, 9, 24, 4, 0, 0, TimeSpan.Zero), LastLeaseId: lease,
             LastErrorCode: "DELIVERY_PROVIDER_SEND_FAILED");
+    }
+
+    private static DeliveryTemplate Template()
+    {
+        var scope = new BusinessScope("NexaOne.MES", Tenant.ToString("D"), Organization.ToString("D"));
+        return new(Guid.NewGuid(), scope, Guid.NewGuid(), "Welcome", DeliveryChannel.Email,
+            "Hello {{name}}", "TOP-SECRET-BODY", ["name"]);
+    }
+
+    private static DeliveryProfile Profile()
+    {
+        var scope = new BusinessScope("NexaOne.MES", Tenant.ToString("D"), Organization.ToString("D"));
+        return new(Guid.NewGuid(), scope, Guid.NewGuid(), "Primary", DeliveryChannel.Email,
+            "smtp", "vault/top-secret", new(3, TimeSpan.FromMinutes(1), TimeSpan.FromHours(1)));
     }
 }

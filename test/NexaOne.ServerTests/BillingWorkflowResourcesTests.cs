@@ -33,6 +33,8 @@ public sealed class BillingWorkflowResourcesTests
             Scalar(connection, "SELECT PARENT_MENU_ID FROM SYS_MENU WHERE UI_ID='NX_DELIVERY_OPERATIONS'").Should().Be("FACTORY_SLS");
             Scalar(connection, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='menu.NX_DELIVERY_OPERATIONS' AND LANGUAGE='EnUs'")
                 .Should().Be("Delivery failures");
+            Scalar(connection, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='deliveryAdmin.secretNote' AND LANGUAGE='EnUs'")
+                .Should().Be("Template bodies and credential references are never shown in lists.");
         });
 
     [Fact]
