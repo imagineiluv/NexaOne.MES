@@ -13,6 +13,11 @@ namespace NexaOne.Server.Gateway;
 [Route("api/v1/crm/{tenantId:guid}/{organizationId:guid}")]
 public sealed class CrmController(ICrmBridge bridge, ILogger<CrmController> logger) : ControllerBase
 {
+    [HttpGet("/api/v1/crm/scopes/me")]
+    public Task<IActionResult> ListScopes(CancellationToken ct,
+        [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListAccessibleScopesAsync(user, offset, limit, ct));
+
     [HttpGet("pipelines")]
     public Task<IActionResult> ListPipelines(Guid tenantId, Guid organizationId,
         [FromQuery] PipelineQuery query, CancellationToken ct)

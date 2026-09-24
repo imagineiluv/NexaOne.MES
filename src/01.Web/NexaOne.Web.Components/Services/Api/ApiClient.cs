@@ -263,7 +263,7 @@ public sealed class ApiClient : IApiClient
     {
         ct.ThrowIfCancellationRequested();
         var isWrite = method != HttpMethod.Get;
-        if (!IsInventoryPath(relativePath))
+        if (!IsBusinessPath(relativePath))
             return (null, 400, "INVALID_INVENTORY_PATH",
                 isWrite ? InventoryWriteRequestError() : _ui.T("error.inventoryPath", "재고 조회 경로가 올바르지 않습니다."));
 
@@ -342,10 +342,12 @@ public sealed class ApiClient : IApiClient
     private string InventoryWriteOutcomeError()
         => _ui.T("error.inventoryWriteOutcome", "변경 결과를 확인할 수 없습니다. 다시 시도하기 전에 현재 상태를 확인해 주세요.");
 
-    private static bool IsInventoryPath(string? relativePath)
+    private static bool IsBusinessPath(string? relativePath)
     {
-        // Business workspaces share one guarded read/write channel: inventory (ivt) and billing (erp).
-        if (relativePath is null || !(relativePath.StartsWith("api/v1/ivt/", StringComparison.Ordinal) || relativePath.StartsWith("api/v1/erp/", StringComparison.Ordinal))
+        // Business workspaces share one guarded read/write channel: inventory, ERP and CRM.
+        if (relativePath is null || !(relativePath.StartsWith("api/v1/ivt/", StringComparison.Ordinal)
+            || relativePath.StartsWith("api/v1/erp/", StringComparison.Ordinal)
+            || relativePath.StartsWith("api/v1/crm/", StringComparison.Ordinal))
             || relativePath.Contains('#') || relativePath.Any(char.IsControl)
             || !Uri.TryCreate(relativePath, UriKind.Relative, out _))
             return false;

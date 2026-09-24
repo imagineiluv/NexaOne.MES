@@ -1,0 +1,430 @@
+@page "/meta/NX_CRM_WORKSPACE"
+@attribute [Authorize]
+@using System.Globalization
+@using NexaFramework.Service
+@using NexaFramework.Service.Crm
+@using NexaFramework.Service.Projects
+@using NexaOne.Common.Security
+@using NexaOne.ServiceContracts.Crm
+@using NexaOne.ServiceContracts.Sys
+@implements IDisposable
+@inject IApiClient Api
+@inject AuthenticationStateProvider Authentication
+@inject UiTextService Ui
+
+<PageTitle>@T("crm.title", "CRM 작업 공간", "CRM workspace")</PageTitle>
+<div class="crm-workspace">
+    <!--
+    THESIS: CRM 가시성은 서버가 결정하며, 화면은 선택한 조직에서 반환된 행만 운영자가 확인하게 한다.
+    OWN-WORLD: Nexa Industrial의 cool-blue paper, compact tables, teal selection signal을 그대로 잇는다.
+    STORY: 조직을 고르고 pipeline·거래·프로젝트·팀·고객 연결을 조회한 뒤 상세를 확인하거나 고객을 등록한다.
+    FIRST VIEWPORT: 제목 아래 조직 인덱스가 먼저 오고, 선택 뒤 작업 도구와 데이터 표가 문서 순서대로 열린다.
+    FORM: established Workbench / Index-First extension; seed key crm-workspace-v1.
+    FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+    -->
+    <header>
+        <h1>@T("crm.title", "CRM 작업 공간", "CRM workspace")</h1>
+        <p>@T("crm.intro", "접근 가능한 조직에서 pipeline, 보이는 거래와 프로젝트, CRM 고객 연결을 확인합니다.", "Review pipelines, visible deals and projects, and manage CRM customer links in an accessible organization.")</p>
+    </header>
+
+    @if (_identityLoading) { <p role="status">@Loading</p> }
+    else if (!_authenticated) { <p role="alert">@Expired</p> }
+    else
+    {
+        <section id="crm-scopes" aria-labelledby="crm-scope-heading" aria-busy="@Busy(Pane.Scopes).ToString().ToLowerInvariant()">
+            <div class="cw-heading">
+                <h2 id="crm-scope-heading">@T("crm.scope", "내 CRM 범위", "My CRM scopes")</h2>
+                <button type="button" id="crm-refresh-scopes" disabled="@Busy(Pane.Scopes)" @onclick="ReloadScopesAsync">@T("inventory.refreshScopes", "범위 새로고침", "Refresh scopes")</button>
+            </div>
+            @PaneStatus(Pane.Scopes)
+            @if (_scopes is not null && _scopes.Items.Count > 0)
+            {
+                <ul class="cw-scopes">
+                    @foreach (var item in _scopes.Items)
+                    {
+                        <li @key="ScopeKey(item)">
+                            <button type="button" class="cw-choice" data-scope="@ScopeKey(item)" aria-pressed="@(SelectedKey == ScopeKey(item))" @onclick="() => SelectScopeAsync(item)">
+                                <span>@item.OrganizationId.ToString("D")</span>
+                                <span class="cw-id">@item.TenantId.ToString("D")</span>
+                            </button>
+                        </li>
+                    }
+                </ul>
+            }
+            @Pager(Pane.Scopes)
+        </section>
+
+        @if (_scope is not null)
+        {
+            <div class="cw-scopebar" role="status">
+                <span>@T("crm.selectedScope", "CRM 범위", "CRM scope")</span>
+                <strong class="cw-id">@SelectedKey</strong>
+                <button type="button" id="crm-refresh" disabled="@BusyData" @onclick="RefreshAsync">@T("crm.refresh", "CRM 데이터 새로고침", "Refresh CRM data")</button>
+            </div>
+            @if (!CanRead)
+            {
+                <p id="crm-no-read-access" role="status">@T("crm.noReadAccess", "이 범위는 접근 가능하지만 현재 CRM 조회 권한이 없습니다.", "This scope is accessible, but you currently have no CRM read permission.")</p>
+            }
+            else
+            {
+                @if (CanReadPane(Pane.Customers))
+                {
+                <section id="crm-customers" aria-labelledby="crm-customers-heading" aria-busy="@Busy(Pane.Customers).ToString().ToLowerInvariant()">
+                    <div class="cw-heading"><h2 id="crm-customers-heading">@T("crm.customerEnrollments", "CRM 고객", "CRM customers")</h2></div>
+                    @if (CanEnroll)
+                    {
+                        <form class="cw-enroll" @onsubmit="EnrollAsync" @onsubmit:preventDefault>
+                            <label for="crm-customer-id">@T("crm.enrollCustomer", "MDM 고객 코드", "MDM customer code")</label>
+                            <input id="crm-customer-id" maxlength="50" @bind="_customerId" disabled="@_enrolling" />
+                            <button id="crm-enroll" type="submit" disabled="@(_enrolling || string.IsNullOrWhiteSpace(_customerId))">@T("crm.enroll", "고객 등록", "Enroll customer")</button>
+                        </form>
+                    }
+                    @if (_writeMessage is not null) { <p role="status">@_writeMessage</p> }
+                    @if (_writeError is not null) { <p role="alert">@_writeError</p> }
+                    @PaneStatus(Pane.Customers)
+                    @if (_customers is not null && _customers.Items.Count > 0)
+                    {
+                        <div class="cw-table-scroll" tabindex="0"><table><thead><tr><th>@T("billing.customerCode", "고객 코드", "Customer code")</th><th>@T("inventory.name", "이름", "Name")</th><th>@T("crm.enrolledBy", "등록 사용자", "Enrolled by")</th><th>@T("billing.paidAt", "등록 시각 (UTC)", "Enrolled at (UTC)")</th><th>@T("crm.contact", "CRM 연락처", "CRM contact")</th></tr></thead><tbody>
+                            @foreach (var item in _customers.Items) { <tr @key="item.ContactId"><td>@item.CustomerId</td><td>@item.CustomerName</td><td>@item.EnrolledByUserId</td><td>@Utc(item.EnrolledAt)</td><td class="cw-id">@item.ContactId.ToString("D")</td></tr> }
+                        </tbody></table></div>
+                    }
+                    @Pager(Pane.Customers)
+                </section>
+                }
+
+                @DataSection(Pane.Pipelines, _pipelines?.Items, pipeline => pipeline.Name, pipeline => pipeline.Description,
+                    pipeline => pipeline.Id, pipeline => SelectPipelineAsync(pipeline))
+                @DataSection(Pane.Deals, _deals?.Items, deal => deal.Title,
+                    deal => $"{T("crm.probability", "확률", "Probability")} {deal.Probability}/5 · {T("crm.stage", "단계", "Stage")} {deal.StageId:D}",
+                    deal => deal.Id, deal => SelectDealAsync(deal))
+                @DataSection(Pane.Projects, _projects?.Items, project => project.Values.Name,
+                    project => $"{StatusName(project.Values.Status)} · {project.Values.Code}", project => project.Id,
+                    project => SelectProjectAsync(project))
+                @DataSection(Pane.Teams, _teams?.Items, team => team.Values.Name,
+                    team => $"{T("crm.members", "멤버", "Members")} {team.Members.Count}", team => team.Id,
+                    team => SelectTeamAsync(team))
+
+                @if (_selected is not null)
+                {
+                    <section id="crm-details" aria-labelledby="crm-details-heading">
+                        <h2 id="crm-details-heading">@_selected.Kind</h2>
+                        <dl class="cw-details">
+                            @foreach (var field in _selected.Fields) { <div><dt>@field.Label</dt><dd class="@(field.Identifier ? "cw-id" : null)">@field.Value</dd></div> }
+                        </dl>
+                    </section>
+                }
+            }
+        }
+    }
+</div>
+
+@code {
+    private enum Pane { Scopes, Customers, Pipelines, Deals, Projects, Teams }
+    private static readonly Pane[] DataPanes = [Pane.Customers, Pane.Pipelines, Pane.Deals, Pane.Projects, Pane.Teams];
+    private const int PageSize = 50;
+    private readonly Dictionary<Pane, int> _offsets = Enum.GetValues<Pane>().ToDictionary(value => value, _ => 0);
+    private readonly Dictionary<Pane, long> _totals = new();
+    private readonly Dictionary<Pane, CancellationTokenSource> _requests = new();
+    private readonly Dictionary<Pane, (int Status, string? Code, string? Error)> _errors = new();
+    private BusinessPage<BusinessMembership>? _scopes;
+    private CrmCustomerEnrollmentPage? _customers;
+    private CrmPage<Pipeline>? _pipelines;
+    private CrmPage<Deal>? _deals;
+    private WorkPage<Project>? _projects;
+    private WorkPage<Team>? _teams;
+    private BusinessMembership? _scope;
+    private SelectedRecord? _selected;
+    private CancellationTokenSource? _detailRequest;
+    private string? _currentUserId, _writeMessage, _writeError;
+    private string _customerId = "";
+    private bool _authenticated, _disposed, _interactive, _enrolling;
+    private bool _identityLoading = true;
+    private Task<AuthenticationState>? _pendingAuthentication;
+    private int _identityVersion;
+
+    private string Loading => T("inventory.loading", "불러오는 중…", "Loading…");
+    private string Expired => T("inventory.unauthorized", "인증이 만료되었습니다. 다시 로그인해 주세요.", "Your session expired. Sign in again.");
+    private bool CanRead => DataPanes.Any(CanReadPane);
+    private bool CanEnroll => Has("crm.customer.enroll");
+    private bool BusyData => DataPanes.Any(Busy) || _detailRequest is not null || _enrolling;
+    private string? SelectedKey => _scope is null ? null : ScopeKey(_scope);
+
+    protected override void OnInitialized()
+    {
+        Authentication.AuthenticationStateChanged += AuthenticationChanged;
+        Ui.Changed += LanguageChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _disposed) return;
+        _interactive = true;
+        await ChangeIdentityAsync(_pendingAuthentication ?? Authentication.GetAuthenticationStateAsync());
+        _pendingAuthentication = null;
+    }
+
+    private void AuthenticationChanged(Task<AuthenticationState> state)
+    {
+        if (!_interactive) { _pendingAuthentication = state; return; }
+        if (!_disposed) _ = InvokeAsync(() => ChangeIdentityAsync(state));
+    }
+
+    private void LanguageChanged() { if (!_disposed) _ = InvokeAsync(StateHasChanged); }
+
+    private async Task ChangeIdentityAsync(Task<AuthenticationState> state)
+    {
+        if (_disposed) return;
+        var version = ++_identityVersion;
+        ClearScope(); Cancel(Pane.Scopes); _scopes = null; _totals.Clear(); _errors.Clear();
+        _authenticated = false; _identityLoading = true; _currentUserId = null;
+        StateHasChanged();
+        var auth = await state;
+        if (_disposed || version != _identityVersion) return;
+        _authenticated = auth.User.Identity?.IsAuthenticated == true;
+        _currentUserId = _authenticated ? auth.User.CurrentUserId() : null;
+        _identityLoading = false;
+        if (_authenticated) await LoadScopesAsync();
+        if (!_disposed && version == _identityVersion) StateHasChanged();
+    }
+
+    private Task LoadScopesAsync() => ReadAsync<BusinessMembership, BusinessPage<BusinessMembership>>(
+        Pane.Scopes, $"api/v1/crm/scopes/me?offset={_offsets[Pane.Scopes]}&limit={PageSize}",
+        value => { _scopes = value; return value?.Total; });
+
+    private async Task ReloadScopesAsync()
+    {
+        ClearScope(); _offsets[Pane.Scopes] = 0;
+        await LoadScopesAsync();
+    }
+
+    private async Task SelectScopeAsync(BusinessMembership scope)
+    {
+        if (SelectedKey == ScopeKey(scope)) return;
+        ClearScope(); _scope = scope;
+        await Task.WhenAll(DataPanes.Where(CanReadPane).Select(LoadPaneAsync));
+    }
+
+    private void ClearScope()
+    {
+        foreach (var pane in DataPanes)
+        {
+            Cancel(pane); _offsets[pane] = 0; _totals.Remove(pane); _errors.Remove(pane);
+        }
+        _detailRequest?.Cancel(); _detailRequest?.Dispose(); _detailRequest = null;
+        _scope = null; _customers = null; _pipelines = null; _deals = null; _projects = null; _teams = null;
+        _selected = null; _customerId = ""; _writeMessage = _writeError = null;
+    }
+
+    private Task RefreshAsync()
+    {
+        _selected = null;
+        return Task.WhenAll(DataPanes.Where(CanReadPane).Select(LoadPaneAsync));
+    }
+
+    private bool Has(string permission) => _scope?.Permissions.Contains(permission, StringComparer.Ordinal) == true;
+    private bool CanReadPane(Pane pane) => pane switch
+    {
+        Pane.Customers or Pane.Pipelines or Pane.Deals => Has("crm.read"),
+        Pane.Projects => Has("crm.project.read"),
+        Pane.Teams => Has("crm.team.read"),
+        _ => true
+    };
+
+    private Task LoadPaneAsync(Pane pane)
+    {
+        if (_scope is null || !CanReadPane(pane) || _disposed) return Task.CompletedTask;
+        var root = $"api/v1/crm/{_scope.TenantId:D}/{_scope.OrganizationId:D}";
+        var page = $"offset={_offsets[pane]}&limit={PageSize}";
+        return pane switch
+        {
+            Pane.Customers => ReadAsync<CrmCustomerEnrollment, CrmCustomerEnrollmentPage>(pane,
+                $"{root}/customer-enrollments?{page}", value => { _customers = value; return value?.Total; }),
+            Pane.Pipelines => ReadAsync<Pipeline, CrmPage<Pipeline>>(pane,
+                $"{root}/pipelines?{page}", value => { _pipelines = value; return value?.Total; }),
+            Pane.Deals => ReadAsync<Deal, CrmPage<Deal>>(pane,
+                $"{root}/deals?{page}", value => { _deals = value; return value?.Total; }),
+            Pane.Projects => ReadAsync<Project, WorkPage<Project>>(pane,
+                $"{root}/projects?{page}", value => { _projects = value; return value?.Total; }),
+            Pane.Teams => ReadAsync<Team, WorkPage<Team>>(pane,
+                $"{root}/teams?{page}", value => { _teams = value; return value?.Total; }),
+            _ => Task.CompletedTask
+        };
+    }
+
+    private async Task ReadAsync<TItem, TPage>(Pane pane, string path, Func<TPage?, long?> apply)
+        where TPage : class
+    {
+        Cancel(pane);
+        var request = new CancellationTokenSource();
+        _requests[pane] = request;
+        apply(null); _totals.Remove(pane); _errors.Remove(pane);
+        try
+        {
+            var result = await Api.ReadInventoryAsync<TPage>(path, request.Token);
+            if (!Owns(pane, request)) return;
+            var total = result.Value is null ? null : apply(result.Value);
+            if (result.StatusCode is >= 200 and < 300 && result.Error is null && total is >= 0)
+                _totals[pane] = total.Value;
+            else
+            {
+                apply(null);
+                _errors[pane] = (result.StatusCode, result.Code, result.Error);
+            }
+        }
+        catch (OperationCanceledException) when (request.IsCancellationRequested) { }
+        finally
+        {
+            if (Owns(pane, request)) { _requests.Remove(pane); StateHasChanged(); }
+            request.Dispose();
+        }
+    }
+
+    private async Task EnrollAsync()
+    {
+        if (_scope is null || !CanEnroll || _enrolling || _currentUserId is null || string.IsNullOrWhiteSpace(_customerId)) return;
+        _enrolling = true; _writeMessage = _writeError = null;
+        var root = $"api/v1/crm/{_scope.TenantId:D}/{_scope.OrganizationId:D}";
+        try
+        {
+            var result = await Api.WriteInventoryAsync<CrmCustomerEnrollment>(HttpMethod.Post,
+                $"{root}/customer-enrollments", new { customerId = _customerId.Trim() }, _currentUserId);
+            if (result.StatusCode is >= 200 and < 300 && result.Value is not null && result.Error is null)
+            {
+                _writeMessage = $"{T("crm.enroll", "고객 등록", "Enroll customer")}: {result.Value.CustomerId}";
+                _customerId = ""; _offsets[Pane.Customers] = 0; await LoadPaneAsync(Pane.Customers);
+            }
+            else _writeError = ErrorMessage(result.StatusCode, result.Code, result.Error);
+        }
+        finally { _enrolling = false; }
+    }
+
+    private Task SelectPipelineAsync(Pipeline value) => LoadDetailAsync<PipelineDetails>(Pane.Pipelines,
+        $"pipelines/{value.Id:D}", details => new(T("crm.pipeline", "Pipeline", "Pipeline"),
+        [Field(T("inventory.name", "이름", "Name"), details.Pipeline.Name),
+         Field(T("crm.stages", "단계", "Stages"), string.Join(" → ", details.Stages.OrderBy(stage => stage.Index).Select(stage => stage.Name))),
+         Field("ID", details.Pipeline.Id.ToString("D"), true)]));
+
+    private Task SelectDealAsync(Deal value) => LoadDetailAsync<Deal>(Pane.Deals, $"deals/{value.Id:D}", deal =>
+        new(T("crm.deal", "거래", "Deal"),
+        [Field(T("inventory.name", "이름", "Name"), deal.Title), Field(T("crm.probability", "확률", "Probability"), $"{deal.Probability}/5"),
+         Field(T("crm.stage", "단계", "Stage"), deal.StageId.ToString("D"), true), Field(T("crm.client", "고객", "Client"), deal.ClientId?.ToString("D") ?? "—", true),
+         Field(T("crm.createdBy", "생성 사용자", "Created by"), deal.CreatedByUserId ?? "—"), Field(T("crm.assignees", "담당자", "Assignees"), string.Join(", ", deal.AssignedEmployeeIds), true)]));
+
+    private Task SelectProjectAsync(Project value) => LoadDetailAsync<Project>(Pane.Projects, $"projects/{value.Id:D}", project =>
+        new(T("crm.project", "프로젝트", "Project"),
+        [Field(T("inventory.name", "이름", "Name"), project.Values.Name), Field(T("crm.status", "상태", "Status"), StatusName(project.Values.Status)),
+         Field(T("crm.client", "고객", "Client"), project.Links.CustomerId?.ToString("D") ?? "—", true), Field(T("crm.members", "멤버", "Members"), string.Join(", ", project.Links.Members.Select(member => member.EmployeeId)), true),
+         Field(T("crm.teams", "팀", "Teams"), string.Join(", ", project.Links.TeamIds), true), Field("ID", project.Id.ToString("D"), true)]));
+
+    private Task SelectTeamAsync(Team value) => LoadDetailAsync<Team>(Pane.Teams, $"teams/{value.Id:D}", team =>
+        new(T("crm.team", "팀", "Team"),
+        [Field(T("inventory.name", "이름", "Name"), team.Values.Name), Field(T("crm.members", "멤버", "Members"), string.Join(", ", team.Members.Select(member => member.EmployeeId)), true), Field("ID", team.Id.ToString("D"), true)]));
+
+    private async Task LoadDetailAsync<TValue>(Pane pane, string relative, Func<TValue, SelectedRecord> map) where TValue : class
+    {
+        if (_scope is null || !CanReadPane(pane)) return;
+        _detailRequest?.Cancel(); _detailRequest?.Dispose();
+        var request = new CancellationTokenSource(); _detailRequest = request; _selected = null;
+        try
+        {
+            var root = $"api/v1/crm/{_scope.TenantId:D}/{_scope.OrganizationId:D}";
+            var result = await Api.ReadInventoryAsync<TValue>($"{root}/{relative}", request.Token);
+            if (!ReferenceEquals(_detailRequest, request)) return;
+            if (result.StatusCode is >= 200 and < 300 && result.Value is not null && result.Error is null)
+                _selected = map(result.Value);
+            else _selected = new(T("crm.details", "선택한 레코드", "Selected record"),
+                [Field(T("inventory.state", "상태", "State"), ErrorMessage(result.StatusCode, result.Code, result.Error))]);
+        }
+        catch (OperationCanceledException) when (request.IsCancellationRequested) { }
+        finally
+        {
+            if (ReferenceEquals(_detailRequest, request)) { _detailRequest = null; StateHasChanged(); }
+            request.Dispose();
+        }
+    }
+
+    private bool Owns(Pane pane, CancellationTokenSource request)
+        => !_disposed && _requests.TryGetValue(pane, out var current) && ReferenceEquals(current, request);
+    private void Cancel(Pane pane) { if (_requests.Remove(pane, out var request)) request.Cancel(); }
+    private bool Busy(Pane pane) => _requests.ContainsKey(pane);
+    private static string ScopeKey(BusinessMembership scope) => $"{scope.TenantId:D}/{scope.OrganizationId:D}";
+    private static string Utc(DateTimeOffset value) => value.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+    private string T(string key, string ko, string en) => Ui.T(key, Ui.Language == "EnUs" ? en : ko);
+    private string PaneTitle(Pane pane) => pane switch
+    {
+        Pane.Customers => T("crm.customerEnrollments", "CRM 고객", "CRM customers"), Pane.Pipelines => T("crm.pipelines", "Pipeline", "Pipelines"),
+        Pane.Deals => T("crm.deals", "거래", "Deals"), Pane.Projects => T("crm.projects", "프로젝트", "Projects"),
+        Pane.Teams => T("crm.teams", "팀", "Teams"), _ => T("crm.scope", "내 CRM 범위", "My CRM scopes")
+    };
+    private string StatusName(ProjectStatus status) => status switch
+    {
+        ProjectStatus.Open => T("crm.projectOpen", "열림", "Open"), ProjectStatus.InProgress => T("crm.projectInProgress", "진행 중", "In progress"),
+        ProjectStatus.Completed => T("crm.projectCompleted", "완료", "Completed"), ProjectStatus.Cancelled => T("crm.projectCancelled", "취소", "Cancelled"), _ => status.ToString()
+    };
+
+    private string ErrorMessage(int status, string? code = null, string? error = null)
+        => (status switch
+        {
+            401 => Expired,
+            403 => T("inventory.forbidden", "현재 조회 권한이 없습니다. 범위를 새로고침해 접근 상태를 확인하세요.", "You no longer have access. Refresh scopes to check access."),
+            404 => T("crm.notFound", "레코드를 찾을 수 없습니다. 목록을 새로고침하세요.", "The record was not found. Refresh the list."),
+            409 => T("crm.conflict", "현재 상태와 충돌했습니다. 목록을 새로고침하세요.", "The operation conflicts with the current state. Refresh the list."),
+            503 => T("inventory.unavailable", "서비스를 사용할 수 없습니다. 잠시 후 다시 조회해 주세요.", "The service is unavailable. Retry shortly."),
+            _ => T("inventory.readFailed", "요청을 완료하지 못했습니다. 다시 시도해 주세요.", "The request could not be completed. Retry.")
+        }) + (string.IsNullOrWhiteSpace(code) ? "" : $" [{code}]") + (string.IsNullOrWhiteSpace(error) ? "" : $" {error}");
+
+    private RenderFragment PaneStatus(Pane pane) => @<div class="cw-status" aria-live="polite">
+        @if (Busy(pane)) { <p role="status">@Loading</p> }
+        else if (_errors.TryGetValue(pane, out var error)) { <p role="alert">@ErrorMessage(error.Status, error.Code, error.Error)</p> }
+        else if (_totals.TryGetValue(pane, out var total) && total == 0)
+        { <p data-empty="true">@(pane == Pane.Scopes ? T("crm.noScopes", "현재 접근 가능한 CRM 범위가 없습니다.", "No CRM scopes are currently accessible.") : T("crm.empty", "이 페이지에 표시할 결과가 없습니다.", "No results on this page."))</p> }
+    </div>;
+
+    private RenderFragment DataSection<TValue>(Pane pane, IReadOnlyList<TValue>? items, Func<TValue, string> title,
+        Func<TValue, string?> summary, Func<TValue, Guid> id, Func<TValue, Task> select) => @<text>
+        @if (CanReadPane(pane))
+        {
+            <section id="@($"crm-{pane.ToString().ToLowerInvariant()}")" aria-labelledby="@($"crm-{pane.ToString().ToLowerInvariant()}-heading")" aria-busy="@Busy(pane).ToString().ToLowerInvariant()">
+                <h2 id="@($"crm-{pane.ToString().ToLowerInvariant()}-heading")">@PaneTitle(pane)</h2>
+                @PaneStatus(pane)
+                @if (items is not null && items.Count > 0)
+                {
+                    <ul class="cw-records">
+                        @foreach (var item in items)
+                        {
+                            <li class="cw-record" @key="id(item)"><strong>@title(item)</strong><p>@summary(item)</p><button type="button" data-select="@id(item)" @onclick="() => select(item)">@T("crm.select", "선택", "Select")</button></li>
+                        }
+                    </ul>
+                }
+                @Pager(pane)
+            </section>
+        }
+    </text>;
+
+    private bool CanNext(Pane pane) => !Busy(pane) && _totals.TryGetValue(pane, out var total)
+        && (long)_offsets[pane] + PageSize < total && _offsets[pane] <= int.MaxValue - PageSize;
+    private async Task MovePageAsync(Pane pane, int direction)
+    {
+        if (Busy(pane) || direction > 0 && !CanNext(pane) || direction < 0 && _offsets[pane] == 0) return;
+        _offsets[pane] = Math.Max(0, _offsets[pane] + direction * PageSize);
+        if (pane == Pane.Scopes) await LoadScopesAsync(); else await LoadPaneAsync(pane);
+    }
+    private RenderFragment Pager(Pane pane) => @<nav class="cw-pager" aria-label="@PaneTitle(pane)">
+        <button type="button" disabled="@(Busy(pane) || _offsets[pane] == 0)" @onclick="() => MovePageAsync(pane, -1)">@T("inventory.previous", "이전 페이지", "Previous page")</button>
+        @if (_totals.TryGetValue(pane, out var total)) { <span>@T("inventory.total", "전체", "Total") @total · @T("inventory.page", "페이지", "Page") @(_offsets[pane] / PageSize + 1)</span> }
+        <button type="button" disabled="@(!CanNext(pane))" @onclick="() => MovePageAsync(pane, 1)">@T("inventory.next", "다음 페이지", "Next page")</button>
+    </nav>;
+
+    private static SelectedField Field(string label, string? value, bool identifier = false) => new(label, string.IsNullOrWhiteSpace(value) ? "—" : value, identifier);
+    private sealed record SelectedField(string Label, string Value, bool Identifier);
+    private sealed record SelectedRecord(string Kind, IReadOnlyList<SelectedField> Fields);
+
+    public void Dispose()
+    {
+        _disposed = true; ++_identityVersion;
+        Authentication.AuthenticationStateChanged -= AuthenticationChanged;
+        Ui.Changed -= LanguageChanged;
+        foreach (var pane in _requests.Keys.ToArray()) Cancel(pane);
+        _detailRequest?.Cancel(); _detailRequest?.Dispose();
+    }
+}

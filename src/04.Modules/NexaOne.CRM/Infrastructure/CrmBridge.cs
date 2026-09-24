@@ -15,6 +15,8 @@ namespace NexaOne.CRM.Infrastructure;
 internal sealed class CrmBridge : ICrmBridge
 {
     private const string ProductId = "NexaOne.MES";
+    private readonly ServiceObjectProcessor _processor;
+    private readonly IBusinessMembershipBridge _memberships;
     private readonly PipelineService _pipelines;
     private readonly DealService _deals;
     private readonly CrmProjectBridge _projects;
@@ -23,11 +25,67 @@ internal sealed class CrmBridge : ICrmBridge
     public CrmBridge(EesDataSource dataSource, IBusinessMembershipBridge memberships,
         IBusinessMasterDirectory masterDirectory)
     {
+        _processor = new(dataSource);
+        _memberships = memberships ?? throw new ArgumentNullException(nameof(memberships));
         var adapter = new Adapter(dataSource, memberships);
         _pipelines = new PipelineService(adapter, adapter);
         _deals = new DealService(adapter, adapter);
         _projects = new CrmProjectBridge(dataSource, memberships);
         _customers = new CrmCustomerEnrollmentService(dataSource, memberships, masterDirectory);
+    }
+
+    public Task<BusinessPage<BusinessMembership>> ListAccessibleScopesAsync(string userId,
+        int offset = 0, int limit = 50, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(userId) || userId.Length > 50)
+            throw new BusinessException("CRM_ACCESS_DENIED");
+        if (offset < 0 || limit is < 1 or > 100)
+            throw new BusinessException("INVALID_CRM_QUERY");
+        return _processor.ExecuteInTransactionAsync(async (_, transaction) =>
+        {
+            const int batchSize = 128;
+            var items = new List<BusinessMembership>(limit);
+            long total = 0;
+            Guid? afterTenant = null, afterOrganization = null;
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                IReadOnlyList<BusinessMembership> batch;
+                try
+                {
+                    batch = await _memberships.ListAccessInTransactionAsync(transaction, userId,
+                        afterTenant, afterOrganization, batchSize, ct).ConfigureAwait(false);
+                }
+                catch (InvalidDataException)
+                {
+                    throw new BusinessException("CRM_ACCESS_DENIED");
+                }
+                if (batch is null || batch.Count > batchSize)
+                    throw new BusinessException("CRM_STORAGE_CONTRACT_VIOLATION");
+                foreach (var membership in batch)
+                {
+                    if (membership is null || membership.TenantId == Guid.Empty
+                        || membership.OrganizationId == Guid.Empty || membership.BusinessUserId == Guid.Empty
+                        || !membership.IsActive || membership.Version <= 0 || membership.Permissions is null)
+                        throw new BusinessException("CRM_STORAGE_CONTRACT_VIOLATION");
+                    if (afterTenant.HasValue)
+                    {
+                        var tenantOrder = string.CompareOrdinal(membership.TenantId.ToString("D"), afterTenant.Value.ToString("D"));
+                        if (tenantOrder < 0 || tenantOrder == 0
+                            && string.CompareOrdinal(membership.OrganizationId.ToString("D"), afterOrganization!.Value.ToString("D")) <= 0)
+                            throw new BusinessException("CRM_STORAGE_CONTRACT_VIOLATION");
+                    }
+                    afterTenant = membership.TenantId;
+                    afterOrganization = membership.OrganizationId;
+                    if (!membership.Permissions.Any(grant => grant.StartsWith("crm.", StringComparison.Ordinal)))
+                        continue;
+                    if (total++ >= offset && items.Count < limit) items.Add(membership);
+                }
+                if (batch.Count < batchSize) break;
+            }
+            ct.ThrowIfCancellationRequested();
+            return new BusinessPage<BusinessMembership>(Array.AsReadOnly(items.ToArray()), total);
+        }, IsolationLevel.Serializable, ct);
     }
 
     public Task<CrmPage<Pipeline>> ListPipelinesAsync(string userId, Guid tenantId, Guid organizationId,

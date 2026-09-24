@@ -135,6 +135,22 @@ public sealed class InventoryApiClientTests
         result.Error.Should().BeNull();
     }
 
+    [Fact]
+    public async Task Crm_paths_share_the_guarded_business_channel()
+    {
+        using var fixture = new ClientFixture(request =>
+        {
+            request.RequestUri!.AbsoluteUri.Should().Be("https://nexaone.local/mes/api/v1/crm/scopes/me");
+            return Response(200, "{\"items\":[],\"total\":0}");
+        });
+
+        var result = await fixture.Client.ReadInventoryAsync<BusinessPage<Product>>("api/v1/crm/scopes/me");
+
+        result.StatusCode.Should().Be(200);
+        result.Value!.Total.Should().Be(0);
+        result.Error.Should().BeNull();
+    }
+
     [Theory]
     [InlineData(403, "{\"code\":\"FORBIDDEN\",\"description\":\"Read grant revoked\"}", "FORBIDDEN", "Read grant revoked")]
     [InlineData(404, "{\"CODE\":\"SCOPE_NOT_FOUND\"}", "SCOPE_NOT_FOUND", "SCOPE_NOT_FOUND")]
