@@ -66,8 +66,73 @@
                         </div>
                     }
                     <div class="expense-directory-grid">
-                        <div><h3>@T("expenseWorkspace.categories", "카테고리", "Categories")</h3>@if (_categories is { } categories) { @if (categories.Items.Count == 0) { <p data-empty="true">@T("expenseWorkspace.noCategories", "활성 카테고리가 없습니다.", "No active categories.")</p> } else { <ul class="expense-pills">@foreach (var item in categories.Items) { <li @key="item.Id"><strong>@item.Input.Name</strong><span>@Short(item.Id)</span></li> }</ul> } }</div>
-                        <div><h3>@T("expenseWorkspace.vendors", "거래처", "Vendors")</h3>@if (_vendors is { } vendors) { @if (vendors.Items.Count == 0) { <p data-empty="true">@T("expenseWorkspace.noVendors", "활성 거래처가 없습니다.", "No active vendors.")</p> } else { <ul class="expense-pills">@foreach (var item in vendors.Items) { <li @key="item.Id"><strong>@item.Input.Name</strong><span>@Short(item.Id)</span></li> }</ul> } }</div>
+                        <div>
+                            <h3>@T("expenseWorkspace.categories", "카테고리", "Categories")</h3>
+                            @if (_directoryCategories is { } categories)
+                            {
+                                @if (categories.Items.Count == 0) { <p data-empty="true">@T("expenseWorkspace.noDirectoryCategories", "카테고리가 없습니다.", "No categories.")</p> }
+                                else
+                                {
+                                    <ul class="expense-pills">
+                                        @foreach (var item in categories.Items)
+                                        {
+                                            <li @key="item.Id" class="@(!item.Active ? "is-inactive" : null)">
+                                                <div><strong>@item.Input.Name</strong><span>@Short(item.Id) · @DirectoryState(item.Active)</span></div>
+                                                @if (Can("expense.directory.write")) { <button type="button" data-edit-category="@item.Id" aria-pressed="@((_selectedCategory?.Id == item.Id).ToString().ToLowerInvariant())" disabled="@_busy" @onclick="() => SelectCategory(item)">@T("expenseWorkspace.edit", "편집", "Edit")</button> }
+                                            </li>
+                                        }
+                                    </ul>
+                                }
+                            }
+                            @if (_selectedCategory is not null && Can("expense.directory.write"))
+                            {
+                                <form class="expense-directory-editor" @onsubmit="UpdateCategoryAsync" @onsubmit:preventDefault>
+                                    <h4>@T("expenseWorkspace.editCategory", "카테고리 편집", "Edit category")</h4>
+                                    <label for="expense-category-edit-name">@T("expenseWorkspace.name", "이름", "Name")<input id="expense-category-edit-name" aria-label="@T("expenseWorkspace.name", "이름", "Name")" maxlength="255" required autocomplete="off" @bind="_categoryEditName" disabled="@_busy" /></label>
+                                    <p id="expense-category-lifecycle-help">@T("expenseWorkspace.inactiveHistoryHelp", "비활성화해도 기존 비용의 참조와 감사 이력은 유지되며 새 비용에서는 선택할 수 없습니다.", "Deactivation preserves existing expense references and audit history but prevents selection for new expenses.")</p>
+                                    <div class="expense-directory-actions">
+                                        <button id="expense-category-save" type="submit" disabled="@_busy">@T("expenseWorkspace.save", "변경 저장", "Save changes")</button>
+                                        <button id="expense-category-active" class="@(_selectedCategory.Active ? "danger" : null)" type="button" aria-describedby="expense-category-lifecycle-help" disabled="@_busy" @onclick="SetCategoryActiveAsync">@(_selectedCategory.Active ? T("expenseWorkspace.deactivate", "비활성화", "Deactivate") : T("expenseWorkspace.reactivate", "재활성화", "Reactivate"))</button>
+                                        <button id="expense-category-edit-cancel" type="button" disabled="@_busy" @onclick="() => SetSelectedCategory(null)">@T("expenseWorkspace.cancelEdit", "편집 닫기", "Close editor")</button>
+                                    </div>
+                                </form>
+                            }
+                        </div>
+                        <div>
+                            <h3>@T("expenseWorkspace.vendors", "거래처", "Vendors")</h3>
+                            @if (_directoryVendors is { } vendors)
+                            {
+                                @if (vendors.Items.Count == 0) { <p data-empty="true">@T("expenseWorkspace.noDirectoryVendors", "거래처가 없습니다.", "No vendors.")</p> }
+                                else
+                                {
+                                    <ul class="expense-pills">
+                                        @foreach (var item in vendors.Items)
+                                        {
+                                            <li @key="item.Id" class="@(!item.Active ? "is-inactive" : null)">
+                                                <div><strong>@item.Input.Name</strong><span>@Short(item.Id) · @DirectoryState(item.Active)</span></div>
+                                                @if (Can("expense.directory.write")) { <button type="button" data-edit-vendor="@item.Id" aria-pressed="@((_selectedVendor?.Id == item.Id).ToString().ToLowerInvariant())" disabled="@_busy" @onclick="() => SelectVendor(item)">@T("expenseWorkspace.edit", "편집", "Edit")</button> }
+                                            </li>
+                                        }
+                                    </ul>
+                                }
+                            }
+                            @if (_selectedVendor is not null && Can("expense.directory.write"))
+                            {
+                                <form class="expense-directory-editor" @onsubmit="UpdateVendorAsync" @onsubmit:preventDefault>
+                                    <h4>@T("expenseWorkspace.editVendor", "거래처 편집", "Edit vendor")</h4>
+                                    <label for="expense-vendor-edit-name">@T("expenseWorkspace.name", "이름", "Name")<input id="expense-vendor-edit-name" aria-label="@T("expenseWorkspace.name", "이름", "Name")" maxlength="255" required autocomplete="organization" @bind="_vendorEditName" disabled="@_busy" /></label>
+                                    <label for="expense-vendor-edit-phone">@T("expenseWorkspace.phone", "전화", "Phone")<input id="expense-vendor-edit-phone" aria-label="@T("expenseWorkspace.phone", "전화", "Phone")" type="tel" maxlength="64" autocomplete="tel" @bind="_vendorEditPhone" disabled="@_busy" /></label>
+                                    <label for="expense-vendor-edit-website">@T("expenseWorkspace.website", "웹사이트", "Website")<input id="expense-vendor-edit-website" aria-label="@T("expenseWorkspace.website", "웹사이트", "Website")" type="url" maxlength="2048" autocomplete="url" @bind="_vendorEditWebsite" disabled="@_busy" /></label>
+                                    <label for="expense-vendor-edit-email">@T("expenseWorkspace.email", "이메일", "Email")<input id="expense-vendor-edit-email" aria-label="@T("expenseWorkspace.email", "이메일", "Email")" type="email" maxlength="320" autocomplete="email" @bind="_vendorEditEmail" disabled="@_busy" /></label>
+                                    <p id="expense-vendor-lifecycle-help">@T("expenseWorkspace.inactiveHistoryHelp", "비활성화해도 기존 비용의 참조와 감사 이력은 유지되며 새 비용에서는 선택할 수 없습니다.", "Deactivation preserves existing expense references and audit history but prevents selection for new expenses.")</p>
+                                    <div class="expense-directory-actions">
+                                        <button id="expense-vendor-save" type="submit" disabled="@_busy">@T("expenseWorkspace.save", "변경 저장", "Save changes")</button>
+                                        <button id="expense-vendor-active" class="@(_selectedVendor.Active ? "danger" : null)" type="button" aria-describedby="expense-vendor-lifecycle-help" disabled="@_busy" @onclick="SetVendorActiveAsync">@(_selectedVendor.Active ? T("expenseWorkspace.deactivate", "비활성화", "Deactivate") : T("expenseWorkspace.reactivate", "재활성화", "Reactivate"))</button>
+                                        <button id="expense-vendor-edit-cancel" type="button" disabled="@_busy" @onclick="() => SetSelectedVendor(null)">@T("expenseWorkspace.cancelEdit", "편집 닫기", "Close editor")</button>
+                                    </div>
+                                </form>
+                            }
+                        </div>
                     </div>
                 </section>
             }
@@ -81,8 +146,8 @@
                         <label for="expense-currency">@T("expenseWorkspace.currency", "통화", "Currency")<input id="expense-currency" aria-label="@T("expenseWorkspace.currency", "통화", "Currency")" maxlength="3" @bind="_draft.Currency" disabled="@CreateLocked" /></label>
                         <label for="expense-date">@T("expenseWorkspace.valueDate", "귀속일", "Value date")<InputDate id="expense-date" aria-label="@T("expenseWorkspace.valueDate", "귀속일", "Value date")" @bind-Value="_draft.ValueDate" disabled="@CreateLocked" /></label>
                         <label for="expense-type">@T("expenseWorkspace.type", "비용 유형", "Expense type")<select id="expense-type" aria-label="@T("expenseWorkspace.type", "비용 유형", "Expense type")" @bind="_draft.Type" disabled="@CreateLocked">@foreach (var type in Enum.GetValues<ExpenseType>()) { <option value="@type">@TypeName(type)</option> }</select></label>
-                        <label for="expense-category">@T("expenseWorkspace.category", "카테고리", "Category")<select id="expense-category" aria-label="@T("expenseWorkspace.category", "카테고리", "Category")" @bind="_draft.CategoryId" disabled="@CreateLocked"><option value="@Guid.Empty">@T("expenseWorkspace.chooseCategory", "카테고리 선택", "Choose category")</option>@foreach (var item in _categories?.Items ?? []) { <option value="@item.Id">@item.Input.Name</option> }</select></label>
-                        <label for="expense-vendor">@T("expenseWorkspace.vendor", "거래처", "Vendor")<select id="expense-vendor" aria-label="@T("expenseWorkspace.vendor", "거래처", "Vendor")" @bind="_draft.VendorId" disabled="@CreateLocked"><option value="@Guid.Empty">@T("expenseWorkspace.chooseVendor", "거래처 선택", "Choose vendor")</option>@foreach (var item in _vendors?.Items ?? []) { <option value="@item.Id">@item.Input.Name</option> }</select></label>
+                        <label for="expense-category">@T("expenseWorkspace.category", "카테고리", "Category")<select id="expense-category" aria-label="@T("expenseWorkspace.category", "카테고리", "Category")" @bind="_draft.CategoryId" disabled="@CreateLocked"><option value="@Guid.Empty">@T("expenseWorkspace.chooseCategory", "카테고리 선택", "Choose category")</option>@foreach (var item in ActiveCategories) { <option value="@item.Id">@item.Input.Name</option> }</select></label>
+                        <label for="expense-vendor">@T("expenseWorkspace.vendor", "거래처", "Vendor")<select id="expense-vendor" aria-label="@T("expenseWorkspace.vendor", "거래처", "Vendor")" @bind="_draft.VendorId" disabled="@CreateLocked"><option value="@Guid.Empty">@T("expenseWorkspace.chooseVendor", "거래처 선택", "Choose vendor")</option>@foreach (var item in ActiveVendors) { <option value="@item.Id">@item.Input.Name</option> }</select></label>
                         <label for="expense-employee">@T("expenseWorkspace.employeeId", "직원 ID (선택)", "Employee ID (optional)")<input id="expense-employee" aria-label="@T("expenseWorkspace.employeeId", "직원 ID (선택)", "Employee ID (optional)")" @bind="_draft.Employee" disabled="@CreateLocked" /></label>
                         @if (_draft.Type == ExpenseType.BillableToContact) { <label for="expense-contact">@T("expenseWorkspace.contactId", "고객 연락처 ID", "Customer contact ID")<input id="expense-contact" aria-label="@T("expenseWorkspace.contactId", "고객 연락처 ID", "Customer contact ID")" @bind="_draft.Contact" disabled="@CreateLocked" /></label> }
                         <label class="expense-wide" for="expense-purpose">@T("expenseWorkspace.purpose", "사용 목적", "Purpose")<input id="expense-purpose" aria-label="@T("expenseWorkspace.purpose", "사용 목적", "Purpose")" maxlength="255" @bind="_draft.Purpose" disabled="@CreateLocked" /></label>

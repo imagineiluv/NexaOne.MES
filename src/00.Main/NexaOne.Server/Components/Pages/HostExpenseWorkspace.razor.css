@@ -20,7 +20,17 @@
 .expense-directory-entry, .expense-directory-entry > div { display: grid; gap: var(--space-xs); }
 .expense-directory-entry > div { grid-template-columns: 1fr auto; }
 .expense-directory-grid > div { display: grid; align-content: start; gap: var(--space-sm); }
-.expense-pills li { display: flex; justify-content: space-between; gap: var(--space-sm); padding: var(--space-sm); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); }
+.expense-pills li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); padding: var(--space-sm); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); }
+.expense-pills li > div { display: grid; gap: var(--space-2xs); min-width: 0; }
+.expense-pills strong { overflow-wrap: anywhere; }
+.expense-pills li.is-inactive { border-style: dashed; opacity: .72; }
+.expense-directory-editor { display: grid; gap: var(--space-sm); padding: var(--space-md); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-md); background: var(--nx-card); }
+.expense-directory-editor h4, .expense-directory-editor p { margin: 0; }
+.expense-directory-editor p { color: var(--nx-text-2); font-size: var(--nx-fs-caption); }
+.expense-directory-editor label { display: grid; gap: var(--space-2xs); }
+.expense-directory-editor input { width: 100%; min-width: 0; box-sizing: border-box; }
+.expense-directory-actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.expense-directory-actions .danger { border-color: var(--color-danger); color: var(--color-danger); }
 .expense-form { display: grid; grid-template-columns: repeat(3, minmax(10rem, 1fr)); gap: var(--space-sm); align-items: end; }
 .expense-form label { display: grid; gap: var(--space-2xs); min-width: 0; }
 .expense-form input, .expense-form select { width: 100%; min-width: 0; box-sizing: border-box; }
@@ -56,5 +66,5 @@
   .expense-invoice-current code { grid-column: auto; }
   .expense-form .expense-wide { grid-column: auto; }
   .expense-directory-entry > div { grid-template-columns: 1fr; }
-  .expense-directory-create button, .expense-form > button { width: 100%; }
+  .expense-directory-create button, .expense-directory-actions button, .expense-form > button { width: 100%; }
 }
