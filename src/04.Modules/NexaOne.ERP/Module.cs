@@ -22,6 +22,7 @@ public sealed class Module
 {
     private readonly IBillingBridge _billingBridge;
     private readonly IExpenseBridge _expenseBridge;
+    private readonly IExpensePayoutAutomationBridge _expensePayoutAutomationBridge;
     private readonly IFinancialReportBridge _financialReportBridge;
     private readonly IBusinessReportBridge _businessReportBridge;
     private readonly IRecurringBridge _recurringBridge;
@@ -56,6 +57,7 @@ public sealed class Module
             projects: businessProjects);
         _billingBridge = bridge;
         _expenseBridge = bridge;
+        _expensePayoutAutomationBridge = bridge;
         _financialReportBridge = bridge;
         _businessReportBridge = bridge;
         _recurringBridge = bridge;
@@ -82,6 +84,10 @@ public sealed class Module
 
     /// <summary>Expense directories, entries, reimbursements and invoice linkage.</summary>
     public IExpenseBridge GetExpenseBridge() => _expenseBridge;
+
+    /// <summary>Non-interactive expense payout lease settlement.</summary>
+    public IExpensePayoutAutomationBridge GetExpensePayoutAutomationBridge() =>
+        _expensePayoutAutomationBridge;
 
     /// <summary>Currency-separated reports plus persisted snapshots, comparisons and usage history.</summary>
     public IFinancialReportBridge GetFinancialReportBridge() => _financialReportBridge;

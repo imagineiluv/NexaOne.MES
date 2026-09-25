@@ -18,6 +18,9 @@
 
   <object id="billingBridge" factory-object="erpModule" factory-method="GetBillingBridge" />
   <object id="expenseBridge" factory-object="erpModule" factory-method="GetExpenseBridge" />
+  <object id="expensePayoutAutomationBridge"
+      factory-object="erpModule"
+      factory-method="GetExpensePayoutAutomationBridge" />
   <object id="financialReportBridge" factory-object="erpModule" factory-method="GetFinancialReportBridge" />
   <object id="businessReportBridge" factory-object="erpModule" factory-method="GetBusinessReportBridge" />
   <object id="recurringBridge" factory-object="erpModule" factory-method="GetRecurringBridge" />

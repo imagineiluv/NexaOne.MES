@@ -65,6 +65,7 @@ internal sealed class NexaOneMesBridgeCatalog : INexaModuleBridgeCatalog
             Bind<IUtilityBridge>("Est", "utilityBridge"),
             Bind<IBillingBridge>("Erp", "billingBridge"),
             Bind<IExpenseBridge>("Erp", "expenseBridge"),
+            Bind<IExpensePayoutAutomationBridge>("Erp", "expensePayoutAutomationBridge"),
             Bind<IBusinessReportBridge>("Erp", "businessReportBridge"),
             Bind<IFinancialReportBridge>("Erp", "financialReportBridge"),
             Bind<IRecurringBridge>("Erp", "recurringBridge"),
