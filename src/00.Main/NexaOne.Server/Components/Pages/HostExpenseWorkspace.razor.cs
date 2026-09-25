@@ -2,7 +2,9 @@ using System.Globalization;
 using Microsoft.AspNetCore.Components.Authorization;
 using NexaFramework.Service;
 using NexaFramework.Service.Erp;
+using NexaFramework.Service.Projects;
 using NexaOne.Common.Security;
+using NexaOne.ServiceContracts.Erp;
 using NexaOne.ServiceContracts.Sys;
 
 namespace NexaOne.Server.Components.Pages;
@@ -15,6 +17,9 @@ public partial class HostExpenseWorkspace
     private BusinessPage<ExpenseVendor>? _vendors;
     private BusinessPage<ExpenseCategory>? _directoryCategories;
     private BusinessPage<ExpenseVendor>? _directoryVendors;
+    private BusinessPage<ExpenseEmployee>? _employees;
+    private BusinessPage<BillingContact>? _contacts;
+    private WorkPage<Project>? _projects;
     private BusinessPage<ExpenseRecord>? _expenses;
     private BusinessPage<BillingDocument>? _invoiceCandidates;
     private BusinessMembership? _scope;
@@ -34,7 +39,7 @@ public partial class HostExpenseWorkspace
     private string? _userId, _error, _notice;
     private string? _ledgerValidation;
     private Guid _invoiceId;
-    private int _invoiceOffset, _expenseOffset;
+    private int _invoiceOffset, _expenseOffset, _employeeOffset, _contactOffset, _projectOffset;
     private LedgerFilter _ledgerFilter = new();
     private bool _authenticated, _identityLoading = true, _busy, _interactive, _disposed;
     private Task<AuthenticationState>? _pendingAuthentication;
@@ -65,6 +70,15 @@ public partial class HostExpenseWorkspace
     private bool HasPreviousExpensePage => _expenseOffset > 0;
     private bool HasNextExpensePage => _expenses is { } page && (long)_expenseOffset + PageSize < page.Total
         && _expenseOffset <= int.MaxValue - PageSize;
+    private bool HasPreviousEmployeePage => _employeeOffset > 0;
+    private bool HasNextEmployeePage => _employees is { } page
+        && (long)_employeeOffset + page.Items.Count < page.Total;
+    private bool HasPreviousContactPage => _contactOffset > 0;
+    private bool HasNextContactPage => _contacts is { } page
+        && (long)_contactOffset + page.Items.Count < page.Total;
+    private bool HasPreviousProjectPage => _projectOffset > 0;
+    private bool HasNextProjectPage => _projects is { } page
+        && (long)_projectOffset + page.Items.Count < page.Total;
     private bool HasLedgerFilters => _ledgerFilter != new LedgerFilter();
     private bool HasLedgerDraft => _ledgerStart.Length > 0 || _ledgerEnd.Length > 0
         || _ledgerCategory.Length > 0 || _ledgerVendor.Length > 0 || _ledgerType.Length > 0
@@ -113,6 +127,7 @@ public partial class HostExpenseWorkspace
     {
         CancelRequest();
         _scopes = null; _scope = null; _categories = null; _vendors = null;
+        ResetReferenceChoices();
         ResetLedgerState();
         _directoryCategories = null; _directoryVendors = null;
         ClearDirectorySelection();
@@ -134,6 +149,7 @@ public partial class HostExpenseWorkspace
         if (SelectedKey == ScopeKey(scope)) return;
         CancelRequest();
         _scope = scope; _categories = null; _vendors = null;
+        ResetReferenceChoices();
         ResetLedgerState();
         _directoryCategories = null; _directoryVendors = null;
         ClearDirectorySelection();
@@ -142,9 +158,67 @@ public partial class HostExpenseWorkspace
         await RunAsync(async ct =>
         {
             if (Can("expense.directory.read")) await LoadDirectoriesCoreAsync(ct);
+            if (OwnsRequest(ct) && Can("expense.write")) await LoadReferenceChoicesCoreAsync(ct);
             if (OwnsRequest(ct) && Can("expense.read")) await LoadExpensesCoreAsync(ct);
         });
     }
+
+    private void ResetReferenceChoices()
+    {
+        _employees = null; _contacts = null; _projects = null;
+        _employeeOffset = _contactOffset = _projectOffset = 0;
+        _draft.EmployeeId = _draft.ContactId = _draft.ProjectId = Guid.Empty;
+    }
+
+    private async Task LoadReferenceChoicesCoreAsync(CancellationToken ct)
+    {
+        await LoadEmployeesCoreAsync(ct);
+        if (OwnsRequest(ct) && Can("billing.read")) await LoadContactsCoreAsync(ct);
+        if (OwnsRequest(ct) && Can("crm.project.read")) await LoadProjectsCoreAsync(ct);
+    }
+
+    private Task MoveEmployeePageAsync(int direction) => RunAsync(async ct =>
+    {
+        _employeeOffset = NextOffset(_employeeOffset, direction); _draft.EmployeeId = Guid.Empty;
+        await LoadEmployeesCoreAsync(ct);
+    });
+
+    private async Task LoadEmployeesCoreAsync(CancellationToken ct)
+    {
+        var result = await Api.ReadInventoryAsync<BusinessPage<ExpenseEmployee>>(
+            $"{Root}/employees?offset={_employeeOffset}&limit={PageSize}", ct);
+        if (OwnsRequest(ct)) Accept(result, value => _employees = value);
+    }
+
+    private Task MoveContactPageAsync(int direction) => RunAsync(async ct =>
+    {
+        _contactOffset = NextOffset(_contactOffset, direction); _draft.ContactId = Guid.Empty;
+        await LoadContactsCoreAsync(ct);
+    });
+
+    private async Task LoadContactsCoreAsync(CancellationToken ct)
+    {
+        var result = await Api.ReadInventoryAsync<BusinessPage<BillingContact>>(
+            $"api/v1/erp/billing/{SelectedKey}/contacts?offset={_contactOffset}&limit={PageSize}", ct);
+        if (OwnsRequest(ct)) Accept(result, value => _contacts = value);
+    }
+
+    private Task MoveProjectPageAsync(int direction) => RunAsync(async ct =>
+    {
+        _projectOffset = NextOffset(_projectOffset, direction); _draft.ProjectId = Guid.Empty;
+        await LoadProjectsCoreAsync(ct);
+    });
+
+    private async Task LoadProjectsCoreAsync(CancellationToken ct)
+    {
+        var result = await Api.ReadInventoryAsync<WorkPage<Project>>(
+            $"api/v1/crm/{SelectedKey}/projects?offset={_projectOffset}&limit={PageSize}", ct);
+        if (OwnsRequest(ct)) Accept(result, value => _projects = value);
+    }
+
+    private static int NextOffset(int current, int direction)
+        => direction < 0 ? Math.Max(0, current - PageSize)
+            : current <= int.MaxValue - PageSize ? current + PageSize : current;
 
     private Task LoadDirectoriesAsync() => RunAsync(LoadDirectoriesCoreAsync);
     private async Task LoadDirectoriesCoreAsync(CancellationToken ct)
@@ -546,22 +620,31 @@ public partial class HostExpenseWorkspace
     {
         input = null!;
         if (_draft.Amount <= 0 || _draft.CategoryId == Guid.Empty || _draft.VendorId == Guid.Empty
-            || _draft.Currency.Trim().Length != 3)
+            || _draft.Currency.Trim().Length != 3
+            || _draft.Currency.Trim().Any(value => value is not (>= 'A' and <= 'Z') and not (>= 'a' and <= 'z')))
         { _error = T("expenseWorkspace.invalidInput", "양수 금액, 3자리 통화, 카테고리와 거래처를 확인하세요.", "Check the positive amount, three-letter currency, category, and vendor."); return false; }
-        Guid? employee = null;
-        var employeeId = Guid.Empty;
-        if (!string.IsNullOrWhiteSpace(_draft.Employee)
-            && (!Guid.TryParse(_draft.Employee, out employeeId) || employeeId == Guid.Empty))
-        { _error = T("expenseWorkspace.employeeInvalid", "직원 ID는 비워 두거나 유효한 GUID여야 합니다.", "Employee ID must be empty or a valid GUID."); return false; }
-        else if (!string.IsNullOrWhiteSpace(_draft.Employee)) employee = employeeId;
-        Guid? contact = null;
-        var parsed = Guid.Empty;
-        if (_draft.Type == ExpenseType.BillableToContact
-            && (!Guid.TryParse(_draft.Contact, out parsed) || parsed == Guid.Empty))
+        if (_draft.SplitAcrossEmployees && _draft.EmployeeId != Guid.Empty)
+        { _error = T("expenseWorkspace.employeeOrSplit", "직원 한 명 지정과 활성 직원 균등 분할은 함께 사용할 수 없습니다.", "Choose either one employee or a split across active employees."); return false; }
+        if (_draft.Type == ExpenseType.BillableToContact && _draft.ContactId == Guid.Empty)
         { _error = T("expenseWorkspace.contactRequired", "고객 청구 비용에는 유효한 고객 연락처 ID가 필요합니다.", "A valid customer contact ID is required for a billable expense."); return false; }
-        else if (_draft.Type == ExpenseType.BillableToContact) contact = parsed;
-        input = new(_draft.Amount, _draft.Type, _draft.CategoryId, _draft.VendorId, employee, contact, null,
-            _draft.Currency.Trim().ToUpperInvariant(), _draft.ValueDate, Text(_draft.Purpose), Receipt: Text(_draft.Receipt));
+        ExpenseTax? tax = null;
+        if (_draft.TaxType.Length > 0)
+        {
+            if (!Enum.TryParse<ExpenseTaxType>(_draft.TaxType, false, out var taxType)
+                || !Enum.IsDefined(taxType) || _draft.TaxValue < 0
+                || decimal.Round(_draft.TaxValue, 6) != _draft.TaxValue
+                || taxType == ExpenseTaxType.Percentage && _draft.TaxValue > 100
+                || taxType == ExpenseTaxType.Flat && _draft.TaxValue > _draft.Amount)
+            { _error = T("expenseWorkspace.taxInvalid", "포함 세금은 0~100% 비율이거나 금액 이하의 정액이어야 합니다.", "Included tax must be a 0–100% rate or a flat value no greater than the amount."); return false; }
+            tax = new(taxType, _draft.TaxValue, Text(_draft.TaxLabel));
+        }
+        input = new(_draft.Amount, _draft.Type, _draft.CategoryId, _draft.VendorId,
+            _draft.SplitAcrossEmployees || _draft.EmployeeId == Guid.Empty ? null : _draft.EmployeeId,
+            _draft.Type == ExpenseType.BillableToContact ? _draft.ContactId : null,
+            _draft.ProjectId == Guid.Empty ? null : _draft.ProjectId,
+            _draft.Currency.Trim().ToUpperInvariant(), _draft.ValueDate, Text(_draft.Purpose),
+            Text(_draft.Reference), Text(_draft.Notes), Text(_draft.Receipt), Tax: tax,
+            SplitAcrossEmployees: _draft.SplitAcrossEmployees);
         return true;
     }
 
@@ -829,6 +912,13 @@ public partial class HostExpenseWorkspace
         ? T("expenseWorkspace.active", "활성", "Active")
         : T("expenseWorkspace.inactive", "비활성", "Inactive");
     private string TypeName(ExpenseType type) => type switch { ExpenseType.TaxDeductible => T("expenseWorkspace.taxDeductible", "세무상 공제", "Tax deductible"), ExpenseType.NotTaxDeductible => T("expenseWorkspace.notTaxDeductible", "공제 불가", "Not tax deductible"), _ => T("expenseWorkspace.billable", "고객 청구", "Billable to contact") };
+    private string TaxName(ExpenseTax tax)
+    {
+        var value = tax.Type == ExpenseTaxType.Percentage
+            ? Amount(tax.Value) + "%"
+            : Amount(tax.Value) + " " + (_selected?.Input.Currency ?? "");
+        return tax.Label is null ? value : tax.Label + " · " + value;
+    }
     private string StatusName(ExpenseRecord value) => value.State == ExpenseState.Cancelled
         ? StateName(value.State) : StatusName(value.Status);
     private string StatusName(ExpenseStatus value) => value switch
@@ -887,10 +977,23 @@ public partial class HostExpenseWorkspace
         public Guid VendorId { get; set; }
         public string Currency { get; set; } = "KRW";
         public DateOnly ValueDate { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow.Date);
-        public string Contact { get; set; } = "";
-        public string Employee { get; set; } = "";
+        public Guid ContactId { get; set; }
+        public Guid EmployeeId { get; set; }
+        public Guid ProjectId { get; set; }
+        public bool SplitAcrossEmployees { get; set; }
+        public string TaxType { get; set; } = "";
+        public decimal TaxValue { get; set; }
+        public string TaxLabel { get; set; } = "";
         public string Purpose { get; set; } = "";
+        public string Reference { get; set; } = "";
+        public string Notes { get; set; } = "";
         public string Receipt { get; set; } = "";
-        public void Reset() { Amount = 0; Type = default; CategoryId = Guid.Empty; VendorId = Guid.Empty; Currency = "KRW"; ValueDate = DateOnly.FromDateTime(DateTime.UtcNow.Date); Contact = Employee = Purpose = Receipt = ""; }
+        public void Reset()
+        {
+            Amount = 0; Type = default; CategoryId = Guid.Empty; VendorId = Guid.Empty;
+            Currency = "KRW"; ValueDate = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+            ContactId = EmployeeId = ProjectId = Guid.Empty; SplitAcrossEmployees = false;
+            TaxType = ""; TaxValue = 0; TaxLabel = Purpose = Reference = Notes = Receipt = "";
+        }
     }
 }

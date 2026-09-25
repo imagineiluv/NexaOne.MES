@@ -14,6 +14,14 @@ public sealed partial class BillingBridge
         string userId, int offset, int limit, CancellationToken ct)
         => ListExpenseScopes(userId, offset, limit, ct);
 
+    public Task<BusinessPage<ExpenseEmployee>> ListEmployeesAsync(string userId, Guid tenantId,
+        Guid organizationId, int offset = 0, int limit = 50, CancellationToken ct = default)
+    {
+        if (offset < 0 || limit is < 1 or > 100) throw Failure("INVALID_BUSINESS_INPUT");
+        return RunExpense(userId, tenantId, organizationId, "expense.write",
+            (_, _, session) => session.ListEmployeesAsync(offset, limit, ct), ct);
+    }
+
     public Task<ExpenseCategory> CreateCategoryAsync(string userId, Guid tenantId, Guid organizationId,
         ExpenseCategoryInput input, CancellationToken ct = default)
         => RunExpense(userId, tenantId, organizationId, "expense.directory.write",
@@ -109,7 +117,8 @@ public sealed partial class BillingBridge
         return _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
         {
             var session = new Session(connection, transaction, _timeout,
-                new("NexaOne.MES", Text(tenantId), Text(organizationId)), _memberships, _masters, _clock);
+                new("NexaOne.MES", Text(tenantId), Text(organizationId)), _memberships, _masters, _clock,
+                _projects);
             try
             {
                 await session.Authorize(userId, permission, ct);
@@ -130,7 +139,8 @@ public sealed partial class BillingBridge
         return _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
         {
             var session = new Session(connection, transaction, _timeout,
-                new("NexaOne.MES", Text(tenantId), Text(organizationId)), _memberships, _masters, _clock);
+                new("NexaOne.MES", Text(tenantId), Text(organizationId)), _memberships, _masters, _clock,
+                _projects);
             try
             {
                 await session.Authorize(userId, "expense.invoice", ct);
@@ -289,6 +299,32 @@ public sealed partial class BillingBridge
         public async Task<bool> EmployeeExistsAsync(Guid employeeId, CancellationToken ct)
             => await memberships.GetActiveMemberInTransactionAsync(transaction, Id(Scope.TenantId),
                 Id(Scope.OrganizationId), employeeId, ct) is not null;
+        internal async Task<BusinessPage<ExpenseEmployee>> ListEmployeesAsync(
+            int offset, int limit, CancellationToken ct)
+        {
+            const int batchSize = 128;
+            var tenantId = Id(Scope.TenantId); var organizationId = Id(Scope.OrganizationId);
+            var items = new List<ExpenseEmployee>(limit); long total = 0; Guid? cursor = null;
+            while (true)
+            {
+                var batch = await memberships.ListActiveMembersInTransactionAsync(transaction,
+                    tenantId, organizationId, cursor, batchSize, ct);
+                if (batch is null || batch.Count > batchSize) throw Failure("STORAGE_CONTRACT_VIOLATION");
+                foreach (var member in batch)
+                {
+                    if (!member.IsActive || member.TenantId != tenantId || member.OrganizationId != organizationId
+                        || member.BusinessUserId == Guid.Empty || member.Version <= 0
+                        || !ValidText(member.UserId, 50)
+                        || cursor.HasValue && string.CompareOrdinal(Text(member.BusinessUserId), Text(cursor.Value)) <= 0)
+                        throw Failure("STORAGE_CONTRACT_VIOLATION");
+                    cursor = member.BusinessUserId;
+                    if (total++ >= offset && items.Count < limit)
+                        items.Add(new(member.BusinessUserId, member.UserId));
+                }
+                if (batch.Count < batchSize) break;
+            }
+            return new(Array.AsReadOnly(items.ToArray()), total);
+        }
         public async Task<IReadOnlyList<Guid>> ListActiveEmployeeIdsAsync(CancellationToken ct)
         {
             const int batchSize = 128;
@@ -311,11 +347,11 @@ public sealed partial class BillingBridge
             }
             return Array.AsReadOnly(ids.ToArray());
         }
-        // MES currently has no organization-scoped project or business-tag master. Rejecting nonempty
-        // references keeps the optional Framework fields fail-closed until their owning modules expose
-        // transaction-aware lookup contracts; FDC equipment tags and POM work scopes are different domains.
-        public Task<bool> ProjectExistsAsync(Guid projectId, CancellationToken ct)
-            => Task.FromResult(false);
+        public async Task<bool> ProjectExistsAsync(Guid projectId, CancellationToken ct)
+            => projects is not null && await projects.ProjectExistsInTransactionAsync(transaction,
+                Id(Scope.TenantId), Id(Scope.OrganizationId), projectId, ct);
+        // MES still has no organization-scoped business-tag master. FDC equipment tags and POM work
+        // scopes are different domains, so nonempty values remain fail-closed until that owner exists.
         public Task<bool> TagsExistAsync(IReadOnlyList<Guid> tagIds, CancellationToken ct)
             => Task.FromResult(tagIds.Count == 0);
 

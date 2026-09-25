@@ -10,6 +10,7 @@ namespace NexaOne.CRM;
 public sealed class Module
 {
     private readonly ICrmBridge _bridge;
+    private readonly IBusinessProjectDirectory _projectDirectory;
     private readonly ISqliteSchemaContribution _schema;
 
     public Module(EesDataSource dataSource, IBusinessMembershipBridge memberships,
@@ -19,9 +20,11 @@ public sealed class Module
         ArgumentNullException.ThrowIfNull(memberships);
         ArgumentNullException.ThrowIfNull(masterDirectory);
         _bridge = new CrmBridge(dataSource, memberships, masterDirectory);
+        _projectDirectory = new BusinessProjectDirectory();
         _schema = new CrmSqliteSchemaContribution();
     }
 
     public ICrmBridge GetCrmBridge() => _bridge;
+    public IBusinessProjectDirectory GetBusinessProjectDirectory() => _projectDirectory;
     public ISqliteSchemaContribution GetSqliteSchemaContribution() => _schema;
 }

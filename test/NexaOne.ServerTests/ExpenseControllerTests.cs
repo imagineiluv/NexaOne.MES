@@ -27,11 +27,14 @@ public sealed class ExpenseControllerTests
         var input = new ExpenseInput(12.345678m, ExpenseType.TaxDeductible, category, vendor,
             null, null, null, "KRW", new(2026, 9, 23));
         var expense = Record(expenseId, tenant, organization, expenseVersion, input);
+        var employees = new BusinessPage<ExpenseEmployee>([new(Guid.NewGuid(), "expense-user")], 1);
         var bridge = new Mock<IExpenseBridge>(MockBehavior.Strict);
         using var cancellation = new CancellationTokenSource();
         var create = new ExpenseController.ExpenseCreate(Guid.NewGuid(), input);
         bridge.Setup(x => x.CreateExpenseAsync("expense-user", tenant, organization,
             create.OperationId, input, cancellation.Token)).ReturnsAsync(expense);
+        bridge.Setup(x => x.ListEmployeesAsync("expense-user", tenant, organization, 50, 25,
+            cancellation.Token)).ReturnsAsync(employees);
         var reimbursement = new ExpenseController.ReimbursementCommand(Guid.NewGuid(), expenseVersion,
             new(2026, 9, 23, 8, 0, 0, TimeSpan.Zero), "BANK");
         bridge.Setup(x => x.ReimburseExpenseAsync("expense-user", tenant, organization, reimbursement.OperationId,
@@ -48,6 +51,8 @@ public sealed class ExpenseControllerTests
 
         (await controller.CreateExpense(tenant, organization, create, cancellation.Token))
             .Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(expense);
+        (await controller.ListEmployees(tenant, organization, cancellation.Token, 50, 25))
+            .Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(employees);
         (await controller.Reimburse(tenant, organization, expenseId, reimbursement, cancellation.Token))
             .Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(expense);
         (await controller.LinkInvoice(tenant, organization, expenseId, link, cancellation.Token))

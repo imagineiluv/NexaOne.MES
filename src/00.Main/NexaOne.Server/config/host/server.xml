@@ -182,6 +182,7 @@
   <object id="userDirectory" type="NexaOne.Server.Gateway.UserDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="businessMembershipBridge" type="NexaOne.Server.Gateway.BusinessMembershipProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="businessMasterDirectory" type="NexaOne.Server.Gateway.BusinessMasterDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="businessProjectDirectory" type="NexaOne.Server.Gateway.BusinessProjectDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="mrpMasterDirectory" type="NexaOne.Server.Gateway.MrpMasterDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="mrpInventoryDirectory" type="NexaOne.Server.Gateway.MrpInventoryDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="purchaseOrderPlanningBridge" type="NexaOne.Server.Gateway.PurchaseOrderPlanningBridgeProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>

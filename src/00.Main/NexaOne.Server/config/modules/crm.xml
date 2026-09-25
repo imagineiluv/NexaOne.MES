@@ -8,5 +8,6 @@
     <constructor-arg ref="businessMasterDirectory" />
   </object>
   <object id="crmBridge" factory-object="crmModule" factory-method="GetCrmBridge" />
+  <object id="businessProjectDirectory" factory-object="crmModule" factory-method="GetBusinessProjectDirectory" />
   <object id="crmSqliteSchemaContribution" factory-object="crmModule" factory-method="GetSqliteSchemaContribution" />
 </objects>

@@ -8,7 +8,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using NexaFramework.Service;
 using NexaFramework.Service.Erp;
+using NexaFramework.Service.Projects;
+using WorkProject = NexaFramework.Service.Projects.Project;
 using NexaOne.Server.Components.Pages;
+using NexaOne.ServiceContracts.Erp;
 using NexaOne.ServiceContracts.Sys;
 using NexaOne.Web.Services;
 using NexaOne.Web.Services.Api;
@@ -39,8 +42,11 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
         Read<BusinessMembership>(_ => new([], 0));
         Read<ExpenseCategory>(_ => new([], 0));
         Read<ExpenseVendor>(_ => new([], 0));
+        Read<ExpenseEmployee>(_ => new([], 0));
+        Read<BillingContact>(_ => new([], 0));
         Read<ExpenseRecord>(_ => new([], 0));
         Read<BillingDocument>(_ => new([], 0));
+        ReadWork<WorkProject>(_ => new([], 0));
     }
 
     [Fact]
@@ -341,6 +347,84 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
     }
 
     [Fact]
+    public void Advanced_expense_uses_scoped_master_choices_and_preserves_every_supported_value()
+    {
+        ShowScope("expense.directory.read", "expense.read", "expense.write", "billing.read",
+            "crm.project.read", "crm.project.all");
+        Read<ExpenseCategory>(_ => new([Category], 1));
+        Read<ExpenseVendor>(_ => new([Vendor], 1));
+        var employee = new ExpenseEmployee(Guid.NewGuid(), "employee.one");
+        var contact = new BillingContact(Guid.NewGuid(), Guid.NewGuid(), "CUS-1", "Atlas Customer", true);
+        var project = new WorkProject(Guid.NewGuid(), new("NexaOne.MES", Tenant.ToString("D"), Organization.ToString("D")),
+            Guid.NewGuid(), "operator", new("Apollo", Code: "PRJ-1"), new(null, [], []));
+        Read<ExpenseEmployee>(_ => new([employee], 1));
+        Read<BillingContact>(_ => new([contact], 1));
+        ReadWork<WorkProject>(_ => new([project], 1));
+        ExpenseInput? written = null;
+        _api.Setup(api => api.WriteInventoryAsync<ExpenseRecord>(HttpMethod.Post,
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}", It.IsAny<object>(), "operator",
+                It.IsAny<CancellationToken>()))
+            .Returns((HttpMethod _, string _, object body, string _, CancellationToken _) =>
+            {
+                written = Property<ExpenseInput>(body, "Input");
+                return Task.FromResult<(ExpenseRecord?, int, string?, string?)>(
+                    (Expense(Property<Guid>(body, "OperationId"), written), 200, null, null));
+            });
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("#expense-project").Should().NotBeNull());
+
+        cut.Find("#expense-amount").Change("110");
+        cut.Find("#expense-category").Change(Category.Id.ToString("D"));
+        cut.Find("#expense-vendor").Change(Vendor.Id.ToString("D"));
+        cut.Find("#expense-type").Change(ExpenseType.BillableToContact.ToString());
+        cut.Find("#expense-employee").Change(employee.Id.ToString("D"));
+        cut.Find("#expense-contact").Change(contact.Id.ToString("D"));
+        cut.Find("#expense-project").Change(project.Id.ToString("D"));
+        cut.Find("#expense-tax-type").Change(ExpenseTaxType.Percentage.ToString());
+        cut.Find("#expense-tax-value").Change("10");
+        cut.Find("#expense-tax-label").Change("VAT");
+        cut.Find("#expense-purpose").Change("현장 방문");
+        cut.Find("#expense-reference").Change("PO-42");
+        cut.Find("#expense-notes").Change("승인 완료");
+        cut.Find("#expense-receipt").Change("receipts/42");
+        cut.Find("#expense-create").Click();
+
+        cut.WaitForAssertion(() => written.Should().NotBeNull());
+        written.Should().Be(new ExpenseInput(110m, ExpenseType.BillableToContact, Category.Id, Vendor.Id,
+            employee.Id, contact.Id, project.Id, "KRW", written!.ValueDate, "현장 방문", "PO-42",
+            "승인 완료", "receipts/42", Tax: new(ExpenseTaxType.Percentage, 10m, "VAT")));
+        Paths<ExpenseEmployee>().Should().ContainSingle(path => path.EndsWith("employees?offset=0&limit=50", StringComparison.Ordinal));
+        Paths<BillingContact>().Should().ContainSingle(path => path.Contains("/contacts?offset=0&limit=50", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Employee_split_disables_single_employee_and_invalid_tax_never_posts()
+    {
+        ShowScope("expense.directory.read", "expense.write");
+        Read<ExpenseCategory>(_ => new([Category], 1));
+        Read<ExpenseVendor>(_ => new([Vendor], 1));
+        Read<ExpenseEmployee>(_ => new([new ExpenseEmployee(Guid.NewGuid(), "employee.one")], 1));
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("#expense-employee").Should().NotBeNull());
+
+        cut.Find("#expense-amount").Change("10");
+        cut.Find("#expense-category").Change(Category.Id.ToString("D"));
+        cut.Find("#expense-vendor").Change(Vendor.Id.ToString("D"));
+        cut.Find("#expense-split").Change(true);
+        cut.Find("#expense-employee").HasAttribute("disabled").Should().BeTrue();
+        cut.Find("#expense-tax-type").Change(ExpenseTaxType.Flat.ToString());
+        cut.Find("#expense-tax-value").Change("11");
+        cut.Find("#expense-create").Click();
+
+        cut.WaitForAssertion(() => cut.Find("[role=alert]").TextContent.Should().Contain("금액 이하"));
+        _api.Invocations.Should().NotContain(call => call.Method.Name == nameof(IApiClient.WriteInventoryAsync));
+    }
+
+    [Fact]
     public void Paid_expense_hides_every_invalid_lifecycle_action()
     {
         ShowScope("expense.read", "expense.write", "expense.reimburse");
@@ -605,6 +689,10 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
     private void Read<T>(Func<string, BusinessPage<T>> response)
         => _api.Setup(api => api.ReadInventoryAsync<BusinessPage<T>>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns((string path, CancellationToken _) => Task.FromResult<(BusinessPage<T>?, int, string?, string?)>((response(path), 200, null, null)));
+
+    private void ReadWork<T>(Func<string, WorkPage<T>> response)
+        => _api.Setup(api => api.ReadInventoryAsync<WorkPage<T>>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns((string path, CancellationToken _) => Task.FromResult<(WorkPage<T>?, int, string?, string?)>((response(path), 200, null, null)));
 
     private void ReadOne<T>(Func<string, T?> response) where T : class
         => _api.Setup(api => api.ReadInventoryAsync<T>(It.IsAny<string>(), It.IsAny<CancellationToken>()))

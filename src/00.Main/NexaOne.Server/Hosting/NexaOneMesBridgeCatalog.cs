@@ -52,6 +52,7 @@ internal sealed class NexaOneMesBridgeCatalog : INexaModuleBridgeCatalog
     public static NexaOneMesBridgeCatalog Create()
         => Create(
             Bind<ICrmBridge>("Crm", "crmBridge"),
+            Bind<IBusinessProjectDirectory>("Crm", "businessProjectDirectory"),
             Bind<IEmsBridge>("Ems", "emsBridge"),
             Bind<IMaintenanceExecutionBridge>("Ems", "maintenanceExecutionBridge"),
             Bind<IMaintenanceScheduleBridge>("Ems", "maintenanceScheduleBridge"),

@@ -6,10 +6,10 @@
 .expense-workspace section { display: grid; gap: var(--space-md); min-width: 0; padding-top: var(--space-md); border-top: 1px solid var(--nx-border); }
 .expense-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: end; gap: var(--space-sm); }
 .expense-heading > div { display: grid; gap: var(--space-2xs); }
-.expense-workspace button, .expense-workspace input, .expense-workspace select { min-height: var(--nx-touch-min, 44px); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); background: var(--nx-card); color: var(--nx-text); font: inherit; padding: var(--space-xs) var(--space-sm); }
+.expense-workspace button, .expense-workspace input, .expense-workspace select, .expense-workspace textarea { min-height: var(--nx-touch-min, 44px); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); background: var(--nx-card); color: var(--nx-text); font: inherit; padding: var(--space-xs) var(--space-sm); }
 .expense-workspace button { cursor: pointer; font-weight: 650; }
 .expense-workspace button:disabled, .expense-workspace :disabled { cursor: default; opacity: .6; }
-.expense-workspace button:focus-visible, .expense-workspace input:focus-visible, .expense-workspace select:focus-visible, .expense-table-scroll:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.expense-workspace button:focus-visible, .expense-workspace input:focus-visible, .expense-workspace select:focus-visible, .expense-workspace textarea:focus-visible, .expense-table-scroll:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .expense-scopes, .expense-pills { display: grid; gap: var(--space-xs); padding: 0; margin: 0; list-style: none; }
 .expense-scopes { grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
 .expense-scopes button { display: grid; gap: var(--space-2xs); width: 100%; text-align: left; }
@@ -33,8 +33,16 @@
 .expense-directory-actions .danger { border-color: var(--color-danger); color: var(--color-danger); }
 .expense-form { display: grid; grid-template-columns: repeat(3, minmax(10rem, 1fr)); gap: var(--space-sm); align-items: end; }
 .expense-form label { display: grid; gap: var(--space-2xs); min-width: 0; }
-.expense-form input, .expense-form select { width: 100%; min-width: 0; box-sizing: border-box; }
+.expense-form input, .expense-form select, .expense-form textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.expense-form textarea { resize: vertical; }
 .expense-form .expense-wide { grid-column: span 2; }
+.expense-choice { display: grid; gap: var(--space-2xs); min-width: 0; }
+.expense-choice label { display: grid; gap: var(--space-2xs); }
+.expense-choice-pages { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2xs); }
+.expense-choice-pages button { min-height: 2rem; padding-block: var(--space-2xs); }
+.expense-choice-pages span { color: var(--nx-text-2); font-size: var(--nx-fs-caption); font-variant-numeric: tabular-nums; }
+.expense-check { display: flex !important; align-items: center; gap: var(--space-xs) !important; min-height: var(--nx-touch-min, 44px); }
+.expense-check input { width: auto; min-height: auto; }
 .expense-ledger-filters { display: grid; grid-template-columns: repeat(4, minmax(10rem, 1fr)); gap: var(--space-sm); align-items: end; padding: var(--space-md); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-md); background: var(--nx-card); }
 .expense-ledger-filter-heading { grid-column: 1 / -1; display: grid; gap: var(--space-2xs); }
 .expense-ledger-filter-heading p { color: var(--nx-text-2); font-size: var(--nx-fs-caption); }
@@ -54,6 +62,11 @@
 .expense-selected dl div { display: grid; gap: var(--space-2xs); }
 .expense-selected dt { color: var(--nx-text-2); }
 .expense-selected dd { margin: 0; font-weight: 700; }
+.expense-selected-metadata { padding-top: var(--space-sm); border-top: 1px solid var(--nx-border); }
+.expense-long-text { overflow-wrap: anywhere; white-space: pre-wrap; }
+.expense-allocations { display: grid; gap: var(--space-2xs); padding: 0; margin: 0; list-style: none; }
+.expense-allocations li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-xs); padding-block: var(--space-xs); border-bottom: 1px solid var(--nx-border); }
+.expense-allocations span { color: var(--nx-text-2); font-family: var(--font-outlier); font-size: var(--nx-fs-caption); overflow-wrap: anywhere; }
 .expense-invoice { display: grid; gap: var(--space-sm); margin-top: var(--space-xs); padding-top: var(--space-lg); border-top: 1px solid var(--nx-border); }
 .expense-invoice label { display: grid; gap: var(--space-2xs); min-width: 0; }
 .expense-invoice input, .expense-invoice select { width: 100%; min-width: 0; box-sizing: border-box; }
@@ -76,4 +89,6 @@
   .expense-form .expense-wide { grid-column: auto; }
   .expense-directory-entry > div { grid-template-columns: 1fr; }
   .expense-directory-create button, .expense-directory-actions button, .expense-form > button, .expense-ledger-filter-actions button { width: 100%; }
+  .expense-choice-pages { align-items: stretch; flex-direction: column; }
+  .expense-choice-pages button { width: 100%; }
 }

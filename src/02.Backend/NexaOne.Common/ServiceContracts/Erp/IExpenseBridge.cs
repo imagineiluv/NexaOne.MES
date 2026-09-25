@@ -4,11 +4,16 @@ using NexaOne.ServiceContracts.Sys;
 
 namespace NexaOne.ServiceContracts.Erp;
 
+/// <summary>Active organization member exposed as a stable expense employee choice.</summary>
+public sealed record ExpenseEmployee(Guid Id, string UserId);
+
 /// <summary>Organization-scoped expense directories, expenses, reimbursement and invoice linkage.
 /// Every operation checks current SYS membership and its explicit expense grant.</summary>
 public interface IExpenseBridge : INexaModuleBridge
 {
     Task<BusinessPage<BusinessMembership>> ListAccessibleScopesAsync(string userId,
+        int offset = 0, int limit = 50, CancellationToken ct = default);
+    Task<BusinessPage<ExpenseEmployee>> ListEmployeesAsync(string userId, Guid tenantId, Guid organizationId,
         int offset = 0, int limit = 50, CancellationToken ct = default);
 
     Task<ExpenseCategory> CreateCategoryAsync(string userId, Guid tenantId, Guid organizationId,

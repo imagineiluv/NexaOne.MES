@@ -10,6 +10,7 @@
     <constructor-arg ref="appConfiguration" />
     <constructor-arg ref="businessMembershipBridge" />
     <constructor-arg ref="businessMasterDirectory" />
+    <constructor-arg ref="businessProjectDirectory" />
     <constructor-arg ref="quartzScheduler" />
     <constructor-arg ref="deliveryProviderRegistry" />
   </object>

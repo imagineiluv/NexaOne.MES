@@ -23,6 +23,11 @@ public sealed class ExpenseController(IExpenseBridge bridge, ILogger<ExpenseCont
         [FromQuery] ExpenseDirectoryQuery query, CancellationToken ct)
         => Execute(user => bridge.ListCategoriesAsync(user, tenantId, organizationId, query, ct));
 
+    [HttpGet("employees")]
+    public Task<IActionResult> ListEmployees(Guid tenantId, Guid organizationId, CancellationToken ct,
+        [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListEmployeesAsync(user, tenantId, organizationId, offset, limit, ct));
+
     [HttpPost("categories")]
     public Task<IActionResult> CreateCategory(Guid tenantId, Guid organizationId,
         [FromBody] ExpenseCategoryInput input, CancellationToken ct)

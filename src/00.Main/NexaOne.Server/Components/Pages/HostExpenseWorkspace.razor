@@ -148,9 +148,50 @@
                         <label for="expense-type">@T("expenseWorkspace.type", "비용 유형", "Expense type")<select id="expense-type" aria-label="@T("expenseWorkspace.type", "비용 유형", "Expense type")" @bind="_draft.Type" disabled="@CreateLocked">@foreach (var type in Enum.GetValues<ExpenseType>()) { <option value="@type">@TypeName(type)</option> }</select></label>
                         <label for="expense-category">@T("expenseWorkspace.category", "카테고리", "Category")<select id="expense-category" aria-label="@T("expenseWorkspace.category", "카테고리", "Category")" @bind="_draft.CategoryId" disabled="@CreateLocked"><option value="@Guid.Empty">@T("expenseWorkspace.chooseCategory", "카테고리 선택", "Choose category")</option>@foreach (var item in ActiveCategories) { <option value="@item.Id">@item.Input.Name</option> }</select></label>
                         <label for="expense-vendor">@T("expenseWorkspace.vendor", "거래처", "Vendor")<select id="expense-vendor" aria-label="@T("expenseWorkspace.vendor", "거래처", "Vendor")" @bind="_draft.VendorId" disabled="@CreateLocked"><option value="@Guid.Empty">@T("expenseWorkspace.chooseVendor", "거래처 선택", "Choose vendor")</option>@foreach (var item in ActiveVendors) { <option value="@item.Id">@item.Input.Name</option> }</select></label>
-                        <label for="expense-employee">@T("expenseWorkspace.employeeId", "직원 ID (선택)", "Employee ID (optional)")<input id="expense-employee" aria-label="@T("expenseWorkspace.employeeId", "직원 ID (선택)", "Employee ID (optional)")" @bind="_draft.Employee" disabled="@CreateLocked" /></label>
-                        @if (_draft.Type == ExpenseType.BillableToContact) { <label for="expense-contact">@T("expenseWorkspace.contactId", "고객 연락처 ID", "Customer contact ID")<input id="expense-contact" aria-label="@T("expenseWorkspace.contactId", "고객 연락처 ID", "Customer contact ID")" @bind="_draft.Contact" disabled="@CreateLocked" /></label> }
+                        <div class="expense-choice">
+                            <label for="expense-employee">@T("expenseWorkspace.employee", "담당 직원 (선택)", "Employee (optional)")
+                                <select id="expense-employee" aria-label="@T("expenseWorkspace.employee", "담당 직원 (선택)", "Employee (optional)")" @bind="_draft.EmployeeId" disabled="@(CreateLocked || _draft.SplitAcrossEmployees)">
+                                    <option value="@Guid.Empty">@T("expenseWorkspace.noEmployee", "직원 지정 안 함", "No employee")</option>
+                                    @if (_employees is not null) { @foreach (var item in _employees.Items) { <option value="@item.Id">@item.UserId · @Short(item.Id)</option> } }
+                                </select>
+                            </label>
+                            @if (_employees is { } employeePage)
+                            {
+                                <nav class="expense-choice-pages" aria-label="@T("expenseWorkspace.employeePages", "직원 선택 페이지", "Employee choice pages")"><button type="button" disabled="@(CreateLocked || !HasPreviousEmployeePage)" @onclick="() => MoveEmployeePageAsync(-1)">@T("inventory.previous", "이전 페이지", "Previous page")</button><span>@string.Format(CultureInfo.InvariantCulture, T("expenseWorkspace.choicePage", "{0}–{1} / {2}", "{0}–{1} of {2}"), employeePage.Total == 0 ? 0 : _employeeOffset + 1, _employeeOffset + employeePage.Items.Count, employeePage.Total)</span><button type="button" disabled="@(CreateLocked || !HasNextEmployeePage)" @onclick="() => MoveEmployeePageAsync(1)">@T("inventory.next", "다음 페이지", "Next page")</button></nav>
+                            }
+                        </div>
+                        <label class="expense-check"><input id="expense-split" aria-label="@T("expenseWorkspace.splitEmployees", "활성 직원 전체에 균등 분할", "Split equally across all active employees")" type="checkbox" @bind="_draft.SplitAcrossEmployees" disabled="@CreateLocked" /> <span>@T("expenseWorkspace.splitEmployees", "활성 직원 전체에 균등 분할", "Split equally across all active employees")</span></label>
+                        @if (_draft.Type == ExpenseType.BillableToContact)
+                        {
+                            <div class="expense-choice">
+                                @if (Can("billing.read"))
+                                {
+                                    <label for="expense-contact">@T("expenseWorkspace.contact", "청구 고객", "Billing contact")
+                                        <select id="expense-contact" aria-label="@T("expenseWorkspace.contact", "청구 고객", "Billing contact")" @bind="_draft.ContactId" disabled="@CreateLocked"><option value="@Guid.Empty">@T("expenseWorkspace.chooseContact", "청구 고객 선택", "Choose billing contact")</option>@if (_contacts is not null) { @foreach (var item in _contacts.Items.Where(value => value.Active)) { <option value="@item.Id">@item.Name · @item.CustomerId</option> } }</select>
+                                    </label>
+                                    @if (_contacts is { } contactPage) { <nav class="expense-choice-pages" aria-label="@T("expenseWorkspace.contactPages", "청구 고객 선택 페이지", "Billing contact choice pages")"><button type="button" disabled="@(CreateLocked || !HasPreviousContactPage)" @onclick="() => MoveContactPageAsync(-1)">@T("inventory.previous", "이전 페이지", "Previous page")</button><span>@string.Format(CultureInfo.InvariantCulture, T("expenseWorkspace.choicePage", "{0}–{1} / {2}", "{0}–{1} of {2}"), contactPage.Total == 0 ? 0 : _contactOffset + 1, _contactOffset + contactPage.Items.Count, contactPage.Total)</span><button type="button" disabled="@(CreateLocked || !HasNextContactPage)" @onclick="() => MoveContactPageAsync(1)">@T("inventory.next", "다음 페이지", "Next page")</button></nav> }
+                                }
+                                else { <p role="status">@T("expenseWorkspace.billingReadForContact", "청구 고객을 선택하려면 billing.read 권한이 필요합니다.", "The billing.read permission is required to choose a billing contact.")</p> }
+                            </div>
+                        }
+                        @if (Can("crm.project.read"))
+                        {
+                            <div class="expense-choice">
+                                <label for="expense-project">@T("expenseWorkspace.project", "프로젝트 (선택)", "Project (optional)")
+                                    <select id="expense-project" aria-label="@T("expenseWorkspace.project", "프로젝트 (선택)", "Project (optional)")" @bind="_draft.ProjectId" disabled="@CreateLocked"><option value="@Guid.Empty">@T("expenseWorkspace.noProject", "프로젝트 지정 안 함", "No project")</option>@if (_projects is not null) { @foreach (var item in _projects.Items) { <option value="@item.Id">@item.Values.Name@(item.Values.Code is null ? "" : " · " + item.Values.Code)</option> } }</select>
+                                </label>
+                                @if (_projects is { } projectPage) { <nav class="expense-choice-pages" aria-label="@T("expenseWorkspace.projectPages", "프로젝트 선택 페이지", "Project choice pages")"><button type="button" disabled="@(CreateLocked || !HasPreviousProjectPage)" @onclick="() => MoveProjectPageAsync(-1)">@T("inventory.previous", "이전 페이지", "Previous page")</button><span>@string.Format(CultureInfo.InvariantCulture, T("expenseWorkspace.choicePage", "{0}–{1} / {2}", "{0}–{1} of {2}"), projectPage.Total == 0 ? 0 : _projectOffset + 1, _projectOffset + projectPage.Items.Count, projectPage.Total)</span><button type="button" disabled="@(CreateLocked || !HasNextProjectPage)" @onclick="() => MoveProjectPageAsync(1)">@T("inventory.next", "다음 페이지", "Next page")</button></nav> }
+                            </div>
+                        }
+                        <label for="expense-tax-type">@T("expenseWorkspace.taxType", "포함 세금 방식", "Included tax method")<select id="expense-tax-type" aria-label="@T("expenseWorkspace.taxType", "포함 세금 방식", "Included tax method")" @bind="_draft.TaxType" disabled="@CreateLocked"><option value="">@T("expenseWorkspace.noTax", "세금 없음", "No included tax")</option><option value="@ExpenseTaxType.Percentage">@T("expenseWorkspace.taxPercentage", "비율", "Percentage")</option><option value="@ExpenseTaxType.Flat">@T("expenseWorkspace.taxFlat", "정액", "Flat amount")</option></select></label>
+                        @if (_draft.TaxType.Length > 0)
+                        {
+                            <label for="expense-tax-value">@T("expenseWorkspace.taxValue", "세율 또는 세액", "Tax rate or amount")<input id="expense-tax-value" aria-label="@T("expenseWorkspace.taxValue", "세율 또는 세액", "Tax rate or amount")" type="number" min="0" step="0.000001" @bind="_draft.TaxValue" disabled="@CreateLocked" /></label>
+                            <label for="expense-tax-label">@T("expenseWorkspace.taxLabel", "세금 표기 (선택)", "Tax label (optional)")<input id="expense-tax-label" aria-label="@T("expenseWorkspace.taxLabel", "세금 표기 (선택)", "Tax label (optional)")" maxlength="64" @bind="_draft.TaxLabel" disabled="@CreateLocked" /></label>
+                        }
                         <label class="expense-wide" for="expense-purpose">@T("expenseWorkspace.purpose", "사용 목적", "Purpose")<input id="expense-purpose" aria-label="@T("expenseWorkspace.purpose", "사용 목적", "Purpose")" maxlength="255" @bind="_draft.Purpose" disabled="@CreateLocked" /></label>
+                        <label class="expense-wide" for="expense-reference">@T("expenseWorkspace.reference", "외부 참조 (선택)", "External reference (optional)")<input id="expense-reference" aria-label="@T("expenseWorkspace.reference", "외부 참조 (선택)", "External reference (optional)")" maxlength="255" @bind="_draft.Reference" disabled="@CreateLocked" /></label>
+                        <label class="expense-wide" for="expense-notes">@T("expenseWorkspace.notes", "업무 메모 (선택)", "Business notes (optional)")<textarea id="expense-notes" aria-label="@T("expenseWorkspace.notes", "업무 메모 (선택)", "Business notes (optional)")" maxlength="4000" rows="3" @bind="_draft.Notes" disabled="@CreateLocked"></textarea></label>
                         <label class="expense-wide" for="expense-receipt">@T("expenseWorkspace.receipt", "영수증 위치", "Receipt locator")<input id="expense-receipt" aria-label="@T("expenseWorkspace.receipt", "영수증 위치", "Receipt locator")" maxlength="2048" @bind="_draft.Receipt" disabled="@CreateLocked" /></label>
                         <button id="expense-create" type="submit" disabled="@_busy">@(_pendingCreate is null ? T("expenseWorkspace.record", "비용 등록", "Record expense") : T("expenseWorkspace.retryCreate", "같은 요청으로 결과 확인", "Retry same request"))</button>
                     </form>
@@ -199,6 +240,18 @@
             {
                 <section class="expense-selected" aria-labelledby="expense-selected-heading"><div class="expense-heading"><div><p class="expense-kicker">05</p><h2 id="expense-selected-heading">@T("expenseWorkspace.selected", "선택한 비용", "Selected expense")</h2></div><span class="expense-state">@StatusName(_selected)</span></div><p class="expense-id">@_selected.Id.ToString("D")</p>
                     <dl><div><dt>@T("expenseWorkspace.net", "공급가", "Net")</dt><dd>@Amount(_selected.Amounts.Net) @_selected.Input.Currency</dd></div><div><dt>@T("expenseWorkspace.tax", "포함 세금", "Included tax")</dt><dd>@Amount(_selected.Amounts.Tax) @_selected.Input.Currency</dd></div><div><dt>@T("expenseWorkspace.createdBy", "등록자", "Created by")</dt><dd>@_selected.CreatedBy</dd></div></dl>
+                    <dl class="expense-selected-metadata">
+                        @if (_selected.Input.EmployeeId is { } employeeId) { <div><dt>@T("expenseWorkspace.employeeDetail", "담당 직원", "Employee")</dt><dd>@Short(employeeId)</dd></div> }
+                        @if (_selected.Input.ContactId is { } contactId) { <div><dt>@T("expenseWorkspace.contact", "청구 고객", "Billing contact")</dt><dd>@Short(contactId)</dd></div> }
+                        @if (_selected.Input.ProjectId is { } projectId) { <div><dt>@T("expenseWorkspace.projectDetail", "프로젝트", "Project")</dt><dd>@Short(projectId)</dd></div> }
+                        @if (_selected.Input.Tax is { } tax) { <div><dt>@T("expenseWorkspace.taxRule", "세금 규칙", "Tax rule")</dt><dd>@TaxName(tax)</dd></div> }
+                        @if (_selected.Allocations.Count > 0) { <div><dt>@T("expenseWorkspace.allocations", "직원 분할", "Employee allocations")</dt><dd>@string.Format(CultureInfo.InvariantCulture, T("expenseWorkspace.allocationCount", "{0}명", "{0} employees"), _selected.Allocations.Count)</dd></div> }
+                        @if (_selected.Input.Reference is not null) { <div><dt>@T("expenseWorkspace.referenceDetail", "외부 참조", "External reference")</dt><dd>@_selected.Input.Reference</dd></div> }
+                    </dl>
+                    @if (_selected.Input.Purpose is not null) { <p><strong>@T("expenseWorkspace.purpose", "사용 목적", "Purpose"):</strong> @_selected.Input.Purpose</p> }
+                    @if (_selected.Input.Notes is not null) { <p class="expense-long-text"><strong>@T("expenseWorkspace.notesDetail", "업무 메모", "Business notes"):</strong> @_selected.Input.Notes</p> }
+                    @if (_selected.Input.Receipt is not null) { <p class="expense-long-text"><strong>@T("expenseWorkspace.receipt", "영수증 위치", "Receipt locator"):</strong> @_selected.Input.Receipt</p> }
+                    @if (_selected.Allocations.Count > 0) { <ul class="expense-allocations">@foreach (var allocation in _selected.Allocations) { <li><span>@allocation.EmployeeId.ToString("D")</span><strong>@Amount(allocation.Amount) @_selected.Input.Currency</strong></li> }</ul> }
                     @if (_selected.Input.Type == ExpenseType.BillableToContact)
                     {
                         <div class="expense-invoice" aria-labelledby="expense-invoice-heading">
