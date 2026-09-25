@@ -10,6 +10,7 @@ using NexaOne.ServiceContracts.Collaboration;
 using NexaOne.ServiceContracts.Crm;
 using NexaOne.ServiceContracts.Erp;
 using NexaOne.ServiceContracts.Mdm;
+using NexaOne.ServiceContracts.Ivt;
 using NexaOne.ServiceContracts.Sys;
 
 namespace NexaOne.ERP.Infrastructure;
@@ -26,10 +27,11 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IExp
     private readonly IBusinessMembershipBridge _memberships;
     private readonly IBusinessMasterDirectory _masters;
     private readonly IBusinessProjectDirectory? _projects;
+    private readonly IStockBillingDirectory? _stockBilling;
 
     public BillingBridge(EesDataSource dataSource, IBusinessMembershipBridge memberships,
         IBusinessMasterDirectory masters, TimeProvider? clock = null,
-        IBusinessProjectDirectory? projects = null)
+        IBusinessProjectDirectory? projects = null, IStockBillingDirectory? stockBilling = null)
     {
         _processor = new(dataSource);
         _timeout = dataSource.QueryGatewayOptions.CommandTimeoutSeconds;
@@ -37,6 +39,7 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IExp
         _memberships = memberships ?? throw new ArgumentNullException(nameof(memberships));
         _masters = masters ?? throw new ArgumentNullException(nameof(masters));
         _projects = projects;
+        _stockBilling = stockBilling;
     }
 
     public Task<BusinessPage<BusinessMembership>> ListAccessibleScopesAsync(string userId, int offset = 0, int limit = 50, CancellationToken ct = default)
@@ -139,7 +142,7 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IExp
         return _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
         {
             var session = new Session(connection, transaction, _timeout, new("NexaOne.MES", Text(tenantId), Text(organizationId)),
-                _memberships, _masters, _clock);
+                _memberships, _masters, _clock, _projects, _stockBilling);
             try
             {
                 await session.Authorize(userId, permission, ct);
@@ -188,7 +191,7 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IExp
     // Confined to one processor-owned transaction. This adapter never commits, retries or caches authority.
     private sealed partial class Session(DbConnection connection, DbTransaction transaction, int? timeout, BusinessScope scope,
         IBusinessMembershipBridge memberships, IBusinessMasterDirectory masters, TimeProvider clock,
-        IBusinessProjectDirectory? projects = null)
+        IBusinessProjectDirectory? projects = null, IStockBillingDirectory? stockBilling = null)
         : IAtomicBusinessStore<IBillingTransaction>, IBillingTransaction, IAtomicBusinessStore<IExpenseTransaction>,
           IExpenseTransaction, IAtomicBusinessStore<IExpenseAccountingTransaction>, IExpenseAccountingTransaction,
           IAtomicBusinessStore<IRecurringTransaction>, IRecurringTransaction,

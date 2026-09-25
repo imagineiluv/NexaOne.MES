@@ -17,6 +17,7 @@
   <object id="materialBridge" factory-object="ivtModule" factory-method="GetMaterialBridge" />
   <object id="equipmentSharingBridge" factory-object="ivtModule" factory-method="GetEquipmentSharingBridge" />
   <object id="stockBridge" factory-object="ivtModule" factory-method="GetStockBridge" />
+  <object id="stockBillingDirectory" factory-object="ivtModule" factory-method="GetStockBillingDirectory" />
   <object id="stockMasterExportWorker" factory-object="ivtModule" factory-method="GetStockMasterExportWorker" />
   <object id="materialLotBridge" factory-object="ivtModule" factory-method="GetMaterialLotBridge" />
   <object id="traceMaterialBridge" factory-object="ivtModule" factory-method="GetTraceMaterialBridge" />

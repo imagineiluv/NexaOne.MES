@@ -44,6 +44,7 @@ public sealed class IvtCompositionBoundaryTests
             ["materialBridge"] = "GetMaterialBridge",
             ["equipmentSharingBridge"] = "GetEquipmentSharingBridge",
             ["stockBridge"] = "GetStockBridge",
+            ["stockBillingDirectory"] = "GetStockBillingDirectory",
             ["stockMasterExportWorker"] = "GetStockMasterExportWorker",
             ["materialLotBridge"] = "GetMaterialLotBridge",
             ["traceMaterialBridge"] = "GetTraceMaterialBridge",
@@ -52,5 +53,28 @@ public sealed class IvtCompositionBoundaryTests
             ["fdcTraceRetentionGuard"] = "GetFdcTraceRetentionGuard",
             ["traceMaterialConsumptionWorker"] = "GetTraceMaterialConsumptionWorker",
         });
+    }
+
+    [Fact]
+    public void Stock_billing_directory_crosses_sibling_contexts_through_the_host_proxy()
+    {
+        var proxy = File.ReadAllText(RepositorySource.GetFile(
+            "src", "00.Main", "NexaOne.Server", "Gateway", "StockBillingDirectoryProxy.cs"));
+        proxy.Should().Contain("ModuleBeanResolver");
+        proxy.Should().Contain("_resolver.Resolve<IStockBillingDirectory>(\"Ivt\", \"stockBillingDirectory\")");
+        proxy.Should().NotContain("ApplicationServer.GetInstance");
+        proxy.Should().NotContain("IVT_STOCK_");
+
+        foreach (var configFile in new[] { "server.xml", "server.sqlite.xml" })
+        {
+            var document = XDocument.Load(RepositorySource.GetFile(
+                "src", "00.Main", "NexaOne.Server", "config", "host", configFile));
+            var bean = document.Descendants().Single(element =>
+                element.Name.LocalName == "object"
+                && (string?)element.Attribute("id") == "stockBillingDirectory");
+            ((string?)bean.Attribute("type")).Should().Be(
+                "NexaOne.Server.Gateway.StockBillingDirectoryProxy, NexaOne.Server");
+            ((string?)bean.Elements().Single().Attribute("ref")).Should().Be("moduleBeanResolver");
+        }
     }
 }

@@ -23,6 +23,7 @@ public sealed class Module
     private readonly IMaterialBridge _materialBridge;
     private readonly IEquipmentSharingBridge _equipmentSharingBridge;
     private readonly StockBridge _stockBridge;
+    private readonly IStockBillingDirectory _stockBillingDirectory;
     private readonly IMaterialLotBridge _materialLotBridge;
     private readonly ITraceMaterialBridge _traceMaterialBridge;
     private readonly IMaterialLotDirectory _materialLotDirectory;
@@ -63,6 +64,7 @@ public sealed class Module
         _materialBridge = new MaterialBridge(consumptionService);
         _equipmentSharingBridge = new EquipmentSharingBridge(dataSource, businessMemberships, businessMasters);
         _stockBridge = new StockBridge(dataSource, businessMemberships, businessMasters);
+        _stockBillingDirectory = new StockBillingDirectory();
         _stockMasterExportWorker = new StockMasterExportWorker(_stockBridge, configuration);
         _materialLotBridge = new MaterialLotBridge(
             new MaterialLotService(materialLotRepository));
@@ -94,6 +96,9 @@ public sealed class Module
 
     /// <summary>명시적으로 등록된 품목의 업무 재고·예약 bridge를 반환합니다.</summary>
     public IStockBridge GetStockBridge() => _stockBridge;
+
+    /// <summary>ERP product billing이 같은 transaction에서 사용하는 축소 출고 원장 projection을 반환합니다.</summary>
+    public IStockBillingDirectory GetStockBillingDirectory() => _stockBillingDirectory;
 
     /// <summary>내구성 있는 상품·창고 master 내보내기 요청을 처리하는 worker를 반환합니다.</summary>
     public IHostedService GetStockMasterExportWorker() => _stockMasterExportWorker;

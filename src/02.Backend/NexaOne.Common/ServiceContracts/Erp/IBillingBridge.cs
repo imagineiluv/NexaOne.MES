@@ -30,6 +30,18 @@ public sealed record PublicBillingDocument(BillingDocumentView View, BillingShar
 /// <summary>An email request tied to a public billing link and the generic delivery queue.</summary>
 public sealed record BillingShareDelivery(Guid ShareId, DeliveryRequest Delivery);
 
+/// <summary>Lifecycle of an explicitly registered stock-issue billing source.</summary>
+public enum BillingProductSourceState { Eligible = 0, Invoiced = 1, Reversed = 2 }
+
+/// <summary>Pricing and invoice ownership assigned to one immutable inventory issue.</summary>
+public sealed record BillingProductSourceInput(Guid ContactId, string Currency, string Description,
+    decimal UnitPrice, bool ApplyTax = true, bool ApplyDiscount = true);
+
+/// <summary>An inventory issue explicitly connected to automatic product billing.</summary>
+public sealed record BillingProductSource(Guid MovementId, Guid ProductId, Guid VariantId, Guid ContactId,
+    DateOnly OccurredOn, string Currency, string Description, decimal UnitPrice, decimal Quantity,
+    bool ApplyTax, bool ApplyDiscount, BillingProductSourceState State, Guid? InvoiceId = null);
+
 /// <summary>Scoped estimates, invoices, credit notes and payments over the Framework billing service. Every operation checks
 /// current SYS membership and grants in its owning Serializable transaction; no plant binding is involved.</summary>
 public interface IBillingBridge : INexaModuleBridge
@@ -51,10 +63,17 @@ public interface IBillingBridge : INexaModuleBridge
     /// <summary>Creates a draft credit note linked to one issued invoice. Requires billing.credit.</summary>
     Task<BillingDocument> CreateCreditNoteAsync(string userId, Guid tenantId, Guid organizationId,
         Guid operationId, Guid invoiceId, BillingDocumentInput input, CancellationToken ct = default);
-    /// <summary>Generates one draft invoice from currently unclaimed provider sources. MES currently supplies
-    /// real uninvoiced expenses; time and product occurrence providers remain fail-closed until their owners expose them.</summary>
+    /// <summary>Generates one draft invoice from currently unclaimed provider sources. MES supplies real
+    /// uninvoiced expenses and explicitly registered inventory issues; time sources remain fail-closed.</summary>
     Task<AutomaticBillingResult> GenerateAutomaticInvoiceAsync(string userId, Guid tenantId, Guid organizationId,
         Guid operationId, AutomaticBillingRequest request, CancellationToken ct = default);
+    /// <summary>Registers one unreversed inventory issue as a priced product occurrence. Repeating the same
+    /// movement and input is idempotent; changed input conflicts. Requires billing.write.</summary>
+    Task<BillingProductSource> RegisterProductSourceAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid movementId, BillingProductSourceInput input, CancellationToken ct = default);
+    /// <summary>Reads the current invoice/reversal state of a registered inventory issue.</summary>
+    Task<BillingProductSource> GetProductSourceAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid movementId, CancellationToken ct = default);
     Task<BillingDocument> UpdateDocumentAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, BillingDocumentInput input, CancellationToken ct = default);
     Task<BillingDocument> UpdateCreditNoteAsync(string userId, Guid tenantId, Guid organizationId,
