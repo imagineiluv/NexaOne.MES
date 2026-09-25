@@ -7,6 +7,18 @@ namespace NexaOne.ServiceContracts.Ivt;
 /// current SYS authority and the explicit IVT plant binding in its owning database transaction.</summary>
 public interface IStockBridge : INexaModuleBridge
 {
+    /// <summary>Exports a bounded product or warehouse master snapshot using only the requested allow-listed fields.</summary>
+    Task<StockMasterCsvExport> ExportMastersCsvAsync(string userId, Guid tenantId, Guid organizationId,
+        StockMasterExportQuery query, CancellationToken ct = default);
+    /// <summary>Queues a durable export for snapshots that exceed the synchronous row limit. Exact retries replay the job.</summary>
+    Task<StockMasterExportJob> QueueMasterExportAsync(string userId, Guid tenantId, Guid organizationId,
+        StockMasterExportJobRequest request, CancellationToken ct = default);
+    Task<StockMasterExportJob> GetMasterExportJobAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid jobId, CancellationToken ct = default);
+    Task<StockMasterExportJob> RetryMasterExportAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid jobId, Guid expectedVersion, CancellationToken ct = default);
+    Task<StockMasterCsvExport> DownloadMasterExportAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid jobId, CancellationToken ct = default);
     /// <summary>Atomically imports product enrollments and warehouses after validating every row.
     /// A successful operation can be replayed with the same actor and payload without writing again.</summary>
     Task<StockMasterImportResult> ImportMastersAsync(string userId, Guid tenantId, Guid organizationId,
@@ -65,6 +77,23 @@ public interface IStockBridge : INexaModuleBridge
     Task<StockMovement> ConsumeReservationAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, CancellationToken ct = default);
 }
+
+public enum StockMasterExportKind { Products = 0, Warehouses = 1 }
+
+public enum StockMasterExportState { Pending = 0, Processing = 1, Completed = 2, Failed = 3 }
+
+public sealed record StockMasterExportQuery(StockMasterExportKind Kind, IReadOnlyList<string> Fields,
+    bool IncludeInactive = false);
+
+public sealed record StockMasterExportJobRequest(Guid OperationId, StockMasterExportKind Kind,
+    IReadOnlyList<string> Fields, bool IncludeInactive = false);
+
+public sealed record StockMasterExportJob(Guid Id, Guid Version, Guid OperationId, StockMasterExportKind Kind,
+    IReadOnlyList<string> Fields, bool IncludeInactive, StockMasterExportState State, int? RowCount,
+    string? FileName, string? ErrorCode, DateTimeOffset RequestedAt, DateTimeOffset? CompletedAt,
+    bool Replayed = false);
+
+public sealed record StockMasterCsvExport(string FileName, string ContentType, byte[] Content, int RowCount);
 
 public sealed record StockMasterImportRequest(Guid OperationId,
     IReadOnlyList<StockProductImportRow> Products, IReadOnlyList<StockWarehouseImportRow> Warehouses);

@@ -9,6 +9,7 @@ using Dapper;
 using FluentAssertions;
 using Microsoft.Data.SqlClient;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Configuration;
 using NexaFramework.Service;
 using NexaFramework.Service.Inventory;
 using NexaOne.IVT.Infrastructure;
@@ -324,6 +325,34 @@ public sealed class StockMssqlTests(ITestOutputHelper output)
     }
 
     [StockMssqlFact]
+    public async Task Actual_SQL_Server_selects_master_export_fields_and_completes_replayable_durable_jobs()
+    {
+        var h = await Harness.CreateAsync(output);
+        var first = await h.Warehouse("Z-LAST");
+        await h.Warehouse("A-FIRST");
+        var direct = await h.Bridge.ExportMastersCsvAsync(h.Seed.User, h.Tenant, h.Organization,
+            new(StockMasterExportKind.Warehouses, ["code", "warehouseId"]));
+        direct.RowCount.Should().Be(2);
+        Encoding.UTF8.GetString(direct.Content).Should().StartWith("\uFEFF\"Code\",\"Warehouse ID\"\r\n\"A-FIRST\"");
+
+        var operation = Guid.NewGuid();
+        var request = new StockMasterExportJobRequest(operation, StockMasterExportKind.Warehouses,
+            ["warehouseId", "code", "active"], true);
+        var queued = await h.Bridge.QueueMasterExportAsync(h.Seed.User, h.Tenant, h.Organization, request);
+        (await h.Bridge.QueueMasterExportAsync(h.Seed.User, h.Tenant, h.Organization, request))
+            .Should().BeEquivalentTo(queued with { Replayed = true });
+        var worker = new StockMasterExportWorker(h.Bridge, new ConfigurationBuilder().Build());
+        (await worker.RunOnceAsync(default)).Should().BeTrue();
+        var completed = await h.Bridge.GetMasterExportJobAsync(h.Seed.User, h.Tenant, h.Organization, queued.Id);
+        completed.State.Should().Be(StockMasterExportState.Completed);
+        completed.RowCount.Should().Be(2);
+        var artifact = await h.Bridge.DownloadMasterExportAsync(h.Seed.User, h.Tenant, h.Organization, queued.Id);
+        artifact.RowCount.Should().Be(2);
+        Encoding.UTF8.GetString(artifact.Content).Should().Contain(first.Id.ToString("D"));
+        (await h.Count("IVT_STOCK_MASTER_EXPORT")).Should().Be(1);
+    }
+
+    [StockMssqlFact]
     public async Task Actual_SQL_Server_lists_filter_live_masters_and_literal_text_before_scoped_paging_and_recheck_grants()
     {
         var h = await Harness.CreateAsync(output);
@@ -379,9 +408,10 @@ public sealed class StockMssqlTests(ITestOutputHelper output)
     {
         var h = await Harness.CreateAsync(output);
         string[] tables = ["IVT_STOCK_PRODUCT", "IVT_STOCK_WAREHOUSE", "IVT_STOCK_WAREHOUSE_CREATION",
-            "IVT_STOCK_BALANCE", "IVT_STOCK_MOVEMENT", "IVT_STOCK_RESERVATION", "IVT_STOCK_AUDIT", "IVT_STOCK_MASTER_IMPORT"];
+            "IVT_STOCK_BALANCE", "IVT_STOCK_MOVEMENT", "IVT_STOCK_RESERVATION", "IVT_STOCK_AUDIT", "IVT_STOCK_MASTER_IMPORT",
+            "IVT_STOCK_MASTER_EXPORT"];
         (await h.Database.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id=SCHEMA_ID('dbo') AND name IN @tables", new { tables }))
-            .Should().Be(8);
+            .Should().Be(9);
         (await h.Database.ScalarAsync<int>("""
             SELECT COUNT(*) FROM sys.columns c JOIN sys.tables t ON c.object_id=t.object_id
              WHERE t.schema_id=SCHEMA_ID('dbo') AND TYPE_NAME(c.user_type_id) IN ('varchar','nvarchar')

@@ -16,6 +16,32 @@ namespace NexaOne.Server.Gateway;
 [Route("api/v1/ivt/stock/{tenantId:guid}/{organizationId:guid}")]
 public sealed class StockController(IStockBridge bridge, ILogger<StockController> logger) : ControllerBase
 {
+    [HttpPost("exports/masters.csv")]
+    public Task<IActionResult> ExportMasters(Guid tenantId, Guid organizationId,
+        [FromBody] StockMasterExportQuery query, CancellationToken ct)
+        => Execute(user => bridge.ExportMastersCsvAsync(user, tenantId, organizationId, query, ct),
+            export => File(export.Content, export.ContentType, export.FileName));
+
+    [HttpPost("exports/master-jobs")]
+    public Task<IActionResult> QueueMasterExport(Guid tenantId, Guid organizationId,
+        [FromBody] StockMasterExportJobRequest command, CancellationToken ct)
+        => Execute(user => bridge.QueueMasterExportAsync(user, tenantId, organizationId, command, ct),
+            job => AcceptedAtAction(nameof(GetMasterExportJob), new { tenantId, organizationId, jobId = job.Id }, job));
+
+    [HttpGet("exports/master-jobs/{jobId:guid}")]
+    public Task<IActionResult> GetMasterExportJob(Guid tenantId, Guid organizationId, Guid jobId, CancellationToken ct)
+        => Execute(user => bridge.GetMasterExportJobAsync(user, tenantId, organizationId, jobId, ct));
+
+    [HttpPost("exports/master-jobs/{jobId:guid}/retry")]
+    public Task<IActionResult> RetryMasterExport(Guid tenantId, Guid organizationId, Guid jobId,
+        [FromBody] VersionedCommand command, CancellationToken ct)
+        => Execute(user => bridge.RetryMasterExportAsync(user, tenantId, organizationId, jobId, command.Version, ct));
+
+    [HttpGet("exports/master-jobs/{jobId:guid}/download")]
+    public Task<IActionResult> DownloadMasterExport(Guid tenantId, Guid organizationId, Guid jobId, CancellationToken ct)
+        => Execute(user => bridge.DownloadMasterExportAsync(user, tenantId, organizationId, jobId, ct),
+            export => File(export.Content, export.ContentType, export.FileName));
+
     [HttpPost("imports/masters")]
     public Task<IActionResult> ImportMasters(Guid tenantId, Guid organizationId,
         [FromBody] StockMasterImportRequest command, CancellationToken ct)
@@ -144,7 +170,7 @@ public sealed class StockController(IStockBridge bridge, ILogger<StockController
         {
             if (error.Code == "BUSINESS_ACCESS_DENIED") return Forbid();
             var status = error.Code.EndsWith("_NOT_FOUND", StringComparison.Ordinal) ? 404
-                : error.Code == "STOCK_REPORT_TOO_LARGE" ? StatusCodes.Status413PayloadTooLarge
+                : error.Code is "STOCK_REPORT_TOO_LARGE" or "STOCK_MASTER_EXPORT_TOO_LARGE" ? StatusCodes.Status413PayloadTooLarge
                 : error.Code.StartsWith("INVALID_", StringComparison.Ordinal) || error.Code == "EXPLICIT_CREATE_OR_VERSIONED_UPDATE_REQUIRED" ? 400 : 409;
             return StatusCode(status, new { code = error.Code });
         }

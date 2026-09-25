@@ -19,6 +19,36 @@ namespace NexaOne.ServerTests;
 public sealed class StockControllerTests
 {
     [Fact]
+    public async Task Master_export_endpoints_preserve_contract_and_file_metadata()
+    {
+        var tenant = Guid.NewGuid(); var organization = Guid.NewGuid(); var jobId = Guid.NewGuid();
+        var query = new StockMasterExportQuery(StockMasterExportKind.Products, ["productId"]);
+        var command = new StockMasterExportJobRequest(Guid.NewGuid(), StockMasterExportKind.Products, ["productId"]);
+        var export = new StockMasterCsvExport("products.csv", "text/csv; charset=utf-8", [1, 2, 3], 1);
+        var job = new StockMasterExportJob(jobId, Guid.NewGuid(), command.OperationId, command.Kind, command.Fields,
+            false, StockMasterExportState.Pending, null, null, null, DateTimeOffset.UtcNow, null);
+        var bridge = new Mock<IStockBridge>(MockBehavior.Strict);
+        bridge.Setup(value => value.ExportMastersCsvAsync("stock-user", tenant, organization, query, default)).ReturnsAsync(export);
+        bridge.Setup(value => value.QueueMasterExportAsync("stock-user", tenant, organization, command, default)).ReturnsAsync(job);
+        bridge.Setup(value => value.GetMasterExportJobAsync("stock-user", tenant, organization, jobId, default)).ReturnsAsync(job);
+        bridge.Setup(value => value.RetryMasterExportAsync("stock-user", tenant, organization, jobId, job.Version, default)).ReturnsAsync(job);
+        bridge.Setup(value => value.DownloadMasterExportAsync("stock-user", tenant, organization, jobId, default)).ReturnsAsync(export);
+        var controller = Controller(bridge.Object);
+
+        var direct = (await controller.ExportMasters(tenant, organization, query, default)).Should().BeOfType<FileContentResult>().Which;
+        direct.FileDownloadName.Should().Be(export.FileName); direct.FileContents.Should().BeSameAs(export.Content);
+        (await controller.QueueMasterExport(tenant, organization, command, default)).Should().BeOfType<AcceptedAtActionResult>()
+            .Which.Value.Should().BeSameAs(job);
+        (await controller.GetMasterExportJob(tenant, organization, jobId, default)).Should().BeOfType<OkObjectResult>()
+            .Which.Value.Should().BeSameAs(job);
+        (await controller.RetryMasterExport(tenant, organization, jobId, new(job.Version), default)).Should().BeOfType<OkObjectResult>()
+            .Which.Value.Should().BeSameAs(job);
+        (await controller.DownloadMasterExport(tenant, organization, jobId, default)).Should().BeOfType<FileContentResult>()
+            .Which.FileContents.Should().BeSameAs(export.Content);
+        bridge.VerifyAll(); bridge.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task Master_import_forwards_the_exact_payload_and_maps_validation_to_422()
     {
         var tenant = Guid.NewGuid(); var organization = Guid.NewGuid();
@@ -130,6 +160,7 @@ public sealed class StockControllerTests
     [InlineData("INVALID_STOCK_POSTING", 400)]
     [InlineData("EXPLICIT_CREATE_OR_VERSIONED_UPDATE_REQUIRED", 400)]
     [InlineData("STOCK_REPORT_TOO_LARGE", 413)]
+    [InlineData("STOCK_MASTER_EXPORT_TOO_LARGE", 413)]
     [InlineData("STOCK_OPERATION_CONFLICT", 409)]
     public async Task Business_errors_keep_equipment_gateway_status_and_code_conventions(string code, int status)
     {

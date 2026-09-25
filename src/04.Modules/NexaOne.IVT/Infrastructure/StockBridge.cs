@@ -17,7 +17,7 @@ namespace NexaOne.IVT.Infrastructure;
 
 /// <summary>Owns business stock persistence and explicit product enrollment. All owner reads,
 /// balance changes, immutable ledger entries, reservations and audit share one Serializable commit.</summary>
-public sealed class StockBridge : IStockBridge
+public sealed partial class StockBridge : IStockBridge
 {
     private const int BalanceReportRowLimit = 10_000;
     private const string ScopeWhere = "TENANT_ID=@TenantId AND ORGANIZATION_ID=@OrganizationId";
@@ -228,7 +228,7 @@ public sealed class StockBridge : IStockBridge
     }
 
     // Confined to one processor-owned transaction. This adapter never commits, retries or caches authority.
-    private sealed class Session(DbConnection connection, DbTransaction transaction, int? timeout, BusinessScope scope,
+    private sealed partial class Session(DbConnection connection, DbTransaction transaction, int? timeout, BusinessScope scope,
         IBusinessMembershipBridge memberships, IBusinessMasterDirectory masters, TimeProvider clock, string batchLimitSql)
         : IAtomicBusinessStore<IStockTransaction>, IStockTransaction, IBusinessAuthorizer
     {
