@@ -99,7 +99,7 @@
                     @if (_expenses is { } expenses)
                     {
                         @if (expenses.Items.Count == 0) { <p data-empty="true">@T("expenseWorkspace.noExpenses", "등록된 비용이 없습니다.", "No expenses have been recorded.")</p> }
-                        else { <div class="expense-table-scroll" tabindex="0" role="region" aria-label="@T("expenseWorkspace.list", "비용 원장", "Expense ledger")"><table><thead><tr><th>@T("expenseWorkspace.valueDate", "귀속일", "Value date")</th><th>@T("expenseWorkspace.purpose", "사용 목적", "Purpose")</th><th>@T("expenseWorkspace.type", "비용 유형", "Expense type")</th><th>@T("expenseWorkspace.status", "처리 상태", "Status")</th><th>@T("expenseWorkspace.amount", "금액", "Amount")</th><th>@T("inventory.write.actions", "작업", "Actions")</th></tr></thead><tbody>@foreach (var item in expenses.Items) { <tr @key="item.Id" class="@(item.State == ExpenseState.Cancelled ? "is-cancelled" : null)"><td>@item.Input.ValueDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)</td><td>@(item.Input.Purpose ?? "—")</td><td>@TypeName(item.Input.Type)</td><td>@StatusName(item)</td><td>@Amount(item.Amounts.Gross) @item.Input.Currency</td><td><button type="button" data-select-expense="@item.Id" @onclick="() => SelectExpense(item)">@T("crm.select", "선택", "Select")</button></td></tr> }</tbody></table></div> }
+                        else { <div class="expense-table-scroll" tabindex="0" role="region" aria-label="@T("expenseWorkspace.list", "비용 원장", "Expense ledger")"><table><thead><tr><th>@T("expenseWorkspace.valueDate", "귀속일", "Value date")</th><th>@T("expenseWorkspace.purpose", "사용 목적", "Purpose")</th><th>@T("expenseWorkspace.type", "비용 유형", "Expense type")</th><th>@T("expenseWorkspace.status", "처리 상태", "Status")</th><th>@T("expenseWorkspace.amount", "금액", "Amount")</th><th>@T("inventory.write.actions", "작업", "Actions")</th></tr></thead><tbody>@foreach (var item in expenses.Items) { <tr @key="item.Id" class="@(item.State == ExpenseState.Cancelled ? "is-cancelled" : null)"><td>@item.Input.ValueDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)</td><td>@(item.Input.Purpose ?? "—")</td><td>@TypeName(item.Input.Type)</td><td>@StatusName(item)</td><td>@Amount(item.Amounts.Gross) @item.Input.Currency</td><td><button type="button" data-select-expense="@item.Id" disabled="@(_busy || _pendingInvoice is not null)" @onclick="() => SelectExpenseAsync(item)">@T("crm.select", "선택", "Select")</button></td></tr> }</tbody></table></div> }
                     }
                 </section>
             }
@@ -108,6 +108,64 @@
             {
                 <section class="expense-selected" aria-labelledby="expense-selected-heading"><div class="expense-heading"><div><p class="expense-kicker">05</p><h2 id="expense-selected-heading">@T("expenseWorkspace.selected", "선택한 비용", "Selected expense")</h2></div><span class="expense-state">@StatusName(_selected)</span></div><p class="expense-id">@_selected.Id.ToString("D")</p>
                     <dl><div><dt>@T("expenseWorkspace.net", "공급가", "Net")</dt><dd>@Amount(_selected.Amounts.Net) @_selected.Input.Currency</dd></div><div><dt>@T("expenseWorkspace.tax", "포함 세금", "Included tax")</dt><dd>@Amount(_selected.Amounts.Tax) @_selected.Input.Currency</dd></div><div><dt>@T("expenseWorkspace.createdBy", "등록자", "Created by")</dt><dd>@_selected.CreatedBy</dd></div></dl>
+                    @if (_selected.Input.Type == ExpenseType.BillableToContact)
+                    {
+                        <div class="expense-invoice" aria-labelledby="expense-invoice-heading">
+                            <div class="expense-heading"><div><h3 id="expense-invoice-heading">@T("expenseWorkspace.invoiceLink", "청구서 연결", "Invoice link")</h3><p>@T("expenseWorkspace.invoiceLinkHelp", "같은 고객·통화의 작성 중 청구서에 비용을 한 줄로 연결합니다.", "Link this expense as one line on a draft invoice with the same contact and currency.")</p></div></div>
+                            @if (_selected.InvoiceId is { } linkedInvoiceId)
+                            {
+                                <div class="expense-invoice-current">
+                                    <span>@T("expenseWorkspace.linkedInvoice", "연결된 청구서", "Linked invoice")</span>
+                                    @if (_linkedInvoice is not null)
+                                    {
+                                        <strong>#@_linkedInvoice.Number · @BillingStatusName(_linkedInvoice.Status)</strong>
+                                        <span>@Amount(_linkedInvoice.Totals.Total) @_linkedInvoice.Input.Currency</span>
+                                    }
+                                    <code>@linkedInvoiceId.ToString("D")</code>
+                                </div>
+                                @if (CanUnlinkInvoice || _pendingInvoice?.Kind == InvoiceOperation.Unlink)
+                                {
+                                    <button id="expense-invoice-unlink" class="danger" type="button" disabled="@_busy" @onclick="UnlinkInvoiceAsync">@(_pendingInvoice?.Kind == InvoiceOperation.Unlink ? T("expenseWorkspace.retryInvoiceUnlink", "같은 요청으로 연결 해제 확인", "Retry same unlink request") : T("expenseWorkspace.unlinkInvoice", "청구서 연결 해제", "Unlink invoice"))</button>
+                                }
+                                else if (_linkedInvoice is { Status: not BillingStatus.Draft })
+                                {
+                                    <p role="status">@T("expenseWorkspace.invoiceLocked", "작성 중 상태가 아닌 청구서는 연결을 해제할 수 없습니다.", "Only a draft invoice can be unlinked.")</p>
+                                }
+                                else if (!Can("billing.read"))
+                                {
+                                    <p role="status">@T("expenseWorkspace.billingReadRequired", "청구서를 선택하거나 연결을 해제하려면 billing.read 권한이 필요합니다.", "The billing.read permission is required to select or unlink an invoice.")</p>
+                                }
+                            }
+                            else if (CanBrowseInvoices)
+                            {
+                                @if (_invoiceCandidates is null)
+                                {
+                                    <button id="expense-invoices-load" type="button" disabled="@_busy" @onclick="() => LoadInvoiceCandidatesAsync(0)">@T("expenseWorkspace.loadInvoices", "호환 청구서 불러오기", "Load compatible invoices")</button>
+                                }
+                                else
+                                {
+                                    <label for="expense-invoice-select">@T("expenseWorkspace.chooseInvoice", "작성 중 청구서", "Draft invoice")
+                                        <select id="expense-invoice-select" aria-label="@T("expenseWorkspace.chooseInvoice", "작성 중 청구서", "Draft invoice")" @bind="_invoiceId" disabled="@(_busy || _pendingInvoice is not null)">
+                                            <option value="@Guid.Empty">@T("expenseWorkspace.chooseInvoicePlaceholder", "청구서 선택", "Choose invoice")</option>
+                                            @foreach (var invoice in CompatibleInvoices) { <option value="@invoice.Id">#@invoice.Number · @invoice.Input.DocumentDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) · @Amount(invoice.Totals.Total) @invoice.Input.Currency</option> }
+                                        </select>
+                                    </label>
+                                    @if (CompatibleInvoices.Count == 0) { <p data-empty="true">@T("expenseWorkspace.noCompatibleInvoices", "이 페이지에는 같은 고객·통화의 작성 중 청구서가 없습니다.", "This page has no draft invoices with the same contact and currency.")</p> }
+                                    <div class="expense-invoice-pages">
+                                        <button type="button" disabled="@(_busy || _pendingInvoice is not null || !HasPreviousInvoicePage)" @onclick="() => LoadInvoiceCandidatesAsync(Math.Max(0, _invoiceOffset - PageSize))">@T("expenseWorkspace.previousInvoices", "이전 청구서", "Previous invoices")</button>
+                                        <span>@string.Format(CultureInfo.InvariantCulture, T("expenseWorkspace.invoicePage", "{0}–{1} / {2}", "{0}–{1} of {2}"), _invoiceCandidates.Total == 0 ? 0 : _invoiceOffset + 1, _invoiceOffset + _invoiceCandidates.Items.Count, _invoiceCandidates.Total)</span>
+                                        <button type="button" disabled="@(_busy || _pendingInvoice is not null || !HasNextInvoicePage)" @onclick="() => LoadInvoiceCandidatesAsync(_invoiceOffset + PageSize)">@T("expenseWorkspace.nextInvoices", "다음 청구서", "Next invoices")</button>
+                                    </div>
+                                    <label for="expense-invoice-description">@T("expenseWorkspace.invoiceDescription", "청구 항목 설명 (선택)", "Invoice line description (optional)")<input id="expense-invoice-description" aria-label="@T("expenseWorkspace.invoiceDescription", "청구 항목 설명 (선택)", "Invoice line description (optional)")" maxlength="255" @bind="_invoiceDescription" disabled="@(_busy || _pendingInvoice is not null)" /></label>
+                                    <button id="expense-invoice-link" type="button" disabled="@(_busy || (_pendingInvoice is null && _invoiceId == Guid.Empty))" @onclick="LinkInvoiceAsync">@(_pendingInvoice?.Kind == InvoiceOperation.Link ? T("expenseWorkspace.retryInvoiceLink", "같은 요청으로 연결 결과 확인", "Retry same link request") : T("expenseWorkspace.linkInvoice", "선택한 청구서에 연결", "Link selected invoice"))</button>
+                                }
+                            }
+                            else if (Can("expense.invoice") && !Can("billing.read"))
+                            {
+                                <p role="status">@T("expenseWorkspace.billingReadRequired", "청구서를 선택하거나 연결을 해제하려면 billing.read 권한이 필요합니다.", "The billing.read permission is required to select or unlink an invoice.")</p>
+                            }
+                        </div>
+                    }
                     @if (_selected.State == ExpenseState.Active)
                     {
                         <div class="expense-actions">

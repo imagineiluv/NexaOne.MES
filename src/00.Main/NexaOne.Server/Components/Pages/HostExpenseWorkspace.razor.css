@@ -37,6 +37,14 @@
 .expense-selected dl div { display: grid; gap: var(--space-2xs); }
 .expense-selected dt { color: var(--nx-text-2); }
 .expense-selected dd { margin: 0; font-weight: 700; }
+.expense-invoice { display: grid; gap: var(--space-sm); margin-top: var(--space-xs); padding-top: var(--space-lg); border-top: 1px solid var(--nx-border); }
+.expense-invoice label { display: grid; gap: var(--space-2xs); min-width: 0; }
+.expense-invoice input, .expense-invoice select { width: 100%; min-width: 0; box-sizing: border-box; }
+.expense-invoice-current { display: grid; grid-template-columns: minmax(9rem, .7fr) minmax(10rem, 1fr) minmax(8rem, .6fr); gap: var(--space-xs) var(--space-md); align-items: baseline; padding: var(--space-sm); border-left: .25rem solid var(--color-accent); background: var(--nx-hover-teal); }
+.expense-invoice-current code { grid-column: 1 / -1; color: var(--nx-text-2); overflow-wrap: anywhere; }
+.expense-invoice-pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-xs); }
+.expense-invoice-pages span { color: var(--nx-text-2); font-variant-numeric: tabular-nums; }
+.expense-invoice .danger { width: fit-content; border-color: var(--color-danger); color: var(--color-danger); }
 .expense-actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
 .expense-actions .danger { border-color: var(--color-danger); color: var(--color-danger); }
 .expense-message:empty { display: none; }
@@ -44,7 +52,8 @@
 
 @media (max-width: 800px) {
   .expense-workspace header { padding: var(--space-lg); }
-  .expense-directory-create, .expense-directory-grid, .expense-form, .expense-selected dl { grid-template-columns: 1fr; }
+  .expense-directory-create, .expense-directory-grid, .expense-form, .expense-selected dl, .expense-invoice-current { grid-template-columns: 1fr; }
+  .expense-invoice-current code { grid-column: auto; }
   .expense-form .expense-wide { grid-column: auto; }
   .expense-directory-entry > div { grid-template-columns: 1fr; }
   .expense-directory-create button, .expense-form > button { width: 100%; }
