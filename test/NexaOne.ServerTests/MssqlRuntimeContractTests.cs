@@ -58,13 +58,14 @@ public sealed class MssqlRuntimeContractTests
             .Where(resource => resource.Key.StartsWith("billing.", StringComparison.Ordinal))
             .ToDictionary(resource => resource.Key, resource => resource.Value, StringComparer.Ordinal);
         expected.Should().NotBeEmpty();
-        // Billing fallbacks are owned by the original workspace resource migration and by the
-        // report-history navigation resource added later. Reapply both after deleting billing.*.
+        // Billing fallbacks are owned by the original workspace migration and later workspace
+        // extensions. Reapply every owner after deleting billing.* so this contract stays complete.
         var migration = string.Join(Environment.NewLine, new[]
         {
             "V172__ERP_BILLING_WORKSPACE_RESOURCES.sql",
             "V197__ERP_REPORT_HISTORY_RESOURCES.sql",
             "V198__ERP_EXPENSE_WORKSPACE_RESOURCES.sql",
+            "V211__ERP_BILLING_CREDIT_NOTE_WORKSPACE_RESOURCES.sql",
         }.Select(file => File.ReadAllText(RepositorySource.GetFile(
             "src/00.Main/NexaOne.Server/config/db/migrations/" + file))));
         await using var connection = new SqlConnection(database.ConnectionString);
