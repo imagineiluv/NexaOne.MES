@@ -42,6 +42,16 @@ public sealed record BillingProductSource(Guid MovementId, Guid ProductId, Guid 
     DateOnly OccurredOn, string Currency, string Description, decimal UnitPrice, decimal Quantity,
     bool ApplyTax, bool ApplyDiscount, BillingProductSourceState State, Guid? InvoiceId = null);
 
+public enum BillingTimeSourceState { Eligible = 0, Invoiced = 1 }
+
+public sealed record BillingTimeSourceInput(Guid ContactId, string Currency, string Description,
+    decimal HourlyRate, bool ApplyTax = true, bool ApplyDiscount = true);
+
+public sealed record BillingTimeSource(Guid TimeEntryId, Guid EmployeeId, Guid? ProjectId, Guid? TaskId,
+    Guid ContactId, DateOnly OccurredOn, string Currency, string Description, decimal HourlyRate,
+    decimal Hours, bool ApplyTax, bool ApplyDiscount, BillingTimeSourceState State,
+    Guid? InvoiceId = null);
+
 /// <summary>Scoped estimates, invoices, credit notes and payments over the Framework billing service. Every operation checks
 /// current SYS membership and grants in its owning Serializable transaction; no plant binding is involved.</summary>
 public interface IBillingBridge : INexaModuleBridge
@@ -64,7 +74,7 @@ public interface IBillingBridge : INexaModuleBridge
     Task<BillingDocument> CreateCreditNoteAsync(string userId, Guid tenantId, Guid organizationId,
         Guid operationId, Guid invoiceId, BillingDocumentInput input, CancellationToken ct = default);
     /// <summary>Generates one draft invoice from currently unclaimed provider sources. MES supplies real
-    /// uninvoiced expenses and explicitly registered inventory issues; time sources remain fail-closed.</summary>
+    /// uninvoiced expenses plus explicitly registered approved time and inventory occurrences.</summary>
     Task<AutomaticBillingResult> GenerateAutomaticInvoiceAsync(string userId, Guid tenantId, Guid organizationId,
         Guid operationId, AutomaticBillingRequest request, CancellationToken ct = default);
     /// <summary>Registers one unreversed inventory issue as a priced product occurrence. Repeating the same
@@ -74,6 +84,11 @@ public interface IBillingBridge : INexaModuleBridge
     /// <summary>Reads the current invoice/reversal state of a registered inventory issue.</summary>
     Task<BillingProductSource> GetProductSourceAsync(string userId, Guid tenantId, Guid organizationId,
         Guid movementId, CancellationToken ct = default);
+    /// <summary>Registers one approved HR time entry with invoice ownership and pricing.</summary>
+    Task<BillingTimeSource> RegisterTimeSourceAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid timeEntryId, BillingTimeSourceInput input, CancellationToken ct = default);
+    Task<BillingTimeSource> GetTimeSourceAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid timeEntryId, CancellationToken ct = default);
     Task<BillingDocument> UpdateDocumentAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, BillingDocumentInput input, CancellationToken ct = default);
     Task<BillingDocument> UpdateCreditNoteAsync(string userId, Guid tenantId, Guid organizationId,

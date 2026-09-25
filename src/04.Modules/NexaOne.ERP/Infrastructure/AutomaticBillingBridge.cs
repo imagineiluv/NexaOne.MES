@@ -32,6 +32,57 @@ public sealed partial class BillingBridge
         public async Task<IReadOnlyList<AutomaticBillingSource>> QueryUnbilledSourcesAsync(
             AutomaticBillingRequest request, CancellationToken ct)
         {
+            if (request.InvoiceType is BillingInvoiceType.ByEmployeeHours
+                or BillingInvoiceType.ByProjectHours or BillingInvoiceType.ByTaskHours)
+            {
+                if (timeBilling is null) return Array.Empty<AutomaticBillingSource>();
+                var relation = request.InvoiceType switch
+                {
+                    BillingInvoiceType.ByProjectHours => " AND R.PROJECT_ID IS NOT NULL",
+                    BillingInvoiceType.ByTaskHours => " AND R.TASK_ID IS NOT NULL",
+                    _ => string.Empty
+                };
+                var timeRows = await Rows<TimeBillingRow>("""
+                    SELECT TIME_ENTRY_ID AS TimeEntryId,CONTACT_ID AS ContactId,
+                           OCCURRED_ON AS OccurredOn,DURATION_TICKS AS DurationTicks,
+                           CURRENCY AS Currency,DESCRIPTION AS Description,HOURLY_RATE AS HourlyRate,
+                           APPLY_TAX AS ApplyTax,APPLY_DISCOUNT AS ApplyDiscount
+                      FROM (SELECT R.*,
+                           ROW_NUMBER() OVER (ORDER BY R.OCCURRED_ON,R.TIME_ENTRY_ID) AS RowNumber
+                              FROM ERP_BILLING_TIME_SOURCE R
+                             WHERE R.TENANT_ID=@TenantId AND R.ORGANIZATION_ID=@OrganizationId
+                               AND R.CONTACT_ID=@Contact AND R.CURRENCY=@Currency
+                               AND R.OCCURRED_ON>=@Start AND R.OCCURRED_ON<=@End
+                    """ + relation + """
+                               AND NOT EXISTS (SELECT 1 FROM ERP_AUTOMATIC_BILLING_SOURCE S
+                                 WHERE S.TENANT_ID=R.TENANT_ID AND S.ORGANIZATION_ID=R.ORGANIZATION_ID
+                                   AND S.SOURCE_KIND=@SourceKind AND S.SOURCE_ID=R.TIME_ENTRY_ID)
+                           ) page WHERE RowNumber<=@EndRow ORDER BY RowNumber
+                    """, new { SourceKind = (int)BillingSourceKind.TimeEntry,
+                        Contact = Text(request.ContactId), request.Currency,
+                        Start = Day(request.PeriodStart), End = Day(request.PeriodEnd), EndRow = 201 }, ct);
+                if (timeRows.Length == 0) return Array.Empty<AutomaticBillingSource>();
+                var ids = timeRows.Select(row => Id(row.TimeEntryId)).ToArray();
+                var occurrences = await timeBilling.FindTimeEntriesInTransactionAsync(transaction,
+                    Id(Scope.TenantId), Id(Scope.OrganizationId), ids, ct);
+                var byId = occurrences.ToDictionary(value => value.TimeEntryId);
+                var timeSources = new AutomaticBillingSource[timeRows.Length];
+                for (var index = 0; index < timeRows.Length; index++)
+                {
+                    var row = timeRows[index];
+                    var id = Id(row.TimeEntryId);
+                    if (!byId.TryGetValue(id, out var occurrence) || !occurrence.Approved
+                        || occurrence.OccurredOn != Day(row.OccurredOn)
+                        || occurrence.DurationTicks != row.DurationTicks)
+                        throw Failure("STORAGE_CONTRACT_VIOLATION");
+                    timeSources[index] = new(id, BillingSourceKind.TimeEntry, occurrence.OccurredOn,
+                        Id(row.ContactId), row.Currency, row.Description, Amount(row.HourlyRate),
+                        TimeHours(row.DurationTicks), row.ApplyTax, row.ApplyDiscount,
+                        EmployeeId: occurrence.EmployeeId, ProjectId: occurrence.ProjectId,
+                        TaskId: occurrence.TaskId);
+                }
+                return Array.AsReadOnly(timeSources);
+            }
             if (request.InvoiceType == BillingInvoiceType.ByProducts)
             {
                 if (stockBilling is null) return Array.Empty<AutomaticBillingSource>();
@@ -138,6 +189,27 @@ public sealed partial class BillingBridge
             public string Currency { get; set; } = "";
             public string Description { get; set; } = "";
             public string UnitPrice { get; set; } = "";
+            public bool ApplyTax { get; set; }
+            public bool ApplyDiscount { get; set; }
+        }
+
+        private static decimal TimeHours(long ticks)
+        {
+            if (ticks <= 0) throw Failure("STORAGE_CONTRACT_VIOLATION");
+            var hours = decimal.Round((decimal)ticks / TimeSpan.TicksPerHour, 6,
+                MidpointRounding.AwayFromZero);
+            return hours > 0m ? hours : throw Failure("STORAGE_CONTRACT_VIOLATION");
+        }
+
+        private sealed class TimeBillingRow
+        {
+            public string TimeEntryId { get; set; } = "";
+            public string ContactId { get; set; } = "";
+            public string OccurredOn { get; set; } = "";
+            public long DurationTicks { get; set; }
+            public string Currency { get; set; } = "";
+            public string Description { get; set; } = "";
+            public string HourlyRate { get; set; } = "";
             public bool ApplyTax { get; set; }
             public bool ApplyDiscount { get; set; }
         }

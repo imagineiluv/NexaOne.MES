@@ -110,6 +110,8 @@ public static class BusinessOperationPermissionCatalog
         "billing.read", "billing.write", "billing.decide", "billing.pay", "billing.credit", "billing.deliver",
         "expense.directory.read", "expense.directory.write", "expense.read", "expense.write",
         "expense.reimburse", "expense.invoice",
+        "hr.time.read", "hr.time.write", "hr.time.stop", "hr.time.record-manual", "hr.time.correct",
+        "hr.timesheet.submit", "hr.timesheet.review",
         "recurring.read", "recurring.write", "recurring.execute",
         "financial-report.read",
         "delivery.manage-template", "delivery.manage-profile", "delivery.queue", "delivery.read",

@@ -13,6 +13,7 @@ using NexaOne.ServiceContracts.Qms;
 using NexaOne.ServiceContracts.Rms;
 using NexaOne.ServiceContracts.Shp;
 using NexaOne.ServiceContracts.Sys;
+using NexaOne.ServiceContracts.Hr;
 
 namespace NexaOne.Server;
 
@@ -63,6 +64,8 @@ internal sealed class NexaOneMesBridgeCatalog : INexaModuleBridgeCatalog
             Bind<IEquipmentStateBridge>("Est", "equipmentStateBridge"),
             Bind<IOeeAggregationBridge>("Est", "oeeAggregationBridge"),
             Bind<IUtilityBridge>("Est", "utilityBridge"),
+            Bind<IHumanResourcesBridge>("Hr", "humanResourcesBridge"),
+            Bind<ITimeBillingDirectory>("Hr", "timeBillingDirectory"),
             Bind<IBillingBridge>("Erp", "billingBridge"),
             Bind<IExpenseBridge>("Erp", "expenseBridge"),
             Bind<IExpensePayoutAutomationBridge>("Erp", "expensePayoutAutomationBridge"),

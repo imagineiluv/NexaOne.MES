@@ -12,6 +12,7 @@
     <constructor-arg ref="businessMasterDirectory" />
     <constructor-arg ref="businessProjectDirectory" />
     <constructor-arg ref="stockBillingDirectory" />
+    <constructor-arg ref="timeBillingDirectory" />
     <constructor-arg ref="quartzScheduler" />
     <constructor-arg ref="deliveryProviderRegistry" />
     <constructor-arg ref="expensePayoutProviderRegistry" />
