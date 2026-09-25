@@ -1,9 +1,11 @@
+using System.Data;
 using System.Data.Common;
 using System.Globalization;
 using System.Text;
 using Dapper;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Configuration;
 using NexaDB.Data.Sqlite;
 using NexaFramework.Service;
 using NexaFramework.Service.Inventory;
@@ -70,6 +72,91 @@ public sealed class StockPersistenceTests : IClassFixture<BusinessMembershipData
         => NewBridge().GetBalanceAsync("stock-user", _tenant, _organization, product.Id, warehouse.Id);
     private static async Task Error(Func<Task> action, string code)
         => (await Assert.ThrowsAsync<BusinessException>(action)).Code.Should().Be(code);
+
+    [Fact]
+    public async Task Failed_master_export_retry_is_versioned_and_preserves_master_data()
+    {
+        await Warehouse("RETRY");
+        var request = new StockMasterExportJobRequest(Guid.NewGuid(), StockMasterExportKind.Warehouses, ["code"]);
+        var queued = await _bridge.QueueMasterExportAsync("stock-user", _tenant, _organization, request);
+        var lease = await _bridge.ClaimMasterExportAsync(TimeSpan.FromMinutes(1), default);
+        lease.Should().NotBeNull();
+        await _bridge.FailMasterExportAsync(lease!, "STOCK_MASTER_EXPORT_FAILED", default);
+        var failed = await _bridge.GetMasterExportJobAsync("stock-user", _tenant, _organization, queued.Id);
+        failed.State.Should().Be(StockMasterExportState.Failed);
+
+        var retry = await NewBridge().RetryMasterExportAsync("stock-user", _tenant, _organization, queued.Id, failed.Version);
+        retry.State.Should().Be(StockMasterExportState.Pending);
+        await Assert.ThrowsAsync<DBConcurrencyException>(() => NewBridge().RetryMasterExportAsync(
+            "stock-user", _tenant, _organization, queued.Id, failed.Version));
+        var worker = new StockMasterExportWorker(NewBridge(), new ConfigurationBuilder().Build());
+        (await worker.RunOnceAsync(default)).Should().BeTrue();
+        (await NewBridge().DownloadMasterExportAsync("stock-user", _tenant, _organization, queued.Id)).RowCount.Should().Be(1);
+        Count("IVT_STOCK_WAREHOUSE").Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Master_exports_select_fields_safely_and_durable_jobs_replay_complete_and_recheck_access()
+    {
+        await _bridge.EnrollProductAsync("stock-user", _tenant, _organization, "STOCK-PRODUCT", "EA");
+        await _bridge.EnrollProductAsync("stock-user", _tenant, _organization, "STOCK-OTHER", "KG");
+        Execute("UPDATE MDM_PRODUCT SET PRODUCT_NAME='=unsafe' WHERE PRODUCT_ID='STOCK-PRODUCT'; "
+            + "UPDATE MDM_PRODUCT SET VALID_STATE='Invalid' WHERE PRODUCT_ID='STOCK-OTHER'");
+        await Warehouse("Z-LAST");
+        await Warehouse("A-FIRST");
+
+        var direct = await NewBridge().ExportMastersCsvAsync("stock-user", _tenant, _organization,
+            new(StockMasterExportKind.Products, ["productName", "productId"]));
+
+        direct.RowCount.Should().Be(1);
+        direct.Content.Should().StartWith(Encoding.UTF8.GetPreamble());
+        Encoding.UTF8.GetString(direct.Content).Should().Be("\uFEFF\"Product Name\",\"Product ID\"\r\n\"'=unsafe\",\"STOCK-PRODUCT\"\r\n");
+
+        var operation = Guid.NewGuid();
+        var request = new StockMasterExportJobRequest(operation, StockMasterExportKind.Warehouses,
+            ["code", "warehouseId", "active"], true);
+        var queued = await NewBridge().QueueMasterExportAsync("stock-user", _tenant, _organization, request);
+        var replay = await NewBridge().QueueMasterExportAsync("stock-user", _tenant, _organization, request);
+        replay.Should().BeEquivalentTo(queued with { Replayed = true });
+        await Error(() => NewBridge().QueueMasterExportAsync("stock-other", _tenant, _organization, request),
+            "STOCK_MASTER_EXPORT_OPERATION_CONFLICT");
+
+        var worker = new StockMasterExportWorker(NewBridge(), new ConfigurationBuilder().Build());
+        (await worker.RunOnceAsync(default)).Should().BeTrue();
+        var completed = await NewBridge().GetMasterExportJobAsync("stock-user", _tenant, _organization, queued.Id);
+        completed.State.Should().Be(StockMasterExportState.Completed);
+        completed.RowCount.Should().Be(2);
+        var artifact = await NewBridge().DownloadMasterExportAsync("stock-user", _tenant, _organization, queued.Id);
+        artifact.RowCount.Should().Be(2);
+        Encoding.UTF8.GetString(artifact.Content).Should().StartWith("\uFEFF\"Code\",\"Warehouse ID\",\"Active\"\r\n\"A-FIRST\"");
+
+        Execute("UPDATE SYS_BUSINESS_MEMBERSHIP SET PERMISSIONS='stock.read' WHERE USER_ID='stock-user'");
+        await Error(() => NewBridge().GetMasterExportJobAsync("stock-user", _tenant, _organization, queued.Id),
+            "BUSINESS_ACCESS_DENIED");
+        await Error(() => NewBridge().DownloadMasterExportAsync("stock-user", _tenant, _organization, queued.Id),
+            "BUSINESS_ACCESS_DENIED");
+    }
+
+    [Fact]
+    public async Task Master_export_rejects_unknown_duplicate_fields_and_synchronous_overflow_without_partial_artifacts()
+    {
+        await Error(() => _bridge.ExportMastersCsvAsync("stock-user", _tenant, _organization,
+            new(StockMasterExportKind.Products, ["unknown"])), "INVALID_STOCK_MASTER_EXPORT_FIELD");
+        await Error(() => _bridge.QueueMasterExportAsync("stock-user", _tenant, _organization,
+            new(Guid.NewGuid(), StockMasterExportKind.Warehouses, ["code", "code"])),
+            "INVALID_STOCK_MASTER_EXPORT_FIELD");
+        var rows = Enumerable.Range(0, StockBridge.SynchronousMasterExportRowLimit + 1).Select(index => new
+        {
+            tenant = _tenant.ToString("D"), organization = _organization.ToString("D"), id = Guid.NewGuid().ToString("D"),
+            version = Guid.NewGuid().ToString("D"), code = $"EXPORT-{index:D4}"
+        });
+        Execute("INSERT INTO IVT_STOCK_WAREHOUSE (TENANT_ID,ORGANIZATION_ID,WAREHOUSE_ID,VERSION,CODE,NAME,IS_ACTIVE) "
+            + "VALUES (@tenant,@organization,@id,@version,@code,@code,1)", rows);
+
+        await Error(() => NewBridge().ExportMastersCsvAsync("stock-user", _tenant, _organization,
+            new(StockMasterExportKind.Warehouses, ["code"])), "STOCK_MASTER_EXPORT_TOO_LARGE");
+        Count("IVT_STOCK_MASTER_EXPORT").Should().Be(0);
+    }
 
     [Fact]
     public async Task Master_import_is_atomic_reports_all_invalid_rows_and_allows_a_corrected_retry()

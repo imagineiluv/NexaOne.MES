@@ -141,6 +141,8 @@ public sealed class IvtModuleCompositionTests
         module.GetEquipmentSharingBridge().Should().BeSameAs(module.GetEquipmentSharingBridge());
         module.GetStockBridge().Should().BeAssignableTo<IStockBridge>();
         module.GetStockBridge().Should().BeSameAs(module.GetStockBridge());
+        module.GetStockMasterExportWorker().Should().BeAssignableTo<IHostedService>();
+        module.GetStockMasterExportWorker().Should().BeSameAs(module.GetStockMasterExportWorker());
         module.GetMaterialLotBridge().Should().BeAssignableTo<IMaterialLotBridge>();
         module.GetMaterialLotBridge().Should().BeSameAs(module.GetMaterialLotBridge());
         module.GetTraceMaterialBridge().Should().BeAssignableTo<ITraceMaterialBridge>();
@@ -173,7 +175,7 @@ public sealed class IvtModuleCompositionTests
             .LoadObjectDefinitions(new FileSystemResource(path));
         factory.PreInstantiateSingletons();
 
-        loaded.Should().Be(10);
+        loaded.Should().Be(11);
         factory.GetObject<IEquipmentSharingBridge>("equipmentSharingBridge").Should().NotBeNull();
         factory.GetObject<IStockBridge>("stockBridge").Should().NotBeNull();
         factory.GetObject<IMaterialBridge>("materialBridge").Should().NotBeNull();
@@ -183,7 +185,7 @@ public sealed class IvtModuleCompositionTests
         factory.GetObject<IMrpInventoryDirectory>("mrpInventoryDirectory").Should().NotBeNull();
         factory.GetObject<IFdcTraceRetentionGuard>("fdcTraceRetentionGuard").Should().NotBeNull();
         factory.GetObjectsOfType(typeof(IHostedService)).Keys
-            .Should().ContainSingle().Which.Should().Be("traceMaterialConsumptionWorker");
+            .Should().BeEquivalentTo(["stockMasterExportWorker", "traceMaterialConsumptionWorker"]);
     }
 
     private static EesDataSource DataSource() => new()
