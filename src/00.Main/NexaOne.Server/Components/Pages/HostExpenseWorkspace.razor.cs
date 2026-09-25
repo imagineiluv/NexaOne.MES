@@ -29,15 +29,20 @@ public partial class HostExpenseWorkspace
     private string _categoryName = "", _vendorName = "", _invoiceDescription = "";
     private string _categoryEditName = "", _vendorEditName = "", _vendorEditPhone = "";
     private string _vendorEditWebsite = "", _vendorEditEmail = "";
+    private string _ledgerStart = "", _ledgerEnd = "", _ledgerCategory = "", _ledgerVendor = "";
+    private string _ledgerType = "", _ledgerStatus = "", _ledgerState = "";
     private string? _userId, _error, _notice;
+    private string? _ledgerValidation;
     private Guid _invoiceId;
-    private int _invoiceOffset;
+    private int _invoiceOffset, _expenseOffset;
+    private LedgerFilter _ledgerFilter = new();
     private bool _authenticated, _identityLoading = true, _busy, _interactive, _disposed;
     private Task<AuthenticationState>? _pendingAuthentication;
     private CancellationTokenSource? _request;
     private int _identityVersion;
 
     private bool CreateLocked => _busy || _pendingCreate is not null;
+    private bool LedgerLocked => _busy || _pendingInvoice is not null || _pendingReimbursement is not null;
     private bool CanMarkInvoiced => Can("expense.write") && _selected is
         { State: ExpenseState.Active, Input.Type: ExpenseType.BillableToContact, Status: ExpenseStatus.Uninvoiced };
     private bool CanMarkPaid => Can("expense.write") && ReadyToSettle(_selected);
@@ -57,6 +62,13 @@ public partial class HostExpenseWorkspace
     private bool HasPreviousInvoicePage => _invoiceOffset > 0;
     private bool HasNextInvoicePage => _invoiceCandidates is { } page
         && _invoiceOffset + page.Items.Count < page.Total;
+    private bool HasPreviousExpensePage => _expenseOffset > 0;
+    private bool HasNextExpensePage => _expenses is { } page && (long)_expenseOffset + PageSize < page.Total
+        && _expenseOffset <= int.MaxValue - PageSize;
+    private bool HasLedgerFilters => _ledgerFilter != new LedgerFilter();
+    private bool HasLedgerDraft => _ledgerStart.Length > 0 || _ledgerEnd.Length > 0
+        || _ledgerCategory.Length > 0 || _ledgerVendor.Length > 0 || _ledgerType.Length > 0
+        || _ledgerStatus.Length > 0 || _ledgerState.Length > 0;
     private IReadOnlyList<ExpenseCategory> ActiveCategories => _categories?.Items.Where(value => value.Active).ToArray() ?? [];
     private IReadOnlyList<ExpenseVendor> ActiveVendors => _vendors?.Items.Where(value => value.Active).ToArray() ?? [];
     private string? SelectedKey => _scope is null ? null : ScopeKey(_scope);
@@ -100,12 +112,12 @@ public partial class HostExpenseWorkspace
     private void Clear()
     {
         CancelRequest();
-        _scopes = null; _scope = null; _categories = null; _vendors = null; _expenses = null; _selected = null;
+        _scopes = null; _scope = null; _categories = null; _vendors = null;
+        ResetLedgerState();
         _directoryCategories = null; _directoryVendors = null;
         ClearDirectorySelection();
-        _invoiceCandidates = null; _linkedInvoice = null;
-        _pendingCreate = null; _pendingReimbursement = null; _pendingInvoice = null;
-        _invoiceId = Guid.Empty; _invoiceOffset = 0; _invoiceDescription = ""; _error = null; _notice = null;
+        _pendingCreate = null;
+        _error = null; _notice = null;
     }
 
     private Task LoadScopesAsync() => RunAsync(async ct =>
@@ -121,12 +133,12 @@ public partial class HostExpenseWorkspace
     {
         if (SelectedKey == ScopeKey(scope)) return;
         CancelRequest();
-        _scope = scope; _categories = null; _vendors = null; _expenses = null; _selected = null;
+        _scope = scope; _categories = null; _vendors = null;
+        ResetLedgerState();
         _directoryCategories = null; _directoryVendors = null;
         ClearDirectorySelection();
-        _invoiceCandidates = null; _linkedInvoice = null;
-        _pendingCreate = null; _pendingReimbursement = null; _pendingInvoice = null;
-        _invoiceId = Guid.Empty; _invoiceOffset = 0; _invoiceDescription = ""; _error = null; _notice = null;
+        _pendingCreate = null;
+        _error = null; _notice = null;
         await RunAsync(async ct =>
         {
             if (Can("expense.directory.read")) await LoadDirectoriesCoreAsync(ct);
@@ -187,11 +199,123 @@ public partial class HostExpenseWorkspace
     });
     private async Task LoadExpensesCoreAsync(CancellationToken ct)
     {
-        var result = await Api.ReadInventoryAsync<BusinessPage<ExpenseRecord>>($"{Root}?offset=0&limit={PageSize}", ct);
+        var result = await Api.ReadInventoryAsync<BusinessPage<ExpenseRecord>>(ExpenseLedgerPath(), ct);
         if (!OwnsRequest(ct)) return;
+        if (result.Value is { } page && page.Items.Count == 0 && page.Total > 0 && _expenseOffset >= page.Total)
+        {
+            _expenseOffset = (int)((page.Total - 1) / PageSize * PageSize);
+            result = await Api.ReadInventoryAsync<BusinessPage<ExpenseRecord>>(ExpenseLedgerPath(), ct);
+            if (!OwnsRequest(ct)) return;
+        }
         Accept(result, value => _expenses = value);
         if (_selected is not null && _expenses?.Items.FirstOrDefault(value => value.Id == _selected.Id) is { } refreshed)
             _selected = refreshed;
+    }
+
+    private async Task SearchExpensesAsync()
+    {
+        if (LedgerLocked || !TryLedgerFilter(out var filter)) return;
+        _ledgerFilter = filter;
+        _expenseOffset = 0;
+        ClearSelectedExpense();
+        await LoadExpensesAsync();
+    }
+
+    private async Task ClearExpenseFiltersAsync()
+    {
+        if (LedgerLocked) return;
+        ClearLedgerDraft();
+        _ledgerFilter = new();
+        _ledgerValidation = null;
+        _expenseOffset = 0;
+        ClearSelectedExpense();
+        await LoadExpensesAsync();
+    }
+
+    private async Task MoveExpensePageAsync(int direction)
+    {
+        if (LedgerLocked) return;
+        var next = (long)_expenseOffset + direction * PageSize;
+        if (next < 0 || next > int.MaxValue) return;
+        _expenseOffset = (int)next;
+        ClearSelectedExpense();
+        await LoadExpensesAsync();
+    }
+
+    private bool TryLedgerFilter(out LedgerFilter filter)
+    {
+        filter = new();
+        _ledgerValidation = null;
+        var hasStart = _ledgerStart.Length > 0;
+        var hasEnd = _ledgerEnd.Length > 0;
+        DateOnly start = default;
+        DateOnly end = default;
+        if (hasStart != hasEnd
+            || hasStart && (!DateOnly.TryParseExact(_ledgerStart, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out start)
+                || !DateOnly.TryParseExact(_ledgerEnd, "yyyy-MM-dd", CultureInfo.InvariantCulture,
+                    DateTimeStyles.None, out end)
+                || end < start || end.DayNumber - start.DayNumber > 366))
+        {
+            _ledgerValidation = T("expenseWorkspace.invalidLedgerRange",
+                "시작일과 종료일을 함께 입력하고 366일 이내의 올바른 범위를 선택하세요.",
+                "Enter both dates and choose a valid range of no more than 366 days.");
+            return false;
+        }
+        if (!TryOptionalGuid(_ledgerCategory, out var categoryId)
+            || !TryOptionalGuid(_ledgerVendor, out var vendorId)
+            || !TryOptionalEnum<ExpenseType>(_ledgerType, out var type)
+            || !TryOptionalEnum<ExpenseStatus>(_ledgerStatus, out var status)
+            || !TryOptionalEnum<ExpenseState>(_ledgerState, out var state))
+        {
+            _ledgerValidation = T("expenseWorkspace.invalidLedgerFilter",
+                "비용 원장 필터 값을 확인하세요.", "Check the expense-ledger filters.");
+            return false;
+        }
+        DateOnly? parsedStart = hasStart ? start : null;
+        DateOnly? parsedEnd = hasEnd ? end : null;
+        filter = new(parsedStart, parsedEnd, categoryId, vendorId, type, status, state);
+        return true;
+    }
+
+    private string ExpenseLedgerPath()
+    {
+        var query = new List<string>();
+        if (_ledgerFilter.Start is { } start) query.Add($"start={start:yyyy-MM-dd}");
+        if (_ledgerFilter.End is { } end) query.Add($"end={end:yyyy-MM-dd}");
+        if (_ledgerFilter.CategoryId is { } category) query.Add($"categoryId={category:D}");
+        if (_ledgerFilter.VendorId is { } vendor) query.Add($"vendorId={vendor:D}");
+        if (_ledgerFilter.Type is { } type) query.Add($"type={type}");
+        if (_ledgerFilter.Status is { } status) query.Add($"status={status}");
+        if (_ledgerFilter.State is { } state) query.Add($"state={state}");
+        query.Add($"offset={_expenseOffset}");
+        query.Add($"limit={PageSize}");
+        return $"{Root}?{string.Join('&', query)}";
+    }
+
+    private void ResetLedgerState()
+    {
+        _expenses = null;
+        _expenseOffset = 0;
+        _ledgerFilter = new();
+        _ledgerValidation = null;
+        ClearLedgerDraft();
+        ClearSelectedExpense();
+    }
+
+    private void ClearLedgerDraft()
+        => _ledgerStart = _ledgerEnd = _ledgerCategory = _ledgerVendor = _ledgerType = _ledgerStatus = _ledgerState = "";
+
+    private void ClearSelectedExpense()
+    {
+        _selected = null;
+        _pendingReimbursement = null;
+        _pendingInvoice = null;
+        _invoiceCandidates = null;
+        _linkedInvoice = null;
+        _invoiceId = Guid.Empty;
+        _invoiceOffset = 0;
+        _invoiceDescription = "";
     }
 
     private Task CreateCategoryAsync() => CreateDirectoryAsync("categories", new ExpenseCategoryInput(_categoryName.Trim()),
@@ -655,6 +779,22 @@ public partial class HostExpenseWorkspace
             ? ExpenseStatus.Invoiced : ExpenseStatus.NotBillable);
     private static string Short(Guid value) => value.ToString("N")[..8];
     private static string? Text(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static bool TryOptionalGuid(string value, out Guid? parsed)
+    {
+        parsed = null;
+        if (value.Length == 0) return true;
+        if (!Guid.TryParse(value, out var id) || id == Guid.Empty) return false;
+        parsed = id;
+        return true;
+    }
+    private static bool TryOptionalEnum<T>(string value, out T? parsed) where T : struct, Enum
+    {
+        parsed = null;
+        if (value.Length == 0) return true;
+        if (!Enum.TryParse<T>(value, out var item) || !Enum.IsDefined(item)) return false;
+        parsed = item;
+        return true;
+    }
     private static bool Same(ExpenseCategoryInput left, ExpenseCategoryInput right)
         => string.Equals(left.Name, right.Name, StringComparison.Ordinal)
             && (left.TagIds ?? []).SequenceEqual(right.TagIds ?? []);
@@ -689,7 +829,18 @@ public partial class HostExpenseWorkspace
         ? T("expenseWorkspace.active", "활성", "Active")
         : T("expenseWorkspace.inactive", "비활성", "Inactive");
     private string TypeName(ExpenseType type) => type switch { ExpenseType.TaxDeductible => T("expenseWorkspace.taxDeductible", "세무상 공제", "Tax deductible"), ExpenseType.NotTaxDeductible => T("expenseWorkspace.notTaxDeductible", "공제 불가", "Not tax deductible"), _ => T("expenseWorkspace.billable", "고객 청구", "Billable to contact") };
-    private string StatusName(ExpenseRecord value) => value.State == ExpenseState.Cancelled ? T("expenseWorkspace.cancelledState", "취소됨", "Cancelled") : value.Status switch { ExpenseStatus.Uninvoiced => T("expenseWorkspace.uninvoiced", "미청구", "Uninvoiced"), ExpenseStatus.Invoiced => T("expenseWorkspace.invoiced", "청구됨", "Invoiced"), ExpenseStatus.Paid => T("expenseWorkspace.paid", "지급됨", "Paid"), _ => T("expenseWorkspace.notBillable", "청구 대상 아님", "Not billable") };
+    private string StatusName(ExpenseRecord value) => value.State == ExpenseState.Cancelled
+        ? StateName(value.State) : StatusName(value.Status);
+    private string StatusName(ExpenseStatus value) => value switch
+    {
+        ExpenseStatus.Uninvoiced => T("expenseWorkspace.uninvoiced", "미청구", "Uninvoiced"),
+        ExpenseStatus.Invoiced => T("expenseWorkspace.invoiced", "청구됨", "Invoiced"),
+        ExpenseStatus.Paid => T("expenseWorkspace.paid", "지급됨", "Paid"),
+        _ => T("expenseWorkspace.notBillable", "청구 대상 아님", "Not billable")
+    };
+    private string StateName(ExpenseState value) => value == ExpenseState.Cancelled
+        ? T("expenseWorkspace.cancelledState", "취소됨", "Cancelled")
+        : T("expenseWorkspace.active", "활성", "Active");
     private string BillingStatusName(BillingStatus value) => value switch
     {
         BillingStatus.Draft => T("billing.draft", "작성 중", "Draft"),
@@ -713,6 +864,9 @@ public partial class HostExpenseWorkspace
     internal sealed record CategoryChange(Guid Version, ExpenseCategoryInput Input);
     internal sealed record VendorChange(Guid Version, ExpenseVendorInput Input);
     internal sealed record ActiveChange(Guid Version, bool Active);
+    private sealed record LedgerFilter(DateOnly? Start = null, DateOnly? End = null,
+        Guid? CategoryId = null, Guid? VendorId = null, ExpenseType? Type = null,
+        ExpenseStatus? Status = null, ExpenseState? State = null);
     internal sealed record VersionedRequest(Guid Version);
     internal sealed record CancelExpenseRequest(Guid Version, string? Reason);
     internal sealed record ReimbursementRequest(Guid OperationId, Guid Version, DateTimeOffset PaidAt, string? Reference);

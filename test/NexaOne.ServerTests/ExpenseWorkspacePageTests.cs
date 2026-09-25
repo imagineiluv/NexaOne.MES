@@ -74,6 +74,110 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
     }
 
     [Fact]
+    public void Ledger_filters_and_paging_use_the_server_query_and_clear_stale_selection()
+    {
+        ShowScope("expense.directory.read", "expense.read");
+        Read<ExpenseCategory>(_ => new([Category], 1));
+        Read<ExpenseVendor>(_ => new([Vendor], 1));
+        var first = Expense(Guid.NewGuid(), Input(ExpenseType.NotTaxDeductible, Guid.NewGuid()));
+        var second = Expense(Guid.NewGuid(), Input(ExpenseType.BillableToContact, Guid.NewGuid()),
+            ExpenseStatus.Uninvoiced);
+        var filtered = Expense(Guid.NewGuid(), Input(ExpenseType.TaxDeductible, Guid.NewGuid()),
+            ExpenseStatus.Paid);
+        Read<ExpenseRecord>(path => path.Contains("start=2026-01-01", StringComparison.Ordinal)
+            ? new([filtered], 1)
+            : path.Contains("offset=50", StringComparison.Ordinal) ? new([second], 51) : new([first], 51));
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("#expense-ledger-next").Should().NotBeNull());
+
+        cut.Find("#expense-ledger-next").Click();
+
+        var root = $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}";
+        cut.WaitForAssertion(() => Paths<ExpenseRecord>().Last().Should().Be($"{root}?offset=50&limit=50"));
+        cut.Find("[data-select-expense]").Click();
+        cut.WaitForAssertion(() => cut.Find("#expense-selected-heading").Should().NotBeNull());
+
+        cut.Find("#expense-ledger-start").Change("2026-01-01");
+        cut.Find("#expense-ledger-end").Change("2026-12-31");
+        cut.Find("#expense-ledger-category").Change(Category.Id.ToString("D"));
+        cut.Find("#expense-ledger-vendor").Change(Vendor.Id.ToString("D"));
+        cut.Find("#expense-ledger-type").Change(ExpenseType.TaxDeductible.ToString());
+        cut.Find("#expense-ledger-status").Change(ExpenseStatus.Paid.ToString());
+        cut.Find("#expense-ledger-state").Change(ExpenseState.Active.ToString());
+        cut.Find("#expense-ledger-search").Click();
+
+        cut.WaitForAssertion(() => Paths<ExpenseRecord>().Last().Should().Be(root
+            + $"?start=2026-01-01&end=2026-12-31&categoryId={Category.Id:D}&vendorId={Vendor.Id:D}"
+            + "&type=TaxDeductible&status=Paid&state=Active&offset=0&limit=50"));
+        cut.FindAll("#expense-selected-heading").Should().BeEmpty("changing the page contract clears stale detail");
+        cut.Find("#expense-ledger-previous").HasAttribute("disabled").Should().BeTrue();
+        cut.Find(".expense-ledger-pages [data-total]").TextContent.Should().Contain("1–1 / 1");
+
+        cut.Find("#expense-ledger-clear").Click();
+
+        cut.WaitForAssertion(() => Paths<ExpenseRecord>().Last().Should().Be($"{root}?offset=0&limit=50"));
+        cut.Find("#expense-ledger-start").GetAttribute("value").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Invalid_ledger_date_range_is_rejected_without_a_request()
+    {
+        ShowScope("expense.read");
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => Paths<ExpenseRecord>().Should().HaveCount(1));
+
+        cut.Find("#expense-ledger-start").Change("2026-01-01");
+        cut.Find("#expense-ledger-search").Click();
+
+        cut.WaitForAssertion(() => cut.Find("[role=alert]").TextContent.Should().Contain("시작일과 종료일을 함께"));
+        Paths<ExpenseRecord>().Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void Refresh_clamps_a_page_that_no_longer_exists()
+    {
+        ShowScope("expense.read");
+        var item = Expense(Guid.NewGuid(), Input(ExpenseType.TaxDeductible, Guid.NewGuid()));
+        var secondPageReads = 0;
+        Read<ExpenseRecord>(path =>
+        {
+            if (!path.Contains("offset=50", StringComparison.Ordinal)) return new([item], 1);
+            secondPageReads++;
+            return secondPageReads == 1 ? new([item], 51) : new([], 1);
+        });
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("#expense-ledger-next").Should().NotBeNull());
+
+        // Simulate a previously full first page by returning a total that enables the next button.
+        Read<ExpenseRecord>(path =>
+        {
+            if (path.Contains("offset=50", StringComparison.Ordinal))
+            {
+                secondPageReads++;
+                return secondPageReads == 1 ? new([item], 51) : new([], 1);
+            }
+            return new([item], secondPageReads == 0 ? 51 : 1);
+        });
+        cut.Find("#expense-list-refresh").Click();
+        cut.WaitForAssertion(() => cut.Find("#expense-ledger-next").HasAttribute("disabled").Should().BeFalse());
+        cut.Find("#expense-ledger-next").Click();
+        cut.WaitForAssertion(() => Paths<ExpenseRecord>().Last().Should().Contain("offset=50"));
+
+        cut.Find("#expense-list-refresh").Click();
+
+        cut.WaitForAssertion(() => Paths<ExpenseRecord>().TakeLast(2).Should().Equal(
+            $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}?offset=50&limit=50",
+            $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}?offset=0&limit=50"));
+        cut.Find(".expense-ledger-pages [data-total]").TextContent.Should().Contain("1–1 / 1");
+    }
+
+    [Fact]
     public void Category_edit_uses_current_version_and_preserves_unedited_tags()
     {
         ShowScope("expense.directory.read", "expense.directory.write");
