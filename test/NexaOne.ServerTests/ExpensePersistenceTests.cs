@@ -4,10 +4,12 @@ using Microsoft.Data.Sqlite;
 using NexaDB.Data.Sqlite;
 using NexaFramework.Service;
 using NexaFramework.Service.Erp;
+using NexaFramework.Service.Projects;
 using NexaOne.ERP.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.MDM.Infrastructure;
 using NexaOne.SYS.Infrastructure;
+using NexaOne.ServiceContracts.Crm;
 using Xunit;
 
 namespace NexaOne.ServerTests;
@@ -18,7 +20,8 @@ public sealed class ExpensePersistenceTests : IClassFixture<BusinessMembershipDa
     private static readonly string[] Grants =
     [
         "expense.directory.read", "expense.directory.write", "expense.read", "expense.write",
-        "expense.reimburse", "expense.invoice", "billing.read", "billing.write"
+        "expense.reimburse", "expense.invoice", "billing.read", "billing.write",
+        "crm.project.read", "crm.project.manage", "crm.project.all"
     ];
     private readonly string _path;
     private readonly string _connectionString;
@@ -60,7 +63,20 @@ public sealed class ExpensePersistenceTests : IClassFixture<BusinessMembershipDa
 
     public Task DisposeAsync() { File.Delete(_path); return Task.CompletedTask; }
     private EesDataSource DataSource() => new() { Provider = new SqliteProvider(), ConnectionString = _connectionString };
-    private BillingBridge NewBridge() => new(DataSource(), new BusinessMembershipBridge(DataSource()), new BusinessMasterDirectory(DataSource()));
+    private BillingBridge NewBridge()
+    {
+        var dataSource = DataSource();
+        var memberships = new BusinessMembershipBridge(dataSource);
+        var masters = new BusinessMasterDirectory(dataSource);
+        var projects = new NexaOne.CRM.Module(dataSource, memberships, masters).GetBusinessProjectDirectory();
+        return new(dataSource, memberships, masters, projects: projects);
+    }
+    private ICrmBridge NewCrmBridge()
+    {
+        var dataSource = DataSource();
+        return new NexaOne.CRM.Module(dataSource, new BusinessMembershipBridge(dataSource),
+            new BusinessMasterDirectory(dataSource)).GetCrmBridge();
+    }
     private void Execute(string sql, object? values = null) { using var c = new SqliteConnection(_connectionString); c.Open(); c.Execute(sql, values); }
     private T Scalar<T>(string sql, object? values = null) { using var c = new SqliteConnection(_connectionString); c.Open(); return c.ExecuteScalar<T>(sql, values)!; }
     private static async Task Error(Func<Task> action, string code)
@@ -116,6 +132,11 @@ public sealed class ExpensePersistenceTests : IClassFixture<BusinessMembershipDa
             Input(category.Id, vendor.Id, Guid.NewGuid())), "EXPENSE_EMPLOYEE_NOT_FOUND");
         await Error(() => _bridge.CreateExpenseAsync("expense-user", _tenant, _organization, Guid.NewGuid(),
             Input(category.Id, vendor.Id) with { ProjectId = Guid.NewGuid() }), "EXPENSE_PROJECT_NOT_FOUND");
+        var project = await NewCrmBridge().CreateProjectAsync("expense-user", _tenant, _organization,
+            new("Expense project", Code: "EXP-1"), new(null, [], []));
+        var projectExpense = await _bridge.CreateExpenseAsync("expense-user", _tenant, _organization,
+            Guid.NewGuid(), Input(category.Id, vendor.Id) with { ProjectId = project.Id });
+        projectExpense.Input.ProjectId.Should().Be(project.Id);
         await Error(() => _bridge.CreateCategoryAsync("expense-user", _tenant, _organization,
             new("Tagged", [Guid.NewGuid()])), "EXPENSE_TAG_NOT_FOUND");
         await Error(() => _bridge.ReimburseExpenseAsync("expense-user", _tenant, _organization, Guid.NewGuid(),
@@ -211,6 +232,12 @@ public sealed class ExpensePersistenceTests : IClassFixture<BusinessMembershipDa
         var category = await Category("Meals"); var vendor = await Vendor("Cafe");
         var scopes = await ((NexaOne.ServiceContracts.Erp.IExpenseBridge)_bridge).ListAccessibleScopesAsync("expense-user");
         scopes.Total.Should().Be(1); scopes.Items.Single().OrganizationId.Should().Be(_organization);
+        var employees = await _bridge.ListEmployeesAsync("expense-user", _tenant, _organization);
+        employees.Total.Should().Be(3);
+        employees.Items.Select(value => value.UserId).Should()
+            .BeEquivalentTo("expense-user", "expense-peer", "expense-reader");
+        await Error(() => _bridge.ListEmployeesAsync("expense-reader", _tenant, _organization),
+            "BUSINESS_ACCESS_DENIED");
         await Error(() => _bridge.CreateVendorAsync("expense-reader", _tenant, _organization, new("Denied")),
             "BUSINESS_ACCESS_DENIED");
         (await _bridge.ListVendorsAsync("expense-reader", _tenant, _organization)).Items.Single().Should().BeEquivalentTo(vendor);

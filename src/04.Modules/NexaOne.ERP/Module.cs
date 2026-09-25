@@ -7,6 +7,7 @@ using NexaOne.ERP.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Erp;
 using NexaOne.ServiceContracts.Collaboration;
+using NexaOne.ServiceContracts.Crm;
 using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Sys;
 
@@ -35,6 +36,7 @@ public sealed class Module
         IConfiguration configuration,
         IBusinessMembershipBridge businessMemberships,
         IBusinessMasterDirectory businessMasters,
+        IBusinessProjectDirectory businessProjects,
         IRecurringScheduler scheduler,
         IDeliveryProviderRegistry deliveryProviders)
     {
@@ -42,10 +44,12 @@ public sealed class Module
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(businessMemberships);
         ArgumentNullException.ThrowIfNull(businessMasters);
+        ArgumentNullException.ThrowIfNull(businessProjects);
         ArgumentNullException.ThrowIfNull(scheduler);
         ArgumentNullException.ThrowIfNull(deliveryProviders);
 
-        var bridge = new BillingBridge(dataSource, businessMemberships, businessMasters);
+        var bridge = new BillingBridge(dataSource, businessMemberships, businessMasters,
+            projects: businessProjects);
         _billingBridge = bridge;
         _expenseBridge = bridge;
         _financialReportBridge = bridge;

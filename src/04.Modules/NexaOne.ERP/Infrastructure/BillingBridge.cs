@@ -7,6 +7,7 @@ using NexaFramework.Service.Erp;
 using NexaFramework.Service.Collaboration;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Collaboration;
+using NexaOne.ServiceContracts.Crm;
 using NexaOne.ServiceContracts.Erp;
 using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Sys;
@@ -23,15 +24,18 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IRec
     private readonly TimeProvider _clock;
     private readonly IBusinessMembershipBridge _memberships;
     private readonly IBusinessMasterDirectory _masters;
+    private readonly IBusinessProjectDirectory? _projects;
 
     public BillingBridge(EesDataSource dataSource, IBusinessMembershipBridge memberships,
-        IBusinessMasterDirectory masters, TimeProvider? clock = null)
+        IBusinessMasterDirectory masters, TimeProvider? clock = null,
+        IBusinessProjectDirectory? projects = null)
     {
         _processor = new(dataSource);
         _timeout = dataSource.QueryGatewayOptions.CommandTimeoutSeconds;
         _clock = clock ?? TimeProvider.System;
         _memberships = memberships ?? throw new ArgumentNullException(nameof(memberships));
         _masters = masters ?? throw new ArgumentNullException(nameof(masters));
+        _projects = projects;
     }
 
     public Task<BusinessPage<BusinessMembership>> ListAccessibleScopesAsync(string userId, int offset = 0, int limit = 50, CancellationToken ct = default)
@@ -182,7 +186,8 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IRec
 
     // Confined to one processor-owned transaction. This adapter never commits, retries or caches authority.
     private sealed partial class Session(DbConnection connection, DbTransaction transaction, int? timeout, BusinessScope scope,
-        IBusinessMembershipBridge memberships, IBusinessMasterDirectory masters, TimeProvider clock)
+        IBusinessMembershipBridge memberships, IBusinessMasterDirectory masters, TimeProvider clock,
+        IBusinessProjectDirectory? projects = null)
         : IAtomicBusinessStore<IBillingTransaction>, IBillingTransaction, IAtomicBusinessStore<IExpenseTransaction>,
           IExpenseTransaction, IAtomicBusinessStore<IExpenseAccountingTransaction>, IExpenseAccountingTransaction,
           IAtomicBusinessStore<IRecurringTransaction>, IRecurringTransaction,
