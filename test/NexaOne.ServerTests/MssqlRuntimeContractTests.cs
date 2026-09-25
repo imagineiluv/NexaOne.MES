@@ -125,8 +125,8 @@ public sealed class MssqlRuntimeContractTests
             .Where(resource => resource.Key.StartsWith("inventory.stock.", StringComparison.Ordinal))
             .ToDictionary(resource => resource.Key, resource => resource.Value, StringComparer.Ordinal);
         expected.Should().NotBeEmpty();
-        // V166 to V169 all seed inventory.stock.* keys; run them as one script so the expected set is complete.
-        var migration = string.Join(Environment.NewLine, new[] { "V166__IVT_STOCK_WORKFLOW_RESOURCES.sql", "V167__IVT_STOCK_RESERVATION_LIST_RESOURCES.sql", "V168__IVT_STOCK_BALANCE_LIST_RESOURCES.sql", "V169__IVT_STOCK_VARIANT_SELECT_RESOURCES.sql" }
+        // V166 to V169 and V212 seed inventory.stock.* keys; run them as one script so the expected set is complete.
+        var migration = string.Join(Environment.NewLine, new[] { "V166__IVT_STOCK_WORKFLOW_RESOURCES.sql", "V167__IVT_STOCK_RESERVATION_LIST_RESOURCES.sql", "V168__IVT_STOCK_BALANCE_LIST_RESOURCES.sql", "V169__IVT_STOCK_VARIANT_SELECT_RESOURCES.sql", "V212__IVT_STOCK_BALANCE_REPORT_RESOURCES.sql" }
             .Select(file => File.ReadAllText(RepositorySource.GetFile("src/00.Main/NexaOne.Server/config/db/migrations/" + file))));
         await using var connection = new SqlConnection(database.ConnectionString);
         await connection.OpenAsync();

@@ -1,0 +1,35 @@
+#inventory-balance-report { display: grid; gap: var(--space-md); min-width: 0; padding: var(--space-lg) 0; border-top: 1px solid var(--nx-border); }
+.ibr-heading { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: var(--space-md); }
+.ibr-heading > div:first-child { display: grid; gap: var(--space-xs); min-width: 0; max-width: 72ch; }
+.ibr-heading h2, .ibr-heading p, .ibr-status p, .ibr-empty { margin: 0; }
+.ibr-heading p, .ibr-empty, .ibr-check small, .ibr-summary { color: var(--nx-text-2); }
+.ibr-actions, .ibr-pager { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); }
+.ibr-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-sm); }
+.ibr-check { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: var(--space-sm); min-height: var(--nx-touch-min, 44px); padding: var(--space-sm); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); background: var(--nx-card); }
+.ibr-check > span { display: grid; gap: var(--space-2xs); min-width: 0; }
+.ibr-check small { overflow-wrap: anywhere; }
+.ibr-check:has(input:disabled) { opacity: .65; }
+#inventory-balance-report button { min-height: var(--nx-touch-min, 44px); padding: var(--space-xs) var(--space-sm); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); color: var(--nx-text); background: var(--nx-card); font: inherit; cursor: pointer; }
+#inventory-balance-report button:disabled { cursor: default; opacity: .6; }
+#inventory-balance-report button:focus-visible, .ibr-check input:focus-visible, .ibr-table-scroll:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.ibr-status:empty { display: none; }
+.ibr-status [role="alert"] { display: grid; gap: var(--space-xs); padding: var(--space-sm); border: 1px solid var(--color-danger); }
+.ibr-status [role="alert"] p { color: var(--nx-text); }
+.ibr-summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-xs) var(--space-lg); }
+.ibr-table-scroll { overflow-x: auto; max-width: 100%; }
+.ibr-table-scroll table { width: 100%; border-collapse: collapse; text-align: left; }
+.ibr-table-scroll th, .ibr-table-scroll td { padding: var(--space-sm); border-bottom: 1px solid var(--nx-border); vertical-align: top; }
+.ibr-table-scroll th { font-weight: 650; white-space: nowrap; }
+.ibr-table-scroll td { min-width: 7rem; }
+.ibr-table-scroll td > span { display: block; margin-top: var(--space-2xs); color: var(--nx-text-2); }
+.ibr-id, .ibr-measure { font-family: var(--font-outlier); }
+.ibr-id { overflow-wrap: anywhere; }
+.ibr-measure { text-align: right; font-variant-numeric: tabular-nums; }
+.ibr-pager { justify-content: space-between; }
+.ibr-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (hover: hover) and (pointer: fine) { #inventory-balance-report button:hover:not(:disabled) { border-color: var(--color-accent); } }
+@media (max-width: 40rem) {
+    .ibr-filters { grid-template-columns: 1fr; }
+    .ibr-actions, .ibr-actions button { width: 100%; }
+    .ibr-pager > span { flex-basis: 100%; order: -1; }
+}

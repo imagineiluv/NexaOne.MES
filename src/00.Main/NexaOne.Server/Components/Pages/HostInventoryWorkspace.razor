@@ -65,6 +65,10 @@
             {
                 <StockWorkflowPanel @key="@("stock/" + SelectedKey)" @ref="_stock" Scope="_scope" UserId="@_currentUserId" Warehouses="_warehouses?.Items" Saved="RefreshStockAsync" VariantChanged="VariantChangedAsync" WarehouseChanged="WarehouseChangedAsync" />
             }
+            @if (_scope.Membership.Permissions.Contains("stock.read", StringComparer.Ordinal))
+            {
+                <StockBalanceReportPanel @key="@("stock-report/" + SelectedKey)" Scope="_scope" Warehouse="_balanceWarehouse" Variant="_variant" />
+            }
             @if (_scope.Membership.Permissions.Any(grant => grant.StartsWith("equipment.", StringComparison.Ordinal)))
             {
                 <EquipmentWorkflowPanel @key="@("equipment/" + SelectedKey)" @ref="_workflow" Scope="_scope" UserId="@_currentUserId" Worker="_worker" Saved="RefreshEquipmentAsync" />
