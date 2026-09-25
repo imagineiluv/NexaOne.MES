@@ -276,14 +276,14 @@ public sealed partial class StockBridge
             { throw new InvalidDataException("Stock export storage contains invalid fields.", error); }
             var job = new StockMasterExportJob(Id(row.Id), Id(row.Version), Id(row.OperationId),
                 (StockMasterExportKind)row.Kind, fields, row.IncludeInactive, (StockMasterExportState)row.State,
-                row.RowCount, row.FileName, row.ErrorCode, At(row.RequestedAt), row.CompletedAt.HasValue ? At(row.CompletedAt.Value) : null);
+                row.ExportedRows, row.FileName, row.ErrorCode, At(row.RequestedAt), row.CompletedAt.HasValue ? At(row.CompletedAt.Value) : null);
             StockMasterCsvExport? export = null;
             if (includeContent && job.State == StockMasterExportState.Completed)
             {
                 if (row.Content is null || row.FileName is null || row.ContentType != CsvContentType
-                    || row.FileSize != row.Content.Length || row.RowCount is null || row.Content.Length > MasterExportByteLimit)
+                    || row.FileSize != row.Content.Length || row.ExportedRows is null || row.Content.Length > MasterExportByteLimit)
                     throw Failure("STOCK_MASTER_EXPORT_ARTIFACT_MISSING");
-                export = new(row.FileName, row.ContentType, row.Content, row.RowCount.Value);
+                export = new(row.FileName, row.ContentType, row.Content, row.ExportedRows.Value);
             }
             return new(job, export);
         }
@@ -355,7 +355,7 @@ public sealed partial class StockBridge
         private static string ExportSelect(bool content) => "SELECT TENANT_ID AS TenantId, ORGANIZATION_ID AS OrganizationId, "
             + "EXPORT_ID AS Id, VERSION AS Version, OPERATION_ID AS OperationId, REQUESTED_BY AS RequestedBy, REQUEST_HASH AS RequestHash, "
             + "EXPORT_KIND AS Kind, FIELDS_JSON AS FieldsJson, INCLUDE_INACTIVE AS IncludeInactive, STATE AS State, FILE_NAME AS FileName, "
-            + "CONTENT_TYPE AS ContentType, FILE_SIZE AS FileSize, " + (content ? "CONTENT" : "NULL") + " AS Content, ROW_COUNT AS RowCount, "
+            + "CONTENT_TYPE AS ContentType, FILE_SIZE AS FileSize, " + (content ? "CONTENT" : "NULL") + " AS Content, ROW_COUNT AS ExportedRows, "
             + "ERROR_CODE AS ErrorCode, REQUESTED_AT_TICKS AS RequestedAt, COMPLETED_AT_TICKS AS CompletedAt FROM IVT_STOCK_MASTER_EXPORT";
     }
 
@@ -401,7 +401,7 @@ public sealed partial class StockBridge
         public string? ContentType { get; set; }
         public int? FileSize { get; set; }
         public byte[]? Content { get; set; }
-        public int? RowCount { get; set; }
+        public int? ExportedRows { get; set; }
         public string? ErrorCode { get; set; }
         public long RequestedAt { get; set; }
         public long? CompletedAt { get; set; }
