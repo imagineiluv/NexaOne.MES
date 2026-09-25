@@ -61,6 +61,8 @@ public partial class BillingWorkflowPanel : IDisposable
     private string _customerId = "";
     private BillingKind _editorKind = BillingKind.Estimate;
     private bool _editing;
+    private Guid? _creditInvoiceId;
+    private decimal? _creditAvailable;
     private DateTime? _documentDate, _dueDate;
     private string _paymentPaidAt = "";
     private string _currency = "", _terms = "", _note = "";
@@ -80,6 +82,7 @@ public partial class BillingWorkflowPanel : IDisposable
     private bool CanWrite => Has("billing.write");
     private bool CanDecide => Has("billing.decide");
     private bool CanPay => Has("billing.pay");
+    private bool CanCredit => Has("billing.credit");
     private bool CanDraft => CanWrite && _contact is not null;
     private bool CanEdit => CanWrite && _document is { Status: BillingStatus.Draft, Kind: not BillingKind.CreditNote };
     private bool CanSend => CanWrite && _document is { Status: BillingStatus.Draft, Kind: not BillingKind.CreditNote };
@@ -92,6 +95,12 @@ public partial class BillingWorkflowPanel : IDisposable
         && document.Status is BillingStatus.Sent or BillingStatus.PartiallyPaid or BillingStatus.FullyPaid
             or BillingStatus.Overpaid or BillingStatus.PartiallyCredited or BillingStatus.Credited;
     private bool CanCancelPayment => CanPay && _payment is { State: PaymentState.Recorded };
+    private bool CanCreateCredit => CanCredit && _document is { Kind: BillingKind.Invoice } invoice
+        && invoice.Status is not BillingStatus.Draft and not BillingStatus.Void && invoice.Due > 0m;
+    private bool CanEditCredit => CanCredit && _document is { Kind: BillingKind.CreditNote, Status: BillingStatus.Draft };
+    private bool CanIssueCredit => CanEditCredit;
+    private bool CanVoidCredit => CanCredit && _document is { Kind: BillingKind.CreditNote,
+        Status: BillingStatus.Draft or BillingStatus.Sent };
     private string Root => $"api/v1/erp/billing/{Membership.TenantId:D}/{Membership.OrganizationId:D}";
     private string T(string key, string ko, string en) => Ui.T(key, Ui.Language == "EnUs" ? en : ko);
 
@@ -105,6 +114,7 @@ public partial class BillingWorkflowPanel : IDisposable
         _request?.Cancel();
         _storageKey = key;
         _pending = null; _contact = null; _document = null; _payment = null; _editor = Editor.None; _focus = Focus.None;
+        _creditInvoiceId = null; _creditAvailable = null;
         _observedDocument = null; _observedPayment = null;
         _loaded = false; _loading = false; _busy = false; _storageError = false;
         _error = null; _message = null; _acknowledged = false;
@@ -162,6 +172,7 @@ public partial class BillingWorkflowPanel : IDisposable
     private static string? Permission(string kind) => kind switch
     {
         "contact" or "create" or "update" or "sent" or "void" or "convert" => "billing.write",
+        "credit-create" or "credit-update" or "credit-issue" or "credit-void" => "billing.credit",
         "decide" => "billing.decide",
         "pay" or "cancel-payment" => "billing.pay",
         _ => null
@@ -175,9 +186,13 @@ public partial class BillingWorkflowPanel : IDisposable
             "contact" => value.Payload.Deserialize<ContactCommand>(Json) is { } contact && ValidCustomer(contact.CustomerId) ? contact : null,
             "create" => value.Payload.Deserialize<BillingController.DocumentCreate>(Json) is { } create
                 && create.OperationId == value.Id && Enum.IsDefined(create.Kind) && ValidInput(create.Input) ? create : null,
+            "credit-create" => value.Payload.Deserialize<BillingController.CreditNoteCreate>(Json) is { } credit
+                && credit.OperationId != Guid.Empty && ValidInput(credit.Input) ? credit : null,
             "update" => value.Payload.Deserialize<BillingController.DocumentChange>(Json) is { } change
                 && change.Version != Guid.Empty && ValidInput(change.Input) ? change : null,
-            "sent" or "void" => value.Payload.Deserialize<BillingController.VersionedCommand>(Json) is { } command && command.Version != Guid.Empty ? command : null,
+            "credit-update" => value.Payload.Deserialize<BillingController.DocumentChange>(Json) is { } creditChange
+                && creditChange.Version != Guid.Empty && ValidInput(creditChange.Input) ? creditChange : null,
+            "sent" or "void" or "credit-issue" or "credit-void" => value.Payload.Deserialize<BillingController.VersionedCommand>(Json) is { } command && command.Version != Guid.Empty ? command : null,
             "decide" => value.Payload.Deserialize<BillingController.DecisionCommand>(Json) is { } decision && decision.Version != Guid.Empty ? decision : null,
             "convert" => value.Payload.Deserialize<BillingController.ConversionCommand>(Json) is { } conversion
                 && conversion.Version != Guid.Empty && conversion.OperationId != Guid.Empty && conversion.OperationId != value.Id ? conversion : null,
@@ -283,16 +298,51 @@ public partial class BillingWorkflowPanel : IDisposable
             ExpenseId = line.ExpenseId }).ToList();
     }
 
+    private void StartCreditNote()
+    {
+        if (!CanStart || !CanCreateCredit || _document is not { } invoice) return;
+        _editor = Editor.Document; _editing = false; _editorKind = BillingKind.CreditNote;
+        _creditInvoiceId = invoice.Id; _creditAvailable = invoice.Due; _error = null; _message = null;
+        var date = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+        if (date < invoice.Input.DocumentDate) date = invoice.Input.DocumentDate;
+        _documentDate = date.ToDateTime(TimeOnly.MinValue); _dueDate = _documentDate; _currency = invoice.Input.Currency;
+        _terms = ""; _note = ""; _discountType = ""; _discountValue = ""; _taxType = ""; _taxValue = ""; _tax2Type = ""; _tax2Value = "";
+        _lines = [new()];
+    }
+
+    private void EditCreditNote()
+    {
+        if (!CanStart || !CanEditCredit || _document is not { AdjustedInvoiceId: { } invoiceId } note) return;
+        _editor = Editor.Document; _editing = true; _editorKind = BillingKind.CreditNote;
+        _creditInvoiceId = invoiceId; _creditAvailable = null; _error = null; _message = null;
+        var input = note.Input;
+        _documentDate = input.DocumentDate.ToDateTime(TimeOnly.MinValue); _dueDate = _documentDate;
+        _currency = input.Currency; _terms = input.Terms ?? ""; _note = input.Note ?? "";
+        (_discountType, _discountValue) = Adjustment(input.Discount); (_taxType, _taxValue) = Adjustment(input.Tax); (_tax2Type, _tax2Value) = Adjustment(input.Tax2);
+        _lines = input.Lines.Select(line => new LineDraft { Description = line.Description, UnitPrice = Amount(line.UnitPrice),
+            Quantity = Amount(line.Quantity), ApplyTax = line.ApplyTax, ApplyDiscount = line.ApplyDiscount }).ToList();
+    }
+
     private void AddLine() { if (_lines.Count < MaxLines) _lines.Add(new()); }
     private void RemoveLine(LineDraft line) { if (_lines.Count > 1) _lines.Remove(line); }
 
     private async Task SaveDocumentAsync()
     {
-        if (!CanStart || (_editing ? !CanEdit : !CanDraft)) return;
-        var contact = _editing ? _document!.Input.ContactId : _contact!.Id;
+        var credit = _editorKind == BillingKind.CreditNote;
+        if (!CanStart || (credit
+                ? _editing ? !CanEditCredit : !CanCreateCredit
+                : _editing ? !CanEdit : !CanDraft)) return;
+        var contact = credit || _editing ? _document!.Input.ContactId : _contact!.Id;
         var input = BuildInput(contact);
-        if (input is null || !ValidInput(input)) { _error = DocumentInputMessage(); return; }
-        if (_editing) await BeginAsync("update", _document!.Id, new BillingController.DocumentChange(_document.Version, input));
+        if (input is null || !ValidInput(input)) { _error = credit ? CreditInputMessage() : DocumentInputMessage(); return; }
+        if (credit && _editing)
+            await BeginAsync("credit-update", _document!.Id, new BillingController.DocumentChange(_document.Version, input));
+        else if (credit)
+        {
+            if (_creditInvoiceId is not { } invoiceId) { _error = InvalidResponse(); return; }
+            await BeginAsync("credit-create", invoiceId, new BillingController.CreditNoteCreate(Guid.NewGuid(), input));
+        }
+        else if (_editing) await BeginAsync("update", _document!.Id, new BillingController.DocumentChange(_document.Version, input));
         else
         {
             var operation = Guid.NewGuid();
@@ -302,8 +352,9 @@ public partial class BillingWorkflowPanel : IDisposable
 
     private BillingDocumentInput? BuildInput(Guid contact)
     {
-        if (_documentDate is not { } issuedDay || _dueDate is not { } dueDay) return null;
-        var issued = DateOnly.FromDateTime(issuedDay); var due = DateOnly.FromDateTime(dueDay);
+        if (_documentDate is not { } issuedDay || (_editorKind != BillingKind.CreditNote && _dueDate is null)) return null;
+        var issued = DateOnly.FromDateTime(issuedDay);
+        var due = _editorKind == BillingKind.CreditNote ? issued : DateOnly.FromDateTime(_dueDate!.Value);
         var lines = new List<BillingLine>(_lines.Count);
         foreach (var line in _lines)
         {
@@ -333,6 +384,10 @@ public partial class BillingWorkflowPanel : IDisposable
         ? BeginAsync("decide", _document!.Id, new BillingController.DecisionCommand(_document.Version, accepted)) : Task.CompletedTask;
     private Task ConvertAsync() => CanStart && CanConvert
         ? BeginAsync("convert", _document!.Id, new BillingController.ConversionCommand(Guid.NewGuid(), _document.Version)) : Task.CompletedTask;
+    private Task IssueCreditAsync() => CanStart && CanIssueCredit
+        ? BeginAsync("credit-issue", _document!.Id, new BillingController.VersionedCommand(_document.Version)) : Task.CompletedTask;
+    private Task VoidCreditAsync() => CanStart && CanVoidCredit
+        ? BeginAsync("credit-void", _document!.Id, new BillingController.VersionedCommand(_document.Version)) : Task.CompletedTask;
 
     private void StartPayment()
     {
@@ -519,8 +574,8 @@ public partial class BillingWorkflowPanel : IDisposable
     // payment that never returned an ID has nothing to read; only its same-body replay can confirm it.
     private (Focus Target, Guid Id)? ReadTarget => _pending is { } p ? p.Kind switch
     {
-        "create" => p.ResultId is { } created ? (Focus.Document, created) : null,
-        "update" or "sent" or "void" or "decide" => (Focus.Document, p.Id),
+        "create" or "credit-create" => p.ResultId is { } created ? (Focus.Document, created) : null,
+        "update" or "sent" or "void" or "decide" or "credit-update" or "credit-issue" or "credit-void" => (Focus.Document, p.Id),
         "convert" => (Focus.Document, p.ResultId ?? p.Id),
         "pay" => p.ResultId is { } paid ? (Focus.Payment, paid) : (Focus.Document, p.Id),
         "cancel-payment" => (Focus.Payment, p.Id),
@@ -607,9 +662,13 @@ public partial class BillingWorkflowPanel : IDisposable
     {
         "contact" => (HttpMethod.Put, Root + "/contacts/" + Uri.EscapeDataString(((ContactCommand)body).CustomerId)),
         "create" => (HttpMethod.Post, Root + "/documents"),
+        "credit-create" => (HttpMethod.Post, Root + $"/documents/{intent.Id:D}/credits"),
         "update" => (HttpMethod.Put, Root + $"/documents/{intent.Id:D}"),
+        "credit-update" => (HttpMethod.Put, Root + $"/credit-notes/{intent.Id:D}"),
         "sent" => (HttpMethod.Post, Root + $"/documents/{intent.Id:D}/sent"),
         "void" => (HttpMethod.Post, Root + $"/documents/{intent.Id:D}/void"),
+        "credit-issue" => (HttpMethod.Post, Root + $"/credit-notes/{intent.Id:D}/issue"),
+        "credit-void" => (HttpMethod.Post, Root + $"/credit-notes/{intent.Id:D}/void"),
         "decide" => (HttpMethod.Post, Root + $"/documents/{intent.Id:D}/decision"),
         "convert" => (HttpMethod.Post, Root + $"/documents/{intent.Id:D}/conversion"),
         "pay" => (HttpMethod.Post, Root + $"/documents/{intent.Id:D}/payments"),
@@ -622,8 +681,11 @@ public partial class BillingWorkflowPanel : IDisposable
         && Guid.TryParse(scope.OrganizationId, out var organization) && organization == Membership.OrganizationId;
     private bool ValidDocument(BillingDocument? value) => value is not null && value.Id != Guid.Empty && value.Version != Guid.Empty
         && ValidScope(value.Scope) && value.OperationId != Guid.Empty && Enum.IsDefined(value.Kind) && value.Number > 0
-        && Enum.IsDefined(value.Status) && value.Totals is not null && ValidInput(value.Input) && value.Paid >= 0m
-        && value.ConvertedFromId != value.Id && value.ConvertedToId != value.Id;
+        && Enum.IsDefined(value.Status) && value.Totals is not null && ValidInput(value.Input) && value.Paid >= 0m && value.Credited >= 0m
+        && value.ConvertedFromId != value.Id && value.ConvertedToId != value.Id && value.AdjustedInvoiceId != value.Id
+        && value.AdjustedInvoiceId.HasValue == (value.Kind == BillingKind.CreditNote)
+        && (value.Kind != BillingKind.CreditNote || value.Paid == 0m && value.Credited == 0m
+            && value.Input.DueDate == value.Input.DocumentDate && value.Totals.Total > 0m);
     private bool ValidPaymentRecord(PaymentRecord? value) => value is not null && value.Id != Guid.Empty && value.Version != Guid.Empty
         && ValidScope(value.Scope) && value.OperationId != Guid.Empty && value.Input is not null && ValidPayment(value.Input) && Enum.IsDefined(value.State)
         && (value.State == PaymentState.Cancelled) == (value.CancelledBy is not null);
@@ -633,10 +695,20 @@ public partial class BillingWorkflowPanel : IDisposable
         // A replayed creation returns the earlier document for the same operation and input.
         "create" => body is BillingController.DocumentCreate create && value.OperationId == create.OperationId && value.Kind == create.Kind
             && value.Input.Lines.SequenceEqual(create.Input.Lines) && value.Input.ContactId == create.Input.ContactId,
+        "credit-create" => body is BillingController.CreditNoteCreate credit && value.Kind == BillingKind.CreditNote
+            && value.OperationId == credit.OperationId && value.AdjustedInvoiceId == intent.Id
+            && SameInput(value.Input, credit.Input),
         "update" => body is BillingController.DocumentChange change && value.Id == intent.Id && value.Version != change.Version
             && value.Input.Lines.SequenceEqual(change.Input.Lines),
+        "credit-update" => body is BillingController.DocumentChange creditChange && value.Id == intent.Id
+            && value.Kind == BillingKind.CreditNote && value.Status == BillingStatus.Draft
+            && value.Version != creditChange.Version && SameInput(value.Input, creditChange.Input),
         "sent" => value.Id == intent.Id && value.Status == BillingStatus.Sent,
         "void" => value.Id == intent.Id && value.Status == BillingStatus.Void,
+        "credit-issue" => body is BillingController.VersionedCommand issue && value.Id == intent.Id
+            && value.Kind == BillingKind.CreditNote && value.Status == BillingStatus.Sent && value.Version != issue.Version,
+        "credit-void" => body is BillingController.VersionedCommand voidCredit && value.Id == intent.Id
+            && value.Kind == BillingKind.CreditNote && value.Status == BillingStatus.Void && value.Version != voidCredit.Version,
         "decide" => body is BillingController.DecisionCommand decision && value.Id == intent.Id
             && value.Status == (decision.Accepted ? BillingStatus.Accepted : BillingStatus.Rejected),
         // A replayed conversion returns the invoice created for this estimate under the same operation.
@@ -644,6 +716,12 @@ public partial class BillingWorkflowPanel : IDisposable
             && value.ConvertedFromId == intent.Id && value.OperationId == conversion.OperationId,
         _ => false
     };
+
+    private static bool SameInput(BillingDocumentInput left, BillingDocumentInput right)
+        => left.ContactId == right.ContactId && left.DocumentDate == right.DocumentDate && left.DueDate == right.DueDate
+            && left.Currency == right.Currency && left.Lines.SequenceEqual(right.Lines)
+            && left.Discount == right.Discount && left.Tax == right.Tax && left.Tax2 == right.Tax2
+            && left.Terms == right.Terms && left.Note == right.Note;
 
     private static bool MatchesPaymentOutcome(PaymentRecord value, PendingWrite intent, object body) => intent.Kind switch
     {
@@ -660,6 +738,7 @@ public partial class BillingWorkflowPanel : IDisposable
     private string InvalidResponse() => T("inventory.write.invalidResponse", "응답이 선택한 범위 또는 요청과 맞지 않습니다. 저장 결과를 다시 확인해 주세요.", "The response does not match the selected scope or request. Recheck the write outcome.");
     private string CustomerMessage() => T("billing.invalidCustomer", "고객 코드는 앞뒤 공백 없이 50자 이하로 입력해 주세요.", "Enter a customer code of up to 50 characters without surrounding whitespace.");
     private string DocumentInputMessage() => T("billing.invalidDocument", "날짜(만기일은 문서일 이후), 통화 3자, 항목(설명·0 이상 단가·양수 수량, 소수 6자리 이하)과 할인/세금 값을 확인해 주세요.", "Check the dates (due on or after the document date), the 3-letter currency, each line (description, unit price ≥ 0, positive quantity, at most 6 decimals) and the discount/tax values.");
+    private string CreditInputMessage() => T("billing.invalidCreditNote", "신용 메모는 양수 합계여야 하며 문서일·만기일이 같아야 합니다. 항목과 할인·세금을 확인해 주세요.", "A credit note must have a positive total and the same document and due date. Check its lines, discount and taxes.");
     private string PaymentInputMessage() => T("billing.invalidPayment", "양수 금액(소수 6자리 이하), 결제 방법, UTC 입금 시각, 참조(255자 이하)를 확인해 주세요.", "Check a positive amount with at most 6 decimals, the method, the UTC paid time and a reference of up to 255 characters.");
 
     private string ErrorMessage(string? code, int status) => code switch
@@ -672,15 +751,21 @@ public partial class BillingWorkflowPanel : IDisposable
             => T("billing.statusConflict", "현재 문서 상태에서는 이 작업을 할 수 없습니다. 현재 상태를 조회해 주세요.", "This action is not allowed in the document's current status. Read the current state."),
         "BILLING_DOCUMENT_CONVERTED" => T("billing.converted", "이미 청구로 전환된 견적입니다.", "This estimate was already converted to an invoice."),
         "BILLING_DOCUMENT_HAS_PAYMENTS" => T("billing.hasPayments", "입금이 기록된 청구는 무효화할 수 없습니다. 입금을 먼저 취소하세요.", "An invoice with recorded payments cannot be voided. Cancel its payments first."),
+        "BILLING_DOCUMENT_NOT_CREDITABLE" => T("billing.notCreditable", "작성 중이거나 무효화된 청구에는 신용 메모를 만들 수 없습니다.", "A credit note cannot be created for a draft or void invoice."),
+        "BILLING_CREDIT_CONTEXT_MISMATCH" => T("billing.creditContextMismatch", "신용 메모의 계약처 또는 통화가 원본 청구와 다릅니다. 현재 상태를 다시 조회해 주세요.", "The credit note contact or currency differs from the invoice. Read the current state again."),
+        "BILLING_CREDIT_EXCEEDS_INVOICE" or "BILLING_CREDIT_EXCEEDS_DUE" => T("billing.creditExceedsDue", "신용 금액이 원본 청구의 허용 잔액을 초과합니다. 청구의 현재 잔액을 확인해 주세요.", "The credit exceeds the invoice's available balance. Check the invoice's current due amount."),
+        "BILLING_NOT_CREDIT_NOTE" => T("billing.notCreditNote", "선택한 문서는 신용 메모가 아닙니다.", "The selected document is not a credit note."),
         "PAYMENT_CURRENCY_MISMATCH" => T("billing.currencyMismatch", "입금 통화가 청구 통화와 다릅니다.", "The payment currency differs from the invoice currency."),
         "BILLING_CONTACT_NOT_FOUND" => T("billing.contactNotFound", "선택한 계약처가 이 범위에 없습니다. 계약처를 다시 선택해 주세요.", "The selected contact is not in this scope. Select a contact again."),
-        "INVALID_BILLING_TOTAL" or "BILLING_AMOUNT_OVERFLOW" => DocumentInputMessage(),
+        "INVALID_BILLING_TOTAL" or "BILLING_AMOUNT_OVERFLOW" => PendingCredit ? CreditInputMessage() : DocumentInputMessage(),
         _ when status is 401 or 403 => T("inventory.write.accessChanged", "인증 또는 작업 권한이 변경됐습니다. 로그인과 업무 범위를 다시 확인해 주세요.", "Authentication or permission changed. Check your session and business scope."),
         _ when status == 404 => T("inventory.write.notFound", "대상을 찾을 수 없습니다. 현재 목록과 업무 범위를 확인해 주세요.", "The record was not found. Check the current list and business scope."),
-        _ when status == 400 => DocumentInputMessage(),
+        _ when status == 400 => PendingCredit ? CreditInputMessage() : DocumentInputMessage(),
         _ when status == 409 => T("inventory.write.conflict", "현재 데이터와 충돌했습니다. 입력과 현재 상태를 확인해 주세요.", "The request conflicts with current data. Check the input and current state."),
         _ => UnknownMessage()
     };
+
+    private bool PendingCredit => _pending?.Kind.StartsWith("credit-", StringComparison.Ordinal) == true;
 
     private string KindName(BillingKind kind) => kind switch
     {
@@ -714,6 +799,10 @@ public partial class BillingWorkflowPanel : IDisposable
         "void" => T("billing.voidAction", "무효화", "Void"),
         "decide" => T("billing.decide", "견적 결정", "Decide estimate"),
         "convert" => T("billing.convert", "청구로 전환", "Convert to invoice"),
+        "credit-create" => T("billing.createCreditNote", "신용 메모 작성", "Create credit note"),
+        "credit-update" => T("billing.updateCreditNote", "신용 메모 변경 저장", "Save credit note changes"),
+        "credit-issue" => T("billing.issueCreditNote", "신용 메모 발행", "Issue credit note"),
+        "credit-void" => T("billing.voidCreditNote", "신용 메모 무효화", "Void credit note"),
         "pay" => T("billing.recordPayment", "입금 기록", "Record payment"),
         "cancel-payment" => T("billing.cancelPayment", "입금 취소", "Cancel payment"),
         _ => ""
