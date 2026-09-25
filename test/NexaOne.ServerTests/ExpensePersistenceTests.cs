@@ -12,6 +12,7 @@ using NexaOne.Infrastructure.Persistence;
 using NexaOne.MDM.Infrastructure;
 using NexaOne.SYS.Infrastructure;
 using NexaOne.ServiceContracts.Crm;
+using NexaOne.ServiceContracts.Erp;
 using Xunit;
 
 namespace NexaOne.ServerTests;
@@ -118,6 +119,71 @@ public sealed class ExpensePersistenceTests : IClassFixture<BusinessMembershipDa
         Scalar<string>("SELECT PAYLOAD FROM ERP_EXPENSE WHERE EXPENSE_ID=@id", new { id = created.Id.ToString("D") })
             .Should().Contain("\"Amounts\":{\"Gross\":110,\"Tax\":10,\"Net\":100}");
         Scalar<long>("SELECT COUNT(*) FROM ERP_BILLING_AUDIT WHERE RESOURCE_TYPE='expense'").Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Payout_is_durable_freezes_expense_and_completes_reimbursement_atomically()
+    {
+        var category = await Category();
+        var vendor = await Vendor();
+        var expense = await _bridge.CreateExpenseAsync("expense-user", _tenant, _organization,
+            Guid.NewGuid(), Input(category.Id, vendor.Id, _employee));
+        var operation = Guid.NewGuid();
+        var queued = await _bridge.QueuePayoutAsync("expense-user", _tenant, _organization, operation,
+            new(expense.Id, expense.Version, "test-bank"));
+        queued.State.Should().Be(ExpensePayoutState.Pending);
+        queued.Amount.Should().Be(110m);
+        queued.EmployeeId.Should().Be(_employee);
+        (await NewBridge().QueuePayoutAsync("expense-user", _tenant, _organization, operation,
+            new(expense.Id, expense.Version, "test-bank"))).Should().BeEquivalentTo(queued);
+        await Error(() => _bridge.UpdateExpenseAsync("expense-user", _tenant, _organization,
+            expense.Id, expense.Version, expense.Input with { Amount = 120m }), "EXPENSE_PAYOUT_ACTIVE");
+        await Error(() => _bridge.ReimburseExpenseAsync("expense-user", _tenant, _organization,
+            Guid.NewGuid(), expense.Id, expense.Version, DateTimeOffset.UtcNow), "EXPENSE_PAYOUT_ACTIVE");
+
+        var automation = (IExpensePayoutAutomationBridge)NewBridge();
+        var claimed = (await automation.ClaimDueAsync("expense-user", _tenant, _organization,
+            10, TimeSpan.FromMinutes(1))).Single();
+        claimed.State.Should().Be(ExpensePayoutState.Processing);
+        claimed.LeaseId.Should().NotBeNull();
+        var paidAt = new DateTimeOffset(2026, 9, 25, 8, 0, 0, TimeSpan.Zero);
+        var completed = await automation.CompleteAsync("expense-user", _tenant, _organization,
+            claimed.Id, claimed.Version, claimed.LeaseId!.Value, new("BANK-SETTLED-1", paidAt));
+        completed.State.Should().Be(ExpensePayoutState.Completed);
+        completed.ProviderReference.Should().Be("BANK-SETTLED-1");
+        var paid = await NewBridge().GetExpenseAsync("expense-reader", _tenant, _organization, expense.Id);
+        paid.Status.Should().Be(ExpenseStatus.Paid);
+        paid.Reimbursement.Should().Be(new ExpenseReimbursement(operation, _employee, 110m,
+            paidAt, _employee.ToString("D"), "BANK-SETTLED-1"));
+        Scalar<int>("SELECT STATE FROM ERP_EXPENSE_PAYOUT WHERE PAYOUT_ID=@id",
+            new { id = queued.Id.ToString("D") }).Should().Be((int)ExpensePayoutState.Completed);
+    }
+
+    [Fact]
+    public async Task Failed_or_cancelled_payout_does_not_mark_expense_paid_and_releases_it()
+    {
+        var category = await Category();
+        var vendor = await Vendor();
+        var expense = await _bridge.CreateExpenseAsync("expense-user", _tenant, _organization,
+            Guid.NewGuid(), Input(category.Id, vendor.Id, _employee));
+        var queued = await _bridge.QueuePayoutAsync("expense-user", _tenant, _organization, Guid.NewGuid(),
+            new(expense.Id, expense.Version, "test-bank"));
+        var automation = (IExpensePayoutAutomationBridge)NewBridge();
+        var claimed = (await automation.ClaimDueAsync("expense-user", _tenant, _organization,
+            1, TimeSpan.FromMinutes(1))).Single();
+        var failed = await automation.FailAsync("expense-user", _tenant, _organization,
+            claimed.Id, claimed.Version, claimed.LeaseId!.Value, "EXPENSE_PAYOUT_REJECTED");
+        failed.State.Should().Be(ExpensePayoutState.Failed);
+        (await _bridge.GetExpenseAsync("expense-reader", _tenant, _organization, expense.Id))
+            .Status.Should().Be(ExpenseStatus.NotBillable);
+
+        var retry = await _bridge.QueuePayoutAsync("expense-user", _tenant, _organization, Guid.NewGuid(),
+            new(expense.Id, expense.Version, "test-bank"));
+        var cancelled = await _bridge.CancelPayoutAsync("expense-user", _tenant, _organization,
+            retry.Id, retry.Version);
+        cancelled.State.Should().Be(ExpensePayoutState.Cancelled);
+        (await _bridge.UpdateExpenseAsync("expense-user", _tenant, _organization,
+            expense.Id, expense.Version, expense.Input with { Amount = 120m })).Amounts.Gross.Should().Be(120m);
     }
 
     [Fact]

@@ -19,6 +19,38 @@ namespace NexaOne.ServerTests;
 public sealed class ExpenseControllerTests
 {
     [Fact]
+    public async Task Payout_routes_forward_operation_scope_filters_and_version()
+    {
+        var tenant = Guid.NewGuid(); var organization = Guid.NewGuid(); var expense = Guid.NewGuid();
+        var expenseVersion = Guid.NewGuid(); var payoutId = Guid.NewGuid(); var payoutVersion = Guid.NewGuid();
+        var operation = Guid.NewGuid();
+        var payout = new ExpensePayoutRequest(payoutId, payoutVersion, operation,
+            new("NexaOne.MES", tenant.ToString("D"), organization.ToString("D")), expense, expenseVersion,
+            Guid.NewGuid(), 125m, "KRW", "bank", ExpensePayoutState.Pending, 0,
+            DateTimeOffset.UtcNow, "actor");
+        var bridge = new Mock<IExpenseBridge>(MockBehavior.Strict);
+        bridge.Setup(x => x.QueuePayoutAsync("expense-user", tenant, organization, operation,
+            new(expense, expenseVersion, "bank"), CancellationToken.None)).ReturnsAsync(payout);
+        bridge.Setup(x => x.GetPayoutAsync("expense-user", tenant, organization, payoutId,
+            CancellationToken.None)).ReturnsAsync(payout);
+        bridge.Setup(x => x.ListPayoutsAsync("expense-user", tenant, organization, expense, 25, 10,
+            CancellationToken.None)).ReturnsAsync(new BusinessPage<ExpensePayoutRequest>([payout], 1));
+        bridge.Setup(x => x.CancelPayoutAsync("expense-user", tenant, organization, payoutId, payoutVersion,
+            CancellationToken.None)).ReturnsAsync(payout with { State = ExpensePayoutState.Cancelled });
+        var controller = Controller(bridge.Object);
+
+        (await controller.QueuePayout(tenant, organization, expense,
+            new(operation, expenseVersion, "bank"), CancellationToken.None)).Should().BeOfType<OkObjectResult>();
+        (await controller.GetPayout(tenant, organization, payoutId, CancellationToken.None))
+            .Should().BeOfType<OkObjectResult>();
+        (await controller.ListPayouts(tenant, organization, CancellationToken.None, expense, 25, 10))
+            .Should().BeOfType<OkObjectResult>();
+        (await controller.CancelPayout(tenant, organization, payoutId,
+            new(payoutVersion), CancellationToken.None)).Should().BeOfType<OkObjectResult>();
+        bridge.VerifyAll(); bridge.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task Create_reimburse_and_invoice_link_forward_authoritative_route_scope_and_operations()
     {
         var tenant = Guid.NewGuid(); var organization = Guid.NewGuid(); var expenseId = Guid.NewGuid();

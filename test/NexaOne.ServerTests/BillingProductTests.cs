@@ -276,6 +276,37 @@ public sealed class BillingHostTests(ITestOutputHelper output)
 public sealed class BillingMssqlTests(ITestOutputHelper output)
 {
     [StockMssqlFact]
+    public async Task Actual_SQL_Server_persists_and_atomically_completes_expense_payout()
+    {
+        var h = await Harness.CreateAsync(output,
+            [.. BillingProductSeed.Grants, "expense.directory.read", "expense.directory.write",
+                "expense.read", "expense.write", "expense.reimburse"]);
+        (await h.Database.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id=SCHEMA_ID('dbo') AND name='ERP_EXPENSE_PAYOUT'"))
+            .Should().Be(1);
+        var category = await h.Bridge.CreateCategoryAsync(h.Seed.User, h.Tenant, h.Organization, new("Travel"));
+        var vendor = await h.Bridge.CreateVendorAsync(h.Seed.User, h.Tenant, h.Organization, new("Rail"));
+        var employee = (await h.Bridge.ListEmployeesAsync(h.Seed.User, h.Tenant, h.Organization)).Items.Single();
+        var expense = await h.Bridge.CreateExpenseAsync(h.Seed.User, h.Tenant, h.Organization, Guid.NewGuid(),
+            new(110m, ExpenseType.TaxDeductible, category.Id, vendor.Id, employee.Id, null, null,
+                "KRW", new(2026, 9, 25)));
+        var operation = Guid.NewGuid();
+        var queued = await h.Bridge.QueuePayoutAsync(h.Seed.User, h.Tenant, h.Organization, operation,
+            new(expense.Id, expense.Version, "test-bank"));
+        var automation = (IExpensePayoutAutomationBridge)h.Bridge;
+        var claimed = (await automation.ClaimDueAsync(h.Seed.User, h.Tenant, h.Organization,
+            1, TimeSpan.FromMinutes(1))).Single();
+        await automation.CompleteAsync(h.Seed.User, h.Tenant, h.Organization, claimed.Id,
+            claimed.Version, claimed.LeaseId!.Value,
+            new("BANK-MSSQL-1", new(2026, 9, 25, 8, 0, 0, TimeSpan.Zero)));
+
+        (await h.Bridge.GetExpenseAsync(h.Seed.User, h.Tenant, h.Organization, expense.Id))
+            .Reimbursement!.OperationId.Should().Be(operation);
+        (await h.Bridge.GetPayoutAsync(h.Seed.User, h.Tenant, h.Organization, queued.Id))
+            .State.Should().Be(ExpensePayoutState.Completed);
+        (await h.Count("ERP_EXPENSE_PAYOUT")).Should().Be(1);
+    }
+
+    [StockMssqlFact]
     public async Task Actual_SQL_Server_persists_scoped_expense_receipt_bytes_across_fresh_bridges()
     {
         var h = await Harness.CreateAsync(output,

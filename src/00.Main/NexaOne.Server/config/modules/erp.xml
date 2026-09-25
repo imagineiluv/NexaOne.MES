@@ -13,10 +13,14 @@
     <constructor-arg ref="businessProjectDirectory" />
     <constructor-arg ref="quartzScheduler" />
     <constructor-arg ref="deliveryProviderRegistry" />
+    <constructor-arg ref="expensePayoutProviderRegistry" />
   </object>
 
   <object id="billingBridge" factory-object="erpModule" factory-method="GetBillingBridge" />
   <object id="expenseBridge" factory-object="erpModule" factory-method="GetExpenseBridge" />
+  <object id="expensePayoutAutomationBridge"
+      factory-object="erpModule"
+      factory-method="GetExpensePayoutAutomationBridge" />
   <object id="financialReportBridge" factory-object="erpModule" factory-method="GetFinancialReportBridge" />
   <object id="businessReportBridge" factory-object="erpModule" factory-method="GetBusinessReportBridge" />
   <object id="recurringBridge" factory-object="erpModule" factory-method="GetRecurringBridge" />
@@ -28,5 +32,6 @@
       factory-method="GetBillingSqliteSchemaContribution" />
   <object id="recurringAutomationWorker" factory-object="erpModule" factory-method="GetRecurringAutomationWorker" />
   <object id="deliveryDispatchWorker" factory-object="erpModule" factory-method="GetDeliveryDispatchWorker" />
+  <object id="expensePayoutWorker" factory-object="erpModule" factory-method="GetExpensePayoutWorker" />
 
 </objects>

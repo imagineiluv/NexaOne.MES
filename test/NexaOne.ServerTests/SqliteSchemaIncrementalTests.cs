@@ -3187,6 +3187,27 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V207_expense_payout_schema_is_created_and_idempotent()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            TableExists(cs, "ERP_EXPENSE_PAYOUT").Should().BeTrue();
+            Columns(cs, "ERP_EXPENSE_PAYOUT").Should().Contain(
+                "TENANT_ID", "ORGANIZATION_ID", "PAYOUT_ID", "VERSION", "OPERATION_ID",
+                "EXPENSE_ID", "STATE", "LEASE_EXPIRES_AT_TICKS", "PAYLOAD");
+            IndexExists(cs, "IX_ERP_EXPENSE_PAYOUT_DUE").Should().BeTrue();
+            IndexKeys(cs, "IX_ERP_EXPENSE_PAYOUT_DUE").Should().Equal(
+                "TENANT_ID:ASC", "ORGANIZATION_ID:ASC", "STATE:ASC",
+                "LEASE_EXPIRES_AT_TICKS:ASC", "PAYOUT_ID:ASC");
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            Count(cs, "ERP_EXPENSE_PAYOUT").Should().Be(0);
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { } }
+    }
+
+    [Fact]
     public void V160_database_principal_security_is_a_fresh_and_incremental_sqlite_no_op()
     {
         var cs = NewDb();

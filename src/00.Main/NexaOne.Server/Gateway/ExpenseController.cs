@@ -139,6 +139,28 @@ public sealed class ExpenseController(IExpenseBridge bridge, ILogger<ExpenseCont
         => Execute(user => bridge.ReimburseExpenseAsync(user, tenantId, organizationId,
             command.OperationId, id, command.Version, command.PaidAt, command.Reference, ct));
 
+    [HttpPost("{id:guid}/payouts")]
+    public Task<IActionResult> QueuePayout(Guid tenantId, Guid organizationId, Guid id,
+        [FromBody] PayoutCommand command, CancellationToken ct)
+        => Execute(user => bridge.QueuePayoutAsync(user, tenantId, organizationId, command.OperationId,
+            new(id, command.ExpenseVersion, command.ProviderKey), ct));
+
+    [HttpGet("payouts/{payoutId:guid}")]
+    public Task<IActionResult> GetPayout(Guid tenantId, Guid organizationId, Guid payoutId, CancellationToken ct)
+        => Execute(user => bridge.GetPayoutAsync(user, tenantId, organizationId, payoutId, ct));
+
+    [HttpGet("payouts")]
+    public Task<IActionResult> ListPayouts(Guid tenantId, Guid organizationId, CancellationToken ct,
+        [FromQuery] Guid? expenseId = null, [FromQuery] int offset = 0, [FromQuery] int limit = 50)
+        => Execute(user => bridge.ListPayoutsAsync(user, tenantId, organizationId,
+            expenseId, offset, limit, ct));
+
+    [HttpPost("payouts/{payoutId:guid}/cancel")]
+    public Task<IActionResult> CancelPayout(Guid tenantId, Guid organizationId, Guid payoutId,
+        [FromBody] VersionedCommand command, CancellationToken ct)
+        => Execute(user => bridge.CancelPayoutAsync(user, tenantId, organizationId,
+            payoutId, command.Version, ct));
+
     [HttpPost("{id:guid}/cancel")]
     public Task<IActionResult> Cancel(Guid tenantId, Guid organizationId, Guid id,
         [FromBody] CancelCommand command, CancellationToken ct)
@@ -228,6 +250,7 @@ public sealed class ExpenseController(IExpenseBridge bridge, ILogger<ExpenseCont
     public sealed record ExpenseChange(Guid Version, ExpenseInput Input);
     public sealed record VersionedCommand(Guid Version);
     public sealed record ReimbursementCommand(Guid OperationId, Guid Version, DateTimeOffset PaidAt, string? Reference);
+    public sealed record PayoutCommand(Guid OperationId, Guid ExpenseVersion, string ProviderKey);
     public sealed record CancelCommand(Guid Version, string? Reason);
     public sealed record InvoiceLinkCommand(Guid OperationId, Guid ExpenseVersion, Guid InvoiceId,
         Guid InvoiceVersion, string? Description);

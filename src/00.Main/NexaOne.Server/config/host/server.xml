@@ -50,6 +50,8 @@
           type="NexaOne.Server.Gateway.DeliveryProviderRegistry, NexaOne.Server">
     <constructor-arg ref="smtpDeliveryProvider" />
   </object>
+  <object id="expensePayoutProviderRegistry"
+          type="NexaOne.Server.Gateway.ExpensePayoutProviderRegistry, NexaOne.Server" />
 
   <!-- Spring 형제 컨텍스트 proxy는 전역 service locator를 직접 호출하지 않는다. 조립 루트에서
        현재 ApplicationServer singleton을 한 번 취득해 typed resolver로 명시 주입한다. -->
