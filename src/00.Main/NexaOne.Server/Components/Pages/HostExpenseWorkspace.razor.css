@@ -35,6 +35,13 @@
 .expense-form label { display: grid; gap: var(--space-2xs); min-width: 0; }
 .expense-form input, .expense-form select { width: 100%; min-width: 0; box-sizing: border-box; }
 .expense-form .expense-wide { grid-column: span 2; }
+.expense-ledger-filters { display: grid; grid-template-columns: repeat(4, minmax(10rem, 1fr)); gap: var(--space-sm); align-items: end; padding: var(--space-md); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-md); background: var(--nx-card); }
+.expense-ledger-filter-heading { grid-column: 1 / -1; display: grid; gap: var(--space-2xs); }
+.expense-ledger-filter-heading p { color: var(--nx-text-2); font-size: var(--nx-fs-caption); }
+.expense-ledger-filters label { display: grid; gap: var(--space-2xs); min-width: 0; }
+.expense-ledger-filters input, .expense-ledger-filters select { width: 100%; min-width: 0; box-sizing: border-box; }
+.expense-ledger-filter-actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.expense-ledger-validation { padding: var(--space-sm); border: 1px solid var(--color-danger); }
 .expense-table-scroll { overflow-x: auto; max-width: 100%; }
 .expense-table-scroll table { width: 100%; border-collapse: collapse; text-align: left; }
 .expense-table-scroll th, .expense-table-scroll td { padding: var(--space-sm); border-bottom: 1px solid var(--nx-border); vertical-align: top; }
@@ -54,6 +61,8 @@
 .expense-invoice-current code { grid-column: 1 / -1; color: var(--nx-text-2); overflow-wrap: anywhere; }
 .expense-invoice-pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-xs); }
 .expense-invoice-pages span { color: var(--nx-text-2); font-variant-numeric: tabular-nums; }
+.expense-ledger-pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-xs); }
+.expense-ledger-pages span { color: var(--nx-text-2); font-variant-numeric: tabular-nums; }
 .expense-invoice .danger { width: fit-content; border-color: var(--color-danger); color: var(--color-danger); }
 .expense-actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
 .expense-actions .danger { border-color: var(--color-danger); color: var(--color-danger); }
@@ -62,9 +71,9 @@
 
 @media (max-width: 800px) {
   .expense-workspace header { padding: var(--space-lg); }
-  .expense-directory-create, .expense-directory-grid, .expense-form, .expense-selected dl, .expense-invoice-current { grid-template-columns: 1fr; }
+  .expense-directory-create, .expense-directory-grid, .expense-form, .expense-ledger-filters, .expense-selected dl, .expense-invoice-current { grid-template-columns: 1fr; }
   .expense-invoice-current code { grid-column: auto; }
   .expense-form .expense-wide { grid-column: auto; }
   .expense-directory-entry > div { grid-template-columns: 1fr; }
-  .expense-directory-create button, .expense-directory-actions button, .expense-form > button { width: 100%; }
+  .expense-directory-create button, .expense-directory-actions button, .expense-form > button, .expense-ledger-filter-actions button { width: 100%; }
 }
