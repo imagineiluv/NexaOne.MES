@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Dapper;
@@ -37,6 +38,22 @@ public sealed class StockBridge : IStockBridge
         _masters = masters ?? throw new ArgumentNullException(nameof(masters));
         _batchLimitSql = dataSource.Provider?.Kind == DatabaseProviderKind.SqlServer
             ? " OFFSET 0 ROWS FETCH NEXT @BatchSize ROWS ONLY" : " LIMIT @BatchSize";
+    }
+
+    public Task<StockMasterImportResult> ImportMastersAsync(string userId, Guid tenantId, Guid organizationId,
+        StockMasterImportRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var products = Array.AsReadOnly((request.Products ?? []).ToArray());
+        var warehouses = Array.AsReadOnly((request.Warehouses ?? []).ToArray());
+        var snapshot = new StockMasterImportRequest(request.OperationId, products, warehouses);
+        var permissions = products.Count == 0 && warehouses.Count == 0
+            ? new[] { "stock.product.write", "stock.warehouse.write" }
+            : products.Count == 0 ? new[] { "stock.warehouse.write" }
+            : warehouses.Count == 0 ? new[] { "stock.product.write" }
+            : new[] { "stock.product.write", "stock.warehouse.write" };
+        return Run(userId, tenantId, organizationId, permissions,
+            (_, session) => session.Import(snapshot, ImportHash(snapshot), ct), ct);
     }
 
     public Task<ProductVariant> EnrollProductAsync(string userId, Guid tenantId, Guid organizationId,
@@ -129,6 +146,10 @@ public sealed class StockBridge : IStockBridge
 
     private Task<T> Run<T>(string userId, Guid tenantId, Guid organizationId, string permission,
         Func<StockService, Session, Task<T>> action, CancellationToken ct)
+        => Run(userId, tenantId, organizationId, new[] { permission }, action, ct);
+
+    private Task<T> Run<T>(string userId, Guid tenantId, Guid organizationId, IReadOnlyList<string> permissions,
+        Func<StockService, Session, Task<T>> action, CancellationToken ct)
     {
         if (!ValidText(userId, 50) || tenantId == Guid.Empty || organizationId == Guid.Empty) throw Failure("BUSINESS_ACCESS_DENIED");
         return _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
@@ -137,7 +158,7 @@ public sealed class StockBridge : IStockBridge
                 _memberships, _masters, _clock, _batchLimitSql);
             try
             {
-                await session.Authorize(userId, permission, ct);
+                await session.Authorize(userId, permissions, ct);
                 var result = await action(StockService.Create(session, session, _clock), session);
                 ct.ThrowIfCancellationRequested();
                 return result;
@@ -155,6 +176,16 @@ public sealed class StockBridge : IStockBridge
     }
     private static void RequireText(string? value, int max) { if (!ValidText(value, max)) throw Failure("INVALID_BUSINESS_INPUT"); }
     private static BusinessException Failure(string code) => new(code);
+
+    private static string ImportHash(StockMasterImportRequest request)
+    {
+        var payload = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            products = request.Products.Select(row => new { productId = row?.ProductId, unit = row?.Unit }),
+            warehouses = request.Warehouses.Select(row => new { code = row?.Code, name = row?.Name })
+        });
+        return Convert.ToHexString(SHA256.HashData(payload));
+    }
     private static string Text(Guid value) => value.ToString("D");
     private static string? Text(Guid? value) => value.HasValue ? Text(value.Value) : null;
     private static Guid Id(string value) => Guid.TryParseExact(value, "D", out var id) && id != Guid.Empty && Text(id) == value
@@ -227,13 +258,14 @@ public sealed class StockBridge : IStockBridge
             if (await connection.ExecuteAsync(Command(sql, values, ct)) != 1)
                 throw new DBConcurrencyException("Stock write did not affect exactly one row.");
         }
-        internal async Task Authorize(string userId, string permission, CancellationToken ct)
+        internal async Task Authorize(string userId, IReadOnlyList<string> permissions, CancellationToken ct)
         {
             BusinessMembership? membership;
             try { membership = await memberships.GetAccessInTransactionAsync(transaction, userId, Id(Scope.TenantId), Id(Scope.OrganizationId), ct); }
             catch (InvalidDataException) { throw Failure("BUSINESS_ACCESS_DENIED"); }
             var plant = await Scalar<string?>("SELECT PLANT_ID FROM IVT_BUSINESS_SCOPE WHERE " + ScopeWhere + " AND IS_ACTIVE=1", null, ct);
-            if (membership is null || !membership.Permissions.Contains(permission, StringComparer.Ordinal)
+            if (membership is null || permissions.Count == 0
+                || permissions.Any(permission => !membership.Permissions.Contains(permission, StringComparer.Ordinal))
                 || plant is null || await masters.FindPlantAsync(transaction, plant, ct) is null)
                 throw Failure("BUSINESS_ACCESS_DENIED");
             Actor = new(Text(membership.BusinessUserId), Scope); _grants = membership.Permissions.ToArray();
@@ -250,6 +282,133 @@ public sealed class StockBridge : IStockBridge
             ct.ThrowIfCancellationRequested(); var result = await work(this, ct); ct.ThrowIfCancellationRequested(); return result;
         }
         internal Task<ProductDto?> Master(string id, CancellationToken ct) => masters.FindProductAsync(transaction, id, ct);
+
+        internal async Task<StockMasterImportResult> Import(StockMasterImportRequest request, string hash, CancellationToken ct)
+        {
+            var prior = await ImportReceipt(request.OperationId, ct);
+            if (prior is not null)
+            {
+                if (prior.Actor != Actor.UserId || prior.Hash != hash)
+                    throw Failure("STOCK_MASTER_IMPORT_OPERATION_CONFLICT");
+                return new(request.OperationId, true, true, prior.ProductsCreated, prior.ProductsUnchanged,
+                    prior.WarehousesCreated, prior.WarehousesUnchanged, []);
+            }
+
+            var errors = new List<StockMasterImportError>();
+            if (request.OperationId == Guid.Empty)
+                errors.Add(new("request", 0, "operationId", "REQUIRED"));
+            var rowCount = (long)request.Products.Count + request.Warehouses.Count;
+            if (rowCount == 0)
+                errors.Add(new("request", 0, "rows", "REQUIRED"));
+            else if (rowCount > 1000)
+            {
+                errors.Add(new("request", 0, "rows", "TOO_MANY_ROWS"));
+                return new(request.OperationId, false, false, 0, 0, 0, 0, Array.AsReadOnly(errors.ToArray()));
+            }
+
+            var products = new List<(StockProductImportRow Row, bool Exists)>();
+            var productIds = new HashSet<string>(StringComparer.Ordinal);
+            for (var index = 0; index < request.Products.Count; index++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var row = request.Products[index];
+                if (row is null)
+                {
+                    errors.Add(new("products", index + 1, "row", "REQUIRED"));
+                    continue;
+                }
+                var validId = ValidText(row.ProductId, 50);
+                var validUnit = ValidText(row.Unit, 40);
+                if (!validId) errors.Add(new("products", index + 1, "productId", "INVALID_TEXT"));
+                if (!validUnit) errors.Add(new("products", index + 1, "unit", "INVALID_TEXT"));
+                if (!validId || !validUnit) continue;
+                if (!productIds.Add(row.ProductId))
+                {
+                    errors.Add(new("products", index + 1, "productId", "DUPLICATE"));
+                    continue;
+                }
+                var master = await Master(row.ProductId, ct);
+                if (master is null)
+                {
+                    errors.Add(new("products", index + 1, "productId", "PRODUCT_NOT_FOUND"));
+                    continue;
+                }
+                if (master.ValidState != "Valid")
+                    errors.Add(new("products", index + 1, "productId", "PRODUCT_INACTIVE"));
+                if (master.Unit != row.Unit)
+                    errors.Add(new("products", index + 1, "unit", "PRODUCT_UNIT_CHANGED"));
+                var current = await ProductRow("MASTER_PRODUCT_ID=@key", master.ProductId, ct);
+                if (current is not null && current.Unit != row.Unit)
+                    errors.Add(new("products", index + 1, "unit", "PRODUCT_UNIT_CHANGED"));
+                products.Add((row, current is not null));
+            }
+
+            var warehouses = new List<(StockWarehouseImportRow Row, Warehouse? Current)>();
+            var warehouseCodes = new HashSet<string>(StringComparer.Ordinal);
+            for (var index = 0; index < request.Warehouses.Count; index++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var row = request.Warehouses[index];
+                if (row is null)
+                {
+                    errors.Add(new("warehouses", index + 1, "row", "REQUIRED"));
+                    continue;
+                }
+                var validCode = ValidText(row.Code, 80);
+                var validName = ValidText(row.Name, 255);
+                if (!validCode) errors.Add(new("warehouses", index + 1, "code", "INVALID_TEXT"));
+                if (!validName) errors.Add(new("warehouses", index + 1, "name", "INVALID_TEXT"));
+                if (!validCode || !validName) continue;
+                if (!warehouseCodes.Add(row.Code))
+                {
+                    errors.Add(new("warehouses", index + 1, "code", "DUPLICATE"));
+                    continue;
+                }
+                var current = await WarehouseByCode(row.Code, ct);
+                if (current is not null && current.Name != row.Name)
+                    errors.Add(new("warehouses", index + 1, "name", "WAREHOUSE_NAME_CONFLICT"));
+                warehouses.Add((row, current));
+            }
+
+            if (errors.Count != 0)
+                return new(request.OperationId, false, false, 0, 0, 0, 0, Array.AsReadOnly(errors.ToArray()));
+
+            var productsCreated = 0;
+            foreach (var product in products)
+            {
+                if (product.Exists) continue;
+                await Enroll(product.Row.ProductId, product.Row.Unit, ct);
+                productsCreated++;
+            }
+            var warehousesCreated = 0;
+            foreach (var warehouse in warehouses)
+            {
+                if (warehouse.Current is not null) continue;
+                var value = new Warehouse(Guid.NewGuid(), Scope, Guid.NewGuid(), warehouse.Row.Code, warehouse.Row.Name, true);
+                await SaveWarehouseAsync(value, null, ct);
+                await AppendAuditAsync(new(Guid.NewGuid(), Actor, "warehouse", value.Id, "saved", null, value.Version, clock.GetUtcNow()), ct);
+                warehousesCreated++;
+            }
+            var result = new StockMasterImportResult(request.OperationId, true, false,
+                productsCreated, products.Count - productsCreated, warehousesCreated, warehouses.Count - warehousesCreated, []);
+            await RecordImport(request.OperationId, hash, result, ct);
+            return result;
+        }
+
+        private Task<ImportReceiptRow?> ImportReceipt(Guid operationId, CancellationToken ct)
+            => Row<ImportReceiptRow>("SELECT REQUESTED_BY AS Actor, REQUEST_HASH AS Hash, PRODUCTS_CREATED AS ProductsCreated, "
+                + "PRODUCTS_UNCHANGED AS ProductsUnchanged, WAREHOUSES_CREATED AS WarehousesCreated, WAREHOUSES_UNCHANGED AS WarehousesUnchanged "
+                + "FROM IVT_STOCK_MASTER_IMPORT WHERE " + ScopeWhere + " AND OPERATION_ID=@Operation",
+                new { Operation = Text(operationId) }, ct);
+
+        private Task RecordImport(Guid operationId, string hash, StockMasterImportResult result, CancellationToken ct)
+            => Write("""
+                INSERT INTO IVT_STOCK_MASTER_IMPORT (TENANT_ID, ORGANIZATION_ID, OPERATION_ID, REQUESTED_BY, REQUEST_HASH,
+                    PRODUCTS_CREATED, PRODUCTS_UNCHANGED, WAREHOUSES_CREATED, WAREHOUSES_UNCHANGED, IMPORTED_AT_TICKS)
+                VALUES (@TenantId, @OrganizationId, @Operation, @Actor, @Hash,
+                    @ProductsCreated, @ProductsUnchanged, @WarehousesCreated, @WarehousesUnchanged, @At)
+                """, new { Operation = Text(operationId), Actor = Actor.UserId, Hash = hash, result.ProductsCreated,
+                    result.ProductsUnchanged, result.WarehousesCreated, result.WarehousesUnchanged, At = clock.GetUtcNow().UtcTicks }, ct);
         internal Task<EnrolledProduct?> ProductRow(string predicate, string key, CancellationToken ct)
             => Row<EnrolledProduct>("SELECT " + ProductColumns + " FROM IVT_STOCK_PRODUCT WHERE "
                 + ScopeWhere + " AND " + predicate, new { key }, ct);
@@ -351,6 +510,12 @@ public sealed class StockBridge : IStockBridge
         {
             var row = await Row<WarehouseRow>("SELECT " + WarehouseColumns + " FROM IVT_STOCK_WAREHOUSE WHERE "
                 + ScopeWhere + " AND WAREHOUSE_ID=@id", new { id = Text(id) }, ct);
+            return row is null ? null : Warehouse(row);
+        }
+        private async Task<Warehouse?> WarehouseByCode(string code, CancellationToken ct)
+        {
+            var row = await Row<WarehouseRow>("SELECT " + WarehouseColumns + " FROM IVT_STOCK_WAREHOUSE WHERE "
+                + ScopeWhere + " AND CODE=@Code", new { Code = code }, ct);
             return row is null ? null : Warehouse(row);
         }
         private Warehouse Warehouse(WarehouseRow row)
@@ -612,6 +777,15 @@ public sealed class StockBridge : IStockBridge
         public string Actor { get; set; } = "";
         public string Code { get; set; } = "";
         public string Name { get; set; } = "";
+    }
+    private sealed class ImportReceiptRow
+    {
+        public string Actor { get; set; } = "";
+        public string Hash { get; set; } = "";
+        public int ProductsCreated { get; set; }
+        public int ProductsUnchanged { get; set; }
+        public int WarehousesCreated { get; set; }
+        public int WarehousesUnchanged { get; set; }
     }
     private sealed class BalanceRow
     {

@@ -16,6 +16,12 @@ namespace NexaOne.Server.Gateway;
 [Route("api/v1/ivt/stock/{tenantId:guid}/{organizationId:guid}")]
 public sealed class StockController(IStockBridge bridge, ILogger<StockController> logger) : ControllerBase
 {
+    [HttpPost("imports/masters")]
+    public Task<IActionResult> ImportMasters(Guid tenantId, Guid organizationId,
+        [FromBody] StockMasterImportRequest command, CancellationToken ct)
+        => Execute(user => bridge.ImportMastersAsync(user, tenantId, organizationId, command, ct),
+            result => result.Applied ? Ok(result) : UnprocessableEntity(result));
+
     [HttpGet("products")]
     public Task<IActionResult> ListProducts(Guid tenantId, Guid organizationId,
         [FromQuery] InventoryQuery query, CancellationToken ct)
@@ -149,7 +155,7 @@ public sealed class StockController(IStockBridge bridge, ILogger<StockController
             logger.LogError(error, "Stock persistence failed; write outcome may be unknown.");
             return Problem(statusCode: 503, title: "Stock storage is unavailable.",
                 detail: "A write outcome may be unknown. Read the warehouse, movement or reservation by ID before retrying; "
-                    + "for warehouse creation, stock posting or reservation, retry with the same operation ID and original payload.");
+                    + "for master import, warehouse creation, stock posting or reservation, retry with the same operation ID and original payload.");
         }
     }
 

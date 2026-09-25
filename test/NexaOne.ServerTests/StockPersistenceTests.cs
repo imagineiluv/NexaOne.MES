@@ -72,6 +72,90 @@ public sealed class StockPersistenceTests : IClassFixture<BusinessMembershipData
         => (await Assert.ThrowsAsync<BusinessException>(action)).Code.Should().Be(code);
 
     [Fact]
+    public async Task Master_import_is_atomic_reports_all_invalid_rows_and_allows_a_corrected_retry()
+    {
+        Execute("UPDATE MDM_PRODUCT SET VALID_STATE='Invalid' WHERE PRODUCT_ID='STOCK-OTHER'");
+        var operation = Guid.NewGuid();
+        var invalid = new StockMasterImportRequest(operation,
+            [new("STOCK-PRODUCT", "EA"), new("missing", "EA"), new("STOCK-OTHER", "KG"), new("STOCK-PRODUCT", "EA")],
+            [new("MAIN", "Main"), new("MAIN", "Duplicate"), new(" BAD", "Bad")]);
+
+        var rejected = await _bridge.ImportMastersAsync("stock-user", _tenant, _organization, invalid);
+
+        rejected.Applied.Should().BeFalse();
+        rejected.Replayed.Should().BeFalse();
+        rejected.Errors.Should().ContainEquivalentOf(new StockMasterImportError("products", 2, "productId", "PRODUCT_NOT_FOUND"));
+        rejected.Errors.Should().ContainEquivalentOf(new StockMasterImportError("products", 3, "productId", "PRODUCT_INACTIVE"));
+        rejected.Errors.Should().ContainEquivalentOf(new StockMasterImportError("products", 4, "productId", "DUPLICATE"));
+        rejected.Errors.Should().ContainEquivalentOf(new StockMasterImportError("warehouses", 2, "code", "DUPLICATE"));
+        rejected.Errors.Should().ContainEquivalentOf(new StockMasterImportError("warehouses", 3, "code", "INVALID_TEXT"));
+        Count("IVT_STOCK_PRODUCT").Should().Be(0);
+        Count("IVT_STOCK_WAREHOUSE").Should().Be(0);
+        Count("IVT_STOCK_MASTER_IMPORT").Should().Be(0);
+        Count("IVT_STOCK_AUDIT").Should().Be(0);
+
+        var corrected = await _bridge.ImportMastersAsync("stock-user", _tenant, _organization,
+            new(operation, [new("STOCK-PRODUCT", "EA")], [new("MAIN", "Main")]));
+
+        corrected.Should().BeEquivalentTo(new StockMasterImportResult(operation, true, false, 1, 0, 1, 0, []));
+        Count("IVT_STOCK_PRODUCT").Should().Be(1);
+        Count("IVT_STOCK_WAREHOUSE").Should().Be(1);
+        Count("IVT_STOCK_MASTER_IMPORT").Should().Be(1);
+        Count("IVT_STOCK_AUDIT").Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Master_import_replay_is_durable_exact_and_requires_current_permissions()
+    {
+        var operation = Guid.NewGuid();
+        var request = new StockMasterImportRequest(operation,
+            [new("STOCK-PRODUCT", "EA")], [new("MAIN", "Main")]);
+        var first = await _bridge.ImportMastersAsync("stock-user", _tenant, _organization, request);
+
+        var replay = await NewBridge().ImportMastersAsync("stock-user", _tenant, _organization, request);
+
+        first.Should().BeEquivalentTo(new StockMasterImportResult(operation, true, false, 1, 0, 1, 0, []));
+        replay.Should().BeEquivalentTo(first with { Replayed = true });
+        Count("IVT_STOCK_PRODUCT").Should().Be(1);
+        Count("IVT_STOCK_WAREHOUSE").Should().Be(1);
+        Count("IVT_STOCK_MASTER_IMPORT").Should().Be(1);
+        Count("IVT_STOCK_AUDIT").Should().Be(2);
+
+        var unchanged = await NewBridge().ImportMastersAsync("stock-user", _tenant, _organization,
+            request with { OperationId = Guid.NewGuid() });
+        unchanged.Should().Match<StockMasterImportResult>(result => result.Applied && !result.Replayed
+            && result.ProductsCreated == 0 && result.ProductsUnchanged == 1
+            && result.WarehousesCreated == 0 && result.WarehousesUnchanged == 1);
+        Count("IVT_STOCK_PRODUCT").Should().Be(1);
+        Count("IVT_STOCK_WAREHOUSE").Should().Be(1);
+        Count("IVT_STOCK_AUDIT").Should().Be(2);
+
+        await Error(() => _bridge.ImportMastersAsync("stock-user", _tenant, _organization,
+            request with { Warehouses = [new("MAIN", "Changed")] }), "STOCK_MASTER_IMPORT_OPERATION_CONFLICT");
+        await Error(() => _bridge.ImportMastersAsync("stock-other", _tenant, _organization, request),
+            "STOCK_MASTER_IMPORT_OPERATION_CONFLICT");
+
+        Execute("UPDATE SYS_BUSINESS_MEMBERSHIP SET PERMISSIONS='stock.product.write' WHERE USER_ID='stock-user'");
+        await Error(() => NewBridge().ImportMastersAsync("stock-user", _tenant, _organization, request), "BUSINESS_ACCESS_DENIED");
+    }
+
+    [Fact]
+    public async Task Master_import_receipt_failure_rolls_back_all_rows_and_audits()
+    {
+        Execute("CREATE TRIGGER import_receipt_failure BEFORE INSERT ON IVT_STOCK_MASTER_IMPORT BEGIN SELECT RAISE(ABORT, 'receipt unavailable'); END;");
+        var request = new StockMasterImportRequest(Guid.NewGuid(),
+            [new("STOCK-PRODUCT", "EA")], [new("MAIN", "Main")]);
+
+        await Assert.ThrowsAsync<SqliteException>(() =>
+            _bridge.ImportMastersAsync("stock-user", _tenant, _organization, request));
+
+        Count("IVT_STOCK_PRODUCT").Should().Be(0);
+        Count("IVT_STOCK_WAREHOUSE").Should().Be(0);
+        Count("IVT_STOCK_MASTER_IMPORT").Should().Be(0);
+        Count("IVT_STOCK_AUDIT").Should().Be(0);
+    }
+
+    [Fact]
     public async Task Balance_report_is_a_stable_current_snapshot_and_csv_is_safe_and_restartable()
     {
         var at = new DateTimeOffset(2026, 9, 24, 12, 34, 56, TimeSpan.Zero);
