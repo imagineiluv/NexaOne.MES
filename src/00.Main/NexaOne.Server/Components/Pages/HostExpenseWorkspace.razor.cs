@@ -26,6 +26,7 @@ public partial class HostExpenseWorkspace
     private BusinessPage<BillingContact>? _contacts;
     private WorkPage<Project>? _projects;
     private BusinessPage<ExpenseRecord>? _expenses;
+    private IReadOnlyList<ExpensePayoutRequest> _payouts = [];
     private BusinessPage<BillingDocument>? _invoiceCandidates;
     private BusinessMembership? _scope;
     private ExpenseRecord? _selected;
@@ -38,9 +39,11 @@ public partial class HostExpenseWorkspace
     private BillingDocument? _linkedInvoice;
     private PendingCreate? _pendingCreate;
     private PendingReimbursement? _pendingReimbursement;
+    private PendingPayout? _pendingPayout;
     private PendingInvoiceOperation? _pendingInvoice;
     private readonly ExpenseDraft _draft = new();
     private string _categoryName = "", _vendorName = "", _tagName = "", _invoiceDescription = "";
+    private string _payoutProviderKey = "";
     private string _categoryEditName = "", _vendorEditName = "", _vendorEditPhone = "";
     private string _vendorEditWebsite = "", _vendorEditEmail = "", _tagEditName = "";
     private string _ledgerStart = "", _ledgerEnd = "", _ledgerCategory = "", _ledgerVendor = "";
@@ -52,26 +55,35 @@ public partial class HostExpenseWorkspace
     private int _tagOffset, _directoryTagOffset;
     private LedgerFilter _ledgerFilter = new();
     private bool _authenticated, _identityLoading = true, _busy, _interactive, _disposed, _confirmReceiptDelete;
+    private bool _payoutsLoaded;
     private Task<AuthenticationState>? _pendingAuthentication;
     private CancellationTokenSource? _request;
     private int _identityVersion;
 
     private bool CreateLocked => _busy || _pendingCreate is not null;
-    private bool LedgerLocked => _busy || _pendingInvoice is not null || _pendingReimbursement is not null;
+    private bool LedgerLocked => _busy || _pendingInvoice is not null || _pendingReimbursement is not null
+        || _pendingPayout is not null;
+    private ExpensePayoutRequest? ActivePayout => _payouts.FirstOrDefault(value =>
+        value.State is ExpensePayoutState.Pending or ExpensePayoutState.Processing);
+    private bool PayoutLocked => _selected is { Input.EmployeeId: not null } && _selected.Allocations.Count == 0
+        && (!_payoutsLoaded || ActivePayout is not null || _pendingPayout is not null);
     private bool CanMarkInvoiced => Can("expense.write") && _selected is
-        { State: ExpenseState.Active, Input.Type: ExpenseType.BillableToContact, Status: ExpenseStatus.Uninvoiced };
-    private bool CanMarkPaid => Can("expense.write") && ReadyToSettle(_selected);
+        { State: ExpenseState.Active, Input.Type: ExpenseType.BillableToContact, Status: ExpenseStatus.Uninvoiced }
+        && !PayoutLocked;
+    private bool CanMarkPaid => Can("expense.write") && ReadyToSettle(_selected) && !PayoutLocked;
     private bool CanReimburse => Can("expense.reimburse") && ReadyToSettle(_selected)
-        && _selected is { Input.EmployeeId: not null } && _selected.Allocations.Count == 0;
+        && _selected is { Input.EmployeeId: not null } && _selected.Allocations.Count == 0 && !PayoutLocked;
+    private bool CanQueuePayout => CanReimburse;
     private bool CanCancel => Can("expense.write") && _selected is { State: ExpenseState.Active } value
-        && value.Status == InitialStatus(value.Input.Type);
+        && value.Status == InitialStatus(value.Input.Type) && !PayoutLocked;
     private bool CanManageInvoice => Can("expense.invoice") && Can("billing.read");
     private bool CanBrowseInvoices => CanManageInvoice && _selected is
         { State: ExpenseState.Active, Input.Type: ExpenseType.BillableToContact,
-            Status: ExpenseStatus.Uninvoiced, InvoiceId: null };
+            Status: ExpenseStatus.Uninvoiced, InvoiceId: null } && !PayoutLocked;
     private bool CanUnlinkInvoice => CanManageInvoice && _selected is
         { State: ExpenseState.Active, Status: ExpenseStatus.Invoiced, InvoiceId: not null }
-        && _linkedInvoice is { Status: BillingStatus.Draft } invoice && invoice.Id == _selected.InvoiceId;
+        && _linkedInvoice is { Status: BillingStatus.Draft } invoice && invoice.Id == _selected.InvoiceId
+        && !PayoutLocked;
     private IReadOnlyList<BillingDocument> CompatibleInvoices => _invoiceCandidates?.Items
         .Where(CompatibleInvoice).ToArray() ?? [];
     private bool HasPreviousInvoicePage => _invoiceOffset > 0;
@@ -444,10 +456,14 @@ public partial class HostExpenseWorkspace
     private void ClearSelectedExpense()
     {
         _selected = null;
+        _payouts = [];
+        _payoutsLoaded = false;
+        _payoutProviderKey = "";
         _receipt = null;
         ClearReceiptFile();
         _confirmReceiptDelete = false;
         _pendingReimbursement = null;
+        _pendingPayout = null;
         _pendingInvoice = null;
         _invoiceCandidates = null;
         _linkedInvoice = null;
@@ -814,13 +830,137 @@ public partial class HostExpenseWorkspace
 
     private Task SelectExpenseAsync(ExpenseRecord value) => RunAsync(async ct =>
     {
-        _selected = value; _pendingReimbursement = null; _pendingInvoice = null;
+        _selected = value; _pendingReimbursement = null; _pendingPayout = null; _pendingInvoice = null;
+        _payouts = []; _payoutsLoaded = false; _payoutProviderKey = "";
         _receipt = null; ClearReceiptFile(); _confirmReceiptDelete = false;
         _invoiceCandidates = null; _linkedInvoice = null; _invoiceId = Guid.Empty; _invoiceOffset = 0;
         _invoiceDescription = value.Input.Purpose ?? value.Input.Reference ?? "";
         await LoadReceiptCoreAsync(ct);
+        if (OwnsRequest(ct)) await LoadPayoutsCoreAsync(value.Id, ct);
         if (OwnsRequest(ct)) await LoadInvoiceContextCoreAsync(ct);
     });
+
+    private async Task LoadPayoutsCoreAsync(Guid expenseId, CancellationToken ct)
+    {
+        if (_selected?.Id == expenseId) _payoutsLoaded = false;
+        var values = new List<ExpensePayoutRequest>();
+        var offset = 0;
+        long total;
+        do
+        {
+            var result = await Api.ReadInventoryAsync<BusinessPage<ExpensePayoutRequest>>(
+                $"{Root}/payouts?expenseId={expenseId:D}&offset={offset}&limit=100", ct);
+            if (!OwnsRequest(ct) || _selected?.Id != expenseId) return;
+            if (result.Value is not { } page || result.Error is not null)
+            {
+                Accept(result, _ => { });
+                return;
+            }
+            if (page.Items.Any(value => value.ExpenseId != expenseId))
+            {
+                _error = T("expenseWorkspace.payoutInvalidResponse",
+                    "지급 요청 응답이 현재 비용과 일치하지 않습니다. 지급 상태를 다시 확인하세요.",
+                    "The payout response does not match this expense. Refresh the payout status.");
+                return;
+            }
+            values.AddRange(page.Items);
+            total = page.Total;
+            if (page.Items.Count == 0 || offset > int.MaxValue - page.Items.Count) break;
+            offset += page.Items.Count;
+        } while (offset < total);
+        _payouts = values.OrderByDescending(value => value.CreatedAt).ToArray();
+        _payoutsLoaded = true;
+    }
+
+    private Task RefreshPayoutsAsync() => RunAsync(async ct =>
+    {
+        if (_selected is null) return;
+        var expenseId = _selected.Id;
+        var expense = await Api.ReadInventoryAsync<ExpenseRecord>($"{Root}/{expenseId:D}", ct);
+        if (!OwnsRequest(ct) || _selected?.Id != expenseId) return;
+        if (expense.Value?.Id == expenseId && expense.Error is null)
+        {
+            _selected = expense.Value;
+            ApplyExpense(expense.Value);
+        }
+        else Accept(expense, _ => { });
+        if (OwnsRequest(ct)) await LoadPayoutsCoreAsync(expenseId, ct);
+        if (OwnsRequest(ct)) await LoadInvoiceContextCoreAsync(ct);
+    });
+
+    private async Task QueuePayoutAsync()
+    {
+        if ((!CanQueuePayout && _pendingPayout is null) || _selected is null) return;
+        if (_pendingPayout is null && string.IsNullOrWhiteSpace(_payoutProviderKey))
+        {
+            _error = T("expenseWorkspace.payoutProviderRequired", "지급 공급자 키를 입력하세요.",
+                "Enter a payout provider key.");
+            return;
+        }
+        _pendingPayout ??= new(Guid.NewGuid(), _selected.Id, _selected.Version,
+            _payoutProviderKey.Trim());
+        var pending = _pendingPayout;
+        await RunAsync(async ct =>
+        {
+            var result = await WriteAsync<ExpensePayoutRequest>(HttpMethod.Post,
+                $"{Root}/{pending.ExpenseId:D}/payouts",
+                new PayoutRequest(pending.OperationId, pending.ExpenseVersion, pending.ProviderKey), ct);
+            if (!OwnsRequest(ct) || _selected?.Id != pending.ExpenseId) return;
+            if (Matches(pending, result.Value) && result.Error is null)
+            {
+                CompletePayoutQueue(result.Value!);
+                return;
+            }
+            var originalError = result.Value is not null
+                ? T("expenseWorkspace.payoutInvalidResponse",
+                    "지급 요청 응답이 현재 비용과 일치하지 않습니다. 지급 상태를 다시 확인하세요.",
+                    "The payout response does not match this expense. Refresh the payout status.")
+                : result.Error ?? result.Code ?? string.Format(CultureInfo.InvariantCulture, "HTTP {0}", result.StatusCode);
+            _error = originalError;
+            await LoadPayoutsCoreAsync(pending.ExpenseId, ct);
+            if (!OwnsRequest(ct)) return;
+            var recovered = _payouts.FirstOrDefault(value => Matches(pending, value));
+            if (recovered is not null)
+            {
+                CompletePayoutQueue(recovered);
+                _notice = T("expenseWorkspace.payoutRecovered", "저장된 지급 요청을 확인했습니다.",
+                    "The stored payout request was recovered.");
+            }
+            else if (result.StatusCode is >= 400 and < 500) _pendingPayout = null;
+        });
+    }
+
+    private void CompletePayoutQueue(ExpensePayoutRequest value)
+    {
+        _pendingPayout = null;
+        _payoutsLoaded = true;
+        _payouts = _payouts.Where(item => item.Id != value.Id).Append(value)
+            .OrderByDescending(item => item.CreatedAt).ToArray();
+        _error = null;
+        _notice = T("expenseWorkspace.payoutQueued", "직원 지급 요청을 등록했습니다.",
+            "Employee payout queued.");
+    }
+
+    private Task CancelPayoutAsync(ExpensePayoutRequest payout)
+        => payout.State != ExpensePayoutState.Pending || !Can("expense.reimburse")
+            ? Task.CompletedTask
+            : RunAsync(async ct =>
+            {
+                var result = await WriteAsync<ExpensePayoutRequest>(HttpMethod.Post,
+                    $"{Root}/payouts/{payout.Id:D}/cancel", new VersionedRequest(payout.Version), ct);
+                if (!OwnsRequest(ct) || _selected?.Id != payout.ExpenseId) return;
+                if (result.Value is { } cancelled && cancelled.Id == payout.Id
+                    && cancelled.State == ExpensePayoutState.Cancelled && result.Error is null)
+                {
+                    _payouts = _payouts.Select(value => value.Id == cancelled.Id ? cancelled : value)
+                        .OrderByDescending(value => value.CreatedAt).ToArray();
+                    _notice = T("expenseWorkspace.payoutCancelled", "대기 중인 지급 요청을 취소했습니다.",
+                        "Pending payout cancelled.");
+                    return;
+                }
+                Accept(result, _ => { });
+                if (OwnsRequest(ct)) await LoadPayoutsCoreAsync(payout.ExpenseId, ct);
+            });
 
     private async Task LoadReceiptCoreAsync(CancellationToken ct)
     {
@@ -1108,6 +1248,10 @@ public partial class HostExpenseWorkspace
     // The service owns input normalization (for example null tag lists become empty lists). The scoped,
     // caller-supplied operation ID is the durable create/replay identity and is therefore the recovery key.
     private static bool Matches(PendingCreate pending, ExpenseRecord? value) => value?.OperationId == pending.OperationId;
+    private static bool Matches(PendingPayout pending, ExpensePayoutRequest? value)
+        => value is not null && value.OperationId == pending.OperationId
+            && value.ExpenseId == pending.ExpenseId && value.ExpenseVersion == pending.ExpenseVersion
+            && string.Equals(value.ProviderKey, pending.ProviderKey, StringComparison.Ordinal);
     private bool CompatibleInvoice(BillingDocument value) => _selected is { Input.ContactId: { } contactId } expense
         && value.Kind == BillingKind.Invoice && value.Status == BillingStatus.Draft
         && value.Input.ContactId == contactId
@@ -1238,6 +1382,15 @@ public partial class HostExpenseWorkspace
     private string StateName(ExpenseState value) => value == ExpenseState.Cancelled
         ? T("expenseWorkspace.cancelledState", "취소됨", "Cancelled")
         : T("expenseWorkspace.active", "활성", "Active");
+    private string PayoutStateName(ExpensePayoutState value) => value switch
+    {
+        ExpensePayoutState.Pending => T("expenseWorkspace.payoutPending", "대기", "Pending"),
+        ExpensePayoutState.Processing => T("expenseWorkspace.payoutProcessing", "처리 중", "Processing"),
+        ExpensePayoutState.Completed => T("expenseWorkspace.payoutCompleted", "완료", "Completed"),
+        ExpensePayoutState.Failed => T("expenseWorkspace.payoutFailed", "실패", "Failed"),
+        ExpensePayoutState.Cancelled => T("expenseWorkspace.payoutCancelledState", "취소됨", "Cancelled"),
+        _ => value.ToString()
+    };
     private string BillingStatusName(BillingStatus value) => value switch
     {
         BillingStatus.Draft => T("billing.draft", "작성 중", "Draft"),
@@ -1268,6 +1421,7 @@ public partial class HostExpenseWorkspace
     internal sealed record VersionedRequest(Guid Version);
     internal sealed record CancelExpenseRequest(Guid Version, string? Reason);
     internal sealed record ReimbursementRequest(Guid OperationId, Guid Version, DateTimeOffset PaidAt, string? Reference);
+    internal sealed record PayoutRequest(Guid OperationId, Guid ExpenseVersion, string ProviderKey);
     internal sealed record InvoiceLinkRequest(Guid OperationId, Guid ExpenseVersion, Guid InvoiceId,
         Guid InvoiceVersion, string? Description);
     internal sealed record InvoiceUnlinkRequest(Guid OperationId, Guid ExpenseVersion, Guid InvoiceId,
@@ -1275,6 +1429,7 @@ public partial class HostExpenseWorkspace
     internal sealed record ReceiptDeleted(Guid ExpenseId, Guid Version);
     private sealed record PendingCreate(Guid OperationId, ExpenseInput Input);
     private sealed record PendingReimbursement(Guid OperationId, Guid ExpenseId, Guid Version, DateTimeOffset PaidAt);
+    private sealed record PendingPayout(Guid OperationId, Guid ExpenseId, Guid ExpenseVersion, string ProviderKey);
     private sealed record PendingInvoiceOperation(InvoiceOperation Kind, Guid OperationId, Guid ExpenseId,
         Guid ExpenseVersion, Guid InvoiceId, Guid InvoiceVersion, string? Description);
     private enum InvoiceOperation { Link, Unlink }

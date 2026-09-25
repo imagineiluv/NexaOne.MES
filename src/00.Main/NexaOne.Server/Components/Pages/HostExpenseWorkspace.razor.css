@@ -106,6 +106,19 @@
 .expense-ledger-pages { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-xs); }
 .expense-ledger-pages span { color: var(--nx-text-2); font-variant-numeric: tabular-nums; }
 .expense-invoice .danger { width: fit-content; border-color: var(--color-danger); color: var(--color-danger); }
+.expense-payout { display: grid; gap: var(--space-sm); margin-top: var(--space-xs); padding-top: var(--space-lg); border-top: 1px solid var(--nx-border); }
+.expense-payout .expense-heading p, .expense-payout-empty { color: var(--nx-text-2); font-size: var(--nx-fs-caption); }
+.expense-payout-history { display: grid; gap: var(--space-sm); margin: 0; padding: 0; list-style: none; }
+.expense-payout-history > li { display: grid; gap: var(--space-sm); padding: var(--space-md); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-md); }
+.expense-payout-history > li[data-payout-state="Failed"] { border-color: var(--color-danger); }
+.expense-payout-summary { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs) var(--space-md); }
+.expense-payout-summary > span:last-child { color: var(--nx-text-2); font-family: var(--font-outlier); overflow-wrap: anywhere; }
+.expense-payout-history dl { grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); }
+.expense-payout-history code { color: var(--nx-text-2); overflow-wrap: anywhere; }
+.expense-payout-history .danger { width: fit-content; border-color: var(--color-danger); color: var(--color-danger); }
+.expense-payout-request { display: grid; grid-template-columns: minmax(12rem, 1fr) auto; align-items: end; gap: var(--space-sm); }
+.expense-payout-request label { display: grid; gap: var(--space-2xs); min-width: 0; }
+.expense-payout-request input { width: 100%; min-width: 0; box-sizing: border-box; }
 .expense-actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
 .expense-actions .danger { border-color: var(--color-danger); color: var(--color-danger); }
 .expense-message:empty { display: none; }
@@ -123,4 +136,6 @@
   .expense-receipt-upload > label, .expense-receipt-upload > p, .expense-receipt-pending { grid-column: auto; }
   .expense-choice-pages { align-items: stretch; flex-direction: column; }
   .expense-choice-pages button { width: 100%; }
+  .expense-payout-request { grid-template-columns: 1fr; }
+  .expense-payout-request button, .expense-payout-history .danger { width: 100%; }
 }

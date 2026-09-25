@@ -50,6 +50,7 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
         Read<ExpenseEmployee>(_ => new([], 0));
         Read<BillingContact>(_ => new([], 0));
         Read<ExpenseRecord>(_ => new([], 0));
+        Read<ExpensePayoutRequest>(_ => new([], 0));
         Read<BillingDocument>(_ => new([], 0));
         ReadWork<WorkProject>(_ => new([], 0));
         _api.Setup(api => api.ReadInventoryAsync<ExpenseReceipt>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -631,6 +632,122 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
     }
 
     [Fact]
+    public void Active_payout_exposes_its_state_and_only_pending_payout_can_be_cancelled()
+    {
+        ShowScope("expense.read", "expense.write", "expense.reimburse");
+        var expense = Expense(Guid.NewGuid(), Input(ExpenseType.TaxDeductible, Guid.NewGuid()));
+        var payout = Payout(expense, ExpensePayoutState.Pending);
+        Read<ExpenseRecord>(_ => new([expense], 1));
+        Read<ExpensePayoutRequest>(_ => new([payout], 1));
+        _api.Setup(api => api.WriteInventoryAsync<ExpensePayoutRequest>(HttpMethod.Post,
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/payouts/{payout.Id:D}/cancel",
+                It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .Returns((HttpMethod _, string _, object body, string _, CancellationToken _) =>
+            {
+                Property<Guid>(body, "Version").Should().Be(payout.Version);
+                return Task.FromResult<(ExpensePayoutRequest?, int, string?, string?)>(
+                    (payout with { Version = Guid.NewGuid(), State = ExpensePayoutState.Cancelled }, 200, null, null));
+            });
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("[data-select-expense]").Should().NotBeNull());
+
+        cut.Find("[data-select-expense]").Click();
+
+        cut.WaitForAssertion(() => cut.Find("[data-payout-state=Pending]").Should().NotBeNull());
+        cut.FindAll("#expense-reimburse, #expense-mark-paid, #expense-cancel, #expense-payout-queue")
+            .Should().BeEmpty("an active payout freezes conflicting expense operations");
+        cut.Find($"[data-cancel-payout='{payout.Id}']").Click();
+        cut.WaitForAssertion(() => cut.Find("[data-payout-state=Cancelled]").Should().NotBeNull());
+        cut.Find("#expense-payout-queue").Should().NotBeNull("cancelled payouts release the expense");
+    }
+
+    [Fact]
+    public void Processing_payout_is_visible_but_cannot_be_cancelled()
+    {
+        ShowScope("expense.read", "expense.write", "expense.reimburse");
+        var expense = Expense(Guid.NewGuid(), Input(ExpenseType.TaxDeductible, Guid.NewGuid()));
+        Read<ExpenseRecord>(_ => new([expense], 1));
+        Read<ExpensePayoutRequest>(_ => new([Payout(expense, ExpensePayoutState.Processing)], 1));
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("[data-select-expense]").Should().NotBeNull());
+
+        cut.Find("[data-select-expense]").Click();
+
+        cut.WaitForAssertion(() => cut.Find("[data-payout-state=Processing]").Should().NotBeNull());
+        cut.FindAll("[data-cancel-payout], #expense-payout-queue, #expense-reimburse, #expense-cancel")
+            .Should().BeEmpty();
+        cut.Markup.Should().Contain("공급자가 지급을 처리 중입니다");
+    }
+
+    [Fact]
+    public void Failed_payout_shows_its_failure_code_and_allows_a_new_request()
+    {
+        ShowScope("expense.read", "expense.reimburse");
+        var expense = Expense(Guid.NewGuid(), Input(ExpenseType.TaxDeductible, Guid.NewGuid()));
+        var failed = Payout(expense, ExpensePayoutState.Failed) with
+        { ErrorCode = "EXPENSE_PAYOUT_DESTINATION_UNAVAILABLE" };
+        Read<ExpenseRecord>(_ => new([expense], 1));
+        Read<ExpensePayoutRequest>(_ => new([failed], 1));
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("[data-select-expense]").Should().NotBeNull());
+
+        cut.Find("[data-select-expense]").Click();
+
+        cut.WaitForAssertion(() => cut.Find("[data-payout-state=Failed]").Should().NotBeNull());
+        cut.Markup.Should().Contain("EXPENSE_PAYOUT_DESTINATION_UNAVAILABLE");
+        cut.Find("#expense-payout-queue").Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Payout_retry_reuses_operation_id_and_recovers_without_marking_the_expense_paid()
+    {
+        ShowScope("expense.read", "expense.reimburse");
+        var expense = Expense(Guid.NewGuid(), Input(ExpenseType.TaxDeductible, Guid.NewGuid()));
+        Read<ExpenseRecord>(_ => new([expense], 1));
+        Read<ExpensePayoutRequest>(_ => new([], 0));
+        Guid? operationId = null;
+        var writes = 0;
+        _api.Setup(api => api.WriteInventoryAsync<ExpensePayoutRequest>(HttpMethod.Post,
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/{expense.Id:D}/payouts",
+                It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .Returns((HttpMethod _, string _, object body, string _, CancellationToken _) =>
+            {
+                var operation = Property<Guid>(body, "OperationId");
+                operationId ??= operation;
+                operation.Should().Be(operationId.Value);
+                Property<Guid>(body, "ExpenseVersion").Should().Be(expense.Version);
+                Property<string>(body, "ProviderKey").Should().Be("sandbox-bank");
+                writes++;
+                return writes == 1
+                    ? Task.FromResult<(ExpensePayoutRequest?, int, string?, string?)>(
+                        (null, 503, "INVENTORY_RESPONSE_UNAVAILABLE", "unknown"))
+                    : Task.FromResult<(ExpensePayoutRequest?, int, string?, string?)>(
+                        (Payout(expense, ExpensePayoutState.Pending, operation), 200, null, null));
+            });
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("[data-select-expense]").Should().NotBeNull());
+        cut.Find("[data-select-expense]").Click();
+        cut.WaitForAssertion(() => cut.Find("#expense-payout-provider").Should().NotBeNull());
+
+        cut.Find("#expense-payout-provider").Change(" sandbox-bank ");
+        cut.Find("#expense-payout-queue").Click();
+        cut.WaitForAssertion(() => cut.Find("#expense-payout-queue").TextContent.Should().Contain("같은 요청"));
+        cut.Find("#expense-payout-queue").Click();
+
+        cut.WaitForAssertion(() => cut.Find("[data-payout-state=Pending]").Should().NotBeNull());
+        writes.Should().Be(2);
+        cut.Find(".expense-selected > .expense-heading .expense-state").TextContent.Should().Be("청구 대상 아님");
+    }
+
+    [Fact]
     public void Invoice_link_retry_reuses_operation_and_both_versions()
     {
         ShowScope("expense.read", "expense.invoice", "billing.read");
@@ -890,6 +1007,12 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
         => new(Guid.NewGuid(), expenseId,
             new("NexaOne.MES", Tenant.ToString("D"), Organization.ToString("D")), Guid.NewGuid(),
             fileName, contentType, size, new string('0', 64), "operator", DateTimeOffset.UtcNow);
+
+    private static ExpensePayoutRequest Payout(ExpenseRecord expense, ExpensePayoutState state,
+        Guid? operationId = null) => new(Guid.NewGuid(), Guid.NewGuid(), operationId ?? Guid.NewGuid(),
+        expense.Scope, expense.Id, expense.Version, expense.Input.EmployeeId!.Value,
+        expense.Amounts.Gross, expense.Input.Currency, "sandbox-bank", state, 0,
+        DateTimeOffset.UtcNow, "operator");
 
     private static BillingDocument Invoice(Guid contactId) => new(Guid.NewGuid(),
         new("NexaOne.MES", Tenant.ToString("D"), Organization.ToString("D")), Guid.NewGuid(), Guid.NewGuid(),
