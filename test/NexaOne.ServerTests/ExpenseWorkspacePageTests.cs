@@ -70,6 +70,124 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
         Paths<ExpenseVendor>().Should().Equal($"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/vendors?offset=0&limit=50");
         Paths<ExpenseRecord>().Should().Equal($"api/v1/erp/expenses/{Tenant:D}/{Organization:D}?offset=0&limit=50");
         cut.FindAll("#expense-create").Should().BeEmpty("expense.write is absent");
+        cut.FindAll("[data-edit-category], [data-edit-vendor]").Should().BeEmpty("expense.directory.write is absent");
+    }
+
+    [Fact]
+    public void Category_edit_uses_current_version_and_preserves_unedited_tags()
+    {
+        ShowScope("expense.directory.read", "expense.directory.write");
+        var tag = Guid.NewGuid();
+        var category = Category with { Input = new("Travel", [tag]) };
+        Read<ExpenseCategory>(_ => new([category], 1));
+        _api.Setup(api => api.WriteInventoryAsync<ExpenseCategory>(HttpMethod.Put,
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/categories/{category.Id:D}",
+                It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .Returns((HttpMethod _, string _, object body, string _, CancellationToken _) =>
+            {
+                Property<Guid>(body, "Version").Should().Be(category.Version);
+                var input = Property<ExpenseCategoryInput>(body, "Input");
+                input.Name.Should().Be("Business travel");
+                input.TagIds.Should().Equal(tag);
+                return Task.FromResult<(ExpenseCategory?, int, string?, string?)>(
+                    (category with { Version = Guid.NewGuid(), Input = input }, 200, null, null));
+            });
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("[data-edit-category]").Should().NotBeNull());
+
+        cut.Find("[data-edit-category]").Click();
+        cut.Find("#expense-category-edit-name").Change("Business travel");
+        cut.Find("#expense-category-save").Click();
+
+        cut.WaitForAssertion(() => cut.Find("[data-edit-category]").ParentElement!.TextContent
+            .Should().Contain("Business travel"));
+        cut.Find("[role=status]").TextContent.Should().Contain("카테고리를 수정했습니다");
+    }
+
+    [Fact]
+    public void Vendor_deactivation_keeps_history_visible_but_removes_new_expense_choice()
+    {
+        ShowScope("expense.directory.read", "expense.directory.write", "expense.write");
+        Read<ExpenseCategory>(_ => new([Category], 1));
+        Read<ExpenseVendor>(_ => new([Vendor], 1));
+        _api.Setup(api => api.WriteInventoryAsync<ExpenseVendor>(HttpMethod.Post,
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/vendors/{Vendor.Id:D}/active",
+                It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .Returns((HttpMethod _, string _, object body, string _, CancellationToken _) =>
+            {
+                Property<Guid>(body, "Version").Should().Be(Vendor.Version);
+                Property<bool>(body, "Active").Should().BeFalse();
+                return Task.FromResult<(ExpenseVendor?, int, string?, string?)>(
+                    (Vendor with { Version = Guid.NewGuid(), Active = false }, 200, null, null));
+            });
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("[data-edit-vendor]").Should().NotBeNull());
+
+        cut.Find("[data-edit-vendor]").Click();
+        cut.Find("#expense-vendor-active").Click();
+
+        cut.WaitForAssertion(() => cut.Find("[data-edit-vendor]").ParentElement!.TextContent
+            .Should().Contain("비활성"));
+        cut.Find("#expense-vendor").TextContent.Should().NotContain("Rail");
+        cut.Find("#expense-vendor-active").TextContent.Should().Contain("재활성화");
+    }
+
+    [Fact]
+    public void Version_conflict_reloads_latest_category_without_reporting_success()
+    {
+        ShowScope("expense.directory.read", "expense.directory.write");
+        Read<ExpenseCategory>(_ => new([Category], 1));
+        var latest = Category with { Version = Guid.NewGuid(), Input = new("Peer edit") };
+        ReadOne<ExpenseCategory>(path => path.EndsWith(Category.Id.ToString("D"), StringComparison.Ordinal)
+            ? latest : null);
+        _api.Setup(api => api.WriteInventoryAsync<ExpenseCategory>(HttpMethod.Put,
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/categories/{Category.Id:D}",
+                It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((null, 409, "BUSINESS_VERSION_CONFLICT", "version conflict"));
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("[data-edit-category]").Should().NotBeNull());
+
+        cut.Find("[data-edit-category]").Click();
+        cut.Find("#expense-category-edit-name").Change("My edit");
+        cut.Find("#expense-category-save").Click();
+
+        cut.WaitForAssertion(() => cut.Find("[role=alert]").TextContent.Should().Contain("version conflict"));
+        cut.Find("#expense-category-edit-name").GetAttribute("value").Should().Be("Peer edit");
+        cut.FindAll("[role=status]").Should().NotContain(element =>
+            element.TextContent.Contains("카테고리를 수정했습니다", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Uncertain_vendor_update_recovers_committed_state_from_single_read()
+    {
+        ShowScope("expense.directory.read", "expense.directory.write");
+        var vendor = Vendor with { Input = new("Rail", Phone: "010-0000-0000") };
+        var committed = vendor with { Version = Guid.NewGuid(), Input = vendor.Input with { Name = "Metro" } };
+        Read<ExpenseVendor>(_ => new([vendor], 1));
+        ReadOne<ExpenseVendor>(path => path.EndsWith(vendor.Id.ToString("D"), StringComparison.Ordinal)
+            ? committed : null);
+        _api.Setup(api => api.WriteInventoryAsync<ExpenseVendor>(HttpMethod.Put,
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/vendors/{vendor.Id:D}",
+                It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((null, 503, "INVENTORY_RESPONSE_UNAVAILABLE", "unknown outcome"));
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("[data-edit-vendor]").Should().NotBeNull());
+
+        cut.Find("[data-edit-vendor]").Click();
+        cut.Find("#expense-vendor-edit-name").Change("Metro");
+        cut.Find("#expense-vendor-save").Click();
+
+        cut.WaitForAssertion(() => cut.FindAll("[role=alert]").Should().BeEmpty());
+        cut.Find("[role=status]").TextContent.Should().Contain("저장된 기준정보 결과를 확인했습니다");
+        cut.Find("#expense-vendor-edit-phone").GetAttribute("value").Should().Be("010-0000-0000");
     }
 
     [Fact]

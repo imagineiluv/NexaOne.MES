@@ -13,16 +13,22 @@ public partial class HostExpenseWorkspace
     private BusinessPage<BusinessMembership>? _scopes;
     private BusinessPage<ExpenseCategory>? _categories;
     private BusinessPage<ExpenseVendor>? _vendors;
+    private BusinessPage<ExpenseCategory>? _directoryCategories;
+    private BusinessPage<ExpenseVendor>? _directoryVendors;
     private BusinessPage<ExpenseRecord>? _expenses;
     private BusinessPage<BillingDocument>? _invoiceCandidates;
     private BusinessMembership? _scope;
     private ExpenseRecord? _selected;
+    private ExpenseCategory? _selectedCategory;
+    private ExpenseVendor? _selectedVendor;
     private BillingDocument? _linkedInvoice;
     private PendingCreate? _pendingCreate;
     private PendingReimbursement? _pendingReimbursement;
     private PendingInvoiceOperation? _pendingInvoice;
     private readonly ExpenseDraft _draft = new();
     private string _categoryName = "", _vendorName = "", _invoiceDescription = "";
+    private string _categoryEditName = "", _vendorEditName = "", _vendorEditPhone = "";
+    private string _vendorEditWebsite = "", _vendorEditEmail = "";
     private string? _userId, _error, _notice;
     private Guid _invoiceId;
     private int _invoiceOffset;
@@ -51,6 +57,8 @@ public partial class HostExpenseWorkspace
     private bool HasPreviousInvoicePage => _invoiceOffset > 0;
     private bool HasNextInvoicePage => _invoiceCandidates is { } page
         && _invoiceOffset + page.Items.Count < page.Total;
+    private IReadOnlyList<ExpenseCategory> ActiveCategories => _categories?.Items.Where(value => value.Active).ToArray() ?? [];
+    private IReadOnlyList<ExpenseVendor> ActiveVendors => _vendors?.Items.Where(value => value.Active).ToArray() ?? [];
     private string? SelectedKey => _scope is null ? null : ScopeKey(_scope);
     private string Root => $"api/v1/erp/expenses/{SelectedKey}";
 
@@ -93,6 +101,8 @@ public partial class HostExpenseWorkspace
     {
         CancelRequest();
         _scopes = null; _scope = null; _categories = null; _vendors = null; _expenses = null; _selected = null;
+        _directoryCategories = null; _directoryVendors = null;
+        ClearDirectorySelection();
         _invoiceCandidates = null; _linkedInvoice = null;
         _pendingCreate = null; _pendingReimbursement = null; _pendingInvoice = null;
         _invoiceId = Guid.Empty; _invoiceOffset = 0; _invoiceDescription = ""; _error = null; _notice = null;
@@ -112,6 +122,8 @@ public partial class HostExpenseWorkspace
         if (SelectedKey == ScopeKey(scope)) return;
         CancelRequest();
         _scope = scope; _categories = null; _vendors = null; _expenses = null; _selected = null;
+        _directoryCategories = null; _directoryVendors = null;
+        ClearDirectorySelection();
         _invoiceCandidates = null; _linkedInvoice = null;
         _pendingCreate = null; _pendingReimbursement = null; _pendingInvoice = null;
         _invoiceId = Guid.Empty; _invoiceOffset = 0; _invoiceDescription = ""; _error = null; _notice = null;
@@ -125,11 +137,47 @@ public partial class HostExpenseWorkspace
     private Task LoadDirectoriesAsync() => RunAsync(LoadDirectoriesCoreAsync);
     private async Task LoadDirectoriesCoreAsync(CancellationToken ct)
     {
-        var categories = await Api.ReadInventoryAsync<BusinessPage<ExpenseCategory>>($"{Root}/categories?offset=0&limit={PageSize}", ct);
+        var categories = await Api.ReadInventoryAsync<BusinessPage<ExpenseCategory>>(
+            $"{Root}/categories?offset=0&limit={PageSize}", ct);
         if (!OwnsRequest(ct)) return;
-        Accept(categories, value => _categories = value);
-        var vendors = await Api.ReadInventoryAsync<BusinessPage<ExpenseVendor>>($"{Root}/vendors?offset=0&limit={PageSize}", ct);
-        if (OwnsRequest(ct)) Accept(vendors, value => _vendors = value);
+        Accept(categories, value =>
+        {
+            _categories = value;
+            if (_draft.CategoryId != Guid.Empty && value.Items.All(item => item.Id != _draft.CategoryId || !item.Active))
+                _draft.CategoryId = Guid.Empty;
+        });
+        var vendors = await Api.ReadInventoryAsync<BusinessPage<ExpenseVendor>>(
+            $"{Root}/vendors?offset=0&limit={PageSize}", ct);
+        if (OwnsRequest(ct)) Accept(vendors, value =>
+        {
+            _vendors = value;
+            if (_draft.VendorId != Guid.Empty && value.Items.All(item => item.Id != _draft.VendorId || !item.Active))
+                _draft.VendorId = Guid.Empty;
+        });
+        if (!OwnsRequest(ct)) return;
+        _directoryCategories = _categories;
+        _directoryVendors = _vendors;
+        if (!Can("expense.directory.write"))
+        {
+            return;
+        }
+        var allCategories = await Api.ReadInventoryAsync<BusinessPage<ExpenseCategory>>(
+            $"{Root}/categories?includeInactive=true&offset=0&limit={PageSize}", ct);
+        if (!OwnsRequest(ct)) return;
+        Accept(allCategories, value =>
+        {
+            _directoryCategories = value;
+            if (_selectedCategory is not null)
+                SetSelectedCategory(value.Items.FirstOrDefault(item => item.Id == _selectedCategory.Id));
+        });
+        var allVendors = await Api.ReadInventoryAsync<BusinessPage<ExpenseVendor>>(
+            $"{Root}/vendors?includeInactive=true&offset=0&limit={PageSize}", ct);
+        if (OwnsRequest(ct)) Accept(allVendors, value =>
+        {
+            _directoryVendors = value;
+            if (_selectedVendor is not null)
+                SetSelectedVendor(value.Items.FirstOrDefault(item => item.Id == _selectedVendor.Id));
+        });
     }
 
     private Task LoadExpensesAsync() => RunAsync(async ct =>
@@ -150,6 +198,165 @@ public partial class HostExpenseWorkspace
         () => _categoryName = "");
     private Task CreateVendorAsync() => CreateDirectoryAsync("vendors", new ExpenseVendorInput(_vendorName.Trim()),
         () => _vendorName = "");
+
+    private void SelectCategory(ExpenseCategory value) => SetSelectedCategory(value);
+
+    private void SetSelectedCategory(ExpenseCategory? value)
+    {
+        _selectedCategory = value;
+        _categoryEditName = value?.Input.Name ?? "";
+    }
+
+    private void SelectVendor(ExpenseVendor value) => SetSelectedVendor(value);
+
+    private void SetSelectedVendor(ExpenseVendor? value)
+    {
+        _selectedVendor = value;
+        _vendorEditName = value?.Input.Name ?? "";
+        _vendorEditPhone = value?.Input.Phone ?? "";
+        _vendorEditWebsite = value?.Input.Website ?? "";
+        _vendorEditEmail = value?.Input.Email ?? "";
+    }
+
+    private void ClearDirectorySelection()
+    {
+        SetSelectedCategory(null);
+        SetSelectedVendor(null);
+    }
+
+    private Task UpdateCategoryAsync()
+    {
+        if (_selectedCategory is null || string.IsNullOrWhiteSpace(_categoryEditName))
+        {
+            _error = T("expenseWorkspace.nameRequired", "이름을 입력하세요.", "Enter a name.");
+            return Task.CompletedTask;
+        }
+        var current = _selectedCategory;
+        var input = current.Input with { Name = _categoryEditName.Trim() };
+        return MutateCategoryAsync(current, HttpMethod.Put, new CategoryChange(current.Version, input),
+            value => Same(value.Input, input),
+            T("expenseWorkspace.directoryUpdated", "카테고리를 수정했습니다.", "Category updated."));
+    }
+
+    private Task SetCategoryActiveAsync()
+    {
+        if (_selectedCategory is null) return Task.CompletedTask;
+        var current = _selectedCategory;
+        var active = !current.Active;
+        return MutateCategoryAsync(current, HttpMethod.Post, new ActiveChange(current.Version, active),
+            value => value.Active == active,
+            active
+                ? T("expenseWorkspace.categoryActivated", "카테고리를 다시 활성화했습니다.", "Category reactivated.")
+                : T("expenseWorkspace.categoryDeactivated", "카테고리를 비활성화했습니다.", "Category deactivated."),
+            "/active");
+    }
+
+    private Task UpdateVendorAsync()
+    {
+        if (_selectedVendor is null || string.IsNullOrWhiteSpace(_vendorEditName))
+        {
+            _error = T("expenseWorkspace.nameRequired", "이름을 입력하세요.", "Enter a name.");
+            return Task.CompletedTask;
+        }
+        var current = _selectedVendor;
+        var input = current.Input with
+        {
+            Name = _vendorEditName.Trim(),
+            Phone = Text(_vendorEditPhone),
+            Website = Text(_vendorEditWebsite),
+            Email = Text(_vendorEditEmail)
+        };
+        return MutateVendorAsync(current, HttpMethod.Put, new VendorChange(current.Version, input),
+            value => Same(value.Input, input),
+            T("expenseWorkspace.directoryVendorUpdated", "거래처를 수정했습니다.", "Vendor updated."));
+    }
+
+    private Task SetVendorActiveAsync()
+    {
+        if (_selectedVendor is null) return Task.CompletedTask;
+        var current = _selectedVendor;
+        var active = !current.Active;
+        return MutateVendorAsync(current, HttpMethod.Post, new ActiveChange(current.Version, active),
+            value => value.Active == active,
+            active
+                ? T("expenseWorkspace.vendorActivated", "거래처를 다시 활성화했습니다.", "Vendor reactivated.")
+                : T("expenseWorkspace.vendorDeactivated", "거래처를 비활성화했습니다.", "Vendor deactivated."),
+            "/active");
+    }
+
+    private Task MutateCategoryAsync(ExpenseCategory current, HttpMethod method, object body,
+        Func<ExpenseCategory, bool> intended, string notice, string suffix = "") => RunAsync(async ct =>
+    {
+        var result = await WriteAsync<ExpenseCategory>(method, $"{Root}/categories/{current.Id:D}{suffix}", body, ct);
+        if (!OwnsRequest(ct)) return;
+        if (result.Value is { } saved && saved.Id == current.Id && intended(saved) && result.Error is null)
+        {
+            ApplyCategory(saved); _notice = notice; return;
+        }
+        _error = result.Value is not null
+            ? T("expenseWorkspace.directoryInvalidResponse", "기준정보 응답이 현재 요청과 일치하지 않습니다. 최신 상태를 다시 불러왔습니다.", "The directory response does not match this request. The latest state was reloaded.")
+            : result.Error ?? result.Code ?? string.Format(CultureInfo.InvariantCulture, "HTTP {0}", result.StatusCode);
+        await RecoverCategoryAsync(current.Id, intended, ct);
+    });
+
+    private async Task RecoverCategoryAsync(Guid id, Func<ExpenseCategory, bool> intended, CancellationToken ct)
+    {
+        var result = await Api.ReadInventoryAsync<ExpenseCategory>($"{Root}/categories/{id:D}", ct);
+        if (!OwnsRequest(ct) || result.Value is not { } latest || latest.Id != id) return;
+        ApplyCategory(latest);
+        if (intended(latest))
+        {
+            _error = null;
+            _notice = T("expenseWorkspace.directoryRecovered", "저장된 기준정보 결과를 확인했습니다.", "The stored directory result was recovered.");
+        }
+    }
+
+    private Task MutateVendorAsync(ExpenseVendor current, HttpMethod method, object body,
+        Func<ExpenseVendor, bool> intended, string notice, string suffix = "") => RunAsync(async ct =>
+    {
+        var result = await WriteAsync<ExpenseVendor>(method, $"{Root}/vendors/{current.Id:D}{suffix}", body, ct);
+        if (!OwnsRequest(ct)) return;
+        if (result.Value is { } saved && saved.Id == current.Id && intended(saved) && result.Error is null)
+        {
+            ApplyVendor(saved); _notice = notice; return;
+        }
+        _error = result.Value is not null
+            ? T("expenseWorkspace.directoryInvalidResponse", "기준정보 응답이 현재 요청과 일치하지 않습니다. 최신 상태를 다시 불러왔습니다.", "The directory response does not match this request. The latest state was reloaded.")
+            : result.Error ?? result.Code ?? string.Format(CultureInfo.InvariantCulture, "HTTP {0}", result.StatusCode);
+        await RecoverVendorAsync(current.Id, intended, ct);
+    });
+
+    private async Task RecoverVendorAsync(Guid id, Func<ExpenseVendor, bool> intended, CancellationToken ct)
+    {
+        var result = await Api.ReadInventoryAsync<ExpenseVendor>($"{Root}/vendors/{id:D}", ct);
+        if (!OwnsRequest(ct) || result.Value is not { } latest || latest.Id != id) return;
+        ApplyVendor(latest);
+        if (intended(latest))
+        {
+            _error = null;
+            _notice = T("expenseWorkspace.directoryRecovered", "저장된 기준정보 결과를 확인했습니다.", "The stored directory result was recovered.");
+        }
+    }
+
+    private void ApplyCategory(ExpenseCategory value)
+    {
+        if (_directoryCategories is { } directoryPage)
+            _directoryCategories = new(directoryPage.Items.Select(item => item.Id == value.Id ? value : item).ToArray(),
+                directoryPage.Total);
+        _categories = ApplyActive(_categories, value);
+        SetSelectedCategory(value);
+        if (!value.Active && _draft.CategoryId == value.Id) _draft.CategoryId = Guid.Empty;
+    }
+
+    private void ApplyVendor(ExpenseVendor value)
+    {
+        if (_directoryVendors is { } directoryPage)
+            _directoryVendors = new(directoryPage.Items.Select(item => item.Id == value.Id ? value : item).ToArray(),
+                directoryPage.Total);
+        _vendors = ApplyActive(_vendors, value);
+        SetSelectedVendor(value);
+        if (!value.Active && _draft.VendorId == value.Id) _draft.VendorId = Guid.Empty;
+    }
 
     private Task CreateDirectoryAsync(string segment, object body, Action clear) => RunAsync(async ct =>
     {
@@ -448,8 +655,39 @@ public partial class HostExpenseWorkspace
             ? ExpenseStatus.Invoiced : ExpenseStatus.NotBillable);
     private static string Short(Guid value) => value.ToString("N")[..8];
     private static string? Text(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    private static bool Same(ExpenseCategoryInput left, ExpenseCategoryInput right)
+        => string.Equals(left.Name, right.Name, StringComparison.Ordinal)
+            && (left.TagIds ?? []).SequenceEqual(right.TagIds ?? []);
+    private static bool Same(ExpenseVendorInput left, ExpenseVendorInput right)
+        => string.Equals(left.Name, right.Name, StringComparison.Ordinal)
+            && string.Equals(left.Phone, right.Phone, StringComparison.Ordinal)
+            && string.Equals(left.Website, right.Website, StringComparison.Ordinal)
+            && string.Equals(left.Email, right.Email, StringComparison.Ordinal)
+            && (left.TagIds ?? []).SequenceEqual(right.TagIds ?? []);
+    private static BusinessPage<ExpenseCategory>? ApplyActive(BusinessPage<ExpenseCategory>? page,
+        ExpenseCategory value) => ApplyActive(page, value, item => item.Id, item => item.Active);
+    private static BusinessPage<ExpenseVendor>? ApplyActive(BusinessPage<ExpenseVendor>? page,
+        ExpenseVendor value) => ApplyActive(page, value, item => item.Id, item => item.Active);
+    private static BusinessPage<T>? ApplyActive<T>(BusinessPage<T>? page, T value,
+        Func<T, Guid> id, Func<T, bool> active)
+    {
+        if (page is null) return null;
+        var exists = page.Items.Any(item => id(item) == id(value));
+        if (!active(value))
+            return exists
+                ? new(page.Items.Where(item => id(item) != id(value)).ToArray(), Math.Max(0, page.Total - 1))
+                : page;
+        if (exists)
+            return new(page.Items.Select(item => id(item) == id(value) ? value : item).ToArray(), page.Total);
+        return page.Items.Count < PageSize
+            ? new([.. page.Items, value], page.Total + 1)
+            : new(page.Items, page.Total + 1);
+    }
     private static string Amount(decimal value) => value.ToString("0.######", CultureInfo.InvariantCulture);
     private string T(string key, string ko, string en) => Ui.T(key, Ui.Language == "EnUs" ? en : ko);
+    private string DirectoryState(bool active) => active
+        ? T("expenseWorkspace.active", "활성", "Active")
+        : T("expenseWorkspace.inactive", "비활성", "Inactive");
     private string TypeName(ExpenseType type) => type switch { ExpenseType.TaxDeductible => T("expenseWorkspace.taxDeductible", "세무상 공제", "Tax deductible"), ExpenseType.NotTaxDeductible => T("expenseWorkspace.notTaxDeductible", "공제 불가", "Not tax deductible"), _ => T("expenseWorkspace.billable", "고객 청구", "Billable to contact") };
     private string StatusName(ExpenseRecord value) => value.State == ExpenseState.Cancelled ? T("expenseWorkspace.cancelledState", "취소됨", "Cancelled") : value.Status switch { ExpenseStatus.Uninvoiced => T("expenseWorkspace.uninvoiced", "미청구", "Uninvoiced"), ExpenseStatus.Invoiced => T("expenseWorkspace.invoiced", "청구됨", "Invoiced"), ExpenseStatus.Paid => T("expenseWorkspace.paid", "지급됨", "Paid"), _ => T("expenseWorkspace.notBillable", "청구 대상 아님", "Not billable") };
     private string BillingStatusName(BillingStatus value) => value switch
@@ -472,6 +710,9 @@ public partial class HostExpenseWorkspace
     }
 
     internal sealed record ExpenseCreateRequest(Guid OperationId, ExpenseInput Input);
+    internal sealed record CategoryChange(Guid Version, ExpenseCategoryInput Input);
+    internal sealed record VendorChange(Guid Version, ExpenseVendorInput Input);
+    internal sealed record ActiveChange(Guid Version, bool Active);
     internal sealed record VersionedRequest(Guid Version);
     internal sealed record CancelExpenseRequest(Guid Version, string? Reason);
     internal sealed record ReimbursementRequest(Guid OperationId, Guid Version, DateTimeOffset PaidAt, string? Reference);
