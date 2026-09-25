@@ -350,10 +350,8 @@ public sealed partial class BillingBridge
         public async Task<bool> ProjectExistsAsync(Guid projectId, CancellationToken ct)
             => projects is not null && await projects.ProjectExistsInTransactionAsync(transaction,
                 Id(Scope.TenantId), Id(Scope.OrganizationId), projectId, ct);
-        // MES still has no organization-scoped business-tag master. FDC equipment tags and POM work
-        // scopes are different domains, so nonempty values remain fail-closed until that owner exists.
         public Task<bool> TagsExistAsync(IReadOnlyList<Guid> tagIds, CancellationToken ct)
-            => Task.FromResult(tagIds.Count == 0);
+            => TagsExistCoreAsync(tagIds, ct);
 
         public Task<ExpenseRecord?> FindExpenseAsync(Guid id, CancellationToken ct)
             => ReadExpense("EXPENSE_ID=@key", id, ct);

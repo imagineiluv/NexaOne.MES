@@ -29,6 +29,8 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
         new("NexaOne.MES", Tenant.ToString("D"), Organization.ToString("D")), Guid.NewGuid(), new("Travel"));
     private static readonly ExpenseVendor Vendor = new(Guid.Parse("40000000-0000-0000-0000-000000000001"),
         new("NexaOne.MES", Tenant.ToString("D"), Organization.ToString("D")), Guid.NewGuid(), new("Rail"));
+    private static readonly ExpenseTag Tag = new(Guid.Parse("50000000-0000-0000-0000-000000000001"),
+        new("NexaOne.MES", Tenant.ToString("D"), Organization.ToString("D")), Guid.NewGuid(), new("Travel"));
 
     public ExpenseWorkspacePageTests()
     {
@@ -42,6 +44,7 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
         Read<BusinessMembership>(_ => new([], 0));
         Read<ExpenseCategory>(_ => new([], 0));
         Read<ExpenseVendor>(_ => new([], 0));
+        Read<ExpenseTag>(_ => new([], 0));
         Read<ExpenseEmployee>(_ => new([], 0));
         Read<BillingContact>(_ => new([], 0));
         Read<ExpenseRecord>(_ => new([], 0));
@@ -74,6 +77,7 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
         cut.WaitForAssertion(() => cut.Find("#expense-list-heading").Should().NotBeNull());
         Paths<ExpenseCategory>().Should().Equal($"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/categories?offset=0&limit=50");
         Paths<ExpenseVendor>().Should().Equal($"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/vendors?offset=0&limit=50");
+        Paths<ExpenseTag>().Should().Equal($"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/tags?offset=0&limit=50");
         Paths<ExpenseRecord>().Should().Equal($"api/v1/erp/expenses/{Tenant:D}/{Organization:D}?offset=0&limit=50");
         cut.FindAll("#expense-create").Should().BeEmpty("expense.write is absent");
         cut.FindAll("[data-edit-category], [data-edit-vendor]").Should().BeEmpty("expense.directory.write is absent");
@@ -247,6 +251,68 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
     }
 
     [Fact]
+    public void Tag_deactivation_keeps_the_directory_record_but_removes_the_draft_selection()
+    {
+        ShowScope("expense.directory.read", "expense.directory.write", "expense.write");
+        Read<ExpenseCategory>(_ => new([Category], 1));
+        Read<ExpenseVendor>(_ => new([Vendor], 1));
+        var active = true;
+        Read<ExpenseTag>(path => path.Contains("includeInactive=true", StringComparison.Ordinal)
+            ? new([Tag with { Active = active }], 1)
+            : active ? new([Tag], 1) : new([], 0));
+        _api.Setup(api => api.WriteInventoryAsync<ExpenseTag>(HttpMethod.Post,
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/tags/{Tag.Id:D}/active",
+                It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .Returns((HttpMethod _, string _, object body, string _, CancellationToken _) =>
+            {
+                Property<Guid>(body, "Version").Should().Be(Tag.Version);
+                Property<bool>(body, "Active").Should().BeFalse();
+                active = false;
+                return Task.FromResult<(ExpenseTag?, int, string?, string?)>(
+                    (Tag with { Version = Guid.NewGuid(), Active = false }, 200, null, null));
+            });
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find($"[data-expense-tag='{Tag.Id}']").Should().NotBeNull());
+        cut.Find($"[data-expense-tag='{Tag.Id}']").Change(true);
+
+        cut.Find("[data-edit-tag]").Click();
+        cut.Find("#expense-tag-active").Click();
+
+        cut.WaitForAssertion(() => cut.Find("[data-edit-tag]").ParentElement!.TextContent
+            .Should().Contain("비활성"));
+        cut.FindAll($"[data-expense-tag='{Tag.Id}']").Should().BeEmpty();
+        cut.Find("#expense-tag-active").TextContent.Should().Contain("재활성화");
+        Paths<ExpenseTag>().Count(path => !path.Contains("includeInactive", StringComparison.Ordinal))
+            .Should().Be(2, "the active page and its exact total are refreshed after a lifecycle change");
+    }
+
+    [Fact]
+    public void Selected_tag_can_be_removed_after_an_external_deactivation_hides_its_checkbox()
+    {
+        ShowScope("expense.directory.read", "expense.directory.write", "expense.write");
+        Read<ExpenseCategory>(_ => new([Category], 1));
+        Read<ExpenseVendor>(_ => new([Vendor], 1));
+        var active = true;
+        Read<ExpenseTag>(path => path.Contains("includeInactive=true", StringComparison.Ordinal)
+            ? new([Tag with { Active = active }], 1)
+            : active ? new([Tag], 1) : new([], 0));
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find($"[data-expense-tag='{Tag.Id}']").Should().NotBeNull());
+        cut.Find($"[data-expense-tag='{Tag.Id}']").Change(true);
+
+        active = false;
+        cut.Find("#expense-directory-refresh").Click();
+
+        cut.WaitForAssertion(() => cut.FindAll($"[data-expense-tag='{Tag.Id}']").Should().BeEmpty());
+        cut.Find($"[data-remove-expense-tag='{Tag.Id}']").Click();
+        cut.FindAll($"[data-remove-expense-tag='{Tag.Id}']").Should().BeEmpty();
+    }
+
+    [Fact]
     public void Version_conflict_reloads_latest_category_without_reporting_success()
     {
         ShowScope("expense.directory.read", "expense.directory.write");
@@ -397,6 +463,50 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
             "승인 완료", "receipts/42", Tax: new(ExpenseTaxType.Percentage, 10m, "VAT")));
         Paths<ExpenseEmployee>().Should().ContainSingle(path => path.EndsWith("employees?offset=0&limit=50", StringComparison.Ordinal));
         Paths<BillingContact>().Should().ContainSingle(path => path.Contains("/contacts?offset=0&limit=50", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Tag_choices_keep_selection_across_exact_total_pages_and_are_written_to_the_expense()
+    {
+        ShowScope("expense.directory.read", "expense.write");
+        Read<ExpenseCategory>(_ => new([Category], 1));
+        Read<ExpenseVendor>(_ => new([Vendor], 1));
+        var secondTag = Tag with { Id = Guid.Parse("50000000-0000-0000-0000-000000000002"), Input = new("Client") };
+        Read<ExpenseTag>(path => path.Contains("offset=50", StringComparison.Ordinal)
+            ? new([secondTag], 51) : new([Tag], 51));
+        ExpenseInput? written = null;
+        _api.Setup(api => api.WriteInventoryAsync<ExpenseRecord>(HttpMethod.Post,
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}", It.IsAny<object>(), "operator",
+                It.IsAny<CancellationToken>()))
+            .Returns((HttpMethod _, string _, object body, string _, CancellationToken _) =>
+            {
+                written = Property<ExpenseInput>(body, "Input");
+                return Task.FromResult<(ExpenseRecord?, int, string?, string?)>(
+                    (Expense(Property<Guid>(body, "OperationId"), written), 200, null, null));
+            });
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find($"[data-expense-tag='{Tag.Id}']").Should().NotBeNull());
+
+        cut.Find($"[data-expense-tag='{Tag.Id}']").Change(true);
+        cut.Find("#expense-tags-next").Click();
+        cut.WaitForAssertion(() => cut.Find($"[data-expense-tag='{secondTag.Id}']").Should().NotBeNull());
+        cut.Find($"[data-expense-tag='{secondTag.Id}']").Change(true);
+        cut.Find("#expense-tags-previous").Click();
+        cut.WaitForAssertion(() => cut.Find($"[data-expense-tag='{Tag.Id}']").HasAttribute("checked").Should().BeTrue());
+
+        cut.Find("#expense-amount").Change("12500");
+        cut.Find("#expense-category").Change(Category.Id.ToString("D"));
+        cut.Find("#expense-vendor").Change(Vendor.Id.ToString("D"));
+        cut.Find("#expense-create").Click();
+
+        cut.WaitForAssertion(() => written.Should().NotBeNull());
+        written!.TagIds.Should().Equal(Tag.Id, secondTag.Id);
+        Paths<ExpenseTag>().Should().ContainInOrder(
+            $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/tags?offset=0&limit=50",
+            $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/tags?offset=50&limit=50",
+            $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/tags?offset=0&limit=50");
     }
 
     [Fact]

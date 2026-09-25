@@ -91,6 +91,41 @@ public sealed class ExpenseControllerTests
     }
 
     [Fact]
+    public async Task Tag_routes_forward_scope_query_and_versions()
+    {
+        var tenant = Guid.NewGuid(); var organization = Guid.NewGuid(); var id = Guid.NewGuid();
+        var version = Guid.NewGuid(); var nextVersion = Guid.NewGuid();
+        var scope = new BusinessScope("NexaOne.MES", tenant.ToString("D"), organization.ToString("D"));
+        var tag = new ExpenseTag(id, scope, version, new("Travel"));
+        var updated = tag with { Version = nextVersion, Input = new("Business travel") };
+        var query = new ExpenseTagQuery("trav", true, 25, 10);
+        var bridge = new Mock<IExpenseBridge>(MockBehavior.Strict);
+        bridge.Setup(x => x.ListTagsAsync("expense-user", tenant, organization, query, CancellationToken.None))
+            .ReturnsAsync(new BusinessPage<ExpenseTag>([tag], 1));
+        bridge.Setup(x => x.CreateTagAsync("expense-user", tenant, organization,
+            tag.Input, CancellationToken.None)).ReturnsAsync(tag);
+        bridge.Setup(x => x.GetTagAsync("expense-user", tenant, organization, id,
+            CancellationToken.None)).ReturnsAsync(tag);
+        bridge.Setup(x => x.UpdateTagAsync("expense-user", tenant, organization, id, version,
+            updated.Input, CancellationToken.None)).ReturnsAsync(updated);
+        bridge.Setup(x => x.SetTagActiveAsync("expense-user", tenant, organization, id, nextVersion,
+            false, CancellationToken.None)).ReturnsAsync(updated with { Active = false });
+        var controller = Controller(bridge.Object);
+
+        (await controller.ListTags(tenant, organization, query, CancellationToken.None))
+            .Should().BeOfType<OkObjectResult>();
+        (await controller.CreateTag(tenant, organization, tag.Input, CancellationToken.None))
+            .Should().BeOfType<OkObjectResult>();
+        (await controller.GetTag(tenant, organization, id, CancellationToken.None))
+            .Should().BeOfType<OkObjectResult>();
+        (await controller.UpdateTag(tenant, organization, id,
+            new(version, updated.Input), CancellationToken.None)).Should().BeOfType<OkObjectResult>();
+        (await controller.SetTagActive(tenant, organization, id,
+            new(nextVersion, false), CancellationToken.None)).Should().BeOfType<OkObjectResult>();
+        bridge.VerifyAll(); bridge.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task Database_failures_are_sanitized_and_logged_as_unknown_outcome()
     {
         var failure = new AggregateException("private", new StorageFailure("private database"));

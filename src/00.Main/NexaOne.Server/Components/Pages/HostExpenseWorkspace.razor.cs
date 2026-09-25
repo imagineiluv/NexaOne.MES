@@ -15,8 +15,10 @@ public partial class HostExpenseWorkspace
     private BusinessPage<BusinessMembership>? _scopes;
     private BusinessPage<ExpenseCategory>? _categories;
     private BusinessPage<ExpenseVendor>? _vendors;
+    private BusinessPage<ExpenseTag>? _tags;
     private BusinessPage<ExpenseCategory>? _directoryCategories;
     private BusinessPage<ExpenseVendor>? _directoryVendors;
+    private BusinessPage<ExpenseTag>? _directoryTags;
     private BusinessPage<ExpenseEmployee>? _employees;
     private BusinessPage<BillingContact>? _contacts;
     private WorkPage<Project>? _projects;
@@ -26,20 +28,22 @@ public partial class HostExpenseWorkspace
     private ExpenseRecord? _selected;
     private ExpenseCategory? _selectedCategory;
     private ExpenseVendor? _selectedVendor;
+    private ExpenseTag? _selectedTag;
     private BillingDocument? _linkedInvoice;
     private PendingCreate? _pendingCreate;
     private PendingReimbursement? _pendingReimbursement;
     private PendingInvoiceOperation? _pendingInvoice;
     private readonly ExpenseDraft _draft = new();
-    private string _categoryName = "", _vendorName = "", _invoiceDescription = "";
+    private string _categoryName = "", _vendorName = "", _tagName = "", _invoiceDescription = "";
     private string _categoryEditName = "", _vendorEditName = "", _vendorEditPhone = "";
-    private string _vendorEditWebsite = "", _vendorEditEmail = "";
+    private string _vendorEditWebsite = "", _vendorEditEmail = "", _tagEditName = "";
     private string _ledgerStart = "", _ledgerEnd = "", _ledgerCategory = "", _ledgerVendor = "";
     private string _ledgerType = "", _ledgerStatus = "", _ledgerState = "";
     private string? _userId, _error, _notice;
     private string? _ledgerValidation;
     private Guid _invoiceId;
     private int _invoiceOffset, _expenseOffset, _employeeOffset, _contactOffset, _projectOffset;
+    private int _tagOffset, _directoryTagOffset;
     private LedgerFilter _ledgerFilter = new();
     private bool _authenticated, _identityLoading = true, _busy, _interactive, _disposed;
     private Task<AuthenticationState>? _pendingAuthentication;
@@ -79,6 +83,12 @@ public partial class HostExpenseWorkspace
     private bool HasPreviousProjectPage => _projectOffset > 0;
     private bool HasNextProjectPage => _projects is { } page
         && (long)_projectOffset + page.Items.Count < page.Total;
+    private bool HasPreviousTagPage => _tagOffset > 0;
+    private bool HasNextTagPage => _tags is { } page
+        && (long)_tagOffset + page.Items.Count < page.Total;
+    private bool HasPreviousDirectoryTagPage => _directoryTagOffset > 0;
+    private bool HasNextDirectoryTagPage => _directoryTags is { } page
+        && (long)_directoryTagOffset + page.Items.Count < page.Total;
     private bool HasLedgerFilters => _ledgerFilter != new LedgerFilter();
     private bool HasLedgerDraft => _ledgerStart.Length > 0 || _ledgerEnd.Length > 0
         || _ledgerCategory.Length > 0 || _ledgerVendor.Length > 0 || _ledgerType.Length > 0
@@ -126,10 +136,10 @@ public partial class HostExpenseWorkspace
     private void Clear()
     {
         CancelRequest();
-        _scopes = null; _scope = null; _categories = null; _vendors = null;
+        _scopes = null; _scope = null; _categories = null; _vendors = null; _tags = null;
         ResetReferenceChoices();
         ResetLedgerState();
-        _directoryCategories = null; _directoryVendors = null;
+        _directoryCategories = null; _directoryVendors = null; _directoryTags = null;
         ClearDirectorySelection();
         _pendingCreate = null;
         _error = null; _notice = null;
@@ -148,10 +158,10 @@ public partial class HostExpenseWorkspace
     {
         if (SelectedKey == ScopeKey(scope)) return;
         CancelRequest();
-        _scope = scope; _categories = null; _vendors = null;
+        _scope = scope; _categories = null; _vendors = null; _tags = null;
         ResetReferenceChoices();
         ResetLedgerState();
-        _directoryCategories = null; _directoryVendors = null;
+        _directoryCategories = null; _directoryVendors = null; _directoryTags = null;
         ClearDirectorySelection();
         _pendingCreate = null;
         _error = null; _notice = null;
@@ -166,8 +176,9 @@ public partial class HostExpenseWorkspace
     private void ResetReferenceChoices()
     {
         _employees = null; _contacts = null; _projects = null;
-        _employeeOffset = _contactOffset = _projectOffset = 0;
+        _employeeOffset = _contactOffset = _projectOffset = _tagOffset = _directoryTagOffset = 0;
         _draft.EmployeeId = _draft.ContactId = _draft.ProjectId = Guid.Empty;
+        _draft.TagIds.Clear();
     }
 
     private async Task LoadReferenceChoicesCoreAsync(CancellationToken ct)
@@ -216,6 +227,46 @@ public partial class HostExpenseWorkspace
         if (OwnsRequest(ct)) Accept(result, value => _projects = value);
     }
 
+    private Task MoveTagPageAsync(int direction) => RunAsync(async ct =>
+    {
+        _tagOffset = NextOffset(_tagOffset, direction);
+        await LoadTagsCoreAsync(ct);
+    });
+
+    private async Task LoadTagsCoreAsync(CancellationToken ct)
+    {
+        var result = await Api.ReadInventoryAsync<BusinessPage<ExpenseTag>>(
+            $"{Root}/tags?offset={_tagOffset}&limit={PageSize}", ct);
+        if (!OwnsRequest(ct)) return;
+        if (result.Value is { } page && page.Items.Count == 0 && page.Total > 0 && _tagOffset >= page.Total)
+        {
+            _tagOffset = (int)((page.Total - 1) / PageSize * PageSize);
+            result = await Api.ReadInventoryAsync<BusinessPage<ExpenseTag>>(
+                $"{Root}/tags?offset={_tagOffset}&limit={PageSize}", ct);
+            if (!OwnsRequest(ct)) return;
+        }
+        Accept(result, value => _tags = value);
+    }
+
+    private Task MoveDirectoryTagPageAsync(int direction) => RunAsync(async ct =>
+    {
+        _directoryTagOffset = NextOffset(_directoryTagOffset, direction);
+        await LoadDirectoryTagsCoreAsync(ct);
+    });
+
+    private async Task LoadDirectoryTagsCoreAsync(CancellationToken ct)
+    {
+        var result = await Api.ReadInventoryAsync<BusinessPage<ExpenseTag>>(
+            $"{Root}/tags?includeInactive=true&offset={_directoryTagOffset}&limit={PageSize}", ct);
+        if (!OwnsRequest(ct)) return;
+        Accept(result, value =>
+        {
+            _directoryTags = value;
+            if (_selectedTag is not null)
+                SetSelectedTag(value.Items.FirstOrDefault(item => item.Id == _selectedTag.Id));
+        });
+    }
+
     private static int NextOffset(int current, int direction)
         => direction < 0 ? Math.Max(0, current - PageSize)
             : current <= int.MaxValue - PageSize ? current + PageSize : current;
@@ -241,8 +292,11 @@ public partial class HostExpenseWorkspace
                 _draft.VendorId = Guid.Empty;
         });
         if (!OwnsRequest(ct)) return;
+        await LoadTagsCoreAsync(ct);
+        if (!OwnsRequest(ct)) return;
         _directoryCategories = _categories;
         _directoryVendors = _vendors;
+        _directoryTags = _tags;
         if (!Can("expense.directory.write"))
         {
             return;
@@ -264,6 +318,7 @@ public partial class HostExpenseWorkspace
             if (_selectedVendor is not null)
                 SetSelectedVendor(value.Items.FirstOrDefault(item => item.Id == _selectedVendor.Id));
         });
+        if (OwnsRequest(ct)) await LoadDirectoryTagsCoreAsync(ct);
     }
 
     private Task LoadExpensesAsync() => RunAsync(async ct =>
@@ -396,6 +451,22 @@ public partial class HostExpenseWorkspace
         () => _categoryName = "");
     private Task CreateVendorAsync() => CreateDirectoryAsync("vendors", new ExpenseVendorInput(_vendorName.Trim()),
         () => _vendorName = "");
+    private Task CreateTagAsync() => RunAsync(async ct =>
+    {
+        if (_userId is null) return;
+        if (string.IsNullOrWhiteSpace(_tagName))
+        {
+            _error = T("expenseWorkspace.nameRequired", "이름을 입력하세요.", "Enter a name.");
+            return;
+        }
+        var result = await WriteAsync<ExpenseTag>(HttpMethod.Post, $"{Root}/tags",
+            new ExpenseTagInput(_tagName.Trim()), ct);
+        if (!OwnsRequest(ct)) return;
+        if (result.Value is null || result.Error is not null) { Accept(result, _ => { }); return; }
+        _tagName = "";
+        _notice = T("expenseWorkspace.tagSaved", "태그를 추가했습니다.", "Tag added.");
+        await LoadDirectoriesCoreAsync(ct);
+    });
 
     private void SelectCategory(ExpenseCategory value) => SetSelectedCategory(value);
 
@@ -416,10 +487,19 @@ public partial class HostExpenseWorkspace
         _vendorEditEmail = value?.Input.Email ?? "";
     }
 
+    private void SelectTag(ExpenseTag value) => SetSelectedTag(value);
+
+    private void SetSelectedTag(ExpenseTag? value)
+    {
+        _selectedTag = value;
+        _tagEditName = value?.Input.Name ?? "";
+    }
+
     private void ClearDirectorySelection()
     {
         SetSelectedCategory(null);
         SetSelectedVendor(null);
+        SetSelectedTag(null);
     }
 
     private Task UpdateCategoryAsync()
@@ -480,6 +560,63 @@ public partial class HostExpenseWorkspace
                 ? T("expenseWorkspace.vendorActivated", "거래처를 다시 활성화했습니다.", "Vendor reactivated.")
                 : T("expenseWorkspace.vendorDeactivated", "거래처를 비활성화했습니다.", "Vendor deactivated."),
             "/active");
+    }
+
+    private Task UpdateTagAsync()
+    {
+        if (_selectedTag is null || string.IsNullOrWhiteSpace(_tagEditName))
+        {
+            _error = T("expenseWorkspace.nameRequired", "이름을 입력하세요.", "Enter a name.");
+            return Task.CompletedTask;
+        }
+        var current = _selectedTag;
+        var input = new ExpenseTagInput(_tagEditName.Trim());
+        return MutateTagAsync(current, HttpMethod.Put, new TagChange(current.Version, input),
+            value => value.Input == input,
+            T("expenseWorkspace.tagUpdated", "태그를 수정했습니다.", "Tag updated."));
+    }
+
+    private Task SetTagActiveAsync()
+    {
+        if (_selectedTag is null) return Task.CompletedTask;
+        var current = _selectedTag;
+        var active = !current.Active;
+        return MutateTagAsync(current, HttpMethod.Post, new ActiveChange(current.Version, active),
+            value => value.Active == active,
+            active
+                ? T("expenseWorkspace.tagActivated", "태그를 다시 활성화했습니다.", "Tag reactivated.")
+                : T("expenseWorkspace.tagDeactivated", "태그를 비활성화했습니다.", "Tag deactivated."),
+            "/active");
+    }
+
+    private Task MutateTagAsync(ExpenseTag current, HttpMethod method, object body,
+        Func<ExpenseTag, bool> intended, string notice, string suffix = "") => RunAsync(async ct =>
+    {
+        var result = await WriteAsync<ExpenseTag>(method, $"{Root}/tags/{current.Id:D}{suffix}", body, ct);
+        if (!OwnsRequest(ct)) return;
+        if (result.Value is { } saved && saved.Id == current.Id && intended(saved) && result.Error is null)
+        {
+            ApplyTag(saved);
+            await LoadTagsCoreAsync(ct);
+            if (OwnsRequest(ct)) _notice = notice;
+            return;
+        }
+        _error = result.Value is not null
+            ? T("expenseWorkspace.directoryInvalidResponse", "기준정보 응답이 현재 요청과 일치하지 않습니다. 최신 상태를 다시 불러왔습니다.", "The directory response does not match this request. The latest state was reloaded.")
+            : result.Error ?? result.Code ?? string.Format(CultureInfo.InvariantCulture, "HTTP {0}", result.StatusCode);
+        await RecoverTagAsync(current.Id, intended, ct);
+    });
+
+    private async Task RecoverTagAsync(Guid id, Func<ExpenseTag, bool> intended, CancellationToken ct)
+    {
+        var result = await Api.ReadInventoryAsync<ExpenseTag>($"{Root}/tags/{id:D}", ct);
+        if (!OwnsRequest(ct) || result.Value is not { } latest || latest.Id != id) return;
+        ApplyTag(latest);
+        if (intended(latest))
+        {
+            _error = null;
+            _notice = T("expenseWorkspace.directoryRecovered", "저장된 기준정보 결과를 확인했습니다.", "The stored directory result was recovered.");
+        }
     }
 
     private Task MutateCategoryAsync(ExpenseCategory current, HttpMethod method, object body,
@@ -555,6 +692,23 @@ public partial class HostExpenseWorkspace
         SetSelectedVendor(value);
         if (!value.Active && _draft.VendorId == value.Id) _draft.VendorId = Guid.Empty;
     }
+
+    private void ApplyTag(ExpenseTag value)
+    {
+        if (_directoryTags is { } directoryPage)
+            _directoryTags = new(directoryPage.Items.Select(item => item.Id == value.Id ? value : item).ToArray(),
+                directoryPage.Total);
+        _tags = ApplyActive(_tags, value);
+        SetSelectedTag(value);
+        if (!value.Active) _draft.TagIds.Remove(value.Id);
+    }
+
+    private void ToggleTag(Guid id)
+    {
+        if (!_draft.TagIds.Add(id)) _draft.TagIds.Remove(id);
+    }
+
+    private void RemoveTag(Guid id) => _draft.TagIds.Remove(id);
 
     private Task CreateDirectoryAsync(string segment, object body, Action clear) => RunAsync(async ct =>
     {
@@ -644,7 +798,8 @@ public partial class HostExpenseWorkspace
             _draft.ProjectId == Guid.Empty ? null : _draft.ProjectId,
             _draft.Currency.Trim().ToUpperInvariant(), _draft.ValueDate, Text(_draft.Purpose),
             Text(_draft.Reference), Text(_draft.Notes), Text(_draft.Receipt), Tax: tax,
-            SplitAcrossEmployees: _draft.SplitAcrossEmployees);
+            SplitAcrossEmployees: _draft.SplitAcrossEmployees,
+            TagIds: _draft.TagIds.Count == 0 ? null : _draft.TagIds.OrderBy(value => value).ToArray());
         return true;
     }
 
@@ -891,6 +1046,8 @@ public partial class HostExpenseWorkspace
         ExpenseCategory value) => ApplyActive(page, value, item => item.Id, item => item.Active);
     private static BusinessPage<ExpenseVendor>? ApplyActive(BusinessPage<ExpenseVendor>? page,
         ExpenseVendor value) => ApplyActive(page, value, item => item.Id, item => item.Active);
+    private static BusinessPage<ExpenseTag>? ApplyActive(BusinessPage<ExpenseTag>? page,
+        ExpenseTag value) => ApplyActive(page, value, item => item.Id, item => item.Active);
     private static BusinessPage<T>? ApplyActive<T>(BusinessPage<T>? page, T value,
         Func<T, Guid> id, Func<T, bool> active)
     {
@@ -911,6 +1068,10 @@ public partial class HostExpenseWorkspace
     private string DirectoryState(bool active) => active
         ? T("expenseWorkspace.active", "활성", "Active")
         : T("expenseWorkspace.inactive", "비활성", "Inactive");
+    private string TagLabel(Guid id)
+        => _directoryTags?.Items.FirstOrDefault(value => value.Id == id)?.Input.Name
+            ?? _tags?.Items.FirstOrDefault(value => value.Id == id)?.Input.Name
+            ?? Short(id);
     private string TypeName(ExpenseType type) => type switch { ExpenseType.TaxDeductible => T("expenseWorkspace.taxDeductible", "세무상 공제", "Tax deductible"), ExpenseType.NotTaxDeductible => T("expenseWorkspace.notTaxDeductible", "공제 불가", "Not tax deductible"), _ => T("expenseWorkspace.billable", "고객 청구", "Billable to contact") };
     private string TaxName(ExpenseTax tax)
     {
@@ -953,6 +1114,7 @@ public partial class HostExpenseWorkspace
     internal sealed record ExpenseCreateRequest(Guid OperationId, ExpenseInput Input);
     internal sealed record CategoryChange(Guid Version, ExpenseCategoryInput Input);
     internal sealed record VendorChange(Guid Version, ExpenseVendorInput Input);
+    internal sealed record TagChange(Guid Version, ExpenseTagInput Input);
     internal sealed record ActiveChange(Guid Version, bool Active);
     private sealed record LedgerFilter(DateOnly? Start = null, DateOnly? End = null,
         Guid? CategoryId = null, Guid? VendorId = null, ExpenseType? Type = null,
@@ -981,6 +1143,7 @@ public partial class HostExpenseWorkspace
         public Guid EmployeeId { get; set; }
         public Guid ProjectId { get; set; }
         public bool SplitAcrossEmployees { get; set; }
+        public HashSet<Guid> TagIds { get; } = [];
         public string TaxType { get; set; } = "";
         public decimal TaxValue { get; set; }
         public string TaxLabel { get; set; } = "";
@@ -993,6 +1156,7 @@ public partial class HostExpenseWorkspace
             Amount = 0; Type = default; CategoryId = Guid.Empty; VendorId = Guid.Empty;
             Currency = "KRW"; ValueDate = DateOnly.FromDateTime(DateTime.UtcNow.Date);
             ContactId = EmployeeId = ProjectId = Guid.Empty; SplitAcrossEmployees = false;
+            TagIds.Clear();
             TaxType = ""; TaxValue = 0; TaxLabel = Purpose = Reference = Notes = Receipt = "";
         }
     }

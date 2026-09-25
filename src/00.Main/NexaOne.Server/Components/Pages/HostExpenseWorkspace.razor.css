@@ -16,7 +16,7 @@
 .expense-scopes button span, .expense-pills span, .expense-id { color: var(--nx-text-2); font-family: var(--font-outlier); font-size: var(--nx-fs-caption); overflow-wrap: anywhere; }
 .expense-scopes button[aria-pressed="true"] { border-color: var(--color-accent); background: var(--nx-hover-teal); }
 .expense-scope-summary { display: flex; flex-wrap: wrap; gap: var(--space-sm); justify-content: space-between; padding: var(--space-sm) var(--space-md); border-left: .25rem solid var(--color-accent); background: var(--nx-card); }
-.expense-directory-create, .expense-directory-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-lg); }
+.expense-directory-create, .expense-directory-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-lg); }
 .expense-directory-entry, .expense-directory-entry > div { display: grid; gap: var(--space-xs); }
 .expense-directory-entry > div { grid-template-columns: 1fr auto; }
 .expense-directory-grid > div { display: grid; align-content: start; gap: var(--space-sm); }
@@ -36,6 +36,16 @@
 .expense-form input, .expense-form select, .expense-form textarea { width: 100%; min-width: 0; box-sizing: border-box; }
 .expense-form textarea { resize: vertical; }
 .expense-form .expense-wide { grid-column: span 2; }
+.expense-tags { display: grid; gap: var(--space-xs); min-width: 0; margin: 0; padding: var(--space-sm); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); }
+.expense-tags:disabled { opacity: .6; }
+.expense-tags legend { padding-inline: var(--space-2xs); font-weight: 650; }
+.expense-tags > p { color: var(--nx-text-2); font-size: var(--nx-fs-caption); }
+.expense-selected-tag-list { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.expense-selected-tag-list > span { display: inline-flex; align-items: center; gap: var(--space-xs); min-width: 0; padding-inline-start: var(--space-sm); border: 1px solid var(--nx-border); border-radius: var(--nx-radius-sm); background: var(--nx-card); overflow-wrap: anywhere; }
+.expense-selected-tag-list button { min-height: var(--nx-touch-min, 44px); border-width: 0 0 0 1px; }
+.expense-tag-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--space-2xs) var(--space-sm); }
+.expense-tag-options label { display: flex; align-items: center; gap: var(--space-xs); min-height: var(--nx-touch-min, 44px); padding-inline: var(--space-xs); border-radius: var(--nx-radius-sm); background: var(--nx-card); overflow-wrap: anywhere; }
+.expense-tag-options input { width: auto; min-height: auto; flex: 0 0 auto; }
 .expense-choice { display: grid; gap: var(--space-2xs); min-width: 0; }
 .expense-choice label { display: grid; gap: var(--space-2xs); }
 .expense-choice-pages { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2xs); }
@@ -63,6 +73,7 @@
 .expense-selected dt { color: var(--nx-text-2); }
 .expense-selected dd { margin: 0; font-weight: 700; }
 .expense-selected-metadata { padding-top: var(--space-sm); border-top: 1px solid var(--nx-border); }
+.expense-selected-metadata .expense-selected-tags { grid-column: 1 / -1; }
 .expense-long-text { overflow-wrap: anywhere; white-space: pre-wrap; }
 .expense-allocations { display: grid; gap: var(--space-2xs); padding: 0; margin: 0; list-style: none; }
 .expense-allocations li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-xs); padding-block: var(--space-xs); border-bottom: 1px solid var(--nx-border); }

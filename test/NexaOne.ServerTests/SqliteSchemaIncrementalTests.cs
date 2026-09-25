@@ -3125,6 +3125,37 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V203_expense_tag_resources_are_reconciled_without_overwriting_custom_values()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            ExecSql(cs, """
+                DELETE FROM SYS_MULTI_LANGUAGE_RESOURCE
+                 WHERE RESOURCE_KEY LIKE 'expenseWorkspace.tag%'
+                    OR RESOURCE_KEY IN ('expenseWorkspace.noDirectoryTags',
+                                        'expenseWorkspace.noTags',
+                                        'expenseWorkspace.selectedTags',
+                                        'expenseWorkspace.removeTag',
+                                        'expenseWorkspace.removeTagAction');
+                INSERT INTO SYS_MULTI_LANGUAGE_RESOURCE (RESOURCE_KEY,MENU_ID,LANGUAGE,VALUE)
+                VALUES ('expenseWorkspace.tagName','COMMON','EnUs','Custom tag label');
+                """);
+
+            SqliteSchemaInitializer.EnsureSchema(cs, [new ErpBillingSqliteSchemaContribution()]);
+
+            ScalarString(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='expenseWorkspace.tagName' AND LANGUAGE='EnUs'")
+                .Should().Be("Custom tag label");
+            ScalarString(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='expenseWorkspace.removeTagAction' AND LANGUAGE='EnUs'")
+                .Should().Be("Remove");
+            ScalarString(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='expenseWorkspace.tagsDetail' AND LANGUAGE='EnUs'")
+                .Should().Be("Tags");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { } }
+    }
+
+    [Fact]
     public void V160_database_principal_security_is_a_fresh_and_incremental_sqlite_no_op()
     {
         var cs = NewDb();

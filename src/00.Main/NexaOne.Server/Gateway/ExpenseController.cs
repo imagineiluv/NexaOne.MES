@@ -28,6 +28,32 @@ public sealed class ExpenseController(IExpenseBridge bridge, ILogger<ExpenseCont
         [FromQuery] int offset = 0, [FromQuery] int limit = 50)
         => Execute(user => bridge.ListEmployeesAsync(user, tenantId, organizationId, offset, limit, ct));
 
+    [HttpGet("tags")]
+    public Task<IActionResult> ListTags(Guid tenantId, Guid organizationId,
+        [FromQuery] ExpenseTagQuery query, CancellationToken ct)
+        => Execute(user => bridge.ListTagsAsync(user, tenantId, organizationId, query, ct));
+
+    [HttpPost("tags")]
+    public Task<IActionResult> CreateTag(Guid tenantId, Guid organizationId,
+        [FromBody] ExpenseTagInput input, CancellationToken ct)
+        => Execute(user => bridge.CreateTagAsync(user, tenantId, organizationId, input, ct));
+
+    [HttpGet("tags/{id:guid}")]
+    public Task<IActionResult> GetTag(Guid tenantId, Guid organizationId, Guid id, CancellationToken ct)
+        => Execute(user => bridge.GetTagAsync(user, tenantId, organizationId, id, ct));
+
+    [HttpPut("tags/{id:guid}")]
+    public Task<IActionResult> UpdateTag(Guid tenantId, Guid organizationId, Guid id,
+        [FromBody] TagChange command, CancellationToken ct)
+        => Execute(user => bridge.UpdateTagAsync(user, tenantId, organizationId, id,
+            command.Version, command.Input, ct));
+
+    [HttpPost("tags/{id:guid}/active")]
+    public Task<IActionResult> SetTagActive(Guid tenantId, Guid organizationId, Guid id,
+        [FromBody] ActiveChange command, CancellationToken ct)
+        => Execute(user => bridge.SetTagActiveAsync(user, tenantId, organizationId, id,
+            command.Version, command.Active, ct));
+
     [HttpPost("categories")]
     public Task<IActionResult> CreateCategory(Guid tenantId, Guid organizationId,
         [FromBody] ExpenseCategoryInput input, CancellationToken ct)
@@ -155,6 +181,7 @@ public sealed class ExpenseController(IExpenseBridge bridge, ILogger<ExpenseCont
 
     public sealed record CategoryChange(Guid Version, ExpenseCategoryInput Input);
     public sealed record VendorChange(Guid Version, ExpenseVendorInput Input);
+    public sealed record TagChange(Guid Version, ExpenseTagInput Input);
     public sealed record ActiveChange(Guid Version, bool Active);
     public sealed record ExpenseCreate(Guid OperationId, ExpenseInput Input);
     public sealed record ExpenseChange(Guid Version, ExpenseInput Input);

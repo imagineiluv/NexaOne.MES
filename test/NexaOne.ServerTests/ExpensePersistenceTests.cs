@@ -144,6 +144,51 @@ public sealed class ExpensePersistenceTests : IClassFixture<BusinessMembershipDa
     }
 
     [Fact]
+    public async Task Scoped_tags_support_lifecycle_paging_and_active_reference_validation()
+    {
+        var travel = await _bridge.CreateTagAsync("expense-user", _tenant, _organization, new("Travel"));
+        var meals = await _bridge.CreateTagAsync("expense-user", _tenant, _organization, new("Meals"));
+        await Error(() => _bridge.CreateTagAsync("expense-user", _tenant, _organization, new("travel")),
+            "EXPENSE_TAG_NAME_EXISTS");
+        await Error(() => _bridge.CreateTagAsync("expense-reader", _tenant, _organization, new("Denied")),
+            "BUSINESS_ACCESS_DENIED");
+
+        var page = await _bridge.ListTagsAsync("expense-reader", _tenant, _organization,
+            new(Offset: 1, Limit: 1));
+        page.Total.Should().Be(2);
+        page.Items.Single().Input.Name.Should().Be("Travel");
+        (await NewBridge().GetTagAsync("expense-reader", _tenant, _organization, travel.Id))
+            .Should().BeEquivalentTo(travel);
+
+        var renamed = await _bridge.UpdateTagAsync("expense-user", _tenant, _organization,
+            meals.Id, meals.Version, new("Food"));
+        renamed.Input.Name.Should().Be("Food");
+        await Error(() => _bridge.UpdateTagAsync("expense-user", _tenant, _organization,
+            meals.Id, meals.Version, new("Stale")), "BUSINESS_VERSION_CONFLICT");
+
+        var category = await _bridge.CreateCategoryAsync("expense-user", _tenant, _organization,
+            new("Tagged travel", [travel.Id]));
+        var vendor = await _bridge.CreateVendorAsync("expense-user", _tenant, _organization,
+            new("Tagged rail", TagIds: [travel.Id]));
+        var expense = await _bridge.CreateExpenseAsync("expense-user", _tenant, _organization,
+            Guid.NewGuid(), Input(category.Id, vendor.Id) with { TagIds = [travel.Id] });
+        expense.Input.TagIds.Should().Equal(travel.Id);
+
+        var inactive = await _bridge.SetTagActiveAsync("expense-user", _tenant, _organization,
+            travel.Id, travel.Version, false);
+        (await _bridge.ListTagsAsync("expense-reader", _tenant, _organization)).Total.Should().Be(1);
+        (await _bridge.ListTagsAsync("expense-reader", _tenant, _organization,
+            new(IncludeInactive: true))).Items.Should().ContainEquivalentOf(inactive);
+        await Error(() => _bridge.CreateExpenseAsync("expense-user", _tenant, _organization,
+            Guid.NewGuid(), Input(category.Id, vendor.Id) with { TagIds = [travel.Id] }),
+            "EXPENSE_TAG_NOT_FOUND");
+        (await _bridge.GetExpenseAsync("expense-reader", _tenant, _organization, expense.Id))
+            .Input.TagIds.Should().Equal(travel.Id);
+        Scalar<long>("SELECT COUNT(*) FROM ERP_BILLING_AUDIT WHERE RESOURCE_TYPE='expense-tag'")
+            .Should().Be(4);
+    }
+
+    [Fact]
     public async Task Billable_expense_links_and_unlinks_a_draft_invoice_atomically()
     {
         var category = await Category(); var vendor = await Vendor();
