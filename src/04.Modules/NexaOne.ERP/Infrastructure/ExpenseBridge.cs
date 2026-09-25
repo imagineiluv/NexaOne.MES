@@ -71,7 +71,11 @@ public sealed partial class BillingBridge
     public Task<ExpenseRecord> UpdateExpenseAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, ExpenseInput input, CancellationToken ct = default)
         => RunExpense(userId, tenantId, organizationId, "expense.write",
-            (_, service, session) => service.UpdateExpenseAsync(session.Actor, id, version, input, ct), ct);
+            async (_, service, session) =>
+            {
+                await session.EnsureNoActivePayoutAsync(id, ct);
+                return await service.UpdateExpenseAsync(session.Actor, id, version, input, ct);
+            }, ct);
     public Task<ExpenseRecord> GetExpenseAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, CancellationToken ct = default)
         => RunExpense(userId, tenantId, organizationId, "expense.read",
@@ -83,31 +87,55 @@ public sealed partial class BillingBridge
     public Task<ExpenseRecord> MarkInvoicedAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, CancellationToken ct = default)
         => RunExpense(userId, tenantId, organizationId, "expense.write",
-            (_, service, session) => service.MarkInvoicedAsync(session.Actor, id, version, ct), ct);
+            async (_, service, session) =>
+            {
+                await session.EnsureNoActivePayoutAsync(id, ct);
+                return await service.MarkInvoicedAsync(session.Actor, id, version, ct);
+            }, ct);
     public Task<ExpenseRecord> MarkPaidAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, CancellationToken ct = default)
         => RunExpense(userId, tenantId, organizationId, "expense.write",
-            (_, service, session) => service.MarkPaidAsync(session.Actor, id, version, ct), ct);
+            async (_, service, session) =>
+            {
+                await session.EnsureNoActivePayoutAsync(id, ct);
+                return await service.MarkPaidAsync(session.Actor, id, version, ct);
+            }, ct);
     public Task<ExpenseRecord> ReimburseExpenseAsync(string userId, Guid tenantId, Guid organizationId,
         Guid operationId, Guid id, Guid version, DateTimeOffset paidAt, string? reference = null,
         CancellationToken ct = default)
         => RunExpense(userId, tenantId, organizationId, "expense.reimburse",
-            (_, service, session) => service.ReimburseExpenseAsync(session.Actor, operationId, id, version, paidAt, reference, ct), ct);
+            async (_, service, session) =>
+            {
+                await session.EnsureNoActivePayoutAsync(id, ct);
+                return await service.ReimburseExpenseAsync(session.Actor, operationId, id, version, paidAt, reference, ct);
+            }, ct);
     public Task<ExpenseRecord> CancelExpenseAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, string? reason = null, CancellationToken ct = default)
         => RunExpense(userId, tenantId, organizationId, "expense.write",
-            (_, service, session) => service.CancelExpenseAsync(session.Actor, id, version, reason, ct), ct);
+            async (_, service, session) =>
+            {
+                await session.EnsureNoActivePayoutAsync(id, ct);
+                return await service.CancelExpenseAsync(session.Actor, id, version, reason, ct);
+            }, ct);
 
     public Task<ExpenseInvoiceLink> LinkInvoiceAsync(string userId, Guid tenantId, Guid organizationId,
         Guid operationId, Guid expenseId, Guid expenseVersion, Guid invoiceId, Guid invoiceVersion,
         string? description = null, CancellationToken ct = default)
-        => RunAccounting(userId, tenantId, organizationId, (service, session) => service.LinkExpenseAsync(
-            session.Actor, operationId, expenseId, expenseVersion, invoiceId, invoiceVersion, description, ct), ct);
+        => RunAccounting(userId, tenantId, organizationId, async (service, session) =>
+        {
+            await session.EnsureNoActivePayoutAsync(expenseId, ct);
+            return await service.LinkExpenseAsync(session.Actor, operationId, expenseId, expenseVersion,
+                invoiceId, invoiceVersion, description, ct);
+        }, ct);
     public Task<ExpenseInvoiceLink> UnlinkInvoiceAsync(string userId, Guid tenantId, Guid organizationId,
         Guid operationId, Guid expenseId, Guid expenseVersion, Guid invoiceId, Guid invoiceVersion,
         CancellationToken ct = default)
-        => RunAccounting(userId, tenantId, organizationId, (service, session) => service.UnlinkExpenseAsync(
-            session.Actor, operationId, expenseId, expenseVersion, invoiceId, invoiceVersion, ct), ct);
+        => RunAccounting(userId, tenantId, organizationId, async (service, session) =>
+        {
+            await session.EnsureNoActivePayoutAsync(expenseId, ct);
+            return await service.UnlinkExpenseAsync(session.Actor, operationId, expenseId, expenseVersion,
+                invoiceId, invoiceVersion, ct);
+        }, ct);
 
     private Task<T> RunExpense<T>(string userId, Guid tenantId, Guid organizationId, string permission,
         Func<ExpenseDirectoryService, ExpenseService, Session, Task<T>> action, CancellationToken ct)

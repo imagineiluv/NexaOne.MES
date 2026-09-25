@@ -2,6 +2,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using NexaFramework.Scheduling;
 using NexaOne.ERP.Application.Delivery;
+using NexaOne.ERP.Application.Expense;
 using NexaOne.ERP.Application.Recurring;
 using NexaOne.ERP.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
@@ -30,6 +31,7 @@ public sealed class Module
     private readonly ISqliteSchemaContribution _billingSqliteSchemaContribution;
     private readonly IHostedService _recurringAutomationWorker;
     private readonly IHostedService _deliveryDispatchWorker;
+    private readonly IHostedService _expensePayoutWorker;
 
     public Module(
         EesDataSource dataSource,
@@ -38,7 +40,8 @@ public sealed class Module
         IBusinessMasterDirectory businessMasters,
         IBusinessProjectDirectory businessProjects,
         IRecurringScheduler scheduler,
-        IDeliveryProviderRegistry deliveryProviders)
+        IDeliveryProviderRegistry deliveryProviders,
+        IExpensePayoutProviderRegistry expensePayoutProviders)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(configuration);
@@ -47,6 +50,7 @@ public sealed class Module
         ArgumentNullException.ThrowIfNull(businessProjects);
         ArgumentNullException.ThrowIfNull(scheduler);
         ArgumentNullException.ThrowIfNull(deliveryProviders);
+        ArgumentNullException.ThrowIfNull(expensePayoutProviders);
 
         var bridge = new BillingBridge(dataSource, businessMemberships, businessMasters,
             projects: businessProjects);
@@ -67,6 +71,10 @@ public sealed class Module
             scheduler, bridge, deliveryProviders, options.DeliveryEnabled, options.DeliveryPrincipalId,
             TimeSpan.FromSeconds(options.DeliveryIntervalSeconds),
             TimeSpan.FromSeconds(options.DeliveryLeaseSeconds), options.DeliveryBatchSize);
+        _expensePayoutWorker = new ExpensePayoutWorker(
+            scheduler, bridge, expensePayoutProviders, options.ExpensePayoutEnabled, options.ExpensePayoutUserId,
+            TimeSpan.FromSeconds(options.ExpensePayoutIntervalSeconds),
+            TimeSpan.FromSeconds(options.ExpensePayoutLeaseSeconds), options.ExpensePayoutBatchSize);
     }
 
     /// <summary>Estimates, invoices, credit notes and payments over the Framework billing service.</summary>
@@ -99,6 +107,8 @@ public sealed class Module
     public IHostedService GetRecurringAutomationWorker() => _recurringAutomationWorker;
 
     public IHostedService GetDeliveryDispatchWorker() => _deliveryDispatchWorker;
+
+    public IHostedService GetExpensePayoutWorker() => _expensePayoutWorker;
 }
 
 internal sealed record ErpModuleOptions(
@@ -110,7 +120,12 @@ internal sealed record ErpModuleOptions(
     string DeliveryPrincipalId,
     int DeliveryIntervalSeconds,
     int DeliveryLeaseSeconds,
-    int DeliveryBatchSize)
+    int DeliveryBatchSize,
+    bool ExpensePayoutEnabled,
+    string ExpensePayoutUserId,
+    int ExpensePayoutIntervalSeconds,
+    int ExpensePayoutLeaseSeconds,
+    int ExpensePayoutBatchSize)
 {
     public static ErpModuleOptions FromConfiguration(IConfiguration configuration)
     {
@@ -152,10 +167,25 @@ internal sealed record ErpModuleOptions(
         if (deliveryBatchSize is < 1 or > 100)
             throw new InvalidOperationException(
                 "Worker:Collaboration:Delivery:BatchSize must be between 1 and 100.");
+        var payoutEnabled = configuration.GetValue("Worker:Erp:ExpensePayout:Enabled", false);
+        var payoutUserId = configuration["Worker:Erp:ExpensePayout:UserId"]?.Trim() ?? string.Empty;
+        if (payoutEnabled && string.IsNullOrWhiteSpace(payoutUserId))
+            throw new InvalidOperationException(
+                "Worker:Erp:ExpensePayout:UserId is required when expense payout is enabled.");
+        var payoutLeaseSeconds = configuration.GetValue("Worker:Erp:ExpensePayout:LeaseSeconds", 60);
+        if (payoutLeaseSeconds is < 10 or > 900)
+            throw new InvalidOperationException(
+                "Worker:Erp:ExpensePayout:LeaseSeconds must be between 10 and 900.");
+        var payoutBatchSize = configuration.GetValue("Worker:Erp:ExpensePayout:BatchSize", 25);
+        if (payoutBatchSize is < 1 or > 100)
+            throw new InvalidOperationException(
+                "Worker:Erp:ExpensePayout:BatchSize must be between 1 and 100.");
         return new(enabled, principalId,
             Math.Max(configuration.GetValue("Worker:Erp:Recurring:IntervalSeconds", 3_600), 60),
             timeZone, deliveryEnabled, deliveryPrincipalId,
             Math.Max(configuration.GetValue("Worker:Collaboration:Delivery:IntervalSeconds", 30), 10),
-            deliveryLeaseSeconds, deliveryBatchSize);
+            deliveryLeaseSeconds, deliveryBatchSize, payoutEnabled, payoutUserId,
+            Math.Max(configuration.GetValue("Worker:Erp:ExpensePayout:IntervalSeconds", 30), 10),
+            payoutLeaseSeconds, payoutBatchSize);
     }
 }

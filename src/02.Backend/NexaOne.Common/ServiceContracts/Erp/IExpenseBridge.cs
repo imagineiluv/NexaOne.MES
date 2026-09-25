@@ -81,6 +81,15 @@ public interface IExpenseBridge : INexaModuleBridge
     Task<ExpenseRecord> ReimburseExpenseAsync(string userId, Guid tenantId, Guid organizationId,
         Guid operationId, Guid id, Guid version, DateTimeOffset paidAt, string? reference = null,
         CancellationToken ct = default);
+    Task<ExpensePayoutRequest> QueuePayoutAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid operationId, ExpensePayoutInput input, CancellationToken ct = default);
+    Task<ExpensePayoutRequest> GetPayoutAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid payoutId, CancellationToken ct = default);
+    Task<BusinessPage<ExpensePayoutRequest>> ListPayoutsAsync(string userId, Guid tenantId,
+        Guid organizationId, Guid? expenseId = null, int offset = 0, int limit = 50,
+        CancellationToken ct = default);
+    Task<ExpensePayoutRequest> CancelPayoutAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid payoutId, Guid version, CancellationToken ct = default);
     Task<ExpenseRecord> CancelExpenseAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, string? reason = null, CancellationToken ct = default);
     Task<ExpenseReceipt?> GetReceiptAsync(string userId, Guid tenantId, Guid organizationId,
