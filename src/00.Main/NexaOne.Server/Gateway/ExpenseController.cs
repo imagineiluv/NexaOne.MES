@@ -14,6 +14,7 @@ namespace NexaOne.Server.Gateway;
 [Route("api/v1/erp/expenses/{tenantId:guid}/{organizationId:guid}")]
 public sealed class ExpenseController(IExpenseBridge bridge, ILogger<ExpenseController> logger) : ControllerBase
 {
+    private const long MaxReceiptBytes = 10L * 1024 * 1024;
     [HttpGet("/api/v1/erp/expenses/scopes/me")]
     public Task<IActionResult> ListScopes(CancellationToken ct, [FromQuery] int offset = 0, [FromQuery] int limit = 50)
         => Execute(user => bridge.ListAccessibleScopesAsync(user, offset, limit, ct));
@@ -144,6 +145,46 @@ public sealed class ExpenseController(IExpenseBridge bridge, ILogger<ExpenseCont
         => Execute(user => bridge.CancelExpenseAsync(user, tenantId, organizationId,
             id, command.Version, command.Reason, ct));
 
+    [HttpGet("{id:guid}/receipt")]
+    public async Task<IActionResult> GetReceipt(Guid tenantId, Guid organizationId, Guid id, CancellationToken ct)
+    {
+        var result = await Execute(user => bridge.GetReceiptAsync(user, tenantId, organizationId, id, ct));
+        return result is OkObjectResult { Value: null } ? NotFound(new { code = "EXPENSE_RECEIPT_NOT_FOUND" }) : result;
+    }
+
+    [HttpPut("{id:guid}/receipt")]
+    [RequestSizeLimit(MaxReceiptBytes + 64 * 1024)]
+    public async Task<IActionResult> PutReceipt(Guid tenantId, Guid organizationId, Guid id,
+        [FromForm] IFormFile? file, [FromForm] Guid? version, CancellationToken ct)
+    {
+        if (file is null || file.Length is < 1 or > MaxReceiptBytes)
+            return BadRequest(new { code = "INVALID_BUSINESS_INPUT" });
+        await using var input = file.OpenReadStream();
+        using var buffer = new MemoryStream((int)file.Length);
+        await input.CopyToAsync(buffer, ct);
+        if (buffer.Length != file.Length || buffer.Length > MaxReceiptBytes)
+            return BadRequest(new { code = "INVALID_BUSINESS_INPUT" });
+        return await Execute(user => bridge.PutReceiptAsync(user, tenantId, organizationId, id,
+            version, file.FileName, file.ContentType, buffer.ToArray(), ct));
+    }
+
+    [HttpGet("{id:guid}/receipt/download")]
+    public async Task<IActionResult> DownloadReceipt(Guid tenantId, Guid organizationId, Guid id, CancellationToken ct)
+    {
+        var result = await Execute(user => bridge.DownloadReceiptAsync(user, tenantId, organizationId, id, ct));
+        if (result is not OkObjectResult { Value: ExpenseReceiptDownload download }) return result;
+        return File(download.Content, download.Receipt.ContentType, download.Receipt.FileName);
+    }
+
+    [HttpDelete("{id:guid}/receipt")]
+    public Task<IActionResult> DeleteReceipt(Guid tenantId, Guid organizationId, Guid id,
+        [FromQuery] Guid version, CancellationToken ct)
+        => Execute(async user =>
+        {
+            await bridge.DeleteReceiptAsync(user, tenantId, organizationId, id, version, ct);
+            return new ReceiptDeleted(id, version);
+        });
+
     [HttpPost("{id:guid}/invoice-link")]
     public Task<IActionResult> LinkInvoice(Guid tenantId, Guid organizationId, Guid id,
         [FromBody] InvoiceLinkCommand command, CancellationToken ct)
@@ -192,4 +233,5 @@ public sealed class ExpenseController(IExpenseBridge bridge, ILogger<ExpenseCont
         Guid InvoiceVersion, string? Description);
     public sealed record InvoiceUnlinkCommand(Guid OperationId, Guid ExpenseVersion, Guid InvoiceId,
         Guid InvoiceVersion);
+    public sealed record ReceiptDeleted(Guid ExpenseId, Guid Version);
 }

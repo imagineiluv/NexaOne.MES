@@ -60,6 +60,16 @@
             document.body.appendChild(a); a.click();
             document.body.removeChild(a); URL.revokeObjectURL(url);
         };
+        /* 인증 API에서 받은 파일 스트림을 브라우저 다운로드로 연결한다. */
+        window.nxDownloadStream = async function (filename, contentType, streamReference) {
+            var buffer = await streamReference.arrayBuffer();
+            var blob = new Blob([buffer], { type: contentType || "application/octet-stream" });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement("a");
+            a.href = url; a.download = filename || "download";
+            document.body.appendChild(a); a.click();
+            document.body.removeChild(a); URL.revokeObjectURL(url);
+        };
         /* P3-11 사이드바 폭 드래그 — 핸들 드래그로 --mes-nav-width 조절, localStorage 저장. */
         window.nxGetNavWidth = function () { return parseInt(localStorage.getItem('nx-nav-width') || '0', 10) || 0; };
         window.nxSidebarResizeInit = function (handle, dotnet) {

@@ -1,5 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
@@ -762,6 +763,85 @@ public sealed class InventoryApiClientTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(5)));
         fixture.RequestCount.Should().Be(1);
         fixture.Notifications.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Business_file_upload_sends_authenticated_multipart_once_with_expected_version()
+    {
+        var version = Guid.NewGuid();
+        var bytes = Encoding.ASCII.GetBytes("%PDF receipt");
+        using var fixture = new ClientFixture(async (request, ct) =>
+        {
+            request.Method.Should().Be(HttpMethod.Put);
+            request.RequestUri!.AbsolutePath.Should().Be(
+                "/mes/api/v1/erp/expenses/tenant/org/11111111-1111-1111-1111-111111111111/receipt");
+            request.Headers.Authorization!.Scheme.Should().Be("Bearer");
+            request.Headers.GetValues("Accept-Language").Should().Equal("en-US");
+            var form = request.Content.Should().BeOfType<MultipartFormDataContent>().Subject;
+            var parts = form.ToArray();
+            var file = parts.Single(part => part.Headers.ContentDisposition?.Name?.Trim('"') == "file");
+            file.Headers.ContentDisposition!.FileName!.Trim('"').Should().Be("receipt.pdf");
+            file.Headers.ContentType!.MediaType.Should().Be("application/pdf");
+            (await file.ReadAsByteArrayAsync(ct)).Should().Equal(bytes);
+            (await parts.Single(part => part.Headers.ContentDisposition?.Name?.Trim('"') == "version")
+                .ReadAsStringAsync(ct)).Should().Be(version.ToString("D"));
+            return Response(200, EquipmentResponse);
+        });
+        await SignIn(fixture);
+        await using var content = new MemoryStream(bytes);
+
+        var result = await fixture.Client.UploadInventoryFileAsync<SharedEquipment>(
+            "api/v1/erp/expenses/tenant/org/11111111-1111-1111-1111-111111111111/receipt",
+            content, "receipt.pdf", "application/pdf", version, "operator-a");
+
+        result.Value.Should().NotBeNull();
+        result.Error.Should().BeNull();
+        fixture.RequestCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Business_file_download_preserves_bytes_name_and_media_type()
+    {
+        var bytes = new byte[] { 137, 80, 78, 71 };
+        using var fixture = new ClientFixture(request =>
+        {
+            request.Method.Should().Be(HttpMethod.Get);
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(bytes)
+            };
+            response.Content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+            response.Content.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment")
+            {
+                FileName = "receipt.png"
+            };
+            return response;
+        });
+        await SignIn(fixture);
+
+        var result = await fixture.Client.DownloadInventoryFileAsync(
+            "api/v1/erp/expenses/tenant/org/11111111-1111-1111-1111-111111111111/receipt/download");
+
+        result.Content.Should().Equal(bytes);
+        result.FileName.Should().Be("receipt.png");
+        result.ContentType.Should().Be("image/png");
+        result.Error.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Business_file_download_rejects_success_without_safe_metadata()
+    {
+        using var fixture = new ClientFixture(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent([1])
+        });
+
+        var result = await fixture.Client.DownloadInventoryFileAsync(
+            "api/v1/erp/expenses/tenant/org/11111111-1111-1111-1111-111111111111/receipt/download");
+
+        result.Content.Should().BeNull();
+        result.Code.Should().Be("INVALID_INVENTORY_RESPONSE");
+        fixture.RequestCount.Should().Be(1);
     }
 
     private static Task SignIn(ClientFixture fixture)

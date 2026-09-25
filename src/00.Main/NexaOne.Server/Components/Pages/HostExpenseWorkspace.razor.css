@@ -75,6 +75,24 @@
 .expense-selected-metadata { padding-top: var(--space-sm); border-top: 1px solid var(--nx-border); }
 .expense-selected-metadata .expense-selected-tags { grid-column: 1 / -1; }
 .expense-long-text { overflow-wrap: anywhere; white-space: pre-wrap; }
+.expense-receipt { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-sm); min-width: 0; margin-top: var(--space-xs); padding-top: var(--space-lg); border-top: 1px solid var(--nx-border); }
+.expense-receipt .expense-heading p, .expense-receipt-upload > p { color: var(--nx-text-2); font-size: var(--nx-fs-caption); }
+.expense-receipt-current { display: flex; align-items: center; justify-content: space-between; gap: var(--space-sm); padding-block: var(--space-sm); border-block: 1px solid var(--nx-border); }
+.expense-receipt-current > div { display: grid; gap: var(--space-2xs); min-width: 0; }
+.expense-receipt-current strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.expense-receipt-meta { display: flex; flex-wrap: wrap; gap: var(--space-2xs) var(--space-xs); color: var(--nx-text-2); font-family: var(--font-outlier); font-size: var(--nx-fs-caption); }
+.expense-receipt-meta span { white-space: nowrap; }
+.expense-receipt-meta span:not(:last-child)::after { content: " ·"; }
+.expense-receipt-empty { padding-block: var(--space-sm); color: var(--nx-text-2); }
+.expense-receipt-upload { display: grid; grid-template-columns: minmax(12rem, 1fr) auto; align-items: end; gap: var(--space-xs) var(--space-sm); }
+.expense-receipt-upload > label, .expense-receipt-upload > p, .expense-receipt-pending { grid-column: 1 / -1; }
+.expense-receipt-upload ::deep input { width: 100%; min-width: 0; box-sizing: border-box; }
+.expense-receipt-pending { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-xs); min-width: 0; padding: var(--space-xs) 0; }
+.expense-receipt-pending span { min-width: 0; overflow-wrap: anywhere; }
+.expense-receipt-pending strong { font-family: var(--font-outlier); font-size: var(--nx-fs-caption); }
+.expense-receipt-delete { width: fit-content; }
+.expense-receipt .danger { border-color: var(--color-danger); color: var(--color-danger); }
+.expense-receipt-delete-confirm { display: grid; gap: var(--space-xs); padding-top: var(--space-sm); border-top: 1px solid var(--color-danger); }
 .expense-allocations { display: grid; gap: var(--space-2xs); padding: 0; margin: 0; list-style: none; }
 .expense-allocations li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-xs); padding-block: var(--space-xs); border-bottom: 1px solid var(--nx-border); }
 .expense-allocations span { color: var(--nx-text-2); font-family: var(--font-outlier); font-size: var(--nx-fs-caption); overflow-wrap: anywhere; }
@@ -99,7 +117,10 @@
   .expense-invoice-current code { grid-column: auto; }
   .expense-form .expense-wide { grid-column: auto; }
   .expense-directory-entry > div { grid-template-columns: 1fr; }
-  .expense-directory-create button, .expense-directory-actions button, .expense-form > button, .expense-ledger-filter-actions button { width: 100%; }
+  .expense-directory-create button, .expense-directory-actions button, .expense-form > button, .expense-ledger-filter-actions button, .expense-receipt button { width: 100%; }
+  .expense-receipt-current { align-items: stretch; flex-direction: column; }
+  .expense-receipt-upload { grid-template-columns: 1fr; }
+  .expense-receipt-upload > label, .expense-receipt-upload > p, .expense-receipt-pending { grid-column: auto; }
   .expense-choice-pages { align-items: stretch; flex-direction: column; }
   .expense-choice-pages button { width: 100%; }
 }

@@ -1,8 +1,10 @@
 using System.Reflection;
 using System.Security.Claims;
+using System.Text;
 using Bunit;
 using Bunit.TestDoubles;
 using FluentAssertions;
+using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
@@ -50,6 +52,8 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
         Read<ExpenseRecord>(_ => new([], 0));
         Read<BillingDocument>(_ => new([], 0));
         ReadWork<WorkProject>(_ => new([], 0));
+        _api.Setup(api => api.ReadInventoryAsync<ExpenseReceipt>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((null, 404, "EXPENSE_RECEIPT_NOT_FOUND", "not found"));
     }
 
     [Fact]
@@ -145,6 +149,63 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
 
         cut.WaitForAssertion(() => cut.Find("[role=alert]").TextContent.Should().Contain("시작일과 종료일을 함께"));
         Paths<ExpenseRecord>().Should().HaveCount(1);
+    }
+
+    [Fact]
+    public void Receipt_panel_uploads_downloads_and_requires_delete_confirmation()
+    {
+        ShowScope("expense.read", "expense.write");
+        var expense = Expense(Guid.NewGuid(), Input(ExpenseType.TaxDeductible, Guid.NewGuid()));
+        Read<ExpenseRecord>(_ => new([expense], 1));
+        ExpenseReceipt? stored = null;
+        _api.Setup(api => api.ReadInventoryAsync<ExpenseReceipt>(
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/{expense.Id:D}/receipt",
+                It.IsAny<CancellationToken>()))
+            .Returns(() => Task.FromResult<(ExpenseReceipt?, int, string?, string?)>(stored is null
+                ? (null, 404, "EXPENSE_RECEIPT_NOT_FOUND", "not found")
+                : (stored, 200, null, null)));
+        _api.Setup(api => api.UploadInventoryFileAsync<ExpenseReceipt>(
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/{expense.Id:D}/receipt",
+                It.IsAny<Stream>(), "receipt.pdf", "application/pdf", null, "operator",
+                It.IsAny<CancellationToken>()))
+            .Returns(async (string _, Stream content, string _, string _, Guid? _, string _, CancellationToken ct) =>
+            {
+                using var copy = new MemoryStream();
+                await content.CopyToAsync(copy, ct);
+                copy.ToArray().Should().StartWith(Encoding.ASCII.GetBytes("%PDF-"));
+                stored = Receipt(expense.Id, "receipt.pdf", "application/pdf", copy.Length);
+                return (stored, 200, null, null);
+            });
+        _api.Setup(api => api.DownloadInventoryFileAsync(
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/{expense.Id:D}/receipt/download",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Encoding.ASCII.GetBytes("%PDF-1.7"), "receipt.pdf", "application/pdf", 200, null, null));
+        _api.Setup(api => api.WriteInventoryAsync<HostExpenseWorkspace.ReceiptDeleted>(HttpMethod.Delete,
+                It.Is<string>(path => path == $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/{expense.Id:D}/receipt?version={stored!.Version:D}"),
+                It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .Returns(() => Task.FromResult<(HostExpenseWorkspace.ReceiptDeleted?, int, string?, string?)>(
+                (new(expense.Id, stored!.Version), 200, null, null)));
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("[data-select-expense]").Should().NotBeNull());
+        cut.Find("[data-select-expense]").Click();
+        cut.WaitForAssertion(() => cut.Find("[data-receipt-empty]").Should().NotBeNull());
+
+        cut.FindComponent<InputFile>().UploadFiles(
+            InputFileContent.CreateFromText("%PDF-1.7\nreceipt", "receipt.pdf", contentType: "application/pdf"));
+        cut.WaitForAssertion(() => cut.Find("#expense-receipt-upload").Should().NotBeNull());
+        cut.Find("#expense-receipt-upload").Click();
+
+        cut.WaitForAssertion(() => cut.Find(".expense-receipt-current").TextContent.Should().Contain("receipt.pdf"));
+        cut.Find("#expense-receipt-download").Click();
+        cut.WaitForAssertion(() => JSInterop.Invocations.Should().Contain(invocation => invocation.Identifier == "nxDownloadStream"));
+        cut.Find("#expense-receipt-delete").Click();
+        cut.Find("#expense-receipt-delete-confirm").Should().NotBeNull();
+        cut.Find("#expense-receipt-delete-confirm").Click();
+
+        cut.WaitForAssertion(() => cut.Find("[data-receipt-empty]").Should().NotBeNull());
+        cut.FindAll("#expense-receipt-delete-confirm").Should().BeEmpty();
     }
 
     [Fact]
@@ -824,6 +885,11 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
         new("NexaOne.MES", Tenant.ToString("D"), Organization.ToString("D")), Guid.NewGuid(), operationId,
         input, "operator", status, ExpenseState.Active)
     { CreationInput = input, Amounts = new(input.Amount, 0, input.Amount) };
+
+    private static ExpenseReceipt Receipt(Guid expenseId, string fileName, string contentType, long size)
+        => new(Guid.NewGuid(), expenseId,
+            new("NexaOne.MES", Tenant.ToString("D"), Organization.ToString("D")), Guid.NewGuid(),
+            fileName, contentType, size, new string('0', 64), "operator", DateTimeOffset.UtcNow);
 
     private static BillingDocument Invoice(Guid contactId) => new(Guid.NewGuid(),
         new("NexaOne.MES", Tenant.ToString("D"), Organization.ToString("D")), Guid.NewGuid(), Guid.NewGuid(),

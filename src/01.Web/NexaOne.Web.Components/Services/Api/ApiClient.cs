@@ -11,6 +11,7 @@ namespace NexaOne.Web.Services.Api;
 
 public sealed class ApiClient : IApiClient
 {
+    private const int MaxBusinessFileBytes = 10 * 1024 * 1024;
     private readonly HttpClient _http;
     private readonly AuthTokenService _tokenService;
     private readonly JwtAuthStateProvider _authState;
@@ -113,7 +114,8 @@ public sealed class ApiClient : IApiClient
         object? body,
         string? token,
         CancellationToken ct,
-        IReadOnlyDictionary<string, string>? headers = null)
+        IReadOnlyDictionary<string, string>? headers = null,
+        HttpCompletionOption completionOption = HttpCompletionOption.ResponseContentRead)
     {
         var req = new HttpRequestMessage(method, url);
         if (!string.IsNullOrEmpty(token))
@@ -126,7 +128,7 @@ public sealed class ApiClient : IApiClient
                 req.Headers.TryAddWithoutValidation(name, value);
         if (body is not null)
             req.Content = JsonContent.Create(body);
-        return await _http.SendAsync(req, ct);
+        return await _http.SendAsync(req, completionOption, ct);
     }
 
     // surfaceErrors=true면 아무 페이지도 처리하지 않는 403/5xx를 전역 토스트로 노출한다.
@@ -135,7 +137,8 @@ public sealed class ApiClient : IApiClient
         HttpMethod method, string url, object? body, CancellationToken ct,
         bool surfaceErrors = true,
         IReadOnlyDictionary<string, string>? headers = null,
-        string? expectedUserId = null)
+        string? expectedUserId = null,
+        HttpCompletionOption completionOption = HttpCompletionOption.ResponseContentRead)
     {
         HttpResponseMessage resp;
         try
@@ -146,7 +149,7 @@ public sealed class ApiClient : IApiClient
                 ct.ThrowIfCancellationRequested();
                 if (!HasInventoryIdentity(token, expectedUserId)) return InventoryIdentityChangedResponse();
             }
-            resp = await SendOnceAsync(method, url, body, token, ct, headers);
+            resp = await SendOnceAsync(method, url, body, token, ct, headers, completionOption);
             if (resp.StatusCode == HttpStatusCode.Unauthorized)
             {
                 resp.Dispose();                   // 첫 401 응답 소켓/리소스 해제(누수 방지)
@@ -156,7 +159,7 @@ public sealed class ApiClient : IApiClient
                     ct.ThrowIfCancellationRequested();
                     if (!HasInventoryIdentity(refreshed, expectedUserId)) return InventoryIdentityChangedResponse();
                 }
-                resp = await SendOnceAsync(method, url, body, refreshed, ct, headers);
+                resp = await SendOnceAsync(method, url, body, refreshed, ct, headers, completionOption);
             }
         }
         // 전송 계층 실패(연결 거부·타임아웃)를 합성 503으로 변환한다 — 헬퍼들의 IsSuccessStatusCode 분기와
@@ -255,6 +258,103 @@ public sealed class ApiClient : IApiClient
             || expectedUserId != expectedUserId.Trim() || expectedUserId.Any(char.IsControl))
             return (null, 400, "INVALID_INVENTORY_REQUEST", InventoryWriteRequestError());
         return await SendInventoryAsync<T>(method, relativePath, body, ct, expectedUserId);
+    }
+
+    public async Task<(T? Value, int StatusCode, string? Code, string? Error)> UploadInventoryFileAsync<T>(
+        string relativePath, Stream content, string fileName, string contentType, Guid? version,
+        string expectedUserId, CancellationToken ct = default) where T : class
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!IsBusinessPath(relativePath) || content is null || !content.CanRead
+            || !IsBusinessFileName(fileName) || string.IsNullOrWhiteSpace(contentType) || contentType.Length > 100
+            || contentType != contentType.Trim() || contentType.Any(char.IsControl)
+            || !IsExpectedUserId(expectedUserId))
+            return (null, 400, "INVALID_INVENTORY_REQUEST", InventoryWriteRequestError());
+
+        var token = await GetValidAccessTokenAsync(ct);
+        ct.ThrowIfCancellationRequested();
+        if (!HasInventoryIdentity(token, expectedUserId))
+        {
+            using var identityChanged = InventoryIdentityChangedResponse();
+            return await ReadInventoryResponseAsync<T>(identityChanged, isWrite: true, ct);
+        }
+
+        using var form = new MultipartFormDataContent();
+        using var file = new StreamContent(content);
+        file.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+        form.Add(file, "file", fileName);
+        if (version is { } expectedVersion)
+            form.Add(new StringContent(expectedVersion.ToString("D")), "version");
+        using var request = new HttpRequestMessage(HttpMethod.Put, relativePath) { Content = form };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        request.Headers.Add("Accept-Language", _ui.Language == "EnUs" ? "en-US" : "ko-KR");
+
+        var status = 503;
+        try
+        {
+            using var response = await _http.SendAsync(request, ct);
+            ct.ThrowIfCancellationRequested();
+            status = (int)response.StatusCode;
+            return await ReadInventoryResponseAsync<T>(response, isWrite: true, ct);
+        }
+        catch (Exception ex) when (ex is IOException or HttpRequestException
+            || ex is OperationCanceledException && !ct.IsCancellationRequested)
+        {
+            ct.ThrowIfCancellationRequested();
+            return (null, status, "INVENTORY_RESPONSE_UNAVAILABLE", InventoryWriteOutcomeError());
+        }
+    }
+
+    public async Task<(byte[]? Content, string? FileName, string? ContentType, int StatusCode, string? Code, string? Error)>
+        DownloadInventoryFileAsync(string relativePath, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!IsBusinessPath(relativePath))
+            return (null, null, null, 400, "INVALID_INVENTORY_PATH",
+                _ui.T("error.inventoryPath", "재고 조회 경로가 올바르지 않습니다."));
+
+        try
+        {
+            using var response = await SendAsync(HttpMethod.Get, relativePath, null, ct, surfaceErrors: false,
+                completionOption: HttpCompletionOption.ResponseHeadersRead);
+            ct.ThrowIfCancellationRequested();
+            var status = (int)response.StatusCode;
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await ReadInventoryResponseAsync<BusinessFileError>(response, isWrite: false, ct);
+                return (null, null, null, status, error.Code, error.Error);
+            }
+
+            var length = response.Content.Headers.ContentLength;
+            var fileName = response.Content.Headers.ContentDisposition?.FileNameStar
+                ?? response.Content.Headers.ContentDisposition?.FileName?.Trim('"');
+            var contentType = response.Content.Headers.ContentType?.MediaType;
+            if (length is <= 0 or > MaxBusinessFileBytes || !IsBusinessFileName(fileName)
+                || string.IsNullOrWhiteSpace(contentType) || contentType.Length > 100)
+                return InvalidBusinessFileResponse(status);
+
+            await using var source = await response.Content.ReadAsStreamAsync(ct);
+            using var destination = new MemoryStream((int)(length ?? 0));
+            var buffer = new byte[81920];
+            while (true)
+            {
+                var read = await source.ReadAsync(buffer, ct);
+                if (read == 0) break;
+                if (destination.Length + read > MaxBusinessFileBytes)
+                    return InvalidBusinessFileResponse(status);
+                await destination.WriteAsync(buffer.AsMemory(0, read), ct);
+            }
+            if (destination.Length == 0 || length is { } expectedLength && destination.Length != expectedLength)
+                return InvalidBusinessFileResponse(status);
+            return (destination.ToArray(), fileName, contentType, status, null, null);
+        }
+        catch (Exception ex) when (ex is IOException or HttpRequestException
+            || ex is OperationCanceledException && !ct.IsCancellationRequested)
+        {
+            ct.ThrowIfCancellationRequested();
+            return (null, null, null, 503, "INVENTORY_RESPONSE_UNAVAILABLE",
+                _ui.T("error.inventoryResponse", "재고 조회 응답을 읽을 수 없습니다. 다시 시도해 주세요."));
+        }
     }
 
     private async Task<(T? Value, int StatusCode, string? Code, string? Error)> SendInventoryAsync<T>(
@@ -359,6 +459,22 @@ public sealed class ApiClient : IApiClient
         return !path.Contains('\\') && !path.Contains('%') && !path.Any(char.IsControl)
             && !path.Split('/').Any(segment => segment is "." or "..");
     }
+
+    private static bool IsExpectedUserId(string? value)
+        => !string.IsNullOrWhiteSpace(value) && value.Length <= 50 && value == value.Trim()
+            && !value.Any(char.IsControl);
+
+    private static bool IsBusinessFileName(string? value)
+        => !string.IsNullOrWhiteSpace(value) && value.Length <= 255 && value == value.Trim()
+            && value is not "." and not ".." && !value.Contains('/') && !value.Contains('\\')
+            && !value.Any(char.IsControl);
+
+    private (byte[]? Content, string? FileName, string? ContentType, int StatusCode, string? Code, string? Error)
+        InvalidBusinessFileResponse(int status)
+        => (null, null, null, status, "INVALID_INVENTORY_RESPONSE",
+            _ui.T("error.inventoryResponse", "재고 조회 응답을 읽을 수 없습니다. 다시 시도해 주세요."));
+
+    private sealed class BusinessFileError { }
 
     private static string? InventoryErrorText(JsonElement payload, string name)
     {
