@@ -4,6 +4,7 @@ using NexaOne.ServiceContracts;
 using NexaOne.ServiceContracts.Collaboration;
 using NexaOne.ServiceContracts.Crm;
 using NexaOne.ServiceContracts.Erp;
+using NexaOne.ServiceContracts.Hr;
 using NexaOne.ServiceContracts.Ivt;
 using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Pom;
@@ -19,7 +20,7 @@ public sealed class NexaOneMesBridgeCatalogTests
         var first = NexaOneMesBridgeCatalog.Create();
         var second = NexaOneMesBridgeCatalog.Create();
 
-        first.Descriptors.Should().HaveCount(66);
+        first.Descriptors.Should().HaveCount(68);
         first.Descriptors.Should().Equal(second.Descriptors);
         first.Descriptors.Should().OnlyContain(descriptor =>
             descriptor.ContractType.IsInterface
@@ -62,6 +63,12 @@ public sealed class NexaOneMesBridgeCatalogTests
         catalog.TryGet(typeof(IStockBillingDirectory), out var stockBilling).Should().BeTrue();
         stockBilling.Should().Be(new NexaModuleBridgeDescriptor(
             typeof(IStockBillingDirectory), "Ivt", "stockBillingDirectory"));
+        catalog.TryGet(typeof(IHumanResourcesBridge), out var humanResources).Should().BeTrue();
+        humanResources.Should().Be(new NexaModuleBridgeDescriptor(
+            typeof(IHumanResourcesBridge), "Hr", "humanResourcesBridge"));
+        catalog.TryGet(typeof(ITimeBillingDirectory), out var timeBilling).Should().BeTrue();
+        timeBilling.Should().Be(new NexaModuleBridgeDescriptor(
+            typeof(ITimeBillingDirectory), "Hr", "timeBillingDirectory"));
         catalog.TryGet(typeof(IBillingBridge), out var billing).Should().BeTrue();
         billing.Should().Be(new NexaModuleBridgeDescriptor(typeof(IBillingBridge), "Erp", "billingBridge"));
         catalog.TryGet(typeof(ICrmBridge), out var crm).Should().BeTrue();
