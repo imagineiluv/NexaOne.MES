@@ -39,6 +39,10 @@
                             <dt>@T("billing.kind", "종류", "Kind")</dt><dd>@KindName(create.Kind)</dd>
                             <dt>@T("billing.lines", "항목", "Lines")</dt><dd>@create.Input.Lines.Count · @create.Input.Currency</dd>
                             break;
+                        case BillingController.CreditNoteCreate credit:
+                            <dt>@T("billing.adjustedInvoice", "조정 대상 청구", "Adjusted invoice")</dt><dd class="bw-id">@pending.Id</dd>
+                            <dt>@T("billing.lines", "항목", "Lines")</dt><dd>@credit.Input.Lines.Count · @credit.Input.Currency</dd>
+                            break;
                         case BillingController.DocumentChange change:
                             <dt>@T("billing.lines", "항목", "Lines")</dt><dd>@change.Input.Lines.Count · @change.Input.Currency</dd>
                             break;
@@ -133,7 +137,7 @@
             @if (document.AdjustedInvoiceId is { } adjustedInvoice) { <span class="bw-id">@T("billing.adjustedInvoice", "조정 대상 청구", "Adjusted invoice"): @adjustedInvoice</span> }
         </div>
         <div class="bw-actions">
-            @if (CanWrite)
+            @if (CanWrite && document.Kind != BillingKind.CreditNote)
             {
                 <button id="billing-edit-document" type="button" disabled="@(!CanStart || !CanEdit)" @onclick="EditDocument">@T("billing.edit", "문서 수정", "Edit document")</button>
                 <button id="billing-send" type="button" disabled="@(!CanStart || !CanSend)" @onclick="SendAsync">@ActionName("sent")</button>
@@ -149,20 +153,46 @@
             {
                 <button id="billing-start-payment" type="button" disabled="@(!CanStart || !CanRecordPayment)" @onclick="StartPayment">@ActionName("pay")</button>
             }
+            @if (CanCredit && document.Kind == BillingKind.Invoice)
+            {
+                <button id="billing-start-credit" type="button" disabled="@(!CanStart || !CanCreateCredit)" @onclick="StartCreditNote">@ActionName("credit-create")</button>
+            }
+            @if (CanCredit && document.Kind == BillingKind.CreditNote)
+            {
+                <button id="billing-edit-credit" type="button" disabled="@(!CanStart || !CanEditCredit)" @onclick="EditCreditNote">@ActionName("credit-update")</button>
+                <button id="billing-issue-credit" class="bw-primary" type="button" disabled="@(!CanStart || !CanIssueCredit)" @onclick="IssueCreditAsync">@ActionName("credit-issue")</button>
+                <button id="billing-void-credit" type="button" disabled="@(!CanStart || !CanVoidCredit)" @onclick="VoidCreditAsync">@ActionName("credit-void")</button>
+            }
         </div>
     }
 
     @if (_editor == Editor.Document)
     {
         <form id="billing-document-form" class="bw-form" @onsubmit="SaveDocumentAsync" @onsubmit:preventDefault>
-            <h3>@(_editing ? ActionName("update") : KindName(_editorKind) + " · " + ActionName("create"))</h3>
+            <h3>@(_editorKind == BillingKind.CreditNote
+                ? _editing ? ActionName("credit-update") : ActionName("credit-create")
+                : _editing ? ActionName("update") : KindName(_editorKind) + " · " + ActionName("create"))</h3>
+            @if (_editorKind == BillingKind.CreditNote && _creditInvoiceId is { } sourceInvoice)
+            {
+                <p id="billing-credit-context" class="bw-note">
+                    @T("billing.creditContext", "선택한 청구의 계약처와 통화를 유지합니다. 신용 메모의 만기일은 문서일과 같습니다.", "The selected invoice contact and currency are preserved. The credit note due date equals its document date.")
+                    <span class="bw-id">@sourceInvoice</span>
+                    @if (_creditAvailable is { } available)
+                    {
+                        <span> · @T("billing.creditAvailable", "현재 허용 잔액", "Current available balance") @Amount(available) @_currency</span>
+                    }
+                </p>
+            }
             <div class="bw-grid">
                 <label for="billing-document-date">@T("billing.documentDate", "문서 일자", "Document date")</label>
                 <input id="billing-document-date" type="date" @bind="_documentDate" disabled="@(!CanStart)" />
-                <label for="billing-due-date">@T("billing.dueDate", "만기일", "Due date")</label>
-                <input id="billing-due-date" type="date" @bind="_dueDate" disabled="@(!CanStart)" />
+                @if (_editorKind != BillingKind.CreditNote)
+                {
+                    <label for="billing-due-date">@T("billing.dueDate", "만기일", "Due date")</label>
+                    <input id="billing-due-date" type="date" @bind="_dueDate" disabled="@(!CanStart)" />
+                }
                 <label for="billing-currency">@T("billing.currency", "통화 (ISO 3자)", "Currency (ISO 3 letters)")</label>
-                <input id="billing-currency" type="text" maxlength="3" @bind="_currency" disabled="@(!CanStart)" />
+                <input id="billing-currency" type="text" maxlength="3" @bind="_currency" disabled="@(!CanStart || _editorKind == BillingKind.CreditNote)" />
             </div>
             <table id="billing-lines" class="bw-lines">
                 <caption class="bw-sr-only">@T("billing.lines", "항목", "Lines")</caption>
@@ -204,7 +234,9 @@
                 <textarea id="billing-note" maxlength="4000" @bind="_note" disabled="@(!CanStart)"></textarea>
             </div>
             <p class="bw-note">@T("billing.totalsNote", "소계·할인·세금·합계는 서버가 계산합니다. 정액 할인/세금은 문서당 한 번 적용되며 두 번째 세금은 첫 세금에 복리로 붙지 않습니다.", "Subtotal, discount, tax and total are computed by the server. A flat discount or tax applies once per document; the second tax is not compounded on the first.")</p>
-            <button id="billing-save-document" type="submit" disabled="@(!CanStart)">@(_editing ? ActionName("update") : ActionName("create"))</button>
+            <button id="billing-save-document" type="submit" disabled="@(!CanStart)">@(_editorKind == BillingKind.CreditNote
+                ? _editing ? ActionName("credit-update") : ActionName("credit-create")
+                : _editing ? ActionName("update") : ActionName("create"))</button>
         </form>
     }
 

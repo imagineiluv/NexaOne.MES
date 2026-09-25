@@ -52,6 +52,7 @@ internal static class NexaOneDevelopmentDatabaseInitializer
         EnsureDevWorkflowResources(connectionString, "V206__ERP_EXPENSE_RECEIPT_RESOURCES.sql");
         EnsureDevWorkflowResources(connectionString, "V208__ERP_EXPENSE_PAYOUT_RESOURCES.sql");
         EnsureDevWorkflowResources(connectionString, "V210__ERP_EXPENSE_PAYOUT_FAILURE_RESOURCES.sql");
+        EnsureDevWorkflowResources(connectionString, "V211__ERP_BILLING_CREDIT_NOTE_WORKSPACE_RESOURCES.sql");
         NormalizeDevMenuTerminology(connectionString);
         SeedDevCommonUiResourcesIfMissing(connectionString);
         EnsureDevQmsSampleLotReferences(connectionString);

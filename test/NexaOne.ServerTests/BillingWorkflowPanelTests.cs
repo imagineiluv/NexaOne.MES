@@ -62,6 +62,22 @@ public sealed class BillingWorkflowPanelTests : BunitContext
     }
 
     [Fact]
+    public async Task Credit_action_requires_the_credit_grant_and_an_open_issued_invoice()
+    {
+        var invoice = Document(Guid.NewGuid(), BillingKind.Invoice, Input(Guid.NewGuid()), 1) with { Status = BillingStatus.Sent };
+        var cut = Panel(Membership("billing.read", "billing.write"));
+        await cut.InvokeAsync(() => cut.Instance.SelectDocumentAsync(invoice));
+        cut.FindAll("#billing-start-credit").Should().BeEmpty("billing.credit is a separate money authority");
+
+        cut = Panel(Membership("billing.read", "billing.credit"));
+        await cut.InvokeAsync(() => cut.Instance.SelectDocumentAsync(invoice with { Status = BillingStatus.Draft }));
+        cut.Find("#billing-start-credit").HasAttribute("disabled").Should().BeTrue("draft invoices are not creditable");
+
+        await cut.InvokeAsync(() => cut.Instance.SelectDocumentAsync(invoice with { Status = BillingStatus.FullyPaid, Paid = invoice.Totals.Total }));
+        cut.Find("#billing-start-credit").HasAttribute("disabled").Should().BeTrue("an invoice with no open balance cannot accept another credit");
+    }
+
+    [Fact]
     public async Task Contact_enrollment_sends_the_customer_after_a_durable_intent_and_selects_the_returned_contact()
     {
         var membership = Membership("billing.read", "billing.write");
@@ -185,6 +201,149 @@ public sealed class BillingWorkflowPanelTests : BunitContext
         sent.Should().NotBeNull();
         sent!.Input.Lines[0].Should().Be(new BillingLine("Expense", 25.5m, 1m, false, false, expenseId));
         sent.Input.Lines[1].Description.Should().Be("Changed");
+    }
+
+    [Fact]
+    public async Task Credit_grant_creates_a_draft_for_the_selected_invoice_without_billing_write()
+    {
+        var invoice = Document(Guid.NewGuid(), BillingKind.Invoice, Input(Guid.NewGuid()), 8) with { Status = BillingStatus.Sent };
+        BillingController.CreditNoteCreate? sent = null;
+        Writes<BillingDocument>((method, path, body, _) =>
+        {
+            sent = (BillingController.CreditNoteCreate)body;
+            method.Should().Be(HttpMethod.Post);
+            path.Should().Be(Root + $"/documents/{invoice.Id:D}/credits");
+            return Task.FromResult(Ok(CreditDocument(sent.OperationId, invoice.Id, sent.Input, 2)));
+        });
+        var cut = Panel(Membership("billing.read", "billing.credit"));
+        await cut.InvokeAsync(() => cut.Instance.SelectDocumentAsync(invoice));
+
+        cut.FindAll("#billing-edit-document").Should().BeEmpty("billing.write is not granted");
+        cut.Find("#billing-start-credit").HasAttribute("disabled").Should().BeFalse();
+        cut.Find("#billing-start-credit").Click();
+        cut.Find("#billing-credit-context").TextContent.Should().Contain(invoice.Id.ToString()).And.Contain("10 KRW");
+        cut.FindAll("#billing-due-date").Should().BeEmpty("credit due date is always its document date");
+        cut.Find("#billing-currency").HasAttribute("disabled").Should().BeTrue();
+        cut.Find("#billing-document-date").Change("2026-09-24");
+        cut.FindAll(".billing-line-description")[0].Change("Service adjustment");
+        cut.FindAll(".billing-line-unit-price")[0].Change("4.5");
+        cut.FindAll(".billing-line-quantity")[0].Change("1");
+        await cut.Find("#billing-document-form").SubmitAsync(EventArgs.Empty);
+
+        sent.Should().NotBeNull();
+        sent!.OperationId.Should().NotBe(Guid.Empty);
+        sent.Input.ContactId.Should().Be(invoice.Input.ContactId);
+        sent.Input.Currency.Should().Be(invoice.Input.Currency);
+        sent.Input.DueDate.Should().Be(sent.Input.DocumentDate);
+        cut.WaitForAssertion(() => cut.Find("#billing-selected-document").TextContent
+            .Should().Contain("Credit note").And.Contain(invoice.Id.ToString()));
+        cut.Find("#billing-edit-credit").HasAttribute("disabled").Should().BeFalse();
+        cut.Find("#billing-issue-credit").HasAttribute("disabled").Should().BeFalse();
+        (await StoredIntentOrNull()).Should().BeNull();
+        _saved.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Credit_note_edit_issue_and_void_use_the_credit_routes_and_versions()
+    {
+        var invoiceId = Guid.NewGuid();
+        var draft = CreditDocument(Guid.NewGuid(), invoiceId, CreditInput(Guid.NewGuid()), 3);
+        var cut = Panel(Membership("billing.read", "billing.credit"));
+        await cut.InvokeAsync(() => cut.Instance.SelectDocumentAsync(draft));
+
+        BillingController.DocumentChange? change = null;
+        Writes<BillingDocument>((method, path, body, _) =>
+        {
+            change = (BillingController.DocumentChange)body;
+            method.Should().Be(HttpMethod.Put); path.Should().Be(Root + $"/credit-notes/{draft.Id:D}");
+            change.Version.Should().Be(draft.Version);
+            return Task.FromResult(Ok(draft with { Version = Guid.NewGuid(), Input = change.Input }));
+        });
+        cut.Find("#billing-edit-credit").Click();
+        cut.FindAll(".billing-line-description")[0].Change("Corrected adjustment");
+        await cut.Find("#billing-document-form").SubmitAsync(EventArgs.Empty);
+        cut.WaitForAssertion(() => change.Should().NotBeNull());
+        var updated = _documentChanges.Last()!;
+        updated.Input.Lines[0].Description.Should().Be("Corrected adjustment");
+
+        Writes<BillingDocument>((method, path, body, _) =>
+        {
+            method.Should().Be(HttpMethod.Post); path.Should().Be(Root + $"/credit-notes/{updated.Id:D}/issue");
+            ((BillingController.VersionedCommand)body).Version.Should().Be(updated.Version);
+            return Task.FromResult(Ok(updated with { Version = Guid.NewGuid(), Status = BillingStatus.Sent }));
+        });
+        cut.Find("#billing-issue-credit").Click();
+        cut.WaitForAssertion(() => cut.Find("#billing-selected-document").TextContent.Should().Contain("Sent"));
+        var issued = _documentChanges.Last()!;
+        cut.Find("#billing-edit-credit").HasAttribute("disabled").Should().BeTrue();
+        cut.Find("#billing-void-credit").HasAttribute("disabled").Should().BeFalse();
+
+        Writes<BillingDocument>((method, path, body, _) =>
+        {
+            method.Should().Be(HttpMethod.Post); path.Should().Be(Root + $"/credit-notes/{issued.Id:D}/void");
+            ((BillingController.VersionedCommand)body).Version.Should().Be(issued.Version);
+            return Task.FromResult(Ok(issued with { Version = Guid.NewGuid(), Status = BillingStatus.Void }));
+        });
+        cut.Find("#billing-void-credit").Click();
+        cut.WaitForAssertion(() => cut.Find("#billing-selected-document").TextContent.Should().Contain("Void"));
+        cut.Find("#billing-void-credit").HasAttribute("disabled").Should().BeTrue();
+        _writes.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public async Task Unknown_credit_creation_retries_the_same_operation_and_invoice()
+    {
+        var invoice = Document(Guid.NewGuid(), BillingKind.Invoice, Input(Guid.NewGuid()), 5) with { Status = BillingStatus.Sent };
+        var attempts = 0;
+        Writes<BillingDocument>((_, path, body, _) =>
+        {
+            ++attempts;
+            var command = (BillingController.CreditNoteCreate)body;
+            path.Should().Be(Root + $"/documents/{invoice.Id:D}/credits");
+            return Task.FromResult(attempts == 1
+                ? Failure<BillingDocument>(503, "INVENTORY_RESPONSE_UNAVAILABLE")
+                : Ok(CreditDocument(command.OperationId, invoice.Id, command.Input, 1)));
+        });
+        var cut = Panel(Membership("billing.read", "billing.credit"));
+        await cut.InvokeAsync(() => cut.Instance.SelectDocumentAsync(invoice));
+        cut.Find("#billing-start-credit").Click();
+        cut.Find("#billing-document-date").Change("2026-09-24");
+        cut.FindAll(".billing-line-description")[0].Change("Adjustment");
+        cut.FindAll(".billing-line-unit-price")[0].Change("2");
+        cut.FindAll(".billing-line-quantity")[0].Change("1");
+        await cut.Find("#billing-document-form").SubmitAsync(EventArgs.Empty);
+
+        cut.WaitForAssertion(() => cut.Find("#billing-pending").Should().NotBeNull());
+        var first = (BillingController.CreditNoteCreate)_writes[0].Body;
+        cut.Find("#billing-retry").Click();
+        cut.WaitForAssertion(() => cut.Find("#billing-selected-document").TextContent.Should().Contain("Credit note"));
+        var replay = (BillingController.CreditNoteCreate)_writes[1].Body;
+        replay.OperationId.Should().Be(first.OperationId);
+        _writes.Should().HaveCount(2);
+        (await StoredIntentOrNull()).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Credit_creation_rejects_a_success_response_for_another_invoice()
+    {
+        var invoice = Document(Guid.NewGuid(), BillingKind.Invoice, Input(Guid.NewGuid()), 5) with { Status = BillingStatus.Sent };
+        Writes<BillingDocument>((_, _, body, _) =>
+        {
+            var command = (BillingController.CreditNoteCreate)body;
+            return Task.FromResult(Ok(CreditDocument(command.OperationId, Guid.NewGuid(), command.Input, 1)));
+        });
+        var cut = Panel(Membership("billing.read", "billing.credit"));
+        await cut.InvokeAsync(() => cut.Instance.SelectDocumentAsync(invoice));
+        cut.Find("#billing-start-credit").Click();
+        cut.Find("#billing-document-date").Change("2026-09-24");
+        cut.FindAll(".billing-line-description")[0].Change("Adjustment");
+        cut.FindAll(".billing-line-unit-price")[0].Change("2");
+        cut.FindAll(".billing-line-quantity")[0].Change("1");
+        await cut.Find("#billing-document-form").SubmitAsync(EventArgs.Empty);
+
+        cut.WaitForAssertion(() => cut.Find("#billing-write-error").TextContent.Should().Contain("does not match"));
+        cut.Find("#billing-pending").Should().NotBeNull("a mismatched 2xx response cannot prove the write outcome");
+        (await StoredIntent()).Confirmed.Should().BeFalse();
     }
 
     [Fact]
@@ -453,6 +612,10 @@ public sealed class BillingWorkflowPanelTests : BunitContext
         var tax = input.Tax is { Type: BillingAdjustmentType.Percent } t ? taxable * t.Value / 100m : input.Tax?.Value ?? 0m;
         return new(Guid.NewGuid(), Business, Guid.NewGuid(), operation, kind, number, input, new(subtotal, discount, tax, subtotal - discount + tax), BillingStatus.Draft, BusinessUser.ToString("D"));
     }
+    private static BillingDocumentInput CreditInput(Guid contact)
+        => new(contact, new(2026, 9, 24), new(2026, 9, 24), "KRW", [new("Adjustment", 5m, 1m)]);
+    private static BillingDocument CreditDocument(Guid operation, Guid invoiceId, BillingDocumentInput input, long number)
+        => Document(operation, BillingKind.CreditNote, input, number) with { AdjustedInvoiceId = invoiceId };
     private static PaymentRecord Payment(Guid operation, PaymentInput input)
         => new(Guid.NewGuid(), Business, Guid.NewGuid(), operation, input, BusinessUser.ToString("D"), PaymentState.Recorded);
 }
