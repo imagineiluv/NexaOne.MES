@@ -63,6 +63,7 @@
                         <div class="expense-directory-create">
                             <div class="expense-directory-entry"><label for="expense-category-name">@T("expenseWorkspace.categoryName", "새 카테고리 이름", "New category name")</label><div><input id="expense-category-name" aria-label="@T("expenseWorkspace.categoryName", "새 카테고리 이름", "New category name")" @bind="_categoryName" disabled="@_busy" maxlength="255" /><button id="expense-category-create" type="button" disabled="@_busy" @onclick="CreateCategoryAsync">@T("expenseWorkspace.addCategory", "카테고리 추가", "Add category")</button></div></div>
                             <div class="expense-directory-entry"><label for="expense-vendor-name">@T("expenseWorkspace.vendorName", "새 거래처 이름", "New vendor name")</label><div><input id="expense-vendor-name" aria-label="@T("expenseWorkspace.vendorName", "새 거래처 이름", "New vendor name")" @bind="_vendorName" disabled="@_busy" maxlength="255" /><button id="expense-vendor-create" type="button" disabled="@_busy" @onclick="CreateVendorAsync">@T("expenseWorkspace.addVendor", "거래처 추가", "Add vendor")</button></div></div>
+                            <div class="expense-directory-entry"><label for="expense-tag-name">@T("expenseWorkspace.tagName", "새 태그 이름", "New tag name")</label><div><input id="expense-tag-name" aria-label="@T("expenseWorkspace.tagName", "새 태그 이름", "New tag name")" @bind="_tagName" disabled="@_busy" maxlength="255" /><button id="expense-tag-create" type="button" disabled="@_busy" @onclick="CreateTagAsync">@T("expenseWorkspace.addTag", "태그 추가", "Add tag")</button></div></div>
                         </div>
                     }
                     <div class="expense-directory-grid">
@@ -133,6 +134,46 @@
                                 </form>
                             }
                         </div>
+                        <div>
+                            <h3>@T("expenseWorkspace.tags", "태그", "Tags")</h3>
+                            @if (_directoryTags is { } tags)
+                            {
+                                @if (tags.Items.Count == 0) { <p data-empty="true">@T("expenseWorkspace.noDirectoryTags", "태그가 없습니다.", "No tags.")</p> }
+                                else
+                                {
+                                    <ul class="expense-pills">
+                                        @foreach (var item in tags.Items)
+                                        {
+                                            <li @key="item.Id" class="@(!item.Active ? "is-inactive" : null)">
+                                                <div><strong>@item.Input.Name</strong><span>@Short(item.Id) · @DirectoryState(item.Active)</span></div>
+                                                @if (Can("expense.directory.write")) { <button type="button" data-edit-tag="@item.Id" aria-pressed="@((_selectedTag?.Id == item.Id).ToString().ToLowerInvariant())" disabled="@_busy" @onclick="() => SelectTag(item)">@T("expenseWorkspace.edit", "편집", "Edit")</button> }
+                                            </li>
+                                        }
+                                    </ul>
+                                }
+                                @if (Can("expense.directory.write"))
+                                {
+                                    <nav class="expense-choice-pages" aria-label="@T("expenseWorkspace.tagPages", "태그 페이지", "Tag pages")">
+                                        <button id="expense-directory-tags-previous" type="button" disabled="@(_busy || !HasPreviousDirectoryTagPage)" @onclick="() => MoveDirectoryTagPageAsync(-1)">@T("inventory.previous", "이전 페이지", "Previous page")</button>
+                                        <span>@string.Format(CultureInfo.InvariantCulture, T("expenseWorkspace.choicePage", "{0}–{1} / {2}", "{0}–{1} of {2}"), tags.Total == 0 ? 0 : _directoryTagOffset + 1, _directoryTagOffset + tags.Items.Count, tags.Total)</span>
+                                        <button id="expense-directory-tags-next" type="button" disabled="@(_busy || !HasNextDirectoryTagPage)" @onclick="() => MoveDirectoryTagPageAsync(1)">@T("inventory.next", "다음 페이지", "Next page")</button>
+                                    </nav>
+                                }
+                            }
+                            @if (_selectedTag is not null && Can("expense.directory.write"))
+                            {
+                                <form class="expense-directory-editor" @onsubmit="UpdateTagAsync" @onsubmit:preventDefault>
+                                    <h4>@T("expenseWorkspace.editTag", "태그 편집", "Edit tag")</h4>
+                                    <label for="expense-tag-edit-name">@T("expenseWorkspace.name", "이름", "Name")<input id="expense-tag-edit-name" aria-label="@T("expenseWorkspace.name", "이름", "Name")" maxlength="255" required autocomplete="off" @bind="_tagEditName" disabled="@_busy" /></label>
+                                    <p id="expense-tag-lifecycle-help">@T("expenseWorkspace.inactiveHistoryHelp", "비활성화해도 기존 비용의 참조와 감사 이력은 유지되며 새 비용에서는 선택할 수 없습니다.", "Deactivation preserves existing expense references and audit history but prevents selection for new expenses.")</p>
+                                    <div class="expense-directory-actions">
+                                        <button id="expense-tag-save" type="submit" disabled="@_busy">@T("expenseWorkspace.save", "변경 저장", "Save changes")</button>
+                                        <button id="expense-tag-active" class="@(_selectedTag.Active ? "danger" : null)" type="button" aria-describedby="expense-tag-lifecycle-help" disabled="@_busy" @onclick="SetTagActiveAsync">@(_selectedTag.Active ? T("expenseWorkspace.deactivate", "비활성화", "Deactivate") : T("expenseWorkspace.reactivate", "재활성화", "Reactivate"))</button>
+                                        <button id="expense-tag-edit-cancel" type="button" disabled="@_busy" @onclick="() => SetSelectedTag(null)">@T("expenseWorkspace.cancelEdit", "편집 닫기", "Close editor")</button>
+                                    </div>
+                                </form>
+                            }
+                        </div>
                     </div>
                 </section>
             }
@@ -148,6 +189,37 @@
                         <label for="expense-type">@T("expenseWorkspace.type", "비용 유형", "Expense type")<select id="expense-type" aria-label="@T("expenseWorkspace.type", "비용 유형", "Expense type")" @bind="_draft.Type" disabled="@CreateLocked">@foreach (var type in Enum.GetValues<ExpenseType>()) { <option value="@type">@TypeName(type)</option> }</select></label>
                         <label for="expense-category">@T("expenseWorkspace.category", "카테고리", "Category")<select id="expense-category" aria-label="@T("expenseWorkspace.category", "카테고리", "Category")" @bind="_draft.CategoryId" disabled="@CreateLocked"><option value="@Guid.Empty">@T("expenseWorkspace.chooseCategory", "카테고리 선택", "Choose category")</option>@foreach (var item in ActiveCategories) { <option value="@item.Id">@item.Input.Name</option> }</select></label>
                         <label for="expense-vendor">@T("expenseWorkspace.vendor", "거래처", "Vendor")<select id="expense-vendor" aria-label="@T("expenseWorkspace.vendor", "거래처", "Vendor")" @bind="_draft.VendorId" disabled="@CreateLocked"><option value="@Guid.Empty">@T("expenseWorkspace.chooseVendor", "거래처 선택", "Choose vendor")</option>@foreach (var item in ActiveVendors) { <option value="@item.Id">@item.Input.Name</option> }</select></label>
+                        <fieldset class="expense-tags expense-wide" disabled="@CreateLocked">
+                            <legend>@T("expenseWorkspace.tagSelector", "태그 (선택)", "Tags (optional)")</legend>
+                            <p id="expense-tag-selection-help">@T("expenseWorkspace.tagSelectionHelp", "여러 태그를 선택할 수 있으며 페이지를 이동해도 선택이 유지됩니다.", "Select multiple tags; selections remain while you browse pages.")</p>
+                            @if (_draft.TagIds.Count > 0)
+                            {
+                                <div class="expense-selected-tag-list" aria-label="@T("expenseWorkspace.selectedTags", "선택한 태그", "Selected tags")">
+                                    @foreach (var id in _draft.TagIds.OrderBy(TagLabel, StringComparer.OrdinalIgnoreCase))
+                                    {
+                                        <span @key="id">@TagLabel(id)<button type="button" data-remove-expense-tag="@id" aria-label="@string.Format(CultureInfo.CurrentCulture, T("expenseWorkspace.removeTag", "태그 {0} 선택 해제", "Remove tag {0}"), TagLabel(id))" @onclick="() => RemoveTag(id)">@T("expenseWorkspace.removeTagAction", "선택 해제", "Remove")</button></span>
+                                    }
+                                </div>
+                            }
+                            @if (_tags is { } tagPage)
+                            {
+                                @if (tagPage.Items.Count == 0) { <p data-empty="true">@T("expenseWorkspace.noTags", "선택할 수 있는 활성 태그가 없습니다.", "No active tags are available.")</p> }
+                                else
+                                {
+                                    <div class="expense-tag-options" aria-describedby="expense-tag-selection-help">
+                                        @foreach (var item in tagPage.Items)
+                                        {
+                                            <label @key="item.Id"><input type="checkbox" data-expense-tag="@item.Id" aria-label="@item.Input.Name" checked="@_draft.TagIds.Contains(item.Id)" @onchange="() => ToggleTag(item.Id)" /><span>@item.Input.Name</span></label>
+                                        }
+                                    </div>
+                                }
+                                <nav class="expense-choice-pages" aria-label="@T("expenseWorkspace.tagPages", "태그 페이지", "Tag pages")">
+                                    <button id="expense-tags-previous" type="button" disabled="@(!HasPreviousTagPage)" @onclick="() => MoveTagPageAsync(-1)">@T("inventory.previous", "이전 페이지", "Previous page")</button>
+                                    <span>@string.Format(CultureInfo.InvariantCulture, T("expenseWorkspace.choicePage", "{0}–{1} / {2}", "{0}–{1} of {2}"), tagPage.Total == 0 ? 0 : _tagOffset + 1, _tagOffset + tagPage.Items.Count, tagPage.Total)</span>
+                                    <button id="expense-tags-next" type="button" disabled="@(!HasNextTagPage)" @onclick="() => MoveTagPageAsync(1)">@T("inventory.next", "다음 페이지", "Next page")</button>
+                                </nav>
+                            }
+                        </fieldset>
                         <div class="expense-choice">
                             <label for="expense-employee">@T("expenseWorkspace.employee", "담당 직원 (선택)", "Employee (optional)")
                                 <select id="expense-employee" aria-label="@T("expenseWorkspace.employee", "담당 직원 (선택)", "Employee (optional)")" @bind="_draft.EmployeeId" disabled="@(CreateLocked || _draft.SplitAcrossEmployees)">
@@ -247,6 +319,7 @@
                         @if (_selected.Input.Tax is { } tax) { <div><dt>@T("expenseWorkspace.taxRule", "세금 규칙", "Tax rule")</dt><dd>@TaxName(tax)</dd></div> }
                         @if (_selected.Allocations.Count > 0) { <div><dt>@T("expenseWorkspace.allocations", "직원 분할", "Employee allocations")</dt><dd>@string.Format(CultureInfo.InvariantCulture, T("expenseWorkspace.allocationCount", "{0}명", "{0} employees"), _selected.Allocations.Count)</dd></div> }
                         @if (_selected.Input.Reference is not null) { <div><dt>@T("expenseWorkspace.referenceDetail", "외부 참조", "External reference")</dt><dd>@_selected.Input.Reference</dd></div> }
+                        @if ((_selected.Input.TagIds?.Count ?? 0) > 0) { <div class="expense-selected-tags"><dt>@T("expenseWorkspace.tagsDetail", "태그", "Tags")</dt><dd>@string.Join(", ", _selected.Input.TagIds!.Select(TagLabel))</dd></div> }
                     </dl>
                     @if (_selected.Input.Purpose is not null) { <p><strong>@T("expenseWorkspace.purpose", "사용 목적", "Purpose"):</strong> @_selected.Input.Purpose</p> }
                     @if (_selected.Input.Notes is not null) { <p class="expense-long-text"><strong>@T("expenseWorkspace.notesDetail", "업무 메모", "Business notes"):</strong> @_selected.Input.Notes</p> }

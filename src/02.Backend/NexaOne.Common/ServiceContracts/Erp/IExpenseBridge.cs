@@ -7,6 +7,17 @@ namespace NexaOne.ServiceContracts.Erp;
 /// <summary>Active organization member exposed as a stable expense employee choice.</summary>
 public sealed record ExpenseEmployee(Guid Id, string UserId);
 
+/// <summary>Editable values of one organization-scoped expense tag.</summary>
+public sealed record ExpenseTagInput(string Name);
+
+/// <summary>Versioned expense tag retained while historical records reference it.</summary>
+public sealed record ExpenseTag(Guid Id, BusinessScope Scope, Guid Version, ExpenseTagInput Input,
+    bool Active = true);
+
+/// <summary>Filtered tag directory query with exact-total paging.</summary>
+public sealed record ExpenseTagQuery(string? Text = null, bool IncludeInactive = false,
+    int Offset = 0, int Limit = 50);
+
 /// <summary>Organization-scoped expense directories, expenses, reimbursement and invoice linkage.
 /// Every operation checks current SYS membership and its explicit expense grant.</summary>
 public interface IExpenseBridge : INexaModuleBridge
@@ -15,6 +26,17 @@ public interface IExpenseBridge : INexaModuleBridge
         int offset = 0, int limit = 50, CancellationToken ct = default);
     Task<BusinessPage<ExpenseEmployee>> ListEmployeesAsync(string userId, Guid tenantId, Guid organizationId,
         int offset = 0, int limit = 50, CancellationToken ct = default);
+
+    Task<ExpenseTag> CreateTagAsync(string userId, Guid tenantId, Guid organizationId,
+        ExpenseTagInput input, CancellationToken ct = default);
+    Task<ExpenseTag> GetTagAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, CancellationToken ct = default);
+    Task<BusinessPage<ExpenseTag>> ListTagsAsync(string userId, Guid tenantId, Guid organizationId,
+        ExpenseTagQuery? query = null, CancellationToken ct = default);
+    Task<ExpenseTag> UpdateTagAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, ExpenseTagInput input, CancellationToken ct = default);
+    Task<ExpenseTag> SetTagActiveAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid id, Guid version, bool active, CancellationToken ct = default);
 
     Task<ExpenseCategory> CreateCategoryAsync(string userId, Guid tenantId, Guid organizationId,
         ExpenseCategoryInput input, CancellationToken ct = default);

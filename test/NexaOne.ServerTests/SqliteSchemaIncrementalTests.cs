@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using NexaOne.ERP.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.POM.Infrastructure;
+using NexaOne.Server;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Xunit;
@@ -3120,6 +3121,38 @@ public sealed class SqliteSchemaIncrementalTests
             Count(cs, "ERP_BILLING_DOCUMENT").Should().Be(2);
             SqliteSchemaInitializer.EnsureSchema(cs, [new ErpBillingSqliteSchemaContribution()]);
             Count(cs, "ERP_BILLING_DOCUMENT").Should().Be(2);
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { } }
+    }
+
+    [Fact]
+    public void V204_expense_tag_resources_are_reconciled_without_overwriting_custom_values()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            ExecSql(cs, """
+                DELETE FROM SYS_MULTI_LANGUAGE_RESOURCE
+                 WHERE RESOURCE_KEY LIKE 'expenseWorkspace.tag%'
+                    OR RESOURCE_KEY IN ('expenseWorkspace.noDirectoryTags',
+                                        'expenseWorkspace.noTags',
+                                        'expenseWorkspace.selectedTags',
+                                        'expenseWorkspace.removeTag',
+                                        'expenseWorkspace.removeTagAction');
+                INSERT INTO SYS_MULTI_LANGUAGE_RESOURCE (RESOURCE_KEY,MENU_ID,LANGUAGE,VALUE)
+                VALUES ('expenseWorkspace.tagName','COMMON','EnUs','Custom tag label');
+                """);
+
+            NexaOneDevelopmentDatabaseInitializer.EnsureDevWorkflowResources(
+                cs, "V204__ERP_EXPENSE_TAG_RESOURCES.sql");
+
+            ScalarString(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='expenseWorkspace.tagName' AND LANGUAGE='EnUs'")
+                .Should().Be("Custom tag label");
+            ScalarString(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='expenseWorkspace.removeTagAction' AND LANGUAGE='EnUs'")
+                .Should().Be("Remove");
+            ScalarString(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='expenseWorkspace.tagsDetail' AND LANGUAGE='EnUs'")
+                .Should().Be("Tags");
         }
         finally { try { File.Delete(FileOf(cs)); } catch { } }
     }
