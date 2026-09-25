@@ -119,6 +119,10 @@
 .expense-payout-request { display: grid; grid-template-columns: minmax(12rem, 1fr) auto; align-items: end; gap: var(--space-sm); }
 .expense-payout-request label { display: grid; gap: var(--space-2xs); min-width: 0; }
 .expense-payout-request input { width: 100%; min-width: 0; box-sizing: border-box; }
+.expense-payout-operations .expense-heading p { max-width: 72ch; color: var(--nx-text-2); font-size: var(--nx-fs-caption); }
+.expense-payout-operations code { color: var(--nx-text-2); overflow-wrap: anywhere; }
+.expense-payout-operation-actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.expense-payout-operation-actions .danger { border-color: var(--color-danger); color: var(--color-danger); }
 .expense-actions { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
 .expense-actions .danger { border-color: var(--color-danger); color: var(--color-danger); }
 .expense-message:empty { display: none; }
@@ -138,4 +142,6 @@
   .expense-choice-pages button { width: 100%; }
   .expense-payout-request { grid-template-columns: 1fr; }
   .expense-payout-request button, .expense-payout-history .danger { width: 100%; }
+  .expense-payout-operation-actions { align-items: stretch; flex-direction: column; }
+  .expense-payout-operation-actions button { width: 100%; }
 }

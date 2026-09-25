@@ -705,6 +705,65 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
     }
 
     [Fact]
+    public void Failed_payout_operations_reuse_the_operation_after_an_unknown_outcome()
+    {
+        ShowScope("expense.read", "expense.reimburse");
+        var expense = Expense(Guid.NewGuid(), Input(ExpenseType.TaxDeductible, Guid.NewGuid()));
+        var failed = Payout(expense, ExpensePayoutState.Failed) with
+        { AttemptCount = 3, ErrorCode = "EXPENSE_PAYOUT_REJECTED" };
+        var writes = 0;
+        Guid? operationId = null;
+        Read<ExpensePayoutRequest>(path => path.Contains("/payouts/failed?", StringComparison.Ordinal)
+            && writes >= 2 ? new([], 0) : new([failed], 1));
+        _api.Setup(api => api.WriteInventoryAsync<ExpensePayoutRequest>(HttpMethod.Post,
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/payouts/{failed.Id:D}/failed/retry",
+                It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .Returns((HttpMethod _, string _, object body, string _, CancellationToken _) =>
+            {
+                var operation = Property<Guid>(body, "OperationId");
+                operationId ??= operation;
+                operation.Should().Be(operationId.Value);
+                Property<Guid>(body, "Version").Should().Be(failed.Version);
+                writes++;
+                return writes == 1
+                    ? Task.FromResult<(ExpensePayoutRequest?, int, string?, string?)>(
+                        (null, 503, "INVENTORY_RESPONSE_UNAVAILABLE", "unknown"))
+                    : Task.FromResult<(ExpensePayoutRequest?, int, string?, string?)>(
+                        (failed with { Version = Guid.NewGuid(), State = ExpensePayoutState.Pending,
+                            AttemptCount = 0, ErrorCode = null }, 200, null, null));
+            });
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find($"[data-failed-payout='{failed.Id}']").Should().NotBeNull());
+
+        cut.Find($"[data-retry-failed-payout='{failed.Id}']").Click();
+        cut.WaitForAssertion(() => cut.Find("[role=alert]").TextContent.Should().Contain("unknown"));
+        cut.Find($"[data-retry-failed-payout='{failed.Id}']").Click();
+
+        cut.WaitForAssertion(() => cut.Find("[data-failed-payout-empty=true]").Should().NotBeNull());
+        writes.Should().Be(2);
+        cut.Markup.Should().Contain("새 시도 주기");
+    }
+
+    [Fact]
+    public void Failed_payout_operations_are_read_only_without_reimbursement_permission()
+    {
+        ShowScope("expense.read");
+        var expense = Expense(Guid.NewGuid(), Input(ExpenseType.TaxDeductible, Guid.NewGuid()));
+        var failed = Payout(expense, ExpensePayoutState.Failed) with { ErrorCode = "REJECTED" };
+        Read<ExpensePayoutRequest>(_ => new([failed], 1));
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+
+        cut.Find("[data-scope]").Click();
+
+        cut.WaitForAssertion(() => cut.Find($"[data-failed-payout='{failed.Id}']").Should().NotBeNull());
+        cut.FindAll("[data-retry-failed-payout], [data-discard-failed-payout]").Should().BeEmpty();
+        cut.Find($"[data-failed-payout='{failed.Id}']").TextContent.Should().Contain("조회 전용");
+    }
+
+    [Fact]
     public void Payout_retry_reuses_operation_id_and_recovers_without_marking_the_expense_paid()
     {
         ShowScope("expense.read", "expense.reimburse");

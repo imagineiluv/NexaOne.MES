@@ -26,6 +26,7 @@ public partial class HostExpenseWorkspace
     private BusinessPage<BillingContact>? _contacts;
     private WorkPage<Project>? _projects;
     private BusinessPage<ExpenseRecord>? _expenses;
+    private BusinessPage<ExpensePayoutRequest>? _failedPayouts;
     private IReadOnlyList<ExpensePayoutRequest> _payouts = [];
     private BusinessPage<BillingDocument>? _invoiceCandidates;
     private BusinessMembership? _scope;
@@ -41,6 +42,7 @@ public partial class HostExpenseWorkspace
     private PendingReimbursement? _pendingReimbursement;
     private PendingPayout? _pendingPayout;
     private PendingInvoiceOperation? _pendingInvoice;
+    private readonly Dictionary<(Guid PayoutId, ExpensePayoutFailureAction Action), Guid> _payoutFailureOperations = [];
     private readonly ExpenseDraft _draft = new();
     private string _categoryName = "", _vendorName = "", _tagName = "", _invoiceDescription = "";
     private string _payoutProviderKey = "";
@@ -51,7 +53,7 @@ public partial class HostExpenseWorkspace
     private string? _userId, _error, _notice;
     private string? _ledgerValidation;
     private Guid _invoiceId;
-    private int _invoiceOffset, _expenseOffset, _employeeOffset, _contactOffset, _projectOffset;
+    private int _invoiceOffset, _expenseOffset, _failedPayoutOffset, _employeeOffset, _contactOffset, _projectOffset;
     private int _tagOffset, _directoryTagOffset;
     private LedgerFilter _ledgerFilter = new();
     private bool _authenticated, _identityLoading = true, _busy, _interactive, _disposed, _confirmReceiptDelete;
@@ -92,6 +94,10 @@ public partial class HostExpenseWorkspace
     private bool HasPreviousExpensePage => _expenseOffset > 0;
     private bool HasNextExpensePage => _expenses is { } page && (long)_expenseOffset + PageSize < page.Total
         && _expenseOffset <= int.MaxValue - PageSize;
+    private bool HasPreviousFailedPayoutPage => _failedPayoutOffset > 0;
+    private bool HasNextFailedPayoutPage => _failedPayouts is { } page
+        && (long)_failedPayoutOffset + page.Items.Count < page.Total
+        && _failedPayoutOffset <= int.MaxValue - PageSize;
     private bool HasPreviousEmployeePage => _employeeOffset > 0;
     private bool HasNextEmployeePage => _employees is { } page
         && (long)_employeeOffset + page.Items.Count < page.Total;
@@ -157,6 +163,7 @@ public partial class HostExpenseWorkspace
         _scopes = null; _scope = null; _categories = null; _vendors = null; _tags = null;
         ResetReferenceChoices();
         ResetLedgerState();
+        ResetFailedPayoutState();
         _directoryCategories = null; _directoryVendors = null; _directoryTags = null;
         ClearDirectorySelection();
         _pendingCreate = null;
@@ -179,6 +186,7 @@ public partial class HostExpenseWorkspace
         _scope = scope; _categories = null; _vendors = null; _tags = null;
         ResetReferenceChoices();
         ResetLedgerState();
+        ResetFailedPayoutState();
         _directoryCategories = null; _directoryVendors = null; _directoryTags = null;
         ClearDirectorySelection();
         _pendingCreate = null;
@@ -188,6 +196,7 @@ public partial class HostExpenseWorkspace
             if (Can("expense.directory.read")) await LoadDirectoriesCoreAsync(ct);
             if (OwnsRequest(ct) && Can("expense.write")) await LoadReferenceChoicesCoreAsync(ct);
             if (OwnsRequest(ct) && Can("expense.read")) await LoadExpensesCoreAsync(ct);
+            if (OwnsRequest(ct) && Can("expense.read")) await LoadFailedPayoutsCoreAsync(ct);
         });
     }
 
@@ -449,6 +458,87 @@ public partial class HostExpenseWorkspace
         ClearLedgerDraft();
         ClearSelectedExpense();
     }
+
+    private void ResetFailedPayoutState()
+    {
+        _failedPayouts = null;
+        _failedPayoutOffset = 0;
+        _payoutFailureOperations.Clear();
+    }
+
+    private Task LoadFailedPayoutsAsync() => RunAsync(LoadFailedPayoutsCoreAsync);
+
+    private async Task LoadFailedPayoutsCoreAsync(CancellationToken ct)
+    {
+        var result = await Api.ReadInventoryAsync<BusinessPage<ExpensePayoutRequest>>(
+            $"{Root}/payouts/failed?offset={_failedPayoutOffset}&limit={PageSize}", ct);
+        if (!OwnsRequest(ct)) return;
+        if (result.Value is { } page && page.Items.Count == 0 && page.Total > 0
+            && _failedPayoutOffset >= page.Total)
+        {
+            _failedPayoutOffset = (int)((page.Total - 1) / PageSize * PageSize);
+            result = await Api.ReadInventoryAsync<BusinessPage<ExpensePayoutRequest>>(
+                $"{Root}/payouts/failed?offset={_failedPayoutOffset}&limit={PageSize}", ct);
+            if (!OwnsRequest(ct)) return;
+        }
+        if (result.Value is { } failed && result.Error is null
+            && failed.Items.All(value => value.State == ExpensePayoutState.Failed))
+            _failedPayouts = failed;
+        else if (result.Value is not null)
+        {
+            _failedPayouts = null;
+            _error = T("expenseWorkspace.failedPayoutInvalidResponse",
+                "실패 지급 응답에 처리할 수 없는 상태가 포함되어 있습니다. 목록을 다시 불러오세요.",
+                "The failed-payout response contains an ineligible state. Refresh the list.");
+        }
+        else
+        {
+            _failedPayouts = null;
+            Accept(result, _ => { });
+        }
+    }
+
+    private async Task MoveFailedPayoutPageAsync(int direction)
+    {
+        if (_busy) return;
+        var next = (long)_failedPayoutOffset + direction * PageSize;
+        if (next < 0 || next > int.MaxValue) return;
+        _failedPayoutOffset = (int)next;
+        await LoadFailedPayoutsAsync();
+    }
+
+    private Task ManageFailedPayoutAsync(ExpensePayoutRequest payout, ExpensePayoutFailureAction action)
+        => payout.State != ExpensePayoutState.Failed || !Can("expense.reimburse")
+            ? Task.CompletedTask
+            : RunAsync(async ct =>
+            {
+                var key = (payout.Id, action);
+                if (!_payoutFailureOperations.TryGetValue(key, out var operationId))
+                    _payoutFailureOperations[key] = operationId = Guid.NewGuid();
+                var verb = action == ExpensePayoutFailureAction.Retry ? "retry" : "discard";
+                var result = await WriteAsync<ExpensePayoutRequest>(HttpMethod.Post,
+                    $"{Root}/payouts/{payout.Id:D}/failed/{verb}",
+                    new PayoutFailureRequest(operationId, payout.Version), ct);
+                if (!OwnsRequest(ct)) return;
+                if (result.Value is { } current && current.Id == payout.Id
+                    && current.Scope == payout.Scope && current.ExpenseId == payout.ExpenseId
+                    && result.Error is null)
+                {
+                    _payoutFailureOperations.Remove(key);
+                    _payouts = _payouts.Select(value => value.Id == current.Id ? current : value)
+                        .OrderByDescending(value => value.CreatedAt).ToArray();
+                    await LoadFailedPayoutsCoreAsync(ct);
+                    if (!OwnsRequest(ct)) return;
+                    _notice = action == ExpensePayoutFailureAction.Retry
+                        ? T("expenseWorkspace.failedPayoutRetried", "실패 지급을 새 시도 주기로 전환했습니다.",
+                            "The failed payout was moved to a fresh attempt cycle.")
+                        : T("expenseWorkspace.failedPayoutDiscarded", "실패 지급을 폐기 확정했습니다.",
+                            "The failed payout was discarded.");
+                    return;
+                }
+                Accept(result, _ => { });
+                if (result.StatusCode is >= 400 and < 500) _payoutFailureOperations.Remove(key);
+            });
 
     private void ClearLedgerDraft()
         => _ledgerStart = _ledgerEnd = _ledgerCategory = _ledgerVendor = _ledgerType = _ledgerStatus = _ledgerState = "";
@@ -1430,6 +1520,7 @@ public partial class HostExpenseWorkspace
     private sealed record PendingCreate(Guid OperationId, ExpenseInput Input);
     private sealed record PendingReimbursement(Guid OperationId, Guid ExpenseId, Guid Version, DateTimeOffset PaidAt);
     private sealed record PendingPayout(Guid OperationId, Guid ExpenseId, Guid ExpenseVersion, string ProviderKey);
+    private sealed record PayoutFailureRequest(Guid OperationId, Guid Version);
     private sealed record PendingInvoiceOperation(InvoiceOperation Kind, Guid OperationId, Guid ExpenseId,
         Guid ExpenseVersion, Guid InvoiceId, Guid InvoiceVersion, string? Description);
     private enum InvoiceOperation { Link, Unlink }

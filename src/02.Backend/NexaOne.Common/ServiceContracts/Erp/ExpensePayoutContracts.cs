@@ -12,6 +12,12 @@ public enum ExpensePayoutState
     Cancelled
 }
 
+public enum ExpensePayoutFailureAction
+{
+    Retry,
+    Discard
+}
+
 /// <summary>Immutable provider selection for one employee expense reimbursement.</summary>
 public sealed record ExpensePayoutInput(Guid ExpenseId, Guid ExpenseVersion, string ProviderKey);
 
@@ -36,6 +42,17 @@ public sealed record ExpensePayoutRequest(
     string? ProviderReference = null,
     DateTimeOffset? PaidAt = null,
     string? ErrorCode = null);
+
+/// <summary>Durable idempotency receipt for one failed-payout operator action.</summary>
+public sealed record ExpensePayoutFailureOperation(
+    Guid OperationId,
+    BusinessScope Scope,
+    Guid PayoutId,
+    Guid ExpectedVersion,
+    ExpensePayoutFailureAction Action,
+    Guid ResultVersion,
+    string ActorId,
+    DateTimeOffset OccurredAt);
 
 /// <summary>External payout instruction. Providers must converge repeated calls with the same operation ID.</summary>
 public sealed record ExpensePayoutInstruction(

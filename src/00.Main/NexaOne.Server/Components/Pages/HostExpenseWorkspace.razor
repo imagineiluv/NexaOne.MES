@@ -180,6 +180,62 @@
                 </section>
             }
 
+            @if (Can("expense.read"))
+            {
+                <section class="expense-payout-operations" aria-labelledby="expense-payout-operations-heading">
+                    <div class="expense-heading">
+                        <div>
+                            <h3 id="expense-payout-operations-heading">@T("expenseWorkspace.failedPayouts", "실패 지급 처리", "Failed payout operations")</h3>
+                            <p>@T("expenseWorkspace.failedPayoutsHelp", "실패한 지급을 같은 지급 ID로 다시 대기시키거나, 실패 근거를 보존한 채 폐기 확정합니다. 결과가 불확실하면 같은 버튼을 다시 눌러 동일 작업 ID로 확인하세요.", "Return failed payouts to pending under the same payout ID, or discard them while preserving failure evidence. If the outcome is uncertain, press the same action again to recover with the same operation ID.")</p>
+                        </div>
+                        <button id="expense-failed-payout-refresh" type="button" disabled="@_busy" @onclick="LoadFailedPayoutsAsync">@T("expenseWorkspace.refreshFailedPayouts", "실패 지급 새로고침", "Refresh failed payouts")</button>
+                    </div>
+                    @if (_failedPayouts is { } failedPayouts)
+                    {
+                        @if (failedPayouts.Items.Count == 0)
+                        {
+                            <p class="expense-payout-empty" data-failed-payout-empty="true">@T("expenseWorkspace.noFailedPayouts", "처리할 실패 지급이 없습니다.", "There are no failed payouts to process.")</p>
+                        }
+                        else
+                        {
+                            <div class="expense-table-scroll" tabindex="0" role="region" aria-label="@T("expenseWorkspace.failedPayouts", "실패 지급 처리", "Failed payout operations")">
+                                <table>
+                                    <thead><tr><th>@T("expenseWorkspace.payoutCreated", "요청 시각", "Requested")</th><th>@T("expenseWorkspace.employeeDetail", "담당 직원", "Employee")</th><th>@T("expenseWorkspace.amount", "금액", "Amount")</th><th>@T("expenseWorkspace.payoutProvider", "지급 공급자 키", "Payout provider key")</th><th>@T("expenseWorkspace.payoutAttempts", "시도 횟수", "Attempts")</th><th>@T("expenseWorkspace.payoutFailure", "실패 코드", "Failure code")</th><th>@T("inventory.write.actions", "작업", "Actions")</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var payout in failedPayouts.Items)
+                                        {
+                                            <tr @key="payout.Id" data-failed-payout="@payout.Id">
+                                                <td>@payout.CreatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture)</td>
+                                                <td><code>@Short(payout.EmployeeId)</code></td>
+                                                <td>@Amount(payout.Amount) @payout.Currency</td>
+                                                <td>@payout.ProviderKey</td>
+                                                <td>@payout.AttemptCount</td>
+                                                <td><code>@payout.ErrorCode</code></td>
+                                                <td>
+                                                    @if (Can("expense.reimburse"))
+                                                    {
+                                                        <div class="expense-payout-operation-actions">
+                                                            <button type="button" data-retry-failed-payout="@payout.Id" disabled="@_busy" @onclick="() => ManageFailedPayoutAsync(payout, ExpensePayoutFailureAction.Retry)">@T("expenseWorkspace.retryFailedPayout", "재처리", "Retry")</button>
+                                                            <button class="danger" type="button" data-discard-failed-payout="@payout.Id" disabled="@_busy" @onclick="() => ManageFailedPayoutAsync(payout, ExpensePayoutFailureAction.Discard)">@T("expenseWorkspace.discardFailedPayout", "폐기", "Discard")</button>
+                                                        </div>
+                                                    }
+                                                    else { <span>@T("expenseWorkspace.payoutReadOnly", "조회 전용", "Read only")</span> }
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                        <nav class="expense-ledger-pages" aria-label="@T("expenseWorkspace.failedPayouts", "실패 지급 처리", "Failed payout operations")">
+                            <button id="expense-failed-payout-previous" type="button" disabled="@(_busy || !HasPreviousFailedPayoutPage)" @onclick="() => MoveFailedPayoutPageAsync(-1)">@T("inventory.previous", "이전 페이지", "Previous page")</button>
+                            <span data-failed-payout-total="@failedPayouts.Total">@string.Format(CultureInfo.InvariantCulture, T("expenseWorkspace.ledgerPage", "{0}–{1} / {2}", "{0}–{1} of {2}"), failedPayouts.Total == 0 ? 0 : _failedPayoutOffset + 1, _failedPayoutOffset + failedPayouts.Items.Count, failedPayouts.Total)</span>
+                            <button id="expense-failed-payout-next" type="button" disabled="@(_busy || !HasNextFailedPayoutPage)" @onclick="() => MoveFailedPayoutPageAsync(1)">@T("inventory.next", "다음 페이지", "Next page")</button>
+                        </nav>
+                    }
+                </section>
+            }
+
             @if (Can("expense.write") && Can("expense.directory.read"))
             {
                 <section aria-labelledby="expense-create-heading">
