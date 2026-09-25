@@ -71,6 +71,17 @@ public sealed class BillingController(IBillingBridge bridge, IWebHostEnvironment
         CancellationToken ct)
         => Execute(user => bridge.GetProductSourceAsync(user, tenantId, organizationId, movementId, ct));
 
+    [HttpPut("time-sources/{timeEntryId:guid}")]
+    public Task<IActionResult> RegisterTimeSource(Guid tenantId, Guid organizationId, Guid timeEntryId,
+        [FromBody] BillingTimeSourceInput input, CancellationToken ct)
+        => Execute(user => bridge.RegisterTimeSourceAsync(user, tenantId, organizationId,
+            timeEntryId, input, ct));
+
+    [HttpGet("time-sources/{timeEntryId:guid}")]
+    public Task<IActionResult> GetTimeSource(Guid tenantId, Guid organizationId, Guid timeEntryId,
+        CancellationToken ct)
+        => Execute(user => bridge.GetTimeSourceAsync(user, tenantId, organizationId, timeEntryId, ct));
+
     [HttpGet("documents")]
     public Task<IActionResult> ListDocuments(Guid tenantId, Guid organizationId, [FromQuery] BillingKind? kind, [FromQuery] BillingStatus? status,
         [FromQuery] Guid? contactId, CancellationToken ct, [FromQuery] int offset = 0, [FromQuery] int limit = 50)
