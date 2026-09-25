@@ -10,6 +10,7 @@ using NexaOne.ServiceContracts.Erp;
 using NexaOne.ServiceContracts.Collaboration;
 using NexaOne.ServiceContracts.Crm;
 using NexaOne.ServiceContracts.Mdm;
+using NexaOne.ServiceContracts.Ivt;
 using NexaOne.ServiceContracts.Sys;
 
 namespace NexaOne.ERP;
@@ -40,6 +41,7 @@ public sealed class Module
         IBusinessMembershipBridge businessMemberships,
         IBusinessMasterDirectory businessMasters,
         IBusinessProjectDirectory businessProjects,
+        IStockBillingDirectory stockBillingDirectory,
         IRecurringScheduler scheduler,
         IDeliveryProviderRegistry deliveryProviders,
         IExpensePayoutProviderRegistry expensePayoutProviders)
@@ -49,12 +51,13 @@ public sealed class Module
         ArgumentNullException.ThrowIfNull(businessMemberships);
         ArgumentNullException.ThrowIfNull(businessMasters);
         ArgumentNullException.ThrowIfNull(businessProjects);
+        ArgumentNullException.ThrowIfNull(stockBillingDirectory);
         ArgumentNullException.ThrowIfNull(scheduler);
         ArgumentNullException.ThrowIfNull(deliveryProviders);
         ArgumentNullException.ThrowIfNull(expensePayoutProviders);
 
         var bridge = new BillingBridge(dataSource, businessMemberships, businessMasters,
-            projects: businessProjects);
+            projects: businessProjects, stockBilling: stockBillingDirectory);
         _billingBridge = bridge;
         _expenseBridge = bridge;
         _expensePayoutAutomationBridge = bridge;

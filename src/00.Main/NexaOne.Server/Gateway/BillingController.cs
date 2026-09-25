@@ -60,6 +60,17 @@ public sealed class BillingController(IBillingBridge bridge, IWebHostEnvironment
         => Execute(user => bridge.GenerateAutomaticInvoiceAsync(user, tenantId, organizationId,
             command.OperationId, command.Request, ct));
 
+    [HttpPut("product-sources/{movementId:guid}")]
+    public Task<IActionResult> RegisterProductSource(Guid tenantId, Guid organizationId, Guid movementId,
+        [FromBody] BillingProductSourceInput input, CancellationToken ct)
+        => Execute(user => bridge.RegisterProductSourceAsync(user, tenantId, organizationId,
+            movementId, input, ct));
+
+    [HttpGet("product-sources/{movementId:guid}")]
+    public Task<IActionResult> GetProductSource(Guid tenantId, Guid organizationId, Guid movementId,
+        CancellationToken ct)
+        => Execute(user => bridge.GetProductSourceAsync(user, tenantId, organizationId, movementId, ct));
+
     [HttpGet("documents")]
     public Task<IActionResult> ListDocuments(Guid tenantId, Guid organizationId, [FromQuery] BillingKind? kind, [FromQuery] BillingStatus? status,
         [FromQuery] Guid? contactId, CancellationToken ct, [FromQuery] int offset = 0, [FromQuery] int limit = 50)
