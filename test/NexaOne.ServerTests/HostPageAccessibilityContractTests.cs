@@ -14,6 +14,7 @@ public sealed class HostPageAccessibilityContractTests
     [InlineData("HostSoCatalog.razor")]
     [InlineData("HostUserRequests.razor")]
     [InlineData("HostFinancialReportHistory.razor")]
+    [InlineData("HostExpenseWorkspace.razor")]
     public void Dedicated_management_page_inputs_have_explicit_accessible_names(string fileName)
     {
         var source = File.ReadAllText(RepositorySource.GetFile(

@@ -64,6 +64,7 @@ public sealed class MssqlRuntimeContractTests
         {
             "V172__ERP_BILLING_WORKSPACE_RESOURCES.sql",
             "V197__ERP_REPORT_HISTORY_RESOURCES.sql",
+            "V198__ERP_EXPENSE_WORKSPACE_RESOURCES.sql",
         }.Select(file => File.ReadAllText(RepositorySource.GetFile(
             "src/00.Main/NexaOne.Server/config/db/migrations/" + file))));
         await using var connection = new SqlConnection(database.ConnectionString);
