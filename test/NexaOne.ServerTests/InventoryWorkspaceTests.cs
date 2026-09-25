@@ -103,6 +103,7 @@ public sealed class InventoryWorkspaceTests : BunitContext
 
         foreach (var name in new[] { "products", "warehouses", "assets", "bookings", "workers" })
             cut.FindAll("section#inventory-" + name).Count.Should().Be(name == section ? 1 : 0);
+        cut.FindAll("#inventory-balance-report").Count.Should().Be(grant == "stock.read" ? 1 : 0);
         cut.FindAll("#inventory-no-read-access").Count.Should().Be(section is null ? 1 : 0);
         _api.Invocations.Should().OnlyContain(call => call.Method.Name == nameof(IApiClient.ReadInventoryAsync));
         _api.Invocations.Count.Should().Be(section is null ? 1 : 2);

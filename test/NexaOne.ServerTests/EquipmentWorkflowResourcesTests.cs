@@ -107,7 +107,7 @@ public sealed class EquipmentWorkflowResourcesTests
     internal static Dictionary<string, string> ExpectedResources()
     {
         var expected = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var file in new[] { "EquipmentWorkflowPanel.razor", "EquipmentWorkflowPanel.razor.cs", "StockWorkflowPanel.razor", "StockWorkflowPanel.razor.cs", "HostInventoryWorkspace.razor" })
+        foreach (var file in new[] { "EquipmentWorkflowPanel.razor", "EquipmentWorkflowPanel.razor.cs", "StockWorkflowPanel.razor", "StockWorkflowPanel.razor.cs", "StockBalanceReportPanel.razor", "HostInventoryWorkspace.razor" })
         {
             var source = File.ReadAllText(RepositorySource.GetFile("src/00.Main/NexaOne.Server/Components/Pages/" + file));
             var calls = Regex.Matches(source,

@@ -1,0 +1,290 @@
+@implements IDisposable
+@using System.Globalization
+@using Microsoft.JSInterop
+@using NexaFramework.Service.Inventory
+@using NexaOne.ServiceContracts.Ivt
+@inject IApiClient Api
+@inject UiTextService Ui
+@inject IJSRuntime JS
+
+<section id="inventory-balance-report" aria-labelledby="inventory-balance-report-heading"
+         aria-busy="@_busy.ToString().ToLowerInvariant()">
+    <div class="ibr-heading">
+        <div>
+            <h2 id="inventory-balance-report-heading">@T("inventory.stock.reportHeading", "현재 재고 잔액 보고", "Current stock balance report")</h2>
+            <p>@T("inventory.stock.reportIntro", "기록된 현재고·예약·가용 수량을 범위 전체 또는 현재 선택 항목으로 조회하고 CSV로 내보냅니다.", "Review recorded on-hand, reserved and available quantities for the whole scope or current selections, then export them as CSV.")</p>
+        </div>
+        <div class="ibr-actions">
+            <button id="inventory-balance-report-run" type="button" disabled="@_busy" @onclick="LoadAsync">@T("inventory.stock.reportRun", "현재 잔액 조회", "Load current balances")</button>
+            <button id="inventory-balance-report-download" type="button" disabled="@(_busy || _report is null)" @onclick="DownloadAsync">@T("inventory.stock.reportDownload", "조회 조건으로 CSV 다운로드", "Download CSV for these filters")</button>
+        </div>
+    </div>
+
+    <div class="ibr-filters" aria-label="@T("inventory.stock.reportFilters", "보고서 필터", "Report filters")">
+        <label class="ibr-check">
+            <input id="inventory-balance-report-warehouse-filter" type="checkbox" @bind="_useSelectedWarehouse"
+                   disabled="@(_busy || Warehouse is null)" />
+            <span>
+                <strong>@T("inventory.stock.reportSelectedWarehouse", "현재 선택 창고만", "Current selected warehouse only")</strong>
+                <small>@WarehouseLabel</small>
+            </span>
+        </label>
+        <label class="ibr-check">
+            <input id="inventory-balance-report-variant-filter" type="checkbox" @bind="_useSelectedVariant"
+                   disabled="@(_busy || Variant is null)" />
+            <span>
+                <strong>@T("inventory.stock.reportSelectedVariant", "현재 선택 품목만", "Current selected product only")</strong>
+                <small>@VariantLabel</small>
+            </span>
+        </label>
+    </div>
+
+    <div class="ibr-status" aria-live="polite">
+        @if (_busy)
+        {
+            <p role="status">@T("inventory.stock.reportLoading", "재고 잔액 보고서를 불러오는 중…", "Loading the stock balance report…")</p>
+        }
+        @if (_error is not null)
+        {
+            <div role="alert">
+                <p>@_error</p>
+                @if (!string.IsNullOrEmpty(_errorCode))
+                {
+                    <span class="ibr-id">@_errorCode</span>
+                }
+            </div>
+        }
+        @if (_notice is not null)
+        {
+            <p role="status">@_notice</p>
+        }
+    </div>
+
+    @if (_report is not null)
+    {
+        <div class="ibr-summary" role="status">
+            <strong>@T("inventory.stock.reportRows", "보고 행", "Report rows") @_report.Rows.Count.ToString(CultureInfo.InvariantCulture)</strong>
+            <span>@T("inventory.stock.reportGeneratedAt", "생성 시각 (UTC)", "Generated at (UTC)") @Utc(_report.GeneratedAt)</span>
+            <span>@AppliedFilters</span>
+        </div>
+
+        @if (_report.Rows.Count == 0)
+        {
+            <p class="ibr-empty" data-empty="true">@T("inventory.stock.reportEmpty", "선택한 조건에 기록된 재고 잔액이 없습니다.", "No recorded stock balances match these filters.")</p>
+        }
+        else
+        {
+            <div class="ibr-table-scroll" tabindex="0" role="region" aria-label="@T("inventory.stock.reportHeading", "현재 재고 잔액 보고", "Current stock balance report")">
+                <table>
+                    <caption class="ibr-sr-only">@T("inventory.stock.reportHeading", "현재 재고 잔액 보고", "Current stock balance report")</caption>
+                    <thead>
+                        <tr>
+                            <th>@T("inventory.stock.reportWarehouse", "창고", "Warehouse")</th>
+                            <th>@T("inventory.stock.reportProduct", "품목", "Product")</th>
+                            <th>@T("inventory.stock.variantId", "변형 ID", "Variant ID")</th>
+                            <th>@T("inventory.stock.reportUnit", "단위", "Unit")</th>
+                            <th>@T("inventory.stock.onHand", "현재고", "On hand")</th>
+                            <th>@T("inventory.stock.reserved", "예약", "Reserved")</th>
+                            <th>@T("inventory.stock.available", "가용", "Available")</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in VisibleRows)
+                        {
+                            <tr @key="@($"{row.WarehouseId:D}/{row.VariantId:D}")" data-report-row>
+                                <td><strong>@row.WarehouseCode</strong><span>@row.WarehouseName · @Activity(row.WarehouseActive)</span></td>
+                                <td><strong>@row.ProductId</strong><span>@row.ProductName · @Activity(row.ProductActive)</span></td>
+                                <td class="ibr-id">@row.VariantId.ToString("D")</td>
+                                <td>@row.Unit</td>
+                                <td class="ibr-measure">@Quantity(row.OnHand)</td>
+                                <td class="ibr-measure">@Quantity(row.Reserved)</td>
+                                <td class="ibr-measure">@Quantity(row.Available)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <nav class="ibr-pager" aria-label="@T("inventory.stock.reportPages", "재고 잔액 보고서 페이지", "Stock balance report pages")">
+                <button id="inventory-balance-report-previous" type="button" disabled="@(_busy || _offset == 0)" @onclick="PreviousPage">@T("inventory.previous", "이전 페이지", "Previous page")</button>
+                <span>@T("inventory.total", "전체", "Total") @_report.Rows.Count.ToString(CultureInfo.InvariantCulture) · @T("inventory.page", "페이지", "Page") @(_offset / PageSize + 1)</span>
+                <button id="inventory-balance-report-next" type="button" disabled="@(_busy || !CanNext)" @onclick="NextPage">@T("inventory.next", "다음 페이지", "Next page")</button>
+            </nav>
+        }
+    }
+    else if (!_busy && _error is null)
+    {
+        <p class="ibr-empty" data-initial="true">@T("inventory.stock.reportInitial", "필터를 확인한 뒤 현재 잔액 조회를 실행하세요. 조회 전에는 CSV 다운로드가 비활성화됩니다.", "Review the filters, then load current balances. CSV download remains unavailable until a report is loaded.")</p>
+    }
+</section>
+
+@code {
+    private const int PageSize = 50;
+    private CancellationTokenSource? _request;
+    private StockBalanceReport? _report;
+    private string? _scopeKey, _error, _errorCode, _notice;
+    private string? _appliedWarehouseLabel, _appliedVariantLabel;
+    private Guid? _appliedWarehouseId, _appliedVariantId;
+    private int _offset;
+    private bool _busy, _disposed, _useSelectedWarehouse, _useSelectedVariant;
+
+    [Parameter, EditorRequired] public InventoryAccessScope Scope { get; set; } = null!;
+    [Parameter] public Warehouse? Warehouse { get; set; }
+    [Parameter] public ProductVariant? Variant { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        var next = ScopeKey(Scope);
+        if (_scopeKey is not null && !string.Equals(_scopeKey, next, StringComparison.Ordinal)) Reset();
+        _scopeKey = next;
+        if (Warehouse is null) _useSelectedWarehouse = false;
+        if (Variant is null) _useSelectedVariant = false;
+    }
+
+    private async Task LoadAsync()
+    {
+        var warehouseId = _useSelectedWarehouse ? Warehouse?.Id : null;
+        var variantId = _useSelectedVariant ? Variant?.Id : null;
+        var warehouseLabel = warehouseId is null ? null : $"{Warehouse!.Code} · {Warehouse.Name}";
+        var variantLabel = variantId is null ? null : $"{Variant!.Sku} · {Variant.Id:D}";
+        await RunAsync(async ct =>
+        {
+            var result = await Api.ReadInventoryAsync<StockBalanceReport>(Path(export: false, warehouseId, variantId), ct);
+            if (!Owns(ct)) return;
+            if (result.Value is { } report && result.Error is null && Valid(report, warehouseId, variantId))
+            {
+                _report = report;
+                _appliedWarehouseId = warehouseId;
+                _appliedVariantId = variantId;
+                _appliedWarehouseLabel = warehouseLabel;
+                _appliedVariantLabel = variantLabel;
+                _offset = 0;
+                return;
+            }
+
+            if (result.Value is not null)
+            {
+                _error = T("inventory.stock.reportInvalidResponse", "서버 보고서가 선택한 범위 또는 필터와 일치하지 않습니다. 범위를 새로고침한 뒤 다시 조회하세요.", "The server report does not match the selected scope or filters. Refresh the scope and try again.");
+                _errorCode = "STOCK_REPORT_RESPONSE_MISMATCH";
+                return;
+            }
+            SetError(result.StatusCode, result.Code, result.Error);
+        });
+    }
+
+    private async Task DownloadAsync()
+    {
+        if (_report is null) return;
+        var warehouseId = _appliedWarehouseId;
+        var variantId = _appliedVariantId;
+        await RunAsync(async ct =>
+        {
+            var result = await Api.DownloadInventoryFileAsync(Path(export: true, warehouseId, variantId), ct);
+            if (!Owns(ct)) return;
+            if (result.Content is null || result.FileName is null || result.ContentType is null || result.Error is not null)
+            {
+                SetError(result.StatusCode, result.Code, result.Error);
+                return;
+            }
+            if (!result.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(result.ContentType, "text/csv", StringComparison.OrdinalIgnoreCase))
+            {
+                _error = T("inventory.stock.reportInvalidDownload", "서버가 올바른 CSV 파일을 반환하지 않았습니다. 다시 조회한 뒤 다운로드하세요.", "The server did not return a valid CSV file. Reload the report before downloading.");
+                _errorCode = "STOCK_REPORT_DOWNLOAD_INVALID";
+                return;
+            }
+            try
+            {
+                await using var stream = new MemoryStream(result.Content, writable: false);
+                using var reference = new DotNetStreamReference(stream);
+                await JS.InvokeVoidAsync("nxDownloadStream", ct, result.FileName, result.ContentType, reference);
+                if (Owns(ct)) _notice = T("inventory.stock.reportDownloadStarted", "CSV 다운로드를 시작했습니다.", "CSV download started.");
+            }
+            catch (JSException)
+            {
+                if (Owns(ct))
+                {
+                    _error = T("inventory.stock.reportDownloadFailed", "브라우저에서 CSV 다운로드를 시작하지 못했습니다. 다시 시도하세요.", "The browser could not start the CSV download. Try again.");
+                    _errorCode = null;
+                }
+            }
+        });
+    }
+
+    private async Task RunAsync(Func<CancellationToken, Task> action)
+    {
+        if (_busy || _disposed) return;
+        Cancel();
+        var request = new CancellationTokenSource();
+        _request = request;
+        _busy = true;
+        _error = _errorCode = _notice = null;
+        try { await action(request.Token); }
+        catch (OperationCanceledException) when (request.IsCancellationRequested) { }
+        finally
+        {
+            if (ReferenceEquals(_request, request)) { _request = null; _busy = false; }
+            request.Dispose();
+        }
+    }
+
+    private bool Valid(StockBalanceReport report, Guid? warehouseId, Guid? variantId)
+        => report.Rows is not null
+            && string.Equals(report.Scope.ProductId, "NexaOne.MES", StringComparison.Ordinal)
+            && string.Equals(report.Scope.TenantId, Scope.Membership.TenantId.ToString("D"), StringComparison.Ordinal)
+            && string.Equals(report.Scope.OrganizationId, Scope.Membership.OrganizationId.ToString("D"), StringComparison.Ordinal)
+            && report.Rows.All(row => (warehouseId is null || row.WarehouseId == warehouseId)
+                && (variantId is null || row.VariantId == variantId)
+                && !string.IsNullOrWhiteSpace(row.WarehouseCode) && !string.IsNullOrWhiteSpace(row.WarehouseName)
+                && !string.IsNullOrWhiteSpace(row.ProductId) && !string.IsNullOrWhiteSpace(row.ProductName)
+                && !string.IsNullOrWhiteSpace(row.Unit));
+
+    private void SetError(int status, string? code, string? detail)
+    {
+        _errorCode = code;
+        _error = status == 413 || string.Equals(code, "STOCK_REPORT_TOO_LARGE", StringComparison.Ordinal)
+            ? T("inventory.stock.reportTooLarge", "결과가 10,000행을 초과합니다. 창고 또는 품목 필터를 적용해 다시 조회하세요.", "The result exceeds 10,000 rows. Apply a warehouse or product filter and try again.")
+            : status == 403 ? T("inventory.forbidden", "현재 조회 권한이 없습니다. 범위를 새로고침해 접근 상태를 확인하세요.", "You no longer have access to this read. Refresh scopes to check access.")
+            : status == 401 ? T("inventory.unauthorized", "인증이 만료되었습니다. 다시 로그인해 주세요.", "Your session expired. Sign in again.")
+            : status == 503 ? T("inventory.unavailable", "서비스를 사용할 수 없습니다. 잠시 후 다시 조회해 주세요.", "The service is unavailable. Retry the read shortly.")
+            : detail ?? T("inventory.stock.reportFailed", "재고 잔액 보고서를 불러오지 못했습니다. 다시 조회하세요.", "The stock balance report could not be loaded. Try again.");
+    }
+
+    private string Path(bool export, Guid? warehouseId, Guid? variantId)
+    {
+        var filters = new List<string>(2);
+        if (warehouseId is not null) filters.Add($"warehouseId={warehouseId:D}");
+        if (variantId is not null) filters.Add($"variantId={variantId:D}");
+        var query = filters.Count == 0 ? "" : "?" + string.Join("&", filters);
+        return $"api/v1/ivt/stock/{ScopeKey(Scope)}/reports/balances{(export ? "/export.csv" : "")}{query}";
+    }
+
+    private IEnumerable<StockBalanceReportRow> VisibleRows => _report?.Rows.Skip(_offset).Take(PageSize) ?? [];
+    private bool CanNext => _report is not null && (long)_offset + PageSize < _report.Rows.Count;
+    private void PreviousPage() => _offset = Math.Max(0, _offset - PageSize);
+    private void NextPage() { if (CanNext) _offset += PageSize; }
+    private string WarehouseLabel => Warehouse is null
+        ? T("inventory.stock.reportNoWarehouse", "재고 작업에서 창고를 먼저 선택하세요.", "Select a warehouse in Stock actions first.")
+        : $"{Warehouse.Code} · {Warehouse.Name}";
+    private string VariantLabel => Variant is null
+        ? T("inventory.stock.reportNoVariant", "재고 작업에서 품목을 먼저 선택하세요.", "Select a product in Stock actions first.")
+        : $"{Variant.Sku} · {Variant.Id:D}";
+    private string AppliedFilters => _appliedWarehouseId is null && _appliedVariantId is null
+        ? T("inventory.stock.reportAllScope", "적용 조건: 범위 전체", "Applied filters: entire scope")
+        : string.Join(" · ", new[] { _appliedWarehouseLabel, _appliedVariantLabel }.Where(value => value is not null));
+    private string Activity(bool active) => active ? T("inventory.active", "활성", "Active") : T("inventory.inactive", "비활성", "Inactive");
+    private static string Quantity(decimal value) => value.ToString(CultureInfo.InvariantCulture);
+    private static string Utc(DateTimeOffset value) => value.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+    private static string ScopeKey(InventoryAccessScope scope) => $"{scope.Membership.TenantId:D}/{scope.Membership.OrganizationId:D}";
+    private string T(string key, string ko, string en) => Ui.T(key, Ui.Language == "EnUs" ? en : ko);
+    private bool Owns(CancellationToken token) => !_disposed && _request?.Token == token;
+    private void Cancel() { if (_request is not null) { var request = _request; _request = null; _busy = false; request.Cancel(); } }
+    private void Reset()
+    {
+        Cancel();
+        _report = null; _error = _errorCode = _notice = null;
+        _appliedWarehouseId = _appliedVariantId = null;
+        _appliedWarehouseLabel = _appliedVariantLabel = null;
+        _offset = 0; _useSelectedWarehouse = _useSelectedVariant = false;
+    }
+    public void Dispose() { _disposed = true; Cancel(); }
+}
