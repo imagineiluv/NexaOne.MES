@@ -3208,6 +3208,58 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V209_expense_payout_failure_operation_schema_is_created_and_idempotent()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            TableExists(cs, "ERP_EXPENSE_PAYOUT_FAILURE_OPERATION").Should().BeTrue();
+            Columns(cs, "ERP_EXPENSE_PAYOUT_FAILURE_OPERATION").Should().Contain(
+                "TENANT_ID", "ORGANIZATION_ID", "OPERATION_ID", "PAYOUT_ID", "ACTION",
+                "RESULT_VERSION", "ACTOR_ID", "OCCURRED_AT_TICKS", "PAYLOAD");
+            IndexExists(cs, "IX_ERP_EXPENSE_PAYOUT_FAILURE_OPERATION_PAYOUT").Should().BeTrue();
+            IndexKeys(cs, "IX_ERP_EXPENSE_PAYOUT_FAILURE_OPERATION_PAYOUT").Should().Equal(
+                "TENANT_ID:ASC", "ORGANIZATION_ID:ASC", "PAYOUT_ID:ASC", "OPERATION_ID:ASC");
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            Count(cs, "ERP_EXPENSE_PAYOUT_FAILURE_OPERATION").Should().Be(0);
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { } }
+    }
+
+    [Fact]
+    public void V210_expense_payout_failure_resources_are_reconciled_without_overwriting_custom_values()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            ExecSql(cs, """
+                DELETE FROM SYS_MULTI_LANGUAGE_RESOURCE
+                 WHERE RESOURCE_KEY LIKE 'expenseWorkspace.failedPayout%'
+                    OR RESOURCE_KEY IN ('expenseWorkspace.refreshFailedPayouts',
+                                        'expenseWorkspace.noFailedPayouts',
+                                        'expenseWorkspace.retryFailedPayout',
+                                        'expenseWorkspace.discardFailedPayout',
+                                        'expenseWorkspace.payoutReadOnly');
+                INSERT INTO SYS_MULTI_LANGUAGE_RESOURCE (RESOURCE_KEY,MENU_ID,LANGUAGE,VALUE)
+                VALUES ('expenseWorkspace.failedPayouts','COMMON','EnUs','Custom payout queue');
+                """);
+
+            NexaOneDevelopmentDatabaseInitializer.EnsureDevWorkflowResources(
+                cs, "V210__ERP_EXPENSE_PAYOUT_FAILURE_RESOURCES.sql");
+
+            ScalarString(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='expenseWorkspace.failedPayouts' AND LANGUAGE='EnUs'")
+                .Should().Be("Custom payout queue");
+            ScalarString(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='expenseWorkspace.retryFailedPayout' AND LANGUAGE='EnUs'")
+                .Should().Be("Retry");
+            ScalarString(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='expenseWorkspace.failedPayoutDiscarded' AND LANGUAGE='EnUs'")
+                .Should().Be("The failed payout was discarded.");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { } }
+    }
+
+    [Fact]
     public void V160_database_principal_security_is_a_fresh_and_incremental_sqlite_no_op()
     {
         var cs = NewDb();

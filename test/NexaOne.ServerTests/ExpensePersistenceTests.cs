@@ -160,7 +160,7 @@ public sealed class ExpensePersistenceTests : IClassFixture<BusinessMembershipDa
     }
 
     [Fact]
-    public async Task Failed_or_cancelled_payout_does_not_mark_expense_paid_and_releases_it()
+    public async Task Failed_payout_retry_and_discard_are_durable_idempotent_and_audited()
     {
         var category = await Category();
         var vendor = await Vendor();
@@ -176,14 +176,68 @@ public sealed class ExpensePersistenceTests : IClassFixture<BusinessMembershipDa
         failed.State.Should().Be(ExpensePayoutState.Failed);
         (await _bridge.GetExpenseAsync("expense-reader", _tenant, _organization, expense.Id))
             .Status.Should().Be(ExpenseStatus.NotBillable);
+        (await _bridge.ListFailedPayoutsAsync("expense-reader", _tenant, _organization))
+            .Items.Should().ContainSingle(value => value.Id == failed.Id);
 
-        var retry = await _bridge.QueuePayoutAsync("expense-user", _tenant, _organization, Guid.NewGuid(),
-            new(expense.Id, expense.Version, "test-bank"));
-        var cancelled = await _bridge.CancelPayoutAsync("expense-user", _tenant, _organization,
-            retry.Id, retry.Version);
-        cancelled.State.Should().Be(ExpensePayoutState.Cancelled);
+        var retryOperation = Guid.NewGuid();
+        var retried = await _bridge.RetryFailedPayoutAsync("expense-user", _tenant, _organization,
+            retryOperation, failed.Id, failed.Version);
+        retried.State.Should().Be(ExpensePayoutState.Pending);
+        retried.AttemptCount.Should().Be(0);
+        retried.ErrorCode.Should().BeNull();
+        (await NewBridge().RetryFailedPayoutAsync("expense-user", _tenant, _organization,
+            retryOperation, failed.Id, failed.Version)).Should().BeEquivalentTo(retried);
+        await Error(() => _bridge.DiscardFailedPayoutAsync("expense-user", _tenant, _organization,
+            retryOperation, failed.Id, failed.Version), "EXPENSE_PAYOUT_OPERATION_CONFLICT");
+
+        var reclaimed = (await automation.ClaimDueAsync("expense-user", _tenant, _organization,
+            1, TimeSpan.FromMinutes(1))).Single();
+        (await NewBridge().RetryFailedPayoutAsync("expense-user", _tenant, _organization,
+            retryOperation, failed.Id, failed.Version)).Should().BeEquivalentTo(reclaimed);
+        var failedAgain = await automation.FailAsync("expense-user", _tenant, _organization,
+            reclaimed.Id, reclaimed.Version, reclaimed.LeaseId!.Value, "EXPENSE_PAYOUT_REJECTED_AGAIN");
+        var discardOperation = Guid.NewGuid();
+        var discarded = await _bridge.DiscardFailedPayoutAsync("expense-user", _tenant, _organization,
+            discardOperation, failedAgain.Id, failedAgain.Version);
+        discarded.State.Should().Be(ExpensePayoutState.Cancelled);
+        discarded.ErrorCode.Should().Be("EXPENSE_PAYOUT_REJECTED_AGAIN");
+        (await NewBridge().DiscardFailedPayoutAsync("expense-user", _tenant, _organization,
+            discardOperation, failedAgain.Id, failedAgain.Version)).Should().BeEquivalentTo(discarded);
+        (await _bridge.ListFailedPayoutsAsync("expense-reader", _tenant, _organization)).Items.Should().BeEmpty();
+        Scalar<long>("SELECT COUNT(*) FROM ERP_EXPENSE_PAYOUT_FAILURE_OPERATION").Should().Be(2);
+        Scalar<long>("SELECT COUNT(*) FROM ERP_BILLING_AUDIT WHERE RESOURCE_TYPE='expense-payout' "
+            + "AND OPERATION IN ('failed-retried','failed-discarded')").Should().Be(2);
         (await _bridge.UpdateExpenseAsync("expense-user", _tenant, _organization,
             expense.Id, expense.Version, expense.Input with { Amount = 120m })).Amounts.Gross.Should().Be(120m);
+    }
+
+    [Fact]
+    public async Task Failed_payout_retry_rechecks_expense_snapshot_active_work_and_permission()
+    {
+        var category = await Category(); var vendor = await Vendor();
+        var expense = await _bridge.CreateExpenseAsync("expense-user", _tenant, _organization,
+            Guid.NewGuid(), Input(category.Id, vendor.Id, _employee));
+        var first = await _bridge.QueuePayoutAsync("expense-user", _tenant, _organization, Guid.NewGuid(),
+            new(expense.Id, expense.Version, "test-bank"));
+        var automation = (IExpensePayoutAutomationBridge)NewBridge();
+        var claimed = (await automation.ClaimDueAsync("expense-user", _tenant, _organization,
+            1, TimeSpan.FromMinutes(1))).Single();
+        var failed = await automation.FailAsync("expense-user", _tenant, _organization,
+            first.Id, claimed.Version, claimed.LeaseId!.Value, "REJECTED");
+
+        await Error(() => _bridge.RetryFailedPayoutAsync("expense-reader", _tenant, _organization,
+            Guid.NewGuid(), failed.Id, failed.Version), "BUSINESS_ACCESS_DENIED");
+        var active = await _bridge.QueuePayoutAsync("expense-user", _tenant, _organization, Guid.NewGuid(),
+            new(expense.Id, expense.Version, "test-bank"));
+        await Error(() => _bridge.RetryFailedPayoutAsync("expense-user", _tenant, _organization,
+            Guid.NewGuid(), failed.Id, failed.Version), "EXPENSE_PAYOUT_ALREADY_ACTIVE");
+        await _bridge.CancelPayoutAsync("expense-user", _tenant, _organization, active.Id, active.Version);
+        var updated = await _bridge.UpdateExpenseAsync("expense-user", _tenant, _organization,
+            expense.Id, expense.Version, expense.Input with { Amount = 120m });
+        await Error(() => _bridge.RetryFailedPayoutAsync("expense-user", _tenant, _organization,
+            Guid.NewGuid(), failed.Id, failed.Version), "BUSINESS_VERSION_CONFLICT");
+        updated.Amounts.Gross.Should().Be(120m);
+        Scalar<long>("SELECT COUNT(*) FROM ERP_EXPENSE_PAYOUT_FAILURE_OPERATION").Should().Be(0);
     }
 
     [Fact]

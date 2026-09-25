@@ -23,7 +23,7 @@ public sealed class ExpenseControllerTests
     {
         var tenant = Guid.NewGuid(); var organization = Guid.NewGuid(); var expense = Guid.NewGuid();
         var expenseVersion = Guid.NewGuid(); var payoutId = Guid.NewGuid(); var payoutVersion = Guid.NewGuid();
-        var operation = Guid.NewGuid();
+        var operation = Guid.NewGuid(); var disposition = Guid.NewGuid();
         var payout = new ExpensePayoutRequest(payoutId, payoutVersion, operation,
             new("NexaOne.MES", tenant.ToString("D"), organization.ToString("D")), expense, expenseVersion,
             Guid.NewGuid(), 125m, "KRW", "bank", ExpensePayoutState.Pending, 0,
@@ -35,8 +35,14 @@ public sealed class ExpenseControllerTests
             CancellationToken.None)).ReturnsAsync(payout);
         bridge.Setup(x => x.ListPayoutsAsync("expense-user", tenant, organization, expense, 25, 10,
             CancellationToken.None)).ReturnsAsync(new BusinessPage<ExpensePayoutRequest>([payout], 1));
+        bridge.Setup(x => x.ListFailedPayoutsAsync("expense-user", tenant, organization, 5, 20,
+            CancellationToken.None)).ReturnsAsync(new BusinessPage<ExpensePayoutRequest>([payout], 1));
         bridge.Setup(x => x.CancelPayoutAsync("expense-user", tenant, organization, payoutId, payoutVersion,
             CancellationToken.None)).ReturnsAsync(payout with { State = ExpensePayoutState.Cancelled });
+        bridge.Setup(x => x.RetryFailedPayoutAsync("expense-user", tenant, organization, disposition,
+            payoutId, payoutVersion, CancellationToken.None)).ReturnsAsync(payout);
+        bridge.Setup(x => x.DiscardFailedPayoutAsync("expense-user", tenant, organization, disposition,
+            payoutId, payoutVersion, CancellationToken.None)).ReturnsAsync(payout);
         var controller = Controller(bridge.Object);
 
         (await controller.QueuePayout(tenant, organization, expense,
@@ -45,8 +51,14 @@ public sealed class ExpenseControllerTests
             .Should().BeOfType<OkObjectResult>();
         (await controller.ListPayouts(tenant, organization, CancellationToken.None, expense, 25, 10))
             .Should().BeOfType<OkObjectResult>();
+        (await controller.ListFailedPayouts(tenant, organization, CancellationToken.None, 5, 20))
+            .Should().BeOfType<OkObjectResult>();
         (await controller.CancelPayout(tenant, organization, payoutId,
             new(payoutVersion), CancellationToken.None)).Should().BeOfType<OkObjectResult>();
+        (await controller.RetryFailedPayout(tenant, organization, payoutId,
+            new(disposition, payoutVersion), CancellationToken.None)).Should().BeOfType<OkObjectResult>();
+        (await controller.DiscardFailedPayout(tenant, organization, payoutId,
+            new(disposition, payoutVersion), CancellationToken.None)).Should().BeOfType<OkObjectResult>();
         bridge.VerifyAll(); bridge.VerifyNoOtherCalls();
     }
 

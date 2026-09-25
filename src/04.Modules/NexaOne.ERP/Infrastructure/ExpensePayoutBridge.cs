@@ -57,6 +57,14 @@ public sealed partial class BillingBridge
             return session.QueryPayoutsAsync(expenseId, offset, limit, ct);
         }, ct);
 
+    public Task<BusinessPage<ExpensePayoutRequest>> ListFailedPayoutsAsync(string userId, Guid tenantId,
+        Guid organizationId, int offset = 0, int limit = 50, CancellationToken ct = default)
+        => RunExpense(userId, tenantId, organizationId, "expense.read", (_, _, session) =>
+        {
+            if (offset < 0 || limit is < 1 or > 100) throw Failure("INVALID_BUSINESS_INPUT");
+            return session.QueryFailedPayoutsAsync(offset, limit, ct);
+        }, ct);
+
     public Task<ExpensePayoutRequest> CancelPayoutAsync(string userId, Guid tenantId, Guid organizationId,
         Guid payoutId, Guid version, CancellationToken ct = default)
         => RunExpense(userId, tenantId, organizationId, "expense.reimburse", async (_, _, session) =>
@@ -70,6 +78,68 @@ public sealed partial class BillingBridge
             await session.SavePayoutAsync(next, version, ct);
             await session.AppendAuditAsync(new(Guid.NewGuid(), session.Actor, "expense-payout", next.Id,
                 "cancelled", version, next.Version, _clock.GetUtcNow()), ct);
+            return next;
+        }, ct);
+
+    public Task<ExpensePayoutRequest> RetryFailedPayoutAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid operationId, Guid payoutId, Guid version, CancellationToken ct = default)
+        => ManageFailedPayoutAsync(userId, tenantId, organizationId, operationId, payoutId, version,
+            ExpensePayoutFailureAction.Retry, ct);
+
+    public Task<ExpensePayoutRequest> DiscardFailedPayoutAsync(string userId, Guid tenantId,
+        Guid organizationId, Guid operationId, Guid payoutId, Guid version, CancellationToken ct = default)
+        => ManageFailedPayoutAsync(userId, tenantId, organizationId, operationId, payoutId, version,
+            ExpensePayoutFailureAction.Discard, ct);
+
+    private Task<ExpensePayoutRequest> ManageFailedPayoutAsync(string userId, Guid tenantId,
+        Guid organizationId, Guid operationId, Guid payoutId, Guid version,
+        ExpensePayoutFailureAction action, CancellationToken ct)
+        => RunExpense(userId, tenantId, organizationId, "expense.reimburse", async (_, service, session) =>
+        {
+            if (operationId == Guid.Empty || payoutId == Guid.Empty || version == Guid.Empty
+                || !Enum.IsDefined(action)) throw Failure("INVALID_BUSINESS_INPUT");
+            if (await session.FindPayoutFailureOperationAsync(operationId, ct) is { } replay)
+            {
+                if (replay.PayoutId != payoutId || replay.ExpectedVersion != version || replay.Action != action)
+                    throw Failure("EXPENSE_PAYOUT_OPERATION_CONFLICT");
+                return await session.FindPayoutAsync(payoutId, ct)
+                    ?? throw Failure("EXPENSE_PAYOUT_NOT_FOUND");
+            }
+
+            var current = await session.FindPayoutAsync(payoutId, ct)
+                ?? throw Failure("EXPENSE_PAYOUT_NOT_FOUND");
+            if (current.Version != version) throw Failure("BUSINESS_VERSION_CONFLICT");
+            if (current.State != ExpensePayoutState.Failed) throw Failure("EXPENSE_PAYOUT_NOT_FAILED");
+
+            var now = _clock.GetUtcNow();
+            ExpensePayoutRequest next;
+            if (action == ExpensePayoutFailureAction.Retry)
+            {
+                var expense = await service.GetExpenseAsync(session.Actor, current.ExpenseId, ct);
+                if (expense.Version != current.ExpenseVersion) throw Failure("BUSINESS_VERSION_CONFLICT");
+                if (expense.State != ExpenseState.Active || expense.Input.EmployeeId != current.EmployeeId
+                    || expense.Allocations.Count != 0 || expense.Reimbursement is not null
+                    || expense.Amounts.Gross != current.Amount || expense.Input.Currency != current.Currency)
+                    throw Failure("EXPENSE_NOT_REIMBURSABLE");
+                var expected = expense.Input.Type == ExpenseType.BillableToContact
+                    ? ExpenseStatus.Invoiced : ExpenseStatus.NotBillable;
+                if (expense.Status != expected) throw Failure("EXPENSE_INVALID_STATUS");
+                if (await session.FindActivePayoutByExpenseAsync(expense.Id, ct) is not null)
+                    throw Failure("EXPENSE_PAYOUT_ALREADY_ACTIVE");
+                next = current with
+                {
+                    Version = Guid.NewGuid(), State = ExpensePayoutState.Pending, AttemptCount = 0,
+                    LeaseId = null, LeaseExpiresAt = null, ErrorCode = null
+                };
+            }
+            else next = current with { Version = Guid.NewGuid(), State = ExpensePayoutState.Cancelled };
+
+            await session.SavePayoutAsync(next, version, ct);
+            await session.SavePayoutFailureOperationAsync(new(operationId, current.Scope, current.Id, version,
+                action, next.Version, session.Actor.UserId, now), ct);
+            await session.AppendAuditAsync(new(Guid.NewGuid(), session.Actor, "expense-payout", next.Id,
+                action == ExpensePayoutFailureAction.Retry ? "failed-retried" : "failed-discarded",
+                version, next.Version, now), ct);
             return next;
         }, ct);
 
@@ -167,6 +237,33 @@ public sealed partial class BillingBridge
         public Task<ExpensePayoutRequest?> FindPayoutByOperationAsync(Guid operationId, CancellationToken ct)
             => ReadPayoutAsync("OPERATION_ID=@Key", Text(operationId), ct);
 
+        public async Task<ExpensePayoutFailureOperation?> FindPayoutFailureOperationAsync(
+            Guid operationId, CancellationToken ct)
+        {
+            var payload = await Scalar<string?>("SELECT PAYLOAD FROM ERP_EXPENSE_PAYOUT_FAILURE_OPERATION WHERE "
+                + ScopeWhere + " AND OPERATION_ID=@Key", new { Key = Text(operationId) }, ct);
+            return payload is null ? null : ValidatePayoutFailureOperation(
+                Deserialize<ExpensePayoutFailureOperation>(payload));
+        }
+
+        public async Task SavePayoutFailureOperationAsync(ExpensePayoutFailureOperation value,
+            CancellationToken ct)
+        {
+            ValidatePayoutFailureOperation(value);
+            await Write("""
+                INSERT INTO ERP_EXPENSE_PAYOUT_FAILURE_OPERATION
+                    (TENANT_ID,ORGANIZATION_ID,OPERATION_ID,PAYOUT_ID,ACTION,RESULT_VERSION,
+                     ACTOR_ID,OCCURRED_AT_TICKS,PAYLOAD)
+                VALUES (@TenantId,@OrganizationId,@Operation,@Payout,@Action,@ResultVersion,
+                        @Actor,@OccurredAt,@Payload)
+                """, new
+            {
+                Operation = Text(value.OperationId), Payout = Text(value.PayoutId), Action = (int)value.Action,
+                ResultVersion = Text(value.ResultVersion), Actor = value.ActorId,
+                OccurredAt = value.OccurredAt.UtcTicks, Payload = Serialize(value)
+            }, ct);
+        }
+
         public Task<ExpensePayoutRequest?> FindActivePayoutByExpenseAsync(Guid expenseId, CancellationToken ct)
             => ReadPayoutAsync("EXPENSE_ID=@Key AND STATE IN (0,1)", Text(expenseId), ct);
 
@@ -206,6 +303,20 @@ public sealed partial class BillingBridge
                 + "ROW_NUMBER() OVER (ORDER BY PAYOUT_ID) AS RowNumber FROM ERP_EXPENSE_PAYOUT WHERE "
                 + ScopeWhere + filter + ") AS page WHERE RowNumber>@Offset AND RowNumber<=@EndRow ORDER BY RowNumber",
                 values, ct);
+            return new(Array.AsReadOnly(rows.Select(x => ValidatePayout(
+                Deserialize<ExpensePayoutRequest>(x.Payload))).ToArray()), total);
+        }
+
+        public async Task<BusinessPage<ExpensePayoutRequest>> QueryFailedPayoutsAsync(
+            int offset, int limit, CancellationToken ct)
+        {
+            var values = new { Offset = offset, EndRow = (long)offset + limit };
+            var total = await Scalar<long>("SELECT COUNT(*) FROM ERP_EXPENSE_PAYOUT WHERE "
+                + ScopeWhere + " AND STATE=3", values, ct);
+            var rows = await Rows<PayloadRow>("SELECT PAYLOAD AS Payload FROM (SELECT PAYLOAD,"
+                + "ROW_NUMBER() OVER (ORDER BY PAYOUT_ID) AS RowNumber FROM ERP_EXPENSE_PAYOUT WHERE "
+                + ScopeWhere + " AND STATE=3) AS page WHERE RowNumber>@Offset AND RowNumber<=@EndRow "
+                + "ORDER BY RowNumber", values, ct);
             return new(Array.AsReadOnly(rows.Select(x => ValidatePayout(
                 Deserialize<ExpensePayoutRequest>(x.Payload))).ToArray()), total);
         }
@@ -257,8 +368,21 @@ public sealed partial class BillingBridge
                 || value.PaidAt.HasValue && value.PaidAt.Value.Offset != TimeSpan.Zero)
                 throw Failure("STORAGE_CONTRACT_VIOLATION");
             var failed = value.State == ExpensePayoutState.Failed;
-            if (failed != (value.ErrorCode is not null)
+            if (failed && value.ErrorCode is null
+                || value.State is not (ExpensePayoutState.Failed or ExpensePayoutState.Cancelled)
+                    && value.ErrorCode is not null
                 || value.ErrorCode is not null && !ValidText(value.ErrorCode, 100))
+                throw Failure("STORAGE_CONTRACT_VIOLATION");
+            return value;
+        }
+
+        private ExpensePayoutFailureOperation ValidatePayoutFailureOperation(
+            ExpensePayoutFailureOperation value)
+        {
+            if (value.Scope != Scope || value.OperationId == Guid.Empty || value.PayoutId == Guid.Empty
+                || value.ExpectedVersion == Guid.Empty || value.ResultVersion == Guid.Empty
+                || !Enum.IsDefined(value.Action) || !ValidText(value.ActorId, 50)
+                || value.OccurredAt == default || value.OccurredAt.Offset != TimeSpan.Zero)
                 throw Failure("STORAGE_CONTRACT_VIOLATION");
             return value;
         }
