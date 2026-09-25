@@ -5,6 +5,7 @@
 @using NexaFramework.Service
 @using NexaFramework.Service.Erp
 @using NexaOne.Common.Security
+@using NexaOne.ServiceContracts.Erp
 @using NexaOne.ServiceContracts.Sys
 @inject IApiClient Api
 @inject UiTextService Ui
@@ -438,6 +439,64 @@
                             else if (Can("expense.invoice") && !Can("billing.read"))
                             {
                                 <p role="status">@T("expenseWorkspace.billingReadRequired", "청구서를 선택하거나 연결을 해제하려면 billing.read 권한이 필요합니다.", "The billing.read permission is required to select or unlink an invoice.")</p>
+                            }
+                        </div>
+                    }
+                    @if (_selected.Input.EmployeeId is not null && _selected.Allocations.Count == 0)
+                    {
+                        <div class="expense-payout" aria-labelledby="expense-payout-heading">
+                            <div class="expense-heading">
+                                <div>
+                                    <h3 id="expense-payout-heading">@T("expenseWorkspace.payout", "직원 지급 실행", "Employee payout")</h3>
+                                    <p>@T("expenseWorkspace.payoutHelp", "호스트에 등록된 지급 공급자 키로 환급을 요청합니다. 계좌와 자격 증명은 이 화면에서 입력하거나 저장하지 않습니다.", "Request reimbursement through a host-registered payout provider key. Account and credential details are neither entered nor stored here.")</p>
+                                </div>
+                                <button id="expense-payout-refresh" type="button" disabled="@_busy" @onclick="RefreshPayoutsAsync">@T("expenseWorkspace.refreshPayout", "지급 상태 새로고침", "Refresh payout status")</button>
+                            </div>
+                            @if (!_payoutsLoaded)
+                            {
+                                <p role="status">@T("expenseWorkspace.payoutUnavailable", "지급 상태를 확인할 수 없어 충돌 가능한 작업을 잠갔습니다. 새로고침해 다시 확인하세요.", "Payout status could not be confirmed, so conflicting actions are locked. Refresh to try again.")</p>
+                            }
+                            else if (_payouts.Count == 0)
+                            {
+                                <p class="expense-payout-empty" data-payout-empty="true">@T("expenseWorkspace.noPayouts", "이 비용의 지급 요청이 없습니다.", "This expense has no payout requests.")</p>
+                            }
+                            else
+                            {
+                                <ol class="expense-payout-history">
+                                    @foreach (var payout in _payouts)
+                                    {
+                                        <li @key="payout.Id" data-payout-state="@payout.State">
+                                            <div class="expense-payout-summary">
+                                                <span class="expense-state">@PayoutStateName(payout.State)</span>
+                                                <strong>@Amount(payout.Amount) @payout.Currency</strong>
+                                                <span>@payout.ProviderKey</span>
+                                            </div>
+                                            <dl>
+                                                <div><dt>@T("expenseWorkspace.payoutCreated", "요청 시각", "Requested")</dt><dd>@payout.CreatedAt.UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture)</dd></div>
+                                                <div><dt>@T("expenseWorkspace.payoutAttempts", "시도 횟수", "Attempts")</dt><dd>@payout.AttemptCount</dd></div>
+                                                <div><dt>@T("expenseWorkspace.payoutOperation", "작업 ID", "Operation ID")</dt><dd><code>@payout.OperationId.ToString("D")</code></dd></div>
+                                                @if (payout.ErrorCode is not null) { <div><dt>@T("expenseWorkspace.payoutFailure", "실패 코드", "Failure code")</dt><dd><code>@payout.ErrorCode</code></dd></div> }
+                                                @if (payout.ProviderReference is not null) { <div><dt>@T("expenseWorkspace.payoutReference", "공급자 참조", "Provider reference")</dt><dd><code>@payout.ProviderReference</code></dd></div> }
+                                                @if (payout.PaidAt is not null) { <div><dt>@T("expenseWorkspace.payoutPaidAt", "지급 시각", "Paid at")</dt><dd>@payout.PaidAt.Value.UtcDateTime.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture)</dd></div> }
+                                            </dl>
+                                            @if (payout.State == ExpensePayoutState.Pending && Can("expense.reimburse"))
+                                            {
+                                                <button class="danger" data-cancel-payout="@payout.Id" type="button" disabled="@_busy" @onclick="() => CancelPayoutAsync(payout)">@T("expenseWorkspace.cancelPayout", "대기 지급 취소", "Cancel pending payout")</button>
+                                            }
+                                        </li>
+                                    }
+                                </ol>
+                            }
+                            @if (CanQueuePayout || _pendingPayout is not null)
+                            {
+                                <div class="expense-payout-request">
+                                    <label for="expense-payout-provider">@T("expenseWorkspace.payoutProvider", "지급 공급자 키", "Payout provider key")<input id="expense-payout-provider" aria-label="@T("expenseWorkspace.payoutProvider", "지급 공급자 키", "Payout provider key")" maxlength="100" autocomplete="off" @bind="_payoutProviderKey" disabled="@(_busy || _pendingPayout is not null)" /></label>
+                                    <button id="expense-payout-queue" type="button" disabled="@(_busy || (_pendingPayout is null && string.IsNullOrWhiteSpace(_payoutProviderKey)))" @onclick="QueuePayoutAsync">@(_pendingPayout is null ? T("expenseWorkspace.queuePayout", "지급 요청", "Queue payout") : T("expenseWorkspace.retryPayout", "같은 요청으로 지급 결과 확인", "Retry same payout request"))</button>
+                                </div>
+                            }
+                            else if (ActivePayout is { State: ExpensePayoutState.Processing })
+                            {
+                                <p role="status">@T("expenseWorkspace.payoutProcessingLock", "공급자가 지급을 처리 중입니다. 완료 또는 실패 상태가 확인될 때까지 비용 변경과 수동 환급을 사용할 수 없습니다.", "The provider is processing this payout. Expense changes and manual reimbursement remain unavailable until completion or failure is confirmed.")</p>
                             }
                         </div>
                     }
