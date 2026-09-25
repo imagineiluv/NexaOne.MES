@@ -88,7 +88,7 @@
                             {
                                 <form class="expense-directory-editor" @onsubmit="UpdateCategoryAsync" @onsubmit:preventDefault>
                                     <h4>@T("expenseWorkspace.editCategory", "카테고리 편집", "Edit category")</h4>
-                                    <label for="expense-category-edit-name">@T("expenseWorkspace.name", "이름", "Name")<input id="expense-category-edit-name" maxlength="255" required autocomplete="off" @bind="_categoryEditName" disabled="@_busy" /></label>
+                                    <label for="expense-category-edit-name">@T("expenseWorkspace.name", "이름", "Name")<input id="expense-category-edit-name" aria-label="@T("expenseWorkspace.name", "이름", "Name")" maxlength="255" required autocomplete="off" @bind="_categoryEditName" disabled="@_busy" /></label>
                                     <p id="expense-category-lifecycle-help">@T("expenseWorkspace.inactiveHistoryHelp", "비활성화해도 기존 비용의 참조와 감사 이력은 유지되며 새 비용에서는 선택할 수 없습니다.", "Deactivation preserves existing expense references and audit history but prevents selection for new expenses.")</p>
                                     <div class="expense-directory-actions">
                                         <button id="expense-category-save" type="submit" disabled="@_busy">@T("expenseWorkspace.save", "변경 저장", "Save changes")</button>
@@ -120,10 +120,10 @@
                             {
                                 <form class="expense-directory-editor" @onsubmit="UpdateVendorAsync" @onsubmit:preventDefault>
                                     <h4>@T("expenseWorkspace.editVendor", "거래처 편집", "Edit vendor")</h4>
-                                    <label for="expense-vendor-edit-name">@T("expenseWorkspace.name", "이름", "Name")<input id="expense-vendor-edit-name" maxlength="255" required autocomplete="organization" @bind="_vendorEditName" disabled="@_busy" /></label>
-                                    <label for="expense-vendor-edit-phone">@T("expenseWorkspace.phone", "전화", "Phone")<input id="expense-vendor-edit-phone" type="tel" maxlength="64" autocomplete="tel" @bind="_vendorEditPhone" disabled="@_busy" /></label>
-                                    <label for="expense-vendor-edit-website">@T("expenseWorkspace.website", "웹사이트", "Website")<input id="expense-vendor-edit-website" type="url" maxlength="2048" autocomplete="url" @bind="_vendorEditWebsite" disabled="@_busy" /></label>
-                                    <label for="expense-vendor-edit-email">@T("expenseWorkspace.email", "이메일", "Email")<input id="expense-vendor-edit-email" type="email" maxlength="320" autocomplete="email" @bind="_vendorEditEmail" disabled="@_busy" /></label>
+                                    <label for="expense-vendor-edit-name">@T("expenseWorkspace.name", "이름", "Name")<input id="expense-vendor-edit-name" aria-label="@T("expenseWorkspace.name", "이름", "Name")" maxlength="255" required autocomplete="organization" @bind="_vendorEditName" disabled="@_busy" /></label>
+                                    <label for="expense-vendor-edit-phone">@T("expenseWorkspace.phone", "전화", "Phone")<input id="expense-vendor-edit-phone" aria-label="@T("expenseWorkspace.phone", "전화", "Phone")" type="tel" maxlength="64" autocomplete="tel" @bind="_vendorEditPhone" disabled="@_busy" /></label>
+                                    <label for="expense-vendor-edit-website">@T("expenseWorkspace.website", "웹사이트", "Website")<input id="expense-vendor-edit-website" aria-label="@T("expenseWorkspace.website", "웹사이트", "Website")" type="url" maxlength="2048" autocomplete="url" @bind="_vendorEditWebsite" disabled="@_busy" /></label>
+                                    <label for="expense-vendor-edit-email">@T("expenseWorkspace.email", "이메일", "Email")<input id="expense-vendor-edit-email" aria-label="@T("expenseWorkspace.email", "이메일", "Email")" type="email" maxlength="320" autocomplete="email" @bind="_vendorEditEmail" disabled="@_busy" /></label>
                                     <p id="expense-vendor-lifecycle-help">@T("expenseWorkspace.inactiveHistoryHelp", "비활성화해도 기존 비용의 참조와 감사 이력은 유지되며 새 비용에서는 선택할 수 없습니다.", "Deactivation preserves existing expense references and audit history but prevents selection for new expenses.")</p>
                                     <div class="expense-directory-actions">
                                         <button id="expense-vendor-save" type="submit" disabled="@_busy">@T("expenseWorkspace.save", "변경 저장", "Save changes")</button>
