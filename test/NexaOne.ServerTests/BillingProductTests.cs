@@ -276,6 +276,34 @@ public sealed class BillingHostTests(ITestOutputHelper output)
 public sealed class BillingMssqlTests(ITestOutputHelper output)
 {
     [StockMssqlFact]
+    public async Task Actual_SQL_Server_persists_scoped_expense_receipt_bytes_across_fresh_bridges()
+    {
+        var h = await Harness.CreateAsync(output,
+            [.. BillingProductSeed.Grants, "expense.directory.read", "expense.directory.write", "expense.read", "expense.write"]);
+        (await h.Database.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id=SCHEMA_ID('dbo') AND name='ERP_EXPENSE_RECEIPT'"))
+            .Should().Be(1);
+        (await h.Database.ScalarAsync<short>("""
+            SELECT c.max_length FROM sys.columns c JOIN sys.tables t ON c.object_id=t.object_id
+             WHERE t.schema_id=SCHEMA_ID('dbo') AND t.name='ERP_EXPENSE_RECEIPT'
+               AND c.name='CONTENT' AND TYPE_NAME(c.user_type_id)='varbinary'
+            """)).Should().Be(-1, "receipt content must remain VARBINARY(MAX) on SQL Server");
+
+        var category = await h.Bridge.CreateCategoryAsync(h.Seed.User, h.Tenant, h.Organization, new("Travel"));
+        var vendor = await h.Bridge.CreateVendorAsync(h.Seed.User, h.Tenant, h.Organization, new("Rail"));
+        var expense = await h.Bridge.CreateExpenseAsync(h.Seed.User, h.Tenant, h.Organization, Guid.NewGuid(),
+            new(10m, ExpenseType.TaxDeductible, category.Id, vendor.Id, null, null, null, "KRW", new(2026, 9, 25)));
+        var bytes = Encoding.ASCII.GetBytes("%PDF-1.7\nSQL Server receipt");
+        var uploaded = await h.Bridge.PutReceiptAsync(h.Seed.User, h.Tenant, h.Organization,
+            expense.Id, null, "receipt.pdf", "application/pdf", bytes);
+
+        var downloaded = await h.Bridge.DownloadReceiptAsync(h.Seed.User, h.Tenant, h.Organization, expense.Id);
+        downloaded.Receipt.Should().BeEquivalentTo(uploaded);
+        downloaded.Content.Should().Equal(bytes);
+        await h.Bridge.DeleteReceiptAsync(h.Seed.User, h.Tenant, h.Organization, expense.Id, uploaded.Version);
+        (await h.Bridge.GetReceiptAsync(h.Seed.User, h.Tenant, h.Organization, expense.Id)).Should().BeNull();
+    }
+
+    [StockMssqlFact]
     public async Task Actual_SQL_Server_migrations_documents_lines_numbers_and_payments_survive_fresh_bridges()
     {
         var h = await Harness.CreateAsync(output);
@@ -382,14 +410,16 @@ public sealed class BillingMssqlTests(ITestOutputHelper output)
         public BillingBridge Bridge => new(Database.DataSource, new BusinessMembershipBridge(Database.DataSource), new BusinessMasterDirectory(Database.DataSource));
         public object Scope => new { tenant = Tenant.ToString("D"), organization = Organization.ToString("D") };
 
-        public static async Task<Harness> CreateAsync(ITestOutputHelper output)
+        public static async Task<Harness> CreateAsync(ITestOutputHelper output,
+            IReadOnlyList<string>? grants = null)
         {
             var database = await MssqlContractDatabase.TryCreateAsync(output)
                 ?? throw new InvalidOperationException("SQL Server acceptance cannot pass without a configured database.");
             var h = new Harness(database);
             await database.ExecuteAsync(BillingProductSeed.Sql, h.Seed);
             var memberships = new BusinessMembershipBridge(database.DataSource);
-            (await memberships.SaveMembershipAsync("admin", h.Tenant, h.Organization, h.Seed.User, new(0, true, BillingProductSeed.Grants))).IsSuccess.Should().BeTrue();
+            (await memberships.SaveMembershipAsync("admin", h.Tenant, h.Organization, h.Seed.User,
+                new(0, true, grants ?? BillingProductSeed.Grants))).IsSuccess.Should().BeTrue();
             return h;
         }
         public Task<int> Count(string table)

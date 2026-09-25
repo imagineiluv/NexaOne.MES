@@ -1,6 +1,8 @@
 using Dapper;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
+using System.Security.Cryptography;
+using System.Text;
 using NexaDB.Data.Sqlite;
 using NexaFramework.Service;
 using NexaFramework.Service.Erp;
@@ -306,6 +308,73 @@ public sealed class ExpensePersistenceTests : IClassFixture<BusinessMembershipDa
             expense.Id, expense.Version, "ignored on replay")).Should().BeEquivalentTo(cancelled);
         await Error(() => _bridge.UpdateExpenseAsync("expense-user", _tenant, _organization,
             expense.Id, cancelled.Version, Input(active.Id, vendor.Id, amount: 2m)), "EXPENSE_LOCKED");
+    }
+
+    [Fact]
+    public async Task Receipt_bytes_enforce_permissions_cas_integrity_and_explicit_deletion()
+    {
+        var category = await Category("Receipt travel");
+        var vendor = await Vendor("Receipt rail");
+        var expense = await _bridge.CreateExpenseAsync("expense-user", _tenant, _organization,
+            Guid.NewGuid(), Input(category.Id, vendor.Id));
+        var pdf = Encoding.ASCII.GetBytes("%PDF-1.7\nreceipt-one");
+
+        (await _bridge.GetReceiptAsync("expense-reader", _tenant, _organization, expense.Id)).Should().BeNull();
+        await Error(() => _bridge.PutReceiptAsync("expense-reader", _tenant, _organization,
+            expense.Id, null, "receipt.pdf", "application/pdf", pdf), "BUSINESS_ACCESS_DENIED");
+        await Error(() => _bridge.PutReceiptAsync("expense-user", _tenant, _organization,
+            expense.Id, null, "../receipt.pdf", "application/pdf", pdf), "INVALID_BUSINESS_INPUT");
+        await Error(() => _bridge.PutReceiptAsync("expense-user", _tenant, _organization,
+            expense.Id, null, "folder\\receipt.pdf", "application/pdf", pdf), "INVALID_BUSINESS_INPUT");
+        await Error(() => _bridge.PutReceiptAsync("expense-user", _tenant, _organization,
+            expense.Id, null, "receipt.txt", "text/plain", pdf), "INVALID_BUSINESS_INPUT");
+        await Error(() => _bridge.PutReceiptAsync("expense-user", _tenant, _organization,
+            expense.Id, null, "receipt.png", "image/png", pdf), "INVALID_BUSINESS_INPUT");
+        await Error(() => _bridge.PutReceiptAsync("expense-user", _tenant, _organization,
+            expense.Id, null, "receipt.pdf", "application/pdf", new byte[10 * 1024 * 1024 + 1]),
+            "INVALID_BUSINESS_INPUT");
+
+        var uploaded = await _bridge.PutReceiptAsync("expense-user", _tenant, _organization,
+            expense.Id, null, "receipt.pdf", "application/pdf", pdf);
+        uploaded.ExpenseId.Should().Be(expense.Id);
+        uploaded.Scope.OrganizationId.Should().Be(_organization.ToString("D"));
+        uploaded.Size.Should().Be(pdf.LongLength);
+        uploaded.Sha256.Should().Be(Convert.ToHexString(SHA256.HashData(pdf)).ToLowerInvariant());
+        (await NewBridge().GetReceiptAsync("expense-reader", _tenant, _organization, expense.Id))
+            .Should().BeEquivalentTo(uploaded);
+        var downloaded = await NewBridge().DownloadReceiptAsync("expense-peer", _tenant, _organization, expense.Id);
+        downloaded.Receipt.Should().BeEquivalentTo(uploaded);
+        downloaded.Content.Should().Equal(pdf);
+
+        var replacementBytes = new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 };
+        await Error(() => _bridge.PutReceiptAsync("expense-user", _tenant, _organization,
+            expense.Id, null, "replacement.png", "image/png", replacementBytes), "BUSINESS_VERSION_CONFLICT");
+        var replaced = await _bridge.PutReceiptAsync("expense-user", _tenant, _organization,
+            expense.Id, uploaded.Version, "replacement.png", "image/png", replacementBytes);
+        replaced.Id.Should().Be(uploaded.Id);
+        replaced.Version.Should().NotBe(uploaded.Version);
+        await Error(() => _bridge.DeleteReceiptAsync("expense-user", _tenant, _organization,
+            expense.Id, uploaded.Version), "BUSINESS_VERSION_CONFLICT");
+
+        var cancelled = await _bridge.CancelExpenseAsync("expense-user", _tenant, _organization,
+            expense.Id, expense.Version, "duplicate expense");
+        cancelled.State.Should().Be(ExpenseState.Cancelled);
+        (await NewBridge().DownloadReceiptAsync("expense-reader", _tenant, _organization, expense.Id))
+            .Content.Should().Equal(replacementBytes);
+
+        Execute("UPDATE ERP_EXPENSE_RECEIPT SET CONTENT=@content WHERE EXPENSE_ID=@id",
+            new { content = new byte[] { 0 }, id = expense.Id.ToString("D") });
+        await Error(() => NewBridge().DownloadReceiptAsync("expense-reader", _tenant, _organization, expense.Id),
+            "STORAGE_CONTRACT_VIOLATION");
+        Execute("UPDATE ERP_EXPENSE_RECEIPT SET CONTENT=@content WHERE EXPENSE_ID=@id",
+            new { content = replacementBytes, id = expense.Id.ToString("D") });
+
+        await _bridge.DeleteReceiptAsync("expense-user", _tenant, _organization, expense.Id, replaced.Version);
+        (await NewBridge().GetReceiptAsync("expense-reader", _tenant, _organization, expense.Id)).Should().BeNull();
+        await Error(() => NewBridge().DownloadReceiptAsync("expense-reader", _tenant, _organization, expense.Id),
+            "EXPENSE_RECEIPT_NOT_FOUND");
+        Scalar<long>("SELECT COUNT(*) FROM ERP_BILLING_AUDIT WHERE RESOURCE_TYPE='expense-receipt'")
+            .Should().Be(3);
     }
 
     [Fact]

@@ -1,5 +1,7 @@
 using System.Globalization;
+using Microsoft.AspNetCore.Components.Forms;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.JSInterop;
 using NexaFramework.Service;
 using NexaFramework.Service.Erp;
 using NexaFramework.Service.Projects;
@@ -12,6 +14,7 @@ namespace NexaOne.Server.Components.Pages;
 public partial class HostExpenseWorkspace
 {
     private const int PageSize = 50;
+    private const long MaxReceiptBytes = 10 * 1024 * 1024;
     private BusinessPage<BusinessMembership>? _scopes;
     private BusinessPage<ExpenseCategory>? _categories;
     private BusinessPage<ExpenseVendor>? _vendors;
@@ -26,6 +29,9 @@ public partial class HostExpenseWorkspace
     private BusinessPage<BillingDocument>? _invoiceCandidates;
     private BusinessMembership? _scope;
     private ExpenseRecord? _selected;
+    private ExpenseReceipt? _receipt;
+    private IBrowserFile? _receiptFile;
+    private int _receiptInputKey;
     private ExpenseCategory? _selectedCategory;
     private ExpenseVendor? _selectedVendor;
     private ExpenseTag? _selectedTag;
@@ -45,7 +51,7 @@ public partial class HostExpenseWorkspace
     private int _invoiceOffset, _expenseOffset, _employeeOffset, _contactOffset, _projectOffset;
     private int _tagOffset, _directoryTagOffset;
     private LedgerFilter _ledgerFilter = new();
-    private bool _authenticated, _identityLoading = true, _busy, _interactive, _disposed;
+    private bool _authenticated, _identityLoading = true, _busy, _interactive, _disposed, _confirmReceiptDelete;
     private Task<AuthenticationState>? _pendingAuthentication;
     private CancellationTokenSource? _request;
     private int _identityVersion;
@@ -438,6 +444,9 @@ public partial class HostExpenseWorkspace
     private void ClearSelectedExpense()
     {
         _selected = null;
+        _receipt = null;
+        ClearReceiptFile();
+        _confirmReceiptDelete = false;
         _pendingReimbursement = null;
         _pendingInvoice = null;
         _invoiceCandidates = null;
@@ -806,9 +815,119 @@ public partial class HostExpenseWorkspace
     private Task SelectExpenseAsync(ExpenseRecord value) => RunAsync(async ct =>
     {
         _selected = value; _pendingReimbursement = null; _pendingInvoice = null;
+        _receipt = null; ClearReceiptFile(); _confirmReceiptDelete = false;
         _invoiceCandidates = null; _linkedInvoice = null; _invoiceId = Guid.Empty; _invoiceOffset = 0;
         _invoiceDescription = value.Input.Purpose ?? value.Input.Reference ?? "";
-        await LoadInvoiceContextCoreAsync(ct);
+        await LoadReceiptCoreAsync(ct);
+        if (OwnsRequest(ct)) await LoadInvoiceContextCoreAsync(ct);
+    });
+
+    private async Task LoadReceiptCoreAsync(CancellationToken ct)
+    {
+        if (_selected is null) return;
+        var expenseId = _selected.Id;
+        var result = await Api.ReadInventoryAsync<ExpenseReceipt>($"{Root}/{expenseId:D}/receipt", ct);
+        if (!OwnsRequest(ct) || _selected?.Id != expenseId) return;
+        if (result.StatusCode == 404 && result.Code == "EXPENSE_RECEIPT_NOT_FOUND")
+        {
+            _receipt = null;
+            return;
+        }
+        if (result.Value?.ExpenseId == expenseId && result.Error is null) _receipt = result.Value;
+        else if (result.Value is not null)
+            _error = T("expenseWorkspace.receiptInvalidResponse", "영수증 응답이 선택한 비용과 일치하지 않습니다. 비용을 다시 선택하세요.", "The receipt response does not match the selected expense. Select the expense again.");
+        else Accept(result, _ => { });
+    }
+
+    private void SelectReceiptFile(InputFileChangeEventArgs args)
+    {
+        _notice = null;
+        var file = args.File;
+        if (file.Size is < 1 or > MaxReceiptBytes || !SafeReceiptFileName(file.Name)
+            || ReceiptContentType(file) is null)
+        {
+            ClearReceiptFile();
+            _error = T("expenseWorkspace.receiptFileInvalid", "PDF·JPG·PNG·WebP 파일을 10MB 이하로 선택하세요.", "Choose a PDF, JPG, PNG, or WebP file no larger than 10 MB.");
+            return;
+        }
+        _error = null;
+        _receiptFile = file;
+        _confirmReceiptDelete = false;
+    }
+
+    private Task UploadReceiptAsync() => RunAsync(async ct =>
+    {
+        if (_selected is null || _receiptFile is null || _userId is null) return;
+        var expenseId = _selected.Id;
+        var file = _receiptFile;
+        var contentType = ReceiptContentType(file)!;
+        await using var stream = file.OpenReadStream(MaxReceiptBytes, ct);
+        var result = await Api.UploadInventoryFileAsync<ExpenseReceipt>($"{Root}/{expenseId:D}/receipt",
+            stream, file.Name, contentType, _receipt?.Version, _userId, ct);
+        if (!OwnsRequest(ct) || _selected?.Id != expenseId) return;
+        if (result.Value?.ExpenseId == expenseId && result.Error is null)
+        {
+            _receipt = result.Value;
+            ClearReceiptFile();
+            _confirmReceiptDelete = false;
+            _notice = T("expenseWorkspace.receiptUploaded", "영수증 파일을 저장했습니다.", "Receipt file saved.");
+            return;
+        }
+        if (result.Value is not null)
+            _error = T("expenseWorkspace.receiptInvalidResponse", "영수증 응답이 선택한 비용과 일치하지 않습니다. 비용을 다시 선택하세요.", "The receipt response does not match the selected expense. Select the expense again.");
+        else Accept(result, _ => { });
+        if (result.Code == "INVENTORY_RESPONSE_UNAVAILABLE") ClearReceiptFile();
+        if (OwnsRequest(ct) && (result.StatusCode == 409 || result.Code == "INVENTORY_RESPONSE_UNAVAILABLE"))
+            await LoadReceiptCoreAsync(ct);
+    });
+
+    private Task DownloadReceiptAsync() => RunAsync(async ct =>
+    {
+        if (_selected is null || _receipt is null) return;
+        var expenseId = _selected.Id;
+        var result = await Api.DownloadInventoryFileAsync($"{Root}/{expenseId:D}/receipt/download", ct);
+        if (!OwnsRequest(ct) || _selected?.Id != expenseId) return;
+        if (result.Content is null || result.FileName is null || result.ContentType is null || result.Error is not null)
+        {
+            _error = result.Error ?? result.Code ?? string.Format(CultureInfo.InvariantCulture, "HTTP {0}", result.StatusCode);
+            return;
+        }
+        try
+        {
+            await using var stream = new MemoryStream(result.Content, writable: false);
+            using var reference = new DotNetStreamReference(stream);
+            await JS.InvokeVoidAsync("nxDownloadStream", ct, result.FileName, result.ContentType, reference);
+        }
+        catch (JSException)
+        {
+            _error = T("expenseWorkspace.receiptDownloadFailed", "브라우저에서 영수증 다운로드를 시작하지 못했습니다. 다시 시도하세요.", "The browser could not start the receipt download. Try again.");
+        }
+    });
+
+    private void RequestReceiptDelete() => _confirmReceiptDelete = true;
+    private void CancelReceiptDelete() => _confirmReceiptDelete = false;
+
+    private Task DeleteReceiptAsync() => RunAsync(async ct =>
+    {
+        if (_selected is null || _receipt is null || !_confirmReceiptDelete) return;
+        var expenseId = _selected.Id;
+        var version = _receipt.Version;
+        var result = await WriteAsync<ReceiptDeleted>(HttpMethod.Delete,
+            $"{Root}/{expenseId:D}/receipt?version={version:D}", new { }, ct);
+        if (!OwnsRequest(ct) || _selected?.Id != expenseId) return;
+        if (result.Value is { } deleted && deleted.ExpenseId == expenseId && deleted.Version == version
+            && result.Error is null)
+        {
+            _receipt = null;
+            ClearReceiptFile();
+            _confirmReceiptDelete = false;
+            _notice = T("expenseWorkspace.receiptDeleted", "영수증 파일을 삭제했습니다.", "Receipt file deleted.");
+            return;
+        }
+        if (result.Value is not null)
+            _error = T("expenseWorkspace.receiptInvalidResponse", "영수증 응답이 선택한 비용과 일치하지 않습니다. 비용을 다시 선택하세요.", "The receipt response does not match the selected expense. Select the expense again.");
+        else Accept(result, _ => { });
+        if (OwnsRequest(ct) && result.StatusCode == 409) await LoadReceiptCoreAsync(ct);
     });
 
     private async Task LoadInvoiceContextCoreAsync(CancellationToken ct)
@@ -1064,6 +1183,33 @@ public partial class HostExpenseWorkspace
             : new(page.Items, page.Total + 1);
     }
     private static string Amount(decimal value) => value.ToString("0.######", CultureInfo.InvariantCulture);
+    private static bool SafeReceiptFileName(string value)
+        => !string.IsNullOrWhiteSpace(value) && value.Length <= 255 && value == value.Trim()
+            && value is not "." and not ".." && !value.Contains('/') && !value.Contains('\\')
+            && !value.Any(char.IsControl);
+    private static string? ReceiptContentType(IBrowserFile file)
+    {
+        if (file.ContentType is "application/pdf" or "image/jpeg" or "image/png" or "image/webp")
+            return file.ContentType;
+        return Path.GetExtension(file.Name).ToLowerInvariant() switch
+        {
+            ".pdf" => "application/pdf",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            _ => null
+        };
+    }
+    private static string ReceiptSize(long bytes) => bytes < 1024
+        ? string.Format(CultureInfo.InvariantCulture, "{0} B", bytes)
+        : bytes < 1024 * 1024
+            ? string.Format(CultureInfo.InvariantCulture, "{0:0.0} KB", bytes / 1024d)
+            : string.Format(CultureInfo.InvariantCulture, "{0:0.0} MB", bytes / (1024d * 1024d));
+    private void ClearReceiptFile()
+    {
+        _receiptFile = null;
+        _receiptInputKey++;
+    }
     private string T(string key, string ko, string en) => Ui.T(key, Ui.Language == "EnUs" ? en : ko);
     private string DirectoryState(bool active) => active
         ? T("expenseWorkspace.active", "활성", "Active")
@@ -1126,6 +1272,7 @@ public partial class HostExpenseWorkspace
         Guid InvoiceVersion, string? Description);
     internal sealed record InvoiceUnlinkRequest(Guid OperationId, Guid ExpenseVersion, Guid InvoiceId,
         Guid InvoiceVersion);
+    internal sealed record ReceiptDeleted(Guid ExpenseId, Guid Version);
     private sealed record PendingCreate(Guid OperationId, ExpenseInput Input);
     private sealed record PendingReimbursement(Guid OperationId, Guid ExpenseId, Guid Version, DateTimeOffset PaidAt);
     private sealed record PendingInvoiceOperation(InvoiceOperation Kind, Guid OperationId, Guid ExpenseId,

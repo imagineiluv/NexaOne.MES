@@ -18,6 +18,12 @@ public sealed record ExpenseTag(Guid Id, BusinessScope Scope, Guid Version, Expe
 public sealed record ExpenseTagQuery(string? Text = null, bool IncludeInactive = false,
     int Offset = 0, int Limit = 50);
 
+public sealed record ExpenseReceipt(Guid Id, Guid ExpenseId, BusinessScope Scope, Guid Version,
+    string FileName, string ContentType, long Size, string Sha256, string UploadedBy,
+    DateTimeOffset UploadedAt);
+
+public sealed record ExpenseReceiptDownload(ExpenseReceipt Receipt, byte[] Content);
+
 /// <summary>Organization-scoped expense directories, expenses, reimbursement and invoice linkage.
 /// Every operation checks current SYS membership and its explicit expense grant.</summary>
 public interface IExpenseBridge : INexaModuleBridge
@@ -77,6 +83,15 @@ public interface IExpenseBridge : INexaModuleBridge
         CancellationToken ct = default);
     Task<ExpenseRecord> CancelExpenseAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, string? reason = null, CancellationToken ct = default);
+    Task<ExpenseReceipt?> GetReceiptAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid expenseId, CancellationToken ct = default);
+    Task<ExpenseReceiptDownload> DownloadReceiptAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid expenseId, CancellationToken ct = default);
+    Task<ExpenseReceipt> PutReceiptAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid expenseId, Guid? expectedVersion, string fileName, string contentType, byte[] content,
+        CancellationToken ct = default);
+    Task DeleteReceiptAsync(string userId, Guid tenantId, Guid organizationId,
+        Guid expenseId, Guid version, CancellationToken ct = default);
 
     Task<ExpenseInvoiceLink> LinkInvoiceAsync(string userId, Guid tenantId, Guid organizationId,
         Guid operationId, Guid expenseId, Guid expenseVersion, Guid invoiceId, Guid invoiceVersion,

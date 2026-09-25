@@ -126,6 +126,71 @@ public sealed class ExpenseControllerTests
     }
 
     [Fact]
+    public async Task Receipt_routes_forward_metadata_bytes_versions_and_download_headers()
+    {
+        var tenant = Guid.NewGuid(); var organization = Guid.NewGuid(); var expenseId = Guid.NewGuid();
+        var receiptId = Guid.NewGuid(); var version = Guid.NewGuid();
+        var bytes = new byte[] { 137, 80, 78, 71 };
+        var receipt = new ExpenseReceipt(receiptId, expenseId,
+            new("NexaOne.MES", tenant.ToString("D"), organization.ToString("D")), version,
+            "receipt.png", "image/png", bytes.LongLength, "0".PadLeft(64, '0'), "expense-user",
+            new(2026, 9, 25, 8, 0, 0, TimeSpan.Zero));
+        var bridge = new Mock<IExpenseBridge>(MockBehavior.Strict);
+        bridge.Setup(x => x.GetReceiptAsync("expense-user", tenant, organization, expenseId,
+            CancellationToken.None)).ReturnsAsync(receipt);
+        bridge.Setup(x => x.PutReceiptAsync("expense-user", tenant, organization, expenseId, version,
+            "receipt.png", "image/png", It.Is<byte[]>(value => value.SequenceEqual(bytes)),
+            CancellationToken.None)).ReturnsAsync(receipt);
+        bridge.Setup(x => x.DownloadReceiptAsync("expense-user", tenant, organization, expenseId,
+            CancellationToken.None)).ReturnsAsync(new ExpenseReceiptDownload(receipt, bytes));
+        bridge.Setup(x => x.DeleteReceiptAsync("expense-user", tenant, organization, expenseId, version,
+            CancellationToken.None)).Returns(Task.CompletedTask);
+        var controller = Controller(bridge.Object);
+        await using var content = new MemoryStream(bytes);
+        var file = new FormFile(content, 0, bytes.Length, "file", "receipt.png")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "image/png"
+        };
+
+        (await controller.GetReceipt(tenant, organization, expenseId, CancellationToken.None))
+            .Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(receipt);
+        (await controller.PutReceipt(tenant, organization, expenseId, file, version, CancellationToken.None))
+            .Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(receipt);
+        var download = (await controller.DownloadReceipt(tenant, organization, expenseId, CancellationToken.None))
+            .Should().BeOfType<FileContentResult>().Which;
+        download.FileContents.Should().Equal(bytes);
+        download.ContentType.Should().Be("image/png");
+        download.FileDownloadName.Should().Be("receipt.png");
+        (await controller.DeleteReceipt(tenant, organization, expenseId, version, CancellationToken.None))
+            .Should().BeOfType<OkObjectResult>().Which.Value.Should()
+            .Be(new ExpenseController.ReceiptDeleted(expenseId, version));
+        bridge.VerifyAll(); bridge.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Receipt_routes_return_not_found_and_reject_invalid_uploads_before_storage()
+    {
+        var tenant = Guid.NewGuid(); var organization = Guid.NewGuid(); var expenseId = Guid.NewGuid();
+        var bridge = new Mock<IExpenseBridge>(MockBehavior.Strict);
+        bridge.Setup(x => x.GetReceiptAsync("expense-user", tenant, organization, expenseId,
+            CancellationToken.None)).ReturnsAsync((ExpenseReceipt?)null);
+        var controller = Controller(bridge.Object);
+
+        var missing = (await controller.GetReceipt(tenant, organization, expenseId, CancellationToken.None))
+            .Should().BeOfType<NotFoundObjectResult>().Which;
+        JsonSerializer.SerializeToElement(missing.Value).GetProperty("code").GetString()
+            .Should().Be("EXPENSE_RECEIPT_NOT_FOUND");
+        (await controller.PutReceipt(tenant, organization, expenseId, null, null, CancellationToken.None))
+            .Should().BeOfType<BadRequestObjectResult>();
+        await using var content = new MemoryStream([1]);
+        var oversized = new FormFile(content, 0, 10 * 1024 * 1024 + 1, "file", "large.pdf");
+        (await controller.PutReceipt(tenant, organization, expenseId, oversized, null, CancellationToken.None))
+            .Should().BeOfType<BadRequestObjectResult>();
+        bridge.VerifyAll(); bridge.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task Database_failures_are_sanitized_and_logged_as_unknown_outcome()
     {
         var failure = new AggregateException("private", new StorageFailure("private database"));

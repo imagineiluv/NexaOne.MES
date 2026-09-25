@@ -3158,6 +3158,35 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
+    public void V206_expense_receipt_resources_are_reconciled_without_overwriting_custom_values()
+    {
+        var cs = NewDb();
+        try
+        {
+            SqliteSchemaInitializer.EnsureSchema(cs);
+            ExecSql(cs, """
+                DELETE FROM SYS_MULTI_LANGUAGE_RESOURCE
+                 WHERE RESOURCE_KEY LIKE 'expenseWorkspace.%Receipt%'
+                    OR RESOURCE_KEY LIKE 'expenseWorkspace.receipt%'
+                    OR RESOURCE_KEY='expenseWorkspace.keepReceipt';
+                INSERT INTO SYS_MULTI_LANGUAGE_RESOURCE (RESOURCE_KEY,MENU_ID,LANGUAGE,VALUE)
+                VALUES ('expenseWorkspace.receiptFile','COMMON','EnUs','Custom receipt label');
+                """);
+
+            NexaOneDevelopmentDatabaseInitializer.EnsureDevWorkflowResources(
+                cs, "V206__ERP_EXPENSE_RECEIPT_RESOURCES.sql");
+
+            ScalarString(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='expenseWorkspace.receiptFile' AND LANGUAGE='EnUs'")
+                .Should().Be("Custom receipt label");
+            ScalarString(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='expenseWorkspace.downloadReceipt' AND LANGUAGE='EnUs'")
+                .Should().Be("Download receipt");
+            ScalarString(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='expenseWorkspace.receiptDeleted' AND LANGUAGE='EnUs'")
+                .Should().Be("Receipt file deleted.");
+        }
+        finally { try { File.Delete(FileOf(cs)); } catch { } }
+    }
+
+    [Fact]
     public void V160_database_principal_security_is_a_fresh_and_incremental_sqlite_no_op()
     {
         var cs = NewDb();

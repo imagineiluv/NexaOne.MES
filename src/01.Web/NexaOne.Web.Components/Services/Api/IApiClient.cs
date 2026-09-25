@@ -24,6 +24,18 @@ public interface IApiClient
         HttpMethod method, string relativePath, object body, string expectedUserId,
         CancellationToken ct = default) where T : class;
 
+    /// <summary>
+    /// Uploads one authenticated business file as multipart form data. The stream is sent once;
+    /// callers must inspect the current server state before retrying an uncertain outcome.
+    /// </summary>
+    Task<(T? Value, int StatusCode, string? Code, string? Error)> UploadInventoryFileAsync<T>(
+        string relativePath, Stream content, string fileName, string contentType, Guid? version,
+        string expectedUserId, CancellationToken ct = default) where T : class;
+
+    /// <summary>Downloads one authenticated business file with its server-owned name and media type.</summary>
+    Task<(byte[]? Content, string? FileName, string? ContentType, int StatusCode, string? Code, string? Error)>
+        DownloadInventoryFileAsync(string relativePath, CancellationToken ct = default);
+
     // 파일 기반 쿼리 레지스트리(저코드 경로) — query id로 등록된 쿼리를 실행해 동적 행 목록을 받는다.
     // 컴파일된 타입드 리포지토리(고코드, 속도·타입안전)와 공존하며, 기능별로 개발자가 선택해 쓴다.
     Task<IReadOnlyList<Dictionary<string, object?>>> ExecuteQueryAsync(
