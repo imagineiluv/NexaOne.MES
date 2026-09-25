@@ -40,6 +40,7 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
         Read<ExpenseCategory>(_ => new([], 0));
         Read<ExpenseVendor>(_ => new([], 0));
         Read<ExpenseRecord>(_ => new([], 0));
+        Read<BillingDocument>(_ => new([], 0));
     }
 
     [Fact]
@@ -153,6 +154,200 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
     }
 
     [Fact]
+    public void Invoice_link_retry_reuses_operation_and_both_versions()
+    {
+        ShowScope("expense.read", "expense.invoice", "billing.read");
+        var input = Input(ExpenseType.BillableToContact, Guid.NewGuid());
+        var expense = Expense(Guid.NewGuid(), input, ExpenseStatus.Uninvoiced);
+        var invoice = Invoice(input.ContactId!.Value);
+        Read<ExpenseRecord>(_ => new([expense], 1));
+        Read<BillingDocument>(_ => new([invoice], 1));
+        ReadOne<ExpenseRecord>(path => path.EndsWith(expense.Id.ToString("D"), StringComparison.Ordinal)
+            ? expense : null);
+        Guid? operationId = null;
+        var writes = 0;
+        _api.Setup(api => api.WriteInventoryAsync<ExpenseInvoiceLink>(HttpMethod.Post,
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/{expense.Id:D}/invoice-link",
+                It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .Returns((HttpMethod _, string _, object body, string _, CancellationToken _) =>
+            {
+                var operation = Property<Guid>(body, "OperationId");
+                operationId ??= operation;
+                operation.Should().Be(operationId.Value);
+                Property<Guid>(body, "ExpenseVersion").Should().Be(expense.Version);
+                Property<Guid>(body, "InvoiceId").Should().Be(invoice.Id);
+                Property<Guid>(body, "InvoiceVersion").Should().Be(invoice.Version);
+                Property<string?>(body, "Description").Should().Be(input.Purpose);
+                writes++;
+                if (writes == 1)
+                    return Task.FromResult<(ExpenseInvoiceLink?, int, string?, string?)>(
+                        (null, 503, "INVENTORY_RESPONSE_UNAVAILABLE", "unknown outcome"));
+                var linkedExpense = expense with
+                {
+                    Version = Guid.NewGuid(), Status = ExpenseStatus.Invoiced,
+                    InvoiceId = invoice.Id, InvoiceOperationId = operation
+                };
+                var linkedInvoice = invoice with
+                {
+                    Version = Guid.NewGuid(),
+                    Input = invoice.Input with
+                    {
+                        Lines = [.. invoice.Input.Lines, new BillingLine(input.Purpose!, input.Amount, 1m,
+                            ExpenseId: expense.Id)]
+                    }
+                };
+                return Task.FromResult<(ExpenseInvoiceLink?, int, string?, string?)>(
+                    (new(linkedExpense, linkedInvoice), 200, null, null));
+            });
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("[data-select-expense]").Should().NotBeNull());
+        cut.Find("[data-select-expense]").Click();
+        cut.WaitForAssertion(() => cut.Find("#expense-invoice-link").Should().NotBeNull());
+
+        cut.Find("#expense-invoice-link").Click();
+        cut.WaitForAssertion(() => cut.Find("[role=alert]").TextContent.Should().Contain("unknown outcome"));
+        cut.Find("#expense-invoice-select").HasAttribute("disabled").Should().BeTrue();
+        cut.Find("#expense-invoice-link").Click();
+
+        cut.WaitForAssertion(() => cut.Find(".expense-invoice-current").TextContent.Should().Contain($"#{invoice.Number}"));
+        cut.Find("[role=status]").TextContent.Should().Contain("비용을 청구서에 연결했습니다");
+        writes.Should().Be(2);
+    }
+
+    [Fact]
+    public void Draft_invoice_can_be_unlinked_with_current_versions()
+    {
+        ShowScope("expense.read", "expense.invoice", "billing.read");
+        var input = Input(ExpenseType.BillableToContact, Guid.NewGuid());
+        var invoiceOperation = Guid.NewGuid();
+        var invoice = Invoice(input.ContactId!.Value);
+        var expense = Expense(Guid.NewGuid(), input, ExpenseStatus.Invoiced) with
+        {
+            InvoiceId = invoice.Id, InvoiceOperationId = invoiceOperation
+        };
+        invoice = invoice with
+        {
+            Input = invoice.Input with
+            {
+                Lines = [.. invoice.Input.Lines, new BillingLine(input.Purpose!, input.Amount, 1m,
+                    ExpenseId: expense.Id)]
+            }
+        };
+        Read<ExpenseRecord>(_ => new([expense], 1));
+        ReadOne<BillingDocument>(path => path.EndsWith(invoice.Id.ToString("D"), StringComparison.Ordinal)
+            ? invoice : null);
+        _api.Setup(api => api.WriteInventoryAsync<ExpenseInvoiceLink>(HttpMethod.Post,
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/{expense.Id:D}/invoice-unlink",
+                It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .Returns((HttpMethod _, string _, object body, string _, CancellationToken _) =>
+            {
+                var operation = Property<Guid>(body, "OperationId");
+                Property<Guid>(body, "ExpenseVersion").Should().Be(expense.Version);
+                Property<Guid>(body, "InvoiceId").Should().Be(invoice.Id);
+                Property<Guid>(body, "InvoiceVersion").Should().Be(invoice.Version);
+                var unlinkedExpense = expense with
+                {
+                    Version = Guid.NewGuid(), Status = ExpenseStatus.Uninvoiced, InvoiceId = null,
+                    InvoiceOperationId = null, UnlinkedInvoiceId = invoice.Id,
+                    InvoiceUnlinkOperationId = operation
+                };
+                var unlinkedInvoice = invoice with
+                {
+                    Version = Guid.NewGuid(),
+                    Input = invoice.Input with
+                    {
+                        Lines = invoice.Input.Lines.Where(line => line.ExpenseId != expense.Id).ToArray()
+                    }
+                };
+                return Task.FromResult<(ExpenseInvoiceLink?, int, string?, string?)>(
+                    (new(unlinkedExpense, unlinkedInvoice), 200, null, null));
+            });
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("[data-select-expense]").Should().NotBeNull());
+        cut.Find("[data-select-expense]").Click();
+        cut.WaitForAssertion(() => cut.Find("#expense-invoice-unlink").Should().NotBeNull());
+
+        cut.Find("#expense-invoice-unlink").Click();
+
+        cut.WaitForAssertion(() => cut.Find("#expense-invoices-load").Should().NotBeNull());
+        cut.Find("[role=status]").TextContent.Should().Contain("연결을 해제했습니다");
+    }
+
+    [Fact]
+    public void Uncertain_invoice_link_recovers_an_already_committed_result()
+    {
+        ShowScope("expense.read", "expense.invoice", "billing.read");
+        var input = Input(ExpenseType.BillableToContact, Guid.NewGuid());
+        var expense = Expense(Guid.NewGuid(), input, ExpenseStatus.Uninvoiced);
+        var invoice = Invoice(input.ContactId!.Value);
+        Read<ExpenseRecord>(_ => new([expense], 1));
+        Read<BillingDocument>(_ => new([invoice], 1));
+        ExpenseRecord? committedExpense = null;
+        BillingDocument? committedInvoice = null;
+        ReadOne<ExpenseRecord>(_ => committedExpense);
+        ReadOne<BillingDocument>(_ => committedInvoice);
+        var writes = 0;
+        _api.Setup(api => api.WriteInventoryAsync<ExpenseInvoiceLink>(HttpMethod.Post,
+                $"api/v1/erp/expenses/{Tenant:D}/{Organization:D}/{expense.Id:D}/invoice-link",
+                It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()))
+            .Returns((HttpMethod _, string _, object body, string _, CancellationToken _) =>
+            {
+                var operation = Property<Guid>(body, "OperationId");
+                committedExpense = expense with
+                {
+                    Version = Guid.NewGuid(), Status = ExpenseStatus.Invoiced,
+                    InvoiceId = invoice.Id, InvoiceOperationId = operation
+                };
+                committedInvoice = invoice with
+                {
+                    Version = Guid.NewGuid(),
+                    Input = invoice.Input with
+                    {
+                        Lines = [.. invoice.Input.Lines, new BillingLine(input.Purpose!, input.Amount, 1m,
+                            ExpenseId: expense.Id)]
+                    }
+                };
+                writes++;
+                return Task.FromResult<(ExpenseInvoiceLink?, int, string?, string?)>(
+                    (null, 503, "INVENTORY_RESPONSE_UNAVAILABLE", "unknown outcome"));
+            });
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("[data-select-expense]").Should().NotBeNull());
+        cut.Find("[data-select-expense]").Click();
+        cut.WaitForAssertion(() => cut.Find("#expense-invoice-link").Should().NotBeNull());
+
+        cut.Find("#expense-invoice-link").Click();
+
+        cut.WaitForAssertion(() => cut.Find(".expense-invoice-current").TextContent.Should().Contain($"#{invoice.Number}"));
+        cut.FindAll("[role=alert]").Should().BeEmpty();
+        writes.Should().Be(1);
+    }
+
+    [Fact]
+    public void Invoice_permission_without_billing_read_explains_the_missing_capability()
+    {
+        ShowScope("expense.read", "expense.invoice");
+        var input = Input(ExpenseType.BillableToContact, Guid.NewGuid());
+        Read<ExpenseRecord>(_ => new([Expense(Guid.NewGuid(), input, ExpenseStatus.Uninvoiced)], 1));
+        var cut = Render<HostExpenseWorkspace>();
+        cut.WaitForAssertion(() => cut.Find("[data-scope]").Should().NotBeNull());
+        cut.Find("[data-scope]").Click();
+        cut.WaitForAssertion(() => cut.Find("[data-select-expense]").Should().NotBeNull());
+        cut.Find("[data-select-expense]").Click();
+
+        cut.WaitForAssertion(() => cut.FindAll("[role=status]").Should()
+            .Contain(element => element.TextContent.Contains("billing.read", StringComparison.Ordinal)));
+        Paths<BillingDocument>().Should().BeEmpty();
+        cut.FindAll("#expense-invoice-link, #expense-invoice-unlink").Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Authentication_change_rejects_a_late_scope_response()
     {
         var oldScope = Scope("operator", Tenant, Organization, "expense.read");
@@ -189,6 +384,10 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
         => _api.Setup(api => api.ReadInventoryAsync<BusinessPage<T>>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns((string path, CancellationToken _) => Task.FromResult<(BusinessPage<T>?, int, string?, string?)>((response(path), 200, null, null)));
 
+    private void ReadOne<T>(Func<string, T?> response) where T : class
+        => _api.Setup(api => api.ReadInventoryAsync<T>(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns((string path, CancellationToken _) => Task.FromResult<(T?, int, string?, string?)>((response(path), 200, null, null)));
+
     private string[] Paths<T>() => _api.Invocations.Where(call => call.Method.Name == nameof(IApiClient.ReadInventoryAsync)
         && call.Method.GetGenericArguments()[0] == typeof(BusinessPage<T>)).Select(call => call.Arguments[0]).OfType<string>().ToArray();
 
@@ -198,11 +397,16 @@ public sealed class ExpenseWorkspacePageTests : BunitContext
 
     private static ExpenseInput Input(ExpenseType type, Guid employeeId) => new(12500m, type,
         Category.Id, Vendor.Id, employeeId, type == ExpenseType.BillableToContact ? Guid.NewGuid() : null,
-        null, "KRW", new DateOnly(2026, 9, 25));
+        null, "KRW", new DateOnly(2026, 9, 25), "Travel");
 
     private static ExpenseRecord Expense(Guid operationId, ExpenseInput input,
         ExpenseStatus status = ExpenseStatus.NotBillable) => new(Guid.NewGuid(),
         new("NexaOne.MES", Tenant.ToString("D"), Organization.ToString("D")), Guid.NewGuid(), operationId,
         input, "operator", status, ExpenseState.Active)
     { CreationInput = input, Amounts = new(input.Amount, 0, input.Amount) };
+
+    private static BillingDocument Invoice(Guid contactId) => new(Guid.NewGuid(),
+        new("NexaOne.MES", Tenant.ToString("D"), Organization.ToString("D")), Guid.NewGuid(), Guid.NewGuid(),
+        BillingKind.Invoice, 42, new(contactId, new(2026, 9, 25), new(2026, 10, 25), "KRW",
+            [new("Service", 100m, 1m)]), new(100m, 0m, 0m, 100m), BillingStatus.Draft, "operator");
 }

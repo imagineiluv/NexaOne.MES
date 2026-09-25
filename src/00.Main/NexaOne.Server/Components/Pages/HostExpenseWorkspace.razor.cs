@@ -14,13 +14,18 @@ public partial class HostExpenseWorkspace
     private BusinessPage<ExpenseCategory>? _categories;
     private BusinessPage<ExpenseVendor>? _vendors;
     private BusinessPage<ExpenseRecord>? _expenses;
+    private BusinessPage<BillingDocument>? _invoiceCandidates;
     private BusinessMembership? _scope;
     private ExpenseRecord? _selected;
+    private BillingDocument? _linkedInvoice;
     private PendingCreate? _pendingCreate;
     private PendingReimbursement? _pendingReimbursement;
+    private PendingInvoiceOperation? _pendingInvoice;
     private readonly ExpenseDraft _draft = new();
-    private string _categoryName = "", _vendorName = "";
+    private string _categoryName = "", _vendorName = "", _invoiceDescription = "";
     private string? _userId, _error, _notice;
+    private Guid _invoiceId;
+    private int _invoiceOffset;
     private bool _authenticated, _identityLoading = true, _busy, _interactive, _disposed;
     private Task<AuthenticationState>? _pendingAuthentication;
     private CancellationTokenSource? _request;
@@ -34,6 +39,18 @@ public partial class HostExpenseWorkspace
         && _selected is { Input.EmployeeId: not null } && _selected.Allocations.Count == 0;
     private bool CanCancel => Can("expense.write") && _selected is { State: ExpenseState.Active } value
         && value.Status == InitialStatus(value.Input.Type);
+    private bool CanManageInvoice => Can("expense.invoice") && Can("billing.read");
+    private bool CanBrowseInvoices => CanManageInvoice && _selected is
+        { State: ExpenseState.Active, Input.Type: ExpenseType.BillableToContact,
+            Status: ExpenseStatus.Uninvoiced, InvoiceId: null };
+    private bool CanUnlinkInvoice => CanManageInvoice && _selected is
+        { State: ExpenseState.Active, Status: ExpenseStatus.Invoiced, InvoiceId: not null }
+        && _linkedInvoice is { Status: BillingStatus.Draft } invoice && invoice.Id == _selected.InvoiceId;
+    private IReadOnlyList<BillingDocument> CompatibleInvoices => _invoiceCandidates?.Items
+        .Where(CompatibleInvoice).ToArray() ?? [];
+    private bool HasPreviousInvoicePage => _invoiceOffset > 0;
+    private bool HasNextInvoicePage => _invoiceCandidates is { } page
+        && _invoiceOffset + page.Items.Count < page.Total;
     private string? SelectedKey => _scope is null ? null : ScopeKey(_scope);
     private string Root => $"api/v1/erp/expenses/{SelectedKey}";
 
@@ -76,7 +93,9 @@ public partial class HostExpenseWorkspace
     {
         CancelRequest();
         _scopes = null; _scope = null; _categories = null; _vendors = null; _expenses = null; _selected = null;
-        _pendingCreate = null; _pendingReimbursement = null; _error = null; _notice = null;
+        _invoiceCandidates = null; _linkedInvoice = null;
+        _pendingCreate = null; _pendingReimbursement = null; _pendingInvoice = null;
+        _invoiceId = Guid.Empty; _invoiceOffset = 0; _invoiceDescription = ""; _error = null; _notice = null;
     }
 
     private Task LoadScopesAsync() => RunAsync(async ct =>
@@ -93,7 +112,9 @@ public partial class HostExpenseWorkspace
         if (SelectedKey == ScopeKey(scope)) return;
         CancelRequest();
         _scope = scope; _categories = null; _vendors = null; _expenses = null; _selected = null;
-        _pendingCreate = null; _pendingReimbursement = null; _error = null; _notice = null;
+        _invoiceCandidates = null; _linkedInvoice = null;
+        _pendingCreate = null; _pendingReimbursement = null; _pendingInvoice = null;
+        _invoiceId = Guid.Empty; _invoiceOffset = 0; _invoiceDescription = ""; _error = null; _notice = null;
         await RunAsync(async ct =>
         {
             if (Can("expense.directory.read")) await LoadDirectoriesCoreAsync(ct);
@@ -111,7 +132,11 @@ public partial class HostExpenseWorkspace
         if (OwnsRequest(ct)) Accept(vendors, value => _vendors = value);
     }
 
-    private Task LoadExpensesAsync() => RunAsync(LoadExpensesCoreAsync);
+    private Task LoadExpensesAsync() => RunAsync(async ct =>
+    {
+        await LoadExpensesCoreAsync(ct);
+        if (OwnsRequest(ct) && _selected is not null) await LoadInvoiceContextCoreAsync(ct);
+    });
     private async Task LoadExpensesCoreAsync(CancellationToken ct)
     {
         var result = await Api.ReadInventoryAsync<BusinessPage<ExpenseRecord>>($"{Root}?offset=0&limit={PageSize}", ct);
@@ -209,7 +234,123 @@ public partial class HostExpenseWorkspace
         return true;
     }
 
-    private void SelectExpense(ExpenseRecord value) { _selected = value; _pendingReimbursement = null; _error = null; _notice = null; }
+    private Task SelectExpenseAsync(ExpenseRecord value) => RunAsync(async ct =>
+    {
+        _selected = value; _pendingReimbursement = null; _pendingInvoice = null;
+        _invoiceCandidates = null; _linkedInvoice = null; _invoiceId = Guid.Empty; _invoiceOffset = 0;
+        _invoiceDescription = value.Input.Purpose ?? value.Input.Reference ?? "";
+        await LoadInvoiceContextCoreAsync(ct);
+    });
+
+    private async Task LoadInvoiceContextCoreAsync(CancellationToken ct)
+    {
+        _invoiceCandidates = null; _linkedInvoice = null; _invoiceId = Guid.Empty; _invoiceOffset = 0;
+        if (_selected?.InvoiceId is { } invoiceId && Can("billing.read"))
+        {
+            var result = await Api.ReadInventoryAsync<BillingDocument>(
+                $"api/v1/erp/billing/{SelectedKey}/documents/{invoiceId:D}", ct);
+            if (!OwnsRequest(ct)) return;
+            if (result.Value?.Id == invoiceId && result.Error is null) _linkedInvoice = result.Value;
+            else if (result.Value is not null)
+                _error = T("expenseWorkspace.invoiceInvalidResponse", "청구서 연결 응답이 현재 요청과 일치하지 않습니다. 비용과 청구서를 새로고침하세요.", "The invoice-link response does not match this request. Refresh the expense and invoice.");
+            else Accept(result, _ => { });
+        }
+        else if (CanBrowseInvoices)
+            await LoadInvoiceCandidatesCoreAsync(ct);
+    }
+
+    private Task LoadInvoiceCandidatesAsync(int offset) => RunAsync(async ct =>
+    {
+        _invoiceOffset = Math.Max(0, offset); _invoiceId = Guid.Empty;
+        await LoadInvoiceCandidatesCoreAsync(ct);
+    });
+
+    private async Task LoadInvoiceCandidatesCoreAsync(CancellationToken ct)
+    {
+        if (!CanBrowseInvoices || _selected?.Input.ContactId is not { } contactId) return;
+        var result = await Api.ReadInventoryAsync<BusinessPage<BillingDocument>>(
+            $"api/v1/erp/billing/{SelectedKey}/documents?kind=Invoice&status=Draft&contactId={contactId:D}&offset={_invoiceOffset}&limit={PageSize}", ct);
+        if (!OwnsRequest(ct)) return;
+        Accept(result, value =>
+        {
+            _invoiceCandidates = value;
+            _invoiceId = value.Items.FirstOrDefault(CompatibleInvoice)?.Id ?? Guid.Empty;
+        });
+    }
+
+    private async Task LinkInvoiceAsync()
+    {
+        if (!CanBrowseInvoices || _selected is null) return;
+        var invoice = _invoiceCandidates?.Items.FirstOrDefault(value => value.Id == _invoiceId && CompatibleInvoice(value));
+        if (_pendingInvoice is null && invoice is null)
+        {
+            _error = T("expenseWorkspace.chooseInvoiceRequired", "연결할 호환 청구서를 선택하세요.", "Choose a compatible invoice to link.");
+            return;
+        }
+        _pendingInvoice ??= new(InvoiceOperation.Link, Guid.NewGuid(), _selected.Id, _selected.Version,
+            invoice!.Id, invoice.Version, Text(_invoiceDescription));
+        await ExecuteInvoiceOperationAsync(_pendingInvoice);
+    }
+
+    private async Task UnlinkInvoiceAsync()
+    {
+        if (_selected is null || _linkedInvoice is null || (!CanUnlinkInvoice && _pendingInvoice is null)) return;
+        _pendingInvoice ??= new(InvoiceOperation.Unlink, Guid.NewGuid(), _selected.Id, _selected.Version,
+            _linkedInvoice.Id, _linkedInvoice.Version, null);
+        await ExecuteInvoiceOperationAsync(_pendingInvoice);
+    }
+
+    private Task ExecuteInvoiceOperationAsync(PendingInvoiceOperation pending) => RunAsync(async ct =>
+    {
+        var action = pending.Kind == InvoiceOperation.Link ? "invoice-link" : "invoice-unlink";
+        object body = pending.Kind == InvoiceOperation.Link
+            ? new InvoiceLinkRequest(pending.OperationId, pending.ExpenseVersion, pending.InvoiceId,
+                pending.InvoiceVersion, pending.Description)
+            : new InvoiceUnlinkRequest(pending.OperationId, pending.ExpenseVersion, pending.InvoiceId,
+                pending.InvoiceVersion);
+        var result = await WriteAsync<ExpenseInvoiceLink>(HttpMethod.Post,
+            $"{Root}/{pending.ExpenseId:D}/{action}", body, ct);
+        if (!OwnsRequest(ct)) return;
+        if (Matches(pending, result.Value) && result.Error is null)
+        {
+            CompleteInvoiceOperation(pending, result.Value!);
+            return;
+        }
+        if (result.Value is not null)
+            _error = T("expenseWorkspace.invoiceInvalidResponse", "청구서 연결 응답이 현재 요청과 일치하지 않습니다. 비용과 청구서를 새로고침하세요.", "The invoice-link response does not match this request. Refresh the expense and invoice.");
+        else
+        {
+            Accept(result, _ => { });
+            if (result.StatusCode is >= 400 and < 500) _pendingInvoice = null;
+            else await RecoverInvoiceOperationCoreAsync(pending, ct);
+        }
+    });
+
+    private async Task RecoverInvoiceOperationCoreAsync(PendingInvoiceOperation pending, CancellationToken ct)
+    {
+        var expenseResult = await Api.ReadInventoryAsync<ExpenseRecord>($"{Root}/{pending.ExpenseId:D}", ct);
+        if (!OwnsRequest(ct) || !MatchesExpense(pending, expenseResult.Value)) return;
+        var invoiceResult = await Api.ReadInventoryAsync<BillingDocument>(
+            $"api/v1/erp/billing/{SelectedKey}/documents/{pending.InvoiceId:D}", ct);
+        if (OwnsRequest(ct) && Matches(pending, expenseResult.Value, invoiceResult.Value))
+            CompleteInvoiceOperation(pending, new(expenseResult.Value!, invoiceResult.Value!));
+    }
+
+    private void CompleteInvoiceOperation(PendingInvoiceOperation pending, ExpenseInvoiceLink value)
+    {
+        _pendingInvoice = null; _selected = value.Expense; ApplyExpense(value.Expense);
+        _invoiceCandidates = null; _invoiceId = Guid.Empty; _invoiceOffset = 0;
+        _linkedInvoice = pending.Kind == InvoiceOperation.Link ? value.Invoice : null;
+        _error = null; _notice = pending.Kind == InvoiceOperation.Link
+            ? T("expenseWorkspace.invoiceLinked", "비용을 청구서에 연결했습니다.", "Expense linked to invoice.")
+            : T("expenseWorkspace.invoiceUnlinked", "비용과 청구서 연결을 해제했습니다.", "Expense unlinked from invoice.");
+    }
+
+    private void ApplyExpense(ExpenseRecord value)
+    {
+        if (_expenses is not { } page) return;
+        _expenses = new(page.Items.Select(item => item.Id == value.Id ? value : item).ToArray(), page.Total);
+    }
 
     private Task UpdateStatusAsync(string action)
     {
@@ -279,6 +420,26 @@ public partial class HostExpenseWorkspace
     // The service owns input normalization (for example null tag lists become empty lists). The scoped,
     // caller-supplied operation ID is the durable create/replay identity and is therefore the recovery key.
     private static bool Matches(PendingCreate pending, ExpenseRecord? value) => value?.OperationId == pending.OperationId;
+    private bool CompatibleInvoice(BillingDocument value) => _selected is { Input.ContactId: { } contactId } expense
+        && value.Kind == BillingKind.Invoice && value.Status == BillingStatus.Draft
+        && value.Input.ContactId == contactId
+        && string.Equals(value.Input.Currency, expense.Input.Currency, StringComparison.Ordinal);
+    private static bool Matches(PendingInvoiceOperation pending, ExpenseInvoiceLink? value)
+        => value is not null && Matches(pending, value.Expense, value.Invoice);
+    private static bool Matches(PendingInvoiceOperation pending, ExpenseRecord? expense, BillingDocument? invoice)
+        => MatchesExpense(pending, expense) && invoice is { Status: BillingStatus.Draft }
+            && invoice.Id == pending.InvoiceId
+            && (pending.Kind == InvoiceOperation.Link
+                ? invoice.Input.Lines.Count(line => line.ExpenseId == pending.ExpenseId) == 1
+                : invoice.Input.Lines.All(line => line.ExpenseId != pending.ExpenseId));
+    private static bool MatchesExpense(PendingInvoiceOperation pending, ExpenseRecord? expense)
+        => expense is { State: ExpenseState.Active } && expense.Id == pending.ExpenseId
+            && (pending.Kind == InvoiceOperation.Link
+                ? expense.Status == ExpenseStatus.Invoiced && expense.InvoiceId == pending.InvoiceId
+                    && expense.InvoiceOperationId == pending.OperationId
+                : expense.Status == ExpenseStatus.Uninvoiced && expense.InvoiceId is null
+                    && expense.UnlinkedInvoiceId == pending.InvoiceId
+                    && expense.InvoiceUnlinkOperationId == pending.OperationId);
     private static string ScopeKey(BusinessMembership scope) => $"{scope.TenantId:D}/{scope.OrganizationId:D}";
     private static ExpenseStatus InitialStatus(ExpenseType type)
         => type == ExpenseType.BillableToContact ? ExpenseStatus.Uninvoiced : ExpenseStatus.NotBillable;
@@ -291,6 +452,18 @@ public partial class HostExpenseWorkspace
     private string T(string key, string ko, string en) => Ui.T(key, Ui.Language == "EnUs" ? en : ko);
     private string TypeName(ExpenseType type) => type switch { ExpenseType.TaxDeductible => T("expenseWorkspace.taxDeductible", "세무상 공제", "Tax deductible"), ExpenseType.NotTaxDeductible => T("expenseWorkspace.notTaxDeductible", "공제 불가", "Not tax deductible"), _ => T("expenseWorkspace.billable", "고객 청구", "Billable to contact") };
     private string StatusName(ExpenseRecord value) => value.State == ExpenseState.Cancelled ? T("expenseWorkspace.cancelledState", "취소됨", "Cancelled") : value.Status switch { ExpenseStatus.Uninvoiced => T("expenseWorkspace.uninvoiced", "미청구", "Uninvoiced"), ExpenseStatus.Invoiced => T("expenseWorkspace.invoiced", "청구됨", "Invoiced"), ExpenseStatus.Paid => T("expenseWorkspace.paid", "지급됨", "Paid"), _ => T("expenseWorkspace.notBillable", "청구 대상 아님", "Not billable") };
+    private string BillingStatusName(BillingStatus value) => value switch
+    {
+        BillingStatus.Draft => T("billing.draft", "작성 중", "Draft"),
+        BillingStatus.Sent => T("billing.sent", "전송됨", "Sent"),
+        BillingStatus.PartiallyPaid => T("billing.partiallyPaid", "일부 입금", "Partially paid"),
+        BillingStatus.FullyPaid => T("billing.fullyPaid", "완납", "Fully paid"),
+        BillingStatus.Overpaid => T("billing.overpaid", "초과 입금", "Overpaid"),
+        BillingStatus.Void => T("billing.void", "무효", "Void"),
+        BillingStatus.PartiallyCredited => T("billing.partiallyCredited", "일부 차감", "Partially credited"),
+        BillingStatus.Credited => T("billing.creditedStatus", "전액 차감", "Credited"),
+        _ => value.ToString()
+    };
 
     public void Dispose()
     {
@@ -302,8 +475,15 @@ public partial class HostExpenseWorkspace
     internal sealed record VersionedRequest(Guid Version);
     internal sealed record CancelExpenseRequest(Guid Version, string? Reason);
     internal sealed record ReimbursementRequest(Guid OperationId, Guid Version, DateTimeOffset PaidAt, string? Reference);
+    internal sealed record InvoiceLinkRequest(Guid OperationId, Guid ExpenseVersion, Guid InvoiceId,
+        Guid InvoiceVersion, string? Description);
+    internal sealed record InvoiceUnlinkRequest(Guid OperationId, Guid ExpenseVersion, Guid InvoiceId,
+        Guid InvoiceVersion);
     private sealed record PendingCreate(Guid OperationId, ExpenseInput Input);
     private sealed record PendingReimbursement(Guid OperationId, Guid ExpenseId, Guid Version, DateTimeOffset PaidAt);
+    private sealed record PendingInvoiceOperation(InvoiceOperation Kind, Guid OperationId, Guid ExpenseId,
+        Guid ExpenseVersion, Guid InvoiceId, Guid InvoiceVersion, string? Description);
+    private enum InvoiceOperation { Link, Unlink }
     private sealed class ExpenseDraft
     {
         public decimal Amount { get; set; }
