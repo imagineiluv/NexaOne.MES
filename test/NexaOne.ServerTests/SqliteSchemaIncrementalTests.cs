@@ -3,6 +3,7 @@ using Microsoft.Data.Sqlite;
 using NexaOne.ERP.Infrastructure;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.POM.Infrastructure;
+using NexaOne.Server;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Xunit;
@@ -3125,7 +3126,7 @@ public sealed class SqliteSchemaIncrementalTests
     }
 
     [Fact]
-    public void V203_expense_tag_resources_are_reconciled_without_overwriting_custom_values()
+    public void V204_expense_tag_resources_are_reconciled_without_overwriting_custom_values()
     {
         var cs = NewDb();
         try
@@ -3143,7 +3144,8 @@ public sealed class SqliteSchemaIncrementalTests
                 VALUES ('expenseWorkspace.tagName','COMMON','EnUs','Custom tag label');
                 """);
 
-            SqliteSchemaInitializer.EnsureSchema(cs, [new ErpBillingSqliteSchemaContribution()]);
+            NexaOneDevelopmentDatabaseInitializer.EnsureDevWorkflowResources(
+                cs, "V204__ERP_EXPENSE_TAG_RESOURCES.sql");
 
             ScalarString(cs, "SELECT VALUE FROM SYS_MULTI_LANGUAGE_RESOURCE WHERE RESOURCE_KEY='expenseWorkspace.tagName' AND LANGUAGE='EnUs'")
                 .Should().Be("Custom tag label");

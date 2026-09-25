@@ -45,6 +45,10 @@ internal static class NexaOneDevelopmentDatabaseInitializer
         EnsureDevWorkflowResources(connectionString, "V197__ERP_REPORT_HISTORY_RESOURCES.sql");
         EnsureDevWorkflowResources(connectionString, "V198__ERP_EXPENSE_WORKSPACE_RESOURCES.sql");
         EnsureDevWorkflowResources(connectionString, "V199__ERP_EXPENSE_INVOICE_LINK_RESOURCES.sql");
+        EnsureDevWorkflowResources(connectionString, "V200__ERP_EXPENSE_DIRECTORY_LIFECYCLE_RESOURCES.sql");
+        EnsureDevWorkflowResources(connectionString, "V201__ERP_EXPENSE_LEDGER_FILTER_RESOURCES.sql");
+        EnsureDevWorkflowResources(connectionString, "V202__ERP_EXPENSE_ADVANCED_INPUT_RESOURCES.sql");
+        EnsureDevWorkflowResources(connectionString, "V204__ERP_EXPENSE_TAG_RESOURCES.sql");
         NormalizeDevMenuTerminology(connectionString);
         SeedDevCommonUiResourcesIfMissing(connectionString);
         EnsureDevQmsSampleLotReferences(connectionString);
@@ -306,7 +310,7 @@ internal static class NexaOneDevelopmentDatabaseInitializer
     /// 기존 개발 SQLite의 증분 경로가 건너뛰는 업무 화면 메뉴·번역 마이그레이션을 보완한다.
     /// 마이그레이션의 누락 키 조건으로 사용자 번역과 메뉴별 리소스를 보존한다.
     /// </summary>
-    static void EnsureDevWorkflowResources(string connectionString, string migrationFileName)
+    internal static void EnsureDevWorkflowResources(string connectionString, string migrationFileName)
     {
         var migrationPath = Path.Combine(AppContext.BaseDirectory, "db", "migrations", migrationFileName);
         var sql = System.Text.RegularExpressions.Regex.Replace(File.ReadAllText(migrationPath),
