@@ -7,6 +7,10 @@ namespace NexaOne.ServiceContracts.Ivt;
 /// current SYS authority and the explicit IVT plant binding in its owning database transaction.</summary>
 public interface IStockBridge : INexaModuleBridge
 {
+    /// <summary>Atomically imports product enrollments and warehouses after validating every row.
+    /// A successful operation can be replayed with the same actor and payload without writing again.</summary>
+    Task<StockMasterImportResult> ImportMastersAsync(string userId, Guid tenantId, Guid organizationId,
+        StockMasterImportRequest request, CancellationToken ct = default);
     /// <summary>Enrolls an existing MDM product with one stable base variant and a frozen unit.
     /// Requires stock.product.write. Repeating the same product/unit does not create another mapping.</summary>
     Task<ProductVariant> EnrollProductAsync(string userId, Guid tenantId, Guid organizationId,
@@ -61,3 +65,16 @@ public interface IStockBridge : INexaModuleBridge
     Task<StockMovement> ConsumeReservationAsync(string userId, Guid tenantId, Guid organizationId,
         Guid id, Guid version, CancellationToken ct = default);
 }
+
+public sealed record StockMasterImportRequest(Guid OperationId,
+    IReadOnlyList<StockProductImportRow> Products, IReadOnlyList<StockWarehouseImportRow> Warehouses);
+
+public sealed record StockProductImportRow(string ProductId, string Unit);
+
+public sealed record StockWarehouseImportRow(string Code, string Name);
+
+public sealed record StockMasterImportError(string Section, int Row, string Field, string Code);
+
+public sealed record StockMasterImportResult(Guid OperationId, bool Applied, bool Replayed,
+    int ProductsCreated, int ProductsUnchanged, int WarehousesCreated, int WarehousesUnchanged,
+    IReadOnlyList<StockMasterImportError> Errors);

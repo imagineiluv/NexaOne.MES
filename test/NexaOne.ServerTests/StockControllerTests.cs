@@ -19,6 +19,30 @@ namespace NexaOne.ServerTests;
 public sealed class StockControllerTests
 {
     [Fact]
+    public async Task Master_import_forwards_the_exact_payload_and_maps_validation_to_422()
+    {
+        var tenant = Guid.NewGuid(); var organization = Guid.NewGuid();
+        var command = new StockMasterImportRequest(Guid.NewGuid(), [new("PRODUCT", "EA")], [new("MAIN", "Main")]);
+        var error = new StockMasterImportError("products", 1, "productId", "PRODUCT_NOT_FOUND");
+        var rejected = new StockMasterImportResult(command.OperationId, false, false, 0, 0, 0, 0, [error]);
+        var applied = rejected with { Applied = true, Errors = [] };
+        using var cancellation = new CancellationTokenSource();
+        var bridge = new Mock<IStockBridge>(MockBehavior.Strict);
+        bridge.SetupSequence(value => value.ImportMastersAsync("stock-user", tenant, organization,
+                It.Is<StockMasterImportRequest>(candidate => ReferenceEquals(candidate, command)), cancellation.Token))
+            .ReturnsAsync(rejected)
+            .ReturnsAsync(applied);
+        var controller = Controller(bridge.Object);
+
+        var invalid = (await controller.ImportMasters(tenant, organization, command, cancellation.Token))
+            .Should().BeOfType<UnprocessableEntityObjectResult>().Which;
+        invalid.Value.Should().BeSameAs(rejected);
+        (await controller.ImportMasters(tenant, organization, command, cancellation.Token))
+            .Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(applied);
+        bridge.VerifyAll(); bridge.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task Lists_forward_the_domain_query_current_principal_scope_and_cancellation_without_repacking_pages()
     {
         var tenant = Guid.NewGuid(); var organization = Guid.NewGuid();

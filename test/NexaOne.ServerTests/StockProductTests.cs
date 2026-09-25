@@ -303,6 +303,27 @@ public sealed class StockMssqlFactAttribute : FactAttribute
 public sealed class StockMssqlTests(ITestOutputHelper output)
 {
     [StockMssqlFact]
+    public async Task Actual_SQL_Server_atomically_imports_masters_and_replays_the_durable_receipt()
+    {
+        var h = await Harness.CreateAsync(output);
+        await h.Database.ExecuteAsync(StockProductSeed.ListProductsSql, h.Seed);
+        var operation = Guid.NewGuid();
+        var request = new StockMasterImportRequest(operation,
+            [new(h.Seed.ListFirstProduct, "kg")], [new("IMPORT", "Imported warehouse")]);
+
+        var first = await h.Bridge.ImportMastersAsync(h.Seed.User, h.Tenant, h.Organization, request);
+        var replay = await h.Bridge.ImportMastersAsync(h.Seed.User, h.Tenant, h.Organization, request);
+
+        first.Should().BeEquivalentTo(new StockMasterImportResult(operation, true, false, 1, 0, 1, 0, []));
+        replay.Should().BeEquivalentTo(first with { Replayed = true });
+        (await h.Count("IVT_STOCK_PRODUCT")).Should().Be(2, "the harness product and imported product are both enrolled");
+        (await h.Count("IVT_STOCK_WAREHOUSE")).Should().Be(1);
+        (await h.Count("IVT_STOCK_MASTER_IMPORT")).Should().Be(1);
+        await Error(() => h.Bridge.ImportMastersAsync(h.Seed.User, h.Tenant, h.Organization,
+            request with { Warehouses = [new("IMPORT", "Changed")] }), "STOCK_MASTER_IMPORT_OPERATION_CONFLICT");
+    }
+
+    [StockMssqlFact]
     public async Task Actual_SQL_Server_lists_filter_live_masters_and_literal_text_before_scoped_paging_and_recheck_grants()
     {
         var h = await Harness.CreateAsync(output);
@@ -358,9 +379,9 @@ public sealed class StockMssqlTests(ITestOutputHelper output)
     {
         var h = await Harness.CreateAsync(output);
         string[] tables = ["IVT_STOCK_PRODUCT", "IVT_STOCK_WAREHOUSE", "IVT_STOCK_WAREHOUSE_CREATION",
-            "IVT_STOCK_BALANCE", "IVT_STOCK_MOVEMENT", "IVT_STOCK_RESERVATION", "IVT_STOCK_AUDIT"];
+            "IVT_STOCK_BALANCE", "IVT_STOCK_MOVEMENT", "IVT_STOCK_RESERVATION", "IVT_STOCK_AUDIT", "IVT_STOCK_MASTER_IMPORT"];
         (await h.Database.ScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE schema_id=SCHEMA_ID('dbo') AND name IN @tables", new { tables }))
-            .Should().Be(7);
+            .Should().Be(8);
         (await h.Database.ScalarAsync<int>("""
             SELECT COUNT(*) FROM sys.columns c JOIN sys.tables t ON c.object_id=t.object_id
              WHERE t.schema_id=SCHEMA_ID('dbo') AND TYPE_NAME(c.user_type_id) IN ('varchar','nvarchar')
