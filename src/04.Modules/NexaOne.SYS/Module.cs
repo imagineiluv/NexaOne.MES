@@ -23,6 +23,7 @@ public sealed class Module
     private readonly ISqliteSchemaContribution _trustedAuthoritySqliteSchemaContribution;
     private readonly IHostedService _loginFailureRetentionWorker;
     private readonly IIdRuleEngine _idRuleEngine;
+    private readonly IApprovalProcess _approvalProcess;
 
     public Module(
         EesDataSource dataSource,
@@ -58,6 +59,7 @@ public sealed class Module
         _trustedAuthoritySqliteSchemaContribution =
             new SysTrustedAuthoritySqliteSchemaContribution();
         _idRuleEngine = new IdRuleEngine(dataSource);
+        _approvalProcess = new ApprovalProcess(dataSource);
         _loginFailureRetentionWorker = new LoginFailureRetentionWorker(
             scheduler,
             loginFailures,
@@ -76,6 +78,7 @@ public sealed class Module
         _trustedAuthoritySqliteSchemaContribution;
     public IHostedService GetLoginFailureRetentionWorker() => _loginFailureRetentionWorker;
     public IIdRuleEngine GetIdRuleEngine() => _idRuleEngine;
+    public IApprovalProcess GetApprovalProcess() => _approvalProcess;
 }
 
 /// <summary>
