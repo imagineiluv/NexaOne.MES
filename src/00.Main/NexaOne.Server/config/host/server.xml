@@ -183,6 +183,7 @@
   <object id="processDirectory" type="NexaOne.Server.Gateway.ProcessDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="userDirectory" type="NexaOne.Server.Gateway.UserDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="idRuleEngine" type="NexaOne.Server.Gateway.IdRuleEngineProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="approvalProcess" type="NexaOne.Server.Gateway.ApprovalProcessProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="businessMembershipBridge" type="NexaOne.Server.Gateway.BusinessMembershipProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="businessMasterDirectory" type="NexaOne.Server.Gateway.BusinessMasterDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="businessProjectDirectory" type="NexaOne.Server.Gateway.BusinessProjectDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>

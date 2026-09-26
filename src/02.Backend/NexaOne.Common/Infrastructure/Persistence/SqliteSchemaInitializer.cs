@@ -2829,7 +2829,29 @@ public static class SqliteSchemaInitializer
                     SELECT 1 FROM RMS_RECIPE_APPROVAL_HISTORY H
                     WHERE H.HISTORY_ID = NEW.HISTORY_ID
                        OR H.IDEMPOTENCY_KEY = NEW.IDEMPOTENCY_KEY)
-                BEGIN SELECT RAISE(ABORT, 'RMS_RECIPE_APPROVAL_HISTORY replacement is forbidden'); END;
+               BEGIN SELECT RAISE(ABORT, 'RMS_RECIPE_APPROVAL_HISTORY replacement is forbidden'); END;
+               """);
+       }
+
+        if (HasTable(conn, "COM_APPROVAL_HISTORY"))
+        {
+            Exec(conn, """
+                DROP TRIGGER IF EXISTS TR_COM_APPROVAL_HISTORY_BU;
+                DROP TRIGGER IF EXISTS TR_COM_APPROVAL_HISTORY_BD;
+                DROP TRIGGER IF EXISTS TR_COM_APPROVAL_HISTORY_BR;
+                CREATE TRIGGER TR_COM_APPROVAL_HISTORY_BU
+                BEFORE UPDATE ON COM_APPROVAL_HISTORY
+                BEGIN SELECT RAISE(ABORT, 'COM_APPROVAL_HISTORY is append-only'); END;
+                CREATE TRIGGER TR_COM_APPROVAL_HISTORY_BD
+                BEFORE DELETE ON COM_APPROVAL_HISTORY
+                BEGIN SELECT RAISE(ABORT, 'COM_APPROVAL_HISTORY is append-only'); END;
+                CREATE TRIGGER TR_COM_APPROVAL_HISTORY_BR
+                BEFORE INSERT ON COM_APPROVAL_HISTORY
+                WHEN EXISTS (
+                    SELECT 1 FROM COM_APPROVAL_HISTORY H
+                    WHERE H.HISTORY_ID = NEW.HISTORY_ID
+                       OR H.IDEMPOTENCY_KEY = NEW.IDEMPOTENCY_KEY)
+                BEGIN SELECT RAISE(ABORT, 'COM_APPROVAL_HISTORY replacement is forbidden'); END;
                 """);
         }
 

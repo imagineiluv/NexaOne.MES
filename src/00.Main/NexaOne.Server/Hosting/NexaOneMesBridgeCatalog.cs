@@ -122,6 +122,7 @@ internal sealed class NexaOneMesBridgeCatalog : INexaModuleBridgeCatalog
             Bind<IBusinessMembershipBridge>("Sys", "businessMembershipBridge"),
             Bind<IMaintenanceIdentityDirectory>("Sys", "maintenanceIdentityDirectory"),
             Bind<ISysBridge>("Sys", "sysBridge"),
+            Bind<IApprovalProcess>("Sys", "approvalProcess"),
             Bind<IUserDirectory>("Sys", "userDirectory"));
 
     internal static NexaOneMesBridgeCatalog Create(
