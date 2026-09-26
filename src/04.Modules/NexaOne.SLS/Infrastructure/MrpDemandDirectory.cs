@@ -1,16 +1,15 @@
 using NexaOne.Infrastructure.Persistence;
-using NexaOne.POM.Application.Mrp;
-using NexaOne.POM.Domain.Mrp;
+using NexaOne.ServiceContracts.Sls;
 
-namespace NexaOne.POM.Infrastructure;
+namespace NexaOne.SLS.Infrastructure;
 
 /// <summary>
-/// SLS 업무 모듈 코드가 아직 없는 전환기의 단일 MRP 수요 projection입니다.
-/// docs/adr/0002-temporary-sls-mrp-demand-projection.md의 제거 조건이 충족되면 SLS 소유 bridge로 교체합니다.
+/// 확정·생산 중 수주의 미납 수량을 MRP 수요로 반환하는 읽기 전용 디렉터리입니다.
+/// SLS 상태를 변경하지 않으며 docs/adr/0002의 임시 POM projection을 대체합니다.
 /// </summary>
-public sealed class LegacySalesOrderMrpProjection : QueryRepository, IMrpDemandSource
+public sealed class MrpDemandDirectory : QueryRepository, IMrpDemandDirectory
 {
-    public LegacySalesOrderMrpProjection(EesDataSource dataSource) : base(dataSource) { }
+    public MrpDemandDirectory(EesDataSource dataSource) : base(dataSource) { }
 
     public async Task<IReadOnlyList<MrpDemand>> GetOpenDemandsAsync(CancellationToken ct = default)
     {

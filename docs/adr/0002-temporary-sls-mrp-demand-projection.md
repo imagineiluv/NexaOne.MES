@@ -1,6 +1,6 @@
 # SLS 소유 모듈이 생길 때까지 MRP 수요 projection을 한 파일로 격리한다
 
-- 상태: Accepted (temporary exception)
+- 상태: Superseded — NexaOne.SLS가 IMrpDemandDirectory 계약으로 인수(2026-09-26)
 - 결정일: 2026-08-28
 - 소유 후보: `NexaOne.SLS`
 - 검토 기한: 2026-11-30

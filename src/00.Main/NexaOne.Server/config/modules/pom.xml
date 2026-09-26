@@ -14,6 +14,7 @@
     <constructor-arg ref="mrpMasterDirectory" />
     <constructor-arg ref="mrpInventoryDirectory" />
     <constructor-arg ref="purchaseOrderPlanningBridge" />
+    <constructor-arg ref="mrpDemandDirectory" />
     <constructor-arg ref="equipmentDirectory" />
     <constructor-arg ref="equipmentOutputMasterDirectory" />
     <constructor-arg ref="workScopeProjectionAuthorityValidatorProxy" />

@@ -34,10 +34,6 @@ public sealed class ModuleDependencyBoundaryTests
     private static readonly ApprovedProjection[] ApprovedForeignSchemaProjections =
     [
         new(
-            Path.Combine("src", "04.Modules", "NexaOne.POM", "Infrastructure", "LegacySalesOrderMrpProjection.cs"),
-            "SLS_SALES_ORDER",
-            Path.Combine("docs", "adr", "0002-temporary-sls-mrp-demand-projection.md")),
-        new(
             Path.Combine("src", "04.Modules", "NexaOne.SYS", "Infrastructure", "MaintenanceIdentityDirectory.cs"),
             "MDM_WORKER_USER_MAP",
             Path.Combine("docs", "adr", "0003-maintenance-identity-projection-ownership.md")),

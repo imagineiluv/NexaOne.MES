@@ -7,12 +7,13 @@ using NexaOne.ServiceContracts.Ivt;
 using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Pom;
 using NexaOne.ServiceContracts.Prc;
+using IMrpDemandDirectory = NexaOne.ServiceContracts.Sls.IMrpDemandDirectory;
 
 namespace NexaOne.POM.Infrastructure;
 
 /// <summary>
 /// POM 소유 MRP 실행기입니다. 계산과 POM 실행/제안 원장만 소유하며 MDM·IVT·PRC 원자료와 PRC command는
-/// 각 모듈의 축소 계약으로 위임합니다. SLS 수요는 소유 모듈이 생길 때까지 별도 전환 projection 뒤에 격리합니다.
+/// 각 모듈의 축소 계약으로 위임합니다. SLS 수요는 SLS 소유 계약(IMrpDemandDirectory)으로 받습니다.
 /// </summary>
 public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
 {
@@ -22,7 +23,7 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
         "UPDATE MRP_RUN SET STATUS = @status, FINISHED_AT = @finishedAt, DEMAND_COUNT = @demandCount, " +
         "PLANNED_ORDER_COUNT = @orderCount, MESSAGE = @message, UPDATED_BY = @by WHERE RUN_ID = @runId";
     private readonly ServiceObjectProcessor _processor;
-    private readonly IMrpDemandSource _demandSource;
+    private readonly IMrpDemandDirectory _demandDirectory;
     private readonly IMrpMasterDirectory _masterDirectory;
     private readonly IMrpInventoryDirectory _inventoryDirectory;
     private readonly IPurchaseOrderPlanningBridge _purchaseOrders;
@@ -30,14 +31,14 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
 
     public MrpPlanningRepository(
         EesDataSource dataSource,
-        IMrpDemandSource demandSource,
+        IMrpDemandDirectory demandDirectory,
         IMrpMasterDirectory masterDirectory,
         IMrpInventoryDirectory inventoryDirectory,
         IPurchaseOrderPlanningBridge purchaseOrders,
         IEquipmentDirectory equipmentDirectory) : base(dataSource)
     {
         _processor = new ServiceObjectProcessor(dataSource);
-        _demandSource = demandSource;
+        _demandDirectory = demandDirectory;
         _masterDirectory = masterDirectory;
         _inventoryDirectory = inventoryDirectory;
         _purchaseOrders = purchaseOrders;
@@ -55,7 +56,11 @@ public sealed class MrpPlanningRepository : QueryRepository, IMrpPlanner
 
         try
         {
-            var demands = await _demandSource.GetOpenDemandsAsync(ct);
+            // SLS 계약 DTO → POM 도메인 수요로 경계 변환(Domain은 ServiceContracts를 import하지 않는다).
+            var demands = (await _demandDirectory.GetOpenDemandsAsync(ct))
+                .Select(static demand => new MrpDemand(
+                    demand.ItemId, demand.Qty, demand.DueDate, demand.SourceRef, demand.PlantId))
+                .ToList();
             var master = await _masterDirectory.GetSnapshotAsync(ct);
             var inventory = await _inventoryDirectory.GetBalancesAsync(ct);
             var receipts = (await _purchaseOrders.GetScheduledReceiptsAsync(ct))

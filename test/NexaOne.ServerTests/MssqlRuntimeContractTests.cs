@@ -29,6 +29,7 @@ using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Pom;
 using NexaOne.ServiceContracts.Prc;
 using NexaOne.ServiceContracts.Qms;
+using NexaOne.ServiceContracts.Sls;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -947,7 +948,7 @@ public sealed class MssqlRuntimeContractTests
         var purchaseOrders = new RecordingPurchaseOrderBridge();
         var repository = new MrpPlanningRepository(
             database.DataSource,
-            new StubDemandSource(new MrpDemand(
+            new StubDemandSource(new NexaOne.ServiceContracts.Sls.MrpDemand(
                 itemId, 12m, new DateTime(2042, 6, 30), sourceRef, $"PLANT_{suffix}")),
             new StubMrpMasterDirectory(new MrpMasterSnapshot(
                 [],
@@ -1046,10 +1047,10 @@ public sealed class MssqlRuntimeContractTests
             => Task.FromResult(ProductionQualityGateResult.NotRequired());
     }
 
-    private sealed class StubDemandSource(MrpDemand demand) : IMrpDemandSource
+    private sealed class StubDemandSource(NexaOne.ServiceContracts.Sls.MrpDemand demand) : IMrpDemandDirectory
     {
-        public Task<IReadOnlyList<MrpDemand>> GetOpenDemandsAsync(CancellationToken ct = default)
-            => Task.FromResult<IReadOnlyList<MrpDemand>>([demand]);
+        public Task<IReadOnlyList<NexaOne.ServiceContracts.Sls.MrpDemand>> GetOpenDemandsAsync(CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<NexaOne.ServiceContracts.Sls.MrpDemand>>([demand]);
     }
 
     private sealed class StubMrpMasterDirectory(MrpMasterSnapshot snapshot) : IMrpMasterDirectory
