@@ -22,6 +22,7 @@ public sealed class Module
     private readonly IReleasedProgramArtifactDirectory _releasedProgramArtifactDirectory;
     private readonly ISqliteSchemaContribution _trustedAuthoritySqliteSchemaContribution;
     private readonly IHostedService _loginFailureRetentionWorker;
+    private readonly IIdRuleEngine _idRuleEngine;
 
     public Module(
         EesDataSource dataSource,
@@ -56,6 +57,7 @@ public sealed class Module
         _releasedProgramArtifactDirectory = new ReleasedProgramArtifactDirectory(dataSource);
         _trustedAuthoritySqliteSchemaContribution =
             new SysTrustedAuthoritySqliteSchemaContribution();
+        _idRuleEngine = new IdRuleEngine(dataSource);
         _loginFailureRetentionWorker = new LoginFailureRetentionWorker(
             scheduler,
             loginFailures,
@@ -73,6 +75,7 @@ public sealed class Module
     public ISqliteSchemaContribution GetTrustedAuthoritySqliteSchemaContribution() =>
         _trustedAuthoritySqliteSchemaContribution;
     public IHostedService GetLoginFailureRetentionWorker() => _loginFailureRetentionWorker;
+    public IIdRuleEngine GetIdRuleEngine() => _idRuleEngine;
 }
 
 /// <summary>
