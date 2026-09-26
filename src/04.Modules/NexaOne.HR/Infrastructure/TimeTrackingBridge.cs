@@ -1,5 +1,7 @@
 using System.Data;
 using System.Data.Common;
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Dapper;
 using NexaFramework.Service;
@@ -13,6 +15,7 @@ namespace NexaOne.HR.Infrastructure;
 
 public sealed class TimeTrackingBridge : IHumanResourcesBridge, ITimeBillingDirectory
 {
+    private const int TimeReportRowLimit = 10_000;
     private const string ScopeWhere = "TENANT_ID=@TenantId AND ORGANIZATION_ID=@OrganizationId";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly ServiceObjectProcessor _processor;
@@ -89,6 +92,73 @@ public sealed class TimeTrackingBridge : IHumanResourcesBridge, ITimeBillingDire
         Guid timesheetId, CancellationToken ct = default)
         => Run(userId, tenantId, organizationId, "hr.time.read",
             session => session.GetSheetAsync(timesheetId, ct), ct);
+
+    public Task<BusinessPage<BusinessMembership>> ListAccessibleScopesAsync(string userId,
+        int offset = 0, int limit = 50, CancellationToken ct = default)
+    {
+        if (!ValidUser(userId)) throw Failure("BUSINESS_ACCESS_DENIED");
+        if (offset < 0 || limit is < 1 or > 100) throw Failure("INVALID_BUSINESS_INPUT");
+        return _processor.ExecuteInTransactionAsync(async (_, transaction) =>
+        {
+            const int batchSize = 128;
+            var items = new List<BusinessMembership>(limit);
+            long total = 0;
+            Guid? afterTenant = null, afterOrganization = null;
+            while (true)
+            {
+                ct.ThrowIfCancellationRequested();
+                IReadOnlyList<BusinessMembership> batch;
+                try
+                {
+                    batch = await _memberships.ListAccessInTransactionAsync(transaction, userId,
+                        afterTenant, afterOrganization, batchSize, ct);
+                }
+                catch (InvalidDataException) { throw Failure("BUSINESS_ACCESS_DENIED"); }
+                if (batch is null || batch.Count > batchSize)
+                    throw Failure("STORAGE_CONTRACT_VIOLATION");
+                foreach (var membership in batch)
+                {
+                    if (membership is null || membership.TenantId == Guid.Empty
+                        || membership.OrganizationId == Guid.Empty
+                        || membership.BusinessUserId == Guid.Empty || !membership.IsActive
+                        || membership.Version <= 0 || membership.Permissions is null)
+                        throw Failure("STORAGE_CONTRACT_VIOLATION");
+                    if (afterTenant.HasValue)
+                    {
+                        var tenantOrder = string.CompareOrdinal(Text(membership.TenantId), Text(afterTenant.Value));
+                        if (tenantOrder < 0 || tenantOrder == 0
+                            && string.CompareOrdinal(Text(membership.OrganizationId), Text(afterOrganization!.Value)) <= 0)
+                            throw Failure("STORAGE_CONTRACT_VIOLATION");
+                    }
+                    afterTenant = membership.TenantId;
+                    afterOrganization = membership.OrganizationId;
+                    if (!membership.Permissions.Contains("hr.time.read", StringComparer.Ordinal)) continue;
+                    if (total++ >= offset && items.Count < limit) items.Add(membership);
+                }
+                if (batch.Count < batchSize) break;
+            }
+            return new BusinessPage<BusinessMembership>(Array.AsReadOnly(items.ToArray()), total);
+        }, IsolationLevel.Serializable, ct);
+    }
+
+    public Task<HrTimeReport> BuildTimeReportAsync(string userId, Guid tenantId,
+        Guid organizationId, HrTimeReportQuery query, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ValidateReportQuery(query);
+        return Run(userId, tenantId, organizationId, "hr.time.read",
+            session => session.BuildReportAsync(query, ct), ct);
+    }
+
+    public async Task<HrTimeReportCsvExport> ExportTimeReportCsvAsync(string userId,
+        Guid tenantId, Guid organizationId, HrTimeReportQuery query,
+        CancellationToken ct = default)
+    {
+        var report = await BuildTimeReportAsync(userId, tenantId, organizationId, query, ct);
+        ct.ThrowIfCancellationRequested();
+        return new($"hr-time-report-{tenantId:N}-{organizationId:N}-{query.Start:yyyyMMdd}-{query.End:yyyyMMdd}.csv",
+            "text/csv; charset=utf-8", Csv(report), report.Rows.Count);
+    }
 
     public async Task<TimeBillingOccurrence?> GetTimeEntryInTransactionAsync(DbTransaction transaction,
         Guid tenantId, Guid organizationId, Guid timeEntryId, CancellationToken ct = default)
@@ -183,10 +253,48 @@ public sealed class TimeTrackingBridge : IHumanResourcesBridge, ITimeBillingDire
     private static Guid Id(string value) => Guid.TryParseExact(value, "D", out var id)
         && id != Guid.Empty && Text(id) == value ? id
         : throw new InvalidDataException("HR storage contains an invalid identity.");
+    private static Guid? OptionalId(string? value) => value is null ? null : Id(value);
     private static string Serialize<T>(T value) => JsonSerializer.Serialize(value, Json);
     private static T Deserialize<T>(string value) => JsonSerializer.Deserialize<T>(value, Json)
         ?? throw new InvalidDataException("HR storage contains an invalid payload.");
     private static BusinessException Failure(string code) => new(code);
+
+    private static void ValidateReportQuery(HrTimeReportQuery query)
+    {
+        if (query.Start == default || query.End == default || query.End == DateOnly.MaxValue
+            || query.End < query.Start
+            || query.End.DayNumber - query.Start.DayNumber >= 366
+            || query.EmployeeId == Guid.Empty || query.ProjectId == Guid.Empty
+            || query.TaskId == Guid.Empty || !Enum.IsDefined(query.Approval))
+            throw Failure("INVALID_BUSINESS_INPUT");
+    }
+
+    private static byte[] Csv(HrTimeReport report)
+    {
+        var text = new StringBuilder("Entry ID,Employee ID,Start UTC,End UTC,Duration Hours,Project ID,Task ID,Timesheet ID,Approval,Description\r\n");
+        foreach (var row in report.Rows)
+        {
+            Append(Text(row.EntryId)); Append(Text(row.EmployeeId));
+            Append(row.Start.UtcDateTime.ToString("O", CultureInfo.InvariantCulture));
+            Append(row.End.UtcDateTime.ToString("O", CultureInfo.InvariantCulture));
+            Append(TimeSpan.FromTicks(row.DurationTicks).TotalHours.ToString("0.########", CultureInfo.InvariantCulture), protectFormula: false);
+            Append(row.ProjectId.HasValue ? Text(row.ProjectId.Value) : "");
+            Append(row.TaskId.HasValue ? Text(row.TaskId.Value) : "");
+            Append(row.TimesheetId.HasValue ? Text(row.TimesheetId.Value) : "");
+            Append(row.ApprovalState?.ToString() ?? "Unsubmitted"); Append(row.Description, last: true);
+
+            void Append(string value, bool last = false, bool protectFormula = true)
+            {
+                var candidate = value.AsSpan().TrimStart();
+                if (protectFormula && value.Length > 0 && (value[0] is '\t' or '\r'
+                    || candidate.Length > 0 && candidate[0] is '=' or '+' or '-' or '@')) value = "'" + value;
+                text.Append('"').Append(value.Replace("\"", "\"\"", StringComparison.Ordinal)).Append('"');
+                text.Append(last ? "\r\n" : ",");
+            }
+        }
+        var encoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true, throwOnInvalidBytes: true);
+        return [.. encoding.GetPreamble(), .. encoding.GetBytes(text.ToString())];
+    }
 
     private sealed class BillingRow
     {
@@ -381,6 +489,77 @@ public sealed class TimeTrackingBridge : IHumanResourcesBridge, ITimeBillingDire
             return value;
         }
 
+        internal async Task<HrTimeReport> BuildReportAsync(HrTimeReportQuery query,
+            CancellationToken ct)
+        {
+            var start = new DateTimeOffset(query.Start.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+            var endExclusive = new DateTimeOffset(query.End.AddDays(1).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+            const string filter = " AND E.START_TICKS>=@Start AND E.END_TICKS<@End"
+                + " AND (@Employee IS NULL OR E.EMPLOYEE_ID=@Employee)"
+                + " AND (@Project IS NULL OR E.PROJECT_ID=@Project)"
+                + " AND (@Task IS NULL OR E.TASK_ID=@Task)"
+                + " AND (@Approval=0 OR @Approval=1 AND E.TIMESHEET_ID IS NULL"
+                + " OR @Approval=2 AND S.STATE=0 OR @Approval=3 AND S.STATE=1"
+                + " OR @Approval=4 AND S.STATE=2)";
+            var values = new
+            {
+                Start = start.UtcTicks,
+                End = endExclusive.UtcTicks,
+                Employee = query.EmployeeId.HasValue ? Text(query.EmployeeId.Value) : null,
+                Project = query.ProjectId.HasValue ? Text(query.ProjectId.Value) : null,
+                Task = query.TaskId.HasValue ? Text(query.TaskId.Value) : null,
+                Approval = (int)query.Approval
+            };
+            const string reportScope = "E.TENANT_ID=@TenantId AND E.ORGANIZATION_ID=@OrganizationId";
+            var total = await Scalar<long>("SELECT COUNT(*) FROM HR_TIME_ENTRY E"
+                + " LEFT JOIN HR_TIMESHEET S ON S.TENANT_ID=E.TENANT_ID"
+                + " AND S.ORGANIZATION_ID=E.ORGANIZATION_ID AND S.TIMESHEET_ID=E.TIMESHEET_ID"
+                + " WHERE " + reportScope + " AND E.END_TICKS IS NOT NULL" + filter, values, ct);
+            if (total > TimeReportRowLimit) throw Failure("HR_TIME_REPORT_TOO_LARGE");
+            var rows = await Rows<ReportStorageRow>("SELECT E.TIME_ENTRY_ID AS EntryId,"
+                + " E.EMPLOYEE_ID AS EmployeeId,E.START_TICKS AS StartTicks,E.END_TICKS AS EndTicks,"
+                + " E.PROJECT_ID AS ProjectId,E.TASK_ID AS TaskId,E.TIMESHEET_ID AS TimesheetId,"
+                + " E.PAYLOAD AS Payload,S.STATE AS TimesheetState FROM HR_TIME_ENTRY E"
+                + " LEFT JOIN HR_TIMESHEET S ON S.TENANT_ID=E.TENANT_ID"
+                + " AND S.ORGANIZATION_ID=E.ORGANIZATION_ID AND S.TIMESHEET_ID=E.TIMESHEET_ID"
+                + " WHERE " + reportScope + " AND E.END_TICKS IS NOT NULL" + filter
+                + " ORDER BY E.START_TICKS,E.TIME_ENTRY_ID", values, ct);
+            if (rows.LongLength != total) throw Failure("STORAGE_CONTRACT_VIOLATION");
+            long totalTicks = 0;
+            var result = new HrTimeReportRow[rows.Length];
+            try
+            {
+                for (var index = 0; index < rows.Length; index++)
+                {
+                    var row = rows[index];
+                    var entry = Deserialize<TimeEntry>(row.Payload);
+                    if (!row.EndTicks.HasValue) throw Failure("STORAGE_CONTRACT_VIOLATION");
+                    var endTicks = row.EndTicks.Value;
+                    var entryId = Id(row.EntryId); var employeeId = Id(row.EmployeeId);
+                    var projectId = OptionalId(row.ProjectId); var taskId = OptionalId(row.TaskId);
+                    var timesheetId = OptionalId(row.TimesheetId);
+                    var approval = row.TimesheetState.HasValue
+                        && Enum.IsDefined((TimesheetState)row.TimesheetState.Value)
+                        ? (TimesheetState?)row.TimesheetState.Value : null;
+                    if (entry.Scope != Scope || entry.Id != entryId || entry.EmployeeId != employeeId
+                        || entry.Start.UtcTicks != row.StartTicks || entry.End?.UtcTicks != endTicks
+                        || entry.ProjectId != projectId || entry.WorkItemId != taskId
+                        || entry.TimesheetId != timesheetId || endTicks <= row.StartTicks
+                        || timesheetId.HasValue != approval.HasValue
+                        || !ValidPayloadText(entry.Description, 4000))
+                        throw Failure("STORAGE_CONTRACT_VIOLATION");
+                    var duration = checked(endTicks - row.StartTicks);
+                    totalTicks = checked(totalTicks + duration);
+                    result[index] = new(entryId, employeeId, entry.Start, entry.End!.Value,
+                        duration, projectId, taskId, timesheetId, approval, entry.Description);
+                }
+            }
+            catch (Exception error) when (error is JsonException or InvalidDataException
+                or OverflowException or ArgumentException)
+            { throw Failure("STORAGE_CONTRACT_VIOLATION"); }
+            return new(Scope, query, clock.GetUtcNow(), totalTicks, Array.AsReadOnly(result));
+        }
+
         private Task<bool> ProjectExists(Guid id, CancellationToken ct)
             => projects.ProjectExistsInTransactionAsync(transaction, Id(Scope.TenantId),
                 Id(Scope.OrganizationId), id, ct);
@@ -506,5 +685,17 @@ public sealed class TimeTrackingBridge : IHumanResourcesBridge, ITimeBillingDire
         }
 
         private sealed class PayloadRow { public string Payload { get; set; } = ""; }
+        private sealed class ReportStorageRow
+        {
+            public string EntryId { get; set; } = "";
+            public string EmployeeId { get; set; } = "";
+            public long StartTicks { get; set; }
+            public long? EndTicks { get; set; }
+            public string? ProjectId { get; set; }
+            public string? TaskId { get; set; }
+            public string? TimesheetId { get; set; }
+            public string Payload { get; set; } = "";
+            public int? TimesheetState { get; set; }
+        }
     }
 }

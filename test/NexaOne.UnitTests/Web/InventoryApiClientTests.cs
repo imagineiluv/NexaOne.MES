@@ -153,6 +153,23 @@ public sealed class InventoryApiClientTests
     }
 
     [Fact]
+    public async Task Hr_paths_share_the_guarded_business_channel()
+    {
+        using var fixture = new ClientFixture(request =>
+        {
+            request.RequestUri!.AbsoluteUri.Should().Be("https://nexaone.local/mes/api/v1/hr/scopes?offset=0&limit=100");
+            return Response(200, "{\"items\":[],\"total\":0}");
+        });
+
+        var result = await fixture.Client.ReadInventoryAsync<BusinessPage<Product>>(
+            "api/v1/hr/scopes?offset=0&limit=100");
+
+        result.StatusCode.Should().Be(200);
+        result.Value!.Total.Should().Be(0);
+        result.Error.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Crm_delete_uses_the_same_guarded_authenticated_write_channel()
     {
         using var fixture = new ClientFixture(request =>
@@ -265,6 +282,7 @@ public sealed class InventoryApiClientTests
     [InlineData("/api/v1/ivt/scopes/me")]
     [InlineData("api/v1/ivt-other/scopes/me")]
     [InlineData("api/v1/erp-other/billing/scopes/me")]
+    [InlineData("api/v1/hr-other/scopes")]
     [InlineData("api/v1/sys/business-memberships/me")]
     [InlineData("api/v1/ivt/../../auth/me")]
     [InlineData("api/v1/ivt/%2e%2E/%2e%2e/auth/me")]

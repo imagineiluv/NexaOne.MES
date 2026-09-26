@@ -1,0 +1,351 @@
+@page "/meta/NX_HR_TIME_REPORT"
+@attribute [Authorize]
+@implements IDisposable
+@using System.Globalization
+@using Microsoft.JSInterop
+@using NexaFramework.Service
+@using NexaFramework.Service.HumanResources
+@using NexaOne.ServiceContracts.Hr
+@using NexaOne.ServiceContracts.Sys
+@inject IApiClient Api
+@inject AuthenticationStateProvider Authentication
+@inject UiTextService Ui
+@inject IJSRuntime JS
+
+<PageTitle>@T("hrReport.title", "시간 보고", "Time report")</PageTitle>
+
+<main class="hr-report-workspace">
+    <header>
+        <h1>@T("hrReport.title", "시간 보고", "Time report")</h1>
+        <p>@T("hrReport.intro", "조직의 완료된 시간 기록을 기간과 승인 상태로 확인하고 검증된 CSV로 내보냅니다.", "Review completed time entries by period and approval state, then export a validated CSV.")</p>
+    </header>
+
+    @if (_identityLoading)
+    {
+        <p role="status">@T("hrReport.loading", "시간 보고 권한을 확인하는 중…", "Checking time-report access…")</p>
+    }
+    else if (!_authenticated)
+    {
+        <p role="alert">@T("hrReport.signIn", "인증이 만료되었습니다. 다시 로그인해 주세요.", "Your session expired. Sign in again.")</p>
+    }
+    else
+    {
+        <section id="hr-report-scopes" aria-labelledby="hr-report-scopes-heading" aria-busy="@_busy.ToString().ToLowerInvariant()">
+            <div class="hrr-heading">
+                <div>
+                    <h2 id="hr-report-scopes-heading">@T("hrReport.scopes", "조회할 조직", "Report organization")</h2>
+                    <p>@T("hrReport.scopeHelp", "현재 hr.time.read 권한이 있는 조직만 표시됩니다.", "Only organizations where you currently hold hr.time.read are shown.")</p>
+                </div>
+                <button id="hr-report-refresh-scopes" type="button" disabled="@_busy" @onclick="ReloadScopesAsync">@T("hrReport.refreshScopes", "조직 새로고침", "Refresh organizations")</button>
+            </div>
+            @if (_scopes is { Items.Count: > 0 })
+            {
+                <ul class="hrr-scopes">
+                    @foreach (var scope in _scopes.Items)
+                    {
+                        <li @key="ScopeKey(scope)">
+                            <button type="button" class="hrr-scope" data-scope="@ScopeKey(scope)"
+                                    aria-pressed="@(ReferenceEquals(scope, _scope).ToString().ToLowerInvariant())"
+                                    disabled="@_busy" @onclick="() => SelectScope(scope)">
+                                <strong>@T("hrReport.organization", "조직", "Organization") @scope.OrganizationId.ToString("D")</strong>
+                                <span>@T("hrReport.tenant", "테넌트", "Tenant") @scope.TenantId.ToString("D")</span>
+                            </button>
+                        </li>
+                    }
+                </ul>
+            }
+            else if (_scopes is not null && !_busy)
+            {
+                <p class="hrr-empty">@T("hrReport.noScopes", "시간 기록을 조회할 수 있는 조직이 없습니다.", "No organizations are available for time reporting.")</p>
+            }
+        </section>
+
+        @if (_scope is not null)
+        {
+            <section id="hr-report-query" aria-labelledby="hr-report-query-heading">
+                <div class="hrr-heading">
+                    <div>
+                        <h2 id="hr-report-query-heading">@T("hrReport.filters", "보고 조건", "Report filters")</h2>
+                        <p class="hrr-id">@ScopeKey(_scope)</p>
+                    </div>
+                </div>
+                <form class="hrr-filters" @onsubmit="LoadReportAsync" @onsubmit:preventDefault>
+                    <label>@T("hrReport.start", "시작일", "Start date")
+                        <input id="hr-report-start" type="date" required aria-label="@T("hrReport.start", "시작일", "Start date")" @bind="_start" disabled="@_busy" />
+                    </label>
+                    <label>@T("hrReport.end", "종료일", "End date")
+                        <input id="hr-report-end" type="date" required aria-label="@T("hrReport.end", "종료일", "End date")" @bind="_end" disabled="@_busy" />
+                    </label>
+                    <label>@T("hrReport.approval", "승인 상태", "Approval state")
+                        <select id="hr-report-approval" aria-label="@T("hrReport.approval", "승인 상태", "Approval state")" @bind="_approval" disabled="@_busy">
+                            @foreach (var value in Enum.GetValues<HrTimeApprovalFilter>())
+                            {
+                                <option value="@value">@ApprovalName(value)</option>
+                            }
+                        </select>
+                    </label>
+                    <label>@T("hrReport.employee", "직원 ID", "Employee ID")
+                        <input id="hr-report-employee" placeholder="GUID" aria-label="@T("hrReport.employee", "직원 ID", "Employee ID")" @bind="_employee" disabled="@_busy" />
+                    </label>
+                    <label>@T("hrReport.project", "프로젝트 ID", "Project ID")
+                        <input id="hr-report-project" placeholder="GUID" aria-label="@T("hrReport.project", "프로젝트 ID", "Project ID")" @bind="_project" disabled="@_busy" />
+                    </label>
+                    <label>@T("hrReport.task", "작업 ID", "Task ID")
+                        <input id="hr-report-task" placeholder="GUID" aria-label="@T("hrReport.task", "작업 ID", "Task ID")" @bind="_task" disabled="@_busy" />
+                    </label>
+                    <div class="hrr-actions">
+                        <button id="hr-report-run" class="hrr-primary" type="submit" disabled="@_busy">@T("hrReport.run", "시간 기록 조회", "Load time entries")</button>
+                        <button id="hr-report-export" type="button" disabled="@(_busy || _report is null || _appliedQuery is null)" @onclick="DownloadAsync">@T("hrReport.export", "조회 결과 CSV", "Export loaded CSV")</button>
+                    </div>
+                </form>
+            </section>
+        }
+
+        <div class="hrr-status" aria-live="polite">
+            @if (_busy) { <p role="status">@T("hrReport.working", "요청을 처리하는 중…", "Processing request…")</p> }
+            @if (_error is not null) { <p role="alert">@_error @if (_errorCode is not null) { <span class="hrr-id">@_errorCode</span> }</p> }
+            @if (_notice is not null) { <p role="status">@_notice</p> }
+        </div>
+
+        @if (_report is not null)
+        {
+            <section id="hr-report-results" aria-labelledby="hr-report-results-heading">
+                <div class="hrr-summary">
+                    <div><span>@T("hrReport.rows", "기록", "Entries")</span><strong>@_report.Rows.Count.ToString("N0", CultureInfo.CurrentCulture)</strong></div>
+                    <div><span>@T("hrReport.totalHours", "총 시간", "Total hours")</span><strong>@Hours(_report.TotalDurationTicks)</strong></div>
+                    <div><span>@T("hrReport.generated", "생성 시각 UTC", "Generated UTC")</span><strong>@Utc(_report.GeneratedAt)</strong></div>
+                </div>
+                <h2 id="hr-report-results-heading">@T("hrReport.results", "시간 기록", "Time entries")</h2>
+                @if (_report.Rows.Count == 0)
+                {
+                    <p class="hrr-empty">@T("hrReport.empty", "선택한 조건에 완료된 시간 기록이 없습니다.", "No completed time entries match these filters.")</p>
+                }
+                else
+                {
+                    <div class="hrr-table-scroll" tabindex="0" role="region" aria-label="@T("hrReport.results", "시간 기록", "Time entries")">
+                        <table>
+                            <thead><tr>
+                                <th>@T("hrReport.employee", "직원 ID", "Employee ID")</th>
+                                <th>@T("hrReport.period", "기록 시간 UTC", "Recorded time UTC")</th>
+                                <th>@T("hrReport.duration", "시간", "Hours")</th>
+                                <th>@T("hrReport.approval", "승인 상태", "Approval state")</th>
+                                <th>@T("hrReport.references", "업무 참조", "Work references")</th>
+                                <th>@T("hrReport.description", "설명", "Description")</th>
+                            </tr></thead>
+                            <tbody>
+                                @foreach (var row in VisibleRows)
+                                {
+                                    <tr @key="row.EntryId" data-report-row>
+                                        <td class="hrr-id">@row.EmployeeId.ToString("D")</td>
+                                        <td><strong>@Utc(row.Start)</strong><span>@Utc(row.End)</span></td>
+                                        <td class="hrr-measure">@Hours(row.DurationTicks)</td>
+                                        <td>@ApprovalName(row.ApprovalState)</td>
+                                        <td class="hrr-id">@Reference(row)</td>
+                                        <td>@row.Description</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <nav class="hrr-pager" aria-label="@T("hrReport.pages", "시간 보고 페이지", "Time report pages")">
+                        <button id="hr-report-previous" type="button" disabled="@(_busy || _offset == 0)" @onclick="PreviousPage">@T("hrReport.previous", "이전", "Previous")</button>
+                        <span>@(_offset / PageSize + 1) / @PageCount</span>
+                        <button id="hr-report-next" type="button" disabled="@(_busy || !CanNext)" @onclick="NextPage">@T("hrReport.next", "다음", "Next")</button>
+                    </nav>
+                }
+            </section>
+        }
+    }
+</main>
+
+@code {
+    private const int PageSize = 50;
+    private CancellationTokenSource? _request;
+    private BusinessPage<BusinessMembership>? _scopes;
+    private BusinessMembership? _scope;
+    private HrTimeReport? _report;
+    private HrTimeReportQuery? _appliedQuery;
+    private DateOnly _start = new(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+    private DateOnly _end = DateOnly.FromDateTime(DateTime.UtcNow.Date);
+    private HrTimeApprovalFilter _approval;
+    private string _employee = "", _project = "", _task = "";
+    private string? _error, _errorCode, _notice;
+    private bool _identityLoading = true, _authenticated, _busy, _disposed;
+    private int _offset, _identityVersion;
+
+    protected override void OnInitialized()
+    {
+        Authentication.AuthenticationStateChanged += AuthenticationChanged;
+        Ui.Changed += LanguageChanged;
+        _ = ChangeIdentityAsync(Authentication.GetAuthenticationStateAsync());
+    }
+
+    private void AuthenticationChanged(Task<AuthenticationState> state) => _ = InvokeAsync(() => ChangeIdentityAsync(state));
+    private void LanguageChanged() { if (!_disposed) _ = InvokeAsync(StateHasChanged); }
+
+    private async Task ChangeIdentityAsync(Task<AuthenticationState> state)
+    {
+        var version = ++_identityVersion;
+        Reset(); _identityLoading = true; StateHasChanged();
+        var auth = await state;
+        if (_disposed || version != _identityVersion) return;
+        _authenticated = auth.User.Identity?.IsAuthenticated == true;
+        _identityLoading = false;
+        if (_authenticated) await LoadScopesAsync();
+        if (!_disposed && version == _identityVersion) StateHasChanged();
+    }
+
+    private Task LoadScopesAsync() => RunAsync(async ct =>
+    {
+        var result = await Api.ReadInventoryAsync<BusinessPage<BusinessMembership>>("api/v1/hr/scopes?offset=0&limit=100", ct);
+        if (!Owns(ct)) return;
+        if (result.Value is { } page && result.Error is null && ValidScopes(page)) _scopes = page;
+        else if (result.Value is not null) SetError(409, "HR_SCOPE_RESPONSE_MISMATCH", null);
+        else SetError(result.StatusCode, result.Code, result.Error);
+    });
+
+    private async Task ReloadScopesAsync() { _scope = null; _report = null; _appliedQuery = null; await LoadScopesAsync(); }
+    private void SelectScope(BusinessMembership scope) { _scope = scope; _report = null; _appliedQuery = null; _offset = 0; _error = _errorCode = _notice = null; }
+
+    private async Task LoadReportAsync()
+    {
+        if (_scope is null || !TryQuery(out var query)) return;
+        var path = Path(query, export: false);
+        _report = null;
+        _appliedQuery = null;
+        await RunAsync(async ct =>
+        {
+            var result = await Api.ReadInventoryAsync<HrTimeReport>(path, ct);
+            if (!Owns(ct)) return;
+            if (result.Value is { } report && result.Error is null && ValidReport(report, query))
+            {
+                _report = report; _appliedQuery = query; _offset = 0;
+            }
+            else if (result.Value is not null) SetError(409, "HR_TIME_REPORT_RESPONSE_MISMATCH", null);
+            else SetError(result.StatusCode, result.Code, result.Error);
+        });
+    }
+
+    private async Task DownloadAsync()
+    {
+        if (_scope is null || _report is null || _appliedQuery is not { } query) return;
+        var path = Path(query, export: true);
+        await RunAsync(async ct =>
+        {
+            var result = await Api.DownloadInventoryFileAsync(path, ct);
+            if (!Owns(ct)) return;
+            if (result.Content is null || result.FileName is null || result.ContentType is null || result.Error is not null)
+            {
+                SetError(result.StatusCode, result.Code, result.Error); return;
+            }
+            if (!result.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase)
+                || !result.ContentType.StartsWith("text/csv", StringComparison.OrdinalIgnoreCase))
+            {
+                SetError(409, "HR_TIME_REPORT_DOWNLOAD_INVALID", null); return;
+            }
+            try
+            {
+                await using var stream = new MemoryStream(result.Content, writable: false);
+                using var reference = new DotNetStreamReference(stream);
+                await JS.InvokeVoidAsync("nxDownloadStream", ct, result.FileName, result.ContentType, reference);
+                if (Owns(ct)) _notice = T("hrReport.downloadStarted", "CSV 다운로드를 시작했습니다.", "CSV download started.");
+            }
+            catch (JSException) { if (Owns(ct)) SetError(0, "HR_TIME_REPORT_DOWNLOAD_FAILED", null); }
+        });
+    }
+
+    private bool TryQuery(out HrTimeReportQuery query)
+    {
+        query = default!;
+        if (_end == DateOnly.MaxValue || _end < _start || _end.DayNumber - _start.DayNumber >= 366)
+        {
+            SetError(400, "INVALID_BUSINESS_INPUT", T("hrReport.invalidPeriod", "종료일은 시작일보다 빠를 수 없고 조회 기간은 최대 366일입니다.", "End date cannot precede start date, and the report period is limited to 366 days."));
+            return false;
+        }
+        if (!TryGuid(_employee, out var employee) || !TryGuid(_project, out var project) || !TryGuid(_task, out var task))
+        {
+            SetError(400, "INVALID_BUSINESS_INPUT", T("hrReport.invalidId", "선택 필터에는 올바른 GUID를 입력하세요.", "Enter a valid GUID in each populated ID filter."));
+            return false;
+        }
+        query = new(_start, _end, employee, project, task, _approval);
+        return true;
+    }
+
+    private string Path(HrTimeReportQuery reportQuery, bool export)
+    {
+        var query = new List<string>
+        {
+            $"start={reportQuery.Start:yyyy-MM-dd}", $"end={reportQuery.End:yyyy-MM-dd}", $"approval={reportQuery.Approval}"
+        };
+        if (reportQuery.EmployeeId.HasValue) query.Add($"employeeId={reportQuery.EmployeeId:D}");
+        if (reportQuery.ProjectId.HasValue) query.Add($"projectId={reportQuery.ProjectId:D}");
+        if (reportQuery.TaskId.HasValue) query.Add($"taskId={reportQuery.TaskId:D}");
+        return $"api/v1/hr/{ScopeKey(_scope!)}/time/report{(export ? "/export.csv" : "")}?{string.Join("&", query)}";
+    }
+
+    private bool ValidReport(HrTimeReport report, HrTimeReportQuery expected)
+        => _scope is not null && report.Rows is not null && report.TotalDurationTicks >= 0
+            && report.Scope.ProductId == "NexaOne.MES"
+            && report.Scope.TenantId == _scope.TenantId.ToString("D")
+            && report.Scope.OrganizationId == _scope.OrganizationId.ToString("D")
+            && report.Query == expected
+            && report.Rows.Count <= 10_000
+            && report.Rows.All(row => row.EntryId != Guid.Empty && row.EmployeeId != Guid.Empty
+                && row.Start.Offset == TimeSpan.Zero && row.End.Offset == TimeSpan.Zero
+                && row.End > row.Start && row.DurationTicks == (row.End - row.Start).Ticks
+                && (!expected.EmployeeId.HasValue || row.EmployeeId == expected.EmployeeId)
+                && (!expected.ProjectId.HasValue || row.ProjectId == expected.ProjectId)
+                && (!expected.TaskId.HasValue || row.TaskId == expected.TaskId)
+                && MatchesApproval(row.ApprovalState, expected.Approval));
+
+    private static bool MatchesApproval(TimesheetState? state, HrTimeApprovalFilter filter)
+        => filter == HrTimeApprovalFilter.Any
+            || filter == HrTimeApprovalFilter.Unsubmitted && state is null
+            || filter == HrTimeApprovalFilter.Submitted && state == TimesheetState.Submitted
+            || filter == HrTimeApprovalFilter.Approved && state == TimesheetState.Approved
+            || filter == HrTimeApprovalFilter.Rejected && state == TimesheetState.Rejected;
+
+    private static bool ValidScopes(BusinessPage<BusinessMembership> page)
+        => page.Items is not null && page.Total >= page.Items.Count
+            && page.Items.All(scope => scope.TenantId != Guid.Empty && scope.OrganizationId != Guid.Empty
+                && scope.BusinessUserId != Guid.Empty && scope.IsActive && scope.Version > 0
+                && scope.Permissions.Contains("hr.time.read", StringComparer.Ordinal));
+
+    private async Task RunAsync(Func<CancellationToken, Task> action)
+    {
+        if (_busy || _disposed) return;
+        Cancel(); var request = new CancellationTokenSource(); _request = request;
+        _busy = true; _error = _errorCode = _notice = null;
+        try { await action(request.Token); }
+        catch (OperationCanceledException) when (request.IsCancellationRequested) { }
+        finally { if (ReferenceEquals(_request, request)) { _request = null; _busy = false; } request.Dispose(); }
+    }
+
+    private void SetError(int status, string? code, string? detail)
+    {
+        _errorCode = code;
+        _error = detail ?? (status == 413 || code == "HR_TIME_REPORT_TOO_LARGE"
+            ? T("hrReport.tooLarge", "결과가 10,000행을 초과합니다. 기간이나 ID 필터를 좁혀 다시 조회하세요.", "The result exceeds 10,000 rows. Narrow the period or ID filters and try again.")
+            : status == 403 ? T("hrReport.forbidden", "시간 조회 권한이 변경되었습니다. 조직 목록을 새로고침하세요.", "Your time-read access changed. Refresh organizations.")
+            : status == 401 ? T("hrReport.signIn", "인증이 만료되었습니다. 다시 로그인해 주세요.", "Your session expired. Sign in again.")
+            : T("hrReport.failed", "시간 보고서를 불러오지 못했습니다. 조건을 확인한 뒤 다시 시도하세요.", "The time report could not be loaded. Check the filters and try again."));
+    }
+
+    private IEnumerable<HrTimeReportRow> VisibleRows => _report?.Rows.Skip(_offset).Take(PageSize) ?? [];
+    private bool CanNext => _report is not null && (long)_offset + PageSize < _report.Rows.Count;
+    private int PageCount => Math.Max(1, (int)Math.Ceiling((_report?.Rows.Count ?? 0) / (double)PageSize));
+    private void PreviousPage() => _offset = Math.Max(0, _offset - PageSize);
+    private void NextPage() { if (CanNext) _offset += PageSize; }
+    private static bool TryGuid(string value, out Guid? result) { result = null; if (string.IsNullOrWhiteSpace(value)) return true; if (!Guid.TryParse(value.Trim(), out var id) || id == Guid.Empty) return false; result = id; return true; }
+    private string ApprovalName(HrTimeApprovalFilter value) => value switch { HrTimeApprovalFilter.Unsubmitted => T("hrReport.unsubmitted", "미제출", "Unsubmitted"), HrTimeApprovalFilter.Submitted => T("hrReport.submitted", "제출", "Submitted"), HrTimeApprovalFilter.Approved => T("hrReport.approved", "승인", "Approved"), HrTimeApprovalFilter.Rejected => T("hrReport.rejected", "반려", "Rejected"), _ => T("hrReport.all", "전체", "All") };
+    private string ApprovalName(TimesheetState? value) => value switch { TimesheetState.Submitted => T("hrReport.submitted", "제출", "Submitted"), TimesheetState.Approved => T("hrReport.approved", "승인", "Approved"), TimesheetState.Rejected => T("hrReport.rejected", "반려", "Rejected"), _ => T("hrReport.unsubmitted", "미제출", "Unsubmitted") };
+    private static string Reference(HrTimeReportRow row) => string.Join(" · ", new[] { row.ProjectId.HasValue ? $"P {row.ProjectId:D}" : null, row.TaskId.HasValue ? $"T {row.TaskId:D}" : null, row.TimesheetId.HasValue ? $"S {row.TimesheetId:D}" : null }.Where(value => value is not null)) is { Length: > 0 } value ? value : "—";
+    private static string Hours(long ticks) => TimeSpan.FromTicks(ticks).TotalHours.ToString("0.##", CultureInfo.CurrentCulture);
+    private static string Utc(DateTimeOffset value) => value.UtcDateTime.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture);
+    private static string ScopeKey(BusinessMembership scope) => $"{scope.TenantId:D}/{scope.OrganizationId:D}";
+    private string T(string key, string ko, string en) => Ui.T(key, Ui.Language == "EnUs" ? en : ko);
+    private bool Owns(CancellationToken token) => !_disposed && _request?.Token == token;
+    private void Cancel() { if (_request is not null) { var request = _request; _request = null; _busy = false; request.Cancel(); } }
+    private void Reset() { Cancel(); _scopes = null; _scope = null; _report = null; _appliedQuery = null; _offset = 0; _error = _errorCode = _notice = null; }
+    public void Dispose() { _disposed = true; ++_identityVersion; Cancel(); Authentication.AuthenticationStateChanged -= AuthenticationChanged; Ui.Changed -= LanguageChanged; }
+}
