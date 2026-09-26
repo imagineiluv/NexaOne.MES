@@ -12,6 +12,7 @@ using NexaOne.ServiceContracts.Prc;
 using NexaOne.ServiceContracts.Qms;
 using NexaOne.ServiceContracts.Rms;
 using NexaOne.ServiceContracts.Shp;
+using NexaOne.ServiceContracts.Sls;
 using NexaOne.ServiceContracts.Sys;
 using NexaOne.ServiceContracts.Hr;
 
@@ -114,8 +115,9 @@ internal sealed class NexaOneMesBridgeCatalog : INexaModuleBridgeCatalog
             Bind<IRecipeApprovalBridge>("Rms", "rmsRecipeBridge"),
             Bind<IRecipeExecutionBridge>("Rms", "rmsRecipeExecutionBridge"),
             Bind<ITrackingRecipeDirectory>("Rms", "trackingRecipeDirectory"),
-            Bind<IShipmentBridge>("Shp", "shipmentBridge"),
-            Bind<IDeployBridge>("Sys", "deployBridge"),
+           Bind<IShipmentBridge>("Shp", "shipmentBridge"),
+            Bind<IMrpDemandDirectory>("Sls", "mrpDemandDirectory"),
+           Bind<IDeployBridge>("Sys", "deployBridge"),
             Bind<IBusinessMembershipBridge>("Sys", "businessMembershipBridge"),
             Bind<IMaintenanceIdentityDirectory>("Sys", "maintenanceIdentityDirectory"),
             Bind<ISysBridge>("Sys", "sysBridge"),
