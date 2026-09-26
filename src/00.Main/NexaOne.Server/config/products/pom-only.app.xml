@@ -11,6 +11,7 @@
     <Service name="Ems" classPaths="./Modules/NexaOne.EMS.dll" configFiles="config/modules/ems.xml" />
     <Service name="Ivt" classPaths="./Modules/NexaOne.IVT.dll" configFiles="config/modules/ivt.xml" />
     <Service name="Pom" classPaths="./Modules/NexaOne.POM.dll" configFiles="config/modules/pom.xml" />
+    <Service name="Sls" classPaths="./Modules/NexaOne.SLS.dll" configFiles="config/modules/sls.xml" />
     <Service name="Prc" classPaths="./Modules/NexaOne.PRC.dll" configFiles="config/modules/prc.xml" />
     <Service name="Shp" classPaths="./Modules/NexaOne.SHP.dll" configFiles="config/modules/shp.xml" />
     <Service name="Hr" classPaths="./Modules/NexaOne.HR.dll" configFiles="config/modules/hr.xml" />

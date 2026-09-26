@@ -12,6 +12,7 @@ using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Pom;
 using NexaOne.ServiceContracts.Prc;
 using NexaOne.ServiceContracts.Qms;
+using NexaOne.ServiceContracts.Sls;
 using NexaDB.Data.Abstractions.Interfaces;
 
 namespace NexaOne.POM;
@@ -40,6 +41,7 @@ public sealed class Module
         IMrpMasterDirectory mrpMasterDirectory,
         IMrpInventoryDirectory mrpInventoryDirectory,
         IPurchaseOrderPlanningBridge purchaseOrderPlanningBridge,
+        IMrpDemandDirectory mrpDemandDirectory,
         IEquipmentDirectory equipmentDirectory,
         IEquipmentOutputMasterDirectory? equipmentOutputMasterDirectory = null)
         : this(
@@ -51,6 +53,7 @@ public sealed class Module
             mrpMasterDirectory,
             mrpInventoryDirectory,
             purchaseOrderPlanningBridge,
+            mrpDemandDirectory,
             equipmentDirectory,
             equipmentOutputMasterDirectory,
             new RejectingWorkScopeProjectionAuthorityValidator())
@@ -66,6 +69,7 @@ public sealed class Module
         IMrpMasterDirectory mrpMasterDirectory,
         IMrpInventoryDirectory mrpInventoryDirectory,
         IPurchaseOrderPlanningBridge purchaseOrderPlanningBridge,
+        IMrpDemandDirectory mrpDemandDirectory,
         IEquipmentDirectory equipmentDirectory,
         IEquipmentOutputMasterDirectory? equipmentOutputMasterDirectory,
         IWorkScopeProjectionAuthorityValidator workScopeProjectionAuthorityValidator)
@@ -78,6 +82,7 @@ public sealed class Module
             mrpMasterDirectory,
             mrpInventoryDirectory,
             purchaseOrderPlanningBridge,
+            mrpDemandDirectory,
             equipmentDirectory,
             equipmentOutputMasterDirectory,
             new LegacyWorkScopeProjectionAuthorityValidatorAdapter(
@@ -100,6 +105,7 @@ public sealed class Module
         IMrpMasterDirectory mrpMasterDirectory,
         IMrpInventoryDirectory mrpInventoryDirectory,
         IPurchaseOrderPlanningBridge purchaseOrderPlanningBridge,
+        IMrpDemandDirectory mrpDemandDirectory,
         IEquipmentDirectory equipmentDirectory,
         IEquipmentOutputMasterDirectory? equipmentOutputMasterDirectory,
         IWorkScopeProjectionAuthorityValidatorV2 workScopeProjectionAuthorityValidator) => new(
@@ -111,6 +117,7 @@ public sealed class Module
             mrpMasterDirectory,
             mrpInventoryDirectory,
             purchaseOrderPlanningBridge,
+            mrpDemandDirectory,
             equipmentDirectory,
             equipmentOutputMasterDirectory,
             workScopeProjectionAuthorityValidator,
@@ -125,6 +132,7 @@ public sealed class Module
         IMrpMasterDirectory mrpMasterDirectory,
         IMrpInventoryDirectory mrpInventoryDirectory,
         IPurchaseOrderPlanningBridge purchaseOrderPlanningBridge,
+        IMrpDemandDirectory mrpDemandDirectory,
         IEquipmentDirectory equipmentDirectory,
         IEquipmentOutputMasterDirectory? equipmentOutputMasterDirectory,
         IWorkScopeProjectionAuthorityValidatorV2 workScopeProjectionAuthorityValidator,
@@ -138,6 +146,7 @@ public sealed class Module
         ArgumentNullException.ThrowIfNull(mrpMasterDirectory);
         ArgumentNullException.ThrowIfNull(mrpInventoryDirectory);
         ArgumentNullException.ThrowIfNull(purchaseOrderPlanningBridge);
+        ArgumentNullException.ThrowIfNull(mrpDemandDirectory);
         ArgumentNullException.ThrowIfNull(equipmentDirectory);
         ArgumentNullException.ThrowIfNull(workScopeProjectionAuthorityValidator);
         if (contract != ProjectionAuthorityValidatorContract.V2)
@@ -180,7 +189,7 @@ public sealed class Module
             new LotDispositionService(new LotDispositionRepository(dataSource)));
         _mrpBridge = new MrpBridge(new MrpPlanningRepository(
             dataSource,
-            new LegacySalesOrderMrpProjection(dataSource),
+            mrpDemandDirectory,
             mrpMasterDirectory,
             mrpInventoryDirectory,
             purchaseOrderPlanningBridge,

@@ -35,7 +35,7 @@ public sealed class WorkScopeProjectionCompositionTests
         pomModuleReferences.Should().NotContain(
             ["workScopeProjectionPolicy", "workScopeProjectionAuthorityValidator"],
             "the core manifest must not bind a product policy or child validator target directly");
-        pomModuleReferences.Should().HaveCount(11);
+        pomModuleReferences.Should().HaveCount(12);
         pomModuleReferences[^1].Should().Be("workScopeProjectionAuthorityValidatorProxy",
             "Spring uses the lazy fail-closed parent seam while direct construction keeps its default");
         pomModule.Attribute("factory-method")!.Value.Should().Be(
@@ -46,16 +46,16 @@ public sealed class WorkScopeProjectionCompositionTests
             .Select(parameter => parameter.ParameterType)
             .Should().NotContain(typeof(IWorkScopeProjectionPolicy));
         var compatibilityConstructor = constructors.Single(
-            static constructor => constructor.GetParameters().Length == 10);
+            static constructor => constructor.GetParameters().Length == 11);
         compatibilityConstructor.GetParameters()[^1].HasDefaultValue.Should().BeTrue(
             "existing direct consumers may omit IEquipmentOutputMasterDirectory");
         constructors.Should().ContainSingle(
-            static constructor => constructor.GetParameters().Length == 11
+            static constructor => constructor.GetParameters().Length == 12
                 && constructor.GetParameters().Last().ParameterType
                     == typeof(IWorkScopeProjectionAuthorityValidator),
-            "the committed legacy 11-argument constructor ABI must remain exact");
+            "the committed legacy 12-argument constructor ABI must remain exact");
         constructors.Should().NotContain(
-            static constructor => constructor.GetParameters().Length == 11
+            static constructor => constructor.GetParameters().Length == 12
                 && constructor.GetParameters().Last().ParameterType
                     == typeof(IWorkScopeProjectionAuthorityValidatorV2),
             "same-arity legacy and V2 constructors make null, dual-interface, and Spring selection ambiguous");

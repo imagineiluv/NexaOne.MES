@@ -14,12 +14,13 @@ using NexaOne.Infrastructure.Persistence;
 using NexaOne.POM.Application.Mrp;
 using NexaOne.POM.Domain.Mrp;
 using NexaOne.ServiceContracts.Prc;
+using NexaOne.ServiceContracts.Sls;
 using MdmEquipmentDirectory = NexaOne.MDM.Infrastructure.EquipmentDirectory;
 using MdmMrpMasterDirectory = NexaOne.MDM.Infrastructure.MrpMasterDirectory;
 using IvtMrpInventoryDirectory = NexaOne.IVT.Infrastructure.MrpInventoryDirectory;
-using PomLegacySalesOrderMrpProjection = NexaOne.POM.Infrastructure.LegacySalesOrderMrpProjection;
 using PomMrpPlanningRepository = NexaOne.POM.Infrastructure.MrpPlanningRepository;
 using PrcModule = NexaOne.PRC.Module;
+using SlsMrpDemandDirectory = NexaOne.SLS.Infrastructure.MrpDemandDirectory;
 using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
@@ -258,7 +259,7 @@ public sealed class MrpRunPersistenceTests : IClassFixture<MrpRunPersistenceTest
         var dataSource = DataSource();
         var repository = new PomMrpPlanningRepository(
             dataSource,
-            new PomLegacySalesOrderMrpProjection(dataSource),
+            new SlsMrpDemandDirectory(dataSource),
             new MdmMrpMasterDirectory(dataSource),
             new IvtMrpInventoryDirectory(dataSource),
             new CancelingPurchaseOrderBridge(cancellation),
@@ -272,9 +273,9 @@ public sealed class MrpRunPersistenceTests : IClassFixture<MrpRunPersistenceTest
             .Should().Be("Proposed");
     }
 
-    private sealed class CancelingDemandSource(CancellationTokenSource cancellation) : IMrpDemandSource
+    private sealed class CancelingDemandSource(CancellationTokenSource cancellation) : IMrpDemandDirectory
     {
-        public Task<IReadOnlyList<MrpDemand>> GetOpenDemandsAsync(CancellationToken ct = default)
+        public Task<IReadOnlyList<NexaOne.ServiceContracts.Sls.MrpDemand>> GetOpenDemandsAsync(CancellationToken ct = default)
         {
             cancellation.Cancel();
             ct.ThrowIfCancellationRequested();
@@ -309,7 +310,7 @@ public sealed class MrpRunPersistenceTests : IClassFixture<MrpRunPersistenceTest
         var dataSource = DataSource();
         return new PomMrpPlanningRepository(
             dataSource,
-            new PomLegacySalesOrderMrpProjection(dataSource),
+            new SlsMrpDemandDirectory(dataSource),
             new MdmMrpMasterDirectory(dataSource),
             new IvtMrpInventoryDirectory(dataSource),
             new PrcModule(dataSource).GetPurchaseOrderPlanningBridge(),
