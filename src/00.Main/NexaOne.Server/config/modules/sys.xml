@@ -16,6 +16,7 @@
   <object id="deployBridge" factory-object="sysModule" factory-method="GetDeployBridge" />
   <object id="maintenanceIdentityDirectory" factory-object="sysModule" factory-method="GetMaintenanceIdentityDirectory" />
   <object id="userDirectory" factory-object="sysModule" factory-method="GetUserDirectory" />
+  <object id="idRuleEngine" factory-object="sysModule" factory-method="GetIdRuleEngine" />
   <object id="businessMembershipBridge" factory-object="sysModule" factory-method="GetBusinessMembershipBridge" />
   <object id="releasedProgramArtifactDirectory" factory-object="sysModule" factory-method="GetReleasedProgramArtifactDirectory" />
   <object id="sysTrustedAuthoritySqliteSchemaContribution"

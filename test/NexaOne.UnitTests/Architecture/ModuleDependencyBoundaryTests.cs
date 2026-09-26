@@ -77,6 +77,7 @@ public sealed class ModuleDependencyBoundaryTests
             ["MRP"] = "POM",
             ["SHP"] = "SHP",
             ["SYS"] = "SYS",
+            ["COM"] = "SYS",
             ["SLS"] = "SLS",
             ["PRC"] = "PRC",
             ["ERP"] = "ERP",
