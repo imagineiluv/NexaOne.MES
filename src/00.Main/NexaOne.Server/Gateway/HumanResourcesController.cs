@@ -14,6 +14,32 @@ namespace NexaOne.Server.Gateway;
 public sealed class HumanResourcesController(IHumanResourcesBridge bridge,
     ILogger<HumanResourcesController> logger) : ControllerBase
 {
+    [HttpGet("/api/v1/hr/scopes")]
+    public Task<IActionResult> ListScopes([FromQuery] int offset = 0,
+        [FromQuery] int limit = 50, CancellationToken ct = default)
+        => Execute(user => bridge.ListAccessibleScopesAsync(user, offset, limit, ct));
+
+    [HttpGet("time/report")]
+    public Task<IActionResult> Report(Guid tenantId, Guid organizationId,
+        [FromQuery] DateOnly start, [FromQuery] DateOnly end,
+        [FromQuery] Guid? employeeId, [FromQuery] Guid? projectId,
+        [FromQuery] Guid? taskId,
+        [FromQuery] HrTimeApprovalFilter approval = HrTimeApprovalFilter.Any,
+        CancellationToken ct = default)
+        => Execute(user => bridge.BuildTimeReportAsync(user, tenantId, organizationId,
+            new(start, end, employeeId, projectId, taskId, approval), ct));
+
+    [HttpGet("time/report/export.csv")]
+    public Task<IActionResult> ExportReport(Guid tenantId, Guid organizationId,
+        [FromQuery] DateOnly start, [FromQuery] DateOnly end,
+        [FromQuery] Guid? employeeId, [FromQuery] Guid? projectId,
+        [FromQuery] Guid? taskId,
+        [FromQuery] HrTimeApprovalFilter approval = HrTimeApprovalFilter.Any,
+        CancellationToken ct = default)
+        => Execute(user => bridge.ExportTimeReportCsvAsync(user, tenantId, organizationId,
+                new(start, end, employeeId, projectId, taskId, approval), ct),
+            export => File(export.Content, export.ContentType, export.FileName));
+
     [HttpPost("tasks")]
     public Task<IActionResult> CreateTask(Guid tenantId, Guid organizationId,
         [FromBody] HrTaskInput input, CancellationToken ct)
@@ -65,14 +91,19 @@ public sealed class HumanResourcesController(IHumanResourcesBridge bridge,
         => Execute(user => bridge.GetTimesheetAsync(user, tenantId, organizationId, timesheetId, ct));
 
     private async Task<IActionResult> Execute<T>(Func<string, Task<T>> action)
+        => await Execute(action, value => Ok(value));
+
+    private async Task<IActionResult> Execute<T>(Func<string, Task<T>> action,
+        Func<T, IActionResult> success)
     {
         var userId = User.CurrentUserId();
         if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
-        try { return Ok(await action(userId)); }
+        try { return success(await action(userId)); }
         catch (BusinessException error)
         {
             if (error.Code == "BUSINESS_ACCESS_DENIED") return Forbid();
-            var status = error.Code.EndsWith("_NOT_FOUND", StringComparison.Ordinal) ? 404
+            var status = error.Code == "HR_TIME_REPORT_TOO_LARGE" ? 413
+                : error.Code.EndsWith("_NOT_FOUND", StringComparison.Ordinal) ? 404
                 : error.Code.StartsWith("INVALID_", StringComparison.Ordinal) ? 400 : 409;
             return StatusCode(status, new { code = error.Code });
         }

@@ -444,10 +444,11 @@ public sealed class ApiClient : IApiClient
 
     private static bool IsBusinessPath(string? relativePath)
     {
-        // Business workspaces share one guarded read/write channel: inventory, ERP and CRM.
+        // Business workspaces share one guarded read/write channel: inventory, ERP, CRM and HR.
         if (relativePath is null || !(relativePath.StartsWith("api/v1/ivt/", StringComparison.Ordinal)
             || relativePath.StartsWith("api/v1/erp/", StringComparison.Ordinal)
-            || relativePath.StartsWith("api/v1/crm/", StringComparison.Ordinal))
+            || relativePath.StartsWith("api/v1/crm/", StringComparison.Ordinal)
+            || relativePath.StartsWith("api/v1/hr/", StringComparison.Ordinal))
             || relativePath.Contains('#') || relativePath.Any(char.IsControl)
             || !Uri.TryCreate(relativePath, UriKind.Relative, out _))
             return false;
