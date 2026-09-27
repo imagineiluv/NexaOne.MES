@@ -8,7 +8,31 @@ public sealed class PrcPurchaseOrderMetaCommandDriverTests
     private static readonly MetaCommandExecutionContext Context =
         new("FACTORY_PRC_PURCHASE_ORDER", "MES");
 
+    [Fact]
+    public async Task Save_maps_form_fields_to_typed_prc_request()
+    {
+        PrcPurchaseOrderDraftRequest? captured = null;
+        var api = new Mock<IApiClient>();
+        api.Setup(client => client.SavePrcPurchaseOrderDraftAsync(
+                It.IsAny<PrcPurchaseOrderDraftRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<PrcPurchaseOrderDraftRequest, CancellationToken>((request, _) => captured = request)
+            .ReturnsAsync(new PrcPurchaseOrderActionResult(true, null, 200));
+        var driver = new PrcPurchaseOrderMetaCommandDriver(api.Object);
+
+        var result = await driver.ExecuteAsync(PrcPurchaseOrderMetaCommands.Save,
+            new Dictionary<string, object?>
+            {
+                ["purchaseOrderId"] = "PO-1", ["plantId"] = "PLANT01",
+                ["purchaseOrderName"] = "첫 발주", ["vendorId"] = "V1", ["orderQty"] = "12.5",
+            }, Context);
+
+        result.Success.Should().BeTrue();
+        captured.Should().Be(new PrcPurchaseOrderDraftRequest("PO-1", "PLANT01", "첫 발주", "V1", 12.5m));
+        driver.Commands.Should().OnlyContain(command => command.RequiredPermission == "prc:manage");
+    }
+
     [Theory]
+    [InlineData(PrcPurchaseOrderMetaCommands.Delete, "delete", "Draft")]
     [InlineData(PrcPurchaseOrderMetaCommands.Order, "order", "Draft")]
     [InlineData("BRIDGE:PRC.PURCHASE-ORDER.ORDER", "order", "Draft")]
     [InlineData(PrcPurchaseOrderMetaCommands.Close, "close", "Incoming")]
@@ -46,6 +70,8 @@ public sealed class PrcPurchaseOrderMetaCommandDriverTests
         };
 
         (await driver.ExecuteAsync(PrcPurchaseOrderMetaCommands.Order, held, Context))
+            .Success.Should().BeFalse();
+        (await driver.ExecuteAsync(PrcPurchaseOrderMetaCommands.Delete, held, Context))
             .Success.Should().BeFalse();
         (await driver.ExecuteAsync(PrcPurchaseOrderMetaCommands.Close, wrongState, Context))
             .Success.Should().BeFalse();

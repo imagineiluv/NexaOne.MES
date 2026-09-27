@@ -183,6 +183,8 @@ public sealed class ScreenDefinitionProviderTests
         var definition = new InMemoryScreenDefinitionProvider().Get("FACTORY_PRC_PURCHASE_ORDER");
 
         definition.Should().NotBeNull();
+        definition!.SaveQueryId.Should().Be(PrcPurchaseOrderMetaCommands.Save);
+        definition.DeleteQueryId.Should().Be(PrcPurchaseOrderMetaCommands.Delete);
         definition!.BulkCommands!.Select(command => command.CommandQueryId).Should().Equal(
             PrcPurchaseOrderMetaCommands.Order, PrcPurchaseOrderMetaCommands.Close);
     }
