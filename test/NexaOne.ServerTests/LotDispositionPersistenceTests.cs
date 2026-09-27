@@ -144,6 +144,48 @@ public sealed class LotDispositionPersistenceTests :
     }
 
     [Fact]
+    public async Task Response_loss_after_commit_replays_the_disposition_without_touching_the_lot_again()
+    {
+        var (lotId, executionId) = SeedDefectLot();
+        const string sentinel = "2001-02-03 04:05:06";
+        Exec("UPDATE POM_LOT SET UPDATED_AT=@sentinel WHERE LOT_ID=@lot",
+            ("@sentinel", sentinel), ("@lot", lotId));
+        var command = Command(lotId, executionId, "DISP:LOST:" + lotId, 1m);
+        var source = DataSource();
+        var provider = new AfterCommitResponseLossProvider(source.Provider);
+        var faultingSource = new EesDataSource
+        {
+            Provider = provider,
+            ConnectionString = source.ConnectionString,
+            QueryGatewayOptions = source.QueryGatewayOptions,
+        };
+        var faultingService = new LotDispositionService(new LotDispositionRepository(faultingSource));
+
+        (await Assert.ThrowsAsync<IOException>(() => faultingService.RecordAsync(command)))
+            .Message.Should().Contain("response loss");
+        provider.CallbackCount.Should().Be(1);
+        var dispositionId = Scalar<string>(
+            "SELECT DISPOSITION_ID FROM POM_LOT_DISPOSITION WHERE IDEMPOTENCY_KEY=@key",
+            ("@key", command.IdempotencyKey));
+        var updatedAt = Scalar<string>("SELECT UPDATED_AT FROM POM_LOT WHERE LOT_ID=@lot",
+            ("@lot", lotId));
+        updatedAt.Should().NotBe(sentinel);
+
+        var recovered = await new LotDispositionService(new LotDispositionRepository(DataSource()))
+            .RecordAsync(command);
+        recovered.IsSuccess.Should().BeTrue(recovered.IsFailure ? recovered.Error.Description : string.Empty);
+        recovered.Value.DispositionId.Should().Be(dispositionId);
+        var conflicting = await new LotDispositionService(new LotDispositionRepository(DataSource()))
+            .RecordAsync(command with { Quantity = 2m });
+        conflicting.IsFailure.Should().BeTrue();
+        conflicting.Error.Code.Should().Be("POM.LotDisposition.IdempotencyConflict");
+        Scalar<long>("SELECT COUNT(*) FROM POM_LOT_DISPOSITION WHERE IDEMPOTENCY_KEY=@key",
+            ("@key", command.IdempotencyKey)).Should().Be(1);
+        Scalar<string>("SELECT UPDATED_AT FROM POM_LOT WHERE LOT_ID=@lot",
+            ("@lot", lotId)).Should().Be(updatedAt);
+    }
+
+    [Fact]
     public async Task Insert_failure_rolls_back_lot_touch_and_disposition()
     {
         var (lotId, executionId) = SeedDefectLot();
