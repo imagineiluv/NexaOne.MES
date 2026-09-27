@@ -106,9 +106,9 @@ public sealed class MssqlMaterialLotSplitContractTests(ITestOutputHelper output)
         descendant3.IsSuccess.Should().BeTrue(descendant3.IsFailure ? descendant3.Error.Description : string.Empty);
         new[] { descendant1, descendant2, descendant3 }
             .Select(page => page.Value.Items.Single().Origin.SplitId)
-            .Should().Equal(command.SplitId, sibling.SplitId, grandchild.SplitId);
+            .Should().Equal(sibling.SplitId, grandchild.SplitId, command.SplitId);
         new[] { descendant1, descendant2, descendant3 }
-            .Select(page => page.Value.Items.Single().Depth).Should().Equal(1, 1, 2);
+            .Select(page => page.Value.Items.Single().Depth).Should().Equal(1, 2, 1);
         descendant3.Value.NextAfterSplitId.Should().BeNull();
         (await Service().GetDescendantsAsync(parentId, "S_NOT_FOUND"))
             .Error.Code.Should().Be("IVT_SPLIT_CURSOR_INVALID");
