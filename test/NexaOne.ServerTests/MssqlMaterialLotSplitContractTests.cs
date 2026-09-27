@@ -58,6 +58,27 @@ public sealed class MssqlMaterialLotSplitContractTests(ITestOutputHelper output)
              WHERE CORRELATION_ID=@splitId AND TX_TYPE IN ('SplitOut','SplitIn')
             """, new { splitId = command.SplitId })).Should().Be(2);
 
+        var sibling = command with
+        {
+            SplitId = $"S2_{suffix}", IdempotencyKey = $"S2:{suffix}",
+            SourceEventId = $"S2:{suffix}", ChildLotId = $"C2_{suffix}",
+            ExpectedParentVersion = 2, Quantity = 1m,
+        };
+        (await Service().SplitAsync(sibling)).IsSuccess.Should().BeTrue();
+        var firstPage = await Service().GetChildrenAsync(parentId, limit: 1);
+        firstPage.IsSuccess.Should().BeTrue(firstPage.IsFailure ? firstPage.Error.Description : string.Empty);
+        firstPage.Value.Items.Should().ContainSingle();
+        firstPage.Value.NextAfterSplitId.Should().NotBeNull();
+        var secondPage = await Service().GetChildrenAsync(parentId, firstPage.Value.NextAfterSplitId, 1);
+        secondPage.IsSuccess.Should().BeTrue(secondPage.IsFailure ? secondPage.Error.Description : string.Empty);
+        secondPage.Value.Items.Should().ContainSingle();
+        secondPage.Value.NextAfterSplitId.Should().BeNull();
+        new[] { firstPage.Value.Items[0].SplitId, secondPage.Value.Items[0].SplitId }
+            .Should().BeEquivalentTo(new[] { command.SplitId, sibling.SplitId });
+        (await Service().GetChildrenAsync(childId)).Value.Items.Should().BeEmpty();
+        (await Service().GetChildrenAsync(parentId, "S_NOT_FOUND"))
+            .Error.Code.Should().Be("IVT_SPLIT_CURSOR_INVALID");
+
         var rollbackParent = $"RP_{suffix}";
         var rollbackChild = $"RC_{suffix}";
         (await new MaterialLotService(new MaterialLotRepository(database.DataSource))

@@ -16,6 +16,9 @@ internal interface IMaterialLotSplitStore
 
     Task<Result<MaterialLotSplitOriginDto>> GetOriginAsync(
         string childLotId, CancellationToken ct);
+
+    Task<Result<MaterialLotSplitChildrenPage>> GetChildrenAsync(
+        string parentLotId, string? afterSplitId, int limit, CancellationToken ct);
 }
 
 internal sealed class MaterialLotSplitService(IMaterialLotSplitStore store) : IMaterialLotSplitBridge
@@ -28,6 +31,16 @@ internal sealed class MaterialLotSplitService(IMaterialLotSplitStore store) : IM
             ? Task.FromResult(Result.Failure<MaterialLotSplitOriginDto>(Error.Validation(
                 "IVT_SPLIT_CHILD_INVALID", "A child material LOT ID up to 50 characters is required.")))
             : store.GetOriginAsync(childLotId.Trim(), ct);
+
+    public Task<Result<MaterialLotSplitChildrenPage>> GetChildrenAsync(
+        string parentLotId, string? afterSplitId = null, int limit = 50,
+        CancellationToken ct = default) =>
+        !Valid(parentLotId, 50)
+        || (afterSplitId is not null && !Valid(afterSplitId, 50))
+        || limit is < 1 or > 100
+            ? Task.FromResult(Result.Failure<MaterialLotSplitChildrenPage>(Error.Validation(
+                "IVT_SPLIT_CHILDREN_INVALID", "Parent LOT ID, optional split cursor, and limit 1..100 are required.")))
+            : store.GetChildrenAsync(parentLotId.Trim(), afterSplitId?.Trim(), limit, ct);
 
     public Task<Result<MaterialLotSplitDto>> SplitAsync(
         MaterialLotSplitCommand command, CancellationToken ct = default)

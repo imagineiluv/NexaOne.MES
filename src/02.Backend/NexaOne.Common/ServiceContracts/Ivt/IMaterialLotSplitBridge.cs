@@ -11,6 +11,12 @@ public interface IMaterialLotSplitBridge : INexaModuleBridge
     /// <summary>Returns the immutable direct split origin of one child LOT.</summary>
     Task<Result<MaterialLotSplitOriginDto>> GetOriginAsync(
         string childLotId, CancellationToken ct = default);
+
+    /// <summary>Returns one bounded page of direct child splits in creation order.
+    /// The cursor is not an as-of snapshot across requests.</summary>
+    Task<Result<MaterialLotSplitChildrenPage>> GetChildrenAsync(
+        string parentLotId, string? afterSplitId = null, int limit = 50,
+        CancellationToken ct = default);
 }
 
 public sealed record MaterialLotSplitCommand(
@@ -54,3 +60,7 @@ public sealed record MaterialLotSplitOriginDto(
     string ActorId,
     string SourceSystem,
     string SourceEventId);
+
+public sealed record MaterialLotSplitChildrenPage(
+    IReadOnlyList<MaterialLotSplitOriginDto> Items,
+    string? NextAfterSplitId);
