@@ -140,6 +140,7 @@ public static class NexaOneMesServiceCollectionExtensions
         // 메타 bridge:* 액션은 프로그램별 raw SQL이 아니라 등록된 typed 드라이버를 통해 실행한다.
         // POM 드라이버는 기존 JWT 보호 REST API를 호출하므로 권한/버전/멱등/감사 계약이 한 경계에 유지된다.
         services.AddScoped<IMetaCommandDriver, PomWorkOrderMetaCommandDriver>();
+        services.AddScoped<IMetaCommandDriver, SlsSalesOrderMetaCommandDriver>();
         services.AddScoped<IMetaCommandDriver, PomWorkScopeMetaCommandDriver>();
         services.AddScoped<IMetaCommandDriver, PomLotRoutingMetaCommandDriver>();
         services.AddScoped<IMetaCommandDriver, QmsInspectionMetaCommandDriver>();

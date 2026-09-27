@@ -19,5 +19,8 @@
   <object id="salesOrderDeliveryBridge"
           factory-object="slsModule"
           factory-method="GetSalesOrderDeliveryBridge" />
+  <object id="salesOrderCommandBridge"
+          factory-object="slsModule"
+          factory-method="GetSalesOrderCommandBridge" />
 
 </objects>
