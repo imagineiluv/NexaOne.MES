@@ -92,6 +92,22 @@ public sealed class DialectParityTests
     }
 
     [Fact]
+    public void Sls_order_transitions_guard_held_rows_in_both_dialects()
+    {
+        var root = RepositorySource.GetDirectory($"{DbRoot}/queries");
+        foreach (var dialect in new[] { "mssql", "sqlite" })
+        {
+            var registry = FileQueryRegistry.Load(dialect, root);
+            foreach (var id in new[] { "SLS.ConfirmSalesOrder", "SLS.CloseSalesOrder" })
+            {
+                registry.TryGet(id, out var definition).Should().BeTrue();
+                definition!.Sql.Should().Contain("AND IS_HOLD = 'N'", Exactly.Once(),
+                    $"{dialect}의 {id}가 보류된 수주를 전이시키면 안 된다");
+            }
+        }
+    }
+
+    [Fact]
     public void Qms_execution_queries_expose_effective_state_and_only_effective_sampling_revisions()
     {
         var root = RepositorySource.GetDirectory($"{DbRoot}/queries");
