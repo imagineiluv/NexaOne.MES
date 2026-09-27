@@ -170,6 +170,24 @@ public sealed class InventoryApiClientTests
     }
 
     [Fact]
+    public async Task Prc_purchase_item_paths_share_the_guarded_business_channel()
+    {
+        using var fixture = new ClientFixture(request =>
+        {
+            request.RequestUri!.AbsoluteUri.Should().Be(
+                "https://nexaone.local/mes/api/v1/prc/purchase-orders/PO-1/items");
+            return Response(200, "[]");
+        });
+
+        var result = await fixture.Client.ReadInventoryAsync<List<Product>>(
+            "api/v1/prc/purchase-orders/PO-1/items");
+
+        result.StatusCode.Should().Be(200);
+        result.Value.Should().BeEmpty();
+        result.Error.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Crm_delete_uses_the_same_guarded_authenticated_write_channel()
     {
         using var fixture = new ClientFixture(request =>
