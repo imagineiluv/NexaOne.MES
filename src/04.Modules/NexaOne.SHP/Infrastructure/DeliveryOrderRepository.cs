@@ -51,45 +51,38 @@ public sealed class DeliveryOrderRepository : QueryRepository, IDeliveryOrderRep
     private const string UpdateSql = @"UPDATE SHP_DELIVERY_ORDER SET
             STATUS = @Status, SHIPPED_DATE = @ShippedDate, REMARK = @Remark,
             UPDATED_BY = @UpdatedBy, UPDATED_AT = @UpdatedAt
-            WHERE ORDER_ID = @OrderId";
+            WHERE ORDER_ID = @OrderId AND STATUS = @ExpectedStatus";
 
     public async Task AddAsync(DeliveryOrder order, CancellationToken ct = default)
     {
         await _processor.InsertAsync(InsertSql, OrderRow.FromDomain(order), ct);
     }
 
-    public async Task UpdateAsync(DeliveryOrder order, CancellationToken ct = default)
+    public async Task<bool> TryUpdateAsync(DeliveryOrder order, DeliveryOrderStatus expectedStatus,
+        CancellationToken ct = default)
     {
-        // 기본(outbox off): 기존 동작 그대로 — 단건 UPDATE(감사 자동주입), 적체 없음.
-        if (!_outboxEnabled)
-        {
-            await _processor.UpdateAsync(UpdateSql, OrderRow.FromDomain(order), ct);
-            return;
-        }
-        // ADR-002 활성: 주문 UPDATE + 도메인 이벤트(EES_OUTBOX)를 같은 트랜잭션으로 — 함께 커밋/롤백돼 발행 원자성 보장.
-        await PersistWithOutboxAsync(order, ct);
-    }
-
-    // 주문 행 + 발행 이벤트를 한 트랜잭션으로 기록한다. ExecuteManyAsync는 raw(감사 미주입)라 주문 행의 감사 컬럼을
-    // UpdateAsync 경로와 동일한 값(현재 사용자·UTC now)으로 명시 채운다. 발행 후 이벤트를 비워 재발행을 막는다.
-    private async Task PersistWithOutboxAsync(DeliveryOrder order, CancellationToken ct)
-    {
+        // 상태 CAS가 실패하면 outbox도 기록하지 않는다. 성공한 경우에만 이벤트를 비운다.
         var user = CurrentUserContext.UserId ?? "SYSTEM";
         var now = DateTime.UtcNow;
         var statements = new List<(string Sql, object? Param)>
         {
-            (UpdateSql, UpdateParam(order, user, now)),
+            (UpdateSql, UpdateParam(order, expectedStatus, user, now)),
         };
-        statements.AddRange(OutboxStatements.For(order.DomainEvents.OfType<IOutboxEvent>(), user, now));
-        await _processor.ExecuteManyAsync(ct, statements.ToArray());
+        if (_outboxEnabled)
+            statements.AddRange(OutboxStatements.For(order.DomainEvents.OfType<IOutboxEvent>(), user, now));
+        var updated = await _processor.ExecuteGuardedManyAsync(ct, statements.ToArray());
+        if (!updated) return false;
         order.ClearDomainEvents();
+        return true;
     }
 
-    private static Dapper.DynamicParameters UpdateParam(DeliveryOrder order, string user, DateTime now)
+    private static Dapper.DynamicParameters UpdateParam(
+        DeliveryOrder order, DeliveryOrderStatus expectedStatus, string user, DateTime now)
     {
         var p = new Dapper.DynamicParameters();
         p.Add("OrderId", order.Id);
         p.Add("Status", order.Status.ToString());
+        p.Add("ExpectedStatus", expectedStatus.ToString());
         p.Add("ShippedDate", order.ShippedDate);
         p.Add("Remark", order.Remark);
         p.Add("UpdatedBy", user);

@@ -53,12 +53,14 @@ public sealed class ShpServiceTests
         var order = DraftOrder();
         var orderRepo = new Mock<IDeliveryOrderRepository>();
         orderRepo.Setup(r => r.GetByIdAsync("DO001", default)).ReturnsAsync(order);
-        orderRepo.Setup(r => r.UpdateAsync(order, default)).Returns(Task.CompletedTask);
+        orderRepo.Setup(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Draft, default))
+            .ReturnsAsync(true);
 
         var result = await BuildService(orderRepo, new(), new()).ConfirmOrderAsync("DO001");
 
         result.IsSuccess.Should().BeTrue();
         order.Status.Should().Be(DeliveryOrderStatus.Confirmed);
+        orderRepo.Verify(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Draft, default), Times.Once);
     }
 
     [Fact]
@@ -80,13 +82,32 @@ public sealed class ShpServiceTests
         order.Confirm();
         var orderRepo = new Mock<IDeliveryOrderRepository>();
         orderRepo.Setup(r => r.GetByIdAsync("DO001", default)).ReturnsAsync(order);
-        orderRepo.Setup(r => r.UpdateAsync(order, default)).Returns(Task.CompletedTask);
+        orderRepo.Setup(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Confirmed, default))
+            .ReturnsAsync(true);
 
         var result = await BuildService(orderRepo, new(), new())
             .ShipOrderAsync("DO001", DateTime.UtcNow);
 
         result.IsSuccess.Should().BeTrue();
         order.Status.Should().Be(DeliveryOrderStatus.Shipped);
+        orderRepo.Verify(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Confirmed, default), Times.Once);
+    }
+
+    [Fact]
+    public async Task ShipOrder_when_state_changes_before_write_returns_conflict()
+    {
+        var order = DraftOrder();
+        order.Confirm();
+        var orderRepo = new Mock<IDeliveryOrderRepository>();
+        orderRepo.Setup(r => r.GetByIdAsync("DO001", default)).ReturnsAsync(order);
+        orderRepo.Setup(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Confirmed, default))
+            .ReturnsAsync(false);
+
+        var result = await BuildService(orderRepo, new(), new())
+            .ShipOrderAsync("DO001", DateTime.UtcNow);
+
+        result.IsFailure.Should().BeTrue();
+        result.Error.Type.Should().Be(ErrorType.Conflict);
     }
 
     [Fact]
