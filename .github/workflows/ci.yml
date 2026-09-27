@@ -66,6 +66,10 @@ jobs:
         shell: pwsh
         run: ./tools/ci/Verify-CiActionPins.ps1
 
+      - name: Verify legacy route source snapshot
+        shell: pwsh
+        run: ./tools/ci/Verify-LegacyRouteSource.ps1
+
       - name: Setup .NET (global.json 고정 — SDK 8.0.425)
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0, Node 24
         with:
@@ -350,6 +354,10 @@ jobs:
       - name: Verify immutable CI action pins
         shell: pwsh
         run: ./tools/ci/Verify-CiActionPins.ps1
+
+      - name: Verify legacy route source snapshot
+        shell: pwsh
+        run: ./tools/ci/Verify-LegacyRouteSource.ps1
 
       - name: Validate local development submodule config
         shell: pwsh
