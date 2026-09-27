@@ -11,6 +11,7 @@ public sealed class Module
 {
     private readonly IPurchaseOrderPlanningBridge _purchaseOrderPlanningBridge;
     private readonly IPurchaseOrderItemBridge _purchaseOrderItemBridge;
+    private readonly IPurchaseOrderHoldBridge _purchaseOrderHoldBridge;
     private readonly ISqliteSchemaContribution _purchaseItemSqliteSchemaContribution;
 
     public Module(EesDataSource dataSource, IBusinessMasterDirectory masterDirectory)
@@ -22,11 +23,14 @@ public sealed class Module
         _purchaseOrderPlanningBridge = new PurchaseOrderPlanningBridge(service);
         _purchaseOrderItemBridge = new PurchaseOrderItemService(
             new PurchaseOrderItemRepository(dataSource, masterDirectory));
+        _purchaseOrderHoldBridge = new PurchaseOrderHoldService(
+            new PurchaseOrderHoldRepository(dataSource));
         _purchaseItemSqliteSchemaContribution = new PurchaseItemSqliteSchemaContribution();
     }
 
     public IPurchaseOrderPlanningBridge GetPurchaseOrderPlanningBridge() => _purchaseOrderPlanningBridge;
     public IPurchaseOrderItemBridge GetPurchaseOrderItemBridge() => _purchaseOrderItemBridge;
+    public IPurchaseOrderHoldBridge GetPurchaseOrderHoldBridge() => _purchaseOrderHoldBridge;
     public ISqliteSchemaContribution GetPurchaseItemSqliteSchemaContribution() =>
         _purchaseItemSqliteSchemaContribution;
 }
