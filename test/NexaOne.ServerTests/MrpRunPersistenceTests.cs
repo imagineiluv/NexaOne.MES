@@ -162,6 +162,11 @@ public sealed class MrpRunPersistenceTests : IClassFixture<MrpRunPersistenceTest
             Scalar<long>("SELECT COUNT(*) FROM PRC_PURCHASE_ORDER WHERE DESCRIPTION=@description",
                     ("@description", description))
                 .Should().Be(1, "the PRC owner command commits independently before POM marks its proposal");
+            Scalar<long>("SELECT COUNT(*) FROM PRC_PURCHASE_ITEM item " +
+                    "JOIN PRC_PURCHASE_ORDER purchase ON purchase.PURCHASE_ORDER_ID=item.PURCHASE_ORDER_ID " +
+                    "WHERE purchase.DESCRIPTION=@description AND item.PRODUCT_ID='MAT01' AND item.ORDER_QTY=12",
+                    ("@description", description))
+                .Should().Be(1, "the MRP purchase line commits atomically with its header");
             Scalar<string>("SELECT STATUS FROM MRP_PLANNED_ORDER WHERE PLANNED_ORDER_ID=@id", ("@id", plannedId))
                 .Should().Be("Proposed");
         }
@@ -178,6 +183,11 @@ public sealed class MrpRunPersistenceTests : IClassFixture<MrpRunPersistenceTest
         Scalar<long>("SELECT COUNT(*) FROM PRC_PURCHASE_ORDER WHERE DESCRIPTION=@description",
                 ("@description", description))
             .Should().Be(1, "stable PRC command ids make retries idempotent");
+        Scalar<long>("SELECT COUNT(*) FROM PRC_PURCHASE_ITEM item " +
+                "JOIN PRC_PURCHASE_ORDER purchase ON purchase.PURCHASE_ORDER_ID=item.PURCHASE_ORDER_ID " +
+                "WHERE purchase.DESCRIPTION=@description",
+                ("@description", description))
+            .Should().Be(1, "MRP replay must not duplicate the purchase line");
         Scalar<string>("SELECT STATUS FROM MRP_PLANNED_ORDER WHERE PLANNED_ORDER_ID=@id", ("@id", plannedId))
             .Should().Be("Converted");
     }

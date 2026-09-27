@@ -1,4 +1,6 @@
+using System.Data;
 using System.Data.Common;
+using Dapper;
 using Microsoft.Data.Sqlite;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.PRC.Application.PurchaseOrders;
@@ -17,9 +19,13 @@ internal sealed class PurchaseOrderPlanningRepository : QueryRepository, IPurcha
         CancellationToken ct = default)
     {
         var rows = await QueryAsync<ReceiptRow>(
-            "SELECT PRODUCT_ID AS ProductId, ORDER_QTY AS Quantity, INCOMING_DATE AS IncomingDate " +
-            "FROM PRC_PURCHASE_ORDER " +
-            "WHERE STATUS IN ('Ordered', 'Incoming') AND PRODUCT_ID IS NOT NULL",
+            "SELECT item.PRODUCT_ID AS ProductId, " +
+            "(item.ORDER_QTY - item.INCOMING_QTY) AS Quantity, " +
+            "purchase.INCOMING_DATE AS IncomingDate " +
+            "FROM PRC_PURCHASE_ITEM item " +
+            "JOIN PRC_PURCHASE_ORDER purchase ON purchase.PURCHASE_ORDER_ID = item.PURCHASE_ORDER_ID " +
+            "WHERE purchase.STATUS IN ('Ordered', 'Incoming') " +
+            "AND item.ORDER_QTY > item.INCOMING_QTY",
             null,
             ct);
         return rows
@@ -59,14 +65,24 @@ internal sealed class PurchaseOrderPlanningRepository : QueryRepository, IPurcha
         PurchaseOrderDraft draft,
         CancellationToken ct = default)
     {
-        const string sql =
+        const string headerSql =
             "INSERT INTO PRC_PURCHASE_ORDER (PURCHASE_ORDER_ID, PLANT_ID, PURCHASE_ORDER_NAME, " +
             "ORDER_DATE, INCOMING_DATE, ORDER_QTY, PRODUCT_ID, STATUS, DESCRIPTION, CREATED_BY, UPDATED_BY) " +
             "VALUES (@PurchaseOrderId, @PlantId, @PurchaseOrderName, @OrderDate, @IncomingDate, @Quantity, " +
             "@ProductId, 'Ordered', @Description, @ExecutedBy, @ExecutedBy)";
         try
         {
-            await _processor.ExecuteAsync(sql, draft, ct);
+            await _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
+            {
+                await connection.ExecuteAsync(new CommandDefinition(
+                    headerSql, draft, transaction, cancellationToken: ct));
+                await connection.ExecuteAsync(new CommandDefinition(
+                    "INSERT INTO PRC_PURCHASE_ITEM " +
+                    "(PURCHASE_ORDER_ID, PRODUCT_ID, ORDER_QTY, CREATED_BY, UPDATED_BY) " +
+                    "VALUES (@PurchaseOrderId, @ProductId, @Quantity, @ExecutedBy, @ExecutedBy)",
+                    draft, transaction, cancellationToken: ct));
+                return true;
+            }, IsolationLevel.Serializable, ct);
             return PurchaseOrderInsertOutcome.Created;
         }
         catch (DbException exception) when (IsExpectedPurchaseOrderIdentityRace(exception))
