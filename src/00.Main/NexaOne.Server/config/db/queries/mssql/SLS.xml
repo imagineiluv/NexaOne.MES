@@ -26,7 +26,7 @@
             ORDER BY REQUEST_DATE DESC
         ]]></statement>
     </query>
-    <!-- 수주 초안 저장 — 새 ID는 Draft로 생성하고 기존 ID는 Draft일 때만 편집한다.
+    <!-- 수주 초안 저장 — 새 ID는 Draft로 생성하고 기존 ID는 미보류 Draft일 때만 편집한다.
          상태·담당자·감사값은 서버가 고정하며 수량/납기와 활성 MDM 참조를 SQL 경계에서도 검증한다. -->
     <query id="SLS.CreateSalesOrder" kind="write" requiredPermission="sls:manage">
         <statement><![CDATA[
@@ -51,7 +51,7 @@
                   AND EXISTS (SELECT 1 FROM MDM_CUSTOMER WHERE CUSTOMER_ID = LTRIM(RTRIM(@customerId)) AND IS_ACTIVE = 1)
                   AND EXISTS (SELECT 1 FROM MDM_PRODUCT WHERE PRODUCT_ID = LTRIM(RTRIM(@productId)) AND VALID_STATE = 'Valid')
             ) AS s ON t.SALES_ORDER_ID = s.SALES_ORDER_ID
-            WHEN MATCHED AND t.STATUS = 'Draft' THEN UPDATE SET
+            WHEN MATCHED AND t.STATUS = 'Draft' AND t.IS_HOLD = 'N' THEN UPDATE SET
                 PLANT_ID = s.PLANT_ID,
                 SALES_ORDER_NAME = s.SALES_ORDER_NAME,
                 CUSTOMER_ID = s.CUSTOMER_ID,
@@ -71,12 +71,17 @@
                         @currentUser, @utcNow, @currentUser, @utcNow);
         ]]></statement>
     </query>
-    <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).
+    <!-- 그리드 표준 삭제(kind="write") — 미보류 Draft 중 연결된 판매요청이 없는 수주만 삭제한다.
+         메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).
          파라미터는 행 딕셔너리의 camelCase 사본이 자동 매칭. MSSQL판과 동일 ID·동일 의미. -->
     <query id="SLS.DeleteSalesOrder" kind="write" requiredPermission="sls:manage">
         <statement><![CDATA[
             DELETE FROM SLS_SALES_ORDER
-            WHERE SALES_ORDER_ID = @salesOrderId AND STATUS = 'Draft'
+            WHERE SALES_ORDER_ID = @salesOrderId AND STATUS = 'Draft' AND IS_HOLD = 'N'
+              AND NOT EXISTS (
+                  SELECT 1 FROM SLS_SALES_REQUEST
+                  WHERE SALES_ORDER_ID = @salesOrderId
+              )
         ]]></statement>
     </query>
     <!-- 그리드 일괄 명령(kind="write") — BulkCommands가 선택 행마다 호출하는 가드된 상태전이(허용 소스 상태·보류 해제만 UPDATE, 그 외 행은 무영향=affected 0). SQLite판 동일. -->
