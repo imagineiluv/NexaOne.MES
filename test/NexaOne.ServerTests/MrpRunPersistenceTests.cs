@@ -204,7 +204,9 @@ public sealed class MrpRunPersistenceTests : IClassFixture<MrpRunPersistenceTest
             new CancelingDemandSource(cancellation),
             new MdmMrpMasterDirectory(dataSource),
             new IvtMrpInventoryDirectory(dataSource),
-            new PrcModule(dataSource).GetPurchaseOrderPlanningBridge(),
+            new PrcModule(dataSource,
+                new NexaOne.MDM.Infrastructure.BusinessMasterDirectory(dataSource))
+                .GetPurchaseOrderPlanningBridge(),
             new MdmEquipmentDirectory(dataSource));
 
         Func<Task> act = () => repository.RunAsync(actor, ct: cancellation.Token);
@@ -232,7 +234,9 @@ public sealed class MrpRunPersistenceTests : IClassFixture<MrpRunPersistenceTest
             new CancelingDemandSource(cancellation),
             new MdmMrpMasterDirectory(dataSource),
             new IvtMrpInventoryDirectory(dataSource),
-            new PrcModule(dataSource).GetPurchaseOrderPlanningBridge(),
+            new PrcModule(dataSource,
+                new NexaOne.MDM.Infrastructure.BusinessMasterDirectory(dataSource))
+                .GetPurchaseOrderPlanningBridge(),
             new MdmEquipmentDirectory(dataSource));
 
         try
@@ -323,7 +327,9 @@ public sealed class MrpRunPersistenceTests : IClassFixture<MrpRunPersistenceTest
             new SlsMrpDemandDirectory(dataSource),
             new MdmMrpMasterDirectory(dataSource),
             new IvtMrpInventoryDirectory(dataSource),
-            new PrcModule(dataSource).GetPurchaseOrderPlanningBridge(),
+            new PrcModule(dataSource,
+                new NexaOne.MDM.Infrastructure.BusinessMasterDirectory(dataSource))
+                .GetPurchaseOrderPlanningBridge(),
             new MdmEquipmentDirectory(dataSource));
     }
 
