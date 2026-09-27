@@ -46,7 +46,8 @@
         }
         else if (_items is not null)
         {
-            <div class="prc-items-table-wrap">
+            <p class="prc-items-scroll-hint">표를 좌우로 밀어 품목 정보를 확인하세요.</p>
+            <div class="prc-items-table-wrap" role="region" aria-label="발주 품목 표" tabindex="0">
                 <table>
                     <thead><tr><th scope="col">품목 ID</th><th scope="col">발주수량</th><th scope="col">입고수량</th><th scope="col">작업</th></tr></thead>
                     <tbody>

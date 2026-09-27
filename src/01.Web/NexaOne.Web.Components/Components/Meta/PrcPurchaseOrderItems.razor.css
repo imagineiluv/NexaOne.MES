@@ -36,7 +36,9 @@
 }
 
 .prc-items-table-wrap { max-width: 100%; overflow-x: auto; }
+.prc-items-table-wrap:focus-visible { outline: 2px solid var(--nx-teal); outline-offset: 2px; }
 .prc-items table { width: 100%; border-collapse: collapse; text-align: start; }
+.prc-items-scroll-hint { display: none; }
 .prc-items th,
 .prc-items td {
     padding: var(--space-sm);
@@ -76,7 +78,14 @@
 .prc-items-confirm { margin-block-start: var(--space-md); }
 
 @media (max-width: 40rem) {
+    .prc-items table { min-width: 30rem; }
+    .prc-items th:first-child { white-space: nowrap; }
+    .prc-items th:first-child code { overflow-wrap: normal; }
     .prc-items-fields { align-items: stretch; }
     .prc-items-fields label { flex: 1 0 100%; }
     .prc-items-fields button { flex: 1 1 auto; }
+}
+
+@media (max-width: 32rem) {
+    .prc-items-scroll-hint { display: block; margin-block: var(--space-xs); color: var(--nx-text-2); }
 }
