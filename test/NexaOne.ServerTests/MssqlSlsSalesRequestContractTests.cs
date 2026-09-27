@@ -35,7 +35,7 @@ public sealed class MssqlSlsSalesRequestContractTests(ITestOutputHelper output)
 
         var bridge = new NexaOne.SLS.Module(
             database.DataSource, new BusinessMasterDirectory(database.DataSource),
-            new SalesOrderShipmentIntake()).GetSalesRequestBridge();
+            new SalesOrderShipmentIntake(), new SalesOrderShipmentEvidence()).GetSalesRequestBridge();
         foreach (var id in new[] { requestId, secondRequestId })
         {
             var created = await bridge.CreateDraftAsync(new SalesRequestDraftCommand(
@@ -77,7 +77,7 @@ public sealed class MssqlSlsSalesRequestContractTests(ITestOutputHelper output)
             new { requestId });
         var bridge = new NexaOne.SLS.Module(
             database.DataSource, new BusinessMasterDirectory(database.DataSource),
-            new SalesOrderShipmentIntake()).GetSalesRequestBridge();
+            new SalesOrderShipmentIntake(), new SalesOrderShipmentEvidence()).GetSalesRequestBridge();
 
         var withdrawn = await bridge.WithdrawAsync(new SalesRequestWithdrawCommand(requestId, actor));
         withdrawn.IsSuccess.Should().BeTrue(withdrawn.Error.Description);

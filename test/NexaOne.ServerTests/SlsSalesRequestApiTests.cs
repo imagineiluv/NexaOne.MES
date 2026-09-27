@@ -55,7 +55,7 @@ public sealed class SlsSalesRequestApiTests : IClassFixture<SlsSalesRequestApiTe
                         ConnectionString = ConnString,
                     };
                     return new NexaOne.SLS.Module(dataSource, new BusinessMasterDirectory(dataSource),
-                        new SalesOrderShipmentIntake());
+                        new SalesOrderShipmentIntake(), new SalesOrderShipmentEvidence());
                 });
                 services.AddSingleton<ISalesRequestBridge>(sp =>
                     sp.GetRequiredService<NexaOne.SLS.Module>().GetSalesRequestBridge());

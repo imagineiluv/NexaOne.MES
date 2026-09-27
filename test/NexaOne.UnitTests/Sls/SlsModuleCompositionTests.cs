@@ -14,7 +14,7 @@ public sealed class SlsModuleCompositionTests
     public void Module_composes_one_mrp_demand_directory_from_the_data_source()
     {
         var module = new NexaOne.SLS.Module(DataSource(), new Mock<IBusinessMasterDirectory>().Object,
-            new Mock<ISalesOrderShipmentIntake>().Object);
+            new Mock<ISalesOrderShipmentIntake>().Object, new Mock<ISalesOrderShipmentEvidence>().Object);
 
         var directory = module.GetMrpDemandDirectory();
         var salesRequests = module.GetSalesRequestBridge();
@@ -33,7 +33,7 @@ public sealed class SlsModuleCompositionTests
     public void Module_rejects_a_missing_data_source()
     {
         var act = () => new NexaOne.SLS.Module(null!, new Mock<IBusinessMasterDirectory>().Object,
-            new Mock<ISalesOrderShipmentIntake>().Object);
+            new Mock<ISalesOrderShipmentIntake>().Object, new Mock<ISalesOrderShipmentEvidence>().Object);
 
         act.Should().Throw<ArgumentNullException>();
     }
@@ -42,7 +42,7 @@ public sealed class SlsModuleCompositionTests
     public void Module_rejects_a_missing_master_directory()
     {
         var act = () => new NexaOne.SLS.Module(DataSource(), null!,
-            new Mock<ISalesOrderShipmentIntake>().Object);
+            new Mock<ISalesOrderShipmentIntake>().Object, new Mock<ISalesOrderShipmentEvidence>().Object);
 
         act.Should().Throw<ArgumentNullException>();
     }
@@ -50,7 +50,17 @@ public sealed class SlsModuleCompositionTests
     [Fact]
     public void Module_rejects_a_missing_shipment_intake()
     {
-        var act = () => new NexaOne.SLS.Module(DataSource(), new Mock<IBusinessMasterDirectory>().Object, null!);
+        var act = () => new NexaOne.SLS.Module(DataSource(), new Mock<IBusinessMasterDirectory>().Object,
+            null!, new Mock<ISalesOrderShipmentEvidence>().Object);
+
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Module_rejects_missing_shipment_evidence()
+    {
+        var act = () => new NexaOne.SLS.Module(DataSource(), new Mock<IBusinessMasterDirectory>().Object,
+            new Mock<ISalesOrderShipmentIntake>().Object, null!);
 
         act.Should().Throw<ArgumentNullException>();
     }

@@ -36,6 +36,13 @@ public sealed class SlsSalesOrderDeliveryApiTests
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await Client("manager", Permissions.SlsManage).PostAsJsonAsync(url, body))
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var confirmUrl = $"/api/v1/sls/sales-orders/{id}/delivery-confirmation";
+        (await _factory.CreateClient().PostAsync(confirmUrl, null))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await Client("reader", Permissions.SlsRead).PostAsync(confirmUrl, null))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await Client("manager", Permissions.SlsManage).PostAsync(confirmUrl, null))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -173,6 +180,79 @@ public sealed class SlsSalesOrderDeliveryApiTests
         Count("SHP_DELIVERY_ORDER", "ORDER_ID", deliveryOrderId).Should().Be(0);
     }
 
+    [Fact]
+    public async Task Shipped_order_confirms_delivery_once_and_replay_preserves_quantity()
+    {
+        var suffix = Suffix();
+        var salesOrderId = $"SO_{suffix}";
+        var deliveryOrderId = $"DO_{suffix}";
+        SeedValidOrder(suffix, "Draft");
+        var client = Client("ship-manager", Permissions.SlsManage);
+        (await client.PostAsJsonAsync(Url(salesOrderId), Request(deliveryOrderId, $"DI_{suffix}")))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        var confirmUrl = $"/api/v1/sls/sales-orders/{salesOrderId}/delivery-confirmation";
+        (await client.PostAsync(confirmUrl, null)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        ReadSalesOrder(salesOrderId).Status.Should().Be("Confirmed");
+        ReadDeliveredQty(salesOrderId).Should().Be(0);
+
+        MarkShipped(deliveryOrderId);
+        var confirmed = await client.PostAsync(confirmUrl, null);
+        confirmed.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await confirmed.Content.ReadFromJsonAsync<SalesOrderDeliveryConfirmationState>())
+            .Should().Be(new SalesOrderDeliveryConfirmationState(
+                salesOrderId, deliveryOrderId, "Delivered", 12.5m));
+        ReadSalesOrder(salesOrderId).Should().Be(("Delivered", deliveryOrderId, "ship-manager"));
+        ReadDeliveredQty(salesOrderId).Should().Be(12.5m);
+        (await client.PostAsync(confirmUrl, null)).StatusCode.Should().Be(HttpStatusCode.OK);
+        ReadDeliveredQty(salesOrderId).Should().Be(12.5m);
+    }
+
+    [Fact]
+    public async Task Shipment_mismatch_or_sales_hold_never_marks_order_delivered()
+    {
+        var suffix = Suffix();
+        var salesOrderId = $"SO_{suffix}";
+        var deliveryOrderId = $"DO_{suffix}";
+        var deliveryItemId = $"DI_{suffix}";
+        SeedValidOrder(suffix, "Draft");
+        var client = Client("ship-manager", Permissions.SlsManage);
+        (await client.PostAsJsonAsync(Url(salesOrderId), Request(deliveryOrderId, deliveryItemId)))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        MarkShipped(deliveryOrderId);
+        var confirmUrl = $"/api/v1/sls/sales-orders/{salesOrderId}/delivery-confirmation";
+
+        Execute("UPDATE SHP_DELIVERY_ITEM SET PLANNED_QTY = 13.5 WHERE ITEM_ID = @id",
+            cmd => cmd.Parameters.AddWithValue("@id", deliveryItemId));
+        (await client.PostAsync(confirmUrl, null)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        ReadDeliveredQty(salesOrderId).Should().Be(0);
+        Execute("UPDATE SHP_DELIVERY_ITEM SET PLANNED_QTY = 12.5 WHERE ITEM_ID = @id",
+            cmd => cmd.Parameters.AddWithValue("@id", deliveryItemId));
+        Execute("UPDATE SHP_DELIVERY_ITEM SET ACTUAL_QTY = 11 WHERE ITEM_ID = @id",
+            cmd => cmd.Parameters.AddWithValue("@id", deliveryItemId));
+        (await client.PostAsync(confirmUrl, null)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        ReadDeliveredQty(salesOrderId).Should().Be(0);
+        Execute("UPDATE SHP_DELIVERY_ITEM SET ACTUAL_QTY = NULL WHERE ITEM_ID = @id",
+            cmd => cmd.Parameters.AddWithValue("@id", deliveryItemId));
+        var historyId = $"H_{suffix}";
+        Execute("INSERT INTO SHP_SHIPMENT_HISTORY " +
+                "(HISTORY_ID, DELIVERY_ORDER_ID, SHIPPED_AT, SHIPPED_QTY, SHIPPED_BY) " +
+                "VALUES (@historyId, @deliveryOrderId, @shippedAt, 11, 'shipper')", cmd =>
+        {
+            cmd.Parameters.AddWithValue("@historyId", historyId);
+            cmd.Parameters.AddWithValue("@deliveryOrderId", deliveryOrderId);
+            cmd.Parameters.AddWithValue("@shippedAt", new DateTime(2040, 9, 30));
+        });
+        (await client.PostAsync(confirmUrl, null)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        ReadDeliveredQty(salesOrderId).Should().Be(0);
+        Execute("DELETE FROM SHP_SHIPMENT_HISTORY WHERE HISTORY_ID = @id",
+            cmd => cmd.Parameters.AddWithValue("@id", historyId));
+        Execute("UPDATE SLS_SALES_ORDER SET IS_HOLD = 'Y' WHERE SALES_ORDER_ID = @id",
+            cmd => cmd.Parameters.AddWithValue("@id", salesOrderId));
+        (await client.PostAsync(confirmUrl, null)).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        ReadSalesOrder(salesOrderId).Status.Should().Be("Confirmed");
+        ReadDeliveredQty(salesOrderId).Should().Be(0);
+    }
+
     private static string Suffix() => Guid.NewGuid().ToString("N")[..8];
     private static string Url(string salesOrderId)
         => $"/api/v1/sls/sales-orders/{salesOrderId}/delivery-request";
@@ -240,6 +320,14 @@ public sealed class SlsSalesOrderDeliveryApiTests
             cmd.Parameters.AddWithValue("@due", new DateTime(2040, 9, 30));
         });
 
+    private void MarkShipped(string deliveryOrderId)
+        => Execute("UPDATE SHP_DELIVERY_ORDER SET STATUS = 'Shipped', SHIPPED_DATE = @date " +
+                   "WHERE ORDER_ID = @id", cmd =>
+        {
+            cmd.Parameters.AddWithValue("@id", deliveryOrderId);
+            cmd.Parameters.AddWithValue("@date", new DateTime(2040, 9, 30));
+        });
+
     private void Execute(string sql, Action<SqliteCommand> bind)
     {
         using var connection = new SqliteConnection(_factory.ConnString);
@@ -272,6 +360,16 @@ public sealed class SlsSalesOrderDeliveryApiTests
         using var reader = command.ExecuteReader();
         reader.Read().Should().BeTrue();
         return (reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1), reader.GetString(2));
+    }
+
+    private decimal ReadDeliveredQty(string id)
+    {
+        using var connection = new SqliteConnection(_factory.ConnString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT DELIVERED_QTY FROM SLS_SALES_ORDER WHERE SALES_ORDER_ID = @id";
+        command.Parameters.AddWithValue("@id", id);
+        return Convert.ToDecimal(command.ExecuteScalar());
     }
 
     private (string Status, string Customer, string Plant, string CreatedBy, string UpdatedBy)

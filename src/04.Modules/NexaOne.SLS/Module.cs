@@ -15,15 +15,16 @@ public sealed class Module
     private readonly ISalesOrderDeliveryBridge _salesOrderDeliveryBridge;
 
     public Module(EesDataSource dataSource, IBusinessMasterDirectory masterDirectory,
-        ISalesOrderShipmentIntake shipmentIntake)
+        ISalesOrderShipmentIntake shipmentIntake, ISalesOrderShipmentEvidence shipmentEvidence)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(masterDirectory);
         ArgumentNullException.ThrowIfNull(shipmentIntake);
+        ArgumentNullException.ThrowIfNull(shipmentEvidence);
         _mrpDemandDirectory = new MrpDemandDirectory(dataSource);
         _salesRequestBridge = new SalesRequestService(new SalesRequestRepository(dataSource, masterDirectory));
         _salesOrderDeliveryBridge = new SalesOrderDeliveryService(
-            new SalesOrderDeliveryRepository(dataSource, masterDirectory, shipmentIntake));
+            new SalesOrderDeliveryRepository(dataSource, masterDirectory, shipmentIntake, shipmentEvidence));
     }
 
     public IMrpDemandDirectory GetMrpDemandDirectory() => _mrpDemandDirectory;

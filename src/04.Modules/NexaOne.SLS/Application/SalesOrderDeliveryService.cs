@@ -34,6 +34,36 @@ internal sealed class SalesOrderDeliveryService(ISalesOrderDeliveryStore store) 
         };
     }
 
+    public async Task<Result<SalesOrderDeliveryConfirmationState>> ConfirmDeliveryAsync(
+        SalesOrderDeliveryConfirmationCommand command, CancellationToken ct = default)
+    {
+        if (command is null || !ValidId(command.SalesOrderId) || !ValidId(command.ActorId))
+            return Result.Failure<SalesOrderDeliveryConfirmationState>(Error.Validation(
+                "SLS_DELIVERY_CONFIRMATION_INVALID", "수주 ID와 실행자를 확인하세요."));
+
+        var salesOrderId = command.SalesOrderId!.Trim();
+        var result = await store.TryConfirmAsync(salesOrderId, command.ActorId!.Trim(), ct);
+        return result.Outcome switch
+        {
+            SalesOrderDeliveryConfirmationOutcome.Confirmed or SalesOrderDeliveryConfirmationOutcome.AlreadyConfirmed
+                => Result.Success(new SalesOrderDeliveryConfirmationState(
+                    salesOrderId, result.DeliveryOrderId!, "Delivered", result.DeliveredQty)),
+            SalesOrderDeliveryConfirmationOutcome.SalesOrderNotFound
+                => Result.Failure<SalesOrderDeliveryConfirmationState>(Error.NotFound(
+                    "SLS_ORDER_NOT_FOUND", "수주를 찾을 수 없습니다.")),
+            SalesOrderDeliveryConfirmationOutcome.NotConfirmable
+                => Result.Failure<SalesOrderDeliveryConfirmationState>(Error.Conflict(
+                    "SLS_DELIVERY_NOT_CONFIRMABLE", "연결된 미보류 Confirmed/Producing 수주만 납품 확정할 수 있습니다.")),
+            SalesOrderDeliveryConfirmationOutcome.ShipmentNotShipped
+                => Result.Failure<SalesOrderDeliveryConfirmationState>(Error.Conflict(
+                    "SLS_SHIPMENT_NOT_SHIPPED", "연결된 출하주문이 아직 출하 완료되지 않았습니다.")),
+            SalesOrderDeliveryConfirmationOutcome.ShipmentMismatch
+                => Result.Failure<SalesOrderDeliveryConfirmationState>(Error.Conflict(
+                    "SLS_SHIPMENT_MISMATCH", "출하주문의 공장·품목·수량이 수주와 일치하지 않습니다.")),
+            _ => throw new InvalidOperationException("Unknown sales-order delivery confirmation outcome."),
+        };
+    }
+
     private static bool ValidId(string? value)
         => !string.IsNullOrWhiteSpace(value) && value.Trim().Length <= 50;
 }
