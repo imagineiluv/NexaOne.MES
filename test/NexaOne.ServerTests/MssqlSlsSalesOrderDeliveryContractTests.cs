@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Data.SqlClient;
+using NexaOne.Infrastructure.Persistence;
 using NexaOne.MDM.Infrastructure;
 using NexaOne.SHP.Infrastructure;
 using NexaOne.ServiceContracts.Sls;
@@ -113,6 +114,80 @@ public sealed class MssqlSlsSalesOrderDeliveryContractTests(ITestOutputHelper ou
             firstSalesOrder, deliveryOrder, deliveryItem, actor));
         replay.IsFailure.Should().BeTrue();
         replay.Error.Code.Should().Be("SLS_DELIVERY_NOT_REQUESTABLE");
+    }
+
+    [Fact]
+    public async Task Confirmation_response_loss_after_commit_replays_without_rewriting_sales_order()
+    {
+        var database = await MssqlContractDatabase.TryCreateAsync(output);
+        if (database is null) return;
+
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var plant = $"SLSP_{suffix}";
+        var customer = $"SLSC_{suffix}";
+        var product = $"SLSI_{suffix}";
+        var salesOrderId = $"SLSO_{suffix}";
+        var deliveryOrderId = $"SLSD_{suffix}";
+        var deliveryItemId = $"SLSDI_{suffix}";
+        const string actor = "sls-delivery-response-loss";
+        await database.ExecuteAsync("""
+            INSERT INTO MDM_PLANT (PLANT_ID, PLANT_NAME) VALUES (@plant, @plant);
+            INSERT INTO MDM_CUSTOMER (CUSTOMER_ID, CUSTOMER_NAME, IS_ACTIVE)
+                VALUES (@customer, @customer, 1);
+            INSERT INTO MDM_PRODUCT (PRODUCT_ID, PRODUCT_NAME, PRODUCT_TYPE, UNIT, VALID_STATE)
+                VALUES (@product, @product, 'FinishedGoods', 'EA', 'Valid');
+            INSERT INTO SLS_SALES_ORDER
+                (SALES_ORDER_ID, PLANT_ID, CUSTOMER_ID, PRODUCT_ID, PLAN_END_DATE, PLAN_QTY, STATUS)
+                VALUES (@salesOrderId, @plant, @customer, @product, '2040-09-30', 12.5, 'Draft');
+            """, new { plant, customer, product, salesOrderId });
+        var bridge = new NexaOne.SLS.Module(
+            database.DataSource, new BusinessMasterDirectory(database.DataSource),
+            new SalesOrderShipmentIntake(), new SalesOrderShipmentEvidence()).GetSalesOrderDeliveryBridge();
+        var requested = await bridge.RequestDeliveryAsync(new SalesOrderDeliveryCommand(
+            salesOrderId, deliveryOrderId, deliveryItemId, actor));
+        requested.IsSuccess.Should().BeTrue(requested.IsFailure ? requested.Error.Description : string.Empty);
+        await database.ExecuteAsync("""
+            UPDATE SHP_DELIVERY_ORDER SET STATUS='Shipped', SHIPPED_DATE='2040-09-30'
+             WHERE ORDER_ID=@deliveryOrderId
+            """, new { deliveryOrderId });
+
+        var provider = new AfterCommitResponseLossProvider(database.DataSource.Provider);
+        var faultingSource = new EesDataSource
+        {
+            Provider = provider,
+            ConnectionString = database.ConnectionString,
+            QueryGatewayOptions = database.DataSource.QueryGatewayOptions,
+        };
+        var faultingBridge = new NexaOne.SLS.Module(faultingSource,
+            new BusinessMasterDirectory(faultingSource), new SalesOrderShipmentIntake(),
+            new SalesOrderShipmentEvidence()).GetSalesOrderDeliveryBridge();
+        var command = new SalesOrderDeliveryConfirmationCommand(salesOrderId, actor);
+
+        (await Assert.ThrowsAsync<IOException>(() => faultingBridge.ConfirmDeliveryAsync(command)))
+            .Message.Should().Contain("response loss");
+        provider.CallbackCount.Should().Be(1);
+        (await database.ScalarAsync<int>("""
+            SELECT COUNT(1) FROM SLS_SALES_ORDER
+             WHERE SALES_ORDER_ID=@salesOrderId AND STATUS='Delivered'
+               AND DELIVERY_ORDER_ID=@deliveryOrderId AND DELIVERED_QTY=12.5
+               AND UPDATED_BY=@actor
+            """, new { salesOrderId, deliveryOrderId, actor })).Should().Be(1);
+        await database.ExecuteAsync("""
+            UPDATE SLS_SALES_ORDER SET UPDATED_AT='2001-02-03T04:05:06'
+             WHERE SALES_ORDER_ID=@salesOrderId
+            """, new { salesOrderId });
+        var updatedAt = await database.ScalarAsync<DateTime>(
+            "SELECT UPDATED_AT FROM SLS_SALES_ORDER WHERE SALES_ORDER_ID=@salesOrderId",
+            new { salesOrderId });
+        updatedAt.Should().Be(new DateTime(2001, 2, 3, 4, 5, 6));
+
+        var recovered = await bridge.ConfirmDeliveryAsync(command);
+        recovered.IsSuccess.Should().BeTrue(recovered.IsFailure ? recovered.Error.Description : string.Empty);
+        recovered.Value.Should().Be(new SalesOrderDeliveryConfirmationState(
+            salesOrderId, deliveryOrderId, "Delivered", 12.5m));
+        (await database.ScalarAsync<DateTime>(
+            "SELECT UPDATED_AT FROM SLS_SALES_ORDER WHERE SALES_ORDER_ID=@salesOrderId",
+            new { salesOrderId })).Should().Be(updatedAt);
     }
 
     [Fact]
