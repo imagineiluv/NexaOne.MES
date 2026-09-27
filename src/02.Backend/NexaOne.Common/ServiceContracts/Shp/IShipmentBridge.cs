@@ -11,4 +11,6 @@ public interface IShipmentBridge : INexaModuleBridge
     Task<Result> ConfirmOrderAsync(string orderId, CancellationToken ct = default);
     Task<Result> ShipOrderAsync(string orderId, DateTime shippedDate, CancellationToken ct = default);
     Task<Result> CancelOrderAsync(string orderId, CancellationToken ct = default);
+    Task<Result> HoldOrderAsync(string orderId, CancellationToken ct = default);
+    Task<Result> ReleaseOrderHoldAsync(string orderId, CancellationToken ct = default);
 }

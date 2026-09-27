@@ -68,6 +68,14 @@ public sealed class ShpBridgeControllerTests : IClassFixture<ShpBridgeController
 
         public Task<Result> CancelOrderAsync(string orderId, CancellationToken ct = default)
             => Task.FromResult(Result.Success());
+
+        public Task<Result> HoldOrderAsync(string orderId, CancellationToken ct = default)
+            => Task.FromResult(orderId == "CONFLICT"
+                ? Result.Failure(Error.Conflict("Delivery order is already held."))
+                : Result.Success());
+
+        public Task<Result> ReleaseOrderHoldAsync(string orderId, CancellationToken ct = default)
+            => Task.FromResult(Result.Success());
     }
 
     private HttpClient Client(params string[] permissions)
@@ -138,5 +146,33 @@ public sealed class ShpBridgeControllerTests : IClassFixture<ShpBridgeController
     {
         var res = await Client("shp:manage").PostAsync("/api/v1/shp/orders/DO1/cancel", content: null);
         res.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Hold_requires_shp_manage_and_maps_conflict()
+    {
+        var forbidden = await Client("shp:read").PostAsync(
+            "/api/v1/shp/orders/DO1/hold", content: null);
+        forbidden.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var conflict = await Client("shp:manage").PostAsync(
+            "/api/v1/shp/orders/CONFLICT/hold", content: null);
+        conflict.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        var held = await Client("shp:manage").PostAsync(
+            "/api/v1/shp/orders/DO1/hold", content: null);
+        held.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Release_hold_requires_shp_manage()
+    {
+        var forbidden = await Client("shp:read").PostAsync(
+            "/api/v1/shp/orders/DO1/release-hold", content: null);
+        forbidden.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var released = await Client("shp:manage").PostAsync(
+            "/api/v1/shp/orders/DO1/release-hold", content: null);
+        released.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
 }

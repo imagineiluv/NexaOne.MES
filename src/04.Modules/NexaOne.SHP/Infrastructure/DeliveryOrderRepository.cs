@@ -42,23 +42,24 @@ public sealed class DeliveryOrderRepository : QueryRepository, IDeliveryOrderRep
     }
 
     private const string InsertSql = @"INSERT INTO SHP_DELIVERY_ORDER
-            (ORDER_ID, CUSTOMER_NAME, PLANT_ID, REQUESTED_DATE, STATUS, REMARK,
+            (ORDER_ID, CUSTOMER_NAME, PLANT_ID, REQUESTED_DATE, STATUS, IS_HOLD, REMARK,
              CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
             VALUES
-            (@OrderId, @CustomerName, @PlantId, @RequestedDate, @Status, @Remark,
+            (@OrderId, @CustomerName, @PlantId, @RequestedDate, @Status, @IsHold, @Remark,
              @CreatedBy, @CreatedAt, @UpdatedBy, @UpdatedAt)";
 
     private const string UpdateSql = @"UPDATE SHP_DELIVERY_ORDER SET
-            STATUS = @Status, SHIPPED_DATE = @ShippedDate, REMARK = @Remark,
+            STATUS = @Status, IS_HOLD = @IsHold, SHIPPED_DATE = @ShippedDate, REMARK = @Remark,
             UPDATED_BY = @UpdatedBy, UPDATED_AT = @UpdatedAt
-            WHERE ORDER_ID = @OrderId AND STATUS = @ExpectedStatus";
+            WHERE ORDER_ID = @OrderId AND STATUS = @ExpectedStatus AND IS_HOLD = @ExpectedHold";
 
     public async Task AddAsync(DeliveryOrder order, CancellationToken ct = default)
     {
         await _processor.InsertAsync(InsertSql, OrderRow.FromDomain(order), ct);
     }
 
-    public async Task<bool> TryUpdateAsync(DeliveryOrder order, DeliveryOrderStatus expectedStatus,
+    public async Task<bool> TryUpdateAsync(
+        DeliveryOrder order, DeliveryOrderStatus expectedStatus, bool expectedHeld,
         CancellationToken ct = default)
     {
         // 상태 CAS가 실패하면 outbox도 기록하지 않는다. 성공한 경우에만 이벤트를 비운다.
@@ -66,7 +67,7 @@ public sealed class DeliveryOrderRepository : QueryRepository, IDeliveryOrderRep
         var now = DateTime.UtcNow;
         var statements = new List<(string Sql, object? Param)>
         {
-            (UpdateSql, UpdateParam(order, expectedStatus, user, now)),
+            (UpdateSql, UpdateParam(order, expectedStatus, expectedHeld, user, now)),
         };
         if (_outboxEnabled)
             statements.AddRange(OutboxStatements.For(order.DomainEvents.OfType<IOutboxEvent>(), user, now));
@@ -77,12 +78,15 @@ public sealed class DeliveryOrderRepository : QueryRepository, IDeliveryOrderRep
     }
 
     private static Dapper.DynamicParameters UpdateParam(
-        DeliveryOrder order, DeliveryOrderStatus expectedStatus, string user, DateTime now)
+        DeliveryOrder order, DeliveryOrderStatus expectedStatus, bool expectedHeld,
+        string user, DateTime now)
     {
         var p = new Dapper.DynamicParameters();
         p.Add("OrderId", order.Id);
         p.Add("Status", order.Status.ToString());
         p.Add("ExpectedStatus", expectedStatus.ToString());
+        p.Add("IsHold", order.IsHeld ? "Y" : "N");
+        p.Add("ExpectedHold", expectedHeld ? "Y" : "N");
         p.Add("ShippedDate", order.ShippedDate);
         p.Add("Remark", order.Remark);
         p.Add("UpdatedBy", user);
@@ -98,6 +102,7 @@ public sealed class DeliveryOrderRepository : QueryRepository, IDeliveryOrderRep
         public DateTime RequestedDate { get; set; }
         public DateTime? ShippedDate { get; set; }
         public string Status { get; set; } = "Draft";
+        public string IsHold { get; set; } = "N";
         public string? Remark { get; set; }
 
         // 읽기경로 Restore 패턴: 영속된 감사 메타데이터를 도메인에 그대로 복원한다.
@@ -110,7 +115,7 @@ public sealed class DeliveryOrderRepository : QueryRepository, IDeliveryOrderRep
         public DeliveryOrder ToDomain() =>
             DeliveryOrder.Restore(OrderId, CustomerName, PlantId, RequestedDate,
                 Enum.Parse<DeliveryOrderStatus>(Status, ignoreCase: true), ShippedDate, Remark,
-                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt);
+                CreatedBy, CreatedAt, UpdatedBy, UpdatedAt, IsHold == "Y");
 
         public static OrderRow FromDomain(DeliveryOrder o) => new()
         {
@@ -120,6 +125,7 @@ public sealed class DeliveryOrderRepository : QueryRepository, IDeliveryOrderRep
             RequestedDate = o.RequestedDate,
             ShippedDate = o.ShippedDate,
             Status = o.Status.ToString(),
+            IsHold = o.IsHeld ? "Y" : "N",
             Remark = o.Remark
         };
     }

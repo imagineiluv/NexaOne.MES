@@ -15,7 +15,7 @@
             ORDER BY ORDER_DATE DESC
         ]]></statement>
     </query>
-    <!-- 구매오더 등록 폼(SaveQueryId) — @param은 폼 필드 Key와 1:1, 감사는 @currentUser/@utcNow 서버 주입. -->
+    <!-- 구매오더 등록 폼(SaveQueryId) — Draft·비보류 주문만 다시 편집한다. 감사는 서버 주입. -->
     <query id="PRC.CreatePurchaseOrder" kind="write" requiredPermission="prc:manage">
         <statement><![CDATA[
             -- 그리드 표준 편집(upsert) — PK 충돌 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
@@ -27,26 +27,28 @@
                 ORDER_QTY = excluded.ORDER_QTY,
                 UPDATED_BY = excluded.UPDATED_BY,
                 UPDATED_AT = excluded.UPDATED_AT
+            WHERE PRC_PURCHASE_ORDER.STATUS = 'Draft' AND PRC_PURCHASE_ORDER.IS_HOLD = 'N'
         ]]></statement>
     </query>
     <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).
          파라미터는 행 딕셔너리의 camelCase 사본이 자동 매칭. MSSQL판과 동일 ID·동일 의미. -->
     <query id="PRC.DeletePurchaseOrder" kind="write" requiredPermission="prc:manage">
         <statement><![CDATA[
-            DELETE FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID = @purchaseOrderId
+            DELETE FROM PRC_PURCHASE_ORDER
+            WHERE PURCHASE_ORDER_ID = @purchaseOrderId AND STATUS = 'Draft' AND IS_HOLD = 'N'
         ]]></statement>
     </query>
     <!-- 그리드 일괄 명령(kind="write") — BulkCommands가 선택 행마다 호출하는 가드된 상태전이(허용 소스 상태만 UPDATE, 그 외 행은 무영향=affected 0). DDL 주석의 STATUS 도메인이 근거. MSSQL판 동일. -->
     <query id="PRC.OrderPurchaseOrder" kind="write" requiredPermission="prc:manage">
         <statement><![CDATA[
             UPDATE PRC_PURCHASE_ORDER SET STATUS = 'Ordered', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
-            WHERE PURCHASE_ORDER_ID = @purchaseOrderId AND STATUS = 'Draft'
+            WHERE PURCHASE_ORDER_ID = @purchaseOrderId AND STATUS = 'Draft' AND IS_HOLD = 'N'
         ]]></statement>
     </query>
     <query id="PRC.ClosePurchaseOrder" kind="write" requiredPermission="prc:manage">
         <statement><![CDATA[
             UPDATE PRC_PURCHASE_ORDER SET STATUS = 'Closed', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
-            WHERE PURCHASE_ORDER_ID = @purchaseOrderId AND STATUS IN ('Ordered', 'Incoming')
+            WHERE PURCHASE_ORDER_ID = @purchaseOrderId AND STATUS IN ('Ordered', 'Incoming') AND IS_HOLD = 'N'
         ]]></statement>
     </query>
 </queries>

@@ -21,6 +21,7 @@ public sealed class DeliveryOrder : AuditableEntity<string>
     public DateTime RequestedDate { get; private set; }
     public DateTime? ShippedDate { get; private set; }
     public DeliveryOrderStatus Status { get; private set; }
+    public bool IsHeld { get; private set; }
     public string? Remark { get; private set; }
     public IReadOnlyList<DeliveryItem> Items => _items.AsReadOnly();
     public decimal TotalQty => _items.Sum(i => i.PlannedQty);
@@ -56,7 +57,8 @@ public sealed class DeliveryOrder : AuditableEntity<string>
     public static DeliveryOrder Restore(
         string orderId, string customerName, string plantId, DateTime requestedDate,
         DeliveryOrderStatus status, DateTime? shippedDate, string? remark,
-        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null, DateTime? updatedAt = null)
+        string? createdBy = null, DateTime? createdAt = null, string? updatedBy = null,
+        DateTime? updatedAt = null, bool isHeld = false)
     {
         var order = new DeliveryOrder(orderId)
         {
@@ -64,6 +66,7 @@ public sealed class DeliveryOrder : AuditableEntity<string>
             PlantId = plantId,
             RequestedDate = requestedDate,
             Status = status,
+            IsHeld = isHeld,
             ShippedDate = shippedDate,
             Remark = remark
         };
@@ -81,6 +84,8 @@ public sealed class DeliveryOrder : AuditableEntity<string>
     {
         if (Status != DeliveryOrderStatus.Draft)
             return Result.Failure(Error.Conflict("Delivery order can only be confirmed from Draft status."));
+        if (IsHeld)
+            return Result.Failure(Error.Conflict("Held delivery order cannot be confirmed."));
 
         Status = DeliveryOrderStatus.Confirmed;
         UpdatedAt = DateTime.UtcNow;
@@ -94,6 +99,8 @@ public sealed class DeliveryOrder : AuditableEntity<string>
     {
         if (Status != DeliveryOrderStatus.Confirmed)
             return Result.Failure(Error.Conflict("Delivery order can only be shipped from Confirmed status."));
+        if (IsHeld)
+            return Result.Failure(Error.Conflict("Held delivery order cannot be shipped."));
 
         Status = DeliveryOrderStatus.Shipped;
         ShippedDate = shippedDate;
@@ -112,6 +119,26 @@ public sealed class DeliveryOrder : AuditableEntity<string>
         UpdatedAt = DateTime.UtcNow;
         // ADR-002: 취소를 도메인 이벤트로 발행한다. 리포가 취소(UPDATE)와 동일 트랜잭션에 outbox로 기록한다(opt-in).
         RaiseDomainEvent(new DeliveryOrderCancelledDomainEvent(Id));
+        return Result.Success();
+    }
+
+    public Result Hold()
+    {
+        if (Status is not (DeliveryOrderStatus.Draft or DeliveryOrderStatus.Confirmed) || IsHeld)
+            return Result.Failure(Error.Conflict("Delivery order cannot be held in its current state."));
+        IsHeld = true;
+        UpdatedAt = DateTime.UtcNow;
+        RaiseDomainEvent(new DeliveryOrderHeldDomainEvent(Id));
+        return Result.Success();
+    }
+
+    public Result ReleaseHold()
+    {
+        if (Status is not (DeliveryOrderStatus.Draft or DeliveryOrderStatus.Confirmed) || !IsHeld)
+            return Result.Failure(Error.Conflict("Delivery order cannot be released from hold in its current state."));
+        IsHeld = false;
+        UpdatedAt = DateTime.UtcNow;
+        RaiseDomainEvent(new DeliveryOrderHoldReleasedDomainEvent(Id));
         return Result.Success();
     }
 }
