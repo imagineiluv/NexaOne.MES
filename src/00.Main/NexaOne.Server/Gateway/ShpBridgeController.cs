@@ -8,7 +8,7 @@ using NexaOne.ServiceContracts.Shp;
 namespace NexaOne.Server.Gateway;
 
 /// <summary>통합 호스트 SHP 출하 엔드포인트(ADR-008 얇은 브리지). plugin-ALC ShpService를 IShipmentBridge로 호출한다.
-/// 쓰기(생성/확정/출하/취소)는 shp:manage 수동 검사. Result→HTTP(BridgeResultExtensions). (modules ON에서만 동작.)</summary>
+/// 쓰기(생성/확정/출하/취소/보류/해제)는 shp:manage 권한을 요구한다. Result→HTTP(BridgeResultExtensions). (modules ON에서만 동작.)</summary>
 [ApiController]
 [Route("api/v1/shp")]
 [Authorize]
@@ -64,6 +64,21 @@ public sealed class ShpBridgeController : ControllerBase
         return (await _bridge.CancelOrderAsync(orderId, ct)).ToActionResult();
     }
 
+    [HttpPost("orders/{orderId}/hold")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.ShpManage)]
+    public async Task<IActionResult> HoldOrder(string orderId, CancellationToken ct)
+        => (await _bridge.HoldOrderAsync(orderId, ct)).ToActionResult();
+
+    [HttpPost("orders/{orderId}/release-hold")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [RequirePermission(Permissions.ShpManage)]
+    public async Task<IActionResult> ReleaseOrderHold(string orderId, CancellationToken ct)
+        => (await _bridge.ReleaseOrderHoldAsync(orderId, ct)).ToActionResult();
 }
 
 public record CreateDeliveryOrderRequest(string OrderId, string CustomerName, string PlantId, DateTime RequestedDate);

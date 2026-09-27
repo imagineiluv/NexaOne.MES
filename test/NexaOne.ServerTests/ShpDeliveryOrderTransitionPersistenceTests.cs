@@ -81,8 +81,8 @@ public sealed class ShpDeliveryOrderTransitionPersistenceTests
         confirmation.Confirm().IsSuccess.Should().BeTrue();
         cancellation.Cancel().IsSuccess.Should().BeTrue();
 
-        (await repo.TryUpdateAsync(confirmation, DeliveryOrderStatus.Draft)).Should().BeTrue();
-        (await repo.TryUpdateAsync(cancellation, DeliveryOrderStatus.Draft)).Should().BeFalse();
+        (await repo.TryUpdateAsync(confirmation, DeliveryOrderStatus.Draft, false)).Should().BeTrue();
+        (await repo.TryUpdateAsync(cancellation, DeliveryOrderStatus.Draft, false)).Should().BeFalse();
 
         (await repo.GetByIdAsync(id))!.Status.Should().Be(DeliveryOrderStatus.Confirmed);
         CountOutbox(id).Should().Be(1, "only the winning transition may emit an event");
@@ -101,17 +101,46 @@ public sealed class ShpDeliveryOrderTransitionPersistenceTests
         var cancellation = (await repo.GetByIdAsync(id))!;
         shipment.Confirm().IsSuccess.Should().BeTrue();
         cancellation.Confirm().IsSuccess.Should().BeTrue();
-        (await repo.TryUpdateAsync(shipment, DeliveryOrderStatus.Draft)).Should().BeTrue();
+        (await repo.TryUpdateAsync(shipment, DeliveryOrderStatus.Draft, false)).Should().BeTrue();
 
         var shippedDate = DateTime.UtcNow;
         shipment.Ship(shippedDate).IsSuccess.Should().BeTrue();
         cancellation.Cancel().IsSuccess.Should().BeTrue();
-        (await repo.TryUpdateAsync(cancellation, DeliveryOrderStatus.Confirmed)).Should().BeTrue();
-        (await repo.TryUpdateAsync(shipment, DeliveryOrderStatus.Confirmed)).Should().BeFalse();
+        (await repo.TryUpdateAsync(cancellation, DeliveryOrderStatus.Confirmed, false)).Should().BeTrue();
+        (await repo.TryUpdateAsync(shipment, DeliveryOrderStatus.Confirmed, false)).Should().BeFalse();
 
         var persisted = (await repo.GetByIdAsync(id))!;
         persisted.Status.Should().Be(DeliveryOrderStatus.Cancelled);
         persisted.ShippedDate.Should().BeNull();
         CountOutbox(id).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Hold_prevents_stale_confirmation_and_release_restores_progression()
+    {
+        var repo = Repository(outboxEnabled: true);
+        var id = $"SHPHOLD_{Guid.NewGuid():N}";
+        await repo.AddAsync(DeliveryOrder.Create(id, "Customer", "PLANT01", DateTime.UtcNow).Value);
+
+        var hold = (await repo.GetByIdAsync(id))!;
+        var staleConfirmation = (await repo.GetByIdAsync(id))!;
+        hold.Hold().IsSuccess.Should().BeTrue();
+        staleConfirmation.Confirm().IsSuccess.Should().BeTrue();
+        (await repo.TryUpdateAsync(hold, DeliveryOrderStatus.Draft, false)).Should().BeTrue();
+        (await repo.TryUpdateAsync(staleConfirmation, DeliveryOrderStatus.Draft, false)).Should().BeFalse();
+
+        var persisted = (await repo.GetByIdAsync(id))!;
+        persisted.IsHeld.Should().BeTrue();
+        persisted.Status.Should().Be(DeliveryOrderStatus.Draft);
+        persisted.Confirm().IsFailure.Should().BeTrue();
+        CountOutbox(id).Should().Be(1);
+
+        persisted.ReleaseHold().IsSuccess.Should().BeTrue();
+        (await repo.TryUpdateAsync(persisted, DeliveryOrderStatus.Draft, true)).Should().BeTrue();
+        var released = (await repo.GetByIdAsync(id))!;
+        released.IsHeld.Should().BeFalse();
+        released.Confirm().IsSuccess.Should().BeTrue();
+        (await repo.TryUpdateAsync(released, DeliveryOrderStatus.Draft, false)).Should().BeTrue();
+        CountOutbox(id).Should().Be(3);
     }
 }
