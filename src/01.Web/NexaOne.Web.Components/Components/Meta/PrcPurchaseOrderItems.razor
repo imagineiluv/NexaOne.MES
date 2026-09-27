@@ -1,0 +1,115 @@
+@implements IDisposable
+
+<section class="prc-items" aria-label="발주 품목">
+    <div class="prc-items-head">
+        <div>
+            <h2>발주 품목</h2>
+            @if (!string.IsNullOrWhiteSpace(PurchaseOrderId))
+            {
+                <p>발주 <code>@PurchaseOrderId</code>의 품목과 발주수량을 관리합니다.</p>
+            }
+        </div>
+        @if (_items is not null)
+        {
+            <span class="prc-items-total">합계 @_items.Sum(item => item.OrderQuantity).ToString("N4")</span>
+        }
+    </div>
+
+    @if (string.IsNullOrWhiteSpace(PurchaseOrderId))
+    {
+        <p class="prc-items-empty">위 목록에서 발주를 선택하면 품목을 확인할 수 있습니다.</p>
+    }
+    else
+    {
+        @if (!CanEdit)
+        {
+            <p class="prc-items-note" role="note">@ReadOnlyReason</p>
+        }
+        @if (_actionError is not null)
+        {
+            <p class="prc-items-error" role="alert">@_actionError</p>
+        }
+        @if (_loadError is not null)
+        {
+            <div class="prc-items-error" role="alert">
+                <span>@_loadError</span>
+                <button type="button" @onclick="LoadAsync" disabled="@(_loading || _busy)">품목 다시 조회</button>
+            </div>
+        }
+        else if (_loading)
+        {
+            <p class="prc-items-empty" role="status">품목을 불러오는 중입니다…</p>
+        }
+        else if (_items is { Count: 0 })
+        {
+            <p class="prc-items-empty">등록된 품목이 없습니다.@(CanEdit ? " 아래에서 품목을 추가하세요." : "")</p>
+        }
+        else if (_items is not null)
+        {
+            <div class="prc-items-table-wrap">
+                <table>
+                    <thead><tr><th scope="col">품목 ID</th><th scope="col">발주수량</th><th scope="col">입고수량</th><th scope="col">작업</th></tr></thead>
+                    <tbody>
+                    @foreach (var item in _items)
+                    {
+                        <tr>
+                            <th scope="row"><code>@item.ProductId</code></th>
+                            <td>@item.OrderQuantity.ToString("N4")</td>
+                            <td>@item.IncomingQuantity.ToString("N4")</td>
+                            <td>
+                                @if (CanEdit && item.IncomingQuantity == 0)
+                                {
+                                    <div class="prc-items-row-actions">
+                                        <button type="button" disabled="@_busy" @onclick="() => BeginEdit(item)">수량 수정</button>
+                                        <button type="button" class="prc-items-delete" disabled="@_busy" @onclick="() => RequestDelete(item.ProductId)">품목 삭제</button>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <span class="prc-items-muted">@(item.IncomingQuantity > 0 ? "입고 기록으로 잠김" : "읽기 전용")</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        @if (_deleteProductId is not null)
+        {
+            <div class="prc-items-confirm" role="group" aria-label="품목 삭제 확인">
+                <span><code>@_deleteProductId</code> 품목을 삭제하시겠습니까?</span>
+                <button type="button" class="prc-items-delete" disabled="@_busy" @onclick="DeleteAsync">삭제 실행</button>
+                <button type="button" disabled="@_busy" @onclick="CancelDelete">취소</button>
+            </div>
+        }
+
+        @if (CanEdit)
+        {
+            <div class="prc-items-editor">
+                <h3>@(_editingExisting ? "품목 수량 수정" : "품목 추가")</h3>
+                <div class="prc-items-fields">
+                    <label>품목 ID
+                        <input type="text" maxlength="50" @bind="_productId" disabled="@(_busy || _editingExisting)" autocomplete="off" />
+                    </label>
+                    <label>발주수량
+                        <input type="number" min="0.0001" max="99999999999999.9999" step="0.0001" inputmode="decimal"
+                               @bind="_quantityText" disabled="@_busy" />
+                    </label>
+                    <button type="button" class="prc-items-save" disabled="@(_busy || _loading)" @onclick="SaveAsync">
+                        @(_busy ? "저장 중…" : _editingExisting ? "수량 저장" : "품목 추가")
+                    </button>
+                    @if (_editingExisting)
+                    {
+                        <button type="button" disabled="@_busy" @onclick="CancelEdit">수정 취소</button>
+                    }
+                </div>
+                @if (_fieldError is not null)
+                {
+                    <p class="prc-items-error" role="alert">@_fieldError</p>
+                }
+            </div>
+        }
+    }
+</section>
