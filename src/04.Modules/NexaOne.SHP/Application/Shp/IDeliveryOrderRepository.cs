@@ -8,5 +8,6 @@ public interface IDeliveryOrderRepository
     Task<IReadOnlyList<DeliveryOrder>> GetByPlantAsync(string plantId, DateTime? from, DateTime? to, CancellationToken ct = default);
     Task<int> GetCountByStatusAsync(string status, CancellationToken ct = default);
     Task AddAsync(DeliveryOrder order, CancellationToken ct = default);
-    Task UpdateAsync(DeliveryOrder order, CancellationToken ct = default);
+    Task<bool> TryUpdateAsync(DeliveryOrder order, DeliveryOrderStatus expectedStatus,
+        CancellationToken ct = default);
 }
