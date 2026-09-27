@@ -79,6 +79,40 @@ public sealed class MssqlMaterialLotSplitContractTests(ITestOutputHelper output)
         (await Service().GetChildrenAsync(parentId, "S_NOT_FOUND"))
             .Error.Code.Should().Be("IVT_SPLIT_CURSOR_INVALID");
 
+        var grandchild = command with
+        {
+            SplitId = $"S3_{suffix}", IdempotencyKey = $"S3:{suffix}",
+            SourceEventId = $"S3:{suffix}", ParentLotId = childId,
+            ChildLotId = $"GC_{suffix}", ExpectedParentVersion = 1, Quantity = 1m,
+        };
+        (await Service().SplitAsync(grandchild)).IsSuccess.Should().BeTrue();
+        await database.ExecuteAsync("""
+            UPDATE IVT_MATERIAL_LOT_SPLIT SET CREATED_AT=@createdAt
+             WHERE SPLIT_ID IN (@firstId, @secondId, @grandchildId)
+            """, new
+        {
+            createdAt = occurredAt,
+            firstId = command.SplitId,
+            secondId = sibling.SplitId,
+            grandchildId = grandchild.SplitId,
+        });
+        var descendant1 = await Service().GetDescendantsAsync(parentId, limit: 1);
+        var descendant2 = await Service().GetDescendantsAsync(
+            parentId, descendant1.Value.NextAfterSplitId, 1);
+        var descendant3 = await Service().GetDescendantsAsync(
+            parentId, descendant2.Value.NextAfterSplitId, 1);
+        descendant1.IsSuccess.Should().BeTrue(descendant1.IsFailure ? descendant1.Error.Description : string.Empty);
+        descendant2.IsSuccess.Should().BeTrue(descendant2.IsFailure ? descendant2.Error.Description : string.Empty);
+        descendant3.IsSuccess.Should().BeTrue(descendant3.IsFailure ? descendant3.Error.Description : string.Empty);
+        new[] { descendant1, descendant2, descendant3 }
+            .Select(page => page.Value.Items.Single().Origin.SplitId)
+            .Should().Equal(sibling.SplitId, grandchild.SplitId, command.SplitId);
+        new[] { descendant1, descendant2, descendant3 }
+            .Select(page => page.Value.Items.Single().Depth).Should().Equal(1, 2, 1);
+        descendant3.Value.NextAfterSplitId.Should().BeNull();
+        (await Service().GetDescendantsAsync(parentId, "S_NOT_FOUND"))
+            .Error.Code.Should().Be("IVT_SPLIT_CURSOR_INVALID");
+
         var rollbackParent = $"RP_{suffix}";
         var rollbackChild = $"RC_{suffix}";
         (await new MaterialLotService(new MaterialLotRepository(database.DataSource))

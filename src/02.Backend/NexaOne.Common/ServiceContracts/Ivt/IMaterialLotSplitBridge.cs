@@ -17,6 +17,13 @@ public interface IMaterialLotSplitBridge : INexaModuleBridge
     Task<Result<MaterialLotSplitChildrenPage>> GetChildrenAsync(
         string parentLotId, string? afterSplitId = null, int limit = 50,
         CancellationToken ct = default);
+
+    /// <summary>Returns split edges at every depth below a root LOT, ordered by
+    /// creation time and split ID. The cursor is scoped to this root and is not
+    /// an as-of snapshot across requests. Traversal is limited to 10,000 edges.</summary>
+    Task<Result<MaterialLotSplitDescendantsPage>> GetDescendantsAsync(
+        string rootLotId, string? afterSplitId = null, int limit = 50,
+        CancellationToken ct = default);
 }
 
 public sealed record MaterialLotSplitCommand(
@@ -63,4 +70,12 @@ public sealed record MaterialLotSplitOriginDto(
 
 public sealed record MaterialLotSplitChildrenPage(
     IReadOnlyList<MaterialLotSplitOriginDto> Items,
+    string? NextAfterSplitId);
+
+public sealed record MaterialLotSplitDescendantDto(
+    MaterialLotSplitOriginDto Origin,
+    int Depth);
+
+public sealed record MaterialLotSplitDescendantsPage(
+    IReadOnlyList<MaterialLotSplitDescendantDto> Items,
     string? NextAfterSplitId);
