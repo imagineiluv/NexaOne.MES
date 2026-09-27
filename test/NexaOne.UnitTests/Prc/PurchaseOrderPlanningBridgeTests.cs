@@ -1,10 +1,12 @@
 using System.Data;
 using System.Data.Common;
 using Microsoft.Data.Sqlite;
+using Moq;
 using NexaDB.Data.Abstractions.Interfaces;
 using NexaDB.Data.Abstractions.Models;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Prc;
+using NexaOne.ServiceContracts.Mdm;
 using NexaOne.UnitTests.TestInfrastructure;
 
 namespace NexaOne.UnitTests.Prc;
@@ -41,7 +43,7 @@ public sealed class PurchaseOrderPlanningBridgeTests
             {
                 Provider = new SqliteTestDatabaseProvider(),
                 ConnectionString = connectionString,
-            }).GetPurchaseOrderPlanningBridge();
+            }, new Mock<IBusinessMasterDirectory>().Object).GetPurchaseOrderPlanningBridge();
             var request = Request();
 
             (await bridge.EnsureMrpPurchaseOrderAsync(request)).Created.Should().BeTrue();
@@ -101,7 +103,7 @@ public sealed class PurchaseOrderPlanningBridgeTests
             {
                 Provider = new SqliteTestDatabaseProvider(),
                 ConnectionString = connectionString,
-            }).GetPurchaseOrderPlanningBridge();
+            }, new Mock<IBusinessMasterDirectory>().Object).GetPurchaseOrderPlanningBridge();
 
             var act = () => bridge.EnsureMrpPurchaseOrderAsync(Request());
             await act.Should().ThrowAsync<SqliteException>();
@@ -145,7 +147,7 @@ public sealed class PurchaseOrderPlanningBridgeTests
         {
             Provider = new SqliteTestDatabaseProvider(),
             ConnectionString = "Data Source=:memory:",
-        }).GetPurchaseItemSqliteSchemaContribution();
+        }, new Mock<IBusinessMasterDirectory>().Object).GetPurchaseItemSqliteSchemaContribution();
 
         using (var transaction = connection.BeginTransaction())
         {
@@ -322,7 +324,8 @@ public sealed class PurchaseOrderPlanningBridgeTests
                 Provider = provider,
                 ConnectionString = ConnectionString,
             };
-            return new NexaOne.PRC.Module(dataSource).GetPurchaseOrderPlanningBridge();
+            return new NexaOne.PRC.Module(dataSource,
+                new Mock<IBusinessMasterDirectory>().Object).GetPurchaseOrderPlanningBridge();
         }
 
         public void Dispose()

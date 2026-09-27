@@ -17,7 +17,9 @@ public sealed class MssqlPrcPurchaseItemContractTests(ITestOutputHelper output)
 
         var id = $"PRCL_{Guid.NewGuid():N}";
         var product = $"MAT_{Guid.NewGuid():N}"[..20];
-        var bridge = new NexaOne.PRC.Module(database.DataSource).GetPurchaseOrderPlanningBridge();
+        var bridge = new NexaOne.PRC.Module(database.DataSource,
+            new NexaOne.MDM.Infrastructure.BusinessMasterDirectory(database.DataSource))
+            .GetPurchaseOrderPlanningBridge();
         var request = new MrpPurchaseOrderRequest(
             id, "PLANT01", "contract purchase", DateTime.UtcNow,
             DateTime.UtcNow.AddDays(7), 12m, product, "MRP contract", "prc-contract");
