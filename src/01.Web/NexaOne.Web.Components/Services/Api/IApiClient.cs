@@ -68,7 +68,7 @@ public interface IApiClient
     Task<SlsSalesOrderActionResult> ExecuteSlsSalesOrderActionAsync(
         string action, string salesOrderId, CancellationToken ct = default);
 
-    // PRC 발주·마감 전이는 JWT 권한과 PRC 모듈의 상태 가드를 거친다.
+    // PRC 발주·취소·마감 전이는 JWT 권한과 PRC 모듈의 상태 가드를 거친다.
     Task<PrcPurchaseOrderActionResult> SavePrcPurchaseOrderDraftAsync(
         PrcPurchaseOrderDraftRequest request, CancellationToken ct = default);
     Task<PrcPurchaseOrderActionResult> ExecutePrcPurchaseOrderActionAsync(

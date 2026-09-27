@@ -1272,6 +1272,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             BulkCommands: new BulkCommandDefinition[]
             {
                 new("발주", PrcPurchaseOrderMetaCommands.Order),  // 품목 1건 이상·미보류 Draft→Ordered
+                new("발주취소", PrcPurchaseOrderMetaCommands.Cancel,
+                    "선택한 발주를 취소하시겠습니까? 취소 후 다시 발주할 수 없습니다."),
                 new("마감", PrcPurchaseOrderMetaCommands.Close),  // 미보류 Incoming·전 품목 입고 완료→Closed
             }));
         Register(new ScreenDefinition("FACTORY_PRC_REPORT_PURCHASEORDER", "구매오더 현황",

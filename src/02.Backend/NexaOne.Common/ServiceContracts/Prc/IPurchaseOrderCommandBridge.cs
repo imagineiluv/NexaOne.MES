@@ -14,6 +14,9 @@ public interface IPurchaseOrderCommandBridge : INexaModuleBridge
     Task<Result<PurchaseOrderCommandState>> OrderAsync(
         string? purchaseOrderId, string? actorId, CancellationToken ct = default);
 
+    Task<Result<PurchaseOrderCommandState>> CancelAsync(
+        string? purchaseOrderId, string? actorId, CancellationToken ct = default);
+
     Task<Result<PurchaseOrderCommandState>> CloseAsync(
         string? purchaseOrderId, string? actorId, CancellationToken ct = default);
 }

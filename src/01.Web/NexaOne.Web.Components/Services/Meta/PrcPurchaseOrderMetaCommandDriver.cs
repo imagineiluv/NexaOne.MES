@@ -8,9 +8,10 @@ public static class PrcPurchaseOrderMetaCommands
     public const string Save = "bridge:prc.purchase-order.save";
     public const string Delete = "bridge:prc.purchase-order.delete";
     public const string Order = "bridge:prc.purchase-order.order";
+    public const string Cancel = "bridge:prc.purchase-order.cancel";
     public const string Close = "bridge:prc.purchase-order.close";
 
-    public static IReadOnlyList<string> All { get; } = [Save, Delete, Order, Close];
+    public static IReadOnlyList<string> All { get; } = [Save, Delete, Order, Cancel, Close];
 }
 
 /// <summary>Purchase-order forms and selected rows call PRC-owned commands, not host SQL.</summary>
@@ -42,7 +43,10 @@ public sealed class PrcPurchaseOrderMetaCommandDriver(IApiClient api) : IMetaCom
         var status = Value(parameters, "status", "STATUS");
         var held = Value(parameters, "isHold", "IS_HOLD") is "Y" or "y" or "true" or "True";
         var expectedStatus = canonical == PrcPurchaseOrderMetaCommands.Close ? "Incoming" : "Draft";
-        if (held || status is not null && status != expectedStatus)
+        var allowedStatus = canonical == PrcPurchaseOrderMetaCommands.Cancel
+            ? status is "Draft" or "Ordered"
+            : status is null || status == expectedStatus;
+        if (!allowedStatus || held && canonical != PrcPurchaseOrderMetaCommands.Cancel)
             return MetaCommandAvailability.Disabled("현재 상태 또는 보류 상태에서는 실행할 수 없습니다.");
         if (canonical == PrcPurchaseOrderMetaCommands.Save)
         {
@@ -78,7 +82,9 @@ public sealed class PrcPurchaseOrderMetaCommandDriver(IApiClient api) : IMetaCom
             var action = commandId.Equals(PrcPurchaseOrderMetaCommands.Delete, StringComparison.OrdinalIgnoreCase)
                 ? "delete"
                 : commandId.Equals(PrcPurchaseOrderMetaCommands.Order, StringComparison.OrdinalIgnoreCase)
-                    ? "order" : "close";
+                    ? "order"
+                    : commandId.Equals(PrcPurchaseOrderMetaCommands.Cancel, StringComparison.OrdinalIgnoreCase)
+                        ? "cancel" : "close";
             result = await api.ExecutePrcPurchaseOrderActionAsync(
                 action, Value(parameters, "purchaseOrderId", "PURCHASE_ORDER_ID")!.Trim(), ct);
         }

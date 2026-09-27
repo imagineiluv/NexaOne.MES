@@ -42,6 +42,15 @@ public sealed class PurchaseOrderCommandController(IPurchaseOrderCommandBridge b
         return (await bridge.OrderAsync(purchaseOrderId, actor, ct)).ToActionResult();
     }
 
+    [HttpPost("{purchaseOrderId}/cancel")]
+    [RequirePermission(Permissions.PrcManage)]
+    public async Task<IActionResult> Cancel(string purchaseOrderId, CancellationToken ct)
+    {
+        var actor = User.CurrentUserId();
+        if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
+        return (await bridge.CancelAsync(purchaseOrderId, actor, ct)).ToActionResult();
+    }
+
     [HttpPost("{purchaseOrderId}/close")]
     [RequirePermission(Permissions.PrcManage)]
     public async Task<IActionResult> Close(string purchaseOrderId, CancellationToken ct)

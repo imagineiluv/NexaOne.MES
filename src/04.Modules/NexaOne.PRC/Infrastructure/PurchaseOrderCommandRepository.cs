@@ -113,6 +113,17 @@ internal sealed class PurchaseOrderCommandRepository(EesDataSource dataSource)
                AND EXISTS (SELECT 1 FROM PRC_PURCHASE_ITEM WHERE PURCHASE_ORDER_ID=@purchaseOrderId)
             """, purchaseOrderId, actorId, ct);
 
+    public Task<PurchaseOrderCommandOutcome> TryCancelAsync(
+        string purchaseOrderId, string actorId, CancellationToken ct) => ChangeAsync("""
+            UPDATE PRC_PURCHASE_ORDER
+               SET STATUS='Cancelled', IS_HOLD='N', UPDATED_BY=@actorId, UPDATED_AT=@now
+             WHERE PURCHASE_ORDER_ID=@purchaseOrderId AND STATUS IN ('Draft','Ordered')
+               AND NOT EXISTS (
+                   SELECT 1 FROM PRC_PURCHASE_ITEM
+                    WHERE PURCHASE_ORDER_ID=@purchaseOrderId AND INCOMING_QTY>0
+               )
+            """, purchaseOrderId, actorId, ct);
+
     public Task<PurchaseOrderCommandOutcome> TryCloseAsync(
         string purchaseOrderId, string actorId, CancellationToken ct) => ChangeAsync("""
             UPDATE PRC_PURCHASE_ORDER
