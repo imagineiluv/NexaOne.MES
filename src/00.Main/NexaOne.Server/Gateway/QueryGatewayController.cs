@@ -144,7 +144,9 @@ public sealed partial class QueryGatewayController : ControllerBase
         System.Text.Json.JsonElement je => je.ValueKind switch
         {
             System.Text.Json.JsonValueKind.String => je.GetString(),
-            System.Text.Json.JsonValueKind.Number => je.TryGetInt64(out var l) ? l : je.GetDecimal(),
+            // 조건식의 공통 numeric 타입 승격(long → decimal)을 막는다. SQLite는 decimal을
+            // 문자열로 바인딩해 BETWEEN 같은 정수 가드를 조용히 0행으로 만들 수 있다.
+            System.Text.Json.JsonValueKind.Number => je.TryGetInt64(out var l) ? (object)l : je.GetDecimal(),
             System.Text.Json.JsonValueKind.True => true,
             System.Text.Json.JsonValueKind.False => false,
             System.Text.Json.JsonValueKind.Null => null,

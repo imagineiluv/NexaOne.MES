@@ -31,7 +31,6 @@ public static class SeedScreenPurposeDecisions
         "FACTORY_COM_ALARM_DEF",
         "FACTORY_COM_CODE_CLASS",
         "FACTORY_COM_CODE_CODE",
-        "FACTORY_COM_CODE_ID_DEFINITION",
         "FACTORY_COM_CODE_STATE",
         "FACTORY_COM_CODE_STATE_MODEL",
         "FACTORY_COM_CODE_STATE_TRANSITION",

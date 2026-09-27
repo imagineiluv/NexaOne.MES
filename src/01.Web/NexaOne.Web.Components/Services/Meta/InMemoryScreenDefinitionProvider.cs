@@ -2438,8 +2438,20 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
         Register(new ScreenDefinition("FACTORY_COM_CODE_STATE_TRANSITION", "상태 관리", Array.Empty<FieldDefinition>(), comStateCols, QueryId: "COM.StateList"));
         Register(new ScreenDefinition("FACTORY_COM_LABEL", "라벨 관리", Array.Empty<FieldDefinition>(),
             new GridColumnDefinition[] { new("LABEL_ID", "라벨 ID"), new("LABEL_NAME", "라벨명"), new("LABEL_TYPE", "유형"), new("IS_ACTIVE", "활성") }, QueryId: "COM.LabelList"));
-        Register(new ScreenDefinition("FACTORY_COM_CODE_ID_DEFINITION", "ID 채번 관리", Array.Empty<FieldDefinition>(),
-            new GridColumnDefinition[] { new("RULE_ID", "규칙 ID"), new("RULE_NAME", "규칙명"), new("PREFIX", "접두"), new("SEQ_LENGTH", "자릿수"), new("CURRENT_SEQ", "현재값"), new("RESET_CYCLE", "리셋주기"), new("DESCRIPTION", "설명") }, QueryId: "COM.IdRuleList"));
+        Register(new ScreenDefinition("FACTORY_COM_CODE_ID_DEFINITION", "ID 채번 관리",
+            new FieldDefinition[]
+            {
+                new("ruleId", "규칙 ID (등록 후 변경 불가)", Required: true),
+                new("ruleName", "규칙명", Required: true),
+                new("prefix", "접두어 (주기 리셋 시 {period} 필수; 등록 후 변경 불가)"),
+                new("seqLength", "자릿수 (등록 후 변경 불가)", FieldType.Select, Required: true,
+                    Options: new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10" }),
+                new("resetCycle", "리셋주기 (등록 후 변경 불가)", FieldType.Select,
+                    Options: new[] { "NEVER", "DAILY", "MONTHLY", "YEARLY" }),
+                new("description", "설명"),
+            },
+            new GridColumnDefinition[] { new("RULE_ID", "규칙 ID"), new("RULE_NAME", "규칙명"), new("PREFIX", "접두"), new("SEQ_LENGTH", "자릿수"), new("CURRENT_SEQ", "현재값"), new("RESET_CYCLE", "리셋주기"), new("DESCRIPTION", "설명") },
+            QueryId: "COM.IdRuleList", SaveQueryId: "COM.SaveIdRule", Purpose: ScreenPurpose.Manage));
 
         // canonical 코드 시드를 모두 모은 뒤 기능 계약 기반 목적 결정을 한 번만 적용한다.
         // 이후 등록하는 legacy alias는 같은 결정이 적용된 정의 인스턴스를 공유한다.

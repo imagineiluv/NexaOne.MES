@@ -88,9 +88,9 @@ public sealed class ScreenPurposeMigrationAuditTests(ITestOutputHelper output)
             .DistinctBy(definition => definition.UiId, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        SeedScreenPurposeDecisions.ExplicitDecisions.Should().HaveCount(158);
+        SeedScreenPurposeDecisions.ExplicitDecisions.Should().HaveCount(157);
         SeedScreenPurposeDecisions.ExplicitDecisions.Values
-            .Count(purpose => purpose == ScreenPurpose.Inquiry).Should().Be(150);
+            .Count(purpose => purpose == ScreenPurpose.Inquiry).Should().Be(149);
         SeedScreenPurposeDecisions.ExplicitDecisions.Values
             .Count(purpose => purpose == ScreenPurpose.Manage).Should().Be(8);
 

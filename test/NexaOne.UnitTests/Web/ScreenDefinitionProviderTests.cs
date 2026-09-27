@@ -224,6 +224,19 @@ public sealed class ScreenDefinitionProviderTests
     }
 
     [Fact]
+    public void Id_rule_management_can_save_but_cannot_delete_issued_rules()
+    {
+        var definition = new InMemoryScreenDefinitionProvider().Get("FACTORY_COM_CODE_ID_DEFINITION");
+
+        definition.Should().NotBeNull();
+        definition!.Purpose.Should().Be(ScreenPurpose.Manage);
+        definition.SaveQueryId.Should().Be("COM.SaveIdRule");
+        definition.DeleteQueryId.Should().BeNull();
+        definition.Fields.Should().Contain(field => field.Key == "prefix" && !field.ReadOnly);
+        ScreenDefinitionCapabilityValidator.Validate(definition).Should().BeEmpty();
+    }
+
+    [Fact]
     public void Routing_step_requires_process_mapping_for_serial_work_order_route_expansion()
     {
         var definition = new InMemoryScreenDefinitionProvider().Get("FACTORY_STD_ROUTING_STEP");
@@ -456,9 +469,9 @@ public sealed class ScreenDefinitionProviderTests
             "legacy alias는 원본 ScreenDefinition을 공유하므로 canonical 화면 수에는 중복되면 안 된다");
 
         definitions.Count(definition => definition.Purpose == ScreenPurpose.Auto).Should().Be(2);
-        definitions.Count(definition => definition.Purpose == ScreenPurpose.Inquiry).Should().Be(177);
+        definitions.Count(definition => definition.Purpose == ScreenPurpose.Inquiry).Should().Be(176);
         definitions.Count(definition => definition.Purpose == ScreenPurpose.Report).Should().Be(53);
-        definitions.Count(definition => definition.Purpose == ScreenPurpose.Manage).Should().Be(29);
+        definitions.Count(definition => definition.Purpose == ScreenPurpose.Manage).Should().Be(30);
         definitions.Count(definition => definition.Purpose == ScreenPurpose.Register).Should().Be(8);
         definitions.Count(definition => definition.Purpose == ScreenPurpose.Execute).Should().Be(1);
     }
