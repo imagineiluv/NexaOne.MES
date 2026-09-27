@@ -12,6 +12,7 @@ using Microsoft.Data.Sqlite;
 using NexaFramework.Service;
 using NexaFramework.Service.Erp;
 using NexaOne.ERP.Infrastructure;
+using NexaOne.Infrastructure.Persistence;
 using NexaOne.MDM.Infrastructure;
 using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Erp;
@@ -276,6 +277,46 @@ public sealed class BillingHostTests(ITestOutputHelper output)
 [Collection(MssqlContractDatabase.CollectionName)]
 public sealed class BillingMssqlTests(ITestOutputHelper output)
 {
+    [StockMssqlFact]
+    public async Task Actual_SQL_Server_response_loss_after_commit_replays_without_another_number_or_audit()
+    {
+        var h = await Harness.CreateAsync(output);
+        var contact = await h.Bridge.EnrollContactAsync(h.Seed.User, h.Tenant, h.Organization, h.Seed.Customer);
+        var input = new BillingDocumentInput(contact.Id, new(2026, 9, 22), new(2026, 10, 22), "KRW",
+            [new("Lost response", 7m, 2m)]);
+        var operation = Guid.NewGuid();
+        var auditBefore = await h.Count("ERP_BILLING_AUDIT");
+        var provider = new AfterCommitResponseLossProvider(h.Database.DataSource.Provider);
+        var faultingSource = new EesDataSource
+        {
+            Provider = provider,
+            ConnectionString = h.Database.ConnectionString,
+            QueryGatewayOptions = h.Database.DataSource.QueryGatewayOptions
+        };
+        var bridge = new BillingBridge(faultingSource,
+            new BusinessMembershipBridge(h.Database.DataSource), new BusinessMasterDirectory(h.Database.DataSource));
+
+        (await Assert.ThrowsAsync<IOException>(() => bridge.CreateDocumentAsync(h.Seed.User,
+            h.Tenant, h.Organization, operation, BillingKind.Invoice, input))).Message.Should().Contain("response loss");
+        provider.CallbackCount.Should().Be(1);
+        (await h.Count("ERP_BILLING_NUMBER")).Should().Be(1);
+        (await h.Count("ERP_BILLING_DOCUMENT")).Should().Be(1);
+        (await h.Count("ERP_BILLING_LINE")).Should().Be(1);
+        (await h.Count("ERP_BILLING_AUDIT")).Should().Be(auditBefore + 1);
+
+        var recovered = await h.Bridge.CreateDocumentAsync(h.Seed.User, h.Tenant, h.Organization,
+            operation, BillingKind.Invoice, input);
+        recovered.Number.Should().Be(1);
+        (await h.Count("ERP_BILLING_NUMBER")).Should().Be(1);
+        (await h.Database.ScalarAsync<long>("""
+            SELECT NEXT_NUMBER FROM ERP_BILLING_NUMBER
+             WHERE TENANT_ID=@tenant AND ORGANIZATION_ID=@organization AND KIND=1
+            """, h.Scope)).Should().Be(1);
+        (await h.Count("ERP_BILLING_DOCUMENT")).Should().Be(1);
+        (await h.Count("ERP_BILLING_LINE")).Should().Be(1);
+        (await h.Count("ERP_BILLING_AUDIT")).Should().Be(auditBefore + 1);
+    }
+
     [StockMssqlFact]
     public async Task Actual_SQL_Server_audit_failure_rolls_back_billing_number_document_and_lines_and_allows_same_operation_retry()
     {

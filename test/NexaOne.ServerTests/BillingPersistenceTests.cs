@@ -352,6 +352,36 @@ public sealed class BillingPersistenceTests : IClassFixture<BusinessMembershipDa
     }
 
     [Fact]
+    public async Task Response_loss_after_commit_replays_the_document_without_issuing_another_number_or_audit()
+    {
+        var contact = await Contact();
+        var input = Input(contact.Id);
+        var operation = Guid.NewGuid();
+        var auditBefore = Count("ERP_BILLING_AUDIT");
+        var provider = new AfterCommitResponseLossProvider(new SqliteProvider());
+        var faultingSource = new EesDataSource { Provider = provider, ConnectionString = _connectionString };
+        var bridge = new BillingBridge(faultingSource,
+            new BusinessMembershipBridge(DataSource()), new BusinessMasterDirectory(DataSource()));
+
+        (await Assert.ThrowsAsync<IOException>(() => bridge.CreateDocumentAsync("bill-user", _tenant,
+            _organization, operation, BillingKind.Invoice, input))).Message.Should().Contain("response loss");
+        provider.CallbackCount.Should().Be(1);
+        Count("ERP_BILLING_NUMBER").Should().Be(1);
+        Count("ERP_BILLING_DOCUMENT").Should().Be(1);
+        Count("ERP_BILLING_LINE").Should().Be(1);
+        Count("ERP_BILLING_AUDIT").Should().Be(auditBefore + 1);
+
+        var recovered = await NewBridge().CreateDocumentAsync("bill-user", _tenant, _organization,
+            operation, BillingKind.Invoice, input);
+        recovered.Number.Should().Be(1);
+        Count("ERP_BILLING_NUMBER").Should().Be(1);
+        Scalar<long>("SELECT NEXT_NUMBER FROM ERP_BILLING_NUMBER WHERE KIND=1").Should().Be(1);
+        Count("ERP_BILLING_DOCUMENT").Should().Be(1);
+        Count("ERP_BILLING_LINE").Should().Be(1);
+        Count("ERP_BILLING_AUDIT").Should().Be(auditBefore + 1);
+    }
+
+    [Fact]
     public async Task Draft_update_replaces_lines_and_stale_versions_conflict()
     {
         var contact = await Contact();
