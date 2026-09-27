@@ -1,5 +1,6 @@
 using FluentAssertions;
 using NexaOne.MDM.Infrastructure;
+using NexaOne.SHP.Infrastructure;
 using NexaOne.ServiceContracts.Sls;
 using Xunit;
 using Xunit.Abstractions;
@@ -33,7 +34,8 @@ public sealed class MssqlSlsSalesRequestContractTests(ITestOutputHelper output)
             """, new { plant, customer, product });
 
         var bridge = new NexaOne.SLS.Module(
-            database.DataSource, new BusinessMasterDirectory(database.DataSource)).GetSalesRequestBridge();
+            database.DataSource, new BusinessMasterDirectory(database.DataSource),
+            new SalesOrderShipmentIntake()).GetSalesRequestBridge();
         foreach (var id in new[] { requestId, secondRequestId })
         {
             var created = await bridge.CreateDraftAsync(new SalesRequestDraftCommand(
@@ -74,7 +76,8 @@ public sealed class MssqlSlsSalesRequestContractTests(ITestOutputHelper output)
             "INSERT INTO SLS_SALES_REQUEST (SALES_REQUEST_ID, REQUEST_QTY, STATUS) VALUES (@requestId, 1, 'Draft')",
             new { requestId });
         var bridge = new NexaOne.SLS.Module(
-            database.DataSource, new BusinessMasterDirectory(database.DataSource)).GetSalesRequestBridge();
+            database.DataSource, new BusinessMasterDirectory(database.DataSource),
+            new SalesOrderShipmentIntake()).GetSalesRequestBridge();
 
         var withdrawn = await bridge.WithdrawAsync(new SalesRequestWithdrawCommand(requestId, actor));
         withdrawn.IsSuccess.Should().BeTrue(withdrawn.Error.Description);

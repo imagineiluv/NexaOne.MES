@@ -7,6 +7,7 @@
   <object id="slsModule" type="NexaOne.SLS.Module, NexaOne.SLS">
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="businessMasterDirectory" />
+    <constructor-arg ref="salesOrderShipmentIntake" />
   </object>
   <object id="mrpDemandDirectory"
           factory-object="slsModule"
@@ -14,5 +15,8 @@
   <object id="salesRequestBridge"
           factory-object="slsModule"
           factory-method="GetSalesRequestBridge" />
+  <object id="salesOrderDeliveryBridge"
+          factory-object="slsModule"
+          factory-method="GetSalesOrderDeliveryBridge" />
 
 </objects>

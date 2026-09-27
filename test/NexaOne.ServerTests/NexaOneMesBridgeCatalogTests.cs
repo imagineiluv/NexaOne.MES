@@ -8,6 +8,7 @@ using NexaOne.ServiceContracts.Hr;
 using NexaOne.ServiceContracts.Ivt;
 using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Pom;
+using NexaOne.ServiceContracts.Shp;
 using NexaOne.ServiceContracts.Sls;
 using Xunit;
 
@@ -21,7 +22,7 @@ public sealed class NexaOneMesBridgeCatalogTests
         var first = NexaOneMesBridgeCatalog.Create();
         var second = NexaOneMesBridgeCatalog.Create();
 
-        first.Descriptors.Should().HaveCount(72);
+        first.Descriptors.Should().HaveCount(74);
         first.Descriptors.Should().Equal(second.Descriptors);
         first.Descriptors.Should().OnlyContain(descriptor =>
             descriptor.ContractType.IsInterface
@@ -112,6 +113,12 @@ public sealed class NexaOneMesBridgeCatalogTests
         catalog.TryGet(typeof(ISalesRequestBridge), out var salesRequests).Should().BeTrue();
         salesRequests.Should().Be(new NexaModuleBridgeDescriptor(
             typeof(ISalesRequestBridge), "Sls", "salesRequestBridge"));
+        catalog.TryGet(typeof(ISalesOrderDeliveryBridge), out var salesOrderDelivery).Should().BeTrue();
+        salesOrderDelivery.Should().Be(new NexaModuleBridgeDescriptor(
+            typeof(ISalesOrderDeliveryBridge), "Sls", "salesOrderDeliveryBridge"));
+        catalog.TryGet(typeof(ISalesOrderShipmentIntake), out var shipmentIntake).Should().BeTrue();
+        shipmentIntake.Should().Be(new NexaModuleBridgeDescriptor(
+            typeof(ISalesOrderShipmentIntake), "Shp", "salesOrderShipmentIntake"));
         catalog.TryGet(typeof(IDisposable), out _).Should().BeFalse();
     }
 
