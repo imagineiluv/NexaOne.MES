@@ -108,10 +108,10 @@ public sealed class PrcPurchaseOrderItemApiTests : IClassFixture<PrcPurchaseOrde
             .StatusCode.Should().Be(HttpStatusCode.OK);
         Scalar<decimal>("SELECT ORDER_QTY FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id })
             .Should().Be(10m);
-        (await manager.PostAsJsonAsync("/api/v1/command/PRC.CreatePurchaseOrder", new
+        (await manager.PostAsJsonAsync("/api/v1/prc/purchase-orders", new
         {
             purchaseOrderId = id, plantId = "PLANT01", purchaseOrderName = "edited",
-            vendorId = "V1", orderQty = 999m,
+            vendorId = "V1", orderQuantity = 999m,
         })).StatusCode.Should().Be(HttpStatusCode.OK);
         Scalar<decimal>("SELECT ORDER_QTY FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id })
             .Should().Be(10m, "header-form edits must not override the line aggregate");

@@ -1,0 +1,81 @@
+using NexaOne.Common;
+
+namespace NexaOne.ServiceContracts.Ivt;
+
+/// <summary>Moves stock into a new child LOT without creating or losing material.</summary>
+public interface IMaterialLotSplitBridge : INexaModuleBridge
+{
+    Task<Result<MaterialLotSplitDto>> SplitAsync(
+        MaterialLotSplitCommand command, CancellationToken ct = default);
+
+    /// <summary>Returns the immutable direct split origin of one child LOT.</summary>
+    Task<Result<MaterialLotSplitOriginDto>> GetOriginAsync(
+        string childLotId, CancellationToken ct = default);
+
+    /// <summary>Returns one bounded page of direct child splits in creation order.
+    /// The cursor is not an as-of snapshot across requests.</summary>
+    Task<Result<MaterialLotSplitChildrenPage>> GetChildrenAsync(
+        string parentLotId, string? afterSplitId = null, int limit = 50,
+        CancellationToken ct = default);
+
+    /// <summary>Returns split edges at every depth below a root LOT, ordered by
+    /// creation time and split ID. The cursor is scoped to this root and is not
+    /// an as-of snapshot across requests. Traversal is limited to 10,000 edges.</summary>
+    Task<Result<MaterialLotSplitDescendantsPage>> GetDescendantsAsync(
+        string rootLotId, string? afterSplitId = null, int limit = 50,
+        CancellationToken ct = default);
+}
+
+public sealed record MaterialLotSplitCommand(
+    string SplitId,
+    string IdempotencyKey,
+    string SourceSystem,
+    string SourceEventId,
+    string ParentLotId,
+    string ChildLotId,
+    int ExpectedParentVersion,
+    decimal Quantity,
+    DateTime OccurredAt,
+    string? ChildLotNumber = null,
+    string? ActorId = null);
+
+public sealed record MaterialLotSplitDto(
+    string SplitId,
+    string ParentLotId,
+    string ChildLotId,
+    decimal Quantity,
+    decimal ParentBalanceBefore,
+    decimal ParentBalanceAfter,
+    int ParentVersion,
+    string ParentStatus,
+    string ChildStatus,
+    bool IsReplay);
+
+public sealed record MaterialLotSplitOriginDto(
+    string SplitId,
+    string ParentLotId,
+    string ChildLotId,
+    string ChildLotNumber,
+    decimal Quantity,
+    decimal ParentBalanceBefore,
+    decimal ParentBalanceAfter,
+    int ParentVersion,
+    string ParentStatus,
+    string ParentTransactionId,
+    string ChildTransactionId,
+    DateTime OccurredAt,
+    string ActorId,
+    string SourceSystem,
+    string SourceEventId);
+
+public sealed record MaterialLotSplitChildrenPage(
+    IReadOnlyList<MaterialLotSplitOriginDto> Items,
+    string? NextAfterSplitId);
+
+public sealed record MaterialLotSplitDescendantDto(
+    MaterialLotSplitOriginDto Origin,
+    int Depth);
+
+public sealed record MaterialLotSplitDescendantsPage(
+    IReadOnlyList<MaterialLotSplitDescendantDto> Items,
+    string? NextAfterSplitId);

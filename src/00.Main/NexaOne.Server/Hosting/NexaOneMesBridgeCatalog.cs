@@ -86,6 +86,7 @@ internal sealed class NexaOneMesBridgeCatalog : INexaModuleBridgeCatalog
             Bind<IStockBridge>("Ivt", "stockBridge"),
             Bind<IStockBillingDirectory>("Ivt", "stockBillingDirectory"),
             Bind<IMaterialLotBridge>("Ivt", "materialLotBridge"),
+            Bind<IMaterialLotSplitBridge>("Ivt", "materialLotSplitBridge"),
             Bind<ITraceMaterialBridge>("Ivt", "traceMaterialBridge"),
             Bind<IMaterialLotDirectory>("Ivt", "materialLotDirectory"),
             Bind<IMrpInventoryDirectory>("Ivt", "mrpInventoryDirectory"),

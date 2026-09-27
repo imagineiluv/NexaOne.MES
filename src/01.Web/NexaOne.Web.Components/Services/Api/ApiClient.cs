@@ -667,27 +667,52 @@ public sealed class ApiClient : IApiClient
         return await SalesOrderResultAsync(response, expectsBody: normalized != "delete", ct);
     }
 
+    public async Task<PrcPurchaseOrderActionResult> SavePrcPurchaseOrderDraftAsync(
+        PrcPurchaseOrderDraftRequest request, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(HttpMethod.Post,
+            "api/v1/prc/purchase-orders", request, ct, surfaceErrors: false);
+        return await PurchaseOrderResultAsync(response, request.PurchaseOrderId, "Draft", ct);
+    }
+
     public async Task<PrcPurchaseOrderActionResult> ExecutePrcPurchaseOrderActionAsync(
         string action, string purchaseOrderId, CancellationToken ct = default)
     {
         var normalized = action?.Trim().ToLowerInvariant();
-        if (normalized is not ("order" or "close") || string.IsNullOrWhiteSpace(purchaseOrderId))
+        if (normalized is not ("delete" or "order" or "cancel" or "close") || string.IsNullOrWhiteSpace(purchaseOrderId))
             return new(false, "지원하지 않는 발주 명령 또는 비어 있는 발주 ID입니다.", 400);
 
         var id = Uri.EscapeDataString(purchaseOrderId.Trim());
-        using var response = await SendAsync(HttpMethod.Post,
-            $"api/v1/prc/purchase-orders/{id}/{normalized}", null, ct, surfaceErrors: false);
+        var method = normalized == "delete" ? HttpMethod.Delete : HttpMethod.Post;
+        var path = normalized == "delete"
+            ? $"api/v1/prc/purchase-orders/{id}"
+            : $"api/v1/prc/purchase-orders/{id}/{normalized}";
+        using var response = await SendAsync(method, path, null, ct, surfaceErrors: false);
+        return await PurchaseOrderResultAsync(response, purchaseOrderId,
+            normalized switch
+            {
+                "delete" => null,
+                "order" => "Ordered",
+                "cancel" => "Cancelled",
+                _ => "Closed",
+            }, ct);
+    }
+
+    private async Task<PrcPurchaseOrderActionResult> PurchaseOrderResultAsync(
+        HttpResponseMessage response, string purchaseOrderId, string? expectedStatus, CancellationToken ct)
+    {
         var statusCode = (int)response.StatusCode;
         if (!response.IsSuccessStatusCode)
             return new(false, response.StatusCode == HttpStatusCode.Unauthorized
                 ? "인증이 만료되었습니다. 다시 로그인해 주세요."
                 : await ReadErrorAsync(response, ct), statusCode);
+        if (expectedStatus is null) return new(true, null, statusCode);
 
         try
         {
             var state = await response.Content.ReadFromJsonAsync<PrcPurchaseOrderStateDto>(ct);
             return state is not null && state.PurchaseOrderId == purchaseOrderId.Trim()
-                   && state.Status == (normalized == "order" ? "Ordered" : "Closed")
+                   && state.Status == expectedStatus
                 ? new(true, null, statusCode)
                 : new(false, "발주 명령 응답을 확인할 수 없습니다.", statusCode);
         }

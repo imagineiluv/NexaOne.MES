@@ -183,8 +183,13 @@ public sealed class ScreenDefinitionProviderTests
         var definition = new InMemoryScreenDefinitionProvider().Get("FACTORY_PRC_PURCHASE_ORDER");
 
         definition.Should().NotBeNull();
+        definition!.SaveQueryId.Should().Be(PrcPurchaseOrderMetaCommands.Save);
+        definition.DeleteQueryId.Should().Be(PrcPurchaseOrderMetaCommands.Delete);
         definition!.BulkCommands!.Select(command => command.CommandQueryId).Should().Equal(
-            PrcPurchaseOrderMetaCommands.Order, PrcPurchaseOrderMetaCommands.Close);
+            PrcPurchaseOrderMetaCommands.Order, PrcPurchaseOrderMetaCommands.Cancel,
+            PrcPurchaseOrderMetaCommands.Close);
+        definition.BulkCommands!.Single(command => command.CommandQueryId == PrcPurchaseOrderMetaCommands.Cancel)
+            .ConfirmMessage.Should().Contain("취소 후");
     }
 
     [Theory]
