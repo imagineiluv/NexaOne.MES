@@ -308,6 +308,43 @@ public sealed class BillingPersistenceTests : IClassFixture<BusinessMembershipDa
     }
 
     [Fact]
+    public async Task Audit_failure_rolls_back_billing_number_document_and_lines_and_allows_same_operation_retry()
+    {
+        var contact = await Contact();
+        var input = Input(contact.Id, new BillingLine("Atomic invoice", 7m, 2m));
+        var operation = Guid.NewGuid();
+        var auditBefore = Count("ERP_BILLING_AUDIT");
+
+        Execute($"""
+            CREATE TRIGGER billing_audit_failure BEFORE INSERT ON ERP_BILLING_AUDIT
+            WHEN NEW.TENANT_ID='{_tenant:D}' AND NEW.ORGANIZATION_ID='{_organization:D}'
+            BEGIN SELECT RAISE(ABORT, 'billing audit unavailable'); END;
+            """);
+        try
+        {
+            var failure = await Assert.ThrowsAsync<SqliteException>(() =>
+                _bridge.CreateDocumentAsync("bill-user", _tenant, _organization, operation, BillingKind.Invoice, input));
+            failure.Message.Should().Contain("billing audit unavailable");
+            Count("ERP_BILLING_NUMBER").Should().Be(0);
+            Count("ERP_BILLING_DOCUMENT").Should().Be(0);
+            Count("ERP_BILLING_LINE").Should().Be(0);
+            Count("ERP_BILLING_AUDIT").Should().Be(auditBefore);
+        }
+        finally { Execute("DROP TRIGGER billing_audit_failure"); }
+
+        var created = await NewBridge().CreateDocumentAsync("bill-user", _tenant, _organization,
+            operation, BillingKind.Invoice, input);
+        created.Number.Should().Be(1);
+        SameDocument(created, await NewBridge().CreateDocumentAsync("bill-user", _tenant, _organization,
+            operation, BillingKind.Invoice, input));
+        Count("ERP_BILLING_NUMBER").Should().Be(1);
+        Scalar<long>("SELECT NEXT_NUMBER FROM ERP_BILLING_NUMBER WHERE KIND=1").Should().Be(1);
+        Count("ERP_BILLING_DOCUMENT").Should().Be(1);
+        Count("ERP_BILLING_LINE").Should().Be(1);
+        Count("ERP_BILLING_AUDIT").Should().Be(auditBefore + 1);
+    }
+
+    [Fact]
     public async Task Draft_update_replaces_lines_and_stale_versions_conflict()
     {
         var contact = await Contact();

@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Dapper;
 using FluentAssertions;
+using Microsoft.Data.SqlClient;
 using Microsoft.Data.Sqlite;
 using NexaFramework.Service;
 using NexaFramework.Service.Erp;
@@ -275,6 +276,52 @@ public sealed class BillingHostTests(ITestOutputHelper output)
 [Collection(MssqlContractDatabase.CollectionName)]
 public sealed class BillingMssqlTests(ITestOutputHelper output)
 {
+    [StockMssqlFact]
+    public async Task Actual_SQL_Server_audit_failure_rolls_back_billing_number_document_and_lines_and_allows_same_operation_retry()
+    {
+        var h = await Harness.CreateAsync(output);
+        var contact = await h.Bridge.EnrollContactAsync(h.Seed.User, h.Tenant, h.Organization, h.Seed.Customer);
+        var input = new BillingDocumentInput(contact.Id, new(2026, 9, 22), new(2026, 10, 22), "KRW",
+            [new("Atomic invoice", 7m, 2m)]);
+        var operation = Guid.NewGuid();
+        var auditBefore = await h.Count("ERP_BILLING_AUDIT");
+        var trigger = "billing_audit_test_" + Guid.NewGuid().ToString("N");
+
+        await h.Database.ExecuteAsync($"""
+            CREATE TRIGGER dbo.[{trigger}] ON dbo.ERP_BILLING_AUDIT AFTER INSERT AS
+            BEGIN
+                SET NOCOUNT ON;
+                IF EXISTS (SELECT 1 FROM inserted WHERE TENANT_ID='{h.Tenant:D}' AND ORGANIZATION_ID='{h.Organization:D}')
+                    THROW 51099, 'Billing acceptance audit failure', 1;
+            END;
+            """);
+        try
+        {
+            (await Assert.ThrowsAsync<SqlException>(() => h.Bridge.CreateDocumentAsync(h.Seed.User,
+                h.Tenant, h.Organization, operation, BillingKind.Invoice, input))).Number.Should().Be(51099);
+            (await h.Count("ERP_BILLING_NUMBER")).Should().Be(0);
+            (await h.Count("ERP_BILLING_DOCUMENT")).Should().Be(0);
+            (await h.Count("ERP_BILLING_LINE")).Should().Be(0);
+            (await h.Count("ERP_BILLING_AUDIT")).Should().Be(auditBefore);
+        }
+        finally { await h.Database.ExecuteAsync($"DROP TRIGGER dbo.[{trigger}]"); }
+
+        var created = await h.Bridge.CreateDocumentAsync(h.Seed.User, h.Tenant, h.Organization,
+            operation, BillingKind.Invoice, input);
+        created.Number.Should().Be(1);
+        var replay = await h.Bridge.CreateDocumentAsync(h.Seed.User, h.Tenant, h.Organization,
+            operation, BillingKind.Invoice, input);
+        replay.Id.Should().Be(created.Id);
+        (await h.Count("ERP_BILLING_NUMBER")).Should().Be(1);
+        (await h.Database.ScalarAsync<long>("""
+            SELECT NEXT_NUMBER FROM ERP_BILLING_NUMBER
+             WHERE TENANT_ID=@tenant AND ORGANIZATION_ID=@organization AND KIND=1
+            """, h.Scope)).Should().Be(1);
+        (await h.Count("ERP_BILLING_DOCUMENT")).Should().Be(1);
+        (await h.Count("ERP_BILLING_LINE")).Should().Be(1);
+        (await h.Count("ERP_BILLING_AUDIT")).Should().Be(auditBefore + 1);
+    }
+
     [StockMssqlFact]
     public async Task Actual_SQL_Server_persists_and_atomically_completes_expense_payout()
     {
