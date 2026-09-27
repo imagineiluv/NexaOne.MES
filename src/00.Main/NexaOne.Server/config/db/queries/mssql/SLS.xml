@@ -19,7 +19,8 @@
             SELECT SALES_REQUEST_ID, SALES_REQUEST_NAME, SALES_ORDER_ID, CUSTOMER_ID, PRODUCT_ID,
                    REQUEST_DATE, REQUEST_QTY, STATUS
             FROM SLS_SALES_REQUEST WITH (NOLOCK)
-            WHERE (@salesOrderId IS NULL OR SALES_ORDER_ID = @salesOrderId)
+            WHERE (@salesRequestId IS NULL OR SALES_REQUEST_ID = @salesRequestId)
+              AND (@salesOrderId IS NULL OR SALES_ORDER_ID = @salesOrderId)
               AND (@status IS NULL OR STATUS = @status)
             ORDER BY REQUEST_DATE DESC
         ]]></statement>

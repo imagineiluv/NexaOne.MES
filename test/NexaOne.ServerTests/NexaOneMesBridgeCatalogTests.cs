@@ -8,6 +8,7 @@ using NexaOne.ServiceContracts.Hr;
 using NexaOne.ServiceContracts.Ivt;
 using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Pom;
+using NexaOne.ServiceContracts.Sls;
 using Xunit;
 
 namespace NexaOne.ServerTests;
@@ -20,7 +21,7 @@ public sealed class NexaOneMesBridgeCatalogTests
         var first = NexaOneMesBridgeCatalog.Create();
         var second = NexaOneMesBridgeCatalog.Create();
 
-        first.Descriptors.Should().HaveCount(71);
+        first.Descriptors.Should().HaveCount(72);
         first.Descriptors.Should().Equal(second.Descriptors);
         first.Descriptors.Should().OnlyContain(descriptor =>
             descriptor.ContractType.IsInterface
@@ -108,6 +109,9 @@ public sealed class NexaOneMesBridgeCatalogTests
             .Should().BeTrue();
         projectionAuthority.Should().Be(new NexaModuleBridgeDescriptor(
             typeof(IWorkScopeProjectionAuthorityBridge), "Pom", "workScopeProjectionAuthorityBridge"));
+        catalog.TryGet(typeof(ISalesRequestBridge), out var salesRequests).Should().BeTrue();
+        salesRequests.Should().Be(new NexaModuleBridgeDescriptor(
+            typeof(ISalesRequestBridge), "Sls", "salesRequestBridge"));
         catalog.TryGet(typeof(IDisposable), out _).Should().BeFalse();
     }
 

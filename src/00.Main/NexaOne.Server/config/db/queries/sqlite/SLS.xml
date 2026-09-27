@@ -15,13 +15,14 @@
             ORDER BY PLAN_START_DATE DESC
         ]]></statement>
     </query>
-    <!-- 판매 요청 — 판매요청 전체조회(NULL-guard). @salesOrderId/@status 선택 필터. -->
+    <!-- 판매 요청 — 판매요청 전체조회(NULL-guard). @salesRequestId/@salesOrderId/@status 선택 필터. -->
     <query id="SLS.SalesRequestList" requiredPermission="sls:read">
         <statement><![CDATA[
             SELECT SALES_REQUEST_ID, SALES_REQUEST_NAME, SALES_ORDER_ID, CUSTOMER_ID, PRODUCT_ID,
                    REQUEST_DATE, REQUEST_QTY, STATUS
             FROM SLS_SALES_REQUEST
-            WHERE (@salesOrderId IS NULL OR SALES_ORDER_ID = @salesOrderId)
+            WHERE (@salesRequestId IS NULL OR SALES_REQUEST_ID = @salesRequestId)
+              AND (@salesOrderId IS NULL OR SALES_ORDER_ID = @salesOrderId)
               AND (@status IS NULL OR STATUS = @status)
             ORDER BY REQUEST_DATE DESC
         ]]></statement>
