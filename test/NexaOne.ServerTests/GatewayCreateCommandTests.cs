@@ -281,6 +281,97 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    [Fact]
+    public async Task Purchase_order_draft_edit_and_delete_cannot_change_ordered_or_closed_rows()
+    {
+        var id = $"PO_{Suffix()}";
+        var client = AuthedClient("prc-editor", "prc:manage");
+        var draft = new Dictionary<string, object>
+        {
+            ["purchaseOrderId"] = id, ["plantId"] = "PLANT01",
+            ["purchaseOrderName"] = "original", ["vendorId"] = "V1", ["orderQty"] = 10,
+        };
+
+        async Task<int> Command(string queryId, Dictionary<string, object> body)
+        {
+            var response = await client.PostAsJsonAsync($"/api/v1/command/{queryId}", body);
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            return (await response.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected;
+        }
+
+        async Task<(string Name, string Status)> Row()
+        {
+            var row = (await Query("PRC.PurchaseOrderList", new()))
+                .Single(r => r["PURCHASE_ORDER_ID"].ToString() == id);
+            return (row["PURCHASE_ORDER_NAME"].ToString()!, row["STATUS"].ToString()!);
+        }
+
+        (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(1);
+        draft["purchaseOrderName"] = "edited draft";
+        (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(1);
+        (await Command("PRC.OrderPurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
+
+        draft["purchaseOrderName"] = "illegal edit";
+        (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(0);
+        (await Command("PRC.DeletePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
+        (await Row()).Should().Be(("edited draft", "Ordered"));
+
+        (await Command("PRC.ClosePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
+        (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(0);
+        (await Command("PRC.DeletePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
+        (await Row()).Should().Be(("edited draft", "Closed"));
+
+        var deletableId = $"PO_{Suffix()}";
+        draft["purchaseOrderId"] = deletableId;
+        (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(1);
+        (await Command("PRC.DeletePurchaseOrder", new() { ["purchaseOrderId"] = deletableId })).Should().Be(1);
+        (await Query("PRC.PurchaseOrderList", new())).Should()
+            .NotContain(r => r["PURCHASE_ORDER_ID"].ToString() == deletableId);
+    }
+
+    [Fact]
+    public async Task Held_purchase_order_cannot_be_edited_deleted_or_advanced()
+    {
+        var id = $"PO_{Suffix()}";
+        var client = AuthedClient("prc-holder", "prc:manage");
+        var draft = new Dictionary<string, object>
+        {
+            ["purchaseOrderId"] = id, ["plantId"] = "PLANT01",
+            ["purchaseOrderName"] = "original", ["vendorId"] = "V1", ["orderQty"] = 10,
+        };
+
+        async Task<int> Command(string queryId, Dictionary<string, object> body)
+        {
+            var response = await client.PostAsJsonAsync($"/api/v1/command/{queryId}", body);
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            return (await response.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected;
+        }
+
+        void SetHold(string flag)
+        {
+            using var connection = new SqliteConnection(_factory.ConnString);
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE PRC_PURCHASE_ORDER SET IS_HOLD = @flag WHERE PURCHASE_ORDER_ID = @id";
+            command.Parameters.AddWithValue("@flag", flag);
+            command.Parameters.AddWithValue("@id", id);
+            command.ExecuteNonQuery().Should().Be(1);
+        }
+
+        (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(1);
+        SetHold("Y"); // 보류 명령 이관 전까지 기존 상태를 직접 시드한다.
+        draft["purchaseOrderName"] = "illegal edit";
+        (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(0);
+        (await Command("PRC.DeletePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
+        (await Command("PRC.OrderPurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
+        SetHold("N");
+        (await Command("PRC.OrderPurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
+        SetHold("Y");
+        (await Command("PRC.ClosePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
+        SetHold("N");
+        (await Command("PRC.ClosePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
+    }
+
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)
     {
         var module = queryId.Split('.')[0].ToLowerInvariant();
