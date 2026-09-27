@@ -23,6 +23,10 @@ public sealed class MssqlPrcPurchaseItemContractTests(ITestOutputHelper output)
             DateTime.UtcNow.AddDays(7), 12m, product, "MRP contract", "prc-contract");
 
         (await bridge.EnsureMrpPurchaseOrderAsync(request)).Created.Should().BeTrue();
+        (await database.ScalarAsync<DateTime>(
+            "SELECT INCOMING_DATE FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id",
+            new { id })).Should().Be(request.IncomingDate!.Value,
+            "DATETIME2 must preserve the MRP retry identity at full precision");
         (await bridge.EnsureMrpPurchaseOrderAsync(request)).Created.Should().BeFalse();
         (await database.ScalarAsync<int>(
             "SELECT COUNT(*) FROM PRC_PURCHASE_ITEM WHERE PURCHASE_ORDER_ID=@id " +

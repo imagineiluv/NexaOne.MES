@@ -81,8 +81,25 @@ internal sealed class PurchaseOrderPlanningRepository : QueryRepository, IPurcha
         {
             await _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
             {
+                // Dapper's default DateTime parameter is SQL Server DATETIME (millisecond
+                // rounding), while the schema is DATETIME2. Preserve the MRP command's
+                // timestamp so an immediate retry compares equal to the committed row.
+                var timestampType = connection.GetType().FullName ==
+                                    "Microsoft.Data.SqlClient.SqlConnection"
+                    ? DbType.DateTime2
+                    : DbType.DateTime;
+                var headerParameters = new DynamicParameters();
+                headerParameters.Add(nameof(draft.PurchaseOrderId), draft.PurchaseOrderId);
+                headerParameters.Add(nameof(draft.PlantId), draft.PlantId);
+                headerParameters.Add(nameof(draft.PurchaseOrderName), draft.PurchaseOrderName);
+                headerParameters.Add(nameof(draft.OrderDate), draft.OrderDate, timestampType);
+                headerParameters.Add(nameof(draft.IncomingDate), draft.IncomingDate, timestampType);
+                headerParameters.Add(nameof(draft.Quantity), draft.Quantity);
+                headerParameters.Add(nameof(draft.ProductId), draft.ProductId);
+                headerParameters.Add(nameof(draft.Description), draft.Description);
+                headerParameters.Add(nameof(draft.ExecutedBy), draft.ExecutedBy);
                 await connection.ExecuteAsync(new CommandDefinition(
-                    headerSql, draft, transaction, cancellationToken: ct));
+                    headerSql, headerParameters, transaction, cancellationToken: ct));
                 await connection.ExecuteAsync(new CommandDefinition(
                     "INSERT INTO PRC_PURCHASE_ITEM " +
                     "(PURCHASE_ORDER_ID, PRODUCT_ID, ORDER_QTY, CREATED_BY, UPDATED_BY) " +
