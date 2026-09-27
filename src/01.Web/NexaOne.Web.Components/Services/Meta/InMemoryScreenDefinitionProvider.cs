@@ -1270,7 +1270,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             BulkCommands: new BulkCommandDefinition[]
             {
                 new("발주", "PRC.OrderPurchaseOrder"),  // 품목 1건 이상·미보류 Draft→Ordered
-                new("마감", "PRC.ClosePurchaseOrder"),  // Ordered/Incoming→Closed(가드)
+                new("마감", "PRC.ClosePurchaseOrder"),  // 미보류 Incoming·전 품목 입고 완료→Closed
             }));
         Register(new ScreenDefinition("FACTORY_PRC_REPORT_PURCHASEORDER", "구매오더 현황",
             Array.Empty<FieldDefinition>(), prcOrderCols, QueryId: "PRC.PurchaseOrderList", Purpose: ScreenPurpose.Report));

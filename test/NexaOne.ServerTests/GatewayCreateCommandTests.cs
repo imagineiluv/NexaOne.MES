@@ -255,14 +255,23 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
         async Task<string> StatusOf() =>
             (await Query("PRC.PurchaseOrderList", new()))
                 .Single(r => r["PURCHASE_ORDER_ID"].ToString() == poId)["STATUS"]!.ToString()!;
+        async Task<int> Close()
+        {
+            var response = await client.PostAsJsonAsync("/api/v1/command/PRC.ClosePurchaseOrder",
+                new Dictionary<string, object> { ["purchaseOrderId"] = poId });
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            return (await response.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected;
+        }
 
         (await StatusOf()).Should().Be("Draft", "생성 기본 상태(DDL DEFAULT)");
 
-        // Draft 상태에서 '마감' 시도 → 가드 미충족(Ordered/Incoming 아님) — 200이지만 상태 불변.
-        (await client.PostAsJsonAsync("/api/v1/command/PRC.ClosePurchaseOrder",
-            new Dictionary<string, object> { ["purchaseOrderId"] = poId }))
-            .StatusCode.Should().Be(HttpStatusCode.OK);
+        // Draft 상태에서 '마감' 시도 → 가드 미충족 — 200이지만 상태 불변.
+        (await Close()).Should().Be(0);
         (await StatusOf()).Should().Be("Draft", "가드된 전이는 소스 상태 밖 행을 건드리지 않는다");
+
+        SetPurchaseStatus(poId, "Draft", "Incoming");
+        (await Close()).Should().Be(0, "품목이 없는 비정상 Incoming 행도 마감할 수 없다");
+        SetPurchaseStatus(poId, "Incoming", "Draft");
 
         // 레거시 확정과 같이 품목이 없는 발주는 Draft를 벗어나지 못한다.
         var emptyOrder = await client.PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
@@ -270,16 +279,22 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
         (await emptyOrder.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected.Should().Be(0);
         (await StatusOf()).Should().Be("Draft");
         SeedPurchaseItem(poId);
+        SeedPurchaseItem(poId, "SECOND-PRODUCT", 5);
 
-        // 발주(Draft→Ordered) → 마감(Ordered→Closed) 순차 전이.
+        // 발주(Draft→Ordered)는 입고 완료 전까지 마감할 수 없다.
         (await client.PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
             new Dictionary<string, object> { ["purchaseOrderId"] = poId }))
             .StatusCode.Should().Be(HttpStatusCode.OK);
         (await StatusOf()).Should().Be("Ordered");
 
-        (await client.PostAsJsonAsync("/api/v1/command/PRC.ClosePurchaseOrder",
-            new Dictionary<string, object> { ["purchaseOrderId"] = poId }))
-            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Close()).Should().Be(0, "Ordered만으로 입고 완료를 뜻하지 않는다");
+        SetPurchaseStatus(poId, "Ordered", "Incoming");
+        SetIncomingQuantity(poId, "TEST-PRODUCT", 5);
+        (await Close()).Should().Be(0, "부분 입고는 마감할 수 없다");
+        SetIncomingQuantity(poId, "TEST-PRODUCT", 10);
+        (await Close()).Should().Be(0, "한 품목이라도 미입고면 마감할 수 없다");
+        SetIncomingQuantity(poId, "SECOND-PRODUCT", 5);
+        (await Close()).Should().Be(1);
         (await StatusOf()).Should().Be("Closed");
 
         // 무권한 → 403.
@@ -324,6 +339,8 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
         (await Command("PRC.DeletePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
         (await Row()).Should().Be(("edited draft", "Ordered"));
 
+        SetPurchaseStatus(id, "Ordered", "Incoming");
+        SetIncomingQuantity(id, "TEST-PRODUCT", 10);
         (await Command("PRC.ClosePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
         (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(0);
         (await Command("PRC.DeletePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
@@ -375,22 +392,62 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
         SetHold("N");
         SeedPurchaseItem(id);
         (await Command("PRC.OrderPurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
+        SetPurchaseStatus(id, "Ordered", "Incoming");
+        SetIncomingQuantity(id, "TEST-PRODUCT", 10);
         SetHold("Y");
         (await Command("PRC.ClosePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
         SetHold("N");
         (await Command("PRC.ClosePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
     }
 
-    private void SeedPurchaseItem(string purchaseOrderId)
+    private void SeedPurchaseItem(string purchaseOrderId, string productId = "TEST-PRODUCT", decimal orderQuantity = 10)
+    {
+        using var connection = new SqliteConnection(_factory.ConnString);
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO PRC_PURCHASE_ITEM (PURCHASE_ORDER_ID, PRODUCT_ID, ORDER_QTY)
+            VALUES (@id, @productId, @orderQty)
+            """;
+        command.Parameters.AddWithValue("@id", purchaseOrderId);
+        command.Parameters.AddWithValue("@productId", productId);
+        command.Parameters.AddWithValue("@orderQty", orderQuantity);
+        command.ExecuteNonQuery().Should().Be(1);
+        command.CommandText = """
+            UPDATE PRC_PURCHASE_ORDER
+            SET ORDER_QTY=(SELECT SUM(ORDER_QTY) FROM PRC_PURCHASE_ITEM WHERE PURCHASE_ORDER_ID=@id)
+            WHERE PURCHASE_ORDER_ID=@id
+            """;
+        command.ExecuteNonQuery().Should().Be(1);
+        transaction.Commit();
+    }
+
+    private void SetPurchaseStatus(string purchaseOrderId, string expectedStatus, string newStatus)
+    {
+        using var connection = new SqliteConnection(_factory.ConnString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE PRC_PURCHASE_ORDER SET STATUS=@newStatus WHERE PURCHASE_ORDER_ID=@id AND STATUS=@expectedStatus";
+        command.Parameters.AddWithValue("@id", purchaseOrderId);
+        command.Parameters.AddWithValue("@newStatus", newStatus);
+        command.Parameters.AddWithValue("@expectedStatus", expectedStatus);
+        command.ExecuteNonQuery().Should().Be(1);
+    }
+
+    private void SetIncomingQuantity(string purchaseOrderId, string productId, decimal quantity)
     {
         using var connection = new SqliteConnection(_factory.ConnString);
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO PRC_PURCHASE_ITEM (PURCHASE_ORDER_ID, PRODUCT_ID, ORDER_QTY)
-            VALUES (@id, 'TEST-PRODUCT', 10)
+            UPDATE PRC_PURCHASE_ITEM SET INCOMING_QTY=@quantity
+            WHERE PURCHASE_ORDER_ID=@id AND PRODUCT_ID=@productId
             """;
         command.Parameters.AddWithValue("@id", purchaseOrderId);
+        command.Parameters.AddWithValue("@productId", productId);
+        command.Parameters.AddWithValue("@quantity", quantity);
         command.ExecuteNonQuery().Should().Be(1);
     }
 

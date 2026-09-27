@@ -55,7 +55,12 @@
     <query id="PRC.ClosePurchaseOrder" kind="write" requiredPermission="prc:manage">
         <statement><![CDATA[
             UPDATE PRC_PURCHASE_ORDER SET STATUS = 'Closed', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
-            WHERE PURCHASE_ORDER_ID = @purchaseOrderId AND STATUS IN ('Ordered', 'Incoming') AND IS_HOLD = 'N'
+            WHERE PURCHASE_ORDER_ID = @purchaseOrderId AND STATUS = 'Incoming' AND IS_HOLD = 'N'
+              AND EXISTS (SELECT 1 FROM PRC_PURCHASE_ITEM WHERE PURCHASE_ORDER_ID = @purchaseOrderId)
+              AND NOT EXISTS (
+                  SELECT 1 FROM PRC_PURCHASE_ITEM
+                  WHERE PURCHASE_ORDER_ID = @purchaseOrderId AND INCOMING_QTY < ORDER_QTY
+              )
         ]]></statement>
     </query>
 </queries>
