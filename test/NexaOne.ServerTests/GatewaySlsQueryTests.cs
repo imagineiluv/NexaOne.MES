@@ -65,15 +65,16 @@ public sealed class GatewaySlsQueryTests : IClassFixture<GatewaySlsQueryTests.Sl
 
     private static string Suffix() => Guid.NewGuid().ToString("N")[..8];
 
-    private void SeedOrder(string orderId, string plantId, string customerId, string status)
+    private void SeedOrder(string orderId, string plantId, string customerId, string status, bool held = false)
         => Exec(@"INSERT INTO SLS_SALES_ORDER
             (SALES_ORDER_ID, PLANT_ID, SALES_ORDER_NAME, CUSTOMER_ID, PRODUCT_ID, PLAN_START_DATE, PLAN_QTY, DELIVERED_QTY, OWNER_ID, STATUS, IS_HOLD)
-            VALUES (@id, @plant, '판매 오더', @cust, 'ITEM01', '2026-06-01 00:00:00', 500, 0, 'admin', @st, 'N')", cmd =>
+            VALUES (@id, @plant, '판매 오더', @cust, 'ITEM01', '2026-06-01 00:00:00', 500, 0, 'admin', @st, @hold)", cmd =>
         {
             cmd.Parameters.AddWithValue("@id", orderId);
             cmd.Parameters.AddWithValue("@plant", plantId);
             cmd.Parameters.AddWithValue("@cust", customerId);
             cmd.Parameters.AddWithValue("@st", status);
+            cmd.Parameters.AddWithValue("@hold", held ? "Y" : "N");
         });
 
     private void SeedRequest(string requestId, string salesOrderId, string status)
@@ -285,6 +286,71 @@ public sealed class GatewaySlsQueryTests : IClassFixture<GatewaySlsQueryTests.Sl
         var persisted = rows.Single(row => row["SALES_ORDER_ID"].ToString() == order);
         persisted["SALES_ORDER_NAME"].ToString().Should().Be("초안 수정");
         persisted["STATUS"].ToString().Should().Be("Confirmed");
+    }
+
+    [Theory]
+    [InlineData("Draft", "SLS.ConfirmSalesOrder", "Confirmed")]
+    [InlineData("Producing", "SLS.CloseSalesOrder", "Closed")]
+    [InlineData("Delivered", "SLS.CloseSalesOrder", "Closed")]
+    public async Task Held_order_cannot_advance_until_released(
+        string initialStatus, string commandId, string nextStatus)
+    {
+        EnsureSchemaReady();
+        var order = $"SO_{Suffix()}";
+        var actor = $"sales-manager-{Suffix()}";
+        SeedOrder(order, $"PLANT_{Suffix()}", "CUST01", initialStatus, held: true);
+        var client = AuthedClient(actor, "sls:manage");
+
+        async Task<int> Transition()
+        {
+            var response = await client.PostAsJsonAsync($"/api/v1/command/{commandId}",
+                new Dictionary<string, object?>
+                {
+                    ["salesOrderId"] = order,
+                    ["isHold"] = "N", // 클라이언트 값으로 DB의 보류 상태를 우회할 수 없다.
+                    ["currentUser"] = "spoofed-user",
+                });
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            return (await response.Content.ReadFromJsonAsync<AffectedResponse>())!.Affected;
+        }
+
+        (await Transition()).Should().Be(0);
+        ReadOrderState(order).Should().Be((initialStatus, "Y", "SYSTEM"));
+
+        // 후속 release 연동 전까지 DB의 보류 해제를 시뮬레이션한다.
+        Exec("UPDATE SLS_SALES_ORDER SET IS_HOLD = 'N' WHERE SALES_ORDER_ID = @id",
+            cmd => cmd.Parameters.AddWithValue("@id", order));
+        (await Transition()).Should().Be(1);
+        ReadOrderState(order).Should().Be((nextStatus, "N", actor));
+        (await Transition()).Should().Be(0, "상태 전이를 재실행해도 중복 적용되지 않아야 한다");
+    }
+
+    [Theory]
+    [InlineData("Draft", "SLS.CloseSalesOrder")]
+    [InlineData("Confirmed", "SLS.CloseSalesOrder")]
+    [InlineData("Confirmed", "SLS.ConfirmSalesOrder")]
+    public async Task Sales_order_transition_rejects_wrong_source_state(string initialStatus, string commandId)
+    {
+        EnsureSchemaReady();
+        var order = $"SO_{Suffix()}";
+        SeedOrder(order, $"PLANT_{Suffix()}", "CUST01", initialStatus);
+        var response = await AuthedClient("sales-manager", "sls:manage").PostAsJsonAsync(
+            $"/api/v1/command/{commandId}", new Dictionary<string, object?> { ["salesOrderId"] = order });
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<AffectedResponse>())!.Affected.Should().Be(0);
+        ReadOrderState(order).Should().Be((initialStatus, "N", "SYSTEM"));
+    }
+
+    private (string Status, string IsHold, string UpdatedBy) ReadOrderState(string orderId)
+    {
+        using var conn = new SqliteConnection(_factory.ConnString);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT STATUS, IS_HOLD, UPDATED_BY FROM SLS_SALES_ORDER WHERE SALES_ORDER_ID = @id";
+        cmd.Parameters.AddWithValue("@id", orderId);
+        using var reader = cmd.ExecuteReader();
+        reader.Read().Should().BeTrue();
+        return (reader.GetString(0), reader.GetString(1), reader.GetString(2));
     }
 
     private sealed record AffectedResponse(int Affected);
