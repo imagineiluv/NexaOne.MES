@@ -61,6 +61,8 @@ public sealed class SlsSalesRequestApiTests : IClassFixture<SlsSalesRequestApiTe
                     sp.GetRequiredService<NexaOne.SLS.Module>().GetSalesRequestBridge());
                 services.AddSingleton<ISalesOrderDeliveryBridge>(sp =>
                     sp.GetRequiredService<NexaOne.SLS.Module>().GetSalesOrderDeliveryBridge());
+                services.AddSingleton<ISalesOrderCommandBridge>(sp =>
+                    sp.GetRequiredService<NexaOne.SLS.Module>().GetSalesOrderCommandBridge());
             });
         }
 

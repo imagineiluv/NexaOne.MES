@@ -13,6 +13,7 @@ public sealed class Module
     private readonly IMrpDemandDirectory _mrpDemandDirectory;
     private readonly ISalesRequestBridge _salesRequestBridge;
     private readonly ISalesOrderDeliveryBridge _salesOrderDeliveryBridge;
+    private readonly ISalesOrderCommandBridge _salesOrderCommandBridge;
 
     public Module(EesDataSource dataSource, IBusinessMasterDirectory masterDirectory,
         ISalesOrderShipmentIntake shipmentIntake, ISalesOrderShipmentEvidence shipmentEvidence)
@@ -25,9 +26,12 @@ public sealed class Module
         _salesRequestBridge = new SalesRequestService(new SalesRequestRepository(dataSource, masterDirectory));
         _salesOrderDeliveryBridge = new SalesOrderDeliveryService(
             new SalesOrderDeliveryRepository(dataSource, masterDirectory, shipmentIntake, shipmentEvidence));
+        _salesOrderCommandBridge = new SalesOrderCommandService(
+            new SalesOrderCommandRepository(dataSource, masterDirectory));
     }
 
     public IMrpDemandDirectory GetMrpDemandDirectory() => _mrpDemandDirectory;
     public ISalesRequestBridge GetSalesRequestBridge() => _salesRequestBridge;
     public ISalesOrderDeliveryBridge GetSalesOrderDeliveryBridge() => _salesOrderDeliveryBridge;
+    public ISalesOrderCommandBridge GetSalesOrderCommandBridge() => _salesOrderCommandBridge;
 }
