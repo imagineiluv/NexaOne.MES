@@ -3,7 +3,7 @@ using NexaOne.ServiceContracts.Sls;
 
 namespace NexaOne.SLS.Application;
 
-/// <summary>판매요청의 입력 계약과 수령 결과를 정의합니다. 저장소가 원자성·상태 가드를 집행합니다.</summary>
+/// <summary>판매요청의 입력 계약과 상태 전이 결과를 정의합니다. 저장소가 원자성·상태 가드를 집행합니다.</summary>
 internal sealed class SalesRequestService : ISalesRequestBridge
 {
     private const decimal MaximumQuantity = 99999999999999.9999m; // DECIMAL(18,4)
@@ -73,6 +73,27 @@ internal sealed class SalesRequestService : ISalesRequestBridge
             SalesRequestReceiptOutcome.OrderIdentityConflict => Result.Failure<SalesRequestState>(Error.Conflict(
                 "SLS_ORDER_ID_CONFLICT", "이미 사용 중인 수주 ID입니다.")),
             _ => throw new InvalidOperationException("Unknown sales-request receipt outcome."),
+        };
+    }
+
+    public async Task<Result<SalesRequestState>> WithdrawAsync(
+        SalesRequestWithdrawCommand command, CancellationToken ct = default)
+    {
+        if (command is null || !ValidId(command.SalesRequestId) || !ValidId(command.ActorId))
+        {
+            return Result.Failure<SalesRequestState>(Error.Validation(
+                "SLS_WITHDRAW_INVALID", "판매요청 ID와 실행자를 확인하세요."));
+        }
+
+        var id = command.SalesRequestId!.Trim();
+        return await _store.TryWithdrawAsync(id, command.ActorId!.Trim(), ct) switch
+        {
+            SalesRequestWithdrawOutcome.Withdrawn => Result.Success(new SalesRequestState(id, "Cancelled", null)),
+            SalesRequestWithdrawOutcome.RequestNotFound => Result.Failure<SalesRequestState>(Error.NotFound(
+                "SLS_REQUEST_NOT_FOUND", "판매요청을 찾을 수 없습니다.")),
+            SalesRequestWithdrawOutcome.NotWithdrawable => Result.Failure<SalesRequestState>(Error.Conflict(
+                "SLS_REQUEST_NOT_WITHDRAWABLE", "초안 상태의 미연결 판매요청만 철회할 수 있습니다.")),
+            _ => throw new InvalidOperationException("Unknown sales-request withdraw outcome."),
         };
     }
 

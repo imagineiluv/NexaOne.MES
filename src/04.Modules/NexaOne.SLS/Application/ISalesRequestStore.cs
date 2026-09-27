@@ -4,6 +4,7 @@ internal interface ISalesRequestStore
 {
     Task<SalesRequestDraftInsertOutcome> TryCreateDraftAsync(SalesRequestDraft draft, CancellationToken ct);
     Task<SalesRequestReceiptOutcome> TryReceiveAsync(SalesRequestReceipt receipt, CancellationToken ct);
+    Task<SalesRequestWithdrawOutcome> TryWithdrawAsync(string salesRequestId, string actorId, CancellationToken ct);
 }
 
 internal sealed record SalesRequestDraft(
@@ -26,3 +27,4 @@ internal sealed record SalesRequestReceipt(
 
 internal enum SalesRequestDraftInsertOutcome { Created, InvalidReference, IdentityConflict }
 internal enum SalesRequestReceiptOutcome { Received, RequestNotFound, NotReceivable, PlantNotFound, OrderIdentityConflict, InvalidReference }
+internal enum SalesRequestWithdrawOutcome { Withdrawn, RequestNotFound, NotWithdrawable }
