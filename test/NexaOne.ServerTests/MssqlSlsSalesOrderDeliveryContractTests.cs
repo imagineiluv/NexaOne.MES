@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Data.SqlClient;
 using NexaOne.MDM.Infrastructure;
 using NexaOne.SHP.Infrastructure;
 using NexaOne.ServiceContracts.Sls;
@@ -110,6 +111,79 @@ public sealed class MssqlSlsSalesOrderDeliveryContractTests(ITestOutputHelper ou
 
         var replay = await bridge.RequestDeliveryAsync(new SalesOrderDeliveryCommand(
             firstSalesOrder, deliveryOrder, deliveryItem, actor));
+        replay.IsFailure.Should().BeTrue();
+        replay.Error.Code.Should().Be("SLS_DELIVERY_NOT_REQUESTABLE");
+    }
+
+    [Fact]
+    public async Task Shipment_item_insert_failure_rolls_back_sales_link_and_shipment_order()
+    {
+        var database = await MssqlContractDatabase.TryCreateAsync(output);
+        if (database is null) return;
+
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var plant = $"SLSP_{suffix}";
+        var customer = $"SLSC_{suffix}";
+        var product = $"SLSI_{suffix}";
+        var salesOrderId = $"SLSO_{suffix}";
+        var deliveryOrderId = $"SLSD_{suffix}";
+        var deliveryItemId = $"SLSDI_{suffix}";
+        const string actor = "sls-delivery-rollback";
+        await database.ExecuteAsync("""
+            INSERT INTO MDM_PLANT (PLANT_ID, PLANT_NAME) VALUES (@plant, @plant);
+            INSERT INTO MDM_CUSTOMER (CUSTOMER_ID, CUSTOMER_NAME, IS_ACTIVE)
+                VALUES (@customer, @customer, 1);
+            INSERT INTO MDM_PRODUCT (PRODUCT_ID, PRODUCT_NAME, PRODUCT_TYPE, UNIT, VALID_STATE)
+                VALUES (@product, @product, 'FinishedGoods', 'EA', 'Valid');
+            INSERT INTO SLS_SALES_ORDER
+                (SALES_ORDER_ID, PLANT_ID, CUSTOMER_ID, PRODUCT_ID, PLAN_END_DATE, PLAN_QTY, STATUS)
+                VALUES (@salesOrderId, @plant, @customer, @product, '2040-09-30', 12.5, 'Draft');
+            """, new { plant, customer, product, salesOrderId });
+        var bridge = new NexaOne.SLS.Module(
+            database.DataSource, new BusinessMasterDirectory(database.DataSource),
+            new SalesOrderShipmentIntake(), new SalesOrderShipmentEvidence()).GetSalesOrderDeliveryBridge();
+        var command = new SalesOrderDeliveryCommand(
+            salesOrderId, deliveryOrderId, deliveryItemId, actor);
+        var trigger = $"sls_delivery_test_{suffix}";
+        await database.ExecuteAsync($"""
+            CREATE TRIGGER dbo.[{trigger}] ON dbo.SHP_DELIVERY_ITEM AFTER INSERT AS
+            BEGIN
+                SET NOCOUNT ON;
+                IF EXISTS (SELECT 1 FROM inserted WHERE ITEM_ID = '{deliveryItemId}')
+                    THROW 51097, 'Injected shipment item insert failure', 1;
+            END;
+            """);
+        try
+        {
+            (await Assert.ThrowsAsync<SqlException>(() => bridge.RequestDeliveryAsync(command)))
+                .Number.Should().Be(51097);
+            (await database.ScalarAsync<int>("""
+                SELECT COUNT(1) FROM SLS_SALES_ORDER
+                 WHERE SALES_ORDER_ID=@salesOrderId AND STATUS='Draft' AND DELIVERY_ORDER_ID IS NULL
+                """, new { salesOrderId })).Should().Be(1);
+            (await database.ScalarAsync<int>(
+                "SELECT COUNT(1) FROM SHP_DELIVERY_ORDER WHERE ORDER_ID=@deliveryOrderId",
+                new { deliveryOrderId })).Should().Be(0);
+            (await database.ScalarAsync<int>(
+                "SELECT COUNT(1) FROM SHP_DELIVERY_ITEM WHERE ITEM_ID=@deliveryItemId",
+                new { deliveryItemId })).Should().Be(0);
+        }
+        finally
+        {
+            await database.ExecuteAsync($"DROP TRIGGER dbo.[{trigger}]");
+        }
+
+        var recovered = await bridge.RequestDeliveryAsync(command);
+        recovered.IsSuccess.Should().BeTrue(recovered.Error.Description);
+        recovered.Value.Should().Be(new SalesOrderDeliveryState(
+            salesOrderId, deliveryOrderId, "Confirmed"));
+        (await database.ScalarAsync<int>(
+            "SELECT COUNT(1) FROM SHP_DELIVERY_ORDER WHERE ORDER_ID=@deliveryOrderId",
+            new { deliveryOrderId })).Should().Be(1);
+        (await database.ScalarAsync<int>(
+            "SELECT COUNT(1) FROM SHP_DELIVERY_ITEM WHERE ITEM_ID=@deliveryItemId",
+            new { deliveryItemId })).Should().Be(1);
+        var replay = await bridge.RequestDeliveryAsync(command);
         replay.IsFailure.Should().BeTrue();
         replay.Error.Code.Should().Be("SLS_DELIVERY_NOT_REQUESTABLE");
     }

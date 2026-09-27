@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Data.SqlClient;
 using NexaOne.MDM.Infrastructure;
 using NexaOne.SHP.Infrastructure;
 using NexaOne.ServiceContracts.Sls;
@@ -62,6 +63,73 @@ public sealed class MssqlSlsSalesRequestContractTests(ITestOutputHelper output)
             "SELECT COUNT(1) FROM SLS_SALES_REQUEST WHERE SALES_REQUEST_ID=@secondRequestId " +
             "AND STATUS='Draft' AND SALES_ORDER_ID IS NULL", new { secondRequestId }))
             .Should().Be(1, "중복 수주 ID가 나면 요청 전이도 롤백되어야 한다");
+    }
+
+    [Fact]
+    public async Task Sales_order_insert_failure_rolls_back_receipt_and_same_command_can_retry()
+    {
+        var database = await MssqlContractDatabase.TryCreateAsync(output);
+        if (database is null) return;
+
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var plant = $"SLSP_{suffix}";
+        var customer = $"SLSC_{suffix}";
+        var product = $"SLSI_{suffix}";
+        var requestId = $"SLSR_{suffix}";
+        var orderId = $"SLSO_{suffix}";
+        const string actor = "sls-receipt-rollback";
+        await database.ExecuteAsync("""
+            INSERT INTO MDM_PLANT (PLANT_ID, PLANT_NAME) VALUES (@plant, @plant);
+            INSERT INTO MDM_CUSTOMER (CUSTOMER_ID, CUSTOMER_NAME, IS_ACTIVE)
+                VALUES (@customer, @customer, 1);
+            INSERT INTO MDM_PRODUCT (PRODUCT_ID, PRODUCT_NAME, PRODUCT_TYPE, UNIT, VALID_STATE)
+                VALUES (@product, @product, 'FinishedGoods', 'EA', 'Valid');
+            """, new { plant, customer, product });
+        var bridge = new NexaOne.SLS.Module(
+            database.DataSource, new BusinessMasterDirectory(database.DataSource),
+            new SalesOrderShipmentIntake(), new SalesOrderShipmentEvidence()).GetSalesRequestBridge();
+        var created = await bridge.CreateDraftAsync(new SalesRequestDraftCommand(
+            requestId, "MSSQL 판매 요청", customer, product, new DateTime(2040, 9, 1), 12.5m, actor));
+        created.IsSuccess.Should().BeTrue(created.Error.Description);
+
+        var receipt = new SalesRequestReceiptCommand(requestId, orderId, plant, "MSSQL 수주",
+            new DateTime(2040, 9, 1), new DateTime(2040, 9, 30), actor);
+        var trigger = $"sls_receipt_test_{suffix}";
+        await database.ExecuteAsync($"""
+            CREATE TRIGGER dbo.[{trigger}] ON dbo.SLS_SALES_ORDER AFTER INSERT AS
+            BEGIN
+                SET NOCOUNT ON;
+                IF EXISTS (SELECT 1 FROM inserted WHERE SALES_ORDER_ID = '{orderId}')
+                    THROW 51096, 'Injected sales order insert failure', 1;
+            END;
+            """);
+        try
+        {
+            (await Assert.ThrowsAsync<SqlException>(() => bridge.ReceiveAsync(receipt)))
+                .Number.Should().Be(51096);
+            (await database.ScalarAsync<int>("""
+                SELECT COUNT(1) FROM SLS_SALES_REQUEST
+                 WHERE SALES_REQUEST_ID=@requestId AND STATUS='Draft' AND SALES_ORDER_ID IS NULL
+                   AND UPDATED_BY=@actor
+                """, new { requestId, actor })).Should().Be(1);
+            (await database.ScalarAsync<int>(
+                "SELECT COUNT(1) FROM SLS_SALES_ORDER WHERE SALES_ORDER_ID=@orderId",
+                new { orderId })).Should().Be(0);
+        }
+        finally
+        {
+            await database.ExecuteAsync($"DROP TRIGGER dbo.[{trigger}]");
+        }
+
+        var recovered = await bridge.ReceiveAsync(receipt);
+        recovered.IsSuccess.Should().BeTrue(recovered.Error.Description);
+        recovered.Value.Should().Be(new SalesRequestState(requestId, "Confirmed", orderId));
+        (await database.ScalarAsync<int>(
+            "SELECT COUNT(1) FROM SLS_SALES_ORDER WHERE SALES_ORDER_ID=@orderId",
+            new { orderId })).Should().Be(1);
+        var replay = await bridge.ReceiveAsync(receipt);
+        replay.IsFailure.Should().BeTrue();
+        replay.Error.Code.Should().Be("SLS_REQUEST_NOT_RECEIVABLE");
     }
 
     [Fact]
