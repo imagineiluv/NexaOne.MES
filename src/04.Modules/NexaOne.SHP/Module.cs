@@ -11,6 +11,7 @@ public sealed class Module
 {
     private readonly IShipmentBridge _shipmentBridge;
     private readonly ISalesOrderShipmentIntake _salesOrderShipmentIntake;
+    private readonly ISalesOrderShipmentEvidence _salesOrderShipmentEvidence;
 
     public Module(EesDataSource dataSource, IConfiguration configuration)
     {
@@ -21,8 +22,10 @@ public sealed class Module
             new DeliveryItemRepository(dataSource),
             new ShipmentHistoryRepository(dataSource)));
         _salesOrderShipmentIntake = new SalesOrderShipmentIntake();
+        _salesOrderShipmentEvidence = new SalesOrderShipmentEvidence();
     }
 
     public IShipmentBridge GetShipmentBridge() => _shipmentBridge;
     public ISalesOrderShipmentIntake GetSalesOrderShipmentIntake() => _salesOrderShipmentIntake;
+    public ISalesOrderShipmentEvidence GetSalesOrderShipmentEvidence() => _salesOrderShipmentEvidence;
 }

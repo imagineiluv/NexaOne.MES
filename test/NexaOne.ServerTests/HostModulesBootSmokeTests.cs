@@ -99,6 +99,33 @@ public sealed class HostModulesBootSmokeTests
         check.Parameters.AddWithValue("@deliveryItem", deliveryItem);
         check.Parameters.AddWithValue("@product", product);
         Convert.ToInt32(await check.ExecuteScalarAsync()).Should().Be(1);
+
+        (await http.PostAsync($"/api/v1/sls/sales-orders/{salesOrder}/delivery-confirmation", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict, "SHP 출하 전에는 SLS 납품을 확정할 수 없다");
+        http.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer", HostProcess.MintToken(Permissions.ShpManage));
+        (await http.PostAsync($"/api/v1/shp/orders/{deliveryOrder}/confirm", null))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await http.PostAsJsonAsync($"/api/v1/shp/orders/{deliveryOrder}/ship",
+            new { shippedDate = new DateTime(2040, 9, 30) }))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        http.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer", HostProcess.MintToken(Permissions.SlsManage));
+        var confirmUrl = $"/api/v1/sls/sales-orders/{salesOrder}/delivery-confirmation";
+        var confirmed = await http.PostAsync(confirmUrl, null);
+        confirmed.StatusCode.Should().Be(HttpStatusCode.OK, $"SHP shipped evidence must reach SLS — log:\n{host.Log}");
+        (await confirmed.Content.ReadFromJsonAsync<SalesOrderDeliveryConfirmationState>())
+            .Should().Be(new SalesOrderDeliveryConfirmationState(salesOrder, deliveryOrder, "Delivered", 12.5m));
+        (await http.PostAsync(confirmUrl, null)).StatusCode.Should().Be(HttpStatusCode.OK,
+            "replaying delivery confirmation must not count the shipment twice");
+        check.CommandText = """
+            SELECT COUNT(1) FROM SLS_SALES_ORDER
+             WHERE SALES_ORDER_ID = @salesOrder AND STATUS = 'Delivered'
+               AND DELIVERED_QTY = 12.5 AND DELIVERY_ORDER_ID = @deliveryOrder
+            """;
+        Convert.ToInt32(await check.ExecuteScalarAsync()).Should().Be(1);
     }
 
     [Fact]

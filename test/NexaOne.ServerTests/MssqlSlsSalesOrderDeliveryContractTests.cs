@@ -44,7 +44,7 @@ public sealed class MssqlSlsSalesOrderDeliveryContractTests(ITestOutputHelper ou
 
         var bridge = new NexaOne.SLS.Module(
             database.DataSource, new BusinessMasterDirectory(database.DataSource),
-            new SalesOrderShipmentIntake()).GetSalesOrderDeliveryBridge();
+            new SalesOrderShipmentIntake(), new SalesOrderShipmentEvidence()).GetSalesOrderDeliveryBridge();
         var requested = await bridge.RequestDeliveryAsync(new SalesOrderDeliveryCommand(
             firstSalesOrder, deliveryOrder, deliveryItem, actor));
         requested.IsSuccess.Should().BeTrue(requested.Error.Description);
@@ -64,6 +64,37 @@ public sealed class MssqlSlsSalesOrderDeliveryContractTests(ITestOutputHelper ou
              WHERE ITEM_ID=@deliveryItem AND DELIVERY_ORDER_ID=@deliveryOrder
                AND PRODUCT_ID=@product AND PLANNED_QTY=12.5 AND CREATED_BY=@actor
             """, new { deliveryItem, deliveryOrder, product, actor })).Should().Be(1);
+
+        var notShipped = await bridge.ConfirmDeliveryAsync(new SalesOrderDeliveryConfirmationCommand(
+            firstSalesOrder, actor));
+        notShipped.IsFailure.Should().BeTrue();
+        notShipped.Error.Code.Should().Be("SLS_SHIPMENT_NOT_SHIPPED");
+        await database.ExecuteAsync("""
+            UPDATE SHP_DELIVERY_ORDER SET STATUS='Shipped', SHIPPED_DATE='2040-09-30'
+             WHERE ORDER_ID=@deliveryOrder
+            """, new { deliveryOrder });
+        await database.ExecuteAsync(
+            "UPDATE SHP_DELIVERY_ITEM SET ACTUAL_QTY=11 WHERE ITEM_ID=@deliveryItem",
+            new { deliveryItem });
+        var shortShipment = await bridge.ConfirmDeliveryAsync(new SalesOrderDeliveryConfirmationCommand(
+            firstSalesOrder, actor));
+        shortShipment.IsFailure.Should().BeTrue();
+        shortShipment.Error.Code.Should().Be("SLS_SHIPMENT_MISMATCH");
+        await database.ExecuteAsync(
+            "UPDATE SHP_DELIVERY_ITEM SET ACTUAL_QTY=12.5 WHERE ITEM_ID=@deliveryItem",
+            new { deliveryItem });
+        var delivered = await bridge.ConfirmDeliveryAsync(new SalesOrderDeliveryConfirmationCommand(
+            firstSalesOrder, actor));
+        delivered.IsSuccess.Should().BeTrue(delivered.Error.Description);
+        delivered.Value.Should().Be(new SalesOrderDeliveryConfirmationState(
+            firstSalesOrder, deliveryOrder, "Delivered", 12.5m));
+        (await database.ScalarAsync<int>("""
+            SELECT COUNT(1) FROM SLS_SALES_ORDER
+             WHERE SALES_ORDER_ID=@firstSalesOrder AND STATUS='Delivered'
+               AND DELIVERED_QTY=12.5 AND UPDATED_BY=@actor
+            """, new { firstSalesOrder, actor })).Should().Be(1);
+        (await bridge.ConfirmDeliveryAsync(new SalesOrderDeliveryConfirmationCommand(
+            firstSalesOrder, actor))).IsSuccess.Should().BeTrue("confirmation replay is idempotent");
 
         var conflict = await bridge.RequestDeliveryAsync(new SalesOrderDeliveryCommand(
             secondSalesOrder, rolledBackOrder, deliveryItem, actor));

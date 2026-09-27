@@ -15,14 +15,24 @@ internal sealed class SalesOrderDeliveryRepository : ISalesOrderDeliveryStore
     private readonly ServiceObjectProcessor _processor;
     private readonly IBusinessMasterDirectory _masters;
     private readonly ISalesOrderShipmentIntake _shipments;
+    private readonly ISalesOrderShipmentEvidence _shipmentEvidence;
+
+    private const string SelectOrderSql = """
+        SELECT STATUS AS Status, IS_HOLD AS IsHold, DELIVERY_ORDER_ID AS DeliveryOrderId,
+               PLANT_ID AS PlantId, CUSTOMER_ID AS CustomerId, PRODUCT_ID AS ProductId,
+               PLAN_END_DATE AS PlanEndDate, PLAN_QTY AS PlanQty,
+               DELIVERED_QTY AS DeliveredQty
+          FROM SLS_SALES_ORDER WHERE SALES_ORDER_ID = @salesOrderId
+        """;
 
     public SalesOrderDeliveryRepository(EesDataSource dataSource, IBusinessMasterDirectory masters,
-        ISalesOrderShipmentIntake shipments)
+        ISalesOrderShipmentIntake shipments, ISalesOrderShipmentEvidence shipmentEvidence)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         _processor = new ServiceObjectProcessor(dataSource);
         _masters = masters ?? throw new ArgumentNullException(nameof(masters));
         _shipments = shipments ?? throw new ArgumentNullException(nameof(shipments));
+        _shipmentEvidence = shipmentEvidence ?? throw new ArgumentNullException(nameof(shipmentEvidence));
     }
 
     public async Task<SalesOrderDeliveryOutcome> TryRequestAsync(
@@ -33,13 +43,7 @@ internal sealed class SalesOrderDeliveryRepository : ISalesOrderDeliveryStore
             return await _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
             {
                 var order = await connection.QuerySingleOrDefaultAsync<SalesOrderRow>(new CommandDefinition(
-                    """
-                    SELECT STATUS AS Status, IS_HOLD AS IsHold, DELIVERY_ORDER_ID AS DeliveryOrderId,
-                           PLANT_ID AS PlantId, CUSTOMER_ID AS CustomerId, PRODUCT_ID AS ProductId,
-                           PLAN_END_DATE AS PlanEndDate, PLAN_QTY AS PlanQty,
-                           DELIVERED_QTY AS DeliveredQty
-                      FROM SLS_SALES_ORDER WHERE SALES_ORDER_ID = @salesOrderId
-                    """, new { salesOrderId }, transaction, cancellationToken: ct));
+                    SelectOrderSql, new { salesOrderId }, transaction, cancellationToken: ct));
                 if (order is null) return SalesOrderDeliveryOutcome.SalesOrderNotFound;
                 if (order.Status is not ("Draft" or "Confirmed") || order.IsHold != "N"
                     || order.DeliveryOrderId is not null || order.DeliveredQty != 0)
@@ -81,6 +85,64 @@ internal sealed class SalesOrderDeliveryRepository : ISalesOrderDeliveryStore
             return SalesOrderDeliveryOutcome.DeliveryIdentityConflict;
         }
     }
+
+    public Task<SalesOrderDeliveryConfirmationResult> TryConfirmAsync(
+        string salesOrderId, string actorId, CancellationToken ct)
+        => _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
+        {
+            var order = await connection.QuerySingleOrDefaultAsync<SalesOrderRow>(new CommandDefinition(
+                SelectOrderSql, new { salesOrderId }, transaction, cancellationToken: ct));
+            if (order is null)
+                return new SalesOrderDeliveryConfirmationResult(
+                    SalesOrderDeliveryConfirmationOutcome.SalesOrderNotFound);
+            if (order.DeliveryOrderId is null || order.PlanQty <= 0)
+                return new SalesOrderDeliveryConfirmationResult(
+                    SalesOrderDeliveryConfirmationOutcome.NotConfirmable);
+            if (order.Status == "Delivered" && order.DeliveredQty == order.PlanQty)
+                return new SalesOrderDeliveryConfirmationResult(
+                    SalesOrderDeliveryConfirmationOutcome.AlreadyConfirmed,
+                    order.DeliveryOrderId, order.DeliveredQty);
+            if (order.Status is not ("Confirmed" or "Producing") || order.IsHold != "N"
+                || order.DeliveredQty != 0 || string.IsNullOrWhiteSpace(order.PlantId)
+                || string.IsNullOrWhiteSpace(order.ProductId))
+                return new SalesOrderDeliveryConfirmationResult(
+                    SalesOrderDeliveryConfirmationOutcome.NotConfirmable);
+
+            var evidence = await _shipmentEvidence.FindAsync(transaction, order.DeliveryOrderId, ct);
+            if (evidence is null || evidence.Status != "Shipped" || evidence.ShippedDate is null)
+                return new SalesOrderDeliveryConfirmationResult(
+                    SalesOrderDeliveryConfirmationOutcome.ShipmentNotShipped);
+            // SHP의 Shipped는 전량 출하 상태다. 상세 실적이 있으면 그 수량도 수주 계획과 일치해야 한다.
+            if (evidence.ItemCount != 1 || evidence.PlannedQty != order.PlanQty
+                || (evidence.ActualQty is { } actualQty && actualQty != order.PlanQty)
+                || (evidence.ShipmentHistoryCount > 0 && evidence.RecordedShippedQty != order.PlanQty)
+                || !string.Equals(evidence.PlantId, order.PlantId, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(evidence.ProductId, order.ProductId, StringComparison.OrdinalIgnoreCase))
+                return new SalesOrderDeliveryConfirmationResult(
+                    SalesOrderDeliveryConfirmationOutcome.ShipmentMismatch);
+
+            var updated = await connection.ExecuteAsync(new CommandDefinition(
+                """
+                UPDATE SLS_SALES_ORDER
+                   SET STATUS = 'Delivered', DELIVERED_QTY = PLAN_QTY,
+                       UPDATED_BY = @actorId, UPDATED_AT = @now
+                 WHERE SALES_ORDER_ID = @salesOrderId AND DELIVERY_ORDER_ID = @deliveryOrderId
+                   AND STATUS IN ('Confirmed', 'Producing') AND IS_HOLD = 'N'
+                   AND DELIVERED_QTY = 0 AND PLAN_QTY = @planQty
+                """, new
+                {
+                    salesOrderId, deliveryOrderId = order.DeliveryOrderId,
+                    actorId, planQty = order.PlanQty, now = DateTime.UtcNow,
+                }, transaction, cancellationToken: ct));
+            if (updated == 0)
+                return new SalesOrderDeliveryConfirmationResult(
+                    SalesOrderDeliveryConfirmationOutcome.NotConfirmable);
+            if (updated != 1)
+                throw new DBConcurrencyException($"Sales order delivery confirmation affected {updated} rows.");
+            return new SalesOrderDeliveryConfirmationResult(
+                SalesOrderDeliveryConfirmationOutcome.Confirmed,
+                order.DeliveryOrderId, order.PlanQty);
+        }, IsolationLevel.Serializable, ct);
 
     private static bool IsUniqueViolation(DbException error) => error switch
     {

@@ -8,6 +8,7 @@
     <constructor-arg ref="eesDataSource" />
     <constructor-arg ref="businessMasterDirectory" />
     <constructor-arg ref="salesOrderShipmentIntake" />
+    <constructor-arg ref="salesOrderShipmentEvidence" />
   </object>
   <object id="mrpDemandDirectory"
           factory-object="slsModule"
