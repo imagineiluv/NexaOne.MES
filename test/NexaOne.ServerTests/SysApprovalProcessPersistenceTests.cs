@@ -151,6 +151,37 @@ public sealed class SysApprovalProcessPersistenceTests
             .WithMessage("*already Cancelled*");
     }
 
+    [Fact]
+    public async Task Pending_document_write_requires_a_distinct_approver_and_preserves_pending_status()
+    {
+        _ = _factory.CreateClient();
+        var approvals = Process();
+        var id = $"RECIPE-{Guid.NewGuid():N}";
+        var approvalId = await approvals.SubmitAsync(
+            new ApprovalRequest("Recipe", id), "requester", $"submit-{id}", "hash-submit");
+        var invoked = false;
+
+        var selfWrite = () => approvals.WritePendingDocumentAsync(
+            approvalId, "requester", (_, _) =>
+            {
+                invoked = true;
+                return Task.CompletedTask;
+            });
+        await selfWrite.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*requester cannot approve*");
+        invoked.Should().BeFalse();
+
+        await approvals.WritePendingDocumentAsync(
+            approvalId, "reviewer", (_, _) =>
+            {
+                invoked = true;
+                return Task.CompletedTask;
+            });
+        invoked.Should().BeTrue();
+        (await approvals.GetCurrentAsync("Recipe", id))!.Status.Should().Be("Pending");
+        (await approvals.GetHistoryAsync("Recipe", id)).Should().ContainSingle();
+    }
+
     private ApprovalProcess Process() => new(DataSource());
 
     private EesDataSource DataSource() => new()

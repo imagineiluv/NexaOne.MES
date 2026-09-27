@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using NexaOne.Common;
+using Dapper;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.RMS.Application.Rms;
 using NexaOne.RMS.Domain;
@@ -185,6 +186,48 @@ public sealed class RecipeRepository : QueryRepository, IRecipeRepository
         CancellationToken ct = default)
     {
         var now = DateTime.UtcNow;
+        var statements = TransitionStatements(recipe, expectedState, transition, now);
+
+        bool changed;
+        try
+        {
+            changed = await _processor.ExecuteGuardedManyAsync(ct, statements.ToArray());
+        }
+        catch (DbException)
+        {
+            if (await GetApprovalHistoryByIdempotencyKeyAsync(
+                    transition.IdempotencyKey, ct) is not null)
+                return false;
+            throw;
+        }
+        if (changed) recipe.ClearDomainEvents();
+        return changed;
+    }
+
+    public async Task<bool> TryTransitionInTransactionAsync(
+        Recipe recipe,
+        RecipeApprovalState expectedState,
+        RecipeTransitionWrite transition,
+        DbTransaction transaction,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(transaction);
+        var connection = transaction.Connection ?? throw new InvalidOperationException("Transaction is closed.");
+        var statements = TransitionStatements(recipe, expectedState, transition, DateTime.UtcNow);
+        var first = statements[0];
+        var changed = await connection.ExecuteAsync(new CommandDefinition(
+            first.Sql, first.Param, transaction, cancellationToken: ct));
+        if (changed != 1) return false;
+        foreach (var statement in statements.Skip(1))
+            await connection.ExecuteAsync(new CommandDefinition(
+                statement.Sql, statement.Param, transaction, cancellationToken: ct));
+        return true;
+    }
+
+    private List<(string Sql, object? Param)> TransitionStatements(
+        Recipe recipe, RecipeApprovalState expectedState,
+        RecipeTransitionWrite transition, DateTime now)
+    {
         var update = UpdateParam(recipe, transition.ActorId, now);
         update.Add("ExpectedState", expectedState.ToString());
         update.Add("IdempotencyKey", transition.IdempotencyKey);
@@ -207,21 +250,7 @@ public sealed class RecipeRepository : QueryRepository, IRecipeRepository
         if (_outboxEnabled)
             statements.AddRange(OutboxStatements.For(
                 recipe.DomainEvents.OfType<IOutboxEvent>(), transition.ActorId, now));
-
-        bool changed;
-        try
-        {
-            changed = await _processor.ExecuteGuardedManyAsync(ct, statements.ToArray());
-        }
-        catch (DbException)
-        {
-            if (await GetApprovalHistoryByIdempotencyKeyAsync(
-                    transition.IdempotencyKey, ct) is not null)
-                return false;
-            throw;
-        }
-        if (changed) recipe.ClearDomainEvents();
-        return changed;
+        return statements;
     }
 
     public async Task<RecipeApprovalHistoryRecord?> GetApprovalHistoryByIdempotencyKeyAsync(

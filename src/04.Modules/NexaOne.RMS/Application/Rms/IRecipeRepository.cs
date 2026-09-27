@@ -1,5 +1,7 @@
 ﻿using NexaOne.RMS.Domain;
 
+using System.Data.Common;
+
 namespace NexaOne.RMS.Application.Rms;
 
 public interface IRecipeRepository
@@ -27,6 +29,12 @@ public interface IRecipeRepository
         Recipe recipe,
         RecipeApprovalState expectedState,
         RecipeTransitionWrite transition,
+        CancellationToken ct = default);
+    Task<bool> TryTransitionInTransactionAsync(
+        Recipe recipe,
+        RecipeApprovalState expectedState,
+        RecipeTransitionWrite transition,
+        DbTransaction transaction,
         CancellationToken ct = default);
     Task<RecipeApprovalHistoryRecord?> GetApprovalHistoryByIdempotencyKeyAsync(
         string idempotencyKey, CancellationToken ct = default);

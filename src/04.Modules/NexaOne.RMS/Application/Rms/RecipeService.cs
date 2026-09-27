@@ -2,6 +2,7 @@
 using NexaOne.Common;
 using NexaOne.Application.Idempotency;
 using NexaOne.ServiceContracts.Rms;
+using NexaOne.ServiceContracts.Sys;
 
 namespace NexaOne.RMS.Application.Rms;
 
@@ -9,11 +10,14 @@ public class RecipeService
 {
     private readonly IRecipeRepository _recipeRepository;
     private readonly IRecipeParamRepository _paramRepository;
+    private readonly IApprovalProcess? _approvals;
 
-    public RecipeService(IRecipeRepository recipeRepository, IRecipeParamRepository paramRepository)
+    public RecipeService(IRecipeRepository recipeRepository, IRecipeParamRepository paramRepository,
+        IApprovalProcess? approvals = null)
     {
         _recipeRepository = recipeRepository;
         _paramRepository = paramRepository;
+        _approvals = approvals;
     }
 
     public async Task<Result<IReadOnlyList<Recipe>>> GetByEquipmentClassAsync(
@@ -133,7 +137,13 @@ public class RecipeService
         var requestHash = CanonicalRequestHash.Compute(
             normalizedId, action, actor, normalizedReason);
         var replay = await _recipeRepository.GetApprovalHistoryByIdempotencyKeyAsync(key, ct);
-        if (replay is not null) return ReplayTransition(replay, requestHash, key);
+        if (replay is not null)
+        {
+            if (_approvals is not null && action is ("RequestApproval" or "Approve2" or "Reject")
+                && await _approvals.GetCurrentAsync("Recipe", normalizedId, ct) is null)
+                return Result.Failure(ApprovalMissing(normalizedId));
+            return ReplayTransition(replay, requestHash, key);
+        }
 
         var recipe = await _recipeRepository.GetByIdAsync(normalizedId, ct);
         if (recipe is null)
@@ -144,6 +154,9 @@ public class RecipeService
         if (changed.IsFailure) return changed;
 
         var transition = new RecipeTransitionWrite(key, requestHash, actor, normalizedReason);
+        if (_approvals is not null)
+            return await TransitionWithSharedApprovalAsync(
+                recipe, expectedState, action, transition, ct);
         if (await _recipeRepository.TryTransitionAsync(recipe, expectedState, transition, ct))
             return Result.Success();
 
@@ -153,6 +166,110 @@ public class RecipeService
             "RMS.Recipe.ConcurrentTransition",
             $"Recipe '{recipe.Id}' changed from '{expectedState}' before this transition could be committed."));
     }
+
+    private async Task<Result> TransitionWithSharedApprovalAsync(
+        Recipe recipe, RecipeApprovalState expectedState, string action,
+        RecipeTransitionWrite transition, CancellationToken ct)
+    {
+        var approvals = _approvals!;
+        var actor = transition.ActorId;
+        var key = transition.IdempotencyKey;
+        var hash = transition.RequestHash;
+        // 공통 승인 상태기에는 승인 완료 후 반려 전이가 없으므로 Pending 단계에서만 반려한다.
+        if (action == "Reject" && expectedState is not
+            (RecipeApprovalState.WaitApproval or RecipeApprovalState.Approved1))
+            return Result.Failure(Error.Conflict(
+                "RMS.Recipe.RejectState", "Only a recipe awaiting approval can be rejected."));
+        var approval = action == "RequestApproval"
+            ? null
+            : await approvals.GetCurrentAsync("Recipe", recipe.Id, ct);
+        if (action != "RequestApproval" && approval is null)
+            return Result.Failure(ApprovalMissing(recipe.Id));
+
+        if (action == "Approve1")
+        {
+            if (approval!.Status != "Pending")
+                return Result.Failure(ApprovalStateConflict(recipe.Id, approval.Status));
+            if (string.Equals(approval.RequestedBy.Trim(), actor, StringComparison.OrdinalIgnoreCase))
+                return Result.Failure(Error.Conflict(
+                    "RMS.Recipe.SelfApproval", "The requester cannot approve their own recipe."));
+        }
+        else if (action == "Release" && approval!.Status != "Approved")
+            return Result.Failure(ApprovalStateConflict(recipe.Id, approval.Status));
+
+        if (action == "Release")
+            return await PersistLocalTransitionAsync(recipe, expectedState, transition, ct);
+
+        async Task PersistDocument(System.Data.Common.DbTransaction transaction, CancellationToken token)
+        {
+            if (!await _recipeRepository.TryTransitionInTransactionAsync(
+                    recipe, expectedState, transition, transaction, token))
+                throw new InvalidOperationException(
+                    $"RMS_RECIPE_DOCUMENT_CONFLICT: recipe '{recipe.Id}' changed concurrently.");
+        }
+
+        try
+        {
+            if (action == "RequestApproval")
+                await approvals.SubmitWithDocumentAsync(
+                    new ApprovalRequest("Recipe", recipe.Id, recipe.RecipeName),
+                    actor, key, hash, PersistDocument, ct);
+            else if (action == "Approve1")
+                await approvals.WritePendingDocumentAsync(
+                    approval!.ApprovalId, actor, PersistDocument, ct);
+            else
+            {
+                if (approval!.Status != "Pending")
+                    return Result.Failure(ApprovalStateConflict(recipe.Id, approval.Status));
+                await approvals.DecideWithDocumentAsync(
+                    new ApprovalDecision(approval.ApprovalId, action == "Approve2", transition.Reason),
+                    actor, key, hash, PersistDocument, ct);
+            }
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.StartsWith("RMS_RECIPE_DOCUMENT_CONFLICT:", StringComparison.Ordinal))
+        {
+            var replay = await _recipeRepository.GetApprovalHistoryByIdempotencyKeyAsync(key, ct);
+            if (replay is not null) return ReplayTransition(replay, hash, key);
+            return Result.Failure(Error.Conflict(
+                "RMS.Recipe.ConcurrentTransition", ex.Message));
+        }
+        catch (InvalidOperationException ex) when (
+            ex.Message.StartsWith("APPROVAL_REQUEST_CONFLICT:", StringComparison.Ordinal))
+        {
+            return Result.Failure(Error.Conflict("RMS.Recipe.ApprovalConflict", ex.Message));
+        }
+
+        var persisted = await _recipeRepository.GetApprovalHistoryByIdempotencyKeyAsync(key, ct);
+        return persisted is null
+            ? Result.Failure(Error.Conflict(
+                "RMS.Recipe.ApprovalInvariant",
+                $"Shared approval committed without recipe transition '{key}'."))
+            : ReplayTransition(persisted, hash, key);
+    }
+
+    private async Task<Result> PersistLocalTransitionAsync(
+        Recipe recipe, RecipeApprovalState expectedState,
+        RecipeTransitionWrite transition, CancellationToken ct)
+    {
+        if (await _recipeRepository.TryTransitionAsync(recipe, expectedState, transition, ct))
+            return Result.Success();
+        var replay = await _recipeRepository.GetApprovalHistoryByIdempotencyKeyAsync(
+            transition.IdempotencyKey, ct);
+        return replay is not null
+            ? ReplayTransition(replay, transition.RequestHash, transition.IdempotencyKey)
+            : Result.Failure(Error.Conflict(
+                "RMS.Recipe.ConcurrentTransition",
+                $"Recipe '{recipe.Id}' changed from '{expectedState}' before this transition could commit."));
+    }
+
+    private static Error ApprovalMissing(string recipeId) => Error.Conflict(
+        "RMS.Recipe.ApprovalMissing",
+        $"Recipe '{recipeId}' has no shared approval request.");
+
+    private static Error ApprovalStateConflict(string recipeId, string status) => Error.Conflict(
+        "RMS.Recipe.ApprovalState",
+        $"Shared approval for recipe '{recipeId}' is {status}.");
 
     private static Result ReplayTransition(
         RecipeApprovalHistoryRecord replay, string requestHash, string idempotencyKey)
