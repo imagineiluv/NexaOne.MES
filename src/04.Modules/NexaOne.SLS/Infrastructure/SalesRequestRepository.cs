@@ -128,6 +128,27 @@ internal sealed class SalesRequestRepository : ISalesRequestStore
         }
     }
 
+    public Task<SalesRequestWithdrawOutcome> TryWithdrawAsync(
+        string salesRequestId, string actorId, CancellationToken ct)
+        => _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
+        {
+            var updated = await connection.ExecuteAsync(new CommandDefinition(
+                """
+                UPDATE SLS_SALES_REQUEST
+                   SET STATUS = 'Cancelled', UPDATED_BY = @actorId, UPDATED_AT = @now
+                 WHERE SALES_REQUEST_ID = @salesRequestId AND STATUS = 'Draft' AND SALES_ORDER_ID IS NULL
+                """, new { salesRequestId, actorId, now = DateTime.UtcNow }, transaction, cancellationToken: ct));
+            if (updated == 1) return SalesRequestWithdrawOutcome.Withdrawn;
+            if (updated != 0) throw new DBConcurrencyException($"Sales request withdraw affected {updated} rows.");
+
+            var exists = await connection.ExecuteScalarAsync<int?>(new CommandDefinition(
+                "SELECT 1 FROM SLS_SALES_REQUEST WHERE SALES_REQUEST_ID = @salesRequestId",
+                new { salesRequestId }, transaction, cancellationToken: ct));
+            return exists.HasValue
+                ? SalesRequestWithdrawOutcome.NotWithdrawable
+                : SalesRequestWithdrawOutcome.RequestNotFound;
+        }, IsolationLevel.Serializable, ct);
+
     private static bool IsIdentityConflict(DbException error, string table, string column)
     {
         var uniqueViolation = error switch

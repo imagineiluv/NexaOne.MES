@@ -38,6 +38,16 @@ public sealed class SalesRequestController(ISalesRequestBridge bridge) : Control
         return result.ToActionResult();
     }
 
+    [HttpPost("{salesRequestId}/withdraw")]
+    [RequirePermission(Permissions.SlsManage)]
+    public async Task<IActionResult> Withdraw(string salesRequestId, CancellationToken ct)
+    {
+        var actor = User.CurrentUserId();
+        if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
+        var result = await bridge.WithdrawAsync(new SalesRequestWithdrawCommand(salesRequestId, actor), ct);
+        return result.ToActionResult();
+    }
+
     public sealed record CreateRequest(
         string? SalesRequestId, string? SalesRequestName, string? CustomerId,
         string? ProductId, DateTime RequestDate, decimal RequestQty);

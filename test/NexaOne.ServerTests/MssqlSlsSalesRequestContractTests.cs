@@ -61,4 +61,36 @@ public sealed class MssqlSlsSalesRequestContractTests(ITestOutputHelper output)
             "AND STATUS='Draft' AND SALES_ORDER_ID IS NULL", new { secondRequestId }))
             .Should().Be(1, "중복 수주 ID가 나면 요청 전이도 롤백되어야 한다");
     }
+
+    [Fact]
+    public async Task Withdraw_keeps_the_request_row_and_rejects_replay()
+    {
+        var database = await MssqlContractDatabase.TryCreateAsync(output);
+        if (database is null) return;
+
+        var requestId = $"SLSW_{Guid.NewGuid():N}";
+        const string actor = "sls-mssql-withdraw";
+        await database.ExecuteAsync(
+            "INSERT INTO SLS_SALES_REQUEST (SALES_REQUEST_ID, REQUEST_QTY, STATUS) VALUES (@requestId, 1, 'Draft')",
+            new { requestId });
+        var bridge = new NexaOne.SLS.Module(
+            database.DataSource, new BusinessMasterDirectory(database.DataSource)).GetSalesRequestBridge();
+
+        var withdrawn = await bridge.WithdrawAsync(new SalesRequestWithdrawCommand(requestId, actor));
+        withdrawn.IsSuccess.Should().BeTrue(withdrawn.Error.Description);
+        withdrawn.Value.Should().Be(new SalesRequestState(requestId, "Cancelled", null));
+        (await database.ScalarAsync<int>(
+            "SELECT COUNT(1) FROM SLS_SALES_REQUEST WHERE SALES_REQUEST_ID=@requestId " +
+            "AND STATUS='Cancelled' AND SALES_ORDER_ID IS NULL AND UPDATED_BY=@actor",
+            new { requestId, actor })).Should().Be(1);
+
+        var replay = await bridge.WithdrawAsync(new SalesRequestWithdrawCommand(requestId, actor));
+        replay.IsFailure.Should().BeTrue();
+        replay.Error.Code.Should().Be("SLS_REQUEST_NOT_WITHDRAWABLE");
+
+        var missing = await bridge.WithdrawAsync(new SalesRequestWithdrawCommand(
+            $"SLSM_{Guid.NewGuid():N}", actor));
+        missing.IsFailure.Should().BeTrue();
+        missing.Error.Code.Should().Be("SLS_REQUEST_NOT_FOUND");
+    }
 }

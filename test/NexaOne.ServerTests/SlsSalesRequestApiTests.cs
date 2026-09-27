@@ -75,7 +75,66 @@ public sealed class SlsSalesRequestApiTests : IClassFixture<SlsSalesRequestApiTe
         (await Client("reader", Permissions.SlsRead).PostAsJsonAsync(
             $"/api/v1/sls/sales-requests/{body.SalesRequestId}/receipt", Receipt("SO_FORBIDDEN", "PLANT01")))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await _factory.CreateClient().PostAsync(
+            $"/api/v1/sls/sales-requests/{body.SalesRequestId}/withdraw", null))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await Client("reader", Permissions.SlsRead).PostAsync(
+            $"/api/v1/sls/sales-requests/{body.SalesRequestId}/withdraw", null))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
         Count("SLS_SALES_REQUEST", "SALES_REQUEST_ID", body.SalesRequestId!).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Draft_withdrawal_preserves_audit_and_blocks_receipt_or_replay()
+    {
+        var suffix = Suffix();
+        var requestId = $"SR_{suffix}";
+        var orderId = $"SO_{suffix}";
+        var plant = $"P_{suffix}";
+        var customer = $"C_{suffix}";
+        var product = $"I_{suffix}";
+        SeedReferences(plant, customer, product);
+        (await Client("creator", Permissions.SlsManage).PostAsJsonAsync(
+            "/api/v1/sls/sales-requests", Draft(requestId, customer, product)))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var manager = Client("withdrawer", Permissions.SlsManage);
+        var withdraw = await manager.PostAsync($"/api/v1/sls/sales-requests/{requestId}/withdraw", null);
+        withdraw.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await withdraw.Content.ReadFromJsonAsync<SalesRequestState>())
+            .Should().Be(new SalesRequestState(requestId, "Cancelled", null));
+        ReadRequest(requestId).Should().Be(("Cancelled", null, "creator", "withdrawer"));
+
+        (await manager.PostAsync($"/api/v1/sls/sales-requests/{requestId}/withdraw", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await manager.PostAsJsonAsync($"/api/v1/sls/sales-requests/{requestId}/receipt",
+            Receipt(orderId, plant))).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        Count("SLS_SALES_ORDER", "SALES_ORDER_ID", orderId).Should().Be(0);
+        ReadRequest(requestId).Should().Be(("Cancelled", null, "creator", "withdrawer"));
+    }
+
+    [Fact]
+    public async Task Missing_or_confirmed_request_cannot_be_withdrawn()
+    {
+        var suffix = Suffix();
+        var requestId = $"SR_{suffix}";
+        var orderId = $"SO_{suffix}";
+        var plant = $"P_{suffix}";
+        var customer = $"C_{suffix}";
+        var product = $"I_{suffix}";
+        SeedReferences(plant, customer, product);
+        var manager = Client("sales-manager", Permissions.SlsManage);
+        (await manager.PostAsync($"/api/v1/sls/sales-requests/{requestId}/withdraw", null))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await manager.PostAsJsonAsync("/api/v1/sls/sales-requests", Draft(requestId, customer, product)))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await manager.PostAsJsonAsync($"/api/v1/sls/sales-requests/{requestId}/receipt",
+            Receipt(orderId, plant))).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await manager.PostAsync($"/api/v1/sls/sales-requests/{requestId}/withdraw", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        ReadRequest(requestId).Should().Be(("Confirmed", orderId, "sales-manager", "sales-manager"));
+        Count("SLS_SALES_ORDER", "SALES_ORDER_ID", orderId).Should().Be(1);
     }
 
     [Fact]
