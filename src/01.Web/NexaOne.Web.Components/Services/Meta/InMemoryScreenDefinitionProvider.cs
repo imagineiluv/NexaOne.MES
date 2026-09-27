@@ -1266,7 +1266,9 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("purchaseOrderName", "발주명"), new("vendorId", "거래처"),
                 new("orderQty", "발주수량", FieldType.Number, Required: true),
             },
-            prcOrderCols, QueryId: "PRC.PurchaseOrderList", SaveQueryId: "PRC.CreatePurchaseOrder", DeleteQueryId: "PRC.DeletePurchaseOrder",
+            prcOrderCols, QueryId: "PRC.PurchaseOrderList",
+            SaveQueryId: PrcPurchaseOrderMetaCommands.Save,
+            DeleteQueryId: PrcPurchaseOrderMetaCommands.Delete,
             BulkCommands: new BulkCommandDefinition[]
             {
                 new("발주", PrcPurchaseOrderMetaCommands.Order),  // 품목 1건 이상·미보류 Draft→Ordered
