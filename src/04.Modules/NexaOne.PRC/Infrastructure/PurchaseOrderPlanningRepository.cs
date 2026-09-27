@@ -41,11 +41,17 @@ internal sealed class PurchaseOrderPlanningRepository : QueryRepository, IPurcha
         CancellationToken ct = default)
     {
         var row = await QueryFirstOrDefaultAsync<PurchaseOrderRow>(
-            "SELECT PURCHASE_ORDER_ID AS PurchaseOrderId, PLANT_ID AS PlantId, " +
-            "PURCHASE_ORDER_NAME AS PurchaseOrderName, INCOMING_DATE AS IncomingDate, " +
-            "ORDER_QTY AS Quantity, PRODUCT_ID AS ProductId, " +
-            "STATUS AS Status, DESCRIPTION AS Description " +
-            "FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID = @purchaseOrderId",
+            "SELECT purchase.PURCHASE_ORDER_ID AS PurchaseOrderId, " +
+            "purchase.PLANT_ID AS PlantId, purchase.PURCHASE_ORDER_NAME AS PurchaseOrderName, " +
+            "purchase.INCOMING_DATE AS IncomingDate, item.ORDER_QTY AS Quantity, " +
+            "purchase.PRODUCT_ID AS ProductId, purchase.STATUS AS Status, " +
+            "purchase.DESCRIPTION AS Description, " +
+            "(SELECT COUNT(*) FROM PRC_PURCHASE_ITEM counted " +
+            "WHERE counted.PURCHASE_ORDER_ID=purchase.PURCHASE_ORDER_ID) AS LineCount " +
+            "FROM PRC_PURCHASE_ORDER purchase " +
+            "LEFT JOIN PRC_PURCHASE_ITEM item ON item.PURCHASE_ORDER_ID=purchase.PURCHASE_ORDER_ID " +
+            "AND item.PRODUCT_ID=purchase.PRODUCT_ID " +
+            "WHERE purchase.PURCHASE_ORDER_ID = @purchaseOrderId",
             new { purchaseOrderId },
             ct);
         return row is null
@@ -57,6 +63,7 @@ internal sealed class PurchaseOrderPlanningRepository : QueryRepository, IPurcha
                 AsDate(row.IncomingDate),
                 row.Quantity,
                 row.ProductId,
+                row.LineCount,
                 row.Status,
                 row.Description);
     }
@@ -139,6 +146,7 @@ internal sealed class PurchaseOrderPlanningRepository : QueryRepository, IPurcha
         public object? IncomingDate { get; set; }
         public decimal Quantity { get; set; }
         public string ProductId { get; set; } = string.Empty;
+        public int LineCount { get; set; }
         public string Status { get; set; } = string.Empty;
         public string? Description { get; set; }
     }

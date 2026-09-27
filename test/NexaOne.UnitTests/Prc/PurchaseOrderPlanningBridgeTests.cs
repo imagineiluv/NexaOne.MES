@@ -59,6 +59,13 @@ public sealed class PurchaseOrderPlanningBridgeTests
 
             (await bridge.GetScheduledReceiptsAsync()).Should().ContainSingle()
                 .Which.Quantity.Should().Be(request.Quantity - 4m);
+            (await bridge.EnsureMrpPurchaseOrderAsync(request)).Created.Should().BeFalse();
+
+            update.CommandText = "UPDATE PRC_PURCHASE_ITEM SET ORDER_QTY=11 WHERE PURCHASE_ORDER_ID=@id";
+            (await update.ExecuteNonQueryAsync()).Should().Be(1);
+            var replay = () => bridge.EnsureMrpPurchaseOrderAsync(request);
+            await replay.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("*already owned by a different command*");
         }
         finally
         {
@@ -82,6 +89,11 @@ public sealed class PurchaseOrderPlanningBridgeTests
                     PURCHASE_ORDER_NAME TEXT, ORDER_DATE TEXT, INCOMING_DATE TEXT,
                     ORDER_QTY NUMERIC NOT NULL, PRODUCT_ID TEXT, STATUS TEXT NOT NULL,
                     DESCRIPTION TEXT, CREATED_BY TEXT, UPDATED_BY TEXT);
+                CREATE TABLE PRC_PURCHASE_ITEM (
+                    PURCHASE_ORDER_ID TEXT NOT NULL, PRODUCT_ID TEXT NOT NULL,
+                    ORDER_QTY NUMERIC NOT NULL CHECK (ORDER_QTY > 100),
+                    CREATED_BY TEXT, UPDATED_BY TEXT,
+                    PRIMARY KEY (PURCHASE_ORDER_ID, PRODUCT_ID));
                 """;
             await schema.ExecuteNonQueryAsync();
 
@@ -289,7 +301,11 @@ public sealed class PurchaseOrderPlanningBridgeTests
                     DESCRIPTION TEXT NULL,
                     CREATED_BY TEXT NULL,
                     UPDATED_BY TEXT NULL
-                );";
+                );
+                CREATE TABLE PRC_PURCHASE_ITEM (
+                    PURCHASE_ORDER_ID TEXT NOT NULL, PRODUCT_ID TEXT NOT NULL,
+                    ORDER_QTY NUMERIC NOT NULL,
+                    PRIMARY KEY (PURCHASE_ORDER_ID, PRODUCT_ID));";
             command.ExecuteNonQuery();
         }
 
@@ -397,6 +413,10 @@ public sealed class PurchaseOrderPlanningBridgeTests
                 command.Parameters.AddWithValue("@product", request.ProductId);
                 command.Parameters.AddWithValue("@description", request.Description);
                 command.Parameters.AddWithValue("@actor", request.ExecutedBy);
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"
+                    INSERT INTO PRC_PURCHASE_ITEM (PURCHASE_ORDER_ID, PRODUCT_ID, ORDER_QTY)
+                    VALUES (@id, @product, @quantity)";
                 await command.ExecuteNonQueryAsync();
             }
         }

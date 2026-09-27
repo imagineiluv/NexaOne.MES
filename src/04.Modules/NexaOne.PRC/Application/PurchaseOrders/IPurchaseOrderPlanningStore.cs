@@ -33,6 +33,7 @@ internal sealed record PurchaseOrderPlanningSnapshot(
     DateTime? IncomingDate,
     decimal Quantity,
     string ProductId,
+    int LineCount,
     string Status,
     string? Description);
 

@@ -94,6 +94,7 @@ internal sealed class PurchaseOrderPlanningService
     {
         var same = string.Equals(existing.PlantId, request.PlantId, StringComparison.OrdinalIgnoreCase)
                    && string.Equals(existing.ProductId, request.ProductId, StringComparison.OrdinalIgnoreCase)
+                   && existing.LineCount == 1
                    && existing.Quantity == request.Quantity
                    && string.Equals(
                        existing.PurchaseOrderName ?? string.Empty,
