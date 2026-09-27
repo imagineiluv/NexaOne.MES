@@ -264,6 +264,13 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
             .StatusCode.Should().Be(HttpStatusCode.OK);
         (await StatusOf()).Should().Be("Draft", "가드된 전이는 소스 상태 밖 행을 건드리지 않는다");
 
+        // 레거시 확정과 같이 품목이 없는 발주는 Draft를 벗어나지 못한다.
+        var emptyOrder = await client.PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
+            new Dictionary<string, object> { ["purchaseOrderId"] = poId });
+        (await emptyOrder.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected.Should().Be(0);
+        (await StatusOf()).Should().Be("Draft");
+        SeedPurchaseItem(poId);
+
         // 발주(Draft→Ordered) → 마감(Ordered→Closed) 순차 전이.
         (await client.PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
             new Dictionary<string, object> { ["purchaseOrderId"] = poId }))
@@ -309,6 +316,7 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
         (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(1);
         draft["purchaseOrderName"] = "edited draft";
         (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(1);
+        SeedPurchaseItem(id);
         (await Command("PRC.OrderPurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
 
         draft["purchaseOrderName"] = "illegal edit";
@@ -365,11 +373,25 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
         (await Command("PRC.DeletePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
         (await Command("PRC.OrderPurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
         SetHold("N");
+        SeedPurchaseItem(id);
         (await Command("PRC.OrderPurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
         SetHold("Y");
         (await Command("PRC.ClosePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
         SetHold("N");
         (await Command("PRC.ClosePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
+    }
+
+    private void SeedPurchaseItem(string purchaseOrderId)
+    {
+        using var connection = new SqliteConnection(_factory.ConnString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO PRC_PURCHASE_ITEM (PURCHASE_ORDER_ID, PRODUCT_ID, ORDER_QTY)
+            VALUES (@id, 'TEST-PRODUCT', 10)
+            """;
+        command.Parameters.AddWithValue("@id", purchaseOrderId);
+        command.ExecuteNonQuery().Should().Be(1);
     }
 
     private async Task<List<Dictionary<string, object>>> Query(string queryId, Dictionary<string, object> p)
