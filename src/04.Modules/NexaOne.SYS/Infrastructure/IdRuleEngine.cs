@@ -29,26 +29,41 @@ public sealed class IdRuleEngine : IIdRuleEngine
 
         return await _processor.ExecuteInTransactionAsync(async (conn, txn) =>
         {
+            // READ COMMITTED의 SELECT만으로는 SQL Server에서 두 호출이 같은 값을 읽을 수 있다.
+            // 먼저 쓰기 잠금을 얻고 커밋까지 유지한다(SQLite도 읽기 전에 writer를 직렬화한다).
+            var locked = await conn.ExecuteAsync(new CommandDefinition(
+                "UPDATE COM_ID_RULE SET CURRENT_SEQ = CURRENT_SEQ WHERE RULE_ID = @ruleId",
+                new { ruleId }, txn, cancellationToken: ct));
+            if (locked != 1)
+                throw new InvalidOperationException(
+                    $"ID rule '{ruleId}' is not registered in COM_ID_RULE.");
+
             var rule = await conn.QueryFirstOrDefaultAsync<RuleRow>(
-                "SELECT RULE_ID AS RuleId, PREFIX AS Prefix, SEQ_LENGTH AS SeqLength, " +
+                new CommandDefinition("SELECT RULE_ID AS RuleId, PREFIX AS Prefix, SEQ_LENGTH AS SeqLength, " +
                 "RESET_CYCLE AS ResetCycle, SEQ_PERIOD AS SeqPeriod, CURRENT_SEQ AS CurrentSeq " +
                 "FROM COM_ID_RULE WHERE RULE_ID = @ruleId",
-                new { ruleId }, txn);
+                new { ruleId }, txn, cancellationToken: ct));
             if (rule is null)
                 throw new InvalidOperationException(
                     $"ID rule '{ruleId}' is not registered in COM_ID_RULE.");
 
             var idRule = new IdRule(rule.RuleId, rule.Prefix, rule.SeqLength, rule.ResetCycle);
             var period = idRule.PeriodKey(utcNow);
+            if (rule.SeqPeriod is not null && string.CompareOrdinal(period, rule.SeqPeriod) < 0)
+                throw new InvalidOperationException(
+                    $"ID rule '{ruleId}' cannot move back to an earlier issuance period.");
             var stalePeriod = rule.SeqPeriod is not null && rule.SeqPeriod != period;
-            var next = stalePeriod ? 1 : rule.CurrentSeq + 1;
+            if (!stalePeriod && rule.CurrentSeq == int.MaxValue)
+                throw new InvalidOperationException($"ID rule '{ruleId}' sequence is exhausted.");
+            var next = stalePeriod ? 1 : checked(rule.CurrentSeq + 1);
+            var id = idRule.Format(next, period);
 
-            await conn.ExecuteAsync(
+            await conn.ExecuteAsync(new CommandDefinition(
                 "UPDATE COM_ID_RULE SET CURRENT_SEQ = @next, SEQ_PERIOD = @period, " +
                 "UPDATED_BY = @actor, UPDATED_AT = @now WHERE RULE_ID = @ruleId",
-                new { next, period, actor = "ID_RULE_ENGINE", now = utcNow, ruleId }, txn);
+                new { next, period, actor = "ID_RULE_ENGINE", now = utcNow, ruleId }, txn, cancellationToken: ct));
 
-            return idRule.Format(next);
+            return id;
         }, IsolationLevel.ReadCommitted, ct).ConfigureAwait(false);
     }
 

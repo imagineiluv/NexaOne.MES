@@ -26,14 +26,33 @@ public sealed class IdRuleTests
     }
 
     [Fact]
-    public void Format_zero_pads_to_seq_length_and_overflows_without_truncation()
+    public void Format_expands_period_and_zero_pads_sequence()
     {
-        var rule = new IdRule("WO", "WO-", 5, "Monthly");
+        var rule = new IdRule("WO", "WO-{period}-", 5, "Monthly");
 
-        rule.Format(1).Should().Be("WO-00001");
-        rule.Format(42).Should().Be("WO-00042");
-        rule.Format(123456).Should().Be("WO-123456",
-            "시퀀스가 자릿수를 넘어가면 잘라내지 않고 그대로 커진다");
+        rule.Format(1, "202609").Should().Be("WO-202609-00001");
+        rule.Format(42, "202609").Should().Be("WO-202609-00042");
         new IdRule("X", null, null, null).Format(7).Should().Be("7");
+    }
+
+    [Fact]
+    public void Periodic_rule_without_period_placeholder_fails_before_claiming_a_number()
+    {
+        var rule = new IdRule("R", "REQ-", 3, "Monthly");
+        var act = () => rule.Format(1, "202609");
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*{period}*");
+    }
+
+    [Fact]
+    public void Sequence_length_is_a_hard_limit_not_a_truncation_hint()
+    {
+        var rule = new IdRule("R", "WO-", 3, "Never");
+
+        rule.Format(999).Should().Be("WO-999");
+        var act = () => rule.Format(1000);
+        act.Should().Throw<InvalidOperationException>().WithMessage("*exceeds*");
+        var zero = () => rule.Format(0);
+        zero.Should().Throw<InvalidOperationException>();
     }
 }

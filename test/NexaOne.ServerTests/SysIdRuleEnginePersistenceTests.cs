@@ -63,15 +63,20 @@ public sealed class SysIdRuleEnginePersistenceTests
     public async Task Period_boundary_restarts_the_sequence_and_stamps_seq_period()
     {
         _ = _factory.CreateClient();
-        InsertRule("REQ", "요청 채번", "REQ-", 3, 4, "Monthly");
+        InsertRule("REQ", "요청 채번", "REQ-{period}-", 3, 4, "Monthly");
         var clock = new DateTime(2026, 9, 27, 12, 0, 0, DateTimeKind.Utc);
         var engine = new IdRuleEngine(DataSource(), () => clock);
 
-        (await engine.NextIdAsync("REQ")).Should().Be("REQ-005",
+        (await engine.NextIdAsync("REQ")).Should().Be("REQ-202609-005",
             "첫 발급은 현재 시퀀스 4의 다음 값이다");
         clock = new DateTime(2026, 10, 1, 0, 30, 0, DateTimeKind.Utc);
-        (await engine.NextIdAsync("REQ")).Should().Be("REQ-001",
-            "월 경계가 바뀌면 시퀀스를 1로 되돌린다(일별/월별 규칙은 PREFIX가 날짜를 담아야 한다는 전제 유지)");
+        (await engine.NextIdAsync("REQ")).Should().Be("REQ-202610-001",
+            "월 경계가 바뀌면 기간을 ID에 넣고 시퀀스를 1로 되돌린다");
+        Scalar<string>("SELECT SEQ_PERIOD FROM COM_ID_RULE WHERE RULE_ID='REQ'")
+            .Should().Be("202610");
+        clock = new DateTime(2026, 9, 30, 23, 59, 0, DateTimeKind.Utc);
+        var oldPeriod = () => engine.NextIdAsync("REQ");
+        await oldPeriod.Should().ThrowAsync<InvalidOperationException>().WithMessage("*earlier*");
         Scalar<string>("SELECT SEQ_PERIOD FROM COM_ID_RULE WHERE RULE_ID='REQ'")
             .Should().Be("202610");
     }
@@ -83,6 +88,34 @@ public sealed class SysIdRuleEnginePersistenceTests
         var act = () => Engine().NextIdAsync("MISSING");
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*MISSING*");
+    }
+
+    [Fact]
+    public async Task Sequence_overflow_and_unsafe_period_rule_leave_the_row_unchanged()
+    {
+        _ = _factory.CreateClient();
+        InsertRule("FULL", "소진된 규칙", "F-", 2, 99, "Never");
+        InsertRule("LEGACY", "기간 없는 구 규칙", "L-", 3, 5, "Monthly");
+
+        var full = () => Engine().NextIdAsync("FULL");
+        await full.Should().ThrowAsync<InvalidOperationException>().WithMessage("*exceeds*");
+        Scalar<int>("SELECT CURRENT_SEQ FROM COM_ID_RULE WHERE RULE_ID='FULL'").Should().Be(99);
+
+        var unsafeRule = () => Engine().NextIdAsync("LEGACY");
+        await unsafeRule.Should().ThrowAsync<InvalidOperationException>().WithMessage("*{period}*");
+        Scalar<int>("SELECT CURRENT_SEQ FROM COM_ID_RULE WHERE RULE_ID='LEGACY'").Should().Be(5);
+    }
+
+    [Fact]
+    public async Task Int_max_overflow_leaves_the_row_unchanged()
+    {
+        _ = _factory.CreateClient();
+        InsertRule("INTMAX", "정수 한계", "M-", 10, int.MaxValue, "Never");
+
+        var act = () => Engine().NextIdAsync("INTMAX");
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*exhausted*");
+        Scalar<int>("SELECT CURRENT_SEQ FROM COM_ID_RULE WHERE RULE_ID='INTMAX'")
+            .Should().Be(int.MaxValue);
     }
 
     private IdRuleEngine Engine() => new(DataSource());

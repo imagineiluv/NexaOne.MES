@@ -8,7 +8,8 @@ public interface IIdRuleEngine : INexaModuleBridge
 {
     /// <summary>
     /// 규칙 ID로 다음 ID를 발급한다. 리셋 주기(Daily/Monthly/Yearly) 경계가 지나면 시퀀스를 1부터
-    /// 재시작하므로, 기간 리셋 규칙은 PREFIX에 날짜를 포함시켜야 최종 ID의 유일성이 유지된다.
+    /// 재시작하므로, 기간 리셋 규칙은 PREFIX에 {period}를 포함해야 최종 ID의 유일성이 유지된다.
+    /// 자릿수 또는 INT 범위를 초과하면 시퀀스를 갱신하지 않고 실패한다.
     /// </summary>
     Task<string> NextIdAsync(string ruleId, CancellationToken ct = default);
 }

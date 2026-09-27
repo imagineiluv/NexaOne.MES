@@ -30,6 +30,39 @@
     <query id="COM.IdRuleList" requiredPermission="com:read">
         <statement><![CDATA[ SELECT RULE_ID, RULE_NAME, PREFIX, SEQ_LENGTH, CURRENT_SEQ, RESET_CYCLE, DESCRIPTION FROM COM_ID_RULE WITH (NOLOCK) ORDER BY RULE_NAME ]]></statement>
     </query>
+    <!-- 발급 형식은 등록 뒤 불변이다. HOLDLOCK으로 동시 등록을 직렬화하고 발급 상태는 건드리지 않는다. -->
+    <query id="COM.SaveIdRule" kind="write" requiredPermission="com:manage">
+        <statement><![CDATA[
+            MERGE COM_ID_RULE WITH (HOLDLOCK) AS t
+            USING (
+                SELECT LTRIM(RTRIM(@ruleId)) AS RULE_ID, LTRIM(RTRIM(@ruleName)) AS RULE_NAME, @prefix AS PREFIX,
+                       TRY_CONVERT(INT, @seqLength) AS SEQ_LENGTH,
+                       UPPER(LTRIM(RTRIM(COALESCE(@resetCycle, 'NEVER')))) AS RESET_CYCLE,
+                       @description AS DESCRIPTION
+                WHERE LEN(LTRIM(RTRIM(COALESCE(@ruleId, '')))) BETWEEN 1 AND 50
+                  AND LEN(LTRIM(RTRIM(COALESCE(@ruleName, '')))) BETWEEN 1 AND 200
+                  AND DATALENGTH(CONVERT(NVARCHAR(MAX), COALESCE(@prefix, ''))) <= 100
+                  AND DATALENGTH(CONVERT(NVARCHAR(MAX), COALESCE(@description, ''))) <= 1000
+                  AND CONVERT(NVARCHAR(4000), @seqLength) IN ('1', '2', '3', '4', '5', '6', '7', '8', '9', '10')
+                  AND UPPER(LTRIM(RTRIM(COALESCE(@resetCycle, 'NEVER')))) IN ('NEVER', 'DAILY', 'MONTHLY', 'YEARLY')
+                  AND ((UPPER(LTRIM(RTRIM(COALESCE(@resetCycle, 'NEVER')))) = 'NEVER'
+                        AND CHARINDEX('{period}', COALESCE(@prefix, '') COLLATE Latin1_General_100_BIN2) = 0)
+                       OR (UPPER(LTRIM(RTRIM(COALESCE(@resetCycle, 'NEVER')))) <> 'NEVER'
+                           AND CHARINDEX('{period}', COALESCE(@prefix, '') COLLATE Latin1_General_100_BIN2) > 0))
+            ) AS s ON t.RULE_ID = s.RULE_ID
+            WHEN MATCHED AND COALESCE(t.PREFIX, '') COLLATE Latin1_General_100_BIN2 = COALESCE(s.PREFIX, '')
+                         AND t.SEQ_LENGTH = s.SEQ_LENGTH
+                         AND UPPER(COALESCE(t.RESET_CYCLE, 'NEVER')) = s.RESET_CYCLE
+                THEN UPDATE SET
+                    RULE_NAME = s.RULE_NAME, DESCRIPTION = s.DESCRIPTION,
+                    UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
+            WHEN NOT MATCHED THEN INSERT
+                (RULE_ID, RULE_NAME, PREFIX, SEQ_LENGTH, CURRENT_SEQ, RESET_CYCLE, DESCRIPTION,
+                 CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+                VALUES (s.RULE_ID, s.RULE_NAME, s.PREFIX, s.SEQ_LENGTH, 0, s.RESET_CYCLE,
+                        s.DESCRIPTION, @currentUser, @utcNow, @currentUser, @utcNow);
+        ]]></statement>
+    </query>
     <!-- MICUBE(알람메일 알림) → COM 이관(V057). 메일서버/수신자(일반·알람)/서비스. -->
     <query id="COM.MailServerList" requiredPermission="com:manage">
         <statement><![CDATA[ SELECT SERVER_ID, SERVER_NAME, HOST, PORT, SENDER_ADDRESS, USE_SSL, IS_ACTIVE FROM COM_MAIL_SERVER WITH (NOLOCK) ORDER BY SERVER_NAME ]]></statement>

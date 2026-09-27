@@ -5,7 +5,13 @@ using System.Text;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using NexaDB.Data.Abstractions.Interfaces;
+using NexaOne.Infrastructure.Persistence;
+using NexaOne.Server.Gateway;
+using NexaOne.SYS.Infrastructure;
 using System.IdentityModel.Tokens.Jwt;
 using Xunit;
 
@@ -115,6 +121,87 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
             { ["serverId"] = srv, ["serverName"] = "보조 SMTP", ["host"] = "smtp2.x.com", ["port"] = 25, ["senderAddress"] = "no@x.com", ["useSsl"] = "N" });
         ok.StatusCode.Should().Be(HttpStatusCode.OK);
         (await Query("COM.MailServerList", new())).Select(r => r["SERVER_ID"].ToString()).Should().Contain(srv);
+    }
+
+    [Fact]
+    public async Task SaveIdRule_allows_metadata_updates_but_never_rewrites_the_issuance_format()
+    {
+        var ruleId = $"R_{Suffix()}";
+        var body = new Dictionary<string, object>
+        {
+            ["ruleId"] = ruleId, ["ruleName"] = "월별 요청", ["prefix"] = "REQ-{period}-",
+            ["seqLength"] = 3, ["resetCycle"] = "MONTHLY", ["description"] = "초기 설명",
+            ["currentUser"] = "spoofed",
+        };
+        var path = "/api/v1/command/COM.SaveIdRule";
+
+        (await AuthedClient("no-com").PostAsJsonAsync(path, body))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var manager = AuthedClient("id-admin", "com:manage");
+        var created = await manager.PostAsJsonAsync(path, body);
+        created.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Query("COM.IdRuleList", new())).Should().Contain(r => r["RULE_ID"].ToString() == ruleId,
+            "유효한 규칙은 저장 명령으로 등록돼야 한다");
+        (await created.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected.Should().Be(1);
+
+        var engine = new IdRuleEngine(new EesDataSource
+        {
+            Provider = _factory.Services.GetRequiredService<IDatabaseProvider>(),
+            ConnectionString = _factory.ConnString,
+        }, () => new DateTime(2026, 9, 27, 0, 0, 0, DateTimeKind.Utc));
+        (await engine.NextIdAsync(ruleId)).Should().Be("REQ-202609-001");
+
+        body["ruleName"] = "월별 요청 수정";
+        body["description"] = "수정 설명";
+        body["seqLength"] = "3"; // 메타 폼은 정수 필드도 문자열로 전달한다.
+        var updated = await manager.PostAsJsonAsync(path, body);
+        (await updated.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected.Should().Be(1);
+
+        body["prefix"] = "CHANGED-{period}-";
+        var formatChange = await manager.PostAsJsonAsync(path, body);
+        (await formatChange.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected.Should().Be(0);
+
+        var row = (await Query("COM.IdRuleList", new()))
+            .Single(r => r["RULE_ID"].ToString() == ruleId);
+        row["RULE_NAME"].ToString().Should().Be("월별 요청 수정");
+        row["PREFIX"].ToString().Should().Be("REQ-{period}-");
+        row["CURRENT_SEQ"].ToString().Should().Be("1");
+
+        using var connection = new SqliteConnection(_factory.ConnString);
+        await connection.OpenAsync();
+        using var audit = connection.CreateCommand();
+        audit.CommandText = "SELECT CREATED_BY, UPDATED_BY, SEQ_PERIOD FROM COM_ID_RULE WHERE RULE_ID=@id";
+        audit.Parameters.AddWithValue("@id", ruleId);
+        using var reader = await audit.ExecuteReaderAsync();
+        (await reader.ReadAsync()).Should().BeTrue();
+        reader.GetString(0).Should().Be("id-admin");
+        reader.GetString(1).Should().Be("id-admin");
+        reader.GetString(2).Should().Be("202609");
+    }
+
+    [Fact]
+    public async Task SaveIdRule_rejects_invalid_cycle_format_and_length_without_creating_rows()
+    {
+        var ruleId = $"R_{Suffix()}";
+        var body = new Dictionary<string, object>
+        {
+            ["ruleId"] = ruleId, ["ruleName"] = "잘못된 규칙", ["prefix"] = "REQ-",
+            ["seqLength"] = 3, ["resetCycle"] = "MONTHLY",
+        };
+        var manager = AuthedClient("id-admin", "com:manage");
+        var path = "/api/v1/command/COM.SaveIdRule";
+
+        var noPeriod = await manager.PostAsJsonAsync(path, body);
+        (await noPeriod.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected.Should().Be(0);
+        body["prefix"] = "REQ-{period}-";
+        body["seqLength"] = 0;
+        var noLength = await manager.PostAsJsonAsync(path, body);
+        (await noLength.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected.Should().Be(0);
+        body["seqLength"] = "3.5";
+        var fractionalLength = await manager.PostAsJsonAsync(path, body);
+        (await fractionalLength.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected.Should().Be(0);
+        (await Query("COM.IdRuleList", new())).Should().NotContain(r => r["RULE_ID"].ToString() == ruleId);
     }
 
     [Fact]

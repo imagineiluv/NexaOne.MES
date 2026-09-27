@@ -30,6 +30,35 @@
     <query id="COM.IdRuleList" requiredPermission="com:read">
         <statement><![CDATA[ SELECT RULE_ID, RULE_NAME, PREFIX, SEQ_LENGTH, CURRENT_SEQ, RESET_CYCLE, DESCRIPTION FROM COM_ID_RULE ORDER BY RULE_NAME ]]></statement>
     </query>
+    <!-- 발급 형식은 등록 뒤 불변이다. 메타데이터만 갱신하고 CURRENT_SEQ/SEQ_PERIOD는 엔진에 맡긴다. -->
+    <query id="COM.SaveIdRule" kind="write" requiredPermission="com:manage">
+        <statement><![CDATA[
+            INSERT INTO COM_ID_RULE
+                (RULE_ID, RULE_NAME, PREFIX, SEQ_LENGTH, CURRENT_SEQ, RESET_CYCLE, DESCRIPTION,
+                 CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
+            SELECT TRIM(@ruleId), TRIM(@ruleName), @prefix, CAST(@seqLength AS INTEGER), 0,
+                   UPPER(TRIM(COALESCE(@resetCycle, 'NEVER'))), @description,
+                   @currentUser, @utcNow, @currentUser, @utcNow
+            WHERE LENGTH(TRIM(COALESCE(@ruleId, ''))) BETWEEN 1 AND 50
+              AND LENGTH(TRIM(COALESCE(@ruleName, ''))) BETWEEN 1 AND 200
+              AND LENGTH(COALESCE(@prefix, '')) <= 50
+              AND LENGTH(COALESCE(@description, '')) <= 500
+              AND CAST(@seqLength AS TEXT) IN ('1', '2', '3', '4', '5', '6', '7', '8', '9', '10')
+              AND UPPER(TRIM(COALESCE(@resetCycle, 'NEVER'))) IN ('NEVER', 'DAILY', 'MONTHLY', 'YEARLY')
+              AND ((UPPER(TRIM(COALESCE(@resetCycle, 'NEVER'))) = 'NEVER'
+                    AND INSTR(COALESCE(@prefix, ''), '{period}') = 0)
+                   OR (UPPER(TRIM(COALESCE(@resetCycle, 'NEVER'))) <> 'NEVER'
+                       AND INSTR(COALESCE(@prefix, ''), '{period}') > 0))
+            ON CONFLICT(RULE_ID) DO UPDATE SET
+                RULE_NAME = excluded.RULE_NAME,
+                DESCRIPTION = excluded.DESCRIPTION,
+                UPDATED_BY = excluded.UPDATED_BY,
+                UPDATED_AT = excluded.UPDATED_AT
+            WHERE COALESCE(COM_ID_RULE.PREFIX, '') = COALESCE(excluded.PREFIX, '')
+              AND COM_ID_RULE.SEQ_LENGTH = excluded.SEQ_LENGTH
+              AND UPPER(COALESCE(COM_ID_RULE.RESET_CYCLE, 'NEVER')) = excluded.RESET_CYCLE
+        ]]></statement>
+    </query>
     <!-- MICUBE(알람메일 알림) → COM 이관(V057). 메일서버/수신자(일반·알람)/서비스. -->
     <query id="COM.MailServerList" requiredPermission="com:manage">
         <statement><![CDATA[ SELECT SERVER_ID, SERVER_NAME, HOST, PORT, SENDER_ADDRESS, USE_SSL, IS_ACTIVE FROM COM_MAIL_SERVER ORDER BY SERVER_NAME ]]></statement>
