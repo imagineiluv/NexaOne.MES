@@ -310,6 +310,80 @@ public sealed class BillingPersistenceTests : IClassFixture<BusinessMembershipDa
         (await Read(doc.Id)).Paid.Should().Be(4m);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Audit_failure_rolls_back_billing_number_document_and_lines_and_allows_same_operation_retry(bool existingCounter)
+    {
+        var contact = await Contact();
+        var input = Input(contact.Id, new BillingLine("Atomic invoice", 7m, 2m));
+        if (existingCounter) await Create(contact.Id, input: input);
+        var documentsBefore = existingCounter ? 1L : 0L;
+        var numberBefore = existingCounter ? 1L : 0L;
+        var operation = Guid.NewGuid();
+        var auditBefore = Count("ERP_BILLING_AUDIT");
+
+        Execute($"""
+            CREATE TRIGGER billing_audit_failure BEFORE INSERT ON ERP_BILLING_AUDIT
+            WHEN NEW.TENANT_ID='{_tenant:D}' AND NEW.ORGANIZATION_ID='{_organization:D}'
+            BEGIN SELECT RAISE(ABORT, 'billing audit unavailable'); END;
+            """);
+        try
+        {
+            var failure = await Assert.ThrowsAsync<SqliteException>(() =>
+                _bridge.CreateDocumentAsync("bill-user", _tenant, _organization, operation, BillingKind.Invoice, input));
+            failure.Message.Should().Contain("billing audit unavailable");
+            Count("ERP_BILLING_NUMBER").Should().Be(existingCounter ? 1 : 0);
+            Scalar<long>("SELECT COALESCE(MAX(NEXT_NUMBER), 0) FROM ERP_BILLING_NUMBER WHERE KIND=1")
+                .Should().Be(numberBefore);
+            Count("ERP_BILLING_DOCUMENT").Should().Be(documentsBefore);
+            Count("ERP_BILLING_LINE").Should().Be(documentsBefore);
+            Count("ERP_BILLING_AUDIT").Should().Be(auditBefore);
+        }
+        finally { Execute("DROP TRIGGER billing_audit_failure"); }
+
+        var created = await NewBridge().CreateDocumentAsync("bill-user", _tenant, _organization,
+            operation, BillingKind.Invoice, input);
+        created.Number.Should().Be(numberBefore + 1);
+        SameDocument(created, await NewBridge().CreateDocumentAsync("bill-user", _tenant, _organization,
+            operation, BillingKind.Invoice, input));
+        Count("ERP_BILLING_NUMBER").Should().Be(1);
+        Scalar<long>("SELECT NEXT_NUMBER FROM ERP_BILLING_NUMBER WHERE KIND=1").Should().Be(numberBefore + 1);
+        Count("ERP_BILLING_DOCUMENT").Should().Be(documentsBefore + 1);
+        Count("ERP_BILLING_LINE").Should().Be(documentsBefore + 1);
+        Count("ERP_BILLING_AUDIT").Should().Be(auditBefore + 1);
+    }
+
+    [Fact]
+    public async Task Response_loss_after_commit_replays_the_document_without_issuing_another_number_or_audit()
+    {
+        var contact = await Contact();
+        var input = Input(contact.Id);
+        var operation = Guid.NewGuid();
+        var auditBefore = Count("ERP_BILLING_AUDIT");
+        var provider = new AfterCommitResponseLossProvider(new SqliteProvider());
+        var faultingSource = new EesDataSource { Provider = provider, ConnectionString = _connectionString };
+        var bridge = new BillingBridge(faultingSource,
+            new BusinessMembershipBridge(DataSource()), new BusinessMasterDirectory(DataSource()));
+
+        (await Assert.ThrowsAsync<IOException>(() => bridge.CreateDocumentAsync("bill-user", _tenant,
+            _organization, operation, BillingKind.Invoice, input))).Message.Should().Contain("response loss");
+        provider.CallbackCount.Should().Be(1);
+        Count("ERP_BILLING_NUMBER").Should().Be(1);
+        Count("ERP_BILLING_DOCUMENT").Should().Be(1);
+        Count("ERP_BILLING_LINE").Should().Be(1);
+        Count("ERP_BILLING_AUDIT").Should().Be(auditBefore + 1);
+
+        var recovered = await NewBridge().CreateDocumentAsync("bill-user", _tenant, _organization,
+            operation, BillingKind.Invoice, input);
+        recovered.Number.Should().Be(1);
+        Count("ERP_BILLING_NUMBER").Should().Be(1);
+        Scalar<long>("SELECT NEXT_NUMBER FROM ERP_BILLING_NUMBER WHERE KIND=1").Should().Be(1);
+        Count("ERP_BILLING_DOCUMENT").Should().Be(1);
+        Count("ERP_BILLING_LINE").Should().Be(1);
+        Count("ERP_BILLING_AUDIT").Should().Be(auditBefore + 1);
+    }
+
     [Fact]
     public async Task Creation_replay_after_draft_edit_returns_the_current_invoice_and_credit_note_without_new_numbers()
     {
