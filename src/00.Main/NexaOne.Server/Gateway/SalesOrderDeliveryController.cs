@@ -25,5 +25,16 @@ public sealed class SalesOrderDeliveryController(ISalesOrderDeliveryBridge bridg
         return result.ToActionResult();
     }
 
+    [HttpPost("{salesOrderId}/delivery-confirmation")]
+    [RequirePermission(Permissions.SlsManage)]
+    public async Task<IActionResult> ConfirmDelivery(string salesOrderId, CancellationToken ct)
+    {
+        var actor = User.CurrentUserId();
+        if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
+        var result = await bridge.ConfirmDeliveryAsync(
+            new SalesOrderDeliveryConfirmationCommand(salesOrderId, actor), ct);
+        return result.ToActionResult();
+    }
+
     public sealed record DeliveryRequest(string? DeliveryOrderId, string? DeliveryItemId);
 }

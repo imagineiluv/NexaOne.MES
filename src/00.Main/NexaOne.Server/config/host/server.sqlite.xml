@@ -193,6 +193,7 @@
  <object id="purchaseOrderPlanningBridge" type="NexaOne.Server.Gateway.PurchaseOrderPlanningBridgeProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="mrpDemandDirectory" type="NexaOne.Server.Gateway.MrpDemandDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="salesOrderShipmentIntake" type="NexaOne.Server.Gateway.SalesOrderShipmentIntakeProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
+  <object id="salesOrderShipmentEvidence" type="NexaOne.Server.Gateway.SalesOrderShipmentEvidenceProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
   <object id="equipmentOutputMasterDirectory" type="NexaOne.Server.Gateway.EquipmentOutputMasterDirectoryProxy, NexaOne.Server"><constructor-arg ref="moduleBeanResolver" /></object>
 
   <!-- OEE 외부 증거 host orchestration adapter — MDM 계획·단위와 POM TrackOut owner snapshot을 조합한다. -->
