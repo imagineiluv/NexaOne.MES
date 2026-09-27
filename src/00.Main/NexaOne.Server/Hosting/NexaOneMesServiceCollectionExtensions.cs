@@ -141,6 +141,7 @@ public static class NexaOneMesServiceCollectionExtensions
         // POM 드라이버는 기존 JWT 보호 REST API를 호출하므로 권한/버전/멱등/감사 계약이 한 경계에 유지된다.
         services.AddScoped<IMetaCommandDriver, PomWorkOrderMetaCommandDriver>();
         services.AddScoped<IMetaCommandDriver, SlsSalesOrderMetaCommandDriver>();
+        services.AddScoped<IMetaCommandDriver, PrcPurchaseOrderMetaCommandDriver>();
         services.AddScoped<IMetaCommandDriver, PomWorkScopeMetaCommandDriver>();
         services.AddScoped<IMetaCommandDriver, PomLotRoutingMetaCommandDriver>();
         services.AddScoped<IMetaCommandDriver, QmsInspectionMetaCommandDriver>();

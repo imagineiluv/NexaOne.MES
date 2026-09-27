@@ -111,6 +111,7 @@ internal sealed class NexaOneMesBridgeCatalog : INexaModuleBridgeCatalog
             Bind<IPurchaseOrderPlanningBridge>("Prc", "purchaseOrderPlanningBridge"),
             Bind<IPurchaseOrderItemBridge>("Prc", "purchaseOrderItemBridge"),
             Bind<IPurchaseOrderHoldBridge>("Prc", "purchaseOrderHoldBridge"),
+            Bind<IPurchaseOrderCommandBridge>("Prc", "purchaseOrderCommandBridge"),
             Bind<IQmsBridge>("Qms", "qmsBridge"),
             Bind<IProductionQualityGateway>("Qms", "qmsProductionQualityGateway"),
             Bind<ITrackingDefectDirectory>("Qms", "trackingDefectDirectory"),

@@ -1074,7 +1074,11 @@ else
                     if (result.Success) bridgeApplied++;
                     else AddMetaCommandError(result);
                 }
-                if (bridgeApplied > 0) await ReloadDataAsync();
+                if (bridgeApplied > 0)
+                {
+                    if (_definition?.UiId == "FACTORY_PRC_PURCHASE_ORDER") ClearPrcSelection();
+                    await ReloadDataAsync();
+                }
                 return;
             }
 
