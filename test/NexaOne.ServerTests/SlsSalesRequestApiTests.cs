@@ -185,6 +185,50 @@ public sealed class SlsSalesRequestApiTests : IClassFixture<SlsSalesRequestApiTe
     }
 
     [Fact]
+    public async Task Sales_order_insert_failure_rolls_back_receipt_and_same_command_can_retry()
+    {
+        var suffix = Suffix();
+        var requestId = $"SR_{suffix}";
+        var orderId = $"SO_{suffix}";
+        var plant = $"P_{suffix}";
+        var customer = $"C_{suffix}";
+        var product = $"I_{suffix}";
+        const string actor = "receipt-rollback";
+        SeedReferences(plant, customer, product);
+        var bridge = _factory.Services.GetRequiredService<ISalesRequestBridge>();
+        var created = await bridge.CreateDraftAsync(new SalesRequestDraftCommand(
+            requestId, "판매 요청", customer, product, new DateTime(2040, 9, 1), 12.5m, actor));
+        created.IsSuccess.Should().BeTrue(created.Error.Description);
+
+        var receipt = new SalesRequestReceiptCommand(requestId, orderId, plant, "9월 수주",
+            new DateTime(2040, 9, 1), new DateTime(2040, 9, 30), actor);
+        var trigger = $"sls_receipt_failure_{suffix}";
+        Execute($"""
+            CREATE TRIGGER {trigger} BEFORE INSERT ON SLS_SALES_ORDER
+            BEGIN SELECT RAISE(ABORT, 'injected sales order insert failure'); END
+            """, _ => { });
+        try
+        {
+            await Assert.ThrowsAsync<SqliteException>(() => bridge.ReceiveAsync(receipt));
+            ReadRequest(requestId).Should().Be(("Draft", null, actor, actor));
+            Count("SLS_SALES_ORDER", "SALES_ORDER_ID", orderId).Should().Be(0);
+        }
+        finally
+        {
+            Execute($"DROP TRIGGER {trigger}", _ => { });
+        }
+
+        var recovered = await bridge.ReceiveAsync(receipt);
+        recovered.IsSuccess.Should().BeTrue(recovered.Error.Description);
+        recovered.Value.Should().Be(new SalesRequestState(requestId, "Confirmed", orderId));
+        Count("SLS_SALES_ORDER", "SALES_ORDER_ID", orderId).Should().Be(1);
+        var replay = await bridge.ReceiveAsync(receipt);
+        replay.IsFailure.Should().BeTrue();
+        replay.Error.Code.Should().Be("SLS_REQUEST_NOT_RECEIVABLE");
+        Count("SLS_SALES_ORDER", "SALES_ORDER_ID", orderId).Should().Be(1);
+    }
+
+    [Fact]
     public async Task Duplicate_order_id_rolls_back_request_transition()
     {
         var suffix = Suffix();

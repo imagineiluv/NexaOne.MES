@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using NexaOne.Common.Security;
 using NexaOne.Server.Gateway;
@@ -156,6 +157,45 @@ public sealed class SlsSalesOrderDeliveryApiTests
         ReadSalesOrder(salesOrderId).Should().Be(("Draft", null, "SYSTEM"));
         Count("SHP_DELIVERY_ORDER", "ORDER_ID", deliveryOrderId).Should().Be(itemConflict ? 0 : 1);
         Count("SHP_DELIVERY_ITEM", "ITEM_ID", deliveryItemId).Should().Be(itemConflict ? 1 : 0);
+    }
+
+    [Fact]
+    public async Task Shipment_item_insert_failure_rolls_back_sales_link_and_shipment_order()
+    {
+        var suffix = Suffix();
+        var salesOrderId = $"SO_{suffix}";
+        var deliveryOrderId = $"DO_{suffix}";
+        var deliveryItemId = $"DI_{suffix}";
+        SeedValidOrder(suffix, "Draft");
+        var bridge = _factory.Services.GetRequiredService<ISalesOrderDeliveryBridge>();
+        var command = new SalesOrderDeliveryCommand(
+            salesOrderId, deliveryOrderId, deliveryItemId, "delivery-rollback");
+        var trigger = $"sls_delivery_failure_{suffix}";
+        Execute($"""
+            CREATE TRIGGER {trigger} BEFORE INSERT ON SHP_DELIVERY_ITEM
+            BEGIN SELECT RAISE(ABORT, 'injected shipment item insert failure'); END
+            """, _ => { });
+        try
+        {
+            await Assert.ThrowsAsync<SqliteException>(() => bridge.RequestDeliveryAsync(command));
+            ReadSalesOrder(salesOrderId).Should().Be(("Draft", null, "SYSTEM"));
+            Count("SHP_DELIVERY_ORDER", "ORDER_ID", deliveryOrderId).Should().Be(0);
+            Count("SHP_DELIVERY_ITEM", "ITEM_ID", deliveryItemId).Should().Be(0);
+        }
+        finally
+        {
+            Execute($"DROP TRIGGER {trigger}", _ => { });
+        }
+
+        var recovered = await bridge.RequestDeliveryAsync(command);
+        recovered.IsSuccess.Should().BeTrue(recovered.Error.Description);
+        recovered.Value.Should().Be(new SalesOrderDeliveryState(
+            salesOrderId, deliveryOrderId, "Confirmed"));
+        Count("SHP_DELIVERY_ORDER", "ORDER_ID", deliveryOrderId).Should().Be(1);
+        Count("SHP_DELIVERY_ITEM", "ITEM_ID", deliveryItemId).Should().Be(1);
+        var replay = await bridge.RequestDeliveryAsync(command);
+        replay.IsFailure.Should().BeTrue();
+        replay.Error.Code.Should().Be("SLS_DELIVERY_NOT_REQUESTABLE");
     }
 
     [Fact]
