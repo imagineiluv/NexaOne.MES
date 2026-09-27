@@ -3,6 +3,7 @@ using System.Data.Common;
 using System.Globalization;
 using Dapper;
 using Microsoft.Data.Sqlite;
+using NexaDB.Data.Abstractions.Models;
 using NexaOne.Common;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.IVT.Application.Materials;
@@ -15,6 +16,8 @@ internal sealed class MaterialLotSplitRepository(EesDataSource dataSource)
     : QueryRepository(dataSource), IMaterialLotSplitStore
 {
     private readonly ServiceObjectProcessor _processor = new(dataSource);
+    private readonly string _pageLimitSql = dataSource.Provider?.Kind == DatabaseProviderKind.SqlServer
+        ? " OFFSET 0 ROWS FETCH NEXT @fetch ROWS ONLY" : " LIMIT @fetch";
     private const string SplitByKeySql = """
         SELECT SPLIT_ID AS SplitId, REQUEST_HASH AS RequestHash,
                PARENT_LOT_ID AS ParentLotId, CHILD_LOT_ID AS ChildLotId,
@@ -45,13 +48,55 @@ internal sealed class MaterialLotSplitRepository(EesDataSource dataSource)
             return Result.Failure<MaterialLotSplitOriginDto>(Error.NotFound(
                 "IVT_SPLIT_ORIGIN_NOT_FOUND", "The LOT has no split origin."));
 
-        return Result.Success(new MaterialLotSplitOriginDto(
-            row.SplitId, row.ParentLotId, row.ChildLotId, row.ChildLotNumber,
-            ToDecimal(row.Quantity), ToDecimal(row.ParentBalanceBefore),
-            ToDecimal(row.ParentBalanceAfter), row.ParentVersion, row.ParentStatus,
-            row.ParentTransactionId, row.ChildTransactionId,
-            DateTime.SpecifyKind(row.OccurredAt, DateTimeKind.Utc), row.ActorId,
-            row.SourceSystem, row.SourceEventId));
+        return Result.Success(ToOrigin(row));
+    }
+
+    public async Task<Result<MaterialLotSplitChildrenPage>> GetChildrenAsync(
+        string parentLotId, string? afterSplitId, int limit, CancellationToken ct)
+    {
+        var parent = await QueryFirstOrDefaultAsync<string>(
+            "SELECT LOT_ID FROM IVT_MATERIAL_LOT WHERE LOT_ID=@parentLotId",
+            new { parentLotId }, ct);
+        if (parent is null)
+            return Result.Failure<MaterialLotSplitChildrenPage>(Error.NotFound(
+                "IVT_SPLIT_PARENT_NOT_FOUND", "Parent material LOT was not found."));
+
+        DateTime? cursorAt = null;
+        if (afterSplitId is not null)
+        {
+            var cursor = await QueryFirstOrDefaultAsync<CursorRow>(
+                """
+                SELECT CREATED_AT AS CreatedAt FROM IVT_MATERIAL_LOT_SPLIT
+                 WHERE SPLIT_ID=@afterSplitId AND PARENT_LOT_ID=@parentLotId
+                """, new { parentLotId, afterSplitId }, ct);
+            if (cursor is null)
+                return Result.Failure<MaterialLotSplitChildrenPage>(Error.Validation(
+                    "IVT_SPLIT_CURSOR_INVALID", "Split cursor does not belong to the parent LOT."));
+            cursorAt = cursor.CreatedAt;
+        }
+
+        // Both dialects apply the limit after the indexed keyset order. One extra row
+        // indicates continuation without counting the remaining children.
+        const string sql = """
+            SELECT SPLIT_ID AS SplitId, PARENT_LOT_ID AS ParentLotId,
+                   CHILD_LOT_ID AS ChildLotId, CHILD_LOT_NO AS ChildLotNumber,
+                   QUANTITY AS Quantity, PARENT_BALANCE_BEFORE AS ParentBalanceBefore,
+                   PARENT_BALANCE_AFTER AS ParentBalanceAfter, PARENT_VERSION AS ParentVersion,
+                   PARENT_STATUS AS ParentStatus, PARENT_TX_ID AS ParentTransactionId,
+                   CHILD_TX_ID AS ChildTransactionId, OCCURRED_AT AS OccurredAt,
+                   ACTOR_ID AS ActorId, SOURCE_SYSTEM AS SourceSystem,
+                   SOURCE_EVENT_ID AS SourceEventId
+              FROM IVT_MATERIAL_LOT_SPLIT
+             WHERE PARENT_LOT_ID=@parentLotId
+            """;
+        var cursorClause = afterSplitId is null ? "" :
+            " AND (CREATED_AT > @cursorAt OR (CREATED_AT = @cursorAt AND SPLIT_ID > @afterSplitId))";
+        var rows = await QueryAsync<OriginRow>(
+            sql + cursorClause + " ORDER BY CREATED_AT, SPLIT_ID" + _pageLimitSql,
+            new { parentLotId, afterSplitId, cursorAt, fetch = limit + 1 }, ct);
+        var items = rows.Take(limit).Select(ToOrigin).ToArray();
+        var next = rows.Count > limit ? items[^1].SplitId : null;
+        return Result.Success(new MaterialLotSplitChildrenPage(items, next));
     }
 
     public async Task<Result<MaterialLotSplitDto>> TrySplitAsync(
@@ -228,6 +273,14 @@ internal sealed class MaterialLotSplitRepository(EesDataSource dataSource)
     private static decimal ToDecimal(object? value) => value is null or DBNull
         ? 0m : Convert.ToDecimal(value, CultureInfo.InvariantCulture);
 
+    private static MaterialLotSplitOriginDto ToOrigin(OriginRow row) => new(
+        row.SplitId, row.ParentLotId, row.ChildLotId, row.ChildLotNumber,
+        ToDecimal(row.Quantity), ToDecimal(row.ParentBalanceBefore),
+        ToDecimal(row.ParentBalanceAfter), row.ParentVersion, row.ParentStatus,
+        row.ParentTransactionId, row.ChildTransactionId,
+        DateTime.SpecifyKind(row.OccurredAt, DateTimeKind.Utc), row.ActorId,
+        row.SourceSystem, row.SourceEventId);
+
     private static bool IsUniqueViolation(DbException error) => error switch
     {
         SqliteException sqlite => sqlite.SqliteErrorCode == 19
@@ -288,5 +341,10 @@ internal sealed class MaterialLotSplitRepository(EesDataSource dataSource)
         public string ActorId { get; set; } = string.Empty;
         public string SourceSystem { get; set; } = string.Empty;
         public string SourceEventId { get; set; } = string.Empty;
+    }
+
+    private sealed class CursorRow
+    {
+        public DateTime CreatedAt { get; set; }
     }
 }

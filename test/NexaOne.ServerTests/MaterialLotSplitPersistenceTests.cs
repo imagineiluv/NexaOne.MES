@@ -199,6 +199,86 @@ public sealed class MaterialLotSplitPersistenceTests :
     }
 
     [Fact]
+    public async Task Children_query_pages_direct_edges_once_even_when_creation_times_tie()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..12];
+        var parentId = $"P_{suffix}";
+        var firstChildId = $"C_A_{suffix}";
+        await Receive(parentId, suffix, 10m);
+        var first = Split(parentId, firstChildId, $"A_{suffix}", 2m);
+        var second = Split(parentId, $"C_B_{suffix}", $"B_{suffix}", 2m)
+            with { ExpectedParentVersion = 2 };
+        var third = Split(parentId, $"C_C_{suffix}", $"C_{suffix}", 2m)
+            with { ExpectedParentVersion = 3 };
+        var grandchild = Split(firstChildId, $"G_{suffix}", $"G_{suffix}", 1m);
+        foreach (var command in new[] { first, second, third, grandchild })
+        {
+            var result = await Service().SplitAsync(command);
+            result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Description : string.Empty);
+        }
+
+        using (var connection = Connection())
+            connection.Execute("""
+                UPDATE IVT_MATERIAL_LOT_SPLIT SET CREATED_AT=@createdAt
+                 WHERE PARENT_LOT_ID=@parentId
+                """, new { parentId, createdAt = OccurredAt });
+
+        var page1 = await Service().GetChildrenAsync($" {parentId} ", limit: 1);
+        var page2 = await Service().GetChildrenAsync(parentId, $" {page1.Value.NextAfterSplitId} ", 1);
+        var page3 = await Service().GetChildrenAsync(parentId, page2.Value.NextAfterSplitId, 1);
+        var exhausted = await Service().GetChildrenAsync(parentId, third.SplitId, 1);
+        var all = await Service().GetChildrenAsync(parentId);
+        var grandchildren = await Service().GetChildrenAsync(firstChildId);
+        var childless = await Service().GetChildrenAsync(second.ChildLotId);
+
+        page1.IsSuccess.Should().BeTrue(page1.IsFailure ? page1.Error.Description : string.Empty);
+        page2.IsSuccess.Should().BeTrue(page2.IsFailure ? page2.Error.Description : string.Empty);
+        page3.IsSuccess.Should().BeTrue(page3.IsFailure ? page3.Error.Description : string.Empty);
+        new[] { page1.Value.Items.Single().SplitId, page2.Value.Items.Single().SplitId,
+            page3.Value.Items.Single().SplitId }
+            .Should().Equal(first.SplitId, second.SplitId, third.SplitId);
+        page1.Value.NextAfterSplitId.Should().Be(first.SplitId);
+        page2.Value.NextAfterSplitId.Should().Be(second.SplitId);
+        page3.Value.NextAfterSplitId.Should().BeNull();
+        exhausted.Value.Items.Should().BeEmpty();
+        exhausted.Value.NextAfterSplitId.Should().BeNull();
+        all.Value.Items.Select(item => item.SplitId).Should()
+            .Equal(first.SplitId, second.SplitId, third.SplitId);
+        all.Value.Items.Select(item => item.ParentVersion).Should().Equal(2, 3, 4);
+        all.Value.Items.Select(item => item.ParentBalanceAfter).Should().Equal(8m, 6m, 4m);
+        all.Value.Items.Should().OnlyContain(item =>
+            item.ParentLotId == parentId &&
+            !string.IsNullOrWhiteSpace(item.ParentTransactionId) &&
+            !string.IsNullOrWhiteSpace(item.ChildTransactionId));
+        grandchildren.Value.Items.Select(item => item.SplitId).Should().Equal(grandchild.SplitId);
+        childless.Value.Items.Should().BeEmpty();
+        childless.Value.NextAfterSplitId.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Children_query_rejects_invalid_scope_cursor_and_page_size()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..12];
+        var parentId = $"P_{suffix}";
+        var otherParentId = $"OP_{suffix}";
+        await Receive(parentId, suffix, 3m);
+        await Receive(otherParentId, $"O_{suffix}", 3m);
+        var otherSplit = Split(otherParentId, $"OC_{suffix}", $"O_{suffix}", 1m);
+        (await Service().SplitAsync(otherSplit)).IsSuccess.Should().BeTrue();
+
+        (await Service().GetChildrenAsync(" ")).Error.Type.Should().Be(ErrorType.Validation);
+        (await Service().GetChildrenAsync(parentId, " ")).Error.Type.Should().Be(ErrorType.Validation);
+        (await Service().GetChildrenAsync(parentId, limit: 0)).Error.Type.Should().Be(ErrorType.Validation);
+        (await Service().GetChildrenAsync(parentId, limit: 101)).Error.Type.Should().Be(ErrorType.Validation);
+        (await Service().GetChildrenAsync("NOT_FOUND")).Error.Type.Should().Be(ErrorType.NotFound);
+        (await Service().GetChildrenAsync(parentId, otherSplit.SplitId))
+            .Error.Code.Should().Be("IVT_SPLIT_CURSOR_INVALID");
+        (await Service().GetChildrenAsync(parentId, "S_NOT_FOUND"))
+            .Error.Type.Should().Be(ErrorType.Validation);
+        (await Service().GetChildrenAsync(parentId, limit: 100)).Value.Items.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Mounted_or_unmounted_but_reserved_parent_cannot_be_split()
     {
         var suffix = Guid.NewGuid().ToString("N")[..12];
