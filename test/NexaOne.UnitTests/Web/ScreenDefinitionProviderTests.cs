@@ -149,8 +149,10 @@ public sealed class ScreenDefinitionProviderTests
         definition.Should().NotBeNull();
         definition!.Title.Should().Be("수주 관리");
         definition!.Purpose.Should().Be(ScreenPurpose.Manage);
-        definition.SaveQueryId.Should().Be("SLS.CreateSalesOrder");
-        definition.DeleteQueryId.Should().Be("SLS.DeleteSalesOrder");
+        definition.SaveQueryId.Should().Be(SlsSalesOrderMetaCommands.Save);
+        definition.DeleteQueryId.Should().Be(SlsSalesOrderMetaCommands.Delete);
+        definition.BulkCommands!.Select(command => command.CommandQueryId).Should().Equal(
+            SlsSalesOrderMetaCommands.Confirm, SlsSalesOrderMetaCommands.Close);
         definition.Fields.Should().Contain(field =>
             field.Key == "plantId" && field.Required && field.OptionsQueryId == "MDM.PlantCombo");
         definition.Fields.Should().Contain(field =>

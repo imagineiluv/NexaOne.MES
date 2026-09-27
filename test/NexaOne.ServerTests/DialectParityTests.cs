@@ -92,17 +92,21 @@ public sealed class DialectParityTests
     }
 
     [Fact]
-    public void Sls_order_transitions_guard_held_rows_in_both_dialects()
+    public void Sls_order_writes_are_not_registered_in_either_dialect()
     {
         var root = RepositorySource.GetDirectory($"{DbRoot}/queries");
         foreach (var dialect in new[] { "mssql", "sqlite" })
         {
             var registry = FileQueryRegistry.Load(dialect, root);
-            foreach (var id in new[] { "SLS.ConfirmSalesOrder", "SLS.CloseSalesOrder" })
+            registry.TryGet("SLS.SalesOrderList", out _).Should().BeTrue();
+            foreach (var id in new[]
+                     {
+                         "SLS.CreateSalesOrder", "SLS.DeleteSalesOrder",
+                         "SLS.ConfirmSalesOrder", "SLS.CloseSalesOrder",
+                     })
             {
-                registry.TryGet(id, out var definition).Should().BeTrue();
-                definition!.Sql.Should().Contain("AND IS_HOLD = 'N'", Exactly.Once(),
-                    $"{dialect}의 {id}가 보류된 수주를 전이시키면 안 된다");
+                registry.TryGet(id, out _).Should().BeFalse(
+                    $"{dialect}의 {id} 쓰기는 SLS 모듈을 우회하면 안 된다");
             }
         }
     }

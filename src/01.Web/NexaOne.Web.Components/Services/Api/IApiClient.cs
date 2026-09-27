@@ -62,6 +62,12 @@ public interface IApiClient
     Task<bool> ExecuteCommandAsync(
         string queryId, object? parameters = null, CancellationToken ct = default);
 
+    // SLS 수주 쓰기는 명명 SQL이 아니라 JWT 권한과 모듈 상태기를 거치는 typed REST 경로입니다.
+    Task<SlsSalesOrderActionResult> SaveSlsSalesOrderAsync(
+        SlsSalesOrderDraftRequest request, CancellationToken ct = default);
+    Task<SlsSalesOrderActionResult> ExecuteSlsSalesOrderActionAsync(
+        string action, string salesOrderId, CancellationToken ct = default);
+
     // Auth
     /// <summary>유효한 액세스 토큰 반환 — 만료(임박) 시 갱신 후 공급한다. SignalR 재연결 협상용 (§20.9).</summary>
     Task<string?> GetValidAccessTokenAsync(CancellationToken ct = default);

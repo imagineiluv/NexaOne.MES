@@ -641,6 +641,54 @@ public sealed class ApiClient : IApiClient
         return await IsCommandAppliedAsync(resp, ct);
     }
 
+    public async Task<SlsSalesOrderActionResult> SaveSlsSalesOrderAsync(
+        SlsSalesOrderDraftRequest request, CancellationToken ct = default)
+    {
+        using var response = await SendAsync(
+            HttpMethod.Post, "api/v1/sls/sales-orders", request, ct, surfaceErrors: false);
+        return await SalesOrderResultAsync(response, expectsBody: true, ct);
+    }
+
+    public async Task<SlsSalesOrderActionResult> ExecuteSlsSalesOrderActionAsync(
+        string action, string salesOrderId, CancellationToken ct = default)
+    {
+        var normalized = action?.Trim().ToLowerInvariant();
+        if (normalized is not ("delete" or "confirm" or "close")
+            || string.IsNullOrWhiteSpace(salesOrderId))
+            return new(false, "지원하지 않는 수주 명령 또는 비어 있는 수주 ID입니다.", 400);
+
+        var id = Uri.EscapeDataString(salesOrderId.Trim());
+        var method = normalized == "delete" ? HttpMethod.Delete : HttpMethod.Post;
+        var path = normalized == "delete"
+            ? $"api/v1/sls/sales-orders/{id}"
+            : $"api/v1/sls/sales-orders/{id}/{normalized}";
+        using var response = await SendAsync(method, path, null, ct, surfaceErrors: false);
+        return await SalesOrderResultAsync(response, expectsBody: normalized != "delete", ct);
+    }
+
+    private async Task<SlsSalesOrderActionResult> SalesOrderResultAsync(
+        HttpResponseMessage response, bool expectsBody, CancellationToken ct)
+    {
+        var statusCode = (int)response.StatusCode;
+        if (!response.IsSuccessStatusCode)
+            return new(false, response.StatusCode == HttpStatusCode.Unauthorized
+                ? "인증이 만료되었습니다. 다시 로그인해 주세요."
+                : await ReadErrorAsync(response, ct), statusCode);
+        if (!expectsBody) return new(true, null, statusCode);
+
+        try
+        {
+            var state = await response.Content.ReadFromJsonAsync<SlsSalesOrderStateDto>(ct);
+            return state is not null
+                ? new(true, null, statusCode)
+                : new(false, "수주 명령 응답을 읽을 수 없습니다.", statusCode);
+        }
+        catch (Exception error) when (error is JsonException or NotSupportedException)
+        {
+            return new(false, "수주 명령 응답을 읽을 수 없습니다.", statusCode);
+        }
+    }
+
     /// <summary>
     /// 명명 command의 HTTP 결과와 영향 행 수를 실제 업무 성공 여부로 변환합니다.
     /// 별도 command 구현의 구형 빈 응답은 호환을 위해 성공으로 보되, 표준 <c>{ affected: 0 }</c> 응답은

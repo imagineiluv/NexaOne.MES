@@ -60,14 +60,10 @@ public sealed class HostModulesBootSmokeTests
                     VALUES (@customer, @customer, 1);
                 INSERT INTO MDM_PRODUCT (PRODUCT_ID, PRODUCT_NAME, PRODUCT_TYPE, UNIT, VALID_STATE)
                     VALUES (@product, @product, 'FinishedGoods', 'EA', 'Valid');
-                INSERT INTO SLS_SALES_ORDER
-                    (SALES_ORDER_ID, PLANT_ID, CUSTOMER_ID, PRODUCT_ID, PLAN_END_DATE, PLAN_QTY, STATUS)
-                    VALUES (@salesOrder, @plant, @customer, @product, '2040-09-30', 12.5, 'Draft');
                 """;
             seed.Parameters.AddWithValue("@plant", plant);
             seed.Parameters.AddWithValue("@customer", customer);
             seed.Parameters.AddWithValue("@product", product);
-            seed.Parameters.AddWithValue("@salesOrder", salesOrder);
             await seed.ExecuteNonQueryAsync();
         }
 
@@ -75,6 +71,18 @@ public sealed class HostModulesBootSmokeTests
         http.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue(
                 "Bearer", HostProcess.MintToken(Permissions.SlsManage));
+        var draftResponse = await http.PostAsJsonAsync("/api/v1/sls/sales-orders", new
+        {
+            salesOrderId = salesOrder, salesOrderName = "9월 수주",
+            plantId = plant, customerId = customer, productId = product,
+            planStartDate = new DateTime(2040, 9, 1),
+            planEndDate = new DateTime(2040, 9, 30), planQty = 12.5m,
+        });
+        draftResponse.StatusCode.Should().Be(HttpStatusCode.OK, $"SLS writer bridge must resolve — log:\n{host.Log}");
+        (await draftResponse.Content.ReadFromJsonAsync<SalesOrderCommandState>())
+            .Should().Be(new SalesOrderCommandState(salesOrder, "Draft"));
+        (await http.PostAsync($"/api/v1/sls/sales-orders/{salesOrder}/confirm", null))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
         var url = $"/api/v1/sls/sales-orders/{salesOrder}/delivery-request";
         var response = await http.PostAsJsonAsync(url, new
         {
@@ -139,6 +147,10 @@ public sealed class HostModulesBootSmokeTests
                AND DELIVERED_QTY = 12.5 AND DELIVERY_ORDER_ID = @deliveryOrder
             """;
         Convert.ToInt32(await check.ExecuteScalarAsync()).Should().Be(1);
+        (await http.PostAsync($"/api/v1/sls/sales-orders/{salesOrder}/close", null))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        check.CommandText = "SELECT STATUS FROM SLS_SALES_ORDER WHERE SALES_ORDER_ID = @salesOrder";
+        (await check.ExecuteScalarAsync()).Should().Be("Closed");
     }
 
     [Fact]

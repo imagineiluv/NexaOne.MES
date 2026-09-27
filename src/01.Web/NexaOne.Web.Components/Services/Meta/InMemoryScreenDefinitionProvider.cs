@@ -1276,7 +1276,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             Array.Empty<FieldDefinition>(), prcOrderCols, QueryId: "PRC.PurchaseOrderList", Purpose: ScreenPurpose.Report));
 
         // ===== SmartUX FACTORY_SLS(영업) 점등 — 레거시 SLS_TB_SALES_ORDER/REQUEST를 V053으로 포팅. 출하현황은 SHP 재사용. =====
-        // 수주 관리(FACTORY_SLS_SALES_ORDER) — 수주 헤더(SLS.SalesOrderList) + 등록 폼(SLS.CreateSalesOrder).
+        // 수주 관리(FACTORY_SLS_SALES_ORDER) — 조회는 명명 read, 쓰기는 SLS 모듈 브리지.
         Register(new ScreenDefinition("FACTORY_SLS_SALES_ORDER", "수주 관리",
             new FieldDefinition[]
             {
@@ -1298,7 +1298,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("DELIVERED_QTY", "납품수량"), new("IS_HOLD", "홀드"),
             },
             QueryId: "SLS.SalesOrderList",
-            SaveQueryId: "SLS.CreateSalesOrder", DeleteQueryId: "SLS.DeleteSalesOrder",
+            SaveQueryId: SlsSalesOrderMetaCommands.Save, DeleteQueryId: SlsSalesOrderMetaCommands.Delete,
             SearchFields: new FieldDefinition[]
             {
                 new("plantId", "공장", FieldType.Select, OptionsQueryId: "MDM.PlantCombo"),
@@ -1308,8 +1308,8 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             },
             BulkCommands: new BulkCommandDefinition[]
             {
-                new("확정", "SLS.ConfirmSalesOrder"),   // Draft→Confirmed(가드)
-                new("마감", "SLS.CloseSalesOrder"),     // Producing/Delivered→Closed(가드)
+                new("확정", SlsSalesOrderMetaCommands.Confirm),   // Draft→Confirmed(가드)
+                new("마감", SlsSalesOrderMetaCommands.Close),     // Producing/Delivered→Closed(가드)
             },
             Purpose: ScreenPurpose.Manage));
 
