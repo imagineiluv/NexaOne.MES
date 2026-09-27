@@ -1,4 +1,6 @@
+using Moq;
 using NexaOne.SLS.Infrastructure;
+using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Sls;
 using NexaOne.UnitTests.TestInfrastructure;
 
@@ -10,19 +12,30 @@ public sealed class SlsModuleCompositionTests
     [Fact]
     public void Module_composes_one_mrp_demand_directory_from_the_data_source()
     {
-        var module = new NexaOne.SLS.Module(DataSource());
+        var module = new NexaOne.SLS.Module(DataSource(), new Mock<IBusinessMasterDirectory>().Object);
 
         var directory = module.GetMrpDemandDirectory();
+        var salesRequests = module.GetSalesRequestBridge();
 
         directory.Should().BeOfType<MrpDemandDirectory>();
         module.GetMrpDemandDirectory().Should().BeSameAs(directory,
             "the module exposes one shared contract instance per composition root");
+        salesRequests.Should().BeAssignableTo<ISalesRequestBridge>();
+        module.GetSalesRequestBridge().Should().BeSameAs(salesRequests);
     }
 
     [Fact]
     public void Module_rejects_a_missing_data_source()
     {
-        var act = () => new NexaOne.SLS.Module(null!);
+        var act = () => new NexaOne.SLS.Module(null!, new Mock<IBusinessMasterDirectory>().Object);
+
+        act.Should().Throw<ArgumentNullException>();
+    }
+
+    [Fact]
+    public void Module_rejects_a_missing_master_directory()
+    {
+        var act = () => new NexaOne.SLS.Module(DataSource(), null!);
 
         act.Should().Throw<ArgumentNullException>();
     }

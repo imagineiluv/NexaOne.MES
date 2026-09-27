@@ -163,6 +163,10 @@ public sealed class GatewaySlsQueryTests : IClassFixture<GatewaySlsQueryTests.Sl
         var ids = byOrder.Select(r => r["SALES_REQUEST_ID"].ToString()).ToList();
         ids.Should().Contain(linked);
         ids.Should().NotContain(other, "salesOrderId 필터는 해당 오더 요청만 반환(판매 요청 점등)");
+
+        var byRequest = await Query("SLS.SalesRequestList", new() { ["salesRequestId"] = linked });
+        byRequest.Select(r => r["SALES_REQUEST_ID"].ToString()).Should().ContainSingle()
+            .Which.Should().Be(linked, "재시도 충돌 후 알려진 요청 ID로 현재 연결 상태를 확인할 수 있어야 한다");
     }
 
     [Fact]

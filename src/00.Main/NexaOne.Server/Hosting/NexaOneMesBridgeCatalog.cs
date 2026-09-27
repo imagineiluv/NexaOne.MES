@@ -117,6 +117,7 @@ internal sealed class NexaOneMesBridgeCatalog : INexaModuleBridgeCatalog
             Bind<ITrackingRecipeDirectory>("Rms", "trackingRecipeDirectory"),
            Bind<IShipmentBridge>("Shp", "shipmentBridge"),
             Bind<IMrpDemandDirectory>("Sls", "mrpDemandDirectory"),
+            Bind<ISalesRequestBridge>("Sls", "salesRequestBridge"),
             Bind<IDeployBridge>("Sys", "deployBridge"),
             Bind<IIdRuleEngine>("Sys", "idRuleEngine"),
             Bind<IBusinessMembershipBridge>("Sys", "businessMembershipBridge"),

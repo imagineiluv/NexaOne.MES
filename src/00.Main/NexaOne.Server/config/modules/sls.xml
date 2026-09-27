@@ -6,9 +6,13 @@
   <!-- SLS owns sales orders, sales requests, and the MRP demand directory. -->
   <object id="slsModule" type="NexaOne.SLS.Module, NexaOne.SLS">
     <constructor-arg ref="eesDataSource" />
+    <constructor-arg ref="businessMasterDirectory" />
   </object>
   <object id="mrpDemandDirectory"
           factory-object="slsModule"
           factory-method="GetMrpDemandDirectory" />
+  <object id="salesRequestBridge"
+          factory-object="slsModule"
+          factory-method="GetSalesRequestBridge" />
 
 </objects>
