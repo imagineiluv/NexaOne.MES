@@ -149,6 +149,56 @@ public sealed class MaterialLotSplitPersistenceTests :
     }
 
     [Fact]
+    public async Task Origin_query_walks_direct_split_edges_and_returns_immutable_ledger_evidence()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..12];
+        var parentId = $"P_{suffix}";
+        var childId = $"C_{suffix}";
+        var grandchildId = $"G_{suffix}";
+        await Receive(parentId, suffix, 10m);
+        var first = Split(parentId, childId, suffix, 4m);
+        var second = Split(childId, grandchildId, $"GRAND_{suffix}", 1.5m);
+        (await Service().SplitAsync(first)).IsSuccess.Should().BeTrue();
+        (await Service().SplitAsync(second)).IsSuccess.Should().BeTrue();
+
+        (await Service().GetOriginAsync(" ")).Error.Type.Should().Be(ErrorType.Validation);
+        (await Service().GetOriginAsync(parentId)).Error.Type.Should().Be(ErrorType.NotFound);
+        var origin = await Service().GetOriginAsync($" {childId} ");
+        var grandchildOrigin = await Service().GetOriginAsync(grandchildId);
+
+        origin.IsSuccess.Should().BeTrue(origin.IsFailure ? origin.Error.Description : string.Empty);
+        grandchildOrigin.IsSuccess.Should().BeTrue();
+        origin.Value.Should().BeEquivalentTo(new
+        {
+            first.SplitId,
+            ParentLotId = parentId,
+            ChildLotId = childId,
+            ChildLotNumber = first.ChildLotNumber,
+            Quantity = 4m,
+            ParentBalanceBefore = 10m,
+            ParentBalanceAfter = 6m,
+            ParentVersion = 2,
+            ParentStatus = "InStock",
+            OccurredAt,
+            ActorId = "operator",
+            SourceSystem = "TEST",
+            SourceEventId = first.SourceEventId,
+        });
+        grandchildOrigin.Value.ParentLotId.Should().Be(childId);
+        grandchildOrigin.Value.ChildLotId.Should().Be(grandchildId);
+        grandchildOrigin.Value.Quantity.Should().Be(1.5m);
+        using var connection = Connection();
+        connection.QuerySingle<(string LotId, string Type)>(
+            "SELECT LOT_ID AS LotId, TX_TYPE AS Type FROM IVT_MATERIAL_TX WHERE TX_ID=@txId",
+            new { txId = origin.Value.ParentTransactionId })
+            .Should().Be((parentId, "SplitOut"));
+        connection.QuerySingle<(string LotId, string Type)>(
+            "SELECT LOT_ID AS LotId, TX_TYPE AS Type FROM IVT_MATERIAL_TX WHERE TX_ID=@txId",
+            new { txId = origin.Value.ChildTransactionId })
+            .Should().Be((childId, "SplitIn"));
+    }
+
+    [Fact]
     public async Task Mounted_or_unmounted_but_reserved_parent_cannot_be_split()
     {
         var suffix = Guid.NewGuid().ToString("N")[..12];

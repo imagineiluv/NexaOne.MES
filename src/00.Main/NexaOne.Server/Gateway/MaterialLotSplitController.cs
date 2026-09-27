@@ -12,6 +12,16 @@ namespace NexaOne.Server.Gateway;
 [ProducesErrorResponseType(typeof(Error))]
 public sealed class MaterialLotSplitController(IMaterialLotSplitBridge bridge) : ControllerBase
 {
+    [HttpGet("/api/v1/ivt/material-lots/{childLotId}/origin")]
+    [RequirePermission(Permissions.IvtRead)]
+    [ProducesResponseType<MaterialLotSplitOriginDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetOrigin(string childLotId, CancellationToken ct) =>
+        (await bridge.GetOriginAsync(childLotId, ct)).ToActionResult();
+
     [HttpPost]
     [RequirePermission(Permissions.IvtManage)]
     [ProducesResponseType<MaterialLotSplitDto>(StatusCodes.Status200OK)]
