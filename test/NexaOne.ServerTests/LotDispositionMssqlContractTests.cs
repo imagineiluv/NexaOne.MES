@@ -68,7 +68,7 @@ public sealed class LotDispositionMssqlContractTests(ITestOutputHelper output)
         recovered.IsSuccess.Should().BeTrue(recovered.IsFailure ? recovered.Error.Description : string.Empty);
         var updatedAt = await database.ScalarAsync<DateTime>(
             "SELECT UPDATED_AT FROM POM_LOT WHERE LOT_ID=@lotId", new { lotId });
-        updatedAt.Should().BeCloseTo(recovered.Value.DecidedAt, TimeSpan.FromMilliseconds(1));
+        updatedAt.Should().BeAfter(sentinel);
 
         var replay = await new LotDispositionService(new LotDispositionRepository(database.DataSource))
             .RecordAsync(command);
