@@ -105,7 +105,20 @@ public sealed class HostModulesBootSmokeTests
         http.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue(
                 "Bearer", HostProcess.MintToken(Permissions.ShpManage));
+        (await http.PostAsync($"/api/v1/shp/orders/{deliveryOrder}/hold", null))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await http.PostAsync($"/api/v1/shp/orders/{deliveryOrder}/confirm", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict, "held Draft delivery cannot be confirmed");
+        (await http.PostAsync($"/api/v1/shp/orders/{deliveryOrder}/release-hold", null))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await http.PostAsync($"/api/v1/shp/orders/{deliveryOrder}/confirm", null))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await http.PostAsync($"/api/v1/shp/orders/{deliveryOrder}/hold", null))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await http.PostAsJsonAsync($"/api/v1/shp/orders/{deliveryOrder}/ship",
+            new { shippedDate = new DateTime(2040, 9, 30) }))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict, "held Confirmed delivery cannot ship");
+        (await http.PostAsync($"/api/v1/shp/orders/{deliveryOrder}/release-hold", null))
             .StatusCode.Should().Be(HttpStatusCode.NoContent);
         (await http.PostAsJsonAsync($"/api/v1/shp/orders/{deliveryOrder}/ship",
             new { shippedDate = new DateTime(2040, 9, 30) }))
