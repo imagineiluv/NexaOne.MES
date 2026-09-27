@@ -1,4 +1,6 @@
+using System.Data;
 using System.Data.Common;
+using Dapper;
 using Microsoft.Data.Sqlite;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.PRC.Application.PurchaseOrders;
@@ -17,9 +19,13 @@ internal sealed class PurchaseOrderPlanningRepository : QueryRepository, IPurcha
         CancellationToken ct = default)
     {
         var rows = await QueryAsync<ReceiptRow>(
-            "SELECT PRODUCT_ID AS ProductId, ORDER_QTY AS Quantity, INCOMING_DATE AS IncomingDate " +
-            "FROM PRC_PURCHASE_ORDER " +
-            "WHERE STATUS IN ('Ordered', 'Incoming') AND PRODUCT_ID IS NOT NULL",
+            "SELECT item.PRODUCT_ID AS ProductId, " +
+            "(item.ORDER_QTY - item.INCOMING_QTY) AS Quantity, " +
+            "purchase.INCOMING_DATE AS IncomingDate " +
+            "FROM PRC_PURCHASE_ITEM item " +
+            "JOIN PRC_PURCHASE_ORDER purchase ON purchase.PURCHASE_ORDER_ID = item.PURCHASE_ORDER_ID " +
+            "WHERE purchase.STATUS IN ('Ordered', 'Incoming') " +
+            "AND item.ORDER_QTY > item.INCOMING_QTY",
             null,
             ct);
         return rows
@@ -35,11 +41,17 @@ internal sealed class PurchaseOrderPlanningRepository : QueryRepository, IPurcha
         CancellationToken ct = default)
     {
         var row = await QueryFirstOrDefaultAsync<PurchaseOrderRow>(
-            "SELECT PURCHASE_ORDER_ID AS PurchaseOrderId, PLANT_ID AS PlantId, " +
-            "PURCHASE_ORDER_NAME AS PurchaseOrderName, INCOMING_DATE AS IncomingDate, " +
-            "ORDER_QTY AS Quantity, PRODUCT_ID AS ProductId, " +
-            "STATUS AS Status, DESCRIPTION AS Description " +
-            "FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID = @purchaseOrderId",
+            "SELECT purchase.PURCHASE_ORDER_ID AS PurchaseOrderId, " +
+            "purchase.PLANT_ID AS PlantId, purchase.PURCHASE_ORDER_NAME AS PurchaseOrderName, " +
+            "purchase.INCOMING_DATE AS IncomingDate, item.ORDER_QTY AS Quantity, " +
+            "purchase.PRODUCT_ID AS ProductId, purchase.STATUS AS Status, " +
+            "purchase.DESCRIPTION AS Description, " +
+            "(SELECT COUNT(*) FROM PRC_PURCHASE_ITEM counted " +
+            "WHERE counted.PURCHASE_ORDER_ID=purchase.PURCHASE_ORDER_ID) AS LineCount " +
+            "FROM PRC_PURCHASE_ORDER purchase " +
+            "LEFT JOIN PRC_PURCHASE_ITEM item ON item.PURCHASE_ORDER_ID=purchase.PURCHASE_ORDER_ID " +
+            "AND item.PRODUCT_ID=purchase.PRODUCT_ID " +
+            "WHERE purchase.PURCHASE_ORDER_ID = @purchaseOrderId",
             new { purchaseOrderId },
             ct);
         return row is null
@@ -51,6 +63,7 @@ internal sealed class PurchaseOrderPlanningRepository : QueryRepository, IPurcha
                 AsDate(row.IncomingDate),
                 row.Quantity,
                 row.ProductId,
+                row.LineCount,
                 row.Status,
                 row.Description);
     }
@@ -59,14 +72,41 @@ internal sealed class PurchaseOrderPlanningRepository : QueryRepository, IPurcha
         PurchaseOrderDraft draft,
         CancellationToken ct = default)
     {
-        const string sql =
+        const string headerSql =
             "INSERT INTO PRC_PURCHASE_ORDER (PURCHASE_ORDER_ID, PLANT_ID, PURCHASE_ORDER_NAME, " +
             "ORDER_DATE, INCOMING_DATE, ORDER_QTY, PRODUCT_ID, STATUS, DESCRIPTION, CREATED_BY, UPDATED_BY) " +
             "VALUES (@PurchaseOrderId, @PlantId, @PurchaseOrderName, @OrderDate, @IncomingDate, @Quantity, " +
             "@ProductId, 'Ordered', @Description, @ExecutedBy, @ExecutedBy)";
         try
         {
-            await _processor.ExecuteAsync(sql, draft, ct);
+            await _processor.ExecuteInTransactionAsync(async (connection, transaction) =>
+            {
+                // Dapper's default DateTime parameter is SQL Server DATETIME (millisecond
+                // rounding), while the schema is DATETIME2. Preserve the MRP command's
+                // timestamp so an immediate retry compares equal to the committed row.
+                var timestampType = connection.GetType().FullName ==
+                                    "Microsoft.Data.SqlClient.SqlConnection"
+                    ? DbType.DateTime2
+                    : DbType.DateTime;
+                var headerParameters = new DynamicParameters();
+                headerParameters.Add(nameof(draft.PurchaseOrderId), draft.PurchaseOrderId);
+                headerParameters.Add(nameof(draft.PlantId), draft.PlantId);
+                headerParameters.Add(nameof(draft.PurchaseOrderName), draft.PurchaseOrderName);
+                headerParameters.Add(nameof(draft.OrderDate), draft.OrderDate, timestampType);
+                headerParameters.Add(nameof(draft.IncomingDate), draft.IncomingDate, timestampType);
+                headerParameters.Add(nameof(draft.Quantity), draft.Quantity);
+                headerParameters.Add(nameof(draft.ProductId), draft.ProductId);
+                headerParameters.Add(nameof(draft.Description), draft.Description);
+                headerParameters.Add(nameof(draft.ExecutedBy), draft.ExecutedBy);
+                await connection.ExecuteAsync(new CommandDefinition(
+                    headerSql, headerParameters, transaction, cancellationToken: ct));
+                await connection.ExecuteAsync(new CommandDefinition(
+                    "INSERT INTO PRC_PURCHASE_ITEM " +
+                    "(PURCHASE_ORDER_ID, PRODUCT_ID, ORDER_QTY, CREATED_BY, UPDATED_BY) " +
+                    "VALUES (@PurchaseOrderId, @ProductId, @Quantity, @ExecutedBy, @ExecutedBy)",
+                    draft, transaction, cancellationToken: ct));
+                return true;
+            }, IsolationLevel.Serializable, ct);
             return PurchaseOrderInsertOutcome.Created;
         }
         catch (DbException exception) when (IsExpectedPurchaseOrderIdentityRace(exception))
@@ -123,6 +163,7 @@ internal sealed class PurchaseOrderPlanningRepository : QueryRepository, IPurcha
         public object? IncomingDate { get; set; }
         public decimal Quantity { get; set; }
         public string ProductId { get; set; } = string.Empty;
+        public int LineCount { get; set; }
         public string Status { get; set; } = string.Empty;
         public string? Description { get; set; }
     }

@@ -9,6 +9,7 @@ namespace NexaOne.PRC;
 public sealed class Module
 {
     private readonly IPurchaseOrderPlanningBridge _purchaseOrderPlanningBridge;
+    private readonly ISqliteSchemaContribution _purchaseItemSqliteSchemaContribution;
 
     public Module(EesDataSource dataSource)
     {
@@ -16,7 +17,10 @@ public sealed class Module
         var store = new PurchaseOrderPlanningRepository(dataSource);
         var service = new PurchaseOrderPlanningService(store);
         _purchaseOrderPlanningBridge = new PurchaseOrderPlanningBridge(service);
+        _purchaseItemSqliteSchemaContribution = new PurchaseItemSqliteSchemaContribution();
     }
 
     public IPurchaseOrderPlanningBridge GetPurchaseOrderPlanningBridge() => _purchaseOrderPlanningBridge;
+    public ISqliteSchemaContribution GetPurchaseItemSqliteSchemaContribution() =>
+        _purchaseItemSqliteSchemaContribution;
 }

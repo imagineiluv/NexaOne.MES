@@ -5,11 +5,174 @@ using NexaDB.Data.Abstractions.Interfaces;
 using NexaDB.Data.Abstractions.Models;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Prc;
+using NexaOne.UnitTests.TestInfrastructure;
 
 namespace NexaOne.UnitTests.Prc;
 
 public sealed class PurchaseOrderPlanningBridgeTests
 {
+    [Fact]
+    public async Task Created_purchase_line_drives_remaining_scheduled_receipt()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"nexaone-prc-line-{Guid.NewGuid():N}.db");
+        try
+        {
+            var connectionString = $"Data Source={path}";
+            await using (var connection = new SqliteConnection(connectionString))
+            {
+                await connection.OpenAsync();
+                await using var schema = connection.CreateCommand();
+                schema.CommandText = """
+                    CREATE TABLE PRC_PURCHASE_ORDER (
+                        PURCHASE_ORDER_ID TEXT PRIMARY KEY, PLANT_ID TEXT NOT NULL,
+                        PURCHASE_ORDER_NAME TEXT, ORDER_DATE TEXT, INCOMING_DATE TEXT,
+                        ORDER_QTY NUMERIC NOT NULL, PRODUCT_ID TEXT, STATUS TEXT NOT NULL,
+                        DESCRIPTION TEXT, CREATED_BY TEXT, UPDATED_BY TEXT);
+                    CREATE TABLE PRC_PURCHASE_ITEM (
+                        PURCHASE_ORDER_ID TEXT NOT NULL, PRODUCT_ID TEXT NOT NULL,
+                        ORDER_QTY NUMERIC NOT NULL, INCOMING_QTY NUMERIC NOT NULL DEFAULT 0,
+                        CREATED_BY TEXT, UPDATED_BY TEXT,
+                        PRIMARY KEY (PURCHASE_ORDER_ID, PRODUCT_ID));
+                    """;
+                await schema.ExecuteNonQueryAsync();
+            }
+
+            var bridge = new NexaOne.PRC.Module(new EesDataSource
+            {
+                Provider = new SqliteTestDatabaseProvider(),
+                ConnectionString = connectionString,
+            }).GetPurchaseOrderPlanningBridge();
+            var request = Request();
+
+            (await bridge.EnsureMrpPurchaseOrderAsync(request)).Created.Should().BeTrue();
+            (await bridge.EnsureMrpPurchaseOrderAsync(request)).Created.Should().BeFalse();
+            (await bridge.GetScheduledReceiptsAsync()).Should().ContainSingle()
+                .Which.Should().Be(new MrpPurchaseReceipt(request.ProductId, request.Quantity,
+                    request.IncomingDate));
+
+            await using var updateConnection = new SqliteConnection(connectionString);
+            await updateConnection.OpenAsync();
+            await using var update = updateConnection.CreateCommand();
+            update.CommandText = "UPDATE PRC_PURCHASE_ITEM SET INCOMING_QTY=4 WHERE PURCHASE_ORDER_ID=@id";
+            update.Parameters.AddWithValue("@id", request.PurchaseOrderId);
+            (await update.ExecuteNonQueryAsync()).Should().Be(1);
+
+            (await bridge.GetScheduledReceiptsAsync()).Should().ContainSingle()
+                .Which.Quantity.Should().Be(request.Quantity - 4m);
+            (await bridge.EnsureMrpPurchaseOrderAsync(request)).Created.Should().BeFalse();
+
+            update.CommandText = "UPDATE PRC_PURCHASE_ITEM SET ORDER_QTY=11 WHERE PURCHASE_ORDER_ID=@id";
+            (await update.ExecuteNonQueryAsync()).Should().Be(1);
+            var replay = () => bridge.EnsureMrpPurchaseOrderAsync(request);
+            await replay.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("*already owned by a different command*");
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* best-effort test cleanup */ }
+        }
+    }
+
+    [Fact]
+    public async Task Failed_line_insert_rolls_back_the_purchase_header()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"nexaone-prc-rollback-{Guid.NewGuid():N}.db");
+        try
+        {
+            var connectionString = $"Data Source={path}";
+            await using var connection = new SqliteConnection(connectionString);
+            await connection.OpenAsync();
+            await using var schema = connection.CreateCommand();
+            schema.CommandText = """
+                CREATE TABLE PRC_PURCHASE_ORDER (
+                    PURCHASE_ORDER_ID TEXT PRIMARY KEY, PLANT_ID TEXT NOT NULL,
+                    PURCHASE_ORDER_NAME TEXT, ORDER_DATE TEXT, INCOMING_DATE TEXT,
+                    ORDER_QTY NUMERIC NOT NULL, PRODUCT_ID TEXT, STATUS TEXT NOT NULL,
+                    DESCRIPTION TEXT, CREATED_BY TEXT, UPDATED_BY TEXT);
+                CREATE TABLE PRC_PURCHASE_ITEM (
+                    PURCHASE_ORDER_ID TEXT NOT NULL, PRODUCT_ID TEXT NOT NULL,
+                    ORDER_QTY NUMERIC NOT NULL CHECK (ORDER_QTY > 100),
+                    CREATED_BY TEXT, UPDATED_BY TEXT,
+                    PRIMARY KEY (PURCHASE_ORDER_ID, PRODUCT_ID));
+                """;
+            await schema.ExecuteNonQueryAsync();
+
+            var bridge = new NexaOne.PRC.Module(new EesDataSource
+            {
+                Provider = new SqliteTestDatabaseProvider(),
+                ConnectionString = connectionString,
+            }).GetPurchaseOrderPlanningBridge();
+
+            var act = () => bridge.EnsureMrpPurchaseOrderAsync(Request());
+            await act.Should().ThrowAsync<SqliteException>();
+
+            await using var count = connection.CreateCommand();
+            count.CommandText = "SELECT COUNT(*) FROM PRC_PURCHASE_ORDER";
+            Convert.ToInt32(await count.ExecuteScalarAsync()).Should().Be(0);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { /* best-effort test cleanup */ }
+        }
+    }
+
+    [Fact]
+    public async Task Incremental_sqlite_upgrade_backfills_once_without_recreating_deleted_lines()
+    {
+        await using var connection = new SqliteConnection("Data Source=:memory:");
+        await connection.OpenAsync();
+        await using (var schema = connection.CreateCommand())
+        {
+            schema.CommandText = """
+                CREATE TABLE PRC_PURCHASE_ORDER (
+                    PURCHASE_ORDER_ID TEXT PRIMARY KEY, PRODUCT_ID TEXT,
+                    ORDER_QTY NUMERIC NOT NULL, CREATED_BY TEXT NOT NULL,
+                    CREATED_AT TEXT NOT NULL, UPDATED_BY TEXT NOT NULL,
+                    UPDATED_AT TEXT NOT NULL);
+                CREATE TABLE PRC_PURCHASE_ITEM (
+                    PURCHASE_ORDER_ID TEXT NOT NULL, PRODUCT_ID TEXT NOT NULL,
+                    ORDER_QTY NUMERIC NOT NULL, INCOMING_QTY NUMERIC NOT NULL DEFAULT 0,
+                    CREATED_BY TEXT NOT NULL, CREATED_AT TEXT NOT NULL,
+                    UPDATED_BY TEXT NOT NULL, UPDATED_AT TEXT NOT NULL,
+                    PRIMARY KEY (PURCHASE_ORDER_ID, PRODUCT_ID));
+                INSERT INTO PRC_PURCHASE_ORDER VALUES
+                    ('PO-OLD', 'MAT-OLD', 9, 'planner', '2026-01-01', 'planner', '2026-01-01');
+                """;
+            await schema.ExecuteNonQueryAsync();
+        }
+
+        var contribution = new NexaOne.PRC.Module(new EesDataSource
+        {
+            Provider = new SqliteTestDatabaseProvider(),
+            ConnectionString = "Data Source=:memory:",
+        }).GetPurchaseItemSqliteSchemaContribution();
+
+        using (var transaction = connection.BeginTransaction())
+        {
+            contribution.Apply(connection, transaction);
+            transaction.Commit();
+        }
+        await using (var query = connection.CreateCommand())
+        {
+            query.CommandText = "SELECT ORDER_QTY FROM PRC_PURCHASE_ITEM WHERE PURCHASE_ORDER_ID='PO-OLD'";
+            Convert.ToDecimal(await query.ExecuteScalarAsync()).Should().Be(9m);
+        }
+
+        await using (var delete = connection.CreateCommand())
+        {
+            delete.CommandText = "DELETE FROM PRC_PURCHASE_ITEM WHERE PURCHASE_ORDER_ID='PO-OLD'";
+            (await delete.ExecuteNonQueryAsync()).Should().Be(1);
+        }
+        using (var transaction = connection.BeginTransaction())
+        {
+            contribution.Apply(connection, transaction);
+            transaction.Commit();
+        }
+        await using var count = connection.CreateCommand();
+        count.CommandText = "SELECT COUNT(*) FROM PRC_PURCHASE_ITEM";
+        Convert.ToInt32(await count.ExecuteScalarAsync()).Should().Be(0);
+    }
+
     [Fact]
     public async Task Concurrent_primary_key_winner_replays_the_same_purchase_order()
     {
@@ -138,7 +301,11 @@ public sealed class PurchaseOrderPlanningBridgeTests
                     DESCRIPTION TEXT NULL,
                     CREATED_BY TEXT NULL,
                     UPDATED_BY TEXT NULL
-                );";
+                );
+                CREATE TABLE PRC_PURCHASE_ITEM (
+                    PURCHASE_ORDER_ID TEXT NOT NULL, PRODUCT_ID TEXT NOT NULL,
+                    ORDER_QTY NUMERIC NOT NULL,
+                    PRIMARY KEY (PURCHASE_ORDER_ID, PRODUCT_ID));";
             command.ExecuteNonQuery();
         }
 
@@ -246,6 +413,10 @@ public sealed class PurchaseOrderPlanningBridgeTests
                 command.Parameters.AddWithValue("@product", request.ProductId);
                 command.Parameters.AddWithValue("@description", request.Description);
                 command.Parameters.AddWithValue("@actor", request.ExecutedBy);
+                await command.ExecuteNonQueryAsync();
+                command.CommandText = @"
+                    INSERT INTO PRC_PURCHASE_ITEM (PURCHASE_ORDER_ID, PRODUCT_ID, ORDER_QTY)
+                    VALUES (@id, @product, @quantity)";
                 await command.ExecuteNonQueryAsync();
             }
         }

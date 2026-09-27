@@ -10,5 +10,8 @@
   <object id="purchaseOrderPlanningBridge"
           factory-object="prcModule"
           factory-method="GetPurchaseOrderPlanningBridge" />
+  <object id="prcPurchaseItemSqliteSchemaContribution"
+          factory-object="prcModule"
+          factory-method="GetPurchaseItemSqliteSchemaContribution" />
 
 </objects>
