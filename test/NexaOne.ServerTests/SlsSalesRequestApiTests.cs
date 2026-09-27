@@ -14,6 +14,7 @@ using NexaDB.Data.Abstractions.Interfaces;
 using NexaOne.Common.Security;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.MDM.Infrastructure;
+using NexaOne.SHP.Infrastructure;
 using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Sls;
 using Xunit;
@@ -44,16 +45,23 @@ public sealed class SlsSalesRequestApiTests : IClassFixture<SlsSalesRequestApiTe
             builder.UseSetting("Jwt:Issuer", Issuer);
             builder.UseSetting("Jwt:Audience", Issuer);
             // 실제 SLS 조립·저장소를 사용하되 정적 ApplicationServer의 in-proc 재시작은 피한다.
-            builder.ConfigureTestServices(services => services.AddSingleton<ISalesRequestBridge>(sp =>
+            builder.ConfigureTestServices(services =>
             {
-                var dataSource = new EesDataSource
+                services.AddSingleton(sp =>
                 {
-                    Provider = sp.GetRequiredService<IDatabaseProvider>(),
-                    ConnectionString = ConnString,
-                };
-                return new NexaOne.SLS.Module(dataSource, new BusinessMasterDirectory(dataSource))
-                    .GetSalesRequestBridge();
-            }));
+                    var dataSource = new EesDataSource
+                    {
+                        Provider = sp.GetRequiredService<IDatabaseProvider>(),
+                        ConnectionString = ConnString,
+                    };
+                    return new NexaOne.SLS.Module(dataSource, new BusinessMasterDirectory(dataSource),
+                        new SalesOrderShipmentIntake());
+                });
+                services.AddSingleton<ISalesRequestBridge>(sp =>
+                    sp.GetRequiredService<NexaOne.SLS.Module>().GetSalesRequestBridge());
+                services.AddSingleton<ISalesOrderDeliveryBridge>(sp =>
+                    sp.GetRequiredService<NexaOne.SLS.Module>().GetSalesOrderDeliveryBridge());
+            });
         }
 
         protected override void Dispose(bool disposing)

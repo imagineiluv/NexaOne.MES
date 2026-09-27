@@ -10,6 +10,7 @@ namespace NexaOne.SHP;
 public sealed class Module
 {
     private readonly IShipmentBridge _shipmentBridge;
+    private readonly ISalesOrderShipmentIntake _salesOrderShipmentIntake;
 
     public Module(EesDataSource dataSource, IConfiguration configuration)
     {
@@ -19,7 +20,9 @@ public sealed class Module
             new DeliveryOrderRepository(dataSource, configuration),
             new DeliveryItemRepository(dataSource),
             new ShipmentHistoryRepository(dataSource)));
+        _salesOrderShipmentIntake = new SalesOrderShipmentIntake();
     }
 
     public IShipmentBridge GetShipmentBridge() => _shipmentBridge;
+    public ISalesOrderShipmentIntake GetSalesOrderShipmentIntake() => _salesOrderShipmentIntake;
 }

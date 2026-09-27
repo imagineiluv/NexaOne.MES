@@ -8,5 +8,6 @@
     <constructor-arg ref="appConfiguration" />
   </object>
   <object id="shipmentBridge" factory-object="shpModule" factory-method="GetShipmentBridge" />
+  <object id="salesOrderShipmentIntake" factory-object="shpModule" factory-method="GetSalesOrderShipmentIntake" />
 
 </objects>

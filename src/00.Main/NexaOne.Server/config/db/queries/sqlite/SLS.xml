@@ -7,7 +7,8 @@
     <query id="SLS.SalesOrderList" requiredPermission="sls:read">
         <statement><![CDATA[
             SELECT SALES_ORDER_ID, PLANT_ID, SALES_ORDER_NAME, CUSTOMER_ID, PRODUCT_ID,
-                   PLAN_START_DATE, PLAN_END_DATE, PLAN_QTY, DELIVERED_QTY, OWNER_ID, STATUS, IS_HOLD
+                   PLAN_START_DATE, PLAN_END_DATE, PLAN_QTY, DELIVERED_QTY, DELIVERY_ORDER_ID,
+                   OWNER_ID, STATUS, IS_HOLD
             FROM SLS_SALES_ORDER
             WHERE (@plantId IS NULL OR PLANT_ID = @plantId)
               AND (@status IS NULL OR STATUS = @status)

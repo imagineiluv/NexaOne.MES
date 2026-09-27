@@ -14,6 +14,7 @@ using NexaOne.Common.Security;
 using NexaOne.Server;
 using NexaOne.ServiceContracts;
 using NexaOne.ServiceContracts.Pom;
+using NexaOne.ServiceContracts.Sls;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -35,6 +36,70 @@ public sealed class HostModulesBootSmokeTests
 {
     private readonly ITestOutputHelper _o;
     public HostModulesBootSmokeTests(ITestOutputHelper o) => _o = o;
+
+    [Fact]
+    public async Task Sls_delivery_request_reaches_shp_writer_through_sibling_module_proxy()
+    {
+        using var host = await HostProcess.StartAsync(_o, springConfig: null, expectListening: true);
+        host.Listening.Should().BeTrue($"modules-ON host must listen — log:\n{host.Log}");
+
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+        var plant = $"P_{suffix}";
+        var customer = $"C_{suffix}";
+        var product = $"I_{suffix}";
+        var salesOrder = $"SO_{suffix}";
+        var deliveryOrder = $"DO_{suffix}";
+        var deliveryItem = $"DI_{suffix}";
+        await using var connection = new SqliteConnection($"Data Source={host.DatabasePath};Foreign Keys=False");
+        await connection.OpenAsync();
+        await using (var seed = connection.CreateCommand())
+        {
+            seed.CommandText = """
+                INSERT INTO MDM_PLANT (PLANT_ID, PLANT_NAME) VALUES (@plant, @plant);
+                INSERT INTO MDM_CUSTOMER (CUSTOMER_ID, CUSTOMER_NAME, IS_ACTIVE)
+                    VALUES (@customer, @customer, 1);
+                INSERT INTO MDM_PRODUCT (PRODUCT_ID, PRODUCT_NAME, PRODUCT_TYPE, UNIT, VALID_STATE)
+                    VALUES (@product, @product, 'FinishedGoods', 'EA', 'Valid');
+                INSERT INTO SLS_SALES_ORDER
+                    (SALES_ORDER_ID, PLANT_ID, CUSTOMER_ID, PRODUCT_ID, PLAN_END_DATE, PLAN_QTY, STATUS)
+                    VALUES (@salesOrder, @plant, @customer, @product, '2040-09-30', 12.5, 'Draft');
+                """;
+            seed.Parameters.AddWithValue("@plant", plant);
+            seed.Parameters.AddWithValue("@customer", customer);
+            seed.Parameters.AddWithValue("@product", product);
+            seed.Parameters.AddWithValue("@salesOrder", salesOrder);
+            await seed.ExecuteNonQueryAsync();
+        }
+
+        using var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{host.Port}") };
+        http.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer", HostProcess.MintToken(Permissions.SlsManage));
+        var url = $"/api/v1/sls/sales-orders/{salesOrder}/delivery-request";
+        var response = await http.PostAsJsonAsync(url, new
+        {
+            deliveryOrderId = deliveryOrder,
+            deliveryItemId = deliveryItem,
+        });
+        response.StatusCode.Should().Be(HttpStatusCode.OK, $"sibling proxy must forward the transaction — log:\n{host.Log}");
+        (await response.Content.ReadFromJsonAsync<SalesOrderDeliveryState>())
+            .Should().Be(new SalesOrderDeliveryState(salesOrder, deliveryOrder, "Confirmed"));
+
+        await using var check = connection.CreateCommand();
+        check.CommandText = """
+            SELECT COUNT(1) FROM SLS_SALES_ORDER AS s
+              JOIN SHP_DELIVERY_ORDER AS d ON d.ORDER_ID = s.DELIVERY_ORDER_ID
+              JOIN SHP_DELIVERY_ITEM AS i ON i.DELIVERY_ORDER_ID = d.ORDER_ID
+             WHERE s.SALES_ORDER_ID = @salesOrder AND s.STATUS = 'Confirmed'
+               AND d.ORDER_ID = @deliveryOrder AND d.STATUS = 'Draft'
+               AND i.ITEM_ID = @deliveryItem AND i.PRODUCT_ID = @product AND i.PLANNED_QTY = 12.5
+            """;
+        check.Parameters.AddWithValue("@salesOrder", salesOrder);
+        check.Parameters.AddWithValue("@deliveryOrder", deliveryOrder);
+        check.Parameters.AddWithValue("@deliveryItem", deliveryItem);
+        check.Parameters.AddWithValue("@product", product);
+        Convert.ToInt32(await check.ExecuteScalarAsync()).Should().Be(1);
+    }
 
     [Fact]
     public async Task Host_boots_all_fifteen_modules_workers_and_bridges_in_one_process()
