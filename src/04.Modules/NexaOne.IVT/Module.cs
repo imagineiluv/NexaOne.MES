@@ -25,6 +25,7 @@ public sealed class Module
     private readonly StockBridge _stockBridge;
     private readonly IStockBillingDirectory _stockBillingDirectory;
     private readonly IMaterialLotBridge _materialLotBridge;
+    private readonly IMaterialLotSplitBridge _materialLotSplitBridge;
     private readonly ITraceMaterialBridge _traceMaterialBridge;
     private readonly IMaterialLotDirectory _materialLotDirectory;
     private readonly IMrpInventoryDirectory _mrpInventoryDirectory;
@@ -68,6 +69,8 @@ public sealed class Module
         _stockMasterExportWorker = new StockMasterExportWorker(_stockBridge, configuration);
         _materialLotBridge = new MaterialLotBridge(
             new MaterialLotService(materialLotRepository));
+        _materialLotSplitBridge = new MaterialLotSplitService(
+            new MaterialLotSplitRepository(dataSource));
         _traceMaterialBridge = new TraceMaterialBridge(
             new TraceBindingService(
                 new TraceBindingRepository(dataSource),
@@ -105,6 +108,9 @@ public sealed class Module
 
     /// <summary>자재 LOT 수명주기 bridge의 모듈 singleton을 반환합니다.</summary>
     public IMaterialLotBridge GetMaterialLotBridge() => _materialLotBridge;
+
+    /// <summary>원자적 자재 LOT 분할과 계보 기록 bridge를 반환합니다.</summary>
+    public IMaterialLotSplitBridge GetMaterialLotSplitBridge() => _materialLotSplitBridge;
 
     /// <summary>TRACE binding 및 자재 장착 세션 bridge의 모듈 singleton을 반환합니다.</summary>
     public ITraceMaterialBridge GetTraceMaterialBridge() => _traceMaterialBridge;

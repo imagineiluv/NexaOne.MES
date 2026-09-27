@@ -12,6 +12,67 @@ namespace NexaOne.ServerTests;
 public sealed class MssqlPrcCommandGuardContractTests(ITestOutputHelper output)
 {
     [Fact]
+    public async Task Module_cancel_is_guarded_and_removes_outstanding_receipts()
+    {
+        var database = await MssqlContractDatabase.TryCreateAsync(output);
+        if (database is null) return;
+
+        var module = new NexaOne.PRC.Module(database.DataSource,
+            new BusinessMasterDirectory(database.DataSource));
+        var commands = module.GetPurchaseOrderCommandBridge();
+        var planning = module.GetPurchaseOrderPlanningBridge();
+        var id = $"PRCC_{Guid.NewGuid():N}";
+        var productId = $"PRCC_PRODUCT_{Guid.NewGuid():N}";
+        (await commands.SaveDraftAsync(new PurchaseOrderDraftCommand(
+            id, "PLANT01", "cancellable", "V1", 10m, "prc-contract"))).IsSuccess.Should().BeTrue();
+        await database.ExecuteAsync("""
+            INSERT INTO PRC_PURCHASE_ITEM (PURCHASE_ORDER_ID, PRODUCT_ID, ORDER_QTY)
+            VALUES (@id, @productId, 10)
+            """, new { id, productId });
+        (await commands.OrderAsync(id, "prc-contract")).Value.Status.Should().Be("Ordered");
+        (await planning.GetScheduledReceiptsAsync()).Should()
+            .ContainSingle(receipt => receipt.ProductId == productId && receipt.Quantity == 10m);
+
+        await database.ExecuteAsync(
+            "UPDATE PRC_PURCHASE_ORDER SET IS_HOLD='Y' WHERE PURCHASE_ORDER_ID=@id", new { id });
+        (await commands.CancelAsync(id, "prc-contract")).Value.Status.Should().Be("Cancelled");
+        (await database.ScalarAsync<string>(
+            "SELECT STATUS FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id }))
+            .Should().Be("Cancelled");
+        (await database.ScalarAsync<string>(
+            "SELECT IS_HOLD FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id }))
+            .Should().Be("N");
+        (await database.ScalarAsync<string>(
+            "SELECT UPDATED_BY FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id }))
+            .Should().Be("prc-contract");
+        (await planning.GetScheduledReceiptsAsync()).Should()
+            .NotContain(receipt => receipt.ProductId == productId);
+        (await commands.CancelAsync(id, "prc-contract")).Error.Code
+            .Should().Be("PRC_ORDER_TRANSITION_CONFLICT");
+
+        var receivedId = $"PRCC_{Guid.NewGuid():N}";
+        (await commands.SaveDraftAsync(new PurchaseOrderDraftCommand(
+            receivedId, "PLANT01", "received", "V1", 10m, "prc-contract"))).IsSuccess.Should().BeTrue();
+        await database.ExecuteAsync("""
+            INSERT INTO PRC_PURCHASE_ITEM (PURCHASE_ORDER_ID, PRODUCT_ID, ORDER_QTY, INCOMING_QTY)
+            VALUES (@id, @productId, 10, 1)
+            """, new { id = receivedId, productId });
+        (await commands.CancelAsync(receivedId, "prc-contract")).Error.Code
+            .Should().Be("PRC_ORDER_TRANSITION_CONFLICT");
+        (await database.ScalarAsync<string>(
+            "SELECT STATUS FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id",
+            new { id = receivedId })).Should().Be("Draft");
+        await database.ExecuteAsync(
+            "UPDATE PRC_PURCHASE_ORDER SET STATUS='Ordered' WHERE PURCHASE_ORDER_ID=@id",
+            new { id = receivedId });
+        (await commands.CancelAsync(receivedId, "prc-contract")).Error.Code
+            .Should().Be("PRC_ORDER_TRANSITION_CONFLICT");
+        (await database.ScalarAsync<string>(
+            "SELECT STATUS FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id",
+            new { id = receivedId })).Should().Be("Ordered");
+    }
+
+    [Fact]
     public async Task Module_purchase_commands_preserve_ordered_and_held_rows()
     {
         var database = await MssqlContractDatabase.TryCreateAsync(output);

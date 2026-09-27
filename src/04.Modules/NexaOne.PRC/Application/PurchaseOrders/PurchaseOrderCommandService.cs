@@ -56,6 +56,10 @@ internal sealed class PurchaseOrderCommandService(IPurchaseOrderCommandStore sto
         string? purchaseOrderId, string? actorId, CancellationToken ct = default) =>
         ChangeAsync(purchaseOrderId, actorId, "Ordered", store.TryOrderAsync, ct);
 
+    public Task<Result<PurchaseOrderCommandState>> CancelAsync(
+        string? purchaseOrderId, string? actorId, CancellationToken ct = default) =>
+        ChangeAsync(purchaseOrderId, actorId, "Cancelled", store.TryCancelAsync, ct);
+
     public Task<Result<PurchaseOrderCommandState>> CloseAsync(
         string? purchaseOrderId, string? actorId, CancellationToken ct = default) =>
         ChangeAsync(purchaseOrderId, actorId, "Closed", store.TryCloseAsync, ct);

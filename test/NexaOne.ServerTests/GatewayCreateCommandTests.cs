@@ -57,6 +57,16 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
                     return new NexaOne.PRC.Module(dataSource,
                         new BusinessMasterDirectory(dataSource)).GetPurchaseOrderCommandBridge();
                 });
+                services.AddSingleton<IPurchaseOrderHoldBridge>(sp =>
+                {
+                    var dataSource = new EesDataSource
+                    {
+                        Provider = sp.GetRequiredService<IDatabaseProvider>(),
+                        ConnectionString = ConnString,
+                    };
+                    return new NexaOne.PRC.Module(dataSource,
+                        new BusinessMasterDirectory(dataSource)).GetPurchaseOrderHoldBridge();
+                });
             });
         }
         protected override void Dispose(bool disposing)
@@ -334,6 +344,91 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
             new { purchaseOrderId = poId })).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await client.PostAsJsonAsync("/api/v1/command/PRC.DeletePurchaseOrder",
             new { purchaseOrderId = poId })).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Purchase_order_cancel_is_terminal_and_excludes_the_scheduled_receipt()
+    {
+        var client = AuthedClient("prc-canceller", "prc:manage");
+        var draftId = $"PO_{Suffix()}";
+        var orderedId = $"PO_{Suffix()}";
+        var productId = $"CANCEL_PRODUCT_{Suffix()}";
+        async Task Save(string id) => (await client.PostAsJsonAsync("/api/v1/prc/purchase-orders", new
+        {
+            purchaseOrderId = id, plantId = "PLANT01", orderQuantity = 10m,
+        })).StatusCode.Should().Be(HttpStatusCode.OK);
+        async Task<HttpStatusCode> Cancel(string id) =>
+            (await client.PostAsync($"/api/v1/prc/purchase-orders/{id}/cancel", null)).StatusCode;
+
+        (await Cancel("NOT_FOUND")).Should().Be(HttpStatusCode.NotFound);
+        (await Cancel(new string('x', 51))).Should().Be(HttpStatusCode.BadRequest);
+        (await _factory.CreateClient().PostAsync($"/api/v1/prc/purchase-orders/{draftId}/cancel", null))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await AuthedClient("reader", "prc:read")
+            .PostAsync($"/api/v1/prc/purchase-orders/{draftId}/cancel", null))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        await Save(draftId);
+        using (var connection = new SqliteConnection(_factory.ConnString))
+        {
+            connection.Open();
+            connection.Execute("UPDATE PRC_PURCHASE_ORDER SET IS_HOLD='Y' WHERE PURCHASE_ORDER_ID=@id",
+                new { id = draftId }).Should().Be(1);
+        }
+        (await Cancel(draftId)).Should().Be(HttpStatusCode.OK,
+            "legacy cancellation allows a held Draft order");
+        using (var connection = new SqliteConnection(_factory.ConnString))
+        {
+            connection.Open();
+            var row = connection.QuerySingle<(string Status, string IsHold, string UpdatedBy)>(
+                "SELECT STATUS AS Status, IS_HOLD AS IsHold, UPDATED_BY AS UpdatedBy " +
+                "FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id = draftId });
+            row.Should().Be(("Cancelled", "N", "prc-canceller"));
+        }
+        (await Cancel(draftId)).Should().Be(HttpStatusCode.Conflict);
+        (await client.DeleteAsync($"/api/v1/prc/purchase-orders/{draftId}"))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{draftId}/order", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{draftId}/close", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{draftId}/hold", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{draftId}/release", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await client.PostAsJsonAsync("/api/v1/prc/purchase-orders", new
+        {
+            purchaseOrderId = draftId, plantId = "PLANT01", orderQuantity = 20m,
+        })).StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        await Save(orderedId);
+        SeedPurchaseItem(orderedId, productId, 10);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{orderedId}/order", null))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        var source = new EesDataSource
+        {
+            Provider = _factory.Services.GetRequiredService<IDatabaseProvider>(),
+            ConnectionString = _factory.ConnString,
+        };
+        var planning = new NexaOne.PRC.Module(source,
+            new BusinessMasterDirectory(source)).GetPurchaseOrderPlanningBridge();
+        (await planning.GetScheduledReceiptsAsync()).Should()
+            .ContainSingle(receipt => receipt.ProductId == productId && receipt.Quantity == 10m);
+        (await Cancel(orderedId)).Should().Be(HttpStatusCode.OK);
+        (await planning.GetScheduledReceiptsAsync()).Should()
+            .NotContain(receipt => receipt.ProductId == productId);
+
+        var receivedId = $"PO_{Suffix()}";
+        await Save(receivedId);
+        SeedPurchaseItem(receivedId);
+        SetIncomingQuantity(receivedId, "TEST-PRODUCT", 1);
+        (await Cancel(receivedId)).Should().Be(HttpStatusCode.Conflict,
+            "a received line cannot be cancelled even if the header is still Draft");
+        SetPurchaseStatus(receivedId, "Draft", "Ordered");
+        (await Cancel(receivedId)).Should().Be(HttpStatusCode.Conflict,
+            "a received line cannot be cancelled even if the header is still Ordered");
+        SetPurchaseStatus(receivedId, "Ordered", "Incoming");
+        (await Cancel(receivedId)).Should().Be(HttpStatusCode.Conflict);
     }
 
     [Fact]

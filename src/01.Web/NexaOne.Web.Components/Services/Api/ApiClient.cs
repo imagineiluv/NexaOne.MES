@@ -679,7 +679,7 @@ public sealed class ApiClient : IApiClient
         string action, string purchaseOrderId, CancellationToken ct = default)
     {
         var normalized = action?.Trim().ToLowerInvariant();
-        if (normalized is not ("delete" or "order" or "close") || string.IsNullOrWhiteSpace(purchaseOrderId))
+        if (normalized is not ("delete" or "order" or "cancel" or "close") || string.IsNullOrWhiteSpace(purchaseOrderId))
             return new(false, "지원하지 않는 발주 명령 또는 비어 있는 발주 ID입니다.", 400);
 
         var id = Uri.EscapeDataString(purchaseOrderId.Trim());
@@ -689,7 +689,13 @@ public sealed class ApiClient : IApiClient
             : $"api/v1/prc/purchase-orders/{id}/{normalized}";
         using var response = await SendAsync(method, path, null, ct, surfaceErrors: false);
         return await PurchaseOrderResultAsync(response, purchaseOrderId,
-            normalized == "delete" ? null : normalized == "order" ? "Ordered" : "Closed", ct);
+            normalized switch
+            {
+                "delete" => null,
+                "order" => "Ordered",
+                "cancel" => "Cancelled",
+                _ => "Closed",
+            }, ct);
     }
 
     private async Task<PrcPurchaseOrderActionResult> PurchaseOrderResultAsync(
