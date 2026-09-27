@@ -177,6 +177,21 @@ public sealed class ScreenDefinitionProviderTests
         definition.SearchFields.Should().Contain(field => field.Key == "status");
     }
 
+    [Fact]
+    public void Purchase_order_management_routes_status_transitions_through_prc_bridge()
+    {
+        var definition = new InMemoryScreenDefinitionProvider().Get("FACTORY_PRC_PURCHASE_ORDER");
+
+        definition.Should().NotBeNull();
+        definition!.SaveQueryId.Should().Be(PrcPurchaseOrderMetaCommands.Save);
+        definition.DeleteQueryId.Should().Be(PrcPurchaseOrderMetaCommands.Delete);
+        definition!.BulkCommands!.Select(command => command.CommandQueryId).Should().Equal(
+            PrcPurchaseOrderMetaCommands.Order, PrcPurchaseOrderMetaCommands.Cancel,
+            PrcPurchaseOrderMetaCommands.Close);
+        definition.BulkCommands!.Single(command => command.CommandQueryId == PrcPurchaseOrderMetaCommands.Cancel)
+            .ConfirmMessage.Should().Contain("취소 후");
+    }
+
     [Theory]
     [InlineData("FACTORY_SLS_SALES_REQUEST", "판매 요청")]
     [InlineData("FACTORY_SLS_REPORT_DELIVERY", "출하 현황")]

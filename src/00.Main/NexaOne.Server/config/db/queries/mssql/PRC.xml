@@ -14,48 +14,4 @@
             ORDER BY ORDER_DATE DESC
         ]]></statement>
     </query>
-    <!-- 구매오더 등록 폼(SaveQueryId) — Draft·비보류 주문만 다시 편집한다. 감사는 서버 주입. -->
-    <query id="PRC.CreatePurchaseOrder" kind="write" requiredPermission="prc:manage">
-        <statement><![CDATA[
-            -- 그리드 표준 편집(upsert) — PK 존재 시 UPDATE(CREATED_*는 최초 등록 정보 보존).
-            MERGE PRC_PURCHASE_ORDER AS t
-            USING (SELECT @purchaseOrderId AS PURCHASE_ORDER_ID) AS s ON t.PURCHASE_ORDER_ID = s.PURCHASE_ORDER_ID
-            WHEN MATCHED AND t.STATUS = 'Draft' AND t.IS_HOLD = 'N' THEN UPDATE SET
-                PLANT_ID = @plantId,
-                PURCHASE_ORDER_NAME = @purchaseOrderName,
-                VENDOR_ID = @vendorId,
-                ORDER_QTY = CASE WHEN EXISTS (
-                    SELECT 1 FROM PRC_PURCHASE_ITEM WHERE PURCHASE_ORDER_ID=t.PURCHASE_ORDER_ID
-                ) THEN (
-                    SELECT SUM(ORDER_QTY) FROM PRC_PURCHASE_ITEM
-                     WHERE PURCHASE_ORDER_ID=t.PURCHASE_ORDER_ID
-                ) ELSE @orderQty END,
-                UPDATED_BY = @currentUser,
-                UPDATED_AT = @utcNow
-            WHEN NOT MATCHED THEN INSERT (PURCHASE_ORDER_ID, PLANT_ID, PURCHASE_ORDER_NAME, VENDOR_ID, ORDER_QTY, CREATED_BY, CREATED_AT, UPDATED_BY, UPDATED_AT)
-                VALUES (@purchaseOrderId, @plantId, @purchaseOrderName, @vendorId, @orderQty, @currentUser, @utcNow, @currentUser, @utcNow);
-        ]]></statement>
-    </query>
-    <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).
-         파라미터는 행 딕셔너리의 camelCase 사본이 자동 매칭. MSSQL판과 동일 ID·동일 의미. -->
-    <query id="PRC.DeletePurchaseOrder" kind="write" requiredPermission="prc:manage">
-        <statement><![CDATA[
-            DELETE FROM PRC_PURCHASE_ORDER
-            WHERE PURCHASE_ORDER_ID = @purchaseOrderId AND STATUS = 'Draft' AND IS_HOLD = 'N'
-        ]]></statement>
-    </query>
-    <!-- 그리드 일괄 명령(kind="write") — BulkCommands가 선택 행마다 호출하는 가드된 상태전이(허용 소스 상태만 UPDATE, 그 외 행은 무영향=affected 0). DDL 주석의 STATUS 도메인이 근거. MSSQL판 동일. -->
-    <query id="PRC.OrderPurchaseOrder" kind="write" requiredPermission="prc:manage">
-        <statement><![CDATA[
-            UPDATE PRC_PURCHASE_ORDER SET STATUS = 'Ordered', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
-            WHERE PURCHASE_ORDER_ID = @purchaseOrderId AND STATUS = 'Draft' AND IS_HOLD = 'N'
-              AND EXISTS (SELECT 1 FROM PRC_PURCHASE_ITEM WHERE PURCHASE_ORDER_ID = @purchaseOrderId)
-        ]]></statement>
-    </query>
-    <query id="PRC.ClosePurchaseOrder" kind="write" requiredPermission="prc:manage">
-        <statement><![CDATA[
-            UPDATE PRC_PURCHASE_ORDER SET STATUS = 'Closed', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
-            WHERE PURCHASE_ORDER_ID = @purchaseOrderId AND STATUS IN ('Ordered', 'Incoming') AND IS_HOLD = 'N'
-        ]]></statement>
-    </query>
 </queries>

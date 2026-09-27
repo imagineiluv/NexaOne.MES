@@ -19,7 +19,7 @@ public sealed class PrcPurchaseOrderItemsTests
         var definition = new ScreenDefinition("FACTORY_PRC_PURCHASE_ORDER", "구매오더 관리",
             new FieldDefinition[] { new("purchaseOrderId", "발주 ID", Required: true) },
             new GridColumnDefinition[] { new("PURCHASE_ORDER_ID", "발주 ID") },
-            QueryId: "PRC.PurchaseOrderList", SaveQueryId: "PRC.CreatePurchaseOrder",
+            QueryId: "PRC.PurchaseOrderList", SaveQueryId: PrcPurchaseOrderMetaCommands.Save,
             Purpose: ScreenPurpose.Manage);
         var provider = new Mock<IScreenDefinitionProvider>();
         provider.Setup(item => item.GetAsync(definition.UiId, It.IsAny<CancellationToken>()))

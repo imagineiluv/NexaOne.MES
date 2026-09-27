@@ -47,6 +47,7 @@ public sealed class IvtCompositionBoundaryTests
             ["stockBillingDirectory"] = "GetStockBillingDirectory",
             ["stockMasterExportWorker"] = "GetStockMasterExportWorker",
             ["materialLotBridge"] = "GetMaterialLotBridge",
+            ["materialLotSplitBridge"] = "GetMaterialLotSplitBridge",
             ["traceMaterialBridge"] = "GetTraceMaterialBridge",
             ["materialLotDirectory"] = "GetMaterialLotDirectory",
             ["mrpInventoryDirectory"] = "GetMrpInventoryDirectory",

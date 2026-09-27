@@ -68,6 +68,12 @@ public interface IApiClient
     Task<SlsSalesOrderActionResult> ExecuteSlsSalesOrderActionAsync(
         string action, string salesOrderId, CancellationToken ct = default);
 
+    // PRC 발주·취소·마감 전이는 JWT 권한과 PRC 모듈의 상태 가드를 거친다.
+    Task<PrcPurchaseOrderActionResult> SavePrcPurchaseOrderDraftAsync(
+        PrcPurchaseOrderDraftRequest request, CancellationToken ct = default);
+    Task<PrcPurchaseOrderActionResult> ExecutePrcPurchaseOrderActionAsync(
+        string action, string purchaseOrderId, CancellationToken ct = default);
+
     // Auth
     /// <summary>유효한 액세스 토큰 반환 — 만료(임박) 시 갱신 후 공급한다. SignalR 재연결 협상용 (§20.9).</summary>
     Task<string?> GetValidAccessTokenAsync(CancellationToken ct = default);

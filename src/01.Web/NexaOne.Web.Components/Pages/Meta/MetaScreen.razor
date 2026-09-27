@@ -1074,7 +1074,11 @@ else
                     if (result.Success) bridgeApplied++;
                     else AddMetaCommandError(result);
                 }
-                if (bridgeApplied > 0) await ReloadDataAsync();
+                if (bridgeApplied > 0)
+                {
+                    if (_definition?.UiId == "FACTORY_PRC_PURCHASE_ORDER") ClearPrcSelection();
+                    await ReloadDataAsync();
+                }
                 return;
             }
 
@@ -1308,8 +1312,8 @@ else
         _fieldErrors = Validate();
         if (_fieldErrors.Count > 0) return;
 
-        // SaveQueryId(명명 쓰기쿼리)가 바인딩돼 있으면 폼 값(필드 Key→값)을 command 게이트웨이로 보내 저장한다.
-        // 감사 컬럼(@currentUser/@utcNow)은 서버 게이트웨이가 토큰·UTC로 주입하므로 폼이 보낼 필요가 없다.
+        // 폼 값은 SaveQueryId가 가리키는 명명 쿼리 또는 typed bridge 명령으로 전송한다.
+        // 실행자와 감사값은 해당 서버 경계가 JWT·UTC에서 결정한다.
         if (string.IsNullOrWhiteSpace(_definition?.SaveQueryId))
         {
             _errors.Add(T("common.noSaveQuery", "이 화면에는 저장(쓰기) 쿼리가 바인딩돼 있지 않습니다."));

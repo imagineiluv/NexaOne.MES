@@ -48,6 +48,79 @@ public sealed class ApiClientCommandResultTests
     }
 
     [Fact]
+    public async Task Prc_draft_client_uses_owned_endpoint_and_accepts_no_content_delete()
+    {
+        var paths = new List<(HttpMethod Method, string Path)>();
+        var client = CreateClient(new CaptureHandler(request =>
+        {
+            paths.Add((request.Method, request.RequestUri!.AbsolutePath));
+            return request.Method == HttpMethod.Delete
+                ? new HttpResponseMessage(HttpStatusCode.NoContent)
+                : new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = JsonContent.Create(new PrcPurchaseOrderStateDto("PO-1", "Draft")),
+                };
+        }));
+
+        var saved = await client.SavePrcPurchaseOrderDraftAsync(new PrcPurchaseOrderDraftRequest(
+            "PO-1", "PLANT01", "발주", null, 1m));
+        var deleted = await client.ExecutePrcPurchaseOrderActionAsync("delete", "PO-1");
+
+        saved.Success.Should().BeTrue();
+        deleted.Success.Should().BeTrue();
+        deleted.StatusCode.Should().Be(204);
+        paths.Should().Equal(
+            (HttpMethod.Post, "/api/v1/prc/purchase-orders"),
+            (HttpMethod.Delete, "/api/v1/prc/purchase-orders/PO-1"));
+    }
+
+    [Fact]
+    public async Task Prc_draft_client_preserves_server_conflict_reason()
+    {
+        var client = CreateClient(new CaptureHandler(_ => new HttpResponseMessage(HttpStatusCode.Conflict)
+        {
+            Content = JsonContent.Create(new
+            {
+                code = "PRC_ORDER_NOT_EDITABLE",
+                description = "미보류 Draft 발주만 편집할 수 있습니다.",
+            }),
+        }));
+
+        var result = await client.SavePrcPurchaseOrderDraftAsync(new PrcPurchaseOrderDraftRequest(
+            "PO-1", "PLANT01", "발주", null, 1m));
+
+        result.Success.Should().BeFalse();
+        result.StatusCode.Should().Be(409);
+        result.Error.Should().Be("미보류 Draft 발주만 편집할 수 있습니다.");
+    }
+
+    [Fact]
+    public async Task Prc_cancel_client_uses_the_owned_endpoint_and_checks_terminal_status()
+    {
+        var paths = new List<(HttpMethod Method, string Path)>();
+        var client = CreateClient(new CaptureHandler(request =>
+        {
+            paths.Add((request.Method, request.RequestUri!.AbsolutePath));
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new PrcPurchaseOrderStateDto("PO-1", "Cancelled")),
+            };
+        }));
+
+        var result = await client.ExecutePrcPurchaseOrderActionAsync("cancel", "PO-1");
+
+        result.Success.Should().BeTrue();
+        paths.Should().Equal((HttpMethod.Post, "/api/v1/prc/purchase-orders/PO-1/cancel"));
+
+        var mismatchedClient = CreateClient(new CaptureHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new PrcPurchaseOrderStateDto("PO-1", "Ordered")),
+        }));
+        (await mismatchedClient.ExecutePrcPurchaseOrderActionAsync("cancel", "PO-1"))
+            .Success.Should().BeFalse("a successful HTTP response must confirm the terminal state");
+    }
+
+    [Fact]
     public async Task Qms_v2_request_transmits_idempotency_header_and_preserves_conflict_details()
     {
         HttpRequestMessage? captured = null;

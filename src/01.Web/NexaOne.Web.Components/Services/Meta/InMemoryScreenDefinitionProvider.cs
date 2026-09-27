@@ -1266,11 +1266,15 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
                 new("purchaseOrderName", "발주명"), new("vendorId", "거래처"),
                 new("orderQty", "발주수량", FieldType.Number, Required: true),
             },
-            prcOrderCols, QueryId: "PRC.PurchaseOrderList", SaveQueryId: "PRC.CreatePurchaseOrder", DeleteQueryId: "PRC.DeletePurchaseOrder",
+            prcOrderCols, QueryId: "PRC.PurchaseOrderList",
+            SaveQueryId: PrcPurchaseOrderMetaCommands.Save,
+            DeleteQueryId: PrcPurchaseOrderMetaCommands.Delete,
             BulkCommands: new BulkCommandDefinition[]
             {
-                new("발주", "PRC.OrderPurchaseOrder"),  // 품목 1건 이상·미보류 Draft→Ordered
-                new("마감", "PRC.ClosePurchaseOrder"),  // Ordered/Incoming→Closed(가드)
+                new("발주", PrcPurchaseOrderMetaCommands.Order),  // 품목 1건 이상·미보류 Draft→Ordered
+                new("발주취소", PrcPurchaseOrderMetaCommands.Cancel,
+                    "선택한 발주를 취소하시겠습니까? 취소 후 다시 발주할 수 없습니다."),
+                new("마감", PrcPurchaseOrderMetaCommands.Close),  // 미보류 Incoming·전 품목 입고 완료→Closed
             }));
         Register(new ScreenDefinition("FACTORY_PRC_REPORT_PURCHASEORDER", "구매오더 현황",
             Array.Empty<FieldDefinition>(), prcOrderCols, QueryId: "PRC.PurchaseOrderList", Purpose: ScreenPurpose.Report));

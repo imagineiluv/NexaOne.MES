@@ -23,7 +23,7 @@ public sealed class NexaOneMesBridgeCatalogTests
         var first = NexaOneMesBridgeCatalog.Create();
         var second = NexaOneMesBridgeCatalog.Create();
 
-        first.Descriptors.Should().HaveCount(78);
+        first.Descriptors.Should().HaveCount(80);
         first.Descriptors.Should().Equal(second.Descriptors);
         first.Descriptors.Should().OnlyContain(descriptor =>
             descriptor.ContractType.IsInterface
@@ -58,12 +58,18 @@ public sealed class NexaOneMesBridgeCatalogTests
         catalog.TryGet(typeof(IPurchaseOrderHoldBridge), out var purchaseHold).Should().BeTrue();
         purchaseHold.Should().Be(new NexaModuleBridgeDescriptor(
             typeof(IPurchaseOrderHoldBridge), "Prc", "purchaseOrderHoldBridge"));
+        catalog.TryGet(typeof(IPurchaseOrderCommandBridge), out var purchaseCommand).Should().BeTrue();
+        purchaseCommand.Should().Be(new NexaModuleBridgeDescriptor(
+            typeof(IPurchaseOrderCommandBridge), "Prc", "purchaseOrderCommandBridge"));
         catalog.TryGet(typeof(IOeeProductionDirectory), out var production).Should().BeTrue();
         production.Should().Be(new NexaModuleBridgeDescriptor(
             typeof(IOeeProductionDirectory), "Pom", "oeeProductionDirectory"));
         catalog.TryGet(typeof(ITraceMaterialBridge), out var traceMaterial).Should().BeTrue();
         traceMaterial.Should().Be(new NexaModuleBridgeDescriptor(
             typeof(ITraceMaterialBridge), "Ivt", "traceMaterialBridge"));
+        catalog.TryGet(typeof(IMaterialLotSplitBridge), out var materialLotSplit).Should().BeTrue();
+        materialLotSplit.Should().Be(new NexaModuleBridgeDescriptor(
+            typeof(IMaterialLotSplitBridge), "Ivt", "materialLotSplitBridge"));
         catalog.TryGet(typeof(IStockBridge), out var stock).Should().BeTrue();
         stock.Should().Be(new NexaModuleBridgeDescriptor(typeof(IStockBridge), "Ivt", "stockBridge"));
         catalog.TryGet(typeof(IStockBillingDirectory), out var stockBilling).Should().BeTrue();

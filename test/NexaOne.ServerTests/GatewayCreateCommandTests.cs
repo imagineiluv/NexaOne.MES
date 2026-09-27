@@ -2,14 +2,18 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
+using Dapper;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using NexaDB.Data.Abstractions.Interfaces;
 using NexaOne.Infrastructure.Persistence;
+using NexaOne.MDM.Infrastructure;
+using NexaOne.ServiceContracts.Prc;
 using NexaOne.Server.Gateway;
 using NexaOne.SYS.Infrastructure;
 using System.IdentityModel.Tokens.Jwt;
@@ -41,6 +45,29 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
             builder.UseSetting("Jwt:SecretKey", Secret);
             builder.UseSetting("Jwt:Issuer", Issuer);
             builder.UseSetting("Jwt:Audience", Issuer);
+            builder.ConfigureTestServices(services =>
+            {
+                services.AddSingleton<IPurchaseOrderCommandBridge>(sp =>
+                {
+                    var dataSource = new EesDataSource
+                    {
+                        Provider = sp.GetRequiredService<IDatabaseProvider>(),
+                        ConnectionString = ConnString,
+                    };
+                    return new NexaOne.PRC.Module(dataSource,
+                        new BusinessMasterDirectory(dataSource)).GetPurchaseOrderCommandBridge();
+                });
+                services.AddSingleton<IPurchaseOrderHoldBridge>(sp =>
+                {
+                    var dataSource = new EesDataSource
+                    {
+                        Provider = sp.GetRequiredService<IDatabaseProvider>(),
+                        ConnectionString = ConnString,
+                    };
+                    return new NexaOne.PRC.Module(dataSource,
+                        new BusinessMasterDirectory(dataSource)).GetPurchaseOrderHoldBridge();
+                });
+            });
         }
         protected override void Dispose(bool disposing)
         {
@@ -241,51 +268,167 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
     }
 
     [Fact]
-    public async Task Bulk_transition_commands_are_state_guarded()
+    public async Task Purchase_order_api_transitions_are_state_guarded()
     {
-        // 그리드 일괄 명령 — 가드된 전이: 허용 소스 상태만 UPDATE, 그 외는 무영향(affected 0이어도 200).
+        // PRC 모듈이 상태 가드를 집행하고, 불허 상태는 409로 보고한다.
         var poId = $"PO_{Suffix()}";
         var client = AuthedClient("bulk-prc", "prc:manage");
-        (await client.PostAsJsonAsync("/api/v1/command/PRC.CreatePurchaseOrder", new Dictionary<string, object>
+        (await client.PostAsJsonAsync("/api/v1/prc/purchase-orders", new Dictionary<string, object>
         {
             ["purchaseOrderId"] = poId, ["plantId"] = "PLANT01", ["purchaseOrderName"] = "일괄 전이 검증",
-            ["vendorId"] = "V1", ["orderQty"] = 10,
+            ["vendorId"] = "V1", ["orderQuantity"] = 10,
         })).StatusCode.Should().Be(HttpStatusCode.OK);
 
         async Task<string> StatusOf() =>
             (await Query("PRC.PurchaseOrderList", new()))
                 .Single(r => r["PURCHASE_ORDER_ID"].ToString() == poId)["STATUS"]!.ToString()!;
+        async Task<HttpStatusCode> Close()
+        {
+            var response = await client.PostAsync($"/api/v1/prc/purchase-orders/{poId}/close", null);
+            return response.StatusCode;
+        }
 
         (await StatusOf()).Should().Be("Draft", "생성 기본 상태(DDL DEFAULT)");
 
-        // Draft 상태에서 '마감' 시도 → 가드 미충족(Ordered/Incoming 아님) — 200이지만 상태 불변.
-        (await client.PostAsJsonAsync("/api/v1/command/PRC.ClosePurchaseOrder",
-            new Dictionary<string, object> { ["purchaseOrderId"] = poId }))
-            .StatusCode.Should().Be(HttpStatusCode.OK);
+        // Draft 상태에서는 마감 불가.
+        (await Close()).Should().Be(HttpStatusCode.Conflict);
         (await StatusOf()).Should().Be("Draft", "가드된 전이는 소스 상태 밖 행을 건드리지 않는다");
 
+        SetPurchaseStatus(poId, "Draft", "Incoming");
+        (await Close()).Should().Be(HttpStatusCode.Conflict, "품목이 없는 비정상 Incoming 행도 마감할 수 없다");
+        SetPurchaseStatus(poId, "Incoming", "Draft");
+
         // 레거시 확정과 같이 품목이 없는 발주는 Draft를 벗어나지 못한다.
-        var emptyOrder = await client.PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
-            new Dictionary<string, object> { ["purchaseOrderId"] = poId });
-        (await emptyOrder.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected.Should().Be(0);
+        var emptyOrder = await client.PostAsync($"/api/v1/prc/purchase-orders/{poId}/order", null);
+        emptyOrder.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await StatusOf()).Should().Be("Draft");
         SeedPurchaseItem(poId);
+        SeedPurchaseItem(poId, "SECOND-PRODUCT", 5);
 
-        // 발주(Draft→Ordered) → 마감(Ordered→Closed) 순차 전이.
-        (await client.PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
-            new Dictionary<string, object> { ["purchaseOrderId"] = poId }))
+        // 발주(Draft→Ordered)는 입고 완료 전까지 마감할 수 없다.
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{poId}/order", null))
             .StatusCode.Should().Be(HttpStatusCode.OK);
         (await StatusOf()).Should().Be("Ordered");
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{poId}/order", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict, "같은 전이는 다시 적용되지 않는다");
 
-        (await client.PostAsJsonAsync("/api/v1/command/PRC.ClosePurchaseOrder",
-            new Dictionary<string, object> { ["purchaseOrderId"] = poId }))
-            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Close()).Should().Be(HttpStatusCode.Conflict, "Ordered만으로 입고 완료를 뜻하지 않는다");
+        SetPurchaseStatus(poId, "Ordered", "Incoming");
+        SetIncomingQuantity(poId, "TEST-PRODUCT", 5);
+        (await Close()).Should().Be(HttpStatusCode.Conflict, "부분 입고는 마감할 수 없다");
+        SetIncomingQuantity(poId, "TEST-PRODUCT", 10);
+        (await Close()).Should().Be(HttpStatusCode.Conflict, "한 품목이라도 미입고면 마감할 수 없다");
+        SetIncomingQuantity(poId, "SECOND-PRODUCT", 5);
+        (await Close()).Should().Be(HttpStatusCode.OK);
         (await StatusOf()).Should().Be("Closed");
+        (await Close()).Should().Be(HttpStatusCode.Conflict, "이미 마감된 발주는 다시 마감할 수 없다");
+
+        using (var connection = new SqliteConnection(_factory.ConnString))
+        {
+            connection.Open();
+            var actor = connection.ExecuteScalar<string>(
+                "SELECT UPDATED_BY FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id = poId });
+            actor.Should().Be("bulk-prc", "감사 실행자는 요청 본문이 아닌 JWT에서 와야 한다");
+        }
 
         // 무권한 → 403.
-        (await AuthedClient("bulk-noperm").PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
-            new Dictionary<string, object> { ["purchaseOrderId"] = poId }))
+        (await AuthedClient("bulk-noperm").PostAsync($"/api/v1/prc/purchase-orders/{poId}/order", null))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        // Removed named SQL writes must not remain reachable through the generic gateway.
+        (await client.PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
+            new { purchaseOrderId = poId })).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await client.PostAsJsonAsync("/api/v1/command/PRC.ClosePurchaseOrder",
+            new { purchaseOrderId = poId })).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await client.PostAsJsonAsync("/api/v1/command/PRC.CreatePurchaseOrder",
+            new { purchaseOrderId = poId })).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await client.PostAsJsonAsync("/api/v1/command/PRC.DeletePurchaseOrder",
+            new { purchaseOrderId = poId })).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Purchase_order_cancel_is_terminal_and_excludes_the_scheduled_receipt()
+    {
+        var client = AuthedClient("prc-canceller", "prc:manage");
+        var draftId = $"PO_{Suffix()}";
+        var orderedId = $"PO_{Suffix()}";
+        var productId = $"CANCEL_PRODUCT_{Suffix()}";
+        async Task Save(string id) => (await client.PostAsJsonAsync("/api/v1/prc/purchase-orders", new
+        {
+            purchaseOrderId = id, plantId = "PLANT01", orderQuantity = 10m,
+        })).StatusCode.Should().Be(HttpStatusCode.OK);
+        async Task<HttpStatusCode> Cancel(string id) =>
+            (await client.PostAsync($"/api/v1/prc/purchase-orders/{id}/cancel", null)).StatusCode;
+
+        (await Cancel("NOT_FOUND")).Should().Be(HttpStatusCode.NotFound);
+        (await Cancel(new string('x', 51))).Should().Be(HttpStatusCode.BadRequest);
+        (await _factory.CreateClient().PostAsync($"/api/v1/prc/purchase-orders/{draftId}/cancel", null))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await AuthedClient("reader", "prc:read")
+            .PostAsync($"/api/v1/prc/purchase-orders/{draftId}/cancel", null))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        await Save(draftId);
+        using (var connection = new SqliteConnection(_factory.ConnString))
+        {
+            connection.Open();
+            connection.Execute("UPDATE PRC_PURCHASE_ORDER SET IS_HOLD='Y' WHERE PURCHASE_ORDER_ID=@id",
+                new { id = draftId }).Should().Be(1);
+        }
+        (await Cancel(draftId)).Should().Be(HttpStatusCode.OK,
+            "legacy cancellation allows a held Draft order");
+        using (var connection = new SqliteConnection(_factory.ConnString))
+        {
+            connection.Open();
+            var row = connection.QuerySingle<(string Status, string IsHold, string UpdatedBy)>(
+                "SELECT STATUS AS Status, IS_HOLD AS IsHold, UPDATED_BY AS UpdatedBy " +
+                "FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id = draftId });
+            row.Should().Be(("Cancelled", "N", "prc-canceller"));
+        }
+        (await Cancel(draftId)).Should().Be(HttpStatusCode.Conflict);
+        (await client.DeleteAsync($"/api/v1/prc/purchase-orders/{draftId}"))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{draftId}/order", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{draftId}/close", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{draftId}/hold", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{draftId}/release", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await client.PostAsJsonAsync("/api/v1/prc/purchase-orders", new
+        {
+            purchaseOrderId = draftId, plantId = "PLANT01", orderQuantity = 20m,
+        })).StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        await Save(orderedId);
+        SeedPurchaseItem(orderedId, productId, 10);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{orderedId}/order", null))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        var source = new EesDataSource
+        {
+            Provider = _factory.Services.GetRequiredService<IDatabaseProvider>(),
+            ConnectionString = _factory.ConnString,
+        };
+        var planning = new NexaOne.PRC.Module(source,
+            new BusinessMasterDirectory(source)).GetPurchaseOrderPlanningBridge();
+        (await planning.GetScheduledReceiptsAsync()).Should()
+            .ContainSingle(receipt => receipt.ProductId == productId && receipt.Quantity == 10m);
+        (await Cancel(orderedId)).Should().Be(HttpStatusCode.OK);
+        (await planning.GetScheduledReceiptsAsync()).Should()
+            .NotContain(receipt => receipt.ProductId == productId);
+
+        var receivedId = $"PO_{Suffix()}";
+        await Save(receivedId);
+        SeedPurchaseItem(receivedId);
+        SetIncomingQuantity(receivedId, "TEST-PRODUCT", 1);
+        (await Cancel(receivedId)).Should().Be(HttpStatusCode.Conflict,
+            "a received line cannot be cancelled even if the header is still Draft");
+        SetPurchaseStatus(receivedId, "Draft", "Ordered");
+        (await Cancel(receivedId)).Should().Be(HttpStatusCode.Conflict,
+            "a received line cannot be cancelled even if the header is still Ordered");
+        SetPurchaseStatus(receivedId, "Ordered", "Incoming");
+        (await Cancel(receivedId)).Should().Be(HttpStatusCode.Conflict);
     }
 
     [Fact]
@@ -296,15 +439,13 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
         var draft = new Dictionary<string, object>
         {
             ["purchaseOrderId"] = id, ["plantId"] = "PLANT01",
-            ["purchaseOrderName"] = "original", ["vendorId"] = "V1", ["orderQty"] = 10,
+            ["purchaseOrderName"] = "original", ["vendorId"] = "V1", ["orderQuantity"] = 10,
         };
 
-        async Task<int> Command(string queryId, Dictionary<string, object> body)
-        {
-            var response = await client.PostAsJsonAsync($"/api/v1/command/{queryId}", body);
-            response.StatusCode.Should().Be(HttpStatusCode.OK);
-            return (await response.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected;
-        }
+        async Task<HttpStatusCode> Save() =>
+            (await client.PostAsJsonAsync("/api/v1/prc/purchase-orders", draft)).StatusCode;
+        async Task<HttpStatusCode> Delete(string purchaseOrderId) =>
+            (await client.DeleteAsync($"/api/v1/prc/purchase-orders/{purchaseOrderId}")).StatusCode;
 
         async Task<(string Name, string Status)> Row()
         {
@@ -313,26 +454,30 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
             return (row["PURCHASE_ORDER_NAME"].ToString()!, row["STATUS"].ToString()!);
         }
 
-        (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(1);
+        (await Save()).Should().Be(HttpStatusCode.OK);
         draft["purchaseOrderName"] = "edited draft";
-        (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(1);
+        (await Save()).Should().Be(HttpStatusCode.OK);
         SeedPurchaseItem(id);
-        (await Command("PRC.OrderPurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{id}/order", null))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
 
         draft["purchaseOrderName"] = "illegal edit";
-        (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(0);
-        (await Command("PRC.DeletePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
+        (await Save()).Should().Be(HttpStatusCode.Conflict);
+        (await Delete(id)).Should().Be(HttpStatusCode.Conflict);
         (await Row()).Should().Be(("edited draft", "Ordered"));
 
-        (await Command("PRC.ClosePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
-        (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(0);
-        (await Command("PRC.DeletePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
+        SetPurchaseStatus(id, "Ordered", "Incoming");
+        SetIncomingQuantity(id, "TEST-PRODUCT", 10);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{id}/close", null))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await Save()).Should().Be(HttpStatusCode.Conflict);
+        (await Delete(id)).Should().Be(HttpStatusCode.Conflict);
         (await Row()).Should().Be(("edited draft", "Closed"));
 
         var deletableId = $"PO_{Suffix()}";
         draft["purchaseOrderId"] = deletableId;
-        (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(1);
-        (await Command("PRC.DeletePurchaseOrder", new() { ["purchaseOrderId"] = deletableId })).Should().Be(1);
+        (await Save()).Should().Be(HttpStatusCode.OK);
+        (await Delete(deletableId)).Should().Be(HttpStatusCode.NoContent);
         (await Query("PRC.PurchaseOrderList", new())).Should()
             .NotContain(r => r["PURCHASE_ORDER_ID"].ToString() == deletableId);
     }
@@ -345,15 +490,13 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
         var draft = new Dictionary<string, object>
         {
             ["purchaseOrderId"] = id, ["plantId"] = "PLANT01",
-            ["purchaseOrderName"] = "original", ["vendorId"] = "V1", ["orderQty"] = 10,
+            ["purchaseOrderName"] = "original", ["vendorId"] = "V1", ["orderQuantity"] = 10,
         };
 
-        async Task<int> Command(string queryId, Dictionary<string, object> body)
-        {
-            var response = await client.PostAsJsonAsync($"/api/v1/command/{queryId}", body);
-            response.StatusCode.Should().Be(HttpStatusCode.OK);
-            return (await response.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected;
-        }
+        async Task<HttpStatusCode> Save() =>
+            (await client.PostAsJsonAsync("/api/v1/prc/purchase-orders", draft)).StatusCode;
+        async Task<HttpStatusCode> Delete() =>
+            (await client.DeleteAsync($"/api/v1/prc/purchase-orders/{id}")).StatusCode;
 
         void SetHold(string flag)
         {
@@ -366,31 +509,149 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
             command.ExecuteNonQuery().Should().Be(1);
         }
 
-        (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(1);
-        SetHold("Y"); // 보류 명령 이관 전까지 기존 상태를 직접 시드한다.
+        (await Save()).Should().Be(HttpStatusCode.OK);
+        SetHold("Y");
         draft["purchaseOrderName"] = "illegal edit";
-        (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(0);
-        (await Command("PRC.DeletePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
-        (await Command("PRC.OrderPurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
+        (await Save()).Should().Be(HttpStatusCode.Conflict);
+        (await Delete()).Should().Be(HttpStatusCode.Conflict);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{id}/order", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
         SetHold("N");
         SeedPurchaseItem(id);
-        (await Command("PRC.OrderPurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{id}/order", null))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        SetPurchaseStatus(id, "Ordered", "Incoming");
+        SetIncomingQuantity(id, "TEST-PRODUCT", 10);
         SetHold("Y");
-        (await Command("PRC.ClosePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{id}/close", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
         SetHold("N");
-        (await Command("PRC.ClosePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{id}/close", null))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    private void SeedPurchaseItem(string purchaseOrderId)
+    [Fact]
+    public async Task Draft_delete_removes_lines_without_fk_and_rejects_received_lines()
+    {
+        var id = $"PO_{Suffix()}";
+        var client = AuthedClient("prc-delete", "prc:manage");
+        (await client.PostAsJsonAsync("/api/v1/prc/purchase-orders", new
+        {
+            purchaseOrderId = id, plantId = "PLANT01", orderQuantity = 0m,
+        })).StatusCode.Should().Be(HttpStatusCode.OK);
+        SeedPurchaseItem(id);
+        SeedPurchaseItem(id, "SECOND-PRODUCT", 5);
+
+        SetIncomingQuantity(id, "TEST-PRODUCT", 1);
+        (await client.DeleteAsync($"/api/v1/prc/purchase-orders/{id}"))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+        SetIncomingQuantity(id, "TEST-PRODUCT", 0);
+        (await client.DeleteAsync($"/api/v1/prc/purchase-orders/{id}"))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        using var connection = new SqliteConnection(_factory.ConnString);
+        connection.Open();
+        connection.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id })
+            .Should().Be(0);
+        connection.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM PRC_PURCHASE_ITEM WHERE PURCHASE_ORDER_ID=@id", new { id })
+            .Should().Be(0, "SQLite stores with disabled FK cascades must not retain orphan lines");
+    }
+
+    [Fact]
+    public async Task Draft_write_requires_manage_permission_and_valid_inputs()
+    {
+        var id = $"PO_{Suffix()}";
+        var body = new { purchaseOrderId = id, plantId = "PLANT01", orderQuantity = 1m };
+        (await _factory.CreateClient().PostAsJsonAsync("/api/v1/prc/purchase-orders", body))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await AuthedClient("reader", "prc:read").PostAsJsonAsync(
+            "/api/v1/prc/purchase-orders", body)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var manager = AuthedClient("buyer", "prc:manage");
+        (await manager.PostAsJsonAsync("/api/v1/prc/purchase-orders", new
+        {
+            purchaseOrderId = id, plantId = "PLANT01", orderQuantity = -1m,
+        })).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await manager.PostAsJsonAsync("/api/v1/prc/purchase-orders", new
+        {
+            purchaseOrderId = id, plantId = "PLANT01", orderQuantity = 1.00001m,
+        })).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await manager.PostAsJsonAsync("/api/v1/prc/purchase-orders", new
+        {
+            purchaseOrderId = id, plantId = " ", orderQuantity = 1m,
+        })).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await manager.DeleteAsync("/api/v1/prc/purchase-orders/NOT_FOUND"))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await manager.DeleteAsync($"/api/v1/prc/purchase-orders/{new string('x', 51)}"))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        (await manager.PostAsJsonAsync("/api/v1/prc/purchase-orders", new
+        {
+            purchaseOrderId = id, plantId = "PLANT01", orderQuantity = 1m, actorId = "spoofed",
+        })).StatusCode.Should().Be(HttpStatusCode.OK);
+        using (var connection = new SqliteConnection(_factory.ConnString))
+        {
+            connection.Open();
+            connection.ExecuteScalar<string>(
+                "SELECT CREATED_BY FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id })
+                .Should().Be("buyer", "draft writes take the actor from JWT, not the request body");
+        }
+        (await manager.DeleteAsync($"/api/v1/prc/purchase-orders/{id}"))
+            .StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await Query("PRC.PurchaseOrderList", new())).Should()
+            .NotContain(row => row["PURCHASE_ORDER_ID"].ToString() == id);
+    }
+
+    private void SeedPurchaseItem(string purchaseOrderId, string productId = "TEST-PRODUCT", decimal orderQuantity = 10)
+    {
+        using var connection = new SqliteConnection(_factory.ConnString);
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO PRC_PURCHASE_ITEM (PURCHASE_ORDER_ID, PRODUCT_ID, ORDER_QTY)
+            VALUES (@id, @productId, @orderQty)
+            """;
+        command.Parameters.AddWithValue("@id", purchaseOrderId);
+        command.Parameters.AddWithValue("@productId", productId);
+        command.Parameters.AddWithValue("@orderQty", orderQuantity);
+        command.ExecuteNonQuery().Should().Be(1);
+        command.CommandText = """
+            UPDATE PRC_PURCHASE_ORDER
+            SET ORDER_QTY=(SELECT SUM(ORDER_QTY) FROM PRC_PURCHASE_ITEM WHERE PURCHASE_ORDER_ID=@id)
+            WHERE PURCHASE_ORDER_ID=@id
+            """;
+        command.ExecuteNonQuery().Should().Be(1);
+        transaction.Commit();
+    }
+
+    private void SetPurchaseStatus(string purchaseOrderId, string expectedStatus, string newStatus)
+    {
+        using var connection = new SqliteConnection(_factory.ConnString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "UPDATE PRC_PURCHASE_ORDER SET STATUS=@newStatus WHERE PURCHASE_ORDER_ID=@id AND STATUS=@expectedStatus";
+        command.Parameters.AddWithValue("@id", purchaseOrderId);
+        command.Parameters.AddWithValue("@newStatus", newStatus);
+        command.Parameters.AddWithValue("@expectedStatus", expectedStatus);
+        command.ExecuteNonQuery().Should().Be(1);
+    }
+
+    private void SetIncomingQuantity(string purchaseOrderId, string productId, decimal quantity)
     {
         using var connection = new SqliteConnection(_factory.ConnString);
         connection.Open();
         using var command = connection.CreateCommand();
         command.CommandText = """
-            INSERT INTO PRC_PURCHASE_ITEM (PURCHASE_ORDER_ID, PRODUCT_ID, ORDER_QTY)
-            VALUES (@id, 'TEST-PRODUCT', 10)
+            UPDATE PRC_PURCHASE_ITEM SET INCOMING_QTY=@quantity
+            WHERE PURCHASE_ORDER_ID=@id AND PRODUCT_ID=@productId
             """;
         command.Parameters.AddWithValue("@id", purchaseOrderId);
+        command.Parameters.AddWithValue("@productId", productId);
+        command.Parameters.AddWithValue("@quantity", quantity);
         command.ExecuteNonQuery().Should().Be(1);
     }
 
