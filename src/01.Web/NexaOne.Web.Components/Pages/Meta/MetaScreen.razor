@@ -242,13 +242,19 @@ else
         </section>
         @if (_definition.UiId == "FACTORY_PRC_PURCHASE_ORDER")
         {
+            @if (!string.IsNullOrWhiteSpace(_prcHoldFeedback))
+            {
+                <div class="meta-command-feedback @(_prcHoldFeedbackIsWarning ? "is-warning" : "is-info")"
+                     role="@(_prcHoldFeedbackIsWarning ? "alert" : "status")" aria-live="polite">@_prcHoldFeedback</div>
+            }
             <PrcPurchaseOrderItems @key="_selectedPrcOrderId"
                                    PurchaseOrderId="@_selectedPrcOrderId"
                                    OrderStatus="@_selectedPrcOrderStatus"
                                    IsHeld="@_selectedPrcOrderHeld"
                                    CanManage="@HasRequiredPermission("prc:manage")"
                                    UserId="@(_currentUser.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? _currentUser.FindFirst("sub")?.Value)"
-                                   OnChanged="OnPrcItemChangedAsync" />
+                                   OnChanged="OnPrcItemChangedAsync"
+                                   OnHoldAttempted="OnPrcHoldAttemptedAsync" />
         }
     }
 }
@@ -1123,6 +1129,8 @@ else
     private string? _selectedPrcOrderId;
     private string? _selectedPrcOrderStatus;
     private bool _selectedPrcOrderHeld;
+    private string? _prcHoldFeedback;
+    private bool _prcHoldFeedbackIsWarning;
 
     private void ClearPrcSelection()
     {
@@ -1137,12 +1145,22 @@ else
         await ReloadDataAsync();
     }
 
+    private async Task OnPrcHoldAttemptedAsync(PrcPurchaseOrderHoldAttempt attempt)
+    {
+        ResetFlatManageEditor();
+        await ReloadDataAsync();
+        _prcHoldFeedback = attempt.Message;
+        _prcHoldFeedbackIsWarning = !attempt.Applied;
+    }
+
     private Task OnRowSelectedAsync(Dictionary<string, object?> row)
     {
         if (_definition is null) return Task.CompletedTask;
 
         if (_definition.UiId == "FACTORY_PRC_PURCHASE_ORDER")
         {
+            _prcHoldFeedback = null;
+            _prcHoldFeedbackIsWarning = false;
             _selectedPrcOrderId = row.GetValueOrDefault("PURCHASE_ORDER_ID")?.ToString();
             _selectedPrcOrderStatus = row.GetValueOrDefault("STATUS")?.ToString();
             _selectedPrcOrderHeld = string.Equals(row.GetValueOrDefault("IS_HOLD")?.ToString(), "Y", StringComparison.OrdinalIgnoreCase);
@@ -1233,6 +1251,8 @@ else
     {
         if (!IsFlatManageInlineEditor) return;
         if (_definition?.UiId == "FACTORY_PRC_PURCHASE_ORDER") ClearPrcSelection();
+        _prcHoldFeedback = null;
+        _prcHoldFeedbackIsWarning = false;
         _model = new Dictionary<string, object?>(StringComparer.Ordinal);
         EnsureSharedModelDefaults();
         _isFlatManageEditing = false;

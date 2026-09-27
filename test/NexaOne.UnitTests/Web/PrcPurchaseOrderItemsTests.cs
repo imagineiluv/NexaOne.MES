@@ -11,7 +11,7 @@ namespace NexaOne.UnitTests.Web;
 public sealed class PrcPurchaseOrderItemsTests
 {
     [Fact]
-    public void Purchase_order_screen_opens_items_for_selected_row_and_clears_on_reset()
+    public void Purchase_order_screen_opens_items_and_clears_selection_after_hold_attempt()
     {
         using var ctx = new BunitContext();
         ctx.JSInterop.Mode = JSRuntimeMode.Loose;
@@ -52,9 +52,31 @@ public sealed class PrcPurchaseOrderItemsTests
             cut.FindComponent<PrcPurchaseOrderItems>().Instance.PurchaseOrderId.Should().Be("PO-1");
             cut.Markup.Should().Contain("P-1");
         });
-        cut.Find("button.meta-editor-reset").Click();
+        cut.InvokeAsync(() => cut.FindComponent<PrcPurchaseOrderItems>().Instance.OnHoldAttempted
+            .InvokeAsync(new PrcPurchaseOrderHoldAttempt(false, "최신 상태를 확인하세요.")));
         cut.WaitForAssertion(() =>
-            cut.FindComponent<PrcPurchaseOrderItems>().Instance.PurchaseOrderId.Should().BeNull());
+        {
+            cut.FindComponent<PrcPurchaseOrderItems>().Instance.PurchaseOrderId.Should().BeNull();
+            cut.Find("[role=alert].meta-command-feedback").TextContent.Should().Contain("최신 상태를 확인하세요");
+            api.Verify(client => client.ExecuteQueryAsync("PRC.PurchaseOrderList",
+                It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        });
+        cut.Find("button.meta-editor-reset").Click();
+        cut.FindAll(".meta-command-feedback").Should().BeEmpty();
+
+        cut.InvokeAsync(() => grid.Instance.OnRowSelect.InvokeAsync(new Dictionary<string, object?>
+        {
+            ["PURCHASE_ORDER_ID"] = "PO-1", ["STATUS"] = "Draft", ["IS_HOLD"] = "N",
+        }));
+        cut.InvokeAsync(() => cut.FindComponent<PrcPurchaseOrderItems>().Instance.OnHoldAttempted
+            .InvokeAsync(new PrcPurchaseOrderHoldAttempt(true, "발주를 보류했습니다.")));
+        cut.WaitForAssertion(() =>
+        {
+            cut.FindComponent<PrcPurchaseOrderItems>().Instance.PurchaseOrderId.Should().BeNull();
+            cut.Find("[role=status].meta-command-feedback").TextContent.Should().Contain("발주를 보류했습니다");
+            api.Verify(client => client.ExecuteQueryAsync("PRC.PurchaseOrderList",
+                It.IsAny<object?>(), It.IsAny<CancellationToken>()), Times.Exactly(3));
+        });
     }
 
     [Fact]
@@ -121,6 +143,125 @@ public sealed class PrcPurchaseOrderItemsTests
         {
             cut.Markup.Should().Contain("보류된 발주").And.Contain("입고 기록으로 잠김");
             cut.FindAll("button.prc-items-save").Should().BeEmpty();
+        });
+    }
+
+    [Fact]
+    public void Hold_requires_confirmation_and_reports_success_once()
+    {
+        using var ctx = new BunitContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        var api = new Mock<IApiClient>();
+        api.Setup(client => client.ReadInventoryAsync<List<PrcPurchaseOrderItemDto>>(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new List<PrcPurchaseOrderItemDto>(), 200, null, null));
+        api.Setup(client => client.WriteInventoryAsync<PrcPurchaseOrderHoldDto>(
+                HttpMethod.Post, "api/v1/prc/purchase-orders/PO-1/hold", It.IsAny<object>(),
+                "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new PrcPurchaseOrderHoldDto("PO-1", true), 200, null, null));
+        ctx.Services.AddSingleton(api.Object);
+        PrcPurchaseOrderHoldAttempt? attempt = null;
+
+        var cut = ctx.Render<PrcPurchaseOrderItems>(parameters => parameters
+            .Add(component => component.PurchaseOrderId, "PO-1")
+            .Add(component => component.OrderStatus, "Draft")
+            .Add(component => component.CanManage, true)
+            .Add(component => component.UserId, "operator")
+            .Add(component => component.OnHoldAttempted, value => attempt = value));
+
+        cut.Find("input[type=text]").Change("P-new");
+        cut.Find("input[type=number]").Change("5");
+        cut.Find("button.prc-items-hold-button").Click();
+        cut.Markup.Should().Contain("저장하지 않은 품목 입력은 실행 시 사라집니다");
+        cut.Find(".prc-items-confirm button.prc-items-hold-button").GetAttribute("aria-describedby")
+            .Should().Be("prc-hold-confirm-question prc-hold-unsaved-warning");
+        cut.Find(".prc-items-confirm button:last-of-type").Click();
+        cut.Find("input[type=text]").GetAttribute("value").Should().Be("P-new");
+        cut.Find("input[type=number]").GetAttribute("value").Should().Be("5");
+        cut.Find("button.prc-items-hold-button").Click();
+        api.Verify(client => client.WriteInventoryAsync<PrcPurchaseOrderHoldDto>(
+            It.IsAny<HttpMethod>(), It.IsAny<string>(), It.IsAny<object>(),
+            It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        cut.Find(".prc-items-confirm button.prc-items-hold-button").Click();
+
+        cut.WaitForAssertion(() =>
+        {
+            attempt.Should().Be(new PrcPurchaseOrderHoldAttempt(true,
+                "PO-1 발주를 보류했습니다. 최신 행을 다시 선택하세요."));
+            api.Verify(client => client.WriteInventoryAsync<PrcPurchaseOrderHoldDto>(
+                HttpMethod.Post, "api/v1/prc/purchase-orders/PO-1/hold",
+                It.IsAny<object>(), "operator", It.IsAny<CancellationToken>()), Times.Once);
+        });
+    }
+
+    [Fact]
+    public void Release_is_available_for_held_incoming_order_but_not_to_unprivileged_user()
+    {
+        using var ctx = new BunitContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        var api = new Mock<IApiClient>();
+        api.Setup(client => client.ReadInventoryAsync<List<PrcPurchaseOrderItemDto>>(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new List<PrcPurchaseOrderItemDto>(), 200, null, null));
+        api.Setup(client => client.WriteInventoryAsync<PrcPurchaseOrderHoldDto>(
+                HttpMethod.Post, "api/v1/prc/purchase-orders/PO-1/release", It.IsAny<object>(),
+                "operator", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new PrcPurchaseOrderHoldDto("PO-1", false), 200, null, null));
+        ctx.Services.AddSingleton(api.Object);
+        PrcPurchaseOrderHoldAttempt? attempt = null;
+
+        var cut = ctx.Render<PrcPurchaseOrderItems>(parameters => parameters
+            .Add(component => component.PurchaseOrderId, "PO-1")
+            .Add(component => component.OrderStatus, "Incoming")
+            .Add(component => component.IsHeld, true)
+            .Add(component => component.CanManage, true)
+            .Add(component => component.UserId, "operator")
+            .Add(component => component.OnHoldAttempted, value => attempt = value));
+
+        cut.Find(".prc-items-hold button").Click();
+        cut.Find(".prc-items-confirm button:first-of-type").Click();
+        cut.WaitForAssertion(() => attempt.Should().Be(new PrcPurchaseOrderHoldAttempt(true,
+            "PO-1 발주를 보류 해제했습니다. 최신 행을 다시 선택하세요.")));
+        cut.Render(parameters => parameters.Add(component => component.CanManage, false));
+        cut.FindAll(".prc-items-hold button").Should().BeEmpty();
+        cut.FindAll(".prc-items-confirm").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Uncertain_hold_outcome_reports_inspection_and_does_not_replay_write()
+    {
+        using var ctx = new BunitContext();
+        ctx.JSInterop.Mode = JSRuntimeMode.Loose;
+        var api = new Mock<IApiClient>();
+        api.Setup(client => client.ReadInventoryAsync<List<PrcPurchaseOrderItemDto>>(
+                It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((new List<PrcPurchaseOrderItemDto>(), 200, null, null));
+        api.Setup(client => client.WriteInventoryAsync<PrcPurchaseOrderHoldDto>(
+                HttpMethod.Post, It.IsAny<string>(), It.IsAny<object>(), "operator",
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(((PrcPurchaseOrderHoldDto?)null, 503,
+                "INVENTORY_RESPONSE_UNAVAILABLE", "변경 결과를 확인할 수 없습니다."));
+        ctx.Services.AddSingleton(api.Object);
+        PrcPurchaseOrderHoldAttempt? attempt = null;
+
+        var cut = ctx.Render<PrcPurchaseOrderItems>(parameters => parameters
+            .Add(component => component.PurchaseOrderId, "PO-1")
+            .Add(component => component.OrderStatus, "Ordered")
+            .Add(component => component.CanManage, true)
+            .Add(component => component.UserId, "operator")
+            .Add(component => component.OnHoldAttempted, value => attempt = value));
+
+        cut.Find("button.prc-items-hold-button").Click();
+        cut.Find(".prc-items-confirm button.prc-items-hold-button").Click();
+        cut.WaitForAssertion(() =>
+        {
+            attempt.Should().NotBeNull();
+            attempt!.Applied.Should().BeFalse();
+            attempt.Message.Should().Contain("확인 전에는 같은 변경을 반복하지 마세요");
+            cut.FindAll(".prc-items-confirm").Should().BeEmpty();
+            api.Verify(client => client.WriteInventoryAsync<PrcPurchaseOrderHoldDto>(
+                HttpMethod.Post, It.IsAny<string>(), It.IsAny<object>(), "operator",
+                It.IsAny<CancellationToken>()), Times.Once);
         });
     }
 

@@ -13,6 +13,12 @@ public partial class PrcPurchaseOrderItems : IDisposable
     private string _productId = string.Empty;
     private string _quantityText = string.Empty;
     private string? _deleteProductId;
+    private bool? _pendingHold;
+    private ElementReference _holdActionButton;
+    private ElementReference _holdConfirmButton;
+    private bool _focusHoldConfirmation;
+    private bool _restoreHoldActionFocus;
+    private (string? OrderId, string? Status, bool Held, bool CanManage, string? UserId) _holdContext;
     private string? _fieldError;
     private string? _loadError;
     private string? _actionError;
@@ -28,9 +34,17 @@ public partial class PrcPurchaseOrderItems : IDisposable
     [Parameter] public bool CanManage { get; set; }
     [Parameter] public string? UserId { get; set; }
     [Parameter] public EventCallback<decimal> OnChanged { get; set; }
+    [Parameter] public EventCallback<PrcPurchaseOrderHoldAttempt> OnHoldAttempted { get; set; }
 
     private bool CanEdit => CanManage && OrderStatus == "Draft" && !IsHeld
         && !string.IsNullOrWhiteSpace(UserId);
+    private bool CanChangeHold => CanManage && !string.IsNullOrWhiteSpace(PurchaseOrderId)
+        && !string.IsNullOrWhiteSpace(UserId);
+    private bool CanHold => CanChangeHold && !IsHeld && OrderStatus is ("Draft" or "Ordered");
+    private bool CanRelease => CanChangeHold && IsHeld
+        && OrderStatus is ("Draft" or "Ordered" or "Incoming" or "Closed");
+    private bool HasUnsavedItemInput => _editingExisting
+        || !string.IsNullOrWhiteSpace(_productId) || !string.IsNullOrWhiteSpace(_quantityText);
 
     private string ReadOnlyReason => !CanManage
         ? "품목은 읽기 전용입니다. 편집하려면 구매 관리 권한이 필요합니다."
@@ -44,6 +58,14 @@ public partial class PrcPurchaseOrderItems : IDisposable
 
     protected override async Task OnParametersSetAsync()
     {
+        var holdContext = (PurchaseOrderId, OrderStatus, IsHeld, CanManage, UserId);
+        if (_holdContext != holdContext)
+        {
+            _holdContext = holdContext;
+            _pendingHold = null;
+            _focusHoldConfirmation = false;
+            _restoreHoldActionFocus = false;
+        }
         if (string.Equals(_loadedOrderId, PurchaseOrderId, StringComparison.Ordinal)) return;
         _loadedOrderId = PurchaseOrderId;
         _items = null;
@@ -52,6 +74,21 @@ public partial class PrcPurchaseOrderItems : IDisposable
         CancelEdit();
         CancelDelete();
         if (!string.IsNullOrWhiteSpace(PurchaseOrderId)) await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_disposed) return;
+        if (_focusHoldConfirmation)
+        {
+            _focusHoldConfirmation = false;
+            await _holdConfirmButton.FocusAsync();
+        }
+        else if (_restoreHoldActionFocus)
+        {
+            _restoreHoldActionFocus = false;
+            await _holdActionButton.FocusAsync();
+        }
     }
 
     private async Task LoadAsync()
@@ -104,6 +141,50 @@ public partial class PrcPurchaseOrderItems : IDisposable
     }
 
     private void CancelDelete() => _deleteProductId = null;
+
+    private void RequestHoldChange(bool hold)
+    {
+        if (_busy || _loading || !(hold ? CanHold : CanRelease)) return;
+        CancelDelete();
+        _pendingHold = hold;
+        _focusHoldConfirmation = true;
+    }
+
+    private void CancelHoldChange()
+    {
+        _pendingHold = null;
+        _restoreHoldActionFocus = true;
+    }
+
+    private async Task ConfirmHoldChangeAsync()
+    {
+        if (_busy || _loading || _pendingHold is not { } hold
+            || !(hold ? CanHold : CanRelease)) return;
+
+        _busy = true;
+        var orderId = PurchaseOrderId!;
+        _pendingHold = null;
+        try
+        {
+            var action = hold ? "hold" : "release";
+            var result = await Api.WriteInventoryAsync<PrcPurchaseOrderHoldDto>(
+                HttpMethod.Post,
+                $"api/v1/prc/purchase-orders/{Uri.EscapeDataString(orderId)}/{action}",
+                new { }, UserId!, _lifetime.Token);
+            if (_disposed) return;
+
+            var applied = result.Value is { } state
+                && state.PurchaseOrderId == orderId && state.IsHeld == hold;
+            var message = applied
+                ? $"{orderId} 발주를 {(hold ? "보류했습니다" : "보류 해제했습니다")}. 최신 행을 다시 선택하세요."
+                : $"{orderId} 발주 {(hold ? "보류" : "보류 해제")} 결과를 확인하세요. "
+                  + $"{result.Error ?? $"HTTP {result.StatusCode}"} 목록을 다시 조회했습니다. "
+                  + "확인 전에는 같은 변경을 반복하지 마세요.";
+            await OnHoldAttempted.InvokeAsync(new PrcPurchaseOrderHoldAttempt(applied, message));
+        }
+        catch (OperationCanceledException) when (_disposed) { }
+        finally { _busy = false; }
+    }
 
     private async Task SaveAsync()
     {
@@ -171,3 +252,5 @@ public partial class PrcPurchaseOrderItems : IDisposable
 
 public sealed record PrcPurchaseOrderItemDto(string ProductId, decimal OrderQuantity, decimal IncomingQuantity);
 public sealed record PrcPurchaseOrderItemTotalDto(string PurchaseOrderId, decimal OrderQuantity);
+public sealed record PrcPurchaseOrderHoldDto(string PurchaseOrderId, bool IsHeld);
+public sealed record PrcPurchaseOrderHoldAttempt(bool Applied, string Message);

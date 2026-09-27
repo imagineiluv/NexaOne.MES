@@ -21,6 +21,39 @@
     }
     else
     {
+        @if (CanChangeHold)
+        {
+            <div class="prc-items-hold" role="group" aria-label="발주 보류 상태">
+                <span>보류 상태: @(IsHeld ? "보류 중" : "보류 없음")</span>
+                @if (CanHold)
+                {
+                    <button type="button" class="prc-items-hold-button" @ref="_holdActionButton" disabled="@(_busy || _loading)"
+                            @onclick="() => RequestHoldChange(true)">발주 보류</button>
+                }
+                else if (CanRelease)
+                {
+                    <button type="button" @ref="_holdActionButton" disabled="@(_busy || _loading)"
+                            @onclick="() => RequestHoldChange(false)">보류 해제</button>
+                }
+            </div>
+            @if (_pendingHold is not null)
+            {
+                <div class="prc-items-confirm" role="group" aria-label="발주 보류 변경 확인">
+                    <span id="prc-hold-confirm-question"><code>@PurchaseOrderId</code> 발주를 @(_pendingHold.Value ? "보류" : "보류 해제")하시겠습니까?</span>
+                    @if (HasUnsavedItemInput)
+                    {
+                        <span id="prc-hold-unsaved-warning" class="prc-items-unsaved">저장하지 않은 품목 입력은 실행 시 사라집니다.</span>
+                    }
+                    <button type="button" class="@(_pendingHold.Value ? "prc-items-hold-button" : "")"
+                            @ref="_holdConfirmButton"
+                            aria-describedby="@(HasUnsavedItemInput ? "prc-hold-confirm-question prc-hold-unsaved-warning" : "prc-hold-confirm-question")"
+                            disabled="@(_busy || _loading)" @onclick="ConfirmHoldChangeAsync">
+                        @(_busy ? "처리 중…" : _pendingHold.Value ? "보류 실행" : "해제 실행")
+                    </button>
+                    <button type="button" disabled="@_busy" @onclick="CancelHoldChange">취소</button>
+                </div>
+            }
+        }
         @if (!CanEdit)
         {
             <p class="prc-items-note" role="note">@ReadOnlyReason</p>

@@ -9,6 +9,7 @@
 .prc-items-head,
 .prc-items-fields,
 .prc-items-row-actions,
+.prc-items-hold,
 .prc-items-confirm {
     display: flex;
     align-items: center;
@@ -22,6 +23,8 @@
 .prc-items-head p { margin: var(--space-2xs) 0 0; color: var(--nx-text-2); }
 .prc-items code { overflow-wrap: anywhere; font-family: var(--font-outlier); }
 .prc-items-total { font-weight: 700; white-space: nowrap; }
+.prc-items-hold { margin-block-start: var(--space-md); }
+.prc-items-hold span { color: var(--nx-text-2); }
 .prc-items-empty,
 .prc-items-note { margin-block: var(--space-md); color: var(--nx-text-2); }
 .prc-items-muted { color: var(--nx-text-2); }
@@ -74,8 +77,10 @@
 .prc-items input:focus-visible { outline: 2px solid var(--nx-teal); outline-offset: 2px; }
 .prc-items button:disabled { opacity: .6; cursor: not-allowed; }
 .prc-items .prc-items-save { border-color: var(--nx-teal); background: var(--nx-teal); color: white; }
+.prc-items .prc-items-hold-button { border-color: var(--nx-teal); color: var(--nx-teal); }
 .prc-items .prc-items-delete { color: var(--nx-danger); }
 .prc-items-confirm { margin-block-start: var(--space-md); }
+.prc-items-unsaved { flex-basis: 100%; color: var(--nx-text-2); }
 
 @media (max-width: 40rem) {
     .prc-items table { min-width: 30rem; }
