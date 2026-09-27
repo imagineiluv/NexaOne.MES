@@ -28,7 +28,10 @@ public sealed class ShipmentBridge : IShipmentBridge
     public Task<Result> ConfirmOrderAsync(string orderId, CancellationToken ct = default) => _service.ConfirmOrderAsync(orderId, ct);
     public Task<Result> ShipOrderAsync(string orderId, DateTime shippedDate, CancellationToken ct = default) => _service.ShipOrderAsync(orderId, shippedDate, ct);
     public Task<Result> CancelOrderAsync(string orderId, CancellationToken ct = default) => _service.CancelOrderAsync(orderId, ct);
+    public Task<Result> HoldOrderAsync(string orderId, CancellationToken ct = default) => _service.HoldOrderAsync(orderId, ct);
+    public Task<Result> ReleaseOrderHoldAsync(string orderId, CancellationToken ct = default) => _service.ReleaseOrderHoldAsync(orderId, ct);
 
     private static DeliveryOrderDto ToDto(DeliveryOrder o)
-        => new(o.Id, o.CustomerName, o.PlantId, o.RequestedDate, o.ShippedDate, o.Status.ToString(), o.TotalQty);
+        => new(o.Id, o.CustomerName, o.PlantId, o.RequestedDate, o.ShippedDate,
+            o.Status.ToString(), o.TotalQty, o.IsHeld);
 }

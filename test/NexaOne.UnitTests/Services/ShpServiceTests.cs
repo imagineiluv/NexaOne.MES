@@ -53,14 +53,14 @@ public sealed class ShpServiceTests
         var order = DraftOrder();
         var orderRepo = new Mock<IDeliveryOrderRepository>();
         orderRepo.Setup(r => r.GetByIdAsync("DO001", default)).ReturnsAsync(order);
-        orderRepo.Setup(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Draft, default))
+        orderRepo.Setup(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Draft, false, default))
             .ReturnsAsync(true);
 
         var result = await BuildService(orderRepo, new(), new()).ConfirmOrderAsync("DO001");
 
         result.IsSuccess.Should().BeTrue();
         order.Status.Should().Be(DeliveryOrderStatus.Confirmed);
-        orderRepo.Verify(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Draft, default), Times.Once);
+        orderRepo.Verify(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Draft, false, default), Times.Once);
     }
 
     [Fact]
@@ -82,7 +82,7 @@ public sealed class ShpServiceTests
         order.Confirm();
         var orderRepo = new Mock<IDeliveryOrderRepository>();
         orderRepo.Setup(r => r.GetByIdAsync("DO001", default)).ReturnsAsync(order);
-        orderRepo.Setup(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Confirmed, default))
+        orderRepo.Setup(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Confirmed, false, default))
             .ReturnsAsync(true);
 
         var result = await BuildService(orderRepo, new(), new())
@@ -90,7 +90,7 @@ public sealed class ShpServiceTests
 
         result.IsSuccess.Should().BeTrue();
         order.Status.Should().Be(DeliveryOrderStatus.Shipped);
-        orderRepo.Verify(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Confirmed, default), Times.Once);
+        orderRepo.Verify(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Confirmed, false, default), Times.Once);
     }
 
     [Fact]
@@ -100,7 +100,7 @@ public sealed class ShpServiceTests
         order.Confirm();
         var orderRepo = new Mock<IDeliveryOrderRepository>();
         orderRepo.Setup(r => r.GetByIdAsync("DO001", default)).ReturnsAsync(order);
-        orderRepo.Setup(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Confirmed, default))
+        orderRepo.Setup(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Confirmed, false, default))
             .ReturnsAsync(false);
 
         var result = await BuildService(orderRepo, new(), new())
@@ -121,6 +121,26 @@ public sealed class ShpServiceTests
             .ShipOrderAsync("DO001", DateTime.UtcNow);
 
         result.IsFailure.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Hold_and_release_use_expected_status_and_hold_flag()
+    {
+        var order = DraftOrder();
+        var repository = new Mock<IDeliveryOrderRepository>();
+        repository.Setup(r => r.GetByIdAsync("DO001", default)).ReturnsAsync(order);
+        repository.Setup(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Draft, false, default))
+            .ReturnsAsync(true);
+        repository.Setup(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Draft, true, default))
+            .ReturnsAsync(true);
+        var service = BuildService(repository, new(), new());
+
+        (await service.HoldOrderAsync("DO001")).IsSuccess.Should().BeTrue();
+        order.IsHeld.Should().BeTrue();
+        (await service.ReleaseOrderHoldAsync("DO001")).IsSuccess.Should().BeTrue();
+        order.IsHeld.Should().BeFalse();
+        repository.Verify(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Draft, false, default), Times.Once);
+        repository.Verify(r => r.TryUpdateAsync(order, DeliveryOrderStatus.Draft, true, default), Times.Once);
     }
 
     // ── AddItemAsync ──────────────────────────────────────────────────────────

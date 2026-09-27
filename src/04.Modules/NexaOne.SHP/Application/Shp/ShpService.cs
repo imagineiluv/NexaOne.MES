@@ -37,40 +37,33 @@ public sealed class ShpService
         return result;
     }
 
-    public async Task<Result> ConfirmOrderAsync(string orderId, CancellationToken ct = default)
-    {
-        var order = await _orderRepository.GetByIdAsync(orderId, ct);
-        if (order is null) return Result.Failure(Error.NotFoundOf(nameof(DeliveryOrder), orderId));
-        var expectedStatus = order.Status;
-        var r = order.Confirm();
-        if (r.IsFailure) return r;
-        return await _orderRepository.TryUpdateAsync(order, expectedStatus, ct)
-            ? Result.Success()
-            : Result.Failure(Error.Conflict("Delivery order changed during confirmation."));
-    }
+    public Task<Result> ConfirmOrderAsync(string orderId, CancellationToken ct = default)
+        => TransitionOrderAsync(orderId, static order => order.Confirm(), "confirmation", ct);
 
-    public async Task<Result> ShipOrderAsync(string orderId, DateTime shippedDate, CancellationToken ct = default)
-    {
-        var order = await _orderRepository.GetByIdAsync(orderId, ct);
-        if (order is null) return Result.Failure(Error.NotFoundOf(nameof(DeliveryOrder), orderId));
-        var expectedStatus = order.Status;
-        var r = order.Ship(shippedDate);
-        if (r.IsFailure) return r;
-        return await _orderRepository.TryUpdateAsync(order, expectedStatus, ct)
-            ? Result.Success()
-            : Result.Failure(Error.Conflict("Delivery order changed during shipment."));
-    }
+    public Task<Result> ShipOrderAsync(string orderId, DateTime shippedDate, CancellationToken ct = default)
+        => TransitionOrderAsync(orderId, order => order.Ship(shippedDate), "shipment", ct);
 
-    public async Task<Result> CancelOrderAsync(string orderId, CancellationToken ct = default)
+    public Task<Result> CancelOrderAsync(string orderId, CancellationToken ct = default)
+        => TransitionOrderAsync(orderId, static order => order.Cancel(), "cancellation", ct);
+
+    public Task<Result> HoldOrderAsync(string orderId, CancellationToken ct = default)
+        => TransitionOrderAsync(orderId, static order => order.Hold(), "hold", ct);
+
+    public Task<Result> ReleaseOrderHoldAsync(string orderId, CancellationToken ct = default)
+        => TransitionOrderAsync(orderId, static order => order.ReleaseHold(), "hold release", ct);
+
+    private async Task<Result> TransitionOrderAsync(
+        string orderId, Func<DeliveryOrder, Result> transition, string operation, CancellationToken ct)
     {
         var order = await _orderRepository.GetByIdAsync(orderId, ct);
         if (order is null) return Result.Failure(Error.NotFoundOf(nameof(DeliveryOrder), orderId));
         var expectedStatus = order.Status;
-        var r = order.Cancel();
-        if (r.IsFailure) return r;
-        return await _orderRepository.TryUpdateAsync(order, expectedStatus, ct)
+        var expectedHeld = order.IsHeld;
+        var result = transition(order);
+        if (result.IsFailure) return result;
+        return await _orderRepository.TryUpdateAsync(order, expectedStatus, expectedHeld, ct)
             ? Result.Success()
-            : Result.Failure(Error.Conflict("Delivery order changed during cancellation."));
+            : Result.Failure(Error.Conflict($"Delivery order changed during {operation}."));
     }
 
     // ── Delivery Items ────────────────────────────────────────────────────────

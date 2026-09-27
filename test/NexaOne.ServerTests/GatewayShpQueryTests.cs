@@ -195,6 +195,8 @@ public sealed class GatewayShpQueryTests : IClassFixture<GatewayShpQueryTests.Sh
         rows.Should().NotBeNull();
         rows!.Select(r => r["ORDER_ID"].ToString()).Should().Contain(orderId,
             "공장 필터 없이 전체 출하지시가 조회돼야 한다(점등용 전체조회)");
+        rows!.Single(r => r["ORDER_ID"].ToString() == orderId)["IS_HOLD"]
+            .ToString().Should().Be("N", "기존 주문은 마이그레이션 기본값으로 보류되지 않는다");
     }
 
     [Fact]

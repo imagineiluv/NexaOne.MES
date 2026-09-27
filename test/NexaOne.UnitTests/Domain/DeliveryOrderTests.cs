@@ -18,6 +18,7 @@ public sealed class DeliveryOrderTests
         o.Status.Should().Be(DeliveryOrderStatus.Draft);
         o.CustomerName.Should().Be("Customer A");
         o.ShippedDate.Should().BeNull();
+        o.IsHeld.Should().BeFalse();
     }
 
     [Fact]
@@ -74,6 +75,58 @@ public sealed class DeliveryOrderTests
         var o = Draft();
         o.Cancel().IsSuccess.Should().BeTrue();
         o.Status.Should().Be(DeliveryOrderStatus.Cancelled);
+    }
+
+    [Fact]
+    public void Hold_blocks_confirmation_until_released()
+    {
+        var order = Draft();
+        order.Hold().IsSuccess.Should().BeTrue();
+        order.Hold().IsFailure.Should().BeTrue();
+        order.Confirm().IsFailure.Should().BeTrue();
+
+        order.ReleaseHold().IsSuccess.Should().BeTrue();
+        order.ReleaseHold().IsFailure.Should().BeTrue();
+        order.Confirm().IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Hold_blocks_shipment_but_allows_cancellation()
+    {
+        var order = Draft();
+        order.Confirm().IsSuccess.Should().BeTrue();
+        order.Hold().IsSuccess.Should().BeTrue();
+        order.Ship(Requested).IsFailure.Should().BeTrue();
+        order.Cancel().IsSuccess.Should().BeTrue();
+        order.ReleaseHold().IsFailure.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Terminal_order_cannot_be_held()
+    {
+        var order = Draft();
+        order.Confirm();
+        order.Ship(Requested);
+        order.Hold().IsFailure.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Hold_events_capture_both_edges_without_changing_order_status()
+    {
+        var order = Draft();
+        order.Hold();
+        order.Status.Should().Be(DeliveryOrderStatus.Draft);
+        var held = order.DomainEvents.OfType<DeliveryOrderHeldDomainEvent>()
+            .Should().ContainSingle().Subject;
+        held.AggregateId.Should().Be(order.Id);
+        using (var payload = JsonDocument.Parse(held.Payload))
+            payload.RootElement.GetProperty("IsHeld").GetBoolean().Should().BeTrue();
+
+        order.ReleaseHold();
+        var released = order.DomainEvents.OfType<DeliveryOrderHoldReleasedDomainEvent>()
+            .Should().ContainSingle().Subject;
+        using var releasePayload = JsonDocument.Parse(released.Payload);
+        releasePayload.RootElement.GetProperty("IsHeld").GetBoolean().Should().BeFalse();
     }
 
     [Fact]
