@@ -35,10 +35,18 @@ public sealed class MssqlMaterialLotSplitContractTests(ITestOutputHelper output)
         var applied = await Service().SplitAsync(command);
         var replay = await Service().SplitAsync(command);
         var altered = await Service().SplitAsync(command with { Quantity = 5m });
+        var origin = await Service().GetOriginAsync(childId);
 
         applied.IsSuccess.Should().BeTrue(applied.IsFailure ? applied.Error.Description : string.Empty);
         replay.Value.IsReplay.Should().BeTrue();
         altered.Error.Code.Should().Be("IVT_SPLIT_CONFLICT");
+        origin.IsSuccess.Should().BeTrue(origin.IsFailure ? origin.Error.Description : string.Empty);
+        origin.Value.SplitId.Should().Be(command.SplitId);
+        origin.Value.ParentLotId.Should().Be(parentId);
+        origin.Value.ChildLotId.Should().Be(childId);
+        origin.Value.Quantity.Should().Be(4m);
+        origin.Value.ParentTransactionId.Should().NotBeNullOrWhiteSpace();
+        origin.Value.ChildTransactionId.Should().NotBeNullOrWhiteSpace();
         (await database.ScalarAsync<decimal>(
             "SELECT CURRENT_QTY FROM IVT_MATERIAL_LOT WHERE LOT_ID=@parentId", new { parentId }))
             .Should().Be(6m);

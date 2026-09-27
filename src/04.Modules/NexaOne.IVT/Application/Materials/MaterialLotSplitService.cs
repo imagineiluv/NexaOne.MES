@@ -13,11 +13,21 @@ internal interface IMaterialLotSplitStore
 {
     Task<Result<MaterialLotSplitDto>> TrySplitAsync(
         NormalizedMaterialLotSplit command, CancellationToken ct);
+
+    Task<Result<MaterialLotSplitOriginDto>> GetOriginAsync(
+        string childLotId, CancellationToken ct);
 }
 
 internal sealed class MaterialLotSplitService(IMaterialLotSplitStore store) : IMaterialLotSplitBridge
 {
     private const decimal QuantityLimit = 10_000_000_000_000_000m;
+
+    public Task<Result<MaterialLotSplitOriginDto>> GetOriginAsync(
+        string childLotId, CancellationToken ct = default) =>
+        !Valid(childLotId, 50)
+            ? Task.FromResult(Result.Failure<MaterialLotSplitOriginDto>(Error.Validation(
+                "IVT_SPLIT_CHILD_INVALID", "A child material LOT ID up to 50 characters is required.")))
+            : store.GetOriginAsync(childLotId.Trim(), ct);
 
     public Task<Result<MaterialLotSplitDto>> SplitAsync(
         MaterialLotSplitCommand command, CancellationToken ct = default)

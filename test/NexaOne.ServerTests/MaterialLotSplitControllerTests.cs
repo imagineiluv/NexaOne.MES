@@ -26,6 +26,34 @@ public sealed class MaterialLotSplitControllerTests
     private const string Issuer = "material-lot-split-test";
 
     [Fact]
+    public async Task Origin_http_route_requires_ivt_read_and_returns_only_the_requested_child_edge()
+    {
+        var origin = new MaterialLotSplitOriginDto(
+            "S-1", "P-1", "C-1", "CHILD-LOT", 2m, 5m, 3m, 2,
+            "InStock", "P-TX", "C-TX", new DateTime(2026, 9, 28, 1, 2, 3, DateTimeKind.Utc),
+            "operator", "MES", "EVENT-1");
+        var bridge = new Mock<IMaterialLotSplitBridge>();
+        bridge.Setup(x => x.GetOriginAsync("C-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result.Success(origin));
+        bridge.Setup(x => x.GetOriginAsync("unknown", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result.Failure<MaterialLotSplitOriginDto>(Error.NotFound(
+                "IVT_SPLIT_ORIGIN_NOT_FOUND", "The LOT has no split origin.")));
+        using var factory = new SplitFactory(bridge.Object);
+        const string route = "/api/v1/ivt/material-lots/C-1/origin";
+
+        (await factory.CreateClient().GetAsync(route)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await AuthedClient(factory, "reader", Permissions.PrcRead).GetAsync(route))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var response = await AuthedClient(factory, "reader", Permissions.IvtRead).GetAsync(route);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<MaterialLotSplitOriginDto>()).Should().Be(origin);
+        (await AuthedClient(factory, "reader", Permissions.IvtRead)
+            .GetAsync("/api/v1/ivt/material-lots/unknown/origin"))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        bridge.Verify(x => x.GetOriginAsync("C-1", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task Split_http_route_requires_ivt_manage_and_uses_the_jwt_actor()
     {
         MaterialLotSplitCommand? received = null;

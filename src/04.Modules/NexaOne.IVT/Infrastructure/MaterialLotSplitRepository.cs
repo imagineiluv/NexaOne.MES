@@ -25,6 +25,35 @@ internal sealed class MaterialLotSplitRepository(EesDataSource dataSource)
          WHERE UPPER(IDEMPOTENCY_KEY)=UPPER(@IdempotencyKey)
         """;
 
+    public async Task<Result<MaterialLotSplitOriginDto>> GetOriginAsync(
+        string childLotId, CancellationToken ct)
+    {
+        const string sql = """
+            SELECT SPLIT_ID AS SplitId, PARENT_LOT_ID AS ParentLotId,
+                   CHILD_LOT_ID AS ChildLotId, CHILD_LOT_NO AS ChildLotNumber,
+                   QUANTITY AS Quantity, PARENT_BALANCE_BEFORE AS ParentBalanceBefore,
+                   PARENT_BALANCE_AFTER AS ParentBalanceAfter, PARENT_VERSION AS ParentVersion,
+                   PARENT_STATUS AS ParentStatus, PARENT_TX_ID AS ParentTransactionId,
+                   CHILD_TX_ID AS ChildTransactionId, OCCURRED_AT AS OccurredAt,
+                   ACTOR_ID AS ActorId, SOURCE_SYSTEM AS SourceSystem,
+                   SOURCE_EVENT_ID AS SourceEventId
+              FROM IVT_MATERIAL_LOT_SPLIT
+             WHERE CHILD_LOT_ID=@childLotId
+            """;
+        var row = await QueryFirstOrDefaultAsync<OriginRow>(sql, new { childLotId }, ct);
+        if (row is null)
+            return Result.Failure<MaterialLotSplitOriginDto>(Error.NotFound(
+                "IVT_SPLIT_ORIGIN_NOT_FOUND", "The LOT has no split origin."));
+
+        return Result.Success(new MaterialLotSplitOriginDto(
+            row.SplitId, row.ParentLotId, row.ChildLotId, row.ChildLotNumber,
+            ToDecimal(row.Quantity), ToDecimal(row.ParentBalanceBefore),
+            ToDecimal(row.ParentBalanceAfter), row.ParentVersion, row.ParentStatus,
+            row.ParentTransactionId, row.ChildTransactionId,
+            DateTime.SpecifyKind(row.OccurredAt, DateTimeKind.Utc), row.ActorId,
+            row.SourceSystem, row.SourceEventId));
+    }
+
     public async Task<Result<MaterialLotSplitDto>> TrySplitAsync(
         NormalizedMaterialLotSplit command, CancellationToken ct)
     {
@@ -240,5 +269,24 @@ internal sealed class MaterialLotSplitRepository(EesDataSource dataSource)
         public object? ParentBalanceAfter { get; set; }
         public int ParentVersion { get; set; }
         public string ParentStatus { get; set; } = string.Empty;
+    }
+
+    private sealed class OriginRow
+    {
+        public string SplitId { get; set; } = string.Empty;
+        public string ParentLotId { get; set; } = string.Empty;
+        public string ChildLotId { get; set; } = string.Empty;
+        public string ChildLotNumber { get; set; } = string.Empty;
+        public object? Quantity { get; set; }
+        public object? ParentBalanceBefore { get; set; }
+        public object? ParentBalanceAfter { get; set; }
+        public int ParentVersion { get; set; }
+        public string ParentStatus { get; set; } = string.Empty;
+        public string ParentTransactionId { get; set; } = string.Empty;
+        public string ChildTransactionId { get; set; } = string.Empty;
+        public DateTime OccurredAt { get; set; }
+        public string ActorId { get; set; } = string.Empty;
+        public string SourceSystem { get; set; } = string.Empty;
+        public string SourceEventId { get; set; } = string.Empty;
     }
 }
