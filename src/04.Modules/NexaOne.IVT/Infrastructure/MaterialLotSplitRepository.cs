@@ -91,9 +91,18 @@ internal sealed class MaterialLotSplitRepository(EesDataSource dataSource)
             """;
         var cursorClause = afterSplitId is null ? "" :
             " AND (CREATED_AT > @cursorAt OR (CREATED_AT = @cursorAt AND SPLIT_ID > @afterSplitId))";
+        var parameters = new DynamicParameters();
+        parameters.Add("parentLotId", parentLotId);
+        parameters.Add("fetch", limit + 1);
+        if (cursorAt is not null)
+        {
+            // SQL Server's default DateTime parameter rounds DATETIME2 values at page boundaries.
+            parameters.Add("cursorAt", cursorAt.Value, DbType.DateTime2);
+            parameters.Add("afterSplitId", afterSplitId);
+        }
         var rows = await QueryAsync<OriginRow>(
             sql + cursorClause + " ORDER BY CREATED_AT, SPLIT_ID" + _pageLimitSql,
-            new { parentLotId, afterSplitId, cursorAt, fetch = limit + 1 }, ct);
+            parameters, ct);
         var items = rows.Take(limit).Select(ToOrigin).ToArray();
         var next = rows.Count > limit ? items[^1].SplitId : null;
         return Result.Success(new MaterialLotSplitChildrenPage(items, next));
