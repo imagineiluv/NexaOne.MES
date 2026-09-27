@@ -49,6 +49,7 @@
         <statement><![CDATA[
             UPDATE PRC_PURCHASE_ORDER SET STATUS = 'Ordered', UPDATED_BY = @currentUser, UPDATED_AT = @utcNow
             WHERE PURCHASE_ORDER_ID = @purchaseOrderId AND STATUS = 'Draft' AND IS_HOLD = 'N'
+              AND EXISTS (SELECT 1 FROM PRC_PURCHASE_ITEM WHERE PURCHASE_ORDER_ID = @purchaseOrderId)
         ]]></statement>
     </query>
     <query id="PRC.ClosePurchaseOrder" kind="write" requiredPermission="prc:manage">

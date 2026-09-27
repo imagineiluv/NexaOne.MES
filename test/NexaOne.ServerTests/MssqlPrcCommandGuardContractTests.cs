@@ -46,6 +46,13 @@ public sealed class MssqlPrcCommandGuardContractTests(ITestOutputHelper output)
         await Command("PRC.CreatePurchaseOrder");
         (await Name()).Should().Be("edited draft");
 
+        await Command("PRC.OrderPurchaseOrder");
+        (await Status()).Should().Be("Draft", "orders without any line cannot be placed");
+        await database.ExecuteAsync("""
+            INSERT INTO PRC_PURCHASE_ITEM (PURCHASE_ORDER_ID, PRODUCT_ID, ORDER_QTY)
+            VALUES (@id, 'TEST-PRODUCT', 10)
+            """, new { id });
+
         await database.ExecuteAsync(
             "UPDATE PRC_PURCHASE_ORDER SET IS_HOLD='Y' WHERE PURCHASE_ORDER_ID=@id", new { id });
         await Command("PRC.OrderPurchaseOrder");

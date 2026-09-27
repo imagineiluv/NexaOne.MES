@@ -1269,7 +1269,7 @@ public sealed class InMemoryScreenDefinitionProvider : IScreenDefinitionProvider
             prcOrderCols, QueryId: "PRC.PurchaseOrderList", SaveQueryId: "PRC.CreatePurchaseOrder", DeleteQueryId: "PRC.DeletePurchaseOrder",
             BulkCommands: new BulkCommandDefinition[]
             {
-                new("발주", "PRC.OrderPurchaseOrder"),  // Draft→Ordered(가드)
+                new("발주", "PRC.OrderPurchaseOrder"),  // 품목 1건 이상·미보류 Draft→Ordered
                 new("마감", "PRC.ClosePurchaseOrder"),  // Ordered/Incoming→Closed(가드)
             }));
         Register(new ScreenDefinition("FACTORY_PRC_REPORT_PURCHASEORDER", "구매오더 현황",
