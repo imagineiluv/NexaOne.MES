@@ -28,7 +28,7 @@
             ORDER BY REQUEST_DATE DESC
         ]]></statement>
     </query>
-    <!-- 수주 초안 저장 — 새 ID는 Draft로 생성하고 기존 ID는 Draft일 때만 편집한다.
+    <!-- 수주 초안 저장 — 새 ID는 Draft로 생성하고 기존 ID는 미보류 Draft일 때만 편집한다.
          상태·담당자·감사값은 서버가 고정하며 수량/납기와 활성 MDM 참조를 SQL 경계에서도 검증한다. -->
     <query id="SLS.CreateSalesOrder" kind="write" requiredPermission="sls:manage">
         <statement><![CDATA[
@@ -61,7 +61,7 @@
                 OWNER_ID = excluded.OWNER_ID,
                 UPDATED_BY = excluded.UPDATED_BY,
                 UPDATED_AT = excluded.UPDATED_AT
-            WHERE SLS_SALES_ORDER.STATUS = 'Draft'
+            WHERE SLS_SALES_ORDER.STATUS = 'Draft' AND SLS_SALES_ORDER.IS_HOLD = 'N'
         ]]></statement>
     </query>
     <!-- 그리드 표준 삭제(kind="write") — 메타 그리드 DeleteQueryId가 선택 행의 PK로 호출한다(POST /api/v1/command/{id}).
@@ -69,7 +69,7 @@
     <query id="SLS.DeleteSalesOrder" kind="write" requiredPermission="sls:manage">
         <statement><![CDATA[
             DELETE FROM SLS_SALES_ORDER
-            WHERE SALES_ORDER_ID = @salesOrderId AND STATUS = 'Draft'
+            WHERE SALES_ORDER_ID = @salesOrderId AND STATUS = 'Draft' AND IS_HOLD = 'N'
         ]]></statement>
     </query>
     <!-- 그리드 일괄 명령(kind="write") — BulkCommands가 선택 행마다 호출하는 가드된 상태전이(허용 소스 상태·보류 해제만 UPDATE, 그 외 행은 무영향=affected 0). MSSQL판 동일. -->

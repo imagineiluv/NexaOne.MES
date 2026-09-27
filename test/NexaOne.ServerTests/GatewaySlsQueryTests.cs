@@ -251,7 +251,7 @@ public sealed class GatewaySlsQueryTests : IClassFixture<GatewaySlsQueryTests.Sl
     }
 
     [Fact]
-    public async Task Update_and_delete_are_limited_to_draft_orders()
+    public async Task Update_and_delete_are_limited_to_unheld_draft_orders()
     {
         EnsureSchemaReady();
         var suffix = Suffix();
@@ -275,6 +275,21 @@ public sealed class GatewaySlsQueryTests : IClassFixture<GatewaySlsQueryTests.Sl
         var draftUpdate = await client.PostAsJsonAsync("/api/v1/command/SLS.CreateSalesOrder", initial);
         (await draftUpdate.Content.ReadFromJsonAsync<AffectedResponse>())!.Affected.Should().Be(1);
 
+        Exec("UPDATE SLS_SALES_ORDER SET IS_HOLD = 'Y' WHERE SALES_ORDER_ID = @id",
+            cmd => cmd.Parameters.AddWithValue("@id", order));
+        initial["salesOrderName"] = "보류 중 변조";
+        var heldUpdate = await client.PostAsJsonAsync("/api/v1/command/SLS.CreateSalesOrder", initial);
+        (await heldUpdate.Content.ReadFromJsonAsync<AffectedResponse>())!.Affected.Should().Be(0);
+        var heldDelete = await client.PostAsJsonAsync("/api/v1/command/SLS.DeleteSalesOrder",
+            new Dictionary<string, object?> { ["salesOrderId"] = order });
+        (await heldDelete.Content.ReadFromJsonAsync<AffectedResponse>())!.Affected.Should().Be(0);
+        (await Query("SLS.SalesOrderList", new() { ["plantId"] = plant }))
+            .Single(row => row["SALES_ORDER_ID"].ToString() == order)["SALES_ORDER_NAME"]
+            .ToString().Should().Be("초안 수정");
+
+        Exec("UPDATE SLS_SALES_ORDER SET IS_HOLD = 'N' WHERE SALES_ORDER_ID = @id",
+            cmd => cmd.Parameters.AddWithValue("@id", order));
+
         // 확정 뒤에는 같은 upsert와 삭제가 모두 0행이어야 한다.
         var confirmed = await client.PostAsJsonAsync("/api/v1/command/SLS.ConfirmSalesOrder",
             new Dictionary<string, object?> { ["salesOrderId"] = order });
@@ -290,6 +305,17 @@ public sealed class GatewaySlsQueryTests : IClassFixture<GatewaySlsQueryTests.Sl
         var persisted = rows.Single(row => row["SALES_ORDER_ID"].ToString() == order);
         persisted["SALES_ORDER_NAME"].ToString().Should().Be("초안 수정");
         persisted["STATUS"].ToString().Should().Be("Confirmed");
+
+        var deletableOrder = $"SO_DELETE_{Suffix()}";
+        initial["salesOrderId"] = deletableOrder;
+        initial["salesOrderName"] = "삭제 가능한 초안";
+        var deletableDraft = await client.PostAsJsonAsync("/api/v1/command/SLS.CreateSalesOrder", initial);
+        (await deletableDraft.Content.ReadFromJsonAsync<AffectedResponse>())!.Affected.Should().Be(1);
+        var deleted = await client.PostAsJsonAsync("/api/v1/command/SLS.DeleteSalesOrder",
+            new Dictionary<string, object?> { ["salesOrderId"] = deletableOrder });
+        (await deleted.Content.ReadFromJsonAsync<AffectedResponse>())!.Affected.Should().Be(1);
+        (await Query("SLS.SalesOrderList", new() { ["plantId"] = plant })).Should()
+            .NotContain(row => row["SALES_ORDER_ID"].ToString() == deletableOrder);
     }
 
     [Theory]
