@@ -65,6 +65,16 @@ public sealed class PrcPurchaseOrderItemApiTests : IClassFixture<PrcPurchaseOrde
                     return new NexaOne.PRC.Module(dataSource,
                         new BusinessMasterDirectory(dataSource)).GetPurchaseOrderHoldBridge();
                 });
+                services.AddSingleton<IPurchaseOrderCommandBridge>(sp =>
+                {
+                    var dataSource = new EesDataSource
+                    {
+                        Provider = sp.GetRequiredService<IDatabaseProvider>(),
+                        ConnectionString = ConnString,
+                    };
+                    return new NexaOne.PRC.Module(dataSource,
+                        new BusinessMasterDirectory(dataSource)).GetPurchaseOrderCommandBridge();
+                });
             });
         }
 
@@ -177,6 +187,8 @@ public sealed class PrcPurchaseOrderItemApiTests : IClassFixture<PrcPurchaseOrde
         var itemUrl = $"{Url(id)}/{product}";
         var holdUrl = $"/api/v1/prc/purchase-orders/{id}/hold";
         var releaseUrl = $"/api/v1/prc/purchase-orders/{id}/release";
+        var orderUrl = $"/api/v1/prc/purchase-orders/{id}/order";
+        var closeUrl = $"/api/v1/prc/purchase-orders/{id}/close";
 
         (await manager.PutAsJsonAsync(itemUrl, new { quantity = 3 }))
             .StatusCode.Should().Be(HttpStatusCode.OK);
@@ -191,8 +203,7 @@ public sealed class PrcPurchaseOrderItemApiTests : IClassFixture<PrcPurchaseOrde
         (await manager.PostAsync(holdUrl, null)).StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await manager.PutAsJsonAsync(itemUrl, new { quantity = 5 }))
             .StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await manager.PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
-            new { purchaseOrderId = id })).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await manager.PostAsync(orderUrl, null)).StatusCode.Should().Be(HttpStatusCode.Conflict);
         Scalar<string>("SELECT STATUS FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id })
             .Should().Be("Draft");
 
@@ -203,14 +214,15 @@ public sealed class PrcPurchaseOrderItemApiTests : IClassFixture<PrcPurchaseOrde
         (await manager.PostAsync(releaseUrl, null)).StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await manager.PutAsJsonAsync(itemUrl, new { quantity = 5 }))
             .StatusCode.Should().Be(HttpStatusCode.OK);
-        (await manager.PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
-            new { purchaseOrderId = id })).StatusCode.Should().Be(HttpStatusCode.OK);
+        var ordered = await manager.PostAsync(orderUrl, null);
+        ordered.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ordered.Content.ReadFromJsonAsync<PurchaseOrderCommandState>())
+            .Should().Be(new PurchaseOrderCommandState(id, "Ordered"));
         Scalar<string>("SELECT STATUS FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id })
             .Should().Be("Ordered");
 
         (await manager.PostAsync(holdUrl, null)).StatusCode.Should().Be(HttpStatusCode.OK);
-        (await manager.PostAsJsonAsync("/api/v1/command/PRC.ClosePurchaseOrder",
-            new { purchaseOrderId = id })).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await manager.PostAsync(closeUrl, null)).StatusCode.Should().Be(HttpStatusCode.Conflict);
         Scalar<string>("SELECT STATUS FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id })
             .Should().Be("Ordered");
         (await manager.PostAsync(releaseUrl, null)).StatusCode.Should().Be(HttpStatusCode.OK);
@@ -241,6 +253,26 @@ public sealed class PrcPurchaseOrderItemApiTests : IClassFixture<PrcPurchaseOrde
             .StatusCode.Should().Be(HttpStatusCode.BadRequest);
         Scalar<string>("SELECT IS_HOLD FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id })
             .Should().Be("N");
+    }
+
+    [Fact]
+    public async Task Order_and_close_require_manage_permission_and_validate_identity()
+    {
+        var id = $"PO_{Guid.NewGuid():N}";
+        Seed(id);
+        var orderUrl = $"/api/v1/prc/purchase-orders/{id}/order";
+        (await _factory.CreateClient().PostAsync(orderUrl, null))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await Client("reader", Permissions.PrcRead).PostAsync(orderUrl, null))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var manager = Client("buyer", Permissions.PrcManage);
+        (await manager.PostAsync("/api/v1/prc/purchase-orders/NOT_FOUND/order", null))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await manager.PostAsync($"/api/v1/prc/purchase-orders/{new string('x', 51)}/close", null))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        Scalar<string>("SELECT STATUS FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id })
+            .Should().Be("Draft");
     }
 
     [Fact]

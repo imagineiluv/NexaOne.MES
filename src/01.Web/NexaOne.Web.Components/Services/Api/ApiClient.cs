@@ -667,6 +667,36 @@ public sealed class ApiClient : IApiClient
         return await SalesOrderResultAsync(response, expectsBody: normalized != "delete", ct);
     }
 
+    public async Task<PrcPurchaseOrderActionResult> ExecutePrcPurchaseOrderActionAsync(
+        string action, string purchaseOrderId, CancellationToken ct = default)
+    {
+        var normalized = action?.Trim().ToLowerInvariant();
+        if (normalized is not ("order" or "close") || string.IsNullOrWhiteSpace(purchaseOrderId))
+            return new(false, "지원하지 않는 발주 명령 또는 비어 있는 발주 ID입니다.", 400);
+
+        var id = Uri.EscapeDataString(purchaseOrderId.Trim());
+        using var response = await SendAsync(HttpMethod.Post,
+            $"api/v1/prc/purchase-orders/{id}/{normalized}", null, ct, surfaceErrors: false);
+        var statusCode = (int)response.StatusCode;
+        if (!response.IsSuccessStatusCode)
+            return new(false, response.StatusCode == HttpStatusCode.Unauthorized
+                ? "인증이 만료되었습니다. 다시 로그인해 주세요."
+                : await ReadErrorAsync(response, ct), statusCode);
+
+        try
+        {
+            var state = await response.Content.ReadFromJsonAsync<PrcPurchaseOrderStateDto>(ct);
+            return state is not null && state.PurchaseOrderId == purchaseOrderId.Trim()
+                   && state.Status == (normalized == "order" ? "Ordered" : "Closed")
+                ? new(true, null, statusCode)
+                : new(false, "발주 명령 응답을 확인할 수 없습니다.", statusCode);
+        }
+        catch (Exception error) when (error is JsonException or NotSupportedException)
+        {
+            return new(false, "발주 명령 응답을 읽을 수 없습니다.", statusCode);
+        }
+    }
+
     private async Task<SlsSalesOrderActionResult> SalesOrderResultAsync(
         HttpResponseMessage response, bool expectsBody, CancellationToken ct)
     {

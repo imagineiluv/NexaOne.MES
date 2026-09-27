@@ -2,14 +2,18 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
+using Dapper;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using NexaDB.Data.Abstractions.Interfaces;
 using NexaOne.Infrastructure.Persistence;
+using NexaOne.MDM.Infrastructure;
+using NexaOne.ServiceContracts.Prc;
 using NexaOne.Server.Gateway;
 using NexaOne.SYS.Infrastructure;
 using System.IdentityModel.Tokens.Jwt;
@@ -41,6 +45,19 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
             builder.UseSetting("Jwt:SecretKey", Secret);
             builder.UseSetting("Jwt:Issuer", Issuer);
             builder.UseSetting("Jwt:Audience", Issuer);
+            builder.ConfigureTestServices(services =>
+            {
+                services.AddSingleton<IPurchaseOrderCommandBridge>(sp =>
+                {
+                    var dataSource = new EesDataSource
+                    {
+                        Provider = sp.GetRequiredService<IDatabaseProvider>(),
+                        ConnectionString = ConnString,
+                    };
+                    return new NexaOne.PRC.Module(dataSource,
+                        new BusinessMasterDirectory(dataSource)).GetPurchaseOrderCommandBridge();
+                });
+            });
         }
         protected override void Dispose(bool disposing)
         {
@@ -241,9 +258,9 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
     }
 
     [Fact]
-    public async Task Bulk_transition_commands_are_state_guarded()
+    public async Task Purchase_order_api_transitions_are_state_guarded()
     {
-        // 그리드 일괄 명령 — 가드된 전이: 허용 소스 상태만 UPDATE, 그 외는 무영향(affected 0이어도 200).
+        // PRC 모듈이 상태 가드를 집행하고, 불허 상태는 409로 보고한다.
         var poId = $"PO_{Suffix()}";
         var client = AuthedClient("bulk-prc", "prc:manage");
         (await client.PostAsJsonAsync("/api/v1/command/PRC.CreatePurchaseOrder", new Dictionary<string, object>
@@ -255,52 +272,64 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
         async Task<string> StatusOf() =>
             (await Query("PRC.PurchaseOrderList", new()))
                 .Single(r => r["PURCHASE_ORDER_ID"].ToString() == poId)["STATUS"]!.ToString()!;
-        async Task<int> Close()
+        async Task<HttpStatusCode> Close()
         {
-            var response = await client.PostAsJsonAsync("/api/v1/command/PRC.ClosePurchaseOrder",
-                new Dictionary<string, object> { ["purchaseOrderId"] = poId });
-            response.StatusCode.Should().Be(HttpStatusCode.OK);
-            return (await response.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected;
+            var response = await client.PostAsync($"/api/v1/prc/purchase-orders/{poId}/close", null);
+            return response.StatusCode;
         }
 
         (await StatusOf()).Should().Be("Draft", "생성 기본 상태(DDL DEFAULT)");
 
-        // Draft 상태에서 '마감' 시도 → 가드 미충족 — 200이지만 상태 불변.
-        (await Close()).Should().Be(0);
+        // Draft 상태에서는 마감 불가.
+        (await Close()).Should().Be(HttpStatusCode.Conflict);
         (await StatusOf()).Should().Be("Draft", "가드된 전이는 소스 상태 밖 행을 건드리지 않는다");
 
         SetPurchaseStatus(poId, "Draft", "Incoming");
-        (await Close()).Should().Be(0, "품목이 없는 비정상 Incoming 행도 마감할 수 없다");
+        (await Close()).Should().Be(HttpStatusCode.Conflict, "품목이 없는 비정상 Incoming 행도 마감할 수 없다");
         SetPurchaseStatus(poId, "Incoming", "Draft");
 
         // 레거시 확정과 같이 품목이 없는 발주는 Draft를 벗어나지 못한다.
-        var emptyOrder = await client.PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
-            new Dictionary<string, object> { ["purchaseOrderId"] = poId });
-        (await emptyOrder.Content.ReadFromJsonAsync<AffectedRowsResponse>())!.Affected.Should().Be(0);
+        var emptyOrder = await client.PostAsync($"/api/v1/prc/purchase-orders/{poId}/order", null);
+        emptyOrder.StatusCode.Should().Be(HttpStatusCode.Conflict);
         (await StatusOf()).Should().Be("Draft");
         SeedPurchaseItem(poId);
         SeedPurchaseItem(poId, "SECOND-PRODUCT", 5);
 
         // 발주(Draft→Ordered)는 입고 완료 전까지 마감할 수 없다.
-        (await client.PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
-            new Dictionary<string, object> { ["purchaseOrderId"] = poId }))
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{poId}/order", null))
             .StatusCode.Should().Be(HttpStatusCode.OK);
         (await StatusOf()).Should().Be("Ordered");
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{poId}/order", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict, "같은 전이는 다시 적용되지 않는다");
 
-        (await Close()).Should().Be(0, "Ordered만으로 입고 완료를 뜻하지 않는다");
+        (await Close()).Should().Be(HttpStatusCode.Conflict, "Ordered만으로 입고 완료를 뜻하지 않는다");
         SetPurchaseStatus(poId, "Ordered", "Incoming");
         SetIncomingQuantity(poId, "TEST-PRODUCT", 5);
-        (await Close()).Should().Be(0, "부분 입고는 마감할 수 없다");
+        (await Close()).Should().Be(HttpStatusCode.Conflict, "부분 입고는 마감할 수 없다");
         SetIncomingQuantity(poId, "TEST-PRODUCT", 10);
-        (await Close()).Should().Be(0, "한 품목이라도 미입고면 마감할 수 없다");
+        (await Close()).Should().Be(HttpStatusCode.Conflict, "한 품목이라도 미입고면 마감할 수 없다");
         SetIncomingQuantity(poId, "SECOND-PRODUCT", 5);
-        (await Close()).Should().Be(1);
+        (await Close()).Should().Be(HttpStatusCode.OK);
         (await StatusOf()).Should().Be("Closed");
+        (await Close()).Should().Be(HttpStatusCode.Conflict, "이미 마감된 발주는 다시 마감할 수 없다");
+
+        using (var connection = new SqliteConnection(_factory.ConnString))
+        {
+            connection.Open();
+            var actor = connection.ExecuteScalar<string>(
+                "SELECT UPDATED_BY FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id = poId });
+            actor.Should().Be("bulk-prc", "감사 실행자는 요청 본문이 아닌 JWT에서 와야 한다");
+        }
 
         // 무권한 → 403.
-        (await AuthedClient("bulk-noperm").PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
-            new Dictionary<string, object> { ["purchaseOrderId"] = poId }))
+        (await AuthedClient("bulk-noperm").PostAsync($"/api/v1/prc/purchase-orders/{poId}/order", null))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        // Removed named SQL writes must not remain reachable through the generic gateway.
+        (await client.PostAsJsonAsync("/api/v1/command/PRC.OrderPurchaseOrder",
+            new { purchaseOrderId = poId })).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await client.PostAsJsonAsync("/api/v1/command/PRC.ClosePurchaseOrder",
+            new { purchaseOrderId = poId })).StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -332,7 +361,8 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
         draft["purchaseOrderName"] = "edited draft";
         (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(1);
         SeedPurchaseItem(id);
-        (await Command("PRC.OrderPurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{id}/order", null))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
 
         draft["purchaseOrderName"] = "illegal edit";
         (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(0);
@@ -341,7 +371,8 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
 
         SetPurchaseStatus(id, "Ordered", "Incoming");
         SetIncomingQuantity(id, "TEST-PRODUCT", 10);
-        (await Command("PRC.ClosePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{id}/close", null))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
         (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(0);
         (await Command("PRC.DeletePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
         (await Row()).Should().Be(("edited draft", "Closed"));
@@ -388,16 +419,20 @@ public sealed class GatewayCreateCommandTests : IClassFixture<GatewayCreateComma
         draft["purchaseOrderName"] = "illegal edit";
         (await Command("PRC.CreatePurchaseOrder", draft)).Should().Be(0);
         (await Command("PRC.DeletePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
-        (await Command("PRC.OrderPurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{id}/order", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
         SetHold("N");
         SeedPurchaseItem(id);
-        (await Command("PRC.OrderPurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{id}/order", null))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
         SetPurchaseStatus(id, "Ordered", "Incoming");
         SetIncomingQuantity(id, "TEST-PRODUCT", 10);
         SetHold("Y");
-        (await Command("PRC.ClosePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(0);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{id}/close", null))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
         SetHold("N");
-        (await Command("PRC.ClosePurchaseOrder", new() { ["purchaseOrderId"] = id })).Should().Be(1);
+        (await client.PostAsync($"/api/v1/prc/purchase-orders/{id}/close", null))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     private void SeedPurchaseItem(string purchaseOrderId, string productId = "TEST-PRODUCT", decimal orderQuantity = 10)
