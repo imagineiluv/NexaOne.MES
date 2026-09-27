@@ -78,6 +78,13 @@ public interface IApprovalProcess : INexaModuleBridge
         Func<DbTransaction, CancellationToken, Task> documentWrite,
         CancellationToken ct = default);
 
+    /// <summary>Pending 상태를 잠근 채 소비 모듈의 중간 승인 단계를 기록한다. 공통 승인 상태는 유지한다.</summary>
+    Task WritePendingDocumentAsync(
+        string approvalId,
+        string actorId,
+        Func<DbTransaction, CancellationToken, Task> documentWrite,
+        CancellationToken ct = default);
+
     /// <summary>요청자가 본인의 Pending 요청을 취소한다.</summary>
     Task CancelAsync(
         string approvalId,

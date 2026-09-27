@@ -10,6 +10,7 @@ using NexaOne.RMS.Domain;
 using NexaOne.RMS.Infrastructure;
 using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Rms;
+using NexaOne.SYS.Infrastructure;
 using NexaDB.Data.Abstractions.Interfaces;
 using Xunit;
 
@@ -71,6 +72,16 @@ public sealed class RmsRecipePersistenceTests : IClassFixture<RmsRecipePersisten
             ConnectionString = _factory.ConnectionString,
         };
         return new RecipeExecutionRepository(dataSource);
+    }
+
+    private ApprovalProcess ApprovalProcess()
+    {
+        _ = _factory.CreateClient();
+        return new ApprovalProcess(new EesDataSource
+        {
+            Provider = _factory.Services.GetRequiredService<IDatabaseProvider>(),
+            ConnectionString = _factory.ConnectionString,
+        });
     }
 
     private static Recipe ReleasedRecipe(string id, string equipmentClassId)
@@ -226,6 +237,180 @@ public sealed class RmsRecipePersistenceTests : IClassFixture<RmsRecipePersisten
         history.Should().ContainSingle();
         history[0].IdempotencyKey.Should().Be(context.IdempotencyKey);
         history[0].RequestHash.Should().MatchRegex("^[0-9A-F]{64}$");
+    }
+
+    [Fact]
+    public async Task Production_recipe_approval_uses_one_shared_request_for_both_stages()
+    {
+        var (recipes, parameters) = Repositories();
+        var approvals = ApprovalProcess();
+        var suffix = Suffix();
+        var recipe = Recipe.Create(
+            $"R_SHARED_{suffix}", "Shared approval", "test", $"CLASS_{suffix}").Value;
+        await AddRecipeAsync(recipes, recipe);
+        var service = new RecipeService(recipes, parameters, approvals);
+
+        var draftRejection = await service.RejectAsync(recipe.Id, "Too early",
+            new RecipeCommandContext("reviewer", $"draft-reject:{suffix}"));
+        draftRejection.IsFailure.Should().BeTrue();
+        (await approvals.GetCurrentAsync("Recipe", recipe.Id)).Should().BeNull();
+
+        var submit = new RecipeCommandContext("requester", $"submit:{suffix}");
+        (await service.RequestApprovalAsync(recipe.Id, submit)).IsSuccess.Should().BeTrue();
+        (await service.RequestApprovalAsync(recipe.Id, submit)).IsSuccess.Should().BeTrue();
+        (await approvals.GetCurrentAsync("Recipe", recipe.Id))!.Status.Should().Be("Pending");
+        (await recipes.GetByIdAsync(recipe.Id))!.ApprovalState
+            .Should().Be(RecipeApprovalState.WaitApproval);
+
+        var selfApproval = await service.Approve1Async(
+            recipe.Id, new RecipeCommandContext("requester", $"self:{suffix}"));
+        selfApproval.IsFailure.Should().BeTrue();
+        (await recipes.GetByIdAsync(recipe.Id))!.ApprovalState
+            .Should().Be(RecipeApprovalState.WaitApproval);
+
+        (await service.Approve1Async(recipe.Id,
+            new RecipeCommandContext("approver-1", $"first:{suffix}"))).IsSuccess.Should().BeTrue();
+        (await approvals.GetCurrentAsync("Recipe", recipe.Id))!.Status.Should().Be("Pending");
+        (await service.Approve2Async(recipe.Id,
+            new RecipeCommandContext("approver-2", $"second:{suffix}"))).IsSuccess.Should().BeTrue();
+        (await approvals.GetCurrentAsync("Recipe", recipe.Id))!.Status.Should().Be("Approved");
+        (await recipes.GetByIdAsync(recipe.Id))!.ApprovalState
+            .Should().Be(RecipeApprovalState.Approved);
+
+        var lateRejection = await service.RejectAsync(recipe.Id, "Too late",
+            new RecipeCommandContext("reviewer", $"late-reject:{suffix}"));
+        lateRejection.IsFailure.Should().BeTrue();
+        (await approvals.GetCurrentAsync("Recipe", recipe.Id))!.Status.Should().Be("Approved");
+
+        (await service.ReleaseAsync(recipe.Id,
+            new RecipeCommandContext("releaser", $"release:{suffix}"))).IsSuccess.Should().BeTrue();
+        (await approvals.GetCurrentAsync("Recipe", recipe.Id))!.Status.Should().Be("Approved");
+        (await approvals.GetHistoryAsync("Recipe", recipe.Id)).Select(x => x.ToStatus)
+            .Should().Equal("Pending", "Approved");
+        (await recipes.GetApprovalHistoryAsync(recipe.Id)).Select(x => x.ToState)
+            .Should().Equal(RecipeApprovalState.WaitApproval, RecipeApprovalState.Approved1,
+                RecipeApprovalState.Approved, RecipeApprovalState.Released);
+    }
+
+    [Fact]
+    public async Task Production_recipe_rejection_updates_both_ledgers_atomically()
+    {
+        var (recipes, parameters) = Repositories();
+        var approvals = ApprovalProcess();
+        var suffix = Suffix();
+        var recipe = Recipe.Create(
+            $"R_REJECT_{suffix}", "Shared rejection", "test", $"CLASS_{suffix}").Value;
+        await AddRecipeAsync(recipes, recipe);
+        var service = new RecipeService(recipes, parameters, approvals);
+
+        (await service.RequestApprovalAsync(recipe.Id,
+            new RecipeCommandContext("requester", $"submit-reject:{suffix}"))).IsSuccess.Should().BeTrue();
+        var rejected = await service.RejectAsync(recipe.Id, "Needs revision",
+            new RecipeCommandContext("reviewer", $"reject:{suffix}"));
+        rejected.IsSuccess.Should().BeTrue();
+        (await service.RejectAsync(recipe.Id, "Needs revision",
+            new RecipeCommandContext("reviewer", $"reject:{suffix}"))).IsSuccess.Should().BeTrue();
+        (await recipes.GetByIdAsync(recipe.Id))!.ApprovalState
+            .Should().Be(RecipeApprovalState.Rejected);
+        (await approvals.GetCurrentAsync("Recipe", recipe.Id))!.Status.Should().Be("Rejected");
+        (await approvals.GetHistoryAsync("Recipe", recipe.Id)).Last().Reason
+            .Should().Be("Needs revision");
+    }
+
+    [Fact]
+    public async Task Parallel_production_submission_retries_create_one_recipe_and_shared_history()
+    {
+        var (recipes, _) = Repositories();
+        var suffix = Suffix();
+        var recipe = Recipe.Create(
+            $"R_SHARED_RACE_{suffix}", "Shared race", "test", $"CLASS_{suffix}").Value;
+        await AddRecipeAsync(recipes, recipe);
+        var command = new RecipeCommandContext("requester", $"shared-race:{suffix}");
+
+        var results = await Task.WhenAll(Enumerable.Range(0, 4).Select(async _ =>
+        {
+            var (attemptRecipes, attemptParameters) = Repositories();
+            var service = new RecipeService(attemptRecipes, attemptParameters, ApprovalProcess());
+            return await service.RequestApprovalAsync(recipe.Id, command);
+        }));
+
+        results.Should().OnlyContain(result => result.IsSuccess);
+        (await recipes.GetApprovalHistoryAsync(recipe.Id)).Should().ContainSingle();
+        (await ApprovalProcess().GetHistoryAsync("Recipe", recipe.Id)).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Shared_approval_transition_keeps_the_recipe_outbox_in_the_same_commit()
+    {
+        _ = _factory.CreateClient();
+        var source = new EesDataSource
+        {
+            Provider = _factory.Services.GetRequiredService<IDatabaseProvider>(),
+            ConnectionString = _factory.ConnectionString,
+        };
+        var config = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { ["Events:Outbox:Enabled"] = "true" }).Build();
+        var recipes = new RecipeRepository(source, config);
+        var service = new RecipeService(recipes, new RecipeParamRepository(source),
+            new ApprovalProcess(source));
+        var suffix = Suffix();
+        var recipe = Recipe.Create(
+            $"R_OUTBOX_{suffix}", "Outbox approval", "test", $"CLASS_{suffix}").Value;
+        await AddRecipeAsync(recipes, recipe);
+
+        (await service.RequestApprovalAsync(recipe.Id,
+            new RecipeCommandContext("requester", $"outbox-submit:{suffix}"))).IsSuccess.Should().BeTrue();
+        (await service.Approve1Async(recipe.Id,
+            new RecipeCommandContext("approver-1", $"outbox-first:{suffix}"))).IsSuccess.Should().BeTrue();
+        (await service.Approve2Async(recipe.Id,
+            new RecipeCommandContext("approver-2", $"outbox-second:{suffix}"))).IsSuccess.Should().BeTrue();
+
+        using var connection = new Microsoft.Data.Sqlite.SqliteConnection(_factory.ConnectionString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT EVENT_TYPE FROM EES_OUTBOX " +
+                              "WHERE MODULE = 'RMS' AND AGGREGATE_ID = @recipeId ORDER BY ID";
+        command.Parameters.AddWithValue("@recipeId", recipe.Id);
+        using var reader = command.ExecuteReader();
+        var events = new List<string>();
+        while (reader.Read()) events.Add(reader.GetString(0));
+        events.Should().Equal("RecipeApprovalRequested", "RecipeFirstApproved", "RecipeApproved");
+    }
+
+    [Fact]
+    public async Task Competing_first_approval_and_rejection_leave_the_two_states_aligned()
+    {
+        var (recipes, parameters) = Repositories();
+        var approvals = ApprovalProcess();
+        var suffix = Suffix();
+        var recipe = Recipe.Create(
+            $"R_DECISION_RACE_{suffix}", "Decision race", "test", $"CLASS_{suffix}").Value;
+        await AddRecipeAsync(recipes, recipe);
+        var service = new RecipeService(recipes, parameters, approvals);
+        (await service.RequestApprovalAsync(recipe.Id,
+            new RecipeCommandContext("requester", $"race-submit:{suffix}"))).IsSuccess.Should().BeTrue();
+
+        var results = await Task.WhenAll(
+            service.Approve1Async(recipe.Id,
+                new RecipeCommandContext("first-approver", $"race-first:{suffix}")),
+            service.RejectAsync(recipe.Id, "Reject",
+                new RecipeCommandContext("reviewer", $"race-reject:{suffix}")));
+        var local = (await recipes.GetByIdAsync(recipe.Id))!.ApprovalState;
+        var shared = (await approvals.GetCurrentAsync("Recipe", recipe.Id))!.Status;
+        if (local == RecipeApprovalState.Rejected)
+        {
+            results[1].IsSuccess.Should().BeTrue();
+            shared.Should().Be("Rejected");
+        }
+        else
+        {
+            local.Should().Be(RecipeApprovalState.Approved1);
+            results[0].IsSuccess.Should().BeTrue();
+            results[1].IsFailure.Should().BeTrue();
+            shared.Should().Be("Pending");
+        }
+        (await recipes.GetApprovalHistoryAsync(recipe.Id)).Should().HaveCount(
+            1 + results.Count(x => x.IsSuccess));
     }
 
     [Fact]

@@ -33,6 +33,11 @@ public sealed class ApprovalProcessProxy : IApprovalProcess
         => Resolve().DecideWithDocumentAsync(
             decision, decidedBy, idempotencyKey, requestHash, documentWrite, ct);
 
+    public Task WritePendingDocumentAsync(
+        string approvalId, string actorId,
+        Func<DbTransaction, CancellationToken, Task> documentWrite, CancellationToken ct = default)
+        => Resolve().WritePendingDocumentAsync(approvalId, actorId, documentWrite, ct);
+
     public Task CancelAsync(
         string approvalId, string cancelledBy, string idempotencyKey, string requestHash,
         CancellationToken ct = default)

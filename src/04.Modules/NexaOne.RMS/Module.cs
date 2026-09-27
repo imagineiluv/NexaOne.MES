@@ -4,6 +4,7 @@ using NexaOne.RMS.Application.Rms;
 using NexaOne.RMS.Infrastructure;
 using NexaOne.ServiceContracts.Mdm;
 using NexaOne.ServiceContracts.Rms;
+using NexaOne.ServiceContracts.Sys;
 
 namespace NexaOne.RMS;
 
@@ -19,16 +20,18 @@ public sealed class Module
     public Module(
         EesDataSource dataSource,
         IConfiguration configuration,
-        IEquipmentDirectory equipmentDirectory)
+        IEquipmentDirectory equipmentDirectory,
+        IApprovalProcess approvalProcess)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentNullException.ThrowIfNull(equipmentDirectory);
+        ArgumentNullException.ThrowIfNull(approvalProcess);
 
         var recipes = new RecipeRepository(dataSource, configuration);
         var parameters = new RecipeParamRepository(dataSource);
         var executions = new RecipeExecutionRepository(dataSource);
-        _recipeBridge = new RecipeBridge(new RecipeService(recipes, parameters));
+        _recipeBridge = new RecipeBridge(new RecipeService(recipes, parameters, approvalProcess));
         _executionBridge = new RecipeExecutionBridge(
             new RecipeExecutionService(recipes, parameters, executions, equipmentDirectory));
         _trackingRecipeDirectory = new TrackingRecipeDirectory(dataSource);

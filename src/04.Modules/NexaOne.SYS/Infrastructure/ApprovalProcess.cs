@@ -179,6 +179,37 @@ public sealed class ApprovalProcess : QueryRepository, IApprovalProcess
             idempotencyKey, requestHash, documentWrite, ct);
     }
 
+    public async Task WritePendingDocumentAsync(
+        string approvalId,
+        string actorId,
+        Func<DbTransaction, CancellationToken, Task> documentWrite,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(approvalId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(actorId);
+        ArgumentNullException.ThrowIfNull(documentWrite);
+
+        await _processor.ExecuteInTransactionAsync<object?>(async (conn, txn) =>
+        {
+            // UPDATE가 Pending 행에 쓰기 잠금을 걸어 최종 결정과 중간 단계를 직렬화한다.
+            var locked = await conn.ExecuteAsync(new CommandDefinition(
+                "UPDATE COM_APPROVAL SET STATUS = STATUS " +
+                "WHERE APPROVAL_ID = @approvalId AND STATUS = 'Pending'",
+                new { approvalId }, txn, cancellationToken: ct));
+            if (locked != 1)
+                throw new InvalidOperationException(
+                    $"{ConflictCode}: approval '{approvalId}' is no longer Pending.");
+            var requester = await conn.QuerySingleAsync<string>(new CommandDefinition(
+                "SELECT REQUESTED_BY FROM COM_APPROVAL WHERE APPROVAL_ID = @approvalId",
+                new { approvalId }, txn, cancellationToken: ct));
+            if (string.Equals(requester.Trim(), actorId.Trim(), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"{ConflictCode}: requester cannot approve their own document.");
+            await documentWrite(txn, ct);
+            return null;
+        }, System.Data.IsolationLevel.ReadCommitted, ct).ConfigureAwait(false);
+    }
+
     public Task CancelAsync(
         string approvalId,
         string cancelledBy,
@@ -281,10 +312,12 @@ public sealed class ApprovalProcess : QueryRepository, IApprovalProcess
                     "FROM COM_APPROVAL WHERE APPROVAL_ID = @id",
                     new { id = approvalId }, txn, cancellationToken: ct));
             if (current is null)
-                throw new InvalidOperationException($"Approval '{approvalId}' does not exist.");
+                throw new InvalidOperationException(
+                    $"{ConflictCode}: approval '{approvalId}' does not exist.");
             if (current.Status != "Pending")
                 throw new InvalidOperationException(
-                    $"Approval '{approvalId}' is already {current.Status}; only Pending requests can transition.");
+                    $"{ConflictCode}: approval '{approvalId}' is already {current.Status}; " +
+                    "only Pending requests can transition.");
             if (setDecision && string.Equals(current.RequestedBy.Trim(), actor.Trim(),
                     StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException(
