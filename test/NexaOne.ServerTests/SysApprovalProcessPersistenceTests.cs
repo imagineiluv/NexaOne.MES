@@ -68,6 +68,15 @@ public sealed class SysApprovalProcessPersistenceTests
         decided.Comment.Should().Be("looks good");
         (await approvals.ListPendingAsync()).Should().NotContain(r => r.ApprovalId == approvalId);
 
+        (await approvals.SubmitAsync(
+            new ApprovalRequest("Recipe", "RCP-1", "레시피 v3"),
+            "requester1", "sub-1", "hash-sub-1")).Should().Be(approvalId,
+            "the original submission remains replayable after its decision");
+        var reusedSubmissionKey = () => approvals.SubmitAsync(
+            new ApprovalRequest("Recipe", "RCP-2"), "requester1", "sub-1", "hash-sub-1");
+        await reusedSubmissionKey.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*APPROVAL_REQUEST_CONFLICT*");
+
         var history = await approvals.GetHistoryAsync("Recipe", "RCP-1");
         history.Select(h => (h.FromStatus, h.ToStatus)).Should().Equal(
             [("New", "Pending"), ("Pending", "Approved")]);
@@ -100,6 +109,11 @@ public sealed class SysApprovalProcessPersistenceTests
         await approvals.DecideAsync(
             new ApprovalDecision(approvalId, Approve: true), "approver1", "dec-10", "hash-dec-10");
 
+        var foreignReplay = () => approvals.DecideAsync(
+            new ApprovalDecision(approvalId, Approve: true), "another-user", "dec-10", "hash-dec-10");
+        await foreignReplay.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*APPROVAL_REQUEST_CONFLICT*");
+
         var conflict = () => approvals.DecideAsync(
             new ApprovalDecision(approvalId, Approve: false), "approver1", "dec-10", "hash-other");
         await conflict.Should().ThrowAsync<InvalidOperationException>()
@@ -123,6 +137,11 @@ public sealed class SysApprovalProcessPersistenceTests
 
         var approvalId = await approvals.SubmitAsync(
             new ApprovalRequest("PurchaseOrder", "PO-7"), "requester1", "sub-7", "hash-sub-7");
+        var foreignCancellation = () => approvals.CancelAsync(
+            approvalId, "another-user", "cxl-foreign-7", "hash-cxl-foreign-7");
+        await foreignCancellation.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*only the requester can cancel*");
+        (await approvals.GetCurrentAsync("PurchaseOrder", "PO-7"))!.Status.Should().Be("Pending");
         await approvals.CancelAsync(approvalId, "requester1", "cxl-7", "hash-cxl-7");
 
         var record = await approvals.GetCurrentAsync("PurchaseOrder", "PO-7");

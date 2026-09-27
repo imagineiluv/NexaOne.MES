@@ -74,6 +74,20 @@ public interface IQmsBridge : INexaModuleBridge
         => Task.FromResult(Result.Failure<InspectionExecutionV2Dto>(Error.Failure(
             "QMS_V2_UNAVAILABLE", "The QMS v2 inspection bridge is unavailable.")));
 
+    Task<Result<FourMChangeDto>> SubmitFourMChangeAsync(
+        SubmitFourMChangeDto request, string actorId, CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<FourMChangeDto>(Error.Failure(
+            "QMS_4M_UNAVAILABLE", "The QMS 4M change bridge is unavailable.")));
+    Task<Result<FourMChangeDto>> DecideFourMChangeAsync(
+        string changeId, DecideFourMChangeDto decision, string actorId,
+        CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<FourMChangeDto>(Error.Failure(
+            "QMS_4M_UNAVAILABLE", "The QMS 4M change bridge is unavailable.")));
+    Task<Result<FourMChangeDto>> GetFourMChangeAsync(
+        string changeId, CancellationToken ct = default)
+        => Task.FromResult(Result.Failure<FourMChangeDto>(Error.Failure(
+            "QMS_4M_UNAVAILABLE", "The QMS 4M change bridge is unavailable.")));
+
     Task<IReadOnlyList<SpcParamDto>> GetSpcParamsAsync(string equipmentId, CancellationToken ct = default);
     Task<Result<SpcParamDto>> CreateSpcParamAsync(
         string id, string name, string equipmentId, string processId,

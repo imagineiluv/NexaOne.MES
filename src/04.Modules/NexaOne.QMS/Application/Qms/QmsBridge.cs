@@ -9,11 +9,14 @@ public sealed class QmsBridge : IQmsBridge
     private readonly QmsService _service;
     private readonly AdvancedQualityService _advanced;
     private readonly AiInspectionService _ai;
-    public QmsBridge(QmsService service, AdvancedQualityService advanced, AiInspectionService ai)
+    private readonly FourMChangeService _fourMChanges;
+    public QmsBridge(QmsService service, AdvancedQualityService advanced,
+        AiInspectionService ai, FourMChangeService fourMChanges)
     {
         _service = service;
         _advanced = advanced;
         _ai = ai;
+        _fourMChanges = fourMChanges;
     }
 
     public async Task<IReadOnlyList<DefectDto>> GetDefectsByLotAsync(string lotId, CancellationToken ct = default)
@@ -125,6 +128,19 @@ public sealed class QmsBridge : IQmsBridge
         => await MapExecutionAsync(
             await _service.CancelInspectionExecutionV2Async(
                 inspectionId, idempotencyKey, reason, actorId, ct), ct);
+
+    public Task<Result<FourMChangeDto>> SubmitFourMChangeAsync(
+        SubmitFourMChangeDto request, string actorId, CancellationToken ct = default)
+        => _fourMChanges.SubmitAsync(request, actorId, ct);
+
+    public Task<Result<FourMChangeDto>> DecideFourMChangeAsync(
+        string changeId, DecideFourMChangeDto decision, string actorId,
+        CancellationToken ct = default)
+        => _fourMChanges.DecideAsync(changeId, decision, actorId, ct);
+
+    public Task<Result<FourMChangeDto>> GetFourMChangeAsync(
+        string changeId, CancellationToken ct = default)
+        => _fourMChanges.GetAsync(changeId, ct);
 
     public async Task<IReadOnlyList<SpcParamDto>> GetSpcParamsAsync(
         string equipmentId, CancellationToken ct = default)

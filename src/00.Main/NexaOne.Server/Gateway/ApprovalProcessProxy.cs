@@ -1,3 +1,4 @@
+using System.Data.Common;
 using NexaOne.ServiceContracts.Sys;
 
 namespace NexaOne.Server.Gateway;
@@ -15,10 +16,22 @@ public sealed class ApprovalProcessProxy : IApprovalProcess
         CancellationToken ct = default)
         => Resolve().SubmitAsync(request, requestedBy, idempotencyKey, requestHash, ct);
 
+    public Task<string> SubmitWithDocumentAsync(
+        ApprovalRequest request, string requestedBy, string idempotencyKey, string requestHash,
+        Func<DbTransaction, CancellationToken, Task> documentWrite, CancellationToken ct = default)
+        => Resolve().SubmitWithDocumentAsync(
+            request, requestedBy, idempotencyKey, requestHash, documentWrite, ct);
+
     public Task DecideAsync(
         ApprovalDecision decision, string decidedBy, string idempotencyKey, string requestHash,
         CancellationToken ct = default)
         => Resolve().DecideAsync(decision, decidedBy, idempotencyKey, requestHash, ct);
+
+    public Task DecideWithDocumentAsync(
+        ApprovalDecision decision, string decidedBy, string idempotencyKey, string requestHash,
+        Func<DbTransaction, CancellationToken, Task> documentWrite, CancellationToken ct = default)
+        => Resolve().DecideWithDocumentAsync(
+            decision, decidedBy, idempotencyKey, requestHash, documentWrite, ct);
 
     public Task CancelAsync(
         string approvalId, string cancelledBy, string idempotencyKey, string requestHash,

@@ -129,7 +129,8 @@ public sealed class QmsForeignSchemaBoundaryTests
                 "materialLotDirectory",
                 "equipmentDirectory",
                 "processDirectory",
-                "userDirectory");
+                "userDirectory",
+                "approvalProcess");
     }
 
     [Fact]

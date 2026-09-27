@@ -112,6 +112,27 @@ public sealed class QmsBridgeControllerTests : IClassFixture<QmsBridgeController
             => Task.FromResult(Result.Success(V2Dto(idempotencyKey, "Process", actorId, false)
                 with { IsCancelled = true }));
 
+        public Task<Result<FourMChangeDto>> SubmitFourMChangeAsync(
+            SubmitFourMChangeDto request, string actorId, CancellationToken ct = default)
+            => Task.FromResult(Result.Success(new FourMChangeDto(
+                request.ChangeId, request.IdempotencyKey, request.ChangeType,
+                request.EquipmentId, request.ProductId, request.ChangeDate,
+                request.Description, "Pending", "APR-1", actorId, null, null)));
+
+        public Task<Result<FourMChangeDto>> DecideFourMChangeAsync(
+            string changeId, DecideFourMChangeDto decision, string actorId,
+            CancellationToken ct = default)
+            => Task.FromResult(Result.Success(new FourMChangeDto(
+                changeId, decision.IdempotencyKey, "Machine", null, null,
+                DateTime.UtcNow, "test", decision.Approve ? "Approved" : "Rejected",
+                "APR-1", "requester", actorId, DateTime.UtcNow)));
+
+        public Task<Result<FourMChangeDto>> GetFourMChangeAsync(
+            string changeId, CancellationToken ct = default)
+            => Task.FromResult(Result.Success(new FourMChangeDto(
+                changeId, null, "Machine", null, null, DateTime.UtcNow,
+                "test", "Pending", "APR-1", "requester", null, null)));
+
         private static InspectionExecutionV2Dto V2Dto(
             string key, string inspectionType, string actor, bool replay)
             => new(
@@ -369,6 +390,33 @@ public sealed class QmsBridgeControllerTests : IClassFixture<QmsBridgeController
         (await client.GetAsync("/api/v1/qms/inspection-results?lotId=LOT1")).StatusCode.Should().Be(HttpStatusCode.OK);
         (await client.GetAsync("/api/v1/qms/spc-params?equipmentId=EQ1")).StatusCode.Should().Be(HttpStatusCode.OK);
         (await client.GetAsync("/api/v1/qms/lots/LOT1/inspection-status")).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task FourM_change_routes_enforce_manage_permission_and_forward_header_key_and_actor()
+    {
+        var request = new SubmitFourMChangeDto(
+            "BODY-KEY", "4M-1", "Machine", DateTime.UtcNow, "Replace spindle");
+        (await Client("qms:read").PostAsJsonAsync("/api/v1/qms/4m-changes", request))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var manager = Client("qms:manage");
+        manager.DefaultRequestHeaders.Add("Idempotency-Key", "HEADER-KEY");
+        var submitted = await manager.PostAsJsonAsync("/api/v1/qms/4m-changes", request);
+        submitted.StatusCode.Should().Be(HttpStatusCode.OK);
+        var dto = await submitted.Content.ReadFromJsonAsync<FourMChangeDto>();
+        dto!.ChangeNo.Should().Be("HEADER-KEY");
+        dto.RequestedBy.Should().Be("qms-bridge-tester");
+
+        var decided = await manager.PostAsJsonAsync("/api/v1/qms/4m-changes/4M-1/decision",
+            new DecideFourMChangeDto("BODY-DECISION", true));
+        decided.StatusCode.Should().Be(HttpStatusCode.OK);
+        var decidedDto = await decided.Content.ReadFromJsonAsync<FourMChangeDto>();
+        decidedDto!.ChangeNo.Should().Be("HEADER-KEY");
+        decidedDto.DecidedBy.Should().Be("qms-bridge-tester");
+
+        (await Client("qms:read").GetAsync("/api/v1/qms/4m-changes/4M-1"))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Fact]

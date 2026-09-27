@@ -1,3 +1,4 @@
+using System.Data.Common;
 using Dapper;
 using NexaOne.Infrastructure.Persistence;
 using NexaOne.ServiceContracts.Sys;
@@ -30,6 +31,28 @@ public sealed class ApprovalProcess : QueryRepository, IApprovalProcess
         string idempotencyKey,
         string requestHash,
         CancellationToken ct = default)
+        => await SubmitCoreAsync(request, requestedBy, idempotencyKey, requestHash, null, ct)
+            .ConfigureAwait(false);
+
+    public Task<string> SubmitWithDocumentAsync(
+        ApprovalRequest request,
+        string requestedBy,
+        string idempotencyKey,
+        string requestHash,
+        Func<System.Data.Common.DbTransaction, CancellationToken, Task> documentWrite,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(documentWrite);
+        return SubmitCoreAsync(request, requestedBy, idempotencyKey, requestHash, documentWrite, ct);
+    }
+
+    private async Task<string> SubmitCoreAsync(
+        ApprovalRequest request,
+        string requestedBy,
+        string idempotencyKey,
+        string requestHash,
+        Func<System.Data.Common.DbTransaction, CancellationToken, Task>? documentWrite,
+        CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentException.ThrowIfNullOrWhiteSpace(request.DocKind);
@@ -41,12 +64,31 @@ public sealed class ApprovalProcess : QueryRepository, IApprovalProcess
 
         return await _processor.ExecuteInTransactionAsync(async (conn, txn) =>
         {
+            var usedKey = await conn.QueryFirstOrDefaultAsync<ReplayRow>(
+                new CommandDefinition(
+                    "SELECT APPROVAL_ID AS ApprovalId, DOC_KIND AS DocKind, DOC_ID AS DocId, " +
+                    "TO_STATUS AS ToStatus, REQUEST_HASH AS RequestHash, CHANGED_BY AS ChangedBy " +
+                    "FROM COM_APPROVAL_HISTORY WHERE IDEMPOTENCY_KEY = @key",
+                    new { key = idempotencyKey }, txn, cancellationToken: ct));
+            if (usedKey is not null)
+            {
+                if (usedKey.DocKind == request.DocKind && usedKey.DocId == request.DocId
+                    && usedKey.ToStatus == "Pending" && usedKey.RequestHash == requestHash
+                    && string.Equals(usedKey.ChangedBy.Trim(), requestedBy.Trim(),
+                        StringComparison.OrdinalIgnoreCase))
+                    return usedKey.ApprovalId;
+                throw new InvalidOperationException(
+                    $"{ConflictCode}: idempotency key was already used for another approval transition.");
+            }
+
             var existing = await CurrentAsync(conn, txn, request.DocKind, request.DocId, ct);
             if (existing is not null)
             {
                 if (existing.Status == "Pending")
                 {
-                    if (existing.RequestHash == requestHash)
+                    if (existing.RequestHash == requestHash
+                        && string.Equals(existing.RequestedBy.Trim(), requestedBy.Trim(),
+                            StringComparison.OrdinalIgnoreCase))
                         return existing.ApprovalId;
                     throw new InvalidOperationException(
                         $"{ConflictCode}: a different pending approval already exists for " +
@@ -65,6 +107,8 @@ public sealed class ApprovalProcess : QueryRepository, IApprovalProcess
                 if (reopened != 1)
                     throw new InvalidOperationException(
                         $"{ConflictCode}: approval {existing.ApprovalId} moved while resubmitting.");
+                if (documentWrite is not null)
+                    await documentWrite(txn, ct);
                 await InsertHistoryAsync(conn, txn, existing.ApprovalId, request.DocKind, request.DocId,
                     existing.Status, "Pending", requestedBy, now, request.Title, idempotencyKey, requestHash, ct);
                 return existing.ApprovalId;
@@ -82,14 +126,18 @@ public sealed class ApprovalProcess : QueryRepository, IApprovalProcess
                           hash = requestHash },
                     txn, cancellationToken: ct));
             }
-            catch (Exception)
+            catch (DbException)
             {
                 // 동시 제출이 UNIQUE(DOC_KIND,DOC_ID)에 걸린 경우 — 잠긴 뒤 현재 행으로 결과를 결정한다.
                 var winner = await CurrentAsync(conn, txn, request.DocKind, request.DocId, ct);
-                if (winner?.Status == "Pending" && winner.RequestHash == requestHash)
+                if (winner?.Status == "Pending" && winner.RequestHash == requestHash
+                    && string.Equals(winner.RequestedBy.Trim(), requestedBy.Trim(),
+                        StringComparison.OrdinalIgnoreCase))
                     return winner.ApprovalId;
                 throw;
             }
+            if (documentWrite is not null)
+                await documentWrite(txn, ct);
             await InsertHistoryAsync(conn, txn, approvalId, request.DocKind, request.DocId,
                 "New", "Pending", requestedBy, now, request.Title, idempotencyKey, requestHash, ct);
             return approvalId;
@@ -102,13 +150,34 @@ public sealed class ApprovalProcess : QueryRepository, IApprovalProcess
         string idempotencyKey,
         string requestHash,
         CancellationToken ct = default)
-        => await TransitionAsync(
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+        await TransitionAsync(
             decision.ApprovalId,
             toStatus: decision.Approve ? "Approved" : "Rejected",
             actor: decidedBy,
             reason: decision.Comment,
             setDecision: true,
-            idempotencyKey, requestHash, ct).ConfigureAwait(false);
+            idempotencyKey, requestHash, null, ct).ConfigureAwait(false);
+    }
+
+    public Task DecideWithDocumentAsync(
+        ApprovalDecision decision,
+        string decidedBy,
+        string idempotencyKey,
+        string requestHash,
+        Func<System.Data.Common.DbTransaction, CancellationToken, Task> documentWrite,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+        ArgumentNullException.ThrowIfNull(documentWrite);
+        return TransitionAsync(decision.ApprovalId,
+            toStatus: decision.Approve ? "Approved" : "Rejected",
+            actor: decidedBy,
+            reason: decision.Comment,
+            setDecision: true,
+            idempotencyKey, requestHash, documentWrite, ct);
+    }
 
     public Task CancelAsync(
         string approvalId,
@@ -122,7 +191,7 @@ public sealed class ApprovalProcess : QueryRepository, IApprovalProcess
             actor: cancelledBy,
             reason: null,
             setDecision: false,
-            idempotencyKey, requestHash, ct);
+            idempotencyKey, requestHash, null, ct);
 
     public async Task<ApprovalRecord?> GetCurrentAsync(
         string docKind, string docId, CancellationToken ct = default)
@@ -174,6 +243,7 @@ public sealed class ApprovalProcess : QueryRepository, IApprovalProcess
         bool setDecision,
         string idempotencyKey,
         string requestHash,
+        Func<System.Data.Common.DbTransaction, CancellationToken, Task>? documentWrite,
         CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(approvalId);
@@ -186,14 +256,17 @@ public sealed class ApprovalProcess : QueryRepository, IApprovalProcess
         {
             var replay = await conn.QueryFirstOrDefaultAsync<ReplayRow>(
                 new CommandDefinition(
-                    "SELECT APPROVAL_ID AS ApprovalId, TO_STATUS AS ToStatus, REQUEST_HASH AS RequestHash " +
+                    "SELECT APPROVAL_ID AS ApprovalId, TO_STATUS AS ToStatus, " +
+                    "REQUEST_HASH AS RequestHash, CHANGED_BY AS ChangedBy " +
                     "FROM COM_APPROVAL_HISTORY WHERE IDEMPOTENCY_KEY = @key",
                     new { key = idempotencyKey }, txn, cancellationToken: ct));
             if (replay is not null)
             {
                 if (replay.RequestHash == requestHash
                     && replay.ApprovalId == approvalId
-                    && replay.ToStatus == toStatus)
+                    && replay.ToStatus == toStatus
+                    && string.Equals(replay.ChangedBy.Trim(), actor.Trim(),
+                        StringComparison.OrdinalIgnoreCase))
                     return null;
                 throw new InvalidOperationException(
                     $"{ConflictCode}: idempotency key was already used for a different approval transition.");
@@ -212,6 +285,14 @@ public sealed class ApprovalProcess : QueryRepository, IApprovalProcess
             if (current.Status != "Pending")
                 throw new InvalidOperationException(
                     $"Approval '{approvalId}' is already {current.Status}; only Pending requests can transition.");
+            if (setDecision && string.Equals(current.RequestedBy.Trim(), actor.Trim(),
+                    StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"{ConflictCode}: requester cannot decide their own approval.");
+            if (!setDecision && !string.Equals(current.RequestedBy.Trim(), actor.Trim(),
+                    StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"{ConflictCode}: only the requester can cancel an approval.");
 
             var decisionSql = setDecision
                 ? "DECIDED_BY = @actor, DECIDED_AT = @now, DECISION_COMMENT = @reason, "
@@ -226,6 +307,9 @@ public sealed class ApprovalProcess : QueryRepository, IApprovalProcess
             if (moved != 1)
                 throw new InvalidOperationException(
                     $"{ConflictCode}: approval '{approvalId}' transitioned concurrently.");
+
+            if (documentWrite is not null)
+                await documentWrite(txn, ct);
 
             await InsertHistoryAsync(conn, txn, approvalId, current.DocKind, current.DocId,
                 "Pending", toStatus, actor, now, reason, idempotencyKey, requestHash, ct);
@@ -291,8 +375,11 @@ public sealed class ApprovalProcess : QueryRepository, IApprovalProcess
     private sealed class ReplayRow
     {
         public string ApprovalId { get; set; } = string.Empty;
+        public string DocKind { get; set; } = string.Empty;
+        public string DocId { get; set; } = string.Empty;
         public string ToStatus { get; set; } = string.Empty;
         public string RequestHash { get; set; } = string.Empty;
+        public string ChangedBy { get; set; } = string.Empty;
     }
 
     private sealed class TransitionRow
