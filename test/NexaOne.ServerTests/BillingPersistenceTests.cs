@@ -307,11 +307,16 @@ public sealed class BillingPersistenceTests : IClassFixture<BusinessMembershipDa
         (await Read(doc.Id)).Paid.Should().Be(4m);
     }
 
-    [Fact]
-    public async Task Audit_failure_rolls_back_billing_number_document_and_lines_and_allows_same_operation_retry()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Audit_failure_rolls_back_billing_number_document_and_lines_and_allows_same_operation_retry(bool existingCounter)
     {
         var contact = await Contact();
         var input = Input(contact.Id, new BillingLine("Atomic invoice", 7m, 2m));
+        if (existingCounter) await Create(contact.Id, input: input);
+        var documentsBefore = existingCounter ? 1L : 0L;
+        var numberBefore = existingCounter ? 1L : 0L;
         var operation = Guid.NewGuid();
         var auditBefore = Count("ERP_BILLING_AUDIT");
 
@@ -325,22 +330,24 @@ public sealed class BillingPersistenceTests : IClassFixture<BusinessMembershipDa
             var failure = await Assert.ThrowsAsync<SqliteException>(() =>
                 _bridge.CreateDocumentAsync("bill-user", _tenant, _organization, operation, BillingKind.Invoice, input));
             failure.Message.Should().Contain("billing audit unavailable");
-            Count("ERP_BILLING_NUMBER").Should().Be(0);
-            Count("ERP_BILLING_DOCUMENT").Should().Be(0);
-            Count("ERP_BILLING_LINE").Should().Be(0);
+            Count("ERP_BILLING_NUMBER").Should().Be(existingCounter ? 1 : 0);
+            Scalar<long>("SELECT COALESCE(MAX(NEXT_NUMBER), 0) FROM ERP_BILLING_NUMBER WHERE KIND=1")
+                .Should().Be(numberBefore);
+            Count("ERP_BILLING_DOCUMENT").Should().Be(documentsBefore);
+            Count("ERP_BILLING_LINE").Should().Be(documentsBefore);
             Count("ERP_BILLING_AUDIT").Should().Be(auditBefore);
         }
         finally { Execute("DROP TRIGGER billing_audit_failure"); }
 
         var created = await NewBridge().CreateDocumentAsync("bill-user", _tenant, _organization,
             operation, BillingKind.Invoice, input);
-        created.Number.Should().Be(1);
+        created.Number.Should().Be(numberBefore + 1);
         SameDocument(created, await NewBridge().CreateDocumentAsync("bill-user", _tenant, _organization,
             operation, BillingKind.Invoice, input));
         Count("ERP_BILLING_NUMBER").Should().Be(1);
-        Scalar<long>("SELECT NEXT_NUMBER FROM ERP_BILLING_NUMBER WHERE KIND=1").Should().Be(1);
-        Count("ERP_BILLING_DOCUMENT").Should().Be(1);
-        Count("ERP_BILLING_LINE").Should().Be(1);
+        Scalar<long>("SELECT NEXT_NUMBER FROM ERP_BILLING_NUMBER WHERE KIND=1").Should().Be(numberBefore + 1);
+        Count("ERP_BILLING_DOCUMENT").Should().Be(documentsBefore + 1);
+        Count("ERP_BILLING_LINE").Should().Be(documentsBefore + 1);
         Count("ERP_BILLING_AUDIT").Should().Be(auditBefore + 1);
     }
 
