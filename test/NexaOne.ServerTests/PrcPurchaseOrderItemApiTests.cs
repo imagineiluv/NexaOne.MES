@@ -288,9 +288,9 @@ public sealed class PrcPurchaseOrderItemApiTests : IClassFixture<PrcPurchaseOrde
             WHEN NEW.PURCHASE_ORDER_ID='{id}' AND NEW.ORDER_QTY>0
             BEGIN SELECT RAISE(ABORT, 'forced header failure'); END
             """, new { });
+        var bridge = _factory.Services.GetRequiredService<IPurchaseOrderItemBridge>();
         try
         {
-            var bridge = _factory.Services.GetRequiredService<IPurchaseOrderItemBridge>();
             var act = () => bridge.SaveDraftItemAsync(id, product, 4m, "buyer");
             await act.Should().ThrowAsync<SqliteException>();
 
@@ -303,6 +303,14 @@ public sealed class PrcPurchaseOrderItemApiTests : IClassFixture<PrcPurchaseOrde
         {
             Execute($"DROP TRIGGER IF EXISTS {trigger}", new { });
         }
+
+        var recovered = await bridge.SaveDraftItemAsync(id, product, 4m, "buyer");
+        recovered.IsSuccess.Should().BeTrue(recovered.Error.Description);
+        recovered.Value.OrderQuantity.Should().Be(4m);
+        Scalar<long>("SELECT COUNT(*) FROM PRC_PURCHASE_ITEM WHERE PURCHASE_ORDER_ID=@id", new { id })
+            .Should().Be(1);
+        Scalar<decimal>("SELECT ORDER_QTY FROM PRC_PURCHASE_ORDER WHERE PURCHASE_ORDER_ID=@id", new { id })
+            .Should().Be(4m);
     }
 
     private HttpClient Client(string actor, params string[] permissions)
