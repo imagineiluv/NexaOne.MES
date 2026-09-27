@@ -279,6 +279,113 @@ public sealed class MaterialLotSplitPersistenceTests :
     }
 
     [Fact]
+    public async Task Descendants_query_pages_all_depths_once_and_scopes_the_cursor_to_the_root()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..12];
+        var rootId = $"P_{suffix}";
+        var firstChildId = $"C_A_{suffix}";
+        var grandchildId = $"G_{suffix}";
+        var otherRootId = $"OP_{suffix}";
+        await Receive(rootId, suffix, 10m);
+        await Receive(otherRootId, $"O_{suffix}", 3m);
+        var first = Split(rootId, firstChildId, $"A_{suffix}", 4m);
+        var second = Split(rootId, $"C_B_{suffix}", $"B_{suffix}", 2m)
+            with { ExpectedParentVersion = 2 };
+        var grandchild = Split(firstChildId, grandchildId, $"G_{suffix}", 1m);
+        var greatGrandchild = Split(grandchildId, $"H_{suffix}", $"H_{suffix}", 0.5m);
+        var foreign = Split(otherRootId, $"OC_{suffix}", $"O_{suffix}", 1m);
+        foreach (var command in new[] { first, second, grandchild, greatGrandchild, foreign })
+        {
+            var result = await Service().SplitAsync(command);
+            result.IsSuccess.Should().BeTrue(result.IsFailure ? result.Error.Description : string.Empty);
+        }
+
+        using (var connection = Connection())
+            connection.Execute("""
+                UPDATE IVT_MATERIAL_LOT_SPLIT SET CREATED_AT=@createdAt
+                 WHERE SPLIT_ID IN (@firstId, @secondId, @grandchildId, @greatGrandchildId)
+                """, new
+            {
+                createdAt = OccurredAt,
+                firstId = first.SplitId,
+                secondId = second.SplitId,
+                grandchildId = grandchild.SplitId,
+                greatGrandchildId = greatGrandchild.SplitId,
+            });
+
+        var page1 = await Service().GetDescendantsAsync($" {rootId} ", limit: 1);
+        var page2 = await Service().GetDescendantsAsync(rootId, $" {page1.Value.NextAfterSplitId} ", 1);
+        var page3 = await Service().GetDescendantsAsync(rootId, page2.Value.NextAfterSplitId, 1);
+        var page4 = await Service().GetDescendantsAsync(rootId, page3.Value.NextAfterSplitId, 1);
+        var all = await Service().GetDescendantsAsync(rootId);
+        var rebased = await Service().GetDescendantsAsync(firstChildId);
+        var leaf = await Service().GetDescendantsAsync(greatGrandchild.ChildLotId);
+
+        foreach (var page in new[] { page1, page2, page3, page4, all, rebased, leaf })
+            page.IsSuccess.Should().BeTrue(page.IsFailure ? page.Error.Description : string.Empty);
+        new[] { page1, page2, page3, page4 }
+            .Select(page => page.Value.Items.Single().Origin.SplitId)
+            .Should().Equal(first.SplitId, second.SplitId, grandchild.SplitId, greatGrandchild.SplitId);
+        new[] { page1, page2, page3, page4 }
+            .Select(page => page.Value.Items.Single().Depth)
+            .Should().Equal(1, 1, 2, 3);
+        new[] { page1, page2, page3 }
+            .Select(page => page.Value.NextAfterSplitId)
+            .Should().Equal(first.SplitId, second.SplitId, grandchild.SplitId);
+        page4.Value.NextAfterSplitId.Should().BeNull();
+        all.Value.Items.Select(item => item.Origin.SplitId)
+            .Should().Equal(first.SplitId, second.SplitId, grandchild.SplitId, greatGrandchild.SplitId);
+        all.Value.Items.Should().OnlyContain(item =>
+            !string.IsNullOrWhiteSpace(item.Origin.ParentTransactionId) &&
+            !string.IsNullOrWhiteSpace(item.Origin.ChildTransactionId));
+        rebased.Value.Items.Select(item => item.Depth).Should().Equal(1, 2);
+        leaf.Value.Items.Should().BeEmpty();
+        leaf.Value.NextAfterSplitId.Should().BeNull();
+
+        (await Service().GetDescendantsAsync(" ")).Error.Type.Should().Be(ErrorType.Validation);
+        (await Service().GetDescendantsAsync(rootId, " ")).Error.Type.Should().Be(ErrorType.Validation);
+        (await Service().GetDescendantsAsync(rootId, limit: 0)).Error.Type.Should().Be(ErrorType.Validation);
+        (await Service().GetDescendantsAsync(rootId, limit: 101)).Error.Type.Should().Be(ErrorType.Validation);
+        (await Service().GetDescendantsAsync("NOT_FOUND")).Error.Type.Should().Be(ErrorType.NotFound);
+        (await Service().GetDescendantsAsync(rootId, foreign.SplitId))
+            .Error.Code.Should().Be("IVT_SPLIT_CURSOR_INVALID");
+        (await Service().GetDescendantsAsync(rootId, "S_NOT_FOUND"))
+            .Error.Type.Should().Be(ErrorType.Validation);
+        (await Service().GetDescendantsAsync(rootId, greatGrandchild.SplitId))
+            .Value.Items.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Descendants_query_rejects_a_corrupt_cycle_without_hanging()
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..12];
+        var rootId = $"P_{suffix}";
+        var childId = $"C_{suffix}";
+        var grandchildId = $"G_{suffix}";
+        await Receive(rootId, suffix, 5m);
+        var first = Split(rootId, childId, suffix, 2m);
+        var second = Split(childId, grandchildId, $"G_{suffix}", 1m);
+        (await Service().SplitAsync(first)).IsSuccess.Should().BeTrue();
+        (await Service().SplitAsync(second)).IsSuccess.Should().BeTrue();
+
+        using var connection = Connection();
+        connection.Execute("""
+            UPDATE IVT_MATERIAL_LOT_SPLIT SET CHILD_LOT_ID=@rootId WHERE SPLIT_ID=@splitId
+            """, new { rootId, splitId = second.SplitId });
+        try
+        {
+            var result = await Service().GetDescendantsAsync(rootId);
+            result.Error.Code.Should().Be("IVT_SPLIT_GENEALOGY_INVALID");
+        }
+        finally
+        {
+            connection.Execute("""
+                UPDATE IVT_MATERIAL_LOT_SPLIT SET CHILD_LOT_ID=@grandchildId WHERE SPLIT_ID=@splitId
+                """, new { grandchildId, splitId = second.SplitId });
+        }
+    }
+
+    [Fact]
     public async Task Mounted_or_unmounted_but_reserved_parent_cannot_be_split()
     {
         var suffix = Guid.NewGuid().ToString("N")[..12];

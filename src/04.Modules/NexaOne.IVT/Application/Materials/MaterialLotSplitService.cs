@@ -19,6 +19,9 @@ internal interface IMaterialLotSplitStore
 
     Task<Result<MaterialLotSplitChildrenPage>> GetChildrenAsync(
         string parentLotId, string? afterSplitId, int limit, CancellationToken ct);
+
+    Task<Result<MaterialLotSplitDescendantsPage>> GetDescendantsAsync(
+        string rootLotId, string? afterSplitId, int limit, CancellationToken ct);
 }
 
 internal sealed class MaterialLotSplitService(IMaterialLotSplitStore store) : IMaterialLotSplitBridge
@@ -41,6 +44,16 @@ internal sealed class MaterialLotSplitService(IMaterialLotSplitStore store) : IM
             ? Task.FromResult(Result.Failure<MaterialLotSplitChildrenPage>(Error.Validation(
                 "IVT_SPLIT_CHILDREN_INVALID", "Parent LOT ID, optional split cursor, and limit 1..100 are required.")))
             : store.GetChildrenAsync(parentLotId.Trim(), afterSplitId?.Trim(), limit, ct);
+
+    public Task<Result<MaterialLotSplitDescendantsPage>> GetDescendantsAsync(
+        string rootLotId, string? afterSplitId = null, int limit = 50,
+        CancellationToken ct = default) =>
+        !Valid(rootLotId, 50)
+        || (afterSplitId is not null && !Valid(afterSplitId, 50))
+        || limit is < 1 or > 100
+            ? Task.FromResult(Result.Failure<MaterialLotSplitDescendantsPage>(Error.Validation(
+                "IVT_SPLIT_DESCENDANTS_INVALID", "Root LOT ID, optional split cursor, and limit 1..100 are required.")))
+            : store.GetDescendantsAsync(rootLotId.Trim(), afterSplitId?.Trim(), limit, ct);
 
     public Task<Result<MaterialLotSplitDto>> SplitAsync(
         MaterialLotSplitCommand command, CancellationToken ct = default)

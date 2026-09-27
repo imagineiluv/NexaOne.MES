@@ -90,6 +90,43 @@ public sealed class MaterialLotSplitControllerTests
     }
 
     [Fact]
+    public async Task Descendants_http_route_requires_ivt_read_and_forwards_root_page_parameters()
+    {
+        var origin = new MaterialLotSplitOriginDto(
+            "S-1", "P-1", "C-1", "CHILD-LOT", 2m, 5m, 3m, 2,
+            "InStock", "P-TX", "C-TX", new DateTime(2026, 9, 28, 1, 2, 3, DateTimeKind.Utc),
+            "operator", "MES", "EVENT-1");
+        var page = new MaterialLotSplitDescendantsPage(
+            [new MaterialLotSplitDescendantDto(origin, 2)], "S-1");
+        var bridge = new Mock<IMaterialLotSplitBridge>();
+        bridge.Setup(x => x.GetDescendantsAsync("P-1", "S-0", 1, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result.Success(page));
+        bridge.Setup(x => x.GetDescendantsAsync("P-1", null, 0, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result.Failure<MaterialLotSplitDescendantsPage>(Error.Validation(
+                "IVT_SPLIT_DESCENDANTS_INVALID", "Page size is invalid.")));
+        bridge.Setup(x => x.GetDescendantsAsync("unknown", null, 50, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result.Failure<MaterialLotSplitDescendantsPage>(Error.NotFound(
+                "IVT_SPLIT_ROOT_NOT_FOUND", "Root material LOT was not found.")));
+        using var factory = new SplitFactory(bridge.Object);
+        const string route = "/api/v1/ivt/material-lots/P-1/descendants?afterSplitId=S-0&limit=1";
+
+        (await factory.CreateClient().GetAsync(route)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await AuthedClient(factory, "reader", Permissions.PrcRead).GetAsync(route))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var reader = AuthedClient(factory, "reader", Permissions.IvtRead);
+        var response = await reader.GetAsync(route);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await response.Content.ReadFromJsonAsync<MaterialLotSplitDescendantsPage>())
+            .Should().BeEquivalentTo(page);
+        (await reader.GetAsync("/api/v1/ivt/material-lots/P-1/descendants?limit=0"))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await reader.GetAsync("/api/v1/ivt/material-lots/unknown/descendants"))
+            .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        bridge.Verify(x => x.GetDescendantsAsync("P-1", "S-0", 1,
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task Split_http_route_requires_ivt_manage_and_uses_the_jwt_actor()
     {
         MaterialLotSplitCommand? received = null;

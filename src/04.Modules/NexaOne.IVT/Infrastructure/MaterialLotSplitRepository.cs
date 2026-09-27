@@ -16,8 +16,10 @@ internal sealed class MaterialLotSplitRepository(EesDataSource dataSource)
     : QueryRepository(dataSource), IMaterialLotSplitStore
 {
     private readonly ServiceObjectProcessor _processor = new(dataSource);
+    private readonly bool _isSqlServer = dataSource.Provider?.Kind == DatabaseProviderKind.SqlServer;
     private readonly string _pageLimitSql = dataSource.Provider?.Kind == DatabaseProviderKind.SqlServer
         ? " OFFSET 0 ROWS FETCH NEXT @fetch ROWS ONLY" : " LIMIT @fetch";
+    private const int MaxDescendantEdges = 10_000;
     private const string SplitByKeySql = """
         SELECT SPLIT_ID AS SplitId, REQUEST_HASH AS RequestHash,
                PARENT_LOT_ID AS ParentLotId, CHILD_LOT_ID AS ChildLotId,
@@ -106,6 +108,73 @@ internal sealed class MaterialLotSplitRepository(EesDataSource dataSource)
         var items = rows.Take(limit).Select(ToOrigin).ToArray();
         var next = rows.Count > limit ? items[^1].SplitId : null;
         return Result.Success(new MaterialLotSplitChildrenPage(items, next));
+    }
+
+    public async Task<Result<MaterialLotSplitDescendantsPage>> GetDescendantsAsync(
+        string rootLotId, string? afterSplitId, int limit, CancellationToken ct)
+    {
+        var root = await QueryFirstOrDefaultAsync<string>(
+            "SELECT LOT_ID FROM IVT_MATERIAL_LOT WHERE LOT_ID=@rootLotId",
+            new { rootLotId }, ct);
+        if (root is null)
+            return Result.Failure<MaterialLotSplitDescendantsPage>(Error.NotFound(
+                "IVT_SPLIT_ROOT_NOT_FOUND", "Root material LOT was not found."));
+
+        // The extra edge detects oversized trees. Depth also bounds a corrupt cycle;
+        // duplicate split IDs are rejected below instead of being returned twice.
+        var recursive = _isSqlServer ? "" : "RECURSIVE ";
+        var top = _isSqlServer ? "TOP (@fetch) " : "";
+        var limitSql = _isSqlServer ? " OPTION (MAXRECURSION 0)" : " LIMIT @fetch";
+        var sql = $"""
+            WITH {recursive}DescendantSplits AS (
+                SELECT SPLIT_ID, CHILD_LOT_ID, 1 AS Depth
+                  FROM IVT_MATERIAL_LOT_SPLIT
+                 WHERE PARENT_LOT_ID=@rootLotId
+                UNION ALL
+                SELECT child.SPLIT_ID, child.CHILD_LOT_ID, parent.Depth + 1
+                  FROM IVT_MATERIAL_LOT_SPLIT child
+                  JOIN DescendantSplits parent ON child.PARENT_LOT_ID=parent.CHILD_LOT_ID
+                 WHERE parent.Depth < @maxDepth
+            )
+            SELECT {top}s.SPLIT_ID AS SplitId, s.PARENT_LOT_ID AS ParentLotId,
+                   s.CHILD_LOT_ID AS ChildLotId, s.CHILD_LOT_NO AS ChildLotNumber,
+                   s.QUANTITY AS Quantity, s.PARENT_BALANCE_BEFORE AS ParentBalanceBefore,
+                   s.PARENT_BALANCE_AFTER AS ParentBalanceAfter, s.PARENT_VERSION AS ParentVersion,
+                   s.PARENT_STATUS AS ParentStatus, s.PARENT_TX_ID AS ParentTransactionId,
+                   s.CHILD_TX_ID AS ChildTransactionId, s.OCCURRED_AT AS OccurredAt,
+                   s.ACTOR_ID AS ActorId, s.SOURCE_SYSTEM AS SourceSystem,
+                   s.SOURCE_EVENT_ID AS SourceEventId, s.CREATED_AT AS CreatedAt,
+                   tree.Depth AS Depth
+              FROM DescendantSplits tree
+              JOIN IVT_MATERIAL_LOT_SPLIT s ON s.SPLIT_ID=tree.SPLIT_ID{limitSql}
+            """;
+        var rows = await QueryAsync<OriginRow>(sql, new
+        {
+            rootLotId,
+            maxDepth = MaxDescendantEdges + 1,
+            fetch = MaxDescendantEdges + 1,
+        }, ct);
+        if (rows.Select(row => row.SplitId).Distinct(StringComparer.OrdinalIgnoreCase).Count() != rows.Count)
+            return Result.Failure<MaterialLotSplitDescendantsPage>(Error.Conflict(
+                "IVT_SPLIT_GENEALOGY_INVALID", "Split genealogy contains a repeated edge."));
+        if (rows.Count > MaxDescendantEdges)
+            return Result.Failure<MaterialLotSplitDescendantsPage>(Error.Conflict(
+                "IVT_SPLIT_DESCENDANTS_TOO_LARGE", "Split genealogy exceeds the 10,000-edge traversal limit."));
+
+        var ordered = rows.OrderBy(row => row.CreatedAt)
+            .ThenBy(row => row.SplitId, StringComparer.Ordinal).ToArray();
+        var cursorIndex = afterSplitId is null ? -1 :
+            Array.FindIndex(ordered, row => string.Equals(
+                row.SplitId, afterSplitId, StringComparison.Ordinal));
+        if (afterSplitId is not null && cursorIndex < 0)
+            return Result.Failure<MaterialLotSplitDescendantsPage>(Error.Validation(
+                "IVT_SPLIT_CURSOR_INVALID", "Split cursor does not belong to the root LOT's descendants."));
+
+        var items = ordered.Skip(cursorIndex + 1).Take(limit)
+            .Select(row => new MaterialLotSplitDescendantDto(ToOrigin(row), row.Depth)).ToArray();
+        var next = cursorIndex + 1 + items.Length < ordered.Length
+            ? items[^1].Origin.SplitId : null;
+        return Result.Success(new MaterialLotSplitDescendantsPage(items, next));
     }
 
     public async Task<Result<MaterialLotSplitDto>> TrySplitAsync(
@@ -350,6 +419,8 @@ internal sealed class MaterialLotSplitRepository(EesDataSource dataSource)
         public string ActorId { get; set; } = string.Empty;
         public string SourceSystem { get; set; } = string.Empty;
         public string SourceEventId { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
+        public int Depth { get; set; }
     }
 
     private sealed class CursorRow

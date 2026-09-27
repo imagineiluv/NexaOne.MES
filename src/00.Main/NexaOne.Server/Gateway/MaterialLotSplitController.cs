@@ -34,6 +34,19 @@ public sealed class MaterialLotSplitController(IMaterialLotSplitBridge bridge) :
         [FromQuery] int limit = 50, CancellationToken ct = default) =>
         (await bridge.GetChildrenAsync(parentLotId, afterSplitId, limit, ct)).ToActionResult();
 
+    [HttpGet("/api/v1/ivt/material-lots/{rootLotId}/descendants")]
+    [RequirePermission(Permissions.IvtRead)]
+    [ProducesResponseType<MaterialLotSplitDescendantsPage>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> GetDescendants(
+        string rootLotId, [FromQuery] string? afterSplitId = null,
+        [FromQuery] int limit = 50, CancellationToken ct = default) =>
+        (await bridge.GetDescendantsAsync(rootLotId, afterSplitId, limit, ct)).ToActionResult();
+
     [HttpPost]
     [RequirePermission(Permissions.IvtManage)]
     [ProducesResponseType<MaterialLotSplitDto>(StatusCodes.Status200OK)]
