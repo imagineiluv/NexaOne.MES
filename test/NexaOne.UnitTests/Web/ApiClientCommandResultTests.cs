@@ -95,6 +95,32 @@ public sealed class ApiClientCommandResultTests
     }
 
     [Fact]
+    public async Task Prc_cancel_client_uses_the_owned_endpoint_and_checks_terminal_status()
+    {
+        var paths = new List<(HttpMethod Method, string Path)>();
+        var client = CreateClient(new CaptureHandler(request =>
+        {
+            paths.Add((request.Method, request.RequestUri!.AbsolutePath));
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = JsonContent.Create(new PrcPurchaseOrderStateDto("PO-1", "Cancelled")),
+            };
+        }));
+
+        var result = await client.ExecutePrcPurchaseOrderActionAsync("cancel", "PO-1");
+
+        result.Success.Should().BeTrue();
+        paths.Should().Equal((HttpMethod.Post, "/api/v1/prc/purchase-orders/PO-1/cancel"));
+
+        var mismatchedClient = CreateClient(new CaptureHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = JsonContent.Create(new PrcPurchaseOrderStateDto("PO-1", "Ordered")),
+        }));
+        (await mismatchedClient.ExecutePrcPurchaseOrderActionAsync("cancel", "PO-1"))
+            .Success.Should().BeFalse("a successful HTTP response must confirm the terminal state");
+    }
+
+    [Fact]
     public async Task Qms_v2_request_transmits_idempotency_header_and_preserves_conflict_details()
     {
         HttpRequestMessage? captured = null;

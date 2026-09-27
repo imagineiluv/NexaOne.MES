@@ -35,6 +35,8 @@ public sealed class PrcPurchaseOrderMetaCommandDriverTests
     [InlineData(PrcPurchaseOrderMetaCommands.Delete, "delete", "Draft")]
     [InlineData(PrcPurchaseOrderMetaCommands.Order, "order", "Draft")]
     [InlineData("BRIDGE:PRC.PURCHASE-ORDER.ORDER", "order", "Draft")]
+    [InlineData(PrcPurchaseOrderMetaCommands.Cancel, "cancel", "Draft")]
+    [InlineData(PrcPurchaseOrderMetaCommands.Cancel, "cancel", "Ordered")]
     [InlineData(PrcPurchaseOrderMetaCommands.Close, "close", "Incoming")]
     public async Task Row_action_calls_the_typed_prc_api(
         string commandId, string expectedAction, string status)
@@ -75,7 +77,31 @@ public sealed class PrcPurchaseOrderMetaCommandDriverTests
             .Success.Should().BeFalse();
         (await driver.ExecuteAsync(PrcPurchaseOrderMetaCommands.Close, wrongState, Context))
             .Success.Should().BeFalse();
+        (await driver.ExecuteAsync(PrcPurchaseOrderMetaCommands.Cancel,
+            new Dictionary<string, object?>
+            {
+                ["PURCHASE_ORDER_ID"] = "PO-1", ["STATUS"] = "Incoming", ["IS_HOLD"] = "N",
+            }, Context)).Success.Should().BeFalse();
         api.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task Cancel_remains_available_to_a_held_order()
+    {
+        var api = new Mock<IApiClient>();
+        api.Setup(client => client.ExecutePrcPurchaseOrderActionAsync(
+                "cancel", "PO-1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PrcPurchaseOrderActionResult(true, null, 200));
+        var driver = new PrcPurchaseOrderMetaCommandDriver(api.Object);
+        var row = new Dictionary<string, object?>
+        {
+            ["PURCHASE_ORDER_ID"] = "PO-1", ["STATUS"] = "Ordered", ["IS_HOLD"] = "Y",
+        };
+
+        (await driver.ExecuteAsync(PrcPurchaseOrderMetaCommands.Cancel, row, Context))
+            .Success.Should().BeTrue();
+        api.Verify(client => client.ExecutePrcPurchaseOrderActionAsync(
+            "cancel", "PO-1", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
