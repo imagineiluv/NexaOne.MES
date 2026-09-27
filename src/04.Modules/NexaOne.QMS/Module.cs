@@ -24,7 +24,8 @@ public sealed class Module
         IMaterialLotDirectory materialLotDirectory,
         IEquipmentDirectory equipmentDirectory,
         IProcessDirectory processDirectory,
-        IUserDirectory userDirectory)
+        IUserDirectory userDirectory,
+        IApprovalProcess approvalProcess)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(configuration);
@@ -33,6 +34,7 @@ public sealed class Module
         ArgumentNullException.ThrowIfNull(equipmentDirectory);
         ArgumentNullException.ThrowIfNull(processDirectory);
         ArgumentNullException.ThrowIfNull(userDirectory);
+        ArgumentNullException.ThrowIfNull(approvalProcess);
 
         var defectClasses = new DefectClassRepository(dataSource);
         var references = new QmsReferenceRepository(
@@ -51,7 +53,8 @@ public sealed class Module
         _qmsBridge = new QmsBridge(
             service,
             new AdvancedQualityService(new AdvancedQualityRepository(dataSource)),
-            new AiInspectionService(new AiInspectionRepository(dataSource)));
+            new AiInspectionService(new AiInspectionRepository(dataSource)),
+            new FourMChangeService(new FourMChangeRepository(dataSource), approvalProcess));
         _productionQualityGateway = new ProductionQualityGateService(
             new ProductionQualityGateEvidenceRepository(dataSource));
         _trackingDefectDirectory = new TrackingDefectDirectory(dataSource);

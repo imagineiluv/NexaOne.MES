@@ -132,6 +132,33 @@ public sealed class QmsBridgeController : ControllerBase
             inspectionId, key, req.Reason, actor, ct)).ToActionResult();
     }
 
+    [HttpPost("4m-changes")]
+    [RequirePermission(Permissions.QmsManage)]
+    public async Task<IActionResult> SubmitFourMChange(
+        [FromBody] SubmitFourMChangeDto req, CancellationToken ct)
+    {
+        if (ActorId is not { } actor) return Unauthorized();
+        var key = Request.Headers["Idempotency-Key"].FirstOrDefault() ?? req.IdempotencyKey;
+        return (await _bridge.SubmitFourMChangeAsync(
+            req with { IdempotencyKey = key }, actor, ct)).ToActionResult();
+    }
+
+    [HttpPost("4m-changes/{changeId}/decision")]
+    [RequirePermission(Permissions.QmsManage)]
+    public async Task<IActionResult> DecideFourMChange(
+        string changeId, [FromBody] DecideFourMChangeDto req, CancellationToken ct)
+    {
+        if (ActorId is not { } actor) return Unauthorized();
+        var key = Request.Headers["Idempotency-Key"].FirstOrDefault() ?? req.IdempotencyKey;
+        return (await _bridge.DecideFourMChangeAsync(
+            changeId, req with { IdempotencyKey = key }, actor, ct)).ToActionResult();
+    }
+
+    [HttpGet("4m-changes/{changeId}")]
+    [RequirePermission(Permissions.QmsRead)]
+    public async Task<IActionResult> GetFourMChange(string changeId, CancellationToken ct)
+        => (await _bridge.GetFourMChangeAsync(changeId, ct)).ToActionResult();
+
     [HttpGet("spc-params")]
     [RequirePermission(Permissions.QmsRead)]
     public async Task<IActionResult> GetSpcParams([FromQuery] string equipmentId, CancellationToken ct)

@@ -1,3 +1,5 @@
+using System.Data.Common;
+
 namespace NexaOne.ServiceContracts.Sys;
 
 /// <summary>승인 요청 등록에 필요한 최소 입력입니다. DocKind는 문서군 식별자(예: "Recipe", "FourMChange").</summary>
@@ -50,12 +52,30 @@ public interface IApprovalProcess : INexaModuleBridge
         string requestHash,
         CancellationToken ct = default);
 
+    /// <summary>SYS 승인 행과 소비 모듈 문서를 같은 DB 트랜잭션에 기록한다. 재생 시 documentWrite는 호출하지 않는다.</summary>
+    Task<string> SubmitWithDocumentAsync(
+        ApprovalRequest request,
+        string requestedBy,
+        string idempotencyKey,
+        string requestHash,
+        Func<DbTransaction, CancellationToken, Task> documentWrite,
+        CancellationToken ct = default);
+
     /// <summary>Pending 요청을 Approved/Rejected로 결정한다. 결정된 요청의 재결정은 거절한다.</summary>
     Task DecideAsync(
         ApprovalDecision decision,
         string decidedBy,
         string idempotencyKey,
         string requestHash,
+        CancellationToken ct = default);
+
+    /// <summary>승인 결정과 소비 모듈의 상태 전이를 같은 DB 트랜잭션에 기록한다. 재생 시 documentWrite는 호출하지 않는다.</summary>
+    Task DecideWithDocumentAsync(
+        ApprovalDecision decision,
+        string decidedBy,
+        string idempotencyKey,
+        string requestHash,
+        Func<DbTransaction, CancellationToken, Task> documentWrite,
         CancellationToken ct = default);
 
     /// <summary>요청자가 본인의 Pending 요청을 취소한다.</summary>

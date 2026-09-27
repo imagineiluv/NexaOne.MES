@@ -11,6 +11,7 @@
     <constructor-arg ref="equipmentDirectory" />
     <constructor-arg ref="processDirectory" />
     <constructor-arg ref="userDirectory" />
+    <constructor-arg ref="approvalProcess" />
   </object>
 
   <object id="qmsBridge" factory-object="qmsModule" factory-method="GetQmsBridge" />

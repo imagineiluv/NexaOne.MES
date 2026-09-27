@@ -2,6 +2,7 @@ using Moq;
 using NexaOne.QMS.Application.Qms;
 using NexaOne.QMS.Domain;
 using NexaOne.Common;
+using NexaOne.ServiceContracts.Sys;
 
 namespace NexaOne.UnitTests.Services;
 
@@ -331,7 +332,9 @@ public sealed class QmsServiceTests
         var bridge = new QmsBridge(
             qms,
             new AdvancedQualityService(Mock.Of<IAdvancedQualityRepository>()),
-            new AiInspectionService(aiRepo.Object));
+            new AiInspectionService(aiRepo.Object),
+            new FourMChangeService(
+                Mock.Of<IFourMChangeRepository>(), Mock.Of<IApprovalProcess>()));
 
         var result = await bridge.GetInspectionExecutionV2Async(execution.InspectionId);
 

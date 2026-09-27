@@ -111,6 +111,33 @@ public record InspectionExecutionV2Dto(
 
 public record CancelInspectionExecutionV2Dto(string IdempotencyKey, string Reason);
 
+/// <summary>4M 변경을 등록하면서 공통 승인함에 제출합니다.</summary>
+public record SubmitFourMChangeDto(
+    string IdempotencyKey,
+    string ChangeId,
+    string ChangeType,
+    DateTime ChangeDate,
+    string Description,
+    string? ChangeNo = null,
+    string? EquipmentId = null,
+    string? ProductId = null);
+
+public record DecideFourMChangeDto(string IdempotencyKey, bool Approve, string? Comment = null);
+
+public record FourMChangeDto(
+    string ChangeId,
+    string? ChangeNo,
+    string ChangeType,
+    string? EquipmentId,
+    string? ProductId,
+    DateTime ChangeDate,
+    string Description,
+    string ApprovalStatus,
+    string? ApprovalId,
+    string RequestedBy,
+    string? DecidedBy,
+    DateTime? DecidedAt);
+
 public record SpcParamDto(
     string Id, string ParamName, string EquipmentId, string ProcessId,
     decimal Mean, decimal Ucl, decimal Lcl, decimal? Usl, decimal? Lsl,
