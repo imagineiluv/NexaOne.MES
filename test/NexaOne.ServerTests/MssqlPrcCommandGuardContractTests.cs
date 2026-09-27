@@ -48,6 +48,12 @@ public sealed class MssqlPrcCommandGuardContractTests(ITestOutputHelper output)
 
         await Command("PRC.OrderPurchaseOrder");
         (await Status()).Should().Be("Draft", "orders without any line cannot be placed");
+        await database.ExecuteAsync(
+            "UPDATE PRC_PURCHASE_ORDER SET STATUS='Incoming' WHERE PURCHASE_ORDER_ID=@id", new { id });
+        await Command("PRC.ClosePurchaseOrder");
+        (await Status()).Should().Be("Incoming", "an empty incoming order cannot be closed");
+        await database.ExecuteAsync(
+            "UPDATE PRC_PURCHASE_ORDER SET STATUS='Draft' WHERE PURCHASE_ORDER_ID=@id", new { id });
         await database.ExecuteAsync("""
             INSERT INTO PRC_PURCHASE_ITEM (PURCHASE_ORDER_ID, PRODUCT_ID, ORDER_QTY)
             VALUES (@id, 'TEST-PRODUCT', 10)
@@ -69,10 +75,20 @@ public sealed class MssqlPrcCommandGuardContractTests(ITestOutputHelper output)
         await Command("PRC.DeletePurchaseOrder");
         (await Name()).Should().Be("edited draft", "Ordered orders cannot be edited or deleted");
 
+        await Command("PRC.ClosePurchaseOrder");
+        (await Status()).Should().Be("Ordered", "an order is not a completed receipt");
+        await database.ExecuteAsync(
+            "UPDATE PRC_PURCHASE_ORDER SET STATUS='Incoming' WHERE PURCHASE_ORDER_ID=@id", new { id });
+        await database.ExecuteAsync(
+            "UPDATE PRC_PURCHASE_ITEM SET INCOMING_QTY=5 WHERE PURCHASE_ORDER_ID=@id", new { id });
+        await Command("PRC.ClosePurchaseOrder");
+        (await Status()).Should().Be("Incoming", "partial receipts cannot be closed");
+        await database.ExecuteAsync(
+            "UPDATE PRC_PURCHASE_ITEM SET INCOMING_QTY=10 WHERE PURCHASE_ORDER_ID=@id", new { id });
         await database.ExecuteAsync(
             "UPDATE PRC_PURCHASE_ORDER SET IS_HOLD='Y' WHERE PURCHASE_ORDER_ID=@id", new { id });
         await Command("PRC.ClosePurchaseOrder");
-        (await Status()).Should().Be("Ordered", "held Ordered orders cannot be closed");
+        (await Status()).Should().Be("Incoming", "held received orders cannot be closed");
         await database.ExecuteAsync(
             "UPDATE PRC_PURCHASE_ORDER SET IS_HOLD='N' WHERE PURCHASE_ORDER_ID=@id", new { id });
         await Command("PRC.ClosePurchaseOrder");
