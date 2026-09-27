@@ -169,8 +169,11 @@ public sealed class KafkaProcessingContractTests
         consumer.Setup(session => session.PollWhilePaused(It.IsAny<TimeSpan>())).Throws(pollFailure);
         using var service = Service(consumer, async (_, token) =>
         {
+            // Register the delay first: cancellation callbacks run newest-first, so the
+            // throwing callback cannot be disposed by the handler's continuation before it runs.
+            var delay = Task.Delay(Timeout.Infinite, token);
             using var registration = token.Register(() => throw new InvalidOperationException("cancel callback failed"));
-            try { await Task.Delay(Timeout.Infinite, token); }
+            try { await delay; }
             finally { drained = true; }
         });
         var error = await Assert.ThrowsAsync<AggregateException>(async () =>
