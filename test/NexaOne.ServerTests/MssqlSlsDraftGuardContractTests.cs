@@ -77,6 +77,17 @@ public sealed class MssqlSlsDraftGuardContractTests(ITestOutputHelper output)
         parameters["salesOrderName"] = "released draft";
         await Command("SLS.CreateSalesOrder");
         (await Name()).Should().Be("released draft");
+
+        var salesRequestId = $"SLSR_{suffix}";
+        await database.ExecuteAsync("""
+            INSERT INTO SLS_SALES_REQUEST (SALES_REQUEST_ID, SALES_ORDER_ID, STATUS)
+            VALUES (@salesRequestId, @salesOrderId, 'Confirmed')
+            """, new { salesRequestId, salesOrderId });
+        await Command("SLS.DeleteSalesOrder");
+        (await Name()).Should().Be("released draft", "a linked sales request must not be orphaned");
+        await database.ExecuteAsync(
+            "DELETE FROM SLS_SALES_REQUEST WHERE SALES_REQUEST_ID=@salesRequestId",
+            new { salesRequestId });
         await Command("SLS.DeleteSalesOrder");
         (await database.ScalarAsync<int>(
             "SELECT COUNT(*) FROM SLS_SALES_ORDER WHERE SALES_ORDER_ID=@salesOrderId",

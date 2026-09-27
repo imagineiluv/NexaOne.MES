@@ -306,6 +306,18 @@ public sealed class GatewaySlsQueryTests : IClassFixture<GatewaySlsQueryTests.Sl
         persisted["SALES_ORDER_NAME"].ToString().Should().Be("초안 수정");
         persisted["STATUS"].ToString().Should().Be("Confirmed");
 
+        var linkedOrder = $"SO_LINKED_{Suffix()}";
+        initial["salesOrderId"] = linkedOrder;
+        initial["salesOrderName"] = "요청 연결 초안";
+        var linkedDraft = await client.PostAsJsonAsync("/api/v1/command/SLS.CreateSalesOrder", initial);
+        (await linkedDraft.Content.ReadFromJsonAsync<AffectedResponse>())!.Affected.Should().Be(1);
+        SeedRequest($"SR_{Suffix()}", linkedOrder, "Confirmed");
+        var linkedDelete = await client.PostAsJsonAsync("/api/v1/command/SLS.DeleteSalesOrder",
+            new Dictionary<string, object?> { ["salesOrderId"] = linkedOrder });
+        (await linkedDelete.Content.ReadFromJsonAsync<AffectedResponse>())!.Affected.Should().Be(0);
+        (await Query("SLS.SalesOrderList", new() { ["plantId"] = plant })).Should()
+            .Contain(row => row["SALES_ORDER_ID"].ToString() == linkedOrder);
+
         var deletableOrder = $"SO_DELETE_{Suffix()}";
         initial["salesOrderId"] = deletableOrder;
         initial["salesOrderName"] = "삭제 가능한 초안";
