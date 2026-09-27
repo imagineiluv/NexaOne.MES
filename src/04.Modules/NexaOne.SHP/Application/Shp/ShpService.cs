@@ -41,30 +41,36 @@ public sealed class ShpService
     {
         var order = await _orderRepository.GetByIdAsync(orderId, ct);
         if (order is null) return Result.Failure(Error.NotFoundOf(nameof(DeliveryOrder), orderId));
+        var expectedStatus = order.Status;
         var r = order.Confirm();
         if (r.IsFailure) return r;
-        await _orderRepository.UpdateAsync(order, ct);
-        return Result.Success();
+        return await _orderRepository.TryUpdateAsync(order, expectedStatus, ct)
+            ? Result.Success()
+            : Result.Failure(Error.Conflict("Delivery order changed during confirmation."));
     }
 
     public async Task<Result> ShipOrderAsync(string orderId, DateTime shippedDate, CancellationToken ct = default)
     {
         var order = await _orderRepository.GetByIdAsync(orderId, ct);
         if (order is null) return Result.Failure(Error.NotFoundOf(nameof(DeliveryOrder), orderId));
+        var expectedStatus = order.Status;
         var r = order.Ship(shippedDate);
         if (r.IsFailure) return r;
-        await _orderRepository.UpdateAsync(order, ct);
-        return Result.Success();
+        return await _orderRepository.TryUpdateAsync(order, expectedStatus, ct)
+            ? Result.Success()
+            : Result.Failure(Error.Conflict("Delivery order changed during shipment."));
     }
 
     public async Task<Result> CancelOrderAsync(string orderId, CancellationToken ct = default)
     {
         var order = await _orderRepository.GetByIdAsync(orderId, ct);
         if (order is null) return Result.Failure(Error.NotFoundOf(nameof(DeliveryOrder), orderId));
+        var expectedStatus = order.Status;
         var r = order.Cancel();
         if (r.IsFailure) return r;
-        await _orderRepository.UpdateAsync(order, ct);
-        return Result.Success();
+        return await _orderRepository.TryUpdateAsync(order, expectedStatus, ct)
+            ? Result.Success()
+            : Result.Failure(Error.Conflict("Delivery order changed during cancellation."));
     }
 
     // ── Delivery Items ────────────────────────────────────────────────────────
