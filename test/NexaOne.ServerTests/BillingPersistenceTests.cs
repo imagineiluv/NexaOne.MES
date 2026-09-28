@@ -72,9 +72,12 @@ public sealed class BillingPersistenceTests : IClassFixture<BusinessMembershipDa
         => (await Assert.ThrowsAsync<BusinessException>(action)).Code.Should().Be(code);
     private static void SameDocument(BillingDocument expected, BillingDocument actual)
     {
-        (actual with { Input = expected.Input }).Should().Be(expected);
+        (actual with { Input = expected.Input, CreationInput = expected.CreationInput }).Should().Be(expected);
         actual.Input.Lines.Should().Equal(expected.Input.Lines);
         (actual.Input with { Lines = expected.Input.Lines }).Should().Be(expected.Input);
+        actual.CreationInput.Should().NotBeNull();
+        actual.CreationInput!.Lines.Should().Equal(expected.CreationInput!.Lines);
+        (actual.CreationInput with { Lines = expected.CreationInput.Lines }).Should().Be(expected.CreationInput);
     }
 
     [Fact]
@@ -379,6 +382,62 @@ public sealed class BillingPersistenceTests : IClassFixture<BusinessMembershipDa
         Count("ERP_BILLING_DOCUMENT").Should().Be(1);
         Count("ERP_BILLING_LINE").Should().Be(1);
         Count("ERP_BILLING_AUDIT").Should().Be(auditBefore + 1);
+    }
+
+    [Fact]
+    public async Task Creation_replay_after_draft_edit_returns_the_current_invoice_and_credit_note_without_new_numbers()
+    {
+        var contact = await Contact();
+        var original = Input(contact.Id);
+        var invoiceOperation = Guid.NewGuid();
+        var invoice = await Create(contact.Id, input: original, operation: invoiceOperation);
+        var editedInput = original with { Lines = [new("Revised", 5m, 2m)], Note = "edited" };
+        var edited = await _bridge.UpdateDocumentAsync("bill-user", _tenant, _organization,
+            invoice.Id, invoice.Version, editedInput);
+        var invoiceReplay = await NewBridge().CreateDocumentAsync("bill-user", _tenant, _organization,
+            invoiceOperation, BillingKind.Invoice, original);
+        SameDocument(edited, invoiceReplay);
+        await Error(() => NewBridge().CreateDocumentAsync("bill-user", _tenant, _organization,
+            invoiceOperation, BillingKind.Invoice, editedInput), "BILLING_OPERATION_CONFLICT");
+
+        var sent = await _bridge.MarkSentAsync("bill-user", _tenant, _organization, edited.Id, edited.Version);
+        var creditInput = new BillingDocumentInput(contact.Id, Issued.AddDays(1), Issued.AddDays(1), "KRW",
+            [new("Correction", 4m, 1m)]);
+        var creditOperation = Guid.NewGuid();
+        var note = await _bridge.CreateCreditNoteAsync("bill-user", _tenant, _organization,
+            creditOperation, sent.Id, creditInput);
+        var revisedCredit = creditInput with { Lines = [new("Corrected", 5m, 1m)] };
+        var editedNote = await _bridge.UpdateCreditNoteAsync("bill-user", _tenant, _organization,
+            note.Id, note.Version, revisedCredit);
+        SameDocument(editedNote, await NewBridge().CreateCreditNoteAsync("bill-user", _tenant, _organization,
+            creditOperation, sent.Id, creditInput));
+        await Error(() => NewBridge().CreateCreditNoteAsync("bill-user", _tenant, _organization,
+            creditOperation, sent.Id, revisedCredit), "BILLING_OPERATION_CONFLICT");
+
+        Count("ERP_BILLING_DOCUMENT").Should().Be(2);
+        Count("ERP_BILLING_AUDIT").Should().Be(6);
+        Scalar<long>("SELECT NEXT_NUMBER FROM ERP_BILLING_NUMBER WHERE KIND=1").Should().Be(1);
+        Scalar<long>("SELECT NEXT_NUMBER FROM ERP_BILLING_NUMBER WHERE KIND=2").Should().Be(1);
+        Scalar<string>("SELECT CREATION_INPUT_JSON FROM ERP_BILLING_DOCUMENT WHERE DOCUMENT_ID=@id",
+            new { id = invoice.Id.ToString("D") }).Should().Contain("Service");
+    }
+
+    [Fact]
+    public async Task Pre_migration_document_without_original_input_rejects_all_create_replays()
+    {
+        var contact = await Contact(); var operation = Guid.NewGuid();
+        var original = Input(contact.Id);
+        var invoice = await Create(contact.Id, input: original, operation: operation);
+        var edited = original with { Note = "changed before migration" };
+        await _bridge.UpdateDocumentAsync("bill-user", _tenant, _organization, invoice.Id, invoice.Version, edited);
+        Execute("UPDATE ERP_BILLING_DOCUMENT SET CREATION_INPUT_JSON=NULL WHERE DOCUMENT_ID=@id",
+            new { id = invoice.Id.ToString("D") });
+        (await Read(invoice.Id)).CreationInput.Should().BeNull();
+        await Error(() => NewBridge().CreateDocumentAsync("bill-user", _tenant, _organization,
+            operation, BillingKind.Invoice, original), "BILLING_OPERATION_CONFLICT");
+        await Error(() => NewBridge().CreateDocumentAsync("bill-user", _tenant, _organization,
+            operation, BillingKind.Invoice, edited), "BILLING_OPERATION_CONFLICT");
+        Count("ERP_BILLING_DOCUMENT").Should().Be(1);
     }
 
     [Fact]

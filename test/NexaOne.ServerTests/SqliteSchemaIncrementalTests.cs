@@ -3101,12 +3101,14 @@ public sealed class SqliteSchemaIncrementalTests
 
             SqliteSchemaInitializer.EnsureSchema(cs, [new ErpBillingSqliteSchemaContribution()]);
 
-            Columns(cs, "ERP_BILLING_DOCUMENT").Should().Contain("CREDITED", "ADJUSTED_INVOICE_ID");
+            Columns(cs, "ERP_BILLING_DOCUMENT").Should().Contain("CREDITED", "ADJUSTED_INVOICE_ID", "CREATION_INPUT_JSON");
             TableExists(cs, "ERP_BILLING_SHARE_LINK").Should().BeTrue();
             TableExists(cs, "ERP_BILLING_SHARE_ACCESS").Should().BeTrue();
             TableExists(cs, "ERP_BILLING_SHARE_DELIVERY").Should().BeTrue();
             ScalarString(cs, "SELECT CREDITED FROM ERP_BILLING_DOCUMENT WHERE DOCUMENT_ID='invoice'")
                 .Should().Be("0");
+            ScalarString(cs, "SELECT COALESCE(CREATION_INPUT_JSON, 'unknown') FROM ERP_BILLING_DOCUMENT WHERE DOCUMENT_ID='invoice'")
+                .Should().Be("unknown", "legacy invoice creation input must not be guessed");
             IndexExists(cs, "IX_ERP_BILLING_DOCUMENT_ADJUSTED").Should().BeTrue();
             ExecSql(cs, """
                 UPDATE ERP_BILLING_DOCUMENT SET STATUS=9 WHERE DOCUMENT_ID='invoice';
@@ -3119,8 +3121,11 @@ public sealed class SqliteSchemaIncrementalTests
                         '2026-09-23','KRW','2','0','0','2','0','0','user','invoice',2);
                 """);
             Count(cs, "ERP_BILLING_DOCUMENT").Should().Be(2);
+            ExecSql(cs, "UPDATE ERP_BILLING_DOCUMENT SET CREATION_INPUT_JSON='{\"original\":true}' WHERE DOCUMENT_ID='invoice';");
             SqliteSchemaInitializer.EnsureSchema(cs, [new ErpBillingSqliteSchemaContribution()]);
             Count(cs, "ERP_BILLING_DOCUMENT").Should().Be(2);
+            ScalarString(cs, "SELECT CREATION_INPUT_JSON FROM ERP_BILLING_DOCUMENT WHERE DOCUMENT_ID='invoice'")
+                .Should().Be("{\"original\":true}");
         }
         finally { try { File.Delete(FileOf(cs)); } catch { } }
     }

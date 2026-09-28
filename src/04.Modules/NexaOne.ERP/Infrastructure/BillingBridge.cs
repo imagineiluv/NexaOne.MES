@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using System.Globalization;
+using System.Text.Json;
 using Dapper;
 using NexaFramework.Service;
 using NexaFramework.Service.Erp;
@@ -210,7 +211,7 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IExp
             + "DISCOUNT_TYPE AS DiscountType, DISCOUNT_VALUE AS DiscountValue, TAX_TYPE AS TaxType, TAX_VALUE AS TaxValue, TAX2_TYPE AS Tax2Type, TAX2_VALUE AS Tax2Value, "
             + "TERMS AS Terms, NOTE AS Note, SUBTOTAL AS Subtotal, DISCOUNT_AMOUNT AS DiscountAmount, TAX_AMOUNT AS TaxAmount, TOTAL AS Total, PAID AS Paid, "
             + "CREDITED AS Credited, CREATED_BY AS CreatedBy, CONVERTED_FROM_ID AS ConvertedFrom, CONVERTED_TO_ID AS ConvertedTo, "
-            + "ADJUSTED_INVOICE_ID AS AdjustedInvoice";
+            + "ADJUSTED_INVOICE_ID AS AdjustedInvoice, CREATION_INPUT_JSON AS CreationInputJson";
         private const string PaymentColumns = "PAYMENT_ID AS Id, VERSION AS Version, OPERATION_ID AS OperationId, DOCUMENT_ID AS DocumentId, AMOUNT AS Amount, "
             + "CURRENCY AS Currency, PAID_AT_TICKS AS PaidAt, METHOD AS Method, REFERENCE AS Reference, NOTE AS Note, CREATED_BY AS CreatedBy, STATE AS State, "
             + "CANCELLED_BY AS CancelledBy, CANCELLED_AT_TICKS AS CancelledAt, CANCEL_REASON AS CancelReason";
@@ -335,12 +336,26 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IExp
                     Adjustment(row.DiscountType, row.DiscountValue), Adjustment(row.TaxType, row.TaxValue), Adjustment(row.Tax2Type, row.Tax2Value), row.Terms, row.Note),
                 new(Amount(row.Subtotal), Amount(row.DiscountAmount), Amount(row.TaxAmount), Amount(row.Total)), (BillingStatus)row.Status,
                 Text(Id(row.CreatedBy)), Amount(row.Paid), OptionalId(row.ConvertedFrom), OptionalId(row.ConvertedTo),
-                Amount(row.Credited), OptionalId(row.AdjustedInvoice));
+                Amount(row.Credited), OptionalId(row.AdjustedInvoice))
+            { CreationInput = ReadCreationInput(row.CreationInputJson) };
+        private static BillingDocumentInput? ReadCreationInput(string? json)
+        {
+            if (json is null) return null; // Pre-migration rows cannot prove their original create request.
+            try { return JsonSerializer.Deserialize<BillingDocumentInput>(json)
+                ?? throw new InvalidDataException("Billing storage contains a null creation input."); }
+            catch (JsonException error) { throw new InvalidDataException("Billing storage contains invalid creation input JSON.", error); }
+        }
+        private static bool SameCreationInput(BillingDocumentInput? left, BillingDocumentInput? right)
+            => left is null ? right is null : right is not null && left.ContactId == right.ContactId
+                && left.DocumentDate == right.DocumentDate && left.DueDate == right.DueDate && left.Currency == right.Currency
+                && left.Discount == right.Discount && left.Tax == right.Tax && left.Tax2 == right.Tax2
+                && left.Terms == right.Terms && left.Note == right.Note && left.Lines.SequenceEqual(right.Lines);
         public Task<BillingDocument?> FindDocumentAsync(Guid id, CancellationToken ct) => ReadDocument("DOCUMENT_ID=@key", id, ct);
         public Task<BillingDocument?> FindDocumentByOperationAsync(Guid operationId, CancellationToken ct) => ReadDocument("OPERATION_ID=@key", operationId, ct);
         public async Task SaveDocumentAsync(BillingDocument value, Guid? expectedVersion, CancellationToken ct)
         {
             RequireScope(value.Scope);
+            if (expectedVersion is null && value.CreationInput is null) throw Failure("STORAGE_CONTRACT_VIOLATION");
             var input = value.Input;
             var values = new
             {
@@ -351,6 +366,7 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IExp
                 Subtotal = Amount(value.Totals.Subtotal), DiscountAmount = Amount(value.Totals.DiscountAmount), TaxAmount = Amount(value.Totals.TaxAmount),
                 Total = Amount(value.Totals.Total), Paid = Amount(value.Paid), Credited = Amount(value.Credited), value.CreatedBy,
                 ConvertedFrom = Text(value.ConvertedFromId), ConvertedTo = Text(value.ConvertedToId), AdjustedInvoice = Text(value.AdjustedInvoiceId),
+                CreationInputJson = value.CreationInput is null ? null : JsonSerializer.Serialize(value.CreationInput),
                 Previous = Text(expectedVersion), At = clock.GetUtcNow().UtcTicks
             };
             if (expectedVersion is null)
@@ -358,10 +374,10 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IExp
                 await Write("""
                     INSERT INTO ERP_BILLING_DOCUMENT (TENANT_ID, ORGANIZATION_ID, DOCUMENT_ID, VERSION, OPERATION_ID, KIND, NUMBER, STATUS, CONTACT_ID,
                         DOCUMENT_DATE, DUE_DATE, CURRENCY, DISCOUNT_TYPE, DISCOUNT_VALUE, TAX_TYPE, TAX_VALUE, TAX2_TYPE, TAX2_VALUE, TERMS, NOTE,
-                        SUBTOTAL, DISCOUNT_AMOUNT, TAX_AMOUNT, TOTAL, PAID, CREDITED, CREATED_BY, CONVERTED_FROM_ID, CONVERTED_TO_ID, ADJUSTED_INVOICE_ID, AT_TICKS)
+                        SUBTOTAL, DISCOUNT_AMOUNT, TAX_AMOUNT, TOTAL, PAID, CREDITED, CREATED_BY, CONVERTED_FROM_ID, CONVERTED_TO_ID, ADJUSTED_INVOICE_ID, CREATION_INPUT_JSON, AT_TICKS)
                     VALUES (@TenantId, @OrganizationId, @Id, @Version, @Operation, @Kind, @Number, @Status, @Contact,
                         @DocumentDate, @DueDate, @Currency, @DiscountType, @DiscountValue, @TaxType, @TaxValue, @Tax2Type, @Tax2Value, @Terms, @Note,
-                        @Subtotal, @DiscountAmount, @TaxAmount, @Total, @Paid, @Credited, @CreatedBy, @ConvertedFrom, @ConvertedTo, @AdjustedInvoice, @At)
+                        @Subtotal, @DiscountAmount, @TaxAmount, @Total, @Paid, @Credited, @CreatedBy, @ConvertedFrom, @ConvertedTo, @AdjustedInvoice, @CreationInputJson, @At)
                     """, values, ct);
                 await WriteLines(value.Id, input.Lines, ct);
                 return;
@@ -372,6 +388,7 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IExp
             if (current.Kind != value.Kind || current.Number != value.Number || current.OperationId != value.OperationId
                 || current.CreatedBy != value.CreatedBy || current.ConvertedFromId != value.ConvertedFromId
                 || current.AdjustedInvoiceId != value.AdjustedInvoiceId
+                || !SameCreationInput(current.CreationInput, value.CreationInput)
                 || (current.ConvertedToId is not null && current.ConvertedToId != value.ConvertedToId))
                 throw Failure("STORAGE_CONTRACT_VIOLATION");
             await Write("UPDATE ERP_BILLING_DOCUMENT SET VERSION=@Version, STATUS=@Status, CONTACT_ID=@Contact, DOCUMENT_DATE=@DocumentDate, DUE_DATE=@DueDate, "
@@ -510,6 +527,7 @@ public sealed partial class BillingBridge : IBillingBridge, IExpenseBridge, IExp
         public string? ConvertedFrom { get; set; }
         public string? ConvertedTo { get; set; }
         public string? AdjustedInvoice { get; set; }
+        public string? CreationInputJson { get; set; }
     }
     private sealed class LineRow
     {

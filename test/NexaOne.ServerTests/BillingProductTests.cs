@@ -278,6 +278,65 @@ public sealed class BillingHostTests(ITestOutputHelper output)
 public sealed class BillingMssqlTests(ITestOutputHelper output)
 {
     [StockMssqlFact]
+    public async Task Actual_SQL_Server_preserves_creation_input_through_edits_and_rejects_unknown_legacy_replay()
+    {
+        var h = await Harness.CreateAsync(output);
+        (await h.Database.ScalarAsync<short>("""
+            SELECT c.max_length FROM sys.columns c JOIN sys.tables t ON c.object_id=t.object_id
+             WHERE t.schema_id=SCHEMA_ID('dbo') AND t.name='ERP_BILLING_DOCUMENT'
+               AND c.name='CREATION_INPUT_JSON' AND TYPE_NAME(c.user_type_id)='nvarchar'
+            """)).Should().Be(-1);
+        var contact = await h.Bridge.EnrollContactAsync(h.Seed.User, h.Tenant, h.Organization, h.Seed.Customer);
+        var input = new BillingDocumentInput(contact.Id, new(2026, 9, 22), new(2026, 10, 22), "KRW",
+            [new("Original", 10m, 1m)]);
+        var operation = Guid.NewGuid();
+        var invoice = await h.Bridge.CreateDocumentAsync(h.Seed.User, h.Tenant, h.Organization,
+            operation, BillingKind.Invoice, input);
+        var editedInput = input with { Lines = [new("Updated", 8m, 1m)] };
+        var edited = await h.Bridge.UpdateDocumentAsync(h.Seed.User, h.Tenant, h.Organization,
+            invoice.Id, invoice.Version, editedInput);
+        var replay = await h.Bridge.CreateDocumentAsync(h.Seed.User, h.Tenant, h.Organization,
+            operation, BillingKind.Invoice, input);
+        replay.Id.Should().Be(edited.Id); replay.Version.Should().Be(edited.Version);
+        replay.Input.Lines.Should().Equal(editedInput.Lines);
+        (await Assert.ThrowsAsync<BusinessException>(() => h.Bridge.CreateDocumentAsync(h.Seed.User,
+            h.Tenant, h.Organization, operation, BillingKind.Invoice, editedInput)))
+            .Code.Should().Be("BILLING_OPERATION_CONFLICT");
+
+        var sent = await h.Bridge.MarkSentAsync(h.Seed.User, h.Tenant, h.Organization, edited.Id, edited.Version);
+        var creditInput = new BillingDocumentInput(contact.Id, new(2026, 9, 23), new(2026, 9, 23), "KRW",
+            [new("Correction", 2m, 1m)]);
+        var creditOperation = Guid.NewGuid();
+        var note = await h.Bridge.CreateCreditNoteAsync(h.Seed.User, h.Tenant, h.Organization,
+            creditOperation, sent.Id, creditInput);
+        var changedCredit = creditInput with { Lines = [new("Corrected", 3m, 1m)] };
+        var editedNote = await h.Bridge.UpdateCreditNoteAsync(h.Seed.User, h.Tenant, h.Organization,
+            note.Id, note.Version, changedCredit);
+        var creditReplay = await h.Bridge.CreateCreditNoteAsync(h.Seed.User, h.Tenant, h.Organization,
+            creditOperation, sent.Id, creditInput);
+        creditReplay.Id.Should().Be(editedNote.Id); creditReplay.Version.Should().Be(editedNote.Version);
+        creditReplay.Input.Lines.Should().Equal(changedCredit.Lines);
+        (await h.Count("ERP_BILLING_DOCUMENT")).Should().Be(2);
+        (await h.Count("ERP_BILLING_AUDIT")).Should().Be(6);
+        (await h.Database.ScalarAsync<string>("""
+            SELECT CREATION_INPUT_JSON FROM ERP_BILLING_DOCUMENT
+             WHERE TENANT_ID=@tenant AND ORGANIZATION_ID=@organization AND DOCUMENT_ID=@id
+            """, new { tenant = h.Tenant.ToString("D"), organization = h.Organization.ToString("D"), id = invoice.Id.ToString("D") }))
+            .Should().Contain("Original");
+
+        await h.Database.ExecuteAsync("""
+            UPDATE ERP_BILLING_DOCUMENT SET CREATION_INPUT_JSON=NULL
+             WHERE TENANT_ID=@tenant AND ORGANIZATION_ID=@organization AND DOCUMENT_ID=@id
+            """, new { tenant = h.Tenant.ToString("D"), organization = h.Organization.ToString("D"), id = invoice.Id.ToString("D") });
+        (await Assert.ThrowsAsync<BusinessException>(() => h.Bridge.CreateDocumentAsync(h.Seed.User,
+            h.Tenant, h.Organization, operation, BillingKind.Invoice, input)))
+            .Code.Should().Be("BILLING_OPERATION_CONFLICT");
+        (await Assert.ThrowsAsync<BusinessException>(() => h.Bridge.CreateDocumentAsync(h.Seed.User,
+            h.Tenant, h.Organization, operation, BillingKind.Invoice, editedInput)))
+            .Code.Should().Be("BILLING_OPERATION_CONFLICT");
+    }
+
+    [StockMssqlFact]
     public async Task Actual_SQL_Server_response_loss_after_commit_replays_without_another_number_or_audit()
     {
         var h = await Harness.CreateAsync(output);
