@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -182,6 +183,13 @@ public sealed class SlsSalesRequestApiTests : IClassFixture<SlsSalesRequestApiTe
         replay.StatusCode.Should().Be(HttpStatusCode.Conflict);
         Count("SLS_SALES_ORDER", "SALES_ORDER_ID", orderId).Should().Be(1);
         ReadRequest(requestId).Should().Be(("Confirmed", orderId, actor, actor));
+
+        var readClient = Client("reader", Permissions.SlsRead);
+        var lookup = await readClient.PostAsJsonAsync(
+            "/api/v1/query/SLS.SalesRequestById", new { salesRequestId = requestId });
+        lookup.StatusCode.Should().Be(HttpStatusCode.OK);
+        var current = await lookup.Content.ReadFromJsonAsync<List<Dictionary<string, JsonElement>>>();
+        current.Should().ContainSingle().Which["SALES_ORDER_ID"].GetString().Should().Be(orderId);
     }
 
     [Fact]

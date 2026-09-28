@@ -130,6 +130,14 @@ public sealed class MssqlSlsSalesRequestContractTests(ITestOutputHelper output)
         var replay = await bridge.ReceiveAsync(receipt);
         replay.IsFailure.Should().BeTrue();
         replay.Error.Code.Should().Be("SLS_REQUEST_NOT_RECEIVABLE");
+        var currentRequest = await database.QueryNamedAsync(
+            "SLS.SalesRequestById", new { salesRequestId = requestId });
+        currentRequest.Should().ContainSingle().Which["SALES_ORDER_ID"].ToString().Should().Be(orderId);
+        var currentOrder = await database.QueryNamedAsync(
+            "SLS.SalesOrderById", new { salesOrderId = orderId });
+        currentOrder.Should().ContainSingle().Which["STATUS"].ToString().Should().Be("Draft");
+        (await database.QueryNamedAsync("SLS.SalesRequestById", new { salesRequestId = (string?)null }))
+            .Should().BeEmpty("an omitted ID must not expose the request list");
     }
 
     [Fact]

@@ -13,8 +13,8 @@ using Xunit;
 namespace NexaOne.ServerTests;
 
 /// <summary>게이트웨이 우선 SLS read E2E — modules OFF + SQLite. 레거시 SLS_TB_SALES_ORDER/SLS_TB_SALES_REQUEST를
-/// V053으로 포팅한 SLS_SALES_ORDER/SLS_SALES_REQUEST를 직접 시드한 뒤 명명 read 쿼리(SLS.SalesOrderList/
-/// SalesRequestList) 라운드트립을 검증한다(수주/판매 요청 점등 백엔드). + 미인증 401.</summary>
+/// V053으로 포팅한 SLS_SALES_ORDER/SLS_SALES_REQUEST를 직접 시드한 뒤 목록·ID별 명명 read 쿼리의
+/// 라운드트립과 권한을 검증한다(수주/판매 요청 점등 백엔드).</summary>
 public sealed class GatewaySlsQueryTests : IClassFixture<GatewaySlsQueryTests.SlsFactory>
 {
     private const string Secret = "sls-gateway-e2e-jwt-secret-key-at-least-32-bytes!!";
@@ -145,6 +145,35 @@ public sealed class GatewaySlsQueryTests : IClassFixture<GatewaySlsQueryTests.Sl
         var byRequest = await Query("SLS.SalesRequestList", new() { ["salesRequestId"] = linked });
         byRequest.Select(r => r["SALES_REQUEST_ID"].ToString()).Should().ContainSingle()
             .Which.Should().Be(linked, "재시도 충돌 후 알려진 요청 ID로 현재 연결 상태를 확인할 수 있어야 한다");
+    }
+
+    [Fact]
+    public async Task ById_queries_return_only_the_current_row_to_sls_readers()
+    {
+        EnsureSchemaReady();
+        var orderId = $"SO_{Suffix()}";
+        var requestId = $"SR_{Suffix()}";
+        SeedOrder(orderId, $"P_{Suffix()}", "CUST01", "Confirmed");
+        SeedRequest(requestId, orderId, "Confirmed");
+
+        var requestUrl = "/api/v1/query/SLS.SalesRequestById";
+        var orderUrl = "/api/v1/query/SLS.SalesOrderById";
+        (await _factory.CreateClient().PostAsJsonAsync(requestUrl, new { salesRequestId = requestId }))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await AuthedClient("other-reader", "pom:read").PostAsJsonAsync(orderUrl, new { salesOrderId = orderId }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var request = await Query("SLS.SalesRequestById", new() { ["salesRequestId"] = requestId });
+        request.Should().ContainSingle().Which["SALES_ORDER_ID"].ToString().Should().Be(orderId);
+        request[0]["STATUS"].ToString().Should().Be("Confirmed");
+        var order = await Query("SLS.SalesOrderById", new() { ["salesOrderId"] = orderId });
+        order.Should().ContainSingle().Which["SALES_ORDER_ID"].ToString().Should().Be(orderId);
+        order[0]["STATUS"].ToString().Should().Be("Confirmed");
+
+        (await Query("SLS.SalesRequestById", new())).Should().BeEmpty("an omitted ID must not list requests");
+        (await Query("SLS.SalesOrderById", new())).Should().BeEmpty("an omitted ID must not list orders");
+        (await Query("SLS.SalesRequestById", new() { ["salesRequestId"] = $"SR_{Suffix()}" }))
+            .Should().BeEmpty();
     }
 
     [Fact]

@@ -114,6 +114,10 @@ public sealed class MssqlSlsSalesOrderDeliveryContractTests(ITestOutputHelper ou
             firstSalesOrder, deliveryOrder, deliveryItem, actor));
         replay.IsFailure.Should().BeTrue();
         replay.Error.Code.Should().Be("SLS_DELIVERY_NOT_REQUESTABLE");
+        var current = await database.QueryNamedAsync(
+            "SLS.SalesOrderById", new { salesOrderId = firstSalesOrder });
+        current.Should().ContainSingle().Which["DELIVERY_ORDER_ID"].ToString().Should().Be(deliveryOrder);
+        current[0]["STATUS"].ToString().Should().Be("Delivered");
     }
 
     [Fact]
