@@ -11,7 +11,9 @@ namespace NexaOne.Server.Gateway;
 [Authorize]
 [Route("api/v1/sls/sales-orders")]
 [ProducesErrorResponseType(typeof(Error))]
-public sealed class SalesOrderDeliveryController(ISalesOrderDeliveryBridge bridge) : ControllerBase
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
+public sealed class SalesOrderDeliveryController(
+    ISalesOrderDeliveryBridge bridge, ILogger<SalesOrderDeliveryController> logger) : ControllerBase
 {
     [HttpPost("{salesOrderId}/delivery-request")]
     [RequirePermission(Permissions.SlsManage)]
@@ -20,9 +22,9 @@ public sealed class SalesOrderDeliveryController(ISalesOrderDeliveryBridge bridg
     {
         var actor = User.CurrentUserId();
         if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
-        var result = await bridge.RequestDeliveryAsync(new SalesOrderDeliveryCommand(
-            salesOrderId, request.DeliveryOrderId, request.DeliveryItemId, actor), ct);
-        return result.ToActionResult();
+        return await SlsWriteRecovery.Execute(this, logger, () => bridge.RequestDeliveryAsync(
+            new SalesOrderDeliveryCommand(salesOrderId, request.DeliveryOrderId,
+                request.DeliveryItemId, actor), ct));
     }
 
     [HttpPost("{salesOrderId}/delivery-confirmation")]
@@ -31,9 +33,8 @@ public sealed class SalesOrderDeliveryController(ISalesOrderDeliveryBridge bridg
     {
         var actor = User.CurrentUserId();
         if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
-        var result = await bridge.ConfirmDeliveryAsync(
-            new SalesOrderDeliveryConfirmationCommand(salesOrderId, actor), ct);
-        return result.ToActionResult();
+        return await SlsWriteRecovery.Execute(this, logger, () => bridge.ConfirmDeliveryAsync(
+            new SalesOrderDeliveryConfirmationCommand(salesOrderId, actor), ct));
     }
 
     public sealed record DeliveryRequest(string? DeliveryOrderId, string? DeliveryItemId);

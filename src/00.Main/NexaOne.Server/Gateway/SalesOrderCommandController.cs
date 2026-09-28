@@ -11,7 +11,9 @@ namespace NexaOne.Server.Gateway;
 [Authorize]
 [Route("api/v1/sls/sales-orders")]
 [ProducesErrorResponseType(typeof(Error))]
-public sealed class SalesOrderCommandController(ISalesOrderCommandBridge bridge) : ControllerBase
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
+public sealed class SalesOrderCommandController(
+    ISalesOrderCommandBridge bridge, ILogger<SalesOrderCommandController> logger) : ControllerBase
 {
     [HttpPost]
     [RequirePermission(Permissions.SlsManage)]
@@ -19,10 +21,10 @@ public sealed class SalesOrderCommandController(ISalesOrderCommandBridge bridge)
     {
         var actor = User.CurrentUserId();
         if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
-        return (await bridge.SaveDraftAsync(new SalesOrderDraftCommand(
+        return await SlsWriteRecovery.Execute(this, logger, () => bridge.SaveDraftAsync(new SalesOrderDraftCommand(
             request.SalesOrderId, request.SalesOrderName, request.PlantId,
             request.CustomerId, request.ProductId, request.PlanStartDate,
-            request.PlanEndDate, request.PlanQty, actor), ct)).ToActionResult();
+            request.PlanEndDate, request.PlanQty, actor), ct));
     }
 
     [HttpDelete("{salesOrderId}")]
@@ -31,7 +33,8 @@ public sealed class SalesOrderCommandController(ISalesOrderCommandBridge bridge)
     {
         var actor = User.CurrentUserId();
         if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
-        return (await bridge.DeleteDraftAsync(salesOrderId, actor, ct)).ToActionResult();
+        return await SlsWriteRecovery.Execute(this, logger, () =>
+            bridge.DeleteDraftAsync(salesOrderId, actor, ct));
     }
 
     [HttpPost("{salesOrderId}/confirm")]
@@ -40,7 +43,8 @@ public sealed class SalesOrderCommandController(ISalesOrderCommandBridge bridge)
     {
         var actor = User.CurrentUserId();
         if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
-        return (await bridge.ConfirmAsync(salesOrderId, actor, ct)).ToActionResult();
+        return await SlsWriteRecovery.Execute(this, logger, () =>
+            bridge.ConfirmAsync(salesOrderId, actor, ct));
     }
 
     [HttpPost("{salesOrderId}/close")]
@@ -49,7 +53,8 @@ public sealed class SalesOrderCommandController(ISalesOrderCommandBridge bridge)
     {
         var actor = User.CurrentUserId();
         if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
-        return (await bridge.CloseAsync(salesOrderId, actor, ct)).ToActionResult();
+        return await SlsWriteRecovery.Execute(this, logger, () =>
+            bridge.CloseAsync(salesOrderId, actor, ct));
     }
 
     public sealed record SaveDraftRequest(
