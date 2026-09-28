@@ -8,7 +8,11 @@ using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using NexaDB.Data.Abstractions.Interfaces;
 using NexaOne.Common.Security;
+using NexaOne.Infrastructure.Persistence;
+using NexaOne.MDM.Infrastructure;
+using NexaOne.SHP.Infrastructure;
 using NexaOne.Server.Gateway;
 using NexaOne.ServiceContracts.Sls;
 using Xunit;
@@ -248,6 +252,48 @@ public sealed class SlsSalesOrderDeliveryApiTests
     }
 
     [Fact]
+    public async Task Confirmation_response_loss_after_commit_replays_without_rewriting_sales_order()
+    {
+        var suffix = Suffix();
+        var salesOrderId = $"SO_{suffix}";
+        var deliveryOrderId = $"DO_{suffix}";
+        SeedValidOrder(suffix, "Draft");
+        var client = Client("ship-manager", Permissions.SlsManage);
+        (await client.PostAsJsonAsync(Url(salesOrderId), Request(deliveryOrderId, $"DI_{suffix}")))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        MarkShipped(deliveryOrderId);
+
+        var provider = new AfterCommitResponseLossProvider(
+            _factory.Services.GetRequiredService<IDatabaseProvider>());
+        var dataSource = new EesDataSource
+        {
+            Provider = provider,
+            ConnectionString = _factory.ConnString,
+        };
+        var bridge = new NexaOne.SLS.Module(dataSource, new BusinessMasterDirectory(dataSource),
+            new SalesOrderShipmentIntake(), new SalesOrderShipmentEvidence())
+            .GetSalesOrderDeliveryBridge();
+        var command = new SalesOrderDeliveryConfirmationCommand(salesOrderId, "ship-manager");
+
+        (await Assert.ThrowsAsync<IOException>(() => bridge.ConfirmDeliveryAsync(command)))
+            .Message.Should().Contain("response loss");
+        provider.CallbackCount.Should().Be(1);
+        ReadSalesOrder(salesOrderId).Should().Be(("Delivered", deliveryOrderId, "ship-manager"));
+        ReadDeliveredQty(salesOrderId).Should().Be(12.5m);
+        Execute("UPDATE SLS_SALES_ORDER SET UPDATED_AT = '2001-02-03 04:05:06' WHERE SALES_ORDER_ID = @id",
+            cmd => cmd.Parameters.AddWithValue("@id", salesOrderId));
+        var updatedAt = ReadSalesOrderUpdatedAt(salesOrderId);
+        updatedAt.Should().Contain("2001-02-03");
+
+        var recovered = await _factory.Services.GetRequiredService<ISalesOrderDeliveryBridge>()
+            .ConfirmDeliveryAsync(command);
+        recovered.IsSuccess.Should().BeTrue(recovered.IsFailure ? recovered.Error.Description : string.Empty);
+        recovered.Value.Should().Be(new SalesOrderDeliveryConfirmationState(
+            salesOrderId, deliveryOrderId, "Delivered", 12.5m));
+        ReadSalesOrderUpdatedAt(salesOrderId).Should().Be(updatedAt);
+    }
+
+    [Fact]
     public async Task Shipment_mismatch_or_sales_hold_never_marks_order_delivered()
     {
         var suffix = Suffix();
@@ -410,6 +456,17 @@ public sealed class SlsSalesOrderDeliveryApiTests
         command.CommandText = "SELECT DELIVERED_QTY FROM SLS_SALES_ORDER WHERE SALES_ORDER_ID = @id";
         command.Parameters.AddWithValue("@id", id);
         return Convert.ToDecimal(command.ExecuteScalar());
+    }
+
+    private string ReadSalesOrderUpdatedAt(string id)
+    {
+        using var connection = new SqliteConnection(_factory.ConnString);
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT UPDATED_AT FROM SLS_SALES_ORDER WHERE SALES_ORDER_ID = @id";
+        command.Parameters.AddWithValue("@id", id);
+        return command.ExecuteScalar()?.ToString()
+            ?? throw new InvalidOperationException("Sales order update timestamp is missing.");
     }
 
     private (string Status, string Customer, string Plant, string CreatedBy, string UpdatedBy)
