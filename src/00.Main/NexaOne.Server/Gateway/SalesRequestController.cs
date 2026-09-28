@@ -11,7 +11,9 @@ namespace NexaOne.Server.Gateway;
 [Authorize]
 [Route("api/v1/sls/sales-requests")]
 [ProducesErrorResponseType(typeof(Error))]
-public sealed class SalesRequestController(ISalesRequestBridge bridge) : ControllerBase
+[ProducesResponseType<ProblemDetails>(StatusCodes.Status503ServiceUnavailable)]
+public sealed class SalesRequestController(
+    ISalesRequestBridge bridge, ILogger<SalesRequestController> logger) : ControllerBase
 {
     [HttpPost]
     [RequirePermission(Permissions.SlsManage)]
@@ -19,10 +21,9 @@ public sealed class SalesRequestController(ISalesRequestBridge bridge) : Control
     {
         var actor = User.CurrentUserId();
         if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
-        var result = await bridge.CreateDraftAsync(new SalesRequestDraftCommand(
+        return await SlsWriteRecovery.Execute(this, logger, () => bridge.CreateDraftAsync(new SalesRequestDraftCommand(
             request.SalesRequestId, request.SalesRequestName, request.CustomerId,
-            request.ProductId, request.RequestDate, request.RequestQty, actor), ct);
-        return result.ToActionResult();
+            request.ProductId, request.RequestDate, request.RequestQty, actor), ct));
     }
 
     [HttpPost("{salesRequestId}/receipt")]
@@ -32,10 +33,9 @@ public sealed class SalesRequestController(ISalesRequestBridge bridge) : Control
     {
         var actor = User.CurrentUserId();
         if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
-        var result = await bridge.ReceiveAsync(new SalesRequestReceiptCommand(
+        return await SlsWriteRecovery.Execute(this, logger, () => bridge.ReceiveAsync(new SalesRequestReceiptCommand(
             salesRequestId, request.SalesOrderId, request.PlantId, request.SalesOrderName,
-            request.PlanStartDate, request.PlanEndDate, actor), ct);
-        return result.ToActionResult();
+            request.PlanStartDate, request.PlanEndDate, actor), ct));
     }
 
     [HttpPost("{salesRequestId}/withdraw")]
@@ -44,8 +44,8 @@ public sealed class SalesRequestController(ISalesRequestBridge bridge) : Control
     {
         var actor = User.CurrentUserId();
         if (string.IsNullOrWhiteSpace(actor)) return Unauthorized();
-        var result = await bridge.WithdrawAsync(new SalesRequestWithdrawCommand(salesRequestId, actor), ct);
-        return result.ToActionResult();
+        return await SlsWriteRecovery.Execute(this, logger, () =>
+            bridge.WithdrawAsync(new SalesRequestWithdrawCommand(salesRequestId, actor), ct));
     }
 
     public sealed record CreateRequest(

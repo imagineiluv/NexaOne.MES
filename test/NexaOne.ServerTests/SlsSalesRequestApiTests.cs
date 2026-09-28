@@ -10,7 +10,9 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
+using Moq;
 using NexaDB.Data.Abstractions.Interfaces;
 using NexaOne.Common.Security;
 using NexaOne.Infrastructure.Persistence;
@@ -30,6 +32,35 @@ public sealed class SlsSalesRequestApiTests : IClassFixture<SlsSalesRequestApiTe
     private readonly SlsFactory _factory;
 
     public SlsSalesRequestApiTests(SlsFactory factory) => _factory = factory;
+
+    [Fact]
+    public async Task Storage_failure_returns_sanitized_http_503_without_replaying_the_write()
+    {
+        var bridge = new Mock<ISalesRequestBridge>(MockBehavior.Strict);
+        bridge.Setup(value => value.CreateDraftAsync(It.IsAny<SalesRequestDraftCommand>(),
+            It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new IOException("private-sls-commit-response"));
+        using var faultingFactory = _factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<ISalesRequestBridge>();
+            services.AddSingleton(bridge.Object);
+        }));
+        using var client = faultingFactory.CreateClient();
+        using var authorized = Client("seller", Permissions.SlsManage);
+        client.DefaultRequestHeaders.Authorization = authorized.DefaultRequestHeaders.Authorization;
+
+        var response = await client.PostAsJsonAsync("/api/v1/sls/sales-requests",
+            Draft("SR_FAILURE", "C-1", "P-1"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("write outcome may be unknown")
+            .And.Contain("Do not retry automatically")
+            .And.NotContain("private-sls-commit-response");
+        bridge.Verify(value => value.CreateDraftAsync(It.IsAny<SalesRequestDraftCommand>(),
+            It.IsAny<CancellationToken>()), Times.Once);
+        bridge.VerifyNoOtherCalls();
+    }
 
     public sealed class SlsFactory : WebApplicationFactory<Program>
     {
