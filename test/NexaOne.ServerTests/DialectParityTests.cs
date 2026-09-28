@@ -18,7 +18,8 @@ namespace NexaOne.ServerTests;
 /// 로드 경로: 운영 파서(<see cref="FileQueryRegistry"/>)를 각 방언 폴더로 직접 가리켜 사용한다 —
 /// 테스트가 검증하는 것이 곧 운영이 파싱하는 것이다. 레지스트리는 ID(Ids), SQL(QueryDefinition.Sql),
 /// requiredPermission(RequiredPermission), kind(IsWrite)를 모두 노출하므로 별도 XDocument 파싱 불필요.
-/// SQL 텍스트 자체는 절대 단언하지 않는다(NOLOCK/MERGE 차이는 합법) — ID·@param·메타데이터만 비교한다.
+/// 일반 패리티에서는 SQL 텍스트를 단언하지 않는다(NOLOCK/MERGE 차이는 합법) — ID·@param·메타데이터만 비교한다.
+/// 아래 SLS ID 복구 조회는 dirty read 금지라는 별도 계약으로 잠금 힌트를 검사한다.
 /// </summary>
 public sealed class DialectParityTests
 {
@@ -107,6 +108,24 @@ public sealed class DialectParityTests
             {
                 registry.TryGet(id, out _).Should().BeFalse(
                     $"{dialect}의 {id} 쓰기는 SLS 모듈을 우회하면 안 된다");
+            }
+        }
+    }
+
+    [Fact]
+    public void Sls_by_id_lookups_require_read_permission_and_committed_mssql_reads()
+    {
+        var root = RepositorySource.GetDirectory($"{DbRoot}/queries");
+        foreach (var dialect in new[] { "mssql", "sqlite" })
+        {
+            var registry = FileQueryRegistry.Load(dialect, root);
+            foreach (var id in new[] { "SLS.SalesRequestById", "SLS.SalesOrderById" })
+            {
+                registry.TryGet(id, out var query).Should().BeTrue();
+                query!.RequiredPermission.Should().Be("sls:read");
+                query.IsWrite.Should().BeFalse();
+                query.Sql.Should().NotContain("NOLOCK");
+                if (dialect == "mssql") query.Sql.Should().Contain("WITH (READCOMMITTEDLOCK)");
             }
         }
     }

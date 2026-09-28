@@ -96,6 +96,12 @@ public sealed class SlsSalesOrderDeliveryApiTests
             .StatusCode.Should().Be(HttpStatusCode.Conflict);
         Count("SHP_DELIVERY_ORDER", "ORDER_ID", deliveryOrderId).Should().Be(1);
         Count("SHP_DELIVERY_ITEM", "ITEM_ID", deliveryItemId).Should().Be(1);
+
+        var lookup = await Client(actor, Permissions.SlsRead).PostAsJsonAsync(
+            "/api/v1/query/SLS.SalesOrderById", new { salesOrderId });
+        lookup.StatusCode.Should().Be(HttpStatusCode.OK);
+        var current = await lookup.Content.ReadFromJsonAsync<List<Dictionary<string, JsonElement>>>();
+        current.Should().ContainSingle().Which["DELIVERY_ORDER_ID"].GetString().Should().Be(deliveryOrderId);
     }
 
     [Fact]
