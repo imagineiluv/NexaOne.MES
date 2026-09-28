@@ -354,6 +354,57 @@ public sealed class BillingPersistenceTests : IClassFixture<BusinessMembershipDa
         Count("ERP_BILLING_AUDIT").Should().Be(auditBefore + 1);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Deferred_commit_failure_leaves_no_billing_write_and_allows_same_operation_retry(bool existingCounter)
+    {
+        var contact = await Contact();
+        var input = Input(contact.Id, new BillingLine("Commit probe", 7m, 2m));
+        if (existingCounter) await Create(contact.Id, input: input);
+        var documentsBefore = existingCounter ? 1L : 0L;
+        var numberBefore = existingCounter ? 1L : 0L;
+        var auditBefore = Count("ERP_BILLING_AUDIT");
+        var operation = Guid.NewGuid();
+
+        Execute($"""
+            CREATE TABLE billing_commit_parent (id INTEGER PRIMARY KEY);
+            CREATE TABLE billing_commit_probe (id INTEGER PRIMARY KEY,
+                parent_id INTEGER NOT NULL REFERENCES billing_commit_parent(id) DEFERRABLE INITIALLY DEFERRED);
+            CREATE TRIGGER billing_commit_failure AFTER INSERT ON ERP_BILLING_AUDIT
+            WHEN NEW.TENANT_ID='{_tenant:D}' AND NEW.ORGANIZATION_ID='{_organization:D}'
+            BEGIN INSERT INTO billing_commit_probe (id, parent_id) VALUES (1, 999); END;
+            """);
+        try
+        {
+            // The audit insert and callback succeed; SQLite rejects the deferred FK only at COMMIT.
+            var failure = await Assert.ThrowsAsync<SqliteException>(() =>
+                _bridge.CreateDocumentAsync("bill-user", _tenant, _organization, operation, BillingKind.Invoice, input));
+            failure.SqliteErrorCode.Should().Be(19);
+            Count("billing_commit_probe").Should().Be(0);
+            Count("ERP_BILLING_NUMBER").Should().Be(existingCounter ? 1 : 0);
+            Scalar<long>("SELECT COALESCE(MAX(NEXT_NUMBER), 0) FROM ERP_BILLING_NUMBER WHERE KIND=1")
+                .Should().Be(numberBefore);
+            Count("ERP_BILLING_DOCUMENT").Should().Be(documentsBefore);
+            Count("ERP_BILLING_LINE").Should().Be(documentsBefore);
+            Count("ERP_BILLING_AUDIT").Should().Be(auditBefore);
+            Scalar<long>("SELECT COUNT(*) FROM ERP_BILLING_DOCUMENT WHERE OPERATION_ID=@operation",
+                new { operation = operation.ToString("D") }).Should().Be(0);
+        }
+        finally { Execute("DROP TRIGGER billing_commit_failure"); }
+
+        var created = await NewBridge().CreateDocumentAsync("bill-user", _tenant, _organization,
+            operation, BillingKind.Invoice, input);
+        created.Number.Should().Be(numberBefore + 1);
+        SameDocument(created, await NewBridge().CreateDocumentAsync("bill-user", _tenant, _organization,
+            operation, BillingKind.Invoice, input));
+        Count("ERP_BILLING_NUMBER").Should().Be(1);
+        Scalar<long>("SELECT NEXT_NUMBER FROM ERP_BILLING_NUMBER WHERE KIND=1").Should().Be(numberBefore + 1);
+        Count("ERP_BILLING_DOCUMENT").Should().Be(documentsBefore + 1);
+        Count("ERP_BILLING_LINE").Should().Be(documentsBefore + 1);
+        Count("ERP_BILLING_AUDIT").Should().Be(auditBefore + 1);
+    }
+
     [Fact]
     public async Task Response_loss_after_commit_replays_the_document_without_issuing_another_number_or_audit()
     {
