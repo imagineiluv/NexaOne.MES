@@ -7,6 +7,7 @@ using NexaFramework.Service;
 using NexaFramework.Service.Collaboration;
 using NexaFramework.Service.Erp;
 using NexaOne.ServiceContracts.Erp;
+using BillingShareLink = NexaOne.ServiceContracts.Erp.BillingShareLink;
 
 namespace NexaOne.ERP.Infrastructure;
 

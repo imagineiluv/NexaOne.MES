@@ -6,6 +6,7 @@ using NexaFramework.Service;
 using NexaFramework.Service.Erp;
 using NexaOne.Common.Security;
 using NexaOne.ServiceContracts.Erp;
+using BillingShareLink = NexaOne.ServiceContracts.Erp.BillingShareLink;
 
 namespace NexaOne.Server.Gateway;
 
