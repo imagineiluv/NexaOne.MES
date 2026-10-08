@@ -101,7 +101,7 @@
   </object>
   <object id="plcDriverFactory" type="NexaLogic.Plc.Hosting.PlcDriverFactory, NexaLogic.Plc.Hosting">
     <constructor-arg>
-      <list element-type="NexaLogic.Plc.Abstractions.Interfaces.IPlcDriver, NexaLogic.Plc.Abstractions">
+      <list element-type="NexaLogic.Plc.Abstractions.Interfaces.IPlcDriver, NexaLogic.Abstractions">
         <ref object="opcUaDriver" />
         <ref object="modbusTcpDriver" />
         <ref object="siemensS7Driver" />

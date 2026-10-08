@@ -20,6 +20,7 @@ using NexaOne.ServiceContracts.Sys;
 using NexaOne.SYS.Infrastructure;
 using Xunit;
 using Xunit.Abstractions;
+using BillingShareLink = NexaOne.ServiceContracts.Erp.BillingShareLink;
 
 namespace NexaOne.ServerTests;
 

@@ -18,7 +18,7 @@
     <!-- 설비 통신: FDC는 프로토콜 구현이 아니라 NexaLogic 계약/DriverFactory만 참조한다.
          실제 드라이버 조합은 Server(Spring 루트)가 소유한다. -->
     <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework\NexaFramework.csproj" />
-    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.Abstractions\NexaLogic.Plc.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Abstractions\NexaLogic.Abstractions.csproj" />
     <ProjectReference Include="..\..\..\submodules\NexaLogic\src\NexaLogic.Plc.Hosting\NexaLogic.Plc.Hosting.csproj" />
   </ItemGroup>
 
