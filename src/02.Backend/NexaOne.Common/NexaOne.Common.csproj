@@ -15,7 +15,7 @@
     <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework\NexaFramework.csproj" />
     <ProjectReference Include="..\..\..\submodules\NexaFramework\src\NexaFramework.Service\NexaFramework.Service.csproj" AdditionalProperties="NexaFrameworkIncludeBusinessServices=true;TargetFrameworks=net8.0" />
     <ProjectReference Include="..\..\..\submodules\NexaDB\src\NexaDB\NexaDB.csproj" />
-    <ProjectReference Include="..\..\..\submodules\NexaDB\src\NexaDB.Data.Abstractions\NexaDB.Data.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\submodules\NexaDB\src\NexaDB.Abstractions\NexaDB.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup>
